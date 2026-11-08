@@ -1444,7 +1444,7 @@ onMounted(async () => {
     const restored = fromQuery || pending?.username || '';
     if (restored) username.value = restored;
     if (pending?.remember) rememberLogin.value = true;
-    if (pending && restored) {
+    if ((pending || String(route.query?.mobile || '')==='1') && restored) {
       await verifyUsername({ reason: 'pending_route' });
       return;
     }

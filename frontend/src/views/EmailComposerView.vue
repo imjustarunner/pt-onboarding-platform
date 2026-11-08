@@ -79,7 +79,7 @@ async function fetchDelivery(receipt){const {data}=await request('get',`/convers
 function onDeliveryStatus({label}){confirmedDelivery.value=label;status.value=label;notify('delivery');}
 let saved='',timer=null,saveTask=null;
 const config=()=>{const session=context.session || sessionStorage.getItem('plottwist.quickViewSession');return messagingRequestOptions({withCredentials:true,headers:qv && session && session!=='cookie' ? {'X-Quick-View-Session':session} : {}});};
-const request=(method,path,data)=>qv ? axios({method,url:`/api/quick-view${path}`,data,...config()}) : api({method,url:`/communications${path}`,data,...config()});
+const request=(method,path,data)=>qv ? axios({method,url:`${context.apiBase || '/api/quick-view'}${path}`,data,...config()}) : api({method,url:`/communications${path}`,data,...config()});
 const notify=(change='draft')=>{window.dispatchEvent(new CustomEvent('email-workspace-changed',{detail:{change,draft:record.value ? {id:record.value.id,agencyId:record.value.agency_id,mode:record.value.mode,state:record.value.state,to:draft.value.to,subject:draft.value.subject} : null}}));try{window.opener?.postMessage({type:'email-drafts-changed',change},window.location.origin);}catch{/* opener may be closed */}};
 async function save() {
   clearTimeout(timer);

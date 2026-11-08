@@ -16,6 +16,7 @@ export async function requireConversationAccess(user, conversationId) {
   const uid = Number(user?.id);
   const role = String(user?.role || '').toLowerCase();
   if (!c || !uid) throw Object.assign(new Error('Conversation not found'), { status: 404 });
+  if(user?.mobileDevice){const {readAgencyAccess}=await import('./agencyAccessProfiles.service.js');if(!await readAgencyAccess(uid,c.agency_id))throw Object.assign(new Error('Conversation not found'),{status:404});}
   const groupKey = groupKeyForIdentity({ kind: c.inbox_kind, identity_key: c.inbox_identity_key,
     from_email: c.inbox_from_email, owner_user_id: c.inbox_owner_user_id });
   if (groupKey) {
@@ -26,6 +27,11 @@ export async function requireConversationAccess(user, conversationId) {
   const agencies = await User.getAgencies(uid);
   if (!(agencies || []).some((a) => Number(a.id) === Number(c.agency_id))) {
     throw Object.assign(new Error('Conversation not found'), { status: 404 });
+  }
+  if(['shared','support'].includes(c.inbox_kind) && !c.inbox_owner_user_id){
+    const [[group]]=await pool.execute(`SELECT 1 FROM managed_workspace_groups g JOIN chat_thread_participants p ON p.thread_id=g.chat_thread_id AND p.user_id=?
+      WHERE g.agency_id=? AND CONVERT(LOWER(TRIM(g.email)) USING utf8mb4) COLLATE utf8mb4_unicode_ci=CONVERT(LOWER(TRIM(?)) USING utf8mb4) COLLATE utf8mb4_unicode_ci LIMIT 1`,[uid,c.agency_id,c.inbox_from_email || '']);
+    if(group)return c;
   }
   const ownsInbox = c.inbox_kind === 'personal' && Number(c.inbox_owner_user_id) === uid;
   if (c.inbox_kind === 'personal' && !ownsInbox) throw Object.assign(new Error('Conversation not found'), { status: 404 });

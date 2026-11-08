@@ -42,9 +42,6 @@ export async function requireMobileClinicalSession(req,res,next) {
   for(const value of [req.query?.agencyId,req.body?.agencyId,req.params?.agencyId])if(present(value)&&Number(value)!==agencyId)throw narrivaError(403,'This mobile session is scoped to a different workspace.');
   const user=await User.findById(qv.userId,{raw:true});
   if(!active(user))throw narrivaError(403,'Your account is no longer active.');
-  // Enforce the token workspace even for a globally privileged account.
-  const [[membership]]=await pool.execute(`SELECT 1 FROM user_agencies ua JOIN agencies a ON a.id=ua.agency_id WHERE ua.user_id=? AND ua.agency_id=? AND COALESCE(ua.is_active,1)=1 AND a.is_active=1 AND COALESCE(a.is_archived,0)=0 LIMIT 1`,[qv.userId,agencyId]);
-  if(!membership)throw narrivaError(403,'Your workspace membership is no longer active.');
   await requireNarrivaAgency(user,agencyId);
   req.user={...user,id:Number(user.id)};
   req.mobileClinical={verified:true,userId:Number(user.id),agencyId};

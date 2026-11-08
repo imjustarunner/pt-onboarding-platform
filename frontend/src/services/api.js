@@ -1,3 +1,4 @@
+import {familyDeviceContext} from '../mobile/familyContext.js';
 import { isFamilyWebsiteHost, isMichaelHost } from '../utils/productDomains';
 import { isFundthredHost } from '../utils/fundthred';
 import { isPlotlineHost } from '../utils/plotline';
@@ -162,6 +163,15 @@ function checkRequestStorm(config) {
 // Request interceptor
 api.interceptors.request.use(
   (config) => {
+    const family=familyDeviceContext();
+    if(family){
+      // Ignore any unrelated full-workspace cookie/token. The server accepts this
+      // credential only at family endpoints and rechecks the relationship there.
+      config.baseURL=family.apiOrigin+'/api';config.withCredentials=false;
+      config.headers['X-Auricwell-Family']='1';config.headers['X-Quick-View-Session']=family.sessionToken;
+      delete config.headers.Authorization;delete config.headers.authorization;
+      config.skipAuthRedirect=true;config.skipGlobalLoading=true;return config;
+    }
     const officeSurface = isOfficePath(window.location.pathname) || officeSiteForHost(window.location.hostname);
     if (String(config.url || '').startsWith('/public/office-kiosk/') || (officeSurface && /^\/(kiosk\/|public\/office-lobby\/)/.test(config.url || ''))) {
       config.baseURL = '/api';
@@ -291,6 +301,7 @@ api.interceptors.response.use(
     return response;
   },
   async (error) => {
+    if(error.config?.headers?.['X-Auricwell-Family']==='1'){const family=familyDeviceContext();if(family && error.config.headers['X-Quick-View-Session']===family.sessionToken && [401,423].includes(error.response?.status))family.onLocked?.();return Promise.reject(error);}
     if (error.response?.data?.error?.code === 'INSURANCE_VERIFICATION_REQUIRED' && Number(error.response.data.error.clientId)>0) {
       window.dispatchEvent(new CustomEvent('pt:insurance-verification-required', { detail: error.response.data.error }));
     }

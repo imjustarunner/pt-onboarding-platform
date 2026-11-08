@@ -15,7 +15,11 @@ const agencyFilter=computed(()=>String(route.query.workAgency || 'all'));
 const agencyItems=computed(()=>items.value.filter(item=>agencyFilter.value==='all'||String(item.agencyId)===agencyFilter.value));
 const bucket=item=>item.queueKind==='cosign'||item.status==='awaiting_cosign'?'cosign':item.status==='signed'?'signed':['started','completed','in_progress'].includes(item.status)?'started':'todo';
 const counts=computed(()=>Object.fromEntries(tabs.map(tab=>[tab.id,agencyItems.value.filter(item=>tab.id==='all'||bucket(item)===tab.id).length])));
-const visibleItems=computed(()=>agencyItems.value.filter(item=>currentTab.value==='all'||bucket(item)===currentTab.value).sort((a,b)=>String(a.date || '').localeCompare(String(b.date || '')) || String(a.scheduledStart || a.timeLabel || '').localeCompare(String(b.scheduledStart || b.timeLabel || ''))));
+const sortOrder=computed(()=>route.query.workSort==='oldest'?'oldest':'recent');
+const visibleItems=computed(()=>agencyItems.value.filter(item=>currentTab.value==='all'||bucket(item)===currentTab.value).sort((a,b)=>{
+ const byDate=String(a.date || '').localeCompare(String(b.date || '')) || String(a.scheduledStart || a.timeLabel || '').localeCompare(String(b.scheduledStart || b.timeLabel || ''));
+ return (sortOrder.value==='oldest'?byDate:-byDate) || Number(a.agencyId)-Number(b.agencyId);
+}));
 const activeFailures=computed(()=>failures.value.filter(item=>(agencyFilter.value==='all'||String(item.agencyId)===agencyFilter.value)&&(currentTab.value==='all'||(currentTab.value==='cosign'?item.section==='cosign':item.section==='notes'))));
 function changeView(key,value){router.replace({path:route.path,query:{...route.query,[key]:value==='all'?undefined:value}});}
 async function load(){
@@ -42,9 +46,9 @@ onMounted(load);
 </script>
 <template>
  <section class="mobile-mywork">
-  <header><h2>Documentation queue</h2><button aria-label="Refresh My Work" :disabled="loading" @click="load"><RefreshCw :size="17"/></button></header>
-  <p>Your notes across all authorized agencies.</p>
+  <header><span>All authorized agencies</span><button aria-label="Refresh My Work" :disabled="loading" @click="load"><RefreshCw :size="17"/></button></header>
   <label class="agency-filter">Agency<select aria-label="Filter documentation by agency" :value="agencyFilter" @change="changeView('workAgency',$event.target.value)"><option value="all">All agencies</option><option v-for="agency in agencies" :key="agency.id" :value="String(agency.id)">{{ agency.name }}</option></select></label>
+  <label class="agency-filter">Sort<select aria-label="Sort My Work" :value="sortOrder" @change="changeView('workSort',$event.target.value)"><option value="recent">Most recent</option><option value="oldest">Oldest first</option></select></label>
   <nav class="work-tabs" aria-label="Documentation status"><button v-for="tab in tabs" :key="tab.id" :aria-pressed="currentTab===tab.id" @click="changeView('workTab',tab.id)">{{ tab.label }} <span>{{ ready && !failures.some(f=>(agencyFilter==='all'||String(f.agencyId)===agencyFilter)&&(tab.id==='all'||(tab.id==='cosign'?f.section==='cosign':f.section==='notes')))?counts[tab.id]:'—' }}</span></button></nav>
   <p v-if="loading" role="status">Loading your work…</p>
   <p v-if="error" role="alert">{{ error }} <button @click="load">Try again</button></p>

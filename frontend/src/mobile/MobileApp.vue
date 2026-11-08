@@ -1,16 +1,19 @@
 <script setup>
-import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, defineAsyncComponent } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import axios from 'axios';
 import { LockKeyhole, UserRound, Fingerprint, Bell, ArrowRight, LogOut } from '@lucide/vue';
 import AuricWellBrand from '../components/auricwell/AuricWellBrand.vue';
 import {activateClinicalRecovery,clearClinicalRecovery} from './clinicalRecovery.js';
+import {activateFamilyDevice,clearFamilyDevice} from './familyContext.js';
+const AccountSecurityPanel=defineAsyncComponent(()=>import('../components/AccountSecurityPanel.vue'));
+const MobileFamilyPortal=defineAsyncComponent(()=>import('./MobileFamilyPortal.vue'));
 import QuickView from '../views/QuickViewAccessView.vue';
-import { MobileDevice, native, mobileApi, quickApiBase, randomSecret, pkceChallenge, accountUrl, mobileRequestError } from './transport.js';
+import { MobileDevice, native, apiOrigin, mobileApi, quickApiBase, randomSecret, pkceChallenge, accountUrl, mobileRequestError } from './transport.js';
 
 const route=useRoute(),router=useRouter();
-const screen=ref('loading'),busy=ref(false),error=ref(''),portal=ref(''),passcode=ref(''),confirmCode=ref('');
-const access=ref(null),profile=ref(null),workspace=ref(null),accountOpen=ref(false),connectAccount=ref(null),selectedAgency=ref('');
+const screen=ref('loading'),busy=ref(false),error=ref(''),username=ref(''),organizationChoices=ref([]),passcode=ref(''),confirmCode=ref('');
+const access=ref(null),profile=ref(null),workspace=ref(null),accountOpen=ref(false),connectAccount=ref(null),connectVerification=ref(null),selectedAgency=ref('');
 const qv=ref(null),notificationStatus=ref(''),biometry=ref(false),accountLoading=ref(false);
 const appLock=ref({method:'none',hasCode:false}),lockChoice=ref('none'),newCode=ref(''),newCodeConfirm=ref(''),lockNotice=ref(''),privacyIntro=ref(false);
 let wasBackground=false;
@@ -24,6 +27,7 @@ async function deviceRequest(method,path,data={}) {
   return (await mobileApi.request({method,url:path,data,headers:access.value?{'X-Quick-View-Session':access.value.sessionToken}:{}})).data;
 }
 function applySession(result) {
+  clearFamilyDevice();if(result.profile?.surface==='family')activateFamilyDevice({sessionToken:result.sessionToken,apiOrigin,onLocked:lock});
   activateClinicalRecovery(result.userId || result.profile?.user?.id,result.agencyId || result.profile?.workspace?.id);
   const notifications=profile.value?.user?.id===result.profile.user?.id?profile.value.notifications:null;
   access.value=result;profile.value={...result.profile,...(notifications?{notifications}:{})};workspace.value=result.profile.workspace;
@@ -31,6 +35,7 @@ function applySession(result) {
   passcode.value='';confirmCode.value='';screen.value='workspace';
 }
 async function normalizeWorkspaceRoute() {
+  if(profile.value?.surface==='family'){const slug=profile.value.workspace?.portal_url || 'family';if(!route.path.startsWith('/mobile/family/'))await router.replace({path:`/mobile/family/${encodeURIComponent(slug)}/guardian`,query:{panel:'family'}});return;}
   if(route.path==='/mobile/workspace')return;
   const query={...route.query};
   await router.replace({path:'/mobile/workspace',query:{view:'home'}});
@@ -50,13 +55,15 @@ async function detectSession() {
 async function startSignIn() {
   busy.value=true;error.value='';
   try {
-    const slug=portal.value.trim().toLowerCase();
-    if(!/^[a-z0-9][a-z0-9-]{0,79}$/.test(slug))throw new Error('Enter your organization’s workspace name, such as itsco.');
-    const {data:tenant}=await axios.get(`${quickApiBase}/tenant`,{params:{portal:slug}});
+    const name=username.value.trim();if(!name)throw new Error('Enter your username or email.');
+    const {data:identity}=await axios.post(`${apiOrigin}/api/auth/identify`,{username:name,surface:'schoolcarebridge',...(selectedAgency.value?{organizationSlug:selectedAgency.value}:{})});
+    if(identity.needsOrgChoice){organizationChoices.value=identity.orgOptions || [];return;}
+    const org=identity.resolvedOrg,slug=org?.portal_url || org?.slug;
+    const {data:tenant}=slug?await axios.get(`${quickApiBase}/tenant`,{params:{portal:slug}}):{data:{loginUrl:'https://auricwell.com/login'}};
     const verifier=randomSecret(),state=randomSecret(),challenge=await pkceChallenge(verifier);
     const callback=native?'com.auricwell.mobile://auth':'https://auricwell.com/mobile/callback';
     const url=new URL('/mobile/connect',tenant.loginUrl);
-    url.search=new URLSearchParams({clientId:native?'ios':'web',redirectUri:callback,challenge,state,loginPath:new URL(tenant.loginUrl).pathname}).toString();
+    url.search=new URLSearchParams({clientId:native?'ios':'web',redirectUri:callback,challenge,state,username:name,loginPath:new URL(tenant.loginUrl).pathname}).toString();
     if(native){
       const {url:callbackUrl}=await MobileDevice.signIn({url:url.href});
       await completeSignIn(callbackUrl,{state,verifier,callback,clientId:'ios'});
@@ -67,17 +74,24 @@ async function startSignIn() {
   } catch(e){error.value=mobileRequestError(e);} finally {busy.value=false;}
 }
 async function loadConnect() {
-  screen.value='connect';busy.value=true;error.value='';connectAccount.value=null;selectedAgency.value='';
+  screen.value='connect';busy.value=true;error.value='';connectAccount.value=null;connectVerification.value=null;selectedAgency.value='';
   const query=connectQuery();
   if(query.clientId==='web' && performance.getEntriesByType?.('navigation')?.[0]?.type==='back_forward'){location.replace('https://auricwell.com/mobile');return;}
   try {
     if(!['web','ios'].includes(query.clientId) || !/^[\w-]{43}$/.test(query.challenge || '') || !/^[\w-]{43}$/.test(query.state || ''))throw new Error('Restart sign-in from Auricwell mobile.');
-    const {data}=await mobileApi.get('/account');connectAccount.value=data;selectedAgency.value=String(data.agencies[0]?.id || '');
+    const {data}=await mobileApi.get('/account',{params:{username:query.username || undefined}});connectAccount.value=data;selectedAgency.value=String(data.agencies[0]?.id || '');
   } catch(e) {
     if([401,423].includes(e.response?.status)){
       const path=query.loginPath;
       if(!/^\/(?:[a-z0-9-]+\/)*login\/?$/i.test(path || '')){error.value='Restart sign-in from Auricwell mobile.';return;}
-      const login=new URL(path,location.origin);login.searchParams.set('redirect',location.pathname+location.search);location.replace(login.href);
+      const login=new URL(path,location.origin);login.searchParams.set('redirect',location.pathname+location.search);if(query.username)login.searchParams.set('u',query.username);login.searchParams.set('mobile','1');location.replace(login.href);
+    }else if(e.response?.data?.error?.code==='MFA_REQUIRED'){
+      try{
+        const {data:user}=await axios.get('/api/users/me',{withCredentials:true});
+        if(!user?.id)throw new Error('Sign in again to verify your account.');
+        const {useAuthStore}=await import('../store/auth.js');useAuthStore().user=user;
+        connectVerification.value={name:[user.first_name,user.last_name].filter(Boolean).join(' '),email:user.email};
+      }catch(verificationError){error.value=mobileRequestError(verificationError);}
     } else error.value=mobileRequestError(e);
   } finally {busy.value=false;}
 }
@@ -130,6 +144,7 @@ async function afterOpen() {
   }else if(route.query.kind)await openNotification(location.pathname+location.search);
 }
 function lock() {
+  clearFamilyDevice();
   ++generation;
   const old=access.value;access.value=null;profile.value=null;accountOpen.value=false;passcode.value='';confirmCode.value='';newCode.value='';newCodeConfirm.value='';
   if(screen.value==='workspace')screen.value='locked';
@@ -137,7 +152,7 @@ function lock() {
 }
 function background() {if(native)return;if(document.hidden){wasBackground=true;if(['workspace','locked','loading'].includes(screen.value))lock();}else if(wasBackground){wasBackground=false;if(appLock.value.method==='none' && screen.value==='locked')detectSession();}}
 function restorePage(event){if(!event.persisted)return;if(location.pathname==='/mobile/connect' && connectQuery().clientId==='web'){location.replace('https://auricwell.com/mobile');return;}lock();detectSession();}
-function recoverSignIn(){lock();portal.value=workspace.value?.portal_url || '';screen.value='signin';error.value='';}
+function recoverSignIn(){lock();screen.value='signin';error.value='';}
 async function saveAppLock(){
   busy.value=true;lockNotice.value='';
   try{
@@ -167,6 +182,7 @@ async function switchWorkspace(agencyId,query=null) {
   try {
     const result=await deviceRequest('POST','/workspace',{agencyId:Number(agencyId)});
     if(current!==generation || access.value?.sessionToken!==token)return;
+    if(result.profile?.surface==='family'){applySession(result);accountOpen.value=false;await router.replace({path:`/mobile/family/${encodeURIComponent(result.profile.workspace.portal_url || 'family')}/guardian`,query:{panel:'family'}});return;}
     // Move away from the previous tenant's resource before mounting its replacement.
     await router.replace({path:'/mobile/workspace',query:route.query.view==='mywork'?{...route.query}:{view:'mywork'}});
     applySession(result);accountOpen.value=false;
@@ -178,7 +194,7 @@ async function openWorkspaceItem({agencyId,query}){await switchWorkspace(agencyI
 function connectLoginUrl(){
  const query=connectQuery(),path=query.loginPath;
  if(!/^\/(?:[a-z0-9-]+\/)*login\/?$/i.test(path || ''))return null;
- const login=new URL(path,location.origin);login.searchParams.set('redirect',location.pathname+location.search);return login.href;
+ const login=new URL(path,location.origin);login.searchParams.set('redirect',location.pathname+location.search);if(query.username)login.searchParams.set('u',query.username);login.searchParams.set('mobile','1');return login.href;
 }
 async function changeConnectAccount(){
  const destination=connectLoginUrl();if(!destination || busy.value)return;
@@ -221,6 +237,7 @@ async function openNotification(url) {
   if(!['email','sms','chat'].includes(kind) || !/^[1-9]\d*$/.test(id || ''))return;
   try {
     const {data}=await mobileApi.get(`/notification-target/${kind}/${id}`,{headers:{'X-Quick-View-Session':access.value.sessionToken}});
+    if(profile.value?.surface==='family'){await router.push({path:`/mobile/family/${encodeURIComponent(profile.value.workspace.portal_url || 'family')}/guardian`,query:{panel:'family_messages',familyThreadId:data.threadId}});return;}
     if(route.query.kind)await router.replace({path:'/mobile/workspace',query:{view:'home'}});
     if(route.path!=='/mobile/workspace' || JSON.stringify(route.query)!==JSON.stringify(data))await router.push({path:'/mobile/workspace',query:{view:'home',...data}});
     await nextTick();qv.value?.openDeepLink();
@@ -244,7 +261,8 @@ onUnmounted(()=>{lock();document.removeEventListener('visibilitychange',backgrou
   <div class="mobile-app">
     <template v-if="screen==='workspace' && access">
 
-      <QuickView :key="access.sessionToken" ref="qv" :mobile-session="access" @locked="lock" @account="showAccount" @open-workspace-item="openWorkspaceItem" />
+      <MobileFamilyPortal v-if="profile?.surface==='family'" :key="access.sessionToken" :profile="profile" @logout="signOut" @account="showAccount"/>
+      <QuickView v-else :key="access.sessionToken" ref="qv" :mobile-session="access" @locked="lock" @account="showAccount" @open-workspace-item="openWorkspaceItem" />
       <p v-if="error && !accountOpen" class="workspace-error" role="alert">{{ error }} <button @click="error=''" aria-label="Dismiss workspace error">×</button></p>
       <div v-if="accountOpen" class="mobile-overlay" @keydown.esc="accountOpen=false">
         <section class="mobile-card account" role="dialog" aria-modal="true" aria-labelledby="account-title">
@@ -254,7 +272,7 @@ onUnmounted(()=>{lock();document.removeEventListener('visibilitychange',backgrou
           <a v-if="accountLink" :href="accountLink" target="_blank" rel="noopener">Manage profile <ArrowRight :size="17" /></a>
           <a v-if="securityLink" :href="securityLink" target="_blank" rel="noopener">Security & passkeys <ArrowRight :size="17" /></a>
           <a v-if="preferencesLink" :href="preferencesLink" target="_blank" rel="noopener">Account preferences <ArrowRight :size="17" /></a>
-          <button class="secondary" @click="accountOpen=false;qv?.openPreferences()">Mobile layout &amp; swipe settings</button>
+          <button v-if="profile?.surface!=='family'" class="secondary" @click="accountOpen=false;qv?.openPreferences()">Mobile layout &amp; swipe settings</button>
           <section class="mobile-lock-options" aria-labelledby="app-lock-title">
             <h2 id="app-lock-title">App lock · optional</h2>
             <p>Your sign-in stays on this device. Choose an extra app lock if you want one; otherwise use your phone’s normal screen lock.</p>
@@ -266,7 +284,7 @@ onUnmounted(()=>{lock();document.removeEventListener('visibilitychange',backgrou
             <button v-if="privacyIntro" class="secondary" @click="accountOpen=false;privacyIntro=false">Not now · open my workspace</button>
             <p role="status">{{ lockNotice }}</p>
           </section>
-          <h2><Bell :size="18" />Conversa notifications</h2><p>Email, text messages, direct messages, channels, replies, mentions and secure messages. Message previews stay private.</p>
+          <h2><Bell :size="18" />Conversa notifications</h2><p>{{ profile?.surface==='family'?'Secure messages from your care team.':'Email, text messages, direct messages, channels, replies, mentions and secure messages.' }} Message previews stay private.</p>
           <button :disabled="busy || accountLoading" @click="enableNotifications">Enable notifications</button><button class="secondary" :disabled="busy" @click="registerPush({enabled:false})">Turn off on this device</button><p role="status">{{ notificationStatus }}</p>
           <button class="secondary" @click="lock"><LockKeyhole :size="17" />{{ appLock.method==='none'?'Hide workspace':'Lock workspace' }}</button><button class="secondary danger" :disabled="busy" @click="signOut"><LogOut :size="17" />Sign out of this device</button>
           <p v-if="error" role="alert" class="error">{{ error }}</p>
@@ -278,15 +296,15 @@ onUnmounted(()=>{lock();document.removeEventListener('visibilitychange',backgrou
       <section class="mobile-card">
         <p v-if="screen==='loading'" role="status">Opening Auricwell…</p>
         <template v-else-if="screen==='connect'">
-          <h1>Connect this device</h1><p v-if="connectAccount">Continue as {{ connectAccount.user.firstName }} {{ connectAccount.user.lastName }} ({{ connectAccount.user.email }}).</p>
+          <template v-if="connectVerification"><h1>Verify your sign-in</h1><p>{{ connectVerification.name }} · {{ connectVerification.email }}</p><AccountSecurityPanel :show-workspace-return="false"/><button class="secondary" :disabled="busy" @click="loadConnect">I’ve verified · continue connecting</button></template><h1 v-else>Connect this device</h1><p v-if="connectAccount">Continue as {{ connectAccount.user.firstName }} {{ connectAccount.user.lastName }} ({{ connectAccount.user.email }}).</p>
           <label v-if="connectAccount">Workspace<select v-model="selectedAgency"><option v-for="agency in connectAccount.agencies" :key="agency.id" :value="String(agency.id)">{{ agency.name }}</option></select></label>
           <p>Your account’s permissions apply. This device will stay signed in until you sign out or account security requires a new sign-in.</p>
           <button :disabled="busy || !selectedAgency" @click="authorize">Connect to Auricwell <ArrowRight :size="18" /></button>
           <template v-if="error"><button class="secondary" :disabled="busy" @click="loadConnect">Try again</button><button v-if="connectLoginUrl()" class="secondary" :disabled="busy" @click="changeConnectAccount">Sign in with a different account</button><a href="https://auricwell.com/mobile">Restart Auricwell sign-in</a></template>
         </template>
         <form v-else-if="screen==='signin'" @submit.prevent="startSignIn">
-          <h1>Your workday, within reach.</h1><p>Use your existing staff account to open your scoped workspace.</p>
-          <label>Organization workspace<input v-model="portal" autocomplete="organization" placeholder="For example, itsco" required autocapitalize="none" spellcheck="false"></label>
+          <h1>Welcome to AuricWell.</h1><p>Use your existing account to open your family portal, school portal, or staff workspace.</p>
+          <label>Username or email<input v-model="username" autocomplete="username" placeholder="Your username or email" required autocapitalize="none" spellcheck="false"></label><label v-if="organizationChoices.length">School or organization<select v-model="selectedAgency" required><option value="">Choose your school</option><option v-for="org in organizationChoices" :key="org.id" :value="org.portal_url || org.slug">{{ org.name }}</option></select></label>
           <button :disabled="busy">{{ busy?'Connecting…':'Continue to sign in' }}<ArrowRight :size="18" /></button>
           <p class="small">Sign in with your password, SSO or an existing passkey. You can add a passkey in your account settings.</p>
         </form>

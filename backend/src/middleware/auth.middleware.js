@@ -116,6 +116,15 @@ export const authenticate = async (req, res, next) => {
     // Public endpoints (no auth) - never block these with session auth.
     // Note: Some environments may inadvertently wrap `/api/public/*` with `authenticate`.
     const requestPath = String(req.originalUrl || req.path || '').split('?')[0];
+    // Primary family devices reuse family controllers, never full-suite tokens.
+    // This branch precedes cookie/bearer parsing so a stale staff cookie cannot
+    // replace the family principal. All normal account/dependent guards still run.
+    if(req.get?.('X-Auricwell-Family')==='1'){
+      const {mobileFamilyPrincipal}=await import('../services/mobile/familyAuthentication.service.js');
+      Object.assign(req,await mobileFamilyPrincipal(req));
+      res.set('Cache-Control','no-store');return finishAuthentication(req,res,next);
+    }
+
     if (requestPath.startsWith('/api/public/')) {
       // Join landing save is mounted under /api/public but must authenticate.
       const isJoinLandingWrite = req.method === 'PATCH'

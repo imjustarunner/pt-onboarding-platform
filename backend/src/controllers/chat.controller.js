@@ -1,3 +1,4 @@
+import {listMobileAgencies} from '../services/mobile/agencyScope.service.js';
 import {requireMobileThreadMembership} from '../services/mobile/conversa.service.js';
 import {mobileQaAgencyId,mobileQaScopeError} from '../services/mobile/qaConversaScope.service.js';
 import { assertSecureAttachmentPath } from '../services/secureChatAttachment.service.js';
@@ -543,10 +544,12 @@ async function assertUsersInAgency(agencyId, userIds) {
   const [rows] = await pool.execute(
     `SELECT user_id
      FROM user_agencies
-     WHERE agency_id = ? AND user_id IN (${placeholders})`,
+     WHERE agency_id = ? AND user_id IN (${placeholders}) AND COALESCE(is_active,1)=1`,
     [agencyId, ...ids]
   );
   const ok = new Set((rows || []).map((r) => Number(r.user_id)));
+  const {readAgencyAccess}=await import('../services/agencyAccessProfiles.service.js');
+  for(const id of ids.filter(id=>!ok.has(id)))if(await readAgencyAccess(id,agencyId))ok.add(id);
   const missing = ids.filter((id) => !ok.has(id));
   if (missing.length) {
     const err = new Error('One or more users are not in the selected agency');
@@ -897,6 +900,7 @@ export const listMyThreads = async (req, res, next) => {
       }
     }
 
+    if(req.quickView?.mobileDeviceSessionId){const current=await User.findById(req.user.id,{raw:true});const scope=await listMobileAgencies(current);agencyIds=scope.agencies.map(a=>Number(a.id)).filter(id=>!agencyId || id===agencyId);}
     const userId = req.user.id;
     if (!agencyIds.length) return res.json([]);
     const placeholders = agencyIds.map(() => '?').join(',');
@@ -961,7 +965,7 @@ export const listMyThreads = async (req, res, next) => {
        WHERE t.agency_id IN (${placeholders})
          ${req.quickView && !req.quickView.mobileDeviceSessionId ? "AND t.message_channel = 'internal'" : ''}
          ${req.quickView?.mobileDeviceSessionId && req.user.role==='school_staff'?"AND t.message_channel='internal'":''}
-         ${req.quickView?.mobileDeviceSessionId?`AND COALESCE(a.is_active,1)=1 AND COALESCE(a.is_archived,0)=0 AND EXISTS(SELECT 1 FROM user_agencies mobile_member WHERE mobile_member.user_id=${Number(userId)} AND mobile_member.agency_id=t.agency_id AND COALESCE(mobile_member.is_active,1)=1)`:''}
+         ${req.quickView?.mobileDeviceSessionId?`AND COALESCE(a.is_active,1)=1 AND COALESCE(a.is_archived,0)=0`:''}
          AND (td.deleted_at IS NULL OR (lm.created_at IS NOT NULL AND lm.created_at > td.deleted_at))
        ORDER BY t.updated_at DESC`,
       [userId, userId, userId, userId, userId, userId, ...agencyIds]
@@ -1826,7 +1830,7 @@ export const listThreadsInbox = async (req, res, next) => {
        JOIN users lu ON lu.id = latest.sender_user_id
       WHERE t.message_channel = 'internal' AND root.parent_message_id IS NULL
         AND (
-          root.sender_user_id = ?
+          ${req.quickView?.mobileDeviceSessionId?'TRUE OR ':''}root.sender_user_id = ?
           OR EXISTS (
             SELECT 1 FROM chat_messages r
              WHERE r.parent_message_id = root.id AND r.sender_user_id = ?

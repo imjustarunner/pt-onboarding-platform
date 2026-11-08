@@ -80,7 +80,7 @@
           </form>
         </details>
         </div>
-        <button v-if="(!state.required || state.verified) && !recoveryCodes.length" @click="returnToWorkspace">Return to your workspace</button>
+        <button v-if="showWorkspaceReturn && (!state.required || state.verified) && !recoveryCodes.length" @click="returnToWorkspace">Return to your workspace</button>
       </section>
       <section class="security-card">
         <h2>Remembered devices</h2>
@@ -122,6 +122,7 @@ import { computed, onMounted, onBeforeUnmount, ref } from 'vue';
 import QRCode from 'qrcode';
 import api from '../services/api';
 import { evidenceLabel, transferDescription } from '../utils/evidenceTransfer';
+defineProps({showWorkspaceReturn:{type:Boolean,default:true}});
 const state = ref(null), loading = ref(false), busy = ref(false), error = ref(''), message = ref('');
 const emailCode = ref(''), emailSent = ref(false), emailPassword = ref(''), emailDisablePassword = ref(''), confirmDisableEmail = ref(false);
 const authenticatorEnabled = computed(() => state.value?.authenticatorEnabled ?? state.value?.enabled);

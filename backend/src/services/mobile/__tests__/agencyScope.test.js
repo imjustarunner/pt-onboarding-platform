@@ -1,0 +1,12 @@
+import {beforeEach,expect,it,vi} from 'vitest';
+const mocks=vi.hoisted(()=>({execute:vi.fn(),withPlatform:vi.fn(),read:vi.fn()}));
+vi.mock('../../../config/database.js',()=>({default:{execute:mocks.execute}}));
+vi.mock('../../../models/User.model.js',()=>({default:{_withPlatformAccess:mocks.withPlatform}}));
+vi.mock('../../agencyAccessProfiles.service.js',()=>({readAgencyAccess:mocks.read}));
+import {listMobileAgencies} from '../agencyScope.service.js';
+import {requireMobileThreadMembership} from '../conversa.service.js';
+beforeEach(()=>{vi.clearAllMocks();mocks.execute.mockResolvedValue([[{id:10,name:'Direct membership'}]]);mocks.withPlatform.mockImplementation(async(id,rows)=>[...rows,{id:20,name:'Explicit platform grant'},{id:30,name:'Revoked grant'}]);mocks.read.mockImplementation(async(id,agencyId)=>agencyId===30?null:{role:'provider'});});
+it('includes explicit platform access and memberships while freshly excluding revoked access',async()=>{expect((await listMobileAgencies({id:7})).agencies.map(a=>a.id)).toEqual([10,20]);expect(mocks.read.mock.calls.map(([,id])=>id)).toEqual([10,20,30]);expect(mocks.execute.mock.calls[0][0]).toContain('COALESCE(ua.is_active,1)=1');});
+it('still confines the approved QA identity to the synthetic workspace',async()=>{mocks.execute.mockResolvedValue([[{id:450,name:'QA',slug:'auricwell-qa-demo',feature_flags:{qaSandbox:{syntheticOnly:true}}}]]);const result=await listMobileAgencies({id:1433,role:'provider',email:'qa.provider.auricwell@example.com',is_demo:1,is_active:1,status:'ACTIVE_EMPLOYEE'});expect(result.agencies.map(a=>a.id)).toEqual([450]);});
+it('requires both conversation participation and a current explicit grant without granting membership',async()=>{const db={execute:vi.fn().mockResolvedValueOnce([[]]).mockResolvedValueOnce([[{agency_id:20}]])},verify=vi.fn(async()=>({role:'provider'}));await expect(requireMobileThreadMembership(7,9,db,verify)).resolves.toBe(true);expect(verify).toHaveBeenCalledWith(7,20,db);db.execute.mockResolvedValue([[]]);await expect(requireMobileThreadMembership(7,9,db,verify)).rejects.toMatchObject({status:403});expect(verify).toHaveBeenCalledTimes(1);});
+it('rejects a removed explicit grant even while an old thread participant row remains',async()=>{const db={execute:vi.fn().mockResolvedValueOnce([[]]).mockResolvedValueOnce([[{agency_id:20}]])};await expect(requireMobileThreadMembership(7,9,db,async()=>null)).rejects.toMatchObject({status:403});});

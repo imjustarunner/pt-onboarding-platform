@@ -48,6 +48,7 @@ export function draftWithMetadata(data, previous = null) {
 
 async function agencyAccess(actor, agencyId) {
   if (actor.scopedAgencyId && Number(actor.scopedAgencyId) !== Number(agencyId)) throw fail('Mailbox not found',404);
+  if(actor.mobileDevice){const {readAgencyAccess}=await import('./agencyAccessProfiles.service.js');if(!await readAgencyAccess(actor.id,agencyId))throw fail('Mailbox not found',404);}
   const agencies = await User.getAgencies(actor.id);
   if (!(agencies || []).some((a) => Number(a.id) === Number(agencyId))) throw fail('Mailbox not found',404);
 }

@@ -3,7 +3,7 @@ import User from '../../models/User.model.js';
 import {runWithAgencyAccess} from '../../utils/agencyAccessContext.js';
 import {publicUploadsUrlFromStoredPath} from '../../utils/uploads.js';
 import {buildPublicAppUrl} from '../../utils/publicPortalUrl.js';
-import {mobileQaScope} from './qaScope.service.js';
+import {listMobileAgencies} from './agencyScope.service.js';
 import {requireNarrivaAgency,maskMobileClientName} from '../narrivaAccess.service.js';
 import {authorizedMobileClientCards,sanitizeMobileWorkItem,mobileClinicalAge} from '../mobileClinicalPrivacy.service.js';
 
@@ -23,11 +23,10 @@ export function createMobileDocumentationQueue({db=pool,findUser=id=>User.findBy
  return async request=>{
   const user=await findUser(request.quickView.userId);
   if(!user || [0,false,'0'].includes(user.is_active))throw Object.assign(new Error('Your account is no longer active.'),{status:403});
-  const [memberships]=await db.execute(`SELECT DISTINCT a.* FROM user_agencies ua JOIN agencies a ON a.id=ua.agency_id
-   WHERE ua.user_id=? AND COALESCE(ua.is_active,1)=1 AND a.is_active=1 AND COALESCE(a.is_archived,0)=0 ORDER BY a.name`,[user.id]);
+  const {agencies:memberships}=await listMobileAgencies(user,{db});
   const items=[],agencies=[],failures=[];
   let isSupervisor=false;
-  for(const agency of mobileQaScope(user,memberships).agencies){
+  for(const agency of memberships){
    // requireNarrivaAgency mutates the actor to the agency's effective role. Never reuse it.
    const actor={...user};
    try{await authorize(actor,Number(agency.id));}catch(error){if([403,404].includes(error.status))continue;throw error;}

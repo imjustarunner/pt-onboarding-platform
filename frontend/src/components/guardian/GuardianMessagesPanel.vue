@@ -209,7 +209,7 @@ import QaRecipientEmailInbox from '../messages/QaRecipientEmailInbox.vue';
 import SecureMessageBanner from '../conversa/SecureMessageBanner.vue';
 import ConversaBrand from '../../components/conversa/ConversaBrand.vue';
 import ConversaBadge from '../../components/conversa/ConversaBadge.vue';
-import { computed, nextTick, onMounted, ref } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import {usePortalCareApi} from '../../composables/usePortalCareApi';
 const careApi=usePortalCareApi();
 import baseApi from '../../services/api';
@@ -217,7 +217,7 @@ const api=new Proxy({}, {get:(_,key)=>(...args)=>(props.clientId?careApi:baseApi
 import { useAuthStore } from '../../store/auth';
 import { GUARDIAN_TICKET_TOPICS, ticketTopicLabel } from '../../utils/ticketTopics';
 
-const props=defineProps({clientId:[Number,String]});
+const props=defineProps({initialThreadId:[Number,String],clientId:[Number,String]});
 const authStore = useAuthStore();
 const meId = computed(() => authStore.user?.id || null);
 const guardianTopics = GUARDIAN_TICKET_TOPICS;
@@ -559,7 +559,9 @@ async function sendTicketReply() {
   }
 }
 
-onMounted(loadThreads);
+async function openRequestedThread(){const id=Number(props.initialThreadId);if(!id)return;const thread=threads.value.find(t=>Number(t.thread_id)===id);if(thread)await selectThread(thread);}
+watch(()=>props.initialThreadId,openRequestedThread);
+onMounted(async()=>{await loadThreads();await openRequestedThread();});
 </script>
 
 <style scoped>

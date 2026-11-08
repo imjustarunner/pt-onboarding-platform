@@ -10,7 +10,7 @@ beforeEach(() => {
   vi.clearAllMocks(); state={enabled:false,verified:false,required:true,rememberDays:30,devices:[]};
   api.get.mockImplementation(async url => ({data:url==='/account-security'?{...state}:url.endsWith('/events')?{items:[],nextCursor:null}:{items:[session],hasMore:false}}));
 });
-async function open() { const wrapper=mount(Panel);await flushPromises();return wrapper; }
+async function open(props={}) { const wrapper=mount(Panel,{props,global:{stubs:{SignInPasswordSetup:true,PasskeysPanel:true,ActivityProtectionPanel:true}}});await flushPromises();return wrapper; }
 describe('personal security screen', () => {
   it('encourages guardian email setup and activates it only after code verification',async()=>{
     state={...state,guardianAccount:true,required:false,emailEnrollmentAvailable:true,emailEnabled:false,maskedEmail:'p•••@example.invalid'};
@@ -85,3 +85,5 @@ describe('personal security screen', () => {
     api.get.mockRejectedValue(new Error('offline'));const wrapper=await open();expect(wrapper.find('[role="alert"]').exists()).toBe(true);expect(wrapper.find('form').exists()).toBe(false);wrapper.unmount();
   });
 });
+
+it('leaves mobile enrollment in place while the existing verification screen is embedded',async()=>{state={...state,required:false,verified:true};const wrapper=await open({showWorkspaceReturn:false});expect(wrapper.text()).not.toContain('Return to your workspace');wrapper.unmount();});

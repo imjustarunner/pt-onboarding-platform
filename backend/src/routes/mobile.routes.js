@@ -25,15 +25,15 @@ const limiter=sharedLoginLimiter({identify:true,namespace:'auricwell-mobile',sou
 async function unlocked(req){
   const session=await touchSession(req.get('X-Quick-View-Session'));
   if(!session?.mobileDeviceSessionId)throw failure(423,'MOBILE_LOCKED','Unlock Auricwell to continue.');
-  return mobileSessions.access(session.mobileDeviceSessionId,session.userId,session.agencyId);
+  return mobileSessions.access(session.mobileDeviceSessionId,session.userId,session.agencyId,session.credentialVersion ?? null);
 }
 router.get('/account',authenticate,handle(async(req,res)=>{
   if(req.user.switchedFromUserId || req.authClaims?.demoMode || req.authClaims?.testAccountSwitch)throw failure(403,'MOBILE_PRIMARY_REQUIRED','Use your own staff account to connect a device.');
-  res.json(mobileSessions.publicProfile(await mobileSessions.actor(req.user.id)));
+  res.json(mobileSessions.publicProfile(await mobileSessions.actor(req.user.id,null,{loginHint:req.query.username || null})));
 }));
 router.post('/authorize',limiter,authenticate,handle(async(req,res)=>{
   if(req.user.switchedFromUserId || req.authClaims?.demoMode || req.authClaims?.testAccountSwitch || Number(req.body.expectedUserId)!==Number(req.user.id))throw failure(403,'MOBILE_PRIMARY_REQUIRED','Confirm your own account before connecting a device.');
-  res.json(await mobileSessions.authorize({userId:req.user.id,agencyId:req.body.agencyId,clientId:req.body.clientId,redirectUri:req.body.redirectUri,challenge:req.body.challenge}));
+  res.json(await mobileSessions.authorize({userId:req.user.id,agencyId:req.body.agencyId,clientId:req.body.clientId,redirectUri:req.body.redirectUri,challenge:req.body.challenge,primaryAuthentication:req.sessionSecurity?.key?{sessionKey:req.sessionSecurity.key,authMethod:req.authClaims?.authMethod==='google'?'google':'account',issuedAt:Number(req.authClaims?.iat)||Math.floor(Date.now()/1000)}:null}));
 }));
 router.post('/exchange',limiter,handle(async(req,res)=>{
   const result=await mobileSessions.exchange(req.body || {},rawDevice(req));
@@ -63,6 +63,7 @@ router.post('/app-lock',limiter,handle(async(req,res)=>{
 router.post('/logout',handle(async(req,res)=>{
   await mobileSessions.logout(rawDevice(req));res.clearCookie(MOBILE_COOKIE,{...secureCookie,maxAge:undefined});res.json({signedOut:true});
 }));
+router.post('/activity',handle(async(req,res)=>{await unlocked(req);const session=await touchSession(req.get('X-Quick-View-Session'),{activity:true});if(!session)throw failure(423,'MOBILE_LOCKED','Unlock Auricwell to continue.');res.json({expiresAt:session.expiresAt});}));
 router.get('/profile',handle(async(req,res)=>{
   const context=await unlocked(req);
   res.json({...mobileSessions.publicProfile(context),notifications:{enabled:!!context.device.push_enabled,...pushConfiguration()}});

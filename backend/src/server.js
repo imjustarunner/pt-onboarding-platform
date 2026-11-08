@@ -396,6 +396,7 @@ app.use(cors({
     'X-Agency-Id',
     'X-Quick-View-Session',
     'X-Auricwell-Mobile',
+    'X-Auricwell-Family',
     'X-Auricwell-Device',
     'X-Account-Security',
     'X-Account-User-Id'

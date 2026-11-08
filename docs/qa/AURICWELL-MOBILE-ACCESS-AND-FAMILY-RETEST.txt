@@ -1,0 +1,86 @@
+AURICWELL MOBILE ACCESS AND FAMILY PORTAL — TARGETED RETEST
+
+Entry: https://auricwell.com/mobile in a fresh browser tab. Run at desktop width
+and phone width. A browser-sized phone test is not a physical iPhone/TestFlight
+sign-off. Record frontend /version.json and API /api/app-version build IDs before
+starting; both must match the release being tested.
+
+Use existing approved synthetic accounts/records. Never send to real staff or
+families, sign real clinical documents, create grants, or change clinical data to
+force a pass. Do not copy tokens, passwords, narratives or client details into
+reports. An inaccessible fixture is BLOCKED/NOT_RUN, never PASS.
+
+1. USERNAME-FIRST SIGN-IN
+Start signed out. Enter a known synthetic employee username: Continue must resolve
+the existing organization login/SSO without asking for a workspace slug. Repeat
+with school staff and a parent. Multiple matching school organizations must offer
+a choice. A retained cookie for a different account must require an explicit
+account change, not silently connect that other person. Check unknown usernames
+produce a recoverable login, not a fabricated organization or account.
+Complete existing two-step verification where required, then Continue connecting.
+Do not bypass MFA or claim that a six-digit app-lock code is the second factor.
+App lock remains optional. Background/lock clears private content; reopening uses
+the connected device. Sign out revokes that device.
+
+2. EXISTING FAMILY PORTAL
+Parent sign-in must open the existing family dashboard inside /mobile/family/.
+Check linked children, authorized guardians, forms/waivers, appointments, stored
+documents and secure messages. Check two children and back navigation. Permissions
+must remain child-specific. A parent cannot open staff messages, staff My Work,
+clinical generation or credential-management APIs using a family device token.
+A missing/revoked parent-child portal relationship must deny access. Staff grants
+must never stand in for a family link. Inspect only synthetic data. Check a secure
+message notification opens its authorized thread after unlock; check revoked
+access does not open it. Real push delivery needs configured APNs/Web Push and a
+separate physical-device test.
+
+3. CROSS-AGENCY STAFF DIRECTORY AND MESSAGE HISTORY
+With an approved account authorized in two agencies, search a teammate from each
+using Direct + and More > Contacts. Both appear with the agency. Starting a direct
+conversation must use that person's agency. A group can contain eligible people
+from one authorized agency; cross-agency participant mixing must be rejected.
+A revoked agency must disappear without another login. A visible old thread
+participant row alone cannot restore a revoked grant.
+Keep QA450-only accounts inside their approved sandbox. If they lack a second
+agency, record this two-agency case as blocked; do not expand their rollout.
+
+All initially shows unread conversations. Use Show all conversations or Direct >
+All to find already-read and sent messages. Include archived only when requested.
+Check current and historical direct conversations, group chats and joined channels.
+Threads must show replies in conversations the user belongs to even when the user
+did not author the parent message or reply. Never expose a nonparticipant thread.
+
+4. CONTEXTUAL + ACTIONS
+Secure +: only the provider's currently assigned clients and authorized recipient
+relationships; open a secure composer. No email or staff directory choice here.
+Texts +: only those client contacts who permit SMS. No arbitrary phone entry;
+send only to an approved synthetic recipient. A failure preserves typed text.
+Groups +: select eligible teammates; open/create that group conversation. In the
+Groups list, check both group chats and group email for current managed group
+members. Departmental permissions still control sensitive mailboxes; a payroll Off
+must remain Off. Personal mailboxes belonging to another person stay private.
+Channels +: browse/search permitted channels; opening/joining preserves agency
+and channel. All + offers the explicit supported composer choices.
+
+5. EMAIL DRAFTS
+Open Drafts, reopen a saved email from each authorized agency, edit it, Save and
+close, reload, and reopen. Confirm recipient, subject, body and draft identity
+survive. New email from a client profile or Saved Contacts must open the same
+versioned email composer. Discard only synthetic drafts. No automatic sending.
+Email drafts are persisted; unfinished chat text remains the existing in-memory
+conversation draft, not a claimed durable cross-device draft feature.
+
+6. MY WORK
+Starts at All and All agencies, with a compact My Work header and no redundant
+Documentation queue heading. Check To do, Started, Co-sign, Signed and agency
+filters/counts. Compare mixed-agency items with the original authorized desktop
+queue. Most recent sorts newest first; Oldest first reverses the same selection.
+Open a note, use Back, and confirm tab, agency and sort are retained. Service,
+local time, masked identity/age and agency identity must remain correct. No new
+signature or clinical record is required for this UI retest.
+
+7. REPORT
+For each case record PASS/FAIL/BLOCKED/NOT_RUN, surface/viewport, build IDs,
+synthetic fixture IDs, expected vs actual and minimal plain-text error. Screenshots
+are optional. Distinguish browser fixtures from live account checks and physical
+phone checks. A successful deployment is ready for retest, not a blanket QA pass.

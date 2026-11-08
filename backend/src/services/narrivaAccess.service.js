@@ -24,10 +24,9 @@ export async function requireNarrivaAgency(user,agencyId) {
  Object.assign(user,scoped,{scopedAgencyId:Number(agencyId)});
  await ClinicalEligibilityService.ensureAgencyAccess({reqUser:user,agencyId});
  await ClinicalEligibilityService.assertAgencyHasClinicalOrg(agencyId);
- if(!['super_admin','superadmin'].includes(String(user.role).toLowerCase())) {
-  const [[membership]]=await pool.execute(`SELECT 1 FROM user_agencies ua JOIN agencies a ON a.id=ua.agency_id WHERE ua.user_id=? AND ua.agency_id=? AND (ua.is_active=1 OR ua.is_active IS NULL) AND a.is_active=1 AND (a.is_archived=0 OR a.is_archived IS NULL) LIMIT 1`,[user.id,agencyId]);
-  if(!membership)throw narrivaError(403,'Your workspace membership is no longer active.');
- }
+ // readAgencyAccess also validates explicitly granted platform/legacy access.
+ // A second membership-only check would discard those valid scoped grants.
+
  return user;
 }
 export async function requireNarrivaClient(user,agencyId,clientId,{authorizedNoteReviewer=false}={}) {

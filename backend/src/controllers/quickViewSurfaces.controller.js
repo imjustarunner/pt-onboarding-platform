@@ -11,7 +11,7 @@ import {
   listThreadsInbox,
   listMentionsInbox,
   listFilesInbox,
-  createOrGetDirectThread
+  createOrGetDirectThread,createGroupThread
 } from './chat.controller.js';
 import { uploadChatAttachment } from './chatAttachments.controller.js';
 import { addReaction, removeReaction } from './chatReactions.controller.js';
@@ -29,6 +29,7 @@ import pool from '../config/database.js';
 import { getCatalog, streamTrack } from './focusMusic.controller.js';
 import { listNoteAidTools, executeNoteAidTool } from './noteAid.controller.js';
 import {mobileQaAgencyId,mobileQaScopeError,assertMobileQaThread,assertMobileQaRecipient} from '../services/mobile/qaConversaScope.service.js';
+import {listMobileAgencies} from '../services/mobile/agencyScope.service.js';
 import {isQaPreviewIdentity} from '../services/auricwellPreviewPolicy.js';
 
 async function attachUser(req) {
@@ -105,6 +106,13 @@ export const qvUploadChatAttachment = internalChat(uploadChatAttachment);
 export const qvAddChatReaction = internalChat(addReaction);
 export const qvRemoveChatReaction = internalChat(removeReaction);
 
+export const qvCreateGroupThread=wrap(async(req,res,next)=>{
+ if(!req.quickView.mobileDeviceSessionId || mobileQaAgencyId(req))throw mobileQaScopeError();
+ const {agencies}=await listMobileAgencies(await User.findById(req.quickView.userId,{raw:true}));
+ if(!agencies.some(a=>Number(a.id)===Number(req.body.agencyId)))throw Object.assign(new Error('This agency is unavailable.'),{status:403});
+ return createGroupThread(req,res,next);
+});
+
 export const qvCreateDirectThread = wrap(async (req, res, next) => {
   if (!req.body) req.body = {};
   if (!req.body.agencyId && req.quickView.agencyId) {
@@ -160,6 +168,18 @@ export const getQuickDirectory = async (req, res, next) => {
     if(qaAgencyId){
       const [rows]=await pool.execute(`SELECT u.* FROM users u JOIN user_agencies ua ON ua.user_id=u.id WHERE ua.agency_id=? AND COALESCE(ua.is_active,1)=1 AND u.is_demo=1 AND u.is_active=1 AND COALESCE(u.is_archived,0)=0 AND u.id<>?`,[qaAgencyId,userId]);
       return res.json({ok:true,agencyId:qaAgencyId,providers:rows.filter(isQaPreviewIdentity).map(row=>mapDirectoryPerson(row,'providers')),schoolStaff:[]});
+    }
+
+    if(req.quickView.mobileDeviceSessionId && req.query.agencyId==='all'){
+      const user=await User.findById(userId,{raw:true});
+      const {agencies}=await listMobileAgencies(user);
+      const result={ok:true,agencyId:null,providers:[],schoolStaff:[]};
+      for(const agency of agencies){
+        const scoped=Object.assign(Object.create(req),{quickView:{...req.quickView,agencyId:Number(agency.id)},query:{...req.query,agencyId:String(agency.id)}});
+        let body;await getQuickDirectory(scoped,{json(value){body=value;return this;}},error=>{throw error;});
+        for(const section of ['providers','schoolStaff'])for(const person of body?.[section] || [])result[section].push({...person,agencyId:Number(agency.id),agencyName:agency.name});
+      }
+      return res.json(result);
     }
 
     const [providerRows] = await pool.execute(
