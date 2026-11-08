@@ -43,5 +43,25 @@ export async function consumeSsoHandoff(to, bootstrap) {
 export function auricwellLoginDestination(value, hostname = window.location.hostname) {
   const safe = safeLoginDestination(value);
   if (!safe || /[\u0000-\u0020]/.test(safe)) return null;
-  return /^\/auricwell\/app(?:[/?#]|$)/.test(safe) || (/^(www\.)?auricwell\.com$/i.test(hostname) && /^\/app(?:[/?#]|$)/.test(safe)) ? safe : null;
+  const publicHost = /^(www\.)?auricwell\.com$/i.test(hostname);
+  if (/^\/auricwell\/app(?:[/?#]|$)/.test(safe)) return publicHost ? safe.slice('/auricwell'.length) : safe;
+  if (/^\/app(?:[/?#]|$)/.test(safe)) {
+    if (publicHost) return safe;
+    // Old Google returns carried the public-site path onto the central callback host.
+    if (String(hostname).toLowerCase() === 'app.itsco.health') return `/auricwell${safe}`;
+  }
+  return null;
+}
+
+// Google can return on the central callback origin. Reuse its verified-cookie
+// login bootstrap, then choose the correct interface for the authenticated role.
+export function auricwellSsoDestination(value, hostname = window.location.hostname) {
+  const safe = safeLoginDestination(value);
+  if (value && (!safe || /[\u0000-\u0020]/.test(safe))) return null;
+  const destination = auricwellLoginDestination(safe, hostname);
+  const publicHost = /^(www\.)?auricwell\.com$/i.test(hostname);
+  if (!destination && !(publicHost && !safe)) return safe;
+  const params = new URLSearchParams({ workspace: 'auricwell' });
+  if (destination) params.set('redirect', destination.startsWith('/app') ? `/auricwell${destination}` : destination);
+  return `/login?${params}`;
 }

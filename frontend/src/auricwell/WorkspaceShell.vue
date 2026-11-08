@@ -35,7 +35,7 @@
       <header v-else class="aw-workspace-return" aria-label="Workspace return navigation"><RouterLink :to="`/${slug}/overview`" data-analytics-id="workspace-back">← Back to app</RouterLink><span>{{ section === 'billing' ? 'Billing Workspace' : 'Note Workspace' }}</span><RouterLink :to="`/${slug}/appointments`">My Schedule</RouterLink><RouterLink v-if="demo" :to="`/${slug}/tasks`">Tasks &amp; To-do</RouterLink></header>
       <WorkspaceNavigation v-if="!fullWorkspace" :actor="actor" :slug="slug" interface-name="auricwell" :demo="demo" />
       <slot name="notice" />
-      <main id="aw-main" class="aw-content" :class="{'aw-content--workspace':fullWorkspace}" tabindex="-1"><slot /></main>
+      <main id="aw-main" class="aw-content" :class="{'aw-content--workspace':fullWorkspace,'aw-content--compliance':section==='compliance'}" tabindex="-1"><slot /></main>
     </div>
   </div>
 </template>
@@ -67,6 +67,7 @@ async function signOut(){
 </script>
 
 <style scoped>
+.aw-workspace .aw-content.aw-content--compliance{max-width:none}
 .aw-full-workspace{display:block}.aw-full-workspace .aw-content--workspace{max-width:none;width:100%;padding:0;margin:0}.aw-workspace-return{display:flex;align-items:center;gap:18px;padding:9px 18px;border-bottom:1px solid #dce5ee;background:#fff;flex-wrap:wrap;font-size:13px}.aw-workspace-return>a:first-child{font-weight:700}.aw-workspace-return>span{margin-right:auto;color:#526986}.aw-workspace-return a{min-height:30px;display:inline-flex;align-items:center}
 @media(min-width:761px){.aw-collapsed .aw-sidebar{width:82px;z-index:80}.aw-sidebar-revealed .aw-sidebar{width:250px;box-shadow:8px 0 28px #102b4925}.aw-sidebar-revealed .aw-sidebar-brand{padding:0 26px}.aw-sidebar-revealed .aw-sidebar-brand span,.aw-sidebar-revealed .aw-nav span,.aw-sidebar-revealed .aw-sidebar-bottom span{display:initial}.aw-sidebar-revealed .aw-sidebar .aw-nav{padding:20px 16px}.aw-sidebar-revealed .aw-sidebar .aw-nav a{justify-content:flex-start;padding:13px 16px}.aw-sidebar-revealed .aw-sidebar-bottom{padding:16px 26px}}
 </style>

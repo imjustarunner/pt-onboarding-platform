@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { consumeSsoHandoff, getSsoArrivalRoute, isLoginEntryRoute, isTokenAuthenticationRoute, isSessionEntryRoute, safeLoginDestination } from '../loginHandoff';
+import { auricwellLoginDestination, auricwellSsoDestination, consumeSsoHandoff, getSsoArrivalRoute, isLoginEntryRoute, isTokenAuthenticationRoute, isSessionEntryRoute, safeLoginDestination } from '../loginHandoff';
 describe('branded SSO arrival', () => {
   it('keeps super admins on the original tenant login while loading the platform workspace', () => {
     expect(getSsoArrivalRoute({ path: '/admin', query: { sso: '1', ssoOrg: 'itsco' } }, 'itsco')).toEqual({ path: '/login', query: { sso: '1', ssoOrg: 'itsco', redirect: '/admin' }, replace: true });
@@ -41,4 +41,28 @@ it('consumes the SSO flag once while keeping library folder, category, search, a
 });
 it('leaves a failed handoff available for normal sign-in recovery', async () => {
   expect(await consumeSsoHandoff({path:'/itsco/library',query:{sso:'1'}}, async()=>false)).toBeNull();
+});
+
+
+describe('Auricwell sign-in return addresses',()=>{
+ it('translates the screenshot address onto the Auricwell entry on the shared callback host',()=>{
+  expect(auricwellLoginDestination('/app/itsco/compliance?sso=1#history','app.itsco.health')).toBe('/auricwell/app/itsco/compliance?sso=1#history');
+  expect(auricwellLoginDestination('/app/itsco/compliance','auricwell.com')).toBe('/app/itsco/compliance');
+  expect(auricwellLoginDestination('/auricwell/app/itsco/compliance','auricwell.com')).toBe('/app/itsco/compliance');
+ });
+ it('uses the verified-cookie login bootstrap before returning from central Google sign-in',()=>{
+  const next=new URL(auricwellSsoDestination('/app/itsco/compliance?tab=reports#history','auricwell.com'),'https://app.itsco.health');
+  expect(next.pathname).toBe('/login');expect(next.searchParams.get('workspace')).toBe('auricwell');
+  expect(next.searchParams.get('redirect')).toBe('/auricwell/app/itsco/compliance?tab=reports#history');
+  expect(auricwellSsoDestination(null,'auricwell.com')).toBe('/login?workspace=auricwell');
+ });
+ it('does not steal other product app paths or replace explicit meeting and family links',()=>{
+  for(const host of ['schoolcarebridge.org','plotlinepo.com','fundthred.com','other.example.test'])expect(auricwellLoginDestination('/app/account',host)).toBeNull();
+  for(const path of ['/join/team-meeting/3?guest=yes','/itsco/guardian?portal=itsco'])expect(auricwellSsoDestination(path,'auricwell.com')).toBe(path);
+  expect(auricwellSsoDestination(null,'app.itsco.health')).toBeNull();
+ });
+ it.each(['//outside.example','/\\outside.example','https://outside.example','/app/itsco/overview\n'])('rejects an unsafe return %s',path=>{
+  expect(auricwellSsoDestination(path,'auricwell.com')).toBeNull();
+  expect(auricwellLoginDestination(path,'app.itsco.health')).toBeNull();
+ });
 });

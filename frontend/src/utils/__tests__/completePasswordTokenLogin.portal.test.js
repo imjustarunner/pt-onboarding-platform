@@ -41,3 +41,16 @@ it('preserves an internal message link without accepting an external redirect or
  expect(auricWellAccountDestination({...input,redirectPath:'/itsco/messages?threadId=5'}).path).toBe('/itsco/messages?threadId=5');
  expect(auricWellAccountDestination({...input,hostname:'app.itsco.health'})).toBeNull();
 });
+
+it('returns a verified administrator to the Auricwell dashboard or requested compliance page on the callback host',()=>{
+ const organizations=[{id:2,slug:'itsco',organization_type:'agency'}];
+ const input={hostname:'app.itsco.health',role:'super_admin',organizations,requestedSlug:'itsco',auricwellEntry:true};
+ expect(auricWellAccountDestination(input)).toMatchObject({path:'/auricwell/app/itsco/overview',hardNavigate:true,organization:organizations[0]});
+ expect(auricWellAccountDestination({...input,redirectPath:'/app/itsco/compliance'})).toMatchObject({path:'/auricwell/app/itsco/compliance',hardNavigate:true});
+ expect(auricWellAccountDestination({...input,hostname:'auricwell.com',redirectPath:'/auricwell/app/itsco/compliance'})).toMatchObject({path:'/app/itsco/compliance'});
+});
+it('keeps family Google returns out of the staff interface and never selects an unlinked organization',()=>{
+ const input={hostname:'app.itsco.health',organizations:[{id:2,slug:'itsco',organization_type:'agency'}],requestedSlug:'unlinked',auricwellEntry:true,redirectPath:'/auricwell/app/itsco/compliance'};
+ for(const role of ['client_guardian','client'])expect(auricWellAccountDestination({...input,role})).toMatchObject({path:'/itsco/guardian?portal=itsco',hardNavigate:false,organization:input.organizations[0]});
+ expect(auricWellAccountDestination({...input,role:'provider',redirectPath:null})).toBeNull();
+});

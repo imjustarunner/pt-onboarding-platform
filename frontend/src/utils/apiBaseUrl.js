@@ -10,7 +10,7 @@ function isLoopbackHost(hostname) {
 
 export function resolveApiBaseUrl(configuredUrl, location = {}) {
   const hostname = String(location.hostname || '').toLowerCase();
-  if (isPlotlineHost(hostname) || isSchoolCareBridgeHost(hostname) ||
+  if (/^(www\.)?auricwell\.com$/.test(hostname) || isPlotlineHost(hostname) || isSchoolCareBridgeHost(hostname) ||
       (hostname.replace(/^www\./, '') === 'mh4kidz.org' && isSchoolCareBridgePath(location.pathname || ''))) {
     return '/api';
   }

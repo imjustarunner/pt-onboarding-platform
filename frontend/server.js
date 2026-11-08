@@ -18,6 +18,11 @@ const __dirname = dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 8080;
+// Match the production Nginx repair for links created by older OAuth returns.
+app.use((req,res,next)=>{
+  if(req.hostname==='app.itsco.health' && /^\/app(?:\/|$)/.test(req.path))return res.redirect(302,`https://app.itsco.health/auricwell${req.originalUrl}`);
+  next();
+});
 const distPath = join(__dirname, 'dist');
 app.use((req,res,next) => {
   const page = sstcMarketingPage(req.headers.host, req.path);

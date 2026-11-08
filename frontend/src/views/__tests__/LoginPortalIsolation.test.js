@@ -88,3 +88,17 @@ it('explains an edge rate limit with its wait time and preserves the username',a
  expect(wrapper.vm.username).toBe('avery.qa@example.com');
  expect(post).toHaveBeenCalledTimes(1);
 });
+
+it('keeps the Auricwell destination when username identification selects an agency login',async()=>{
+ route.query={workspace:'auricwell',redirect:'/auricwell/app/itsco/compliance'};
+ post.mockResolvedValue({data:{matched:true,normalizedUsername:'synthetic@example.test',resolvedOrg:{slug:'itsco',portal_url:'itsco',organization_type:'agency'},login:{method:'password'}}});
+ await render();wrapper.vm.username='synthetic@example.test';
+ await wrapper.vm.verifyUsername({reason:'user'});await flushPromises();
+ expect(replace).toHaveBeenCalledWith({path:'/itsco/login',query:{workspace:'auricwell',redirect:'/auricwell/app/itsco/compliance'}});
+});
+
+it('preserves the Auricwell return context when the agency login theme cannot load',async()=>{
+ route.query={workspace:'auricwell',redirect:'/auricwell/app/itsco/compliance'};
+ get.mockImplementation(async url=>{if(url.includes('login-theme'))throw {response:{status:404}};return {data:{}};});
+ await render();expect(replace).toHaveBeenCalledWith({path:'/login',query:route.query});
+});
