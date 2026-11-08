@@ -1,3 +1,4 @@
+import pool from '../config/database.js';
 import { requestSchoolRoiForGuardians } from '../services/schoolRoiGuardianRequests.service.js';
 import { clientEmailLabel, portalActionHtml } from '../services/clientPortalEmailContent.js';
 import crypto from 'crypto';
