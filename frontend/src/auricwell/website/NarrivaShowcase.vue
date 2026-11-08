@@ -1,5 +1,5 @@
 <template>
- <section class="narriva-demo" :class="{'narriva-demo--compact':compact}" aria-label="Narriva interactive walkthrough" data-analytics-area="narriva">
+ <section ref="root" class="narriva-demo" :class="{'narriva-demo--compact':compact}" aria-label="Narriva interactive walkthrough" data-analytics-area="narriva">
   <header class="nd-header"><div><img :src="NARRIVA_BRAND.logo" alt="Narriva by AuricWell" /><span>Note Workspace</span></div><span>Meadowbrook Therapy <small>Fictional practice</small></span></header>
   <div class="nd-disclosure"><span>INTERACTIVE EXAMPLE</span><p>{{ NARRIVA_DEMO_NOTICE }}</p><button type="button" @click="reset" data-analytics-id="narriva-reset">Reset</button></div>
   <nav class="nd-tour" aria-label="Narriva walkthrough steps"><button v-for="(step,index) in steps" :key="step.id" type="button" :aria-pressed="view===step.id" @click="navigate(step.id)" :data-analytics-id="step.analytics"><span>{{ index+1 }}</span>{{ step.label }}</button></nav>
@@ -33,7 +33,7 @@
      <button type="button" class="nd-primary nd-run" :disabled="busy" @click="runChecks" data-analytics-id="narriva-check">{{ busy?'Showing the five checks…':'Run example note check' }}</button>
      <NarrivaCompliancePanel :review="review" :busy="busy" @retry="runChecks" @action="applyCorrection" />
      <div v-if="generated&&!busy" class="nd-output"><div class="nd-output-label"><span>Prepared SOIP note · demonstration only</span></div><article v-for="section in sections" :key="section.key"><h4>{{ section.label }}</h4><p>{{ section.text }}</p></article></div>
-     <div v-if="generated" class="nd-next"><button type="button" class="nd-secondary" @click="navigate('note')">View generated SOIP note →</button></div>
+     <div v-if="generated" class="nd-next"><button type="button" class="nd-secondary" @click="showGeneratedNote">View generated SOIP note →</button></div>
      <div v-if="passed" class="nd-next"><button type="button" class="nd-primary" @click="beginSignature('provider')" :disabled="providerSigned" data-analytics-id="narriva-sign-review">{{ providerSigned?'Provider signature simulated':'Review and sign (demo)' }}</button><button type="button" class="nd-secondary" @click="navigate('work')" data-analytics-id="narriva-work">See My Work Quick Sign →</button></div>
     </template>
     </template>
@@ -59,7 +59,7 @@
  </section>
 </template>
 <script setup>
-import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import SmartNotesDemo from './SmartNotesDemo.vue';
 import NoteAidObjectiveRatings from '../../components/clinical/NoteAidObjectiveRatings.vue';
 import NarrivaModeChooser from '../../components/clinical/NarrivaModeChooser.vue';
@@ -70,6 +70,7 @@ import NoteReviewActions from '../../components/clinical/NoteReviewActions.vue';
 import { NARRIVA_BRAND, NARRIVA_CHECKS } from '../../config/narrivaBrand.js';
 import { NARRIVA_DEMO_AGENCY, NARRIVA_DEMO_NOTICE, NARRIVA_DEMO_INPUT_NOTICE, NARRIVA_DEMO_SOURCE_DISCLOSURE, examplePreviousRatings, narrivaExamples, exampleSections, exampleNarrivaReview, exampleReviewInsights, exampleTreatmentHistory } from '../demo/narriva.js';
 const props=defineProps({compact:Boolean,initialView:{type:String,default:'note'},initialMethod:{type:String,default:'narriva'}});
+const root=ref(null);
 const selected=ref(0),view=ref(props.initialView),method=ref(props.initialMethod),scenario=ref('pass'),corrected=ref(true),review=ref(null),busy=ref(false),providerSigned=ref(false),supervisorSigned=ref(false),signer=ref('provider'),attested=ref(false),announcement=ref(''),revision=ref(0);
 const planReviewed=ref(false),ratings=ref([]),ratingKey=ref(0),generated=ref(false);
 const previousRatings=computed(()=>examplePreviousRatings(example.value));
@@ -93,13 +94,15 @@ function clearState(){cancel();generated.value=false;review.value=null;providerS
 function reset(){clearState();ratings.value=[];ratingKey.value++;planReviewed.value=false;selected.value=0;view.value=props.initialView;method.value='narriva';scenario.value='pass';corrected.value=true;}
 function choose(index){clearState();ratings.value=[];ratingKey.value++;planReviewed.value=false;selected.value=index;method.value='narriva';view.value='note';scenario.value='pass';corrected.value=true;}
 function changeScenario(value){clearState();generated.value=true;scenario.value=value;corrected.value=value==='pass';view.value='check';}
+function scrollTo(selector){nextTick(()=>root.value?.querySelector(selector)?.scrollIntoView?.({behavior:window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches?'auto':'smooth',block:'start'}));}
+function showGeneratedNote(){navigate('note');scrollTo('.nd-output');}
 function runChecks(fromGeneration=false){
  if(!fromGeneration&&!generated.value)return;
  cancel();const current=generation;view.value='check';busy.value=true;attested.value=false;providerSigned.value=false;supervisorSigned.value=false;revision.value++;
  review.value={id:'fictional-running',exampleOnly:true,status:'running',checks:NARRIVA_CHECKS.map(check=>({...check,status:'pending'}))};
  const final=exampleNarrivaReview({passed:corrected.value});final.scoring.criteria[0].evidence=[sections.value.find(section=>section.key==='interventions').text];let index=0;
  function next(){if(current!==generation)return;if(index===NARRIVA_CHECKS.length){review.value=final;busy.value=false;generated.value=true;announce(corrected.value?'Example complete: all five checks pass. Review the note before simulating a signature.':'Example complete: review required. Apply the correction supported by the session source, then run the example again.');return;}review.value={...review.value,checks:review.value.checks.map((check,i)=>({...check,status:i<index?final.checks[i].status:i===index?'running':'pending'}))};announce(`Simulating check ${index+1} of 5: ${NARRIVA_CHECKS[index].label}.`);index++;timer=setTimeout(next,550);}
- next();
+ next();scrollTo('.narriva-compliance');
 }
 function applyCorrection(){if(busy.value)return;corrected.value=true;review.value=exampleNarrivaReview({passed:false,stale:true});attested.value=false;providerSigned.value=false;supervisorSigned.value=false;revision.value++;announce('Sample plan updated from the existing session source. The prior result is stale; run the example check again.');}
 function beginSignature(kind){if(!generated.value||!passed.value||kind==='supervisor'&&!providerSigned.value)return;signer.value=kind;attested.value=false;view.value='sign';announcement.value='';}
