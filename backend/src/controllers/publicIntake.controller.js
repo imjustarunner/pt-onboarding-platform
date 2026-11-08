@@ -4,6 +4,7 @@ import { withOfficeReferralSource } from '../utils/officeReferralSource.js';
 import { extractInsuranceCardFieldsBestEffort } from '../services/insuranceCardReading.service.js';
 import ProviderAvailabilityService from '../services/providerAvailability.service.js';
 import { validateQaIntakeGuardian } from '../services/qaIntakeIdentity.service.js';
+import { requiresCaptchaForLink } from '../utils/intakeCaptchaPolicy.js';
 import { clientEmailLabel } from '../services/clientPortalEmailContent.js';
 import { intakeClientPortal, clientPortalInviteUrl } from '../services/clientPortalContext.service.js';
 import { parsePscScore, scorePsc17, formatPsc17 } from '../services/h0002ScreeningRules.js';
@@ -5594,22 +5595,6 @@ export const getPublicJobDescription = async (req, res, next) => {
     }
     return next(error);
   }
-};
-
-const requiresCaptchaForLink = (organization, agency) => {
-  const forAll = String(process.env.RECAPTCHA_REQUIRED_FOR_ALL || '').toLowerCase() === 'true';
-  if (forAll) return true;
-  const names = process.env.RECAPTCHA_REQUIRED_ORG_NAMES;
-  if (!names || typeof names !== 'string') return false;
-  const list = names.split(',').map((s) => String(s || '').trim().toLowerCase()).filter(Boolean);
-  if (!list.length) return false;
-  const check = (org) => {
-    if (!org) return false;
-    const n = String(org.name || '').trim().toLowerCase();
-    const o = String(org.official_name || '').trim().toLowerCase();
-    return list.some((x) => n === x || o === x || n.includes(x) || o.includes(x));
-  };
-  return check(organization) || check(agency);
 };
 
 const isLocalRecaptchaBypassRequest = (req) => {
