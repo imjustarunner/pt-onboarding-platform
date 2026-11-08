@@ -1,3 +1,4 @@
+import {mobileAgencyIcon} from '../services/mobile/agencyBrand.service.js';
 /**
  * Quick View surface proxies — reuse chat / tasks / focus-music handlers
  * with the Quick View session user attached as req.user.
@@ -177,7 +178,7 @@ export const getQuickDirectory = async (req, res, next) => {
       for(const agency of agencies){
         const scoped=Object.assign(Object.create(req),{quickView:{...req.quickView,agencyId:Number(agency.id)},query:{...req.query,agencyId:String(agency.id)}});
         let body;await getQuickDirectory(scoped,{json(value){body=value;return this;}},error=>{throw error;});
-        for(const section of ['providers','schoolStaff'])for(const person of body?.[section] || [])result[section].push({...person,agencyId:Number(agency.id),agencyName:agency.name});
+        for(const section of ['providers','schoolStaff'])for(const person of body?.[section] || [])result[section].push({...person,agencyId:Number(agency.id),agencyName:agency.name,agencyLogoUrl:mobileAgencyIcon(agency)});
       }
       return res.json(result);
     }

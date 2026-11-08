@@ -1,7 +1,7 @@
+import {mobileAgencyIcon} from './agencyBrand.service.js';
 import pool from '../../config/database.js';
 import User from '../../models/User.model.js';
 import {runWithAgencyAccess} from '../../utils/agencyAccessContext.js';
-import {publicUploadsUrlFromStoredPath} from '../../utils/uploads.js';
 import {buildPublicAppUrl} from '../../utils/publicPortalUrl.js';
 import {listMobileAgencies} from './agencyScope.service.js';
 import {requireNarrivaAgency,maskMobileClientName} from '../narrivaAccess.service.js';
@@ -30,8 +30,7 @@ export function createMobileDocumentationQueue({db=pool,findUser=id=>User.findBy
    // requireNarrivaAgency mutates the actor to the agency's effective role. Never reuse it.
    const actor={...user};
    try{await authorize(actor,Number(agency.id));}catch(error){if([403,404].includes(error.status))continue;throw error;}
-   const innerStrength=['tisi','innerstrength','theinnerstrengthinstitute'].includes(String(agency.slug || '').toLowerCase()) || /^(the )?inner strength institute$/i.test(String(agency.name || '').trim());
-   const brand={agencyId:Number(agency.id),agencyName:agency.name,agencyLogoUrl:innerStrength?'/assets/branding/innerstrength-icon.png':publicUploadsUrlFromStoredPath(agency.logo_path || agency.logo_url) || null};
+   const brand={agencyId:Number(agency.id),agencyName:agency.name,agencyLogoUrl:mobileAgencyIcon(agency)};
    agencies.push({id:brand.agencyId,name:brand.agencyName,logoUrl:brand.agencyLogoUrl});
    await scope(brand.agencyId,async()=>{
     const req=Object.assign(Object.create(request),{user:actor,query:{agencyId:brand.agencyId},params:{},body:{},

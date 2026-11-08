@@ -1,6 +1,7 @@
 import {beforeAll,afterAll,beforeEach,describe,expect,it,vi} from 'vitest';
 import mysql from 'mysql2/promise';import {readFile} from 'node:fs/promises';
 vi.mock('../../../config/database.js',()=>({default:{execute:vi.fn()},onTableWrite:vi.fn()}));
+import {reserveSecureDelivery} from '../secureInvitation.service.js';
 import {createMobileConversaStore,mobileThreadItem,normalizeMobilePreferences,requireMobileThreadMembership} from '../conversa.service.js';
 it('uses names rather than numeric thread IDs and separates group conversations from direct messages',()=>{
  const base={thread_id:8,thread_type:'direct',participants:[{id:2,first_name:'Ari',last_name:'Example'},{id:3,first_name:'Sam',last_name:'Example'}],last_message:{body:'Hello',sender_user_id:2}};
@@ -26,17 +27,17 @@ describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('personal mobile inbox SQL',
     CREATE TABLE user_agencies(user_id INT,agency_id INT,is_active BOOLEAN DEFAULT 1);
     CREATE TABLE communication_inboxes(id INT PRIMARY KEY,agency_id INT DEFAULT 10,identity_key VARCHAR(60),kind VARCHAR(20),owner_user_id INT,from_email VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci);
     CREATE TABLE communication_conversations(id INT PRIMARY KEY,agency_id INT,inbox_id INT,owner_user_id INT,channel VARCHAR(20),subject VARCHAR(100),status VARCHAR(30),last_message_preview TEXT,last_message_at DATETIME,created_at DATETIME,archived_at DATETIME,is_spam BOOLEAN DEFAULT 0,is_unknown_sender BOOLEAN DEFAULT 0,external_thread_id VARCHAR(80));
-    CREATE TABLE communication_messages(id INT PRIMARY KEY,conversation_id INT,direction VARCHAR(20),is_internal_note BOOLEAN DEFAULT 0,send_status VARCHAR(20),sent_at DATETIME,created_at DATETIME,from_json JSON);
+    CREATE TABLE communication_messages(id INT PRIMARY KEY,author_user_id INT,conversation_id INT,direction VARCHAR(20),is_internal_note BOOLEAN DEFAULT 0,send_status VARCHAR(20),sent_at DATETIME,created_at DATETIME,from_json JSON);
     CREATE TABLE communication_conversation_reads(conversation_id INT,user_id INT,forced_unread BOOLEAN DEFAULT 0,last_read_at DATETIME);
     CREATE TABLE communication_participants(id INT PRIMARY KEY,conversation_id INT,is_primary BOOLEAN,email VARCHAR(100),display_name VARCHAR(100));
     CREATE TABLE managed_workspace_groups(id INT PRIMARY KEY,agency_id INT DEFAULT 10,chat_thread_id INT,email VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci);CREATE TABLE email_sender_identities(id INT PRIMARY KEY,from_email VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci,is_active BOOLEAN DEFAULT 1);
     CREATE TABLE message_logs(id INT PRIMARY KEY,agency_id INT,sms_thread_key VARCHAR(80),user_id INT,assigned_user_id INT,number_id INT);
     CREATE TABLE twilio_number_assignments(number_id INT,user_id INT,is_active BOOLEAN,sms_access_enabled BOOLEAN);`);
-  await db.query(await readFile(new URL('../../../../../database/migrations/1769_mobile_conversa_preferences.sql',import.meta.url),'utf8'));store=createMobileConversaStore(db);
+  await db.query(await readFile(new URL('../../../../../database/migrations/1769_mobile_conversa_preferences.sql',import.meta.url),'utf8'));await db.query(await readFile(new URL('../../../../../database/migrations/1779_mobile_secure_delivery.sql',import.meta.url),'utf8'));store=createMobileConversaStore(db);
  });
  afterAll(async()=>{await db?.end();if(admin){await admin.query(`DROP DATABASE IF EXISTS ${name}`);await admin.end();}});
  beforeEach(async()=>{
-  await db.query(`TRUNCATE chat_threads;TRUNCATE chat_thread_participants;TRUNCATE chat_messages;TRUNCATE chat_thread_reads;TRUNCATE chat_message_views;TRUNCATE chat_message_deletes;TRUNCATE chat_message_mentions;TRUNCATE chat_message_attachments;TRUNCATE mobile_message_archives;TRUNCATE mobile_workspace_preferences;TRUNCATE communication_conversations;TRUNCATE communication_messages;TRUNCATE communication_participants;TRUNCATE communication_conversation_reads;TRUNCATE users;TRUNCATE user_agencies;TRUNCATE agencies;TRUNCATE managed_workspace_groups;TRUNCATE email_sender_identities;TRUNCATE communication_inboxes;
+  await db.query(`TRUNCATE mobile_secure_deliveries;TRUNCATE chat_threads;TRUNCATE chat_thread_participants;TRUNCATE chat_messages;TRUNCATE chat_thread_reads;TRUNCATE chat_message_views;TRUNCATE chat_message_deletes;TRUNCATE chat_message_mentions;TRUNCATE chat_message_attachments;TRUNCATE mobile_message_archives;TRUNCATE mobile_workspace_preferences;TRUNCATE communication_conversations;TRUNCATE communication_messages;TRUNCATE communication_participants;TRUNCATE communication_conversation_reads;TRUNCATE users;TRUNCATE user_agencies;TRUNCATE agencies;TRUNCATE managed_workspace_groups;TRUNCATE email_sender_identities;TRUNCATE communication_inboxes;
     INSERT INTO agencies(id) VALUES(10),(20);
     INSERT INTO users(id,email,work_email,personal_email) VALUES(1,'owner@example.invalid',NULL,NULL),(2,'staff@example.invalid',NULL,'personal@example.invalid');
     INSERT INTO user_agencies VALUES(1,10,1),(2,10,1);
@@ -47,6 +48,17 @@ describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('personal mobile inbox SQL',
   await db.execute(`INSERT INTO communication_messages(id,conversation_id,direction,send_status,sent_at,created_at,from_json)VALUES(?,?,'inbound','sent','2026-11-06 12:00:00','2026-11-06 12:00:00',?)`,[id,id,JSON.stringify({name:'Fixture sender',email})]);
   await db.execute('INSERT INTO communication_participants(id,conversation_id,is_primary,email,display_name)VALUES(?,?,1,?,?)',[id,id,email,'Fixture sender']);
  }
+ it('Sent is authored by this user and excludes failed or internal outbound mail',async()=>{
+  for(let id=1;id<=4;id++)await mail(id,{status:'open'});
+  await db.query("INSERT INTO communication_messages(id,conversation_id,direction,author_user_id,send_status,is_internal_note,created_at) VALUES (11,1,'outbound',1,'sent',0,NOW()),(12,2,'outbound',2,'sent',0,NOW()),(13,3,'outbound',1,'failed',0,NOW()),(14,4,'outbound',1,'sent',1,NOW())");
+  expect((await store.emails(1,{filter:'sent'})).map(i=>i.id)).toEqual([1]);expect((await store.emailCounts(1)).reduce((n,c)=>n+c.sent,0)).toBe(1);
+ });
+ it('reserves exactly one secure send under concurrent retries in MySQL',async()=>{
+  const args={senderId:1,requestKey:'synthetic-unique-request-001',agencyId:10,clientId:20,recipientKey:'client',text:'Synthetic secure text'};
+  const receipts=await Promise.all(Array.from({length:8},()=>reserveSecureDelivery(args,db)));
+  expect(receipts.filter(r=>r.fresh)).toHaveLength(1);expect(new Set(receipts.map(r=>r.row.id)).size).toBe(1);
+  await expect(reserveSecureDelivery({...args,clientId:21},db)).rejects.toMatchObject({status:409});
+ });
  async function seedMailRange(start,end,{statusFor=()=>'new'}={}){
   const ids=Array.from({length:end-start},(_,index)=>start+index),at='2026-11-06 12:00:00';
   await db.query('INSERT INTO communication_conversations(id,agency_id,inbox_id,owner_user_id,channel,subject,status,last_message_preview,last_message_at,created_at,is_unknown_sender) VALUES ?',[ids.map(id=>[id,10,1,1,'email',`MESSAGE-${id}`,statusFor(id),'Preview',at,at,0])]);
@@ -79,7 +91,7 @@ describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('personal mobile inbox SQL',
   for(const id of [99,100])expect(rows.find(row=>row.id===id).unknown).toBe(true);
   expect((await store.emails(1,{suite:'email'})).map(row=>row.id).sort()).toEqual([1,2,3,4,5,6]);
   expect((await store.emails(1,{suite:'unknown'})).map(row=>row.id).sort()).toEqual([100,99]);
-  expect(await store.emailCounts(1)).toEqual(expect.arrayContaining([{category:'email',unknown:false,total:6,unread:6,needs:6},{category:'email',unknown:true,total:2,unread:2,needs:2}]));
+  expect(await store.emailCounts(1)).toEqual(expect.arrayContaining([{category:'email',unknown:false,total:6,unread:6,needs:6,sent:0},{category:'email',unknown:true,total:2,unread:2,needs:2,sent:0}]));
  });
  it('computes counts beyond a visible page and filters before pagination',async()=>{
   await seedMailRange(1,106,{statusFor:id=>id<=3?'closed':'new'});
@@ -88,10 +100,15 @@ describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('personal mobile inbox SQL',
   expect((await store.emailCounts(1))[0].unread).toBe(104);
   const next=await store.emails(1,{beforeAt:'2026-11-06T12:00:00Z',beforeKey:`email:${String(56).padStart(20,'0')}`});expect(next).toHaveLength(55);expect(next.at(-1).id).toBe(1);
  });
+ it('counts a sent reply in the middle of a thread rather than only the newest sender',async()=>{
+  await db.query('INSERT INTO chat_messages VALUES(100,10,NULL,2),(101,10,100,1),(102,10,100,2)');
+  expect((await store.extraCounts(1,[10])).threads.sent).toBe(1);
+  await db.query('INSERT INTO chat_message_deletes VALUES(101,1)');expect((await store.extraCounts(1,[10])).threads.sent).toBe(0);
+ });
  it('counts only authorized threads and leaves messages above unread until actually viewed',async()=>{
   await db.query(`INSERT INTO chat_messages VALUES(100,10,NULL,1),(101,10,100,2),(200,20,NULL,1),(201,20,200,2);
     INSERT INTO chat_message_mentions VALUES(101,1),(201,1);INSERT INTO chat_message_attachments VALUES(1,101),(2,201);`);
-  expect(await store.extraCounts(1,[10])).toEqual({threads:{total:1,unread:1,needs:1},mentions:{total:1,unread:1,needs:1},files:{total:1,unread:1,needs:0}});
+  expect(await store.extraCounts(1,[10])).toEqual({threads:{total:1,unread:1,needs:1,sent:1},mentions:{total:1,unread:1,needs:1,sent:0},files:{total:1,unread:1,needs:0,sent:0}});
   await db.execute('INSERT INTO chat_message_views VALUES(101,1)');expect((await store.extraCounts(1,[10])).threads.unread).toBe(0);
  });
  it('keeps current membership and school-staff secure-message restrictions on device sign-ins',async()=>{

@@ -922,7 +922,7 @@ export const listMyThreads = async (req, res, next) => {
     const [rows] = await pool.execute(
       `SELECT t.id AS thread_id,
               t.agency_id,
-              a.name AS agency_name,
+              a.name AS agency_name,a.slug AS agency_slug,a.logo_path AS agency_logo_path,
               t.organization_id,
               t.company_event_id,
               t.thread_type${teamCol}${channelCols},
@@ -936,6 +936,7 @@ export const listMyThreads = async (req, res, next) => {
               lm.sender_user_id AS last_message_sender_user_id,
               ${attachmentCountSql} AS last_message_attachment_count,
               r.last_read_message_id,
+              EXISTS(SELECT 1 FROM chat_messages sent WHERE sent.thread_id=t.id AND sent.sender_user_id=${Number(userId)} AND (td.deleted_at IS NULL OR sent.created_at>td.deleted_at) AND NOT EXISTS(SELECT 1 FROM chat_message_deletes hidden WHERE hidden.message_id=sent.id AND hidden.user_id=${Number(userId)})) AS has_sent,
               td.deleted_at AS thread_deleted_at,
               (
                 SELECT COUNT(*)
@@ -1076,7 +1077,7 @@ export const listMyThreads = async (req, res, next) => {
       return {
         thread_id: r.thread_id,
         agency_id: r.agency_id,
-        agency_name: r.agency_name || null,
+        agency_name: r.agency_name || null,agency_slug:r.agency_slug,agency_logo_path:r.agency_logo_path,
         organization_id: r.organization_id || null,
         company_event_id: r.company_event_id || null,
         thread_type: tType, message_channel: r.message_channel, client_id: r.client_id || null,
@@ -1086,7 +1087,7 @@ export const listMyThreads = async (req, res, next) => {
         channel_slug: r.channel_slug || null,
         team_meta: teamMeta,
         updated_at: r.updated_at,
-        unread_count: Number(r.unread_count || 0),
+        unread_count: Number(r.unread_count || 0),has_sent:!!Number(r.has_sent),
         last_read_message_id: Number(r.last_read_message_id) || 0,
         last_message: r.last_message_id
           ? {
@@ -1646,6 +1647,7 @@ export const sendMessage = async (req, res, next) => {
       if (isSecureMessage) {
         await recordSecureMessageEvent({ agencyId, threadId, messageId: insertedMessageId, userId: req.user.id, eventType: 'message_sent', req, executor: messageDb });
         await recordSecureMessageInChart({ agencyId, clientId: recordClientId, threadId, messageId: insertedMessageId, senderUserId: req.user.id, executor: messageDb });
+        if(req.mobileSecureDelivery?.id)await messageDb.execute("UPDATE mobile_secure_deliveries SET message_id=?,delivery_status='unknown' WHERE id=? AND sender_user_id=? AND message_id IS NULL",[insertedMessageId,req.mobileSecureDelivery.id,req.user.id]);
         await messageDb.commit();
       }
     } catch (e) {
@@ -1784,6 +1786,7 @@ export const listThreadsInbox = async (req, res, next) => {
     const [rows] = await pool.execute(
       `SELECT
           root.id AS root_message_id,
+          EXISTS(SELECT 1 FROM chat_messages authored WHERE authored.thread_id=root.thread_id AND (authored.id=root.id OR authored.parent_message_id=root.id) AND authored.sender_user_id=${Number(me)} AND NOT EXISTS(SELECT 1 FROM chat_message_deletes hidden WHERE hidden.message_id=authored.id AND hidden.user_id=${Number(me)})) AS has_sent,
           root.thread_id,
           root.body AS root_body${rootEncryption},
           root.created_at AS root_created_at,
@@ -1838,7 +1841,7 @@ export const listThreadsInbox = async (req, res, next) => {
         )
         ${agencyClause} ${mobileCutoff}
         ${req.quickView?.mobileDeviceSessionId?`AND NOT EXISTS(SELECT 1 FROM chat_message_deletes d WHERE d.message_id=root.id AND d.user_id=${Number(me)}) AND NOT EXISTS(SELECT 1 FROM chat_message_deletes d WHERE d.message_id=latest.id AND d.user_id=${Number(me)})`:''}
-      ${req.quickView?.mobileDeviceSessionId && req.query.filter==='unread'?'HAVING unread_reply_count>0':req.quickView?.mobileDeviceSessionId && req.query.filter==='needs'?`HAVING latest_reply_sender_user_id<>${Number(me)}`:''}
+      ${req.quickView?.mobileDeviceSessionId && req.query.filter==='unread'?'HAVING unread_reply_count>0':req.quickView?.mobileDeviceSessionId && req.query.filter==='needs'?`HAVING latest_reply_sender_user_id<>${Number(me)}`:req.quickView?.mobileDeviceSessionId && req.query.filter==='sent'?'HAVING has_sent=1':''}
       ORDER BY latest.created_at DESC,root.id DESC
       LIMIT 80`,
       sqlParams
@@ -1853,6 +1856,7 @@ export const listThreadsInbox = async (req, res, next) => {
       thread_type: r.thread_type || null,
       channel_name: r.channel_name || null,
       channel_slug: r.channel_slug || null,
+      has_sent:!!Number(r.has_sent),
       root_body: previewText(r,'root',r.root_body),
       root_created_at: r.root_created_at,
       root_sender: {

@@ -8,7 +8,7 @@ const direct={key:'chat:10',id:10,kind:'chat',category:'direct',title:'Jordan Ex
 const secure={key:'chat:11',id:11,kind:'chat',category:'secure',title:'Mi••• Ex•••',sender:'Mi••• Ex•••',preview:'Secure message · tap to unlock',at:'2026-11-06T12:00:00Z',secure:true,unread:true};
 const file={key:'files:4',kind:'files',id:4,threadId:10,category:'direct',title:'pilot-photo.png',original_filename:'pilot-photo.png',mime_type:'image/png',byte_size:2048,preview:'Photo notes',sender:'Jordan Example'};
 const root={id:100,thread_id:10,sender_user_id:2,sender_first_name:'Jordan',sender_last_name:'Example',body:'ORIGINAL MESSAGE',created_at:'2026-11-06T12:00:00Z',reply_count:1,latest_reply:{id:101,body:'LATEST REPLY',sender_first_name:'Taylor',sender_last_name:'Example'}};
-const response=()=>({items:[direct,secure],counts:{all:{total:2,unread:2,needs:1},direct:{total:1,unread:1,needs:1},secure:{total:1,unread:1,needs:0},groups:{total:0,unread:0,needs:0}},nextCursor:null});
+const response=()=>({items:[{...direct},{...secure}],counts:{all:{total:2,unread:2,needs:1},direct:{total:1,unread:1,needs:1},secure:{total:1,unread:1,needs:0},groups:{total:0,unread:0,needs:0}},nextCursor:null});
 async function start(path='/mobile/workspace?view=home&suite=direct',props={}){
   router=createRouter({history:createWebHistory(),routes:[{path:'/:pathMatch(.*)*',component:{template:'<span/>'}}]});await router.push(path);
   wrapper=mount(MobileMessages,{attachTo:document.body,props:{apiBase:'/api/quick-view',sessionToken:'scoped',userId:1,visible:true,preferences:{swipeLeft:'archive',swipeRight:'read'},...props},global:{plugins:[router]}});await flushPromises();return wrapper;
@@ -30,7 +30,7 @@ it('opens at the latest message, shows unread above, photos and the attached lat
  await start();await row('Jordan').trigger('click');await flushPromises();
  expect(wrapper.get('.mm-timeline').element.scrollTop).toBe(1200);expect(wrapper.get('.mm-unread-jump').text()).toContain('Unread');
  expect(wrapper.get('.mm-reply-preview').text()).toContain('LATEST REPLY');expect(wrapper.get('.has-replies').text()).toBe('1 reply');
- expect(wrapper.find('.mm-person-avatar img').attributes('src')).toBe('/api/uploads/photos/me.png');expect(wrapper.text()).not.toContain('Thread 10');
+ expect(wrapper.find('.mobile-identity-avatar .identity-picture img').attributes('src')).toBe('/api/uploads/photos/me.png');expect(wrapper.text()).not.toContain('Thread 10');
 });
 it('keeps the original message and Back returns to the selected direct conversation then its category',async()=>{
  await start();await row('Jordan').trigger('click');await flushPromises();await wrapper.get('.mm-thread-link').trigger('click');await flushPromises();
@@ -60,7 +60,7 @@ it('shows file details and can view the file without first navigating to its mes
 });
 it('shows category and filter counts, including groups',async()=>{
  await start();expect(wrapper.findAll('.mm-categories button').find(button=>button.text().includes('Groups')).text()).toContain('0');
- expect(wrapper.findAll('.mm-filters button').map(button=>button.text())).toEqual(['All 1','Unread 1','Needs reply 1']);
+ expect(wrapper.findAll('.mm-filters button').map(button=>button.text())).toEqual(['All 1','Unread 1','Needs reply 1','Sent 0','Drafts —']);
 });
 
 it('keeps recipient and group names on cards when the latest author is someone else',async()=>{
@@ -82,22 +82,22 @@ it('does not report an empty inbox or zero counts when loading failed, and retry
  api.get.mockRejectedValueOnce({response:{status:500,data:{error:{message:"Illegal mix of collations for operation IN"}}}});
  await start();expect(wrapper.get('[role="alert"]').text()).toContain('Messages could not be loaded');
  expect(wrapper.text()).not.toContain('Illegal mix');expect(wrapper.text()).not.toContain('No conversations in this view.');expect(wrapper.text()).not.toContain('You’re caught up.');
- expect(wrapper.findAll('.mm-filters span').map(n=>n.text())).toEqual(['—','—','—']);
+ expect(wrapper.findAll('.mm-filters span').map(n=>n.text())).toEqual(['—','—','—','—','—']);
  await wrapper.get('[role="alert"] button').trigger('click');await flushPromises();
- expect(wrapper.find('[role="alert"]').exists()).toBe(false);expect(row('Jordan')).toBeTruthy();expect(wrapper.findAll('.mm-filters span').map(n=>n.text())).toEqual(['1','1','1']);
+ expect(wrapper.find('[role="alert"]').exists()).toBe(false);expect(row('Jordan')).toBeTruthy();expect(wrapper.findAll('.mm-filters span').map(n=>n.text())).toEqual(['1','1','1','0','—']);
 });
 it('labels failed refresh as stale data and does not carry that data into a failed different category',async()=>{
  await start();api.get.mockRejectedValue({response:{status:500,data:{error:{message:'database internal detail'}}}});
  await wrapper.get('[aria-label="Refresh messages"]').trigger('click');await flushPromises();
  expect(wrapper.get('[role="alert"]').text()).toContain('Previously loaded conversations');expect(row('Jordan')).toBeTruthy();
  await wrapper.findAll('.mm-categories button').find(b=>b.text().includes('Email')).trigger('click');await flushPromises();
- expect(wrapper.find('.mm-row').exists()).toBe(false);expect(wrapper.text()).not.toContain('No conversations in this view.');expect(wrapper.findAll('.mm-filters span').map(n=>n.text())).toEqual(['—','—','—']);
+ expect(wrapper.find('.mm-row').exists()).toBe(false);expect(wrapper.text()).not.toContain('No conversations in this view.');expect(wrapper.findAll('.mm-filters span').map(n=>n.text())).toEqual(['—','—','—','—','—']);
 });
 
 it('clears previously loaded inbox content when current access is revoked',async()=>{
  await start();api.get.mockRejectedValue({response:{status:403,data:{error:{message:'Conversation access changed'}}}});
  await wrapper.get('[aria-label="Refresh messages"]').trigger('click');await flushPromises();
- expect(wrapper.text()).toContain('Conversation access changed');expect(wrapper.find('.mm-row').exists()).toBe(false);expect(wrapper.findAll('.mm-filters span').map(n=>n.text())).toEqual(['—','—','—']);
+ expect(wrapper.text()).toContain('Conversation access changed');expect(wrapper.find('.mm-row').exists()).toBe(false);expect(wrapper.findAll('.mm-filters span').map(n=>n.text())).toEqual(['—','—','—','—','—']);
 });
 
 it('opens a direct recipient picker and never emits email from the Direct plus button',async()=>{
@@ -136,3 +136,43 @@ it('exposes saved email drafts and reopens the exact draft and originating agenc
  const original=api.get.getMockImplementation();api.get.mockImplementation(async(url,config)=>config?.params?.suite==='drafts'?{data:{items:[{key:'draft:abc',kind:'draft',id:'abc',agencyId:20,title:'Saved synthetic draft',sender:'recipient@example.invalid',preview:'Unsent content'}],counts:{drafts:{total:1,unread:0,needs:0}}}}:original(url,config));await start('/mobile/workspace?view=home&suite=drafts');expect(wrapper.text()).toContain('Saved synthetic draft');await wrapper.get('.mm-row').trigger('click');expect(wrapper.emitted('compose-email')[0][0]).toEqual({draftId:'abc',agencyId:20});
 });
 it('keeps Show all explicit when All starts in the unread view',async()=>{await start('/mobile/workspace?view=home&suite=all');const link=wrapper.findAll('button').find(b=>b.text()==='Show all conversations');expect(link).toBeTruthy();await link.trigger('click');await flushPromises();expect(router.currentRoute.value.query.filter).toBe('all');});
+
+it('keeps the keyboard closed on opening Direct and shows the agency mark below a photo',async()=>{
+ const original=api.get.getMockImplementation();api.get.mockImplementation((url,options)=>url.endsWith('/directory')?Promise.resolve({data:{providers:[{id:2,displayName:'Synthetic Teammate',agencyId:4,agencyName:'ITSCO',profilePhotoUrl:'photos/person.png',agencyLogoUrl:'/email-signatures/staff-html/itsco-main-logo.png'}]}}):original(url,options));
+ await start();await wrapper.get('[aria-label="New direct message"]').trigger('click');await flushPromises();
+ const dialog=document.querySelector('[role="dialog"]');expect(document.activeElement.tagName).toBe('BUTTON');expect(dialog.querySelector('input')).not.toBe(document.activeElement);
+ expect(dialog.querySelector('.identity-agency').getAttribute('src')).toBe('/email-signatures/staff-html/itsco-main-logo.png');expect(dialog.querySelector('.identity-picture img').getAttribute('src')).toBe('/api/uploads/photos/person.png');
+});
+it('puts Sent and Drafts in the same filter row and sends the selected filter to the server',async()=>{
+ await start();expect(wrapper.findAll('.mm-categories button').some(b=>b.text().includes('Drafts'))).toBe(false);
+ await wrapper.findAll('.mm-filters button').find(b=>b.text().startsWith('Sent')).trigger('click');await flushPromises();expect(api.get.mock.calls.at(-1)[1].params).toMatchObject({suite:'direct',filter:'sent'});
+ await wrapper.findAll('.mm-filters button').find(b=>b.text().startsWith('Drafts')).trigger('click');await flushPromises();expect(api.get.mock.calls.at(-1)[1].params).toMatchObject({suite:'drafts',filter:'all'});
+});
+it('changes unread appearance and badge before the network returns, then expires the notice',async()=>{
+ let finish;api.patch.mockImplementation(()=>new Promise(resolve=>finish=resolve));await start();vi.useFakeTimers();
+ await wrapper.findAll('.mm-row-tools button').find(b=>b.text()==='Mark read').trigger('click');await flushPromises();
+ expect(row('Jordan').element.closest('article').classList.contains('unread')).toBe(false);expect(wrapper.get('.mm-notice').text()).toContain('Marked as read');expect(wrapper.emitted('counts').at(-1)[0].direct.unread).toBe(0);
+ finish({data:{ok:true}});await flushPromises();await vi.advanceTimersByTimeAsync(4600);expect(wrapper.find('.mm-notice').exists()).toBe(false);vi.useRealTimers();
+});
+it('restores unread appearance on a failed read request without claiming success',async()=>{
+ let fail;api.patch.mockImplementation(()=>new Promise((_,reject)=>fail=reject));await start();await wrapper.findAll('.mm-row-tools button').find(b=>b.text()==='Mark read').trigger('click');
+ fail({response:{status:503,data:{error:{message:'Temporary failure'}}}});await flushPromises();expect(row('Jordan').element.closest('article').classList.contains('unread')).toBe(true);
+});
+it('retains horizontal category position across a conversation and count refresh',async()=>{
+ await start();const tabs=wrapper.get('.mm-categories');tabs.element.scrollLeft=240;await tabs.trigger('scroll');await row('Jordan').trigger('click');await flushPromises();await back();expect(wrapper.get('.mm-categories').element.scrollLeft).toBe(240);
+ let finish;api.get.mockImplementationOnce(()=>new Promise(resolve=>finish=resolve));await wrapper.get('[aria-label="Refresh messages"]').trigger('click');expect(wrapper.get('.mm-categories').text()).toContain('Direct1');finish({data:response()});await flushPromises();expect(wrapper.get('.mm-categories').element.scrollLeft).toBe(240);
+});
+it('pages clients and shows an explicit secure invite composer with an agency icon',async()=>{
+ const original=api.get.getMockImplementation();const person={id:'4:20:client',clientId:20,agencyId:4,recipientKey:'client',displayName:'Syn* Adu*',requiresInvitation:true,agencyLogoUrl:'/email-signatures/staff-html/itsco-main-logo.png'};
+ api.get.mockImplementation((url,options)=>url.includes('/messages/clients?')?Promise.resolve({data:{contacts:[{...person,id:options?.params?.page?'second':person.id}],nextPage:options?.params?.page?null:1}}):original(url,options));
+ api.post.mockResolvedValue({data:{ok:true,messageId:90,threadId:40,deliveryStatus:'queued'}});
+ await start('/mobile/workspace?view=home&suite=secure');await wrapper.get('[aria-label="New secure message"]').trigger('click');await flushPromises();
+ const dialog=document.querySelector('[role="dialog"]');expect(dialog.querySelector('.agency-picture')).not.toBeNull();dialog.querySelectorAll('button').forEach(b=>{if(b.textContent.includes('Load more clients'))b.click();});await flushPromises();expect(api.get.mock.calls.at(-1)[1].params.page).toBe(1);
+ dialog.querySelector('.mm-recipient').click();await flushPromises();expect(dialog.textContent).toContain('verify the client’s birth date');const box=dialog.querySelector('textarea');box.value='Synthetic private message';box.dispatchEvent(new Event('input',{bubbles:true}));dialog.querySelector('form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));await flushPromises();
+ expect(api.post).toHaveBeenCalledWith('/api/quick-view/messages/clients/20/contact/send',expect.objectContaining({channel:'secure',invite:true,requestKey:expect.any(String),recipientKey:'client'}),expect.any(Object));expect(wrapper.get('.mm-notice').text()).toContain('queued');
+});
+
+it('opens the invitation confirmation if portal setup changes after the recipient list loaded',async()=>{
+ const original=api.get.getMockImplementation();api.get.mockImplementation((url,options)=>url.includes('/messages/clients?')?Promise.resolve({data:{contacts:[{id:'4:20:guardian:9',clientId:20,agencyId:4,recipientKey:'guardian:9',displayName:'Syn* Cli*'}]}}):original(url,options));api.post.mockResolvedValue({data:{requiresInvitation:true}});
+ await start('/mobile/workspace?view=home&suite=secure');await wrapper.get('[aria-label="New secure message"]').trigger('click');await flushPromises();document.querySelector('.mm-recipient').click();await flushPromises();expect(document.querySelector('[role="dialog"] textarea')).not.toBeNull();expect(router.currentRoute.value.query.threadId).toBeUndefined();expect(api.post.mock.calls).toHaveLength(1);
+});

@@ -19,6 +19,7 @@ import {clinicalAccess} from '../services/guardianClinicalAccess.service.js';
 import {clientSecureAudience,ensureClientSecureConversation} from '../services/clientSecureConversation.service.js';
 import {resolveRelayFamily} from '../services/providerSmsRelayIdentity.service.js';
 import {sendClinicalSms} from '../services/clinicalSmsSend.service.js';
+import {pendingSecureContact,prepareAdultSecureRecipient,reserveSecureDelivery,secureDeliveryReceipt} from '../services/mobile/secureInvitation.service.js';
 import {getAuthorizedRecordingNarrative} from '../services/clinicalSessionRecording.service.js';
 
 const present=value=>value!==null&&value!==undefined&&value!=='';
@@ -174,19 +175,53 @@ export const getMobileClinicalContext=async(req,res,next)=>{
 };
 
 async function contactRoster(req){const {agencyId}=req.mobileClinical,clientId=checkedId(req.params.clientId,'client');const client=await requireNarrivaClient(req.user,agencyId,clientId),links=await ClientGuardian.listForClient(clientId),audience=await clientSecureAudience(clientId,pool,{agencyId}),contacts=[];
- for(const link of links){if(Number(link.access_enabled)!==1||!active(link))continue;const access=await clinicalAccess({agencyId,clientId,userId:link.guardian_user_id});if(access.reviewRequired||!access.scopes.includes('clinical_messages')||link.permissions_json?.canMessage===false)continue;
+ for(const link of links){if(Number(link.access_enabled)!==1||(!active(link)&&!['PENDING_SETUP','PENDING','INVITED'].includes(String(link.status).toUpperCase())))continue;const access=await clinicalAccess({agencyId,clientId,userId:link.guardian_user_id});if(access.reviewRequired||!access.scopes.includes('clinical_messages')||link.permissions_json?.canMessage===false)continue;
   const family=link.phone?await resolveRelayFamily(client,link.phone):null;
-  contacts.push({key:`guardian:${Number(link.guardian_user_id)}`,maskedName:maskMobileClientName(link),relationship:link.relationship_type==='self'?'Self':link.relationship_title||'Guardian',email:link.email||null,phone:link.phone||null,guardianUserId:Number(link.guardian_user_id),channels:{secure:audience.userIds.includes(Number(link.guardian_user_id)),sms:!!family&&Number(family.guardianUserId)===Number(link.guardian_user_id),email:!!link.email}});
+  contacts.push({key:`guardian:${Number(link.guardian_user_id)}`,maskedName:maskMobileClientName(link),relationship:link.relationship_type==='self'?'Self':link.relationship_title||'Guardian',email:link.email||null,phone:link.phone||null,guardianUserId:Number(link.guardian_user_id),secureInvitation:!audience.userIds.includes(Number(link.guardian_user_id))&&pendingSecureContact(link,client,access),channels:{secure:audience.userIds.includes(Number(link.guardian_user_id))||pendingSecureContact(link,client,access),sms:!!family&&Number(family.guardianUserId)===Number(link.guardian_user_id),email:!!link.email}});
  }
  if(ageAtServiceDate(client.date_of_birth,today())>=18&&!links.some(link=>link.relationship_type==='self'&&Number(link.access_enabled)===1)){
   const family=client.contact_phone?await resolveRelayFamily(client,client.contact_phone):null;
-  contacts.unshift({key:'client',maskedName:maskMobileClientName(client),relationship:'Self',email:client.contact_email||client.email||null,phone:client.contact_phone||null,guardianUserId:0,channels:{secure:false,sms:!!family&&Number(family.guardianUserId)===0,email:!!(client.contact_email||client.email)}});
+  contacts.unshift({key:'client',maskedName:maskMobileClientName(client),relationship:'Self',email:client.contact_email||client.email||null,phone:client.contact_phone||null,guardianUserId:0,secureInvitation:links.length===0&&!!client.date_of_birth&&!!(client.contact_email||client.email),secureReason:links.length?'Review existing portal relationships.':!(client.contact_email||client.email)?'Add a portal email in the client’s record.':null,channels:{secure:links.length===0&&!!client.date_of_birth&&!!(client.contact_email||client.email),sms:!!family&&Number(family.guardianUserId)===0,email:!!(client.contact_email||client.email)}});
  }
  return {client,contacts};}
-export const getMobileClientSummary=async(req,res,next)=>{try{await ensurePrimary(req,res);const {client,contacts}=await contactRoster(req);res.json({client:mobileClient(client),contacts:contacts.map(({guardianUserId,...contact})=>contact),secureMessaging:{available:contacts.some(contact=>contact.channels.secure),reason:contacts.some(contact=>contact.channels.secure)?null:'Secure messaging needs an active client or guardian portal account with permission to receive clinical messages. Open the client’s Portal settings in the main app to review access or arrange an invitation.'}});}catch(error){next(error);}};
+export const getMobileClientSummary=async(req,res,next)=>{try{await ensurePrimary(req,res);const {client,contacts}=await contactRoster(req);res.json({client:mobileClient(client),contacts:contacts.map(({guardianUserId,...contact})=>contact),secureMessaging:{available:contacts.some(contact=>contact.channels.secure),reason:contacts.some(contact=>contact.channels.secure)?null:'Review Portal settings: an authorized family relationship, email and client birth date are required. Existing accounts and restricted relationships need an access review before invitation.'}});}catch(error){next(error);}};
 function selectedContact(req,contacts){if(['to','phone','email','relayRecipient','guardianUserId'].some(key=>present(req.body[key])))throw narrivaError(400,'Choose a current authorized contact rather than supplying a recipient address.');const contact=contacts.find(contact=>contact.key===req.body.recipientKey);const channel=String(req.body.channel||'');if(!contact||!['secure','sms','email'].includes(channel)||!contact.channels[channel])throw narrivaError(403,'This contact or communication channel is no longer available.');return {contact,channel};}
-export const resolveMobileClientContact=async(req,res,next)=>{try{await ensurePrimary(req,res);const {client,contacts}=await contactRoster(req),{contact,channel}=selectedContact(req,contacts);if(channel==='secure'){const shared=await ensureClientSecureConversation({clientId:client.id,agencyId:req.mobileClinical.agencyId,actorUserId:req.user.id});return res.json({threadId:shared.threadId,suite:'secure'});}res.json({channel,to:channel==='sms'?contact.phone:contact.email,clientId:Number(client.id)});}catch(error){next(error);}};
-export const sendMobileClientContact=async(req,res,next)=>{try{await ensurePrimary(req,res);const {client,contacts}=await contactRoster(req),{contact,channel}=selectedContact(req,contacts);if(channel!=='sms')throw narrivaError(400,'Use the selected secure conversation or email composer for this channel.');const text=String(req.body.text||'').trim();if(!text||text.length>5000)throw narrivaError(400,'Enter a text message of 1 to 5000 characters.');const sent=await sendClinicalSms({userId:req.user.id,clientId:client.id,body:text,relayRecipient:{phone:contact.phone,guardianUserId:contact.guardianUserId}});res.json({ok:true,messageId:sent.messageLog?.id||null,conversationId:sent.conversationId||null});}catch(error){next(error);}};
+export const resolveMobileClientContact=async(req,res,next)=>{try{await ensurePrimary(req,res);const {client,contacts}=await contactRoster(req),{contact,channel}=selectedContact(req,contacts);if(channel==='secure'){if(contact.secureInvitation)return res.json({requiresInvitation:true,recipientKey:contact.key});const shared=await ensureClientSecureConversation({clientId:client.id,agencyId:req.mobileClinical.agencyId,actorUserId:req.user.id});return res.json({threadId:shared.threadId,suite:'secure'});}res.json({channel,to:channel==='sms'?contact.phone:contact.email,clientId:Number(client.id)});}catch(error){next(error);}};
+export const sendMobileClientContact=async(req,res,next)=>{
+ try {
+  await ensurePrimary(req,res);const {client,contacts}=await contactRoster(req);
+  const text=String(req.body.text||'').trim();if(!text||text.length>5000)throw narrivaError(400,'Enter a message of 1 to 5000 characters.');
+  if(req.body.channel==='secure'&&req.body.requestKey){
+   const [[prior]]=await pool.execute('SELECT id FROM mobile_secure_deliveries WHERE sender_user_id=? AND request_key=?',[req.user.id,String(req.body.requestKey)]);
+   if(prior){const {row}=await reserveSecureDelivery({senderId:req.user.id,requestKey:req.body.requestKey,agencyId:req.mobileClinical.agencyId,clientId:client.id,recipientKey:req.body.recipientKey,text});if(!row.message_id)throw narrivaError(409,'This send needs review. Check history before starting another send.');return res.json(secureDeliveryReceipt(row));}
+  }
+  const {contact,channel}=selectedContact(req,contacts);
+  if(channel==='sms'){const sent=await sendClinicalSms({userId:req.user.id,clientId:client.id,body:text,relayRecipient:{phone:contact.phone,guardianUserId:contact.guardianUserId}});return res.json({ok:true,messageId:sent.messageLog?.id||null,conversationId:sent.conversationId||null});}
+  if(channel!=='secure'||!contact.secureInvitation||req.body.invite!==true)throw narrivaError(400,'Confirm Send & invite for an eligible portal contact.');
+  const {row,fresh}=await reserveSecureDelivery({senderId:req.user.id,requestKey:req.body.requestKey,agencyId:req.mobileClinical.agencyId,clientId:client.id,recipientKey:contact.key,text});
+  if(!fresh){if(!row.message_id)throw narrivaError(409,'This send is pending or needs review. Check conversation history before starting another send.');return res.json(secureDeliveryReceipt(row));}
+  try {
+   const recipientId=contact.guardianUserId||await prepareAdultSecureRecipient(client.id,req.user.id);
+   // Re-read rights after account creation. Never activate an account or add a
+   // pending recipient to the thread before their normal verified portal setup.
+   const current=await contactRoster(req);const recipient=current.contacts.find(c=>c.guardianUserId===recipientId);
+   if(!recipient?.channels.secure)throw narrivaError(403,'The recipient’s secure-message permission changed.');
+   const shared=await ensureClientSecureConversation({clientId:client.id,agencyId:req.mobileClinical.agencyId,actorUserId:req.user.id});
+   await pool.execute('UPDATE mobile_secure_deliveries SET thread_id=?,recipient_user_id=? WHERE id=?',[shared.threadId,recipientId,row.id]);
+   const {sendMessage}=await import('./chat.controller.js');
+   const messageReq=Object.assign(Object.create(req),{params:{threadId:String(shared.threadId)},body:{body:text,method:'secure',clientId:client.id},mobileSecureDelivery:{id:row.id}});
+   try{await invokeMobileClinicalController(sendMessage,messageReq);}catch(error){const [[saved]]=await pool.execute('SELECT message_id FROM mobile_secure_deliveries WHERE id=?',[row.id]);if(!saved?.message_id)throw error;}
+   const [[saved]]=await pool.execute('SELECT * FROM mobile_secure_deliveries WHERE id=?',[row.id]);
+   if(!saved?.message_id)throw narrivaError(503,'Message delivery needs review. Your draft is preserved.');
+   // Normal send already notifies active participants. Only pending setup needs
+   // the additional claim email; its link uses the existing DOB setup gate.
+   let deliveryStatus='unknown';
+   if(recipient.secureInvitation){const {sendSecureMessageNotification}=await import('../services/secureMessageNotify.service.js');const delivery=await sendSecureMessageNotification({agencyId:req.mobileClinical.agencyId,senderUserId:req.user.id,recipientUserId:recipientId,recipientEmail:recipient.email,clientId:client.id,chatThreadId:shared.threadId,messageId:saved.message_id});deliveryStatus=delivery.sent?'sent':delivery.deliveryStatus||'unknown';}
+   await pool.execute('UPDATE mobile_secure_deliveries SET delivery_status=? WHERE id=?',[deliveryStatus,row.id]);
+   res.json(secureDeliveryReceipt({...saved,delivery_status:deliveryStatus}));
+  }catch(error){await pool.execute("UPDATE mobile_secure_deliveries SET delivery_status=IF(message_id IS NULL,'failed','unknown') WHERE id=?",[row.id]);const [[saved]]=await pool.execute('SELECT * FROM mobile_secure_deliveries WHERE id=?',[row.id]);if(saved?.message_id)return res.json(secureDeliveryReceipt(saved));throw error;}
+ }catch(error){next(error);}
+};
 
 export function invokeMobileClinicalController(handler,request,{params={},query={}}={}) {
  const req=Object.assign(Object.create(request),{params:{...request.params,...params},query:{...request.query,...query},body:{...request.body}});

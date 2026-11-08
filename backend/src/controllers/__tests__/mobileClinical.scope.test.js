@@ -21,7 +21,11 @@ vi.mock('../../services/clinicalSmsSend.service.js',()=>({sendClinicalSms:vi.fn(
 vi.mock('../../services/clinicalSessionRecording.service.js',()=>({getAuthorizedRecordingNarrative:vi.fn()}));
 vi.mock('../medicalBilling.controller.js',()=>({getClinicalNoteById:vi.fn(),listServiceLocations:vi.fn()}));
 vi.mock('../supervisedBilling.controller.js',()=>({getSuperviseeReviewDocument:vi.fn()}));
+vi.mock('../chat.controller.js',()=>({sendMessage:vi.fn()}));
+vi.mock('../../services/secureMessageNotify.service.js',()=>({sendSecureMessageNotification:vi.fn()}));
 vi.mock('../notesToSign.controller.js',()=>({listNotesToSign:vi.fn()}));
+import {sendMessage} from '../chat.controller.js';
+import {sendSecureMessageNotification} from '../../services/secureMessageNotify.service.js';
 import pool from '../../config/database.js';
 import {currentAccessAgencyId} from '../../utils/agencyAccessContext.js';
 import clinicalPool from '../../config/clinicalDatabase.js';
@@ -145,4 +149,34 @@ describe('mobile assigned locations and secure setup',()=>{
  it('loads only the note-writer location choices in the token workspace',async()=>{const res=response(),next=vi.fn();await getMobileClinicalContext(request({query:{clientId:20,clinicalSessionId:10,includeInactive:'1',forNoteAid:'0'}}),res,next);expect(next).not.toHaveBeenCalled();expect(listServiceLocations.mock.calls[0][0].query).toMatchObject({agencyId:4,forNoteAid:'1',includeInactive:'0'});expect(res.json.mock.calls[0][0].locationChoices).toHaveLength(1);});
  it('preserves the note context and labels unavailable locations instead of silently offering generic sites',async()=>{listServiceLocations.mockImplementation((req,res,next)=>next(new Error('Unavailable')));const res=response(),next=vi.fn();await getMobileClinicalContext(request({query:{clientId:20,clinicalSessionId:10}}),res,next);expect(next).not.toHaveBeenCalled();expect(res.json.mock.calls[0][0]).toMatchObject({locationChoices:[],locationChoicesUnavailable:true,client:{id:20}});});
  it('shows secure setup requirements with no authorized portal recipients and does not create a thread',async()=>{ClientGuardian.listForClient.mockResolvedValue([]);clientSecureAudience.mockResolvedValue({userIds:[1]});const res=response(),next=vi.fn();await getMobileClientSummary(request({params:{clientId:20}}),res,next);expect(next).not.toHaveBeenCalled();expect(res.json.mock.calls[0][0]).toMatchObject({contacts:[],secureMessaging:{available:false}});expect(ensureClientSecureConversation).not.toHaveBeenCalled();});
+});
+
+describe('mobile secure message and pending portal invitation',()=>{
+ const body={recipientKey:'guardian:11',channel:'secure',text:'SYNTHETIC PRIVATE MESSAGE',invite:true,requestKey:'synthetic-request-000001'};
+ function pending(){requireNarrivaClient.mockResolvedValue({...client,guardian_portal_enabled:1});ClientGuardian.listForClient.mockResolvedValue([{...guardian,role:'client_guardian',status:'PENDING_SETUP'}]);clientSecureAudience.mockResolvedValue({userIds:[1]});}
+ it('offers explicit Send & invite without creating a conversation on selection',async()=>{
+  pending();const res=response(),next=vi.fn();await getMobileClientSummary(request({params:{clientId:20}}),res,next);
+  expect(res.json.mock.calls[0][0].contacts[0]).toMatchObject({secureInvitation:true,channels:{secure:true}});
+  const open=response();await resolveMobileClientContact(request({params:{clientId:20},body}),open,next);
+  expect(open.json).toHaveBeenCalledWith({requiresInvitation:true,recipientKey:'guardian:11'});expect(ensureClientSecureConversation).not.toHaveBeenCalled();expect(sendSecureMessageNotification).not.toHaveBeenCalled();
+ });
+ it('requires the explicit invitation action and current clinical permission',async()=>{
+  pending();let next=vi.fn();await sendMobileClientContact(request({params:{clientId:20},body:{...body,invite:false}}),response(),next);expect(next).toHaveBeenCalledWith(expect.objectContaining({status:400}));
+  clinicalAccess.mockResolvedValue({reviewRequired:true,scopes:[]});next=vi.fn();await sendMobileClientContact(request({params:{clientId:20},body}),response(),next);expect(next).toHaveBeenCalledWith(expect.objectContaining({status:403}));expect(sendMessage).not.toHaveBeenCalled();expect(sendSecureMessageNotification).not.toHaveBeenCalled();
+ });
+ it('uses encrypted chat send and returns queued delivery without a claim token; retry never resends',async()=>{
+  pending();let saved=null;
+  pool.execute.mockImplementation(async(sql,params)=>{
+   if(sql.startsWith('SELECT id FROM mobile_secure'))return [saved?[saved]:[]];
+   if(sql.startsWith('INSERT IGNORE INTO mobile_secure')){const fresh=!saved;saved ||= {id:9,content_hash:params[5],delivery_status:'pending'};return [{affectedRows:fresh?1:0}];}
+   if(sql.startsWith('SELECT * FROM mobile_secure'))return [[saved]];
+   return [{affectedRows:1}];
+  });
+  sendMessage.mockImplementation(async(req,res)=>{expect(req.mobileSecureDelivery).toEqual({id:9});expect(req.body).toEqual({body:body.text,method:'secure',clientId:20});saved={...saved,message_id:90,thread_id:88};res.status(201).json({id:90});});
+  sendSecureMessageNotification.mockResolvedValue({sent:false,deliveryStatus:'queued',claimUrl:'SECRET-CLAIM',tokenShownOnce:'SECRET-TOKEN'});
+  const res=response(),next=vi.fn();await sendMobileClientContact(request({params:{clientId:20},body}),res,next);expect(next).not.toHaveBeenCalled();
+  expect(res.json).toHaveBeenCalledWith({ok:true,threadId:88,messageId:90,deliveryStatus:'queued'});expect(JSON.stringify(res.json.mock.calls)).not.toContain('SECRET');
+  saved.delivery_status='queued';await sendMobileClientContact(request({params:{clientId:20},body}),response(),next);
+  expect(sendMessage).toHaveBeenCalledOnce();expect(sendSecureMessageNotification).toHaveBeenCalledOnce();
+ });
 });

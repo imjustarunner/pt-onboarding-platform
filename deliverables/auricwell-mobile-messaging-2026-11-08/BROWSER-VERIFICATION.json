@@ -1,0 +1,50 @@
+{
+  "synthetic": true,
+  "engine": "Chromium phone emulation and desktop; physical iPhone not tested",
+  "results": [
+    {
+      "width": 390,
+      "opening": {
+        "active": "BUTTON",
+        "overflow": false,
+        "scale": 1
+      },
+      "picker": {
+        "font": "16px",
+        "scale": 1
+      },
+      "composer": {
+        "font": "16px",
+        "scale": 1,
+        "overflow": false
+      },
+      "badge": {
+        "width": 18,
+        "center": 0
+      },
+      "errors": []
+    },
+    {
+      "width": 1366,
+      "opening": {
+        "active": "BUTTON",
+        "overflow": false,
+        "scale": 1
+      },
+      "picker": {
+        "font": "16px",
+        "scale": 1
+      },
+      "composer": {
+        "font": "16px",
+        "scale": 1,
+        "overflow": false
+      },
+      "badge": {
+        "width": 18,
+        "center": 0
+      },
+      "errors": []
+    }
+  ]
+}
