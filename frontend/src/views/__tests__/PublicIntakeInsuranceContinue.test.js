@@ -54,7 +54,14 @@ async function clickChoice(component, text) {
   await component.findAll('button').find(button => button.text().startsWith(text)).trigger('click');
   await flushPromises();
 }
+async function confirmCoverageIfShown() {
+  const form=wrapper.findComponent(CombinedInsurance);
+  if(!form.exists())return;
+  const button=form.findAll('button').find(b=>b.text()==='Confirm primary and any secondary coverage');
+  if(button){await button.trigger('click');await flushPromises();}
+}
 async function authorize() {
+  await confirmCoverageIfShown();
   const form = wrapper.findComponent(CombinedInsurance);
   const noCard = form.findAll('button').find(button => button.text().includes('Not Paying Now'));
   if (noCard) await noCard.trigger('click');
@@ -62,6 +69,7 @@ async function authorize() {
   await form.get('.pi-ip-sign input').setValue('QA Adult');
 }
 async function continueInsurance() {
+  await confirmCoverageIfShown();
   await wrapper.vm.handleCurrentFlowContinue();
   await flushPromises();
   expect(wrapper.vm.stepError).toBe('');
@@ -130,7 +138,9 @@ describe('office insurance Continue and Back', () => {
     await wrapper.vm.handleCurrentFlowContinue();
     await flushPromises();
     expect(wrapper.vm.currentFlowStep.type).toBe('insurance_info');
-    expect(wrapper.vm.stepError).toContain('select your primary insurance');
+    await confirmCoverageIfShown();
+    expect(wrapper.findComponent(CombinedInsurance).text()).toContain('Enter the insurer for your primary and any secondary coverage before confirming.');
+    expect(wrapper.vm.currentFlowStep.type).toBe('insurance_info');
   });
 });
 
