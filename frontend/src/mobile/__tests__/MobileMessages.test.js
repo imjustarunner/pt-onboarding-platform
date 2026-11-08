@@ -171,3 +171,8 @@ it('pages clients and shows an explicit secure invite composer with an agency ic
  dialog.querySelector('.mm-recipient').click();await flushPromises();expect(dialog.textContent).toContain('verify the client’s birth date');const box=dialog.querySelector('textarea');box.value='Synthetic private message';box.dispatchEvent(new Event('input',{bubbles:true}));dialog.querySelector('form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));await flushPromises();
  expect(api.post).toHaveBeenCalledWith('/api/quick-view/messages/clients/20/contact/send',expect.objectContaining({channel:'secure',invite:true,requestKey:expect.any(String),recipientKey:'client'}),expect.any(Object));expect(wrapper.get('.mm-notice').text()).toContain('queued');
 });
+
+it('opens the invitation confirmation if portal setup changes after the recipient list loaded',async()=>{
+ const original=api.get.getMockImplementation();api.get.mockImplementation((url,options)=>url.includes('/messages/clients?')?Promise.resolve({data:{contacts:[{id:'4:20:guardian:9',clientId:20,agencyId:4,recipientKey:'guardian:9',displayName:'Syn* Cli*'}]}}):original(url,options));api.post.mockResolvedValue({data:{requiresInvitation:true}});
+ await start('/mobile/workspace?view=home&suite=secure');await wrapper.get('[aria-label="New secure message"]').trigger('click');await flushPromises();document.querySelector('.mm-recipient').click();await flushPromises();expect(document.querySelector('[role="dialog"] textarea')).not.toBeNull();expect(router.currentRoute.value.query.threadId).toBeUndefined();expect(api.post.mock.calls).toHaveLength(1);
+});

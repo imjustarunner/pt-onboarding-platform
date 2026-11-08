@@ -14,7 +14,7 @@ Implemented for the shared web/mobile interface:
 - Read status and badges update immediately; failure restores state; notices expire after 4.5 seconds.
 
 Validation:
-- API/mobile service tests, shared clinical/permission tests, mobile/Quick View/family UI suite and authentication suite executed. Local counts: API 131 passed / 30 skipped; clinical 492 passed / 44 skipped; interface 334 passed; authentication 104 passed. Release CI separately runs opt-in MySQL fixtures.
+- API/mobile service tests, shared clinical/permission tests, mobile/Quick View/family UI suite and authentication suite executed. Local counts: API 131 passed / 30 skipped; clinical 492 passed / 44 skipped; interface 336 passed; authentication 104 passed. Release CI separately runs opt-in MySQL fixtures.
 - Full web build and bundled mobile build passed.
 - Synthetic Chrome browser checks at 390px and 1366px: no horizontal overflow, no keyboard autofocus, 16px picker/composer, scale 1, centered 18px agency mark, no page errors.
 - Browser emulation is not a physical iPhone keyboard/Face ID/backgrounding test. No production clinical messages or invitations were sent during validation.

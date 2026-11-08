@@ -42,10 +42,10 @@ async function startDirect(person){
  try{
   let target;
   if(recipientMode.value==='channels'){await axios.post(`${props.apiBase}/chat/channels/${person.id}/open`,{},config());target={suite:'channels',threadId:String(person.id)};}
-  else if(recipientMode.value==='secure'){const {data}=await axios.post(`${props.apiBase}/messages/clients/${person.clientId}/contact`,{agencyId:person.agencyId,recipientKey:person.recipientKey,channel:'secure'},config());target={suite:'secure',threadId:String(data.threadId),secure:'1'};}
+  else if(recipientMode.value==='secure'){const {data}=await axios.post(`${props.apiBase}/messages/clients/${person.clientId}/contact`,{agencyId:person.agencyId,recipientKey:person.recipientKey,channel:'secure'},config());if(data.requiresInvitation){recipientBusy.value={...person,requiresInvitation:true};recipientSendKey.value=crypto.randomUUID();return;}target={suite:'secure',threadId:String(data.threadId),secure:'1'};}
   else {const {data}=await axios.post(`${props.apiBase}/chat/direct`,{otherUserId:person.id,...(person.agencyId?{agencyId:person.agencyId}:{})},config());target={suite:data.messageChannel==='secure'?'secure':'direct',threadId:String(data.threadId),secure:data.messageChannel==='secure'?'1':undefined};}
   if(request!==recipientRequest)return;closeRecipients();await go({view:'home',...target});
- }catch(e){if(request===recipientRequest)recipientError.value=e.response?.data?.error?.message || 'Could not open this conversation.';}finally{if(request===recipientRequest)recipientBusy.value=null;}
+ }catch(e){if(request===recipientRequest)recipientError.value=e.response?.data?.error?.message || 'Could not open this conversation.';}finally{if(request===recipientRequest && !recipientBusy.value?.clientId)recipientBusy.value=null;}
 }
 async function sendNewText(){
  const person=recipientBusy.value;if(recipientSending.value || !person?.clientId || !recipientText.value.trim())return;recipientError.value='';recipientSending.value=true;

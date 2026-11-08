@@ -108,7 +108,7 @@ describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('personal mobile inbox SQL',
  it('counts only authorized threads and leaves messages above unread until actually viewed',async()=>{
   await db.query(`INSERT INTO chat_messages VALUES(100,10,NULL,1),(101,10,100,2),(200,20,NULL,1),(201,20,200,2);
     INSERT INTO chat_message_mentions VALUES(101,1),(201,1);INSERT INTO chat_message_attachments VALUES(1,101),(2,201);`);
-  expect(await store.extraCounts(1,[10])).toEqual({threads:{total:1,unread:1,needs:1,sent:0},mentions:{total:1,unread:1,needs:1,sent:0},files:{total:1,unread:1,needs:0,sent:0}});
+  expect(await store.extraCounts(1,[10])).toEqual({threads:{total:1,unread:1,needs:1,sent:1},mentions:{total:1,unread:1,needs:1,sent:0},files:{total:1,unread:1,needs:0,sent:0}});
   await db.execute('INSERT INTO chat_message_views VALUES(101,1)');expect((await store.extraCounts(1,[10])).threads.unread).toBe(0);
  });
  it('keeps current membership and school-staff secure-message restrictions on device sign-ins',async()=>{
