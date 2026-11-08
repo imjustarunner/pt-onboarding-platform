@@ -44,7 +44,7 @@ export function extractVersionLabelFromText(text) {
 }
 
 /**
- * Heuristic: two "Sign here" blocks; each looks signed if nearby date or dense ink-like OCR.
+ * Signature-area date cues for review; printed ink density is not signature evidence.
  */
 export function detectSignaturesFromText(text) {
   const body = String(text || '');

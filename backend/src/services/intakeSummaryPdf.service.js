@@ -1,4 +1,4 @@
-import { lookupStructuredIntakeTranslation } from '../../../frontend/src/constants/structuredIntakeStepSpanish.js';
+import { lookupStructuredIntakeTranslation } from '../../../frontend/src/navigation/intake/structuredIntakeStepSpanish.js';
 import {
   buildPacketStyleBlock,
   buildPdfChromeTemplates,

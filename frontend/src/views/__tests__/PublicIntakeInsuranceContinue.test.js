@@ -102,7 +102,7 @@ describe('office insurance Continue and Back', () => {
     expect(wrapper.findComponent(SchoolInsurance).vm.getPhotoFiles().primary_front).toBeNull();
     expect(insurance()).toMatchObject(urls);
   });
-  it.each(['commercial', 'primary Medicaid', 'secondary Medicaid'])('preserves %s coverage and authorization when Self-Pay continues and changes back to insurance', async tier => {
+  it.each(['commercial'])('preserves %s coverage and authorization when Self-Pay continues and changes back to insurance', async tier => {
     const primary = { insurerName: tier === 'primary Medicaid' ? 'Medicaid' : 'Commercial', memberId: 'QA-PRIMARY', groupNumber: 'QA-GROUP', subscriberName: 'QA Adult', isMedicaid: tier === 'primary Medicaid' };
     const secondary = { insurerName: tier === 'secondary Medicaid' ? 'Medicaid' : 'Other Commercial', memberId: 'QA-SECONDARY', isMedicaid: tier === 'secondary Medicaid' };
     await render({ insuranceInfo: { primary, secondary, hasSecondary: true, payerChoice: 'insurance', isSelfPay: false } });
@@ -122,6 +122,25 @@ describe('office insurance Continue and Back', () => {
     expect(insurance()).toMatchObject({ isSelfPay: false, payerChoice: 'insurance', primary, secondary });
     await continueInsurance();
     expect(insurance()).toMatchObject({ primary, secondary, authorizationSignature: 'QA Adult' });
+  });
+
+  it.each(['primary', 'secondary'])('keeps %s Medicaid coverage editable without offering Self-Pay or payment', async tier => {
+    const primary = { insurerName: tier === 'primary' ? 'Medicaid' : 'Commercial', memberId: 'QA-PRIMARY', isMedicaid: tier === 'primary' };
+    const secondary = { insurerName: tier === 'secondary' ? 'Medicaid' : 'Other Commercial', memberId: 'QA-SECONDARY', isMedicaid: tier === 'secondary' };
+    await render({ insuranceInfo: { primary, secondary, hasSecondary: true, payerChoice: 'insurance', isSelfPay: false } });
+    const form = wrapper.findComponent(CombinedInsurance);
+    expect(form.text()).not.toContain('How would you like to pay?');
+    expect(form.findAll('button').some(button => button.text().startsWith('Self-Pay'))).toBe(false);
+    expect(form.findComponent(SchoolInsurance).exists()).toBe(true);
+    await authorize();
+    await continueInsurance();
+    expect(insurance()).toMatchObject({ primary, secondary, payerChoice: 'insurance', authorizationSignature: 'QA Adult' });
+    expect(wrapper.vm.shouldSkipPaymentCollectionStep()).toBe(true);
+    wrapper.vm.goBackPublicPage();
+    await flushPromises();
+    expect(wrapper.findComponent(SchoolInsurance).exists()).toBe(true);
+    expect(insurance()).toMatchObject({ primary, secondary, authorizationSignature: 'QA Adult' });
+    await continueInsurance();
   });
 
   it('allows empty-policy Self-Pay and lets Back choose insurance without treating Self-Pay as a carrier', async () => {

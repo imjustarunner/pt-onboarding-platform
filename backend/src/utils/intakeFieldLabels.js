@@ -1,5 +1,5 @@
-import { lookupStructuredIntakeTranslation } from '../../../frontend/src/constants/structuredIntakeStepSpanish.js';
-import { officeSpanishScreenField, preserveOriginalOfficeInstrument } from '../../../frontend/src/utils/officeClinicalTranslations.js';
+import { lookupStructuredIntakeTranslation } from '../../../frontend/src/navigation/intake/structuredIntakeStepSpanish.js';
+import { officeSpanishScreenField, preserveOriginalOfficeInstrument } from '../../../frontend/src/navigation/intake/officeClinicalTranslations.js';
 /** Admin-enabled per-question Spanish labels (stored on intake_links.custom_messages). */
 export function spanishQuestionLabelsEnabled(link) {
   const cm = link?.custom_messages;
