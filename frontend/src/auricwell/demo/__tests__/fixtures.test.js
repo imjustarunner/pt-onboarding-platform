@@ -147,7 +147,7 @@ describe('expanded fictional client records', () => {
       expect(client.rating).toBeGreaterThanOrEqual(client.baseline);
       expect(client.rating).toBeLessThanOrEqual(client.target);
     }
-    expect(clients.filter(client => client.age < 18).map(client => client.id)).toEqual([990123, 990125, 991025, 991027]);
+    expect(clients.filter(client => client.age < 18).map(client => client.id)).toEqual([990125, 991025, 991027]);
     for (const client of clients.filter(person => person.age < 18)) {
       expect(client.guardian_names).toHaveLength(2);
       expect(client.portal).toContain('2 separate guardian accounts');

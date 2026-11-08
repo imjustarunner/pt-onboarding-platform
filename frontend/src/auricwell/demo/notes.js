@@ -1,5 +1,5 @@
 import { demoClientRecordIds } from './recordIds.js';
-import { exampleReviewInsights } from './narriva.js';
+import { narrivaExamples, examplePreviousRatings, exampleReviewInsights } from './narriva.js';
 // Fictional browser-only examples. These records never reference production IDs.
 export const DEMO_NOTE_NOTICE = 'Demo only: this does not sign or complete a note. Nothing is saved, submitted or sent.';
 export const DEMO_DRAFT_IDS = [990131, 990132, 990133];
@@ -23,12 +23,15 @@ function dayBefore(ymd, count = 7) {
 }
 
 export function createDemoNoteFixtures({ practice, actor, clients, providers = [], weekStart }) {
+  const exampleFor=client=>narrivaExamples.find(item=>item.clientId===Number(client?.id));
   const previousDate = dayBefore(weekStart);
   const clientFor = index => clients[index % clients.length];
   const clientName = client => client.full_name || [client.first_name, client.last_name].filter(Boolean).join(' ');
   const providerFor = client => providers.find(provider => Number(provider.id) === Number(client?.provider_id)) || actor;
   const providerName = provider => provider.full_name || provider.name || [provider.first_name, provider.last_name].filter(Boolean).join(' ') || 'Avery Lane';
   const diagnosisFor = client => {
+    const example=exampleFor(client);
+    if(example){const match=example.diagnosis.match(/([FZ]\d{2}(?:\.\d+)?)/);return match?{icd10Code:match[1],description:example.diagnosis}:null;}
     const match = String(client?.diagnosis || '').match(/^([A-Z]\d{2}(?:\.\d+)?)\s*[·–-]\s*(.+)$/);
     return match ? { icd10Code: match[1], description: match[2] } : client?.diagnosis ? null
       : { icd10Code: 'F43.23', description: 'Adjustment disorder with mixed anxiety and depressed mood' };
@@ -51,7 +54,7 @@ export function createDemoNoteFixtures({ practice, actor, clients, providers = [
     diagnosticJustification: 'Fictional example: symptoms associated with a recent life transition affect coping and daily routines.',
     durationMinutes: 45, locationLabel: 'Telehealth · client at home', startTime: '09:00', endTime: '09:45', participants: 'Client Only', placeOfService: '10', serviceLocationId: 990151
   });
-  const outputFor = (client, index, aiGenerated = false) => ({
+  const outputFor = (client, index, aiGenerated = false) => {const example=exampleFor(client);if(example){const e=example.encounter;return {sections:Object.fromEntries(example.sections.map(section=>[section.label,section.text])),meta:{toolId:'clinical_psychotherapy_note',serviceCode:e.serviceCode,noteKind:'progress',manualSections:false,aiGenerated:true,exampleOnly:true,source:'prepared_demo',structuredChart:{clientId:client.id,durationMinutes:e.durationMinutes,locationLabel:e.setting,participants:e.participants,placeOfService:e.serviceCode==='90847'?'11':'10'},sessionContext:{sourceTimezone:'America/Denver',locationLabel:e.setting,durationMinutes:e.durationMinutes,participants:e.participants,serviceCode:e.serviceCode,placeOfService:e.serviceCode==='90847'?'11':'10'},prescribedFrequency:'Weekly'}};}return ({
     sections: index < 8 ? sections(index) : {
       ...sections(index), Subjective: client.session_summary || sections(index).Subjective,
       Interventions: client.intervention_summary || sections(index).Interventions,
@@ -65,20 +68,21 @@ export function createDemoNoteFixtures({ practice, actor, clients, providers = [
       prescribedFrequency: index < 8 ? 'Weekly individual therapy' : client.frequency, treatmentRecommendation: 'continue'
     }
   });
+  };
   const drafts = DEMO_DRAFT_IDS.map((id, index) => {
     const client = clientFor(index);
     return {
       id, client_id: client.id, client_full_name: clientName(client), initials: client.initials,
       agency_id: practice.id, client_agency_id: practice.id, agency_name: practice.name,
-      provider_id: providerFor(client).id, note_type: 'PROGRESS_NOTE', note_kind: 'progress', service_code: '90834', status: 'draft',
+      provider_id: providerFor(client).id, note_type: 'PROGRESS_NOTE', note_kind: 'progress', service_code: exampleFor(client)?.encounter.serviceCode || '90834', status: 'draft',
       clinical_session_id: 990191 + index, office_event_id: 990141 + index,
       date_of_service: weekStart, created_at: `${weekStart}T16:00:00Z`, updated_at: `${weekStart}T17:00:00Z`,
-      title: index === 1 ? 'Progress note · optional AI draft example' : 'Individual therapy progress note',
-      input_text: `Fictional session example: ${sections(index).Subjective} ${sections(index).Interventions}`,
+      title: exampleFor(client)?.encounter.serviceCode==='90847'?'Couples therapy progress note':'Narriva progress note · prepared example',
+      input_text: exampleFor(client)?.source || `Fictional session example: ${sections(index).Subjective} ${sections(index).Interventions}`,
       output_json: outputFor(client, index, index === 1)
     };
   });
-  const ratingsFor = client => [{
+  const ratingsFor = client => exampleFor(client)?examplePreviousRatings(exampleFor(client)).filter(row=>row.rater_kind==='clinician').map(row=>({objectiveId:row.objective_id,scaleValue:row.scale_value,raterKind:row.rater_kind,dateOfService:previousDate,disposition:'rated',exampleOnly:true})):[{
     id: 991000 + Number(client.id), objectiveId: demoClientRecordIds(client.id).objectiveId,
     goalIndex: 1, objectiveIndex: 1, goalText: client.goal || 'Build confidence using coping strategies.',
     objectiveText: client.objective || 'Use a grounding strategy independently when stress increases.',
@@ -111,8 +115,8 @@ export function createDemoNoteFixtures({ practice, actor, clients, providers = [
   const workQueue = drafts.map((draft, index) => ({
     id: `demo_work_${index + 1}`, serverId: 990401 + index, clientKey: `demo_work_${index + 1}`, draftId: draft.id,
     clientId: draft.client_id, clientName: draft.client_full_name, initials: draft.initials, agencyId: practice.id,
-    agencyName: practice.name, organizationType: 'agency', agencyType: 'agency', serviceCode: '90834', noteKind: 'progress',
-    action: 'Complete individual therapy progress note', date: weekStart, timeLabel: ['9:00 AM', '10:00 AM', '11:00 AM'][index],
+    agencyName: practice.name, organizationType: 'agency', agencyType: 'agency', serviceCode: draft.service_code, noteKind: 'progress',
+    action: 'Review prepared progress note', date: weekStart, timeLabel: ['9:00 AM', '10:00 AM', '11:00 AM'][index],
     clinicalSessionId: draft.clinical_session_id, officeEventId: draft.office_event_id, status: 'started', docStatus: 'started'
   }));
   const allNotes = [...historicalNotes, ...cosignNotes];
@@ -142,10 +146,11 @@ export function createDemoNoteFixtures({ practice, actor, clients, providers = [
     const ids = demoClientRecordIds(client.id);
     const objectiveId = ids.objectiveId;
     const diagnosis = diagnosisFor(client);
+    const example=exampleFor(client);
     return {
       diagnoses: diagnosis ? [{ id: ids.diagnosisId, icd10_code: diagnosis.icd10Code, description: diagnosis.description, is_primary: 1 }] : [],
       intakeNotes: [{ id: ids.intakeNoteId, status: 'final', finalized_at: `${previousDate}T17:00:00Z`, title: 'Fictional intake assessment' }],
-      latestPlan: client.plan_status === 'To establish' ? null : {
+      latestPlan: client.plan_status === 'To establish' ? null : example?{...example.plan,id:ids.planId,status:'active',effective_date:previousDate,created_at:`${previousDate}T16:00:00Z`,prescribed_frequency:'Weekly',exampleOnly:true}:{
         id: ids.planId, title: client.focus || 'Build confidence and strengthen coping strategies', status: 'active',
         effective_date: previousDate, created_at: `${previousDate}T16:00:00Z`, prescribed_frequency: client.frequency || 'Weekly individual therapy',
         diagnostic_justification: 'Fictional example: symptoms associated with a life transition interfere with coping and daily routines.',
@@ -154,13 +159,13 @@ export function createDemoNoteFixtures({ practice, actor, clients, providers = [
           scale_label_low: 'Needs full support', scale_label_high: 'Uses skills independently'
         }] }]
       },
-      objectiveRatings: [{ objective_id: objectiveId, goal_id: objectiveId - 1, rater_kind: 'clinician', rater_label: 'clinical observation', scale_value: client.rating || 5, date_of_service: previousDate, disposition: 'rated', progress_label: 'progressing' }],
+      objectiveRatings: example?examplePreviousRatings(example).map(row=>({...row,date_of_service:previousDate})):[{ objective_id: objectiveId, goal_id: objectiveId - 1, rater_kind: 'clinician', rater_label: 'clinical observation', scale_value: client.rating || 5, date_of_service: previousDate, disposition: 'rated', progress_label: 'progressing' }],
       notes: historicalNotes.filter(note => note.client_id === client.id),
       sessions: historicalNotes.filter(note => note.client_id === client.id).map(note => ({
         id: note.clinical_session_id, client_id: client.id, agency_id: practice.id, provider_id: providerFor(client).id,
         office_event_id: note.office_event_id, date_of_service: note.date_of_service, status: 'completed',
         service_code: note.service_code, modality: note.output_json.meta.sessionContext.placeOfService === '10' ? 'VIRTUAL' : 'IN_PERSON',
-        duration_minutes: 45, note_id: note.id, documentation_status: 'signed'
+        duration_minutes: note.output_json.meta.structuredChart.durationMinutes, note_id: note.id, documentation_status: 'signed'
       }))
     };
   }

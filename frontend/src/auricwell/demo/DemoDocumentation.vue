@@ -1,8 +1,8 @@
 <template>
   <section class="demo-documentation" data-analytics-area="documentation" aria-label="Fictional Note Workspace">
-    <div class="demo-narriva-toolbar"><div><strong>Narriva in Note Workspace</strong><span>Explore the actual workspace or follow a scripted note check, review and signature.</span></div><button type="button" @click="showWalkthrough=!showWalkthrough" data-analytics-id="narriva-tour">{{ showWalkthrough?'Return to full Note Workspace':'Try Narriva walkthrough' }}</button></div>
-    <NarrivaShowcase v-if="showWalkthrough" :key="tourKey" :initial-view="tourView" />
-    <div v-else class="demo-doc-workspace" @click.capture="interceptAction" @submit.capture.prevent="showDemoNotice">
+    <div class="demo-narriva-toolbar"><div><strong>Narriva in Note Workspace</strong><span>Follow the scripted Narriva journey or inspect the full workspace with fictional records.</span></div><button type="button" @click="showWalkthrough=!showWalkthrough" data-analytics-id="narriva-tour">{{ showWalkthrough?'View full workspace (read-only)':'Back to Narriva demo' }}</button></div>
+    <NarrivaShowcase v-if="showWalkthrough" :key="tourKey" :initial-view="tourView" :initial-method="tourMethod" />
+    <div v-else class="demo-doc-workspace" @click.capture="interceptAction" @focusin.capture="protectTextEntry" @beforeinput.capture.prevent="showInputNotice" @paste.capture.prevent="showInputNotice" @submit.capture.prevent="showDemoNotice">
       <ClinicalNoteGeneratorView :key="workspaceKey" :demo-presentation="presentation" />
     </div>
     <details class="demo-doc-explanation"><summary>About this fictional workspace · Optional AI and consent</summary>
@@ -32,9 +32,10 @@ import { DEMO_COSIGN_IDS, DEMO_DRAFT_IDS, DEMO_NOTE_NOTICE, demoNoteAction } fro
 import { drafts as demoDrafts } from './fixtures';
 
 const route = useRoute(), router = useRouter();
-const showWalkthrough=ref(route.query.narriva==='1'),tourKey=ref(0),tourView=ref('note');
-watch(()=>route.query.narriva,value=>{showWalkthrough.value=value==='1';});
-function showNarriva(view='check'){tourView.value=view;tourKey.value++;showWalkthrough.value=true;window.dispatchEvent(new CustomEvent('aw-demo-notice',{detail:'Narriva walkthrough: this is a separate fictional learning case. Your selected demo note is not changed.'}));}
+const wantsWorkspace=()=>route.query.workspace==='1'||!!(route.query.noteId||route.query.draftId||route.query.clientId);
+const showWalkthrough=ref(!wantsWorkspace()),tourKey=ref(0),tourView=ref('note'),tourMethod=ref('narriva');
+watch(()=>route.query,()=>{showWalkthrough.value=!wantsWorkspace();});
+function showNarriva(view='note',method='narriva'){tourMethod.value=method;tourView.value=view;tourKey.value++;showWalkthrough.value=true;window.dispatchEvent(new CustomEvent('aw-demo-notice',{detail:'Narriva walkthrough: this is a separate fictional learning case. Your selected demo note is not changed.'}));}
 const workspaceKey = ref(0), selection=ref(null);
 const presentation = Object.freeze({
   heading: 'Please choose a draft or a note from your My Work.',
@@ -46,6 +47,7 @@ function showDemoNotice() {
   window.dispatchEvent(new CustomEvent('aw-demo-notice', { detail: DEMO_NOTE_NOTICE }));
 }
 async function openExample(kind, advance = false) {
+  showWalkthrough.value=false;
   const cosign = kind === 'cosign';
   const ids = cosign ? DEMO_COSIGN_IDS : DEMO_DRAFT_IDS;
   // The shared workspace consumes draftId after opening a My Work item. Its
@@ -54,7 +56,7 @@ async function openExample(kind, advance = false) {
   const current = Number(selection.value?.kind===kind ? selection.value.id : (cosign ? route.query.noteId : route.query.draftId || selectedDraft?.id));
   const index = advance ? (Math.max(-1, ids.indexOf(current)) + 1) % ids.length : 0;
   // Remove the previous client's launch context before opening the next example.
-  const query = { agencyId: '990101', ...(cosign ? { noteId: String(ids[index]), launchIntent: 'cosign' } : { draftId: String(ids[index]) }) };
+  const query = { workspace:'1', agencyId: '990101', ...(cosign ? { noteId: String(ids[index]), launchIntent: 'cosign' } : { draftId: String(ids[index]) }) };
   await router.replace({ path: route.path, query });
   workspaceKey.value++;
 }
@@ -63,7 +65,12 @@ async function simulateSignNext() {
   await nextTick();
   showDemoNotice();
 }
+function showInputNotice(){window.dispatchEvent(new CustomEvent('aw-demo-notice',{detail:'Demonstration only. No actual data can be entered or used in this demo.'}));}
+function protectTextEntry(event){const el=event.target;if(el?.matches?.('textarea,input:not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit])')&&!el.closest('.cnl,.na-wq')){el.readOnly=true;showInputNotice();}if(el?.isContentEditable){el.contentEditable='false';showInputNotice();}}
 function interceptAction(event) {
+  const writer=event.target?.closest?.('.narriva-modes__options button');
+  if(writer){event.preventDefault();event.stopImmediatePropagation();showNarriva('note',/Manual writer/.test(writer.textContent)?'manual':/Smart Notes/.test(writer.textContent)?'smart_notes':'narriva');return;}
+  if(event.target?.matches?.('textarea,[contenteditable=true]'))protectTextEntry(event);
   const button = event.target?.closest?.('button');
   if (!button || button.disabled) return;
   const action = demoNoteAction(button);

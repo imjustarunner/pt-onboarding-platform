@@ -860,6 +860,7 @@
         </p>
         <p v-if="draftAttendanceNotice" class="na-attendance-hint" role="status">{{ draftAttendanceNotice }}</p>
         <NoteAidCsNoteBuildPanel
+          :current-user-role="authStore.user?.role"
           v-if="useCsNoteBuildPathway"
           ref="csNoteBuildPanelRef"
           v-model="csNoteBuildState"

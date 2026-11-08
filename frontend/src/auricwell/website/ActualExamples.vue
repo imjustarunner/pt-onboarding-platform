@@ -1,6 +1,7 @@
 <template>
-  <NoteWorkspaceShowcase v-if="kind === 'note-workspace'" />
-  <NarrivaShowcase v-else-if="kind === 'narriva-compliance'" initial-view="check" />
+  <HeroFeatureCarousel v-if="kind === 'hero-features'" />
+  <NoteWorkspaceShowcase v-else-if="kind === 'note-workspace'" />
+  <NarrivaShowcase v-else-if="kind === 'narriva-compliance'" />
   <NarrivaReviewExamples v-else-if="kind === 'narriva-review'" />
   <ConversaShowcase v-else-if="kind === 'conversa'" />
   <SessionMaterialsShowcase v-else-if="kind === 'session-materials'" />
@@ -17,6 +18,7 @@
 </template>
 <script setup>
 import { ref } from 'vue';
+import HeroFeatureCarousel from './HeroFeatureCarousel.vue';
 import ConversaShowcase from './ConversaShowcase.vue';
 import SessionMaterialsShowcase from './SessionMaterialsShowcase.vue';
 import NoteWorkspaceShowcase from './NoteWorkspaceShowcase.vue';

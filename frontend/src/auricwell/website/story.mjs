@@ -23,7 +23,8 @@ function progressExample() {
 }
 
 export function homeStory({hero, feature, link, pill, preview, availability}) {
- return `${hero('AN EHR THAT CONNECTS THE WORK OF THERAPY','Less repeat work.<br> <em>More time for care.</em>','Narriva-assisted notes, built-in documentation checks, treatment progress and supervision in one connected clinical workflow. Built to help providers move through their day and supervisors focus their attention.',preview())}
+ return `${hero('AN EHR THAT CONNECTS THE WORK OF THERAPY','Less repeat work.<br> <em>More time for care.</em>','Narriva-assisted notes, built-in documentation checks, treatment progress and supervision in one connected clinical workflow. Built to help providers move through their day and supervisors focus their attention.','<div data-actual-example="hero-features"><p>Explore connected AuricWell features…</p></div>')}
+
  <div class="proof-row">${pill('Narriva built into documentation')}${pill('Progress carried across visits')}${pill('A clearer supervision workflow')}</div>
  ${homeConnectionStory({link})}
  ${narrivaComplianceSection({link,compact:true})}

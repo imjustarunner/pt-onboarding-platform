@@ -37,7 +37,7 @@ function schedule(start,providerId=actor.id) {
  for(let day=0;day<7;day++) {
   const next=new Date(date);next.setDate(date.getDate()+day);if(!workingDays.includes(next.getDay()))continue;
   for(const [index,client] of assigned.entries()) {
-   const time=client.time.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/),hour=(Number(time?.[1]||9)%12)+(time?.[3]==='PM'?12:0),minute=Number(time?.[2]||0),duration=client.status==='INTAKE'?60:50;
+   const time=client.time.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/),hour=(Number(time?.[1]||9)%12)+(time?.[3]==='PM'?12:0),minute=Number(time?.[2]||0),duration=Number(client.frequency?.match(/(\d+) minutes/)?.[1])||(client.status==='INTAKE'?60:50);
    const startMinutes=hour*60+minute,endMinutes=startMinutes+duration,clock=value=>`${String(Math.floor(value/60)).padStart(2,'0')}:${String(value%60).padStart(2,'0')}:00`;
    events.push({id:990200+providers.indexOf(provider)*1000+day*10+index,userId:provider.id,providerUserId:provider.id,agencyId:practice.id,kind:'PERSONAL_EVENT',clientId:client.id,appointmentStatus:client.reminder.startsWith('Confirmed')?'client_confirmed':'scheduled',reasonCode:'CLIENT_SESSION',title:`${client.initials} · ${client.service}`,startAt:zonedDatetimeLocalToIso(`${ymd(next)}T${clock(startMinutes)}`,practice.timezone),endAt:zonedDatetimeLocalToIso(`${ymd(next)}T${clock(endMinutes)}`,practice.timezone),status:'scheduled',modality:client.format==='In person'?'IN_PERSON':'VIRTUAL'});
   }

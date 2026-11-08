@@ -1,3 +1,4 @@
+import narrivaClients from './narriva-clients.json';
 // Entirely fictional, browser-only examples for the public AuricWell demo.
 // No patient, employee, contact, or credential records are read from a server.
 const today = new Date();
@@ -52,6 +53,10 @@ function nextVisitDay(offset, providerId) {
 }
 
 export const demoClients = clientSeeds.map((client, index) => {
+  const example=narrivaClients.clients.find(item=>item.clientId===client.id);
+  if(example){const goal=example.plan.goals[0],obj=goal.objectives[0];client={...client,age:example.clientId===990121?32:example.clientId===990123?34:35,pronouns:example.clientId===990121?'she / her':'he / him',guardian_names:[],recording_consent:false,provider_id:example.clientId===990123?990114:client.provider_id,time:example.clientId===990123?'11:00 AM':client.time,payer:example.clientId===990123?'Self-pay · relationship-focused example':client.payer,diagnosis:example.diagnosis,focus:example.focus,goal:goal.goal_text,objective:obj.objective_text,baseline:obj.scale_start,rating:obj.scale_start,target:obj.scale_target,service:example.encounter.serviceCode==='90847'?'Couples therapy':'Individual therapy',frequency:`Weekly · ${example.encounter.durationMinutes} minutes`,format:example.encounter.serviceCode==='90847'?'In person':'Telehealth',session_summary:example.sections[0].text,intervention_summary:example.sections[2].text,next_steps:example.sections[3].text};}
+  // Keep the fictional rosters balanced and their saved appointment slots distinct.
+  if(client.id===990124)client={...client,provider_id:990113,time:'4:00 PM'};
   const provider = demoProviders.find(person => person.id === client.provider_id);
   return { ...client, agency_id: 990101, agency_name: 'Meadowbrook Therapy', source: 'MANUAL', status: client.status || 'ACTIVE', initials: client.full_name.split(' ').map(part => part[0]).join('.').concat('.'), provider_name: provider.name, provider_credential: provider.credential, supervisor_id: provider.supervisor_id, next_date: nextVisitDay(client.next_offset, client.provider_id), last_date: demoDay(-7 - index), plan_review_date: demoDay(client.plan_review), email: `${client.full_name.toLowerCase().replaceAll(' ', '.')}@example.invalid`, phone: `(303) 555-01${String(index + 10).padStart(2, '0')}`, preferred_contact: client.guardian_names.length ? 'Guardian portal & appointment reminders' : 'Portal & appointment reminders', consent: client.status === 'INTAKE' ? 'Intake packet ready for review' : 'Care consent on file', portal: client.guardian_names.length ? 'Client + 2 separate guardian accounts' : 'Client account active', plan_status: client.status === 'INTAKE' ? 'To establish' : 'Active', visit_count: 6 + index * 2, reminder: index % 2 === 0 ? 'Confirmed · Y reply' : 'Reminder scheduled', location: client.format === 'Telehealth' ? 'Telehealth · client portal' : `Meadowbrook · Office ${demoProviders.indexOf(provider) + 1}`, notes: 'All content is fictional and for product demonstration only.' };
 });

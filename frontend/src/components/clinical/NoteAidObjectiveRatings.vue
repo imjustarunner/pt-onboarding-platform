@@ -1,5 +1,5 @@
 <template>
-  <section v-if="goals.length" class="na-obj-ratings" :class="{ 'na-obj-ratings--collapsed': sectionCollapsed }">
+  <section v-if="goals.length" class="na-obj-ratings" :class="{ 'na-obj-ratings--collapsed': sectionCollapsed, 'na-obj-ratings--interactive-collapse':collapsibleObjectives }">
     <header class="na-obj-ratings-head">
       <div>
         <h3>Treatment goals / objectives</h3>
@@ -38,7 +38,7 @@
     </div>
     <label v-if="raterKind === 'other'" class="na-obj-other">
       Who is rating?
-      <input v-model="otherLabel" class="na-obj-other-input" placeholder="Guardian, teacher, …" />
+      <input v-model="otherLabel" class="na-obj-other-input" placeholder="Guardian, teacher, …" :readonly="readOnlyText" @focus="readOnlyText && $emit('text-entry-attempt')" @click="readOnlyText && $emit('text-entry-attempt')" />
     </label>
 
     <div v-for="goal in goals" :key="goal.id" class="na-obj-goal">
@@ -46,6 +46,7 @@
         <span class="na-obj-badge">G{{ goal.goal_index || '' }}</span>
         <strong>{{ displayGoalText(goal) }}</strong>
       </div>
+      <slot name="goal-context" :goal="goal" />
 
       <div
         v-for="obj in goal.objectives || []"
@@ -65,12 +66,13 @@
               :class="collapsedParts(obj, goal).progressClass"
             >{{ collapsedParts(obj, goal).progress }}</span>
           </span>
-          <button type="button" class="na-obj-edit-btn" :disabled="disabled" @click="expandObjective(obj.id)">Edit</button>
+          <button type="button" class="na-obj-edit-btn" :disabled="disabled" :aria-expanded="collapsibleObjectives?false:undefined" @click="expandObjective(obj.id)">{{ collapsibleObjectives?'Expand':'Edit' }}</button>
         </div>
         <template v-else>
         <div class="na-obj-text">
           <span class="na-obj-badge na-obj-badge--obj">O{{ obj.objective_index || '' }}</span>
           <span>{{ displayObjectiveText(obj) }}</span>
+          <button v-if="collapsibleObjectives" type="button" class="na-obj-edit-btn" aria-expanded="true" @click="collapseObjective(obj.id)">Collapse objective</button>
         </div>
 
         <p
@@ -142,10 +144,12 @@ const props = defineProps({
   disabled: { type: Boolean, default: false },
   dateOfService: { type: String, default: '' },
   kioskShareEnabled: { type: Boolean, default: false },
-  clientName: { type: String, default: 'the client' }
+  clientName: { type: String, default: 'the client' },
+  collapsibleObjectives: Boolean,
+  readOnlyText: Boolean
 });
 
-const emit = defineEmits(['update:ratings', 'improved', 'all-rated']);
+const emit = defineEmits(['update:ratings', 'improved', 'all-rated', 'text-entry-attempt']);
 
 const raterKind = ref('clinician');
 const otherLabel = ref('');
@@ -431,6 +435,7 @@ defineExpose({
 </script>
 
 <style scoped>
+.na-obj-ratings--interactive-collapse .na-obj-compact-text{display:-webkit-inline-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;vertical-align:top}.na-obj-ratings--interactive-collapse .na-obj-text{align-items:flex-start}.na-obj-ratings--interactive-collapse .na-obj-text>span:nth-child(2){flex:1;min-width:0}.na-obj-ratings--interactive-collapse .na-obj-text>button{flex:none;font-size:11px}
 .na-obj-ratings {
   background: #fff;
   border: 1px solid #e2e8f0;

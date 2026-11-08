@@ -1,15 +1,14 @@
 <template>
-  <section class="csnb" aria-label="Smart Notes guided note builder">
+  <section class="csnb" :class="{'csnb--preview':previewOnly}" :data-preview-step="previewOnly?previewStep:undefined" aria-label="Smart Notes guided note builder">
     <header class="csnb-head">
       <div>
         <span class="csnb-kicker">Smart Notes · Powered by Narriva</span>
         <h2>Guided note builder</h2>
         <p>
-          Step-by-step documentation aligned to Colorado Service Documentation Standards.
-          Your answers become the source for Narriva’s narrative note.
+          {{ previewOnly ? 'Explore the real builder with blank, disabled fields. This demonstration accepts no data.' : 'Step-by-step documentation aligned to Colorado Service Documentation Standards. Your answers become the source for Narriva’s narrative note.' }}
         </p>
       </div>
-      <div class="csnb-progress" aria-live="polite">
+      <div v-if="!previewOnly" class="csnb-progress" aria-live="polite">
         <span>{{ completion.done }} of {{ completion.total }} completed</span>
         <div class="csnb-progress-bar">
           <span :style="{ width: `${(completion.done / Math.max(completion.total, 1)) * 100}%` }" />
@@ -17,6 +16,7 @@
       </div>
     </header>
 
+    <fieldset class="csnb-fields" :disabled="previewOnly">
     <!-- 1 Start -->
     <article class="csnb-step" :class="{ done: model.startConfirmed && model.startTime }">
       <h3><span>1</span> Confirm Start Time</h3>
@@ -312,19 +312,19 @@
       </div>
     </article>
 
-    <footer class="csnb-foot">
+    <footer v-if="!previewOnly" class="csnb-foot">
       <p v-if="!completion.complete" class="csnb-hint">
         Complete remaining steps, then generate the Colorado-aligned narrative.
       </p>
       <p v-else class="csnb-hint ok">Ready to generate narrative from your answers.</p>
     </footer>
+    </fieldset>
   </section>
 </template>
 
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import api from '../../services/api.js';
-import { useAuthStore } from '../../store/auth.js';
 import {
   CS_AFFECT_AREAS,
   CS_CLIENT_RESPONSE_OPTIONS,
@@ -346,17 +346,20 @@ const props = defineProps({
   isTelehealth: { type: Boolean, default: false },
   proposingPlan: { type: Boolean, default: false },
   skipMse: { type: Boolean, default: false },
-  agencyId: { type: [Number, String], default: null }
+  agencyId: { type: [Number, String], default: null },
+  currentUserRole: { type: String, default: '' },
+  previewOnly: Boolean,
+  previewStep: { type: Number, default: 1 }
 });
 
 const emit = defineEmits(['update:modelValue', 'propose-plan']);
 
-const model = reactive(props.modelValue ? { ...createEmptyCsNoteBuildState(), ...props.modelValue, mse: { ...createEmptyCsNoteBuildState().mse, ...(props.modelValue.mse || {}) } } : createEmptyCsNoteBuildState());
+const model = reactive(props.previewOnly ? {...createEmptyCsNoteBuildState(),participantsMode:''} : props.modelValue ? { ...createEmptyCsNoteBuildState(), ...props.modelValue, mse: { ...createEmptyCsNoteBuildState().mse, ...(props.modelValue.mse || {}) } } : createEmptyCsNoteBuildState());
 
 watch(
   model,
   () => {
-    emit('update:modelValue', JSON.parse(JSON.stringify(model)));
+    if (!props.previewOnly) emit('update:modelValue', JSON.parse(JSON.stringify(model)));
   },
   { deep: true }
 );
@@ -372,7 +375,7 @@ watch(
 watch(
   () => props.proposedInterventions,
   (list) => {
-    if (Array.isArray(list) && list.length && !(model.interventionsProposed || []).length) {
+    if (!props.previewOnly && Array.isArray(list) && list.length && !(model.interventionsProposed || []).length) {
       model.interventionsProposed = [...list];
       if (!(model.interventionsSelected || []).length) {
         model.interventionsSelected = [...list];
@@ -388,13 +391,12 @@ const responseOptions = CS_CLIENT_RESPONSE_OPTIONS;
 const affectAreas = CS_AFFECT_AREAS;
 const progressRatings = CS_PROGRESS_RATINGS;
 const mseFields = CS_MSE_FIELDS;
-const authStore = useAuthStore();
 const catalogNames = ref([]);
 const addingIntervention = ref(false);
 const newInterventionName = ref('');
 
 const canEditAgencyDefaults = computed(() =>
-  ['admin', 'super_admin', 'support'].includes(String(authStore.user?.role || '').toLowerCase())
+  ['admin', 'super_admin', 'support'].includes(String(props.currentUserRole || '').toLowerCase())
 );
 
 const interventionChoices = computed(() => {
@@ -403,6 +405,7 @@ const interventionChoices = computed(() => {
 });
 
 async function loadInterventionCatalog() {
+  if(props.previewOnly)return;
   const aid = Number(props.agencyId || 0);
   if (!aid) {
     catalogNames.value = [...CS_DEFAULT_INTERVENTIONS];
@@ -432,6 +435,7 @@ function startAddIntervention() {
 }
 
 async function saveNewIntervention(scope) {
+  if(props.previewOnly)return;
   const names = splitInterventionNames(newInterventionName.value);
   if (!names.length) return;
   const aid = Number(props.agencyId || 0);
@@ -457,6 +461,7 @@ async function saveNewIntervention(scope) {
 }
 
 async function harvestCustomInterventions() {
+  if(props.previewOnly)return;
   const names = splitInterventionNames(model.interventionsCustom);
   const existing = new Set(interventionChoices.value.map((s) => s.toLowerCase()));
   const novel = names.filter((n) => !existing.has(n.toLowerCase()));
@@ -522,12 +527,14 @@ function ensureGoal(g) {
 }
 
 function setGoalRating(g, rating) {
+  if (props.previewOnly) return;
   const row = ensureGoal(g);
   row.rating = rating;
   row.goalText = g.goal_text || row.goalText;
 }
 
 function setGoalNote(g, note) {
+  if (props.previewOnly) return;
   const row = ensureGoal(g);
   row.note = note;
   row.goalText = g.goal_text || row.goalText;
@@ -540,6 +547,7 @@ function objectiveRating(goalId, objectiveId) {
 }
 
 function setObjectiveRating(g, o, rating) {
+  if (props.previewOnly) return;
   const row = ensureGoal(g);
   if (!Array.isArray(row.objectives)) row.objectives = [];
   const idx = row.objectives.findIndex((x) => String(x.objectiveId) === String(o.id));
@@ -555,10 +563,12 @@ function setObjectiveRating(g, o, rating) {
 }
 
 function proposePlan() {
+  if (props.previewOnly) return;
   emit('propose-plan', JSON.parse(JSON.stringify(model)));
 }
 
 function acceptPlan() {
+  if (props.previewOnly) return;
   if (!model.planEdited && model.planProposed) model.planEdited = model.planProposed;
   model.planAccepted = true;
 }
@@ -574,6 +584,8 @@ defineExpose({
 </script>
 
 <style scoped>
+.csnb-fields{border:0;padding:0;margin:0;min-width:0}.csnb--preview .csnb-step{display:none}.csnb--preview[data-preview-step="1"] .csnb-step:nth-of-type(1){display:block}.csnb--preview[data-preview-step="2"] .csnb-step:nth-of-type(2){display:block}.csnb--preview[data-preview-step="3"] .csnb-step:nth-of-type(3){display:block}.csnb--preview[data-preview-step="4"] .csnb-step:nth-of-type(4){display:block}.csnb--preview[data-preview-step="5"] .csnb-step:nth-of-type(5){display:block}.csnb--preview[data-preview-step="6"] .csnb-step:nth-of-type(6){display:block}.csnb--preview[data-preview-step="7"] .csnb-step:nth-of-type(7){display:block}.csnb--preview[data-preview-step="8"] .csnb-step:nth-of-type(8){display:block}.csnb--preview[data-preview-step="9"] .csnb-step:nth-of-type(9){display:block}.csnb--preview[data-preview-step="10"] .csnb-step:nth-of-type(10){display:block}.csnb--preview[data-preview-step="11"] .csnb-step:nth-of-type(11){display:block}.csnb--preview[data-preview-step="12"] .csnb-step:nth-of-type(12){display:block}
+
 .csnb {
   border: 1px solid #dbeafe;
   border-radius: 16px;

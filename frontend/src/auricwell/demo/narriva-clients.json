@@ -1,0 +1,383 @@
+{
+  "disclosure": "These are fictional examples using your workspace’s SOIP format. Starting scores, targets, and treatment timeframes are added for demonstration. Diagnoses are illustrative working formulations; the narratives alone do not establish a diagnosis.",
+  "clients": [
+    {
+      "id": 995001,
+      "clientId": 990121,
+      "name": "Emerson Cole",
+      "caseLabel": "Client 1",
+      "focus": "Relationship anxiety and boundaries",
+      "date": "Nov 6, 2026",
+      "presentingProblem": "Client experiences persistent anxiousness in the context of relationship conflict, recurring negative interaction patterns, and uncertainty about the relationship’s future. Family concerns, particularly interactions with her parents regarding the relationship, contribute to distress. Client demonstrates intermittent insight but remains ambivalent about identifying anxiety as a primary treatment concern.",
+      "diagnosis": "F41.9 — Anxiety disorder, unspecified, illustrative working diagnosis. The narrative describes anxiousness but does not establish the duration or criteria needed for a more specific anxiety diagnosis. Relationship distress is an additional treatment focus.",
+      "plan": {
+        "title": "Treatment Plan · Fictional example",
+        "frequency": "Weekly, reviewed with the client",
+        "goals": [
+          {
+            "id": 995101,
+            "goal_index": 1,
+            "goal_text": "Reduce anxiety associated with relationship uncertainty and conflict.",
+            "interventions": [
+              "Exploration of Emotions",
+              "CBT",
+              "Symptom Management"
+            ],
+            "timeframe": "4 months.",
+            "objectives": [
+              {
+                "id": 995201,
+                "objective_index": 1,
+                "objective_text": "Within 4 months, client will reduce relationship-related anxiety from an illustrative baseline of 7 to 3 or below on a 1–10 scale, measured through client self-report reviewed in sessions. A level 1 represents minimal anxiety with little interference in relationship discussions; a level 10 represents overwhelming anxiety that substantially interferes with those discussions.",
+                "scale_start": 7,
+                "scale_current": 7,
+                "scale_target": 3,
+                "scale_min": 1,
+                "scale_max": 10,
+                "direction": "lower"
+              }
+            ]
+          },
+          {
+            "id": 995102,
+            "goal_index": 2,
+            "goal_text": "Improve recognition and communication of emotional needs during relationship discussions.",
+            "interventions": [
+              "Emotional Awareness",
+              "Communication Skills",
+              "Exploration of Relationship Patterns"
+            ],
+            "timeframe": "4 months.",
+            "objectives": [
+              {
+                "id": 995202,
+                "objective_index": 1,
+                "objective_text": "Within 4 months, client will improve her ability to identify and communicate emotional needs from an illustrative baseline of 3 to 8 or higher on a 1–10 scale, measured through client self-report and clinical observation. A level 1 represents difficulty recognizing or expressing emotional needs; a level 10 represents clear, consistent expression of needs while remaining engaged in discussion.",
+                "scale_start": 3,
+                "scale_current": 3,
+                "scale_target": 8,
+                "scale_min": 1,
+                "scale_max": 10,
+                "direction": "higher"
+              }
+            ]
+          },
+          {
+            "id": 995103,
+            "goal_index": 3,
+            "goal_text": "Strengthen boundaries and confidence in relationship decisions when responding to family input.",
+            "interventions": [
+              "Boundary Development",
+              "Assertiveness Training",
+              "Exploration of Boundaries"
+            ],
+            "timeframe": "4 months.",
+            "objectives": [
+              {
+                "id": 995203,
+                "objective_index": 1,
+                "objective_text": "Within 4 months, client will increase confidence in identifying personal relationship needs and communicating boundaries with her parents from an illustrative baseline of 3 to 8 or higher on a 1–10 scale, measured through client self-report. A level 1 represents substantial difficulty distinguishing personal preferences from family expectations; a level 10 represents clear identification of personal preferences and confident communication of boundaries.",
+                "scale_start": 3,
+                "scale_current": 3,
+                "scale_target": 8,
+                "scale_min": 1,
+                "scale_max": 10,
+                "direction": "higher"
+              }
+            ]
+          }
+        ],
+        "dischargePlan": "Consider discharge or reduced session frequency when client demonstrates sustained anxiety management, communicates emotional needs effectively, and maintains boundaries consistent with her own relationship preferences. Review readiness collaboratively with client."
+      },
+      "encounter": {
+        "serviceCode": "90847",
+        "durationMinutes": 50,
+        "dateOfService": "2026-11-06",
+        "time": "10:00–10:50 AM",
+        "setting": "In-person office session",
+        "participants": "Client and partner",
+        "funding": "Fictional coverage example"
+      },
+      "sections": [
+        {
+          "key": "subjective",
+          "label": "Subjective",
+          "text": "Client reported continued anxiousness related to recurring relationship difficulties and uncertainty about whether the relationship meets her needs. She described ongoing challenges involving her parents’ views of the relationship and continued to revisit concerns about her partner and the relationship’s future. Client acknowledged some insight into these concerns while remaining uncertain about viewing anxiety as a primary contributor to relationship distress."
+        },
+        {
+          "key": "objective",
+          "label": "Objective",
+          "text": "Client and partner participated in a couples session, with both individuals consenting to services. The clinician facilitated exploration of their emotional responses to one another and recurring negative interaction patterns. Client demonstrated intermittent insight into the connection between her emotional responses and relationship concerns. Her partner participated in processing the concerns she raised. Both individuals appeared committed to continuing the therapeutic work, although relationship uncertainty and anxiousness remained present."
+        },
+        {
+          "key": "interventions",
+          "label": "Interventions",
+          "text": "Exploration of Emotions, Exploration of Relationship Patterns, Exploration of Coping Patterns, Supportive Reflection"
+        },
+        {
+          "key": "plan",
+          "label": "Plan",
+          "text": "Continue exploring the relationship between anxiousness, relationship uncertainty, and recurring interaction patterns. Support client in identifying emotional needs and examining how parental input influences her relationship concerns. Continue couples work on understanding each partner’s responses and developing more constructive interactions."
+        }
+      ],
+      "source": "Subjective: Client reported continued anxiousness related to recurring relationship difficulties and uncertainty about whether the relationship meets her needs. She described ongoing challenges involving her parents’ views of the relationship and continued to revisit concerns about her partner and the relationship’s future. Client acknowledged some insight into these concerns while remaining uncertain about viewing anxiety as a primary contributor to relationship distress.\n\nObjective: Client and partner participated in a couples session, with both individuals consenting to services. The clinician facilitated exploration of their emotional responses to one another and recurring negative interaction patterns. Client demonstrated intermittent insight into the connection between her emotional responses and relationship concerns. Her partner participated in processing the concerns she raised. Both individuals appeared committed to continuing the therapeutic work, although relationship uncertainty and anxiousness remained present.\n\nInterventions: Exploration of Emotions, Exploration of Relationship Patterns, Exploration of Coping Patterns, Supportive Reflection\n\nPlan: Continue exploring the relationship between anxiousness, relationship uncertainty, and recurring interaction patterns. Support client in identifying emotional needs and examining how parental input influences her relationship concerns. Continue couples work on understanding each partner’s responses and developing more constructive interactions.\n\nAdditional fictional demo encounter context: On November 6, 2026, the provider conducted a 50-minute in-person office session with client and partner. Applicable consent and participant identities were reviewed before the session. The clinician reviewed the supplied treatment plan and its goals, the presenting concern, the service code (90847), session duration, interventions, client participation and next steps. The fictional structured safety review records no acute safety concerns reported or observed and identifies supportive contacts and follow-up. These encounter and safety details were added solely for this scripted demonstration; they are not findings from a real assessment. No recording takes place.",
+      "provider": {
+        "name": "Avery Lane",
+        "credential": "LPC",
+        "photo": "/auricwell/examples/avery-lane.jpg"
+      }
+    },
+    {
+      "id": 995002,
+      "clientId": 990123,
+      "name": "Jamie Stone",
+      "caseLabel": "Client 2",
+      "focus": "Communication and recurring conflict",
+      "date": "Nov 6, 2026",
+      "presentingProblem": "Client experiences ongoing relationship distress involving communication difficulties, conflict about past behavior, and repeated accusations from his partner. He reports attempting to apply previously discussed communication strategies but continues to have difficulty navigating emotionally charged interactions.",
+      "diagnosis": "Z63.0 — Problems in relationship with spouse or partner. This identifies a relational treatment concern rather than a mental disorder. The narrative does not provide sufficient evidence to assign client an anxiety disorder based on his partner’s reported anxiousness.",
+      "plan": {
+        "title": "Treatment Plan · Fictional example",
+        "frequency": "Weekly, reviewed with the client",
+        "goals": [
+          {
+            "id": 995111,
+            "goal_index": 1,
+            "goal_text": "Improve effective communication during relationship disagreements.",
+            "interventions": [
+              "Communication Skills",
+              "Assertiveness Training",
+              "Role-Play/Behavioral Rehearsal"
+            ],
+            "timeframe": "4 months.",
+            "objectives": [
+              {
+                "id": 995211,
+                "objective_index": 1,
+                "objective_text": "Within 4 months, client will improve his ability to communicate concerns clearly and respond constructively during disagreements from an illustrative baseline of 4 to 8 or higher on a 1–10 scale, measured through client self-report and clinical observation. A level 1 represents substantial difficulty expressing concerns or responding constructively; a level 10 represents consistently clear, respectful, and responsive communication.",
+                "scale_start": 4,
+                "scale_current": 4,
+                "scale_target": 8,
+                "scale_min": 1,
+                "scale_max": 10,
+                "direction": "higher"
+              }
+            ]
+          },
+          {
+            "id": 995112,
+            "goal_index": 2,
+            "goal_text": "Increase emotional regulation when responding to accusations or concerns about past behavior.",
+            "interventions": [
+              "Emotional Awareness",
+              "Exploration of Coping Patterns",
+              "Relaxation/Deep Breathing"
+            ],
+            "timeframe": "4 months.",
+            "objectives": [
+              {
+                "id": 995212,
+                "objective_index": 1,
+                "objective_text": "Within 4 months, client will increase his ability to remain regulated and respond thoughtfully during difficult relationship discussions from an illustrative baseline of 3 to 8 or higher on a 1–10 scale, measured through client self-report. A level 1 represents difficulty managing emotional responses sufficiently to communicate; a level 10 represents consistent ability to recognize emotions, pause, and respond constructively.",
+                "scale_start": 3,
+                "scale_current": 3,
+                "scale_target": 8,
+                "scale_min": 1,
+                "scale_max": 10,
+                "direction": "higher"
+              }
+            ]
+          },
+          {
+            "id": 995113,
+            "goal_index": 3,
+            "goal_text": "Improve resolution of recurring relationship conflicts.",
+            "interventions": [
+              "Conflict Resolution Strategies",
+              "Exploration of Relationship Patterns",
+              "Structured Problem Solving"
+            ],
+            "timeframe": "4 months.",
+            "objectives": [
+              {
+                "id": 995213,
+                "objective_index": 1,
+                "objective_text": "Within 4 months, client will improve his ability to apply conflict-resolution strategies that support understanding and constructive next steps from an illustrative baseline of 3 to 8 or higher on a 1–10 scale, measured through client self-report and review of interaction examples. A level 1 represents repeated unresolved exchanges with little constructive follow-through; a level 10 represents consistent use of collaborative strategies to address concerns and identify workable next steps.",
+                "scale_start": 3,
+                "scale_current": 3,
+                "scale_target": 8,
+                "scale_min": 1,
+                "scale_max": 10,
+                "direction": "higher"
+              }
+            ]
+          }
+        ],
+        "dischargePlan": "Consider discharge or reduced session frequency when client consistently applies effective communication, manages his emotional responses, and addresses recurring disagreements constructively. Evaluate progress through his own behavior and responses rather than requiring a particular response from his partner."
+      },
+      "encounter": {
+        "serviceCode": "90834",
+        "durationMinutes": 45,
+        "dateOfService": "2026-11-06",
+        "time": "11:00–11:45 AM",
+        "setting": "Telehealth · client at home",
+        "participants": "Client only",
+        "funding": "Self-pay relationship-focused illustration"
+      },
+      "sections": [
+        {
+          "key": "subjective",
+          "label": "Subjective",
+          "text": "Client reported ongoing difficulties in his primary relationship, including his partner’s anxious responses to his past behavior and repeated accusations. He acknowledged continued difficulty communicating effectively but reported implementing strategies discussed in previous sessions. Client described efforts to change how he approaches difficult conversations to reduce the negative impact of these interactions."
+        },
+        {
+          "key": "objective",
+          "label": "Objective",
+          "text": "Client participated in reviewing ongoing relationship challenges and his attempts to apply previously discussed communication strategies. He provided several examples of navigating interactions involving accusations from his partner. The clinician and client examined how his communication responses may influence the course of these exchanges. Client’s examples indicated efforts to apply treatment strategies outside sessions, although their effectiveness remained incompletely established. Continued communication difficulties supported further work on responding constructively during conflict."
+        },
+        {
+          "key": "interventions",
+          "label": "Interventions",
+          "text": "Communication Skills, Exploration of Relationship Patterns, Exploration of Coping Patterns, Conflict Resolution Strategies"
+        },
+        {
+          "key": "plan",
+          "label": "Plan",
+          "text": "Continue reviewing client’s use of communication strategies during difficult relationship interactions. Explore which responses support constructive discussion and which contribute to recurring conflict. Support development of emotional regulation and collaborative problem-solving strategies, and review additional examples at the next session."
+        }
+      ],
+      "source": "Subjective: Client reported ongoing difficulties in his primary relationship, including his partner’s anxious responses to his past behavior and repeated accusations. He acknowledged continued difficulty communicating effectively but reported implementing strategies discussed in previous sessions. Client described efforts to change how he approaches difficult conversations to reduce the negative impact of these interactions.\n\nObjective: Client participated in reviewing ongoing relationship challenges and his attempts to apply previously discussed communication strategies. He provided several examples of navigating interactions involving accusations from his partner. The clinician and client examined how his communication responses may influence the course of these exchanges. Client’s examples indicated efforts to apply treatment strategies outside sessions, although their effectiveness remained incompletely established. Continued communication difficulties supported further work on responding constructively during conflict.\n\nInterventions: Communication Skills, Exploration of Relationship Patterns, Exploration of Coping Patterns, Conflict Resolution Strategies\n\nPlan: Continue reviewing client’s use of communication strategies during difficult relationship interactions. Explore which responses support constructive discussion and which contribute to recurring conflict. Support development of emotional regulation and collaborative problem-solving strategies, and review additional examples at the next session.\n\nAdditional fictional demo encounter context: On November 6, 2026, the provider conducted a 45-minute telehealth · client at home with client only. Applicable consent and participant identities were reviewed before the session. The clinician reviewed the supplied treatment plan and its goals, the presenting concern, the service code (90834), session duration, interventions, client participation and next steps. The fictional structured safety review records no acute safety concerns reported or observed and identifies supportive contacts and follow-up. These encounter and safety details were added solely for this scripted demonstration; they are not findings from a real assessment. No recording takes place.",
+      "provider": {
+        "name": "Milo Chen",
+        "credential": "LPCC",
+        "photo": "/assets/schoolcarebridge/demo-milo.png"
+      }
+    },
+    {
+      "id": 995003,
+      "clientId": 990122,
+      "name": "Morgan Rivera",
+      "caseLabel": "Client 3",
+      "focus": "Confidence in family interactions",
+      "date": "Nov 6, 2026",
+      "presentingProblem": "Client experiences anticipatory anxiety about an upcoming family trip, particularly fear of judgment and negative evaluation by relatives. Excessive self-evaluation and negative thoughts contribute to distress in social interactions. Client seeks greater confidence and a more relaxed communication style without using alcohol to achieve those effects.",
+      "diagnosis": "F41.9 — Anxiety disorder, unspecified, illustrative working diagnosis. The narrative describes fear of negative evaluation and anticipatory anxiousness; further assessment would clarify whether a more specific social anxiety diagnosis is appropriate.",
+      "plan": {
+        "title": "Treatment Plan · Fictional example",
+        "frequency": "Weekly, reviewed with the client",
+        "goals": [
+          {
+            "id": 995121,
+            "goal_index": 1,
+            "goal_text": "Reduce anticipatory anxiety associated with family and social interactions.",
+            "interventions": [
+              "CBT",
+              "Symptom Management",
+              "Relaxation/Deep Breathing"
+            ],
+            "timeframe": "3 months.",
+            "objectives": [
+              {
+                "id": 995221,
+                "objective_index": 1,
+                "objective_text": "Within 3 months, client will reduce anticipatory anxiety about family interactions from an illustrative baseline of 8 to 4 or below on a 1–10 scale, measured through client self-report reviewed in sessions. A level 1 represents minimal anticipatory anxiety with little interference in participation; a level 10 represents overwhelming anxiety that substantially interferes with preparing for or participating in interactions.",
+                "scale_start": 8,
+                "scale_current": 8,
+                "scale_target": 4,
+                "scale_min": 1,
+                "scale_max": 10,
+                "direction": "lower"
+              }
+            ]
+          },
+          {
+            "id": 995122,
+            "goal_index": 2,
+            "goal_text": "Develop a more balanced self-appraisal during social interactions.",
+            "interventions": [
+              "Cognitive Challenging",
+              "Cognitive Reframing",
+              "Supportive Reflection"
+            ],
+            "timeframe": "3 months.",
+            "objectives": [
+              {
+                "id": 995222,
+                "objective_index": 1,
+                "objective_text": "Within 3 months, client will increase his ability to recognize negative self-evaluations and develop balanced alternatives from an illustrative baseline of 3 to 8 or higher on a 1–10 scale, measured through client self-report and clinical observation. A level 1 represents difficulty recognizing or reconsidering self-critical interpretations; a level 10 represents consistent ability to identify those interpretations and develop balanced perspectives.",
+                "scale_start": 3,
+                "scale_current": 3,
+                "scale_target": 8,
+                "scale_min": 1,
+                "scale_max": 10,
+                "direction": "higher"
+              }
+            ]
+          },
+          {
+            "id": 995123,
+            "goal_index": 3,
+            "goal_text": "Increase confidence using communication and coping skills without alcohol as a calming strategy.",
+            "interventions": [
+              "Communication Skills",
+              "Exploration of Coping Patterns",
+              "Role-Play/Behavioral Rehearsal"
+            ],
+            "timeframe": "3 months.",
+            "objectives": [
+              {
+                "id": 995223,
+                "objective_index": 1,
+                "objective_text": "Within 3 months, client will increase confidence in using non-alcohol coping and communication strategies during family interactions from an illustrative baseline of 3 to 8 or higher on a 1–10 scale, measured through client self-report. A level 1 represents little confidence in managing interactions without alcohol for calm or confidence; a level 10 represents strong confidence in using independent coping and communication skills.",
+                "scale_start": 3,
+                "scale_current": 3,
+                "scale_target": 8,
+                "scale_min": 1,
+                "scale_max": 10,
+                "direction": "higher"
+              }
+            ]
+          }
+        ],
+        "dischargePlan": "Consider discharge or reduced session frequency when client manages anticipatory anxiety, uses balanced self-appraisal, and confidently applies communication and coping strategies in family interactions. Review progress following the trip and in subsequent social situations."
+      },
+      "encounter": {
+        "serviceCode": "90834",
+        "durationMinutes": 45,
+        "dateOfService": "2026-11-06",
+        "time": "1:00–1:45 PM",
+        "setting": "Telehealth · client at home",
+        "participants": "Client only",
+        "funding": "Fictional coverage example"
+      },
+      "sections": [
+        {
+          "key": "subjective",
+          "label": "Subjective",
+          "text": "Client reported significant anxiousness while preparing for an upcoming trip involving family members. He described fear that relatives would judge his personality or express negative evaluations of him. Client identified excessive self-evaluation during social situations, particularly with family, and discussed wanting to feel calmer and more confident without using alcohol to achieve those effects."
+        },
+        {
+          "key": "objective",
+          "label": "Objective",
+          "text": "Client participated in processing anticipated family interactions and concerns about negative evaluation. The clinician and client explored negative thoughts associated with excessive self-monitoring in social situations. Discussion addressed developing a more open and relaxed communication style. They also explored ways to approach these interactions without using alcohol for calm or confidence. Client engaged in examining how a stronger sense of self could help reduce anxiety; the narrative did not establish a measured reduction in symptoms during the session."
+        },
+        {
+          "key": "interventions",
+          "label": "Interventions",
+          "text": "Exploration of Emotions, Exploration of Coping Patterns, Communication Skills, Supportive Reflection"
+        },
+        {
+          "key": "plan",
+          "label": "Plan",
+          "text": "Continue addressing anticipatory anxiety, negative self-evaluation, and confidence in family interactions. Develop balanced responses to feared judgments and identify communication and coping strategies client can use during the trip without alcohol as a calming aid. Review his experiences and the usefulness of these strategies at the next session."
+        }
+      ],
+      "source": "Subjective: Client reported significant anxiousness while preparing for an upcoming trip involving family members. He described fear that relatives would judge his personality or express negative evaluations of him. Client identified excessive self-evaluation during social situations, particularly with family, and discussed wanting to feel calmer and more confident without using alcohol to achieve those effects.\n\nObjective: Client participated in processing anticipated family interactions and concerns about negative evaluation. The clinician and client explored negative thoughts associated with excessive self-monitoring in social situations. Discussion addressed developing a more open and relaxed communication style. They also explored ways to approach these interactions without using alcohol for calm or confidence. Client engaged in examining how a stronger sense of self could help reduce anxiety; the narrative did not establish a measured reduction in symptoms during the session.\n\nInterventions: Exploration of Emotions, Exploration of Coping Patterns, Communication Skills, Supportive Reflection\n\nPlan: Continue addressing anticipatory anxiety, negative self-evaluation, and confidence in family interactions. Develop balanced responses to feared judgments and identify communication and coping strategies client can use during the trip without alcohol as a calming aid. Review his experiences and the usefulness of these strategies at the next session.\n\nAdditional fictional demo encounter context: On November 6, 2026, the provider conducted a 45-minute telehealth · client at home with client only. Applicable consent and participant identities were reviewed before the session. The clinician reviewed the supplied treatment plan and its goals, the presenting concern, the service code (90834), session duration, interventions, client participation and next steps. The fictional structured safety review records no acute safety concerns reported or observed and identifies supportive contacts and follow-up. These encounter and safety details were added solely for this scripted demonstration; they are not findings from a real assessment. No recording takes place.",
+      "provider": {
+        "name": "Jordan Reed",
+        "credential": "LCSW",
+        "photo": "/auricwell/examples/jordan-reed.jpg"
+      }
+    }
+  ]
+}

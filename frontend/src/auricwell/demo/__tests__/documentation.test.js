@@ -34,7 +34,7 @@ describe('real workspace start presentation', () => {
 
 describe('demo action isolation', () => {
   it.each(['Quick Sign','Narriva Generate Note'])('routes %s into the scripted tour before the shared application handler runs',async label=>{
-    const router=createRouter({history:createMemoryHistory(),routes:[{path:'/meadowbrook/documentation',component:{template:'<span />'}}]});await router.push('/meadowbrook/documentation');await router.isReady();wrapper=mount(Documentation,{global:{plugins:[router]}});await wrapper.findAll('.demo-doc-workspace button').find(button=>button.text()===label).trigger('click');expect(wrapper.find('.narriva-demo').exists()).toBe(true);expect(wrapper.find('.demo-doc-workspace').exists()).toBe(false);expect(mutations.sign).not.toHaveBeenCalled();expect(mutations.save).not.toHaveBeenCalled();
+    const router=createRouter({history:createMemoryHistory(),routes:[{path:'/meadowbrook/documentation',component:{template:'<span />'}}]});await router.push('/meadowbrook/documentation?workspace=1');await router.isReady();wrapper=mount(Documentation,{global:{plugins:[router]}});await wrapper.findAll('.demo-doc-workspace button').find(button=>button.text()===label).trigger('click');expect(wrapper.find('.narriva-demo').exists()).toBe(true);expect(wrapper.find('.demo-doc-workspace').exists()).toBe(false);expect(mutations.sign).not.toHaveBeenCalled();expect(mutations.save).not.toHaveBeenCalled();
   });
   it('opens the Narriva deep link inside the existing documentation screen and returns to its full workspace',async()=>{
     const router=createRouter({history:createMemoryHistory(),routes:[{path:'/meadowbrook/documentation',component:{template:'<span />'}}]});await router.push('/meadowbrook/documentation?narriva=1');await router.isReady();wrapper=mount(Documentation,{global:{plugins:[router]}});expect(wrapper.find('.narriva-demo').exists()).toBe(true);await wrapper.get('[data-analytics-id="narriva-tour"]').trigger('click');expect(wrapper.find('.demo-doc-workspace').exists()).toBe(true);expect(wrapper.get('h1').text()).toContain('Please choose a draft');
@@ -60,7 +60,7 @@ describe('demo action isolation', () => {
       expect(notices).toEqual([DEMO_NOTE_NOTICE, DEMO_NOTE_NOTICE, DEMO_NOTE_NOTICE]);
       await wrapper.get('[data-analytics-id="demo-note-open-cosign"]').trigger('click');
       await flushPromises();
-      expect(router.currentRoute.value.query).toEqual({ agencyId: '990101', noteId: '990181', launchIntent: 'cosign' });
+      expect(router.currentRoute.value.query).toEqual({ workspace:'1', agencyId: '990101', noteId: '990181', launchIntent: 'cosign' });
     } finally { window.removeEventListener('aw-demo-notice', listener); }
   });
   it('does not block read-only review and navigation controls', () => {
@@ -68,7 +68,7 @@ describe('demo action isolation', () => {
     for (const textContent of ['Sign', 'Sign and open next in progress', 'Cosign & approve for billing review', 'Save Draft', 'Send request', 'Start recording', 'Generate note']) expect(demoNoteAction({ textContent })).not.toBeNull();
   });
   it('advances the selected My Work co-sign even when no launch query exists', async () => {
-    const router=createRouter({history:createMemoryHistory(),routes:[{path:'/meadowbrook/documentation',component:{template:'<span />'}}]});await router.push('/meadowbrook/documentation');await router.isReady();
+    const router=createRouter({history:createMemoryHistory(),routes:[{path:'/meadowbrook/documentation',component:{template:'<span />'}}]});await router.push('/meadowbrook/documentation?workspace=1');await router.isReady();
     wrapper=mount(Documentation,{global:{plugins:[router]}});await wrapper.findAll('.demo-doc-workspace button').find(button=>button.text()==='Open queued co-sign').trigger('click');await wrapper.get('[data-analytics-id="demo-note-simulate-sign-next"]').trigger('click');await flushPromises();expect(router.currentRoute.value.query.noteId).toBe('990182');expect(router.currentRoute.value.query.launchIntent).toBe('cosign');expect(mutations.sign).not.toHaveBeenCalled();
   });
   it('advances from the viewed client when the shared workspace has consumed draftId', async () => {
@@ -97,13 +97,15 @@ describe('fictional note fixtures', () => {
     for (const draft of notes.drafts) {
       expect(draft.output_json.meta.structuredChart.clientId).toBe(draft.client_id);
       const chart = notes.chartExtras(draft.client_id);
-      expect(chart.latestPlan.goals[0].objectives[0].scale_target).toBe(8);
-      expect(chart.objectiveRatings[0].scale_value).toBe(5);
+      expect(chart.latestPlan.goals).toHaveLength(3);
+      expect(chart.latestPlan.goals[0].objectives[0].scale_target).toBe(draft.client_id===990121?3:draft.client_id===990123?8:4);
+      expect(chart.objectiveRatings[0].scale_value).toBe(chart.latestPlan.goals[0].objectives[0].scale_start);
       expect(chart.objectiveRatings[0].date_of_service).toBe('2026-10-26');
     }
     expect(notes.workQueue.every(item => notes.drafts.some(draft => draft.id === item.draftId && draft.client_id === item.clientId))).toBe(true);
-    expect(notes.drafts[1].output_json.meta).toMatchObject({ aiGenerated: true, recordingConsent: { status: 'consented', exampleOnly: true } });
-    expect(notes.drafts[0].output_json.meta.aiGenerated).toBe(false);
+    expect(notes.drafts[1].output_json.meta).toMatchObject({ aiGenerated:true,exampleOnly:true,source:'prepared_demo' });
+    expect(notes.drafts[0].service_code).toBe('90847');
+    expect(notes.drafts[1].output_json.meta.recordingConsent).toBeUndefined();
   });
   it('supplies matching real supervisor review snapshots with complete service details and rated objectives', () => {
     const queue = notes.response('/me/notes-to-sign');
