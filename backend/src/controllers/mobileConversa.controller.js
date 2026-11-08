@@ -2,7 +2,7 @@ import {mobileAgencyIcon} from '../services/mobile/agencyBrand.service.js';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import {assertThreadAccess,markRead,markUnread} from './chat.controller.js';
-import {updateConversation} from '../services/unifiedInbox.service.js';
+import Conversation from '../models/CommunicationConversation.model.js';
 import {qvListChatThreads,qvListChatChannels,qvListThreadsInbox,qvListMentions,qvListFiles} from './quickViewSurfaces.controller.js';
 import {requireConversationAccess} from '../services/communicationAccess.service.js';
 import {mobileConversaStore,mobileThreadItem,hasMobileThreadActivity} from '../services/mobile/conversa.service.js';
@@ -128,8 +128,11 @@ export const patchMobileMessageState=mobile(async(req,res,next)=>{
     if(req.body.read===false)await pool.execute('DELETE v FROM chat_message_views v JOIN chat_messages m ON m.id=v.message_id WHERE m.thread_id=? AND v.user_id=?',[id,req.quickView.userId]);
     return (req.body.read===false?markUnread:markRead)(req,res,next);
   }
-  assertMobileQaConversation(req,await requireConversationAccess({id:req.quickView.userId,role:'provider',mobileDevice:true},id));
-  res.json({conversation:await updateConversation(id,{markRead:req.body.read!==false,markUnread:req.body.read===false},{userId:req.quickView.userId})});
+  const conversation=assertMobileQaConversation(req,await requireConversationAccess({id:req.quickView.userId,role:'provider',mobileDevice:true},id));
+  if(conversation.channel!==kind)throw fail(400,'Conversation does not match this category.');
+  // Mobile personal read state never mutates a group's canonical ticket.
+  await Conversation[req.body.read===false?'markUnread':'markRead'](id,req.quickView.userId);
+  res.json({ok:true});
 });
 export const postMobileViewed=mobile(async(req,res)=>{
   const threadId=Number(req.params.threadId),ids=req.body.messageIds;
