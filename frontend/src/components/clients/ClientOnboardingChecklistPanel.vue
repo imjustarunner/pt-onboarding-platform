@@ -268,13 +268,13 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, defineAsyncComponent, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import ClientOnboardingRoiStaffPanel from './ClientOnboardingRoiStaffPanel.vue';
 import ClientOnboardingStaffSetupPanel from './ClientOnboardingStaffSetupPanel.vue';
 import ClientOnboardingDocumentsPanel from './ClientOnboardingDocumentsPanel.vue';
-import SchoolPaperPacketWorkflow from './SchoolPaperPacketWorkflow.vue';
+const SchoolPaperPacketWorkflow = defineAsyncComponent(() => import('./SchoolPaperPacketWorkflow.vue'));
 import AssignDayModal from '../school/AssignDayModal.vue';
 import LifecycleActionModal from '../school/LifecycleActionModal.vue';
 
