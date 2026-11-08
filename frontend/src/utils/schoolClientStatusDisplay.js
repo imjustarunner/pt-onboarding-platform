@@ -7,10 +7,13 @@ export function needsFallReassignmentClearance(client) {
 
 export function displaySchoolClientStatusLabel(client, now = new Date()) {
   if (!client) return '—';
-  if (client.school_status_resolved === true) return client.client_status_label || '—';
+  if (client.school_status_resolved === true && client.client_status_label) return client.client_status_label;
+  const storedStatus = String(client.status || '').trim();
+  const fallback = storedStatus ? storedStatus.toLowerCase().replace(/_/g, ' ').replace(/\b\w/g, letter => letter.toUpperCase()) : '—';
   const school = client.client_type === 'school' || Number(client.organization_id) > 0 || !!client.organization_name;
-  if (!school && client.client_status_key !== 'current') return client.client_status_label || '—';
-  return resolveSchoolRosterDisplayStatus(client, now).label;
+  if (!school && client.client_status_key !== 'current') return client.client_status_label || fallback;
+  const label = resolveSchoolRosterDisplayStatus(client, now).label;
+  return label && label !== '—' ? label : fallback;
 }
 
 export function assignedDayDisplay(client) {

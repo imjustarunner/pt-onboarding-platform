@@ -20,6 +20,8 @@ after(async () => { mock.restoreAll(); await pool.end(); });
 const coverageCases = [
   [null, false], [{ primary: { insurerName: 'Commercial' } }, false],
   [{ primary: { isMedicaid: true } }, true],
+  [{ primary: { insurerName: 'Regional plan', planType: 'Medicaid', isMedicaid: false } }, true],
+  [{ primary: { insurerName: 'Commercial' }, secondary: { insurerName: 'Regional plan', planType: 'Medicaid managed care', isMedicaid: false } }, true],
   [{ primary: { insurerName: 'Commercial' }, secondary: { insurerName: 'Health First Colorado' } }, true],
   [{ isSelfPay: true, secondary: { isMedicaid: 1 } }, true],
   [{ primaryIsMedicaid: true }, true],
@@ -43,6 +45,10 @@ test('mental-health enrollment with secondary Medicaid never queries or requires
 test('self-pay preferences do not discard declared Medicaid from canonical client coverage', () => {
   const policy = insuranceForIntakeClient({ isSelfPay: true, primary: { insurerName: 'Commercial' }, secondary: { insurerName: 'Health First Colorado', memberId: 'SYNTHETIC' } }, 0, 1);
   assert.equal(policy.secondary.memberId, 'SYNTHETIC');
+});
+test('an explicitly entered Medicaid plan type reaches the saved client policy', () => {
+  const policy = insuranceForIntakeClient({ primary: { insurerName: 'Commercial' }, secondary: { insurerName: 'Regional plan', planType: 'Medicaid', isMedicaid: false } }, 0, 1);
+  assert.equal(policy.secondary.isMedicaid, true);
 });
 test('nonclinical enrollment still requires a verified card when collection is enabled', async () => {
   mock.method(pool, 'execute', async sql => sql.includes('agency_billing_accounts') ? [[{ stripe_connect_account_id: 'acct_test' }]] : [[]]);

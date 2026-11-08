@@ -148,7 +148,7 @@ export async function loadSchoolSupportDraftGrounding({ ticket, messages = [] },
     staffState = guardianConsentKnown ? 'denied' : 'unknown';
     result.roi.staffState = staffState;
   }
-  result.canShareScheduling = guardianConsentKnown && !guardianDenied && !!recipient && (enabled(recipient.is_school_admin) || enabled(recipient.is_primary)
+  result.canShareScheduling = guardianConsentKnown && !!recipient && (enabled(recipient.is_school_admin) || enabled(recipient.is_primary)
     || (roiStateKnown && schoolStaffCanOpenClient(rows.staffRoi[0], c.roi_expires_at, { schoolStaffInOrg: true })));
   if (result.assignments.length) result.sources.push({ type: 'provider_assignment', id: clientId, label: 'Current school provider assignment',
     detail: result.assignments.map(p => `${p.provider || 'Provider'}${p.day ? ` (${p.day})` : ''}`).join('; ') });

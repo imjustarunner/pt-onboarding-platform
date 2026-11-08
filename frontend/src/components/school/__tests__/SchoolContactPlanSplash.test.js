@@ -18,7 +18,7 @@ async function open(overrides) {
   wrapper = mount(Splash, { attachTo: document.body, props: { agencyId: 450, userId: 9, providerName: 'Alex Provider' }, global: { stubs: { RouterLink: { props: ['to'], template: '<a class="router-link-stub"><slot /></a>' } } } });
   await flushPromises();
 }
-beforeEach(() => { vi.resetAllMocks(); });
+beforeEach(() => { vi.resetAllMocks(); sessionStorage.clear(); });
 afterEach(() => { wrapper?.unmount(); document.body.innerHTML = ''; });
 
 it('opens the Family Welcome tour once and lets a saved opt-out be revisited', async () => {
@@ -156,6 +156,8 @@ it('keeps ineligible tenants quiet, shows the tour once to providers already on,
   window.dispatchEvent(new CustomEvent('family-welcome:open')); await flushPromises();
   expect(dialog().textContent).toContain('Introduce yourself to new families');
   wrapper.unmount();
+  // A new browser session may introduce a tour not recorded as seen by the server.
+  sessionStorage.clear();
   await open({ status: 'enabled', welcomeSeen: false });
   expect(dialog().textContent).toContain('Right away');
 });
@@ -261,4 +263,17 @@ it('does not show a previous tenant response after the selected agency changes',
   await wrapper.setProps({ agencyId: 2 }); await flushPromises();
   resolveOld({ data: state() }); await flushPromises();
   expect(dialog()).toBeNull(); expect(document.querySelector('.contact-plan-dock')).toBeNull();
+});
+
+it('keeps a minimized tour closed after navigation without changing contact preferences', async () => {
+  await open();
+  document.querySelector('[aria-label="Minimize Family Welcome"]').click(); await flushPromises();
+  wrapper.unmount();
+  await open();
+  expect(dialog()).toBeNull();
+  expect(document.querySelector('.contact-plan-dock')).not.toBeNull();
+  expect(api.put).not.toHaveBeenCalled();
+  expect(api.post).not.toHaveBeenCalled();
+  await click('Family Welcome & Follow-Up');
+  expect(dialog()).not.toBeNull();
 });

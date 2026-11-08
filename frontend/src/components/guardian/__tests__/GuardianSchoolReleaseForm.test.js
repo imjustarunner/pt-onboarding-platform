@@ -37,11 +37,12 @@ describe('in-portal school release', () => {
     wrapper.unmount();
   });
 
-  it('stays hidden when the release is already signed', async () => {
+  it('shows the completed release without reopening a blank form', async () => {
     api.get.mockResolvedValue({ data: { ready: false, status: 'completed', schoolOrganizationId: 326 } });
     const wrapper = mount(Form, { props: { clientId: 928, schoolId: 326 } });
     await flushPromises();
-    expect(wrapper.text()).toBe('');
+    expect(wrapper.text()).toContain('This school release is signed and saved on the chart.');
+    expect(wrapper.find('form').exists()).toBe(false);
     expect(api.get).toHaveBeenCalledTimes(1);
     wrapper.unmount();
   });

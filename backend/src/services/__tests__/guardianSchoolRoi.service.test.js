@@ -12,6 +12,7 @@ function db(clientRows, schoolRows = []) {
     async execute(sql) {
       if (sql.includes('FROM clients')) return [clientRows];
       if (sql.includes('client_organization_assignments')) return [schoolRows];
+      if (sql.includes('client_school_roi_guardian_decisions') || sql.includes('intake_submission_documents')) return [[]];
       throw new Error(`unexpected sql: ${sql}`);
     }
   };
@@ -113,4 +114,21 @@ describe('guardian school release', () => {
       (error) => error.status === 403
     );
   });
+});
+
+for (const scenario of [
+  { name: 'recognizes the current guardian’s enrollment signature', guardian: 15, existing: null, completed: true },
+  { name: 'does not treat another guardian’s signature as this guardian’s', guardian: 16, existing: null, completed: false },
+  { name: 'preserves a new staff-issued update request', guardian: 15, existing: { status: 'issued', issued_by_user_id: 99 }, completed: false },
+  { name: 'does not reopen an automatically created portal link', guardian: 15, existing: { status: 'issued', issued_by_user_id: 15 }, completed: true }
+]) it(scenario.name, async () => {
+  let issued = false;
+  const result = await openGuardianSchoolRelease({ userId: 15, clientId: 928,
+    db: db(schoolClient), loadLink: async () => link,
+    findExisting: async () => scenario.existing,
+    loadConsent: async () => [{ decisions: [{ guardianUserId: scenario.guardian, expired: false }] }],
+    issueLink: async () => { issued = true; return { ok: true, issuedLink: { public_key: 'request', status: 'issued' } }; }
+  });
+  assert.equal(result.status === 'completed', scenario.completed);
+  assert.equal(issued, !scenario.completed);
 });

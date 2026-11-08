@@ -500,7 +500,9 @@ export const listMyAssignedSkillBuilderEvents = async (req, res, next) => {
     ).catch(() => [[]]);
     const hasAssignment = !!assignedProbe?.[0]?.ok;
     if (!coord && !elig && !hasAssignment) {
-      return res.status(403).json({ error: { message: 'Skill Builders access required' } });
+      // This is an assignment-discovery request from the shared dashboard.
+      // Agency authorization was checked above; no assignment means no links.
+      return res.json({ events: [] });
     }
 
     const [rows] = await pool.execute(

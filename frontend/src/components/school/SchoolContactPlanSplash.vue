@@ -214,7 +214,13 @@ function openTour() {
   error.value = ''; step.value = 'welcome'; slide.value = 0; open.value = true;
 }
 function resume() { error.value = ''; open.value = true; }
-function minimize() { if (!busy.value) open.value = false; }
+function dismissalKey() { return `family-welcome-minimized:${props.userId}:${props.agencyId}`; }
+function wasMinimized() { try { return sessionStorage.getItem(dismissalKey()) === '1'; } catch { return false; } }
+function minimize() {
+  if (busy.value) return;
+  open.value = false;
+  try { sessionStorage.setItem(dismissalKey(), '1'); } catch { /* Session storage may be unavailable. */ }
+}
 async function load({ reset = false } = {}) {
   if (!props.agencyId || !props.userId || loading || disposed) return;
   if (!reset && (open.value || busy.value || plan.value?.eligible)) return;
@@ -227,7 +233,7 @@ async function load({ reset = false } = {}) {
     const firstVisit = !data.welcomeSeen && (data.welcomeSeen === false || data.status === 'unconfigured');
     step.value = data.status === 'enabled' && !firstVisit ? 'configure' : 'welcome';
     slide.value = 0;
-    open.value = !!data.eligible && (firstVisit || (data.mandatory && data.status !== 'enabled'));
+    open.value = !!data.eligible && !wasMinimized() && (firstVisit || (data.mandatory && data.status !== 'enabled'));
   } catch { /* Eligibility is retried on focus; this optional setup must not block the app. */ }
   finally { loading = false; }
 }

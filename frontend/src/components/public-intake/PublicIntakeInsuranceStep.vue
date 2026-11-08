@@ -1,6 +1,8 @@
 <template>
   <div class="pi-ins">
     <p v-if="fileError" class="pi-ins-inline-error" role="alert">{{ tx(fileError) }}</p>
+    <p v-if="uploadingPhotos" role="status">{{ tx('Uploading insurance cards securely… Please wait before leaving this step.') }}</p>
+    <p v-else-if="Object.values(uploadedPhotoUrls).some(Boolean)" role="status">{{ tx('Insurance card uploads saved securely.') }}</p>
     <!-- Step description + non-Medicaid disclaimer -->
     <p v-if="stepConfig.nonMedicaidDisclaimerText && !hasAnyMedicaid" class="pi-ins-disclaimer">
       {{ tx(stepConfig.nonMedicaidDisclaimerText) }}
@@ -622,8 +624,50 @@ const medicaidByClient = ref(
     : []
 );
 
-// Photo file references (File objects kept in memory; uploaded on submit)
+// Persist card references as each file is selected; a step remount cannot
+// preserve File objects even when its preview image was retained.
 const photoFiles = reactive({ primary_front: null, primary_back: null, secondary_front: null, secondary_back: null });
+const uploadedPhotoUrls = reactive({});
+const photoUploads = new Map();
+const photoUploadErrors = new Map();
+const photoUploadCount = ref(0);
+const uploadingPhotos = computed(() => photoUploadCount.value > 0);
+async function awaitPhotoUploads() {
+  await Promise.all([...photoUploads.values()]);
+  if (photoUploadErrors.size) throw new Error('An insurance card was not saved. Select that file again or remove it before continuing.');
+}
+function uploadPhoto(file, slot) {
+  if (!props.publicKey || !props.submissionId) return;
+  photoUploadErrors.delete(slot);
+  photoUploadCount.value++;
+  let operation;
+  operation = (async () => {
+    try {
+      const form = new FormData(); form.append(slot, file, file.name);
+      const { data } = await api.post(`/public-intake/${props.publicKey}/${props.submissionId}/insurance-card-photos`, form, { headers: { 'x-intake-session': intakeSessionToken.value } });
+      if (photoFiles[slot] !== file) return;
+      const url = data?.urls?.[`${slot}_url`];
+      if (!url) throw new Error('The insurance card upload was not confirmed. Select the file again.');
+      uploadedPhotoUrls[`${slot}_url`] = url;
+      for (const tier of ['primary', 'secondary']) {
+        for (const key of ['insurerName', 'memberId', 'groupNumber', 'subscriberName']) {
+          const extracted = String(data?.extracted?.[tier]?.[key] || '').trim();
+          if (extracted && !String(local[tier][key] || '').trim()) local[tier][key] = extracted;
+        }
+      }
+      photoFiles[slot] = null;
+      push();
+    } catch (error) {
+      if (photoFiles[slot] !== file) return;
+      photoUploadErrors.set(slot, true);
+      fileError.value = error.response?.data?.error?.message || error.message || 'Card upload failed. Select the file again.';
+    } finally {
+      photoUploadCount.value--;
+      if (photoUploads.get(slot) === operation) photoUploads.delete(slot);
+    }
+  })();
+  photoUploads.set(slot, operation);
+}
 const primaryFrontPreview = ref(props.modelValue?.photos?.primary_front_preview || '');
 const primaryBackPreview = ref(props.modelValue?.photos?.primary_back_preview || '');
 const secondaryFrontPreview = ref(props.modelValue?.photos?.secondary_front_preview || '');
@@ -758,9 +802,13 @@ function onPhotoSelected(event, slot) {
   };
   reader.onerror = () => { fileError.value = 'This file could not be read. Choose it again.'; };
   reader.readAsDataURL(file);
+  uploadPhoto(file, slot);
 }
 function clearPhoto(slot) {
   photoFiles[slot] = null;
+  uploadedPhotoUrls[`${slot}_url`] = '';
+  photoUploadErrors.delete(slot);
+  if (!photoUploadErrors.size) fileError.value = '';
   if (slot === 'primary_front') primaryFrontPreview.value = '';
   else if (slot === 'primary_back') primaryBackPreview.value = '';
   else if (slot === 'secondary_front') secondaryFrontPreview.value = '';
@@ -839,6 +887,7 @@ function push() {
     : [];
   const out = {
     ...props.modelValue,
+    ...uploadedPhotoUrls,
     coverageScope: coverageScope.value,
     clientCoverages: coverageClientIndexes.value.map(clientIndex => ({ ...separatePolicies[clientIndex], clientIndex, confirmed: true })),
     primary: { ...local.primary, isMedicaid: primaryIsMedicaid.value },
@@ -906,7 +955,7 @@ function clearId() {
 
 function onIdentitySkip() {
   if (identitySkipped.value) {
-    identityStatusMessage.value = 'Thank you for your submission.';
+    identityStatusMessage.value = 'Your ID choice is saved. Continue to review and submit the enrollment.';
     identityVerified.value = null;
   }
   push();
@@ -935,7 +984,7 @@ async function onIdSelected(event) {
   const sid = Number(props.submissionId || 0);
   if (!pk || !sid) {
     identityVerified.value = null;
-    identityStatusMessage.value = 'Thank you for your submission.';
+    identityStatusMessage.value = 'Your ID choice is saved. Continue to review and submit the enrollment.';
     push();
     return;
   }
@@ -952,10 +1001,10 @@ async function onIdSelected(event) {
     identityImageUrl.value = String(res.data?.imageUrl || '');
     identityStatusMessage.value = identityVerified.value
       ? 'Thank you, you’ve been verified.'
-      : 'Thank you for your submission.';
+      : 'Your ID choice is saved. Continue to review and submit the enrollment.';
   } catch {
     identityVerified.value = null;
-    identityStatusMessage.value = 'Thank you for your submission.';
+    identityStatusMessage.value = 'Your ID choice is saved. Continue to review and submit the enrollment.';
   }
   push();
 }
@@ -1139,6 +1188,8 @@ watch(
 
 // Expose for parent
 defineExpose({
+  awaitPhotoUploads,
+  uploadingPhotos,
   getPhotoFiles,
   getInsuranceEntryState,
   primaryIsMedicaid,

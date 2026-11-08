@@ -6,6 +6,7 @@
  * form order, nested values (not dropped), signature images, approvals, and
  * ESIGN certificate fields. It does not wait on merged legal-form PDFs.
  */
+import { intakeAudienceMatches } from '../../../frontend/src/navigation/intakeAudience.js';
 import {
   resolveIntakeFieldLabel,
   resolveIntakeFormLocale,
@@ -434,6 +435,8 @@ function walkBag(bag, { byKey, locale, link, prefix = '', skipKeys = new Set(), 
     const printedKey = prefix ? `${prefix}.${key}` : key;
     if (!key || skipKeys.has(key) || SKIP_BAG_KEYS.has(key) || isSecretKey(key) || printed.has(printedKey)) continue;
     if (looksLikeHtml(raw)) continue;
+    // An empty policy's default false flag is not a reported insurance answer.
+    if (key === 'isMedicaid' && raw === false && !['insurerName', 'memberId', 'planType', 'payerId'].some(field => bag[field])) continue;
     if (PHOTO_KEY.test(key) && typeof raw === 'string' && /^(?:data:|gs:\/\/)/i.test(raw)) continue;
     if (INSTRUMENT_LEFTOVER_KEY.test(key)) continue;
     const field = byKey.get(key);
@@ -949,6 +952,8 @@ export function buildCompletedIntakeRecord({
     });
   }
   guardian = { ...(intakeData.guardian || {}), ...guardian, ...(intakeData.applicationRecord?.applicant || {}) };
+  const selectedSubject = intakeData?.responses?.submission?.serviceSubject || intakeData.serviceSubject || (intakeData.intakeForSelf === true ? 'self' : '');
+  if (selectedSubject) link = { ...link, intake_steps: (link.intake_steps || []).filter(step => intakeAudienceMatches(step.audience, selectedSubject)) };
   const locale = resolveIntakeFormLocale(link, intakeData);
   const byKey = fieldIndex(link);
   const printed = new Set();
@@ -965,13 +970,16 @@ export function buildCompletedIntakeRecord({
   const contactPhone = String(guardian.phone || guardian.phoneNumber || guardianBag.phone || guardianBag.phoneNumber || submission?.signer_phone || '').trim();
 
   const contactRows = [];
-  pushRow(contactRows, 'Name', contactName);
+  const subject = String(submissionBag.serviceSubject || intakeData.serviceSubject || '').toLowerCase();
+  const representedAdult = subject === 'representative' || subject === 'adult_representative';
+  pushRow(contactRows, representedAdult ? 'Authorized representative' : 'Name', contactName);
   pushRow(contactRows, 'Email', contactEmail);
   pushRow(contactRows, 'Phone', contactPhone);
   pushRow(contactRows, 'Relationship to client', guardian.relationship || intakeData.guardian?.relationship || guardianBag.relationship
     || (intakeData.intakeForSelf === true ? 'Self' : ''));
   const whoFor = String(submissionBag.whoFor || submissionBag.this_is_for || intakeData.whoFor || '').trim();
   if (whoFor) pushRow(contactRows, 'This is for', humanizeKey(whoFor));
+  if (representedAdult) pushRow(contactRows, 'Enrollment type', 'Adult represented by an authorized person');
   const isJobApplication = String(link?.form_type || '').toLowerCase() === 'job_application';
   if (!isJobApplication) {
     listedClients.forEach((client, index) => {
@@ -1046,7 +1054,7 @@ export function buildCompletedIntakeRecord({
     byKey,
     locale,
     link,
-    skipKeys: new Set(['needs_clinical_review', 'needsClinicalReview', 'whoFor', 'this_is_for', 'formLocale', 'acknowledgments', 'termsUrl', 'privacyUrl', ...SKIP_BAG_KEYS]),
+    skipKeys: new Set(['needs_clinical_review', 'needsClinicalReview', 'whoFor', 'this_is_for', ...(representedAdult ? ['serviceSubject'] : []), 'formLocale', 'acknowledgments', 'termsUrl', 'privacyUrl', ...SKIP_BAG_KEYS]),
     values: interviewValues
   }, leftoverSubmission, printed);
   const coverLetterRaw = String(
@@ -1072,14 +1080,18 @@ export function buildCompletedIntakeRecord({
 
   const clientSections = isJobApplication
     ? []
-    : clientBags.map((bag, index) => {
+    : clientBags.flatMap((bag, index) => {
       const rows = [];
       const identitySkip = new Set(['firstName', 'lastName', 'middleName', 'fullName', 'dateOfBirth', 'date_of_birth']);
       const dob = String(listedClients[index]?.dateOfBirth || listedClients[index]?.date_of_birth || bag?.child_dob || '').trim();
       const values = { ...bag, ...childAgeFlags(dob, bag || {}) };
       walkBag(bag, { byKey, locale, link, skipKeys: identitySkip, values }, rows, new Set(printed));
       const name = String(listedClients[index]?.fullName || `${listedClients[index]?.firstName || ''} ${listedClients[index]?.lastName || ''}`.trim() || `Client ${index + 1}`).trim();
-      return rows.length ? { title: listedClients.length > 1 ? `${name} details` : 'Client details', rows } : null;
+      // Interview rendering tracks field keys for the first client. The same
+      // screener key on a sibling is a different answer, not a duplicate.
+      const screens = index > 0 ? answeredInstrumentSections(values, new Set(), byKey, locale, link, name)
+        .map(section => ({ ...section, title: `${name} — ${section.title}` })) : [];
+      return [...screens, rows.length ? { title: listedClients.length > 1 ? `${name} details` : 'Client details', rows } : null];
     }).filter(Boolean);
 
   const referencesRaw = intakeData?.referencesJson ?? submissionBag.references ?? submissionBag.professionalReferences ?? [];
@@ -1141,7 +1153,8 @@ export function buildCompletedIntakeRecord({
     || submissionBag?.smartSchoolRoi?.signer?.relationship
     || ''
   ).trim().toLowerCase();
-  const enrollingSelf = intakeData?.smartSchoolRoi?.intakeForSelf === true
+  const enrollingSelf = intakeData?.intakeForSelf === true
+    || intakeData?.smartSchoolRoi?.intakeForSelf === true
     || submissionBag?.smartSchoolRoi?.intakeForSelf === true
     || signerRelationship === 'self';
 
@@ -1149,7 +1162,7 @@ export function buildCompletedIntakeRecord({
     contactRows.length
       ? { title: isJobApplication ? 'Applicant' : 'Who this packet is for', rows: contactRows }
       : null,
-    leftoverGuardian.length ? { title: isJobApplication ? 'Applicant details' : (enrollingSelf ? 'Your information' : 'Parent / guardian'), rows: leftoverGuardian } : null,
+    leftoverGuardian.length ? { title: isJobApplication ? 'Applicant details' : (enrollingSelf ? 'Your information' : representedAdult ? 'Authorized representative information' : 'Parent / guardian'), rows: leftoverGuardian } : null,
     ...(isJobApplication ? jobApplicationSections(intakeData.applicationRecord) : []),
     referencesBlock,
     waiversBlock,

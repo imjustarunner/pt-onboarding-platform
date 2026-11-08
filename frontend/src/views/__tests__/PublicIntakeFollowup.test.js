@@ -26,7 +26,7 @@ function question(id, key, extra = {}) {
   return { id, type: 'questions', label: id, fields: [{ key, label: key, type: 'text' }], ...extra };
 }
 
-async function render(steps, { subject = 'self', locale = 'en', clients = [], startId } = {}) {
+async function render(steps, { subject = 'self', locale = 'en', clients = [], startId, issuedStatus } = {}) {
   const agency = { id: 2, name: 'Demo Agency', slug: 'demo' };
   const data = {
     link: {
@@ -34,6 +34,7 @@ async function render(steps, { subject = 'self', locale = 'en', clients = [], st
       inherits_office_master: 1, master_channel: 'counseling', language_code: 'en',
       intake_fields: [], intake_steps: steps
     },
+    issuedLink: issuedStatus ? { status: issuedStatus } : undefined,
     agency, organization: { ...agency, organization_type: 'agency' }, templates: []
   };
   get.mockReset().mockImplementation(async url => ({ data: url === '/public-intake/office-followup-test' ? data : {} }));
@@ -351,4 +352,18 @@ it('keeps unsent communication choices in server progress without recording a si
   // Simulate re-entering the restored step after the async server response.
   wrapper.vm.currentFlowIndex = -1; await flushPromises(); wrapper.vm.currentFlowIndex = 0; await flushPromises();
   expect(wrapper.vm.communications).toMatchObject({ emailPreference: 'no', smsPreference: 'no', signerName: 'Pat Example', alternativeContactInstructions: 'Use alternate contact only' });
+});
+
+it('recognizes a completed assigned release before showing Begin', async () => {
+  await render([question('identity', 'legal_first_name')], { issuedStatus: 'completed' });
+  expect(wrapper.text()).toContain('Release already completed');
+  expect(wrapper.findAll('button').some(button => button.text().includes('Begin'))).toBe(false);
+});
+it('captures represented adult sex on the client starter screen and preserves the subject on resume', async () => {
+  await render([question('identity', 'legal_first_name')], { subject: 'representative', clients: [{ firstName: 'Sample', lastName: 'Adult', dateOfBirth: '1980-01-02' }] });
+  wrapper.vm.step = 0.5; await flushPromises();
+  await wrapper.get('#clientSex_0').setValue('female');
+  expect(wrapper.vm.intakeResponses.clients[0].client_sex).toBe('female');
+  wrapper.vm.intakeResponses.submission.serviceSubject = 'representative'; await flushPromises();
+  expect(wrapper.vm.serviceSubject).toBe('representative');
 });

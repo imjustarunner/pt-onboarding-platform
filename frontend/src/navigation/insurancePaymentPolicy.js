@@ -3,7 +3,8 @@
 // service classifications stay on billing review when Medicaid is recorded.
 export function policyIsMedicaid(policy) {
   return policy?.isMedicaid === true || policy?.isMedicaid === 1
-    || /\bmedicaid\b|health\s+first\s+colorado/i.test(String(policy?.insurerName || ''));
+    || /\bmedicaid\b|health\s+first\s+colorado/i.test(String(policy?.insurerName || ''))
+    || /\bmedicaid\b/i.test(String(policy?.planType || ''));
 }
 export function hasMedicaidCoverage(info) {
   if (!info) return false;

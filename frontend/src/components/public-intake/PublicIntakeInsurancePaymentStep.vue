@@ -87,7 +87,7 @@
         />
       </section>
 
-      <section class="pi-ip-section">
+      <section v-if="!isMedicaid" class="pi-ip-section">
         <h3>{{ tx('Your payment arrangement') }}</h3>
         <p>{{ tx('Tell us what you propose for copays or other patient responsibility. This is a request for review, not permission to charge your card.') }}</p>
         <label>{{ tx('I am willing to') }}
@@ -499,6 +499,8 @@ defineExpose({
   showPaymentSection,
   paymentChoice,
   getPhotoFiles: () => insuranceRef.value?.getPhotoFiles?.(),
+  awaitPhotoUploads: () => insuranceRef.value?.awaitPhotoUploads?.(),
+  uploadingPhotos: computed(() => insuranceRef.value?.uploadingPhotos || false),
   getInsuranceEntryState: () => ({
     ...(insuranceRef.value?.getInsuranceEntryState?.() || {}),
     isSelfPay: isSelfPay.value,

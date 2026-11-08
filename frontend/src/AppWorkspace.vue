@@ -5027,7 +5027,7 @@ let directoryPortalsLastAt = 0;
 
 async function loadAssignedEventPortals() {
   if (!isAuthenticated.value) { assignedEventPortals.value = []; return; }
-  if (!canSeeEventPortalsTopNav.value) { assignedEventPortals.value = []; return; }
+  if (!canSeeEventPortalsTopNav.value || (!hasProgramCoordinatorAccess.value && !canAccessSkillBuildersSchoolProgramTenant.value)) { assignedEventPortals.value = []; return; }
   const aid = Number(agencyStore.currentAgency?.id || 0);
   if (!aid) { assignedEventPortals.value = []; return; }
   // Collapse duplicate/looping invocations: skip if one is already running or

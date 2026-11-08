@@ -23,9 +23,9 @@ beforeEach(() => {
     throw new Error(`Unexpected database request: ${sql}`);
   });
 });
-async function persist(responses, clientIndex = 0) {
+async function persist(responses, clientIndex = 0, intakeForSelf = false) {
   return persistChildIntakeData({ clientId: 4, clientIndex, documentsComplete: false,
-    intakeData: { clients: [{ firstName: 'QA', lastName: 'Client' }], responses: {
+    intakeData: { intakeForSelf, clients: [{ firstName: 'QA', lastName: 'Client' }], responses: {
       ...responses, submission: { insuranceInfo: { primary: { insurerName: 'Sample Plan', memberId: 'SAMPLE-MEMBER' },
         clientCoverages: [{ clientIndex, confirmed: true }] }, ...(responses.submission || {}) }
     } }
@@ -60,4 +60,10 @@ it('leaves an unanswered sex blank rather than copying the guardian or inventing
   await persist({ clients: [{}], guardian: { sex: 'female' } });
   expect(chart.gender).toBe('');
   expect(applySubmittedClientInsurance).toHaveBeenCalledWith(expect.objectContaining({ patient: expect.objectContaining({ sex: '' }) }));
+});
+
+it('persists school self-enrollment sex from the signer’s own answers', async () => {
+  await persist({ guardian: { client_sex: 'female' } }, 0, true);
+  expect(chart.gender).toBe('female');
+  expect(applySubmittedClientInsurance).toHaveBeenCalledWith(expect.objectContaining({ patient: expect.objectContaining({ sex: 'F' }) }));
 });

@@ -996,9 +996,15 @@
           <small v-if="generateError" class="error">{{ generateError }}</small>
         </section>
 
-        <NarrivaCompliancePanel v-if="!signedNoteViewerId && (narrivaReview || narrivaReviewBusy || narrivaReviewError || displayPanels.length)" :review="narrivaReview" :risk-assessment-required="narrivaRiskRequired" :busy="narrivaReviewBusy" :error="narrivaReviewError" @retry="runNarrivaChecks" @resolve="resolveNarrivaFinding" @action="onNarrivaFindingAction">
+        <NarrivaCompliancePanel v-if="!signedNoteViewerId && !isClientChartAid && (draftId || inputText || narrivaReview || narrivaReviewBusy || narrivaReviewError || displayPanels.length)" :review="narrivaReview" :risk-assessment-required="narrivaRiskRequired" :busy="narrivaReviewBusy" :error="narrivaReviewError" @retry="runNarrivaChecks" @resolve="resolveNarrivaFinding" @action="onNarrivaFindingAction">
           <template #risk="{ required }"><div class="narriva-risk-choice"><strong>Include a risk assessment?</strong><span v-if="required">Required for this note</span><template v-else><label><input :checked="!narrivaRiskIncluded" type="radio" name="narriva-risk" @change="narrivaRiskIncluded = false" />No</label><label><input :checked="narrivaRiskIncluded" type="radio" name="narriva-risk" @change="narrivaRiskIncluded = true" />Yes</label></template><button v-if="required || narrivaRiskIncluded" type="button" class="na-link-btn" @click="openNarrivaRisk">Open risk assessment</button><label v-if="required || narrivaRiskIncluded" class="narriva-risk-complete"><input v-model="narrivaRiskCompleted" type="checkbox" />I completed and reviewed the documented risk assessment.</label></div></template>
         </NarrivaCompliancePanel>
+        <section v-if="!signedNoteViewerId && !chartNoteReadOnly && !isClientChartAid && !displayPanels.length && (draftId || inputText)" class="na-sign-attest" aria-label="Signing status">
+          <p role="status">Signing unavailable: create or restore the note text, review it, and complete the required checks and attestations. Your saved narrative remains a draft.</p>
+          <p v-if="runError">{{ runError }}</p>
+          <p>Quick Sign is unavailable without a passing review of the current note.</p>
+          <button type="button" class="na-btn-primary" disabled>Sign</button>
+        </section>
         <NarrivaAssessmentEvidence v-if="!signedNoteViewerId && !chartNoteReadOnly && (showNarrivaAssessmentEvidence || narrivaAssessmentEvidence.length)" id="narriva-assessment-evidence" v-model="narrivaAssessmentEvidence" :agency-id="noteAidAgencyId || currentAgencyId" :client-id="effectiveClientId" :clinical-session-id="sessionClinicalSessionId" :draft-id="draftId" :api-client="api" />
 
         <section
@@ -1296,11 +1302,11 @@
             >
               Review &amp; save generated treatment plan
             </button>
-            <template v-if="canApproveToClinicalRecord && bothAttestationsChecked">
+            <template v-if="canApproveToClinicalRecord">
               <button
                 type="button"
                 class="na-btn-primary"
-                :disabled="!displayPanels.length || approvingNote || !canConfirmAndSign"
+                :disabled="!displayPanels.length || approvingNote || !canConfirmAndSign || !bothAttestationsChecked"
                 @click="approveNoteOutput({
                   afterSign: (signAndOpenNextInQueue && nextInQueueItem) ? 'queue' : 'close'
                 })"
@@ -1315,7 +1321,7 @@
                 v-if="!signAndOpenNextInQueue && nextInQueueItem"
                 type="button"
                 class="na-btn-outline"
-                :disabled="!displayPanels.length || approvingNote || !canConfirmAndSign"
+                :disabled="!displayPanels.length || approvingNote || !canConfirmAndSign || !bothAttestationsChecked"
                 @click="approveNoteOutput({ afterSign: 'queue' })"
               >
                 {{ approvingNote
@@ -1330,7 +1336,7 @@
                 v-if="nextInProgressRow"
                 type="button"
                 class="na-btn-outline"
-                :disabled="!displayPanels.length || approvingNote || !canConfirmAndSign"
+                :disabled="!displayPanels.length || approvingNote || !canConfirmAndSign || !bothAttestationsChecked"
                 @click="approveNoteOutput({ afterSign: 'progress' })"
               >
                 {{ approvingNote
@@ -1345,7 +1351,7 @@
                 v-if="hasSameClientNext"
                 type="button"
                 class="na-btn-outline"
-                :disabled="!displayPanels.length || approvingNote || !canConfirmAndSign"
+                :disabled="!displayPanels.length || approvingNote || !canConfirmAndSign || !bothAttestationsChecked"
                 @click="approveNoteOutput({ afterSign: 'same_client' })"
               >
                 {{ approvingNote

@@ -65,6 +65,11 @@ function mountFlow(extraProps = {}, options = {}) {
 }
 
 describe('SmartSchoolRoiFlow', () => {
+  it('preserves the DOB calendar date when an older API serializes it as midnight UTC', () => {
+    const wrapper = mountFlow({ roiContext: { ...roiContext, client: { ...roiContext.client, dateOfBirth: '2016-03-14T00:00:00.000Z' } } });
+    expect(wrapper.vm.form.clientDateOfBirth).toBe('2016-03-14');
+    wrapper.unmount();
+  });
   beforeEach(() => { localStorage.clear(); Element.prototype.scrollIntoView = vi.fn(); });
   it('blocks progress when intro fields are missing', async () => {
     const wrapper = mountFlow();

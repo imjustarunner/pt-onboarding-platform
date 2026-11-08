@@ -1562,7 +1562,7 @@ watch(
 );
 
 const clients = ref([]);
-const loading = ref(false);
+const loading = ref(true);
 const error = ref('');
 const searchQuery = ref('');
 const clientStatusFilter = ref('');
@@ -2333,7 +2333,9 @@ watch(effectiveAgencyScopeId, async id => {
   if (!id) return;
   try { const { data } = await api.get('/client-referral-links/directory', { params: { agencyId: id } }); referralFilterEntries.value = data.entries || []; } catch { /* surfaced when selecting a referral filter */ }
 }, { immediate: true });
+let clientLoadGeneration = 0;
 const fetchClients = async () => {
+  const generation = ++clientLoadGeneration;
   try {
     loading.value = true;
     error.value = '';
@@ -2383,6 +2385,7 @@ const fetchClients = async () => {
     }
 
     const response = await api.get(`/clients?${params.toString()}`);
+    if (generation !== clientLoadGeneration) return;
     const payload = response.data || [];
     const raw = Array.isArray(payload) ? payload : (payload.items || []);
     const tenantById = new Map((allTenantFilters.value || []).map((t) => [Number(t?.id), t]));
@@ -2410,10 +2413,11 @@ const fetchClients = async () => {
       serverSummary.value = null;
     }
   } catch (err) {
+    if (generation !== clientLoadGeneration) return;
     console.error('Failed to fetch clients:', err);
     error.value = err.response?.data?.error?.message || 'Failed to load clients';
   } finally {
-    loading.value = false;
+    if (generation === clientLoadGeneration) loading.value = false;
   }
 };
 

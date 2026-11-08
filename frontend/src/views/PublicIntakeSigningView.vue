@@ -81,6 +81,11 @@
     <div v-if="showFullPageLoading" class="df-loading" role="status" aria-live="polite">{{ loadingText }}</div>
     <div v-else-if="fatalError" class="df-fatal error">{{ fatalError }}</div>
 
+    <section v-else-if="issuedRoiCompleted" class="intake-card" role="status">
+      <h1>Release already completed</h1>
+      <p>This school release has already been signed. Your saved copy is available in the guardian portal documents.</p>
+    </section>
+
     <section v-else-if="enrollmentStopped" class="intake-card" role="status" aria-live="polite">
       <h1>{{ t('enrollmentStoppedTitle') }}</h1>
       <p>{{ t('enrollmentStoppedBody') }}</p>
@@ -576,12 +581,12 @@
                   class="intake-start-child"
                 >
                   <div class="form-group form-group--name">
-                    <label>{{ t('dependentFirstName') }} <span class="required-indicator">*</span></label>
+                    <label>{{ t(serviceSubject === 'representative' ? 'clientFirstName' : 'dependentFirstName') }} <span class="required-indicator">*</span></label>
                     <input
                       :id="`clientFirstName_${idx}`"
                       v-model="c.firstName" :readonly="isCoGuardianInvitee"
                       type="text"
-                      :placeholder="t('dependentFirstName')"
+                      :placeholder="t(serviceSubject === 'representative' ? 'clientFirstName' : 'dependentFirstName')"
                       :class="{ 'input-error': !!startClientErrors[idx]?.firstName }"
                     />
                   </div>
@@ -591,7 +596,7 @@
                   </div>
                   <div class="form-group form-group--name">
                     <label>
-                      {{ t('dependentLastName') }} <span class="required-indicator">*</span>
+                      {{ t(serviceSubject === 'representative' ? 'clientLastName' : 'dependentLastName') }} <span class="required-indicator">*</span>
                       <button
                         type="button"
                         v-if="!isCoGuardianInvitee"
@@ -603,18 +608,29 @@
                       :id="`clientLastName_${idx}`"
                       v-model="c.lastName" :readonly="isCoGuardianInvitee"
                       type="text"
-                      :placeholder="t('dependentLastName')"
+                      :placeholder="t(serviceSubject === 'representative' ? 'clientLastName' : 'dependentLastName')"
                       :class="{ 'input-error': !!startClientErrors[idx]?.lastName }"
                     />
                   </div>
                   <div class="form-group form-group--dob">
-                    <label>{{ t('dependentDateOfBirth') }} <span class="required-indicator">*</span></label>
+                    <label>{{ t(serviceSubject === 'representative' ? 'dateOfBirth' : 'dependentDateOfBirth') }} <span class="required-indicator">*</span></label>
                     <BirthDateInput
                       :id="`clientDob_${idx}`"
                       v-model="c.dateOfBirth"
                       :readonly="isCoGuardianInvitee"
                       :invalid="!!startClientErrors[idx]?.dob"
                     />
+                  </div>
+                  <div v-if="serviceSubject === 'representative'" class="form-group">
+                    <label :for="`clientSex_${idx}`">{{ intakeLocale === 'es' ? 'Sexo del cliente' : 'Client sex' }}</label>
+                    <select :id="`clientSex_${idx}`" :value="intakeResponses.clients[idx]?.client_sex || ''"
+                      @change="setClientSex(idx, $event.target.value)">
+                      <option value="">{{ t('select') }}</option>
+                      <option value="female">{{ intakeLocale === 'es' ? 'Femenino' : 'Female' }}</option>
+                      <option value="male">{{ intakeLocale === 'es' ? 'Masculino' : 'Male' }}</option>
+                      <option value="intersex">{{ intakeLocale === 'es' ? 'Intersexual' : 'Intersex' }}</option>
+                      <option value="prefer_not_to_say">{{ intakeLocale === 'es' ? 'Prefiero no responder' : 'Prefer not to say' }}</option>
+                    </select>
                   </div>
                   <button
                     v-if="clients.length > 1 && !isCoGuardianInvitee && serviceSubject !== 'couple'"
@@ -2976,10 +2992,10 @@
           <div v-for="bundle in clientBundleLinks" :key="bundle.clientId || bundle.filename" class="bundle-item">
             <div class="bundle-name">{{ bundle.clientName || `Client ${bundle.clientId}` }}</div>
             <template v-if="bundle.downloadUrl">
-              <button type="button" class="btn btn-secondary btn-sm" @click="openChildPacket(bundle)">
+              <a class="btn btn-secondary btn-sm" :href="bundle.downloadUrl" target="_blank" rel="noopener noreferrer" :data-client-id="bundle.clientId">
                 {{ formTypeKey === 'smart_school_roi' ? 'View' : enrollmentPacketViewLabel(bundle.clientName) }}
-              </button>
-              <button type="button" class="btn btn-outline btn-sm" @click="openChildPacket(bundle)">Download</button>
+              </a>
+              <a class="btn btn-outline btn-sm" :href="bundle.downloadUrl" target="_blank" rel="noopener noreferrer" :data-client-id="bundle.clientId">Download</a>
             </template>
             <span v-else class="muted small">PDF still preparing</span>
           </div>
@@ -2994,7 +3010,6 @@
             <div class="bundle-name">{{ pendingName }}</div>
             <span class="muted small">PDF still preparing — we’ll email it.</span>
           </div>
-          <p v-if="packetDownloadError" class="error">{{ packetDownloadError }}</p>
         </div>
         <div class="actions">
           <button v-if="!endSessionPrompt" class="btn btn-secondary" type="button" @click="endSessionPrompt = true">
@@ -3143,6 +3158,7 @@ import api from '../services/api';
 import SignaturePad from '../components/SignaturePad.vue';
 import JobDescriptionSections from '../components/careers/JobDescriptionSections.vue';
 import JobApplicationApplyPages from '../components/careers/JobApplicationApplyPages.vue';
+import { intakeAudienceMatches } from '../navigation/intakeAudience.js';
 import SmartSchoolRoiFlow from '../components/public/SmartSchoolRoiFlow.vue';
 import SmartDisclosureFlow from '../components/public/SmartDisclosureFlow.vue';
 import PacketSectionConsentFlow from '../components/public/PacketSectionConsentFlow.vue';
@@ -3185,8 +3201,7 @@ import {
   isAddressField
 } from '../utils/intakeSameAsMe.js';
 import { getHeroPresetByUrl } from '../utils/careersAssets.js';
-import { isMedicaidInsurer } from '../utils/coloradoInsurances';
-import { shouldSuppressInsurancePayment } from '../utils/insurancePaymentPolicy.js';
+import { policyIsMedicaid, shouldSuppressInsurancePayment } from '../utils/insurancePaymentPolicy.js';
 import { coverageWithAuthorization } from '../utils/enrollmentCoverage.js';
 import {
   EMPTY_SPANISH_CLARIFICATION_RESPONSE,
@@ -3199,7 +3214,7 @@ import IntakeProviderRequest from '../components/office/IntakeProviderRequest.vu
 import { useOfficeIntakeStartEditor } from '../composables/useOfficeIntakeStartEditor.js';
 import OtherGuardianIntakeFields from '../components/public-intake/OtherGuardianIntakeFields.vue';
 import { lookupUsZipCityState } from '../utils/usZipAutofill.js';
-import { formatUsPhoneInput } from '../utils/contactInput.js';
+import { formatUsPhoneInput, isValidUsPhone } from '../utils/contactInput.js';
 import {
   JOIN_BOOT_THEME_URL,
   restoreJoinWelcomeCopy,
@@ -6310,10 +6325,7 @@ const flowSteps = computed(() => {
         const audience = String(s?.audience || '').trim().toLowerCase();
         const subject = serviceSubject.value
           || (intakeForSelf.value === true ? 'self' : intakeForSelf.value === false ? 'dependent' : '');
-        if (audience === 'self' && subject !== 'self') return false;
-        if ((audience === 'dependent' || audience === 'guardian') && subject !== 'dependent') return false;
-        if ((audience === 'couple' || audience === 'couple_partner') && subject !== 'couple') return false;
-        if ((audience === 'family' || audience === 'family_member') && subject !== 'family') return false;
+        if (!intakeAudienceMatches(audience, subject)) return false;
         if (!isRepeatPerClientStep(s) && s?.showIf) {
           const bag = mergeShowIfValues(
             intakeResponses.submission || {},
@@ -7268,6 +7280,7 @@ let draftRestoredBannerTimer = null;
 
 const signerInitials = ref('');
 const roiContext = ref(null);
+const issuedRoiCompleted = ref(false);
 const issuedRoiRecipientEmail = ref('');
 const disclosureContext = ref(null);
 const organizationId = ref('');
@@ -7587,19 +7600,6 @@ const downloadUrl = ref('');
 const officeSummaryDownloading = ref(false);
 const officeSummaryError = ref('');
 const clientBundleLinks = ref([]);
-const packetDownloadError = ref('');
-function openChildPacket(bundle) {
-  const url = String(bundle?.downloadUrl || '').trim();
-  packetDownloadError.value = '';
-  if (!url) {
-    packetDownloadError.value = 'This packet is still being prepared. Wait until it says ready, then try again.';
-    return;
-  }
-  const opened = window.open(url, '_blank', 'noopener');
-  if (!opened) {
-    packetDownloadError.value = 'The browser blocked the packet. Allow pop-ups for this site, then click Download again.';
-  }
-}
 function enrollmentPacketViewLabel(name) {
   const who = String(name || '').trim();
   if (intakeLocale.value === 'es') return who ? `Ver el paquete de inscripción de ${who}` : 'Ver el paquete de inscripción';
@@ -7684,7 +7684,7 @@ const serviceSubject = ref('');
 // The saved subject is authoritative after a refresh; false also describes
 // couples and families and must never be interpreted as dependent by itself.
 watch(() => intakeResponses.submission?.serviceSubject, (saved) => {
-  if (!['self', 'dependent', 'couple', 'family'].includes(saved)) return;
+  if (!['self', 'dependent', 'couple', 'family', 'representative'].includes(saved)) return;
   serviceSubject.value = saved;
   const forSelf = saved === 'self';
   if (intakeForSelf.value !== forSelf) intakeForSelf.value = forSelf;
@@ -7728,6 +7728,11 @@ function focusStarterField(id) {
     ? host : host?.querySelector('input, select, textarea, button');
   (control || host)?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
   control?.focus({ preventScroll: true });
+}
+
+function setClientSex(index, value) {
+  if (!intakeResponses.clients[index]) intakeResponses.clients[index] = {};
+  intakeResponses.clients[index].client_sex = value;
 }
 
 function emptyOfficeClient() {
@@ -8014,7 +8019,7 @@ async function continueWhoFor() {
   consentErrors.guardianFirstName = guardianFirstName.value.trim() ? '' : t('required');
   consentErrors.guardianLastName = guardianLastName.value.trim() ? '' : t('required');
   consentErrors.guardianEmail = guardianEmail.value.trim() ? '' : t('required');
-  consentErrors.guardianPhone = guardianPhone.value.trim() ? '' : t('required');
+  consentErrors.guardianPhone = !guardianPhone.value.trim() ? t('required') : isValidUsPhone(guardianPhone.value) ? '' : tx('Please enter a real 10-digit phone number.');
   consentErrors.guardianRelationship = (() => {
     const subject = serviceSubject.value
       || (intakeForSelf.value === true ? 'self' : intakeForSelf.value === false ? 'dependent' : '');
@@ -8260,6 +8265,10 @@ async function copyReturnLink() {
 
 function goBackPublicPage() {
   if (finalizingPacket.value) return;
+  if (insurancePaymentStepRef.value?.uploadingPhotos || insuranceStepRef.value?.uploadingPhotos) {
+    stepError.value = tx('Please wait for the insurance card uploads to finish before leaving this step.');
+    return;
+  }
   if (step.value === WHO_FOR_STEP) {
     if (skipBrandingIntro.value) {
       const slug = referralAgencySlug.value;
@@ -8493,7 +8502,7 @@ const buildServerProgressIntakeData = () => ({
   progressSnapshot: buildDraftSnapshot()
 });
 
-const saveServerProgress = async () => {
+const saveServerProgress = async ({ required = false } = {}) => {
   if (loadingSavedProgress.value || savedProgressLoadFailed.value || stopEnrollmentLoading.value || enrollmentStopped.value) return;
   const token = String(sessionToken.value || '').trim();
   if (!token) return;
@@ -8503,8 +8512,9 @@ const saveServerProgress = async () => {
       step: step.value,
       intakeData: buildServerProgressIntakeData()
     }, { skipGlobalLoading: true });
-  } catch {
-    /* keep the packet moving; next continue retries */
+  } catch (error) {
+    if (required) throw error;
+    /* Non-signing progress is retried on the next continue. */
   }
 };
 
@@ -9936,6 +9946,7 @@ const loadLink = async ({ background = false } = {}) => {
     boundClient.value = resp.data?.boundClient || null;
     roiContext.value = resp.data?.roiContext || null;
     issuedRoiRecipientEmail.value = String(resp.data?.issuedLink?.recipient_email || '').trim();
+    issuedRoiCompleted.value = resp.data?.issuedLink?.status === 'completed';
     disclosureContext.value = resp.data?.disclosureContext
       || resp.data?.link?.disclosureContext
       || link.value?.disclosureContext
@@ -10753,7 +10764,8 @@ const isLikelyDobKey = (key) => {
 const normalizeDateForRoiPrefill = (value) => {
   const raw = String(value || '').trim();
   if (!raw) return '';
-  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const calendarDate = raw.match(/^(\d{4}-\d{2}-\d{2})(?:$|T|\s)/);
+  if (calendarDate) return calendarDate[1];
   const slashDate = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (slashDate) {
     const mm = String(slashDate[1]).padStart(2, '0');
@@ -10856,7 +10868,7 @@ const submitConsent = async () => {
   consentErrors.guardianFirstName = guardianFirstName.value.trim() ? '' : t('required');
   consentErrors.guardianEmail = guardianEmail.value.trim() ? '' : t('required');
   consentErrors.guardianLastName = !guardianLastName.value.trim() ? t('required') : '';
-  consentErrors.guardianPhone = !guardianPhone.value.trim() ? t('required') : '';
+  consentErrors.guardianPhone = !guardianPhone.value.trim() ? t('required') : isValidUsPhone(guardianPhone.value) ? '' : tx('Please enter a real 10-digit phone number.');
   const clientFirst = intakeForSelf.value ? guardianFirstName.value : clients.value?.[0]?.firstName;
   const clientLast = intakeForSelf.value ? guardianLastName.value : clients.value?.[0]?.lastName;
   const clientNamesLater = step.value === WHO_FOR_STEP && intakeForSelf.value === false && !isOfficeInDepthIntake.value;
@@ -11148,6 +11160,8 @@ const completeCurrentDocument = async () => {
       return;
     }
 
+    // Save corrected contact details before capturing this new signature.
+    await saveServerProgress({ required: true });
     const resp = await api.post(
       `/public-intake/${publicKey}/${submissionId.value}/document/${currentDoc.value.id}/sign`,
       {
@@ -11786,6 +11800,12 @@ const completeInsuranceStep = async () => {
     stepError.value = 'Please complete the authorization to continue.';
     return;
   }
+  try {
+    await (combined?.awaitPhotoUploads?.() || insuranceStepRef.value?.awaitPhotoUploads?.());
+  } catch (error) {
+    stepError.value = error.message || 'Insurance card upload failed. Retry before continuing.';
+    return;
+  }
   const photoFiles = combined?.getPhotoFiles?.() || insuranceStepRef.value?.getPhotoFiles?.();
   const insuranceEntryState = combined?.getInsuranceEntryState?.()
     || insuranceStepRef.value?.getInsuranceEntryState?.()
@@ -11867,7 +11887,7 @@ const completeInsuranceStep = async () => {
           if (!String(primary.subscriberName || '').trim() && String(extPrimary.subscriberName || '').trim()) {
             primary.subscriberName = String(extPrimary.subscriberName || '').trim();
           }
-          primary.isMedicaid = isMedicaidInsurer(primary.insurerName);
+          primary.isMedicaid = policyIsMedicaid(primary);
           intakeResponses.submission.insuranceInfo.primaryIsMedicaid = primary.isMedicaid;
         }
       } catch (uploadError) {
@@ -11878,7 +11898,7 @@ const completeInsuranceStep = async () => {
   }
   const insurerName = String(insInfo.primary?.insurerName || '').trim();
   const memberId = String(insInfo.primary?.memberId || '').trim();
-  const medicaidPrimary = isMedicaidInsurer(insurerName);
+  const medicaidPrimary = policyIsMedicaid(insInfo.primary);
 
   // Self-Pay fast path: the dedicated toggle at the top of the insurance step
   // bypasses every insurer-specific requirement (carrier name, member ID, card
@@ -12064,7 +12084,7 @@ const completeCommunicationsStep = () => {
   intakeResponses.submission.communicationPreferences = {
     version: communicationConsent.value?.version,
     disclosure: communicationConsent.value?.text,
-    schoolDisclosure: schoolCommunicationNotice.value,
+    schoolDisclosure: isSchoolScopedIntake.value ? schoolCommunicationNotice.value : undefined,
     displayedDisclosure: communicationsSmsDisclosure.value,
     emailDisclosure: communicationConsent.value?.emailText,
     emailNoticeVersion: communicationConsent.value?.emailNoticeVersion,

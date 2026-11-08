@@ -308,14 +308,14 @@
         <label
           class="choice-card choice-card--detail"
           :title="tr(
-            'No ROI on file for this staff member. They cannot open this client in the school portal.',
-            'Sin ROI en archivo para este miembro del personal. No pueden abrir este cliente en el portal escolar.'
+            'No treatment-related disclosures or referral packet access for this staff member. Required school scheduling and safety logistics remain available.',
+            'Sin divulgaciones sobre el tratamiento ni acceso al paquete de referencia para este miembro del personal. La coordinación escolar obligatoria de horarios y seguridad sigue disponible.'
           )"
         >
           <input :name="`staffDecision_${currentStaff?.schoolStaffUserId || 'current'}`" v-model="form.staffDecisions[currentStaff.schoolStaffUserId]" value="none" type="radio" />
           <span>
             <strong>{{ tr('Deny', 'Denegar') }}</strong>
-            <span class="choice-detail">{{ tr('Deny all for this staff member. They cannot open this client or receive treatment-related disclosures.', 'Denegar todo para este miembro del personal. No pueden abrir este cliente ni recibir divulgaciones relacionadas con el tratamiento.') }}</span>
+            <span class="choice-detail">{{ tr('Deny treatment-related disclosures and referral documents. Basic scheduling, logistics, and care-support messages remain available under the required school acknowledgements.', 'Denegar divulgaciones del tratamiento y documentos de referencia. Los horarios, la coordinación y los mensajes básicos de apoyo siguen disponibles conforme a los reconocimientos escolares obligatorios.') }}</span>
           </span>
         </label>
       </div>
@@ -830,7 +830,10 @@ const resolveClientDob = () => (
 const normalizeDateInput = (value) => {
   const raw = String(value || '').trim();
   if (!raw) return '';
-  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  // DATE fields may arrive as midnight ISO strings from older API revisions.
+  // Preserve their calendar portion instead of shifting it into browser time.
+  const calendarDate = raw.match(/^(\d{4}-\d{2}-\d{2})(?:$|T|\s)/);
+  if (calendarDate) return calendarDate[1];
   const slashDate = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (slashDate) {
     const mm = String(slashDate[1]).padStart(2, '0');

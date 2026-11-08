@@ -58,6 +58,10 @@ async function load() {
       return;
     }
     schoolName.value = String(data?.schoolName || '').trim();
+    if (data?.status === 'completed') {
+      state.value = 'signed';
+      return;
+    }
     if (!data?.ready || !data?.publicKey) {
       state.value = 'idle';
       return;
@@ -65,6 +69,10 @@ async function load() {
     const intake = await api.get(`/public-intake/${encodeURIComponent(data.publicKey)}`);
     if (current !== ticket) return;
     const body = intake?.data || {};
+    if (body.issuedLink?.status === 'completed') {
+      state.value = 'signed';
+      return;
+    }
     if (!body.roiContext || !body.link) {
       state.value = 'error';
       error.value = 'This school release could not be opened. Please reload this page.';

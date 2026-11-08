@@ -122,6 +122,23 @@ export const getMobileClinicalContext=async(req,res,next)=>{
   }
   if(!clientId)throw narrivaError(400,'Open a client note or actual appointment from My Work or the schedule.');
   const client=await requireNarrivaClient(req.user,agencyId,clientId,{authorizedNoteReviewer:!!noteSource});
+  // Schedule launches identify an encounter, not necessarily its existing draft.
+  // Restore only this author's draft for the authorized client and encounter;
+  // never fall back to another note on the same calendar day.
+  if(!draft && !noteSource && (sessionId || officeEventId)){
+   draft=await ClinicalNoteDraft.findReusableOpen({userId,agencyId,clientId,officeEventId,clinicalSessionId:sessionId});
+   if(draft){
+    assertSame(agencyId,draft.agency_id,'Draft workspace');assertSame(userId,draft.user_id,'Draft author');assertSame(clientId,draft.client_id,'Draft client');
+    if(sessionId && draft.clinical_session_id)assertSame(sessionId,draft.clinical_session_id,'Draft encounter');
+    if(officeEventId && draft.office_event_id)assertSame(officeEventId,draft.office_event_id,'Draft appointment');
+    if(!session && draft.clinical_session_id){
+     session=await ClinicalSession.findById(draft.clinical_session_id);
+     if(!session || Number(session.agency_id)!==agencyId || Number(session.provider_user_id)!==userId || Number(session.client_id)!==clientId)throw narrivaError(404,'Your draft encounter is not available.');
+     if(officeEventId)assertSame(officeEventId,session.office_event_id,'Draft appointment');
+     sessionId=Number(session.id);
+    }
+   }
+  }
   const meta={...parse(session?.metadata_json),...parse(noteSource?.meta)},sourceZone=session?.source_timezone||work?.sourceTimezone||req.user.timezone||'America/Denver';let zone=sourceZone;try{zoned(new Date(),zone);}catch{zone='America/Denver';}
   const start=session?.scheduled_start_at||office?.start_at||work?.scheduledStart,end=session?.scheduled_end_at||office?.end_at||work?.scheduledEnd;
   const localStart=zoned(start,zone),localEnd=zoned(end,zone),dateOfService=localStart.date||dateOnly(draft?.date_of_service)||dateOnly(work?.date)||today();

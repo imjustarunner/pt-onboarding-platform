@@ -2,6 +2,7 @@ import pool from '../config/database.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import ClientSchoolRoiSigningLink from '../models/ClientSchoolRoiSigningLink.model.js';
 import {guardianCanReadIntakeDocuments} from '../utils/guardianDocumentAccess.js';
+import { loadGuardianRoiConsent } from './schoolRoiGuardianConsent.service.js';
 
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
 
@@ -21,6 +22,7 @@ export async function openGuardianSchoolRelease({
   db = pool,
   loadLink = (args) => ClientGuardian.getLink(args),
   findExisting = (args) => ClientSchoolRoiSigningLink.findForClient(args),
+  loadConsent = loadGuardianRoiConsent,
   issueLink = defaultIssuer
 } = {}) {
   if (preview) throw fail('Preview cannot open a school release.', 403);
@@ -72,7 +74,15 @@ export async function openGuardianSchoolRelease({
   if (!schoolId) return { ready: false, reason: 'no_school', clientId: cid };
 
   const existing = await findExisting({ clientId: cid, schoolOrganizationId: schoolId, recipientGuardianUserId: uid });
-  if (String(existing?.status || '').toLowerCase() === 'completed') {
+  // Enrollment may contain this guardian's signed release without a separate
+  // portal signing link. Only a new staff-issued request should reopen it.
+  const explicitlyRequested = existing && Number(existing.issued_by_user_id) > 0
+    && Number(existing.issued_by_user_id) !== uid;
+  const consent = explicitlyRequested || existing?.status === 'completed' ? [] : await loadConsent({ clientId: cid, schoolOrganizationId: schoolId, db });
+  const alreadySigned = consent.some(item => item.decisions?.some(decision =>
+    Number(decision.guardianUserId) === uid && !decision.expired
+  ));
+  if (String(existing?.status || '').toLowerCase() === 'completed' || alreadySigned) {
     return {
       ready: false,
       status: 'completed',

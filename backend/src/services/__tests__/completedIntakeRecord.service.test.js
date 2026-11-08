@@ -2,6 +2,16 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildCompletedIntakeRecord } from '../completedIntakeRecord.service.js';
 
+test('a combined sibling receipt includes each child’s distinct PSC answers', () => {
+  const fields = Array.from({ length: 17 }, (_, i) => ({ key: `psc_${i+1}`, type: 'radio', instrument: 'psc17', options: [{ value: '1', label: 'Never' }, { value: '2', label: 'Sometimes' }, { value: '3', label: 'Often' }] }));
+  const answers = value => Object.fromEntries(fields.map(field => [field.key, value]));
+  const record = buildCompletedIntakeRecord({ link: { scope_type: 'school', intake_fields: fields }, submission: { intake_data: { clients: [{ fullName: 'First Child' }, { fullName: 'Second Child' }], responses: { clients: [answers('3'), answers('1')] } } } });
+  const second = record.sections.find(section => section.title === 'Second Child — PSC-17');
+  assert.equal(second?.rows.length, 17);
+  assert.ok(second.rows.every(row => row.value === 'Never'));
+  assert.ok(record.sections.some(section => section.title !== second.title && section.rows?.some(row => row.value === 'Often')));
+});
+
 test('office receipt prints both insurance policies without deduplicating their shared field names', () => {
   const intake = { responses: { submission: { insuranceInfo: {
     primary: { insurerName: 'SAMPLE Primary', memberId: 'SAMPLE-PRI', groupNumber: 'GROUP-PRI' },
@@ -579,4 +589,21 @@ test('self receipt preserves relationship, essential email meaning and alternati
   assert.ok(rows.some(row => row.label === 'Email' && row.value === 'Essential messages only'));
   assert.ok(rows.some(row => row.value === 'QA alternate contact instructions'));
   assert.doesNotMatch(JSON.stringify(spec), /UNSIGNED DRAFT/);
+});
+
+test('self receipt uses self questions even when family questions share the same answer keys', () => {
+  const record = buildCompletedIntakeRecord({ link: { intake_steps: [
+    { type: 'questions', audience: 'family', label: 'What Brings Your Family Here?', fields: [{ key: 'already_tried', label: 'What has the family already tried?' }] },
+    { type: 'questions', audience: 'self', label: 'What brings you here?', fields: [{ key: 'already_tried', label: 'What have you already tried?' }] }
+  ] }, submission: { intake_data: { intakeForSelf: true, responses: { guardian: { firstName: 'QA' }, submission: { serviceSubject: 'self', already_tried: 'Prior support', insuranceInfo: { primary: { isMedicaid: false } } } } } } });
+  const text = JSON.stringify(record.sections);
+  assert.match(text, /What have you already tried/);
+  assert.doesNotMatch(text, /family already tried|Your Family|Primary.*Is Medicaid|Parent \/ guardian/);
+});
+test('adult represented receipt identifies the client separately from the representative', () => {
+  const record = buildCompletedIntakeRecord({ submission: { intake_data: { guardian: { firstName: 'Sample', lastName: 'Representative' }, clients: [{ fullName: 'Sample Client' }], responses: { submission: { serviceSubject: 'representative' }, clients: [{ client_sex: 'female' }] } } } });
+  const rows = record.sections.flatMap(section => section.rows || []);
+  assert.ok(rows.some(row => row.label === 'Authorized representative' && row.value === 'Sample Representative'));
+  assert.ok(rows.some(row => row.label === 'Client' && row.value === 'Sample Client'));
+  assert.ok(!rows.some(row => row.label === 'Service Subject'));
 });

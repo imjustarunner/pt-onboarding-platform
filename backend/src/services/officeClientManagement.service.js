@@ -127,20 +127,22 @@ function deriveNextStep(row) {
   return { key: 'monitor', label: 'No immediate action' };
 }
 
-function mapWhoFor(meta, prefs) {
-  const who = String(meta?.whoFor || prefs?.whoFor || '').trim().toLowerCase();
+export function mapWhoFor(meta, prefs) {
+  const who = String(meta?.serviceSubject || prefs?.serviceSubject || meta?.whoFor || prefs?.whoFor || '').trim().toLowerCase();
   if (who === 'couple') return 'couple';
   if (who === 'family') return 'family';
   if (who === 'child' || who === 'dependent') return 'dependent';
   if (who === 'myself' || who === 'self') return 'self';
-  return who || (meta?.respondent?.relationship === 'self' ? 'self' : 'self');
+  return who || (meta?.respondent?.relationship === 'self' ? 'self' : '');
 }
 
-function intakeTypeLabel(whoFor) {
+export function intakeTypeLabel(whoFor) {
   if (whoFor === 'couple') return 'Couple';
   if (whoFor === 'family') return 'Family';
   if (whoFor === 'dependent' || whoFor === 'child') return 'Dependent';
-  return 'Adult / Self';
+  if (whoFor === 'representative' || whoFor === 'adult_representative') return 'Adult represented';
+  if (whoFor === 'self' || whoFor === 'myself') return 'Adult / Self';
+  return 'Not recorded';
 }
 
 async function loadGuardiansByClientIds(clientIds) {

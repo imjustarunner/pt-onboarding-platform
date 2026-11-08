@@ -19,6 +19,7 @@
           <div><dt>Location</dt><dd :class="{ missing: !details.locationLabel }">{{ details.locationLabel || 'Not recorded' }}</dd></div>
           <div><dt>Start – end <span v-if="serviceTimeZone">({{ serviceTimeZone }})</span></dt><dd :class="{ missing: !details.startTime || !details.endTime }">{{ details.startTime || 'Not recorded' }} – {{ details.endTime || 'Not recorded' }}</dd></div>
         </dl>
+        <p class="current-version" role="status">Current note version: {{ currentVersionLabel }}</p>
         <div class="signature-state"><span>{{ note.providerSignedAt ? 'Author signed' : 'Author signature missing' }}</span><span>{{ review.cosignedAt ? 'Supervisor approved' : 'Awaiting supervisor approval' }}</span></div>
         <p v-if="note.pendingServiceDetails" class="pending-label">A historical service amendment is awaiting approval. Review the preserved draft in Note versions before signing.</p>
         <CosignReviewTimer v-if="review.canTrackCosignTime && reviewProviderId" :key="`${noteId}-${review.contentHash}`" compact :agency-id="agencyId" :provider-id="reviewProviderId" :note-id="noteId" :content-hash="review.contentHash" />
@@ -124,6 +125,12 @@ async function runNarrivaChecks(){ if (!canSign.value || busy.value || hasPendin
 const versionSummary = ref(null), versionHistoryReady = ref(false), amendmentEditing = ref(false);
 function onVersionsLoaded(summary) { if (versionSummary.value && (versionSummary.value.effectiveRevisionId !== summary.effectiveRevisionId || versionSummary.value.pendingRevisionId !== summary.pendingRevisionId)) invalidateNarriva(); versionSummary.value = summary; versionHistoryReady.value = true; }
 const legacyPendingAmendment = computed(() => (note.value?.serviceDetailAmendments || []).filter(entry => !entry.approvedAt && !entry.supersededByAmendmentId).at(-1) || null);
+const currentVersionLabel = computed(() => {
+  if (!versionHistoryReady.value) return 'Loading version history…';
+  const summary = versionSummary.value;
+  const current = summary?.effectiveRevision || summary?.revisions?.find(item => item.id === summary.originalRevisionId);
+  return current?.revisionNumber ? `Version ${current.revisionNumber} · revision #${current.id}` : 'Not recorded';
+});
 const hasPendingVersion = computed(() => !!versionSummary.value?.pendingRevisionId);
 function onVersionChanged(result) {
   invalidateNarriva();

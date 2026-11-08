@@ -56,11 +56,14 @@ describe('public intake progress session isolation', () => {
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ intakeData: submission.intake_data }));
   });
 
-  it('does not update reminder identity without consent', async () => {
+  it('updates corrected signer email without granting reminder consent', async () => {
     submission.reminder_consent_status = 'declined';
     await savePublicIntakeProgress(req, res, next);
     expect(next).not.toHaveBeenCalled();
-    expect(IntakeSubmission.updateById.mock.calls[0][1]).not.toHaveProperty('signer_email');
+    const update = IntakeSubmission.updateById.mock.calls[0][1];
+    expect(update.signer_email).toBe('parent@example.test');
+    expect(update).not.toHaveProperty('reminder_first_name');
+    expect(update).not.toHaveProperty('reminder_consent_status');
   });
 
   it('rejects a resume token belonging to another intake link', async () => {

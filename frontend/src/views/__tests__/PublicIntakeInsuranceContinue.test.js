@@ -69,6 +69,31 @@ async function continueInsurance() {
 }
 
 describe('office insurance Continue and Back', () => {
+  it('uploads all four selected card files and retains their references through Continue', async () => {
+    await render({ insuranceInfo: { payerChoice: 'insurance', primary: { insurerName: 'Commercial', memberId: 'QA-P1' }, secondary: { insurerName: 'Secondary', memberId: 'QA-S1' }, hasSecondary: true } });
+    wrapper.vm.submissionId = 123;
+    await authorize();
+    const slots = ['primary_front', 'primary_back', 'secondary_front', 'secondary_back'];
+    const urls = Object.fromEntries(slots.map(slot => [slot + '_url', `gs://test/intake-insurance/123/${slot}.enc`]));
+    post.mockImplementation(async (url, form) => {
+      const slot = url.endsWith('/insurance-card-photos') ? [...form.keys()][0] : null;
+      return { data: slot ? { urls: { [slot + '_url']: urls[slot + '_url'] } } : {} };
+    });
+    const fields = wrapper.findComponent(SchoolInsurance).findAll('input[type="file"]');
+    for (let i = 0; i < slots.length; i++) {
+      Object.defineProperty(fields[i].element, 'files', { configurable: true, value: [new File(['synthetic'], slots[i] + '.png', { type: 'image/png' })] });
+      await fields[i].trigger('change');
+    }
+    await continueInsurance();
+    const uploads = post.mock.calls.filter(([url]) => url.endsWith('/insurance-card-photos'));
+    expect(uploads).toHaveLength(4);
+    expect(uploads.flatMap(([,form]) => [...form.keys()])).toEqual(slots);
+    expect(insurance()).toMatchObject(urls);
+    wrapper.vm.goBackPublicPage();
+    await flushPromises();
+    expect(wrapper.findComponent(SchoolInsurance).vm.getPhotoFiles().primary_front).toBeNull();
+    expect(insurance()).toMatchObject(urls);
+  });
   it.each(['commercial', 'primary Medicaid', 'secondary Medicaid'])('preserves %s coverage and authorization when Self-Pay continues and changes back to insurance', async tier => {
     const primary = { insurerName: tier === 'primary Medicaid' ? 'Medicaid' : 'Commercial', memberId: 'QA-PRIMARY', groupNumber: 'QA-GROUP', subscriberName: 'QA Adult', isMedicaid: tier === 'primary Medicaid' };
     const secondary = { insurerName: tier === 'secondary Medicaid' ? 'Medicaid' : 'Other Commercial', memberId: 'QA-SECONDARY', isMedicaid: tier === 'secondary Medicaid' };
@@ -117,4 +142,16 @@ it('keeps the standalone school Self-Pay path free of a hidden authorization req
   expect(insurance()).toMatchObject({ isSelfPay: true, primary: { insurerName: 'Self-Pay', memberId: '' },
     authorizationSourceMethod: 'self_pay', authorizationSignature: '', authorizationSignatureData: '' });
   expect(insurance().authorizationAgreed).toBeUndefined();
+});
+
+it('keeps enrollment on the insurance step when a selected card fails to upload', async () => {
+  await render({ insuranceInfo: { payerChoice: 'insurance', primary: { insurerName: 'Commercial', memberId: 'QA-P1' } } });
+  wrapper.vm.submissionId = 123; await authorize();
+  post.mockImplementation(async url => { if (url.endsWith('/insurance-card-photos')) throw new Error('Storage unavailable'); return { data: {} }; });
+  const field = wrapper.findComponent(SchoolInsurance).find('input[type="file"]');
+  Object.defineProperty(field.element, 'files', { configurable: true, value: [new File(['synthetic'], 'card.png', { type: 'image/png' })] });
+  await field.trigger('change'); await flushPromises();
+  await wrapper.vm.handleCurrentFlowContinue(); await flushPromises();
+  expect(wrapper.vm.currentFlowStep.type).toBe('insurance_info');
+  expect(wrapper.vm.stepError).toContain('not saved');
 });

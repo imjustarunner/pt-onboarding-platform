@@ -125,5 +125,5 @@ export function formatRelativeTime(v) {
 }
 
 export function portalLabel(enabled) {
-  return enabled ? 'Active' : 'Not invited';
+  return enabled ? 'Available to linked accounts' : 'Disabled';
 }

@@ -849,7 +849,7 @@ export function buildSmartDisclosureHtml({ disclosureContext = {}, response = {}
     : renderGroups(providers);
 
   const when = signedAt
-    ? (signedAt instanceof Date ? signedAt.toLocaleString() : String(signedAt || ''))
+    ? new Date(signedAt).toLocaleString('en-US', { timeZone: 'America/Denver', year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit', timeZoneName: 'short' })
     : '';
   const sig = String(response.signatureData || '').trim();
   const sigImg = sig.startsWith('data:image/')

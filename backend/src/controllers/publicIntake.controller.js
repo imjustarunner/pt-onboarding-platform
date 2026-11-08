@@ -1735,6 +1735,7 @@ const buildMergedDemographicsForPersist = ({
       || sexFrom(perClient.demographicsInfo)
       || sexFrom(clinical)
       || sexFrom(submission)
+      || (intakeData?.intakeForSelf === true ? sexFrom(intakeData?.responses?.guardian) : null)
       || base.gender
       || null,
     genderSelfDescribe: pickPerChild(
@@ -6999,11 +7000,13 @@ export const savePublicIntakeProgress = async (req, res, next) => {
       intake_data: JSON.stringify(merged),
       intake_data_hash: hashIntakeData(merged)
     };
+    const g = merged.guardian && typeof merged.guardian === 'object' ? merged.guardian : {};
+    const email = String(g.email || '').trim().toLowerCase();
+    // Signer identity is independent of permission to send reminders. This
+    // updates the open submission only; existing signature evidence stays intact.
+    if (email && email.includes('@')) updates.signer_email = email;
     if (String(submission.reminder_consent_status || '') === 'agreed') {
-      const g = merged.guardian && typeof merged.guardian === 'object' ? merged.guardian : {};
-      const email = String(g.email || '').trim().toLowerCase();
       const first = String(g.firstName || '').trim().slice(0, 120);
-      if (email && email.includes('@')) updates.signer_email = email;
       if (first) updates.reminder_first_name = first;
     }
     const updated = await IntakeSubmission.updateById(submission.id, updates);
@@ -12634,7 +12637,7 @@ export const verifyIntakeIdentity = async (req, res, next) => {
       imageUrl,
       message: verified
         ? 'Thank you, you’ve been verified.'
-        : 'Thank you for your submission.'
+          : 'Your ID choice is saved. Continue to review and submit the enrollment.'
     });
   } catch (error) {
     next(error);

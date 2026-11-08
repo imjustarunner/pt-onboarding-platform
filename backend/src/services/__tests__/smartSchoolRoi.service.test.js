@@ -103,3 +103,9 @@ test('validateSmartSchoolRoiResponse rejects missing required acknowledgements',
   assert.equal(validation.valid, false);
   assert.match(validation.missing.join(' | '), /Required acknowledgement/);
 });
+
+test('a signed release identifies its signer beside the body signature line', () => {
+  const html = buildSmartSchoolRoiHtml({ roiContext, response: { signedAt: '2026-11-07', signer: { fullName: 'QA Parent' } } });
+  assert.match(html, /Electronically signed by QA Parent/);
+  assert.doesNotMatch(buildSmartSchoolRoiHtml({ roiContext }), /Electronically signed by/);
+});

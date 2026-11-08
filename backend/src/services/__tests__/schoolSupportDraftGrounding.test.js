@@ -192,8 +192,9 @@ describe('reject unsafe or ungrounded school-support drafts', () => {
   });
 });
 
-it('blocks a staff administrator from receiving scheduling details when either guardian denied them', async () => {
+it('keeps required scheduling logistics available while preserving the guardian’s denial of treatment disclosures', async () => {
  const f = fixture({guardianDecisions:[{client_id:2274,guardian_user_id:9,school_staff_user_id:1465,intake_submission_id:10,decision:'none',signed_at:'2026-10-01T00:00:00Z',expires_at:'2029-10-01T00:00:00Z'}]});
  const result = await loadSchoolSupportDraftGrounding({ticket,clientIds:[2274],messages:[],now}, {database:f.database});
- expect(result.canShareScheduling).toBe(false);
+ expect(result.canShareScheduling).toBe(true);
+ expect(result.roi.staffState).toBe('denied');
 });

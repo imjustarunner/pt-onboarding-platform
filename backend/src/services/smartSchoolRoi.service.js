@@ -799,6 +799,7 @@ export function buildSmartSchoolRoiHtml({ roiContext = {}, response = {}, signed
         <div>
           <div class="line"></div>
           <div class="muted">${escapeHtml(labels.signature)}</div>
+          ${response.signedAt && response.signer?.fullName ? `<p>${isSpanish ? 'Firmado electrónicamente por' : 'Electronically signed by'} ${escapeHtml(response.signer.fullName)}</p>` : ''}
         </div>
         <div>
           <div class="line"></div>

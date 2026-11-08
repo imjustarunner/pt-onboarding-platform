@@ -110,7 +110,9 @@ export function getEffectiveSchoolStaffRoiState(record, roiExpiresAt, { schoolSt
  */
 export function schoolStaffCanOpenClient(record, roiExpiresAt, opts = {}) {
   const effectiveState = getEffectiveSchoolStaffRoiState(record, roiExpiresAt, opts);
-  if (effectiveState === 'none' || effectiveState === 'packet') return opts.schoolStaffInOrg === true;
+  // Required school logistics remain available independently of permission
+  // for treatment disclosures. A denial still blocks clinical/doc access.
+  if (effectiveState === 'none' || effectiveState === 'packet' || effectiveState === 'denied') return opts.schoolStaffInOrg === true;
   return effectiveState === 'limited' || effectiveState === 'roi' || effectiveState === 'roi_docs' || effectiveState === 'expired';
 }
 

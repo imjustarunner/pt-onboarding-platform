@@ -11,6 +11,16 @@ vi.mock('../../../services/api', () => ({ default: { get: vi.fn(), post: vi.fn()
 const props = () => ({ insuranceInfo: { primary: { insurerName: 'Commercial' }, secondary: { insurerName: 'Health First Colorado', isMedicaid: true } }, clientNames: ['Sample Client'], guardianName: 'Sample Parent' });
 const mountForm = overrides => mount(Combined, { props: { ...props(), ...overrides }, global: { stubs: { PublicIntakePaymentStep: { template: '<div data-card-form>Secure card form</div>' } } } });
 describe('insurance enrollment', () => {
+  it('suppresses payment when secondary plan type explicitly declares Medicaid despite a false legacy flag', () => {
+    const w = mountForm({ insuranceInfo: { payerChoice: 'insurance', primary: { insurerName: 'Commercial' }, secondary: { insurerName: 'Regional plan', planType: 'Medicaid', isMedicaid: false } } });
+    expect(w.find('[data-card-form]').exists()).toBe(false);
+    expect(w.text()).not.toContain('Not Paying Now');
+    expect(w.text()).not.toContain('Your payment arrangement');
+    expect(w.text()).not.toContain('Add Card');
+    expect(w.text()).toContain('No card is requested');
+    expect(w.emitted('update:insuranceInfo').at(-1)[0].secondary.isMedicaid).toBe(true);
+    w.unmount();
+  });
   it('requires a fresh payer choice and restores an explicitly saved choice without selecting a card', async () => {
     const w = mountForm({ insuranceInfo: {} });
     expect(w.findAll('.pi-ip-choice[aria-pressed="true"]')).toHaveLength(0);

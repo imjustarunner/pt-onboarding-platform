@@ -119,3 +119,7 @@ describe('assignedDayDisplay', () => {
     expect(assignedDayDisplay({ service_day: 'Tuesday' })).toBe('Tuesday');
   });
 });
+
+ it.each(['school', 'office'])('shows the stored %s status when no catalog label exists', client_type => {
+   expect(displaySchoolClientStatusLabel({ client_type, status: 'PACKET', school_status_resolved: true })).toBe('Packet');
+ });

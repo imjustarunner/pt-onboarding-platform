@@ -7,7 +7,7 @@ vi.mock('../../../services/api.js', () => ({ default: { get: vi.fn(), post: vi.f
 
 const note = () => ({ id: 71, agencyId: 2, reviewSnapshotToken: 'metadata-version', clientName: 'DEMO QA Client', providerSignedAt: '2026-11-02T16:00:00Z', providerSignedByUserId: 9, providerSigner: { id: 9, name: 'DEMO QA Author', credentials: 'LSW' }, dateOfService: '2026-11-01', serviceCode: 'H0002', durationMinutes: 45, locationLabel: 'Office', startTime: '10:00', endTime: '10:45', placeOfService: '11', serviceLocationId: 5, clinicalSessionId: 100, structuredChart: { participants: 'Client only', patientPresent:true, mentalStatusExam: { domains: { Appearance: { status: 'normal' }, Mood: { status: 'abnormal', detail: 'Anxious' } } }, medications: { noneCurrently: true } }, outputJson: { sections: { Subjective: 'Stale fetched text' } }, objectiveRatings: [{ id: 1, goalIndex: 1, objectiveIndex: 1, scaleStart: 3, scalePrevious: 4, scaleValue: 5, scaleTarget: 8, objectiveText: 'Use a grounding strategy', disposition: 'rated' }] });
 const review = () => ({ reviewSnapshotToken: 'metadata-version', contentHash: 'reviewed-current-version', canCosign: true, content: JSON.stringify({ note: { sections: { Subjective: 'Current signed narrative', Objective: '', Plan: 'Practice the agreed strategy.' } }, addenda: [{ id: 4, body: 'A signed correction', entry_kind: 'correction', entry_reason: 'Clarification', created_by_user_id: 3 }] }) });
-const versionStub = { name: 'ClinicalNoteVersionHistory', emits: ['loaded', 'changed', 'editing'], template: '<section>Immutable version history</section>', mounted() { this.$emit('loaded', { pendingRevisionId: null }); } };
+const versionStub = { name: 'ClinicalNoteVersionHistory', emits: ['loaded', 'changed', 'editing'], template: '<section>Immutable version history</section>', mounted() { this.$emit('loaded', { pendingRevisionId: null, originalRevisionId: 701, revisions: [{ id: 701, revisionNumber: 1 }] }); } };
 const mounted = () => mount(ClinicalNoteSupervisorReview, { props: { noteId: 71, agencyId: 2 }, global: { stubs: { CosignReviewTimer: true, ClinicalNoteVersionHistory: versionStub } } });
 const byText = (wrapper, label) => wrapper.findAll('button').find(button => button.text() === label);
 
@@ -22,6 +22,7 @@ describe('supervisor note review', () => {
     const w = mounted(); await flushPromises();
     expect(w.text()).toContain('DEMO QA Client');
     expect(w.text()).toContain('Current signed narrative');
+    expect(w.text()).toContain('Current note version: Version 1 · revision #701');
     expect(w.text()).not.toContain('Stale fetched text');
     expect(w.findAll('.content-section summary').map(node => node.text())).toEqual(['Subjective', 'Plan', 'Mental status · normal findings']);
     expect(w.find('[aria-label="Mental status findings"]').text()).toContain('Mood: abnormal — Anxious');

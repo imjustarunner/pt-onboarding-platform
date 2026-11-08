@@ -103,7 +103,7 @@
                 <span class="cm-drawer-dt">Portal</span>
                 <span class="cm-drawer-dd">
                   <span class="cm-drawer-flag" :class="client.guardian_portal_enabled ? 'cm-flag--yes' : 'cm-flag--no'">
-                    {{ client.guardian_portal_enabled ? '✓ Enabled' : '○ Disabled' }}
+                    {{ client.guardian_portal_enabled ? '✓ Available to linked accounts' : '○ Disabled' }}
                   </span>
                 </span>
               </div>

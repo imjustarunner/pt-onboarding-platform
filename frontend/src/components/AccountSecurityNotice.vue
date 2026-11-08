@@ -35,7 +35,7 @@ async function requestAccess() {
 }
 const protectionUnavailable = ref(false), protectionHolds = ref([]), unlimitedFileViews = ref(false);
 const protectionMessage = computed(() => unlimitedFileViews.value && protectionHolds.value.length && protectionHolds.value.every(hold => hold.kind === 'client_file')
-  ? 'Download, export, and print access is paused for security review. Your role still permits audited document views.'
+  ? 'Download, export, and print access is paused for security review. Your role still permits audited document views, including opening individual PDF receipts. A browser may offer Save or Print for an opened PDF.'
   : 'Additional access is paused for security review.');
 const needsVerification = computed(() => state.value?.required === true && !state.value.verified);
 async function refreshProtection() {

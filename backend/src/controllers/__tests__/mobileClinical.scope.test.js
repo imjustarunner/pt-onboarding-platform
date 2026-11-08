@@ -3,7 +3,7 @@ vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()}}));
 vi.mock('../../config/clinicalDatabase.js',()=>({default:{execute:vi.fn()}}));
 vi.mock('../../models/User.model.js',()=>({default:{findById:vi.fn()}}));
 vi.mock('../../models/clinical/ClinicalSession.model.js',()=>({default:{findById:vi.fn(),findByOfficeEventAndClient:vi.fn()}}));
-vi.mock('../../models/ClinicalNoteDraft.model.js',()=>({default:{findByIdForUser:vi.fn()}}));
+vi.mock('../../models/ClinicalNoteDraft.model.js',()=>({default:{findByIdForUser:vi.fn(),findReusableOpen:vi.fn()}}));
 vi.mock('../../models/clinical/ClinicalTreatmentPlan.model.js',()=>({default:{listByClient:vi.fn(),findById:vi.fn()}}));
 vi.mock('../../models/clinical/ClinicalTreatmentObjectiveRating.model.js',()=>({default:{findLatestForDedupe:vi.fn(),findPreviousSession:vi.fn()}}));
 vi.mock('../../models/NoteAidWorkQueueItem.model.js',()=>({default:{findByIdForUser:vi.fn(),findByClientKeyForUser:vi.fn()}}));
@@ -86,6 +86,17 @@ describe('primary mobile clinical boundary',()=>{
  it('binds the authenticated actor and strips identifying metadata from adapted responses',async()=>{const req=request({body:{clientId:20,userId:999}}),res=response(),next=vi.fn();const handler=vi.fn((req,res)=>res.json({draft:{clientName:'Full Private Name',clientDob:'2014-04-14',outputJson:{meta:{clientDob:'2014-04-14'},sections:{Narrative:'Synthetic session'}}}}));await scopedMobileClinicalHandler(handler,{requireClient:true})(req,res,next);expect(handler.mock.calls[0][0].user.id).toBe(1);expect(req.body.agencyId).toBe(4);expect(JSON.stringify(res.json.mock?.calls||[])).not.toContain('2014-04-14');expect(next).not.toHaveBeenCalled();});
 });
 describe('mobile writer context',()=>{
+ it('restores the author’s saved desktop draft when a phone launch supplies only the encounter',async()=>{
+  ClinicalNoteDraft.findReusableOpen.mockResolvedValue({id:30,user_id:1,agency_id:4,client_id:20,clinical_session_id:10,input_text:'Saved desktop narrative',output_json:JSON.stringify({sections:{Narrative:'Saved draft output'},meta:{}})});
+  const res=response(),next=vi.fn();await getMobileClinicalContext(request({query:{clientId:20,clinicalSessionId:10}}),res,next);
+  expect(next).not.toHaveBeenCalled();expect(ClinicalNoteDraft.findReusableOpen).toHaveBeenCalledWith({userId:1,agencyId:4,clientId:20,officeEventId:null,clinicalSessionId:10});
+  expect(res.json.mock.calls[0][0].draft).toMatchObject({id:30,inputText:'Saved desktop narrative',outputJson:{sections:{Narrative:'Saved draft output'}}});
+ });
+ it('does not substitute another encounter’s draft for a schedule launch',async()=>{
+  ClinicalNoteDraft.findReusableOpen.mockResolvedValue({id:30,user_id:1,agency_id:4,client_id:20,clinical_session_id:11});
+  const res=response(),next=vi.fn();await getMobileClinicalContext(request({query:{clientId:20,clinicalSessionId:10}}),res,next);
+  expect(res.json).not.toHaveBeenCalled();expect(next).toHaveBeenCalledWith(expect.objectContaining({status:409}));
+ });
  it('returns masked names, age, scoped service information and actual local encounter time without DOB',async()=>{const res=response(),next=vi.fn();await getMobileClinicalContext(request({query:{clientId:20,clinicalSessionId:10}}),res,next);expect(next).not.toHaveBeenCalled();const data=res.json.mock.calls[0][0];expect(data.client).toEqual({id:20,maskedName:'Mic* And*',age:12});expect(data.session).toMatchObject({id:10,dateOfService:'2026-11-06',startTimeLocal:'09:00',endTimeLocal:'10:00',durationMinutes:60});expect(data.serviceCodes[0].serviceInfo.code).toBe('H2011');expect(JSON.stringify(data)).not.toContain('2014-04-14');expect(JSON.stringify(data)).not.toContain('Michael Anderson');});
  it('shows current age while keeping encounter dates and eligibility tied to the actual service date',async()=>{
   ClinicalSession.findById.mockResolvedValue({...session,scheduled_start_at:'2020-11-06 16:00:00',scheduled_end_at:'2020-11-06 17:00:00'});
