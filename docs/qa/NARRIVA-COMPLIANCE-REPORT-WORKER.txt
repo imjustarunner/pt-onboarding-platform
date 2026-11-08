@@ -1,0 +1,59 @@
+NARRIVA COMPLIANCE REPORT WORKER — DEPLOYMENT AND RECOVERY
+
+No customer schedule or billing is activated by this change. Migration 1777
+creates opt-in settings; every agency defaults to disabled. The confirmed
+platform price is $100 per completed run, independent of reporting frequency.
+An agency administrator must explicitly accept the current quote and activate
+reports. Re-price acceptance is required before changed prices can auto-run.
+
+Deploy migration 1777 and the backend together. Preserve CLIENT_CHAT_ENCRYPTION_KEY_BASE64
+(or keyring) used by existing clinicalNoteCrypto, private Vertex/DLP controls,
+service guidance, and BILLING_JOB_SECRET. A missing control must fail closed.
+
+Manual requests save a queued run before the backend starts processing. A durable
+worker is REQUIRED for recovery after Cloud Run suspends background CPU or a
+process restarts. Configure the existing trusted scheduler to call:
+  POST /api/billing/run-narriva-compliance
+  x-billing-job-secret: the existing BILLING_JOB_SECRET
+  Content-Type: application/json
+  {"limit":1}
+Recommended infrastructure cadence: every 15 minutes, UTC. Agency reporting
+frequency remains its separate quarterly/monthly/annual/custom preference.
+Allow 240 seconds per HTTP invocation. Each report worker slice is bounded
+to 180 seconds and requeues unfinished work with its checkpoint intact. Do not put the secret in tracked
+files, URLs, terminal arguments, or logs. The executable caller
+scripts/clinical/run-narriva-compliance-worker.mjs accepts NARRIVA_API_BASE_URL,
+BILLING_JOB_SECRET from its environment;
+it prints only queued/processed counts. A scheduler can invoke this caller in
+the existing secret-managed job environment. No new infrastructure is created
+or enabled automatically by this file.
+
+Runs are deduplicated by agency and stable request key. A schedule occurrence
+uses its exact due timestamp as that key. Workers atomically claim a 10-minute
+lease, refresh it between bounded notes and checkpoint encrypted results. DLP and
+Vertex requests accept the slice cancellation signal; ordinary note generation
+keeps its existing timeouts. Budget exhaustion leaves the run queued, unpaid,
+and ready to continue in the next invocation. Completed note results are reused. An
+expired lease is reclaimable. SQL lease tokens reject stale-worker writes.
+The sampled client/note IDs and signed-revision hashes are frozen before model
+work. A retry preserves sample, completed results and the quoted unit price.
+A changed signed note or pending amendment yields stale, never a paid report.
+
+Completed, nonempty runs are added once to the agency's ordinary invoice under
+Narriva Compliance reports. Frozen per-run prices remain unchanged by later
+pricing updates. Invoice row locks and a unique run reference prevent double
+attachment. Unavailable, empty, stale and incomplete worker runs are not billed.
+An audit can complete with missing insurer evidence; this is an internal
+readiness report, never payer approval. Missing claim/PDF/historical credential
+checks remain explicitly unassessed. All model-dispatched narrative is redacted.
+
+Validation: use the synthetic MySQL fixture described in the report test source.
+Never use real clinical records or payment destinations for this check. Run the
+worker against an opted-out synthetic agency and confirm it creates no run.
+Then activate only an approved synthetic agency and exercise duplicate calls,
+expired lease recovery, changed signed revision, failed privacy/model controls,
+revocation, concurrent invoice selection and unavailable/empty run exclusions.
+Monitor queued/running age and unavailable counts using metadata only. Alert on
+runs queued over 30 minutes or running with an expired lease after two scheduler
+cycles; do not log report narratives. Retry unavailable runs deliberately from
+the report screen. Stale runs require a new quoted report request.

@@ -2,6 +2,7 @@ import pool from '../config/database.js';
 import Agency from '../models/Agency.model.js';
 import { maybeEncryptNotePayload,maybeDecryptNotePayload } from './clinicalNoteCrypto.service.js';
 import { loadNarrivaSource } from './narrivaSource.service.js';
+import { loadNarrivaLongitudinalAdvisory } from './clinicalNoteReviewInsights.service.js';
 import { requireNarrivaAgency,parseNarrivaObject as parse,narrivaError,positiveId } from './narrivaAccess.service.js';
 import { createSessionPrivacyContext,callPrivateSessionText } from './sessionAiPrivacy.service.js';
 import { getKnowledgeBaseContext } from './clinicalKnowledgeBase.service.js';
@@ -104,6 +105,9 @@ async function executeReview(id,user,input,req) {
    await persist(review);
   }
   const current=await loadNarrivaSource(user,input);
+  // Descriptive local history is supplemental, never a substitute for the five
+  // exact-note checks and never an automatic treatment/termination instruction.
+  review.longitudinal=await loadNarrivaLongitudinalAdvisory(source);
   review.scoring=reviewedScoring(review,source);
   review.status=current.sourceHash===source.sourceHash?reviewedStatus(review):'stale';
   review.scoring=reviewedScoring(review,source);

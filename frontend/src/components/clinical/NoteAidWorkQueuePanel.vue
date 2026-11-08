@@ -62,6 +62,7 @@
         </button>
       </div>
     </header>
+    <a v-if="reportsUrl" class="na-wq-reports" :href="reportsUrl">Narriva Compliance reports ↗</a>
 
     <div class="na-wq-modes" role="tablist" aria-label="Work queue mode">
       <button
@@ -132,6 +133,7 @@
               <p class="na-wq-review-message">{{ readableReviewMessage(request.message) }}</p>
             </div>
           </button>
+          <NoteReviewActions :item="item" @open-note="$emit('select-review',item)"/>
         </li>
       </ul>
       <div v-if="loading" class="na-wq-empty" role="status">Loading My Work…</div>
@@ -178,6 +180,7 @@
               · {{ typeLabel(item) }}
             </div>
           </button>
+          <NoteReviewActions :item="item" @open-note="$emit('select',item)"/>
           <button
             v-if="allowRemove && canRemoveQueueItem(item)"
             type="button"
@@ -226,7 +229,7 @@
               <span v-if="item.importedFromEhr && Number(item.agencyId) === 377 && item.clinicalSessionId && ['progress','intake'].includes(item.noteKind)"> · Claim preparation linked</span>
             </div>
           </button>
-          <button v-if="item.narriva?.quickSignEligible === true || item.quickSignEligible === true" type="button" class="na-wq-quick-sign" @click="$emit('quick-sign', item)">✓ Quick Sign</button>
+          <NoteReviewActions :item="item" allow-quick-sign @open-note="$emit('select-cosign',item)" @quick-sign="$emit('quick-sign',item)"/>
         </li>
       </ul>
     </template>
@@ -236,6 +239,7 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue';
+import NoteReviewActions from './NoteReviewActions.vue';
 import { NOTE_REVIEW_STATUS, readableReviewMessage } from '../../utils/noteReviewWork.js';
 import {
   DOC_STATUS,
@@ -256,6 +260,7 @@ const SORT_DIR_KEY = 'noteAidWorkQueueSortDir';
 const MODE_KEY = 'noteAidWorkQueueMode';
 
 const props = defineProps({
+  reportsUrl: { type: String, default: '' },
   reviewItems: { type: Array, default: () => [] },
   reviewError: { type: String, default: '' },
   cosignError: { type: String, default: '' },
@@ -579,6 +584,7 @@ function removeQueueTitle(item) {
 </script>
 
 <style scoped>
+.na-wq-reports{display:block;padding:0 14px 10px;font-size:11px;color:#285980;text-decoration:underline;text-underline-offset:3px}
 .na-wq-review-request + .na-wq-review-request {margin-top:10px;padding-top:8px;border-top:1px solid #dce3ed;}.na-wq-review-request>strong{font-size:.76rem;color:#4338ca;}.na-wq-review-message { margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: .82rem; line-height:1.5; color: #334155; }
 .na-wq-review-heading { flex-direction:column; align-items:flex-start!important; gap:5px!important; }.na-wq-review-heading span { white-space:normal!important; font-size:.8rem!important; }.na-wq-item--review { border-left: 3px solid #6366f1; }
 .na-wq-item--changes_needed { border-left-color: #d97706; }

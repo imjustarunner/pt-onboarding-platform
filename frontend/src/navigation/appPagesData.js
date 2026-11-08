@@ -249,6 +249,14 @@ export const APP_PAGES = [
     desc: 'Psychotherapy CPT compliance tracking and uploads.'
   },
   {
+    title: 'Narriva Compliance Reports',
+    section: 'Workforce Ops › Compliance & Oversight',
+    path: '/admin/narriva-compliance',
+    rolesAny: ['admin', 'agency_admin', 'super_admin'],
+    keywords: ['narriva', 'compliance reports', 'quarterly audit', 'clinical audit', 'caseload sample', 'documentation audit'],
+    desc: 'Paid agency reports with sampled note reviews, duplication checks, and documented progress findings.'
+  },
+  {
     title: 'Audit Center',
     section: 'Workforce Ops › Compliance & Oversight',
     path: '/admin/audit-center',

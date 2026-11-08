@@ -64,6 +64,7 @@ export function buildNoteAidQuery(ctx = {}) {
   if (noteType) query.noteType = noteType;
   if (templateVersion) query.templateVersion = templateVersion;
   if (launchIntent) query.launchIntent = launchIntent;
+  if (launchIntent === 'cosign' && ctx.quickSignRequested === true) query.quickSign = '1';
   if (noteAid) query.noteAid = noteAid;
 
   return query;

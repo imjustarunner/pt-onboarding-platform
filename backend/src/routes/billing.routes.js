@@ -1,3 +1,5 @@
+import { runJobs as runNarrivaComplianceJobs } from '../controllers/narrivaComplianceReports.controller.js';
+import crypto from 'node:crypto';
 import {getAuricwellPricing,saveAuricwellPricing} from '../controllers/auricwellPricing.controller.js';
 import { requireMedicalBillingFinancialAccess } from '../middleware/medicalBilling.middleware.js';
 import express from 'express';
@@ -42,6 +44,14 @@ router.post('/schoolcarebridge-usage-snapshot', async (req,res,next) => {
   if(!secret||req.get('x-billing-job-secret')!==secret)return res.status(401).json({error:{message:'Unauthorized'}});
   try { const {captureUsage}=await import('../services/schoolCareBridgeCommerce.service.js');res.json(await captureUsage(null)); } catch(e) { next(e); }
 });
+
+// Daily authenticated worker: opt-in report schedules and durable queued retries.
+// This route never activates an agency, changes its quote, or charges a failed run.
+router.post('/run-narriva-compliance', (req,res,next) => {
+  const expected=process.env.BILLING_JOB_SECRET,provided=req.get('x-billing-job-secret');
+  if(!expected||typeof provided!=='string'||Buffer.byteLength(expected)!==Buffer.byteLength(provided)||!crypto.timingSafeEqual(Buffer.from(expected),Buffer.from(provided)))return res.status(401).json({error:{message:'Unauthorized'}});
+  next();
+},runNarrivaComplianceJobs);
 
 // Internal monthly billing job (Cloud Scheduler)
 router.post('/run-monthly', (req, res, next) => {

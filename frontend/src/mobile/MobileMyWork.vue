@@ -4,6 +4,7 @@ import axios from 'axios';
 import {useRoute,useRouter} from 'vue-router';
 import {trackMobileNavigation} from './mobileNavigation.js';
 import {FilePenLine,RefreshCw,ChevronRight,Building2} from '@lucide/vue';
+import NoteReviewActions from '../components/clinical/NoteReviewActions.vue';
 const route=useRoute(),router=useRouter();trackMobileNavigation(router);
 const props=defineProps({apiBase:String,sessionToken:String});
 const emit=defineEmits(['draft','tasks']);
@@ -35,6 +36,7 @@ function time(item){
  return item.timeLabel || '';
 }
 const status=item=>item.clinicalRevisionId?'Amendment':item.queueKind==='cosign'?'Awaiting co-sign':({not_started:'To do',started:'Started',completed:'Ready to sign',signed:'Signed'}[item.status] || 'To do');
+const loadReviewInsights=({noteId,agencyId})=>axios.get(`${props.apiBase}/my-work/notes/${noteId}/review-insights`,{params:{agencyId},headers:{'X-Quick-View-Session':props.sessionToken},withCredentials:true});
 onMounted(load);
 </script>
 <template>
@@ -49,7 +51,7 @@ onMounted(load);
   <article v-for="item in visibleItems" :key="`${item.agencyId}:${item.queueKind}:${item.serverId || item.id}`" class="work-row">
    <component :is="item.clinicalRevisionId?'a':'button'" class="work-open" :class="{'qv-workspace-link':item.clinicalRevisionId}" :href="item.clinicalRevisionId?item.desktopReviewUrl:undefined" :target="item.clinicalRevisionId?'_blank':undefined" :rel="item.clinicalRevisionId?'noopener noreferrer':undefined" @click="!item.clinicalRevisionId && emit('draft',item)"><FilePenLine :size="21"/><span class="work-copy"><strong>{{ title(item) }}<template v-if="item.clientAge != null || item.age != null"> · Age {{ item.clientAge ?? item.age }}</template></strong><small>{{ dos(item) }}<template v-if="time(item)"> · {{ time(item) }}</template></small><small v-if="item.serviceCode">{{ item.serviceCode }}<template v-if="item.noteKind"> · {{ item.noteKind }}</template></small><small class="work-agency"><img v-if="item.agencyLogoUrl" :src="item.agencyLogoUrl" alt=""/><Building2 v-else :size="14"/>{{ item.agencyName || 'Agency' }}<template v-if="item.providerName"> · {{ item.providerName }}</template></small></span><span class="status">{{ status(item) }}</span><ChevronRight :size="17"/></component>
    <p v-if="item.clinicalRevisionId" class="amendment-hint">Review amendment in the full workspace. You may need to sign in there.</p>
-   <button v-if="!item.clinicalRevisionId && item.narriva?.quickSignEligible === true" type="button" class="mw-quick-sign" @click="emit('draft',{...item,quickSignRequested:true})">Quick Sign</button>
+   <NoteReviewActions v-if="!item.clinicalRevisionId" :item="item" :load-insights="loadReviewInsights" :access-key="sessionToken" :allow-quick-sign="item.queueKind==='cosign'" @open-note="emit('draft',item)" @quick-sign="emit('draft',{...item,quickSignRequested:true})"/>
   </article>
   <p v-if="!loading && !error && ready && !activeFailures.length && !visibleItems.length">{{ clinicalAvailable?`No ${tabs.find(tab=>tab.id===currentTab).label.toLowerCase()} notes in this view.`:'Clinical documentation is not available for this account.' }}</p>
   <button class="task-link" @click="emit('tasks')">View my tasks <ChevronRight :size="15"/></button>

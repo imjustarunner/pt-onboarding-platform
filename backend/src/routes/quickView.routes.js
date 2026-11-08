@@ -2,11 +2,13 @@ import {getMobileInbox,getMobilePreferences,patchMobilePreferences,patchMobileAr
 import { getQuickPresence, postQuickAway, postQuickPresenceClear } from '../controllers/quickViewPresence.controller.js';
 import emailDraftRoutes from './emailDraft.routes.js';
 import mobileClinicalRoutes from './mobileClinical.routes.js';
+import {getMobileNoteReviewInsights} from '../controllers/clinicalNoteReviewInsights.controller.js';
 import { getQuickDeliveryReceipt, getQuickConversation, patchQuickConversation, postQuickReply, postQuickCompose, getQuickAttachment, postQuickReaction, postQuickUndo } from '../controllers/quickViewMessaging.controller.js';
 import express from 'express';
 import multer from 'multer';
 import { getQuickMeetingLink } from '../controllers/quickViewMeeting.controller.js';
 import { authenticate } from '../middleware/auth.middleware.js';
+import { apiLimiter } from '../middleware/rateLimiter.middleware.js';
 import {
   getMyQuickViewStatus,
   postRegenerateToken,
@@ -121,6 +123,7 @@ router.get('/directory', requireQuickViewSession, getQuickDirectory);
 
 // Mobile-only surfaces require a primary device sign-in in addition to this scoped session.
 router.get('/my-work', requireQuickViewSession, getMobileMyWork);
+router.get('/my-work/notes/:noteId/review-insights', requireQuickViewSession, apiLimiter, getMobileNoteReviewInsights);
 router.use('/clinical',requireQuickViewSession,mobileClinicalRoutes);
 router.get('/messages/inbox', requireQuickViewSession, getMobileInbox);
 router.get('/messages/preferences', requireQuickViewSession, getMobilePreferences);

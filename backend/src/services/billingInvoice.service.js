@@ -1,3 +1,4 @@
+import { complianceReportInvoiceLines,appendComplianceReportLines,attachComplianceReportInvoice } from './narrivaReportBilling.service.js';
 import { isSchoolCareBridgeOnly } from '../utils/schoolCareBridgeTenant.js';
 import {medicalServiceInvoiceLines,appendMedicalServiceLines,attachMedicalServiceInvoice} from './medicalServiceFees.service.js';
 import StorageService from './storage.service.js';
@@ -112,7 +113,8 @@ class BillingInvoiceService {
         execution = requireManagementExecution(await managementAgreementExecution(parsedAgencyId, requiredAgreement, periodStartStr.slice(0, 7), db, { lock: true }));
       }
       const serviceLines=await medicalServiceInvoiceLines(parsedAgencyId,periodStart,{db});
-      const invoiceEstimate=appendMedicalServiceLines(estimate,serviceLines);
+      const reportLines=await complianceReportInvoiceLines(parsedAgencyId,periodEnd,{db,lock:true});
+      const invoiceEstimate=appendComplianceReportLines(appendMedicalServiceLines(estimate,serviceLines),reportLines);
       if (execution) invoiceEstimate.businessAgreement = { ...invoiceEstimate.businessAgreement, requiresSignatures: true, executionEvidence: execution };
       const invoiceData = {
         agencyId: parsedAgencyId,
@@ -143,6 +145,7 @@ class BillingInvoiceService {
         ? await AgencyBillingInvoice.finalizeManagementProposal(concurrentInvoice.id, parsedAgencyId, invoiceData, db)
         : await AgencyBillingInvoice.create(invoiceData, db);
       if(invoiceEstimate.medicalServiceLines)await attachMedicalServiceInvoice(parsedAgencyId,created.id,serviceLines,db);
+      if(invoiceEstimate.narrivaReportLines)await attachComplianceReportInvoice(parsedAgencyId,created.id,reportLines,db);
       return created;
     });
     if (alreadyCreated) return invoice;

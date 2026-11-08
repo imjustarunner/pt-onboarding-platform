@@ -3,6 +3,7 @@
     <div class="page-header">
       <div>
         <h1 style="margin: 0;">Psychotherapy Compliance</h1>
+        <RouterLink :to="{ name: 'NarrivaComplianceReports' }">Narriva Compliance Reports →</RouterLink>
         <div class="subhead">
           Upload billing reports to track psychotherapy CPT totals (FY Jul 1–Jun 30) and notify at 20 / 24 / 30 / 40 services.
           Billing report imports also feed these totals automatically.

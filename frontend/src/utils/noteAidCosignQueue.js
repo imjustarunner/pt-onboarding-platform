@@ -4,6 +4,7 @@ export function normalizeCosignQueueItems(notes) {
     id: `cosign_${n.id || n.clinical_note_id}`,
     signoffId: n.id,
     clinicalNoteId: n.clinical_note_id || n.clinicalNoteId,
+    clinicalRevisionId: n.clinical_revision_id || n.clinicalRevisionId || null,
     agencyId: n.agency_id || n.agencyId || null,
     clientId: n.client_id || n.clientId || null,
     clientName: n.client_name || n.clientName
@@ -15,7 +16,7 @@ export function normalizeCosignQueueItems(notes) {
     date: String(n.date_of_service || n.dateOfService || n.provider_signed_at || n.created_at || '').slice(0, 10),
     signedAt: n.provider_signed_at || n.created_at || null,
     narriva: n.narriva || null,
-    quickSignEligible: n.narriva?.quickSignEligible === true || n.quickSignEligible === true,
+    quickSignEligible: !(n.clinical_revision_id || n.clinicalRevisionId) && (n.narriva?.quickSignEligible === true || n.quickSignEligible === true),
     narrivaReviewId: n.narriva?.reviewId || n.narrivaReviewId || null
   }));
 }

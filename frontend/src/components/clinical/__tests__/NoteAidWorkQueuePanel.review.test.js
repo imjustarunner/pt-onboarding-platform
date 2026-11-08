@@ -34,3 +34,13 @@ describe('My Work review categories', () => {
     wrapper.unmount();
   });
 });
+
+
+it('shows the four co-sign card actions and preserves normal note review and Quick Sign events',async()=>{
+ const item={id:'cosign_81',clinicalNoteId:81,agencyId:7,clientName:'Synthetic client',narriva:{quickSignEligible:true}};
+ const wrapper=mount(NoteAidWorkQueuePanel,{props:{mode:'cosign',showCosignMode:true,cosignItems:[item]}});
+ expect(wrapper.findAll('.note-review-actions>button').map(button=>button.text())).toEqual(['Quick Sign','Quick look','Open note','Treatment history']);
+ await wrapper.get('.nra-open').trigger('click');expect(wrapper.emitted('select-cosign')[0][0]).toMatchObject({clinicalNoteId:81,agencyId:7});
+ await wrapper.get('.nra-quick-sign').trigger('click');expect(wrapper.emitted('quick-sign')[0][0]).toMatchObject({clinicalNoteId:81,agencyId:7});
+ wrapper.unmount();
+});

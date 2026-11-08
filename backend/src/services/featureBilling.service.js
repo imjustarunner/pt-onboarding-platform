@@ -211,7 +211,9 @@ export async function computeFeatureBillingForPeriod(agencyId, periodStart, peri
   }
   const daysInPeriod = daysBetween(periodStartMs, periodEndMs);
 
-  const featureCatalog = getFeatureCatalog(pricingConfig);
+  const featureCatalog = { ...getFeatureCatalog(pricingConfig) };
+  // Reports use completed-run charges; never charge tenant/user monthly fees.
+  delete featureCatalog.narrivaComplianceReports;
 
   const [tenantEvents, userEvents, exemptPairs] = await Promise.all([
     fetchTenantEvents(aid, periodEndMs),
@@ -245,6 +247,7 @@ export async function computeFeatureBillingForPeriod(agencyId, periodStart, peri
   ]);
 
   for (const featureKey of featureKeys) {
+    if (featureKey === 'narrivaComplianceReports') continue;
     const feature = featureCatalog[featureKey] || {
       key: featureKey,
       label: featureKey,

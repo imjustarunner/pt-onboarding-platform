@@ -12,6 +12,13 @@ it('fails closed for demo lookalikes, altered roles and removed or malformed syn
  for(const record of [{...agency,feature_flags:{}},{...agency,feature_flags:'invalid'},{...agency,id:456},{...agency,slug:'live'}])expect(()=>mobileQaScope(user,[record])).toThrow();
 });
 it('preserves ordinary staff membership behavior',()=>{const agencies=[agency,{id:456}];expect(mobileQaScope({...user,is_demo:0},agencies)).toEqual({agencies,qaAgencyIds:null});});
+it('allows only canonical read-only note insight cards in the approved synthetic agency',async()=>{
+ const req={quickView:{qaAgencyIds:[450],agencyId:450,mobileDeviceSessionId:2},method:'GET',query:{agencyId:450},params:{noteId:'12'}};
+ for(const path of ['/my-work/notes/12/review-insights','/clinical/notes/12/review-insights'])await expect(enforceMobileQaBoundary({...req,originalUrl:'/api/quick-view'+path})).resolves.toBeUndefined();
+ for(const method of ['POST','PATCH','DELETE'])await expect(enforceMobileQaBoundary({...req,method,originalUrl:'/api/quick-view/my-work/notes/12/review-insights'})).rejects.toMatchObject({status:403});
+ for(const noteId of ['01','1e0','%31','0x1'])await expect(enforceMobileQaBoundary({...req,params:{noteId},originalUrl:`/api/quick-view/my-work/notes/${noteId}/review-insights`})).rejects.toMatchObject({status:403});
+ await expect(enforceMobileQaBoundary({...req,query:{agencyId:456},originalUrl:'/api/quick-view/my-work/notes/12/review-insights'})).rejects.toMatchObject({status:403});
+});
 it('rejects nested foreign agency requests and mixed agency lists',()=>{
  for(const value of [{agencyId:456},{metadata:{agency_id:1}},{agencyIds:[450,456]},{agency_ids:'450,456'}])expect(()=>assertMobileQaInputs(value,[450])).toThrow();
  expect(()=>assertMobileQaInputs({agencyId:'all',metadata:{agency_id:450}},[450])).not.toThrow();
