@@ -57,6 +57,7 @@ describe('calendar fixture contract', () => {
     it.each(providers)(`keeps $name at saved ${season.label} local times with only assigned clients`, provider => {
       const summary = demoResponse(`/users/${provider.id}/schedule-summary`, { params: { weekStart: season.weekStart } });
       const assigned = clients.filter(client => client.provider_id === provider.id);
+      summary.scheduleEvents=summary.scheduleEvents.filter(event=>event.clientId);
       expect(summary).toMatchObject({ providerId: provider.id, agencyId: practice.id, weekStart: season.weekStart });
       expect(summary.scheduleEvents.length).toBeGreaterThan(0);
       expect([...new Set(summary.scheduleEvents.map(event => event.clientId))].sort()).toEqual(assigned.map(client => client.id).sort());
@@ -85,7 +86,7 @@ describe('calendar fixture contract', () => {
   });
 
   it.each(providers)('fits the expanded $name roster into working hours without overlapping visits', provider => {
-    const { scheduleEvents } = demoResponse(`/users/${provider.id}/schedule-summary`, { params: { weekStart: '2026-11-02' } });
+    const scheduleEvents = demoResponse(`/users/${provider.id}/schedule-summary`, { params: { weekStart: '2026-11-02' } }).scheduleEvents.filter(event=>event.clientId);
     const { blocks } = demoResponse(`/users/${provider.id}/work-schedule`);
     const minute = value => {
       const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Denver', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(value)).map(part => [part.type, part.value]));

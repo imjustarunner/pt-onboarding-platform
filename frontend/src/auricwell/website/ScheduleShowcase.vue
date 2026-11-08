@@ -8,7 +8,7 @@
 import { computed, ref } from 'vue';
 const selected = ref('calendar');
 const views = [
-  {id:'calendar',label:'Weekly calendar',src:'/auricwell/examples/staff-calendar.png',alt:'The actual shared app weekly calendar showing fictional individual therapy appointments across five days.',caption:'The existing staff calendar, populated with fictional appointments.'},
+  {id:'calendar',label:'Weekly calendar',src:'/auricwell/examples/calendar-feature-20261108.png',alt:'The shared app calendar with fictional one-hour couples and virtual visits, supervision, meetings, a town hall, a CPA meeting and a canceled session.',caption:'The shared calendar with fictional one-hour visits, supervision and practice meetings. Canceled sessions stay visible.'},
   {id:'booking',label:'Book a session',src:'/auricwell/examples/schedule-booking.png',alt:'The actual shared app booking screen opened from the calendar, with synthetic practice context.',caption:'The existing scheduling form, opened directly from the calendar. This capture cannot submit a booking.'}
 ];
 const view = computed(()=>views.find(item=>item.id===selected.value));

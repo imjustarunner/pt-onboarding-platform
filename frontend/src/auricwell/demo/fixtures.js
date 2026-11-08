@@ -1,3 +1,4 @@
+import {demoTeamCalendar} from './calendar.js';
 import {demoBookingResponse} from './booking.js';
 import { demoClients, demoProviders, demoStaff } from './people.js';
 import { createDemoNoteFixtures } from './notes.js';
@@ -38,12 +39,16 @@ function schedule(start,providerId=actor.id) {
  for(let day=0;day<7;day++) {
   const next=new Date(date);next.setDate(date.getDate()+day);if(!workingDays.includes(next.getDay()))continue;
   for(const [index,client] of assigned.entries()) {
-   const time=client.time.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/),hour=(Number(time?.[1]||9)%12)+(time?.[3]==='PM'?12:0),minute=Number(time?.[2]||0),duration=Number(client.frequency?.match(/(\d+) minutes/)?.[1])||(client.status==='INTAKE'?60:50);
+   const time=client.time.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/),hour=(Number(time?.[1]||9)%12)+(time?.[3]==='PM'?12:0),minute=Number(time?.[2]||0),duration=60;
    const startMinutes=hour*60+minute,endMinutes=startMinutes+duration,clock=value=>`${String(Math.floor(value/60)).padStart(2,'0')}:${String(value%60).padStart(2,'0')}:00`;
-   events.push({id:990200+providers.indexOf(provider)*1000+day*10+index,userId:provider.id,providerUserId:provider.id,agencyId:practice.id,kind:'PERSONAL_EVENT',clientId:client.id,appointmentStatus:client.reminder.startsWith('Confirmed')?'client_confirmed':'scheduled',reasonCode:'CLIENT_SESSION',title:`${client.initials} · ${client.service}`,startAt:zonedDatetimeLocalToIso(`${ymd(next)}T${clock(startMinutes)}`,practice.timezone),endAt:zonedDatetimeLocalToIso(`${ymd(next)}T${clock(endMinutes)}`,practice.timezone),status:'scheduled',modality:client.format==='In person'?'IN_PERSON':'VIRTUAL'});
+   const isCancelled=provider.id===actor.id && next.getDay()===4 && client.id===991022;
+   const appointmentStatus=isCancelled?'canceled_by_client':client.reminder.startsWith('Confirmed')?'client_confirmed':'scheduled';
+   events.push({id:990200+providers.indexOf(provider)*1000+day*10+index,userId:provider.id,providerUserId:provider.id,agencyId:practice.id,kind:'PERSONAL_EVENT',clientId:client.id,clientName:client.full_name,serviceCode:/couples|family/i.test(client.service)?'90847':client.status==='INTAKE'?'90791':'90837',appointmentStatus,reasonCode:'CLIENT_SESSION',title:`${client.initials} · ${client.service}`,startAt:zonedDatetimeLocalToIso(`${ymd(next)}T${clock(startMinutes)}`,practice.timezone),endAt:zonedDatetimeLocalToIso(`${ymd(next)}T${clock(endMinutes)}`,practice.timezone),status:isCancelled?'CANCELLED':'SCHEDULED',isCancelled,cancelReason:isCancelled?'Client requested a different day · fictional example.':null,description:isCancelled?'Client requested a different day. No session occurred; nonbillable.':'',modality:client.format==='In person'?'IN_PERSON':'VIRTUAL',locationLabel:client.format==='In person'?'Denver office':'Virtual · client at home'});
   }
  }
- return {weekStart:ymd(date),providerId:provider.id,agencyId:practice.id,scheduleAgencyIds:[practice.id],scheduleEvents:events,officeEvents:[],schoolAssignments:[],schoolRequests:[],officeRequests:[],supervisionSessions:[],googleBusy:[],googleEvents:[],externalBusy:[],virtualWorkingHours:[]};
+ const team=demoTeamCalendar(ymd(date),provider,{practice,actorId:actor.id,staff});
+ events.push(...team.events);
+ return {weekStart:ymd(date),providerId:provider.id,agencyId:practice.id,scheduleAgencyIds:[practice.id],scheduleEvents:events,officeEvents:[],schoolAssignments:[],schoolRequests:[],officeRequests:[],supervisionSessions:team.supervision,googleBusy:[],googleEvents:[],externalBusy:[],virtualWorkingHours:[]};
 }
 const clientFor = id => clients.find(c => c.id === Number(id));
 function chart(id) {const client=clientFor(id);return {client,notes:historicalNotes.filter(d=>d.client_id===client.id),sessions:[],diagnoses:[{id:990160,icd10_code:'F43.23',description:'Adjustment disorder with mixed anxiety and depressed mood · fictional example'}],latestPlan:{id:990161,title:'Build confidence and strengthen coping strategies',status:'active',effective_date:weekStart,prescribed_frequency:'Weekly individual therapy',goals:[{id:990162,goal_text:'Build confidence using coping strategies.',status:'active',objectives:[{id:990163,objective_text:'Use a grounding strategy independently when stress increases.',scale_start:3,scale_current:5,scale_target:8}]}]},objectiveRatings:[],goals:[]};}
@@ -67,14 +72,14 @@ export function demoResponse(url, config={}) {
  if(p==='/auricwell-preview/directory'){const search=String(q.search||'').toLowerCase(),providerId=q.providerId||(q.scope==='mine'?actor.id:null);if(providerId)requireProvider(providerId);let rows=clients.filter(c=>(!providerId||c.provider_id===Number(providerId))&&`${c.full_name} ${c.initials}`.toLowerCase().includes(search));rows.sort((a,b)=>a.full_name.localeCompare(b.full_name)*(q.order==='desc'?-1:1));return {clients:Number(q.page||1)>1?[]:rows,total:rows.length,page:1,pageSize:50};}
  if(p==='/auricwell-preview/agenda'){
    const selected=q.providerId?[requireProvider(q.providerId)]:q.scope==='practice'?providers:[actor];
-   let items=selected.flatMap(provider=>schedule(q.start,provider.id).scheduleEvents.map(e=>({...e,key:`appointment:${e.id}`,providerId:provider.id,providerName:provider.name,kind:'appointment',clientName:clientFor(e.clientId).full_name,date:e.startAt.slice(0,10),startAt:e.startAt,endAt:e.endAt,location:e.modality,readOnly:true,status:e.appointmentStatus})));
-   const search=String(q.search||'').toLowerCase();items=items.filter(r=>(!q.end||r.date<q.end)&&(!search||[r.clientName,r.providerName,r.title,r.location].join(' ').toLowerCase().includes(search))&&(!q.kind||q.kind==='all'||q.kind===r.kind)&&q.status!=='canceled');
+   let items=selected.flatMap(provider=>[...schedule(q.start,provider.id).scheduleEvents,...schedule(q.start,provider.id).supervisionSessions].map(e=>({...e,key:`${e.clientId?'appointment':e.sessionType?'supervision':'meeting'}:${e.id}:${provider.id}`,providerId:provider.id,providerName:provider.name,kind:e.clientId?'appointment':e.sessionType?'supervision':'meeting',clientName:clientFor(e.clientId)?.full_name||'',date:e.startAt.slice(0,10),startAt:e.startAt,endAt:e.endAt,location:e.modality,readOnly:true,status:e.appointmentStatus||e.status})));
+   const search=String(q.search||'').toLowerCase();items=items.filter(r=>(!q.end||r.date<q.end)&&(!search||[r.clientName,r.providerName,r.title,r.location].join(' ').toLowerCase().includes(search))&&(!q.kind||q.kind==='all'||q.kind===r.kind)&&(!q.status||q.status==='all'||q.status===r.status||(q.status==='canceled'&&/^cancel/i.test(r.status||''))));
    const field={client:'clientName',provider:'providerName',status:'status'}[q.sort]||'startAt';items.sort((a,b)=>String(a[field]).localeCompare(String(b[field]))*(q.order==='desc'?-1:1));
    return {items:items.slice(((Number(q.page)||1)-1)*50,(Number(q.page)||1)*50),total:items.length,timeZone:practice.timezone,page:Number(q.page)||1,pageSize:50};
  }
 
  if(p==='/auricwell-preview/tasks'){const tasks=taskFixtures.tasks.filter(task=>task.assigned_to_user_id===actor.id&&task.status!=='completed');return {tasks,total:tasks.length};}
- if(p==='/appointments')return {appointments:schedule(q.windowStart,q.providerId||q.provider_id||actor.id).scheduleEvents.map(e=>({...e,serviceCode:clientFor(e.clientId)?.status==='INTAKE'?'90791':'90834'}))};
+ if(p==='/appointments')return {appointments:schedule(q.windowStart,q.providerId||q.provider_id||actor.id).scheduleEvents.filter(event=>event.clientId)};
  if(p==='/appointments/booking-access'){requireProvider(q.providerUserId||actor.id);return {enabled:true};}
  if(p==='/appointments/staff-alerts'){requireProvider(q.providerId||actor.id);return {alerts:[]};}
  const waitlist=p.match(/^\/availability\/providers\/(\d+)\/enrollment-waitlist$/);if(waitlist){requireProvider(waitlist[1]);return {requests:[],waitlistEnabled:false,total:0};}
