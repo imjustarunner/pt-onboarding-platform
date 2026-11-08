@@ -15,6 +15,19 @@ beforeEach(() => {
   data = { responses: { submission: { communicationPreferences: cp } } };
 });
 const stamp = () => validateAndStampIntakeCommunications({ link: { create_client: 1, intake_steps: [] }, agencyId: 2, intakeData: data, submittedAt: new Date('2026-10-06T12:00:00Z') });
+it('accepts office choices without a school notice that was never displayed', async () => {
+  delete cp.schoolDisclosure;
+  await stamp();
+  expect(cp.signedAt).toBe('2026-10-06T12:00:00.000Z');
+});
+it('still requires the school notice on school enrollment', async () => {
+  delete cp.schoolDisclosure;
+  await expect(validateAndStampIntakeCommunications({ link: { create_client: 1, scope_type: 'school' }, agencyId: 2, intakeData: data })).rejects.toThrow('Communication information has changed');
+});
+it('rejects an altered school notice even on an office submission', async () => {
+  cp.schoolDisclosure = 'Different notice';
+  await expect(stamp()).rejects.toThrow('Communication information has changed');
+});
 it('adds communication choices to school enrollment without duplicating existing steps', () => {
   const steps = ensureEnrollmentCommunicationStep({ create_client: 1, scope_type: 'school' }, []);
   expect(steps).toHaveLength(1);

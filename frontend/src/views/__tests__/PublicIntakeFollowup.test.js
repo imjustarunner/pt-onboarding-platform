@@ -367,3 +367,13 @@ it('captures represented adult sex on the client starter screen and preserves th
   wrapper.vm.intakeResponses.submission.serviceSubject = 'representative'; await flushPromises();
   expect(wrapper.vm.serviceSubject).toBe('representative');
 });
+
+it('restores the other guardian after resuming without losing the separate invitation contact', async () => {
+  await render([question('identity', 'legal_first_name')], {subject:'child',clients:[{firstName:'Synthetic',lastName:'Student',dateOfBirth:'2018-01-02'}]});
+  Object.assign(wrapper.vm.otherGuardian,{hasLegalRights:'yes',firstName:'Second',lastName:'Parent',email:'second@example.com',phone:'2025550102',relationship:'Father',courtDocumentsUploaded:true});
+  const snapshot=JSON.parse(JSON.stringify(wrapper.vm.buildDraftSnapshot()));
+  wrapper.unmount();wrapper=null;await render([question('identity','legal_first_name')],{subject:'child',clients:[{firstName:'Synthetic',lastName:'Student',dateOfBirth:'2018-01-02'}]});
+  wrapper.vm.applyDraftSnapshot(snapshot);await flushPromises();
+  expect(wrapper.vm.otherGuardianFieldBag()).toMatchObject({other_guardian_has_legal_rights:'yes',other_guardian_email:'second@example.com',other_guardian_send_intake_link:'yes',other_guardian_court_docs:'yes'});
+  expect(wrapper.vm.otherGuardianContactOk()).toBe(true);
+});

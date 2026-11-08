@@ -12,6 +12,26 @@ import {
   isAssignedProvider
 } from '../services/clientOnboardingChecklist.service.js';
 import { logAuditEvent } from '../services/auditEvent.service.js';
+import { paperProcessingContext, savePaperProcessingStep, completePaperProcessing } from '../services/paperPacketProcessing.service.js';
+
+const paperProcessingHandler = action => async (req, res, next) => {
+  try {
+    if (!isBackoffice(req.user?.role)) return res.status(403).json({error:{message:'Backoffice access required'}});
+    const clientId = Number(req.params.id), access = await requireClientAccess(req, clientId);
+    if (!access.ok) return res.status(access.status).json({error:{message:access.message}});
+    const actorId = Number(req.user.id);
+    if (action === 'read') return res.set('Cache-Control','no-store').json(await paperProcessingContext(clientId));
+    const state = action === 'complete'
+      ? await completePaperProcessing({clientId,actorId,signaturesConfirmed:req.body?.signaturesConfirmed,staffRoiConfirmed:req.body?.staffRoiConfirmed})
+      : await savePaperProcessingStep({clientId,actorId,step:req.body?.step,data:req.body?.data});
+    await logAuditEvent(req,{actionType:action==='complete'?'paper_packet_processed':'paper_packet_processing_step',agencyId:access.client.agency_id,
+      metadata:{clientId,step:action==='complete'?'review':req.body?.step,sourceDocumentId:state.documentId}});
+    res.set('Cache-Control','no-store').json({state});
+  } catch (error) { next(error); }
+};
+export const getPaperProcessing = paperProcessingHandler('read');
+export const putPaperProcessing = paperProcessingHandler('save');
+export const postPaperProcessing = paperProcessingHandler('complete');
 
 async function requireClientAccess(req, clientId) {
   const client = await Client.findById(clientId, { includeSensitive: true });

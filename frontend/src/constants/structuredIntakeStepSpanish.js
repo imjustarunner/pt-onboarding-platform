@@ -8,6 +8,11 @@ import { OFFICE_SCREEN_ES } from './officeClinicalSpanish.js';
  */
 
 export const STRUCTURED_INTAKE_STEP_ES = {
+  'Finish entering your primary insurance and any secondary coverage, then confirm below.': 'Termine de ingresar su seguro principal y cualquier cobertura secundaria; luego confirme abajo.',
+  'Confirm primary and any secondary coverage': 'Confirmar el seguro principal y cualquier cobertura secundaria',
+  'Enter the insurer for your primary and any secondary coverage before confirming.': 'Ingrese la aseguradora de su seguro principal y de cualquier cobertura secundaria antes de confirmar.',
+  'Please confirm your primary and any secondary coverage.': 'Confirme su seguro principal y cualquier cobertura secundaria.',
+
   'Payment method': 'Método de pago',
   'You can save a card now or add one later in your portal. Saving a card does not charge it.': 'Puede guardar una tarjeta ahora o agregarla más tarde en su portal. Guardar una tarjeta no genera un cobro.',
   'Checking secure card availability…': 'Verificando la disponibilidad del registro seguro de tarjetas…',

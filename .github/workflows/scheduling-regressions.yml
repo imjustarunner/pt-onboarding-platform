@@ -393,3 +393,7 @@ jobs:
           backend/src/services/__tests__/scheduling.schoolStatusTransitions.mysql.test.js
       - name: Work username reservation transactions
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.hire.config.js backend/src/services/__tests__/hire.username.mysql.test.js
+      - name: Brief B paper processing and targeted retest
+        run: |
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.brief-b-targeted.config.js
+          npm test --prefix frontend -- src/components/clients/__tests__/SchoolPaperPacketWorkflow.test.js src/components/billing/__tests__/ClientInsuranceEditor.test.js src/components/public-intake/__tests__/InsurancePaymentEnrollment.test.js src/views/__tests__/PublicIntakeFollowup.test.js src/utils/__tests__/calendarDate.test.js src/utils/__tests__/otherGuardianDraft.test.js src/components/admin/__tests__/ClientCommunicationsTab.race.test.js

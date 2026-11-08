@@ -119,6 +119,7 @@
             </button>
           </div>
 
+          <p class="ctp-policy">Treatment plan review interval: {{ renewalPolicy.renewAfterDays }} days.<template v-if="renewalPolicy.flagEnabled"> Review reminder after {{ renewalPolicy.flagAfterDays }} days.</template><template v-if="renewalPolicy.renewByDate"> Current renewal deadline: {{ formatDateOnly(renewalPolicy.renewByDate) }}.</template></p>
           <div v-if="renewalStatus.flagged || renewalStatus.required" class="ctp-renewal" role="alert">
             <strong>{{ renewalStatus.required ? 'Treatment plan update required' : 'Treatment plan review due' }}</strong>
             <p>This plan is {{ renewalStatus.ageDays }} days old. Renewal interval: {{ renewalPolicy.renewAfterDays }} days.</p>
@@ -144,7 +145,7 @@
           </div>
 
           <p v-if="detailPlan?.effective_date" class="muted tiny">
-            Plan date: {{ formatWhen(detailPlan.effective_date) }}
+            Plan date: {{ formatDateOnly(detailPlan.effective_date) }}
           </p>
 
           <div class="ctp-goals-head">
@@ -318,6 +319,7 @@
 
 <script setup>
 import { splitTreatmentPlanSections } from '../../../utils/treatmentPlanSections.js';
+import { formatDate } from '../../../utils/formatDate.js';
 import { DEFAULT_RENEWAL_POLICY, treatmentPlanRenewalStatus } from '../../../utils/treatmentPlanRenewal.js';
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
@@ -376,7 +378,7 @@ const clientMetaLine = computed(() => {
   if (c.age != null && c.age !== '') parts.push(`${c.age} yrs`);
   if (c.date_of_birth || c.dob) {
     try {
-      parts.push(new Date(c.date_of_birth || c.dob).toLocaleDateString());
+      parts.push(formatDateOnly(c.date_of_birth || c.dob));
     } catch {
       /* ignore */
     }
@@ -430,12 +432,7 @@ function toggleGoal(id) {
 }
 
 function formatDateOnly(v) {
-  if (!v) return '—';
-  try {
-    return new Date(v).toLocaleDateString();
-  } catch {
-    return String(v);
-  }
+  return formatDate(v) || '—';
 }
 
 async function onAckUpdated() {

@@ -11,6 +11,15 @@ export function portalActionHtml(label, url) {
   return `${portalMessageHtml({ text: url, linkUrl: url, linkLabel: label })}<p style="font-size:12px;line-height:1.5;overflow-wrap:anywhere;color:#627187">Or copy and paste this link into your browser:<br><a href="${e(url)}" style="color:#16457c">${e(url)}</a></p>`;
 }
 
+export function buildPaperPacketPortalEmail(input) {
+  const email = buildClientEnrollmentEmail(input);
+  const notice = `${input.agencyName}'s support team has processed your paper packet and your online portal has been established.`;
+  const school = input.schoolName ? `School: ${input.schoolName}` : '';
+  return { ...email, subject: `${input.agencyName}: your paper packet has been processed`,
+    text: `${notice}\n${school}\n\n${email.text}`,
+    html: `<p>${e(notice)}</p>${school ? `<p>${e(school)}</p>` : ''}${email.html}` };
+}
+
 export function buildClientEnrollmentEmail({ firstName, agencyName, clients = [], learning = false, existingAccount = false, url, username = null }) {
   const labels = clients.map(clientEmailLabel).join(', '), count = clients.length || 1;
   const who = count === 1 ? 'Your dependent' : `Your ${count} dependents`;

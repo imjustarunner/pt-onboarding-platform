@@ -12,6 +12,12 @@ function getStore() {
   }
 }
 
+/** Today's calendar date in the user's timezone, for date-only form defaults. */
+export function todayCalendarDate(now = new Date(), timeZone = getStore()?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Denver') {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {timeZone,year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(now).map(p => [p.type,p.value]));
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
 /** Audit instants are UTC; calendar-only fields must never acquire a time. */
 export function formatAuditTimestamp(value, { timeZone, locale = 'en-US', dateOnly = false } = {}) {
   if (!value || (value instanceof Date && !Number.isFinite(+value))) return '';
@@ -89,11 +95,17 @@ function parseDateSafe(dateLike) {
  */
 export function formatDate(dateLike) {
   if (!dateLike) return '';
-  const d = parseDateSafe(dateLike);
+  const raw = dateLike instanceof Date && !Number.isNaN(dateLike.getTime())
+    ? dateLike.toISOString() : String(dateLike).trim();
+  const calendar = raw.match(/^(\d{4})-(\d{2})-(\d{2})(?:\s|T|$)/);
+  // A calendar date has no timezone. Use the stored Y-M-D even when a MySQL
+  // DATE was serialized as midnight UTC, independently of browser/preferences.
+  const d = calendar ? new Date(`${calendar[1]}-${calendar[2]}-${calendar[3]}T12:00:00Z`) : parseDateSafe(dateLike);
   if (!(d instanceof Date) || Number.isNaN(d.getTime())) return String(dateLike);
 
   const prefs = getStore();
   const opts = getDateOptions(prefs);
+  if (calendar) opts.timeZone = 'UTC';
   return new Intl.DateTimeFormat(undefined, opts).format(d);
 }
 

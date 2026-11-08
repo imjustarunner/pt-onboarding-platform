@@ -55,7 +55,13 @@ export async function validateAndStampIntakeCommunications({ link, agencyId, int
   const disclosure = intakeCommunicationDisclosure(await Agency.findById(agencyId));
   // Client enrollment must never accept a forged workforce subscription.
   cp.internalWorkforceOptIn = null;
-  if (cp.version !== disclosure.version || cp.disclosure !== disclosure.text || ![disclosure.schoolText, disclosure.schoolTextSelf].includes(cp.schoolDisclosure)) {
+  const schoolEnrollment = String(link?.scope_type || '').toLowerCase() === 'school'
+    || String(link?.organization_type || '').toLowerCase() === 'school';
+  // Office forms do not display or submit the school-only notice. Continue to
+  // validate any supplied notice, and require it for school enrollment.
+  const schoolNoticeValid = [disclosure.schoolText, disclosure.schoolTextSelf].includes(cp.schoolDisclosure)
+    || (!schoolEnrollment && (cp.schoolDisclosure == null || cp.schoolDisclosure === ''));
+  if (cp.version !== disclosure.version || cp.disclosure !== disclosure.text || !schoolNoticeValid) {
     fail('Communication information has changed. Refresh and review your communication choices before signing.');
   }
   if (!String(cp.signerName || '').trim() || cp.signatureAccepted !== true) fail('Please sign your communication choices. You may decline all texts.');

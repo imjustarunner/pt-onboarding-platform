@@ -853,10 +853,10 @@ export function parseTreatmentPlanText(rawText) {
     diagnoses.findIndex((d) => d.isPrimary)
   );
 
-  const todayIso = new Date().toISOString().slice(0, 10);
-
   return {
-    effectiveDate: effectiveDate || todayIso,
+    // Missing source dates stay missing. The review form can offer today's
+    // local calendar date without claiming it was read from the source text.
+    effectiveDate: effectiveDate || null,
     diagnoses: diagnoses.map((d, i) => ({
       ...d,
       isPrimary: i === (primaryDiagnosisIndex >= 0 ? primaryDiagnosisIndex : 0)

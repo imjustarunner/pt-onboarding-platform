@@ -14,9 +14,19 @@ export async function draftAppointmentOptions(draft, deps={}) {
     if(Number(old.agency_id)!==Number(draft.agency_id)||Number(old.client_id)!==Number(draft.client_id)||Number(old.provider_user_id)!==Number(draft.user_id)) {
       throw Object.assign(new Error('The linked session does not match this draft. Ask the care team to review its appointment.'),{status:403});
     }
+    const appointment = old.appointment_id ? await (deps.appointments || Appointment).findById(old.appointment_id, { agencyId: draft.agency_id }) : null;
+    if (appointment && (Number(appointment.agencyId) !== Number(draft.agency_id)
+      || Number(appointment.providerUserId) !== Number(draft.user_id)
+      || (appointment.clinicalSessionId && Number(appointment.clinicalSessionId) !== Number(old.id)))) {
+      throw Object.assign(new Error('The linked appointment does not match this draft.'), { status: 403 });
+    }
+    const remote = ['TELEHEALTH', 'VIRTUAL', 'VIDEO'].includes(String(appointment?.modality || '').toUpperCase());
+    const locationLabel = old.location_label || appointment?.locationLabel || (remote ? 'Telehealth' : '');
     return {linked:true,options:[],context:{draftId:draft.id,clinicalSessionId:old.id,appointmentId:old.appointment_id||null,
       officeEventId:old.office_event_id||null,billingEncounterId:old.billing_encounter_id||null,startAt:old.scheduled_start_at,endAt:old.scheduled_end_at,
-      durationMinutes:old.duration_minutes,sourceTimezone:old.source_timezone||'UTC',serviceCode:old.service_code,locationLabel:old.location_label||''}};
+      durationMinutes:old.duration_minutes,sourceTimezone:old.source_timezone||appointment?.sourceTimezone||'UTC',
+      serviceCode:old.service_code||appointment?.serviceCode||null,locationLabel,
+      placeOfService:old.place_of_service||null,serviceLocationId:old.service_location_id||appointment?.serviceLocationId||null}};
   }
   if(!draft.client_id||!draft.date_of_service||!draft.service_code)return {linked:false,options:[],message:'Save the client, service date and service code first.'};
   const [rows]=await db.execute(`SELECT s.* FROM clinical_sessions s WHERE s.agency_id=? AND s.client_id=? AND s.provider_user_id=?

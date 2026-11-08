@@ -337,6 +337,7 @@
 <script setup>
 import { computed, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
+import { todayCalendarDate } from '../../utils/formatDate.js';
 import NoteAidInterventionPicker from './NoteAidInterventionPicker.vue';
 import NoteAidFrequencySelect from './NoteAidFrequencySelect.vue';
 import { CLINICAL_INTERVENTION_SEED } from '../../config/clinicalInterventionSeed.js';
@@ -402,7 +403,7 @@ watch(() => [props.open, props.agencyId], async ([open, agencyId]) => {
 }, { immediate: true });
 
 function todayIsoDate() {
-  return new Date().toISOString().slice(0, 10);
+  return todayCalendarDate();
 }
 
 const isUpdaterMode = computed(

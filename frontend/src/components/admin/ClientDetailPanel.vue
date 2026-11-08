@@ -1035,6 +1035,9 @@
                   <button type="button" class="btn btn-secondary btn-sm" @click="goChartSub('school-roi')">
                     Manage staff access
                   </button>
+                  <button type="button" class="btn btn-primary btn-sm" @click="goChartSub('school-roi')">
+                    Request ROI update
+                  </button>
                 </div>
               </div>
             </section>

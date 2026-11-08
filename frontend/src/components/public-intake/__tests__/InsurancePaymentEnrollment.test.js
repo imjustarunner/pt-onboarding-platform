@@ -11,6 +11,38 @@ vi.mock('../../../services/api', () => ({ default: { get: vi.fn(), post: vi.fn()
 const props = () => ({ insuranceInfo: { primary: { insurerName: 'Commercial' }, secondary: { insurerName: 'Health First Colorado', isMedicaid: true } }, clientNames: ['Sample Client'], guardianName: 'Sample Parent' });
 const mountForm = overrides => mount(Combined, { props: { ...props(), ...overrides }, global: { stubs: { PublicIntakePaymentStep: { template: '<div data-card-form>Secure card form</div>' } } } });
 describe('insurance enrollment', () => {
+  it('never prompts for a card while coverage is being entered before secondary Medicaid is identified', async () => {
+    const w = mountForm({ insuranceInfo: {}, paymentCollectionAvailable: true });
+    const noPrompt = () => {
+      expect(w.text()).not.toContain('Save your card securely');
+      expect(w.text()).not.toContain('Your payment arrangement');
+      expect(w.text()).not.toContain("I'll Add Card Later");
+    };
+    noPrompt();
+    await w.setProps({ insuranceInfo: { payerChoice: 'insurance', primary: { insurerName: 'Commercial' } } });
+    noPrompt();
+    await w.setProps({ insuranceInfo: { payerChoice: 'insurance', primary: { insurerName: 'Commercial' }, hasSecondary: true, secondary: {} } });
+    noPrompt();
+    await w.setProps({ insuranceInfo: { payerChoice: 'insurance', primary: { insurerName: 'Commercial' }, hasSecondary: true, secondary: { insurerName: 'Health First Colorado' } } });
+    noPrompt();
+    w.unmount();
+  });
+  it('shows commercial payment only after coverage review, then hides it immediately when coverage changes', async () => {
+    const commercial = { payerChoice: 'insurance', primary: { insurerName: 'Commercial' }, hasSecondary: false };
+    const w = mountForm({ insuranceInfo: commercial, paymentCollectionAvailable: true });
+    expect(w.text()).not.toContain('Save your card securely');
+    await w.findAll('button').find(b => b.text().includes('Confirm primary')).trigger('click');
+    expect(w.text()).toContain('Save your card securely');
+    await w.setProps({ insuranceInfo: { ...commercial, hasSecondary: true, secondary: {} } });
+    expect(w.text()).not.toContain('Save your card securely');
+    w.unmount();
+  });
+  it('does not let insurance-on-file override known Medicaid', () => {
+    const w = mountForm({ insuranceOnFile: true });
+    expect(w.text()).not.toContain('Save your card securely');
+    expect(w.text()).not.toContain('Your payment arrangement');
+    w.unmount();
+  });
   it('suppresses payment when secondary plan type explicitly declares Medicaid despite a false legacy flag', () => {
     const w = mountForm({ insuranceInfo: { payerChoice: 'insurance', primary: { insurerName: 'Commercial' }, secondary: { insurerName: 'Regional plan', planType: 'Medicaid', isMedicaid: false } } });
     expect(w.find('[data-card-form]').exists()).toBe(false);
@@ -140,6 +172,8 @@ describe('insurance enrollment', () => {
     api.get.mockResolvedValue({data:{stripeEnabled:true,publishableKey:'pk_test_synthetic',connectedAccountId:'acct_synthetic'}});
     for (const override of [{ insuranceInfo: { primary: { insurerName: 'Commercial' } } }, { insuranceInfo: { isSelfPay: true } }, { paymentOnly: true }]) {
       const w = mountForm({publicKey:'synthetic-key',...override});await flushPromises();
+      const confirm = w.findAll('button').find(button => button.text().includes('Confirm primary'));
+      if (confirm) { await confirm.trigger('click'); await flushPromises(); }
       expect(w.find('[data-card-form]').exists()).toBe(false);
       await w.findAll('button').find(button=>button.text().startsWith('Add Card')).trigger('click');
       expect(w.find('[data-card-form]').exists()).toBe(true); w.unmount();

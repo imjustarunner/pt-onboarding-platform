@@ -105,7 +105,9 @@ function loadOnboardingPacketDocuments(client) {
 
 function persistOnboardingDocItems(client, items, actorUserId) {
   const next = normalizeOnboardingDocItems({ items });
-  const payload = { items: next.map((d) => ({ key: d.key, status: d.status })) };
+  let existing = client?.onboarding_docs_json || {};
+  if (typeof existing === 'string') { try { existing = JSON.parse(existing); } catch { existing = {}; } }
+  const payload = { ...existing, items: next.map((d) => ({ key: d.key, status: d.status })) };
   return Client.update(client.id, { onboarding_docs_json: JSON.stringify(payload) }, actorUserId);
 }
 

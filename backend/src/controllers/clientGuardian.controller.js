@@ -50,6 +50,11 @@ export const upsertClientGuardian = async (req, res, next) => {
     const client = await Client.findById(clientId, { includeSensitive: true });
     if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
 
+    if (req.user.role !== 'super_admin') {
+      const agencies = await User.getAgencies(req.user.id);
+      if (!agencies.some(a => Number(a.id) === Number(client.agency_id))) return res.status(403).json({error:{message:'You do not have access to this client'}});
+    }
+
     const email = normalizeEmail(req.body.email);
     const firstName = String(req.body.firstName || '').trim();
     const lastName = String(req.body.lastName || '').trim();
@@ -90,6 +95,7 @@ export const upsertClientGuardian = async (req, res, next) => {
         firstName,
         lastName,
         personalEmail: email,
+        phoneNumber: String(req.body.phone || '').trim() || null,
         role: 'client_guardian',
         status: 'PENDING_SETUP'
       });

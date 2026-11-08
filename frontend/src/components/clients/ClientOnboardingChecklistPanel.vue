@@ -14,6 +14,10 @@
     </div>
     <div v-else-if="error" class="error">{{ error }}</div>
     <template v-else-if="checklist">
+      <div v-if="checklist.is_paper_packet && !readonly && effectiveCanEditDocs" class="ob-paper-processing">
+        <button v-if="!paperWorkflowOpen" type="button" class="btn btn-primary" @click="paperWorkflowOpen=true">Process paper packet step by step</button>
+        <SchoolPaperPacketWorkflow v-else :key="clientId" :client-id="clientId" @close="paperWorkflowOpen=false" @processed="load" />
+      </div>
       <header v-if="variant === 'workspace'" class="ob-hero" :class="checklist.client_type === 'school' ? 'is-school' : 'is-office'">
         <div class="ob-hero-top">
           <div class="ob-hero-title-block">
@@ -270,6 +274,7 @@ import { useAuthStore } from '../../store/auth';
 import ClientOnboardingRoiStaffPanel from './ClientOnboardingRoiStaffPanel.vue';
 import ClientOnboardingStaffSetupPanel from './ClientOnboardingStaffSetupPanel.vue';
 import ClientOnboardingDocumentsPanel from './ClientOnboardingDocumentsPanel.vue';
+import SchoolPaperPacketWorkflow from './SchoolPaperPacketWorkflow.vue';
 import AssignDayModal from '../school/AssignDayModal.vue';
 import LifecycleActionModal from '../school/LifecycleActionModal.vue';
 
@@ -285,6 +290,7 @@ const props = defineProps({
   hideStaffCompleteAction: { type: Boolean, default: false }
 });
 const emit = defineEmits(['close', 'updated', 'assign-day', 'fall-action']);
+const paperWorkflowOpen = ref(false);
 
 const authStore = useAuthStore();
 const loading = ref(false);

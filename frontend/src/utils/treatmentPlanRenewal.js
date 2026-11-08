@@ -1,5 +1,6 @@
+import { todayCalendarDate } from './formatDate.js';
 export const DEFAULT_RENEWAL_POLICY = { flagEnabled: true, forceUpdate: true, flagAfterDays: 75, renewAfterDays: 90, renewByDate: null };
-export function treatmentPlanRenewalStatus(plan, settings = {}, today = new Date().toISOString().slice(0, 10)) {
+export function treatmentPlanRenewalStatus(plan, settings = {}, today = todayCalendarDate()) {
   const policy = { ...DEFAULT_RENEWAL_POLICY, ...settings };
   const rawDate = plan?.effective_date || plan?.effectiveDate || plan?.created_at || '';
   const date = (rawDate instanceof Date ? rawDate.toISOString() : String(rawDate)).slice(0, 10);

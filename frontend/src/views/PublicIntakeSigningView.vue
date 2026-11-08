@@ -3147,6 +3147,7 @@ import EnrollmentPortalAccess from '../components/public-intake/EnrollmentPortal
 import { i18n, setPublicLocale } from '../i18n.js';
 import { readJoinBrandingForPacket } from '../utils/joinLandingTemplate.js';
 import { restoreInvitedChildren, sameInvitedSigningChildren } from '../utils/coGuardianEnrollmentRoster.js';
+import { snapshotOtherGuardian, restoreOtherGuardian } from '../utils/otherGuardianDraft.js';
 import { clinicalAnswersForStep, SHARED_SIGNING_STEP_TYPES, sharedSigningChildren } from '../utils/sharedIntakeSigning.js';
 import SchoolIntakeChildDetails from '../components/public-intake/SchoolIntakeChildDetails.vue';
 import { groupSchoolChildSteps, schoolStepRepeatsForChild, schoolChildDetailFields, childDetailKind, validChildDob, syncSchoolChildIdentity, syncSiblingAddresses, migrateLegacySchoolAnswers } from '../utils/schoolIntakeChildren.js';
@@ -7301,7 +7302,8 @@ const otherGuardian = reactive({
   email: '',
   phone: '',
   relationship: '',
-  courtFiles: []
+  courtFiles: [],
+  courtDocumentsUploaded: false
 });
 const intakeLegal = ref(null);
 const canEditIntakeLegal = computed(() => canUseDevFill.value);
@@ -7530,7 +7532,7 @@ function otherGuardianFieldBag() {
     other_guardian_relationship: otherGuardian.relationship,
     other_guardian_send_intake_link: sendLink,
     other_guardian_send_later: 'no',
-    other_guardian_court_docs: (otherGuardian.courtFiles || []).length ? 'yes' : 'no',
+    other_guardian_court_docs: otherGuardian.courtDocumentsUploaded || (otherGuardian.courtFiles || []).length ? 'yes' : 'no',
     legal_authority: needsOther ? 'shared' : 'yes'
   };
 }
@@ -7543,7 +7545,7 @@ function otherGuardianContactOk() {
   if (rights !== 'yes' && rights !== 'shared') return true;
   const emailOk = String(otherGuardian.email || '').includes('@');
   const phoneOk = String(otherGuardian.phone || '').replace(/\D/g, '').length >= 7;
-  const filesOk = Array.isArray(otherGuardian.courtFiles) && otherGuardian.courtFiles.length > 0;
+  const filesOk = otherGuardian.courtDocumentsUploaded || (Array.isArray(otherGuardian.courtFiles) && otherGuardian.courtFiles.length > 0);
   return emailOk || phoneOk || filesOk;
 }
 function otherGuardianBlockReason() {
@@ -7564,6 +7566,7 @@ async function uploadOtherGuardianCourtFiles() {
       headers:{'x-intake-session':sessionToken.value},
       skipGlobalLoading: true
     });
+    otherGuardian.courtDocumentsUploaded = true;
     otherGuardian.courtFiles = [];
   } catch {
     /* optional — packet can continue */
@@ -8420,6 +8423,7 @@ const buildDraftSnapshot = () => ({
   currentFlowIndex: Number(currentFlowIndex.value || 0),
   currentFlowStepId: currentFlowStep.value?.id || null,
   schoolChildFlowVersion: 1,
+  otherGuardian: snapshotOtherGuardian(otherGuardian),
   maxReachedProgressIndex: Number(maxReachedProgressIndex.value || 0),
   intakeForSelf: intakeForSelf.value,
   serviceSubject: serviceSubject.value,
@@ -8634,6 +8638,7 @@ const applyDraftSnapshot = (parsed) => {
     guardianEmail.value = String(parsed.guardian?.email || guardianEmail.value || '');
     guardianPhone.value = String(parsed.guardian?.phone || guardianPhone.value || '');
     guardianRelationship.value = String(parsed.guardian?.relationship || guardianRelationship.value || '');
+    Object.assign(otherGuardian, restoreOtherGuardian(parsed), { courtFiles: [] });
     starterDob.value = String(parsed.guardian?.dob || starterDob.value || '');
 
     if (Array.isArray(parsed.clients) && parsed.clients.length) {
@@ -8819,6 +8824,9 @@ const restoreServerProgress = async () => {
           clients: Array.isArray(intakeData.clients) ? intakeData.clients : [],
           intakeResponses: intakeData.responses || null
         };
+    // Older snapshots omitted the second guardian, although the server already
+    // saved their contact at enrollment start. Restore it before a later save.
+    if (!snapshot.otherGuardian) snapshot.otherGuardian = restoreOtherGuardian(snapshot, intakeData.guardian);
     // Hard stop: never paint another session's snapshot into this resume URL.
     const snapTok = String(snapshot?.sessionToken || '').trim();
     if (snapTok && snapTok !== token) return false;
@@ -12714,6 +12722,7 @@ const resetIntakeState = () => {
   jobResumeUploadedName.value = '';
   jobCoverUploadedName.value = '';
   guardianRelationship.value = '';
+  Object.assign(otherGuardian, snapshotOtherGuardian(), { courtFiles: [] });
   jobApplicationSubmitted.value = false;
   coverLetterInputMode.value = 'upload';
   coverLetterPastedText.value = '';
@@ -14185,6 +14194,7 @@ watch(
     guardianEmail: guardianEmail.value,
     guardianPhone: guardianPhone.value,
     guardianRelationship: guardianRelationship.value,
+    otherGuardian: snapshotOtherGuardian(otherGuardian),
     clients: clients.value,
     intakeResponses,
     embeddedSmartSchoolRoi: embeddedSmartSchoolRoi.value,

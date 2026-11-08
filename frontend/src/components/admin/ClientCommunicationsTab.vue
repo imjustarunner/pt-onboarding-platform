@@ -467,55 +467,76 @@ const titleFor = (item) => {
   return '(no subject)';
 };
 
+let communicationLoadGeneration = 0;
 const loadCommunications = async () => {
+  const generation = ++communicationLoadGeneration;
+  const clientId = props.clientId;
   if (!props.clientId) return;
   loading.value = true;
   error.value = '';
+  items.value = [];
+  guardians.value = [];
+  conversations.value = [];
+  counts.value = { total:0,email:0,sms:0,opened:0,failed:0 };
+  viewingThread.value = null;
+  viewingEmail.value = null;
   try {
-    const resp = await api.get(`/clients/${props.clientId}/communications`);
+    const resp = await api.get(`/clients/${clientId}/communications`);
+    if (generation !== communicationLoadGeneration || clientId !== props.clientId) return;
     const data = resp.data || {};
     conversations.value = data.conversations || [];
     items.value = Array.isArray(data.items) ? data.items : [];
     guardians.value = Array.isArray(data.guardians) ? data.guardians : [];
     counts.value = data.counts || { total: 0, email: 0, sms: 0, opened: 0, failed: 0 };
   } catch (err) {
+    if (generation !== communicationLoadGeneration || clientId !== props.clientId) return;
     error.value = err.response?.data?.error?.message || 'Failed to load communications';
   } finally {
-    loading.value = false;
+    if (generation === communicationLoadGeneration && clientId === props.clientId) loading.value = false;
   }
 };
 
+let loadSmsAuditGeneration = 0;
 const loadSmsAudit = async () => {
-  if (!props.clientId) return;
+  const clientId = props.clientId, generation = ++loadSmsAuditGeneration;
+  auditItems.value = [];
+  if (!clientId) return;
   auditLoading.value = true;
   auditError.value = '';
   try {
-    const resp = await api.get(`/clients/${props.clientId}/sms-audit`, { params: { limit: 100 } });
+    const resp = await api.get(`/clients/${clientId}/sms-audit`, { params: { limit: 100 } });
+    if(generation !== loadSmsAuditGeneration || clientId !== props.clientId)return;
     auditItems.value = Array.isArray(resp.data?.items) ? resp.data.items : [];
   } catch (err) {
+    if(generation !== loadSmsAuditGeneration || clientId !== props.clientId)return;
     auditError.value = err.response?.data?.error?.message || 'Failed to load SMS audit';
     auditItems.value = [];
   } finally {
-    auditLoading.value = false;
+    if(generation === loadSmsAuditGeneration && clientId === props.clientId)auditLoading.value = false;
   }
 };
 
+let loadIntakeCommPrefsGeneration = 0;
 const loadIntakeCommPrefs = async () => {
-  if (!props.clientId) return;
+  const clientId = props.clientId, generation = ++loadIntakeCommPrefsGeneration;
+  intakeCommState.value = { fields:[], capturedAt:null };
+  if (!clientId) return;
   intakeCommPrefsLoading.value = true;
   intakeCommPrefsError.value = '';
   try {
-    const resp = await api.get(`/clients/${props.clientId}/demographics`);
+    const resp = await api.get(`/clients/${clientId}/demographics`);
+    if(generation !== loadIntakeCommPrefsGeneration || clientId !== props.clientId)return;
     const block = resp.data?.intakeCommunicationPreferences;
     intakeCommState.value = {
       fields: Array.isArray(block?.fields) ? block.fields : [],
       capturedAt: block?.capturedAt || resp.data?.capturedAt || null
     };
   } catch (err) {
+    if(generation !== loadIntakeCommPrefsGeneration || clientId !== props.clientId)return;
     intakeCommPrefsError.value =
       err.response?.data?.error?.message || 'Failed to load intake communication preferences';
   } finally {
-    intakeCommPrefsLoading.value = false;
+    if(generation === loadIntakeCommPrefsGeneration && clientId === props.clientId)intakeCommPrefsLoading.value = false;
   }
 };
 

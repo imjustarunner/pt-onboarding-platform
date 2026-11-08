@@ -81,6 +81,7 @@
                 >
                   <td>
                     <div class="roi-staff-name">{{ displayName(row) }}</div>
+                    <div v-if="row.role_title" class="muted tiny">{{ row.role_title }}</div>
                     <div class="muted tiny">{{ row.email || '—' }}</div>
                   </td>
                   <td>
@@ -123,7 +124,7 @@
               {{ saving ? 'Saving…' : (dirtyCount ? `Save changes (${dirtyCount})` : 'Save changes') }}
             </button>
             <button
-              v-if="!stepDone"
+              v-if="!stepDone && !reviewOnly"
               type="button"
               class="btn btn-secondary btn-sm"
               :disabled="saving"
@@ -132,7 +133,7 @@
               {{ saving ? 'Saving…' : 'Mark complete' }}
             </button>
             <button
-              v-else-if="dirtyCount === 0"
+              v-else-if="stepDone && dirtyCount === 0"
               type="button"
               class="btn btn-secondary btn-sm"
               :disabled="saving"
@@ -141,10 +142,10 @@
               Done
             </button>
             <span v-if="saveMsg" class="roi-save-msg">{{ saveMsg }}</span>
-            <span v-else-if="!stepDone && dirtyCount > 0" class="muted tiny">
+            <span v-else-if="!stepDone && !reviewOnly && dirtyCount > 0" class="muted tiny">
               Save changes, or Mark complete to save and confirm they match the signed form.
             </span>
-            <span v-else-if="!stepDone" class="muted tiny">
+            <span v-else-if="!stepDone && !reviewOnly" class="muted tiny">
               Confirm each staff member matches the signed ROI form, then Mark complete.
             </span>
           </div>
@@ -167,6 +168,7 @@ import {
 const props = defineProps({
   clientId: { type: [Number, String], required: true },
   stepDone: { type: Boolean, default: false },
+  reviewOnly: { type: Boolean, default: false },
   readonly: { type: Boolean, default: false },
   roiExpiresAt: { type: String, default: null }
 });
@@ -306,10 +308,11 @@ function onDraftChange() {
 }
 
 async function saveAllDirty() {
+  if (saving.value || loading.value || (error.value && !rows.value.length)) return false;
   const clientId = Number(props.clientId || 0);
   if (!clientId) return;
   const dirtyRows = (rows.value || []).filter((r) => isDirty(r));
-  if (!dirtyRows.length) return;
+  if (!dirtyRows.length) return true;
 
   saving.value = true;
   error.value = '';
@@ -334,7 +337,7 @@ async function saveAllDirty() {
 
   if (errors.length) {
     error.value = `Saved ${saved}/${dirtyRows.length}. ${errors.join('; ')}`;
-    return;
+    return false;
   }
 
   saveMsg.value = 'Changes saved';
@@ -343,7 +346,10 @@ async function saveAllDirty() {
     editing.value = false;
   }
   emit('updated');
+  return !error.value;
 }
+
+defineExpose({ saveAllDirty });
 
 function onRoiExpirySaved(payload) {
   localRoiExpiresAt.value = payload?.client?.roi_expires_at || localRoiExpiresAt.value;

@@ -2825,7 +2825,7 @@ function onQuickSessionServiceCode(code) {
 }
 const sessionClinicianLabel = computed(() => {
   const u = authStore.user || {};
-  const name = [u.first_name, u.last_name].filter(Boolean).join(' ').trim()
+  const name = [u.first_name || u.firstName, u.last_name || u.lastName].filter(Boolean).join(' ').trim()
     || String(u.full_name || u.name || '').trim();
   const cred = u.credentials || u.license_type || u.credential || u.credential_letters || '';
   if (name && cred) return `${name}, ${cred}`;

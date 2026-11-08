@@ -87,7 +87,13 @@
         />
       </section>
 
-      <section v-if="!isMedicaid" class="pi-ip-section">
+      <section v-if="!paymentOnly && !insuranceOnFile && payerChoice === 'insurance' && !isMedicaid && !coverageReviewed" class="pi-ip-section">
+        <p>{{ tx('Finish entering your primary insurance and any secondary coverage, then confirm below.') }}</p>
+        <button type="button" class="pi-ip-linkbtn" @click="confirmCoverage">{{ tx('Confirm primary and any secondary coverage') }}</button>
+        <p v-if="coverageReviewError" class="pi-ip-error" role="alert">{{ tx(coverageReviewError) }}</p>
+      </section>
+
+      <section v-if="paymentEligible" class="pi-ip-section">
         <h3>{{ tx('Your payment arrangement') }}</h3>
         <p>{{ tx('Tell us what you propose for copays or other patient responsibility. This is a request for review, not permission to charge your card.') }}</p>
         <label>{{ tx('I am willing to') }}
@@ -330,17 +336,38 @@ const isMedicaid = computed(() => {
   return !props.paymentOnly && hasMedicaidCoverage(props.insuranceInfo);
 });
 
+const coverageReviewError = ref('');
+const reviewedCoverage = ref(null);
+const coverageFingerprint = computed(() => JSON.stringify({
+  payerChoice: payerChoice.value,
+  primary: props.insuranceInfo?.primary || null,
+  secondary: props.insuranceInfo?.secondary || null,
+  hasSecondary: props.insuranceInfo?.hasSecondary === true,
+  clientCoverages: props.insuranceInfo?.clientCoverages || []
+}));
+const coverageReviewed = computed(() => reviewedCoverage.value === coverageFingerprint.value);
+const paymentEligible = computed(() => {
+  if (isMedicaid.value) return false;
+  if (props.paymentOnly || isSelfPay.value) return true;
+  return payerChoice.value === 'insurance' && coverageReviewed.value;
+});
+function confirmCoverage() {
+  const info = props.insuranceInfo || {};
+  if (!String(info.primary?.insurerName || '').trim()
+    || (info.hasSecondary === true && !String(info.secondary?.insurerName || '').trim())) {
+    coverageReviewError.value = 'Enter the insurer for your primary and any secondary coverage before confirming.';
+    return;
+  }
+  coverageReviewError.value = '';
+  reviewedCoverage.value = coverageFingerprint.value;
+}
+
 const allowsNoCardChoice = computed(() => (
   !props.paymentOnly || props.stepConfig?.paymentRequired === false || props.insuranceOnFile
 ));
 
 const showPaymentSection = computed(() => {
-  if (!props.paymentCollectionAvailable) return false;
-  if (props.insuranceOnFile) return true;
-  if (props.paymentOnly) return true;
-  if (isMedicaid.value) return false;
-  if (isSelfPay.value) return true;
-  return true; // commercial insurance
+  return props.paymentCollectionAvailable && paymentEligible.value;
 });
 
 const cardAvailable = ref(false);
@@ -473,6 +500,10 @@ function validateAuthorization() {
   authError.value = '';
   if (!props.paymentOnly && !props.insuranceOnFile && !payerChoice.value) {
     authError.value = 'Please choose insurance or self-pay.';
+    return false;
+  }
+  if (!props.paymentOnly && !props.insuranceOnFile && payerChoice.value === 'insurance' && !isMedicaid.value && !coverageReviewed.value) {
+    authError.value = 'Please confirm your primary and any secondary coverage.';
     return false;
   }
   if (showPaymentSection.value && !paymentChoice.value) {

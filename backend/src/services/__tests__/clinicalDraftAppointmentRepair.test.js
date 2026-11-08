@@ -17,6 +17,12 @@ it('returns the exact existing appointment context without changing the draft',a
   expect(result).toMatchObject({linked:true,options:[],context:{draftId:293,clinicalSessionId:167,appointmentId:104,sourceTimezone:'America/Denver',startAt:'2026-11-02 17:15:00',durationMinutes:45}});
   expect(deps.drafts.updateForUser).not.toHaveBeenCalled();
 });
+it('shows the saved appointment modality when the clinical session location label is absent',async()=>{
+ deps.sessions.findById.mockResolvedValue({...target,id:167});
+ deps.appointments.findById.mockResolvedValue({id:104,agencyId:450,providerUserId:1433,clinicalSessionId:167,modality:'TELEHEALTH'});
+ expect((await draftAppointmentOptions(draft,deps)).context.locationLabel).toBe('Telehealth');
+ expect(deps.drafts.updateForUser).not.toHaveBeenCalled();
+});
 it.each([{agency_id:999},{client_id:999},{provider_user_id:999}])('withholds a linked encounter that does not match the draft: %j',async mismatch=>{
   deps.sessions.findById.mockResolvedValue({...target,...mismatch});
   await expect(draftAppointmentOptions(draft,deps)).rejects.toMatchObject({status:403});

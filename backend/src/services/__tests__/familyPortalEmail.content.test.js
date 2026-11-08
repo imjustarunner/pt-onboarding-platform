@@ -1,7 +1,7 @@
 import {it,expect} from 'vitest';
 import {simpleParser} from 'mailparser';
 import {buildMimeMessage} from '../unifiedEmail/mime.js';
-import {buildClientEnrollmentEmail,buildFamilyBillingEmail,buildTreatmentPlanEmail,buildSecureMessageEmail} from '../clientPortalEmailContent.js';
+import {buildPaperPacketPortalEmail,buildClientEnrollmentEmail,buildFamilyBillingEmail,buildTreatmentPlanEmail,buildSecureMessageEmail} from '../clientPortalEmailContent.js';
 import {enrollmentMailBrand,renderPortalEmail} from '../portalEmailBranding.service.js';
 import {validateOutboundEmailQuality} from '../outboundEmailQuality.service.js';
 const url='https://auricwell.com/itsco/guardian';
@@ -48,4 +48,9 @@ it('does not inherit a mixed tenant clinical email frame for an explicit learnin
  const brand=enrollmentMailBrand({agency:{name:'Next Level Up',slug:'nlu',feature_flags:{medicalBillingEnabled:true}},domain:'nextleveluplcc.com',channel:'learning'});
  expect(brand.clinical).toBe(false);expect(brand.displayName).toBe('Next Level Up Portal');
  expect(renderPortalEmail({brand,text:'Review your learning progress.'})).not.toContain('AuricWell');
+});
+
+it('identifies the school and support-processed packet while keeping the recipient’s own secure portal link',()=>{
+ const message=buildPaperPacketPortalEmail({firstName:'Synthetic',agencyName:'Example Agency',schoolName:'Example School <script>',clients:[{full_name:'Synthetic Student'}],url,existingAccount:true});
+ expect(message.text).toContain('support team has processed your paper packet');expect(message.text).toContain('School: Example School');expect(message.text).toContain('You do not need a new account');expect(message.html).not.toContain('<script>');expect(message.html).toContain(url);
 });

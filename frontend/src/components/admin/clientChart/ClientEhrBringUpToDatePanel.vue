@@ -18,9 +18,11 @@
 
       <div class="ehr-status-row" aria-label="Setup status">
         <span class="ehr-chip" :class="statusClass(status.demographics)">Demographics · {{ status.demographics }}</span>
-        <span class="ehr-chip" :class="statusClass(status.intake)">Intake · {{ status.intake }}</span>
+        <span class="ehr-chip" :class="statusClass(status.intake)">Clinical intake assessment · {{ status.intake }}</span>
         <span class="ehr-chip" :class="statusClass(status.plan)">Treatment plan · {{ status.plan }}</span>
       </div>
+
+      <p v-if="status.intake !== 'on_file'" class="ehr-muted">Enrollment responses and the enrollment summary remain in Documents. This status tracks the completed clinical intake assessment.</p>
 
       <label class="ehr-label">
         1. Demographics paste
@@ -80,6 +82,7 @@
 </template>
 
 <script setup>
+import { todayCalendarDate } from '../../../utils/formatDate.js';
 import { computed, reactive, ref, watch } from 'vue';
 import api from '../../../services/api';
 import NoteAidTreatmentPlanImportReview from '../../clinical/NoteAidTreatmentPlanImportReview.vue';
@@ -122,7 +125,7 @@ const status = reactive({
 });
 
 let initializedClientId = null;
-const todayIso = computed(() => new Date().toISOString().slice(0, 10));
+const todayIso = computed(() => todayCalendarDate());
 const hasAnyPaste = computed(
   () => !!(demographicsText.value.trim() || intakeText.value.trim() || planText.value.trim())
 );

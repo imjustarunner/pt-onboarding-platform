@@ -18,6 +18,11 @@ beforeEach(()=>{
  agencyAccess=vi.fn(async()=>{});clientAccess=vi.fn(async()=>({ok:true,client:{agency_id:377,initials:'Test client'}}));
 });
 const run=(actor=user,options={})=>reconcileBookedSessionWork(actor,{db,clinical,queue,agencyAccess,clientAccess,...options});
+it('uses saved session code and appointment modality when those appointment labels are blank', () => {
+ const item=bookedWorkItem({...appointment,service_code:null,modality:'VIRTUAL'}, {...session,service_code:'90834'}, {full_name:'QA Client'});
+ expect(item).toMatchObject({serviceCode:'90834',locationLabel:'Telehealth'});
+ expect(bookedWorkItem({...appointment,service_code:null},session,{}).serviceCode).toBe('');
+});
 it('creates documentation work with the exact saved appointment/session and source timezone',async()=>{
  expect(await run()).toEqual([expect.objectContaining({appointmentId:132,clinicalSessionId:214,clientId:2104,date:'2026-09-05',timeLabel:'2:30 PM',noteKind:'intake',serviceCode:'90791',status:'not_started',durationMinutes:60,sourceTimezone:'America/Denver'})]);
  expect(db.execute.mock.calls[0][0]).toContain('a.end_at<=UTC_TIMESTAMP()');

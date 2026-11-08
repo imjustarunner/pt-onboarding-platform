@@ -70,3 +70,8 @@ it('requires a fresh review if demographics fill missing identity on an older ve
  api.get.mockResolvedValue({data:{insurance:{patient:{firstName:'Test'},primary:{},verifiedForClaims:true},demographics:demographic}});
  const w=await setup();await w.find('form').trigger('submit');await flushPromises();expect(api.put.mock.calls[0][1].verifiedForClaims).toBe(false);w.unmount();
 });
+
+it('lets the paper workflow await a failed save without marking policy details saved',async()=>{
+ const w=await setup();api.put.mockRejectedValueOnce(new Error('offline'));expect(await w.vm.save()).toBe(false);expect(w.emitted('saved')).toBeUndefined();
+ expect(await w.vm.save()).toBe(true);expect(w.emitted('saved')).toHaveLength(1);w.unmount();
+});

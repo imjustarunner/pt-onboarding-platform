@@ -11,7 +11,7 @@ export function bookedWorkItem(appointment, session, client) {
   const start = asDate(appointment.start_at), end = asDate(appointment.end_at);
   const timezone = appointment.source_timezone || session.source_timezone || 'UTC';
   const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA',{timeZone:timezone,year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(start).map(p=>[p.type,p.value]));
-  const code = String(appointment.service_code || '').toUpperCase();
+  const code = String(appointment.service_code || session.service_code || '').toUpperCase();
   const addons = typeof appointment.addon_service_codes_json === 'string' ? JSON.parse(appointment.addon_service_codes_json) : appointment.addon_service_codes_json;
   return { clientKey:`booked_session_${session.id}`,agencyId:Number(appointment.agency_id),clientId:Number(session.client_id),
   clinicalSessionId:Number(session.id),appointmentId:Number(appointment.id),officeEventId:appointment.office_event_id || null,
@@ -21,7 +21,8 @@ export function bookedWorkItem(appointment, session, client) {
   status:appointment.draft_id?'started':'not_started',draftId:appointment.draft_id || null,
   startedAt:appointment.draft_created_at ? asDate(appointment.draft_created_at).toISOString() : null,
   action:'Document booked session',sourceTimezone:timezone,scheduledStart:start.toISOString(),scheduledEnd:end.toISOString(),
-  durationMinutes:Math.round((end-start)/60000),locationLabel:appointment.location_label || '',
+  durationMinutes:Math.round((end-start)/60000),locationLabel:appointment.location_label || session.location_label
+    || (['TELEHEALTH','VIRTUAL','VIDEO'].includes(String(appointment.modality || '').toUpperCase()) ? 'Telehealth' : ''),
   addonServiceCodes:Array.isArray(addons)?addons:[] };
 }
 
@@ -31,7 +32,7 @@ export async function reconcileBookedSessionWork(user, {agencyId=null,db=pool,cl
   agencyAccess=ClinicalEligibilityService.ensureAgencyAccess.bind(ClinicalEligibilityService),clientAccess=resolveClientRecordAccess,clientAgencies=listClientAgencyMembershipIds}={}) {
   if (!roles.has(user?.role) || !Number(user?.id)) return [];
   const [appointments] = await db.execute(`SELECT a.id,a.agency_id,a.provider_user_id,a.clinical_session_id,a.start_at,a.end_at,
-    a.service_code,a.addon_service_codes_json,a.source_timezone,a.office_event_id,a.location_label,
+    a.service_code,a.addon_service_codes_json,a.source_timezone,a.office_event_id,a.location_label,a.modality,
     (SELECT d.id FROM clinical_note_drafts d WHERE d.user_id=a.provider_user_id AND d.clinical_session_id=a.clinical_session_id
       AND d.archived_at IS NULL ORDER BY d.updated_at DESC,d.id DESC LIMIT 1) AS draft_id,
     (SELECT d.created_at FROM clinical_note_drafts d WHERE d.user_id=a.provider_user_id AND d.clinical_session_id=a.clinical_session_id
@@ -43,7 +44,7 @@ export async function reconcileBookedSessionWork(user, {agencyId=null,db=pool,cl
     ORDER BY a.start_at,a.id`,agencyId?[user.id,agencyId]:[user.id]);
   if (!appointments.length) return [];
   const sessionIds=[...new Set(appointments.map(a=>Number(a.clinical_session_id)))];
-  const [sessions] = await clinical.execute(`SELECT s.id,s.agency_id,s.client_id,s.appointment_id,s.provider_user_id,s.source_timezone
+  const [sessions] = await clinical.execute(`SELECT s.id,s.agency_id,s.client_id,s.appointment_id,s.provider_user_id,s.source_timezone,s.service_code
     FROM clinical_sessions s WHERE s.provider_user_id=? AND s.id IN (${sessionIds.map(()=>'?').join(',')})
     AND NOT EXISTS (SELECT 1 FROM clinical_notes n WHERE n.clinical_session_id=s.id AND n.is_deleted=0 AND n.provider_signed_at IS NOT NULL)`,[user.id,...sessionIds]);
   const byId=new Map(sessions.map(s=>[Number(s.id),s])), agencies=new Map(), clients=new Map(), added=[];

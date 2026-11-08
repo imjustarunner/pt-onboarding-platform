@@ -107,6 +107,7 @@ import {
   postWaiveNewPacketFlag,
   putOnboardingRoiExpiration,
   postCompleteStaffOnboarding,
+  getPaperProcessing, putPaperProcessing, postPaperProcessing,
   getOnboardingQueue,
   getProviderOnboardingQueue
 } from '../controllers/clientOnboarding.controller.js';
@@ -343,6 +344,9 @@ router.post('/:id/onboarding/waive-new-packet', postWaiveNewPacketFlag);
 router.post('/:id/onboarding/acknowledge-roi-staff', postAcknowledgeRoiStaff);
 router.put('/:id/onboarding/roi-expiration', putOnboardingRoiExpiration);
 router.post('/:id/onboarding/complete-staff', postCompleteStaffOnboarding);
+router.get('/:id/paper-packet-processing', getPaperProcessing);
+router.put('/:id/paper-packet-processing', putPaperProcessing);
+router.post('/:id/paper-packet-processing/complete', postPaperProcessing);
 
 // Intake note pipeline (90791 / H0031 AI-assisted drafting)
 router.get('/:id/intake-note', excludeSupportClinicalContent, getClientIntakeNote);

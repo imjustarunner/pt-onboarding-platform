@@ -1,0 +1,16 @@
+import {beforeEach,expect,it,vi} from 'vitest';
+vi.mock('../../models/Client.model.js',()=>({default:{findById:vi.fn()}}));
+vi.mock('../../models/User.model.js',()=>({default:{getAgencies:vi.fn()}}));
+vi.mock('../../services/clientOnboardingChecklist.service.js',()=>({isAssignedProvider:vi.fn()}));
+vi.mock('../../services/auditEvent.service.js',()=>({logAuditEvent:vi.fn()}));
+vi.mock('../../services/paperPacketProcessing.service.js',()=>({paperProcessingContext:vi.fn(),savePaperProcessingStep:vi.fn(),completePaperProcessing:vi.fn()}));
+import Client from '../../models/Client.model.js';
+import User from '../../models/User.model.js';
+import {paperProcessingContext,completePaperProcessing} from '../../services/paperPacketProcessing.service.js';
+import {getPaperProcessing,postPaperProcessing} from '../clientOnboarding.controller.js';
+let res,next;
+beforeEach(()=>{vi.resetAllMocks();Client.findById.mockResolvedValue({id:4,agency_id:2,organization_id:3});User.getAgencies.mockResolvedValue([{id:2}]);res={status:vi.fn().mockReturnThis(),json:vi.fn().mockReturnThis(),set:vi.fn().mockReturnThis()};next=vi.fn();});
+const request=role=>({params:{id:'4'},user:{id:8,role},body:{signaturesConfirmed:true,staffRoiConfirmed:true}});
+it.each(['school_staff','client_guardian','client','provider'])('rejects %s before reading packet details',async role=>{await getPaperProcessing(request(role),res,next);expect(res.status).toHaveBeenCalledWith(403);expect(paperProcessingContext).not.toHaveBeenCalled();});
+it('rejects a support user from another agency without sending invitations',async()=>{User.getAgencies.mockResolvedValue([{id:9}]);await postPaperProcessing(request('support'),res,next);expect(res.status).toHaveBeenCalledWith(403);expect(completePaperProcessing).not.toHaveBeenCalled();});
+it('allows agency support to read the resumable context without a write',async()=>{paperProcessingContext.mockResolvedValue({state:{}});await getPaperProcessing(request('support'),res,next);expect(res.set).toHaveBeenCalledWith('Cache-Control','no-store');expect(res.json).toHaveBeenCalledWith({state:{}});expect(completePaperProcessing).not.toHaveBeenCalled();});
