@@ -7,6 +7,6 @@ Local validation — November 8, 2026
 - Isolated headless Chrome with synthetic records at 390px and 1366px: source-only initial Narriva state; completed generated/scored review reveals signing; source edit hides signing; no field overlap/overflow; inputs 16px. Directory school/admin/extension/search and dial URI inspected at 390px.
 - No real messages, clinical signatures, phone calls, or enrollment fixture changes performed.
 - Physical iPhone Safari, actual extension dialing, signed iOS archive and TestFlight upload remain manual/not run.
-- Quick View secure-message boundary follow-up: 2 tests passed.
+- Quick View secure-message boundary follow-up: 7 tests passed.
 - Group email read/open actions write only the current user's read marker; canonical ticket state remains unchanged.
 - Server SQL integration and all release workflows must pass in CI before merge/deployment. Deployed build verification is recorded separately.
