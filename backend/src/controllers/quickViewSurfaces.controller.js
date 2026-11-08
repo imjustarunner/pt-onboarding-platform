@@ -260,7 +260,7 @@ export const qvFocusMusicCatalog = wrap(async (req, res, next) => {
 
 export const qvFocusMusicStream = wrap(streamTrack);
 
-export async function assertQuickTaskAccess(userId, task) {
+async function assertQuickTaskAccess(userId, task) {
   if (!task) return false;
   const uid = Number(userId);
   if (Number(task.assigned_to_user_id) === uid) return true;
@@ -376,6 +376,7 @@ export const getQuickTaskDetail = async (req, res, next) => {
         is_private: Number(task.is_private)===1,
         created_at: task.created_at || null, updated_at: task.updated_at || null, completed_at: task.completed_at || null,
         source_ref_type: task.source_ref_type || null, document_action_type: task.document_action_type || null,
+        can_change_status: Number(task.assigned_to_user_id)===Number(userId) || Number(task.assigned_by_user_id)===Number(userId),
         completion_managed: ['provider_update','insurance_verification'].includes(task.source_ref_type) || task.document_action_type==='countersignature',
         assigned_to_user_id: task.assigned_to_user_id,
         assignee_first_name: task.assignee_first_name || assignee?.name?.split?.(' ')?.[0] || null,

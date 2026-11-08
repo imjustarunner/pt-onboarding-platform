@@ -1142,8 +1142,8 @@ export const postQuickTaskStatus = async (req, res, next) => {
     const Task = (await import('../models/Task.model.js')).default;
     const task=await Task.findById(taskId,{revealPhi:false});
     if(!task)return res.status(404).json({error:{message:'Task not found'}});
-    const {assertQuickTaskAccess}=await import('./quickViewSurfaces.controller.js');
-    if(!await assertQuickTaskAccess(userId,task))return res.status(403).json({error:{message:'Access denied'}});
+    // Preserve the Assigned/Mine write scope without a 200-row list cutoff.
+    if(Number(task.assigned_to_user_id)!==Number(userId) && Number(task.assigned_by_user_id)!==Number(userId))return res.status(403).json({error:{message:'Only the assignee or assigning user can change this task status.'}});
     const nextStatus=['done','completed'].includes(status)?'completed':status==='open'?'pending':status;
     if(nextStatus==='completed')await Task.markComplete(taskId,userId);
     else if(nextStatus==='pending')await Task.markIncomplete(taskId);

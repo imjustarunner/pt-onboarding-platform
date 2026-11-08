@@ -720,7 +720,7 @@
           <a v-for="l in taskDetail.links" :key="l.id" :href="l.url" target="_blank" rel="noopener">{{ l.label || l.url }}</a>
         </div>
         <div class="qv-sheet-actions">
-          <button type="button" class="qv-btn ghost" :disabled="taskDetail.task.completion_managed" @click="markTaskStatus(taskDetail.task)">
+          <button type="button" class="qv-btn ghost" :disabled="taskDetail.task.completion_managed || taskDetail.task.can_change_status===false" @click="markTaskStatus(taskDetail.task)">
             {{ isDone(taskDetail.task) ? 'Reopen' : 'Mark done' }}
           </button>
           <button
