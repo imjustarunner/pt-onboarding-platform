@@ -31,7 +31,8 @@ export function createMobileDocumentationQueue({db=pool,findUser=id=>User.findBy
    // requireNarrivaAgency mutates the actor to the agency's effective role. Never reuse it.
    const actor={...user};
    try{await authorize(actor,Number(agency.id));}catch(error){if([403,404].includes(error.status))continue;throw error;}
-   const brand={agencyId:Number(agency.id),agencyName:agency.name,agencyLogoUrl:publicUploadsUrlFromStoredPath(agency.logo_path || agency.logo_url) || null};
+   const innerStrength=['tisi','innerstrength','theinnerstrengthinstitute'].includes(String(agency.slug || '').toLowerCase()) || /^(the )?inner strength institute$/i.test(String(agency.name || '').trim());
+   const brand={agencyId:Number(agency.id),agencyName:agency.name,agencyLogoUrl:innerStrength?'/assets/branding/innerstrength-icon.png':publicUploadsUrlFromStoredPath(agency.logo_path || agency.logo_url) || null};
    agencies.push({id:brand.agencyId,name:brand.agencyName,logoUrl:brand.agencyLogoUrl});
    await scope(brand.agencyId,async()=>{
     const req=Object.assign(Object.create(request),{user:actor,query:{agencyId:brand.agencyId},params:{},body:{},

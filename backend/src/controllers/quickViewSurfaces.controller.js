@@ -22,6 +22,8 @@ import TaskProject from '../models/TaskProject.model.js';
 import TaskAttachment from '../models/TaskAttachment.model.js';
 import TaskCollaborator from '../models/TaskCollaborator.model.js';
 import TaskListMember from '../models/TaskListMember.model.js';
+import TaskAssignee from '../models/TaskAssignee.model.js';
+import TaskAuditLog from '../models/TaskAuditLog.model.js';
 import User from '../models/User.model.js';
 import pool from '../config/database.js';
 import { getCatalog, streamTrack } from './focusMusic.controller.js';
@@ -258,7 +260,7 @@ export const qvFocusMusicCatalog = wrap(async (req, res, next) => {
 
 export const qvFocusMusicStream = wrap(streamTrack);
 
-async function assertQuickTaskAccess(userId, task) {
+export async function assertQuickTaskAccess(userId, task) {
   if (!task) return false;
   const uid = Number(userId);
   if (Number(task.assigned_to_user_id) === uid) return true;
@@ -274,6 +276,8 @@ async function assertQuickTaskAccess(userId, task) {
     const project = await TaskProject.findById(task.project_id);
     if (project && Number(project.created_by_user_id) === uid) return true;
   }
+  const assignees=await TaskAssignee.listForTask(task.id).catch(()=>[]);
+  if(assignees.some(person=>Number(person.user_id)===uid))return true;
   try {
     const [collab] = await pool.execute(
       `SELECT 1 FROM task_collaborators WHERE task_id = ? AND user_id = ? LIMIT 1`,
@@ -294,6 +298,7 @@ export const getQuickTaskDetail = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
 
+    const unavailable=[];
     let comments = [];
     try {
       const [rows] = await pool.execute(
@@ -307,7 +312,7 @@ export const getQuickTaskDetail = async (req, res, next) => {
         [id]
       );
       comments = rows || [];
-    } catch { /* ignore */ }
+    } catch { unavailable.push('Comments'); }
 
     let links = [];
     try {
@@ -316,17 +321,17 @@ export const getQuickTaskDetail = async (req, res, next) => {
         [id]
       );
       links = rows || [];
-    } catch { /* ignore */ }
+    } catch { unavailable.push('Links'); }
 
     let attachments = [];
     try {
       attachments = await TaskAttachment.listByTaskId(id);
-    } catch { /* ignore */ }
+    } catch { unavailable.push('Attachments'); }
 
     let collaborators = [];
     try {
       collaborators = await TaskCollaborator.listForTask(id);
-    } catch { /* ignore */ }
+    } catch { unavailable.push('Collaborators'); }
 
     let assignee = null;
     if (task.assigned_to_user_id) {
@@ -338,11 +343,19 @@ export const getQuickTaskDetail = async (req, res, next) => {
             name: `${u.first_name || ''} ${u.last_name || ''}`.trim() || u.email
           };
         }
-      } catch { /* ignore */ }
+      } catch { unavailable.push('Assignee'); }
     }
 
-    const availableLists = await TaskList.listByUserMembership(userId, {}).catch(() => []);
+    const availableLists = await TaskList.listByUserMembership(userId, {}).catch(() => {unavailable.push('Shared lists');return [];});
 
+    const section=async(name,read)=>{try{return await read();}catch{unavailable.push(name);return [];}};
+    const [assignees,subtasks,activity]=await Promise.all([
+      section('Assignees',()=>TaskAssignee.listForTask(id)),
+      section('Subtasks',async()=>{const [rows]=await pool.execute(`SELECT child.id,child.title,child.status,child.assignee_user_id,u.first_name,u.last_name FROM task_action_items child LEFT JOIN users u ON u.id=child.assignee_user_id WHERE child.parent_task_id=? AND child.status<>'cancelled' ORDER BY child.created_at,child.id`,[id]);return rows;}),
+      section('Activity',()=>TaskAuditLog.getAuditLog(id))
+    ]);
+    const list=task.task_list_id?await TaskList.findById(task.task_list_id).catch(()=>null):null;
+    const project=task.project_id?await TaskProject.findById(task.project_id).catch(()=>null):null;
     const hasPhi = !!task.has_encrypted_description;
     res.json({
       ok: true,
@@ -356,11 +369,14 @@ export const getQuickTaskDetail = async (req, res, next) => {
         description: hasPhi ? null : (task.description || null),
         description_locked: hasPhi,
         task_list_id: task.task_list_id,
-        task_list_name: task.task_list_name || null,
+        task_list_name: task.task_list_name || list?.name || null,
         project_id: task.project_id,
-        project_name: task.project_name || null,
+        project_name: task.project_name || project?.name || null,
         category: task.category || null,
-        is_private: !!task.is_private,
+        is_private: Number(task.is_private)===1,
+        created_at: task.created_at || null, updated_at: task.updated_at || null, completed_at: task.completed_at || null,
+        source_ref_type: task.source_ref_type || null, document_action_type: task.document_action_type || null,
+        completion_managed: ['provider_update','insurance_verification'].includes(task.source_ref_type) || task.document_action_type==='countersignature',
         assigned_to_user_id: task.assigned_to_user_id,
         assignee_first_name: task.assignee_first_name || assignee?.name?.split?.(' ')?.[0] || null,
         assignee_last_name: task.assignee_last_name || null,
@@ -385,6 +401,10 @@ export const getQuickTaskDetail = async (req, res, next) => {
         name: `${c.first_name || ''} ${c.last_name || ''}`.trim() || c.email || 'User',
         role: c.role || null
       })),
+      unavailable,
+      assignees:assignees.map(person=>({id:person.user_id,name:[person.first_name,person.last_name].filter(Boolean).join(' ') || person.email,isPrimary:Number(person.is_primary)===1})),
+      subtasks:subtasks.map(child=>({id:child.id,title:child.title,status:child.status,assignee:[child.first_name,child.last_name].filter(Boolean).join(' ')})),
+      activity:activity.slice(0,50).map(event=>({id:event.id,action:event.action_type,at:event.created_at,actor:[event.actor_first_name,event.actor_last_name].filter(Boolean).join(' ') || 'User'})),
       availableLists: (availableLists || []).map((l) => ({ id: l.id, name: l.name, role: l.role }))
     });
   } catch (e) {
@@ -427,6 +447,11 @@ export const patchQuickTask = async (req, res, next) => {
     if (req.body?.title) {
       updates.push('title = ?');
       params.push(String(req.body.title).slice(0, 255));
+    }
+    if(req.body?.dueDate !== undefined){
+      const value=req.body.dueDate;
+      if(value!==null && (typeof value!=='string' || !Number.isFinite(new Date(value).getTime())))return res.status(400).json({error:{message:'Choose a valid due date.'}});
+      updates.push('due_date = ?');params.push(value===null?null:new Date(value).toISOString().slice(0,19).replace('T',' '));
     }
     if (!updates.length) {
       return res.status(400).json({ error: { message: 'No updates provided' } });

@@ -9,14 +9,14 @@ const route=useRoute(),router=useRouter();trackMobileNavigation(router);
 const props=defineProps({apiBase:String,sessionToken:String});
 const emit=defineEmits(['draft','tasks']);
 const items=ref([]),agencies=ref([]),failures=ref([]),loading=ref(false),error=ref(''),clinicalAvailable=ref(true),ready=ref(false);
-const tabs=[{id:'todo',label:'To do'},{id:'started',label:'Started'},{id:'cosign',label:'Co-sign'},{id:'signed',label:'Signed'}];
-const currentTab=computed(()=>tabs.some(tab=>tab.id===route.query.workTab)?route.query.workTab:'todo');
+const tabs=[{id:'all',label:'All'},{id:'todo',label:'To do'},{id:'started',label:'Started'},{id:'cosign',label:'Co-sign'},{id:'signed',label:'Signed'}];
+const currentTab=computed(()=>tabs.some(tab=>tab.id===route.query.workTab)?route.query.workTab:'all');
 const agencyFilter=computed(()=>String(route.query.workAgency || 'all'));
 const agencyItems=computed(()=>items.value.filter(item=>agencyFilter.value==='all'||String(item.agencyId)===agencyFilter.value));
 const bucket=item=>item.queueKind==='cosign'||item.status==='awaiting_cosign'?'cosign':item.status==='signed'?'signed':['started','completed','in_progress'].includes(item.status)?'started':'todo';
-const counts=computed(()=>Object.fromEntries(tabs.map(tab=>[tab.id,agencyItems.value.filter(item=>bucket(item)===tab.id).length])));
-const visibleItems=computed(()=>agencyItems.value.filter(item=>bucket(item)===currentTab.value).sort((a,b)=>String(a.date || '').localeCompare(String(b.date || '')) || String(a.scheduledStart || a.timeLabel || '').localeCompare(String(b.scheduledStart || b.timeLabel || ''))));
-const activeFailures=computed(()=>failures.value.filter(item=>(agencyFilter.value==='all'||String(item.agencyId)===agencyFilter.value)&&(currentTab.value==='cosign'?item.section==='cosign':item.section==='notes')));
+const counts=computed(()=>Object.fromEntries(tabs.map(tab=>[tab.id,agencyItems.value.filter(item=>tab.id==='all'||bucket(item)===tab.id).length])));
+const visibleItems=computed(()=>agencyItems.value.filter(item=>currentTab.value==='all'||bucket(item)===currentTab.value).sort((a,b)=>String(a.date || '').localeCompare(String(b.date || '')) || String(a.scheduledStart || a.timeLabel || '').localeCompare(String(b.scheduledStart || b.timeLabel || ''))));
+const activeFailures=computed(()=>failures.value.filter(item=>(agencyFilter.value==='all'||String(item.agencyId)===agencyFilter.value)&&(currentTab.value==='all'||(currentTab.value==='cosign'?item.section==='cosign':item.section==='notes'))));
 function changeView(key,value){router.replace({path:route.path,query:{...route.query,[key]:value==='all'?undefined:value}});}
 async function load(){
  loading.value=true;error.value='';
@@ -26,6 +26,7 @@ async function load(){
  }catch(e){items.value=[];failures.value=[];ready.value=false;error.value=e.response?.status<500?e.response?.data?.error?.message || 'Your work is unavailable for this account.':'Your work could not be loaded. Try again.';}
  finally{loading.value=false;}
 }
+const agencyLogo=item=>{const value=item.agencyLogoUrl || '';return !value || /^https?:\/\//i.test(value)?value:`${props.apiBase.replace(/\/api\/quick-view$/,'')}/${value.replace(/^\/+/,'')}`;};
 const title=item=>item.maskedName || item.clientMaskedName || 'Client documentation';
 const dos=item=>String(item.date || item.dateOfService || '').slice(0,10);
 function time(item){
@@ -44,12 +45,12 @@ onMounted(load);
   <header><h2>Documentation queue</h2><button aria-label="Refresh My Work" :disabled="loading" @click="load"><RefreshCw :size="17"/></button></header>
   <p>Your notes across all authorized agencies.</p>
   <label class="agency-filter">Agency<select aria-label="Filter documentation by agency" :value="agencyFilter" @change="changeView('workAgency',$event.target.value)"><option value="all">All agencies</option><option v-for="agency in agencies" :key="agency.id" :value="String(agency.id)">{{ agency.name }}</option></select></label>
-  <nav class="work-tabs" aria-label="Documentation status"><button v-for="tab in tabs" :key="tab.id" :aria-pressed="currentTab===tab.id" @click="changeView('workTab',tab.id)">{{ tab.label }} <span>{{ ready && !failures.some(f=>(agencyFilter==='all'||String(f.agencyId)===agencyFilter)&&(tab.id==='cosign'?f.section==='cosign':f.section==='notes'))?counts[tab.id]:'—' }}</span></button></nav>
+  <nav class="work-tabs" aria-label="Documentation status"><button v-for="tab in tabs" :key="tab.id" :aria-pressed="currentTab===tab.id" @click="changeView('workTab',tab.id)">{{ tab.label }} <span>{{ ready && !failures.some(f=>(agencyFilter==='all'||String(f.agencyId)===agencyFilter)&&(tab.id==='all'||(tab.id==='cosign'?f.section==='cosign':f.section==='notes')))?counts[tab.id]:'—' }}</span></button></nav>
   <p v-if="loading" role="status">Loading your work…</p>
   <p v-if="error" role="alert">{{ error }} <button @click="load">Try again</button></p>
   <div v-if="activeFailures.length" class="work-errors" role="alert"><p v-for="failure in activeFailures" :key="`${failure.agencyId}:${failure.section}`">{{ failure.agencyName }}: {{ failure.message }}</p><button @click="load">Try again</button></div>
   <article v-for="item in visibleItems" :key="`${item.agencyId}:${item.queueKind}:${item.serverId || item.id}`" class="work-row">
-   <component :is="item.clinicalRevisionId?'a':'button'" class="work-open" :class="{'qv-workspace-link':item.clinicalRevisionId}" :href="item.clinicalRevisionId?item.desktopReviewUrl:undefined" :target="item.clinicalRevisionId?'_blank':undefined" :rel="item.clinicalRevisionId?'noopener noreferrer':undefined" @click="!item.clinicalRevisionId && emit('draft',item)"><FilePenLine :size="21"/><span class="work-copy"><strong>{{ title(item) }}<template v-if="item.clientAge != null || item.age != null"> · Age {{ item.clientAge ?? item.age }}</template></strong><small>{{ dos(item) }}<template v-if="time(item)"> · {{ time(item) }}</template></small><small v-if="item.serviceCode">{{ item.serviceCode }}<template v-if="item.noteKind"> · {{ item.noteKind }}</template></small><small class="work-agency"><img v-if="item.agencyLogoUrl" :src="item.agencyLogoUrl" alt=""/><Building2 v-else :size="14"/>{{ item.agencyName || 'Agency' }}<template v-if="item.providerName"> · {{ item.providerName }}</template></small></span><span class="status">{{ status(item) }}</span><ChevronRight :size="17"/></component>
+   <component :is="item.clinicalRevisionId?'a':'button'" class="work-open" :class="{'qv-workspace-link':item.clinicalRevisionId}" :href="item.clinicalRevisionId?item.desktopReviewUrl:undefined" :target="item.clinicalRevisionId?'_blank':undefined" :rel="item.clinicalRevisionId?'noopener noreferrer':undefined" @click="!item.clinicalRevisionId && emit('draft',item)"><FilePenLine :size="21"/><span class="work-copy"><strong>{{ title(item) }}<template v-if="item.clientAge != null || item.age != null"> · Age {{ item.clientAge ?? item.age }}</template></strong><small>{{ dos(item) }}<template v-if="time(item)"> · {{ time(item) }}</template></small><small v-if="item.serviceCode">{{ item.serviceCode }}<template v-if="item.noteKind"> · {{ item.noteKind }}</template></small><small class="work-agency"><img v-if="item.agencyLogoUrl" :src="agencyLogo(item)" alt=""/><Building2 v-else :size="14"/>{{ item.agencyName || 'Agency' }}<template v-if="item.providerName"> · {{ item.providerName }}</template></small></span><span class="status">{{ status(item) }}</span><ChevronRight :size="17"/></component>
    <p v-if="item.clinicalRevisionId" class="amendment-hint">Review amendment in the full workspace. You may need to sign in there.</p>
    <NoteReviewActions v-if="!item.clinicalRevisionId" :item="item" :load-insights="loadReviewInsights" :access-key="sessionToken" :allow-quick-sign="item.queueKind==='cosign'" @open-note="emit('draft',item)" @quick-sign="emit('draft',{...item,quickSignRequested:true})"/>
   </article>

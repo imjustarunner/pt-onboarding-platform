@@ -1134,22 +1134,20 @@ export const postQuickTaskStatus = async (req, res, next) => {
   try {
     const taskId = Number(req.params.id);
     const status = String(req.body?.status || 'completed').toLowerCase();
-    const allowed = new Set(['open', 'in_progress', 'completed', 'done', 'cancelled']);
+    const allowed = new Set(['open','pending', 'in_progress','waiting', 'completed', 'done', 'cancelled']);
     if (!allowed.has(status)) {
       return res.status(400).json({ error: { message: 'Invalid status' } });
     }
     const userId = req.quickView.userId;
     const Task = (await import('../models/Task.model.js')).default;
-    const rows = await Task.findForHub(userId, { view: 'assigned', limit: 200 });
-    const mine = await Task.findForHub(userId, { view: 'mine', limit: 200 });
-    const visible = new Set([...(rows || []), ...(mine || [])].map((t) => Number(t.id)));
-    if (!visible.has(taskId)) {
-      return res.status(403).json({ error: { message: 'Access denied' } });
-    }
-    await pool.execute(
-      `UPDATE tasks SET status = ? WHERE id = ?`,
-      [status === 'done' ? 'completed' : status, taskId]
-    );
+    const task=await Task.findById(taskId,{revealPhi:false});
+    if(!task)return res.status(404).json({error:{message:'Task not found'}});
+    const {assertQuickTaskAccess}=await import('./quickViewSurfaces.controller.js');
+    if(!await assertQuickTaskAccess(userId,task))return res.status(403).json({error:{message:'Access denied'}});
+    const nextStatus=['done','completed'].includes(status)?'completed':status==='open'?'pending':status;
+    if(nextStatus==='completed')await Task.markComplete(taskId,userId);
+    else if(nextStatus==='pending')await Task.markIncomplete(taskId);
+    else await Task.updateStatus(taskId,nextStatus);
     res.json({ ok: true, id: taskId, status });
   } catch (e) {
     next(e);

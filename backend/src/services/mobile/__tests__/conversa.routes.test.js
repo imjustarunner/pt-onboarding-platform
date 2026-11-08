@@ -32,3 +32,9 @@ it('passes the approved QA tenant to every inbox source and rejects other-tenant
  mocks.threads.mockImplementation((request,res)=>{expect(request.query.agencyId).toBe(450);res.json([450,456].map(agency_id=>({thread_id:agency_id,agency_id,thread_type:'direct',last_message:{id:agency_id,body:'Synthetic',created_at:'2026-11-06T12:00:00Z'}})));});
  const res=response();await getMobileInbox(req,res,vi.fn());expect(res.json.mock.calls[0][0].items.map(item=>item.id)).toEqual([450]);expect(mocks.emails).toHaveBeenCalledWith(3,expect.objectContaining({agencyId:450}));expect(mocks.emailCounts).toHaveBeenCalledWith(3,false,450);expect(mocks.extraCounts).toHaveBeenCalledWith(3,[450]);
 });
+
+it('counts only unread conversations in the combined badge, including the visible Unknown folder',async()=>{
+ mocks.threads.mockImplementation((req,res)=>res.json([{thread_id:10,thread_type:'direct',participants:[{id:5,first_name:'Jordan'}],unread_count:12,last_message:{id:50,body:'Unread',sender_user_id:5,created_at:'2026-11-06T10:00:00Z'}},{thread_id:11,thread_type:'direct',participants:[{id:5,first_name:'Jordan'}],unread_count:0,last_message:{id:51,body:'Read',sender_user_id:5,created_at:'2026-11-06T11:00:00Z'}}]));
+ mocks.emailCounts.mockResolvedValue([{category:'email',unknown:false,total:100,unread:3,needs:4},{category:'email',unknown:true,total:20,unread:1,needs:2}]);
+ const req=request();req.query={suite:'all',filter:'unread'};const res=response();await getMobileInbox(req,res,vi.fn());const body=res.json.mock.calls[0][0];expect(body.counts.all).toMatchObject({total:122,unread:5});expect(body.counts.email.unread).toBe(3);expect(body.counts.unknown.unread).toBe(1);expect(body.counts.direct.unread).toBe(1);expect(body.items.map(item=>item.id)).toEqual([10]);
+});

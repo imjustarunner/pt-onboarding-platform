@@ -44,3 +44,5 @@ it('cancels a queued desktop preview when the conversation opens',async()=>{
   await email().trigger('mouseenter');await email().trigger('click');await flushPromises();await new Promise(resolve=>setTimeout(resolve,380));
   expect(document.querySelector('.qv-email-preview')).toBeNull();expect(wrapper.find('.email-reader').exists()).toBe(true);
 });
+
+it('hides the message list when opening My Work or Tasks through full navigation',async()=>{await wrapper.get('[aria-label="All workspace options"]').trigger('click');await wrapper.findAll('.qv-tool-card').find(button=>button.attributes('aria-label')==='My Work').trigger('click');await flushPromises();expect(wrapper.get('.mobile-messages').isVisible()).toBe(false);await wrapper.get('[aria-label="All workspace options"]').trigger('click');await wrapper.findAll('.qv-tool-card').find(button=>button.attributes('aria-label')==='Tasks').trigger('click');await flushPromises();expect(wrapper.get('.mobile-messages').isVisible()).toBe(false);});

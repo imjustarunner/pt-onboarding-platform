@@ -2,9 +2,7 @@
   <div class="qv" :class="{ 'qv-signed-in': session, 'qv-mobile':isMobile, 'qv-mobile-messages':isMobile && ['home','thread','chat'].includes(tab) }" :style="brandStyle" @click.capture="handleMobileLink" @keydown.esc="closeMore" @keydown.tab="trapDialogFocus">
     <a v-if="session" class="qv-skip" href="#qv-workspace">Skip to workspace</a>
     <header class="qv-top">
-      <div class="qv-brand-row">
-        <AuricWellBrand :context="agencyName || 'Quick View'" />
-      </div>
+      <button v-if="session" class="qv-brand-row qv-brand-menu" type="button" aria-label="All workspace options" :aria-expanded="moreOpen" aria-controls="qv-more-tools" @click="navigateTo('more')"><AuricWellBrand :context="agencyName || 'Quick View'" /></button><div v-else class="qv-brand-row"><AuricWellBrand :context="agencyName || 'Quick View'" /></div>
       <div class="qv-organization">
         <img v-if="agencyLogoUrl" :src="agencyLogoUrl" alt="" class="qv-logo" />
         <span>{{ agencyName || 'Your workspace' }}</span>
@@ -96,7 +94,7 @@
         <div class="qv-tool-grid">
           <button v-for="item in secondaryNavigation" :key="item.id" type="button" class="qv-tool-card" :aria-label="item.label" @click="navigateTo(item.id)"><span class="qv-tool-icon"><component :is="item.icon" :size="23" aria-hidden="true" /></span><span><strong>{{ item.label }}</strong><small>{{ item.description }}</small></span><ChevronRight :size="18" aria-hidden="true" /></button>
         </div>
-        <button v-if="isMobile" type="button" class="qv-btn ghost" @click="showMobileSettings=true">Mobile layout &amp; swipe settings</button><div class="qv-more-account"><div><h2>Workspace access</h2><p>Manage your session or continue in the full workspace.</p></div><div class="qv-more-actions"><a v-if="loginUrl" class="qv-btn ghost" :href="loginUrl">Full workspace<ArrowUpRight :size="16" aria-hidden="true" /></a><button type="button" class="qv-btn ghost" @click="logout"><LockKeyhole :size="16" aria-hidden="true" />Lock Quick View</button></div></div>
+        <button v-if="isMobile" type="button" class="qv-btn ghost" @click="showMobileSettings=true">Mobile layout &amp; swipe settings</button><button v-if="isMobile" type="button" class="qv-btn ghost" @click="emit('account')">My Account</button><div class="qv-more-account"><div><h2>Workspace access</h2><p>Manage your session or continue in the full workspace.</p></div><div class="qv-more-actions"><a v-if="loginUrl" class="qv-btn ghost" :href="loginUrl">Full workspace<ArrowUpRight :size="16" aria-hidden="true" /></a><button type="button" class="qv-btn ghost" @click="logout"><LockKeyhole :size="16" aria-hidden="true" />Lock Quick View</button></div></div>
         <QuickViewMusicDock inline :scoped-playback="isMobile" :api-base="apiBase" :auth-headers="authHeaders" :visible="!!session" />
       </section>
       <div v-show="!moreOpen" class="qv-content" :aria-busy="navigationBusy || undefined">
@@ -691,17 +689,18 @@
         <p v-if="taskDetail.task.project_name || taskDetail.task.task_list_name" class="qv-detail-meta">
           {{ [taskDetail.task.project_name, taskDetail.task.task_list_name].filter(Boolean).join(' · ') }}
         </p>
-        <p v-if="taskDetail.task.assignee" class="qv-detail-meta">
+        <p v-if="taskDetail.task.assignee && !taskDetail.assignees?.length" class="qv-detail-meta">
           Assigned: {{ taskDetail.task.assignee.name }}
         </p>
         <div class="qv-detail-body">
           <template v-if="taskDetail.task.description_locked">Description is protected — open the full app to view.</template>
-          <template v-else>{{ taskDetail.task.description || 'No description.' }}</template>
+          <template v-else>{{ taskDetail.task.description || 'No description has been added to this task.' }}</template>
         </div>
+        <QuickTaskExtras :detail="taskDetail" :api-base="apiBase" :session-token="session" :full-task-url="fullTaskUrl" @updated="reloadTaskDetail"/>
         <h4>Assign</h4>
         <select v-model="taskAssignId" class="qv-date" style="width:100%;margin-bottom:8px;" @change="saveTaskAssign">
           <option :value="null">Unassigned</option>
-          <option v-for="p in directoryProviders" :key="p.id" :value="p.id">{{ p.displayName }}</option>
+          <option v-if="taskAssignId && !taskAssigneeOptions.some(person=>Number(person.id)===Number(taskAssignId))" :value="taskAssignId">{{ taskDetail.task.assignee?.name || 'Current assignee' }}</option><option v-for="p in taskAssigneeOptions" :key="p.id" :value="p.id">{{ p.displayName }}</option>
         </select>
         <h4>Shared list</h4>
         <select v-model="taskListPickId" class="qv-date" style="width:100%;margin-bottom:8px;" @change="saveTaskList">
@@ -721,7 +720,7 @@
           <a v-for="l in taskDetail.links" :key="l.id" :href="l.url" target="_blank" rel="noopener">{{ l.label || l.url }}</a>
         </div>
         <div class="qv-sheet-actions">
-          <button type="button" class="qv-btn ghost" @click="markTaskStatus(taskDetail.task)">
+          <button type="button" class="qv-btn ghost" :disabled="taskDetail.task.completion_managed" @click="markTaskStatus(taskDetail.task)">
             {{ isDone(taskDetail.task) ? 'Reopen' : 'Mark done' }}
           </button>
           <button
@@ -737,7 +736,7 @@
           <small>{{ formatTime(c.created_at) }}</small>
           <p>{{ c.body }}</p>
         </div>
-        <div v-if="!taskDetail.comments?.length" class="muted">No comments yet.</div>
+        <div v-if="!taskDetail.comments?.length && !taskDetail.unavailable?.includes('Comments')" class="muted">No comments yet.</div>
         <form class="qv-reply" @submit.prevent="postTaskComment">
           <textarea v-model="taskComment" rows="2" placeholder="Add a comment…" />
           <button type="submit" class="qv-btn primary" :disabled="taskCommentBusy || !taskComment.trim()">
@@ -796,6 +795,7 @@
 import {backInMobile,trackMobileNavigation} from '../mobile/mobileNavigation.js';
 import {mobileLinkTarget} from '../mobile/mobileLinks.js';
 import MobileMessages from '../mobile/MobileMessages.vue';
+import QuickTaskExtras from '../components/quickView/QuickTaskExtras.vue';
 import MobilePreferences from '../mobile/MobilePreferences.vue';
 import MobileMyWork from '../mobile/MobileMyWork.vue';
 import MobileClinicalWorkspace from '../mobile/MobileClinicalWorkspace.vue';
@@ -906,7 +906,7 @@ const primaryNavigation=computed(()=>{
   const ids=workspacePreferences.value.navigationMode==='pinned'?workspacePreferences.value.pinnedNavigation:[...allNavigation].sort((a,b)=>(workspacePreferences.value.usage?.[b.id] || 0)-(workspacePreferences.value.usage?.[a.id] || 0)).map(item=>item.id);
   return [...ids.slice(0,slots).map(id=>allNavigation.find(item=>item.id===id)).filter(Boolean),{id:'more',label:'More',icon:ChevronDown}];
 });
-const secondaryNavigation=computed(()=>isMobile.value?allNavigation:allNavigation.filter(item=>['noteaid','presence','contacts'].includes(item.id)));
+const secondaryNavigation=computed(()=>allNavigation);
 function resizeMobile(){viewportWidth.value=window.innerWidth;}
 async function loadWorkspacePreferences(){try{const {data}=await axios.get(`${apiBase}/messages/preferences`,{headers:authHeaders(),withCredentials:true});workspacePreferences.value=data.preferences || workspacePreferences.value;}catch{/* Defaults remain usable if preferences are temporarily unavailable. */}}
 function countNavigation(destination){if(!isMobile.value)return;workspacePreferences.value={...workspacePreferences.value,usage:{...workspacePreferences.value.usage,[destination]:(workspacePreferences.value.usage?.[destination] || 0)+1}};clearTimeout(preferenceTimer);preferenceTimer=setTimeout(()=>{if(session.value)axios.patch(`${apiBase}/messages/preferences`,{usage:workspacePreferences.value.usage},{headers:authHeaders(),withCredentials:true}).catch(()=>{});},1200);}
@@ -1018,6 +1018,10 @@ const suiteMembers = ref([]);
 const suiteLists = ref([]);
 const suiteStats = ref(null);
 const taskDetail = ref(null);
+const taskAssigneeOptions=computed(()=>[...new Map([...directoryProviders.value,...directorySchool.value].map(person=>[Number(person.id),person])).values()]);
+const fullTaskUrl=computed(()=>{if(!loginUrl.value || !taskDetail.value)return '';try{const target=new URL(loginUrl.value,window.location.origin);target.pathname=target.pathname.replace(/\/(?:login|dashboard)\/?$/,'')+'/tasks';target.search='';return target.href;}catch{return '';}});
+async function reloadTaskDetail(){if(!taskDetail.value)return;await openTaskDetail(taskDetail.value.task);await loadTasks(taskView.value);}
+
 let taskDetailRequest = 0;
 const taskComment = ref('');
 const taskCommentBusy = ref(false);
@@ -2848,7 +2852,7 @@ button.qv-row:hover { background: #f8faff; }
 .qv-sheet label { display: block; margin: 14px 0 7px; color: var(--qv-muted); font-size: 12px; }
 .qv-sheet-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
 .qv-sheet-actions .qv-btn { flex: 1; }
-.qv-task-detail h3 { margin: 8px 0; }
+.qv-brand-menu{border:0;background:transparent;padding:0;cursor:pointer;text-align:left;border-radius:8px}.qv-brand-menu:focus-visible{outline:2px solid #245be8;outline-offset:5px}.qv-task-detail h3 { margin: 8px 0; }
 .qv-task-detail h4 { margin: 22px 0 10px; color: var(--qv-muted); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
 .qv-detail-meta { margin: 0 0 8px; color: var(--qv-muted); font-size: 12px; }
 .qv-detail-body { margin: 14px 0; white-space: pre-wrap; font-size: 14px; line-height: 1.7; }

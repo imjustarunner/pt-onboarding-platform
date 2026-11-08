@@ -1,0 +1,63 @@
+AuricWell mobile polish — November 8, 2026
+
+Run on /mobile in a desktop browser and a phone browser. Sign in with the primary
+staff account. Use synthetic records for writes. Never paste device/session
+credentials into the report. Record build ID, viewport, account role and agency.
+
+Messages
+1. Select Direct, then +. Expect New direct message, a searchable authorized
+   teammate list and current photos. Close returns to Direct. Choosing a
+   synthetic teammate opens that thread; no email composer opens or mail sends.
+2. In Email, + opens New email. In All, + offers explicit message choices.
+   Merely opening a composer must not send a message.
+3. All starts on Unread. An explicit All filter reveals read conversations.
+   Category badges and the bottom Messages badge count unread conversations,
+   never the total number of messages or the total inbox size. The bottom badge
+   equals the sum of Email, Direct, Groups, Channels, Secure, Texts and Unknown
+   unread categories. Threads, Mentions and Files are alternate views and must
+   not be added again. Unknown senders is visible as its own category.
+4. Needs reply means the latest message came from someone else and has not been
+   answered. A read conversation can qualify. An outgoing reply clears that
+   condition. Check the explanatory text in this view.
+5. After YOU reply, the Direct card must retain the RECIPIENT's current photo.
+   Missing/broken photos fall back to initials. Secure previews conceal photos
+   and full identity until the existing explicit reveal operation.
+6. Drag left slowly: Archive appears on the exposed RIGHT edge in purple.
+   Drag right slowly: Read appears on the exposed LEFT edge in blue. Release
+   beyond threshold and verify the correct operation and notice. Undo archive
+   restores the conversation. Include archived remains an explicit choice.
+   Repeat after changing swipe settings; labels/actions must match settings.
+
+Navigation and My Work
+7. Tap the AuricWell brand, then More. Both expose all supported destinations,
+   including those pinned to the bottom, mobile settings and My Account.
+   Close/reopen and test keyboard navigation on desktop.
+8. Open My Work. It starts with All, All agencies. Expect To do, Started,
+   Co-sign and Signed rows together. All count matches the displayed authorized
+   set. Each status/agency filter limits rows and preserves its choice on Back.
+9. Verify The Inner Strength Institute uses the supplied compact navy icon.
+   Check the bundled/native version also resolves the image to the web host.
+10. Switching to My Work or Tasks must hide the Messages panel completely.
+    No inbox should appear above documentation or task data.
+
+Tasks
+11. Open a synthetic task with a description, list/project, two assignees,
+    subtasks and recorded activity. Compare with the full task workspace.
+    All saved details should appear; current assignee must not become a blank
+    select simply because the person is absent from the current directory.
+12. Change priority and due time, save, close/reopen and compare exact values.
+    Clear the due date and repeat. Switch Open/In progress/Waiting as permitted.
+    Complete and reopen a normal synthetic task.
+13. Provider Update and countersignature tasks remain managed by their actual
+    workflows. Do not manually complete or sign them during this retest.
+    The server must reject a forged shortcut completion request too.
+14. Empty description means no description was saved; do not invent text.
+    Protected descriptions remain protected. Unavailable comments/activity/etc.
+    produce a loading-error explanation, not a false empty-history claim.
+15. Existing comments, assignments, shared lists, collaborators, links and
+    attachments remain available. The full task workspace link exposes advanced
+    operations such as subtask editing, dependencies and file management.
+    A separate full-workspace sign-in may be required by that session's policy.
+
+Do not mark actual iPhone gestures, biometrics, push delivery or TestFlight
+passed based on desktop viewport emulation. Record those separately.
