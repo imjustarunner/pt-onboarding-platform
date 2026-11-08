@@ -394,9 +394,11 @@
         :allow-add="authStore.user?.role === 'super_admin'"
         v-if="notesTodoOpen && canUseNotesWorkspace"
         class="notes-todo-rail"
+        :reports-url="['admin','agency_admin','super_admin'].includes(authStore.user?.role) ? `${route.params.organizationSlug ? '/'+encodeURIComponent(route.params.organizationSlug) : ''}/admin/narriva-compliance` : ''"
         v-bind="noteQueuePanelProps"
         @select="openQueueNote"
         @select-cosign="openCosignNote"
+        @quick-sign="openCosignNote({ ...$event, quickSignRequested:true })"
         @add-todo="showTodoImportModal = true"
         @delete="removeQueueNote"
         @undo-import="undoTodoImport"
@@ -1514,7 +1516,7 @@ async function loadCosignNotes() {
 function openCosignNote(note) {
   if (!note?.clinicalNoteId) return;
   return navigateToNoteAid(router, {
-    noteId: note.clinicalNoteId, agencyId: note.agencyId, launchIntent: 'cosign'
+    noteId: note.clinicalNoteId, agencyId: note.agencyId, launchIntent: 'cosign', quickSignRequested: note.quickSignRequested === true
   }, { organizationSlug: route.params.organizationSlug });
 }
 

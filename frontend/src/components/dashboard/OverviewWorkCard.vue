@@ -1,7 +1,8 @@
 <template>
   <NoteAidWorkQueuePanel class="overview-work" :items="items" :loading="loading" :error="error"
+    :reports-url="['admin','agency_admin','super_admin'].includes(auth.user?.role) ? `${route.params.organizationSlug ? '/'+encodeURIComponent(route.params.organizationSlug) : ''}/admin/narriva-compliance` : ''"
     :allow-add="auth.user?.role === 'super_admin'" openable @open-work="openWorkspace" :collapsible="false" :allow-remove="false" :show-cosign-mode="isSupervisor" :cosign-items="cosigns"
-    @select="open" @select-cosign="openCosign" @add-todo="openWorkspace" @refresh-cosign="load" />
+    @select="open" @select-cosign="openCosign" @quick-sign="openCosign({ ...$event, quickSignRequested:true })" @add-todo="openWorkspace" @refresh-cosign="load" />
 </template>
 <script setup>
 import { ref, onMounted, watch } from 'vue';
@@ -28,7 +29,7 @@ async function load() {
 }
 function launch(query = {}) { return navigateToNoteAid(router, query, { organizationSlug: route.params.organizationSlug }); }
 function open(item) { return launch({ workQueueId: item.id, agencyId: item.agencyId, launchIntent: 'work_queue' }); }
-function openCosign(item) { return launch({ noteId: item.clinicalNoteId, agencyId: item.agencyId, launchIntent: 'cosign' }); }
+function openCosign(item) { return launch({ noteId: item.clinicalNoteId, agencyId: item.agencyId, launchIntent: 'cosign', quickSignRequested: item.quickSignRequested === true }); }
 function openWorkspace() { return launch({ launchIntent: 'work_queue' }); }
 onMounted(load);
 watch(() => auth.user?.id, load);

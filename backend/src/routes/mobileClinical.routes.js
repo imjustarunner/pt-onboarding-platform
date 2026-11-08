@@ -10,6 +10,7 @@ import * as recording from '../controllers/clinicalSessionRecording.controller.j
 import * as assessments from '../controllers/narrivaAssessmentEvidence.controller.js';
 import {getServiceReference} from '../controllers/clinicalServiceReference.controller.js';
 import {getClinicalSessionServiceCode,changeClinicalSessionServiceCode} from '../controllers/clinicalSessionServiceChange.controller.js';
+import {getNoteReviewInsights} from '../controllers/clinicalNoteReviewInsights.controller.js';
 const router=express.Router();
 // Parent mounts requireQuickViewSession. Full bearer authentication is deliberately
 // absent: this router accepts only the verified primary-device scoped session.
@@ -40,6 +41,7 @@ router.post('/sessions/:sessionId/service',requireClinicalChart,scoped(changeCli
 router.post('/sessions/:sessionId/notes',requireClinicalChart,scoped(createSessionNote,{sessionParam:'sessionId',requireClient:true}));
 router.get('/notes-to-sign',requireClinicalChart,getMobileNotesToSign);
 router.get('/notes/:noteId',requireClinicalChart,scoped(getClinicalNoteById,{noteParam:'noteId',requireClient:true}));
+router.get('/notes/:noteId/review-insights',requireClinicalChart,scoped(getNoteReviewInsights,{noteParam:'noteId',requireClient:true}));
 router.post('/notes/:noteId/sign',requireClinicalNoteSigning,scoped(signClinicalNote,{noteParam:'noteId',requireClient:true,authorOnly:true}));
 router.post('/notes/:noteId/cosign',requireClinicalNoteSigning,scoped(cosignClinicalNote,{noteParam:'noteId',requireClient:true}));
 router.post('/objectives/:objectiveId/ratings',requireClinicalChart,scoped(createObjectiveRating,{objectiveParam:'objectiveId',requireClient:true}));

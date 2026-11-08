@@ -80,7 +80,7 @@ class BillingInvoicePdfService {
         // we render them in the structured block below.
         if (featureBilling && String(it?.key || '').startsWith('feature_')) continue;
         if (!it || !it.extraCents || it.extraCents <= 0) continue;
-        drawRow(`${it.label} overage (${it.overage} @ $${dollars(it.unitCostCents)})`, it.extraCents);
+        drawRow(it.reportIds ? it.label : `${it.label} overage (${it.overage} @ $${dollars(it.unitCostCents)})`, it.extraCents);
       }
 
       if (featureBilling) {

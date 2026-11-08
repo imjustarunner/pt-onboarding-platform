@@ -25,6 +25,8 @@ vi.mock('../storage.service.js', () => ({ default: { getGCSBucket: vi.fn(async (
 vi.mock('../medicalServiceFees.service.js', () => ({ medicalServiceInvoiceLines: vi.fn(),
   appendMedicalServiceLines: vi.fn(estimate => structuredClone(estimate)), attachMedicalServiceInvoice: vi.fn() }));
 
+vi.mock('../narrivaReportBilling.service.js', () => ({ complianceReportInvoiceLines: vi.fn(async () => []), appendComplianceReportLines: vi.fn(estimate => estimate), attachComplianceReportInvoice: vi.fn() }));
+
 import Service from '../billingInvoice.service.js';
 import Agency from '../../models/Agency.model.js';
 import Invoice from '../../models/AgencyBillingInvoice.model.js';

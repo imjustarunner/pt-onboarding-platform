@@ -49,6 +49,14 @@ function createFeatureCatalogEntry(key, label, description, options = {}) {
 }
 
 const DEFAULT_FEATURE_CATALOG = {
+  narrivaComplianceReports: createFeatureCatalogEntry(
+    'narrivaComplianceReports',
+    'Narriva Compliance reports',
+    'Optional redacted audit reports, billed once per completed run. Scheduling alone creates no charge.',
+    { pricingModel: 'usage', unitAmountCents: 10000, tenantMonthlyCents: 0,
+      userMonthlyCents: 0, perUserBillable: false, unitLabel: 'completed report run',
+      usageKey: 'narrivaComplianceReportsUsed', defaultAvailable: true, tenantSelfServe: false }
+  ),
   publicAvailability: createFeatureCatalogEntry(
     'publicAvailability',
     'Public Provider Finder',
@@ -723,7 +731,7 @@ export function buildEstimate(usage, pricingConfig = null, options = {}) {
   // (featureBilling = { tenantPortions, userPortions, totals, daysInPeriod })
   // it takes precedence over the legacy single-axis featureLineItems below.
   const featureBilling = options?.featureBilling || null;
-  const featureLineItems = Object.keys(featureCatalog).map((key) => {
+  const featureLineItems = Object.keys(featureCatalog).filter(key => key !== 'narrivaComplianceReports').map((key) => {
     const feature = featureCatalog[key];
     const entitlement = featureEntitlements[key];
     const unitAmountCents = entitlement?.unitAmountCents != null

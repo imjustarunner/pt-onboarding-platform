@@ -71,3 +71,9 @@ describe('noteAidLaunch', () => {
     expect(toDateOfService('')).toBe(null);
   });
 });
+
+
+it('preserves a Quick Sign request only for the existing co-sign review launch',()=>{
+ expect(buildNoteAidQuery({noteId:81,agencyId:7,launchIntent:'cosign',quickSignRequested:true})).toEqual({noteId:'81',agencyId:'7',launchIntent:'cosign',quickSign:'1'});
+ expect(buildNoteAidQuery({noteId:81,agencyId:7,launchIntent:'progress_note',quickSignRequested:true})).not.toHaveProperty('quickSign');
+});

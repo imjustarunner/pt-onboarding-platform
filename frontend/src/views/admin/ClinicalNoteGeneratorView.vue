@@ -1380,6 +1380,7 @@
       </main>
 
       <NoteAidWorkQueuePanel
+        :reports-url="['admin','agency_admin','super_admin'].includes(authStore.user?.role) ? `${route.params.organizationSlug ? '/'+encodeURIComponent(route.params.organizationSlug) : ''}/admin/narriva-compliance` : ''"
         :data-analytics-area="demoPresentation ? 'my-work' : undefined"
         :allow-add="authStore.user?.role === 'super_admin'"
         v-if="canUseTool && !isEmbedded && !(libraryExpanded && !libraryCollapsed)"
@@ -9669,7 +9670,7 @@ async function openWorkspaceRouteSelection() {
       const queued = cosignQueueItems.value.find(item => Number(item.clinicalNoteId) === Number(qNote));
       const agencyId = qAgency || queued?.agencyId || currentAgencyId.value;
       if (Number(supervisorReviewItem.value?.clinicalNoteId) !== Number(qNote)) {
-        activateCosignQueueItem(queued || { id: `cosign_note_${qNote}`, clinicalNoteId: Number(qNote), agencyId }, { fullPage: false });
+        activateCosignQueueItem({ ...(queued || { id: `cosign_note_${qNote}`, clinicalNoteId: Number(qNote), agencyId }), quickSignRequested: route.query.quickSign === '1' }, { fullPage: false });
       }
       return;
     }

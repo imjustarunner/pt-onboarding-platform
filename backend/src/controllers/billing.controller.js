@@ -1,3 +1,4 @@
+import { complianceReportInvoiceLines,appendComplianceReportLines } from '../services/narrivaReportBilling.service.js';
 import BillingUsageService from '../services/billingUsage.service.js';
 import { buildEstimate, getEffectiveBillingPricingForAgency, resolveFeatureEntitlements } from '../services/billingPricing.service.js';
 import AgencyCommunicationBillingService from '../services/agencyCommunicationBilling.service.js';
@@ -77,9 +78,10 @@ export const getAgencyBillingEstimate = async (req, res, next) => {
       // An agreed management invoice must never silently omit feature charges.
       if (lifecycle.agreements.some(a => a.status === 'active')) throw error;
     }
-    const estimate = applyBusinessAgreement(buildEstimate(usage, pricingBundle.effective, {
+    let estimate = applyBusinessAgreement(buildEstimate(usage, pricingBundle.effective, {
       featureEntitlements: account?.feature_entitlements_json || null, featureBilling
     }), lifecycle, period.periodStart.toISOString().slice(0, 7));
+    estimate = appendComplianceReportLines(estimate,await complianceReportInvoiceLines(parsedAgencyId,period.periodEnd));
     const merchantContext = await BillingMerchantContextService.getAgencySubscriptionContext(parsedAgencyId);
     const communicationSummary = await AgencyCommunicationBillingService.getAgencyPeriodSummary({
       agencyId: parsedAgencyId,

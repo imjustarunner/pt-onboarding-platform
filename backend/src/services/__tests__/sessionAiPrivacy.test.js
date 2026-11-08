@@ -54,6 +54,12 @@ describe('session AI privacy boundary',()=>{
   const text=await session.redact('[Amy Jones] Pat Smith helped AJ.');
   expect(text).toBe('[Client] Provider helped Client.');expect(session.restore(text)).toBe(text);
  });
+ it('supports optional cancellation without model dispatch or exposing inspected text',async()=>{
+  const controller=new AbortController(),reason=Object.assign(new Error('slice'),{reportSlice:true});
+  const fetchImpl=vi.fn(async(_url,{signal})=>new Promise((resolve,reject)=>{signal.addEventListener('abort',()=>reject(signal.reason),{once:true});controller.abort(reason);}));
+  const privacyContext=createSessionPrivacyContext({fetchImpl,tokenProvider:async()=> 'test',signal:controller.signal});
+  await expect(callPrivateSessionText({privacyContext,prompt:'synthetic',signal:controller.signal})).rejects.toBe(reason);expect(m.call).not.toHaveBeenCalled();
+ });
  it('does not propagate provider errors or their content',async()=>{
   vi.stubGlobal('fetch',vi.fn(async()=>ok([])));m.call.mockRejectedValue(new Error('Private transcript echoed'));
   await expect(callPrivateSessionText({prompt:'private'})).rejects.toThrow('Secure session generation failed');

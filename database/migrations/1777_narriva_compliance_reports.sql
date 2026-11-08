@@ -1,0 +1,43 @@
+-- Paid report runs are opt-in. No account is activated and no charge is created here.
+CREATE TABLE IF NOT EXISTS narriva_report_settings (
+ agency_id INT PRIMARY KEY,
+ enabled TINYINT(1) NOT NULL DEFAULT 0,
+ cadence VARCHAR(20) NOT NULL DEFAULT 'quarterly',
+ interval_days INT NOT NULL DEFAULT 90,
+ sample_size INT NOT NULL DEFAULT 10,
+ notes_per_client INT NOT NULL DEFAULT 5,
+ next_run_at DATETIME(3) NULL,
+ accepted_price_cents INT NULL,
+ authorized_by_user_id INT NULL,
+ revision INT NOT NULL DEFAULT 1,
+ updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+ INDEX narriva_report_due(enabled,next_run_at)
+) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE TABLE IF NOT EXISTS narriva_report_runs (
+ id CHAR(36) PRIMARY KEY,
+ agency_id INT NOT NULL,
+ actor_user_id INT NOT NULL,
+ request_key VARCHAR(120) NOT NULL,
+ request_hash CHAR(64) NOT NULL,
+ status VARCHAR(24) NOT NULL DEFAULT 'queued',
+ period_start DATE NOT NULL,
+ period_end DATE NOT NULL,
+ sample_size INT NOT NULL,
+ notes_per_client INT NOT NULL,
+ unit_cents INT NOT NULL,
+ standard_version VARCHAR(100) NOT NULL,
+ snapshot_encrypted LONGTEXT NULL,
+ result_encrypted LONGTEXT NULL,
+ lease_token CHAR(36) NULL,
+ lease_until DATETIME(3) NULL,
+ attempt_count INT NOT NULL DEFAULT 0,
+ billable_at DATETIME(3) NULL,
+ invoice_id INT NULL,
+ created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+ completed_at DATETIME(3) NULL,
+ updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+ UNIQUE KEY narriva_report_request(agency_id,request_key),
+ INDEX narriva_report_agency(agency_id,created_at),
+ INDEX narriva_report_jobs(status,lease_until),
+ INDEX narriva_report_invoice(agency_id,billable_at,invoice_id)
+) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;

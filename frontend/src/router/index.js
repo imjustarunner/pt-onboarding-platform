@@ -3093,6 +3093,18 @@ const routes = [
     meta: { requiresAuth: true, requiresCapability: 'canManagePayroll', organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/narriva-compliance',
+    name: 'OrganizationNarrivaComplianceReports',
+    component: () => import('../views/admin/NarrivaComplianceReportsView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'agency_admin', 'super_admin'], organizationSlug: true }
+  },
+  {
+    path: '/admin/narriva-compliance',
+    name: 'NarrivaComplianceReports',
+    component: () => import('../views/admin/NarrivaComplianceReportsView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'agency_admin', 'super_admin'] }
+  },
+  {
     path: '/:organizationSlug/admin/payroll/wizard/:periodId?',
     name: 'OrganizationPayrollWizard',
     component: () => import('../views/admin/PayrollWizardView.vue'),

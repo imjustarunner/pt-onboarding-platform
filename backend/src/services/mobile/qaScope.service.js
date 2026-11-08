@@ -38,6 +38,7 @@ export function qaClinicalRouteAllowed(method,path,body={}) {
    /^\/clinical\/narriva\/notes\/[1-9][0-9]*\/status$/,
    /^\/clinical\/sessions\/[1-9][0-9]*\/service$/,
    /^\/clinical\/notes\/[1-9][0-9]*$/,
+   /^\/clinical\/notes\/[1-9][0-9]*\/review-insights$/,
    /^\/clinical\/recording\/session\/[1-9][0-9]*\/narrative$/,
    /^\/clinical\/recording\/session\/[1-9][0-9]*\/consent\/[1-9][0-9]*\/pdf$/
   ],
@@ -69,6 +70,7 @@ export async function enforceMobileQaBoundary(req) {
  const path=String(req.originalUrl||req.path||'').split('?')[0].replace(/^\/api\/quick-view/,'').replace(/\/$/,'');
  const method=String(req.method).toUpperCase();
  let allowed=method==='GET'&&['/my-work','/calendar/day','/tasks'].includes(path);
+ if(method==='GET'&&/^\/my-work\/notes\/[1-9][0-9]*\/review-insights$/.test(path))allowed=true;
  // Clinical adapters enforce the exact token agency, author/assigned reviewer and
  // client/record bindings. Outbound family delivery remains a separate QA grant.
  if(qaClinicalRouteAllowed(method,path,req.body))allowed=true;

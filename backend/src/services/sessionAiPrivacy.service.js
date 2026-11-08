@@ -1,3 +1,7 @@
+function abortableInspection(promise,signal) {
+ if(!signal)return promise;
+ return new Promise((resolve,reject)=>{const abort=()=>reject(signal.reason);signal.addEventListener('abort',abort,{once:true});if(signal.aborted)abort();Promise.resolve(promise).then(resolve,reject).finally(()=>signal.removeEventListener('abort',abort));});
+}
 import crypto from 'node:crypto';
 import { GoogleAuth } from 'google-auth-library';
 import { callGeminiText } from './geminiText.service.js';
@@ -35,7 +39,7 @@ const escapeRegex = value => value.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
 
 // The replacement map exists only in memory, never in model requests or logs.
 // It supports consistent speaker attribution throughout multi-stage summarization.
-export function createSessionPrivacyContext({ contentType = 'session', identifiers = [], clientNames = [], providerNames = [], fetchImpl = fetch, tokenProvider } = {}) {
+export function createSessionPrivacyContext({ contentType = 'session', identifiers = [], clientNames = [], providerNames = [], fetchImpl = fetch, tokenProvider, signal } = {}) {
   if (!['session','meeting'].includes(contentType)) throw fail();
   const clinical = contentType === 'session';
   const nameParts = values => [...new Set(values.filter(Boolean).flatMap(v => [String(v).trim(),...String(v).trim().split(/\s+/).filter(t=>t.length>=2)]))].filter(Boolean);
@@ -70,12 +74,15 @@ export function createSessionPrivacyContext({ contentType = 'session', identifie
   return {
     contentType,
     async redact(text) {
+      signal?.throwIfAborted();
       const project = requireSessionPrivacyConfiguration();
       const localText = localRedact(text);
       const minimized = clinical ? localText.replace(/\[Speaker\s+\d+\]/gi,'[Unattributed]') : localText;
       if (!minimized.trim()) return minimized;
       try {
-        const token = tokenProvider ? await tokenProvider() : await new GoogleAuth({ scopes:['https://www.googleapis.com/auth/cloud-platform'] }).getAccessToken();
+        const tokenPromise = tokenProvider ? tokenProvider() : new GoogleAuth({ scopes:['https://www.googleapis.com/auth/cloud-platform'] }).getAccessToken();
+        const token = await abortableInspection(tokenPromise, signal);
+        signal?.throwIfAborted();
         if (!token) throw fail();
         const bytes = Buffer.from(minimized,'utf8');
         // Tokens already issued by this context are not identity evidence. Mask
@@ -87,7 +94,7 @@ export function createSessionPrivacyContext({ contentType = 'session', identifie
           let end = Math.min(start + 24000, bytes.length);
           while (end < bytes.length && (bytes[end] & 0xc0) === 0x80) end--;
           const response = await fetchImpl(`https://dlp.googleapis.com/v2/projects/${encodeURIComponent(project)}/locations/us/content:inspect`, {
-            method:'POST',signal:AbortSignal.timeout(30000),headers:{ Authorization:`Bearer ${token}`,'Content-Type':'application/json' },
+            method:'POST',signal:signal?AbortSignal.any([signal,AbortSignal.timeout(30000)]):AbortSignal.timeout(30000),headers:{ Authorization:`Bearer ${token}`,'Content-Type':'application/json' },
             body:JSON.stringify({item:{value:inspectBytes.subarray(start,end).toString('utf8')},inspectConfig:{
               infoTypes:INFO_TYPES.filter(name => clinical || name !== 'PERSON_NAME').map(name => ({name})),minLikelihood:'POSSIBLE',includeQuote:false,limits:{maxFindingsPerRequest:1000}}})
           });
@@ -117,7 +124,7 @@ export function createSessionPrivacyContext({ contentType = 'session', identifie
           offset = range.end;
         }
         return redacted + bytes.subarray(offset).toString('utf8');
-      } catch { throw fail(); } // Never propagate a provider error containing request content.
+      } catch { signal?.throwIfAborted(); throw fail(); } // Never propagate a provider error containing request content.
     },
     restore(text) {
       // Models sometimes omit brackets or escape Markdown underscores. Match
@@ -133,5 +140,5 @@ export async function callPrivateSessionText({ privacyContext = createSessionPri
   const redacted = await privacyContext.redact(prompt);
   try {
     return await callGeminiText({ ...options, prompt:privacyContext.contentType === 'session' ? `${redacted}\n\nPrivacy rule: Refer to the session participants only as Client and Provider. Do not include names, initials, or identifying details. If a speaker role is not established by the source, describe the facts without assigning a role; never guess.` : redacted, vertexOnly:true, sensitive:true });
-  } catch { throw Object.assign(new Error('Secure session generation failed. Retry without changing the saved transcript.'), {status:502}); }
+  } catch { options.signal?.throwIfAborted(); throw Object.assign(new Error('Secure session generation failed. Retry without changing the saved transcript.'), {status:502}); }
 }
