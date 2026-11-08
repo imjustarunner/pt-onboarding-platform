@@ -581,18 +581,21 @@
           <button type="button" :class="{ on: contactSuite === 'providers' }" @click="loadDirectory('providers')">Providers</button>
           <button type="button" :class="{ on: contactSuite === 'school' }" @click="loadDirectory('school')">School staff</button>
           <button type="button" :class="{ on: contactSuite === 'saved' }" @click="loadSavedContacts">Saved</button>
+          <button type="button" class="qv-directory-search-toggle" :aria-expanded="directorySearchOpen" @click="directorySearchOpen=!directorySearchOpen">⌕ Search</button>
+        </div>
+        <div v-if="directorySearchOpen" class="qv-directory-search">
+          <label>Find a person<input v-model="directorySearch" type="search" placeholder="Name, credentials, school or email" aria-label="Search your people" /></label>
+          <label v-if="contactSuite!=='saved'">Agency<select v-model="directoryAgency" aria-label="Filter people by agency"><option value="all">All agencies</option><option v-for="agency in directoryAgencies" :key="agency.id" :value="String(agency.id)">{{ agency.name }}</option></select></label>
         </div>
         <template v-if="contactSuite === 'providers' || contactSuite === 'school'">
-          <div v-for="p in directoryPeople" :key="`${p.agencyId || sessionAgencyId}:${p.id}`" class="qv-row qv-contact-row">
+          <div v-for="p in directoryPeople" :key="`${p.agencyId || sessionAgencyId}:${p.id}:${p.schoolId || 0}`" class="qv-row qv-contact-row">
             <MobileIdentityAvatar v-if="isMobile" :photo="p.profilePhotoUrl" :agency-icon="p.agencyLogoUrl" :name="p.displayName"/><img v-else-if="p.profilePhotoUrl" :src="p.profilePhotoUrl" alt="" class="qv-avatar" />
             <div v-else class="qv-avatar qv-avatar-fallback">{{ contactInitials(p) }}</div>
             <div class="meta">
-              <strong>{{ p.displayName }}</strong>
-              <small v-if="!isMobile || p.credential">
-                {{ isMobile?p.credential:formatRole(p.role) }}<span v-if="!isMobile && p.hcbsCategory"> · {{ p.hcbsCategoryLabel }}</span>
-              </small>
+              <strong>{{ p.displayName }}<template v-if="p.credential"> {{ p.credential }}</template><span v-if="p.isSchoolAdmin" class="qv-school-admin"> · SCHOOL ADMIN</span> <a v-if="p.workPhoneExtension && directoryDial(p)" :href="directoryDial(p)" :aria-label="`Call ${p.displayName}, extension ${p.workPhoneExtension}`" class="qv-extension">Ext. {{ p.workPhoneExtension }}</a></strong>
+              <small v-if="!isMobile">{{ formatRole(p.role) }}<span v-if="p.hcbsCategory"> · {{ p.hcbsCategoryLabel }}</span></small>
               <small v-if="p.workEmail || p.email">{{ p.workEmail || p.email }}</small>
-              <small v-if="isMobile && p.agencyName">{{ p.agencyName }}</small>
+              <small v-if="p.schoolName || p.agencyName">{{ contactSuite==='school' ? p.schoolName || 'School not listed' : p.agencyName }}</small>
               <small v-if="!isMobile && p.workPhone">Work {{ p.workPhone }}</small>
             </div>
             <button
@@ -611,7 +614,7 @@
             <div class="qv-pad muted" style="padding: 8px 0; margin: 0;">Saved email contacts</div>
             <button type="button" class="qv-btn primary sm" @click="showNewContact = true">Add</button>
           </div>
-          <div v-for="c in contacts" :key="c.id" class="qv-row">
+          <div v-for="c in directorySavedContacts" :key="c.id" class="qv-row">
             <div class="meta">
               <strong>{{ c.display_name || c.email }}</strong>
               <small>{{ c.email }} · {{ c.trust_status }}</small>
@@ -1248,9 +1251,11 @@ const filteredOffices = computed(() => {
   if (!officeFilterId.value) return list;
   return list.filter((o) => Number(o.id) === Number(officeFilterId.value));
 });
-const directoryPeople = computed(() =>
-  contactSuite.value === 'school' ? directorySchool.value : directoryProviders.value
-);
+const directorySearchOpen=ref(false),directorySearch=ref(''),directoryAgency=ref('all'),directoryAgencies=ref([]);
+const matchesDirectory=person=>!directorySearch.value.trim() || [person.displayName,person.credential,person.schoolName,person.agencyName,person.workEmail,person.email,person.display_name].filter(Boolean).join(' ').toLowerCase().includes(directorySearch.value.trim().toLowerCase());
+const directoryPeople=computed(()=>(contactSuite.value==='school'?directorySchool.value:directoryProviders.value).filter(p=>(directoryAgency.value==='all'||String(p.agencyId || sessionAgencyId.value)===directoryAgency.value)&&matchesDirectory(p)));
+const directorySavedContacts=computed(()=>contacts.value.filter(matchesDirectory));
+function directoryDial(person){const phone=String(person.workPhone || '').replace(/[^+0-9]/g,''),extension=String(person.workPhoneExtension || '').replace(/\D/g,'');return phone ? `tel:${phone}${extension?`;ext=${extension}`:''}` : null;}
 
 function applyBranding(data = {}) {
   if (data.agencyName) agencyName.value = data.agencyName;
@@ -2384,6 +2389,7 @@ async function loadDirectory(suite = 'providers', { activate = true } = {}) {
       withCredentials: true
     });
     if (!session.value || session.value !== activeSession || (!activate && activeTaskRequest !== taskDetailRequest)) return;
+    directoryAgencies.value=data.agencies || [];
     directoryProviders.value = data.providers || [];
     directorySchool.value = data.schoolStaff || [];
     if (data.agencyId) sessionAgencyId.value = data.agencyId;
@@ -2970,3 +2976,9 @@ button.qv-row:hover { background: #f8faff; }
 </style>
 
 <style>@media(max-width:760px){.qv-mobile :is(input:not([type=checkbox]):not([type=radio]),textarea,select),.qv-mobile-composer :is(input,textarea,select),.mm-recipient-overlay :is(input,textarea,select){font-size:16px!important}}</style>
+
+<style scoped>
+.qv-directory-search{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:10px;padding:12px 16px;background:#f7faff}.qv-directory-search label{min-width:0;display:grid;gap:5px;font-size:12px}.qv-directory-search input,.qv-directory-search select{box-sizing:border-box;min-width:0;width:100%;font:inherit;font-size:16px;padding:9px;border:1px solid #d6e2f2;border-radius:8px;background:#fff}.qv-extension{display:inline-block;white-space:nowrap;font-size:12px;color:#2459a5}.qv-school-admin{font-size:10px;letter-spacing:.02em;color:#526b88}.qv-directory-search-toggle{white-space:nowrap}@media(max-width:440px){.qv-directory-search{grid-template-columns:minmax(0,1fr)}}
+</style>
+
+<style scoped>.qv-contact-row .meta strong{white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere;line-height:1.45}.qv-contact-row>.qv-btn{flex-shrink:0}.qv-contact-row .qv-extension{margin-left:4px}</style>

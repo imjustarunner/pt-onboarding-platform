@@ -179,3 +179,15 @@ export const postMobileClientContact=mobile(async(req,res,next)=>{
  const scoped=await clinicalContactRequest(req,req.body.agencyId,req.params.clientId);
  return (req.params.action==='send'?sendMobileClientContact:resolveMobileClientContact)(scoped,res,next);
 });
+
+export const postMobileKnownSender=mobile(async(req,res)=>{
+ const id=Number(req.params.id);if(!Number.isSafeInteger(id)||id<=0)throw fail(400,'Choose an email conversation.');
+ const conversation=assertMobileQaConversation(req,await requireConversationAccess({id:req.quickView.userId,role:'provider',mobileDevice:true},id));
+ if(conversation.channel!=='email')throw fail(400,'Choose an email sender.');
+ const [[sender]]=await pool.execute('SELECT email,display_name FROM communication_participants WHERE conversation_id=? ORDER BY is_primary DESC,id LIMIT 1',[id]);
+ if(!sender?.email)throw fail(422,'This email has no sender address to save.');
+ const {default:Contact}=await import('../models/UserCommunicationContact.model.js');
+ const contact=await Contact.upsertSafe({agencyId:conversation.agency_id,ownerUserId:req.quickView.userId,email:sender.email,displayName:sender.display_name || null,source:'mark_known'});
+ if(contact?.trust_status==='blocked')throw fail(409,'This sender is blocked. Review the blocked-contact setting before making them known.');
+ res.json({ok:true,contact:{id:contact.id,email:contact.email,displayName:contact.display_name}});
+});

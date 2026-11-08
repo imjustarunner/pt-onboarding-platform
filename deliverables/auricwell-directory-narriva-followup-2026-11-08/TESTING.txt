@@ -1,0 +1,10 @@
+Local validation — November 8, 2026
+- Mobile/Quick View/guardian/security/message UI regression run: 54 files, 346 tests passed.
+- Narriva workspace regression run: 34 files passed, 2 skipped; 498 tests passed, 44 skipped (opt-in database cases run in CI).
+- Mobile API regression run: 22 files passed, 1 skipped; 133 tests passed, 32 skipped (opt-in real MySQL cases run in CI).
+- Added regressions for generation/sign gating, changed/forged source receipts, required risk after edits, participant/method defaults, directory metadata, known-contact classification, canonical group-ticket unread ownership, category stability, and My Work search/sort.
+- Production web build passed. Native mobile bundle build passed. Existing chunk-size warnings remain.
+- Isolated headless Chrome with synthetic records at 390px and 1366px: source-only initial Narriva state; completed generated/scored review reveals signing; source edit hides signing; no field overlap/overflow; inputs 16px. Directory school/admin/extension/search and dial URI inspected at 390px.
+- No real messages, clinical signatures, phone calls, or enrollment fixture changes performed.
+- Physical iPhone Safari, actual extension dialing, signed iOS archive and TestFlight upload remain manual/not run.
+- Server SQL integration and all release workflows must pass in CI before merge/deployment. Deployed build verification is recorded separately.

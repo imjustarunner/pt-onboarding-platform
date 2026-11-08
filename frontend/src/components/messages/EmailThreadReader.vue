@@ -2,6 +2,7 @@
   <section class="email-reader" :class="{'mobile-email-reader':mobile}" aria-label="Conversation">
     <header>
       <h2>{{ conversation?.subject || '(No subject)' }}</h2>
+      <p v-if="conversation?.is_group_email || conversation?.is_ticketed_group" class="addresses">Groups – {{ conversation.inbox_display_name || conversation.inbox_from_email || 'Group mailbox' }}<template v-if="conversation.inbox_from_email"> · Account: {{ conversation.inbox_from_email }}</template><template v-if="conversation.ticket_status"> · Ticket: {{ conversation.ticket_status }}</template></p>
       <button v-if="mobile" type="button" class="reading-mode" :aria-pressed="compactLayout" @click="compactLayout=!compactLayout">{{ compactLayout?'Reading view':'Original layout' }}</button>
       <div class="actions">
         <button v-if="!isReadOnly" type="button" @click="$emit('compose','reply')">Reply</button>

@@ -1,0 +1,148 @@
+[
+  {
+    "width": 390,
+    "before": {
+      "output": 0,
+      "sign": 0,
+      "checks": 0
+    },
+    "after": {
+      "output": 1,
+      "sign": 1
+    },
+    "sizing": {
+      "width": 390,
+      "overflow": false,
+      "fields": [
+        {
+          "type": "date",
+          "width": 340,
+          "font": "16px",
+          "value": "2026-11-08"
+        },
+        {
+          "type": "select-one",
+          "width": 296,
+          "font": "16px",
+          "value": "90837"
+        },
+        {
+          "type": "time",
+          "width": 340,
+          "font": "16px",
+          "value": "11:00"
+        },
+        {
+          "type": "time",
+          "width": 340,
+          "font": "16px",
+          "value": "12:00"
+        },
+        {
+          "type": "number",
+          "width": 340,
+          "font": "16px",
+          "value": "60"
+        },
+        {
+          "type": "select-one",
+          "width": 340,
+          "font": "16px",
+          "value": "in_person"
+        },
+        {
+          "type": "select-one",
+          "width": 340,
+          "font": "16px",
+          "value": "Client Only"
+        },
+        {
+          "type": "select-one",
+          "width": 340,
+          "font": "16px",
+          "value": "service:8"
+        }
+      ],
+      "overlap": false
+    },
+    "staleSign": 0,
+    "errors": []
+  },
+  {
+    "width": 1366,
+    "before": {
+      "output": 0,
+      "sign": 0,
+      "checks": 0
+    },
+    "after": {
+      "output": 1,
+      "sign": 1
+    },
+    "sizing": {
+      "width": 1366,
+      "overflow": false,
+      "fields": [
+        {
+          "type": "date",
+          "width": 647,
+          "font": "16px",
+          "value": "2026-11-08"
+        },
+        {
+          "type": "select-one",
+          "width": 603,
+          "font": "16px",
+          "value": "90837"
+        },
+        {
+          "type": "time",
+          "width": 647,
+          "font": "16px",
+          "value": "11:00"
+        },
+        {
+          "type": "time",
+          "width": 647,
+          "font": "16px",
+          "value": "12:00"
+        },
+        {
+          "type": "number",
+          "width": 647,
+          "font": "16px",
+          "value": "60"
+        },
+        {
+          "type": "select-one",
+          "width": 647,
+          "font": "16px",
+          "value": "in_person"
+        },
+        {
+          "type": "select-one",
+          "width": 1306,
+          "font": "16px",
+          "value": "Client Only"
+        },
+        {
+          "type": "select-one",
+          "width": 1306,
+          "font": "16px",
+          "value": "service:8"
+        }
+      ],
+      "overlap": false
+    },
+    "staleSign": 0,
+    "errors": []
+  },
+  {
+    "directory": {
+      "text": "Abby Synthetic · SCHOOL ADMIN Ext. 124\nschool@example.invalid\nFictional School\nMessage",
+      "rows": 1,
+      "dial": "tel:7196577444;ext=124",
+      "overflow": false
+    }
+  }
+]
