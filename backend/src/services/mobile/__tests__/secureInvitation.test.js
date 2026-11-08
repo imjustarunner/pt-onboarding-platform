@@ -2,7 +2,7 @@ import {beforeEach,expect,it,vi} from 'vitest';
 const mocks=vi.hoisted(()=>({execute:vi.fn(),getConnection:vi.fn()}));
 vi.mock('../../../config/database.js',()=>({default:mocks}));
 import {pendingSecureContact,prepareAdultSecureRecipient,reserveSecureDelivery,secureDeliveryReceipt} from '../secureInvitation.service.js';
-const client={id:20,full_name:'Synthetic Adult',date_of_birth:'1990-01-01',contact_email:'adult@example.invalid',guardian_portal_enabled:1};
+const client={id:20,full_name:'Synthetic Adult',date_of_birth:'1990-01-01',contact_email:'adult@example.invalid',contact_phone:'+13035550100',guardian_portal_enabled:1};
 const link={guardian_user_id:30,access_enabled:1,is_active:1,role:'client',status:'PENDING_SETUP',email:'adult@example.invalid',permissions_json:{}};
 const access={reviewRequired:false,scopes:['clinical_messages']};
 beforeEach(()=>vi.resetAllMocks());
@@ -24,9 +24,9 @@ function dbFixture({person=client,links=[],existing=[],independent=null}={}){
   return [{affectedRows:1}];
  })};mocks.getConnection.mockResolvedValue(db);return db;
 }
-it('creates a pending adult self account and never substitutes guardian authority',async()=>{
+it('creates a pending adult self account, preserves the recorded SMS phone, and never substitutes guardian authority',async()=>{
  const db=dbFixture();expect(await prepareAdultSecureRecipient(20,3)).toBe(30);
- expect(db.execute.mock.calls.find(([sql])=>sql.startsWith('INSERT INTO users'))).toEqual([expect.stringContaining("'client','PENDING_SETUP'"),['Synthetic','Adult','adult@example.invalid']]);
+ expect(db.execute.mock.calls.find(([sql])=>sql.startsWith('INSERT INTO users'))).toEqual([expect.stringContaining("'client','PENDING_SETUP'"),['Synthetic','Adult','adult@example.invalid','+13035550100']]);
  expect(db.execute.mock.calls.find(([sql])=>sql.startsWith('INSERT INTO client_guardians'))).toEqual([expect.stringContaining("'self','Self'"),[20,30,JSON.stringify({canMessage:true}),3]]);
  expect(db.commit).toHaveBeenCalledOnce();expect(db.release).toHaveBeenCalledOnce();
 });
