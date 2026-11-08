@@ -74,6 +74,6 @@ it('addresses the invite to the second parent with inviter name, email, and chil
  m.send.mockResolvedValue({sent:true});
  await emailCoGuardianInvite({inviteId:7,agency:{id:2,name:'Example'},to:user.email,firstName:'Jamie',inviteUrl:'https://agency.test/intake/packet?coGuardian=token',clientId:22});
  expect(m.send).toHaveBeenCalledWith(expect.objectContaining({to:user.email,text:expect.stringContaining('Robin Parent (robin@example.test)')}));
- expect(m.send.mock.calls[0][0].text).toContain('child with initials EQ');
+ expect(m.send.mock.calls[0][0].text).toContain('dependent(s) with initials EQ');
  expect(m.send.mock.calls[0][0].text).toContain('will not see the other guardian');
 });
