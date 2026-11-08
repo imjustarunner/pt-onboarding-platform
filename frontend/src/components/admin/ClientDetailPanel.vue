@@ -3886,7 +3886,9 @@ async function loadTenantCatalog(agencyId) {
     const [orgsRes, officesRes, locsRes] = await Promise.all([
       api.get(`/agencies/${aid}/affiliated-organizations`, { skipGlobalLoading: true }),
       api.get('/payroll/office-locations', { params: { agencyId: aid }, skipGlobalLoading: true }).catch(() => null),
-      api.get('/medical-billing/service-locations', { params: { agencyId: aid }, skipGlobalLoading: true }).catch(() => null)
+      canAccessMedicalBilling(authStore.user, aid)
+        ? api.get('/medical-billing/service-locations', { params: { agencyId: aid }, skipGlobalLoading: true }).catch(() => null)
+        : Promise.resolve(null)
     ]);
     affiliatedOrgsByAgencyId.value = {
       ...affiliatedOrgsByAgencyId.value,
@@ -6070,7 +6072,9 @@ async function loadClientBookingDefaultsOptions() {
   try {
     const [officesRes, locsRes] = await Promise.all([
       api.get('/payroll/office-locations', { params: { agencyId }, skipGlobalLoading: true }),
-      api.get('/medical-billing/service-locations', { params: { agencyId }, skipGlobalLoading: true }).catch(() => null)
+      canAccessMedicalBilling(authStore.user, agencyId)
+        ? api.get('/medical-billing/service-locations', { params: { agencyId }, skipGlobalLoading: true }).catch(() => null)
+        : Promise.resolve(null)
     ]);
     clientOfficeOptions.value = Array.isArray(officesRes?.data) ? officesRes.data : (officesRes?.data?.locations || []);
     if (!Array.isArray(clientOfficeOptions.value)) clientOfficeOptions.value = [];
@@ -6407,11 +6411,10 @@ const makePrimaryProvider = async (pa) => {
 
 const fetchProviders = async () => {
   try {
-    const response = await api.get('/users', { skipGlobalLoading: true });
-    const allUsers = response.data || [];
-    availableProviders.value = allUsers.filter(u => 
-      ['provider', 'supervisor', 'admin'].includes(u.role?.toLowerCase())
-    );
+    const agencyId = Number(props.client?.agency_id || selectedAgencyId.value || 0);
+    if (!agencyId) { availableProviders.value = []; return; }
+    const response = await api.get('/provider-scheduling/providers', { params: { agencyId }, skipGlobalLoading: true });
+    availableProviders.value = Array.isArray(response.data) ? response.data : [];
   } catch (err) {
     console.error('Failed to fetch providers:', err);
   }
