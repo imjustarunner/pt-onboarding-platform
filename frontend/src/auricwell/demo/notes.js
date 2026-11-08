@@ -1,5 +1,5 @@
 import { demoClientRecordIds } from './recordIds.js';
-import { narrivaExamples, examplePreviousRatings, exampleReviewInsights } from './narriva.js';
+import { narrivaExamples, examplePreviousRatings, exampleReviewInsights, exampleTreatmentHistory } from './narriva.js';
 // Fictional browser-only examples. These records never reference production IDs.
 export const DEMO_NOTE_NOTICE = 'Demo only: this does not sign or complete a note. Nothing is saved, submitted or sent.';
 export const DEMO_DRAFT_IDS = [990131, 990132, 990133];
@@ -54,7 +54,7 @@ export function createDemoNoteFixtures({ practice, actor, clients, providers = [
     diagnosticJustification: 'Fictional example: symptoms associated with a recent life transition affect coping and daily routines.',
     durationMinutes: 45, locationLabel: 'Telehealth · client at home', startTime: '09:00', endTime: '09:45', participants: 'Client Only', placeOfService: '10', serviceLocationId: 990151
   });
-  const outputFor = (client, index, aiGenerated = false) => {const example=exampleFor(client);if(example){const e=example.encounter;return {sections:Object.fromEntries(example.sections.map(section=>[section.label,section.text])),meta:{toolId:'clinical_psychotherapy_note',serviceCode:e.serviceCode,noteKind:'progress',manualSections:false,aiGenerated:true,exampleOnly:true,source:'prepared_demo',structuredChart:{clientId:client.id,durationMinutes:e.durationMinutes,locationLabel:e.setting,participants:e.participants,placeOfService:e.serviceCode==='90847'?'11':'10'},sessionContext:{sourceTimezone:'America/Denver',locationLabel:e.setting,durationMinutes:e.durationMinutes,participants:e.participants,serviceCode:e.serviceCode,placeOfService:e.serviceCode==='90847'?'11':'10'},prescribedFrequency:'Weekly'}};}return ({
+  const outputFor = (client, index, aiGenerated = false) => {const example=exampleFor(client);if(example){const e=example.encounter;return {sections:Object.fromEntries(example.sections.map(section=>[section.label,section.text])),meta:{toolId:'clinical_psychotherapy_note',serviceCode:e.serviceCode,noteKind:'progress',manualSections:false,aiGenerated:true,exampleOnly:true,source:'prepared_demo',structuredChart:{clientId:client.id,durationMinutes:e.durationMinutes,locationLabel:e.locationDetail,startTime:e.startTimeLocal,endTime:e.endTimeLocal,riskAssessment:{patientDeniesAll:true,notes:e.riskSummary,exampleOnly:true},participants:e.participants,placeOfService:e.serviceCode==='90847'?'11':'10'},sessionContext:{sourceTimezone:'America/Denver',locationLabel:e.locationDetail,durationMinutes:e.durationMinutes,startTimeLocal:e.startTimeLocal,endTimeLocal:e.endTimeLocal,participants:e.participants,serviceCode:e.serviceCode,placeOfService:e.serviceCode==='90847'?'11':'10'},prescribedFrequency:'Weekly'}};}return ({
     sections: index < 8 ? sections(index) : {
       ...sections(index), Subjective: client.session_summary || sections(index).Subjective,
       Interventions: client.intervention_summary || sections(index).Interventions,
@@ -82,7 +82,7 @@ export function createDemoNoteFixtures({ practice, actor, clients, providers = [
       output_json: outputFor(client, index, index === 1)
     };
   });
-  const ratingsFor = client => exampleFor(client)?examplePreviousRatings(exampleFor(client)).filter(row=>row.rater_kind==='clinician').map(row=>({objectiveId:row.objective_id,scaleValue:row.scale_value,raterKind:row.rater_kind,dateOfService:previousDate,disposition:'rated',exampleOnly:true})):[{
+  const ratingsFor = client => exampleFor(client)?examplePreviousRatings(exampleFor(client)).filter(row=>row.rater_kind==='clinician').map(row=>{const goal=exampleFor(client).plan.goals.find(g=>g.objectives.some(o=>o.id===row.objective_id)),objective=goal.objectives.find(o=>o.id===row.objective_id);return {objectiveId:row.objective_id,goalIndex:goal.goal_index,objectiveIndex:objective.objective_index,goalText:goal.goal_text,objectiveText:objective.objective_text,scaleStart:objective.scale_start,scalePrevious:objective.scale_start,scaleValue:row.scale_value,scaleTarget:objective.scale_target,raterKind:row.rater_kind,raterLabel:'Clinical observation',dateOfService:previousDate,disposition:'rated',progressLabel:'unchanged',exampleOnly:true};}):[{
     id: 991000 + Number(client.id), objectiveId: demoClientRecordIds(client.id).objectiveId,
     goalIndex: 1, objectiveIndex: 1, goalText: client.goal || 'Build confidence using coping strategies.',
     objectiveText: client.objective || 'Use a grounding strategy independently when stress increases.',
@@ -175,7 +175,12 @@ export function createDemoNoteFixtures({ practice, actor, clients, providers = [
     if (path === '/clinical-notes/work-queue') return { items: workQueue };
     if (path === '/narriva/preferences') return { defaultMode:'manual', features:{writing:true,compliance:true,quickSign:true,recording:false} };
     const insights=path.match(/^\/narriva\/notes\/(\d+)\/review-insights$/);
-    if(insights){const note=allNotes.find(row=>Number(row.id)===Number(insights[1]));if(!note)throw new Error('That note is outside this fictional demo.');return {insights:exampleReviewInsights(note.id,practice.id,Object.entries(note.output_json.sections).map(([key,text])=>({key,label:key,text})),{status:'available',sessions:allNotes.filter(row=>row.client_id===note.client_id).slice(-5).map(row=>({id:row.clinical_session_id,date:row.date_of_service})),objectives:[],checkins:[],changes:[]})};}
+    if(insights){
+      const note=allNotes.find(row=>Number(row.id)===Number(insights[1]));if(!note)throw new Error('That note is outside this fictional demo.');
+      const client=clients.find(row=>row.id===note.client_id),plan=chartExtras(client.id).latestPlan;
+      const history=exampleTreatmentHistory({example:{plan:plan||{goals:[]}},ratings:ratingsFor(client),lastDate:note.date_of_service});
+      return {insights:exampleReviewInsights(note.id,practice.id,Object.entries(note.output_json.sections).map(([key,text])=>({key,label:key,text})),history)};
+    }
     const service=path.match(/^\/narriva\/sessions\/(\d+)\/service$/);
     if(service){const note=[...drafts,...allNotes].find(row=>Number(row.clinical_session_id)===Number(service[1]));if(!note)throw new Error('That session is outside this fictional demo.');return {session:{id:note.clinical_session_id,serviceCode:note.service_code},serviceCode:note.service_code};}
     const appointment = path.match(/^\/clinical-notes\/drafts\/(\d+)\/appointment$/);

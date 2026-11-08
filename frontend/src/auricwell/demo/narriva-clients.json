@@ -96,7 +96,15 @@
         "time": "10:00–10:50 AM",
         "setting": "In-person office session",
         "participants": "Client and partner",
-        "funding": "Fictional coverage example"
+        "funding": "Fictional coverage example",
+        "timezone": "America/Denver (MST)",
+        "startTimeLocal": "10:00",
+        "endTimeLocal": "10:50",
+        "serviceLabel": "Couples psychotherapy",
+        "locationDetail": "Meadowbrook Therapy · Sample Denver office · Room 204",
+        "providerLocation": "Meadowbrook Therapy · Sample Denver office",
+        "consentSummary": "Both participants confirmed identity and consent to couples services.",
+        "riskSummary": "Safety was assessed. The client denied current suicidal, self-harm and homicidal thoughts; no acute safety concern was identified in this fictional example. Available supports and follow-up were reviewed."
       },
       "sections": [
         {
@@ -224,7 +232,15 @@
         "time": "11:00–11:45 AM",
         "setting": "Telehealth · client at home",
         "participants": "Client only",
-        "funding": "Self-pay relationship-focused illustration"
+        "funding": "Self-pay relationship-focused illustration",
+        "timezone": "America/Denver (MST)",
+        "startTimeLocal": "11:00",
+        "endTimeLocal": "11:45",
+        "serviceLabel": "Individual psychotherapy",
+        "locationDetail": "Telehealth · client at home",
+        "providerLocation": "Provider in a private telehealth office",
+        "consentSummary": "Client identity, home location, privacy and applicable telehealth consent were confirmed.",
+        "riskSummary": "Safety was assessed. The client denied current suicidal, self-harm and homicidal thoughts; no acute safety concern was identified in this fictional example. Available supports and follow-up were reviewed."
       },
       "sections": [
         {
@@ -352,7 +368,15 @@
         "time": "1:00–1:45 PM",
         "setting": "Telehealth · client at home",
         "participants": "Client only",
-        "funding": "Fictional coverage example"
+        "funding": "Fictional coverage example",
+        "timezone": "America/Denver (MST)",
+        "startTimeLocal": "13:00",
+        "endTimeLocal": "13:45",
+        "serviceLabel": "Individual psychotherapy",
+        "locationDetail": "Telehealth · client at home",
+        "providerLocation": "Provider in a private telehealth office",
+        "consentSummary": "Client identity, home location, privacy and applicable telehealth consent were confirmed.",
+        "riskSummary": "Safety was assessed. The client denied current suicidal, self-harm and homicidal thoughts; no acute safety concern was identified in this fictional example. Available supports and follow-up were reviewed."
       },
       "sections": [
         {

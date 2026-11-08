@@ -1,11 +1,11 @@
 <template>
  <section class="nd-output" aria-label="Prepared SOIP note" data-analytics-area="note-editor" data-analytics-ignore>
-  <header><div><span>PREPARED EXAMPLE · EDIT THE DRAFT</span><h3>Review your note, section by section.</h3></div><span>SOIP</span></header>
-  <p class="editor-notice">Fictional demo only. Use Edit to try revising a section. Edits stay in this page and disappear on reset or reload. Use fictional text.</p>
+  <header><div><span>{{ readOnly?'FULL NOTE · READ-ONLY REVIEW':'PREPARED EXAMPLE · EDIT THE DRAFT' }}</span><h3>Review your note, section by section.</h3></div><span>SOIP</span></header>
+  <p class="editor-notice">{{ readOnly?'Full provider note for signature review. Editing is unavailable in this review view. All content and signatures are fictional.':'Fictional demo only. Use Edit to try revising a section. Edits stay in this page and disappear on reset or reload. Use fictional text.' }}</p>
   <div class="na-soap-list">
    <article v-for="section in sections" :key="section.key" class="na-soap-card">
-    <div class="na-soap-header"><button type="button" class="na-soap-title-btn" :aria-expanded="!collapsed[section.key]" @click="collapsed[section.key]=!collapsed[section.key]"><span class="na-soap-title"><span class="na-soap-letter">{{ section.label[0] }}</span>{{ section.label }}</span><span aria-hidden="true">{{ collapsed[section.key]?'▸':'▾' }}</span></button><button type="button" class="na-mini-btn" :aria-label="`${editing[section.key]?'Done editing':'Edit'} ${section.label}`" @click="toggle(section.key)">{{ editing[section.key]?'Done':'Edit' }}</button></div>
-    <div v-show="!collapsed[section.key]" class="na-soap-body"><textarea v-if="editing[section.key]" :value="section.text" :aria-label="`Edit ${section.label}`" class="na-textarea" rows="8" maxlength="10000" @input="$emit('edit',{key:section.key,text:$event.target.value})"/><p v-else>{{ section.text }}</p></div>
+    <div class="na-soap-header"><button type="button" class="na-soap-title-btn" :aria-expanded="!collapsed[section.key]" @click="collapsed[section.key]=!collapsed[section.key]"><span class="na-soap-title"><span class="na-soap-letter">{{ section.label[0] }}</span>{{ section.label }}</span><span aria-hidden="true">{{ collapsed[section.key]?'▸':'▾' }}</span></button><button v-if="!readOnly" type="button" class="na-mini-btn" :aria-label="`${editing[section.key]?'Done editing':'Edit'} ${section.label}`" @click="toggle(section.key)">{{ editing[section.key]?'Done':'Edit' }}</button></div>
+    <div v-show="!collapsed[section.key]" class="na-soap-body"><textarea v-if="editing[section.key]&&!readOnly" :value="section.text" :aria-label="`Edit ${section.label}`" class="na-textarea" rows="8" maxlength="10000" @input="$emit('edit',{key:section.key,text:$event.target.value})"/><p v-else>{{ section.text }}</p></div>
    </article>
   </div>
  </section>
@@ -14,7 +14,7 @@
 import {reactive} from 'vue';
 // Match the real Note Workspace's SOIP cards, collapse controls, Edit/Done
 // interaction and native textarea. Only the caller's browser state is changed.
-defineProps({sections:{type:Array,required:true}});defineEmits(['edit']);
+defineProps({sections:{type:Array,required:true},readOnly:Boolean});defineEmits(['edit']);
 const editing=reactive({}),collapsed=reactive({});
 function toggle(key){editing[key]=!editing[key];collapsed[key]=false;}
 </script>

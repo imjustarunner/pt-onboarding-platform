@@ -162,3 +162,5 @@ describe('client chart history navigation', () => {
     expect(demoResponse(`/medical-billing/notes/${historyId}`).note.clientName).toBe(name);
   });
 });
+
+it('seeds five-visit treatment histories for retained notes using each client’s own plan',()=>{for(const noteId of [990171,990181,991171]){const result=demoResponse(`/narriva/notes/${noteId}/review-insights`);expect(result.insights.treatmentHistory.sessions).toHaveLength(5);expect(result.insights.treatmentHistory.objectives.length).toBeGreaterThan(0);for(const objective of result.insights.treatmentHistory.objectives)expect(objective.points).toHaveLength(5);}const note=demoResponse('/medical-billing/notes/990171').note;expect(note.structuredChart.riskAssessment.patientDeniesAll).toBe(true);expect(note.structuredChart.startTime).toBe('10:00');expect(note.structuredChart.endTime).toBe('10:50');});
