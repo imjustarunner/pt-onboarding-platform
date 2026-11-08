@@ -1,3 +1,4 @@
+import {mobileAgencyIcon} from './agencyBrand.service.js';
 import pool from '../../config/database.js';
 import {publicUploadsUrlFromStoredPath} from '../../utils/uploads.js';
 
@@ -47,7 +48,7 @@ export function mobileThreadItem(thread,userId) {
   const title=(category==='direct'?names.join(', ') || name(thread.other_participant):thread.channel_name || (['Group chat','Shared care','Personal portal'].includes(thread.thread_label)?null:thread.thread_label) || names.join(', ')) || (secure?'Secure conversation':category==='direct'?'Direct conversation':'Team discussion');
   const author=parts.find(p=>Number(p.id)===Number(thread.last_message?.sender_user_id));
   const sender=Number(thread.last_message?.sender_user_id)===Number(userId)?'You':name(author) || title;
-  return {key:`chat:${thread.thread_id}`,agencyId:Number(thread.agency_id),agencyName:thread.agency_name || null,id:Number(thread.thread_id),kind:'chat',category,title:secure?maskMobileName(title):title,sender:secure?maskMobileName(sender):sender,preview:secure?'Secure message · tap to unlock':mobileMessagePreview(thread.last_message?.body,thread.last_message?.attachment_count),at:thread.last_message?.created_at || null,unread:Number(thread.unread_count)>0,unreadCount:Number(thread.unread_count)||0,needsReply:!!thread.last_message?.sender_user_id && Number(thread.last_message.sender_user_id)!==Number(userId),avatar:secure?null:publicUploadsUrlFromStoredPath((category==='direct'?parts[0]:author)?.profile_photo_url || (category==='direct'?parts[0]:author)?.profile_photo_path || thread.other_participant?.profile_photo_url || thread.other_participant?.profile_photo_path),lastReadMessageId:Number(thread.last_read_message_id)||0,participantCount:parts.length+1,secure};
+  return {key:`chat:${thread.thread_id}`,agencyId:Number(thread.agency_id),agencyName:thread.agency_name || null,agencyLogoUrl:mobileAgencyIcon({name:thread.agency_name,slug:thread.agency_slug,logo_path:thread.agency_logo_path}),id:Number(thread.thread_id),kind:'chat',category,title:secure?maskMobileName(title):title,sender:secure?maskMobileName(sender):sender,preview:secure?'Secure message · tap to unlock':mobileMessagePreview(thread.last_message?.body,thread.last_message?.attachment_count),at:thread.last_message?.created_at || null,unread:Number(thread.unread_count)>0,unreadCount:Number(thread.unread_count)||0,needsReply:!!thread.last_message?.sender_user_id && Number(thread.last_message.sender_user_id)!==Number(userId),avatar:secure?null:publicUploadsUrlFromStoredPath((category==='direct'?parts[0]:author)?.profile_photo_url || (category==='direct'?parts[0]:author)?.profile_photo_path || thread.other_participant?.profile_photo_url || thread.other_participant?.profile_photo_path),hasSent:!!thread.has_sent,lastReadMessageId:Number(thread.last_read_message_id)||0,participantCount:parts.length+1,secure};
 }
 // Preserve the personal mailbox and active-tenant checks used by Quick View.
 export const MOBILE_EMAIL_ACCESS_SQL = `EXISTS (SELECT 1 FROM user_agencies member JOIN agencies active_agency ON active_agency.id=member.agency_id AND active_agency.is_active=1 AND COALESCE(active_agency.is_archived,0)=0 WHERE member.user_id=? AND member.agency_id=c.agency_id AND COALESCE(member.is_active,1)=1)
@@ -105,32 +106,33 @@ export function createMobileConversaStore(db=pool,{listAgencies=null,groupAccess
     if(scope.groupAddresses?.length){const addresses=scope.groupAddresses.map(email=>`CONVERT(0x${Buffer.from(email,'utf8').toString('hex')} USING utf8mb4) COLLATE utf8mb4_unicode_ci`).join(',');clauses.push(`EXISTS(SELECT 1 FROM communication_participants member_group WHERE member_group.conversation_id=c.id AND ${emailAddressSql('member_group.email')} IN(${addresses}))`);}
     return clauses.length?'('+clauses.join(' OR ')+')':'0';
   }
+  const sentSql=userId=>`EXISTS(SELECT 1 FROM communication_messages outbound WHERE outbound.conversation_id=c.id AND outbound.direction='outbound' AND COALESCE(outbound.is_internal_note,0)=0 AND COALESCE(outbound.send_status,'sent')='sent' AND outbound.author_user_id=${Number(userId)})`;
   async function emails(userId,{includeArchived=false,beforeAt=null,beforeKey=null,suite='all',filter='all',agencyId=null}={}) {
     const scope=await emailScope(userId,includeArchived,agencyId);
     const [rows]=await db.execute(`SELECT c.id,c.agency_id,c.inbox_id,${groupSql(scope)} AS is_group,c.channel,c.subject,c.status,c.last_message_preview,COALESCE(c.last_message_at,c.created_at) AS sort_at,
-      COALESCE(archive.archived_at,c.archived_at) AS archived_at,${unreadSql} AS is_unread,${unknownSql} AS is_unknown_sender,
+      COALESCE(archive.archived_at,c.archived_at) AS archived_at,${unreadSql} AS is_unread,${sentSql(userId)} AS has_sent,${unknownSql} AS is_unknown_sender,
       (SELECT p.display_name FROM communication_participants p WHERE p.conversation_id=c.id ORDER BY p.is_primary DESC,p.id LIMIT 1) AS sender_name,
       ${senderAddress} AS sender_email,
       (SELECT m.from_json FROM communication_messages m WHERE m.conversation_id=c.id AND COALESCE(m.is_internal_note,0)=0 AND COALESCE(m.send_status,'sent') NOT IN('cancelled','preparing') ORDER BY m.id DESC LIMIT 1) AS latest_from
       FROM communication_conversations c LEFT JOIN communication_conversation_reads r ON r.conversation_id=c.id AND r.user_id=?
       LEFT JOIN mobile_message_archives archive ON archive.user_id=? AND archive.source_kind=c.channel AND archive.source_id=c.id
-      WHERE ${scope.where} ${suite==='groups'?`AND ${groupSql(scope)}`:['email','sms'].includes(suite)?`AND c.channel='${suite}' AND NOT ${unknownSql} AND NOT ${groupSql(scope)}`:suite==='unknown'?`AND ${unknownSql}`:''} ${filter==='unread'?`AND ${unreadSql}`:filter==='needs'?"AND c.status IN('new','needs_reply')":''} ${beforeAt?(beforeKey?"AND (COALESCE(c.last_message_at,c.created_at)<? OR (COALESCE(c.last_message_at,c.created_at)=? AND CONCAT(c.channel,':',LPAD(c.id,20,'0'))<?))":'AND COALESCE(c.last_message_at,c.created_at)<=?'):''}
+      WHERE ${scope.where} ${suite==='groups'?`AND ${groupSql(scope)}`:['email','sms'].includes(suite)?`AND c.channel='${suite}' AND NOT ${unknownSql} AND NOT ${groupSql(scope)}`:suite==='unknown'?`AND ${unknownSql}`:''} ${filter==='unread'?`AND ${unreadSql}`:filter==='needs'?"AND c.status IN('new','needs_reply')":filter==='sent'?`AND ${sentSql(userId)}`:''} ${beforeAt?(beforeKey?"AND (COALESCE(c.last_message_at,c.created_at)<? OR (COALESCE(c.last_message_at,c.created_at)=? AND CONCAT(c.channel,':',LPAD(c.id,20,'0'))<?))":'AND COALESCE(c.last_message_at,c.created_at)<=?'):''}
       ORDER BY COALESCE(c.last_message_at,c.created_at) DESC,c.channel DESC,c.id DESC LIMIT 101`,[userId,userId,...scope.params,...(beforeAt?(beforeKey?[new Date(beforeAt),new Date(beforeAt),beforeKey]:[new Date(beforeAt)]):[])]);
     return rows.map(r=>{
       let from=r.latest_from || {};if(typeof from==='string')try{from=JSON.parse(from);}catch{from={};}
-      return {key:`${r.channel}:${r.id}`,kind:r.channel,category:Number(r.is_group)?'groups':r.channel,agencyId:Number(r.agency_id),id:Number(r.id),title:r.subject || '(No subject)',sender:from.name || r.sender_name || from.email || r.sender_email || 'Sender',senderEmail:from.email || r.sender_email,preview:r.last_message_preview || '',at:r.sort_at,archived:!!r.archived_at,unread:!!Number(r.is_unread),unreadCount:r.is_unread?1:0,needsReply:['new','needs_reply'].includes(r.status),unknown:!Number(r.is_group) && !!Number(r.is_unknown_sender)};
+      return {key:`${r.channel}:${r.id}`,kind:r.channel,category:Number(r.is_group)?'groups':r.channel,agencyId:Number(r.agency_id),id:Number(r.id),title:r.subject || '(No subject)',sender:from.name || r.sender_name || from.email || r.sender_email || 'Sender',senderEmail:from.email || r.sender_email,preview:r.last_message_preview || '',at:r.sort_at,archived:!!r.archived_at,unread:!!Number(r.is_unread),unreadCount:r.is_unread?1:0,hasSent:!!Number(r.has_sent),needsReply:['new','needs_reply'].includes(r.status),unknown:!Number(r.is_group) && !!Number(r.is_unknown_sender)};
     });
   }
   async function emailCounts(userId,includeArchived=false,agencyId=null) {
     const scope=await emailScope(userId,includeArchived,agencyId);
-    const [rows]=await db.execute(`SELECT c.channel,${groupSql(scope)} AS is_group,${unknownSql} AS effective_unknown,COUNT(*) AS total,SUM(${unreadSql}) AS unread,SUM(c.status IN('new','needs_reply')) AS needs FROM communication_conversations c
+    const [rows]=await db.execute(`SELECT c.channel,${groupSql(scope)} AS is_group,${unknownSql} AS effective_unknown,COUNT(*) AS total,SUM(${unreadSql}) AS unread,SUM(c.status IN('new','needs_reply')) AS needs,SUM(${sentSql(userId)}) AS sent FROM communication_conversations c
       LEFT JOIN communication_conversation_reads r ON r.conversation_id=c.id AND r.user_id=?
       LEFT JOIN mobile_message_archives archive ON archive.user_id=? AND archive.source_kind=c.channel AND archive.source_id=c.id
       WHERE ${scope.where} GROUP BY c.channel,is_group,effective_unknown`,[userId,userId,...scope.params]);
-    return rows.map(r=>({category:Number(r.is_group)?'groups':r.channel,unknown:!!Number(r.effective_unknown),total:Number(r.total),unread:Number(r.unread)||0,needs:Number(r.needs)||0}));
+    return rows.map(r=>({category:Number(r.is_group)?'groups':r.channel,unknown:!!Number(r.effective_unknown),total:Number(r.total),unread:Number(r.unread)||0,needs:Number(r.needs)||0,sent:Number(r.sent)||0}));
   }
   async function extraCounts(userId,threadIds) {
-    const result=Object.fromEntries(['threads','mentions','files'].map(key=>[key,{total:0,unread:0,needs:0}]));if(!threadIds.length)return result;
+    const result=Object.fromEntries(['threads','mentions','files'].map(key=>[key,{total:0,unread:0,needs:0,sent:0}]));if(!threadIds.length)return result;
     const placeholders=threadIds.map(()=>'?').join(',');
     const unread=`(m.sender_user_id<>? AND (r.last_read_message_id IS NULL OR m.id>r.last_read_message_id) AND NOT EXISTS(SELECT 1 FROM chat_message_views v WHERE v.message_id=m.id AND v.user_id=?))`;
     for(const kind of ['threads','mentions','files']){
@@ -142,8 +144,8 @@ export function createMobileConversaStore(db=pool,{listAgencies=null,groupAccess
         join='JOIN chat_message_mentions mention ON mention.message_id=m.id';where='AND mention.mentioned_user_id=?';whereParams=[userId];
       }else{join='JOIN chat_message_attachments file ON file.message_id=m.id';target='file.id';}
       const needs=kind==='files'?'0':kind==='threads'?`COUNT(DISTINCT CASE WHEN m.sender_user_id<>? AND m.id=(SELECT MAX(latest.id) FROM chat_messages latest WHERE latest.parent_message_id=m.parent_message_id AND NOT EXISTS(SELECT 1 FROM chat_message_deletes d WHERE d.message_id=latest.id AND d.user_id=?)) THEN root.id END)`:`COUNT(DISTINCT CASE WHEN ${unread} THEN ${target} END)`;
-      const [[row]]=await db.execute(`SELECT COUNT(DISTINCT ${target}) AS total,COUNT(DISTINCT CASE WHEN ${unread} THEN ${target} END) AS unread,${needs} AS needs FROM chat_messages m ${join} LEFT JOIN chat_thread_reads r ON r.thread_id=m.thread_id AND r.user_id=? WHERE m.thread_id IN(${placeholders}) AND NOT EXISTS(SELECT 1 FROM chat_message_deletes d WHERE d.message_id=m.id AND d.user_id=?) ${where}`,[userId,userId,...(kind==='files'?[]:[userId,userId]),userId,...threadIds,userId,...whereParams]);
-      result[kind]={total:Number(row.total)||0,unread:Number(row.unread)||0,needs:Number(row.needs)||0};
+      const [[row]]=await db.execute(`SELECT COUNT(DISTINCT ${target}) AS total,COUNT(DISTINCT CASE WHEN ${unread} THEN ${target} END) AS unread,${needs} AS needs,COUNT(DISTINCT CASE WHEN (m.sender_user_id=${Number(userId)}${kind==='threads'?` OR root.sender_user_id=${Number(userId)}`:''}) THEN ${target} END) AS sent FROM chat_messages m ${join} LEFT JOIN chat_thread_reads r ON r.thread_id=m.thread_id AND r.user_id=? WHERE m.thread_id IN(${placeholders}) AND NOT EXISTS(SELECT 1 FROM chat_message_deletes d WHERE d.message_id=m.id AND d.user_id=?) ${where}`,[userId,userId,...(kind==='files'?[]:[userId,userId]),userId,...threadIds,userId,...whereParams]);
+      result[kind]={total:Number(row.total)||0,unread:Number(row.unread)||0,needs:Number(row.needs)||0,sent:Number(row.sent)||0};
     }
     return result;
   }

@@ -13,7 +13,7 @@ beforeEach(()=>{
  vi.resetAllMocks();m.agency.mockResolvedValue({id:2,name:'ITSCO',slug:'itsco'});m.settings.mockResolvedValue({secureClientMessageEmailEnabled:true});
  m.execute.mockImplementation(async sql=>sql.includes('SELECT id, LOWER')?[[{id:2240,client_type:'clinical'}]]:[{insertId:12,affectedRows:1}]);
  m.context.mockResolvedValue({clinical:true,domain:'itsco.health',brand:{replyTo:'support@itsco.health'},url:path=>'https://auricwell.com/itsco/'+path});
- m.user.mockResolvedValue({id:1411,first_name:'Demo',password_hash:'set'});m.send.mockResolvedValue({id:'gmail-id',communicationId:8});
+ m.user.mockResolvedValue({id:1411,role:'client_guardian',first_name:'Demo',password_hash:'set'});m.send.mockResolvedValue({id:'gmail-id',communicationId:8});
 });
 it('sends a content-free Conversa alert within AuricWell through the standard portal sender',async()=>{
  const result=await sendSecureMessageNotification(input);expect(result.sent).toBe(true);
@@ -31,8 +31,8 @@ it('honors the agency alert switch and never records a held email as sent',async
 it('keeps claim login on AuricWell and preserves an already-issued setup link',async()=>{
  const row={agency_id:2,client_id:2240,recipient_user_id:1411,chat_thread_id:44};
  expect((await buildSecureClaimRedirect(row)).loginUrl).toMatch(/^https:\/\/auricwell.com\/itsco\/login\?/);
- m.user.mockResolvedValue({id:1411,passwordless_token:'existing-setup',passwordless_token_purpose:'setup',passwordless_token_expires_at:new Date(Date.now()+86400000)});
- const result=await buildSecureClaimRedirect(row);expect(result.setupUrl).toContain('/itsco/new_account/existing-setup');expect(result.targetPath).toContain('threadId=44');expect(m.setup).not.toHaveBeenCalled();
+ m.user.mockResolvedValue({id:1411,role:'client_guardian',passwordless_token:'existing-setup',passwordless_token_purpose:'setup',passwordless_token_expires_at:new Date(Date.now()+86400000)});
+ const result=await buildSecureClaimRedirect(row);expect(result.setupUrl).toContain('/itsco/new_account/existing-setup');expect(result.targetPath).toBe('/itsco/guardian?panel=family_messages&familyThreadId=44');expect(m.setup).not.toHaveBeenCalled();
 });
 
 it('resolves a message recipient through active guardian/self links without a nonexistent client user column',async()=>{
@@ -42,13 +42,13 @@ it('resolves a message recipient through active guardian/self links without a no
  m.execute.mockResolvedValue([[]]);expect(await resolveClientContextForMessageNotify({agencyId:2,recipientUserId:1411})).toEqual({clientId:null,clientType:null});
 });
 
-it('tells a guardian a message was posted to their dependent account without attributing it to the provider',async()=>{
+it('tells a guardian a message was posted to their dependent account with the provider and agency named',async()=>{
  const execute=m.execute.getMockImplementation();
  m.execute.mockImplementation(async(sql,...params)=>sql.includes('SELECT relationship_type')?[[{relationship_type:'guardian'}]]:execute(sql,...params));
  await sendSecureMessageNotification({...input,senderUserId:1412});
  const sent=m.send.mock.calls[0][0];expect(sent.text).toContain("A new message has been posted to your dependent's account.");
  expect(sent.text).toContain('Please sign in to AuricWell to read this message and reply.');
- expect(sent.text).not.toContain('ITSCO sent you');expect(sent.text).not.toContain('1412');
+ expect(sent.text).toContain('Demo at ITSCO sent you a secure message');expect(sent.text).not.toContain('1412');
 });
 it('does not call an adult self account a dependent',async()=>{
  const execute=m.execute.getMockImplementation();
@@ -67,4 +67,17 @@ it('keeps ordinary tutoring message links in the NLU parent portal and does not 
  expect(mail.text).toContain('https://app.nextleveluplcc.com/guardian?panel=messages');expect(mail.text).toContain('threadId=44');expect(mail.text).not.toContain('auricwell');
  sendNotificationEmail.mockResolvedValue({id:'held',pendingApproval:true});
  expect(await sendLearningClientMessageEmail(input)).toMatchObject({sent:false});
+});
+
+it('uses the issued setup token value and the existing family message view for first access',async()=>{
+ m.user.mockResolvedValue({id:1411,role:'client',password_hash:null});m.setup.mockResolvedValue({token:'new-setup-token',expiresAt:new Date(Date.now()+86400000)});
+ const result=await buildSecureClaimRedirect({agency_id:2,client_id:2240,recipient_user_id:1411,chat_thread_id:44});
+ expect(result.setupUrl).toContain('/new_account/new-setup-token?');expect(result.setupUrl).not.toContain('object');expect(result.targetPath).toBe('/itsco/guardian?panel=family_messages&familyThreadId=44');expect(m.setup).toHaveBeenCalledWith(1411,48,'setup');
+});
+it('names the provider and agency while keeping the message entirely in the portal',async()=>{
+ m.user.mockResolvedValue({id:1001,first_name:'Synthetic',last_name:'Provider'});await sendSecureMessageNotification(input);const sent=m.send.mock.calls[0][0];expect(sent.text).toContain('Synthetic Provider at ITSCO sent you a secure message');expect(sent.text).toContain('does not include its contents');
+});
+
+it('retains staff message routing for a staff recipient of a client conversation',async()=>{
+ m.user.mockResolvedValue({id:1001,role:'provider',password_hash:'set'});const result=await buildSecureClaimRedirect({agency_id:2,client_id:2240,recipient_user_id:1001,chat_thread_id:44});expect(result.targetPath).toBe('/itsco/messages?view=workspace&threadId=44&secure=1');
 });

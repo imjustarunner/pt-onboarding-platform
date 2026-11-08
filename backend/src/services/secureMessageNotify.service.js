@@ -215,7 +215,7 @@ export async function sendSecureMessageNotification({
 }) {
   const settings = await getAgencyEmailSettings(agencyId);
   if (!settings.secureClientMessageEmailEnabled) {
-    return { sent: false, reason: 'disabled' };
+    return { sent: false, reason: 'disabled',deliveryStatus:'disabled' };
   }
 
   const ctx = await resolveClientContextForMessageNotify({
@@ -301,7 +301,7 @@ export async function sendSecureMessageNotification({
   };
   const sendResult = portalContext ? await sendClientPortalEmail({
     ...delivery,agencyId,context:portalContext,
-    ...buildSecureMessageEmail({agencyName:tenant,clinical:portalContext.clinical,url:claimUrl,forDependent})
+    ...buildSecureMessageEmail({agencyName:tenant,clinical:portalContext.clinical,url:claimUrl,forDependent,senderName})
   }) : await sendEmailFromIdentity({
     senderIdentityId: mailboxes.fromIdentity.id,
     to: email,
@@ -329,6 +329,7 @@ export async function sendSecureMessageNotification({
     userId: senderUserId, eventType: sent ? 'notification_sent' : 'notification_pending' });
   return {
     sent,
+    deliveryStatus:sent?'sent':sendResult?.queued?'queued':sendResult?.blocked?'blocked':sendResult?.pendingApproval?'pending_approval':'unknown',
     id: ins.insertId,
     claimUrl,
     deepPath,
@@ -395,9 +396,10 @@ export async function buildSecureClaimRedirect(row) {
     recipient = u?.[0] || null;
   }
 
-  const targetPath = row.chat_thread_id
-    ? `${portalPrefix}/messages?view=workspace&threadId=${row.chat_thread_id}&secure=1`
-    : `${portalPrefix}/messages?secure=1`;
+  const familyRecipient=['client','client_guardian','guardian'].includes(String(recipient?.role || '').toLowerCase());
+  const targetPath = row.client_id && familyRecipient
+    ? `${portalPrefix}/guardian?panel=family_messages${row.chat_thread_id?`&familyThreadId=${Number(row.chat_thread_id)}`:''}`
+    : (row.chat_thread_id?`${portalPrefix}/messages?view=workspace&threadId=${row.chat_thread_id}&secure=1`:`${portalPrefix}/messages?secure=1`);
 
   const needsSetup = !recipient?.password_hash;
   if (!recipient) {
@@ -409,11 +411,11 @@ export async function buildSecureClaimRedirect(row) {
   }
   if (needsSetup) {
     // Issue setup token
-    const token = recipient.passwordless_token && recipient.passwordless_token_purpose==='setup' && new Date(recipient.passwordless_token_expires_at).getTime()>Date.now()
+    const issued = recipient.passwordless_token && recipient.passwordless_token_purpose==='setup' && new Date(recipient.passwordless_token_expires_at).getTime()>Date.now()
       ? recipient.passwordless_token : await User.generatePasswordlessToken(recipient.id, 48, 'setup');
     return {
       mode: 'setup',
-      setupUrl: `${baseUrl}${portalPrefix}/new_account/${encodeURIComponent(token)}?redirect=${encodeURIComponent(targetPath)}`,
+      setupUrl: `${baseUrl}${portalPrefix}/new_account/${encodeURIComponent(typeof issued==='string'?issued:issued.token)}?redirect=${encodeURIComponent(targetPath)}`,
       targetPath,
       userId: recipient.id
     };

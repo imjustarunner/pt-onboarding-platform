@@ -1,0 +1,25 @@
+AURICWELL MOBILE MESSAGING — NOVEMBER 8, 2026
+
+Implemented for the shared web/mobile interface:
+- 16px mobile form fields; opening Direct focuses the Close button rather than a keyboard field. Pinch zoom remains available.
+- Agency marks below staff photos and in place of client initials; ITSCO, Inner Strength and Next Level Up compact marks use public HTTPS URLs for native-app compatibility.
+- Sent filter: conversations with a successfully sent message authored by this account, including a prior reply when the newest message is inbound. Failed/internal email messages are excluded.
+- Drafts beside Needs reply in the scrolling filter row. Existing saved email drafts and current in-memory chat drafts retain their original context; this does not add server-saved chat drafts.
+- Category scroll retained across refresh/Back; selected category revealed on return; fixed count space remains during loading.
+- Available and joined channels in Channels/All, plus search and Unread filtering. Channel membership and posting permissions still apply.
+- Secure/Text client picker paginates the authorized, assigned roster across agencies rather than stopping at 20. Ineligible secure contacts show an access-review reason.
+- Eligible pending portal contacts have explicit Send & invite. A new adult self identity requires stored DOB, a unique email and no existing relationships/account collision. Existing/revoked relationships, minors' personal access and clinical restrictions use the established portal-authority review.
+- Secure message storage uses existing encrypted chat/chart audit. An idempotent send receipt is linked in that message transaction. Unknown delivery and retries do not automatically resend. Invitation emails name the sender and agency, contain no narrative, honor delivery settings and use the established DOB-protected setup.
+- Secure claim links return to the existing family portal's message view; newly issued setup token objects are handled correctly.
+- Read status and badges update immediately; failure restores state; notices expire after 4.5 seconds.
+
+Validation:
+- API/mobile service tests, shared clinical/permission tests, mobile/Quick View/family UI suite and authentication suite executed. Local counts: API 131 passed / 30 skipped; clinical 492 passed / 44 skipped; interface 334 passed; authentication 104 passed. Release CI separately runs opt-in MySQL fixtures.
+- Full web build and bundled mobile build passed.
+- Synthetic Chrome browser checks at 390px and 1366px: no horizontal overflow, no keyboard autofocus, 16px picker/composer, scale 1, centered 18px agency mark, no page errors.
+- Browser emulation is not a physical iPhone keyboard/Face ID/backgrounding test. No production clinical messages or invitations were sent during validation.
+- Opt-in MySQL tests are run by release CI, including Sent queries, deleted-message rules and concurrent invitation-request deduplication. Locally skipped database/device tests are not passes.
+
+Fresh signed iOS build:
+From frontend: npm run cap:auricwell:sync, then npm run cap:auricwell:open.
+Use the existing AuricWell signing/team configuration in Xcode. Increment the build number, Archive and upload to App Store Connect; assign the processed build to the existing TestFlight testers. Native signing/upload and physical-device validation remain device/developer steps; the bundled build check does not upload a TestFlight build.

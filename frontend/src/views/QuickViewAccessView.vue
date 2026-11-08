@@ -584,7 +584,7 @@
         </div>
         <template v-if="contactSuite === 'providers' || contactSuite === 'school'">
           <div v-for="p in directoryPeople" :key="`${p.agencyId || sessionAgencyId}:${p.id}`" class="qv-row qv-contact-row">
-            <img v-if="p.profilePhotoUrl" :src="p.profilePhotoUrl" alt="" class="qv-avatar" />
+            <MobileIdentityAvatar v-if="isMobile" :photo="p.profilePhotoUrl" :agency-icon="p.agencyLogoUrl" :name="p.displayName"/><img v-else-if="p.profilePhotoUrl" :src="p.profilePhotoUrl" alt="" class="qv-avatar" />
             <div v-else class="qv-avatar qv-avatar-fallback">{{ contactInitials(p) }}</div>
             <div class="meta">
               <strong>{{ p.displayName }}</strong>
@@ -798,6 +798,7 @@
 import {backInMobile,trackMobileNavigation} from '../mobile/mobileNavigation.js';
 import {mobileLinkTarget} from '../mobile/mobileLinks.js';
 const EmailComposerView=defineAsyncComponent(()=>import('./EmailComposerView.vue'));
+import MobileIdentityAvatar from '../mobile/MobileIdentityAvatar.vue';
 import MobileMessages from '../mobile/MobileMessages.vue';
 import QuickTaskExtras from '../components/quickView/QuickTaskExtras.vue';
 import MobilePreferences from '../mobile/MobilePreferences.vue';
@@ -2967,3 +2968,5 @@ button.qv-row:hover { background: #f8faff; }
 <style scoped>
 .qv-work-heading{padding:12px 0!important;margin-bottom:8px!important}.qv-work-heading h1{font-size:24px!important;margin:0!important}.qv-work-heading .qv-eyebrow,.qv-work-heading .qv-page-description{display:none}.qv-mobile-composer{overflow-y:auto;padding:0!important;align-items:flex-start!important}.qv-mobile-composer :deep(.email-composer){width:100%;box-sizing:border-box;min-height:100dvh;padding:20px 16px;padding-bottom:max(20px,env(safe-area-inset-bottom))}
 </style>
+
+<style>@media(max-width:760px){.qv-mobile :is(input:not([type=checkbox]):not([type=radio]),textarea,select),.qv-mobile-composer :is(input,textarea,select),.mm-recipient-overlay :is(input,textarea,select){font-size:16px!important}}</style>

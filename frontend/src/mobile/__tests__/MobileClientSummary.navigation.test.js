@@ -43,3 +43,11 @@ it('ignores an old send failure after a session change while the new contact req
 it('does not emit a conversation after leaving the client summary',async()=>{
  const opening=deferred();api.post.mockReturnValue(opening.promise);await start();await button('♙ Secure message').trigger('click');wrapper.unmount();opening.resolve({data:{threadId:88}});await flushPromises();expect(wrapper.emitted('contact')).toBeUndefined();
 });
+
+it('keeps a pending secure invitation in the protected profile and sends only after confirmation',async()=>{
+ api.get.mockResolvedValue({data:{client:{maskedName:'Syn* Cli*',age:14},contacts:[{...person,secureInvitation:true}]}});
+ api.post.mockResolvedValueOnce({data:{requiresInvitation:true}}).mockResolvedValueOnce({data:{ok:true,threadId:88,messageId:90,deliveryStatus:'queued'}});
+ await start();await button('♙ Secure message & invite').trigger('click');await flushPromises();expect(wrapper.emitted('contact')).toBeUndefined();expect(wrapper.text()).toContain('verify the client’s birth date');
+ await wrapper.get('textarea').setValue('Synthetic private text');await wrapper.get('form').trigger('submit');await flushPromises();
+ expect(api.post.mock.calls[1][1]).toMatchObject({recipientKey:'guardian:9',channel:'secure',invite:true,requestKey:expect.any(String)});expect(wrapper.text()).toContain('Portal invitation: queued');
+});

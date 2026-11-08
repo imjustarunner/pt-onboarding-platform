@@ -1,3 +1,4 @@
+import {mobileAgencyIcon} from '../services/mobile/agencyBrand.service.js';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import {assertThreadAccess,markRead,markUnread} from './chat.controller.js';
@@ -30,9 +31,9 @@ function parseCursor(value) {
   if(!value)return null;
   try{const c=JSON.parse(Buffer.from(String(value),'base64url').toString());if(!Number.isFinite(new Date(c.at).getTime()) || !/^(chat|email|sms|threads|mentions|files):\d+$/.test(c.key))throw 0;return c;}catch{throw fail(400,'Invalid inbox cursor.');}
 }
-function countsFor(items) {return {total:items.length,unread:items.filter(i=>i.unread).length,needs:items.filter(i=>i.needsReply).length};}
+function countsFor(items) {return {total:items.length,unread:items.filter(i=>i.unread).length,needs:items.filter(i=>i.needsReply).length,sent:items.filter(i=>i.hasSent).length};}
 const sortKey=item=>{const [kind,id]=String(item.key).split(':');return `${kind}:${String(id).padStart(20,'0')}`;};
-const matches=(item,filter)=>filter==='unread'?item.unread:filter==='needs'?item.needsReply:true;
+const matches=(item,filter)=>filter==='unread'?item.unread:filter==='needs'?item.needsReply:filter==='sent'?item.hasSent:true;
 export const getMobileInbox=mobile(async(req,res)=>{
   const userId=req.quickView.userId,includeArchived=req.query.includeArchived==='1',cursor=parseCursor(req.query.cursor);
   const suite=String(req.query.suite || 'all'),filter=String(req.query.filter || 'all');
@@ -44,16 +45,16 @@ export const getMobileInbox=mobile(async(req,res)=>{
   if(!includeArchived)chats=chats.filter(item=>!item.archived);
   const counts=await mobileConversaStore.extraCounts(userId,chats.filter(item=>!item.secure).map(item=>item.id));
   for(const category of ['direct','groups','channels','secure'])counts[category]=countsFor(chats.filter(i=>i.category===category));
-  for(const category of ['email','sms','unknown'])counts[category]={total:0,unread:0,needs:0};
-  for(const row of emailCounts){const key=row.unknown && row.category!=='groups'?'unknown':row.category;for(const field of ['total','unread','needs'])counts[key][field]+=row[field];}
-  counts.all=['direct','groups','channels','secure','email','sms','unknown'].map(key=>counts[key]).reduce((sum,c)=>({total:sum.total+c.total,unread:sum.unread+c.unread,needs:sum.needs+c.needs}),{total:0,unread:0,needs:0});
+  for(const category of ['email','sms','unknown'])counts[category]={total:0,unread:0,needs:0,sent:0};
+  for(const row of emailCounts){const key=row.unknown && row.category!=='groups'?'unknown':row.category;for(const field of ['total','unread','needs','sent'])counts[key][field]+=(row[field]||0);}
+  counts.all=['direct','groups','channels','secure','email','sms','unknown'].map(key=>counts[key]).reduce((sum,c)=>({total:sum.total+c.total,unread:sum.unread+c.unread,needs:sum.needs+c.needs,sent:sum.sent+(c.sent||0)}),{total:0,unread:0,needs:0,sent:0});
   // Unknown mail remains in its own folder, while All really includes every source.
   let availableChannels=[];
-  if(suite==='channels'&&!qaAgencyId){
+  if(['all','channels'].includes(suite)&&!qaAgencyId){
     const {listMobileAgencies}=await import('../services/mobile/agencyScope.service.js');const {agencies}=await listMobileAgencies(await User.findById(userId,{raw:true}));
-    const data={channels:[]};for(const agency of agencies){const result=await invoke(qvListChatChannels,req,{agencyId:String(agency.id)});data.channels.push(...(result.channels || []).map(channel=>({...channel,agency_id:Number(agency.id)})));}
-    availableChannels=(data.channels || []).filter(channel=>!channel.is_member && !channel.isMember && !archives.has(`chat:${channel.thread_id || channel.id}`)).map(channel=>({...mobileThreadItem({...channel,thread_id:channel.thread_id || channel.id,thread_type:'channel',channel_name:channel.name || channel.channel_name},userId),preview:channel.description || 'Tap to join this channel',join:true}));
-    counts.channels.total+=availableChannels.length;
+    const data={channels:[]};for(const agency of agencies){const result=await invoke(qvListChatChannels,req,{agencyId:String(agency.id)});data.channels.push(...(result.channels || []).map(channel=>({...channel,agency_id:Number(agency.id),agency_name:agency.name,agency_logo_path:mobileAgencyIcon(agency)})));}
+    availableChannels=(data.channels || []).filter(channel=>!chats.some(item=>item.id===Number(channel.thread_id || channel.id)) && (includeArchived || !archives.has(`chat:${channel.thread_id || channel.id}`))).map(channel=>({...mobileThreadItem({...channel,thread_id:channel.thread_id || channel.id,thread_type:'channel',channel_name:channel.name || channel.channel_name},userId),at:channel.updated_at || channel.created_at || null,preview:channel.description || 'Open this channel',join:!(channel.is_member===true || Number(channel.is_member)===1 || channel.isMember===true)}));
+    counts.channels.total+=availableChannels.length;counts.all.total+=availableChannels.length;
   }
   let items=[...emails,...chats,...availableChannels].filter(item=>suite==='all' || suite==='unknown'?suite==='all' || item.unknown:item.category===suite && !item.unknown).filter(i=>matches(i,filter));
   if(['threads','mentions','files'].includes(suite)){
@@ -63,7 +64,7 @@ export const getMobileInbox=mobile(async(req,res)=>{
     items=source.filter(i=>byThread.has(Number(i.thread_id))).map(item=>{
       const thread=byThread.get(Number(item.thread_id));
       const name=suite==='files'?item.original_filename:thread.title;
-      return {...thread,...item,id:item.id || item.root_message_id || item.message_id,key:`${suite}:${item.id || item.root_message_id || item.message_id}`,threadId:Number(item.thread_id),kind:suite,title:name || thread.title,
+      return {...thread,...item,id:item.id || item.root_message_id || item.message_id,key:`${suite}:${item.id || item.root_message_id || item.message_id}`,threadId:Number(item.thread_id),kind:suite,title:name || thread.title,hasSent:suite==='threads'?!!item.has_sent:Number(item.sender?.id)===Number(userId),
         sender:suite==='files'?[item.sender?.first_name,item.sender?.last_name].filter(Boolean).join(' '):thread.title,
         preview:suite==='threads'?item.latest_reply?.body || item.root_body:suite==='files'?item.body_preview:item.body,
         at:item.latest_reply?.created_at || item.mentioned_at || item.created_at || thread.at,unread:suite==='threads'?Number(item.unread_reply_count)>0:!viewed.has(Number(item.message_id)) && !item.is_read && Number(item.message_id)>thread.lastReadMessageId && Number(item.sender?.id)!==Number(userId),needsReply:suite==='files'?false:suite==='threads'?Number(item.latest_reply?.sender?.id)!==Number(userId):!viewed.has(Number(item.message_id)) && !item.is_read && Number(item.message_id)>thread.lastReadMessageId};
@@ -85,7 +86,7 @@ export const getMobileChannels=mobile(async(req,res)=>{
  if(mobileQaAgencyId(req))return res.json({channels:[]});
  const {listMobileAgencies}=await import('../services/mobile/agencyScope.service.js');
  const {agencies}=await listMobileAgencies(await User.findById(req.quickView.userId,{raw:true}));const channels=[];
- for(const agency of agencies){const result=await invoke(qvListChatChannels,req,{agencyId:String(agency.id)});channels.push(...(result.channels || []).map(channel=>({...channel,agencyId:Number(agency.id),agencyName:agency.name})));}
+ for(const agency of agencies){const result=await invoke(qvListChatChannels,req,{agencyId:String(agency.id)});channels.push(...(result.channels || []).map(channel=>({...channel,agencyId:Number(agency.id),agencyName:agency.name,agencyLogoUrl:mobileAgencyIcon(agency)})));}
  res.json({channels});
 });
 export const getMobilePreferences=mobile(async(req,res)=>res.json({preferences:await mobileConversaStore.preferences(req.quickView.userId)}));
@@ -100,10 +101,10 @@ export const getMobileChatContext=mobile(async(req,res)=>{
   const id=Number(req.params.threadId);if(!Number.isSafeInteger(id)||id<=0)throw fail(400,'Invalid conversation.');
   await assertMobileQaThread(req,id);
   await assertThreadAccess(req.quickView.userId,id,{requireActiveAgency:true});
-  const [[thread]]=await pool.execute(`SELECT t.id,t.name,t.thread_type,t.message_channel,r.last_read_message_id FROM chat_threads t LEFT JOIN chat_thread_reads r ON r.thread_id=t.id AND r.user_id=? WHERE t.id=?`,[req.quickView.userId,id]);
+  const [[thread]]=await pool.execute(`SELECT t.id,t.name,t.agency_id,t.thread_type,t.message_channel,r.last_read_message_id,a.name AS agency_name,a.slug AS agency_slug,a.logo_path AS agency_logo_path FROM chat_threads t JOIN agencies a ON a.id=t.agency_id LEFT JOIN chat_thread_reads r ON r.thread_id=t.id AND r.user_id=? WHERE t.id=?`,[req.quickView.userId,id]);
   const [participants]=await pool.execute(`SELECT u.id,u.first_name,u.last_name,u.work_email,u.email,u.profile_photo_path FROM chat_thread_participants p JOIN users u ON u.id=p.user_id WHERE p.thread_id=?`,[id]);
   const others=participants.filter(p=>Number(p.id)!==Number(req.quickView.userId));
-  res.json({...thread,title:thread.name || others.map(p=>[p.first_name,p.last_name].filter(Boolean).join(' ')).join(', ') || 'Conversation',participants:participants.map(p=>({...p,profile_photo_url:publicUploadsUrlFromStoredPath(p.profile_photo_path)}))});
+  res.json({...thread,agencyLogoUrl:mobileAgencyIcon({name:thread.agency_name,slug:thread.agency_slug,logo_path:thread.agency_logo_path}),title:thread.name || others.map(p=>[p.first_name,p.last_name].filter(Boolean).join(' ')).join(', ') || 'Conversation',participants:participants.map(p=>({...p,profile_photo_url:publicUploadsUrlFromStoredPath(p.profile_photo_path)}))});
 });
 export const getMobileFile=mobile(async(req,res,next)=>{
   const [[file]]=await pool.execute(`SELECT a.*,m.thread_id,t.message_channel FROM chat_message_attachments a JOIN chat_messages m ON m.id=a.message_id JOIN chat_threads t ON t.id=m.thread_id WHERE a.id=? AND NOT EXISTS(SELECT 1 FROM chat_message_deletes d WHERE d.message_id=m.id AND d.user_id=?)`,[req.params.attachmentId,req.quickView.userId]);
@@ -155,19 +156,23 @@ export const getMobileClientRecipients=mobile(async(req,res)=>{
  const {listMobileAgencies}=await import('../services/mobile/agencyScope.service.js');const {agencies}=await listMobileAgencies(user);
  const {requireNarrivaAgency}=await import('../services/narrivaAccess.service.js');
  const {getMobileClientSummary}=await import('./mobileClinical.controller.js');const contacts=[];
+ const page=Math.max(0,Math.min(1000,Number(req.query.page)||0));if(!Number.isInteger(page))throw fail(400,'Invalid client page.');let more=false;
  for(const agency of agencies){
   try{await requireNarrivaAgency({...user},agency.id);}catch(error){if([403,404].includes(error.status))continue;throw error;}
   const [clients]=await pool.execute(`SELECT c.id FROM clients c WHERE c.client_type IN('clinical','school')
    AND (c.agency_id=? OR EXISTS(SELECT 1 FROM client_agency_assignments ca WHERE ca.client_id=c.id AND ca.agency_id=? AND ca.is_active=1))
    AND (c.provider_id=? OR EXISTS(SELECT 1 FROM client_provider_assignments p WHERE p.client_id=c.id AND p.provider_user_id=? AND p.is_active=1))
-   AND (?='' OR LOCATE(?,c.full_name)>0) ORDER BY c.id DESC LIMIT 20`,[agency.id,agency.id,user.id,user.id,query,query]);
-  for(const client of clients){
+   AND (?='' OR LOCATE(?,c.full_name)>0) ORDER BY c.id DESC LIMIT 21 OFFSET ${page*20}`,[agency.id,agency.id,user.id,user.id,query,query]);
+  if(clients.length>20)more=true;
+  for(const client of clients.slice(0,20)){
    try{const summary=await invoke(getMobileClientSummary,await clinicalContactRequest(req,agency.id,client.id));
-    for(const person of summary.contacts || [])if(person.channels?.[channel])contacts.push({id:`${agency.id}:${client.id}:${person.key}`,clientId:client.id,agencyId:Number(agency.id),agencyName:agency.name,recipientKey:person.key,displayName:summary.client.maskedName,age:summary.client.age,relationship:person.relationship,contactName:person.maskedName});
+    const choices=(summary.contacts || []).filter(person=>person.channels?.[channel]);
+    if(channel==='secure'&&!choices.length)choices.push({key:'review',relationship:'Portal access needs review',secureReason:summary.secureMessaging?.reason});
+    for(const person of choices)contacts.push({id:`${agency.id}:${client.id}:${person.key}`,clientId:client.id,agencyId:Number(agency.id),agencyName:agency.name,agencyLogoUrl:mobileAgencyIcon(agency),recipientKey:person.key,displayName:summary.client.maskedName,age:summary.client.age,relationship:person.relationship,contactName:person.maskedName,requiresInvitation:person.secureInvitation===true,unavailable:person.key==='review',reason:person.secureReason || null});
    }catch(error){if(![403,404].includes(error.status))throw error;}
   }
  }
- res.json({contacts,limit:20});
+ res.json({contacts,limit:20,nextPage:more?page+1:null});
 });
 export const postMobileClientContact=mobile(async(req,res,next)=>{
  const {resolveMobileClientContact,sendMobileClientContact}=await import('./mobileClinical.controller.js');
