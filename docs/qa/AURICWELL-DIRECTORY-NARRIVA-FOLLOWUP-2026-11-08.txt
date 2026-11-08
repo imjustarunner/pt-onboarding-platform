@@ -1,0 +1,51 @@
+AURICWELL DIRECTORY / MESSAGES / NOTE FLOW — TARGETED RETEST
+November 8, 2026
+
+Scope: the owner's latest 15 mobile observations. The enrollment/paper-packet handoff selected in the editor is a separate run. Do not replace its results or claim those cases passed here.
+
+Before testing
+- Start a fresh tab at https://auricwell.com/mobile. Record /version.json and /api/app-version; wait for matching revisions and ready=true. Repeat the relevant views at desktop width and on an actual iPhone. Chrome at phone width is not an iPhone Safari pass.
+- Use authorized accounts and synthetic records. Do not send real-family emails/texts/invites, call real phone numbers, sign actual clinical notes, change real ticket ownership, or alter source encounters to force a pass.
+- Record role, agency IDs, source/draft/note/ticket IDs, exact expected/actual behavior and response errors. Never include passwords/session tokens or clinical narrative in the report. BLOCKED/NOT_RUN are not passes.
+
+1. Your people
+- Providers: name and recorded credentials appear together. Do not infer qualifications from a role/category. Long names/credentials and extensions remain visible at 390px, without horizontal overflow.
+- School staff: retain the affiliated clinical agency icon and show the actual school name below the contact. SCHOOL ADMIN appears only where that school's saved contact authority says so; compare a confirmed administrator and ordinary staff member. The owner's example name is not authority to change anyone's role.
+- Open Search next to Saved. Search by name, credentials, email and school. Filter between two authorized agencies, then All agencies. Verify the expected people remain within the selected affiliation; return between directory tabs without losing search.
+- Extension appears beside the name. Inspect its tel: main-number;ext=digits link. No personal number may be substituted. Actual extension behavior needs a physical-phone check; do not place a real call as a bot.
+- Saved shows external personal email contacts; internal users/linked clients are excluded from this list without deleting saved records. Provider and school directories still contain internal people.
+
+2. Unknown sender -> known contact
+- Use two synthetic emails from one controlled external address. Long press an unknown row, and separately open its overflow menu. Create known contact opens confirmation; Cancel must not save.
+- Save once. Both historical emails and a later controlled email from that address appear in regular Email rather than Unknown senders. This change belongs to this user, not another user's private contact list.
+- A blocked address must not become safe through this action. Unauthorized/other-tenant conversation IDs must be rejected. Saving a contact does not send any message or invitation.
+- Verify ordinary vertical scrolling and archive/read swipes do not accidentally open the long-press dialog.
+
+3. Categories and group mail
+- On first open, All remains first, followed by categories with unread. Quiet refresh/count changes and moving between categories must not shift the strip under the user. Returning from a conversation reveals the selected category. Badge counts are unread conversations, not total messages.
+- Group email rows identify Groups – group name and the destination mailbox/account. Open the email; group/account and canonical ticket status are visible with its original subject.
+- “Account Access Needed” can be an historical email subject. Distinguish that subject from an actual current 403/access-denied response; report the exact error if access is actually rejected.
+- Use synthetic group tickets: open assigned to self; open assigned to someone else; unclaimed; closed. Only the open ticket assigned to the current user contributes to that user's personal unread badge/filter. Closing or assigning away clears that badge after refresh. Access to permitted group history remains; other users' read markers are not globally changed.
+- Internal group chats retain their normal unread behavior. Repeat mixed All/Groups/Email counts and a read/unread action.
+
+4. My Work
+- Starts in All status / All agencies. Search by masked client, agency, service, provider and date. Sort by most recent, oldest, client, agency, service or status.
+- Agency/status selection, sort and search survive opening a note and Back. No redundant “All authorized agencies” heading. Missing/partial agency results still report errors rather than a false empty queue.
+
+5. Encounter details and writing
+- Open the same authorized synthetic note from schedule and My Work. Verify source times/code/location are preserved. At phone width, date/service and start/end controls never overlap. Controls use at least 16px text; test actual iPhone focus/keyboard zoom separately.
+- Individual therapy with Client/Client Only attendance displays Client Only. Explicit parent-only or additional-attendee source data wins; it must not be replaced by an individual default. Change participants, save/reload and compare.
+- Known nonvirtual location defaults to In person. Explicit Phone/Video survives. A virtual location never remains In person; video versus phone still needs recorded source or an explicit choice. Unknown source details stay unknown; consent never defaults to confirmed.
+
+6. Narriva sequence — source -> generate -> review -> sign
+- Fresh Narriva mode initially shows Session Narrative, without an editable generated-note box, compliance results, or Review & sign. Type source text: no model/review call should happen merely from typing.
+- Click Narriva Generate Note. Verify a completed generation returns the note, followed by the actual five-check/scored review. Only a complete passed/permitted-bypassed review exposes standard Review & sign. A failed/unavailable/incomplete review does not.
+- Edit the source after generation: previous output remains preserved and labeled stale; signing disappears until generating/reviewing the current source. A late generation response must not overwrite new typing. Output corrections invalidate compliance and require an explicit recheck.
+- Direct API attach/sign requests with no generation receipt, a forged receipt, changed source, another author/client/agency/service/encounter must fail and preserve drafts. Receipts contain hashes and IDs, not narrative text.
+- Existing pre-receipt drafts remain stored. Generate again in Narriva, or use Manual Writer when permitted to edit that saved content. No historical signed note is rewritten.
+- Manual Writer remains write -> explicit Check Note -> findings -> standard review/sign. Typing does not open/run compliance. Required risk stays latched and editable after a review-invalidating edit; bypass never awards Quick Sign.
+- Smart Notes uses the same completed-generation gate. Exercise autosave, reload, app lock recovery, generation failure, privacy-service failure and Back with synthetic records.
+- Supervisor review keeps the existing assignment, content hash, review-token and immutable-signature requirements. Do not sign actual records during this retest.
+
+Delivery notes
+Web deployment and a native mobile bundle build do not constitute a signed iOS/TestFlight upload or a physical-device pass. If the installed native app bundles the UI, prepare/sync a fresh signed build using the existing PHONE-AND-TESTFLIGHT-TESTING instructions. Browser testing can start at /mobile after matching deployed build verification.

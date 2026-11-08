@@ -1,3 +1,4 @@
+import {issueNarrivaGenerationReceipt} from '../../services/narrivaGenerationReceipt.service.js';
 import {beforeEach,afterEach,describe,it,expect,vi} from 'vitest';
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()}}));
 vi.mock('../../config/clinicalDatabase.js',()=>({default:{execute:vi.fn()}}));
@@ -179,4 +180,15 @@ describe('mobile secure message and pending portal invitation',()=>{
   saved.delivery_status='queued';await sendMobileClientContact(request({params:{clientId:20},body}),response(),next);
   expect(sendMessage).toHaveBeenCalledOnce();expect(sendSecureMessageNotification).toHaveBeenCalledOnce();
  });
+});
+
+it('blocks a mobile Narriva attach until current source has server generation evidence, including encounter scope',async()=>{
+ const previous=process.env.JWT_SECRET;process.env.JWT_SECRET='synthetic-mobile-generation-secret';
+ try{const draft={id:61,user_id:1,agency_id:4,client_id:20,clinical_session_id:10,office_event_id:null,service_code:'H2011',input_text:'Synthetic session narrative.'};ClinicalNoteDraft.findByIdForUser.mockResolvedValue(draft);
+ const handler=vi.fn((req,res)=>res.json({ok:true})),next=vi.fn();const req=request({params:{sessionId:'10'},body:{clientId:20,metadata:{draftId:61,writerMode:'narriva'}},user:{id:1},mobileClinical:{verified:true,agencyId:4,userId:1}});
+ const wrapped=scopedMobileClinicalHandler(handler,{sessionParam:'sessionId',requireClient:true,requireGeneratedNote:true});await wrapped(req,response(),next);expect(handler).not.toHaveBeenCalled();expect(next).toHaveBeenCalledWith(expect.objectContaining({status:409}));
+ req.body.metadata.generationReceipt=issueNarrivaGenerationReceipt({userId:1,agencyId:4,clientId:20,clinicalSessionId:10,inputText:draft.input_text,serviceCode:'H2011',writerMode:'narriva'});next.mockClear();await wrapped(req,response(),next);expect(handler).toHaveBeenCalledTimes(1);
+ draft.input_text+=' Changed source.';handler.mockClear();await wrapped(req,response(),next);expect(handler).not.toHaveBeenCalled();expect(next).toHaveBeenLastCalledWith(expect.objectContaining({status:409}));
+ draft.input_text='Synthetic session narrative.';draft.clinical_session_id=11;await wrapped(req,response(),next);expect(handler).not.toHaveBeenCalled();
+ }finally{if(previous===undefined)delete process.env.JWT_SECRET;else process.env.JWT_SECRET=previous;}
 });

@@ -25,19 +25,21 @@ describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('personal mobile inbox SQL',
     CREATE TABLE agencies(id INT PRIMARY KEY,is_active BOOLEAN DEFAULT 1,is_archived BOOLEAN DEFAULT 0);
     CREATE TABLE users(id INT PRIMARY KEY,email VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,work_email VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci,personal_email VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci,role VARCHAR(40) DEFAULT 'provider');
     CREATE TABLE user_agencies(user_id INT,agency_id INT,is_active BOOLEAN DEFAULT 1);
-    CREATE TABLE communication_inboxes(id INT PRIMARY KEY,agency_id INT DEFAULT 10,identity_key VARCHAR(60),kind VARCHAR(20),owner_user_id INT,from_email VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci);
-    CREATE TABLE communication_conversations(id INT PRIMARY KEY,agency_id INT,inbox_id INT,owner_user_id INT,channel VARCHAR(20),subject VARCHAR(100),status VARCHAR(30),last_message_preview TEXT,last_message_at DATETIME,created_at DATETIME,archived_at DATETIME,is_spam BOOLEAN DEFAULT 0,is_unknown_sender BOOLEAN DEFAULT 0,external_thread_id VARCHAR(80));
+    CREATE TABLE communication_inboxes(id INT PRIMARY KEY,agency_id INT DEFAULT 10,identity_key VARCHAR(60),kind VARCHAR(20),display_name VARCHAR(255),owner_user_id INT,from_email VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci);
+    CREATE TABLE communication_conversations(id INT PRIMARY KEY,agency_id INT,inbox_id INT,owner_user_id INT,channel VARCHAR(20),subject VARCHAR(100),status VARCHAR(30),last_message_preview TEXT,last_message_at DATETIME,created_at DATETIME,archived_at DATETIME,is_spam BOOLEAN DEFAULT 0,support_ticket_id INT NULL,is_unknown_sender BOOLEAN DEFAULT 0,external_thread_id VARCHAR(80));
     CREATE TABLE communication_messages(id INT PRIMARY KEY,author_user_id INT,conversation_id INT,direction VARCHAR(20),is_internal_note BOOLEAN DEFAULT 0,send_status VARCHAR(20),sent_at DATETIME,created_at DATETIME,from_json JSON);
     CREATE TABLE communication_conversation_reads(conversation_id INT,user_id INT,forced_unread BOOLEAN DEFAULT 0,last_read_at DATETIME);
     CREATE TABLE communication_participants(id INT PRIMARY KEY,conversation_id INT,is_primary BOOLEAN,email VARCHAR(100),display_name VARCHAR(100));
-    CREATE TABLE managed_workspace_groups(id INT PRIMARY KEY,agency_id INT DEFAULT 10,chat_thread_id INT,email VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci);CREATE TABLE email_sender_identities(id INT PRIMARY KEY,from_email VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci,is_active BOOLEAN DEFAULT 1);
+    CREATE TABLE managed_workspace_groups(id INT PRIMARY KEY,agency_id INT DEFAULT 10,chat_thread_id INT,label VARCHAR(255),email VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci);CREATE TABLE email_sender_identities(id INT PRIMARY KEY,from_email VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci,is_active BOOLEAN DEFAULT 1);
     CREATE TABLE message_logs(id INT PRIMARY KEY,agency_id INT,sms_thread_key VARCHAR(80),user_id INT,assigned_user_id INT,number_id INT);
     CREATE TABLE twilio_number_assignments(number_id INT,user_id INT,is_active BOOLEAN,sms_access_enabled BOOLEAN);`);
+  await db.query(`CREATE TABLE IF NOT EXISTS support_tickets(id INT PRIMARY KEY,agency_id INT,status VARCHAR(40),claimed_by_user_id INT);
+    CREATE TABLE IF NOT EXISTS user_communication_contacts(id INT PRIMARY KEY,owner_user_id INT,agency_id INT,email VARCHAR(254) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci,trust_status VARCHAR(20));`);
   await db.query(await readFile(new URL('../../../../../database/migrations/1769_mobile_conversa_preferences.sql',import.meta.url),'utf8'));await db.query(await readFile(new URL('../../../../../database/migrations/1779_mobile_secure_delivery.sql',import.meta.url),'utf8'));store=createMobileConversaStore(db);
  });
  afterAll(async()=>{await db?.end();if(admin){await admin.query(`DROP DATABASE IF EXISTS ${name}`);await admin.end();}});
  beforeEach(async()=>{
-  await db.query(`TRUNCATE mobile_secure_deliveries;TRUNCATE chat_threads;TRUNCATE chat_thread_participants;TRUNCATE chat_messages;TRUNCATE chat_thread_reads;TRUNCATE chat_message_views;TRUNCATE chat_message_deletes;TRUNCATE chat_message_mentions;TRUNCATE chat_message_attachments;TRUNCATE mobile_message_archives;TRUNCATE mobile_workspace_preferences;TRUNCATE communication_conversations;TRUNCATE communication_messages;TRUNCATE communication_participants;TRUNCATE communication_conversation_reads;TRUNCATE users;TRUNCATE user_agencies;TRUNCATE agencies;TRUNCATE managed_workspace_groups;TRUNCATE email_sender_identities;TRUNCATE communication_inboxes;
+  await db.query(`TRUNCATE support_tickets;TRUNCATE user_communication_contacts;TRUNCATE mobile_secure_deliveries;TRUNCATE chat_threads;TRUNCATE chat_thread_participants;TRUNCATE chat_messages;TRUNCATE chat_thread_reads;TRUNCATE chat_message_views;TRUNCATE chat_message_deletes;TRUNCATE chat_message_mentions;TRUNCATE chat_message_attachments;TRUNCATE mobile_message_archives;TRUNCATE mobile_workspace_preferences;TRUNCATE communication_conversations;TRUNCATE communication_messages;TRUNCATE communication_participants;TRUNCATE communication_conversation_reads;TRUNCATE users;TRUNCATE user_agencies;TRUNCATE agencies;TRUNCATE managed_workspace_groups;TRUNCATE email_sender_identities;TRUNCATE communication_inboxes;
     INSERT INTO agencies(id) VALUES(10),(20);
     INSERT INTO users(id,email,work_email,personal_email) VALUES(1,'owner@example.invalid',NULL,NULL),(2,'staff@example.invalid',NULL,'personal@example.invalid');
     INSERT INTO user_agencies VALUES(1,10,1),(2,10,1);
@@ -48,6 +50,18 @@ describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('personal mobile inbox SQL',
   await db.execute(`INSERT INTO communication_messages(id,conversation_id,direction,send_status,sent_at,created_at,from_json)VALUES(?,?,'inbound','sent','2026-11-06 12:00:00','2026-11-06 12:00:00',?)`,[id,id,JSON.stringify({name:'Fixture sender',email})]);
   await db.execute('INSERT INTO communication_participants(id,conversation_id,is_primary,email,display_name)VALUES(?,?,1,?,?)',[id,id,email,'Fixture sender']);
  }
+ it('makes all mail from a saved safe address known for its owner only',async()=>{
+  await mail(1,{unknown:true});await mail(2,{unknown:true});
+  await db.query("INSERT INTO user_communication_contacts VALUES(1,2,10,'outside@example.invalid','safe')");expect(await store.emails(1,{suite:'unknown'})).toHaveLength(2);
+  await db.query("INSERT INTO user_communication_contacts VALUES(2,1,10,'OUTSIDE@example.invalid','safe')");expect(await store.emails(1,{suite:'unknown'})).toHaveLength(0);expect(await store.emails(1,{suite:'email'})).toHaveLength(2);
+ });
+ it('shows group name/account while counting only open email assigned to the current user',async()=>{
+  await db.query("INSERT INTO communication_inboxes(id,agency_id,kind,identity_key,display_name,from_email) VALUES(5,10,'shared','support','Support','support@example.invalid')");
+  for(const [id,status,claimant] of [[1,'open',1],[2,'closed',1],[3,'open',2],[4,'open',null]]){await mail(id,{inbox:5});await db.execute('INSERT INTO support_tickets VALUES(?,10,?,?)',[id,status,claimant]);await db.execute('UPDATE communication_conversations SET support_ticket_id=? WHERE id=?',[id,id]);}
+  const grouped=createMobileConversaStore(db,{listAgencies:async()=>({agencies:[{id:10}]}),groupAccess:async()=>true});
+  expect((await grouped.emails(1,{suite:'groups'}))).toHaveLength(4);expect((await grouped.emails(1,{suite:'groups',filter:'unread'})).map(i=>i.id)).toEqual([1]);expect((await grouped.emails(1,{suite:'groups'}))[0]).toMatchObject({groupName:'Support',destinationAccount:'support@example.invalid'});expect((await grouped.emailCounts(1)).find(c=>c.category==='groups').unread).toBe(1);
+  await db.execute('UPDATE support_tickets SET claimed_by_user_id=2 WHERE id=1');expect(await grouped.emails(1,{suite:'groups',filter:'unread'})).toHaveLength(0);
+ });
  it('Sent is authored by this user and excludes failed or internal outbound mail',async()=>{
   for(let id=1;id<=4;id++)await mail(id,{status:'open'});
   await db.query("INSERT INTO communication_messages(id,conversation_id,direction,author_user_id,send_status,is_internal_note,created_at) VALUES (11,1,'outbound',1,'sent',0,NOW()),(12,2,'outbound',2,'sent',0,NOW()),(13,3,'outbound',1,'failed',0,NOW()),(14,4,'outbound',1,'sent',1,NOW())");

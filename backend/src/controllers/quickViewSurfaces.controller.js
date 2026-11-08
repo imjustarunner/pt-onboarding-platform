@@ -1,3 +1,4 @@
+import {mapDirectoryPerson} from '../services/mobile/directoryPerson.service.js';
 import {mobileAgencyIcon} from '../services/mobile/agencyBrand.service.js';
 /**
  * Quick View surface proxies — reuse chat / tasks / focus-music handlers
@@ -128,35 +129,7 @@ export const qvCreateDirectThread = wrap(async (req, res, next) => {
 });
 
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
-import { classifyPayAndHcbsCategories } from '../utils/credentialNormalization.js';
 
-function mapDirectoryPerson(r, section) {
-  const first = r.first_name || r.firstName || '';
-  const last = r.last_name || r.lastName || '';
-  const preferred = r.preferred_name || r.preferredName || '';
-  const displayName = preferred || `${first} ${last}`.trim() || r.email || 'Teammate';
-  const axes = classifyPayAndHcbsCategories({
-    credential: r.credential,
-    title: r.title,
-    role: r.role,
-    isHourlyWorker: r.is_hourly_worker
-  });
-  return {
-    id: Number(r.id),
-    displayName,
-    firstName: first,
-    lastName: last,
-    role: r.role || null,
-    email: r.work_email || r.email || null,
-    workEmail: r.work_email || null,
-    workPhone: r.work_phone || r.phone_number || null,
-    profilePhotoUrl: publicUploadsUrlFromStoredPath(r.profile_photo_path) || null,
-    hcbsCategory: axes.hcbsCategory,
-    hcbsCategoryLabel: axes.hcbsCategoryLabel,
-    credential: r.credential || null,
-    section
-  };
-}
 
 export const getQuickDirectory = async (req, res, next) => {
   try {
@@ -174,7 +147,7 @@ export const getQuickDirectory = async (req, res, next) => {
     if(req.quickView.mobileDeviceSessionId && req.query.agencyId==='all'){
       const user=await User.findById(userId,{raw:true});
       const {agencies}=await listMobileAgencies(user);
-      const result={ok:true,agencyId:null,providers:[],schoolStaff:[]};
+      const result={ok:true,agencyId:null,agencies:agencies.map(a=>({id:Number(a.id),name:a.name})),providers:[],schoolStaff:[]};
       for(const agency of agencies){
         const scoped=Object.assign(Object.create(req),{quickView:{...req.quickView,agencyId:Number(agency.id)},query:{...req.query,agencyId:String(agency.id)}});
         let body;await getQuickDirectory(scoped,{json(value){body=value;return this;}},error=>{throw error;});
@@ -183,9 +156,10 @@ export const getQuickDirectory = async (req, res, next) => {
       return res.json(result);
     }
 
+    const [[directoryAgency]] = await pool.execute('SELECT id,name,slug,phone_number FROM agencies WHERE id=?',[agencyId]);
     const [providerRows] = await pool.execute(
       `SELECT u.id, u.first_name, u.last_name, u.preferred_name, u.email, u.work_email,
-              u.work_phone, u.phone_number, u.profile_photo_path, u.role, u.credential, u.title,
+              u.work_phone, u.work_phone_extension, u.profile_photo_path, u.role, u.credential, u.title,
               u.is_hourly_worker
        FROM user_agencies ua
        JOIN users u ON u.id = ua.user_id
@@ -212,8 +186,8 @@ export const getQuickDirectory = async (req, res, next) => {
     try {
       const [rows] = await pool.execute(
         `SELECT DISTINCT u.id, u.first_name, u.last_name, u.preferred_name, u.email, u.work_email,
-                u.work_phone, u.phone_number, u.profile_photo_path, u.role, u.credential, u.title,
-                u.is_hourly_worker
+                u.work_phone, u.work_phone_extension, u.profile_photo_path, u.role, u.credential, u.title,
+                u.is_hourly_worker, school.id AS school_id, school.name AS school_name
          FROM users u
          INNER JOIN user_agencies ua ON ua.user_id = u.id
          INNER JOIN agencies school ON school.id = ua.agency_id
@@ -233,11 +207,12 @@ export const getQuickDirectory = async (req, res, next) => {
       try {
         const [rows] = await pool.execute(
           `SELECT DISTINCT u.id, u.first_name, u.last_name, u.preferred_name, u.email, u.work_email,
-                  u.work_phone, u.phone_number, u.profile_photo_path, u.role, u.credential, u.title,
-                  u.is_hourly_worker
+                  u.work_phone, u.work_phone_extension, u.profile_photo_path, u.role, u.credential, u.title,
+                  u.is_hourly_worker, school.id AS school_id, school.name AS school_name
            FROM users u
            INNER JOIN user_agencies ua ON ua.user_id = u.id
            INNER JOIN agency_schools ash ON ash.school_id = ua.agency_id AND ash.agency_id = ?
+           INNER JOIN agencies school ON school.id=ua.agency_id
            WHERE COALESCE(ua.is_active,1)=1 AND COALESCE(u.is_demo,0)=0 AND (u.is_archived = FALSE OR u.is_archived IS NULL)
              AND LOWER(COALESCE(u.role, '')) = 'school_staff'
              AND u.id != ?
@@ -251,11 +226,18 @@ export const getQuickDirectory = async (req, res, next) => {
       }
     }
 
+    // School administrator authority comes from that school's contact record,
+    // never from a name or a global staff role.
+    if(schoolRows.length){
+      const schoolIds=[...new Set(schoolRows.map(row=>Number(row.school_id)).filter(Boolean))];
+      const [contacts]=schoolIds.length?await pool.execute(`SELECT school_organization_id,email,is_school_admin FROM school_contacts WHERE school_organization_id IN(${schoolIds.map(()=>'?').join(',')})`,schoolIds):[[]];
+      for(const row of schoolRows)row.is_school_admin=contacts.some(contact=>Number(contact.school_organization_id)===Number(row.school_id) && Number(contact.is_school_admin)===1 && [row.email,row.work_email].some(email=>email && String(email).trim().toLowerCase()===String(contact.email).trim().toLowerCase()))?1:0;
+    }
     res.json({
       ok: true,
       agencyId,
-      providers: (providerRows || []).map((r) => mapDirectoryPerson(r, 'providers')),
-      schoolStaff: (schoolRows || []).map((r) => mapDirectoryPerson(r, 'school_staff'))
+      providers: (providerRows || []).map((r) => mapDirectoryPerson(r, 'providers',directoryAgency)),
+      schoolStaff: (schoolRows || []).map((r) => mapDirectoryPerson(r, 'school_staff',directoryAgency))
     });
   } catch (e) {
     next(e);

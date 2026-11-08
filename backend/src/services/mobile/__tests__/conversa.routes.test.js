@@ -1,3 +1,7 @@
+vi.mock('../../../models/CommunicationConversation.model.js',()=>({default:{markRead:vi.fn(),markUnread:vi.fn()}}));
+vi.mock('../../../models/UserCommunicationContact.model.js',()=>({default:{upsertSafe:vi.fn()}}));
+import Conversation from '../../../models/CommunicationConversation.model.js';
+import Contact from '../../../models/UserCommunicationContact.model.js';
 import {beforeEach,expect,it,vi} from 'vitest';
 const mocks=vi.hoisted(()=>({execute:vi.fn(),access:vi.fn(),conversationAccess:vi.fn(),archive:vi.fn(),emails:vi.fn(),emailCounts:vi.fn(),archives:vi.fn(),extraCounts:vi.fn(),threads:vi.fn()}));
 vi.mock('../../../config/database.js',()=>({default:{execute:mocks.execute}}));
@@ -13,7 +17,7 @@ vi.mock('../documentationQueue.service.js',()=>({getMobileDocumentationQueue:vi.
 vi.mock('../../../services/storage.service.js',()=>({default:{}}));
 import {listMobileAgencies} from '../agencyScope.service.js';
 import {qvListChatChannels} from '../../../controllers/quickViewSurfaces.controller.js';
-import {getMobileInbox,patchMobileArchive,getMobileChatContext,getMobileFile} from '../../../controllers/mobileConversa.controller.js';
+import {postMobileKnownSender,patchMobileMessageState,getMobileInbox,patchMobileArchive,getMobileChatContext,getMobileFile} from '../../../controllers/mobileConversa.controller.js';
 const request=()=>({quickView:{userId:3,agencyId:2,mobileDeviceSessionId:7},params:{id:'10',kind:'chat',threadId:'10'},query:{},headers:{},body:{archived:true,userId:999}});
 const response=()=>({set:vi.fn().mockReturnThis(),status:vi.fn().mockReturnThis(),json:vi.fn()});
 beforeEach(()=>{vi.resetAllMocks();listMobileAgencies.mockResolvedValue({agencies:[]});qvListChatChannels.mockImplementation((req,res)=>res.json({channels:[]}));mocks.access.mockResolvedValue(true);mocks.emails.mockResolvedValue([]);mocks.emailCounts.mockResolvedValue([]);mocks.archives.mockResolvedValue(new Map());mocks.extraCounts.mockResolvedValue({threads:{total:0,unread:0,needs:0},mentions:{total:0,unread:0,needs:0},files:{total:0,unread:0,needs:0}});mocks.threads.mockImplementation((req,res)=>res.json([{thread_id:10,thread_type:'client_secure',message_channel:'secure',participants:[{id:5,first_name:'Private',last_name:'Person'}],last_message:{id:50,body:'SENSITIVE MESSAGE',sender_user_id:5,created_at:'2026-11-06T10:00:00Z'},unread_count:1}]));});
@@ -49,4 +53,14 @@ it('browses available channels including an empty joined channel, while Unread f
  listMobileAgencies.mockResolvedValue({agencies:[{id:2,name:'ITSCO',slug:'itsco'}]});qvListChatChannels.mockImplementation((req,res)=>res.json({channels:[{id:60,name:'Available',is_member:false},{id:61,name:'Joined',is_member:true}]}));
  const req=request();req.query={suite:'channels',filter:'all'};let res=response();await getMobileInbox(req,res,vi.fn());expect(res.json.mock.calls[0][0].items).toEqual(expect.arrayContaining([expect.objectContaining({id:60,join:true}),expect.objectContaining({id:61,join:false,agencyLogoUrl:'https://auricwell.com/email-signatures/staff-html/itsco-main-logo.png'})]));
  req.query.filter='unread';res=response();await getMobileInbox(req,res,vi.fn());expect(res.json.mock.calls[0][0].items).toEqual([]);expect(res.json.mock.calls[0][0].counts.channels.total).toBe(2);
+});
+
+it('uses per-user read markers for authorized group email without changing its ticket',async()=>{
+ mocks.conversationAccess.mockResolvedValue({id:10,agency_id:2,channel:'email',support_ticket_id:77});const req=request();req.params.kind='email';req.body={read:true};const res=response();await patchMobileMessageState(req,res,vi.fn());expect(Conversation.markRead).toHaveBeenCalledWith(10,3);expect(res.json).toHaveBeenCalledWith({ok:true});
+ req.body.read=false;await patchMobileMessageState(req,response(),vi.fn());expect(Conversation.markUnread).toHaveBeenCalledWith(10,3);
+ mocks.conversationAccess.mockRejectedValue(Object.assign(new Error('Not authorized'),{status:403}));Conversation.markRead.mockClear();await patchMobileMessageState(req,response(),vi.fn());expect(Conversation.markRead).not.toHaveBeenCalled();
+});
+it('saves the authorized conversation sender for this owner and rejects blocked contacts',async()=>{
+ mocks.conversationAccess.mockResolvedValue({id:10,agency_id:2,channel:'email'});mocks.execute.mockResolvedValue([[{email:'outside@example.invalid',display_name:'External sender'}]]);Contact.upsertSafe.mockResolvedValue({id:9,email:'outside@example.invalid',trust_status:'safe'});const res=response();await postMobileKnownSender(request(),res,vi.fn());expect(Contact.upsertSafe).toHaveBeenCalledWith(expect.objectContaining({ownerUserId:3,agencyId:2,email:'outside@example.invalid',source:'mark_known'}));
+ Contact.upsertSafe.mockResolvedValue({trust_status:'blocked'});const blocked=response();await postMobileKnownSender(request(),blocked,vi.fn());expect(blocked.status).toHaveBeenCalledWith(409);
 });

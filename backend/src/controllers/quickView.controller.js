@@ -1045,7 +1045,7 @@ export const getQuickContacts = async (req, res, next) => {
   try {
     // User-scoped across tenants (no agency filter)
     const UserCommunicationContact = (await import('../models/UserCommunicationContact.model.js')).default;
-    const rows = await UserCommunicationContact.listForOwner(req.quickView.userId, {});
+    const rows = await UserCommunicationContact.listForOwner(req.quickView.userId, {externalOnly:true});
     res.json({
       ok: true,
       contacts: (rows || []).map((c) => ({

@@ -6,7 +6,7 @@ function normEmail(v) {
 }
 
 class UserCommunicationContact {
-  static async listForOwner(ownerUserId, { agencyId = null, trustStatus = null } = {}) {
+  static async listForOwner(ownerUserId, { agencyId = null, trustStatus = null, externalOnly = false } = {}) {
     const params = [ownerUserId];
     let sql = `SELECT * FROM user_communication_contacts WHERE owner_user_id = ?`;
     if (agencyId) {
@@ -17,6 +17,12 @@ class UserCommunicationContact {
       sql += ` AND trust_status = ?`;
       params.push(trustStatus);
     }
+    if(externalOnly)sql+=` AND linked_user_id IS NULL AND linked_client_id IS NULL
+      AND NOT EXISTS(SELECT 1 FROM users internal_person WHERE
+        CONVERT(LOWER(TRIM(user_communication_contacts.email)) USING utf8mb4) COLLATE utf8mb4_unicode_ci IN(
+          CONVERT(LOWER(TRIM(internal_person.email)) USING utf8mb4) COLLATE utf8mb4_unicode_ci,
+          CONVERT(LOWER(TRIM(internal_person.work_email)) USING utf8mb4) COLLATE utf8mb4_unicode_ci,
+          CONVERT(LOWER(TRIM(internal_person.personal_email)) USING utf8mb4) COLLATE utf8mb4_unicode_ci))`;
     sql += ` ORDER BY display_name ASC, email ASC, id ASC`;
     const [rows] = await pool.execute(sql, params);
     return rows || [];

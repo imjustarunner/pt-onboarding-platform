@@ -12,13 +12,17 @@ const items=ref([]),agencies=ref([]),failures=ref([]),loading=ref(false),error=r
 const tabs=[{id:'all',label:'All'},{id:'todo',label:'To do'},{id:'started',label:'Started'},{id:'cosign',label:'Co-sign'},{id:'signed',label:'Signed'}];
 const currentTab=computed(()=>tabs.some(tab=>tab.id===route.query.workTab)?route.query.workTab:'all');
 const agencyFilter=computed(()=>String(route.query.workAgency || 'all'));
-const agencyItems=computed(()=>items.value.filter(item=>agencyFilter.value==='all'||String(item.agencyId)===agencyFilter.value));
+const search=computed(()=>String(route.query.workSearch || ''));
+const matches=item=>!search.value.trim() || [item.maskedName,item.clientMaskedName,item.agencyName,item.providerName,item.serviceCode,item.noteKind,item.date,item.dateOfService].filter(Boolean).join(' ').toLowerCase().includes(search.value.trim().toLowerCase());
+const agencyItems=computed(()=>items.value.filter(item=>(agencyFilter.value==='all'||String(item.agencyId)===agencyFilter.value)&&matches(item)));
 const bucket=item=>item.queueKind==='cosign'||item.status==='awaiting_cosign'?'cosign':item.status==='signed'?'signed':['started','completed','in_progress'].includes(item.status)?'started':'todo';
 const counts=computed(()=>Object.fromEntries(tabs.map(tab=>[tab.id,agencyItems.value.filter(item=>tab.id==='all'||bucket(item)===tab.id).length])));
-const sortOrder=computed(()=>route.query.workSort==='oldest'?'oldest':'recent');
+const sortOrder=computed(()=>['oldest','client','agency','service','status'].includes(route.query.workSort)?route.query.workSort:'recent');
 const visibleItems=computed(()=>agencyItems.value.filter(item=>currentTab.value==='all'||bucket(item)===currentTab.value).sort((a,b)=>{
  const byDate=String(a.date || '').localeCompare(String(b.date || '')) || String(a.scheduledStart || a.timeLabel || '').localeCompare(String(b.scheduledStart || b.timeLabel || ''));
- return (sortOrder.value==='oldest'?byDate:-byDate) || Number(a.agencyId)-Number(b.agencyId);
+ const sortValue=item=>sortOrder.value==='client'?item.maskedName || item.clientMaskedName:sortOrder.value==='agency'?item.agencyName:sortOrder.value==='service'?item.serviceCode:bucket(item);
+ const alphabetical=['client','agency','service','status'].includes(sortOrder.value)?String(sortValue(a)||'').localeCompare(String(sortValue(b)||'')):0;
+ return alphabetical || (sortOrder.value==='oldest'?byDate:-byDate) || Number(a.agencyId)-Number(b.agencyId);
 }));
 const activeFailures=computed(()=>failures.value.filter(item=>(agencyFilter.value==='all'||String(item.agencyId)===agencyFilter.value)&&(currentTab.value==='all'||(currentTab.value==='cosign'?item.section==='cosign':item.section==='notes'))));
 function changeView(key,value){router.replace({path:route.path,query:{...route.query,[key]:value==='all'?undefined:value}});}
@@ -46,9 +50,9 @@ onMounted(load);
 </script>
 <template>
  <section class="mobile-mywork">
-  <header><span>All authorized agencies</span><button aria-label="Refresh My Work" :disabled="loading" @click="load"><RefreshCw :size="17"/></button></header>
+  <header><label class="work-search">Search<input type="search" aria-label="Search My Work" placeholder="Client, agency, service or date" :value="search" @input="changeView('workSearch',$event.target.value)" /></label><button aria-label="Refresh My Work" :disabled="loading" @click="load"><RefreshCw :size="17"/></button></header>
   <label class="agency-filter">Agency<select aria-label="Filter documentation by agency" :value="agencyFilter" @change="changeView('workAgency',$event.target.value)"><option value="all">All agencies</option><option v-for="agency in agencies" :key="agency.id" :value="String(agency.id)">{{ agency.name }}</option></select></label>
-  <label class="agency-filter">Sort<select aria-label="Sort My Work" :value="sortOrder" @change="changeView('workSort',$event.target.value)"><option value="recent">Most recent</option><option value="oldest">Oldest first</option></select></label>
+  <label class="agency-filter">Sort<select aria-label="Sort My Work" :value="sortOrder" @change="changeView('workSort',$event.target.value)"><option value="recent">Most recent</option><option value="oldest">Oldest first</option><option value="client">Client A–Z</option><option value="agency">Agency A–Z</option><option value="service">Service code</option><option value="status">Status</option></select></label>
   <nav class="work-tabs" aria-label="Documentation status"><button v-for="tab in tabs" :key="tab.id" :aria-pressed="currentTab===tab.id" @click="changeView('workTab',tab.id)">{{ tab.label }} <span>{{ ready && !failures.some(f=>(agencyFilter==='all'||String(f.agencyId)===agencyFilter)&&(tab.id==='all'||(tab.id==='cosign'?f.section==='cosign':f.section==='notes')))?counts[tab.id]:'—' }}</span></button></nav>
   <p v-if="loading" role="status">Loading your work…</p>
   <p v-if="error" role="alert">{{ error }} <button @click="load">Try again</button></p>
@@ -65,3 +69,5 @@ onMounted(load);
 <style scoped>
 .mobile-mywork{background:#fff;padding:18px;color:#1b385d;min-width:0}.mobile-mywork>header{display:flex;align-items:center;justify-content:space-between}.mobile-mywork h2{font-size:19px}.mobile-mywork p{font-size:13px;color:#657d9c;line-height:1.6}.mobile-mywork button,.mobile-mywork select{font:inherit;color:inherit}.mobile-mywork button{cursor:pointer}.mobile-mywork header button{border:0;background:#f1f5fb;border-radius:8px;padding:9px}.agency-filter{display:flex;align-items:center;gap:10px;font-size:12px;margin:12px 0}.agency-filter select{min-width:0;flex:1;border:1px solid #d8e3f6;border-radius:8px;padding:9px;background:white}.work-tabs{display:flex;gap:4px;overflow-x:auto;margin:12px 0}.work-tabs button{white-space:nowrap;border:0;background:#f2f5fa;border-radius:9px;padding:10px 8px;font-size:12px}.work-tabs button[aria-pressed=true]{background:#245be8;color:white}.work-tabs span{font-size:11px;margin-left:2px}.work-row{border-bottom:1px solid #e5ebf5;padding:12px 0}.work-open{display:flex;width:100%;align-items:center;gap:9px;text-align:left;background:white;border:0;padding:5px 0}.work-open{font:inherit;color:inherit;text-decoration:none}.amendment-hint{margin:5px 0 0 30px}.work-open>svg{flex-shrink:0}.work-copy{flex:1;min-width:0;display:flex;flex-direction:column;gap:5px}.work-copy strong{font-size:13px;overflow-wrap:anywhere}.work-copy small{font-size:11px;color:#657d9c}.work-agency{display:flex;align-items:center;gap:5px;flex-wrap:wrap}.work-agency img{width:20px;height:20px;object-fit:contain}.status{font-size:10px;background:#edf4ff;color:#2757a4;padding:4px 7px;border-radius:7px}.task-link{display:flex;gap:5px;align-items:center;background:#edf3ff;border:1px solid #d8e3f6;border-radius:9px;padding:10px 14px;margin:14px 0}.mw-quick-sign{background:#eaf6ef;border:1px solid #c2dfcd;border-radius:7px;color:#2b6f47;padding:7px 8px;font-size:11px;margin:5px 0 0 30px}.work-errors{padding:10px;background:#fff5f1;border-radius:8px}.work-errors p{margin:0 0 5px}.mobile-mywork button:focus-visible,.mobile-mywork select:focus-visible{outline:2px solid #245be8;outline-offset:2px}
 </style>
+
+<style scoped>.work-search{display:grid;gap:5px;font-size:12px;flex:1;margin-right:10px;min-width:0}.work-search input{font:inherit;font-size:16px;min-width:0;padding:9px;border:1px solid #d8e3f6;border-radius:8px}.mobile-mywork>header{gap:8px}</style>

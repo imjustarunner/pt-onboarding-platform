@@ -1,3 +1,4 @@
+import {issueNarrivaGenerationReceipt} from '../services/narrivaGenerationReceipt.service.js';
 import clinicalAppointmentAlerts from '../services/clinicalAppointmentAlerts.service.js';
 import { resolveClinicalDraftSessionContext } from '../services/clinicalDraftSessionContext.service.js';
 import { readStaffCareEligibility, requireStaffCareEligibility } from '../services/staffCareEligibility.service.js';
@@ -1652,9 +1653,13 @@ export const generateClinicalNote = async (req, res, next) => {
       }
     };
 
+    // Primary mobile writing must finish generation before it can enter signing.
+    // Desktop and legacy/manual drafts keep their existing signature workflow.
+    const mobileWriterMode=req.quickView?.mobileDeviceSessionId ? String(req.body?.writerMode || '') : '';
+    if(['narriva','smart_notes'].includes(mobileWriterMode))outputObj.meta.generationReceipt=issueNarrivaGenerationReceipt({userId:req.user.id,agencyId,clientId,clinicalSessionId:generationSessionContext.clinicalSessionId,officeEventId:generationSessionContext.officeEventId,inputText:String(req.body?.inputText || ''),serviceCode,writerMode:mobileWriterMode});
     const outputJson = JSON.stringify(outputObj);
     const storedInputText =
-      (transcriptSource === 'audio' || usedAudioTranscript) ? null : (terminationRequested ? providerInputText : inputText);
+      (transcriptSource === 'audio' || usedAudioTranscript) ? null : (mobileWriterMode ? String(req.body?.inputText || '').trim() : terminationRequested ? providerInputText : inputText);
     const encryptedInputText = maybeEncryptText(storedInputText);
     const encryptedOutputJson = maybeEncryptText(outputJson);
     if(req.sessionTranscription && !isChatEncryptionConfigured()) throw Object.assign(new Error('Secure note storage is not configured.'),{status:503});

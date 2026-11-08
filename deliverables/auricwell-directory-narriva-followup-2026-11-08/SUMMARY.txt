@@ -1,0 +1,15 @@
+AuricWell directory, inbox, and mobile Narriva follow-up — November 8, 2026
+
+Changes
+- School names and actual school-admin authority in the directory; inline recorded credentials, callable main-number extensions, and search with agency filters.
+- Saved lists external contacts. Unknown-email long press/overflow offers confirmed user-owned known-contact creation; sender lookup applies to historical and future mobile inbox reads.
+- Unread-first category order initializes without destabilizing quiet refreshes. Group email shows group/account context and derives personal unread from current ticket assignment/status; authorized history remains available.
+- My Work search and expanded sorting; redundant authorized-agency heading removed.
+- Compact, constrained mobile encounter controls; canonical participant choices and source-preserving method defaults.
+- Corrected mobile Narriva sequence: source -> explicit generation -> generated output/scored compliance -> standard signing. Source changes block signing. Server-signed generation receipts bind source, author, tenant, client, service and encounter for mobile attach/sign. Manual and supervisor workflows retain their existing controls.
+
+The reported premature editor/compliance behavior came from mobile workflow wiring. The shared private Narriva generation/review engines remain in use. No clinical history, prior signed document, enrollment fixture or real communication was changed by this work.
+
+Validation and deployment evidence are recorded separately. This change is ready for targeted QA when the deployed frontend/API match; it is not blanket clinical or physical-iPhone QA sign-off.
+
+Retest: docs/qa/AURICWELL-DIRECTORY-NARRIVA-FOLLOWUP-2026-11-08.txt

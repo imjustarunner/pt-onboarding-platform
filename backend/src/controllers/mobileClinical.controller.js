@@ -1,3 +1,4 @@
+import {verifyNarrivaGenerationReceipt} from '../services/narrivaGenerationReceipt.service.js';
 import pool from '../config/database.js';
 import {runWithAgencyAccess} from '../utils/agencyAccessContext.js';
 import clinicalPool from '../config/clinicalDatabase.js';
@@ -63,7 +64,7 @@ export function stripMobileClinicalIdentifiers(value) {
  return out;
 }
 /** Narrowly scoped adapter; existing controller permission and signature checks still run. */
-export function scopedMobileClinicalHandler(handler,{clientParam=null,draftParam=null,noteParam=null,sessionParam=null,recordingParam=null,objectiveParam=null,requireClient=false,authorOnly=false,maskRecordingNames=false}={}) {
+export function scopedMobileClinicalHandler(handler,{clientParam=null,draftParam=null,noteParam=null,sessionParam=null,recordingParam=null,objectiveParam=null,requireClient=false,authorOnly=false,requireGeneratedNote=false,maskRecordingNames=false}={}) {
  return async(req,res,next)=>{
   try{
    await ensurePrimary(req,res);const {agencyId,userId}=req.mobileClinical;let clientId=checkedId(clientParam?req.params[clientParam]:req.body.clientId||req.query.clientId,'client'),reviewer=false;
@@ -82,6 +83,14 @@ export function scopedMobileClinicalHandler(handler,{clientParam=null,draftParam
    if(!noteParam&&req.body.officeEventId){const [[office]]=await pool.execute('SELECT e.*,l.agency_id AS location_agency_id FROM office_events e JOIN office_locations l ON l.id=e.office_location_id WHERE e.id=?',[checkedId(req.body.officeEventId,'appointment')]);if(!office||Number(office.booked_provider_id||office.assigned_provider_id)!==userId)throw narrivaError(403,'Open your own scheduled appointment.');if(Number(office.location_agency_id)!==agencyId){const [[shared]]=await pool.execute('SELECT 1 FROM office_location_agencies WHERE office_location_id=? AND agency_id=?',[office.office_location_id,agencyId]);if(!shared)throw narrivaError(403,'This appointment belongs to another workspace.');}if(clientId&&Number(office.client_id)!==clientId){const [[member]]=await pool.execute('SELECT 1 FROM appointments a JOIN appointment_participants p ON p.appointment_id=a.id WHERE a.office_event_id=? AND a.agency_id=? AND a.provider_user_id=? AND p.client_id=?',[office.id,agencyId,userId,clientId]);if(!member)throw narrivaError(403,'The client is not part of this appointment.');}clientId=clientId||positiveId(office.client_id);}
    if(clientId){await requireNarrivaClient(req.user,agencyId,clientId,{authorizedNoteReviewer:reviewer});scopeBody(req,clientId);}
    else if(requireClient)throw narrivaError(400,'Choose an authorized clinical client.');
+   if(requireGeneratedNote){
+    const meta=noteParam?req.mobileClinical.noteSource?.meta:req.body.metadata || {};
+    const writerMode=meta.writerMode || meta.narrivaContext?.writerMode;
+    if(['narriva','smart_notes'].includes(writerMode)){
+     const id=positiveId(meta.draftId),draft=id?await ClinicalNoteDraft.findByIdForUser({draftId:id,userId}):null;
+     if(!draft || Number(draft.agency_id)!==agencyId || Number(draft.client_id)!==clientId || Number(draft.clinical_session_id)!==Number(req.mobileClinical.session?.id || req.mobileClinical.noteSource?.session?.id) || !verifyNarrivaGenerationReceipt(meta.generationReceipt,{userId,agencyId,clientId,clinicalSessionId:draft.clinical_session_id,officeEventId:draft.office_event_id,inputText:decryptNarrivaDraft(draft.input_text),serviceCode:draft.service_code,writerMode}))throw narrivaError(409,'Generate this note from the current Session Narrative before reviewing and signing. Your draft is preserved.');
+    }
+   }
    const original=res.json;res.json=function(body){res.json=original;let filtered=stripMobileClinicalIdentifiers(body);if(recordingParam||maskRecordingNames){for(const person of filtered.participants||[])if(person.name)person.name=maskMobileClientName({full_name:person.name});for(const person of filtered.signers||[])if(person.name)person.name=maskMobileClientName({full_name:person.name});for(const person of filtered.participants||[])for(const signer of person.signers||[])if(signer.name)signer.name=maskMobileClientName({full_name:signer.name});}return original.call(this,filtered);};
    await handler(req,res,next);
   }catch(error){next(error);}
@@ -146,9 +155,11 @@ export const getMobileClinicalContext=async(req,res,next)=>{
   let treatmentPlan=null;const plans=await ClinicalTreatmentPlan.listByClient({agencyId,clientId});const current=plans.find(plan=>String(plan.status).toLowerCase()==='active'&&(!plan.effective_date||dateOnly(plan.effective_date)<=dateOfService));
   if(current){const plan=await ClinicalTreatmentPlan.findById(current.id);if(Number(plan.agency_id)!==agencyId||Number(plan.client_id)!==clientId)throw narrivaError(409,'Treatment plan context changed.');const goals=[];for(const goal of plan.goals||[]){const objectives=[];for(const objective of goal.objectives||[]){const rating=await ClinicalTreatmentObjectiveRating.findLatestForDedupe({objectiveId:objective.id,dateOfService})||await ClinicalTreatmentObjectiveRating.findPreviousSession({objectiveId:objective.id,dateOfService});objectives.push({id:objective.id,title:objective.objective_text,scaleTarget:objective.scale_target,previousScore:rating?.scale_value??null});}goals.push({id:goal.id,title:goal.goal_text,objectives});}treatmentPlan={id:plan.id,goals,presentingProblem:plan.presentingProblem||'',diagnosticJustification:plan.diagnostic_justification||'',diagnoses:(plan.planDiagnoses||[]).map(dx=>({id:dx.diagnosis_id,code:dx.icd10_code,description:dx.description,justification:dx.justification}))};}
   let recordingNarrative=null;if(req.query.recordingId)recordingNarrative=await getAuthorizedRecordingNarrative({user:req.user,agencyId,clientId,clinicalSessionId:sessionId,officeEventId,recordingId:checkedId(req.query.recordingId,'recording')});
-  const participants=String(meta.sessionContext?.participants||meta.participants||'Client').match(/client|parent|guardian|caregiver|partner|spouse|collateral|interpreter|supervisor/gi)||['Client'];
+  let scheduledParticipants='';
+  if(session?.appointment_id){const [people]=await pool.execute('SELECT role FROM appointment_participants WHERE appointment_id=? ORDER BY sort_order,id',[session.appointment_id]);const roles=people.map(p=>String(p.role).toLowerCase());if(roles.includes('client'))scheduledParticipants=roles.some(role=>['guardian','parent','caregiver'].includes(role))?'Client and Parent/Guardian':roles.some(role=>!['client','provider','clinician'].includes(role))?'Client and Other Participants':'Client Only';else if(roles.some(role=>['guardian','parent','caregiver'].includes(role)))scheduledParticipants='Parent/Guardian without Client';}
+  const participants=String(meta.sessionContext?.participants||meta.participants||meta.participantsMode||office?.participants_mode||scheduledParticipants||'Client Only');
   const delivery=String(meta.narrivaContext?.modality||meta.sessionContext?.modality||meta.modality||session?.modality||'').toLowerCase();
-  const modality=['in_person','video','phone'].includes(delivery)?delivery:office&&!['02','10'].includes(session?.place_of_service)?'in_person':'';
+  const modality=['in_person','video','phone'].includes(delivery)?delivery:/^(in.person|in person)$/.test(delivery)?'in_person':/virtual|telehealth|video/.test(delivery)?'video':/phone|telephone/.test(delivery)?'phone':(office||session?.place_of_service)&&!['02','10'].includes(String(session?.place_of_service))?'in_person':'';
   const serviceLocationId=positiveId(session?.service_location_id)||positiveId(meta.sessionContext?.serviceLocationId);
   const billingOfficeLocationId=positiveId(session?.billing_office_location_id)||positiveId(meta.sessionContext?.billingOfficeLocationId)||positiveId(office?.office_location_id);
   const placeOfService=String(session?.place_of_service||meta.sessionContext?.placeOfService||'');
@@ -167,7 +178,7 @@ export const getMobileClinicalContext=async(req,res,next)=>{
   const preferredMode=preference?.default_mode||'manual';
   const defaultMode=preferredMode==='manual'&&capabilities.manualAllowed===false?'narriva':preferredMode;
   const signedContext=noteSource?await noteReviewContext(req,noteSource):null;
-  res.json({agencyId,riskAssessmentRequired,review:signedContext?.review||null,client:mobileClient(client),session:{id:sessionId,officeEventId,dateOfService,startTimeLocal:localStart.time,endTimeLocal:localEnd.time,durationMinutes,sourceTimezone:zone,serviceCode:session?.service_code||draft?.service_code||work?.serviceCode||meta.serviceCode||'',participants:[...new Set(participants)].join(', '),locationLabel,serviceLocationId,billingOfficeLocationId,placeOfService,modality},
+  res.json({agencyId,riskAssessmentRequired,review:signedContext?.review||null,client:mobileClient(client),session:{id:sessionId,officeEventId,dateOfService,startTimeLocal:localStart.time,endTimeLocal:localEnd.time,durationMinutes,sourceTimezone:zone,serviceCode:session?.service_code||draft?.service_code||work?.serviceCode||meta.serviceCode||'',participants,locationLabel,serviceLocationId,billingOfficeLocationId,placeOfService,modality},
    draft:draft?{id:Number(draft.id),inputText:decryptNarrivaDraft(draft.input_text),outputJson:outputFromDraft(draft)}:null,
    note:signedContext?.note||null,
    treatmentPlan,locationChoices,locationChoicesUnavailable,serviceCodes:care.canProvideCare?catalog.eligibleServiceCodes:[],preferences:{defaultMode,features:capabilities},alerts:[],recordingNarrative});

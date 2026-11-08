@@ -176,3 +176,13 @@ it('opens the invitation confirmation if portal setup changes after the recipien
  const original=api.get.getMockImplementation();api.get.mockImplementation((url,options)=>url.includes('/messages/clients?')?Promise.resolve({data:{contacts:[{id:'4:20:guardian:9',clientId:20,agencyId:4,recipientKey:'guardian:9',displayName:'Syn* Cli*'}]}}):original(url,options));api.post.mockResolvedValue({data:{requiresInvitation:true}});
  await start('/mobile/workspace?view=home&suite=secure');await wrapper.get('[aria-label="New secure message"]').trigger('click');await flushPromises();document.querySelector('.mm-recipient').click();await flushPromises();expect(document.querySelector('[role="dialog"] textarea')).not.toBeNull();expect(router.currentRoute.value.query.threadId).toBeUndefined();expect(api.post.mock.calls).toHaveLength(1);
 });
+
+it('promotes unread categories on first load and keeps their order during count refreshes',async()=>{
+ const first=response();first.counts={all:{unread:4},email:{unread:2},direct:{unread:0},secure:{unread:2},groups:{unread:0}};
+ api.get.mockResolvedValue({data:first});await start();const labels=()=>wrapper.findAll('.mm-categories button').map(n=>n.text().replace(/\s+/g,' '));expect(labels().slice(0,3)).toEqual(['All4','Email2','Secure2']);
+ api.get.mockResolvedValue({data:{...first,counts:{...first.counts,groups:{unread:5},secure:{unread:0}}}});await wrapper.get('[aria-label="Refresh messages"]').trigger('click');await flushPromises();expect(labels().slice(0,4)).toEqual(['All4','Email2','Secure0','Direct0']);
+});
+it('offers a known-contact action for unknown email and saves only after confirmation',async()=>{
+ const mail={key:'email:88',id:88,kind:'email',category:'email',unknown:true,title:'Synthetic subject',sender:'Outside sender',senderEmail:'outside@example.invalid',preview:'Synthetic mail'};
+ api.get.mockResolvedValue({data:{items:[mail],counts:{unknown:{total:1,unread:1}},nextCursor:null}});await start('/mobile/workspace?view=home&suite=unknown');await wrapper.findAll('button').find(n=>n.text()==='Create known contact').trigger('click');await flushPromises();expect(document.body.textContent).toContain('Save this sender');expect(api.post).not.toHaveBeenCalled();document.querySelector('[aria-label="Create known contact"] button').click();await flushPromises();expect(api.post).toHaveBeenCalledWith('/api/quick-view/messages/email/88/known-sender',{},expect.any(Object));
+});

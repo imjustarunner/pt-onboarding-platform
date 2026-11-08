@@ -24,6 +24,7 @@ export const getQuickConversation = handle(async (req, res) => {
   const beforeId = req.query.beforeId == null ? null : Number(req.query.beforeId);
   if (beforeId != null && (!Number.isSafeInteger(beforeId) || beforeId <= 0)) throw Object.assign(new Error('Invalid history cursor'), { status: 400 });
   const detail = await getConversationDetail(req.params.id, { userId: req.quickView.userId, markRead: !beforeId && req.query.markRead !== '0' });
+  if(req.quickView.mobileDeviceSessionId && !beforeId && req.query.markRead!=='0' && detail.conversation.is_ticketed_group)await Conversation.markRead(req.params.id,req.quickView.userId);
   if (beforeId) detail.messages = await Conversation.listMessages(req.params.id, { beforeId });
   const reactions = await listMessageReactions(detail.messages.map((m) => Number(m.id)).filter(Number.isSafeInteger), req.quickView.userId);
   detail.messages = detail.messages.map((m) => ({ ...m, reactions: reactions.get(Number(m.id)) || [] }));
