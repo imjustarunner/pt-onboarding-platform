@@ -1,4 +1,5 @@
 import { runOfficeDecision } from './officeApprovalWorkflow.controller.js';
+import { bookingServiceDuration } from '../utils/bookingServiceDuration.js';
 import { requireClientSessionBooking } from '../services/clientSessionBookingRollout.service.js';
 import { activeOfficeProviderSql } from '../utils/officeProviderEligibility.js';
 import {indexPendingRoomRequest,pendingBookingOccurrences} from '../utils/officePendingRequests.js';
@@ -3486,6 +3487,7 @@ export const getBookingMetadata = async (req, res, next) => {
     serviceCodes = metadata.careEligibility.canProvideCare ? serviceCodes
       .filter(row => approvedCodes.has(row.code))
       .map(row => ({ ...row,
+        defaultDurationMinutes: bookingServiceDuration(row),
         minDurationMinutes: Math.max(Number(row.minDurationMinutes) || 0,
           Number(approvedCodes.get(row.code).minDurationMinutes) || 0) || null
       })) : [];

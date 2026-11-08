@@ -94,6 +94,7 @@
           </select>
         </div>
         <span v-if="timezoneLabel" class="ahf-tz">{{ timezoneLabel }}</span>
+        <span v-if="showPrimaryServiceCode && actualDurationMinutes" class="ahf-tz" aria-live="polite">Duration: {{ actualDurationMinutes }} minutes</span>
       </div>
       <div v-if="bookSessionLayout && showInlineRecurrence && recurrenceFrequency !== 'ONCE'" class="ahf-recurrence-extra">
         <slot name="recurrence-extra" />
@@ -385,7 +386,7 @@
           >
             <option value="">Select service code…</option>
             <option
-              v-for="opt in primaryServiceCodeOptions"
+              v-for="opt in visiblePrimaryServiceCodeOptions"
               :key="`ahf-psc-${opt.code}`"
               :value="opt.code"
             >
@@ -394,6 +395,8 @@
           </select>
             <ServiceInformation presentation="button" :service-code="primaryServiceCode" :agency-id="agencyId" :service-info="primaryServiceCodeOptions.find(option => String(option.code).toUpperCase() === String(primaryServiceCode).toUpperCase())?.serviceInfo || null" />
           </div>
+          <button v-if="hasMorePrimaryServices" type="button" class="ahf-more-services" :aria-expanded="moreServices" :disabled="disabled" @click="moreServices=!moreServices">{{ moreServices?'Show common services':'Looking for more services?' }}</button>
+          <p v-if="selectedServiceDuration" class="ahf-hint">Default booking duration: {{ selectedServiceDuration }} minutes. Choosing a service updates the end time; you can adjust it.</p>
           <p v-if="adminCatalogLinks" class="ahf-admin-link-wrap">
             <a class="ahf-admin-link" :href="adminCatalogLinks.serviceCodes" target="_blank" rel="noopener">Update service codes ↗</a>
           </p>
@@ -604,6 +607,12 @@ import ServiceInformation from '../notes/ServiceInformation.vue';
 import { computed, ref, watch } from 'vue';
 
 const roomPreferenceSearch = ref('');
+const moreServices = ref(false);
+const actualDurationMinutes=computed(()=>{const minutes=time=>/^\d{2}:\d{2}$/.test(time)?Number(time.slice(0,2))*60+Number(time.slice(3)):NaN;const duration=minutes(props.endTime)-minutes(props.startTime);return duration>0?duration:null;});
+const commonServiceCodes = computed(() => new Set(['90837','90791',String(props.primaryServiceCode || '').toUpperCase()]));
+const hasMorePrimaryServices = computed(() => props.primaryServiceCodeOptions.some(option=>['90837','90791'].includes(String(option.code).toUpperCase())) && props.primaryServiceCodeOptions.some(option=>!commonServiceCodes.value.has(String(option.code).toUpperCase())));
+const visiblePrimaryServiceCodeOptions = computed(() => !hasMorePrimaryServices.value || moreServices.value ? props.primaryServiceCodeOptions : props.primaryServiceCodeOptions.filter(option=>commonServiceCodes.value.has(String(option.code).toUpperCase())));
+const selectedServiceDuration = computed(() => props.primaryServiceCodeOptions.find(option=>String(option.code).toUpperCase()===String(props.primaryServiceCode).toUpperCase())?.defaultDurationMinutes || null);
 const filteredRoomPreferenceOptions = computed(() => props.preferredRoomOptions.filter(r => `${roomNumberOf(r)} ${roomNameOf(r)}`.toLowerCase().includes(roomPreferenceSearch.value.trim().toLowerCase())));
 const roomPreferenceSummary = computed(() => roomPreferenceIds.value.map((id,index) => { const room=props.preferredRoomOptions.find(r => Number(r.id || r.roomId)===id); return `${index+1}. ${room ? officeRoomTitle(room) : `Room ${id}`}`; }).join(' → '));
 const roomPreferenceIds = computed(() => props.multipleRoomPreferences ? props.preferredRoomIds.map(Number) : Number(props.preferredRoomId) > 0 ? [Number(props.preferredRoomId)] : []);
@@ -894,6 +903,7 @@ function nudgeEnd(deltaMin) {
 </script>
 
 <style scoped>
+.ahf-more-services{font:inherit;font-size:.85rem;color:#245b9a;background:none;border:0;text-decoration:underline;cursor:pointer;padding:8px 0}.ahf-more-services:focus-visible{outline:3px solid #bd9141;outline-offset:3px}
 .ahf-service-code-control{display:flex;align-items:center;gap:8px;min-width:0}.ahf-service-code-control>select{flex:1;min-width:0;width:0}
 
 .ahf-preference-help { margin: 0 0 10px; color: #536577; font-size: .85rem; line-height: 1.5; }

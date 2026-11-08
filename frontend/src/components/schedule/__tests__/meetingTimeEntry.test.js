@@ -24,7 +24,8 @@ function scheduler(type = 'agency_meeting') {
     isScheduleEventEditMode: ref(false), isSupervisionEditMode: ref(false),
     officeAssignStartHour: ref(18), officeAssignEndHour: ref(19), officeAssignDay: ref('Monday'),
     modalDay: ref('Monday'), modalChooserTimeEditable: ref(false),
-    isScheduleEventRequestType: ref(false), isScheduleEventAllDayUi: ref(false)
+    isScheduleEventRequestType: ref(false), isScheduleEventAllDayUi: ref(false),
+    showAppointmentEditorShell:ref(false),editorIsClinical:ref(false),isSessionBookingRequestType:ref(false)
   };
   const create = new Function(...Object.keys(state), `
     const quarterMinuteOptions = [0, 15, 30, 45];

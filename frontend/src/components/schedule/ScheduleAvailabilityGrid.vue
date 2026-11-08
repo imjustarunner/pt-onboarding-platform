@@ -14646,6 +14646,7 @@ const editorServiceLocationOptions = computed(() => {
         isSchool: Number(loc.schoolOrganizationId || 0) > 0 || loc.placeOfService === '03',
         schoolOrganizationId: Number(loc.schoolOrganizationId || 0) || 0,
         defaultModifiers: loc.defaultModifiers || '',
+        billingOfficeLocationId: loc.billingOfficeLocationId || 0,
         name: loc.name
       };
     });
@@ -14707,9 +14708,30 @@ function onEditorTenantServiceId(id) {
 
 function onEditorPrimaryServiceCode(value) {
   const code = normalizeCodeValue(value);
+  const previousCode=bookingServiceCode.value,previousServiceId=editorTenantServiceId.value;
   bookingServiceCode.value = code;
   const service = (editorTenantServices.value || []).find(row => normalizeCodeValue(row.serviceCode || row.service_code) === code);
-  if (service) editorTenantServiceId.value = Number(service.id || 0);
+  editorTenantServiceId.value = Number(service?.id || 0);
+  // Only an explicit selection applies a duration. Catalog refreshes and opening
+  // saved appointments must never replace their recorded service times.
+  const option = service || bookingServiceCodeOptions.value.find(row => row.code === code);
+  if(applyEditorServiceDuration(option)===false){bookingServiceCode.value=previousCode;editorTenantServiceId.value=previousServiceId;}
+}
+
+function applyEditorServiceDuration(service) {
+  const minutes = Number(service?.defaultDurationMinutes || service?.default_duration_minutes || 0);
+  if (editorHydratingAppointment.value || !Number.isInteger(minutes) || minutes < 5 || minutes > 480) return;
+  const [hour, minute] = String(editorStartTime.value || '').split(':').map(Number);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return;
+  const end = hour * 60 + minute + minutes;
+  // Do not wrap an appointment onto an earlier time on the same service date.
+  if (end >= 1440) {
+    modalError.value = 'This service duration crosses midnight. Choose an earlier start time.';
+    return false;
+  }
+  const endTime=`${String(Math.floor(end / 60)).padStart(2,'0')}:${String(end % 60).padStart(2,'0')}`;
+  if(isScheduleEventEditMode.value) scheduleEventEditForm.value.endAt=`${editorDateYmd.value}T${endTime}`;
+  else {modalEndHour.value=Math.floor(end/60);modalEndMinute.value=end%60;onChooserWhenChanged?.();}
 }
 
 const editorPreferredOpenRoomOptions = computed(() => {
@@ -16257,7 +16279,7 @@ watch(editorModality, (v) => {
 });
 
 watch(editorTenantServices, services => {
-  if (editorHydratingAppointment.value || isAppointmentEditMode.value || !editorIsClinical.value) return;
+  if (editorHydratingAppointment.value || isAppointmentEditMode.value || isScheduleEventEditMode.value || !editorIsClinical.value) return;
   const code = normalizeCodeValue(bookingServiceCode.value);
   if (!code) return;
   const selected = (services || []).find(service => normalizeCodeValue(service.serviceCode || service.service_code) === code);
@@ -16269,12 +16291,8 @@ watch(editorTenantServiceId, (id) => {
   const svc = (editorTenantServices.value || []).find((s) => Number(s.id) === Number(id));
   if (!svc) return;
   const mins = Number(svc.defaultDurationMinutes || svc.default_duration_minutes || 0);
-  if (mins > 0 && !isAppointmentEditMode.value) {
-    const startH = Number(effectiveModalStartHour.value ?? modalHour.value ?? 0);
-    const startM = Number(modalStartMinute.value || 0);
-    const total = startH * 60 + startM + mins;
-    modalEndHour.value = Math.floor(total / 60);
-    modalEndMinute.value = total % 60;
+  if (mins > 0 && !isAppointmentEditMode.value && !isScheduleEventEditMode.value) {
+    applyEditorServiceDuration(svc);
   }
   const code = normalizeCodeValue(svc.serviceCode || svc.service_code);
   if (code && String(editorPracticeCategory.value || '') === 'mental_health') {
@@ -16494,6 +16512,8 @@ const bookingServiceCodeOptions = computed(() => {
       code,
       label,
       minDurationMinutes: Number(row?.minDurationMinutes || 0) || null,
+      defaultDurationMinutes: Number(row?.defaultDurationMinutes || 0) || null,
+      sessionMode: row?.sessionMode || 'either',
       unitMinutes: Number(row?.unitMinutes || 0) || null,
       maxUnitsPerDay: Number(row?.maxUnitsPerDay || 0) || null,
       maxUnitsPerSession: Number(row?.maxUnitsPerSession || 0) || null,
@@ -16529,6 +16549,7 @@ const bookingServiceLocationOptions = computed(() => {
     name: String(row?.name || '').trim() || `Location #${row?.id}`,
     placeOfService: String(row?.place_of_service || row?.placeOfService || '').trim(),
     billingOfficeName: String(row?.billing_office_name || row?.billingOfficeName || '').trim(),
+    billingOfficeLocationId: Number(row?.billing_office_location_id || row?.billingOfficeLocationId || 0),
     locationKind: String(row?.location_kind || row?.locationKind || '').trim(),
     defaultModifiers: String(row?.default_modifiers || row?.defaultModifiers || '').trim(),
     schoolOrganizationId: Number(row?.school_organization_id || row?.schoolOrganizationId || 0) || 0
@@ -16741,6 +16762,12 @@ const loadBookingMetadataForProvider = async () => {
       serviceCodes: Array.isArray(resp?.data?.serviceCodes) ? resp.data.serviceCodes : [],
       serviceLocations: Array.isArray(resp?.data?.serviceLocations) ? resp.data.serviceLocations : []
     };
+    if (!editorHydratingAppointment.value && !isAppointmentEditMode.value && !isScheduleEventEditMode.value && !bookingServiceCode.value && requestType.value==='individual_session') {
+      const { suggestPsychotherapyCodeForDuration } = await import('../../utils/noteAidSessionQueue.js');
+      if (requestId !== bookingMetadataRequest) return;
+      const suggested = suggestPsychotherapyCodeForDuration(modalSessionDurationMinutes.value);
+      if (!bookingServiceCode.value && bookingPrimaryServiceCodeOptions.value.some(option=>option.code===suggested)) bookingServiceCode.value=suggested;
+    }
     bookingAppointmentType.value = 'SESSION';
     bookingAppointmentSubtype.value = '';
     preferDefaultServiceLocation();
@@ -18991,6 +19018,8 @@ const endHourOptions = computed(() => {
 });
 
 const ensureModalEndTimeValid = () => {
+  const exactClinicalMinutes=showAppointmentEditorShell.value && editorIsClinical.value && isSessionBookingRequestType.value;
+  const validMinute=value=>Number.isInteger(value) && value>=0 && value<60;
   const maxEnd = modalGridMaxEnd.value;
   if (useModalQuarterHourTime.value) {
     const allowed = startHourOptions.value;
@@ -19004,16 +19033,16 @@ const ensureModalEndTimeValid = () => {
   if (endH > maxEnd) endH = maxEnd;
   modalEndHour.value = endH;
 
-  // Snap free-form minutes (e.g. :40) to the nearest quarter — never silently zero them to :00.
+  // Clinical service defaults can use exact minutes. Other grid actions retain quarter-hour entry.
   const rawStartMinute = Number(modalStartMinute.value || 0);
-  const normalizedStartMinute = quarterMinuteOptions.includes(rawStartMinute)
+  const normalizedStartMinute = (exactClinicalMinutes && validMinute(rawStartMinute)) || quarterMinuteOptions.includes(rawStartMinute)
     ? rawStartMinute
     : snapQuarterMinute(rawStartMinute);
   modalStartMinute.value = normalizedStartMinute;
 
   const allowedEndMinutes = endMinuteOptions.value;
   let endMinute = Number(modalEndMinute.value || 0);
-  if (!allowedEndMinutes.includes(endMinute)) {
+  if (!(exactClinicalMinutes && validMinute(endMinute)) && !allowedEndMinutes.includes(endMinute)) {
     endMinute = allowedEndMinutes.includes(snapQuarterMinute(endMinute))
       ? snapQuarterMinute(endMinute)
       : (allowedEndMinutes[0] ?? 0);

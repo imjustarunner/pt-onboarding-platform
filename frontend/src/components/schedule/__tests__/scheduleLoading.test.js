@@ -619,3 +619,25 @@ it('keeps the appointment open if its pending session source cannot be saved bef
  state.editorSessionNotePanel={savePendingDraft};
  await state.openEditorClinicalNote();expect(savePendingDraft).toHaveBeenCalledOnce();expect(state.scheduleEventEditError).toBe('Keep the unsaved source');
 });
+
+
+it('applies explicit service defaults repeatedly and preserves custom durations and saved opening times',async()=>{
+ const state=await mount();state.requestType='individual_session';state.showRequestModal=true;await flushPromises();state.modalDay='Monday';state.modalHour=13;state.modalStartHour=13;state.modalStartMinute=15;state.modalEndHour=14;state.modalEndMinute=15;
+ state.bookingMetadata={serviceCodes:[{code:'90832',defaultDurationMinutes:30,minDurationMinutes:16},{code:'90834',defaultDurationMinutes:45},{code:'90837',defaultDurationMinutes:60},{code:'CUSTOM',defaultDurationMinutes:55}],serviceLocations:[]};await flushPromises();
+ for(const [code,end] of [['90832','13:45'],['90834','14:00'],['90837','14:15'],['90832','13:45'],['CUSTOM','14:10']]){state.onEditorPrimaryServiceCode(code);await flushPromises();expect(state.editorEndTime).toBe(end);expect(state.editorStartTime).toBe('13:15');}
+ state.editorAppointmentId=88;state.editorHydratingAppointment=true;state.bookingServiceCode='90834';await flushPromises();expect(state.editorEndTime).toBe('14:10');state.editorHydratingAppointment=false;
+ state.onEditorPrimaryServiceCode('90832');await flushPromises();expect(state.editorEndTime).toBe('13:45');
+});
+
+it('retains office identities through location projection and matches the requested physical office',async()=>{
+ const state=await mount();state.requestType='individual_session';state.showRequestModal=true;await flushPromises();state.bookingMetadata={serviceCodes:[],serviceLocations:[{id:1,name:'Telehealth',placeOfService:'10'},{id:2,name:'Denver',placeOfService:'11',billing_office_location_id:701},{id:3,name:'Lakewood',placeOfService:'11',billingOfficeLocationId:702}]};
+ state.editorModality='IN_PERSON';state.editorOfficeLocationId=702;await flushPromises();state.preferDefaultServiceLocation({force:true});expect(state.editorServiceLocationId).toBe(3);expect(state.editorServiceLocationOptions.find(row=>row.id===3).billingOfficeLocationId).toBe(702);
+ state.editorOfficeLocationId=701;state.preferDefaultServiceLocation({force:true});expect(state.editorServiceLocationId).toBe(2);
+});
+
+it('defaults a new one-hour session to eligible 90837 without changing a saved service',async()=>{
+ const state=await mount();state.requestType='individual_session';state.showRequestModal=true;state.modalHour=13;state.modalEndHour=14;await flushPromises();state.bookingServiceCode='';
+ const fallback=m.get.getMockImplementation();m.get.mockImplementation(async(url,...args)=>url==='/office-schedule/booking-metadata'?{data:{serviceCodes:[{code:'90832',defaultDurationMinutes:30},{code:'90837',defaultDurationMinutes:60}],serviceLocations:[]}}:fallback(url,...args));
+ await state.loadBookingMetadataForProvider();expect(state.bookingServiceCode).toBe('90837');expect(state.editorEndTime).toBe('14:00');
+ state.editorAppointmentId=88;state.bookingServiceCode='90832';await state.loadBookingMetadataForProvider();expect(state.bookingServiceCode).toBe('90832');expect(state.editorEndTime).toBe('14:00');
+});

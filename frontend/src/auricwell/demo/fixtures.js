@@ -1,3 +1,4 @@
+import {demoBookingResponse} from './booking.js';
 import { demoClients, demoProviders, demoStaff } from './people.js';
 import { createDemoNoteFixtures } from './notes.js';
 import { createDemoTaskFixtures } from './tasks.js';
@@ -53,6 +54,8 @@ export function demoResponse(url, config={}) {
  for(const key of ['agencyId','agency_id','organizationId','organization_id']) if(q[key] && Number(q[key])!==practice.id) throw new Error('That practice is outside this fictional demo.');
  const clientMatch=p.match(/\/clients\/(\d+)(?:\/|$)/);if(clientMatch&&!clientFor(clientMatch[1]))throw new Error('That client is outside this fictional demo.');
  const userMatch=p.match(/\/users\/(\d+)(?:\/|$)/);if(userMatch&&!staff.some(u=>u.id===Number(userMatch[1])))throw new Error('That provider is outside this fictional demo.');
+ const bookingResponse = demoBookingResponse(p,q);
+ if(bookingResponse !== undefined)return bookingResponse;
  const taskResponse = taskFixtures.response(p,q);
  if(taskResponse !== undefined)return taskResponse;
  const noteResponse = noteFixtures.response(p, q);
@@ -107,14 +110,12 @@ export function demoResponse(url, config={}) {
  if(p==='/users/me')return actor;
  if(p==='/auth/me')return {user:actor,agencies:[practice]};
  if(userMatch&&p===`/users/${userMatch[1]}/agencies/${practice.id}/practice-categories`){requireProvider(userMatch[1]);return [];}
- if(['/offices','/calendar-connections',`/agencies/${practice.id}/affiliated-organizations`].includes(p))return [];
- if(p==='/office-schedule/booking-metadata')return {serviceCodes:[{code:'90834',label:'Individual psychotherapy',durationMinutes:50}],serviceLocations:[{id:990151,name:'Telehealth',placeOfService:'10'}],appointmentTypes:[],appointmentSubtypes:[]};
+ if(['/calendar-connections',`/agencies/${practice.id}/affiliated-organizations`].includes(p))return [];
  if(p==='/communications/call-billing')return {items:[],total:0,hasMore:false};
  if(p==='/medical-billing/workspace') {const selected=claims.filter(c=>(!q.status||q.status==='all'||q.status===c.claim_lifecycle||q.status==='attention'&&c.claim_lifecycle==='rejected')&&(!q.search||`${c.claim_number} ${c.id}`.toLowerCase().includes(String(q.search).toLowerCase())));const counts=claims.reduce((result,claim)=>{result[claim.claim_lifecycle]=(result[claim.claim_lifecycle]||0)+1;return result;},{});return {organizations:[{...practice,counts,connection:{configured:false},enrollments:[],eft:[],payments:{postingCount:0,paidCents:0}}],claims:selected,total:selected.length,capabilities:{claims:true,enrollments:true},updatedAt:new Date().toISOString()};}
  const claimMatch=p.match(/^\/medical-billing\/claimmd\/claims\/(\d+)\/(history|draft|review)$/);
  if(claimMatch) {const claim=claims.find(c=>c.id===Number(claimMatch[1]));if(!claim)throw new Error('That claim is outside this fictional demo.');const history=[{id:990170,type:'draft_created',status:'draft',createdAt:`${weekStart}T17:00:00Z`,messages:[{message:'Fictional claim prepared for review. Nothing has been transmitted.'}]}];if(claimMatch[2]==='history')return {history};if(claimMatch[2]==='draft')return {claim:{...claim,billing_revision:1,place_of_service:'10'},lines:[{id:990180,procedure_code:'90834',units:1,charge_cents:12500,modifiers_json:[]}]};return {claimId:claim.id,lifecycle:claim.claim_lifecycle,readiness:{ready:false,blockers:['Demo only: clearinghouse and payer enrollment are not connected.'],warnings:[]},history,payload:{charge:[{from_date:weekStart,proc_code:'90834',units:1,place_of_service:'10',charge:'125.00'}],total_charge:'125.00'},reviewHash:'demo-only'};}
  const serviceChanges=p.match(/^\/medical-billing\/claimmd\/claims\/(\d+)\/service-changes$/);if(serviceChanges){if(!claims.some(claim=>claim.id===Number(serviceChanges[1])))throw new Error('That claim is outside this fictional demo.');return {changes:[],previouslyTransmitted:false,revision:1};}
- if([`/tenant-booking/agencies/${practice.id}/booking-options`,`/tenant-booking/agencies/${practice.id}/services`].includes(p))return {services:[]};
  if(p==='/supervision/providers')return {providers};
  if(p==='/medical-billing/claimmd/enrollments')return {enrollments:[]};
  if(p==='/medical-billing/claimmd/billing-offices')return {offices:[]};

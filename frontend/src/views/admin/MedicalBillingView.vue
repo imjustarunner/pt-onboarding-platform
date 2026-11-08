@@ -108,6 +108,11 @@
 
       </template>
       <section v-if="serviceCodesOnly" class="mb-card">
+        <h2>Default booking durations</h2>
+        <p class="muted">Each service has a default booking length that sets the session end time when selected. The standard psychotherapy defaults are 90832: 30 minutes, 90834: 45 minutes and 90837: 60 minutes. You can customize these in Booking &amp; service types; billing units and minimum billable time are configured separately below.</p>
+        <router-link v-if="canManageCredentials" :to="bookingDurationSettingsLocation">Manage default booking durations →</router-link>
+      </section>
+      <section v-if="serviceCodesOnly" class="mb-card">
         <h2>Catalog and billing rules</h2>
         <p class="muted">
           Add codes missing from the catalog. Configure single-unit vs multi-unit, minutes per unit,
@@ -401,6 +406,7 @@ const agencyId = computed(() => Number(props.billingAgencyId || agencyStore.curr
 const scopedSlug = computed(() => props.billingAgencySlug || (agencyStore.agencies || []).find(a => Number(a.id) === agencyId.value)?.slug || '');
 const feeScheduleLocation = computed(() => ({ path: scopedSlug.value ? `/${scopedSlug.value}/admin/medical-billing` : '/admin/medical-billing', query: { agencyId: String(agencyId.value), billingSection: 'fee-schedules' } }));
 const serviceCodeSettingsLocation = computed(() => ({ path: scopedSlug.value ? `/${scopedSlug.value}/admin/settings` : '/admin/settings', query: { agencyId: String(agencyId.value), category: 'general', item: 'service-codes' } }));
+const bookingDurationSettingsLocation = computed(() => ({ path: scopedSlug.value ? `/${scopedSlug.value}/admin/settings` : '/admin/settings', query: { agencyId: String(agencyId.value), category: 'general', item: 'booking-service-types' } }));
 const canRunBillingReports = computed(() => canAccessMedicalBilling(authStore.user, agencyId.value));
 const canManageCredentials = computed(() => ['admin', 'super_admin'].includes(authStore.user?.role));
 const claimMdWorkspace = ref(null);

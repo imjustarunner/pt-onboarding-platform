@@ -1,11 +1,19 @@
 <template>
   <section class="demo-documentation" data-analytics-area="documentation" aria-label="Fictional Note Workspace">
-    <div class="demo-narriva-toolbar"><div><strong>Narriva in Note Workspace</strong><span>Follow the scripted Narriva journey or inspect the full workspace with fictional records.</span></div><button type="button" @click="showWalkthrough=!showWalkthrough" data-analytics-id="narriva-tour">{{ showWalkthrough?'View full workspace (read-only)':'Back to Narriva demo' }}</button></div>
-    <NarrivaShowcase v-if="showWalkthrough" :key="tourKey" :initial-view="tourView" :initial-method="tourMethod" />
+    <div v-if="demoMode" class="demo-narriva-toolbar"><div><strong>{{ showWalkthrough?'Narriva Demo':'Note Workspace Demo' }}</strong><span>Two ways to explore documentation. Switch demos anytime.</span></div><button type="button" @click="chooseDemo(showWalkthrough?'workspace':'narriva')" data-analytics-id="narriva-tour">{{ showWalkthrough?'Switch to Note Workspace Demo':'Switch to Narriva Demo' }}</button><button type="button" class="demo-choose-again" @click="chooseDemo(null)">Choose a demo</button></div>
+    <div v-if="!demoMode" class="demo-doc-chooser">
+      <p class="demo-doc-eyebrow">EXPLORE DOCUMENTATION</p><h1>Which demo would you like to see?</h1><p>Explore the full workspace or follow a guided Narriva example. All records are fictional.</p>
+      <div class="demo-doc-choices">
+        <button type="button" data-analytics-id="demo-choose-workspace" @click="chooseDemo('workspace')"><span aria-hidden="true">▤</span><strong>Note Workspace Demo</strong><p>Browse drafts, open complete notes and explore My Work and supervisor co-sign reviews.</p><b>Open workspace →</b></button>
+        <button type="button" data-analytics-id="demo-choose-narriva" @click="chooseDemo('narriva')"><img :src="NARRIVA_BRAND.icon" alt="" /><strong>Narriva Demo</strong><p>Rate treatment goals, preview a prepared note and watch the five example compliance checks.</p><b>Try Narriva →</b></button>
+      </div>
+      <p class="demo-doc-choice-note">No account needed. No clinical records are saved or signed.</p>
+    </div>
+    <NarrivaShowcase v-else-if="showWalkthrough" :key="tourKey" :initial-view="tourView" :initial-method="tourMethod" />
     <div v-else class="demo-doc-workspace" @click.capture="interceptAction" @focusin.capture="protectTextEntry" @beforeinput.capture.prevent="showInputNotice" @paste.capture.prevent="showInputNotice" @submit.capture.prevent="showDemoNotice">
       <ClinicalNoteGeneratorView :key="workspaceKey" :demo-presentation="presentation" />
     </div>
-    <details class="demo-doc-explanation"><summary>About this fictional workspace · Optional AI and consent</summary>
+    <details v-if="demoMode" class="demo-doc-explanation"><summary>About this fictional workspace · Optional AI and consent</summary>
     <div class="demo-doc-intro">
       <div><p class="demo-doc-eyebrow">A clearer path from session to signed note</p><p>Drafts on the left. Your note in the center. Notes and supervisor reviews in <strong>My Work</strong>.</p></div>
       <div class="demo-doc-actions">
@@ -15,7 +23,7 @@
     </div>
     <div class="demo-doc-context"><span>Fictional records</span><p>Write your own notes or choose optional AI assistance. A consented session transcript can become a draft for clinician review. Recording, generation and signatures are simulated here.</p></div>
     </details>
-    <footer v-if="!showWalkthrough" class="demo-doc-footer">
+    <footer v-if="demoMode==='workspace'" class="demo-doc-footer">
       <p><strong>Explore the full workflow.</strong> Open drafts, compare treatment objective ratings and review Milo’s notes with supervisor Dr. Tessa Brooks.</p>
       <button type="button" data-analytics-id="demo-note-simulate-sign-next" @click="simulateSignNext">Sign and open next (demo)</button>
     </footer>
@@ -23,7 +31,8 @@
 </template>
 
 <script setup>
-import { nextTick, ref } from 'vue';
+import { computed, nextTick, ref } from 'vue';
+import { NARRIVA_BRAND } from '../../config/narrivaBrand';
 import { useRoute, useRouter } from 'vue-router';
 import ClinicalNoteGeneratorView from '../../views/admin/ClinicalNoteGeneratorView.vue';
 import NarrivaShowcase from '../website/NarrivaShowcase.vue';
@@ -33,8 +42,11 @@ import { drafts as demoDrafts } from './fixtures';
 
 const route = useRoute(), router = useRouter();
 const wantsWorkspace=()=>route.query.workspace==='1'||!!(route.query.noteId||route.query.draftId||route.query.clientId);
-const showWalkthrough=ref(!wantsWorkspace()),tourKey=ref(0),tourView=ref('note'),tourMethod=ref('narriva');
-watch(()=>route.query,()=>{showWalkthrough.value=!wantsWorkspace();});
+const routeDemo=()=>wantsWorkspace()?'workspace':route.query.narriva==='1'?'narriva':null;
+const demoMode=ref(routeDemo()),tourKey=ref(0),tourView=ref('note'),tourMethod=ref('narriva');
+const showWalkthrough=computed({get:()=>demoMode.value==='narriva',set:value=>{demoMode.value=value?'narriva':'workspace';}});
+watch(()=>route.query,()=>{demoMode.value=routeDemo();});
+async function chooseDemo(mode){demoMode.value=mode;await router.replace({path:route.path,query:mode==='workspace'?{workspace:'1'}:mode==='narriva'?{narriva:'1'}:{}});}
 function showNarriva(view='note',method='narriva'){tourMethod.value=method;tourView.value=view;tourKey.value++;showWalkthrough.value=true;window.dispatchEvent(new CustomEvent('aw-demo-notice',{detail:'Narriva walkthrough: this is a separate fictional learning case. Your selected demo note is not changed.'}));}
 const workspaceKey = ref(0), selection=ref(null);
 const presentation = Object.freeze({
@@ -85,6 +97,7 @@ function interceptAction(event) {
 </script>
 
 <style scoped>
+.demo-doc-chooser{max-width:980px;margin:50px auto;padding:32px;color:#243f5b}.demo-doc-chooser>h1{font-size:clamp(1.7rem,3vw,2.5rem);line-height:1.2;margin:12px 0 18px}.demo-doc-chooser>p{line-height:1.7;color:#62748b}.demo-doc-eyebrow{font-size:.75rem;letter-spacing:.12em;font-weight:750}.demo-doc-choices{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px;margin:30px 0}.demo-doc-choices button{text-align:left;font:inherit;padding:28px;border:1px solid #c5d7e9;border-radius:18px;background:white;color:#243f5b;box-shadow:0 12px 35px #1d41620a;cursor:pointer}.demo-doc-choices button:hover{border-color:#235b8c;background:#f3f8fd}.demo-doc-choices button:focus-visible{outline:3px solid #bd9141;outline-offset:4px}.demo-doc-choices img,.demo-doc-choices button>span{width:54px;height:54px;object-fit:contain;display:block;margin-bottom:24px;font-size:46px;color:#2165a3}.demo-doc-choices strong{display:block;font-size:1.35rem}.demo-doc-choices p{line-height:1.7;font-size:.95rem;color:#62748b;min-height:5em}.demo-doc-choices b{color:#2165a3}.demo-doc-choice-note{font-size:.82rem}.demo-narriva-toolbar .demo-choose-again{background:white;color:#185896}.demo-narriva-toolbar>div{margin-right:auto}@media(max-width:650px){.demo-doc-chooser{margin:15px auto;padding:20px}.demo-doc-choices{grid-template-columns:1fr;gap:15px}.demo-doc-choices p{min-height:0}}
 .demo-documentation{min-width:0;--na-teal:#2165a3;--na-teal-dark:#194f81}
 .demo-narriva-toolbar{display:flex;justify-content:space-between;align-items:center;gap:18px;margin:0 0 16px;padding:16px 20px;background:#fff;border:1px solid #d9e4ef;border-radius:12px;color:#284b6e}.demo-narriva-toolbar strong{display:block;font-size:15px}.demo-narriva-toolbar span{display:block;font-size:12px;line-height:1.7;margin-top:5px;color:#6c8096}.demo-narriva-toolbar button{font:inherit;font-size:12px;color:white;background:#185896;border:1px solid #185896;padding:11px 15px;border-radius:8px;cursor:pointer;flex:none}.demo-narriva-toolbar button:focus-visible{outline:3px solid #bd9141;outline-offset:3px}@media(max-width:650px){.demo-narriva-toolbar{flex-direction:column;align-items:stretch;padding:15px}}
 .demo-doc-intro{display:flex;align-items:center;justify-content:space-between;gap:18px;margin-bottom:16px}.demo-doc-intro p{margin:3px 0;color:#62748b;font-size:.88rem;line-height:1.5}.demo-doc-intro .demo-doc-eyebrow{font-size:.75rem;font-weight:750;text-transform:uppercase;letter-spacing:.07em;color:#375b7c}.demo-doc-actions{display:flex;gap:8px;flex-shrink:0}.demo-doc-actions button,.demo-doc-footer button{border:1px solid #b9cfe3;border-radius:9px;background:#fff;color:#235b8c;font:inherit;font-size:.82rem;font-weight:650;padding:10px 13px;cursor:pointer}.demo-doc-actions button:hover,.demo-doc-footer button:hover{background:#edf5ff}.demo-doc-actions button:focus-visible,.demo-doc-footer button:focus-visible{outline:3px solid #4588c7;outline-offset:3px}

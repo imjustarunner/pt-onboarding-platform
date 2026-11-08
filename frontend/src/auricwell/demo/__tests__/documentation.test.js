@@ -33,6 +33,16 @@ describe('real workspace start presentation', () => {
 });
 
 describe('demo action isolation', () => {
+  it('starts with a chooser, switches either way and preserves direct note launches',async()=>{
+    const router=createRouter({history:createMemoryHistory(),routes:[{path:'/meadowbrook/documentation',component:{template:'<span />'}}]});await router.push('/meadowbrook/documentation');await router.isReady();wrapper=mount(Documentation,{global:{plugins:[router]}});
+    expect(wrapper.get('h1').text()).toBe('Which demo would you like to see?');expect(wrapper.find('.narriva-demo').exists()).toBe(false);expect(wrapper.find('.demo-doc-workspace').exists()).toBe(false);
+    await wrapper.get('[data-analytics-id="demo-choose-workspace"]').trigger('click');await flushPromises();expect(wrapper.find('.demo-doc-workspace').exists()).toBe(true);expect(router.currentRoute.value.query.workspace).toBe('1');
+    await wrapper.get('[data-analytics-id="narriva-tour"]').trigger('click');await flushPromises();expect(wrapper.find('.narriva-demo').exists()).toBe(true);expect(router.currentRoute.value.query.narriva).toBe('1');
+    await wrapper.get('[data-analytics-id="narriva-tour"]').trigger('click');await flushPromises();expect(wrapper.find('.demo-doc-workspace').exists()).toBe(true);
+    await router.push('/meadowbrook/documentation');await flushPromises();expect(wrapper.find('.demo-doc-chooser').exists()).toBe(true);
+    await router.push('/meadowbrook/documentation?noteId=990181&launchIntent=cosign');await flushPromises();expect(wrapper.find('.demo-doc-workspace').exists()).toBe(true);
+  });
+
   it.each(['Quick Sign','Narriva Generate Note'])('routes %s into the scripted tour before the shared application handler runs',async label=>{
     const router=createRouter({history:createMemoryHistory(),routes:[{path:'/meadowbrook/documentation',component:{template:'<span />'}}]});await router.push('/meadowbrook/documentation?workspace=1');await router.isReady();wrapper=mount(Documentation,{global:{plugins:[router]}});await wrapper.findAll('.demo-doc-workspace button').find(button=>button.text()===label).trigger('click');expect(wrapper.find('.narriva-demo').exists()).toBe(true);expect(wrapper.find('.demo-doc-workspace').exists()).toBe(false);expect(mutations.sign).not.toHaveBeenCalled();expect(mutations.save).not.toHaveBeenCalled();
   });

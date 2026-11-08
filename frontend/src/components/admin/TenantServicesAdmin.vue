@@ -88,7 +88,7 @@
           </label>
           <label>
             Service code
-            <input v-model="form.serviceCode" class="input" maxlength="32" placeholder="e.g. 90837, H2014" />
+            <input v-model="form.serviceCode" class="input" maxlength="32" placeholder="e.g. 90837, H2014" @change="applyServiceDurationPreset" />
           </label>
           <label>
             Business type
@@ -97,8 +97,9 @@
             </select>
           </label>
           <label>
-            Duration (minutes)
-            <input v-model.number="form.defaultDurationMinutes" class="input" type="number" min="5" max="480" />
+            Default booking duration (minutes)
+            <input v-model.number="form.defaultDurationMinutes" class="input" type="number" min="5" max="480" step="1" required />
+            <span class="hint">Used to set the end time when this service is selected. This is separate from billing units and minimum billable time.</span>
           </label>
           <label>
             Modality
@@ -309,6 +310,7 @@
 </template>
 
 <script setup>
+import { defaultDurationMinutesForServiceCode } from '../../utils/noteAidSessionQueue.js';
 import ProviderBillingSettings from './ProviderBillingSettings.vue';
 import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api.js';
@@ -774,10 +776,19 @@ const editService = (svc) => {
   editing.value = true;
 };
 
+function applyServiceDurationPreset(){
+  const code=String(form.value.serviceCode || '').trim().toUpperCase();
+  if(['90832','90834','90837'].includes(code)) form.value.defaultDurationMinutes=defaultDurationMinutesForServiceCode(code);
+}
+
 const saveService = async () => {
   const aid = Number(props.agencyId || 0);
   if (!String(form.value.name || '').trim()) {
     error.value = 'Service name is required';
+    return;
+  }
+  if (!Number.isInteger(Number(form.value.defaultDurationMinutes)) || Number(form.value.defaultDurationMinutes)<5 || Number(form.value.defaultDurationMinutes)>480) {
+    error.value = 'Default booking duration must be a whole number from 5 to 480 minutes.';
     return;
   }
   savingService.value = true;
