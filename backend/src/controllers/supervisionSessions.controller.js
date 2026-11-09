@@ -3604,7 +3604,7 @@ export const createSupervisionSession = async (req, res, next) => {
       && coFacilitatorUserIdRaw !== supervisorUserId
       ? coFacilitatorUserIdRaw
       : null;
-    const modality = req.body?.modality ?? null;
+    const modality = supervisionDialInRequired(supervisorUserId) ? 'virtual' : req.body?.modality ?? null;
     const locationText = req.body?.locationText ?? null;
     const notes = req.body?.notes ?? null;
     const createMeetLink = req.body?.createMeetLink === true;
@@ -4025,7 +4025,7 @@ export const patchSupervisionSession = async (req, res, next) => {
       existingSession: row
     }))) return;
     const notes = req.body?.notes !== undefined ? (req.body?.notes ? String(req.body.notes) : '') : undefined;
-    const modality = req.body?.modality !== undefined ? (req.body?.modality ? String(req.body.modality) : null) : undefined;
+    const modality = supervisionDialInRequired(row.supervisor_user_id) ? 'virtual' : req.body?.modality !== undefined ? (req.body?.modality ? String(req.body.modality) : null) : undefined;
     const locationText = req.body?.locationText !== undefined ? (req.body?.locationText ? String(req.body.locationText) : null) : undefined;
     const createMeetLink = req.body?.createMeetLink === true;
     const presenterUserIds = req.body?.presenterUserIds !== undefined
