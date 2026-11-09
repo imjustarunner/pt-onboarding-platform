@@ -11,10 +11,11 @@
           </select>
         </label>
         <template v-if="data.details && !loading">
-          <p><a :href="data.details.oneTapUrl">Call {{ data.details.number }}</a><br>
+          <p><a :href="data.details.oneTapUrl">Tap to call {{ data.details.number }} and enter your PIN</a><br>
             Personal PIN for {{ data.details.name }}: <strong>{{ data.details.pin }} #</strong>
           </p>
           <p class="meeting-phone__hint">Use your own PIN so attendance and speech are associated with you. If your phone does not enter it automatically, enter the PIN followed by #. Telephone joining opens 15 minutes before the meeting.</p>
+          <p v-if="data.details.callingPhoneHint" class="meeting-phone__hint">{{ data.details.callingPhoneHint }} {{ data.details.hostHint }}</p>
           <div class="meeting-phone__actions">
             <button type="button" :disabled="!!busy" @click="copyInvitation">Copy dial-in</button>
             <button type="button" :disabled="!!busy" @click="send('sms')">{{ busy === 'sms' ? 'Sending…' : 'Text dial-in' }}</button>

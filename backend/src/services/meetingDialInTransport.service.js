@@ -16,11 +16,11 @@ export function verifyDialInWebhook(raw, authorization, env = process.env) {
   try { return JSON.parse(raw.toString('utf8')); } catch { throw dialInError('Invalid telephone callback.', 400); }
 }
 export const dialInWebhookUrl = path => { requireDialInConfiguration({ allowDisabled: true }); return `${dialInReadiness().origin}/api/meeting-dial-in/voice/${path}`; };
-export function pinPrompt(message = 'Enter your ten digit personal meeting PIN, followed by the pound key.') {
-  return [{ action: 'talk', text: message }, { action: 'input', type: ['dtmf'], dtmf: { maxDigits: 10, timeOut: 10, submitOnHash: true }, eventUrl: [dialInWebhookUrl('pin')], eventMethod: 'POST' }];
+export function pinPrompt(message = 'Enter your personal meeting PIN, followed by the pound key. For a four digit PIN, call from your registered phone with caller ID enabled.') {
+  return [{ action: 'talk', text: message, bargeIn:true }, { action: 'input', type: ['dtmf'], dtmf: { maxDigits: 10, timeOut: 10, submitOnHash: true }, eventUrl: [dialInWebhookUrl('pin')], eventMethod: 'POST' }];
 }
 export function hostPrompt() {
-  return [{ action: 'talk', text: 'You are a meeting host. Press one to admit invited telephone participants automatically while you are connected. Press two to admit them yourself from the app.' },
+  return [{ action: 'talk', text: 'You are a meeting host. Press one to admit invited telephone participants automatically while you are connected. Press two to admit them yourself from the app.', bargeIn:true },
     { action: 'input', type: ['dtmf'], dtmf: { maxDigits: 1, timeOut: 10 }, eventUrl: [dialInWebhookUrl('host-option')], eventMethod: 'POST' }];
 }
 export const callConversation = (call, bridge = false) => [{ action: 'conversation', name: `meeting-phone-${call.id}`, startOnEnter: bridge, endOnExit: bridge,

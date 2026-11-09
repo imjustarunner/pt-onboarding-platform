@@ -186,7 +186,9 @@ async function deliverJoinReminderToUser({ userId, agencyId, joinUrl, label, ses
         const meetingLabel = sessionType === 'supervision' ? 'supervision' : meetingEvent?.kind === 'HUDDLE' ? 'huddle' : 'staff meeting';
         const supervisionReminder = sessionType === 'supervision';
         const footer = supervisionReminder ? ' Reply NOREMIND to stop reminders.' : '';
-        const body = `${`Your ${meetingLabel} is ${when}. Open your personal link to join: ${finalJoinUrl}`.slice(0, 480 - footer.length)}${footer}`;
+        const dialIn = meetingEvent ? await (await import('./meetingDialInDelivery.service.js')).optionalMeetingDialIn(meetingEvent,userId) : null;
+        const phone = dialIn ? `\nOne-tap phone: ${dialIn.oneTapUrl.slice(4).replace('%23','#')}\n${dialIn.callingPhoneHint}` : '';
+        const body = `Your ${meetingLabel} is ${when}. Open your personal link to join: ${finalJoinUrl}${phone}${footer}`;
         await VonageService.sendSms({
           purpose: 'workforce',
           agencyId: agencyId,

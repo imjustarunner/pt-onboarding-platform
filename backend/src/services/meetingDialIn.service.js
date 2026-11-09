@@ -4,23 +4,30 @@ import { encryptChatText } from './chatEncryption.service.js';
 import { maybeDecryptNotePayload } from './clinicalNoteCrypto.service.js';
 import { createOrGetMeetingRoom } from './video.service.js';
 import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
-import { dialInConfigured, dialInAssetsConfigured, dialInError, newPersonalPin, pinDigest, occurrenceKey, dialInDetails } from './meetingDialInPolicy.js';
+import { dialInConfigured, dialInAssetsConfigured, dialInError, newPersonalPin, personalPinDigest, dialInCallerHash, registeredDialInPhone, occurrenceKey, dialInDetails } from './meetingDialInPolicy.js';
 import { dialInContext, admitDialInUser, dialInSchema } from './meetingDialInContext.service.js';
 import { dialInTransport, pinPrompt, hostPrompt, callConversation, unavailableCall } from './meetingDialInTransport.service.js';
 
 const digest = value => crypto.createHash('sha256').update(String(value)).digest('hex');
 const uuid = value => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(value || ''));
 const sqlTime = date => new Date(date).toISOString().slice(0,23).replace('T',' ');
+const invitationVersion = context => occurrenceKey(context.type, context.meeting,
+  registeredDialInPhone(context.user) ? dialInCallerHash(registeredDialInPhone(context.user)) : null);
 export async function personalDialIn(type, meetingId, userId) {
   if (!dialInConfigured()) return null;
   const context = await dialInContext(type, meetingId, userId);
-  const version = occurrenceKey(type, context.meeting);
-  const pin = newPersonalPin(), encrypted = encryptChatText(pin);
-  await pool.execute(`INSERT IGNORE INTO meeting_dial_in_invitations (meeting_type,meeting_id,user_id,occurrence_key,pin_hash,pin_encrypted)
-    VALUES (?,?,?,?,?,?)`, [type,meetingId,userId,version,pinDigest(pin),JSON.stringify({_enc:true,keyId:encrypted.keyId,iv:encrypted.ivB64,tag:encrypted.authTagB64,ciphertext:encrypted.ciphertextB64})]);
-  const [[row]] = await pool.execute('SELECT * FROM meeting_dial_in_invitations WHERE meeting_type=? AND meeting_id=? AND user_id=? AND occurrence_key=?', [type,meetingId,userId,version]);
+  const version = invitationVersion(context), callingPhone = registeredDialInPhone(context.user);
+  let row;
+  // The unique lookup hash handles collisions across every occurrence and any
+  // accounts sharing a phone. Re-read after each insert for concurrent requests.
+  for (let attempt = 0; attempt < 64 && !row; attempt++) {
+    const pin = newPersonalPin(callingPhone ? 4 : 10), encrypted = encryptChatText(pin);
+    await pool.execute(`INSERT IGNORE INTO meeting_dial_in_invitations (meeting_type,meeting_id,user_id,occurrence_key,pin_hash,pin_encrypted)
+      VALUES (?,?,?,?,?,?)`, [type,meetingId,userId,version,personalPinDigest(pin,callingPhone ? dialInCallerHash(callingPhone) : null),JSON.stringify({_enc:true,keyId:encrypted.keyId,iv:encrypted.ivB64,tag:encrypted.authTagB64,ciphertext:encrypted.ciphertextB64})]);
+    [[row]] = await pool.execute('SELECT * FROM meeting_dial_in_invitations WHERE meeting_type=? AND meeting_id=? AND user_id=? AND occurrence_key=?', [type,meetingId,userId,version]);
+  }
   if (!row || row.revoked_at) throw dialInError('Telephone access is unavailable.');
-  return { ...dialInDetails(maybeDecryptNotePayload(row.pin_encrypted), context.meeting, context.name), invitationId: row.id };
+  return { ...dialInDetails(maybeDecryptNotePayload(row.pin_encrypted), context.meeting, context.name, undefined, { callingPhone, isHost:context.isHost }), invitationId: row.id };
 }
 export async function callWithInvitation(id, db = pool) {
   const [[row]] = await db.execute(`SELECT c.*,i.meeting_type,i.meeting_id,i.user_id,i.occurrence_key,i.revoked_at
@@ -30,7 +37,7 @@ export async function callWithInvitation(id, db = pool) {
 export async function validateDialInCall(call, options = {}) {
   if (!call?.invitation_id || call.revoked_at || call.ended_at || ['ending','ended'].includes(call.state)) throw dialInError('Telephone access ended.',410);
   const context = await dialInContext(call.meeting_type, call.meeting_id, call.user_id, { joining: true, ...options });
-  if (occurrenceKey(call.meeting_type, context.meeting) !== call.occurrence_key) throw dialInError('This meeting was rescheduled. Use its new invitation.',410);
+  if (invitationVersion(context) !== call.occurrence_key) throw dialInError('This meeting or registered phone changed. Use its new invitation.',410);
   return context;
 }
 async function withCallLock(id, fn) {
@@ -58,10 +65,10 @@ export async function answerDialIn(event) {
   }
   // Reject unexpected SIP calls, and never turn a callback into an outbound dialer.
   if (Object.keys(event).some(key=>/^SipHeader_/i.test(key)) || String(event.to).replace(/\D/g,'') !== process.env.MEETING_DIAL_IN_NUMBER.replace(/\D/g,'')) return unavailableCall();
-  const callerHash = pinDigest(`caller:${event.from || 'private'}`);
+  const callerHash = dialInCallerHash(event.from);
   const [[abuse]] = await pool.execute(`SELECT COALESCE(SUM(attempts),0) attempts FROM meeting_dial_in_calls
     WHERE caller_hash=? AND invitation_id IS NULL AND created_at>DATE_SUB(UTC_TIMESTAMP(),INTERVAL 1 HOUR)`,[callerHash]);
-  if (Number(abuse.attempts)>=15) return unavailableCall('Too many unsuccessful attempts. Contact the meeting host.');
+  if (Number(abuse.attempts)>=5) return unavailableCall('Too many unsuccessful attempts. Contact the meeting host.');
   await pool.execute('INSERT IGNORE INTO meeting_dial_in_calls (id,caller_hash) VALUES (?,?)',[event.uuid,callerHash]);
   const call = await callWithInvitation(event.uuid);
   if (call.state !== 'pin') return resumeDialIn(call);
@@ -76,7 +83,7 @@ export async function enterDialInPin(event) {
     if (Number(call.attempts)>=3) return unavailableCall();
     await db.execute('UPDATE meeting_dial_in_calls SET attempts=attempts+1 WHERE id=?',[call.id]);
     const pin = String(event.dtmf?.digits || '');
-    const [[invitation]] = /^\d{10}$/.test(pin) ? await db.execute('SELECT * FROM meeting_dial_in_invitations WHERE pin_hash=? AND revoked_at IS NULL',[pinDigest(pin)]) : [[]];
+    const [[invitation]] = /^(\d{4}|\d{10})$/.test(pin) ? await db.execute('SELECT * FROM meeting_dial_in_invitations WHERE pin_hash=? AND revoked_at IS NULL',[personalPinDigest(pin,call.caller_hash)]) : [[]];
     let context;
     try {
       if (!invitation) throw dialInError('Invalid PIN.');

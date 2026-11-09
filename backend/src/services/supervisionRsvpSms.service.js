@@ -8,6 +8,7 @@ import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
 import Vonage from './vonage.service.js';
 import { withStaffReminderOptOut } from './staffReminderSmsPreference.service.js';
 import SmsLog from '../models/NotificationSmsLog.model.js';
+import { dialInConfigured } from './meetingDialInPolicy.js';
 const json=value=>typeof value==='string'?JSON.parse(value):value||{};
 export const isSupervisionRsvpReminder = (session,kind) => session.kind!=='HUDDLE' && session.session_type==='group'
  && session.enrollment_mode!=='signup_only' && (kind==='join_reminder'||/^(join|reminder|presenter):[1-5]$/.test(kind));
@@ -39,7 +40,9 @@ export function createSupervisionRsvpSms({db=pool,resolveSender=resolveRegistere
    assertCompanyEventSmsCampaign(await readSender(from),'staff','workforce');
    const link=(await invitation({...session,...row},user.id)).url;
    const when=new Intl.DateTimeFormat('en-US',{timeZone:row.event_timezone||'America/Denver',weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'}).format(parseUtcDate(row.start_at));
-   const options={to,from,purpose:'workforce',agencyId:row.agency_id,staffNotificationKind:'notifications',reminderFooter:'noremind',body:withStaffReminderOptOut(`Required group supervision is starting soon (${when}). Join here: ${link}\n\nCan't make it? Click here to record your absence: ${link}?rsvp=absence&eventId=${session.id}`)};
+   const dialIn=dialInConfigured() ? await (await import('./meetingDialInDelivery.service.js')).optionalMeetingDialIn({...session,...row},user.id) : null;
+   const phone=dialIn ? `\nOne-tap phone: ${dialIn.oneTapUrl.slice(4).replace('%23','#')}\n${dialIn.callingPhoneHint}` : '';
+   const options={to,from,purpose:'workforce',agencyId:row.agency_id,staffNotificationKind:'notifications',reminderFooter:'noremind',body:withStaffReminderOptOut(`Required group supervision is starting soon (${when}). Join here: ${link}${phone}\n\nCan't make it? Click here to record your absence: ${link}?rsvp=absence&eventId=${session.id}`)};
    await prepare(options);
    // A response, removed requirement, cancellation, or changed time suppresses a queued text.
    row=await eligible(session.id,user.id);

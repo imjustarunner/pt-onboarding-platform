@@ -67,6 +67,7 @@ describe.skipIf(!enabled)('telephone meeting lifecycle with isolated MySQL', () 
   });
   beforeEach(async () => {
     vi.stubEnv('MEETING_DIAL_IN_ENABLED', 'true');
+    await m.db.query('UPDATE users SET personal_phone=NULL,work_phone=NULL,phone_number=NULL');
     await m.db.query('DELETE FROM meeting_calendar_guests');
     for (const table of ['meeting_dial_in_deliveries','meeting_dial_in_calls','meeting_dial_in_invitations','supervision_session_attendance_events','supervision_session_attendance_rollups','supervision_session_video_admissions','supervision_session_join_presence','supervision_session_attendees','supervision_sessions','provider_schedule_events','provider_schedule_event_attendees','meeting_participant_preferences','provider_schedule_event_join_presence','provider_schedule_event_video_admissions','provider_schedule_event_attendance_segments','agency_meeting_attendance_rollups']) await m.db.query(`DELETE FROM ${table}`);
     await m.db.query("INSERT INTO supervision_sessions(id,agency_id,supervisor_user_id,supervisee_user_id,start_at,end_at,status,modality,waiting_room_enabled) VALUES (5,2,7,8,DATE_SUB(UTC_TIMESTAMP(),INTERVAL 10 MINUTE),DATE_ADD(UTC_TIMESTAMP(),INTERVAL 50 MINUTE),'SCHEDULED','VIRTUAL',1)");
@@ -94,6 +95,39 @@ describe.skipIf(!enabled)('telephone meeting lifecycle with isolated MySQL', () 
     const ncco = await enterDialInPin({ uuid: id, dtmf: { digits: invitation.pin } });
     return { id, ncco, pin: invitation.pin };
   }
+  it('requires the registered calling number with a short PIN and invalidates it after a phone change',async()=>{
+    await m.db.query("UPDATE users SET personal_phone='+12025550199' WHERE id=8");
+    const details=await personalDialIn('supervision',5,8);
+    expect(details.pin).toMatch(/^\d{4}$/);
+    const wrong=crypto.randomUUID();
+    await answerDialIn({uuid:wrong,from:'12025550198',to:'12025550123'});
+    expect((await enterDialInPin({uuid:wrong,dtmf:{digits:details.pin}}))[0].text).toContain('unavailable');
+    expect((await enter(8,details.pin)).ncco[0].text).toContain('Welcome');
+    await m.db.query("UPDATE users SET personal_phone='+12025550197' WHERE id=8");
+    expect((await enter(8,details.pin)).ncco[0].text).toContain('unavailable');
+    const replacement=await personalDialIn('supervision',5,8);
+    expect(replacement.invitationId).not.toBe(details.invitationId);
+  });
+  it('keeps short invitation credentials stable under concurrent requests',async()=>{
+    await m.db.query("UPDATE users SET personal_phone='+12025550199' WHERE id IN (7,8)");
+    const details=await Promise.all(Array.from({length:8},()=>personalDialIn('supervision',5,8)));
+    expect(new Set(details.map(d=>d.invitationId)).size).toBe(1);
+    expect(new Set(details.map(d=>d.pin)).size).toBe(1);
+    expect((await personalDialIn('supervision',5,7)).pin).not.toBe(details[0].pin);
+  });
+  it('retries a short PIN collision without giving two participants the same credential',async()=>{
+    await m.db.query("UPDATE users SET personal_phone='+12025550199' WHERE id IN (7,8)");
+    const random=vi.spyOn(crypto,'randomInt').mockReturnValue(1);
+    try {
+      const host=await personalDialIn('supervision',5,7);
+      random.mockReset();
+      for(let n=0;n<4;n++)random.mockReturnValueOnce(1);
+      random.mockReturnValue(2);
+      const peer=await personalDialIn('supervision',5,8);
+      expect(host.pin).toBe('1111');expect(peer.pin).toBe('2222');
+      expect(random).toHaveBeenCalledTimes(8);
+    }finally{random.mockRestore();}
+  });
   async function connectHost() {
     const host = await enter(7); await chooseDialInHostOption({ uuid: host.id, dtmf: { digits: '1' } }); await reconcileDialInCall(host.id); return host;
   }

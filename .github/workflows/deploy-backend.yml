@@ -579,7 +579,7 @@ jobs:
               --cpu=1 \
               --no-cpu-throttling \
               --cpu-boost \
-              --timeout=300 \
+              --timeout=3600 \
               --max=2 \
               --max-instances=2 \
               --min=1 \

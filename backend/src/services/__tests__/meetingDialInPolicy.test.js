@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import crypto from 'node:crypto';
 import jwt from 'jsonwebtoken';
 vi.mock('../vonageVideo.service.js', () => ({ default: {} }));
-import { assertDialInMeeting, occurrenceKey, pinDigest, newPersonalPin, unionAttendanceIntervals, dialInDetails, dialInConfigured, dialInReadiness } from '../meetingDialInPolicy.js';
+import { assertDialInMeeting, occurrenceKey, pinDigest, newPersonalPin, personalPinDigest, dialInCallerHash, registeredDialInPhone, unionAttendanceIntervals, dialInDetails, dialInConfigured, dialInReadiness } from '../meetingDialInPolicy.js';
 import { verifyDialInWebhook } from '../meetingDialInTransport.service.js';
 import { meetingInvitationContent } from '../meetingInvitationPolicy.js';
 const now = new Date('2026-10-22T18:00:00Z');
@@ -31,11 +31,30 @@ describe('personal meeting telephone policy', () => {
     expect(occurrenceKey('supervision', { ...meeting, start_at: new Date('2026-10-22T18:00:00Z') })).toBe(original);
   });
   it('generates DTMF-compatible PINs and protects the stored lookup with a keyed digest', () => {
-    const pins = new Set(Array.from({ length: 100 }, newPersonalPin));
-    expect(pins.size).toBe(100);
-    for (const pin of pins) expect(pin).toMatch(/^\d{10}$/);
+    const pins = Array.from({ length: 100 }, () => newPersonalPin());
+    for (const pin of pins) expect(pin).toMatch(/^\d{4}$/);
+    expect(newPersonalPin(10)).toMatch(/^\d{10}$/);
     expect(pinDigest('0123456789', 'a'.repeat(32))).not.toBe(pinDigest('0123456789', 'b'.repeat(32)));
     expect(() => pinDigest('123', 'short')).toThrow();
+  });
+  it('binds short PINs to normalized registered caller identity, never to caller ID alone', () => {
+    const prior=process.env.MEETING_DIAL_IN_PIN_SECRET;
+    process.env.MEETING_DIAL_IN_PIN_SECRET='p'.repeat(32);
+    try {
+      const a=dialInCallerHash('(202) 555-0199'),b=dialInCallerHash('+12025550198');
+      expect(a).toBe(dialInCallerHash('12025550199'));
+      expect(personalPinDigest('0123',a)).not.toBe(personalPinDigest('0123',b));
+      expect(personalPinDigest('0123',a)).not.toBe(personalPinDigest('0124',a));
+      expect(personalPinDigest('0123',a)).not.toBe(pinDigest('0123'));
+      expect(registeredDialInPhone({personal_phone:'invalid',work_phone:'202-555-0199'})).toBe('+12025550199');
+      expect(occurrenceKey('supervision',meeting,a)).not.toBe(occurrenceKey('supervision',meeting,b));
+    } finally { if(prior===undefined)delete process.env.MEETING_DIAL_IN_PIN_SECRET;else process.env.MEETING_DIAL_IN_PIN_SECRET=prior; }
+  });
+  it('embeds the PIN and host admission choice in a one-tap telephone link', () => {
+    const d=dialInDetails('0123',meeting,'Host','+12025550123',{callingPhone:'+12025550199',isHost:true});
+    expect(d.oneTapUrl).toBe('tel:+12025550123,,0123%23,,,1');
+    expect(d.callingPhoneHint).toContain('0199');
+    expect(d.text).toContain('+12025550123,,0123#,,,1');
   });
   it('merges browser/phone overlap while preserving disconnect gaps and scheduled boundaries', () => {
     const result = unionAttendanceIntervals([[0, 10000], [5000, 20000], [22000, 25000], [25000, 28000], [NaN, 50]], { start: 3000, end: 26000 });
