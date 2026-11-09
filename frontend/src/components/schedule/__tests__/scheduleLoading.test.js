@@ -467,7 +467,7 @@ it('starts each visit with a whole week while preserving a deliberate current-ve
   expect(state.scheduleSpanMode).toBe('day');
 });
 
-it('renders a school session once beside its assignment rail and retains its complete assignment overview',async()=>{
+it('renders a school session once beside its named assignment rail with details on click',async()=>{
  const state=await mount();
  // This saved appointment is 8:30–9:15 AM Mountain; school hours are local wall times.
  state.summary={...summary,schoolAssignments:[{assignmentId:10,schoolOrgId:451,agencyId:450,schoolName:'Cedar Grove',dayOfWeek:'Monday',startTime:'08:00',endTime:'15:00'}],scheduleEvents:[{id:80,appointmentId:20,clientId:5,agencyId:450,kind:'PERSONAL_EVENT',schoolOrganizationId:451,calendarLocationKind:'school',schoolName:'Cedar Grove',locationLabel:'Cedar Grove',title:'School session',startAt:'2026-10-12T14:30:00Z',endAt:'2026-10-12T15:15:00Z'}]};
@@ -480,8 +480,11 @@ it('renders a school session once beside its assignment rail and retains its com
  expect(occupied.find(b=>b.kind==='sevt')).toMatchObject({besideSchoolRail:true,schoolRailCount:1});
  expect(occupied.find(b=>b.kind==='sevt').shortLabel).toContain('Cedar Grove');
  expect(state.cellBlocks('Monday',10,0,true).some(b=>b.kind==='school')).toBe(true);
- expect(wrapper.get('[aria-label="Assigned school hours"]').text()).toContain('08:00–15:00');
- await wrapper.get('[aria-label="Assigned school hours"] button').trigger('click');
+ expect(wrapper.find('[aria-label="Assigned school hours"]').exists()).toBe(false);
+ const rail=wrapper.get('.cell-block-school-rail');
+ expect(rail.text()).toContain('Cedar Grove');
+ expect(rail.attributes('aria-label')).toContain('open school details');
+ await rail.trigger('click');
  expect(state.schoolRailDetail).toMatchObject({agencyId:450,schoolOrganizationId:451,assignmentId:10,startTime:'08:00',endTime:'15:00'});
  wrapper.findComponent({name:'SchoolAssignmentRailPanel'}).vm.$emit('request-change');
  await flushPromises();
