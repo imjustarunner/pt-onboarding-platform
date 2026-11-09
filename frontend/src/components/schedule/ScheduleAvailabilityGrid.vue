@@ -1527,7 +1527,7 @@
                   }
                 ]"
                 :aria-label="b.schoolRail ? `${b.schoolName} — open school details` : b.title"
-                :title="b.schoolRail ? `${b.schoolName} — click for school details` : b.title"
+                :title="b.schoolRail ? `${b.schoolName} — click for school details` : undefined"
                 :role="b.kind === 'school-soft' || b.schoolRail ? 'button' : undefined"
                 :tabindex="b.kind === 'school-soft' || b.schoolRail ? 0 : undefined"
                 @keydown.enter="(b.kind === 'school-soft' || b.schoolRail) && onCellBlockClick($event, b, d, slot.hour, slot.minute, true)"
