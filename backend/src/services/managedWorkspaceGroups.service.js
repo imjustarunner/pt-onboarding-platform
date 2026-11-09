@@ -45,6 +45,14 @@ export async function loadManagedWorkspaceRoster(agencyId) {
     (SELECT GROUP_CONCAT(v.value) FROM user_info_values v JOIN user_info_field_definitions d ON d.id=v.field_definition_id WHERE v.user_id=u.id AND d.field_key IN ('languages_spoken','provider_languages_spoken')) AS recorded_languages,
     u.credential,u.has_supervisor_privileges,u.sees_clients,u.has_provider_access,u.work_location,u.login_is_group_email,
     EXISTS(SELECT 1 FROM client_provider_assignments cpa JOIN clients c ON c.id=cpa.client_id WHERE cpa.provider_user_id=u.id AND c.agency_id=ua.agency_id AND cpa.is_active=1) AS has_client_assignments,
+    EXISTS(SELECT 1 FROM agencies school WHERE school.organization_type='school' AND COALESCE(school.is_archived,0)=0
+      AND (school.is_active=1 OR JSON_UNQUOTE(JSON_EXTRACT(school.feature_flags,'$.schoolOnboardingDraft'))='true')
+      AND (EXISTS(SELECT 1 FROM organization_affiliations oa WHERE oa.agency_id=ua.agency_id AND oa.organization_id=school.id AND oa.is_active=1)
+        OR EXISTS(SELECT 1 FROM agency_schools ags WHERE ags.agency_id=ua.agency_id AND ags.school_organization_id=school.id AND ags.is_active=1))
+      AND (EXISTS(SELECT 1 FROM user_agencies school_ua WHERE school_ua.user_id=u.id AND school_ua.agency_id=school.id AND school_ua.is_active=1)
+        OR EXISTS(SELECT 1 FROM provider_school_assignments psa WHERE psa.provider_user_id=u.id AND psa.school_organization_id=school.id AND psa.is_active=1))
+      AND (u.role IN ('provider','provider_plus','intern','intern_plus','supervisor','clinical_practice_assistant','facilitator','clinician','qbha') OR u.has_provider_access=1)
+    ) AS has_school_assignments,
     ua.is_active AS membership_active,ua.agency_role,ua.agency_position,ua.supervision_is_prelicensed,
     ua.has_payroll_access,ua.has_billing_access,ua.can_manage_credentialing,
     (SELECT GROUP_CONCAT(DISTINCT i.from_email) FROM communication_inboxes i
@@ -55,7 +63,9 @@ export async function loadManagedWorkspaceRoster(agencyId) {
     JOIN office_locations ol ON ol.id=ul.office_location_id AND ol.is_active=1
     WHERE ul.is_active=1 AND (ol.agency_id=? OR EXISTS (SELECT 1 FROM office_location_agencies ola WHERE ola.office_location_id=ol.id AND ola.agency_id=?))`, [agencyId,agencyId]);
   for (let index=0;index<rows.length;index++) {
-    const row=await scopeDepartmentalStaff(rows[index],agencyId);
+    // Retain inactive/nonstaff rows to identify obsolete members, without
+    // loading agency permission profiles for hundreds of school/guardian users.
+    const row=activeManagedStaff(rows[index]) ? await scopeDepartmentalStaff(rows[index],agencyId) : rows[index];
     rows[index]=row;
     row.locations = locations.filter(loc => Number(loc.user_id) === Number(row.id));
     Object.assign(row, scopeProviderRow(row, agencyId, row.public_details_json));
@@ -163,7 +173,7 @@ export async function reconcileManagedWorkspaceGroups({ apply=false, agencyIds=n
       const {rows,assignments}=await loadManagedWorkspaceRoster(agency.id);
       const [stored]=await pool.execute('SELECT group_key,email,member_emails FROM managed_workspace_groups WHERE agency_id=?', [agency.id]);
       const scope=managedGroupScope(agency);
-      const plans=buildManagedGroupPlan({domain:report.domain,rows,assignments,includeClinical:scope?.includes('clinical') || stored.some(g=>g.group_key==='clinical') || groupKeys?.includes('clinical')});
+      const plans=buildManagedGroupPlan({domain:report.domain,rows,assignments,includeClinical:scope?.includes('clinical') || stored.some(g=>g.group_key==='clinical') || groupKeys?.includes('clinical'),includeSchoolProviders:scope?.includes('schoolproviders') || stored.some(g=>g.group_key==='schoolproviders') || groupKeys?.includes('schoolproviders')});
       for(const p of plans) p.email=stored.find(s=>s.group_key===p.key)?.email || p.email;
       const configuredDepartments = departmentalIdentities.get(Number(agency.id)) || new Map();
       for (const p of plans.filter(p=>p.ticketed)) p.email=configuredDepartments.get(p.key) || p.email;
@@ -228,13 +238,13 @@ export async function reconcileManagedWorkspaceGroups({ apply=false, agencyIds=n
             result.aiRole=current.get(relay).role;
           }
           // Clinical group management was explicitly enrolled by the owner.
-          if(plan.key==='clinical' && apply) {
+          if(['clinical','schoolproviders'].includes(plan.key) && apply) {
             const member=await write(()=>ensureAppGroupMember({admin,groupKey:plan.email,email:relay}));
             current.set(relay,member);result.aiRole=member.role;
           }
           // Existing groups lacking the relay manager are reported for the owner
           // to grant access, as requested. Do not self-promote existing roles.
-          if(isNew && apply && plan.key!=='clinical' && !plan.ticketed) {
+          if(isNew && apply && !['clinical','schoolproviders'].includes(plan.key) && !plan.ticketed) {
             await write(()=>Directory.addGroupMember({groupEmail:plan.email,memberEmail:relay,role:'MANAGER',client:admin,memberType:'USER'}));
             await write(()=>Directory.setGroupMemberDeliverySettings({groupEmail:plan.email,memberEmail:relay,deliverySettings:'ALL_MAIL',client:admin}));
             current.set(relay,{email:relay,role:'MANAGER'});result.aiRole='MANAGER';
@@ -268,6 +278,9 @@ export async function reconcileManagedWorkspaceGroups({ apply=false, agencyIds=n
           }
           const desired=new Set(plan.userIds.map(id=>selected.get(id)).filter(Boolean));
           const managerIds=new Set(plan.managerUserIds || []);
+          if(plan.key==='schoolproviders') for(const row of known.get(APP_GROUP_OWNER) || []) {
+            if(activeManagedStaff(row))managerIds.add(Number(row.id));
+          }
           if(isNew && !plan.ticketed) {
             for(const row of rows.filter(r=>activeManagedStaff(r) && ['admin','super_admin'].includes(r.role))) managerIds.add(Number(row.id));
             for(const id of managerIds) {

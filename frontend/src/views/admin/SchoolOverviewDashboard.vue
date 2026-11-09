@@ -402,7 +402,8 @@
                       <span class="sg-count">{{ Number(g.participants_count || 0) }}</span>
                     </span>
                   </template>
-                  <span v-if="!s.is_active" class="pill pill-warn">Inactive</span>
+                  <span v-if="organizationLifecycle(s)==='onboarding'" class="pill pill-warn">Onboarding</span>
+                  <span v-else-if="!s.is_active && !s.is_archived" class="pill pill-warn">Inactive</span>
                   <span v-if="s.is_archived" class="pill pill-warn">Archived</span>
                   <span v-if="canSeeSkillBuildersSchoolOverviewUi && s.skills_group_occurring_now" class="pill pill-accent">Skills Group Live</span>
                 </div>
@@ -867,6 +868,7 @@
 </template>
 
 <script setup>
+import { organizationLifecycle } from '../../utils/organizationLifecycle.js';
 import PortalIcon from '../../components/portal/PortalIcon.vue';
 import SchoolCareBridgeBrand from '../../components/schoolcarebridge/SchoolCareBridgeBrand.vue';
 import {useSchoolCareBridgeBranding} from '../../composables/useSchoolCareBridgeBranding';

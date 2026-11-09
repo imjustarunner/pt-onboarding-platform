@@ -1,3 +1,4 @@
+import { loadOnboardingEmailHistory } from '../services/schoolOnboardingEmailHistory.service.js';
 import pool from '../config/database.js';
 import crypto from 'crypto';
 
@@ -25,8 +26,7 @@ export default class SchoolOnboardingInvite {
     if (!rows?.length) return [];
     let history=[];
     try {
-      [history]=await pool.execute(`SELECT invite_id,kind,recipient,delivery_status,sent_at,created_at
-        FROM school_onboarding_email_deliveries WHERE invite_id IN (${rows.map(()=>'?').join(',')}) ORDER BY id`,rows.map(row=>row.id));
+      history=await loadOnboardingEmailHistory(rows);
     } catch(error) { if(error.code!=='ER_NO_SUCH_TABLE')throw error; }
     return rows.map(row=>this.normalizeRow({...row,email_delivery_history:(history || []).filter(event=>Number(event.invite_id)===Number(row.id))}));
   }
@@ -179,7 +179,7 @@ export default class SchoolOnboardingInvite {
        LIMIT 1`,
       [sid]
     );
-    if (openRows?.[0]) return this.normalizeRow(openRows[0]);
+    if (openRows?.[0]) return (await this.withEmailHistory(openRows))[0];
     const [submittedRows] = await pool.execute(
       `SELECT i.*,
               a.name AS agency_name, a.slug AS agency_slug, a.portal_url AS agency_portal_url,
@@ -193,7 +193,7 @@ export default class SchoolOnboardingInvite {
        LIMIT 1`,
       [sid]
     );
-    return this.normalizeRow(submittedRows?.[0] || null);
+    return (await this.withEmailHistory(submittedRows))[0] || null;
   }
 
   static async update(id, patch = {}) {

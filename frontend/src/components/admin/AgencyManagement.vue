@@ -138,7 +138,7 @@
                   </span>
             </div>
                 <div v-if="!navCollapsed" class="org-title">
-                  <div class="org-name">{{ org.name }}</div>
+                  <div class="org-name">{{ org.name }} <span v-if="isChildOrgRow(org) && organizationLifecycle(org)==='onboarding'" class="badge badge-secondary">Onboarding</span></div>
                   <div v-if="!isChildOrgRow(org)" class="org-slug">{{ org.slug }}</div>
             </div>
           </div>
@@ -146,7 +146,7 @@
                 <div class="org-badges">
                   <span class="badge badge-type">{{ orgTypeDisplay(org.organization_type) }}</span>
                   <span :class="['badge', org.is_active ? 'badge-success' : 'badge-secondary']">
-                    {{ org.is_active ? 'Active' : 'Inactive' }}
+                    {{ organizationLifecycleLabel(org) }}
           </span>
         </div>
         
@@ -366,9 +366,10 @@
                 v-if="userRole === 'super_admin'"
                 type="button"
                 :class="['btn', editingAgency.is_active ? 'btn-danger' : 'btn-secondary', 'btn-sm']"
+                :disabled="organizationLifecycle(editingAgency)==='onboarding'"
                 @click.stop="editingAgency.is_active ? archiveOrganization(editingAgency) : restoreOrganization(editingAgency)"
               >
-                {{ editingAgency.is_active ? 'Archive' : 'Restore' }}
+                {{ organizationLifecycle(editingAgency)==='onboarding' ? 'Onboarding in progress' : (editingAgency.is_active ? 'Archive' : 'Restore') }}
               </button>
             </div>
           </div>
@@ -4231,6 +4232,7 @@
 </template>
 
 <script setup>
+import { organizationLifecycle, organizationLifecycleLabel } from '../../utils/organizationLifecycle.js';
 import TaxIdInput from '../forms/TaxIdInput.vue';
 import { SETTINGS_FIELD_TARGETS, focusSettingsField } from '../../navigation/settingsFieldTargets';
 import { COMPANY_PROFILE_SEARCH_TARGETS, enrichCompanyProfileSearchTarget, filterSettingsSearchTargets } from '../../navigation/settingsSearchCatalog';
