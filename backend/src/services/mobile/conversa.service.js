@@ -1,3 +1,4 @@
+import {groupEmailIdentity,groupEmailNameSql} from '../groupEmailIdentity.js';
 import {mobileAgencyIcon} from './agencyBrand.service.js';
 import pool from '../../config/database.js';
 import {publicUploadsUrlFromStoredPath} from '../../utils/uploads.js';
@@ -85,33 +86,28 @@ export function createMobileConversaStore(db=pool,{listAgencies=null,groupAccess
     else await db.execute('DELETE FROM mobile_message_archives WHERE user_id=? AND source_kind=? AND source_id=?',[userId,kind,id]);
   }
   async function emailScope(userId,includeArchived,agencyId=null) {
-    let access=MOBILE_EMAIL_ACCESS_SQL,params=Array(6).fill(userId),groupIds=[],groupAddresses=[];
+    let access=MOBILE_EMAIL_ACCESS_SQL,params=Array(6).fill(userId),groupIds=[];
     if(db===pool || listAgencies){
       const {default:User}=await import('../../models/User.model.js');const {listMobileAgencies}=await import('./agencyScope.service.js');const {groupKeyForIdentity,canAccessDepartmentalGroup}=await import('../departmentalGroupAccess.service.js');
       const user=listAgencies?{id:userId}:await User.findById(userId,{raw:true}),{agencies}=await (listAgencies || listMobileAgencies)(user);
       const ids=agencies.map(a=>Number(a.id)).filter(id=>!agencyId || id===Number(agencyId));
       if(!ids.length)return {where:'1=0',params:[],groupIds};
       const [boxes]=await db.execute(`SELECT * FROM communication_inboxes WHERE agency_id IN(${ids.map(()=>'?').join(',')}) AND kind<>'personal'`,ids);
-      const [managed]=await db.execute(`SELECT g.email FROM managed_workspace_groups g JOIN chat_thread_participants p ON p.thread_id=g.chat_thread_id AND p.user_id=? WHERE g.agency_id IN(${ids.map(()=>'?').join(',')})`,[userId,...ids]);
-      groupAddresses=[...new Set(managed.map(group=>String(group.email || '').trim().toLowerCase()).filter(Boolean))];
+      const [managed]=await db.execute(`SELECT g.* FROM managed_workspace_groups g JOIN chat_thread_participants p ON p.thread_id=g.chat_thread_id AND p.user_id=? WHERE g.agency_id IN(${ids.map(()=>'?').join(',')})`,[userId,...ids]);
       const denied=[];
-      for(const box of boxes){const key=groupKeyForIdentity(box);if(!key){if(!box.owner_user_id && groupAddresses.includes(String(box.from_email || '').trim().toLowerCase()))groupIds.push(Number(box.id));continue;}if(await (groupAccess || canAccessDepartmentalGroup)({agencyId:box.agency_id,userId,groupKey:key,db}))groupIds.push(Number(box.id));else denied.push(Number(box.id));}
+      for(const box of boxes){const identity=groupEmailIdentity(box,managed),key=groupKeyForIdentity(box);if(!identity)continue;if(!key){groupIds.push(Number(box.id));continue;}if(await (groupAccess || canAccessDepartmentalGroup)({agencyId:box.agency_id,userId,groupKey:key,db}))groupIds.push(Number(box.id));else denied.push(Number(box.id));}
       const personal=MOBILE_EMAIL_ACCESS_SQL.slice(MOBILE_EMAIL_ACCESS_SQL.indexOf('AND (')+4);
       access=`c.agency_id IN(${ids.map(()=>'?').join(',')}) AND (${personal}${groupIds.length?` OR c.inbox_id IN(${groupIds.map(()=>'?').join(',')})`:''})${denied.length?` AND (c.inbox_id IS NULL OR c.inbox_id NOT IN(${denied.map(()=>'?').join(',')}))`:''}`;
       params=[...ids,...Array(5).fill(userId),...groupIds,...denied];
     }
-    return {where:`c.channel IN('email','sms') AND COALESCE(c.is_spam,0)=0 AND ${access} ${includeArchived?'':'AND c.archived_at IS NULL AND archive.archived_at IS NULL'} ${agencyId?'AND c.agency_id=?':''}`,params:[...params,...(agencyId?[agencyId]:[])],groupIds,groupAddresses};
+    return {where:`c.channel IN('email','sms') AND COALESCE(c.is_spam,0)=0 AND ${access} ${includeArchived?'':'AND c.archived_at IS NULL AND archive.archived_at IS NULL'} ${agencyId?'AND c.agency_id=?':''}`,params:[...params,...(agencyId?[agencyId]:[])],groupIds};
   }
-  function groupSql(scope){
-    const clauses=[];if(scope.groupIds.length)clauses.push(`c.inbox_id IN(${scope.groupIds.join(',')})`);
-    if(scope.groupAddresses?.length){const addresses=scope.groupAddresses.map(email=>`CONVERT(0x${Buffer.from(email,'utf8').toString('hex')} USING utf8mb4) COLLATE utf8mb4_unicode_ci`).join(',');clauses.push(`EXISTS(SELECT 1 FROM communication_participants member_group WHERE member_group.conversation_id=c.id AND ${emailAddressSql('member_group.email')} IN(${addresses}))`);}
-    return clauses.length?'('+clauses.join(' OR ')+')':'0';
-  }
+  function groupSql(scope){return scope.groupIds.length?`(c.inbox_id IN(${scope.groupIds.join(',')}))`:'0';}
   const sentSql=userId=>`EXISTS(SELECT 1 FROM communication_messages outbound WHERE outbound.conversation_id=c.id AND outbound.direction='outbound' AND COALESCE(outbound.is_internal_note,0)=0 AND COALESCE(outbound.send_status,'sent')='sent' AND outbound.author_user_id=${Number(userId)})`;
   // A group ticket's canonical claimant, not its historical conversation owner,
   // determines whose personal unread badge it belongs in. Visibility is unchanged.
   const effectiveUnread=(scope,userId)=>`(${unreadSql} AND (NOT ${groupSql(scope)} OR ((CASE WHEN t.id IS NOT NULL THEN t.claimed_by_user_id ELSE c.owner_user_id END)=${Number(userId)} AND COALESCE(t.status,c.status) NOT IN('closed','resolved','done','answered','waiting','pending_external'))))`;
-  const groupNameSql=`COALESCE((SELECT g.label FROM managed_workspace_groups g WHERE g.agency_id=c.agency_id AND EXISTS(SELECT 1 FROM communication_participants gp WHERE gp.conversation_id=c.id AND ${emailAddressSql('gp.email')}=${emailAddressSql('g.email')}) LIMIT 1),i.display_name,i.from_email)`;
+  const groupNameSql=groupEmailNameSql;
   async function emails(userId,{includeArchived=false,beforeAt=null,beforeKey=null,suite='all',filter='all',agencyId=null}={}) {
     const scope=await emailScope(userId,includeArchived,agencyId),unknownSql=unknownSqlFor(userId),effectiveRead=effectiveUnread(scope,userId);
     const [rows]=await db.execute(`SELECT c.id,c.agency_id,c.inbox_id,${groupSql(scope)} AS is_group,c.channel,c.subject,c.status,${groupNameSql} AS group_name,i.from_email AS destination_account,c.last_message_preview,COALESCE(c.last_message_at,c.created_at) AS sort_at,
@@ -125,7 +121,7 @@ export function createMobileConversaStore(db=pool,{listAgencies=null,groupAccess
       ORDER BY COALESCE(c.last_message_at,c.created_at) DESC,c.channel DESC,c.id DESC LIMIT 101`,[userId,userId,...scope.params,...(beforeAt?(beforeKey?[new Date(beforeAt),new Date(beforeAt),beforeKey]:[new Date(beforeAt)]):[])]);
     return rows.map(r=>{
       let from=r.latest_from || {};if(typeof from==='string')try{from=JSON.parse(from);}catch{from={};}
-      return {key:`${r.channel}:${r.id}`,kind:r.channel,category:Number(r.is_group)?'groups':r.channel,groupName:r.group_name || null,destinationAccount:r.destination_account || null,agencyId:Number(r.agency_id),id:Number(r.id),title:r.subject || '(No subject)',sender:from.name || r.sender_name || from.email || r.sender_email || 'Sender',senderEmail:from.email || r.sender_email,preview:r.last_message_preview || '',at:r.sort_at,archived:!!r.archived_at,unread:!!Number(r.is_unread),unreadCount:r.is_unread?1:0,hasSent:!!Number(r.has_sent),needsReply:['new','needs_reply'].includes(r.status),unknown:!Number(r.is_group) && !!Number(r.is_unknown_sender)};
+      return {key:`${r.channel}:${r.id}`,kind:r.channel,category:Number(r.is_group)?'groups':r.channel,groupName:Number(r.is_group)?r.group_name || 'Group':null,destinationAccount:r.destination_account || null,agencyId:Number(r.agency_id),id:Number(r.id),title:r.subject || '(No subject)',sender:from.name || r.sender_name || from.email || r.sender_email || 'Sender',senderEmail:from.email || r.sender_email,preview:r.last_message_preview || '',at:r.sort_at,archived:!!r.archived_at,unread:!!Number(r.is_unread),unreadCount:r.is_unread?1:0,hasSent:!!Number(r.has_sent),needsReply:['new','needs_reply'].includes(r.status),unknown:!Number(r.is_group) && !!Number(r.is_unknown_sender)};
     });
   }
   async function emailCounts(userId,includeArchived=false,agencyId=null) {

@@ -505,6 +505,21 @@ class Task {
       userId: parseInt(userId, 10)
     }));
 
+    // Count with exactly the same assignment/privacy predicates, before pagination.
+    // This internal option never returns task titles, descriptions or client data.
+    if (filters.countOpen === true) {
+      query = 'SELECT COUNT(DISTINCT t.id) AS total ' + query.slice(query.indexOf('FROM tasks t'));
+      params.shift(); // assignment_type CASE is absent from the count projection.
+      query += " AND COALESCE(t.status,'open') NOT IN ('completed','done','cancelled','overridden')";
+      if (Array.isArray(filters.authorizedAgencyIds)) {
+        const ids=[...new Set(filters.authorizedAgencyIds.map(Number).filter(id=>Number.isSafeInteger(id)&&id>0))];
+        query += ` AND (t.assigned_to_agency_id IS NULL${ids.length?` OR t.assigned_to_agency_id IN (${ids.map(()=>'?').join(',')})`:''})`;
+        params.push(...ids);
+      }
+      const [[row]]=await pool.execute(query,params);
+      return Number(row.total)||0;
+    }
+
     query += ` ORDER BY 
       CASE COALESCE(t.urgency, 'medium') WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
       (t.due_date IS NULL), t.due_date ASC,

@@ -4,7 +4,7 @@ vi.mock('../../models/User.model.js', () => ({ default: { getAgencies: vi.fn() }
 import pool from '../../config/database.js';
 import User from '../../models/User.model.js';
 import { requireConversationAccess } from '../communicationAccess.service.js';
-beforeEach(() => { vi.resetAllMocks(); User.getAgencies.mockResolvedValue([{ id: 2 }]); });
+beforeEach(() => { vi.resetAllMocks(); pool.execute.mockResolvedValue([[]]); User.getAgencies.mockResolvedValue([{ id: 2 }]); });
 describe('conversation and attachment access', () => {
   it('denies another tenant even for an agency admin', async () => {
     pool.execute.mockResolvedValueOnce([[{ id: 1, agency_id: 3 }]]);

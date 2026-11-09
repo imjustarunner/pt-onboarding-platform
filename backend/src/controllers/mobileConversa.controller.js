@@ -11,6 +11,7 @@ import {downloadSecureChatAttachment} from './chatAttachments.controller.js';
 import StorageService from '../services/storage.service.js';
 import fs from 'node:fs/promises';
 import {getMobileDocumentationQueue} from '../services/mobile/documentationQueue.service.js';
+import {getWorkspaceCounts} from '../services/mobile/workspaceCounts.service.js';
 import {mobileQaAgencyId,assertMobileQaThread,assertMobileQaConversation} from '../services/mobile/qaConversaScope.service.js';
 
 const fail=(status,message)=>Object.assign(new Error(message),{status});
@@ -144,6 +145,7 @@ export const postMobileViewed=mobile(async(req,res)=>{
 });
 
 export const getMobileMyWork=mobile(async(req,res)=>res.json(await getMobileDocumentationQueue(req)));
+export const getMobileWorkspaceCounts=mobile(async(req,res)=>res.json(await getWorkspaceCounts(req)));
 
 // Client composers use care assignments, never the staff directory or supplied addresses.
 async function clinicalContactRequest(request,agencyId,clientId){

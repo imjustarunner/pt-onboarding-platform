@@ -19,7 +19,7 @@
     <nav v-if="session" class="qv-tabs" aria-label="Primary navigation">
       <span class="qv-nav-caption">WORKSPACE</span>
       <button v-for="item in primaryNavigation" :key="item.id" type="button" :class="{ on: activeDestination === item.id }" :aria-current="activeDestination === item.id ? 'page' : undefined" :aria-expanded="item.id === 'more' ? moreOpen : undefined" :aria-controls="item.id === 'more' ? 'qv-more-tools' : undefined" @click="navigateTo(item.id)">
-        <component :is="item.icon" :size="21" :stroke-width="1.8" aria-hidden="true" /><span>{{ item.label }}</span><span v-if="isMobile && item.id==='home' && mobileUnreadCount" class="qv-nav-badge">{{ mobileUnreadCount }}</span>
+        <component :is="item.icon" :size="21" :stroke-width="1.8" aria-hidden="true" /><span>{{ item.label }}</span><span v-if="isMobile && navigationBadge(item.id)" class="qv-nav-badge">{{ navigationBadge(item.id) }}</span>
       </button>
       <div class="qv-nav-footer">
         <div class="qv-nav-note"><LockKeyhole :size="16" aria-hidden="true" /><span>Your workspace locks<br />when you're away.</span></div>
@@ -104,7 +104,7 @@
       <MobileClinicalWorkspace v-if="isMobile && tab==='clinical'" :api-base="apiBase" :session-token="session" :user-id="sessionUserId" @signed="sendNotice='Note signed and saved to the chart.'" />
       <MobileClientSummary v-if="isMobile && tab==='client'" :api-base="apiBase" :session-token="session" :client-id="route.query.clientId" @back="returnInApp({view:'mywork'})" @contact="openMobileClinicalContact" />
       <MobileClinicalSession v-if="isMobile && tab==='session'" :api-base="apiBase" :session-token="session" />
-      <MobileMyWork v-if="isMobile && tab==='mywork'" :api-base="apiBase" :session-token="session" @draft="prepareWorkDraft" @tasks="navigateTo('tasks')"/>
+      <MobileMyWork v-if="isMobile && tab==='mywork'" :api-base="apiBase" :session-token="session" @draft="prepareWorkDraft" @tasks="navigateTo('tasks')" @counts="workspaceBadges={...workspaceBadges,...$event}"/>
       <div v-if="!isMobile && tab === 'home'" class="qv-pane conversa-surface">
         <div class="qv-messages-heading"><ConversaBrand compact /><span>YOUR CONVERSATIONS</span></div>
         <div class="qv-suite">
@@ -123,7 +123,6 @@
             <div class="qv-sorters">
               <button type="button" :class="{ on: sort === 'all' }" @click="changeEmailFolder('all')">All</button>
               <button type="button" :class="{ on: sort === 'unread' }" @click="changeEmailFolder('unread')">Unread</button>
-              <button type="button" :class="{ on: sort === 'needs' }" @click="sort = 'needs'">Needs reply</button>
 
             </div>
             <button type="button" class="qv-btn ghost sm" @click="loadHome(msgSuite)"><RefreshCw :size="14" aria-hidden="true" />Refresh</button>
@@ -907,6 +906,15 @@ const allNavigation = [
 const workspacePreferences=ref({swipeLeft:'archive',swipeRight:'read',navigationMode:'automatic',pinnedNavigation:['calendar','home','tasks'],usage:{}});
 const viewportWidth=ref(window.innerWidth),showMobileSettings=ref(false),mobileMessages=ref(null),mobileCounts=ref({});
 const mobileUnreadCount=computed(()=>mobileCounts.value.all?.unread || 0);
+const workspaceBadges=ref({mywork:null,tasks:null});let badgeRequest=0,lastBadgeRefresh=0;
+const navigationBadge=id=>id==='home'?mobileUnreadCount.value:workspaceBadges.value[id];
+async function loadWorkspaceBadges(force=false){
+ if(!isMobile.value || !session.value || (!force && Date.now()-lastBadgeRefresh<60000))return;
+ const request=++badgeRequest,token=session.value;lastBadgeRefresh=Date.now();
+ try{const {data}=await axios.get(`${apiBase}/workspace-counts`,{headers:authHeaders(),withCredentials:true});if(request===badgeRequest && token===session.value)workspaceBadges.value={mywork:data.mywork??null,tasks:data.tasks??null};}
+ catch{if(request===badgeRequest && token===session.value)workspaceBadges.value={mywork:null,tasks:null};}
+}
+function refreshVisibleBadges(){if(!document.hidden)loadWorkspaceBadges();}
 let preferenceTimer;
 const primaryNavigation=computed(()=>{
   if(!isMobile.value)return [...allNavigation.slice(0,3),{id:'more',label:'More',icon:Ellipsis}];
@@ -1288,7 +1296,7 @@ const isDelivery = computed(() =>
 const sessionOnly = computed(() => route.meta?.quickViewSessionOnly === true);
 
 async function resumeSession() {
-  if(isMobile.value){session.value=props.mobileSession.sessionToken;expiresAt.value=props.mobileSession.expiresAt;sessionUserId.value=props.mobileSession.userId;sessionAgencyId.value=props.mobileSession.agencyId;agencyName.value=props.mobileSession.profile?.workspace?.name || '';loginUrl.value=props.mobileSession.profile?.workspace?.loginUrl || '';loading.value=false;startHeartbeat();await loadWorkspacePreferences();await openDeepLink();if(route.query.view && route.query.view!=='home')await navigateTo(String(route.query.view),{fromRoute:true});return;}
+  if(isMobile.value){session.value=props.mobileSession.sessionToken;expiresAt.value=props.mobileSession.expiresAt;sessionUserId.value=props.mobileSession.userId;sessionAgencyId.value=props.mobileSession.agencyId;agencyName.value=props.mobileSession.profile?.workspace?.name || '';loginUrl.value=props.mobileSession.profile?.workspace?.loginUrl || '';loading.value=false;startHeartbeat();await loadWorkspacePreferences();void loadWorkspaceBadges();await openDeepLink();if(route.query.view && route.query.view!=='home')await navigateTo(String(route.query.view),{fromRoute:true});return;}
   loading.value = true;
   error.value = '';
   try {
@@ -1472,7 +1480,7 @@ async function recordActivity(event){
 function startHeartbeat() {
   stopHeartbeat();
   deadlineTimer=setInterval(checkDeadline,1000);
-  refreshTimer = setInterval(() => refreshMessages(), 15000);
+  refreshTimer = setInterval(() => {refreshMessages();void loadWorkspaceBadges();}, 15000);
   heartbeatTimer = setInterval(async () => {
     const activeSession=session.value;
     try {
@@ -1791,6 +1799,7 @@ async function loadTasks(view = 'assigned') {
     params: { view }
   });
   tasks.value = data.tasks || [];
+  void loadWorkspaceBadges(true);
 }
 function switchTasks() { loadTasks(taskView.value); }
 
@@ -2561,6 +2570,7 @@ function clearSession({notify=true}={}) {
   chatMessages.value = []; chatList.value = []; inboxItems.value = []; activeChatId.value = null;
   replyText.value = ''; replyAttachments.value = []; chatReply.value = ''; chatAttachments.value = [];
   composeToEmail.value = ''; composeSubject.value = ''; composeText.value = ''; composeAttachments.value = [];
+  badgeRequest++;lastBadgeRefresh=0;workspaceBadges.value={mywork:null,tasks:null};
   tasks.value = []; dayItems.value = []; undoSend.value = null; sendNotice.value = ''; showCompose.value = false;
   taskDetail.value = null; calEvent.value = null; showNewTask.value = false; showNewContact.value = false;
   newTaskTitle.value = ''; newTaskDue.value = ''; taskComment.value = '';
@@ -2650,7 +2660,7 @@ onMounted(() => {
   document.addEventListener('pointerdown',outsidePreview);
   for(const type of ['pointerdown','keydown','touchstart'])window.addEventListener(type,recordActivity,{passive:true});
   window.addEventListener('focus',checkDeadline);
-  document.addEventListener('visibilitychange',checkDeadline);
+  document.addEventListener('visibilitychange',checkDeadline);document.addEventListener('visibilitychange',refreshVisibleBadges);
   try {
     homeScreenTip.value = localStorage.getItem(HOME_TIP_KEY) !== '1';
   } catch {
@@ -2669,7 +2679,7 @@ onUnmounted(() => {
   if(isMobile.value)clearSession({notify:false});
   for(const type of ['pointerdown','keydown','touchstart'])window.removeEventListener(type,recordActivity);
   window.removeEventListener('focus',checkDeadline);
-  document.removeEventListener('visibilitychange',checkDeadline);
+  document.removeEventListener('visibilitychange',checkDeadline);document.removeEventListener('visibilitychange',refreshVisibleBadges);
   stopHeartbeat(); clearTimeout(undoTimer);
   stopNoteAidSpeak();
 });

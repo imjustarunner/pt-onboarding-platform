@@ -453,11 +453,6 @@ defineExpose({ refreshAll });
     </div>
 
     <div class="uc-kpi-row">
-      <button type="button" class="uc-kpi" :class="{ on: listFilter === 'needs_reply' }" @click="listFilter = 'needs_reply'">
-        <span class="uc-kpi-label">Needs Attention</span>
-        <strong>{{ attention.needsAttention }}</strong>
-        <span class="uc-kpi-hint">Needs your reply</span>
-      </button>
       <button type="button" class="uc-kpi" :class="{ on: listFilter === 'waiting' }" @click="listFilter = 'waiting'">
         <span class="uc-kpi-label">Waiting on Others</span>
         <strong>{{ attention.waitingOnOthers }}</strong>
