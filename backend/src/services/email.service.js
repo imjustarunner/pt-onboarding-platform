@@ -190,19 +190,57 @@ class EmailService {
       process.env.GOOGLE_WORKSPACE_DEFAULT_FROM ||
       null;
     if (!resolvedFromPreview || isForbiddenFallbackFrom({ fromEmail: resolvedFromPreview })) {
+      // Retain the original content as failed, never as a sendable pending item.
+      // The alert alone cannot recover an invitation body or its event context.
+      let blockedCommunicationId = existingCommunicationId ? Number(existingCommunicationId) : null;
+      const errorMessage = 'Blocked — configure a tenant sender alias; email was not sent (ai@ fallback forbidden).';
+      const blockedMetadata = { ...senderMetadata, reason: 'missing_sender_alias_blocked',
+        ...(attachments?.length ? { hadAttachments: true, attachmentCount: attachments.length } : {}) };
+      try {
+        if (!blockedCommunicationId) {
+          const { default: UserCommunication } = await import('../models/UserCommunication.model.js');
+          const comm = await UserCommunication.create({
+            userId: userId || await resolveUserIdByEmail(to), clientId: clientId ? Number(clientId) : null,
+            agencyId: agencyId ? Number(agencyId) : null, templateType: templateType || 'transactional_email',
+            templateId: templateId || null, subject, body: html || text || '', recipientAddress: to,
+            generatedByUserId: generatedByUserId || null, channel: 'email', deliveryStatus: 'failed',
+            errorMessage, metadata: blockedMetadata
+          });
+          blockedCommunicationId = comm?.id || null;
+        } else {
+          const { default: pool } = await import('../config/database.js');
+          await pool.execute(`UPDATE user_communications SET delivery_status = 'failed', error_message = ?,
+            metadata = JSON_MERGE_PATCH(COALESCE(metadata, JSON_OBJECT()), CAST(? AS JSON))
+            WHERE id = ? AND delivery_status NOT IN ('sent', 'delivered')`,
+          [errorMessage, JSON.stringify(blockedMetadata), blockedCommunicationId]);
+        }
+      } catch (logErr) {
+        console.warn('[EmailService] failed to retain alias-blocked email', logErr?.message || logErr);
+      }
       const block = await createMissingAliasTaskAndBlock({
         to,
         subject,
         agencyId,
         templateType: templateType || 'transactional_email',
         fromEmail: resolvedFromPreview,
-        reason: 'missing_sender_alias_or_ai_fallback'
+        reason: 'missing_sender_alias_or_ai_fallback',
+        communicationId: blockedCommunicationId
       });
+      if (blockedCommunicationId && block.taskId) {
+        try {
+          const { default: pool } = await import('../config/database.js');
+          await pool.execute(`UPDATE user_communications SET metadata = JSON_SET(COALESCE(metadata, JSON_OBJECT()), '$.taskId', ?)
+            WHERE id = ? AND delivery_status = 'failed'`, [block.taskId, blockedCommunicationId]);
+        } catch (logErr) {
+          console.warn('[EmailService] failed to link alias-blocked email task', logErr?.message || logErr);
+        }
+      }
       return {
         blocked: true,
         skipped: true,
         reason: 'missing_sender_alias_blocked',
-        taskId: block.taskId || null
+        taskId: block.taskId || null,
+        communicationId: blockedCommunicationId
       };
     }
 

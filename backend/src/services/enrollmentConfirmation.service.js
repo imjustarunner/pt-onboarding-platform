@@ -54,14 +54,15 @@ export async function sendEnrollmentReceiptOnce(message, send, deps = {}) {
         AND JSON_UNQUOTE(JSON_EXTRACT(metadata,'$.intakeSubmissionId'))=? ORDER BY id DESC LIMIT 1`,
     [message.agencyId, message.to, String(submission.id)]);
     if (prior) return priorOutcome(prior, content);
+    let intakeLink = null;
     if (modern) {
       const agency = await agencies.findById(message.agencyId);
-      const link = await (deps.links || IntakeLink).findById(submission.intake_link_id);
+      intakeLink = await (deps.links || IntakeLink).findById(submission.intake_link_id);
       const action = cp.noAutomaticEmail ? {} : await (deps.portalAction || enrollmentReceiptPortalAction)({
         submission, agency, to: message.to, enrollmentChannel: message.enrollmentChannel, schoolOrganizationId: message.schoolOrganizationId
       }, { db: connection });
       content = enrollmentConfirmationContent({ ...action, agencyName: agency?.name,
-        locale: resolveIntakeFormLocale(link, submission.intake_data), school: !!message.schoolOrganizationId });
+        locale: resolveIntakeFormLocale(intakeLink, submission.intake_data), school: !!message.schoolOrganizationId });
     }
     receipt = await communications.create({ agencyId: message.agencyId, clientId: message.clientId || submission.client_id,
       userId: submission.guardian_user_id || null, templateType: content.templateType, channel: 'email',
@@ -69,9 +70,11 @@ export async function sendEnrollmentReceiptOnce(message, send, deps = {}) {
       metadata: { intakeSubmissionId: submission.id, intakeLinkId: message.intakeLinkId || submission.intake_link_id, source: 'auto' } });
     if (modern && (cp.noAutomaticEmail || cp.alternativeContactInstructions || (cp.noRoutineCalls && cp.emailPreference === 'no' && cp.smsPreference === 'no' && cp.providerTextingOptIn !== 'yes'))) {
       const [[existingTask]] = await connection.execute("SELECT id FROM tasks WHERE assigned_to_agency_id=? AND source_ref_type='enrollment_contact_preferences' AND source_ref_id=? LIMIT 1", [message.agencyId, String(submission.id)]);
+      const taskActorUserId = message.generatedByUserId || submission.guardian_user_id || intakeLink?.created_by_user_id || null;
+      if (!existingTask && !taskActorUserId) throw new Error('An enrollment contact-review task requires a guardian or initiating staff member.');
       if (!existingTask) await tasks.create({ taskType: 'custom', title: 'Review enrollment contact preferences',
         description: `Enrollment #${submission.id}; client #${message.clientId || submission.client_id || 'unlinked'}.\nAutomatic email: ${cp.noAutomaticEmail ? 'declined' : 'per preferences'}.\nRoutine calls: ${cp.noRoutineCalls ? 'declined' : 'not declined'}.\nReview the signed communication choices and agree on a safe contact method.\n${cp.alternativeContactInstructions || 'No alternate instructions provided.'}`,
-        encryptDescription: true, assignedToAgencyId: message.agencyId, assignedToRole: 'support', urgency: 'high',
+        encryptDescription: true, assignedByUserId: taskActorUserId, assignedToAgencyId: message.agencyId, assignedToRole: 'support', urgency: 'high',
         sourceRefType: 'enrollment_contact_preferences', sourceRefId: String(submission.id),
         metadata: { clientId: message.clientId || submission.client_id, submissionId: submission.id }, categories: ['client'] });
     }

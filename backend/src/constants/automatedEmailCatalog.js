@@ -58,6 +58,7 @@ export const PREFERRED_IDENTITY_KEYS_BY_TEMPLATE_TYPE = {
   enrollment_unfinished_reminder_7d: ['forms', 'intake', 'school_intake'],
   enrollment_unfinished_reminder: ['forms', 'intake', 'school_intake'],
   pre_hire_admin_review_access: ['people_operations', 'job_applications', 'notifications'],
+  onboarding_portal_invite: ['people_operations', 'job_applications', 'notifications'],
   prehire_new_tasks: ['people_operations', 'job_applications', 'notifications'],
   provider_update_invite: ['people_operations', 'people_ops', 'po', 'notifications'],
   admin_update: ['notifications'],

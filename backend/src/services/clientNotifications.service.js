@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import Agency from '../models/Agency.model.js';
 import { createNotificationAndDispatch } from './notificationDispatcher.service.js';
 import { createClientOnboardingTaskForProvider } from './clientOnboardingTask.service.js';
 import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
@@ -189,6 +190,11 @@ async function sendSchoolIntakeStatusEmail({
 }) {
   const sid = Number(schoolOrganizationId || 0);
   const aid = Number(agencyId || 0) || null;
+  // Office/program enrollments share this notification entry point. A clinical
+  // or program organization is not a school with a missing school mailbox.
+  if (!sid) return false;
+  const organization = await Agency.findById(sid);
+  if (organization?.organization_type && organization.organization_type !== 'school') return false;
   const isPaper = String(mode || '').toLowerCase() === 'paper_upload';
   const schoolName = sid ? await getSchoolDisplayName(sid) : 'School';
 
@@ -200,16 +206,6 @@ async function sendSchoolIntakeStatusEmail({
   const subject = isPaper
     ? `${schoolName} - Paper Enrollment Packet Uploaded`
     : `${schoolName} - Digital Enrollment Packet`;
-
-  if (!sid) {
-    await logSchoolStatusEmailSkip({
-      agencyId: aid,
-      clientId,
-      subject,
-      reason: 'Missing school organization id'
-    });
-    return false;
-  }
 
   const to = await getSchoolItscoEmail(sid);
   if (!to) {
