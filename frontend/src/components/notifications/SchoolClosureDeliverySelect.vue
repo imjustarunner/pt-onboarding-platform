@@ -5,6 +5,7 @@
       <option v-for="option in delivery.options" :key="option.value" :value="option.value" :disabled="!option.available">{{ option.label }}{{ option.available ? '' : ' — setup required' }}</option>
     </select>
     <small>3 PM the previous weekday and 6 AM that morning, in calendar local time. Texts require notification consent and the text master switch.</small>
+    <small>None stops reminders and the automatic splash. The dashboard banner remains while the closure is active.</small>
   </label>
 </template>
 <script setup>

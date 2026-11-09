@@ -40,7 +40,9 @@ export async function mySchoolClosureDashboard({user,agencyId=null,now=new Date(
   const items = closureDashboardItems(events,schools,now);
   if (!items.length) return [];
   const [dismissals] = await db.execute('SELECT event_id,event_revision FROM school_closure_dashboard_dismissals WHERE user_id=?',[user.id]);
-  return items.map(item=>({...item,splashDismissed:dismissals.some(row=>Number(row.event_id)===item.eventId&&row.event_revision===item.revision)}));
+  const [preferences] = await db.execute("SELECT delivery_mode FROM user_notification_type_preferences WHERE user_id=? AND notification_type='school_closure_notice'",[user.id]);
+  const suppressSplash = preferences[0]?.delivery_mode === 'none';
+  return items.map(item=>({...item,splashDismissed:suppressSplash || dismissals.some(row=>Number(row.event_id)===item.eventId&&row.event_revision===item.revision)}));
 }
 export async function dismissMySchoolClosure({user,eventId,revision,db=pool,now=new Date()}) {
   const items = await mySchoolClosureDashboard({user,db,now});

@@ -1893,6 +1893,9 @@ export const updateNotificationTypePreference = async (req, res, next) => {
     for (const key of allowed) {
       if (Object.prototype.hasOwnProperty.call(req.body || {}, key)) updates[key] = req.body[key];
     }
+    if (type === 'school_closure_notice' && updates.deliveryMode === undefined && ['inApp','email','sms'].some(key=>Object.prototype.hasOwnProperty.call(updates,key))) {
+      return res.status(400).json({error:{message:'Use the delivery choice for school closure reminders.'}});
+    }
     if (updates.deliveryMode !== undefined) {
       if (type !== 'school_closure_notice') return res.status(400).json({ error: { message: 'Delivery choice is not available for this type' } });
       const context = await loadNotificationPreferenceContext({ userId: req.user.id, userRole: req.user.role, user: await User.findById(Number(req.user.id)) });
