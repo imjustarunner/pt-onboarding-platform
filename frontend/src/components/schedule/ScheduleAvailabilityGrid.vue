@@ -451,7 +451,8 @@
         </div>
       </div>
 
-          <div class="sched-toolbar-secondary">
+          <Teleport :to="scheduleOrganizationTarget || 'body'" :disabled="!compactPageChrome || !scheduleOrganizationTarget">
+          <div class="sched-toolbar-secondary" :class="{ 'sched-toolbar-secondary--inline': compactPageChrome && scheduleOrganizationTarget }">
             <div v-if="agencyFilterOptions.length" class="sched-org-filters">
               <div class="sched-calendars-label" title="Focus the calendar on one organization, or show all">Organization</div>
               <select
@@ -471,7 +472,39 @@
                   {{ opt.label }}
                 </option>
               </select>
-              <template v-if="agencyFilterOptions.length > 1">
+
+            </div>
+          </div>
+          </Teleport>
+
+      <details
+        class="sched-calendar-settings"
+        :class="{ 'sched-calendar-settings--command': compactPageChrome, 'sched-calendar-settings--open': calendarSettingsOpen }"
+        data-testid="my-schedule-calendar-settings"
+        :open="calendarSettingsOpen"
+        @toggle="onCalendarSettingsToggle"
+      >
+        <summary
+          class="sched-calendar-settings__summary"
+          :class="{ 'sr-only': compactPageChrome }"
+        >
+          <span class="sched-calendar-settings__title">Calendar settings</span>
+          <span class="sched-calendar-settings__hint muted">people · office · feeds · layout · more tools</span>
+          <span class="sched-calendar-settings__chev" aria-hidden="true">▾</span>
+        </summary>
+        <div class="sched-calendar-settings__body">
+          <div class="sched-display-preferences">
+            <label class="sched-client-names">
+              <span>Client names</span>
+              <select v-model="clientNameDisplay" class="sched-select" data-testid="schedule-client-name-display" @change="saveClientNameDisplay">
+                <option value="hidden">Hide names</option>
+                <option value="initials">Initials only</option>
+                <option value="full">Full names</option>
+              </select>
+            </label>
+            <span class="sched-display-preferences__hint">On calendar cards and hover text. Open an appointment for client details.</span>
+          </div>
+              <div v-if="agencyFilterOptions.length > 1" class="sched-organization-options">
                 <div class="sched-calendars-label" style="margin-left: 8px;">Shown</div>
                 <div class="sched-calendars-actions">
                   <button type="button" class="sched-chip" :class="{ on: scheduleOrgScopeAll }" :disabled="loading" title="Show events from every organization you belong to" @click="selectAllScheduleAgencies">All</button>
@@ -496,26 +529,7 @@
                   <img v-if="agencyIconUrlById(opt.id)" :src="agencyIconUrlById(opt.id)" alt="" class="sched-org-chip-icon">
                   {{ opt.label }}
                 </button>
-              </template>
-            </div>
-          </div>
-
-      <details
-        class="sched-calendar-settings"
-        :class="{ 'sched-calendar-settings--command': compactPageChrome, 'sched-calendar-settings--open': calendarSettingsOpen }"
-        data-testid="my-schedule-calendar-settings"
-        :open="calendarSettingsOpen && (!compactPageChrome || !!activeSettingsSection)"
-        @toggle="onCalendarSettingsToggle"
-      >
-        <summary
-          class="sched-calendar-settings__summary"
-          :class="{ 'sr-only': compactPageChrome }"
-        >
-          <span class="sched-calendar-settings__title">Calendar settings</span>
-          <span class="sched-calendar-settings__hint muted">people · office · feeds · layout · more tools</span>
-          <span class="sched-calendar-settings__chev" aria-hidden="true">▾</span>
-        </summary>
-        <div class="sched-calendar-settings__body">
+              </div>
       <div class="sched-tool-bar" data-tour="my-schedule-tool-groups">
         <div v-if="!hideOfficeAndCalendarIntegration" id="sched-settings-people" v-show="!compactPageChrome || activeSettingsSection === 'people'" class="sched-tool-cluster" title="Ways to see other people’s calendars">
           <span class="sched-tool-cluster__label">People</span>
@@ -817,6 +831,7 @@
           </details>
         </div>
       </div>
+          <div ref="scheduleToolsTarget" class="sched-settings-tools-target" />
         </div>
       </details>
 
@@ -1194,14 +1209,14 @@
           <strong>Time not set</strong>
           <button v-for="block in untimedSchoolBlocksForDay(mobileTimelineDay)" :key="block.key" type="button"
             class="sched-all-day-item cell-block-school-soft" :style="cellBlockStyle(block)" :title="block.title"
-            @click="selectedSchoolSoftBlock = block">{{ block.clientName }} · {{ block.schoolName }}<span class="cell-block-soft-status">{{ block.status.label }}</span></button>
+            @click="selectedSchoolSoftBlock = block">{{ block.displayClientName }} · {{ block.schoolName }}<span class="cell-block-soft-status">{{ block.status.label }}</span></button>
         </div>
         <div class="sched-mobile-all-day">
           <span class="sched-all-day-label">All Day</span>
           <button v-for="item in schoolWeekdayIcons(mobileTimelineDay)" :key="item.agencyId" type="button" class="school-weekday-icon" :class="`school-weekday-icon--${item.status}`"
             :title="item.label" :aria-label="item.label" @click="schoolWeekdayEditorAgency = item.agencyId"><SchoolAvailabilityIcon /></button>
           <button v-for="block in allDayBlocksForDay(mobileTimelineDay)" :key="block.key" type="button"
-            class="sched-all-day-item" :style="cellBlockStyle(block)" :title="block.title"
+            class="sched-all-day-item" :class="{ 'sched-all-day-item--closure': block.kind === 'school-closure' }" :style="cellBlockStyle(block)" :title="block.title"
             @click="openAllDayBlock($event, block, mobileTimelineDay)">{{ block.shortLabel }}</button>
         </div>
         <div class="sched-day-timeline__hours">
@@ -1358,7 +1373,7 @@
                 :title="item.label" :aria-label="item.label" @click.stop="schoolWeekdayEditorAgency = item.agencyId"><SchoolAvailabilityIcon /></button>
             </div>
             <button v-for="block in allDayBlocksForDay(d)" :key="block.key" type="button"
-              class="sched-all-day-item" :class="{ 'sched-all-day-item--cancelled': block.isCancelled }"
+              class="sched-all-day-item" :class="{ 'sched-all-day-item--cancelled': block.isCancelled, 'sched-all-day-item--closure': block.kind === 'school-closure' }"
               :style="cellBlockStyle(block)" :title="block.title" @click="openAllDayBlock($event, block, d)">
               {{ block.shortLabel }}
             </button>
@@ -1371,7 +1386,7 @@
             <button v-for="block in untimedSchoolBlocksForDay(d)" :key="block.key" type="button"
               class="sched-all-day-item cell-block-school-soft" :style="cellBlockStyle(block)" :title="block.title"
               @click="selectedSchoolSoftBlock = block">
-              {{ block.clientName }} · {{ block.schoolName }}<span class="cell-block-soft-status">{{ block.status.label }}</span>
+              {{ block.displayClientName }} · {{ block.schoolName }}<span class="cell-block-soft-status">{{ block.status.label }}</span>
             </button>
           </div>
         </template>
@@ -1601,7 +1616,7 @@
                   <span class="school-day-rail__name">{{ b.shortLabel }}</span>
                 </span>
                 <span v-else-if="b.kind === 'school-soft'" class="cell-block-text">
-                  <span>{{ b.clientName }}{{ b.isCancelled ? ' · Canceled' : '' }}</span>
+                  <span>{{ b.displayClientName }}{{ b.isCancelled ? ' · Canceled' : '' }}</span>
                   <span class="cell-block-soft-status"><span class="cell-block-soft-time">{{ b.timeLabel }}</span><span class="cell-block-soft-context"> · {{ b.isCancelled ? b.status.label.replace('Canceled · ', '') : b.schoolName }}</span></span>
                 </span>
                 <span v-else-if="b.shortLabel && b.kind !== 'peerbusy'" class="cell-block-text">
@@ -5881,7 +5896,11 @@ import ClinicalWorkspaceFrame from '../clinicalWorkspace/ClinicalWorkspaceFrame.
 import { assignOverlapLanes, layoutScheduleDayBlocks, scheduleBlockPlacementKey } from '../../utils/scheduleOverlapLayout.js';
 import { virtualPublicationRanges, virtualAvailabilityCellSlice } from '../../utils/virtualAvailabilityGrid';
 import './schedule-new-request-modal.css';
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, inject, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { scheduleHubContext } from './scheduleHubContext.js';
+import { normalizeClientNameDisplay, scheduleClientFace } from '../../utils/scheduleClientNames.js';
+import { schoolClosureBlocks } from '../../utils/schoolClosureBlocks.js';
+
 import { useRoute, useRouter } from 'vue-router';
 import { createCounselingSession, openCounselingFromAppointment } from '../../services/counselingApi.js';
 import { isSupervisor, canScheduleGroupSupervision } from '../../utils/helpers.js';
@@ -6009,6 +6028,10 @@ import {
   indefiniteOccurrenceCount,
   occurrenceDatesSimple
 } from '../../utils/scheduleRecurrence.js';
+
+const scheduleHub = inject(scheduleHubContext, null);
+const scheduleOrganizationTarget = computed(() => scheduleHub?.organizationTarget.value || null);
+const scheduleToolsTarget = scheduleHub?.settingsTarget || ref(null);
 
 const props = defineProps({
   userId: { type: Number, required: true },
@@ -6182,6 +6205,7 @@ const loadMyScheduleColors = async () => {
       } catch { /* Keep the old version so a later visit retries the migration. */ }
     }
     loadCustomHoldReasonsFromPrefs(display);
+    if (!clientNameDisplayEdited) clientNameDisplay.value = normalizeClientNameDisplay(display?.clientNameDisplay ?? loadDisplayPrefsLocal()?.clientNameDisplay);
     if (display?.layoutDefaultsVersion === 2 && display.scheduleSideBySide != null) scheduleSideBySide.value = !!display.scheduleSideBySide;
     if (display && props.mode === 'self') {
       applyDisplayPrefs(display);
@@ -6348,7 +6372,7 @@ const gridMinHour = computed(() => hours.value[0] ?? 7);
 const gridMaxHour = computed(() => (hours.value.at(-1) ?? 21) + 1);
 const selectedSchoolSoftBlock = ref(null);
 watch(() => props.userId, () => { selectedSchoolSoftBlock.value = null; });
-const schoolSoftBlocks = computed(() => schoolSoftScheduleBlocks(summary.value?.schoolSoftSessions || [], bookingTimezoneIana.value));
+const schoolSoftBlocks = computed(() => schoolSoftScheduleBlocks(summary.value?.schoolSoftSessions || [], bookingTimezoneIana.value).map(block => scheduleClientFace(block, clientNameDisplay.value)));
 const untimedSchoolBlocksForDay = day => {
   const date = addDaysYmd(summary.value?.weekStart || weekStart.value, dayIdxFromWeekStartMonday(day));
   return schoolSoftBlocks.value.filter(block => block.untimed && block.displayDate === date);
@@ -6407,6 +6431,7 @@ const allDayBlocksForDay = (day) => {
     key: `sevt-${ev.kind}-${ev.id || ev.title}`, kind: 'sevt', eventKind: ev.kind,
     eventId: Number(ev.id) || null, agencyId: ev.agencyId || ev._agencyId,
     allDay: true, isCancelled: isScheduleEventCancelled(ev),
+    clientId: ev.clientId, clientName: ev.clientName, isClientSession: isClientSessionScheduleEvent(ev),
     shortLabel: ev.title || scheduleKindLabel(ev.kind, ev),
     title: `${ev.title || scheduleKindLabel(ev.kind, ev)} · All day`,
     canEdit: ev.canEdit !== false && !isScheduleEventCancelled(ev)
@@ -6417,10 +6442,12 @@ const allDayBlocksForDay = (day) => {
       blocks.push({ key: `gevt-${ev.id}`, kind: 'gevt', allDay: true, shortLabel: ev.summary || 'Google event', title: `${ev.summary || 'Google event'} · All day`, googleEvent: ev });
     }
   }
-  return blocks;
+  blocks.push(...schoolClosureBlocks(summary.value?.schoolDayClosures, summary.value?.schoolAssignments, date));
+  return blocks.map(block => scheduleClientFace(block, clientNameDisplay.value));
 };
 const hasVisibleAllDayItems = computed(() => visibleDays.value.some(day => allDayBlocksForDay(day).length));
 const openAllDayBlock = (event, block, day) => {
+  if (block.kind === 'school-closure') { openSchoolRail(block, day); return; }
   if (block.googleEvent) { openGoogleEventModal(block.googleEvent); return; }
   onCellBlockClick(event, block, day, gridMinHour.value, 0, true);
 };
@@ -6440,7 +6467,7 @@ const familyScheduleEnabled = computed(() => {
 });
 const summary = computed({
   get: () => {
-    const raw = rawSummary.value;
+    const raw = rawSummary.value ? filterSummaryByActiveAgencies(rawSummary.value) : null;
     const data = raw ? {...raw, scheduleEvents:decorateSessionLocations(raw.scheduleEvents, raw.schoolAssignments, raw.officeEvents, String(agencyStore.currentAgency?.timezone || 'America/Denver'))} : raw;
     if (!data || !familyScheduleEnabled.value || Number(props.userId) !== Number(authStore.user?.id)) return data;
     return { ...data, scheduleEvents: familyScheduleProjection(data.scheduleEvents, familyPersonalMode.value, familyScheduleDetails.value) };
@@ -6474,7 +6501,7 @@ const showPeerBusyOverlay = ref(false);
 const showAvailabilityEditor = ref(false);
 const showAvailHoursLegend = ref(false);
 const calendarSettingsOpen = ref(false);
-const activeSettingsSection = ref('');
+const activeSettingsSection = ref('layout');
 const hubTitleSwitchRef = ref(null);
 const hubViewMenuOpen = ref(false);
 const compactHubViews = computed(() =>
@@ -6738,6 +6765,8 @@ const openMobileDayHour = (hour) => {
 };
 const rowHeightMode = ref('normal');
 const scheduleSideBySide = ref(true);
+const clientNameDisplay = ref('full');
+let clientNameDisplayEdited = false;
 const initializedOverlayDefaults = ref(false);
 
 const displayPrefsKey = computed(() => {
@@ -6782,6 +6811,7 @@ const collectDisplayPrefs = () => ({
   layoutDefaultsVersion: 2,
   schedulePaletteVersion: schedulePaletteVersion.value,
   scheduleSideBySide: scheduleSideBySide.value,
+  clientNameDisplay: clientNameDisplay.value,
   rowHeightMode: normalizeRowHeightMode(rowHeightMode.value),
   spanMode: normalizeSpanMode(scheduleSpanMode.value),
   weekStartsOn: effectiveWeekStartsOn.value === 'sunday' ? 'sunday' : 'monday',
@@ -6831,6 +6861,28 @@ const saveDisplayPrefsToServer = async () => {
   }
 };
 
+let clientNameSaveQueue = Promise.resolve();
+const saveClientNameDisplay = () => {
+  clientNameDisplayEdited = true;
+  const uid = Number(authStore.user?.id || 0);
+  if (!uid) return;
+  const value = clientNameDisplay.value;
+  try {
+    const local = loadDisplayPrefsLocal() || {};
+    window.localStorage.setItem(displayPrefsKey.value, JSON.stringify({ ...local, clientNameDisplay: value }));
+  } catch { /* Saving to the account still works when local storage is unavailable. */ }
+  // Serialize rapid changes so an older response cannot overwrite the latest choice.
+  clientNameSaveQueue = clientNameSaveQueue.then(async () => {
+    try {
+      const { data } = await api.get(`/users/${uid}/preferences`, { skipGlobalLoading: true });
+      await api.put(`/users/${uid}/preferences`, {
+        schedule_display_prefs: { ...(parseJsonMaybe(data?.schedule_display_prefs) || {}), clientNameDisplay: value }
+      }, { skipGlobalLoading: true });
+    } catch { /* The viewer's local choice still applies offline. */ }
+  });
+  return clientNameSaveQueue;
+};
+
 const saveDisplayPrefs = () => {
   if (props.mode !== 'self') return;
   saveDisplayPrefsLocal();
@@ -6845,6 +6897,7 @@ const saveDisplayPrefs = () => {
 // Restore display prefs immediately from localStorage (skip day focus until focusableDays exists).
 try {
   const ownLocal = loadDisplayPrefsLocal();
+  clientNameDisplay.value = normalizeClientNameDisplay(ownLocal?.clientNameDisplay);
   if (ownLocal?.layoutDefaultsVersion === 2 && ownLocal.scheduleSideBySide != null) scheduleSideBySide.value = !!ownLocal.scheduleSideBySide;
   if (props.mode === 'self') {
     const local = (() => {
@@ -9779,6 +9832,7 @@ const filterSummaryByActiveAgencies = (data) => {
     schoolRequests: (data.schoolRequests || []).filter(keep),
     schoolAssignments: (data.schoolAssignments || []).filter(keep),
     schoolSoftSessions: (data.schoolSoftSessions || []).filter(keep),
+    schoolDayClosures: (data.schoolDayClosures || []).filter(keep),
     officeEvents: (data.officeEvents || []).filter(keep),
     supervisionSessions: (data.supervisionSessions || []).filter(keep),
     scheduleEvents: (data.scheduleEvents || []).filter(keepScheduleEvent),
@@ -9836,7 +9890,7 @@ const load = async ({ forceRefresh = false } = {}) => {
   const stalePack = getScheduleSummaryStale(cacheKey);
   if (stalePack?.data) {
     mergeDiscoveredScheduleAgencies(stalePack.data.scheduleAgencyIds || []);
-    summary.value = filterSummaryByActiveAgencies(stalePack.data);
+    summary.value = stalePack.data;
     error.value = '';
     loading.value = false;
     tryOpenFocusScheduleEvent();
@@ -9906,7 +9960,7 @@ const load = async ({ forceRefresh = false } = {}) => {
         };
         mergeDiscoveredScheduleAgencies(tagged.scheduleAgencyIds || []);
         setScheduleSummary(cacheKey, tagged);
-        summary.value = filterSummaryByActiveAgencies(tagged);
+        summary.value = tagged;
       } else {
         summary.value = null;
       }
@@ -9926,7 +9980,7 @@ const load = async ({ forceRefresh = false } = {}) => {
       });
       const data = resp.data || null;
       summary.value = data;
-      setScheduleSummary(cacheKey, summary.value);
+      setScheduleSummary(cacheKey, data);
     } else {
       const results = await Promise.all(
           ids.map((agencyId) =>
@@ -9983,6 +10037,7 @@ const load = async ({ forceRefresh = false } = {}) => {
         schoolRequests: [],
         schoolAssignments: [],
         schoolSoftSessions: [],
+        schoolDayClosures: [],
         officeEvents: [],
         supervisionSessions: [],
         scheduleEvents: [],
@@ -10013,6 +10068,7 @@ const load = async ({ forceRefresh = false } = {}) => {
         return `sig:${kind}|${String(e?.startAt || e?.startDate || '')}|${String(e?.endAt || e?.endDate || '')}|${String(e?.title || '')}`;
       };
       const seenScheduleEventKeys = new Set();
+      const seenSchoolClosureKeys = new Set();
       // Provider's real memberships — never badge a block with a co-tenant on a shared
       // building (e.g. Burning Sage on Windchime) when the person isn't on that tenant.
       const providerAgencyAllow = new Set(
@@ -10043,6 +10099,12 @@ const load = async ({ forceRefresh = false } = {}) => {
         merged.schoolRequests.push(...(r.data?.schoolRequests || []).map((x) => tagIfMember(x, aId)));
         merged.schoolSoftSessions.push(...(r.data?.schoolSoftSessions || []).map((x) => tagIfMember(x, aId)));
         merged.schoolAssignments.push(...(r.data?.schoolAssignments || []).map((x) => tagIfMember(x, aId)));
+        for (const closure of r.data?.schoolDayClosures || []) {
+          const key = `${closure.agencyId || aId}:${closure.schoolOrgId}:${closure.date}:${closure.eventId || closure.kind}`;
+          if (seenSchoolClosureKeys.has(key)) continue;
+          seenSchoolClosureKeys.add(key);
+          merged.schoolDayClosures.push(tagIfMember(closure, aId));
+        }
         // Office events are building-scoped; do NOT stamp the fetch agencyId (shared buildings
         // return the same event for every co-tenant — first alphabetically was Burning Sage).
         for (const e of (r.data?.officeEvents || []).map((x) => tagIfMember(x, aId, { allowFetchAgencyFallback: false }))) {
@@ -10072,7 +10134,7 @@ const load = async ({ forceRefresh = false } = {}) => {
       merged.googleBusyError = first.googleBusyError || null;
       merged.externalCalendars = first.externalCalendars || [];
       summary.value = merged;
-      setScheduleSummary(cacheKey, summary.value);
+      setScheduleSummary(cacheKey, merged);
     }
 
     scheduleRetryAttempts = 0;
@@ -10235,7 +10297,7 @@ watch(activeScheduleAgencyIds, () => {
   const cached = getScheduleSummary(
     `${props.userId}|all|${weekStart.value}|${effectiveWeekStartsOn.value}|${showGoogleBusy.value}|${showGoogleEvents.value}|${showExternalBusy.value}|${(selectedExternalCalendarIds.value || []).slice().sort((a, b) => a - b).join(',')}`
   );
-  if (cached) summary.value = filterSummaryByActiveAgencies(cached);
+  if (cached) summary.value = cached;
 }, { deep: true });
 
 // Once self agencies finish loading, kick the first all-tenant fetch if needed.
@@ -10416,6 +10478,7 @@ const scheduleStaffAlertLookup = computed(() => {
 const staffAlertRecordForBlock = block => scheduleStaffAlertLookup.value.get(`appointment:${block?.appointmentId}`)
   || scheduleStaffAlertLookup.value.get(`${block?.isOfficeBlock ? 'office' : block?.kind}:${block?.eventId}`) || null;
 const staffAlertForBlock = block => {
+  if (clientNameDisplay.value !== 'full' && (block?.isClientSession || block?.clientId || block?.isOfficeBlock)) return staffAlertRecordForBlock(block) ? 'Open appointment for staff reminder' : '';
   const alert = staffAlertRecordForBlock(block);
   if (!alert) return '';
   return typeof alert === 'string' ? alert : String(alert.text || '');
@@ -11763,7 +11826,7 @@ const cellBlockCache = new Map();
 const cellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout = false) => {
   const key = `${dayName}|${hour}|${minute}|${expanded}|${forLayout}`;
   if (!cellBlockCache.has(key)) {
-    cellBlockCache.set(key, computed(() => buildCellBlocks(dayName, hour, minute, expanded, forLayout)));
+    cellBlockCache.set(key, computed(() => buildCellBlocks(dayName, hour, minute, expanded, forLayout).map(block => scheduleClientFace(block, clientNameDisplay.value, clockRangeLabel(block.startAt, block.endAt)))));
   }
   return cellBlockCache.get(key).value;
 };
@@ -20493,6 +20556,7 @@ function meetingTypePalette(b, dark) {
 }
 
 const cellBlockStyle = (b) => {
+  if (b?.kind === 'school-closure') return { '--blockFill': '#fff1e8', '--blockBorder': '#e9b493', '--blockText': '#9a3412', borderLeft: '3px solid #c96b32' };
   const kind = String(b?.kind || '');
   const style = {zIndex:3};
   const dark = darkScheduleTheme.value;
@@ -28329,6 +28393,27 @@ watch(()=>props.spanMode,value=>{
   white-space: nowrap;
   padding-left: 10px;
   padding-right: 10px;
+}
+.sched-display-preferences { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 18px; padding: 14px 16px; }
+.sched-client-names { display: flex; align-items: center; gap: 12px; color: #334155; font-size: 13px; font-weight: 650; }
+.sched-client-names .sched-select { min-width: 150px; }
+.sched-display-preferences__hint { color: #64748b; font-size: 12px; }
+.sched-organization-options { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 0 16px 12px; }
+.sched-toolbar-secondary--inline { margin: 0 !important; padding: 0 !important; overflow: visible !important; }
+.sched-toolbar-secondary--inline .sched-org-filters { padding: 0; border: 0; border-radius: 0; background: transparent; gap: 10px; }
+.sched-toolbar-secondary--inline .sched-select { width: auto; min-width: 180px; max-width: 280px; min-height: 38px; padding: 8px 30px 8px 12px; border: 1px solid #dce4ed; border-radius: 10px; background-color: #fff; color: #334155; font-size: 13px; font-weight: 500; }
+.sched-toolbar-secondary--inline .sched-calendars-label { font-weight: 650; color: #64748b; }
+.sched-calendar-settings--command[open] { border: 1px solid #e2e8f0; border-radius: 14px; background: #fff; margin-bottom: 12px; box-shadow: 0 4px 16px #0f172a04; }
+.sched-calendar-settings--command .sched-tool-cluster { border: 0; border-radius: 10px; background: transparent; gap: 8px; }
+.sched-calendar-settings--command .sched-pill { min-height: 32px; border-radius: 8px; padding: 6px 10px; }
+.sched-calendar-settings--command input[type="date"],
+.sched-calendar-settings--command .sched-select { min-height: 34px; border: 1px solid #dce4ed; border-radius: 8px; padding: 6px 10px; background: #fff; color: #334155; font: inherit; }
+.sched-calendar-settings--command input:focus-visible,
+.sched-calendar-settings--command select:focus-visible { outline: 2px solid #86b99b; outline-offset: 2px; }
+.sched-all-day-item--closure { min-height: 20px; }
+@media (max-width: 640px) {
+  .sched-toolbar-secondary--inline .sched-select { min-width: 0; max-width: 230px; }
+  .sched-display-preferences { align-items: flex-start; flex-direction: column; }
 }
 .sched-toolbar-secondary {
   margin-top: 8px;

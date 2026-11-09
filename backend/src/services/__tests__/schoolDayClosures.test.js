@@ -18,6 +18,26 @@ const testing = {
 };
 
 describe('school day closures', () => {
+  it('marks full days in the school timezone, including inclusive ends and DST', () => {
+    const [full] = closureRecords([holiday], [{ ...school, schoolName: 'North' }], '2026-10-12', '2026-10-19');
+    expect(full).toMatchObject({ fullDay: true, schoolName: 'North' });
+    const [partial] = closureRecords([{ ...holiday, starts_at: new Date('2026-10-13T15:00:00Z') }], [school], '2026-10-12', '2026-10-19');
+    expect(partial.fullDay).toBe(false);
+    const dst = { ...holiday, starts_at: new Date('2026-11-01T06:00:00Z'), ends_at: new Date('2026-11-02T07:00:00Z') };
+    expect(closureRecords([dst], [school], '2026-11-01', '2026-11-03')).toMatchObject([{ date: '2026-11-01', fullDay: true }]);
+  });
+
+  it('does not match a same-name district in another agency', () => {
+    const outside = { schoolOrgId: 99, agencyId: 3, districtName: 'D11' };
+    expect(closureRecords([holiday], [school, outside], '2026-10-12', '2026-10-19').map(row => row.schoolOrgId)).toEqual([20]);
+  });
+
+  it('retains a district full-day closure when a school also has a partial-day restriction', () => {
+    const partial = { ...testing, starts_at: new Date('2026-10-13T15:00:00Z'), ends_at: new Date('2026-10-13T17:00:00Z') };
+    const closures = closureRecords([holiday, partial], [school], '2026-10-12', '2026-10-19');
+    expect(closures).toHaveLength(2);
+    expect(closures.find(row => row.fullDay)).toMatchObject({ scope: 'district', title: 'Fall Break' });
+  });
   it('prefers a school sessions-prohibited date over a district holiday on the same day', () => {
     const [closure] = closureRecords([holiday, testing], [school], '2026-10-12', '2026-10-19');
     expect(closure).toMatchObject({

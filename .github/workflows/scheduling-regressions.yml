@@ -212,6 +212,8 @@ jobs:
           backend/src/services/__tests__/scheduling.offerRecipients.test.js
           backend/src/services/__tests__/scheduling.privateOfferPublicCache.test.js
           backend/src/controllers/__tests__/scheduling.replacementOfferAccess.test.js
+      - name: Assigned school closure all-day projections
+        run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.school-day-rails.config.js
       - name: District and school closure reminders for internal staff
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.school-closure.config.js
       - name: Cancellation recipient previews, school absence times, and calendar overlap
@@ -301,6 +303,8 @@ jobs:
           src/components/schedule/__tests__/scheduleBlocks.test.js
           src/components/schedule/__tests__/scheduleOverlap.test.js
           src/components/schedule/__tests__/scheduleLoading.test.js
+          src/components/schedule/__tests__/scheduleSettingsPrivacy.test.js
+          src/utils/__tests__/scheduleClientNames.test.js
           src/components/schedule/__tests__/scheduleDayLayout.test.js
           src/components/schedule/__tests__/scheduleQuarterHourPicker.test.js
           src/components/schedule/__tests__/scheduleQuarterHourFlow.test.js

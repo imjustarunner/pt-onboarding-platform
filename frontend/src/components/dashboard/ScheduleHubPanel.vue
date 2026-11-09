@@ -67,7 +67,14 @@
 
     <div v-if="metaOnlyHeader" class="sched-hub__utility-row" :class="{ 'sched-hub__utility-row--single-line': !!$slots['header-controls'] }">
       <slot name="header-controls" />
-      <details v-if="$slots['header-actions']" class="sched-hub__more"><summary title="Additional calendar tools and shortcuts">More schedule tools</summary><div class="sched-hub__header-actions"><slot name="header-actions" /></div></details>
+      <div ref="organizationTarget" class="sched-hub__organization" />
+      <Teleport v-if="$slots['header-actions']" :to="settingsTarget || 'body'" :disabled="!settingsTarget">
+        <div v-if="settingsTarget" class="sched-hub__settings-tools">
+          <span class="sched-hub__tools-label">Schedule tools</span>
+          <div class="sched-hub__header-actions"><slot name="header-actions" /></div>
+        </div>
+        <details v-else class="sched-hub__more"><summary title="Additional calendar tools and shortcuts">More schedule tools</summary><div class="sched-hub__header-actions"><slot name="header-actions" /></div></details>
+      </Teleport>
     </div>
     <slot name="skill-builders" />
 
@@ -81,7 +88,12 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, provide, ref } from 'vue';
+import { scheduleHubContext } from '../schedule/scheduleHubContext.js';
+
+const organizationTarget = ref(null);
+const settingsTarget = ref(null);
+provide(scheduleHubContext, { organizationTarget, settingsTarget });
 
 const stageRef = ref(null);
 const titleSwitchRef = ref(null);
@@ -163,6 +175,30 @@ const viewIcon = (name) => ICONS[name] || ICONS.calendar;
 .sched-hub__more > summary { cursor:pointer; padding:7px 10px; border:1px solid var(--border,#cbd5e1); border-radius:8px; }
 .sched-hub__more[open] { flex-basis:100%; }
 .sched-hub__more .sched-hub__header-actions { margin-top:8px; }
+.sched-hub__organization:empty { display: none; }
+.sched-hub__organization { min-width: 0; }
+.sched-hub__utility-row--single-line :deep(.schedule-header-view-as) { flex: 0 1 auto; }
+.sched-hub__utility-row--single-line { gap: 16px 24px; }
+.sched-hub__utility-row :deep(.team-schedule-picker) { flex-wrap: nowrap; }
+.sched-hub__utility-row :deep(.team-schedule-picker > .person-search-select) { width: 280px; flex: 0 1 280px; }
+@media (max-width: 640px) {
+  .sched-hub__utility-row--single-line :deep(.schedule-header-view-as),
+  .sched-hub__utility-row--single-line :deep(.team-schedule-picker) { flex: 1 1 100%; flex-wrap: wrap; }
+}
+.sched-hub__settings-tools { display: grid; gap: 10px; padding: 14px 16px; border-top: 1px solid #e2e8f0; }
+.sched-hub__tools-label { font-size: 12px; font-weight: 700; color: #64748b; }
+.sched-hub__settings-tools .sched-hub__header-actions { justify-content: flex-start; gap: 8px; }
+.sched-hub--meta .sched-hub__settings-tools .sched-hub__header-actions :deep(.btn) { border: 1px solid #e2e8f0; border-radius: 9px; padding: 8px 12px; background: #fff; color: #334155; font-size: 13px; }
+.sched-hub__utility-row :deep(.person-search-select > .input) {
+  width: 100%; min-height: 38px; box-sizing: border-box; padding: 8px 12px;
+  border: 1px solid #dce4ed; border-radius: 10px; background: #fff;
+  color: #1e293b; font: inherit; box-shadow: 0 1px 2px #0f172a05;
+}
+.sched-hub__utility-row :deep(.person-search-select > .input:focus-visible) { outline: 2px solid #86b99b; outline-offset: 2px; }
+.sched-hub__utility-row :deep(.schedule-view-as-label),
+.sched-hub__utility-row :deep(.team-schedule-picker > span) { color: #64748b; font-size: 12px; font-weight: 650; }
+.sched-hub__utility-row :deep(.schedule-header-view-as > button),
+.sched-hub__utility-row :deep(.team-schedule-picker > button) { min-height: 38px; padding: 8px 12px; border: 1px solid #dce4ed; border-radius: 10px; background: #fff; color: #334155; font-size: 13px; }
 
 .sched-hub {
   --hub-green: #166534;

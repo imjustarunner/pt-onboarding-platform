@@ -279,14 +279,14 @@ it('keeps usable actions ahead of a preferred but unavailable school action, inc
   expect(state.slotActionPrefs.order[0]).toBe('school');
 });
 
-it('opens each compact toolbar settings panel directly and toggles it closed', async () => {
+it('opens settings immediately and switches its optional sections without hiding common preferences', async () => {
   const state = await mount();
   await vi.advanceTimersByTimeAsync(500); await flushPromises();
   await wrapper.setProps({ compactPageChrome: true });
   state.summary = { ...summary, googleCalendarEnabled: true };
   await wrapper.find('[data-testid="schedule-command-settings"]').trigger('click');
   const settings = wrapper.find('[data-testid="my-schedule-calendar-settings"]');
-  expect(settings.attributes('open')).toBeUndefined();
+  expect(settings.attributes('open')).toBeDefined();
   for (const section of ['people', 'office', 'feeds', 'layout', 'more']) {
     const button = wrapper.find(`[aria-controls="sched-settings-${section}"]`);
     await button.trigger('click');
@@ -298,7 +298,9 @@ it('opens each compact toolbar settings panel directly and toggles it closed', a
     }
   }
   await wrapper.find('[aria-controls="sched-settings-more"]').trigger('click');
-  expect(settings.attributes('open')).toBeUndefined();
+  expect(settings.attributes('open')).toBeDefined();
+  expect(state.activeSettingsSection).toBe('');
+  expect(wrapper.find('[data-testid="schedule-client-name-display"]').exists()).toBe(true);
   expect(state.calendarSettingsOpen).toBe(true);
   // Nested disclosure toggle events must not collapse the toolbar itself.
   await settings.trigger('toggle');

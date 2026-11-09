@@ -40,21 +40,34 @@ function closureRank(item) {
   return (item.scope === 'school' ? 0 : 2) + (item.kind === 'no_school' ? 0 : 1);
 }
 
+function coversFullDay(row, date) {
+  const timeZone = row.timezone || 'America/Denver';
+  const start = wallMysqlToUtcMysql(`${date} 00:00:00`, timeZone);
+  const end = wallMysqlToUtcMysql(`${addDaysYmd(date, 1)} 00:00:00`, timeZone);
+  if (!start || !end) return false;
+  const startMs = Date.parse(`${start.replace(' ', 'T')}Z`);
+  const endMs = Date.parse(`${end.replace(' ', 'T')}Z`);
+  // Existing school events use either exclusive midnight or inclusive 23:59:59.
+  return new Date(row.starts_at).getTime() <= startMs && new Date(row.ends_at).getTime() >= endMs - 1000;
+}
+
 export function closureRecords(rows, schools, startDate, endDate) {
-  const bySchool = new Map((schools || []).map(school => [Number(school.schoolOrgId), school]));
   const found = [];
   for (const row of rows || []) {
     const scope = row.organization_id == null ? 'district' : 'school';
     const district = String(row.district_name || '').trim().toLowerCase();
     const targets = scope === 'school'
-      ? [bySchool.get(Number(row.organization_id))].filter(Boolean)
+      ? (schools || []).filter(school => Number(school.schoolOrgId) === Number(row.organization_id))
       : (schools || []).filter(school => String(school.districtName || '').trim().toLowerCase() === district && district);
     for (const school of targets) {
+      if (Number(school.agencyId) !== Number(row.agency_id)) continue;
       for (const date of closureDates(row, startDate, endDate)) {
         found.push({
           schoolOrgId: Number(school.schoolOrgId),
+          schoolName: String(school.schoolName || '').trim(),
           agencyId: Number(row.agency_id || school.agencyId || 0) || null,
           date,
+          fullDay: coversFullDay(row, date),
           kind: closureKind(row.event_type),
           reason: String(row.description || '').trim() || String(row.title || '').trim(),
           title: String(row.title || '').trim(),
@@ -69,7 +82,7 @@ export function closureRecords(rows, schools, startDate, endDate) {
   }
   const best = new Map();
   for (const item of found) {
-    const key = `${item.schoolOrgId}:${item.date}`;
+    const key = `${item.agencyId}:${item.schoolOrgId}:${item.date}:${item.fullDay ? 'all' : 'partial'}`;
     const current = best.get(key);
     if (!current || closureRank(item) < closureRank(current)) best.set(key, item);
   }
@@ -81,8 +94,9 @@ export function createSchoolDayClosures({ db = pool, createEvent = createSchoolP
     const ids = [...new Set((agencyIds || []).map(Number).filter(id => id > 0))];
     if (!ids.length) return [];
     const [rows] = await db.execute(
-      `SELECT psa.school_organization_id AS schoolOrgId, oa.agency_id AS agencyId, sp.district_name AS districtName
+      `SELECT psa.school_organization_id AS schoolOrgId, school.name AS schoolName, oa.agency_id AS agencyId, sp.district_name AS districtName
        FROM provider_school_assignments psa
+       JOIN agencies school ON school.id = psa.school_organization_id
        JOIN organization_affiliations oa
          ON oa.organization_id = psa.school_organization_id AND oa.is_active = 1
        LEFT JOIN school_profiles sp ON sp.school_organization_id = psa.school_organization_id
@@ -92,8 +106,8 @@ export function createSchoolDayClosures({ db = pool, createEvent = createSchoolP
     );
     const seen = new Set();
     return (rows || []).filter(row => {
-      const key = Number(row.schoolOrgId);
-      if (!key || seen.has(key)) return false;
+      const key = `${row.agencyId}:${row.schoolOrgId}`;
+      if (!Number(row.schoolOrgId) || seen.has(key)) return false;
       seen.add(key);
       return true;
     });
