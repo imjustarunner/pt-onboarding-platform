@@ -77,6 +77,7 @@
     <!-- My SSTC Clubs lives in AgencySelector (portal strip) — do not duplicate here. -->
 
     <!-- Agency announcement banner (Dashboard) -->
+    <SchoolClosureDashboardNotice v-if="!previewMode && isOnboardingComplete && !isClubContext" :agency-id="currentAgencyId" :splash-allowed="!currentSplashAnnouncement && !currentAdminUpdateSplash && !mandatorySupervisionPrompt" />
     <AnnouncementMarquee
       v-if="!previewMode && dashboardBannerTexts.length > 0"
       :items="dashboardBannerTexts"
@@ -1383,6 +1384,7 @@ import {
 } from '../config/noteAidAccess';
 import SchoolMarketingSplash from '../components/marketing/SchoolMarketingSplash.vue';
 import AnnouncementMarquee from '../components/common/AnnouncementMarquee.vue';
+import SchoolClosureDashboardNotice from '../components/notifications/SchoolClosureDashboardNotice.vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../store/auth';
 import { useAgencyStore } from '../store/agency';

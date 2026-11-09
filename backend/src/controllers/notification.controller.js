@@ -123,7 +123,7 @@ function resolveTriggerSetting(trigger, setting) {
 }
 
 // Message-related notification types must never be visible cross-user.
-const MESSAGE_PRIVATE_TYPES = new Set(['chat_message', 'inbound_client_message', 'support_safety_net_alert']);
+const MESSAGE_PRIVATE_TYPES = new Set(['school_closure_notice', 'chat_message', 'inbound_client_message', 'support_safety_net_alert']);
 
 const SELF_ACTIVITY_TYPES = new Set(['user_login', 'user_logout', 'presence_user_returned']);
 
@@ -1844,7 +1844,8 @@ export const getNotificationCatalog = async (req, res, next) => {
     const preferences = await listEffectiveNotificationPreferences({
       userId: req.user.id,
       userRole: req.user.role,
-      agencyId
+      agencyId,
+      user: await User.findById(Number(req.user.id))
     });
     const globalPreferences = await UserPreferences.findByUserId(Number(req.user.id)) || {};
     const userAgencies = await User.getAgencies(Number(req.user.id));
@@ -1887,10 +1888,27 @@ export const updateNotificationTypePreference = async (req, res, next) => {
     const type = String(req.params.type || '').trim();
     const entry = getNotificationCatalogEntry(type);
     if (!entry) return res.status(404).json({ error: { message: 'Unknown notification type' } });
-    const allowed = ['inApp', 'toast', 'sound', 'push', 'email', 'sms', 'digest', 'toastDurationMode', 'toastDurationSeconds'];
+    const allowed = ['inApp', 'toast', 'sound', 'push', 'email', 'sms', 'digest', 'toastDurationMode', 'toastDurationSeconds', 'deliveryMode'];
     const updates = {};
     for (const key of allowed) {
       if (Object.prototype.hasOwnProperty.call(req.body || {}, key)) updates[key] = req.body[key];
+    }
+    if (type === 'school_closure_notice' && updates.deliveryMode === undefined && ['inApp','email','sms'].some(key=>Object.prototype.hasOwnProperty.call(updates,key))) {
+      return res.status(400).json({error:{message:'Use the delivery choice for school closure reminders.'}});
+    }
+    if (updates.deliveryMode !== undefined) {
+      if (type !== 'school_closure_notice') return res.status(400).json({ error: { message: 'Delivery choice is not available for this type' } });
+      const context = await loadNotificationPreferenceContext({ userId: req.user.id, userRole: req.user.role, user: await User.findById(Number(req.user.id)) });
+      const previous = context.typePreferences.get(type) || {};
+      context.typePreferences.set(type, { ...previous, deliveryMode: updates.deliveryMode });
+      const resolved = resolveNotificationTypePreference(type, context);
+      if (resolved.locked) return res.status(403).json({ error: { message: resolved.lockReason || 'This preference is managed by the agency.' } });
+      const option = resolved.delivery.options.find(option => option.value === updates.deliveryMode);
+      if (!option?.available) return res.status(400).json({ error: { message: 'This delivery choice is unavailable. Check account email settings or text consent.' } });
+      if (updates.deliveryMode === 'work_email_forward') {
+        const { personalMessageSettingsEligibility } = await import('../services/messageReminderRecipient.service.js');
+        if (!(await personalMessageSettingsEligibility(req.user.id)).eligible) return res.status(400).json({ error: { message: 'Personal forwarding is not available for your current work account.' } });
+      }
     }
     for (const channel of ['inApp', 'toast', 'sound', 'push', 'email', 'sms', 'digest']) {
       if (updates[channel] !== undefined && updates[channel] !== null && typeof updates[channel] !== 'boolean') {
@@ -1929,7 +1947,7 @@ export const updateNotificationTypePreference = async (req, res, next) => {
     } else {
       await NotificationTypePreference.upsert(req.user.id, type, updates);
     }
-    const context = await loadNotificationPreferenceContext({ userId: req.user.id, userRole: req.user.role });
+    const context = await loadNotificationPreferenceContext({ userId: req.user.id, userRole: req.user.role, user: type === 'school_closure_notice' ? await User.findById(Number(req.user.id)) : null });
     res.json(resolveNotificationTypePreference(type, context));
   } catch (error) {
     next(error);

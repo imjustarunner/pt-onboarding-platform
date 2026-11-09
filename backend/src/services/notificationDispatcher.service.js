@@ -18,6 +18,7 @@ import { staffCommunicationKey, staffNotificationKind, staffNotificationBody } f
 import { isNotificationChannelEnabled } from './notificationPreferences.service.js';
 
 const SMS_CATEGORY_BY_TYPE = {
+  school_closure_notice: 'school_closures',
   client_exchange_match: 'client_exchange_matches',
   inbound_client_message: 'messaging_new_inbound_client_text',
   support_safety_net_alert: 'messaging_support_safety_net_alerts',
@@ -242,7 +243,9 @@ class NotificationDispatcherService {
       }
     }
     const appointmentAlert=['client_appointment_reply','kiosk_checkin'].includes(notification.type)?safeAppointmentAlert(notification.type,safeDetails):null;
-    const body = urgentSupport
+    const body = notification.type === 'school_closure_notice'
+      ? `${notification.title}. Review your affected schools in My Schedule: ${buildPublicPortalBaseUrl(agency)}/my-schedule`
+      : urgentSupport
       ? `Urgent: a support request needs your attention. Sign in to claim it and reply securely: ${buildPublicPortalBaseUrl(agency)}`
       : appointmentAlert || staffNotificationBody(notification.type,notification.type==='client_exchange_match'?exchangeLink:buildPublicPortalBaseUrl(agency), { availabilityUrl: buildProviderAvailabilitySettingsUrl(agency) });
 
@@ -324,7 +327,7 @@ class NotificationDispatcherService {
     }
     const result = await PushService.sendPushToUser(notification.user_id, {
       title: notification.title || 'Notification',
-      body: notification.message || '',
+      body: notification.type === 'school_closure_notice' ? 'Open the app to review your school closure reminder.' : notification.message || '',
       url: notificationUrl,
       tag: `n-${notification.id}`
     });

@@ -1,0 +1,21 @@
+import {it,expect,vi} from 'vitest';
+import {mount,flushPromises} from '@vue/test-utils';
+const m=vi.hoisted(()=>({get:vi.fn(),patch:vi.fn()}));
+vi.mock('../../../services/api',()=>({default:m}));
+vi.mock('../../../store/auth',()=>({useAuthStore:()=>({user:{id:7}})}));
+import Select from '../SchoolClosureDeliverySelect.vue';
+import Panel from '../NotificationTypeSettingsPanel.vue';
+const delivery={mode:'app',options:[{value:'app',label:'App notification',available:true},{value:'sms',label:'Text message',available:false},{value:'work_email',label:'Work email (SSO)',available:true},{value:'none',label:'None',available:true}]};
+it('shows the current choice and keeps unconsented texts unavailable',()=>{const w=mount(Select,{props:{delivery}});expect(w.get('select').element.value).toBe('app');expect(w.get('option[value="sms"]').element.disabled).toBe(true);expect(w.text()).toContain('6 AM');});
+it('emits None without enabling another channel',async()=>{const w=mount(Select,{props:{delivery}});await w.get('select').setValue('none');expect(w.emitted('change')).toEqual([['none']]);});
+it('offers only the account-specific email route supplied by the server',()=>{const w=mount(Select,{props:{delivery:{mode:'app',options:delivery.options.filter(o=>o.value!=='work_email').concat({value:'work_email_forward',label:'Work email forwarded to personal (non-SSO)',available:true})}}});expect(w.find('option[value="work_email"]').exists()).toBe(false);expect(w.text()).toContain('forwarded to personal');});
+it('saves the selected delivery mode through the existing account settings API',async()=>{
+ const entry={type:'school_closure_notice',label:'School closure reminders',category:'scheduling_office',recommendedForRole:true,essentialForRole:true,capabilities:{inApp:true,email:true,sms:true},effective:{inApp:true,email:false,sms:false},delivery:structuredClone(delivery)};
+ m.get.mockResolvedValue({data:{categories:[{key:'scheduling_office',label:'Scheduling',color:'#123456'}],types:[entry],global:{email:true,sms:true},roleProfile:'provider'}});
+ m.patch.mockResolvedValue({data:{...entry,delivery:{...delivery,mode:'none'},effective:{inApp:false,email:false,sms:false}}});
+ const w=mount(Panel,{props:{focusedType:'school_closure_notice'}});await flushPromises();
+ await w.get('select[aria-label="School closure reminder delivery"]').setValue('none');
+ await w.findAll('button').find(b=>b.text()==='Save 1 change').trigger('click');await flushPromises();
+ expect(m.patch).toHaveBeenCalledWith('/notifications/preferences/types/school_closure_notice',{deliveryMode:'none'});
+ expect(w.get('select[aria-label="School closure reminder delivery"]').element.value).toBe('none');
+});

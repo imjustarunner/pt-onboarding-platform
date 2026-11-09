@@ -92,7 +92,7 @@ export function closureNoticeMessage(plan, schoolsEmail) {
     districtClosure ? `${plan.district} has a district-wide no-school or school-session restriction on the calendar. All ${plan.audience === 'provider' ? 'your assigned' : 'affiliated'} schools in that district are likely impacted.` : 'The following school-specific no-school or school-session restrictions are recorded on the calendar.',
     '', plan.audience === 'provider' ? 'Your affected assigned schools:' : 'Affected schools and assigned providers:', ...schoolLines, '',
     'Where both district and school dates are listed, both calendar entries are shown above. Check the calendar and coordinate any affected school sessions; this email does not cancel appointments or notify families.',
-    '', 'Future reminders for district-wide closures and individual school closures recorded in the calendar will arrive at 3 PM on the previous weekday and again at 6 AM on the closure date, using the calendar’s local time. For a Monday closure, the advance notice will arrive on Friday.',
+    '', 'Reminders for district-wide closures and individual school closures recorded in the calendar are scheduled for 3 PM on the previous weekday and 6 AM on the closure date, using the calendar’s local time. For a Monday closure, advance notice is Friday. Choose App notification, Text, None, or your account’s work email option in Notification Settings. Email is optional.',
     '', `Reply to ${schoolsEmail} with questions or calendar corrections.`
   ].join('\n');
   return { subject: `${reminder}: ${plan.district} school closures — ${date}`, text };

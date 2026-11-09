@@ -108,6 +108,7 @@
                 </div>
                 <button
                   v-for="channel in primaryChannels"
+                  v-if="!entry.delivery"
                   :key="channel.key"
                   :class="['type-check', { checked: entry.effective[channel.key], unavailable: !entry.capabilities[channel.key] }]"
                   type="button"
@@ -116,7 +117,8 @@
                   :aria-label="`${channel.label} for ${entry.label}`"
                   @click="toggleChannel(entry, channel.key)"
                 >{{ entry.capabilities[channel.key] ? (entry.effective[channel.key] ? '✓' : '') : '—' }}</button>
-                <button class="advanced-toggle" type="button" :aria-expanded="advancedExpanded(entry.type)" @click="toggleAdvanced(entry.type)">
+                <SchoolClosureDeliverySelect v-if="entry.delivery" :delivery="entry.delivery" :disabled="saving || entry.locked" @change="setClosureDelivery(entry, $event)" />
+                <button v-if="!entry.delivery" class="advanced-toggle" type="button" :aria-expanded="advancedExpanded(entry.type)" @click="toggleAdvanced(entry.type)">
                   {{ advancedExpanded(entry.type) ? '⌃' : '•••' }}
                 </button>
               </div>
@@ -171,6 +173,7 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
+import SchoolClosureDeliverySelect from './SchoolClosureDeliverySelect.vue';
 import { useAuthStore } from '../../store/auth';
 
 const props = defineProps({
@@ -200,6 +203,13 @@ const primaryChannels = [
   { key: 'email', label: 'Email' },
   { key: 'sms', label: 'SMS' }
 ];
+const setClosureDelivery = (entry, mode) => {
+  queueChange(entry, 'deliveryMode', mode);
+  entry.delivery.mode = mode;
+  entry.effective.inApp = mode === 'app';
+  entry.effective.email = mode.startsWith('work_email');
+  entry.effective.sms = mode === 'sms';
+};
 const advancedChannels = [
   { key: 'toast', label: 'Toast' },
   { key: 'sound', label: 'Sound' },
@@ -286,7 +296,7 @@ const toggleAdvanced = (type) => {
     : [...expandedAdvanced.value, type];
 };
 
-const editableEntries = (group, channel) => group.entries.filter((entry) => !channelDisabled(entry, channel));
+const editableEntries = (group, channel) => group.entries.filter((entry) => !entry.delivery && !channelDisabled(entry, channel));
 const categoryChannelState = (group, channel) => {
   const entries = editableEntries(group, channel);
   if (!entries.length) return 'disabled';
