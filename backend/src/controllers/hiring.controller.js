@@ -4630,9 +4630,13 @@ export const sendOnboardingInvite = async (req, res, next) => {
     const agency = await Agency.findById(agencyId);
     const { token } = await User.generatePasswordlessToken(candidateUserId, 14 * 24, 'prehire_portal');
     const tokenLink = buildPublicAppUrl(agency, `pre-hire/${token}`);
-    await EmailService.sendEmail({ to: user.personal_email || user.email, subject: 'Your onboarding portal',
-      text: `Hi ${user.first_name || 'there'},\n\nContinue with your personal portal link:\n\n${tokenLink}\n\nYour completed pre-hire package remains available. Complete onboarding and submit it for People Operations to review. This link is valid for 14 days.` });
-    return res.json({ ok: true, sendMethod: 'token', tokenLink });
+    const { sendOnboardingPortalInviteEmail } = await import('../services/onboardingInviteEmail.service.js');
+    const email = await sendOnboardingPortalInviteEmail({ agencyId, user, portalLink: tokenLink, generatedByUserId: req.user.id });
+    if (email.status === 'failed') {
+      return res.status(409).json({ ok: false, email,
+        error: { message: 'The onboarding invitation was not sent. Review email delivery status and sender settings before retrying.' } });
+    }
+    return res.status(email.status === 'pending' ? 202 : 200).json({ ok: true, sendMethod: 'token', tokenLink, email });
   } catch (e) { next(e); }
 };
 

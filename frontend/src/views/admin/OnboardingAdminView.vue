@@ -360,8 +360,10 @@ const sendInvite = async (e, method) => {
   inviteMsg.value = '';
   try {
     const params = selectedAgencyId.value ? { agencyId: selectedAgencyId.value } : {};
-    await api.post(`/hiring/candidates/${e.id}/send-onboarding-invite`, { sendMethod: method }, { params });
-    inviteMsg.value = method === 'token' ? 'Magic link sent!' : 'Login email sent!';
+    const { data } = await api.post(`/hiring/candidates/${e.id}/send-onboarding-invite`, { sendMethod: method }, { params });
+    inviteMsg.value = data.email?.status === 'pending' ? 'Invitation queued for email review.'
+      : data.email?.status === 'sent' ? (data.email.redirected ? 'Test invitation sent to the testing inbox.' : 'Onboarding invitation sent.')
+        : 'Invitation delivery was not confirmed.';
     setTimeout(() => { inviteMsg.value = ''; }, 3000);
   } catch (err) {
     alert(err.response?.data?.error?.message || 'Failed to send invite.');

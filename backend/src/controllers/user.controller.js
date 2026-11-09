@@ -10556,15 +10556,21 @@ export const promoteToOnboarding = async (req, res, next) => {
        WHERE id = ?`, [portalToken, id]);
     await db.commit();
     let inviteSent = false;
+    let inviteDelivery = { status: 'not_requested' };
     try {
-      const EmailService = (await import('../services/email.service.js')).default;
-      if (req.body?.sendMethod !== 'none') await EmailService.sendEmail({ to: user.personal_email || user.email, subject: 'Your onboarding portal is ready',
-        text: `Hi ${user.first_name || 'there'},\n\nYour pre-hire package is complete and remains available in My Submissions. Continue onboarding using your same personal link:\n\n${buildPublicAppUrl(agencyRow, `pre-hire/${portalToken}`)}\n\nSubmit your completed onboarding package for People Operations to review and activate your account.` });
-      inviteSent = req.body?.sendMethod !== 'none';
-    } catch (e) { console.warn('[promoteToOnboarding] Invitation delivery failed:', e?.message); }
+      if (req.body?.sendMethod !== 'none') {
+        const { sendOnboardingPortalInviteEmail } = await import('../services/onboardingInviteEmail.service.js');
+        inviteDelivery = await sendOnboardingPortalInviteEmail({ agencyId: agencyRow.id, user,
+          portalLink: buildPublicAppUrl(agencyRow, `pre-hire/${portalToken}`), generatedByUserId: req.user.id, promoted: true });
+        inviteSent = inviteDelivery.status === 'sent';
+      }
+    } catch (e) {
+      inviteDelivery = { status: 'failed', reason: 'send_failed' };
+      console.warn('[promoteToOnboarding] Invitation delivery failed:', e?.message);
+    }
     res.json({ message: 'Onboarding started. Pre-hire is retained as a completed package.', user: await User.findById(id),
       autoPackageAssigned: { packageId, packageName: assigned.packageName, documentsAssigned: assigned.documents.length,
-        trainingAssigned: assigned.trainingFocuses.length }, inviteSent });
+        trainingAssigned: assigned.trainingFocuses.length }, inviteSent, email: inviteDelivery });
   } catch (error) { if (db) await db.rollback(); next(error); }
   finally { db?.release(); }
 };
