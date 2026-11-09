@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import bcrypt from 'bcrypt';
 import pool from '../config/database.js';
-import {managedDomain} from './managedWorkspaceGroupPolicy.js';
+import {managedDomain,CURRENT_MANAGED_DOMAINS} from './managedWorkspaceGroupPolicy.js';
 import {ASSISTANT_AGENCIES,ASSISTANT_CATALOG,ASSISTANT_OWNER_EMAIL,assistantError,defaultAssistantSchedule,publicAssistantAccount,assistantDigest,assistantStoredConfigurationHash,parseAssistantJson} from './assistantTeamPolicy.js';
 import {recordAssistantChange} from './assistantAccountAlerts.service.js';
 
@@ -15,17 +15,29 @@ export async function assertAssistantOwner(actor,db=pool){
  const [[owner]]=await db.execute('SELECT id,email,role,is_active,is_archived FROM users WHERE id=?',[Number(actor?.id)||0]);
  if(!owner||owner.role!=='super_admin'||String(owner.email).toLowerCase()!==ASSISTANT_OWNER_EMAIL||!owner.is_active||owner.is_archived)throw assistantError(403,'ASSISTANT_OWNER_REQUIRED','Only Michael can manage Assistant Teams.');return owner;
 }
-export async function provisionAssistantAccounts({actor,agencyIds=ASSISTANT_AGENCIES,dryRun=true,qa=false},db=pool){
+// Assistant enrollment is separate from staff/department group synchronization.
+// An explicit subrole list restricts assistant provisioning to that list without
+// enabling any other managed Workspace groups for the agency.
+export function assistantManagedDomain(agency,subrole){
+ const flags=parseAssistantJson(agency.feature_flags);
+ if(flags.externalAssistantGroupSubroles===undefined)return managedDomain(agency);
+ const roles=flags.externalAssistantGroupSubroles;
+ if(!Number(agency.is_active)||agency.organization_type!=='agency'||!Array.isArray(roles)||!roles.length||roles.some(key=>!ASSISTANT_CATALOG.some(role=>role.key===key))||!roles.includes(subrole))return null;
+ const expected=CURRENT_MANAGED_DOMAINS[agency.slug],configured=String(flags.workspaceEmailDomain||'').trim().toLowerCase();
+ return expected&&configured===expected?expected:null;
+}
+export async function provisionAssistantAccounts({actor,agencyIds=ASSISTANT_AGENCIES,subroles,dryRun=true,qa=false},db=pool){
  await assertAssistantOwner(actor,db);
+ const roles=subroles===undefined?ASSISTANT_CATALOG:selectAssistantProvisioningRoles(subroles);
  const ids=[...new Set(agencyIds.map(Number))];const allowed=qa?[450,453]:ASSISTANT_AGENCIES;
  if(!ids.length||ids.some(id=>!allowed.includes(id)))throw assistantError(400,'AGENCY_NOT_ENROLLED','Select an enrolled assistant agency.');
  const plan=[];
  for(const agencyId of ids){
   const [[agency]]=await db.execute('SELECT id,name,slug,is_active,is_archived,organization_type,feature_flags FROM agencies WHERE id=?',[agencyId]);
   if(!agency||!agency.is_active||agency.is_archived)throw assistantError(409,'AGENCY_UNAVAILABLE','The selected agency is not active.');
-  const domain=qa?({450:'itsco.health',453:'nextleveluplcc.com'}[agencyId]):managedDomain(agency);if(!domain)throw assistantError(409,'MANAGED_DOMAIN_REQUIRED','Verify the managed agency mail domain first.');
   const schools=await countAssistantSchools(agencyId,db);
-  for(const role of ASSISTANT_CATALOG){
+  for(const role of roles){
+   const domain=qa?({450:'itsco.health',453:'nextleveluplcc.com'}[agencyId]):assistantManagedDomain(agency,role.key);if(!domain)throw assistantError(409,'MANAGED_DOMAIN_REQUIRED','Verify the managed agency mail domain and assistant subrole first.');
    if(role.key==='school_support'&&!schools){plan.push({agencyId,subrole:role.key,skipped:'NO_LINKED_SCHOOLS'});continue;}
    const local=role.key==='team_lead'?'assistant-team-lead':`${role.key.replaceAll('_','-')}-assistant`;
    const email=`${qa?`qa-${agencyId}-`:''}${local}@${domain}`;const displayName=`${agency.name} ${role.label}`;
@@ -49,21 +61,27 @@ export async function provisionAssistantAccounts({actor,agencyIds=ASSISTANT_AGEN
   }
  }return {dryRun,qa,accounts:plan};
 }
+export function selectAssistantProvisioningRoles(subroles){
+ if(!Array.isArray(subroles)||!subroles.length||subroles.some(key=>typeof key!=='string'||!ASSISTANT_CATALOG.some(role=>role.key===key)))throw assistantError(400,'INVALID_ASSISTANT_SUBROLES','Select at least one supported assistant subrole.');
+ const selected=new Set(subroles);return ASSISTANT_CATALOG.filter(role=>selected.has(role.key));
+}
 export async function provisionAssistantGroup({accountId,actor},deps={}){
  const db=deps.db||pool;await assertAssistantOwner(actor,db);const [[a]]=await db.execute('SELECT aa.*,u.email,CONCAT(u.first_name,\' \',u.last_name) display_name FROM assistant_accounts aa JOIN users u ON u.id=aa.user_id WHERE aa.id=?',[accountId]);if(!a)throw assistantError(404,'ASSISTANT_NOT_FOUND','Assistant account not found.');
  try{
-  const {ensureWorkspaceSenderGroup}=await import('./workspaceSenderGroup.service.js');const {default:Directory}=await import('./googleWorkspaceDirectory.service.js');const {ensureSendAsAlias}=await import('./gmailSendAs.service.js');
+  const {ensureWorkspaceSenderGroup}=await import('./workspaceSenderGroup.service.js');const {default:Directory}=await import('./googleWorkspaceDirectory.service.js');
   const directory=deps.directory||Directory;
   const group=await (deps.ensureGroup||ensureWorkspaceSenderGroup)({email:a.email,displayName:a.display_name,directory});
   if(group.existingUser||!group.group)throw assistantError(409,'ASSISTANT_GROUP_REQUIRED','The assistant address must be a Google Group, not a staff mailbox.');
   const settings=await directory.applyGroupAccessSettings({groupEmail:a.email,allowExternalMembers:false,whoCanJoin:'INVITED_CAN_JOIN',whoCanViewMembership:'ALL_MANAGERS_CAN_VIEW',whoCanViewGroup:'ALL_MEMBERS_CAN_VIEW',whoCanPostMessage:'ANYONE_CAN_POST',includeInGlobalAddressList:false});
-  const sendAs=await (deps.ensureSendAs||ensureSendAsAlias)({sendAsEmail:a.email,displayName:a.display_name,replyToAddress:a.email});
-  if(!sendAs.ok||sendAs.sendAs?.verificationStatus!=='accepted')throw assistantError(503,'ASSISTANT_SENDER_NOT_READY','The group exists; sender verification is still pending. Retry this account.');
+  // This Group is a login identity. Payroll reports use the existing, verified
+  // agency payroll sender; no assistant sending alias or Gmail privilege is needed.
   const members=await directory.listGroupMembers(a.email,{maxResults:1000});
-  if(members.some(m=>![ASSISTANT_OWNER_EMAIL,'ai@plottwistco.com'].includes(String(m.email||'').toLowerCase())))throw assistantError(409,'ASSISTANT_GROUP_DRIFT','Unexpected group members require owner review.');
+  const expectedMembers=new Map([[ASSISTANT_OWNER_EMAIL,'OWNER'],['ai@plottwistco.com','MANAGER']]);
+  if(!Array.isArray(members)||members.length!==2||new Set(members.map(m=>String(m.email||'').toLowerCase())).size!==2||members.some(m=>expectedMembers.get(String(m.email||'').toLowerCase())!==m.role||(m.type&&m.type!=='USER')))throw assistantError(409,'ASSISTANT_GROUP_DRIFT','Unexpected group members require owner review.');
+  for(const member of members)await directory.setGroupMemberDeliverySettings({groupEmail:a.email,memberEmail:member.email,deliverySettings:String(member.email).toLowerCase()===ASSISTANT_OWNER_EMAIL?'NONE':'ALL_MAIL'});
   const snapshot={groupId:group.group.id,members:members.map(m=>({email:String(m.email).toLowerCase(),role:m.role})).sort((x,y)=>x.email.localeCompare(y.email)),settings:{allowExternalMembers:String(settings.allowExternalMembers),whoCanJoin:settings.whoCanJoin,whoCanViewMembership:settings.whoCanViewMembership,whoCanViewGroup:settings.whoCanViewGroup,whoCanPostMessage:settings.whoCanPostMessage,includeInGlobalAddressList:String(settings.includeInGlobalAddressList)}};
   const conn=await db.getConnection();try{await conn.beginTransaction();await conn.execute("UPDATE assistant_accounts SET group_status='ready',group_snapshot_json=? WHERE id=?",[JSON.stringify(snapshot),a.id]);await conn.execute('UPDATE assistant_accounts SET configuration_fingerprint=? WHERE id=?',[assistantStoredConfigurationHash({...a,group_status:'ready',group_snapshot_json:snapshot}),a.id]);await recordAssistantChange(conn,{accountId:a.id,agencyId:a.agency_id,actorUserId:actor.id,eventType:'group_provisioned',changes:{groupStatus:'ready',email:a.email},reason:'Verified Google Group and accepted sender configuration'});await conn.commit();}catch(e){await conn.rollback();throw e;}finally{conn.release();}
-  return {id:a.id,groupStatus:'ready',senderVerification:'accepted'};
+  return {id:a.id,groupStatus:'ready',senderRequired:false};
  }catch(error){
   const conn=await db.getConnection();try{await conn.beginTransaction();await conn.execute("UPDATE assistant_accounts SET group_status='failed',status=IF(status='active','paused',status) WHERE id=?",[a.id]);await conn.execute('UPDATE assistant_accounts SET configuration_fingerprint=? WHERE id=?',[assistantStoredConfigurationHash({...a,group_status:'failed',status:a.status==='active'?'paused':a.status}),a.id]);await recordAssistantChange(conn,{accountId:a.id,agencyId:a.agency_id,actorUserId:actor.id,eventType:'group_setup_failed',changes:{groupStatus:'failed'},reason:'Group setup failed or requires review; retry the existing account'});await conn.commit();}catch(e){await conn.rollback();throw e;}finally{conn.release();}
   throw assistantError(error.status||503,error.code||'GROUP_SETUP_UNAVAILABLE','Group setup is incomplete. Retry the existing account after reviewing configuration.');

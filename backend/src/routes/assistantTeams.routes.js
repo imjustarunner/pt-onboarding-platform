@@ -27,7 +27,7 @@ assistantWorkRouter.post('/marketing/preview',handle(async req=>previewAssistant
 assistantWorkRouter.post('/marketing/publish',handle(async req=>publishAssistantMarketing({account:await service.accountForUser(req.user.id),previewRef:req.body.previewRef,sourceRevision:req.body.sourceRevision,evidence:req.body.evidence})));
 assistantAccountsRouter.use(authenticate,limit,(req,res,next)=>assertAssistantOwner(req.user).then(()=>next()).catch(()=>res.status(403).json({error:{code:'ASSISTANT_OWNER_REQUIRED',message:'Only Michael can manage Assistant Teams.'}})));
 assistantAccountsRouter.get('/',handle(req=>service.ownerOverview(req.user)));
-assistantAccountsRouter.post('/provision',handle(req=>provisionAssistantAccounts({actor:req.user,agencyIds:req.body.agencyIds,dryRun:req.body.dryRun!==false,qa:req.body.qa===true})));
+assistantAccountsRouter.post('/provision',handle(req=>provisionAssistantAccounts({actor:req.user,agencyIds:req.body.agencyIds,subroles:req.body.subroles,dryRun:req.body.dryRun!==false,qa:req.body.qa===true})));
 assistantAccountsRouter.post('/marketing/rollback',handle(req=>rollbackAssistantMarketing({actor:req.user,revisionRef:req.body.revisionRef,reason:req.body.reason})));
 assistantAccountsRouter.get('/proposals/:ref',handle(req=>service.proposalForHuman(req.user,req.params.ref)));
 assistantAccountsRouter.post('/proposals/:ref/review',handle(req=>service.reviewProposal(req.user,req.params.ref,req.body)));
