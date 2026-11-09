@@ -2359,6 +2359,19 @@ if (!isBootstrap) {
   scheduleSchoolVisitReminders();
   setInterval(scheduleSchoolVisitReminders, 5 * 60 * 1000);
 
+  const scheduleSchoolClosureNotices = async () => {
+    try {
+      const { runSchoolClosureNotifications } = await import('./services/schoolClosureNotification.service.js');
+      const result = await runSchoolClosureNotifications();
+      const held = result.deliveries.filter(delivery => ['blocked', 'held', 'missing_provider_email'].includes(delivery.status));
+      if (held.length) console.warn('[school-closure-notices] Deliveries need review:', held.map(delivery => ({ key: delivery.key, status: delivery.status })));
+    } catch (error) {
+      console.error('[school-closure-notices] Worker failed:', error?.code || 'worker_failed');
+    }
+  };
+  scheduleSchoolClosureNotices();
+  setInterval(scheduleSchoolClosureNotices, 5 * 60 * 1000).unref();
+
   const scheduleHiringNotifications = async () => {
     try { const {runHiringNotifications}=await import('./services/hiringNotification.service.js');await runHiringNotifications(); }
     catch(error){console.warn('[hiring-notifications] Worker unavailable',error.code||error.name);}
