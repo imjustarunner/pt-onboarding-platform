@@ -76,7 +76,7 @@ export async function prepareCompanyEventSms({ eventId, agencyId, to, body, purp
   if (event.is_active === 0 || event.isActive === false) throw smsPolicyError('event_sms_inactive', 'This event is inactive');
   const { sender, campaignNumber } = await resolveCompanyEventSmsSender({ agencyId, audience, purpose, from });
   const code = await getCompanyEventSmsTopic(eventId, agencyId);
-  const message = buildCompanyEventSms({ event, code, body, brandName: sender.registration.brandName, audience, mode });
+  const message = buildCompanyEventSms({ event, code, body, brandName: sender.registration.brandName, audience, mode, purpose });
   return { event, sender, campaignNumber, code, message, options: { to: normalizeSmsPhone(to), from: sender.phone_number, body: message, purpose, agencyId: Number(agencyId), companyEventId: Number(eventId) } };
 }
 
@@ -114,7 +114,7 @@ export async function previewCompanyEventSmsDelivery(input, recipients) {
     try { await prepareSmsDelivery({ ...prepared.options, to: normalizeSmsPhone(recipient.phone) }); eligibleCount++; }
     catch (error) { const code = error.code || 'delivery_unavailable'; reasons[code] = (reasons[code] || 0) + 1; }
   }
-  return { body: formatRegisteredSms(prepared.message, prepared.sender.registration.brandName), eventCode: prepared.code, campaignNumber: prepared.campaignNumber,
+  return { body: formatRegisteredSms(prepared.message, prepared.sender.registration.brandName, null, { includeOptOut: prepared.options.purpose !== 'polling' }), eventCode: prepared.code, campaignNumber: prepared.campaignNumber,
     fromNumber: prepared.sender.phone_number, senderReady: true, recipientCount: recipients.length, eligibleCount, skippedCount: recipients.length - eligibleCount, reasons };
 }
 
@@ -142,7 +142,7 @@ export async function handleCompanyEventTopicInbound({ from, to, body, messageId
     // This acknowledgment never clears campaign STOP and needs the existing permission to send.
     if (sendReply) {
       try { await sendReply({ agencyId: Number(sender.agency_id), from: sender.phone_number, to: phone, purpose: selected.purpose,
-        body: `Texts about "${selected.title}" are turned off. Your other event preferences are unchanged. Reply STOP to opt out of this texting program.` }); }
+        body: `Texts about "${selected.title}" are turned off. Your other event preferences are unchanged. ${selected.purpose === 'polling' ? 'Reply NOPOLLS to stop poll texts only.' : 'Reply STOP to opt out of this texting program.'}` }); }
       catch { /* Preference persists even when confirmation is suppressed. */ }
     }
     return { handled: true, agencyId: Number(sender.agency_id), muted: true, eventId: selected.company_event_id };

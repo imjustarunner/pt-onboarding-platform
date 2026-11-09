@@ -37,17 +37,18 @@ async function load() {
   } catch (e) { if (g === generation) error.value = e.response?.data?.error?.message || 'Could not load team communications.'; }
   finally { if (g === generation) loading.value = false; }
 }
-async function create() {
+async function create(reviewDelivery = false) {
   if (!allowed.value || !props.agencyId || busy.value) return;
   if (!draft.value.userIds.length) { error.value = 'Select at least one team member.'; return; }
   const g = generation, url = base(), poll = draft.value.kind === 'poll';
-  if (poll && draft.value.deliveryMode === 'sms' && draft.value.userIds.some(id => !users.value.find(u => u.id === id)?.pollingSms?.eligible)) { error.value = 'SMS-only polls require polling SMS opt-in for every selected recipient.'; return; }
+  if (poll && draft.value.deliveryMode === 'sms' && draft.value.userIds.some(id => !canReceiveOutsideApp(users.value.find(u => u.id === id)))) { error.value = 'Select recipients with polling SMS opt-in or an SSO work email for the voting invitation.'; return; }
   busy.value = true; error.value = ''; notice.value = '';
   const now = new Date();
+  let review = null;
   try {
     const existing = editing.value;
     const save = existing ? api.put : api.post;
-    await save(existing ? `${url}/${existing.id}` : url, {
+    const { data: saved } = await save(existing ? `${url}/${existing.id}` : url, {
       ...(existing || {}),
       title: draft.value.title, description: draft.value.message, splashContent: draft.value.message,
       eventType: existing?.eventType || (poll ? 'team_poll' : 'direct_notice'), timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
@@ -60,25 +61,30 @@ async function create() {
       reminderConfig: existing?.reminderConfig || { enabled: false, channels: { inApp: true, sms: false } }
     });
     if (g !== generation) return;
+    const savedPoll = { ...saved, id: saved.id || existing?.id, title: draft.value.title };
     cancelEdit();
-    notice.value = existing ? 'Team communication updated.' : poll ? 'Poll created. Use Send poll to notify the team through the selected delivery methods. Internal polls are available on their dashboard.' : 'Team message saved. Review it below, then choose Send to team.';
+    notice.value = poll ? 'Poll saved. This save has not sent notifications. Review delivery or use Send poll to notify recipients, including newly added team members.' : existing ? 'Team communication updated.' : 'Team message saved. Review it below, then choose Send to team.';
+    const refreshGeneration = generation + 1;
     await load();
+    if (poll && reviewDelivery && generation === refreshGeneration) review = savedPoll;
   } catch (e) { if (g === generation) error.value = e.response?.data?.error?.message || 'Could not save team communication.'; }
   finally { busy.value = false; }
+  if (review) await action(review, 'poll', { unsentOnly: true });
 }
-async function action(event, kind) {
+async function action(event, kind, { unsentOnly = false } = {}) {
   if (!allowed.value || busy.value) return;
   const confirmations = { send: `Send “${event.title}” to its selected team members in the app and by SMS where eligible?`, close: `Close “${event.title}” and send any requested final results texts?` };
   if (confirmations[kind] && !window.confirm(confirmations[kind])) return;
   const g = generation, url = `${base()}/${event.id}`;
-  busy.value = true; error.value = ''; notice.value = '';
+  busy.value = true; error.value = '';
+  if (!unsentOnly) notice.value = '';
   try {
     if (kind === 'poll') {
-      const { data } = await api.get(`${url}/poll-delivery-preview`);
+      const { data } = await api.get(`${url}/poll-delivery-preview`, ...(unsentOnly ? [{ params: { unsentOnly: 1 } }] : []));
       if (g !== generation) return;
       pollPreview.value = { title: event.title, ...data };
       if (!data.canSend) {
-        error.value = data.smsSender && !data.smsSender.ready ? data.smsSender.label : 'No unanswered recipients can receive this poll through its selected delivery methods.';
+        error.value = data.smsSender && !data.smsSender.ready ? data.smsSender.label : 'No new notifications to send: recipients have already answered, were already notified, or are unavailable through the selected delivery methods.';
         return;
       }
       const reasons = (data.reasons || []).map(reason => `${reason.count} ${reason.label.toLowerCase()}`).join('; ');
@@ -90,27 +96,29 @@ async function action(event, kind) {
       return;
     }
     const endpoint = { send: 'send-direct-message', poll: 'send-poll', close: 'close-voting' }[kind];
-    const body = kind === 'send' ? { title: event.title, message: event.splashContent || event.description, sendInApp: true, sendSms: true } : {};
+    const body = kind === 'send' ? { title: event.title, message: event.splashContent || event.description, sendInApp: true, sendSms: true } : unsentOnly ? { unsentOnly: true } : {};
     const { data } = await api.post(`${url}/${endpoint}`, body);
     if (g !== generation) return;
     notice.value = kind === 'close' ? 'Voting closed. Check delivery history for requested results texts.'
       : kind === 'send' ? `Sent: ${data.inAppCount || 0} in-app notifications, ${data.smsCount || 0} texts. Check delivery history for skipped or failed recipients.`
-      : `Poll delivery: ${data.inAppCount || 0} internal, ${data.sentCount || 0} SMS · ${data.skippedCount || 0} skipped · ${data.failedCount || 0} failed.${data.sentCount ? '' : ' No text messages were sent.'}${(data.skippedReasons || []).map(reason => ` ${reason.count} ${reason.label.toLowerCase()}.`).join('')} See delivery history for details.`;
+      : `Poll delivery: ${data.inAppCount || 0} internal, ${data.sentCount || 0} SMS, ${data.emailCount || 0} email · ${data.skippedCount || 0} skipped · ${data.failedCount || 0} failed.${data.emailQueuedCount ? ` ${data.emailQueuedCount} emails awaiting delivery.` : ''}${data.emailSkippedCount ? ` ${data.emailSkippedCount} emails skipped.` : ''}${data.sentCount ? '' : ' No text messages were sent.'}${(data.skippedReasons || []).map(reason => ` ${reason.count} ${reason.label.toLowerCase()}.`).join('')} See delivery history for details.`;
     await load();
   } catch (e) { if (g === generation) error.value = e.response?.data?.error?.message || 'Could not complete this action.'; }
   finally { busy.value = false; }
 }
 function pollPreviewSummary(preview) {
-  return `${preview.internalCount || 0} internal messages · ${preview.smsEligibleCount || 0} eligible texts · ${preview.smsSkippedCount || 0} SMS unavailable · ${preview.answeredCount || 0} already answered.`;
+  return `${preview.internalCount || 0} internal messages · ${preview.smsEligibleCount || 0} eligible texts · ${preview.smsSkippedCount || 0} SMS unavailable · ${preview.answeredCount || 0} already answered. ${preview.emailCount || 0} work email voting invitations.${preview.alreadyNotifiedCount ? ` ${preview.alreadyNotifiedCount} already notified.` : ''}`;
 }
 const selectedSms = computed(() => users.value.filter(user => draft.value.userIds.includes(user.id) && user.pollingSms?.eligible).length);
+const selectedEmail = computed(() => users.value.filter(user => draft.value.userIds.includes(user.id) && user.pollingEmail?.eligible).length);
+const canReceiveOutsideApp = user => user?.pollingSms?.eligible || user?.pollingEmail?.eligible;
 function deliveryLabel(event) {
   const mode = event.votingConfig?.deliveryMode || (event.votingConfig?.viaSms ? 'both' : 'internal');
-  return { internal: 'Internal message', sms: 'SMS', both: 'Internal message + SMS' }[mode];
+  return { internal: 'Internal message + SSO email fallback', sms: 'SMS + SSO email fallback', both: 'Internal message + SMS + SSO email fallback' }[mode];
 }
 const smsOnly = computed(() => draft.value.kind === 'poll' && draft.value.deliveryMode === 'sms');
 watch(() => draft.value.deliveryMode, () => {
-  if (smsOnly.value) draft.value.userIds = draft.value.userIds.filter(id => users.value.find(u => u.id === id)?.pollingSms?.eligible);
+  if (smsOnly.value) draft.value.userIds = draft.value.userIds.filter(id => canReceiveOutsideApp(users.value.find(u => u.id === id)));
 });
 watch(() => [props.agencyId, allowed.value], () => {
   events.value = []; users.value = []; smsSender.value = null; pollPreview.value = null; cancelEdit(); reviewing.value = null; delivery.value = null; notice.value = ''; load();
@@ -125,7 +133,7 @@ watch(() => [props.agencyId, allowed.value], () => {
     <template v-else>
       <p class="team-note">Managed by superadmins, admins, and support. Selected team members can receive texts and answer polls. Text delivery follows their consent and notification preferences.</p>
       <p v-if="error" role="alert">{{ error }}</p><p v-if="notice" role="status">{{ notice }}</p>
-      <form class="team-compose" @submit.prevent="create">
+      <form class="team-compose" @submit.prevent="create(draft.kind === 'poll')">
         <h3>{{ editing ? 'Edit team communication' : 'Create a team communication' }}</h3>
         <fieldset :disabled="busy || loading"><legend class="sr-only">Team communication details</legend>
           <div class="team-grid"><label>Type<select v-model="draft.kind" :disabled="!!editing"><option value="text">Team text</option><option value="poll">Team poll</option></select></label><label>Title<input v-model.trim="draft.title" required maxlength="180" placeholder="A clear title for your team" /></label></div>
@@ -134,17 +142,20 @@ watch(() => [props.agencyId, allowed.value], () => {
             <label>Poll question<input v-model.trim="draft.question" required maxlength="255" /></label>
             <div v-for="(_, i) in draft.options" :key="i" class="team-option"><label>Answer {{ i + 1 }}<input v-model="draft.options[i]" required maxlength="64" /></label><button v-if="draft.options.length > 2" type="button" @click="draft.options.splice(i, 1)">Remove</button></div>
             <button type="button" :disabled="draft.options.length >= 12" @click="draft.options.push('')">Add answer</button>
-            <label>Poll delivery<select v-model="draft.deliveryMode" aria-label="Poll delivery"><option value="internal">Internal message</option><option value="sms">SMS only</option><option value="both">Both · Internal message + SMS</option></select></label>
-            <p class="team-note">Internal polls appear on the team member’s dashboard. SMS requires separate polling opt-in. With Both, members who opted out of SMS still receive the internal poll. A reply through either method completes the same poll.</p>
+            <label>Poll delivery<select v-model="draft.deliveryMode" aria-label="Poll delivery"><option value="internal">Internal message + SSO email fallback</option><option value="sms">SMS + SSO email fallback</option><option value="both">Both · Internal message + SMS + SSO email fallback</option></select></label>
+            <p class="team-note">SMS requires separate polling opt-in. SSO team members without poll text enrollment receive a work email with a voting link and an optional text opt-in button. A reply through either method completes the same poll.</p>
+            <p class="team-note">{{ selectedEmail }} selected members will receive a work email voting invitation. Email delivery follows their email preferences.</p>
             <p v-if="draft.deliveryMode !== 'internal' && smsSender" :role="smsSender.ready ? undefined : 'alert'" class="team-note">{{ smsSender.label }}<span v-if="smsSender.ready"> · {{ smsSender.fromNumber }}</span></p>
-            <p v-if="draft.deliveryMode !== 'internal'" class="team-note">{{ selectedSms }} selected members currently eligible for SMS; {{ draft.userIds.length - selectedSms }} unavailable for SMS. Saving makes the poll available internally when selected; use Send poll below to review and send notifications.</p>
+            <p v-if="draft.deliveryMode !== 'internal'" class="team-note">{{ selectedSms }} selected members currently eligible for SMS; {{ draft.userIds.length - selectedSms }} unavailable for SMS. Poll texts use the staff notifications number. Reply NOPOLLS to stop poll texts only.</p>
+            <p class="team-note">Save &amp; review delivery checks for recipients who still need an invitation, including newly added members. You can confirm delivery next. Save without sending only updates the poll.</p>
             <label class="team-check"><input v-model="draft.allowOther" type="checkbox" /> Allow written answers for review</label>
             <label class="team-check"><input v-model="draft.shareResults" type="checkbox" /> Share final totals with participants</label>
             <p class="team-note">Replies are identified to organizers. Participants see their own responses. New polls are available for 30 days. Close voting when you are ready to publish final totals.</p>
           </template>
           <p class="team-note">Active internal staff only. School staff and inactive accounts are excluded. SMS opt-outs stay visible.</p>
-          <fieldset class="team-recipients"><legend>Team members · {{ draft.userIds.length }} selected</legend><p v-if="loading">Loading team members…</p><p v-else-if="!users.length">No active internal team members available.</p><label v-for="user in users" :key="user.id" class="team-check"><input v-model="draft.userIds" type="checkbox" :value="user.id" :disabled="smsOnly && !user.pollingSms?.eligible" /> <span>{{ user.name }}<small v-if="draft.kind === 'poll'" class="sms-status" :class="{ 'sms-blocked': !user.pollingSms?.eligible }">{{ user.pollingSms?.label || 'SMS consent not confirmed' }}<span v-if="draft.deliveryMode === 'both' && !user.pollingSms?.eligible"> · Internal only</span></small></span></label></fieldset>
-          <button class="team-primary" :disabled="!draft.userIds.length || busy || loading">{{ busy ? 'Saving…' : editing ? 'Save changes' : draft.kind === 'poll' ? 'Create poll' : 'Save team message' }}</button>
+          <fieldset class="team-recipients"><legend>Team members · {{ draft.userIds.length }} selected</legend><p v-if="loading">Loading team members…</p><p v-else-if="!users.length">No active internal team members available.</p><label v-for="user in users" :key="user.id" class="team-check"><input v-model="draft.userIds" type="checkbox" :value="user.id" :disabled="smsOnly && !canReceiveOutsideApp(user)" /> <span>{{ user.name }}<small v-if="draft.kind === 'poll'" class="sms-status" :class="{ 'sms-blocked': !user.pollingSms?.eligible }">{{ user.pollingSms?.label || 'SMS consent not confirmed' }}<span v-if="user.pollingEmail?.eligible"> · Work email voting invitation</span><span v-else-if="draft.deliveryMode === 'both' && !user.pollingSms?.eligible"> · Internal only</span></small></span></label></fieldset>
+          <button class="team-primary" :disabled="!draft.userIds.length || busy || loading">{{ busy ? 'Saving…' : draft.kind === 'poll' ? 'Save & review delivery' : editing ? 'Save changes' : 'Save team message' }}</button>
+          <button v-if="draft.kind === 'poll'" type="button" :disabled="!draft.userIds.length || busy || loading" @click="create(false)">Save without sending</button>
           <button v-if="editing" type="button" @click="cancelEdit">Cancel editing</button>
         </fieldset>
       </form>

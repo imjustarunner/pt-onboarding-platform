@@ -2,6 +2,8 @@ import { resolveEventVenueAddress } from '../services/companyEventVenue.service.
 import Notification from '../models/Notification.model.js';
 import { listActiveTeamMembers, teamMemberPhone, teamSmsEligibility } from '../services/conversaTeamRecipients.service.js';
 import { pollDeliveryMode, pollUsesInternal, pollUsesSms } from '../utils/teamPollDelivery.js';
+import { staffPollWorkEmail, pollEmailFallbackRecipient, sendStaffPollEmail } from '../services/staffPollEmail.service.js';
+import { notificationTransportReceipt } from '../utils/notificationTransportReceipt.js';
 import { canManageConversaTeam, isConversaTeamCommunication, assertConversaTeamManager } from '../services/conversaTeamAccess.service.js';
 import { getCompanyEventSmsConsentDetails, enrollCompanyEventGuestSms, revokeCompanyEventGuestSms } from '../services/companyEventSms.service.js';
 import { registerPublicEventGuest } from '../services/companyEventPublicRegistration.service.js';
@@ -1488,7 +1490,10 @@ async function getEventDeliverySummary(eventId) {
     inAppFailed: 0,
     smsSent: 0,
     smsFailed: 0,
-    smsSkipped: 0
+    smsSkipped: 0,
+    emailSent: 0,
+    emailFailed: 0,
+    emailSkipped: 0
   };
   for (const row of rows || []) {
     const channel = String(row.channel || '');
@@ -1499,6 +1504,9 @@ async function getEventDeliverySummary(eventId) {
     if (channel === 'sms' && status === 'sent') summary.smsSent += total;
     if (channel === 'sms' && status === 'failed') summary.smsFailed += total;
     if (channel === 'sms' && status === 'skipped') summary.smsSkipped += total;
+    if (channel === 'email' && status === 'sent') summary.emailSent += total;
+    if (channel === 'email' && status === 'failed') summary.emailFailed += total;
+    if (channel === 'email' && status === 'skipped') summary.emailSkipped += total;
   }
   return summary;
 }
@@ -1842,14 +1850,18 @@ export const listCompanyEventAudienceOptions = async (req, res, next) => {
     if (String(req.query?.communicationsOnly || '') === '1') {
       await assertEventCommunicationManager(req);
       const members = await listActiveTeamMembers(agencyId);
+      const agency = await Agency.findById(agencyId);
       const settings = await getCompanyEventSmsSettingsForAgency(agencyId, { purpose: 'polling' });
       const users = [];
       for (let offset = 0; offset < members.length; offset += 6) {
-        users.push(...await Promise.all(members.slice(offset, offset + 6).map(async member => ({
+        users.push(...await Promise.all(members.slice(offset, offset + 6).map(async member => {
+          const pollingSms = await teamSmsEligibility(member, { agencyId, from: settings.enabled ? settings.fromNumber : null });
+          const emailTo = pollEmailFallbackRecipient(member, agency, pollingSms);
+          return {
           id: Number(member.id), name: `${member.first_name || ''} ${member.last_name || ''}`.trim() || member.email,
           role: member.role,
-          pollingSms: await teamSmsEligibility(member, { agencyId, from: settings.enabled ? settings.fromNumber : null })
-        }))));
+          pollingSms, pollingEmail: { eligible: !!emailTo, label: emailTo ? 'Work email voting invitation' : null }
+        }; })));
       }
       return res.json({ users, groups: [], roles: [], smsSender: pollSenderStatus(settings) });
     }
@@ -2635,6 +2647,16 @@ export const exportCompanyEventResponsesCsv = async (req, res, next) => {
   }
 };
 
+async function hasPollEmailInvitation(eventId, userId) {
+  const [rows] = await pool.execute(`SELECT id FROM company_event_dispatch_logs
+    WHERE company_event_id = ? AND user_id = ? AND channel = 'email'
+      AND dispatch_type = 'vote_invite' AND status = 'sent'
+    UNION SELECT id FROM user_communications WHERE template_type = 'staff_poll_invitation'
+      AND template_id = ? AND user_id = ? AND channel = 'email' AND delivery_status IN ('sent', 'delivered')
+    LIMIT 1`, [eventId, userId, eventId, userId]);
+  return rows.length > 0;
+}
+
 export const listMyStaffPolls = async (req, res, next) => {
   try {
     const agencyIds = await resolveScopedAgencyIdsForMyDashboard(req);
@@ -2643,7 +2665,7 @@ export const listMyStaffPolls = async (req, res, next) => {
     for (const { row } of visible) {
       const event = mapEventRow(row, req, { myEndpoint: true });
       if (!event.votingConfig.enabled || isServiceProgramEventType(event.eventType)) continue;
-      if (!pollUsesInternal(event.votingConfig) && !row.participated) continue;
+      if (!pollUsesInternal(event.votingConfig) && !row.participated && !await hasPollEmailInvitation(event.id, req.user.id)) continue;
       polls.push({ deliveryMode: event.votingConfig.deliveryMode, id: event.id, title: event.title, question: event.votingConfig.question || event.title,
         options: event.votingConfig.options, closedAt: event.votingClosedAt,
         shareResults:event.votingConfig.shareResults,allowOther:event.votingConfig.allowOther,
@@ -2743,7 +2765,9 @@ async function loadPollDelivery(req, res) {
     if (!users.length) return reject(400, 'No active team recipients found.');
     const sendSms = pollUsesSms(event.votingConfig);
     const sendInternal = !smsOnlyRoute && pollUsesInternal(event.votingConfig);
-    const settings = sendSms ? await getCompanyEventSmsSettingsForAgency(agencyId, { purpose: 'polling' }) : {};
+    const agency = await Agency.findById(agencyId);
+    const checkSms = sendSms || users.some(user => staffPollWorkEmail(user, agency));
+    const settings = checkSms ? await getCompanyEventSmsSettingsForAgency(agencyId, { purpose: 'polling' }) : {};
     const from = settings.enabled ? settings.fromNumber : null;
     if (sendSms && from) {
       const sender = await getSmsSender(from);
@@ -2751,7 +2775,31 @@ async function loadPollDelivery(req, res) {
         return reject(409, 'Configure an approved staff polling number for this agency.');
       }
     }
-    return { agencyId, eventId, event, users, sendSms, sendInternal, settings, from };
+    const unsentOnly = req.query?.unsentOnly === '1' || req.body?.unsentOnly === true;
+    const notified = new Set();
+    if (unsentOnly) {
+      // Track each channel separately: a successful in-app invite must not hide
+      // an SMS that was never sent. Include transport records if dispatch logging failed.
+      const [deliveries] = await pool.execute(`SELECT user_id, channel FROM company_event_dispatch_logs
+        WHERE company_event_id = ? AND dispatch_type = 'vote_invite' AND (status = 'sent' OR (channel = 'email' AND status = 'queued'))
+        UNION SELECT user_id, 'sms' AS channel FROM company_event_sms_deliveries
+        WHERE company_event_id = ? AND dispatch_type = 'vote_invite' AND status IN ('sent', 'delivered')
+        UNION SELECT user_id, 'email' AS channel FROM user_communications
+        WHERE template_type = 'staff_poll_invitation' AND template_id = ? AND agency_id = ?
+          AND channel = 'email' AND delivery_status IN ('sent', 'delivered')`, [eventId, eventId, eventId, agencyId]);
+      for (const delivery of deliveries) notified.add(`${Number(delivery.user_id)}:${delivery.channel}`);
+    }
+    return { agencyId, agency, eventId, event, users, sendSms, sendInternal, settings, from, notified };
+}
+
+async function pollRecipientChannels(user, plan) {
+  const { agencyId, agency, eventId, from, sendSms, sendInternal, notified } = plan;
+  const eligibility = sendSms || staffPollWorkEmail(user, agency)
+    ? await teamSmsEligibility(user, { agencyId, from, eventId }) : null;
+  const emailTo = pollEmailFallbackRecipient(user, agency, eligibility);
+  return { eligibility, emailTo: !notified.has(`${Number(user.id)}:email`) ? emailTo : null,
+    needsInternal: sendInternal && !notified.has(`${Number(user.id)}:in_app`),
+    needsSms: sendSms && !notified.has(`${Number(user.id)}:sms`) };
 }
 
 /** Read-only preflight. Reuse the saved audience and the actual transport policy;
@@ -2760,16 +2808,18 @@ export const previewCompanyEventPollDelivery = async (req, res, next) => {
   try {
     const plan = await loadPollDelivery(req, res);
     if (!plan) return;
-    const { agencyId, eventId, event, users, sendSms, sendInternal, settings, from } = plan;
+    const { agencyId, eventId, event, users, sendSms, sendInternal, settings, from, notified } = plan;
     const [responses] = await pool.execute('SELECT user_id FROM company_event_responses WHERE company_event_id = ?', [eventId]);
     const answered = new Set(responses.map(response => Number(response.user_id)));
     const reasons = new Map();
-    let internalCount = 0, smsEligibleCount = 0, smsSkippedCount = 0, answeredCount = 0;
+    let internalCount = 0, emailCount = 0, smsEligibleCount = 0, smsSkippedCount = 0, answeredCount = 0, alreadyNotifiedCount = 0;
     for (const user of users) {
       if (answered.has(Number(user.id))) { answeredCount++; continue; }
-      if (sendInternal) internalCount++;
-      if (!sendSms) continue;
-      const eligibility = await teamSmsEligibility(user, { agencyId, from, eventId });
+      const { needsInternal, needsSms, emailTo, eligibility } = await pollRecipientChannels(user, plan);
+      if (!needsInternal && !needsSms && !emailTo) { alreadyNotifiedCount++; continue; }
+      if (needsInternal) internalCount++;
+      if (emailTo) emailCount++;
+      if (!needsSms) continue;
       if (eligibility.eligible) smsEligibleCount++;
       else {
         smsSkippedCount++;
@@ -2777,9 +2827,9 @@ export const previewCompanyEventPollDelivery = async (req, res, next) => {
         reason.count++; reasons.set(eligibility.status, reason);
       }
     }
-    res.json({ deliveryMode: pollDeliveryMode(event.votingConfig), audienceCount: users.length, answeredCount, internalCount,
+    res.json({ deliveryMode: pollDeliveryMode(event.votingConfig), audienceCount: users.length, answeredCount, alreadyNotifiedCount, internalCount, emailCount,
       smsEligibleCount, smsSkippedCount, reasons: [...reasons.values()], smsSender: sendSms ? pollSenderStatus(settings) : null,
-      canSend: (!sendSms || !!from) && (internalCount > 0 || smsEligibleCount > 0) });
+      canSend: (!sendSms || !!from) && (internalCount > 0 || smsEligibleCount > 0 || emailCount > 0) });
   } catch (error) { next(error); }
 };
 
@@ -2787,18 +2837,19 @@ export const sendCompanyEventVotingSms = async (req, res, next) => {
   try {
     const plan = await loadPollDelivery(req, res);
     if (!plan) return;
-    const { agencyId, eventId, event, users, sendSms, sendInternal, settings, from } = plan;
+    const { agencyId, agency, eventId, event, users, sendSms, sendInternal, settings, from, notified } = plan;
     if (sendSms && !from) return res.status(409).json({ error: { message: pollSenderStatus(settings).label } });
     const body = `${event.votingConfig.question || event.title}\n${companyEventSmsInstructions(event)}`;
     const batchId = crypto.randomUUID();
-    let sentCount = 0, inAppCount = 0, skippedCount = 0, failedCount = 0;
+    let sentCount = 0, inAppCount = 0, emailCount = 0, emailQueuedCount = 0, emailSkippedCount = 0, skippedCount = 0, failedCount = 0;
     const skippedReasons = new Map();
     for (const user of users) {
       const userId = Number(user.id);
       // Re-read responses before each dispatch so completed polls are not re-invited.
       const [responses] = await pool.execute('SELECT id FROM company_event_responses WHERE company_event_id = ? AND user_id = ? LIMIT 1', [eventId, userId]);
       if (responses.length) { skippedCount++; continue; }
-      if (sendInternal) {
+      const { needsInternal, needsSms, emailTo, eligibility } = await pollRecipientChannels(user, plan);
+      if (needsInternal) {
         try {
           await Notification.coalesceOrCreate({ type: 'company_event_message', title: event.title,
             message: `${event.votingConfig.question || event.title} — Answer in Team polls on your dashboard.`,
@@ -2810,8 +2861,23 @@ export const sendCompanyEventVotingSms = async (req, res, next) => {
           await writeDispatchLog({ eventId, userId, channel: 'in_app', dispatchType: 'vote_invite', status: 'failed', statusReason: String(error.message).slice(0,255) });
         }
       }
-      if (!sendSms) continue;
-      const eligibility = await teamSmsEligibility(user, { agencyId, from, eventId });
+      if (emailTo) {
+        try {
+          const result = await sendStaffPollEmail({ event, agency, user, to: emailTo, actorUserId: req.user.id });
+          const receipt = notificationTransportReceipt(result, agencyId);
+          const status = receipt.accepted ? 'sent' : result?.pendingApproval || result?.queued ? 'queued' : 'skipped';
+          await writeDispatchLog({ eventId, userId, channel: 'email', dispatchType: 'vote_invite', status,
+            statusReason: receipt.accepted ? null : String(result?.reason || (status === 'queued' ? 'Email awaiting delivery' : 'Email was not accepted for delivery')).slice(0, 255),
+            payload: { externalId: receipt.externalId }, sentAt: receipt.accepted ? new Date() : null });
+          if (receipt.accepted) emailCount++;
+          else if (status === 'queued') emailQueuedCount++;
+          else { emailSkippedCount++; skippedCount++; }
+        } catch (error) {
+          failedCount++;
+          await writeDispatchLog({ eventId, userId, channel: 'email', dispatchType: 'vote_invite', status: 'failed', statusReason: String(error.message).slice(0, 255) });
+        }
+      }
+      if (!needsSms) continue;
       if (!eligibility.eligible) {
         skippedCount++;
         skippedReasons.set(eligibility.label, (skippedReasons.get(eligibility.label) || 0) + 1);
@@ -2831,7 +2897,7 @@ export const sendCompanyEventVotingSms = async (req, res, next) => {
         await writeDispatchLog({ eventId, userId, channel: 'sms', dispatchType: 'vote_invite', status: 'failed', statusReason: String(error.message).slice(0,255) });
       }
     }
-    res.json({ ok: true, batchId, sentCount, inAppCount, skippedCount, failedCount,
+    res.json({ ok: true, batchId, sentCount, inAppCount, emailCount, emailQueuedCount, emailSkippedCount, skippedCount, failedCount,
       smsSender: sendSms ? pollSenderStatus(settings) : null,
       skippedReasons: [...skippedReasons].map(([label, count]) => ({ label, count })) });
   } catch (error) {
@@ -3895,7 +3961,7 @@ export const respondToMyCompanyEvent = async (req, res, next) => {
     if (event.votingClosedAt) {
       return res.status(400).json({ error: { message: 'Voting is closed for this event' } });
     }
-    if (!pollUsesInternal(event.votingConfig) || new Date(event.endsAt) < new Date()) return res.status(400).json({ error: { message: 'Internal voting is not available for this poll.' } });
+    if ((!pollUsesInternal(event.votingConfig) && !await hasPollEmailInvitation(eventId, userId)) || new Date(event.endsAt) < new Date()) return res.status(400).json({ error: { message: 'Online voting is not available for this poll.' } });
     const reply=req.body?.responseKey||req.body?.response||'';
     const parsed = parseResponseInput(reply, event.votingConfig.options)||unmatchedPollReply(reply,event.votingConfig.allowOther);
     if (!parsed) {

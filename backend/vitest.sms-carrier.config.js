@@ -10,6 +10,8 @@ export default {
       'src/services/__tests__/messaging.companyEventTopics.test.js',
       'src/controllers/__tests__/messaging.smsCarrierInbound.test.js',
       'src/services/__tests__/messaging.compliance.test.js',
+      'src/services/__tests__/messaging.pollOptOut.test.js',
+      'src/services/__tests__/messaging.staffPollEmail.test.js',
       'src/services/__tests__/messaging.helpReply.test.js',
       'src/services/__tests__/messaging.exchangeOptOut.test.js',
       'src/services/__tests__/messaging.clinicalCategoryRestart.test.js',

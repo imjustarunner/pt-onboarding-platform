@@ -44,6 +44,28 @@ it('shows a global sender setup issue without silently sending only internally',
   expect(window.confirm).not.toHaveBeenCalled(); expect(api.post).not.toHaveBeenCalled();
   w.unmount();
 });
+it('previews and reports email-only fallback delivery honestly', async () => {
+  pollData({ canSend: true, internalCount: 0, smsEligibleCount: 0, smsSkippedCount: 1, emailCount: 1 });
+  api.post.mockResolvedValue({ data: { inAppCount: 0, sentCount: 0, emailCount: 1, skippedCount: 1 } });
+  const w = mount(Team, { props: { agencyId: 4 } }); await flushPromises();
+  await w.findAll('button').find(b => b.text() === 'Send poll').trigger('click'); await flushPromises();
+  expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('1 work email voting invitations'));
+  expect(w.get('[role=status]').text()).toContain('0 SMS, 1 email');
+  expect(w.get('[role=status]').text()).toContain('No text messages were sent');
+  w.unmount();
+});
+it('allows SSO email fallback recipients to remain selected for SMS delivery', async () => {
+  api.get.mockImplementation(url => Promise.resolve({ data: url.endsWith('/audience-options') ? { users: [{ id: 5, name: 'Morgan SSO', role: 'provider',
+    pollingSms: { eligible: false, label: 'SMS opted out' }, pollingEmail: { eligible: true, label: 'Work email voting invitation' } }] } : [] }));
+  const w = mount(Team, { props: { agencyId: 4 } }); await flushPromises();
+  await w.get('select').setValue('poll'); await w.get('[aria-label="Poll delivery"]').setValue('both');
+  await w.get('.team-recipients input').setValue(true);
+  await w.get('[aria-label="Poll delivery"]').setValue('sms');
+  expect(w.get('.team-recipients input').element.checked).toBe(true);
+  expect(w.get('.team-recipients input').element.disabled).toBe(false);
+  expect(w.text()).toContain('1 selected members will receive a work email');
+  w.unmount();
+});
 it('leaves a read-only preview when the organizer cancels confirmation', async () => {
   pollData({ canSend: true, internalCount: 2, smsEligibleCount: 0, smsSkippedCount: 2 });
   window.confirm.mockReturnValue(false);
@@ -51,6 +73,50 @@ it('leaves a read-only preview when the organizer cancels confirmation', async (
   await w.findAll('button').find(button => button.text() === 'Send poll').trigger('click'); await flushPromises();
   expect(w.get('[aria-label="Poll delivery preview"]').text()).toContain('0 eligible texts');
   expect(api.post).not.toHaveBeenCalled(); w.unmount();
+});
+it('reviews delivery after adding a poll recipient and sends only missing invitations', async () => {
+  const event = { ...savedPoll, audience: { userIds: [] }, votingConfig: { ...savedPoll.votingConfig, question: 'Which day?' } };
+  api.get.mockImplementation(url => Promise.resolve({ data: url.endsWith('/audience-options') ? { users }
+    : url.endsWith('/poll-delivery-preview') ? { canSend: true, internalCount: 1, smsEligibleCount: 1, alreadyNotifiedCount: 3 } : [event] }));
+  api.post.mockResolvedValue({ data: { inAppCount: 1, sentCount: 1 } });
+  const w = mount(Team, { props: { agencyId: 4 } }); await flushPromises();
+  await w.findAll('button').find(b => b.text() === 'Edit').trigger('click');
+  await w.get('.team-recipients input').setValue(true);
+  expect(w.get('.team-primary').text()).toBe('Save & review delivery');
+  await w.get('form').trigger('submit'); await flushPromises();
+  expect(api.put).toHaveBeenCalledWith('/agencies/4/company-events/22', expect.objectContaining({ audience: expect.objectContaining({ userIds: [2] }) }));
+  expect(api.get).toHaveBeenCalledWith('/agencies/4/company-events/22/poll-delivery-preview', { params: { unsentOnly: 1 } });
+  expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('3 already notified'));
+  expect(api.post).toHaveBeenCalledWith('/agencies/4/company-events/22/send-poll', { unsentOnly: true });
+  expect(w.get('[role=status]').text()).toContain('1 internal, 1 SMS');
+  w.unmount();
+});
+it.each(['save only', 'cancel delivery'])('clearly reports a saved but unsent poll when choosing %s', async choice => {
+  pollData({ canSend: true, internalCount: 1, smsEligibleCount: 1 });
+  window.confirm.mockReturnValue(false);
+  const w = mount(Team, { props: { agencyId: 4 } }); await flushPromises();
+  await w.findAll('button').find(b => b.text() === 'Edit').trigger('click');
+  await w.get('.team-recipients input').setValue(true);
+  if (choice === 'save only') await w.findAll('button').find(b => b.text() === 'Save without sending').trigger('click');
+  else await w.get('form').trigger('submit');
+  await flushPromises();
+  expect(api.put).toHaveBeenCalledOnce();
+  expect(api.post).not.toHaveBeenCalled();
+  expect(w.get('[role=status]').text()).toContain('This save has not sent notifications');
+  expect(w.text()).toContain('including newly added team members');
+  w.unmount();
+});
+it('keeps save failure separate from delivery and does not send an unsaved audience', async () => {
+  pollData({ canSend: true, internalCount: 1 });
+  api.put.mockRejectedValueOnce(new Error('Save failed'));
+  const w = mount(Team, { props: { agencyId: 4 } }); await flushPromises();
+  await w.findAll('button').find(b => b.text() === 'Edit').trigger('click');
+  await w.get('.team-recipients input').setValue(true);
+  await w.get('form').trigger('submit'); await flushPromises();
+  expect(api.post).not.toHaveBeenCalled();
+  expect(api.get.mock.calls.some(([url]) => url.endsWith('/poll-delivery-preview'))).toBe(false);
+  expect(w.get('[role=alert]').text()).toContain('Could not save');
+  w.unmount();
 });
 describe('Conversa team communications', () => {
   it.each(['staff', 'provider', 'client_guardian', 'clinical_practice_assistant'])('does not load management data or expose controls for %s', async role => {

@@ -16,7 +16,8 @@ export function isActiveTeamMember(user) {
 export async function listActiveTeamMembers(agencyId, db = pool, userId = null) {
   const [rows] = await db.execute(`SELECT u.id, u.first_name, u.last_name, u.email, u.role,
     u.is_active, u.is_archived, u.status, u.terminated_at,
-    u.phone_number, u.personal_phone, u.work_phone, ua.is_active AS membership_active, ua.agency_role,
+    u.phone_number, u.personal_phone, u.work_phone, u.work_email, u.personal_email,
+    u.sso_password_override, u.login_is_group_email, u.is_demo, ua.is_active AS membership_active, ua.agency_role,
     p.notification_categories
     FROM users u JOIN user_agencies ua ON ua.user_id = u.id
     LEFT JOIN user_preferences p ON p.user_id = u.id WHERE ua.agency_id = ? ${userId ? 'AND u.id = ?' : ''} ORDER BY u.first_name, u.last_name`, userId ? [agencyId, userId] : [agencyId]);

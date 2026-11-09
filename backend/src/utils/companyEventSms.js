@@ -13,7 +13,7 @@ export function assertCompanyEventSmsCampaign(sender, audience = 'staff', purpos
   return audience === 'staff' ? 2 : 1;
 }
 
-export function buildCompanyEventSms({ event, code, body, brandName, audience = 'staff', mode = 'message' }) {
+export function buildCompanyEventSms({ event, code, body, brandName, audience = 'staff', mode = 'message', purpose = 'workforce' }) {
   const title = String(event?.title || 'Event').trim();
   let text = String(body || '').trim();
   if (mode === 'recruitment') {
@@ -32,6 +32,9 @@ export function buildCompanyEventSms({ event, code, body, brandName, audience = 
     if (staffUrl && /^https?:\/\//i.test(staffUrl)) text += ` Details, RSVP and check-in: ${staffUrl}`;
   }
   if (!text) throw smsPolicyError('sms_empty_body', 'An event message is required');
+  if (audience === 'staff' && purpose === 'polling') {
+    return `${text}\nReply ${code} to turn off texts about this event. Reply NOPOLLS to stop poll texts only. HELP for help. Msg & data rates may apply.`;
+  }
   const program = audience === 'staff' ? `${brandName || 'Our organization'}'s Employee Texting` : `${brandName || 'Our organization'}'s Service Texting`;
   return `${text}\nReply ${code} to turn off texts about this event. Reply STOP to opt out of ${program}. HELP for help. Msg & data rates may apply.`;
 }

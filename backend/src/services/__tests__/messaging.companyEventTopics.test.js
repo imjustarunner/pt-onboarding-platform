@@ -65,6 +65,11 @@ describe('registered agency staff sender resolution', () => {
 });
 
 describe('event SMS command boundaries', () => {
+  it('uses the poll-only opt-out on staff polling messages', () => {
+    const text = buildCompanyEventSms({ event: { title: 'Team date' }, code: '112', body: 'Which day?', brandName: 'ITSCO', purpose: 'polling' });
+    expect(text).toContain('NOPOLLS');
+    expect(text).not.toContain('STOP');
+  });
   it('reserves campaign control keywords and leaves unrelated care text alone', () => {
     for (const value of ['STOP', 'cancel', 'REVOKE', 'OPT OUT', 'HELP', 'START', 'Please call me', 'R']) expect(parseCompanyEventSmsCommand(value)).toBeNull();
   });

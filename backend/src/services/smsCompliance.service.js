@@ -236,7 +236,8 @@ export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, co
   if (purpose === 'workforce' && staffNotificationKind === 'exchangeMatches') content = withExchangeSmsOptOut(content);
   const checkinAlert = purpose === 'workforce' && staffNotificationKind === 'kioskArrivals';
   if (checkinAlert) content = withCheckinSmsOptOut(content);
-  const includeOptOut = !checkinAlert && reminderFooter !== 'noremind' && !(purpose === 'care' && (senderFirstName || providerRelayEnrollmentId));
+  if (purpose === 'polling' && !/\bNOPOLLS\b/i.test(content)) content += ' Reply NOPOLLS to stop poll texts only.';
+  const includeOptOut = purpose !== 'polling' && !checkinAlert && reminderFooter !== 'noremind' && !(purpose === 'care' && (senderFirstName || providerRelayEnrollmentId));
   return { to: recipient, from: sender.phone_number, agencyId: sender.agency_id, body: formatRegisteredSms(content, registration.brandName, purpose === 'care' ? senderFirstName : null, { includeOptOut }), registration, purpose };
 }
 
@@ -303,7 +304,7 @@ export async function recordInboundConversation({ from, to, messageId }) {
 
 export async function processSmsKeyword({ from, to, body, messageId, receivedAt = Date.now(), sendReply }) {
   const text = String(body || '').trim().toUpperCase();
-  const keyword = ['NOREMIND', 'NOPROVIDER', 'NOEXCHANGE', 'NOCHECKIN', 'NOCLIENTS'].includes(text) ? text : parseSmsKeyword(body);
+  const keyword = ['NOREMIND', 'NOPROVIDER', 'NOEXCHANGE', 'NOCHECKIN', 'NOCLIENTS', 'NOPOLLS'].includes(text) ? text : parseSmsKeyword(body);
   if (!keyword) return false;
   const sender = await getSmsSender(to);
   const phone = normalizeSmsPhone(from);
@@ -313,6 +314,7 @@ export async function processSmsKeyword({ from, to, body, messageId, receivedAt 
   if (keyword === 'NOCLIENTS' && registration?.provider !== 'notifyre') return false;
   if (keyword === 'NOEXCHANGE' && !registration?.purposes?.some(p => ['workforce', 'polling'].includes(p))) return false;
   if (keyword === 'NOCHECKIN' && !registration?.purposes?.includes('workforce')) return false;
+  if (keyword === 'NOPOLLS' && !registration?.purposes?.includes('polling')) return false;
   const brand = registration?.brandName || sender.agency_name || 'AuricWell';
   const contact = registration?.supportContact || sender.support_phone;
   const evidence = { source: `inbound_${keyword.toLowerCase()}`, messageId: messageId || null, numberId: sender.id };
@@ -338,7 +340,12 @@ export async function processSmsKeyword({ from, to, body, messageId, receivedAt 
       if (!applied) return true;
     } catch (error) { await consentDb.rollback(); throw error; }
   }
-  if (keyword === 'NOCLIENTS') {
+  if (keyword === 'NOPOLLS') {
+    const changed = await recordSmsPermission({ scope: sender.scope, phone, purpose: 'polling', status: 'opted_out',
+      evidence: { ...evidence, collectedAt: new Date(receivedAt).toISOString() } });
+    if (!changed || await isSmsSuppressed(sender, phone)) return true;
+    reply = `${brand}: Poll texts are off. Your other staff notifications and in-app polls are unchanged. You can re-enable poll texts in your communication settings.`;
+  } else if (keyword === 'NOCLIENTS') {
     const changed = await setProviderRelayPreference({ sender, phone, enabled: false,
       evidence: { ...evidence, collectedAt: new Date(receivedAt).toISOString() } });
     if (!changed || await isSmsSuppressed(sender, phone)) return true;
@@ -412,9 +419,9 @@ export async function processSmsKeyword({ from, to, body, messageId, receivedAt 
   }
   const applicationHelp = keyword === 'HELP' && registration?.helpKeywordOwner === 'application';
   const replyOwner = keyword === 'HELP' ? registration?.helpKeywordOwner || registration?.keywordOwner : registration?.keywordOwner;
-  if (applicationHelp || categoryRestart || ['NOREMIND', 'NOPROVIDER', 'NOEXCHANGE', 'NOCHECKIN', 'NOCLIENTS'].includes(keyword) || !['vonage', 'notifyre'].includes(replyOwner)) {
+  if (applicationHelp || categoryRestart || ['NOREMIND', 'NOPROVIDER', 'NOEXCHANGE', 'NOCHECKIN', 'NOCLIENTS', 'NOPOLLS'].includes(keyword) || !['vonage', 'notifyre'].includes(replyOwner)) {
     const capability = { to: phone, from: sender.phone_number, body: reply,
-      ...((categoryRestart || ['NOREMIND', 'NOPROVIDER', 'NOEXCHANGE', 'NOCHECKIN', 'NOCLIENTS'].includes(keyword)) ? { categoryReply: true } : {}) };
+      ...((categoryRestart || ['NOREMIND', 'NOPROVIDER', 'NOEXCHANGE', 'NOCHECKIN', 'NOCLIENTS', 'NOPOLLS'].includes(keyword)) ? { categoryReply: true } : {}) };
     controlReplies.add(capability);
     const send = () => sendReply({ ...capability, complianceReply: capability });
     if (applicationHelp) await sendApplicationHelpReply({ sender, recipient: phone, body: reply, messageId, send });

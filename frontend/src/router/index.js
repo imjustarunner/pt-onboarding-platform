@@ -1304,6 +1304,18 @@ const routes = [
     meta: { requiresGuest: false, organizationSlug: true }
   },
   {
+    path: '/staff-polls/:pollId',
+    name: 'StaffPoll',
+    component: () => import('../views/StaffPollView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/:organizationSlug/staff-polls/:pollId',
+    name: 'OrganizationStaffPoll',
+    component: () => import('../views/StaffPollView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
     path: '/communications',
     name: 'PublicCommunicationsProof',
     component: () => import('../views/admin/CommunicationsFeedView.vue'),

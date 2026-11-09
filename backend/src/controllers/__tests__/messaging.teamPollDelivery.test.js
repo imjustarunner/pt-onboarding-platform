@@ -1,9 +1,10 @@
 import { beforeEach, describe, it, expect, vi } from 'vitest';
-const mock = vi.hoisted(() => ({ execute: vi.fn(), sms: vi.fn(), prepare: vi.fn(), notification: vi.fn(), communication: vi.fn() }));
+const mock = vi.hoisted(() => ({ execute: vi.fn(), sms: vi.fn(), email: vi.fn(), agency: vi.fn(), prepare: vi.fn(), notification: vi.fn(), communication: vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: { execute: mock.execute, query: mock.execute }, onTableWrite: vi.fn() }));
 vi.mock('../../utils/userAgencyAffiliationAccess.js', () => ({ userHasAgencyOrAffiliatedOrgAccessForRequest: async () => true }));
 vi.mock('../../utils/meDashboardTenantScope.js', () => ({ resolveScopedAgencyIdsForMyDashboard: async () => [4] }));
-vi.mock('../../models/Agency.model.js', () => ({ default: { findById: async () => ({ id: 4, feature_flags: { smsNumbersEnabled: true, companyEventsEnabled: true, companyEventsSenderNumberId: 8 } }) } }));
+vi.mock('../../models/Agency.model.js', () => ({ default: { findById: mock.agency } }));
+vi.mock('../../services/unifiedEmail/unifiedEmailSender.service.js', () => ({ sendNotificationEmail: mock.email, sendEmailFromIdentity: vi.fn() }));
 vi.mock('../../models/Notification.model.js', () => ({ default: { coalesceOrCreate: mock.notification } }));
 vi.mock('../../models/UserCommunication.model.js', () => ({ default: { create: mock.communication, updateDeliveryStatus: vi.fn() } }));
 vi.mock('../../services/vonage.service.js', () => ({ default: { sendSms: mock.sms } }));
@@ -19,7 +20,7 @@ vi.mock('../../services/companyEventSms.service.js', () => ({
 vi.mock('../../utils/smsCompliancePolicy.js', () => ({ validateSmsRegistration: () => [] }));
 import * as controller from '../companyEvents.controller.js';
 import { resolveCompanyEventSmsSender } from '../../services/companyEventSms.service.js';
-let event, users, replies;
+let event, users, replies, emailInvited;
 const member = { id: 2, first_name: 'Taylor', role: 'provider', is_active: 1, membership_active: 1, status: 'ACTIVE_EMPLOYEE', personal_phone: '+13035550101' };
 const req = () => ({ user: { id: 2, role: 'admin' }, params: { id: '4', eventId: '20' }, query: {}, body: {}, path: '/4/company-events/20/send-poll' });
 async function invoke(name, request = req()) {
@@ -27,11 +28,15 @@ async function invoke(name, request = req()) {
   await controller[name](request, res, next); expect(next).not.toHaveBeenCalled(); return res;
 }
 beforeEach(() => {
-  vi.clearAllMocks(); replies = new Map();
+  vi.clearAllMocks(); replies = new Map(); emailInvited = new Set();
+  mock.agency.mockResolvedValue({ id: 4, slug: 'itsco', feature_flags: { smsNumbersEnabled: true, companyEventsEnabled: true, companyEventsSenderNumberId: 8 } });
+  mock.email.mockResolvedValue({ id: 'email-accepted' });
   users = [member, { ...member, id: 3, personal_phone: '+13035550103', status: 'INACTIVE_EMPLOYEE' }, { ...member, id: 4, personal_phone: '+13035550104', role: 'school_staff' }, { ...member, id: 5, personal_phone: '+13035550105', notification_categories: { staff_communications_4: { choices: { polling: false } } } }];
   event = { id: 20, agency_id: 4, event_type: 'team_poll', title: 'Team date', starts_at: '2026-01-01T12:00:00Z', ends_at: '2099-01-01T12:00:00Z', is_active: 1, sms_code: 'DATE', voting_config_json: { enabled: true, deliveryMode: 'both', viaSms: true, options: [{ key: '1', label: 'Tuesday' }, { key: '2', label: 'Friday' }] } };
   mock.sms.mockResolvedValue({ sid: 'mock-sms' }); mock.prepare.mockResolvedValue({}); mock.communication.mockResolvedValue({ id: 90 });
   mock.execute.mockImplementation(async (sql, args = []) => {
+    if (sql.includes('INSERT INTO company_event_dispatch_logs') && args[2] === 'email' && args[5] === 'sent') emailInvited.add(args[1]);
+    if (sql.includes('SELECT id FROM company_event_dispatch_logs')) return [emailInvited.has(Number(args[1])) ? [{ id: 1 }] : []];
     if (sql.includes('FROM users u JOIN user_agencies ua')) return [users.filter(u => !sql.includes('AND u.id = ?') || u.id === args[1])];
     if (sql.includes('FROM company_event_audiences')) return [users.map(u => ({ company_event_id: 20, audience_type: 'user', target_id: u.id }))];
     if (sql.includes('INSERT INTO company_event_responses')) { replies.set(args[1], { id: args[1], user_id: args[1], response_key: args[2], response_label: args[3], response_body: args[4] }); return [{ insertId: args[1] }]; }
@@ -46,6 +51,88 @@ beforeEach(() => {
   });
 });
 describe('team poll delivery and shared replies', () => {
+  function ssoRecipients() {
+    mock.agency.mockResolvedValue({ id: 4, slug: 'itsco', feature_flags: { googleSsoEnabled: true, googleSsoRequiredRoles: ['provider'] } });
+    users = [{ ...member, email: 'taylor@work.example', work_email: 'old@work.example', sso_password_override: 0, login_is_group_email: 0,
+      notification_categories: { staff_communications_4: { choices: { polling: false } } } }];
+  }
+  it.each(['internal', 'sms', 'both'])('sends an SSO work-email voting invitation without poll-text consent for %s delivery', async mode => {
+    ssoRecipients(); event.voting_config_json.deliveryMode = mode;
+    const preview = await invoke('previewCompanyEventPollDelivery');
+    expect(preview.json).toHaveBeenCalledWith(expect.objectContaining({ emailCount: 1, smsEligibleCount: 0, canSend: true }));
+    expect(mock.email).not.toHaveBeenCalled();
+    const res = await invoke('sendCompanyEventVotingSms');
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ emailCount: 1, sentCount: 0, failedCount: 0 }));
+    expect(mock.email).toHaveBeenCalledWith(expect.objectContaining({ to: 'taylor@work.example', userId: 2, templateType: 'staff_poll_invitation',
+      html: expect.stringContaining('Opt in to vote by text') }));
+    expect(mock.email.mock.calls[0][0].html).toContain('https://app.itsco.health/staff-polls/20?agencyId=4');
+    expect(mock.sms).not.toHaveBeenCalled();
+  });
+  it('keeps enrolled SMS recipients off the fallback email path', async () => {
+    ssoRecipients(); delete users[0].notification_categories;
+    await invoke('sendCompanyEventVotingSms');
+    expect(mock.sms).toHaveBeenCalledOnce(); expect(mock.email).not.toHaveBeenCalled();
+  });
+  it('does not send email or SMS to a recipient who already voted', async () => {
+    ssoRecipients(); replies.set(2, { id: 1, user_id: 2 });
+    await invoke('sendCompanyEventVotingSms');
+    expect(mock.sms).not.toHaveBeenCalled(); expect(mock.email).not.toHaveBeenCalled();
+  });
+  it.each([{ skipped: true, reason: 'email_opted_out' }, { pendingApproval: true }, { blocked: true }])('does not call an unaccepted email sent: %j', async result => {
+    ssoRecipients(); event.voting_config_json.deliveryMode = 'sms'; mock.email.mockResolvedValue(result);
+    const res = await invoke('sendCompanyEventVotingSms');
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ emailCount: 0 }));
+    expect(emailInvited.size).toBe(0);
+    const request = req(); request.body.responseKey = '1';
+    const vote = await invoke('respondToMyCompanyEvent', request);
+    expect(vote.status).toHaveBeenCalledWith(400);
+  });
+  it('allows a signed-in email invitee to vote on an SMS poll without enrolling in SMS', async () => {
+    ssoRecipients(); event.voting_config_json.deliveryMode = 'sms';
+    await invoke('sendCompanyEventVotingSms');
+    const list = await invoke('listMyStaffPolls'); expect(list.json.mock.calls[0][0]).toHaveLength(1);
+    const request = req(); request.body.responseKey = '2';
+    await invoke('respondToMyCompanyEvent', request);
+    expect(replies.get(2)).toMatchObject({ response_key: '2' });
+    expect(users[0].notification_categories.staff_communications_4.choices.polling).toBe(false);
+    users = [];
+    const denied = await invoke('respondToMyCompanyEvent', request);
+    expect(denied.status).toHaveBeenCalledWith(404);
+  });
+  it('skips an email already sent when reviewing delivery after an edit', async () => {
+    ssoRecipients(); event.voting_config_json.deliveryMode = 'sms';
+    const original = mock.execute.getMockImplementation();
+    mock.execute.mockImplementation((sql, args) => sql.includes('SELECT user_id, channel FROM company_event_dispatch_logs')
+      ? Promise.resolve([[{ user_id: 2, channel: 'email' }]]) : original(sql, args));
+    const request = req(); request.body.unsentOnly = true;
+    await invoke('sendCompanyEventVotingSms', request);
+    expect(mock.email).not.toHaveBeenCalled();
+  });
+  it('previews and sends only missing channels after editing an audience', async () => {
+    users = [member, { ...member, id: 6, personal_phone: '+13035550106' }];
+    const original = mock.execute.getMockImplementation();
+    mock.execute.mockImplementation((sql, args) => sql.includes('FROM company_event_dispatch_logs')
+      ? Promise.resolve([[{ user_id: 2, channel: 'in_app' }]]) : original(sql, args));
+    const request = req(); request.query.unsentOnly = '1';
+    const preview = await invoke('previewCompanyEventPollDelivery', request);
+    expect(preview.json).toHaveBeenCalledWith(expect.objectContaining({ internalCount: 1, smsEligibleCount: 2, canSend: true }));
+    request.query = {}; request.body.unsentOnly = true;
+    const res = await invoke('sendCompanyEventVotingSms', request);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ inAppCount: 1, sentCount: 2 }));
+    expect(mock.notification.mock.calls.map(([n]) => n.userId)).toEqual([6]);
+  });
+  it('does not re-send invitations already sent on every selected channel', async () => {
+    users = [member];
+    const original = mock.execute.getMockImplementation();
+    mock.execute.mockImplementation((sql, args) => sql.includes('FROM company_event_dispatch_logs')
+      ? Promise.resolve([[{ user_id: 2, channel: 'in_app' }, { user_id: 2, channel: 'sms' }]]) : original(sql, args));
+    const request = req(); request.query.unsentOnly = '1';
+    const preview = await invoke('previewCompanyEventPollDelivery', request);
+    expect(preview.json).toHaveBeenCalledWith(expect.objectContaining({ internalCount: 0, smsEligibleCount: 0, alreadyNotifiedCount: 1, canSend: false }));
+    request.body.unsentOnly = true;
+    await invoke('sendCompanyEventVotingSms', request);
+    expect(mock.notification).not.toHaveBeenCalled(); expect(mock.sms).not.toHaveBeenCalled();
+  });
   it('creates an SMS poll with a generated reply code', async () => {
     const request = req();
     request.body = { title: 'Team date', eventType: 'team_poll', startsAt: event.starts_at, endsAt: event.ends_at, audience: { userIds: [2] }, votingConfig: { ...event.voting_config_json, deliveryMode: 'sms' } };

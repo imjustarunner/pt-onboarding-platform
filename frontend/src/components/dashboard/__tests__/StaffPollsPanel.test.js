@@ -6,6 +6,25 @@ import Panel from '../StaffPollsPanel.vue';
 enableAutoUnmount(afterEach);
 const poll={id:12,title:'Staff date',question:'Which day?',options:[{key:'1',label:'Tuesday'}],closedAt:null,resultsText:false};
 beforeEach(()=>{vi.resetAllMocks();api.get.mockResolvedValue({data:[structuredClone(poll)]});api.put.mockResolvedValue({data:{resultsText:true}});});
+it('opens the specific email-linked poll without casting a vote and retains its response', async () => {
+  api.get.mockResolvedValue({ data: [poll, { ...poll, id: 13, title: 'Another poll' }] });
+  const w = mount(Panel, { props: { agencyId: 2, pollId: '12' } }); await flushPromises();
+  expect(w.get('details').element.open).toBe(true);
+  expect(w.findAll('article')).toHaveLength(1);
+  expect(w.text()).not.toContain('Another poll');
+  expect(api.post).not.toHaveBeenCalled(); expect(api.put).not.toHaveBeenCalled();
+  api.post.mockResolvedValue({ data: { ok: true } });
+  api.get.mockResolvedValue({ data: [{ ...poll, myResponse: { original: 'Tuesday' } }] });
+  await w.get('article button').trigger('click'); await flushPromises();
+  expect(api.post).toHaveBeenCalledWith('/me/company-events/12/respond', { responseKey: '1', agencyId: 2 }, { params: { agencyId: 2 } });
+  expect(w.text()).toContain('Your reply: Tuesday');
+  expect(w.findAll('article button')).toHaveLength(0);
+});
+it('does not substitute another poll for an unavailable email link', async () => {
+  const w = mount(Panel, { props: { agencyId: 2, pollId: '99' } }); await flushPromises();
+  expect(w.text()).toContain('unavailable for your account');
+  expect(w.find('article').exists()).toBe(false); expect(api.post).not.toHaveBeenCalled();
+});
 async function open(){const w=mount(Panel,{props:{agencyId:2}});w.get('details').element.open=true;await w.get('details').trigger('toggle');await flushPromises();return w;}
 it('leaves result texts unselected until the participant requests them',async()=>{const w=await open();expect(w.get('input').element.checked).toBe(false);expect(api.put).not.toHaveBeenCalled();await w.get('input').setValue(true);await flushPromises();expect(api.put).toHaveBeenCalledWith('/me/staff-polls/12/results-preference',{resultsText:true},{params:{agencyId:2}});});
 it('shows aggregate totals and no vote buttons after closure',async()=>{api.get.mockResolvedValue({data:[{...poll,closedAt:'2026-10-06',results:[{key:'1',label:'Tuesday',total:8}]}]});const w=await open();await w.get('.history-choice input').setValue(true);expect(w.text()).toContain('Tuesday: 8');expect(w.find('article input').exists()).toBe(false);expect(w.findAll('button').map(b=>b.text())).toEqual(['Refresh polls']);});
