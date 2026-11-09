@@ -51,3 +51,16 @@ it('does not provision a custom address belonging to someone else', async () => 
  await expect(provisionHireGroupUsername({ user, agency, workEmail: 'custom@tenant.test' })).rejects.toHaveProperty('code', 'EMAIL_UNAVAILABLE');
  expect(m.create).not.toHaveBeenCalled();
 });
+
+it('allows an authorized staff repair of an available reserved address after pre-hire, without changing the agency default',async()=>{
+ const mixed={id:2,feature_flags:{googleSsoEnabled:true,workspaceEmailDomain:'tenant.test'}};
+ m.execute.mockImplementation(async sql=>sql.includes('SELECT u.role')?[[{role:'super_admin',candidate_in_agency:1}]]:[[]]);
+ const result=await provisionHireGroupUsername({user:{...user,status:'ONBOARDING',is_active:1,work_email:email,login_is_group_email:0},agency:mixed,workEmail:email,staffGroupReservation:{actorUserId:501}});
+ expect(result).toMatchObject({workEmail:email,emailSendingReady:true});expect(mixed.feature_flags.hireAccountMode).toBeUndefined();
+});
+it.each(['another tenant','existing Workspace address','pre-hire still open'])('does not claim a reserved Group when blocked by %s',async reason=>{
+ m.execute.mockImplementation(async sql=>sql.includes('SELECT u.role')?[[{role:'admin',membership_active:reason==='another tenant'?0:1,candidate_in_agency:1}]]:[[]]);
+ if(reason==='existing Workspace address')m.available.mockResolvedValue(false);
+ await expect(provisionHireGroupUsername({user:{...user,status:reason==='pre-hire still open'?'PREHIRE_OPEN':'ONBOARDING',is_active:1,work_email:email,login_is_group_email:0},agency,workEmail:email,staffGroupReservation:{actorUserId:3}})).rejects.toThrow();
+ expect(m.create).not.toHaveBeenCalled();
+});

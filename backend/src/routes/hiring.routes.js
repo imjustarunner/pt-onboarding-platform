@@ -1,5 +1,5 @@
 import {packetPreviewJobFile} from '../controllers/hirePacketPreview.controller.js';
-import {markPrehireComplete} from '../controllers/hirePrehireCompletion.controller.js';
+import {markPrehireComplete,getPrehireRequirements,postPrehireRequirementOverride} from '../controllers/hirePrehireCompletion.controller.js';
 import {getPeopleOperationsNotificationRecipients,putPeopleOperationsNotificationRecipients} from '../controllers/peopleOperationsNotificationRecipients.controller.js';
 import {rehearsalBootstrap,rehearsalI9,rehearsalLink} from '../controllers/itscoRehearsal.controller.js';
 import { packetPreviewOptions, packetPreviewReference, packetPreviewContract } from '../controllers/hirePacketPreview.controller.js';
@@ -204,6 +204,8 @@ router.post('/candidates/:userId/research', requestCandidateResearch);
 router.post('/candidates/:userId/prescreen', generateCandidatePreScreenReport);
 router.post('/candidates/:userId/promote', promoteCandidateToPendingSetup);
 router.post('/candidates/:userId/complete-prehire', markPrehireComplete);
+router.get('/candidates/:userId/prehire-requirements',getPrehireRequirements);
+router.post('/candidates/:userId/prehire-requirements/:stepKey/override',postPrehireRequirementOverride);
 router.get('/candidates/:userId/hire-packages', candidateHirePackages);
 router.put('/candidates/:userId/hire-packages/:phase', candidateHirePackages);
 router.get('/candidates/:userId/prehire-draft', candidatePrehireDraft);

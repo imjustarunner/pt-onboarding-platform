@@ -1,3 +1,4 @@
+import { PREHIRE_OVERRIDE_PREFIX,applyPrehireStepOverrides } from '../utils/hirePrehireStepOverrides.js';
 import { schoolAvailabilityStep, validateSchoolServiceAvailability } from '../utils/schoolServiceAvailability.js';
 import { persistSchoolServiceAvailability } from './schoolServiceAvailability.service.js';
 import {normalizeFocusAgeValues} from '../utils/providerFacetNormalization.js';
@@ -27,13 +28,13 @@ export async function portalPacket(userId, agencyId, db = pool) {
 }
 
 export async function portalStepSubmissions(userId, { completionOnly = false } = {}) {
-  const [rows] = await pool.execute(`SELECT phase, step_key, ${completionOnly ? '' : 'encrypted_value,'} completed_at FROM hire_portal_submissions WHERE user_id = ?`, [userId]);
-  return Object.fromEntries(rows.map((r) => [`${r.phase}:${r.step_key}`, { value: completionOnly ? {} : JSON.parse(decryptGuardianIntake(jsonObject(r.encrypted_value))), completedAt: r.completed_at }]));
+  const [rows] = await pool.execute(`SELECT phase, step_key, ${completionOnly ? `CASE WHEN step_key LIKE '${PREHIRE_OVERRIDE_PREFIX}%' THEN encrypted_value END AS encrypted_value,` : 'encrypted_value,'} completed_at FROM hire_portal_submissions WHERE user_id = ?`, [userId]);
+  return Object.fromEntries(rows.map((r) => [`${r.phase}:${r.step_key}`, { value: completionOnly && !r.step_key.startsWith(PREHIRE_OVERRIDE_PREFIX) ? {} : JSON.parse(decryptGuardianIntake(jsonObject(r.encrypted_value))), completedAt: r.completed_at }]));
 }
 
 export function requiredSubmissionKeys(steps, hasWorkEmail = false) {
   const savedKinds = new Set(['school-availability', 'user-setup', 'staff-communications', 'clinical-profile', 'profile', 'headshot', 'handbook', 'work-email', 'upload', 'video', 'meeting', 'link', 'acknowledgement']);
-  return steps.filter((step) => step.required !== false && savedKinds.has(step.kind)
+  return steps.filter((step) => !step.staffOverride && step.required !== false && savedKinds.has(step.kind)
     && !(step.kind === 'work-email' && hasWorkEmail)).map((step) => step.key);
 }
 
@@ -245,6 +246,7 @@ export async function buildPortalWorkflow({ user, agencyId, tasks, prehireTasks,
   for (const phase of ['pre_hire', 'onboarding']) {
     add(phase, { key: 'review', kind: 'review', title: 'Final review', required: false, complete: phase === 'pre_hire' ? prehireClosed : onboardingClosed });
   }
+  steps.pre_hire=applyPrehireStepOverrides(steps.pre_hire,submissions);
   if (progressOnly) return { progress: { pre_hire: summarizeSteps(steps.pre_hire), onboarding: summarizeSteps(steps.onboarding) } };
   const [info] = await pool.execute(`SELECT d.field_key, v.value FROM user_info_values v
     JOIN user_info_field_definitions d ON d.id = v.field_definition_id

@@ -29,7 +29,7 @@ describe('staff progress uses the applicant required checklist', () => {
     expect(await candidatePrehireProgress(1, 2)).toEqual({ total: 6, completed: 6, percent: 100, allDone: true });
     expect(mocks.background).toHaveBeenCalledWith(1, 2);
     expect(mocks.extras).toHaveBeenCalledWith({ userId: 1, agencyId: 2, hiringProfile: undefined });
-    expect(mocks.execute.mock.calls.some(([sql]) => sql.includes('encrypted_value'))).toBe(false);
+    expect(mocks.execute.mock.calls.find(([sql])=>sql.includes('FROM hire_portal_submissions'))[0]).toContain("CASE WHEN step_key LIKE 'staff-override:%' THEN encrypted_value END AS encrypted_value");
   });
   it('does not assume 100 percent from PREHIRE_REVIEW when a required item is unfinished', async () => {
     completed = ['profile'];

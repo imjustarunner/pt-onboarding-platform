@@ -1,0 +1,12 @@
+import {beforeEach,expect,it,vi} from 'vitest';
+const m=vi.hoisted(()=>({execute:vi.fn(),agencies:vi.fn(),write:vi.fn(),state:vi.fn()}));
+vi.mock('../../config/database.js',()=>({default:{execute:m.execute}}));
+vi.mock('../../models/User.model.js',()=>({default:{getAgencies:m.agencies}}));
+vi.mock('../../services/hirePrehireStepOverrides.service.js',()=>({setPrehireStepOverride:m.write}));
+vi.mock('../prehirePortal.controller.js',()=>({portalStateForUser:m.state}));
+import {getPrehireRequirements,postPrehireRequirementOverride} from '../hirePrehireCompletion.controller.js';
+let req,res,next;
+beforeEach(()=>{vi.clearAllMocks();req={params:{userId:'824',stepKey:'agreement'},query:{agencyId:'2'},body:{reason:'Legacy agreement is retained outside the portal.',actorUserId:999},user:{id:3,role:'admin'}};res={json:vi.fn(),set:vi.fn()};next=vi.fn();m.agencies.mockResolvedValue([{id:2}]);m.execute.mockResolvedValue([[{agency_id:2}]]);m.write.mockResolvedValue({ok:true});m.state.mockResolvedValue({agency:{id:2},candidate:{status:'PREHIRE_OPEN'},journey:{},workflow:{steps:{pre_hire:[{key:'agreement',title:'Employment agreement',required:true,complete:false,privateContent:'do not expose'}]}}});});
+it.each([getPrehireRequirements,postPrehireRequirementOverride])('rejects another tenant before reading or changing the candidate',async handler=>{m.agencies.mockResolvedValue([{id:9}]);await handler(req,res,next);expect(next).toHaveBeenCalledWith(expect.objectContaining({status:403}));expect(m.state).not.toHaveBeenCalled();expect(m.write).not.toHaveBeenCalled();});
+it('records the authenticated reviewer rather than a client-supplied actor',async()=>{await postPrehireRequirementOverride(req,res,next);expect(m.write).toHaveBeenCalledWith(expect.objectContaining({actorUserId:3,userId:824,agencyId:2,stepKey:'agreement'}));expect(next).not.toHaveBeenCalled();});
+it('returns only checklist status and the exception, without candidate form or document content',async()=>{await getPrehireRequirements(req,res,next);expect(res.set).toHaveBeenCalledWith('Cache-Control','private, no-store');expect(res.json).toHaveBeenCalledWith({editable:true,steps:[{key:'agreement',title:'Employment agreement',complete:false,staffOverride:null,canOverride:true}]});});

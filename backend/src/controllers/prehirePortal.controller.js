@@ -1,3 +1,4 @@
+import { hireAccountModeForUser } from '../utils/hireAccountMode.js';
 import { loadPortalPrehireExtras, resolveJobDescriptionIdForCandidate } from '../services/hirePortalExtras.service.js';
 import { onboardingPasswordReady } from '../utils/hirePortalWorkflow.js';
 import { applicantReferenceStatus } from '../models/HiringReferenceContact.model.js';
@@ -185,7 +186,7 @@ export const getPortal = async (req, res, next) => {
         return {};
       }
     })();
-    const hireAccountMode = String(featureFlags.hireAccountMode || '').trim().toLowerCase() || null;
+    const hireAccountMode = hireAccountModeForUser({feature_flags:featureFlags},user);
     // Choose the work username in pre-hire; set the password during onboarding account setup.
     const usernameChosen = Boolean(user.work_email && String(user.work_email).includes('@'));
     const passwordFinalized = Boolean(
@@ -1202,7 +1203,7 @@ export const setPortalAccountPassword = async (req, res, next) => {
       hasHireGroupPasswordFinalized,
       finalizeHireGroupPassword
     } = await import('../services/hireGroupAccount.service.js');
-    if (!isGroupPasswordHireMode(agency)) {
+    if (!isGroupPasswordHireMode(agency,user)) {
       return res.status(400).json({ error: { message: 'Password finalization is not enabled for this organization.' } });
     }
     if (hasHireGroupPasswordFinalized(user) && user.password_hash) {
