@@ -1,0 +1,127 @@
+/* Shared payroll surface: keep the available workspace width on every tab. */
+body .ft-payroll.ft-payroll {
+  --pps-forest: #143b4b;
+  --pps-mint: #e1f3ed;
+  --pr-forest: #143b4b;
+  --pr-mint: #e1f3ed;
+  width: 100%; max-width: none; min-width: 0; box-sizing: border-box;
+  margin: 0; padding: clamp(16px, 2vw, 32px) clamp(16px, 2.2vw, 40px) 48px;
+  color: #163544; background: linear-gradient(140deg, #f0f8f6, #f5f8fc 50%, #f7f9fc);
+  font-family: var(--font-body, system-ui, sans-serif);
+}
+.ft-payroll-brand { display: flex; align-items: center; flex-wrap: wrap; gap: 18px; margin: 0 0 22px; color: #143b4b; }
+.ft-payroll-brand > span:last-child { padding-left: 18px; border-left: 1px solid #c5dcd9; font-size: 12px; font-weight: 650; letter-spacing: .06em; }
+body :is(.ft-payroll, .ft-payroll-dialog) :is(h1, h2, h3) { color: #143b4b; letter-spacing: -.025em; }
+body :is(.ft-payroll, .ft-payroll-dialog) :is(.card, .pr-panel, .pw-upload-card) { border: 1px solid #dce7eb; border-radius: 16px; background: #fff; box-shadow: 0 4px 20px #143b4b06; min-width: 0; }
+body :is(.ft-payroll, .ft-payroll-dialog) .pps-panel { width: 100%; box-sizing: border-box; }
+body :is(.ft-payroll, .ft-payroll-dialog) :is(.table-wrap, .pcp-table-wrap) { max-width: 100%; overflow-x: auto; }
+.ft-payroll table { width: 100%; border-collapse: collapse; font-size: 13px; }
+body :is(.ft-payroll, .ft-payroll-dialog) :is(th, td) { padding: 14px 12px; border-bottom-color: #e4edf0; }
+.ft-payroll th { background: #f5f9fb; color: #526c7c; font-size: 11px; letter-spacing: .04em; }
+.ft-payroll tbody tr:hover { background: #f4faf8; }
+body :is(.ft-payroll, .ft-payroll-dialog) .btn.btn { border-radius: 9px; border: 1px solid transparent; padding: 9px 14px; font-size: 13px; font-weight: 650; line-height: 1.3; box-shadow: none; transition: background .15s, box-shadow .15s; }
+body :is(.ft-payroll, .ft-payroll-dialog) .btn.btn-primary { background: #087d76; color: #fff; border-color: #087d76; }
+body :is(.ft-payroll, .ft-payroll-dialog) .btn.btn-primary:hover:not(:disabled) { background: #06665f; box-shadow: 0 3px 9px #087d7620; }
+body :is(.ft-payroll, .ft-payroll-dialog) .btn.btn-secondary { background: #f4f8fb; color: #315364; border-color: #d4e2e9; }
+body :is(.ft-payroll, .ft-payroll-dialog) .btn.btn-secondary:hover:not(:disabled) { background: #e7f1f4; }
+body :is(.ft-payroll, .ft-payroll-dialog) .btn.btn-danger { background: #fff2f3; color: #a13e4b; border-color: #edcbd1; }
+body :is(.ft-payroll, .ft-payroll-dialog) :is(button, input, select, textarea):focus-visible { outline: 3px solid #74bfb7; outline-offset: 3px; }
+body :is(.ft-payroll, .ft-payroll-dialog) :is(select, input:not([type='checkbox']):not([type='radio']):not([type='file']), textarea) {
+  box-sizing: border-box; min-height: 38px; border: 1px solid #cbdce3; border-radius: 9px;
+  background-color: #fff; color: #244957; font: inherit; font-size: 13px; padding: 8px 11px;
+}
+.ft-payroll select { padding-right: 30px; max-width: 100%; }
+body :is(.ft-payroll, .ft-payroll-dialog) :is(button, select, input):disabled { opacity: .55; cursor: not-allowed; }
+body :is(.ft-payroll, .ft-payroll-dialog) .pps-tab { border-radius: 10px; padding: 10px 16px; color: #3b596a; border-color: #d1e1e5; background: #fff; }
+body :is(.ft-payroll, .ft-payroll-dialog) .pps-tab.active { color: #fff; background: #143b4b; border-color: #143b4b; }
+body :is(.ft-payroll, .ft-payroll-dialog) .pps-toolbar { display: flex; gap: 24px; align-items: center; flex-wrap: wrap; }
+body :is(.ft-payroll, .ft-payroll-dialog) .pps-toolbar-stats { flex-wrap: wrap; }
+body :is(.ft-payroll, .ft-payroll-dialog) .pps-stat { border-radius: 12px; background: #f4f9f9; }
+body :is(.ft-payroll, .ft-payroll-dialog) .pps-panel-head { min-width: 0; }
+body :is(.ft-payroll, .ft-payroll-dialog) .pps-panel td:last-child { min-width: 214px; }
+body :is(.ft-payroll, .ft-payroll-dialog) .pps-panel td:last-child > .btn { margin: 3px; }
+body :is(.ft-payroll, .ft-payroll-dialog) :is(.pps-modal, .pw-modal, .pr-modal) { border-radius: 18px; border-color: #d2e3e8; box-shadow: 0 24px 90px #102e4233; }
+body :is(.ft-payroll, .ft-payroll-dialog) .pps-modal-header { background: #f0f8f6; }
+body :is(.ft-payroll, .ft-payroll-dialog) .pps-bulk-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 12px; }
+body :is(.ft-payroll, .ft-payroll-dialog) .pps-period-history { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #526c7c; margin-top: 9px; }
+.ft-rate-hint { position: relative; display: inline-block; cursor: help; text-decoration: underline dotted #789a9a; text-underline-offset: 4px; }
+.ft-rate-hint [role='tooltip'] { position: absolute; z-index: 20; bottom: calc(100% + 8px); right: 0; width: max-content; max-width: 250px; padding: 10px 13px; border-radius: 9px; background: #143b4b; color: white; box-shadow: 0 6px 18px #143b4b25; font-size: 12px; white-space: normal; text-align: left; visibility: hidden; opacity: 0; pointer-events: none; }
+.ft-rate-hint:hover [role='tooltip'], .ft-rate-hint:focus [role='tooltip'] { visibility: visible; opacity: 1; }
+.ft-mileage-usage { min-width: 165px; font-size: 12px; line-height: 1.6; color: #526c7c; }
+.ft-mileage-usage strong { color: #164d52; }
+.ft-mileage-usage progress { display: block; width: 100%; height: 6px; margin: 7px 0; accent-color: #087d76; }
+.ft-mileage-usage .over-limit { color: #a13e4b; font-weight: 650; }
+body :is(.ft-payroll, .ft-payroll-dialog) .ft-pay-setup { margin: 16px 0 24px; padding: 18px; background: #f3f9f8; border: 1px solid #d6e9e3; border-radius: 12px; }
+.ft-pay-setup h3 { margin: 0 0 8px; }
+.ft-pay-setup ol { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; padding-left: 20px; font-size: 13px; }
+.ft-pay-setup li { padding-right: 10px; }
+.ft-pay-setup strong { display: block; margin-bottom: 5px; }
+@media (max-width: 760px) {
+  body .ft-payroll.ft-payroll { padding: 16px 12px 32px; }
+  body :is(.ft-payroll, .ft-payroll-dialog) .pps-header { flex-direction: column; }
+  body :is(.ft-payroll, .ft-payroll-dialog) .pps-toolbar-stats { width: 100%; gap: 6px; }
+  body :is(.ft-payroll, .ft-payroll-dialog) .pps-stat { min-width: 48px; flex: 1; padding: 10px 6px; }
+  body :is(.ft-payroll, .ft-payroll-dialog) .pps-tabs { overflow-x: auto; flex-wrap: nowrap; padding-bottom: 5px; }
+  body :is(.ft-payroll, .ft-payroll-dialog) .pps-tab { flex-shrink: 0; }
+  .ft-payroll-brand { gap: 12px; }
+  .ft-pay-setup ol { grid-template-columns: 1fr; }
+}
+
+body :is(.ft-payroll, .ft-payroll-dialog) .pps-toolbar > .field { flex: 1 1 390px; max-width: 620px; }
+body :is(.ft-payroll, .ft-payroll-dialog) .pps-toolbar-stats { margin-left: auto; }
+
+body :is(.ft-payroll, .ft-payroll-dialog) .pps-pay-estimate .ft-rate-hint { display: block; margin-top: 5px; }
+
+/* Carry FundThred identity through the reconciliation and payroll run panels. */
+.ft-payroll-brand.ft-payroll-brand--section { gap: 12px; margin-bottom: 14px; }
+.ft-payroll-brand--section .ft-brand { width: 104px; }
+.ft-payroll-brand--section > span:last-child { padding-left: 12px; font-size: 10px; color: #527582; }
+body .pr-page.ft-payroll { --text-primary: #163544; --text-secondary: #526c7c; --border: #dce7eb; }
+body .pr-page.ft-payroll :is(.pr-process-card, .pr-run-card, .pr-totals-card) { padding: 24px; margin-bottom: 22px; }
+body .pr-page.ft-payroll :is(.pr-process-head, .pr-run-head, .pr-totals-head) { margin-bottom: 22px; gap: 18px; }
+body .pr-page.ft-payroll .card-title { font-size: 21px; color: #143b4b; }
+body .pr-page.ft-payroll .pr-process-steps { grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr) minmax(0, 1fr); gap: 16px; }
+body .pr-page.ft-payroll .pr-process-step { min-width: 0; padding: 20px; gap: 14px; border: 1px solid #dce7eb; background: #f7fafb; border-radius: 14px; }
+body .pr-page.ft-payroll .pr-process-step-body { flex: 1; min-width: 0; }
+body .pr-page.ft-payroll .pr-process-step-num { width: 32px; height: 32px; border-radius: 10px; background: #e0f0ed; color: #076c64; }
+body .pr-page.ft-payroll :is(.pr-process-step-title, .pr-step-title) { color: #1b4655; }
+body .pr-page.ft-payroll .pr-process-step-title { font-size: 15px; margin-bottom: 8px; }
+body .pr-page.ft-payroll .pr-upload-slots { gap: 14px; margin-top: 14px; }
+body .pr-page.ft-payroll .pr-file-row { min-width: 0; }
+body .pr-page.ft-payroll input[type='file'] { min-width: 0; width: 100%; max-width: 100%; padding: 7px; border: 1px dashed #b9d2d5; border-radius: 10px; background: #fff; color: #526c7c; font: inherit; font-size: 12px; }
+body .pr-page.ft-payroll input[type='file']::file-selector-button { padding: 8px 11px; margin-right: 10px; border: 0; border-radius: 7px; background: #e1f1ed; color: #09665f; font: inherit; font-weight: 650; cursor: pointer; }
+body .pr-page.ft-payroll input[type='file']:hover:not(:disabled)::file-selector-button { background: #cce7df; }
+body .pr-page.ft-payroll .pr-process-step select { width: 100%; }
+body .pr-page.ft-payroll .pr-process-advanced { padding-top: 16px; border-top-color: #dce7eb; }
+body .pr-page.ft-payroll .pr-process-advanced summary { color: #315867; font-weight: 650; cursor: pointer; }
+body .pr-page.ft-payroll .pr-run-period-chip { margin-top: 16px; padding: 10px 14px; border: 1px solid #badbd3; border-radius: 11px; color: #194c53; background: #edf8f4; font-size: 14px; }
+body .pr-page.ft-payroll .pr-run-period-chip .pr-active-period-kicker { color: #39716b; opacity: 1; }
+body .pr-page.ft-payroll .pr-stepper { padding: 20px 12px; background: #f4f8fb; border-color: #dce7eb; border-radius: 14px; }
+body .pr-page.ft-payroll .pr-step { opacity: 1; }
+body .pr-page.ft-payroll .pr-step-icon { width: 34px; height: 34px; border: 1px solid #cbdce3; background: #fff; color: #647d8a; box-shadow: none; }
+body .pr-page.ft-payroll .pr-step.active .pr-step-icon { border-color: #087d76; background: #087d76; color: #fff; box-shadow: 0 0 0 4px #087d7612; }
+body .pr-page.ft-payroll .pr-step.done .pr-step-icon { border-color: #b8dace; background: #e0f1eb; color: #08735e; }
+body .pr-page.ft-payroll .pr-step-line { background: #d6e4e9; }
+body .pr-page.ft-payroll .pr-step-line.done { background: #80bfae; }
+body .pr-page.ft-payroll .pr-run-import { margin-top: 22px; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 20px; }
+body .pr-page.ft-payroll .pr-period-field select { background: #fff; color: #194c53; border: 1px solid #bcd5d8; box-shadow: none; }
+body .pr-page.ft-payroll .pr-run-actions { gap: 16px; margin-top: 20px; }
+body .pr-page.ft-payroll .pr-run-actions-secondary { gap: 10px; padding-top: 18px; border-color: #dce7eb; }
+@media (max-width: 1100px) {
+  body .pr-page.ft-payroll .pr-process-steps { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 760px) {
+  body .pr-page.ft-payroll :is(.pr-process-card, .pr-run-card, .pr-totals-card) { padding: 18px; }
+  body .pr-page.ft-payroll .pr-process-step { padding: 16px; gap: 10px; }
+  body .pr-page.ft-payroll .pr-run-import { grid-template-columns: minmax(0, 1fr); }
+  body .pr-page.ft-payroll .pr-stepper { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 8px; }
+  body .pr-page.ft-payroll .pr-step { min-width: 0; padding: 0 4px; align-items: flex-start; }
+  body .pr-page.ft-payroll .pr-step-icon { flex-shrink: 0; }
+  body .pr-page.ft-payroll .pr-step-line { display: none; }
+  body .pr-page.ft-payroll :is(.pr-step-title, .pr-step-sub) { white-space: normal; }
+}
+
+body .pr-page.ft-payroll .pr-step-text { display: block; min-width: 0; }
+body .pr-page.ft-payroll .btn.btn-primary { background: #087d76; border-color: #087d76; color: #fff; }
+body .pr-page.ft-payroll .btn.btn-primary:hover:not(:disabled) { background: #06665f; border-color: #06665f; }
+body .pr-page.ft-payroll .btn.btn-secondary { background: #f4f8fb; color: #315364; border-color: #d4e2e9; }

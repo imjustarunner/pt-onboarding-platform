@@ -13,7 +13,8 @@ let req, res, next;
 beforeEach(() => {
   vi.resetAllMocks();
   IntakeLink.findByPublicKey.mockResolvedValue({ id: 20, is_active: 1, agency_id: 2, form_type: 'intake', scope_type: 'agency', inherits_office_master: 1 });
-  IntakeSubmission.findBySessionToken.mockResolvedValue(null);
+  IntakeSubmission.findBySessionToken.mockResolvedValue({ id: 10, intake_link_id: 20, status: 'started' });
+  IntakeSubmission.updateById.mockResolvedValue({ id: 10 });
   IntakeSubmission.create.mockResolvedValue({ id: 10 });
   req = { params: { publicKey: 'full-intake' }, get: () => 'test', headers: {}, body: {
     signerName: 'Test Person', signerEmail: 'person@example.test', sessionToken: 'new-enrollment',
@@ -35,7 +36,8 @@ describe('provider-origin full enrollment consent gate', () => {
     listOfficeIntakeProviders.mockResolvedValue([{ id: 7, name: 'Requested Provider', intakeStatusByFormat: { VIRTUAL: 'waitlist', IN_PERSON: 'accepting' } }]);
     await createPublicConsent(req, res, next);
     expect(next).not.toHaveBeenCalled();
-    expect(IntakeSubmission.create).toHaveBeenCalledWith(expect.objectContaining({ intakeData: expect.objectContaining({ responses: { submission: expect.objectContaining({ providerSelection: expect.objectContaining({ providerId: 7, status: 'WAITLIST', confirmed: false }) }) } }) }));
+    expect(IntakeSubmission.create).not.toHaveBeenCalled();
+    expect(JSON.parse(IntakeSubmission.updateById.mock.calls[0][1].intake_data)).toMatchObject({ responses: { submission: { providerSelection: { providerId: 7, status: 'WAITLIST', confirmed: false } } } });
     expect(res.status).toHaveBeenCalledWith(201);
   });
 });

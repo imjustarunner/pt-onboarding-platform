@@ -78,7 +78,7 @@ export const publicIntakeLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => {
-    const key = String(req.params?.publicKey || req.body?.publicKey || '').trim();
+    const key = String(req.params?.publicKey || '').trim();
     const ip = getClientIpAddress(req) || 'unknown';
     return key ? `public-intake:${key}:${ip}` : `public-intake:${ip}`;
   },

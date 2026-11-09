@@ -1,5 +1,6 @@
 <template>
-  <div>
+  <div class="ft-payroll">
+    <FundThredPayrollBrand />
     <div class="card" style="margin-bottom: 12px;" data-tour="payroll-reports-header">
       <button type="button" class="pr-back" @click="goBackToPayroll">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
@@ -392,6 +393,7 @@
 </template>
 
 <script setup>
+import FundThredPayrollBrand from '../../components/payroll/FundThredPayrollBrand.vue';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';

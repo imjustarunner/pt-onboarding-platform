@@ -72,9 +72,11 @@ it('requires actual attendance and mandatory group participation', async () => {
 });
 it('calculates the automatic claim at the hourly rate before any provider-update rollout', async () => {
   m.execute.mockImplementation(async sql => sql.includes('FROM user_agencies') ? [[{ user_id: 488 }]] : [[]]);
-  const amount = await computeDefaultAppliedAmountForTimeClaim({ claim: { agency_id: 6, user_id: 488, claim_type: 'indirect_time', claim_date: '2026-10-19', credits_hours: 1.03,
+  const estimateDetails = {};
+  const amount = await computeDefaultAppliedAmountForTimeClaim({ estimateDetails, claim: { agency_id: 6, user_id: 488, claim_type: 'indirect_time', claim_date: '2026-10-19', credits_hours: 1.03,
     payload: { source: 'supervision_session_finalize', participantRole: 'supervisee', hourlySupervision: true, totalMinutes: 62, serviceCode: 'MEETING' } }, rateCard: { indirect_rate: 21 }, approveCreditsHours: 1.03 });
   expect(amount).toBe(21.63);
+  expect(estimateDetails.hourlyRate).toBe(21);
 });
 it('does not also add hourly supervisee attendance to staged payroll', async () => {
   m.execute.mockImplementation(async sql => sql.includes('AS is_hourly_worker') ? [[{ user_id: 488, service_date: '2026-10-19', session_type: 'individual', participant_role: 'supervisee', participant_user_role: 'provider', is_hourly_worker: 1, total_seconds: 3720 }]] : [[]]);

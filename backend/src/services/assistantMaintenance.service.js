@@ -5,8 +5,7 @@ import { google } from '../utils/googleApis.js';
 import { buildImpersonatedJwtClient, GOOGLE_WORKSPACE_GROUPS_SETTINGS_SCOPE } from './googleWorkspaceAuth.service.js';
 import { ASSISTANT_CATALOG, ASSISTANT_OWNER_EMAIL, ASSISTANT_AGENCIES, parseAssistantJson, assistantStoredConfigurationHash } from './assistantTeamPolicy.js';
 import { APP_GROUP_MANAGER } from './appGroupOwnership.service.js';
-import { managedDomain } from './managedWorkspaceGroupPolicy.js';
-import { countAssistantSchools } from './assistantProvisioning.service.js';
+import { countAssistantSchools, assistantManagedDomain } from './assistantProvisioning.service.js';
 import { recordAssistantChange, processAssistantAccountAlerts } from './assistantAccountAlerts.service.js';
 
 const READ_SCOPES = ['https://www.googleapis.com/auth/admin.directory.group.readonly', 'https://www.googleapis.com/auth/admin.directory.group.member.readonly'];
@@ -43,6 +42,15 @@ export function createAssistantDirectoryReader({ authBuilder = buildImpersonated
           // A bounded response at the cap cannot establish the complete membership.
           if (members.length >= size) throw error('DIRECTORY_MEMBERS_INCOMPLETE');
         } while (pageToken);
+        // Directory members.list omits delivery_settings. Read each member's
+        // detail before comparing subscriptions; absence in a list is not drift.
+        const client=await directoryClient();
+        for(const member of members){
+          const detail=(await client.members.get({groupKey:groupEmail,memberKey:member.email},{timeout:15000})).data;
+          if(!detail||norm(detail.email)!==norm(member.email)||detail.role!==member.role)throw error('DIRECTORY_MEMBERS_INCOMPLETE');
+          member.delivery_settings=detail.delivery_settings;
+          if(detail.status)member.status=detail.status;
+        }
         return members;
       } catch (cause) { throw error(cause.code === 'DIRECTORY_MEMBERS_INCOMPLETE' ? cause.code : 'DIRECTORY_CHECK_UNAVAILABLE'); }
     },
@@ -56,7 +64,7 @@ export function createAssistantDirectoryReader({ authBuilder = buildImpersonated
 function expectedIdentity(account) {
   const qa = [450, 453].includes(Number(account.agency_id));
   const role = ASSISTANT_CATALOG.find(role => role.key === account.subrole);
-  const domain = qa ? ({ 450: 'itsco.health', 453: 'nextleveluplcc.com' }[account.agency_id]) : managedDomain({ id: account.agency_id, slug: account.agency_slug, organization_type: account.organization_type, is_active: account.agency_active, feature_flags: account.feature_flags });
+  const domain = qa ? ({ 450: 'itsco.health', 453: 'nextleveluplcc.com' }[account.agency_id]) : assistantManagedDomain({ id: account.agency_id, slug: account.agency_slug, organization_type: account.organization_type, is_active: account.agency_active, feature_flags: account.feature_flags },account.subrole);
   if (!role || !domain || (!qa && !ASSISTANT_AGENCIES.includes(Number(account.agency_id)))) return null;
   const local = account.subrole === 'team_lead' ? 'assistant-team-lead' : `${account.subrole.replaceAll('_', '-')}-assistant`;
   return { email: `${qa ? `qa-${account.agency_id}-` : ''}${local}@${domain}`, firstName: account.agency_name, lastName: role.label };

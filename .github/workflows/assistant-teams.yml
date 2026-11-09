@@ -47,5 +47,10 @@ jobs:
         working-directory: backend
       - run: NODE_ENV=test SKIP_DB_CONNECT=1 node --test --test-force-exit src/utils/__tests__/payrollSubmissionWindow.test.js
         working-directory: backend
+      - name: FundThred payroll destinations, rates and attendance evidence
+        run: |
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.payroll-submissions.config.js
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.payroll-readiness.config.js
+          (cd frontend && node node_modules/vitest/vitest.mjs run src/views/admin/__tests__/PayrollPendingSubmissions.test.js src/components/payroll/__tests__/PayrollAudit.test.js src/utils/__tests__/payrollPeriodChoices.test.js)
       - run: npx vitest run --config vitest.assistants.config.js
         working-directory: frontend

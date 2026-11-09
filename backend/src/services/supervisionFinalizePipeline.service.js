@@ -722,6 +722,9 @@ export async function createSupervisorSupervisionTimeClaim({
     entryMethod: 'manual',
     allocationMode: 'duration',
     totalMinutes: minutes,
+    minutesSource: (rollups || []).find(r => Number(r.user_id) === supervisorId)?.manual_correction_id
+      ? 'manual_attendance_correction' : minutesFromAttendance > 0 ? 'attendance_rollup' : 'scheduled_duration_fallback',
+    attendanceSecondsAtSubmission: supervisorSeconds,
     bucket: 'indirect',
     attestation: true,
     source: 'supervision_session_finalize',
