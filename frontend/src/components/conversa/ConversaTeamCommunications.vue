@@ -131,7 +131,7 @@ async function action(event, kind, { unsentOnly = false } = {}) {
 }
 async function eventSaved({ eventId }) {
   const setup = eventSetup.value, g = generation, url = base();
-  if (!setup?.pollId) return;
+  if (!setup?.pollId) { await load(); return; }
   try {
     await api.put(`${url}/${setup.pollId}/presentation`, { linkedEventId: eventId });
     if (g !== generation || eventSetup.value !== setup) return;
@@ -220,7 +220,7 @@ watch(() => [props.agencyId, allowed.value], () => {
           <button v-if="!event.votingConfig?.enabled" type="button" :disabled="busy" @click="action(event, 'send')">Send to team</button>
           <button v-if="event.votingConfig?.enabled && !event.votingClosedAt" type="button" :disabled="busy" @click="action(event, 'poll')">Send poll</button>
           <button v-if="event.votingConfig?.enabled && !event.votingClosedAt" type="button" :disabled="busy" @click="action(event, 'followup')">Send follow-up · no replies</button>
-          <button v-if="event.votingConfig?.enabled" type="button" :disabled="busy" @click="eventSetup = { pollId: event.id, initialEventId: event.votingConfig.linkedEventId || null, initialPoll: event }">{{ event.votingConfig.linkedEventId ? 'Manage linked event' : 'Create linked event' }}</button>
+          <button v-if="event.votingConfig?.enabled" type="button" :disabled="busy" @click="eventSetup = event.eventType === 'team_poll' ? { pollId: event.id, initialEventId: event.votingConfig.linkedEventId || null, initialPoll: event } : { initialEventId: event.id }">{{ event.eventType !== 'team_poll' ? 'Manage event' : event.votingConfig.linkedEventId ? 'Manage linked event' : 'Create linked event' }}</button>
           <button v-if="event.votingConfig?.enabled" type="button" :disabled="busy" @click="reviewing = event">Results &amp; review</button>
           <button v-if="event.votingConfig?.enabled && !event.votingClosedAt" type="button" :disabled="busy" @click="action(event, 'close')">Close voting</button>
           <button type="button" :disabled="busy" @click="action(event, 'delivery')">Delivery history</button>

@@ -232,3 +232,9 @@ it('saves a closing-relative follow-up schedule without sending a message',async
  expect(api.post).toHaveBeenCalledWith('/agencies/4/company-events',expect.objectContaining({reminderConfig:{enabled:true,anchor:'poll_close',offsetsHours:[24,2],channels:{inApp:true,sms:false}}}));
  expect(api.post.mock.calls.every(([url])=>!url.includes('send-'))).toBe(true);w.unmount();
 });
+
+it('opens an actual event’s existing setup instead of creating another linked event',async()=>{
+ api.get.mockImplementation(url=>Promise.resolve({data:url.endsWith('/audience-options')?{users}:[{...savedPoll,eventType:'company_event'}]}));
+ const w=mount(Team,{props:{agencyId:4},global:{stubs:{StaffEventForm:{props:['initialEventId'],template:'<div data-testid="event-setup">{{initialEventId}}</div>'}}}});await flushPromises();
+ expect(w.findAll('button').some(b=>b.text()==='Create linked event')).toBe(false);await w.findAll('button').find(b=>b.text()==='Manage event').trigger('click');await flushPromises();expect(w.get('[data-testid="event-setup"]').text()).toBe('22');expect(api.put).not.toHaveBeenCalled();w.unmount();
+});
