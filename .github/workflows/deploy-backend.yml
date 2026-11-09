@@ -358,6 +358,11 @@ jobs:
           # Secrets are passed via env block to avoid shell expansion of special chars.
           ENV_VARS="^|^NODE_ENV=production"
           ENV_VARS="${ENV_VARS}|APP_BUILD_ID=${GITHUB_SHA}"
+          # Use the untagged service URL: preview and retired builds must not run
+          # calendar maintenance against production while another build is live.
+          SCHEDULING_SERVICE_URL=$(gcloud run services describe "$SERVICE_NAME" --region "$REGION" --format='value(status.url)')
+          test -n "$SCHEDULING_SERVICE_URL"
+          ENV_VARS="${ENV_VARS}|SCHEDULING_WORKER_AUTHORITY_URL=${SCHEDULING_SERVICE_URL}/api/app-version"
           ENV_VARS="${ENV_VARS}|SCHOOL_CLOSURE_NOTICES_ENABLED=true"
           ENV_VARS="${ENV_VARS}|NODE_OPTIONS=--max-old-space-size=1536"
           ENV_VARS="${ENV_VARS}|CORS_ORIGIN=https://fundthred.com,https://www.fundthred.com,https://plotlinepo.com,https://www.plotlinepo.com,https://schoolcarebridge.org,https://www.schoolcarebridge.org,https://app.schoolcarebridge.org,https://qv.app.schoolcarebridge.org,https://michaelvmendez.com,https://familycommandcenterhub.com,https://kiosk.auricwell.com,https://auricwell.com,https://mh4kidz.org,https://www.mh4kidz.org,https://plottwisthq.com,https://www.plottwisthq.com,https://onboarding-frontend-378990906760.us-west3.run.app,https://app.itsco.health,https://app.nextleveluplcc.com,https://app.mh4kidz.com,https://app.plottwistco.com,https://app.mentalrange.org,https://app.rockymountainmentors.org,https://app.risereviveco.com,https://app.rmmentors.com,https://app.theinnerstrengthinstitute.com"
@@ -646,3 +651,14 @@ jobs:
           gcloud run services describe $SERVICE_NAME --region $REGION --format=json \
             | jq -r '.spec.template.spec.containers[0].env[]?.name // empty' 2>/dev/null | sort || echo "(run 'gcloud run services describe onboarding-backend --region us-west3 --format=json' locally to inspect)"
           echo "=== Compare to .github/DEPLOY_SECRETS_CHECKLIST.md ==="
+
+      - name: Verify scheduling worker revision isolation
+        run: |
+          set -euo pipefail
+          node --test scripts/check-scheduling-revisions.test.mjs
+          # Retain only traffic/scaling metadata; never serialize service secrets.
+          gcloud run services describe "$SERVICE_NAME" --region "$REGION" --format=json \
+            | jq '{spec:{template:{metadata:{annotations:.spec.template.metadata.annotations}}},status:{traffic:.status.traffic}}' > /tmp/scheduling-service.json
+          gcloud run revisions list --service="$SERVICE_NAME" --region "$REGION" --format=json \
+            | jq '[.[] | {metadata:{name:.metadata.name,annotations:.metadata.annotations},status:{conditions:.status.conditions}}]' > /tmp/scheduling-revisions.json
+          node scripts/check-scheduling-revisions.mjs /tmp/scheduling-service.json /tmp/scheduling-revisions.json

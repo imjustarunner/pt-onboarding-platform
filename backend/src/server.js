@@ -2731,24 +2731,33 @@ if (!isBootstrap) {
   setInterval(closeEmptyPastMeetings, 5 * 60 * 1000);
 
   let recurringWindowRunning = false;
+  let lastRecurringWindowSweep = 0;
   const recurringWindowTick = async () => {
-    if (recurringWindowRunning) return;
+    if (recurringWindowRunning || Date.now() - lastRecurringWindowSweep < 24 * 60 * 60 * 1000) return;
     recurringWindowRunning = true;
     try {
+      const { canRunSchedulingMaintenance } = await import('./services/schedulingWorkerGate.js');
+      if (!(await canRunSchedulingMaintenance())) return;
       const service = await import('./services/recurringScheduleWindow.service.js');
-      await service.maintainRecurringScheduleWindow();
+      const result = await service.maintainRecurringScheduleWindow();
+      if (!result?.skipped) lastRecurringWindowSweep = Date.now();
     } catch (error) { console.warn('[Recurring schedule window] Retry pending', error.code || 'error'); }
     finally { recurringWindowRunning = false; }
   };
   // A daily idempotent sweep keeps weekly occurrences topped up as their date
   // enters the rolling year, without a weekly burst of invitation messages.
   void recurringWindowTick();
-  setInterval(recurringWindowTick, 24 * 60 * 60 * 1000).unref();
+  // A candidate starts before promotion. Retry ownership promptly after it becomes
+  // live, while retaining one successful materialization sweep per day.
+  setInterval(recurringWindowTick, 5 * 60 * 1000).unref();
   let recurringCalendarRunning=false;
   const recurringCalendarTick=async()=>{
     if(recurringCalendarRunning)return;
     recurringCalendarRunning=true;
-    try { await (await import('./services/recurringScheduleWindow.service.js')).syncRecurringCalendars(); }
+    try {
+      const { canRunSchedulingMaintenance } = await import('./services/schedulingWorkerGate.js');
+      if (await canRunSchedulingMaintenance()) await (await import('./services/recurringScheduleWindow.service.js')).syncRecurringCalendars();
+    }
     catch(error) { console.warn('[Recurring calendars] Retry pending',error.code || 'error'); }
     finally { recurringCalendarRunning=false; }
   };

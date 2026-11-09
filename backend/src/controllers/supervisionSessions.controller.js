@@ -50,8 +50,7 @@ import { joinUrlForSupervision } from '../utils/joinToken.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import SupervisionCasePresentation from '../models/SupervisionCasePresentation.model.js';
 import {
-  wallMysqlToUtcMysql,
-  normalizeWallMysqlDatetime,
+  clientScheduleInstantToUtcMysql,
   subtractHoursFromUtcMysql,
   DEFAULT_SCHEDULE_TZ
 } from '../utils/zonedWallTime.util.js';
@@ -758,19 +757,6 @@ async function assertCanManageGroupSupervision(req, res, { sessionType, existing
     return false;
   }
   return true;
-}
-
-/** Preserve wall digits from datetime-local payloads (no TZ convert). */
-function parseDateTimeLocalString(s) {
-  return normalizeWallMysqlDatetime(s);
-}
-
-/** Wall start + IANA TZ → UTC MySQL for storage. */
-function wallStartEndToUtcMysql(startWall, endWall, timeZone) {
-  const tz = String(timeZone || DEFAULT_SCHEDULE_TZ).trim() || DEFAULT_SCHEDULE_TZ;
-  const startAt = wallMysqlToUtcMysql(startWall, tz);
-  const endAt = wallMysqlToUtcMysql(endWall, tz);
-  return { startAt, endAt, timeZone: tz };
 }
 
 /** Signup closes 1 hour before session start (UTC instant math). */
@@ -3603,10 +3589,9 @@ export const createSupervisionSession = async (req, res, next) => {
     const superviseeUserId = isSignupOnly
       ? (Number.isFinite(superviseeUserIdRaw) && superviseeUserIdRaw > 0 ? superviseeUserIdRaw : supervisorUserId)
       : superviseeUserIdRaw;
-    const startWall = parseDateTimeLocalString(req.body?.startAt);
-    const endWall = parseDateTimeLocalString(req.body?.endAt);
     const supervisionTimeZone = String(req.body?.timeZone || DEFAULT_SCHEDULE_TZ).trim() || DEFAULT_SCHEDULE_TZ;
-    const { startAt, endAt } = wallStartEndToUtcMysql(startWall, endWall, supervisionTimeZone);
+    const startAt = clientScheduleInstantToUtcMysql(req.body?.startAt, supervisionTimeZone);
+    const endAt = clientScheduleInstantToUtcMysql(req.body?.endAt, supervisionTimeZone);
     const sessionType = String(req.body?.sessionType || 'individual').trim().toLowerCase();
     const inviteAudienceAllSupervised = req.body?.inviteAudienceAllSupervised === true;
     const inviteAudienceGroupSupport = req.body?.inviteAudienceGroupSupport === true;
@@ -3650,7 +3635,7 @@ export const createSupervisionSession = async (req, res, next) => {
       )
     ).slice(0, 2);
 
-    if (!startWall || !endWall || !startAt || !endAt) {
+    if (!startAt || !endAt) {
       return res.status(400).json({ error: { message: 'Invalid startAt/endAt' } });
     }
     if (endAt <= startAt) return res.status(400).json({ error: { message: 'endAt must be after startAt' } });
@@ -4012,31 +3997,12 @@ export const patchSupervisionSession = async (req, res, next) => {
     }
 
     const supervisionTimeZone = String(req.body?.timeZone || row.event_timezone || DEFAULT_SCHEDULE_TZ).trim() || DEFAULT_SCHEDULE_TZ;
-    const startWall = req.body?.startAt !== undefined ? parseDateTimeLocalString(req.body?.startAt) : undefined;
-    const endWall = req.body?.endAt !== undefined ? parseDateTimeLocalString(req.body?.endAt) : undefined;
-    let startAt;
-    let endAt;
-    if (startWall !== undefined || endWall !== undefined) {
-      const wallStart = startWall !== undefined ? startWall : normalizeWallMysqlDatetime(row.start_at);
-      const wallEnd = endWall !== undefined ? endWall : normalizeWallMysqlDatetime(row.end_at);
-      // Request body is wall clock; convert to UTC for storage.
-      // When only one side changes, convert that side; keep other from DB if body omitted.
-      if (startWall !== undefined) {
-        startAt = wallMysqlToUtcMysql(startWall, supervisionTimeZone);
-      }
-      if (endWall !== undefined) {
-        endAt = wallMysqlToUtcMysql(endWall, supervisionTimeZone);
-      }
-      // If client sent ISO-Z already (rare), normalizeWallMysqlDatetime/wallMysql may still work.
-      if (startWall !== undefined && !startAt) {
-        return res.status(400).json({ error: { message: 'Invalid startAt' } });
-      }
-      if (endWall !== undefined && !endAt) {
-        return res.status(400).json({ error: { message: 'Invalid endAt' } });
-      }
-      void wallStart;
-      void wallEnd;
-    }
+    // Wall clock input uses the event zone; explicit instants keep their offset.
+    // Preserve the stored UTC value when the other endpoint alone is edited.
+    const startAt = req.body?.startAt === undefined ? undefined : clientScheduleInstantToUtcMysql(req.body.startAt, supervisionTimeZone);
+    const endAt = req.body?.endAt === undefined ? undefined : clientScheduleInstantToUtcMysql(req.body.endAt, supervisionTimeZone);
+    if (startAt !== undefined && !startAt) return res.status(400).json({ error: { message: 'Invalid startAt' } });
+    if (endAt !== undefined && !endAt) return res.status(400).json({ error: { message: 'Invalid endAt' } });
     const wantsTimeChange = startAt !== undefined || endAt !== undefined;
     if (wantsTimeChange) {
       const actorId = Number(req.user?.id || 0);

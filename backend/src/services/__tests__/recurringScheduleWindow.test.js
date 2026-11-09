@@ -111,7 +111,7 @@ it('calendar retries use stable IDs and no invitation emails',async()=>{
  m.execute.mockImplementation(async sql=>sql.startsWith('SELECT e.*')&&sql.includes('supervision_sessions') ? [[session({recurrence_calendar_pending:1,host_email:'host@example.test'})]] : [[]]);
  m.google.mockResolvedValue({ok:true,googleEventId:'stable'});
  await syncRecurringCalendars();
- expect(m.google).toHaveBeenCalledWith(expect.objectContaining({stableInsertId:'reca1d0',sendUpdates:'none',disableReminders:true,startAt:'2027-10-01 16:00:00'}));
+ expect(m.google).toHaveBeenCalledWith(expect.objectContaining({stableInsertId:'reca1d0',sendUpdates:'none',disableReminders:true,startAt:'2027-10-01T16:00:00.000Z'}));
 });
 it('deletes a silent Google copy even if cancellation followed a crash before its ID was saved',async()=>{
  const row=session({status:'CANCELLED',recurrence_series_id:'series',recurrence_calendar_pending:1,recurrence_calendar_generation:1,google_event_id:null,host_email:'host@example.test'});

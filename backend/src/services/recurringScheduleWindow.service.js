@@ -9,6 +9,7 @@ import { utcToZonedMysqlWall, parseUtcDate } from '../utils/officeEventDateTime.
 import { wallMysqlToUtcMysql } from '../utils/zonedWallTime.util.js';
 import { withMeetingWindow } from './meetingWindowConflict.service.js';
 import { parseMeetingSettings } from './meetingSettingsPolicy.js';
+import { providerScheduleCalendarTiming } from '../utils/providerScheduleCalendar.js';
 
 // Explicit allowlists: never copy recordings, consent, attendance, live-room
 // state, RSVP responses, join tokens, payroll completion, or presentation text.
@@ -267,10 +268,9 @@ export async function syncRecurringCalendars() {
               existingGoogleEventId:row.google_event_id, stableInsertId:`rec${kind === 'supervision' ? 'a' : 'b'}${row.id.toString(16)}d${Number(row.recurrence_calendar_generation || 0).toString(16)}`,
               summary:isBlock && Number(row.is_private) ? 'Busy' : row.title || 'Supervision',
               description:isBlock && Number(row.is_private) ? null : [row.description || row.notes,join ? `Join: ${join}` : row.location_text].filter(Boolean).join('\n\n'),
-              allDay:Number(row.all_day) === 1,startDate:recurringCalendarDate(row.start_date),endDate:recurringCalendarDate(row.end_date),
-              // The Google adapter accepts UTC instants and converts to the event zone exactly once.
-              startAt:row.start_at,endAt:row.end_at,
-              timeZone:row.event_timezone || 'America/Denver',sendUpdates:'none',disableReminders:true});
+              // Share the saved-instant contract with booking/edit sync. Explicit Z
+              // values cannot be mistaken for already-converted local clock digits.
+              ...providerScheduleCalendarTiming(row),sendUpdates:'none',disableReminders:true});
           }
           if (result?.ok || result?.skipped) await db.execute(`UPDATE ${def.table} SET google_event_id=?,recurrence_calendar_pending=0 WHERE id=? AND status=?`,[['CANCELLED','MISSED'].includes(row.status) ? null : result.googleEventId || row.google_event_id || null,row.id,row.status]);
         });

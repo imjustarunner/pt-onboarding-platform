@@ -40,6 +40,11 @@ jobs:
         run: |
           npm ci --prefix backend
           npm ci --prefix frontend --ignore-scripts
+      - name: Scheduling UTC inputs, recurring calendar round trips, and worker ownership
+        run: |
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.scheduling-time-integrity.config.js --maxWorkers=2
+          node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.scheduling-time-integrity.config.js --maxWorkers=2
+          node --test backend/src/utils/__tests__/scheduleInstantWrite.util.test.js
       - name: School portals, enrollment, and appointment notice rules
         run: |
           npm test --prefix frontend -- src/components/availability/__tests__/ProviderSchoolDays.test.js src/components/school/redesign/__tests__/SchoolDayBar.test.js

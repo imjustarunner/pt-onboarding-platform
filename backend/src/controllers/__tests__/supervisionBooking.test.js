@@ -58,6 +58,33 @@ it('creates a new cross-agency group with mandatory presenters and optional othe
   ]));
 });
 
+it.each([
+  ['wall clock', '2026-11-19T12:00:00', '2026-11-19T13:00:00'],
+  ['UTC instant', '2026-11-19T19:00:00Z', '2026-11-19T20:00:00Z'],
+  ['numeric offset', '2026-11-19T12:00:00-07:00', '2026-11-19T13:00:00-07:00']
+])('books the same Denver noon from %s without applying the offset twice', async (_label,startAt,endAt) => {
+  const res=response(), next=vi.fn();
+  await createSupervisionSession({user:{id:1,role:'admin'},body:{...body,startAt,endAt}},res,next);
+  expect(next).not.toHaveBeenCalled();
+  expect(res.status).toHaveBeenCalledWith(201);
+  expect(m.create).toHaveBeenCalledWith(expect.objectContaining({startAt:'2026-11-19 19:00:00',endAt:'2026-11-19 20:00:00'}));
+  expect(m.calendar).toHaveBeenCalledWith(expect.objectContaining({startAt:'2026-11-19 19:00:00',endAt:'2026-11-19 20:00:00'}));
+});
+
+it.each([
+  ['wall clock','2099-01-02T12:00:00','2099-01-02T13:00:00'],
+  ['UTC instant','2099-01-02T19:00:00Z','2099-01-02T20:00:00Z'],
+  ['numeric offset','2099-01-02T12:00:00-07:00','2099-01-02T13:00:00-07:00']
+])('reschedules to Denver noon from %s without moving it again',async(_label,startAt,endAt)=>{
+  const old={...session,session_type:'individual',start_at:'2099-01-01 19:00:00',end_at:'2099-01-01 20:00:00',event_timezone:'America/Denver'};
+  const changed={...old,start_at:'2099-01-02 19:00:00',end_at:'2099-01-02 20:00:00'};
+  m.find.mockResolvedValueOnce(old).mockResolvedValue(changed);m.update.mockResolvedValue(changed);m.move.mockResolvedValue({previous:[old]});
+  const res=response(),next=vi.fn();
+  await patchSupervisionSession({params:{id:100},user:{id:1,role:'admin'},body:{startAt,endAt,timeZone:'America/Denver',changeReason:'Move to next day',notifyParticipants:false}},res,next);
+  expect(next).not.toHaveBeenCalled();
+  expect(m.move).toHaveBeenCalledWith(expect.objectContaining({startAt:'2099-01-02 19:00:00',endAt:'2099-01-02 20:00:00'}));
+});
+
 it('records an omitted holiday date as canceled without a presenter or calendar invitation', async () => {
   const res = response(), next = vi.fn();
   await createSupervisionSession({ user: { id: 1, role: 'admin' }, body: { ...body, canceled: true, cancelReason: 'Thanksgiving week', recurrenceSeriesId: 'series' } }, res, next);

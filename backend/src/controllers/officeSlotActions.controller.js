@@ -11,7 +11,7 @@ import { auditExpiredOfficeAssignments } from '../services/officeAssignmentExpir
 import { officeBookingUntil, officeBookingCount } from '../utils/officeBookingLimits.js';
 import { requireProviderAvailabilityAccess } from '../services/providerAvailabilityAccess.service.js';
 import { moveOfficeSessionSeries, moveOfficeSessionOccurrence } from '../services/officeSessionMove.service.js';
-import { wallMysqlToUtcMysql, normalizeWallMysqlDatetime, utcDateToZonedParts } from '../utils/zonedWallTime.util.js';
+import { clientScheduleInstantToUtcMysql, utcMysqlToZonedWallMysql, utcDateToZonedParts } from '../utils/zonedWallTime.util.js';
 import { scheduleSessionNotifications } from '../services/sessionNotification.service.js';
 import Appointment from '../models/Appointment.model.js';
 import { settleAppointment, cancelAppointment } from '../services/appointment.service.js';
@@ -2565,12 +2565,13 @@ export const rescheduleOfficeEvent = async (req, res, next) => {
     const newRoomId = Number(req.body.roomId || event.room_id);
     const room = await OfficeRoom.findById(newRoomId);
     if (!room || Number(room.location_id) !== officeLocationId) return res.status(400).json({ error: { message: 'Choose a room in this office' } });
-    const startWall = normalizeWallMysqlDatetime(req.body.startAt);
-    const endWall = normalizeWallMysqlDatetime(req.body.endAt);
-    if (!startWall || !endWall) return res.status(400).json({ error: { message: 'Valid local start and end times are required' } });
-    const startAt = wallMysqlToUtcMysql(startWall, timeZone);
+    const startAt = clientScheduleInstantToUtcMysql(req.body.startAt, timeZone);
+    const endAt = clientScheduleInstantToUtcMysql(req.body.endAt, timeZone);
+    if (!startAt || !endAt || endAt <= startAt) return res.status(400).json({ error: { message: 'Valid start and end times are required' } });
+    // Derive office-local date/hour only after preserving an explicit input offset.
+    const startWall = utcMysqlToZonedWallMysql(startAt, timeZone);
+    const endWall = utcMysqlToZonedWallMysql(endAt, timeZone);
     assertRoomBookingStart(startAt,timeZone);
-    const endAt = wallMysqlToUtcMysql(endWall, timeZone);
     if (req.body.scope === 'future') {
       if (!event.standing_assignment_id) return res.status(409).json({ error: { message: 'This occurrence is independent of an office series; move only this session' } });
       const oldStart = event.start_at instanceof Date ? event.start_at : new Date(`${String(event.start_at).replace(' ', 'T')}Z`);
