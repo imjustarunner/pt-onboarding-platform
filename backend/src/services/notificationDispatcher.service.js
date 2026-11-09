@@ -244,7 +244,7 @@ class NotificationDispatcherService {
     }
     const appointmentAlert=['client_appointment_reply','kiosk_checkin'].includes(notification.type)?safeAppointmentAlert(notification.type,safeDetails):null;
     const body = notification.type === 'school_closure_notice'
-      ? `${notification.title}. Review your affected schools in the app: ${buildPublicPortalBaseUrl(agency)}/notifications`
+      ? `${notification.title}. Review your affected schools in My Schedule: ${buildPublicPortalBaseUrl(agency)}/my-schedule`
       : urgentSupport
       ? `Urgent: a support request needs your attention. Sign in to claim it and reply securely: ${buildPublicPortalBaseUrl(agency)}`
       : appointmentAlert || staffNotificationBody(notification.type,notification.type==='client_exchange_match'?exchangeLink:buildPublicPortalBaseUrl(agency), { availabilityUrl: buildProviderAvailabilitySettingsUrl(agency) });
