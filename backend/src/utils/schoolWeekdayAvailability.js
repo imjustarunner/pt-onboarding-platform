@@ -14,11 +14,12 @@ export function schoolWeekdayRecord(details, agencyId) {
 export function schoolWeekdayContext(person, assignments, agencyId) {
   const record = schoolWeekdayRecord(person.public_details_json, agencyId);
   const eligible = schoolBasedFocus(person.service_focus) && !excludedFromSchoolRoster(person);
-  return { eligible, requestedAt: record.requestedAt || null, updatedAt: record.updatedAt || null,
+  const needsResponse = eligible && SCHOOL_WEEKDAYS.some(day => !assignments.some(s => s.days?.includes(day)) && typeof record.days?.[day] !== 'boolean');
+  return { eligible, needsResponse, requestedAt: record.requestedAt || null, updatedAt: record.updatedAt || null,
     pending: !!record.requestedAt && (!record.updatedAt || record.requestedAt > record.updatedAt),
     days: SCHOOL_WEEKDAYS.map(day => {
       const schools = assignments.filter(s => s.days?.includes(day));
       const available = record.days?.[day] !== false;
-      return { day, available: schools.length ? true : available, status: schools.length ? 'assigned' : eligible && available ? 'available' : 'unavailable', schools };
+      return { day, answered: typeof record.days?.[day] === 'boolean', available: schools.length ? true : available, status: schools.length ? 'assigned' : eligible && available ? 'available' : 'unavailable', schools };
     }) };
 }

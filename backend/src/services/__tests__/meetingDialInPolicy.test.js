@@ -6,7 +6,7 @@ import { assertDialInMeeting, occurrenceKey, pinDigest, newPersonalPin, personal
 import { verifyDialInWebhook } from '../meetingDialInTransport.service.js';
 import { meetingInvitationContent } from '../meetingInvitationPolicy.js';
 const now = new Date('2026-10-22T18:00:00Z');
-const meeting = { id: 5, agency_id: 2, supervisor_user_id: 7, start_at: '2026-10-22 18:00:00', end_at: '2026-10-22 19:00:00', status: 'SCHEDULED', modality: 'VIRTUAL' };
+const meeting = { meeting_settings_json: {dialIn:true}, id: 5, agency_id: 2, supervisor_user_id: 7, start_at: '2026-10-22 18:00:00', end_at: '2026-10-22 19:00:00', status: 'SCHEDULED', modality: 'VIRTUAL' };
 afterEach(() => vi.useRealTimers());
 describe('personal meeting telephone policy', () => {
   it('limits access to the scheduled window and never reopens closed meetings', () => {
@@ -95,4 +95,13 @@ describe('signed carrier callbacks', () => {
     expect(() => verifyDialInWebhook(raw, '', env)).toThrow();
     expect(() => verifyDialInWebhook(raw, token({ iat: Math.floor(Date.now() / 1000) - 900 }), env)).toThrow();
   });
+});
+
+it('requires an explicit meeting option unless supervision is configured to include dial-in',()=>{
+ const row={...meeting,meeting_settings_json:{dialIn:false}};
+ expect(()=>assertDialInMeeting('supervision',row,{now})).toThrow('not enabled');
+ vi.stubEnv('MEETING_DIAL_IN_REQUIRED_SUPERVISOR_IDS','7');
+ try {expect(()=>assertDialInMeeting('supervision',row,{now})).not.toThrow();
+ expect(()=>assertDialInMeeting('team-meeting',{...row,kind:'TEAM_MEETING'},{now})).toThrow('not enabled');}
+ finally {vi.unstubAllEnvs();}
 });

@@ -92,6 +92,12 @@ export function createDayCancellationService(overrides = {}) {
     now: () => new Date(), timeZone: agencyId => Availability.resolveAgencyTimeZone({ agencyId }),
     participation: args => plannedOutParticipation.list(args), updateParticipation: plannedOutParticipation.apply,
     providerName: async id => { const u = await (await import('../models/User.model.js')).default.findById(id); return [u?.preferred_name || u?.first_name, u?.last_name].filter(Boolean).join(' ') || 'Your provider'; },
+    schoolId: async a => {
+      if (a.schoolOrganizationId) return Number(a.schoolOrganizationId);
+      if (!a.serviceLocationId) return null;
+      const [[row]] = await db.execute('SELECT school_organization_id FROM agency_service_locations WHERE id=? AND agency_id=?', [a.serviceLocationId,a.agencyId]);
+      return Number(row?.school_organization_id) || null;
+    },
     schoolName: async a => {
       if (!a.serviceLocationId) return a.schoolName || null;
       const [[row]] = await db.execute('SELECT school.name FROM agency_service_locations sl JOIN agencies school ON school.id=sl.school_organization_id WHERE sl.id=? AND sl.agency_id=?', [a.serviceLocationId,a.agencyId]);
@@ -122,7 +128,9 @@ export function createDayCancellationService(overrides = {}) {
     for (const scope of plan.scopes) {
       const rows = await deps.listAppointments({ agencyId: scope.agencyId, providerUserId: plan.providerId, windowStart: scope.start, windowEnd: scope.end });
       if (rows.length >= 500) throw fail('This day has too many appointments to review together. Use individual cancellation.', 409);
-      windows.set(scope, rows);
+      const scoped = [];
+      for (const row of rows) if (!plan.schoolId || await deps.schoolId(row) === plan.schoolId) scoped.push(row);
+      windows.set(scope, scoped);
     }
     const excludedAppointments = [...new Set([...windows.values()].flat().filter(a => (!plan.appointmentIds || plan.appointmentIds.includes(Number(a.id)))
       && cancellable.has(String(a.status).toLowerCase()) && utc(a.startAt) > now).map(a => Number(a.id)))];
@@ -181,6 +189,7 @@ export function createDayCancellationService(overrides = {}) {
         const scheduledClients = new Set();
         for (const appointment of appointments) for (const p of await deps.participants(appointment.id)) if (p.clientId) scheduledClients.add(Number(p.clientId));
         for (const row of await deps.roster({ agencyId, providerId: plan.providerId, date })) {
+          if (plan.schoolId && Number(row.school_id) !== plan.schoolId) continue;
           if (plan.windowStart && row.slots?.length && !row.slots.some(s => !s.startTime || !s.endTime || (wallMysqlToUtcMysql(`${date} ${s.startTime}`, timeZone) < end && wallMysqlToUtcMysql(`${date} ${s.endTime}`, timeZone) > start))) continue;
           if (scheduledClients.has(Number(row.client_id))) continue;
           const key = `school_roster:${agencyId}:${plan.providerId}:${date}:${row.client_id}:${row.school_id}`;
@@ -200,11 +209,12 @@ export function createDayCancellationService(overrides = {}) {
       }
       if (notifySchoolOffice && (plan.scopeMode === 'days' || items.some(i => i.kind === 'appointment' && i.date === date && i.agencyId === agencyId))) {
         for (const school of await deps.schools({ providerId: plan.providerId, agencyId, date, reason: plan.facts.clientFacingReason, reasonCategory: plan.facts.reasonCategory, providerAuthored: plan.facts.providerAuthored, wholeDay: plan.scopeMode === 'days', note: plan.facts.followUpMessage })) {
+          if (plan.schoolId && Number(school.id) !== plan.schoolId) continue;
           const reviewed = deps.schoolReview(school, plan.schoolChoices?.[school.key], false);
           items.push({ ...reviewed, providerId:plan.providerId,notificationScope:plan.scopeMode === 'sessions' ? `sessions:${plan.appointmentIds.join(',')}` : 'days', timeZone, source: { recipients: school.recipients }, startAt: stamp(start), endAt: stamp(end) });
         }
       }
-      if (plan.scopeMode === 'sessions') continue;
+      if (plan.scopeMode === 'sessions' || plan.schoolId) continue;
       const otherEvents = !plan.facts.cancelScopes || plan.facts.cancelScopes.includes('other');
       if (!otherEvents && plan.facts.absenceSource === 'planned_out') continue;
       if (otherEvents) for (const kind of ['meeting', 'supervision']) {
@@ -253,7 +263,7 @@ export function createDayCancellationService(overrides = {}) {
     const display = ({ id, key, kind, title, agencyId, timeZone, date, startAt, endAt, note, detail, needsTimeReview, recipients, clients, message, followUpPreview, emailPreviews }) => ({ id, key, kind, title, agencyId, timeZone, date, startAt, endAt, note, detail, needsTimeReview, recipients, clients, message, followUpPreview, emailPreviews });
     const followUpPreview=row.status==='preview' && plan.facts.notificationMode!=='none'
       ? [...new Set(plan.scopes.map(scope=>Number(scope.agencyId)))].flatMap(agencyId=>missingDayCancellationContacts(plan,Object.fromEntries(plan.items.map(item=>[item.key,{status:'completed'}])),agencyId)).map(({initials,date,reason})=>({initials,date,reason})) : [];
-    return { token: row.token, status: row.status, date: plan.date, providerId: plan.providerId,contactFollowUpPreview:followUpPreview,
+    return { token: row.token, status: row.status, schoolId: plan.schoolId || null, date: plan.date, providerId: plan.providerId,contactFollowUpPreview:followUpPreview,
       notificationsOnly: !!plan.notificationsOnly, deferredToken: plan.deferredToken || null, notificationTaskId: results.notificationTaskId || null, reasonCategory: plan.facts.reasonCategory || 'provider_unavailable',
       urgent: plan.facts.urgent !== false, absenceSource: plan.facts.absenceSource || 'cancel_day', dates: plan.dates || [plan.date], scopeMode: plan.scopeMode || 'days', messagesReviewed: plan.messagesReviewed, offeredSlots: plan.facts.offeredSlots, offerDays: plan.facts.offerDays, scopes: plan.scopes, notificationMode: plan.facts.notificationMode || 'send', clientFacingReason: plan.facts.clientFacingReason, followUpAction: plan.facts.followUpAction, followUpMessage: plan.facts.followUpMessage, items: plan.items.map(display),
       unchanged: plan.unchanged.map(display), results,unsentFamilyNotices:plan.items.filter(item=>confirmedUnsentFamily(item,results[item.key])).length,
@@ -265,6 +275,8 @@ export function createDayCancellationService(overrides = {}) {
     const providerId = Number(input.providerId), agencyIds = [...new Set((input.agencyIds || []).map(Number))].sort((a, b) => a - b);
     if (!Number.isSafeInteger(providerId) || providerId < 1 || !agencyIds.length || agencyIds.length > 30 || agencyIds.some(id => !Number.isSafeInteger(id) || id < 1)) throw fail('Choose a provider and at least one agency.');
     await authorize(actor, providerId, agencyIds);
+    const schoolId = input.schoolId == null ? null : Number(input.schoolId);
+    if (schoolId !== null && (!Number.isSafeInteger(schoolId) || schoolId < 1 || agencyIds.length !== 1 || input.absenceSource === 'planned_out')) throw fail('Choose one school and its agency.');
     const dates = [...new Set(input.dates || [input.date])].sort();
     const dateLimit = input.absenceSource === 'planned_out' ? 90 : 14;
     if (!dates.length || dates.length > dateLimit) throw fail(`Choose between one and ${dateLimit} dates.`);
@@ -273,7 +285,7 @@ export function createDayCancellationService(overrides = {}) {
     if (!['days', 'sessions'].includes(scopeMode)) throw fail('Choose selected days or individual sessions.');
     const appointmentIds = scopeMode === 'sessions' ? [...new Set((input.appointmentIds || []).map(Number))] : null;
     if (appointmentIds && (!appointmentIds.length || appointmentIds.some(id => !Number.isSafeInteger(id) || id < 1))) throw fail('Select at least one session.');
-    const plan = { providerId, date: input.date || dates[0], dates, scopeMode, appointmentIds, windowStart: input.windowStart, windowEnd: input.windowEnd, includeUntimedKeys:input.includeUntimedKeys || [],
+    const plan = { providerId, schoolId, date: input.date || dates[0], dates, scopeMode, appointmentIds, windowStart: input.windowStart, windowEnd: input.windowEnd, includeUntimedKeys:input.includeUntimedKeys || [],
       contactFollowUpVersion:1, followupOwner: input.followupOwner === 'support' ? 'support' : 'provider', messagesReviewed: input.messagesReviewed === true, contactChoices: input.contactChoices || {}, schoolChoices: input.schoolChoices || {}, messages: input.messages || {}, facts: { ...dayCancellationFacts(input), providerAuthored: Number(actor.id) === providerId }, internalReason: String(input.internalReason || '').trim().slice(0, 2000), scopes: [] };
     for (const agencyId of agencyIds) for (const date of dates) {
       const timeZone = input.absenceSource === 'planned_out' && input.timeZone ? input.timeZone : await deps.timeZone(agencyId), bounds = dayBounds(date, timeZone);
@@ -323,7 +335,7 @@ export function createDayCancellationService(overrides = {}) {
         if (current.fingerprint !== plan.fingerprint) throw fail('The schedule changed. Review the day again before canceling.', 409);
         await conn.beginTransaction();
         try {
-          for (const scope of plan.notificationsOnly || plan.scopeMode === 'sessions' || plan.facts.absenceSource === 'planned_out' ? [] : plan.scopes) {
+          for (const scope of plan.notificationsOnly || plan.schoolId || plan.scopeMode === 'sessions' || plan.facts.absenceSource === 'planned_out' ? [] : plan.scopes) {
             await conn.execute(`INSERT INTO provider_schedule_events
               (agency_id,provider_id,kind,title,description,is_private,all_day,start_at,end_at,start_date,end_date,event_timezone,status,created_by_user_id,updated_by_user_id)
               VALUES (?,?,'SCHEDULE_HOLD','Unavailable',NULL,1,1,?,?,?,?,?,'ACTIVE',?,?)`,
@@ -462,6 +474,7 @@ export function createDayCancellationService(overrides = {}) {
     }
     const refreshSchoolNotices = !plan.unsentRecovery && (plan.facts.absenceSource === 'planned_out' ? plan.facts.cancelScopes?.includes('school') === true : plan.facts.urgent !== false);
     for (const scope of refreshSchoolNotices ? plan.scopes : []) for (const school of await deps.schools({ providerId: plan.providerId, agencyId: scope.agencyId, date: scope.date || plan.date, reason: plan.facts.clientFacingReason, reasonCategory: plan.facts.reasonCategory, providerAuthored: plan.facts.providerAuthored, wholeDay: plan.scopeMode === 'days', note: plan.facts.followUpMessage })) {
+      if (plan.schoolId && Number(school.id) !== plan.schoolId) continue;
       if (plan.scopeMode === 'sessions' && !items.some(i => i.agencyId === scope.agencyId && i.date === (scope.date || plan.date))) continue;
       items.push({ ...deps.schoolReview(school, plan.schoolChoices?.[school.key], false), source: { recipients: school.recipients }, timeZone: scope.timeZone });
     }

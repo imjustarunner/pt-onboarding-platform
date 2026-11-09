@@ -70,7 +70,7 @@ describe.skipIf(!enabled)('telephone meeting lifecycle with isolated MySQL', () 
     await m.db.query('UPDATE users SET personal_phone=NULL,work_phone=NULL,phone_number=NULL');
     await m.db.query('DELETE FROM meeting_calendar_guests');
     for (const table of ['meeting_dial_in_deliveries','meeting_dial_in_calls','meeting_dial_in_invitations','supervision_session_attendance_events','supervision_session_attendance_rollups','supervision_session_video_admissions','supervision_session_join_presence','supervision_session_attendees','supervision_sessions','provider_schedule_events','provider_schedule_event_attendees','meeting_participant_preferences','provider_schedule_event_join_presence','provider_schedule_event_video_admissions','provider_schedule_event_attendance_segments','agency_meeting_attendance_rollups']) await m.db.query(`DELETE FROM ${table}`);
-    await m.db.query("INSERT INTO supervision_sessions(id,agency_id,supervisor_user_id,supervisee_user_id,start_at,end_at,status,modality,waiting_room_enabled) VALUES (5,2,7,8,DATE_SUB(UTC_TIMESTAMP(),INTERVAL 10 MINUTE),DATE_ADD(UTC_TIMESTAMP(),INTERVAL 50 MINUTE),'SCHEDULED','VIRTUAL',1)");
+    await m.db.query("INSERT INTO supervision_sessions(id,agency_id,supervisor_user_id,supervisee_user_id,start_at,end_at,status,modality,waiting_room_enabled,meeting_settings_json) VALUES (5,2,7,8,DATE_SUB(UTC_TIMESTAMP(),INTERVAL 10 MINUTE),DATE_ADD(UTC_TIMESTAMP(),INTERVAL 50 MINUTE),'SCHEDULED','VIRTUAL',1,JSON_OBJECT('dialIn',true))");
     await m.db.query("INSERT INTO supervision_session_attendees(session_id,user_id,status) VALUES (5,7,'INVITED'),(5,8,'INVITED')");
     await m.db.query('UPDATE user_agencies SET is_active=1');
     callStatus = new Map();
@@ -328,7 +328,7 @@ describe.skipIf(!enabled)('telephone meeting lifecycle with isolated MySQL', () 
     expect((await callWithInvitation(next.id)).state).toBe('ended');
   });
   it.each([['TEAM_MEETING','admin'],['TEAM_MEETING','general'],['HUDDLE','huddle']])('tracks an invited phone participant in %s / %s and syncs only their claim', async(kind,subtype)=>{
-    await m.db.execute("INSERT INTO provider_schedule_events(id,agency_id,provider_id,kind,meeting_subtype,start_at,end_at,status,waiting_room_enabled) VALUES (5,2,7,?,?,DATE_SUB(UTC_TIMESTAMP(),INTERVAL 10 MINUTE),DATE_ADD(UTC_TIMESTAMP(),INTERVAL 50 MINUTE),'ACTIVE',0)",[kind,subtype]);
+    await m.db.execute("INSERT INTO provider_schedule_events(id,agency_id,provider_id,kind,meeting_subtype,start_at,end_at,status,waiting_room_enabled,meeting_settings_json) VALUES (5,2,7,?,?,DATE_SUB(UTC_TIMESTAMP(),INTERVAL 10 MINUTE),DATE_ADD(UTC_TIMESTAMP(),INTERVAL 50 MINUTE),'ACTIVE',0,JSON_OBJECT('dialIn',true))",[kind,subtype]);
     await m.db.query('INSERT INTO provider_schedule_event_attendees VALUES (5,8)');
     const peer=await enter(8,null,'team-meeting');await reconcileDialInCall(peer.id);
     const connected=await callWithInvitation(peer.id);expect(connected.state).toBe('connected');

@@ -6,6 +6,7 @@ export const normalizedEmail = value => {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address) ? address : null;
 };
 export function closureEmailOptions(user = {}) {
+  user ||= {};
   // The login identifies the configured Workspace user/Group. Older work_email
   // contact fields can contain a personal address and must not override it.
   const work = normalizedEmail(user.email || user.work_email);

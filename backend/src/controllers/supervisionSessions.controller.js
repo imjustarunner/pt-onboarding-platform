@@ -1,3 +1,4 @@
+import { requiredDialInSupervisors, supervisionDialInRequired } from '../services/meetingDialInPolicy.js';
 import { dialInConfigured } from '../services/meetingDialInPolicy.js';
 import {reserveSupervisionJoin,supervisionJoinOccupancy} from '../services/supervisionJoinCapacity.service.js';
 import { createOrGetMeetingRoom } from '../services/video.service.js';
@@ -1716,7 +1717,7 @@ export const listSupervisionProviderCandidates = async (req, res, next) => {
         facilitators = [];
       }
       const supervisorGroups = await buildSupervisorLockedGroups(supervisorUserId, { agencyId });
-      return res.json({ ok: true, agencyId, agencyIds: [agencyId], mode, audience, providers, facilitators, supervisorGroups });
+      return res.json({ ok: true, agencyId, agencyIds: [agencyId], mode, audience, providers, facilitators, supervisorGroups, dialInRequiredSupervisorIds: requiredDialInSupervisors() });
     }
 
     if (mode === 'individual' && audience !== 'assigned') {
@@ -1805,6 +1806,7 @@ export const listSupervisionProviderCandidates = async (req, res, next) => {
       audience,
       providers,
       facilitators,
+      dialInRequiredSupervisorIds: requiredDialInSupervisors(),
       supervisorGroups
     });
   } catch (e) {
@@ -3708,6 +3710,7 @@ export const createSupervisionSession = async (req, res, next) => {
     );
     const meetingReminderMinutes = normalizeMeetingReminder(req.body?.reminderMinutes);
     const reminderSettings = {
+      dialIn: supervisionDialInRequired(supervisorUserId) || normalizeMeetingSettings({dialIn: req.body?.dialInEnabled ?? false}).dialIn,
       signupInvitationEnabled: isSignupOnly && req.body?.signupInvitationEnabled === true,
       audienceAgencyIds, mandatoryAttendeeUserIds: requiredAttendeeUserIds,
       ...(req.body?.reminderOffsets === undefined ? {} : {reminders:normalizeMeetingSettings({reminders:req.body.reminderOffsets}).reminders}),
@@ -4064,6 +4067,7 @@ export const patchSupervisionSession = async (req, res, next) => {
     if (+parseUtcDate(nextEnd) <= +parseUtcDate(nextStart)) return res.status(400).json({ error: { message: 'endAt must be after startAt' } });
 
     const nextReminderMinutes = req.body?.reminderMinutes === undefined ? undefined : normalizeMeetingReminder(req.body.reminderMinutes);
+    const nextDialIn = supervisionDialInRequired(row.supervisor_user_id) ? true : req.body?.dialInEnabled === undefined ? undefined : normalizeMeetingSettings({dialIn: req.body.dialInEnabled}).dialIn;
     const nextReminderOffsets = req.body?.reminderOffsets === undefined ? undefined : normalizeMeetingSettings({reminders:req.body.reminderOffsets}).reminders;
     const nextAttendanceReminders = req.body?.attendanceReminders === undefined ? undefined : normalizeAttendanceReminders(req.body.attendanceReminders);
     const scope = String(req.body?.scope || 'single').trim().toLowerCase();
@@ -4100,7 +4104,7 @@ export const patchSupervisionSession = async (req, res, next) => {
       if (requestedFrequency === 'ONCE' && seriesId) return res.status(400).json({error:{message:'Use Cancel session → This and all future sessions to stop this series.'}});
       recurrenceResult = await makeSupervisionRecurring({id,frequency:requestedFrequency,policy:req.body.recurrencePolicy,occurrenceCount:req.body.recurrenceOccurrenceCount,startAt:nextStart,endAt:nextEnd,timeZone:supervisionTimeZone,actorUserId:actorId,
         details:{session_type:sessionType,notes,modality,location_text:locationText,waiting_room_enabled:waitingRoomEnabled === undefined ? undefined : Number(waitingRoomEnabled),notify_participants:Number(notifyParticipants),reminder_minutes:nextReminderMinutes,
-          meeting_settings_json:JSON.stringify({...parseMeetingSettings(row.meeting_settings_json),...(nextReminderOffsets === undefined ? {} : {reminders:nextReminderOffsets}),...(nextAttendanceReminders === undefined ? {} : {attendanceReminders:nextAttendanceReminders})})}});
+          meeting_settings_json:JSON.stringify({...parseMeetingSettings(row.meeting_settings_json),...(nextDialIn === undefined ? {} : {dialIn:nextDialIn}),...(nextReminderOffsets === undefined ? {} : {reminders:nextReminderOffsets}),...(nextAttendanceReminders === undefined ? {} : {attendanceReminders:nextAttendanceReminders})})}});
       // Conversion already stores the anchor time under the same transaction as its future dates.
       row.start_at = nextStart;
       row.end_at = nextEnd;
@@ -4131,7 +4135,7 @@ export const patchSupervisionSession = async (req, res, next) => {
       });
       if (occId === id) updated = rowUpdated;
       if (nextReminderMinutes !== undefined) await pool.execute('UPDATE supervision_sessions SET reminder_minutes=? WHERE id=?',[nextReminderMinutes,occId]);
-      if (nextReminderOffsets !== undefined || nextAttendanceReminders !== undefined) await pool.execute('UPDATE supervision_sessions SET meeting_settings_json=? WHERE id=?',[JSON.stringify({...parseMeetingSettings((await SupervisionSession.findById(occId)).meeting_settings_json),...(nextReminderOffsets === undefined ? {} : {reminders:nextReminderOffsets}),...(nextAttendanceReminders === undefined ? {} : {attendanceReminders:nextAttendanceReminders})}),occId]);
+      if (nextDialIn !== undefined || nextReminderOffsets !== undefined || nextAttendanceReminders !== undefined) await pool.execute('UPDATE supervision_sessions SET meeting_settings_json=? WHERE id=?',[JSON.stringify({...parseMeetingSettings((await SupervisionSession.findById(occId)).meeting_settings_json),...(nextDialIn === undefined ? {} : {dialIn:nextDialIn}),...(nextReminderOffsets === undefined ? {} : {reminders:nextReminderOffsets}),...(nextAttendanceReminders === undefined ? {} : {attendanceReminders:nextAttendanceReminders})}),occId]);
       if (timingChanged) await pool.execute('UPDATE supervision_sessions SET event_timezone=? WHERE id=?',[supervisionTimeZone,occId]);
       if (req.body?.signupInvitationEnabled !== undefined) await pool.execute("UPDATE supervision_sessions SET meeting_settings_json=JSON_SET(COALESCE(meeting_settings_json,JSON_OBJECT()),'$.signupInvitationEnabled',CAST(? AS JSON)) WHERE id=?", [JSON.stringify(req.body.signupInvitationEnabled === true),occId]);
       if (req.body?.notifyParticipants !== undefined) await pool.execute('UPDATE supervision_sessions SET notify_participants=? WHERE id=?',[notifyParticipants?1:0,occId]);

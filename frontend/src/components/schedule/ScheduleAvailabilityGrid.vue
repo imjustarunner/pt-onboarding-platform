@@ -19,18 +19,18 @@
       @details="openPersonalSupervisionDetails" @saved="refreshPersonalSupervisionRsvp" @join="joinPersonalSupervision" />
     <OfferedTimeDialog v-if="offeredTime" :item="offeredTime" @close="offeredTime=null" @released="onOfferReleased" />
     <SchoolSoftScheduleDialog v-if="selectedSchoolSoftBlock" :block="selectedSchoolSoftBlock" :can-cancel-day="canBookFromGrid"
-      @close="selectedSchoolSoftBlock = null" @cancel-day="date => { selectedSchoolSoftBlock = null; cancelDayDate = date; }" />
+      @close="selectedSchoolSoftBlock = null" @cancel-day="date => { selectedSchoolSoftBlock = null; cancelDaySchool = null; cancelDayDate = date; }" />
     <DayCancellationDialog v-if="cancelDayDate" :date="cancelDayDate" :time-zone="bookingTimezoneIana" :provider-id="Number(userId || authStore.user?.id)"
-      :agency-id="Number(effectiveAgencyId || 0)" :agency-options="headerTenantOptions"
+      :agency-id="Number(cancelDaySchool?.agencyId || effectiveAgencyId || 0)" :agency-options="cancelDaySchool ? [{id:cancelDaySchool.agencyId,label:cancelDaySchool.schoolName}] : headerTenantOptions" :school-id="cancelDaySchool?.schoolOrganizationId" :school-name="cancelDaySchool?.schoolName"
       @close="cancelDayDate = ''" @saved="onDayCancelled" />
     <ProviderDayNoteDialog v-if="dayNoteDate" :date="dayNoteDate" :time-zone="bookingTimezoneIana" :provider-id="Number(userId || authStore.user?.id)"
       :agency-ids="effectiveAgencyIds" @close="dayNoteDate = ''" />
     <SchoolWeekdayEditor v-if="schoolWeekdayEditorAgency" :provider-id="Number(userId || authStore.user?.id)" :agency-id="schoolWeekdayEditorAgency"
       @close="schoolWeekdayEditorAgency = 0" @saved="loadSchoolWeekdays" />
     <SchoolAssignmentRailPanel v-if="schoolRailDetail" :detail="schoolRailDetail" :provider-id="Number(userId || authStore.user?.id)"
-      :time-zone="bookingTimezoneIana" :can-cancel="canBookFromGrid" :can-request="canRequestSchoolChange"
+      :time-zone="bookingTimezoneIana" :time-format="scheduleTimeFormat" :can-cancel="canBookFromGrid" :can-request="canRequestSchoolChange"
       @close="schoolRailDetail = null" @request-change="openSchoolAssignmentRequest(false)" @adjust-slots="openSchoolAssignmentRequest(true)"
-      @changed="onSchoolDayClosed" />
+      @changed="onSchoolDayClosed" @cancel-with-families="openSchoolFamilyCancellation" />
     <div v-if="scheduleChangeNotice" class="hint" role="status" style="padding:12px;border:1px solid currentColor;border-radius:8px;margin-bottom:12px;">
       {{ scheduleChangeNotice }} <button type="button" class="btn btn-secondary btn-sm" @click="scheduleChangeNotice=''">Dismiss</button>
     </div>
@@ -502,6 +502,7 @@
                 <option value="full">Full names</option>
               </select>
             </label>
+            <label class="sched-client-names"><span>Time format</span><select v-model="scheduleTimeFormat" class="sched-select" @change="saveClientNameDisplay"><option value="12h">12-hour · 8 AM</option><option value="24h">24-hour · 08:00</option></select></label>
             <span class="sched-display-preferences__hint">On calendar cards and hover text. Open an appointment for client details.</span>
           </div>
               <div v-if="agencyFilterOptions.length > 1" class="sched-organization-options">
@@ -906,11 +907,7 @@
       </details>
     </div>
 
-    <div v-if="summary?.schoolAssignments?.length" class="school-commitment-summary" aria-label="Assigned school hours" style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0">
-      <button v-for="assignment in summary.schoolAssignments" :key="`${assignment.agencyId}-${assignment.schoolOrgId}-${assignment.dayOfWeek}`" class="btn btn-secondary btn-sm" type="button" @click="openSchoolRail(assignment)">
-        {{assignment.schoolName}} · {{assignment.dayOfWeek}} {{assignment.startTime}}–{{assignment.endTime}} · Hours / client spots
-      </button>
-    </div>
+
     <div v-if="showAvailabilityEditor && Number(props.userId || 0)" class="sched-availability-panel" data-tour="my-schedule-availability-panel">
       <div class="sched-availability-panel__head">
         <strong>Availability Hours &amp; Planned Out</strong>
@@ -1529,7 +1526,8 @@
                     'cell-block-school-session-blocked': !!b.schoolClosure && b.kind !== 'school'
                   }
                 ]"
-                :aria-label="b.title"
+                :aria-label="b.schoolRail ? `${b.schoolName} — open school details` : b.title"
+                :title="b.schoolRail ? `${b.schoolName} — click for school details` : b.title"
                 :role="b.kind === 'school-soft' || b.schoolRail ? 'button' : undefined"
                 :tabindex="b.kind === 'school-soft' || b.schoolRail ? 0 : undefined"
                 @keydown.enter="(b.kind === 'school-soft' || b.schoolRail) && onCellBlockClick($event, b, d, slot.hour, slot.minute, true)"
@@ -1612,7 +1610,7 @@
                   <span v-if="b.signupHostName" class="cell-block-signup-host">{{ b.signupHostName }}</span>
                 </span>
                 <span v-else-if="b.schoolRail" class="school-day-rail">
-                  <img v-if="b.schoolLogoUrl" class="school-day-rail__logo" :src="b.schoolLogoUrl" alt="" />
+                  <span class="school-day-rail__info" aria-hidden="true">ⓘ</span>
                   <span class="school-day-rail__name">{{ b.shortLabel }}</span>
                 </span>
                 <span v-else-if="b.kind === 'school-soft'" class="cell-block-text">
@@ -2119,6 +2117,8 @@
               v-model:waiting-room-enabled="editorSupervisionWaitingRoomEnabled"
               v-model:reminder-minutes="meetingReminderMinutes"
               v-model:reminder-offsets="supervisionReminderOffsets"
+              v-model:dial-in-enabled="supervisionDialInEnabled"
+              :dial-in-required="supervisionDialInRequired"
               v-model:attendance-reminders="supervisionAttendanceReminders"
               v-model:notify-participants="notifyMeetingParticipants"
               v-model:group-mode="supervisionGroupModeEnabled"
@@ -3674,6 +3674,8 @@
               v-model:waiting-room-enabled="editorSupervisionWaitingRoomEnabled"
               v-model:reminder-minutes="meetingReminderMinutes"
               v-model:reminder-offsets="supervisionReminderOffsets"
+              v-model:dial-in-enabled="supervisionDialInEnabled"
+              :dial-in-required="supervisionDialInRequired"
               v-model:attendance-reminders="supervisionAttendanceReminders"
               v-model:notify-participants="notifyMeetingParticipants"
               v-model:group-mode="supervisionGroupModeEnabled"
@@ -6005,6 +6007,7 @@ import { schoolSoftScheduleBlocks, schoolSoftBlocksInCell } from '../../utils/sc
 import { assignmentSchoolId, assignmentStartsInCell, closureForSchoolDate, schoolRailSummary, schoolRailTone } from '../../utils/schoolAssignmentRail.js';
 import { ownsIndependentBusiness } from '../../utils/independentBusinessAccess.js';
 import SchoolAssignmentRailPanel from './SchoolAssignmentRailPanel.vue';
+import { formatScheduleClock } from '../../utils/scheduleClock.js';
 import SchoolAvailabilityIcon from '../availability/SchoolAvailabilityIcon.vue';
 import SchoolWeekdayEditor from '../availability/SchoolWeekdayEditor.vue';
 import ProviderDayNoteDialog from './ProviderDayNoteDialog.vue';
@@ -6205,7 +6208,7 @@ const loadMyScheduleColors = async () => {
       } catch { /* Keep the old version so a later visit retries the migration. */ }
     }
     loadCustomHoldReasonsFromPrefs(display);
-    if (!clientNameDisplayEdited) clientNameDisplay.value = normalizeClientNameDisplay(display?.clientNameDisplay ?? loadDisplayPrefsLocal()?.clientNameDisplay);
+    if (!clientNameDisplayEdited) { clientNameDisplay.value = normalizeClientNameDisplay(display?.clientNameDisplay ?? loadDisplayPrefsLocal()?.clientNameDisplay); scheduleTimeFormat.value = (display?.timeFormat ?? loadDisplayPrefsLocal()?.timeFormat) === '24h' ? '24h' : '12h'; }
     if (display?.layoutDefaultsVersion === 2 && display.scheduleSideBySide != null) scheduleSideBySide.value = !!display.scheduleSideBySide;
     if (display && props.mode === 'self') {
       applyDisplayPrefs(display);
@@ -6372,18 +6375,25 @@ const gridMinHour = computed(() => hours.value[0] ?? 7);
 const gridMaxHour = computed(() => (hours.value.at(-1) ?? 21) + 1);
 const selectedSchoolSoftBlock = ref(null);
 watch(() => props.userId, () => { selectedSchoolSoftBlock.value = null; });
-const schoolSoftBlocks = computed(() => schoolSoftScheduleBlocks(summary.value?.schoolSoftSessions || [], bookingTimezoneIana.value).map(block => scheduleClientFace(block, clientNameDisplay.value)));
+const schoolSoftBlocks = computed(() => schoolSoftScheduleBlocks(summary.value?.schoolSoftSessions || [], bookingTimezoneIana.value, scheduleTimeFormat.value).map(block => scheduleClientFace(block, clientNameDisplay.value)));
 const untimedSchoolBlocksForDay = day => {
   const date = addDaysYmd(summary.value?.weekStart || weekStart.value, dayIdxFromWeekStartMonday(day));
   return schoolSoftBlocks.value.filter(block => block.untimed && block.displayDate === date);
 };
 const hasVisibleUntimedSchoolItems = computed(() => visibleDays.value.some(day => untimedSchoolBlocksForDay(day).length));
 const cancelDayDate = ref('');
+const cancelDaySchool = ref(null);
+function openSchoolFamilyCancellation() {
+  cancelDaySchool.value = {...schoolRailDetail.value};
+  cancelDayDate.value = schoolRailDetail.value.dateYmd;
+  schoolRailDetail.value = null;
+}
 const dayNoteDate = ref('');
 const schoolRailDetail = ref(null);
 const schoolRequestFocusSlots = ref(false);
 const canRequestSchoolChange = computed(() => Number(scheduleActorUserId.value) === Number(authStore.user?.id));
 const openDayCancellation = (day) => {
+  cancelDaySchool.value = null;
   cancelDayDate.value = addDaysYmd(summary.value?.weekStart || weekStart.value, dayIdxFromWeekStartMonday(day));
 };
 const openDayNote = (day) => {
@@ -6766,6 +6776,7 @@ const openMobileDayHour = (hour) => {
 const rowHeightMode = ref('normal');
 const scheduleSideBySide = ref(true);
 const clientNameDisplay = ref('full');
+const scheduleTimeFormat = ref('12h');
 let clientNameDisplayEdited = false;
 const initializedOverlayDefaults = ref(false);
 
@@ -6812,6 +6823,7 @@ const collectDisplayPrefs = () => ({
   schedulePaletteVersion: schedulePaletteVersion.value,
   scheduleSideBySide: scheduleSideBySide.value,
   clientNameDisplay: clientNameDisplay.value,
+  timeFormat: scheduleTimeFormat.value,
   rowHeightMode: normalizeRowHeightMode(rowHeightMode.value),
   spanMode: normalizeSpanMode(scheduleSpanMode.value),
   weekStartsOn: effectiveWeekStartsOn.value === 'sunday' ? 'sunday' : 'monday',
@@ -6866,17 +6878,17 @@ const saveClientNameDisplay = () => {
   clientNameDisplayEdited = true;
   const uid = Number(authStore.user?.id || 0);
   if (!uid) return;
-  const value = clientNameDisplay.value;
+  const value = clientNameDisplay.value, timeFormat = scheduleTimeFormat.value;
   try {
     const local = loadDisplayPrefsLocal() || {};
-    window.localStorage.setItem(displayPrefsKey.value, JSON.stringify({ ...local, clientNameDisplay: value }));
+    window.localStorage.setItem(displayPrefsKey.value, JSON.stringify({ ...local, clientNameDisplay: value, timeFormat }));
   } catch { /* Saving to the account still works when local storage is unavailable. */ }
   // Serialize rapid changes so an older response cannot overwrite the latest choice.
   clientNameSaveQueue = clientNameSaveQueue.then(async () => {
     try {
       const { data } = await api.get(`/users/${uid}/preferences`, { skipGlobalLoading: true });
       await api.put(`/users/${uid}/preferences`, {
-        schedule_display_prefs: { ...(parseJsonMaybe(data?.schedule_display_prefs) || {}), clientNameDisplay: value }
+        schedule_display_prefs: { ...(parseJsonMaybe(data?.schedule_display_prefs) || {}), clientNameDisplay: value, timeFormat }
       }, { skipGlobalLoading: true });
     } catch { /* The viewer's local choice still applies offline. */ }
   });
@@ -6898,6 +6910,7 @@ const saveDisplayPrefs = () => {
 try {
   const ownLocal = loadDisplayPrefsLocal();
   clientNameDisplay.value = normalizeClientNameDisplay(ownLocal?.clientNameDisplay);
+  scheduleTimeFormat.value = ownLocal?.timeFormat === '24h' ? '24h' : '12h';
   if (ownLocal?.layoutDefaultsVersion === 2 && ownLocal.scheduleSideBySide != null) scheduleSideBySide.value = !!ownLocal.scheduleSideBySide;
   if (props.mode === 'self') {
     const local = (() => {
@@ -8326,12 +8339,12 @@ const toLocalDateNoon = (dateLike) => {
 const hourLabel = (h) => {
   const d = new Date();
   d.setHours(Number(h), 0, 0, 0);
-  return d.toLocaleTimeString([], { hour: 'numeric' });
+  return formatScheduleClock(`${pad2(h)}:00`, scheduleTimeFormat.value);
 };
 const hourMinuteLabel = (h, m = 0) => {
   const d = new Date();
   d.setHours(Number(h), Number(m), 0, 0);
-  return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  return formatScheduleClock(`${pad2(h)}:${pad2(m)}`, scheduleTimeFormat.value);
 };
 
 const startOfWeekMondayYmd = (dateLike) => {
@@ -10988,7 +11001,7 @@ const roundDateToNearestQuarter = (raw) => {
 const quarterClockLabel = (raw) => {
   const d = roundDateToNearestQuarter(raw);
   if (!d) return '';
-  return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  return formatScheduleClock(`${pad2(h)}:${pad2(m)}`, scheduleTimeFormat.value);
 };
 
 /** Clock label for this schedule cell (15- or 60-min), used for Therapy Notes / ebusy titles and row prefixes. */
@@ -11014,8 +11027,8 @@ const clockRangeLabel = (startRaw, endRaw, wallInput = false) => {
   const s = parse(startRaw);
   const e = parse(endRaw);
   if (!s || !e) return '';
-  const sLabel = s.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-  const eLabel = e.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const sLabel = formatScheduleClock(`${pad2(s.getHours())}:${pad2(s.getMinutes())}`, scheduleTimeFormat.value);
+  const eLabel = formatScheduleClock(`${pad2(e.getHours())}:${pad2(e.getMinutes())}`, scheduleTimeFormat.value);
   return `${sLabel}–${eLabel}`;
 };
 
@@ -12053,7 +12066,7 @@ const buildCellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout 
       shortLabel: assignment.schoolName || 'School',
       title: closure
         ? `${assignment.schoolName || 'School'} — ${closure.kind === 'sessions_prohibited' ? 'Sessions prohibited' : 'No school'} — ${closure.reason || closure.title || ''}`
-        : `${assignment.schoolName || 'School'} assigned${agencySuffix(agencyId ? [agencyId] : [])} — ${dayName} ${startClock}–${endClock}`,
+        : `${assignment.schoolName || 'School'} assigned${agencySuffix(agencyId ? [agencyId] : [])} — ${dayName} ${formatScheduleClock(startClock,scheduleTimeFormat.value)}–${formatScheduleClock(endClock,scheduleTimeFormat.value)}`,
       agencyId,
       dateYmd: schoolDate,
       dayName,
@@ -12861,6 +12874,10 @@ const scheduleEventRecurrence = ref('ONCE'); // ONCE | WEEKLY | BIWEEKLY | EVERY
 const scheduleEventRecurrenceEndMode = ref('indefinite'); // count | indefinite
 const scheduleEventOccurrenceCount = ref(7); // 1–104 for recurring meeting/huddle
 const supervisionReminderOffsets = ref([5]);
+const supervisionDialInEnabled = ref(false);
+const supervisionEditingDialInRequired = ref(false);
+const supervisionDialInRequiredIds = ref([]);
+const supervisionDialInRequired = computed(() => supervisionEditingDialInRequired.value || supervisionDialInRequiredIds.value.includes(Number(supervisionFacilitatorUserId.value || supervisionGroupSupervisorUserId.value)));
 const supervisionAttendanceReminders = ref({ mandatory: [1440, 5], optional: [1440, 5], presenter: [10080, 2880, 1440, 180, 60] });
 const supervisionRecurrence = ref('ONCE');
 const supervisionRecurrenceEndMode = ref('indefinite'); // count | indefinite
@@ -18998,6 +19015,7 @@ const loadSupervisionProviders = async () => {
     };
     if (!supervisionUsingAllAgencies.value) facParams.agencyId = agencyId;
     const facRes = await api.get('/supervision/providers', { params: facParams, skipGlobalLoading: true });
+    supervisionDialInRequiredIds.value = facRes?.data?.dialInRequiredSupervisorIds || [];
     supervisionFacilitators.value = Array.isArray(facRes?.data?.facilitators) ? facRes.data.facilitators : [];
     supervisionLockedGroups.value = Array.isArray(facRes?.data?.supervisorGroups)
       ? facRes.data.supervisorGroups.map((g) => ({
@@ -19354,6 +19372,8 @@ const openSlotActionModal = async ({
   notifyMeetingChanges.value = true;
   meetingReminderMinutes.value = 5;
   supervisionReminderOffsets.value = [5];
+  supervisionDialInEnabled.value = false;
+  supervisionEditingDialInRequired.value = false;
   supervisionAttendanceReminders.value = { mandatory: [1440, 5], optional: [1440, 5], presenter: [10080, 2880, 1440, 180, 60] };
   notifyMeetingParticipants.value = true;
   scheduleEventRecurrence.value = 'ONCE';
@@ -21456,6 +21476,8 @@ const closeModal = () => {
   notifyMeetingChanges.value = true;
   meetingReminderMinutes.value = 5;
   supervisionReminderOffsets.value = [5];
+  supervisionDialInEnabled.value = false;
+  supervisionEditingDialInRequired.value = false;
   supervisionAttendanceReminders.value = { mandatory: [1440, 5], optional: [1440, 5], presenter: [10080, 2880, 1440, 180, 60] };
   notifyMeetingParticipants.value = true;
   createAgendaDraftTitle.value = '';
@@ -23066,6 +23088,7 @@ const submitRequest = async () => {
           waitingRoomEnabled: !!editorSupervisionWaitingRoomEnabled.value,
           reminderMinutes: meetingReminderMinutes.value,
       reminderOffsets: supervisionReminderOffsets.value,
+      dialInEnabled: supervisionDialInRequired.value || supervisionDialInEnabled.value,
       ...(supervisionGroupModeEnabled.value ? { attendanceReminders: supervisionAttendanceReminders.value } : {}),
                   meetingSettings: meetingSettings.value,
                   notifyChanges: notifyMeetingChanges.value,
@@ -24629,6 +24652,8 @@ const openSupvModal = (dayName, hour) => {
   supvEndIsoLocal.value = toDatetimeLocalValue(parseMaybeDate(first.endAt));
   supvNotes.value = String(first.notes || '');
   meetingReminderMinutes.value = first.reminderMinutes === undefined ? 5 : first.reminderMinutes;
+  supervisionDialInEnabled.value = first.dialInEnabled === true;
+  supervisionEditingDialInRequired.value = first.dialInRequired === true;
   supervisionReminderOffsets.value = first.reminderOffsets ?? (meetingReminderMinutes.value == null ? [] : [meetingReminderMinutes.value]);
   supervisionSignupInvitationEnabled.value = first.signupInvitationEnabled === true;
   supervisionAttendanceReminders.value = first.attendanceReminders ?? { mandatory: [...new Set([...(meetingReminderMinutes.value == null ? [] : [1440]), ...supervisionReminderOffsets.value])], optional: [...new Set([...(meetingReminderMinutes.value == null ? [] : [1440]), ...supervisionReminderOffsets.value])] };
@@ -24680,6 +24705,8 @@ watch(selectedSupvSessionId, (id) => {
   if (!ev) return;
   supvNotes.value = String(ev.notes || '');
   meetingReminderMinutes.value = ev.reminderMinutes === undefined ? 5 : ev.reminderMinutes;
+  supervisionDialInEnabled.value = ev.dialInEnabled === true;
+  supervisionEditingDialInRequired.value = ev.dialInRequired === true;
   supervisionReminderOffsets.value = ev.reminderOffsets ?? (meetingReminderMinutes.value == null ? [] : [meetingReminderMinutes.value]);
   supervisionSignupInvitationEnabled.value = ev.signupInvitationEnabled === true;
   supervisionAttendanceReminders.value = ev.attendanceReminders ?? { mandatory: [...new Set([...(meetingReminderMinutes.value == null ? [] : [1440]), ...supervisionReminderOffsets.value])], optional: [...new Set([...(meetingReminderMinutes.value == null ? [] : [1440]), ...supervisionReminderOffsets.value])] };
@@ -24869,6 +24896,7 @@ const saveSupvSession = async ({ closeScheduleShell = false, scope = null, pastC
       waitingRoomEnabled: !!editorSupervisionWaitingRoomEnabled.value,
       reminderMinutes: meetingReminderMinutes.value,
       reminderOffsets: supervisionReminderOffsets.value,
+      dialInEnabled: supervisionDialInRequired.value || supervisionDialInEnabled.value,
       ...(supervisionGroupModeEnabled.value ? { attendanceReminders: supervisionAttendanceReminders.value, signupInvitationEnabled: supervisionSignupInvitationEnabled.value } : {}),
                   meetingSettings: meetingSettings.value,
                   notifyChanges: notifyMeetingChanges.value,
@@ -26019,6 +26047,8 @@ const beginEditScheduleStackItem = async (item) => {
       && item?.notify_participants !== false
       && item?.notify_participants !== 0;
     meetingReminderMinutes.value = item?.reminderMinutes === undefined ? 5 : item.reminderMinutes;
+    supervisionDialInEnabled.value = item?.dialInEnabled === true;
+    supervisionEditingDialInRequired.value = item?.dialInRequired === true;
     supervisionReminderOffsets.value = item?.reminderOffsets ?? (meetingReminderMinutes.value == null ? [] : [meetingReminderMinutes.value]);
   supervisionSignupInvitationEnabled.value = item?.signupInvitationEnabled === true;
   supervisionAttendanceReminders.value = item?.attendanceReminders ?? { mandatory: [...new Set([...(meetingReminderMinutes.value == null ? [] : [1440]), ...supervisionReminderOffsets.value])], optional: [...new Set([...(meetingReminderMinutes.value == null ? [] : [1440]), ...supervisionReminderOffsets.value])] };
@@ -26306,7 +26336,7 @@ const formatActivityTime = (createdAt) => {
   if (!createdAt) return '';
   try {
     const d = new Date(createdAt);
-    return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    return formatScheduleClock(`${pad2(h)}:${pad2(m)}`, scheduleTimeFormat.value);
   } catch {
     return '';
   }
@@ -26544,6 +26574,8 @@ const openSupervisionEditInScheduleModal = (dayName, hour, preferredId = 0, skip
   supvEndIsoLocal.value = toDatetimeLocalValue(parseMaybeDate(first.endAt));
   supvNotes.value = String(first.notes || '');
   meetingReminderMinutes.value = first.reminderMinutes === undefined ? 5 : first.reminderMinutes;
+  supervisionDialInEnabled.value = first.dialInEnabled === true;
+  supervisionEditingDialInRequired.value = first.dialInRequired === true;
   supervisionReminderOffsets.value = first.reminderOffsets ?? (meetingReminderMinutes.value == null ? [] : [meetingReminderMinutes.value]);
   supervisionSignupInvitationEnabled.value = first.signupInvitationEnabled === true;
   supervisionAttendanceReminders.value = first.attendanceReminders ?? { mandatory: [...new Set([...(meetingReminderMinutes.value == null ? [] : [1440]), ...supervisionReminderOffsets.value])], optional: [...new Set([...(meetingReminderMinutes.value == null ? [] : [1440]), ...supervisionReminderOffsets.value])] };
@@ -29551,7 +29583,8 @@ watch(()=>props.spanMode,value=>{
 .cell-block-school-rail { cursor: pointer; border-radius: 8px; }
 .school-day-rail { display: flex; flex-direction: column; align-items: center; gap: 4px; height: 100%; width: 100%; min-height: 0; }
 .school-day-rail__logo { width: 16px; height: 16px; object-fit: contain; border-radius: 3px; background: #fff; }
-.school-day-rail__name { writing-mode: vertical-rl; text-orientation: mixed; font-size: 11px; font-weight: 700; line-height: 1.1; overflow: hidden; max-height: 100%; }
+.school-day-rail__name { writing-mode: vertical-rl; text-orientation: upright; font-size: 12px; font-weight: 700; line-height: 1.1; overflow: hidden; max-height: 100%; color:inherit; flex-shrink:0; }
+.school-day-rail__info { color:inherit; font-size:14px; flex-shrink:0; }
 .cell-block-school-rail--closed { animation: school-rail-pulse 1.6s ease-in-out infinite; }
 @keyframes school-rail-pulse { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.35); } }
 @media (prefers-reduced-motion: reduce) { .cell-block-school-rail--closed { animation: none; } }

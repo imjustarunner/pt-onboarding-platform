@@ -15,3 +15,5 @@ describe('closure preference resolution',()=>{
  it('school, guardian and athlete roles cannot receive staff closure alerts',()=>{for(const userRole of ['school_staff','client_guardian','athlete','client','kiosk'])expect(resolve('app',{userRole}).effective.inApp).toBe(false);});
  it('all-account settings recognize text consent in an active agency context',()=>{expect(resolve('sms',{agencyId:null}).delivery.options.find(o=>o.value==='sms').available).toBe(true);});
 });
+
+it('tolerates missing preference user context',()=>{expect(closureEmailOptions(null).emailAvailable).toBe(false);});

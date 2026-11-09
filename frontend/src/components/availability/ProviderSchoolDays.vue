@@ -63,7 +63,7 @@ async function requestUpdate(person = null) {
   requesting.value = true; requestNotice.value = '';
   try {
     const { data } = await api.post('/availability/admin/school-weekdays/request', { agencyId: props.agencyId, ...(person ? { providerId: person.id } : {}) }, { skipGlobalLoading: true });
-    requestNotice.value = `${data.requested.length} update requests sent. ${data.skipped.length} skipped (already pending or not school-based).${data.failed.length ? ` ${data.failed.length} failed; retry to send the remaining requests.` : ''}`;
+    requestNotice.value = `${data.requested.length} update requests sent. ${data.skipped.length} skipped (already answered, fully assigned, already pending, or not eligible).${data.failed.length ? ` ${data.failed.length} failed; retry to send the remaining requests.` : ''}`;
     await load();
   } catch (e) { requestNotice.value = e.response?.data?.error?.message || 'Could not send update requests. Please retry.'; }
   finally { requesting.value = false; }

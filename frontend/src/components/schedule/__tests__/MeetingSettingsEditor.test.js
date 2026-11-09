@@ -20,7 +20,7 @@ it('clears every editable meeting option and preset/custom reminder in one updat
   const wrapper = await mountEditor();
   await button(wrapper, 'Deselect all').trigger('click');
   expect(wrapper.emitted('update:modelValue')).toEqual([[{
-    agenda: false, goals: false, actionItems: false, attendance: false,
+    dialIn: false, agenda: false, goals: false, actionItems: false, attendance: false,
     transcription: false, screenShare: false, compensation: false, reminders: []
   }]]);
   expect(api.put).not.toHaveBeenCalled();

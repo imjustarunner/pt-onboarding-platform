@@ -47,8 +47,8 @@ export const dialInTransport = {
       identity: `dial-${context.userId}`, displayName: context.name, role: context.isHost ? 'host' : 'participant', roleLabel: 'Phone', dialIn: true, callId: call.id
     }) });
     return client.video.initiateSIPCall(call.video_session_id, { token, sip: {
-      uri: `sip:${process.env.MEETING_DIAL_IN_NUMBER.replace('+','')}@sip-us.vonage.com;transport=tls`,
-      auth: { username: process.env.VONAGE_API_KEY, password: process.env.VONAGE_API_SECRET }, secure: true,
+      uri: process.env.MEETING_DIAL_IN_SIP_URI || `sip:${process.env.MEETING_DIAL_IN_NUMBER.replace('+','')}@sip-us.vonage.com;transport=tls`,
+      auth: { username: process.env.MEETING_DIAL_IN_SIP_USERNAME || process.env.VONAGE_API_KEY, password: process.env.MEETING_DIAL_IN_SIP_PASSWORD || process.env.VONAGE_API_SECRET }, secure: true,
       headers: { 'X-Meeting-Call': call.id, 'X-Meeting-Bridge': bridgeSecret }
     } });
   },

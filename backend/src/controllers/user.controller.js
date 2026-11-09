@@ -1,3 +1,4 @@
+import { meetingDialInEnabled, supervisionDialInRequired } from '../services/meetingDialInPolicy.js';
 import { listProvidersForSupport } from '../services/supportProviderDirectory.service.js';
 import { getUserOnboardingChecklist } from '../services/userOnboardingChecklist.service.js';
 import { requireClientSessionBooking } from '../services/clientSessionBookingRollout.service.js';
@@ -4805,6 +4806,8 @@ export const getUserScheduleSummary = async (req, res, next) => {
           joinUrl: joinableSession ? joinUrlForSupervision(await resolveMeetingBase(r.agency_id), joinKey) : null,
           participantJoinUrl: joinableSession ? joinUrlForSupervision(await resolveMeetingBase(r.agency_id), joinKey) : null,
           reminderMinutes: r.reminder_minutes === undefined ? 5 : r.reminder_minutes,
+          dialInEnabled: meetingDialInEnabled('supervision', r),
+          dialInRequired: supervisionDialInRequired(r.supervisor_user_id),
           reminderOffsets: parseMeetingSettings(r.meeting_settings_json).reminders,
           attendanceReminders: parseMeetingSettings(r.meeting_settings_json).attendanceReminders,
           signupInvitationEnabled: parseMeetingSettings(r.meeting_settings_json).signupInvitationEnabled === true,
@@ -4977,6 +4980,8 @@ export const getUserScheduleSummary = async (req, res, next) => {
           waitingRoomEnabled: (kind === 'TEAM_MEETING' || kind === 'HUDDLE') ? waitingRoomEnabled : null,
           notifyParticipants: (kind === 'TEAM_MEETING' || kind === 'HUDDLE') ? notifyParticipants : null,
           reminderMinutes: r.reminder_minutes === undefined ? 5 : r.reminder_minutes,
+          dialInEnabled: meetingDialInEnabled('supervision', r),
+          dialInRequired: supervisionDialInRequired(r.supervisor_user_id),
           reminderOffsets: parseMeetingSettings(r.meeting_settings_json).reminders,
           attendanceReminders: parseMeetingSettings(r.meeting_settings_json).attendanceReminders,
           signupInvitationEnabled: parseMeetingSettings(r.meeting_settings_json).signupInvitationEnabled === true,

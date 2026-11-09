@@ -67,6 +67,9 @@
           </label>
         </div>
 
+        <label v-if="isVirtual && !dialInRequired" class="supb-row">
+          <input type="checkbox" :checked="dialInEnabled" :disabled="disabled" @change="emit('update:dialInEnabled', $event.target.checked)" /> Allow phone dial-in
+        </label>
         <div v-if="isVirtual" class="supb-row supb-switch-row">
           <div class="supb-switch-copy">
             <span class="supb-switch-title">Waiting room</span>
@@ -347,6 +350,8 @@ import MeetingReminderEditor from './MeetingReminderEditor.vue';
 import { computed, ref, reactive } from 'vue';
 
 const props = defineProps({
+  dialInEnabled: Boolean,
+  dialInRequired: Boolean,
   isVirtual: { type: Boolean, default: true },
   waitingRoomEnabled: { type: Boolean, default: true },
   /** When false: no branded app invitation or join reminder emails. */
@@ -384,6 +389,7 @@ const props = defineProps({
 
 const emit = defineEmits([
   'update:isVirtual',
+  'update:dialInEnabled',
   'update:waitingRoomEnabled',
   'update:notifyParticipants',
   'update:reminderMinutes',

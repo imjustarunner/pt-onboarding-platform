@@ -1,4 +1,8 @@
 import crypto from 'node:crypto';
+import { parseMeetingSettings } from './meetingSettingsPolicy.js';
+export const requiredDialInSupervisors = () => String(process.env.MEETING_DIAL_IN_REQUIRED_SUPERVISOR_IDS || '').split(',').map(Number).filter(id => Number.isSafeInteger(id) && id > 0);
+export const supervisionDialInRequired = id => requiredDialInSupervisors().includes(Number(id));
+export const meetingDialInEnabled = (type, row) => (type === 'supervision' && supervisionDialInRequired(row?.supervisor_user_id)) || parseMeetingSettings(row?.meeting_settings_json).dialIn === true;
 import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
 import { normalizeSmsPhone } from '../utils/smsThreadIdentity.js';
 
@@ -23,6 +27,7 @@ export function dialInReadiness(env = process.env) {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(env.MEETING_DIAL_IN_VOICE_APPLICATION_ID || '')) missing.push('dedicated Voice application');
   if (!(env.MEETING_DIAL_IN_VOICE_PRIVATE_KEY || env.MEETING_DIAL_IN_VOICE_PRIVATE_KEY_PATH)) missing.push('dedicated Voice private key');
   if (!env.VONAGE_API_KEY || !env.VONAGE_API_SECRET) missing.push('carrier account credentials');
+  if (env.MEETING_DIAL_IN_SIP_URI && (!/^sip:[^@;\s]+@[a-z0-9.-]+;transport=tls$/i.test(env.MEETING_DIAL_IN_SIP_URI) || !env.MEETING_DIAL_IN_SIP_USERNAME || !env.MEETING_DIAL_IN_SIP_PASSWORD)) missing.push('authenticated TLS SIP route');
   const enabled = env.MEETING_DIAL_IN_ENABLED === 'true';
   return { enabled, configured: enabled && !missing.length, assetsConfigured: !missing.length,
     reason: !missing.length ? (enabled ? '' : 'Telephone joining is disabled.')
@@ -64,6 +69,7 @@ export function assertDialInMeeting(type, row, { joining = false, now = new Date
   if (pilotHosts.length && (type !== 'supervision' || !pilotHosts.includes(Number(row.supervisor_user_id))))
     throw dialInError('Telephone joining is not enabled for this meeting yet.');
   if (type === 'team-meeting' && !['TEAM_MEETING', 'HUDDLE'].includes(row.kind)) throw dialInError('Telephone joining is unavailable for this meeting.');
+  if (!meetingDialInEnabled(type, row)) throw dialInError('Phone dial-in is not enabled for this meeting.');
   if (row.live_ended_at || row.meeting_completed_at || ['CANCELLED', 'RESCHEDULED', 'MISSED', 'FINALIZED', 'COMPLETED', 'ENDED', 'MANUAL_PENDING', 'MANUAL_RECORDING'].includes(String(row.status).toUpperCase()))
     throw dialInError('This meeting has ended or is no longer available.', 410);
   if (['IN_PERSON', 'IN-PERSON'].includes(String(row.modality).toUpperCase())

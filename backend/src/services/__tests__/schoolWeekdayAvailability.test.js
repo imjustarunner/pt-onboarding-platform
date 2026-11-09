@@ -83,3 +83,13 @@ it('registers an in-app and push-capable school update notification',async()=>{
  const {getNotificationCatalogEntry}=await import('../notificationCatalog.service.js');
  expect(getNotificationCatalogEntry('school_weekday_availability_requested').capabilities).toMatchObject({inApp:true,push:true});
 });
+
+it('never requests another reply after available or unavailable answers',async()=>{
+ details.schoolWeekdaysByAgency[2]={days:{...choices(),Tuesday:false},updatedAt:'2026-11-08T00:00:00.000Z'};
+ expect((await requestSchoolWeekdayUpdates({agencyId:2,actorId:99},db)).skipped).toEqual([7]);
+ expect(events).toHaveLength(0);expect(Dispatcher.dispatchPushForNotification).not.toHaveBeenCalled();
+});
+it('does not request availability from providers assigned on all five weekdays',()=>{
+ expect(schoolWeekdayContext({service_focus:'School-Based Counseling'},[{days:SCHOOL_WEEKDAYS}],2).needsResponse).toBe(false);
+ expect(schoolWeekdayContext({service_focus:'School-Based Counseling'},[{days:['Monday']}],2).needsResponse).toBe(true);
+});

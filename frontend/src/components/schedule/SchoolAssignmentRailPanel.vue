@@ -2,15 +2,17 @@
 import { ref } from 'vue';
 import api from '../../services/api';
 import { closureLabel, schoolRailSummary } from '../../utils/schoolAssignmentRail.js';
+import { formatScheduleClock } from '../../utils/scheduleClock.js';
 
 const props = defineProps({
   detail: { type: Object, required: true },
   providerId: { type: Number, required: true },
   timeZone: { type: String, default: 'America/Denver' },
+  timeFormat: { type: String, default: '12h' },
   canCancel: { type: Boolean, default: false },
   canRequest: { type: Boolean, default: false }
 });
-const emit = defineEmits(['close', 'request-change', 'adjust-slots', 'changed']);
+const emit = defineEmits(['close', 'request-change', 'adjust-slots', 'changed', 'cancel-with-families']);
 
 const reason = ref('');
 const busy = ref(false);
@@ -20,7 +22,7 @@ const notice = ref('');
 const hours = () => {
   const start = String(props.detail.startTime || '').slice(0, 5);
   const end = String(props.detail.endTime || '').slice(0, 5);
-  return start && end ? `${start}–${end}` : 'Hours not set';
+  return start && end ? `${formatScheduleClock(start,props.timeFormat)}–${formatScheduleClock(end,props.timeFormat)}` : 'Hours not set';
 };
 
 async function cancelSchoolDay() {
@@ -73,6 +75,8 @@ async function cancelSchoolDay() {
         <button type="submit" :disabled="busy">{{ busy ? 'Saving…' : 'Cancel this school day' }}</button>
         <p class="hint">This marks No school for this school only. It does not email families or remove appointments.</p>
       </form>
+      <button v-if="canCancel" type="button" class="school-rail-panel__families" :disabled="busy" @click="emit('cancel-with-families')">Cancel sessions and email families…</button>
+      <p v-if="canCancel" class="hint">Review cancellations and family emails for this school only.</p>
       <p v-if="notice" role="status">{{ notice }}</p>
       <p v-if="error" role="alert">{{ error }}</p>
     </div>
@@ -89,7 +93,9 @@ h3 { margin:0; color:#183b32; } button:disabled { opacity:.5; cursor:default; }
 .school-rail-panel__actions, form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 label { display: grid; gap: 6px; width: 100%; }
 textarea { width: 100%; box-sizing: border-box; font: inherit; padding: 8px; }
-button { font: inherit; cursor: pointer; padding: 8px 10px; border-radius: 7px; border: 1px solid #cbd5e1; background: #fff; }
+button { font: inherit; cursor: pointer; padding: 8px 10px; border-radius: 7px; border: 1px solid #cbd5e1; background: #fff; color:#183b32; }
+.school-rail-panel .modal-head button { color:#183b32; background:#f1f5f3; border-color:#bacbc1; font-weight:600; }
+.school-rail-panel__families { color:#fff; background:#176b4b; border-color:#176b4b; }
 .hint { color: #64748b; font-size: 12px; }
 p[role="alert"] { color: #b91c1c; }
 </style>

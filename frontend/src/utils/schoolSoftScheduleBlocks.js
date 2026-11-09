@@ -1,5 +1,6 @@
 import { calendarWallDate } from './calendarWallClock.js';
 import { zonedDatetimeLocalToIso } from './timezones.js';
+import { formatScheduleClock } from './scheduleClock.js';
 
 export function schoolSoftScheduleStatus(row) {
   if (row.canceled === false) return { tone: 'scheduled', label: 'School soft schedule' };
@@ -18,7 +19,7 @@ const clock = date => `${String(date.getHours()).padStart(2, '0')}:${String(date
 const validTime = time => /^([01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/.test(String(time || ''));
 
 /** Display projections only: never create an appointment or change the saved soft schedule. */
-export function schoolSoftScheduleBlocks(records = [], displayTimeZone = 'America/Denver') {
+export function schoolSoftScheduleBlocks(records = [], displayTimeZone = 'America/Denver', timeFormat = '12h') {
   const blocks = [];
   const seen = new Set();
   for (const row of records) {
@@ -37,7 +38,7 @@ export function schoolSoftScheduleBlocks(records = [], displayTimeZone = 'Americ
       const key = `school-soft-${row.agencyId}-${row.providerId}-${row.date}-${row.clientId}-${row.schoolId}-${timed ? `${start.getTime()}-${end.getTime()}` : 'untimed'}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      const timeLabel = timed ? `${clock(start)}–${clock(end)}` : 'Time not set';
+      const timeLabel = timed ? `${formatScheduleClock(clock(start),timeFormat)}–${formatScheduleClock(clock(end),timeFormat)}` : 'Time not set';
       blocks.push({
         key, kind: 'school-soft', agencyId: row.agencyId, schoolOrgId: row.schoolId,
         clientName: row.clientName, schoolName: row.schoolName, record: row, status,

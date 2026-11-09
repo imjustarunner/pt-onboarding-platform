@@ -351,3 +351,23 @@ it('reopens the second day of a completed multi-day absence without notifying ag
  const restored=await service.resume({providerId:9,date:'2026-11-05'},actor,authorize);
  expect(restored.review).toMatchObject({token:plan.token,status:'completed'});expect(dependencies.completeAppointment).toHaveBeenCalledTimes(1);
 });
+
+it('confines school cancellation and notices to the selected school and preserves the rest of the calendar', async () => {
+  appointments[0].schoolOrganizationId = 21;
+  appointments.push({...appointments[0],id:2,schoolOrganizationId:22});
+  dependencies.schoolId = async a => a.schoolOrganizationId;
+  dependencies.schoolName = async a => a.schoolOrganizationId === 21 ? 'Cedar' : 'Pine';
+  dependencies.schools.mockResolvedValue([21,22].map(id=>({key:`school:2:${id}`,kind:'school',id,agencyId:2,recipients:[],message:{text:'School notice',subject:'Canceled'}})));
+  dependencies.roster.mockResolvedValue([{school_id:22,client_id:99}]);
+  service = createDayCancellationService(dependencies);
+  const plan = await service.preview({...input,schoolId:21},actor,authorize,appointmentAccess);
+  expect(plan.schoolId).toBe(21);
+  expect(plan.items.map(i=>i.key)).toEqual(['appointment:1','school:2:21']);
+  expect(dependencies.rosterReview).not.toHaveBeenCalled();
+  await apply(plan); await apply(plan);
+  expect(dependencies.completeAppointment).toHaveBeenCalledTimes(1);
+  expect(dependencies.completeAppointment.mock.calls[0][0]).toBe(1);
+  expect(appointments[1].status).toBe('scheduled');
+  expect(blocks).toEqual([]);expect(dependencies.editPublication).not.toHaveBeenCalled();
+  expect(database.execute.mock.calls.some(([sql])=>sql.includes('FROM supervision_sessions') || sql.includes('FROM provider_virtual_working_hours'))).toBe(false);
+});
