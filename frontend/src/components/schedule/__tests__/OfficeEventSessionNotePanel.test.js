@@ -128,3 +128,10 @@ describe('consented recording in the actual session',()=>{
  it('does not insert a late narrative from another appointment',async()=>{const w=await open();await w.find('.oesn-record-session').trigger('click');recorder(w).vm.$emit('narrative-ready',{...narrative,officeEventId:999});await flushPromises();expect(w.find('textarea').element.value).toBe('');expect(w.text()).toContain('recorded session changed');});
  it('does not silently truncate a narrative that exceeds the writer input limit',async()=>{const w=await open();await w.find('.oesn-record-session').trigger('click');recorder(w).vm.$emit('narrative-ready',{...narrative,narrative:'A'.repeat(12001)});await flushPromises();expect(w.find('textarea').element.value).toBe('');expect(w.text()).toContain('full encrypted recording narrative remains saved');});
 });
+
+it('saves the quick narrative explicitly without navigating or signing',async()=>{
+ const w=await open();await w.find('textarea').setValue('Synthetic draft to save now.');
+ await w.get('.oesn-save-draft').trigger('click');await flushPromises();
+ expect(mocks.post).toHaveBeenCalledWith('/clinical-notes/drafts',expect.objectContaining({inputText:'Synthetic draft to save now.',clinicalSessionId:101}),expect.anything());expect(mocks.push).not.toHaveBeenCalled();
+ expect(mocks.post.mock.calls.some(([path])=>path.includes('/sign'))).toBe(false);
+});

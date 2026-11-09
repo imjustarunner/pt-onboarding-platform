@@ -855,7 +855,7 @@
                   </div>
                 </div>
                 <div class="ov-row">
-                  <div class="ov-row-label">New insurance needed</div>
+                  <div class="ov-row-label">Insurance follow-up needed</div>
                   <div class="ov-row-value">
                     <label class="check-row" style="margin: 0;">
                       <input
@@ -865,7 +865,7 @@
                         @change="onToggleDocNeeded(newInsuranceNeededItem, $event)"
                       />
                       <span class="muted" style="font-size: 12px;">
-                        Select only when updated insurance is needed. Coverage already on file may still need verification.
+                        This can mean missing insurance-card images or updated policy details. Review the coverage already on file before requesting changes.
                       </span>
                     </label>
                   </div>

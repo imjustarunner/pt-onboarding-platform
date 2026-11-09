@@ -1,4 +1,5 @@
 import {expect,it,vi} from 'vitest';
+import {enrollmentSignerIdentity} from '../../utils/enrollmentSignerIdentity.js';
 import fs from 'node:fs';
 import * as signing from '../../utils/multiChildIntake.js';
 import { assertInvitedEnrollmentChildren } from '../../services/coGuardianEnrollmentRoster.js';
@@ -31,7 +32,7 @@ function setup({allowResume=false,bundles=[],failed=false,templates=[],signedDoc
  const reachedAcceptance=new Error('reached verified account acceptance');
  const accept=vi.fn(async()=>{throw reachedAcceptance;});
  const update=vi.fn(async(_id,updates)=>({...submission,...updates}));
- const deps={...ordinaryPacketBoundary,clientUpdatePacketService:ordinaryPacketBoundary,...signing,assertInvitedEnrollmentChildren,assertPortalEnrollmentIdentity,submittedChildCount,submissionArtifactsComplete,
+ const deps={enrollmentSignerIdentity,...ordinaryPacketBoundary,clientUpdatePacketService:ordinaryPacketBoundary,...signing,assertInvitedEnrollmentChildren,assertPortalEnrollmentIdentity,submittedChildCount,submissionArtifactsComplete,
   restoreSubmissionRoster:async()=>{throw reachedAcceptance;},
   validationResult:()=>({isEmpty:()=>true}),
   resolvePublicIntakeContext:async()=>({link:{id:8,is_active:true,scope_type:'agency',form_type:'intake',organization_id:2,create_client:1,create_guardian:1,intake_steps:requiredSteps}}),
@@ -90,7 +91,7 @@ it('queues a guardian’s changes before making that child’s completed bundle 
  const loop=source.indexOf("console.info('[publicIntake] intake/school finalize per-client loop starting'");
  const start=source.indexOf('const clientPayload = rawClients[i];',loop),end=source.indexOf('const clientPaths = [];',start);
  const published=vi.fn(),persist=vi.fn(async()=>{throw new Error('Review queue unavailable');});
- const deps={rawClients:[{id:5,fullName:'Child Example'}],i:0,submissionId:18,intakeClientRows:[],
+ const deps={enrollmentSignerIdentity,rawClients:[{id:5,fullName:'Child Example'}],i:0,submissionId:18,intakeClientRows:[],
   IntakeSubmissionClient:{listBySubmissionId:async()=>[],create:async()=>({id:21,client_id:5})},coGuardianBinding:{clients:[{id:5}]},
   intakeData:{},now:new Date(),sharedDocuments:{failures:new Map()},persistChildIntakeData:persist,
   console:{info:()=>{}},publishBundle:published};
@@ -122,7 +123,7 @@ it('rejects switching a durable invitation or its accepted guardian identity',()
 });
 it('stores only the server-resolved invitation when starting a session',async()=>{
  const create=vi.fn(async data=>({id:18,...data}));
- const deps={...ordinaryPacketBoundary,validationResult:()=>({isEmpty:()=>true}),resolvePublicIntakeContext:async()=>({link:{id:8,is_active:true}}),
+ const deps={enrollmentSignerIdentity,...ordinaryPacketBoundary,validationResult:()=>({isEmpty:()=>true}),resolvePublicIntakeContext:async()=>({link:{id:8,is_active:true}}),
   CoGuardianInvite:{resolveCoGuardianIntakeBinding:async()=>({invite:{id:3}})},resolveAgencyIdForLink:async()=>2,
   resolveIntakeOrgContext:async()=>({organization:{},agency:{}}),isSmartSchoolRoiForm:()=>false,requiresCaptchaForLink:()=>false,
   config:{nodeEnv:'test',recaptcha:{}},isLocalRecaptchaBypassRequest:()=>false,getClientIpAddress:()=> '127.0.0.1',
@@ -137,7 +138,7 @@ it('stores only the server-resolved invitation when starting a session',async()=
  expect(create).toHaveBeenLastCalledWith(expect.objectContaining({coGuardianInviteId:null}));
 });
 it('blocks the legacy submit endpoint for a durable guardian session even when its token is omitted',async()=>{
- const deps={...ordinaryPacketBoundary,validationResult:()=>({isEmpty:()=>true}),resolvePublicIntakeContext:async()=>({link:{id:8,is_active:true}}),
+ const deps={enrollmentSignerIdentity,...ordinaryPacketBoundary,validationResult:()=>({isEmpty:()=>true}),resolvePublicIntakeContext:async()=>({link:{id:8,is_active:true}}),
   applySmartRoiPayloadFallback:()=>{},IntakeSubmission:{findById:async()=>({id:18,intake_link_id:8,co_guardian_invite_id:3})},
   CoGuardianInvite:{assertCoGuardianSubmissionBinding}};
  const start=source.indexOf('export const submitPublicIntake = '),end=source.indexOf('\nexport const ',start+10);
@@ -150,7 +151,7 @@ it('reuses the existing child association when a failed guardian enrollment is r
  const start=source.indexOf('const clientPayload = rawClients[i];',source.indexOf("console.info('[publicIntake] intake/school finalize per-client loop starting'"));
  const end=source.indexOf('const clientPaths = [];',start);
  const existing={id:21,client_id:5,bundle_pdf_path:null};const create=vi.fn(),rows=[];
- const deps={rawClients:[{id:5,fullName:'Child Example'}],i:0,submissionId:18,intakeClientRows:rows,
+ const deps={enrollmentSignerIdentity,rawClients:[{id:5,fullName:'Child Example'}],i:0,submissionId:18,intakeClientRows:rows,
   IntakeSubmissionClient:{listBySubmissionId:async()=>[existing],create},coGuardianBinding:{clients:[{id:5}]},
   intakeData:{},now:new Date(),sharedDocuments:{failures:new Map()},persistChildIntakeData:async()=>{},console:{info:()=>{}}};
  await new Function(...Object.keys(deps),`return (async()=>{${source.slice(start,end)}})();`)(...Object.values(deps));
@@ -159,7 +160,7 @@ it('reuses the existing child association when a failed guardian enrollment is r
 it('clears an old recovery flag only after every invited child has a completed bundle',async()=>{
  const start=source.indexOf('async function clearRecoveredPacketFailure('),end=source.indexOf('\nconst normalizeName',start);
  const update=vi.fn();let rows=[{client_id:5,bundle_pdf_path:'five.pdf'}];
- const deps={IntakeSubmission:{findById:async()=>({intake_data:JSON.stringify({packetGeneration:{status:'needs_review',failedClientIds:[6]}})}),updateById:update},parseSubmissionIntakeData:s=>JSON.parse(s.intake_data),IntakeSubmissionClient:{listBySubmissionId:async()=>rows},hashIntakeData:()=> 'hash'};
+ const deps={enrollmentSignerIdentity,IntakeSubmission:{findById:async()=>({intake_data:JSON.stringify({packetGeneration:{status:'needs_review',failedClientIds:[6]}})}),updateById:update},parseSubmissionIntakeData:s=>JSON.parse(s.intake_data),IntakeSubmissionClient:{listBySubmissionId:async()=>rows},hashIntakeData:()=> 'hash'};
  const clear=new Function(...Object.keys(deps),`${source.slice(start,end)} return clearRecoveredPacketFailure;`)(...Object.values(deps));
  await clear(18,[5,6]);expect(update).not.toHaveBeenCalled();
  rows.push({client_id:6,bundle_pdf_path:'six.pdf'});await clear(18,[5,6]);

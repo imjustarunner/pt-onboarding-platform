@@ -1,6 +1,6 @@
 import {defineConfig} from 'vitest/config';
 import vue from '@vitejs/plugin-vue';
-export default defineConfig({root:new URL('.',import.meta.url).pathname,plugins:[vue()],test:{environment:'jsdom',setupFiles:['./src/test/setup.js'],include:[
+export default defineConfig({root:new URL('.',import.meta.url).pathname,plugins:[vue()],test:{environment:'jsdom',setupFiles:['./src/test/setup.js'],include:["src/components/schedule/__tests__/OfficeEventSessionNotePanel.test.js",
   "src/navigation/intake/__tests__/respondentAndSchoolReview.test.js",
   "src/components/public/__tests__/SmartSchoolRoiFlow.test.js",
   "src/components/public-intake/__tests__/InsurancePaymentEnrollment.test.js",

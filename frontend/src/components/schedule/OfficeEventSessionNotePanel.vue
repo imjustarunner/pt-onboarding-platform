@@ -27,7 +27,7 @@
 
     <div class="oesn-footer">
       <span class="oesn-count">{{ String(inputText || '').length }} / 12000</span>
-      <button type="button" class="oesn-open-aid" :disabled="loadingDraft || activeDraftState?.loadFailed || savingDraft" @click="saveNarrative">{{ savingDraft ? 'Saving…' : 'Save draft' }}</button>
+      <button type="button" class="oesn-save-draft" :disabled="loadingDraft || activeDraftState?.loadFailed || savingDraft" @click="saveNarrative">{{ savingDraft ? 'Saving…' : 'Save draft' }}</button>
       <label class="oesn-toggle">
         Interactive Complexity
         <span class="oesn-switch" :class="{ on: includeInteractiveComplexity }">
@@ -570,6 +570,7 @@ onBeforeUnmount(() => {
 }
 .oesn-switch.on .oesn-switch-thumb { transform: translateX(16px); }
 .oesn-open-aid,
+.oesn-save-draft,
 .oesn-generate {
   margin-left: auto;
   display: inline-flex;
@@ -580,7 +581,7 @@ onBeforeUnmount(() => {
   font-weight: 700;
   cursor: pointer;
 }
-.oesn-open-aid {
+.oesn-open-aid, .oesn-save-draft {
   border: 1px solid #0f766e;
   background: #fff;
   color: #0f766e;
@@ -592,7 +593,7 @@ onBeforeUnmount(() => {
   color: #fff;
 }
 .oesn-generate:disabled,
-.oesn-open-aid:disabled {
+.oesn-open-aid:disabled, .oesn-save-draft:disabled {
   opacity: 0.55;
   cursor: not-allowed;
 }
