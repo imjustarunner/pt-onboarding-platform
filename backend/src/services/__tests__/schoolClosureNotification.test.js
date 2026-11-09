@@ -25,10 +25,11 @@ beforeEach(() => {
     if (sql.includes('FROM agencies s')) return [schools.filter(school => school.agency_id === 2)];
     if (sql.includes('SELECT * FROM company_events')) return [[districtEvent, schoolEvent]];
     if (sql.includes('FROM provider_school_assignments')) return [assignments];
+    if (sql.startsWith('SELECT id FROM school_closure_notice_deliveries')) return [claims.has(params[1])?[{id:1}]:[]];
     if (sql.startsWith('INSERT IGNORE')) {
       const key = params[1];
       if (claims.has(key)) return [{ affectedRows: 0 }];
-      claims.add(key); return [{ affectedRows: 1 }];
+      claims.add(key); return [{ affectedRows: 1, insertId: claims.size }];
     }
     if (sql.startsWith('UPDATE')) return [{ affectedRows: 1 }];
     throw new Error(`Unexpected SQL: ${sql}`);
@@ -84,62 +85,58 @@ describe('school closure timing and scope', () => {
   });
 });
 
-describe('school closure delivery', () => {
-  it('previews the exact internal recipients, source content and envelope without writes', async () => {
-    const result = await runSchoolClosureNotifications({ now: monday, dryRun: true, send });
-    expect(result.deliveries.map(delivery => delivery.to).sort()).toEqual(['lily@itsco.health', 'megan@itsco.health', 'schools@itsco.health']);
-    expect(result.deliveries.every(delivery => delivery.replyToOverride === 'schools@itsco.health' && delivery.senderIdentityId === 12)).toBe(true);
-    expect(result.deliveries.find(delivery => delivery.userId === 979).text).toContain('Professional Development for staff — No school for students');
-    expect(result.deliveries.every(delivery => delivery.text.includes('district-wide closures and individual school closures')
-      && delivery.text.includes('3 PM on the previous weekday and again at 6 AM on the closure date')
-      && delivery.text.includes('calendar’s local time'))).toBe(true);
-    expect(m.execute.mock.calls.every(([sql]) => sql.startsWith('SELECT'))).toBe(true);
-    expect(send).not.toHaveBeenCalled();
+describe('school closure delivery choices', () => {
+  let preference, teamMembers, notify, mode;
+  const account = id => ({id,role:'provider',work_email:id===1000?'schools@itsco.health':assignments.find(a=>a.provider_id===id)?.work_email});
+  const run = options => runSchoolClosureNotifications({ now:monday,enabled:true,send,preference,teamMembers,notify,...options });
+  beforeEach(()=>{
+    mode='app';
+    preference=vi.fn(async id=>({user:account(id),recommendedForRole:true,delivery:{mode},effective:{inApp:mode==='app',sms:mode==='sms',email:mode.startsWith('work_email')}}));
+    teamMembers=vi.fn().mockResolvedValue([{id:1000}]);
+    notify={create:vi.fn(async input=>({id:44,user_id:input.userId,...input})),push:vi.fn().mockResolvedValue({sent:0}),sms:vi.fn().mockResolvedValue({dispatched:true,providerRef:'sms-1'})};
   });
-  it('claims each recipient atomically so concurrent workers never repeat a send', async () => {
-    await Promise.all([runSchoolClosureNotifications({ now: monday, enabled: true, send }), runSchoolClosureNotifications({ now: monday, enabled: true, send })]);
-    expect(send).toHaveBeenCalledTimes(3);
-    expect(send.mock.calls.every(([message]) => message.source === 'auto' && message.templateType === 'school_closure_notice' && !message.cc)).toBe(true);
+  it('defaults to app delivery without email or texts and includes every source',async()=>{
+    const result=await run();expect(result.deliveries.filter(d=>d.status==='sent')).toHaveLength(3);
+    expect(notify.create).toHaveBeenCalledTimes(3);expect(notify.push).toHaveBeenCalledTimes(3);expect(send).not.toHaveBeenCalled();expect(notify.sms).not.toHaveBeenCalled();
+    const lily=notify.create.mock.calls.find(([n])=>n.userId===979)[0];expect(lily.message).toContain('John Adams');expect(lily.message).toContain('Professional Development for staff');
   });
-  it('sends advance and morning notices separately without replaying either phase', async () => {
-    const friday = new Date('2026-11-06T22:00:00Z');
-    await runSchoolClosureNotifications({ now: friday, enabled: true, send });
-    await runSchoolClosureNotifications({ now: friday, enabled: true, send });
-    await runSchoolClosureNotifications({ now: monday, enabled: true, send });
-    await runSchoolClosureNotifications({ now: monday, enabled: true, send });
-    expect(send).toHaveBeenCalledTimes(6);
-    expect(new Set(send.mock.calls.map(([message]) => message.internetMessageIdOverride)).size).toBe(6);
+  it('None records an explicit skip and dispatches no channel',async()=>{
+    mode='none';const r=await run();expect(r.deliveries.every(d=>d.reason==='delivery_choice_none')).toBe(true);expect(notify.create).not.toHaveBeenCalled();expect(send).not.toHaveBeenCalled();
   });
-  it('holds a provider with no address without using the school group or another person', async () => {
-    const missing = assignments.map(assignment => assignment.provider_id === 979 ? { ...assignment, work_email: null, email: null } : assignment);
-    m.execute.mockImplementation(async sql => sql.includes('FROM agencies s') ? [schools.filter(school => school.agency_id === 2)]
-      : sql.includes('SELECT * FROM company_events') ? [[districtEvent, schoolEvent]] : sql.includes('FROM provider_school_assignments') ? [missing]
-      : [{ affectedRows: 1 }]);
-    const result = await runSchoolClosureNotifications({ now: monday, enabled: true, send });
-    expect(result.deliveries.some(delivery => delivery.status === 'missing_provider_email')).toBe(true);
-    expect(send.mock.calls.map(([message]) => message.to).sort()).toEqual(['megan@itsco.health', 'schools@itsco.health']);
+  it('text uses only the consented SMS channel',async()=>{
+    mode='sms';await run();expect(notify.sms).toHaveBeenCalledTimes(3);expect(notify.push).not.toHaveBeenCalled();expect(send).not.toHaveBeenCalled();
   });
-  it('retains uncertain and approval-gated deliveries without automatic retries', async () => {
-    send.mockRejectedValueOnce(new Error('timeout after provider acceptance')).mockResolvedValueOnce({ pendingApproval: true }).mockResolvedValue({ redirected: true, id: 'test-copy' });
-    const first = await runSchoolClosureNotifications({ now: monday, enabled: true, send });
-    const second = await runSchoolClosureNotifications({ now: monday, enabled: true, send });
-    expect(first.deliveries.every(delivery => delivery.status === 'held')).toBe(true);
-    expect(second.deliveries.every(delivery => delivery.status === 'already_claimed')).toBe(true);
-    expect(send).toHaveBeenCalledTimes(3);
+  it('a disabled text choice never falls back to email',async()=>{
+    preference.mockResolvedValue({user:account(979),recommendedForRole:true,delivery:{mode:'sms'},effective:{sms:false}});
+    const r=await run();expect(r.deliveries.every(d=>d.status==='skipped')).toBe(true);expect(send).not.toHaveBeenCalled();expect(notify.sms).not.toHaveBeenCalled();
   });
-  it('respects skipped delivery and never treats it as sent', async () => {
-    send.mockResolvedValue({ skipped: true, reason: 'notifications_disabled' });
-    const result = await runSchoolClosureNotifications({ now: monday, enabled: true, send });
-    expect(result.deliveries.every(delivery => delivery.status === 'skipped')).toBe(true);
+  it('SSO work email uses Schools From and Reply-To without a personal copy',async()=>{
+    mode='work_email';await run();expect(send).toHaveBeenCalledTimes(3);expect(send.mock.calls.every(([m])=>m.senderIdentityId===12&&m.replyToOverride==='schools@itsco.health'&&!m.bcc)).toBe(true);expect(notify.create).not.toHaveBeenCalled();
   });
-  it('blocks a missing or wrong Schools sender without substituting another mailbox', async () => {
-    m.identity.mockResolvedValue({ id: 8, agency_id: 2, from_email: 'notifications@itsco.health' });
-    const result = await runSchoolClosureNotifications({ now: monday, enabled: true, send });
-    expect(result.deliveries.every(delivery => delivery.status === 'blocked')).toBe(true);
-    expect(claims.size).toBe(0); expect(send).not.toHaveBeenCalled();
+  it('non-SSO forwarding sends to work and only the resolved personal copy',async()=>{
+    preference.mockImplementation(async id=>({user:{...account(id),sso_password_override:1,personal_email:'person@example.test'},recommendedForRole:true,delivery:{mode:'work_email_forward'},effective:{email:true}}));
+    const forwardRecipient=vi.fn().mockResolvedValue('person@example.test');await run({forwardRecipient});
+    expect(send.mock.calls.every(([m])=>m.to.endsWith('@itsco.health')&&m.bcc==='person@example.test')).toBe(true);expect(forwardRecipient).toHaveBeenCalledTimes(3);
   });
-  it('requires activation before the scheduler reads or sends anything', async () => {
-    expect(await runSchoolClosureNotifications({ enabled: false, send })).toEqual({ enabled: false, deliveries: [] });
-    expect(m.execute).not.toHaveBeenCalled(); expect(send).not.toHaveBeenCalled();
+  it('a changed SSO route does not silently forward or choose another channel',async()=>{
+    mode='work_email_forward';const r=await run();expect(r.deliveries.every(d=>d.status==='skipped')).toBe(true);expect(send).not.toHaveBeenCalled();
   });
+  it('does not replay completed legacy team or provider deliveries',async()=>{
+    claims.add('2:d11:2026-11-09:morning:team');claims.add('2:d11:2026-11-09:morning:provider:979');
+    await run();expect(teamMembers).not.toHaveBeenCalled();expect(notify.create).toHaveBeenCalledOnce();expect(notify.create.mock.calls[0][0].userId).toBe(496);
+  });
+  it('concurrent ticks claim each recipient once',async()=>{
+    await Promise.all([run(),run()]);expect(notify.create).toHaveBeenCalledTimes(3);
+  });
+  it('advance and morning remain separate without replaying either',async()=>{
+    await run({now:new Date('2026-11-06T22:00:00Z')});await run();await run();expect(notify.create).toHaveBeenCalledTimes(6);
+  });
+  it('read-only preview never writes or dispatches',async()=>{
+    const r=await run({dryRun:true});expect(r.deliveries).toHaveLength(3);expect(m.execute.mock.calls.every(([sql])=>sql.startsWith('SELECT'))).toBe(true);expect(notify.create).not.toHaveBeenCalled();expect(send).not.toHaveBeenCalled();
+  });
+  it('unverified forwarding is held and not repeated',async()=>{
+    preference.mockImplementation(async id=>({user:{...account(id),sso_password_override:1,personal_email:'person@example.test'},recommendedForRole:true,delivery:{mode:'work_email_forward'},effective:{email:true}}));
+    const forwardRecipient=vi.fn().mockRejectedValue(new Error('route unavailable'));const r=await run({forwardRecipient});await run({forwardRecipient});expect(r.deliveries.every(d=>d.status==='held')).toBe(true);expect(send).not.toHaveBeenCalled();expect(forwardRecipient).toHaveBeenCalledTimes(3);
+  });
+  it('the scheduler remains disabled when its rollout flag is off',async()=>{await run({enabled:false});expect(preference).not.toHaveBeenCalled();expect(send).not.toHaveBeenCalled();});
 });

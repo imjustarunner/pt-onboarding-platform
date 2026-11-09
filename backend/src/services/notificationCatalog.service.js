@@ -1,3 +1,4 @@
+import { SCHOOL_CLOSURE_STAFF_ROLES } from '../utils/schoolClosureDelivery.js';
 const CATEGORY_DEFINITIONS = {
   account_security: { label: 'Account & Security', description: 'Access, credentials, and urgent safety alerts.', icon: '🛡️', color: '#7c3aed' },
   user_activity: { label: 'User Activity', description: 'Relevant account and workforce activity.', icon: '👤', color: '#0284c7' },
@@ -41,6 +42,7 @@ const TYPES_BY_CATEGORY = {
     'medical_records_release_submitted', 'psychotherapy_threshold_exceeded'
   ],
   scheduling_office: [
+    'school_closure_notice',
     'meeting_attendance_recorded',
     'kiosk_checkin', 'client_appointment_reply', 'office_schedule_biweekly_review',
     'office_schedule_booking_confirm_6_weeks', 'office_schedule_unbooked_forfeit',
@@ -98,6 +100,7 @@ const TYPES_BY_CATEGORY = {
 };
 
 const LABEL_OVERRIDES = {
+  school_closure_notice: 'School closure reminders',
   client_exchange_match: 'New matching clients in Client Exchange',
   client_exchange_shared: 'Clients shared by your support team',
   client_exchange_claim: 'Client Exchange request',
@@ -186,6 +189,7 @@ const LABEL_OVERRIDES = {
 };
 
 const WORKFORCE_RELEVANT = new Set([
+  'school_closure_notice',
   'kiosk_checkin', 'client_appointment_reply', // Personal arrivals also apply to staff with provider duties.
   'client_exchange_match', 'client_exchange_claim', 'client_exchange_assigned', 'client_exchange_shared',
   'temp_password_expired', 'invitation_expired', 'password_changed', 'assistant_account_changed',
@@ -288,6 +292,7 @@ const GUARDIAN_RELEVANT = new Set([
 // smaller subset enabled when a user has not made an explicit per-type choice.
 // Optional relevant types remain available in settings, but start off.
 const WORKFORCE_ESSENTIAL = new Set([
+  'school_closure_notice',
   'kiosk_checkin', 'client_appointment_reply',
   'client_exchange_match', 'client_exchange_claim', 'client_exchange_assigned', 'client_exchange_shared',
   'temp_password_expired', 'invitation_expired', 'password_changed', 'assistant_account_changed',
@@ -376,6 +381,7 @@ export function isNotificationRecommendedForRole(type, role) {
   const normalizedType = String(type || '').trim();
   if (normalizedType === 'emergency_broadcast' || normalizedType === 'credential_expired_blocking') return true;
   const profile = notificationRoleProfile(role);
+  if (normalizedType === 'school_closure_notice') return SCHOOL_CLOSURE_STAFF_ROLES.has(String(role || '').toLowerCase());
   if (profile === 'administrative' || profile === 'support') return true;
   if (profile === 'manager') return MANAGER_RELEVANT.has(normalizedType);
   if (profile === 'operations') return OPERATIONS_RELEVANT.has(normalizedType);
@@ -389,6 +395,7 @@ export function isNotificationEssentialForRole(type, role) {
   const normalizedType = String(type || '').trim();
   if (normalizedType === 'emergency_broadcast' || normalizedType === 'credential_expired_blocking') return true;
   const profile = notificationRoleProfile(role);
+  if (normalizedType === 'school_closure_notice') return SCHOOL_CLOSURE_STAFF_ROLES.has(String(role || '').toLowerCase());
   if (profile === 'support' && normalizedType === 'support_safety_net_alert') return true;
   if (profile === 'administrative' || profile === 'support') return ADMINISTRATIVE_ESSENTIAL.has(normalizedType);
   if (profile === 'manager') return MANAGER_ESSENTIAL.has(normalizedType);
@@ -456,6 +463,7 @@ const LEGACY_CATEGORY_BY_TYPE = {
 };
 
 const SMS_CAPABLE = new Set([
+  'school_closure_notice',
   'client_exchange_match',
   'inbound_client_message', 'support_safety_net_alert', 'client_note', 'kiosk_checkin', 'client_appointment_reply',
   'survey_completed', 'credential_expiring', 'credential_expired_blocking',

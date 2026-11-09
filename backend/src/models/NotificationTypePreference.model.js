@@ -20,6 +20,7 @@ function fromRow(row) {
   return {
     userId: Number(row.user_id),
     type: row.notification_type,
+    deliveryMode: row.delivery_mode || null,
     inApp: row.in_app_enabled == null ? null : !!row.in_app_enabled,
     toast: row.toast_enabled == null ? null : !!row.toast_enabled,
     sound: row.sound_enabled == null ? null : !!row.sound_enabled,
@@ -63,8 +64,8 @@ class NotificationTypePreference {
       `INSERT INTO user_notification_type_preferences
         (user_id, notification_type, in_app_enabled, toast_enabled, sound_enabled,
          push_enabled, email_enabled, sms_enabled, digest_enabled,
-         toast_duration_mode, toast_duration_seconds)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         toast_duration_mode, toast_duration_seconds, delivery_mode)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
          in_app_enabled = VALUES(in_app_enabled), toast_enabled = VALUES(toast_enabled),
          sound_enabled = VALUES(sound_enabled), push_enabled = VALUES(push_enabled),
@@ -72,8 +73,9 @@ class NotificationTypePreference {
          digest_enabled = VALUES(digest_enabled),
          toast_duration_mode = VALUES(toast_duration_mode),
          toast_duration_seconds = VALUES(toast_duration_seconds),
+         delivery_mode = VALUES(delivery_mode),
          updated_at = CURRENT_TIMESTAMP`,
-      [Number(userId), String(type), ...values, mode, seconds]
+      [Number(userId), String(type), ...values, mode, seconds, merged.deliveryMode || null]
     );
     return this.get(userId, type);
   }

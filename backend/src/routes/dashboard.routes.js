@@ -10,6 +10,20 @@ import {
 import { listForDashboard } from '../controllers/socialFeedLinks.controller.js';
 
 const router = express.Router();
+router.get('/school-closures',authenticate,async(req,res,next)=>{
+  try {
+    const {mySchoolClosureDashboard}=await import('../services/schoolClosureDashboard.service.js');
+    const agencyId=req.query.agencyId==null?null:Number(req.query.agencyId);
+    if(agencyId!==null&&(!Number.isSafeInteger(agencyId)||agencyId<1))return res.status(400).json({error:{message:'Invalid agency'}});
+    res.set('Cache-Control','no-store').json({closures:await mySchoolClosureDashboard({user:req.user,agencyId})});
+  }catch(error){next(error);}
+});
+router.post('/school-closures/:eventId/dismiss',authenticate,async(req,res,next)=>{
+  try {
+    const {dismissMySchoolClosure}=await import('../services/schoolClosureDashboard.service.js');
+    res.json(await dismissMySchoolClosure({user:req.user,eventId:req.params.eventId,revision:req.body?.revision}));
+  }catch(error){if(error.status)return res.status(error.status).json({error:{message:error.message}});next(error);}
+});
 
 // At-a-glance dashboard metrics (admin dashboards) - tenant scoped via agencyAccess middleware
 router.get('/agency-specs', authenticate, tenantAccess, requireBackofficeAdmin, getAgencySpecs);

@@ -1,4 +1,5 @@
 import { staffCommunicationKey, staffNotificationKind } from '../utils/staffCommunicationChoices.js';
+import { closureDeliveryMode, closureEmailOptions } from '../utils/schoolClosureDelivery.js';
 import {
   getNotificationCatalogEntry,
   isNotificationEssentialForRole,
@@ -22,7 +23,7 @@ function databaseBoolean(value, fallback = false) {
   return value === true || value === 1 || value === '1';
 }
 
-export async function loadNotificationPreferenceContext({ userId, agencyId = null, userRole = null }) {
+export async function loadNotificationPreferenceContext({ userId, agencyId = null, userRole = null, user = null }) {
   const [
     { default: UserPreferences },
     { default: NotificationTypePreference },
@@ -44,7 +45,8 @@ export async function loadNotificationPreferenceContext({ userId, agencyId = nul
     globalPreferences: globalPreferences || {},
     legacyCategories: parseJson(globalPreferences?.notification_categories),
     typePreferences: new Map(typePreferences.map((p) => [p.type, p])),
-    agencyPreferences
+    agencyPreferences,
+    user: user || await (await import('../models/User.model.js')).default.findById(Number(userId))
   };
 }
 
@@ -89,7 +91,8 @@ export function resolveNotificationTypePreference(type, context) {
   }
 
   const staffChoices=legacyCategories[staffCommunicationKey(context?.agencyId)];
-  const consented=staffChoices?.choices?.[staffNotificationKind(type)]===true;
+  const consented=staffChoices?.choices?.[staffNotificationKind(type)]===true
+    || (type === 'school_closure_notice' && !context?.agencyId && Object.entries(legacyCategories).some(([key, value]) => key.startsWith('staff_communications_') && value?.choices?.notifications === true));
   const capabilities = {...entry.capabilities,sms:entry.capabilities.sms && consented};
   const roleDefault = (channel) => type==='client_exchange_match' && ['email','sms'].includes(channel) ? false : channel === 'sms' && staffChoices ? staffChoices.choices?.[staffNotificationKind(type)] === true : essentialForRole ? entry.defaults[channel] : false;
   const effective = {
@@ -127,11 +130,31 @@ export function resolveNotificationTypePreference(type, context) {
       ? 'High-volume activity is delivered in the daily activity digest'
       : 'Administrative activity is not delivered to this role';
   }
+  let delivery = null;
+  if (type === 'school_closure_notice') {
+    const mode = closureDeliveryMode(override);
+    const account = closureEmailOptions(context?.user);
+    const permitted = recommendedForRole;
+    effective.inApp = permitted && mode === 'app';
+    effective.toast = effective.inApp && override.toast !== false;
+    effective.sound = effective.inApp && databaseBoolean(globals.notification_sound_enabled, true) && override.sound === true;
+    effective.push = effective.inApp && databaseBoolean(globals.push_notifications_enabled, false) && override.push !== false;
+    effective.email = permitted && mode === account.emailMode && account.emailAvailable && databaseBoolean(globals.email_enabled, true);
+    effective.sms = permitted && mode === 'sms' && capabilities.sms && databaseBoolean(globals.sms_enabled, false);
+    effective.digest = false;
+    delivery = { mode, options: [
+      { value: 'app', label: 'App notification', available: permitted },
+      { value: 'sms', label: 'Text message', available: permitted && capabilities.sms && databaseBoolean(globals.sms_enabled, false) },
+      { value: account.emailMode, label: account.nonSso ? 'Work email forwarded to personal (non-SSO)' : 'Work email (SSO)', available: permitted && account.emailAvailable && databaseBoolean(globals.email_enabled, true) },
+      { value: 'none', label: 'None', available: permitted }
+    ] };
+  }
   return {
     ...entry,
     capabilities,
     override,
     effective,
+    ...(delivery ? { delivery } : {}),
     locked,
     lockReason,
     roleProfile,
