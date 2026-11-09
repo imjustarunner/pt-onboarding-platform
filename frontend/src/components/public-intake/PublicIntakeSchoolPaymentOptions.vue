@@ -1,5 +1,9 @@
 <template>
-  <section class="school-payment" aria-labelledby="school-payment-heading">
+  <section v-if="!hasMedicaidCoverage(insuranceInfo) && !eligible" class="school-payment">
+    <button type="button" class="btn btn-secondary" @click="confirmCoverage">{{ tx('Confirm primary and any secondary coverage') }}</button>
+    <p v-if="reviewError" role="alert">{{ tx(reviewError) }}</p>
+  </section>
+  <section v-else-if="eligible" class="school-payment" aria-labelledby="school-payment-heading">
     <h3 id="school-payment-heading">{{ tx('Payment method') }}</h3>
     <p>{{ tx('You can save a card now or add one later in your portal. Saving a card does not charge it.') }}</p>
     <p v-if="loading" role="status">{{ tx('Checking secure card availability…') }}</p>
@@ -13,25 +17,45 @@
   </section>
 </template>
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, watch, ref } from 'vue';
+import { hasMedicaidCoverage } from '../../utils/insurancePaymentPolicy.js';
 import api from '../../services/api';
 import { useIntakeStepTx } from '../../composables/useIntakeStepTx.js';
 import PublicIntakePaymentStep from './PublicIntakePaymentStep.vue';
-const props = defineProps({ publicKey: String, submissionId: [Number, String], modelValue: { type: Object, default: () => ({}) } });
+const props = defineProps({ publicKey: String, submissionId: [Number, String], modelValue: { type: Object, default: () => ({}) }, insuranceInfo: { type: Object, required: true } });
 const emit = defineEmits(['update:modelValue', 'card-saved']);
 const { tx } = useIntakeStepTx();
 const loading = ref(true), available = ref(false);
 const choice = computed(() => props.modelValue.paymentChoice || '');
+const fingerprint = computed(() => JSON.stringify(props.insuranceInfo));
+const reviewed = ref(null), reviewError = ref('');
+const eligible = computed(() => !hasMedicaidCoverage(props.insuranceInfo) &&
+  (props.insuranceInfo.isSelfPay === true || reviewed.value === fingerprint.value));
+watch(fingerprint, () => { reviewed.value = null; reviewError.value = ''; });
+function confirmCoverage() {
+  const info = props.insuranceInfo;
+  if (!String(info.primary?.insurerName || '').trim() || (info.hasSecondary && !String(info.secondary?.insurerName || '').trim())) {
+    reviewError.value = 'Enter the insurer for your primary and any secondary coverage before confirming.';
+    return;
+  }
+  reviewed.value = fingerprint.value;
+  reviewError.value = '';
+}
 function choose(paymentChoice) {
   emit('update:modelValue', { ...props.modelValue, paymentChoice, skipAcknowledged: paymentChoice === 'later', requiresPaymentFollowup: paymentChoice === 'later' });
 }
-onMounted(async () => {
+let requestGeneration = 0;
+watch(eligible, async enabled => {
+  const generation = ++requestGeneration;
+  available.value = false;
+  loading.value = enabled;
+  if (!enabled) return;
   try {
     const { data } = await api.get(`/public-intake/${encodeURIComponent(props.publicKey)}/stripe-config`, { skipGlobalLoading: true });
-    available.value = data?.stripeEnabled !== false && Boolean(data?.publishableKey && data?.connectedAccountId);
-  } catch { available.value = false; }
-  finally { loading.value = false; }
-});
+    if (generation === requestGeneration) available.value = data?.stripeEnabled !== false && Boolean(data?.publishableKey && data?.connectedAccountId);
+  } catch { if (generation === requestGeneration) available.value = false; }
+  finally { if (generation === requestGeneration) loading.value = false; }
+}, { immediate: true });
 </script>
 <style scoped>
 .school-payment { display: grid; gap: 12px; margin-top: 24px; }

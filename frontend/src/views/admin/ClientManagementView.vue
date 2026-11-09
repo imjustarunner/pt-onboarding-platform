@@ -561,9 +561,9 @@
             <td class="select-cell" @click.stop>
               <input type="checkbox" :checked="selectedIds.has(client.id)" @change.stop="toggleSelected(client.id)" />
             </td>
-            <td class="mono">{{ client.id }}</td>
+            <td class="mono" data-label="Client ID">{{ client.id }}</td>
             <td
-              class="initials-cell col-initials"
+              data-label="Name" class="initials-cell col-initials"
               @click.stop="openClientDetail(client)"
               @mouseenter="scheduleQuickView(client)"
               @mouseleave="cancelQuickView"
@@ -577,12 +577,12 @@
                 title="Another client at this tenant has the same first and last name"
               >Possible duplicate</span>
             </td>
-            <td v-if="usingServerPagination && columnPrefs.affiliation">
+            <td v-if="usingServerPagination && columnPrefs.affiliation" data-label="Agency">
               <span class="cm-affiliation-badge" :style="getAffiliationBadgeStyle(client)">
                 {{ client.agency_name || '—' }}
               </span>
             </td>
-            <td v-if="columnPrefs.affiliation">
+            <td v-if="columnPrefs.affiliation" data-label="Affiliation">
               <a
                 v-if="client.organization_slug && affiliationDisplayLabel(client) !== 'Office'"
                 :href="`/${client.organization_slug}/dashboard`"
@@ -599,7 +599,7 @@
               </span>
             </td>
             <td
-              v-if="columnPrefs.clientStatus"
+              v-if="columnPrefs.clientStatus" data-label="Status"
               @mouseenter="scheduleQuickView(client)"
               @mouseleave="cancelQuickView"
             >
@@ -607,7 +607,7 @@
                 {{ formatClientStatus(client) }}
               </span>
             </td>
-            <td v-if="columnPrefs.provider">
+            <td v-if="columnPrefs.provider" data-label="Clinician">
               <span class="cm-provider-label" :style="getProviderLabelStyle(client)">
                 {{ client.provider_name || 'Unassigned' }}
               </span>
@@ -615,15 +615,15 @@
                 Referred {{ formatDate(client.referral_date) }}
               </span>
             </td>
-            <td v-if="columnPrefs.submissionDate">{{ formatDate(client.submission_date) }}</td>
-            <td v-if="columnPrefs.paperwork">
+            <td v-if="columnPrefs.submissionDate" data-label="Submitted">{{ formatDate(client.submission_date) }}</td>
+            <td v-if="columnPrefs.paperwork" data-label="Paperwork">
               <span class="cm-doc-status" :class="`cm-doc-${getDocumentStatusTone(client)}`">
                 <span class="cm-doc-icon" aria-hidden="true">{{ getDocumentStatusIcon(client) }}</span>
                 {{ formatDocumentStatusSummary(client) }}
               </span>
             </td>
-            <td v-if="columnPrefs.insurance">{{ client.insurance_type_label || '-' }}</td>
-            <td v-if="columnPrefs.lastActivity">{{ formatDate(client.last_activity_at) || '-' }}</td>
+            <td v-if="columnPrefs.insurance" data-label="Coverage">{{ client.insurance_type_label || client.primary_insurer_name || '-' }}</td>
+            <td v-if="columnPrefs.lastActivity" data-label="Activity">{{ formatDate(client.last_activity_at) || '-' }}</td>
             <td v-if="canSeeRenewalFlags && columnPrefs.renewal" class="renewal-cell col-renewal" @click.stop>
               <RenewalFlagsChips :flags="client.renewalFlags" compact />
               <button
@@ -4325,5 +4325,14 @@ watch(() => currentPage.value, (newPage, oldPage) => {
   background: var(--app-tint-amber, #fef3c7);
   color: var(--app-text-red, #92400e);
   border: 1px solid var(--app-line, #fcd34d);
+}
+@media (max-width: 720px) {
+ .cm-clients-table, .cm-clients-table tbody { display:block; width:100%; min-width:0; }
+ .cm-clients-table thead { display:none; }
+ .cm-clients-table .cm-client-row { display:flex; flex-direction:column; margin:12px 0; padding:12px; border:1px solid var(--border,#dbe3e7); border-radius:12px; }
+ .cm-clients-table .cm-client-row td { display:flex; flex-wrap:wrap; align-items:center; gap:8px; width:auto; min-width:0; max-width:100%; white-space:normal; overflow-wrap:anywhere; padding:6px 0; border:0; }
+ .cm-clients-table td[data-label]::before { content:attr(data-label); flex:0 0 82px; font-size:12px; color:var(--text-secondary,#536570); }
+ .cm-clients-table .cm-initials-badge, .cm-clients-table .cm-affiliation-badge { min-width:0; max-width:100%; white-space:normal; overflow-wrap:anywhere; }
+ .cm-clients-table .actions-cell { position:static; justify-content:flex-start; }
 }
 </style>

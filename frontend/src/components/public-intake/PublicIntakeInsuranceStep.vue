@@ -213,6 +213,7 @@
           </label>
           <input
             v-model="row.memberId"
+            @input="push"
             class="pi-ins-input"
             type="text"
             :placeholder="tx('Enter this client\'s Medicaid ID')"

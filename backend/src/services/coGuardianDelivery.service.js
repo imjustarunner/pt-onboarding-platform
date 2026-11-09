@@ -105,7 +105,7 @@ export async function listGuardianInvitations({ userId, agencyId, clientId = nul
       lastSentAt: row.lastSentAt, deliveryAttempts: row.deliveryAttempts,
       deliveryStatus: row.deliveryStatus, failureKind: row.failureKind,
       nextReminderAt:row.nextReminderAt||null,history:histories.get(row.id)||[],
-      canManage: owner && group.every(canSee) };
+      canManage: owner && group.every(canSee) && failed(row.deliveryStatus) && ['pending','expired'].includes(row.status) };
   });
 }
 
@@ -171,6 +171,9 @@ async function rotateAndSendInvitation({ userId, agencyId, inviteId, email, staf
     await validateQaIntakeGuardian({agencyId,email:recipient},db);
     const [attempts] = await db.execute('SELECT * FROM co_guardian_invite_deliveries WHERE invite_id=? ORDER BY id DESC LIMIT 1', [inviteId]);
     const last = attempts[0];
+    if (!staffReminder && !automaticReminder && !failed(last?.delivery_status)) {
+      fail(409, 'The invitation has no recorded delivery failure. Contact support for help; its email address cannot be changed here.');
+    }
     if (automaticReminder) {
       const [[schedule]] = await db.execute('SELECT * FROM co_guardian_invite_reminders WHERE invite_id=? FOR UPDATE', [inviteId]);
       if (!guardianReminderDue({schedule,invite,lastDelivery:last})) { await db.rollback(); return {skipped:true}; }

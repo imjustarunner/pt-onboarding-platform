@@ -130,7 +130,8 @@
                 </p>
               </div>
               <div v-else-if="selectedChild" class="child-panel-content">
-                <GuardianClientDetails v-if="!isSuperadminPreview && !selectedChild.guardian_portal_locked" :client-id="Number(selectedChildId)" />
+                <p v-if="selectedChild.no_view" role="status">{{ pendingEnrollmentState.pending ? 'Your children are linked. Complete your own enrollment above to continue. The other guardian’s private answers remain hidden.' : 'Your children are linked, but detailed records are not available under your current access. Contact your care team if this needs review.' }}</p>
+                <GuardianClientDetails v-if="!isSuperadminPreview && !selectedChild.guardian_portal_locked && !selectedChild.no_view" :client-id="Number(selectedChildId)" />
                 <GuardianCareAccess v-if="!isSuperadminPreview && !selectedChild.guardian_portal_locked" :client-id="selectedChildId" :client-name="selectedFirstName" :user-id="authStore.user?.id" @messages="navigatePortal('messages')" />
                 <div v-if="selectedChild.guardian_portal_locked" class="locked-banner">
                   This client is 18 or older. Guardian-managed waivers, intake documents, and related guardian actions are
@@ -447,7 +448,8 @@
             <template v-else-if="activePanel === 'notification_history'">
               <template v-if="!isSuperadminPreview && selectedChildId">
                 <GuardianInvitations :agency-id="selectedChildAgencyId || currentAgencyId" :client-id="selectedChildId" :language="familyLocale" />
-                <ClientNotificationHistory :client-id="selectedChildId" :language="familyLocale" guardian />
+                <p v-if="selectedChild?.no_view" role="status">Communication history is not available under your current access. Your own enrollment invitation is shown above.</p>
+                <ClientNotificationHistory v-else :client-id="selectedChildId" :language="familyLocale" guardian />
               </template>
             </template>
             <template v-else-if="activePanel === 'account'">
@@ -496,6 +498,7 @@
                   not query payment or coverage records.
                 </p>
               </div>
+              <p v-else-if="selectedChild?.no_view" role="status">Your children are linked. Insurance and billing information is not available under your current access. Complete your own enrollment above, or contact your care team.</p>
               <GuardianPaymentInsuranceTab
                 v-else
                 :agency-id="selectedChildAgencyId"

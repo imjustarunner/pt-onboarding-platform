@@ -135,7 +135,7 @@
     <div v-if="loading" class="loading">Loading communications…</div>
     <div v-else-if="error" class="error">{{ error }}</div>
     <div v-else-if="!filteredItems.length && !conversations.length" class="empty-state">
-      <p v-if="!items.length">No emails or texts have been sent to this client (or their guardians) yet.</p>
+      <p v-if="!items.length">No email or text records are visible here. Invitation delivery details, including redirected test messages, are shown with the invitation.</p>
       <p v-else>No communications match the current filters.</p>
     </div>
 

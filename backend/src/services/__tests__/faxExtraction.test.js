@@ -45,3 +45,13 @@ describe('fax extraction using synthetic content', () => {
     expect(validateFaxFields({ client_first_name: 'Sam', client_last_name: 'Sample', arbitrary: 'ignored' })).toEqual({ client_first_name: 'Sam', client_last_name: 'Sample', client_full_name: 'Sam Sample' });
   });
 });
+
+it('reads a full 22-page packet with geometry and still rejects oversized text', async () => {
+ const pdf=await PDFDocument.create();for(let i=0;i<22;i++)pdf.addPage();const buffer=Buffer.from(await pdf.save());
+ const annotation={text:'Fictional printed packet '.repeat(120),pages:[{blocks:[{paragraphs:[{words:Array.from({length:600},()=>({symbols:[{text:'Fictional'}],boundingBox:{vertices:[{x:10,y:20},{x:100,y:20},{x:100,y:40},{x:10,y:40}]}}))}]}]}]};
+ const vision={batchAnnotateFiles:vi.fn(async({requests})=>[{responses:[{responses:requests[0].pages.map(()=>({fullTextAnnotation:annotation}))}]}])};
+ const result=await readFax(buffer,{vision});
+ expect(result.pages).toHaveLength(22);expect(JSON.stringify(result.pages).length).toBeGreaterThan(450000);
+ annotation.text='X'.repeat(150001);
+ await expect(readFax(buffer,{vision})).rejects.toThrow('too much text');
+});

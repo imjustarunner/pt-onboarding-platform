@@ -29,7 +29,7 @@
 
       <!-- Clinical: Use Insurance vs Self-Pay -->
       <section v-if="!paymentOnly && !insuranceOnFile && !isMedicaid" class="pi-ip-section">
-        <h3 class="pi-ip-section-title">{{ tx('How would you like to pay?') }}</h3>
+        <h3 class="pi-ip-section-title">{{ tx('Insurance Information') }}</h3>
         <div class="pi-ip-choice-row">
           <button
             type="button"

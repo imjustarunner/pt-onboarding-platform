@@ -105,7 +105,7 @@
         </div>
         <div>
           <label for="roi-signer-email">
-            {{ tr('Email', 'Correo electronico') }}
+            {{ tr('Email', 'Correo electrónico') }}
             <span v-if="!hasRequiredValue(form.signer.email)" class="req-mark">*</span>
           </label>
           <input
@@ -118,7 +118,7 @@
           />
         </div>
         <div>
-          <label for="roi-signer-phone">{{ tr('Phone', 'Telefono') }} <span class="optional-mark">{{ tr('(optional)', '(opcional)') }}</span></label>
+          <label for="roi-signer-phone">{{ tr('Phone', 'Teléfono') }} <span class="optional-mark">{{ tr('(optional)', '(opcional)') }}</span></label>
           <input
             id="roi-signer-phone"
             name="signerPhone"
@@ -130,7 +130,7 @@
         </div>
         <div>
           <label for="roi-signer-relationship">
-            {{ tr('Relationship to Client', 'Relacion con el cliente') }}
+            {{ tr('Relationship to Client', 'Relación con el cliente') }}
             <span v-if="form.intakeForSelf !== true && !hasRequiredValue(form.signer.relationship)" class="req-mark">*</span>
           </label>
           <input
@@ -155,7 +155,7 @@
           </div>
         </div>
         <div>
-          <label>{{ tr('School address', 'Direccion de la escuela') }}</label>
+          <label>{{ tr('School address', 'Dirección de la escuela') }}</label>
           <div class="summary-value">
             <svg class="summary-value__lock" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M10 1a4 4 0 0 0-4 4v2H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2h-1V5a4 4 0 0 0-4-4zm2 6V5a2 2 0 1 0-4 0v2h4z" clip-rule="evenodd"/></svg>
             {{ schoolAddress || '—' }}
@@ -169,7 +169,7 @@
           </div>
         </div>
         <div>
-          <label>{{ tr('Relationship to party', 'Relacion con la parte') }}</label>
+          <label>{{ tr('Relationship to party', 'Relación con la parte') }}</label>
           <div class="summary-value">
             <svg class="summary-value__lock" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M10 1a4 4 0 0 0-4 4v2H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2h-1V5a4 4 0 0 0-4-4zm2 6V5a2 2 0 1 0-4 0v2h4z" clip-rule="evenodd"/></svg>
             {{ relationshipToParty }}
@@ -184,8 +184,8 @@
 
     <div v-else-if="stage === 'purpose'" class="smart-roi-card">
       <div class="progress-label">{{ releaseProgressLabel }}</div>
-      <h3>{{ tr('Purpose of release', 'Proposito de la autorizacion') }}</h3>
-      <p>{{ tr('This authorization allows communication for school care coordination within the approved scope.', 'Esta autorizacion permite la comunicacion para la coordinacion de atencion escolar dentro del alcance aprobado.') }}</p>
+      <h3>{{ tr('Purpose of release', 'Proposito de la autorización') }}</h3>
+      <p>{{ tr('This authorization allows communication for school care coordination within the approved scope.', 'Esta autorización permite la comunicacion para la coordinacion de atencion escolar dentro del alcance aprobado.') }}</p>
       <div class="info-panel">
         <ul>
           <li v-for="purpose in roiContext.purposes || []" :key="purpose">{{ purpose }}</li>
@@ -229,7 +229,7 @@
       <h3>{{ currentWaiver?.title }}</h3>
       <p>{{ currentWaiver?.body }}</p>
       <p v-if="currentWaiver?.requiredAccept" class="required-note">
-        {{ tr('This authorization is required to provide services in the school setting.', 'Esta autorizacion es requerida para brindar servicios en el entorno escolar.') }}
+        {{ tr('This authorization is required to provide services in the school setting.', 'Esta autorización es requerida para brindar servicios en el entorno escolar.') }}
       </p>
       <div class="choice-row">
         <label class="choice-card">
@@ -287,7 +287,7 @@
         >
           <input :name="`staffDecision_${currentStaff?.schoolStaffUserId || 'current'}`" v-model="form.staffDecisions[currentStaff.schoolStaffUserId]" value="roi_docs" type="radio" />
           <span>
-            <strong>{{ tr('ROI All Active', 'ROI All Active') }}</strong>
+            <strong>{{ tr('ROI All Active', 'Autorización completa') }}</strong>
             <span class="choice-detail">{{ tr('Approve referral packet and speak about treatment goals and progress.', 'Aprobar el paquete de referencia y hablar sobre las metas y el progreso del tratamiento.') }}</span>
           </span>
         </label>
@@ -300,7 +300,7 @@
         >
           <input :name="`staffDecision_${currentStaff?.schoolStaffUserId || 'current'}`" v-model="form.staffDecisions[currentStaff.schoolStaffUserId]" value="roi" type="radio" />
           <span>
-            <strong>{{ tr('ROI (Speak)', 'ROI (Speak)') }}</strong>
+            <strong>{{ tr('ROI (Speak)', 'Autorización para hablar') }}</strong>
             <span class="choice-detail">{{ tr('Deny referral packet; approve speaking about treatment goals and progress.', 'Denegar el paquete de referencia; aprobar hablar sobre las metas y el progreso del tratamiento.') }}</span>
           </span>
         </label>
@@ -350,11 +350,11 @@
             <input :id="`roi-third-role-${idx}`" v-model="person.relationship" class="roi-input" type="text" :placeholder="tr('e.g. School counselor', 'p. ej. Consejero escolar')" />
           </div>
           <div>
-            <label :for="`roi-third-email-${idx}`">{{ tr('Email', 'Correo electronico') }} <span class="optional-mark">{{ tr('(optional)', '(opcional)') }}</span></label>
+            <label :for="`roi-third-email-${idx}`">{{ tr('Email', 'Correo electrónico') }} <span class="optional-mark">{{ tr('(optional)', '(opcional)') }}</span></label>
             <input :id="`roi-third-email-${idx}`" v-model="person.email" class="roi-input" type="email" />
           </div>
           <div>
-            <label :for="`roi-third-phone-${idx}`">{{ tr('Phone', 'Telefono') }} <span class="optional-mark">{{ tr('(optional)', '(opcional)') }}</span></label>
+            <label :for="`roi-third-phone-${idx}`">{{ tr('Phone', 'Teléfono') }} <span class="optional-mark">{{ tr('(optional)', '(opcional)') }}</span></label>
             <input :id="`roi-third-phone-${idx}`" v-model="person.phone" class="roi-input" type="tel" />
           </div>
         </div>
@@ -362,7 +362,7 @@
           <label class="choice-card choice-card--detail">
             <input v-model="person.decision" value="roi_docs" type="radio" />
             <span>
-              <strong>{{ tr('ROI All Active', 'ROI All Active') }}</strong>
+              <strong>{{ tr('ROI All Active', 'Autorización completa') }}</strong>
               <span class="choice-detail">{{ tr('Approve referral packet and speak about treatment goals and progress.', 'Aprobar el paquete de referencia y hablar sobre las metas y el progreso del tratamiento.') }}</span>
               <ul class="choice-scope">
                 <li v-for="item in speakItems" :key="`tp-all-${idx}-${item.id}`">{{ item.body }}</li>
@@ -373,7 +373,7 @@
           <label class="choice-card choice-card--detail">
             <input v-model="person.decision" value="roi" type="radio" />
             <span>
-              <strong>{{ tr('ROI (Speak)', 'ROI (Speak)') }}</strong>
+              <strong>{{ tr('ROI (Speak)', 'Autorización para hablar') }}</strong>
               <span class="choice-detail">{{ tr('Deny referral packet; approve speaking about treatment goals and progress.', 'Denegar el paquete de referencia; aprobar hablar sobre las metas y el progreso del tratamiento.') }}</span>
               <ul class="choice-scope">
                 <li v-for="item in speakItems" :key="`tp-speak-${idx}-${item.id}`">{{ item.body }}</li>
@@ -418,7 +418,7 @@
         <label class="choice-card choice-card--detail">
           <input name="programmedExternalDecision" v-model="form.programmedExternalDecision" @change="selectProgrammedExternalDecision(form.programmedExternalDecision)" value="roi_docs" type="radio" />
           <span>
-            <strong>{{ tr('ROI All Active', 'ROI All Active') }}</strong>
+            <strong>{{ tr('ROI All Active', 'Autorización completa') }}</strong>
             <span class="choice-detail">{{ tr('Approve referral packet and speak about treatment goals and progress.', 'Aprobar el paquete de referencia y hablar sobre las metas y el progreso del tratamiento.') }}</span>
             <ul class="choice-scope">
               <li v-for="item in speakItems" :key="`prog-all-${item.id}`">{{ item.body }}</li>
@@ -429,7 +429,7 @@
         <label class="choice-card choice-card--detail">
           <input name="programmedExternalDecision" v-model="form.programmedExternalDecision" @change="selectProgrammedExternalDecision(form.programmedExternalDecision)" value="roi" type="radio" />
           <span>
-            <strong>{{ tr('ROI (Speak)', 'ROI (Speak)') }}</strong>
+            <strong>{{ tr('ROI (Speak)', 'Autorización para hablar') }}</strong>
             <span class="choice-detail">{{ tr('Deny referral packet; approve speaking about treatment goals and progress.', 'Denegar el paquete de referencia; aprobar hablar sobre las metas y el progreso del tratamiento.') }}</span>
             <ul class="choice-scope">
               <li v-for="item in speakItems" :key="`prog-speak-${item.id}`">{{ item.body }}</li>
@@ -451,7 +451,7 @@
 
     <div v-else-if="stage === 'external_parent'" class="smart-roi-card">
       <div class="progress-label">{{ releaseProgressLabel }}</div>
-      <h3>{{ tr('Non-school release recipients', 'Destinatarios de divulgacion no escolar') }}</h3>
+      <h3>{{ tr('Non-school release recipients', 'Destinatarios de divulgación no escolar') }}</h3>
       <p>{{ tr('Add each non-school person and choose what they may receive — the same permission levels as school staff.', 'Agregue cada persona no escolar y elija que puede recibir: los mismos niveles de permiso que el personal escolar.') }}</p>
       <div
         v-for="(recipient, idx) in form.parentExternalRecipients"
@@ -465,15 +465,15 @@
             <input :id="`roi-external-name-${idx}`" :name="`externalRecipientName_${idx}`" v-model="recipient.name" class="roi-input" type="text" placeholder="Person name" />
           </div>
           <div>
-            <label :for="`roi-external-relationship-${idx}`">{{ tr('Relationship', 'Relacion') }}</label>
+            <label :for="`roi-external-relationship-${idx}`">{{ tr('Relationship', 'Relación') }}</label>
             <input :id="`roi-external-relationship-${idx}`" :name="`externalRecipientRelationship_${idx}`" v-model="recipient.relationship" class="roi-input" type="text" placeholder="Relationship to client" />
           </div>
           <div>
-            <label :for="`roi-external-email-${idx}`">{{ tr('Email', 'Correo electronico') }}</label>
+            <label :for="`roi-external-email-${idx}`">{{ tr('Email', 'Correo electrónico') }}</label>
             <input :id="`roi-external-email-${idx}`" :name="`externalRecipientEmail_${idx}`" v-model="recipient.email" class="roi-input" type="email" placeholder="recipient@example.com" />
           </div>
           <div>
-            <label :for="`roi-external-phone-${idx}`">{{ tr('Phone', 'Telefono') }}</label>
+            <label :for="`roi-external-phone-${idx}`">{{ tr('Phone', 'Teléfono') }}</label>
             <input :id="`roi-external-phone-${idx}`" :name="`externalRecipientPhone_${idx}`" v-model="recipient.phone" class="roi-input" type="tel" placeholder="(555) 555-5555" />
           </div>
         </div>
@@ -481,7 +481,7 @@
           <label class="choice-card choice-card--detail">
             <input v-model="recipient.decision" value="roi_docs" type="radio" />
             <span>
-              <strong>{{ tr('ROI All Active', 'ROI All Active') }}</strong>
+              <strong>{{ tr('ROI All Active', 'Autorización completa') }}</strong>
               <span class="choice-detail">{{ tr('Approve referral packet and speak about treatment goals and progress.', 'Aprobar el paquete de referencia y hablar sobre las metas y el progreso del tratamiento.') }}</span>
               <ul class="choice-scope">
                 <li v-for="item in speakItems" :key="`ext-all-${idx}-${item.id}`">{{ item.body }}</li>
@@ -492,7 +492,7 @@
           <label class="choice-card choice-card--detail">
             <input v-model="recipient.decision" value="roi" type="radio" />
             <span>
-              <strong>{{ tr('ROI (Speak)', 'ROI (Speak)') }}</strong>
+              <strong>{{ tr('ROI (Speak)', 'Autorización para hablar') }}</strong>
               <span class="choice-detail">{{ tr('Deny referral packet; approve speaking about treatment goals and progress.', 'Denegar el paquete de referencia; aprobar hablar sobre las metas y el progreso del tratamiento.') }}</span>
               <ul class="choice-scope">
                 <li v-for="item in speakItems" :key="`ext-speak-${idx}-${item.id}`">{{ item.body }}</li>
@@ -542,13 +542,13 @@
 
     <div v-else-if="stage === 'term'" class="smart-roi-card">
       <div class="progress-label">{{ releaseProgressLabel }}</div>
-      <h3>{{ tr('Term and revocation', 'Vigencia y revocacion') }}</h3>
+      <h3>{{ tr('Term and revocation', 'Vigencia y revocación') }}</h3>
       <div class="info-panel">
         <ul>
-          <li>{{ tr('This authorization is valid for 36 months from the date signed unless revoked earlier.', 'Esta autorizacion es valida por 36 meses desde la fecha de firma, salvo revocacion previa.') }}</li>
-          <li>{{ tr('Consent may be revoked at any time through support@itsco.health or 719-657-7444 Ext 0.', 'El consentimiento puede revocarse en cualquier momento a traves de support@itsco.health o 719-657-7444 Ext 0.') }}</li>
-          <li>{{ tr('Actions already taken before revocation cannot be undone.', 'Las acciones tomadas antes de la revocacion no se pueden deshacer.') }}</li>
-          <li>{{ tr('Information disclosed may be redistributed by the receiving party and may no longer be protected in the same way.', 'La informacion divulgada puede redistribuirse por la parte receptora y puede dejar de estar protegida de la misma manera.') }}</li>
+          <li>{{ tr('This authorization is valid for 36 months from the date signed unless revoked earlier.', 'Esta autorización es valida por 36 meses desde la fecha de firma, salvo revocación previa.') }}</li>
+          <li>{{ tr('Consent may be revoked at any time through support@itsco.health or 719-657-7444 Ext 0.', 'El consentimiento puede revocarse en cualquier momento a través de support@itsco.health o 719-657-7444 Ext 0.') }}</li>
+          <li>{{ tr('Actions already taken before revocation cannot be undone.', 'Las acciones tomadas antes de la revocación no se pueden deshacer.') }}</li>
+          <li>{{ tr('Information disclosed may be redistributed by the receiving party and may no longer be protected in the same way.', 'La información divulgada puede redistribuirse por la parte receptora y puede dejar de estar protegida de la misma manera.') }}</li>
         </ul>
       </div>
       <div class="actions">
@@ -621,7 +621,7 @@
         <h4>{{ tr('Programmed non-school recipient', 'Destinatario externo programado') }}</h4>
         <p><strong>{{ tr('Name', 'Nombre') }}:</strong> {{ programmedRecipient?.name || '—' }}</p>
         <p><strong>{{ tr('Relationship', 'Parentesco') }}:</strong> {{ programmedRecipient?.relationship || '—' }}</p>
-        <p><strong>{{ tr('Decision', 'Decision') }}:</strong> {{ staffDecisionLabel(form.programmedExternalDecision) }}</p>
+        <p><strong>{{ tr('Decision', 'Decisión') }}:</strong> {{ staffDecisionLabel(form.programmedExternalDecision) }}</p>
       </div>
       <div v-else-if="externalReleaseMode === 'parent_defined'" class="review-block">
         <h4>{{ tr('Parent-entered non-school recipients', 'Destinatarios externos indicados por el padre o tutor') }}</h4>
@@ -664,14 +664,14 @@
       <div class="actions">
         <button type="button" class="btn btn-secondary" @click="goBack">{{ tr('Back', 'Atras') }}</button>
         <button type="button" class="btn btn-primary" :disabled="submitting || !signatureData" @click="submitRoi">
-          {{ submitting ? tr('Submitting...', 'Enviando...') : (isEmbeddedMode ? tr('Continue', 'Continuar') : tr('Complete release', 'Completar autorizacion')) }}
+          {{ submitting ? tr('Submitting...', 'Enviando...') : (isEmbeddedMode ? tr('Continue', 'Continuar') : tr('Complete release', 'Completar autorización')) }}
         </button>
       </div>
     </div>
 
     <div v-else-if="stage === 'complete'" class="smart-roi-card">
-      <h3>{{ tr('Release completed', 'Autorizacion completada') }}</h3>
-      <p>{{ tr('The smart school ROI was signed successfully and permissions were applied.', 'La autorizacion escolar inteligente se firmo correctamente y se aplicaron los permisos.') }}</p>
+      <h3>{{ tr('Release completed', 'Autorización completada') }}</h3>
+      <p>{{ tr('The smart school ROI was signed successfully and permissions were applied.', 'La autorización escolar inteligente se firmo correctamente y se aplicaron los permisos.') }}</p>
       <div class="actions">
         <a v-if="downloadUrl" class="btn btn-primary" :href="downloadUrl" target="_blank" rel="noopener">{{ tr('Download signed ROI', 'Descargar ROI firmado') }}</a>
       </div>
@@ -885,6 +885,17 @@ const form = reactive({
   }]
 });
 
+// Context can arrive after this component mounts. Missing choices must never
+// serialize as a denial. A fresh form uses the published All Active default;
+// a signed capture requires review of any newly listed staff.
+watch(staffRoster, roster => {
+  for (const staff of roster) {
+    if (!Object.prototype.hasOwnProperty.call(form.staffDecisions, staff.schoolStaffUserId)) {
+      form.staffDecisions[staff.schoolStaffUserId] = props.savedCapture?.signatureData ? null : 'roi_docs';
+    }
+  }
+}, { deep: true, immediate: true });
+
 const hydrateClientFieldsFromContext = () => {
   const nextName = String(resolveClientFullName() || '').trim();
   const nextDob = normalizeDateInput(resolveClientDob());
@@ -928,12 +939,12 @@ const guidelinesForSigner = computed(() => (props.roiContext?.guidelines || []).
 }));
 const staffDecisionLabel = (decision) => {
   if (decision === 'roi_docs') {
-    return tr('ROI All Active', 'ROI All Active');
+    return tr('ROI All Active', 'Autorización completa');
   }
   if (decision === 'roi') {
-    return tr('ROI (Speak)', 'ROI (Speak)');
+    return tr('ROI (Speak)', 'Autorización para hablar');
   }
-  return tr('No ROI on file', 'Sin ROI en archivo');
+  return decision === 'none' ? tr('No ROI on file', 'Sin autorización') : tr('Review required', 'Revisión requerida');
 };
 const approvedStaff = computed(() =>
   staffRoster.value.filter((staff) => {
@@ -1018,8 +1029,8 @@ const buildRoiPayload = () => ({
       role: staff.roleTitle || staff.role || staff.title || '',
       email: staff.email || '',
       decision,
-      allowed: decision === 'roi' || decision === 'roi_docs',
-      packetAllowed: decision === 'roi_docs'
+      allowed: decision === 'none' ? false : ['roi', 'roi_docs'].includes(decision) ? true : null,
+      packetAllowed: ['roi', 'none'].includes(decision) ? false : decision === 'roi_docs' ? true : null
     };
   }),
   thirdPartyRecipients: (form.thirdPartyRecipients || [])
@@ -1273,7 +1284,7 @@ const validateCurrentStage = () => {
     error.value = 'This authorization is required to continue.';
     return false;
   }
-  if (stage.value === 'staff' && staffRoster.value.some(item => !['roi_docs', 'roi', 'none'].includes(form.staffDecisions[item.schoolStaffUserId]))) {
+  if (['staff', 'review'].includes(stage.value) && staffRoster.value.some(item => !['roi_docs', 'roi', 'none'].includes(form.staffDecisions[item.schoolStaffUserId]))) {
     error.value = 'Choose ROI All Active, ROI (Speak), or No ROI on file for this staff member.';
     return false;
   }
@@ -1419,7 +1430,10 @@ watch(() => props.savedCapture, saved => {
   form.requiredAcknowledgements = { ...saved.requiredAcknowledgements };
   form.waiverItems = { ...saved.waiverItems };
   form.staffDecisions = Object.fromEntries(staffRoster.value.map(staff => [staff.schoolStaffUserId, null]));
-  for (const staff of saved.staffDecisions || []) form.staffDecisions[staff.schoolStaffUserId] = staff.decision;
+  for (const staff of saved.staffDecisions || []) {
+    form.staffDecisions[staff.schoolStaffUserId] = ['roi_docs', 'roi', 'none'].includes(staff.decision)
+      ? staff.decision : staff.allowed === true ? (staff.packetAllowed === true ? 'roi_docs' : 'roi') : staff.allowed === false ? 'none' : null;
+  }
   if (Array.isArray(saved.thirdPartyRecipients)) form.thirdPartyRecipients = saved.thirdPartyRecipients.map(row => ({ ...row }));
   if (Array.isArray(saved.externalRecipients)) form.parentExternalRecipients = saved.externalRecipients.map(row => ({ ...row }));
   if (saved.programmedExternalRecipient) form.programmedExternalDecision = saved.programmedExternalRecipient.decision;

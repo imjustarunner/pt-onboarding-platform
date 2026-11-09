@@ -59,10 +59,10 @@ it('serializes saves and completion so concurrent requests cannot send',async()=
 it('returns review context without account secrets or raw OCR',async()=>{
  const context=await paperProcessingContext(4,deps);expect(context.schoolName).toBe('Example School');expect(context.guardians[0]).not.toHaveProperty('password_hash');expect(context.packetRead).not.toHaveProperty('raw_ocr');
 });
-it('rejects invalid dates and requires all steps for a replacement packet',async()=>{
+it('rejects invalid dates and requires consent review without erasing previously entered replacement data',async()=>{
  ready();await expect(savePaperProcessingStep({clientId:4,step:'demographics',data:{documentId:9,firstName:'Test',lastName:'Student',dateOfBirth:'2018-02-31'}},deps)).rejects.toThrow('valid date');
  deps.documents.findSchoolPaperPacket.mockResolvedValue({id:10,client_id:4,agency_id:2,referral_draft_id:3,scan_status:'clean'});
- expect((await savePaperProcessingStep({clientId:4,step:'demographics',data:{documentId:10,firstName:'Test',lastName:'Student',dateOfBirth:'2018-02-28'}},deps)).completedSteps).toEqual(['demographics']);
+ expect((await savePaperProcessingStep({clientId:4,step:'demographics',data:{documentId:10,firstName:'Test',lastName:'Student',dateOfBirth:'2018-02-28'}},deps)).completedSteps).not.toContain('consents');
 });
 
 it('limits the support processing context to this client’s uploaded referral packets',async()=>{
@@ -88,4 +88,20 @@ it.each(['signature_matching_needs_review','roi_signature_missing','deny_checkbo
  ready();client.onboarding_docs_json.paperPacketSource={documentId:9};
  deps.vision.mockResolvedValue({id:12,phi_document_id:9,status:'needs_review',roi_signature_detected:1,disclosure_signature_detected:1,review_reasons:['replacement_packet_requires_review',reason]});
  await expect(completePaperProcessing(input,deps)).rejects.toThrow('match needs review');expect(deps.markSignatures).not.toHaveBeenCalled();expect(deps.send).not.toHaveBeenCalled();
+});
+it('returns the stored guardian phone alias to the paper entry form',async()=>{
+ deps.guardians.listForClient.mockResolvedValue([{guardian_user_id:20,phone:'555-0101'}]);
+ expect((await paperProcessingContext(4,deps)).guardians[0].phone_number).toBe('555-0101');
+});
+it('requires review of a replacement while preserving saved contacts and insurance steps',async()=>{
+ ready();const saved=client.onboarding_docs_json.paperProcessing;saved.documentId=7;saved.consentReview={documentId:7};
+ await savePaperProcessingStep({clientId:4,actorId:8,step:'demographics',data:{documentId:9,firstName:'Synthetic',lastName:'Student',dateOfBirth:'2018-01-02'}},deps);
+ const state=paperProcessingState(client);expect(state.completedSteps).toContain('insurance');expect(state.completedSteps).not.toContain('consents');expect(state.guardian2Id).toBe(21);expect(state.consentReview).toBeUndefined();
+ await expect(completePaperProcessing(input,deps)).rejects.toThrow('each packet-processing step');expect(deps.send).not.toHaveBeenCalled();
+ await savePaperProcessingStep({clientId:4,actorId:8,step:'consents',data:{signaturesConfirmed:true,staffRoiConfirmed:true}},deps);
+ expect(paperProcessingState(client).consentReview.documentId).toBe(9);
+});
+it('keeps previously processed five-step packets idempotent after adding a consent review step',async()=>{
+ ready();Object.assign(client.onboarding_docs_json.paperProcessing,{completedSteps:PAPER_PROCESSING_STEPS.filter(s=>s!=='consents'),processedAt:'2026-11-08',invitations:{20:{status:'sent'},21:{status:'redirected'}}});
+ await completePaperProcessing(input,deps);expect(deps.send).not.toHaveBeenCalled();
 });

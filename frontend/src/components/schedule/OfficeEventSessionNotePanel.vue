@@ -27,6 +27,7 @@
 
     <div class="oesn-footer">
       <span class="oesn-count">{{ String(inputText || '').length }} / 12000</span>
+      <button type="button" class="oesn-open-aid" :disabled="loadingDraft || activeDraftState?.loadFailed || savingDraft" @click="saveNarrative">{{ savingDraft ? 'Saving…' : 'Save draft' }}</button>
       <label class="oesn-toggle">
         Interactive Complexity
         <span class="oesn-switch" :class="{ on: includeInteractiveComplexity }">
@@ -277,6 +278,13 @@ async function savePendingDraft() {
   if (!state || loadingDraft.value) return;
   await state.saving.catch(() => {});
   if (state.text !== state.lastSavedInput) await persistDraft({ state });
+}
+const savingDraft = ref(false);
+async function saveNarrative() {
+  if (savingDraft.value) return;
+  savingDraft.value = true;
+  try { await savePendingDraft(); } catch { /* persistDraft keeps the recoverable error beside the text */ }
+  finally { savingDraft.value = false; }
 }
 defineExpose({ savePendingDraft });
 

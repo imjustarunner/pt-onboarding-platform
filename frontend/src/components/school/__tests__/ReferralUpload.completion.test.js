@@ -26,3 +26,28 @@ it('preserves a new child and file when an older draft resumes late',async()=>{
  expect(w.vm.firstName).toBe('New');expect(w.vm.lastName).toBe('Child');expect(w.vm.draftId).toBeNull();expect(w.vm.phiDocumentId).toBeNull();expect(w.vm.uploadNote).toBe('');
  w.unmount();
 });
+it('offers an existing draft explicitly and uploads the newly selected file instead',async()=>{
+ api.get.mockImplementation(async()=>({data:{draft:{id:17,phiDocumentId:18,firstName:'Previous',lastName:'Child'}}}));
+ api.post.mockResolvedValue({data:{draftId:19,phiDocumentId:20}});
+ const w=mount(Upload,{props:{organizationSlug:'qa-school'}});await flushPromises();
+ expect(w.text()).toContain('Resume this packet');expect(w.vm.draftId).toBeNull();expect(w.get('#file-input').attributes('disabled')).toBeUndefined();
+ const file=new File(['%PDF-synthetic-new'],'new.pdf',{type:'application/pdf'});
+ Object.defineProperty(w.get('#file-input').element,'files',{value:[file]});await w.get('#file-input').trigger('change');
+ w.vm.firstName='New';w.vm.lastName='Child';await w.vm.handleUpload();await flushPromises();
+ expect(api.post.mock.calls.at(-1)[0]).toBe('/organizations/qa-school/upload-referral');expect(api.post.mock.calls.at(-1)[1].get('file')).toBe(file);
+ expect(w.vm.draftId).toBe(19);expect(w.vm.phiDocumentId).toBe(20);w.unmount();
+});
+it('requires an explicit new-child choice after a review finds no matches',async()=>{
+ api.get.mockResolvedValue({data:{}});api.post.mockResolvedValueOnce({data:{reviewComplete:true,matches:[]}}).mockResolvedValueOnce({data:{client:{id:44}}});
+ const w=mount(Upload,{props:{organizationSlug:'qa-school'}});await flushPromises();w.vm.draftId=33;w.vm.firstName='Synthetic';w.vm.lastName='Newchild';
+ await w.vm.handleSubmitClient();await flushPromises();expect(w.emitted('submitted')).toBeUndefined();expect(w.text()).toContain('No possible matches');
+ expect(api.post.mock.calls.at(-1)[1].reviewOnly).toBe(true);
+ await w.vm.handleSubmitClient();expect(w.emitted('submitted')).toBeUndefined();
+ w.vm.matchChoice='new';await w.vm.handleSubmitClient();expect(api.post.mock.calls.at(-1)[1].reviewOnly).toBe(false);expect(w.emitted('submitted')).toHaveLength(1);w.unmount();
+});
+it('submits the selected assigned school and locks it after upload',async()=>{
+ api.get.mockResolvedValue({data:{}});api.post.mockResolvedValue({data:{draftId:55,phiDocumentId:56,scanStatus:'pending'}});
+ const w=mount(Upload,{props:{organizationSlug:'first',organizationOptions:[{slug:'first',name:'First school'},{slug:'second',name:'Second school'}]}});await flushPromises();
+ await w.get('select').setValue('second');w.vm.selectedFile=new File(['%PDF-synthetic'],'test.pdf',{type:'application/pdf'});await w.vm.handleUpload();await flushPromises();
+ expect(api.post.mock.calls.at(-1)[0]).toBe('/organizations/second/upload-referral');expect(w.get('select').attributes('disabled')).toBeDefined();expect(w.vm.pdfPreviewUrl).toBe('');w.unmount();
+});

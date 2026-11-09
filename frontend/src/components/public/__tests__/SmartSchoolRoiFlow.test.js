@@ -175,3 +175,19 @@ it('preserves saved decisions and never grants newly listed staff on reopening a
   expect(state.form.staffDecisions[100]).toBeNull();
   wrapper.unmount();
 });
+
+it('defaults asynchronously loaded staff on a fresh form without converting them to denials', async () => {
+ const w=mountFlow({roiContext:{...roiContext,staffRoster:[]},embedded:true});
+ await w.setProps({roiContext});
+ expect(w.vm.buildRoiPayload().staffDecisions).toEqual([expect.objectContaining({schoolStaffUserId:99,decision:'roi_docs',allowed:true,packetAllowed:true})]);
+ w.vm.form.staffDecisions[99]='none';
+ await w.setProps({roiContext:{...roiContext,staffRoster:[...roiContext.staffRoster,{schoolStaffUserId:100,fullName:'Added Staff'}]}});
+ expect(w.vm.buildRoiPayload().staffDecisions.map(s=>s.decision)).toEqual(['none','roi_docs']);w.unmount();
+});
+it('keeps legacy explicit permissions on resume and blocks an unknown choice at final review',async()=>{
+ const w=mountFlow({savedCapture:{signatureData:'synthetic',staffDecisions:[{schoolStaffUserId:99,allowed:true,packetAllowed:true}]}});
+ expect(w.vm.form.staffDecisions[99]).toBe('roi_docs');
+ w.vm.form.staffDecisions[99]=undefined;
+ expect(w.vm.buildRoiPayload().staffDecisions[0].allowed).toBeNull();
+ await w.vm.submitRoi();expect(w.emitted('captured')).toBeUndefined();expect(w.text()).toContain('Choose ROI All Active');w.unmount();
+});

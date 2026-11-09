@@ -31,13 +31,13 @@ it('keeps the PDF visible beside one step and resumes saved progress with separa
 it('saves insurance corrections before advancing, and stays on the step when that save fails',async()=>{
  context.state={completedSteps:steps.slice(0,4),documentId:9,guardian1Id:20,guardian2Id:21,sharedCustody:'yes'};await render();
  await w.get('input[type="checkbox"]').setValue(true);saveInsurance.mockResolvedValueOnce(false);await next();await flushPromises();expect(w.get('h4').text()).toContain('Insurance');expect(api.put).not.toHaveBeenCalled();
- await next();await flushPromises();expect(saveInsurance).toHaveBeenCalledTimes(2);expect(api.put).toHaveBeenCalledWith(expect.anything(),{step:'insurance',data:{reviewed:true,insuranceTypeId:7}});expect(w.get('h4').text()).toContain('Review');expect(w.findAll('form form')).toHaveLength(0);
+ await next();await flushPromises();expect(saveInsurance).toHaveBeenCalledTimes(2);expect(api.put).toHaveBeenCalledWith(expect.anything(),{step:'insurance',data:{reviewed:true,insuranceTypeId:7}});expect(w.get('h4').text()).toContain('Paper consents and release');expect(w.findAll('form form')).toHaveLength(0);
 });
 it('finishes only after saving ROI corrections and displays each recipient outcome',async()=>{
  context.state={completedSteps:steps,documentId:9,guardian1Id:20,guardian2Id:21,sharedCustody:'yes'};await render();
  for(const field of w.findAll('input[type="checkbox"]'))await field.setValue(true);
  saveRoi.mockResolvedValueOnce(false);await next();await flushPromises();expect(api.post).not.toHaveBeenCalled();expect(w.get('[role="alert"]').text()).toContain('ROI corrections');
- await next();await flushPromises();expect(api.post).toHaveBeenCalledExactlyOnceWith('/clients/4/paper-packet-processing/complete',{signaturesConfirmed:true,staffRoiConfirmed:true});expect(w.text()).toContain('Parent 20: sent');expect(w.text()).toContain('Parent 21: failed');
+ await next();await flushPromises();expect(api.post).not.toHaveBeenCalled();expect(w.get('h4').text()).toContain('Review');await next();await flushPromises();expect(api.post).toHaveBeenCalledExactlyOnceWith('/clients/4/paper-packet-processing/complete',{signaturesConfirmed:true,staffRoiConfirmed:true});expect(w.text()).toContain('Parent 20: sent');expect(w.text()).toContain('Parent 21: failed');
  await w.findAll('button').find(b=>b.text()==='Retry failed invitations').trigger('click');await flushPromises();expect(saveRoi).toHaveBeenCalledTimes(2);expect(api.post).toHaveBeenCalledTimes(2);
 });
 it('keeps an unmatched paper packet pending without offering a new signature form',async()=>{
@@ -58,6 +58,19 @@ it('requires explicit review confirmations for a matched replacement and blocks 
  await render();expect(w.findAll('.paper-actions button').at(-1).attributes('disabled')).toBeUndefined();
  await next();await flushPromises();expect(api.post).not.toHaveBeenCalled();
  for(const field of w.findAll('input[type="checkbox"]'))await field.setValue(true);
- await next();await flushPromises();expect(api.post).toHaveBeenCalledTimes(1);
+ await next();await flushPromises();expect(api.post).not.toHaveBeenCalled();await next();await flushPromises();expect(api.post).toHaveBeenCalledTimes(1);
  w.unmount();context.packetRead.reviewReasons.push('deny_checkbox_ambiguous');await render();expect(w.findAll('.paper-actions button').at(-1).attributes('disabled')).toBeDefined();
+});
+
+it('does not request a quarantined preview and refreshes a completed check without replacing unsaved entry',async()=>{
+ context.documents[0].scan_status='pending';await render();
+ expect(api.get.mock.calls.some(([url])=>url.endsWith('/view'))).toBe(false);
+ await w.get('input[maxlength="255"]').setValue('Unsaved synthetic name');
+ api.post.mockResolvedValueOnce({data:{status:'queued',message:'Queued'}});
+ await w.findAll('button').find(b=>b.text()==='Check file and read packet').trigger('click');await flushPromises();
+ context.documents[0].scan_status='clean';
+ await w.findAll('button').find(b=>b.text()==='Refresh file-check status').trigger('click');await flushPromises();
+ expect(w.get('input[maxlength="255"]').element.value).toBe('Unsaved synthetic name');
+ expect(w.get('[data-test="packet"]').text()).toContain('synthetic-private-packet.pdf');
+ expect(api.post).toHaveBeenCalledTimes(1);
 });

@@ -209,7 +209,7 @@
             :organization-name="client.organization_name || schoolGlanceLabel"
             @edit="startEditOverview(true)"
             @upload="openDocumentUpload"
-            @client-actions="clientActionsOpen = true"
+            @client-actions="openClientActions"
             @navigate="goChartSub"
             @alert-click="onOverviewAlertClick"
             @view-event="openLifecycleHistoryEvent"
@@ -259,7 +259,7 @@
             @navigate="goChartSub"
             @navigate-secondary="goChartSub"
             @upload="openDocumentUpload"
-            @client-actions="clientActionsOpen = true"
+            @client-actions="openClientActions"
             @open-document="openChartDocument"
             @alert-click="onOverviewAlertClick"
           />
@@ -865,7 +865,7 @@
                         @change="onToggleDocNeeded(newInsuranceNeededItem, $event)"
                       />
                       <span class="muted" style="font-size: 12px;">
-                        Post-readiness flag — acquire updated insurance for this client
+                        Select only when updated insurance is needed. Coverage already on file may still need verification.
                       </span>
                     </label>
                   </div>
@@ -1110,7 +1110,7 @@
                   <button type="button" class="cdp-btn-soft" @click="openDocumentUpload">
                     {{ authStore.user?.role === 'support' ? 'Upload / process paper packet' : 'Upload document' }}
                   </button>
-                  <button v-if="canEditPaperwork" type="button" class="cdp-btn-soft" @click="clientActionsOpen = true">
+                  <button v-if="canEditPaperwork" type="button" class="cdp-btn-soft" @click="openClientActions()">
                     Client actions / process paper packet
                   </button>
                   <button v-if="canEditAccount && ['super_admin','admin','support'].includes(authStore.user?.role)" type="button" class="cdp-btn-soft" @click="clientUpdateModalOpen = true">Request selected updates</button>
@@ -2770,7 +2770,7 @@
           :pending-view-key="pendingChartViewKey"
           :open-paper-packet="openPaperPacket"
           @opened-view-key="pendingChartViewKey = ''"
-          @client-actions="clientActionsOpen = true"
+          @client-actions="openClientActions"
         />
 
     <template v-if="!props.fullPage" #footer>
@@ -2847,6 +2847,7 @@
             :client-label="client.full_name || client.initials || 'Client'"
             :client-meta="client"
             :can-edit-docs="canEditPaperwork"
+            :initial-paper-action="clientActionsInitialAction"
             as-modal
             @close="clientActionsOpen = false"
             @updated="emit('updated', client)"
@@ -2928,7 +2929,7 @@ import ClientBillingImportTab from './ClientBillingImportTab.vue';
 import ClientChartShell from './clientChart/ClientChartShell.vue';
 import ClientOverviewHub from './clientChart/ClientOverviewHub.vue';
 import ClientChartSetupPanel from './clientChart/ClientChartSetupPanel.vue';
-import { formatAuditTimestamp } from '../../utils/formatDate';
+import { formatAuditTimestamp, formatDate as formatCalendarDate } from '../../utils/formatDate';
 import EnrollmentPreferencesSummary from './clientChart/EnrollmentPreferencesSummary.vue';
 import ClientClinicalTab from './clientChart/ClientClinicalTab.vue';
 import ClientClinicalNotesFeed from './clientChart/ClientClinicalNotesFeed.vue';
@@ -3352,6 +3353,8 @@ const skillsValue = ref(false);
 const editingOverview = ref(false);
 const clientRenewalModalOpen = ref(false);
 const clientActionsOpen = ref(false);
+const clientActionsInitialAction = ref('');
+function openClientActions(action = '') { clientActionsInitialAction.value = typeof action === 'string' ? action : ''; clientActionsOpen.value = true; }
 const clientUpdateModalOpen = ref(false);
 const clientDisclosureStatus = ref('');
 
@@ -3544,6 +3547,7 @@ const hasAgencyAccess = computed(() => {
   if (isSuperAdmin.value) return true;
   if (Number(props.schoolOrganizationId || 0) > 0 && isBackofficeRole.value) return true;
   const mine = new Set((myAgencies.value || []).map((a) => Number(a?.id)).filter(Boolean));
+  if (mine.has(Number(props.client?.agency_id || 0))) return true;
   const clientOrgId = Number(props.client?.organization_id || 0);
   if (clientOrgId && mine.has(clientOrgId)) return true;
   const clientAgencyIds = (clientAgencyAffiliations.value || []).map((a) => Number(a?.agency_id)).filter(Boolean);
@@ -3734,7 +3738,7 @@ const openFullClientRecord = () => {
   });
 };
 
-async function openDocumentUpload(){if(canEditPaperwork.value && effectiveClientType.value==='school'){clientActionsOpen.value=true;return;}goChartSub('phi');await nextTick();documentsTabRef.value?.openUpload?.();}
+async function openDocumentUpload(){if(canEditPaperwork.value && effectiveClientType.value==='school'){openClientActions('upload');return;}goChartSub('phi');await nextTick();documentsTabRef.value?.openUpload?.();}
 const organizationSlugForLinks = computed(() => String(route.params?.organizationSlug || '').trim());
 
 const addAgencyAffiliationId = ref('');
@@ -4285,9 +4289,7 @@ const {
 const lastSessionLabel = computed(() => {
   const row = lastSession.value;
   if (!row?.service_date) return '—';
-  const d = new Date(row.service_date);
-  if (!Number.isFinite(d.getTime())) return String(row.service_date);
-  return d.toLocaleDateString();
+  return `${row.note_status === 'planned' ? 'Scheduled' : 'Latest date'}: ${formatCalendarDate(row.service_date)}`;
 });
 
 const lastSessionMeta = computed(() => {
@@ -5731,13 +5733,19 @@ const fetchAccess = async () => {
   }
 };
 
+let clientAffiliationsGeneration = 0;
 const fetchClientAgencyAffiliations = async () => {
+  const generation = ++clientAffiliationsGeneration;
+  const clientId = props.client.id;
+  clientAgencyAffiliations.value = [];
   try {
-    const r = await api.get(`/clients/${props.client.id}/agency-affiliations`, { skipGlobalLoading: true });
+    const r = await api.get(`/clients/${clientId}/agency-affiliations`, { skipGlobalLoading: true });
+    if (generation !== clientAffiliationsGeneration || clientId !== props.client.id) return;
     clientAgencyAffiliations.value = Array.isArray(r.data) ? r.data : [];
     tenantBookingDrafts.value = {};
     await loadAllTenantCatalogs();
   } catch {
+    if (generation !== clientAffiliationsGeneration || clientId !== props.client.id) return;
     clientAgencyAffiliations.value = [];
   }
 };

@@ -245,6 +245,7 @@ defineEmits(['open','close','edit-status','enter','leave']);
   min-width: 0;
 }
 .cm-drawer-title strong {
+  overflow-wrap:anywhere;
   font-size: 0.96rem;
   display: block;
   margin-bottom: 0.3rem;
@@ -409,4 +410,9 @@ defineEmits(['open','close','edit-status','enter','leave']);
 }
 @media(prefers-reduced-motion:reduce){.cm-drawer-enter-active,.cm-drawer-leave-active{transition:none}}
 
+@media (max-width: 560px) {
+ .cm-drawer-header { flex-wrap:wrap; }
+ .cm-drawer-actions { width:100%; display:flex; justify-content:flex-end; flex-wrap:wrap; }
+ .cm-drawer { max-width:100vw; box-sizing:border-box; }
+}
 </style>

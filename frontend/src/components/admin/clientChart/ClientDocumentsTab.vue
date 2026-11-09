@@ -25,7 +25,7 @@
       :client-id="clientId"
     />
 
-    <button v-if="canEditPaperwork && client?.client_type === 'school'" type="button" class="btn btn-primary" @click="$emit('client-actions')">Upload / process paper packet</button>
+    <button v-if="canEditPaperwork && client?.client_type === 'school'" type="button" class="btn btn-primary" @click="$emit('client-actions', 'upload')">Upload paper packet</button>
     <details v-if="canOpenClinicalDocuments" ref="extraFilesRef" class="cc-docs-extra">
       <summary>Upload another file or open the audit trail</summary>
       <p class="hint">

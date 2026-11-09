@@ -51,6 +51,11 @@ jobs:
         run: |
           npm ci --prefix backend
           npm ci --prefix frontend --ignore-scripts
+      - name: Enrollment, guardian decisions and paper packet regressions
+        run: |
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.enrollment-repairs.config.js
+          node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.enrollment-repairs.config.js
+          NODE_ENV=test node --test backend/src/services/__tests__/completedIntakeRecord.service.test.js backend/src/services/__tests__/guardianSchoolRoi.service.test.js
       - name: Scoped People Operations and hiring source receipts
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.hire.config.js
       - name: Fresh school annual and client update schemas and delivery boundaries

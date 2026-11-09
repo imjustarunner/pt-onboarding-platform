@@ -1,3 +1,4 @@
+import { asqFieldCopy } from '../../../frontend/src/navigation/intake/asqRespondentCopy.js';
 import { lookupStructuredIntakeTranslation } from '../../../frontend/src/navigation/intake/structuredIntakeStepSpanish.js';
 import { officeSpanishScreenField, preserveOriginalOfficeInstrument } from '../../../frontend/src/navigation/intake/officeClinicalTranslations.js';
 /** Admin-enabled per-question Spanish labels (stored on intake_links.custom_messages). */
@@ -30,6 +31,8 @@ export function resolveIntakeFormLocale(link, intakeData) {
 
 export function resolveIntakeFieldLabel(field, locale, link) {
   if (!field) return '';
+  const safety=asqFieldCopy(field,{locale,...(typeof link?.intakeForSelf==='boolean'?{self:link.intakeForSelf}:{})});
+  if(safety)return safety.label;
   const enabled = spanishQuestionLabelsEnabled(link);
   if (locale === 'es' && enabled) {
     const es = String(field.labelEs || '').trim();

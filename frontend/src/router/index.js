@@ -5627,7 +5627,9 @@ router.beforeEach(async (to, from, next) => {
 
   // Allow magic-link flows even if a stale "user" is stored locally.
   // These flows are token-based and should not be blocked by requiresGuest redirects.
-  if (isTokenAuthenticationRoute(to)) {
+  if (isTokenAuthenticationRoute(to) || [
+    'PublicIntakeSigning', 'PublicIntakeSigningShort', 'CoGuardianInvite', 'OrganizationCoGuardianInvite'
+  ].includes(to.name)) {
     next();
     return;
   }

@@ -645,3 +645,15 @@ test('Spanish receipt localizes labels and published question wording while pres
  assert.ok(record.sections.flatMap(s=>s.rows||[]).some(row=>row.label==='¿Cuál es el motivo principal por el que busca terapia?'&&row.value==='Keep this exact English answer'));
  assert.match(record.esign.statement,/firmado electrónicamente/);
 });
+
+test('Spanish receipt follows the respondent and translates nested insurance labels without changing answers', () => {
+ const field={key:'asq_3',instrument:'asq',type:'radio',label:'In the past few weeks, has your child been having thoughts about killing themselves?',options:[{value:'yes',label:'Yes'},{value:'no',label:'No'}]};
+ const intake={formLocale:'es',intakeForSelf:false,clients:[{fullName:'Fictional Child'}],responses:{clients:[{asq_3:'no'}],submission:{insuranceInfo:{primary:{insurerName:'Fictional Carrier',memberId:'QA-123'}},communicationPreferences:{smsPreference:'no'}}}};
+ const original=JSON.stringify(intake);
+ const record=buildCompletedIntakeRecord({link:{intake_steps:[{type:'questions',fields:[field]}]},submission:{intake_data:intake}});
+ const rows=record.sections.flatMap(s=>s.rows||[]);
+ assert.ok(rows.some(r=>r.label.includes('su hijo/a')));
+ assert.ok(rows.some(r=>r.label==='Información del seguro · Principal · Nombre de la aseguradora'&&r.value==='Fictional Carrier'));
+ assert.ok(rows.some(r=>r.value==='No — no enviarme mensajes de texto'));
+ assert.equal(JSON.stringify(intake),original);
+});

@@ -78,8 +78,18 @@ export async function openGuardianSchoolRelease({
   // portal signing link. Only a new staff-issued request should reopen it.
   const explicitlyRequested = existing && Number(existing.issued_by_user_id) > 0
     && Number(existing.issued_by_user_id) !== uid;
-  const consent = explicitlyRequested || existing?.status === 'completed' ? [] : await loadConsent({ clientId: cid, schoolOrganizationId: schoolId, db });
-  const alreadySigned = consent.some(item => item.decisions?.some(decision =>
+  const consent = await loadConsent({ clientId: cid, schoolOrganizationId: schoolId, db });
+  // Expose only shared release decisions, never enrollment answers or documents
+  // belonging to another guardian. The existing document-access check still applies.
+  const staffIds = [...new Set(consent.map(item => Number(item.schoolStaffUserId)).filter(id => id > 0))];
+  const [staff] = staffIds.length ? await db.execute(`SELECT id, first_name, last_name FROM users WHERE id IN (${staffIds.map(() => '?').join(',')})`, staffIds) : [[]];
+  const decisions = consent.map(item => ({
+    schoolStaffUserId: item.schoolStaffUserId,
+    staffName: [staff.find(row => Number(row.id) === Number(item.schoolStaffUserId))?.first_name, staff.find(row => Number(row.id) === Number(item.schoolStaffUserId))?.last_name].filter(Boolean).join(' ') || 'School staff member',
+    effectiveDecision: item.effectiveDecision, conflict: item.conflict,
+    guardians: (item.decisions || []).map(decision => ({ guardianName: decision.guardianName, decision: decision.decision, expired: decision.expired, signedAt: decision.signedAt }))
+  }));
+  const alreadySigned = !explicitlyRequested && consent.some(item => item.decisions?.some(decision =>
     Number(decision.guardianUserId) === uid && !decision.expired
   ));
   if (String(existing?.status || '').toLowerCase() === 'completed' || alreadySigned) {
@@ -88,7 +98,8 @@ export async function openGuardianSchoolRelease({
       status: 'completed',
       clientId: cid,
       schoolOrganizationId: schoolId,
-      schoolName
+      schoolName,
+      decisions
     };
   }
 
@@ -117,6 +128,7 @@ export async function openGuardianSchoolRelease({
     clientId: cid,
     schoolOrganizationId: schoolId,
     schoolName,
+    decisions,
     publicKey
   };
 }

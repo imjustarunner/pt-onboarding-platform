@@ -8,6 +8,12 @@
       
       <div class="modal-body">
         <form class="upload-form">
+          <label v-if="organizationOptions.length && !existingClientId" class="form-group">School<select v-model="uploadOrganizationSlug" :disabled="uploading || uploadComplete || submittingClient"><option v-for="school in organizationOptions" :key="school.slug" :value="school.slug">{{ school.name }}</option></select></label>
+          <div v-if="resumableDraft && !uploadComplete && !selectedFile && !selectedImages.length && !firstName && !lastName" class="form-group">
+            <p>An unfinished packet is available for {{ resumableDraft.firstName }} {{ resumableDraft.lastName }} (draft {{ resumableDraft.id }}).</p>
+            <button type="button" class="btn btn-secondary" @click="resumeDraft">Resume this packet</button>
+            <p class="muted">To start a different packet, select its file below.</p>
+          </div>
           <div class="form-group">
             <label for="file-input" class="file-label">
               <div
@@ -94,11 +100,12 @@
             {{ error }}
           </div>
 
-          <fieldset v-if="clientMatches.length && !clientSubmitted" :disabled="submittingClient" class="form-group">
+          <fieldset v-if="(matchReviewComplete || clientMatches.length) && !clientSubmitted" :disabled="submittingClient" class="form-group">
             <legend>Review existing clients before adding this packet</legend>
             <p>Select the matching client, or confirm that this is a different child. Existing records will not be merged.</p>
             <label v-for="match in clientMatches" :key="match.id"><input v-model="matchChoice" type="radio" :value="String(match.id)" /> {{ match.full_name || match.initials }} · ID {{ match.id }} · {{ match.identifier_code || 'No identifier' }}<span v-if="match.date_of_birth"> · DOB {{ String(match.date_of_birth).slice(0,10) }}</span></label>
-            <label><input v-model="matchChoice" type="radio" value="new" /> I reviewed these matches; this is a different child.</label>
+            <p v-if="!clientMatches.length">No possible matches were found for this name in this school.</p>
+            <label><input v-model="matchChoice" type="radio" value="new" /> {{ clientMatches.length ? 'I reviewed these matches; this is a different child.' : 'I reviewed the child’s name and packet; create a new client.' }}</label>
           </fieldset>
           <div v-if="success" class="success-message">
             {{ success }}
@@ -181,6 +188,7 @@
               </div>
               <PDFPreview :key="pdfPreviewKey" :pdfUrl="pdfPreviewUrl" />
             </div>
+            <p v-else class="muted">The packet preview becomes available after its private file check passes. Submit the client, then open Process paper packet to check the file and review its contents.</p>
 
             <div v-if="ocrText" class="ocr-extracted">
               <div class="ocr-extracted-header">
@@ -288,6 +296,7 @@ import PDFPreview from '../documents/PDFPreview.vue';
 
 const props = defineProps({
   existingClientId: { type: Number, default: null },
+  organizationOptions: { type: Array, default: () => [] },
   organizationSlug: {
     type: String,
     required: true
@@ -297,6 +306,7 @@ const props = defineProps({
 const emit = defineEmits(['close', 'uploaded', 'submitted']);
 
 const authStore = useAuthStore();
+const uploadOrganizationSlug = ref(props.organizationSlug);
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
 const fileInput = ref(null);
 const selectedFile = ref(null);
@@ -312,9 +322,11 @@ const authLoading = ref(false);
 const authError = ref('');
 const draftId = ref(null);
 const phiDocumentId = ref(null);
+const fileScanStatus = ref('pending');
 const submittingClient = ref(false);
 const clientSubmitted = ref(false);
 const clientMatches = ref([]), matchChoice = ref('');
+const matchReviewComplete = ref(false);
 const ocrLoading = ref(false);
 const ocrError = ref('');
 const ocrText = ref('');
@@ -327,6 +339,7 @@ const initialsSet = ref(false);
 const firstName = ref('');
 const lastName = ref('');
 const hasAttemptedDraftResume = ref(false);
+const resumableDraft = ref(null);
 /** Bumps after submit so PDF preview remounts once the doc is linked to a client (same URL). */
 const pdfPreviewKey = ref(0);
 
@@ -346,7 +359,7 @@ const canRunOcr = computed(() => true);
 const isAuthenticated = computed(() => authStore.isAuthenticated);
 const canUseOcr = computed(() => ['super_admin', 'admin', 'staff', 'support', 'clinical_practice_assistant', 'provider_plus'].includes(roleNorm.value));
 const pdfPreviewUrl = computed(() => {
-  if (!phiDocumentId.value) return '';
+  if (!phiDocumentId.value || fileScanStatus.value !== 'clean') return '';
   const base = String(api.defaults?.baseURL || '').replace(/\/+$/, '');
   return `${base}/phi-documents/${phiDocumentId.value}/view`;
 });
@@ -888,7 +901,7 @@ const handleLogin = async () => {
   }
   authLoading.value = true;
   try {
-    const result = await authStore.login(authEmail.value, authPassword.value, props.organizationSlug);
+    const result = await authStore.login(authEmail.value, authPassword.value, uploadOrganizationSlug.value);
     if (!result?.success) {
       authError.value = result?.error || 'Login failed. Please check your credentials.';
     }
@@ -902,34 +915,43 @@ const handleLogin = async () => {
   }
 };
 
+let latestDraftGeneration = 0;
 const loadLatestDraft = async () => {
   if (!isAuthenticated.value || hasAttemptedDraftResume.value || uploadComplete.value) return;
   hasAttemptedDraftResume.value = true;
+  const generation = ++latestDraftGeneration;
+  const schoolSlug = uploadOrganizationSlug.value;
   try {
-    const response = await api.get(`/organizations/${props.organizationSlug}/upload-referral/latest-draft`);
+    const response = await api.get(`/organizations/${uploadOrganizationSlug.value}/upload-referral/latest-draft`);
+    if (generation !== latestDraftGeneration || schoolSlug !== uploadOrganizationSlug.value) return;
     const draft = response.data?.draft || null;
     if (!draft?.id) return;
     // A delayed resume must not replace work begun while this request was pending.
     if (uploading.value || uploadComplete.value || selectedFile.value || selectedImages.value.length
       || firstName.value || lastName.value || uploadNote.value) return;
 
-    draftId.value = Number(draft.id);
-    phiDocumentId.value = draft.phiDocumentId ? Number(draft.phiDocumentId) : null;
-    uploadNote.value = String(draft.uploadNote || '');
-    firstName.value = String(draft.firstName || '');
-    lastName.value = String(draft.lastName || '');
-    initialsSet.value = !!String(draft.initials || '').trim();
-    success.value = 'Resumed your latest in-progress packet draft.';
-
-    if (draft.agencyId) {
-      await loadPacketConfig(draft.agencyId);
-    }
+    resumableDraft.value = draft;
   } catch {
     // silent: no draft to resume or endpoint unavailable
   }
 };
 
+const resumeDraft = async () => {
+  const draft = resumableDraft.value;
+  if (!draft || uploading.value || uploadComplete.value || selectedFile.value || selectedImages.value.length || firstName.value || lastName.value) return;
+  draftId.value = Number(draft.id);
+  phiDocumentId.value = draft.phiDocumentId ? Number(draft.phiDocumentId) : null;
+  fileScanStatus.value = draft.scanStatus || 'pending';
+  uploadNote.value = String(draft.uploadNote || '');
+  firstName.value = String(draft.firstName || '');
+  lastName.value = String(draft.lastName || '');
+  initialsSet.value = !!String(draft.initials || '').trim();
+  success.value = `Resumed packet draft ${draft.id}.`;
+  if (draft.agencyId) await loadPacketConfig(draft.agencyId);
+};
+
 const uploadComplete = computed(() => !!draftId.value);
+watch(uploadOrganizationSlug, () => { resumableDraft.value = null; hasAttemptedDraftResume.value = false; void loadLatestDraft(); });
 
 const confirmClose = () => {
   if (clientSubmitted.value) return true;
@@ -984,11 +1006,12 @@ const handleUpload = async () => {
     if (first) formData.append('firstName', first);
     if (last) formData.append('lastName', last);
 
-    const response = await api.post(`/organizations/${props.organizationSlug}/upload-referral`, formData);
+    const response = await api.post(`/organizations/${uploadOrganizationSlug.value}/upload-referral`, formData);
 
     success.value = 'Referral packet uploaded successfully!';
     draftId.value = response.data?.draftId || null;
     phiDocumentId.value = response.data?.phiDocumentId || null;
+    fileScanStatus.value = response.data?.scanStatus || 'pending';
     success.value = 'Packet uploaded. Review OCR/initials, then click Submit Client.';
     const agencyId = response.data?.agencyId || null;
     if (agencyId) {
@@ -1103,7 +1126,7 @@ const applyInitials = async () => {
 
 const handleSubmitClient = async () => {
   if (!draftId.value || submittingClient.value) return;
-  if (clientMatches.value.length && !matchChoice.value) { error.value = 'Select a matching client or confirm a different child first.'; return; }
+  if ((matchReviewComplete.value || clientMatches.value.length) && !matchChoice.value) { error.value = 'Select a matching client or confirm a different child first.'; return; }
   submittingClient.value = true;
   error.value = '';
   success.value = '';
@@ -1111,6 +1134,7 @@ const handleSubmitClient = async () => {
     const d = new Date();
     const ymd = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     const payload = {
+      reviewOnly: !props.existingClientId && !matchReviewComplete.value && !clientMatches.value.length,
       submissionDate: ymd,
       uploadNote: String(uploadNote.value || '').trim() || null,
       firstName: String(firstName.value || '').trim() || null,
@@ -1118,7 +1142,11 @@ const handleSubmitClient = async () => {
       existingClientId: props.existingClientId || (matchChoice.value && matchChoice.value !== 'new' ? Number(matchChoice.value) : undefined),
       reviewedMatchIds: matchChoice.value === 'new' ? clientMatches.value.map(match => match.id) : undefined
     };
-    const response = await api.post(`/organizations/${props.organizationSlug}/upload-referral/${draftId.value}/submit`, payload);
+    const response = await api.post(`/organizations/${uploadOrganizationSlug.value}/upload-referral/${draftId.value}/submit`, payload);
+    if (response.data.reviewComplete) {
+      clientMatches.value = response.data.matches || []; matchReviewComplete.value = true; matchChoice.value = '';
+      success.value = 'Review the matching results, then confirm the client for this packet.'; return;
+    }
     success.value = response.data.attachedExisting ? 'Packet attached to the selected client.' : 'Client created successfully from referral packet.';
     clientSubmitted.value = true;
     pdfPreviewKey.value += 1;

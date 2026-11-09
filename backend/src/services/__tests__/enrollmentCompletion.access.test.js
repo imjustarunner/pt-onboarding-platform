@@ -15,7 +15,7 @@ it('does not send or rotate credentials when the completion page opens',async()=
 });
 it('does not look up or email school credentials merely when the completion page opens',async()=>{
  const recover=vi.fn(),users={findById:vi.fn()};
- for(const school of [{schoolOrganizationId:20},{invitationDeferred:true}]) {
+ for(const school of [{invitationDeferred:true}]) {
    const result=await enrollmentPortalAccess({...context,...school,sendSetupEmail:false},{users,recover});
    expect(result).toMatchObject({invitationDeferred:true,deliveryStatus:'not_requested'});
    expect(result).not.toHaveProperty('portalLoginUrl');

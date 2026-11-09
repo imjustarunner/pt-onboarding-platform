@@ -4030,7 +4030,7 @@ function applySessionTimingDefaults({ force = false } = {}) {
     const b = new Date(sessionScheduledEnd.value || '');
     const minutes = Math.round((b.getTime() - a.getTime()) / 60000);
     sessionDurationMinutes.value = Number.isFinite(minutes) && minutes > 0
-      ? minutes : defaultDurationMinutesForServiceCode(actualServiceCode.value);
+      ? minutes : sessionClinicalSessionId.value ? null : defaultDurationMinutesForServiceCode(actualServiceCode.value);
   }
   ensureSessionEndFromDuration();
 }
@@ -6756,14 +6756,14 @@ const loadRecent = async ({ retry = true } = {}) => {
       [
         ...(workQueueItems.value || []).map((i) => Number(i.clientId || 0)),
         Number(selectedClientId.value || 0),
-        Number(effectiveClientId.value || 0)
+        Number(effectiveClientId.value || 0),
+        Number(route.query?.clientId || route.query?.client_id || 0)
       ].filter((n) => n > 0)
     )];
     const res = await api.get('/clinical-notes/recent', {
       params: {
-        agencyId: currentAgencyId.value,
+        agencyId: Number(route.query?.agencyId || route.query?.agency_id || 0) || currentAgencyId.value,
         allAccessible: isAuricWell.value ? '0' : '1',
-        ...(isAuricWell.value ? { agencyId: currentAgencyId.value } : {}),
         days: 2555,
         archiveStatus: 'all',
         clientIds: queueClientIds.join(',')
@@ -9683,7 +9683,13 @@ async function openWorkspaceRouteSelection() {
     }
     if (String(signedNoteViewerId.value || '') !== qNote) await openSignedClinicalNote(qNote, { agencyId: qAgency });
   } else if (qDraft) {
-    const hit = recentDrafts.value.find((d) => String(d.id) === qDraft);
+    let hit = recentDrafts.value.find((d) => String(d.id) === qDraft);
+    // Initial bootstrap precedes the server work queue. Reconcile once with
+    // the loaded queue and explicit route scope before reporting a missing note.
+    if (!hit) {
+      await loadRecent();
+      hit = recentDrafts.value.find((d) => String(d.id) === qDraft);
+    }
     if (hit && String(draftId.value || '') !== qDraft) await loadDraftIntoWorkspace(hit);
     else if (!hit) approvalError.value = recentError.value || 'The requested note could not be loaded. Reopen it from its appointment or try again.';
   }
