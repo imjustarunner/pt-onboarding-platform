@@ -58,18 +58,37 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import { HOW_TO_VIDEOS } from '../config/howToVideos';
+import { useHowToVideoCatalog, setAudienceHowToVideos } from '../composables/useHowToVideoCatalog';
+import api from '../services/api';
 import { availableHowToVideos } from '../utils/howToVideos';
 import { useHowToVideo } from '../composables/useHowToVideo';
 
 const props = defineProps({
   role: { type: String, default: '' },
+  userId: { type: [String, Number], default: null },
   agencyId: { type: [String, Number], default: null }
 });
 const route = useRoute();
 const { request, modalHost } = useHowToVideo();
 let opener = null;
-const videos = computed(() => availableHowToVideos(HOW_TO_VIDEOS, props));
+const catalog = useHowToVideoCatalog();
+const videos = computed(() => availableHowToVideos(catalog.value, props));
+let catalogRequest = 0;
+async function refreshAudienceVideos() {
+  const requestId = ++catalogRequest;
+  if (!props.userId || !props.agencyId) { setAudienceHowToVideos(); return; }
+  try {
+    const { data } = await api.get('/how-to-videos', { params: { agencyId: props.agencyId } });
+    if (requestId === catalogRequest) setAudienceHowToVideos(data.videos || []);
+  } catch {
+    if (requestId === catalogRequest) setAudienceHowToVideos();
+    // Fail closed for restricted training. The static how-to buttons still work.
+  }
+}
+watch(() => [props.userId, props.agencyId, props.role], () => {
+  setAudienceHowToVideos();
+  refreshAudienceVideos();
+}, { immediate: true });
 const open = ref(false);
 const minimized = ref(false);
 const activeId = ref(null);
@@ -153,9 +172,10 @@ function moveWithKeyboard(event) {
   clampPosition(bounds.left + directions[event.key][0] * step, bounds.top + directions[event.key][1] * step);
 }
 // Videos belong to their explicit page buttons; stop playback when leaving the page or tab.
-watch(() => route.fullPath, () => { closePanel(false); activeId.value = null; });
+watch(() => route.fullPath, () => { closePanel(false); activeId.value = null; refreshAudienceVideos(); });
 // Switching tenants/roles must not leave a previous audience's video playing.
 watch(() => [props.agencyId, props.role], () => { closePanel(); activeId.value = null; });
+watch(activeVideo, (video) => { if (!video) closePanel(false); });
 watch(request, (value) => {
   if (!value || !videos.value.some((video) => video.id === value.id)) return;
   opener = value.opener;
@@ -164,10 +184,14 @@ watch(request, (value) => {
 });
 watch(modalHost, () => nextTick(keepInView));
 onMounted(() => {
+  window.addEventListener('focus', refreshAudienceVideos);
   window.addEventListener('resize', keepInView);
   if (typeof ResizeObserver !== 'undefined') resizeObserver = new ResizeObserver(keepInView);
 });
 onUnmounted(() => {
+  window.removeEventListener('focus', refreshAudienceVideos);
+  catalogRequest++;
+  setAudienceHowToVideos();
   window.removeEventListener('resize', keepInView);
   resizeObserver?.disconnect();
 });

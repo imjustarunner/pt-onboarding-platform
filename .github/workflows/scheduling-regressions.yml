@@ -40,6 +40,10 @@ jobs:
         run: |
           npm ci --prefix backend
           npm ci --prefix frontend --ignore-scripts
+      - name: How-to videos and expiring school provider training
+        run: |
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.how-to-videos.config.js
+          node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.how-to-videos.config.js
       - name: Scheduling UTC inputs, recurring calendar round trips, and worker ownership
         run: |
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.scheduling-time-integrity.config.js --maxWorkers=2

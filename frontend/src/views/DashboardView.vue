@@ -665,6 +665,7 @@
               @select-view="onScheduleHubSelectView"
             >
               <template #header-controls>
+          <HowToVideoButton video-id="school-my-schedule-update" />
               <div
                 v-if="canViewTeamSchedule && scheduleViewMode === 'self'"
                 data-tour="my-schedule-view-as"
@@ -1421,6 +1422,7 @@ import MyPayrollTab from '../components/dashboard/MyPayrollTab.vue';
 import SubmitPanelTab from '../components/dashboard/SubmitPanelTab.vue';
 import ProviderOpeningNotice from '../components/availability/ProviderOpeningNotice.vue';
 import MyAccountTab from '../components/dashboard/MyAccountTab.vue';
+import HowToVideoButton from '../components/HowToVideoButton.vue';
 import ScheduleHubPanel from '../components/dashboard/ScheduleHubPanel.vue';
 import ScheduleCalendarMenu from '../components/schedule/ScheduleCalendarMenu.vue';
 import { SCHEDULE_VIEWS } from '../config/scheduleDisplayViews.js';

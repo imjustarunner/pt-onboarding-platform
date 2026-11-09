@@ -76,12 +76,16 @@
       </li>
     </ul>
 
-    <button type="button" class="ov-link ov-link--block" @click="$emit('view-all')">Events &amp; outreach calendar</button>
+    <div class="ov-calendar-training">
+      <button type="button" class="ov-link" @click="$emit('view-all')">Events &amp; outreach calendar</button>
+      <HowToVideoButton video-id="events-outreach-calendar" />
+    </div>
     <StaffPollsPanel :agency-id="agencyId" />
   </section>
 </template>
 
 <script setup>
+import HowToVideoButton from '../HowToVideoButton.vue';
 import DashboardCardStatus from './DashboardCardStatus.vue';
 import { computed, ref } from 'vue';
 import StaffPollsPanel from './StaffPollsPanel.vue';
@@ -180,6 +184,7 @@ async function requestShift(ev) {
 </script>
 
 <style scoped>
+.ov-calendar-training { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 12px; margin-top: 12px; }
 .ov-card {
   background: #fff;
   border: 1px solid #e5e7eb;

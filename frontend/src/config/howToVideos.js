@@ -17,6 +17,11 @@
  */
 export const HOW_TO_VIDEOS = [
   {
+    id: 'events-outreach-calendar',
+    title: 'Events & outreach calendar',
+    url: 'https://www.youtube.com/watch?v=3n1T96aLwys'
+  },
+  {
     id: 'my-account-business-cards',
     title: 'My business cards',
     url: 'https://youtu.be/Gj3-Xc8NkPY?is=5_x2E71u8ZOV6zOT'

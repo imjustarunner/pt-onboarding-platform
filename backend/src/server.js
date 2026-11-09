@@ -52,6 +52,7 @@ import progressRoutes from './routes/progress.routes.js';
 import contentRoutes from './routes/content.routes.js';
 import quizRoutes from './routes/quiz.routes.js';
 import trainingContentLibraryRoutes from './routes/trainingContentLibrary.routes.js';
+import howToVideosRoutes from './routes/howToVideos.routes.js';
 import quizQuestionBankRoutes from './routes/quizQuestionBank.routes.js';
 import courseTemplateRoutes from './routes/courseTemplate.routes.js';
 import trainingMediaLibraryRoutes from './routes/trainingMediaLibrary.routes.js';
@@ -933,6 +934,7 @@ app.use('/api/progress', progressRoutes);
 app.use('/api/modules', contentRoutes);
 app.use('/api/quizzes', quizRoutes);
 app.use('/api/training-content-library', trainingContentLibraryRoutes);
+app.use('/api/how-to-videos', howToVideosRoutes);
 app.use('/api/quiz-question-banks', quizQuestionBankRoutes);
 app.use('/api/course-templates', courseTemplateRoutes);
 app.use('/api/training-media', trainingMediaLibraryRoutes);
@@ -1271,6 +1273,21 @@ app.use((req, res) => {
 });
 
 // Export app for bootstrap.js (Cloud Run). When run directly (dev), listen here.
+let schoolScheduleTrainingRunning = false;
+const schoolScheduleTrainingTick = async () => {
+  if (schoolScheduleTrainingRunning) return;
+  schoolScheduleTrainingRunning = true;
+  try {
+    const { runSchoolScheduleTrainingTick } = await import('./services/schoolScheduleTraining.service.js');
+    const results = await runSchoolScheduleTrainingTick();
+    if (Array.isArray(results) && results.some(result => result?.error || result?.skipped === 'existing_delivery_pending_review')) console.warn('[school-schedule-training] Email delivery needs review or retry.');
+  } catch (error) {
+    if (error.code !== 'ER_NO_SUCH_TABLE') console.warn('[school-schedule-training]', error.code || 'tick_failed');
+  } finally { schoolScheduleTrainingRunning = false; }
+};
+setTimeout(schoolScheduleTrainingTick, 30_000).unref();
+setInterval(schoolScheduleTrainingTick, 5 * 60_000).unref();
+
 export { app };
 const PORT_RAW = process.env.PORT ?? config.port ?? 8080;
 const PORT = Number.parseInt(String(PORT_RAW), 10) || 8080;

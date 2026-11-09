@@ -17,6 +17,7 @@
         @select-view="onSelectHubView"
       >
         <template #header-controls>
+          <HowToVideoButton video-id="school-my-schedule-update" />
           <TeamSchedulePicker :initial-user-id="Number(route.query.scheduleViewAs || 0)" v-model="teamUserId" :agency-id="Number(agencyStore.currentAgency?.id) || null" @select-name="teamUserName = $event" />
           <router-link v-if="teamUserId && (canPickEmployeeSchedule || isSupervisorUser)" :to="{ path: orgTo('/dashboard'), query: { tab: 'my_schedule', scheduleViewAs: String(teamUserId) } }" class="btn btn-secondary btn-sm">Open schedule tools</router-link>
         </template>
@@ -92,6 +93,7 @@ import ScheduleAvailabilityGrid from '../components/schedule/ScheduleAvailabilit
 import TeamSchedulePicker from '../components/schedule/TeamSchedulePicker.vue';
 import TeamAvailabilityCalendar from '../components/schedule/TeamAvailabilityCalendar.vue';
 import DashboardLearningTips from '../components/dashboard/DashboardLearningTips.vue';
+import HowToVideoButton from '../components/HowToVideoButton.vue';
 import ScheduleHubPanel from '../components/dashboard/ScheduleHubPanel.vue';
 import OfficeSchedulingTransition from '../components/schedule/OfficeSchedulingTransition.vue';
 import OfficeAssignmentUsageReviews from '../components/schedule/OfficeAssignmentUsageReviews.vue';

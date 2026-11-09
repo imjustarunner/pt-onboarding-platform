@@ -2056,6 +2056,7 @@
       <HowToVideoWidget
         v-if="isAuthenticated && !isImmersiveJoinRoute && !isPublicIntakeRoute && !isPublicOfficeRoute && !sessionLockStore.isLocked && !sessionLockStore.warningActive"
         :key="user?.id"
+        :user-id="user?.id"
         :role="user?.role"
         :agency-id="agencyStore.currentAgency?.id"
       />

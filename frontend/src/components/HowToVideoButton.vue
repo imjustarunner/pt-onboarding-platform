@@ -7,11 +7,12 @@
 
 <script setup>
 import { computed, ref } from 'vue';
-import { HOW_TO_VIDEOS } from '../config/howToVideos';
+import { useHowToVideoCatalog } from '../composables/useHowToVideoCatalog';
 import { useHowToVideo } from '../composables/useHowToVideo';
 
 const props = defineProps({ videoId: { type: String, required: true } });
-const video = computed(() => HOW_TO_VIDEOS.find((item) => item.id === props.videoId));
+const catalog = useHowToVideoCatalog();
+const video = computed(() => catalog.value.find((item) => item.id === props.videoId));
 const opened = ref(false);
 const { openVideo } = useHowToVideo();
 function play(event) {

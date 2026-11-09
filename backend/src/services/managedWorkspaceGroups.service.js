@@ -1,3 +1,4 @@
+import { SCHOOL_PROVIDER_ASSIGNMENT_SQL } from '../utils/schoolProviderAudience.js';
 import { APP_GROUP_OWNER, ensureAppGroupMember } from './appGroupOwnership.service.js';
 import pool from '../config/database.js';
 import Directory from './googleWorkspaceDirectory.service.js';
@@ -45,14 +46,7 @@ export async function loadManagedWorkspaceRoster(agencyId) {
     (SELECT GROUP_CONCAT(v.value) FROM user_info_values v JOIN user_info_field_definitions d ON d.id=v.field_definition_id WHERE v.user_id=u.id AND d.field_key IN ('languages_spoken','provider_languages_spoken')) AS recorded_languages,
     u.credential,u.has_supervisor_privileges,u.sees_clients,u.has_provider_access,u.work_location,u.login_is_group_email,
     EXISTS(SELECT 1 FROM client_provider_assignments cpa JOIN clients c ON c.id=cpa.client_id WHERE cpa.provider_user_id=u.id AND c.agency_id=ua.agency_id AND cpa.is_active=1) AS has_client_assignments,
-    EXISTS(SELECT 1 FROM agencies school WHERE school.organization_type='school' AND COALESCE(school.is_archived,0)=0
-      AND (school.is_active=1 OR JSON_UNQUOTE(JSON_EXTRACT(school.feature_flags,'$.schoolOnboardingDraft'))='true')
-      AND (EXISTS(SELECT 1 FROM organization_affiliations oa WHERE oa.agency_id=ua.agency_id AND oa.organization_id=school.id AND oa.is_active=1)
-        OR EXISTS(SELECT 1 FROM agency_schools ags WHERE ags.agency_id=ua.agency_id AND ags.school_organization_id=school.id AND ags.is_active=1))
-      AND (EXISTS(SELECT 1 FROM user_agencies school_ua WHERE school_ua.user_id=u.id AND school_ua.agency_id=school.id AND school_ua.is_active=1)
-        OR EXISTS(SELECT 1 FROM provider_school_assignments psa WHERE psa.provider_user_id=u.id AND psa.school_organization_id=school.id AND psa.is_active=1))
-      AND (u.role IN ('provider','provider_plus','intern','intern_plus','supervisor','clinical_practice_assistant','facilitator','clinician','qbha') OR u.has_provider_access=1)
-    ) AS has_school_assignments,
+    ${SCHOOL_PROVIDER_ASSIGNMENT_SQL} AS has_school_assignments,
     ua.is_active AS membership_active,ua.agency_role,ua.agency_position,ua.supervision_is_prelicensed,
     ua.has_payroll_access,ua.has_billing_access,ua.can_manage_credentialing,
     (SELECT GROUP_CONCAT(DISTINCT i.from_email) FROM communication_inboxes i

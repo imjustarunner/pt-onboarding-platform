@@ -62,6 +62,8 @@ export const PREFERRED_IDENTITY_KEYS_BY_TEMPLATE_TYPE = {
   prehire_new_tasks: ['people_operations', 'job_applications', 'notifications'],
   provider_update_invite: ['people_operations', 'people_ops', 'po', 'notifications'],
   admin_update: ['notifications'],
+  school_schedule_training_launch: ['notifications'],
+  school_schedule_training_expiry: ['notifications'],
   compliance_digest: ['compliance'],
   psychotherapy_threshold: ['compliance', 'notifications'],
   expiring_background: ['compliance', 'notifications'],
