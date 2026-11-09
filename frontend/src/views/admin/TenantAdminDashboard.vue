@@ -56,7 +56,8 @@
         >
           <div class="notif-icon">{{ getPriorityIcon(notif.priority) }}</div>
           <div>
-            <div class="notif-title">{{ notif.title || notif.message }}</div>
+            <button type="button" class="notif-title" @click.stop="openDashboardNotification(notif)">{{ notif.title || notif.message }}</button>
+            <button v-if="notif.type === 'new_packet_uploaded'" type="button" class="view-all" @click.stop="openDashboardNotification(notif)">Open packet</button>
             <div class="notif-time">{{ formatNotifTime(notif) }}</div>
           </div>
         </div>
@@ -488,6 +489,7 @@
 </template>
 
 <script setup>
+import { notificationDestination } from '../../utils/notificationActions.js';
 import { formatAuditTimestamp } from '../../utils/formatDate';
 import ProviderUpdateAssignedBanner from '../../components/provider/ProviderUpdateAssignedBanner.vue';
 import { CONVERSA_ICON_URL } from '../../constants/conversa';
@@ -2415,9 +2417,14 @@ const performSearch = () => {
   }
 };
 
+const openDashboardNotification = (notification) => {
+  const destination = notificationDestination(notification, { organizationSlug: slug.value, role: currentUser.value?.role });
+  showNotificationsPanel.value = false;
+  router.push(destination || { path: notificationsPath.value, query: { agencyId: String(notification.agency_id || currentAgencyId.value || '') } });
+};
 const viewAllNotifications = () => {
   showNotificationsPanel.value = false;
-  go(notificationsPath.value);
+  router.push({ path: notificationsPath.value, query: { agencyId: String(currentAgencyId.value || '') } });
 };
 
 const getPriorityIcon = (priority) => {

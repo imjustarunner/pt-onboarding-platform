@@ -448,6 +448,7 @@ export async function getClientOnboardingChecklist(clientId) {
     can_complete_staff_onboarding: fallSummary?.fall_pending ? false : (staffComplete && !staffMarked),
     provider_user_id: providerUserId,
     client: {
+      id: Number(client.id),
       initials: client.initials || null,
       full_name: client.full_name || null,
       identifier_code: client.identifier_code || null,

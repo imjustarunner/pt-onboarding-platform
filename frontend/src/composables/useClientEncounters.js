@@ -75,7 +75,11 @@ export function useClientEncounters(agencyId, clientId, options = {}) {
       .slice(0, 5)
   );
 
+  let loadGeneration = 0;
   async function load() {
+    const generation = ++loadGeneration;
+    encounters.value = [];
+    loading.value = false;
     if (!unref(enabled)) {
       encounters.value = [];
       return;
@@ -93,12 +97,14 @@ export function useClientEncounters(agencyId, clientId, options = {}) {
         ? `/billing-reports/clients/${cid}/medical-record`
         : `/billing-reports/clients/${cid}/encounters`;
       const r = await api.get(path, { params: { agencyId: aid }, skipGlobalLoading: true });
+      if (generation !== loadGeneration) return;
       encounters.value = Array.isArray(r.data?.encounters) ? r.data.encounters : [];
     } catch (e) {
+      if (generation !== loadGeneration) return;
       error.value = e.response?.data?.error?.message || e.message || 'Failed to load sessions';
       encounters.value = [];
     } finally {
-      loading.value = false;
+      if (generation === loadGeneration) loading.value = false;
     }
   }
 

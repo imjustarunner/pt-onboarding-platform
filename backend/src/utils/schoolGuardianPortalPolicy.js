@@ -12,3 +12,10 @@ export function deferSchoolGuardianInvitation(record = {}) {
 export function deferGuardianInvitation(record={}) {
   return process.env.GUARDIAN_PORTAL_INVITATIONS_ENABLED !== 'true' || deferSchoolGuardianInvitation(record);
 }
+
+// A completed public school enrollment now includes portal setup in its
+// confirmation. Manual contact entry still waits for the paper review/Finish.
+export function deferEnrollmentGuardianInvitation(link = {}, clients = []) {
+  if (deferSchoolGuardianInvitation(link) || clients.some(deferSchoolGuardianInvitation)) return false;
+  return deferGuardianInvitation(link);
+}

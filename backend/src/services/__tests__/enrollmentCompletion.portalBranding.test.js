@@ -1,6 +1,7 @@
 import { expect, it, vi, beforeEach } from 'vitest';
-const m = vi.hoisted(() => ({ execute: vi.fn(), submission: vi.fn() }));
+const m = vi.hoisted(() => ({ execute: vi.fn(), submission: vi.fn(), client: vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: { execute: m.execute } }));
+vi.mock('../../models/Client.model.js', () => ({default:{findById:m.client}}));
 vi.mock('../../models/IntakeSubmission.model.js', () => ({ default: { findById: m.submission } }));
 import { enrollmentMailBrand, renderPortalEmail, portalSenderName } from '../portalEmailBranding.service.js';
 import { requestingGuardianName, requestingGuardianContext } from '../coGuardianRequestOrigin.service.js';
@@ -48,7 +49,7 @@ it('never labels the staff member who resends an invitation as a guardian', asyn
 });
 it('includes only the requesting guardian identity and child initials in invitation context', async () => {
  m.execute.mockResolvedValue([[{ role: 'client_guardian', access_enabled: 1, first_name: 'Alex', last_name: 'Parent', email: 'alex@example.test', client_initials: 'SC', private_answer: 'must not leak' }]]);
- expect(await requestingGuardianContext({inviteId:18,agencyId:2,clientId:20})).toEqual({name:'Alex Parent',email:'alex@example.test',clientInitials:'SC'});
+ expect(await requestingGuardianContext({inviteId:18,agencyId:2,clientId:20})).toEqual({name:'Alex Parent',email:'alex@example.test',clientInitials:'SC',clientNames:[]});
 });
 it('does not expose request context for an invite outside the tenant and dependent', async () => {
  m.execute.mockResolvedValue([[]]);
@@ -85,4 +86,11 @@ it('keeps clinical reminders separate from nonclinical agency mail',()=>{
 it('identifies every invited child in the guardian email context',async()=>{
  m.execute.mockResolvedValue([[{role:'client_guardian',access_enabled:1,first_name:'Alex',last_name:'Parent',email:'alex@example.test',client_initials:'FIRST',all_child_initials:'FIRST, SECOND'}]]);
  expect((await requestingGuardianContext({inviteId:18,agencyId:2,clientId:20})).clientInitials).toBe('FIRST, SECOND');
+});
+
+it('uses decrypted names only for invited children in the same agency',async()=>{
+ m.execute.mockResolvedValueOnce([[{role:'client_guardian',access_enabled:1,first_name:'Parent',last_name:'One'}]]).mockResolvedValueOnce([[{client_id:20},{client_id:21},{client_id:22}]]);
+ m.client.mockImplementation(async id=>({id,agency_id:id===22?99:2,full_name:`Synthetic Child ${id}`}));
+ const result=await requestingGuardianContext({inviteId:18,agencyId:2,clientId:20});
+ expect(result.clientNames).toEqual(['Synthetic Child 20','Synthetic Child 21']);
 });

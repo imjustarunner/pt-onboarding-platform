@@ -53,3 +53,10 @@ it.skipIf(!process.env.BILLING_TEST_MYSQL_SOCKET && process.env.BILLING_FOLLOWUP
   await expect(assertNewClientProviderCoverage({agency_id:1,organization_id:2,provider_id:90,client_type:'school',insurance_type_id:7},{db})).resolves.toBeUndefined();
  }finally{await db.query(`DROP DATABASE IF EXISTS ${schema}`);await db.end();}
 },20000);
+
+it('recognizes annotated self-pay and still requires verification for any actual coverage',()=>{
+ const input={client:{client_type:'school',insurance_type_label:'Self-Pay'},agency:{feature_flags:{medicalBillingEnabled:true}},insurance:{primary:{insurerName:'Self-Pay (fictional QA)'}}};
+ expect(evaluateCoverageAdmission(input)).toMatchObject({ready:true,required:false,selfPay:true});
+ expect(evaluateCoverageAdmission({...input,insurance:{primary:{insurerName:'Aetna'}}}).ready).toBe(false);
+ expect(evaluateCoverageAdmission({...input,insurance:{...input.insurance,secondary:{insurerName:'Medicaid'}}}).ready).toBe(false);
+});

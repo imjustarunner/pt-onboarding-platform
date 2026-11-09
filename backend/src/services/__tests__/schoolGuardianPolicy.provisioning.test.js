@@ -14,11 +14,11 @@ beforeEach(() => { vi.resetAllMocks(); m.agencies.mockResolvedValue([{id:2}]); d
   m.agency.mockImplementation(async id => Number(id) === 20 ? {id:20,organization_type:'school'} : {id:2,slug:'example',name:'Example Agency'});
   m.client.mockResolvedValue({ id:22,agency_id:2,organization_id:20,client_type:'school' });
 });
-it.each([false,true])('links a %s existing school guardian without generating or rotating login credentials', async existing => {
+it.each([false,true])('prepares automatic school portal setup for a %s existing guardian after public enrollment', async existing => {
   m.find.mockResolvedValue(existing ? guardian : null);
   const result = await PublicIntakeClientService.provisionGuardianForIntakeClients({ link:{id:1,scope_type:'school',create_guardian:1},agencyId:2,clients:[{id:22},{id:23}],payload:{guardian:{email:guardian.email,firstName:'Pat',lastName:'Example'}} });
   expect(result.guardianUser.id).toBe(8); expect(m.link).toHaveBeenCalledTimes(2);
-  expect(m.token).not.toHaveBeenCalled(); expect(m.email).not.toHaveBeenCalled(); expect(result.newGuardianPasswordlessLoginUrl).toBeFalsy();
+  expect(m.token).toHaveBeenCalled(); expect(m.email).not.toHaveBeenCalled(); expect(result.newGuardianPasswordlessLoginUrl).toContain('setup-secret');
 });
 it('retains password setup for office intake',async()=>{
  process.env.GUARDIAN_PORTAL_INVITATIONS_ENABLED='true';

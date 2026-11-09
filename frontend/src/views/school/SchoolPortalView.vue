@@ -801,7 +801,7 @@
                 <span class="home-metric-value">{{ atGlance.pending }}</span>
                 <span class="home-metric-label">Pending clients</span>
               </button>
-              <div class="home-metric"><span class="home-metric-value">{{ atGlance.packets }}</span><span class="home-metric-label">Paper packets awaiting ROI review</span></div>
+              <button type="button" class="home-metric" @click="portalMode='roster'; rosterStatusFilterKey=''; rosterActionFilterKey='paper_roi_review'"><span class="home-metric-value">{{ atGlance.packets }}</span><span class="home-metric-label">Paper packets awaiting ROI review</span></button>
               <button class="home-metric" type="button" @click="openRosterPanel('waitlist')">
                 <span class="home-metric-icon" aria-hidden="true"><PortalIcon name="sessions" /></span>
                 <span class="home-metric-value">{{ atGlance.waitlist }}</span>
@@ -1000,7 +1000,7 @@
                 </div>
               </button>
 
-              <button data-tour="school-home-card-notifications" class="dash-card" type="button" @click="openNotificationsPanel">
+              <button data-tour="school-home-card-notifications" class="dash-card" type="button" @click="openLatestSchoolNotification">
                 <div class="dash-card-icon">
                   <img
                     v-if="brandingStore.getSchoolPortalCardIconUrl('announcements', cardIconOrg)"
@@ -1757,7 +1757,7 @@
     <ClientModal
       v-if="selectedClient && organizationId"
       :client="selectedClient"
-      :initial-pane="route.query.pane === 'documents' ? 'documents' : null"
+      :initial-pane="notificationClientPane || (route.query.pane === 'documents' ? 'documents' : null)"
       :school-organization-id="organizationId"
       :organization-slug="organizationSlug"
       :parent-agency-id="affiliatedAgencyId ? Number(affiliatedAgencyId) : null"
@@ -2074,6 +2074,7 @@
     <ReferralUpload
       v-if="showUploadModal"
       :organization-slug="organizationSlug"
+      :organization-options="schoolStaffSchools"
       @close="showUploadModal = false"
       @uploaded="handleUploadSuccess"
     />
@@ -3244,6 +3245,7 @@ const comingSoonTitle = computed(() => {
   return 'Coming soon';
 });
 const selectedClient = ref(null);
+const notificationClientPane = ref(null);
 const portalMode = ref('home'); // home | providers | days | roster | skills | events | calendar | school_staff | settings | documents | faq | messages
 const portalBootstrapLoading = ref(false);
 const rosterStatusFilterKey = ref(''); // client_status_key filter for roster panel
@@ -3802,6 +3804,12 @@ const settingsIconUrl = computed(() => {
 
 const notificationsUnreadCount = ref(0);
 const notificationsNewestSnippet = ref('');
+const newestSchoolNotification = ref(null);
+const openLatestSchoolNotification = () => {
+  const item = newestSchoolNotification.value;
+  if (item?.kind === 'doc' && item.client_id && !item.client_access_locked) return openClientFromNotification({ clientId: item.client_id, pane: 'documents' });
+  return openNotificationsPanel();
+};
 const bannerItems = ref([]);
 const scrollingBannerItems = computed(() => {
   const list = Array.isArray(bannerItems.value) ? bannerItems.value : [];
@@ -4032,6 +4040,7 @@ const loadNotificationsPreview = async () => {
     if (!orgId || !uid) {
       notificationsUnreadCount.value = 0;
       notificationsNewestSnippet.value = '';
+    newestSchoolNotification.value = null;
       return;
     }
 
@@ -4079,6 +4088,7 @@ const loadNotificationsPreview = async () => {
 
     notificationsUnreadCount.value = unread.length;
     const newest = feed?.[0] || null;
+    newestSchoolNotification.value = newest;
     const formatClientLabel = (it) => {
       if (it?.client_access_locked) return 'NO ROI';
       const code = String(it?.client_identifier_code || '').trim();
@@ -4109,6 +4119,7 @@ const loadNotificationsPreview = async () => {
   } catch {
     notificationsUnreadCount.value = 0;
     notificationsNewestSnippet.value = '';
+    newestSchoolNotification.value = null;
   }
 };
 
@@ -5222,7 +5233,7 @@ const portalUserDisplayName = computed(() => {
   const u = authStore.user || {};
   const first = String(u.first_name || u.firstName || '').trim();
   const last = String(u.last_name || u.lastName || '').trim();
-  if (first && last) return `${first} ${last.charAt(0)}.`;
+  if (first && last) return clientLabelMode.value === 'full_name' ? `${first} ${last}` : `${first} ${last.charAt(0)}.`;
   if (first) return first;
   if (roleNorm.value === 'super_admin') return 'Super Admin';
   return portalUserFirstName.value || 'User';
@@ -5742,6 +5753,7 @@ const resolveSelectedClientNavigationIds = (payload = null) => {
 };
 
 const openClient = (payload) => {
+  notificationClientPane.value = payload?.pane === 'documents' ? 'documents' : null;
   const client = payload?.client || payload;
   if (isClientPortalLocked(client)) return;
   if (waiverGateLocked.value) {
@@ -5817,12 +5829,12 @@ const openTicketFromNotification = async ({ ticketId, clientId, messageId } = {}
   showTicketModal.value = true;
 };
 
-const openClientFromNotification = async ({ clientId } = {}) => {
+const openClientFromNotification = async ({ clientId, pane } = {}) => {
   const cid = Number(clientId || 0);
   if (!cid) return;
   const client = await loadNotificationClient(cid);
   if (!client || isClientPortalLocked(client)) return;
-  openClient(client);
+  openClient({client,pane});
 };
 
 const closeTicketModal = () => {

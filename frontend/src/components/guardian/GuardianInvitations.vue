@@ -1,7 +1,7 @@
 <template>
   <section v-if="invitations.length || error" class="guardian-invitations" aria-labelledby="guardian-invitations-title">
     <h2 id="guardian-invitations-title">{{ es ? 'Invitaciones para tutores' : 'Guardian invitations' }}</h2>
-    <p>{{ es ? 'Cada tutor completa su propia inscripción. Revise el correo electrónico que proporcionó y corríjalo si es necesario.' : 'Each guardian completes their own enrollment. Review the email address you provided and correct it if needed.' }}</p>
+    <p>{{ es ? 'Cada tutor completa su propia inscripción. Si la invitación no se puede entregar, podrá corregir el correo electrónico aquí.' : 'Each guardian completes their own enrollment. If the invitation cannot be delivered, you can correct the email address here.' }}</p>
     <p v-if="error" role="alert">{{ error }}</p>
     <form v-for="invite in invitations" :key="invite.id" @submit.prevent="resend(invite)">
       <div :class="{ failed: isFailed(invite) }" role="status">{{ statusText(invite) }}</div>
@@ -18,11 +18,11 @@
         </li></ol>
       </details>
       <p v-if="invite.nextReminderAt && invite.status === 'pending'">{{ es ? 'Próximo recordatorio si aún no termina' : 'Next reminder if enrollment is still incomplete' }}: {{ dateText(invite.nextReminderAt) }}</p>
-      <div v-if="invite.canManage" class="invite-actions">
+      <div v-if="invite.canManage && isFailed(invite) && invite.status !== 'accepted'" class="invite-actions">
         <label :for="`guardian-email-${invite.id}`">{{ es ? 'Correo del otro tutor' : 'Other guardian’s email' }}
           <input :id="`guardian-email-${invite.id}`" v-model="invite.email" type="email" required maxlength="254" autocomplete="off" :disabled="busy === invite.id || invite.status === 'accepted'" />
         </label>
-        <button v-if="invite.status !== 'accepted'" type="submit" :disabled="!!busy">{{ busy === invite.id ? (es ? 'Enviando…' : 'Sending…') : (es ? 'Guardar y reenviar' : 'Save and resend') }}</button>
+        <button type="submit" :disabled="!!busy">{{ busy === invite.id ? (es ? 'Enviando…' : 'Sending…') : (es ? 'Actualizar correo y reenviar' : 'Update email and resend') }}</button>
       </div>
       <p v-else class="invite-readonly">{{ es ? 'Correo del otro tutor' : 'Other guardian’s email' }}: {{ invite.email }} · {{ es ? 'El equipo de apoyo administra esta invitación.' : 'Your support team manages this invitation.' }}</p>
       <p v-if="invite.notice" role="status">{{ invite.notice }}</p>
@@ -60,7 +60,7 @@ watch([() => props.agencyId,()=>props.clientId], async ([agencyId,clientId]) => 
   catch { error.value = es.value ? 'No pudimos cargar las invitaciones. Actualice la página o contacte al equipo de apoyo.' : 'We could not load your invitations. Refresh or contact your support team.'; }
 }, { immediate: true });
 async function resend(invite) {
-  if (!invite.canManage || invite.status === 'accepted') return;
+  if (!invite.canManage || !isFailed(invite) || invite.status === 'accepted') return;
   busy.value = invite.id; error.value = ''; invite.notice = '';
   try {
     const { data } = await api.post(`/guardian-portal/invitations/${invite.id}/resend`, { agencyId: props.agencyId, email: invite.email });

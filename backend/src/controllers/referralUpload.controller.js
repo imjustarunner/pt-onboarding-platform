@@ -230,6 +230,7 @@ export const uploadReferralPacket = [
         message: 'Referral packet uploaded successfully. Review and submit to create the client.',
         draftId: draft.id,
         phiDocumentId: phiDoc?.id || null,
+        scanStatus: scan.status,
         organizationId: organization.id,
         agencyId
       });
@@ -263,6 +264,7 @@ export const getLatestReferralPacketDraft = async (req, res, next) => {
       organizationId: organization.id,
       uploadedByUserId: req.user.id
     });
+    const sourceDocument = draft?.phi_document_id ? await ClientPhiDocument.findById(draft.phi_document_id) : null;
 
     return res.json({
       draft: draft
@@ -271,6 +273,7 @@ export const getLatestReferralPacketDraft = async (req, res, next) => {
             organizationId: draft.organization_id,
             agencyId: draft.agency_id,
             phiDocumentId: draft.phi_document_id || null,
+            scanStatus: sourceDocument?.scan_status || 'pending',
             submissionDate: draft.submission_date || null,
             uploadNote: draft.upload_note || '',
             firstName: draft.first_name || '',
@@ -329,6 +332,7 @@ export const submitReferralPacketDraft = async (req, res, next) => {
 
     const match = await referralPacketMatch({ agencyId, organizationId: organization.id, firstName, lastName, initials,
       existingClientId: draft.created_client_id || req.body?.existingClientId, reviewedMatchIds: req.body?.reviewedMatchIds });
+    if (req.body?.reviewOnly === true) return res.json({ reviewComplete: true, matches: match.matches || [] });
     if (match.requiresReview) return res.status(409).json({ error: { code: 'packet_client_match_review', message: 'Review the existing client matches before creating another client.' }, matches: match.matches });
     const claimed = await ReferralPacketDraft.claimForSubmit(draft.id);
     if (!claimed) {
@@ -421,7 +425,17 @@ export const submitReferralPacketDraft = async (req, res, next) => {
     }
     if (attachingExisting) {
       const docs = typeof client.onboarding_docs_json === 'string' ? JSON.parse(client.onboarding_docs_json || '{}') : (client.onboarding_docs_json || {});
-      await Client.update(client.id, { onboarding_docs_json: JSON.stringify({ ...docs, paperPacketSource: { documentId: draft.phi_document_id, draftId: draft.id }, paperProcessing: { completedSteps: [], invitations: docs.paperProcessing?.invitations || {} } }) });
+      const previous = docs.paperProcessing || {};
+      const paperProcessing = { ...previous, documentId: draft.phi_document_id,
+        completedSteps: (previous.completedSteps || []).filter(key => !['demographics','consents'].includes(key)),
+        invitations: previous.invitations || {}, processedAt: null, processedByUserId: null,
+        consentReview: null, signatureSourceDocumentId: null, packetEvaluationId: null,
+        previousPackets: [...(previous.previousPackets || []), ...(previous.documentId ? [{
+          documentId: previous.documentId, processedAt: previous.processedAt || null,
+          packetEvaluationId: previous.packetEvaluationId || null, consentReview: previous.consentReview || null,
+          invitations: previous.invitations || {}
+        }] : [])] };
+      await Client.update(client.id, { onboarding_docs_json: JSON.stringify({ ...docs, paperPacketSource: { documentId: draft.phi_document_id, draftId: draft.id }, paperProcessing }) });
     }
 
     if (draft.phi_document_id) {

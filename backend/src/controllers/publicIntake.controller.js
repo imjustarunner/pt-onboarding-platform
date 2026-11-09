@@ -1,3 +1,4 @@
+import { enrollmentSignerIdentity } from '../utils/enrollmentSignerIdentity.js';
 import { isSchoolRoiDocument } from '../utils/schoolRoiDocument.js';
 import { assertGuardianRoiSigner } from '../services/schoolRoiGuardianConsent.service.js';
 import { assertInvitedEnrollmentChildren } from '../services/coGuardianEnrollmentRoster.js';
@@ -10,7 +11,6 @@ import { clientEmailLabel } from '../services/clientPortalEmailContent.js';
 import { intakeClientPortal, clientPortalInviteUrl } from '../services/clientPortalContext.service.js';
 import { parsePscScore, scorePsc17, formatPsc17 } from '../services/h0002ScreeningRules.js';
 import { safeEnrollmentPortalUrl } from '../utils/enrollmentPortalAccess.js';
-import { deferSchoolGuardianInvitation } from '../utils/schoolGuardianPortalPolicy.js';
 import { missingInsuranceCards } from '../utils/insuranceCardRequirements.js';
 import { enrollmentPortalAccess } from '../services/enrollmentPortalAccess.service.js';
 import {FOCUS_GROUPS,validateMatchingPreferences} from '../../../frontend/src/navigation/providerFocus.js';
@@ -2453,7 +2453,7 @@ export const resolvePacketCompletionEmailContent = async ({
     selectedTemplate = await EmailTemplate.findByTypeAndAgency(selectedTemplateType, agencyId);
   }
 
-  const deferInvitation = deferSchoolGuardianInvitation(link);
+  const deferInvitation = false; // Completed enrollment includes its portal setup link.
   const regLogin = deferInvitation ? '' : String(registrationLoginEmail || signerEmail || '').trim();
   const regPw = deferInvitation ? '' : String(registrationTempPassword || '').trim();
   const needsSetup = !deferInvitation && !!registrationNeedsSetup;
@@ -4011,6 +4011,7 @@ export const buildIntakeAnswersText = ({ link, intakeData, clientIndex = 0 }) =>
   const normalized = normalizeIntakeDataShape(intakeData);
   const { fields } = buildIntakeFieldIndex(link);
   const formLocale = resolveIntakeFormLocale(link, normalized);
+  link = { ...link, intakeForSelf: normalized?.intakeForSelf };
   const intakeForSelf = Boolean(normalized?.intakeForSelf);
   const guardianPayload = normalized?.guardian || {};
   const clientPayload = Array.isArray(normalized?.clients) ? normalized.clients[clientIndex] : null;
@@ -4495,6 +4496,7 @@ export const buildClinicalSummaryText = ({ link, intakeData, clientIndex = 0 }) 
     }
   }
   const formLocale = resolveIntakeFormLocale(link, normalized);
+  link = { ...link, intakeForSelf: normalized?.intakeForSelf };
   const responses = normalized?.responses || {};
   const guardianResponses = responses?.guardian || {};
   const submissionResponses = responses?.submission || {};
@@ -6225,7 +6227,7 @@ export const getPublicIntakeLink = async (req, res, next) => {
         job_description_id: link.job_description_id ?? null,
         create_client: link.create_client,
         create_guardian: link.create_guardian,
-        guardian_portal_invitation_deferred: deferSchoolGuardianInvitation({ ...link, organization_type: organization?.organization_type }),
+        guardian_portal_invitation_deferred: false,
         intake_fields: link.intake_fields,
         intake_steps: ensureEnrollmentCommunicationStep(link, hydrateEmptyOfficeQuestionnaireSteps(link.intake_steps, link)),
         office_questionnaire_fields: linkLooksLikeOfficeIntake(link)
@@ -8131,6 +8133,7 @@ export const finalizePublicIntake = async (req, res, next) => {
     const retentionExpiresAt = buildRetentionExpiresAt({ policy: retentionPolicy, submittedAt: now });
     const intakeDataHash = hashIntakeData(intakeData);
     let updatedSubmission = await IntakeSubmission.updateById(submissionId, {
+      ...enrollmentSignerIdentity(submission, req.body?.guardian, intakeData),
       status: 'submitted',
       submitted_at: now,
       intake_data: intakeData ? JSON.stringify(intakeData) : null,
@@ -10787,6 +10790,7 @@ export const submitPublicIntake = async (req, res, next) => {
     const retentionExpiresAt = buildRetentionExpiresAt({ policy: retentionPolicy, submittedAt: now });
     const intakeDataHash = hashIntakeData(intakeData);
     let updatedSubmission = await IntakeSubmission.updateById(submissionId, {
+      ...enrollmentSignerIdentity(submission, req.body?.guardian, intakeData),
       status: 'submitted',
       submitted_at: now,
       intake_data: intakeData ? JSON.stringify(intakeData) : null,
@@ -12662,7 +12666,7 @@ export const issuePublicIntakePortalCredentials = async (req, res, next) => {
     const { agency } = await resolveIntakeOrgContext(link, { issuedRoiLink, boundClient });
     return res.json(await enrollmentPortalAccess({
       submission, agency, req, enrollmentChannel: link.master_channel || null, sendSetupEmail: req.body?.sendSetupEmail === true,
-      invitationDeferred: deferSchoolGuardianInvitation(link),
+      invitationDeferred: false,
       schoolOrganizationId: link.scope_type === 'school' ? link.organization_id : null
     }));
   } catch (error) {

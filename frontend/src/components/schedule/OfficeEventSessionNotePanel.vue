@@ -27,6 +27,7 @@
 
     <div class="oesn-footer">
       <span class="oesn-count">{{ String(inputText || '').length }} / 12000</span>
+      <button type="button" class="oesn-save-draft" :disabled="loadingDraft || activeDraftState?.loadFailed || savingDraft" @click="saveNarrative">{{ savingDraft ? 'Saving…' : 'Save draft' }}</button>
       <label class="oesn-toggle">
         Interactive Complexity
         <span class="oesn-switch" :class="{ on: includeInteractiveComplexity }">
@@ -277,6 +278,13 @@ async function savePendingDraft() {
   if (!state || loadingDraft.value) return;
   await state.saving.catch(() => {});
   if (state.text !== state.lastSavedInput) await persistDraft({ state });
+}
+const savingDraft = ref(false);
+async function saveNarrative() {
+  if (savingDraft.value) return;
+  savingDraft.value = true;
+  try { await savePendingDraft(); } catch { /* persistDraft keeps the recoverable error beside the text */ }
+  finally { savingDraft.value = false; }
 }
 defineExpose({ savePendingDraft });
 
@@ -562,6 +570,7 @@ onBeforeUnmount(() => {
 }
 .oesn-switch.on .oesn-switch-thumb { transform: translateX(16px); }
 .oesn-open-aid,
+.oesn-save-draft,
 .oesn-generate {
   margin-left: auto;
   display: inline-flex;
@@ -572,7 +581,7 @@ onBeforeUnmount(() => {
   font-weight: 700;
   cursor: pointer;
 }
-.oesn-open-aid {
+.oesn-open-aid, .oesn-save-draft {
   border: 1px solid #0f766e;
   background: #fff;
   color: #0f766e;
@@ -584,7 +593,7 @@ onBeforeUnmount(() => {
   color: #fff;
 }
 .oesn-generate:disabled,
-.oesn-open-aid:disabled {
+.oesn-open-aid:disabled, .oesn-save-draft:disabled {
   opacity: 0.55;
   cursor: not-allowed;
 }

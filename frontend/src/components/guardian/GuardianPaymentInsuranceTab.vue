@@ -6,7 +6,7 @@
     <p v-if="notice" role="status" class="notice">{{ notice }}</p>
     <InsuranceCardTasks v-if="section === 'all' && insurableClients.length" :key="insuranceRevision" :agency-id="agencyId" :client-id="clientId" />
     <template v-if="data">
-      <p v-if="!data.clients.length">No clients are linked to this account in this organization.</p>
+      <p v-if="!data.clients.length">No client billing profiles are available under your current access in this organization.</p>
       <section class="client-grid">
         <article v-for="client in scopedClients" :key="client.clientId" class="billing-card">
           <h4>{{ client.clientName }}</h4>

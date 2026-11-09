@@ -9,7 +9,7 @@ const ymd = value => value instanceof Date ? value.toISOString().slice(0, 10) : 
 export function evaluateCoverageAdmission({ client, agency, insurance, review, latestCheckId = 0, hasNewEvidence = false, now = new Date() }) {
   if (!getMedicalBillingFlags(agency).medicalBillingEnabled || !medicalTypes.has(String(client?.client_type || 'clinical').toLowerCase())) return { ready: true, required: false, reason: null };
   const policy = insurance?.primary;
-  const selfPay = /^(self[ -]?pay|cash|private pay)$/i.test(String(policy?.insurerName || client?.primary_insurer_name || client?.insurance_type_label || '').trim());
+  const selfPay = /^(self[ -]?pay|cash|private pay)(?:\s*\([^)]*\))?$/i.test(String(policy?.insurerName || client?.primary_insurer_name || client?.insurance_type_label || '').trim());
   if (selfPay && !insurance?.secondary) return { ready: true, required: false, reason: null, selfPay: true };
   let reason = null;
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Denver', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);

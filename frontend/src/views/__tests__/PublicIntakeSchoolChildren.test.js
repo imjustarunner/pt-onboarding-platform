@@ -55,10 +55,10 @@ describe('school enrollment parent journey', () => {
     expect(wrapper.vm.visibleClinicalFields.map((field) => field.key)).toContain('psc_1');
     expect(wrapper.text()).toContain('Feels sad');
   });
-  it('keeps guardian accounts out of the automatic portal invitation flow', async () => {
+  it('shows automatic portal setup after completed school enrollment without requesting another email', async () => {
     await render(); wrapper.vm.link.create_guardian = 1; wrapper.vm.step = 3; await flushPromises();
-    expect(wrapper.vm.guardianPortalInvitationDeferred).toBe(true);
-    expect(wrapper.findComponent({ name: 'EnrollmentPortalAccess' }).props('optional')).toBe(true);
+    expect(wrapper.vm.guardianPortalInvitationDeferred).toBe(false);
+    expect(wrapper.findComponent({ name: 'EnrollmentPortalAccess' }).props('optional')).toBe(false);
     expect(post.mock.calls.some(([url]) => url.endsWith('/portal-credentials'))).toBe(false);
   });
   it('asks for both DOBs up front and blocks an incomplete second identity at its input', async () => {
@@ -77,6 +77,10 @@ describe('school enrollment parent journey', () => {
     expect(wrapper.vm.currentFlowStep.clientIndex).toBe(1); expect(wrapper.vm.activeClinicalResponses.psc_1).toBeUndefined(); wrapper.vm.activeClinicalResponses.psc_1 = 'Never'; await wrapper.vm.handleCurrentFlowContinue(); await flushPromises();
     expect(wrapper.get('[data-roi]').text()).toContain('Blair Example 2017-06-07'); await wrapper.get('[data-sign-roi]').trigger('click'); await flushPromises();
     expect(wrapper.text()).toContain('Communication preferences'); expect(wrapper.text()).toContain('Edit children’s details'); wrapper.vm.communications.emailPreference = 'none'; wrapper.vm.communications.smsPreference = 'no'; wrapper.vm.communications.signerName = 'Test Guardian'; wrapper.vm.communications.signatureAccepted = true; await wrapper.vm.handleCurrentFlowContinue(); await flushPromises();
+    expect(wrapper.vm.currentFlowStep.type).toBe('school_review');
+    expect(wrapper.text()).toContain('Alex Example'); expect(wrapper.text()).toContain('Blair Example');
+    expect(post.mock.calls.some(([url]) => url.endsWith('/finalize'))).toBe(false);
+    await wrapper.vm.handleCurrentFlowContinue(); await flushPromises();
     const request = post.mock.calls.find(([url]) => url.endsWith('/finalize'))?.[1]; expect(request, JSON.stringify({error: wrapper.vm.error, stepError: wrapper.vm.stepError, step: wrapper.vm.step, flow: wrapper.vm.currentFlowStep, completed: wrapper.vm.intakeResponses.submission.completedSchoolChildSteps})).toBeTruthy();
     expect(request.clients.map(c => c.dateOfBirth)).toEqual(['2012-02-03', '2017-06-07']);
     expect(request.intakeData.responses.clients.map(c => [c.client_grade, c.prior_support, c.psc_1, c.client_street])).toEqual([['8', 'Yes', 'Often', '10 Test St'], ['3', 'No', 'Never', '10 Test St']]);

@@ -318,18 +318,19 @@ const FALLBACK_VALUE_LABELS = {
 };
 
 function formatFieldValue(field, value, locale, link) {
-  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+  const tx = text => locale === 'es' ? lookupStructuredIntakeTranslation(text) : text;
+  if (typeof value === 'boolean') return tx(value ? 'Yes' : 'No');
   const options = Array.isArray(field?.options) ? field.options : [];
   const mapOne = (raw) => {
     if (raw == null || raw === '') return '';
-    if (typeof raw === 'boolean') return raw ? 'Yes' : 'No';
+    if (typeof raw === 'boolean') return tx(raw ? 'Yes' : 'No');
     const found = options.find((o) =>
       String(o?.value ?? '') === String(raw) || String(o?.label ?? '') === String(raw)
     );
     if (found) return resolveOptionLabel(found, locale, link, field) || String(found.label || found.value || raw);
     const slug = String(raw).trim().toLowerCase();
     const fallback = FALLBACK_VALUE_LABELS[slug];
-    if (fallback) return fallback;
+    if (fallback) return tx(fallback);
     if (/^[a-z0-9]+(?:_[a-z0-9]+)+$/.test(slug)) return humanizeKey(slug);
     return String(raw).trim();
   };
@@ -389,23 +390,24 @@ function commChoiceLabel(kind, value) {
   return humanizeKey(value);
 }
 
-function communicationsSection(submissionBag, publicOrigin) {
+function communicationsSection(submissionBag, publicOrigin, locale) {
+  const tx = text => locale === 'es' ? lookupStructuredIntakeTranslation(text) : text;
   const cp = submissionBag?.communicationPreferences;
   if (!cp || typeof cp !== 'object') return null;
   const rows = [];
-  if (cp.emailPreference) pushRow(rows, 'Email', commChoiceLabel('email', cp.emailPreference));
-  if (cp.smsPreference) pushRow(rows, 'Text messages (SMS)', commChoiceLabel('sms', cp.smsPreference));
+  if (cp.emailPreference) pushRow(rows, 'Email', tx(commChoiceLabel('email', cp.emailPreference)));
+  if (cp.smsPreference) pushRow(rows, 'Text messages (SMS)', tx(commChoiceLabel('sms', cp.smsPreference)));
   if (cp.alternativeContactInstructions) pushRow(rows, 'Alternative contact instructions', cp.alternativeContactInstructions);
-  if (cp.noRoutineCalls === true) pushRow(rows, 'Routine phone calls', 'Do not call');
-  if (cp.noAutomaticEmail === true) pushRow(rows, 'Automatic emails', 'Do not send');
+  if (cp.noRoutineCalls === true) pushRow(rows, 'Routine phone calls', tx('Do not call'));
+  if (cp.noAutomaticEmail === true) pushRow(rows, 'Automatic emails', tx('Do not send'));
   if (cp.recipientPhone) pushRow(rows, 'Recipient phone', cp.recipientPhone);
   if (cp.signerName) pushRow(rows, 'Communication choices signed by', cp.signerName);
   if (cp.signedAt) pushRow(rows, 'Choices signed at', cp.signedAt);
   if (cp.version) pushRow(rows, 'Communication disclosure version', cp.version);
-  if (cp.disclosure) pushRow(rows, 'Text reminder disclosure', cp.disclosure);
-  if (cp.schoolDisclosure) pushRow(rows, 'School visit notifications', cp.schoolDisclosure);
-  if (cp.providerTextingOptIn) pushRow(rows, 'Provider / care-team texting', commChoiceLabel('yesno', cp.providerTextingOptIn));
-  if (cp.programUpdatesOptIn) pushRow(rows, 'Program updates', commChoiceLabel('yesno', cp.programUpdatesOptIn));
+  if (cp.disclosure) pushRow(rows, 'Text reminder disclosure', locale === 'es' && cp.displayedDisclosure ? cp.displayedDisclosure : tx(cp.disclosure));
+  if (cp.schoolDisclosure) pushRow(rows, 'School visit notifications', tx(cp.schoolDisclosure));
+  if (cp.providerTextingOptIn) pushRow(rows, 'Provider / care-team texting', tx(commChoiceLabel('yesno', cp.providerTextingOptIn)));
+  if (cp.programUpdatesOptIn) pushRow(rows, 'Program updates', tx(commChoiceLabel('yesno', cp.programUpdatesOptIn)));
   const terms = absolutePublicUrl(cp.termsUrl || '/terms', publicOrigin);
   const privacy = absolutePublicUrl(cp.privacyUrl || '/privacypolicy', publicOrigin);
   if (terms) rows.push({ label: 'Terms of Use', value: terms, href: terms });
@@ -962,6 +964,7 @@ export function buildCompletedIntakeRecord({
   const selectedSubject = intakeData?.responses?.submission?.serviceSubject || intakeData.serviceSubject || (intakeData.intakeForSelf === true ? 'self' : '');
   if (selectedSubject) link = { ...link, intake_steps: (link.intake_steps || []).filter(step => intakeAudienceMatches(step.audience, selectedSubject)) };
   const locale = resolveIntakeFormLocale(link, intakeData);
+  link = { ...link, intakeForSelf: intakeData.intakeForSelf };
   const byKey = fieldIndex(link);
   const printed = new Set();
   const responses = intakeData.responses || {};
@@ -1080,7 +1083,7 @@ export function buildCompletedIntakeRecord({
         rows: [{ label: 'Cover letter', value: coverLetterRaw, fullWidth: true }]
       }
     : null;
-  const commsBlock = communicationsSection(submissionBag, publicOrigin);
+  const commsBlock = communicationsSection(submissionBag, publicOrigin, locale);
   const reminderBlock = reminderContactsSection(submissionBag);
   const providerSummary = String(submissionBag.preferred_office_provider_summary || '').trim();
   const providersBlock = providerSummary
@@ -1211,7 +1214,9 @@ export function buildCompletedIntakeRecord({
   ].filter(Boolean);
 
   const tx = value => locale === 'es' ? lookupStructuredIntakeTranslation(value) : value;
-  const translateSection = section => ({...section, title: tx(section.title), rows: section.rows?.map(row=>({...row,label:tx(row.label)}))});
+  // Labels can be structured paths; translate each label while retaining the submitted values.
+  const txLabel = text => String(text || '').split(' · ').map(tx).join(' · ');
+  const translateSection = section => ({...section, title: txLabel(section.title), rows: section.rows?.map(row=>({...row,label:txLabel(row.label)}))});
   return {
     locale,
     title: isJobApplication ? 'Job application receipt' : tx('Completed enrollment packet'),

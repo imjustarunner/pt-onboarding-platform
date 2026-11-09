@@ -261,3 +261,11 @@ it('offers a clinical card form only when secure collection is available',async(
  expect(unavailable.findAll('button').some(button=>button.text().startsWith('Add Card'))).toBe(false);expect(unavailable.text()).toContain('Card collection is unavailable');unavailable.unmount();
  api.get.mockReset();
 });
+it('saves distinct sibling Medicaid IDs as they are typed and restores them after leaving the step',async()=>{
+ const model=ref({primary:{insurerName:'Medicaid',isMedicaid:true,memberId:'FIRST'},medicaidByClient:[{clientIndex:0,clientName:'One QA',memberId:'FIRST'},{clientIndex:1,clientName:'Two QA',memberId:'SECOND'}]});
+ const Host=defineComponent({setup:()=>()=>h(Insurance,{modelValue:model.value,clientNames:['One QA','Two QA'],'onUpdate:modelValue':v=>model.value=v})});
+ let w=mount(Host);await flushPromises();const fields=w.findAll('.pi-ins-multi-client input');expect(fields).toHaveLength(2);
+ await fields[0].setValue('QA1108N01');await fields[1].setValue('QA1108N02');await flushPromises();
+ expect(model.value.medicaidByClient.map(r=>r.memberId)).toEqual(['QA1108N01','QA1108N02']);w.unmount();
+ w=mount(Host);await flushPromises();expect(w.findAll('.pi-ins-multi-client input').map(f=>f.element.value)).toEqual(['QA1108N01','QA1108N02']);w.unmount();
+});

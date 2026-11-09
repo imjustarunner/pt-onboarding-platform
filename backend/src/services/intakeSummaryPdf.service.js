@@ -195,13 +195,13 @@ export function buildIntakeSummaryDocumentHtml({
       <div class="intake-summary-sign">
         ${signatures.map((sig) => `
           <div class="intake-summary-sign-card">
-            <strong>${escapeHtml(sig.documentName || 'Signed document')}</strong>
+            <strong>${escapeHtml(tx(sig.documentName || 'Signed document'))}</strong>
             <p class="intake-summary-sign-meta">${escapeHtml(tx('Acknowledged and signed electronically'))}</p>
             ${sig.versionLabel ? `<p class="intake-summary-sign-meta">${escapeHtml(sig.versionLabel)}</p>` : ''}
             ${sig.signedAt ? `<p class="intake-summary-sign-meta">${locale === 'es' ? 'Firmado' : 'Signed'} ${escapeHtml(sig.signedAt)}${sig.signerName ? ` ${locale === 'es' ? 'por' : 'by'} ${escapeHtml(sig.signerName)}` : ''}</p>` : ''}
             ${sig.hash ? `<p class="intake-summary-sign-meta">${locale === 'es' ? 'Huella digital' : 'Fingerprint'} ${escapeHtml(sig.hash)}</p>` : ''}
-            ${sig.publicUrl ? `<p class="intake-summary-sign-meta"><a href="${escapeHtml(sig.publicUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(sig.publicUrlLabel || 'View this version')}</a></p>` : ''}
-            ${sig.imageDataUrl ? `<img src="${escapeHtml(sig.imageDataUrl)}" alt="Signature for ${escapeHtml(sig.documentName || 'document')}" />` : `<p class="intake-summary-sign-meta">${escapeHtml(tx('Signature captured electronically.'))}</p>`}
+            ${sig.publicUrl ? `<p class="intake-summary-sign-meta"><a href="${escapeHtml(sig.publicUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(tx(sig.publicUrlLabel || 'View this version'))}</a></p>` : ''}
+            ${sig.imageDataUrl ? `<img src="${escapeHtml(sig.imageDataUrl)}" alt="${locale === 'es' ? 'Firma de' : 'Signature for'} ${escapeHtml(tx(sig.documentName || 'document'))}" />` : `<p class="intake-summary-sign-meta">${escapeHtml(tx('Signature captured electronically.'))}</p>`}
           </div>
         `).join('')}
       </div>

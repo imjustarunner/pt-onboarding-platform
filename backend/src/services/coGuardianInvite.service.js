@@ -515,16 +515,15 @@ export async function emailCoGuardianInvite({ inviteId, agency, to, firstName, i
   const requester = await requestingGuardianContext({ inviteId, agencyId: agency.id, clientId });
   const requesterLabel = requester?.name
     ? `${requester.name}${requester.email ? ` (${requester.email})` : ''}` : null;
-  const childReference = requester?.clientInitials ? ` for the dependent(s) with initials ${requester.clientInitials}` : '';
+  const childReference = requester?.clientNames?.length ? ` for ${requester.clientNames.join(', ')}`
+    : requester?.clientInitials ? ` for the dependent(s) with initials ${requester.clientInitials}` : '';
   const text = [
     greeting,
     requesterLabel ? `${requesterLabel} provided your information as another guardian${childReference} for enrollment with ${org}.` : `${org} has invited you to complete your own guardian enrollment${childReference}.`,
     reminder ? `This is a reminder to complete your own guardian enrollment for ${org}.` : `You have been invited to complete your own guardian enrollment for ${org}.`,
     'Review and sign your own required agreements, and share your observations and expectations for your dependent. Your care team can review your submission separately; it will not replace your child’s identifying information.',
     'Use the email address that received this invitation for your own portal account. You will not see the other guardian’s private enrollment answers. Shared appointments, messages, plans, and billing information are available according to the access your agency authorizes.',
-    school
-      ? 'After submitting, you may optionally request a secure email to create your portal password, or wait for an invitation from your care team. Portal setup is not required for enrollment. If you already have an account, keep using your existing login.'
-      : 'After submitting, use the portal setup option to receive a secure email and choose your password. If you already have an account, keep using your existing login.',
+    'After submitting, your enrollment confirmation includes a secure link to set up your own portal password. If you already have an account, keep using your existing login.',
     inviteUrl,
     `This link expires in ${INVITE_DAYS} days.`,
     'This invitation is for you. Please do not share your personal enrollment link.'

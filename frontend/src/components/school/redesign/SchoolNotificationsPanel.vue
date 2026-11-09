@@ -273,6 +273,7 @@
           <div v-if="!isTicket(it)" class="item-msg">{{ formatMessage(it) }}</div>
         </div>
         <div class="item-actions">
+          <button v-if="it.kind === 'doc' && it.client_id && isClickable(it)" type="button" class="btn btn-primary btn-sm item-action-btn" @click.stop="handleItemClick(it)">Open packet / document</button>
           <button
             v-if="isUnread(it)"
             class="btn btn-secondary btn-sm item-action-btn"
@@ -1178,13 +1179,13 @@ const openTicketFromItem = (it) => {
 const handleItemClick = async (it) => {
   const kind = String(it?.kind || '').toLowerCase();
   const clientId = Number(it?.client_id || 0);
-  await markRead({ kind, clientId: clientId || null });
-  emit('updated');
+  // Opening a packet must not depend on a best-effort read receipt.
+  void markRead({ kind, clientId: clientId || null }).then(() => emit('updated')).catch(() => {});
 
   if (!isClickable(it)) return;
 
   if (kind === 'doc' || kind === 'client_created') {
-    if (clientId) emit('open-client', { clientId });
+    if (clientId) emit('open-client', { clientId, pane: kind === 'doc' ? 'documents' : null });
     return;
   }
 

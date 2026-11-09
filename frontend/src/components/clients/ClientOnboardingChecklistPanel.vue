@@ -1,5 +1,5 @@
 <template>
-  <div class="ob-panel" :class="{ 'ob-panel--modal': asModal, 'ob-panel--workspace': variant === 'workspace' }">
+  <div class="ob-panel" :class="{ 'ob-panel--modal': asModal, 'ob-panel--workspace': variant === 'workspace', 'ob-panel--paper': paperWorkflowOpen }">
     <div v-if="asModal" class="ob-panel-header">
       <div>
         <h3 class="ob-title">Client actions</h3>
@@ -290,10 +290,12 @@ const props = defineProps({
   canEditDocs: { type: Boolean, default: true },
   readonly: { type: Boolean, default: false },
   hideProviderSection: { type: Boolean, default: false },
-  hideStaffCompleteAction: { type: Boolean, default: false }
+  hideStaffCompleteAction: { type: Boolean, default: false },
+  initialPaperAction: { type: String, default: '' }
 });
 const emit = defineEmits(['close', 'updated', 'assign-day', 'fall-action']);
-const paperWorkflowOpen = ref(false);
+const paperWorkflowOpen = ref(props.initialPaperAction === 'process');
+watch(() => props.initialPaperAction, action => { if (action === 'upload') paperUploadOpen.value = true; }, { immediate: true });
 
 const authStore = useAuthStore();
 const loading = ref(false);
@@ -377,25 +379,29 @@ const sectionNum = computed(() => {
 
 function formatDate(value) {
   if (!value) return '—';
-  const d = new Date(value);
+  const d = new Date(`${String(value).slice(0,10)}T12:00:00Z`);
   if (Number.isNaN(d.getTime())) return String(value).slice(0, 10);
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  return d.toLocaleDateString(undefined, { timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+let loadGeneration = 0;
 const load = async () => {
+  const generation = ++loadGeneration;
   const id = Number(props.clientId || 0);
   if (!id) return;
-  loading.value = true;
+  loading.value = !checklist.value || Number(checklist.value.client?.id) !== id;
   error.value = '';
   try {
     const r = await api.get(`/clients/${id}/onboarding-checklist`, { skipGlobalLoading: true });
+    if (generation !== loadGeneration) return;
     checklist.value = r.data || null;
     applySectionDefaults(checklist.value);
   } catch (e) {
+    if (generation !== loadGeneration) return;
     error.value = e.response?.data?.error?.message || 'Failed to load readiness checklist';
     checklist.value = null;
   } finally {
-    loading.value = false;
+    if (generation === loadGeneration) loading.value = false;
   }
 };
 
@@ -504,6 +510,7 @@ watch(() => props.clientId, load, { immediate: true });
 
 <style scoped>
 .ob-panel { padding: 0; }
+.ob-panel.ob-panel--paper { width: 100%; max-width: none; box-sizing: border-box; }
 .ob-panel--modal {
   background: #fff;
   border-radius: 12px;

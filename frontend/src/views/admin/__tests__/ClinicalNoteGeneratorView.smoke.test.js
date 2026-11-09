@@ -1,5 +1,5 @@
 import { webcrypto } from 'node:crypto';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import { mount, shallowMount, flushPromises } from '@vue/test-utils';
 import { nextTick } from 'vue';
 import api from '../../../services/api';
@@ -37,6 +37,9 @@ vi.mock('../../../store/auth', () => ({
 }));
 
 describe('ClinicalNoteGeneratorView smoke', () => {
+  let View;
+  // Compile this large SFC once before timing individual behavioral assertions.
+  beforeAll(async () => { View = (await import('../ClinicalNoteGeneratorView.vue')).default; }, 30000);
   beforeEach(() => {
     vi.stubGlobal('crypto', webcrypto);
     setActivePinia(createPinia());
@@ -45,7 +48,6 @@ describe('ClinicalNoteGeneratorView smoke', () => {
   });
 
   async function workspace(aid = 'psychotherapy', { realFrame = false, demoPresentation = null } = {}) {
-    const View = (await import('../ClinicalNoteGeneratorView.vue')).default;
     const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/note-aid', component: View }] });
     await router.push('/note-aid');
     const wrapper = shallowMount(View, { props: { demoPresentation }, global: { plugins: [router, createPinia()], stubs: { ClinicalWorkspaceFrame: realFrame ? false : { template: '<section><slot /></section>' } } } });
@@ -179,6 +181,17 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     await old;
     expect(state.sessionLocationChoices.map(c => c.label)).toEqual(['New tenant office']);
     wrapper.unmount();
+  });
+
+  it('waits for a linked appointment before choosing a default duration', async () => {
+    const {wrapper,state}=await workspace('psychotherapy');
+    try {
+      state.sessionClinicalSessionId=276;state.sessionDurationMinutes=null;
+      state.sessionScheduledStart='';state.sessionScheduledEnd='';
+      state.applySessionTimingDefaults();expect(state.sessionDurationMinutes).toBeNull();
+      state.sessionScheduledStart='2026-11-10T18:30:00Z';state.sessionScheduledEnd='2026-11-10T19:00:00Z';state.sessionSourceTimezone='America/Denver';
+      state.applySessionTimingDefaults();expect(state.sessionDurationMinutes).toBe(30);expect(state.sessionEndTimeLocal).toBe('12:00');
+    } finally {wrapper.unmount();}
   });
 
   it('loads exact appointment timing in its saved timezone and preserves documented times', async () => {

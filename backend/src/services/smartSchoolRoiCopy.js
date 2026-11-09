@@ -91,76 +91,76 @@ export const WAIVER_ITEMS = [
 
 export const PURPOSES_ES = [
   'Autorizar a ITSCO y a los proveedores/personal asignado para comunicarse con la escuela seleccionada y el personal escolar aprobado para apoyar al cliente en el entorno escolar.',
-  'Preocupaciones de seguridad y evaluaciones de riesgo o ideacion realizadas durante las sesiones.',
-  'Coordinar la administracion de servicios psicologicos en la propiedad de terceros.',
+  'Preocupaciones de seguridad y evaluaciones de riesgo o ideación realizadas durante las sesiones.',
+  'Coordinar la administración de servicios psicológicos en la propiedad de terceros.',
   'Hablar sobre objetivos de tratamiento y planes de tratamiento asociados.'
 ];
 
 export const GUIDELINES_ES = [
-  'La informacion sobre el contenido de las sesiones no se compartira con el personal listado, a menos que el terapeuta lo considere clinicamente necesario por razones de seguridad como riesgo inminente para el clinico, el cliente u otras personas, incluida lesion fisica.',
-  'La confidencialidad se mantendra excepto por lo antes mencionado.',
-  'Toda correspondencia relacionada con mi dependiente sera documentada en el expediente clinico.',
-  'ITSCO cumplira con todas las leyes y regulaciones aplicables relacionadas con el manejo de informacion confidencial.'
+  'La información sobre el contenido de las sesiones no se compartirá con el personal listado, a menos que el terapeuta lo considere clínicamente necesario por razones de seguridad como riesgo inminente para el clínico, el cliente u otras personas, incluida lesión física.',
+  'La confidencialidad se mantendrá excepto por lo antes mencionado.',
+  'Toda correspondencia relacionada con mi dependiente será documentada en el expediente clínico.',
+  'ITSCO cumplirá con todas las leyes y regulaciones aplicables relacionadas con el manejo de información confidencial.'
 ];
 
 export const REQUIRED_ACKNOWLEDGEMENTS_ES = [
   {
     id: 'esign_consent',
-    title: 'Consentimiento electronico',
-    body: 'Acepto revisar, recibir y firmar esta autorizacion electronicamente a traves de la plataforma en linea segura de ITSCO utilizada para coordinacion de atencion y programacion.'
+    title: 'Consentimiento electrónico',
+    body: 'Acepto revisar, recibir y firmar esta autorización electrónicamente a través de la plataforma en línea segura de ITSCO utilizada para coordinación de atención y programación.'
   },
   {
     id: 'hipaa_privacy',
-    title: 'Aviso de aplicacion, privacidad e HIPAA',
-    body: 'Entiendo que ITSCO usa esta aplicacion para programacion y comunicacion de apoyo a la atencion. Solo el personal escolar aprobado tendra acceso al expediente breve del cliente relacionado con ROI para fines de comunicacion y programacion. ITSCO limita las divulgaciones a necesidades autorizadas, protege la informacion y mantiene registros auditables de acceso/divulgacion. Entiendo que las respuestas en progreso pueden guardarse en este navegador hasta por una hora para evitar perdida accidental de datos, y debo continuar solo en un dispositivo o sesion de navegador segura/privada al ingresar informacion de salud protegida.'
+    title: 'Aviso de aplicación, privacidad e HIPAA',
+    body: 'Entiendo que ITSCO usa esta aplicación para programación y comunicación de apoyo a la atención. Solo el personal escolar aprobado tendrá acceso al expediente breve del cliente relacionado con ROI para fines de comunicación y programación. ITSCO limita las divulgaciones a necesidades autorizadas, protege la información y mantiene registros auditables de acceso/divulgación. Entiendo que las respuestas en progreso pueden guardarse en este navegador hasta por una hora para evitar pérdida accidental de datos, y debo continuar solo en un dispositivo o sesión de navegador segura/privada al ingresar información de salud protegida.'
   },
   {
     id: 'redisclosure_risk',
-    title: 'Riesgo de redistribucion',
-    body: 'Entiendo que la informacion compartida por ITSCO puede estar sujeta a redistribucion por la parte receptora y puede dejar de estar protegida de la misma manera una vez divulgada.'
+    title: 'Riesgo de redistribución',
+    body: 'Entiendo que la información compartida por ITSCO puede estar sujeta a redistribución por la parte receptora y puede dejar de estar protegida de la misma manera una vez divulgada.'
   },
   {
     id: 'revocation_right',
-    title: 'Derecho de revocacion',
-    body: 'Entiendo que puedo revocar esta autorizacion en cualquier momento, pero las acciones ya realizadas con base en esta autorizacion no pueden revertirse.'
+    title: 'Derecho de revocación',
+    body: 'Entiendo que puedo revocar esta autorización en cualquier momento, pero las acciones ya realizadas con base en esta autorización no pueden revertirse.'
   },
   {
     id: 'voluntary_authorization',
-    title: 'Autorizacion voluntaria',
-    body: 'Entiendo las posibles consecuencias de esta divulgacion y la estoy autorizando voluntariamente.'
+    title: 'Autorización voluntaria',
+    body: 'Entiendo las posibles consecuencias de esta divulgación y la estoy autorizando voluntariamente.'
   }
 ];
 
 export const SPEAK_AUTHORIZATION_ITEMS_ES = [
   {
     id: 'communication_and_care_planning',
-    title: 'Comunicacion escolar y planificacion de atencion',
-    body: 'Autorizo a ITSCO y a los proveedores/personal asignado a comunicarse con esta persona para la coordinacion de atencion en la escuela y apoyo de las necesidades identificadas del cliente.'
+    title: 'Comunicación escolar y planificación de atención',
+    body: 'Autorizo a ITSCO y a los proveedores/personal asignado a comunicarse con esta persona para la coordinación de atención en la escuela y apoyo de las necesidades identificadas del cliente.'
   },
   {
     id: 'treatment_goals',
     title: 'Objetivos y planes de tratamiento',
-    body: 'Autorizo una discusion breve de objetivos/metas de tratamiento con esta persona solo cuando sea necesario para coordinacion de atencion; no se divulgan detalles del contenido de sesiones fuera de este proposito de atencion.'
+    body: 'Autorizo una discusion breve de objetivos/metas de tratamiento con esta persona solo cuando sea necesario para coordinación de atención; no se divulgan detalles del contenido de sesiones fuera de este propósito de atención.'
   }
 ];
 
 export const WAIVER_ITEMS_ES = [
   {
     id: 'hipaa_serious_imminent_threat_disclosure',
-    title: 'Estandar requerido de divulgacion por amenaza grave e inminente (HIPAA)',
-    body: 'Entiendo y reconozco que esto no es opcional: cuando ITSCO tenga una creencia de buena fe de que la divulgacion es necesaria para prevenir o reducir una amenaza grave e inminente a la salud o seguridad del cliente u otros, ITSCO puede divulgar PHI relevante (incluidas notas de psicoterapia cuando sea permitido) a personas razonablemente capaces de prevenir o reducir la amenaza, como administradores escolares, personal de seguridad escolar, autoridades, padre/madre/tutor legal, familiares u otro posible objetivo. Esto se realiza conforme a la ley aplicable y estandares eticos, incluyendo 45 CFR 164.512(j)(1)(i) y 45 CFR 164.512(j)(4).',
+    title: 'Estándar requerido de divulgación por amenaza grave e inminente (HIPAA)',
+    body: 'Entiendo y reconozco que esto no es opcional: cuando ITSCO tenga una creencia de buena fe de que la divulgación es necesaria para prevenir o reducir una amenaza grave e inminente a la salud o seguridad del cliente u otros, ITSCO puede divulgar PHI relevante (incluidas notas de psicoterapia cuando sea permitido) a personas razonablemente capaces de prevenir o reducir la amenaza, como administradores escolares, personal de seguridad escolar, autoridades, padre/madre/tutor legal, familiares u otro posible objetivo. Esto se realiza conforme a la ley aplicable y estándares éticos, incluyendo 45 CFR 164.512(j)(1)(i) y 45 CFR 164.512(j)(4).',
     requiredAccept: true
   },
   {
     id: 'services_on_school_property',
     title: 'Servicios en propiedad escolar',
-    body: 'Autorizo la coordinacion relacionada con servicios psicologicos brindados en propiedad escolar, y entiendo que el entorno escolar no ofrece las mismas protecciones de privacidad que un consultorio clinico privado.',
+    body: 'Autorizo la coordinación relacionada con servicios psicológicos brindados en propiedad escolar, y entiendo que el entorno escolar no ofrece las mismas protecciones de privacidad que un consultorio clínico privado.',
     requiredAccept: true
   },
   {
     id: 'school_scheduling_safety_logistics',
-    title: 'Programacion escolar y logistica de seguridad',
-    body: 'Autorizo visibilidad limitada de programacion/logistica para operaciones escolares y seguridad estudiantil cuando sea necesario (por ejemplo, horario de salida de clase, transiciones de ubicacion y coordinacion de recogida). Entiendo que esta visibilidad limitada puede implicar que personal escolar no listado en este ROI reciba solo detalles operativos de tiempo, no contenido clinico amplio.',
+    title: 'Programación escolar y logística de seguridad',
+    body: 'Autorizo visibilidad limitada de programación/logística para operaciones escolares y seguridad estudiantil cuando sea necesario (por ejemplo, horario de salida de clase, transiciones de ubicación y coordinación de recogida). Entiendo que esta visibilidad limitada puede implicar que personal escolar no listado en este ROI reciba solo detalles operativos de tiempo, no contenido clínico amplio.',
     requiredAccept: true
   }
 ];

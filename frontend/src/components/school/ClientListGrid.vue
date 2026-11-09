@@ -1792,6 +1792,7 @@ const sortValue = (client, key) => {
 };
 
 const ACTION_FILTER_LABELS = {
+  paper_roi_review: 'Paper packets awaiting ROI review',
   fall_confirmation: 'Fall confirmation',
   agency_insurance: 'Insurance clearance',
   agency_intake: 'Agency action items',
@@ -1804,6 +1805,7 @@ const ACTION_FILTER_LABELS = {
 const clientMatchesActionFilter = (client, actionKey) => {
   const k = normalize(actionKey);
   if (!k) return true;
+  if (k === 'paper_roi_review') return [true,1].includes(client?.paper_packet_staff_roi_pending);
   const providerKey = normalize(
     client?.provider_action_key
     || (String(client?.lifecycle_action?.role || '').toLowerCase() === 'provider'

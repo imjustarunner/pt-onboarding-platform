@@ -10,7 +10,7 @@ import { sendHubPortalInvitation } from './messagesHub.service.js';
 
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
 const object = value => { if (!value) return {}; if (typeof value === 'object') return value; try { return JSON.parse(value); } catch { return {}; } };
-export const PAPER_PROCESSING_STEPS = ['demographics', 'guardian1', 'guardian2', 'school', 'insurance'];
+export const PAPER_PROCESSING_STEPS = ['demographics', 'guardian1', 'guardian2', 'school', 'insurance', 'consents'];
 export const paperProcessingState = client => object(client?.onboarding_docs_json).paperProcessing || { completedSteps: [], invitations: {} };
 const dependencies = overrides => ({ clients: Client, guardians: ClientGuardian, documents: ClientPhiDocument, agencies: Agency,
   vision: getLatestPaperPacketVisionEval, send: sendHubPortalInvitation, markSignatures: markPaperPacketSignatureReceived,
@@ -44,7 +44,7 @@ export async function paperProcessingContext(clientId, overrides = {}) {
       && Number(doc.client_id) === Number(client.id) && Number(doc.agency_id) === Number(client.agency_id))
       .map(doc => ({ id:doc.id, original_name:doc.original_name, mime_type:doc.mime_type, scan_status:doc.scan_status })),
     state: paperProcessingState(client), guardians: guardians.map(g => ({ guardian_user_id:g.guardian_user_id,
-      first_name:g.first_name,last_name:g.last_name,email:g.email,phone_number:g.phone_number,
+      first_name:g.first_name,last_name:g.last_name,email:g.email,phone_number:g.phone ?? g.phone_number ?? '',
       relationship_title:g.relationship_title,access_enabled:g.access_enabled,permissions_json:g.permissions_json })),
     packetRead: vision ? { id:vision.id,documentId:vision.phi_document_id,status:vision.status,versionLabel:vision.detected_version_label,
       roiSignatureDetected:!!vision.roi_signature_detected,disclosureSignatureDetected:!!vision.disclosure_signature_detected,
@@ -70,7 +70,12 @@ async function saveStep({ clientId, actorId, step, data = {} }, overrides = {}) 
       if (data[key] != null) patch[key] = String(data[key]).trim().slice(0,255);
     }
     await deps.clients.update(client.id, patch, actorId);
-    if (state.documentId && Number(state.documentId) !== Number(doc.id)) state.completedSteps = [];
+    if (state.documentId && Number(state.documentId) !== Number(doc.id)) {
+      // Keep entered demographics/contact/coverage data; the replacement needs
+      // a fresh human review of its consent evidence.
+      state.completedSteps = (state.completedSteps || []).filter(key => key !== 'consents');
+      delete state.consentReview;
+    }
     state.documentId = Number(doc.id);
   } else if (step === 'guardian1' || step === 'guardian2') {
     if (step === 'guardian2' && data.notListed === true) state.guardian2Id = null;
@@ -89,6 +94,11 @@ async function saveStep({ clientId, actorId, step, data = {} }, overrides = {}) 
     const [[type]] = await deps.database.execute('SELECT id FROM insurance_types WHERE id=? AND agency_id=? AND is_active=1', [Number(data.insuranceTypeId)||0, client.agency_id]);
     if (!type) throw fail('Select the insurance or self-pay category shown on the paper packet.');
     await deps.clients.update(client.id, {insurance_type_id:Number(type.id)}, actorId);
+  } else if (step === 'consents') {
+    if (data.signaturesConfirmed !== true || data.staffRoiConfirmed !== true) throw fail('Review the paper consents, signatures and staff release selections.');
+    await sourceDocument(client, state.documentId, deps);
+    assertPacketMatch(client, state, await deps.vision(client.id));
+    state.consentReview = {documentId:state.documentId,reviewedByUserId:actorId,reviewedAt:new Date().toISOString()};
   }
   state.completedSteps = [...new Set([...(state.completedSteps || []), step])];
   state.updatedAt = new Date().toISOString();
@@ -117,18 +127,12 @@ export async function completePaperProcessing(input, overrides = {}) {
 }
 async function complete({clientId, actorId, signaturesConfirmed, staffRoiConfirmed}, deps) {
     let client = await readClient(clientId, deps), state = { ...paperProcessingState(client) };
-    if (PAPER_PROCESSING_STEPS.some(step => !(state.completedSteps || []).includes(step))) throw fail('Complete each packet-processing step first.');
+    if (!state.processedAt && PAPER_PROCESSING_STEPS.some(step => !(state.completedSteps || []).includes(step))) throw fail('Complete each packet-processing step first.');
     await sourceDocument(client, state.documentId, deps);
     const vision = await deps.vision(client.id);
     if (!state.processedAt) {
       if (signaturesConfirmed !== true || staffRoiConfirmed !== true) throw fail('Confirm the existing paper signatures and matched staff ROI selections.');
-      const reasons = vision?.review_reasons;
-      const reviewedReplacement = Number(object(client.onboarding_docs_json).paperPacketSource?.documentId) === Number(state.documentId)
-        && vision?.status === 'needs_review' && Array.isArray(reasons) && reasons.length === 1 && reasons[0] === 'replacement_packet_requires_review';
-      if (!vision || Number(vision.phi_document_id) !== Number(state.documentId) || !(vision.status === 'applied' || reviewedReplacement)
-        || !vision.roi_signature_detected || !vision.disclosure_signature_detected) {
-        throw fail('The uploaded ROI/disclosure match needs review before processing can finish. Keep the signed paper; no new signatures are requested.');
-      }
+      assertPacketMatch(client, state, vision);
       if (!['yes', 'no'].includes(state.sharedCustody)) throw fail('Clarify custody/decision-making rights before finishing this packet.');
       if (!state.guardian1Id || (state.guardian2Id && Number(state.guardian1Id) === Number(state.guardian2Id))) throw fail('Each parent needs their own enabled portal contact.');
       if (state.sharedCustody === 'yes' && !state.guardian2Id) throw fail('Complete the second guardian’s portal contact.');
@@ -163,4 +167,14 @@ async function complete({clientId, actorId, signaturesConfirmed, staffRoiConfirm
       await writeState(client, state, actorId, deps);
     }
     return state;
+}
+
+function assertPacketMatch(client, state, vision) {
+  const reasons = vision?.review_reasons;
+  const reviewedReplacement = Number(object(client.onboarding_docs_json).paperPacketSource?.documentId) === Number(state.documentId)
+    && vision?.status === 'needs_review' && Array.isArray(reasons) && reasons.length === 1 && reasons[0] === 'replacement_packet_requires_review';
+  if (!vision || Number(vision.phi_document_id) !== Number(state.documentId) || !(vision.status === 'applied' || reviewedReplacement)
+    || !vision.roi_signature_detected || !vision.disclosure_signature_detected) {
+    throw fail('The uploaded ROI/disclosure match needs review before processing can finish. Keep the signed paper; no new signatures are requested.');
+  }
 }

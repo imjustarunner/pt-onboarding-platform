@@ -18,12 +18,12 @@ it('shows each invitation and reminder attempt and filters by dependent',async()
 it('keeps a failed resend visible and does not claim success',async()=>{
  const w=mount(Invitations,{props:{agencyId:4}});await flushPromises();api.post.mockResolvedValue({data:{deliveryStatus:'failed'}});await w.get('form').trigger('submit');await flushPromises();expect(w.text()).not.toContain('new invitation was sent');expect(w.text()).toContain('Invitation not delivered');w.unmount();
 });
-it('has a Spanish correction path',async()=>{const w=mount(Invitations,{props:{agencyId:4,language:'es'}});await flushPromises();expect(w.text()).toContain('No se pudo entregar');expect(w.get('button').text()).toContain('Guardar y reenviar');w.unmount();});
+it('has a Spanish correction path',async()=>{const w=mount(Invitations,{props:{agencyId:4,language:'es'}});await flushPromises();expect(w.text()).toContain('No se pudo entregar');expect(w.get('button').text()).toContain('Actualizar correo y reenviar');w.unmount();});
 it('shows accepted invitation and connected account without exposing answers or offering resend',async()=>{
  api.get.mockResolvedValue({data:{invitations:[{id:3,email:'parent@example.test',status:'accepted',accountConnected:1,invitedAt:'2026-10-01T12:00:00Z',completedAt:'2026-10-02T12:00:00Z',deliveryStatus:'sent',canManage:true}]}});
  const w=mount(Invitations,{props:{agencyId:4}});await flushPromises();
  expect(w.text()).toContain('own connected portal account');expect(w.text()).toContain('Accepted:');
- expect(w.get('input').attributes('disabled')).toBeDefined();expect(w.find('button').exists()).toBe(false);w.unmount();
+ expect(w.find('input').exists()).toBe(false);expect(w.find('button').exists()).toBe(false);w.unmount();
 });
 it('shows staff-managed historical invitation progress with a masked address and no resend controls',async()=>{
  api.get.mockResolvedValue({data:{invitations:[{id:18,email:'p•••@•••',status:'pending',accountConnected:0,invitedAt:'2026-10-01T12:00:00Z',lastSentAt:'2026-10-02T12:00:00Z',deliveryStatus:'failed',canManage:false}]}});

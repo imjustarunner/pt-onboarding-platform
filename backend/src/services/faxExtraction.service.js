@@ -62,7 +62,10 @@ export async function readFax(buffer, { vision = new ImageAnnotatorClient() } = 
     pages.push(pageLayout(result.fullTextAnnotation, 1));
   }
   if (!pages.some(p => p.text.trim())) throw failure('No readable text was found. Try a clearer scan.');
-  if (JSON.stringify(pages).length > 450000) throw failure('This fax has too much text for one intake. Split it into smaller documents.');
+  // Geometry is substantially larger than the text it describes. Bound both
+  // separately so an ordinary 22-page packet is not rejected as excess text.
+  if (pages.reduce((length, page) => length + page.text.length, 0) > 150000
+    || JSON.stringify(pages).length > 4000000) throw failure('This fax has too much text for one intake. Split it into smaller documents.');
   return { mimeType, pages };
 }
 

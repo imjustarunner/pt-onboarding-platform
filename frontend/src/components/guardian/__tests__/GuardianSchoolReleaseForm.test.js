@@ -55,3 +55,12 @@ describe('in-portal school release', () => {
     wrapper.unmount();
   });
 });
+
+it('shows both guardian decisions and the restrictive result on the completed release',async()=>{
+ api.get.mockResolvedValue({data:{status:'completed',decisions:[{schoolStaffUserId:3,staffName:'Synthetic Staff',effectiveDecision:'none',conflict:true,guardians:[{guardianName:'Parent One',decision:'roi_docs'},{guardianName:'Parent Two',decision:'none'}]}]}});
+ const wrapper=mount(Form,{props:{clientId:928}});await flushPromises();
+ expect(wrapper.text()).toContain('Parent One: Permitted goals and objectives');
+ expect(wrapper.text()).toContain('Parent Two: No clinical sharing');
+ expect(wrapper.text()).toContain('The more restrictive permission applies.');
+ expect(wrapper.find('form').exists()).toBe(false);wrapper.unmount();
+});

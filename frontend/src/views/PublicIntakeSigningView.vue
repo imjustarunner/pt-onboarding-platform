@@ -1811,6 +1811,7 @@
             v-if="link?.scope_type === 'school' && !isOfficeInDepthIntake && !isPaymentOnlyEnrollmentChannel && (intakeResponses.submission.insuranceInfo?.isSelfPay || intakeResponses.submission.insuranceInfo?.primary?.insurerName) && !shouldSkipPaymentCollectionStep()"
             :public-key="publicKey"
             :submission-id="submissionId"
+            :insurance-info="intakeResponses.submission.insuranceInfo || {}"
             :model-value="intakeResponses.submission.paymentInfo || {}"
             @update:model-value="(value) => { intakeResponses.submission.paymentInfo = value; }"
             @card-saved="onPaymentCardSaved"
@@ -2388,6 +2389,18 @@
             </div>
           </div>
         </div>
+
+        <section v-if="currentFlowStep?.type === 'school_review'" class="child-review-step intake-interview-page" aria-label="Enrollment review">
+          <p>{{ intakeLocale === 'es' ? 'Revise sus datos antes de enviar la inscripción.' : 'Review your information before submitting enrollment.' }}</p>
+          <p>{{ guardianDisplayName }} · {{ guardianEmail }}</p>
+          <article v-for="(child, index) in clients" :key="index" class="child-review-card">
+            <h4>{{ childDisplayName(index) }}</h4>
+            <p>{{ formatDateForDisplay(intakeResponses.clients?.[index]?.child_dob || child.dateOfBirth || child.dob) }}</p>
+            <p>{{ pscReviewStatus(intakeResponses.clients?.[index], intakeLocale) }}</p>
+            <button type="button" class="btn btn-outline btn-sm" @click="editSchoolReviewChild(index)">{{ intakeLocale === 'es' ? 'Revisar respuestas' : 'Review answers' }}</button>
+          </article>
+          <p>{{ intakeLocale === 'es' ? 'Use Anterior para revisar sus preferencias de comunicación y documentos firmados.' : 'Use Previous to review your communication preferences and signed documents.' }}</p>
+        </section>
 
         <div v-if="currentFlowStep?.type === 'child_review'" class="child-review-step intake-interview-page">
           <div class="child-review-card">
@@ -3150,6 +3163,8 @@
 import EnrollmentContactOptions from '../components/public-intake/EnrollmentContactOptions.vue';
 import EnrollmentTerminationDialog from '../components/public-intake/EnrollmentTerminationDialog.vue';
 import { useEnrollmentTermination } from '../composables/useEnrollmentTermination.js';
+import { withSchoolEnrollmentReview, pscReviewStatus } from '../navigation/intake/schoolEnrollmentReview.js';
+import { asqFieldCopy } from '../navigation/intake/asqRespondentCopy.js';
 import EnrollmentPortalAccess from '../components/public-intake/EnrollmentPortalAccess.vue';
 import { i18n, setPublicLocale } from '../i18n.js';
 import { readJoinBrandingForPacket } from '../utils/joinLandingTemplate.js';
@@ -4489,6 +4504,8 @@ const requiresOriginalInstrumentLanguage = field => isOfficeInDepthIntake.value
   && preserveOriginalOfficeInstrument(field, intakeLocale.value);
 const txField = (field, prop = 'label') => {
   if (!field) return '';
+  const safety = asqFieldCopy(field, {locale:intakeLocale.value,self:intakeForSelf.value === true});
+  if (safety?.[prop]) return safety[prop];
   const publishedSpanish = isOfficeInDepthIntake.value && intakeLocale.value === 'es' ? officeSpanishScreenField(field) : null;
   if (publishedSpanish?.[prop]) return interpolateChildTokens(publishedSpanish[prop]);
   if (requiresOriginalInstrumentLanguage(field)) return interpolateChildTokens(field[prop] || '');
@@ -4514,6 +4531,8 @@ const txOption = (opt) => {
 };
 
 const translatedQuestionOptions = (field) => {
+  const safety = asqFieldCopy(field, {locale:intakeLocale.value,self:intakeForSelf.value === true});
+  if (safety) return safety.options;
   const publishedSpanish = isOfficeInDepthIntake.value && intakeLocale.value === 'es' ? officeSpanishScreenField(field) : null;
   return (field?.options || []).map(opt => ({
     value: opt.value ?? opt.label,
@@ -4985,7 +5004,8 @@ const completionReservationNotice = ref('');
 const completionEmailMessage = computed(() => {
   if (emailDeliveryStatus.value?.essentialConfirmation && emailDeliveryStatus.value?.sent === true) return intakeLocale.value === 'es' ? 'Enviamos una confirmación breve. Sus documentos están disponibles en esta página; no se adjuntaron al correo.' : 'A brief confirmation was emailed. Your documents are available on this page; they were not attached to the email.';
   if (String(emailDeliveryStatus.value?.reason || emailDeliveryStatus.value?.error || '').includes('enrollment_automatic_email_off')) return intakeLocale.value === 'es' ? 'Inscripción guardada. Respetamos su elección de no recibir correo automático. Aún puede solicitar acceso al portal aquí.' : 'Enrollment saved. Automatic email is off as you requested. You can still request portal access here.';
-  if (emailDeliveryStatus.value?.attempted && emailDeliveryStatus.value?.sent === false) {
+  if (emailDeliveryStatus.value?.attempted && emailDeliveryStatus.value?.sent === false
+    && ['failed', 'bounced', 'undelivered', 'blocked'].includes(String(emailDeliveryStatus.value?.status || emailDeliveryStatus.value?.deliveryStatus || '').toLowerCase())) {
     return t('completionEmailFailed');
   }
   if (emailDeliveryStatus.value?.sent !== true) return pendingConfirmationMessage.value;
@@ -5632,8 +5652,7 @@ const isSchoolScopedIntake = computed(() => {
   const orgType = String(organizationInfo.value?.organization_type || '').toLowerCase();
   return scope === 'school' || orgType === 'school';
 });
-const guardianPortalInvitationDeferred = computed(() => isSchoolScopedIntake.value
-  || usesSchoolMaster.value || link.value?.guardian_portal_invitation_deferred === true);
+const guardianPortalInvitationDeferred = computed(() => link.value?.guardian_portal_invitation_deferred === true);
 
 const isOfficeInDepthIntake = computed(() => {
   if (isSchoolScopedIntake.value) return false;
@@ -6381,7 +6400,7 @@ const flowSteps = computed(() => {
         expanded.push({ ...s, sourceId: s.id });
       }
     }
-    return (isSchoolScopedIntake.value ? groupSchoolChildSteps(expanded) : expanded).map((s) => {
+    return withSchoolEnrollmentReview((isSchoolScopedIntake.value ? groupSchoolChildSteps(expanded) : expanded).map((s) => {
         if (s.type === 'upload') return { ...s };
         if (s.type === 'school_roi') return { ...s };
         if (s.type === 'smart_disclosure' || s.type === 'disclosure') return { ...s };
@@ -6481,7 +6500,7 @@ const flowSteps = computed(() => {
         }
         const template = templates.value.find((t) => Number(t.id) === Number(resolvedTemplateId));
         return { ...s, template, resolvedTemplateId };
-      }).filter(Boolean);
+      }).filter(Boolean), { school: isSchoolScopedIntake.value, standalone: isSmartSchoolRoi.value || isSmartDisclosure.value, locale: intakeLocale.value });
   }
   return templates.value.map((t) => ({ id: `doc_${t.id}`, type: 'document', template: t }));
 });
@@ -7109,7 +7128,8 @@ const registrationEmailMessageForBanner = computed(() => {
   if (!downloadUrl.value) return '';
   if (String(emailDeliveryStatus.value?.reason || '').includes('enrollment_automatic_email_off')) return 'Your enrollment is saved. No automatic email was sent, as requested. You can use the portal access options here.';
   if (emailDeliveryStatus.value?.essentialConfirmation && emailDeliveryStatus.value?.sent) return 'A brief enrollment confirmation has been emailed. Your signed documents are available below; they were not attached to that email.';
-  if (emailDeliveryStatus.value?.attempted && emailDeliveryStatus.value?.sent === false) {
+  if (emailDeliveryStatus.value?.attempted && emailDeliveryStatus.value?.sent === false
+    && ['failed', 'bounced', 'undelivered', 'blocked'].includes(String(emailDeliveryStatus.value?.status || emailDeliveryStatus.value?.deliveryStatus || '').toLowerCase())) {
     return "We couldn't deliver the confirmation email right now — please use the download buttons below to grab your packet.";
   }
   if (emailDeliveryStatus.value?.sent !== true) return pendingConfirmationMessage.value;
@@ -7169,7 +7189,8 @@ const pendingConfirmationMessage = computed(() => packetNeedsReview.value
 const intakeSuccessEmailMessage = computed(() => {
   if (emailDeliveryStatus.value?.essentialConfirmation && emailDeliveryStatus.value?.sent === true) return intakeLocale.value === 'es' ? 'Enviamos una confirmación breve. Sus documentos están disponibles en esta página; no se adjuntaron al correo.' : 'A brief confirmation was emailed. Your documents are available on this page; they were not attached to the email.';
   if (String(emailDeliveryStatus.value?.reason || emailDeliveryStatus.value?.error || '').includes('enrollment_automatic_email_off')) return intakeLocale.value === 'es' ? 'Inscripción guardada. Respetamos su elección de no recibir correo automático. Aún puede solicitar acceso al portal aquí.' : 'Enrollment saved. Automatic email is off as you requested. You can still request portal access here.';
-  if (emailDeliveryStatus.value?.attempted && emailDeliveryStatus.value?.sent === false) {
+  if (emailDeliveryStatus.value?.attempted && emailDeliveryStatus.value?.sent === false
+    && ['failed', 'bounced', 'undelivered', 'blocked'].includes(String(emailDeliveryStatus.value?.status || emailDeliveryStatus.value?.deliveryStatus || '').toLowerCase())) {
     const to = String(emailDeliveryStatus.value?.to || guardianEmail.value || '').trim();
     return to
       ? t('intakeEmailFailedTo').replace('{email}', to)
@@ -12297,7 +12318,7 @@ const handleCurrentFlowContinue = () => {
   }
   if (currentFlowStep.value?.type === 'demographics') return completeDemographicsStep();
   if (isQuestionnaireFlowStep(currentFlowStep.value)) return completeClinicalQuestionsStep();
-  if (currentFlowStep.value?.type === 'child_review') {
+  if (['child_review', 'school_review'].includes(currentFlowStep.value?.type)) {
     stepError.value = '';
     return nextFlowStep();
   }
@@ -12505,6 +12526,7 @@ const finalizePacket = async () => {
       },
       intakeData: {
         formLocale: intakeLocale.value,
+        intakeForSelf: intakeForSelf.value,
         responses: sanitizedResponses,
         clients: buildClientPayloads(),
         guardian: {
@@ -13407,6 +13429,10 @@ const formatReviewValue = (raw, fieldKey = '') => {
     return parts.length ? parts.join(', ') : '—';
   }
   return labelFor(raw);
+};
+const editSchoolReviewChild = (index) => {
+  const target = flowSteps.value.findIndex(step => step.clientIndex === index);
+  if (target >= 0) currentFlowIndex.value = target;
 };
 const currentChildReviewRows = computed(() => {
   const idx = currentFlowStep.value?.clientIndex;
@@ -14414,6 +14440,23 @@ watch(() => JSON.stringify(sharedSigningRoster.value), (next, previous) => {
     for (const key of Object.keys(docStatus)) docStatus[key] = false;
     documentSigningRoster.value = null;
   }
+});
+
+watch([() => communications.smsPreference, () => communications.providerTextingOptIn, guardianPhone], () => {
+  if (!communications.recipientPhone && (communications.smsPreference === 'scheduling_only' || communications.providerTextingOptIn === 'yes')) {
+    communications.recipientPhone = String(guardianPhone.value || '').trim();
+  }
+});
+
+watch(guardianEmail, (next, previous) => {
+  if (!previous || !next || next.trim().toLowerCase() === previous.trim().toLowerCase() || step.value === 3) return;
+  for (const [capture, key] of [[embeddedSmartSchoolRoi, 'smartSchoolRoi'], [embeddedSmartDisclosure, 'smartDisclosure']]) {
+    if (capture.value?.signatureData) { capture.value = null; intakeResponses.submission[key] = null; }
+  }
+  embeddedPacketSections.value = {};
+  intakeResponses.submission.packetSections = {};
+  for (const key of Object.keys(docStatus)) docStatus[key] = false;
+  documentSigningRoster.value = null;
 });
 
 const handleEmbeddedSchoolRoiCaptured = async ({ smartSchoolRoi } = {}) => {

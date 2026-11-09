@@ -240,8 +240,8 @@
           </div>
           <div class="form-group">
             <fieldset><legend>Send request to</legend>
-              <label v-for="guardian in guardianEmails.filter(g => g.can_request_roi)" :key="guardian.guardian_user_id">
-                <input v-model="selectedGuardianIds" type="checkbox" :value="guardian.guardian_user_id" /> {{ guardianLabel(guardian) }}
+              <label v-for="guardian in guardianEmails" :key="guardian.guardian_user_id">
+                <input v-model="selectedGuardianIds" type="checkbox" :value="guardian.guardian_user_id" :disabled="!guardian.can_request_roi" /> {{ guardianLabel(guardian) }} <span v-if="!guardian.can_request_roi"> — {{ ['pending','expired'].includes(guardian.enrollment_status) ? 'Complete own enrollment before requesting an update' : 'Review signing access before requesting' }}</span>
               </label>
             </fieldset>
             <label>Request language</label>
@@ -339,6 +339,7 @@
                   <div>{{ displayName(row) }}</div>
                   <div v-if="row.effective_access_state === 'expired'" class="hint">ROI expired</div>
                   <div v-if="row.guardian_consent" class="guardian-consent-decisions">
+                    <div v-for="guardian in guardianEmails.filter(g => ['pending','expired'].includes(g.enrollment_status) && !row.guardian_consent.decisions.some(d => Number(d.guardianUserId) === Number(g.guardian_user_id)))" :key="`pending:${guardian.guardian_user_id}`">{{ guardianLabel(guardian) }}: own response pending.</div>
                     <strong v-if="row.guardian_consent.effectiveDecision === 'none'">Sharing blocked — a guardian denied permission or their release expired.</strong>
                     <strong v-else-if="row.guardian_consent.conflict">Different guardian choices — the more restrictive permission applies.</strong>
                     <div v-for="decision in row.guardian_consent.decisions" :key="decision.guardianUserId">

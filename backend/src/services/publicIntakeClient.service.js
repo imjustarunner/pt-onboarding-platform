@@ -1,5 +1,6 @@
 import { clientPortalInviteUrl, intakeClientPortal } from './clientPortalContext.service.js';
-import { deferGuardianInvitation as shouldDeferGuardianInvitation } from '../utils/schoolGuardianPortalPolicy.js';
+import { schoolRoiCalendarDates } from '../utils/schoolRoiCalendarDate.js';
+import { deferEnrollmentGuardianInvitation } from '../utils/schoolGuardianPortalPolicy.js';
 import config from '../config/config.js';
 import pool from '../config/database.js';
 import { enrollmentRelationship } from '../utils/portalEnrollmentBinding.js';
@@ -321,7 +322,7 @@ const provisionSingleIntakeClient = async ({
     contact_phone: contactPhone,
     identifier_code: identifierCode,
     status: wfStatus,
-    submission_date: new Date().toISOString().split('T')[0],
+    submission_date: schoolRoiCalendarDates(new Date(), organization?.timezone || (await Agency.findById(agencyId))?.timezone || 'America/Denver').effectiveDate,
     document_status: 'UPLOADED',
     paperwork_status_id: paperworkStatusId,
     client_status_id: clientStatusId,
@@ -403,7 +404,7 @@ class PublicIntakeClientService {
 
     const createdClients = [];
     const createGuardian = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(payload?.guardian?.email||'').trim());
-    const deferGuardianInvitation = shouldDeferGuardianInvitation({ ...link, organization_type: orgType });
+    const deferGuardianInvitation = deferEnrollmentGuardianInvitation({ ...link, organization_type: orgType });
     for (const clientPayload of rawClients) {
       const client = await provisionSingleIntakeClient({
         link,
@@ -603,7 +604,7 @@ class PublicIntakeClientService {
    */
   static async provisionGuardianForIntakeClients({ link, agencyId, clients = [], payload = {} }) {
     const createdClients = Array.isArray(clients) ? clients.filter((c) => c && Number(c.id)) : [];
-    const deferGuardianInvitation = shouldDeferGuardianInvitation(link) || createdClients.some(shouldDeferGuardianInvitation);
+    const deferGuardianInvitation = deferEnrollmentGuardianInvitation(link, createdClients);
     let guardianUser = null;
     let newGuardianCreated = false;
     let newGuardianTemporaryPassword = null;

@@ -132,3 +132,8 @@ for (const scenario of [
   assert.equal(result.status === 'completed', scenario.completed);
   assert.equal(issued, !scenario.completed);
 });
+
+it('includes only shared release decisions after authorized document access, without reopening a completed form',async()=>{
+ const result=await openGuardianSchoolRelease({userId:15,clientId:928,loadLink:async()=>link,findExisting:async()=>({status:'completed'}),db:{execute:async sql=>[sql.includes('FROM users')?[{id:33,first_name:'School',last_name:'Staff'}]:schoolClient]},loadConsent:async()=>[{schoolStaffUserId:33,effectiveDecision:'none',conflict:true,privateAnswer:'must not leak',decisions:[{guardianName:'Parent One',decision:'roi_docs',signedAt:'2026-11-09',submissionId:123},{guardianName:'Parent Two',decision:'none'}]}],issueLink:async()=>{throw new Error('must not issue');}});
+ assert.equal(result.decisions[0].staffName,'School Staff');assert.equal(result.decisions[0].effectiveDecision,'none');assert.equal(result.decisions[0].guardians.length,2);assert.equal(JSON.stringify(result).includes('privateAnswer'),false);assert.equal(JSON.stringify(result).includes('submissionId'),false);
+});

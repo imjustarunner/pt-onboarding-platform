@@ -7,8 +7,13 @@
     <p v-if="state === 'loading'">Loading the school release…</p>
     <p v-else-if="state === 'error'" role="alert">{{ error }}</p>
     <p v-else-if="state === 'signed'">This school release is signed and saved on the chart.</p>
+    <div v-if="decisions.length" class="release-decisions">
+      <h4>Current school sharing permissions</h4>
+      <p>Either guardian’s explicit denial blocks clinical sharing with that staff member. Required scheduling, logistics and messaging remain available.</p>
+      <ul><li v-for="row in decisions" :key="row.schoolStaffUserId"><strong>{{ row.staffName }}: {{ decisionLabel(row.effectiveDecision) }}</strong><ul><li v-for="(guardian, index) in row.guardians" :key="index">{{ guardian.guardianName }}: {{ decisionLabel(guardian.decision) }}<span v-if="guardian.expired"> · permission expired</span></li></ul><p v-if="row.conflict">The guardians’ decisions differ. The more restrictive permission applies.</p></li></ul>
+    </div>
     <SmartSchoolRoiFlow
-      v-else-if="packet"
+      v-if="packet && state === 'form'"
       :public-key="packet.publicKey"
       :session-token="packet.sessionToken"
       :roi-context="packet.roiContext"
@@ -30,18 +35,21 @@ const props = defineProps({
   embedded: { type: Boolean, default: false }
 });
 const emit=defineEmits(['completed']);
-function completed(result){state.value='signed';emit('completed',result);}
+function completed(result){state.value='signed';emit('completed',result);void load();}
 
 const state = ref('idle');
 const error = ref('');
 const schoolName = ref('');
 const packet = ref(null);
+const decisions = ref([]);
+const decisionLabel = value => ({none:'No clinical sharing',roi:'Speak only',roi_docs:'Permitted goals and objectives'}[value] || 'Awaiting review');
 let ticket = 0;
 
 async function load() {
   const current = ++ticket;
   const clientId = Number(props.clientId);
   packet.value = null;
+  decisions.value = [];
   error.value = '';
   schoolName.value = '';
   if (!clientId) {
@@ -58,6 +66,7 @@ async function load() {
       return;
     }
     schoolName.value = String(data?.schoolName || '').trim();
+    decisions.value = Array.isArray(data?.decisions) ? data.decisions : [];
     if (data?.status === 'completed') {
       state.value = 'signed';
       return;

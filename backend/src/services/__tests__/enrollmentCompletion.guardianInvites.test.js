@@ -22,7 +22,7 @@ beforeEach(()=>{
   if(sql.includes('GET_LOCK'))return [[{acquired:1}]];
   if(sql.includes('SELECT * FROM co_guardian_invites'))return [[invite]];
   if(sql.includes('SELECT c.id'))return [clients];
-  if(sql.includes('SELECT * FROM co_guardian_invite_deliveries'))return [[]];
+  if(sql.includes('SELECT * FROM co_guardian_invite_deliveries'))return [[{delivery_status:'failed',created_at:'2026-01-01'}]];
   if(sql.includes('COUNT(*)'))return [[{n:0}]];
   return [[],[]];
  }),beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn()};
@@ -51,7 +51,7 @@ it('rotates the old invitation token and only revokes links restricted by that i
  expect(JSON.stringify(result)).not.toContain('token');
 });
 it('rate limits retries without sending or changing accounts',async()=>{
- db.execute.mockImplementation(async sql=>sql.includes('GET_LOCK')?[[{acquired:1}]]:sql.includes('SELECT * FROM co_guardian_invites')?[[invite]]:sql.includes('SELECT c.id')?[clients]:sql.includes('SELECT * FROM co_guardian_invite_deliveries')?[[{created_at:new Date()}]]:[[]]);
+ db.execute.mockImplementation(async sql=>sql.includes('GET_LOCK')?[[{acquired:1}]]:sql.includes('SELECT * FROM co_guardian_invites')?[[invite]]:sql.includes('SELECT c.id')?[clients]:sql.includes('SELECT * FROM co_guardian_invite_deliveries')?[[{created_at:new Date(),delivery_status:'failed'}]]:[[]]);
  await expect(resendGuardianInvitation({userId:8,agencyId:4,inviteId:3,email:'a@example.test'})).rejects.toThrow('Wait a minute');expect(m.email).not.toHaveBeenCalled();expect(db.rollback).toHaveBeenCalled();
 });
 it('notifies only the stored submitting parent with agency branding and no child details',async()=>{
@@ -129,7 +129,7 @@ it('keeps status private after restricted, revoked, adult, malformed, or cross-a
  }
 });
 it('keeps owner management separate from read-only progress when another linked child is restricted',async()=>{
- m.execute.mockResolvedValue([[{...statusRow,invitedByUserId:8}]]);
+ m.execute.mockResolvedValue([[{...statusRow,invitedByUserId:8,deliveryStatus:'failed'}]]);
  expect((await listGuardianInvitations({userId:8,agencyId:4}))[0]).toMatchObject({email:'other@example.test',canManage:true});
  m.execute.mockResolvedValue([[{...statusRow,invitedByUserId:8},{...statusRow,invitedByUserId:8,accessEnabled:0}]]);
  expect((await listGuardianInvitations({userId:8,agencyId:4}))[0]).toMatchObject({canManage:false});
@@ -144,4 +144,9 @@ it('sends the refreshed invitation directly to the same guardian’s renewed sav
  const sent=m.email.mock.calls[0][0];
  expect(new URL(sent.inviteUrl).searchParams.get('session')).toBe('saved-second-parent-session');
  expect(db.execute.mock.calls.some(([sql])=>sql.includes('SET draft_expires_at='))).toBe(true);
+});
+it.each(['sent','delivered','pending','sending','unknown'])('never permits parent email correction or resend while delivery is %s',async status=>{
+ const original=db.execute.getMockImplementation();db.execute.mockImplementation(async(sql,args)=>sql.includes('SELECT * FROM co_guardian_invite_deliveries')?[[{delivery_status:status,created_at:'2026-01-01'}]]:original(sql,args));
+ await expect(resendGuardianInvitation({userId:8,agencyId:4,inviteId:3,email:'different@example.test'})).rejects.toMatchObject({status:409});
+ expect(m.email).not.toHaveBeenCalled();expect(db.execute.mock.calls.some(([sql])=>sql.includes('SET invited_email='))).toBe(false);
 });
