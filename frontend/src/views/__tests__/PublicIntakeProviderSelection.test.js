@@ -34,7 +34,8 @@ it('claims email delivery only after a transport receipt and exposes a packet re
  expect(wrapper.text()).toContain('Reference number: 1271');
  wrapper.vm.packetNeedsReview=true;await flushPromises();expect(wrapper.vm.intakeSuccessEmailMessage).toContain('needs review');
  wrapper.vm.emailDeliveryStatus={attempted:true,sent:true};await flushPromises();expect(wrapper.vm.intakeSuccessEmailMessage).toContain('emailed to qa.family@example.com');
- wrapper.vm.emailDeliveryStatus={attempted:true,sent:false};await flushPromises();expect(wrapper.vm.intakeSuccessEmailMessage).toContain('failed to send');
+ wrapper.vm.emailDeliveryStatus={attempted:true,sent:false};await flushPromises();expect(wrapper.vm.intakeSuccessEmailMessage).not.toContain('failed to send');
+ wrapper.vm.emailDeliveryStatus={attempted:true,sent:false,status:'failed'};await flushPromises();expect(wrapper.vm.intakeSuccessEmailMessage).toContain('failed to send');
 });
 it('records the requested provider and modality before full consent and preserves them on old draft restore',async()=>{
  route.query={enrollmentSource:'provider',providerId:'9',format:'VIRTUAL'};await render();
