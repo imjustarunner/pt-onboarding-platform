@@ -56,6 +56,29 @@ it('honors no automatic email and creates an encrypted staff follow-up without a
 it('flags an all-off routine contact choice for staff review',async()=>{
  cp.noRoutineCalls=true;await deliver();expect(deps.tasks.create).toHaveBeenCalledTimes(1);expect(send).toHaveBeenCalledTimes(1);
 });
+it('records the submitting guardian as task creator so contact-review work does not block an allowed enrollment receipt',async()=>{
+ cp.noRoutineCalls=true;
+ deps.tasks.create.mockImplementation(async task=>{
+  if(!task.assignedByUserId)throw Error("Column 'assigned_by_user_id' cannot be null");
+  return {id:9};
+ });
+ expect(await deliver()).toMatchObject({sent:true});
+ expect(deps.tasks.create).toHaveBeenCalledWith(expect.objectContaining({assignedByUserId:20,assignedToRole:'support',assignedToAgencyId:2}));
+ expect(send).toHaveBeenCalledTimes(1);
+});
+it('keeps the initiating staff attribution on a staff-triggered receipt',async()=>{
+ cp.alternativeContactInstructions='Use the agreed safe contact method.';await deliver({...message,generatedByUserId:501});
+ expect(deps.tasks.create).toHaveBeenCalledWith(expect.objectContaining({assignedByUserId:501}));
+});
+it('uses the intake-link creator when a legacy enrollment has no guardian account',async()=>{
+ submission.guardian_user_id=null;cp.noRoutineCalls=true;deps.links.findById.mockResolvedValue({language_code:'en',created_by_user_id:7});
+ expect(await deliver()).toMatchObject({sent:true});expect(deps.tasks.create).toHaveBeenCalledWith(expect.objectContaining({assignedByUserId:7}));
+});
+it('retains an actionable failure if no legitimate task creator is available',async()=>{
+ submission.guardian_user_id=null;cp.noRoutineCalls=true;
+ await expect(deliver()).rejects.toThrow('requires a guardian or initiating staff member');
+ expect(deps.tasks.create).not.toHaveBeenCalled();expect(send).not.toHaveBeenCalled();expect(records[0].delivery_status).toBe('failed');
+});
 it('retains the safe receipt if staff follow-up cannot be recorded',async()=>{
  cp.noAutomaticEmail=true;deps.tasks.create.mockRejectedValue(Error('Task unavailable'));
  await expect(deliver()).rejects.toMatchObject({communicationId:1});expect(send).not.toHaveBeenCalled();expect(records[0].templateType).toBe('enrollment_submission_confirmation');

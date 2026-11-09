@@ -45,6 +45,16 @@ it('routes full office enrollment to the same deduplicated Support notice as a b
  await notifyNewPacketUploaded({agencyId:2,clientId:10,schoolOrganizationId:null,mode:'digital_submission'});
  expect(m.notice).toHaveBeenCalledWith({agencyId:2,clientId:10});
 });
+it.each(['clinical','program','learning'])('does not manufacture a missing-school-mailbox failure for a %s enrollment',async organization_type=>{
+ m.find.mockImplementation(async id=>Number(id)===20?{...school,organization_type}:{id:2,organization_type:'agency'});
+ await notifyNewPacketUploaded({agencyId:2,clientId:10,schoolOrganizationId:20,mode:'digital_submission'});
+ expect(m.send).not.toHaveBeenCalled();expect(m.log).not.toHaveBeenCalled();
+ expect(m.execute.mock.calls.some(([sql])=>sql.includes('sp.itsco_email'))).toBe(false);
+});
+it('keeps an office packet without a school out of the school-email failure queue',async()=>{
+ await notifyNewPacketUploaded({agencyId:2,clientId:10,schoolOrganizationId:null});
+ expect(m.send).not.toHaveBeenCalled();expect(m.log).not.toHaveBeenCalled();
+});
 
 it('still sends the school packet email when the office lookup fails',async()=>{
  const execute=m.execute.getMockImplementation();
