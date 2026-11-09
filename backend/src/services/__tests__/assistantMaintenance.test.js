@@ -36,6 +36,16 @@ function runner(source = fixture(), options = {}) {
 }
 
 describe('assistant maintenance database invariants', () => {
+  it('honors payroll-only assistant domain enrollment while ordinary managed groups remain disabled', () => {
+    const data=fixture();data.account.agency_id=6;data.account.agency_slug='nlu';data.account.agency_name='Next Level Up';data.account.subrole='payroll';
+    data.account.feature_flags={managedWorkspaceGroupsEnabled:false,workspaceEmailDomain:'nextleveluplcc.com',externalAssistantGroupSubroles:['payroll']};
+    data.user.first_name='Next Level Up';data.user.last_name='Payroll Assistant';
+    for(const key of ['email','username','work_email'])data.user[key]='payroll-assistant@nextleveluplcc.com';
+    data.memberships[0].agency_id=6;data.account.configuration_fingerprint=assistantStoredConfigurationHash(data.account);
+    expect(inspectAssistantDatabaseIdentity(data)).toEqual([]);
+    data.account.feature_flags.externalAssistantGroupSubroles=[];
+    expect(inspectAssistantDatabaseIdentity(data)).toContain('AGENCY_OR_SUBROLE_NOT_ENROLLED');
+  });
   it('accepts only the expected single-agency machine identity with matching credential fingerprint', () => {
     const data = fixture(); expect(inspectAssistantDatabaseIdentity(data)).toEqual([]);
   });
@@ -90,12 +100,12 @@ describe('assistant group drift', () => {
 
 describe('read-only Directory reader', () => {
   it('paginates membership and performs only GET/list requests with read-only Directory scopes', async () => {
-    const admin = { groups: { get: vi.fn(async () => ({ data: fixture().group })), insert: vi.fn(), update: vi.fn() }, members: { list: vi.fn().mockResolvedValueOnce({ data: { members: [members()[0]], nextPageToken: 'page2' } }).mockResolvedValueOnce({ data: { members: [members()[1]] } }), insert: vi.fn(), update: vi.fn() } };
+    const admin = { groups: { get: vi.fn(async () => ({ data: fixture().group })), insert: vi.fn(), update: vi.fn() }, members: { list: vi.fn().mockResolvedValueOnce({ data: { members: [{...members()[0],delivery_settings:undefined}], nextPageToken: 'page2' } }).mockResolvedValueOnce({ data: { members: [{...members()[1],delivery_settings:undefined}] } }), get:vi.fn(async({memberKey})=>({data:members().find(m=>m.email===memberKey)})), insert: vi.fn(), update: vi.fn() } };
     const groupSettings = { groups: { get: vi.fn(async () => ({ data: settings() })), patch: vi.fn() } };
     const api = { admin: vi.fn(() => admin), groupssettings: vi.fn(() => groupSettings) }, authBuilder = vi.fn(async () => ({}));
     const reader = createAssistantDirectoryReader({ authBuilder, api, subjectEmail: 'synthetic-admin@example.com' });
     await reader.getGroup({ groupEmail: 'synthetic-group@example.com' });
-    expect(await reader.listGroupMembers('synthetic-group@example.com')).toHaveLength(2);
+    const received=await reader.listGroupMembers('synthetic-group@example.com');expect(received).toHaveLength(2);expect(received.map(m=>m.delivery_settings)).toEqual(['NONE','ALL_MAIL']);expect(admin.members.get).toHaveBeenCalledTimes(2);
     await reader.getGroupSettings({ groupEmail: 'synthetic-group@example.com' });
     expect(admin.members.list.mock.calls[1][0].pageToken).toBe('page2');
     expect(authBuilder.mock.calls[0][0].scopes.every(scope => scope.endsWith('.readonly'))).toBe(true);
