@@ -4,7 +4,7 @@ import express from 'express';
 import { viewApplicationDocument } from '../services/jobApplicationRecord.service.js';
 import multer from 'multer';
 import { body } from 'express-validator';
-import { publicIntakeLimiter } from '../middleware/rateLimiter.middleware.js';
+import { publicIntakeRequestLimiter } from '../middleware/publicIntakeRateLimit.middleware.js';
 import {
   approvePublicIntake,
   createPublicIntakeSession,
@@ -58,7 +58,7 @@ import { authenticate } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
 
-router.use(publicIntakeLimiter);
+router.use(publicIntakeRequestLimiter);
 router.get('/application-documents/:submissionId/:docId', viewApplicationDocument);
 
 router.get('/registration-receipt/:submissionId', getPublicRegistrationReceipt);

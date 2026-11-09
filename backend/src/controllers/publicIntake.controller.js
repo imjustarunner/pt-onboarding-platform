@@ -7081,6 +7081,17 @@ export const createPublicConsent = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'This link is no longer active. Please contact the school for a new link.' } });
     }
 
+    // Consent only advances a session created through the CAPTCHA/start-limit gate.
+    // Never turn an absent or invented token into another intake submission.
+    const sessionToken = String(req.body?.sessionToken || '').trim();
+    let submission = sessionToken ? await IntakeSubmission.findBySessionToken(sessionToken) : null;
+    if (!submission) {
+      return res.status(400).json({ error: { message: 'A valid intake session is required. Please start or resume your form before continuing.' } });
+    }
+    if (Number(submission.intake_link_id) !== Number(link.id)) {
+      return res.status(403).json({ error: { message: 'This session belongs to a different enrollment packet.' } });
+    }
+
     await assertClientUpdateSubmissionContext(link,{coGuardianToken:req.body?.coGuardianToken});
     let coGuardianBinding = req.body?.coGuardianToken ? await CoGuardianInvite.resolveCoGuardianIntakeBinding(req.body.coGuardianToken, {
       agencyId: await resolveAgencyIdForLink(link), publicKey
@@ -7112,72 +7123,48 @@ export const createPublicConsent = async (req, res, next) => {
     const portalGuardianId = Number(issuedRoiLink?.client_id)
       ? await portalGuardianForIssuedRoi(req, issuedRoiLink.client_id)
       : null;
-    const sessionToken = String(req.body?.sessionToken || '').trim();
-    let submission = sessionToken ? await IntakeSubmission.findBySessionToken(sessionToken) : null;
-    if (submission) {
-      await assertClientUpdateSubmissionContext(link,{coGuardianToken:req.body?.coGuardianToken,coGuardianInviteId:submission.co_guardian_invite_id});
-      assertPortalEnrollmentIdentity(submission, req.body, sessionToken);
-      if (Number(submission.intake_link_id) !== Number(link.id)) return res.status(403).json({ error: { message: 'This session belongs to a different enrollment packet.' } });
-      if (!req.body?.coGuardianToken && submission.co_guardian_invite_id) {
-        coGuardianBinding = await CoGuardianInvite.resolveCoGuardianResumeBinding(submission, sessionToken, {
-          agencyId: await resolveAgencyIdForLink(link), publicKey
-        });
-      }
-      CoGuardianInvite.assertCoGuardianSubmissionBinding(submission, coGuardianBinding);
-      if (coGuardianBinding) submission = await IntakeSubmission.bindCoGuardianInvite(submission.id, coGuardianBinding.invite.id);
-      if (String(submission.status || '').toLowerCase() === 'submitted') {
-        let downloadUrl = null;
-        if (submission.combined_pdf_path) {
-          try {
-            downloadUrl = await StorageService.getSignedUrl(submission.combined_pdf_path, 60 * 24 * 7);
-          } catch {
-            downloadUrl = null;
-          }
-        }
-        return res.status(200).json({
-          success: true,
-          alreadyCompleted: true,
-          message: 'This release session is already completed.',
-          submission,
-          downloadUrl
-        });
-      }
-      submission = await IntakeSubmission.updateById(submission.id, {
-        status: 'consented',
-        signer_name: normalizeName(req.body.signerName),
-        signer_initials: normalizeName(req.body.signerInitials),
-        signer_email: normalizeName(req.body.signerEmail) || null,
-        signer_phone: normalizeName(req.body.signerPhone) || null,
-        intake_data: effectiveIntakeData ? JSON.stringify(effectiveIntakeData) : null,
-        intake_data_hash: intakeDataHash,
-        consent_given_at: now,
-        ip_address: ipAddress,
-        user_agent: userAgent,
-        retention_expires_at: retentionExpiresAt,
-        session_token: sessionToken || null,
-        client_id: issuedRoiLink?.client_id || submission.client_id || null,
-        guardian_user_id: portalGuardianId || submission.guardian_user_id || null
-      });
-    } else {
-      submission = await IntakeSubmission.create({
-        intakeLinkId: link.id,
-        status: 'consented',
-        coGuardianInviteId: coGuardianBinding?.invite?.id || null,
-        signerName: normalizeName(req.body.signerName),
-        signerInitials: normalizeName(req.body.signerInitials),
-        signerEmail: normalizeName(req.body.signerEmail) || null,
-        signerPhone: normalizeName(req.body.signerPhone) || null,
-        sessionToken: sessionToken || null,
-        intakeData: effectiveIntakeData,
-        intakeDataHash,
-        consentGivenAt: now,
-        ipAddress,
-        userAgent,
-        retentionExpiresAt,
-        clientId: issuedRoiLink?.client_id || null,
-        guardianUserId: portalGuardianId
+    await assertClientUpdateSubmissionContext(link,{coGuardianToken:req.body?.coGuardianToken,coGuardianInviteId:submission.co_guardian_invite_id});
+    assertPortalEnrollmentIdentity(submission, req.body, sessionToken);
+    if (!req.body?.coGuardianToken && submission.co_guardian_invite_id) {
+      coGuardianBinding = await CoGuardianInvite.resolveCoGuardianResumeBinding(submission, sessionToken, {
+        agencyId: await resolveAgencyIdForLink(link), publicKey
       });
     }
+    CoGuardianInvite.assertCoGuardianSubmissionBinding(submission, coGuardianBinding);
+    if (coGuardianBinding) submission = await IntakeSubmission.bindCoGuardianInvite(submission.id, coGuardianBinding.invite.id);
+    if (String(submission.status || '').toLowerCase() === 'submitted') {
+      let downloadUrl = null;
+      if (submission.combined_pdf_path) {
+        try {
+          downloadUrl = await StorageService.getSignedUrl(submission.combined_pdf_path, 60 * 24 * 7);
+        } catch {
+          downloadUrl = null;
+        }
+      }
+      return res.status(200).json({
+        success: true,
+        alreadyCompleted: true,
+        message: 'This release session is already completed.',
+        submission,
+        downloadUrl
+      });
+    }
+    submission = await IntakeSubmission.updateById(submission.id, {
+      status: 'consented',
+      signer_name: normalizeName(req.body.signerName),
+      signer_initials: normalizeName(req.body.signerInitials),
+      signer_email: normalizeName(req.body.signerEmail) || null,
+      signer_phone: normalizeName(req.body.signerPhone) || null,
+      intake_data: effectiveIntakeData ? JSON.stringify(effectiveIntakeData) : null,
+      intake_data_hash: intakeDataHash,
+      consent_given_at: now,
+      ip_address: ipAddress,
+      user_agent: userAgent,
+      retention_expires_at: retentionExpiresAt,
+      session_token: sessionToken || null,
+      client_id: issuedRoiLink?.client_id || submission.client_id || null,
+      guardian_user_id: portalGuardianId || submission.guardian_user_id || null
+    });
 
     if (issuedRoiLink?.id) {
       await ClientSchoolRoiSigningLink.markStarted({

@@ -4,6 +4,9 @@ export default {
  test:{environment:'node',include:[
   'src/utils/__tests__/intakeCaptchaPolicy.test.js',
   'src/controllers/__tests__/publicIntakeCaptcha.test.js',
+  'src/controllers/__tests__/publicIntakeConsentSession.test.js',
+  'src/controllers/__tests__/publicIntakeProviderConsent.test.js',
+  'src/middleware/__tests__/publicIntakeRateLimit.test.js',
   'src/**/__tests__/schoolGuardianPolicy*.test.js',
   'src/services/__tests__/enrollmentCompletion.access.test.js',
   'src/services/__tests__/clientPortalInvites.test.js',
