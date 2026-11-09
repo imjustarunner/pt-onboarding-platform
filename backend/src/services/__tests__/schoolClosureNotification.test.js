@@ -69,7 +69,7 @@ describe('school closure timing and scope', () => {
     const message = closureNoticeMessage(result[0], 'schools@itsco.health');
     expect(message.subject).toContain('D11');
     expect(message.text).toContain('Professional Development for staff');
-    expect(message.text).not.toContain('district-wide');
+    expect(message.text).not.toContain('D11 has a district-wide');
   });
   it('preserves sessions-prohibited wording and leaves appointments/families untouched', () => {
     const result = plans({ events: [{ ...schoolEvent, event_type: 'school_sessions_prohibited', title: 'Testing' }] });
@@ -90,6 +90,9 @@ describe('school closure delivery', () => {
     expect(result.deliveries.map(delivery => delivery.to).sort()).toEqual(['lily@itsco.health', 'megan@itsco.health', 'schools@itsco.health']);
     expect(result.deliveries.every(delivery => delivery.replyToOverride === 'schools@itsco.health' && delivery.senderIdentityId === 12)).toBe(true);
     expect(result.deliveries.find(delivery => delivery.userId === 979).text).toContain('Professional Development for staff — No school for students');
+    expect(result.deliveries.every(delivery => delivery.text.includes('district-wide closures and individual school closures')
+      && delivery.text.includes('3 PM on the previous weekday and again at 6 AM on the closure date')
+      && delivery.text.includes('calendar’s local time'))).toBe(true);
     expect(m.execute.mock.calls.every(([sql]) => sql.startsWith('SELECT'))).toBe(true);
     expect(send).not.toHaveBeenCalled();
   });
