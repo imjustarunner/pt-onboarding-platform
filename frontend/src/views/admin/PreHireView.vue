@@ -289,8 +289,9 @@
 
         <!-- Stage banner -->
         <div v-if="selectedUser.status === 'PENDING_SETUP'" class="phr-stage-banner phr-stage-warn" data-tour="prehire-stage-banner">
-          <strong>Waiting on candidate setup</strong>
-          <p>The candidate has not yet accessed their pre-hire portal. Use the portal link in the Overview tab to share their access link.</p>
+          <strong>{{ selectedUser.progress_pct > 0 ? 'Pre-hire in progress' : 'Waiting on candidate setup' }}</strong>
+          <p>{{ selectedUser.progress_pct > 0 ? 'Review the required checklist below. When all requirements are complete or have a staff exception, mark pre-hire complete for review.' : 'The candidate has not yet accessed their pre-hire portal. Use the portal link in the Overview tab to share their access link.' }}</p>
+          <button class="phr-btn phr-btn-primary phr-btn-sm" :disabled="markingPrehireComplete || selectedUser.progress_pct < 100" @click="markPrehireComplete(selectedUser)">{{ markingPrehireComplete ? 'Checking required items…' : 'Mark pre-hire complete' }}</button>
           <button
             type="button"
             class="phr-btn phr-btn-danger phr-btn-sm"
@@ -379,6 +380,8 @@
               <div class="phr-info-row"><span class="phr-info-label">Email</span><span>{{ selectedUser.personal_email || selectedUser.email }}</span></div>
               <div class="phr-info-row"><span class="phr-info-label">Work Email</span><span>{{ selectedUser.work_email || '—' }}</span></div>
             </div>
+
+            <PrehireRequirementOverrides :key="selectedUser.id" :user-id="Number(selectedUser.id)" :agency-id="selectedAgencyId" @changed="load" />
 
             <!-- Countersign tasks -->
             <div v-if="pendingCountersignGroups.length > 0" class="phr-countersign-section">
@@ -558,6 +561,7 @@
 </template>
 
 <script setup>
+import PrehireRequirementOverrides from '../../components/admin/PrehireRequirementOverrides.vue';
 import { ref, computed, watch, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';

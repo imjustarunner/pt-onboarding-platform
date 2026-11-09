@@ -1,3 +1,4 @@
+import { hireAccountModeForUser } from '../utils/hireAccountMode.js';
 /**
  * Hire account mode: Google Group work email + app password (SSO override).
  * Used when agency.feature_flags.hireAccountMode === 'group_password'.
@@ -59,10 +60,7 @@ export const resolveWorkspaceDomain = (raw) => {
   return v.startsWith('@') ? v.slice(1) : v;
 };
 
-export function isGroupPasswordHireMode(agency) {
-  const flags = parseJsonObject(agency?.feature_flags, {});
-  return String(flags.hireAccountMode || '').trim().toLowerCase() === 'group_password';
-}
+export function isGroupPasswordHireMode(agency,user) { return hireAccountModeForUser(agency,user)==='group_password'; }
 
 export function hasHireGroupPasswordFinalized(user) {
   return (
@@ -389,22 +387,28 @@ export async function provisionHireGroupUsername({
   user,
   agency,
   workEmail,
-  displayName = null
+  displayName = null,
+  staffGroupReservation = null
 } = {}) {
   if (!user?.id) throw new Error('User is required');
   if (!agency) throw new Error('Agency is required');
-  if (!isGroupPasswordHireMode(agency)) {
-    throw new Error('Agency is not configured for group_password hire accounts');
-  }
-
   const existingEmail = normalizeEmail(user.work_email);
+  const reservedRecovery=!!staffGroupReservation?.actorUserId && existingEmail===normalizeEmail(workEmail)
+    && ![true,1,'1'].includes(user.login_is_group_email) && user.status==='ONBOARDING'
+    && [true,1,'1'].includes(user.is_active) && ![true,1,'1'].includes(user.is_archived);
+  if(staffGroupReservation && !reservedRecovery)throw Object.assign(new Error('Only this employee’s reserved onboarding address can be provisioned.'),{code:'USERNAME_ALREADY_SET',status:409});
+  if(reservedRecovery){
+    const[[actor]]=await pool.execute(`SELECT u.role,u.has_hiring_access,ua.is_active membership_active,
+      EXISTS(SELECT 1 FROM user_agencies candidate WHERE candidate.user_id=? AND candidate.agency_id=? AND candidate.is_active=1) candidate_in_agency FROM users u
+      LEFT JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=?
+      WHERE u.id=? AND u.is_active=1 AND COALESCE(u.is_archived,0)=0`,[user.id,agency.id,agency.id,staffGroupReservation.actorUserId]);
+    if(!actor || !Number(actor.candidate_in_agency) || (actor.role!=='super_admin' && !(Number(actor.membership_active)===1 && (['admin','support'].includes(actor.role)||Number(actor.has_hiring_access)===1))))throw Object.assign(new Error('Agency hiring access is required to provision a reserved mailbox.'),{status:403});
+  }
+  if (!isGroupPasswordHireMode(agency,user) && !reservedRecovery)throw new Error('Agency is not configured for group_password hire accounts');
   const resuming = existingEmail.includes('@') && existingEmail === normalizeEmail(workEmail)
     && [true, 1, '1'].includes(user.login_is_group_email);
-  if (existingEmail.includes('@') && !resuming) {
-    const err = new Error('Work username is already set.');
-    err.code = 'USERNAME_ALREADY_SET';
-    err.details = { workEmail: user.work_email };
-    throw err;
+  if (existingEmail.includes('@') && !resuming && !reservedRecovery) {
+    const err = new Error('Work username is already set.');err.code='USERNAME_ALREADY_SET';err.details={workEmail:user.work_email};throw err;
   }
 
   const availability = resuming ? { available: true, email: existingEmail } : await checkHireWorkEmailAvailability({
@@ -500,6 +504,8 @@ export async function provisionHireGroupUsername({
     agencyId: agency.id, userId: user.id, fromEmail: email, displayName: name
   });
   const sending = await ensureHireGroupSender({ email, displayName: name });
+  if(reservedRecovery)await pool.execute('INSERT INTO user_activity_log(action_type,user_id,agency_id,metadata) VALUES (?,?,?,?)',
+    ['hire_reserved_group_provisioned',staffGroupReservation.actorUserId,agency.id,JSON.stringify({candidateUserId:user.id,email,loginActivated:false,agencyDefaultChanged:false})]);
 
   return {
     workEmail: email,
@@ -522,7 +528,7 @@ export async function provisionHireGroupUsername({
  */
 export async function finalizeHireGroupPassword({ user, agency = null, password } = {}) {
   if (!user?.id) throw new Error('User is required');
-  if (agency && !isGroupPasswordHireMode(agency)) {
+  if (agency && !isGroupPasswordHireMode(agency,user)) {
     throw new Error('Agency is not configured for group_password hire accounts');
   }
 
