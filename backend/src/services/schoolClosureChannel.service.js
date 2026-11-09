@@ -5,7 +5,7 @@ import Directory from './googleWorkspaceDirectory.service.js';
 import pool from '../config/database.js';
 import { loadNotificationPreferenceContext, resolveNotificationTypePreference } from './notificationPreferences.service.js';
 import { messageReminderRecipient } from './messageReminderRecipient.service.js';
-import { normalizedEmail } from '../utils/schoolClosureDelivery.js';
+import { normalizedEmail, closureEmailOptions } from '../utils/schoolClosureDelivery.js';
 
 export async function closurePreference(userId, agencyId) {
   const user = await User.findById(userId);
@@ -30,7 +30,7 @@ export const closureNotificationChannels = {
 export async function closureForwardRecipient(user, agencyId) {
   const allowed = await messageReminderRecipient(user, { agencyId });
   if (!allowed || normalizedEmail(allowed) !== normalizedEmail(user.personal_email)) throw new Error('Personal forwarding requires a verified non-SSO mailbox route');
-  const members = await Directory.listGroupMembers(normalizedEmail(user.work_email || user.email));
+  const members = await Directory.listGroupMembers(closureEmailOptions(user).work);
   if (members.some(member => normalizedEmail(member.email) === normalizedEmail(allowed) && member.status === 'ACTIVE' && member.delivery_settings === 'ALL_MAIL')) return null;
   return allowed;
 }
