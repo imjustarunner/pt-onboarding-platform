@@ -1,4 +1,5 @@
 import { verbalReminderProgramReady } from '../utils/staffVerbalReminderConsent.js';
+import { withStaffPollDisclosure } from './staffSmsDisclosure.service.js';
 import { sendApplicationHelpReply } from './smsHelpReply.service.js';
 import { contactReminderConsentLock } from '../utils/contactReminderConsent.js';
 import {ITSCO_STAFF_ASSISTANT_NUMBER} from '../utils/staffSmsAssistant.js';
@@ -115,7 +116,7 @@ export async function isSmsSuppressed(sender, phone) {
   return staff.length > 0;
 }
 
-export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, complianceReply, agencyId, staffNotificationKind = 'notifications', senderFirstName, staffAssistantReply, hiringUserId, companyEventId, clientId, notificationCategory, providerRelayEnrollmentId, reminderFooter = null }) {
+export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, complianceReply, agencyId, staffNotificationKind = 'notifications', senderFirstName, staffAssistantReply, hiringUserId, companyEventId, companyEventReply = false, clientId, notificationCategory, providerRelayEnrollmentId, reminderFooter = null }) {
   const recipient = normalizeSmsPhone(to);
   if (!recipient) throw smsPolicyError('sms_invalid_recipient', 'A valid recipient number is required');
   if (mediaUrl) throw smsPolicyError('sms_mms_unsupported', 'Attachments require a configured MMS transport; nothing was sent');
@@ -237,8 +238,10 @@ export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, co
   const checkinAlert = purpose === 'workforce' && staffNotificationKind === 'kioskArrivals';
   if (checkinAlert) content = withCheckinSmsOptOut(content);
   if (purpose === 'polling' && !/\bNOPOLLS\b/i.test(content)) content += ' Reply NOPOLLS to stop poll texts only.';
+  if (purpose === 'polling') content = await withStaffPollDisclosure({ sender, phone: recipient, body: content, reply: companyEventReply });
   const includeOptOut = purpose !== 'polling' && !checkinAlert && reminderFooter !== 'noremind' && !(purpose === 'care' && (senderFirstName || providerRelayEnrollmentId));
-  return { to: recipient, from: sender.phone_number, agencyId: sender.agency_id, body: formatRegisteredSms(content, registration.brandName, purpose === 'care' ? senderFirstName : null, { includeOptOut }), registration, purpose };
+  return { to: recipient, from: sender.phone_number, agencyId: sender.agency_id, body: formatRegisteredSms(content, registration.brandName, purpose === 'care' ? senderFirstName : null, { includeOptOut }), registration, purpose,
+    ...(['polling', 'workforce'].includes(purpose) ? { noticeScope: sender.scope } : {}) };
 }
 
 export async function resolveRegisteredSmsSender({ agencyId, purpose, numberId = null, requiredPurpose = null }) {

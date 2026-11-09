@@ -141,7 +141,7 @@ export async function handleCompanyEventTopicInbound({ from, to, body, messageId
       ON DUPLICATE KEY UPDATE provider_message_id = VALUES(provider_message_id)`, [selected.company_event_id, phone, messageId || null]);
     // This acknowledgment never clears campaign STOP and needs the existing permission to send.
     if (sendReply) {
-      try { await sendReply({ agencyId: Number(sender.agency_id), from: sender.phone_number, to: phone, purpose: selected.purpose,
+      try { await sendReply({ agencyId: Number(sender.agency_id), from: sender.phone_number, to: phone, purpose: selected.purpose, companyEventReply: true,
         body: `Texts about "${selected.title}" are turned off. Your other event preferences are unchanged. ${selected.purpose === 'polling' ? 'Reply NOPOLLS to stop poll texts only.' : 'Reply STOP to opt out of this texting program.'}` }); }
       catch { /* Preference persists even when confirmation is suppressed. */ }
     }

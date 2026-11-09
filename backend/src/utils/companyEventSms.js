@@ -1,5 +1,11 @@
 import { parseSmsKeyword, smsPolicyError, validateSmsRegistration } from './smsCompliancePolicy.js';
 
+export function shortPollReplyCode(value) {
+  const code = String(value || '');
+  if (!/^[1-9]\d{2,3}$/.test(code)) throw smsPolicyError('poll_reply_code_unavailable', 'A poll reply code of at most four characters is required.');
+  return code;
+}
+
 export function assertCompanyEventSmsCampaign(sender, audience = 'staff', purpose = 'workforce') {
   if (!['staff', 'participant'].includes(audience)) throw smsPolicyError('event_sms_audience_invalid', 'Choose staff or enrolled participants');
   const purposes = sender?.registration?.purposes || [];
@@ -33,7 +39,7 @@ export function buildCompanyEventSms({ event, code, body, brandName, audience = 
   }
   if (!text) throw smsPolicyError('sms_empty_body', 'An event message is required');
   if (audience === 'staff' && purpose === 'polling') {
-    return `${text}\nReply ${code} to turn off texts about this event. Reply NOPOLLS to stop poll texts only. HELP for help. Msg & data rates may apply.`;
+    return `${text}\nReply ${shortPollReplyCode(code)} to turn off texts about this event. Reply NOPOLLS to stop poll texts only.`;
   }
   const program = audience === 'staff' ? `${brandName || 'Our organization'}'s Employee Texting` : `${brandName || 'Our organization'}'s Service Texting`;
   return `${text}\nReply ${code} to turn off texts about this event. Reply STOP to opt out of ${program}. HELP for help. Msg & data rates may apply.`;

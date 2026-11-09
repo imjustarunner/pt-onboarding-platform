@@ -15,6 +15,7 @@ vi.mock('../../services/companyEventOperations.service.js', () => ({
 vi.mock('../../services/companyEventSms.service.js', () => ({
   resolveCompanyEventSmsSender: vi.fn(async () => ({ sender: { id: 8, phone_number: '+13035550100' }, campaignNumber: 2 })),
   sendCompanyEventSms: (...args) => mock.sms(...args), recordCompanyEventPollSmsResponse: vi.fn(),
+  getCompanyEventSmsTopic: vi.fn(async () => '125'),
   isCompanyEventSmsMuted: vi.fn(async () => false)
 }));
 vi.mock('../../utils/smsCompliancePolicy.js', () => ({ validateSmsRegistration: () => [] }));
@@ -133,12 +134,14 @@ describe('team poll delivery and shared replies', () => {
     await invoke('sendCompanyEventVotingSms', request);
     expect(mock.notification).not.toHaveBeenCalled(); expect(mock.sms).not.toHaveBeenCalled();
   });
-  it('creates an SMS poll with a generated reply code', async () => {
+  it('creates an SMS poll without a separate long reply code', async () => {
     const request = req();
     request.body = { title: 'Team date', eventType: 'team_poll', startsAt: event.starts_at, endsAt: event.ends_at, audience: { userIds: [2] }, votingConfig: { ...event.voting_config_json, deliveryMode: 'sms' } };
     const res = await invoke('createCompanyEvent', request);
     expect(res.status).toHaveBeenCalledWith(201);
-    expect(mock.execute).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO company_events'), expect.arrayContaining([expect.stringMatching(/^P[A-F0-9]{10}$/)]));
+    const [sql, args] = mock.execute.mock.calls.find(([sql]) => sql.includes('INSERT INTO company_events'));
+    const columns = sql.slice(sql.indexOf('(') + 1, sql.indexOf(')')).split(',').map(value => value.trim());
+    expect(args[columns.indexOf('sms_code')]).toBeNull();
     expect(mock.sms).not.toHaveBeenCalled();
   });
   it('rejects an inactive recipient injected into the save API', async () => {
@@ -149,6 +152,15 @@ describe('team poll delivery and shared replies', () => {
     expect(next).toHaveBeenCalledWith(expect.objectContaining({ status: 400 }));
     expect(mock.execute.mock.calls.some(([sql]) => sql.includes('INSERT INTO company_events'))).toBe(false);
   });
+  it.each([undefined, null])('preserves replies to old invitations when an edit omits the legacy code: %j', async smsCode => {
+    const body = { title: 'Updated team date', eventType: 'team_poll', startsAt: event.starts_at, endsAt: event.ends_at,
+      audience: { userIds: [2] }, votingConfig: event.voting_config_json, smsCode };
+    const result = await controller.persistCompanyEventUpdate(req(), 4, 20, body);
+    expect(result.error).toBeUndefined();
+    const [sql, args] = mock.execute.mock.calls.find(([sql]) => sql.includes('UPDATE company_events') && sql.includes('sms_code = ?'));
+    const fields = sql.slice(sql.indexOf('SET') + 3, sql.indexOf('WHERE')).split(',').map(value => value.trim().split(' ')[0]);
+    expect(args[fields.indexOf('sms_code')]).toBe('DATE');
+  });
 
   it('sends Both internally to active staff and texts only polling opt-ins', async () => {
     const res = await invoke('sendCompanyEventVotingSms');
@@ -156,6 +168,8 @@ describe('team poll delivery and shared replies', () => {
     expect(mock.notification.mock.calls.map(([n]) => n.userId)).toEqual([2, 5]);
     expect(mock.sms).toHaveBeenCalledTimes(1);
     expect(mock.sms).toHaveBeenCalledWith(expect.objectContaining({ to: member.personal_phone, purpose: 'polling' }));
+    expect(mock.sms.mock.calls[0][0].body).toContain('Reply 125 1');
+    expect(mock.sms.mock.calls[0][0].body).not.toContain('DATE');
     expect(mock.execute).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO company_event_dispatch_logs'), expect.arrayContaining(['skipped', 'SMS opted out']));
   });
   it('previews the saved Both audience with honest channel counts and opt-out reasons without writes or sends', async () => {
@@ -220,6 +234,13 @@ describe('team poll delivery and shared replies', () => {
     const request = req(); request.body.responseKey = '2'; await invoke('respondToMyCompanyEvent', request);
     expect(replies.get(2).response_key).toBe('2');
     await controller.handleCompanyEventInbound({ from: member.personal_phone, to: '+13035550100', body: 'DATE 1' });
+    expect(replies.size).toBe(1); expect(replies.get(2).response_key).toBe('1');
+  });
+  it('routes the short event number and the legacy code to the same poll response', async () => {
+    expect(await controller.handleCompanyEventInbound({ from: member.personal_phone, to: '+13035550100', body: '125 2' })).toMatchObject({ handled: true, eventId: 20,
+      responseMessage: 'Thanks! Recorded: Friday. Reply 125 to turn off texts about this event.' });
+    expect(replies.get(2)).toMatchObject({ response_key: '2' });
+    expect(await controller.handleCompanyEventInbound({ from: member.personal_phone, to: '+13035550100', body: 'DATE 1' })).toMatchObject({ handled: true, eventId: 20 });
     expect(replies.size).toBe(1); expect(replies.get(2).response_key).toBe('1');
   });
   it('resolves inbound replies through the same current registered agency sender rather than missing legacy toggles', async () => {

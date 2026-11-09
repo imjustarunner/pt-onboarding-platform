@@ -15,7 +15,8 @@ import { getPollResultPreference, setPollResultPreference, deliverPollResults } 
 import { getSmsSender } from '../services/smsCompliance.service.js';
 import { validateSmsRegistration } from '../utils/smsCompliancePolicy.js';
 import { selectCompanyEventVote } from '../utils/companyEventSmsVote.js';
-import { sendCompanyEventSms, previewCompanyEventSmsDelivery, resolveCompanyEventSmsSender, getCompanyEventSmsReport, isCompanyEventSmsMuted, companyEventParticipantSmsAudience, listCompanyEventSmsAttendees, recordCompanyEventPollSmsResponse } from '../services/companyEventSms.service.js';
+import { shortPollReplyCode } from '../utils/companyEventSms.js';
+import { sendCompanyEventSms, previewCompanyEventSmsDelivery, resolveCompanyEventSmsSender, getCompanyEventSmsReport, getCompanyEventSmsTopic, isCompanyEventSmsMuted, companyEventParticipantSmsAudience, listCompanyEventSmsAttendees, recordCompanyEventPollSmsResponse } from '../services/companyEventSms.service.js';
 import { listOutstandingOutreachCommitments } from '../services/eventOutreachCommitment.service.js';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
@@ -643,7 +644,9 @@ function parseEventPayload(body = {}) {
   const reminderConfig = parseReminderConfig(body.reminderConfig || body.reminder_config_json || {});
   const votingClosedAtRaw = body.votingClosedAt || body.voting_closed_at || null;
   const votingClosedAt = votingClosedAtRaw ? new Date(votingClosedAtRaw) : null;
-  const smsCodeRaw = String(body.smsCode || body.sms_code || (eventType === 'team_poll' && votingConfig.viaSms ? `P${crypto.randomBytes(5).toString('hex')}` : '')).trim();
+  // New polls use the durable event topic number for voting and event-only mute.
+  // Preserve explicitly supplied legacy codes so replies to older texts still work.
+  const smsCodeRaw = String(body.smsCode || body.sms_code || '').trim();
   const smsCode = smsCodeRaw ? smsCodeRaw.replace(/[^a-zA-Z0-9_-]/g, '').toUpperCase().slice(0, 32) : null;
 
   const rawSbHours = body.skillBuilderDirectHours ?? body.skill_builder_direct_hours;
@@ -877,7 +880,6 @@ function parseEventPayload(body = {}) {
   if (endsAt <= startsAt) return { error: 'endsAt must be after startsAt' };
   if (rsvpDeadline && rsvpDeadline > endsAt) return { error: 'rsvpDeadline cannot be after event end' };
   if (votingClosedAtRaw && !Number.isFinite(votingClosedAt?.getTime())) return { error: 'Invalid votingClosedAt value' };
-  if (votingConfig.viaSms && !smsCode) return { error: 'smsCode is required when SMS voting is enabled' };
 
   const rawOrg = body.organizationId ?? body.organization_id;
   let organizationId = null;
@@ -1374,14 +1376,11 @@ async function resolveUsersFromOverride({ agencyId, userIds = [], groupIds = [],
   return [...new Set((rows || []).map((row) => Number(row.user_id)).filter((id) => id > 0))];
 }
 
-function companyEventSmsInstructions(event) {
+async function companyEventSmsInstructions(event) {
   const config = parseVotingConfig(event?.votingConfig);
-  const code = String(event?.smsCode || '').trim();
-  const options = config.options.map((option) => `${option.key}=${option.label}`).join(', ');
-  if (code) {
-    return `Reply "${code} <option>" (${options}).${config.allowOther?` Or reply "${code} your answer" for review.`:''}`;
-  }
-  return `Reply with one option (${options}).`;
+  const code = shortPollReplyCode(event.smsTopicCode || await getCompanyEventSmsTopic(event.id, event.agencyId));
+  const options = config.options.map((option) => `${option.key}: ${option.label}`).join('\n');
+  return `${options}\nReply ${code} ${config.options[0]?.key || '1'} (or another option).${config.allowOther ? ` Or reply ${code} followed by your own answer.` : ''}`;
 }
 
 async function findAgencyByCompanyEventShortCode(toNumber) {
@@ -2179,6 +2178,9 @@ export async function persistCompanyEventUpdate(req, agencyId, eventId, body) {
   }
   const parsed = parseEventPayload(venueBody);
   if (parsed.error) return { error: { status: 400, message: parsed.error } };
+  // Keep replies to already-sent invitations valid when an editor omits the
+  // old code. New invitations always display the short event topic number.
+  if (!parsed.smsCode) parsed.smsCode = existing.sms_code || null;
   await validateTeamAudience(agencyId, parsed);
   const operations = await validateEventOperations({ body: body || {}, existing, actorUserId: userId, agencyId, canAssignCoordinators: userCanManageCompanyEvents(req) });
   const delegatedCoordinator = !userCanManageCompanyEvents(req) && await isEventCoordinator({ userId, agencyId, eventId });
@@ -2839,7 +2841,7 @@ export const sendCompanyEventVotingSms = async (req, res, next) => {
     if (!plan) return;
     const { agencyId, agency, eventId, event, users, sendSms, sendInternal, settings, from, notified } = plan;
     if (sendSms && !from) return res.status(409).json({ error: { message: pollSenderStatus(settings).label } });
-    const body = `${event.votingConfig.question || event.title}\n${companyEventSmsInstructions(event)}`;
+    const body = sendSms ? `${event.votingConfig.question || event.title}\n${await companyEventSmsInstructions(event)}` : event.votingConfig.question || event.title;
     const batchId = crypto.randomUUID();
     let sentCount = 0, inAppCount = 0, emailCount = 0, emailQueuedCount = 0, emailSkippedCount = 0, skippedCount = 0, failedCount = 0;
     const skippedReasons = new Map();
@@ -4263,7 +4265,7 @@ export const processCompanyEventResponseReminders = async () => {
             try {
               const eligibility = await teamSmsEligibility(recipient, { agencyId: event.agencyId, from: fromNumber });
               if (!eligibility.eligible) { await writeDispatchLog({ eventId: event.id, userId, channel: 'sms', dispatchType, occurrenceKey, status: 'skipped', statusReason: eligibility.label }); continue; }
-              const smsBody = `${title}\n${companyEventSmsInstructions(event)}`;
+              const smsBody = `${title}\n${await companyEventSmsInstructions(event)}`;
               const sendResult = await sendCompanyEventSms({ eventId: event.id, userId: Number(userId), dispatchType, batchId: `${event.id}:${dispatchType}:${occurrenceKey}`, purpose: 'polling', agencyId: event.agencyId, to, from: fromNumber, body: smsBody });
               await writeDispatchLog({
                 eventId: event.id,
@@ -4311,7 +4313,11 @@ export const handleCompanyEventInbound = async ({ from, to, body, smsTopicEventI
     if (smsTopicEventId && Number(row.id) !== Number(smsTopicEventId)) continue;
     if (await isCompanyEventSmsMuted(row.id, from)) continue;
     const audience = await getAudienceForEvent(row.id);
-    if (await userIsInAudience({ userId: Number(user.id), audience })) eligibleEvents.push(mapEventRow(row, null));
+    if (await userIsInAudience({ userId: Number(user.id), audience })) {
+      const event = mapEventRow(row, null);
+      event.smsTopicCode = shortPollReplyCode(await getCompanyEventSmsTopic(event.id, agencyId));
+      eligibleEvents.push(event);
+    }
   }
   const selected = selectCompanyEventVote(eligibleEvents, topicResponse || body);
   if (!selected) return null;
@@ -4324,8 +4330,9 @@ export const handleCompanyEventInbound = async ({ from, to, body, smsTopicEventI
   if (!allowed) return null;
 
   const parsed = parseResponseInput(responseToken, targetEvent.votingConfig.options)||unmatchedPollReply(responseToken,targetEvent.votingConfig.allowOther);
+  const eventMuteInstruction = `Reply ${targetEvent.smsTopicCode} to turn off texts about this event.`;
   if (!parsed) {
-    return { handled: true, agencyId, responseMessage: companyEventSmsInstructions(targetEvent) };
+    return { handled: true, agencyId, eventId: targetEvent.id, responseMessage: `${await companyEventSmsInstructions(targetEvent)}\n${eventMuteInstruction}` };
   }
 
   await pool.execute(
@@ -4343,7 +4350,8 @@ export const handleCompanyEventInbound = async ({ from, to, body, smsTopicEventI
   );
   await dismissPollNotification(targetEvent.id, Number(user.id));
   await recordCompanyEventPollSmsResponse({ eventId: targetEvent.id, userId: user.id, responseKey: parsed.key });
-  return { handled: true, agencyId, eventId: targetEvent.id, responseMessage: parsed.key==='__UNCLASSIFIED__'?'Thanks! Your reply was saved for the organizer to review.':`Thanks! Recorded: ${parsed.label}.` };
+  const acknowledgment = parsed.key === '__UNCLASSIFIED__' ? 'Thanks! Your reply was saved for the organizer to review.' : `Thanks! Recorded: ${parsed.label}.`;
+  return { handled: true, agencyId, eventId: targetEvent.id, responseMessage: `${acknowledgment} ${eventMuteInstruction}` };
 };
 
 /**

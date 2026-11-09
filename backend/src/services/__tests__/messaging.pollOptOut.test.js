@@ -23,6 +23,7 @@ beforeEach(() => {
   permissions = new Map(['workforce', 'polling'].map(purpose => [key('campaign:C123', phone, purpose), { status: 'opted_in' }]));
   events = new Set();
   pool.execute.mockImplementation(async (sql, args) => {
+    if (sql.includes('FROM sms_program_opt_out_notices')) return [[{ recent: 1 }]];
     if (sql.includes('FROM twilio_numbers')) return [[sender]];
     if (sql.includes("purpose = 'suppression'")) {
       const blocked = args.length === 3 && [args[0], args[1]].some(scope => permissions.get(key(scope, args[2], 'suppression'))?.status === 'opted_out');
@@ -56,6 +57,15 @@ it('uses NOPOLLS in invitations and results without adding a campaign STOP promp
     expect(delivery.body.match(/NOPOLLS/g)).toHaveLength(1);
     expect(delivery.body).not.toContain('STOP');
   }
+});
+it('keeps vote acknowledgments short even when a periodic campaign reminder is due', async () => {
+  const original = pool.execute.getMockImplementation();
+  pool.execute.mockImplementation((sql, args) => sql.includes('FROM sms_program_opt_out_notices') ? Promise.resolve([[{ recent: 0 }]]) : original(sql, args));
+  const result = await prepareSmsDelivery({ ...sms(), body: 'Thanks! Recorded: Friday.', companyEventReply: true });
+  expect(result.body).toContain('NOPOLLS'); expect(result.body).not.toContain('STOP');
+  const invitation = await prepareSmsDelivery(sms());
+  expect(invitation.body).toContain('Reply STOP to stop all staff texts; HELP for help.');
+  expect(invitation.body).not.toContain('rates may apply');
 });
 
 it('opts out of polling only, confirms once with carrier-owned STOP, and exposes the opt-out in preview', async () => {

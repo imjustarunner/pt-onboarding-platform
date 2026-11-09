@@ -2,6 +2,7 @@ import { smsTransport, sendNotifyreSms } from './notifyre.service.js';
 import { Vonage } from '@vonage/server-sdk';
 import { prepareSmsDelivery } from './smsCompliance.service.js';
 import { verifyCarrierSmsDelivery } from './vonage10dlc.service.js';
+import { recordStaffSmsDisclosure } from './staffSmsDisclosure.service.js';
 
 class VonageService {
   static getClient() {
@@ -48,6 +49,10 @@ class VonageService {
       const errStatus = msg?.status ?? 'no_response';
       throw new Error(`Vonage SMS failed (status ${errStatus}): ${errText}`);
     }
+    // A logging failure must not turn an accepted text into a resend. At worst,
+    // a later message repeats the reminder until its receipt can be recorded.
+    try { await recordStaffSmsDisclosure(delivery, msg['message-id'] || msg.messageId); }
+    catch { console.warn('[SMS] Campaign reminder receipt could not be recorded'); }
     // Return shape compatible with what callers expect from Twilio.
     return {
       sid: msg['message-id'] || msg.messageId || null,

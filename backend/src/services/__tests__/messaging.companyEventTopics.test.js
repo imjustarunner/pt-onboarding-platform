@@ -5,7 +5,7 @@ vi.mock('../smsConsentRequest.service.js', () => ({ createSmsConsentRequest: vi.
 import pool from '../../config/database.js';
 import { getSmsSender, isSmsSuppressed, prepareSmsDelivery, resolveRegisteredSmsSender } from '../smsCompliance.service.js';
 import { createSmsConsentRequest } from '../smsConsentRequest.service.js';
-import { assertCompanyEventSmsCampaign, buildCompanyEventSms, parseCompanyEventSmsCommand, selectCompanyEventSmsReply, normalizeCompanyEventDeliveryStatus } from '../../utils/companyEventSms.js';
+import { assertCompanyEventSmsCampaign, buildCompanyEventSms, parseCompanyEventSmsCommand, selectCompanyEventSmsReply, normalizeCompanyEventDeliveryStatus, shortPollReplyCode } from '../../utils/companyEventSms.js';
 import { handleCompanyEventTopicInbound, sendCompanyEventSms, recordCompanyEventSmsDeliveryStatus, listCompanyEventSmsAttendees, companyEventParticipantSmsAudience, enrollCompanyEventGuestSms, getCompanyEventSmsTopic, resolveCompanyEventSmsSender } from '../companyEventSms.service.js';
 const registration = { brandId: 'B123', campaignId: 'C2', resellerId: 'R123', brandName: 'ITSCO', legalName: 'ITSCO, LLC', supportContact: 'support@itsco.health', website: 'https://www.itsco.health', privacyUrl: 'https://www.itsco.health/privacy', termsUrl: 'https://www.itsco.health/terms', evidenceUrl: 'https://www.itsco.health/proof', purposes: ['polling', 'workforce'], keywordOwner: 'application', approved: true, numberLinked: true };
 const sender = { id: 8, agency_id: 2, campaign_id: 'C2', scope: 'campaign:C2', phone_number: '+13035550100', registration };
@@ -69,6 +69,11 @@ describe('event SMS command boundaries', () => {
     const text = buildCompanyEventSms({ event: { title: 'Team date' }, code: '112', body: 'Which day?', brandName: 'ITSCO', purpose: 'polling' });
     expect(text).toContain('NOPOLLS');
     expect(text).not.toContain('STOP');
+    expect(text).not.toContain('HELP'); expect(text).not.toContain('rates may apply');
+  });
+  it('keeps reply codes at most four characters without truncating into a different event', () => {
+    expect(shortPollReplyCode(125)).toBe('125'); expect(shortPollReplyCode(9999)).toBe('9999');
+    for (const code of ['10000', 'P3812C00ABE', '0', '12']) expect(() => shortPollReplyCode(code)).toThrow('four characters');
   });
   it('reserves campaign control keywords and leaves unrelated care text alone', () => {
     for (const value of ['STOP', 'cancel', 'REVOKE', 'OPT OUT', 'HELP', 'START', 'Please call me', 'R']) expect(parseCompanyEventSmsCommand(value)).toBeNull();

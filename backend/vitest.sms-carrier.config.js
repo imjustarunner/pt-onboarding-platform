@@ -8,6 +8,8 @@ export default {
       'src/controllers/__tests__/messaging.teamPollDelivery.test.js',
       'src/services/__tests__/messaging.teamRecipients.test.js',
       'src/services/__tests__/messaging.companyEventTopics.test.js',
+      'src/services/__tests__/messaging.companyEventVote.test.js',
+      'src/services/__tests__/messaging.staffSmsDisclosure.test.js',
       'src/controllers/__tests__/messaging.smsCarrierInbound.test.js',
       'src/services/__tests__/messaging.compliance.test.js',
       'src/services/__tests__/messaging.pollOptOut.test.js',

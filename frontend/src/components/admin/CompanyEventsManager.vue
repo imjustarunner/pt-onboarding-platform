@@ -251,8 +251,8 @@
             </select>
           </div>
           <div v-if="draft.votingConfig.viaSms" class="form-group">
-            <label class="lbl">SMS code</label>
-            <input v-model.trim="draft.smsCode" class="input" maxlength="32" placeholder="BOOKCLUB" />
+            <label class="lbl">SMS reply code</label>
+            <p>Assigned automatically when sent (up to four digits).</p>
           </div>
         </div>
         <div v-if="draft.votingConfig.enabled" class="grid">

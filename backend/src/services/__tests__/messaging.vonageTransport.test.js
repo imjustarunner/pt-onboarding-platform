@@ -2,11 +2,13 @@ import { createHash } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../smsCompliance.service.js', () => ({ prepareSmsDelivery: vi.fn() }));
 vi.mock('../vonage10dlc.service.js', () => ({ verifyCarrierSmsDelivery: vi.fn() }));
+vi.mock('../staffSmsDisclosure.service.js', () => ({ recordStaffSmsDisclosure: vi.fn() }));
 import { prepareSmsDelivery } from '../smsCompliance.service.js';
 import { verifyCarrierSmsDelivery } from '../vonage10dlc.service.js';
+import { recordStaffSmsDisclosure } from '../staffSmsDisclosure.service.js';
 import VonageService from '../vonage.service.js';
 
-beforeEach(() => { vi.restoreAllMocks(); vi.clearAllMocks(); verifyCarrierSmsDelivery.mockResolvedValue(undefined); });
+beforeEach(() => { vi.restoreAllMocks(); vi.clearAllMocks(); verifyCarrierSmsDelivery.mockResolvedValue(undefined); recordStaffSmsDisclosure.mockResolvedValue(undefined); });
 describe('Vonage transport', () => {
   it('never calls Vonage after a compliance rejection', async () => {
     prepareSmsDelivery.mockRejectedValue(new Error('Recipient opted out'));
@@ -28,6 +30,22 @@ describe('Vonage transport', () => {
     vi.spyOn(VonageService, 'getClient').mockReturnValue({ sms: { send } });
     await expect(VonageService.sendSms({ body: 'Hello' })).resolves.toMatchObject({ sid: 'id1' });
     expect(send).toHaveBeenCalledWith({ to: '+13035550101', from: '+13035550100', text: 'ITSCO: Hello. Reply STOP to opt out.' });
+    expect(recordStaffSmsDisclosure).toHaveBeenCalledWith(await prepareSmsDelivery.mock.results[0].value, 'id1');
+  });
+  it('does not record a campaign reminder rejected by Vonage', async () => {
+    prepareSmsDelivery.mockResolvedValue({ purpose: 'polling', body: 'Reply STOP to stop all staff texts.' });
+    vi.spyOn(VonageService, 'getClient').mockReturnValue({ sms: { send: vi.fn().mockResolvedValue({ messages: [{ status: '1', 'error-text': 'Rejected' }] }) } });
+    await expect(VonageService.sendSms({})).rejects.toThrow('Rejected');
+    expect(recordStaffSmsDisclosure).not.toHaveBeenCalled();
+  });
+  it('does not retry an accepted text when saving its campaign reminder receipt fails', async () => {
+    prepareSmsDelivery.mockResolvedValue({ purpose: 'polling', body: 'Reply STOP to stop all staff texts.' });
+    const send = vi.fn().mockResolvedValue({ messages: [{ status: '0', 'message-id': 'accepted' }] });
+    vi.spyOn(VonageService, 'getClient').mockReturnValue({ sms: { send } });
+    recordStaffSmsDisclosure.mockRejectedValue(new Error('Database unavailable'));
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await expect(VonageService.sendSms({})).resolves.toMatchObject({ sid: 'accepted' });
+    expect(send).toHaveBeenCalledOnce();
   });
   it('verifies an SMS API signature with the installed SDK argument order', () => {
     vi.stubEnv('VONAGE_API_KEY', 'test'); vi.stubEnv('VONAGE_API_SECRET', 'test');
