@@ -8,6 +8,7 @@ export const CURRENT_MANAGED_DOMAINS = Object.freeze({
 export const GROUP_LABELS = Object.freeze({
   ...Object.fromEntries(Object.entries(DEPARTMENTAL_GROUPS).map(([key, value]) => [key, value.label])),
   clinical: 'Clinical',
+  schoolproviders: 'School Providers',
   staff: 'Staff', unlicensed: 'Unlicensed', prelicensed: 'Prelicensed', licensed: 'Licensed',
   supervisors: 'Supervisors', supervisees: 'Supervisees', interns: 'Interns',
   spanish: 'Spanish intake coordination', costaff: 'Colorado staff', denver: 'Denver', cosprings: 'Colorado Springs'
@@ -38,6 +39,7 @@ export function activeManagedStaff(row) {
 export function staffGroupKeys(row, { supervisorIds = new Set(), superviseeIds = new Set() } = {}) {
   if (!activeManagedStaff(row)) return [];
   const keys = new Set(['staff', ...departmentalGroupKeysForUser(row)]);
+  if (Number(row.has_school_assignments) === 1 && !Number(row.is_assistant_account)) keys.add('schoolproviders');
   let details=row.public_details_json||{};if(typeof details==='string'){try{details=JSON.parse(details);}catch{details={};}}
   const reviewed=Array.isArray(details.languageProficiencies);
   const spanish=reviewed?details.languageProficiencies.some(l=>/^spanish$|^español$/i.test(l.language||'')&&l.canConductSessions===true&&['professional','fluent','native'].includes(l.proficiency))
@@ -73,12 +75,12 @@ export function staffGroupKeys(row, { supervisorIds = new Set(), superviseeIds =
   if (/\b(colorado|co)\b/.test(work)) keys.add('costaff');
   return [...keys];
 }
-export function buildManagedGroupPlan({ domain, rows, assignments = [], includeClinical = false }) {
+export function buildManagedGroupPlan({ domain, rows, assignments = [], includeClinical = false, includeSchoolProviders = false }) {
   const active = rows.filter(activeManagedStaff), byId = new Map(active.map(r => [Number(r.id), r]));
   const validAssignments = assignments.filter(s => byId.has(Number(s.supervisor_id)) && byId.has(Number(s.supervisee_id)));
   const supervisorIds = new Set(validAssignments.map(s => Number(s.supervisor_id)));
   const superviseeIds = new Set(validAssignments.map(s => Number(s.supervisee_id)));
-  const plans = Object.entries(GROUP_LABELS).filter(([key]) => key !== 'clinical' || includeClinical).map(([key, label]) => ({ key, label, email: `${DEPARTMENTAL_GROUPS[key]?.localPart || key}@${domain}`, userIds: [], managerUserIds: [], ticketed: !!DEPARTMENTAL_GROUPS[key] }));
+  const plans = Object.entries(GROUP_LABELS).filter(([key]) => (key !== 'clinical' || includeClinical) && (key !== 'schoolproviders' || includeSchoolProviders)).map(([key, label]) => ({ key, label, email: `${DEPARTMENTAL_GROUPS[key]?.localPart || key}@${domain}`, userIds: [], managerUserIds: [], ticketed: !!DEPARTMENTAL_GROUPS[key] }));
   for (const row of active) {
     for (const key of staffGroupKeys(row, { supervisorIds, superviseeIds })) plans.find(p => p.key === key)?.userIds.push(Number(row.id));
   }

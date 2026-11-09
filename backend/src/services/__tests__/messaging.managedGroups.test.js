@@ -71,3 +71,10 @@ it('limits the Spanish sender to active channel members',async()=>{
  pool.execute.mockResolvedValue([[]]);await expect(assertSpanishGroupSender(2,99)).rejects.toMatchObject({status:403});
  pool.execute.mockResolvedValue([[{...staff,is_archived:1}]]);await expect(assertSpanishGroupSender(2,12)).rejects.toMatchObject({status:403});
 });
+
+it('enrolls school providers only in the explicitly requested school group and removes inactive or unassigned staff',()=>{
+ const rows=[{...staff,has_school_assignments:1},{...staff,id:13,has_school_assignments:0},{...staff,id:14,has_school_assignments:1,is_archived:1},{...staff,id:15,has_school_assignments:1,is_assistant_account:1}];
+ expect(buildManagedGroupPlan({domain:'itsco.health',rows}).some(p=>p.key==='schoolproviders')).toBe(false);
+ const group=buildManagedGroupPlan({domain:'itsco.health',rows,includeSchoolProviders:true}).find(p=>p.key==='schoolproviders');
+ expect(group).toMatchObject({email:'schoolproviders@itsco.health',userIds:[12]});
+});

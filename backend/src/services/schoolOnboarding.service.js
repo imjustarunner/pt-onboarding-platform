@@ -1,3 +1,4 @@
+import { sendSchoolOnboardingMessage } from './schoolOnboardingEmail.service.js';
 import { validSchoolGroupEmail, requireSchoolGroupEmail } from '../utils/schoolGroupEmail.js';
 import { fictionalSchool, fictionalDemoGet } from './fictionalSchoolDemo.service.js';
 import { queueSchoolOnboardingWelcome } from './schoolOnboardingWelcome.service.js';
@@ -11,9 +12,6 @@ import AgencySchool from '../models/AgencySchool.model.js';
 import User from '../models/User.model.js';
 import { assertCurrentAccountEnabled } from './accountAccess.service.js';
 import EmailTemplateService from './emailTemplate.service.js';
-import EmailService from './email.service.js';
-import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service.js';
-import { resolvePreferredSenderIdentityForAgency } from './emailSenderIdentityResolver.service.js';
 import { validatePasswordStrength, checkPasswordBasics } from '../utils/passwordValidation.js';
 import { ensureDigitalIntakeFormsForSchool } from './schoolOnboardingIntakeBootstrap.service.js';
 import { routingDestination, schoolCareBridgeDeployment } from './schoolCareBridgeRouting.service.js';
@@ -111,7 +109,8 @@ export async function getSchoolOnboardingPhase(schoolOrganizationId) {
     status,
     schoolName: invite.school_name || invite.school_org_name || null,
     completedSteps: completedCount(progress),
-    totalSteps: REQUIRED_STEP_KEYS.length
+    totalSteps: REQUIRED_STEP_KEYS.length,
+    activity: buildInviteActivity(invite,progress,invite.step_payload || {})
   };
 }
 
@@ -360,6 +359,7 @@ async function setSchoolDraftFlag(schoolId, isDraft) {
     [schoolId]
   );
   const flags = parseFlags(rows?.[0]?.feature_flags);
+  flags.schoolLifecycleState = isDraft ? 'onboarding' : 'active';
   if (isDraft) flags.schoolOnboardingDraft = true;
   else delete flags.schoolOnboardingDraft;
   await pool.execute(
@@ -630,37 +630,7 @@ export async function sendInviteEmail(invite, { agency, invitedByName } = {}) {
 
   try {
     const delivery = await deliverOnboardingEmail({invite,send:async()=>{
-      const identity = await resolvePreferredSenderIdentityForAgency({
-      agencyId: invite.agency_id,
-      preferredKeys: ['school_onboarding', 'system', 'default', 'notifications', 'login_recovery']
-    });
-    if (identity?.id) {
-      return sendEmailFromIdentity({
-        senderIdentityId: identity.id,
-        to,
-        subject,
-        text: body,
-        html: null,
-        source: 'auto',
-        agencyId: invite.agency_id,
-        userId: invite.primary_user_id,
-        templateType: 'school_onboarding_invite'
-      });
-    } else {
-      return EmailService.sendEmail({
-        to,
-        subject,
-        text: body,
-        html: null,
-        fromName: process.env.GOOGLE_WORKSPACE_FROM_NAME || null,
-        fromAddress: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null,
-        replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
-        source: 'auto',
-        agencyId: invite.agency_id,
-        userId: invite.primary_user_id,
-        templateType: 'school_onboarding_invite'
-      });
-    }
+      return sendSchoolOnboardingMessage({invite,agency:agencyRow,subject,text:body,link,kind:'invite'});
     }});
     return { ...delivery, link };
   } catch (e) {
@@ -764,7 +734,7 @@ export async function createInvite({
     const [schoolResult] = await pool.execute(
       `INSERT INTO agencies (name, slug, portal_url, logo_url, color_palette, terminology_settings, is_active, organization_type, feature_flags)
        VALUES (?, ?, ?, NULL, NULL, NULL, FALSE, 'school', ?)`,
-      [name, slug, slug, JSON.stringify({ schoolOnboardingDraft: true })]
+      [name, slug, slug, JSON.stringify({ schoolOnboardingDraft: true, schoolLifecycleState: 'onboarding' })]
     );
     schoolId = schoolResult.insertId;
 
@@ -1078,7 +1048,7 @@ function resolveInviteDisplayStatus(invite, progress) {
   return { key: 'created', label: 'Created' };
 }
 
-function buildInviteActivity(invite, progress, payload) {
+export function buildInviteActivity(invite, progress, payload) {
   const events = [];
   const add = (at, label, detail = null) => {
     if (!at) return;
@@ -1100,10 +1070,22 @@ function buildInviteActivity(invite, progress, payload) {
     const index=events.findIndex(e=>e.label==='Invite email sent');
     if(index>=0)events.splice(index,1);
   }
+  const seenReplies=new Set();
   for(const delivery of deliveryHistory) {
     const label=delivery.kind==='reminder'?'Onboarding reminder email':'Invite email';
     const state={sent:'sent',queued:'queued',sending:'sending',failed:'not sent',review:'needs delivery review',redirected:'redirected to test recipient'}[delivery.delivery_status] || 'needs delivery review';
     add(delivery.sent_at || delivery.created_at,`${label} ${state}`,delivery.recipient);
+    const event=events.at(-1);
+    if(event)event.email={subject:delivery.subject || null,bodyText:delivery.body_text || '',from:delivery.from_email,
+      replyTo:delivery.reply_to,cc:delivery.cc,status:delivery.delivery_status,
+      replyCount:(delivery.replies || []).length};
+    for(const reply of delivery.replies || []) {
+      if(seenReplies.has(reply.id))continue;
+      seenReplies.add(reply.id);
+      add(reply.at,'School replied to onboarding email',reply.from);
+      const replyEvent=events.at(-1);
+      if(replyEvent)replyEvent.email={subject:reply.subject,bodyText:reply.bodyText,from:reply.from,status:'reply'};
+    }
   }
 
   const started = hasRecipientStartedOnboarding(invite, progress);
@@ -1260,8 +1242,9 @@ export function serializeInvite(invite, { admin = false, publicView = false } = 
       agencyName: invite.agency_name || null,
       materialsRequest: summarizeWelcomeMaterials(payload),
       activity: buildInviteActivity(invite, progress, payload),
-      reminderPolicy: 'One reminder is emailed to the school contact 10 days after a recorded invitation email if onboarding is still incomplete.',
+      reminderPolicy: 'A friendly reminder is emailed once every 7 days while onboarding is incomplete, starting 7 days after the invitation was created or the latest onboarding email. ITSCO reminders come from Schools, reply to Schools, and copy Rachel. Uncertain deliveries are held for review.',
       reminderPendingOriginalEmail: !invite.invite_email_sent_at,
+      reminderPendingFirstEmail: !invite.invite_email_sent_at && !(invite.email_delivery_history || []).some(d=>d.delivery_status==='sent'),
       // Full submission details for admin receipt / review (not just materials)
       stepPayload: payload && typeof payload === 'object' ? payload : {}
     };

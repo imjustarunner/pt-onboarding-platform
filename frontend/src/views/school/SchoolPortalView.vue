@@ -1928,6 +1928,12 @@
       </div>
     </div>
 
+    <section v-if="schoolOnboardingPhase?.activity?.length" class="card" style="margin:1rem 0;padding:1rem">
+      <details><summary>School onboarding activity and emails</summary>
+        <SchoolOnboardingActivity :events="schoolOnboardingPhase.activity" />
+      </details>
+    </section>
+
     <!-- Waiver nudge: auto-shown once per session on load, and on gated-content clicks -->
     <teleport to="body">
       <transition name="waiver-nudge-fade">
@@ -2559,6 +2565,7 @@
 </template>
 
 <script setup>
+import SchoolOnboardingActivity from '../../components/school/SchoolOnboardingActivity.vue';
 import NavSearchBar from '../../components/NavSearchBar.vue';
 import { isSchoolScheduleClientLocked } from '../../utils/schoolStaffRoiLabels.js';
 import PortalIcon from '../../components/portal/PortalIcon.vue';

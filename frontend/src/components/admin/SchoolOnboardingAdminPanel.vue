@@ -416,19 +416,8 @@
               <section class="so-receipt__block">
                 <h4>Activity timeline</h4>
                 <p class="muted tiny">{{ selectedInvite.reminderPolicy }}</p>
-                <p v-if="selectedInvite.reminderPendingOriginalEmail" class="muted tiny">No original invitation email is recorded. Send the invitation to start the 10-day reminder timer.</p>
-                <p v-if="!selectedInvite.activity?.length" class="muted tiny">
-                  No activity yet — the contact has not opened the link or saved any steps.
-                </p>
-                <ol v-else class="so-activity-list">
-                  <li v-for="(event, idx) in selectedInvite.activity" :key="`${event.at}-${idx}`">
-                    <div class="so-activity-row">
-                      <span class="so-activity-label">{{ event.label }}</span>
-                      <span class="so-activity-time muted tiny">{{ formatDate(event.at) }}</span>
-                    </div>
-                    <p v-if="event.detail" class="muted tiny so-activity-detail">{{ event.detail }}</p>
-                  </li>
-                </ol>
+                <p v-if="selectedInvite.reminderPendingFirstEmail" class="muted tiny">No previous email is recorded. The first reminder is due 7 days after this invitation was created.</p>
+                <SchoolOnboardingActivity :events="selectedInvite.activity" />
               </section>
 
               <section class="so-receipt__block">
@@ -493,6 +482,7 @@
 </template>
 
 <script setup>
+import SchoolOnboardingActivity from '../school/SchoolOnboardingActivity.vue';
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import QRCode from 'qrcode';

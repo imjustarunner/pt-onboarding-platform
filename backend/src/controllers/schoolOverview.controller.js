@@ -1,3 +1,4 @@
+import { schoolOrganizationLifecycle } from '../utils/schoolOrganizationLifecycle.js';
 import pool from '../config/database.js';
 import { toStoredDistrictName } from '../utils/districtSlug.shared.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
@@ -269,7 +270,8 @@ export const getSchoolOverview = async (req, res, next) => {
         logo_path: s?.logo_path || null,
         logo_url: s?.logo_url || null,
         icon_file_path: s?.icon_file_path || null,
-        is_active: s?.is_active !== false,
+        is_active: s?.is_active === true || Number(s?.is_active) === 1,
+        lifecycle_state: schoolOrganizationLifecycle(s),
         is_archived: !!s?.is_archived,
         archived_at: s?.archived_at || null,
         // Directory metadata (optional; may be missing on older DBs or when not populated)

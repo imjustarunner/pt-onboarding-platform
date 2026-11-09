@@ -9,6 +9,7 @@ vi.mock('../../models/AgencySchool.model.js', () => ({ default: {} }));
 vi.mock('../../models/User.model.js', () => ({ default: {} }));
 vi.mock('../emailTemplate.service.js', () => ({ default: { getTemplateForAgency: vi.fn() } }));
 vi.mock('../email.service.js', () => ({ default: { sendEmail } }));
+vi.mock('../schoolOnboardingEmail.service.js', () => ({ sendSchoolOnboardingMessage: sendEmail }));
 vi.mock('../unifiedEmail/unifiedEmailSender.service.js', () => ({ sendEmailFromIdentity: vi.fn() }));
 vi.mock('../emailSenderIdentityResolver.service.js', () => ({ resolvePreferredSenderIdentityForAgency: vi.fn() }));
 vi.mock('../schoolOnboardingIntakeBootstrap.service.js', () => ({ ensureDigitalIntakeFormsForSchool: vi.fn() }));
