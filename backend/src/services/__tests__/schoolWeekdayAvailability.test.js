@@ -93,3 +93,11 @@ it('does not request availability from providers assigned on all five weekdays',
  expect(schoolWeekdayContext({service_focus:'School-Based Counseling'},[{days:SCHOOL_WEEKDAYS}],2).needsResponse).toBe(false);
  expect(schoolWeekdayContext({service_focus:'School-Based Counseling'},[{days:['Monday']}],2).needsResponse).toBe(true);
 });
+
+it('reminds unanswered assigned-school providers after a day and then deduplicates retries',async()=>{
+ details.schoolWeekdaysByAgency[2]={requestedAt:'2026-11-01T00:00:00.000Z'};
+ expect((await requestSchoolWeekdayUpdates({agencyId:2,actorId:99},db)).requested).toEqual([7]);
+ expect((await requestSchoolWeekdayUpdates({agencyId:2,actorId:99},db)).skipped).toEqual([7]);
+ expect(Dispatcher.dispatchPushForNotification).toHaveBeenCalledOnce();
+ expect(schoolWeekdayContext({service_focus:'School-Based Counseling'},[],2).needsResponse).toBe(false);
+});

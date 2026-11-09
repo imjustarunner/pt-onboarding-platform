@@ -51,15 +51,16 @@ export async function requestSchoolWeekdayUpdates({ agencyId, providerId = null,
     try {
       const context = await readSchoolWeekdays(person.id, agencyId, database);
       if (!context.needsResponse) { results.skipped.push(person.id); continue; }
-      // Repeated clicks/retries do not create duplicate outstanding requests.
-      if (context.pending) { results.skipped.push(person.id); continue; }
+      // Unanswered requests may be reminded once per day; clicks/retries are deduplicated.
+      const recent = current => current.pending && Date.now() - Date.parse(current.requestedAt) < 86400000;
+      if (recent(context)) { results.skipped.push(person.id); continue; }
       const requestedAt = new Date().toISOString();
       const db = await database.getConnection();
       try {
         await db.beginTransaction();
         await db.execute('SELECT id FROM users WHERE id=? FOR UPDATE', [person.id]);
         const current = await readSchoolWeekdays(person.id, agencyId, db);
-        if (!current.needsResponse || current.pending) { await db.rollback(); results.skipped.push(person.id); continue; }
+        if (!current.needsResponse || recent(current)) { await db.rollback(); results.skipped.push(person.id); continue; }
         await db.execute(`INSERT INTO provider_public_profiles (user_id,public_details_json) VALUES (?,?)
           ON DUPLICATE KEY UPDATE public_details_json=JSON_MERGE_PATCH(COALESCE(public_details_json,JSON_OBJECT()),VALUES(public_details_json)),updated_at=CURRENT_TIMESTAMP`,
         [person.id, JSON.stringify({ schoolWeekdaysByAgency: { [agencyId]: { requestedAt, requestedBy: actorId } } })]);
