@@ -1844,7 +1844,8 @@ export const getNotificationCatalog = async (req, res, next) => {
     const preferences = await listEffectiveNotificationPreferences({
       userId: req.user.id,
       userRole: req.user.role,
-      agencyId
+      agencyId,
+      user: await User.findById(Number(req.user.id))
     });
     const globalPreferences = await UserPreferences.findByUserId(Number(req.user.id)) || {};
     const userAgencies = await User.getAgencies(Number(req.user.id));
@@ -1894,7 +1895,7 @@ export const updateNotificationTypePreference = async (req, res, next) => {
     }
     if (updates.deliveryMode !== undefined) {
       if (type !== 'school_closure_notice') return res.status(400).json({ error: { message: 'Delivery choice is not available for this type' } });
-      const context = await loadNotificationPreferenceContext({ userId: req.user.id, userRole: req.user.role });
+      const context = await loadNotificationPreferenceContext({ userId: req.user.id, userRole: req.user.role, user: await User.findById(Number(req.user.id)) });
       const previous = context.typePreferences.get(type) || {};
       context.typePreferences.set(type, { ...previous, deliveryMode: updates.deliveryMode });
       const resolved = resolveNotificationTypePreference(type, context);
@@ -1943,7 +1944,7 @@ export const updateNotificationTypePreference = async (req, res, next) => {
     } else {
       await NotificationTypePreference.upsert(req.user.id, type, updates);
     }
-    const context = await loadNotificationPreferenceContext({ userId: req.user.id, userRole: req.user.role });
+    const context = await loadNotificationPreferenceContext({ userId: req.user.id, userRole: req.user.role, user: type === 'school_closure_notice' ? await User.findById(Number(req.user.id)) : null });
     res.json(resolveNotificationTypePreference(type, context));
   } catch (error) {
     next(error);

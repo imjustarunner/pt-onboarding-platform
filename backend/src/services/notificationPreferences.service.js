@@ -46,7 +46,7 @@ export async function loadNotificationPreferenceContext({ userId, agencyId = nul
     legacyCategories: parseJson(globalPreferences?.notification_categories),
     typePreferences: new Map(typePreferences.map((p) => [p.type, p])),
     agencyPreferences,
-    user: user || await (await import('../models/User.model.js')).default.findById(Number(userId))
+    user
   };
 }
 
