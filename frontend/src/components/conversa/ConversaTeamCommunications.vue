@@ -11,12 +11,25 @@ const allowed = computed(() => canManageConversaTeam(auth.user));
 const events = ref([]), users = ref([]), loading = ref(false), busy = ref(false);
 const error = ref(''), notice = ref(''), reviewing = ref(null), delivery = ref(null);
 const smsSender = ref(null), pollPreview = ref(null);
-const blank = () => ({ kind: 'text', title: '', message: '', userIds: [], question: '', options: ['Yes', 'No'], deliveryMode: 'internal', shareResults: true, allowOther: false });
+const localDateInput = value => { const date = new Date(value); if (!Number.isFinite(date.getTime())) return ''; return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
+const blank = () => ({ kind: 'text', title: '', message: '', userIds: [], question: '', options: ['Yes', 'No'], deliveryMode: 'internal', shareResults: true, resultsVisibility: 'after_close', linkedEventId: '', closesAt: localDateInput(Date.now() + 30 * 86400000), allowOther: false });
+const eventLinks = ref([]), linksLoading = ref(false), linksError = ref('');
+let linksRequest = 0, linksLoaded = false;
+async function loadEventLinks() {
+  if (linksLoaded || linksLoading.value || !props.agencyId) return;
+  const id = ++linksRequest; linksLoading.value = true; linksError.value = '';
+  try { const { data } = await api.get(base(), { params: { pollLinkOptions: 1 } }); if (id === linksRequest) { eventLinks.value = Array.isArray(data) ? data : []; linksLoaded = true; } }
+  catch { if (id === linksRequest) linksError.value = 'Could not load internal events. You can save without a link or try again.'; }
+  finally { if (id === linksRequest) linksLoading.value = false; }
+}
 const draft = ref(blank());
 const editing = ref(null);
 function edit(event) {
   editing.value = event;
   draft.value = { ...blank(), kind: event.votingConfig?.enabled ? 'poll' : 'text', title: event.title, message: event.splashContent || event.description || '', userIds: (event.audience?.userIds || []).filter(id => users.value.some(user => user.id === id)), question: event.votingConfig?.question || '', options: event.votingConfig?.options?.map(o => o.label) || ['Yes', 'No'], deliveryMode: event.votingConfig?.deliveryMode || (event.votingConfig?.viaSms ? 'both' : 'internal'), shareResults: event.votingConfig?.shareResults !== false, allowOther: !!event.votingConfig?.allowOther };
+  draft.value.closesAt = localDateInput(event.votingConfig?.closesAt || event.endsAt) || blank().closesAt;
+  draft.value.resultsVisibility = event.votingConfig?.resultsVisibility || 'after_close';
+  draft.value.linkedEventId = event.votingConfig?.linkedEventId || '';
 }
 function cancelEdit() { editing.value = null; draft.value = blank(); }
 let generation = 0;
@@ -41,6 +54,7 @@ async function create(reviewDelivery = false) {
   if (!allowed.value || !props.agencyId || busy.value) return;
   if (!draft.value.userIds.length) { error.value = 'Select at least one team member.'; return; }
   const g = generation, url = base(), poll = draft.value.kind === 'poll';
+  if (poll && (!draft.value.closesAt || !Number.isFinite(new Date(draft.value.closesAt).getTime()))) { error.value = 'Choose a voting deadline.'; return; }
   if (poll && draft.value.deliveryMode === 'sms' && draft.value.userIds.some(id => !canReceiveOutsideApp(users.value.find(u => u.id === id)))) { error.value = 'Select recipients with polling SMS opt-in or an SSO work email for the voting invitation.'; return; }
   busy.value = true; error.value = ''; notice.value = '';
   const now = new Date();
@@ -51,13 +65,13 @@ async function create(reviewDelivery = false) {
     const { data: saved } = await save(existing ? `${url}/${existing.id}` : url, {
       ...(existing || {}),
       title: draft.value.title, description: draft.value.message, splashContent: draft.value.message,
-      eventType: existing?.eventType || (poll ? 'team_poll' : 'direct_notice'), timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
-      startsAt: existing?.startsAt || now.toISOString(), endsAt: existing?.endsAt || new Date(now.getTime() + 30 * 86400000).toISOString(),
+      eventType: existing?.eventType || (poll ? 'team_poll' : 'direct_notice'), timezone: existing?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+      startsAt: existing?.startsAt || now.toISOString(), endsAt: poll ? new Date(draft.value.closesAt).toISOString() : existing?.endsAt || new Date(now.getTime() + 30 * 86400000).toISOString(),
       audience: { userIds: [...draft.value.userIds], groupIds: existing?.audience?.groupIds || [], roleKeys: existing?.audience?.roleKeys || [] },
       rsvpMode: poll ? 'custom_vote' : 'none',
       votingConfig: { enabled: poll, deliveryMode: draft.value.deliveryMode, viaSms: poll && draft.value.deliveryMode !== 'internal', question: draft.value.question,
         options: draft.value.options.map((label, i) => ({ key: existing?.votingConfig?.options?.[i]?.key || String(i + 1), label: label.trim() })),
-        shareResults: draft.value.shareResults, allowOther: draft.value.allowOther },
+        shareResults: draft.value.shareResults, resultsVisibility: draft.value.resultsVisibility, linkedEventId: poll ? Number(draft.value.linkedEventId) || null : null, closesAt: poll ? new Date(draft.value.closesAt).toISOString() : null, allowOther: draft.value.allowOther },
       reminderConfig: existing?.reminderConfig || { enabled: false, channels: { inApp: true, sms: false } }
     });
     if (g !== generation) return;
@@ -117,10 +131,12 @@ function deliveryLabel(event) {
   return { internal: 'Internal message + SSO email fallback', sms: 'SMS + SSO email fallback', both: 'Internal message + SMS + SSO email fallback' }[mode];
 }
 const smsOnly = computed(() => draft.value.kind === 'poll' && draft.value.deliveryMode === 'sms');
+watch(() => draft.value.kind, kind => { if (kind === 'poll') loadEventLinks(); });
 watch(() => draft.value.deliveryMode, () => {
   if (smsOnly.value) draft.value.userIds = draft.value.userIds.filter(id => canReceiveOutsideApp(users.value.find(u => u.id === id)));
 });
 watch(() => [props.agencyId, allowed.value], () => {
+  linksRequest++; linksLoaded = false; linksLoading.value = false; linksError.value = ''; eventLinks.value = [];
   events.value = []; users.value = []; smsSender.value = null; pollPreview.value = null; cancelEdit(); reviewing.value = null; delivery.value = null; notice.value = ''; load();
 }, { immediate: true });
 </script>
@@ -149,7 +165,11 @@ watch(() => [props.agencyId, allowed.value], () => {
             <p v-if="draft.deliveryMode !== 'internal'" class="team-note">{{ selectedSms }} selected members currently eligible for SMS; {{ draft.userIds.length - selectedSms }} unavailable for SMS. Poll texts use the staff notifications number. Reply NOPOLLS to stop poll texts only.</p>
             <p class="team-note">Save &amp; review delivery checks for recipients who still need an invitation, including newly added members. You can confirm delivery next. Save without sending only updates the poll.</p>
             <label class="team-check"><input v-model="draft.allowOther" type="checkbox" /> Allow written answers for review</label>
-            <label class="team-check"><input v-model="draft.shareResults" type="checkbox" /> Share final totals with participants</label>
+            <label>Voting deadline <input v-model="draft.closesAt" aria-label="Voting deadline" type="datetime-local" required /><small class="team-note">Your local time. Voting closes at this deadline.</small></label>
+            <label class="team-check"><input v-model="draft.shareResults" type="checkbox" /> Share vote totals with participants</label>
+            <label v-if="draft.shareResults">When participants can see results<select v-model="draft.resultsVisibility" aria-label="Results visibility"><option value="after_close">After voting closes</option><option value="live">Live totals while voting is open</option></select><small class="team-note">Shares counts only. Individual staff replies stay with the organizer.</small></label>
+            <label>Link an internal event <span class="team-note">Optional</span><select v-model="draft.linkedEventId" aria-label="Linked internal event" :disabled="linksLoading"><option value="">No linked event yet</option><option v-for="linked in eventLinks.filter(e => e.id !== editing?.id)" :key="linked.id" :value="linked.id">{{ linked.title }}{{ linked.isActive === false ? ' · Details not yet available' : '' }}</option></select><small class="team-note">Participants get a View event link when that event is available to them. You can add the link later.</small></label>
+            <p v-if="linksError" class="team-note">{{ linksError }} <button type="button" @click="loadEventLinks">Retry events</button></p>
             <p class="team-note">Replies are identified to organizers. Participants see their own responses. New polls are available for 30 days. Close voting when you are ready to publish final totals.</p>
           </template>
           <p class="team-note">Active internal staff only. School staff and inactive accounts are excluded. SMS opt-outs stay visible.</p>
@@ -165,6 +185,7 @@ watch(() => [props.agencyId, allowed.value], () => {
       <article v-for="event in events" :key="event.id" class="team-entry">
         <span class="team-type">{{ event.votingConfig?.enabled ? 'Team poll' : 'Team text' }} · Conversa</span><h3>{{ event.title }}</h3><p>{{ event.votingConfig?.enabled ? event.votingConfig.question : event.splashContent || event.description }}</p>
         <p v-if="event.votingConfig?.enabled" class="team-note">{{ deliveryLabel(event) }}</p>
+        <p v-if="event.votingConfig?.enabled" class="team-note">Deadline: {{ new Date(event.votingConfig.closesAt || event.endsAt).toLocaleString() }} · {{ event.votingConfig.shareResults === false ? 'Results private' : event.votingConfig.resultsVisibility === 'live' ? 'Live results shared' : 'Results shared after closing' }}</p>
         <p v-if="event.votingClosedAt">Voting closed</p>
         <div class="team-actions">
           <button v-if="['direct_notice', 'team_poll'].includes(event.eventType) && !event.votingClosedAt" type="button" :disabled="busy" @click="edit(event)">Edit</button>
@@ -175,7 +196,7 @@ watch(() => [props.agencyId, allowed.value], () => {
           <button type="button" :disabled="busy" @click="action(event, 'delivery')">Delivery history</button>
         </div>
       </article>
-      <StaffPollResultsReview v-if="reviewing" :agency-id="agencyId" :event="reviewing" @close="reviewing = null; load()" />
+      <StaffPollResultsReview v-if="reviewing" :agency-id="agencyId" :event="reviewing" @changed="reviewing = $event; load()" @close="reviewing = null; load()" />
       <section v-if="delivery" class="team-entry" aria-label="Team delivery history"><div class="team-header"><h3>{{ delivery.title }} · delivery history</h3><button type="button" @click="delivery = null">Close history</button></div><p v-if="!delivery.logs?.length">No deliveries yet.</p><ul><li v-for="log in delivery.logs" :key="log.id">{{ log.name }} · {{ log.channel }} · {{ log.status }}<span v-if="log.statusReason"> · {{ log.statusReason }}</span></li></ul></section>
     </template>
   </section>

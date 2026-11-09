@@ -1304,6 +1304,12 @@ const routes = [
     meta: { requiresGuest: false, organizationSlug: true }
   },
   {
+    path: '/staff-events/:eventId',
+    name: 'StaffEventDetails',
+    component: () => import('../views/StaffEventView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
     path: '/staff-polls/:pollId',
     name: 'StaffPoll',
     component: () => import('../views/StaffPollView.vue'),

@@ -1,52 +1,136 @@
 <template>
-  <details class="staff-polls" :open="!!pollId" @toggle="onToggle">
-    <summary><img :src="CONVERSA_ICON_URL" alt="" width="24" height="24" style="vertical-align:middle;margin-right:8px" />Team polls · Conversa</summary>
-    <p v-if="error" role="alert">{{ error }}</p><p v-if="notice" role="status">{{ notice }}</p>
-    <p v-if="loading">Loading polls…</p>
-    <template v-else-if="opened">
-      <label v-if="completedCount && !pollId" class="history-choice"><input v-model="showHistory" type="checkbox" /> Show completed polls and results ({{ completedCount }})</label>
-      <p v-if="!visiblePolls.length">{{ pollId ? 'This poll is unavailable for your account or is no longer open.' : 'No pending team polls.' }}</p>
-      <article v-for="poll in visiblePolls" :key="poll.id">
-        <h4>{{ poll.title }}</h4><p>{{ poll.question }}</p>
-        <p v-if="poll.myResponse">Your reply: {{poll.myResponse.original||poll.myResponse.label}} <span v-if="poll.myResponse.excluded">— excluded from totals</span><span v-else-if="poll.myResponse.bucketKey">— categorized as {{poll.options.find(o=>o.key===poll.myResponse.bucketKey)?.label||poll.myResponse.bucketKey}}</span></p>
-        <template v-if="!poll.closedAt">
-          <button v-for="option in (poll.myResponse ? [] : poll.options)" :key="option.key" type="button" :disabled="busy" @click="vote(poll, option)">{{ option.label }}</button>
-          <form v-if="poll.allowOther && !poll.myResponse" @submit.prevent="vote(poll,{key:otherReplies[poll.id],label:otherReplies[poll.id]})"><label>Your own answer<input v-model="otherReplies[poll.id]" maxlength="2000" required /></label><button :disabled="busy">Submit written answer</button></form>
-          <label v-if="poll.shareResults!==false"><input type="checkbox" :checked="poll.resultsText" :disabled="busy" @change="setPreference(poll, $event)" /> Text me the final results when this poll closes.</label>
-          <p class="hint">Optional. Requires your separate polling SMS consent and a current mobile number. Reply NOPOLLS to turn off poll texts only. Shared final totals are available here after voting closes.</p>
-        </template>
-        <template v-else>
-          <p>{{poll.shareResults===false?'Voting closed. The organizer has kept aggregate results private. Your response remains available above.':'Voting closed. Final totals:'}}</p>
-          <ul v-if="poll.results?.length"><li v-for="result in poll.results" :key="result.key">{{ result.label }}: {{ result.total }}</li></ul>
-          <p v-else-if="poll.shareResults!==false">No categorized votes received.</p>
-        </template>
-      </article>
-      <button type="button" :disabled="busy" @click="load">Refresh polls</button>
-    </template>
+  <details class="staff-polls" :class="{ 'needs-vote': pendingCount > 0 }" :open="opened" @toggle="opened = $event.target.open">
+    <summary class="poll-heading">
+      <span class="poll-brand"><img :src="CONVERSA_LOGO_URL" alt="Conversa" width="132" height="35" /><span class="poll-heading-title">Team polls</span></span>
+      <span class="poll-overview"><span class="poll-count" :class="{ 'poll-count--attention': pendingCount }">{{ headingStatus }}</span><span v-if="nextDeadline" class="poll-next-deadline">Next deadline · {{ moment(nextDeadline.closesAt, nextDeadline) }}</span></span>
+      <span class="poll-chevron" aria-hidden="true">⌄</span>
+    </summary>
+    <div class="poll-content">
+      <p v-if="error" class="poll-error" role="alert">{{ error }}</p>
+      <p v-if="notice" class="poll-notice" role="status">{{ notice }}</p>
+      <p v-if="loading && !polls.length" class="poll-empty">Loading team polls…</p>
+      <template v-else>
+        <div v-if="!pollId && polls.length" class="poll-tabs" role="group" aria-label="Poll list">
+          <button type="button" :aria-pressed="!showHistory" @click="showHistory = false">Active <span>{{ activePolls.length }}</span></button>
+          <button type="button" :aria-pressed="showHistory" @click="showHistory = true">Past polls <span>{{ pastPolls.length }}</span></button>
+        </div>
+        <p v-if="!visiblePolls.length" class="poll-empty">{{ pollId ? 'This poll is unavailable for your account.' : showHistory ? 'No past polls yet.' : 'No active team polls. New polls will appear here automatically.' }}</p>
+        <article v-for="poll in visiblePolls" :key="poll.id" class="poll-card" :aria-labelledby="`${panelId}-title-${poll.id}`">
+          <header class="poll-card-header"><div><span class="poll-eyebrow">{{ isClosed(poll) ? 'Past poll' : 'Team decision' }}</span><h3 :id="`${panelId}-title-${poll.id}`">{{ poll.title }}</h3></div><span class="poll-status" :class="{ 'poll-status--voted': poll.myResponse, 'poll-status--closed': isClosed(poll) }">{{ isClosed(poll) ? 'Closed' : poll.myResponse ? 'You voted' : poll.canVote === false ? 'Open' : 'Awaiting your vote' }}</span></header>
+          <div v-if="poll.closesAt || poll.closedAt" class="poll-deadline" :class="{ 'poll-deadline--soon': dueSoon(poll) }"><span aria-hidden="true">◷</span><span>{{ isClosed(poll) ? 'Voting closed' : 'Vote by' }} <time :datetime="poll.closedAt || poll.closesAt">{{ moment(poll.closedAt || poll.closesAt, poll) }}</time><strong v-if="!isClosed(poll)"> · {{ remaining(poll) }}</strong></span></div>
+          <p class="poll-question">{{ poll.question }}</p>
+          <div v-if="poll.myResponse" class="poll-receipt">
+            <span class="poll-receipt-check" aria-hidden="true">✓</span><div><span class="poll-eyebrow">Your vote</span><strong class="poll-answer">{{ answer(poll) }}</strong><span class="poll-vote-meta">{{ sourceLabel(poll.myResponse.source) }}<template v-if="poll.myResponse.receivedAt"> · {{ moment(poll.myResponse.receivedAt, poll) }}</template></span><p v-if="poll.myResponse.excluded" class="poll-review-note">The organizer excluded this response from the totals.</p><p v-else-if="poll.myResponse.bucketKey" class="poll-review-note">Counted as {{ optionLabel(poll, poll.myResponse.bucketKey) }} after organizer review.</p></div>
+          </div>
+          <button v-if="poll.myResponse && !isClosed(poll) && poll.canVote !== false && !changing[poll.id]" class="poll-text-button" type="button" :disabled="busy" @click="startChange(poll)">Change my vote</button>
+          <form v-if="!isClosed(poll) && poll.canVote !== false && (!poll.myResponse || changing[poll.id])" class="poll-vote-form" @submit.prevent="vote(poll)">
+            <fieldset :disabled="busy"><legend>{{ poll.myResponse ? 'Update your answer' : 'Choose your answer' }}</legend><label v-for="(option, index) in poll.options" :key="option.key" class="poll-option" :class="{ 'poll-option--selected': choices[poll.id] === option.key }"><input v-model="choices[poll.id]" type="radio" :name="`${panelId}-choice-${poll.id}`" :value="option.key" /><span class="poll-option-number" aria-hidden="true">{{ index + 1 }}</span><span>{{ option.label }}</span></label><label v-if="poll.allowOther" class="poll-option" :class="{ 'poll-option--selected': choices[poll.id] === '__other' }"><input v-model="choices[poll.id]" type="radio" :name="`${panelId}-choice-${poll.id}`" value="__other" /><span>Another answer</span></label><label v-if="choices[poll.id] === '__other'" class="poll-written">Your answer<textarea v-model="otherReplies[poll.id]" maxlength="2000" rows="2" required /></label></fieldset>
+            <div class="poll-form-actions"><button class="poll-primary" type="submit" :disabled="busy || !selectedAnswer(poll).trim()">{{ busy === poll.id ? 'Saving…' : poll.myResponse ? 'Update vote' : 'Submit vote' }}</button><button v-if="changing[poll.id]" class="poll-secondary" type="button" :disabled="busy" @click="changing[poll.id] = false">Cancel</button><span>Your answer is saved when you submit.</span></div>
+          </form>
+          <section class="poll-results" :aria-label="`Results for ${poll.title}`">
+            <template v-if="(poll.canManage || (poll.shareResults !== false && (isClosed(poll) || poll.resultsVisibility === 'live'))) && Array.isArray(poll.results)">
+              <div class="poll-results-heading"><h4>{{ organizerOnlyResults(poll) ? 'Organizer totals' : isClosed(poll) ? 'Final results' : 'Live results' }}</h4><span>{{ voteTotal(poll) }} {{ voteTotal(poll) === 1 ? 'vote' : 'votes' }} counted</span></div>
+              <ul class="poll-bars"><li v-for="result in poll.results" :key="result.key" :class="{ 'poll-bar--mine': isMine(poll, result.key) }"><div class="poll-bar-label"><span>{{ result.label }} <small v-if="isMine(poll, result.key)">Your vote</small></span><strong>{{ result.total }} <span>· {{ percent(poll, result.total) }}%</span></strong></div><div class="poll-bar-track" aria-hidden="true"><div class="poll-bar-fill" :style="{ width: `${percent(poll, result.total)}%` }" /></div></li></ul>
+              <p v-if="!voteTotal(poll)" class="poll-hint">No counted votes yet.</p><p class="poll-hint">{{ organizerOnlyResults(poll) ? 'Only organizers can see these totals right now.' : isClosed(poll) ? 'Final totals shared by the organizer.' : 'Running totals shared by the organizer. Results can change until voting closes.' }}</p>
+            </template>
+            <p v-else class="poll-hint">{{ poll.shareResults === false ? 'The organizer has kept totals private. Your own vote is always visible here.' : 'The organizer will share totals after voting closes.' }}</p>
+          </section>
+          <div v-if="poll.linkedEvent" class="poll-linked-event"><template v-if="poll.linkedEvent.available"><span class="poll-event-symbol" aria-hidden="true">▦</span><div><span class="poll-eyebrow">Linked event</span><strong>{{ poll.linkedEvent.title }}</strong><span>{{ moment(poll.linkedEvent.startsAt, poll.linkedEvent) }}</span></div><a :href="`/staff-events/${poll.linkedEvent.id}?agencyId=${poll.agencyId || agencyId}`">View event <span aria-hidden="true">↗</span></a></template><p v-else>Event details will appear here when available to you.</p></div>
+          <div v-if="!isClosed(poll) && poll.shareResults !== false" class="poll-text-preference"><label><input type="checkbox" :checked="poll.resultsText" :disabled="busy" @change="setPreference(poll, $event)" /><span>Text me the final results</span></label><p class="poll-hint">Optional · Requires poll-text opt-in. Reply NOPOLLS to stop poll texts only.</p></div>
+          <section v-if="poll.canManage" class="poll-owner-controls" aria-label="Poll owner controls">
+            <span class="poll-eyebrow">Owner controls</span>
+            <template v-if="!isClosed(poll)"><form @submit.prevent="scheduleClosing(poll)"><label>Close automatically<input type="datetime-local" :value="closingTimes[poll.id] ?? localInput(poll.closesAt)" :disabled="busy" required @input="closingTimes[poll.id] = $event.target.value" /></label><span class="poll-hint">Your local time. You can change the schedule while voting is open.</span><button class="poll-secondary" type="submit" :disabled="busy">{{ poll.scheduledClosing ? 'Update closing time' : 'Schedule closing' }}</button></form><button class="poll-close-now" type="button" :disabled="busy" @click="closeNow(poll)">Close poll now</button></template>
+            <p v-else class="poll-hint">Voting is closed. Saved responses and results remain available.</p>
+          </section>
+        </article>
+      </template>
+      <footer class="poll-footer"><span>Updates automatically</span><button class="poll-text-button" type="button" :disabled="busy || loading" @click="load()">{{ loading ? 'Refreshing…' : 'Refresh polls' }}</button></footer>
+    </div>
   </details>
 </template>
 <script setup>
-import { CONVERSA_ICON_URL } from '../../constants/conversa';
-import { ref, watch, computed, onMounted, onBeforeUnmount } from 'vue';
+import { CONVERSA_LOGO_URL } from '../../constants/conversa';
+import { ref, watch, computed, onMounted, onBeforeUnmount, getCurrentInstance } from 'vue';
 import api from '../../services/api';
-const props=defineProps({agencyId:{type:[Number,String],default:null},pollId:{type:[Number,String],default:null}});
-const otherReplies=ref({});
-const polls=ref([]),opened=ref(false),loading=ref(false),busy=ref(false),error=ref(''),notice=ref('');
-const showHistory = ref(false);
-const completedCount = computed(() => polls.value.filter(p => p.myResponse || p.closedAt).length);
-const visiblePolls = computed(() => polls.value.filter(p => props.pollId ? Number(p.id) === Number(props.pollId) : showHistory.value ? (p.myResponse || p.closedAt) : (!p.myResponse && !p.closedAt)));
-let generation=0;
-let refreshTimer;
-function refreshPending() { if (opened.value && !busy.value && !loading.value && document.visibilityState !== 'hidden') load(true); }
-onMounted(() => { if (props.pollId && !opened.value) { opened.value = true; load(); } refreshTimer = setInterval(refreshPending, 15000); window.addEventListener('focus', refreshPending); document.addEventListener('visibilitychange', refreshPending); });
-onBeforeUnmount(() => { generation++; clearInterval(refreshTimer); window.removeEventListener('focus', refreshPending); document.removeEventListener('visibilitychange', refreshPending); });
-const params=()=>({agencyId:props.agencyId||undefined});
-async function load(quiet=false){const id=++generation;if(!quiet)loading.value=true;error.value='';try{const {data}=await api.get('/me/staff-polls',{params:params()});if(id===generation)polls.value=data;}catch(e){if(id===generation)error.value=e.response?.data?.error?.message||'Unable to load staff polls.';}finally{if(id===generation)loading.value=false;}}
-function onToggle(e){const next=e.target.open;if(next===opened.value)return;opened.value=next;if(next)load();}
-async function vote(poll,option){busy.value=true;error.value='';notice.value='';const id=generation;try{await api.post(`/me/company-events/${poll.id}/respond`,{responseKey:option.key,agencyId:props.agencyId},{params:params()});if(id===generation){notice.value=`Your response was recorded: ${option.label}.`;await load();}}catch(e){if(id===generation)error.value=e.response?.data?.error?.message||'Unable to record your vote.';}finally{busy.value=false;}}
-async function setPreference(poll,event){const value=event.target.checked;busy.value=true;error.value='';const id=generation;try{const {data}=await api.put(`/me/staff-polls/${poll.id}/results-preference`,{resultsText:value},{params:params()});if(id===generation)poll.resultsText=data.resultsText;}catch(e){event.target.checked=poll.resultsText;if(id===generation)error.value=e.response?.data?.error?.message||'Unable to save your preference.';}finally{busy.value=false;}}
-watch(()=>[props.agencyId,props.pollId],()=>{generation++;polls.value=[];showHistory.value=false;otherReplies.value={};error.value='';notice.value='';if(props.pollId)opened.value=true;if(opened.value)load();});
+const props = defineProps({ agencyId: { type: [Number, String], default: null }, pollId: { type: [Number, String], default: null } });
+const panelId = `staff-polls-${getCurrentInstance().uid}`;
+const polls = ref([]), opened = ref(!!props.pollId), loading = ref(false), busy = ref(null), error = ref(''), notice = ref('');
+const showHistory = ref(false), choices = ref({}), otherReplies = ref({}), changing = ref({}), now = ref(Date.now());
+const closingTimes = ref({});
+let context = 0, request = 0, timer;
+const isClosed = poll => !!poll.closedAt || (!!poll.closesAt && new Date(poll.closesAt).getTime() <= now.value);
+const relevantPolls = computed(() => props.pollId ? polls.value.filter(p => Number(p.id) === Number(props.pollId)) : polls.value);
+const activePolls = computed(() => relevantPolls.value.filter(p => !isClosed(p)));
+const pastPolls = computed(() => relevantPolls.value.filter(isClosed));
+const pendingCount = computed(() => activePolls.value.filter(p => !p.myResponse && p.canVote !== false).length);
+const headingStatus = computed(() => loading.value && !polls.value.length ? 'Checking polls…' : error.value && !polls.value.length ? 'Polls unavailable' : pendingCount.value ? `${pendingCount.value} need${pendingCount.value === 1 ? 's' : ''} your vote` : activePolls.value.length ? `${activePolls.value.length} open` : 'All caught up');
+const deadlineOrder = (a, b) => (new Date(a.closesAt).getTime() || Infinity) - (new Date(b.closesAt).getTime() || Infinity);
+const nextDeadline = computed(() => [...activePolls.value].filter(p => p.closesAt).sort(deadlineOrder)[0]);
+const visiblePolls = computed(() => props.pollId ? polls.value.filter(p => Number(p.id) === Number(props.pollId)) : [...(showHistory.value ? pastPolls.value : activePolls.value)].sort(showHistory.value ? (a, b) => -deadlineOrder(a, b) : deadlineOrder));
+const params = poll => ({ agencyId: poll?.agencyId || props.agencyId || undefined });
+const moment = (value, poll) => { if (!value || !Number.isFinite(new Date(value).getTime())) return 'Date to be confirmed'; try { return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short', timeZone: poll.timezone || undefined }).format(new Date(value)); } catch { return new Date(value).toLocaleString(); } };
+const dueSoon = poll => !isClosed(poll) && new Date(poll.closesAt).getTime() - now.value <= 86400000;
+function remaining(poll) { const minutes = Math.max(1, Math.ceil((new Date(poll.closesAt).getTime() - now.value) / 60000)); return minutes < 60 ? `${minutes}m left` : minutes < 1440 ? `${Math.ceil(minutes / 60)}h left` : `${Math.ceil(minutes / 1440)} days left`; }
+const optionLabel = (poll, key) => poll.options.find(o => o.key === key)?.label || key;
+const answer = poll => poll.myResponse.label || optionLabel(poll, poll.myResponse.key || poll.myResponse.original) || poll.myResponse.original;
+const sourceLabel = source => ({ sms: 'Voted by text', in_app: 'Voted in the app', email: 'Voted from email', public_link: 'Voted from a link' }[source] || 'Vote recorded');
+const voteTotal = poll => (poll.results || []).reduce((total, r) => total + Number(r.total || 0), 0);
+const percent = (poll, count) => voteTotal(poll) ? Math.round(100 * Number(count || 0) / voteTotal(poll)) : 0;
+const isMine = (poll, key) => poll.myResponse && !poll.myResponse.excluded && (poll.myResponse.bucketKey || poll.myResponse.key || poll.myResponse.original) === key;
+const organizerOnlyResults = poll => poll.canManage && (poll.shareResults === false || (!isClosed(poll) && poll.resultsVisibility !== 'live'));
+function localInput(value) { const date = new Date(value); return Number.isFinite(date.getTime()) ? new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16) : ''; }
+const selectedAnswer = poll => choices.value[poll.id] === '__other' ? String(otherReplies.value[poll.id] || '').trim() : String(choices.value[poll.id] || '');
+function startChange(poll) { changing.value[poll.id] = true; const key = poll.myResponse.key || poll.myResponse.original; choices.value[poll.id] = poll.options.some(o => o.key === key) ? key : poll.allowOther ? '__other' : ''; otherReplies.value[poll.id] = poll.myResponse.original; }
+async function load(quiet = false) {
+  const id = ++request, scope = context; if (!quiet) loading.value = true;
+  try {
+    const { data } = await api.get('/me/staff-polls', { params: params() });
+    if (scope !== context || id !== request) return;
+    const previous = new Set(activePolls.value.map(p => p.id));
+    polls.value = Array.isArray(data) ? data : []; now.value = Date.now(); error.value = '';
+    if (props.pollId || activePolls.value.some(p => !previous.has(p.id))) opened.value = true;
+  } catch (e) { if (scope === context && id === request) { error.value = e.response?.data?.error?.message || 'Unable to load staff polls.'; if (!polls.value.length) opened.value = true; } }
+  finally { if (scope === context && id === request) loading.value = false; }
+}
+async function vote(poll) {
+  const key = selectedAnswer(poll); if (!key || busy.value || isClosed(poll)) return;
+  const scope = context; busy.value = poll.id; error.value = ''; notice.value = '';
+  try {
+    await api.post(`/me/company-events/${poll.id}/respond`, { responseKey: key, agencyId: poll.agencyId || props.agencyId }, { params: params(poll) });
+    if (scope !== context) return;
+    changing.value[poll.id] = false; notice.value = `Your vote for “${poll.title}” was saved: ${optionLabel(poll, key)}.`; await load(true);
+  } catch (e) { if (scope === context) error.value = e.response?.data?.error?.message || 'Unable to record your vote.'; }
+  finally { if (scope === context) busy.value = null; }
+}
+async function setPreference(poll, event) {
+  const value = event.target.checked, scope = context; busy.value = poll.id; error.value = '';
+  try { const { data } = await api.put(`/me/staff-polls/${poll.id}/results-preference`, { resultsText: value }, { params: params(poll) }); if (scope === context) poll.resultsText = data.resultsText; }
+  catch (e) { if (scope === context) { event.target.checked = poll.resultsText; error.value = e.response?.data?.error?.message || 'Unable to save your preference.'; } }
+  finally { if (scope === context) busy.value = null; }
+}
+function refresh() { now.value = Date.now(); if (!busy.value && !loading.value && document.visibilityState !== 'hidden') load(true); }
+async function scheduleClosing(poll) {
+  const value = closingTimes.value[poll.id] ?? localInput(poll.closesAt), date = new Date(value);
+  if (!Number.isFinite(date.getTime()) || date.getTime() <= Date.now()) { error.value = 'Choose a future closing date and time.'; return; }
+  const scope = context; busy.value = poll.id; error.value = '';
+  try { await api.put(`/me/staff-polls/${poll.id}/closing`, { closesAt: date.toISOString() }, { params: params(poll) }); if (scope === context) { delete closingTimes.value[poll.id]; notice.value = `Closing time saved for “${poll.title}”.`; await load(true); } }
+  catch (e) { if (scope === context) error.value = e.response?.data?.error?.message || 'Unable to schedule closing.'; }
+  finally { if (scope === context) busy.value = null; }
+}
+async function closeNow(poll) {
+  if (!window.confirm(`Close “${poll.title}” now? Responses can no longer be changed. Requested final-results texts will be sent.`)) return;
+  const scope = context; busy.value = poll.id; error.value = '';
+  try { await api.post(`/me/staff-polls/${poll.id}/close`, {}, { params: params(poll) }); if (scope === context) { notice.value = `“${poll.title}” is closed.`; showHistory.value = true; await load(true); } }
+  catch (e) { if (scope === context) error.value = e.response?.data?.error?.message || 'Unable to close the poll.'; }
+  finally { if (scope === context) busy.value = null; }
+}
+watch(() => [props.agencyId, props.pollId], () => { context++; request++; polls.value = []; opened.value = !!props.pollId; showHistory.value = false; choices.value = {}; closingTimes.value = {}; changing.value = {}; otherReplies.value = {}; busy.value = null; notice.value = ''; error.value = ''; load(); }, { immediate: true });
+onMounted(() => { timer = setInterval(refresh, 30000); window.addEventListener('focus', refresh); document.addEventListener('visibilitychange', refresh); });
+onBeforeUnmount(() => { context++; request++; clearInterval(timer); window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', refresh); });
 </script>
 <style scoped>
-.staff-polls{margin-top:16px;border-top:1px solid #ccd6dd;padding-top:12px}summary{cursor:pointer;font-weight:600}article{border-bottom:1px solid #ddd;padding:12px 0}button{margin:4px 8px 8px 0}label{display:block;margin:10px 0}.hint{font-size:.85rem}[role=alert]{color:#b91c1c}
+.staff-polls{--poll-ink:#152c50;--poll-muted:#53647c;--poll-blue:#245ccb;margin-top:18px;border:1px solid #dce5f2;border-radius:16px;background:#f7f9fe;color:var(--poll-ink);font-size:14px;line-height:1.5;overflow:hidden}.staff-polls *{box-sizing:border-box}.poll-heading{display:flex;align-items:center;gap:12px;padding:18px;cursor:pointer;list-style:none;background:#fff}.poll-heading::-webkit-details-marker{display:none}.poll-brand{display:grid;gap:6px;flex-shrink:0}.poll-brand img{object-fit:contain;object-position:left}.poll-heading-title{font-size:18px;font-weight:750;letter-spacing:-.02em;color:var(--poll-ink)}.poll-overview{display:grid;justify-items:end;gap:6px;margin-left:auto;text-align:right}.poll-count,.poll-status{display:inline-flex;align-items:center;border-radius:999px;padding:4px 10px;font-size:12px;font-weight:700;background:#edf2fa;color:#455873}.poll-count--attention{background:#eaf0ff;color:#214fa9}.needs-vote .poll-count--attention{animation:poll-breathe 3s ease-in-out infinite}.poll-next-deadline{font-size:11px;color:var(--poll-muted);max-width:220px}.poll-chevron{font-size:20px;color:#53647c;transition:transform .2s}.staff-polls[open] .poll-chevron{transform:rotate(180deg)}.poll-content{padding:0 16px 8px;border-top:1px solid #e3e9f4}.poll-tabs{display:flex;gap:8px;padding:16px 0}.poll-tabs button{border:1px solid transparent;border-radius:8px;background:transparent;color:var(--poll-muted);padding:7px 12px;font:inherit;font-weight:600;cursor:pointer}.poll-tabs button[aria-pressed=true]{background:#fff;border-color:#cddaf0;color:var(--poll-blue);box-shadow:0 1px 3px #183b6e0a}.poll-tabs span{margin-left:5px;font-size:12px}.poll-card{border:1px solid #dce5f2;background:#fff;border-radius:12px;padding:20px;margin:0 0 14px;color:var(--poll-ink)}.poll-card-header{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}.poll-eyebrow{display:block;text-transform:uppercase;font-size:10px;font-weight:750;letter-spacing:.09em;color:var(--poll-muted);margin-bottom:4px}.poll-card h3{font-size:17px;line-height:1.35;margin:0;color:var(--poll-ink);font-weight:750;overflow-wrap:anywhere}.poll-status{white-space:nowrap;font-size:10px;background:#fff3db;color:#8b570c}.poll-status--voted{background:#e5f4ed;color:#176447}.poll-status--closed{background:#edf1f7;color:#53647c}.poll-deadline{display:flex;gap:7px;margin-top:12px;font-size:11px;color:var(--poll-muted)}.poll-deadline--soon{color:#935907}.poll-question{font-size:15px;line-height:1.6;color:#293e5f;margin:16px 0}.poll-vote-form fieldset{padding:0;margin:0;border:0;min-width:0}.poll-vote-form legend{font-size:12px;font-weight:650;margin-bottom:10px;color:var(--poll-muted)}.poll-option{display:flex;align-items:center;gap:10px;border:1px solid #dae3f0;border-radius:9px;padding:12px;margin-bottom:8px;cursor:pointer;line-height:1.45;font-weight:500;background:#fff;color:#263c60}.poll-option:hover{border-color:#98b2e3;background:#f8faff}.poll-option--selected{border-color:#4575d3;background:#eef3ff;box-shadow:0 0 0 1px #4575d3}.poll-option input,.poll-text-preference input{accent-color:var(--poll-blue);width:16px;height:16px;flex-shrink:0;margin:0}.poll-option-number{color:#718199;font-size:11px;font-weight:700}.poll-form-actions{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin-top:14px}.poll-form-actions>span{font-size:11px;color:var(--poll-muted)}.poll-primary,.poll-secondary{padding:9px 16px;border:1px solid var(--poll-blue);border-radius:8px;background:var(--poll-blue);color:#fff;font:inherit;font-weight:650;cursor:pointer}.poll-secondary{background:white;color:var(--poll-blue)}.poll-written{display:grid;gap:6px;font-size:12px;margin-top:10px}.poll-written textarea{resize:vertical;padding:10px;border:1px solid #adbed8;border-radius:8px;font:inherit;color:var(--poll-ink);background:#fff;width:100%}.poll-receipt{display:flex;gap:12px;padding:14px;background:#edf7f3;border:1px solid #cde8db;border-radius:10px}.poll-receipt-check{display:grid;place-items:center;flex-shrink:0;width:26px;height:26px;border-radius:50%;background:#d0eadc;color:#126244;font-weight:750}.poll-receipt .poll-eyebrow{color:#22654f}.poll-answer{display:block;font-size:15px;line-height:1.5;color:#174b3b;overflow-wrap:anywhere}.poll-vote-meta{display:block;font-size:11px;color:#496b60;margin-top:4px}.poll-review-note{font-size:12px;color:#57657a;margin:8px 0 0}.poll-text-button{background:none;border:0;padding:9px 0;font:inherit;font-size:12px;font-weight:650;color:var(--poll-blue);cursor:pointer}.poll-results{border-top:1px solid #e9edf5;margin-top:18px;padding-top:14px}.poll-results-heading{display:flex;justify-content:space-between;align-items:center;gap:8px}.poll-results h4{font-size:13px;color:var(--poll-ink);margin:0}.poll-results-heading>span{font-size:11px;color:var(--poll-muted)}.poll-bars{padding:0;margin:14px 0;list-style:none;display:grid;gap:14px}.poll-bar-label{display:flex;justify-content:space-between;align-items:baseline;gap:12px;font-size:12px;line-height:1.45;margin-bottom:6px}.poll-bar-label>span{overflow-wrap:anywhere}.poll-bar-label>strong{white-space:nowrap;font-size:12px}.poll-bar-label>strong>span{color:var(--poll-muted);font-weight:400}.poll-bar-label small{display:inline-block;margin-left:5px;color:#176447;font-size:9px;font-weight:750;background:#e5f4ed;border-radius:4px;padding:2px 5px}.poll-bar-track{background:#edf1f8;border-radius:5px;height:9px;overflow:hidden}.poll-bar-fill{height:100%;background:#7396db;border-radius:5px;transition:width .35s ease}.poll-bar--mine .poll-bar-fill{background:#218364}.poll-hint{font-size:11px;line-height:1.6;color:var(--poll-muted);margin:7px 0}.poll-linked-event{display:flex;gap:10px;align-items:center;background:#f3f5fc;border-radius:9px;margin-top:16px;padding:12px}.poll-linked-event>div{min-width:0;flex:1}.poll-linked-event strong,.poll-linked-event>div>span:last-child{display:block}.poll-linked-event strong{font-size:12px;overflow-wrap:anywhere}.poll-linked-event>div>span:last-child{font-size:11px;color:var(--poll-muted);margin-top:3px}.poll-event-symbol{font-size:23px;color:#697fb1}.poll-linked-event a{font-size:12px;font-weight:650;white-space:nowrap;color:var(--poll-blue);text-decoration:none}.poll-linked-event>p{font-size:12px;color:var(--poll-muted);margin:0}.poll-text-preference{border-top:1px solid #e9edf5;margin-top:16px;padding-top:14px}.poll-text-preference label{display:flex;align-items:center;gap:9px;font-size:12px;color:#344a6a;font-weight:550}.poll-footer{display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--poll-muted)}.poll-empty{color:var(--poll-muted);padding:10px 0;font-size:13px}.poll-error,.poll-notice{border-radius:8px;padding:12px;font-size:13px;margin:14px 0}.poll-error{color:#a11d32;background:#fff0f2}.poll-notice{color:#165c42;background:#e8f5ed}.staff-polls button:disabled{opacity:.55;cursor:default}.staff-polls :is(button,a,input,textarea,summary):focus-visible{outline:3px solid #83b5ff;outline-offset:3px}@keyframes poll-breathe{0%,100%{box-shadow:0 0 0 0 #376de226}50%{box-shadow:0 0 0 5px #376de200}}@media(prefers-reduced-motion:reduce){.needs-vote .poll-count--attention{animation:none}.poll-chevron,.poll-bar-fill{transition:none}}@media(max-width:540px){.poll-heading{padding:14px;gap:8px;flex-wrap:wrap}.poll-brand img{width:112px;height:29px}.poll-heading-title{font-size:17px}.poll-next-deadline{max-width:150px;font-size:10px}.poll-count{font-size:10px;padding:4px 8px}.poll-content{padding:0 10px 6px}.poll-card{padding:14px}.poll-card-header{flex-wrap:wrap}.poll-card h3{font-size:16px}.poll-question{font-size:14px}.poll-linked-event{flex-wrap:wrap}.poll-linked-event a{margin-left:auto}.poll-form-actions>span{width:100%}.poll-option{font-size:13px}}
+</style>
+<style scoped>
+.poll-owner-controls{border-top:1px solid #e0e7f1;padding-top:16px;margin-top:16px}.poll-owner-controls form{display:grid;gap:8px}.poll-owner-controls label{display:grid;gap:6px;font-size:12px;font-weight:600;color:#344a6a}.poll-owner-controls input{width:100%;min-width:0;padding:9px;border:1px solid #b8c8df;border-radius:7px;background:#fff;color:#152c50;font:inherit}.poll-owner-controls .poll-secondary{justify-self:start;font-size:12px}.poll-close-now{margin-top:14px;padding:8px 12px;border:1px solid #e5bec5;border-radius:7px;background:#fff;color:#a02b3e;font:inherit;font-size:12px;font-weight:650;cursor:pointer}
 </style>

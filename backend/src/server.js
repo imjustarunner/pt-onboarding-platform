@@ -2255,6 +2255,16 @@ if (!isBootstrap) {
   scheduleSmsAutoReplies();
   setInterval(scheduleSmsAutoReplies, 5 * 60 * 1000);
 
+  // Explicit staff poll closing schedules are finalized at least every minute.
+  const scheduleStaffPollClosures = async () => {
+    try {
+      const { processScheduledStaffPollClosures } = await import('./controllers/companyEvents.controller.js');
+      await processScheduledStaffPollClosures();
+    } catch (error) { console.error('Error in scheduled staff poll closure:', error.code || 'close_failed'); }
+  };
+  scheduleStaffPollClosures();
+  setInterval(scheduleStaffPollClosures, 60 * 1000);
+
   // Company event RSVP reminders (runs every 10 minutes)
   const scheduleCompanyEventReminders = async () => {
     try {

@@ -19,6 +19,9 @@ import { shortPollReplyCode } from '../utils/companyEventSms.js';
 import { sendCompanyEventSms, previewCompanyEventSmsDelivery, resolveCompanyEventSmsSender, getCompanyEventSmsReport, getCompanyEventSmsTopic, isCompanyEventSmsMuted, companyEventParticipantSmsAudience, listCompanyEventSmsAttendees, recordCompanyEventPollSmsResponse } from '../services/companyEventSms.service.js';
 import { listOutstandingOutreachCommitments } from '../services/eventOutreachCommitment.service.js';
 import pool from '../config/database.js';
+import { pollClosedAt, pollDeadline, participantPollResponse, sharedPollResultsAvailable } from '../utils/staffPollPresentation.js';
+import { summarizePollResponses } from '../utils/staffPollResponses.js';
+import { saveStaffPollVote, scheduleStaffPollClosing, closeStaffPoll } from '../services/staffPollLifecycle.service.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import MessageLog from '../models/MessageLog.model.js';
@@ -319,7 +322,9 @@ function parseVotingConfig(raw) {
   const viaSms = pollUsesSms(value);
   const question = String(value.question || '').trim();
   const options = normalizeVotingOptions(value.options);
-  return { enabled, viaSms, deliveryMode, question, options, allowOther:value.allowOther===true, shareResults:value.shareResults!==false };
+  return { enabled, viaSms, deliveryMode, question, options, allowOther:value.allowOther===true, shareResults:value.shareResults!==false,
+    resultsVisibility: value.resultsVisibility === 'live' ? 'live' : 'after_close', linkedEventId: parsePositiveInt(value.linkedEventId) || null,
+    closesAt: value.closesAt && Number.isFinite(new Date(value.closesAt).getTime()) ? new Date(value.closesAt).toISOString() : null };
 }
 
 function parseReminderConfig(raw) {
@@ -638,6 +643,9 @@ function parseEventPayload(body = {}) {
 
   const rsvpMode = String(body.rsvpMode || body.rsvp_mode || 'none').trim().toLowerCase();
   const rawVotingConfig = body.votingConfig || body.voting_config_json || {};
+  if (rawVotingConfig.closesAt != null && (!/(?:Z|[+-]\d{2}:\d{2})$/i.test(String(rawVotingConfig.closesAt)) || !Number.isFinite(new Date(rawVotingConfig.closesAt).getTime()))) return { error: 'Choose a valid closing date and time with a timezone.' };
+  if (rawVotingConfig.linkedEventId != null && rawVotingConfig.linkedEventId !== '' && (!Number.isSafeInteger(Number(rawVotingConfig.linkedEventId)) || Number(rawVotingConfig.linkedEventId) <= 0)) return { error: 'Choose a valid internal event to link.' };
+  if (rawVotingConfig.resultsVisibility !== undefined && !['live', 'after_close'].includes(rawVotingConfig.resultsVisibility)) return { error: 'Choose live results or results after closing.' };
   if (rawVotingConfig.deliveryMode !== undefined && !['internal', 'sms', 'both'].includes(rawVotingConfig.deliveryMode)) return { error: 'Choose Internal, SMS, or Both for poll delivery.' };
   const votingConfig = parseVotingConfig(rawVotingConfig);
   if(votingConfig.enabled)validatePollOptions(votingConfig.options);
@@ -1071,12 +1079,13 @@ async function listEventsVisibleToUser(userId, agencyIds = [], options = {}) {
        ${skillsGroupExclusion}
        AND (
          ce.ends_at >= DATE_SUB(NOW(), INTERVAL ${options.includePollHistory === true ? 90 : 1} DAY)
+         OR (JSON_EXTRACT(ce.voting_config_json, '$.enabled') = TRUE AND NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ce.voting_config_json, '$.closesAt')), 'null') >= ?)
          ${options.includePollHistory === true ? 'OR EXISTS(SELECT 1 FROM company_event_responses mine WHERE mine.company_event_id=ce.id AND mine.user_id=?)' : ''}
          OR JSON_EXTRACT(ce.recurrence_json, '$.frequency') IN ('weekly', 'monthly')
        )
      ORDER BY ce.starts_at ASC
      LIMIT 400`,
-    [userId,...agencyIds,...(options.includePollHistory===true?[userId]:[])]
+    [userId,...agencyIds,new Date().toISOString(),...(options.includePollHistory===true?[userId]:[])]
   );
   if (!rows?.length) return [];
   const eventIds = rows.map((row) => Number(row.id));
@@ -1092,6 +1101,7 @@ async function listEventsVisibleToUser(userId, agencyIds = [], options = {}) {
   return rows.filter((row) => {
     const vote = parseVotingConfig(parseJsonMaybe(row.voting_config_json));
     if ((vote.enabled || ['team_poll', 'direct_notice'].includes(row.event_type)) && !activeTeamAgencies.has(Number(row.agency_id))) return false;
+    if (options.includeOwnedPolls && vote.enabled && Number(row.created_by_user_id) === userId) return true;
     if(options.includePollHistory===true&&row.participated)return true;
     const audience = audienceMap.get(Number(row.id));
     if (!audience) return true;
@@ -1436,11 +1446,11 @@ async function getActiveSmsVotingEvents(agencyId) {
      WHERE agency_id = ?
        AND is_active = 1
        AND voting_closed_at IS NULL
-       AND ends_at >= NOW()
+       AND COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(voting_config_json, '$.closesAt')), 'null'), DATE_FORMAT(ends_at, '%Y-%m-%dT%H:%i:%s.000Z')) >= ?
        AND JSON_EXTRACT(voting_config_json, '$.enabled') = TRUE
        AND JSON_EXTRACT(voting_config_json, '$.viaSms') = TRUE
      ORDER BY starts_at DESC`,
-    [agencyId]
+    [agencyId, new Date().toISOString()]
   );
   return rows || [];
 }
@@ -1700,7 +1710,8 @@ export const listCompanyEventsForAgency = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Admin or staff access required' } });
     }
     const communicationsOnly = String(req.query?.communicationsOnly || '') === '1';
-    if (communicationsOnly) assertConversaTeamManager(req.user);
+    const pollLinkOptions = String(req.query?.pollLinkOptions || '') === '1';
+    if (communicationsOnly || pollLinkOptions) assertConversaTeamManager(req.user);
     const [rows] = await pool.execute(
       `SELECT *
        FROM company_events
@@ -1711,6 +1722,9 @@ export const listCompanyEventsForAgency = async (req, res, next) => {
        LIMIT 300`,
       managesAgency ? [agencyId] : [agencyId, req.user.id]
     );
+    if (pollLinkOptions) return res.json((rows || []).filter(isStaffPollLinkedEvent).map(row => ({
+      id: Number(row.id), title: row.title, startsAt: row.starts_at, isActive: !!row.is_active
+    })));
     const events = (rows || [])
       .filter((row) => communicationsOnly ? isConversaTeamCommunication(row) : canManageConversaTeam(req.user) || !['direct_notice', 'team_poll'].includes(String(row.event_type || '').toLowerCase()))
       .map((row) => ({ ...mapEventRow(row, req), canAssignCoordinators: userCanManageCompanyEvents(req) })).filter((event) => req.query?.paymentStatus !== 'outstanding' || event.paymentOutstanding);
@@ -1926,9 +1940,36 @@ async function validateTeamAudience(agencyId, parsed) {
   if (userIds.some(id => !eligible.has(Number(id)))) throw Object.assign(new Error('The audience includes inactive, school, or non-team accounts. Refresh the team member list.'), { status: 400 });
 }
 
+function isStaffPollLinkedEvent(row) {
+  return row && !['team_poll', 'direct_notice', 'skills_group'].includes(row.event_type)
+    && !isSchoolPortalEventType(row.event_type) && !isServiceProgramEventType(row.event_type);
+}
+
+async function validatePollEventLink(agencyId, parsed, eventId = null) {
+  const linkedId = parsed.votingConfig.linkedEventId;
+  if (!linkedId) return;
+  const target = linkedId === Number(eventId) ? null : await loadEventByIdForAgency(linkedId, agencyId);
+  if (!parsed.votingConfig.enabled || !isStaffPollLinkedEvent(target)) {
+    throw Object.assign(new Error('Link this poll to another internal event in the same agency, or remove the link.'), { status: 400 });
+  }
+}
+
+function staffEventDetails(row) {
+  return { id: Number(row.id), agencyId: Number(row.agency_id), title: row.title, description: row.description || '',
+    startsAt: row.starts_at, endsAt: row.ends_at, timezone: row.timezone || 'UTC',
+    locationName: row.event_location_name || '', locationAddress: row.event_location_address || row.public_location_address || '' };
+}
+
+async function visibleLinkedStaffEvent(row, userId) {
+  if (!isStaffPollLinkedEvent(row) || !Number(row.is_active) || ['canceled', 'cancelled'].includes(row.school_event_status)) return null;
+  if (!await userIsInAudience({ userId, audience: await getAudienceForEvent(Number(row.id)) })) return null;
+  return staffEventDetails(row);
+}
+
 async function createCompanyEventCore(req, agencyId, userId, parsed) {
   assertConversaTeamManager(req.user, parsed);
   await validateTeamAudience(agencyId, parsed);
+  await validatePollEventLink(agencyId, parsed);
   const operations = await validateEventOperations({ body: req.body || {}, actorUserId: userId, agencyId, canAssignCoordinators: userCanManageCompanyEvents(req) });
   let organizationIdForRow = null;
   if (parsed.organizationId) {
@@ -2167,6 +2208,13 @@ export async function persistCompanyEventUpdate(req, agencyId, eventId, body) {
 
   await assertEventCommunicationManager(req, existing, body || {});
   const existingVote = parseJsonMaybe(existing.voting_config_json) || {};
+  // Older editors do not expose these fields; retain the organizer's choices.
+  if (body?.votingConfig) {
+    body = { ...body, votingConfig: { ...body.votingConfig } };
+    for (const key of ['resultsVisibility', 'linkedEventId', 'closesAt']) {
+      if (body.votingConfig[key] === undefined && existingVote[key] !== undefined) body.votingConfig[key] = existingVote[key];
+    }
+  }
   const incomingVote = body?.votingConfig;
   if (existingVote.deliveryMode && incomingVote && incomingVote.deliveryMode === undefined && !!incomingVote.viaSms === pollUsesSms(existingVote)) {
     body = { ...body, votingConfig: { ...incomingVote, deliveryMode: existingVote.deliveryMode } };
@@ -2182,6 +2230,7 @@ export async function persistCompanyEventUpdate(req, agencyId, eventId, body) {
   // old code. New invitations always display the short event topic number.
   if (!parsed.smsCode) parsed.smsCode = existing.sms_code || null;
   await validateTeamAudience(agencyId, parsed);
+  await validatePollEventLink(agencyId, parsed, eventId);
   const operations = await validateEventOperations({ body: body || {}, existing, actorUserId: userId, agencyId, canAssignCoordinators: userCanManageCompanyEvents(req) });
   const delegatedCoordinator = !userCanManageCompanyEvents(req) && await isEventCoordinator({ userId, agencyId, eventId });
   if (delegatedCoordinator && Number(parsed.skillBuilderDirectHours || 0) !== Number(existing.skill_builder_direct_hours || 0)) {
@@ -2662,22 +2711,116 @@ async function hasPollEmailInvitation(eventId, userId) {
 export const listMyStaffPolls = async (req, res, next) => {
   try {
     const agencyIds = await resolveScopedAgencyIdsForMyDashboard(req);
-    const visible = await listEventsVisibleToUser(Number(req.user.id), agencyIds, { excludeSkillsGroupLinkedEvents: true, includePollHistory: true });
+    const visible = await listEventsVisibleToUser(Number(req.user.id), agencyIds, { excludeSkillsGroupLinkedEvents: true, includePollHistory: true, includeOwnedPolls: true });
     const polls = [];
     for (const { row } of visible) {
       const event = mapEventRow(row, req, { myEndpoint: true });
       if (!event.votingConfig.enabled || isServiceProgramEventType(event.eventType)) continue;
-      if (!pollUsesInternal(event.votingConfig) && !row.participated && !await hasPollEmailInvitation(event.id, req.user.id)) continue;
-      polls.push({ deliveryMode: event.votingConfig.deliveryMode, id: event.id, title: event.title, question: event.votingConfig.question || event.title,
-        options: event.votingConfig.options, closedAt: event.votingClosedAt,
-        shareResults:event.votingConfig.shareResults,allowOther:event.votingConfig.allowOther,
-        myResponse:(await reviewedPollResponses(event.id)).filter(r=>Number(r.user_id)===Number(req.user.id)).map(r=>({original:r.response_body,label:r.response_label,bucketKey:r.bucketKey,excluded:r.excluded}))[0]||null,
-        results: event.votingClosedAt && event.votingConfig.shareResults ? await listEventResponseSummary(event.id) : null,
+      const canManage = canManageConversaTeam(req.user) || Number(row.created_by_user_id) === Number(req.user.id);
+      if (!canManage && !pollUsesInternal(event.votingConfig) && !row.participated && !await hasPollEmailInvitation(event.id, req.user.id)) continue;
+      const closedAt = pollClosedAt(event);
+      const responses = await reviewedPollResponses(event.id);
+      const linkedId = event.votingConfig.linkedEventId || (isStaffPollLinkedEvent(row) ? event.id : null);
+      const linkedRow = linkedId ? visible.find(({ row: candidate }) => Number(candidate.id) === linkedId && Number(candidate.agency_id) === event.agencyId)?.row : null;
+      const linkedEvent = linkedId ? await visibleLinkedStaffEvent(linkedRow, Number(req.user.id)) : null;
+      polls.push({ deliveryMode: event.votingConfig.deliveryMode, id: event.id, agencyId: event.agencyId, title: event.title, question: event.votingConfig.question || event.title,
+        options: event.votingConfig.options, closedAt, closesAt: pollDeadline(event), scheduledClosing: !!event.votingConfig.closesAt, timezone: event.timezone,
+        canManage, canVote: !closedAt && await userIsInAudience({ userId: Number(req.user.id), audience: await getAudienceForEvent(event.id) }) && (pollUsesInternal(event.votingConfig) || !!row.participated || await hasPollEmailInvitation(event.id, req.user.id)),
+        shareResults:event.votingConfig.shareResults, resultsVisibility: event.votingConfig.resultsVisibility, allowOther:event.votingConfig.allowOther,
+        linkedEvent: linkedEvent ? { ...linkedEvent, available: true } : linkedId ? { available: false } : null,
+        myResponse: participantPollResponse(responses.find(r => Number(r.user_id) === Number(req.user.id)), event.votingConfig.options),
+        results: canManage || sharedPollResultsAvailable(event.votingConfig, closedAt) ? summarizePollResponses(responses, event.votingConfig.options) : null,
         resultsText: await getPollResultPreference(event.id, req.user.id) });
     }
     res.json(polls);
   } catch (error) { next(error); }
 };
+
+export const getMyStaffEvent = async (req, res, next) => {
+  try {
+    const agencyIds = await resolveScopedAgencyIdsForMyDashboard(req);
+    const userId = Number(req.user.id), eventId = parsePositiveInt(req.params.eventId);
+    const visible = await listEventsVisibleToUser(userId, agencyIds, { excludeSkillsGroupLinkedEvents: true, includePollHistory: true });
+    const row = visible.find(item => Number(item.row.id) === eventId)?.row;
+    const member = row && (await listActiveTeamMembers(Number(row.agency_id), pool, userId)).some(user => Number(user.id) === userId);
+    const event = member ? await visibleLinkedStaffEvent(row, userId) : null;
+    if (!event) return res.status(404).json({ error: { message: 'Event details are not available for your account.' } });
+    res.json(event);
+  } catch (error) { next(error); }
+};
+
+export const updateCompanyEventPollPresentation = async (req, res, next) => {
+  try {
+    assertConversaTeamManager(req.user);
+    const agencyId = parsePositiveInt(req.params.id), eventId = parsePositiveInt(req.params.eventId);
+    if (!agencyId || !eventId) return res.status(400).json({ error: { message: 'Invalid poll' } });
+    if (!await userHasAgencyAccess(req, agencyId)) return res.status(403).json({ error: { message: 'Not authorized for this agency' } });
+    const row = await loadEventByIdForAgency(eventId, agencyId);
+    const original = parseJsonMaybe(row?.voting_config_json) || {};
+    if (!row || !original.enabled || isServiceProgramEventType(row.event_type)) return res.status(404).json({ error: { message: 'Staff poll not found' } });
+    const body = req.body || {};
+    if ((body.shareResults !== undefined && typeof body.shareResults !== 'boolean')
+      || (body.resultsVisibility !== undefined && !['live', 'after_close'].includes(body.resultsVisibility))
+      || (body.linkedEventId != null && (!Number.isSafeInteger(Number(body.linkedEventId)) || Number(body.linkedEventId) <= 0))) {
+      return res.status(400).json({ error: { message: 'Choose valid sharing settings and an optional internal event.' } });
+    }
+    const changes = Object.fromEntries(['shareResults', 'resultsVisibility', 'linkedEventId'].filter(key => body[key] !== undefined).map(key => [key, body[key]]));
+    const votingConfig = parseVotingConfig({ ...original, ...changes });
+    await validatePollEventLink(agencyId, { eventType: row.event_type, votingConfig }, eventId);
+    await pool.execute(`UPDATE company_events SET voting_config_json = JSON_SET(COALESCE(voting_config_json, JSON_OBJECT()),
+      '$.shareResults', CAST(? AS JSON), '$.resultsVisibility', ?, '$.linkedEventId', CAST(? AS JSON)),
+      updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND agency_id = ?`,
+      [JSON.stringify(votingConfig.shareResults), votingConfig.resultsVisibility, JSON.stringify(votingConfig.linkedEventId), Number(req.user.id), eventId, agencyId]);
+    res.json({ votingConfig });
+  } catch (error) { next(error); }
+};
+
+async function dashboardManagedPoll(req) {
+  const agencyIds = await resolveScopedAgencyIdsForMyDashboard(req);
+  const eventId = parsePositiveInt(req.params.eventId);
+  const [rows] = await pool.execute('SELECT * FROM company_events WHERE id = ? LIMIT 1', [eventId]);
+  const row = rows[0];
+  if (!row || !agencyIds.map(Number).includes(Number(row.agency_id)) || !Number(row.is_active)
+    || !parseVotingConfig(parseJsonMaybe(row.voting_config_json)).enabled || isServiceProgramEventType(row.event_type)) {
+    throw Object.assign(new Error('Poll not found'), { status: 404 });
+  }
+  const active = (await listActiveTeamMembers(Number(row.agency_id), pool, Number(req.user.id))).some(user => Number(user.id) === Number(req.user.id));
+  if (!active || (!canManageConversaTeam(req.user) && Number(row.created_by_user_id) !== Number(req.user.id))) {
+    throw Object.assign(new Error('Only the poll owner or an agency administrator can manage closing.'), { status: 403 });
+  }
+  return row;
+}
+
+export const scheduleMyStaffPollClosing = async (req, res, next) => {
+  try {
+    const row = await dashboardManagedPoll(req);
+    res.json(await scheduleStaffPollClosing({ eventId: Number(row.id), agencyId: Number(row.agency_id), actorUserId: Number(req.user.id), closesAt: req.body?.closesAt }));
+  } catch (error) { next(error); }
+};
+
+export const closeMyStaffPoll = async (req, res, next) => {
+  try {
+    const row = await dashboardManagedPoll(req);
+    const result = await closeStaffPoll({ eventId: Number(row.id), agencyId: Number(row.agency_id) });
+    let resultTexts;
+    try { resultTexts = await sendClosedPollResults(result.row, req); } catch { resultTexts = { reason: 'results_delivery_failed' }; }
+    res.json({ ok: true, closedAt: result.row.voting_closed_at, resultTexts });
+  } catch (error) { next(error); }
+};
+
+export async function processScheduledStaffPollClosures() {
+  const [rows] = await pool.execute(`SELECT * FROM company_events WHERE is_active = 1 AND voting_closed_at IS NULL
+    AND JSON_EXTRACT(voting_config_json, '$.enabled') = TRUE
+    AND JSON_UNQUOTE(JSON_EXTRACT(voting_config_json, '$.closesAt')) <= ?
+    ORDER BY JSON_UNQUOTE(JSON_EXTRACT(voting_config_json, '$.closesAt')) LIMIT 100`, [new Date().toISOString()]);
+  for (const row of rows) {
+    if (isServiceProgramEventType(row.event_type) || isSchoolPortalEventType(row.event_type)) continue;
+    try {
+      const result = await closeStaffPoll({ eventId: Number(row.id), agencyId: Number(row.agency_id), scheduledOnly: true });
+      if (result.closed) await sendClosedPollResults(result.row, null);
+    } catch (error) { console.warn('Scheduled staff poll closure:', row.id, error.code || 'close_failed'); }
+  }
+}
 
 export const updateMyPollResultPreference = async (req, res, next) => {
   try {
@@ -2689,7 +2832,7 @@ export const updateMyPollResultPreference = async (req, res, next) => {
     const event = mapEventRow(target.row, req);
     if (!event.votingConfig.enabled || isServiceProgramEventType(event.eventType)) return res.status(400).json({ error: { message: 'Not an internal poll' } });
     if (req.body.resultsText === true && !event.votingConfig.shareResults) return res.status(400).json({error:{message:'The organizer is not sharing results for this poll.'}});
-    if (event.votingClosedAt && req.body.resultsText === true) return res.status(409).json({ error: { message: 'Voting has closed. View final results in the app.' } });
+    if (pollClosedAt(event) && req.body.resultsText === true) return res.status(409).json({ error: { message: 'Voting has closed. View final results in the app.' } });
     res.json({ resultsText: await setPollResultPreference(eventId, req.user.id, req.body.resultsText) });
   } catch (error) { next(error); }
 };
@@ -3960,28 +4103,17 @@ export const respondToMyCompanyEvent = async (req, res, next) => {
     if (!event.votingConfig.enabled) {
       return res.status(400).json({ error: { message: 'RSVP/Voting is not enabled for this event' } });
     }
-    if (event.votingClosedAt) {
+    if (pollClosedAt(event)) {
       return res.status(400).json({ error: { message: 'Voting is closed for this event' } });
     }
-    if ((!pollUsesInternal(event.votingConfig) && !await hasPollEmailInvitation(eventId, userId)) || new Date(event.endsAt) < new Date()) return res.status(400).json({ error: { message: 'Online voting is not available for this poll.' } });
+    if (!pollUsesInternal(event.votingConfig) && !target.row.participated && !await hasPollEmailInvitation(eventId, userId)) return res.status(400).json({ error: { message: 'Online voting is not available for this poll.' } });
     const reply=req.body?.responseKey||req.body?.response||'';
     const parsed = parseResponseInput(reply, event.votingConfig.options)||unmatchedPollReply(reply,event.votingConfig.allowOther);
     if (!parsed) {
       return res.status(400).json({ error: { message: 'Invalid response option' } });
     }
 
-    await pool.execute(
-      `INSERT INTO company_event_responses
-       (company_event_id, user_id, response_key, response_label, response_body, source, received_at)
-       VALUES (?, ?, ?, ?, ?, 'in_app', NOW())
-       ON DUPLICATE KEY UPDATE
-         response_key = VALUES(response_key),
-         response_label = VALUES(response_label),
-         response_body = VALUES(response_body),
-         source = VALUES(source),
-         received_at = VALUES(received_at)`,
-      [eventId, userId, parsed.key, parsed.label, parsed.raw]
-    );
+    await saveStaffPollVote({ eventId, agencyId: event.agencyId, userId, response: parsed, source: 'in_app' });
     await dismissPollNotification(eventId, userId);
     res.json({ ok: true, responseKey: parsed.key, responseLabel: parsed.label });
   } catch (error) {
@@ -4315,6 +4447,7 @@ export const handleCompanyEventInbound = async ({ from, to, body, smsTopicEventI
     const audience = await getAudienceForEvent(row.id);
     if (await userIsInAudience({ userId: Number(user.id), audience })) {
       const event = mapEventRow(row, null);
+      if (pollClosedAt(event)) continue;
       event.smsTopicCode = shortPollReplyCode(await getCompanyEventSmsTopic(event.id, agencyId));
       eligibleEvents.push(event);
     }
@@ -4335,19 +4468,12 @@ export const handleCompanyEventInbound = async ({ from, to, body, smsTopicEventI
     return { handled: true, agencyId, eventId: targetEvent.id, responseMessage: `${await companyEventSmsInstructions(targetEvent)}\n${eventMuteInstruction}` };
   }
 
-  await pool.execute(
-    `INSERT INTO company_event_responses
-     (company_event_id, user_id, response_key, response_label, response_body, source, from_number, received_at)
-     VALUES (?, ?, ?, ?, ?, 'sms', ?, NOW())
-     ON DUPLICATE KEY UPDATE
-       response_key = VALUES(response_key),
-       response_label = VALUES(response_label),
-       response_body = VALUES(response_body),
-       source = VALUES(source),
-       from_number = VALUES(from_number),
-       received_at = VALUES(received_at)`,
-    [targetEvent.id, Number(user.id), parsed.key, parsed.label, parsed.raw, MessageLog.normalizePhone(from) || from]
-  );
+  try {
+    await saveStaffPollVote({ eventId: targetEvent.id, agencyId, userId: Number(user.id), response: parsed, source: 'sms', fromNumber: MessageLog.normalizePhone(from) || from });
+  } catch (error) {
+    if (error.code !== 'poll_closed') throw error;
+    return { handled: true, agencyId, eventId: targetEvent.id, responseMessage: 'Voting has closed. Your previous response is unchanged.' };
+  }
   await dismissPollNotification(targetEvent.id, Number(user.id));
   await recordCompanyEventPollSmsResponse({ eventId: targetEvent.id, userId: user.id, responseKey: parsed.key });
   const acknowledgment = parsed.key === '__UNCLASSIFIED__' ? 'Thanks! Your reply was saved for the organizer to review.' : `Thanks! Recorded: ${parsed.label}.`;

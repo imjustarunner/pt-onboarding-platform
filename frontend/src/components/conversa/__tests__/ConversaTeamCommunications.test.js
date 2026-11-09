@@ -200,3 +200,21 @@ it('removes an opted-out selection when switching from Both to SMS only', async 
   expect(w.get('.team-recipients input').element.checked).toBe(false);
   expect(w.get('.team-primary').element.disabled).toBe(true); w.unmount();
 });
+
+it('lets organizers choose a deadline, live totals, and an optional internal event without sending the saved poll', async () => {
+  api.get.mockImplementation((url, config) => Promise.resolve({ data: url.endsWith('/audience-options') ? { users }
+    : config?.params?.pollLinkOptions ? [{ id: 90, title: 'Team dinner', isActive: true }] : [] }));
+  api.post.mockResolvedValue({ data: { id: 22 } });
+  const w = mount(Team, { props: { agencyId: 4 } }); await flushPromises();
+  await w.get('select').setValue('poll'); await flushPromises();
+  await w.get('input[required]').setValue('Date for dinner');
+  await w.get('input[maxlength="255"]').setValue('Which day?');
+  await w.get('[aria-label="Voting deadline"]').setValue('2099-11-12T12:00');
+  await w.get('[aria-label="Results visibility"]').setValue('live');
+  await w.get('[aria-label="Linked internal event"]').setValue('90');
+  await w.get('.team-recipients input').setValue(true);
+  await w.findAll('button').find(b => b.text() === 'Save without sending').trigger('click'); await flushPromises();
+  expect(api.post).toHaveBeenCalledWith('/agencies/4/company-events', expect.objectContaining({ endsAt: new Date('2099-11-12T12:00').toISOString(), votingConfig: expect.objectContaining({ linkedEventId: 90, resultsVisibility: 'live', shareResults: true }) }));
+  expect(api.post.mock.calls.some(([url]) => url.endsWith('/send-poll'))).toBe(false);
+  w.unmount();
+});

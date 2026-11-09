@@ -79,6 +79,7 @@ import {
   classifyCompanyEventResponse,
   listCompanyEventDeliveryLogs,
   closeCompanyEventVoting,
+  updateCompanyEventPollPresentation,
   sendCompanyEventVotingSms,
   previewCompanyEventPollDelivery,
   sendCompanyEventDirectMessage,
@@ -697,6 +698,7 @@ router.get('/:id/company-events/:eventId/session-surveys', authenticate, listCom
 router.post('/:id/company-events/:eventId/session-surveys', authenticate, attachCompanyEventSessionSurvey);
 router.delete('/:id/company-events/:eventId/session-surveys/:attachmentId', authenticate, detachCompanyEventSessionSurvey);
 router.post('/:id/company-events/:eventId/close-voting', authenticate, closeCompanyEventVoting);
+router.put('/:id/company-events/:eventId/presentation', authenticate, updateCompanyEventPollPresentation);
 router.post('/:id/company-events/:eventId/send-sms-vote', authenticate, sendCompanyEventVotingSms);
 router.post('/:id/company-events/:eventId/send-poll', authenticate, sendCompanyEventVotingSms);
 router.get('/:id/company-events/:eventId/poll-delivery-preview', authenticate, previewCompanyEventPollDelivery);

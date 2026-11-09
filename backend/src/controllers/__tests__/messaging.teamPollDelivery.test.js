@@ -1,6 +1,6 @@
 import { beforeEach, describe, it, expect, vi } from 'vitest';
-const mock = vi.hoisted(() => ({ execute: vi.fn(), sms: vi.fn(), email: vi.fn(), agency: vi.fn(), prepare: vi.fn(), notification: vi.fn(), communication: vi.fn() }));
-vi.mock('../../config/database.js', () => ({ default: { execute: mock.execute, query: mock.execute }, onTableWrite: vi.fn() }));
+const mock = vi.hoisted(() => ({ execute: vi.fn(), getConnection: vi.fn(), sms: vi.fn(), email: vi.fn(), agency: vi.fn(), prepare: vi.fn(), notification: vi.fn(), communication: vi.fn() }));
+vi.mock('../../config/database.js', () => ({ default: { execute: mock.execute, query: mock.execute, getConnection: mock.getConnection }, onTableWrite: vi.fn() }));
 vi.mock('../../utils/userAgencyAffiliationAccess.js', () => ({ userHasAgencyOrAffiliatedOrgAccessForRequest: async () => true }));
 vi.mock('../../utils/meDashboardTenantScope.js', () => ({ resolveScopedAgencyIdsForMyDashboard: async () => [4] }));
 vi.mock('../../models/Agency.model.js', () => ({ default: { findById: mock.agency } }));
@@ -21,15 +21,18 @@ vi.mock('../../services/companyEventSms.service.js', () => ({
 vi.mock('../../utils/smsCompliancePolicy.js', () => ({ validateSmsRegistration: () => [] }));
 import * as controller from '../companyEvents.controller.js';
 import { resolveCompanyEventSmsSender } from '../../services/companyEventSms.service.js';
-let event, users, replies, emailInvited;
+let event, users, replies, emailInvited, linkedEvents, linkedAudiences;
 const member = { id: 2, first_name: 'Taylor', role: 'provider', is_active: 1, membership_active: 1, status: 'ACTIVE_EMPLOYEE', personal_phone: '+13035550101' };
 const req = () => ({ user: { id: 2, role: 'admin' }, params: { id: '4', eventId: '20' }, query: {}, body: {}, path: '/4/company-events/20/send-poll' });
 async function invoke(name, request = req()) {
   const res = { status: vi.fn().mockReturnThis(), json: vi.fn().mockReturnThis() }, next = vi.fn();
   await controller[name](request, res, next); expect(next).not.toHaveBeenCalled(); return res;
 }
+async function pollsForParticipant() { const request = req(); request.user.role = 'provider'; return invoke('listMyStaffPolls', request); }
 beforeEach(() => {
   vi.clearAllMocks(); replies = new Map(); emailInvited = new Set();
+  linkedEvents = new Map(); linkedAudiences = new Map();
+  mock.getConnection.mockResolvedValue({ execute: mock.execute, beginTransaction: vi.fn(), commit: vi.fn(), rollback: vi.fn(), release: vi.fn() });
   mock.agency.mockResolvedValue({ id: 4, slug: 'itsco', feature_flags: { smsNumbersEnabled: true, companyEventsEnabled: true, companyEventsSenderNumberId: 8 } });
   mock.email.mockResolvedValue({ id: 'email-accepted' });
   users = [member, { ...member, id: 3, personal_phone: '+13035550103', status: 'INACTIVE_EMPLOYEE' }, { ...member, id: 4, personal_phone: '+13035550104', role: 'school_staff' }, { ...member, id: 5, personal_phone: '+13035550105', notification_categories: { staff_communications_4: { choices: { polling: false } } } }];
@@ -39,12 +42,17 @@ beforeEach(() => {
     if (sql.includes('INSERT INTO company_event_dispatch_logs') && args[2] === 'email' && args[5] === 'sent') emailInvited.add(args[1]);
     if (sql.includes('SELECT id FROM company_event_dispatch_logs')) return [emailInvited.has(Number(args[1])) ? [{ id: 1 }] : []];
     if (sql.includes('FROM users u JOIN user_agencies ua')) return [users.filter(u => !sql.includes('AND u.id = ?') || u.id === args[1])];
-    if (sql.includes('FROM company_event_audiences')) return [users.map(u => ({ company_event_id: 20, audience_type: 'user', target_id: u.id }))];
+    if (sql.includes('FROM company_event_audiences')) return [[...users.map(u => ({ company_event_id: 20, audience_type: 'user', target_id: u.id })),
+      ...[...linkedEvents.keys()].flatMap(id => (linkedAudiences.get(id) || [2]).map(userId => ({ company_event_id: id, audience_type: 'user', target_id: userId })))]];
     if (sql.includes('INSERT INTO company_event_responses')) { replies.set(args[1], { id: args[1], user_id: args[1], response_key: args[2], response_label: args[3], response_body: args[4] }); return [{ insertId: args[1] }]; }
-    if (sql.includes('SELECT ce.*')) return [[{ ...event, participated: replies.has(2) ? 1 : 0 }]];
+    if (sql.includes('SELECT ce.*')) return [[{ ...event, participated: replies.has(2) ? 1 : 0 }, ...[...linkedEvents.values()].filter(row => row.agency_id === 4 && row.is_active)]];
     if (sql.includes('FROM company_event_responses')) return [[...replies.values()].filter(r => !sql.includes('AND user_id = ?') || r.user_id === args[1])];
     if (sql.includes('INSERT INTO company_events')) return [{ insertId: 20 }];
-    if (sql.includes('FROM company_events')) return [[event]];
+    if (sql.includes('FROM company_events')) {
+      if (sql.includes('WHERE agency_id = ?')) return [[event, ...linkedEvents.values()].filter(row => row.agency_id === Number(args[0]))];
+      const target = Number(args[0]) === 20 ? event : linkedEvents.get(Number(args[0]));
+      return [target && (!sql.includes('AND agency_id = ?') || Number(args[1]) === target.agency_id) ? [target] : []];
+    }
     if (sql.includes('SELECT role FROM users')) return [[{ role: 'provider' }]];
     if (sql.includes('FROM twilio_numbers')) return [[{ phone_number: '+13035550100' }]];
     if (sql.includes('SELECT id, feature_flags FROM agencies')) return [[{ id: 4, feature_flags: { smsNumbersEnabled: true, companyEventsEnabled: true, companyEventsSenderNumberId: 8 } }]];
@@ -91,7 +99,7 @@ describe('team poll delivery and shared replies', () => {
   it('allows a signed-in email invitee to vote on an SMS poll without enrolling in SMS', async () => {
     ssoRecipients(); event.voting_config_json.deliveryMode = 'sms';
     await invoke('sendCompanyEventVotingSms');
-    const list = await invoke('listMyStaffPolls'); expect(list.json.mock.calls[0][0]).toHaveLength(1);
+    const list = await pollsForParticipant(); expect(list.json.mock.calls[0][0]).toHaveLength(1);
     const request = req(); request.body.responseKey = '2';
     await invoke('respondToMyCompanyEvent', request);
     expect(replies.get(2)).toMatchObject({ response_key: '2' });
@@ -228,7 +236,7 @@ describe('team poll delivery and shared replies', () => {
     expect(replies.get(2)).toMatchObject({ response_key: '1' });
     expect(mock.execute).toHaveBeenCalledWith(expect.stringContaining('UPDATE notifications SET is_read'), [2, 20]);
     res = await invoke('listMyCompanyEvents'); expect(res.json).toHaveBeenCalledWith([]);
-    res = await invoke('listMyStaffPolls'); expect(res.json.mock.calls[0][0][0].myResponse).toMatchObject({ original: '1' });
+    res = await pollsForParticipant(); expect(res.json.mock.calls[0][0][0].myResponse).toMatchObject({ original: '1' });
   });
   it('uses one response record across internal and SMS replies', async () => {
     const request = req(); request.body.responseKey = '2'; await invoke('respondToMyCompanyEvent', request);
@@ -254,15 +262,164 @@ describe('team poll delivery and shared replies', () => {
   it('does not expose or accept internal votes for SMS-only polls', async () => {
     event.voting_config_json.deliveryMode = 'sms';
     const list = await invoke('listMyCompanyEvents'); expect(list.json).toHaveBeenCalledWith([]);
-    const polls = await invoke('listMyStaffPolls'); expect(polls.json).toHaveBeenCalledWith([]);
+    const polls = await pollsForParticipant(); expect(polls.json).toHaveBeenCalledWith([]);
     const request = req(); request.body.responseKey = '1';
     const response = await invoke('respondToMyCompanyEvent', request); expect(response.status).toHaveBeenCalledWith(400); expect(replies.size).toBe(0);
   });
   it.each([{ status: 'INACTIVE_EMPLOYEE' }, { role: 'school_staff' }, { membership_active: 0 }])('blocks stale explicit audiences for %j', async change => {
     users[0] = { ...member, ...change };
-    const list = await invoke('listMyStaffPolls'); expect(list.json).toHaveBeenCalledWith([]);
+    const list = await pollsForParticipant(); expect(list.json).toHaveBeenCalledWith([]);
     const request = req(); request.body.responseKey = '1';
     const res = await invoke('respondToMyCompanyEvent', request); expect(res.status).toHaveBeenCalledWith(404);
     expect(await controller.handleCompanyEventInbound({ from: member.personal_phone, to: '+13035550100', body: 'DATE 1' })).toBeNull();
+  });
+});
+
+describe('Conversa participant poll presentation and internal event links', () => {
+  function linked(patch = {}) {
+    const row = { ...event, id: 90, title: 'Team dinner', event_type: 'company_event', voting_config_json: { enabled: false }, description: 'Dinner with the team', event_location_name: 'The meeting room', ...patch };
+    linkedEvents.set(90, row); event.voting_config_json.linkedEventId = 90; return row;
+  }
+  const response = () => ({ id: 10, user_id: 2, response_key: '1', response_body: '1', response_label: 'Tuesday', source: 'sms', received_at: '2026-11-09T18:00:00Z' });
+  it('returns readable choice, channel, timestamp, agency, and deadline without revealing other staff replies', async () => {
+    replies.set(2, response()); replies.set(5, { ...response(), id: 11, user_id: 5, response_body: 'Private staff comment', response_label: 'Private staff comment' });
+    const res = await pollsForParticipant(); const poll = res.json.mock.calls[0][0][0];
+    expect(poll).toMatchObject({ agencyId: 4, closesAt: event.ends_at, canVote: true, results: null, resultsVisibility: 'after_close',
+      myResponse: { label: 'Tuesday', original: '1', key: '1', source: 'sms', receivedAt: '2026-11-09T18:00:00Z' } });
+    expect(JSON.stringify(poll)).not.toContain('Private staff comment');
+  });
+  it.each([
+    { shareResults: true, resultsVisibility: 'live', closed: false, visible: true },
+    { shareResults: true, resultsVisibility: 'after_close', closed: false, visible: false },
+    { shareResults: true, resultsVisibility: 'after_close', closed: true, visible: true },
+    { shareResults: false, resultsVisibility: 'live', closed: true, visible: false }
+  ])('enforces organizer sharing choice: %j', async ({ shareResults, resultsVisibility, closed, visible }) => {
+    Object.assign(event.voting_config_json, { shareResults, resultsVisibility });
+    if (closed) event.voting_closed_at = '2026-11-09T18:00:00Z';
+    replies.set(2, response());
+    const res = await pollsForParticipant(); const poll = res.json.mock.calls[0][0][0];
+    expect(poll.results).toEqual(visible ? [{ key: '1', label: 'Tuesday', total: 1 }, { key: '2', label: 'Friday', total: 0 }] : null);
+  });
+  it('treats an expired deadline as closed and releases shared final totals without offering another vote', async () => {
+    event.ends_at = '2026-01-02T12:00:00Z'; replies.set(2, response());
+    const res = await pollsForParticipant(); expect(res.json.mock.calls[0][0][0]).toMatchObject({ closedAt: event.ends_at, canVote: false, results: expect.any(Array) });
+    const request = req(); request.body.resultsText = true;
+    expect((await invoke('updateMyPollResultPreference', request)).status).toHaveBeenCalledWith(409);
+  });
+  it('returns an internal event link and allows its authenticated detail view for the event audience', async () => {
+    linked(); const list = await pollsForParticipant();
+    expect(list.json.mock.calls[0][0][0].linkedEvent).toMatchObject({ id: 90, title: 'Team dinner', available: true });
+    const request = req(); request.params.eventId = '90'; const detail = await invoke('getMyStaffEvent', request);
+    expect(detail.json).toHaveBeenCalledWith(expect.objectContaining({ id: 90, description: 'Dinner with the team' }));
+    expect(detail.json.mock.calls[0][0]).not.toHaveProperty('audience');
+    expect(detail.json.mock.calls[0][0]).not.toHaveProperty('smsCode');
+  });
+  it('links an existing event’s own RSVP poll to its internal event details automatically', async () => {
+    event.event_type = 'company_event';
+    const list = await pollsForParticipant();
+    expect(list.json.mock.calls[0][0][0].linkedEvent).toMatchObject({ id: 20, title: event.title, available: true });
+  });
+  it('does not grant the internal event detail route to non-team accounts', async () => {
+    linked(); users = [{ ...member, role: 'school_staff' }];
+    const request = req(); request.params.eventId = '90';
+    expect((await invoke('getMyStaffEvent', request)).status).toHaveBeenCalledWith(404);
+  });
+  it.each(['other_agency', 'inactive', 'private', 'canceled', 'removed'])('does not expose event details when the link is %s', async state => {
+    linked(state === 'other_agency' ? { agency_id: 9 } : state === 'inactive' ? { is_active: 0 } : state === 'canceled' ? { school_event_status: 'canceled' } : {});
+    if (state === 'private') linkedAudiences.set(90, [5]);
+    if (state === 'removed') linkedEvents.delete(90);
+    const list = await pollsForParticipant(); expect(list.json.mock.calls[0][0][0].linkedEvent).toEqual({ available: false });
+    expect(JSON.stringify(list.json.mock.calls[0][0][0])).not.toContain('Team dinner');
+    const request = req(); request.params.eventId = '90';
+    expect((await invoke('getMyStaffEvent', request)).status).toHaveBeenCalledWith(404);
+  });
+  it('saves an optional event relationship and result timing, retaining both through older editors', async () => {
+    linked(); event.voting_config_json.resultsVisibility = 'live';
+    const body = { title: event.title, eventType: 'team_poll', startsAt: event.starts_at, endsAt: event.ends_at, audience: { userIds: [2] },
+      votingConfig: { enabled: true, deliveryMode: 'both', options: event.voting_config_json.options } };
+    expect((await controller.persistCompanyEventUpdate(req(), 4, 20, body)).error).toBeUndefined();
+    const [, values] = mock.execute.mock.calls.find(([sql]) => sql.includes('UPDATE company_events') && sql.includes('voting_config_json'));
+    expect(values.some(value => typeof value === 'string' && value.includes('"linkedEventId":90') && value.includes('"resultsVisibility":"live"'))).toBe(true);
+  });
+  it.each(['self', 'other_agency', 'poll', 'removed', 'school', 'service'])('rejects a %s link on save', async state => {
+    linked(state === 'other_agency' ? { agency_id: 9 } : state === 'poll' ? { event_type: 'team_poll' } : state === 'school' ? { event_type: 'school_outreach' } : state === 'service' ? { event_type: 'guardian_program_class' } : {});
+    if (state === 'removed') linkedEvents.delete(90);
+    const body = { title: event.title, eventType: 'team_poll', startsAt: event.starts_at, endsAt: event.ends_at, audience: { userIds: [2] },
+      votingConfig: { ...event.voting_config_json, linkedEventId: state === 'self' ? 20 : 90 } };
+    await expect(controller.persistCompanyEventUpdate(req(), 4, 20, body)).rejects.toMatchObject({ status: 400 });
+    expect(mock.execute.mock.calls.some(([sql]) => sql.includes('UPDATE company_events'))).toBe(false);
+  });
+});
+
+describe('organizer sharing and linking after a poll closes', () => {
+  it('updates only presentation settings while preserving closure, votes, audience, deadline and delivery', async () => {
+    event.voting_closed_at = '2026-11-09T18:00:00Z'; replies.set(2, { id: 10, user_id: 2, response_key: '1' });
+    linkedEvents.set(90, { ...event, id: 90, event_type: 'company_event', voting_config_json: {}, title: 'Finalized dinner' });
+    const request = req(); request.body = { shareResults: true, resultsVisibility: 'after_close', linkedEventId: 90, votingClosedAt: null, audience: { userIds: [] }, endsAt: '2099-12-31' };
+    const res = await invoke('updateCompanyEventPollPresentation', request);
+    expect(res.json.mock.calls[0][0].votingConfig).toMatchObject({ linkedEventId: 90, resultsVisibility: 'after_close' });
+    const writes = mock.execute.mock.calls.filter(([sql]) => sql.trim().startsWith('UPDATE'));
+    expect(writes).toHaveLength(1); expect(writes[0][0]).not.toMatch(/voting_closed_at|ends_at|company_event_responses|audience/);
+    expect(writes[0][1].slice(-3)).toEqual([2, 20, 4]); expect(replies.size).toBe(1);
+    expect(mock.sms).not.toHaveBeenCalled(); expect(mock.email).not.toHaveBeenCalled(); expect(mock.notification).not.toHaveBeenCalled();
+  });
+  it('requires organizer access before changing publication settings', async () => {
+    const request = req(); request.user.role = 'provider'; request.body = { shareResults: true };
+    const next = vi.fn(); await controller.updateCompanyEventPollPresentation(request, { status: vi.fn().mockReturnThis(), json: vi.fn() }, next);
+    expect(next).toHaveBeenCalledWith(expect.objectContaining({ status: 403 }));
+    expect(mock.execute.mock.calls.some(([sql]) => sql.startsWith('UPDATE'))).toBe(false);
+  });
+});
+
+describe('dashboard poll owner controls', () => {
+  it('shows an owner their poll without granting an uninvited owner a vote', async () => {
+    event.created_by_user_id = 2; users = [{ ...member, id: 5 }];
+    const original = mock.execute.getMockImplementation();
+    mock.execute.mockImplementation((sql, args) => sql.includes('FROM users u JOIN user_agencies ua') ? Promise.resolve([[member, ...users]]) : original(sql, args));
+    const res = await pollsForParticipant();
+    expect(res.json.mock.calls[0][0][0]).toMatchObject({ canManage: true, canVote: false });
+  });
+  it('lets the owner schedule a closing time without sending anything', async () => {
+    event.created_by_user_id = 2;
+    const request = req(); request.user.role = 'provider'; request.body = { closesAt: '2098-12-01T12:00:00Z' };
+    const res = await invoke('scheduleMyStaffPollClosing', request);
+    expect(res.json).toHaveBeenCalledWith({ closesAt: '2098-12-01T12:00:00.000Z' });
+    expect(mock.execute).toHaveBeenCalledWith(expect.stringContaining('FOR UPDATE'), [20, 4]);
+    expect(mock.sms).not.toHaveBeenCalled(); expect(mock.email).not.toHaveBeenCalled();
+  });
+  it('lets the owner close immediately from the dashboard', async () => {
+    event.created_by_user_id = 2;
+    const request = req(); request.user.role = 'provider';
+    const res = await invoke('closeMyStaffPoll', request);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ ok: true, closedAt: expect.any(Date) }));
+    expect(mock.execute.mock.calls.some(([sql]) => sql.startsWith('UPDATE company_events SET voting_closed_at'))).toBe(true);
+  });
+  it.each(['scheduleMyStaffPollClosing', 'closeMyStaffPoll'])('denies %s to another participant', async name => {
+    event.created_by_user_id = 5;
+    const request = req(); request.user.role = 'provider'; request.body = { closesAt: '2098-12-01T12:00:00Z' };
+    const next = vi.fn(); await controller[name](request, {}, next);
+    expect(next).toHaveBeenCalledWith(expect.objectContaining({ status: 403 }));
+    expect(mock.getConnection).not.toHaveBeenCalled();
+  });
+  it('rejects a changed response after the configured deadline even before the closing worker runs', async () => {
+    event.voting_config_json.closesAt = '2026-01-02T12:00:00Z'; replies.set(2, { id: 10, user_id: 2, response_key: '1' });
+    const request = req(); request.body.responseKey = '2';
+    const res = await invoke('respondToMyCompanyEvent', request);
+    expect(res.status).toHaveBeenCalledWith(400); expect(replies.get(2).response_key).toBe('1');
+    const list = await pollsForParticipant(); expect(list.json.mock.calls[0][0][0]).toMatchObject({ canVote: false, closedAt: new Date(event.voting_config_json.closesAt).toISOString() });
+  });
+  it('lets a current participant edit their text vote in the app, even when the invitation was SMS-only', async () => {
+    event.voting_config_json.deliveryMode = 'sms'; replies.set(2, { id: 10, user_id: 2, response_key: '1', response_label: 'Tuesday', response_body: '1', source: 'sms' });
+    const list = await pollsForParticipant(); expect(list.json.mock.calls[0][0][0]).toMatchObject({ canVote: true });
+    const request = req(); request.body.responseKey = '2'; await invoke('respondToMyCompanyEvent', request);
+    expect(replies.size).toBe(1); expect(replies.get(2).response_key).toBe('2');
+    expect(mock.sms).not.toHaveBeenCalled();
+  });
+  it('finalizes an explicitly scheduled poll even when response reminders are disabled', async () => {
+    event.voting_config_json.closesAt = '2026-01-02T12:00:00Z'; event.reminder_config_json = { enabled: false };
+    const original = mock.execute.getMockImplementation();
+    mock.execute.mockImplementation((sql, args) => sql.includes("ORDER BY JSON_UNQUOTE(JSON_EXTRACT(voting_config_json, '$.closesAt'))") ? Promise.resolve([[event]]) : original(sql, args));
+    await controller.processScheduledStaffPollClosures();
+    expect(mock.execute).toHaveBeenCalledWith(expect.stringContaining('UPDATE company_events SET voting_closed_at = ?'), [new Date(event.voting_config_json.closesAt), 20, 4]);
   });
 });

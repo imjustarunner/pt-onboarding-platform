@@ -6,3 +6,18 @@ beforeEach(()=>{vi.resetAllMocks();api.get.mockResolvedValue({data:{summary:[{ke
 it('shows original replies and privacy settings before categorization',async()=>{const w=mount(Panel,{props:{event,agencyId:2}});await flushPromises();expect(w.text()).toContain('Monday after lunch');expect(w.text()).toContain('private');expect(w.text()).toContain('1 awaiting categorization');expect(w.findAll('button').find(b=>b.text()==='Save review').element.disabled).toBe(true);w.unmount();});
 it('submits a category with the original reply version and review reason',async()=>{const w=mount(Panel,{props:{event,agencyId:2}});await flushPromises();await w.get('select').setValue('MON');await w.get('input').setValue('Matches Monday');await w.findAll('button').find(b=>b.text()==='Save review').trigger('click');await flushPromises();expect(api.put).toHaveBeenCalledWith('/agencies/2/company-events/4/responses/9/review',expect.objectContaining({bucketKey:'MON',excluded:false,originalBody:'Monday after lunch',reason:'Matches Monday',receivedAt:'2026-10-07T10:00:00Z'}));w.unmount();});
 it('excludes a reply without erasing its original text',async()=>{const w=mount(Panel,{props:{event,agencyId:2}});await flushPromises();await w.get('select').setValue('__exclude');await w.get('input').setValue('Withdrawn');await w.findAll('button').find(b=>b.text()==='Save review').trigger('click');await flushPromises();expect(api.put).toHaveBeenCalledWith(expect.any(String),expect.objectContaining({excluded:true,bucketKey:null,originalBody:'Monday after lunch'}));w.unmount();});
+it('links a finalized event and publishes totals after closure without reopening or resending the poll',async()=>{
+ const closed={...event,votingClosedAt:'2026-11-09T18:00:00Z'};
+ const initial=api.get.getMockImplementation();
+ api.get.mockImplementation((url,args)=>args?.params?.pollLinkOptions?Promise.resolve({data:[{id:90,title:'Final team event',isActive:true}]}):initial(url,args));
+ api.put.mockResolvedValue({data:{votingConfig:{...event.votingConfig,shareResults:true,resultsVisibility:'after_close',linkedEventId:90}}});
+ const w=mount(Panel,{props:{event:closed,agencyId:2}});await flushPromises();
+ w.get('details').element.open=true;await w.get('details').trigger('toggle');await flushPromises();
+ await w.get('form input[type=checkbox]').setValue(true);await w.get('[aria-label="Review linked event"]').setValue('90');
+ await w.get('form').trigger('submit');await flushPromises();
+ expect(api.put).toHaveBeenCalledWith('/agencies/2/company-events/4/presentation',{shareResults:true,resultsVisibility:'after_close',linkedEventId:90});
+ expect(w.emitted('changed')[0][0]).toMatchObject({votingClosedAt:closed.votingClosedAt,votingConfig:{linkedEventId:90}});
+ expect(w.text()).toContain('Participants can see aggregate results after voting closes.');
+ await w.setProps({event:w.emitted('changed')[0][0]});await flushPromises();
+ expect(w.get('[role=status]').text()).toContain('saved');expect(w.get('details').element.open).toBe(true);w.unmount();
+});
