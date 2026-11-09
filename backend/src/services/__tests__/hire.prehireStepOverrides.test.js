@@ -8,7 +8,7 @@ import {summarizeSteps} from '../../utils/hirePortalWorkflow.js';
 let db,state,user,journey,write;
 const input={userId:824,agencyId:2,actorUserId:501,stepKey:'job-description',reason:'Legacy job description was handled outside the portal.'};
 beforeEach(()=>{
- user={status:'PREHIRE_OPEN'};journey={};state={agency:{id:2},workflow:{steps:{pre_hire:[{key:'job-description',kind:'job-description',required:true,complete:false},{key:'agreement',kind:'unavailable',required:true,complete:false},{key:'work-email',kind:'work-email',required:true,complete:true},{key:'profile',kind:'profile',required:true,complete:false}]}}};
+ user={status:'PREHIRE_OPEN',is_active:1,is_archived:0};journey={};state={agency:{id:2},workflow:{steps:{pre_hire:[{key:'job-description',kind:'job-description',required:true,complete:false},{key:'agreement',kind:'unavailable',required:true,complete:false},{key:'work-email',kind:'work-email',required:true,complete:true},{key:'profile',kind:'profile',required:true,complete:false}]}}};
  db={beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn(),execute:vi.fn(async sql=>sql.includes('SELECT status')?[[user]]:sql.includes('SELECT prehire_completed')?[[journey]]:sql.includes('SELECT first_name')?[[{first_name:'Michael',last_name:'Mendez'}]]:[[]])};
  write=createPrehireStepOverrideService({database:{getConnection:async()=>db},state:async()=>state});
 });
@@ -27,8 +27,8 @@ it('preserves the original completion state and only removes an overridden requi
  expect(requiredSubmissionKeys(steps,true)).not.toContain('profile');expect(summarizeSteps(steps)).toMatchObject({completed:2,total:4,allDone:false});
  expect(applyPrehireStepOverrides(state.workflow.steps.pre_hire,{'pre_hire:staff-override:profile':{completedAt:null,value:{active:false}}}).find(s=>s.key==='profile').complete).toBe(false);
 });
-it.each(['closed package','changed agency','unknown step','work username','missing reason','missing actor'])('rejects %s before saving an exception',async issue=>{
- const request={...input};if(issue==='closed package')journey.prehire_completed_at=new Date();if(issue==='changed agency')state.agency.id=9;if(issue==='unknown step')request.stepKey='made-up';if(issue==='work username')request.stepKey='work-email';if(issue==='missing reason')request.reason='';if(issue==='missing actor')request.actorUserId=null;
+it.each(['closed package','inactive account','archived account','changed agency','unknown step','work username','missing reason','missing actor'])('rejects %s before saving an exception',async issue=>{
+ const request={...input};if(issue==='closed package')journey.prehire_completed_at=new Date();if(issue==='inactive account')user.is_active=0;if(issue==='archived account')user.is_archived=1;if(issue==='changed agency')state.agency.id=9;if(issue==='unknown step')request.stepKey='made-up';if(issue==='work username')request.stepKey='work-email';if(issue==='missing reason')request.reason='';if(issue==='missing actor')request.actorUserId=null;
  await expect(write(request)).rejects.toThrow();expect(db.commit).not.toHaveBeenCalled();
 });
 it('restores a requirement while retaining its previous reason and reviewer history',async()=>{

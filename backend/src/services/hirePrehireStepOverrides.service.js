@@ -11,9 +11,9 @@ export function createPrehireStepOverrideService(deps={}) {
   const db=await d.database.getConnection();
   try{
    await db.beginTransaction();
-   const[[user]]=await db.execute('SELECT status FROM users WHERE id=? FOR UPDATE',[userId]);
+   const[[user]]=await db.execute('SELECT status,is_active,is_archived FROM users WHERE id=? FOR UPDATE',[userId]);
    const[[journey]]=await db.execute('SELECT prehire_completed_at FROM hire_journeys WHERE user_id=?',[userId]);
-   if(!['PENDING_SETUP','PREHIRE_OPEN','PREHIRE_REVIEW'].includes(user?.status)||journey?.prehire_completed_at)throw fail('This pre-hire package is closed. Reopen it before changing requirements.');
+   if(Number(user?.is_active)!==1||Number(user?.is_archived)===1||!['PENDING_SETUP','PREHIRE_OPEN','PREHIRE_REVIEW'].includes(user?.status)||journey?.prehire_completed_at)throw fail('This pre-hire package is closed. Reopen it before changing requirements.');
    const state=await d.state(userId);if(Number(state.agency.id)!==Number(agencyId))throw fail('Select the candidate’s pre-hire agency.',403);
    const step=state.workflow.steps.pre_hire.find(s=>s.key===stepKey);
    if(!step||!canOverridePrehireStep(step))throw fail('This item cannot be overridden. A real work username is required.',400);
