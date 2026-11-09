@@ -46,8 +46,12 @@ export const dialInTransport = {
     const token = Video.generateToken(call.video_session_id, { expireTime: Math.floor(Date.now()/1000)+120, data: JSON.stringify({
       identity: `dial-${context.userId}`, displayName: context.name, role: context.isHost ? 'host' : 'participant', roleLabel: 'Phone', dialIn: true, callId: call.id
     }) });
+    const sipUri = process.env.MEETING_DIAL_IN_SIP_URI || `sip:${process.env.MEETING_DIAL_IN_NUMBER.replace('+','')}@sip-us.vonage.com;transport=tls`;
     return client.video.initiateSIPCall(call.video_session_id, { token, sip: {
-      uri: process.env.MEETING_DIAL_IN_SIP_URI || `sip:${process.env.MEETING_DIAL_IN_NUMBER.replace('+','')}@sip-us.vonage.com;transport=tls`,
+      uri: sipUri,
+      // Vonage rejects its default anonymous SIP caller even with valid digest credentials.
+      // Use our dedicated meeting number in the receiving domain, never a participant's number.
+      from: `${process.env.MEETING_DIAL_IN_NUMBER.replace('+','')}@${sipUri.split('@')[1].split(';')[0]}`,
       auth: { username: process.env.MEETING_DIAL_IN_SIP_USERNAME || process.env.VONAGE_API_KEY, password: process.env.MEETING_DIAL_IN_SIP_PASSWORD || process.env.VONAGE_API_SECRET }, secure: true,
       headers: { 'X-Meeting-Call': call.id, 'X-Meeting-Bridge': bridgeSecret }
     } });

@@ -34,7 +34,7 @@ it('renders one client block at the exact minutes in the grid, with no separate 
   const s = await mount();
   const blocks = wrapper.findAll('.cell-block-school-soft');
   expect(blocks).toHaveLength(1); expect(blocks[0].text()).toContain('Synthetic student');
-  expect(blocks[0].text()).toContain('10:28–11:21');
+  expect(blocks[0].text()).toContain('10:28 AM–11:21 AM');
   expect(wrapper.findComponent({ name: 'SchoolAbsenceRecords' }).exists()).toBe(false);
   const block = s.cellBlocks('Tuesday', 10).find(b => b.kind === 'school-soft');
   expect(block.timedSlice.topPct).toBeCloseTo(46.6667);
