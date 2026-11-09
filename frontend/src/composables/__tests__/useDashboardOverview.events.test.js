@@ -24,3 +24,12 @@ it('includes calendar-only staffing discoveries and filters after adding capacit
   expect(state.upcomingEvents.value.find(event => event.title === 'Available outreach').whereLine).toBe('Twain · 123 Example Street · Denver');
   expect(state.upcomingEvents.value.map((event) => event.title)).toEqual(['Company invitation', 'Available outreach']);
 });
+
+it('does not show the voting window of a team poll as a live event', async () => {
+ vi.useFakeTimers();vi.setSystemTime(new Date('2030-11-09T19:00:00Z'));
+ const poll={id:20,eventType:'team_poll',title:'Choose a dinner date',startsAt:'2030-11-01T19:00:00Z',endsAt:'2030-12-01T19:00:00Z'};
+ const actual={id:21,eventType:'company_event',title:'Actual dinner',startsAt:'2030-11-20T19:00:00Z',endsAt:'2030-11-20T21:00:00Z'};
+ api.get.mockImplementation(async url=>({data:url==='/me/company-events/calendar'?[poll,actual]:[]}));
+ scope=effectScope();const state=scope.run(()=>useDashboardOverview({userId:7,agencyId:2,companyEvents:[poll,actual],includeSubmissionUpdates:false}));await flushPromises();
+ expect(state.upcomingEvents.value.map(event=>event.title)).toEqual(['Actual dinner']);expect(state.featuredEvent.value.isLive).toBe(false);
+});

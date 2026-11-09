@@ -400,7 +400,8 @@ const agencyStore = useAgencyStore();
 const props = defineProps({
   agencyId: { type: Number, required: true },
   /** Pre-select an existing event by id when the modal opens (e.g. from clicking a card). */
-  initialEventId: { type: Number, default: null }
+  initialEventId: { type: Number, default: null },
+  initialPoll: { type: Object, default: null }
 });
 
 const emit = defineEmits(['saved', 'close']);
@@ -1167,6 +1168,11 @@ onMounted(async () => {
   registrationSourcesReady.value = false;
   try {
     await Promise.all([reloadEvents(), loadAudienceOptions(), loadSurveyOptions(), loadRegistrationFeed()]);
+    if (props.initialPoll && !props.initialEventId) {
+      draft.title = props.initialPoll.title || '';
+      draft.description = props.initialPoll.description || '';
+      draft.audience = { userIds: [...(props.initialPoll.audience?.userIds || [])], groupIds: [...(props.initialPoll.audience?.groupIds || [])], roleKeys: [...(props.initialPoll.audience?.roleKeys || [])] };
+    }
     // Pre-select event when opened from a card click (initialEventId prop).
     if (props.initialEventId && !selectedEventId.value) {
       const found = events.value.find((e) => Number(e.id) === Number(props.initialEventId));

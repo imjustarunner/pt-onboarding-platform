@@ -31,3 +31,8 @@ describe('editing event operational settings', () => {
     }));
   });
 });
+it('starts a linked company event with the poll invitees but no invented event dates',async()=>{
+ api.get.mockImplementation(url=>Promise.resolve({data:url.endsWith('audience-options')?{users:[],roles:[]}:[]}));
+ const wrapper=mount(StaffEventForm,{props:{agencyId:3,initialPoll:{title:'Team potluck',startsAt:'2026-11-01T18:00:00Z',endsAt:'2026-12-01T18:00:00Z',audience:{userIds:[4],roleKeys:['provider'],groupIds:[12]}}},global:{stubs:{RouterLink:true,StaffEventInviteePanel:true,EventTextCampaignPanel:true}}});wrappers.push(wrapper);await flushPromises();
+ expect(wrapper.findAll('input').some(i=>i.element.value==='Team potluck')).toBe(true);expect(wrapper.findAll('input[type="datetime-local"]').every(i=>!i.element.value)).toBe(true);expect(api.post).not.toHaveBeenCalled();
+});

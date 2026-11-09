@@ -17,3 +17,7 @@ it('shows an unavailable state when the event is no longer accessible instead of
   const w = mount(View); await flushPromises();
   expect(w.get('[role=alert]').text()).toContain('not available'); expect(w.find('article').exists()).toBe(false); expect(w.find('a').exists()).toBe(false);
 });
+it('connects a linked event to the invited user’s existing RSVP and potluck signup',async()=>{
+ api.get.mockResolvedValue({data:{title:'Potluck',potluckEnabled:true,organizerProviding:['Drinks'],needList:[{id:8,itemName:'Fruit salad',mine:true,claimed:true}],rsvpUrl:'/event-rsvp/personal-invite'}});
+ const w=mount(View);await flushPromises();expect(w.text()).toContain('The organizer is providing: Drinks');expect(w.text()).toContain('You are bringing this');expect(w.get('a').attributes('href')).toBe('/event-rsvp/personal-invite');
+});

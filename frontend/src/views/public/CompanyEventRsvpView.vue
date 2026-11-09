@@ -7,8 +7,8 @@
       </div>
       <h1>Event RSVP</h1>
       <p v-if="loading">Loading invitation…</p>
-      <p v-else-if="error" class="error">{{ error }}</p>
-      <div v-else-if="event">
+      <p v-else-if="error && !event" class="error">{{ error }}</p>
+      <div v-else-if="event"><p v-if="error" class="error" role="alert">{{ error }}</p><p v-if="notice" class="save-notice" role="status">{{ notice }}</p>
         <p class="muted">Hi {{ inviteeName }}, you are invited to:</p>
         <h2>{{ event.title }}</h2>
         <p class="details">
@@ -58,8 +58,9 @@
           </div>
           <label>Anything else?</label>
           <textarea v-model.trim="registration.notes" class="input" rows="3" />
-          <div class="response-row">
-            <button class="btn btn-primary" type="button" @click="submitRegistration" :disabled="submitting">
+          <div class="potluck-registration-actions">
+            <section v-if="event.potluckEnabled && currentResponse === 'yes'" class="potluck-signup"><h3>What are you bringing?</h3><label>Choose a requested item<select v-model="registration.needListItemId"><option value="">No contribution selected</option><option v-for="item in availableContributions" :key="item.id" :value="item.id">{{ item.isOpenRequest && !item.mine ? `Your choice of ${item.itemCategory}` : item.itemName }}{{ item.mine ? ' · Your contribution' : '' }}</option></select></label><label v-if="selectedContribution?.isOpenRequest">Tell us what you are bringing<input v-model.trim="registration.needListCustomItemName" maxlength="255" required /></label><p v-if="selectedContribution?.itemNotes">{{ selectedContribution.itemNotes }}</p><p v-if="!availableContributions.length">All requested items are claimed. You can still attend.</p></section>
+          <button class="btn btn-primary" type="button" @click="submitRegistration" :disabled="submitting">
               {{ submitting ? 'Saving…' : 'Submit registration' }}
             </button>
             <a
@@ -88,7 +89,7 @@ const route = useRoute();
 const token = computed(() => String(route.params.token || '').trim());
 const loading = ref(false);
 const submitting = ref(false);
-const error = ref('');
+const error = ref(''), notice = ref('');
 const event = ref(null);
 const invitation = ref(null);
 const invitee = ref(null);
@@ -103,7 +104,7 @@ const branding = ref({
 const registration = ref({
   guestCount: 0,
   dietaryNotes: '',
-  notes: ''
+  notes: '', needListItemId: '', needListCustomItemName: ''
 });
 
 const inviteeName = computed(() => {
@@ -112,6 +113,8 @@ const inviteeName = computed(() => {
   return `${first} ${last}`.trim() || 'there';
 });
 
+const selectedContribution = computed(() => event.value?.needList?.find(item => item.id === Number(registration.value.needListItemId)));
+const availableContributions = computed(() => (event.value?.needList || []).filter(item => !item.claimed || item.mine));
 const showRegistration = computed(() => currentResponse.value === 'yes' || currentResponse.value === 'maybe');
 const eventImages = computed(() => {
   const out = [];
@@ -200,9 +203,11 @@ const load = async () => {
       registration.value = {
         guestCount: Number(registrationPayload.guestCount || 0) || 0,
         dietaryNotes: String(registrationPayload.dietaryNotes || ''),
-        notes: String(registrationPayload.notes || '')
+        notes: String(registrationPayload.notes || ''), needListItemId: registrationPayload.needListItemId || '', needListCustomItemName: registrationPayload.needListCustomItemName || ''
       };
     }
+    const mine = event.value?.needList?.find(item => item.mine);
+    if (event.value?.potluckEnabled) { registration.value.needListItemId = mine?.id || ''; registration.value.needListCustomItemName = mine?.isOpenRequest ? mine.itemName : ''; }
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Invitation could not be loaded';
   } finally {
@@ -230,7 +235,7 @@ const respond = async (response) => {
 
 const submitRegistration = async () => {
   submitting.value = true;
-  error.value = '';
+  error.value = ''; notice.value = '';
   try {
     await api.post(
       `/company-events/rsvp/${encodeURIComponent(token.value)}`,
@@ -239,11 +244,14 @@ const submitRegistration = async () => {
         registration: {
           guestCount: Number(registration.value.guestCount || 0) || 0,
           dietaryNotes: registration.value.dietaryNotes || '',
-          notes: registration.value.notes || ''
+          notes: registration.value.notes || '',
+          needListItemId: Number(registration.value.needListItemId) || null, needListCustomItemName: registration.value.needListCustomItemName || ''
         }
       },
       { skipAuthRedirect: true }
     );
+    await load();
+    if (!error.value) notice.value = event.value?.potluckEnabled ? 'Registration and potluck contribution saved.' : 'Registration saved.';
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Unable to submit registration';
   } finally {
@@ -273,3 +281,7 @@ onMounted(load);
 .event-image { width: 100%; height: 128px; object-fit: cover; border-radius: 8px; border: 1px solid #e2e8f0; }
 .btn.btn-primary { background: var(--rsvp-primary, #0f766e); border-color: var(--rsvp-primary, #0f766e); }
 </style>
+
+<style scoped>.potluck-signup{padding:14px;background:#f2f6fd;border-radius:10px;margin:16px 0}.potluck-signup label{display:grid;gap:6px;margin:10px 0}.potluck-signup input,.potluck-signup select{padding:9px;border:1px solid #b8c8df;border-radius:7px;width:100%;box-sizing:border-box}</style>
+
+<style scoped>.save-notice{padding:12px;background:#e5f4ed;border-radius:8px;color:#176447}.potluck-registration-actions{display:grid;gap:10px}</style>

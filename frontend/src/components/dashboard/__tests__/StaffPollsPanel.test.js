@@ -133,3 +133,11 @@ it('labels private totals as organizer-only when the viewer owns the poll', asyn
   api.get.mockResolvedValue({ data: [{ ...poll, canManage: true, canVote: false, shareResults: false, results: [{ key: '1', label: 'Tuesday', total: 2 }] }] });
   const w = await panel(); expect(w.text()).toContain('Organizer totals'); expect(w.text()).toContain('Only organizers can see');
 });
+it('records an app view only when the expanded poll is actually visible',async()=>{
+ let intersect;vi.stubGlobal('IntersectionObserver',class{constructor(callback){intersect=callback}observe(){}unobserve(){}disconnect(){}});
+ const w=await panel();expect(api.post).not.toHaveBeenCalled();
+ const rect=vi.spyOn(w.get('.poll-card-header').element,'getBoundingClientRect').mockReturnValue({top:20,bottom:70,height:50});
+ intersect();await flushPromises();expect(api.post).toHaveBeenCalledWith('/me/staff-polls/12/viewed',{}, {params:{agencyId:2}});
+ w.get('details').element.open=false;await w.get('details').trigger('toggle');api.post.mockClear();intersect();await flushPromises();expect(api.post).not.toHaveBeenCalled();
+ rect.mockRestore();vi.unstubAllGlobals();
+});

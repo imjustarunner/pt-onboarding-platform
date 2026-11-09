@@ -316,7 +316,7 @@ export function useDashboardOverview(opts = {}) {
       };
     });
 
-    const fromCompany = (effectiveCompanyEvents.value || []).map((e) => {
+    const fromCompany = (effectiveCompanyEvents.value || []).filter(e => !['team_poll', 'direct_notice'].includes(String(e.eventType || e.event_type || '').toLowerCase())).map((e) => {
       const enriched = calendarEventsById.value.get(Number(e.id)) || e;
       const window = companyEventDisplayWindow(enriched);
       const startMs = parseAt(window.startsAt);

@@ -3,7 +3,7 @@ import {getStaffSmsRequest} from '../services/staffSmsAssistant.service.js';
 import { listMyCommunicationChoices, saveMyCommunicationChoices, listMyCommunicationAgreementsController, downloadMyCommunicationAgreement } from '../controllers/staffCommunicationChoices.controller.js';
 import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
-import { downloadCompanyEventIcsForMe, listMyCompanyEvents, listMyCompanyEventsCalendar, respondToMyCompanyEvent, listMyStaffPolls, updateMyPollResultPreference, getMyStaffEvent, scheduleMyStaffPollClosing, closeMyStaffPoll } from '../controllers/companyEvents.controller.js';
+import { downloadCompanyEventIcsForMe, listMyCompanyEvents, listMyCompanyEventsCalendar, respondToMyCompanyEvent, listMyStaffPolls, updateMyPollResultPreference, getMyStaffEvent, scheduleMyStaffPollClosing, closeMyStaffPoll, recordMyStaffPollView } from '../controllers/companyEvents.controller.js';
 import { sendReminderSms } from '../controllers/reminderSms.controller.js';
 import {
   createCustomTask,
@@ -129,6 +129,7 @@ router.post('/send-reminder-sms', authenticate, sendReminderSms);
 router.get('/company-events', authenticate, listMyCompanyEvents);
 router.get('/staff-polls', authenticate, listMyStaffPolls);
 router.put('/staff-polls/:eventId/results-preference', authenticate, updateMyPollResultPreference);
+router.post('/staff-polls/:eventId/viewed', authenticate, recordMyStaffPollView);
 router.put('/staff-polls/:eventId/closing', authenticate, scheduleMyStaffPollClosing);
 router.post('/staff-polls/:eventId/close', authenticate, closeMyStaffPoll);
 router.get('/company-events/calendar', authenticate, listMyCompanyEventsCalendar);

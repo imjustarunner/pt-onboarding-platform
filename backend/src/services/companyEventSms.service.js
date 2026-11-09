@@ -97,7 +97,7 @@ export async function sendCompanyEventSms(input, { send = null, db = pool } = {}
     const transport = send ? null : (await import('./vonage.service.js')).default;
     const deliver = send || transport.sendSms.bind(transport);
     const result = await deliver(options);
-    await db.execute("UPDATE company_event_sms_deliveries SET status = 'sent', provider_message_id = ? WHERE id = ?", [result?.sid || null, record.insertId]);
+    await db.execute("UPDATE company_event_sms_deliveries SET status = CASE WHEN status = 'queued' THEN 'sent' ELSE status END, provider_message_id = ?, sent_at = COALESCE(sent_at, UTC_TIMESTAMP()) WHERE id = ?", [result?.sid || null, record.insertId]);
     return { ...result, eventSmsDeliveryId: record.insertId, eventCode: prepared.code };
   } catch (error) {
     const status = Number(error.status) === 403 ? 'skipped' : 'failed';
@@ -185,9 +185,11 @@ export async function recordCompanyEventSmsDeliveryStatus(messageId, status, db 
   const normalized = normalizeCompanyEventDeliveryStatus(status);
   if (!messageId || !normalized) return;
   // Late accepted receipts must not downgrade a final carrier result.
-  await db.execute(`UPDATE company_event_sms_deliveries SET status = ?, status_reason = ?
+  await db.execute(`UPDATE company_event_sms_deliveries SET status = ?, status_reason = ?,
+      delivered_at = CASE WHEN ? = 'delivered' THEN COALESCE(delivered_at, UTC_TIMESTAMP()) ELSE delivered_at END,
+      failed_at = CASE WHEN ? = 'failed' THEN COALESCE(failed_at, UTC_TIMESTAMP()) ELSE failed_at END
     WHERE provider_message_id = ? AND status <> 'delivered' AND (? <> 'sent' OR status NOT IN ('failed', 'skipped'))`,
-  [normalized, normalized === 'failed' ? String(status).slice(0,255) : null, String(messageId), normalized]);
+  [normalized, normalized === 'failed' ? String(status).slice(0,255) : null, normalized, normalized, String(messageId), normalized]);
 }
 
 export async function getCompanyEventSmsReport(eventId, agencyId, db = pool) {
@@ -209,7 +211,7 @@ export async function getCompanyEventSmsReport(eventId, agencyId, db = pool) {
   })), deliveries: rows.map(row => ({
     id: Number(row.id), userId: row.user_id, name: [row.first_name,row.last_name].filter(Boolean).join(' '), phone: row.phone,
     campaignNumber: Number(row.campaign_number), purpose: row.purpose, dispatchType: row.dispatch_type, batchId: row.batch_id, status: row.status,
-    statusReason: row.status_reason, responseKey: row.response_key, respondedAt: row.responded_at, createdAt: row.created_at
+    statusReason: row.status_reason, responseKey: row.response_key, respondedAt: row.responded_at, createdAt: row.created_at, providerMessageId: row.provider_message_id, sentAt: row.sent_at, deliveredAt: row.delivered_at, failedAt: row.failed_at
   })) };
 }
 

@@ -1,9 +1,12 @@
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, ref, watch, defineAsyncComponent } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import { canManageConversaTeam, CONVERSA_ICON_URL } from '../../constants/conversa';
 import StaffPollResultsReview from '../admin/StaffPollResultsReview.vue';
+import StaffPollDeliveryHistory from './StaffPollDeliveryHistory.vue';
+const StaffEventForm = defineAsyncComponent(() => import('../admin/StaffEventForm.vue'));
+const eventSetup = ref(null), eventSetupForm = ref(null), followupRequests = new Map();
 
 const props = defineProps({ agencyId: { type: [Number, String], default: null } });
 const auth = useAuthStore();
@@ -12,7 +15,7 @@ const events = ref([]), users = ref([]), loading = ref(false), busy = ref(false)
 const error = ref(''), notice = ref(''), reviewing = ref(null), delivery = ref(null);
 const smsSender = ref(null), pollPreview = ref(null);
 const localDateInput = value => { const date = new Date(value); if (!Number.isFinite(date.getTime())) return ''; return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
-const blank = () => ({ kind: 'text', title: '', message: '', userIds: [], question: '', options: ['Yes', 'No'], deliveryMode: 'internal', shareResults: true, resultsVisibility: 'after_close', linkedEventId: '', closesAt: localDateInput(Date.now() + 30 * 86400000), allowOther: false });
+const blank = () => ({ kind: 'text', title: '', message: '', userIds: [], question: '', options: ['Yes', 'No'], deliveryMode: 'internal', shareResults: true, resultsVisibility: 'after_close', linkedEventId: '', closesAt: localDateInput(Date.now() + 30 * 86400000), allowOther: false, followupsEnabled: false, followupHours: '24,2' });
 const eventLinks = ref([]), linksLoading = ref(false), linksError = ref('');
 let linksRequest = 0, linksLoaded = false;
 async function loadEventLinks() {
@@ -30,6 +33,8 @@ function edit(event) {
   draft.value.closesAt = localDateInput(event.votingConfig?.closesAt || event.endsAt) || blank().closesAt;
   draft.value.resultsVisibility = event.votingConfig?.resultsVisibility || 'after_close';
   draft.value.linkedEventId = event.votingConfig?.linkedEventId || '';
+  draft.value.followupsEnabled = !!event.reminderConfig?.enabled;
+  draft.value.followupHours = (event.reminderConfig?.offsetsHours || [24,2]).join(',');
 }
 function cancelEdit() { editing.value = null; draft.value = blank(); }
 let generation = 0;
@@ -55,6 +60,8 @@ async function create(reviewDelivery = false) {
   if (!draft.value.userIds.length) { error.value = 'Select at least one team member.'; return; }
   const g = generation, url = base(), poll = draft.value.kind === 'poll';
   if (poll && (!draft.value.closesAt || !Number.isFinite(new Date(draft.value.closesAt).getTime()))) { error.value = 'Choose a voting deadline.'; return; }
+  const offsets = draft.value.followupHours.split(',').map(v => Number(v.trim()));
+  if (poll && draft.value.followupsEnabled && (!offsets.length || offsets.length > 4 || offsets.some(n => !Number.isInteger(n) || n < 1 || n > 168))) { error.value = 'Choose up to four follow-ups, 1–168 hours before closing.'; return; }
   if (poll && draft.value.deliveryMode === 'sms' && draft.value.userIds.some(id => !canReceiveOutsideApp(users.value.find(u => u.id === id)))) { error.value = 'Select recipients with polling SMS opt-in or an SSO work email for the voting invitation.'; return; }
   busy.value = true; error.value = ''; notice.value = '';
   const now = new Date();
@@ -72,7 +79,7 @@ async function create(reviewDelivery = false) {
       votingConfig: { enabled: poll, deliveryMode: draft.value.deliveryMode, viaSms: poll && draft.value.deliveryMode !== 'internal', question: draft.value.question,
         options: draft.value.options.map((label, i) => ({ key: existing?.votingConfig?.options?.[i]?.key || String(i + 1), label: label.trim() })),
         shareResults: draft.value.shareResults, resultsVisibility: draft.value.resultsVisibility, linkedEventId: poll ? Number(draft.value.linkedEventId) || null : null, closesAt: poll ? new Date(draft.value.closesAt).toISOString() : null, allowOther: draft.value.allowOther },
-      reminderConfig: existing?.reminderConfig || { enabled: false, channels: { inApp: true, sms: false } }
+      reminderConfig: poll ? { enabled: draft.value.followupsEnabled, anchor: 'poll_close', offsetsHours: offsets, channels: { inApp: draft.value.deliveryMode !== 'sms', sms: draft.value.deliveryMode !== 'internal' } } : existing?.reminderConfig || { enabled: false, channels: { inApp: true, sms: false } }
     });
     if (g !== generation) return;
     const savedPoll = { ...saved, id: saved.id || existing?.id, title: draft.value.title };
@@ -93,8 +100,8 @@ async function action(event, kind, { unsentOnly = false } = {}) {
   busy.value = true; error.value = '';
   if (!unsentOnly) notice.value = '';
   try {
-    if (kind === 'poll') {
-      const { data } = await api.get(`${url}/poll-delivery-preview`, ...(unsentOnly ? [{ params: { unsentOnly: 1 } }] : []));
+    if (kind === 'poll' || kind === 'followup') {
+      const { data } = await api.get(`${url}/poll-delivery-preview`, ...((unsentOnly || kind === 'followup') ? [{ params: { unsentOnly: unsentOnly ? 1 : undefined, followup: kind === 'followup' ? 1 : undefined } }] : []));
       if (g !== generation) return;
       pollPreview.value = { title: event.title, ...data };
       if (!data.canSend) {
@@ -102,26 +109,43 @@ async function action(event, kind, { unsentOnly = false } = {}) {
         return;
       }
       const reasons = (data.reasons || []).map(reason => `${reason.count} ${reason.label.toLowerCase()}`).join('; ');
-      if (!window.confirm(`Send “${event.title}”?\n${pollPreviewSummary(data)}${reasons ? `\nSMS not sent: ${reasons}.` : ''}\nEligibility is checked again before each text.`)) return;
+      if (!window.confirm(`${kind === 'followup' ? 'Send a follow-up to invited people who have not replied' : 'Send poll'}: “${event.title}”?\n${pollPreviewSummary(data)}${reasons ? `\nSMS not sent: ${reasons}.` : ''}\nEligibility is checked again before each text.`)) return;
     }
     if (kind === 'delivery') {
       const { data } = await api.get(`${url}/delivery-logs`);
-      if (g === generation) delivery.value = { title: event.title, ...data };
+      if (g === generation) delivery.value = { id: event.id, title: event.title, ...data };
       return;
     }
-    const endpoint = { send: 'send-direct-message', poll: 'send-poll', close: 'close-voting' }[kind];
-    const body = kind === 'send' ? { title: event.title, message: event.splashContent || event.description, sendInApp: true, sendSms: true } : unsentOnly ? { unsentOnly: true } : {};
+    const endpoint = { send: 'send-direct-message', poll: 'send-poll', followup: 'send-poll-followup', close: 'close-voting' }[kind];
+    if (kind === 'followup' && !followupRequests.has(event.id)) followupRequests.set(event.id, crypto.randomUUID());
+    const body = kind === 'followup' ? { requestId: followupRequests.get(event.id) } : kind === 'send' ? { title: event.title, message: event.splashContent || event.description, sendInApp: true, sendSms: true } : unsentOnly ? { unsentOnly: true } : {};
     const { data } = await api.post(`${url}/${endpoint}`, body);
     if (g !== generation) return;
+    if (kind === 'followup') followupRequests.delete(event.id);
     notice.value = kind === 'close' ? 'Voting closed. Check delivery history for requested results texts.'
       : kind === 'send' ? `Sent: ${data.inAppCount || 0} in-app notifications, ${data.smsCount || 0} texts. Check delivery history for skipped or failed recipients.`
-      : `Poll delivery: ${data.inAppCount || 0} internal, ${data.sentCount || 0} SMS, ${data.emailCount || 0} email · ${data.skippedCount || 0} skipped · ${data.failedCount || 0} failed.${data.emailQueuedCount ? ` ${data.emailQueuedCount} emails awaiting delivery.` : ''}${data.emailSkippedCount ? ` ${data.emailSkippedCount} emails skipped.` : ''}${data.sentCount ? '' : ' No text messages were sent.'}${(data.skippedReasons || []).map(reason => ` ${reason.count} ${reason.label.toLowerCase()}.`).join('')} See delivery history for details.`;
+      : `${kind === 'followup' ? 'Follow-up sent' : 'Poll delivery'}: ${data.inAppCount || 0} internal, ${data.sentCount || 0} SMS, ${data.emailCount || 0} email · ${data.skippedCount || 0} skipped · ${data.failedCount || 0} failed.${data.emailQueuedCount ? ` ${data.emailQueuedCount} emails awaiting delivery.` : ''}${data.emailSkippedCount ? ` ${data.emailSkippedCount} emails skipped.` : ''}${data.sentCount ? '' : ' No text messages were sent.'}${(data.skippedReasons || []).map(reason => ` ${reason.count} ${reason.label.toLowerCase()}.`).join('')} See delivery history for details.`;
     await load();
   } catch (e) { if (g === generation) error.value = e.response?.data?.error?.message || 'Could not complete this action.'; }
   finally { busy.value = false; }
 }
+async function eventSaved({ eventId }) {
+  const setup = eventSetup.value, g = generation, url = base();
+  if (!setup?.pollId) return;
+  try {
+    await api.put(`${url}/${setup.pollId}/presentation`, { linkedEventId: eventId });
+    if (g !== generation || eventSetup.value !== setup) return;
+    setup.initialEventId = eventId;
+    notice.value = 'Event saved and linked to the poll. Add potluck requests below, then use Send Invitations when ready.';
+    linksLoaded = false; await load();
+  } catch (e) { if (g === generation) error.value = e.response?.data?.error?.message || 'Event saved, but linking failed. Choose it under Sharing & linked event.'; }
+}
+function closeEventSetup() {
+  if (eventSetupForm.value?.requestClose) eventSetupForm.value.requestClose();
+  else eventSetup.value = null;
+}
 function pollPreviewSummary(preview) {
-  return `${preview.internalCount || 0} internal messages · ${preview.smsEligibleCount || 0} eligible texts · ${preview.smsSkippedCount || 0} SMS unavailable · ${preview.answeredCount || 0} already answered. ${preview.emailCount || 0} work email voting invitations.${preview.alreadyNotifiedCount ? ` ${preview.alreadyNotifiedCount} already notified.` : ''}`;
+  return `${preview.internalCount || 0} internal messages · ${preview.smsEligibleCount || 0} eligible texts · ${preview.smsSkippedCount || 0} SMS unavailable · ${preview.answeredCount || 0} already answered. ${preview.emailCount || 0} work email voting invitations.${preview.notInvitedCount ? ` ${preview.notInvitedCount} still need an initial invitation; follow-ups skip them.` : ''}${preview.alreadyNotifiedCount ? ` ${preview.alreadyNotifiedCount} already notified.` : ''}`;
 }
 const selectedSms = computed(() => users.value.filter(user => draft.value.userIds.includes(user.id) && user.pollingSms?.eligible).length);
 const selectedEmail = computed(() => users.value.filter(user => draft.value.userIds.includes(user.id) && user.pollingEmail?.eligible).length);
@@ -136,7 +160,7 @@ watch(() => draft.value.deliveryMode, () => {
   if (smsOnly.value) draft.value.userIds = draft.value.userIds.filter(id => canReceiveOutsideApp(users.value.find(u => u.id === id)));
 });
 watch(() => [props.agencyId, allowed.value], () => {
-  linksRequest++; linksLoaded = false; linksLoading.value = false; linksError.value = ''; eventLinks.value = [];
+  eventSetup.value = null; followupRequests.clear(); linksRequest++; linksLoaded = false; linksLoading.value = false; linksError.value = ''; eventLinks.value = [];
   events.value = []; users.value = []; smsSender.value = null; pollPreview.value = null; cancelEdit(); reviewing.value = null; delivery.value = null; notice.value = ''; load();
 }, { immediate: true });
 </script>
@@ -149,6 +173,7 @@ watch(() => [props.agencyId, allowed.value], () => {
     <template v-else>
       <p class="team-note">Managed by superadmins, admins, and support. Selected team members can receive texts and answer polls. Text delivery follows their consent and notification preferences.</p>
       <p v-if="error" role="alert">{{ error }}</p><p v-if="notice" role="status">{{ notice }}</p>
+      <details class="team-guide"><summary>Plan an event or potluck with a poll</summary><ol><li>Create a team poll to choose a date. Select the invitees, set the voting deadline, then save and confirm sending. The deadline only controls voting.</li><li>After deciding the date, choose <strong>Create linked event</strong>. Enter the actual event start/end time and location. The poll and event have separate schedules.</li><li>For a potluck, enable <strong>Potluck style</strong>, list what the organizer provides, save, then add items or open category slots under <strong>Need List (Potluck)</strong>.</li><li>Review the invitees and choose <strong>Send Invitations</strong>. Attendees can RSVP and claim what they are bringing. Saving alone does not send invitations.</li></ol><p class="team-note">Already have a scheduled event? Create the poll here and select that event under Linked internal event. Saving makes an in-app poll available to its selected team; confirming Send poll sends the invitations.</p><button type="button" @click="eventSetup = {}">Open company event setup</button></details>
       <form class="team-compose" @submit.prevent="create(draft.kind === 'poll')">
         <h3>{{ editing ? 'Edit team communication' : 'Create a team communication' }}</h3>
         <fieldset :disabled="busy || loading"><legend class="sr-only">Team communication details</legend>
@@ -165,7 +190,9 @@ watch(() => [props.agencyId, allowed.value], () => {
             <p v-if="draft.deliveryMode !== 'internal'" class="team-note">{{ selectedSms }} selected members currently eligible for SMS; {{ draft.userIds.length - selectedSms }} unavailable for SMS. Poll texts use the staff notifications number. Reply NOPOLLS to stop poll texts only.</p>
             <p class="team-note">Save &amp; review delivery checks for recipients who still need an invitation, including newly added members. You can confirm delivery next. Save without sending only updates the poll.</p>
             <label class="team-check"><input v-model="draft.allowOther" type="checkbox" /> Allow written answers for review</label>
-            <label>Voting deadline <input v-model="draft.closesAt" aria-label="Voting deadline" type="datetime-local" required /><small class="team-note">Your local time. Voting closes at this deadline.</small></label>
+            <label>Voting deadline <input v-model="draft.closesAt" aria-label="Voting deadline" type="datetime-local" required /><small class="team-note">Your local time. This closes voting; it does not schedule an event.</small></label>
+            <label class="team-check"><input v-model="draft.followupsEnabled" type="checkbox" /> Schedule follow-ups for invited people who have not replied</label>
+            <label v-if="draft.followupsEnabled">Hours before voting closes<input v-model="draft.followupHours" aria-label="Follow-up hours" placeholder="24,2" /><small class="team-note">For example: 24,2 sends reminders one day and two hours before closing. Up to four reminders. Uses this poll’s delivery methods and current opt-in preferences; stops after a reply or closing.</small></label>
             <label class="team-check"><input v-model="draft.shareResults" type="checkbox" /> Share vote totals with participants</label>
             <label v-if="draft.shareResults">When participants can see results<select v-model="draft.resultsVisibility" aria-label="Results visibility"><option value="after_close">After voting closes</option><option value="live">Live totals while voting is open</option></select><small class="team-note">Shares counts only. Individual staff replies stay with the organizer.</small></label>
             <label>Link an internal event <span class="team-note">Optional</span><select v-model="draft.linkedEventId" aria-label="Linked internal event" :disabled="linksLoading"><option value="">No linked event yet</option><option v-for="linked in eventLinks.filter(e => e.id !== editing?.id)" :key="linked.id" :value="linked.id">{{ linked.title }}{{ linked.isActive === false ? ' · Details not yet available' : '' }}</option></select><small class="team-note">Participants get a View event link when that event is available to them. You can add the link later.</small></label>
@@ -186,22 +213,30 @@ watch(() => [props.agencyId, allowed.value], () => {
         <span class="team-type">{{ event.votingConfig?.enabled ? 'Team poll' : 'Team text' }} · Conversa</span><h3>{{ event.title }}</h3><p>{{ event.votingConfig?.enabled ? event.votingConfig.question : event.splashContent || event.description }}</p>
         <p v-if="event.votingConfig?.enabled" class="team-note">{{ deliveryLabel(event) }}</p>
         <p v-if="event.votingConfig?.enabled" class="team-note">Deadline: {{ new Date(event.votingConfig.closesAt || event.endsAt).toLocaleString() }} · {{ event.votingConfig.shareResults === false ? 'Results private' : event.votingConfig.resultsVisibility === 'live' ? 'Live results shared' : 'Results shared after closing' }}</p>
+        <p v-if="event.votingConfig?.enabled" class="team-note">{{ event.reminderConfig?.enabled ? `Follow-ups scheduled ${event.reminderConfig.offsetsHours.join(', ')} hours before voting closes.` : 'No scheduled follow-ups. You can send one manually to invited people who have not replied.' }}</p>
         <p v-if="event.votingClosedAt">Voting closed</p>
         <div class="team-actions">
           <button v-if="['direct_notice', 'team_poll'].includes(event.eventType) && !event.votingClosedAt" type="button" :disabled="busy" @click="edit(event)">Edit</button>
           <button v-if="!event.votingConfig?.enabled" type="button" :disabled="busy" @click="action(event, 'send')">Send to team</button>
           <button v-if="event.votingConfig?.enabled && !event.votingClosedAt" type="button" :disabled="busy" @click="action(event, 'poll')">Send poll</button>
+          <button v-if="event.votingConfig?.enabled && !event.votingClosedAt" type="button" :disabled="busy" @click="action(event, 'followup')">Send follow-up · no replies</button>
+          <button v-if="event.votingConfig?.enabled" type="button" :disabled="busy" @click="eventSetup = { pollId: event.id, initialEventId: event.votingConfig.linkedEventId || null, initialPoll: event }">{{ event.votingConfig.linkedEventId ? 'Manage linked event' : 'Create linked event' }}</button>
           <button v-if="event.votingConfig?.enabled" type="button" :disabled="busy" @click="reviewing = event">Results &amp; review</button>
           <button v-if="event.votingConfig?.enabled && !event.votingClosedAt" type="button" :disabled="busy" @click="action(event, 'close')">Close voting</button>
           <button type="button" :disabled="busy" @click="action(event, 'delivery')">Delivery history</button>
         </div>
       </article>
       <StaffPollResultsReview v-if="reviewing" :agency-id="agencyId" :event="reviewing" @changed="reviewing = $event; load()" @close="reviewing = null; load()" />
-      <section v-if="delivery" class="team-entry" aria-label="Team delivery history"><div class="team-header"><h3>{{ delivery.title }} · delivery history</h3><button type="button" @click="delivery = null">Close history</button></div><p v-if="!delivery.logs?.length">No deliveries yet.</p><ul><li v-for="log in delivery.logs" :key="log.id">{{ log.name }} · {{ log.channel }} · {{ log.status }}<span v-if="log.statusReason"> · {{ log.statusReason }}</span></li></ul></section>
+      <StaffPollDeliveryHistory v-if="delivery" :history="delivery" @close="delivery = null" @refresh="action(delivery, 'delivery')" />
+      <div v-if="eventSetup" class="event-setup-backdrop" @keydown.esc="closeEventSetup"><section class="event-setup-dialog" role="dialog" aria-modal="true" aria-label="Company event setup"><button type="button" @click="closeEventSetup">Close event setup</button><StaffEventForm ref="eventSetupForm" :agency-id="Number(agencyId)" :initial-event-id="eventSetup.initialEventId" :initial-poll="eventSetup.initialPoll" @saved="eventSaved" @close="eventSetup = null" /></section></div>
     </template>
   </section>
 </template>
 
 <style scoped>
 .conversa-team{max-width:1040px;margin:0 auto;color:var(--conversa-navy,#0b2352)}.team-header{display:flex;align-items:center;justify-content:space-between;gap:16px}.team-header h2,.team-header h3{margin:0}.team-header p{margin:8px 0}.team-note{color:#52627a;font-size:.9rem;line-height:1.6}.team-compose,.team-entry{background:var(--conversa-surface,#fff);border:1px solid #dce5f0;border-radius:16px;padding:24px;margin:20px 0}.team-grid{display:grid;grid-template-columns:1fr 2fr;gap:16px}fieldset{border:0;padding:0;min-width:0}label{display:grid;gap:6px;margin:12px 0;font-weight:600}input:not([type=checkbox]),select,textarea{width:100%;box-sizing:border-box;padding:10px;border:1px solid #b8c8df;border-radius:8px;background:#fff;color:#0b2352;font:inherit}.sms-status{display:block;font-size:.8rem;color:#16704b;margin-top:3px}.sms-blocked{color:#76521c}.team-check{display:flex;align-items:center;gap:9px;font-weight:400}.team-recipients{max-height:240px;overflow:auto;border:1px solid #dce5f0;border-radius:10px;padding:12px;margin:16px 0}.team-recipients legend{font-weight:600;padding:0 4px}.team-option{display:flex;align-items:center;gap:12px}.team-option label{flex:1}.team-actions{display:flex;flex-wrap:wrap;gap:8px}button{border:1px solid #b8c8df;border-radius:8px;background:#fff;color:#0047b3;padding:10px 14px;font:inherit;cursor:pointer}button:disabled{opacity:.55;cursor:default}button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:3px solid #60b5ff;outline-offset:2px}.team-primary{background:#0047b3;color:#fff}.team-type{font-size:.8rem;color:#0047b3;font-weight:700}.team-entry p{white-space:pre-wrap;overflow-wrap:anywhere}[role=alert]{color:#b91c1c}[role=status]{padding:12px;background:#e5f5f0;color:#165a43;border-radius:8px}.sr-only{position:absolute;width:1px;height:1px;padding:0;overflow:hidden;clip:rect(0,0,0,0)}@media(max-width:600px){.team-grid{grid-template-columns:1fr}.team-compose,.team-entry{padding:16px}.team-header{align-items:flex-start}}
+</style>
+
+<style scoped>
+.team-guide{margin-top:16px;padding:16px;background:#f2f6fd;border:1px solid #dce5f0;border-radius:12px}.team-guide summary{cursor:pointer;font-weight:700}.team-guide li{margin:10px 0;line-height:1.6}.event-setup-backdrop{position:fixed;inset:0;z-index:1100;background:#152c5077;display:flex;justify-content:center;padding:20px}.event-setup-dialog{background:white;border-radius:14px;max-width:1100px;width:100%;overflow:auto;padding:20px;box-sizing:border-box}@media(max-width:600px){.event-setup-backdrop{padding:6px}.event-setup-dialog{padding:12px}}
 </style>

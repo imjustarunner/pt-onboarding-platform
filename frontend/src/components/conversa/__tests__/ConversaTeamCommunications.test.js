@@ -218,3 +218,17 @@ it('lets organizers choose a deadline, live totals, and an optional internal eve
   expect(api.post.mock.calls.some(([url]) => url.endsWith('/send-poll'))).toBe(false);
   w.unmount();
 });
+it('allows a manual follow-up without enabling a schedule and previews only nonresponders',async()=>{
+ pollData({canSend:true,internalCount:1,smsEligibleCount:1,answeredCount:2,notInvitedCount:1});
+ const w=mount(Team,{props:{agencyId:4}});await flushPromises();await w.findAll('button').find(b=>b.text()==='Send follow-up · no replies').trigger('click');await flushPromises();
+ expect(api.get).toHaveBeenCalledWith('/agencies/4/company-events/22/poll-delivery-preview',{params:{followup:1,unsentOnly:undefined}});
+ expect(api.post).toHaveBeenCalledWith('/agencies/4/company-events/22/send-poll-followup',{requestId:expect.any(String)});expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('who have not replied'));w.unmount();
+});
+it('saves a closing-relative follow-up schedule without sending a message',async()=>{
+ const w=mount(Team,{props:{agencyId:4}});await flushPromises();await w.find('.team-grid select').setValue('poll');
+ const title=w.findAll('input').find(i=>i.attributes('maxlength')==='180');await title.setValue('Dinner date');
+ await w.find('.team-recipients input').setValue(true);await w.findAll('label').find(l=>l.text().includes('Schedule follow-ups for invited')).get('input').setValue(true);await w.get('[aria-label="Follow-up hours"]').setValue('24,2');
+ await w.findAll('button').find(b=>b.text()==='Save without sending').trigger('click');await flushPromises();
+ expect(api.post).toHaveBeenCalledWith('/agencies/4/company-events',expect.objectContaining({reminderConfig:{enabled:true,anchor:'poll_close',offsetsHours:[24,2],channels:{inApp:true,sms:false}}}));
+ expect(api.post.mock.calls.every(([url])=>!url.includes('send-'))).toBe(true);w.unmount();
+});

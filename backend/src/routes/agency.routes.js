@@ -81,6 +81,7 @@ import {
   closeCompanyEventVoting,
   updateCompanyEventPollPresentation,
   sendCompanyEventVotingSms,
+  sendCompanyEventPollFollowup,
   previewCompanyEventPollDelivery,
   sendCompanyEventDirectMessage,
   previewCompanyEventSms,
@@ -700,6 +701,7 @@ router.delete('/:id/company-events/:eventId/session-surveys/:attachmentId', auth
 router.post('/:id/company-events/:eventId/close-voting', authenticate, closeCompanyEventVoting);
 router.put('/:id/company-events/:eventId/presentation', authenticate, updateCompanyEventPollPresentation);
 router.post('/:id/company-events/:eventId/send-sms-vote', authenticate, sendCompanyEventVotingSms);
+router.post('/:id/company-events/:eventId/send-poll-followup', authenticate, sendCompanyEventPollFollowup);
 router.post('/:id/company-events/:eventId/send-poll', authenticate, sendCompanyEventVotingSms);
 router.get('/:id/company-events/:eventId/poll-delivery-preview', authenticate, previewCompanyEventPollDelivery);
 router.post('/:id/company-events/:eventId/send-direct-message', authenticate, sendCompanyEventDirectMessage);

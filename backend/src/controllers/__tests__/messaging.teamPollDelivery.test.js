@@ -3,9 +3,10 @@ const mock = vi.hoisted(() => ({ execute: vi.fn(), getConnection: vi.fn(), sms: 
 vi.mock('../../config/database.js', () => ({ default: { execute: mock.execute, query: mock.execute, getConnection: mock.getConnection }, onTableWrite: vi.fn() }));
 vi.mock('../../utils/userAgencyAffiliationAccess.js', () => ({ userHasAgencyOrAffiliatedOrgAccessForRequest: async () => true }));
 vi.mock('../../utils/meDashboardTenantScope.js', () => ({ resolveScopedAgencyIdsForMyDashboard: async () => [4] }));
+vi.mock('../../models/User.model.js', () => ({ default: { findById: vi.fn(async () => ({ id: 8, role: 'admin' })) } }));
 vi.mock('../../models/Agency.model.js', () => ({ default: { findById: mock.agency } }));
 vi.mock('../../services/unifiedEmail/unifiedEmailSender.service.js', () => ({ sendNotificationEmail: mock.email, sendEmailFromIdentity: vi.fn() }));
-vi.mock('../../models/Notification.model.js', () => ({ default: { coalesceOrCreate: mock.notification } }));
+vi.mock('../../models/Notification.model.js', () => ({ default: { coalesceOrCreate: mock.notification, create: mock.notification } }));
 vi.mock('../../models/UserCommunication.model.js', () => ({ default: { create: mock.communication, updateDeliveryStatus: vi.fn() } }));
 vi.mock('../../services/vonage.service.js', () => ({ default: { sendSms: mock.sms } }));
 vi.mock('../../services/smsCompliance.service.js', () => ({ prepareSmsDelivery: mock.prepare, getSmsSender: async () => ({ id: 8, agency_id: 4, scope: 'number:8', registration: { purposes: ['polling'] } }) }));
@@ -16,7 +17,7 @@ vi.mock('../../services/companyEventSms.service.js', () => ({
   resolveCompanyEventSmsSender: vi.fn(async () => ({ sender: { id: 8, phone_number: '+13035550100' }, campaignNumber: 2 })),
   sendCompanyEventSms: (...args) => mock.sms(...args), recordCompanyEventPollSmsResponse: vi.fn(),
   getCompanyEventSmsTopic: vi.fn(async () => '125'),
-  isCompanyEventSmsMuted: vi.fn(async () => false)
+  isCompanyEventSmsMuted: vi.fn(async () => false), getCompanyEventSmsReport: vi.fn(async () => ({ deliveries: [] }))
 }));
 vi.mock('../../utils/smsCompliancePolicy.js', () => ({ validateSmsRegistration: () => [] }));
 import * as controller from '../companyEvents.controller.js';
@@ -39,6 +40,7 @@ beforeEach(() => {
   event = { id: 20, agency_id: 4, event_type: 'team_poll', title: 'Team date', starts_at: '2026-01-01T12:00:00Z', ends_at: '2099-01-01T12:00:00Z', is_active: 1, sms_code: 'DATE', voting_config_json: { enabled: true, deliveryMode: 'both', viaSms: true, options: [{ key: '1', label: 'Tuesday' }, { key: '2', label: 'Friday' }] } };
   mock.sms.mockResolvedValue({ sid: 'mock-sms' }); mock.prepare.mockResolvedValue({}); mock.communication.mockResolvedValue({ id: 90 });
   mock.execute.mockImplementation(async (sql, args = []) => {
+    if (sql.includes('GET_LOCK')) return [[{ acquired: 1 }]];
     if (sql.includes('INSERT INTO company_event_dispatch_logs') && args[2] === 'email' && args[5] === 'sent') emailInvited.add(args[1]);
     if (sql.includes('SELECT id FROM company_event_dispatch_logs')) return [emailInvited.has(Number(args[1])) ? [{ id: 1 }] : []];
     if (sql.includes('FROM users u JOIN user_agencies ua')) return [users.filter(u => !sql.includes('AND u.id = ?') || u.id === args[1])];
@@ -231,7 +233,8 @@ describe('team poll delivery and shared replies', () => {
     expect(mock.sms).not.toHaveBeenCalled(); expect(mock.notification).not.toHaveBeenCalled();
   });
   it('removes pending poll and notification after an SMS reply, retaining history', async () => {
-    let res = await invoke('listMyCompanyEvents'); expect(res.json.mock.calls[0][0]).toHaveLength(1);
+    let res = await invoke('listMyCompanyEvents'); expect(res.json.mock.calls[0][0]).toHaveLength(0);
+    res = await pollsForParticipant(); expect(res.json.mock.calls[0][0]).toHaveLength(1);
     expect(await controller.handleCompanyEventInbound({ from: member.personal_phone, to: '+13035550100', body: 'DATE 1' })).toMatchObject({ handled: true });
     expect(replies.get(2)).toMatchObject({ response_key: '1' });
     expect(mock.execute).toHaveBeenCalledWith(expect.stringContaining('UPDATE notifications SET is_read'), [2, 20]);
@@ -422,4 +425,60 @@ describe('dashboard poll owner controls', () => {
     await controller.processScheduledStaffPollClosures();
     expect(mock.execute).toHaveBeenCalledWith(expect.stringContaining('UPDATE company_events SET voting_closed_at = ?'), [new Date(event.voting_config_json.closesAt), 20, 4]);
   });
+});
+
+describe('poll follow-ups and view receipts', () => {
+  function priorInvitationFixture() {
+    const original = mock.execute.getMockImplementation();
+    mock.execute.mockImplementation((sql,args) => sql.includes('SELECT user_id, MIN(sent_at)') ? Promise.resolve([[{ user_id: 2, sent_at: '2026-01-01T00:00:00Z' }]]) : original(sql,args));
+  }
+  it('previews only previously invited nonresponders, without sending or logging a view', async () => {
+    users = [member,{...member,id:6},{...member,id:7}]; replies.set(6,{user_id:6}); priorInvitationFixture();
+    const request=req(); request.query.followup='1';
+    const res=await invoke('previewCompanyEventPollDelivery',request);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({internalCount:1,smsEligibleCount:1,answeredCount:1,notInvitedCount:1}));
+    expect(mock.sms).not.toHaveBeenCalled();expect(mock.execute.mock.calls.some(([sql])=>sql.includes('INSERT INTO company_event_poll_views'))).toBe(false);
+  });
+  it('sends a manual follow-up even without a schedule and audits it separately', async () => {
+    users=[member]; priorInvitationFixture(); const request=req(); request.body.requestId='00000000-0000-4000-8000-000000000001';
+    const res=await invoke('sendCompanyEventPollFollowup',request);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({sentCount:1,inAppCount:1}));
+    expect(mock.sms).toHaveBeenCalledWith(expect.objectContaining({dispatchType:'poll_followup',batchId:'manual:'+request.body.requestId,body:expect.stringContaining('Reminder:')}));
+    expect(mock.execute.mock.calls.some(([sql,args])=>sql.includes('INSERT INTO company_event_dispatch_logs')&&args[3]==='poll_followup'&&args[4]==='manual:'+request.body.requestId)).toBe(true);
+  });
+  it('does not repeat successful channels when a follow-up request is retried', async () => {
+    users=[member]; priorInvitationFixture();const original=mock.execute.getMockImplementation();
+    mock.execute.mockImplementation((sql,args)=>sql.includes("dispatch_type = 'poll_followup' AND occurrence_key")?Promise.resolve([[{user_id:2,channel:'sms'},{user_id:2,channel:'in_app'}]]):original(sql,args));
+    const request=req();request.body.requestId='00000000-0000-4000-8000-000000000001';await invoke('sendCompanyEventPollFollowup',request);
+    expect(mock.sms).not.toHaveBeenCalled();expect(mock.notification).not.toHaveBeenCalled();
+  });
+  it('skips a person who replied after the follow-up preview', async () => {
+    users=[member];priorInvitationFixture();replies.set(2,{user_id:2});const request=req();request.body.requestId='00000000-0000-4000-8000-000000000001';await invoke('sendCompanyEventPollFollowup',request);
+    expect(mock.sms).not.toHaveBeenCalled();expect(mock.notification).not.toHaveBeenCalled();
+  });
+  it('records a visible poll separately from listing it, including in-app follow-ups', async () => {
+    await pollsForParticipant();expect(mock.execute.mock.calls.some(([sql])=>sql.includes('INSERT INTO company_event_poll_views'))).toBe(false);
+    await invoke('recordMyStaffPollView');expect(mock.execute).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO company_event_poll_views'),[20,2,expect.any(Date),expect.any(Date)]);
+    expect(mock.execute).toHaveBeenCalledWith(expect.stringContaining("AND channel = 'in_app' AND status = 'sent'"),[expect.any(Date),20,2,expect.any(Date)]);
+  });
+  it('does not let an outside user mark a poll as viewed', async () => {
+    users=[];const res=await invoke('recordMyStaffPollView');expect(res.status).toHaveBeenCalledWith(404);expect(mock.execute.mock.calls.some(([sql])=>sql.includes('INSERT INTO company_event_poll_views'))).toBe(false);
+  });
+  it('keeps real events on the calendar after an RSVP while excluding standalone polls', async () => {
+    event.event_type='company_event';replies.set(2,{user_id:2,response_key:'yes'});const res=await invoke('listMyCompanyEvents');expect(res.json.mock.calls[0][0]).toHaveLength(1);
+  });
+});
+
+it('automatically follows up at the deadline offset and suppresses already-sent reminder channels on the next run',async()=>{
+ users=[member];event.voting_config_json.closesAt=new Date(Date.now()+23*3600000).toISOString();event.reminder_config_json={enabled:true,anchor:'poll_close',offsetsHours:[24,2],channels:{inApp:true,sms:true}};
+ const sent=[];const original=mock.execute.getMockImplementation();
+ mock.execute.mockImplementation((sql,args)=>{
+  if(sql.includes('SELECT * FROM company_events WHERE is_active = 1'))return Promise.resolve([[event]]);
+  if(sql.includes('SELECT user_id, MIN(sent_at)'))return Promise.resolve([[{user_id:2,sent_at:'2026-01-01T00:00:00Z'}]]);
+  if(sql.includes("dispatch_type = 'poll_followup' AND occurrence_key"))return Promise.resolve([sent.map(channel=>({user_id:2,channel}))]);
+  if(sql.includes('INSERT INTO company_event_dispatch_logs')&&args[3]==='poll_followup'&&args[5]==='sent')sent.push(args[2]);
+  return original(sql,args);
+ });
+ await controller.processCompanyEventResponseReminders();expect(mock.sms).toHaveBeenCalledOnce();expect(mock.sms).toHaveBeenCalledWith(expect.objectContaining({dispatchType:'poll_followup',batchId:expect.stringMatching(/^scheduled:/)}));
+ await controller.processCompanyEventResponseReminders();expect(mock.sms).toHaveBeenCalledOnce();expect(mock.notification).toHaveBeenCalledOnce();
 });

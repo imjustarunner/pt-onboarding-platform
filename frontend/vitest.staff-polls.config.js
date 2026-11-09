@@ -8,6 +8,11 @@ export default defineConfig({
     'src/components/dashboard/__tests__/StaffPollsPanel.test.js',
     'src/components/conversa/__tests__/ConversaTeamCommunications.test.js',
     'src/components/admin/__tests__/StaffPollResultsReview.test.js',
-    'src/views/__tests__/StaffEventView.test.js'
+    'src/views/__tests__/StaffEventView.test.js',
+    'src/components/conversa/__tests__/StaffPollDeliveryHistory.test.js',
+    'src/composables/__tests__/useDashboardOverview.events.test.js',
+    'src/components/admin/__tests__/StaffEventForm.operations.test.js',
+    'src/views/public/__tests__/CompanyEventRsvpView.test.js',
+    'src/views/public/__tests__/CompanyEventPublicView.test.js'
   ] }
 });

@@ -1,6 +1,10 @@
 import { beforeAll, beforeEach, afterAll, describe, expect, it, vi } from 'vitest';
 import mysql from 'mysql2/promise';
-vi.mock('../../config/database.js', () => ({ default: {} }));
+vi.mock('../../config/database.js', () => ({ default: {}, onTableWrite: vi.fn() }));
+import fs from 'node:fs';
+import { withPollFollowupLock } from '../staffPollFollowups.service.js';
+import { saveStaffPotluckContribution } from '../staffEventPotluck.service.js';
+import { recordCompanyEventSmsDeliveryStatus } from '../companyEventSms.service.js';
 import { closeStaffPoll, saveStaffPollVote, scheduleStaffPollClosing } from '../staffPollLifecycle.service.js';
 const enabled = !!process.env.STAFF_POLL_MYSQL_SOCKET || process.env.STAFF_POLL_MYSQL_TEST === '1';
 const database = `staff_poll_lifecycle_${process.pid}`;
@@ -12,10 +16,17 @@ describe.skipIf(!enabled)('poll closing and response edits in isolated MySQL', (
       : { host: process.env.DB_HOST, port: Number(process.env.DB_PORT || 3306), user: process.env.DB_USER, password: process.env.DB_PASSWORD };
     admin = await mysql.createConnection(options); await admin.query(`CREATE DATABASE ${database}`);
     db = mysql.createPool({ ...options, database, connectionLimit: 5, timezone: '+00:00' });
-    await db.query(`CREATE TABLE company_events (id INT PRIMARY KEY, agency_id INT, is_active BOOL, event_type VARCHAR(40), ends_at DATETIME, voting_closed_at DATETIME, voting_config_json JSON, updated_by_user_id INT, updated_at DATETIME)`);
+    await db.query(`CREATE TABLE company_events (id INT PRIMARY KEY, agency_id INT, is_active BOOL, potluck_enabled BOOL DEFAULT 1, event_type VARCHAR(40), ends_at DATETIME, voting_closed_at DATETIME, voting_config_json JSON, updated_by_user_id INT, updated_at DATETIME)`);
     await db.query(`CREATE TABLE company_event_responses (id INT AUTO_INCREMENT PRIMARY KEY, company_event_id INT, user_id INT, response_key VARCHAR(32), response_label VARCHAR(200), response_body TEXT, source VARCHAR(20), from_number VARCHAR(20), received_at DATETIME, UNIQUE KEY one_vote(company_event_id,user_id), FOREIGN KEY(company_event_id) REFERENCES company_events(id))`);
+    await db.query('CREATE TABLE users (id INT PRIMARY KEY)');await db.query('INSERT INTO users VALUES (2),(3)');
+    await db.query('CREATE TABLE company_event_need_list_items (id INT PRIMARY KEY, company_event_id INT, agency_id INT, item_name VARCHAR(255), item_notes TEXT, claimed_by_user_id INT, claimed_by_guest_email VARCHAR(255), claimed_by_guest_name VARCHAR(255), claimed_at DATETIME)');
+    await db.query("CREATE TABLE company_event_sms_deliveries (id INT PRIMARY KEY, status VARCHAR(24), status_reason VARCHAR(255), provider_message_id VARCHAR(255), responded_at DATETIME)");
+    await db.query('CREATE TABLE company_event_dispatch_logs (id INT PRIMARY KEY)');
+    const migration=fs.readFileSync(new URL('../../../../database/migrations/1784_conversa_poll_delivery_visibility.sql',import.meta.url),'utf8');
+    for(const sql of migration.split(';').map(value=>value.trim()).filter(Boolean)) await db.query(sql);
   });
   beforeEach(async () => {
+    await db.query('DELETE FROM company_event_need_list_items');await db.query('DELETE FROM company_event_sms_deliveries');await db.query('DELETE FROM company_event_poll_views');
     await db.query('DELETE FROM company_event_responses'); await db.query('DELETE FROM company_events');
     await db.execute(`INSERT INTO company_events(id,agency_id,is_active,event_type,ends_at,voting_config_json) VALUES(20,4,1,'team_poll','2099-12-31 12:00:00',?)`, [JSON.stringify({ enabled: true })]);
     await vote('1');
@@ -51,4 +62,23 @@ describe.skipIf(!enabled)('poll closing and response edits in isolated MySQL', (
     expect(row.ends_at.toISOString()).toBe('2099-12-31T12:00:00.000Z'); expect(row.voting_config_json.closesAt).toBe('2099-11-01T12:00:00.000Z');
     expect((await closeStaffPoll({ eventId: 20, agencyId: 4, scheduledOnly: true }, db)).closed).toBe(false);
   });
+  it('prevents simultaneous workers from sending a follow-up twice',async()=>{
+    let unblock,entered;const waiting=new Promise(resolve=>{unblock=resolve}),ready=new Promise(resolve=>{entered=resolve});
+    const first=withPollFollowupLock(20,async()=>{entered();await waiting;return 'sent';},db);await ready;
+    try{await expect(withPollFollowupLock(20,async()=>{throw Error('duplicate send')},db)).rejects.toMatchObject({status:409});}finally{unblock();await first;}
+    expect(await withPollFollowupLock(20,async()=>true,db)).toBe(true);
+  });
+  it('preserves carrier delivery time when a later reply or accepted receipt arrives',async()=>{
+    await db.query("INSERT INTO company_event_sms_deliveries(id,status,provider_message_id) VALUES(1,'sent','receipt-1')");
+    await recordCompanyEventSmsDeliveryStatus('receipt-1','delivered',db);
+    const [[before]]=await db.query('SELECT delivered_at FROM company_event_sms_deliveries');expect(before.delivered_at).toBeInstanceOf(Date);
+    await db.query('UPDATE company_event_sms_deliveries SET responded_at=UTC_TIMESTAMP()');await recordCompanyEventSmsDeliveryStatus('receipt-1','accepted',db);
+    const [[after]]=await db.query('SELECT status,delivered_at FROM company_event_sms_deliveries');expect(after.status).toBe('delivered');expect(after.delivered_at).toEqual(before.delivered_at);
+  });
+  it('only lets one invitee claim the same potluck slot',async()=>{
+    await db.query("INSERT INTO company_event_need_list_items(id,company_event_id,agency_id,item_name,item_notes) VALUES(8,20,4,'Food','[OPEN_REQUEST_SLOT]')");
+    const claim=userId=>saveStaffPotluckContribution({eventId:20,agencyId:4,userId,itemId:8,customItemName:userId===2?'Fruit salad':'Bread'},db);
+    const results=await Promise.allSettled([claim(2),claim(3)]);expect(results.filter(r=>r.status==='fulfilled')).toHaveLength(1);expect(results.find(r=>r.status==='rejected').reason.status).toBe(409);
+  });
+
 });
