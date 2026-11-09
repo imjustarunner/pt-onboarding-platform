@@ -6,7 +6,9 @@ export const normalizedEmail = value => {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address) ? address : null;
 };
 export function closureEmailOptions(user = {}) {
-  const work = normalizedEmail(user.work_email || user.email);
+  // The login identifies the configured Workspace user/Group. Older work_email
+  // contact fields can contain a personal address and must not override it.
+  const work = normalizedEmail(user.email || user.work_email);
   const nonSso = yes(user.sso_password_override) || yes(user.login_is_group_email);
   const personal = normalizedEmail(user.personal_email);
   return { work, personal, nonSso, emailMode: nonSso ? 'work_email_forward' : 'work_email',
