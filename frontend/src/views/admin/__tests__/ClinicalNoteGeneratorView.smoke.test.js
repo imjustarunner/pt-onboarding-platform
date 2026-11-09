@@ -377,6 +377,27 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     expect(request[1].get('clientId')).toBeNull();
     expect(request[1].get('inputText')).toContain('emotional regulation');
     expect(state.outputObj.sections.Subjective).toBe('Synthetic note.');
+    expect(state.narrivaComplianceRequired).toBe(false);
+    expect(vi.mocked(api.post).mock.calls.some(([url]) => url === '/narriva/reviews')).toBe(false);
+    expect(wrapper.findComponent({ name: 'NarrivaCompliancePanel' }).exists()).toBe(false);
+    expect(wrapper.text()).toContain('Narriva Compliance does not run on unlinked notes.');
+    wrapper.unmount();
+  });
+
+  it('keeps unlinked saved drafts outside compliance and requires checks again when linked', async () => {
+    const { wrapper, state } = await workspace('psychotherapy');
+    state.draftId = 42;
+    state.outputObj = { sections: { Subjective: 'Synthetic note.' } };
+    await state.runNarrivaChecks();
+    expect(vi.mocked(api.post).mock.calls.some(([url]) => url === '/narriva/reviews')).toBe(false);
+    state.selectedClientId = 101;
+    state.progressEntryMode = 'unlinked';
+    await nextTick();
+    expect(state.narrivaComplianceRequired).toBe(true);
+    state.selectedClientId = null;
+    state.sessionClinicalSessionId = 202;
+    await nextTick();
+    expect(state.narrivaComplianceRequired).toBe(true);
     wrapper.unmount();
   });
 

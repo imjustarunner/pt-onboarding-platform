@@ -52,6 +52,15 @@ beforeEach(()=>{
 afterEach(()=>vi.unstubAllEnvs());
 
 describe('actual clinical generator shared service guidance boundary',()=>{
+ it('still generates an unlinked writing-aid draft without clinical encounter context or a review',async()=>{
+  saved={...saved,client_id:null,clinical_session_id:null,office_event_id:null};
+  const {res,next}=await invoke({clientId:null,clinicalSessionId:null,officeEventId:null});
+  expect(next).not.toHaveBeenCalled();expect(res.status).not.toHaveBeenCalled();
+  expect(m.model).toHaveBeenCalledTimes(1);expect(m.context).not.toHaveBeenCalled();
+  expect(m.client).not.toHaveBeenCalled();
+  expect(res.json.mock.calls[0][0].outputJson.sections).toBeTruthy();
+  expect(m.execute.mock.calls.some(([sql])=>/INSERT INTO narriva_reviews/i.test(sql))).toBe(false);
+ });
  it('delivers the approved exact service definition and owner guide/examples to the actual writer prompt',async()=>{
   const {res,next}=await invoke();expect(next).not.toHaveBeenCalled();expect(res.status).not.toHaveBeenCalled();expect(m.model).toHaveBeenCalledOnce();
   const {prompt}=m.model.mock.calls[0][0],reference=getClinicalServiceReference('H0004');
