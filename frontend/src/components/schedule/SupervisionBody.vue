@@ -58,9 +58,9 @@
             <input
               type="checkbox"
               role="switch"
-              :checked="isVirtual"
-              :disabled="disabled"
-              :aria-checked="String(!!isVirtual)"
+              :checked="isVirtual || dialInRequired"
+              :disabled="disabled || dialInRequired"
+              :aria-checked="String(!!isVirtual || dialInRequired)"
               @change="emit('update:isVirtual', !!$event.target.checked)"
             />
             <span class="supb-switch-slider" aria-hidden="true"></span>
