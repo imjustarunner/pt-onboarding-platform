@@ -339,9 +339,7 @@
             <div class="org-general-title">
               <div class="org-name">{{ editingAgency.name }}</div>
               <div class="org-status-pills">
-                <span v-if="editingAgency.is_archived" class="pill pill-warn">Archived</span>
-                <span v-else-if="editingAgency.is_active === false" class="pill pill-warn">Inactive</span>
-                <span v-else class="pill pill-ok">Active</span>
+                <span :class="['pill', organizationLifecycle(editingAgency)==='active' ? 'pill-ok' : 'pill-warn']">{{ organizationLifecycleLabel(editingAgency) }}</span>
                 <span v-if="editingAgency.portal_url" class="pill pill-muted mono">/{{ editingAgency.portal_url }}</span>
       </div>
     </div>
@@ -2800,11 +2798,12 @@
           </div>
           
           <div class="form-group">
-            <ToggleSwitch v-model="agencyForm.isActive" label="Active" />
+            <p v-if="organizationLifecycle(editingAgency)==='onboarding'">Status: <strong>Onboarding</strong>. The school becomes active when its onboarding is submitted.</p>
+            <ToggleSwitch v-else v-model="agencyForm.isActive" label="Active" />
           </div>
           </div>
           
-          <div v-if="activeTab === 'general' && editingAgency" class="form-group">
+          <div v-if="activeTab === 'general' && editingAgency && organizationLifecycle(editingAgency)!=='onboarding'" class="form-group">
             <button 
               type="button" 
               @click="toggleAgencyStatus" 
