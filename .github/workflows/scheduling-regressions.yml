@@ -212,6 +212,8 @@ jobs:
           backend/src/services/__tests__/scheduling.offerRecipients.test.js
           backend/src/services/__tests__/scheduling.privateOfferPublicCache.test.js
           backend/src/controllers/__tests__/scheduling.replacementOfferAccess.test.js
+      - name: District and school closure reminders for internal staff
+        run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.school-closure.config.js
       - name: Cancellation recipient previews, school absence times, and calendar overlap
         run: |
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.scheduling.config.js backend/src/services/__tests__/scheduling.cancellationNoticePreview.test.js backend/src/services/__tests__/scheduling.dayCancellation.test.js backend/src/services/__tests__/scheduling.schoolRosterCancellation.test.js backend/src/services/__tests__/scheduling.schoolRosterEmail.test.js backend/src/services/__tests__/scheduling.dayAbsencePolicy.test.js backend/src/services/__tests__/scheduling.cancellationReceipts.test.js backend/src/services/__tests__/scheduling.cancellationOutreach.test.js backend/src/services/__tests__/scheduling.cancellationStorage.test.js backend/src/services/__tests__/scheduling.dayCancellationEmail.test.js backend/src/services/__tests__/scheduling.dayCancellationContactFollowup.test.js backend/src/services/__tests__/scheduling.schoolCancellationCaregivers.test.js backend/src/services/__tests__/scheduling.scheduleNoticeBuffer.test.js
