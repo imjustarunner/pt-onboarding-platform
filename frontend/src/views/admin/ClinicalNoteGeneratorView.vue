@@ -997,7 +997,8 @@
           <small v-if="generateError" class="error">{{ generateError }}</small>
         </section>
 
-        <NarrivaCompliancePanel v-if="!signedNoteViewerId && !isClientChartAid && (draftId || inputText || narrivaReview || narrivaReviewBusy || narrivaReviewError || displayPanels.length)" :review="narrivaReview" :risk-assessment-required="narrivaRiskRequired" :busy="narrivaReviewBusy" :error="narrivaReviewError" @retry="runNarrivaChecks" @resolve="resolveNarrivaFinding" @action="onNarrivaFindingAction">
+        <p v-if="!signedNoteViewerId && !isClientChartAid && !narrivaComplianceRequired && (inputText || displayPanels.length)" class="na-field-hint" role="status">Unlinked writing aid. You can generate, edit, save and copy this note. Narriva Compliance does not run on unlinked notes.</p>
+        <NarrivaCompliancePanel v-if="narrivaComplianceRequired && !signedNoteViewerId && !isClientChartAid && (draftId || inputText || narrivaReview || narrivaReviewBusy || narrivaReviewError || displayPanels.length)" :review="narrivaReview" :risk-assessment-required="narrivaRiskRequired" :busy="narrivaReviewBusy" :error="narrivaReviewError" @retry="runNarrivaChecks" @resolve="resolveNarrivaFinding" @action="onNarrivaFindingAction">
           <template #risk="{ required }"><div class="narriva-risk-choice"><strong>Include a risk assessment?</strong><span v-if="required">Required for this note</span><template v-else><label><input :checked="!narrivaRiskIncluded" type="radio" name="narriva-risk" @change="narrivaRiskIncluded = false" />No</label><label><input :checked="narrivaRiskIncluded" type="radio" name="narriva-risk" @change="narrivaRiskIncluded = true" />Yes</label></template><button v-if="required || narrivaRiskIncluded" type="button" class="na-link-btn" @click="openNarrivaRisk">Open risk assessment</button><label v-if="required || narrivaRiskIncluded" class="narriva-risk-complete"><input v-model="narrivaRiskCompleted" type="checkbox" />I completed and reviewed the documented risk assessment.</label></div></template>
         </NarrivaCompliancePanel>
         <section v-if="!signedNoteViewerId && !chartNoteReadOnly && !isClientChartAid && !displayPanels.length && (draftId || inputText)" class="na-sign-attest" aria-label="Signing status">
@@ -3009,6 +3010,13 @@ const isNoteSessionLocked = computed(() => {
 
 const canEditNoteSubject = computed(() => !isNoteSessionLocked.value);
 
+// A writing-aid draft without a client/encounter remains available outside the
+// EHR workflow. A mode toggle must never exempt an already linked chart note.
+const narrivaComplianceRequired = computed(() => !!(
+  effectiveClientId.value || isNoteSessionLocked.value || activeWorkQueueItem.value?.clientId
+  || (recentDrafts.value || []).find(d => String(d.id) === String(draftId.value))?.client_id
+));
+
 const canClearLinkedClient = computed(() => canEditNoteSubject.value);
 
 const noteSubjectLabel = computed(() => {
@@ -3145,7 +3153,7 @@ async function saveNarrivaDefault(mode) {
 }
 function narrivaContext() { return { ...(outputObj.value?.meta?.narrivaContext || {}), underlyingServiceCode:narrivaUnderlyingCode.value || null, assessmentEvidence:narrivaAssessmentEvidence.value, presentingProblem:chartPresentingProblem.value || '', writerMode:noteWriterMode.value, consentConfirmed:narrivaConsentConfirmed.value, modality:narrivaModality.value, riskAssessmentIncluded:narrivaRiskIncluded.value || narrivaRiskRequired.value === true, riskAssessmentRequired:narrivaRiskRequired.value, riskAssessmentCompleted:narrivaRiskCompleted.value }; }
 async function runNarrivaChecks() {
-  if (narrivaReviewBusy.value || !outputObj.value || signedNoteViewerId.value) return;
+  if (!narrivaComplianceRequired.value || narrivaReviewBusy.value || !outputObj.value || signedNoteViewerId.value) return;
   if(narrivaFeatures.value.compliance===false){narrivaReviewError.value='Narriva checks are not enabled for this workspace. Your note is preserved.';return;}
   cancelPendingAutosave();
   const sourceClient = effectiveClientId.value, sourceDraft = draftId.value;
