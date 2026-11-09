@@ -9,7 +9,7 @@ import { requireSessionPrivacyConfiguration } from './sessionAiPrivacy.service.j
 import Artifact from '../models/ProviderScheduleEventArtifact.model.js';
 import { callWithInvitation, validateDialInCall, endDialInCall } from './meetingDialIn.service.js';
 import { dialInSchema } from './meetingDialInContext.service.js';
-import { dialInConfigured } from './meetingDialInPolicy.js';
+import { dialInConfigured, isDialInCallId } from './meetingDialInPolicy.js';
 
 const hash = s => crypto.createHash('sha256').update(s).digest('hex');
 const active = s => s.allowed && s.requested && !s.paused && !s.stopped && !s.finishing;
@@ -110,7 +110,7 @@ export function attachMeetingDialInAudio(server) {
     try {
       if (!dialInConfigured()) throw new Error('disabled');
       const id=String(req.headers['x-meeting-call']||''),secret=String(req.headers['x-meeting-audio']||'');
-      if (!/^[\da-f-]{36}$/i.test(id) || !/^[\da-f]{48}$/i.test(secret)) throw new Error('unauthorized');
+      if (!isDialInCallId(id) || !/^[\da-f]{48}$/i.test(secret)) throw new Error('unauthorized');
       const call=await callWithInvitation(id),context=await validateDialInCall(call);
       if (call.state!=='connected' || hash(secret)!==call.audio_token_hash
         || req.headers['x-opentok-ws-sessionid']!==call.video_session_id) throw new Error('unauthorized');

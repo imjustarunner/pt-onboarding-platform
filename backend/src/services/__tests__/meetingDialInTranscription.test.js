@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import crypto from 'node:crypto';
+import { EventEmitter } from 'node:events';
 const m = vi.hoisted(() => ({ execute: vi.fn(), state: vi.fn(), append: vi.fn(), membership: vi.fn(), call: vi.fn(), context: vi.fn(), artifact: vi.fn(), privacy: vi.fn(), summary: vi.fn(), end: vi.fn(), membership: vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: { execute: m.execute } }));
 vi.mock('../meetingJoinPolicy.service.js', () => ({ canJoinSupervision:m.membership, canJoinTeamMeeting:m.membership }));
@@ -8,7 +10,7 @@ vi.mock('../meetingDialIn.service.js', () => ({ callWithInvitation: m.call, vali
 vi.mock('../sessionAiPrivacy.service.js', () => ({ requireSessionPrivacyConfiguration: m.privacy }));
 vi.mock('../../models/ProviderScheduleEventArtifact.model.js', () => ({ default: { ensureTagged: vi.fn(), findByEventId: m.artifact } }));
 vi.mock('../meetingSummaryJobs.service.js', () => ({ enqueueMeetingSummary: m.summary }));
-import { phoneTranscriptionState, syncDialInTranscription, savePhoneAudio, pcmWav } from '../meetingDialInTranscription.service.js';
+import { phoneTranscriptionState, syncDialInTranscription, savePhoneAudio, pcmWav, attachMeetingDialInAudio } from '../meetingDialInTranscription.service.js';
 const call = { id: 'synthetic', meeting_type: 'supervision', meeting_id: 5, user_id: 8, audio_revision: 1, video_stream_id: 'caller-only-stream', video_session_id: 'media' };
 const context = { type: 'supervision', meeting: { id: 5, supervisor_user_id: 7 }, userId: 8, isHost: false, name: 'Invited Person', settings: {} };
 const active = { allowed: true, requested: true, paused: false, stopped: false, finishing: false, revision: 1 };
@@ -19,6 +21,26 @@ beforeEach(() => {
 });
 afterEach(() => vi.useRealTimers());
 describe('named phone transcription', () => {
+  it.each(['5924a51e6beebace59f7ed7b61561d19', '5924a51e-6bee-bace-59f7-ed7b61561d19'])('authenticates an audio stream for carrier call %s', async id => {
+    const secret = 'a'.repeat(48), server = new EventEmitter();
+    const wss = attachMeetingDialInAudio(server);
+    const upgrade = vi.spyOn(wss, 'handleUpgrade').mockImplementation(() => {});
+    const socket = { on: vi.fn(), write: vi.fn(), destroy: vi.fn() };
+    m.call.mockResolvedValue({ ...call, id, state: 'connected', audio_token_hash: crypto.createHash('sha256').update(secret).digest('hex') });
+    m.context.mockResolvedValue(context); m.execute.mockResolvedValue([{ affectedRows: 1 }]);
+    await server.listeners('upgrade')[0]({ url: '/api/meeting-dial-in/audio', headers: { 'x-meeting-call': id, 'x-meeting-audio': secret, 'x-opentok-ws-sessionid': 'media' } }, socket, Buffer.alloc(0));
+    expect(m.call).toHaveBeenCalledWith(id); expect(upgrade).toHaveBeenCalledOnce(); expect(socket.destroy).not.toHaveBeenCalled();
+    upgrade.mockRestore(); wss.close();
+  });
+  it('rejects an audio stream with the wrong secret before accepting its socket', async () => {
+    const server = new EventEmitter(), wss = attachMeetingDialInAudio(server);
+    const upgrade = vi.spyOn(wss, 'handleUpgrade').mockImplementation(() => {});
+    const socket = { on: vi.fn(), write: vi.fn(), destroy: vi.fn() };
+    m.call.mockResolvedValue({ ...call, state: 'connected', audio_token_hash: 'another-secret-hash' }); m.context.mockResolvedValue(context);
+    await server.listeners('upgrade')[0]({ url: '/api/meeting-dial-in/audio', headers: { 'x-meeting-call': '5924a51e6beebace59f7ed7b61561d19', 'x-meeting-audio': 'a'.repeat(48), 'x-opentok-ws-sessionid': 'media' } }, socket, Buffer.alloc(0));
+    expect(upgrade).not.toHaveBeenCalled(); expect(socket.destroy).toHaveBeenCalledOnce();
+    upgrade.mockRestore(); wss.close();
+  });
   it('starts supervision by default without restarting an explicitly paused or stopped session', async () => {
     m.state.mockResolvedValueOnce({ ...active, requested: false, paused: true, revision: 0 }).mockResolvedValue(active);
     expect(await phoneTranscriptionState(call, context, { initialize: true })).toEqual(active);
