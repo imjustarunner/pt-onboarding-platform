@@ -1,5 +1,6 @@
 <template>
-  <div class="pw-page">
+  <div class="pw-page ft-payroll">
+    <FundThredPayrollBrand />
     <div class="pw-header">
       <div class="pw-header-left">
         <button type="button" class="pw-back" @click="goBackToPayroll">
@@ -127,6 +128,7 @@
                       <option :value="null" disabled>Select a pay period…</option>
                       <option v-for="p in periodsForSelect" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
                     </select>
+                    <label class="pps-period-history"><input v-model="showOlderPeriodChoices" type="checkbox" /> Show older scheduled pay periods</label>
                   </div>
                   <div v-if="selectedPeriod" class="pw-selection-card" style="margin-top: 12px;">
                     <div class="pw-selection-icon" aria-hidden="true">
@@ -628,6 +630,10 @@
 </template>
 
 <script setup>
+import FundThredPayrollBrand from '../../components/payroll/FundThredPayrollBrand.vue';
+import { useFundThredBranding } from '../../composables/useFundThredBranding';
+import { payrollPeriodChoices } from '../../utils/payrollPeriodChoices';
+useFundThredBranding('Payroll | FundThred');
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
@@ -660,6 +666,7 @@ const complianceUnlocked = ref(false);
 const complianceExclusions = ref({});
 
 const periods = ref([]);
+const showOlderPeriodChoices = ref(false);
 const selectedPeriodId = ref(null);
 const selectedPeriod = ref(null);
 const stepIdx = ref(0);
@@ -715,34 +722,10 @@ const showInlinePanel = computed(() =>
   showPreviewPanel.value
 );
 
-/** Org-relevant periods only: schedule-aligned, past/current + at most one upcoming (matches Payroll history). */
-const periodsForSelect = computed(() => {
-  const source = periods.value || [];
-  let all = source.filter((p) => Number(p.schedule_aligned) === 1).slice();
-  // Fallback if alignment flags are missing for this org
-  if (!all.length) all = source.slice();
-  all.sort((a, b) => {
-    const ae = String(a?.period_end || '');
-    const be = String(b?.period_end || '');
-    if (ae !== be) return be.localeCompare(ae);
-    return (b?.id || 0) - (a?.id || 0);
-  });
-  const today = new Date();
-  const todayYmd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-  const pastOrCurrent = all.filter((p) => String(p?.period_start || '') <= todayYmd);
-  const future = all
-    .filter((p) => String(p?.period_start || '') > todayYmd)
-    .sort((a, b) => String(a?.period_start || '').localeCompare(String(b?.period_start || '')));
-  const next = future.length ? [future[0]] : [];
-  const list = [...pastOrCurrent, ...next];
-  // Keep a deep-linked / already-selected period visible even if filtered out
-  const selId = selectedPeriodId.value;
-  if (selId && !list.some((p) => Number(p.id) === Number(selId))) {
-    const sel = source.find((p) => Number(p.id) === Number(selId));
-    if (sel) list.push(sel);
-  }
-  return list;
-});
+/** Recent/current scheduled periods; older history and an explicit selection remain available. */
+const periodsForSelect = computed(() => payrollPeriodChoices(periods.value, {
+  includeOlder: showOlderPeriodChoices.value, includeLocked: true, selectedId: selectedPeriodId.value
+}));
 
 const findContiguousPrior = (fromPeriod) => {
   const start = String(fromPeriod?.period_start || '').slice(0, 10);

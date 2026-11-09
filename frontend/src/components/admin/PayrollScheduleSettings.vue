@@ -18,6 +18,15 @@
     <div v-if="!agencyId" class="empty">Select an agency first.</div>
 
     <div v-else>
+      <section class="ft-pay-setup">
+        <h3>Set up your organization’s pay</h3>
+        <p class="hint">Start with the pay basis in each staff member’s agreement. Rates and effective dates can differ by person.</p>
+        <ol>
+          <li><strong>Choose the pay basis</strong>Use Pay System Rates for hourly or service rates, % of Charge for percentage pay, or the staff payroll profile for salary.</li>
+          <li><strong>Name the work clearly</strong>Set service codes and rate titles for direct care, admin time, supervision, and other activities.</li>
+          <li><strong>Check each person</strong>Review their rates and effective dates in their payroll profile, then verify the wizard’s preview before posting.</li>
+        </ol>
+      </section>
       <div class="tabs" style="margin-bottom: 12px; flex-wrap: wrap;">
         <!-- Pay rates -->
         <button type="button" class="tab" :class="{ active: payrollTab === 'pay_system' }" @click="payrollTab = 'pay_system'">

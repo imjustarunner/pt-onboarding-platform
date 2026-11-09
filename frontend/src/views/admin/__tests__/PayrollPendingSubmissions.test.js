@@ -9,22 +9,26 @@ vi.mock('vue-router', () => ({ useRoute: () => mock.route, useRouter: () => ({ r
 const period = { id: 8, period_start: '2026-10-10', period_end: '2026-10-23', status: 'staged', schedule_aligned: 1 };
 const mileage = { id: 10, user_id: 7, claim_type: 'school_travel', drive_date: '2026-10-16', miles: 8.41, eligible_miles: 8.41, tier_level: 2, status: 'submitted' };
 const time = { id: 11, user_id: 7, claim_type: 'indirect_time', claim_date: '2026-10-16', status: 'approved', bucket: 'indirect', credits_hours: 1, applied_amount: 20, target_payroll_period_id: 8, payload: { supervisionSessionId: 99, sessionType: 'individual', totalMinutes: 60 }, payEstimate: { rateLabel: 'Support Activity Rate', availableRates: [{ key: 'direct', label: 'Direct Rate', amount: 65, unit: 'hour' }, { key: 'support', label: 'Support Activity Rate', amount: 20, unit: 'hour' }] } };
-let rows, times, posted, failReimbursement, failPeriods, wrappers;
+let rows, times, posted, failReimbursement, failPeriods, wrappers, periodRows, ptoRows, eventRows, reimbRows, annualReports;
 beforeEach(() => {
-  vi.clearAllMocks(); wrappers = []; mock.route.query = { tab: 'mileage' };
+  vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-10-18T12:00:00Z'));
+  vi.clearAllMocks(); wrappers = []; periodRows = [period]; ptoRows = []; eventRows = []; reimbRows = []; annualReports = {}; mock.route.query = { tab: 'mileage' };
   rows = [structuredClone(mileage)]; times = [structuredClone(time)]; posted = false; failReimbursement = false; failPeriods = false;
   mock.post.mockResolvedValue({ data: {} });
   mock.get.mockImplementation(async (url, { params } = {}) => {
     if (url === '/payroll/periods' && failPeriods) throw { response: { status: 403, data: { error: { message: 'Payroll access required' } } } };
-    if (url === '/payroll/periods') return { data: [{ ...period, status: posted ? 'posted' : 'staged' }] };
+    if (url === '/payroll/periods') return { data: periodRows.map(p => ({ ...p, status: posted ? 'posted' : p.status })) };
     if (url === '/payroll/agency-users') return { data: [{ id: 7, first_name: 'Test', last_name: 'Provider' }] };
     if (url === '/payroll/mileage-rates') return { data: { rates: [{ tierLevel: 1, ratePerMile: 0.6 }, { tierLevel: 2, ratePerMile: 0.35 }, { tierLevel: 3, ratePerMile: 0.2 }], settings: {} } };
-    if (url === '/payroll/event-time-submissions') return { data: { submissions: [] } };
+    if (url === '/payroll/event-time-submissions') return { data: { submissions: eventRows } };
+    if (url === '/payroll/pto-requests') return { data: ptoRows };
+    if (url === '/payroll/mileage-annual-summary') return { data: annualReports[params.year] || { year: params.year, limitDollars: 2000, people: [{ userId: 7, paidDollars: 500, approvedDollars: 100, committedDollars: 600, overLimitDollars: 0 }] } };
     if (url === '/payroll/mileage-claims' || url === '/payroll/time-claims') {
       const source = url.includes('mileage') ? rows : times;
       return { data: source.filter(c => c.status === params.status && !(params.unpostedOnly && posted)).slice(params.offset, params.offset + params.limit) };
     }
     if (url === '/payroll/reimbursement-claims' && failReimbursement) throw { response: { status: 403, data: { error: { message: 'Payroll access required' } } } };
+    if (url === '/payroll/reimbursement-claims') return { data: reimbRows };
     return { data: [] };
   });
   mock.patch.mockImplementation(async (url, body) => {
@@ -36,7 +40,7 @@ beforeEach(() => {
     return { data: { claim: c } };
   });
 });
-afterEach(() => wrappers.forEach(w => w.unmount()));
+afterEach(() => { wrappers.forEach(w => w.unmount()); vi.useRealTimers(); });
 async function page(tab = 'mileage') {
   mock.route.query = { tab };
   const w = mount(PayrollPendingSubmissions, { global: { stubs: { MeetingClaimDetails: true, IndirectTimeClaimDetailFields: true } } }); wrappers.push(w); await flushPromises(); return w;
@@ -112,4 +116,60 @@ it('keeps the saved worker name and readable service date when that worker is ab
   Object.assign(rows[0], { user_id:596, provider_first_name:'Piper', provider_last_name:'Finch', drive_date:'2026-10-30T00:00:00.000Z' });
   const w=await page();expect(w.text()).toContain('Piper Finch');expect(w.text()).toContain('Oct 30, 2026');
   expect(w.text()).not.toContain('User #596');expect(w.text()).not.toContain('T00:00:00.000Z');
+});
+
+it('changes inherited destinations, preserves row overrides, and explicitly applies across all pending queues without approving', async () => {
+  periodRows.push({ ...period, id: 9, period_start: '2026-10-24', period_end: '2026-11-06' }, { ...period, id: 10, period_start: '2026-11-07', period_end: '2026-11-20' });
+  times[0].status = 'submitted';
+  ptoRows = [{ id: 21, user_id: 7, status: 'submitted', dates: ['2026-10-16'], total_hours: 1 }];
+  reimbRows = [{ id: 31, user_id: 7, status: 'submitted', amount: 15 }];
+  eventRows = [{ punchInId: 41, indirectClaim: { id: 42, status: 'submitted' }, directHoursCap: 0, indirectHours: 1 }];
+  const w = await page();
+  await w.get('.pps-panel tbody select').setValue('3'); // Mileage tier is independent of destinations.
+  const destination = w.findAll('.pps-panel tbody select')[1];
+  await destination.setValue('10');
+  await w.get('#pps-default-period').setValue('9');
+  expect(destination.element.value).toBe('10');
+  await w.get('.pps-tab').trigger('click'); await flushPromises();
+  expect(w.get('.pps-panel tbody select').element.value).toBe('9');
+  await w.findAll('button').find(b => b.text().startsWith('Apply to all')).trigger('click'); await flushPromises();
+  expect(mock.patch).not.toHaveBeenCalled();
+  expect(w.vm.ptoTargetById[21]).toBe(9);
+  expect(w.vm.claimTargetByKey).toMatchObject({ 'time-11': 9, 'mileage-10': 9, 'reimb-31': 9 });
+  expect(w.vm.eventTimeTargetPeriodByPunchId[41]).toBe(9);
+  await button(w, 'Refresh').trigger('click'); await flushPromises();
+  expect(w.vm.claimTargetByKey['mileage-10']).toBe(9);
+  expect(w.vm.eventTimeTargetPeriodByPunchId[41]).toBe(9);
+  expect(rows[0].status).toBe('submitted'); expect(times[0].status).toBe('submitted');
+});
+
+it('keeps off-schedule and locked periods out of approval destinations, including the older-period view', async () => {
+  periodRows.push({ ...period, id: 90, schedule_aligned: 0, period_start: '2026-10-17', period_end: '2026-10-30' },
+    { ...period, id: 91, status: 'posted', period_start: '2026-09-26', period_end: '2026-10-09' },
+    { ...period, id: 92, period_start: '2026-08-01', period_end: '2026-08-14' },
+    { ...period, id: 93, period_start: '2026-09-12', period_end: '2026-09-25' });
+  const w = await page();
+  expect(w.get('#pps-default-period').findAll('option').map(o => o.element.value)).not.toContain('92');
+  await w.get('.pps-period-history input').setValue(true);
+  const ids = w.get('#pps-default-period').findAll('option').map(o => o.element.value);
+  expect(ids).toContain('92'); expect(ids).not.toContain('90'); expect(ids).not.toContain('91');
+});
+
+it('shows the configured hourly rate, including a short claim whose rounded dollars cannot reconstruct the rate', async () => {
+  mock.route.query = { tab: 'time' };
+  times[0] = { ...times[0], status: 'submitted', credits_hours: 0.12, payload: { totalMinutes: 7, serviceCode: 'Admin Time' }, payEstimate: { amount: 3.9, hourlyRate: 32.5, rateBucket: 'indirect', rateLabel: 'Admin Time rate' } };
+  const w = await page('time');
+  expect(w.get('.ft-rate-hint').attributes('tabindex')).toBe('0');
+  expect(w.get('[role="tooltip"]').text()).toContain('$32.50 per hour');
+  await w.get('.pps-panel input[type="number"]').setValue('2');
+  expect(w.get('[role="tooltip"]').text()).toContain('$65.00 estimated pay');
+});
+
+it('shows yearly posted and committed allowance using each claim’s year', async () => {
+  rows.push({ ...mileage, id: 12, drive_date: '2025-12-20' });
+  annualReports[2025] = { year: 2025, limitDollars: 2000, people: [{ userId: 7, paidDollars: 1900, approvedDollars: 150, committedDollars: 2050, overLimitDollars: 50 }] };
+  const w = await page();
+  expect(w.text()).toContain('2026 · $500.00 posted'); expect(w.text()).toContain('$1400.00 uncommitted');
+  expect(w.text()).toContain('2025 · $1900.00 posted'); expect(w.text()).toContain('$50.00 over maximum');
+  expect(w.findAll('progress')).toHaveLength(2);
 });

@@ -1,5 +1,6 @@
 <template>
-  <div class="pps-page">
+  <div class="pps-page ft-payroll">
+    <FundThredPayrollBrand />
     <div class="pps-header">
       <div class="pps-header-left">
         <button type="button" class="pps-back" @click="goBackToPayroll">
@@ -9,7 +10,7 @@
         <h1>Pending Submissions</h1>
         <p class="pps-subtitle">
           Approve PTO, time, event time, mileage, and reimbursements — then apply them to an upcoming pay period.
-          Changes use the same APIs as Payroll Stage, so they appear everywhere immediately.
+          Review each claim, then post approved pay to your selected payroll period.
         </p>
       </div>
       <div class="pps-header-right">
@@ -28,14 +29,19 @@
 
     <div class="pps-toolbar card">
       <div class="field">
-        <label>Default apply-to pay period</label>
-        <select v-model="defaultTargetPeriodId" :disabled="!periodsForSelect.length">
+        <label for="pps-default-period">Default apply-to pay period</label>
+        <select id="pps-default-period" v-model="defaultTargetPeriodId" :disabled="loading || !!busyId || !periodsForSelect.length">
           <option :value="null" disabled>Select pay period…</option>
           <option v-for="p in periodsForSelect" :key="p.id" :value="p.id">
             {{ periodRangeLabel(p) }}{{ isPeriodLocked(p) ? ' (locked)' : '' }}
           </option>
         </select>
-        <div class="hint muted">Used as the default destination when approving. You can override per row.</div>
+        <div class="hint muted">Choose a destination, then apply it to every pending row across all tabs. You can still override individual rows.</div>
+        <label class="pps-period-history"><input v-model="showOlderPeriods" type="checkbox" /> Show older open pay periods</label>
+        <div class="pps-bulk-actions">
+          <button type="button" class="btn btn-primary" :disabled="loading || !!busyId || !totalPending || !isValidOpenPeriod(defaultTargetPeriodId)" @click="applyPeriodToAllPending">Apply to all {{ totalPending }} pending</button>
+          <span class="hint">Sets the destination only. Claims still require approval.</span>
+        </div>
       </div>
       <div class="pps-toolbar-stats">
         <div class="pps-stat"><span class="pps-stat-n">{{ totalPending }}</span><span class="pps-stat-l">Pending</span></div>
@@ -236,7 +242,10 @@
                 <td class="right">
                   <div class="pps-pay-estimate">
                     <strong>{{ timePayEstimateMoney(c) }}</strong>
-                    <div class="hint" style="margin-top: 2px;">{{ timePayEstimateRateLabel(c) }}</div>
+                    <span class="hint ft-rate-hint" tabindex="0" :aria-label="timeRateExplanation(c)">
+                      {{ timePayEstimateRateLabel(c) }}
+                      <span role="tooltip">{{ timeRateExplanation(c) }}</span>
+                    </span>
                   </div>
                 </td>
                 <td>
@@ -446,6 +455,7 @@
                 <th>Rate / Tier</th>
                 <th class="right">Miles</th>
                 <th class="right">Est.</th>
+                <th>Yearly mileage allowance</th>
                 <th>Post to</th>
                 <th class="right">Actions</th>
               </tr>
@@ -462,6 +472,20 @@
                 </td>
                 <td class="right">{{ mileageBillableMiles(c).toFixed(2) }}</td>
                 <td class="right">{{ fmtMoney(mileageEstimate(c, mileageRates, mileageTierById[c.id])) }}</td>
+                <td><div class="ft-mileage-usage">
+                  <template v-if="annualMileageFor(c)">
+                    <strong>{{ mileageYear(c) }} · {{ fmtMoney(annualMileageFor(c).paidDollars) }} posted</strong>
+                    <template v-if="annualMileageReport(c).limitDollars != null">
+                      <div>of {{ fmtMoney(annualMileageReport(c).limitDollars) }} annual maximum</div>
+                      <progress :value="annualMileageFor(c).committedDollars" :max="annualMileageReport(c).limitDollars" :aria-label="`${claimName(c)} ${mileageYear(c)} mileage allowance committed`" />
+                      <div>{{ fmtMoney(annualMileageFor(c).approvedDollars) }} approved, unposted</div>
+                      <div>{{ fmtMoney(Math.max(0, annualMileageReport(c).limitDollars - annualMileageFor(c).committedDollars)) }} uncommitted</div>
+                      <div v-if="annualMileageFor(c).overLimitDollars > 0" class="over-limit">{{ fmtMoney(annualMileageFor(c).overLimitDollars) }} over maximum</div>
+                    </template>
+                    <span v-else>Annual maximum not configured</span>
+                  </template>
+                  <span v-else>{{ annualMileageErrors[mileageYear(c)] || 'Annual usage unavailable' }}</span>
+                </div></td>
                 <td>
                   <select v-model="claimTargetByKey[`mileage-${c.id}`]" :disabled="busyId === `mileage-${c.id}`">
                     <option v-for="p in periodsForSelect" :key="p.id" :value="p.id" :disabled="isPeriodLocked(p)">
@@ -573,7 +597,7 @@
 
     <!-- Event time edit modal -->
     <teleport to="body">
-      <div v-if="timeClaimViewOpen" class="pps-modal-backdrop" @click.self="closeTimeClaimView">
+      <div v-if="timeClaimViewOpen" class="pps-modal-backdrop ft-payroll-dialog" @click.self="closeTimeClaimView">
         <div class="pps-modal" style="width: min(720px, 100%);">
           <div class="pps-modal-header">
             <div>
@@ -646,7 +670,7 @@
         </div>
       </div>
 
-      <div v-if="mileageClaimViewOpen" class="pps-modal-backdrop" @click.self="closeMileageClaimView">
+      <div v-if="mileageClaimViewOpen" class="pps-modal-backdrop ft-payroll-dialog" @click.self="closeMileageClaimView">
         <div class="pps-modal" style="width: min(720px, 100%);">
           <div class="pps-modal-header">
             <div>
@@ -722,7 +746,7 @@
       </div>
 
       <!-- Reimbursement View Modal -->
-      <div v-if="reimbClaimViewOpen" class="pps-modal-backdrop" @click.self="closeReimbClaimView">
+      <div v-if="reimbClaimViewOpen" class="pps-modal-backdrop ft-payroll-dialog" @click.self="closeReimbClaimView">
         <div class="pps-modal" style="width: min(720px, 100%);">
           <div class="pps-modal-header">
             <div>
@@ -777,7 +801,7 @@
         </div>
       </div>
 
-      <div v-if="eventTimeEditOpen" class="pps-modal-backdrop" @click.self="closeEventTimeEdit">
+      <div v-if="eventTimeEditOpen" class="pps-modal-backdrop ft-payroll-dialog" @click.self="closeEventTimeEdit">
         <div class="pps-modal">
           <div class="pps-modal-header">
             <div>
@@ -861,6 +885,9 @@
 </template>
 
 <script setup>
+import FundThredPayrollBrand from '../../components/payroll/FundThredPayrollBrand.vue';
+import { useFundThredBranding } from '../../composables/useFundThredBranding';
+import { payrollPeriodChoices, scheduledPayrollPeriods, payrollPeriodLocked, payrollToday } from '../../utils/payrollPeriodChoices';
 import EventTravelPayrollReview from '../../components/payroll/EventTravelPayrollReview.vue';
 import { supervisionActivityLabel, mileageUsesTier, mileageBillableMiles, mileageEstimate, approvedTimeDraft } from '../../utils/payrollSubmissionReview';
 import { formatClaimTime, automaticClaimLabel, hasMeetingClaimDetails } from '../../utils/payrollClaimDisplay';
@@ -880,6 +907,7 @@ import {
   SCHOOL_EVENT_FALLBACK_TIMEZONE
 } from '../../utils/timezones';
 
+useFundThredBranding('Pending submissions | FundThred');
 const route = useRoute();
 const router = useRouter();
 const agencyStore = useAgencyStore();
@@ -896,6 +924,10 @@ const busyId = ref(null);
 const periods = ref([]);
 const agencyUsers = ref([]);
 const defaultTargetPeriodId = ref(null);
+const showOlderPeriods = ref(false);
+const useDefaultForAll = ref(false);
+const annualMileageByYear = reactive({});
+const annualMileageErrors = reactive({});
 
 const tab = ref('pto');
 const focusUserId = ref(null);
@@ -936,28 +968,29 @@ const eventTimeEditSaving = ref(false);
 const eventTimeEditError = ref('');
 
 const periodsForSelect = computed(() => {
-  const source = periods.value || [];
-  let aligned = source.filter((p) => Number(p.schedule_aligned) === 1);
-  if (!aligned.length) aligned = source.slice();
-  // Fill gaps between aligned periods so missing mid-sequence periods still appear.
-  if (aligned.length && source.length) {
-    const starts = aligned.map((p) => String(p.period_start || '')).filter(Boolean).sort();
-    const ends = aligned.map((p) => String(p.period_end || '')).filter(Boolean).sort();
-    const minStart = starts[0];
-    const maxEnd = ends[ends.length - 1];
-    if (minStart && maxEnd) {
-      const byId = new Map(aligned.map((p) => [Number(p.id), p]));
-      for (const p of source) {
-        const s = String(p?.period_start || '');
-        const e = String(p?.period_end || '');
-        if (s && e && s >= minStart && e <= maxEnd) byId.set(Number(p.id), p);
-      }
-      aligned = [...byId.values()];
-    }
+  const choices = payrollPeriodChoices(periods.value, { includeOlder: showOlderPeriods.value });
+  // A deliberately selected older destination remains visible when the history
+  // control is collapsed. Never reintroduce off-schedule or locked periods.
+  const selected = new Set([defaultTargetPeriodId.value, ...Object.values(claimTargetByKey), ...Object.values(ptoTargetById), ...Object.values(eventTimeTargetPeriodByPunchId)].map(Number));
+  for (const p of scheduledPayrollPeriods(periods.value)) {
+    if (selected.has(Number(p.id)) && !isPeriodLocked(p) && !choices.some(choice => Number(choice.id) === Number(p.id))) choices.push(p);
   }
-  aligned.sort((a, b) => String(b?.period_end || '').localeCompare(String(a?.period_end || '')));
-  return aligned;
+  return choices;
 });
+
+const applyPeriodToAllPending = () => {
+  const pid = Number(defaultTargetPeriodId.value);
+  if (loading.value || busyId.value || !isValidOpenPeriod(pid)) return;
+  useDefaultForAll.value = true;
+  for (const r of ptoRequests.value.filter(r => r.status === 'submitted')) ptoTargetById[r.id] = pid;
+  for (const [prefix, rows] of [['time', timeClaims.value], ['mileage', mileageClaims.value], ['reimb', reimbClaims.value]]) {
+    for (const c of rows) claimTargetByKey[`${prefix}-${c.id}`] = pid;
+  }
+  for (const s of eventTimeSubmissions.value) {
+    if ([s.directClaim, s.indirectClaim].some(c => ['submitted', 'deferred'].includes(c?.status))) eventTimeTargetPeriodByPunchId[s.punchInId] = pid;
+  }
+  actionSuccess.value = `All pending destinations set to ${periodLabelForId(pid)}. Review and approve each claim when ready.`;
+};
 
 const ptoPendingCount = computed(() =>
   (ptoRequests.value || []).filter((r) => String(r.status || '').toLowerCase() === 'submitted').length
@@ -1227,17 +1260,9 @@ const periodRangeLabel = (p) => {
   return a && b ? `${a} → ${b}` : (a || b || `Period #${p.id}`);
 };
 
-const isPeriodLocked = (p) => {
-  const st = String(p?.status || '').toLowerCase();
-  return st === 'posted' || st === 'finalized' || !!p?.posted_at || !!p?.finalized_at || !!p?.posted_by_user_id || !!p?.finalized_by_user_id;
-};
-
-const isValidOpenPeriod = (periodId) => {
-  const pid = Number(periodId || 0);
-  if (!Number.isFinite(pid) || pid <= 0) return false;
-  const p = (periods.value || []).find((x) => Number(x.id) === pid);
-  return Boolean(p) && !isPeriodLocked(p);
-};
+const isPeriodLocked = payrollPeriodLocked;
+const isValidOpenPeriod = (periodId) => scheduledPayrollPeriods(periods.value)
+  .some(p => Number(p.id) === Number(periodId) && !isPeriodLocked(p));
 
 const nameForUserId = (uid) => {
   const id = Number(uid || 0);
@@ -1343,6 +1368,7 @@ const timePayEstimateMoney = (c) => {
   const bucket = timeClaimApproveBucket(c);
   const pe = c?.payEstimate || {};
   const t = String(c?.claim_type || '').toLowerCase();
+  if (Number(pe.hourlyRate) > 0 && bucket === pe.rateBucket) return `$${(hrs * Number(pe.hourlyRate)).toFixed(2)}`;
   const baseHrs = claimHoursValue(c);
   const baseAmount = Number(pe.amount);
   const directRate = Number(pe.directRate || 0);
@@ -1426,9 +1452,10 @@ const proofUrl = (rawPath) => {
 };
 
 const ptoDefaultTarget = (r) => {
+  if (useDefaultForAll.value) return Number(defaultTargetPeriodId.value) || null;
   const first = firstPtoDate(r);
   if (first && first !== '—') {
-    const containing = (periods.value || []).find((p) => {
+    const containing = periodsForSelect.value.find((p) => {
       const start = String(p?.period_start || '').slice(0, 10);
       const end = String(p?.period_end || '').slice(0, 10);
       return start && end && first >= start && first <= end && !isPeriodLocked(p);
@@ -1468,8 +1495,7 @@ const setTab = (next) => {
 const pickDefaultOpenPeriod = () => {
   const open = (periodsForSelect.value || []).filter((p) => !isPeriodLocked(p));
   if (!open.length) return null;
-  const today = new Date();
-  const todayYmd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const todayYmd = payrollToday();
   // Prefer current/upcoming open period (start <= today, newest end), else next future open
   const currentish = open
     .filter((p) => String(p.period_start || '') <= todayYmd)
@@ -1490,7 +1516,7 @@ const seedClaimTargets = (prefix, list) => {
   const def = Number(defaultTargetPeriodId.value || 0) || null;
   for (const c of list || []) {
     const key = `${prefix}-${c.id}`;
-    if (claimTargetByKey[key] == null) claimTargetByKey[key] = def;
+    if (!isValidOpenPeriod(claimTargetByKey[key])) claimTargetByKey[key] = def;
   }
 };
 
@@ -1509,7 +1535,7 @@ const loadPeriods = async () => {
   });
   if (agencyId.value !== requestedAgencyId) return;
   periods.value = resp.data || [];
-  if (!defaultTargetPeriodId.value) {
+  if (!isValidOpenPeriod(defaultTargetPeriodId.value)) {
     defaultTargetPeriodId.value = pickDefaultOpenPeriod();
   }
 };
@@ -1536,7 +1562,7 @@ const loadPto = async () => {
   if (agencyId.value !== requestedAgencyId) return;
   ptoRequests.value = (resp.data || []).filter((r) => !!r && typeof r === 'object');
   for (const r of ptoRequests.value) {
-    if (ptoTargetById[r.id] == null) ptoTargetById[r.id] = ptoDefaultTarget(r);
+    if (!isValidOpenPeriod(ptoTargetById[r.id])) ptoTargetById[r.id] = ptoDefaultTarget(r);
   }
   const ids = Array.from(new Set(ptoRequests.value.map((x) => Number(x?.user_id || 0)).filter((n) => n > 0)));
   const next = { ...(ptoBalancesByUserId.value || {}) };
@@ -1602,6 +1628,8 @@ const loadClaims = async () => {
   seedClaimTargets('time', timeClaims.value);
   seedClaimTargets('mileage', mileageClaims.value);
   seedClaimTargets('reimb', reimbClaims.value);
+  await loadAnnualMileage(requestedAgencyId);
+  if (agencyId.value !== requestedAgencyId) return;
   for (const c of mileageClaims.value) mileageTierById[c.id] ??= Number(c.tier_level || 1);
   for (const c of approvedTimeClaims.value) {
     if (!approvedTimeEdits[c.id]?.dirty) approvedTimeEdits[c.id] = approvedTimeDraft(c);
@@ -1612,6 +1640,39 @@ const loadClaims = async () => {
       timeHoursOverrideById[c.id] = String(claimHoursValue(c));
     }
   }
+};
+
+const mileageYear = c => Number(String(c.drive_date || c.claim_date || c.trip_date || '').slice(0, 4)) || Number(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Denver', year: 'numeric' }).format(new Date()));
+const annualMileageReport = c => annualMileageByYear[mileageYear(c)];
+const annualMileageFor = c => annualMileageReport(c)?.people?.find(p => Number(p.userId) === Number(c.user_id));
+const loadAnnualMileage = async requestedAgencyId => {
+  const years = [...new Set(mileageClaims.value.map(mileageYear))];
+  await Promise.all(years.map(async year => {
+    try {
+      const { data } = await api.get('/payroll/mileage-annual-summary', { params: { agencyId: requestedAgencyId, year } });
+      if (agencyId.value !== requestedAgencyId) return;
+      annualMileageByYear[year] = data;
+      delete annualMileageErrors[year];
+    } catch {
+      if (agencyId.value !== requestedAgencyId) return;
+      delete annualMileageByYear[year];
+      annualMileageErrors[year] = `${year} annual usage could not be loaded. Refresh to retry.`;
+    }
+  }));
+};
+const timeRateExplanation = c => {
+  const hours = timePayEstimateHours(c);
+  const amount = Number(timePayEstimateMoney(c).replace('$', ''));
+  if (c.claim_type === 'missed_session_fee') return 'Collected fee share; this claim does not use an hourly rate.';
+  if (!(hours > 0) || !Number.isFinite(amount)) return `${timePayEstimateRateLabel(c)}: rate unavailable for this claim.`;
+  const pe = c.payEstimate || {};
+  const bucket = timeClaimApproveBucket(c);
+  const rate = bucket === pe.rateBucket && Number(pe.hourlyRate) > 0 ? Number(pe.hourlyRate)
+    : bucket === 'direct' && Number(pe.directRate) > 0 ? Number(pe.directRate)
+    : bucket === 'other_1' && Number(pe.other1Rate) > 0 ? Number(pe.other1Rate) : null;
+  return rate == null
+    ? `${timePayEstimateRateLabel(c)}: $${amount.toFixed(2)} estimated pay for ${fmtNum(hours)} hours. The configured hourly rate is unavailable; refresh after the payroll API update.`
+    : `${timePayEstimateRateLabel(c)}: $${rate.toFixed(2)} per hour × ${fmtNum(hours)} hours = $${amount.toFixed(2)} estimated pay.`;
 };
 
 const fmtMoney = (value) => value == null || !Number.isFinite(Number(value)) ? '—' : `$${Number(value).toFixed(2)}`;
@@ -1699,13 +1760,14 @@ const loadEventTimeSubmissions = async () => {
 
     if (agencyId.value !== requestedAgencyId) return;
     eventTimeSubmissions.value = submissions;
-    const aligned = (periods.value || []).filter((p) => Number(p.schedule_aligned) === 1);
+    const aligned = periodsForSelect.value;
     const def = Number(defaultTargetPeriodId.value || 0) || null;
     for (const s of submissions) {
-      if (eventTimeTargetPeriodByPunchId[s.punchInId] != null) continue;
+      if (isValidOpenPeriod(eventTimeTargetPeriodByPunchId[s.punchInId])) continue;
+      if (useDefaultForAll.value) { eventTimeTargetPeriodByPunchId[s.punchInId] = def; continue; }
       const claim = s.directClaim || s.indirectClaim;
       const suggestedId = Number(claim?.suggestedPayrollPeriodId || 0);
-      const suggestedPeriod = suggestedId ? (periods.value || []).find((p) => Number(p.id) === suggestedId) : null;
+      const suggestedPeriod = suggestedId ? periodsForSelect.value.find((p) => Number(p.id) === suggestedId) : null;
       if (suggestedPeriod && Number(suggestedPeriod.schedule_aligned) === 1 && !isPeriodLocked(suggestedPeriod)) {
         eventTimeTargetPeriodByPunchId[s.punchInId] = suggestedId;
         continue;
@@ -2173,6 +2235,9 @@ watch(agencyId, async (id, prev) => {
   periods.value = [];
   agencyUsers.value = [];
   defaultTargetPeriodId.value = null;
+  showOlderPeriods.value = false;
+  useDefaultForAll.value = false;
+  for (const map of [annualMileageByYear, annualMileageErrors]) for (const key of Object.keys(map)) delete map[key];
   ptoRequests.value = [];
   ptoBalancesByUserId.value = {};
   timeClaims.value = [];
@@ -2192,14 +2257,12 @@ watch(
   () => applyRouteQuery()
 );
 
-watch(defaultTargetPeriodId, (pid) => {
+watch(defaultTargetPeriodId, (pid, previous) => {
   const def = Number(pid || 0) || null;
-  for (const key of Object.keys(claimTargetByKey)) {
-    // only fill blanks / keep existing overrides
-    if (claimTargetByKey[key] == null) claimTargetByKey[key] = def;
-  }
-  for (const punchId of Object.keys(eventTimeTargetPeriodByPunchId)) {
-    if (eventTimeTargetPeriodByPunchId[punchId] == null) eventTimeTargetPeriodByPunchId[punchId] = def;
+  for (const map of [claimTargetByKey, ptoTargetById, eventTimeTargetPeriodByPunchId]) {
+    for (const key of Object.keys(map)) {
+      if (map[key] == null || Number(map[key]) === Number(previous)) map[key] = def;
+    }
   }
 });
 

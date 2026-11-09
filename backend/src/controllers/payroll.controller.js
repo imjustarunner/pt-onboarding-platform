@@ -19181,7 +19181,7 @@ export const getTimeClaimMeetingAttendance = async (req, res, next) => {
     } else if (!(await requirePayrollAccess(req, res, claim.agency_id))) return;
     const sessionId = Number(claim.payload?.supervisionSessionId);
     if (sessionId) {
-      const [sessions] = await pool.execute(`SELECT id, supervisor_user_id, supervisee_user_id, co_facilitator_user_id, session_type, start_at, end_at, modality
+      const [sessions] = await pool.execute(`SELECT id, supervisor_user_id, supervisee_user_id, co_facilitator_user_id, session_type, start_at, end_at, modality, meeting_provider, event_timezone
         FROM supervision_sessions WHERE id = ? AND agency_id = ?`, [sessionId, claim.agency_id]);
       const session = sessions[0];
       if (!session) return res.json({ attendees: [] });
@@ -19193,16 +19193,40 @@ export const getTimeClaimMeetingAttendance = async (req, res, next) => {
           if (!membership.length && !(await requirePayrollAccess(req,res,claim.agency_id))) return;
         }
       }
-      const [people] = await pool.execute(`SELECT u.id user_id, u.first_name, u.last_name, COALESCE(r.total_seconds,0) total_seconds
+      const [people] = await pool.execute(`SELECT u.id user_id, u.first_name, u.last_name, COALESCE(r.total_seconds,0) total_seconds,
+          r.first_joined_at, r.last_left_at, r.is_finalized, r.manual_correction_id,
+          correction.modality correction_modality,
+          CONCAT_WS(' ', correction_author.first_name, correction_author.last_name) correction_requested_by,
+          CONCAT_WS(' ', correction_reviewer.first_name, correction_reviewer.last_name) correction_reviewed_by,
+          (SELECT COUNT(*) FROM supervision_session_attendance_events e WHERE e.session_id=? AND e.user_id=u.id AND e.event_type='joined') joined_event_count
         FROM users u LEFT JOIN supervision_session_attendance_rollups r ON r.user_id=u.id AND r.session_id=?
+        LEFT JOIN supervision_time_corrections correction ON correction.id=r.manual_correction_id AND correction.session_id=r.session_id AND correction.user_id=r.user_id AND correction.status='approved'
+        LEFT JOIN users correction_author ON correction_author.id=correction.requested_by_user_id
+        LEFT JOIN users correction_reviewer ON correction_reviewer.id=correction.reviewed_by_user_id
         WHERE u.id IN (?, ?, ?) OR EXISTS (SELECT 1 FROM supervision_session_attendees a WHERE a.session_id=? AND a.user_id=u.id)
           OR r.total_seconds > 0 ORDER BY u.first_name,u.last_name`,
-        [sessionId, session.supervisor_user_id, session.supervisee_user_id, session.co_facilitator_user_id, sessionId]);
+        [sessionId, sessionId, session.supervisor_user_id, session.supervisee_user_id, session.co_facilitator_user_id, sessionId]);
+      const claimant = people.find(p => Number(p.user_id) === Number(claim.user_id));
+      const trackedSeconds = Number(claimant?.total_seconds || 0);
+      const claimedMinutes = Number(claim.payload?.totalMinutes || 0);
+      const correction = Boolean(claimant?.manual_correction_id || claim.payload?.editedByUserId || claim.payload?.manualCorrectionId);
+      const evidence = {
+        timeBasis: correction ? 'manual_attendance_correction' : claim.payload?.minutesSource || (trackedSeconds > 0 ? 'attendance_rollup' : 'scheduled_duration_fallback'),
+        trackedSeconds, claimedMinutes, attendanceFinalized: Number(claimant?.is_finalized) === 1,
+        recordedModality: claimant?.correction_modality || null,
+        manuallyCorrected: correction,
+        requiresReview: trackedSeconds <= 0 || Number(claimant?.is_finalized) !== 1 || correction || Math.abs(claimedMinutes * 60 - trackedSeconds) > 60
+      };
       return res.json({ meetingType: session.session_type === 'group' ? 'Group supervision' : 'Individual supervision',
-        platform: session.modality, startAt: session.start_at, endAt: session.end_at,
+        platform: session.meeting_provider || null, modality: session.modality,
+        timeZone: session.event_timezone || 'America/Denver', startAt: session.start_at, endAt: session.end_at, evidence,
         supervisorName: people.filter(p=>Number(p.user_id)===Number(session.supervisor_user_id)).map(p=>[p.first_name,p.last_name].filter(Boolean).join(' '))[0],
         attendees: people.map(p=>({ userId:Number(p.user_id), name:[p.first_name,p.last_name].filter(Boolean).join(' '),
           isHost:Number(p.user_id)===Number(session.supervisor_user_id), attendanceRecorded:Number(p.total_seconds)>0,
+          attendanceFinalized: Number(p.is_finalized) === 1, manuallyCorrected: Boolean(p.manual_correction_id),
+          joinedEventCount: Number(p.joined_event_count || 0), firstJoinedAt: p.first_joined_at, lastLeftAt: p.last_left_at,
+          correctionRequestedBy: p.correction_requested_by || null, correctionReviewedBy: p.correction_reviewed_by || null,
+          correctionModality: p.correction_modality || null,
           totalMinutes: Math.round(Number(p.total_seconds)/60*100)/100 })) });
     }
     const eventId = Number(claim.payload?.scheduleEventId);
@@ -19279,8 +19303,9 @@ export const listTimeClaims = async (req, res, next) => {
           : { indirect_rate: legacyIndirectRate };
         const bucketHint = String(row?.payload?.bucket || row?.bucket || 'indirect').toLowerCase();
         // eslint-disable-next-line no-await-in-loop
+        const estimateDetails = {};
         const amount = await computeDefaultAppliedAmountForTimeClaim({
-          claim: row,
+          claim: row, estimateDetails,
           rateCard: rateCardForPay,
           approveBucket: bucketHint,
           approveCreditsHours: row?.credits_hours ?? null
@@ -19381,6 +19406,8 @@ export const listTimeClaims = async (req, res, next) => {
           payEstimate: {
             amount: Number.isFinite(amount) ? amount : (row.applied_amount != null ? Number(row.applied_amount) : null),
             rateLabel: payload.payRateLabel || rateLabel,
+            hourlyRate: estimateDetails.hourlyRate ?? null,
+            rateBucket: bucketHint,
             serviceCode: code || null,
             selectedRateKey: payload.payRateKey || null,
             selectedRateAmount: payload.payRateAmount != null ? Number(payload.payRateAmount) : null,
@@ -19531,7 +19558,11 @@ async function resolveLegacyIndirectHourlyRate({ agencyId, userId, rateCard }) {
   return cardRate;
 }
 
-export async function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard, approveBucket = null, approveCreditsHours = null }) {
+export async function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard, approveBucket = null, approveCreditsHours = null, estimateDetails = null }) {
+  const hourlyPay = (hours, rate) => {
+    if (estimateDetails) estimateDetails.hourlyRate = Number(rate);
+    return Math.round(hours * rate * 100) / 100;
+  };
   const type = String(claim?.claim_type || '').toLowerCase();
   if (type === 'tutoring_session') return tutoringClaimAmount(claim, approveCreditsHours);
   const payload = claim?.payload || {};
@@ -19566,12 +19597,12 @@ export async function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard,
           titles
         });
         const rate = Number(pay.rate || 0) || 0;
-        if (rate > 0) return Math.round(hrs * rate * 100) / 100;
+        if (rate > 0) return hourlyPay(hrs, rate);
       } catch (error) { if(error?.code==='AMENDMENT_PAYROLL_REVIEW_REQUIRED')throw error; }
     }
     const rate = bucket === 'direct' ? directRate : indirectRate;
     if (Number.isFinite(hrs) && hrs > 0 && rate > 0) {
-      return Math.round(hrs * rate * 100) / 100;
+      return hourlyPay(hrs, rate);
     }
     return null;
   }
@@ -19592,12 +19623,12 @@ export async function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard,
 
     if (type === 'meeting_training' && payload.source === 'meeting_compensation_auto') {
       const hourlyRate = await meetingClaimHourlyRate(claim);
-      return hourlyRate == null ? null : Math.round(hrs * hourlyRate * 100) / 100;
+      return hourlyRate == null ? null : hourlyPay(hrs, hourlyRate);
     }
 
     if (payload.source === 'supervision_session_finalize' && payload.participantRole === 'supervisee' && payload.hourlySupervision) {
       const pay = await resolveHourlySuperviseePay({ agencyId: Number(claim.agency_id), userId: Number(claim.user_id), asOf: claim.claim_date, rateCard });
-      return pay?.payable ? Math.round(hrs * pay.rateAmount * 100) / 100 : null;
+      return pay?.payable ? hourlyPay(hrs, pay.rateAmount) : null;
     }
 
     const claimBucket = normalizeTimeClaimBucket(
@@ -19610,12 +19641,12 @@ export async function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard,
         const rate=Number(reduced ? (ctx.rateProfile?.supportActivityRateProbation ?? ctx.rateProfile?.supportActivityRate) : ctx.rateProfile?.supportActivityRate);
         // A missing support rate must be resolved in payroll, never silently replaced by indirect pay.
         if (!Number.isFinite(rate) || rate <= 0) return null;
-        return Math.round(hrs * rate * 100) / 100;
+        return hourlyPay(hrs, rate);
       }
       const PayrollRate=(await import('../models/PayrollRate.model.js')).default;
       const best=await PayrollRate.findBestRate({agencyId:Number(claim.agency_id),userId:Number(claim.user_id),serviceCode:'MEETING',asOf:claim.claim_date});
       const rate=Number(best?.rate_amount ?? best?.rate);
-      return rate > 0 ? Math.round(hrs * rate * 100) / 100 : null;
+      return rate > 0 ? hourlyPay(hrs, rate) : null;
     }
 
 
@@ -19625,14 +19656,14 @@ export async function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard,
       if(ctx?.enabled) {
         const key=payload.categoryGroup==='support_activity'?'supportActivityRate':'indirectRate';
         const rate=Number(ctx.status?.useReducedRates ? ctx.rateProfile?.[key+'Probation'] ?? ctx.rateProfile?.[key] : ctx.rateProfile?.[key]);
-        return rate>0?Math.round(hrs*rate*100)/100:null;
+        return rate>0?hourlyPay(hrs, rate):null;
       }
       if(payload.excessIndirect||payload.ffsExcess)return null;
     }
 
     if (payload.categoryGroup === 'admin_duties') {
       const personalRate = await jacquelyneAdminRate({ agencyId: claim.agency_id, userId: claim.user_id, asOf: recurringDay(claim.claim_date) });
-      if (personalRate != null) return Math.round(hrs * personalRate * 100) / 100;
+      if (personalRate != null) return hourlyPay(hrs, personalRate);
     }
 
     // Per-user Log Time duty rate override (compensation tab).
@@ -19647,7 +19678,7 @@ export async function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard,
             serviceTypeId: typeId
           });
           if (Number.isFinite(override) && override > 0) {
-            return Math.round(hrs * override * 100) / 100;
+            return hourlyPay(hrs, override);
           }
         } catch { /* fall through */ }
       }
@@ -19656,11 +19687,11 @@ export async function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard,
     // Log Time: honor Direct / Other 1 / Indirect bucket for rate-card pay.
     if (type === 'indirect_time') {
       if (claimBucket === 'direct' && directRate > 0) {
-        return Math.round(hrs * directRate * 100) / 100;
+        return hourlyPay(hrs, directRate);
       }
       if (claimBucket === 'other_1') {
         const other1 = Number(rateCard?.other_rate_1 || 0);
-        if (other1 > 0) return Math.round(hrs * other1 * 100) / 100;
+        if (other1 > 0) return hourlyPay(hrs, other1);
       }
     }
 
@@ -19685,7 +19716,7 @@ export async function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard,
     if (serviceCode && claim?.agency_id && claim?.user_id) {
       const ctx=await loadUserPaySystemContext({agencyId:Number(claim.agency_id),userId:Number(claim.user_id),periodEnd:new Date(claim.claim_date)});
       const assignedRate=ctx?.enabled?roleCompensationRate(ctx.rateProfile?.roleCompensation,serviceCode,payload):null;
-      if(assignedRate>0)return Math.round(hrs*assignedRate*100)/100;
+      if(assignedRate>0)return hourlyPay(hrs, assignedRate);
       try {
         const PayrollRate = (await import('../models/PayrollRate.model.js')).default;
         const best = await PayrollRate.findBestRate({
@@ -19695,7 +19726,7 @@ export async function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard,
           asOf: claim.claim_date || null
         });
         const codeRate = Number(best?.rate_amount ?? best?.rate ?? 0);
-        if (codeRate > 0) return Math.round(hrs * codeRate * 100) / 100;
+        if (codeRate > 0) return hourlyPay(hrs, codeRate);
       } catch { /* fall through to rate-card */ }
     }
 
@@ -19703,10 +19734,10 @@ export async function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard,
 
     // Indirect_time without a service code: rate-card indirect (or direct already handled).
     if (type === 'indirect_time' && claimBucket === 'direct' && directRate > 0) {
-      return Math.round(hrs * directRate * 100) / 100;
+      return hourlyPay(hrs, directRate);
     }
     if (indirectRate > 0) {
-      return Math.round(hrs * indirectRate * 100) / 100;
+      return hourlyPay(hrs, indirectRate);
     }
   }
   if (type === 'holiday_pay') {

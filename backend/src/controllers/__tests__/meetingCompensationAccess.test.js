@@ -65,3 +65,11 @@ it('does not reveal another supervision session through a forged claim reference
  const fallback=m.execute.getMockImplementation();m.execute.mockImplementation(async(sql,args)=>sql.includes('FROM supervision_sessions')?[[{id:99,supervisor_user_id:100,supervisee_user_id:101,co_facilitator_user_id:null}]]:fallback(sql,args));
  const res=response(),next=vi.fn();await getTimeClaimMeetingAttendance(req('provider'),res,next);expect(res.status).toHaveBeenCalledWith(403);expect(m.execute.mock.calls.some(([sql])=>sql.includes('FROM users u LEFT JOIN supervision_session_attendance_rollups'))).toBe(false);
 });
+
+it.each([{manual:71,seconds:3600,finalized:1,basis:'manual_attendance_correction',review:true},{manual:null,seconds:0,finalized:1,basis:'scheduled_duration_fallback',review:true},{manual:null,seconds:3600,finalized:1,basis:'attendance_rollup',review:false},{manual:null,seconds:3600,finalized:0,basis:'attendance_rollup',review:true}])('distinguishes supervision evidence: %j',async({manual,seconds,finalized,basis,review})=>{
+ m.claim.mockResolvedValue({...claim,payload:{supervisionSessionId:66,totalMinutes:60}});
+ const fallback=m.execute.getMockImplementation();
+ m.execute.mockImplementation(async(sql,args)=>sql.includes('FROM supervision_sessions')?[[{id:66,supervisor_user_id:501,supervisee_user_id:465,session_type:'individual',modality:'virtual'}]]:sql.includes('FROM users u LEFT JOIN supervision_session_attendance_rollups')?[[{user_id:465,first_name:'Test',last_name:'Clinician',total_seconds:seconds,is_finalized:finalized,manual_correction_id:manual,joined_event_count:0,correction_requested_by:manual?'Test Clinician':null}]]:fallback(sql,args));
+ const res=response(),next=vi.fn();await getTimeClaimMeetingAttendance(req('provider'),res,next);
+ expect(next).not.toHaveBeenCalled();expect(res.json).toHaveBeenCalledWith(expect.objectContaining({evidence:expect.objectContaining({timeBasis:basis,requiresReview:review}),attendees:expect.arrayContaining([expect.objectContaining({joinedEventCount:0,manuallyCorrected:!!manual})])}));
+});

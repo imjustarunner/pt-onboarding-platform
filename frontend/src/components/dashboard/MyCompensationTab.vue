@@ -1,5 +1,6 @@
 <template>
-  <div class="my-comp">
+  <div class="my-comp ft-payroll">
+    <FundThredPayrollBrand />
     <div class="header">
       <h1>My Compensation</h1>
       <p class="subtitle">Your configured compensation for the selected organization (read-only).</p>
@@ -90,6 +91,7 @@
 </template>
 
 <script setup>
+import FundThredPayrollBrand from '../payroll/FundThredPayrollBrand.vue';
 import SupplementalTime from '../payroll/SupplementalTime.vue';
 import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';

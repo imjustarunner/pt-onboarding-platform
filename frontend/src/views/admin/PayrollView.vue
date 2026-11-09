@@ -1,5 +1,6 @@
 <template>
-  <div class="container pr-page">
+  <div class="container pr-page ft-payroll">
+    <FundThredPayrollBrand />
     <div v-if="wizardReturnPath" class="pr-wizard-return">
       <span>You opened a payroll tool from the Wizard.</span>
       <button type="button" class="btn btn-primary btn-sm" @click="returnToWizard">Return to Wizard</button>
@@ -98,6 +99,7 @@
               <option :value="null" disabled>Select a pay period…</option>
               <option v-for="p in periodsForSelect" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }} · {{ periodStatusForDisplay(p).label }}</option>
             </select>
+            <label class="pps-period-history"><input v-model="showOlderPeriodChoices" type="checkbox" /> Show older scheduled pay periods in selectors</label>
           </div>
           <div class="wizard-cta" data-tour="payroll-open-wizard" style="margin-top: 12px;">
             <button class="btn btn-primary wizard-btn" type="button" @click="openPayrollWizard" :disabled="!agencyId || !periodsForSelect.length">
@@ -1250,6 +1252,7 @@
     <div ref="processChangesCard" class="card pr-process-card" v-if="agencyId">
       <div class="pr-process-head">
         <div>
+          <FundThredPayrollBrand class="ft-payroll-brand--section" area="Report reconciliation" />
           <h2 class="card-title" style="margin-bottom: 4px;">Process Changes</h2>
           <div class="hint">
             Catch late notes by comparing prior pay period reports. Differences are added into the <strong>present</strong> pay period.
@@ -1266,12 +1269,12 @@
           <div class="pr-process-step-body">
             <div class="pr-process-step-title">Select Prior Period</div>
             <div class="field" style="margin-top: 8px;">
-              <label>Prior period (runs in DB)</label>
+              <label>Prior pay period</label>
               <select v-model="batchCatchUpPriorPeriodId" :disabled="!agencyId || !(processPriorPeriodOptions || []).length">
-                <option :value="null">None (use file compare)</option>
+                <option :value="null">Compare uploaded reports</option>
                 <option v-for="p in processPriorPeriodOptions" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
               </select>
-              <div class="hint muted" style="font-size: 0.85em; margin-top: 4px;">If prior has import + draft audit, select it and upload only Run 2.</div>
+              <div class="hint muted" style="font-size: 0.85em; margin-top: 4px;">If both the first report and its draft audit are saved, select that period and upload only the second report.</div>
             </div>
           </div>
         </div>
@@ -1280,12 +1283,12 @@
           <div class="pr-process-step-num">2</div>
           <div class="pr-process-step-body">
             <div class="pr-process-step-title">Upload Reports</div>
-            <div class="hint muted" style="margin-top: 4px;">Import + draft audit path, or file compare (2 or 3 files).</div>
+            <div class="hint muted" style="margin-top: 4px;">Compare saved reports, or upload two reports. Add a third report when needed.</div>
             <div class="pr-upload-slots" :key="`batch-files-${batchCatchUpResetKey}`">
               <div class="field">
-                <label>First Run Report</label>
+                <label for="payroll-compare-report-1">First Run Report</label>
                 <div class="pr-file-row">
-                  <input type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="onBatchFilePick($event, 1)" :disabled="batchCatchUpRun1Disabled" :title="batchCatchUpRun1Disabled ? 'Run 1 already in DB for this period' : ''" :key="`file1-${batchCatchUpResetKey}`" />
+                  <input id="payroll-compare-report-1" type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="onBatchFilePick($event, 1)" :disabled="batchCatchUpRun1Disabled" :title="batchCatchUpRun1Disabled ? 'First report already saved for this period' : ''" :key="`file1-${batchCatchUpResetKey}`" />
                   <button v-if="batchFiles[1] && !batchCatchUpRun1Disabled" type="button" class="btn btn-secondary btn-sm" @click="clearBatchFileSlot(1)">Replace</button>
                 </div>
                 <div v-if="batchCatchUpPriorPeriodId && (batchCatchUpPriorPeriodImports || [])[0]" class="hint" style="margin-top: 4px;">
@@ -1293,9 +1296,9 @@
                 </div>
               </div>
               <div class="field">
-                <label>Second Run Report</label>
+                <label for="payroll-compare-report-2">Second Run Report</label>
                 <div class="pr-file-row">
-                  <input type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="onBatchFilePick($event, 2)" :disabled="batchCatchUpRun2Disabled" :title="batchCatchUpRun2Disabled ? 'Run 2 already in DB for this period' : ''" :key="`file2-${batchCatchUpResetKey}`" />
+                  <input id="payroll-compare-report-2" type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="onBatchFilePick($event, 2)" :disabled="batchCatchUpRun2Disabled" :title="batchCatchUpRun2Disabled ? 'Second report already saved for this period' : ''" :key="`file2-${batchCatchUpResetKey}`" />
                   <button v-if="batchFiles[2] && !batchCatchUpRun2Disabled" type="button" class="btn btn-secondary btn-sm" @click="clearBatchFileSlot(2)">Replace</button>
                 </div>
                 <div v-if="batchCatchUpPriorPeriodId && (batchCatchUpPriorPeriodImports || [])[1]" class="hint" style="margin-top: 4px;">
@@ -1305,13 +1308,13 @@
                   <button type="button" class="btn btn-secondary btn-sm" @click="uploadRun2Only" :disabled="batchCatchUpLoading">
                     {{ batchCatchUpLoading ? 'Uploading…' : 'Upload Run 2 only' }}
                   </button>
-                  <span class="muted" style="font-size: 0.85em;"> Save to DB so it persists.</span>
+                  <span class="muted" style="font-size: 0.85em;"> Save this report for future comparisons.</span>
                 </div>
               </div>
               <div class="field">
-                <label>Latest (optional)</label>
+                <label for="payroll-compare-report-3">Latest (optional)</label>
                 <div class="pr-file-row">
-                  <input type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="onBatchFilePick($event, 3)" :disabled="batchCatchUpRun3Disabled" :title="batchCatchUpRun3Disabled ? 'Run 3 already in DB for this period' : ''" :key="`file3-${batchCatchUpResetKey}`" />
+                  <input id="payroll-compare-report-3" type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="onBatchFilePick($event, 3)" :disabled="batchCatchUpRun3Disabled" :title="batchCatchUpRun3Disabled ? 'Latest report already saved for this period' : ''" :key="`file3-${batchCatchUpResetKey}`" />
                   <button v-if="batchFiles[3] && !batchCatchUpRun3Disabled" type="button" class="btn btn-secondary btn-sm" @click="clearBatchFileSlot(3)">Replace</button>
                 </div>
                 <div class="hint muted" style="font-size: 0.85em;">Leave empty for 2-run: Run 1 vs Run 2 only.</div>
@@ -1322,7 +1325,7 @@
                   <button type="button" class="btn btn-secondary btn-sm" @click="uploadRun3Only" :disabled="batchCatchUpLoading">
                     {{ batchCatchUpLoading ? 'Uploading…' : 'Upload Run 3 only' }}
                   </button>
-                  <span class="muted" style="font-size: 0.85em;"> Save to DB so it persists after refresh.</span>
+                  <span class="muted" style="font-size: 0.85em;"> Save this report for future comparisons.</span>
                 </div>
               </div>
             </div>
@@ -1737,12 +1740,13 @@
     <div class="card pr-run-card" v-if="agencyId">
       <div class="pr-run-head">
         <div>
+          <FundThredPayrollBrand class="ft-payroll-brand--section" area="Payroll workspace" />
           <h2 class="card-title" style="margin-bottom: 4px;">Current Payroll Run</h2>
           <div class="hint">
             Import the current billing report, stage edits, run payroll, and post payroll. Providers will see posted payroll and any “prior notes included”.
           </div>
           <div v-if="selectedPeriodForUi" class="pr-run-period-chip">
-            <span class="pr-active-period-kicker" style="opacity: 1; color: var(--app-text-green, var(--pr-forest));">Pay period</span>
+            <span class="pr-active-period-kicker">Pay period</span>
             <strong>{{ periodRangeLabel(selectedPeriodForUi) }}</strong>
             <span class="pr-status-pill" :class="`pr-status-${dashboardStatusKey || 'draft'}`">{{ dashboardStatusLabel }}</span>
           </div>
@@ -1806,7 +1810,7 @@
         </div>
       </div>
 
-      <div class="field-row" style="margin-top: 16px; grid-template-columns: 1fr 2fr;">
+      <div class="field-row pr-run-import">
         <div class="field pr-period-field">
           <label>Pay period</label>
           <select v-model="selectedPeriodId" :key="`period-top-${agencyId || 'none'}`">
@@ -1980,6 +1984,7 @@
       <div class="card pr-totals-card" v-if="selectedPeriodForUi">
         <div class="pr-totals-head">
           <div>
+            <FundThredPayrollBrand class="ft-payroll-brand--section" area="Pay overview" />
             <h2 class="card-title" style="margin-bottom: 4px;">Run Payroll (Totals)</h2>
             <div class="hint">Filter by provider above in Period Details. Click a row to inspect.</div>
           </div>
@@ -6545,6 +6550,10 @@
 </template>
 
 <script setup>
+import FundThredPayrollBrand from '../../components/payroll/FundThredPayrollBrand.vue';
+import { useFundThredBranding } from '../../composables/useFundThredBranding';
+import { payrollPeriodChoices } from '../../utils/payrollPeriodChoices';
+useFundThredBranding('Payroll | FundThred');
 import EventTravelPayrollReview from '../../components/payroll/EventTravelPayrollReview.vue';
 import { reportCalendarDate, reportViewerDateTime, payrollPersonName } from '../../utils/reportDateTime';
 import { supervisionActivityLabel } from '../../utils/payrollSubmissionReview';
@@ -6610,6 +6619,7 @@ const agencyId = computed(() => {
 });
 
 const periods = ref([]);
+const showOlderPeriodChoices = ref(false);
 // Only schedule-aligned periods — used for claim target dropdowns so off-schedule periods
 // are never offered as posting targets.
 const alignedPeriods = computed(() => (periods.value || []).filter((p) => Number(p.schedule_aligned) === 1));
@@ -10179,50 +10189,10 @@ const sortedPeriods = computed(() => {
   return all;
 });
 
-// Ensures the selected period is always in the dropdown (e.g. when filtered out by alignedOnly).
-const periodsForSelect = computed(() => {
-  const source = periods.value || [];
-
-  // Filter to org-relevant (schedule-aligned) periods only, same as the wizard.
-  let aligned = source.filter((p) => Number(p.schedule_aligned) === 1);
-  // Fallback: if no periods have the flag set yet, show everything
-  if (!aligned.length) aligned = source.slice();
-
-  // Fill chronological gaps between aligned periods (e.g. missing Jul 18–31 between
-  // Jul 4–17 and Aug 1–14) so periods that exist but were mis-tagged still appear.
-  if (aligned.length && source.length) {
-    const starts = aligned.map((p) => String(p.period_start || '')).filter(Boolean).sort();
-    const ends = aligned.map((p) => String(p.period_end || '')).filter(Boolean).sort();
-    const minStart = starts[0];
-    const maxEnd = ends[ends.length - 1];
-    if (minStart && maxEnd) {
-      const byId = new Map(aligned.map((p) => [Number(p.id), p]));
-      for (const p of source) {
-        const s = String(p?.period_start || '');
-        const e = String(p?.period_end || '');
-        if (s && e && s >= minStart && e <= maxEnd) byId.set(Number(p.id), p);
-      }
-      aligned = [...byId.values()];
-    }
-  }
-
-  // Sort newest first
-  aligned.sort((a, b) => {
-    const ae = String(a?.period_end || '');
-    const be = String(b?.period_end || '');
-    if (ae !== be) return be.localeCompare(ae);
-    return (b?.id || 0) - (a?.id || 0);
-  });
-
-  // Always keep the currently selected period visible even if filtered out
-  const selId = selectedPeriodId.value;
-  const selPeriod = selectedPeriod.value;
-  if (selId && selPeriod && !aligned.some((p) => Number(p.id) === Number(selId))) {
-    aligned = [...aligned, selPeriod];
-  }
-
-  return aligned;
-});
+// Keep scheduled period choices short while preserving historical selections.
+const periodsForSelect = computed(() => payrollPeriodChoices(periods.value, {
+  includeOlder: showOlderPeriodChoices.value, includeLocked: true, selectedId: selectedPeriodId.value
+}));
 
 // History list should show past + at most one upcoming pay period.
 // Keep full `periods` for dropdowns (claim targeting / reimbursements into the future).
@@ -15823,11 +15793,11 @@ const processRunAndCompare = async () => {
   font-size: 11px !important;
 }
 .pr-period-field select {
-  border: 2px solid var(--pr-forest) !important;
-  background: var(--app-surface-muted, #F3FBF6) !important;
-  font-weight: 700 !important;
-  font-size: 15px !important;
-  color: var(--pr-forest) !important;
+  border: 2px solid var(--pr-forest);
+  background: var(--app-surface-muted, #F3FBF6);
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--pr-forest);
   box-shadow: 0 0 0 3px rgba(30, 58, 52, 0.08);
 }
 .pr-period-field select:focus {
@@ -16296,9 +16266,9 @@ button.pr-metric-card:disabled {
   margin-top: 12px;
 }
 .pr-compare-btn {
-  background: var(--pr-forest) !important;
-  border-color: var(--pr-forest) !important;
-  color: #fff !important;
+  background: var(--pr-forest);
+  border-color: var(--pr-forest);
+  color: #fff;
   display: inline-flex;
   align-items: center;
 }

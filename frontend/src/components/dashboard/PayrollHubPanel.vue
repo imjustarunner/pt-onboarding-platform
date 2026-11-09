@@ -1,5 +1,6 @@
 <template>
-  <div class="pay-hub" :class="{ 'pay-hub--wide': !showSidebar }">
+  <div class="pay-hub ft-payroll" :class="{ 'pay-hub--wide': !showSidebar }">
+    <FundThredPayrollBrand />
     <header class="pay-hub__header">
       <div class="pay-hub__header-left">
         <div class="pay-hub__title-row">
@@ -128,6 +129,7 @@
 </template>
 
 <script setup>
+import FundThredPayrollBrand from '../payroll/FundThredPayrollBrand.vue';
 import { ref, computed } from 'vue';
 import { formatPayrollMoney } from '../../utils/payrollUiHelpers';
 
