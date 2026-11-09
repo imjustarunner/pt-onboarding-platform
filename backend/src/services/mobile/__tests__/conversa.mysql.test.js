@@ -137,15 +137,15 @@ describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('personal mobile inbox SQL',
  it('persists personal swipe and navigation choices without crossing accounts',async()=>{
   await store.savePreferences(1,{swipeRight:'unread',navigationMode:'pinned',pinnedNavigation:['mywork','home']});expect(await store.preferences(1)).toMatchObject({swipeRight:'unread',navigationMode:'pinned',pinnedNavigation:['mywork','home']});expect((await store.preferences(2)).swipeRight).toBe('read');
  });
- it('includes only authorized shared group mail and classifies group delivery in a personal inbox without duplicates',async()=>{
+ it('keeps personal mail from a group sender separate from authorized actual group inbox delivery',async()=>{
   await db.query(`INSERT INTO chat_threads VALUES(30,10,'internal');INSERT INTO chat_thread_participants VALUES(30,1);
     INSERT INTO managed_workspace_groups(id,agency_id,chat_thread_id,email)VALUES(1,10,30,'clinical@example.invalid');
     INSERT INTO communication_inboxes(id,agency_id,kind,identity_key,from_email)VALUES(3,10,'shared','clinical','clinical@example.invalid'),(4,10,'shared','payroll','payroll@example.invalid');`);
   await mail(1,{email:'clinical@example.invalid'});await mail(2,{owner:2,inbox:2,email:'clinical@example.invalid'});await mail(3,{owner:0,inbox:3,email:'outside@example.invalid'});await mail(4,{owner:0,inbox:4});await mail(5,{email:'ordinary@example.invalid'});
   const scoped=createMobileConversaStore(db,{listAgencies:async()=>({agencies:[{id:10}]}),groupAccess:async()=>false});
-  const items=await scoped.emails(1);expect(items.map(row=>row.id).sort()).toEqual([1,3,5]);expect(items.filter(row=>row.category==='groups').map(row=>row.id).sort()).toEqual([1,3]);
-  expect((await scoped.emails(1,{suite:'groups'})).map(row=>row.id).sort()).toEqual([1,3]);expect((await scoped.emails(1,{suite:'email'})).map(row=>row.id)).toEqual([5]);
-  const counts=await scoped.emailCounts(1);expect(counts.find(row=>row.category==='groups').total).toBe(2);expect(counts.reduce((n,row)=>n+row.total,0)).toBe(3);
+  const items=await scoped.emails(1);expect(items.map(row=>row.id).sort()).toEqual([1,3,5]);expect(items.filter(row=>row.category==='groups').map(row=>row.id).sort()).toEqual([3]);
+  expect((await scoped.emails(1,{suite:'groups'})).map(row=>row.id).sort()).toEqual([3]);expect((await scoped.emails(1,{suite:'email'})).map(row=>row.id).sort()).toEqual([1,5]);
+  const counts=await scoped.emailCounts(1);expect(counts.find(row=>row.category==='groups').total).toBe(1);expect(counts.reduce((n,row)=>n+row.total,0)).toBe(3);
  });
  it('uses current explicit grants for secondary mailbox scope and retains personal ownership checks',async()=>{
   await db.query(`INSERT INTO communication_inboxes(id,agency_id,kind,owner_user_id,from_email)VALUES(6,20,'personal',1,'secondary@example.invalid'),(7,20,'personal',2,'other@example.invalid')`);

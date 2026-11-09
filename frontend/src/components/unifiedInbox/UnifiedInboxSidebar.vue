@@ -120,9 +120,6 @@ function onInboxChange(e) {
     </div>
 
     <div class="uc-smart">
-      <button type="button" @click="emit('smartFilter', 'needs_reply')">
-        Needs Attention <em>{{ attention.needsAttention || 0 }}</em>
-      </button>
       <button type="button" @click="emit('smartFilter', 'waiting')">
         Waiting on Others <em>{{ attention.waitingOnOthers || 0 }}</em>
       </button>

@@ -58,3 +58,9 @@ describe('Conversa sender and organization identity', () => {
     wrapper.unmount();
   });
 });
+
+
+it('uses the actual group name in shared desktop Conversa and keeps recipient addresses out of the list label',()=>{
+ const wrapper=mount(ConversationList,{props:{conversations:[{id:30,agency_id:3,channel:'email',is_group_email:true,is_ticketed_group:true,group_name:'Practice Technology Team',group_key:'technology',inbox_display_name:'Technology',inbox_from_email:'technology@example.test',primary_participant_name:'Michael Mendez',subject:'Synthetic group message',status:'needs_reply'}]}});
+ expect(wrapper.get('.uc-list-name').text()).toContain('Practice Technology Team');expect(wrapper.get('.conversa-mailbox').text()).toBe('Practice Technology Team');expect(wrapper.text()).not.toContain('Michael Mendez');expect(wrapper.text()).not.toContain('technology@example.test');expect(wrapper.get('.uc-list-tabs').text()).not.toContain('Needs Reply');wrapper.unmount();
+});

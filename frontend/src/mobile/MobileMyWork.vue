@@ -7,30 +7,30 @@ import {FilePenLine,RefreshCw,ChevronRight,Building2} from '@lucide/vue';
 import NoteReviewActions from '../components/clinical/NoteReviewActions.vue';
 const route=useRoute(),router=useRouter();trackMobileNavigation(router);
 const props=defineProps({apiBase:String,sessionToken:String});
-const emit=defineEmits(['draft','tasks']);
+const emit=defineEmits(['draft','tasks','counts']);
 const items=ref([]),agencies=ref([]),failures=ref([]),loading=ref(false),error=ref(''),clinicalAvailable=ref(true),ready=ref(false);
-const tabs=[{id:'all',label:'All'},{id:'todo',label:'To do'},{id:'started',label:'Started'},{id:'cosign',label:'Co-sign'},{id:'signed',label:'Signed'}];
-const currentTab=computed(()=>tabs.some(tab=>tab.id===route.query.workTab)?route.query.workTab:'all');
+const tabs=[{id:'todo',label:'To Do'},{id:'unstarted',label:'Not started'},{id:'started',label:'Started'},{id:'cosign',label:'Co-sign'},{id:'signed',label:'Signed'}];
+const currentTab=computed(()=>tabs.some(tab=>tab.id===route.query.workTab)?route.query.workTab:'todo');
 const agencyFilter=computed(()=>String(route.query.workAgency || 'all'));
 const search=computed(()=>String(route.query.workSearch || ''));
 const matches=item=>!search.value.trim() || [item.maskedName,item.clientMaskedName,item.agencyName,item.providerName,item.serviceCode,item.noteKind,item.date,item.dateOfService].filter(Boolean).join(' ').toLowerCase().includes(search.value.trim().toLowerCase());
 const agencyItems=computed(()=>items.value.filter(item=>(agencyFilter.value==='all'||String(item.agencyId)===agencyFilter.value)&&matches(item)));
-const bucket=item=>item.queueKind==='cosign'||item.status==='awaiting_cosign'?'cosign':item.status==='signed'?'signed':['started','completed','in_progress'].includes(item.status)?'started':'todo';
-const counts=computed(()=>Object.fromEntries(tabs.map(tab=>[tab.id,agencyItems.value.filter(item=>tab.id==='all'||bucket(item)===tab.id).length])));
+const bucket=item=>item.queueKind==='cosign'||item.status==='awaiting_cosign'?'cosign':item.status==='signed'?'signed':['started','completed','in_progress'].includes(item.status)?'started':'unstarted';
+const counts=computed(()=>Object.fromEntries(tabs.map(tab=>[tab.id,agencyItems.value.filter(item=>tab.id==='todo'?bucket(item)!=='signed':bucket(item)===tab.id).length])));
 const sortOrder=computed(()=>['oldest','client','agency','service','status'].includes(route.query.workSort)?route.query.workSort:'recent');
-const visibleItems=computed(()=>agencyItems.value.filter(item=>currentTab.value==='all'||bucket(item)===currentTab.value).sort((a,b)=>{
+const visibleItems=computed(()=>agencyItems.value.filter(item=>currentTab.value==='todo'?bucket(item)!=='signed':bucket(item)===currentTab.value).sort((a,b)=>{
  const byDate=String(a.date || '').localeCompare(String(b.date || '')) || String(a.scheduledStart || a.timeLabel || '').localeCompare(String(b.scheduledStart || b.timeLabel || ''));
  const sortValue=item=>sortOrder.value==='client'?item.maskedName || item.clientMaskedName:sortOrder.value==='agency'?item.agencyName:sortOrder.value==='service'?item.serviceCode:bucket(item);
  const alphabetical=['client','agency','service','status'].includes(sortOrder.value)?String(sortValue(a)||'').localeCompare(String(sortValue(b)||'')):0;
  return alphabetical || (sortOrder.value==='oldest'?byDate:-byDate) || Number(a.agencyId)-Number(b.agencyId);
 }));
-const activeFailures=computed(()=>failures.value.filter(item=>(agencyFilter.value==='all'||String(item.agencyId)===agencyFilter.value)&&(currentTab.value==='all'||(currentTab.value==='cosign'?item.section==='cosign':item.section==='notes'))));
+const activeFailures=computed(()=>failures.value.filter(item=>(agencyFilter.value==='all'||String(item.agencyId)===agencyFilter.value)&&(currentTab.value==='todo'||(currentTab.value==='cosign'?item.section==='cosign':item.section==='notes'))));
 function changeView(key,value){router.replace({path:route.path,query:{...route.query,[key]:value==='all'?undefined:value}});}
 async function load(){
  loading.value=true;error.value='';
  try{
   const {data}=await axios.get(`${props.apiBase}/my-work`,{headers:{'X-Quick-View-Session':props.sessionToken},withCredentials:true});
-  items.value=data.items || [];agencies.value=data.agencies || [];failures.value=data.failures || [];clinicalAvailable.value=data.clinicalAvailable!==false;ready.value=true;
+  items.value=data.items || [];agencies.value=data.agencies || [];failures.value=data.failures || [];clinicalAvailable.value=data.clinicalAvailable!==false;ready.value=true;emit('counts',{mywork:failures.value.length?null:items.value.filter(item=>bucket(item)!=='signed').length});
  }catch(e){items.value=[];failures.value=[];ready.value=false;error.value=e.response?.status<500?e.response?.data?.error?.message || 'Your work is unavailable for this account.':'Your work could not be loaded. Try again.';}
  finally{loading.value=false;}
 }
@@ -53,7 +53,7 @@ onMounted(load);
   <header><label class="work-search">Search<input type="search" aria-label="Search My Work" placeholder="Client, agency, service or date" :value="search" @input="changeView('workSearch',$event.target.value)" /></label><button aria-label="Refresh My Work" :disabled="loading" @click="load"><RefreshCw :size="17"/></button></header>
   <label class="agency-filter">Agency<select aria-label="Filter documentation by agency" :value="agencyFilter" @change="changeView('workAgency',$event.target.value)"><option value="all">All agencies</option><option v-for="agency in agencies" :key="agency.id" :value="String(agency.id)">{{ agency.name }}</option></select></label>
   <label class="agency-filter">Sort<select aria-label="Sort My Work" :value="sortOrder" @change="changeView('workSort',$event.target.value)"><option value="recent">Most recent</option><option value="oldest">Oldest first</option><option value="client">Client A–Z</option><option value="agency">Agency A–Z</option><option value="service">Service code</option><option value="status">Status</option></select></label>
-  <nav class="work-tabs" aria-label="Documentation status"><button v-for="tab in tabs" :key="tab.id" :aria-pressed="currentTab===tab.id" @click="changeView('workTab',tab.id)">{{ tab.label }} <span>{{ ready && !failures.some(f=>(agencyFilter==='all'||String(f.agencyId)===agencyFilter)&&(tab.id==='all'||(tab.id==='cosign'?f.section==='cosign':f.section==='notes')))?counts[tab.id]:'—' }}</span></button></nav>
+  <nav class="work-tabs" aria-label="Documentation status"><button v-for="tab in tabs" :key="tab.id" :aria-pressed="currentTab===tab.id" @click="changeView('workTab',tab.id)">{{ tab.label }} <span v-if="tab.id!=='signed'">{{ ready && !failures.some(f=>(agencyFilter==='all'||String(f.agencyId)===agencyFilter)&&(tab.id==='todo'||(tab.id==='cosign'?f.section==='cosign':f.section==='notes')))?counts[tab.id]:'—' }}</span></button></nav>
   <p v-if="loading" role="status">Loading your work…</p>
   <p v-if="error" role="alert">{{ error }} <button @click="load">Try again</button></p>
   <div v-if="activeFailures.length" class="work-errors" role="alert"><p v-for="failure in activeFailures" :key="`${failure.agencyId}:${failure.section}`">{{ failure.agencyName }}: {{ failure.message }}</p><button @click="load">Try again</button></div>

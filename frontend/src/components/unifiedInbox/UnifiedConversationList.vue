@@ -36,7 +36,6 @@ const emit = defineEmits(['update:filter', 'select']);
 
 const tabs = [
   { id: 'all', label: 'All' },
-  { id: 'needs_reply', label: 'Needs Reply' },
   { id: 'unread', label: 'Unread' },
   { id: 'starred', label: 'Starred' },
   { id: 'snoozed', label: 'Snoozed' }
@@ -108,7 +107,7 @@ function formatWhen(v) {
           <div class="uc-list-top">
             <span class="uc-list-name">
               <ConversaIcon :type="row.channel" :size="15" />
-              {{ row.primary_participant_name || row.inbox_display_name || 'Conversation' }}
+              {{ row.is_group_email ? row.group_name || row.inbox_display_name || 'Group' : row.primary_participant_name || row.inbox_display_name || 'Conversation' }}
             </span>
             <time>{{ formatWhen(row.last_message_at) }}</time>
           </div>
@@ -129,7 +128,7 @@ function formatWhen(v) {
             <span v-else-if="isTicketedGroup(row) && !row.ticket_claimed_by_user_id" class="uc-pill needs">Available to claim</span>
             <span v-if="row.ticket_claimed_by_user_id" class="uc-pill">Claimed{{ row.owner_first_name ? ` by ${row.owner_first_name}` : '' }}</span>
             <span v-if="row.starred" class="uc-star" title="Starred">★</span>
-            <span class="uc-pill" :class="statusClass(row.status)">{{ statusLabel(row.status) }}</span>
+            <span v-if="!['new','needs_reply'].includes(row.status)" class="uc-pill" :class="statusClass(row.status)">{{ statusLabel(row.status) }}</span>
           </div>
         </div>
         <span v-if="row.copies.some(copy => copy.is_unread)" class="uc-dot" aria-label="Unread" />

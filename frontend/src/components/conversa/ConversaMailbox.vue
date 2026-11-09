@@ -9,12 +9,13 @@ const organization = computed(() => {
   if (id == null) return null;
   return [agencyStore.currentAgency, ...(agencyStore.userAgencies || [])].find(org => org && String(org.id) === String(id)) || null;
 });
-const mailbox = computed(() => props.conversation.inbox_display_name || props.conversation.inbox_from_email || '');
+const mailbox = computed(() => props.conversation.group_name || props.conversation.inbox_display_name || props.conversation.inbox_from_email || '');
 </script>
 <template>
   <span v-if="mailbox || organization" class="conversa-mailbox" :title="conversation.inbox_from_email || mailbox">
     <ConversaSender v-if="organization" avatar-only :organization="organization" />
-    <span>Via {{ organization?.name || mailbox }}<template v-if="organization?.name && mailbox && mailbox !== organization.name"> · {{ mailbox }}</template></span>
+    <span v-if="conversation.is_group_email">{{ mailbox }}</span>
+    <span v-else>Via {{ organization?.name || mailbox }}<template v-if="organization?.name && mailbox && mailbox !== organization.name"> · {{ mailbox }}</template></span>
   </span>
 </template>
 <style scoped>

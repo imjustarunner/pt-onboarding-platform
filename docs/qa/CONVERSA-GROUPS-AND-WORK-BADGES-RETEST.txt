@@ -1,0 +1,29 @@
+CONVERSA GROUP IDENTITY, FILTERS, AND ACTIONABLE WORK BADGES
+
+Run on matched frontend/API build IDs, ready=true. Use a fresh tab. Test the shared desktop Conversa inbox and AuricWell /mobile at desktop and phone widths. Physical iPhone checks are separate from browser emulation.
+
+Use synthetic records for writes. Do not send real mail, change Google Group subscriptions, import an SSO user's mailbox, delete historical conversations, or change clinical records to force a test. Record build, role, agency, conversation/task/work IDs, expected/actual behavior and response text. BLOCKED and NOT_RUN are not passes.
+
+1. ACTUAL GROUP IDENTITY (SHARED DESKTOP AND MOBILE)
+Open a known departmental inbox such as Technology, Support or Payroll. Its list header should show the configured human group name, for example ITSCO Technology Team, rather than the signed-in user's name. Mobile group rows must not repeat a raw destination email address. Expanded delivery details may still identify the sending/receiving address.
+Open a personal conversation sent FROM a group address, including a moderator report or an individually addressed message. It belongs to Email, not Groups merely because its sender is a group or the user is an app-group member. A personal Google Group login inbox remains personal. Group matching must be exact and agency-specific.
+A member's no-email setting does not remove their authorized app-group access. It also does not make a personal copy group mail. Unrelated group mailboxes and other people's personal inboxes remain inaccessible. Existing ticket claim/assignment permissions remain enforced. Do not expect historical messages to be deleted or relocated in storage.
+For SSO staff, ordinary Workspace user mail is not copied just because an app inbox exists. Test the import policy with synthetic transport fixtures; do not reconfigure or import the owner's real Gmail. Explicit app-thread replies keep their existing routing.
+
+2. MESSAGE FILTERS AND READ BADGES
+The top-level All category and Messages navigation badge represent combined unread conversations, not total history. Category badges are unread counts. Counts may change when historical personal messages are correctly reclassified; do not demand a fixed 308.
+Inside each category, All has NO numeric total; Unread has its unread count. Needs reply must not be a browsing filter. Sent and Drafts remain available. A saved mobile filter=needs link opens Unread. Reading alone must not falsely change a canonical ticket status. Test unread/read/archive operations and refresh; categories retain their selected position.
+Shared desktop Conversa must not expose an automatic Needs Reply list tab or the guessed Needs Attention/Needs your reply shortcut. Explicit ticket workflow status controls are retained.
+
+3. MY WORK
+Initial tabs: To Do, Not started, Started, Co-sign, Signed. To Do is selected by default and includes not-started notes, started/ready-to-sign drafts and co-sign requests. Signed is separate and has NO number. The actionable tabs have counts. An older workTab=all bookmark also opens To Do.
+Example fixture: one not started, one started, one co-sign, one signed => To Do 3, Not started 1, Started 1, Co-sign 1, Signed (no number). Verify each tab's rows and that signed records do not appear in To Do.
+Check agency/search/sort/Back together. Visible list counts follow those filters. The bottom My Work badge counts actionable work across authorized agencies independently of list filters. Verify pending amendments retain the full review link and no shortcut signature.
+
+4. TASKS AND NAVIGATION
+Pin My Work, Tasks and Messages if necessary. Before visiting My Work or Tasks, the navigation badges should load. My Work equals combined actionable documentation; Tasks counts open tasks assigned to the signed-in user. Completed/done/cancelled/overridden tasks do not count. The task count must not stop at the first 50 rows. Other people's private tasks must not count.
+Complete/reopen a synthetic task using existing controls; the badge should refresh. Returning to a visible app refreshes counts, and background polling refreshes at most once per minute. Signing out/switching sessions must not show the previous user's badge result.
+A failed/partial queue or count request must not show a false zero; the badge is unavailable until recovery. Legacy passcode-only Quick View sessions must receive 403 for /api/quick-view/workspace-counts.
+
+5. PHONE CHECK
+On a physical iPhone, verify usable horizontal category/filter strips, retained selected category, no clipped badge, and My Work filters at narrow width. Browser resize or a native web bundle build is not proof of a physical iPhone or TestFlight test. Record those separately.

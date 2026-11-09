@@ -1,4 +1,4 @@
-import {postMobileKnownSender,getMobileInbox,getMobilePreferences,patchMobilePreferences,patchMobileArchive,getMobileChatContext,getMobileFile,patchMobileMessageState,postMobileViewed,getMobileMyWork,getMobileClientRecipients,postMobileClientContact,getMobileChannels} from '../controllers/mobileConversa.controller.js';
+import {getMobileWorkspaceCounts,postMobileKnownSender,getMobileInbox,getMobilePreferences,patchMobilePreferences,patchMobileArchive,getMobileChatContext,getMobileFile,patchMobileMessageState,postMobileViewed,getMobileMyWork,getMobileClientRecipients,postMobileClientContact,getMobileChannels} from '../controllers/mobileConversa.controller.js';
 import { getQuickPresence, postQuickAway, postQuickPresenceClear } from '../controllers/quickViewPresence.controller.js';
 import emailDraftRoutes from './emailDraft.routes.js';
 import mobileClinicalRoutes from './mobileClinical.routes.js';
@@ -122,6 +122,7 @@ router.post('/contacts', requireQuickViewSession, postQuickContact);
 router.get('/directory', requireQuickViewSession, getQuickDirectory);
 
 // Mobile-only surfaces require a primary device sign-in in addition to this scoped session.
+router.get('/workspace-counts', requireQuickViewSession, getMobileWorkspaceCounts);
 router.get('/my-work', requireQuickViewSession, getMobileMyWork);
 router.get('/my-work/notes/:noteId/review-insights', requireQuickViewSession, apiLimiter, getMobileNoteReviewInsights);
 router.use('/clinical',requireQuickViewSession,mobileClinicalRoutes);

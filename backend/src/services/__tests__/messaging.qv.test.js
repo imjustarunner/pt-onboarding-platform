@@ -17,7 +17,7 @@ beforeEach(() => { vi.clearAllMocks(); requireConversationAccess.mockResolvedVal
 it('QV replies use the shared email service with Reply all, recipients, attachments, and undo', async () => {
   const r = req(); r.body = { mode: 'reply_all', text: 'Reply', to: 'a@example.org', cc: 'b@example.org', attachments: [{ filename: 'a.txt' }] };
   await postQuickReply(r, res(), vi.fn());
-  expect(requireConversationAccess).toHaveBeenCalledWith({ id: 5, role: 'provider' }, '10');
+  expect(requireConversationAccess).toHaveBeenCalledWith({ id: 5, role: 'provider', mobileDevice:false }, '10');
   expect(replyToConversation).toHaveBeenCalledWith(10, expect.objectContaining({ ...r.body, undoDelaySeconds: 20 }), { userId: 5 });
 });
 it('new QV group email uses the staff mailbox and preserves CC/BCC', async () => {

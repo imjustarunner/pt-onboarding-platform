@@ -52,6 +52,7 @@ class CommunicationConversation {
               (SELECT e.direction FROM support_ticket_email_messages e WHERE e.ticket_id=c.support_ticket_id
                 AND (e.direction='inbound' OR e.send_status='sent')
                 ORDER BY COALESCE(e.sent_at,e.created_at) DESC,e.id DESC LIMIT 1) AS last_message_direction,
+              i.owner_user_id AS inbox_owner_user_id,
               i.display_name AS inbox_display_name,
               i.from_email AS inbox_from_email,
               i.sender_identity_id, i.identity_key AS inbox_identity_key, i.kind AS inbox_kind,
@@ -422,6 +423,7 @@ class CommunicationConversation {
                  AND (m.send_status IS NULL OR m.send_status NOT IN ('cancelled'))
                ORDER BY COALESCE(m.sent_at, m.created_at) DESC, m.id DESC LIMIT 1
               ) AS last_inbound_sender_json,
+              i.owner_user_id AS inbox_owner_user_id,
               i.display_name AS inbox_display_name,
               i.from_email AS inbox_from_email,
               i.identity_key AS inbox_identity_key, i.kind AS inbox_kind,

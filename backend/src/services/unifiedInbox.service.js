@@ -1,3 +1,4 @@
+import {groupEmailIdentity} from './groupEmailIdentity.js';
 import { plainEmailHtml } from '../utils/emailReplyContent.js';
 import { communicationPrintDocument } from './communicationPrint.service.js';
 import { resolveEmailClientFiling, linkConversationClients } from './clientConversationRecord.service.js';
@@ -27,18 +28,19 @@ import { supportEmailError } from './supportTicketEmailPolicy.js';
 import { groupKeyForIdentity, listUserDepartmentalGroupKeys } from './departmentalGroupAccess.service.js';
 
 export async function loadGroupEmailInboxScope({ agencyId, userId }) {
-  const [inboxes, keys] = await Promise.all([
-    CommunicationInbox.listForAgency({ agencyId }), listUserDepartmentalGroupKeys({ agencyId, userId })
+  const [inboxes, keys, [managedGroups]] = await Promise.all([
+    CommunicationInbox.listForAgency({ agencyId }), listUserDepartmentalGroupKeys({ agencyId, userId }),
+    pool.execute('SELECT * FROM managed_workspace_groups WHERE agency_id=?',[agencyId])
   ]);
   const groups = inboxes.filter((inbox) => groupKeyForIdentity(inbox));
-  return { groups, groupInboxIds: groups.map((i) => Number(i.id)),
+  return { groups, managedGroups, groupInboxIds: groups.map((i) => Number(i.id)),
     allowedGroupInboxIds: groups.filter((i) => keys.includes(groupKeyForIdentity(i))).map((i) => Number(i.id)) };
 }
 
-function withGroupEmailMetadata(conversation, userId) {
-  const key = groupKeyForIdentity({ identity_key: conversation.inbox_identity_key,
-    kind: conversation.inbox_kind, from_email: conversation.inbox_from_email });
-  return { ...conversation, group_key: key, is_group_email: !!key, is_ticketed_group: !!key,
+export function withGroupEmailMetadata(conversation, userId, managedGroups=[]) {
+  const identity=groupEmailIdentity({id:conversation.inbox_id,agency_id:conversation.agency_id,identity_key:conversation.inbox_identity_key,kind:conversation.inbox_kind,owner_user_id:conversation.inbox_owner_user_id,from_email:conversation.inbox_from_email,display_name:conversation.inbox_display_name},managedGroups);
+  const key = identity?.ticketed ? identity.groupKey : null;
+  return { ...conversation, group_key: identity?.groupKey || null, group_name:identity?.groupName || null, is_group_email: !!identity, is_ticketed_group: !!identity?.ticketed,
     ticket_replied: !!conversation.support_ticket_id && conversation.last_message_direction === 'outbound',
     can_claim_ticket: !!key && !!conversation.support_ticket_id && !conversation.ticket_claimed_by_user_id
       && !['closed','resolved','done'].includes(conversation.ticket_status),
@@ -199,7 +201,7 @@ export async function listConversations(opts) {
   }
   const scope = await loadGroupEmailInboxScope({ agencyId, userId });
   const rows = await CommunicationConversation.list({ ...opts, ...scope });
-  return rows.map((row) => withGroupEmailMetadata(row, userId));
+  return rows.map((row) => withGroupEmailMetadata(row, userId, scope.managedGroups));
 }
 
 export async function getAttentionSummary({ agencyId, userId, scopeToUserId = null } = {}) {
@@ -228,7 +230,8 @@ export async function getConversationDetail(conversationId, { userId, markRead =
   const hydrated = await hydrateChannelMessages(conv);
   if (hydrated) messages = hydrated;
   const context = await buildConversationContext(conv).catch((e) => { console.warn('[email-reader] context unavailable:', e?.code || 'context_failed'); return null; });
-  conv = withGroupEmailMetadata(conv, userId);
+  const [managedGroups]=await pool.execute('SELECT * FROM managed_workspace_groups WHERE agency_id=?',[conv.agency_id]);
+  conv = withGroupEmailMetadata(conv, userId, managedGroups);
   if (markRead && userId && !conv.is_ticketed_group) {
     await CommunicationConversation.markRead(conversationId, userId);
   }

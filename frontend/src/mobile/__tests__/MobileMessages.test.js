@@ -60,7 +60,7 @@ it('shows file details and can view the file without first navigating to its mes
 });
 it('shows category and filter counts, including groups',async()=>{
  await start();expect(wrapper.findAll('.mm-categories button').find(button=>button.text().includes('Groups')).text()).toContain('0');
- expect(wrapper.findAll('.mm-filters button').map(button=>button.text())).toEqual(['All 1','Unread 1','Needs reply 1','Sent 0','Drafts —']);
+ expect(wrapper.findAll('.mm-filters button').map(button=>button.text())).toEqual(['All','Unread 1','Sent 0','Drafts —']);
 });
 
 it('keeps recipient and group names on cards when the latest author is someone else',async()=>{
@@ -82,22 +82,22 @@ it('does not report an empty inbox or zero counts when loading failed, and retry
  api.get.mockRejectedValueOnce({response:{status:500,data:{error:{message:"Illegal mix of collations for operation IN"}}}});
  await start();expect(wrapper.get('[role="alert"]').text()).toContain('Messages could not be loaded');
  expect(wrapper.text()).not.toContain('Illegal mix');expect(wrapper.text()).not.toContain('No conversations in this view.');expect(wrapper.text()).not.toContain('You’re caught up.');
- expect(wrapper.findAll('.mm-filters span').map(n=>n.text())).toEqual(['—','—','—','—','—']);
+ expect(wrapper.findAll('.mm-filters span').map(n=>n.text())).toEqual(['—','—','—']);
  await wrapper.get('[role="alert"] button').trigger('click');await flushPromises();
- expect(wrapper.find('[role="alert"]').exists()).toBe(false);expect(row('Jordan')).toBeTruthy();expect(wrapper.findAll('.mm-filters span').map(n=>n.text())).toEqual(['1','1','1','0','—']);
+ expect(wrapper.find('[role="alert"]').exists()).toBe(false);expect(row('Jordan')).toBeTruthy();expect(wrapper.findAll('.mm-filters span').map(n=>n.text())).toEqual(['1','0','—']);
 });
 it('labels failed refresh as stale data and does not carry that data into a failed different category',async()=>{
  await start();api.get.mockRejectedValue({response:{status:500,data:{error:{message:'database internal detail'}}}});
  await wrapper.get('[aria-label="Refresh messages"]').trigger('click');await flushPromises();
  expect(wrapper.get('[role="alert"]').text()).toContain('Previously loaded conversations');expect(row('Jordan')).toBeTruthy();
  await wrapper.findAll('.mm-categories button').find(b=>b.text().includes('Email')).trigger('click');await flushPromises();
- expect(wrapper.find('.mm-row').exists()).toBe(false);expect(wrapper.text()).not.toContain('No conversations in this view.');expect(wrapper.findAll('.mm-filters span').map(n=>n.text())).toEqual(['—','—','—','—','—']);
+ expect(wrapper.find('.mm-row').exists()).toBe(false);expect(wrapper.text()).not.toContain('No conversations in this view.');expect(wrapper.findAll('.mm-filters span').map(n=>n.text())).toEqual(['—','—','—']);
 });
 
 it('clears previously loaded inbox content when current access is revoked',async()=>{
  await start();api.get.mockRejectedValue({response:{status:403,data:{error:{message:'Conversation access changed'}}}});
  await wrapper.get('[aria-label="Refresh messages"]').trigger('click');await flushPromises();
- expect(wrapper.text()).toContain('Conversation access changed');expect(wrapper.find('.mm-row').exists()).toBe(false);expect(wrapper.findAll('.mm-filters span').map(n=>n.text())).toEqual(['—','—','—','—','—']);
+ expect(wrapper.text()).toContain('Conversation access changed');expect(wrapper.find('.mm-row').exists()).toBe(false);expect(wrapper.findAll('.mm-filters span').map(n=>n.text())).toEqual(['—','—','—']);
 });
 
 it('opens a direct recipient picker and never emits email from the Direct plus button',async()=>{
@@ -116,8 +116,8 @@ it('defaults All to unread while preserving an explicit All filter choice',async
 it('shows the Archive label at the exposed right edge with its own color class',async()=>{
  await start();const card=row('Jordan');pointer(card,'pointerdown',200,100);pointer(card,'pointermove',90,101);await flushPromises();const swipe=card.element.closest('.mm-swipe');expect(swipe.classList.contains('swipe-left')).toBe(true);expect(swipe.classList.contains('action-archive')).toBe(true);expect(swipe.querySelector('.mm-swipe-label').textContent).toBe('Archive');pointer(card,'pointercancel',90,101);await flushPromises();pointer(card,'pointerdown',80,100);pointer(card,'pointermove',190,101);await flushPromises();expect(swipe.classList.contains('swipe-left')).toBe(false);expect(swipe.classList.contains('action-read')).toBe(true);expect(swipe.querySelector('.mm-swipe-label').textContent).toBe('Read');
 });
-it('explains that read incoming messages can still await a reply and exposes Unknown unread counts',async()=>{
- await start();await wrapper.findAll('.mm-filters button')[2].trigger('click');await flushPromises();expect(wrapper.get('.mm-filter-help').text()).toContain('Reading it does not clear');expect(wrapper.findAll('.mm-categories button').some(button=>button.text().includes('Unknown senders'))).toBe(true);
+it('uses ordinary unread browsing without a guessed reply obligation and exposes Unknown unread counts',async()=>{
+ await start();await wrapper.findAll('.mm-filters button')[2].trigger('click');await flushPromises();expect(wrapper.text()).not.toContain('Needs reply');expect(wrapper.find('.mm-filter-help').exists()).toBe(false);expect(wrapper.findAll('.mm-categories button').some(button=>button.text().includes('Unknown senders'))).toBe(true);
 });
 
 it('retains the selected agency when opening a teammate from another authorized workplace',async()=>{
@@ -186,3 +186,13 @@ it('offers a known-contact action for unknown email and saves only after confirm
  const mail={key:'email:88',id:88,kind:'email',category:'email',unknown:true,title:'Synthetic subject',sender:'Outside sender',senderEmail:'outside@example.invalid',preview:'Synthetic mail'};
  api.get.mockResolvedValue({data:{items:[mail],counts:{unknown:{total:1,unread:1}},nextCursor:null}});await start('/mobile/workspace?view=home&suite=unknown');await wrapper.findAll('button').find(n=>n.text()==='Create known contact').trigger('click');await flushPromises();expect(document.body.textContent).toContain('Save this sender');expect(api.post).not.toHaveBeenCalled();document.querySelector('[aria-label="Create known contact"] button').click();await flushPromises();expect(api.post).toHaveBeenCalledWith('/api/quick-view/messages/email/88/known-sender',{},expect.any(Object));
 });
+
+
+it('shows group names without personal account labels or redundant destination emails, and simplifies filters',async()=>{
+ api.get.mockResolvedValue({data:{items:[{key:'email:42',id:42,kind:'email',category:'groups',title:'Synthetic ticket',sender:'External sender',groupName:'Agency Technology Team',destinationAccount:'technology@agency.invalid',preview:'Synthetic preview'}],counts:{all:{total:999,unread:27},groups:{total:111,unread:27,needs:43}}}});
+ await start('/mobile/workspace?view=home&suite=groups');
+ expect(wrapper.get('.mm-row-top strong').text()).toBe('Agency Technology Team');expect(wrapper.text()).not.toContain('technology@agency.invalid');
+ expect(wrapper.findAll('.mm-filters button').map(b=>b.text())).toEqual(['All','Unread 27','Sent 0','Drafts —']);expect(wrapper.text()).not.toContain('Needs reply');expect(wrapper.findAll('.mm-categories button').find(b=>b.text().startsWith('All')).text()).toContain('27');
+});
+
+it('maps an older needs-reply bookmark to Unread',async()=>{await start('/mobile/workspace?view=home&suite=direct&filter=needs');expect(wrapper.findAll('.mm-filters button').find(b=>b.attributes('aria-pressed')==='true').text()).toContain('Unread');expect(api.get).toHaveBeenCalledWith('/api/quick-view/messages/inbox',expect.objectContaining({params:expect.objectContaining({filter:'unread'})}));});
