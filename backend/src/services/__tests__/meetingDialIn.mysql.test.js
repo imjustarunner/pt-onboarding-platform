@@ -89,7 +89,8 @@ describe.skipIf(!enabled)('telephone meeting lifecycle with isolated MySQL', () 
   });
   afterAll(async () => { vi.unstubAllEnvs(); if (m.db) await m.db.end(); if (admin) { await admin.query(`DROP DATABASE IF EXISTS ${schema}`); await admin.end(); } });
   async function enter(userId, pin, type='supervision') {
-    const id = crypto.randomUUID();
+    // Match real Vonage inbound Voice IDs rather than only outbound UUIDs.
+    const id = crypto.randomBytes(16).toString('hex');
     await answerDialIn({ uuid: id, from: '12025550199', to: '12025550123' });
     const invitation = pin ? { pin } : await personalDialIn(type,5,userId);
     const ncco = await enterDialInPin({ uuid: id, dtmf: { digits: invitation.pin } });

@@ -2,7 +2,7 @@
  * The untagged service version endpoint identifies the build serving live traffic.
  * Failure to verify ownership pauses maintenance; it never authorizes stale work.
  */
-export function createSchedulingWorkerGate({ env = process.env, fetchImpl = globalThis.fetch, now = Date.now, warn = console.warn } = {}) {
+export function createSchedulingWorkerGate({ env = process.env, fetchImpl = globalThis.fetch, now = Date.now, warn = console.warn, requireRevisionMatch = false } = {}) {
   let cached = null;
   let pending = null;
   return async function canRun() {
@@ -22,7 +22,8 @@ export function createSchedulingWorkerGate({ env = process.env, fetchImpl = glob
         const response = await fetchImpl(url.href, { signal: AbortSignal.timeout(4000), redirect: 'error', cache: 'no-store' });
         if (!response.ok) throw Error('version_endpoint_unavailable');
         const version = await response.json();
-        allowed = version.ready === true && String(version.buildId || '') === build;
+        allowed = version.ready === true && String(version.buildId || '') === build
+          && (!requireRevisionMatch || version.revision === env.K_REVISION);
       } catch {
         warn('[Scheduling workers] Live build verification unavailable; maintenance deferred');
       }
@@ -35,3 +36,4 @@ export function createSchedulingWorkerGate({ env = process.env, fetchImpl = glob
 }
 
 export const canRunSchedulingMaintenance = createSchedulingWorkerGate();
+export const canRunMeetingPhoneMaintenance = createSchedulingWorkerGate({requireRevisionMatch:true});

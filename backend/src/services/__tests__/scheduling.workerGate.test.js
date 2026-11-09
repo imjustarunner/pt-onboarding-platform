@@ -3,6 +3,13 @@ import { createSchedulingWorkerGate } from '../schedulingWorkerGate.js';
 
 const environment = () => ({K_REVISION:'backend-new',APP_BUILD_ID:'new',SCHEDULING_WORKER_AUTHORITY_URL:'https://backend-example.run.app/api/app-version'});
 const response = buildId => ({ok:true,json:async()=>({buildId,ready:true})});
+it('keeps a retired phone worker idle even when only configuration changed',async()=>{
+  const env=environment();
+  const old=createSchedulingWorkerGate({env,requireRevisionMatch:true,fetchImpl:async()=>({ok:true,json:async()=>({buildId:'new',revision:'backend-other',ready:true})})});
+  expect(await old()).toBe(false);
+  const live=createSchedulingWorkerGate({env,requireRevisionMatch:true,fetchImpl:async()=>({ok:true,json:async()=>({buildId:'new',revision:env.K_REVISION,ready:true})})});
+  expect(await live()).toBe(true);
+});
 it('keeps candidate and retired workers idle, then permits promotion and honors rollback',async()=>{
   let now=0, live='old';
   const fetchImpl=vi.fn(async()=>response(live));

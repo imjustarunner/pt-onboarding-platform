@@ -3,6 +3,8 @@ import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
 import { normalizeSmsPhone } from '../utils/smsThreadIdentity.js';
 
 export const DIAL_IN_PIN_LENGTH = 4;
+// Inbound Voice legs use compact IDs; outbound legs may use canonical UUIDs.
+export const isDialInCallId = value => /^(?:[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.test(String(value || ''));
 export const dialInError = (message, status = 409) => Object.assign(new Error(message), { status });
 // A generic office Voice application is deliberately insufficient. Telephone
 // meetings need their own number/application and signed callback configuration.

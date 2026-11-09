@@ -827,7 +827,7 @@ app.get('/healthz', healthHandler);
 app.get('/readyz', healthHandler);
 app.get('/api/app-version', (_req, res) => {
   res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
-  res.json({ buildId: String(process.env.APP_BUILD_ID || 'dev').trim(), ready: true });
+  res.json({ buildId: String(process.env.APP_BUILD_ID || 'dev').trim(), revision: process.env.K_REVISION || null, ready: true });
 });
 
 // Health check routes (must be before authentication middleware)
@@ -3100,6 +3100,8 @@ if (process.env.MEETING_DIAL_IN_VOICE_APPLICATION_ID) {
   let phoneTickRunning = false;
   const phoneTick = async () => {
     if (phoneTickRunning) return;
+    const {canRunMeetingPhoneMaintenance}=await import('./services/schedulingWorkerGate.js');
+    if (!await canRunMeetingPhoneMaintenance()) return;
     phoneTickRunning = true;
     try { await (await import('./services/meetingDialIn.service.js')).runMeetingDialInTick(); }
     catch (error) { console.warn('[meeting-dial-in] Reconciliation needs retry', error.code || 'storage_unavailable'); }

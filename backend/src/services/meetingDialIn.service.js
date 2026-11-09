@@ -4,12 +4,12 @@ import { encryptChatText } from './chatEncryption.service.js';
 import { maybeDecryptNotePayload } from './clinicalNoteCrypto.service.js';
 import { createOrGetMeetingRoom } from './video.service.js';
 import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
-import { dialInConfigured, dialInAssetsConfigured, dialInError, newPersonalPin, personalPinDigest, dialInCallerHash, registeredDialInPhone, occurrenceKey, dialInDetails } from './meetingDialInPolicy.js';
+import { dialInConfigured, dialInAssetsConfigured, dialInError, newPersonalPin, personalPinDigest, dialInCallerHash, registeredDialInPhone, occurrenceKey, dialInDetails, isDialInCallId } from './meetingDialInPolicy.js';
 import { dialInContext, admitDialInUser, dialInSchema } from './meetingDialInContext.service.js';
 import { dialInTransport, pinPrompt, hostPrompt, callConversation, unavailableCall } from './meetingDialInTransport.service.js';
 
 const digest = value => crypto.createHash('sha256').update(String(value)).digest('hex');
-const uuid = value => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(value || ''));
+const uuid = isDialInCallId;
 const sqlTime = date => new Date(date).toISOString().slice(0,23).replace('T',' ');
 const invitationVersion = context => occurrenceKey(context.type, context.meeting,
   registeredDialInPhone(context.user) ? dialInCallerHash(registeredDialInPhone(context.user)) : null);
