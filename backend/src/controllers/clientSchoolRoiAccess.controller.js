@@ -1,3 +1,4 @@
+import { clientEnrollmentPacketReview } from '../services/clientEnrollmentPacketReview.service.js';
 import { canReceiveGuardianConsentRequest } from '../services/schoolRoiGuardianConsent.service.js';
 import pool from '../config/database.js';
 import { requestSchoolRoiForGuardians } from '../services/schoolRoiGuardianRequests.service.js';
@@ -506,6 +507,7 @@ export const listClientSchoolRoiAccess = async (req, res, next) => {
       client_id: clientId,
       school_organization_id: schoolOrganizationId,
       school_name: client.organization_name || null,
+      enrollment_packet_review: await clientEnrollmentPacketReview(clientId),
       client_contact_phone: client.contact_phone || null,
       guardian_emails: guardianEmails,
       default_guardian_email: guardianEmails.find((guardian) => guardian.access_enabled)?.email || guardianEmails[0]?.email || null,

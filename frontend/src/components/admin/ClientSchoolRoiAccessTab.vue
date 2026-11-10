@@ -39,6 +39,12 @@
       </div>
     </div>
 
+    <div v-if="enrollmentPacketReview" class="warning-card" role="status">
+      <strong>Enrollment agreements need review (submission {{ enrollmentPacketReview.submission_id }}).</strong>
+      The signed packet did not finish processing. Saved answers and an ROI date alone do not grant school staff permission.
+      Review the packet issue and obtain any required updated signatures before completing access.
+    </div>
+
     <div v-if="roiExpired" class="warning-card">
       ROI is expired or missing. Referral documents are paused. Staff with ROI Active, ROI (Speak), or ROI All Active can still open the client for schedule, comments, and their own uploads.
     </div>
@@ -413,6 +419,7 @@ const rows = ref([]);
 const draftStates = ref({});
 const savingUserId = ref(null);
 const roiExpiresAt = ref(null);
+const enrollmentPacketReview = ref(null);
 const roiExpired = ref(false);
 const paperPacketStaffRoiPending = ref(false);
 const paperPacketVision = ref(null);
@@ -698,6 +705,7 @@ const load = async () => {
     programmedRecipientEmail.value = '';
     programmedRecipientPhone.value = '';
     roiExpiresAt.value = null;
+    enrollmentPacketReview.value = null;
     roiExpired.value = false;
     paperPacketStaffRoiPending.value = false;
     paperPacketVision.value = null;
@@ -723,6 +731,7 @@ const load = async () => {
     const payload = response.data || {};
     rows.value = Array.isArray(payload.staff) ? payload.staff : [];
     roiExpiresAt.value = payload.roi_expires_at || null;
+    enrollmentPacketReview.value = payload.enrollment_packet_review || null;
     roiExpiryDraft.value = normalizeDateInputValue(payload.roi_expires_at || null);
     roiExpired.value = payload.roi_expired !== false;
     paperPacketStaffRoiPending.value = payload.paper_packet_staff_roi_pending === true;
@@ -786,6 +795,7 @@ const load = async () => {
     programmedRecipientPhone.value = '';
     emailLanguageDraft.value = 'en';
     roiExpiresAt.value = null;
+    enrollmentPacketReview.value = null;
     roiExpired.value = false;
   } finally {
     if (version === loadVersion) loading.value = false;

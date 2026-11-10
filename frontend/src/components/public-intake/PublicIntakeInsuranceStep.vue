@@ -505,7 +505,8 @@
 <script setup>
 import { formatAuditTimestamp } from '../../utils/formatDate';
 import { unref } from 'vue';
-import { ref, reactive, computed, watch, inject } from 'vue';
+import { ref, reactive, computed, watch, inject, onMounted } from 'vue';
+import { savedInsuranceCard } from '../../utils/savedInsuranceCard.js';
 import { hasMedicaidCoverage, policyIsMedicaid } from '../../utils/insurancePaymentPolicy.js';
 import { filterInsurances, isMedicaidInsurer } from '../../utils/coloradoInsurances.js';
 import { useIntakeStepTx } from '../../composables/useIntakeStepTx.js';
@@ -1186,6 +1187,16 @@ watch(
     push();
   }
 );
+
+onMounted(() => {
+  // Older saved drafts retained the card image but lost the browser File object.
+  // Reuse that same image through the existing authenticated upload endpoint.
+  for (const slot of ['primary_front', 'primary_back', 'secondary_front', 'secondary_back']) {
+    if (props.modelValue?.[`${slot}_url`] || photoFiles[slot]) continue;
+    const file = savedInsuranceCard(props.modelValue?.photos?.[`${slot}_preview`], slot);
+    if (file) { photoFiles[slot] = file; uploadPhoto(file, slot); }
+  }
+});
 
 // Expose for parent
 defineExpose({

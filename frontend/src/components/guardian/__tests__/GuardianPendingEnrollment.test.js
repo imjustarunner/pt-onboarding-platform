@@ -21,3 +21,9 @@ it('explains expiration without an actionable stale invitation',async()=>{
  const expired=data('Child');expired.invitations[0].expired=true;api.get.mockResolvedValue({data:expired});wrapper=mount(View,{props:{agencyId:450,clientId:6}});await flushPromises();
  expect(wrapper.text()).toContain('expired');expect(wrapper.find('button').exists()).toBe(false);
 });
+it('shows recovered enrollment to-dos and opens the own-draft route',async()=>{
+ api.get.mockResolvedValue({data:{invitations:[],drafts:[{id:100,organizationName:'School',children:[{name:'Test child'}],tasks:['Sign the insurance authorization','Complete communication choices'],expired:false}]}});
+ api.post.mockRejectedValue({response:{data:{error:{message:'Please renew this link'}}}});
+ const w=mount(View,{props:{agencyId:450,clientId:20}});await flushPromises();
+ expect(w.text()).toContain('remaining to-dos');expect(w.text()).toContain('Sign the insurance authorization');await w.find('button').trigger('click');await flushPromises();expect(api.post).toHaveBeenCalledWith('/guardian-portal/enrollment-drafts/100/open',{agencyId:450});w.unmount();
+});

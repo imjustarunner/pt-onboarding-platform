@@ -1,0 +1,20 @@
+import {test,expect,vi} from 'vitest';
+vi.mock('../../config/database.js',()=>({default:{}}));vi.mock('../../models/User.model.js',()=>({default:{}}));
+import {dedicatedSchoolMailboxes,schoolContextForAddresses} from '../unifiedEmail/schoolMailboxContext.service.js';
+import {enrollmentDraftTasks,ownedEnrollmentDraft,openGuardianEnrollmentDraft,listGuardianEnrollmentDrafts} from '../guardianEnrollmentDrafts.service.js';
+const identities=[{identity_key:'support',from_email:'Support@Example.test'},{identity_key:'schoolreply',from_email:'schoolreply@example.test',reply_to:'schools@example.test',inbound_addresses_json:['real@example.test']}];
+const rows=[{school_organization_id:1,school_name:'Demo',itsco_email:' support@EXAMPLE.test '},{school_organization_id:2,school_name:'Real',itsco_email:'real@example.test'},{school_organization_id:3,school_name:'Second',itsco_email:'second@example.test'}];
+test('shared support cannot identify a school; dedicated school aliases still work',()=>{const boxes=dedicatedSchoolMailboxes(rows,{identities});expect(boxes).toHaveLength(2);expect(schoolContextForAddresses(boxes,['support@example.test'])).toBeNull();expect(schoolContextForAddresses(boxes,['support@example.test','real@example.test'])).toMatchObject({schoolOrganizationId:2});expect(schoolContextForAddresses(boxes,['real@example.test','second@example.test'])).toBeNull();});
+test('tenant support address is protected even without a sender identity',()=>{expect(dedicatedSchoolMailboxes(rows,{agency:{support_team_email:'support@example.test'}})).toHaveLength(2);});
+const user={id:20,role:'client_guardian',email:'parent@example.test'};
+const row={id:100,guardian_user_id:20,draft_expires_at:'2099-01-01T00:00:00Z',session_token:'private-test-session',public_key:'form',intake_data:{portalEnrollment:{userId:20,agencyId:2,email:'parent@example.test'},responses:{submission:{insuranceInfo:{primary:{insurerName:'Insurance'}}}}}};
+const deps=(rows=[structuredClone(row)],member=true)=>({users:{findById:async()=>user},db:{execute:async(sql)=>[sql.includes('user_agencies')?(member?[{user_id:20}]:[]):rows]}});
+test('a recovered draft shows missing authorizations, without declaring enrollment complete',()=>{expect(enrollmentDraftTasks(row.intake_data)).toEqual(['Sign the insurance authorization','Complete communication choices','Review the current agreements and submit your enrollment']);});
+test('a family opens only its own saved draft within its agency',async()=>{expect(await openGuardianEnrollmentDraft({userId:20,agencyId:2,submissionId:100},deps())).toBe('/intake/form?session=private-test-session');for(const patch of [{userId:21},{email:'other@example.test'},{agencyId:3}]){const wrong=structuredClone(row);Object.assign(wrong.intake_data.portalEnrollment,patch);expect(ownedEnrollmentDraft(wrong,user,2)).toBeNull();await expect(openGuardianEnrollmentDraft({userId:20,agencyId:2,submissionId:100},deps([wrong]))).rejects.toMatchObject({status:404});}});
+test('inactive membership and expired drafts never yield a resume token',async()=>{await expect(listGuardianEnrollmentDrafts({userId:20,agencyId:2},deps([],false))).rejects.toMatchObject({status:403});const expired={...row,draft_expires_at:'2020-01-01'};await expect(openGuardianEnrollmentDraft({userId:20,agencyId:2,submissionId:100},deps([expired]))).rejects.toMatchObject({status:410});});
+import {clientEnrollmentPacketReview} from '../clientEnrollmentPacketReview.service.js';
+test('staff see failed packet readiness without any private answers or permission grants',async()=>{
+ const secret={responses:{private:'Do not expose'},packetGeneration:{status:'needs_review',failedClientIds:[10]}};
+ expect(await clientEnrollmentPacketReview(10,{execute:async()=>[[{id:90,intake_data:secret}]]})).toEqual({submission_id:90,status:'needs_review'});
+ expect(await clientEnrollmentPacketReview(11,{execute:async()=>[[{id:90,intake_data:secret}]]})).toBeNull();
+});

@@ -1,3 +1,4 @@
+import { validateIntakePacketEditions } from '../utils/intakePacketEditions.js';
 import { enrollmentSignerIdentity } from '../utils/enrollmentSignerIdentity.js';
 import { isSchoolRoiDocument } from '../utils/schoolRoiDocument.js';
 import { assertGuardianRoiSigner } from '../services/schoolRoiGuardianConsent.service.js';
@@ -253,6 +254,20 @@ ${body}
   ${sigImg}
 </div>
 </body></html>`;
+}
+
+async function validatePacketEditionsBeforeSubmission({ link, intakeData, issuedRoiLink = null }) {
+  if (!intakeData?.packetSections && !intakeData?.packetInformedGroupConsent
+    && !intakeData?.packetPolicyServices && !intakeData?.packetHipaaNotice) return;
+  const { organization, agency } = await resolveIntakeOrgContext(link, { issuedRoiLink });
+  const office = linkLooksLikeOfficeIntake(link)
+    && !['school', 'program', 'learning'].includes(String(organization?.organization_type || '').toLowerCase());
+  await validateIntakePacketEditions(intakeData, (sectionKey, response) => buildPacketSectionContext({
+    organizationId: office ? 0 : organization?.id,
+    agencyId: agency?.id,
+    locale: response.locale || link.language_code || 'en', sectionKey, office,
+    variant: response.variant || 'self'
+  }));
 }
 
 async function persistPacketSectionFromIntakeData({
@@ -8099,6 +8114,8 @@ export const finalizePublicIntake = async (req, res, next) => {
     const requiredSignatureError = (coGuardianBinding || intakeChildRoster(intakeData || {}).length > 1)
       ? validateRequiredSharedSignatures(requiredSharedSteps, intakeData || {}) : null;
     if (requiredSignatureError) return res.status(400).json({ error: { message: requiredSignatureError } });
+    // Validate editions before saving a submitted state or creating any family records.
+    await validatePacketEditionsBeforeSubmission({ link, intakeData });
     stripIneligibleProviderPreference(link,intakeData);
     await validateSubmittedProviderPreferences(link,intakeData);
     await prepareLearningPacket(intakeData,link);
@@ -10764,6 +10781,8 @@ export const submitPublicIntake = async (req, res, next) => {
     const requiredSignatureError = intakeChildRoster(intakeData || {}).length > 1
       ? validateRequiredSharedSignatures(requiredSharedSteps, intakeData || {}) : null;
     if (requiredSignatureError) return res.status(400).json({ error: { message: requiredSignatureError } });
+    // Validate editions before saving a submitted state or creating any family records.
+    await validatePacketEditionsBeforeSubmission({ link, intakeData });
     stripIneligibleProviderPreference(link,intakeData);
     await validateSubmittedProviderPreferences(link,intakeData);
     await prepareLearningPacket(intakeData,link);

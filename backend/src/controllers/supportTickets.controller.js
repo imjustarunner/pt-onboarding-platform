@@ -1,3 +1,4 @@
+import { ticketAttachmentType } from '../utils/ticketAttachmentType.js';
 import { ticketDepartmentKeys, canWorkDepartmentTicket, appendDepartmentTicketVisibility } from '../services/supportTicketDepartmentAccess.service.js';
 import { listUserDepartmentalGroupKeys } from '../services/departmentalGroupAccess.service.js';
 import { sendSupportTicketEmailReply, listSupportTicketSenderOptions, listTicketEmailDeliveryMetadata, resolveSupportTicketEmailThread } from '../services/supportTicketEmail.service.js';
@@ -4306,11 +4307,11 @@ export const downloadSupportTicketAttachment = async (req, res, next) => {
     const row = await getTicketAttachmentRow(ticketId, attachmentId);
     if (!row) return res.status(404).json({ error: { message: 'Attachment not found' } });
     const buffer = await readTicketAttachmentBuffer(row);
-    const filename = String(row.file_name || 'attachment').replace(/[\r\n"]/g, '');
+    const preview = ticketAttachmentType(buffer, row.file_name);
     res.setHeader('Cache-Control', 'private, no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('Content-Type', row.mime_type || 'application/octet-stream');
-    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+    res.setHeader('Content-Type', preview.mimeType);
+    res.setHeader('Content-Disposition', `${preview.disposition}; filename="${preview.filename}"`);
     res.setHeader('Content-Length', buffer.length);
     return res.send(buffer);
   } catch (e) {

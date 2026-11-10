@@ -68,7 +68,7 @@ export async function syncEmailTicketsToInbox({ agencyId, ticketId = null, limit
         synced += 1;
       }
       await CommunicationConversation.upsertLink(conversation.id, 'ticket', ticket.id, `Ticket #${ticket.id}`);
-      if (ticket.school_organization_id) await CommunicationConversation.upsertLink(conversation.id, 'school', ticket.school_organization_id, ticket.school_name);
+      if (ticket.school_organization_id && Number(ticket.school_organization_id) !== Number(ticket.agency_id)) await CommunicationConversation.upsertLink(conversation.id, 'school', ticket.school_organization_id, ticket.school_name);
       if (ticket.client_id) await CommunicationConversation.upsertLink(conversation.id, 'client', ticket.client_id, `Client #${ticket.client_id}`);
       if (ticket.source_email_from) await CommunicationConversation.upsertParticipant(conversation.id,
         { kind: 'school_contact', email: ticket.source_email_from, displayName: ticket.source_email_from, isPrimary: true });
