@@ -64,10 +64,10 @@ export async function runNarrivaTestReview(user,body){
  local.clinical.assessmentEvidencePresent=!!text(c.assessmentExcerpt);
  const source={agencyId,userId:user.id,source:row,meta,provider:{},client:{},identifiers:[],narrative,inputText:[input,text(c.goals)?`Test treatment goals: ${text(c.goals)}`:'',text(c.assessmentExcerpt)?`Test assessment evidence: ${text(c.assessmentExcerpt)}`:''].filter(Boolean).join('\n\n'),...local};
  const {facts,qualityEvidence,guidanceHash,serviceReferenceHash,model}=await inspectNarrivaFacts(source);
- const checks=emptyNarrivaChecks().map(check=>{const result=deriveNarrivaCheck(check.id,{...source,facts});return {...result,findings:result.findings.map(f=>({...f,canBypass:false}))};});
+ const checks=emptyNarrivaChecks().map(check=>{const result=deriveNarrivaCheck(check.id,{...source,facts},{standaloneTest:true});return {...result,findings:result.findings.map(f=>({...f,canBypass:false}))};});
  let status=narrivaOverall(checks);
  const scoring=deriveNarrivaScoring({qualityEvidence,assessmentMentioned:facts.assessmentMentioned,narrative,checks,reviewStatus:status});
  scoring.findings=scoring.findings.map(f=>({...f,canBypass:false}));
  if(status==='passed'&&!scoring.qualityPassed)status='action_required';
- return {id:`test-${crypto.randomUUID()}`,testOnly:true,status,checks,scoring,riskAssessmentRequired:checks[0].riskAssessmentRequired===true,quickSignEligible:false,signingActions:[],rulesVersion:NARRIVA_RULES_VERSION,guidanceHash,serviceReferenceHash,model,sourceHash:narrivaSourceHash({narrative,context:c}),completedAt:new Date().toISOString(),limitations:'Results use your declared test facts. No chart records, real consent documents, linked assessment files, signature, billing or treatment history were verified.'};
+ return {id:`test-${crypto.randomUUID()}`,testOnly:true,status,checks,scoring,riskAssessmentRequired:checks[0].riskAssessmentRequired===true,quickSignEligible:false,signingActions:[],rulesVersion:NARRIVA_RULES_VERSION,guidanceHash,serviceReferenceHash,model,sourceHash:narrivaSourceHash({narrative,context:c}),completedAt:new Date().toISOString(),limitations:'Results use your declared test facts and duration; start/end times are not evaluated. No chart records, real consent documents, linked assessment files, signature, billing or treatment history were verified.'};
 }

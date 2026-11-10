@@ -164,7 +164,7 @@ const statusLabel = value => ({ completed:'Completed', running:'In progress', pe
 const frequencyLabel = value => value.cadence === 'manual' ? 'Manual runs only; no scheduled charges.' : value.cadence === 'custom' ? `Scheduled every ${value.intervalDays} days.` : `${{ monthly:'Monthly', quarterly:'Quarterly', annual:'Annual' }[value.cadence] || value.cadence} scheduled runs.`;
 const findingText = finding => typeof finding === 'string' ? finding : finding?.message || finding?.detail || finding?.label || 'Review required';
 const approvalLabel = note => statusLabel(note.approvalStatus || (typeof note.priorApproval === 'string' ? note.priorApproval : note.priorApproval?.status));
-function options(id = agencyId.value) { return { params: { agencyId:id }, headers: { 'X-Agency-Id': String(id) } }; }
+function options(id = agencyId.value) { return { params: { agencyId:id }, headers: { 'X-Agency-Id': String(id) }, skipGlobalLoading:true }; }
 function resetDetail() { clearTimeout(refreshTimer); detailGeneration++; selectedRun.value=null; detailLoading.value=false; detailError.value=''; detailOpen.value=false; }
 async function load() {
   updateClock();
