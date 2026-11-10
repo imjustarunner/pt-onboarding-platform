@@ -469,7 +469,8 @@ export const submitReferralPacketDraft = async (req, res, next) => {
       clientNameOrIdentifier: client.identifier_code || client.initials || `ID ${client.id}`,
       clientInitials: client.initials || null,
       mode: 'paper_upload',
-      schoolStaffName: uploaderLabel
+      schoolStaffName: uploaderLabel,
+      sendSchoolEmail: req.emailPacketReceipt !== true
     }).catch((error) => {
       console.error('[packetNotification] Delivery needs review', {
         clientId: client.id,

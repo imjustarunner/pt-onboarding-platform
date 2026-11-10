@@ -836,17 +836,18 @@
                 </div>
                 <div v-if="isEmailTicket && canSelectSharedSender && composerMode !== 'internal'" class="email-sender-controls">
                   <label>Reply from
-                    <select v-model="senderIdentityId" aria-label="Shared email address">
-                      <option v-for="option in senderOptions" :key="option.id" :value="option.id">{{ option.fromEmail }}</option>
+                    <select v-model="senderIdentityId" aria-label="Email address">
+                      <option v-for="option in senderOptions" :key="option.id" :value="option.id">{{ option.fromEmail }}{{ option.senderKind === 'staff' ? ' (my work address)' : '' }}</option>
                     </select>
                   </label>
-                  <label>Display name
-                    <select v-model="senderMode" aria-label="Email display name">
-                      <option value="staff">{{ selectedSender?.staffDisplayName || 'My name' }}</option>
-                      <option value="team">{{ selectedSender?.teamDisplayName || selectedSender?.displayName || 'Group name' }}</option>
+                  <label>Name and signature
+                    <select v-model="senderMode" aria-label="Name and signature">
+                      <option value="staff">Self · {{ selectedSender?.staffDisplayName || 'My name and signature' }}</option>
+                      <option v-if="selectedSender?.senderKind !== 'staff'" value="team">Group · {{ selectedSender?.teamDisplayName || selectedSender?.displayName || 'Group name and signature' }}</option>
                     </select>
                   </label>
                   <p v-if="selectedSender">{{ senderMode === 'staff' ? selectedSender.staffDisplayName : selectedSender.teamDisplayName }} &lt;{{ selectedSender.fromEmail }}&gt;</p>
+                  <p v-if="selectedSender" class="muted">{{ senderMode === 'staff' ? 'Uses your staff signature, including when sending from a shared address.' : 'Uses the selected group’s signature.' }}</p>
                   <p v-else class="error">No shared sender is configured for this conversation.</p>
                 </div>
                 <div v-if="draftIsStale && composerMode !== 'internal'" class="email-delivery-notice">
@@ -1174,6 +1175,7 @@ const senderOptions = ref([]);
 const senderIdentityId = ref(null);
 const senderMode = ref('staff');
 const selectedSender = computed(() => senderOptions.value.find((x) => Number(x.id) === Number(senderIdentityId.value)));
+watch(selectedSender,sender=>{if(sender?.senderKind==='staff')senderMode.value='staff';});
 const draftSnapshotId = ref(null);
 const draftThreadRevision = ref(null);
 const lastMessageId = ref(0);

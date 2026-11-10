@@ -158,8 +158,8 @@ describe('Support email composer safeguards', () => {
     } } : { data: {} });
     mocks.api.post.mockResolvedValue({ data: { emailReply: { status: 'sent', sent: true } } });
     await render({ embedded: true, initialTicketId: 101, agencyId: 2, syncRoute: false });
-    expect(wrapper.get('select[aria-label="Shared email address"]').text()).toContain('payroll@itsco.health');
-    expect(wrapper.get('select[aria-label="Email display name"]').element.value).toBe('team');
+    expect(wrapper.get('select[aria-label="Email address"]').text()).toContain('payroll@itsco.health');
+    expect(wrapper.get('select[aria-label="Name and signature"]').element.value).toBe('team');
     expect(button('AI draft')).toBeUndefined();
     await wrapper.find('.composer-textarea').setValue('Payroll has reviewed your request.');
     await button('Send reply').trigger('click');

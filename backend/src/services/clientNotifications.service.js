@@ -480,7 +480,8 @@ export async function notifyNewPacketUploaded({
   clientNameOrIdentifier,
   clientInitials,
   mode = 'digital_submission',
-  schoolStaffName = null
+  schoolStaffName = null,
+  sendSchoolEmail = true
 }) {
   if (!agencyId || !clientId) return;
 
@@ -538,7 +539,7 @@ export async function notifyNewPacketUploaded({
 
   // School email is independent of in-app notification idempotency so a prior silent
   // failure can still be diagnosed / retried until a successful/pending send exists.
-  if (!(await alreadySentSchoolEnrollmentPacketEmail({ agencyId, clientId }))) {
+  if (sendSchoolEmail && !(await alreadySentSchoolEnrollmentPacketEmail({ agencyId, clientId }))) {
     await sendSchoolIntakeStatusEmail({
       schoolOrganizationId,
       agencyId,

@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { assessSupportEmailDraftReuse, generateSupportEmailDraft as generateWithLookup } from '../supportEmailDraft.service.js';
+import { assessSupportEmailDraftReuse, prepareSupportEmailDraftInput, generateSupportEmailDraft as generateWithLookup } from '../supportEmailDraft.service.js';
 import { encryptChatText } from '../chatEncryption.service.js';
 import { buildSupportEmailDraftContext, classifySupportEmailDraft, validateSupportEmailDraft } from '../../utils/supportEmailDraft.shared.js';
 
@@ -16,6 +16,18 @@ const ticket = {
 const claimant = { id: 8, first_name: 'Alex', last_name: 'Rivera', email: 'personal@example.com' };
 const input = (more = {}) => ({ ticket, claimant, knowledgeMatches: [], promptNotes: [], ...more });
 const model = (reply, extra = {}) => async () => ({ text: JSON.stringify({ reply, ...extra }), modelName: 'test-model', provider: 'vertex' });
+
+it('a durable packet upload is current-message evidence without claiming processing, consent or assignment',async()=>{
+  for(const sourceMessageId of [10,9]){
+    const prepared=await prepareSupportEmailDraftInput(input({ticket:{...ticket,ai_draft_metadata_json:{emailPacketReceiptId:4}},
+      messages:[{id:10,email_direction:'inbound',body:ticket.question}],reviewerLearning:null,correspondence:null,enrollmentEntry:null}),{
+      database:{execute:async(sql,binds)=>{assert.deepEqual(binds,[4,2,51]);assert.match(sql,/phi_document_id IS NOT NULL AND processing_task_id IS NOT NULL/);return [[{id:4,source_message_id:sourceMessageId,ack_status:'sent'}]];}},
+      lookupEnrollment:async()=>null,lookupProviderAbsence:async()=>null
+    });
+    assert.equal(prepared.verifiedFacts?.length||0,sourceMessageId===10?1:0);
+    if(sourceMessageId===10){assert.match(prepared.verifiedFacts[0].value,/Processing and enrollment completion are unconfirmed/);assert.equal(prepared.verifiedFacts[0].shareable,true);}
+  }
+});
 
 describe('evidence-grounded support drafts', () => {
   it('corrects an unreadable model response once while keeping Vertex and evidence rules',async()=>{

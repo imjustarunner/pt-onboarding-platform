@@ -213,10 +213,19 @@ export async function ingestSupportTicketEmail(input, dependencies = {}) {
       internetMessageId: messageId, sourceMessageId: lastInbound?.id || null, ticketMessageId,
       occurredAt: receivedAt, idempotencyKey: `ticket-email:${ticketMessageId}` });
   }
-  if (!staffCopy && !appOriginReceipt && generateDraft) {
+  let packetReceipt = null;
+  if (input.autoPacketIntake && !staffCopy && !appOriginReceipt && !preserveTicketState) {
+    const processPacket = dependencies.processPacketEmail || (await import('./schoolEmailPacketIntake.service.js')).processSchoolEmailPacket;
+    packetReceipt = await processPacket({ticketId:ticket.id,agencyId,sourceMessageId:ticketMessageId,
+      fromEmail:from,subject:input.subject,bodyText:input.bodyText,recipients:input.recipients,headers:input.headers,
+      messageId,receivedAt}, {database});
+    if(packetReceipt?.uploaded)await database.execute(`UPDATE support_tickets t SET ai_draft_metadata_json=JSON_SET(COALESCE(ai_draft_metadata_json,JSON_OBJECT()),'$.emailPacketReceiptId',?,'$.emailPacketUploaded',CAST('true' AS JSON)) WHERE id=? AND agency_id=?`,[packetReceipt.receiptId,ticket.id,agencyId]);
+  }
+  if (!staffCopy && !appOriginReceipt && generateDraft && !(packetReceipt?.ackSent && !packetReceipt.needsReply)) {
     const generate = dependencies.generateDraft || generateInboundSupportDraft;
     await generate({ ticketId: ticket.id, sourceMessageId: ticketMessageId, agencyId, intakeComplete: true });
   }
+  if(packetReceipt?.ackSent && !packetReceipt.needsReply)await database.execute(`UPDATE support_tickets t SET ai_draft_response=NULL,ai_draft_status='suppressed',ai_draft_metadata_json=JSON_SET(COALESCE(ai_draft_metadata_json,JSON_OBJECT()),'$.suppressed',CAST('true' AS JSON),'$.suppressionReason','packet_receipt_already_sent') WHERE id=? AND agency_id=? AND ?=(SELECT e.ticket_message_id FROM support_ticket_email_messages e WHERE e.ticket_id=t.id AND e.direction='inbound' ORDER BY COALESCE(e.sent_at,e.created_at) DESC,e.id DESC LIMIT 1)`,[ticket.id,agencyId,ticketMessageId]);
   const sync = dependencies.syncInbox || (async () => {
     const { syncEmailTicketsToInbox } = await import('./ticketEmailInboxAdapter.service.js');
     await syncEmailTicketsToInbox({ agencyId, ticketId: ticket.id, limit: 1, forceRefresh: true });

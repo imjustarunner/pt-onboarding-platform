@@ -11,7 +11,7 @@ async function senderOptions({ ticket, actorUserId }, db) {
     FROM email_sender_identities e LEFT JOIN communication_inboxes i ON i.sender_identity_id=e.id
     WHERE e.agency_id=? AND e.is_active=1`, [ticket.agency_id]);
   const [schools] = await db.execute('SELECT itsco_email FROM school_profiles WHERE school_organization_id=?', [ticket.school_organization_id]);
-  const [[actor]] = await db.execute(`SELECT u.id,u.first_name,u.last_name,a.name AS agency_name
+  const [[actor]] = await db.execute(`SELECT u.id,u.first_name,u.last_name,u.work_email,a.name AS agency_name
     FROM users u JOIN agencies a ON a.id=? WHERE u.id=?`, [ticket.agency_id, actorUserId]);
   if (!actor) throw supportEmailError('Staff sender not found.', 403);
   const staffName = [actor.first_name, actor.last_name].filter(Boolean).join(' ').trim();
@@ -19,18 +19,22 @@ async function senderOptions({ ticket, actorUserId }, db) {
   const seen = new Set();
   const departments = await ticketDepartmentKeys(ticket, db);
   const permitted = [];
+  const ownWork = identity => Number(ticket.agency_id)===2 && Number(identity.owner_user_id)===Number(actorUserId)
+    && emailKey(identity.from_email)===emailKey(actor.work_email) && emailKey(identity.from_email).endsWith('@itsco.health');
   for (const identity of identities) {
+    if(ownWork(identity)){permitted.push(identity);continue;}
     const key = groupKeyForIdentity(identity);
     if (departments.length && (!key || !departments.includes(key))) continue;
     if (key && !await canAccessDepartmentalGroup({ agencyId: ticket.agency_id, userId: actorUserId, groupKey: key, db })) continue;
     permitted.push(identity);
   }
-  return permitted.filter((i) => isManagedSupportIdentity(i, { agencyId: ticket.agency_id, topic: ticket.topic,
+  const options = permitted.filter((i) => ownWork(i) || isManagedSupportIdentity(i, { agencyId: ticket.agency_id, topic: ticket.topic,
     schoolAddresses: schools.map((s) => s.itsco_email) })).filter((i) => !seen.has(i.id) && seen.add(i.id)).map((i) => ({
-    id: Number(i.id), identityKey: i.identity_key, fromEmail: emailKey(i.from_email),
+    id: Number(i.id), identityKey: i.identity_key, fromEmail: emailKey(i.from_email), senderKind:ownWork(i)?'staff':'group',
     teamDisplayName: String(i.display_name || agencyName || 'School support').replace(/[\r\n<>]/g, ' ').trim(),
     staffDisplayName: [staffName, agencyName].filter(Boolean).join(' · ').replace(/[\r\n<>]/g, ' ').trim()
   }));
+  return options.some(o=>o.senderKind==='group')?options:options.filter(o=>o.senderKind!=='staff');
 }
 
 export async function listSupportTicketSenderOptions(input, db = pool) {
@@ -95,7 +99,7 @@ export async function sendSupportTicketEmailReply(input, dependencies = {}) {
   if (!requestId || requestId.length > 200) throw supportEmailError('A reply request ID is required. Reload and try again.', 400);
   const requestKey = emailHash(`${actorUserId}:${requestId}`);
   const db = await database.getConnection();
-  let ticket, delivery, headers, snapshot, sourceMessageId, revision, existing = false;
+  let ticket, delivery, headers, snapshot, sourceMessageId, revision, replyToEmail, existing = false;
   try {
     await db.beginTransaction();
     [[ticket]] = await db.execute('SELECT * FROM support_tickets WHERE id=? FOR UPDATE', [ticketId]);
@@ -139,6 +143,10 @@ export async function sendSupportTicketEmailReply(input, dependencies = {}) {
       const selected = senderIdentityId ? options.find((o) => o.id === Number(senderIdentityId))
         : options.find((o) => ['schoolreply', 'school_reply', 'schools'].includes(o.identityKey)) || options[0];
       if (!selected) throw supportEmailError('No approved shared sender is available for this ticket.', 400, 'SUPPORT_EMAIL_SENDER_REQUIRED');
+      if(selected.senderKind==='staff'&&senderMode!=='staff')throw supportEmailError('Choose Self for your work address, or select a group address for the group signature.',400);
+      const sharedReply = options.find(o=>o.senderKind!=='staff'&&o.identityKey==='schools') || options.find(o=>o.senderKind!=='staff'&&o.identityKey==='support') || options.find(o=>o.senderKind!=='staff');
+      replyToEmail=selected.senderKind==='staff'?sharedReply?.fromEmail:selected.fromEmail;
+      if(!replyToEmail)throw supportEmailError('A receiving group address is required to keep replies in the ticket.',400);
       const metadata = await listTicketEmailDeliveryMetadata(ticketId, db);
       await preserveSupportTicketEmailCanonical(ticket, db);
       headers = supportReplyHeaders(ticket, metadata);
@@ -195,7 +203,7 @@ export async function sendSupportTicketEmailReply(input, dependencies = {}) {
   try {
     sent = await send({ senderIdentityId: delivery.sender_identity_id, to: delivery.to_json[0],
       subject: headers.subject, text: body, source: 'manual', generatedByUserId: actorUserId,
-      fromDisplayNameOverride: delivery.from_name, replyToOverride: delivery.from_email,
+      fromDisplayNameOverride: delivery.from_name, replyToOverride: replyToEmail || delivery.from_email,
       templateType: senderMode === 'team' ? 'support_ticket_reply_team' : 'support_ticket_reply',
       clientId: ticket.client_id || null, schoolOrganizationId: ticket.school_organization_id,
       inReplyTo: headers.inReplyTo, references: headers.references, threadId: headers.threadId,

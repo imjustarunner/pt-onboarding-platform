@@ -59,6 +59,9 @@ jobs:
           npm test --prefix frontend -- src/router/__tests__/schoolCareBridgeRoutes.test.js src/utils/__tests__/schoolEnrollmentLink.test.js src/utils/__tests__/publicIntakeUrl.test.js src/utils/__tests__/serviceLegalContext.test.js src/services/__tests__/workspaceNavigation.test.js src/views/school/__tests__/SchoolCareBridgeAgencyWorkspace.test.js
       - name: School weekly booking, scheduling requests, and support drafts
         run: |
+          node --test backend/src/services/__tests__/schoolEmailPacketIntake.test.js backend/src/services/__tests__/supportTicketEmail.service.test.js backend/src/services/__tests__/supportTicketEmailInbound.service.test.js backend/src/services/__tests__/supportReplyFeedback.service.test.js backend/src/services/__tests__/supportReplyReview.service.test.js backend/src/services/__tests__/supportReviewerLearning.service.test.js
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.support-email-rollout.config.js
+          (cd frontend && node node_modules/vitest/vitest.mjs run --config vitest.support-email-rollout.config.js)
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.school-weekly.config.js
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.qa-communications.config.js
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.qa-clinical-fixtures.config.js

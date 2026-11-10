@@ -47,6 +47,14 @@ beforeEach(() => {
 });
 
 describe('outbound email author signature', () => {
+  it('uses the staff signature in Self mode even when the From address is Schools',async()=>{
+    const result=await finalizeOutboundContent({...message,templateType:'support_ticket_reply',identity:{id:12,agency_id:2,identity_key:'schools',display_name:'Michael Mendez · ITSCO',from_email:'schools@itsco.health',reply_to:'schools@itsco.health'}});
+    expect(result.html).toContain('<!-- pt-staff-html-signature -->');expect(result.html).toContain('Director of Operations');expect(result.html).not.toContain('pt-department-html-signature');
+  });
+  it('uses only the group signature in Group mode despite knowing the staff actor',async()=>{
+    const result=await finalizeOutboundContent({...message,templateType:'support_ticket_reply_team',identity:{id:12,agency_id:2,identity_key:'schools',display_name:'Schools',from_email:'schools@itsco.health',reply_to:'schools@itsco.health'}});
+    expect(result.html).toContain('pt-department-html-signature');expect(result.html).not.toContain('<!-- pt-staff-html-signature -->');expect(result.html).not.toContain('Director of Operations');
+  });
   it.each(['auto', 'manual'])('keeps school packet notices signed by Schools for %s delivery', async source => {
     const result = await finalizeOutboundContent({ ...message, source,
       templateType: 'school_enrollment_packet_status',

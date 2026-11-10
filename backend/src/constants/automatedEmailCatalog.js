@@ -12,6 +12,7 @@ export const FALLBACK_SENDER_FLAG = {
 };
 
 export const PREFERRED_IDENTITY_KEYS_BY_TEMPLATE_TYPE = {
+  school_email_packet_receipt: ['schools', 'support'],
   portal_activity_login: ['messages', 'notifications'],
   portal_activity_summary: ['messages', 'notifications'],
   office_request_review: ['notifications'],
