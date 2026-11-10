@@ -2,8 +2,8 @@ import {beforeEach,describe,it,expect,vi} from 'vitest';
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()},onTableWrite:vi.fn()}));
 vi.mock('../../config/clinicalDatabase.js',()=>({default:{execute:vi.fn()}}));
 vi.mock('../familyBillingPolicy.service.js',()=>({billingError:(status,message)=>Object.assign(new Error(message),{status}),auditBilling:vi.fn()}));
-import {buildEligibilityRequest,summarizeEligibility,eligibilityIdentityMatches,validateCoverageReview,coverageFingerprint,coverageReviewBlockers,runCoverageCheck,assertCoverageCollectionSafe} from '../coverageVerification.service.js';
-import {decryptFamilyBilling} from '../familyBillingEncryption.service.js';
+import {buildEligibilityRequest,summarizeEligibility,eligibilityIdentityMatches,validateCoverageReview,coverageFingerprint,coverageReviewBlockers,runCoverageCheck,assertCoverageCollectionSafe,listCoverageEvidence} from '../coverageVerification.service.js';
+import {decryptFamilyBilling,encryptFamilyBilling} from '../familyBillingEncryption.service.js';
 const insurance=()=>({primary:{payerId:'TEST',insurerName:'Test Insurance',memberId:'SYNTHETIC',subscriberFirstName:'Parent',subscriberLastName:'Test',subscriberDob:'1980-02-01',subscriberSex:'F',relationshipToSubscriber:'child'},patient:{firstName:'Child',lastName:'Test',dateOfBirth:'2010-03-01',sex:'M'}});
 const profile={officeId:8,billingNpi:'1306688650',practice:{tax_id:'123456789',name:'Synthetic Agency'}};
 beforeEach(()=>{vi.stubEnv('FAMILY_BILLING_ENCRYPTION_KEY_BASE64',Buffer.alloc(32,7).toString('base64'));});
@@ -47,6 +47,31 @@ describe('client-scoped eligibility and other coverage',()=>{
   expect(summarizeEligibility({elig:{benefit:benefit[0]}})).toMatchObject({otherCoverageReported:false,warning:expect.stringContaining('does not establish')});
   expect(summarizeEligibility({elig:{benefit:[...benefit,{benefit_code:'30',benefit_coverage_code:'6'}]}}).status).toBe('review_required');
   expect(summarizeEligibility({elig:{benefit:{benefit_code:'MH',benefit_coverage_code:'1'}}}).status).toBe('review_required');
+ });
+ it.each(['R','U'])('routes other-payer code %s to billing even when plan coverage is active',async(code)=>{
+  const result={elig:{ins_number:'SYNTHETIC',ins_name_f:'Child',ins_name_l:'Test',ins_dob:'20100301',benefit:[{benefit_code:'30',benefit_coverage_code:'1'},{benefit_code:'30',benefit_coverage_code:code,entity_name:'Synthetic other carrier'}]}};
+  expect(summarizeEligibility(result,{payerId:'SKCO0'})).toMatchObject({status:'active_reported',otherCoverageReported:true});
+  const db={execute:vi.fn().mockResolvedValue([{insertId:10}])},queueFollowUp=vi.fn().mockResolvedValue(90),request=vi.fn().mockResolvedValue(result);
+  const info=insurance();info.primary.eligibilityPayerId='SKCO0';info.primary.isMedicaid=true;
+  const checked=await runCoverageCheck({agencyId:2,clientId:4,slot:'primary',serviceDate:'2026-11-10',requestKey:'other-coverage-request',actorUserId:5,profile,accountKey:'test'},{db,request,readInsurance:async()=>info,queueFollowUp});
+  expect(queueFollowUp).toHaveBeenCalledWith(expect.objectContaining({agencyId:2,clientId:4,reason:'coverage_coordination',coverageCheckId:10}),db);
+  expect(checked).toMatchObject({followUpTaskId:90,summary:{status:'active_reported',otherCoverageReported:true}});
+  expect(request).toHaveBeenCalledTimes(1);
+ });
+ it('does not treat another payer’s pharmacy referral as undisclosed insurance',()=>{
+  const result={elig:{benefit:{benefit_code:'88',benefit_coverage_code:'U',entity_code:'VN',entity_name:'Synthetic pharmacy vendor'}}};
+  expect(summarizeEligibility(result,{payerId:'COMMERCIAL'}).otherCoverageReported).toBe(false);
+  expect(summarizeEligibility(result).otherCoverageReported).toBe(false);
+ });
+ it('flags TPL in a saved Colorado response without another inquiry or rewriting its evidence',async()=>{
+  const saved={eligibilityPayerId:'SKCO0',summary:{status:'active_reported',identityMatches:true,otherCoverageReported:false},result:{elig:{benefit:{benefit_code:'30',benefit_coverage_code:'U',entity_name:'Synthetic TPL carrier'}}}};
+  const encrypted=encryptFamilyBilling(saved,'coverage:2:4');
+  const db={execute:vi.fn().mockResolvedValueOnce([[{id:10,evidence_encrypted:encrypted}]]).mockResolvedValueOnce([[]]).mockResolvedValueOnce([[{latest_check_id:10}]]).mockResolvedValueOnce([[]])};
+  const evidence=await listCoverageEvidence({agencyId:2,clientId:4,serviceDate:'2026-11-10'},db);
+  expect(evidence.checks[0]).toMatchObject({evidence:{summary:{identityMatches:true,otherCoverageReported:true}}});
+  expect(evidence.checks[0].evidence_encrypted).toBeUndefined();
+  expect(decryptFamilyBilling(encrypted,'coverage:2:4')).toEqual(saved);
+  expect(db.execute.mock.calls.every(([sql])=>sql.startsWith('SELECT'))).toBe(true);
  });
  it('requires checking secondary and Medicaid TPL; rejects Medicaid-first commercial coverage',()=>{
   const info=insurance();info.secondary={...info.primary,isMedicaid:true};

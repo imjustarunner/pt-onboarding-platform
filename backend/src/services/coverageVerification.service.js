@@ -74,7 +74,7 @@ export function eligibilityIdentityMatches(payload,result) {
   &&String(member.ins_dob||'').replaceAll('-','')===payload.ins_dob
   &&(!payload.ins_number||String(member.ins_number)===String(payload.ins_number));
 }
-export function summarizeEligibility(result) {
+export function summarizeEligibility(result,{payerId}={}) {
  const elig=result?.elig||result?.result?.elig;
  const benefits=asList(elig).flatMap(e=>asList(e.benefit));
  const plan=benefits.filter(b=>String(b.benefit_code)==='30');
@@ -82,7 +82,9 @@ export function summarizeEligibility(result) {
  const inactive=plan.some(b=>['6','7','8'].includes(String(b.benefit_coverage_code)));
  const payerErrors=asList(elig).flatMap(e=>asList(e.error));
  return {status:payerErrors.length?'review_required':active&&!inactive?'active_reported':inactive&&!active?'inactive_reported':'review_required',payerErrors,
-  otherCoverageReported:benefits.some(b=>String(b.benefit_coverage_code)==='R'||['PRP','SEP','TTP'].includes(String(b.entity_code))),
+  // Colorado uses U for TPL. Other payers use U for general referrals to
+  // another entity, so only apply Colorado's meaning to its verified route.
+  otherCoverageReported:benefits.some(b=>String(b.benefit_coverage_code)==='R'||(payerId==='SKCO0'&&String(b.benefit_coverage_code)==='U')||['PRP','SEP','TTP'].includes(String(b.entity_code))),
   benefits,reference:asList(elig)[0]?.eligid||null,
   warning:'Eligibility is not a payment guarantee. An absent other-payer record does not establish that no other coverage exists.'};
 }
@@ -93,7 +95,13 @@ export async function listCoverageEvidence({agencyId,clientId,serviceDate},db=po
  const [[review]]=await db.execute('SELECT r.*,EXISTS(SELECT 1 FROM client_coverage_checks c WHERE c.agency_id=r.agency_id AND c.client_id=r.client_id AND (c.id>r.through_check_id OR c.completed_at>r.created_at)) AS has_new_evidence FROM client_coverage_reviews r WHERE agency_id=? AND client_id=? AND service_date=? ORDER BY id DESC LIMIT 1',[agencyId,clientId,date]);
  const [[latest]]=await db.execute("SELECT COALESCE(MAX(id),0) AS latest_check_id,DATE_FORMAT(MAX(completed_at),'%Y-%m-%dT%H:%i:%s.%f') AS latest_evidence_at FROM client_coverage_checks WHERE agency_id=? AND client_id=?",[agencyId,clientId]);
  const [[latestReview]]=await db.execute('SELECT id,status,service_date,created_at FROM client_coverage_reviews WHERE agency_id=? AND client_id=? ORDER BY id DESC LIMIT 1',[agencyId,clientId]);
- return {latestReview,latestCheckId:Number(latest.latest_check_id),latestEvidenceAt:latest.latest_evidence_at||null,checks:checks.map(row=>({...row,evidence:decryptFamilyBilling(row.evidence_encrypted,context(agencyId,clientId)),evidence_encrypted:undefined})),review:review?{...review,evidence:decryptFamilyBilling(review.evidence_encrypted,context(agencyId,clientId)),evidence_encrypted:undefined}:null};
+ return {latestReview,latestCheckId:Number(latest.latest_check_id),latestEvidenceAt:latest.latest_evidence_at||null,checks:checks.map(row=>{
+  const evidence=decryptFamilyBilling(row.evidence_encrypted,context(agencyId,clientId));
+  // Re-evaluate the flag for older saved responses without changing the
+  // encrypted evidence, repeating a paid inquiry, or clearing a prior flag.
+  if(evidence?.result)evidence.summary={...evidence.summary,otherCoverageReported:evidence.summary?.otherCoverageReported===true||summarizeEligibility(evidence.result,{payerId:evidence.eligibilityPayerId}).otherCoverageReported};
+  return {...row,evidence,evidence_encrypted:undefined};
+ }),review:review?{...review,evidence:decryptFamilyBilling(review.evidence_encrypted,context(agencyId,clientId)),evidence_encrypted:undefined}:null};
 }
 export async function runCoverageCheck({agencyId,clientId,slot,serviceDate,requestKey,actorUserId,profile,accountKey,expectedFingerprint,lookupMode='member_id'},deps={}) {
  const db=deps.db||pool,date=coverageDate(serviceDate),insurance=await (deps.readInsurance||readClientInsurance)(clientId,agencyId,db);
@@ -106,13 +114,13 @@ export async function runCoverageCheck({agencyId,clientId,slot,serviceDate,reque
  catch(e){if(e.code!=='ER_DUP_ENTRY')throw e;throw billingError(409,'This eligibility request was already started. Refresh its recorded result before starting another request');}
  try {
   const result=await (deps.request||requestEligibilityJson)({agencyId,accountKey,payload});
-  const evidence={result,summary:summarizeEligibility(result),billingOfficeId:profile.officeId,billingNpi:profile.billingNpi,lookupMode:payload.ins_number?'member_id':'demographics'};
+  const evidence={result,summary:summarizeEligibility(result,{payerId:payload.payerid}),eligibilityPayerId:payload.payerid,billingOfficeId:profile.officeId,billingNpi:profile.billingNpi,lookupMode:payload.ins_number?'member_id':'demographics'};
   evidence.summary.identityMatches=eligibilityIdentityMatches(payload,result);
   await db.execute("UPDATE client_coverage_checks SET status='returned',completed_at=CURRENT_TIMESTAMP(6),evidence_encrypted=? WHERE id=? AND agency_id=? AND client_id=?",[encryptFamilyBilling(evidence,context(agencyId,clientId)),id,agencyId,clientId]);
   await auditBilling({agencyId,clientId,userId:actorUserId,action:'insurance_eligibility_checked',objectId:id},db);
   const errors=asList(result?.elig||result?.result?.elig).flatMap(e=>asList(e.error));
   let followUpTaskId=null;
-  if(errors.length||evidence.summary.status!=='active_reported'||evidence.summary.identityMatches===false) followUpTaskId=await (deps.queueFollowUp||queueInsuranceVerificationSafely)({agencyId,clientId,actorUserId,coverageCheckId:id,reason:errors.some(e=>String(e.error_code)==='75')?'subscriber_not_found':evidence.summary.status==='active_reported'&&evidence.summary.identityMatches===false?'identity_mismatch':'eligibility_unresolved'},db);
+  if(errors.length||evidence.summary.status!=='active_reported'||evidence.summary.identityMatches===false||evidence.summary.otherCoverageReported) followUpTaskId=await (deps.queueFollowUp||queueInsuranceVerificationSafely)({agencyId,clientId,actorUserId,coverageCheckId:id,reason:errors.some(e=>String(e.error_code)==='75')?'subscriber_not_found':evidence.summary.status==='active_reported'&&evidence.summary.identityMatches===false?'identity_mismatch':evidence.summary.otherCoverageReported?'coverage_coordination':'eligibility_unresolved'},db);
   if(process.env.AUTOMATIC_BENEFIT_EMAILS_ENABLED==='true'&&slot==='primary') {
     try {const {sendAutomaticBillingBenefits}=await import('./billingBenefitsEmail.service.js');await sendAutomaticBillingBenefits({agencyId,clientId,coverageCheckId:id,actorUserId});}
     catch { /* Eligibility evidence remains valid; notification failures never invalidate it. */ }
