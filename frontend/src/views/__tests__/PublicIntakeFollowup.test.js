@@ -345,7 +345,9 @@ it('keeps unsent communication choices in server progress without recording a si
   expect(snapshot.intakeResponses.submission.communicationDraft).toMatchObject({ emailPreference: 'no', signerName: 'Pat Example', alternativeContactInstructions: 'Use alternate contact only' });
   expect(snapshot.intakeResponses.submission.communicationPreferences).toBeUndefined();
   await wrapper.vm.saveServerProgress();
-  expect(post).toHaveBeenCalledWith(expect.stringContaining('/progress'), expect.objectContaining({ intakeData: expect.objectContaining({ progressSnapshot: expect.objectContaining({ intakeResponses: snapshot.intakeResponses }) }) }), expect.anything());
+  expect(post).toHaveBeenCalledWith(expect.stringContaining('/progress'), expect.objectContaining({ intakeData: expect.objectContaining({ responses: snapshot.intakeResponses }) }), expect.anything());
+  const saved = post.mock.calls.find(([url]) => url.endsWith('/progress'))[1].intakeData;
+  expect(saved.progressSnapshot.intakeResponses).toBeUndefined(); // not duplicated with insurance card previews
   wrapper.unmount(); wrapper = null;
   await render([{ id: 'communications', type: 'communications' }]);
   wrapper.vm.applyDraftSnapshot(snapshot);
