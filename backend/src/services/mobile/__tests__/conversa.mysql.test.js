@@ -62,6 +62,17 @@ describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('personal mobile inbox SQL',
   expect((await grouped.emails(1,{suite:'groups'}))).toHaveLength(4);expect((await grouped.emails(1,{suite:'groups',filter:'unread'})).map(i=>i.id)).toEqual([1]);expect((await grouped.emails(1,{suite:'groups'}))[0]).toMatchObject({groupName:'Support',destinationAccount:'support@example.invalid'});expect((await grouped.emailCounts(1)).find(c=>c.category==='groups').unread).toBe(1);
   await db.execute('UPDATE support_tickets SET claimed_by_user_id=2 WHERE id=1');expect(await grouped.emails(1,{suite:'groups',filter:'unread'})).toHaveLength(0);
  });
+ it('keeps non-ticket school notifications unread per user in both Groups and All',async()=>{
+  await db.query("INSERT INTO communication_inboxes(id,agency_id,kind,identity_key,display_name,from_email) VALUES(5,10,'shared','schools','Schools','schools@example.invalid')");
+  await mail(1,{inbox:5,owner:null,status:'waiting'});
+  const grouped=createMobileConversaStore(db,{listAgencies:async()=>({agencies:[{id:10}]}),groupAccess:async()=>true});
+  expect((await grouped.emails(1,{suite:'groups'}))[0]).toMatchObject({id:1,unread:true,needsReply:false,category:'groups'});
+  expect((await grouped.emails(1,{suite:'all'})).some(row=>row.id===1)).toBe(true);
+  await db.execute('INSERT INTO communication_conversation_reads(conversation_id,user_id,last_read_at) VALUES(1,1,NOW())');
+  expect((await grouped.emails(1,{suite:'groups'}))[0].unread).toBe(false);
+  expect((await grouped.emails(2,{suite:'groups'}))[0].unread).toBe(true);
+  expect((await grouped.emailCounts(2)).find(row=>row.category==='groups').unread).toBe(1);
+ });
  it('Sent is authored by this user and excludes failed or internal outbound mail',async()=>{
   for(let id=1;id<=4;id++)await mail(id,{status:'open'});
   await db.query("INSERT INTO communication_messages(id,conversation_id,direction,author_user_id,send_status,is_internal_note,created_at) VALUES (11,1,'outbound',1,'sent',0,NOW()),(12,2,'outbound',2,'sent',0,NOW()),(13,3,'outbound',1,'failed',0,NOW()),(14,4,'outbound',1,'sent',1,NOW())");

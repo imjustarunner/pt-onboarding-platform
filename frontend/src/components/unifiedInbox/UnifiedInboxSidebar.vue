@@ -4,7 +4,7 @@ import { computed, ref } from 'vue';
 const showPersonalDelivery = ref(false);
 import ConversaIcon from '../../components/conversa/ConversaIcon.vue';
 import GroupEmailBadge from './GroupEmailBadge.vue';
-import { isTicketedGroup } from '../../utils/groupEmailPresentation';
+import { isGroupEmail } from '../../utils/groupEmailPresentation';
 
 const props = defineProps({
   inboxes: { type: Array, default: () => [] },
@@ -36,8 +36,8 @@ const channels = [
   { id: 'internal', label: 'Team Discussions' }
 ];
 
-const groupInboxes = computed(() => props.inboxes.filter(isTicketedGroup));
-const otherInboxes = computed(() => props.inboxes.filter(box => !isTicketedGroup(box) && box.id !== 'group_email'));
+const groupInboxes = computed(() => props.inboxes.filter(isGroupEmail));
+const otherInboxes = computed(() => props.inboxes.filter(box => !isGroupEmail(box) && box.id !== 'group_email'));
 
 function channelCount(id, attention) {
   const c = attention?.channels || {};
@@ -91,7 +91,7 @@ function onInboxChange(e) {
           <GroupEmailBadge :mailbox="box" />
         </button>
       </nav>
-      <p class="uc-inbox-help">Unclaimed messages stay unread until someone claims the ticket.</p>
+      <p class="uc-inbox-help">Read group email here. Claim a linked support ticket when follow-up is needed.</p>
       <button type="button" class="uc-tickets-link" @click="emit('open-tickets')"><ConversaIcon type="ticket" :size="16" /> Open tickets</button>
     </section>
 

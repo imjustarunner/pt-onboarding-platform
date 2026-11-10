@@ -7,7 +7,7 @@
         <img v-if="agencyLogoUrl" :src="agencyLogoUrl" alt="" class="qv-logo" />
         <span>{{ agencyName || 'Your workspace' }}</span>
       </div>
-      <div v-if="session" class="qv-top-actions"><button v-if="isMobile" type="button" class="qv-icon-button" aria-label="My Account" @click="emit('account')"><UserRound :size="18"/></button>
+      <div v-if="session" class="qv-top-actions"><button v-if="isMobile" type="button" class="qv-icon-button" aria-label="Notifications" @click="emit('notifications')"><Bell :size="18"/><span v-if="notificationUnread>0" class="qv-nav-badge">{{notificationUnread}}</span></button><button v-if="isMobile" type="button" class="qv-icon-button" aria-label="My Account" @click="emit('account')"><UserRound :size="18"/></button>
         <span class="qv-session-status"><span aria-hidden="true" />{{ isMobile && mobileSession.profile?.appLock?.method==='none'?'Refreshes at':'Locks at' }} {{ formatExpiry(expiresAt) }}</span>
         <button type="button" class="qv-icon-button qv-extend" :disabled="extendBusy" aria-label="Extend session by 10 minutes" @click="extendSession">
           <Clock3 :size="17" aria-hidden="true" /><span>{{ extendBusy ? 'Extending…' : '+10 min' }}</span>
@@ -811,7 +811,7 @@ import MobileClinicalSession from '../mobile/MobileClinicalSession.vue';
 import AuricWellBrand from '../components/auricwell/AuricWellBrand.vue';
 import { AURICWELL_PREVIEW_URL } from '../constants/auricwellBrand';
 import { Capacitor, registerPlugin } from '@capacitor/core';
-import { CalendarDays, MessageSquare, ListTodo, Ellipsis, LockKeyhole, Clock3, NotebookPen, Users, Radio, ArrowUpRight, ChevronRight, Mail, Smartphone, Phone, RefreshCw, Paperclip, AtSign, UserRound, ChevronDown, BriefcaseBusiness } from '@lucide/vue';
+import { Bell, CalendarDays, MessageSquare, ListTodo, Ellipsis, LockKeyhole, Clock3, NotebookPen, Users, Radio, ArrowUpRight, ChevronRight, Mail, Smartphone, Phone, RefreshCw, Paperclip, AtSign, UserRound, ChevronDown, BriefcaseBusiness } from '@lucide/vue';
 import ConversaBrand from '../components/conversa/ConversaBrand.vue';
 import { privateSpeechRecognition } from '../utils/privateSpeechRecognition.js';
 import { quickViewDeepLink } from '../utils/quickViewDeepLink';
@@ -828,8 +828,8 @@ import { encodeEmailFiles } from '../utils/communicationAttachments';
 import QuickViewMusicDock from '../components/quickView/QuickViewMusicDock.vue';
 import { buildDisplaySections, extractSections, formatFullNoteCopy } from '../utils/noteAidUiHelpers.js';
 
-const props=defineProps({ mobileSession:Object });
-const emit=defineEmits(['locked','account','open-workspace-item']);
+const props=defineProps({ mobileSession:Object,notificationUnread:{type:Number,default:0} });
+const emit=defineEmits(['locked','account','notifications','open-workspace-item']);
 const isMobile=computed(()=>!!props.mobileSession);
 
 const BOOKMARK_KEY = 'plottwist.quickViewBookmark';

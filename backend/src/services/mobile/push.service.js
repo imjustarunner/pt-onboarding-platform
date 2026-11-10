@@ -93,9 +93,14 @@ export function createMobilePushWorker({db=pool, sessions=mobileSessions, conver
     }
     if(kind==='email') {
       const scope=agencyScope('c.agency_id');
-      const [[row]]=await db.execute(`SELECT m.conversation_id,c.agency_id FROM communication_messages m JOIN communication_conversations c ON c.id=m.conversation_id
+      const [[row]]=await db.execute(`SELECT m.conversation_id,c.agency_id,m.subject,m.suppress_push,m.auto_reply_kind FROM communication_messages m JOIN communication_conversations c ON c.id=m.conversation_id
         WHERE m.id=? AND ${scope.sql} AND m.channel='email' AND m.direction='inbound' AND m.is_internal_note=0`,[id,...scope.params]);
       if(!row || !qaAgencyAllowed(context.qaAgencyIds,row.agency_id))return null;
+      if(Number(row.suppress_push))return null;
+      if(row.auto_reply_kind==='school_group_notification' || / - (?:Paper Enrollment Packet Uploaded|Digital Enrollment Packet)$/i.test(row.subject || '')){
+        const [[choice]]=await db.execute("SELECT in_app_enabled,push_enabled FROM user_notification_type_preferences WHERE user_id=? AND notification_type='school_group_email_received'",[uid]);
+        if(choice && (Number(choice.in_app_enabled)===0 && choice.in_app_enabled!=null || Number(choice.push_enabled)===0 && choice.push_enabled!=null))return null;
+      }
       try { await conversationAccess({id:uid,role:'provider',mobileDevice:true},row.conversation_id); return Number(row.conversation_id); }
       catch(error) { if(error.status===403 || error.status===404)return null; throw error; }
     }

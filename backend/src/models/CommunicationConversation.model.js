@@ -336,7 +336,7 @@ class CommunicationConversation {
       params.push(now);
     } else if (filter === 'unread' && userId) {
       // Unread = inbound you haven't seen, OR explicitly Mark unread (forced_unread).
-      where.push(`(${groupSql.unread} OR (NOT (${groupSql.isGroup}) AND (
+      where.push(`(${groupSql.unread} OR (NOT (${groupSql.ticketedGroup}) AND (
         EXISTS (
           SELECT 1 FROM communication_conversation_reads fr
           WHERE fr.conversation_id = c.id AND fr.user_id = ? AND COALESCE(fr.forced_unread, 0) = 1
@@ -488,7 +488,7 @@ class CommunicationConversation {
         is_spam: !!r.is_spam,
         is_snoozed: isSnoozed,
         snoozed_until: r.snoozed_until || null,
-        is_unread: groupInboxIds.map(Number).includes(Number(r.inbox_id)) ? !!Number(r.group_ticket_unread) : userId
+        is_unread: r.support_ticket_id && groupInboxIds.map(Number).includes(Number(r.inbox_id)) ? !!Number(r.group_ticket_unread) : userId
           ? !!(
               !isSnoozed &&
               (Number(r.forced_unread || 0) === 1 ||
@@ -624,7 +624,7 @@ class CommunicationConversation {
              AND COALESCE(c.is_unknown_sender, 0) = 0
              AND (c.snoozed_until IS NULL OR c.snoozed_until <= ?)
              ${scopeClause}
-             AND (${groupSql.unread} OR (NOT (${groupSql.isGroup}) AND (
+             AND (${groupSql.unread} OR (NOT (${groupSql.ticketedGroup}) AND (
                EXISTS (SELECT 1 FROM communication_conversation_reads fr WHERE fr.conversation_id=c.id AND fr.user_id=? AND COALESCE(fr.forced_unread,0)=1)
                OR EXISTS (
                SELECT 1 FROM communication_messages m

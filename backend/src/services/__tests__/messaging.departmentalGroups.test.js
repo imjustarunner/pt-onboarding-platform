@@ -31,7 +31,7 @@ describe('departmental identities and permissions', () => {
   });
   it('uses explicit agency grants, supports non-SSO group logins, and rejects inactive membership', () => {
     expect(departmentalGroupKeysForUser({ ...staff, login_is_group_email: 1, has_payroll_access: 1, can_manage_credentialing: 1 })).toEqual(['payroll', 'credentialing']);
-    expect(departmentalGroupKeysForUser({ ...staff, role: 'support' })).toEqual(['support', 'technology']);
+    expect(departmentalGroupKeysForUser({ ...staff, role: 'support' })).toEqual(['support', 'schools', 'technology']);
     expect(departmentalGroupKeysForUser({ ...staff, role: 'staff', department: 'Payroll' })).toEqual([]);
     for (const changes of [{ membership_active: 0 }, { is_active: 0 }, { is_demo: 1 }, { is_archived: 1 }, { is_assistant_account: 1 }, { role: 'school_staff' }]) {
       expect(departmentalGroupKeysForUser({ ...staff, has_payroll_access: 1, ...changes })).toEqual([]);

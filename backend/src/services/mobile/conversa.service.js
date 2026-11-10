@@ -106,7 +106,7 @@ export function createMobileConversaStore(db=pool,{listAgencies=null,groupAccess
   const sentSql=userId=>`EXISTS(SELECT 1 FROM communication_messages outbound WHERE outbound.conversation_id=c.id AND outbound.direction='outbound' AND COALESCE(outbound.is_internal_note,0)=0 AND COALESCE(outbound.send_status,'sent')='sent' AND outbound.author_user_id=${Number(userId)})`;
   // A group ticket's canonical claimant, not its historical conversation owner,
   // determines whose personal unread badge it belongs in. Visibility is unchanged.
-  const effectiveUnread=(scope,userId)=>`(${unreadSql} AND (NOT ${groupSql(scope)} OR ((CASE WHEN t.id IS NOT NULL THEN t.claimed_by_user_id ELSE c.owner_user_id END)=${Number(userId)} AND COALESCE(t.status,c.status) NOT IN('closed','resolved','done','answered','waiting','pending_external'))))`;
+   const effectiveUnread=(scope,userId)=>`(${unreadSql} AND (NOT ${groupSql(scope)} OR t.id IS NULL OR (t.claimed_by_user_id=${Number(userId)} AND t.status NOT IN('closed','resolved','done','answered','waiting','pending_external'))))`;
   const groupNameSql=groupEmailNameSql;
   async function emails(userId,{includeArchived=false,beforeAt=null,beforeKey=null,suite='all',filter='all',agencyId=null}={}) {
     const scope=await emailScope(userId,includeArchived,agencyId),unknownSql=unknownSqlFor(userId),effectiveRead=effectiveUnread(scope,userId);

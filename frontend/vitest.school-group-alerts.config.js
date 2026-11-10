@@ -1,0 +1,2 @@
+import {defineConfig} from 'vitest/config';import vue from '@vitejs/plugin-vue';
+export default defineConfig({plugins:[vue()],test:{environment:'jsdom',maxWorkers:1,include:['src/mobile/__tests__/MobileNotifications.test.js','src/mobile/__tests__/MobileApp.test.js','src/components/unifiedInbox/__tests__/UnifiedInboxShell.test.js','src/components/unifiedInbox/__tests__/UnifiedConversationThread.test.js','src/utils/__tests__/notificationActions.test.js']}});

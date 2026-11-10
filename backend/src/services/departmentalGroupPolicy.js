@@ -6,13 +6,14 @@ export const DEPARTMENTAL_GROUPS = Object.freeze({
   billing: { label: 'Billing', topic: 'billing', localPart: 'billing' },
   credentialing: { label: 'Credentialing', topic: 'credentialing', localPart: 'credentialing' },
   support: { label: 'Support', topic: 'general', localPart: 'support' },
+  schools: { label: 'Schools', topic: 'general', localPart: 'schools' },
   admin: { label: 'Administration', topic: 'general', localPart: 'admin' },
   technology: { label: 'Technology', topic: 'technology', localPart: 'technology' },
   compliance: { label: 'Compliance', topic: 'general', localPart: 'compliance' },
   medical_records: { label: 'Medical Records', topic: 'general', localPart: 'medicalrecords' }
 });
 
-const aliases = { medicalrecords: 'medical_records', records: 'medical_records', administration: 'admin', it: 'technology' };
+const aliases = { schoolreply: 'schools', school_reply: 'schools', medicalrecords: 'medical_records', records: 'medical_records', administration: 'admin', it: 'technology' };
 export function normalizeDepartmentalGroupKey(value) {
   const key = norm(value);
   return Object.hasOwn(DEPARTMENTAL_GROUPS, key) ? key : aliases[key] || null;
@@ -46,7 +47,7 @@ export function departmentalGroupKeysForUser(row) {
   if (enabled(row.has_payroll_access)) keys.add('payroll');
   if (enabled(row.has_billing_access)) keys.add('billing');
   if (enabled(row.can_manage_credentialing)) keys.add('credentialing');
-  if (role === 'support') { keys.add('support'); keys.add('technology'); }
+  if (role === 'support') { keys.add('support'); keys.add('schools'); keys.add('technology'); }
   if (enabled(row.has_medical_records_release_access)) keys.add('medical_records');
   // Preserve inherited administrator mailboxes during transition, while making
   // a deliberate company/platform Off take effect for sensitive categories.

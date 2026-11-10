@@ -1048,7 +1048,16 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
       throw e; // Never acknowledge partial fan-out; outer retry preserves successful copies.
     }
     const routedIdentity = routed.senderIdentityId ? await EmailSenderIdentity.findById(routed.senderIdentityId) : null;
-    if ((automated && !groupKeyForIdentity(routedIdentity)) || (personalRecipients.length && (!routed.senderIdentityId ||
+    if(routedIdentity?.agency_id && (automated || !/^\s*(?:re|fw|fwd):/i.test(subject) && / - (?:Paper Enrollment Packet Uploaded|Digital Enrollment Packet)$/i.test(subject))){
+      const {recordSchoolGroupEmail}=await import('../schoolGroupEmailInbox.service.js');
+      const packetEmail=await recordSchoolGroupEmail({agencyId:routedIdentity.agency_id,fromEmail,subject,automated,
+        messageId:hdrs.get('x-original-message-id') || hdrs.get('message-id') || `gmail:${id}`,threadId:full.data?.threadId,
+        bodyText:pickBodyText(payload),bodyHtml:await (await import('../../utils/gmailMessageParse.shared.js')).readGmailBodyHtml(payload,{gmail,gmailMessageId:id}),
+        to:routed.to,cc:routed.cc,deliveredTo:routed.deliveredTo,receivedAt:new Date(Number(full.data?.internalDate) || Date.now())});
+      if(packetEmail.handled){await gmail.users.messages.modify({userId:'me',id,requestBody:{removeLabelIds:['UNREAD'],addLabelIds:[processedLabelId]}});results.inboxDeliveries++;continue;}
+    }
+
+    if ((automated && (!groupKeyForIdentity(routedIdentity) || groupKeyForIdentity(routedIdentity)==='schools')) || (personalRecipients.length && (!routed.senderIdentityId ||
         personalRecipients.some((r) => Number(r.id) === Number(routed.senderIdentityId))))) {
       await gmail.users.messages.modify({ userId: 'me', id,
         requestBody: { removeLabelIds: ['UNREAD'], addLabelIds: [processedLabelId] } });

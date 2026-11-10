@@ -13,7 +13,7 @@ import DOMPurify from 'dompurify';
 import { emailReplyRecipients } from '../../utils/messageThreads';
 import DirectoryRecipientInput from './DirectoryRecipientInput.vue';
 import GroupEmailBadge from './GroupEmailBadge.vue';
-import { isTicketedGroup, ticketHref } from '../../utils/groupEmailPresentation';
+import { isTicketedGroup, isGroupEmail, ticketHref } from '../../utils/groupEmailPresentation';
 
 const props = defineProps({
   detail: { type: Object, default: null },
@@ -432,7 +432,7 @@ watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
           <h3>
             {{ conv.subject || '(no subject)' }}
             <ConversaBadge :type="conv.channel" />
-            <GroupEmailBadge v-if="isTicketedGroup(conv)" :mailbox="conv" />
+            <GroupEmailBadge v-if="isGroupEmail(conv)" :mailbox="conv" />
           </h3>
           <p class="uc-meta">
             <template v-if="conv.inbox_from_email || conv.inbox_display_name">

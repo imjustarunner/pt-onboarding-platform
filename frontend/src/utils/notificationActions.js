@@ -2,6 +2,7 @@ import { schoolCareBridgePath } from './schoolCareBridge.js';
 export function notificationDestination(notification, { organizationSlug = null, role = null } = {}) {
   const n = notification || {};
   const base = organizationSlug ? `/${organizationSlug}` : '';
+  if(n.type==='school_group_email_received' && n.related_entity_type==='communication_conversation' && Number(n.related_entity_id)>0)return {path:`${base}/admin/communications`,query:{mode:'home',conversationId:String(n.related_entity_id),agencyId:String(n.agency_id)}};
   if (n.type === 'employee_award_eligible') return `${base}/admin/employee-relations?agencyId=${Number(n.agency_id)}&status=owed`;
   const entityType = String(n.related_entity_type || '').toLowerCase();
   if (['credentialing_reminder','credentialing_email'].includes(n.type)) {

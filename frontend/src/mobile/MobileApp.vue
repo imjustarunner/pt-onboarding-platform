@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onMounted, onUnmounted, ref, defineAsyncComponent } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch, defineAsyncComponent } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import axios from 'axios';
 import { LockKeyhole, UserRound, Fingerprint, Bell, ArrowRight, LogOut } from '@lucide/vue';
@@ -7,6 +7,8 @@ import AuricWellBrand from '../components/auricwell/AuricWellBrand.vue';
 import {activateClinicalRecovery,clearClinicalRecovery} from './clinicalRecovery.js';
 import {activateFamilyDevice,clearFamilyDevice} from './familyContext.js';
 const AccountSecurityPanel=defineAsyncComponent(()=>import('../components/AccountSecurityPanel.vue'));
+const MobileNotifications=defineAsyncComponent(()=>import('./MobileNotifications.vue'));
+const notificationPanel=ref(false),notificationSettings=ref(false),notificationUnread=ref(0);
 const MobileFamilyPortal=defineAsyncComponent(()=>import('./MobileFamilyPortal.vue'));
 import QuickView from '../views/QuickViewAccessView.vue';
 import { MobileDevice, native, apiOrigin, mobileApi, quickApiBase, randomSecret, pkceChallenge, accountUrl, mobileRequestError } from './transport.js';
@@ -17,16 +19,21 @@ const access=ref(null),profile=ref(null),workspace=ref(null),accountOpen=ref(fal
 const qv=ref(null),notificationStatus=ref(''),biometry=ref(false),accountLoading=ref(false);
 const appLock=ref({method:'none',hasCode:false}),lockChoice=ref('none'),newCode=ref(''),newCodeConfirm=ref(''),lockNotice=ref(''),privacyIntro=ref(false);
 let wasBackground=false;
-let generation=0,interceptor,deviceListener,pushListener,privacyListener;
+let generation=0,interceptor,deviceListener,pushListener,privacyListener,notificationTimer;
 const accountLink=computed(()=>accountUrl(profile.value?.workspace));
 const securityLink=computed(()=>accountUrl(profile.value?.workspace,'account-security'));
 const preferencesLink=computed(()=>accountUrl(profile.value?.workspace,'preferences'));
 const connectQuery=()=>Object.fromEntries(new URLSearchParams(window.location.search));
+async function refreshNotificationCount(){const token=access.value?.sessionToken;if(!token||screen.value!=='workspace'||profile.value?.surface==='family')return;try{const data=await notificationRequest('GET','/notification-feed?status=unread&page=1');if(access.value?.sessionToken===token)notificationUnread.value=Number(data.unreadCount||0);}catch{/* The inbox retains its own retry control. */}}
+watch(()=>access.value?.sessionToken,()=>{notificationUnread.value=0;void refreshNotificationCount();});
+async function notificationRequest(method,path,data={}){try{return (await mobileApi.request({method,url:path,...(method==='GET'?{}:{data}),headers:{'X-Quick-View-Session':access.value?.sessionToken || ''}})).data;}catch(error){if([401,423].includes(error.response?.status))lock();throw error;}}
+async function openNotificationEmail(item){notificationPanel.value=false;await router.push({path:'/mobile/workspace',query:{view:'home',conversationId:String(item.related_entity_id)}});await nextTick();qv.value?.openDeepLink();}
 async function deviceRequest(method,path,data={}) {
   if(native)return MobileDevice.request({method,path,data,sessionToken:access.value?.sessionToken || ''});
   return (await mobileApi.request({method,url:path,data,headers:access.value?{'X-Quick-View-Session':access.value.sessionToken}:{}})).data;
 }
 function applySession(result) {
+  notificationPanel.value=false;
   clearFamilyDevice();if(result.profile?.surface==='family')activateFamilyDevice({sessionToken:result.sessionToken,apiOrigin,onLocked:lock});
   activateClinicalRecovery(result.userId || result.profile?.user?.id,result.agencyId || result.profile?.workspace?.id);
   const notifications=profile.value?.user?.id===result.profile.user?.id?profile.value.notifications:null;
@@ -144,6 +151,7 @@ async function afterOpen() {
   }else if(route.query.kind)await openNotification(location.pathname+location.search);
 }
 function lock() {
+  notificationPanel.value=false;
   clearFamilyDevice();
   ++generation;
   const old=access.value;access.value=null;profile.value=null;accountOpen.value=false;passcode.value='';confirmCode.value='';newCode.value='';newCodeConfirm.value='';
@@ -244,6 +252,7 @@ async function openNotification(url) {
   }catch(e){error.value=mobileRequestError(e);}
 }
 onMounted(async()=>{
+  notificationTimer=setInterval(()=>{if(!document.hidden)void refreshNotificationCount();},30000);
   document.addEventListener('visibilitychange',background);window.addEventListener('pageshow',restorePage);
   interceptor=axios.interceptors.response.use(r=>r,e=>{const failed=e.config?.headers?.get?.('X-Quick-View-Session') || e.config?.headers?.['X-Quick-View-Session'];if(access.value && failed===access.value.sessionToken && [401,423].includes(e.response?.status))lock();return Promise.reject(e);});
   if(native){
@@ -254,7 +263,8 @@ onMounted(async()=>{
   else await detectSession();
   if(native){await nextTick();await MobileDevice.reveal();}
 });
-onUnmounted(()=>{lock();document.removeEventListener('visibilitychange',background);window.removeEventListener('pageshow',restorePage);axios.interceptors.response.eject(interceptor);deviceListener?.remove();pushListener?.remove();privacyListener?.remove();});
+onUnmounted(()=>{
+  clearInterval(notificationTimer);lock();document.removeEventListener('visibilitychange',background);window.removeEventListener('pageshow',restorePage);axios.interceptors.response.eject(interceptor);deviceListener?.remove();pushListener?.remove();privacyListener?.remove();});
 </script>
 
 <template>
@@ -262,7 +272,8 @@ onUnmounted(()=>{lock();document.removeEventListener('visibilitychange',backgrou
     <template v-if="screen==='workspace' && access">
 
       <MobileFamilyPortal v-if="profile?.surface==='family'" :key="access.sessionToken" :profile="profile" @logout="signOut" @account="showAccount"/>
-      <QuickView v-else :key="access.sessionToken" ref="qv" :mobile-session="access" @locked="lock" @account="showAccount" @open-workspace-item="openWorkspaceItem" />
+      <QuickView v-else :key="access.sessionToken" ref="qv" :mobile-session="access" :notification-unread="notificationUnread" @locked="lock" @account="showAccount" @notifications="notificationSettings=false;notificationPanel=true" @open-workspace-item="openWorkspaceItem" />
+      <MobileNotifications v-if="notificationPanel && profile?.surface!=='family'" :key="access.sessionToken" :request="notificationRequest" :workspace-id="workspace?.id" :start-in-settings="notificationSettings" @close="notificationPanel=false;refreshNotificationCount()" @changed="refreshNotificationCount" @open="openNotificationEmail" />
       <p v-if="error && !accountOpen" class="workspace-error" role="alert">{{ error }} <button @click="error=''" aria-label="Dismiss workspace error">×</button></p>
       <div v-if="accountOpen" class="mobile-overlay" @keydown.esc="accountOpen=false">
         <section class="mobile-card account" role="dialog" aria-modal="true" aria-labelledby="account-title">

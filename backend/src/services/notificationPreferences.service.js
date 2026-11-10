@@ -130,6 +130,7 @@ export function resolveNotificationTypePreference(type, context) {
       ? 'High-volume activity is delivered in the daily activity digest'
       : 'Administrative activity is not delivered to this role';
   }
+  if(type==='school_group_email_received'&&!effective.inApp){effective.push=false;effective.toast=false;effective.sound=false;}
   let delivery = null;
   if (type === 'school_closure_notice') {
     const mode = closureDeliveryMode(override);

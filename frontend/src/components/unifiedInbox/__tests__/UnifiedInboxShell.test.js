@@ -5,10 +5,12 @@ import api from '../../../services/api';
 vi.mock('../../../services/api', () => ({ default: { post: vi.fn(), get: vi.fn(), patch: vi.fn() } }));
 vi.mock('../../../store/agency', () => ({ useAgencyStore: () => ({ currentAgency: { id: 2 } }) }));
 vi.mock('../../../store/auth', () => ({ useAuthStore: () => ({ user: { id: 5 } }) }));
-vi.mock('vue-router', () => ({ useRoute: () => ({ params: {}, query: {} }), useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }));
+const navigation=vi.hoisted(()=>({params:{},query:{}}));
+vi.mock('vue-router', () => ({ useRoute: () => navigation, useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }));
 let wrapper;
 beforeEach(() => {
   vi.clearAllMocks();
+  navigation.query={};
   api.get.mockResolvedValue({ data: {} });
   api.post.mockResolvedValue({ data: {} });
   api.patch.mockResolvedValue({ data: {} });
@@ -71,4 +73,13 @@ describe('conversation switching', () => {
     await vi.advanceTimersByTimeAsync(801);
     expect(api.patch).toHaveBeenCalledWith('/communications/conversations/1', { draftBody: 'For conversation one' }, expect.any(Object));
   });
+});
+
+it('opens the received group email from a notification link without creating a ticket',async()=>{
+ navigation.query={conversationId:'42',agencyId:'2'};
+ api.get.mockImplementation(async url=>({data:url==='/communications/conversations/42'?{conversation:{id:42,channel:'email',is_group_email:true,is_ticketed_group:false},messages:[]}:{}}));
+ await render();
+ expect(api.get.mock.calls.some(([url])=>url==='/communications/conversations/42')).toBe(true);
+ expect(wrapper.findComponent({name:'UnifiedConversationThread'}).props('detail').conversation.id).toBe(42);
+ expect(api.post.mock.calls.some(([url])=>url.includes('/claim'))).toBe(false);
 });

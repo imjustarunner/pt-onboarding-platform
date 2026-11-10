@@ -5,7 +5,7 @@ import ConversaSender from '../../components/conversa/ConversaSender.vue';
 import ConversaMailbox from '../conversa/ConversaMailbox.vue';
 import { computed, ref } from 'vue';
 import GroupEmailBadge from './GroupEmailBadge.vue';
-import { isTicketedGroup } from '../../utils/groupEmailPresentation';
+import { isTicketedGroup, isGroupEmail } from '../../utils/groupEmailPresentation';
 const props = defineProps({
   conversations: { type: Array, default: () => [] },
   loading: { type: Boolean, default: false },
@@ -19,7 +19,7 @@ const expandedCopies = ref(new Set());
 const groupedConversations = computed(() => {
   const groups = new Map();
   for (const row of props.conversations) {
-    const key = row.channel === 'email' && row.external_thread_id && !isTicketedGroup(row)
+    const key = row.channel === 'email' && row.external_thread_id && !isGroupEmail(row)
       ? `${row.agency_id}:email:${row.external_thread_id}` : `conversation:${row.id}`;
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(row);
@@ -101,7 +101,7 @@ function formatWhen(v) {
         @keydown.space.self.prevent="emit('select', row.id)"
         @click="emit('select', row.id)"
       >
-        <GroupEmailBadge v-if="isTicketedGroup(row)" :mailbox="row" icon-only />
+        <GroupEmailBadge v-if="isGroupEmail(row)" :mailbox="row" icon-only />
         <ConversaSender v-else avatar-only :name="row.primary_participant_name || row.primary_participant_email || row.inbox_display_name || 'Conversation'" :organization="row.sending_organization || null" />
         <div class="uc-list-main">
           <div class="uc-list-top">
@@ -121,7 +121,7 @@ function formatWhen(v) {
             </template>
           </div>
           <div class="uc-list-tags">
-            <GroupEmailBadge v-if="isTicketedGroup(row)" :mailbox="row" />
+            <GroupEmailBadge v-if="isGroupEmail(row)" :mailbox="row" />
             <ConversaBadge :type="row.channel" />
             <span v-if="row.support_ticket_id" class="uc-pill">Ticket #{{ row.support_ticket_id }}</span>
             <span v-if="row.ticket_replied" class="uc-pill waiting">Replied</span>
