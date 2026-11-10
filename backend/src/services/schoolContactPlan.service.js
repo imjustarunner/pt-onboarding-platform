@@ -34,6 +34,7 @@ export function validateSchoolContactTemplate(value) {
   for (const token of TOKENS) if (!template.includes(`{{${token}}}`)) throw fail(`Keep the {{${token}}} placeholder in your message.`);
   const unknown = [...template.matchAll(/{{\s*([^}]+)\s*}}/g)].find(match => ![...TOKENS, ...OPTIONAL_TOKENS].includes(match[1]));
   if (unknown) throw fail('Use only the supported name, school, day, and profile link placeholders.');
+  if (/{{|}}/.test(template.replace(/{{(?:parent_name|provider_name|school_name|service_day|profile_link)}}/g, ''))) throw fail('An automatic field is incomplete. Remove it and insert it again using its button.');
   return template;
 }
 
@@ -135,6 +136,7 @@ export async function saveSchoolContactPlan(input, body = {}) {
   const sms = String(body.smsTemplate ?? existing?.sms_template ?? DEFAULT_CONTACT_SMS_TEMPLATE).trim();
   if (sms.length < 40 || sms.length > 1000 || /<[^>]*>/.test(sms) || !sms.includes('{{parent_name}}') || !sms.includes('{{provider_name}}')) throw fail('Keep your text between 40 and 1,000 characters and retain the parent and provider fields.');
   if ([...sms.matchAll(/{{\s*([^}]+)\s*}}/g)].some(m => ![...TOKENS,'agency_name'].includes(m[1]))) throw fail('Use only the supported text fields.');
+  if (/{{|}}/.test(sms.replace(/{{(?:parent_name|provider_name|school_name|service_day|agency_name)}}/g, ''))) throw fail('An automatic text field is incomplete. Use its insertion button.');
   const timings = [2,4,48];
   const includePdf = body.includePdf === undefined ? (existing?.include_pdf ?? 1) : (body.includePdf ? 1 : 0);
   // Editing an enabled plan never moves the assignment cutoff. Re-enabling starts
@@ -157,6 +159,8 @@ export async function buildFamilyWelcomePdfPreview(input, schoolId = null) {
 export async function sendSchoolContactEmail({ agencyId, providerUserId, clientId = null, schoolId = null, to, parentName, schoolName, serviceDay,
   template = DEFAULT_SCHOOL_CONTACT_TEMPLATE, subject = SCHOOL_CONTACT_SUBJECTS.initial_email, body, example = false, conversationId = null, workflowId = null, stepKey = null, includePdf = null } = {}) {
   const ctx = await getContactPlanContext({ agencyId, userId: providerUserId });
+  const exampleSchool = example ? (schoolId == null ? ctx.schools[0] : ctx.schools.find(s => Number(s.id) === Number(schoolId))) : null;
+  if (example && !exampleSchool) throw fail('Choose one of your assigned schools for the example.', 403);
   const mailbox = await resolveMessagesSendMailbox(ctx.agencyId);
   const from = email(mailbox.fromEmail || mailbox.identity?.from_email);
   if (!mailbox.identity?.id || Number(mailbox.identity.agency_id) !== ctx.agencyId || !/^messages@[^\s<>]+$/.test(from) || !mailbox.inbox?.id) throw fail('The demo messages mailbox is not configured.', 409);
@@ -175,7 +179,7 @@ export async function sendSchoolContactEmail({ agencyId, providerUserId, clientI
   const profileUrl = providerProfileUrl(ctx.agency, ctx.provider);
   const text = body === undefined ? renderSchoolContactTemplate(template, {
     parent_name: parentName || 'Parent name', provider_name: [ctx.provider.first_name, ctx.provider.last_name].filter(Boolean).join(' ') || 'Provider name',
-    school_name: schoolName || 'Example Middle School', service_day: serviceDay || 'Example Day', profile_link: profileUrl
+    school_name: example ? exampleSchool.name : schoolName || 'Example Middle School', service_day: serviceDay || 'Example day', profile_link: profileUrl
   }) : String(body).trim();
   let attachments = null;
   if ((stepKey === 'initial_email' || (example && !stepKey)) && ctx.schools.length) {
@@ -259,6 +263,6 @@ export async function sendSchoolContactEmail({ agencyId, providerUserId, clientI
 
 export async function sendSchoolContactExample(input, body = {}) {
   const stepKey=['initial_email','second_contact','final_contact'].includes(body.stepKey)?body.stepKey:'initial_email';
-  return sendSchoolContactEmail({agencyId:input.agencyId,providerUserId:input.userId,template:validateSchoolContactTemplate(body.template),subject:SCHOOL_CONTACT_SUBJECTS[stepKey],example:true,
+  return sendSchoolContactEmail({agencyId:input.agencyId,providerUserId:input.userId,schoolId:body.schoolId ?? null,template:validateSchoolContactTemplate(body.template),subject:SCHOOL_CONTACT_SUBJECTS[stepKey],example:true,
     stepKey:stepKey==='initial_email'?'initial_email':null,includePdf:stepKey==='initial_email'?body.includePdf!==false:false});
 }

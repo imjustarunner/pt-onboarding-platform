@@ -25,15 +25,19 @@ vi.mock('../../models/MessageLog.model.js', () => ({ default: { normalizePhone: 
 import { processSchoolContactAutomation, queueSchoolContactAssignments, listSchoolContactWorkflows, markSchoolContactWorkflowReplied } from '../schoolContactAutomation.service.js';
 import { syncEmailParentContact } from '../parentContact.service.js';
 
-describe.skipIf(!process.env.HUB_SCOPE_MYSQL_SOCKET)('school contact automation MySQL integration with no external transport', () => {
+const testMysql = process.env.HUB_SCOPE_MYSQL_SOCKET
+  ? { socketPath: process.env.HUB_SCOPE_MYSQL_SOCKET }
+  : { host: '127.0.0.1', port: Number(process.env.FAMILY_WELCOME_TEST_MYSQL_PORT) };
+
+describe.skipIf(!process.env.HUB_SCOPE_MYSQL_SOCKET && !process.env.FAMILY_WELCOME_TEST_MYSQL_PORT)('school contact automation MySQL integration with no external transport', () => {
   let admin, db, workflowId, origin, repliedWorkflowId;
   const HOUR=3600000, DAY=24*HOUR;
   const tick=async at=>{vi.setSystemTime(at);return processSchoolContactAutomation({now:new Date(at)});};
   const databaseName = `school_contact_automation_test_${process.pid}`;
   beforeAll(async () => {
-    admin = await mysql.createConnection({ socketPath: process.env.HUB_SCOPE_MYSQL_SOCKET, user: 'root', timezone: '+00:00' });
+    admin = await mysql.createConnection({ ...testMysql, user: 'root', timezone: '+00:00' });
     await admin.query(`CREATE DATABASE \`${databaseName}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
-    db = mysql.createPool({ socketPath: process.env.HUB_SCOPE_MYSQL_SOCKET, user: 'root', database: databaseName, timezone: '+00:00', connectionLimit: 4 });
+    db = mysql.createPool({ ...testMysql, user: 'root', database: databaseName, timezone: '+00:00', connectionLimit: 4 });
     m.execute = (...args) => db.execute(...args); m.getConnection = () => db.getConnection();
     for (const sql of [
       'CREATE TABLE agencies(id INT PRIMARY KEY,name VARCHAR(120),organization_type VARCHAR(32),is_active BOOLEAN DEFAULT TRUE,is_archived BOOLEAN DEFAULT FALSE)',

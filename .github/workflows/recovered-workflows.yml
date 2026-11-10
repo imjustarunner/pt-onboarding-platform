@@ -37,6 +37,7 @@ jobs:
       RECOVERY_TEST_MYSQL_USER: root
       RECOVERY_TEST_MYSQL_PASSWORD: ''
       SCHEDULING_TEST_MYSQL_PORT: '33316'
+      FAMILY_WELCOME_TEST_MYSQL_PORT: '33316'
       PUPPETEER_SKIP_DOWNLOAD: 'true'
     steps:
       - uses: actions/checkout@v4
@@ -76,3 +77,9 @@ jobs:
         run: |
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.security-evidence.config.js
           node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.file-review.config.js
+
+      - name: Family welcome editing, provider isolation and accelerated outreach
+        run: |
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.school-contact-plan.config.js
+          cd frontend
+          node node_modules/vitest/vitest.mjs run --config vitest.school-contact-plan.config.js

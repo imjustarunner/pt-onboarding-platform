@@ -9,11 +9,15 @@ vi.mock('../unifiedEmail/unifiedEmailSender.service.js', () => ({ sendEmailFromI
 vi.mock('../../models/CommunicationConversation.model.js', () => ({ default: {} }));
 import { DEFAULT_SCHOOL_CONTACT_TEMPLATE, getSchoolContactPlan, saveSchoolContactPlan } from '../schoolContactPlan.service.js';
 
-describe.skipIf(!process.env.HUB_SCOPE_MYSQL_SOCKET)('school contact plan MySQL integration', () => {
+const testMysql = process.env.HUB_SCOPE_MYSQL_SOCKET
+  ? { socketPath: process.env.HUB_SCOPE_MYSQL_SOCKET }
+  : { host: '127.0.0.1', port: Number(process.env.FAMILY_WELCOME_TEST_MYSQL_PORT) };
+
+describe.skipIf(!process.env.HUB_SCOPE_MYSQL_SOCKET && !process.env.FAMILY_WELCOME_TEST_MYSQL_PORT)('school contact plan MySQL integration', () => {
   let connection;
   const databaseName = `school_contact_plan_test_${process.pid}`;
   beforeAll(async () => {
-    connection = await mysql.createConnection({ socketPath: process.env.HUB_SCOPE_MYSQL_SOCKET, user: 'root', timezone: '+00:00' });
+    connection = await mysql.createConnection({ ...testMysql, user: 'root', timezone: '+00:00' });
     await connection.query(`CREATE DATABASE \`${databaseName}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
     await connection.query(`USE \`${databaseName}\``);
     db.execute = (...args) => connection.execute(...args);
@@ -27,7 +31,7 @@ describe.skipIf(!process.env.HUB_SCOPE_MYSQL_SOCKET)('school contact plan MySQL 
       `CREATE TABLE client_provider_assignments (client_id INT,provider_user_id INT,organization_id INT,is_active BOOLEAN DEFAULT TRUE)`,
       `CREATE TABLE email_sender_identities (id INT PRIMARY KEY,agency_id INT,from_email VARCHAR(160),identity_key VARCHAR(48),is_active BOOLEAN DEFAULT TRUE)`
     ]) await connection.query(sql);
-    for (const file of ['1719_school_provider_contact_plans.sql','1720_school_contact_automation.sql','1722_school_contact_three_attempts.sql']) {
+    for (const file of ['1719_school_provider_contact_plans.sql','1720_school_contact_automation.sql','1722_school_contact_three_attempts.sql','1759_family_welcome_follow_up.sql']) {
       const source=await readFile(new URL(`../../../../database/migrations/${file}`,import.meta.url),'utf8');
       for(const statement of source.replace(/^\s*--.*$/gm,'').split(';').map(s=>s.trim()).filter(Boolean)) await connection.query(statement);
     }
@@ -84,4 +88,19 @@ describe.skipIf(!process.env.HUB_SCOPE_MYSQL_SOCKET)('school contact plan MySQL 
     await connection.execute('UPDATE users SET sso_password_override=1 WHERE id=1433');
     expect(await getSchoolContactPlan({ agencyId: 450, userId: 1433 })).toMatchObject({ routing: { isSso: false, providerEmail: 'testing@itsco.health', replyTo: 'testing@itsco.health' } });
   });
+  it('keeps two providers authored wording, names and school scopes separate in actual SQL', async()=>{
+    await connection.execute("INSERT INTO agencies(id,name,slug,feature_flags,organization_type) VALUES(452,'Pine School','qa-pine',JSON_OBJECT(),'school')");
+    await connection.execute('INSERT INTO organization_affiliations(agency_id,organization_id) VALUES(450,452)');
+    await connection.execute('INSERT INTO provider_school_assignments(school_organization_id,provider_user_id) VALUES(452,1438)');
+    const first=await getSchoolContactPlan({agencyId:450,userId:1433});
+    await saveSchoolContactPlan({agencyId:450,userId:1433},{status:'enabled',template:DEFAULT_SCHOOL_CONTACT_TEMPLATE+'\nAvery preferred wording.'});
+    await saveSchoolContactPlan({agencyId:450,userId:1438},{status:'enabled',template:DEFAULT_SCHOOL_CONTACT_TEMPLATE+'\nCameron preferred wording.'});
+    const a=await getSchoolContactPlan({agencyId:450,userId:1433}),b=await getSchoolContactPlan({agencyId:450,userId:1438});
+    expect(a.template).toContain('Avery preferred wording.');expect(a.template).not.toContain('Cameron preferred wording.');
+    expect(b.template).toContain('Cameron preferred wording.');expect(b.template).not.toContain('Avery preferred wording.');
+    expect(a.providerName).toBe('Avery Demo');expect(b.providerName).toBe('Cameron Demo');
+    expect(a.schools.map(x=>x.name)).toEqual(['Cedar Grove K-8']);expect(b.schools.map(x=>x.name)).toEqual(['Pine School']);
+    expect(a.secondTemplate).toBe(first.secondTemplate);
+  });
+
 });

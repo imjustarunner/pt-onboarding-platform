@@ -62,3 +62,62 @@ it('explains the support introduction when the provider is not in the pilot', as
   expect(wrapper.text()).toContain('Support introduces you to each new family, and you are copied on that email.');
   expect(wrapper.find('textarea').exists()).toBe(false);
 });
+
+
+it('repairs a removed automatic field with one click and previews the verified provider', async () => {
+  await mountWith({ providerName: 'Verified Casey', schools: [{id:452,name:'Pine School'}] });
+  const editor=wrapper.find('#fw-template');
+  await editor.setValue(template.replace('{{school_name}}',''));
+  expect(wrapper.text()).toContain('Use the buttons to add: School name');
+  const start=editor.element.value.indexOf(' and will');
+  editor.element.setSelectionRange(start,start);
+  await button('School name').trigger('click'); await flushPromises();
+  expect(editor.element.value).toContain('at {{school_name}} and will');
+  expect(wrapper.find('.fw-preview-body').text()).toContain('Verified Casey');
+  expect(wrapper.find('.fw-preview-body').text()).toContain('Pine School');
+  expect(wrapper.find('.fw-preview-body').text()).not.toContain('Alex Provider');
+  expect(wrapper.find('.fw-preview-body').text()).not.toContain('{{');
+});
+
+it('ignores a delayed previous-account load after switching provider context', async () => {
+  let finishOld;
+  api.get.mockImplementationOnce(()=>new Promise(resolve=>{finishOld=resolve;})).mockResolvedValue({data:plan({providerName:'Casey',template:template+' Casey wording.'})});
+  wrapper=mount(Settings,{props:{agencyId:450,userId:9,providerName:'Old name'}});
+  await wrapper.setProps({userId:10,providerName:'Casey'});await flushPromises();
+  finishOld({data:plan({providerName:'Avery',template:template+' Avery wording.'})});await flushPromises();
+  expect(wrapper.find('#fw-template').element.value).toContain('Casey wording.');
+  expect(wrapper.text()).not.toContain('Avery wording.');
+});
+
+it('ignores a prior-account save response and clears the previous draft on scope change', async () => {
+  await mountWith({status:'enabled',providerName:'Avery'});
+  let finishSave;
+  api.put.mockImplementationOnce(()=>new Promise(resolve=>{finishSave=resolve;}));
+  await button('Save Family Welcome').trigger('click');
+  api.get.mockResolvedValue({data:plan({providerName:'Casey',template:template+' Casey wording.'})});
+  await wrapper.setProps({userId:10});await flushPromises();
+  finishSave({data:plan({providerName:'Avery',template:template+' Avery saved.'})});await flushPromises();
+  expect(wrapper.find('#fw-template').element.value).toContain('Casey wording.');
+  expect(wrapper.text()).not.toContain('Avery saved.');
+});
+
+it('blocks incomplete fields before save and keeps the draft for correction', async () => {
+  await mountWith();
+  await wrapper.find('#fw-template').setValue(template+' Ask {{parent_name');
+  await button('Save Family Welcome').trigger('click');await flushPromises();
+  expect(api.put).not.toHaveBeenCalled();
+  expect(wrapper.text()).toContain('An automatic field is incomplete');
+  expect(wrapper.find('#fw-template').element.value).toContain('Ask {{parent_name');
+});
+
+
+it('previews and sends the selected assigned school without replacing reusable fields in the saved wording', async()=>{
+  await mountWith({schools:[{id:451,name:'Cedar School'},{id:452,name:'Pine School'}]});
+  await wrapper.find('.fw-preview select').setValue('452');
+  expect(wrapper.find('.fw-preview-body').text()).toContain('Pine School');
+  expect(wrapper.find('.fw-preview-body').text()).not.toContain('Cedar School');
+  expect(wrapper.find('#fw-template').element.value).toContain('{{school_name}}');
+  api.post.mockResolvedValue({data:{deliveredTo:'testing@itsco.health'}});
+  await button('Send me an example').trigger('click');await flushPromises();
+  expect(api.post).toHaveBeenCalledWith('/school-contact-plan/example',expect.objectContaining({schoolId:452,template:expect.stringContaining('{{school_name}}')}),expect.anything());
+});

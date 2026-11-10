@@ -170,7 +170,7 @@ it('sends an edited example, minimizes only after success, and preserves the dra
   expect(document.querySelector('.contact-plan-email-body').textContent).toContain('Alex Provider');
   expect(document.querySelector('.contact-plan-email-body').textContent).toContain('Looking forward');
   await click('Send me an example');
-  expect(api.post).toHaveBeenCalledWith('/school-contact-plan/example', { template: `${template}\nLooking forward to connecting!` }, expect.objectContaining({ params: { agencyId: 450 } }));
+  expect(api.post).toHaveBeenCalledWith('/school-contact-plan/example', { template: `${template}\nLooking forward to connecting!`, schoolId: null, includePdf: true }, expect.objectContaining({ params: { agencyId: 450 } }));
   expect(dialog()).toBeNull();
   expect(document.querySelector('.contact-plan-inbox').textContent).toContain('Check Messages');
   await click('Your example is ready');
@@ -187,7 +187,7 @@ it('keeps a failed example visible and blocks a template with missing personaliz
   await click('Edit my welcome email');
   const editor = document.querySelector('textarea'); editor.value = 'Unpersonalized message'; editor.dispatchEvent(new Event('input', { bubbles: true })); await flushPromises();
   expect(findButton('Send me an example').disabled).toBe(true);
-  expect(dialog().textContent).toContain('{{parent_name}}');
+  expect(dialog().textContent).toContain('Use the buttons to add: Parent name');
 });
 
 it('shows the fixed 0/48/96-hour plan and saves all four editable messages', async () => {
@@ -209,7 +209,7 @@ it('edits and previews the second and final emails and resets only the selected 
   const editor=document.querySelector('textarea');editor.value=template+' Custom second.';editor.dispatchEvent(new Event('input',{bubbles:true}));await flushPromises();
   expect(document.querySelector('.contact-plan-email-body').textContent).toContain('Custom second');
   await click('Send me an example');
-  expect(api.post).toHaveBeenCalledWith('/school-contact-plan/example',{template:template+' Custom second.',stepKey:'second_contact'},expect.anything());
+  expect(api.post).toHaveBeenCalledWith('/school-contact-plan/example',{template:template+' Custom second.',stepKey:'second_contact',schoolId:null,includePdf:true},expect.anything());
   await click('Your example is ready');await click('Use recommended wording');
   expect(document.querySelector('textarea').value).toBe(template+' Recommended second.');
   const reopenedPicker=document.querySelector('[aria-label="Contact plan message"]');reopenedPicker.value='finalTemplate';reopenedPicker.dispatchEvent(new Event('change',{bubbles:true}));await flushPromises();
@@ -276,4 +276,19 @@ it('keeps a minimized tour closed after navigation without changing contact pref
   expect(api.post).not.toHaveBeenCalled();
   await click('Family Welcome & Follow-Up');
   expect(dialog()).not.toBeNull();
+});
+
+
+it('inserts school details without typing syntax and keeps the chosen example school and PDF setting',async()=>{
+  api.post.mockResolvedValue({data:{sent:true,conversationId:99}});
+  await open({providerName:'Verified Avery',schools:[{id:451,name:'Cedar School'},{id:452,name:'Pine School'}],includePdf:false});await customize();await click('Edit my welcome email');
+  const editor=document.querySelector('textarea');editor.value=linked.replace('{{school_name}}','');editor.dispatchEvent(new Event('input',{bubbles:true}));await flushPromises();
+  const at=editor.value.indexOf(' and will');editor.setSelectionRange(at,at);await click('School name');
+  expect(editor.value).toContain('at {{school_name}} and will');
+  const school=[...document.querySelectorAll('select')].find(s=>[...s.options].some(o=>o.textContent==='Pine School'));
+  school.value='452';school.dispatchEvent(new Event('change',{bubbles:true}));await flushPromises();
+  expect(document.querySelector('.contact-plan-email-body').textContent).toContain('Pine School');
+  expect(document.querySelector('.contact-plan-email-body').textContent).toContain('Verified Avery');
+  await click('Send me an example');
+  expect(api.post).toHaveBeenCalledWith('/school-contact-plan/example',expect.objectContaining({schoolId:452,includePdf:false,template:expect.stringContaining('{{school_name}}')}),expect.anything());
 });
