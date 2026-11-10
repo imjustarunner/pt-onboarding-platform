@@ -13,7 +13,7 @@ export function buildNoteAidLocationChoices({ locations = [], offices = [], offi
   const byOffice = new Map(availableOffices.map(o => [Number(o.id), o]));
   const visible = locations.filter(l => (l.is_active == null || Number(l.is_active) !== 0) && (l.is_provider_visible == null || Number(l.is_provider_visible) !== 0)
     && (!Number(l.billing_office_location_id) || byOffice.has(Number(l.billing_office_location_id)))
-    && (String(l.location_kind || '') !== 'school' || assignedSchools.has(Number(l.school_organization_id))));
+    && (!(String(l.location_kind || '') === 'school' || String(l.place_of_service || '').padStart(2,'0') === '03') || assignedSchools.has(Number(l.school_organization_id))));
   const choices = new Map();
   // Linked office templates take precedence over legacy generic POS duplicates.
   for (const loc of [...visible].sort((a, b) => Number(!!b.billing_office_location_id) - Number(!!a.billing_office_location_id) || Number(a.id) - Number(b.id))) {
@@ -32,6 +32,7 @@ export function buildNoteAidLocationChoices({ locations = [], offices = [], offi
       label: `${name}${mode && office ? ` — ${office.name}` : ''} (POS ${pos})${serviceAddress ? ` — ${serviceAddress}` : ''}`,
       address: serviceAddress, billingAddress, billingOfficeName: office?.name || null,
       serviceLocationId: Number(loc.id), billingOfficeLocationId: office?.id || null,
+      schoolOrganizationId:Number(loc.school_organization_id)||null,
       placeOfService: pos, defaultModifiers: loc.default_modifiers || null,
       aliases: [loc.name, ...(pos === '11' ? [office.name] : [])],
       detail: mode ? `${pos === '12' ? 'Service address is the patient’s residence.' : 'Select according to the patient’s location during the session.'}${office ? ` Billing office: ${office.name}${billingAddress ? ` — ${billingAddress}` : ' (address not configured)'}.` : ''}`

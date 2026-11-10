@@ -11,11 +11,13 @@ import * as assessments from '../controllers/narrivaAssessmentEvidence.controlle
 import {getServiceReference} from '../controllers/clinicalServiceReference.controller.js';
 import {getClinicalSessionServiceCode,changeClinicalSessionServiceCode} from '../controllers/clinicalSessionServiceChange.controller.js';
 import {getNoteReviewInsights} from '../controllers/clinicalNoteReviewInsights.controller.js';
+import {searchDiagnosisCatalog} from '../controllers/clinicalDiagnosisSearch.controller.js';
 const router=express.Router();
 // Parent mounts requireQuickViewSession. Full bearer authentication is deliberately
 // absent: this router accepts only the verified primary-device scoped session.
 router.use(requireMobileClinicalSession,apiLimiter);
 router.get('/context',requireClinicalChart,getMobileClinicalContext);
+router.post('/diagnosis-search',requireClinicalChart,scoped(searchDiagnosisCatalog));
 router.get('/clients/:clientId/summary',requireClinicalChart,getMobileClientSummary);
 router.post('/clients/:clientId/contact',requireClinicalChart,resolveMobileClientContact);
 router.post('/clients/:clientId/contact/send',requireClinicalChart,sendMobileClientContact);

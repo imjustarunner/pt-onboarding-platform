@@ -89,28 +89,8 @@
         <strong v-else>{{ durationLabel }}</strong>
       </div>
       <div class="na-quick-session__cell">
-        <span class="lbl">Location</span>
-        <select
-          v-if="editable && locationChoices.length"
-          class="na-quick-session__select"
-          :value="locationLabel"
-          @change="$emit('update:locationLabel', $event.target.value)"
-        >
-          <option value="">Select location…</option>
-          <option v-for="loc in locationChoices" :key="loc.value" :value="loc.value">
-            {{ loc.label }}
-          </option>
-        </select>
-        <input
-          v-else-if="editable"
-          type="text"
-          class="na-quick-session__input"
-          :value="locationLabel"
-          placeholder="Office, telehealth…"
-          @input="$emit('update:locationLabel', $event.target.value)"
-        />
-        <strong v-else>{{ locationLabel || '—' }}</strong>
-        <span v-if="editable && locationLabel" class="detail">{{ locationChoices.find((loc) => loc.value === locationLabel)?.detail || locationLabel }}</span>
+        <ClinicalLocationPicker v-if="editable" :model-value="locationModel || {locationLabel}" :choices="locationChoices" @update:model-value="$emit('update:locationModel',$event)" />
+        <template v-else><span class="lbl">Location</span><strong>{{ locationLabel || '—' }}</strong></template>
       </div>
       <div class="na-quick-session__cell">
         <span class="lbl">Start</span>
@@ -203,6 +183,7 @@
 </template>
 
 <script setup>
+import ClinicalLocationPicker from './ClinicalLocationPicker.vue';
 import { computed, ref, watch } from 'vue';
 import {
   EXTENDED_ENCOUNTER_CODE,
@@ -227,6 +208,7 @@ const props = defineProps({
   participantsDetail: { type: String, default: '' },
   durationMinutes: { type: [Number, null], default: null },
   locationLabel: { type: String, default: '' },
+  locationModel: { type: Object, default: null },
   locationChoices: { type: Array, default: () => [] },
   startTime: { type: String, default: '' },
   endTime: { type: String, default: '' },
@@ -250,6 +232,7 @@ const emit = defineEmits([
   'update:participantsDetail',
   'update:durationMinutes',
   'update:locationLabel',
+  'update:locationModel',
   'update:startTime',
   'update:endTime',
   'toggle-setup',

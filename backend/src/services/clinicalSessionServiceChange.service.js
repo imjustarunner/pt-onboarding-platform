@@ -24,8 +24,10 @@ export function clinicalServiceChangeSummary(session) {
   const meta=parse(session?.metadata_json),duration=Number(session?.actual_duration_minutes||session?.duration_minutes)||Math.round((utc(session?.scheduled_end_at)-utc(session?.scheduled_start_at))/60000);
   const explicit=String(meta.narrivaContext?.modality||meta.sessionContext?.modality||meta.modality||'').toLowerCase();
   const remote=Number(session?.is_telehealth)===1||['02','10'].includes(String(session?.place_of_service||''));
-  const modality=['in_person','phone','video'].includes(explicit)?explicit:remote?'':Number(session?.is_telehealth)===0?'in_person':'';
-  return {id:Number(session.id),clinicalSessionId:Number(session.id),agencyId:Number(session.agency_id),clientId:Number(session.client_id),serviceCode:code(session.service_code),durationMinutes:duration>0?duration:null,modality,pendingServiceChange:!!meta.serviceCodeChangePending};
+  const modality=['in_person','phone','video'].includes(explicit)?explicit:remote?'':Number(session?.is_telehealth)===0||['11','03','12'].includes(String(session?.place_of_service))?'in_person':'';
+  return {id:Number(session.id),clinicalSessionId:Number(session.id),agencyId:Number(session.agency_id),clientId:Number(session.client_id),serviceCode:code(session.service_code),durationMinutes:duration>0?duration:null,modality,
+    locationLabel:session.location_label || meta.sessionContext?.locationLabel || '',serviceLocationId:Number(session.service_location_id)||null,
+    billingOfficeLocationId:Number(session.billing_office_location_id)||null,placeOfService:String(session.place_of_service || ''),pendingServiceChange:!!meta.serviceCodeChangePending};
 }
 function dependencies(overrides) {
   return {mainDb:pool,clinicalDb:clinicalPool,requireAgency:requireNarrivaAgency,requireClient:requireNarrivaClient,readEligibility:readStaffCareEligibility,resolveCatalog:resolveAgencySchedulingCatalog,

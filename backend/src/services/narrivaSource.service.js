@@ -66,7 +66,8 @@ export function narrivaLocalContext({source,meta,session={},provider={},serviceR
  const pos=String(context.placeOfService || meta.placeOfService || session.place_of_service || '');
  const allowedPos=typeof rule.allowed_place_of_service_json==='string'?parse(rule.allowed_place_of_service_json):rule.allowedPlaceOfService || rule.allowed_place_of_service_json;
  const validMethod=['in_person','video','phone','in-person','telehealth','virtual'].includes(modality.toLowerCase());
- const modalityAllowed=validMethod && (!Array.isArray(allowedPos) || !allowedPos.length || allowedPos.includes(pos)) && (modality!=='in_person' || !['02','10'].includes(pos));
+ const remoteMethod=['video','phone','telehealth','virtual'].includes(modality.toLowerCase());
+ const modalityAllowed=validMethod && (!Array.isArray(allowedPos) || !allowedPos.length || allowedPos.includes(pos)) && (remoteMethod?['02','10'].includes(pos):!['02','10'].includes(pos));
  const rawDiagnoses=chart.diagnoses || chart.intakeDiagnoses || meta.diagnoses || [];
  const diagnoses=Array.isArray(rawDiagnoses)?rawDiagnoses:[];
  return {

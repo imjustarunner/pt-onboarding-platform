@@ -6,9 +6,11 @@ import {narrivaLocalContext} from './narrivaSource.service.js';
 import {resolveAgencySchedulingCatalog} from './agencySchedulingCatalog.service.js';
 import {createSessionPrivacyContext} from './sessionAiPrivacy.service.js';
 import {requireNarrivaIdentifierCorrection} from './narrivaInputPrivacy.service.js';
+import {assignedNoteLocations} from './assignedNoteLocations.service.js';
+import {isBillableDiagnosisCode} from './clinicalDiagnosisCatalog.js';
 import {NARRIVA_RULES_VERSION,emptyNarrivaChecks,deriveNarrivaCheck,deriveNarrivaScoring,narrivaOverall,narrivaSourceHash} from './narrivaReviewPolicy.service.js';
 
-const contextKeys=['serviceCode','underlyingServiceCode','credentialTier','dateOfService','startTime','endTime','durationMinutes','modality','placeOfService','location','participants','consentConfirmed','diagnosis','diagnosticJustification','presentingProblem','goals','assessmentExcerpt','riskAssessmentCompleted','riskDomains'];
+const contextKeys=['serviceCode','underlyingServiceCode','credentialTier','dateOfService','startTime','endTime','durationMinutes','modality','placeOfService','location','locationSelection','participants','consentConfirmed','diagnosis','diagnosticJustification','presentingProblem','goals','assessmentExcerpt','riskAssessmentCompleted','riskDomains'];
 const tiers=['qbha','bachelors','intern_plus'];
 const riskStates=['','denied','present','uncertain','historical'];
 const text=(v,max=8000)=>typeof v==='string'?v.trim().slice(0,max):'';
@@ -22,7 +24,9 @@ async function access(user,agencyId){
 export async function narrivaTestOptions(user,agencyId){
  await access(user,agencyId);
  const codes=await AgencyMedicalServiceCode.listByAgency(agencyId);
- return {services:codes.filter(c=>!c.isAddon && !/ET/i.test(c.serviceCode)).map(c=>({code:c.serviceCode,label:c.description || c.serviceCode,referenceAvailable:['available','supplemental-policy'].includes(c.serviceInfo?.status)})),rulesVersion:NARRIVA_RULES_VERSION};
+ let locations=[],locationsUnavailable=false;
+ try{locations=await assignedNoteLocations(user.id,agencyId);}catch{locationsUnavailable=true;}
+ return {services:codes.filter(c=>!c.isAddon && !/ET/i.test(c.serviceCode)).map(c=>({code:c.serviceCode,label:c.description || c.serviceCode,referenceAvailable:['available','supplemental-policy'].includes(c.serviceInfo?.status)})),locations,locationsUnavailable,rulesVersion:NARRIVA_RULES_VERSION};
 }
 
 // No chart reader, review persistence, report run, billing call or signing token.
@@ -30,7 +34,7 @@ export async function narrivaTestOptions(user,agencyId){
 export async function runNarrivaTestReview(user,body){
  strict(body,['agencyId','noteText','sessionNarrative','context']);
  const agencyId=positiveId(body.agencyId);await access(user,agencyId);
- const c=body.context;strict(c,contextKeys);
+ const c={...body.context};strict(body.context,contextKeys);
  for(const [key,value] of Object.entries(c))if(!['riskDomains','consentConfirmed','riskAssessmentCompleted','durationMinutes'].includes(key)&&(typeof value!=='string'||value.length>(['diagnosticJustification','presentingProblem','goals','assessmentExcerpt'].includes(key)?8000:200)))throw narrivaError(422,'A test field is invalid or exceeds its length limit.');
  if(c.durationMinutes!==undefined&&c.durationMinutes!==null&&(!Number.isInteger(Number(c.durationMinutes))||Number(c.durationMinutes)<0||Number(c.durationMinutes)>1440))throw narrivaError(422,'Enter a test duration of up to 1,440 minutes.');
  if(typeof body.noteText!=='string'||!body.noteText.trim()||body.noteText.length>150000||typeof body.sessionNarrative==='string'&&body.sessionNarrative.length>150000)throw narrivaError(422,'Paste note content of up to 150,000 characters.','NARRIVA_TEST_INPUT_INVALID');
@@ -40,6 +44,18 @@ export async function runNarrivaTestReview(user,body){
  if(!serviceRule)throw narrivaError(422,'Choose an enabled base service for this workspace.');
  if(c.riskDomains!==undefined){strict(c.riskDomains,['suicidalIdeation','homicidalIdeation','selfHarm']);if(Object.values(c.riskDomains).some(v=>!riskStates.includes(v)))throw narrivaError(422,'Choose the recorded risk findings for this test.');}
  for(const key of ['consentConfirmed','riskAssessmentCompleted'])if(c[key]!==undefined&&c[key]!==null&&typeof c[key]!=='boolean')throw narrivaError(422,'Test consent and assessment confirmations must be explicit choices.');
+ if(c.diagnosis && !isBillableDiagnosisCode(text(c.diagnosis),c.dateOfService || undefined))throw narrivaError(422,'Choose a diagnosis from the ICD-10-CM matches for this service date, or clear the field to test without a diagnosis.','NARRIVA_TEST_INPUT_INVALID');
+ if(c.locationSelection) {
+  let pos='',method='',location='';
+  if(['__telehealth_video__','__telehealth_phone__'].includes(c.locationSelection)){pos=['02','10'].includes(c.placeOfService)?c.placeOfService:'';method=c.locationSelection==='__telehealth_phone__'?'phone':'video';location='Telehealth';}
+  else if(c.locationSelection==='__home__'){pos='12';method='in_person';location='Home';}
+  else {
+   const choice=(await assignedNoteLocations(user.id,agencyId)).find(item=>item.value===c.locationSelection&&['11','03'].includes(String(item.placeOfService)));
+   if(!choice)throw narrivaError(403,'Choose an office or school currently assigned to you in this agency.');
+   pos=String(choice.placeOfService);method='in_person';location=pos==='11'?'Office':'School';
+  }
+  if(c.modality!==method || c.placeOfService!==pos || c.location!==location)throw narrivaError(422,'Choose the location again so its delivery details agree.','NARRIVA_TEST_INPUT_INVALID');
+ }
  const narrative=body.noteText.trim(),input=text(body.sessionNarrative,150000);
  const clinicalText=[narrative,input,...['diagnosis','diagnosticJustification','presentingProblem','goals','assessmentExcerpt'].map(k=>text(c[k]))].join('\n\n');
  requireNarrivaIdentifierCorrection(clinicalText);
@@ -50,7 +66,7 @@ export async function runNarrivaTestReview(user,body){
  const riskKeys={suicidalIdeation:'Suicidal Ideation',homicidalIdeation:'Homicidal Ideation',selfHarm:'Self-Harm'};
  const riskAssessment={items:Object.fromEntries(Object.entries(riskKeys).map(([key,label])=>[label,{option:c.riskDomains?.[key] || ''}]))};
  riskAssessment.patientDeniesAll=Object.keys(riskKeys).every(k=>c.riskDomains?.[k]==='denied');
- const meta={serviceCode,underlyingServiceCode:text(c.underlyingServiceCode,40).toUpperCase(),sessionContext:{startTimeLocal:text(c.startTime,8),endTimeLocal:text(c.endTime,8),durationMinutes:Number(c.durationMinutes)||0,modality:['in_person','video','phone'].includes(c.modality)?c.modality:'',placeOfService:['02','10','11','03','12','99'].includes(c.placeOfService)?c.placeOfService:'',locationLabel:['Office','School','Home','Community','Other'].includes(c.location)?c.location:'',participants:['Client only','Client and guardian','Guardian without client','Client and others'].includes(c.participants)?c.participants:''},
+ const meta={serviceCode,underlyingServiceCode:text(c.underlyingServiceCode,40).toUpperCase(),sessionContext:{startTimeLocal:text(c.startTime,8),endTimeLocal:text(c.endTime,8),durationMinutes:Number(c.durationMinutes)||0,modality:['in_person','video','phone'].includes(c.modality)?c.modality:'',placeOfService:['02','10','11','03','12','99'].includes(c.placeOfService)?c.placeOfService:'',locationLabel:['Office','School','Home','Telehealth','Community','Other'].includes(c.location)?c.location:'',participants:['Client only','Client and guardian','Guardian without client','Client and others'].includes(c.participants)?c.participants:''},
   structuredChart:{diagnoses:text(c.diagnosis)?[{code:text(c.diagnosis,200)}]:[],diagnosticJustification:text(c.diagnosticJustification),presentingProblem:text(c.presentingProblem),riskAssessment},
   narrivaContext:{consentConfirmed:c.consentConfirmed===true,modality:['in_person','video','phone'].includes(c.modality)?c.modality:'',presentingProblem:text(c.presentingProblem),clientPresent:c.participants==='Guardian without client'?false:['Client only','Client and guardian','Client and others'].includes(c.participants)?true:null,riskAssessmentCompleted:c.riskAssessmentCompleted===true}};
  const row={user_id:user.id,service_code:serviceCode,date_of_service:text(c.dateOfService,10)};

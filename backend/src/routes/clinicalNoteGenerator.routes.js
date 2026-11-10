@@ -1,5 +1,6 @@
 import { getClinicalAppointmentAlerts, acknowledgeClinicalAppointmentAlert } from '../controllers/clinicalAppointmentAlerts.controller.js';
 import * as contactDocumentation from '../controllers/contactDocumentation.controller.js';
+import {searchDiagnosisCatalog} from '../controllers/clinicalDiagnosisSearch.controller.js';
 import express from 'express';
 import { excludeSupportClinicalContent } from '../middleware/supportContentAccess.middleware.js';
 import multer from 'multer';
@@ -59,6 +60,8 @@ router.post('/contact-documentation/:type/:id', apiLimiter, contactDocumentation
 
 // Operational contact notes stay available above this clinical-content boundary.
 router.use(excludeSupportClinicalContent);
+// POST keeps the clinical search text out of URL/access-log query strings.
+router.post('/diagnosis-search',apiLimiter,searchDiagnosisCatalog);
 router.get('/appointment-alerts',apiLimiter,getClinicalAppointmentAlerts);
 router.post('/appointment-alerts/:appointmentId/acknowledge',apiLimiter,acknowledgeClinicalAppointmentAlert);
 router.get('/context', apiLimiter, [query('agencyId').isInt({ min: 1 })], getClinicalNotesContext);
