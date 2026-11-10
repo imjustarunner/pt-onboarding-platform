@@ -3,7 +3,8 @@
   <div v-if="!preview" class="family-quick"><button type="button" @click="$emit('navigate','enroll')">{{ familyLocale === 'es' ? 'Inscribir a otro hijo o a mí' : 'Enroll another child or yourself' }}</button></div>
   <div class="family-quick"><button @click="$emit('navigate','notifications')">{{ ft("Notification settings") }}</button><button @click="$emit('navigate','family_billing')">{{ ft("Balances & payments") }}</button><button @click="$emit('navigate','family_messages')">{{ ft("All secure messages") }}</button><button @click="$emit('navigate','account')">{{ ft("Account settings") }}</button></div>
   <p v-if="loading" role="status">{{ ft("Loading your family overview…") }}</p><p v-if="errors.length" role="alert">{{ errors.join(' ') }} <button @click="load">{{ ft("Retry") }}</button></p>
-  <div class="family-summary-grid">
+  <p v-if="restrictedProfiles.length" role="status">{{ ft('Some linked profiles have restricted record access. Complete any enrollment forms shown above, or contact your care team. Appointments and records for those profiles are not loaded here.') }}</p>
+  <div v-if="readableProfiles.length || preview" class="family-summary-grid">
     <article><h2>{{ ft("Your assigned balance") }}</h2><strong class="total">{{ loading ? ft('Loading…') : balanceFailed ? ft('Unavailable') : money(totalDue) }}</strong><p>{{ ft("Across your linked agencies. Shared statements assigned to another payer are not included.") }}</p><button @click="$emit('navigate','family_billing')">{{ ft("View balances & receipts →") }}</button></article>
     <article><h2>{{ ft("Upcoming appointments") }}</h2><ul><li v-for="a in upcoming" :key="`${a.clientId}:${a.id}`"><button @click="$emit('profile',a.clientId,'appointments',a.agencyId,a.serviceId)"><strong>{{ a.name }}</strong><span>{{ when(a.startAt,a.timeZone) }}</span><small>{{ a.providerName }} · {{ a.agencyName }}</small></button><a v-if="a.joinUrl" :href="a.joinUrl" target="_blank" rel="noopener">{{ ft("Join online appointment →") }}</a></li></ul><p v-if="!loading&&!upcoming.length">{{ ft("No upcoming appointments are shared with your account.") }}</p></article>
     <article><h2>{{ ft("Recent appointments") }}</h2><ul><li v-for="a in recent" :key="`${a.clientId}:${a.id}`"><button @click="$emit('profile',a.clientId,'appointments',a.agencyId,a.serviceId)"><strong>{{ a.name }}</strong><span>{{ when(a.startAt,a.timeZone) }}</span><small>{{ String(a.status).replaceAll('_',' ') }} · {{ a.providerName }}</small></button></li></ul><p v-if="!loading&&!recent.length">{{ ft("No recent appointments to show.") }}</p></article>
@@ -14,9 +15,12 @@
 </template>
 <script setup>
 import { useFamilyLocale } from '../../composables/useFamilyLocale';
+import { familyProfileHasRecordAccess } from '../../utils/familyPortalContext.js';
 const { ft, locale: familyLocale } = useFamilyLocale();
 import {computed,ref,watch,onBeforeUnmount} from 'vue';import api from '../../services/api';
 const props=defineProps({profiles:{type:Array,default:()=>[]},preview:Boolean});defineEmits(['navigate','profile']);
+const readableProfiles=computed(()=>props.profiles.filter(familyProfileHasRecordAccess));
+const restrictedProfiles=computed(()=>props.profiles.filter(profile=>!familyProfileHasRecordAccess(profile)));
 const loading=ref(false),errors=ref([]),appointments=ref([]),balances=ref([]),threads=ref([]),balanceFailed=ref(false);let seq=0;
 const personName=id=>{const p=props.profiles.find(p=>Number(p.client_id)===Number(id));return p?.full_name||p?.initials||ft("Profile");};
 const money=n=>new Intl.NumberFormat(familyLocale.value,{style:'currency',currency:'USD'}).format(n/100);
@@ -25,14 +29,14 @@ const totalDue=computed(()=>balances.value.filter(r=>r.isOwnShare&&!r.paymentSta
 const upcoming=computed(()=>appointments.value.filter(a=>new Date(a.startAt)>=new Date()&&['scheduled','confirmed','client_confirmed'].includes(a.status)).sort((a,b)=>new Date(a.startAt)-new Date(b.startAt)).slice(0,6));
 const recent=computed(()=>appointments.value.filter(a=>new Date(a.startAt)<new Date()).sort((a,b)=>new Date(b.startAt)-new Date(a.startAt)).slice(0,5));
 const recentThreads=computed(()=>threads.value.filter(t=>t.thread_id&&(t.last_message_at||t.lastMessageAt||t.unread_count)).sort((a,b)=>new Date(b.last_message_at||b.lastMessageAt||0)-new Date(a.last_message_at||a.lastMessageAt||0)).slice(0,4));
-async function load(){const run=++seq;appointments.value=[];balances.value=[];threads.value=[];errors.value=[];balanceFailed.value=false;if(props.preview||!props.profiles.length)return;loading.value=true;
- const contexts=props.profiles.flatMap(p=>(p.care_contexts?.length?p.care_contexts:[p]).flatMap(c=>(c.services?.length?c.services:[null]).map(service=>({...p,...c,serviceId:service?.id}))));
+async function load(){const run=++seq;appointments.value=[];balances.value=[];threads.value=[];errors.value=[];balanceFailed.value=false;loading.value=false;if(props.preview||!readableProfiles.value.length)return;loading.value=true;
+ const contexts=readableProfiles.value.flatMap(p=>(p.care_contexts?.length?p.care_contexts:[p]).flatMap(c=>(c.services?.length?c.services:[null]).map(service=>({...p,...c,serviceId:service?.id}))));
  const agencies=[...new Set(contexts.map(p=>Number(p.agency_id)))];
  const jobs=[...contexts.map(p=>({kind:'appointments',p,run:()=>api.get(`/guardian-portal/clients/${p.client_id}/appointments`,{params:{agencyId:p.agency_id,serviceId:p.serviceId},skipGlobalLoading:true})})),...agencies.map(agencyId=>({kind:'balances',run:()=>api.get('/family-billing/balances',{params:{agencyId},skipGlobalLoading:true})})),{kind:'messages',run:()=>api.get('/guardian-portal/messages',{skipGlobalLoading:true})}];
  const results=await Promise.allSettled(jobs.map(j=>j.run()));if(run!==seq)return;
  results.forEach((r,i)=>{const j=jobs[i];if(r.status==='rejected'){if(j.kind==='balances')balanceFailed.value=true;if(r.reason?.response?.status!==403)errors.value.push(`${j.kind==='balances'?'Some balances':j.kind==='messages'?'Messages':'Some appointments'} could not be loaded.`);return;}const d=r.value.data;if(j.kind==='appointments')appointments.value.push(...(d.appointments||[]).map(a=>({...a,clientId:j.p.client_id,name:personName(j.p.client_id),agencyId:j.p.agency_id,agencyName:j.p.agency_name,serviceId:j.p.serviceId||j.p.services?.find(s=>(!s.provider_user_id||Number(s.provider_user_id)===Number(a.providerUserId))&&(s.service_kind==='tutoring'?['learning','tutoring'].includes(a.businessType):s.service_kind==='counseling'?['mental_health','healthcare'].includes(a.businessType):s.service_kind===a.businessType))?.id})));else if(j.kind==='balances')balances.value.push(...(d.balances||[]));else threads.value=d.threads||[];});appointments.value=[...new Map(appointments.value.map(a=>[`${a.agencyId}:${a.clientId}:${a.id}`,a])).values()];errors.value=[...new Set(errors.value)];loading.value=false;
 }
-watch(()=>[JSON.stringify(props.profiles.map(p=>[p.client_id,p.agency_id,p.care_contexts])),props.preview],load,{immediate:true});
+watch(()=>[JSON.stringify(props.profiles.map(p=>[p.client_id,p.agency_id,p.care_contexts,p.no_view,p.guardian_portal_locked])),props.preview],load,{immediate:true});
 onBeforeUnmount(()=>{seq++;});
 </script>
 <style scoped>

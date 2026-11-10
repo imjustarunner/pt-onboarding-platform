@@ -74,3 +74,39 @@ it('lists every linked profile in agency groups and switches context from the he
  expect(w.findComponent(Shell).props('agencyName')).toBe('ITSCO');
  w.unmount();
 });
+
+
+it('keeps a restricted guardian’s own enrollment visible without preloading private records', async () => {
+ const linked = [person(3,2,'Avery','school'), person(5,2,'Riley','school')].map(p => ({...p,no_view:true,school_affiliations:[{organization_id:376,name:'Current school'}]}));
+ api.get.mockImplementation(async url => ({data: url === '/guardian-portal/overview' ? {children:linked,programs:agencies} : {events:[],items:[],documents:[],grants:[],subjects:[],plans:[]}}));
+ const {w} = await setup();
+ expect(w.findAll('.family-profile-card')).toHaveLength(2);
+ expect(w.findComponent({name:'GuardianPendingEnrollment'}).exists()).toBe(true);
+ expect(w.findComponent({name:'PortalMigrationChecklist'}).exists()).toBe(false);
+ expect(w.findComponent({name:'GuardianSchoolReleaseNotice'}).exists()).toBe(false);
+ expect(api.get.mock.calls.some(([url]) => url.endsWith('/intake-documents') || url.includes('/daily-notes'))).toBe(false);
+ expect(w.text()).toContain('Detailed records are restricted');
+ w.findComponent({name:'GuardianPendingEnrollment'}).vm.$emit('state',{loaded:true,pending:true});
+ for (const panel of ['documents','appointments','onboarding','overview','child']) {
+   w.findComponent(Shell).vm.$emit('navigate',panel); await flushPromises();
+   expect(w.text()).toContain('Complete your own enrollment above to continue');
+   for (const name of ['GuardianIntakeDocuments','GuardianAppointmentsPanel','GuardianClientDetails','FamilyPortalHome','PortalMigrationChecklist']) expect(w.findComponent({name}).exists()).toBe(false);
+   expect(w.findComponent({name:'GuardianPendingEnrollment'}).exists()).toBe(true);
+ }
+ w.unmount();
+});
+it('loads authorized record widgets when selecting a completed profile in a mixed family', async () => {
+ const pending = {...person(3,2,'Avery','school'),no_view:true};
+ const completed = person(5,2,'Riley','school');
+ api.get.mockImplementation(async url => ({data:url === '/guardian-portal/overview' ? {children:[pending,completed],programs:agencies} : {events:[],items:[],documents:[],grants:[],subjects:[],plans:[]}}));
+ const {w} = await setup();
+ expect(w.findComponent({name:'PortalMigrationChecklist'}).exists()).toBe(false);
+ await w.findAll('.family-profile-card').find(c=>c.text().includes('Riley')).find('button').trigger('click');await flushPromises();
+ expect(useGuardianStore().selectedChildId).toBe(5);
+ expect(w.findComponent({name:'PortalMigrationChecklist'}).props('clientId')).toBe(5);
+ expect(api.get.mock.calls.some(([url])=>url==='/guardian-portal/clients/5/intake-documents')).toBe(true);
+ expect(api.get.mock.calls.some(([url])=>url==='/guardian-portal/clients/3/intake-documents')).toBe(false);
+ w.findComponent(Shell).vm.$emit('navigate','documents');await flushPromises();
+ expect(w.findComponent({name:'GuardianIntakeDocuments'}).props('clientId')).toBe(5);
+ w.unmount();
+});

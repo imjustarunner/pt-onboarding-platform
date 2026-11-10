@@ -58,3 +58,10 @@ export function auricWellAccountDestination({hostname,role,organizations,request
   const familyRedirect=redirect && !appRedirect ? redirect : null;
   return {path:familyRedirect || familyPortalDashboardPath(organization) || '/guardian',hardNavigate:false,organization:organization || null};
 }
+
+
+// The overview's flags come from the server's guardian relationship checks.
+// A linked profile is not permission to preload its private record panels.
+export function familyProfileHasRecordAccess(profile) {
+  return !!profile && !profile.no_view && !profile.guardian_portal_locked;
+}
