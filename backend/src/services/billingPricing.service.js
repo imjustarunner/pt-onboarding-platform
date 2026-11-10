@@ -57,6 +57,8 @@ const DEFAULT_FEATURE_CATALOG = {
       userMonthlyCents: 0, perUserBillable: false, unitLabel: 'completed report run',
       usageKey: 'narrivaComplianceReportsUsed', defaultAvailable: true, tenantSelfServe: false }
   ),
+  supervision: createFeatureCatalogEntry('supervision', 'Supervision', 'Existing scheduling, meetings, attendance and completed supervision hours. Optional AuricWell add-on; fees require agreed terms.', { defaultAvailable: false, tenantSelfServe: false }),
+  credentialing: createFeatureCatalogEntry('credentialing', 'Credentialing management', 'The full credentialing workspace with provider and payer records, secure documents, reminders and optional case email. Fees require agreed terms.', { defaultAvailable: false, tenantSelfServe: false }),
   publicAvailability: createFeatureCatalogEntry(
     'publicAvailability',
     'Public Provider Finder',

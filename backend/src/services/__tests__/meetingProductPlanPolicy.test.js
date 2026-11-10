@@ -6,8 +6,8 @@ import { planIncludesFeature } from '../productPlanPolicy.js';
 describe('approved product plan policy', () => {
   it('matches every user-approved assignment and both deployment catalogs', () => {
     const approved = JSON.parse(readFileSync(new URL('../../../../deliverables/approved-feature-tiers.json', import.meta.url), 'utf8'));
-    expect(PLAN_FEATURES.map(({ key, label, minimumTier }) => ({ key, feature: label, minimumTier }))).toEqual(approved.features);
-    expect(PLAN_FEATURES).toHaveLength(53);
+    expect(PLAN_FEATURES.map(({ key, label, minimumTier, auricwellAddon }) => ({ key, feature: label, minimumTier, ...(auricwellAddon ? { auricwellAddon } : {}) }))).toEqual(approved.features);
+    expect(PLAN_FEATURES).toHaveLength(54);
     expect(readFileSync(new URL('../../constants/productPlanCatalog.js', import.meta.url), 'utf8'))
       .toBe(readFileSync(new URL('../../../../frontend/src/config/productPlanCatalog.js', import.meta.url), 'utf8'));
   });
@@ -48,4 +48,13 @@ describe('approved product plan policy', () => {
     expect(legacy.aliasOf).toBe('focusPackage');
     expect(legacy.minimumTier).toBe(PLAN_FEATURES.find(f => f.key === legacy.aliasOf).minimumTier);
   });
+});
+
+it('requires explicit AuricWell add-ons at every tier while preserving platform package inclusion', () => {
+  for (const agencyTier of ['basic','premium','premium_plus']) {
+    for (const key of ['supervision','supervision_manual','supervision_agreements','credentialing']) {
+      expect(planIncludesFeature({ product: 'auricwell', agencyTier }, key)).toBe(false);
+      expect(planIncludesFeature({ product: 'auricwell', agencyTier, addons: ['supervision','credentialing'] }, key)).toBe(true);
+    }
+  }
 });

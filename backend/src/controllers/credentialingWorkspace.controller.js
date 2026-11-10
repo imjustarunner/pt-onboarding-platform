@@ -45,6 +45,6 @@ export async function getCredentialingWorkflowHistory(req, res, next) {
 export async function getCredentialingOrganizations(req, res, next) {
   try {
     const {organizations} = await credentialingScope(req.user);
-    res.set('Cache-Control', 'no-store').json({organizations});
+    res.set('Cache-Control', 'no-store').json({organizations, actor: { id: req.user.id, first_name: req.user.first_name, last_name: req.user.last_name }});
   } catch (error) { next(error); }
 }

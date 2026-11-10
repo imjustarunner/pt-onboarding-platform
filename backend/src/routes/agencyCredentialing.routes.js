@@ -1,6 +1,7 @@
+import * as operations from '../controllers/credentialingOperations.controller.js';
 import express from 'express';
 import { body } from 'express-validator';
-import { authenticate, requireActiveStatus } from '../middleware/auth.middleware.js';
+import { authenticate as sharedAuthenticate, requireActiveStatus as sharedActiveStatus } from '../middleware/auth.middleware.js';
 import {getCredentialingOrganizations,getCredentialingWorkspace,updateCredentialingWorkflow,getCredentialingWorkflowHistory} from '../controllers/credentialingWorkspace.controller.js';
 import {
   listAgencyProvidersCredentialing,
@@ -30,6 +31,7 @@ import {
   updateInsuranceInteraction,
   deleteInsuranceInteraction,
   uploadProviderLicenseCredentialing,
+  downloadProviderLicenseCredentialing,
   ocrProviderLicenseCredentialing,
   licenseUploadMulter,
   uploadUserInsuranceCredentialDocument,
@@ -48,11 +50,27 @@ import {
   payerCredentialDocUpload as groupNpiPayerDocUpload
 } from '../controllers/agencyGroupNpi.controller.js';
 
+export function createAgencyCredentialingRouter(authenticate = sharedAuthenticate, requireActiveStatus = sharedActiveStatus) {
 const router = express.Router();
 router.get('/credentialing/organizations',authenticate,requireActiveStatus,getCredentialingOrganizations);
 router.get('/credentialing/workspace',authenticate,requireActiveStatus,getCredentialingWorkspace);
 router.patch('/:agencyId/credentialing/workflow/:kind/:id',authenticate,requireActiveStatus,updateCredentialingWorkflow);
 router.get('/:agencyId/credentialing/workflow/:kind/:id/history',authenticate,requireActiveStatus,getCredentialingWorkflowHistory);
+
+// Documents and reminders share the same credentialing authorization as the editor.
+router.get('/:agencyId/credentialing/insurances/:id/documents', authenticate, requireActiveStatus, operations.listPayerDocuments);
+router.post('/:agencyId/credentialing/insurances/:id/documents', authenticate, requireActiveStatus, operations.authorizeCredentialingUpload, payerCredentialDocUpload.single('file'), operations.uploadPayerDocument);
+router.get('/:agencyId/credentialing/insurances/:id/documents/:documentId', authenticate, requireActiveStatus, operations.downloadPayerDocument);
+router.get('/:agencyId/credentialing/subjects/:kind/:id/documents/:documentType', authenticate, requireActiveStatus, operations.downloadExistingDocument);
+router.patch('/:agencyId/credentialing/subjects/:kind/:id/notifications/read', authenticate, requireActiveStatus, operations.acknowledgeNotifications);
+router.get('/:agencyId/credentialing/subjects/:kind/:id/reminders', authenticate, requireActiveStatus, operations.listReminders);
+router.post('/:agencyId/credentialing/subjects/:kind/:id/reminders', authenticate, requireActiveStatus, operations.createReminder);
+router.patch('/:agencyId/credentialing/subjects/:kind/:id/reminders/:reminderId', authenticate, requireActiveStatus, operations.finishReminder);
+router.get('/:agencyId/credentialing/cases/:id/email', authenticate, requireActiveStatus, operations.getCaseEmail);
+router.post('/:agencyId/credentialing/cases/:id/email', authenticate, requireActiveStatus, operations.createCaseEmail);
+router.get('/:agencyId/credentialing/cases/:id/tickets', authenticate, requireActiveStatus, operations.listCaseTickets);
+router.get('/:agencyId/credentialing/cases/:id/tickets/:ticketId', authenticate, requireActiveStatus, operations.getCaseTicket);
+router.get('/:agencyId/credentialing/cases/:id/tickets/:ticketId/attachments/:attachmentId', authenticate, requireActiveStatus, operations.getCaseAttachment);
 
 const validatePatch = [
   body('updates').isArray().withMessage('updates must be an array'),
@@ -64,6 +82,7 @@ const validatePatch = [
 router.get('/:agencyId/credentialing/providers', authenticate, listAgencyProvidersCredentialing);
 router.patch('/:agencyId/credentialing/providers', authenticate, validatePatch, patchAgencyProvidersCredentialing);
 router.get('/:agencyId/credentialing/providers.csv', authenticate, downloadAgencyProvidersCredentialingCsv);
+router.get('/:agencyId/credentialing/providers/:userId/license', authenticate, downloadProviderLicenseCredentialing);
 router.post(
   '/:agencyId/credentialing/providers/:userId/license',
   authenticate,
@@ -155,4 +174,6 @@ router.post(
 // Timeline
 router.get('/:agencyId/credentialing/timeline', authenticate, listCredentialingTimeline);
 
-export default router;
+return router;
+}
+export default createAgencyCredentialingRouter();

@@ -3,15 +3,16 @@ import { describe, it, expect } from 'vitest';
 import PlanComparisonTable from '../PlanComparisonTable.vue';
 
 describe('approved public feature comparison', () => {
-  it('shows all 53 assignments, cumulative circles, and separate features', () => {
+  it('shows all 54 assignments, cumulative circles, and separate features', () => {
     const wrapper = mount(PlanComparisonTable);
-    expect(wrapper.findAll('[data-feature]')).toHaveLength(53);
+    expect(wrapper.findAll('[data-feature]')).toHaveLength(54);
     const labels = key => wrapper.find(`[data-feature="${key}"]`).findAll('td .sr-only').map(cell => cell.text());
     expect(labels('ai_note_aid')).toEqual(['Included', 'Included', 'Included']);
     expect(labels('calendar_sync')).toEqual(['Not included', 'Included', 'Included']);
     for (const key of ['supervision', 'supervision_manual', 'supervision_agreements']) {
-      expect(labels(key)).toEqual(['Not included', 'Included', 'Included']);
+      expect(labels(key)).toEqual(['Optional add-on', 'Optional add-on', 'Optional add-on']);
     }
+    expect(labels('credentialing')).toEqual(['Optional add-on', 'Optional add-on', 'Optional add-on']);
     expect(labels('hiringEnabled')).toEqual(['Not included', 'Not included', 'Included']);
     expect(labels('schoolPortals')).toEqual(['Not included', 'Not included', 'Not included']);
     expect(wrapper.text()).toContain('Note Workspace');

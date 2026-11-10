@@ -1,6 +1,6 @@
 # AuricWell commercial schedule
 
-**Rate card 2026-10-14. USD per month. Attach to an accepted practice order form. This schedule is not itself an executed agreement.**
+**Rate card 2026-11-09. USD per month. Attach to an accepted practice order form. This schedule is not itself an executed agreement.**
 
 | Monthly charge | Basic | Premium | Premium Plus |
 |---|---:|---:|---:|
@@ -32,11 +32,11 @@ Each cell is the practice allowance **plus** the allowance for each clinical sea
 - Text messages and text notifications use the same US SMS segment pool. Both inbound and outbound segments count. Long messages and some characters use multiple segments. In-app and standard transactional email notifications are included; marketing campaigns are separate.
 - Claims, ERA claim responses and eligibility checks have separate pools. Successful corrected or secondary claim transmissions count separately; retries with the same transaction reference count once. Rejected requests that never reach the clearinghouse do not count.
 - All tiers can use supported payers after required enrollment. Payer access is not a tier limit. Additional billing tax IDs, paper/fax, attachments, dedicated phone numbers, carrier registration, international messaging and payment processing require separate disclosed terms.
-- Integrated supervision meetings, video and tracking start with Premium. A supervised billing seat in Basic still supports required clinical note signing; it does not include supervision meeting management.
+- Supervision scheduling, meetings and completed-hours tracking are an optional AuricWell add-on at every tier. Credentialing management is also an optional add-on, using the full existing credentialing system. Add-on fees require separately agreed terms. Required clinical note signing and cosigning remain included in the applicable clinical seat.
 - Existing signed prices and launch access remain in effect until a separately accepted agreement changes them. Published pricing does not authorize a charge or activate an integration.
 
 ## Order form completion
 
-Practice legal name: [complete]. Plan: [select]. Rate version: 2026-10-14. Billing begins: [date]. Billing period, seat snapshot/proration method, due date, payment authorization and dispute period: [complete]. Approved separate services and fees: [itemize or none]. Named usage-review owner and alert recipients: [complete]. Vendor account setup, executed agreements and reconciled metering coverage: [verify before activation].
+Practice legal name: [complete]. Plan: [select]. Rate version: 2026-11-09. Billing begins: [date]. Billing period, seat snapshot/proration method, due date, payment authorization and dispute period: [complete]. Approved separate services and fees: [itemize or none]. Named usage-review owner and alert recipients: [complete]. Vendor account setup, executed agreements and reconciled metering coverage: [verify before activation].
 
 Attach the reviewed per-person billing categories, supervising/signing clinician details where required, accepted separate-service prices, platform service agreement and executed BAA. Existing customer terms continue until separately amended.

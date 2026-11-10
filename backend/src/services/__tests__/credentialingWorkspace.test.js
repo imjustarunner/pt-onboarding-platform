@@ -25,7 +25,7 @@ describe('credentialing management access and projection',()=>{
     const sql=d.main.execute.mock.calls.map(([sql])=>sql).join(' ');expect(sql).not.toMatch(/password|ssn|date_of_birth|SELECT \*/i);
   });
   it('denies providers and staff without grants before querying credential data',async()=>{
-    const {d}=fixture();for(const role of ['provider','provider_plus','client'])await expect(credentialingScope({...user,role},null,d)).rejects.toMatchObject({status:403});
+    const {d}=fixture();d.grants.mockResolvedValue([]);d.expand.mockResolvedValue([]);for(const role of ['provider','provider_plus','client'])await expect(credentialingScope({...user,role},null,d)).rejects.toMatchObject({status:403});
     d.expand.mockResolvedValue([]);await expect(credentialingWorkspace(user,{},d)).rejects.toMatchObject({status:403});expect(d.main.execute).not.toHaveBeenCalled();expect(d.clinical.execute).not.toHaveBeenCalled();
   });
   it('denies forged scopes and scopes all operational queries to the requested authorized agency',async()=>{
@@ -68,4 +68,11 @@ describe('credentialing updates',()=>{
     const {d,db}=fixture();db.execute.mockImplementation(async sql=>{if(sql.includes('workflow_events'))throw new Error('audit failed');return sql.includes('SELECT c.id')?[[{id:10}]]:[[]];});
     await expect(saveCredentialingWorkflow(user,1,'provider',10,input,d)).rejects.toThrow('audit failed');expect(db.rollback).toHaveBeenCalled();expect(db.commit).not.toHaveBeenCalled();expect(db.release).toHaveBeenCalled();
   });
+});
+
+it('allows a workplace provider who has an explicit credentialing grant, without granting unrelated clinicians access', async () => {
+  const { d } = fixture();
+  expect((await credentialingScope({ id: 9, role: 'provider' }, 1, d)).ids).toEqual([1]);
+  d.grants.mockResolvedValue([]); d.expand.mockResolvedValue([]);
+  await expect(credentialingScope({ id: 10, role: 'provider' }, 1, d)).rejects.toMatchObject({ status: 403 });
 });

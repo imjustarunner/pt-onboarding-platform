@@ -160,3 +160,14 @@ it('seeds H0002 as one screening encounter without invented time, booking or exp
   expect(statements[0]).toContain("e.service_code='H0002'");
   expect(statements[0]).not.toMatch(/\bUPDATE\b|\bDELETE\b|tenant_services|payroll/);
 });
+
+it('exposes payer-document connections only with independent credentialing permission', async () => {
+  const main = { execute: vi.fn(async sql => sql.includes('FROM credentialing_payer_links WHERE agency_id') ? [[{ definitionId: 8, payerId: 'UNITED' }]] : [[]]) };
+  const d = { main, clinical: { execute: async () => [[]] }, access: async () => true, credentialingAccess: async () => false };
+  const denied = await getCanonicalFeeSchedule({ id: 7, role: 'staff' }, { agencyId: 2 }, d);
+  expect(denied.canViewCredentialingDocuments).toBe(false); expect(denied.credentialingDocumentPayers).toEqual([]);
+  expect(main.execute.mock.calls.some(([sql]) => sql.includes('FROM credentialing_payer_links WHERE agency_id'))).toBe(false);
+  d.credentialingAccess = async () => true;
+  const allowed = await getCanonicalFeeSchedule({ id: 7, role: 'staff' }, { agencyId: 2 }, d);
+  expect(allowed.credentialingDocumentPayers).toEqual([{ definitionId: 8, payerId: 'UNITED' }]);
+});

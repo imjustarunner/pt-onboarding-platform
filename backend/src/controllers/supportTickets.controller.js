@@ -1,4 +1,5 @@
 import { ticketAttachmentType } from '../utils/ticketAttachmentType.js';
+import { canAccessCredentialing, appendCredentialingTicketVisibility } from '../services/credentialingAccess.service.js';
 import { ticketDepartmentKeys, canWorkDepartmentTicket, appendDepartmentTicketVisibility } from '../services/supportTicketDepartmentAccess.service.js';
 import { listUserDepartmentalGroupKeys } from '../services/departmentalGroupAccess.service.js';
 import { sendSupportTicketEmailReply, listSupportTicketSenderOptions, listTicketEmailDeliveryMetadata, resolveSupportTicketEmailThread } from '../services/supportTicketEmail.service.js';
@@ -175,6 +176,8 @@ async function hasSupportTicketPlatformHelpColumn() {
  * for that ticket's agency. General is visible to all queue collaborators in scope.
  */
 async function applyTopicAudienceVisibility({ req, where, params, topicFilter = null }) {
+  await appendCredentialingTicketVisibility(req.user, where, params);
+
   await appendDepartmentTicketVisibility({ userId: req.user.id, where, params, requireDepartment: !isAgencyAdminUser(req) && req.user?.role !== 'school_staff' });
   if (!(await hasSupportTicketTopicColumn())) return;
 
@@ -240,6 +243,7 @@ async function applyTopicAudienceVisibility({ req, where, params, topicFilter = 
 
 /** Specialized topics: admin always; others need matching responsibility flag (or be creator/claimant). */
 async function actorCanAccessTicketTopic(req, ticket) {
+  if (String(ticket?.topic || '').toLowerCase() === 'credentialing') return canAccessCredentialing(req.user, ticket.agency_id);
   if ((await ticketDepartmentKeys(ticket)).length) return canWorkDepartmentTicket({ ticket, userId: req.user.id });
   const role = String(req.user?.role || '').toLowerCase();
   if (

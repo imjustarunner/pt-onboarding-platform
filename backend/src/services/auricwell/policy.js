@@ -24,6 +24,7 @@ export const THERAPY_CREDENTIALS = [
 ];
 export const PRODUCT = "auricwell_ehr";
 export const PERMISSIONS = [
+  "credentialing",
   "records_manager",
   "announcements",
   "admin",
@@ -113,6 +114,7 @@ export function initialSettings(mode = "new") {
   if (!["new", "transition"].includes(mode))
     throw fail(400, "Choose new or transition onboarding.");
   return {
+    addons: { supervision: false, credentialing: false },
     onboardingMode: mode,
     jurisdiction: "CO",
     timezone: "America/Denver",
@@ -260,4 +262,9 @@ export function practiceDate(value, timezone = "America/Denver") {
       .map((p) => [p.type, p.value]),
   );
   return `${p.year}-${p.month}-${p.day}`;
+}
+
+export function requireAddon(ctx, key) {
+  if (ctx.actorType !== 'staff' || ctx.settings.addons?.[key] !== true)
+    throw fail(403, `The ${key} add-on is not enabled for this practice.`);
 }

@@ -35,3 +35,7 @@ Use the dated commercial schedule and a completed order form before activation. 
 ## Agreements
 
 [Service agreement](../legal/auricwell/PLATFORM_SERVICE_AGREEMENT.md), [BAA](../legal/auricwell/BUSINESS_ASSOCIATE_AGREEMENT.md), and [commercial schedule](../legal/auricwell/COMMERCIAL_SCHEDULE.md) are review templates. The existing direct ITSCO/AuricWell BAA draft has the same expanded service scope. Signed agreements are never overwritten. Privacy obligations apply to every tier; a pricing limit does not reduce them. Vendor names do not prove executed downstream BAAs. The BAA scope follows [HHS business associate contract requirements](https://www.hhs.gov/hipaa/for-professionals/covered-entities/sample-business-associate-agreement-provisions/index.html).
+
+## November 9, 2026 add-on scope update
+
+Supervision scheduling, meetings and completed-hour tracking are an optional AuricWell add-on at every tier, using the existing supervision system. Credentialing management is a separate optional add-on using the full shared credentialing workspace. Numeric plan and seat rates are unchanged; add-on fees require separately accepted terms and are not assumed to be free. Required clinical note signing/cosigning remains part of the applicable clinical seat. Platform operator activation does not authorize an automatic invoice or amend existing signed contracts. The generated rate-card review copy is version `2026-11-09`.

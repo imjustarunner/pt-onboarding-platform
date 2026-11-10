@@ -1,3 +1,6 @@
+import auricwellSupervision from './auricwellSupervision.routes.js';
+import { createAgencyCredentialingRouter } from './agencyCredentialing.routes.js';
+import { authenticateCredentialingProduct } from '../services/auricwell/credentialing.js';
 import * as faxMessaging from '../services/auricwell/faxMessaging.js';
 import * as verificationSms from '../services/auricwell/verificationSms.js';
 import auricwellOfficeRoutes from './auricwellOffice.routes.js';
@@ -246,6 +249,8 @@ router.post(
   run(async (req, res) => res.json(await applyConsolidation(req.aw, req.body))),
 );
 const p = "/practices/:slug";
+router.use(`${p}/supervision`, auricwellSupervision);
+router.use(`${p}/shared-credentialing`, createAgencyCredentialingRouter(authenticateCredentialingProduct, (_req, _res, next) => next()));
 router.get(`${p}/faxes`, run(async (req,res) => res.json(await faxMessaging.faxInbox(req.aw))));
 router.post(`${p}/faxes`, run(async (req,res) => res.status(202).json(await faxMessaging.sendFax(req.aw,req.body))));
 router.get(`${p}/faxes/:id/document`, run(async (req,res) => { res.set('Cache-Control','no-store'); res.json(await faxMessaging.downloadFax(req.aw,req.params.id)); }));

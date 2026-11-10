@@ -6,12 +6,13 @@ import { decryptTicketMessageRow } from '../../utils/supportTicketCrypto.js';
 import pool from '../../config/database.js';
 test.after(() => pool.end());
 
-function harness({ claimedBy = 5, revision = 10, result = { id: 'gmail-sent', internetMessageId: '<sent@agency.test>', bodyText: 'Hello\n\nHannah · Agency' }, failure = null } = {}) {
+function harness({ credentialingCase = false, claimedBy = 5, revision = 10, result = { id: 'gmail-sent', internetMessageId: '<sent@agency.test>', bodyText: 'Hello\n\nHannah · Agency' }, failure = null } = {}) {
   const statements = [], captures = [], sends = [];
   let delivery = null;
   const db = { async beginTransaction() {}, async commit() {}, async rollback() {}, release() {}, async execute(sql, values = []) {
     statements.push({ sql, values });
     assert.equal((sql.match(/\?/g) || []).length, values.length, `SQL binds: ${sql}`);
+    if (sql.startsWith('SELECT id FROM credentialing_email_tickets')) return [credentialingCase ? [{id:9}] : []];
     if (sql.startsWith('SELECT * FROM support_tickets')) return [[{ id: 1, agency_id: 2, school_organization_id: 7,
       source_channel: 'email', source_email_from: 'school@example.test', source_email_subject: 'Forms',
       source_email_message_id: '<inbound@school.test>', source_email_thread_id: 'gmail-thread', claimed_by_user_id: claimedBy }]];
@@ -197,4 +198,10 @@ test('claiming an old duplicate cannot move a mapped or already-recorded email c
   assert.equal(chooseCanonicalSupportTicket([{ ...newlyClaimed, canonical_ticket_id: 10 }, { ...recorded, canonical_ticket_id: 10 }]).id, 10);
   assert.equal(chooseCanonicalSupportTicket([{ id: 1 }, { id: 2, claimed_by_user_id: 5 }, { id: 3 }]).id, 2);
   assert.equal(chooseCanonicalSupportTicket([{ id: 1 }, { id: 3 }]).id, 3);
+});
+
+test('receive-only credentialing cases cannot send through the general ticket email endpoint', async () => {
+  const h = harness({ credentialingCase: true });
+  await assert.rejects(sendSupportTicketEmailReply(input, h.dependencies), { code: 'CREDENTIALING_RECEIVE_ONLY' });
+  assert.equal(h.sends.length, 0);
 });

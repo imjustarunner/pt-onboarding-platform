@@ -673,6 +673,7 @@ export async function workspace(ctx) {
     timezone: ctx.settings.timezone,
     actorType: ctx.actorType,
     permissions: ctx.permissions,
+    addons: ctx.settings.addons || {},
     capabilities: ctx.settings.capabilities,
     sessionFeatures: { videoProvider: platform.videoProvider, alwaysAvailableOffice: platform.alwaysAvailableOffice },
   };
@@ -885,7 +886,19 @@ export async function notifications(ctx) {
       r.data.signers?.some((s) => s.accountId === ctx.accountId) &&
       !r.data.signatures?.some((s) => s.accountId === ctx.accountId),
   );
+  let credentialingNotices = [];
+  if (ctx.actorType === 'staff' && ctx.settings.addons?.credentialing && (has(ctx, 'admin') || has(ctx, 'credentialing'))) {
+    const { credentialingActor } = await import('./credentialing.js');
+    const actor = await credentialingActor(ctx).catch(error => { if ([403,409].includes(error.status)) return null; throw error; });
+    if (actor) {
+    const { user, agencyId } = actor;
+    const [notices] = await pool.execute(`SELECT id,title,related_entity_type,related_entity_id FROM notifications
+      WHERE agency_id=? AND user_id=? AND is_read=0 AND type IN ('credentialing_reminder','credentialing_email') ORDER BY id DESC LIMIT 50`, [agencyId,user.id]);
+    credentialingNotices = notices.map(n => ({ id: `credentialing-${n.id}`, title: n.title, type: 'credentialing', section: `credentialing?kind=${encodeURIComponent(n.related_entity_type.replace('credentialing_',''))}&recordId=${n.related_entity_id}` }));
+    }
+  }
   return [
+    ...credentialingNotices,
     ...recordsTasks,
     ...intakeTasks.map((r) => ({
       id: r.id,

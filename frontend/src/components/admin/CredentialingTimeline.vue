@@ -24,7 +24,9 @@
 
 <script setup>
 import { ref, watch } from 'vue';
-import api from '../../services/api';
+import { inject as injectCredentialing } from 'vue';
+import defaultCredentialingApi from '../../services/api';
+const api = injectCredentialing('credentialingTransport', defaultCredentialingApi);
 
 const props = defineProps({
   agencyId: { type: Number, default: null },

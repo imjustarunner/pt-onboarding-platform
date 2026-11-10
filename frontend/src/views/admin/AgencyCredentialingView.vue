@@ -2,7 +2,8 @@
   <div class="container credentialing-page">
     <div class="page-header">
       <div>
-        <router-link :to="orgTo('/admin/credentialing')" class="back-link">← Back to Credentialing Management</router-link>
+        <button v-if="embedded" type="button" @click="embedded.openOverview()">← Back to Credentialing Management</button>
+        <router-link v-else :to="orgTo('/admin/credentialing')" class="back-link">← Back to Credentialing Management</router-link>
         <h1>Agency Credentialing</h1>
         <div class="muted" style="margin-top: 6px;">
           Agency group NPIs and provider credentialing — edit deliberately, upload licenses, and export CSV.
@@ -389,13 +390,7 @@
                 </td>
                 <td v-if="isColVisible('license_upload')" :class="{ 'cell-alert': !licenseUrl(r) }">
                   <div class="license-actions">
-                    <a
-                      v-if="licenseUrl(r)"
-                      class="link-btn"
-                      :href="licenseUrl(r)"
-                      target="_blank"
-                      rel="noopener"
-                    >View</a>
+                    <button v-if="licenseUrl(r)" type="button" class="link-btn" @click="openLicense(r)">View</button>
                     <span v-else class="missing-pill">Missing</span>
                     <label class="link-btn upload-label" :class="{ disabled: uploadingUserId === r.userId }">
                       {{ uploadingUserId === r.userId ? 'Uploading…' : 'Upload' }}
@@ -511,6 +506,7 @@
                   <ProviderPayerCredentialsPanel
                     :agency-id="selectedAgencyId"
                     :user-id="r.userId"
+                    :open-provider-reminders="route.query.kind === 'provider_profile' && Number(route.query.recordId) === Number(r.userId)"
                     :provider-notes="getValue(r.userId, 'credentialing_provider_notes')"
                     @changed="onPayerCredsChanged"
                     @provider-notes-saved="(val) => onProviderNotesSaved(r.userId, val)"
@@ -595,9 +591,12 @@
 <script setup>
 import { computed, defineComponent, h, onMounted, ref, watch, nextTick } from 'vue';
 import { useRoute } from 'vue-router';
-import api from '../../services/api';
+import { inject as injectCredentialing } from 'vue';
+import defaultCredentialingApi from '../../services/api';
+const api = injectCredentialing('credentialingTransport', defaultCredentialingApi);
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
+import { viewCredentialingFile } from '../../utils/credentialingDocuments.js';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import { isFullyLicensedCredentialText } from '../../utils/credentialNormalization.js';
 import CredentialingTimeline from '../../components/admin/CredentialingTimeline.vue';
@@ -634,9 +633,14 @@ const EditableCell = defineComponent({
 });
 
 const route = useRoute();
-const agencyStore = useAgencyStore();
-const authStore = useAuthStore();
+const embedded = injectCredentialing('credentialingContext', null);
+const agencyStore = embedded ? { currentAgency: embedded.agency } : useAgencyStore();
+const authStore = embedded ? { user: { credentialingAgencyIds: [embedded.agencyId] } } : useAuthStore();
 
+async function openLicense(row) {
+  try { await viewCredentialingFile(api, `/agencies/${selectedAgencyId.value}/credentialing/providers/${row.userId}/license`); }
+  catch (e) { error.value = e.response?.data?.error?.message || e.message || 'License could not be opened.'; }
+}
 const orgTo = (path) => {
   const slug = route.params.organizationSlug;
   if (typeof slug === 'string' && slug) return `/${slug}${path}`;
@@ -775,7 +779,7 @@ const DEFAULT_VISIBLE = [
 const visibleColumns = ref([...DEFAULT_VISIBLE]);
 const isColVisible = (key) => visibleColumns.value.includes(key);
 
-const expandedUserId = ref(null);
+const expandedUserId = ref(route.query.kind === 'provider_profile' ? Number(route.query.recordId) : null);
 const expandColspan = computed(() => {
   // Provider + visible cols + Status + Payers + Actions
   return 1 + visibleColumns.value.length + 3;

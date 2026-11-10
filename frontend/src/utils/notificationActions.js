@@ -4,6 +4,11 @@ export function notificationDestination(notification, { organizationSlug = null,
   const base = organizationSlug ? `/${organizationSlug}` : '';
   if (n.type === 'employee_award_eligible') return `${base}/admin/employee-relations?agencyId=${Number(n.agency_id)}&status=owed`;
   const entityType = String(n.related_entity_type || '').toLowerCase();
+  if (['credentialing_reminder','credentialing_email'].includes(n.type)) {
+    const kind = entityType.replace('credentialing_', '');
+    return `${base}/admin/credentialing?agencyId=${Number(n.agency_id)}&kind=${encodeURIComponent(kind)}&recordId=${Number(n.related_entity_id)}`;
+  }
+
   const entityId = Number(n.related_entity_id || 0);
   if (n.type === 'school_weekday_availability_requested') return `${base}/my-schedule?schoolAvailability=1&agencyId=${Number(n.agency_id)}`;
   if(n.type === 'payment_setup_required' && entityId) return {path:`${base}/guardian`,query:{panel:'payment_methods',clientId:String(entityId)}};

@@ -75,7 +75,9 @@
           Loading your workspace…
         </p>
         <template v-else-if="data">
-          <PracticeOverview v-if="section === 'home' && !patientPortal" :account="account" :practice="practice" :data="data" :navigation="navigation" :notifications="notifications" @navigate="navigateOverview" />
+          <Supervision v-if="section === 'supervision' && !patientPortal" :key="`${base}:supervision`" :base="base" />
+          <Credentialing v-else-if="section === 'credentialing' && !patientPortal && (can('credentialing') || can('admin'))" :key="`${base}:credentialing`" :base="base" />
+          <PracticeOverview v-else-if="section === 'home' && !patientPortal" :account="account" :practice="practice" :data="data" :navigation="navigation" :notifications="notifications" @navigate="navigateOverview" />
           <div v-else-if="section === 'announcements' && canManageToasts" class="stack">
             <ToastAnnouncementManager :request="api" :base-path="`${base}/toasts`" />
             <ToastAnnouncementManager v-if="account?.operator" :request="api" base-path="/support-toasts" support />
@@ -425,7 +427,7 @@
             /></template>
             <template v-else-if="section === 'billing'"
               ><BillingSetup
-                v-if="can('billing') && billingTab !== 'shared'"
+                v-if="can('billing') && !['shared','fees'].includes(billingTab)"
                 :base="base"
                 :patients="data.patients"
                 :claims="data.claims"
@@ -443,7 +445,7 @@
               />
               <div class="tabbar">
                 <button
-                  v-for="tab in (can('billing') ? ['shared', 'ledger', 'claims', 'payers'] : ['ledger'])"
+                  v-for="tab in (can('billing') ? ['shared', 'fees', 'ledger', 'claims', 'payers'] : ['ledger'])"
                   :key="tab"
                   :class="{ selected: billingTab === tab }"
                   @click="
@@ -452,7 +454,7 @@
                   "
                 >
                   {{
-                    tab === "shared" ? "Insurance claims" : tab === "ledger"
+                    tab === "shared" ? "Insurance claims" : tab === "fees" ? "Fee schedules" : tab === "ledger"
                       ? "Patient ledger"
                       : tab === "claims"
                         ? "Earlier claims"
@@ -460,8 +462,9 @@
                   }}
                 </button>
               </div>
+              <FeeSchedules v-if="billingTab === 'fees' && can('billing')" :key="base" :base="base" :root="root" />
               <SharedBilling v-if="billingTab === 'shared' && can('billing')" :key="base" :base="base" :patients="data.patients" />
-              <p v-if="billingTab !== 'shared'" class="notice">
+              <p v-if="!['shared','fees'].includes(billingTab)" class="notice">
                 Manual entries record transactions already handled by your
                 practice. Electronic claims and payments require verified
                 practice connections and explicit approval.
@@ -651,6 +654,9 @@
   </div>
 </template>
 <script setup>
+import Credentialing from "./Credentialing.vue";
+import Supervision from "./Supervision.vue";
+import FeeSchedules from "./FeeSchedules.vue";
 import { ref, computed, onMounted, onUnmounted, h, nextTick, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { api } from "./api";
@@ -789,6 +795,8 @@ const navigation = computed(() =>
     ...(patientPortal.value || can("billing")
       ? [{ key: "billing", label: "Billing", icon: "▭" }]
       : []),
+    ...(!patientPortal.value && practice.value?.addons?.supervision && (can('clinical') || can('supervise') || can('admin')) ? [{ key: 'supervision', label: 'Supervision', icon: '◷' }] : []),
+    ...(!patientPortal.value && practice.value?.addons?.credentialing && (can('credentialing') || can('admin')) ? [{ key: 'credentialing', label: 'Credentialing', icon: '▣' }] : []),
     { key: "messages", label: "Messages", icon: "✉" },
     ...(patientPortal.value ||
     can("admin") ||

@@ -220,7 +220,7 @@ test('provider query outage stays unknown and does not promote stale legacy assi
   assert.equal(f.reads.some((r) => r.sql.includes('FROM users')), false);
 });
 
-function fixture({ staffCopy = false, initialReceipt = null, attachmentFailure = false, reviewFailure = false, historyScopes = null } = {}) {
+function fixture({ credentialingCaseId = null, staffCopy = false, initialReceipt = null, attachmentFailure = false, reviewFailure = false, historyScopes = null } = {}) {
   const statements = [], captures = [], generations = [];
   let receipt = initialReceipt;
   const ticket = { id: 7, agency_id: 2, school_organization_id: 8, source_email_message_id: '<original@school.test>',
@@ -228,6 +228,9 @@ function fixture({ staffCopy = false, initialReceipt = null, attachmentFailure =
   const db = { async beginTransaction() {}, async commit() {}, async rollback() {}, release() {}, async execute(sql, values = []) {
     statements.push({ sql, values });
     assert.equal((sql.match(/\?/g) || []).length, values.length, sql);
+    if (sql.startsWith('SELECT ticket_id FROM credentialing_email_tickets')) return [Number(values[1]) === credentialingCaseId ? [{ticket_id:7}] : []];
+    if (sql.startsWith('SELECT credential_id FROM credentialing_case_emails')) return [[{credential_id:3}]];
+    if (sql.includes('SELECT DISTINCT u.id')) return [[]];
     if (sql.includes('GET_LOCK')) return [[{ acquired: 1 }]];
     if (sql.includes('RELEASE_LOCK')) return [[{ released: 1 }]];
     if (sql.startsWith('SELECT * FROM support_ticket_email_messages')) return [receipt ? [receipt] : []];
@@ -531,3 +534,22 @@ test('ongoing reconciliation captures only outbound copies after live intake kno
   assert.equal(calls[0].staffCopy, true);
   assert.equal(calls[0].preserveTicketState, true);
 });
+
+test('credentialing follow-ups are scoped by their case even when Gmail reuses a thread ID', async () => withKey(async () => {
+  const f = fixture({ credentialingCaseId: 9 });
+  const input = { ...base, credentialingCaseEmailId: 9, topic: 'credentialing', generateDraft: false };
+  await ingestSupportTicketEmail(input, f.dependencies);
+  const query = f.statements.find(s => s.sql.startsWith('SELECT t.* FROM support_tickets'));
+  assert.match(query.sql, /credentialing_email_tickets cet WHERE cet.ticket_id=t.id AND cet.case_email_id=\?/);
+  assert.equal(query.values.at(-1), 9);
+  assert.equal(f.statements.some(s => s.sql.startsWith('INSERT INTO support_ticket_email_thread_sync')), false);
+  assert.equal(f.generations.length, 0);
+  const again = await ingestSupportTicketEmail(input, f.dependencies);
+  assert.equal(again.duplicate, true);
+  assert.equal(f.statements.filter(s => s.sql.startsWith('INSERT INTO support_ticket_messages')).length, 1);
+}));
+test('a duplicate credentialing receipt cannot be linked into another provider–payer case', async () => withKey(async () => {
+  const f = fixture({ credentialingCaseId: 9, initialReceipt: { ticket_id:7, ticket_message_id:11, direction:'inbound' } });
+  await assert.rejects(ingestSupportTicketEmail({ ...base, credentialingCaseEmailId: 99, generateDraft: false }, f.dependencies), /different credentialing case/);
+  assert.equal(f.statements.some(s => /^(INSERT|UPDATE) /.test(s.sql)), false);
+}));

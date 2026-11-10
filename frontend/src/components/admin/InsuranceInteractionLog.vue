@@ -92,7 +92,9 @@
 
 <script setup>
 import { ref, watch, computed } from 'vue';
-import api from '../../services/api';
+import { inject as injectCredentialing } from 'vue';
+import defaultCredentialingApi from '../../services/api';
+const api = injectCredentialing('credentialingTransport', defaultCredentialingApi);
 import { useAuthStore } from '../../store/auth';
 
 const props = defineProps({
@@ -106,7 +108,8 @@ const props = defineProps({
   allowEmployeeScope: { type: Boolean, default: false }
 });
 
-const authStore = useAuthStore();
+const credentialingContext = injectCredentialing('credentialingContext', null);
+const authStore = credentialingContext ? { user: credentialingContext.user } : useAuthStore();
 const interactions = ref([]);
 const localContacts = ref([]);
 const loading = ref(false);

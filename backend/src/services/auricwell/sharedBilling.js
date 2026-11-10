@@ -1,7 +1,8 @@
+import { grantCredentialingActor } from '../credentialingAccess.service.js';
 import { pool } from './repository.js';
 import { owningAgency } from './sharedPatients.js';
 import { staffIdentity } from './sharedProviders.js';
-import { requirePermission, requireCapability, requirePhi, fail } from './policy.js';
+import { requirePermission, requireCapability, requirePhi, fail, has } from './policy.js';
 import { assertMedicalBillingFlag } from '../medicalBillingFlags.service.js';
 import { createAuricwellBillingActor } from '../productBillingContext.service.js';
 import { billingWorkspace } from '../claimMdWorkspace.service.js';
@@ -11,6 +12,11 @@ import { billingRollout } from './billingRollout.js';
 // copies, role impersonation, credentials, or clearinghouse payloads are created here.
 const routes = [
   ['GET', /^workspace$/, 'workspace'],
+  ['GET', /^fee-schedule\/context$/, 'feeContext'],
+  ['GET', /^fee-schedule\/canonical$/, 'getFeeSchedule'],
+  ['POST', /^fee-schedule\/canonical$/, 'postFeeSchedule'],
+  ['POST', /^fee-schedule\/canonical\/defaults$/, 'postFeeScheduleDefaults'],
+  ['POST', /^fee-schedule\/sync-payers$/, 'postFeeSchedulePayerSync'],
   ['GET', /^provider-rollout$/, 'rollout'],
   ['PUT', /^provider-rollout$/, 'rollout'],
   ['GET', /^claims\/undrafted-notes$/, 'listUndraftedNotes'],
@@ -32,7 +38,7 @@ const routes = [
 ];
 const dependencies = {
   pool, owningAgency, staffIdentity, workspace: billingWorkspace, rollout: billingRollout,
-  controllers: async () => ({ ...await import('../../controllers/claimMdWorkflow.controller.js'), ...await import('../../controllers/medicalBilling.controller.js') }),
+  controllers: async () => ({ ...await import('../../controllers/claimMdWorkflow.controller.js'), ...await import('../../controllers/medicalBilling.controller.js'), ...await import('../../controllers/feeSchedule.controller.js') }),
 };
 
 export async function sharedBilling(ctx, { method, path, query = {}, body = {} }, deps = dependencies) {
@@ -56,7 +62,9 @@ export async function sharedBilling(ctx, { method, path, query = {}, body = {} }
   // Product billing permission was authenticated above. Carry that grant by object
   // identity, for this request and practice only; never change the user's shared role.
   const actor = createAuricwellBillingActor(user, agencyId);
+  if (ctx.settings.addons?.credentialing && (has(ctx, 'admin') || has(ctx, 'credentialing'))) grantCredentialingActor(actor, agencyId);
   const operation = route[2];
+  if (operation === 'feeContext') return { status: 200, data: { id: agencyId, name: ctx.practiceName } };
   if (operation === 'workspace') return { status: 200, data: await deps.workspace(actor, { ...query, agencyId }) };
   if (operation === 'rollout') return { status: 200, data: await deps.rollout(ctx, method === 'PUT' ? body : null) };
   // This transition keeps the existing ERA receiver. Claims enrollment is separate.
@@ -66,7 +74,7 @@ export async function sharedBilling(ctx, { method, path, query = {}, body = {} }
   if (Object.values(params).some(value => !Number.isSafeInteger(Number(value)))) throw fail(400, 'Invalid billing record ID.');
   const controller = (await deps.controllers())[operation];
   let result;
-  const res = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(data) { result = { status: this.statusCode, data }; return this; } };
+  const res = { statusCode: 200, set() { return this; }, status(code) { this.statusCode = code; return this; }, json(data) { result = { status: this.statusCode, data }; return this; } };
   await controller({ user: actor, params, query: { ...query, agencyId }, body: { ...body, agencyId } }, res, error => { throw error; });
   if (!result) throw fail(500, 'Billing did not return a response.');
   return result;

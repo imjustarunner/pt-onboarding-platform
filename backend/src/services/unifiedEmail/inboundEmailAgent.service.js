@@ -951,6 +951,17 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
       await gmail.users.messages.modify({userId:'me',id,requestBody:{removeLabelIds:['UNREAD'],addLabelIds:[processedLabelId]}});
       continue;
     }
+    const { ingestCredentialingEmail } = await import('../credentialingOperations.service.js');
+    const credentialing = await ingestCredentialingEmail({
+      addresses: ['to','cc','delivered-to','x-original-to','envelope-to'].flatMap(key => extractEmails(hdrs.get(key))),
+      fromEmail, subject, bodyText: pickBodyText(payload), messageId: hdrs.get('message-id'),
+      threadId: full.data?.threadId, inReplyTo: hdrs.get('in-reply-to'), referencesHeader: hdrs.get('references'),
+      receivedAt: new Date(Number(full.data?.internalDate) || Date.now()), gmail, gmailMessageId: id, payload
+    });
+    if (credentialing.ingested) {
+      await gmail.users.messages.modify({userId:'me',id,requestBody:{removeLabelIds:['UNREAD'],addLabelIds:[processedLabelId]}});
+      results.inboxDeliveries++; continue;
+    }
     const routed = await routeSenderIdentityFromHeaders(hdrs);
     if (await isSchoolWelcomeSupportReply({ addresses: [...routed.to, ...routed.cc, ...routed.deliveredTo], inReplyTo: hdrs.get('in-reply-to'), references: hdrs.get('references') })) {
       const support = await EmailSenderIdentity.findByAgencyAndIdentityKey(2, 'support');

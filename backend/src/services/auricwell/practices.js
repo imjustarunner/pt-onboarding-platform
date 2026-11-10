@@ -176,6 +176,12 @@ export async function saveSettings(ctx, input) {
     next.capabilities = Object.fromEntries(
       CAPABILITIES.map((c) => [c, input.capabilities[c] === true]),
     );
+  if (input.addons && JSON.stringify(input.addons) !== JSON.stringify(s.addons || {})) {
+    if (!ctx.profile.operator) throw fail(403, 'Add-ons must be activated by the platform operator under the practice agreement.');
+    if (Object.entries(input.addons).some(([key, value]) => !['supervision','credentialing'].includes(key) || typeof value !== 'boolean'))
+      throw fail(400, 'Choose valid practice add-ons.');
+    next.addons = { ...s.addons, ...input.addons };
+  }
   const [result] = await pool.execute(
     "UPDATE auricwell_practices SET settings=?,revision=revision+1 WHERE id=? AND revision=?",
     [

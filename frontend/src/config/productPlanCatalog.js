@@ -143,6 +143,7 @@ export const PLAN_FEATURES = Object.freeze([
       "platform",
       "auricwell"
     ],
+    "auricwellAddon": "supervision",
     "scope": "agency"
   },
   {
@@ -155,6 +156,7 @@ export const PLAN_FEATURES = Object.freeze([
       "platform",
       "auricwell"
     ],
+    "auricwellAddon": "supervision",
     "scope": "agency"
   },
   {
@@ -167,6 +169,7 @@ export const PLAN_FEATURES = Object.freeze([
       "platform",
       "auricwell"
     ],
+    "auricwellAddon": "supervision",
     "scope": "agency"
   },
   {
@@ -606,6 +609,19 @@ export const PLAN_FEATURES = Object.freeze([
     "products": [
       "platform"
     ],
+    "scope": "agency"
+  },
+  {
+    "key": "credentialing",
+    "label": "Credentialing management",
+    "description": "The existing credentialing workspace, provider and payer records, secure payer documents, team reminders and optional receive-only case email.",
+    "category": "Practice",
+    "minimumTier": "separate",
+    "products": [
+      "platform",
+      "auricwell"
+    ],
+    "auricwellAddon": "credentialing",
     "scope": "agency"
   }
 ].map(feature => Object.freeze({ ...feature, products: Object.freeze(feature.products) })));

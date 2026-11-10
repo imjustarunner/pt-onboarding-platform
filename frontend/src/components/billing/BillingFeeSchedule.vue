@@ -53,6 +53,9 @@
       </label>
     </div>
 
+    <template v-if="mode === 'insurance' && payerId && overview.canViewCredentialingDocuments">
+      <CredentialingOperationsPanel v-for="payer in (overview.credentialingDocumentPayers || []).filter(p => p.payerId === payerId)" :key="`${agencyId}:${payer.definitionId}`" :agency-id="Number(agencyId)" kind="payer" :record-id="Number(payer.definitionId)" documents-only read-only />
+    </template>
     <p class="inheritance" data-testid="rate-inheritance">
       <span>Platform default</span><span aria-hidden="true">→</span><span>Practice default</span><span aria-hidden="true">→</span>
       <span v-if="mode === 'insurance'">HCBS category</span><span v-if="mode === 'insurance'" aria-hidden="true">→</span>
@@ -160,8 +163,10 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, ref, watch } from 'vue';
-import api from '../../services/api';
+import { computed, onBeforeUnmount, ref, watch, inject } from 'vue';
+import defaultBillingApi from '../../services/api';
+const api = inject('billingTransport', defaultBillingApi);
+import CredentialingOperationsPanel from '../admin/CredentialingOperationsPanel.vue';
 
 const props = defineProps({
   agencyId: { type: [Number, String], default: 0 },

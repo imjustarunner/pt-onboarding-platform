@@ -16,6 +16,7 @@ const features = inventory.map(item => {
     key: item.key, label: item.feature, description: item.description,
     category: item.category, minimumTier: choice.minimumTier,
     products: item.products === 'Platform + AuricWell' ? ['platform', 'auricwell'] : ['platform'],
+    ...(item.auricwellAddon ? { auricwellAddon: item.auricwellAddon } : {}),
     scope: ['private_office', 'multiple_office_guests'].includes(item.key) ? 'individual' : 'agency',
     ...(item.key === 'focusMusic' ? { aliasOf: 'focusPackage' } : {})
   };

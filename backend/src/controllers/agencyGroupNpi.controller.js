@@ -1,3 +1,4 @@
+import { requireCredentialingAccess } from '../services/credentialingAccess.service.js';
 import multer from 'multer';
 import path from 'path';
 import AgencyGroupNpi from '../models/AgencyGroupNpi.model.js';
@@ -6,7 +7,6 @@ import InsuranceCredentialingDefinition from '../models/InsuranceCredentialingDe
 import OfficeLocation from '../models/OfficeLocation.model.js';
 import StorageService from '../services/storage.service.js';
 import { encryptChatText } from '../services/chatEncryption.service.js';
-import { userHasCredentialingAccessForAgency } from '../utils/capabilities.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 
 export const payerCredentialDocUpload = multer({
@@ -27,18 +27,7 @@ export const payerCredentialDocUpload = multer({
 });
 
 async function assertCredentialPrivilege(req, agencyId) {
-  if (req.user.role === 'super_admin') return;
-  const role = String(req.user.role || '').toLowerCase();
-  if (!['admin', 'support', 'staff'].includes(role) && req.user.agencyAccess?.permissions.can_manage_credentialing !== true) {
-    const err = new Error('Access denied');
-    err.statusCode = 403;
-    throw err;
-  }
-  const allowed = await userHasCredentialingAccessForAgency(req.user.id, agencyId, { role });
-  if (allowed) return;
-  const err = new Error('Access denied');
-  err.statusCode = 403;
-  throw err;
+  await requireCredentialingAccess(req.user, agencyId);
 }
 
 function parseAgencyId(req) {

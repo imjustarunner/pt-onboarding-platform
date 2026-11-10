@@ -74,6 +74,7 @@
       <div v-else class="muted">No contacts yet.</div>
     </div>
 
+    <CredentialingOperationsPanel :agency-id="agencyId" kind="payer" :record-id="Number(definition.id)" />
     <InsuranceInteractionLog
       :agency-id="agencyId"
       :insurance-definition-id="definition.id"
@@ -87,8 +88,11 @@
 
 <script setup>
 import { ref, computed, watch } from 'vue';
-import api from '../../services/api';
+import { inject as injectCredentialing } from 'vue';
+import defaultCredentialingApi from '../../services/api';
+const api = injectCredentialing('credentialingTransport', defaultCredentialingApi);
 import { toUploadsUrl } from '../../utils/uploadsUrl';
+import CredentialingOperationsPanel from './CredentialingOperationsPanel.vue';
 import InsuranceInteractionLog from './InsuranceInteractionLog.vue';
 
 const props = defineProps({

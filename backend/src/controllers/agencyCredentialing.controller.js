@@ -1,3 +1,4 @@
+import { requireCredentialingAccess } from '../services/credentialingAccess.service.js';
 import pool from '../config/database.js';
 import multer from 'multer';
 import path from 'path';
@@ -14,7 +15,6 @@ import StorageService from '../services/storage.service.js';
 import { encryptChatText, decryptChatText } from '../services/chatEncryption.service.js';
 import { validationResult } from 'express-validator';
 import crypto from 'crypto';
-import { userHasCredentialingAccessForAgency } from '../utils/capabilities.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import UserComplianceDocument from '../models/UserComplianceDocument.model.js';
 import { syncLicenseUploadToProfile } from '../services/licenseCredentialSync.service.js';
@@ -26,7 +26,7 @@ function csvEscape(v) {
   return s;
 }
 
-const ACTIVE_STATUSES = new Set(['ACTIVE_EMPLOYEE', 'ACTIVE']);
+const ACTIVE_STATUSES = new Set(['ACTIVE_EMPLOYEE', 'ACTIVE', 'EHR_ONLY']);
 const PROVIDER_ROLES = new Set(['provider', 'provider_plus', 'clinical_practice_assistant', 'super_admin', 'admin']);
 
 function isMeaningfulValue(v) {
@@ -272,18 +272,7 @@ async function assertAgencyAccess(req, agencyId) {
 
 /** Require credential management privilege for the agency. Super_admin always passes. */
 async function assertCredentialPrivilege(req, agencyId) {
-  if (req.user.role === 'super_admin') return;
-  const role = String(req.user.role || '').toLowerCase();
-  if (!['admin', 'support', 'staff'].includes(role)) {
-    const err = new Error('Access denied');
-    err.statusCode = 403;
-    throw err;
-  }
-  const allowed = await userHasCredentialingAccessForAgency(req.user.id, agencyId, { role });
-  if (allowed) return;
-  const err = new Error('Access denied');
-  err.statusCode = 403;
-  throw err;
+  await requireCredentialingAccess(req.user, agencyId);
 }
 
 async function assertInsuranceDefinition(req, agencyId, insuranceId) {
@@ -331,7 +320,7 @@ export const listAgencyProvidersCredentialing = async (req, res, next) => {
               u.profile_photo_path, u.credential
        FROM users u
        JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
-       WHERE UPPER(COALESCE(u.status,'')) IN ('ACTIVE_EMPLOYEE','ACTIVE')
+       WHERE UPPER(COALESCE(u.status,'')) IN ('ACTIVE_EMPLOYEE','ACTIVE','EHR_ONLY')
          AND (
            LOWER(COALESCE(u.role,'')) IN ('provider','provider_plus','clinical_practice_assistant','super_admin')
            OR (
@@ -745,18 +734,7 @@ export const uploadProviderLicenseCredentialing = async (req, res, next) => {
   }
 };
 
-export const ocrProviderLicenseCredentialing = async (req, res, next) => {
-  try {
-    const agencyId = parseInt(req.params.agencyId, 10);
-    const userId = parseInt(req.params.userId, 10);
-    if (!Number.isInteger(agencyId) || agencyId <= 0 || !Number.isInteger(userId) || userId <= 0) {
-      return res.status(400).json({ error: { message: 'Invalid agencyId or userId' } });
-    }
-    await assertCredentialPrivilege(req, agencyId);
-    await assertProviderInAgency(agencyId, userId);
-
-    const apply = String(req.body?.apply || req.query?.apply || '').toLowerCase() === 'true';
-
+async function providerLicensePath(userId) {
     const [vals] = await pool.execute(
       `SELECT uiv.value
        FROM user_info_values uiv
@@ -774,6 +752,38 @@ export const ocrProviderLicenseCredentialing = async (req, res, next) => {
       );
       uploadPath = String(licenseDoc?.file_path || '').trim();
     }
+  return uploadPath;
+}
+
+export const downloadProviderLicenseCredentialing = async (req, res, next) => {
+  try {
+    const agencyId = Number(req.params.agencyId), userId = Number(req.params.userId);
+    await assertCredentialPrivilege(req, agencyId);
+    await assertProviderInAgency(agencyId, userId);
+    const filePath = await providerLicensePath(userId);
+    if (!filePath) return res.status(404).json({ error: { message: 'No license upload on file.' } });
+    await pool.execute(`INSERT INTO credentialing_workflow_events (agency_id,subject_type,record_id,actor_user_id,before_json,after_json) VALUES (?,'provider_profile',?,?,NULL,?)`, [agencyId,userId,req.user.id,JSON.stringify({action:'license.viewed'})]);
+    const buffer = await StorageService.readObjectBuffer(filePath);
+    const ext = path.extname(filePath).toLowerCase();
+    res.set('Cache-Control','no-store').set('X-Content-Type-Options','nosniff')
+      .set('Content-Type', {'.pdf':'application/pdf','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp'}[ext] || 'application/octet-stream')
+      .set('Content-Disposition',`inline; filename*=UTF-8''${encodeURIComponent(path.basename(filePath))}`).send(buffer);
+  } catch (error) { next(error); }
+};
+
+export const ocrProviderLicenseCredentialing = async (req, res, next) => {
+  try {
+    const agencyId = parseInt(req.params.agencyId, 10);
+    const userId = parseInt(req.params.userId, 10);
+    if (!Number.isInteger(agencyId) || agencyId <= 0 || !Number.isInteger(userId) || userId <= 0) {
+      return res.status(400).json({ error: { message: 'Invalid agencyId or userId' } });
+    }
+    await assertCredentialPrivilege(req, agencyId);
+    await assertProviderInAgency(agencyId, userId);
+
+    const apply = String(req.body?.apply || req.query?.apply || '').toLowerCase() === 'true';
+
+    const uploadPath = await providerLicensePath(userId);
     if (!uploadPath) {
       return res.status(404).json({ error: { message: 'No license upload on file for this provider' } });
     }
@@ -846,7 +856,7 @@ export const downloadAgencyProvidersCredentialingCsv = async (req, res, next) =>
       `SELECT u.id AS userId, u.first_name, u.last_name, u.role, u.status, u.personal_email, u.personal_phone
        FROM users u
        JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
-       WHERE UPPER(COALESCE(u.status,'')) IN ('ACTIVE_EMPLOYEE','ACTIVE')
+       WHERE UPPER(COALESCE(u.status,'')) IN ('ACTIVE_EMPLOYEE','ACTIVE','EHR_ONLY')
          AND (
            LOWER(COALESCE(u.role,'')) IN ('provider','provider_plus','clinical_practice_assistant','super_admin')
            OR (

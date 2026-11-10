@@ -162,7 +162,9 @@
 
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue';
-import api from '../../services/api';
+import { inject as injectCredentialing } from 'vue';
+import defaultCredentialingApi from '../../services/api';
+const api = injectCredentialing('credentialingTransport', defaultCredentialingApi);
 import { useAgencyStore } from '../../store/agency';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import InsuranceDefinitionsPanel from './InsuranceDefinitionsPanel.vue';

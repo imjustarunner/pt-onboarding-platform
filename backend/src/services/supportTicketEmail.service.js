@@ -44,6 +44,11 @@ export async function listTicketEmailDeliveryMetadata(ticketId, db = pool) {
 
 /** Read-only alias for historical duplicate tickets, never a record merge. */
 export async function resolveSupportTicketEmailThread(ticket, db = pool) {
+  if (ticket?.topic === 'credentialing') {
+    const [[linked]] = await db.execute('SELECT ticket_id FROM credentialing_email_tickets WHERE ticket_id=?', [ticket.id]);
+    if (linked) return { canonicalTicketId: Number(ticket.id), originalTicketId: Number(ticket.id) };
+  }
+
   if (ticket?.source_channel !== 'email' || !ticket.source_email_thread_id || !ticket.agency_id) return { canonicalTicketId: Number(ticket?.id) || null };
   const [rows] = await db.execute(`SELECT t.id,t.claimed_by_user_id,s.canonical_ticket_id,
       (SELECT MIN(e.id) FROM support_ticket_email_messages e WHERE e.ticket_id=t.id) AS first_email_id FROM support_tickets t
@@ -95,6 +100,8 @@ export async function sendSupportTicketEmailReply(input, dependencies = {}) {
     await db.beginTransaction();
     [[ticket]] = await db.execute('SELECT * FROM support_tickets WHERE id=? FOR UPDATE', [ticketId]);
     if (!ticket || ticket.source_channel !== 'email') throw supportEmailError('Email ticket not found.', 404);
+    const [[credentialingCase]] = await db.execute('SELECT id FROM credentialing_email_tickets WHERE ticket_id=?', [ticketId]);
+    if (credentialingCase) throw supportEmailError('This credentialing address is receive-only. Outbound replies are unavailable.', 403, 'CREDENTIALING_RECEIVE_ONLY');
     const canonical = await resolveSupportTicketEmailThread(ticket, db);
     if (canonical.canonicalTicketId !== Number(ticket.id)) {
       throw Object.assign(supportEmailError('Open the current email conversation before replying.', 409, 'SUPPORT_EMAIL_CANONICAL_TICKET'), canonical);

@@ -138,7 +138,9 @@
 
 <script setup>
 import { computed, reactive, ref, watch } from 'vue';
-import api from '../../services/api';
+import { inject as injectCredentialing } from 'vue';
+import defaultCredentialingApi from '../../services/api';
+const api = injectCredentialing('credentialingTransport', defaultCredentialingApi);
 import AgencyGroupNpiPayerCredentialsPanel from './AgencyGroupNpiPayerCredentialsPanel.vue';
 
 const props = defineProps({

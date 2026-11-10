@@ -1676,6 +1676,16 @@ if (!isBootstrap) {
   };
   void processPortalOnboarding();
   setInterval(processPortalOnboarding, 60*60*1000).unref();
+  let credentialingRemindersBusy = false;
+  const credentialingReminderTick = async () => {
+    if (credentialingRemindersBusy) return;
+    credentialingRemindersBusy = true;
+    try { await (await import('./services/credentialingOperations.service.js')).processCredentialingReminders(); }
+    catch (error) { if (error.code !== 'ER_NO_SUCH_TABLE') console.error('[credentialing reminders]', error.code || 'processing_failed'); }
+    finally { credentialingRemindersBusy = false; }
+  };
+  void credentialingReminderTick();
+  setInterval(credentialingReminderTick, 60000).unref();
   let trainingNoticesBusy = false;
   let credentialNoticesBusy = false;
   const processCredentialNotices = async () => {

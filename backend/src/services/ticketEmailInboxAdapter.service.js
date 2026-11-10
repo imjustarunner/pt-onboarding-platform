@@ -14,6 +14,7 @@ export function resolveTicketInbox(ticket, inboxes) {
     return key && DEPARTMENTAL_GROUPS[key]?.topic === ticket.topic && ticket.topic !== 'general';
   });
   if (department) return department;
+  if (ticket.topic === 'credentialing') return null;
   return inboxes.find((i) => recipients.has(String(i.from_email || '').toLowerCase()))
     || inboxes.find((i) => /schoolreply|school_reply|schools@/i.test(`${i.identity_key} ${i.from_email}`))
     || inboxes.find((i) => /support@/i.test(i.from_email || '')) || null;
@@ -59,6 +60,7 @@ export async function syncEmailTicketsToInbox({ agencyId, ticketId = null, limit
       if (Number(lock?.acquired) !== 1) continue;
       locked = true;
       const preferred = resolveTicketInbox(ticket, inboxes);
+      if (ticket.topic === 'credentialing' && !preferred) continue;
       let conversation = await CommunicationConversation.findBySupportTicketId(ticket.id);
       if (!conversation) {
         conversation = await CommunicationConversation.create({ agencyId, inboxId: preferred?.id || null,

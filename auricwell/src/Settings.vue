@@ -240,6 +240,12 @@
             require verified service connections.
           </p>
         </article>
+        <article class="card">
+          <h2>Optional add-ons</h2>
+          <p>Supervision uses the existing scheduler and completed-hours tracking. Credentialing includes the full shared credentialing workspace. Activation and fees follow your practice agreement.</p>
+          <template v-if="operator"><label><input v-model="addons.supervision" type="checkbox" /> Supervision</label><label><input v-model="addons.credentialing" type="checkbox" /> Credentialing management</label><button :disabled="busy" @click="run(() => save({ addons: { ...addons } }))">Save add-ons</button></template>
+          <p v-else>Ask your AuricWell administrator to activate an add-on under your practice agreement.</p>
+        </article>
         <article v-if="operator" class="card">
           <h2>Service connections</h2>
           <RecordForm
@@ -290,6 +296,8 @@
   </section>
 </template>
 <script setup>
+import { reactive as addonReactive } from "vue";
+const addons = addonReactive({ supervision: false, credentialing: false });
 import { ref, computed, onMounted } from "vue";
 import { api } from "./api";
 import RecordForm from "./RecordForm.vue";
@@ -524,6 +532,7 @@ async function run(fn) {
 }
 async function load() {
   config.value = await api(`${props.base}/settings`);
+  Object.assign(addons, { supervision: false, credentialing: false }, config.value.settings.addons || {});
   members.value = await api(`${props.base}/members`);
   const management = await api(`${props.base}/records-management`);
   recordsManagers.value = management.managers;

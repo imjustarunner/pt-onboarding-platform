@@ -289,13 +289,15 @@ export function createSupportReplyReviewService({ db: injectedDb, encrypt = encr
     const staffSlots = config.pilotUserIds.map(() => '?').join(',');
     const [tickets] = includeAllStaff ? await db.execute(`SELECT t.*, u.first_name AS owner_first_name, u.last_name AS owner_last_name
       FROM support_tickets t LEFT JOIN users u ON u.id = t.claimed_by_user_id
-      WHERE t.agency_id = ? AND t.source_channel = 'email' AND (
+      WHERE t.agency_id = ? AND t.source_channel = 'email' AND COALESCE(t.topic,'') <> 'credentialing'
+        AND NOT EXISTS (SELECT 1 FROM credentialing_email_tickets ce WHERE ce.ticket_id=t.id) AND (
         COALESCE(t.source_email_received_at,t.created_at) >= ? AND COALESCE(t.source_email_received_at,t.created_at) < ?
         OR EXISTS (SELECT 1 FROM support_reply_review_snapshots s WHERE s.agency_id=t.agency_id AND s.ticket_id=t.id AND s.occurred_at>=? AND s.occurred_at<?)
         OR EXISTS (SELECT 1 FROM support_ticket_email_messages e WHERE e.agency_id=t.agency_id AND e.ticket_id=t.id AND COALESCE(e.sent_at,e.created_at)>=? AND COALESCE(e.sent_at,e.created_at)<?))
       ORDER BY t.id DESC LIMIT 501`, [config.agencyId,...[1,2,3].flatMap(()=>[sqlDate(window.start),sqlDate(window.end)])]) : await db.execute(`SELECT t.*, u.first_name AS owner_first_name, u.last_name AS owner_last_name
       FROM support_tickets t LEFT JOIN users u ON u.id = t.claimed_by_user_id
-      WHERE t.agency_id = ? AND t.source_channel = 'email' AND (
+      WHERE t.agency_id = ? AND t.source_channel = 'email' AND COALESCE(t.topic,'') <> 'credentialing'
+        AND NOT EXISTS (SELECT 1 FROM credentialing_email_tickets ce WHERE ce.ticket_id=t.id) AND (
         EXISTS (SELECT 1 FROM support_reply_review_snapshots s WHERE s.ticket_id = t.id
           AND s.occurred_at >= ? AND s.occurred_at < ? AND (s.actor_user_id IN (${staffSlots}) OR (s.actor_user_id IS NULL AND t.claimed_by_user_id IN (${staffSlots}))))
         OR (t.claimed_by_user_id IN (${staffSlots}) AND t.source_email_received_at >= ? AND t.source_email_received_at < ?)

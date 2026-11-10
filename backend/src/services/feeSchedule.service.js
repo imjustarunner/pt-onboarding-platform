@@ -9,7 +9,7 @@ import {
   feeLedgerKey, resolveFeeFromEntries, resolveModifiersFromEntries, calculateFeeCharge, SELF_PAY_CATEGORIES, CREDENTIAL_MODIFIER_SCOPES
 } from '../utils/feeScheduleRates.js';
 
-const deps = { main: pool, clinical: clinicalPool, access: hasSchedulingBillingAccess, credentials: credentialPayerRows };
+const deps = { main: pool, clinical: clinicalPool, access: hasSchedulingBillingAccess, credentialingAccess: async (...args) => (await import('./credentialingAccess.service.js')).canAccessCredentialing(...args), credentials: credentialPayerRows };
 const bool = value => value === true || value === 1 || value === '1' || value === 'true';
 const categoryFor = user => { const n = classifyPayCategory({ ...user, isHourlyWorker: user.is_hourly_worker }).category; return n ? `category_${n}` : 'unclassified'; };
 const key = (ownerKey, mode, scopeKey, serviceCode, recordType = 'rate') => feeLedgerKey({ ownerKey, mode, scopeKey, serviceCode, recordType });
@@ -155,7 +155,10 @@ export async function getCanonicalFeeSchedule(user, input = {}, d = deps) {
   const inactiveCodes = used.filter(code => catalog.has(code) && !bool(catalog.get(code).is_active));
   if (missingCodes.length) warnings.push(`Claims use service codes missing from this practice's settings: ${missingCodes.join(', ')}. Review Service codes to configure them and their rates. Existing claims remain visible; no automatic rate is supplied.`);
   if (inactiveCodes.length) warnings.push(`Claims use inactive service codes: ${inactiveCodes.join(', ')}. Review their status in Service codes. Existing claims remain visible; inactive codes have no automatic fee rate.`);
-  return { ...scope, revision, readOnly: false, canManagePlatform: user.role === 'super_admin', rows,
+  const canViewCredentialingDocuments = d.credentialingAccess ? await d.credentialingAccess(user, scope.agencyId) : false;
+  const [credentialingDocumentPayers] = canViewCredentialingDocuments
+    ? await d.main.execute('SELECT insurance_definition_id AS definitionId,payer_id AS payerId FROM credentialing_payer_links WHERE agency_id=?', [scope.agencyId]) : [[]];
+  return { ...scope, revision, canViewCredentialingDocuments, credentialingDocumentPayers, readOnly: false, canManagePlatform: user.role === 'super_admin', rows,
     payers: ctx.payers.map(({ names, ...payer }) => payer), providers: ctx.providers, categories: SELF_PAY_CATEGORIES, credentialScopes: CREDENTIAL_MODIFIER_SCOPES,
     warnings, missingServiceCodes: missingCodes, inactiveServiceCodes: inactiveCodes, unlinkedCredentialCount, credentialingPath: `/admin/credentialing?agencyId=${scope.agencyId}`,
     starterRateNotice: 'Platform starters are editable billed-charge defaults. They are not payer reimbursement rates. Existing service-code and unit rules apply.' };

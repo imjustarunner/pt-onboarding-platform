@@ -1,5 +1,6 @@
 <template>
   <div class="payer-panel">
+    <details @toggle="providerRemindersOpen = $event.target.open" :open="providerRemindersOpen"><summary>Provider expiration and renewal reminders</summary><CredentialingOperationsPanel v-if="providerRemindersOpen" :agency-id="agencyId" kind="provider_profile" :record-id="userId" /></details>
     <div class="payer-panel-header">
       <div>
         <h4>Payer credentials</h4>
@@ -91,7 +92,7 @@
         <div class="docs-row">
           <div class="doc-block" :class="{ 'doc-missing': !row.welcomeLetterUrl }">
             <div class="doc-label">Welcome letter</div>
-            <a v-if="row.welcomeLetterUrl" class="link" :href="row.welcomeLetterUrl" target="_blank" rel="noopener">View</a>
+            <button v-if="row.welcomeLetterUrl" type="button" class="link" @click="openDocument(row, 'welcome_letter')">View</button>
             <span v-else class="missing">Not uploaded</span>
             <label class="link upload">
               {{ row.uploadingWelcome ? 'Uploading…' : 'Upload' }}
@@ -106,7 +107,7 @@
           </div>
           <div class="doc-block" :class="{ 'doc-missing': !row.contractUrl }">
             <div class="doc-label">Contract</div>
-            <a v-if="row.contractUrl" class="link" :href="row.contractUrl" target="_blank" rel="noopener">View</a>
+            <button v-if="row.contractUrl" type="button" class="link" @click="openDocument(row, 'contract')">View</button>
             <span v-else class="missing">Not uploaded</span>
             <label class="link upload">
               {{ row.uploadingContract ? 'Uploading…' : 'Upload' }}
@@ -171,6 +172,7 @@
           <textarea v-model.trim="row.edit.notes" rows="2" :disabled="row.saving" placeholder="Notes for this payer…" />
         </div>
 
+        <details v-if="row.recordId" @toggle="row.showOperations = $event.target.open"><summary>Case reminders and receive-only email</summary><CredentialingOperationsPanel v-if="row.showOperations" :agency-id="agencyId" kind="provider" :record-id="row.recordId" /></details>
         <div class="card-actions">
           <button class="btn btn-primary btn-sm" type="button" :disabled="row.saving" @click="saveRow(row)">
             {{ row.saving ? 'Saving…' : 'Save' }}
@@ -184,16 +186,26 @@
 </template>
 
 <script setup>
+import CredentialingOperationsPanel from "./CredentialingOperationsPanel.vue";
+import { viewCredentialingFile } from "../../utils/credentialingDocuments.js";
 import { computed, ref, watch } from 'vue';
-import api from '../../services/api';
+import { inject as injectCredentialing } from 'vue';
+import defaultCredentialingApi from '../../services/api';
+const api = injectCredentialing('credentialingTransport', defaultCredentialingApi);
+async function openDocument(row, type) {
+  try { await viewCredentialingFile(api, `/agencies/${props.agencyId}/credentialing/subjects/provider/${row.recordId}/documents/${type}`); }
+  catch (e) { row.message = e.response?.data?.error?.message || e.message || 'Document could not be opened.'; }
+}
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 
 const props = defineProps({
+  openProviderReminders: { type: Boolean, default: false },
   agencyId: { type: Number, required: true },
   userId: { type: Number, required: true },
   providerNotes: { type: String, default: '' }
 });
 
+const providerRemindersOpen = ref(props.openProviderReminders);
 const emit = defineEmits(['changed', 'provider-notes-saved']);
 
 const loading = ref(false);

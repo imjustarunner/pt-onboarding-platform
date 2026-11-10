@@ -27,7 +27,7 @@ function hasVerifiedHistoryScope(input) {
     && proof.agencyId === Number(input.agencyId) && proof.ticketId === Number(input.targetTicketId) && proof.threadId === input.threadId;
 }
 
-async function findThread({ agencyId, threadId, messageId, inReplyTo, referencesHeader, fromEmail, staffCopy, targetTicketId, verifiedHistory = false }, db) {
+async function findThread({ agencyId, threadId, messageId, inReplyTo, referencesHeader, fromEmail, staffCopy, targetTicketId, credentialingCaseEmailId, verifiedHistory = false }, db) {
   if (verifiedHistory) {
     // Group rewriting can make the historic seed's From differ from its real
     // author. A verified backfill may recover that mail only into its fixed,
@@ -55,8 +55,11 @@ async function findThread({ agencyId, threadId, messageId, inReplyTo, references
       WHERE c.support_ticket_id=t.id AND m.internet_message_id IN (${binds}))`); params.push(...ids);
   }
   if (!conditions.length) return null;
+  if (credentialingCaseEmailId) {
+    params.push(credentialingCaseEmailId);
+  }
   const [candidates] = await db.execute(`SELECT t.* FROM support_tickets t WHERE t.agency_id=? AND t.source_channel='email'
-    AND (${conditions.join(' OR ')}) ORDER BY (t.claimed_by_user_id IS NOT NULL) DESC,t.id DESC LIMIT 20 FOR UPDATE`, params);
+    AND (${conditions.join(' OR ')}) ${credentialingCaseEmailId ? 'AND EXISTS (SELECT 1 FROM credentialing_email_tickets cet WHERE cet.ticket_id=t.id AND cet.case_email_id=?)' : ''} ORDER BY (t.claimed_by_user_id IS NOT NULL) DESC,t.id DESC LIMIT 20 FOR UPDATE`, params);
   const parentIds = replyMessageIds(inReplyTo, referencesHeader).slice(0, 30);
   let exactParentTicketId = null;
   if (parentIds.length) {
@@ -99,6 +102,10 @@ export async function ingestSupportTicketEmail(input, dependencies = {}) {
     const [[receipt]] = await db.execute('SELECT * FROM support_ticket_email_messages WHERE agency_id=? AND internet_message_id_hash=?', [agencyId, emailHash(messageId)]);
     if (receipt) {
       [[ticket]] = await db.execute('SELECT * FROM support_tickets WHERE id=?', [receipt.ticket_id]);
+      if (input.credentialingCaseEmailId) {
+        const [[linked]] = await db.execute('SELECT ticket_id FROM credentialing_email_tickets WHERE ticket_id=? AND case_email_id=?', [receipt.ticket_id, input.credentialingCaseEmailId]);
+        if (!linked) throw supportEmailError('Email receipt belongs to a different credentialing case.', 409);
+      }
       ticketMessageId = receipt.ticket_message_id;
       duplicate = true;
       // Group/Gmail echoes are observations of the app's existing delivery.
@@ -107,8 +114,8 @@ export async function ingestSupportTicketEmail(input, dependencies = {}) {
       appOriginReceipt = receipt.direction === 'outbound' && !!(receipt.communication_id || receipt.client_request_key);
     } else {
       ticket = await findThread({ agencyId, threadId, messageId, inReplyTo, referencesHeader, fromEmail: from, staffCopy,
-        targetTicketId: input.targetTicketId, verifiedHistory: hasVerifiedHistoryScope(input) }, db);
-      if (ticket && !input.targetTicketId) {
+        targetTicketId: input.targetTicketId, credentialingCaseEmailId: input.credentialingCaseEmailId, verifiedHistory: hasVerifiedHistoryScope(input) }, db);
+      if (ticket && !input.targetTicketId && !input.credentialingCaseEmailId) {
         const canonical = await resolveSupportTicketEmailThread(ticket, db);
         if (canonical.canonicalTicketId !== Number(ticket.id)) {
           [[ticket]] = await db.execute('SELECT * FROM support_tickets WHERE id=? AND agency_id=? FOR UPDATE', [canonical.canonicalTicketId, agencyId]);
@@ -130,6 +137,7 @@ export async function ingestSupportTicketEmail(input, dependencies = {}) {
             JSON.stringify(input.recipients || []), String(input.subject || 'School message').slice(0, 255),
             enc.plain, enc.ciphertext, enc.iv, enc.authTag, enc.keyId, input.topic || 'general']);
           [[ticket]] = await db.execute('SELECT * FROM support_tickets WHERE id=?', [created.insertId]);
+          if (input.credentialingCaseEmailId) await db.execute('INSERT INTO credentialing_email_tickets (case_email_id,ticket_id) VALUES (?,?)', [input.credentialingCaseEmailId, ticket.id]);
         } else if (ticket.source_email_message_id === messageId) {
           // Register the existing original seed instead of duplicating old intake.
           const [[seed]] = await db.execute(`SELECT id FROM support_ticket_messages WHERE ticket_id=?
@@ -144,7 +152,7 @@ export async function ingestSupportTicketEmail(input, dependencies = {}) {
             staffCopy ? 'system_email_outbound' : 'system_email', enc.plain, enc.ciphertext, enc.iv, enc.authTag, enc.keyId, receivedAt]);
           ticketMessageId = saved.insertId;
         }
-        await preserveSupportTicketEmailCanonical(ticket, db);
+        if (!input.credentialingCaseEmailId) await preserveSupportTicketEmailCanonical(ticket, db);
         await db.execute(`INSERT INTO support_ticket_email_messages
           (ticket_id,ticket_message_id,agency_id,direction,send_status,from_email,from_name,to_json,cc_json,subject,
            internet_message_id,internet_message_id_hash,in_reply_to,references_header,gmail_message_id,gmail_thread_id,sent_at)
@@ -168,6 +176,12 @@ export async function ingestSupportTicketEmail(input, dependencies = {}) {
             gmailMessageId, input.fromDisplayName || null, ticketMessageId, gmailMessageId, threadId, ticket.id]);
         }
       }
+    }
+    if (input.credentialingCaseEmailId && !duplicate && !ignored) {
+      const { notifyCredentialingTeam } = await import('./credentialingOperations.service.js');
+      const [[caseEmail]] = await db.execute('SELECT credential_id FROM credentialing_case_emails WHERE id=? AND agency_id=?', [input.credentialingCaseEmailId, agencyId]);
+      if (!caseEmail) throw supportEmailError('Credentialing case no longer exists.', 409);
+      await notifyCredentialingTeam(db, { agencyId, type: 'credentialing_email', title: 'New credentialing email', kind: 'provider', recordId: caseEmail.credential_id });
     }
     await db.commit();
   } catch (error) {

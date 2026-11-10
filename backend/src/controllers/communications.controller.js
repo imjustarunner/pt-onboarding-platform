@@ -1,3 +1,4 @@
+import { appendCredentialingTicketVisibility } from '../services/credentialingAccess.service.js';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Client from '../models/Client.model.js';
@@ -312,11 +313,14 @@ export const getCommunicationsFeed = async (req, res, next) => {
     let ticketItems = [];
     if (canViewTickets(role)) {
       try {
+        const credentialingWhere = [], credentialingParams = [];
+        await appendCredentialingTicketVisibility(req.user, credentialingWhere, credentialingParams);
         const ticketAgencyWhere = includeAllAgencies ? '1=1' : `t.agency_id IN (${agencyIds.map(() => '?').join(',')})`;
         const whereOrg = organizationId ? ' AND t.school_organization_id = ?' : '';
         const params = [
           ...(includeAllAgencies ? [] : agencyIds),
           ...(organizationId ? [organizationId] : []),
+          ...credentialingParams,
           limit
         ];
         const [rows] = await pool.execute(
@@ -331,7 +335,7 @@ export const getCommunicationsFeed = async (req, res, next) => {
                   s.name AS school_name
            FROM support_tickets t
            LEFT JOIN agencies s ON s.id = t.school_organization_id
-           WHERE ${ticketAgencyWhere}${whereOrg}
+           WHERE ${ticketAgencyWhere}${whereOrg}${credentialingWhere.map(condition => ` AND ${condition}`).join('')}
            ORDER BY t.created_at DESC
            LIMIT ?`,
           params

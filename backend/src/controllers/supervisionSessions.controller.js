@@ -735,6 +735,7 @@ async function assertCanManageGroupSupervision(req, res, { sessionType, existing
   }
 
   const role = String(req.user?.role || '').toLowerCase();
+  if (req.auricwellSupervision?.canManage && Number(req.auricwellSupervision.agencyId) === Number(req.supervisionAgencyId)) return true;
   if (existingSession && [existingSession.supervisor_user_id, existingSession.co_facilitator_user_id].map(Number).includes(actorId)
       && await hasActiveSupervisionMembership(existingSession, actorId)) return true;
   if (['admin', 'super_admin', 'support', 'clinical_practice_assistant'].includes(role)) {
@@ -951,6 +952,7 @@ async function canScheduleSession(req, { agencyId, supervisorUserId, superviseeU
     return !!invitedSession && await canJoinSupervision(invitedSession, actorId);
   }
 
+  if (req.auricwellSupervision?.canManage && Number(req.auricwellSupervision.agencyId) === aId) return true;
   if (role === 'super_admin' || role === 'admin' || role === 'support' || role === 'staff' || role === 'clinical_practice_assistant' || role === 'provider_plus') {
     // Must share agency with both (best-effort)
     const actorAgencies = await User.getAgencies(actorId);
@@ -1611,8 +1613,8 @@ export const listSupervisionProviderCandidates = async (req, res, next) => {
     const role = String(req.user?.role || '').trim().toLowerCase();
     if (!actorId) return res.status(401).json({ error: { message: 'Not authenticated' } });
     // Supervisors are usually role=provider + has_supervisor_privileges (not role=supervisor).
-    const actorIsSupervisor = await isSupervisorActor({ userId: actorId, role, user: req.user });
-    const actorIsAdminLike = isAdminLikeRole(role);
+    const actorIsSupervisor = req.auricwellSupervision?.canManage || await isSupervisorActor({ userId: actorId, role, user: req.user });
+    const actorIsAdminLike = req.auricwellSupervision?.admin || isAdminLikeRole(role);
     if (!actorIsSupervisor && !actorIsAdminLike) {
       return res.status(403).json({ error: { message: 'Supervision participant selection is limited to supervisors and admins.' } });
     }
@@ -4330,7 +4332,7 @@ export const getSuperviseeHoursSummary = async (req, res, next) => {
 
     if (requesterId !== superviseeId) {
       const role = String(req.user?.role || '').toLowerCase();
-      const isAdminOrSupport = role === 'admin' || role === 'super_admin' || role === 'support';
+      const isAdminOrSupport = req.auricwellSupervision?.admin || role === 'admin' || role === 'super_admin' || role === 'support';
       if (!isAdminOrSupport) {
         const hasAccess = await User.supervisorHasAccess(requesterId, superviseeId, agencyId);
         if (!hasAccess) {

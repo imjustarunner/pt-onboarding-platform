@@ -2656,7 +2656,7 @@ class User {
     if (await accessProfileSchemaReady()) return agencyIdsWithPermission(userId, 'can_manage_credentialing');
     try {
       const [rows] = await pool.execute(
-        'SELECT agency_id FROM user_agencies WHERE user_id = ? AND can_manage_credentialing = 1',
+        'SELECT agency_id FROM user_agencies WHERE user_id = ? AND can_manage_credentialing = 1 AND COALESCE(is_active,1)=1',
         [userId]
       );
       return (rows || []).map((r) => Number(r.agency_id)).filter((n) => n > 0);

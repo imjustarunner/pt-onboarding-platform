@@ -13,7 +13,7 @@
     <p class="plan-note">Shared features follow your agency’s plan for its staff. Private virtual offices follow the provider’s plan. Platform-only features are labeled below.</p>
     <div class="plan-scroll" tabindex="0" role="region" aria-label="Feature comparison; scroll horizontally on smaller screens">
       <table>
-        <caption>● Included · — Not included. Separate features are outside all three plans.</caption>
+        <caption>● Included · — Not included. Optional add-ons require separate activation and agreed pricing.</caption>
         <thead><tr><th scope="col">Feature</th><th v-for="tier in PLAN_TIERS" :key="tier.id" scope="col">{{ tier.name }}</th></tr></thead>
         <tbody v-for="group in groups" :key="group.name">
           <tr class="category"><th colspan="4" scope="rowgroup">{{ group.name }}</th></tr>
@@ -22,12 +22,13 @@
               <span>{{ feature.label }}</span>
               <small>{{ feature.description }}</small>
               <span v-if="!feature.products.includes('auricwell')" class="badge">Platform only</span>
-              <span v-if="feature.minimumTier === 'separate'" class="badge">Separate / not included</span>
+              <span v-if="feature.minimumTier === 'separate' && !addon(feature)" class="badge">Separate / not included</span>
+              <span v-if="addon(feature)" class="badge">Optional AuricWell add-on</span>
               <span v-if="feature.aliasOf" class="badge">Included with Focus Package</span>
             </th>
             <td v-for="tier in PLAN_TIERS" :key="tier.id">
-              <span aria-hidden="true" :class="{ included: includes(feature, tier.id) }">{{ includes(feature, tier.id) ? '●' : '—' }}</span>
-              <span class="sr-only">{{ includes(feature, tier.id) ? 'Included' : 'Not included' }}</span>
+              <span aria-hidden="true" :class="{ included: includes(feature, tier.id) }">{{ addon(feature) ? 'Add-on' : includes(feature, tier.id) ? '●' : '—' }}</span>
+              <span class="sr-only">{{ addon(feature) ? 'Optional add-on' : includes(feature, tier.id) ? 'Included' : 'Not included' }}</span>
             </td>
           </tr>
         </tbody>
@@ -44,7 +45,8 @@ import { PLAN_TIERS, PLAN_FEATURES } from '../../config/productPlanCatalog.js';
 const search = ref('');
 const product = ref('all');
 const ranks = Object.fromEntries(PLAN_TIERS.map((tier, index) => [tier.id, index]));
-const includes = (feature, tier) => feature.minimumTier in ranks && ranks[tier] >= ranks[feature.minimumTier];
+const addon = feature => product.value !== 'platform' && !!feature.auricwellAddon;
+const includes = (feature, tier) => !addon(feature) && feature.minimumTier in ranks && ranks[tier] >= ranks[feature.minimumTier];
 const groups = computed(() => {
   const matching = PLAN_FEATURES.filter(feature =>
     (product.value === 'all' || feature.products.includes(product.value)) &&
@@ -52,7 +54,7 @@ const groups = computed(() => {
   );
   const result = new Map();
   for (const feature of matching) {
-    const category = feature.minimumTier === 'separate' ? 'Separate features' : feature.category;
+    const category = addon(feature) || feature.minimumTier === 'separate' ? 'Separate features' : feature.category;
     if (!result.has(category)) result.set(category, []);
     result.get(category).push(feature);
   }

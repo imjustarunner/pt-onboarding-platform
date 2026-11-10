@@ -64,17 +64,20 @@
     {
       "key": "supervision",
       "feature": "Supervision scheduling and tracking",
-      "minimumTier": "premium"
+      "minimumTier": "premium",
+      "auricwellAddon": "supervision"
     },
     {
       "key": "supervision_manual",
       "feature": "Manual and in-person supervision",
-      "minimumTier": "premium"
+      "minimumTier": "premium",
+      "auricwellAddon": "supervision"
     },
     {
       "key": "supervision_agreements",
       "feature": "Supervision agreements",
-      "minimumTier": "premium"
+      "minimumTier": "premium",
+      "auricwellAddon": "supervision"
     },
     {
       "key": "client_records",
@@ -270,6 +273,12 @@
       "key": "workplaceDocumentLibrary",
       "feature": "Company document library",
       "minimumTier": "basic"
+    },
+    {
+      "key": "credentialing",
+      "feature": "Credentialing management",
+      "minimumTier": "separate",
+      "auricwellAddon": "credentialing"
     }
   ],
   "sharedFeatureScope": "agency"

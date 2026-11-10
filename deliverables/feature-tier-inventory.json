@@ -105,7 +105,8 @@
     "description": "Individual and group supervision video meetings, recurring booking, presentations, agendas, reminders, attendance and hours tracking.",
     "source": "backend/src/controllers/supervisionSessions.controller.js",
     "minimumTier": "premium",
-    "products": "Platform + AuricWell"
+    "products": "Platform + AuricWell",
+    "auricwellAddon": "supervision"
   },
   {
     "key": "supervision_manual",
@@ -114,7 +115,8 @@
     "description": "Log off-platform supervision with reasons and in-person transcription.",
     "source": "backend/src/controllers/supervisionManual.controller.js",
     "minimumTier": "premium",
-    "products": "Platform + AuricWell"
+    "products": "Platform + AuricWell",
+    "auricwellAddon": "supervision"
   },
   {
     "key": "supervision_agreements",
@@ -123,7 +125,8 @@
     "description": "Onboarding agreements and supervisor countersignatures.",
     "source": "backend/src/controllers/supervisionAgreement.controller.js",
     "minimumTier": "premium",
-    "products": "Platform + AuricWell"
+    "products": "Platform + AuricWell",
+    "auricwellAddon": "supervision"
   },
   {
     "key": "client_records",
@@ -475,5 +478,15 @@
     "description": "Plot Twist CO workplace handbook templates, company branding, section editing, search and versioned company editions.",
     "minimumTier": "basic",
     "products": "Platform"
+  },
+  {
+    "key": "credentialing",
+    "feature": "Credentialing management",
+    "minimumTier": "separate",
+    "auricwellAddon": "credentialing",
+    "category": "Practice",
+    "description": "The existing credentialing workspace, provider and payer records, secure payer documents, team reminders and optional receive-only case email.",
+    "source": "frontend/src/views/admin/CredentialingWorkspaceView.vue",
+    "products": "Platform + AuricWell"
   }
 ]

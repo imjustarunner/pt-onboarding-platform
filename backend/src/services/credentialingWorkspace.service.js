@@ -1,3 +1,4 @@
+import { credentialingProductAgency, expandCredentialingGrants } from './credentialingAccess.service.js';
 import { superviseeBillingAllowed, validateSuperviseeBillingInput } from '../utils/superviseePayerEligibility.js';
 import pool from '../config/database.js';
 import clinicalPool from '../config/clinicalDatabase.js';
@@ -8,10 +9,12 @@ import { hasSchedulingBillingAccess } from './schedulingBillingAccess.service.js
 
 const error=(status,message)=>Object.assign(new Error(message),{status});
 export const CREDENTIAL_STATUSES=['not_started','collecting','submitted','in_review','action_required','active','denied','terminated'];
-const deps={connectionMeta:claimMdConnectionMeta,main:pool,clinical:clinicalPool,grants:id=>User.listCredentialingAgencyIds(id),expand:expandCredentialingAgencyIds,billing:hasSchedulingBillingAccess};
+const deps={connectionMeta:claimMdConnectionMeta,main:pool,clinical:clinicalPool,grants:id=>User.listCredentialingAgencyIds(id),expand:expandCredentialingGrants,billing:hasSchedulingBillingAccess,adminAgencies:async id=>await (await import('./agencyAccessProfiles.service.js')).accessProfileSchemaReady()?[]:User.getAgencies(id)};
 export async function credentialingScope(user, requested, d=deps) {
-  if(!user?.id || !['super_admin','admin','staff','support'].includes(user.role)) throw error(403,'Credentialing access required');
-  const ids=user.role==='super_admin'?null:await d.expand(await d.grants(user.id));
+  const productAgency = credentialingProductAgency(user);
+  if(!user?.id || (!productAgency && !user.agencyAccess?.permissions?.can_manage_credentialing && !['super_admin','admin','staff','support','provider','provider_plus','supervisor','clinical_practice_assistant','billing'].includes(user.role))) throw error(403,'Credentialing access required');
+  let ids=productAgency ? [productAgency] : user.role==='super_admin'?null:await d.expand(await d.grants(user.id));
+  if (!productAgency && user.role==='admin' && d.adminAgencies) ids=[...new Set([...ids,...(await d.adminAgencies(user.id)).filter(a=>a.is_active!==0 && a.is_active!==false).map(a=>Number(a.id))])];
   if(ids && !ids.length) throw error(403,'No agencies are assigned for credentialing');
   const [rows]=await d.main.execute(`SELECT id,name,slug,logo_url,color_palette FROM agencies WHERE is_active=1 AND COALESCE(organization_type,'agency')='agency'${ids?` AND id IN (${ids.map(()=>'?').join(',')})`:''} ORDER BY name`,ids || []);
   const id=requested==null || requested==='' || requested==='all' ? null : Number(requested);

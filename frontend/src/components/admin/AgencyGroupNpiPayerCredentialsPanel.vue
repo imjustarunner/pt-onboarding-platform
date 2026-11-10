@@ -63,7 +63,7 @@
         <div class="docs-row">
           <div class="doc-block" :class="{ 'doc-missing': !row.welcomeLetterUrl }">
             <div class="doc-label">Welcome letter</div>
-            <a v-if="row.welcomeLetterUrl" class="link" :href="row.welcomeLetterUrl" target="_blank" rel="noopener">View</a>
+            <button v-if="row.welcomeLetterUrl" type="button" class="link" @click="openDocument(row, 'welcome_letter')">View</button>
             <span v-else class="missing">Not uploaded</span>
             <label class="link upload">
               {{ row.uploadingWelcome ? 'Uploading…' : 'Upload' }}
@@ -78,7 +78,7 @@
           </div>
           <div class="doc-block" :class="{ 'doc-missing': !row.contractUrl }">
             <div class="doc-label">Contract</div>
-            <a v-if="row.contractUrl" class="link" :href="row.contractUrl" target="_blank" rel="noopener">View</a>
+            <button v-if="row.contractUrl" type="button" class="link" @click="openDocument(row, 'contract')">View</button>
             <span v-else class="missing">Not uploaded</span>
             <label class="link upload">
               {{ row.uploadingContract ? 'Uploading…' : 'Upload' }}
@@ -156,8 +156,15 @@
 </template>
 
 <script setup>
+import { viewCredentialingFile } from "../../utils/credentialingDocuments.js";
 import { computed, ref, watch } from 'vue';
-import api from '../../services/api';
+import { inject as injectCredentialing } from 'vue';
+import defaultCredentialingApi from '../../services/api';
+const api = injectCredentialing('credentialingTransport', defaultCredentialingApi);
+async function openDocument(row, type) {
+  try { await viewCredentialingFile(api, `/agencies/${props.agencyId}/credentialing/subjects/group/${row.recordId}/documents/${type}`); }
+  catch (e) { row.message = e.response?.data?.error?.message || e.message || 'Document could not be opened.'; }
+}
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 
 const props = defineProps({
