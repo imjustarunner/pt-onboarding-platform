@@ -41,8 +41,11 @@ export async function processAutomaticClaim({ agencyId, claimId, user }, deps = 
 
 export async function queueAutomaticClaimIssue({agencyId,claimId,clientId,userId,taskListId,blockers},db=pool) {
   if (!taskListId) throw new Error('Configure the agency billing task list before automatic submissions');
-  const description=['The daily billing worker held this claim. Review the current claim, correct the documented issue, and submit manually once every required check passes.',
-    ...blockers.map(value=>`• ${value}`),'Never resubmit an uncertain upload without checking its Claim.MD history.'].join('\n');
+  const automaticReviewMessage='Run the AI content and claim consistency review';
+  const description=['Automatic billing checks found the issues below. Billing staff should correct missing data or genuine exceptions. Claims that pass all required checks can be submitted under the authorized billing rule.',
+    ...blockers.filter(value=>value!==automaticReviewMessage).map(value=>`• ${value}`),
+    ...(blockers.includes(automaticReviewMessage)?['AI consistency review runs automatically once required claim fields and signatures are available.']:[]),
+    'Never resubmit an uncertain upload without checking its Claim.MD history.'].join('\n');
   const [[existing]]=await db.execute("SELECT id FROM tasks WHERE assigned_to_agency_id=? AND source_ref_type='billing_claim_followup' AND source_ref_id=? ORDER BY id DESC LIMIT 1",[agencyId,String(claimId)]);
   if (existing) {
     const encrypted=encryptTaskDescriptionText(description);

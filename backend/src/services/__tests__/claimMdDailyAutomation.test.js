@@ -2,11 +2,18 @@ import {beforeEach,describe,it,expect,vi} from 'vitest';
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()},onTableWrite:vi.fn()}));
 vi.mock('../../config/clinicalDatabase.js',()=>({default:{execute:vi.fn()}}));
 vi.mock('../../models/Task.model.js',()=>({default:{create:vi.fn()}}));
-import {processAutomaticClaim,runDailyClaimAutomation,claimAutomationDay} from '../dailyClaimAutomation.service.js';
+vi.mock('../taskDescriptionEncryption.service.js',()=>({ENCRYPTED_TASK_DESCRIPTION_PLACEHOLDER:'[encrypted]',encryptTaskDescriptionText:vi.fn(()=>({ciphertextB64:'cipher',ivB64:'iv',authTagB64:'tag',keyId:'v1'}))}));
+import {encryptTaskDescriptionText} from '../taskDescriptionEncryption.service.js';
+import {processAutomaticClaim,runDailyClaimAutomation,claimAutomationDay,queueAutomaticClaimIssue} from '../dailyClaimAutomation.service.js';
 const input={agencyId:2,claimId:3,user:{id:501,role:'super_admin'},connection:{mode:'live'}};
 const prepared=()=>({claim:{id:3,claim_lifecycle:'ready'},readiness:{ready:true,blockers:[]},aiReview:{status:'passed',findings:[]},documentation:{note:{provider_signed_at:'2026-11-01'}},payload:{},reviewHash:'a'.repeat(64),sourceHash:'source',insurance:{}});
 const deps=()=>({prepare:vi.fn(async()=>prepared()),review:vi.fn(),submit:vi.fn(async(req,res)=>res.json({accepted:true}))});
 describe('daily claim review',()=>{
+ it('gives billing staff actual exceptions while keeping the automatic AI step out of their manual checklist',async()=>{
+  const db={execute:vi.fn(async sql=>sql.startsWith('SELECT id FROM tasks')?[[{id:2407}]]:[{affectedRows:1}])};
+  await queueAutomaticClaimIssue({agencyId:2,claimId:3,clientId:8,userId:501,taskListId:16,blockers:['Member ID is missing','Run the AI content and claim consistency review']},db);
+  const text=encryptTaskDescriptionText.mock.calls.at(-1)[0];expect(text).toContain('• Member ID is missing');expect(text).toContain('AI consistency review runs automatically');expect(text).not.toContain('Run the AI content and claim consistency review');expect(text).not.toContain('submit manually');
+ });
  it('automatically checks signed drafts and moves a passing draft to the ready workflow without submitting',async()=>{
   const d=deps(),p=prepared();p.claim.claim_lifecycle='draft';p.claim.billing_revision=4;d.prepare.mockResolvedValue(p);d.clinical={execute:vi.fn(async()=>[{affectedRows:1}])};
   expect(await processAutomaticClaim(input,d)).toEqual({status:'ready',blockers:[]});
