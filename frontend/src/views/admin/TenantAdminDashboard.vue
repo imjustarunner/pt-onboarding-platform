@@ -222,6 +222,8 @@
           </div>
         </div>
 
+        <AuricwellBillingSummary :agency-id="currentAgencyId" />
+
         <FrequentPagesBar v-if="!isSupport" :limit="6" class="fpb-dashboard" />
 
         <router-link v-if="isOperationsMode" :to="`${prefix}/buildings/schedule?approvals=1`" class="building-master-shortcut">
@@ -489,6 +491,7 @@
 </template>
 
 <script setup>
+import AuricwellBillingSummary from '../../components/dashboard/AuricwellBillingSummary.vue';
 import { notificationDestination } from '../../utils/notificationActions.js';
 import { formatAuditTimestamp } from '../../utils/formatDate';
 import ProviderUpdateAssignedBanner from '../../components/provider/ProviderUpdateAssignedBanner.vue';

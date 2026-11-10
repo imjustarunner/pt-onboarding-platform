@@ -25,7 +25,7 @@ import { getAppointmentBilling, getPlannedBillingServices } from '../controllers
 import { payerSetupRequests } from '../controllers/payerSetupRequest.controller.js';
 import { listSupervisedPayerPolicies, saveSupervisedPayerPolicy, supervisedProviderReadiness } from '../controllers/supervisedBilling.controller.js';
 import { runClaimAiReview, resolveClaimAiFinding } from '../controllers/claimMdWorkflow.controller.js';
-import { getBillingWorkspace, getBillingWorkspaceTransactions } from '../controllers/claimMdWorkspace.controller.js';
+import { getBillingWorkspace, getBillingWorkspaceTransactions, getBillingDashboardSummary } from '../controllers/claimMdWorkspace.controller.js';
 import { submitReadyClaimSet } from '../controllers/bulkClaimSubmit.controller.js';
 import { getInsuranceVerificationWorkspace } from '../controllers/insuranceVerificationWorkspace.controller.js';
 import { reviewClaim, claimHistory, claimDraft, listUndraftedNotes, correctClaim, searchClaimMdPayers, startClaimMdEnrollment, listClaimMdEnrollments, listClaimMdOffices } from '../controllers/claimMdWorkflow.controller.js';
@@ -125,6 +125,7 @@ router.get('/planned-services', ...claimsGate, requireMedicalBillingFinancialAcc
 router.get('/payer-setup-requests', ...claimsGate, requireMedicalBillingFinancialAccess, payerSetupRequests);
 router.post('/payer-setup-requests', ...claimsGate, requireMedicalBillingFinancialAccess, payerSetupRequests);
 router.get('/workspace', getBillingWorkspace);
+router.get('/workspace/dashboard-summary', getBillingDashboardSummary);
 router.get('/workspace/transactions', getBillingWorkspaceTransactions);
 router.get('/workspace/insurance-verification', getInsuranceVerificationWorkspace);
 router.get('/provider-rollout', ...claimMdGate, getProviderBillingRollout);

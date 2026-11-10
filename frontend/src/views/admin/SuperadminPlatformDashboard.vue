@@ -85,6 +85,7 @@
     </aside>
 
     <div class="pthq-main">
+      <AuricwellBillingSummary v-if="panel==='overview'" />
       <header class="pthq-top" :class="{ 'pthq-top--workspace': panel === 'schedule' || panel === 'messages' }">
         <div>
           <h1>{{ headerTitle }}</h1>
@@ -363,6 +364,7 @@
 </template>
 
 <script setup>
+import AuricwellBillingSummary from '../../components/dashboard/AuricwellBillingSummary.vue';
 import AppearanceSelect from '../../components/AppearanceSelect.vue';
 import { openCommandCenter } from '../../utils/loginBriefingGate';
 import { computed, onMounted, ref, watch } from 'vue';

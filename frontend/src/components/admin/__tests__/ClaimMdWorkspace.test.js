@@ -210,6 +210,12 @@ it('shows the recorded history actor and Denver date/time',async()=>{
  const w=mount(ClaimMdWorkspace,{props:{...props,section:'detail'}});await flushPromises();await w.vm.showHistory(11);await flushPromises();expect(w.text()).toContain('QA Biller');expect(w.text()).toContain('11/04/2026, 1:17 PM MST');expect(w.text()).not.toContain('2026-11-04T20:17');w.unmount();
 });
 
+it('shows a saved billing correction without asking for owner acceptance or fetching agency-wide suggestions',async()=>{
+ api.get.mockImplementation(async url=>({data:url.endsWith('/history')?{history:[{id:1,type:'correction',actorName:'QA Biller',reason:'Update rate',before:{lines:[{id:2,charge_cents:0}]},after:{lines:[{id:2,charge_cents:3000}]}}]}:url.endsWith('/billing-suggestions')?{items:[{id:8,kind:'review',prompt:'Review the review result and decide whether the default should change.'}]}:{items:[]}}));
+ const w=mount(ClaimMdWorkspace,{props:{...props,section:'detail'}});await flushPromises();await w.vm.showHistory(10);await flushPromises();
+ expect(w.text()).toContain('QA Biller');expect(w.text()).toContain('$0.00 → $30.00');expect(w.text()).not.toContain('Suggested billing changes');expect(w.findAll('button').map(b=>b.text())).not.toContain('Accept');expect(api.get.mock.calls.some(([url])=>url.endsWith('/billing-suggestions'))).toBe(false);w.unmount();
+});
+
 it('shows the payer response time and message alongside the local recorded time',async()=>{
  api.get.mockImplementation(async url=>({data:url.endsWith('/history')?{history:[{id:2,type:'response',createdAt:'2026-11-10T13:00:00Z',status:'A',sender:'COLORADO COMMUNITY HEALTH ALLIANCE',responseTime:'2026-11-07 08:06:22pm',messages:[{message:'Code 3 - Claim has been adjudicated and is awaiting payment cycle.'}]}]}:{items:[]}}));
  const w=mount(ClaimMdWorkspace,{props:{...props,section:'detail'}});await flushPromises();await w.vm.showHistory(13);await flushPromises();

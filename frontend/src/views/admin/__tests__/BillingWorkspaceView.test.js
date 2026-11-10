@@ -28,6 +28,12 @@ const data = () => ({ organizations: [{ id: 1, name: 'Company One', colors: { pr
 const button = (w, text) => w.findAll('button').find(b => b.text() === text);
 beforeEach(() => { mockRoute.query={}; mockRoute.meta={}; vi.clearAllMocks(); localStorage.clear(); api.get.mockResolvedValue({ data: data() }); });
 describe('billing workspace', () => {
+  it.each(['needs_help','needs_review','submitted_or_processing'])('opens the dashboard link in the matching scoped %s queue',async billingStatus=>{
+    mockRoute.query={billingSection:'claims',agencyId:'1',billingStatus};
+    const w=mount(BillingWorkspaceView);await flushPromises();
+    const request=api.get.mock.calls.find(([path])=>path==='/medical-billing/workspace');
+    expect(request[1].params).toMatchObject({agencyId:'1',status:billingStatus});expect(w.find('h1').text()).toBe('Claims');w.unmount();
+  });
   it('mounts the canonical fee schedule from a provider deep link with the correct practice and payer',async()=>{
     mockRoute.query={billingSection:'fee-schedules',billingScope:'3',feeMode:'self_pay',feeScope:'provider',feeProviderId:'22',feePayerId:'SAVED',feeCategory:'licensed'};
     const payload=data();payload.organizations[1].slug='practice-three';api.get.mockResolvedValue({data:payload});

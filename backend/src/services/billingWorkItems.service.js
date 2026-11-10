@@ -10,11 +10,30 @@ const id = value => Number.isSafeInteger(Number(value)) && Number(value) > 0 ? N
 const date = value => value instanceof Date ? value.toISOString().slice(0, 10) : /^\d{4}-\d{2}-\d{2}/.test(String(value || '')) ? String(value).slice(0, 10) : null;
 const encounterDate = row => { const raw = row.scheduled_start_at; if (!raw) return null; const instant = raw instanceof Date ? raw : new Date(String(raw).replace(' ', 'T').replace(/Z?$/, 'Z')); return utcDateToZonedYmd(instant, row.source_timezone || 'America/Denver'); };
 const missing = error => ['ER_NO_SUCH_TABLE', 'ER_BAD_FIELD_ERROR'].includes(error?.code);
-const labels = { note_needed: 'Note Needed', draft: 'Draft', pending_review: 'Pending Review', revisions_needed: 'Revisions Needed', ready_to_submit: 'Ready to submit', submitted: 'Submitted', processing: 'Processing', paid: 'Paid', denied: 'Denied', rejected:'Rejected', on_hold: 'On hold', closed: 'Closed' };
+const labels = { note_needed: 'Note Needed', draft: 'Draft', pending_review: 'Pending Review', revisions_needed: 'Revisions Needed', ready_to_submit: 'Final checks required', submitted: 'Submitted', processing: 'Processing', paid: 'Paid', denied: 'Denied', rejected:'Rejected', on_hold: 'On hold', closed: 'Closed' };
 const marks = values => values.map(() => '?').join(',');
 const stageAliases = { ready: 'ready_to_submit', in_progress: 'processing' };
-export const claimQueueFilters=['pending_submission','pending_initial_submission','pending_resubmission','open','information_required'];
+export const claimQueueFilters=['pending_submission','pending_initial_submission','pending_resubmission','open','information_required','needs_review','needs_help','submitted_or_processing'];
+export function billingDashboardBucket(row) {
+  if (!Number(row.claimId) || ['paid','void','voided','closed','adjusted'].includes(row.claim_lifecycle)) return null;
+  const stage=row.stage || billingWorkStage(row);
+  if (['paid','closed'].includes(stage)) return null;
+  if (stage==='submitted' || (stage==='processing'&&!row.billing_issue_open)) return 'submitted';
+  if (row.billing_issue_open || Number(row.service_change_pending) || ['rejected','denied','on_hold','revisions_needed'].includes(stage)) return 'needsHelp';
+  return 'review';
+}
+export async function attachBillingClaimIssues(items,agencyIds,main) {
+  if(!agencyIds.length||!items.some(row=>Number(row.claimId)))return;
+  const [tasks]=await main.execute(`SELECT assigned_to_agency_id AS agency_id,source_ref_id AS claim_id FROM tasks
+    WHERE assigned_to_agency_id IN (${marks(agencyIds)}) AND source_ref_type='billing_claim_followup'
+    AND status NOT IN ('completed','overridden','cancelled','canceled')`,agencyIds);
+  const pending=new Set(tasks.map(task=>`${task.agency_id}:${task.claim_id}`));
+  for(const item of items)item.billing_issue_open=pending.has(`${item.agency_id}:${item.claimId}`);
+}
 export function matchesClaimQueue(row,status) {
+  if(status==='needs_review')return billingDashboardBucket(row)==='review';
+  if(status==='needs_help')return billingDashboardBucket(row)==='needsHelp';
+  if(status==='submitted_or_processing')return billingDashboardBucket(row)==='submitted';
   const pendingInitial=!!row.claimId && row.stage==='ready_to_submit' && !row.resubmission && !(Number(row.attempt_count)>1);
   const pendingRetry=row.stage==='rejected' || (!!row.resubmission && ['ready_to_submit','on_hold'].includes(row.stage));
   if(status==='pending_initial_submission')return pendingInitial;

@@ -2,7 +2,8 @@ import { parseTransactionFilters, transactionMatches, transactionFilterOptions, 
 import { utcDateToZonedYmd } from '../utils/zonedWallTime.util.js';
 import { attachClaimReferences } from './clinicalClaimReferences.service.js';
 import { clinicalApprovalFields, clinicalApprovalJoins } from './billingClinicalApproval.service.js';
-import { loadBillingWorkItems, filterBillingWorkItems, enrichBillingWorkNames, billingWorkStage, claimQueueFilters, matchesClaimQueue } from './billingWorkItems.service.js';
+import { loadBillingWorkItems, filterBillingWorkItems, enrichBillingWorkNames, billingWorkStage, claimQueueFilters, matchesClaimQueue, attachBillingClaimIssues, billingDashboardBucket } from './billingWorkItems.service.js';
+import { collapseClaimAttempts } from './claimFamily.service.js';
 import { productBillingContext } from './productBillingContext.service.js';
 import { isBillingAgency } from './billingAgencyPolicy.js';
 import { listPayerEft } from './payerEft.service.js';
@@ -59,6 +60,7 @@ export async function billingWorkspace(user, query = {}, deps = dependencies) {
   let workItems = [], enrollments = [], payments = [];
   try {
     const work = await (deps.loadWorkItems || loadBillingWorkItems)(allIds, deps);
+    await attachBillingClaimIssues(work.items,allIds,deps.main);
     result.hiddenTestRecords = includesDemoBilling(query) ? 0 : work.items.filter(row=>syntheticBillingRow(row)&&(requested===null||Number(row.agency_id)===requested)&&(!query.clientId||Number(row.client_id)===Number(query.clientId))).length;
     workItems = includesDemoBilling(query) ? work.items : work.items.filter(row => !syntheticBillingRow(row));
     result.capabilities.drafts = work.draftsAvailable;
@@ -95,6 +97,30 @@ export async function billingWorkspace(user, query = {}, deps = dependencies) {
   result.claims = filtered.slice((result.page - 1) * result.pageSize, result.page * result.pageSize);
   result.stageCounts = workItems.filter(row => scopeIds.has(row.agency_id) && (!query.clientId || Number(row.client_id) === Number(query.clientId))).reduce((counts,row) => { counts[row.stage] = (counts[row.stage] || 0) + 1; return counts; }, {});
   for(const filter of claimQueueFilters)result.stageCounts[filter]=workItems.filter(row=>scopeIds.has(row.agency_id)&&(!query.clientId||Number(row.client_id)===Number(query.clientId))&&matchesClaimQueue(row,filter)).length;
+  return result;
+}
+
+// Dashboard counts use saved claim states and outstanding billing issues. They
+// do not run eligibility inquiries, manufacture claims, or approve readiness.
+export async function billingDashboardSummary(user,query={},deps=dependencies) {
+  const authorized=await billingWorkspaceAgencies(user,deps);
+  const requested=query.agencyId==null||query.agencyId===''?null:Number(query.agencyId);
+  if(requested!==null&&(!Number.isSafeInteger(requested)||!authorized.some(agency=>agency.id===requested)))throw denied();
+  const organizations=requested?authorized.filter(agency=>agency.id===requested):authorized;
+  const result={organizations:organizations.map(({id,name,slug})=>({id,name,slug})),counts:{submitted:0,review:0,needsHelp:0},updatedAt:new Date().toISOString()};
+  if(!organizations.length)return result;
+  const ids=organizations.map(agency=>agency.id),marks=ids.map(()=>'?').join(',');
+  const [claims]=await deps.clinical.execute(`SELECT c.id AS claimId,c.agency_id,c.client_id,c.clinical_session_id,c.parent_claim_id,c.payer_sequence,c.claim_lifecycle,c.metadata_json AS claim_metadata_json,
+    EXISTS(SELECT 1 FROM clinical_claim_change_requests ch WHERE ch.agency_id=c.agency_id AND ch.clinical_session_id=c.clinical_session_id AND ch.status IN ('pending','reconciliation_required')) AS service_change_pending
+    FROM clinical_claims c WHERE c.agency_id IN (${marks}) AND c.is_deleted=0`,ids);
+  const [demo]=await deps.main.execute(`SELECT id,agency_id FROM clients WHERE agency_id IN (${marks}) AND is_demo=1`,ids);
+  const demoClients=new Set(demo.map(client=>`${client.agency_id}:${client.id}`));
+  const current=collapseClaimAttempts(claims).filter(claim=>{
+    const metadata=typeof claim.claim_metadata_json==='string'?JSON.parse(claim.claim_metadata_json||'{}'):claim.claim_metadata_json||{};
+    return !metadata.hiddenFromQueue&&!demoClients.has(`${claim.agency_id}:${claim.client_id}`);
+  });
+  await attachBillingClaimIssues(current,ids,deps.main);
+  for(const claim of current){const bucket=billingDashboardBucket(claim);if(bucket)result.counts[bucket]++;}
   return result;
 }
 

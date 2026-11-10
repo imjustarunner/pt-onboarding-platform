@@ -4,7 +4,7 @@ export const billingStages = [
   ['submitted', 'Submitted'], ['processing', 'Processing'], ['paid', 'Paid'],
   ['denied', 'Denied'], ['rejected','Rejected'], ['on_hold', 'On hold'], ['closed', 'Closed']
 ].map(([id, label]) => ({ id, label }));
-export const claimQueueFilters=[{id:'pending_submission',label:'Pending initial submission or resubmission'},{id:'pending_initial_submission',label:'Pending initial submission'},{id:'pending_resubmission',label:'Pending resubmission'},{id:'open',label:'All open items'},{id:'information_required',label:'Information required'}];
+export const claimQueueFilters=[{id:'needs_review',label:'For review'},{id:'needs_help',label:'Claims needing help'},{id:'submitted_or_processing',label:'Submitted / processing'},{id:'pending_submission',label:'Pending initial submission or resubmission'},{id:'pending_initial_submission',label:'Pending initial submission'},{id:'pending_resubmission',label:'Pending resubmission'},{id:'open',label:'All open items'},{id:'information_required',label:'Information required'}];
 export const claimStatusLabel = status => ({ ...Object.fromEntries(billingStages.map(stage => [stage.id, stage.label])), ready: 'Final checks required', queued: 'Processing', rejected: 'Rejected', adjusted: 'Closed · adjusted', void: 'Closed · voided' })[status] || status || 'Unknown';
 export const clearinghouseStatusLabel = status => {
   const code = String(status || '').trim().toUpperCase();

@@ -35,14 +35,8 @@ export function suggestionForSignal({ outcome, reasonCode, payerId, serviceCode,
       payload: { payerId, from: placeOfService, to: '11' }
     };
   }
-  if (outcome === 'denied' || outcome === 'rejected') {
-    return {
-      kind: 'review',
-      key: `review:${payerId || 'any'}:${serviceCode || 'any'}:${reason}`,
-      prompt: `Review the ${reason.toLowerCase().replaceAll('_', ' ')} result${serviceCode ? ` on ${serviceCode}` : ''}${payerId ? ` for ${payerId}` : ''} and decide whether the default should change.`,
-      payload: { payerId: payerId || null, serviceCode: serviceCode || null, reason }
-    };
-  }
+  // General rejection reviews belong in the billing work queue. They do not
+  // contain a proposed default change and therefore have nothing to accept.
   return null;
 }
 
@@ -90,7 +84,7 @@ export async function learnFromClaimOutcome({ agencyId, claimId, outcome, reason
 
 export async function listBillingSuggestions(agencyId, db = clinicalPool) {
   const [rows] = await db.execute(`SELECT id, suggestion_key, kind, prompt, payload_json, status, match_count, created_at
-    FROM billing_rule_suggestions WHERE agency_id = ? AND status = 'pending' ORDER BY match_count DESC, id DESC LIMIT 50`, [agencyId]);
+    FROM billing_rule_suggestions WHERE agency_id = ? AND status = 'pending' AND kind IN ('modifier','place_of_service') ORDER BY match_count DESC, id DESC LIMIT 50`, [agencyId]);
   return rows.map(row => ({ ...row, payload: typeof row.payload_json === 'string' ? JSON.parse(row.payload_json) : row.payload_json }));
 }
 

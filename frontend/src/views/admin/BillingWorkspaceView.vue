@@ -155,8 +155,9 @@ const navigation = [
   { id: 'settings', label: 'Settings', icon: 'M4 6h16 M4 12h16 M4 18h16 M8 3v6 M16 9v6 M10 15v6' }
 ];
 const descriptions = { 'fee-schedules': 'Manage practice, payer and provider rates, with a separate self-pay schedule.', workspace: 'Manage payer connections, claims, and follow-ups across your organizations.', claims: 'Work the queue, approve claims, and follow clearinghouse and payer responses.', payers: 'Track claims, ERA, eligibility, and EFT direct deposits for every billing company.', payments: 'Review remittances and prepare for verified payment reconciliation.', insurance: 'Verify primary and secondary coverage and resolve billing readiness tasks.', transactions: 'Search recorded payments, adjustments and responsibility across your billing scope.', reports: 'Explore claim performance and export company billing reports.', settings: 'Manage the billing setup for each organization.' };
+const validQueueStatus=value=>['all','attention',...billingStages.map(stage=>stage.id),...claimQueueFilters.map(filter=>filter.id)].includes(value)?value:'all';
 const section = ref(navigation.some(n => n.id === route.query.billingSection) ? route.query.billingSection : 'workspace');
-const scopeId = ref(String((route.meta?.auricwellPreview ? agencyStore.currentAgency?.id : null) || route.query.billingScope || route.query.agencyId || (route.query.claimId ? agencyStore.currentAgency?.id : '') || 'all')), status = ref('all'), page = ref(1), searchInput = ref(String(route.query.claimId || '')), search = ref(String(route.query.claimId || '')), companySearch = ref('');
+const scopeId = ref(String((route.meta?.auricwellPreview ? agencyStore.currentAgency?.id : null) || route.query.billingScope || route.query.agencyId || (route.query.claimId ? agencyStore.currentAgency?.id : '') || 'all')), status = ref(validQueueStatus(route.query.billingStatus)), page = ref(1), searchInput = ref(String(route.query.claimId || '')), search = ref(String(route.query.claimId || '')), companySearch = ref('');
 const organizations = ref([]), claims = ref([]), total = ref(0), capabilities = ref({}), updatedAt = ref(null), loading = ref(false), error = ref('');
 const queueMode = ref('claims'), sortBy = ref('date_of_service'), sortDirection = ref('desc');
 const showClientHistory = ref(false), preparingClaim = ref(false), claimActionError = ref(''), submittingSet = ref(false), submitSetResult = ref('');
@@ -256,6 +257,7 @@ watch(scopeId, () => { page.value = 1; selectedCompanyId.value = null; router.re
 watch(() => route.query.agencyId, id => { if (id && String(id) !== scopeId.value) scopeId.value = String(id); });
 watch(() => route.query.billingScope, id => { if (id && String(id) !== scopeId.value) scopeId.value = String(id); });
 watch(() => route.query.billingSection, value => { if (navigation.some(item => item.id === value)) section.value = value; });
+watch(() => route.query.billingStatus, value => { status.value=validQueueStatus(value);page.value=1; });
 watch(() => agencyStore.currentAgency?.id, () => { organizations.value = []; claims.value = []; scopeId.value = 'all'; reload(); });
 async function openClaim(claim) { priorFocus = document.activeElement; selectedClaim.value = claim; showClientHistory.value = false; claimActionError.value = ''; await nextTick(); claimDialog.value?.focus(); if (workClaimId(claim)) await claimTools.value?.showHistory(workClaimId(claim)); }
 async function submitReadySet() {

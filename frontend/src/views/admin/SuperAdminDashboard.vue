@@ -207,6 +207,8 @@
         </div>
       </section>
 
+      <AuricwellBillingSummary :agency-id="Number(currentAgency?.id) || null" />
+
       <NotificationCards />
 
       <section v-if="showSupervisionModal" class="supervision-panel-wrap">
@@ -243,6 +245,7 @@
 </template>
 
 <script setup>
+import AuricwellBillingSummary from '../../components/dashboard/AuricwellBillingSummary.vue';
 import { CONVERSA_ICON_URL } from '../../constants/conversa';
 import { ref, onMounted, computed, watch } from 'vue';
 import { useRouter } from 'vue-router';

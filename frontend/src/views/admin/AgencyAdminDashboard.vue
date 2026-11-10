@@ -154,6 +154,8 @@
         </button>
       </div>
       
+      <AuricwellBillingSummary v-if="!previewMode" :agency-id="Number(currentAgency?.id) || null" />
+
       <!-- Club managers see notifications inline inside ClubQuickActions card grid -->
       <NotificationCards v-if="!previewMode && !isSummitStatsContext" :compact="false" />
 
@@ -221,6 +223,7 @@
 </template>
 
 <script setup>
+import AuricwellBillingSummary from '../../components/dashboard/AuricwellBillingSummary.vue';
 import { CONVERSA_ICON_URL } from '../../constants/conversa';
 import { ref, onMounted, computed, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';

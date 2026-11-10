@@ -1,6 +1,6 @@
 <template>
-  <section v-if="items.length" class="panel" aria-label="Suggested billing changes">
-    <div class="panel-heading"><div><h2>Suggested billing changes</h2><p>These repeat across claims. Nothing changes until you accept one.</p></div></div>
+  <section v-if="items.length" class="panel" aria-label="Possible default changes">
+    <div class="panel-heading"><div><h2>Possible default changes</h2><p>Optional changes to future claim defaults. Billing staff can configure these separately; saved claim corrections take effect immediately.</p></div></div>
     <article v-for="item in items" :key="item.id">
       <p>{{ item.prompt }}</p>
       <label v-if="item.kind === 'modifier'">Modifier<input v-model="modifiers[item.id]" maxlength="2" :aria-label="`Modifier for ${item.prompt}`" /></label>
