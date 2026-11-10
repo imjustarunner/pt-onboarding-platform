@@ -40,7 +40,7 @@ export async function recordSchoolGroupEmail(input, dependencies = {}) {
     to:emails(input.to).map(email=>({email})),cc:emails(input.cc).map(email=>({email})),receivedAt,
     attachments,isGroupEmail:true,isAutoReply:true,autoReplyKind:'school_group_notification',standalone:true,suppressPush:!!input.historical});
   if (!saved.messageId || !saved.conversationId) throw new Error('School notification email did not persist');
-  await db.execute("UPDATE communication_conversations SET is_unknown_sender=0,status='waiting' WHERE id=? AND agency_id=? AND support_ticket_id IS NULL", [saved.conversationId,input.agencyId]);
+  await db.execute("UPDATE communication_conversations SET is_unknown_sender=0,status='resolved' WHERE id=? AND agency_id=? AND support_ticket_id IS NULL", [saved.conversationId,input.agencyId]);
   const [members] = await db.execute(`SELECT DISTINCT u.id,u.role FROM users u JOIN user_agencies ua ON ua.user_id=u.id
     WHERE ua.agency_id=? AND ua.is_active=1 AND u.is_active=1 AND COALESCE(u.is_archived,0)=0 AND COALESCE(u.is_demo,0)=0
       AND u.role IN ('admin','super_admin','support')`, [input.agencyId]);
