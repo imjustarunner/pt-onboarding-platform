@@ -6,7 +6,7 @@ import { policyIsMedicaid } from '../utils/insurancePaymentPolicy.js';
 import { hasSchedulingBillingAccess } from './schedulingBillingAccess.service.js';
 import { getMedicalBillingFlags } from './medicalBillingFlags.service.js';
 import { readClientInsurance, writeClientInsurance } from './clientInsurance.service.js';
-import { coverageFingerprint } from './coverageVerification.service.js';
+import { coverageFingerprint, buildEligibilityRequest } from './coverageVerification.service.js';
 import { resolveClaimMdConnection, requireClaimMdEligibility } from './claimMdConnection.service.js';
 import { getClaimMdBillingProfile } from './claimMdBillingProfile.service.js';
 import { runMeteredCoverageCheck } from './eligibilityUsage.service.js';
@@ -33,6 +33,22 @@ export function coloradoEligibilityPolicy(policy, patient, config) {
   return colorado ? {...policy,eligibilityPayerId:'SKCO0'} : policy;
 }
 
+export function intakeEligibilityInputs(insurance, config, profile, serviceDate) {
+  const prepared = { ...insurance, primary: coloradoEligibilityPolicy(insurance?.primary, insurance?.patient, config),
+    secondary: insurance?.secondary ? coloradoEligibilityPolicy(insurance.secondary, insurance.patient, config) : null };
+  const readySlots = [], missing = [];
+  for (const slot of prepared.secondary ? ['primary', 'secondary'] : ['primary']) {
+    try {
+      buildEligibilityRequest({ insurance: prepared, slot, serviceDate, profile, lookupMode: intakeLookupModes(prepared, slot)[0] });
+      readySlots.push(slot);
+    } catch (error) {
+      if (![400,409].includes(error.status)) throw error;
+      missing.push({ slot, message: error.message });
+    }
+  }
+  return { readySlots, missing };
+}
+
 /** Persist first, transmit only from the worker. Intake remains usable during a
  * payer outage. A shared billing task exists even if the worker cannot start. */
 export async function enqueueIntakeEligibility({agencyId,clientId,submissionId,insuranceCardsMissing=false}, db=pool) {
@@ -41,13 +57,25 @@ export async function enqueueIntakeEligibility({agencyId,clientId,submissionId,i
   const insurance = await readClientInsurance(clientId,agencyId,db);
   if (!insurance?.primary) return null;
   let jobId=null;
-  if (config?.enabled) {
+  let automaticEligibility = { status: 'disabled', missing: [] };
+  if (config?.enabled && getMedicalBillingFlags(agency).medicalBillingEnabled) {
+    let profile;
+    try { profile = await getClaimMdBillingProfile(agencyId,config.officeId); }
+    catch (error) {
+      await queueInsuranceVerificationSafely({agencyId,clientId,reason:'eligibility_error'},db);
+      return { status:'waiting_for_information',jobId:null,missing:[{slot:'primary',message:error.message}] };
+    }
+    const serviceDate = new Intl.DateTimeFormat('en-CA',{timeZone:'America/Denver',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+    const inputs = intakeEligibilityInputs(insurance,config,profile,serviceDate);
+    automaticEligibility = { status: inputs.readySlots.length ? 'queued' : 'waiting_for_information', ...inputs };
+    if (inputs.readySlots.length) {
     const [result] = await db.execute('INSERT IGNORE INTO intake_eligibility_jobs (agency_id,client_id,submission_id,insurance_fingerprint) VALUES (?,?,?,?)',[agencyId,clientId,submissionId||0,coverageFingerprint(insurance)]);
-    if(!result.affectedRows) return null;
+    if(!result.affectedRows) automaticEligibility.status = 'already_queued';
     jobId=result.insertId || null;
+    }
   }
   await queueInsuranceVerificationSafely({agencyId,clientId,reason:insuranceCardsMissing?'missing_card':'verification_pending'},db);
-  return jobId;
+  return { ...automaticEligibility, jobId };
 }
 
 async function actorAllowed(policy) {
@@ -100,6 +128,8 @@ export async function processIntakeEligibility(job,policy,config,deps={}) {
   for(const slot of insurance.secondary?['primary','secondary']:['primary']) {
     const p=insurance[slot];
     if(p.effectiveDate && p.effectiveDate>serviceDate || p.terminationDate && p.terminationDate<serviceDate) {needsReview=true;continue;}
+    try { buildEligibilityRequest({insurance,slot,serviceDate,profile,lookupMode:intakeLookupModes(insurance,slot)[0]}); }
+    catch(error) { if(![400,409].includes(error.status)) throw error; needsReview=true; continue; }
     let result;
     for(const mode of intakeLookupModes(insurance,slot)) {
       if(result && !shouldTryDemographics(result)) break;
@@ -146,5 +176,7 @@ export async function runIntakeEligibilityJobs(deps={}) {
     await db.execute('UPDATE intake_eligibility_jobs SET status=? WHERE id=?',[status,job.id]);
     results.push({jobId:job.id,status});
   }
+  const {runDailyClaimAutomation}=await import('./dailyClaimAutomation.service.js');
+  await runDailyClaimAutomation(deps);
   return results;
 }

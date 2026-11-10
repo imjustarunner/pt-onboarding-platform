@@ -75,3 +75,13 @@ it('lets the paper workflow await a failed save without marking policy details s
  const w=await setup();api.put.mockRejectedValueOnce(new Error('offline'));expect(await w.vm.save()).toBe(false);expect(w.emitted('saved')).toBeUndefined();
  expect(await w.vm.save()).toBe(true);expect(w.emitted('saved')).toHaveLength(1);w.unmount();
 });
+
+it.each([
+ ['queued',[],'queued and normally runs within five minutes'],
+ ['already_queued',[],'already have an automatic eligibility request'],
+ ['waiting_for_information',[{slot:'primary',message:'Save the member ID and date of birth'}],'Primary: Save the member ID and date of birth']
+])('explains automatic eligibility status %s after saving',async(status,missing,message)=>{
+ api.put.mockResolvedValue({data:{automaticEligibility:{status,missing}}});
+ const w=await setup();await w.find('form').trigger('submit');await flushPromises();
+ expect(w.find('[role="status"]').text()).toContain(message);w.unmount();
+});

@@ -2,11 +2,11 @@ import {describe,it,expect,vi} from 'vitest';
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()},onTableWrite:vi.fn()}));
 vi.mock('../../config/clinicalDatabase.js',()=>({default:{execute:vi.fn()}}));
 vi.mock('../familyBillingPolicy.service.js',()=>({billingError:(status,message)=>Object.assign(new Error(message),{status}),positiveId:Number,auditBilling:vi.fn()}));
-import {intakeLookupModes,shouldTryDemographics,intakeEligibilityKey,coloradoEligibilityPolicy,processIntakeEligibility,runIntakeEligibilityJobs} from '../intakeEligibility.service.js';
+import {intakeEligibilityInputs,intakeLookupModes,shouldTryDemographics,intakeEligibilityKey,coloradoEligibilityPolicy,processIntakeEligibility,runIntakeEligibilityJobs} from '../intakeEligibility.service.js';
 import {coverageFingerprint} from '../coverageVerification.service.js';
 const insurance={primary:{isMedicaid:true,eligibilityPayerId:'SKCO0',memberId:'SYNTHETIC'},patient:{firstName:'Test',lastName:'Person',dateOfBirth:'2010-01-01'}};
 const job={id:1,agency_id:2,client_id:3,insurance_fingerprint:coverageFingerprint(insurance)};
-function deps(){return {db:{execute:vi.fn().mockResolvedValue([[]])},configurePayers:async()=>insurance,connection:async()=>({mode:'live'}),profile:async()=>({}),check:vi.fn(),saveMember:vi.fn(),queueTask:vi.fn(),env:{}};}
+function deps(){return {db:{execute:vi.fn().mockResolvedValue([[]])},configurePayers:async()=>insurance,connection:async()=>({mode:'live'}),profile:async()=>({billingNpi:'1306688650',practice:{tax_id:'123456789',name:'Test'}}),check:vi.fn(),saveMember:vi.fn(),queueTask:vi.fn(),env:{}};}
 describe('intake eligibility',()=>{
  it('supports name and DOB only for configured Colorado Medicaid',()=>{
   expect(intakeLookupModes(insurance,'primary')).toEqual(['member_id','demographics']);
@@ -14,6 +14,13 @@ describe('intake eligibility',()=>{
   expect(intakeLookupModes({primary:{payerId:'OTHER'}},'primary')).toEqual(['member_id']);
   expect(coloradoEligibilityPolicy({isMedicaid:true,insurerName:'Health First Colorado'}, {}, {medicaidState:'CO'}).eligibilityPayerId).toBe('SKCO0');
   expect(coloradoEligibilityPolicy({isMedicaid:true,insurerName:'Another state Medicaid'}, {state:'AZ'}, {medicaidState:'CO'}).eligibilityPayerId).toBeUndefined();
+ });
+ it('queues only policy slots with all required eligibility inputs',()=>{
+  const profile={billingNpi:'1306688650',practice:{tax_id:'123456789',name:'Test'}};
+  expect(intakeEligibilityInputs(insurance,{},profile,'2026-11-09')).toMatchObject({readySlots:['primary'],missing:[]});
+  const partial={...insurance,patient:{firstName:'Test'}};
+  expect(intakeEligibilityInputs(partial,{},profile,'2026-11-09')).toMatchObject({readySlots:[],missing:[{slot:'primary'}]});
+  expect(intakeEligibilityInputs({...insurance,secondary:{payerId:'OTHER'}},{},profile,'2026-11-09')).toMatchObject({readySlots:['primary'],missing:[{slot:'secondary'}]});
  });
  it('uses demographic fallback only after an explicit subscriber-not-found result',()=>{
   expect(shouldTryDemographics({summary:{payerErrors:[{error_code:'75'}]}})).toBe(true);

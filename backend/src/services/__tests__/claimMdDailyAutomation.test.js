@@ -1,0 +1,54 @@
+import {beforeEach,describe,it,expect,vi} from 'vitest';
+vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()},onTableWrite:vi.fn()}));
+vi.mock('../../config/clinicalDatabase.js',()=>({default:{execute:vi.fn()}}));
+vi.mock('../../models/Task.model.js',()=>({default:{create:vi.fn()}}));
+import {processAutomaticClaim,runDailyClaimAutomation,claimAutomationDay} from '../dailyClaimAutomation.service.js';
+const input={agencyId:2,claimId:3,user:{id:501,role:'super_admin'},connection:{mode:'live'},allowSubmission:true};
+const prepared=()=>({claim:{id:3,claim_lifecycle:'ready'},readiness:{ready:true,blockers:[]},aiReview:{status:'passed',findings:[]},documentation:{note:{provider_signed_at:'2026-11-01'}},payload:{},reviewHash:'a'.repeat(64),sourceHash:'source',insurance:{}});
+const deps=()=>({prepare:vi.fn(async()=>prepared()),review:vi.fn(),submit:vi.fn(async(req,res)=>res.json({accepted:true}))});
+describe('daily claim submission',()=>{
+ it('runs missing AI review automatically and rereads the exact current readiness before approval',async()=>{
+  const d=deps(),first=prepared();first.aiReview.status='required';d.prepare.mockResolvedValueOnce(first).mockResolvedValueOnce(prepared());
+  expect(await processAutomaticClaim(input,d)).toEqual({status:'submitted',blockers:[]});
+  expect(d.review).toHaveBeenCalledWith(expect.objectContaining({agencyId:2,claimId:3,actorUserId:501,sourceHash:'source'}));
+  expect(d.prepare).toHaveBeenCalledTimes(2);
+  expect(d.submit.mock.calls[0][0]).toMatchObject({user:{id:501},body:{agencyId:2,approved:true,reviewHash:'a'.repeat(64),accountMode:'live'}});
+ });
+ it('keeps transmission disabled unless its scope has explicit approval',async()=>{
+  const d=deps();expect(await processAutomaticClaim({...input,allowSubmission:false},d)).toEqual({status:'ready',blockers:[]});
+  expect(d.submit).not.toHaveBeenCalled();
+ });
+ it.each(['consent review missing','Insurance identity mismatch','Supervisor signature required'])('holds %s without transmitting',async(message)=>{
+  const d=deps(),p=prepared();p.readiness={ready:false,blockers:[message]};d.prepare.mockResolvedValue(p);
+  expect(await processAutomaticClaim(input,d)).toEqual({status:'held',blockers:[message]});expect(d.submit).not.toHaveBeenCalled();
+ });
+ it('holds AI warnings and never treats missing review or unsigned notes as ready',async()=>{
+  const d=deps(),p=prepared();p.aiReview.findings=[{severity:'warning',message:'Verify service location'}];d.prepare.mockResolvedValue(p);
+  expect((await processAutomaticClaim(input,d)).status).toBe('held');expect(d.submit).not.toHaveBeenCalled();
+  p.aiReview={status:'required'};p.documentation.note.provider_signed_at=null;p.readiness={ready:false,blockers:['Sign note']};
+  await processAutomaticClaim(input,d);expect(d.review).not.toHaveBeenCalled();expect(d.submit).not.toHaveBeenCalled();
+ });
+ it.each(['queued','submitted','rejected'])('does not repeat a %s claim',async(lifecycle)=>{
+  const d=deps(),p=prepared();p.claim.claim_lifecycle=lifecycle;d.prepare.mockResolvedValue(p);
+  expect((await processAutomaticClaim(input,d)).status).toBe('skipped');expect(d.submit).not.toHaveBeenCalled();
+ });
+ it('preserves unknown outcomes for reconciliation instead of retrying',async()=>{
+  const d=deps();d.submit.mockImplementation(async(req,res,next)=>next(new Error('Upload timed out; reconcile')));
+  expect(await processAutomaticClaim(input,d)).toMatchObject({status:'held',blockers:['Upload timed out; reconcile']});expect(d.submit).toHaveBeenCalledTimes(1);
+ });
+ it('uses Denver calendar days',()=>expect(claimAutomationDay(new Date('2026-11-10T03:00:00Z'))).toBe('2026-11-09'));
+ it.each([2,6,377])('makes one durable pass for agency %i and flags held claims',async(agencyId)=>{
+  const release=vi.fn(),execute=vi.fn(async(sql)=>sql.includes('GET_LOCK')?[[{acquired:1}]]:[[]]);
+  const db={getConnection:async()=>({execute,release}),execute:vi.fn(async(sql)=>{
+   if(sql.startsWith('SELECT id,feature_flags'))return [[{id:agencyId,feature_flags:{medicalBillingEnabled:true,dailyClaimAutomation:{enabled:true,approvedByUserId:501},insuranceVerificationTasks:{taskListId:16}}}]];
+   if(sql.startsWith('SELECT * FROM agency_claim'))return [[{status:'processing',last_claim_id:0}]];
+   return [{affectedRows:1}];
+  })};
+  const d={db,clinical:{execute:vi.fn(async()=>[[{id:3,client_id:8}]])},user:async()=>({id:501,role:'super_admin',is_active:1}),allowed:async()=>true,liveAgency:vi.fn(),connection:async()=>({mode:'live'}),syncAudience:vi.fn(),process:vi.fn(async()=>({status:'held',blockers:['Verify coverage']})),queueIssue:vi.fn(),now:new Date('2026-11-09T18:00:00Z')};
+  expect(await runDailyClaimAutomation(d)).toEqual([{agencyId,claimId:3,status:'held'}]);
+  expect(d.queueIssue).toHaveBeenCalledWith(expect.objectContaining({agencyId,claimId:3,taskListId:16}),db);expect(release).toHaveBeenCalledOnce();
+  expect(d.clinical.execute.mock.calls[0][0]).toContain("claim_lifecycle='ready'");
+  db.execute.mockImplementation(async(sql)=>sql.startsWith('SELECT id,feature_flags')?[[{id:agencyId,feature_flags:{medicalBillingEnabled:true,dailyClaimAutomation:{enabled:true,approvedByUserId:501},insuranceVerificationTasks:{taskListId:16}}}]]:sql.startsWith('SELECT * FROM agency_claim')?[[{status:'completed'}]]:[{}]);
+  d.process.mockClear();await runDailyClaimAutomation(d);expect(d.process).not.toHaveBeenCalled();
+ });
+});

@@ -50,6 +50,10 @@
           <p>Complete and submit your Provider Update from its overview. This task updates automatically after submission.</p>
           <a v-if="providerUpdateLink" :href="providerUpdateLink" class="btn btn-primary">Open my Provider Update →</a>
         </section>
+        <section v-if="item.source_ref_type === 'billing_claim_followup'" class="client-action-banner">
+          <p>The daily billing worker found an issue. Review the current claim and its documentation before the next submission run.</p>
+          <router-link :to="{ path: `${route.params.organizationSlug ? '/' + route.params.organizationSlug : ''}/admin/medical-billing`, query: { agencyId: item.assigned_to_agency_id, claimId: parseTaskMetadata(item).claimId } }">Review held claim</router-link>
+        </section>
         <section v-if="item.source_ref_type === 'insurance_verification'" class="client-action-banner">
           <p>Claim this task, verify the member identity and coverage, then update the secure insurance record. Keep claims on hold until the verification is documented.</p>
           <router-link :to="{ path: `${route.params.organizationSlug ? '/' + route.params.organizationSlug : ''}/admin/medical-billing`, query: { billingSection: 'insurance', agencyId: item.assigned_to_agency_id, clientId: parseTaskMetadata(item).clientId } }">Open insurance verification</router-link>

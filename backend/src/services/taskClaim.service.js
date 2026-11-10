@@ -9,7 +9,14 @@ export async function claimSharedTask({ taskId, userId }) {
     const task = rows[0];
     if (!task) throw fail(404, 'Task not found');
     if (task.task_type !== 'custom' || !task.task_list_id) throw fail(400, 'Task must be in a shared list to claim');
-    const [members] = await connection.execute(`SELECT m.role FROM task_list_members m JOIN task_lists l ON l.id = m.task_list_id
+    const billingTask = ['insurance_verification','billing_claim_followup'].includes(task.source_ref_type);
+    if (billingTask) {
+      const {hasSchedulingBillingAccess}=await import('./schedulingBillingAccess.service.js');
+      const [[user]]=await connection.execute('SELECT id,role FROM users WHERE id=?',[userId]);
+      if (!await hasSchedulingBillingAccess(user,task.assigned_to_agency_id)) throw fail(403,'Current billing permission is required to claim this task');
+    }
+    const [members] = await connection.execute(billingTask ? `SELECT m.role FROM task_list_members m JOIN task_lists l ON l.id=m.task_list_id
+      WHERE m.task_list_id=? AND m.user_id=?` : `SELECT m.role FROM task_list_members m JOIN task_lists l ON l.id = m.task_list_id
       JOIN user_agencies ua ON ua.agency_id = l.agency_id AND ua.user_id = m.user_id
       WHERE m.task_list_id = ? AND m.user_id = ?`, [task.task_list_id, userId]);
     if (!members.length) throw fail(403, 'You must be a member of this team and agency to claim');

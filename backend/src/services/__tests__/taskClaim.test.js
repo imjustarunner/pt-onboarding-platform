@@ -1,6 +1,7 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({ execute: vi.fn(), begin: vi.fn(), commit: vi.fn(), rollback: vi.fn(), release: vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: { getConnection: async () => ({ execute: mocks.execute, beginTransaction: mocks.begin, commit: mocks.commit, rollback: mocks.rollback, release: mocks.release }) } }));
+vi.mock('../schedulingBillingAccess.service.js',()=>({hasSchedulingBillingAccess:vi.fn(async()=>true)}));
 import { claimSharedTask } from '../taskClaim.service.js';
 let task, members;
 beforeEach(() => { vi.clearAllMocks(); task = { id: 4, task_type: 'custom', task_list_id: 2, assigned_to_user_id: null, status: 'pending' }; members = [{ role: 'editor' }]; mocks.execute.mockImplementation(async sql => [sql.startsWith('SELECT * FROM tasks') ? [task] : sql.startsWith('SELECT m.role') ? members : { affectedRows: 1 }]); });
@@ -25,4 +26,13 @@ it('rejects nonmembers, closed tasks, and private tasks', async () => {
 it('rolls back assignment if the claim audit cannot be written', async () => {
   const normal = mocks.execute.getMockImplementation(); mocks.execute.mockImplementation(async (sql, params) => { if (sql.startsWith('INSERT INTO task_audit_log')) throw new Error('Audit failed'); return normal(sql, params); });
   await expect(claimSharedTask({ taskId: 4, userId: 8 })).rejects.toThrow('Audit failed'); expect(mocks.rollback).toHaveBeenCalledOnce(); expect(mocks.commit).not.toHaveBeenCalled();
+});
+
+it('lets an authorized billing delegate claim a billing task through list membership',async()=>{
+ task.source_ref_type='insurance_verification';task.assigned_to_agency_id=377;
+ const {hasSchedulingBillingAccess}=await import('../schedulingBillingAccess.service.js');
+ const original=mocks.execute.getMockImplementation();mocks.execute.mockImplementation(async(sql,args)=>sql.startsWith('SELECT id,role FROM users')?[[{id:8,role:'staff'}]]:original(sql,args));
+ await claimSharedTask({taskId:4,userId:8});
+ expect(hasSchedulingBillingAccess).toHaveBeenCalledWith({id:8,role:'staff'},377);
+ expect(mocks.execute.mock.calls.find(([sql])=>sql.startsWith('SELECT m.role'))[0]).not.toContain('JOIN user_agencies');
 });

@@ -1,5 +1,6 @@
 import pool from '../config/database.js';
 import Task from '../models/Task.model.js';
+import { hasSchedulingBillingAccess } from './schedulingBillingAccess.service.js';
 
 const parse = value => typeof value === 'string' ? JSON.parse(value || '{}') : value || {};
 const reasons = {
@@ -14,6 +15,17 @@ const reasons = {
   eligibility_unresolved: 'The eligibility response needs billing review.',
   eligibility_error: 'The electronic eligibility inquiry did not complete successfully.'
 };
+
+export async function syncInsuranceBillingAudience(agencyId, taskListId, db=pool) {
+  const [users] = await db.execute(`SELECT DISTINCT u.id,u.role FROM users u LEFT JOIN user_agencies ua ON ua.user_id=u.id
+    WHERE u.is_active=1 AND COALESCE(u.is_archived,0)=0
+      AND UPPER(COALESCE(u.status,'')) NOT IN ('ARCHIVED','INACTIVE','INACTIVE_EMPLOYEE','TERMINATED','DELETED')
+      AND (u.role='super_admin' OR (ua.has_billing_access=1 AND ua.is_active=1))`);
+  for (const user of users) {
+    if (!await hasSchedulingBillingAccess(user,agencyId)) continue;
+    await db.execute("INSERT IGNORE INTO task_list_members (task_list_id,user_id,role) VALUES (?,?,'editor')",[taskListId,user.id]);
+  }
+}
 
 export function insuranceIdentityIssue(insurance, slot = 'primary') {
   const policy = insurance?.[slot];
@@ -41,10 +53,11 @@ export async function queueInsuranceVerificationTask({agencyId,clientId,actorUse
     const [[list]] = await db.execute('SELECT id FROM task_lists WHERE id=? AND agency_id=?', [config.taskListId,agencyId]);
     const [[client]] = await db.execute('SELECT id,initials FROM clients WHERE id=? AND agency_id=?', [clientId,agencyId]);
     if (!list || !client) throw new Error('Insurance follow-up task scope is invalid');
+    await syncInsuranceBillingAudience(agencyId,list.id,db);
     const [[existing]] = await db.execute("SELECT id,status FROM tasks WHERE assigned_to_agency_id=? AND source_ref_type='insurance_verification' AND source_ref_id=? ORDER BY id DESC LIMIT 1", [agencyId,String(clientId)]);
     if (existing) {
       await db.execute(`UPDATE tasks SET metadata=JSON_SET(COALESCE(metadata,JSON_OBJECT()),'$.reason',?,'$.coverageCheckId',?),
-        status=IF(status IN ('completed','overridden'),'pending',status), completed_at=NULL WHERE id=?`, [reason,coverageCheckId,existing.id]);
+        urgency='high', status=IF(status IN ('completed','overridden'),'pending',status), completed_at=NULL WHERE id=?`, [reason,coverageCheckId,existing.id]);
       return existing.id;
     }
     const task = await Task.create({taskType:'custom',title:`Verify insurance — ${client.initials || `client ${clientId}`}`,
