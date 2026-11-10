@@ -2,7 +2,7 @@ import * as reportHandlers from '../controllers/narrivaComplianceReports.control
 import express from 'express';
 import {authenticate,requireActiveStatus} from '../middleware/auth.middleware.js';
 import {excludeSupportClinicalContent} from '../middleware/supportContentAccess.middleware.js';
-import {apiLimiter} from '../middleware/rateLimiter.middleware.js';
+import {apiLimiter,noteAidLimiter} from '../middleware/rateLimiter.middleware.js';
 import * as handlers from '../controllers/narriva.controller.js';
 import * as assessment from '../controllers/narrivaAssessmentEvidence.controller.js';
 import {getNoteReviewInsights} from '../controllers/clinicalNoteReviewInsights.controller.js';
@@ -10,6 +10,8 @@ import {getClinicalSessionServiceCode,changeClinicalSessionServiceCode} from '..
 const router=express.Router();
 router.use(authenticate,requireActiveStatus,excludeSupportClinicalContent,apiLimiter);
 router.get('/preferences',handlers.getNarrivaPreferences);
+router.get('/test-review/options',handlers.getNarrivaTestOptions);
+router.post('/test-review',noteAidLimiter,handlers.postNarrivaTestReview);
 router.patch('/preferences',handlers.patchNarrivaPreferences);
 router.post('/reviews',handlers.postNarrivaReview);
 router.get('/reviews/:reviewId',handlers.getNarrivaReview);
