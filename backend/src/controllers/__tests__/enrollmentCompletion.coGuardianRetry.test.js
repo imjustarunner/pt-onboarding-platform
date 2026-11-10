@@ -43,6 +43,8 @@ function setup({allowResume=false,bundles=[],failed=false,templates=[],signedDoc
   IntakeSubmissionClient:{listBySubmissionId:async()=>bundles},IntakeSubmissionDocument:{listBySubmissionId:async()=>signedDocs},
   parseSubmissionIntakeData:row=>JSON.parse(row.intake_data),StorageService:{getSignedUrl:async path=>`https://storage.test/${path}`},repairSmartSchoolRoiClientDateOfBirthFromSubmission:async()=>{},
   validateIntakeMatchingPreferences:()=>{},validateAndStampIntakeCommunications:async()=>{},
+  // Edition validation has its own tests; these fixtures contain no signed packet sections.
+  validatePacketEditionsBeforeSubmission:async()=>{},
   isIntakeStepVisibleForClientMatch:()=>true,extractRegistrationClientMatchFromIntakeData:()=>({}),matchesShowIf:()=>true,mergeShowIfValues:()=>({}),
   stripIneligibleProviderPreference:()=>{},validateSubmittedProviderPreferences:async()=>{},prepareLearningPacket:async()=>{},ensureLinkBoundCompanyEventSelection:()=>{},stampInsuranceAuthorizationSignatureMeta:()=>{},
   filterPacketDocumentTemplates:()=>templates,resolveRetentionPolicy:async()=>null,buildRetentionExpiresAt:()=>null,hashIntakeData:()=> 'synthetic'
