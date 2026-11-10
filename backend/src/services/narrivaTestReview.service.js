@@ -55,6 +55,7 @@ export async function runNarrivaTestReview(user,body){
   narrivaContext:{consentConfirmed:c.consentConfirmed===true,modality:['in_person','video','phone'].includes(c.modality)?c.modality:'',presentingProblem:text(c.presentingProblem),clientPresent:c.participants==='Guardian without client'?false:['Client only','Client and guardian','Client and others'].includes(c.participants)?true:null,riskAssessmentCompleted:c.riskAssessmentCompleted===true}};
  const row={user_id:user.id,service_code:serviceCode,date_of_service:text(c.dateOfService,10)};
  const local=narrivaLocalContext({source:row,meta,provider:{role:'provider',credential:{qbha:'QBHA',bachelors:'BA',intern_plus:'LPC'}[c.credentialTier]},serviceRule,documentationServiceRule:codes.find(r=>r.serviceCode===meta.underlyingServiceCode)});
+ if(!meta.sessionContext.participants)local.encounter.clientPresent=null;
  try{local.encounter.dateValid=/^\d{4}-\d{2}-\d{2}$/.test(row.date_of_service)&&new Date(`${row.date_of_service}T12:00:00Z`).toISOString().slice(0,10)===row.date_of_service;}catch{local.encounter.dateValid=false;}
  const catalog=await resolveAgencySchedulingCatalog({agencyId,credentialTier:c.credentialTier,allServiceCodes:[],eligibleServiceCodes:[]});
  const allowed=new Set(catalog.eligibleServiceCodes.map(r=>r.code));
