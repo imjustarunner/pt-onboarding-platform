@@ -75,6 +75,17 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     expect(wrapper.find('.na-speak-stage').exists()).toBe(false);
     wrapper.unmount();
   });
+  it('inherits the assigned encounter site and derives delivery without another routine selection, preserving saved edits',async()=>{
+    const {wrapper,state}=await workspace();
+    state.sessionLocationChoices=[{value:'Assigned office (POS 11)',name:'Assigned office',label:'Assigned office (POS 11)',serviceLocationId:8,billingOfficeLocationId:2,placeOfService:'11'}];
+    state.inheritScheduledLocation({serviceLocationId:8,billingOfficeLocationId:2,placeOfService:'11',modality:'in_person'});
+    expect(state.sessionLocationLabel).toBe('Assigned office (POS 11)');expect(state.narrivaContext().modality).toBe('in_person');
+    state.sessionLocationModel={locationSelection:'__telehealth_video__',locationLabel:'Telehealth',placeOfService:'10',modality:'video',serviceLocationId:9,billingOfficeLocationId:2};
+    state.inheritScheduledLocation({serviceLocationId:8,billingOfficeLocationId:2,placeOfService:'11',modality:'in_person'});
+    expect(state.sessionLocationModel).toMatchObject({placeOfService:'10',modality:'video'});
+    state.outputObj={sections:{Narrative:'Saved clinical evidence.'},meta:{sessionContext:{locationLabel:'Saved home visit',placeOfService:'12',serviceLocationId:12},narrivaContext:{modality:'in_person'}}};state.sessionLocationLabel='Saved home visit';state.sessionLocationChoices=[];
+    expect(state.sessionLocationMetadata()).toMatchObject({placeOfService:'12',serviceLocationId:12});wrapper.unmount();
+  });
 
   it('blocks identified names before sending Narriva generation without a generate-anyway bypass', async () => {
     const { wrapper, state } = await workspace();

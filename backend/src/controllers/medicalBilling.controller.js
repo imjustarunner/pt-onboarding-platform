@@ -18,9 +18,8 @@ import { parseObject } from '../services/supervisedBillingPolicy.service.js';
 import { sessionLocationLabel, reviewSnapshotToken, reviewRequestsForDisplay, effectiveServiceDetails, pendingServiceDetails, assertNoUnresolvedChanges, assertServiceDetailsComplete, markSupervisorQueue, synchronizeSupervisorQueue } from '../services/clinicalSupervisorReview.service.js';
 import { validateScreeningSignature, completeH0002Screening, loadScreeningSource, H0002_SOURCE } from '../services/h0002ScreeningWorkflow.service.js';
 import { providerBillingNpi } from '../services/providerBillingNpi.service.js';
-import { buildNoteAidLocationChoices } from '../services/noteAidLocations.service.js';
+import { assignedNoteLocations } from '../services/assignedNoteLocations.service.js';
 import { requireStaffPlanActor } from '../utils/planStaffAccess.js';
-import { listUserOfficeIds, listUserSchoolIds } from '../services/officeBillingSites.service.js';
 import {assertNoSelfPayBalance} from '../services/familyLedger/serviceCharges.js';
 import {reserveMedicalServiceUsage,completeMedicalServiceUsage} from '../services/medicalServiceFees.service.js';
 import { resolveClaimMdConnection, claimMdConnectionMeta, requireClaimMdTransmission } from '../services/claimMdConnection.service.js';
@@ -3426,15 +3425,11 @@ export const listServiceLocations = async (req, res, next) => {
     const agencyId = parseIntValue(req.query.agencyId);
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
     await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
+    if (String(req.query.forNoteAid || '') === '1') return res.json({choices:await assignedNoteLocations(req.user.id,agencyId)});
     const items = await AgencyServiceLocation.listByAgency(agencyId, {
       includeInactive: String(req.query.includeInactive || '') === '1'
     });
     const offices = await OfficeLocation.findBillingByAgency(agencyId);
-    if (String(req.query.forNoteAid || '') === '1') {
-      const officeIds = await listUserOfficeIds(req.user.id);
-      const schoolIds = await listUserSchoolIds(req.user.id);
-      return res.json({ choices: buildNoteAidLocationChoices({ locations: items, offices: offices || [], officeIds, schoolIds }) });
-    }
     const affiliated = await OrganizationAffiliation.listActiveOrganizationsForAgency(agencyId).catch(() => []);
     const schools = (affiliated || []).filter((org) => {
       const t = String(org.organization_type || '').toLowerCase();

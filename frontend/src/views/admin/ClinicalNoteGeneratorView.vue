@@ -256,7 +256,8 @@
           v-model:participants="sessionParticipants"
           v-model:participants-detail="sessionParticipantsDetail"
           v-model:duration-minutes="sessionDurationMinutes"
-          v-model:location-label="sessionLocationLabel"
+          v-model:location-model="sessionLocationModel"
+          :location-label="sessionLocationLabel"
           :location-choices="sessionLocationChoices"
           v-model:start-time="sessionStartTimeLocal"
           v-model:end-time="sessionEndTimeLocal"
@@ -368,7 +369,7 @@
         <ServiceInformation v-if="actualServiceCode" :service-code="actualServiceCode" :agency-id="noteAidAgencyId || currentAgencyId" />
         <section v-if="!signedNoteViewerId && !chartNoteReadOnly" class="narriva-encounter-confirmation" aria-label="Encounter consent and delivery">
           <label class="narriva-consent-check"><input v-model="narrivaConsentConfirmed" type="checkbox" /> I confirm consent to participate was obtained for this encounter.</label>
-          <label class="narriva-modality">Service delivery method<select v-model="narrivaModality" class="na-input"><option value="">Choose method</option><option value="in_person">In person</option><option value="video">Video</option><option value="phone">Phone</option></select></label>
+
         </section>
         <div v-if="noteAidAgencyNeedsChoice" class="na-tenant-choice">
           <label>
@@ -2323,14 +2324,17 @@ function ensureSessionEndFromDuration() {
 
 let sessionLocationRequest = 0;
 function sessionLocationMetadata() {
-  const choice = sessionLocationChoices.value.find(c => c.value === sessionLocationLabel.value);
+  const saved=outputObj.value?.meta?.sessionContext;
+  const choice = sessionLocationChoices.value.find(c => c.value === sessionLocationLabel.value) || (saved?.locationLabel===sessionLocationLabel.value?{...saved,address:saved.serviceAddress}:null);
   return choice ? {
     serviceLocationId: choice.serviceLocationId || null,
     billingOfficeLocationId: choice.billingOfficeLocationId || null,
+    schoolOrganizationId: choice.schoolOrganizationId || null,
     placeOfService: choice.placeOfService || null,
     serviceAddress: choice.address || null,
     billingAddress: choice.billingAddress || null,
-    defaultModifiers: choice.defaultModifiers || null
+    defaultModifiers: choice.defaultModifiers || null,
+    modality: ['02','10'].includes(String(choice.placeOfService)) ? (narrivaModality.value || choice.modality || '') : choice.placeOfService ? 'in_person' : ''
   } : {};
 }
 async function loadSessionLocationChoices(agencyId = null) {
@@ -2348,9 +2352,10 @@ async function loadSessionLocationChoices(agencyId = null) {
     if (current && !choices.some(c => c.value === current)) {
       const matches = choices.filter(c => (c.aliases || []).some(alias => String(alias).toLowerCase() === current.toLowerCase()));
       if (matches.length === 1) sessionLocationLabel.value = matches[0].value;
-      else choices.unshift({ value: current, label: `${current} — saved session location`, detail: 'Saved location; select a configured location to confirm its billing details.' });
+      else choices.unshift({ ...(outputObj.value?.meta?.sessionContext?.locationLabel===current?outputObj.value.meta.sessionContext:{}), value: current, label: `${current} — saved session location`, detail: 'Saved location; select a configured location to confirm its billing details.' });
     }
     sessionLocationChoices.value = choices;
+    inheritScheduledLocation(narrivaServiceSnapshot.value);
   } catch {
     if (request === sessionLocationRequest) sessionLocationChoices.value = [];
   }
@@ -3114,6 +3119,26 @@ const narrivaFeatures = ref({writing:true,compliance:true,quickSign:true,recordi
 const narrivaPreferenceSaving = ref(false), narrivaPreferenceError = ref('');
 let narrivaModeTouched = false;
 const narrivaConsentConfirmed = ref(false), narrivaModality = ref('');
+const sessionLocationEdited=ref(false);
+watch(sessionClinicalSessionId,()=>{sessionLocationEdited.value=false;});
+const sessionLocationModel=computed({get:()=>({locationLabel:sessionLocationLabel.value,...sessionLocationMetadata(),modality:sessionLocationMetadata().modality || narrivaModality.value}),set:value=>{
+ sessionLocationEdited.value=true;
+ const site=sessionLocationChoices.value.find(choice=>choice.value===value.locationSelection);
+ const suffix=['02','10'].includes(value.placeOfService)?value.placeOfService==='10'?' — client at home':' — client elsewhere':'';
+ const label=site?.value || (value.locationLabel==='Telehealth'?`Telehealth (${value.modality==='phone'?'phone':'video'})${suffix}`:value.locationLabel);
+ if(!label){sessionLocationLabel.value='';narrivaModality.value='';return;}
+ const choice={...site,...value,value:label,label,name:value.locationLabel};
+ sessionLocationChoices.value=[choice,...sessionLocationChoices.value.filter(item=>item.value!==label)];
+ sessionLocationLabel.value=label;narrivaModality.value=value.modality;
+}});
+function inheritScheduledLocation(scheduled) {
+ if(!scheduled || sessionLocationEdited.value || Object.hasOwn(outputObj.value?.meta?.sessionContext || {},'locationLabel'))return;
+ const site=sessionLocationChoices.value.find(choice=>scheduled.serviceLocationId?Number(choice.serviceLocationId)===Number(scheduled.serviceLocationId):scheduled.billingOfficeLocationId&&Number(choice.billingOfficeLocationId)===Number(scheduled.billingOfficeLocationId)&&String(choice.placeOfService)===String(scheduled.placeOfService));
+ if(site)sessionLocationLabel.value=site.value;
+ else if(!sessionLocationLabel.value && scheduled.locationLabel)sessionLocationLabel.value=scheduled.locationLabel;
+ if(!narrivaModality.value && scheduled.modality)narrivaModality.value=scheduled.modality;
+}
+
 const narrivaAssessmentEvidence=ref([]),showNarrivaAssessmentEvidence=ref(false);
 const narrivaUnderlyingServiceCode=ref('');
 const narrivaUnderlyingCode=computed(()=>isProBonoFundingCode(actualServiceCode.value)?narrivaUnderlyingServiceCode.value:'');
@@ -3151,7 +3176,7 @@ async function saveNarrivaDefault(mode) {
   catch { narrivaPreferenceError.value = 'Your default could not be saved. Your current note is unchanged.'; }
   finally { narrivaPreferenceSaving.value = false; }
 }
-function narrivaContext() { return { ...(outputObj.value?.meta?.narrivaContext || {}), underlyingServiceCode:narrivaUnderlyingCode.value || null, assessmentEvidence:narrivaAssessmentEvidence.value, presentingProblem:chartPresentingProblem.value || '', writerMode:noteWriterMode.value, consentConfirmed:narrivaConsentConfirmed.value, modality:narrivaModality.value, riskAssessmentIncluded:narrivaRiskIncluded.value || narrivaRiskRequired.value === true, riskAssessmentRequired:narrivaRiskRequired.value, riskAssessmentCompleted:narrivaRiskCompleted.value }; }
+function narrivaContext() { return { ...(outputObj.value?.meta?.narrivaContext || {}), underlyingServiceCode:narrivaUnderlyingCode.value || null, assessmentEvidence:narrivaAssessmentEvidence.value, presentingProblem:chartPresentingProblem.value || '', writerMode:noteWriterMode.value, consentConfirmed:narrivaConsentConfirmed.value, modality:sessionLocationModel.value.modality, riskAssessmentIncluded:narrivaRiskIncluded.value || narrivaRiskRequired.value === true, riskAssessmentRequired:narrivaRiskRequired.value, riskAssessmentCompleted:narrivaRiskCompleted.value }; }
 async function runNarrivaChecks() {
   if (!narrivaComplianceRequired.value || narrivaReviewBusy.value || !outputObj.value || signedNoteViewerId.value) return;
   if(narrivaFeatures.value.compliance===false){narrivaReviewError.value='Narriva checks are not enabled for this workspace. Your note is preserved.';return;}
@@ -3165,7 +3190,7 @@ async function runNarrivaChecks() {
   const result = await startNarrivaReview({ draftId:Number(draftId.value) });
   if (result?.riskAssessmentRequired) narrivaRiskIncluded.value = true;
 }
-async function loadNarrivaEncounterService(){const sessionId=Number(sessionClinicalSessionId.value),agencyId=Number(noteAidAgencyId.value || currentAgencyId.value),request=++narrivaServiceRequest;narrivaServiceSnapshot.value=null;narrivaPendingConfirmation.value=null;narrivaServiceError.value='';narrivaServiceReason.value='';if(!sessionId || !agencyId || signedNoteViewerId.value || isClientChartAid.value)return;narrivaServiceLoading.value=true;try{const {data}=await api.get(`/narriva/sessions/${sessionId}/service`,{params:{agencyId},skipGlobalLoading:true});if(request===narrivaServiceRequest && (data.session || data.serviceCode)){narrivaServiceSnapshot.value={...(data.session || {}),id:sessionId,pendingServiceChange:data.pendingServiceChange || data.session?.pendingServiceChange,serviceCode:data.serviceCode || data.session?.serviceCode || ''};narrivaPendingConfirmation.value=data.pendingConfirmation || data.session?.pendingConfirmation || null;if(narrivaPendingConfirmation.value){selectedServiceCode.value=narrivaPendingConfirmation.value.serviceCode;otherServiceCode.value='';narrivaServiceReason.value=narrivaPendingConfirmation.value.justification;}}}catch{if(request===narrivaServiceRequest)narrivaServiceError.value='The encounter service could not be verified. Reload its current service before changing it.';}finally{if(request===narrivaServiceRequest)narrivaServiceLoading.value=false;}}
+async function loadNarrivaEncounterService(){const sessionId=Number(sessionClinicalSessionId.value),agencyId=Number(noteAidAgencyId.value || currentAgencyId.value),request=++narrivaServiceRequest;narrivaServiceSnapshot.value=null;narrivaPendingConfirmation.value=null;narrivaServiceError.value='';narrivaServiceReason.value='';if(!sessionId || !agencyId || signedNoteViewerId.value || isClientChartAid.value)return;narrivaServiceLoading.value=true;try{const {data}=await api.get(`/narriva/sessions/${sessionId}/service`,{params:{agencyId},skipGlobalLoading:true});if(request===narrivaServiceRequest && (data.session || data.serviceCode)){narrivaServiceSnapshot.value={...(data.session || {}),id:sessionId,pendingServiceChange:data.pendingServiceChange || data.session?.pendingServiceChange,serviceCode:data.serviceCode || data.session?.serviceCode || ''};inheritScheduledLocation(narrivaServiceSnapshot.value);narrivaPendingConfirmation.value=data.pendingConfirmation || data.session?.pendingConfirmation || null;if(narrivaPendingConfirmation.value){selectedServiceCode.value=narrivaPendingConfirmation.value.serviceCode;otherServiceCode.value='';narrivaServiceReason.value=narrivaPendingConfirmation.value.justification;}}}catch{if(request===narrivaServiceRequest)narrivaServiceError.value='The encounter service could not be verified. Reload its current service before changing it.';}finally{if(request===narrivaServiceRequest)narrivaServiceLoading.value=false;}}
 async function verifyNarrivaEncounter(){try{await ensureClinicalSessionForApproval();await loadNarrivaEncounterService();}catch(e){narrivaServiceError.value=e.response?.data?.error?.message || 'The scheduled encounter could not be linked.';}}
 async function confirmNarrivaService(){if(!narrivaServicePending.value || narrivaServiceSaving.value || narrivaServiceReason.value.trim().length<5)return;narrivaServiceSaving.value=true;narrivaServiceError.value='';try{const {data}=await api.post(`/narriva/sessions/${sessionClinicalSessionId.value}/service`,{agencyId:Number(noteAidAgencyId.value || currentAgencyId.value),serviceCode:narrivaPendingConfirmation.value?.serviceCode || actualServiceCode.value,expectedOldServiceCode:narrivaPendingConfirmation.value?.expectedOldServiceCode || narrivaServiceSnapshot.value.serviceCode,confirmed:true,justification:narrivaPendingConfirmation.value?.justification || narrivaServiceReason.value.trim(),durationMinutes:Number(sessionDurationMinutes.value),modality:narrivaModality.value},{skipGlobalLoading:true});narrivaServiceSnapshot.value={...narrivaServiceSnapshot.value,...data.session,serviceCode:data.serviceCode || data.session?.serviceCode || actualServiceCode.value};selectedServiceCode.value=data.serviceCode || data.session?.serviceCode || actualServiceCode.value;narrivaPendingConfirmation.value=null;narrivaServiceSnapshot.value.pendingServiceChange=false;narrivaServiceReason.value='';approvalError.value='';invalidateNarrivaReview();await autosave();}catch(e){narrivaServiceError.value=e.response?.data?.error?.message || 'The encounter service was not changed. Your note and selection are preserved.';}finally{narrivaServiceSaving.value=false;}}
 async function loadNarrivaRecording(){

@@ -146,7 +146,8 @@ export const getMobileClinicalContext=async(req,res,next)=>{
     }
    }
   }
-  const meta={...parse(session?.metadata_json),...parse(noteSource?.meta)},sourceZone=session?.source_timezone||work?.sourceTimezone||req.user.timezone||'America/Denver';let zone=sourceZone;try{zoned(new Date(),zone);}catch{zone='America/Denver';}
+  const draftOutput=draft?outputFromDraft(draft):null;
+  const meta={...parse(session?.metadata_json),...parse(draftOutput?.meta),...parse(noteSource?.meta)},sourceZone=session?.source_timezone||work?.sourceTimezone||req.user.timezone||'America/Denver';let zone=sourceZone;try{zoned(new Date(),zone);}catch{zone='America/Denver';}
   const start=session?.scheduled_start_at||office?.start_at||work?.scheduledStart,end=session?.scheduled_end_at||office?.end_at||work?.scheduledEnd;
   const localStart=zoned(start,zone),localEnd=zoned(end,zone),dateOfService=localStart.date||dateOnly(draft?.date_of_service)||dateOnly(work?.date)||today();
   const durationMinutes=instant(start)&&instant(end)?Math.max(0,Math.round((instant(end)-instant(start))/60000)):Number(work?.durationMinutes||meta.durationMinutes||0);
@@ -154,15 +155,22 @@ export const getMobileClinicalContext=async(req,res,next)=>{
   const [[preference]]=await pool.execute('SELECT default_mode FROM narriva_writer_preferences WHERE user_id=? AND agency_id=?',[userId,agencyId]);
   let treatmentPlan=null;const plans=await ClinicalTreatmentPlan.listByClient({agencyId,clientId});const current=plans.find(plan=>String(plan.status).toLowerCase()==='active'&&(!plan.effective_date||dateOnly(plan.effective_date)<=dateOfService));
   if(current){const plan=await ClinicalTreatmentPlan.findById(current.id);if(Number(plan.agency_id)!==agencyId||Number(plan.client_id)!==clientId)throw narrivaError(409,'Treatment plan context changed.');const goals=[];for(const goal of plan.goals||[]){const objectives=[];for(const objective of goal.objectives||[]){const rating=await ClinicalTreatmentObjectiveRating.findLatestForDedupe({objectiveId:objective.id,dateOfService})||await ClinicalTreatmentObjectiveRating.findPreviousSession({objectiveId:objective.id,dateOfService});objectives.push({id:objective.id,title:objective.objective_text,scaleTarget:objective.scale_target,previousScore:rating?.scale_value??null});}goals.push({id:goal.id,title:goal.goal_text,objectives});}treatmentPlan={id:plan.id,goals,presentingProblem:plan.presentingProblem||'',diagnosticJustification:plan.diagnostic_justification||'',diagnoses:(plan.planDiagnoses||[]).map(dx=>({id:dx.diagnosis_id,code:dx.icd10_code,description:dx.description,justification:dx.justification}))};}
+  let diagnoses=treatmentPlan?.diagnoses || [];
+  if(!diagnoses.length) {
+   const [rows]=await clinicalPool.execute('SELECT id,icd10_code,description,justification FROM clinical_diagnoses WHERE agency_id=? AND client_id=? AND is_active=1 ORDER BY is_primary DESC,id DESC LIMIT 100',[agencyId,clientId]);
+   diagnoses=rows.filter(row=>row.icd10_code).map(row=>({id:row.id,code:row.icd10_code,description:row.description,justification:row.justification}));
+  }
+  const clinicalContext={diagnoses,diagnosticJustification:treatmentPlan?.diagnosticJustification || (diagnoses.length===1?diagnoses[0].justification:'') || '',presentingProblem:treatmentPlan?.presentingProblem || ''};
   let recordingNarrative=null;if(req.query.recordingId)recordingNarrative=await getAuthorizedRecordingNarrative({user:req.user,agencyId,clientId,clinicalSessionId:sessionId,officeEventId,recordingId:checkedId(req.query.recordingId,'recording')});
   let scheduledParticipants='';
   if(session?.appointment_id){const [people]=await pool.execute('SELECT role FROM appointment_participants WHERE appointment_id=? ORDER BY sort_order,id',[session.appointment_id]);const roles=people.map(p=>String(p.role).toLowerCase());if(roles.includes('client'))scheduledParticipants=roles.some(role=>['guardian','parent','caregiver'].includes(role))?'Client and Parent/Guardian':roles.some(role=>!['client','provider','clinician'].includes(role))?'Client and Other Participants':'Client Only';else if(roles.some(role=>['guardian','parent','caregiver'].includes(role)))scheduledParticipants='Parent/Guardian without Client';}
   const participants=String(meta.sessionContext?.participants||meta.participants||meta.participantsMode||office?.participants_mode||scheduledParticipants||'Client Only');
   const delivery=String(meta.narrivaContext?.modality||meta.sessionContext?.modality||meta.modality||session?.modality||'').toLowerCase();
   const modality=['in_person','video','phone'].includes(delivery)?delivery:/^(in.person|in person)$/.test(delivery)?'in_person':/virtual|telehealth|video/.test(delivery)?'video':/phone|telephone/.test(delivery)?'phone':(office||session?.place_of_service)&&!['02','10'].includes(String(session?.place_of_service))?'in_person':'';
-  const serviceLocationId=positiveId(session?.service_location_id)||positiveId(meta.sessionContext?.serviceLocationId);
-  const billingOfficeLocationId=positiveId(session?.billing_office_location_id)||positiveId(meta.sessionContext?.billingOfficeLocationId)||positiveId(office?.office_location_id);
-  const placeOfService=String(session?.place_of_service||meta.sessionContext?.placeOfService||'');
+  const savedLocation=meta.sessionContext || {};
+  const serviceLocationId=Object.hasOwn(savedLocation,'serviceLocationId')?positiveId(savedLocation.serviceLocationId):positiveId(session?.service_location_id);
+  const billingOfficeLocationId=Object.hasOwn(savedLocation,'billingOfficeLocationId')?positiveId(savedLocation.billingOfficeLocationId):positiveId(session?.billing_office_location_id)||positiveId(office?.office_location_id);
+  const placeOfService=String(Object.hasOwn(savedLocation,'placeOfService')?savedLocation.placeOfService || '':session?.place_of_service || '');
   const savedLocationLabel=String(meta.sessionContext?.locationLabel||meta.locationLabel||session?.location_label||'').trim();
   const [[risk]] = await pool.execute(`SELECT MAX(risk_assessment_required) AS required FROM narriva_reviews WHERE agency_id=? AND ((draft_id IS NOT NULL AND draft_id=?) OR (clinical_note_id IS NOT NULL AND clinical_note_id=?) OR (clinical_session_id IS NOT NULL AND clinical_session_id=?))`,[agencyId,draftId,noteId,sessionId]);
   const riskAssessmentRequired=Number(risk?.required)===1;
@@ -181,7 +189,7 @@ export const getMobileClinicalContext=async(req,res,next)=>{
   res.json({agencyId,riskAssessmentRequired,review:signedContext?.review||null,client:mobileClient(client),session:{id:sessionId,officeEventId,dateOfService,startTimeLocal:localStart.time,endTimeLocal:localEnd.time,durationMinutes,sourceTimezone:zone,serviceCode:session?.service_code||draft?.service_code||work?.serviceCode||meta.serviceCode||'',participants,locationLabel,serviceLocationId,billingOfficeLocationId,placeOfService,modality},
    draft:draft?{id:Number(draft.id),inputText:decryptNarrivaDraft(draft.input_text),outputJson:outputFromDraft(draft)}:null,
    note:signedContext?.note||null,
-   treatmentPlan,locationChoices,locationChoicesUnavailable,serviceCodes:care.canProvideCare?catalog.eligibleServiceCodes:[],preferences:{defaultMode,features:capabilities},alerts:[],recordingNarrative});
+   treatmentPlan,clinicalContext,locationChoices,locationChoicesUnavailable,serviceCodes:care.canProvideCare?catalog.eligibleServiceCodes:[],preferences:{defaultMode,features:capabilities},alerts:[],recordingNarrative});
  }catch(error){next(error);}
 };
 
