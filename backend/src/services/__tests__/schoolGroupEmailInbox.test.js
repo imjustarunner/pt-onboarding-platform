@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import pool from '../../config/database.js';
-import {recordSchoolGroupEmail,recordSentSchoolPacketEmail,packetNotificationSubject} from '../schoolGroupEmailInbox.service.js';
+import {recordSchoolGroupEmail,recordSentSchoolGroupEmail,packetNotificationSubject} from '../schoolGroupEmailInbox.service.js';
 import {resolveNotificationTypePreference} from '../notificationPreferences.service.js';
 test.after(()=>pool.end());
 const input={agencyId:2,to:['bradley@itsco.health'],cc:['support@itsco.health'],fromEmail:'schools@itsco.health',subject:'Example School - Paper Enrollment Packet Uploaded',messageId:'<packet@app.test>',bodyText:'A packet has been uploaded.',receivedAt:'2026-11-10T15:00:00Z'};
@@ -39,7 +39,7 @@ test('a packet email from an unknown sender or another school cannot be promoted
  for(const target of ['sender','school']){const f=fixture(),execute=f.deps.database.execute;f.deps.database.execute=async(sql,args)=>sql.includes(target==='sender'?'FROM email_sender_identities':'FROM school_profiles')?[[]]:execute(sql,args);assert.equal((await recordSchoolGroupEmail(input,f.deps)).handled,false);assert.equal(f.copies.length,0);}
 });
 test('an unsent, queued, redirected or unverified transport never creates received email',async()=>{
- for(const result of [{queued:true},{id:'test',redirected:true},{id:'test'},{}]){const f=fixture();assert.equal((await recordSentSchoolPacketEmail({...input,result},f.deps)).handled,false);assert.equal(f.copies.length,0);}
+ for(const result of [{queued:true},{id:'test',redirected:true},{id:'test'},{}]){const f=fixture();assert.equal((await recordSentSchoolGroupEmail({...input,result},f.deps)).handled,false);assert.equal(f.copies.length,0);}
 });
 test('school-email alerts default on for support, can be muted, and cannot send another email or text',()=>{
  const context={userRole:'support',globalPreferences:{},legacyCategories:{},typePreferences:new Map()};

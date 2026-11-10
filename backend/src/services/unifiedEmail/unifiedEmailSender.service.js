@@ -1515,6 +1515,13 @@ export async function sendEmailFromIdentity({
     }).catch(() => {});
   }
 
+  if(agencyId && messageId && !redirected.redirected && !eventDelivery.appOnly && ['auto','automation'].includes(source) && /^school_/.test(String(templateType || ''))){
+    const {recordSentSchoolGroupEmail}=await import('../schoolGroupEmailInbox.service.js');
+    await recordSentSchoolGroupEmail({agencyId,to,cc,subject,senderIdentityId:identity.id,
+      result:{id:messageId,internetMessageId,threadId:finalThreadId,bodyText:signedContent.text,bodyHtml:signedContent.html}})
+      .catch(error=>console.warn('[school group email] inbox projection pending',error?.code || 'projection_failed'));
+  }
+
   return {
     id: messageId,
     internetMessageId,

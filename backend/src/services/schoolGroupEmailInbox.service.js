@@ -1,3 +1,4 @@
+import {extractEmails} from '../utils/gmailMessageParse.shared.js';
 import {createHash} from 'node:crypto';
 import pool from '../config/database.js';
 import CommunicationInbox from '../models/CommunicationInbox.model.js';
@@ -6,7 +7,7 @@ import {listUserDepartmentalGroupKeys} from './departmentalGroupAccess.service.j
 
 export const SCHOOL_GROUP_EMAIL_TYPE = 'school_group_email_received';
 export const packetNotificationSubject = subject => !/^\s*(?:re|fw|fwd):/i.test(subject || '') && / - (?:Paper Enrollment Packet Uploaded|Digital Enrollment Packet)$/i.test(subject || '');
-const emails = values => [...new Set((values || []).map(v => String(v?.email || v || '').trim().toLowerCase()).filter(Boolean))];
+const emails = values => [...new Set((values || []).flatMap(v=>extractEmails(String(v?.email || v || ''))).map(v=>v.toLowerCase()))];
 
 /** Receipt mail remains email. It never enters support-ticket intake or drafting. */
 export async function recordSchoolGroupEmail(input, dependencies = {}) {
@@ -32,11 +33,12 @@ export async function recordSchoolGroupEmail(input, dependencies = {}) {
   if (!inbox) throw new Error('Schools group inbox is unavailable');
   const receivedAt = new Date(input.receivedAt || Date.now());
   if (!Number.isFinite(receivedAt.getTime())) throw new Error('Packet email receipt time is unavailable');
+  const attachments=input.payload ? await (dependencies.prepareAttachments || (await import('./communicationAttachments.service.js')).prepareInboundAttachments)({gmail:input.gmail,gmailMessageId:input.gmailMessageId,payload:input.payload,inboxId:inbox.id}) : [];
   const persist = dependencies.persistEmail || persistInboundEmail;
   const saved = await persist({agencyId:Number(input.agencyId),inboxId:inbox.id,deliveryId:input.messageId,
     threadId:input.threadId || null,fromEmail:input.fromEmail,subject:input.subject,bodyText:input.bodyText || '',bodyHtml:input.bodyHtml || null,
     to:emails(input.to).map(email=>({email})),cc:emails(input.cc).map(email=>({email})),receivedAt,
-    isGroupEmail:true,isAutoReply:true,autoReplyKind:'school_group_notification',standalone:true,suppressPush:!!input.historical});
+    attachments,isGroupEmail:true,isAutoReply:true,autoReplyKind:'school_group_notification',standalone:true,suppressPush:!!input.historical});
   if (!saved.messageId || !saved.conversationId) throw new Error('School notification email did not persist');
   await db.execute("UPDATE communication_conversations SET is_unknown_sender=0,status='waiting' WHERE id=? AND agency_id=? AND support_ticket_id IS NULL", [saved.conversationId,input.agencyId]);
   const [members] = await db.execute(`SELECT DISTINCT u.id,u.role FROM users u JOIN user_agencies ua ON ua.user_id=u.id
@@ -72,12 +74,12 @@ export async function recordSchoolGroupEmail(input, dependencies = {}) {
   return {handled:true,...saved,notificationCount};
 }
 
-export async function recordSentSchoolPacketEmail({agencyId,schoolOrganizationId,to,cc,subject,result,senderIdentityId},dependencies={}) {
+export async function recordSentSchoolGroupEmail({agencyId,schoolOrganizationId,to,cc,subject,result,senderIdentityId},dependencies={}) {
   if (!result?.id || result.queued || result.blocked || result.skipped || result.redirected || !result.internetMessageId) return {handled:false};
   const db=dependencies.database || pool;
   const [[sender]]=await db.execute('SELECT from_email FROM email_sender_identities WHERE id=? AND agency_id=? AND is_active=1',[senderIdentityId,agencyId]);
   if(!sender)return {handled:false};
   return recordSchoolGroupEmail({agencyId,schoolOrganizationId,to:[to],cc:(Array.isArray(cc)?cc:String(cc || '').split(',')),subject,
-    messageId:result.internetMessageId,threadId:result.threadId,fromEmail:sender.from_email,bodyText:result.bodyText,bodyHtml:result.bodyHtml,
+    automated:true,messageId:result.internetMessageId,threadId:result.threadId,fromEmail:sender.from_email,bodyText:result.bodyText,bodyHtml:result.bodyHtml,
     receivedAt:new Date()},dependencies);
 }

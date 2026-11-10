@@ -310,8 +310,6 @@ async function sendSchoolIntakeStatusEmail({
       });
       return false;
     }
-    const {recordSentSchoolPacketEmail}=await import('./schoolGroupEmailInbox.service.js');
-    await recordSentSchoolPacketEmail({agencyId:aid,schoolOrganizationId:sid,to,cc:senderResolved.cc,subject,result,senderIdentityId}).catch(error=>console.warn('[school packet email] inbox projection pending',error?.code || 'projection_failed'));
     return true;
   } catch (err) {
     console.error('[schoolEnrollmentPacketStatus] send failed', err?.message || err);
