@@ -65,6 +65,7 @@ export function previewRouteAllowed(method, path) {
     /^\/clients\/\d+\/communications(?:\/export|\/conversations\/(?:secure-)?[1-9][0-9]*)?$/,
     /^\/me\/notes-to-sign(?:\/count)?$/,
     /^\/narriva\/compliance-reports\/(?:settings|runs(?:\/[a-f0-9-]{36}(?:\/export)?)?)$/i,
+    /^\/narriva\/(?:preferences|test-review\/options|reviews\/[1-9][0-9]*|notes\/[1-9][0-9]*\/status|sessions\/[1-9][0-9]*\/service)$/,
     /^\/medical-billing\/(?:workspace|service-locations|service-codes|config|supervised-payer-policies|supervised-provider-readiness|payer-eft|claims|claimmd|reports|clients|notes|treatment-plans|treatment-frequencies|agencies)(?:\/|$)/,
     /^\/clients(?:\/\d+(?:\/(?:guardians|records-copy-blocks|intake-note|clinical-responses))?)?$/,
     /^\/appointments(?:\/\d+)?$/,
@@ -80,6 +81,9 @@ export function previewRouteAllowed(method, path) {
   // until the complete AuricWell revenue-cycle acceptance is finished.
   return [
     ['PATCH', /^\/narriva\/compliance-reports\/settings$/],
+    ['POST', /^\/clinical-notes\/diagnosis-search$/],
+    ['POST', /^\/narriva\/(?:test-review|reviews)$/],
+    ['PATCH', /^\/narriva\/(?:preferences|reviews\/[1-9][0-9]*\/findings)$/],
     ['POST', /^\/narriva\/compliance-reports\/runs(?:\/[a-f0-9-]{36}\/retry)?$/i],
     ['POST', /^\/clients\/merge(?:\/preview)?$/],
     ['POST', /^\/clinical-notes\/(?:drafts|audit|generate|interactive-complexity)$/],
