@@ -23,6 +23,8 @@ let serverItems;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.auth.user.role = 'provider';
+  mocks.agency.currentAgency.feature_flags = {};
   localStorage.clear();
   clearAllWorkQueues(501);
   serverItems = [queued, started];
@@ -141,4 +143,19 @@ it('opens the authorized linked paper task on arrival and preserves that link on
   first.wrapper.unmount();
   const reloaded = await hub({}, savedPath);
   expect(reloaded.state.detailTask.id).toBe(90); reloaded.wrapper.unmount();
+});
+
+it('does not request clinical queues or disabled budget departments for Support', async () => {
+  mocks.auth.user.role = 'support';
+  const { wrapper, state } = await hub();
+  state.refreshNoteQueues(); await flushPromises();
+  expect(api.get.mock.calls.some(([url]) => ['/me/notes-to-sign', '/clinical-notes/work-queue', '/agencies/7/departments'].includes(url))).toBe(false);
+  expect(state.canUseNotesWorkspace).toBe(false); wrapper.unmount();
+});
+it('retains department loading when the current agency enables that feature', async () => {
+  mocks.auth.user.role = 'support';
+  mocks.agency.currentAgency.feature_flags = JSON.stringify({ budgetManagementEnabled: true });
+  const { wrapper } = await hub();
+  expect(api.get.mock.calls.some(([url]) => url === '/agencies/7/departments')).toBe(true);
+  expect(api.get.mock.calls.some(([url]) => url === '/clinical-notes/work-queue')).toBe(false); wrapper.unmount();
 });

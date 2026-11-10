@@ -933,6 +933,8 @@ const noteQueueSortDir = ref('');
 const showTodoImportModal = ref(false);
 const lastTodoImportKeys = ref([]);
 const canUseNotesWorkspace = computed(() => {
+  // Support sees operational documentation status, not the clinical note queues.
+  if (String(authStore.user?.role || '').toLowerCase() === 'support') return false;
   if (focusUserIdLocked.value && focusUserIdLocked.value !== Number(authStore.user?.id)) return false;
   const raw = agencyStore.currentAgency?.feature_flags;
   let flags = raw;
@@ -1242,6 +1244,15 @@ const agencyId = computed(() => {
 const orgPrefix = computed(() => {
   const slug = route.params.organizationSlug;
   return typeof slug === 'string' && slug ? `/${slug}` : '';
+});
+
+const canLoadDepartments = computed(() => {
+  const current = agencyStore.currentAgency?.value ?? agencyStore.currentAgency;
+  const agency = Number(current?.id) === Number(agencyId.value)
+    ? current : (agencyStore.userAgencies || []).find(item => Number(item.id) === Number(agencyId.value));
+  let flags = agency?.feature_flags ?? agency?.featureFlags ?? {};
+  if (typeof flags === 'string') { try { flags = JSON.parse(flags); } catch { flags = {}; } }
+  return [true, 1, 'true', '1'].includes(flags?.budgetManagementEnabled);
 });
 
 const myDashboardPath = computed(() => `${orgPrefix.value}/dashboard`);
@@ -2339,7 +2350,7 @@ async function refresh() {
 }
 
 async function loadDepartments() {
-  if (!agencyId.value) return;
+  if (!agencyId.value || !canLoadDepartments.value) { departments.value = []; return; }
   try {
     const { data } = await api.get(`/agencies/${agencyId.value}/departments`, { skipGlobalLoading: true });
     departments.value = Array.isArray(data) ? data : (data?.departments || []);
@@ -2698,6 +2709,7 @@ watch(agencyId, () => {
   loadTypeDefs();
   refresh();
 });
+watch(canLoadDepartments, loadDepartments);
 
 onMounted(async () => {
   refreshNoteQueues();
