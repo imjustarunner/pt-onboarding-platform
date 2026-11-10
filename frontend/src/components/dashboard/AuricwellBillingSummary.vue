@@ -6,8 +6,9 @@
     <template v-if="summary && !error">
       <div class="billing-counts">
         <router-link :to="queue('submitted_or_processing')"><span>Submitted / processing</span><strong>{{ summary.counts.submitted }}</strong><small>Awaiting payer updates</small></router-link>
-        <router-link :to="queue('needs_review')"><span>For review</span><strong>{{ summary.counts.review }}</strong><small>Review before submission</small></router-link>
+        <router-link :to="queue('needs_review')"><span>Automatic checks</span><strong>{{ summary.counts.review }}</strong><small>Runs under your billing rule</small></router-link>
       </div>
+      <router-link v-if="summary.counts.awaitingSignatures" :to="queue('awaiting_signatures')" class="billing-help"><div><strong>Awaiting signed notes</strong><span>Requires a linked clinical note with its required signatures.</span></div><b>{{ summary.counts.awaitingSignatures }}</b><span aria-hidden="true">→</span></router-link>
       <router-link :to="queue('needs_help')" class="billing-help" :class="{urgent:summary.counts.needsHelp>0}"><div><strong>Claims needing help</strong><span>Failed checks, corrections, rejections or missing information</span></div><b>{{ summary.counts.needsHelp }}</b><span aria-hidden="true">→</span></router-link>
     </template>
   </section>

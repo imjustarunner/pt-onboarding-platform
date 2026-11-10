@@ -11,6 +11,12 @@ const practice = { name:'Demo Practice LLC', claim_facility_name:'Demo Facility'
 const build = (changes = {}, payerId = 'COCHA') => buildClaimMdJsonClaim(claim, lines, { insurance:{...insurance,primary:{...insurance.primary,payerId}}, practice:{...practice,...changes} });
 
 describe('complete Claim.MD facility identity', () => {
+  it('automatically formats full patient and subscriber state names for the clearinghouse without changing source records',()=>{
+    const input={...insurance,patient:{...patient,state:'Colorado'},primary:{...insurance.primary,subscriberState:'colorado'}};
+    expect(buildClaimMdJsonClaim(claim,lines,{insurance:input,practice})).toMatchObject({pat_state:'CO',ins_state:'CO'});
+    expect(input.patient.state).toBe('Colorado');expect(input.primary.subscriberState).toBe('colorado');
+    expect(()=>buildClaimMdJsonClaim(claim,lines,{insurance:{...input,patient:{...input.patient,state:'Unrecognized state'}},practice})).toThrow('pat_state');
+  });
   it('sends the selected office address with the effective billing NPI, never the patient address', () => {
     const payload = build();
     expect(payload).toMatchObject({ facility_name:'Demo Facility', facility_npi:claim.billing_npi, facility_addr_1:'10 Office Street', facility_addr_2:'', facility_city:'Denver', facility_state:'CO', facility_zip:'802021234', bill_npi:claim.billing_npi, prov_npi:claim.rendering_npi, pat_addr_1:patient.addressLine1 });

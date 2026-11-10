@@ -7,6 +7,12 @@ import { callGeminiText } from '../geminiText.service.js';
 const input=()=>({agencyId:1,claimId:2,sourceHash:'a'.repeat(64),actorUserId:9,documentation:{note:{id:3,provider_signed_at:'2026-09-24'},narrative:'Synthetic clinical content',addenda:[]},payload:{pat_name_f:'PRIVATE NAME',ins_number:'PRIVATE MEMBER',charge:[{proc_code:'90834',units:'1',place_of_service:'11',mod1:'95',pat_name:'NO LEAK'}]},insurance:{patient:{firstName:'PRIVATE NAME'}}});
 beforeEach(()=>vi.restoreAllMocks());
 describe('server-attested AI content review',()=>{
+  it('grounds U9 review in the verified oversight policy without exposing payer or provider identities',async()=>{
+    const args=input();args.contentReviewPolicy={coloradoMedicaidOversightU9:true,providerName:'DO NOT SEND',payerId:'DO NOT SEND'};
+    const model=vi.fn().mockResolvedValue({text:'{"complete":true,"findings":[]}',finishReason:'STOP'}),db={execute:vi.fn().mockResolvedValue([{insertId:4}])};
+    await runClaimContentReview(args,{redact:async()=> 'SAFE',model,db});
+    const prompt=model.mock.calls[0][0].prompt;expect(prompt).toContain('under rendering-provider oversight');expect(prompt).toContain('Do not create a group-attendance discrepancy from U9');expect(prompt).not.toContain('DO NOT SEND');
+  });
   it('privacy-processes entry reasons along with text before any model call',async()=>{
     const args=input();args.documentation.addenda=[{entry_kind:'correction',body:'Corrected location',entry_reason:'PRIVATE REASON'}];
     const redact=vi.fn().mockResolvedValue('SAFE'),model=vi.fn().mockResolvedValue({text:'{"complete":true,"findings":[]}',finishReason:'STOP'}),db={execute:vi.fn().mockResolvedValue([{insertId:4}])};
@@ -35,7 +41,7 @@ describe('server-attested AI content review',()=>{
   });
   it('requires exact current source evidence and ignores frontend AI-generated flags',async()=>{
     const db={execute:vi.fn().mockResolvedValue([[]])};
-    expect(await currentClaimContentReview(1,2,'current',db)).toMatchObject({status:'required'});expect(db.execute.mock.calls[0][1]).toEqual([1,2,'current','claim-content-v1']);
+    expect(await currentClaimContentReview(1,2,'current',db)).toMatchObject({status:'required'});expect(db.execute.mock.calls[0][1]).toEqual([1,2,'current','claim-content-v2']);
   });
   it('fails closed without approved privacy configuration and does not use an API-key fallback',async()=>{
     vi.stubEnv('CLINICAL_AI_PRIVACY_APPROVED','false');const fetchImpl=vi.fn();await expect(redactReviewNarrative('note',{}, {fetchImpl})).rejects.toMatchObject({status:503});expect(fetchImpl).not.toHaveBeenCalled();

@@ -20,17 +20,22 @@ export async function processAutomaticClaim({ agencyId, claimId, user }, deps = 
   const prepare = deps.prepare || (await import('../controllers/claimMdWorkflow.controller.js')).prepareClaimReview;
   const review = deps.review || (await import('./claimContentReview.service.js')).runClaimContentReview;
   let prepared = await prepare(agencyId,claimId);
-  if (prepared.claim.claim_lifecycle !== 'ready' || prepared.claim.claimmd_claim_id || prepared.claim.claimmd_submitted_at)
+  if (!['draft','ready'].includes(prepared.claim.claim_lifecycle) || prepared.claim.claimmd_claim_id || prepared.claim.claimmd_submitted_at)
     return { status:'skipped', blockers:[] };
+  if (!prepared.documentation?.note?.provider_signed_at)return {status:'awaiting_signatures',blockers:[]};
   if (prepared.aiReview?.status === 'required' && prepared.payload && prepared.documentation?.note?.provider_signed_at) {
     await review({agencyId,claimId,actorUserId:user.id,sourceHash:prepared.sourceHash,
-      documentation:prepared.documentation,payload:prepared.payload,insurance:prepared.insurance});
+      documentation:prepared.documentation,payload:prepared.payload,insurance:prepared.insurance,contentReviewPolicy:prepared.contentReviewPolicy});
     prepared = await prepare(agencyId,claimId);
   }
   if (!prepared.readiness.ready) return { status:'held',blockers:prepared.readiness.blockers || ['Claim requires billing review'] };
   // Warnings are human work too; do not silently approve an ambiguous AI result.
   if (prepared.aiReview?.findings?.some(finding => !finding.resolution))
     return { status:'held',blockers:prepared.aiReview.findings.filter(f=>!f.resolution).map(f=>f.message) };
+  if(prepared.claim.claim_lifecycle==='draft') {
+    const [promoted]=await (deps.clinical||clinicalPool).execute("UPDATE clinical_claims SET claim_lifecycle='ready' WHERE id=? AND agency_id=? AND claim_lifecycle='draft' AND billing_revision=? AND claimmd_claim_id IS NULL AND claimmd_submitted_at IS NULL",[claimId,agencyId,prepared.claim.billing_revision]);
+    if(!promoted.affectedRows)return {status:'skipped',blockers:[]};
+  }
   return {status:'ready',blockers:[]};
 }
 
@@ -78,9 +83,10 @@ export async function runDailyClaimAutomation(deps={}) {
       if(run.status==='completed')continue;
       const taskListId=Number(flags.insuranceVerificationTasks.taskListId);
       await (deps.syncAudience||syncInsuranceBillingAudience)(agency.id,taskListId,db);
-      const [claims]=await clinical.execute(`SELECT id,client_id FROM clinical_claims WHERE agency_id=? AND id>? AND is_deleted=0
-        AND claim_lifecycle='ready' AND claimmd_claim_id IS NULL AND claimmd_submitted_at IS NULL AND date_of_service<=?
-        AND COALESCE(JSON_EXTRACT(metadata_json,'$.hiddenFromQueue'),false)=false ORDER BY id LIMIT 25`,[agency.id,run.last_claim_id,day]);
+      const [claims]=await clinical.execute(`SELECT c.id,c.client_id FROM clinical_claims c JOIN clinical_notes n ON n.id=c.clinical_note_id AND n.agency_id=c.agency_id
+        WHERE c.agency_id=? AND c.id>? AND c.is_deleted=0 AND n.is_deleted=0 AND n.provider_signed_at IS NOT NULL
+        AND c.claim_lifecycle IN ('draft','ready') AND c.claimmd_claim_id IS NULL AND c.claimmd_submitted_at IS NULL AND c.date_of_service<=?
+        AND COALESCE(JSON_EXTRACT(c.metadata_json,'$.hiddenFromQueue'),false)=false ORDER BY c.id LIMIT 25`,[agency.id,run.last_claim_id,day]);
       for(const claim of claims) {
         let outcome;
         try {outcome=await (deps.process||processAutomaticClaim)({agencyId:agency.id,claimId:claim.id,user},deps);}

@@ -107,12 +107,13 @@ export async function billingDashboardSummary(user,query={},deps=dependencies) {
   const requested=query.agencyId==null||query.agencyId===''?null:Number(query.agencyId);
   if(requested!==null&&(!Number.isSafeInteger(requested)||!authorized.some(agency=>agency.id===requested)))throw denied();
   const organizations=requested?authorized.filter(agency=>agency.id===requested):authorized;
-  const result={organizations:organizations.map(({id,name,slug})=>({id,name,slug})),counts:{submitted:0,review:0,needsHelp:0},updatedAt:new Date().toISOString()};
+  const result={organizations:organizations.map(({id,name,slug})=>({id,name,slug})),counts:{submitted:0,review:0,needsHelp:0,awaitingSignatures:0},updatedAt:new Date().toISOString()};
   if(!organizations.length)return result;
   const ids=organizations.map(agency=>agency.id),marks=ids.map(()=>'?').join(',');
-  const [claims]=await deps.clinical.execute(`SELECT c.id AS claimId,c.agency_id,c.client_id,c.clinical_session_id,c.parent_claim_id,c.payer_sequence,c.claim_lifecycle,c.metadata_json AS claim_metadata_json,
+  const [claims]=await deps.clinical.execute(`SELECT c.id AS claimId,c.agency_id,c.client_id,c.clinical_session_id,c.parent_claim_id,c.payer_sequence,c.claim_lifecycle,c.metadata_json AS claim_metadata_json,${clinicalApprovalFields},
     EXISTS(SELECT 1 FROM clinical_claim_change_requests ch WHERE ch.agency_id=c.agency_id AND ch.clinical_session_id=c.clinical_session_id AND ch.status IN ('pending','reconciliation_required')) AS service_change_pending
-    FROM clinical_claims c WHERE c.agency_id IN (${marks}) AND c.is_deleted=0`,ids);
+    FROM clinical_claims c LEFT JOIN clinical_notes n ON n.id=c.clinical_note_id AND n.agency_id=c.agency_id ${clinicalApprovalJoins}
+    WHERE c.agency_id IN (${marks}) AND c.is_deleted=0`,ids);
   const [demo]=await deps.main.execute(`SELECT id,agency_id FROM clients WHERE agency_id IN (${marks}) AND is_demo=1`,ids);
   const demoClients=new Set(demo.map(client=>`${client.agency_id}:${client.id}`));
   const current=collapseClaimAttempts(claims).filter(claim=>{

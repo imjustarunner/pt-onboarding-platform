@@ -13,7 +13,7 @@ const missing = error => ['ER_NO_SUCH_TABLE', 'ER_BAD_FIELD_ERROR'].includes(err
 const labels = { note_needed: 'Note Needed', draft: 'Draft', pending_review: 'Pending Review', revisions_needed: 'Revisions Needed', ready_to_submit: 'Final checks required', submitted: 'Submitted', processing: 'Processing', paid: 'Paid', denied: 'Denied', rejected:'Rejected', on_hold: 'On hold', closed: 'Closed' };
 const marks = values => values.map(() => '?').join(',');
 const stageAliases = { ready: 'ready_to_submit', in_progress: 'processing' };
-export const claimQueueFilters=['pending_submission','pending_initial_submission','pending_resubmission','open','information_required','needs_review','needs_help','submitted_or_processing'];
+export const claimQueueFilters=['pending_submission','pending_initial_submission','pending_resubmission','open','information_required','needs_review','needs_help','submitted_or_processing','awaiting_signatures'];
 export function billingDashboardBucket(row) {
   if (!Number(row.claimId) || ['paid','void','voided','closed','adjusted'].includes(row.claim_lifecycle)) return null;
   const stage=row.stage || billingWorkStage(row);
@@ -21,6 +21,7 @@ export function billingDashboardBucket(row) {
   if (Number(row.service_change_pending)) return 'needsHelp';
   if (stage==='submitted' || (stage==='processing'&&!row.billing_issue_open)) return 'submitted';
   if (row.billing_issue_open || Number(row.service_change_pending) || ['rejected','denied','on_hold','revisions_needed'].includes(stage)) return 'needsHelp';
+  if (['draft','note_needed'].includes(stage) || (Object.hasOwn(row,'provider_signed_at')&&!row.provider_signed_at)) return 'awaitingSignatures';
   return 'review';
 }
 export async function attachBillingClaimIssues(items,agencyIds,main) {
@@ -33,6 +34,7 @@ export async function attachBillingClaimIssues(items,agencyIds,main) {
 }
 export function matchesClaimQueue(row,status) {
   if(status==='needs_review')return billingDashboardBucket(row)==='review';
+  if(status==='awaiting_signatures')return billingDashboardBucket(row)==='awaitingSignatures';
   if(status==='needs_help')return billingDashboardBucket(row)==='needsHelp';
   if(status==='submitted_or_processing')return billingDashboardBucket(row)==='submitted';
   const pendingInitial=!!row.claimId && row.stage==='ready_to_submit' && !row.resubmission && !(Number(row.attempt_count)>1);

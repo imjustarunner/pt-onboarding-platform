@@ -18,7 +18,7 @@ function fixture(){
 describe('billing dashboard summary',()=>{
  it('counts one claim history, separates saved issues and review, and omits closed/demo/hidden claims',async()=>{
   const {deps}=fixture(),result=await billingDashboardSummary(user,{agencyId:2},deps);
-  expect(result.counts).toEqual({submitted:1,review:1,needsHelp:2});
+  expect(result.counts).toEqual({submitted:1,review:0,needsHelp:2,awaitingSignatures:1});
   expect(result.organizations).toEqual([{id:2,name:'Agency 2',slug:'agency-2'}]);
   expect(JSON.stringify(result)).not.toMatch(/client_id|claimId|payload|amount|insurance/);
   for(const [,params] of deps.clinical.execute.mock.calls)expect(params).toEqual([2]);
@@ -38,16 +38,18 @@ describe('billing dashboard summary',()=>{
  it('uses the same categories when opening the work queue',()=>{
   expect(matchesClaimQueue({...claim(3,'ready'),stage:'ready_to_submit',billing_issue_open:true},'needs_help')).toBe(true);
   expect(matchesClaimQueue({...claim(3,'ready'),stage:'ready_to_submit',billing_issue_open:true},'needs_review')).toBe(false);
-  expect(matchesClaimQueue({...claim(4,'draft'),stage:'draft'},'needs_review')).toBe(true);
+  expect(matchesClaimQueue({...claim(4,'draft'),stage:'draft'},'needs_review')).toBe(false);
+  expect(matchesClaimQueue({...claim(4,'draft'),stage:'draft'},'awaiting_signatures')).toBe(true);
+  expect(matchesClaimQueue({...claim(10,'ready'),stage:'ready_to_submit'},'needs_review')).toBe(true);
   expect(matchesClaimQueue({...claim(2,'submitted'),stage:'submitted',billing_issue_open:true},'submitted_or_processing')).toBe(true);
  });
  it('treats uncertain uploads with a saved billing issue as needing help',async()=>{
   const {rows,deps}=fixture();rows.splice(0,rows.length,claim(3,'queued'));
-  expect((await billingDashboardSummary(user,{agencyId:2},deps)).counts).toEqual({submitted:0,review:0,needsHelp:1});
+  expect((await billingDashboardSummary(user,{agencyId:2},deps)).counts).toEqual({submitted:0,review:0,needsHelp:1,awaitingSignatures:0});
  });
  it('keeps a submitted claim with a pending service correction in the help queue',async()=>{
   const {rows,deps}=fixture();rows.splice(0,rows.length,claim(9,'submitted',{service_change_pending:1}));
-  expect((await billingDashboardSummary(user,{agencyId:2},deps)).counts).toEqual({submitted:0,review:0,needsHelp:1});
+  expect((await billingDashboardSummary(user,{agencyId:2},deps)).counts).toEqual({submitted:0,review:0,needsHelp:1,awaitingSignatures:0});
  });
 });
 

@@ -1,5 +1,6 @@
 import { claimResubmissionFields } from './claimResubmissionPolicy.js';
 import { assertLiveClearinghouseAgency } from './syntheticClearinghouseGuard.service.js';
+import { normalizeUsStateCode } from '../utils/usStateTimezone.js';
 /**
  * Claim.MD clearinghouse adapter (https://api.claim.md/).
  * AccountKey is required on every call. Responses are passthrough JSON/text.
@@ -100,18 +101,19 @@ export async function requestEnrollment({ agencyId, accountKey, payerId, enrollm
  */
 export function buildClaimMdJsonClaim(claim, lines = [], { insurance, practice = {} } = {}) {
   const primary = insurance?.primary || {}, patient = insurance?.patient || {};
+  const state=value=>normalizeUsStateCode(value)||value;
   const required = { payerid:primary.payerId, ins_number:primary.memberId,
     ins_name_f:primary.subscriberFirstName, ins_name_l:primary.subscriberLastName,
     ins_dob:primary.subscriberDob, ins_sex:primary.subscriberSex,
     ins_addr_1:primary.subscriberAddressLine1, ins_city:primary.subscriberCity,
-    ins_state:primary.subscriberState, ins_zip:primary.subscriberPostalCode,
+    ins_state:state(primary.subscriberState), ins_zip:primary.subscriberPostalCode,
     pat_name_f:patient.firstName, pat_name_l:patient.lastName, pat_dob:patient.dateOfBirth,
     pat_sex:patient.sex, pat_addr_1:patient.addressLine1, pat_city:patient.city,
-    pat_state:patient.state, pat_zip:patient.postalCode,
+    pat_state:state(patient.state), pat_zip:patient.postalCode,
     pat_rel:({self:'18',spouse:'01',child:'19',other:'G8'})[primary.relationshipToSubscriber],
     bill_npi:claim.billing_npi, prov_npi:claim.rendering_npi,
     bill_phone:practice.phone_number, bill_name:practice.name, bill_taxid:String(practice.tax_id || '').replace(/\D/g,''),
-    bill_addr_1:practice.street_address, bill_city:practice.city, bill_state:practice.state, bill_zip:practice.postal_code };
+    bill_addr_1:practice.street_address, bill_city:practice.city, bill_state:state(practice.state), bill_zip:practice.postal_code };
   const missing = Object.entries(required).filter(([,v])=>!String(v || '').trim()).map(([k])=>k);
   if (insurance?.verifiedForClaims !== true) missing.push('staff-reviewed insurance and client identity');
   if (insurance?.secondary && (!insurance.secondary.payerId || !insurance.secondary.memberId || !insurance.secondary.subscriberFirstName || !insurance.secondary.subscriberLastName || !insurance.secondary.relationshipToSubscriber)) missing.push('secondary payer, member, and subscriber details');

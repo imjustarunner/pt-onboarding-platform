@@ -151,7 +151,8 @@ export async function prepareClaimReview(agencyId, claimId) {
   readiness.warnings.push(...supervision.warnings,...aiReview.findings.filter(f=>f.severity==='warning').map(f=>f.message));
   readiness.ready=readiness.blockers.length===0;
   const serviceSite = await describeClaimServiceSite(agencyId, session);
-  return { claim, lines, readiness, insurance, payload, documentation, supervision, aiReview, sourceHash, rollout, appliedOverrides:overrides?.applied || [], serviceSite,
+  const contentReviewPolicy={coloradoMedicaidOversightU9:payerPolicy.coloradoMedicaid===true&&String(claim.date_of_service instanceof Date?claim.date_of_service.toISOString():claim.date_of_service).slice(0,10)>='2026-07-01'&&policy.billingMode==='billing_supervisor'&&supervision.rule?.mappingVerified===true};
+  return { claim, lines, readiness, insurance, payload, documentation, supervision, aiReview, sourceHash, rollout, contentReviewPolicy, appliedOverrides:overrides?.applied || [], serviceSite,
     billingOffice: { id: billingProfile.officeId, name: billingProfile.officeName }, reviewHash: claimReviewHash({payload,sourceHash,scheduleDerived99051:afterHoursPolicy.decision?.binding||null,rolloutRevision:rollout.revision,coverageReviewId:coverageEvidence.review?.id||null,clientDocumentation:{sourceHash:clientDocumentation.sourceHash,reviewId:clientDocumentation.reviewId,scope:clientDocumentation.scope},aiReviewId:aiReview.id || null,resolutions:resolutions.map(r=>r.id)}) };
 }
 
@@ -191,7 +192,7 @@ export async function runClaimAiReview(req,res,next) {
     if(!prepared.payload)throw fail(409,'Complete the claim fields shown in review before running AI consistency review');
     if(!['draft','ready','rejected'].includes(prepared.claim.claim_lifecycle))throw fail(409,'Reconcile this submitted claim before reviewing a replacement');
     if(!prepared.documentation.note.provider_signed_at)throw fail(409,'Provider must sign before submission review');
-    const result=await runClaimContentReview({agencyId,claimId,sourceHash:prepared.sourceHash,documentation:prepared.documentation,payload:prepared.payload,insurance:prepared.insurance,actorUserId:req.user.id});
+    const result=await runClaimContentReview({agencyId,claimId,sourceHash:prepared.sourceHash,documentation:prepared.documentation,payload:prepared.payload,insurance:prepared.insurance,contentReviewPolicy:prepared.contentReviewPolicy,actorUserId:req.user.id});
     res.json({review:result});
   }catch(e){next(e);}
 }
