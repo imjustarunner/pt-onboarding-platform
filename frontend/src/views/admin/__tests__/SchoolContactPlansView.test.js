@@ -33,3 +33,11 @@ describe('SchoolContactPlansView agency administrator controls',()=>{
   expect(wrapper.find('input').element.checked).toBe(false);expect(wrapper.find('[role="alert"]').text()).toContain('Access denied');wrapper.unmount();
  });
 });
+
+it('shows live ITSCO pilot setup and execution evidence without treating an untouched account as acknowledged',async()=>{
+ useAgencyStore().currentAgencyId=2;
+ api.get.mockResolvedValue({data:[{id:8,first_name:'Aneta',last_name:'Pilot',status:'unconfigured',welcome_seen_at:null,initial_sent_count:0,needs_review_count:0}]});
+ const wrapper=mount(View);await flushPromises();
+ expect(api.get).toHaveBeenCalledWith('/school-contact-plan/providers',expect.objectContaining({params:{agencyId:2}}));
+ expect(wrapper.text()).toContain('Setup needed');expect(wrapper.text()).toContain('Not saved yet');expect(wrapper.text()).toContain('Initial emails sent');expect(wrapper.text()).toContain('Delivery review');wrapper.unmount();
+});

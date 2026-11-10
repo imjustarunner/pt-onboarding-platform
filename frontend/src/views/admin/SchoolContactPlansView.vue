@@ -1,14 +1,14 @@
 <template>
   <main class="plans">
     <h1>School contact plans</h1>
-    <p>Review each provider's choice and require setup when needed. A requirement does not send messages or enroll existing assignments.</p>
+    <p>Review each pilot provider's saved choice, initial execution, and deliveries needing review. Require setup when needed. A requirement does not send messages or enroll existing assignments.</p>
     <p v-if="!authorized" role="alert">An agency administrator is required to manage contact plans.</p>
-    <p v-else-if="agencyId !== 450" role="status">Contact-plan management is currently available in the ITSCOLLC demo.</p>
+    <p v-else-if="![2,450].includes(agencyId)" role="status">Contact-plan management is available only for enabled rollout agencies.</p>
     <template v-else>
       <p v-if="error" role="alert">{{ error }}</p>
       <button type="button" @click="load" :disabled="busy">{{ busy ? 'Loading…' : 'Refresh' }}</button>
-      <table aria-label="Provider contact plans"><thead><tr><th>Provider</th><th>Contact plan</th><th>Intakes needing follow-up</th><th>Requirement</th></tr></thead>
-        <tbody><tr v-for="provider in providers" :key="provider.id"><td>{{ provider.first_name }} {{ provider.last_name }}</td><td>{{ labels[provider.status] || provider.status }}</td><td>{{ provider.intake_followup_required ?? 0 }}</td><td><label><input type="checkbox" :checked="provider.required" :disabled="busy" @change="onRequirementChange(provider,$event)">Require contact-plan setup</label></td></tr></tbody>
+      <table aria-label="Provider contact plans"><thead><tr><th>Provider</th><th>Contact plan</th><th>Setup choice saved</th><th>Initial emails sent</th><th>Delivery review</th><th>Intakes needing follow-up</th><th>Requirement</th></tr></thead>
+        <tbody><tr v-for="provider in providers" :key="provider.id"><td>{{ provider.first_name }} {{ provider.last_name }}</td><td>{{ labels[provider.status] || provider.status }}</td><td>{{ savedAt(provider.welcome_seen_at) }}</td><td>{{ provider.initial_sent_count ?? 0 }}</td><td>{{ provider.needs_review_count ?? 0 }}</td><td>{{ provider.intake_followup_required ?? 0 }}</td><td><label><input type="checkbox" :checked="provider.required" :disabled="busy" @change="onRequirementChange(provider,$event)">Require contact-plan setup</label></td></tr></tbody>
       </table>
       <p v-if="!busy && !error && !providers.length">No assigned school providers found.</p>
     </template>
@@ -24,12 +24,16 @@ const providers = ref([]), busy = ref(false), error = ref('');
 const agencyId = computed(() => Number(agency.currentAgency?.id || agency.currentAgencyId || agency.selectedAgencyId || 0));
 const authorized = computed(() => ['admin','super_admin'].includes(String(auth.user?.role || '').toLowerCase()));
 const labels = {enabled:'On',declined:'Declined',unconfigured:'Setup needed'};
+function savedAt(value) {
+  const date = value ? new Date(value) : null;
+  return date && Number.isFinite(date.getTime()) ? date.toLocaleString('en-US',{timeZone:'America/Denver'}) : 'Not saved yet';
+}
 let version = 0;
 const config = id => ({params:{agencyId:id},skipGlobalLoading:true});
 async function load() {
   const current = ++version, id = agencyId.value;
   providers.value = []; error.value = '';
-  if (!authorized.value || id !== 450) { busy.value = false; return; }
+  if (!authorized.value || ![2,450].includes(id)) { busy.value = false; return; }
   busy.value = true;
   try { const {data} = await api.get('/school-contact-plan/providers',config(id)); if(current === version) providers.value = Array.isArray(data) ? data : []; }
   catch(e) { if(current === version) error.value = e.response?.data?.error?.message || 'Contact plans could not be loaded.'; }
@@ -40,7 +44,7 @@ function onRequirementChange(provider,event) {
   setRequired(provider,required);
 }
 async function setRequired(provider,required) {
-  if (busy.value || !authorized.value || agencyId.value !== 450) return;
+  if (busy.value || !authorized.value || ![2,450].includes(agencyId.value)) return;
   const current = version, id = agencyId.value;
   busy.value = true; error.value = '';
   try { await api.put(`/school-contact-plan/providers/${provider.id}/required`,{required},config(id)); if(current === version) await load(); }
