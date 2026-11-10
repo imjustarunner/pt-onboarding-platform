@@ -1,5 +1,6 @@
 <template>
   <div class="tasks-hub" :class="{ 'tasks-hub--embedded': embedded }">
+    <p v-if="linkedTaskError" class="hub-state error" role="alert">{{ linkedTaskError }}</p>
     <p v-if="route.query.reportTask" class="tasks-report-help" role="status">To report a task, open its details and choose <strong>⚑ Report a weird task</strong>. Technology will receive the task and assignment details with your explanation.</p>
     <header class="tasks-hub__header">
       <h1 data-tour="tasks-title" class="tasks-hub__title">
@@ -966,6 +967,19 @@ const filters = ref({
 const departments = ref([]);
 const typeDefs = ref([]);
 const detailTask = ref(null);
+const linkedTaskError = ref('');
+let linkedTaskRequest = 0;
+watch(() => route.query.taskId, async value => {
+  const request = ++linkedTaskRequest;
+  if (embedded.value || !Number(value)) return;
+  linkedTaskError.value = '';
+  try {
+    const { data } = await api.get(`/tasks/${Number(value)}`, { skipGlobalLoading: true });
+    if (request === linkedTaskRequest) openTask(data);
+  } catch (error) {
+    if (request === linkedTaskRequest) linkedTaskError.value = error.response?.data?.error?.message || 'Could not open this task.';
+  }
+}, { immediate: true });
 
 const lifecycleChecklistClientId = ref(null);
 const lifecycleChecklistLabel = ref('');

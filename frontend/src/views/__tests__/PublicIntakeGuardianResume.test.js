@@ -26,6 +26,33 @@ beforeEach(() => {
 });
 afterEach(() => { wrapper?.unmount(); vi.useRealTimers(); });
 async function render() { wrapper = mount(PublicIntakeSigningView, { global: { plugins: [createPinia()], stubs: { SmartDisclosureSigningFlow: true, SmartSchoolRoiSigningFlow: true } } }); await flushPromises(); }
+it.each(['en', 'es'])('requires new signatures for every sibling after an email correction (%s)', async locale => {
+ delete progress.coGuardianInvite;
+ const snapshot = progress.intakeData.progressSnapshot;
+ snapshot.embeddedSmartSchoolRoi = capture;
+ snapshot.intakeResponses.submission = {
+  guardianWaiverIntake: { clients: [0, 1].map(() => ({ sections: { emergency_contacts: { payload: { phone: '3035550100' }, signatureData: capture.signatureData, signatureMeta: { signedAt: '2026-11-09' } } } })) },
+  insuranceInfo: { primary: { memberId: 'KEEP' }, authorizationAgreed: true, authorizationSignature: 'Parent', authorizationSignatureData: capture.signatureData },
+  communicationDraft: { smsPreference: 'no', signatureAccepted: true },
+  communicationPreferences: { emailPreference: 'no', signatureAccepted: true }
+ };
+ await render();
+ wrapper.vm.intakeLocale = locale;
+ wrapper.vm.lastSignatureData = capture.signatureData;
+ wrapper.vm.guardianEmail = ''; // clear-and-retype must not preserve the old signer
+ wrapper.vm.guardianEmail = 'testing+corrected@itsco.health';
+ await flushPromises();
+ expect(wrapper.vm.embeddedSmartSchoolRoi).toBeNull();
+ expect(wrapper.vm.embeddedSmartDisclosure).toBeNull();
+ expect(wrapper.vm.embeddedPacketSections).toEqual({});
+ expect(wrapper.vm.lastSignatureData).toBe('');
+ const saved = wrapper.vm.buildServerProgressIntakeData().responses.submission;
+ for (const child of saved.guardianWaiverIntake.clients) expect(child.sections.emergency_contacts).toMatchObject({ payload: { phone: '3035550100' }, signatureData: '', signatureMeta: null });
+ expect(saved.insuranceInfo).toMatchObject({ primary: { memberId: 'KEEP' }, authorizationAgreed: false, authorizationSignature: '', authorizationSignatureData: '' });
+ expect(saved.communicationDraft.signatureAccepted).toBe(false);
+ expect(saved.communicationPreferences.signatureAccepted).toBe(false);
+ expect(wrapper.vm.docStatus).toEqual({});
+});
 it.each([false, true])('restores answers and all signed agreements with invitation parameter present=%s', async withInvite => {
  if (withInvite) route.query.coGuardian = 'original-invitation';
  await render();

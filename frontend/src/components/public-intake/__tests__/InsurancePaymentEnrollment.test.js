@@ -35,6 +35,10 @@ describe('insurance enrollment', () => {
     expect(w.text()).toContain('Save your card securely');
     await w.setProps({ insuranceInfo: { ...commercial, hasSecondary: true, secondary: {} } });
     expect(w.text()).not.toContain('Save your card securely');
+    await w.setProps({ insuranceInfo: commercial });
+    expect(w.text()).not.toContain('Save your card securely');
+    await w.findAll('button').find(b => b.text().includes('Confirm primary')).trigger('click');
+    expect(w.text()).toContain('Save your card securely');
     w.unmount();
   });
   it('does not let insurance-on-file override known Medicaid', () => {

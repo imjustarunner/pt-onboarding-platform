@@ -35,6 +35,7 @@ export function notificationDestination(notification, { organizationSlug = null,
     return null;
   }
   const adminLike = ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus'].includes(String(role || '').toLowerCase());
+  if (entityType === 'paper_packet_task' && entityId && adminLike) return `${base}/tasks?taskId=${entityId}`;
 
   if (n.type === 'provider_waitlist_reminder') {
     const query = new URLSearchParams({ waitlist: '1' });
@@ -112,6 +113,7 @@ export function notificationDestination(notification, { organizationSlug = null,
 
 export function notificationPrimaryLabel(notification) {
   if (!notification) return null;
+  if (notification.related_entity_type === 'paper_packet_task') return 'Process paper packet enrollment';
   if (notification.type === 'school_weekday_availability_requested') return 'Update school availability';
   if (notification.related_entity_type === 'meeting_reservation_invitation') return 'Choose a meeting time';
   if (notification.type === 'guardian_plan_review') return 'Review and sign plan';

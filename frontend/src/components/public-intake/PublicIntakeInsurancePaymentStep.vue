@@ -348,6 +348,8 @@ const coverageFingerprint = computed(() => JSON.stringify({
   clientCoverages: props.insuranceInfo?.clientCoverages || []
 }));
 const coverageReviewed = computed(() => reviewedCoverage.value === coverageFingerprint.value);
+// An edit needs a new review even if the user later restores the old value.
+watch(coverageFingerprint, () => { reviewedCoverage.value = null; }, { flush: 'sync' });
 const paymentEligible = computed(() => {
   if (isMedicaid.value) return false;
   if (props.paymentOnly || isSelfPay.value) return true;

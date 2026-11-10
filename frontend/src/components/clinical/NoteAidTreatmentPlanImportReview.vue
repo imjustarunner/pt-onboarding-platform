@@ -65,6 +65,17 @@
           Effective date
           <input v-model="model.effectiveDate" type="date" class="na-input" />
         </label>
+        <p v-if="renewalPolicy" class="hint hint-block" data-plan-review-policy>
+          Agency review interval: {{ renewalPolicy.renewAfterDays }} days.
+          <template v-if="renewalPolicy.flagEnabled">Review reminder after {{ renewalPolicy.flagAfterDays }} days.</template>
+          <template v-else>Review reminders are disabled in agency settings.</template>
+          <template v-if="renewalPolicy.renewByDate">Renewal deadline: {{ renewalPolicy.renewByDate }}.</template>
+        </p>
+        <p v-else class="hint hint-block">{{ renewalPolicyError || 'Loading agency review schedule…' }}</p>
+        <p v-if="model.sourceReviewSchedule" class="hint hint-block" data-source-review-schedule>
+          Imported text requests review after {{ model.sourceReviewSchedule.renewAfterDays }} days<span v-if="model.sourceReviewSchedule.flagAfterDays"> and a reminder after {{ model.sourceReviewSchedule.flagAfterDays }} days</span>.
+          The agency schedule above applies; importing text does not change agency settings.
+        </p>
 
         <div class="na-import-block">
           <div class="na-import-block-head">
@@ -388,6 +399,19 @@ const durationPresets = DURATION_PRESETS;
 const loadedPlanId = ref(null);
 const aiContentUsed = ref(false);
 const attestAiReviewed = ref(false);
+const renewalPolicy = ref(null), renewalPolicyError = ref('');
+let renewalPolicyRequest = 0;
+watch(() => [props.open, props.agencyId], async ([open, agencyId]) => {
+  const request = ++renewalPolicyRequest;
+  renewalPolicy.value = null; renewalPolicyError.value = '';
+  if (!open || !Number(agencyId)) return;
+  try {
+    const { data } = await api.get(`/medical-billing/agencies/${Number(agencyId)}/treatment-plan-renewal`, { skipGlobalLoading: true });
+    if (request === renewalPolicyRequest) renewalPolicy.value = data?.policy || null;
+  } catch {
+    if (request === renewalPolicyRequest) renewalPolicyError.value = 'The agency review schedule could not be loaded. Check treatment-plan settings before finalizing.';
+  }
+}, { immediate: true });
 
 const catalogNames = ref([]);
 const interventionOptions = computed(() => [...new Set([...CLINICAL_INTERVENTION_SEED, ...catalogNames.value])]);
@@ -753,6 +777,7 @@ async function parseText(text) {
       || '';
     model.value = reactive({
       effectiveDate: parsed.effectiveDate || model.value?.effectiveDate || todayIsoDate(),
+      sourceReviewSchedule: parsed.sourceReviewSchedule || null,
       presentingProblem: parsed.presentingProblem || model.value?.presentingProblem || '',
       prescribedFrequency: parsed.prescribedFrequency || model.value?.prescribedFrequency || '',
       dischargePlan: parsed.dischargePlan || model.value?.dischargePlan || '',
@@ -905,6 +930,10 @@ async function save({ finalize = true } = {}) {
   error.value = '';
   try {
     if (finalize && aiContentUsed.value && !attestAiReviewed.value) throw new Error('Review and confirm the generated plan before finalizing.');
+    if (finalize && (!model.value.goals?.length || model.value.goals.some(g => !String(g.goalText || '').trim()
+      || !g.objectives?.length || g.objectives.some(o => !String(o.objectiveText || '').trim())))) {
+      throw new Error('Enter a goal and at least one objective for every goal before saving.');
+    }
     if (!String(model.value.effectiveDate || '').trim()) {
       model.value.effectiveDate = todayIsoDate();
     }

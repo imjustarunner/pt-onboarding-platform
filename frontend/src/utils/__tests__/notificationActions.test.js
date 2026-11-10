@@ -87,3 +87,9 @@ it('opens eligible year awards in the notification agency', () => {
 it('opens the school weekday updater from an individual notification', () => {
   expect(notificationDestination({type:'school_weekday_availability_requested',agency_id:2},{organizationSlug:'itsco',role:'provider'})).toBe('/itsco/my-schedule?schoolAvailability=1&agencyId=2');
 });
+
+it('opens a school-upload Support task rather than the old chart shortcut', () => {
+  const notice = { type: 'new_packet_uploaded', related_entity_type: 'paper_packet_task', related_entity_id: 90, agency_id: 450 };
+  expect(notificationDestination(notice, { organizationSlug: 'qa', role: 'support' })).toBe('/qa/tasks?taskId=90');
+  expect(notificationDestination(notice, { organizationSlug: 'qa', role: 'school_staff' })).toBeNull();
+});

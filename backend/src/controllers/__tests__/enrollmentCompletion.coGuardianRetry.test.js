@@ -20,7 +20,7 @@ const ordinaryPacketBoundary={
 };
 const extractedHandlerSource=(start,end)=>source.slice(start,end)
  .replaceAll("await import('../services/clientUpdate.service.js')",'clientUpdatePacketService');
-function setup({allowResume=false,bundles=[],failed=false,templates=[],signedDocs=[],bindingClients=[{id:5}],requiredSteps=[],firstGuardian=false}={}) {
+function setup({allowResume=false,bundles=[],failed=false,templates=[],signedDocs=[],bindingClients=[{id:5}],requiredSteps=[],firstGuardian=false,qaFailure=null}={}) {
  bindingClients=bindingClients.map((c,i)=>({...c,full_name:`Child ${i} Example`,date_of_birth:'2015-01-01'}));
  const intakeData={clients:bindingClients.map(c=>({clientId:c.id,fullName:c.full_name,dateOfBirth:c.date_of_birth})),responses:{submission:{}}};
  if(bindingClients.length>1)intakeData.multiClientSignatureConsent={accepted:true,acceptedAt:new Date().toISOString(),clientCount:bindingClients.length};
@@ -45,6 +45,7 @@ function setup({allowResume=false,bundles=[],failed=false,templates=[],signedDoc
   validateIntakeMatchingPreferences:()=>{},validateAndStampIntakeCommunications:async()=>{},
   // Edition validation has its own tests; these fixtures contain no signed packet sections.
   validatePacketEditionsBeforeSubmission:async()=>{},
+  validateQaIntakeGuardian:async()=>{if(qaFailure)throw qaFailure;},
   isIntakeStepVisibleForClientMatch:()=>true,extractRegistrationClientMatchFromIntakeData:()=>({}),matchesShowIf:()=>true,mergeShowIfValues:()=>({}),
   stripIneligibleProviderPreference:()=>{},validateSubmittedProviderPreferences:async()=>{},prepareLearningPacket:async()=>{},ensureLinkBoundCompanyEventSelection:()=>{},stampInsuranceAuthorizationSignatureMeta:()=>{},
   filterPacketDocumentTemplates:()=>templates,resolveRetentionPolicy:async()=>null,buildRetentionExpiresAt:()=>null,hashIntakeData:()=> 'synthetic'
@@ -60,6 +61,12 @@ it('permits the still-active accepted token to retry when no packet was complete
  const state=setup();const result=await state.run();
  expect(result.error).toBe(state.reachedAcceptance);expect(result.body?.success).not.toBe(true);
  expect(state.accept).toHaveBeenCalledWith(expect.objectContaining({token:'accepted-token',enrollmentCompleted:true}));
+});
+it('rejects an ineligible QA identity before submitted status, client creation or portal acceptance',async()=>{
+ const error=Object.assign(new Error('Use an isolated QA guardian'),{status:400});
+ const state=setup({qaFailure:error,firstGuardian:true});
+ expect((await state.run()).error).toBe(error);
+ expect(state.update).not.toHaveBeenCalled();expect(state.accept).not.toHaveBeenCalled();
 });
 it('does not short-circuit a failed demographic pass just because a prior bundle exists',async()=>{
  const state=setup({failed:true,bundles:[{client_id:5,bundle_pdf_path:'partial.pdf'}]});

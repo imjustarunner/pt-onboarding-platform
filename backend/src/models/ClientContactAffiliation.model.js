@@ -63,12 +63,10 @@ class ClientContactAffiliation {
          AND a.is_active = 1
          AND c.is_active = 1
          AND a.notify_ack_at IS NOT NULL
-         AND (EXISTS (SELECT 1 FROM client_guardians cg WHERE cg.client_id = a.client_id
+         AND EXISTS (SELECT 1 FROM client_guardians cg WHERE cg.client_id = a.client_id
            AND cg.guardian_user_id = a.notify_ack_by_user_id AND cg.access_enabled = 1
            AND COALESCE(JSON_EXTRACT(cg.permissions_json, '$.noView'), false) = false
            AND COALESCE(JSON_EXTRACT(cg.permissions_json, '$.noViewOtherGuardian'), false) = false)
-           OR EXISTS (SELECT 1 FROM clients self_client JOIN users self_user ON self_user.id=self_client.user_id
-             WHERE self_client.id=a.client_id AND self_client.user_id=a.notify_ack_by_user_id AND self_user.role='client' AND self_user.is_active=1))
          AND (a.email_reminders_enabled = 1 OR a.sms_reminders_enabled = 1)`,
       [clientId]
     );

@@ -14,6 +14,7 @@ function cleanLine(line) {
 function stripObjectiveHeader(text) {
   return String(text || '')
     .replace(/^(?:objective|obj)\s+\d+(?:\.\d+)?\s*[:.\-)\]\s—–-]*\s*/i, '')
+    .replace(/^(?:objective|obj)\s*:\s*/i, '')
     .trim();
 }
 
@@ -456,6 +457,7 @@ export function parseTreatmentPlanText(rawText) {
     diagnosticJustification: null,
     presentingProblem: null,
     prescribedFrequency: null,
+    sourceReviewSchedule: null,
     dischargePlan: null,
     goals: []
   };
@@ -467,6 +469,7 @@ export function parseTreatmentPlanText(rawText) {
   let dischargePlan = null;
   let presentingProblem = null;
   let prescribedFrequency = null;
+  let sourceReviewSchedule = null;
   const goals = [];
   let currentGoal = null;
   let mode = null; // dx | discharge | goals | presenting | frequency | justification | null
@@ -499,6 +502,17 @@ export function parseTreatmentPlanText(rawText) {
     const trimmed = cleanLine(line);
     if (!trimmed) continue;
 
+    const review = trimmed.match(/^review\s+interval\s*:\s*(\d+)\s*days?(?:\s*[,;]\s*reminder\s*(\d+)\s*days?)?\.?$/i);
+    if (review) {
+      flushJustification(); flushPresenting(); mode = null;
+      sourceReviewSchedule = { renewAfterDays: Number(review[1]), flagAfterDays: review[2] ? Number(review[2]) : null };
+      continue;
+    }
+    if (/^(?:no effective date or signature has been supplied\b|(?:provider|client|guardian)\s+signature\s*:)/i.test(trimmed)) {
+      flushJustification(); flushPresenting(); mode = null;
+      continue;
+    }
+
     if (!effectiveDate) {
       const dateHeader = trimmed.match(/^(?:effective|plan)\s*date\s*[:\-]?\s*(.+)$/i);
       if (dateHeader) {
@@ -523,10 +537,10 @@ export function parseTreatmentPlanText(rawText) {
       continue;
     }
 
-    if (/^presenting\s+problem\b/i.test(trimmed)) {
+    if (/^presenting\s+(?:problem|concern)\b/i.test(trimmed)) {
       flushJustification();
       mode = 'presenting';
-      const rest = trimmed.replace(/^presenting\s+problem\s*[:\-]?\s*/i, '').trim();
+      const rest = trimmed.replace(/^presenting\s+(?:problem|concern)\s*[:\-]?\s*/i, '').trim();
       if (rest) presentingBuffer.push(rest);
       continue;
     }
@@ -632,7 +646,8 @@ export function parseTreatmentPlanText(rawText) {
       }
     }
 
-    const numberedInterventions = trimmed.match(/^Interventions?\s+\d+\.\d+\s*:?\s*(.*)$/i);
+    const numberedInterventions = trimmed.match(/^Interventions?(?:\s+\d+(?:\.\d+)?)?\s*:\s*(.*)$/i)
+      || trimmed.match(/^Interventions?\s+\d+\.\d+\s+(.*)$/i);
     if (numberedInterventions) {
       flushJustification();
       flushPresenting();
@@ -857,6 +872,7 @@ export function parseTreatmentPlanText(rawText) {
     // Missing source dates stay missing. The review form can offer today's
     // local calendar date without claiming it was read from the source text.
     effectiveDate: effectiveDate || null,
+    sourceReviewSchedule,
     diagnoses: diagnoses.map((d, i) => ({
       ...d,
       isPrimary: i === (primaryDiagnosisIndex >= 0 ? primaryDiagnosisIndex : 0)
