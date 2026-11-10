@@ -55,7 +55,7 @@ export function pendingNarrivaScoring() {
   findings:[],missingCriteria:[],
   criteria:NARRIVA_QUALITY_CRITERIA.map(c=>({id:c.id,label:c.label,earned:0,possible:c.points,status:'pending',evidence:[],message:c.instruction}))};
 }
-export function deriveNarrivaCheck(id,{facts,encounter,clinical,service}) {
+export function deriveNarrivaCheck(id,{facts,encounter,clinical,service},{standaloneTest=false}={}) {
  const result={id,label:NARRIVA_CHECKS.find(c=>c[0]===id)[1],status:'passed',findings:[],actions:[]};
  const add=(key,message,action='edit_note',canBypass=true)=>result.findings.push({id:`${id}:${key}`,message,action,canBypass});
  const required=(condition,key,message,action='edit_note',canBypass=true)=>{if(!condition)add(key,message,action,canBypass);};
@@ -88,7 +88,10 @@ export function deriveNarrivaCheck(id,{facts,encounter,clinical,service}) {
  }
  if(id==='encounter_consent') {
   required(encounter.dateValid,'date','Confirm the service date.','encounter');
-  required(encounter.timesValid,'times','Confirm start/end times and a matching duration.','encounter');
+  // Only the transient standalone tester evaluates a declared duration without
+  // encounter clocks. Saved-note reviews retain the default exact-time check.
+  if(standaloneTest)required(Number.isFinite(encounter.durationMinutes) && encounter.durationMinutes>0,'duration','Enter the duration in minutes for this test.','encounter');
+  else required(encounter.timesValid,'times','Confirm start/end times and a matching duration.','encounter');
   required(nonempty(encounter.location),'location','Select the service location.','encounter');
   required(nonempty(encounter.modality),'method','Select the service delivery method.','encounter');
   required(encounter.consentConfirmed===true,'consent','Confirm the documented consent to participate.','encounter');

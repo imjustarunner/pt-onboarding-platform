@@ -16,6 +16,23 @@ beforeEach(()=>{
   api.patch.mockResolvedValue({data:{}});api.post.mockResolvedValue({data:{run:{id:1}}});
 });
 describe('Narriva paid report administration',()=>{
+  it('keeps report loading inside the page on first entry and return, without activating the workspace overlay',async()=>{
+    const {default:realApi}=await vi.importActual('../../../services/api');
+    const {isLoading}=await import('../../../utils/pageLoader');
+    const adapter=realApi.defaults.adapter,pending=[];let w;
+    realApi.defaults.adapter=config=>new Promise(resolve=>pending.push(()=>resolve({status:200,statusText:'OK',headers:{},config,data:config.url.endsWith('/settings')?configuration():{runs:[]}})));
+    api.get.mockImplementation((...args)=>realApi.get(...args));
+    try {
+      for(let entry=0;entry<2;entry++) {
+        w=mount(Reports);await flushPromises();
+        expect(pending).toHaveLength(2);expect(w.text()).toContain('Loading reports…');
+        expect(isLoading.value).toBe(false);
+        pending.splice(0).forEach(resolve=>resolve());await flushPromises();
+        expect(w.text()).toContain('Compliance reports');expect(w.find('.ncr-controls').exists()).toBe(true);
+        w.unmount();w=null;
+      }
+    } finally {pending.splice(0).forEach(resolve=>resolve());await flushPromises();w?.unmount();realApi.defaults.adapter=adapter;}
+  });
   it('shows the first Q1 2027 run, its reviewed quarter and an updating countdown without starting a report',async()=>{
     vi.useFakeTimers();vi.setSystemTime(new Date('2026-12-31T06:58:00Z'));
     api.get.mockImplementation(path=>Promise.resolve({data:path.endsWith('/settings')?{...configuration(),settings:{...settings(),enabled:true,nextRunAt:'2027-01-01T07:00:00Z',acceptedPriceCents:0},billing:{priceCents:0,canRun:true,priceAccepted:true}}:{runs:[]}}));
