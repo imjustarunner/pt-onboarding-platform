@@ -367,7 +367,7 @@
         </div>
 
         <SchoolContactWorkflowCard
-          v-if="subView === 'default' && !isSchoolStaff && Number(parentAgencyId || fullClient?.agency_id || client.agency_id) === 450"
+          v-if="subView === 'default' && !isSchoolStaff && [2,450].includes(Number(parentAgencyId || fullClient?.agency_id || client.agency_id))"
           :agency-id="parentAgencyId || fullClient?.agency_id || client.agency_id"
           :client-id="client.id"
         />

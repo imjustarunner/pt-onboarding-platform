@@ -37,8 +37,8 @@ it('preserves the stop action when recording a reply fails', async () => {
   expect(wrapper.find('[role="alert"]').text()).toContain('could not be recorded');
   expect(wrapper.find('button').exists()).toBe(true);
 });
-it('does not fetch automation for a production agency or offer stop after an in-app reply', async () => {
-  wrapper = mount(Card, { ...options, props: { agencyId: 2, clientId: 99 } }); await flushPromises();
+it('does not fetch automation outside the rollout agencies or offer stop after an in-app reply', async () => {
+  wrapper = mount(Card, { ...options, props: { agencyId: 7, clientId: 99 } }); await flushPromises();
   expect(api.get).not.toHaveBeenCalled(); expect(wrapper.find('section').exists()).toBe(false);
   api.get.mockResolvedValue({ data: [{ ...workflow, parentReplyAt: '2026-10-30T19:00:00Z', status: 'awaiting_provider' }] });
   await wrapper.setProps({ agencyId: 450 }); await flushPromises();
@@ -51,4 +51,12 @@ it('uses the user’s timezone and the selected tenant for its conversation link
   wrapper = mount(Card, options); await flushPromises();
   expect(wrapper.text()).toContain('12:00');
   expect(JSON.parse(wrapper.find('a').attributes('data-to'))).toEqual({ path: '/auricwell-qa-demo/messages', query: { conversationId: 45 } });
+});
+
+it('lets a live ITSCO provider record an outside family reply through the same protected workflow',async()=>{
+ wrapper=mount(Card,{...options,props:{agencyId:2,clientId:99}});await flushPromises();
+ expect(api.get).toHaveBeenCalledWith('/school-contact-plan/workflows',expect.objectContaining({params:{agencyId:2,clientId:99}}));
+ await wrapper.find('button').trigger('click');await flushPromises();
+ expect(api.post).toHaveBeenCalledWith('/school-contact-plan/workflows/12/parent-replied',{},expect.objectContaining({params:{agencyId:2}}));
+ expect(wrapper.text()).toContain('stopped');
 });

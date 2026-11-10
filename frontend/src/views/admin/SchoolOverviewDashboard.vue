@@ -1013,7 +1013,7 @@ function onCardLogoError(schoolId) {
 }
 
 const isSuperAdmin = computed(() => String(authStore.user?.role || '').toLowerCase() === 'super_admin');
-const canManageContactPlans = computed(() => Number(selectedAgencyId.value) === 450 && orgType.value === 'school' && ['admin','super_admin'].includes(String(authStore.user?.role || '').toLowerCase()));
+const canManageContactPlans = computed(() => [2,450].includes(Number(selectedAgencyId.value)) && orgType.value === 'school' && ['admin','super_admin'].includes(String(authStore.user?.role || '').toLowerCase()));
 const canManageMarketingCampaigns = computed(() => {
   const r = String(authStore.user?.role || '').toLowerCase();
   return ['admin', 'support', 'super_admin'].includes(r);
