@@ -157,7 +157,11 @@ export async function generateSupportEmailDraft(input, dependencies = {}) {
   let validationIssues = validateSupportEmailDraft(result.reply, context);
   if (validationIssues.length && !correctedDraft) {
     correctedDraft = true;
-    response = await generateText({ ...generationOptions, prompt: `${prompt}\nQUALITY CORRECTION REQUIRED:\nThe previous candidate failed these checks: ${JSON.stringify(validationIssues)}. Rewrite from the current evidence, removing those claims. Do not substitute a different wording of the same unsupported promise.\nPrevious rejected candidate: ${JSON.stringify(result)}` });
+    const correction = [
+      validationIssues.includes('unaccepted_follow_up_commitment') ? 'Remove the promise to forward, pass along, share, contact, or perform other unaccepted work. A simple informational update can receive only a brief thank-you; put any possible internal follow-up in proposedFollowUps instead of promising it in the email.' : '',
+      validationIssues.includes('unsupported_assignment_prerequisite') ? 'Do not restate an insurance or paperwork prerequisite from a past email. State only that current enrollment/assignment status needs an internal check; do not promise assignment after documents arrive.' : ''
+    ].filter(Boolean).join('\n');
+    response = await generateText({ ...generationOptions, prompt: `${prompt}\nQUALITY CORRECTION REQUIRED:\nThe previous candidate failed these checks: ${JSON.stringify(validationIssues)}. ${correction}\nRewrite from the current evidence, removing those claims. Do not substitute a different wording of the same unsupported promise.\nPrevious rejected candidate: ${JSON.stringify(result)}` });
     result = parseSupportEmailDraftResult(response.text);
     validationIssues = validateSupportEmailDraft(result.reply, context);
   }
