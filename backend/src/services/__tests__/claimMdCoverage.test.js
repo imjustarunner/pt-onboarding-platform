@@ -60,10 +60,11 @@ describe('client-scoped eligibility and other coverage',()=>{
   expect(coverageReviewBlockers(base)).toEqual([]);
   for(const change of [{review:null},{review:{...review,status:'unresolved'}},{latestCheckId:9},{review:{...review,has_new_evidence:1}},{now:new Date('2026-10-10')},{insurance:{...info,patient:{...info.patient,firstName:'Changed'}}}])expect(coverageReviewBlockers({...base,...change}).length).toBeGreaterThan(0);
  });
- it('saves encrypted response evidence without exposing API credentials',async()=>{
+ it.each([1,2,6,377])('passes agency %i to eligibility and saves encrypted evidence without exposing credentials',async(agencyId)=>{
   const db={execute:vi.fn().mockResolvedValue([{insertId:10}])},request=vi.fn().mockResolvedValue({elig:{ins_name_f:'PRIVATE NAME',benefit:{benefit_code:'30',benefit_coverage_code:'1'}}});
-  const result=await runCoverageCheck({agencyId:1,clientId:2,slot:'primary',serviceDate:'2026-09-24',requestKey:'unique-test-request',actorUserId:5,profile,accountKey:'SYNTHETIC-KEY'},{db,request,readInsurance:async()=>insurance()});
-  expect(result.summary.status).toBe('active_reported');const stored=db.execute.mock.calls[1][1][0];expect(stored).not.toMatch(/PRIVATE NAME|SYNTHETIC-KEY/);expect(decryptFamilyBilling(stored,'coverage:1:2').result.elig.ins_name_f).toBe('PRIVATE NAME');
+  const result=await runCoverageCheck({agencyId,clientId:2,slot:'primary',serviceDate:'2026-09-24',requestKey:'unique-test-request',actorUserId:5,profile,accountKey:'SYNTHETIC-KEY'},{db,request,readInsurance:async()=>insurance()});
+  expect(request).toHaveBeenCalledWith({agencyId,accountKey:'SYNTHETIC-KEY',payload:expect.objectContaining({payerid:'TEST'})});
+  expect(result.summary.status).toBe('active_reported');const stored=db.execute.mock.calls[1][1][0];expect(stored).not.toMatch(/PRIVATE NAME|SYNTHETIC-KEY/);expect(decryptFamilyBilling(stored,`coverage:${agencyId}:2`).result.elig.ins_name_f).toBe('PRIVATE NAME');
   expect(()=>decryptFamilyBilling(stored,'coverage:9:2')).toThrow();expect(db.execute.mock.calls[1][0]).toContain('completed_at=CURRENT_TIMESTAMP(6)');
  });
  it('does not repeat an eligibility request with an existing key',async()=>{

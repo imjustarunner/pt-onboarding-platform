@@ -105,7 +105,7 @@ export async function runCoverageCheck({agencyId,clientId,slot,serviceDate,reque
  try {const [r]=await db.execute('INSERT INTO client_coverage_checks (agency_id,client_id,policy_slot,service_date,insurance_fingerprint,request_key,created_by_user_id) VALUES (?,?,?,?,?,?,?)',[agencyId,clientId,slot,date,fingerprint,requestKey,actorUserId]);id=r.insertId;}
  catch(e){if(e.code!=='ER_DUP_ENTRY')throw e;throw billingError(409,'This eligibility request was already started. Refresh its recorded result before starting another request');}
  try {
-  const result=await (deps.request||requestEligibilityJson)({accountKey,payload});
+  const result=await (deps.request||requestEligibilityJson)({agencyId,accountKey,payload});
   const evidence={result,summary:summarizeEligibility(result),billingOfficeId:profile.officeId,billingNpi:profile.billingNpi,lookupMode:payload.ins_number?'member_id':'demographics'};
   evidence.summary.identityMatches=eligibilityIdentityMatches(payload,result);
   await db.execute("UPDATE client_coverage_checks SET status='returned',completed_at=CURRENT_TIMESTAMP(6),evidence_encrypted=? WHERE id=? AND agency_id=? AND client_id=?",[encryptFamilyBilling(evidence,context(agencyId,clientId)),id,agencyId,clientId]);
