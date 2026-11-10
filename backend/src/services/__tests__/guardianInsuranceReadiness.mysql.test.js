@@ -28,7 +28,7 @@ describe.skipIf(!socket)('independent guardian policies with real SQL and encryp
   for(const name of migrations){const sql=await fs.readFile(new URL(`../../../../database/migrations/${name}`,import.meta.url),'utf8');for(const statement of splitSqlStatements(stripSqlLineComments(sql)))await state.db.query(statement);}
   const followups=await fs.readFile(new URL('../../../../database/migrations/1640_insurance_followups_and_payer_shares.sql',import.meta.url),'utf8');
   for(const statement of splitSqlStatements(stripSqlLineComments(followups)).filter(s=>s.startsWith('CREATE TABLE')))await state.db.query(statement);
-  await state.db.query("ALTER TABLE clients ADD client_type VARCHAR(30) DEFAULT 'clinical',ADD insurance_type_id INT,ADD date_of_birth DATE,ADD gender VARCHAR(20),ADD address_street VARCHAR(255),ADD address_apt VARCHAR(50),ADD address_city VARCHAR(50),ADD address_state VARCHAR(10),ADD address_zip VARCHAR(20),ADD status VARCHAR(20) DEFAULT 'ACTIVE',ADD compliance_archived_at DATETIME");
+  await state.db.query("ALTER TABLE clients ADD client_type VARCHAR(30) DEFAULT 'clinical',ADD insurance_type_id INT,ADD date_of_birth DATE,ADD status VARCHAR(20) DEFAULT 'ACTIVE',ADD compliance_archived_at DATETIME");
   await state.db.query("UPDATE clients SET date_of_birth='2017-02-03',gender='F',address_street='Original address'");
   await state.db.query('ALTER TABLE agencies ADD slug VARCHAR(80),ADD portal_url VARCHAR(255),ADD is_active BOOLEAN DEFAULT 1,ADD is_archived BOOLEAN DEFAULT 0');
   await state.db.query("ALTER TABLE users ADD is_demo BOOLEAN DEFAULT 0,ADD email VARCHAR(255),ADD status VARCHAR(30) DEFAULT 'ACTIVE',ADD is_active BOOLEAN DEFAULT 1,ADD is_archived BOOLEAN DEFAULT 0");
