@@ -81,6 +81,7 @@
 
 <script setup>
 import { ref, computed, watch } from 'vue';
+import { useRoute } from 'vue-router';
 import { getAccountSectionMeta, getAccountSectionThemeStyle } from '../../config/accountDisplaySections';
 
 const props = defineProps({
@@ -93,8 +94,13 @@ const props = defineProps({
 
 const emit = defineEmits(['select-section']);
 
+const route = useRoute();
+const requestedAccountSection = () => route?.query?.tab === 'my' && route?.query?.my === 'account' && !!route?.query?.section;
 const showInfoBanner = ref(true);
-const showOverview = ref(props.activeSection === 'account');
+const showOverview = ref(props.activeSection === 'account' && !requestedAccountSection());
+watch(() => [route?.query?.tab, route?.query?.my, route?.query?.section], () => {
+  if (requestedAccountSection()) { showOverview.value = false; menuExpanded.value = false; }
+});
 const menuExpanded = ref(showOverview.value);
 function selectSection(section) {
   showOverview.value = false;

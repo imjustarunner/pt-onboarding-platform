@@ -1,5 +1,6 @@
 import pool from '../config/database.js';
-import { getContactPlanContext, sendSchoolContactEmail, SCHOOL_CONTACT_DEMO_AGENCY_ID, SCHOOL_CONTACT_TEST_INBOX } from './schoolContactPlan.service.js';
+import { getContactPlanContext, sendSchoolContactEmail, SCHOOL_CONTACT_DEMO_AGENCY_ID, schoolContactRouting } from './schoolContactPlan.service.js';
+import { SCHOOL_CONTACT_AGENCY_IDS, schoolContactScopeSql, schoolContactDelivery } from './schoolContactRollout.js';
 import { resolveOutboundNumber } from './communicationRouting.service.js';
 import { resolveRegisteredSmsSender } from './smsCompliance.service.js';
 import VonageService from './vonage.service.js';
@@ -54,11 +55,12 @@ export async function queueSchoolContactAssignments(db = pool, { clientId = null
       SELECT p.agency_id,c.id,a.organization_id,a.provider_user_id,MIN(a.id),p.decided_at
       FROM client_provider_assignments a JOIN clients c ON c.id=a.client_id
       JOIN school_provider_contact_plans p ON p.agency_id=c.agency_id AND p.provider_user_id=a.provider_user_id AND p.status='enabled'
+      JOIN agencies pilot ON pilot.id=p.agency_id
       JOIN agencies s ON s.id=a.organization_id AND s.organization_type='school' AND s.is_active=1 AND COALESCE(s.is_archived,0)=0
       JOIN organization_affiliations oa ON oa.organization_id=s.id AND oa.agency_id=p.agency_id AND oa.is_active=1
-      WHERE p.agency_id=? AND a.is_active=1 AND c.status<>'ARCHIVED'
+      WHERE p.agency_id IN (?,?) AND ${schoolContactScopeSql()} AND a.is_active=1 AND c.status<>'ARCHIVED'
         AND a.created_at>=p.decided_at ${clientId ? 'AND c.id=?' : ''}
-      GROUP BY p.agency_id,c.id,a.organization_id,a.provider_user_id,p.decided_at`, [SCHOOL_CONTACT_DEMO_AGENCY_ID, ...(clientId ? [Number(clientId)] : [])]);
+      GROUP BY p.agency_id,c.id,a.organization_id,a.provider_user_id,p.decided_at`, [...SCHOOL_CONTACT_AGENCY_IDS, ...(clientId ? [Number(clientId)] : [])]);
     return Number(result.affectedRows || 0);
   } catch (e) {
     // Assignment changes must still work while a deployment's migration runs.
@@ -147,10 +149,11 @@ async function guardianFor(workflow) {
 async function sendFollowupSms(workflow, ctx, guardian) {
   if (!await stillEnabled(workflow)) return { skipped: true, reason: 'Contact plan was disabled or its enrollment window changed.' };
   if (Number(workflow.session_sms_opt_in) !== 1) return { skipped: true, reason: 'Client has not opted in to text follow-ups.' };
-  const to = schoolContactDemoSmsRecipient(ctx.agency.feature_flags, { clientId: workflow.client_id, phone: guardian?.phone });
-  if (!to) return { skipped: true, reason: 'No matching client-bound demo text fixture is configured.' };
+  const to = Number(workflow.agency_id) === SCHOOL_CONTACT_DEMO_AGENCY_ID
+    ? schoolContactDemoSmsRecipient(ctx.agency.feature_flags, { clientId: workflow.client_id, phone: guardian?.phone }) : MessageLog.normalizePhone(guardian?.phone);
+  if (!to) return { skipped: true, reason: 'No permitted family text destination is configured.' };
   const resolved = await resolveOutboundNumber({ userId: workflow.provider_user_id, clientId: workflow.client_id });
-  if (!resolved?.number || Number(resolved.number.agency_id) !== Number(workflow.agency_id)) return { skipped: true, reason: 'A demo clinical text sender is required.' };
+  if (!resolved?.number || Number(resolved.number.agency_id) !== Number(workflow.agency_id)) return { skipped: true, reason: 'An active clinical text sender is required.' };
   const values={parent_name:guardian.first_name || 'there',provider_name:[ctx.provider.first_name,ctx.provider.last_name].filter(Boolean).join(' '),agency_name:ctx.agency.name,school_name:workflow.school_name,service_day:workflow.service_day || 'a day we will confirm together'};
   const body=String(workflow.sms_template || DEFAULT_CONTACT_SMS_TEMPLATE).replace(/{{(\w+)}}/g,(_,key)=>values[key] || '');
   const metadata = { schoolContactWorkflowId: workflow.id, schoolContactStep: 'second_contact', automated: true, startsParentContactConversation: true };
@@ -177,14 +180,16 @@ async function notifySupport(workflow) {
     title: 'School intake reply needs follow-up', message: 'A guardian replied to a school contact plan and is still waiting for a provider response. Review the client’s Communications record.',
     userId: user.id, agencyId: workflow.agency_id, relatedEntityType: 'client', relatedEntityId: workflow.client_id,
     audienceJson: { workflowId: workflow.id, providerUserId: workflow.provider_user_id }, actorSource: 'school_contact_plan' });
-  return support.length ? { sent: true } : { skipped: true, reason: 'No active demo support recipients configured.' };
+  return support.length ? { sent: true } : { skipped: true, reason: 'No active support recipients configured.' };
 }
 
 async function remindProviderEmail(workflow, ctx) {
   if (!await stillEnabled(workflow)) return { skipped: true, reason: 'Contact plan was disabled.' };
   const mailbox = await resolveMessagesSendMailbox(workflow.agency_id);
   const body = 'You have a new client message waiting for a reply to begin the school intake. Please open the client’s Communications record in SchoolCareBridge and reply. This reminder contains no client details.';
-  const receipt = await sendEmailFromIdentity({ senderIdentityId: mailbox.identity.id, to: SCHOOL_CONTACT_TEST_INBOX, bcc: SCHOOL_CONTACT_TEST_INBOX,
+  const recipient = schoolContactRouting(ctx.provider, mailbox.fromEmail, ctx.agency).providerEmail;
+  if (!recipient) return { skipped: true, reason: 'Provider email is not configured.' };
+  const receipt = await sendEmailFromIdentity({ senderIdentityId: mailbox.identity.id, ...schoolContactDelivery(workflow.agency_id, { to: recipient, bcc: Number(workflow.agency_id) === SCHOOL_CONTACT_DEMO_AGENCY_ID ? recipient : null }),
     subject: 'A school intake message is waiting for your reply', text: body, html: `<p>${body}</p>`, source: 'auto',
     templateType: 'school_contact_stale_provider', generatedByUserId: ctx.userId, replyToOverride: mailbox.fromEmail,
     internetMessageIdOverride: `<school-contact-${workflow.id}-provider-reminder@itsco.health>` });
@@ -196,10 +201,11 @@ async function remindProviderSms(workflow, ctx) {
   if (!await stillEnabled(workflow)) return { skipped: true, reason: 'Contact plan was disabled.' };
   const [[provider]] = await pool.execute('SELECT personal_phone,phone_number,work_phone FROM users WHERE id=?', [workflow.provider_user_id]);
   const phone = provider?.personal_phone || provider?.phone_number || provider?.work_phone;
-  const to = schoolContactDemoSmsRecipient(ctx.agency.feature_flags, { providerUserId: workflow.provider_user_id, phone });
-  if (!to) return { skipped: true, reason: 'No matching provider-bound demo text fixture is configured.' };
+  const to = Number(workflow.agency_id) === SCHOOL_CONTACT_DEMO_AGENCY_ID
+    ? schoolContactDemoSmsRecipient(ctx.agency.feature_flags, { providerUserId: workflow.provider_user_id, phone }) : MessageLog.normalizePhone(phone);
+  if (!to) return { skipped: true, reason: 'No provider text destination is configured.' };
   const from = await resolveRegisteredSmsSender({ agencyId: workflow.agency_id, purpose: 'workforce' });
-  if (!from) return { skipped: true, reason: 'No registered demo staff text sender is available.' };
+  if (!from) return { skipped: true, reason: 'No registered staff text sender is available.' };
   const body = 'You have a new client message waiting for your reply to begin a school intake. Please open Communications in the app.';
   const metadata = { schoolContactWorkflowId: workflow.id, schoolContactStep: 'provider_sms', automated: true };
   const log = await MessageLog.createOutbound({ agencyId: workflow.agency_id, userId: workflow.provider_user_id, assignedUserId: workflow.provider_user_id,
@@ -217,7 +223,7 @@ async function remindProviderSms(workflow, ctx) {
 }
 
 async function processWorkflow(workflow, now) {
-  // This rechecks the exact demo agency, current membership, provider role, and
+  // This rechecks the enabled cohort, current membership, provider role, and
   // school access on every tick, even if a pending row was manually inserted.
   let ctx;
   try { ctx = await getContactPlanContext({ agencyId: workflow.agency_id, userId: workflow.provider_user_id }); }
@@ -297,21 +303,22 @@ const workflowSelect = `SELECT w.*,p.status AS plan_status,p.template,p.sms_afte
       EXISTS(SELECT 1 FROM client_provider_assignments active WHERE active.client_id=w.client_id AND active.organization_id=w.school_id AND active.provider_user_id=w.provider_user_id AND active.is_active=1) AS assignment_active,
       (c.status='ARCHIVED' OR LOWER(COALESCE(cs.status_key,'')) IN ('terminated','discharged','closed','dead','archived') OR LOWER(COALESCE(cs.label,'')) LIKE '%terminated%') AS client_terminal
     FROM school_contact_workflows w LEFT JOIN school_provider_contact_plans p ON p.agency_id=w.agency_id AND p.provider_user_id=w.provider_user_id
+    JOIN agencies pilot ON pilot.id=w.agency_id
     JOIN clients c ON c.id=w.client_id AND c.agency_id=w.agency_id LEFT JOIN client_statuses cs ON cs.id=c.client_status_id
     JOIN agencies s ON s.id=w.school_id LEFT JOIN client_provider_assignments a ON a.id=w.assignment_id
-    WHERE w.agency_id=? AND w.status NOT IN ('cancelled','complete','needs_review')`;
+    WHERE w.agency_id IN (?,?) AND ${schoolContactScopeSql('pilot','w.provider_user_id')} AND w.status NOT IN ('cancelled','complete','needs_review')`;
 
 export async function processSchoolContactAutomation({ now = new Date(), limit = 50 } = {}) {
   await queueSchoolContactAssignments();
   const size = Math.min(100,Math.max(1,Number(limit)||50));
-  const [rows] = await pool.execute(`${workflowSelect} ORDER BY w.updated_at,w.id LIMIT ${Math.floor(size)}`, [SCHOOL_CONTACT_DEMO_AGENCY_ID]);
+  const [rows] = await pool.execute(`${workflowSelect} ORDER BY w.updated_at,w.id LIMIT ${Math.floor(size)}`, SCHOOL_CONTACT_AGENCY_IDS);
   let processed = 0;
   for (const row of rows) {
     const lock = await pool.getConnection();
     try {
       const [[claim]] = await lock.execute('SELECT GET_LOCK(?,0) AS claimed', [`school-contact:${row.id}`]);
       if (!Number(claim?.claimed)) continue;
-      const [[fresh]] = await pool.execute(`${workflowSelect} AND w.id=? LIMIT 1`, [SCHOOL_CONTACT_DEMO_AGENCY_ID,row.id]);
+      const [[fresh]] = await pool.execute(`${workflowSelect} AND w.id=? LIMIT 1`, [...SCHOOL_CONTACT_AGENCY_IDS,row.id]);
       if (!fresh) continue;
       await processWorkflow(fresh, now);
       processed++;

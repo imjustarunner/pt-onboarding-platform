@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import {SCHOOL_CONTACT_AGENCY_IDS,schoolContactScopeSql} from './schoolContactRollout.js';
 import { replyMessageIds } from '../utils/emailThreading.js';
 import { persistInboundEmail } from './inboundEmailPersistence.service.js';
 import { prepareInboundAttachments } from './communicationAttachments.service.js';
@@ -110,11 +111,13 @@ export async function syncSchoolContactWorkReplies() {
     JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=w.agency_id AND ua.is_active=1
     JOIN communication_inboxes own ON own.owner_user_id=u.id AND own.agency_id=w.agency_id AND own.kind='personal' AND own.is_active=1
     JOIN email_sender_identities esi ON esi.id=own.sender_identity_id AND esi.agency_id=own.agency_id AND esi.is_active=1 AND esi.identity_key=CONCAT('personal_',u.id) AND LOWER(esi.from_email)=LOWER(own.from_email)
-    WHERE w.agency_id=450 AND COALESCE(u.sso_password_override,0)=0 AND COALESCE(u.login_is_group_email,0)=0
+    JOIN agencies pilot ON pilot.id=w.agency_id
+    JOIN school_provider_contact_plans p ON p.agency_id=w.agency_id AND p.provider_user_id=w.provider_user_id
+    WHERE w.agency_id IN (?,?) AND ${schoolContactScopeSql('pilot','w.provider_user_id')} AND COALESCE(u.sso_password_override,0)=0 AND COALESCE(u.login_is_group_email,0)=0
       AND m.direction='outbound' AND m.author_user_id=u.id AND m.send_status IN ('sent','delivered') AND COALESCE(m.is_auto_reply,0)=0
       AND m.sent_at>=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 180 DAY)
       AND LOWER(JSON_UNQUOTE(JSON_EXTRACT(m.from_json,'$.replyTo')))=LOWER(esi.from_email)
-    ORDER BY (m.id>?) DESC,m.id LIMIT 20`,[lastPolledMessageId]);
+    ORDER BY (m.id>?) DESC,m.id LIMIT 20`,[...SCHOOL_CONTACT_AGENCY_IDS,lastPolledMessageId]);
   let ingested=0;
   for(const target of targets || []) {
     lastPolledMessageId=Number(target.id);

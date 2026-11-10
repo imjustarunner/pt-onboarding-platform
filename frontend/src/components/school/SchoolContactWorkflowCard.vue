@@ -33,7 +33,7 @@ const formatDate = formatDateTimeShort;
 async function load() {
   const request = ++version;
   workflows.value = []; error.value = ''; notice.value = ''; busyId.value = null;
-  if (Number(props.agencyId) !== 450 || !props.clientId) return;
+  if (![2,450].includes(Number(props.agencyId)) || !props.clientId) return;
   try {
     const { data } = await api.get('/school-contact-plan/workflows', { params: { agencyId: props.agencyId, clientId: props.clientId }, skipGlobalLoading: true });
     if (!disposed && request === version) workflows.value = (Array.isArray(data) ? data : []).filter(row => Number(row.clientId) === Number(props.clientId));

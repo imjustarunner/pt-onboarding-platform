@@ -1,8 +1,9 @@
 import pool from '../config/database.js';
 import Conversation from '../models/CommunicationConversation.model.js';
-import {schoolContactRouting, SCHOOL_CONTACT_TEST_INBOX} from './schoolContactPlan.service.js';
+import {schoolContactRouting} from './schoolContactPlan.service.js';
 import {loadSchoolContactStaff,schoolContactComposePath} from './schoolContactStaffEmail.service.js';
 import {resolveMessagesSendMailbox} from './tenantMessageMailboxes.service.js';
+import {schoolContactDelivery} from './schoolContactRollout.js';
 import {sendEmailFromIdentity} from './unifiedEmail/unifiedEmailSender.service.js';
 
 const esc = value => String(value || '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');
@@ -40,7 +41,7 @@ export async function sendSchoolContactProviderNotice(workflow,ctx,{reminder=fal
     const [[plan]]=await pool.execute(`SELECT p.status,p.decided_at,w.plan_decided_at FROM school_provider_contact_plans p JOIN school_contact_workflows w
       ON w.agency_id=p.agency_id AND w.provider_user_id=p.provider_user_id WHERE w.id=? AND p.agency_id=? AND p.provider_user_id=?`,[workflow.id,workflow.agency_id,workflow.provider_user_id]);
     if(plan?.status!=='enabled' || String(plan.decided_at)!==String(plan.plan_decided_at)) throw Object.assign(new Error('The provider contact plan changed before sending.'),{code:'school_contact_plan_changed'});
-    const receipt=await sendEmailFromIdentity({senderIdentityId:mailbox.identity.id,to:SCHOOL_CONTACT_TEST_INBOX,cc:cc.length?SCHOOL_CONTACT_TEST_INBOX:null,
+    const receipt=await sendEmailFromIdentity({senderIdentityId:mailbox.identity.id,...schoolContactDelivery(workflow.agency_id,{to:routing.providerEmail,cc:cc.length?cc.join(','):null}),
       subject,text,html,source:'auto',templateType:'school_contact_intake_followup',generatedByUserId:ctx.userId,clientId:workflow.client_id,schoolOrganizationId:workflow.school_id,internetMessageIdOverride:stableId});
     if (!receipt?.id || receipt.queued || receipt.pendingApproval || receipt.skipped) throw Object.assign(new Error('Email needs delivery review.'),{code:'email_receipt_missing'});
     accepted=true;
