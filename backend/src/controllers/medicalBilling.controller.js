@@ -1,3 +1,4 @@
+import {assistantBillingAuthorization,assertAssistantBillingCommand} from '../services/assistantBillingCommand.service.js';
 import { isReviewedStarterPlan } from '../services/starterTreatmentPlanReview.service.js';
 import { collapseClaimAttempts } from '../services/claimFamily.service.js';
 import { attachClaimReferences } from '../services/clinicalClaimReferences.service.js';
@@ -3061,6 +3062,7 @@ export const submitClaimToClaimMd = async (req, res, next) => {
       if (!latestReview.readiness.ready || latestReview.reviewHash !== reviewHash) throw Object.assign(new Error('Documentation or billing policy changed. Review this claim again.'),{status:409});
       await assertClinicalVersionSubmission({ noteId: claim.clinical_note_id, agencyId, expectedRevisionId: clinicalVersion.revisionId, expectedContentHash: clinicalVersion.contentHash }, db);
       await assertOriginalTransmissionAllowed({...latestReview.claim,agency_id:agencyId},db);
+      await assertAssistantBillingCommand(req);
       const [queued] = await db.execute(`UPDATE clinical_claims SET claim_lifecycle = 'queued', member_id = NULL,
         insurance_payload = ?, claimmd_connection_id = ?, rendering_npi = ?, destination_payer_id = ?, claim_number = ? WHERE id = ? AND agency_id = ? AND is_deleted = 0
         AND claim_lifecycle IN ('ready','draft','rejected') AND billing_revision = ?`,
@@ -3068,6 +3070,7 @@ export const submitClaimToClaimMd = async (req, res, next) => {
       if (!queued.affectedRows) throw Object.assign(new Error('This claim changed or is already being submitted. Refresh its review.'), { status: 409 });
       await recordClaimEvent({ agencyId, claimId, connectionId: connection.connectionId, eventKey: `submission:${attemptId}`,
         eventType: 'approved_submission', actorUserId: req.user.id, payload: { reviewHash, clinicalVersion, mode: connection.mode, payload,
+          ...(assistantBillingAuthorization(req)?{authorization:assistantBillingAuthorization(req)}:{}),
           supervision, appliedOverrides: latestReview.appliedOverrides || [] } }, db);
       await db.commit();
     } catch (e) { await db.rollback(); throw e; } finally { db.release(); }

@@ -1,0 +1,27 @@
+{
+  "outcome": "PASS",
+  "buildId": "source-4de124c7dc333ae5b4380a6c96547f75",
+  "observedAt": "2026-11-10T06:49:28.237Z",
+  "browser": "Chrome/157.0.8103.39",
+  "viewports": [
+    "1280x900",
+    "390x844"
+  ],
+  "syntheticOnly": true,
+  "payerRequests": 0,
+  "steps": [
+    "Opened actual Billing Assistant batch component",
+    "Verified only opaque references, rule and readiness facts were rendered",
+    "Confirmed client chart API returned 403 through the assistant boundary",
+    "Clicked authorized batch submission once",
+    "Verified rule, authorizer and assistant executor were preserved",
+    "Verified Claim.MD acknowledgement was not presented as payment"
+  ],
+  "checks": {
+    "noClientIdentifiers": true,
+    "clientChartDenied": true,
+    "oneSubmission": true,
+    "authorizationPreserved": true,
+    "pageErrors": []
+  }
+}

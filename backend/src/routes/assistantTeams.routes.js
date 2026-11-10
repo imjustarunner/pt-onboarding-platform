@@ -1,4 +1,5 @@
 import payrollReports from '../services/assistantPayrollReport.service.js';
+import billingSubmissions from '../services/assistantBillingSubmission.service.js';
 import payrollApproval from '../services/assistantPayrollApproval.service.js';
 import express from 'express';
 import rateLimit from 'express-rate-limit';
@@ -12,6 +13,8 @@ export const assistantWorkRouter=express.Router();export const assistantAccounts
 const limit=rateLimit({windowMs:60000,max:120,standardHeaders:true,legacyHeaders:false});
 const handle=fn=>async(req,res)=>{try{res.set('Cache-Control','no-store');res.json(await fn(req));}catch(e){const status=[400,401,403,404,409,422,429,503].includes(Number(e.status))?Number(e.status):503;res.status(status).json({error:{code:typeof e.code==='string'&&/^[A-Z_]{2,80}$/.test(e.code)?e.code:'ASSISTANT_WORK_UNAVAILABLE',message:status===503?'Assistant work is temporarily unavailable. No source records were changed.':String(e.message||'Assistant request unavailable').slice(0,300)}});}};
 assistantWorkRouter.use(authenticate,limit);
+assistantWorkRouter.get('/billing/batches',handle(req=>billingSubmissions.batches(req.user.id)));
+assistantWorkRouter.post('/billing/batches/:ref/submit',handle(req=>billingSubmissions.submit(req.user.id,req.params.ref,req.body)));
 assistantWorkRouter.get('/payroll/report',handle(req=>payrollReports.preview(req.user.id)));
 assistantWorkRouter.post('/payroll/report/send',handle(req=>payrollReports.send(req.user.id,req.body)));
 assistantWorkRouter.get('/',handle(req=>service.workspace(req.user.id)));
@@ -27,6 +30,10 @@ assistantWorkRouter.post('/marketing/preview',handle(async req=>previewAssistant
 assistantWorkRouter.post('/marketing/publish',handle(async req=>publishAssistantMarketing({account:await service.accountForUser(req.user.id),previewRef:req.body.previewRef,sourceRevision:req.body.sourceRevision,evidence:req.body.evidence})));
 assistantAccountsRouter.use(authenticate,limit,(req,res,next)=>assertAssistantOwner(req.user).then(()=>next()).catch(()=>res.status(403).json({error:{code:'ASSISTANT_OWNER_REQUIRED',message:'Only Michael can manage Assistant Teams.'}})));
 assistantAccountsRouter.get('/',handle(req=>service.ownerOverview(req.user)));
+assistantAccountsRouter.get('/billing-rules',handle(req=>billingSubmissions.rules(req.user)));
+assistantAccountsRouter.post('/billing-rules',handle(req=>billingSubmissions.authorize(req.user,req.body)));
+assistantAccountsRouter.post('/billing-rules/:id/revoke',handle(req=>billingSubmissions.revoke(req.user,req.params.id)));
+assistantAccountsRouter.post('/billing-rules/:id/batches',handle(req=>billingSubmissions.createBatch(req.user,req.params.id,req.body)));
 assistantAccountsRouter.post('/provision',handle(req=>provisionAssistantAccounts({actor:req.user,agencyIds:req.body.agencyIds,subroles:req.body.subroles,dryRun:req.body.dryRun!==false,qa:req.body.qa===true})));
 assistantAccountsRouter.post('/marketing/rollback',handle(req=>rollbackAssistantMarketing({actor:req.user,revisionRef:req.body.revisionRef,reason:req.body.reason})));
 assistantAccountsRouter.get('/proposals/:ref',handle(req=>service.proposalForHuman(req.user,req.params.ref)));

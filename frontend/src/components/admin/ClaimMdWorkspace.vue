@@ -251,6 +251,7 @@
       <article v-for="event in history" :key="event.id">
         <small v-if="event.attemptNumber">Attempt {{ event.attemptNumber }} · </small>
         <strong>{{ claimHistoryLabel(event.type) }}</strong> · {{ clearinghouseStatusLabel(event.status) || event.status || 'Recorded' }} · {{ formatBillingTimestamp(event.createdAt) }} · {{ event.actorName || (event.actorUserId ? `User #${event.actorUserId}` : 'System / clearinghouse') }}
+        <p v-if="event.authorization" class="authorization-line">Based on rule {{ event.authorization.ruleNumber }} v{{ event.authorization.ruleRevision }} and authorization by {{ event.authorization.authorizedByName }}, performed by {{ event.authorization.performedByName }}. Batch {{ event.authorization.batchRef }}.</p>
         <p v-for="(message, i) in event.messages || []" :key="i">{{ message.message }} <small>{{ message.fields }}</small></p>
         <ul><li v-for="suggestion in event.suggestions || []" :key="suggestion">{{ suggestion }}</li></ul>
         <p v-if="event.reason">{{ event.reason }}</p>

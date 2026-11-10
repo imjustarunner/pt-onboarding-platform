@@ -132,3 +132,12 @@ it('cannot upload an incomplete payload even with explicit approval',async()=>{
  const res=response(),next=vi.fn();await submitClaimToClaimMd(request(),res,next);
  expect(mocks.upload).not.toHaveBeenCalled();expect(mocks.event).not.toHaveBeenCalled();expect(res.code===409 || next.mock.calls[0]?.[0]?.status===409).toBe(true);
 });
+
+it('persists the private assistant rule receipt with the actual submitting assistant account',async()=>{
+ const {invokeAssistantBillingSubmission}=await import('../assistantBillingCommand.service.js');
+ const validate=vi.fn();
+ await invokeAssistantBillingSubmission({account:{subrole:'billing',user_id:700,agency_id:1},claimId:11,reviewHash:'a'.repeat(64),mode:'test',validate,
+  authorization:{ruleNumber:'BILL-000001',ruleRevision:1,authorizedByUserId:501,authorizedByName:'Michael Mendez',performedByUserId:700,performedByName:'Billing Assistant',batchRef:'synthetic-batch'}},submitClaimToClaimMd);
+ expect(validate).toHaveBeenCalledOnce();
+ expect(mocks.event).toHaveBeenCalledWith(expect.objectContaining({actorUserId:700,eventType:'approved_submission',payload:expect.objectContaining({authorization:expect.objectContaining({ruleNumber:'BILL-000001',authorizedByUserId:501,performedByUserId:700})})}),expect.anything());
+});

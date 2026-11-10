@@ -5,6 +5,7 @@
     <p v-if="message" role="status" class="notice">{{ message }}</p>
     <p v-if="loading" role="status">Loading your workspace…</p>
     <template v-else>
+      <AssistantBillingBatches v-if="identity.subrole==='billing'" />
       <div v-if="!identity.capabilities?.length" class="empty-state"><h2>Your dashboard is ready</h2><p>No work or data access has been assigned to this account.</p></div>
       <template v-else>
         <div class="scope-line"><span class="badge">{{ identity.status || 'pending' }}</span><span>Policy {{ identity.policyRevision || 'not supplied' }}</span><span>One agency · {{ identity.agencyName }}</span></div>
@@ -23,6 +24,7 @@
 <script setup>
 import { computed, onMounted, onBeforeUnmount, ref } from 'vue';
 import api from '../../services/api';
+import AssistantBillingBatches from '../../components/assistants/AssistantBillingBatches.vue';
 import AssistantPacket from '../../components/assistants/AssistantPacket.vue';
 import AssistantSupervisionHistory from '../../components/assistants/AssistantSupervisionHistory.vue';
 const identity=ref({}),tasks=ref([]),team=ref([]),assignments=ref([]),retestForms=ref({}),currentPolicyVersion=ref(''),loading=ref(true),busy=ref(false),error=ref(''),message=ref(''),activeRun=ref(null),leaseLost=ref(false);
