@@ -2,7 +2,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 const m = vi.hoisted(() => ({ execute: vi.fn(), mailbox: vi.fn(), send: vi.fn(), create: vi.fn(), add: vi.fn(), updateMessage: vi.fn(), update: vi.fn(), link: vi.fn(), participant: vi.fn(), find: vi.fn() }));
 vi.mock('../schoolContactReplyRouting.service.js',()=>({schoolContactWorkMailboxAvailable:vi.fn(async()=>true)}));
 vi.mock('../../config/database.js', () => ({ default: { execute: m.execute } }));
-vi.mock('../familyWelcomeAssets.service.js', () => ({ providerProfileUrl: () => 'https://app.example/auricwell-qa-demo/provider/1433', buildProviderIntroductionPdf: vi.fn(async () => Buffer.from('%PDF-1.7')), introductionPdfAttachment: pdf => ({ filename: 'School introduction.pdf', contentType: 'application/pdf', contentBase64: pdf.toString('base64') }) }));
+vi.mock('../familyWelcomeAssets.service.js', () => ({ providerProfileUrl: (_agency, owner) => `https://app.example/auricwell-qa-demo/provider/${owner.id}`, buildProviderIntroductionPdf: vi.fn(async () => Buffer.from('%PDF-1.7')), introductionPdfAttachment: pdf => ({ filename: 'School introduction.pdf', contentType: 'application/pdf', contentBase64: pdf.toString('base64') }) }));
 vi.mock('../tenantMessageMailboxes.service.js', () => ({ resolveMessagesSendMailbox: m.mailbox }));
 vi.mock('../unifiedEmail/unifiedEmailSender.service.js', () => ({ sendEmailFromIdentity: m.send }));
 vi.mock('../../models/CommunicationConversation.model.js', () => ({ default: { create: m.create, addMessage: m.add, updateMessage: m.updateMessage, update: m.update, upsertLink: m.link, upsertParticipant: m.participant, findById: m.find } }));
@@ -153,4 +153,41 @@ it('saves the PDF choice and reports Family Welcome state', async () => {
   expect(insert[1].at(-1)).toBe(0);
   plan = { status: 'enabled', template, include_pdf: 0, welcome_seen_at: new Date() };
   expect(await getSchoolContactPlan(input)).toMatchObject({ featureName: 'Family Welcome & Follow-Up', includePdf: false, welcomeSeen: true, profileUrl: 'https://app.example/auricwell-qa-demo/provider/1433' });
+});
+
+
+it.each(['{{parent_name', 'school_name}}', '{{unknown}}'])('rejects broken or unsupported fields before any settings write: %s', async bad => {
+  await expect(saveSchoolContactPlan(input,{status:'enabled',template:template+' '+bad})).rejects.toThrow();
+  expect(m.execute.mock.calls.some(([sql])=>sql.startsWith('INSERT INTO school_provider_contact_plans'))).toBe(false);
+  await expect(saveSchoolContactPlan(input,{status:'enabled',smsTemplate:'Hi {{parent_name}}, this is {{provider_name}}. Please reply to arrange a meeting. '+bad})).rejects.toThrow();
+  expect(m.execute.mock.calls.some(([sql])=>sql.startsWith('INSERT INTO school_provider_contact_plans'))).toBe(false);
+});
+
+it('renders edited messages separately for two providers and two schools without retaining prior names or links', async () => {
+  const original=m.execute.getMockImplementation();
+  m.execute.mockImplementation(async(sql,args=[])=>{
+    if(sql.startsWith('SELECT u.id'))return [[{...provider,id:args[1],first_name:args[1]===1433?'Avery':'Casey',last_name:'QA'}]];
+    if(sql.startsWith('SELECT DISTINCT s.id'))return [[{id:451,name:'Cedar School'},{id:452,name:'Pine School'}]];
+    return original(sql,args);
+  });
+  for(const fixture of [{provider:1433,name:'Avery QA',school:451,schoolName:'Cedar School',parent:'Tess QA',day:'Monday'}, {provider:1438,name:'Casey QA',school:452,schoolName:'Pine School',parent:'Renée QA',day:'Friday'}]){
+    await sendSchoolContactEmail({agencyId:450,providerUserId:fixture.provider,clientId:999,schoolId:fixture.school,to:'testing+fields@itsco.health',parentName:fixture.parent,schoolName:fixture.schoolName,serviceDay:fixture.day,template:template+'\nMy preferred welcome wording.',includePdf:false});
+    const sent=m.send.mock.calls.at(-1)[0];
+    for(const value of [fixture.name,fixture.schoolName,fixture.parent,fixture.day,`/provider/${fixture.provider}`,'My preferred welcome wording.'])expect(sent.text).toContain(value);
+    expect(sent.text).not.toContain('{{');expect(sent.fromDisplayNameOverride).toBe(fixture.name);
+    if(fixture.provider===1438)for(const stale of ['Avery QA','Cedar School','Tess QA','Monday','/provider/1433'])expect(sent.text).not.toContain(stale);
+  }
+});
+
+
+it('uses the selected assigned school for emailed examples and rejects a foreign school before sending', async()=>{
+  const original=m.execute.getMockImplementation();
+  m.execute.mockImplementation(async(sql,args)=>sql.startsWith('SELECT DISTINCT s.id')?[[{id:451,name:'Cedar School'},{id:452,name:'Pine School'}]]:original(sql,args));
+  await sendSchoolContactExample(input,{template,schoolId:452,schoolName:'Unrelated school',providerName:'Another provider'});
+  expect(m.send.mock.calls.at(-1)[0].text).toContain('Pine School');
+  expect(m.send.mock.calls.at(-1)[0].text).toContain('Avery Demo');
+  expect(m.send.mock.calls.at(-1)[0].text).not.toContain('Unrelated school');
+  expect(m.send.mock.calls.at(-1)[0].text).not.toContain('Another provider');
+  await expect(sendSchoolContactExample(input,{template,schoolId:999})).rejects.toMatchObject({status:403});
+  expect(m.send).toHaveBeenCalledTimes(1);
 });

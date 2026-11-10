@@ -16,6 +16,11 @@ export const FAMILY_WELCOME_MESSAGES = [
 ];
 
 const REQUIRED = ['{{parent_name}}', '{{provider_name}}', '{{school_name}}', '{{service_day}}'];
+const FIELD_LABELS = { parent_name: 'Parent name', provider_name: 'My name', school_name: 'School name', service_day: 'Service day', agency_name: 'Agency name', profile_link: 'Add profile link' };
+export function familyWelcomeFields(sms = false) {
+  return [...REQUIRED, sms ? '{{agency_name}}' : PROFILE_LINK_TOKEN].map(token => ({ token, label: FIELD_LABELS[token.slice(2, -2)] }));
+}
+
 
 export function requiredTokens(sms = false) {
   return sms ? REQUIRED.slice(0, 2) : REQUIRED;
@@ -24,13 +29,14 @@ export function requiredTokens(sms = false) {
 export function validateFamilyWelcomeTemplate(text = '', sms = false) {
   const value = String(text || '');
   const missing = requiredTokens(sms).filter(token => !value.includes(token));
-  if (missing.length) return `Keep these fields in your message: ${missing.join(', ')}.`;
+  if (missing.length) return `Use the buttons to add: ${missing.map(token => FIELD_LABELS[token.slice(2, -2)]).join(', ')}.`;
   if (value.trim().length < (sms ? 40 : 80) || value.length > (sms ? 1000 : 6000)) {
     return sms ? 'Keep your text between 40 and 1,000 characters.' : 'Keep your message between 80 and 6,000 characters.';
   }
   if (/<[^>]*>/.test(value)) return 'Use plain text in your message.';
   const allowed = sms ? [...REQUIRED, '{{agency_name}}'] : [...REQUIRED, PROFILE_LINK_TOKEN];
   if ([...value.matchAll(/{{\s*([^}]+)\s*}}/g)].some(match => !allowed.includes(`{{${match[1]}}}`))) return 'Use only the supported personalization fields.';
+  if (/{{|}}/.test(value.replace(/{{(?:parent_name|provider_name|school_name|service_day|agency_name|profile_link)}}/g, ''))) return 'An automatic field is incomplete. Remove it and insert it again using its button.';
   return '';
 }
 

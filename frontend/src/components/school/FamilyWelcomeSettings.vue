@@ -34,13 +34,12 @@
           </button>
           <div v-if="openField === message.field" class="fw-message-body">
             <label :for="`fw-${message.field}`">{{ message.sms ? 'Text wording' : 'Email wording' }}</label>
-            <div v-if="!message.sms" class="fw-toolbar">
-              <button type="button" class="fw-add-link" @click="addProfileLink(message.field)">+ Add profile link</button>
-            </div>
+            <FamilyWelcomeFields :sms="message.sms" @insert="insertField(message.field, $event)" />
             <textarea :id="`fw-${message.field}`" :ref="el => { if (el) editors[message.field] = el; }" v-model="draft[message.field]" rows="10" :maxlength="message.sms ? 1000 : 6000" spellcheck="true"></textarea>
-            <p class="hint">Keep: <code v-for="token in requiredTokens(message.sms)" :key="token">{{ token }}</code><template v-if="!message.sms"> · Optional: <code>{{ PROFILE_LINK_TOKEN }}</code></template></p>
+
             <p v-if="validateFamilyWelcomeTemplate(draft[message.field], message.sms)" class="fw-error">{{ validateFamilyWelcomeTemplate(draft[message.field], message.sms) }}</p>
             <div class="fw-preview" :aria-label="`${message.label} preview`">
+              <label v-if="plan.schools?.length > 1">Preview school <select v-model="previewSchoolId"><option v-for="school in plan.schools" :key="school.id" :value="school.id">{{ school.name }}</option></select></label>
               <p class="fw-preview-subject">{{ message.subject }}</p>
               <p class="fw-preview-body">{{ render(draft[message.field]) }}</p>
             </div>
@@ -77,12 +76,13 @@
 </template>
 
 <script setup>
-import { nextTick, reactive, ref, watch } from 'vue';
+import { nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
+import FamilyWelcomeFields from './FamilyWelcomeFields.vue';
 import FamilyWelcomePdfButton from './FamilyWelcomePdfButton.vue';
 import {
   FAMILY_WELCOME_MESSAGES, FAMILY_WELCOME_NAME, FAMILY_WELCOME_PROFILE_PROMPT, FAMILY_WELCOME_SECTION_ID, FAMILY_WELCOME_TAGLINE,
-  PROFILE_LINK_TOKEN, insertAtCursor, renderFamilyWelcome, requiredTokens, validateFamilyWelcomeTemplate, welcomeMissingProfileLink
+  PROFILE_LINK_TOKEN, insertAtCursor, renderFamilyWelcome, validateFamilyWelcomeTemplate, welcomeMissingProfileLink
 } from '../../utils/familyWelcome.js';
 
 const props = defineProps({ agencyId: [Number, String], userId: [Number, String], providerName: { type: String, default: '' } });
@@ -90,54 +90,67 @@ const plan = ref(null), loading = ref(false), loadError = ref(''), busy = ref(fa
 const status = ref('declined'), includePdf = ref(true), openField = ref('template'), profilePrompt = ref(false), exampleField = ref('');
 const draft = reactive({ template: '', secondTemplate: '', finalTemplate: '', smsTemplate: '' });
 const editors = {};
+const previewSchoolId = ref(null);
+let version = 0;
+onBeforeUnmount(() => { version++; });
 
 function apply(data) {
   plan.value = data;
   if (!data?.eligible) return;
+  if (!data.schools?.some(s => Number(s.id) === Number(previewSchoolId.value))) previewSchoolId.value = data.schools?.[0]?.id ?? null;
   status.value = data.status === 'enabled' ? 'enabled' : 'declined';
   includePdf.value = data.includePdf !== false;
   for (const key of Object.keys(draft)) draft[key] = data[key] || data.recommendedTemplates?.[key] || '';
 }
 async function load() {
+  const request = ++version;
+  plan.value = null; notice.value = ''; error.value = ''; loadError.value = ''; loading.value = false; busy.value = false; profilePrompt.value = false;
+  for (const key of Object.keys(draft)) draft[key] = '';
   if (!props.agencyId || !props.userId) return;
   loading.value = true; loadError.value = '';
   try {
     const { data } = await api.get('/school-contact-plan', { params: { agencyId: props.agencyId }, skipGlobalLoading: true });
+    if (request !== version) return;
     apply(data);
   } catch {
+    if (request !== version) return;
     loadError.value = 'Family Welcome settings could not be loaded.';
   } finally {
-    loading.value = false;
+    if (request === version) loading.value = false;
   }
 }
 function render(text) {
   return renderFamilyWelcome(text, {
-    parent_name: 'Parent name', provider_name: props.providerName || plan.value?.providerName || 'Provider name',
-    school_name: plan.value?.schools?.[0]?.name || 'Example Middle School', service_day: 'Tuesday', ...plan.value?.previewValues
+    parent_name: 'Parent name', provider_name: plan.value?.providerName || props.providerName || 'Provider name',
+    school_name: plan.value?.schools?.find(s => Number(s.id) === Number(previewSchoolId.value))?.name || 'Example school', service_day: 'Example day', ...plan.value?.previewValues
   });
 }
-async function addProfileLink(field) {
+async function insertField(field, token) {
   openField.value = field;
   await nextTick();
   const el = editors[field];
-  draft[field] = insertAtCursor(el, draft[field], PROFILE_LINK_TOKEN);
-  el?.focus?.();
+  const position = (el?.selectionStart ?? draft[field].length) + token.length;
+  draft[field] = insertAtCursor(el, draft[field], token);
+  await nextTick(); el?.focus?.(); el?.setSelectionRange?.(position, position);
 }
 async function addLinkFromPrompt() {
   profilePrompt.value = false;
-  await addProfileLink('template');
+  await insertField('template', PROFILE_LINK_TOKEN);
 }
 function messageFrom(e, fallback) { return e?.response?.data?.error?.message || e?.response?.data?.message || fallback; }
 async function sendExample(message) {
   if (busy.value) return;
+  const request = version;
   busy.value = true; exampleField.value = message.field; error.value = ''; notice.value = '';
   try {
-    const { data } = await api.post('/school-contact-plan/example', { template: draft[message.field], stepKey: message.step, includePdf: includePdf.value }, { params: { agencyId: props.agencyId }, skipGlobalLoading: true });
+    const { data } = await api.post('/school-contact-plan/example', { template: draft[message.field], stepKey: message.step, schoolId: previewSchoolId.value, includePdf: includePdf.value }, { params: { agencyId: props.agencyId }, skipGlobalLoading: true });
+    if (request !== version) return;
     notice.value = `Example sent to ${data.deliveredTo || 'your inbox'}.`;
   } catch (e) {
+    if (request !== version) return;
     error.value = messageFrom(e, 'The example could not be sent. Please try again.');
   } finally {
-    busy.value = false; exampleField.value = '';
+    if (request === version) { busy.value = false; exampleField.value = ''; }
   }
 }
 async function save({ skipProfileCheck = false } = {}) {
@@ -147,15 +160,18 @@ async function save({ skipProfileCheck = false } = {}) {
   if (invalid) { openField.value = invalid.field; error.value = `${invalid.label}: ${validateFamilyWelcomeTemplate(draft[invalid.field], invalid.sms)}`; return; }
   if (!skipProfileCheck && welcomeMissingProfileLink(draft)) { profilePrompt.value = true; return; }
   profilePrompt.value = false;
+  const request = version;
   busy.value = true;
   try {
     const { data } = await api.put('/school-contact-plan', { status: status.value, ...draft, includePdf: includePdf.value }, { params: { agencyId: props.agencyId }, skipGlobalLoading: true });
+    if (request !== version) return;
     apply(data);
     notice.value = status.value === 'enabled' ? 'Family Welcome & Follow-Up is on.' : 'Family Welcome & Follow-Up is off. Support will introduce you, and you will be copied.';
   } catch (e) {
+    if (request !== version) return;
     error.value = messageFrom(e, 'Your settings could not be saved. Please try again.');
   } finally {
-    busy.value = false;
+    if (request === version) busy.value = false;
   }
 }
 function openTour() { window.dispatchEvent(new CustomEvent('family-welcome:open')); }

@@ -121,11 +121,12 @@
                 </label>
                 <div class="contact-plan-preview">
                   <div class="contact-plan-envelope"><span class="contact-plan-mail-dot"></span><strong>{{ selectedMessageInfo.subject }}</strong><span class="contact-plan-sample-label">EXAMPLE</span></div>
-                  <dl class="contact-plan-addresses"><div><dt>From</dt><dd>{{ providerName || plan.providerName || 'Your provider name' }} &lt;{{ plan.routing?.from }}&gt;</dd></div><div><dt>To</dt><dd>Parent name · testing@itsco.health</dd></div><div><dt>Reply to</dt><dd>{{ plan.routing?.replyTo }}</dd></div><div><dt>Copy</dt><dd>You receive a private copy (BCC)</dd></div></dl>
+                  <dl class="contact-plan-addresses"><div><dt>From</dt><dd>{{ providerDisplayName }} &lt;{{ plan.routing?.from }}&gt;</dd></div><div><dt>To</dt><dd>Parent name · testing@itsco.health</dd></div><div><dt>Reply to</dt><dd>{{ plan.routing?.replyTo }}</dd></div><div><dt>Copy</dt><dd>You receive a private copy (BCC)</dd></div></dl>
+                  <label v-if="plan.schools?.length > 1" class="contact-plan-fine">Preview school <select v-model="previewSchoolId"><option v-for="school in plan.schools" :key="school.id" :value="school.id">{{ school.name }}</option></select></label>
                   <p class="contact-plan-email-body">{{ renderedBody }}</p>
                 </div>
                 <button type="button" class="contact-plan-edit-toggle" :aria-expanded="editing" aria-controls="contact-plan-editor" @click="editing = !editing">{{ editing ? 'Close editor' : selectedMessage === 'template' ? 'Edit my welcome email' : 'Edit this message' }} <span aria-hidden="true">{{ editing ? '−' : '↗' }}</span></button>
-                <div v-if="editing" id="contact-plan-editor" class="contact-plan-editor"><label for="contact-plan-template">{{ selectedMessageInfo.label }} wording</label><button v-if="selectedMessage !== 'smsTemplate'" type="button" class="fw-add-link" @click="addProfileLink">+ Add profile link</button><textarea id="contact-plan-template" ref="editorEl" v-model="activeTemplate" rows="9" :maxlength="selectedMessage === 'smsTemplate' ? 1000 : 6000" spellcheck="true"></textarea><p>Keep these fields so each introduction stays personal:</p><div class="contact-plan-tokens"><code v-for="token in activeRequiredTokens" :key="token">{{ token }}</code></div><p v-if="activeTemplateError" class="contact-plan-field-error">{{ activeTemplateError }}</p><button v-if="plan.recommendedTemplates?.[selectedMessage]" type="button" class="contact-plan-text-button" @click="resetRecommended">Use recommended wording</button></div>
+                <div v-if="editing" id="contact-plan-editor" class="contact-plan-editor"><label for="contact-plan-template">{{ selectedMessageInfo.label }} wording</label><FamilyWelcomeFields :sms="selectedMessage === 'smsTemplate'" @insert="insertField" /><textarea id="contact-plan-template" ref="editorEl" v-model="activeTemplate" rows="9" :maxlength="selectedMessage === 'smsTemplate' ? 1000 : 6000" spellcheck="true"></textarea><p v-if="activeTemplateError" class="contact-plan-field-error">{{ activeTemplateError }}</p><button v-if="plan.recommendedTemplates?.[selectedMessage]" type="button" class="contact-plan-text-button" @click="resetRecommended">Use recommended wording</button></div>
                 <button v-if="selectedMessage !== 'smsTemplate'" type="button" class="contact-plan-example" :disabled="busy || !!activeTemplateError" @click="sendExample"><span aria-hidden="true">✉</span> {{ sendingExample ? 'Sending your example…' : exampleConversationId ? 'Send me another example' : 'Send me an example' }} <span aria-hidden="true">↗</span></button>
                 <p v-if="selectedMessage === 'smsTemplate'" class="contact-plan-fine">Text preview only. The 48-hour contact uses this text only with permission and an active clinical sender; otherwise it sends your second email.</p>
                 <p v-else class="contact-plan-fine">{{ plan.routing?.isSso ? 'The plan will minimize so you can check your email. Replies return to Messages in the app.' : 'The plan will minimize so you can check Messages, then reopen it here. Replies go to your email address.' }}</p>
@@ -157,15 +158,17 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { RouterLink } from 'vue-router';
 import api from '../../services/api';
 import SchoolCareBridgeBrand from '../schoolcarebridge/SchoolCareBridgeBrand.vue';
+import FamilyWelcomeFields from './FamilyWelcomeFields.vue';
 import FamilyWelcomePdfButton from './FamilyWelcomePdfButton.vue';
 import FamilyWelcomeScreenshot from './FamilyWelcomeScreenshot.vue';
 import {
   FAMILY_WELCOME_MESSAGES, FAMILY_WELCOME_NAME, FAMILY_WELCOME_PROFILE_PROMPT, FAMILY_WELCOME_SEARCH_TERMS, FAMILY_WELCOME_TAGLINE,
-  PROFILE_LINK_TOKEN, insertAtCursor, renderFamilyWelcome, requiredTokens, validateFamilyWelcomeTemplate, welcomeMissingProfileLink
+  PROFILE_LINK_TOKEN, insertAtCursor, renderFamilyWelcome, validateFamilyWelcomeTemplate, welcomeMissingProfileLink
 } from '../../utils/familyWelcome.js';
 
 const props = defineProps({ agencyId: [Number, String], userId: [Number, String], providerName: { type: String, default: '' }, messagesPath: { type: String, default: '/messages' }, locked: Boolean });
 const plan = ref(null), open = ref(false), step = ref('welcome'), tab = ref('message'), editing = ref(false), busy = ref(false), sendingExample = ref(false), error = ref(''), notice = ref(''), panel = ref(null), exampleConversationId = ref(null);
+const previewSchoolId = ref(null);
 const draft = reactive({ template: '', secondTemplate: '', finalTemplate: '', smsTemplate: '' });
 const selectedMessage = ref('template');
 const SLIDES = ['What it is', 'Examples', 'Your PDF', 'Find it anytime', 'Your choice'];
@@ -178,34 +181,35 @@ const messageChoices = [
 ];
 const selectedMessageInfo = computed(() => messageChoices.find(m => m.field === selectedMessage.value) || messageChoices[0]);
 const activeTemplate = computed({get:() => draft[selectedMessage.value],set:value => {draft[selectedMessage.value] = value;}});
-const activeRequiredTokens = computed(() => selectedMessage.value === 'smsTemplate' ? requiredTokens(true) : [...requiredTokens(), PROFILE_LINK_TOKEN]);
 const validateTemplate = validateFamilyWelcomeTemplate;
 const activeTemplateError = computed(() => validateTemplate(activeTemplate.value, selectedMessage.value === 'smsTemplate'));
 const templateError = computed(() => {
   const invalid = messageChoices.find(m => validateTemplate(draft[m.field],m.field === 'smsTemplate'));
   return invalid ? `${invalid.label}: ${validateTemplate(draft[invalid.field],invalid.field === 'smsTemplate')}` : '';
 });
-const providerDisplayName = computed(() => props.providerName || plan.value?.providerName || 'Your provider name');
-const previewValues = computed(() => ({ parent_name: 'Parent name', provider_name: providerDisplayName.value, school_name: plan.value?.schools?.[0]?.name || 'Example Middle School', service_day: 'Tuesday', agency_name: plan.value?.agencyName || 'Your agency', ...plan.value?.previewValues }));
+const providerDisplayName = computed(() => plan.value?.providerName || props.providerName || 'Your provider name');
+const previewValues = computed(() => ({ parent_name: 'Parent name', provider_name: providerDisplayName.value, school_name: plan.value?.schools?.find(s => Number(s.id) === Number(previewSchoolId.value))?.name || 'Example school', service_day: 'Example day', agency_name: plan.value?.agencyName || 'Your agency', ...plan.value?.previewValues }));
 const renderedBody = computed(() => renderFamilyWelcome(activeTemplate.value, previewValues.value));
 const exampleInfo = computed(() => FAMILY_WELCOME_MESSAGES.find(m => m.field === exampleField.value) || FAMILY_WELCOME_MESSAGES[0]);
 const exampleScreenshots = { template: 'welcome-email.png', smsTemplate: 'followup-text.png', secondTemplate: 'followup-email.png', finalTemplate: 'final-email.png' };
 const exampleScreenshot = computed(() => `/family-welcome/${exampleScreenshots[exampleField.value]}`);
 const exampleBody = computed(() => renderFamilyWelcome(draft[exampleField.value], previewValues.value));
 function resetRecommended() { activeTemplate.value = plan.value?.recommendedTemplates?.[selectedMessage.value] || activeTemplate.value; }
-async function addProfileLink() {
-  activeTemplate.value = insertAtCursor(editorEl.value, activeTemplate.value, PROFILE_LINK_TOKEN);
-  await nextTick(); editorEl.value?.focus?.();
+async function insertField(token) {
+  const position = (editorEl.value?.selectionStart ?? activeTemplate.value.length) + token.length;
+  activeTemplate.value = insertAtCursor(editorEl.value, activeTemplate.value, token);
+  await nextTick(); editorEl.value?.focus?.(); editorEl.value?.setSelectionRange?.(position, position);
 }
 async function addLinkFromPrompt() {
   profilePrompt.value = false; tab.value = 'message'; selectedMessage.value = 'template'; editing.value = true;
-  await nextTick(); await addProfileLink();
+  await nextTick(); await insertField(PROFILE_LINK_TOKEN);
 }
 const exampleMessagesTo = computed(() => ({ path: props.messagesPath, query: { conversationId: exampleConversationId.value } }));
 let version = 0, disposed = false, timer, loading = false, previousFocus;
 function requestOptions() { return { params: { agencyId: props.agencyId }, skipGlobalLoading: true }; }
 function setPlan(data) {
   plan.value = data;
+  if (!data.schools?.some(s => Number(s.id) === Number(previewSchoolId.value))) previewSchoolId.value = data.schools?.[0]?.id ?? null;
   includePdf.value = data.includePdf !== false;
   for (const key of ['template','secondTemplate','finalTemplate','smsTemplate']) draft[key] = data[key] || data.recommendedTemplates?.[key] || data.template || '';
 }
@@ -257,7 +261,7 @@ async function sendExample() {
   busy.value = true; sendingExample.value = true; error.value = '';
   const request = version;
   try {
-    const { data } = await api.post('/school-contact-plan/example', { template: activeTemplate.value, ...(selectedMessage.value === 'template' ? {} : {stepKey:selectedMessage.value === 'secondTemplate' ? 'second_contact' : 'final_contact'}) }, requestOptions());
+    const { data } = await api.post('/school-contact-plan/example', { template: activeTemplate.value, schoolId: previewSchoolId.value, includePdf: includePdf.value, ...(selectedMessage.value === 'template' ? {} : {stepKey:selectedMessage.value === 'secondTemplate' ? 'second_contact' : 'final_contact'}) }, requestOptions());
     if (disposed || request !== version) return;
     if (!data.sent) throw new Error('Example not sent');
     exampleConversationId.value = data.conversationId;
