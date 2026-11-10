@@ -1,6 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { assertPreviewActor, constrainPreviewInput, previewAgencySlug, previewRouteAllowed, assertQaPreviewPractice, qaPreviewRouteAllowed } from '../auricwellPreviewPolicy.js';
 describe('AuricWell administrator preview', () => {
+  it('permits the specific scoped Narriva and ICD calls used by the workspace without opening signatures or service mutations',()=>{
+    for(const [method,path] of [['POST','/clinical-notes/diagnosis-search'],['GET','/narriva/test-review/options'],['POST','/narriva/test-review'],['GET','/narriva/preferences'],['PATCH','/narriva/preferences'],['POST','/narriva/reviews'],['GET','/narriva/reviews/12'],['PATCH','/narriva/reviews/12/findings'],['GET','/narriva/notes/12/status'],['GET','/narriva/sessions/12/service']])
+      expect(previewRouteAllowed(method,path),method+path).toBe(true);
+    for(const [method,path] of [['GET','/clinical-notes/diagnosis-search'],['DELETE','/narriva/reviews/12'],['POST','/narriva/test-review/extra'],['GET','/narriva/reviews/all'],['POST','/narriva/sessions/12/service'],['POST','/medical-billing/notes/12/sign'],['POST','/medical-billing/notes/12/cosign']])
+      expect(previewRouteAllowed(method,path),method+path).toBe(false);
+    expect(qaPreviewRouteAllowed('POST','/clinical-notes/diagnosis-search',{id:1,role:'support'},450)).toBe(false);
+  });
   it('permits the scoped report workflow while rejecting unsupported report and worker operations',()=>{
     const id='12345678-1234-1234-1234-123456789abc';
     for(const [method,path] of [['GET','/settings'],['PATCH','/settings'],['GET','/runs'],['POST','/runs'],['GET',`/runs/${id}`],['GET',`/runs/${id}/export`],['POST',`/runs/${id}/retry`]])
