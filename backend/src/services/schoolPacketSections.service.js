@@ -337,7 +337,7 @@ export async function buildPacketSectionContext({
     snapshotHtml = extractPacketSectionHtml(fallbackHtml, key);
   }
   if (normalizeOfficePacketVariant(variant) !== 'parent') {
-    snapshotHtml = rewriteSelfEnrollmentWording(snapshotHtml);
+    snapshotHtml = rewriteSelfEnrollmentWording(snapshotHtml, { office });
   }
   const contentHash = hashPacketSectionHtml(snapshotHtml);
 

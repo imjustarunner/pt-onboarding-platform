@@ -106,3 +106,34 @@ it('finds this recipient’s signed choices even if another guardian submitted a
  expect(await latestIntakeCommunicationChoices(8,2,null,'parent@example.test')).toMatchObject({noAutomaticEmail:true,submissionId:11});
  expect(await latestIntakeCommunicationChoices(8,99,null,'parent@example.test')).toBeNull();
 });
+
+
+it('offers office-only communication copy without changing the school notice or text authorization rules', async () => {
+  const d = intakeCommunicationDisclosure(agency);
+  expect(d.officeEmailText).not.toContain('school sessions');
+  expect(d.officeText).not.toContain('school services');
+  expect(d.signatureTextSelf).not.toContain('guardian');
+  expect(d.text).toContain('school services');
+  Object.assign(cp, { disclosure: d.officeText, emailDisclosure: d.officeEmailText,
+    emailNoticeVersion: d.emailNoticeVersion, essentialDisclosure: d.essentialText,
+    noRoutineCalls: false, noAutomaticEmail: false });
+  delete cp.schoolDisclosure;
+  await stamp();
+  expect(cp.disclosure).toBe(d.officeText);
+  expect(cp.emailDisclosure).toBe(d.officeEmailText);
+  expect(cp.activationStatus).toBe('declined');
+});
+it('does not accept an office notice in place of the required school notice', async () => {
+  const d = intakeCommunicationDisclosure(agency);
+  cp.disclosure = d.officeText;
+  await expect(validateAndStampIntakeCommunications({ link: { create_client: 1, scope_type: 'school' }, agencyId: 2,
+    intakeData: data, submittedAt: new Date() })).rejects.toThrow('Communication information has changed');
+});
+it('rejects a forged office email while retaining the existing canonical open-form notice', async () => {
+  const d = intakeCommunicationDisclosure(agency);
+  cp.emailDisclosure = d.officeEmailText + ' This adds marketing.';
+  await expect(stamp()).rejects.toThrow('Email communication information');
+  cp.emailDisclosure = d.emailText;
+  await stamp();
+  expect(cp.emailDisclosure).toBe(d.emailText);
+});

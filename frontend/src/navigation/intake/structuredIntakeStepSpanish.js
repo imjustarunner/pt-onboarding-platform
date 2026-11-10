@@ -8,6 +8,10 @@ import { OFFICE_SCREEN_ES } from './officeClinicalSpanish.js';
  */
 
 export const STRUCTURED_INTAKE_STEP_ES = {
+  'Please agree to and sign the insurance and payment authorization before completing enrollment.': 'Acepte y firme la autorización de seguro y pago antes de completar la inscripción.',
+  'Please confirm coverage for every listed client.': 'Confirme la cobertura de cada cliente indicado.',
+  'By typing my name and continuing, I electronically sign these choices. If I request texts, I control the listed phone and am the recipient. I can decline texts and still receive services.': 'Al escribir mi nombre y continuar, firmo electrónicamente estas opciones. Si solicito mensajes de texto, controlo el teléfono indicado y soy la persona destinataria. Puedo rechazar los mensajes de texto y seguir recibiendo servicios.',
+  'A Yes saves your request. Texts start only after your phone, signed permission and the agency’s texting program are verified. A saved form does not override an earlier STOP.': 'Un Sí guarda su solicitud. Los mensajes comienzan solo después de verificar su teléfono, su autorización firmada y el programa de mensajes de la agencia. Guardar un formulario no anula una solicitud STOP anterior.',
   'Yes — scheduling + all program communications': 'Sí — programación y todas las comunicaciones del programa',
   'Yes — scheduling only': 'Sí — solo programación',
   'Essential messages only': 'Solo mensajes esenciales',
@@ -545,8 +549,12 @@ const BRANDED_DISCLOSURES_ES = [
   [' offers optional text messages for appointment reminders, schedule changes, cancellations and links to sign in or join a scheduled session. Choose Yes or No below. Message frequency varies. Message and data rates may apply. Reply STOP to opt out or HELP for help. Choosing No does not affect care, enrollment or school services. This choice does not authorize marketing or enroll other contacts. Texts may appear on a shared phone or lock screen; use the secure app for private details.',
    ' ofrece mensajes de texto opcionales con recordatorios de citas, cambios de horario, cancelaciones y enlaces para iniciar sesión o participar en una sesión programada. Elija Sí o No a continuación. La frecuencia de los mensajes varía. Pueden aplicarse tarifas de mensajes y datos. Responda STOP para cancelar o HELP para obtener ayuda. Elegir No no afecta la atención, la inscripción ni los servicios escolares. Esta elección no autoriza publicidad ni inscribe a otros contactos. Los mensajes pueden aparecer en un teléfono compartido o en la pantalla de bloqueo; use la aplicación segura para los detalles privados.']
 ];
+const OFFICE_BRANDED_DISCLOSURES_ES = BRANDED_DISCLOSURES_ES.map(([en, es]) => [
+  en.replace(', school sessions when applicable', '').replace('care, enrollment or school services', 'care or enrollment'),
+  es.replace(', sesiones escolares cuando corresponda', '').replace('la atención, la inscripción ni los servicios escolares', 'la atención ni la inscripción')
+]);
 function translatedBrandedDisclosure(text) {
-  const match = BRANDED_DISCLOSURES_ES.find(([suffix]) => text.endsWith(suffix) && text.length > suffix.length);
+  const match = [...BRANDED_DISCLOSURES_ES, ...OFFICE_BRANDED_DISCLOSURES_ES].find(([suffix]) => text.endsWith(suffix) && text.length > suffix.length);
   return match ? text.slice(0, -match[0].length) + match[1] : undefined;
 }
 

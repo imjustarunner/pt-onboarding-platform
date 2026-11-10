@@ -17,6 +17,7 @@ import { matchesShowIf, childAgeFlags } from '../utils/intakeShowIf.js';
 import { schoolRoiRecordSections } from './schoolRoiChartText.service.js';
 import { buildGad7Fields, buildPhq9Fields, buildPhqAFields, buildPsc17Fields } from '../data/validatedClinicalScreens.en.js';
 import { OFFICE_REFERRAL_SOURCE_KEY } from '../utils/officeReferralSource.js';
+import { policyIsMedicaid } from '../utils/insurancePaymentPolicy.js';
 
 const SECRET_KEY = /password|preview|card_number|cvc|cvv|ssn|secret|signaturedata|dataurl|token/i;
 const PHOTO_KEY = /photo|image|front|back|preview/i;
@@ -357,6 +358,9 @@ function pushRow(rows, label, value, extra = {}) {
 function interpolateChildName(text, name) {
   const resolved = String(name || 'this child').trim() || 'this child';
   return String(text || '')
+    .replaceAll('{memberName}', resolved)
+    .replaceAll('{MEMBERNAME}', resolved)
+    .replaceAll('{MemberName}', resolved)
     .replaceAll('{childName}', resolved)
     .replaceAll('{CHILDNAME}', resolved)
     .replaceAll('{ChildName}', resolved)
@@ -573,8 +577,9 @@ function rowsFromInterview(link, values, locale, printed, childName = '', { incl
       printed.add(field.key);
     }
     if (rows.length) {
+      const titleTemplate = String(step.label || 'Questions').trim() || 'Questions';
       sections.push({
-        title: interpolateChildName(String(step.label || 'Questions').trim() || 'Questions', childName),
+        title: interpolateChildName(locale === 'es' ? lookupStructuredIntakeTranslation(titleTemplate) : titleTemplate, childName),
         rows
       });
     }
@@ -947,7 +952,26 @@ export function buildCompletedIntakeRecord({
       shared.guardianWaiverIntake = { ...shared.guardianWaiverIntake, clients: [shared.guardianWaiverIntake.clients[clientIndex] || {}] };
     }
     if (shared.insuranceInfo) {
-      shared.insuranceInfo = { ...shared.insuranceInfo };
+      const sourceInsurance = shared.insuranceInfo;
+      const ownPolicy = Array.isArray(sourceInsurance.clientCoverages)
+        ? sourceInsurance.clientCoverages.find(row => Number(row.clientIndex) === clientIndex) : null;
+      shared.insuranceInfo = {
+        ...sourceInsurance,
+        ...(ownPolicy?.primary ? { primary: { ...ownPolicy.primary } } : {}),
+        ...(ownPolicy?.secondary ? { secondary: { ...ownPolicy.secondary } } : {})
+      };
+      // Medicaid IDs identify the covered child, unlike a commercial subscriber's
+      // shared policy ID. Render this child's ID in the policy summary as well as
+      // the per-child answers; never reuse the first sibling's ID on their copy.
+      const ownMedicaid = Array.isArray(sourceInsurance.medicaidByClient)
+        ? sourceInsurance.medicaidByClient.find(row => Number(row.clientIndex) === clientIndex) : null;
+      const position = sourceInsurance.medicaidPlanPosition
+        || (policyIsMedicaid(shared.insuranceInfo.primary) ? 'primary'
+          : policyIsMedicaid(shared.insuranceInfo.secondary) ? 'secondary' : null);
+      if (Array.isArray(sourceInsurance.medicaidByClient) && sourceInsurance.medicaidByClient.length
+        && ['primary', 'secondary'].includes(position) && policyIsMedicaid(shared.insuranceInfo[position])) {
+        shared.insuranceInfo[position] = { ...shared.insuranceInfo[position], memberId: String(ownMedicaid?.memberId || '').trim() };
+      }
       for (const key of ['clientCoverages', 'medicaidByClient']) {
         if (Array.isArray(shared.insuranceInfo[key])) {
           shared.insuranceInfo[key] = shared.insuranceInfo[key].filter(row => Number(row.clientIndex) === clientIndex);
@@ -1046,6 +1070,7 @@ export function buildCompletedIntakeRecord({
     || clientBags[0]?.child_preferred_name
     || listedClients[0]?.firstName
     || clientBags[0]?.child_legal_first
+    || listedClients[0]?.fullName
     || 'this child'
   ).trim() || 'this child';
   const firstClientName = String(listedClients[0]?.fullName || [listedClients[0]?.firstName, listedClients[0]?.lastName].filter(Boolean).join(' ') || 'Client 1').trim();

@@ -657,3 +657,77 @@ test('Spanish receipt follows the respondent and translates nested insurance lab
  assert.ok(rows.some(r=>r.value==='No — no enviarme mensajes de texto'));
  assert.equal(JSON.stringify(intake),original);
 });
+
+
+for (const locale of ['en', 'es']) {
+  test(`family-schema memberName headings belong to the selected sibling (${locale})`, () => {
+    const clients = [{ firstName: 'Ada', lastName: 'QA' }, { firstName: 'Milo', lastName: 'QA' }];
+    const intake = { clients, responses: { clients: [{ personal_hope: 'Ada only' }, { personal_hope: 'Milo only' }] } };
+    const before = JSON.stringify(intake);
+    const link = { language_code: locale, intake_steps: [{ type: 'questions', label: 'Personal hope — {memberName}',
+      fields: [{ key: 'personal_hope', label: 'What does {memberName} hope to gain?', type: 'text' }] }] };
+    for (const clientIndex of [0, 1]) {
+      const record = buildCompletedIntakeRecord({ link, clients, clientIndex, submission: { intake_data: intake } });
+      const text = JSON.stringify(record.sections);
+      assert.ok(text.includes(clients[clientIndex].firstName));
+      assert.ok(!text.includes(clients[1 - clientIndex].firstName));
+      assert.ok(!text.includes('{memberName}'));
+      const title = `${locale === 'es' ? 'Deseo personal:' : 'Personal hope —'} ${clients[clientIndex].firstName}`;
+      assert.ok(record.sections.some(section => section.title === title));
+    }
+    assert.equal(JSON.stringify(intake), before);
+  });
+}
+
+for (const position of ['primary', 'secondary']) {
+  test(`individual receipt shows that child's Medicaid ID in the ${position} policy summary`, () => {
+    const clients = [{ firstName: 'Ada', lastName: 'QA' }, { firstName: 'Milo', lastName: 'QA' }];
+    const insuranceInfo = { primary: { insurerName: 'Commercial carrier', memberId: 'SHARED-COMMERCIAL-SUBSCRIBER' },
+      medicaidPlanPosition: position, medicaidByClient: [
+        { clientIndex: 0, clientName: 'Ada QA', memberId: 'MEDICAID-ADA' },
+        { clientIndex: 1, clientName: 'Milo QA', memberId: 'MEDICAID-MILO' }
+      ] };
+    insuranceInfo[position] = { insurerName: 'Health First Colorado', isMedicaid: true, memberId: 'MEDICAID-ADA' };
+    const intake = { clients, responses: { clients: [{}, {}], submission: { insuranceInfo } } };
+    const before = JSON.stringify(intake);
+    for (const clientIndex of [0, 1]) {
+      const text = JSON.stringify(buildCompletedIntakeRecord({ clientIndex, clients, submission: { intake_data: intake } }).sections);
+      const ownId = insuranceInfo.medicaidByClient[clientIndex].memberId;
+      assert.ok(text.includes(ownId));
+      assert.ok(!text.includes(insuranceInfo.medicaidByClient[1 - clientIndex].memberId));
+      if (position === 'secondary') assert.ok(text.includes('SHARED-COMMERCIAL-SUBSCRIBER'));
+    }
+    assert.equal(JSON.stringify(intake), before, 'readable receipts do not rewrite stored identities or signatures');
+  });
+}
+
+test('missing per-child Medicaid ID is left blank instead of borrowing a sibling ID', () => {
+  const clients = [{ firstName: 'Ada' }, { firstName: 'Milo' }];
+  const intake = { clients, responses: { clients: [{}, {}], submission: { insuranceInfo: {
+    primary: { insurerName: 'Health First Colorado', memberId: 'MEDICAID-ADA' },
+    medicaidByClient: [{ clientIndex: 0, clientName: 'Ada', memberId: 'MEDICAID-ADA' }]
+  } } } };
+  const text = JSON.stringify(buildCompletedIntakeRecord({ clientIndex: 1, clients, submission: { intake_data: intake } }).sections);
+  assert.ok(!text.includes('MEDICAID-ADA'));
+});
+
+test('self enrollment receipt preserves an intentional repeated name from stored identity', () => {
+  const client = { firstName: 'Anna', middleName: 'Lee', lastName: 'Lee', fullName: 'Anna Lee Lee' };
+  const record = buildCompletedIntakeRecord({ clients: [client], submission: { intake_data: {
+    intakeForSelf: true, clients: [client], responses: { clients: [{ client_first: 'Anna', client_last: 'Lee' }] }
+  } } });
+  assert.ok(record.sections.flatMap(s => s.rows || []).some(row => row.label === 'Client' && row.value === 'Anna Lee Lee'));
+});
+
+
+test('a separate commercial child policy is not overwritten by a family Medicaid member ID', () => {
+  const clients = [{ firstName: 'Ada' }, { firstName: 'Milo' }];
+  const intake = { clients, responses: { clients: [{}, {}], submission: { insuranceInfo: {
+    primary: { insurerName: 'Health First Colorado', memberId: 'MEDICAID-ADA' }, medicaidPlanPosition: 'primary',
+    clientCoverages: [{ clientIndex: 1, confirmed: true, primary: { insurerName: 'Milo commercial', memberId: 'COMMERCIAL-MILO' } }],
+    medicaidByClient: [{ clientIndex: 0, clientName: 'Ada', memberId: 'MEDICAID-ADA' }]
+  } } } };
+  const text = JSON.stringify(buildCompletedIntakeRecord({ clientIndex: 1, clients, submission: { intake_data: intake } }).sections);
+  assert.ok(text.includes('COMMERCIAL-MILO'));
+  assert.ok(!text.includes('MEDICAID-ADA'));
+});

@@ -16,10 +16,13 @@ export function intakeCommunicationDisclosure(agency) {
   return { version: INTAKE_COMMUNICATION_VERSION, agencyId: Number(agency?.id), brandName,
     emailNoticeVersion: ENROLLMENT_EMAIL_NOTICE_VERSION, essentialText: ENROLLMENT_CONTACT_NOTICE,
     emailText: `${brandName} offers optional account emails about appointments, school sessions when applicable, schedule changes, secure-message alerts, forms and signatures, enrollment follow-ups, billing and required insurance cards. Medicaid cards are not requested. Choose all optional account emails, scheduling only, or essential messages only. This choice does not include marketing, enroll another adult, or affect your care. Requested login, password recovery and essential security messages are separate.`,
+    officeEmailText: `${brandName} offers optional account emails about appointments, schedule changes, secure-message alerts, forms and signatures, enrollment follow-ups, billing and required insurance cards. Medicaid cards are not requested. Choose all optional account emails, scheduling only, or essential messages only. This choice does not include marketing, enroll another adult, or affect your care. Requested login, password recovery and essential security messages are separate.`,
     emailAllLabel: 'All optional account updates (no marketing)',
     text: `${brandName} offers optional text messages for appointment reminders, schedule changes, cancellations and links to sign in or join a scheduled session. Choose Yes or No below. Message frequency varies. Message and data rates may apply. Reply STOP to opt out or HELP for help. Choosing No does not affect care, enrollment or school services. This choice does not authorize marketing or enroll other contacts. Texts may appear on a shared phone or lock screen; use the secure app for private details.`,
+    officeText: `${brandName} offers optional text messages for appointment reminders, schedule changes, cancellations and links to sign in or join a scheduled session. Choose Yes or No below. Message frequency varies. Message and data rates may apply. Reply STOP to opt out or HELP for help. Choosing No does not affect care or enrollment. This choice does not authorize marketing or enroll other contacts. Texts may appear on a shared phone or lock screen; use the secure app for private details.`,
     schoolText: SCHOOL_COMMUNICATION_NOTICE,
     schoolTextSelf: rewriteSelfEnrollmentWording(SCHOOL_COMMUNICATION_NOTICE),
+    signatureTextSelf: 'By typing my name and continuing, I electronically sign these choices. If I request texts, I control the listed phone and am the recipient. I can decline texts and still receive services.',
     signatureText: 'By typing my name and continuing, I electronically sign these choices. If I request texts, I control the listed phone and am the recipient or their authorized guardian. I can decline texts and still receive services.' };
 }
 
@@ -61,14 +64,17 @@ export async function validateAndStampIntakeCommunications({ link, agencyId, int
   // validate any supplied notice, and require it for school enrollment.
   const schoolNoticeValid = [disclosure.schoolText, disclosure.schoolTextSelf].includes(cp.schoolDisclosure)
     || (!schoolEnrollment && (cp.schoolDisclosure == null || cp.schoolDisclosure === ''));
-  if (cp.version !== disclosure.version || cp.disclosure !== disclosure.text || !schoolNoticeValid) {
+  const office = !schoolEnrollment;
+  const acceptedTextDisclosures = office ? [disclosure.text, disclosure.officeText] : [disclosure.text];
+  const acceptedEmailDisclosures = office ? [disclosure.emailText, disclosure.officeEmailText] : [disclosure.emailText];
+  if (cp.version !== disclosure.version || !acceptedTextDisclosures.includes(cp.disclosure) || !schoolNoticeValid) {
     fail('Communication information has changed. Refresh and review your communication choices before signing.');
   }
   if (!String(cp.signerName || '').trim() || cp.signatureAccepted !== true) fail('Please sign your communication choices. You may decline all texts.');
   // Existing open forms retain their original meaning; SMS evidence keeps its version.
   const legacyEmailText = disclosure.emailText.replace('Choose all optional account emails, scheduling only, or essential messages only.', 'Choose all account emails, scheduling only, or No.');
   if (cp.emailNoticeVersion != null) {
-    if (cp.emailNoticeVersion !== ENROLLMENT_EMAIL_NOTICE_VERSION || cp.essentialDisclosure !== disclosure.essentialText || cp.emailDisclosure !== disclosure.emailText)
+    if (cp.emailNoticeVersion !== ENROLLMENT_EMAIL_NOTICE_VERSION || cp.essentialDisclosure !== disclosure.essentialText || !acceptedEmailDisclosures.includes(cp.emailDisclosure))
       fail('Email communication information has changed. Refresh and review your choices.');
     for (const key of ['noRoutineCalls', 'noAutomaticEmail']) {
       if (typeof cp[key] !== 'boolean') fail('Please review your contact options.');
@@ -77,7 +83,7 @@ export async function validateAndStampIntakeCommunications({ link, agencyId, int
       fail('Keep alternate contact instructions to 500 characters.');
     cp.alternativeContactInstructions = String(cp.alternativeContactInstructions || '').trim();
   } else {
-    if (cp.emailDisclosure != null && ![legacyEmailText, disclosure.emailText].includes(cp.emailDisclosure))
+    if (cp.emailDisclosure != null && ![legacyEmailText, ...acceptedEmailDisclosures].includes(cp.emailDisclosure))
       fail('Email communication information has changed. Refresh and review your choices.');
     // A legacy page cannot opt someone into the new essential confirmation policy.
     delete cp.essentialDisclosure; delete cp.noRoutineCalls; delete cp.noAutomaticEmail; delete cp.alternativeContactInstructions;
