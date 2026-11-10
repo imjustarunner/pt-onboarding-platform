@@ -14,7 +14,7 @@ const handle=work=>async(req,res,next)=>{
   res.set('Cache-Control','no-store');
   try{
     if(!['GET','HEAD'].includes(req.method) && req.get('X-Auricwell-Mobile')!=='1')throw failure(403,'MOBILE_REQUEST_INVALID','Use the mobile app to continue.');
-    await work(req,res);
+    await work(req,res,next);
   }catch(error){
     if(error.code?.startsWith('MOBILE_') || ['ACCOUNT_DISABLED','ACCOUNT_UNAVAILABLE','PRODUCT_SESSION_MISMATCH','HIRE_ACTIVATION_REQUIRED'].includes(error.code))return res.status(error.status || 400).json({error:{code:error.code,message:error.message}});
     if(['ER_NO_SUCH_TABLE','ER_BAD_FIELD_ERROR'].includes(error.code))return res.status(503).json({error:{code:'MOBILE_NOT_READY',message:'Mobile setup is not complete. Please try again later.'}});
@@ -70,6 +70,12 @@ router.get('/profile',handle(async(req,res)=>{
 }));
 router.post('/workspace',handle(async(req,res)=>res.json(await mobileSessions.switchWorkspace(await unlocked(req),req.body.agencyId))));
 router.post('/notifications',handle(async(req,res)=>res.json(await registerMobilePush(await unlocked(req),req.body || {}))));
+const notificationHandler=async(req,res,next)=>{const {createMobileNotificationHandler}=await import('../services/mobile/notifications.service.js');return createMobileNotificationHandler({unlock:unlocked})(req,res,next);};
+router.get('/notification-feed',handle(notificationHandler));
+router.patch('/notification-feed/:id',handle(notificationHandler));
+router.get('/notification-settings',handle(notificationHandler));
+router.patch('/notification-settings/:type',handle(notificationHandler));
+
 router.get('/notification-target/:kind/:id',handle(async(req,res)=>{
   const context=await unlocked(req),kind=req.params.kind,id=Number(req.params.id);
   if(!Number.isSafeInteger(id) || id<=0)throw failure(404,'MOBILE_TARGET_UNAVAILABLE','This message is unavailable.');

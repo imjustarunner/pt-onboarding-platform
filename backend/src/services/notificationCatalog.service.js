@@ -34,7 +34,7 @@ const TYPES_BY_CATEGORY = {
   ],
   clients_documents: [
     'guardian_plan_review', 'treatment_goal_progress',
-    'paperwork_received', 'new_packet_uploaded', 'new_prospective_inquiry', 'client_became_current',
+    'paperwork_received', 'school_group_email_received', 'new_packet_uploaded', 'new_prospective_inquiry', 'client_became_current',
     'client_checklist_updated', 'client_terminated', 'client_assigned', 'client_exchange_match', 'client_exchange_claim', 'client_exchange_assigned', 'client_exchange_shared',
     'client_ready_to_schedule', 'provider_waitlist_reminder',
     'client_school_roi_link_generated', 'client_school_roi_link_copied',
@@ -116,6 +116,7 @@ const LABEL_OVERRIDES = {
   provider_year_update_completed: 'Provider year update complete',
   school_collaborative_year_update_completed: 'School collaborative year update complete',
   status_expired: 'Status expired',
+  school_group_email_received: 'School group email notifications',
   new_packet_uploaded: 'New packet uploaded',
   new_prospective_inquiry: 'New interest form submitted',
   provider_waitlist_reminder: 'Provider waitlist check-in',
@@ -349,7 +350,7 @@ const OPERATIONS_ESSENTIAL = new Set([
   ...WORKFORCE_ESSENTIAL,
   'provider_waitlist_reminder',
   'support_ticket_created', 'escalation_mention', 'referral_directory_pending_approval',
-  'new_packet_uploaded', 'new_prospective_inquiry', 'unassigned_document_submitted',
+  'school_group_email_received', 'new_packet_uploaded', 'new_prospective_inquiry', 'unassigned_document_submitted',
   'medical_records_release_submitted', 'office_schedule_coverage_flag',
   'office_availability_request_pending', 'school_availability_request_pending',
   'company_event_registration_submitted', 'company_event_shift_requested',
@@ -479,6 +480,7 @@ const EMAIL_CAPABLE = new Set([
   'support_ticket_forwarded_to_provider','voicemail_received','chat_message'
 ]);
 const PUSH_CAPABLE = new Set([
+  'school_group_email_received',
   ...SMS_CAPABLE, 'school_weekday_availability_requested',
   'new_packet_uploaded', 'hiring_task_assigned', 'task_comment_mention',
   'sstc_club_member_application_pending', 'sstc_club_invite_request',

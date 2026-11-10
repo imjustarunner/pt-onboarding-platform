@@ -1,0 +1,32 @@
+<script setup>
+import {computed,onMounted,onBeforeUnmount,ref,watch} from 'vue';
+import {Bell,Settings,ArrowLeft,RefreshCw} from '@lucide/vue';
+const props=defineProps({request:{type:Function,required:true},workspaceId:[Number,String],startInSettings:Boolean});
+const emit=defineEmits(['close','open','changed']);
+const items=ref([]),catalog=ref([]),loading=ref(false),saving=ref(null),error=ref(''),settings=ref(props.startInSettings),status=ref('unread'),page=ref(1),totalPages=ref(1),search=ref('');
+let version=0;
+const unread=n=>!(n._is_read_for_viewer ?? n.viewer_is_read ?? n.is_read);
+const types=computed(()=>catalog.value.filter(entry=>entry.recommendedForRole&&`${entry.label} ${entry.categoryLabel}`.toLowerCase().includes(search.value.toLowerCase())));
+async function load(){const current=++version;loading.value=true;error.value='';try{
+ const data=await props.request('GET',settings.value?'/notification-settings':`/notification-feed?status=${status.value}&page=${page.value}`);
+ if(current!==version)return;
+ if(settings.value)catalog.value=data.types || [];else{items.value=data.items || [];totalPages.value=data.pagination?.totalPages || 1;emit('changed',Number(data.unreadCount || 0));}
+}catch(e){if(current===version)error.value=e.response?.data?.error?.message || 'Notifications could not load. Please try again.';}finally{if(current===version)loading.value=false;}}
+async function state(item,patch){saving.value=item.id;error.value='';try{await props.request('PATCH',`/notification-feed/${item.id}`,patch);await load();}catch(e){error.value=e.response?.data?.error?.message || 'This notification could not be updated.';}finally{saving.value=null;}}
+async function toggle(entry){saving.value=entry.type;error.value='';try{await props.request('PATCH',`/notification-settings/${encodeURIComponent(entry.type)}`,{inApp:!entry.effective.inApp});await load();}catch(e){error.value=e.response?.data?.error?.message || 'Your notification preference could not be saved.';}finally{saving.value=null;}}
+async function open(item){if(unread(item)){try{await props.request('PATCH',`/notification-feed/${item.id}`,{read:true});}catch{/* The email can still open; the next refresh retries its read state. */}}emit('open',item);}
+watch([settings,status,()=>props.workspaceId],()=>{page.value=1;void load();});watch(page,load);onMounted(load);onBeforeUnmount(()=>{version++;});
+</script>
+<template>
+ <section class="mobile-notifications" aria-label="Notifications">
+  <header><button type="button" aria-label="Back to workspace" @click="emit('close')"><ArrowLeft :size="22"/></button><h1><Bell :size="21"/>{{settings?'Notification settings':'Notifications'}}</h1><button type="button" :aria-label="settings?'View notifications':'Notification settings'" @click="settings=!settings"><Settings :size="22"/></button></header>
+  <p v-if="settings" class="help">Choose which updates appear in Notifications. Turning an alert off keeps its email in Conversa. Device push permissions are managed in My Account.</p>
+  <div class="controls"><input v-if="settings" v-model="search" type="search" aria-label="Search notification settings" placeholder="Search notification types"/><select v-else v-model="status" aria-label="Notification status"><option value="unread">Unread</option><option value="all">All active</option><option value="read">Read</option><option value="dismissed">Dismissed</option></select><button type="button" aria-label="Refresh notifications" :disabled="loading" @click="load"><RefreshCw :size="20"/></button></div>
+  <p v-if="error" role="alert">{{error}} <button @click="load">Try again</button></p><p v-if="loading" role="status">Loading…</p>
+  <template v-if="settings"><article v-for="entry in types" :key="entry.type" class="setting"><span><strong>{{entry.label}}</strong><small>{{entry.categoryLabel}}{{entry.locked?' · '+entry.lockReason:''}}</small></span><button type="button" role="switch" :aria-checked="entry.effective.inApp" :aria-label="`${entry.label} in-app alerts`" :disabled="entry.locked||saving===entry.type" @click="toggle(entry)">{{entry.effective.inApp?'On':'Off'}}</button></article></template>
+  <template v-else><p v-if="!loading&&!error&&!items.length">No {{status==='unread'?'unread ':''}}notifications in this workspace.</p><article v-for="item in items" :key="item.id" :class="['alert',{unread:unread(item)}]"><h2>{{item.title}}</h2><p>{{item.message}}</p><small>{{new Date(item.created_at).toLocaleString()}}</small><div class="actions"><button v-if="item.related_entity_type==='communication_conversation'" type="button" @click="open(item)">Open email</button><button type="button" :disabled="saving===item.id" @click="state(item,{read:unread(item)})">{{unread(item)?'Mark read':'Mark unread'}}</button><button type="button" :disabled="saving===item.id" @click="state(item,{dismissed:!item.dismissed_at})">{{item.dismissed_at?'Restore':'Dismiss'}}</button></div></article><footer v-if="totalPages>1"><button :disabled="page===1" @click="page--">Previous</button><span>Page {{page}} of {{totalPages}}</span><button :disabled="page===totalPages" @click="page++">Next</button></footer></template>
+ </section>
+</template>
+<style scoped>
+.mobile-notifications{position:fixed;inset:0;z-index:2600;background:#f6f8fb;color:#203348;overflow:auto;padding:env(safe-area-inset-top) 16px calc(24px + env(safe-area-inset-bottom))}.mobile-notifications header{position:sticky;top:0;display:flex;align-items:center;gap:10px;background:#f6f8fb;padding:16px 0;border-bottom:1px solid #dce3eb;z-index:1}.mobile-notifications h1{font-size:20px;display:flex;align-items:center;gap:8px;flex:1;margin:0}.mobile-notifications h2{font-size:16px;margin:0}.mobile-notifications button,.mobile-notifications select,.mobile-notifications input{min-height:44px;border:1px solid #ccd7e2;border-radius:9px;background:white;color:inherit;padding:10px;font:inherit}.controls,.actions,footer{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:14px 0}.controls input,.controls select{flex:1;min-width:0}.alert,.setting{background:#fff;border:1px solid #dce3eb;border-radius:12px;margin:12px 0;padding:16px;overflow-wrap:anywhere}.alert.unread{border-left:4px solid #316e89}.setting{display:flex;align-items:center;justify-content:space-between;gap:14px}.setting small{display:block;margin-top:6px}.setting [aria-checked=true]{background:#246d60;color:white}.help,small{color:#52657a;line-height:1.5}button:disabled{opacity:.55}footer{justify-content:space-between}
+</style>

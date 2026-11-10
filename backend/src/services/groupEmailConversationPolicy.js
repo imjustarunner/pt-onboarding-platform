@@ -10,8 +10,9 @@ export function groupEmailConversationSql({ groupInboxIds = [], allowedGroupInbo
     AND COALESCE((SELECT group_reply.direction FROM support_ticket_email_messages group_reply
       WHERE group_reply.ticket_id=t.id AND (group_reply.direction='inbound' OR group_reply.send_status='sent')
       ORDER BY COALESCE(group_reply.sent_at,group_reply.created_at) DESC,group_reply.id DESC LIMIT 1),'inbound')='inbound')`;
-  return { isGroup, allowedGroup, unclaimed, unread,
+  const ticketedGroup = `(${isGroup} AND t.id IS NOT NULL)`;
+  return { isGroup, ticketedGroup, allowedGroup, unclaimed, unread,
     access: `(NOT (${isGroup}) OR (${allowedGroup}))`,
-    personalScopeExtension: `OR (${allowedGroup} AND ${unclaimed})`,
-    sharedQueue: `(NOT (${isGroup}) OR ${unclaimed})` };
+    personalScopeExtension: `OR (${allowedGroup} AND (t.id IS NULL OR ${unclaimed}))`,
+    sharedQueue: `(NOT (${isGroup}) OR t.id IS NULL OR ${unclaimed})` };
 }

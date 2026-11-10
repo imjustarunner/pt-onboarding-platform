@@ -39,7 +39,7 @@ describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('isolated MySQL device sessi
       CREATE TABLE notifications(id INT PRIMARY KEY,user_id INT,related_entity_type VARCHAR(40),related_entity_id INT,muted_until DATETIME);
       CREATE TABLE notification_user_reads(notification_id INT,user_id INT,muted_until DATETIME);
       CREATE TABLE communication_conversations(id INT PRIMARY KEY,agency_id INT);
-      CREATE TABLE communication_messages(id INT PRIMARY KEY AUTO_INCREMENT,conversation_id INT,channel VARCHAR(20),direction VARCHAR(20),is_internal_note BOOLEAN DEFAULT 0);
+      CREATE TABLE communication_messages(id INT PRIMARY KEY AUTO_INCREMENT,conversation_id INT,channel VARCHAR(20),direction VARCHAR(20),is_internal_note BOOLEAN DEFAULT 0,subject VARCHAR(255),suppress_push BOOLEAN DEFAULT 0,auto_reply_kind VARCHAR(64));
       CREATE TABLE message_logs(id INT PRIMARY KEY AUTO_INCREMENT,agency_id INT,user_id INT,assigned_user_id INT,number_id INT,client_id INT,direction VARCHAR(20));
       CREATE TABLE clients(id INT PRIMARY KEY,agency_id INT,provider_id INT);
       CREATE TABLE client_provider_assignments(client_id INT,provider_user_id INT,is_active BOOLEAN);

@@ -5,7 +5,10 @@ export function isTicketedGroup(mailbox) {
   return [true, 1, '1'].includes(mailbox.is_ticketed_group) || mailbox.routing === 'ticketed_group';
 }
 
+export function isGroupEmail(mailbox){return !!mailbox && !['personal','virtual'].includes(mailbox.kind) && (isTicketedGroup(mailbox)||[true,1,'1'].includes(mailbox.is_group_email));}
+
 const departments = {
+  schools: {label:'Schools',icon:'Mail',ink:'#296c57',shade:'#edf6f0'},
   payroll: { label: 'Payroll', icon: 'Banknote', ink: '#276749', shade: '#e8f5ee' },
   billing: { label: 'Billing', icon: 'ReceiptText', ink: '#945c14', shade: '#fff4de' },
   credentialing: { label: 'Credentialing', icon: 'BadgeCheck', ink: '#6941a5', shade: '#f1eafa' },
@@ -20,7 +23,7 @@ const departments = {
 
 export function groupEmailPresentation(mailbox) {
   const key = String(mailbox?.group_key || '').toLowerCase();
-  return departments[key] || { label: mailbox?.inbox_display_name || mailbox?.display_name || 'Group Email', icon: 'Mail', ink: '#526174', shade: '#edf1f5' };
+  return departments[key] || { label: mailbox?.group_name || mailbox?.inbox_display_name || mailbox?.display_name || 'Group Email', icon: 'Mail', ink: '#526174', shade: '#edf1f5' };
 }
 
 export function ticketHref(ticketId, agencyId, organizationSlug = '') {

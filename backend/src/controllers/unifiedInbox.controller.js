@@ -165,7 +165,7 @@ export async function getUnifiedConversations(req, res, next) {
         }
         if (String(box.kind || '') === 'shared') {
           const groupKey = groupKeyForIdentity(box);
-          const permitted = groupKey && (await listUserDepartmentalGroupKeys({ agencyId, userId: req.user.id })).includes(groupKey);
+          const permitted = groupKey ? (await listUserDepartmentalGroupKeys({ agencyId, userId: req.user.id })).includes(groupKey) : (await (await import('../services/unifiedInbox.service.js')).loadGroupEmailInboxScope({agencyId,userId:req.user.id})).allowedGroupInboxIds.includes(Number(box.id));
           if (!permitted) return deny(res);
         } else if (
           String(box.kind || '') === 'personal' &&

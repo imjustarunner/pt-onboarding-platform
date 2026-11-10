@@ -31,3 +31,14 @@ it('blocks all out-of-scope push sources and notification targets before content
  db.execute.mockResolvedValue([[{agency_id:450,thread_id:9}]]);expect(await worker.permitted(device,'chat',9)).toBe(9);expect(refreshSecure).toHaveBeenCalledWith(9,1433);
  sessions.access.mockRejectedValue({status:403});await expect(worker.permitted(device,'chat',9)).rejects.toMatchObject({status:403});
 });
+
+it('suppresses restored email pushes and respects a muted school packet alert without removing the message',async()=>{
+ const sessions={access:vi.fn().mockResolvedValue({qaAgencyIds:[450]})},conversationAccess=vi.fn();
+ const device={id:2,user_id:1433,agency_id:450};
+ for(const kind of ['restored','muted']){
+  const db={execute:vi.fn().mockImplementation(async sql=>sql.includes('user_notification_type_preferences')?[[{in_app_enabled:0,push_enabled:null}]]:[[{agency_id:450,conversation_id:5,subject:'Example - Digital Enrollment Packet',suppress_push:kind==='restored'?1:0}]])};
+  const worker=createMobilePushWorker({db,sessions,conversationAccess});
+  expect(await worker.permitted(device,'email',9)).toBeNull();
+ }
+ expect(conversationAccess).not.toHaveBeenCalled();
+});

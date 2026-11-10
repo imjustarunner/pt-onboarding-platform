@@ -31,7 +31,7 @@ describe('departmental identities and permissions', () => {
   });
   it('uses explicit agency grants, supports non-SSO group logins, and rejects inactive membership', () => {
     expect(departmentalGroupKeysForUser({ ...staff, login_is_group_email: 1, has_payroll_access: 1, can_manage_credentialing: 1 })).toEqual(['payroll', 'credentialing']);
-    expect(departmentalGroupKeysForUser({ ...staff, role: 'support' })).toEqual(['support', 'technology']);
+    expect(departmentalGroupKeysForUser({ ...staff, role: 'support' })).toEqual(['support', 'schools', 'technology']);
     expect(departmentalGroupKeysForUser({ ...staff, role: 'staff', department: 'Payroll' })).toEqual([]);
     for (const changes of [{ membership_active: 0 }, { is_active: 0 }, { is_demo: 1 }, { is_archived: 1 }, { is_assistant_account: 1 }, { role: 'school_staff' }]) {
       expect(departmentalGroupKeysForUser({ ...staff, has_payroll_access: 1, ...changes })).toEqual([]);
@@ -61,4 +61,10 @@ describe('departmental identities and permissions', () => {
     pool.execute.mockResolvedValue([[{ group_key: 'payroll', email: 'payroll@agency.test', member_emails: ['private@agency.test'] }]]);
     expect(await managedGroupEnvelope({ to: 'Payroll <payroll@agency.test>', actorUserId: 12 })).toEqual({ to: 'Payroll <payroll@agency.test>', cc: null, bcc: null });
   });
+});
+
+it('classifies Schools in the app without re-provisioning its existing Google memberships',()=>{
+ expect(groupKeyForIdentity({kind:'shared',identity_key:'schools',from_email:'schools@itsco.health'})).toBe('schools');
+ const plan=buildManagedGroupPlan({domain:'itsco.health',rows:[{...staff,role:'support'}]});
+ expect(plan.some(item=>item.key==='schools')).toBe(false);
 });

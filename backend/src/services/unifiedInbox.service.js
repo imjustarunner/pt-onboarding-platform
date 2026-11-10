@@ -28,19 +28,20 @@ import { supportEmailError } from './supportTicketEmailPolicy.js';
 import { groupKeyForIdentity, listUserDepartmentalGroupKeys } from './departmentalGroupAccess.service.js';
 
 export async function loadGroupEmailInboxScope({ agencyId, userId }) {
-  const [inboxes, keys, [managedGroups]] = await Promise.all([
+  const [inboxes, keys, [managedGroups], [memberGroups]] = await Promise.all([
     CommunicationInbox.listForAgency({ agencyId }), listUserDepartmentalGroupKeys({ agencyId, userId }),
-    pool.execute('SELECT * FROM managed_workspace_groups WHERE agency_id=?',[agencyId])
+    pool.execute('SELECT * FROM managed_workspace_groups WHERE agency_id=?',[agencyId]),
+    pool.execute('SELECT g.* FROM managed_workspace_groups g JOIN chat_thread_participants p ON p.thread_id=g.chat_thread_id AND p.user_id=? WHERE g.agency_id=?',[userId,agencyId])
   ]);
-  const groups = inboxes.filter((inbox) => groupKeyForIdentity(inbox));
+  const groups = inboxes.filter(inbox=>groupEmailIdentity(inbox,managedGroups));
   return { groups, managedGroups, groupInboxIds: groups.map((i) => Number(i.id)),
-    allowedGroupInboxIds: groups.filter((i) => keys.includes(groupKeyForIdentity(i))).map((i) => Number(i.id)) };
+    allowedGroupInboxIds: groups.filter(i=>{const key=groupKeyForIdentity(i);return key?keys.includes(key):!!groupEmailIdentity(i,memberGroups);}).map(i=>Number(i.id)) };
 }
 
 export function withGroupEmailMetadata(conversation, userId, managedGroups=[]) {
   const identity=groupEmailIdentity({id:conversation.inbox_id,agency_id:conversation.agency_id,identity_key:conversation.inbox_identity_key,kind:conversation.inbox_kind,owner_user_id:conversation.inbox_owner_user_id,from_email:conversation.inbox_from_email,display_name:conversation.inbox_display_name},managedGroups);
-  const key = identity?.ticketed ? identity.groupKey : null;
-  return { ...conversation, group_key: identity?.groupKey || null, group_name:identity?.groupName || null, is_group_email: !!identity, is_ticketed_group: !!identity?.ticketed,
+  const key = identity?.ticketed && conversation.support_ticket_id ? identity.groupKey : null;
+  return { ...conversation, group_key: identity?.groupKey || null, group_name:identity?.groupName || null, is_group_email: !!identity, is_ticketed_group: !!key,
     ticket_replied: !!conversation.support_ticket_id && conversation.last_message_direction === 'outbound',
     can_claim_ticket: !!key && !!conversation.support_ticket_id && !conversation.ticket_claimed_by_user_id
       && !['closed','resolved','done'].includes(conversation.ticket_status),
@@ -133,13 +134,15 @@ export async function listInboxes({ agencyId, userId, includeShared = true }) {
     console.warn('[unifiedInbox] messages@ mailbox:', e?.message || e);
   }
   const rows = await CommunicationInbox.listForAgency({ agencyId, userId });
-  const departmentKeys = await listUserDepartmentalGroupKeys({ agencyId, userId });
+  const groupScope = await loadGroupEmailInboxScope({agencyId,userId});
+  const groupIds=new Set(groupScope.groupInboxIds),allowedGroups=new Set(groupScope.allowedGroupInboxIds);
   const personal = rows.find((r) => r.kind === 'personal' && Number(r.owner_user_id) === Number(userId));
   const shared = rows.filter((r) => r.kind === 'shared' &&
-    (groupKeyForIdentity(r) ? departmentKeys.includes(groupKeyForIdentity(r)) : includeShared));
+    (groupIds.has(Number(r.id)) ? allowedGroups.has(Number(r.id)) : includeShared));
   const mapped = (r) => {
     const isPersonal = r.kind === 'personal';
-    const groupKey = isPersonal ? null : groupKeyForIdentity(r);
+    const groupIdentity=isPersonal?null:groupEmailIdentity(r,groupScope.managedGroups);
+    const groupKey=groupIdentity?.groupKey || null;
     return {
       id: r.id,
       kind: r.kind,
@@ -150,7 +153,7 @@ export async function listInboxes({ agencyId, userId, includeShared = true }) {
       reply_to: r.reply_to,
       signature_image_url: r.signature_image_url,
       owner_user_id: r.owner_user_id || null,
-      group_key: groupKey, is_group_email: !!groupKey, is_ticketed_group: !!groupKey,
+      group_key: groupKey, group_name:groupIdentity?.groupName || null, is_group_email: !!groupIdentity, is_ticketed_group: !!groupIdentity?.ticketed,
       ticketing_access: !!groupKey,
       routing: isPersonal ? 'app_group_alias' : (groupKey ? 'ticketed_group' : r.kind === 'shared' ? 'shared_team' : null)
     };
@@ -175,7 +178,7 @@ export async function listInboxes({ agencyId, userId, includeShared = true }) {
           routing: 'app_group_alias'
         },
     { id: 'assigned', kind: 'virtual', display_name: 'All Assigned to Me', from_email: null, identity_key: 'assigned' },
-    ...(shared.some((r) => groupKeyForIdentity(r)) ? [{ id: 'group_email', kind: 'virtual', display_name: 'Group Email',
+    ...(shared.some(r=>groupEmailIdentity(r,groupScope.managedGroups)) ? [{ id: 'group_email', kind: 'virtual', display_name: 'Group Email',
       identity_key: 'group_email', is_group_email: true, is_ticketed_group: true, ticketing_access: true }] : []),
     ...shared.map(mapped)
   ];

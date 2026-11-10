@@ -82,7 +82,7 @@ test('list and badge queries share group privacy, unread, and canonical assignme
     let depth = 0;
     for (const c of withoutStrings) { if (c === '(') depth++; if (c === ')') depth--; assert.ok(depth >= 0, 'SQL parentheses remain balanced'); }
     assert.equal(depth, 0);
-    return sql.includes('COUNT(*)') ? [[{ n: 0 }]] : [[{ id: 22, inbox_id: 3, group_ticket_unread: 1 }]];
+    return sql.includes('COUNT(*)') ? [[{ n: 0 }]] : [[{ id: 22, inbox_id: 3, support_ticket_id: 11, group_ticket_unread: 1 }]];
   };
   try {
     const options = { agencyId: 2, userId: 8, scopeToUserId: 8, groupInboxIds: [3,4], allowedGroupInboxIds: [3] };

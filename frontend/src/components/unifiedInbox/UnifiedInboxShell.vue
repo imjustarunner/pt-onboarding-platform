@@ -366,6 +366,13 @@ watch(searchQ, () => {
   searchDebounce = setTimeout(() => loadConversations(), 300);
 });
 
+function openRouteConversation(value) {
+  const id=Number(value),agencyId=Number(route.query.agencyId);
+  if(!Number.isSafeInteger(id)||id<1||!resolvedAgencyId.value)return;
+  if(agencyId>0&&agencyId!==Number(resolvedAgencyId.value))return;
+  void openConversation(id);
+}
+watch(()=>route.query.conversationId,openRouteConversation);
 let mailboxPoll = null;
 let pollBusy = false;
 async function refreshSharedState() {
@@ -384,6 +391,7 @@ async function refreshSharedState() {
 }
 onMounted(() => {
   refreshAll();
+  openRouteConversation(route.query.conversationId);
   mailboxPoll = setInterval(refreshSharedState, 30000);
   window.addEventListener('focus', refreshSharedState);
 });

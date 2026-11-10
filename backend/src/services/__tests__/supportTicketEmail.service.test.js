@@ -6,7 +6,7 @@ import { decryptTicketMessageRow } from '../../utils/supportTicketCrypto.js';
 import pool from '../../config/database.js';
 test.after(() => pool.end());
 
-function harness({ workFrom = null, workOwner = 5, actorWorkEmail = workFrom, credentialingCase = false, claimedBy = 5, revision = 10, result = { id: 'gmail-sent', internetMessageId: '<sent@agency.test>', bodyText: 'Hello\n\nHannah · Agency' }, failure = null } = {}) {
+function harness({ schoolAccess = true, workFrom = null, workOwner = 5, actorWorkEmail = workFrom, credentialingCase = false, claimedBy = 5, revision = 10, result = { id: 'gmail-sent', internetMessageId: '<sent@agency.test>', bodyText: 'Hello\n\nHannah · Agency' }, failure = null } = {}) {
   const statements = [], captures = [], sends = [];
   let delivery = null;
   const db = { async beginTransaction() {}, async commit() {}, async rollback() {}, release() {}, async execute(sql, values = []) {
@@ -17,6 +17,8 @@ function harness({ workFrom = null, workOwner = 5, actorWorkEmail = workFrom, cr
       source_channel: 'email', source_email_from: 'school@example.test', source_email_subject: 'Forms',
       source_email_message_id: '<inbound@school.test>', source_email_thread_id: 'gmail-thread', claimed_by_user_id: claimedBy }]];
     if (sql.includes('SELECT u.id,u.role')) return [[{ id: 5, role: 'support' }]];
+    if(sql.includes('SELECT u.*,ua.agency_role'))return [[{id:5,role:schoolAccess?'support':'staff',agency_role:schoolAccess?'support':'staff',status:'ACTIVE_EMPLOYEE',is_active:1,is_archived:0,is_demo:0,is_assistant_account:0,membership_active:1}]];
+    if(sql.includes('information_schema.TABLES'))return [[{count:0}]];
     if (sql.startsWith('SELECT t.id,t.claimed_by_user_id')) return [[{ id: 1 }]];
     if (sql.startsWith('INSERT INTO support_ticket_email_thread_sync')) return [{ affectedRows: 1 }];
     if (sql.includes('client_request_key=?')) return [delivery ? [delivery] : []];
@@ -232,4 +234,10 @@ test('personal domains, someone else’s work identity and Group mode on a staff
     await assert.rejects(sendSupportTicketEmailReply({...input,senderIdentityId:99,senderMode},h.dependencies));
     assert.equal(h.sends.length,0);
   }
+});
+
+test('Schools group replies require current group access before any email is sent',async()=>{
+ const h=harness({schoolAccess:false});
+ await assert.rejects(sendSupportTicketEmailReply({...input,senderIdentityId:22},h.dependencies));
+ assert.equal(h.sends.length,0);
 });
