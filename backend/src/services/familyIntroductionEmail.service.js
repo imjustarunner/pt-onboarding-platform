@@ -6,7 +6,8 @@ import { buildPublicAppUrl } from '../utils/publicPortalUrl.js';
 import { familyIntroductionLetter } from './familyIntroduction.logic.js';
 import { fail } from './familyDocumentSession.logic.js';
 import { buildProviderIntroductionPdf, introductionPdfAttachment, providerProfileUrl } from './familyWelcomeAssets.service.js';
-import { SCHOOL_CONTACT_DEMO_AGENCY_ID } from './schoolContactPlan.service.js';
+import { getContactPlanContext } from './schoolContactPlan.service.js';
+import {isSchoolContactProviderEnabled,isSchoolContactDemoAgency,schoolContactScopeSql} from './schoolContactRollout.js';
 
 async function safe(connection, sql, params) {
   try {
@@ -40,7 +41,13 @@ export async function queueFamilyIntroduction(connection, { clientId }) {
   );
   const row = loaded?.[0]?.[0];
   // Support introductions run with the Family Welcome & Follow-Up pilot only.
-  if (!row?.provider_user_id || !row.organization_id || Number(row.agency_id) !== SCHOOL_CONTACT_DEMO_AGENCY_ID) return;
+  if (!row?.provider_user_id || !row.organization_id) return;
+  const [[agency]] = await connection.execute('SELECT id,slug,is_active,is_archived,feature_flags FROM agencies WHERE id=?',[row.agency_id]);
+  if (!isSchoolContactProviderEnabled(agency,row.provider_user_id)) return;
+  if (!isSchoolContactDemoAgency(agency)) {
+    const [[plan]] = await connection.execute('SELECT status,welcome_seen_at FROM school_provider_contact_plans WHERE agency_id=? AND provider_user_id=?',[row.agency_id,row.provider_user_id]);
+    if (plan?.status !== 'declined' || !plan.welcome_seen_at) return;
+  }
   const [schools] = await connection.execute(
     `SELECT id FROM agencies WHERE id = ? AND organization_type = 'school' LIMIT 1`,
     [row.organization_id]
@@ -71,7 +78,10 @@ export async function sendPendingFamilyIntroductions() {
   let jobs = [];
   try {
     const [rows] = await pool.execute(
-      `SELECT * FROM family_introduction_emails WHERE delivery_status = 'pending' ORDER BY id LIMIT 20`
+      `SELECT intro.* FROM family_introduction_emails intro
+       JOIN agencies pilot ON pilot.id=intro.agency_id
+       LEFT JOIN school_provider_contact_plans p ON p.agency_id=intro.agency_id AND p.provider_user_id=intro.provider_user_id
+       WHERE intro.delivery_status='pending' AND ${schoolContactScopeSql('pilot','intro.provider_user_id')} ORDER BY intro.id LIMIT 20`
     );
     jobs = rows || [];
   } catch (error) {
@@ -81,7 +91,10 @@ export async function sendPendingFamilyIntroductions() {
   const results = [];
   for (const job of jobs) {
     try {
-      if (!(await stillAssigned(job))) {
+      let context;
+      try { context = await getContactPlanContext({agencyId:job.agency_id,userId:job.provider_user_id}); }
+      catch (error) { if (![403,404].includes(error.status)) throw error; }
+      if (!context || !context.schools.some(s=>Number(s.id)===Number(job.school_organization_id)) || !(await stillAssigned(job))) {
         await pool.execute(
           `UPDATE family_introduction_emails SET delivery_status = 'skipped', last_error = ? WHERE id = ? AND delivery_status = 'pending'`,
           ['The provider is no longer assigned.', job.id]
@@ -89,10 +102,10 @@ export async function sendPendingFamilyIntroductions() {
         continue;
       }
       const [planRows] = await pool.execute(
-        `SELECT status FROM school_provider_contact_plans WHERE agency_id = ? AND provider_user_id = ? LIMIT 1`,
+        `SELECT status,welcome_seen_at FROM school_provider_contact_plans WHERE agency_id = ? AND provider_user_id = ? LIMIT 1`,
         [job.agency_id, job.provider_user_id]
       );
-      if (planRows[0]?.status === 'enabled') {
+      if (planRows[0]?.status === 'enabled' || (!isSchoolContactDemoAgency(context.agency) && (planRows[0]?.status !== 'declined' || !planRows[0]?.welcome_seen_at))) {
         await pool.execute(
           `UPDATE family_introduction_emails SET delivery_status = 'skipped', last_error = ? WHERE id = ? AND delivery_status = 'pending'`,
           ['The provider sends their own Family Welcome & Follow-Up.', job.id]
@@ -118,7 +131,7 @@ export async function sendPendingFamilyIntroductions() {
       );
       const [[guardian]] = await pool.execute(
         `SELECT u.id, COALESCE(NULLIF(u.personal_email,''), NULLIF(u.email,'')) AS email,
-                u.password_hash, u.temporary_password_hash
+                (NULLIF(u.password_hash,'') IS NOT NULL OR NULLIF(u.temporary_password_hash,'') IS NOT NULL) AS has_account
          FROM client_guardians cg
          JOIN users u ON u.id = cg.guardian_user_id
          WHERE cg.client_id = ? AND cg.access_enabled = 1 AND COALESCE(u.is_archived,0) = 0
@@ -150,7 +163,7 @@ export async function sendPendingFamilyIntroductions() {
         schoolName: school.name,
         serviceDay: client.assignment_day || client.service_day,
         softTime: slot?.soft_time || '',
-        hasAccount: Boolean(guardian.password_hash || guardian.temporary_password_hash),
+        hasAccount: Number(guardian.has_account) === 1,
         remindersOn: Number(client.session_sms_opt_in) === 1,
         reminderUrl,
         profileUrl,

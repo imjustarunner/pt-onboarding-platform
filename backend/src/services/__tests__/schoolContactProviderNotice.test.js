@@ -37,3 +37,9 @@ it('rechecks the provider contact plan before transport and marks the prepared c
 it.each([{reminder:true,hasGuardianReply:false},{reminder:false,hasGuardianReply:true}])('does not misstate no response on a documentation reminder or after a later guardian reply: %o',async flags=>{
  const state=await m.staff();m.staff.mockResolvedValue({...state,hasGuardianReply:flags.hasGuardianReply});await sendSchoolContactProviderNotice(workflow,ctx,{reminder:flags.reminder,stepKey:flags.reminder?'intake_reminder_42':'provider_notice'});const email=m.send.mock.calls[0][0];expect(email.text).toContain('still awaits finalized documentation');expect(email.text).not.toContain('without a documented reply');expect(email.html).not.toContain('without a documented reply');
 });
+
+it('addresses live provider notices to the provider and approved support copies rather than the QA inbox',async()=>{
+ const live={...workflow,agency_id:2};m.mailbox.mockResolvedValue({identity:{id:167,agency_id:2},inbox:{id:8},fromEmail:'messages@itsco.health'});
+ await sendSchoolContactProviderNotice(live,ctx,{stepKey:'provider_notice'});
+ expect(m.send).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({to:'qa-inbox@itsco.health',cc:'support@example.com,supervisor@example.com'}));
+});

@@ -1,7 +1,7 @@
 import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest';
 const m=vi.hoisted(()=>({execute:vi.fn(),connection:vi.fn(),context:vi.fn(),email:vi.fn(),notice:vi.fn(),number:vi.fn(),sms:vi.fn(),log:vi.fn(),sent:vi.fn(),failed:vi.fn(),intake:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute,getConnection:m.connection}}));
-vi.mock('../schoolContactPlan.service.js',()=>({getContactPlanContext:m.context,sendSchoolContactEmail:m.email,SCHOOL_CONTACT_DEMO_AGENCY_ID:450,SCHOOL_CONTACT_TEST_INBOX:'testing@itsco.health',renderSchoolContactTemplate:vi.fn()}));
+vi.mock('../schoolContactPlan.service.js',()=>({getContactPlanContext:m.context,sendSchoolContactEmail:m.email,SCHOOL_CONTACT_DEMO_AGENCY_ID:450,SCHOOL_CONTACT_TEST_INBOX:'testing@itsco.health',schoolContactRouting:provider=>({providerEmail:provider.email || 'provider@example.com'}),renderSchoolContactTemplate:vi.fn()}));
 vi.mock('../schoolContactProviderNotice.service.js',()=>({sendSchoolContactProviderNotice:m.notice}));
 vi.mock('../communicationRouting.service.js',()=>({resolveOutboundNumber:m.number}));
 vi.mock('../smsCompliance.service.js',()=>({resolveRegisteredSmsSender:vi.fn()}));
@@ -51,6 +51,13 @@ beforeEach(()=>{
 afterEach(()=>vi.useRealTimers());
 
 describe('three-contact worker transport and durable receipts',()=>{
+ it('uses the permitted family phone in the live ITSCO cohort without requiring a QA fixture',async()=>{
+  state.agency_id=2;m.context.mockResolvedValue({agencyId:2,userId:1490,schools:[{id:451}],provider:{first_name:'Live',last_name:'Provider'},agency:{id:2,name:'ITSCO',feature_flags:{}}});
+  m.number.mockResolvedValue({number:{id:9,agency_id:2,phone_number:'+17196775413'},ownerType:'agency'});
+  await tick(start);
+  expect(m.sms).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({purpose:'care',agencyId:2,to:'+16189107000'}));
+  expect(m.email).not.toHaveBeenCalled();
+ });
  it('sends second-contact SMS at exactly48hours, never also email, and sends final contact only by email48hours later',async()=>{
   await tick(new Date(start.getTime()-1));expect(m.sms).not.toHaveBeenCalled();expect(m.email).not.toHaveBeenCalled();
   await tick(start);expect(m.sms).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({purpose:'care',agencyId:450,to:'+16189107000'}));expect(m.email).not.toHaveBeenCalled();expect(steps.get('second_contact').status).toBe('sent');

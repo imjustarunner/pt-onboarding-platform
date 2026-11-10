@@ -5,8 +5,8 @@ import { resolveMessagesSendMailbox } from './tenantMessageMailboxes.service.js'
 import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service.js';
 import { managedDomain } from './managedWorkspaceGroupPolicy.js';
 
-export const SCHOOL_CONTACT_DEMO_AGENCY_ID = 450;
-export const SCHOOL_CONTACT_TEST_INBOX = 'testing@itsco.health';
+import { SCHOOL_CONTACT_DEMO_AGENCY_ID, SCHOOL_CONTACT_TEST_INBOX, SCHOOL_CONTACT_AGENCY_IDS, isSchoolContactDemoAgency, isSchoolContactProviderEnabled, schoolContactDelivery } from './schoolContactRollout.js';
+export { SCHOOL_CONTACT_DEMO_AGENCY_ID, SCHOOL_CONTACT_TEST_INBOX, isSchoolContactDemoAgency } from './schoolContactRollout.js';
 export { DEFAULT_SCHOOL_CONTACT_TEMPLATE } from './schoolContactTemplates.js';
 import { DEFAULT_SCHOOL_CONTACT_TEMPLATE, DEFAULT_SECOND_CONTACT_TEMPLATE, DEFAULT_FINAL_CONTACT_TEMPLATE, DEFAULT_CONTACT_SMS_TEMPLATE, SCHOOL_CONTACT_SUBJECTS,preferredSchoolContactTemplate } from './schoolContactTemplates.js';
 import { buildProviderIntroductionPdf, introductionPdfAttachment, providerProfileUrl } from './familyWelcomeAssets.service.js';
@@ -18,14 +18,6 @@ const parse = value => { try { return typeof value === 'string' ? JSON.parse(val
 const email = value => String(value || '').trim().toLowerCase();
 const escapeHtml = value => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
 const flag = value => [true, 1, '1'].includes(value);
-
-// Keep this gate explicit: neither an arbitrary "demo" name nor a request body
-// may opt another tenant into sending contact-plan messages during this pilot.
-export function isSchoolContactDemoAgency(agency) {
-  return Number(agency?.id) === SCHOOL_CONTACT_DEMO_AGENCY_ID
-    && agency?.slug === 'auricwell-qa-demo' && flag(agency.is_active)
-    && !flag(agency.is_archived);
-}
 
 export function validateSchoolContactTemplate(value) {
   const template = String(value ?? DEFAULT_SCHOOL_CONTACT_TEMPLATE).trim();
@@ -69,13 +61,14 @@ export async function getContactPlanContext({ agencyId, userId, requireEligible 
     // The app can hold the school as its current organization while a provider
     // opens SchoolCareBridge. Resolve only an active affiliation to this pilot;
     // an unrelated school's membership cannot opt its parent into the feature.
-    const [[parent]] = await pool.execute(`SELECT a.id,a.name,a.slug,a.is_active,a.is_archived,a.feature_flags,a.organization_type
+    const [parents] = await pool.execute(`SELECT a.id,a.name,a.slug,a.is_active,a.is_archived,a.feature_flags,a.organization_type
       FROM organization_affiliations oa JOIN agencies a ON a.id=oa.agency_id
-      WHERE oa.organization_id=? AND oa.agency_id=? AND oa.is_active=1 LIMIT 1`, [aid, SCHOOL_CONTACT_DEMO_AGENCY_ID]);
-    if (isSchoolContactDemoAgency(parent)) { agency = parent; aid = Number(parent.id); }
+      WHERE oa.organization_id=? AND oa.agency_id IN (?,?) AND oa.is_active=1 ORDER BY a.id`, [aid, ...SCHOOL_CONTACT_AGENCY_IDS]);
+    const parent = parents.find(candidate => isSchoolContactProviderEnabled(candidate, uid));
+    if (parent) { agency = parent; aid = Number(parent.id); }
   }
-  if (!isSchoolContactDemoAgency(agency)) {
-    if (requireEligible) throw fail('Contact plans are currently available only in the ITSCOLLC demo.', 403);
+  if (!isSchoolContactProviderEnabled(agency, uid)) {
+    if (requireEligible) throw fail('Family Welcome is not enabled for this account in the current rollout.', 403);
     return { eligible: false, agency };
   }
   const [[provider]] = await pool.execute(`SELECT u.id,u.first_name,u.last_name,u.role,u.has_provider_access,u.email,u.work_email,u.personal_email,u.sso_password_override,u.login_is_group_email,
@@ -104,7 +97,7 @@ function planDto(ctx, plan = {}, from) {
   const template = preferredSchoolContactTemplate(plan.template);
   const providerName = [ctx.provider.first_name, ctx.provider.last_name].filter(Boolean).join(' ') || 'Provider name';
   const profileUrl = providerProfileUrl(ctx.agency, ctx.provider);
-  return { eligible: ctx.eligible, agencyId: ctx.agencyId, demoOnly: true, mandatory: ctx.mandatory || flag(plan.required_by_admin), status: plan.status || 'unconfigured',
+  return { eligible: ctx.eligible, agencyId: ctx.agencyId, demoOnly: isSchoolContactDemoAgency(ctx.agency), rolloutPhase: isSchoolContactDemoAgency(ctx.agency) ? 'qa' : 'phase_1', mandatory: ctx.mandatory || flag(plan.required_by_admin), status: plan.status || 'unconfigured',
     featureName: FAMILY_WELCOME_NAME, includePdf: plan.include_pdf === undefined || plan.include_pdf === null ? true : flag(plan.include_pdf),
     welcomeSeen: !!plan.welcome_seen_at, profileUrl, agencyName: ctx.agency.name, previewValues: { profile_link: profileUrl, agency_name: ctx.agency.name },
     recommendedTemplates:{template:DEFAULT_SCHOOL_CONTACT_TEMPLATE,secondTemplate:DEFAULT_SECOND_CONTACT_TEMPLATE,finalTemplate:DEFAULT_FINAL_CONTACT_TEMPLATE,smsTemplate:DEFAULT_CONTACT_SMS_TEMPLATE},
@@ -113,7 +106,7 @@ function planDto(ctx, plan = {}, from) {
     routing: schoolContactRouting(ctx.provider, from, ctx.agency), schools: ctx.schools, providerName,
     subjects: SCHOOL_CONTACT_SUBJECTS,
     preview: { subject: SCHOOL_CONTACT_SUBJECTS.initial_email, body: renderSchoolContactTemplate(template, { parent_name: 'Parent name', provider_name: providerName, school_name: 'Example Middle School', service_day: 'Example Day', profile_link: profileUrl }) },
-    testDestination: SCHOOL_CONTACT_TEST_INBOX };
+    testDestination: isSchoolContactDemoAgency(ctx.agency) ? SCHOOL_CONTACT_TEST_INBOX : schoolContactRouting(ctx.provider, from, ctx.agency).providerEmail };
 }
 
 export async function getSchoolContactPlan(input) {
@@ -163,10 +156,10 @@ export async function sendSchoolContactEmail({ agencyId, providerUserId, clientI
   if (example && !exampleSchool) throw fail('Choose one of your assigned schools for the example.', 403);
   const mailbox = await resolveMessagesSendMailbox(ctx.agencyId);
   const from = email(mailbox.fromEmail || mailbox.identity?.from_email);
-  if (!mailbox.identity?.id || Number(mailbox.identity.agency_id) !== ctx.agencyId || !/^messages@[^\s<>]+$/.test(from) || !mailbox.inbox?.id) throw fail('The demo messages mailbox is not configured.', 409);
+  if (!mailbox.identity?.id || Number(mailbox.identity.agency_id) !== ctx.agencyId || !/^messages@[^\s<>]+$/.test(from) || !mailbox.inbox?.id) throw fail('The messages mailbox is not configured.', 409);
   const routing = schoolContactRouting(ctx.provider, from, ctx.agency);
   if (!routing.providerEmail) throw fail('Your email address must be configured before sending.', 409);
-  const recipient = example ? SCHOOL_CONTACT_TEST_INBOX : email(to);
+  const recipient = example ? (isSchoolContactDemoAgency(ctx.agency) ? SCHOOL_CONTACT_TEST_INBOX : routing.providerEmail) : email(to);
   if (!/^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/.test(recipient)) throw fail('A valid guardian email is required.');
   if (!example) {
     if (!clientId || !schoolId || !ctx.schools.some(s => Number(s.id) === Number(schoolId))) throw fail('A current school client assignment is required.', 403);
@@ -179,7 +172,7 @@ export async function sendSchoolContactEmail({ agencyId, providerUserId, clientI
   const profileUrl = providerProfileUrl(ctx.agency, ctx.provider);
   const text = body === undefined ? renderSchoolContactTemplate(template, {
     parent_name: parentName || 'Parent name', provider_name: [ctx.provider.first_name, ctx.provider.last_name].filter(Boolean).join(' ') || 'Provider name',
-    school_name: example ? exampleSchool.name : schoolName || 'Example Middle School', service_day: serviceDay || 'Example day', profile_link: profileUrl
+    school_name: example ? exampleSchool.name : ctx.schools.find(s => Number(s.id) === Number(schoolId))?.name || schoolName || 'School', service_day: serviceDay || 'a day we will confirm together', profile_link: profileUrl
   }) : String(body).trim();
   let attachments = null;
   if ((stepKey === 'initial_email' || (example && !stepKey)) && ctx.schools.length) {
@@ -240,22 +233,21 @@ export async function sendSchoolContactEmail({ agencyId, providerUserId, clientI
         }
       }
     }
-    // Pilot transport is a closed sandbox. Logical recipients above preserve the
-    // client/provider record; every physical recipient, including copies, is the
-    // testing inbox. source:auto prevents generic manual SSO copy expansion.
-    const receipt = await sendEmailFromIdentity({ senderIdentityId: mailbox.identity.id, to: SCHOOL_CONTACT_TEST_INBOX,
-      cc: example ? SCHOOL_CONTACT_TEST_INBOX : null, bcc: SCHOOL_CONTACT_TEST_INBOX,
+    // QA remains physically closed. The approved live cohort uses the verified
+    // guardian/provider addresses. Automatic sends never expand generic copies.
+    const recipients = schoolContactDelivery(ctx.agencyId, { to: recipient, cc: example && isSchoolContactDemoAgency(ctx.agency) ? routing.providerEmail : null, bcc: !example || isSchoolContactDemoAgency(ctx.agency) ? routing.providerEmail : null });
+    const receipt = await sendEmailFromIdentity({ senderIdentityId: mailbox.identity.id, ...recipients,
       subject: example ? `[Example] ${title}` : title, text, html, attachments, replyToOverride: replyTo,
       fromDisplayNameOverride: [ctx.provider.first_name, ctx.provider.last_name].filter(Boolean).join(' '),
       source: 'auto', templateType: example ? 'school_contact_example' : 'school_contact_plan', generatedByUserId: ctx.userId, internetMessageIdOverride: stableMessageId,
       clientId: example ? null : Number(clientId), schoolOrganizationId: example ? null : Number(schoolId) });
-    if (!receipt?.id || receipt.pendingApproval || receipt.queued || receipt.skipped) throw fail('The demo email was not delivered. Try again after the message service is ready.', 502);
+    if (!receipt?.id || receipt.pendingApproval || receipt.queued || receipt.skipped) throw fail('The email was not accepted. Review its delivery before trying again.', 502);
     delivered = true;
     await Conversation.updateMessage(messageId, { sendStatus: 'sent', sentAt: new Date(), internetMessageId: receipt.internetMessageId || stableMessageId });
     await Conversation.update(conversation.id, { externalThreadId: receipt.threadId || undefined, lastMessageAt: new Date(), lastMessagePreview: text.slice(0, 220) });
-    return { sent: true, conversationId: conversation.id, messageId, deliveredTo: SCHOOL_CONTACT_TEST_INBOX, example, replyTo };
+    return { sent: true, conversationId: conversation.id, messageId, deliveredTo: schoolContactDelivery(ctx.agencyId, { to: recipient }).to, example, replyTo };
   } catch (error) {
-    if (delivered) return { sent: true, conversationId: conversation.id, messageId, deliveredTo: SCHOOL_CONTACT_TEST_INBOX, example, recordPending: true };
+    if (delivered) return { sent: true, conversationId: conversation.id, messageId, deliveredTo: schoolContactDelivery(ctx.agencyId, { to: recipient }).to, example, recordPending: true };
     await Conversation.updateMessage(messageId, { sendStatus: 'failed' });
     throw error;
   }

@@ -103,4 +103,20 @@ describe.skipIf(!process.env.HUB_SCOPE_MYSQL_SOCKET && !process.env.FAMILY_WELCO
     expect(a.secondTemplate).toBe(first.secondTemplate);
   });
 
+  it('records the live provider choice without enrolling anyone else or inheriting QA wording',async()=>{
+    await connection.execute("UPDATE agencies SET slug='itsco',feature_flags=JSON_OBJECT('schoolContactPlanPilot',JSON_OBJECT('enabled',true,'providerIds',JSON_ARRAY(1433))) WHERE id=2");
+    await connection.execute("INSERT INTO agencies(id,name,slug,organization_type) VALUES(453,'Live assigned school','live-school','school')");
+    await connection.execute('INSERT INTO organization_affiliations(agency_id,organization_id) VALUES(2,453)');
+    await connection.execute('INSERT INTO provider_school_assignments(school_organization_id,provider_user_id) VALUES(453,1433)');
+    const fresh=await getSchoolContactPlan({agencyId:2,userId:1433});
+    expect(fresh).toMatchObject({eligible:true,status:'unconfigured',welcomeSeen:false,demoOnly:false,rolloutPhase:'phase_1'});
+    expect(fresh.template).toBe(DEFAULT_SCHOOL_CONTACT_TEMPLATE);
+    expect(await getSchoolContactPlan({agencyId:453,userId:1433})).toMatchObject({agencyId:2,eligible:true});
+    const saved=await saveSchoolContactPlan({agencyId:2,userId:1433},{status:'declined',template:DEFAULT_SCHOOL_CONTACT_TEMPLATE+'\nMy live preference.'});
+    expect(saved).toMatchObject({status:'declined',welcomeSeen:true});
+    expect(await getSchoolContactPlan({agencyId:450,userId:1433})).toMatchObject({status:'enabled'});
+    await expect(saveSchoolContactPlan({agencyId:2,userId:1438},{status:'enabled'})).rejects.toMatchObject({status:403});
+    const [[count]]=await connection.execute('SELECT COUNT(*) n FROM school_provider_contact_plans WHERE agency_id=2');expect(count.n).toBe(1);
+  });
+
 });

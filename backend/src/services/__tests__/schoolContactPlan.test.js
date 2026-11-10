@@ -51,7 +51,7 @@ it('resolves a demo school through its verified pilot affiliation without granti
     return original(sql, args);
   });
   expect(await getSchoolContactPlan({ agencyId: 451, userId: 1433 })).toMatchObject({ eligible: true, agencyId: 450 });
-  expect(m.execute).toHaveBeenCalledWith(expect.stringContaining('oa.agency_id=? AND oa.is_active=1'), [451, 450]);
+  expect(m.execute).toHaveBeenCalledWith(expect.stringContaining('oa.agency_id IN (?,?) AND oa.is_active=1'), [451, 450, 2]);
   m.execute.mockImplementation(async sql => sql.startsWith('SELECT id,name,slug') ? [[{ id: 22, organization_type: 'school', is_active: 1 }]] : [[]]);
   expect(await getSchoolContactPlan({ agencyId: 22, userId: 1433 })).toEqual({ eligible: false, demoOnly: true });
   await expect(saveSchoolContactPlan({ agencyId: 22, userId: 1433 }, { status: 'enabled' })).rejects.toMatchObject({ status: 403 });
@@ -190,4 +190,23 @@ it('uses the selected assigned school for emailed examples and rejects a foreign
   expect(m.send.mock.calls.at(-1)[0].text).not.toContain('Another provider');
   await expect(sendSchoolContactExample(input,{template,schoolId:999})).rejects.toMatchObject({status:403});
   expect(m.send).toHaveBeenCalledTimes(1);
+});
+
+it('enables only an explicitly selected live ITSCO provider and addresses their example to their own mailbox', async () => {
+  const original=m.execute.getMockImplementation();
+  const live={...agency,id:2,slug:'itsco',feature_flags:{googleSsoEnabled:true,schoolContactPlanPilot:{enabled:true,providerIds:[1433]}}};
+  m.execute.mockImplementation(async(sql,args)=>sql.startsWith('SELECT id,name,slug')?[[live]]:original(sql,args));
+  m.mailbox.mockResolvedValue({identity:{id:167,agency_id:2},inbox:{id:10},fromEmail:'messages@itsco.health'});
+  expect(await getSchoolContactPlan({agencyId:2,userId:1433})).toMatchObject({eligible:true,demoOnly:false,rolloutPhase:'phase_1',status:'unconfigured',welcomeSeen:false});
+  await sendSchoolContactExample({agencyId:2,userId:1433},{template,schoolId:451,includePdf:false});
+  expect(m.send).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({to:provider.work_mailbox_email,cc:null,bcc:null}));
+  expect(m.send.mock.calls[0][0].text).toContain('Cedar Grove K-8');
+  m.send.mockClear();
+  await sendSchoolContactEmail({agencyId:2,providerUserId:1433,clientId:999,schoolId:451,to:'family@synthetic.test',parentName:'Casey',schoolName:'A different school',serviceDay:'Monday',includePdf:false});
+  expect(m.send).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({to:'family@synthetic.test',bcc:provider.work_mailbox_email}));
+  expect(m.send.mock.calls[0][0].text).toContain('Cedar Grove K-8');
+  expect(m.send.mock.calls[0][0].text).not.toContain('A different school');
+  live.feature_flags.schoolContactPlanPilot.providerIds=[9999];m.execute.mockClear();
+  await expect(saveSchoolContactPlan({agencyId:2,userId:1433},{status:'enabled',providerUserId:9999})).rejects.toMatchObject({status:403});
+  expect(m.execute.mock.calls.some(([sql])=>sql.startsWith('INSERT'))).toBe(false);
 });

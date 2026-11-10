@@ -4,7 +4,7 @@ const effects = vi.hoisted(() => ({ execute: vi.fn(), getConnection: vi.fn(), co
   notification: vi.fn(), mailbox: vi.fn(), email: vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: { execute: effects.execute, getConnection: effects.getConnection } }));
 vi.mock('../schoolContactPlan.service.js', () => ({ getContactPlanContext: effects.context,
-  SCHOOL_CONTACT_DEMO_AGENCY_ID: 450, SCHOOL_CONTACT_TEST_INBOX: 'testing@itsco.health' }));
+  SCHOOL_CONTACT_DEMO_AGENCY_ID: 450, SCHOOL_CONTACT_TEST_INBOX: 'testing@itsco.health', schoolContactRouting:provider=>({providerEmail:provider.email || 'provider@example.com'}) }));
 vi.mock('../communicationRouting.service.js', () => ({}));
 vi.mock('../smsCompliance.service.js', () => ({}));
 vi.mock('../vonage.service.js', () => ({ default: {} }));

@@ -17,6 +17,7 @@
     </p>
 
     <template v-else>
+      <p v-if="plan.rolloutPhase === 'phase_1'" class="hint">ITSCO first phase: review your wording, choose On or Off, and Save Family Welcome to record your choice. Automatic outreach begins only for new school assignments after you turn it on. Return here anytime to edit it.</p>
       <fieldset class="fw-choice">
         <legend>Send my welcome and follow-ups</legend>
         <label><input v-model="status" type="radio" value="enabled" :disabled="busy" /> <span><strong>On.</strong> When a new school client is assigned to me, send my welcome email, then follow up until we connect.</span></label>
@@ -98,7 +99,7 @@ function apply(data) {
   plan.value = data;
   if (!data?.eligible) return;
   if (!data.schools?.some(s => Number(s.id) === Number(previewSchoolId.value))) previewSchoolId.value = data.schools?.[0]?.id ?? null;
-  status.value = data.status === 'enabled' ? 'enabled' : 'declined';
+  status.value = data.rolloutPhase === 'phase_1' && data.status === 'unconfigured' ? '' : data.status === 'enabled' ? 'enabled' : 'declined';
   includePdf.value = data.includePdf !== false;
   for (const key of Object.keys(draft)) draft[key] = data[key] || data.recommendedTemplates?.[key] || '';
 }
@@ -156,6 +157,7 @@ async function sendExample(message) {
 async function save({ skipProfileCheck = false } = {}) {
   if (busy.value) return;
   error.value = ''; notice.value = '';
+  if (!['enabled', 'declined'].includes(status.value)) { error.value = 'Choose On or Off before saving your Family Welcome preferences.'; return; }
   const invalid = FAMILY_WELCOME_MESSAGES.find(m => validateFamilyWelcomeTemplate(draft[m.field], m.sms));
   if (invalid) { openField.value = invalid.field; error.value = `${invalid.label}: ${validateFamilyWelcomeTemplate(draft[invalid.field], invalid.sms)}`; return; }
   if (!skipProfileCheck && welcomeMissingProfileLink(draft)) { profilePrompt.value = true; return; }

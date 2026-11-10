@@ -96,6 +96,7 @@
 
               <template v-else>
                 <h1 id="contact-plan-title">Ready to say hello?</h1>
+                <p v-if="!plan.demoOnly" class="contact-plan-fine">ITSCO · First phase. Review your messages and choose On or Off. Your saved choice applies to new assignments after you turn it on. Find and edit it anytime in My Account → Account Info → Family Welcome &amp; Follow-Up.</p>
                 <p id="contact-plan-description">Turn on {{ FAMILY_WELCOME_NAME }} to send your welcome and follow-ups automatically. You can customize your emails at any time in your settings.</p>
                 <div class="fw-optout"><strong>If you opt out</strong><p>Our support team sends an introduction email to the family when you are assigned, and you are copied on it.</p></div>
                 <button type="button" class="contact-plan-primary contact-plan-wide" :disabled="busy || !!templateError" @click="optIn">{{ busy ? 'Saving…' : plan.status === 'enabled' ? 'Keep it on' : 'Yes, turn on Family Welcome' }} <span aria-hidden="true">✓</span></button>
@@ -121,7 +122,7 @@
                 </label>
                 <div class="contact-plan-preview">
                   <div class="contact-plan-envelope"><span class="contact-plan-mail-dot"></span><strong>{{ selectedMessageInfo.subject }}</strong><span class="contact-plan-sample-label">EXAMPLE</span></div>
-                  <dl class="contact-plan-addresses"><div><dt>From</dt><dd>{{ providerDisplayName }} &lt;{{ plan.routing?.from }}&gt;</dd></div><div><dt>To</dt><dd>Parent name · testing@itsco.health</dd></div><div><dt>Reply to</dt><dd>{{ plan.routing?.replyTo }}</dd></div><div><dt>Copy</dt><dd>You receive a private copy (BCC)</dd></div></dl>
+                  <dl class="contact-plan-addresses"><div><dt>From</dt><dd>{{ providerDisplayName }} &lt;{{ plan.routing?.from }}&gt;</dd></div><div><dt>To</dt><dd>Parent name · {{ plan.demoOnly ? 'testing@itsco.health' : 'the assigned family’s email' }}</dd></div><div><dt>Reply to</dt><dd>{{ plan.routing?.replyTo }}</dd></div><div><dt>Copy</dt><dd>You receive a private copy (BCC)</dd></div></dl>
                   <label v-if="plan.schools?.length > 1" class="contact-plan-fine">Preview school <select v-model="previewSchoolId"><option v-for="school in plan.schools" :key="school.id" :value="school.id">{{ school.name }}</option></select></label>
                   <p class="contact-plan-email-body">{{ renderedBody }}</p>
                 </div>
@@ -265,7 +266,7 @@ async function sendExample() {
     if (disposed || request !== version) return;
     if (!data.sent) throw new Error('Example not sent');
     exampleConversationId.value = data.conversationId;
-    notice.value = `Example sent to ${data.deliveredTo || 'your demo inbox'}.`;
+    notice.value = `Example sent to ${data.deliveredTo || 'your inbox'}.`;
     open.value = false;
   } catch (e) { if (request === version) error.value = messageFrom(e, 'The example could not be sent. Your draft is still here; please try again.'); }
   finally { if (request === version) { busy.value = false; sendingExample.value = false; } }
