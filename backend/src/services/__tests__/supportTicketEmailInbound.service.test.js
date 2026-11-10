@@ -553,3 +553,26 @@ test('a duplicate credentialing receipt cannot be linked into another providerâ€
   await assert.rejects(ingestSupportTicketEmail({ ...base, credentialingCaseEmailId: 99, generateDraft: false }, f.dependencies), /different credentialing case/);
   assert.equal(f.statements.some(s => /^(INSERT|UPDATE) /.test(s.sql)), false);
 }));
+
+
+test('live packet confirmation is in the same ticket and suppresses only an already answered upload-only draft', async () => withKey(async () => {
+  for(const needsReply of [false,true]) {
+    const f=fixture();let packetCalls=0;
+    f.dependencies.processPacketEmail=async input=>{
+      packetCalls++;assert.equal(input.sourceMessageId,11);assert.equal(input.ticketId,7);
+      return {uploaded:true,receiptId:4,ackSent:true,needsReply};
+    };
+    const result=await ingestSupportTicketEmail({...base,autoPacketIntake:true},f.dependencies);
+    assert.equal(result.ticketId,7);assert.equal(packetCalls,1);
+    assert.equal(f.generations.length,needsReply?1:0);
+    assert.equal(f.statements.some(s=>s.sql.includes("'packet_receipt_already_sent'")),!needsReply);
+  }
+}));
+
+test('historical messages and staff copies cannot invoke automatic packet upload', async () => withKey(async () => {
+  for(const flags of [{staffCopy:true},{preserveTicketState:true,generateDraft:false},{autoPacketIntake:false}]) {
+    const f=fixture({staffCopy:!!flags.staffCopy});
+    f.dependencies.processPacketEmail=async()=>assert.fail('No historical or staff upload');
+    await ingestSupportTicketEmail({...base,autoPacketIntake:true,...flags},f.dependencies);
+  }
+}));

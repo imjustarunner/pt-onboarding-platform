@@ -137,7 +137,8 @@ async function applyUserEmailSignatureBlock({
   agencyId = null,
   text = null,
   html = null,
-  misdirectedReportUrl = null
+  misdirectedReportUrl = null,
+  force = false
 }) {
   const uid = Number(userId || 0);
   if (!Number.isFinite(uid) || uid <= 0) return { text, html };
@@ -150,6 +151,7 @@ async function applyUserEmailSignatureBlock({
       agencyId,
       text,
       html,
+      force,
       misdirectedReportUrl
     });
     if (out.appended) return { text: out.text, html: out.html };
@@ -260,14 +262,7 @@ export async function finalizeOutboundContent({
   const { usesDepartmentHtmlSignature, appendDepartmentHtmlSignature } = await import('../staffHtmlEmailSignature.service.js');
   const preferDepartmentHtml = usesDepartmentHtmlSignature(identity);
 
-  if (['support_ticket_reply', 'support_ticket_reply_team'].includes(tt)) {
-    // Support conversations use the selected staff/team label and managed
-    // reply address. Never append a personal mailbox signature to these emails.
-    const label = String(identity?.display_name || '').trim();
-    const alreadySigned = label && String(text || '').trim().endsWith(label);
-    signed = { text: label && !alreadySigned ? `${String(text || '').trim()}\n\n${label}` : text,
-      html: html && label && !alreadySigned ? `${html}<p>${escapeHtml(label)}</p>` : html };
-  } else if (portalEmailBrand) {
+  if (portalEmailBrand) {
     signed = { text, html: renderPortalEmail({brand:portalEmailBrand,text,html}) };
   } else if (framedPortal) {
     // Approval-held messages already contain the reviewed portal frame.
@@ -287,6 +282,7 @@ export async function finalizeOutboundContent({
       agencyId: aid,
       text,
       html,
+      force: tt === 'support_ticket_reply',
       misdirectedReportUrl
     });
   } else if (preferDepartmentHtml) {

@@ -1133,7 +1133,7 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
             listId: String(hdrs.get('list-id') || '').slice(0, 200), listUnsubscribe: !!hdrs.get('list-unsubscribe') },
           receivedAt: new Date(Number(full.data?.internalDate) || Date.now()),
           staffCopy, staffUserId: staffCopy ? staffSender?.id || null : null,
-          createdByUserId: !staffCopy ? staffSender?.id || null : null, generateDraft: !staffCopy });
+          createdByUserId: !staffCopy ? staffSender?.id || null : null, generateDraft: !staffCopy, autoPacketIntake: !staffCopy });
         if (saved.handled) results.draftedToTickets += staffCopy ? 0 : 1;
         else results.ignored += 1;
         await gmail.users.messages.modify({ userId: 'me', id,

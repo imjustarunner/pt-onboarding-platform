@@ -22,6 +22,24 @@ export async function prepareSupportEmailDraftInput(input, dependencies = {}) {
   const {lookupSupportReviewerLearning,lookupSupportCorrespondence,lookupSupportEnrollmentEntry}=await import('./supportReviewerLearning.service.js');
   const prepared={...input};
   const warnings=[];
+  // An email receipt proves upload only. It does not prove reviewed paperwork,
+  // consent, enrollment completion or provider assignment.
+  let packetMetadata=input.ticket?.ai_draft_metadata_json||{};
+  if(typeof packetMetadata==='string'){try{packetMetadata=JSON.parse(packetMetadata);}catch{packetMetadata={};}}
+  if(packetMetadata.emailPacketReceiptId){
+    const database=dependencies.database||(await import('../config/database.js')).default;
+    try{
+      const [[receipt]]=await database.execute(`SELECT id,source_message_id,ack_status FROM school_email_packet_receipts
+        WHERE id=? AND agency_id=? AND ticket_id=? AND status='uploaded'
+          AND phi_document_id IS NOT NULL AND processing_task_id IS NOT NULL`,
+      [packetMetadata.emailPacketReceiptId,input.ticket.agency_id,input.ticket.id]);
+      if(receipt&&Number(receipt.source_message_id)===Number(context.latestInbound.id)){
+        prepared.verifiedFacts=[...(input.verifiedFacts||[]),{key:'emailed_packet_uploaded',shareable:true,
+          value:`The current email's packet was uploaded to the school's intake queue for review. Receipt confirmation ${receipt.ack_status==='sent'?'was sent':'has not been confirmed sent'}. Processing and enrollment completion are unconfirmed.`,
+          source:`School email packet receipt #${receipt.id}`}];
+      }
+    }catch{warnings.push('emailed_packet_upload_context_unavailable');}
+  }
   for(const [field,lookup] of [['reviewerLearning',dependencies.lookupReviewerLearning || lookupSupportReviewerLearning],['correspondence',dependencies.lookupCorrespondence || lookupSupportCorrespondence],['enrollmentEntry',dependencies.lookupEnrollmentEntry || lookupSupportEnrollmentEntry]]) {
     if(input[field]!==undefined) continue;
     try{prepared[field]=await lookup(context,dependencies);}catch{prepared[field]=null;warnings.push(`${field}_unavailable`);}

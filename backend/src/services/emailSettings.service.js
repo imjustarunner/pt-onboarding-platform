@@ -95,6 +95,7 @@ export async function emailRequiresAdminApproval({
     'school_staff_invitation_note',
     // School group confirmation emails must send immediately on packet submit/upload.
     'school_enrollment_packet_status',
+    'school_email_packet_receipt',
     'school_client_status_update',
     'provider_waitlist_update',
     'school_onboarding_welcome',

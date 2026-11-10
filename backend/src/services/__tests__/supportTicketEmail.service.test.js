@@ -6,7 +6,7 @@ import { decryptTicketMessageRow } from '../../utils/supportTicketCrypto.js';
 import pool from '../../config/database.js';
 test.after(() => pool.end());
 
-function harness({ credentialingCase = false, claimedBy = 5, revision = 10, result = { id: 'gmail-sent', internetMessageId: '<sent@agency.test>', bodyText: 'Hello\n\nHannah · Agency' }, failure = null } = {}) {
+function harness({ workFrom = null, workOwner = 5, actorWorkEmail = workFrom, credentialingCase = false, claimedBy = 5, revision = 10, result = { id: 'gmail-sent', internetMessageId: '<sent@agency.test>', bodyText: 'Hello\n\nHannah · Agency' }, failure = null } = {}) {
   const statements = [], captures = [], sends = [];
   let delivery = null;
   const db = { async beginTransaction() {}, async commit() {}, async rollback() {}, release() {}, async execute(sql, values = []) {
@@ -24,9 +24,9 @@ function harness({ credentialingCase = false, claimedBy = 5, revision = 10, resu
     if (sql.includes('SELECT m.id FROM support_ticket_messages')) return [[{ id: 10 }]];
     if (sql.includes('FROM email_sender_identities')) return [[{ id: 22, agency_id: 2, is_active: 1,
       identity_key: 'schools', from_email: 'schools@agency.test', display_name: 'Agency Schools' },
-    { id: 99, agency_id: 2, is_active: 1, identity_key: 'personal_5', from_email: 'hannah@agency.test' }]];
+    { id: 99, agency_id: 2, is_active: 1, identity_key: 'personal_5', owner_user_id: workOwner, from_email: workFrom || 'hannah@agency.test' }]];
     if (sql.startsWith('SELECT itsco_email')) return [[{ itsco_email: 'school-group@agency.test' }]];
-    if (sql.includes('u.first_name,u.last_name')) return [[{ id: 5, first_name: 'Hannah', last_name: 'Human', agency_name: 'Agency' }]];
+    if (sql.includes('u.first_name,u.last_name')) return [[{ id: 5, first_name: 'Hannah', last_name: 'Human', work_email: actorWorkEmail, agency_name: 'Agency' }]];
     if (sql.startsWith('SELECT * FROM support_ticket_email_messages')) return [[]];
     if (sql.startsWith('INSERT INTO support_ticket_messages')) return [{ insertId: 11 }];
     if (sql.startsWith('INSERT INTO support_ticket_email_messages')) {
@@ -204,4 +204,32 @@ test('receive-only credentialing cases cannot send through the general ticket em
   const h = harness({ credentialingCase: true });
   await assert.rejects(sendSupportTicketEmailReply(input, h.dependencies), { code: 'CREDENTIALING_RECEIVE_ONLY' });
   assert.equal(h.sends.length, 0);
+});
+
+
+test('an owned ITSCO work address uses Self signature and routes replies back to the shared ticket address', async () => {
+  const old = process.env.CLIENT_CHAT_ENCRYPTION_KEY_BASE64;
+  process.env.CLIENT_CHAT_ENCRYPTION_KEY_BASE64 = Buffer.alloc(32, 2).toString('base64');
+  try {
+    const h = harness({workFrom:'hannah@itsco.health'});
+    await sendSupportTicketEmailReply({...input,senderIdentityId:99,senderMode:'staff'},h.dependencies);
+    assert.equal(h.sends[0].senderIdentityId,99);
+    assert.equal(h.sends[0].fromDisplayNameOverride,'Hannah Human · Agency');
+    assert.equal(h.sends[0].templateType,'support_ticket_reply');
+    assert.equal(h.sends[0].replyToOverride,'schools@agency.test');
+  } finally { if(old==null) delete process.env.CLIENT_CHAT_ENCRYPTION_KEY_BASE64; else process.env.CLIENT_CHAT_ENCRYPTION_KEY_BASE64=old; }
+});
+
+test('personal domains, someone else’s work identity and Group mode on a staff address fail before sending', async () => {
+  for(const [options,senderMode] of [
+    [{workFrom:'hannah@plottwistco.com'},'staff'],
+    [{workFrom:'hannah@gmail.com'},'staff'],
+    [{workFrom:'hannah@itsco.health',workOwner:9},'staff'],
+    [{workFrom:'loriana@itsco.health',actorWorkEmail:'hannah@itsco.health'},'staff'],
+    [{workFrom:'hannah@itsco.health'},'team']
+  ]) {
+    const h=harness(options);
+    await assert.rejects(sendSupportTicketEmailReply({...input,senderIdentityId:99,senderMode},h.dependencies));
+    assert.equal(h.sends.length,0);
+  }
 });

@@ -138,3 +138,9 @@ it('identifies the paper packet uploader alongside the client initials',async()=
  expect(mail.text).toContain('Uploaded by: Jamie & Taylor');
  expect(mail.html).toContain('<strong>Uploaded by:</strong> Jamie &amp; Taylor');
 });
+
+
+it('does not send a second school upload notice when the email receipt owns the acknowledgement',async()=>{
+ await notifyNewPacketUploaded({agencyId:2,schoolOrganizationId:20,clientId:10,mode:'paper_upload',sendSchoolEmail:false});
+ expect(m.send).not.toHaveBeenCalled();
+});
