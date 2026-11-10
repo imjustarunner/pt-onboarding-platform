@@ -9,12 +9,17 @@ const ready=()=>({claim:{id:91,client_id:999,claim_lifecycle:'ready'},readiness:
 function fixture(){
  const account={id:5,user_id:700,agency_id:2,subrole:'billing',policy_revision:1},rule={id:1,revision:1,status:'active',authorized_by_user_id:501,authorized_by_name:'Michael Mendez',authorized_at:'2026-11-09',agency_ids_json:[2,6,377],instructions_json:BILLING_BOT_INSTRUCTIONS};
  const batch={id:8,ref:batchRef,rule_id:1,rule_revision:1,account_id:5,account_revision:1,agency_id:2,requested_by_user_id:501,requested_by_name:'Michael Mendez',state:'prepared',expires_at:'2026-11-10T01:00:00Z',packet_encrypted:{items:[{ref:itemRef,claimId:91,clientId:999,reviewHash:'a'.repeat(64)}]}};
- const db={execute:vi.fn(async sql=>{
+ const db={execute:vi.fn(async(sql,params=[])=>{
   if(sql.includes('FROM assistant_accounts'))return [[account]];
   if(sql.includes('FROM assistant_billing_rules'))return [[rule]];
-  if(sql.includes('FROM assistant_billing_batches'))return [sql.includes("state='prepared'")?[batch]:[batch]];
+  if(sql.includes('FROM assistant_billing_batches'))return [sql.includes("state='prepared'")?(batch.state==='prepared'?[batch]:[]):[batch]];
   if(sql.includes('FROM agencies'))return [[{feature_flags:{medicalBillingEnabled:true,insuranceVerificationTasks:{taskListId:16}}}]];
-  if(sql.startsWith('UPDATE assistant_billing_batches'))return [{affectedRows:1}];
+  if(sql.startsWith("UPDATE assistant_billing_batches SET state='processing'")){
+   if(batch.state!=='prepared'||(batch.results_json||[]).length!==params[1])return [{affectedRows:0}];
+   batch.state='processing';return [{affectedRows:1}];
+  }
+  if(sql.startsWith('UPDATE assistant_billing_batches SET results_json=')){batch.results_json=JSON.parse(params[0]);return [{affectedRows:1}];}
+  if(sql.startsWith('UPDATE assistant_billing_batches SET state=?')){batch.state=params[0];batch.results_json=JSON.parse(params[1]);return [{affectedRows:1}];}
   return [[]];
  })};
  const clinical={execute:vi.fn(async sql=>sql.startsWith('SELECT id FROM')?[[{id:91}]]:[[ {client_id:999,claim_lifecycle:'ready'} ]])};
@@ -35,6 +40,31 @@ describe('ready-only Billing Assistant batches',()=>{
   const f=fixture(),result=await f.service.submit(700,batchRef,input());
   expect(f.d.invoke).toHaveBeenCalledWith(expect.objectContaining({account:f.account,claimId:91,authorization:expect.objectContaining({ruleNumber:'BILL-000001',ruleRevision:1,authorizedByUserId:501,performedByUserId:700,batchRef})}));
   expect(result.results[0].status).toBe('CLAIMMD_ACKNOWLEDGED');expect(JSON.stringify(result)).not.toMatch(/PRIVATE_MEMBER|claimId|clientId|MUST_NOT_LEAK/);
+ });
+ it('keeps unselected claims available after an individual submission and excludes attempted references',async()=>{
+  const f=fixture(),secondRef='33333333-3333-4333-8333-333333333333';
+  f.batch.packet_encrypted.items.push({ref:secondRef,claimId:92,clientId:998,reviewHash:'a'.repeat(64)});
+  const first=await f.service.submit(700,batchRef,input());
+  expect(first).toMatchObject({remainingCount:1,reconciliationRequired:false});expect(f.batch.state).toBe('prepared');
+  expect((await f.service.batches(700)).batches[0].items.map(item=>item.ref)).toEqual([secondRef]);
+  await expect(f.service.submit(700,batchRef,input())).rejects.toMatchObject({code:'BILLING_ITEM_SCOPE'});
+  expect(f.d.invoke).toHaveBeenCalledTimes(1);
+  const second=await f.service.submit(700,batchRef,{...input(),itemRefs:[secondRef]});
+  expect(second.results).toHaveLength(1);expect(second.results[0].ref).toBe(secondRef);expect(second.remainingCount).toBe(0);
+  expect(f.batch.state).toBe('completed');expect(f.batch.results_json).toHaveLength(2);expect(f.d.invoke).toHaveBeenCalledTimes(2);
+  const replay=await f.service.submit(700,batchRef,{...input(),itemRefs:[secondRef]});
+  expect(replay.reused).toBe(true);expect(replay.results.map(result=>result.ref)).toEqual([secondRef]);expect(f.d.invoke).toHaveBeenCalledTimes(2);
+ });
+ it('rejects a stale reservation after another individual request records progress',async()=>{
+  const f=fixture(),execute=f.db.execute.getMockImplementation();
+  f.db.execute.mockImplementation(async(sql,params)=>{
+   if(sql.startsWith("UPDATE assistant_billing_batches SET state='processing'")){
+    f.batch.results_json=[{ref:itemRef,status:'CLAIMMD_ACKNOWLEDGED'}];
+   }
+   return execute(sql,params);
+  });
+  await expect(f.service.submit(700,batchRef,input())).rejects.toMatchObject({code:'BILLING_BATCH_RECONCILE'});
+  expect(f.d.invoke).not.toHaveBeenCalled();
  });
  it('holds a source changed since preparation and creates an urgent billing issue',async()=>{
   const f=fixture();f.d.prepare.mockResolvedValue({...ready(),reviewHash:'b'.repeat(64)});

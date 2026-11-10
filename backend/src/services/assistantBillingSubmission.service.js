@@ -65,8 +65,8 @@ export function createAssistantBillingSubmission(deps={}){
  }
  async function batches(userId){const a=await account(userId);const[rows]=await db.execute("SELECT * FROM assistant_billing_batches WHERE account_id=? AND agency_id=? AND state='prepared' AND expires_at>UTC_TIMESTAMP(3) ORDER BY id",[a.id,a.agency_id]);const results=[];
   for(const b of rows){let r;try{r=await rule(b.rule_id);}catch{continue;}if(Number(r.revision)!==Number(b.rule_revision)||Number(a.policy_revision)!==Number(b.account_revision))continue;
-   const packet=decrypt(b.packet_encrypted,`assistant-billing:${a.agency_id}:${b.ref}`);
-   const current=[];for(const item of packet.items){try{const p=await prepare(a.agency_id,item.claimId);if(billingAssistantReady(p)&&p.reviewHash===item.reviewHash)current.push(item);}catch{/* A stale or unready claim is never shown to the assistant. */}}
+   const packet=decrypt(b.packet_encrypted,`assistant-billing:${a.agency_id}:${b.ref}`),attempted=new Set(parseAssistantJson(b.results_json,[]).map(result=>result.ref));
+   const current=[];for(const item of packet.items.filter(item=>!attempted.has(item.ref))){try{const p=await prepare(a.agency_id,item.claimId);if(billingAssistantReady(p)&&p.reviewHash===item.reviewHash)current.push(item);}catch{/* A stale or unready claim is never shown to the assistant. */}}
    if(current.length)results.push({ref:b.ref,rule:publicBillingRule(r),expiresAt:b.expires_at,requestedBy:b.requested_by_name,items:current.map(i=>({ref:i.ref,status:'READY',checks:{clinicalSignatures:true,documentation:true,coverage:true,providerMapping:true,aiConsistency:true,claimData:true,neverSubmitted:true}}))});
   }return {batches:results};
  }
@@ -76,14 +76,18 @@ export function createAssistantBillingSubmission(deps={}){
   if(!b)throw assistantError(404,'BILLING_BATCH_NOT_FOUND','Batch not found.');
   const r=await rule(b.rule_id);
   if(Number(r.revision)!==Number(b.rule_revision)||Number(a.policy_revision)!==Number(b.account_revision)||new Date(b.expires_at)<=now())throw fail('BILLING_BATCH_STALE','This batch changed or expired. Ask Michael for a new batch.');
-  if(b.state==='completed')return {results:parseAssistantJson(b.results_json,[]),reused:true};
-  if(b.state!=='prepared')throw fail('BILLING_BATCH_RECONCILE','This batch was already started. Reconcile its recorded results before any new submission.');
   if(input.ruleNumber!==number(r.id)||Number(input.ruleRevision)!==Number(r.revision))throw fail('BILLING_RULE_CHANGED','Confirm the currently displayed rule.');
-  const packet=decrypt(b.packet_encrypted,`assistant-billing:${a.agency_id}:${ref}`),refs=input.itemRefs;
+  const packet=decrypt(b.packet_encrypted,`assistant-billing:${a.agency_id}:${ref}`),refs=input.itemRefs,previousResults=parseAssistantJson(b.results_json,[]),attempted=new Set(previousResults.map(result=>result.ref));
   if(!Array.isArray(refs)||!refs.length||new Set(refs).size!==refs.length||refs.some(v=>!packet.items.some(i=>i.ref===v)))throw assistantError(400,'BILLING_ITEM_SCOPE','Choose only opaque references in this batch.');
-  const[reserved]=await db.execute("UPDATE assistant_billing_batches SET state='processing' WHERE id=? AND state='prepared'",[b.id]);if(!reserved.affectedRows)throw fail('BILLING_BATCH_RECONCILE','This batch is already being processed.');
-  const results=[];let uncertain=false;
-  for(const item of packet.items.filter(i=>refs.includes(i.ref))){
+  if(b.state==='completed')return {results:previousResults.filter(result=>refs.includes(result.ref)),remainingCount:0,reused:true};
+  if(b.state!=='prepared')throw fail('BILLING_BATCH_RECONCILE','This batch was already started. Reconcile its recorded results before any new submission.');
+  const pendingItems=packet.items.filter(item=>!attempted.has(item.ref));
+  if(refs.some(v=>attempted.has(v)))throw assistantError(400,'BILLING_ITEM_SCOPE','Choose only unsubmitted opaque references in this batch.');
+  // The result count also protects a request that read the batch before another
+  // individual submission finished and made its remaining items available again.
+  const[reserved]=await db.execute("UPDATE assistant_billing_batches SET state='processing' WHERE id=? AND state='prepared' AND COALESCE(JSON_LENGTH(results_json),0)=?",[b.id,previousResults.length]);if(!reserved.affectedRows)throw fail('BILLING_BATCH_RECONCILE','This batch changed or is already being processed. Refresh its recorded results.');
+  const results=[...previousResults];let uncertain=false;
+  for(const item of pendingItems.filter(i=>refs.includes(i.ref))){
    let authorization;
    try{
     const currentRule=await rule(r.id),current=await account(userId);
@@ -106,8 +110,10 @@ export function createAssistantBillingSubmission(deps={}){
    }
    await db.execute('UPDATE assistant_billing_batches SET results_json=? WHERE id=?',[JSON.stringify(results),b.id]);if(uncertain)break;
   }
-  await db.execute('UPDATE assistant_billing_batches SET state=?,results_json=?,completed_at=UTC_TIMESTAMP(3) WHERE id=?',[uncertain?'reconciliation_required':'completed',JSON.stringify(results),b.id]);
-  return {results,reconciliationRequired:uncertain};
+  const attemptedAfter=new Set(results.map(result=>result.ref)),remainingCount=packet.items.filter(item=>!attemptedAfter.has(item.ref)).length;
+  const state=uncertain?'reconciliation_required':remainingCount?'prepared':'completed';
+  await db.execute("UPDATE assistant_billing_batches SET state=?,results_json=?,completed_at=IF(?='prepared',NULL,UTC_TIMESTAMP(3)) WHERE id=?",[state,JSON.stringify(results),state,b.id]);
+  return {results:results.slice(previousResults.length),remainingCount,reconciliationRequired:uncertain};
  }
  return {rules,authorize,revoke,createBatch,batches,submit};
 }
