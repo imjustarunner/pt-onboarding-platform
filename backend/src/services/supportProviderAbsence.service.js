@@ -62,8 +62,21 @@ export async function lookupSupportProviderAbsence(context, dependencies = {}) {
   } catch { return { ...base, reason: 'provider_or_roster_lookup_failed' }; }
 }
 
-export function providerAbsenceReply(lookup) {
+export function providerAbsenceReply(lookup, { body = '' } = {}) {
   if (lookup?.status !== 'verified_provider') return null;
+  const currentBody = String(body).split(/\n\s*(?:On .+wrote:|From:|>)/i)[0];
+  // Notification updates and requests need the full conversation-aware draft:
+  // a fixed cancel-day template cannot tell completed, intended or missing work apart.
+  if (/\b(?:notify|notifying|notified|notification|inform|informing|informed)\b/i.test(currentBody)
+      || /\b(?:contacted|contacting|emailed|emailing)\b[^.!?\n]{0,80}\b(?:school|families|family|parents?)\b/i.test(currentBody)) return null;
+  const emergency = /\b(?:family emergency|urgent family matter|bereavement)\b/i.test(currentBody);
+  if (emergency) {
+    const acknowledgement = "I'm sorry you're dealing with this. Thank you for letting us know.";
+    if (lookup.reason === 'absence_date_has_passed') return `${acknowledgement} Is any follow-up still needed with the school or affected families?`;
+    const offer = 'Would you like help notifying the school or your clients’ parents?';
+    if (!lookup.reviewUrl) return `${acknowledgement} ${offer}${lookup.date ? '' : ' Please confirm which day you’ll be out.'}`;
+    return `${acknowledgement} ${offer}\n\nIf helpful, you can also use this link for ${lookup.date}:\n${lookup.reviewUrl}\n\nSign in, review the recipients and messages, then confirm.${lookup.missingFamilyEmailCount ? ' Some families do not have an email address available for these notices and will need separate follow-up.' : ''}`;
+  }
   const greeting = `Thanks for letting us know, ${lookup.firstName}.`;
   if (!lookup.reviewUrl) return lookup.reason === 'absence_date_has_passed'
     ? `${greeting} Were your school and affected families notified about your absence on ${lookup.date}? Please let us know if any follow-up is still needed.`

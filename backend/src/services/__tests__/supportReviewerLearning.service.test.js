@@ -1,6 +1,6 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';
 import {buildReviewerLearning,lookupSupportEnrollmentEntry} from '../supportReviewerLearning.service.js';
-import {currentSupportEmailText,isExternalSupportReferralRequest,buildSupportEmailDraftContext,classifySupportEmailDraft,validateSupportEmailDraft} from '../../utils/supportEmailDraft.shared.js';
+import {currentSupportEmailText,isExternalSupportReferralRequest,buildSupportEmailDraftContext,buildSupportEmailDraftPrompt,classifySupportEmailDraft,validateSupportEmailDraft} from '../../utils/supportEmailDraft.shared.js';
 const ticket={id:10,agency_id:2,school_organization_id:20,source_email_from:'provider@example.test',subject:'Friday schedule',question:'What times work on Friday?',claimed_by_user_id:9};
 const context=()=>buildSupportEmailDraftContext({ticket,messages:[{id:30,email_direction:'inbound',body:ticket.question}],claimant:{id:9,name:'Alex'}});
 const row=(extra={})=>({id:4,agency_id:2,ticket_id:10,reviewer_user_id:507,updated_by_user_id:507,revision:1,feedback_encrypted:JSON.stringify({notes:'This provider is emailing the school. We do not need to respond.',preferredReply:''}),evidence_encrypted:JSON.stringify({subject:'Friday schedule',originalReceived:{sourceMessageId:30,body:ticket.question},comparison:{generatedDraft:'Wrong scheduling promise'}}),...extra});
@@ -23,3 +23,35 @@ test('allows a link actually recorded in the current conversation',()=>{const c=
 test('reads an unambiguous current agency form for an explicit enrollment-link request',async()=>{const c=context();c.schoolOrganizationId=null;c.latestInbound.body='Our team will help send a link for the enrollment paperwork.';const queries=[];const result=await lookupSupportEnrollmentEntry(c,{database:{execute:async(sql,params)=>{queries.push(params);return sql.includes('FROM intake_links')?[[{id:234,public_key:'synthetic-public-office-key',language_code:'en'}]]:[[{id:2,slug:'itsco',portal_url:'itsco'}]];}}});assert.equal(result.id,234);assert.match(result.url,/intake\/synthetic-public-office-key$/);assert.ok(queries.every(p=>p[0]===2));c.schoolOrganizationId=99;assert.equal(await lookupSupportEnrollmentEntry(c,{database:{execute:()=>assert.fail('cannot offer a different school an office form')}}),null);});
 
 test('preserves established reviewer standards after older examples leave the retrieval window',()=>{const learning=buildReviewerLearning(context(),[],options);assert.ok(learning.standards.some(s=>s.id==='audience_before_reply'));const other={...context(),agencyId:450};assert.equal(buildReviewerLearning(other,[],options).standards.length,0);});
+
+test('learns from bad-only ratings without turning rejected wording into an approved example',()=>{
+ const c=context();const rejected=row({draft_rating:'bad',feedback_encrypted:JSON.stringify({notes:'',preferredReply:''}),evidence_encrypted:JSON.stringify({subject:ticket.subject,originalReceived:{sourceMessageId:30,body:ticket.question},comparison:{generatedDraft:'Try https://example.test/private-token. PIN: 1234'}})});
+ const learning=buildReviewerLearning(c,[rejected],options);
+ assert.equal(learning.examples.length,1);assert.equal(learning.examples[0].approvedExample,null);
+ assert.match(learning.examples[0].rejectedDraft,/historical link omitted/);assert.doesNotMatch(JSON.stringify(learning.examples),/private-token|1234/);
+ const prompt=buildSupportEmailDraftPrompt({...c,reviewerLearning:learning});
+ assert.match(prompt,/rejectedDraft/);assert.match(prompt,/Bad rating without a written explanation does not establish why/);
+});
+test('keeps acceptable replies separate from good drafts and rejects bad actual replies',()=>{
+ const c=context();const r=row({actual_rating:'bad',draft_rating:'good',feedback_encrypted:JSON.stringify({notes:''}),evidence_encrypted:JSON.stringify({subject:ticket.subject,originalReceived:{sourceMessageId:30,body:ticket.question},comparison:{generatedDraft:'I will check the options.'},deliveries:[{body:'Is this request even for us?'}]})});
+ const example=buildReviewerLearning(c,[r],options).examples[0];assert.equal(example.approvedExample,'I will check the options.');assert.equal(example.rejectedActual,'Is this request even for us?');
+ r.actual_rating='acceptable';r.draft_rating=null;const acceptable=buildReviewerLearning(c,[r],options).examples[0];assert.equal(acceptable.approvedExample,null);assert.equal(acceptable.rejectedActual,null);assert.equal(acceptable.acceptableExample,'Is this request even for us?');
+});
+test('historical approval cannot establish a current insurance prerequisite or promise assignment',()=>{
+ const c=context();
+ for(const reply of ["A clinician can't be assigned until all registration documents are complete.",'Once we receive and verify the Medicaid number, we can get the client assigned to your caseload.'])assert.ok(validateSupportEmailDraft(reply,c).includes('unsupported_assignment_prerequisite'));
+ assert.ok(!validateSupportEmailDraft('I will check the enrollment and assignment status and let you know what remains.',c).includes('unsupported_assignment_prerequisite'));
+ c.verifiedFacts.push({key:'assignment_requirement_policy',value:'Current recorded policy',source:'Verified agency policy'});
+ assert.ok(!validateSupportEmailDraft("A clinician can't be assigned until all registration documents are complete.",c).includes('unsupported_assignment_prerequisite'));
+});
+test('does not draft another reply to a simple promise to keep support posted, but keeps new obstacles',()=>{
+ const c=context();c.messages.push({direction:'outbound',body:'Please let me know when you hear back.'});
+ c.latestInbound.body='You got it! I will keep you posted if I hear anything from Mom about that Medicaid number. Appreciate your help!';assert.equal(classifySupportEmailDraft(c).reason,'acknowledgement_no_action_required');
+ c.latestInbound.body+='\n\n[image: image.png][image: image.png][image: image.png][image: image.png][image: image.png]';assert.equal(classifySupportEmailDraft(c).reason,'acknowledgement_no_action_required');
+ c.latestInbound.body='Thanks, but I cannot open the portal.';assert.equal(classifySupportEmailDraft(c).suppressed,false);
+ c.latestInbound.body='Thanks! Could you send the form?';assert.equal(classifySupportEmailDraft(c).suppressed,false);
+});
+test('does not turn a shared-space update into an unsupported forwarding commitment',()=>{
+ const c=context();assert.ok(validateSupportEmailDraft('I will pass this information along to the provider.',c).includes('unaccepted_follow_up_commitment'));
+ assert.ok(!validateSupportEmailDraft('Thank you for sharing the room-booking update.',c).includes('unaccepted_follow_up_commitment'));
+});

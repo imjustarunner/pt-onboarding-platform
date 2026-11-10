@@ -30,3 +30,17 @@ test('does not generate a link for an unverified sender, a past or ambiguous day
  assert.equal((await lookupSupportProviderAbsence(vague,dependencies())).reason,'absence_date_needs_confirmation');
  const broken=dependencies();broken.database.execute=async()=>{throw Error('offline')};assert.equal((await lookupSupportProviderAbsence(context,broken)).status,'unavailable');
 });
+
+test('responds to an emergency with empathy and an offer before procedural details',async()=>{
+ const result=await lookupSupportProviderAbsence(context,dependencies());
+ const reply=providerAbsenceReply(result,{body:'I have an urgent family matter and will not be at school tomorrow.'});
+ assert.match(reply,/sorry you’re dealing|sorry you're dealing/);assert.match(reply,/Would you like help notifying/);
+ assert.ok(reply.indexOf('Would you like help')<reply.indexOf(result.reviewUrl));assert.match(reply,/review the recipients and messages, then confirm/);
+ assert.doesNotMatch(reply,/I will check|have been notified/);
+ const quoted=providerAbsenceReply(result,{body:'I will be out tomorrow.\nOn Monday Someone wrote:\nI have a family emergency.'});assert.doesNotMatch(quoted,/sorry/);
+});
+test('leaves notification context to the conversation-aware draft instead of repeating fixed instructions',()=>{
+ const lookup={status:'verified_provider',firstName:'Alex',date:'2026-11-10',reviewUrl:'https://example.test/current'};
+ for(const body of ['I already notified the school and families.','I am notifying my clients and their families.','I have not notified the school yet. Can you help?','I have emailed the school and parents.'])assert.equal(providerAbsenceReply(lookup,{body}),null);
+ assert.notEqual(providerAbsenceReply(lookup,{body:'I will be out tomorrow.\nOn Monday Someone wrote:\nI notified the school.'}),null);
+});

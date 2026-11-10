@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import { buildReplyLibraryPromptBlock, inferIntentFromTicket } from './schoolSupportReplyLibrary.shared.js';
 import { parseMetadataJson } from './schoolSupportDraftSources.shared.js';
 
-export const SUPPORT_EMAIL_DRAFT_VERSION = 'evidence-first-2026-11-02-rachel-v8';
+export const SUPPORT_EMAIL_DRAFT_VERSION = 'evidence-first-2026-11-09-rachel-v9';
 export const SUPPORT_EMAIL_DRAFT_SYSTEM_INSTRUCTION = `You draft unsent school-support emails for human review. Accuracy takes priority over sounding helpful.
 Never say work is completed or underway unless a verifiedAction records that state. Do not promise uploads, routing, forwarding to another team, assignments, contact with other people, appointment changes or deadlines without supporting accepted actions. Ordinary future commitments to review/check the request, clarify available options, and follow up are appropriate suggestions for the staff member to accept by sending. For a referral plus a portal issue, a useful next step is "I will review the referral and check on the login issue"; never substitute an unverified "I will get these uploaded/routed" or "I will pass this to our team". Record intended follow-ups in proposedFollowUps; do not describe them as already underway.
 Only attachments.files proves which files belong to the CURRENT incoming email. attachments.conversationFiles belongs to other conversation messages; refer to those only as earlier files, never as newly received. attachments.unattributedFiles has unknown email provenance and proves neither receipt nor absence in the latest email. When currentMessageInventoryKnown is false, never claim the latest email has no files or ask for a resend on that basis. Receipt does not mean content review. A parent taking referral forms home is NOT ITSCO receiving completed packets. An empty email inventory also does NOT prove ITSCO never received paperwork through another route. Without verified enrollmentLookup evidence, do not claim either receipt or nonreceipt across other routes. Never invent a paperwork prerequisite, including "once the forms are returned we can begin intake"; only a supplied verified policy can establish that requirement. Do not promise timing such as "shortly", "soon", or "today" without a recorded commitment.
@@ -250,8 +250,10 @@ export function classifySupportEmailDraft(context) {
   if (/^(?:automatic reply|auto(?:matic)?[ -]response|out of office|delivery status notification|undeliverable)\b/.test(subject) || automatedHeader || machineSender) {
     return { suppressed: true, reason: 'automated_notification' };
   }
-  if(/^(?:thank(?:s| you)(?: so much)?[,.!]?|completed|done|received|got it)[\s\S]{0,100}$/i.test(body)
-    && !/[?]/.test(body) && !asksSupportForAction(body) && (context.messages.some(m=>m.direction==='outbound') || /provider assignment/i.test(subject))) return {suppressed:true,reason:'acknowledgement_no_action_required'};
+  const acknowledgement=body.replace(/\[image:[^\]]*\]/gi,'').replace(/\s+/g,' ').trim();
+  if(/^(?:thank(?:s| you)(?: so much)?[,.!]?|completed|done|received|got it|you got it)[\s\S]{0,160}$/i.test(acknowledgement)
+    && !/[?]/.test(acknowledgement) && !asksSupportForAction(acknowledgement) && !/\b(?:but|however|cannot|can['’]t|unable|error|problem|issue|trouble)\b/i.test(acknowledgement)
+    && (context.messages.some(m=>m.direction==='outbound') || /provider assignment/i.test(subject))) return {suppressed:true,reason:'acknowledgement_no_action_required'};
   const strongMarketing=/\b(?:attract more new patients|patient retention.{0,40}practice growth|get booked|you only pay|grow your practice|marketing services)\b/i.test(`${subject} ${body}`);
   if(strongMarketing && !asksSupportForAction(body)) return {suppressed:true,reason:'marketing_or_newsletter'};
   const subscriberMessage = context.headers.listUnsubscribe && /\b(?:unsubscribe|manage (?:your )?preferences)\b/.test(body);
@@ -299,6 +301,7 @@ export function buildSupportEmailDraftPrompt(context, { knowledgeMatches = [], p
     context.referralRelationships.length ? `EXPLICIT SENDER-STATED REFERRAL ROLES (not verified assignments): ${JSON.stringify(context.referralRelationships)}` : '',
     context.reviewerLearning?.standards?.length ? `REVIEWER-DERIVED COMMUNICATION STANDARDS (agency-specific preferences; not new client facts or policy): ${JSON.stringify(context.reviewerLearning.standards.map(({id,guidance})=>({id,guidance})))}` : '',
     context.reviewerLearning?.examples?.length ? `HISTORICAL REVIEW COMPARISONS (use to understand wording/context mistakes only; never copy their people, client status, links, dates, insurance decisions, or completed actions into the current reply): ${JSON.stringify(context.reviewerLearning.examples)}` : '',
+    '- Reviewer ratings are distinct: approvedExample is Good; acceptableExample is Acceptable, not an ideal template. rejectedDraft and rejectedActual were rated Bad: avoid imitating them. A Bad rating without a written explanation does not establish why it was rejected; do not invent a reason or policy. Use preferredReply and reviewerNotes where supplied, with correct grammar and current-case evidence. Even an approved or acceptable historical reply cannot establish that insurance or paperwork is a prerequisite for assignment today, or that a particular child is cleared or will be assigned.',
     '- Read the current authored text; quoted older email and signatures are not a fresh request. Do not turn an existing ITSCO enrollment conversation into external referral recommendations. A completed/thanks update may need no reply.',
     '- Distinguish provider-to-school coordination from a request to Support. Do not answer school scheduling questions on the school’s behalf. When a simple acknowledgement is appropriate, keep it brief and avoid invented follow-up work.',
     '- Recipient context matters: do not promise to tell a provider who is already included. Keep termination/discharge documentation requests in proposedFollowUps for a separate internal message, never in a school-facing reply.',
@@ -370,7 +373,7 @@ export function validateSupportEmailDraft(reply, context) {
   const hasAcceptedAction = context.verifiedActions.some((a) => ['approved', 'in_progress'].includes(a.status) && a.ownerUserId === context.claimant.id);
   if (!context.verifiedActions.some((a) => ['approved', 'in_progress'].includes(a.status))
       && /\b(?:will|is going to|has agreed to)\s+(?:personally |also |then )*(?:call|contact|email|text|notify|move|reschedule|cancel|change|update|book|arrange|send|forward|reach out)\b/i.test(body)) issues.push('unsupported_third_party_commitment');
-  if (!hasAcceptedAction && /\b(?:(?:i|we)['’]ll|will)\s+(?:also |then |now |personally )*(?:send|contact|update|process|schedule|reach out|call|upload|route|forward|pass (?:this |that |it |them )?along|get\s+(?=[^.!?\n]{0,70}\b(?:uploaded|routed|filed|scheduled|assigned|processed)\b)|have|make sure|ensure|arrange)\b/i.test(body)) issues.push('unaccepted_follow_up_commitment');
+  if (!hasAcceptedAction && /\b(?:(?:i|we)['’]ll|will)\s+(?:also |then |now |personally )*(?:send|contact|update|process|schedule|reach out|call|upload|route|forward|pass (?:[^.!?\n]{0,60} )?along|get\s+(?=[^.!?\n]{0,70}\b(?:uploaded|routed|filed|scheduled|assigned|processed)\b)|have|make sure|ensure|arrange)\b/i.test(body)) issues.push('unaccepted_follow_up_commitment');
   if (!context.verifiedActions.some((a) => a.status === 'in_progress')
       && /\b(?:i(?:['’]m| am)|we(?:['’]re| are))\s+(?:already |currently )?(?:checking|reviewing|working|processing|updating|arranging|looking into|contacting)\b/i.test(body)) issues.push('unsupported_action_in_progress');
   for (const relationship of context.referralRelationships || []) {
@@ -380,6 +383,11 @@ export function validateSupportEmailDraft(reply, context) {
   }
   const hasPaperworkPolicy = context.verifiedFacts.some((f) => /(?:paperwork|referral|intake|document).*?(?:policy|requirement)|(?:policy|requirement).*?(?:paperwork|referral|intake|document)/i.test(f.key));
   if (!hasPaperworkPolicy && /\b(?:once|after|when|as soon as)\b[^.!?\n]{0,150}\b(?:forms?|packets?|paperwork)\b[^.!?\n]{0,100}\b(?:begin|start|proceed with|move forward with)\b[^.!?\n]{0,50}\b(?:intake|services?|support|options?)\b/i.test(body)) issues.push('unsupported_paperwork_prerequisite');
+  const hasAssignmentPolicy = context.verifiedFacts.some(f => /(?:insurance|medicaid|registration|paperwork|assignment).*?(?:policy|requirement)|(?:policy|requirement).*?(?:insurance|medicaid|registration|paperwork|assignment)/i.test(f.key));
+  if (!hasAssignmentPolicy && (
+    /\b(?:cannot|can['’]t|won['’]t|will not|not be)\b[^.!?\n]{0,100}\bassign\w*\b[^.!?\n]{0,100}\b(?:until|before|without)\b[^.!?\n]{0,120}\b(?:insurance|medicaid|registration|paperwork|forms?|packets?)\b/i.test(body)
+    || /\b(?:once|after|when|as soon as)\b[^.!?\n]{0,120}\b(?:insurance|medicaid|registration|paperwork|forms?|packets?)\b[^.!?\n]{0,160}\b(?:assign\w*|caseload)\b/i.test(body)
+  )) issues.push('unsupported_assignment_prerequisite');
   if (!hasAcceptedAction && /\b(?:i|we)(?:['’]ll| will)\b[^.!?\n]{0,140}\b(?:shortly|soon|today|tomorrow|by (?:monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b/i.test(body)) issues.push('unsupported_follow_up_timing');
   return issues;
 }

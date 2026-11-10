@@ -29,18 +29,22 @@ export function buildReviewerLearning(context,rows,{decrypt=decryptChatText}={})
  }).filter(r=>r.sameSource || r.score>=3 && (!r.row.school_organization_id || !context.schoolOrganizationId || Number(r.row.school_organization_id)===Number(context.schoolOrganizationId))).sort((a,b)=>Number(b.sameSource)-Number(a.sameSource)||b.score-a.score||Number(b.row.id)-Number(a.row.id));
  const decision=related.find(r=>r.sameSource&&noReply(`${r.feedback.notes}\n${r.feedback.preferredReply}`));
  const examples=related.filter(r=>!uncertain(r.feedback.notes||'')&&!noReply(r.feedback.notes||''))
-  .filter(r=>r.feedback.preferredReply?.trim()||r.feedback.notes?.trim()||r.row.draft_rating==='good'||r.row.actual_rating==='good').slice(0,4)
+  .filter(r=>r.feedback.preferredReply?.trim()||r.feedback.notes?.trim()||r.row.draft_rating||r.row.actual_rating).slice(0,4)
   .map(({row,feedback,evidence})=>({reviewEntryId:row.id,actualRating:row.actual_rating,draftRating:row.draft_rating,
    // Historical text is a writing comparison, never current client facts.
    previousQuestion:historicalText(evidence.originalReceived?.body).slice(0,1400),
    preferredReply:historicalText(feedback.preferredReply).slice(0,2200),
    reviewerNotes:historicalText(feedback.notes).slice(0,1600),
    approvedExample:row.draft_rating==='good'?historicalText(evidence.comparison?.generatedDraft).slice(0,1600)
-    :row.actual_rating==='good'&&!feedback.preferredReply?historicalText(evidence.deliveries?.[0]?.body).slice(0,1600):null}));
+    :row.actual_rating==='good'&&!feedback.preferredReply?historicalText(evidence.deliveries?.[0]?.body).slice(0,1600):null,
+   acceptableExample:row.draft_rating==='acceptable'?historicalText(evidence.comparison?.generatedDraft).slice(0,1600)
+    :row.actual_rating==='acceptable'?historicalText(evidence.deliveries?.[0]?.body).slice(0,1600):null,
+   rejectedDraft:row.draft_rating==='bad'?historicalText(evidence.comparison?.generatedDraft).slice(0,1600):null,
+   rejectedActual:row.actual_rating==='bad'?historicalText(evidence.deliveries?.[0]?.body).slice(0,1600):null}));
  // The reviewed general standards remain after their examples age out of the
  // bounded retrieval window. New saved examples still refresh the fingerprint.
  const standards=Number(context.agencyId)===2?RACHEL_SUPPORT_STANDARDS:[];
- return {version:'rachel-review-v1',fingerprint:hash(records.map(({row,feedback})=>[row.id,row.revision,row.actual_rating,row.draft_rating,feedback])),
+ return {version:'rachel-review-v2',fingerprint:hash(records.map(({row,feedback})=>[row.id,row.revision,row.actual_rating,row.draft_rating,feedback])),
   savedFeedbackCount:records.length,standards,examples,
   decision:decision?{action:'no_reply',reason:'reviewer_marked_no_reply',entryId:decision.row.id,sourceMessageId:decision.evidence.originalReceived?.sourceMessageId}:null};
 }

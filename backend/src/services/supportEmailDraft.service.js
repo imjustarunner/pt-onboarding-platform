@@ -92,8 +92,8 @@ export async function generateSupportEmailDraft(input, dependencies = {}) {
     return { text: '', status: 'suppressed', suppressed: true, suppressionReason: classification.reason, metadata: { ...baseMetadata, knowledgeSources: [] } };
   }
 
-  const absenceReply = providerAbsenceReply(context.providerAbsence);
-  if (absenceReply) return { text: absenceReply, status: 'needs_review', suppressed: false, provider: 'records', modelName: 'provider-absence-v1',
+  const absenceReply = providerAbsenceReply(context.providerAbsence, {body:context.latestInbound.body});
+  if (absenceReply) return { text: absenceReply, status: 'needs_review', suppressed: false, provider: 'records', modelName: 'provider-absence-v2',
     metadata: { ...baseMetadata, knowledgeSources: [], usedEvidenceIds: [context.latestInbound.evidenceId],
       reviewWarnings: ['Provider must review recipients and confirm; this draft has not canceled a day or notified families.'],
       proposedFollowUps: ['Review delivery results and separately follow up on missing contacts or held notifications.'],
@@ -143,12 +143,19 @@ export async function generateSupportEmailDraft(input, dependencies = {}) {
   const prompt = buildSupportEmailDraftPrompt(context, { knowledgeMatches, promptNotes });
   const generationOptions = { prompt, systemInstruction: SUPPORT_EMAIL_DRAFT_SYSTEM_INSTRUCTION,
     model: process.env.SUPPORT_EMAIL_DRAFT_MODEL || 'gemini-2.5-pro',
-    temperature: 0.1, maxOutputTokens: 4000, jsonMode: true, sensitive: true, vertexOnly: true, allowModelFallback: false };
+    temperature: 0.1, maxOutputTokens: 4000, thinkingBudget: 1024, jsonMode: true, sensitive: true, vertexOnly: true, allowModelFallback: false };
   let response = await generateText(generationOptions);
-  let result = parseSupportEmailDraftResult(response.text);
-  let validationIssues = validateSupportEmailDraft(result.reply, context);
+  let result;
   let correctedDraft = false;
-  if (validationIssues.length) {
+  try { result = parseSupportEmailDraftResult(response.text); }
+  catch (error) {
+    if (error.code !== 'INVALID_SUPPORT_DRAFT') throw error;
+    correctedDraft = true;
+    response = await generateText({ ...generationOptions, prompt: `${prompt}\nFORMAT CORRECTION REQUIRED: The previous response was incomplete or unreadable JSON. Return a complete JSON object with a concise reply string and the requested evidence fields. No Markdown wrapper. Keep the same evidence and privacy rules.` });
+    result = parseSupportEmailDraftResult(response.text);
+  }
+  let validationIssues = validateSupportEmailDraft(result.reply, context);
+  if (validationIssues.length && !correctedDraft) {
     correctedDraft = true;
     response = await generateText({ ...generationOptions, prompt: `${prompt}\nQUALITY CORRECTION REQUIRED:\nThe previous candidate failed these checks: ${JSON.stringify(validationIssues)}. Rewrite from the current evidence, removing those claims. Do not substitute a different wording of the same unsupported promise.\nPrevious rejected candidate: ${JSON.stringify(result)}` });
     result = parseSupportEmailDraftResult(response.text);

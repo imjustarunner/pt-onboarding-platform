@@ -18,6 +18,16 @@ const input = (more = {}) => ({ ticket, claimant, knowledgeMatches: [], promptNo
 const model = (reply, extra = {}) => async () => ({ text: JSON.stringify({ reply, ...extra }), modelName: 'test-model', provider: 'vertex' });
 
 describe('evidence-grounded support drafts', () => {
+  it('corrects an unreadable model response once while keeping Vertex and evidence rules',async()=>{
+    let calls=0;
+    const result=await generateSupportEmailDraft(input(),{generateText:async args=>{calls++;assert.equal(args.vertexOnly,true);assert.equal(args.allowModelFallback,false);assert.equal(args.thinkingBudget,1024);return calls===1?{text:'{"reply":'}:model('Thank you for letting me know about the portal issue. What error are you seeing when you sign in?')();}});
+    assert.equal(calls,2);assert.equal(result.status,'needs_review');assert.ok(result.metadata.correctedDraft);
+  });
+  it('stops after one format correction and never offers malformed or ungrounded output',async()=>{
+    let calls=0;
+    await assert.rejects(generateSupportEmailDraft(input(),{generateText:async()=>{calls++;return {text:'invalid'};}}),{code:'INVALID_SUPPORT_DRAFT'});assert.equal(calls,2);
+    calls=0;await assert.rejects(generateSupportEmailDraft(input(),{generateText:async()=>{calls++;return calls===1?{text:'invalid'}:model('I have uploaded and routed the packet.')();}}),{code:'SUPPORT_DRAFT_GROUNDING_FAILED'});assert.equal(calls,2);
+  });
   it('drafts referral options from the current agency directory without inventing providers', async () => {
     const result=await generateSupportEmailDraft(input({ticket:{...ticket,agency_id:377,subject:'Referral options',question:'Can you recommend psychologists or psychiatrists?'}}),{
       findReferralOptions:async(agencyId,criteria)=>{assert.equal(agencyId,377);assert.deepEqual(criteria.services,['psychology','psychiatry']);return {entries:[{id:12,name:'Example Practice',phone:'555-0100',website:'https://example.test',service_tags:['psychology'],notes:'PRIVATE'}]};},
