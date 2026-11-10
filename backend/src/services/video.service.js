@@ -1,4 +1,6 @@
-import { dialInConfigured, assertDialInMeeting, dialInError } from './meetingDialInPolicy.js';
+import { dialInConfigured, dialInError } from './meetingDialInPolicy.js';
+import pool from '../config/database.js';
+import { roomUnavailable } from './meetingJoinPolicy.service.js';
 import VonageVideoService, { resolveVideoProjectId } from './vonageVideo.service.js';
 
 /**
@@ -100,26 +102,30 @@ export async function listRoomRecordings()         { return []; }
 export async function setHostOnlyRecordingRules()  { return null; }
 export async function setRecordAllRecordingRules() { return null; }
 
-/** Share a main meeting room with telephone participants when that feature is configured.
- * Browser-only creation and lobby rooms retain their existing behavior.
+/** Serialize main-room creation so browsers and optional phone callers share a room.
+ * Phone eligibility is checked by the phone entry points, never by video creation.
  */
 export async function createOrGetMeetingRoom(type, meetingId, uniqueName) {
   if (!dialInConfigured()) return createOrGetRoomByUniqueName(uniqueName);
   const table = type === 'supervision' ? 'supervision_sessions' : type === 'team-meeting' ? 'provider_schedule_events' : null;
   if (!table || !Number.isSafeInteger(Number(meetingId)) || Number(meetingId) <= 0) throw dialInError('Meeting not found.',404);
-  const { default: pool } = await import('../config/database.js');
   const db = await pool.getConnection(), lock = `meeting-media:${type}:${meetingId}`;
   try {
     const [[held]] = await db.execute('SELECT GET_LOCK(?,5) acquired',[lock]);
     if (!Number(held.acquired)) throw dialInError('Meeting room creation is busy. Retry joining.',503);
     const [[meeting]] = await db.execute(`SELECT * FROM ${table} WHERE id=?`,[meetingId]);
-    assertDialInMeeting(type,meeting);
+    if (!meeting || (type === 'team-meeting' && !['TEAM_MEETING', 'HUDDLE'].includes(meeting.kind)))
+      throw dialInError('Meeting not found.',404);
+    const unavailable = roomUnavailable(meeting,type);
+    if (unavailable) throw dialInError(unavailable.error.message,unavailable.status);
+    if (['ENDED','MANUAL_PENDING','MANUAL_RECORDING'].includes(String(meeting.status).toUpperCase()))
+      throw dialInError('This meeting has ended or is no longer available.',410);
     if (meeting.twilio_room_sid) return {sid:meeting.twilio_room_sid,roomSid:meeting.twilio_room_sid,uniqueName:meeting.twilio_room_unique_name || uniqueName};
     const room = await createOrGetRoomByUniqueName(uniqueName);
     if (!room?.sid) throw dialInError('Meeting video is not configured.',503);
     const ended = type==='supervision' ? 'live_ended_at' : 'meeting_completed_at';
     const [saved] = await db.execute(`UPDATE ${table} SET twilio_room_sid=?,twilio_room_unique_name=? WHERE id=? AND ${ended} IS NULL
-      AND UPPER(COALESCE(status,'')) NOT IN ('CANCELLED','RESCHEDULED','MISSED','FINALIZED','COMPLETED','ENDED')`,[room.sid,uniqueName,meetingId]);
+      AND UPPER(COALESCE(status,'')) NOT IN ('CANCELLED','RESCHEDULED','MISSED','FINALIZED','COMPLETED','ENDED','MANUAL_PENDING','MANUAL_RECORDING')`,[room.sid,uniqueName,meetingId]);
     if (!saved.affectedRows) {
       await VonageVideoService.endLiveSession(room.sid,{reason:'meeting_closed'}).catch(()=>{});
       throw dialInError('This meeting ended while its room was being created.',410);

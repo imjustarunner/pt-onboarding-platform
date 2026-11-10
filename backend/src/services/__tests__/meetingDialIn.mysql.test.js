@@ -277,6 +277,13 @@ describe.skipIf(!enabled)('telephone meeting lifecycle with isolated MySQL', () 
     const [browser] = await Promise.all([createOrGetMeetingRoom('supervision',5,'supervision-5'), reconcileDialInCall(host.id)]);
     expect((await callWithInvitation(host.id)).video_session_id).toBe(browser.sid); expect(m.createSession).toHaveBeenCalledTimes(1);
   });
+  it.each([['supervision',null],['team-meeting','TEAM_MEETING'],['team-meeting','HUDDLE']])('joins simultaneous browsers to one %s/%s room while phone access remains off',async(type,kind)=>{
+    if(type==='supervision')await m.db.execute("UPDATE supervision_sessions SET meeting_settings_json=JSON_OBJECT('reminders',JSON_ARRAY(5)) WHERE id=5");
+    else await m.db.execute("INSERT INTO provider_schedule_events(id,agency_id,provider_id,kind,start_at,end_at,status,meeting_settings_json) VALUES (5,2,7,?,DATE_SUB(UTC_TIMESTAMP(),INTERVAL 1 MINUTE),DATE_ADD(UTC_TIMESTAMP(),INTERVAL 1 HOUR),'ACTIVE',JSON_OBJECT('dialIn',false))",[kind]);
+    const rooms=await Promise.all([createOrGetMeetingRoom(type,5,'meeting-5'),createOrGetMeetingRoom(type,5,'meeting-5')]);
+    expect(rooms[0].sid).toBe(rooms[1].sid);expect(m.createSession).toHaveBeenCalledOnce();
+    await expect(personalDialIn(type,5,7)).rejects.toThrow('Phone dial-in is not enabled');
+  });
   it('does not duplicate a person on two phones and survives repeated carrier callbacks', async () => {
     const first = await enter(8), second = await enter(8);
     expect(second.ncco[0].text).toContain('another telephone');

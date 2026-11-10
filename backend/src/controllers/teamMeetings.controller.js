@@ -1381,7 +1381,7 @@ export const getTeamMeetingAdmissionStatus = async (req, res, next) => {
       || (kindNorm === 'HUDDLE' ? `huddle-${row.id}` : `team-meeting-${row.id}`);
     let vonageSessionId = String(row.twilio_room_sid || '').trim() || null;
     if (!vonageSessionId) {
-      const roomResult = await (dialInConfigured() ? createOrGetMeetingRoom('team-meeting', eventId, roomName) : createOrGetRoomByUniqueName(roomName));
+      const roomResult = await (dialInConfigured() ? createOrGetMeetingRoom('team-meeting', Number(row.id), roomName) : createOrGetRoomByUniqueName(roomName));
       vonageSessionId = roomResult?.sid || roomResult?.roomSid || null;
       if (vonageSessionId) {
         await ProviderScheduleEvent.setVideoRoom(row.id, {
