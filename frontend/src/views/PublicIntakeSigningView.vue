@@ -497,15 +497,15 @@
           <div class="form-grid intake-identity-grid">
             <div class="form-group form-group--name">
               <label for="guardianFirstName">{{ t('yourFirstName') }} <span class="required-indicator">*</span></label>
-              <input id="guardianFirstName" v-model="guardianFirstName" type="text" :class="{ 'input-error': !!consentErrors.guardianFirstName }" />
+              <input id="guardianFirstName" v-model="guardianFirstName" type="text" autocomplete="section-enrollment-contact given-name" :class="{ 'input-error': !!consentErrors.guardianFirstName }" />
             </div>
             <div class="form-group form-group--middle">
               <label for="guardianMiddleName">{{ t('middleNameOptional') }}</label>
-              <input id="guardianMiddleName" v-model="guardianMiddleName" type="text" />
+              <input id="guardianMiddleName" v-model="guardianMiddleName" type="text" autocomplete="section-enrollment-contact additional-name" />
             </div>
             <div class="form-group form-group--name">
               <label for="guardianLastName">{{ t('yourLastName') }} <span class="required-indicator">*</span></label>
-              <input id="guardianLastName" v-model="guardianLastName" type="text" :class="{ 'input-error': !!consentErrors.guardianLastName }" />
+              <input id="guardianLastName" v-model="guardianLastName" type="text" autocomplete="section-enrollment-contact family-name" :class="{ 'input-error': !!consentErrors.guardianLastName }" />
             </div>
             <div class="form-group form-group--phone">
               <label for="guardianPhone">{{ t('yourPhone') }} <span class="required-indicator">*</span></label>
@@ -1901,11 +1901,11 @@
             </div>
             <p v-if="isSchoolScopedIntake && schoolCommunicationNotice" class="communications-disclosure">{{ tx(schoolCommunicationNotice) }}</p>
             <p class="communications-disclosure">{{ tx('A past appointment confirmation is not a new text subscription. Other adults must make their own choices. You may choose No now and change your preference later.') }}</p>
-            <p class="communications-disclosure">{{ tx('A Yes saves your request. Texts start only after your phone, signed permission and the agency’s parent texting program are verified. A saved form does not override an earlier STOP.') }}</p>
+            <p class="communications-disclosure">{{ communicationsTextActivationNotice }}</p>
             <label v-if="communications.smsPreference === 'scheduling_only' || communications.providerTextingOptIn === 'yes'">{{ tx('Your phone number for these texts') }}
               <input v-model="communications.recipientPhone" type="tel" autocomplete="tel" :placeholder="guardianPhone || '+1…'" />
             </label>
-            <p>{{ tx(communicationConsent?.signatureText || 'Sign your communication choices. All choices may be No.') }}</p>
+            <p>{{ communicationsSignatureText }}</p>
             <label>{{ tx('Full name for electronic signature') }}<input v-model="communications.signerName" autocomplete="name" maxlength="200" /></label>
             <label class="checkbox-row"><input v-model="communications.signatureAccepted" type="checkbox" />{{ tx('I electronically sign my communication choices, including any No choices.') }}</label>
           </section>
@@ -3227,8 +3227,8 @@ import {
   isAddressField
 } from '../utils/intakeSameAsMe.js';
 import { getHeroPresetByUrl } from '../utils/careersAssets.js';
-import { policyIsMedicaid, shouldSuppressInsurancePayment } from '../utils/insurancePaymentPolicy.js';
-import { coverageWithAuthorization } from '../utils/enrollmentCoverage.js';
+import { hasMedicaidCoverage, policyIsMedicaid, shouldSuppressInsurancePayment } from '../utils/insurancePaymentPolicy.js';
+import { coverageWithAuthorization, coverageWithChoice, isSelfPayCoverage } from '../utils/enrollmentCoverage.js';
 import {
   EMPTY_SPANISH_CLARIFICATION_RESPONSE,
   firstMissingSpanishClarificationField,
@@ -5511,7 +5511,10 @@ const communicationsSmsTitle = computed(() => {
   return tx(override || 'Text Message (SMS) Communication Preference');
 });
 const communicationsEmailDisclosure = computed(() => {
-  if (communicationConsent.value?.emailText && !isWorkforceAudience.value) return tx(communicationConsent.value.emailText);
+  const published = isSchoolScopedIntake.value
+    ? communicationConsent.value?.emailText
+    : (communicationConsent.value?.officeEmailText || communicationConsent.value?.emailText);
+  if (published && !isWorkforceAudience.value) return tx(published);
   const saved = officeCommsSaved('emailDisclosure');
   if (saved) return tx(saved);
   const override = currentFlowStep.value?.campaigns?.content?.scheduling?.emailDisclosure?.trim();
@@ -5527,7 +5530,10 @@ const communicationsTenantName = computed(() => {
   return agencyName || orgName || 'This agency';
 });
 const communicationsSmsDisclosure = computed(() => {
-  if (communicationConsent.value?.text) return tx(communicationConsent.value.text);
+  const published = isSchoolScopedIntake.value
+    ? communicationConsent.value?.text
+    : (communicationConsent.value?.officeText || communicationConsent.value?.text);
+  if (published) return tx(published);
   const saved = officeCommsSaved('smsDisclosure');
   if (saved) return tx(saved);
   const override = currentFlowStep.value?.campaigns?.content?.scheduling?.smsDisclosure?.trim();
@@ -5538,6 +5544,14 @@ const communicationsSmsDisclosure = computed(() => {
     { tenant: name }
   );
 });
+const communicationsTextActivationNotice = computed(() => tx(isSchoolScopedIntake.value
+  ? 'A Yes saves your request. Texts start only after your phone, signed permission and the agency’s parent texting program are verified. A saved form does not override an earlier STOP.'
+  : 'A Yes saves your request. Texts start only after your phone, signed permission and the agency’s texting program are verified. A saved form does not override an earlier STOP.'));
+const communicationsSignatureText = computed(() => tx(
+  (intakeForSelf.value === true && communicationConsent.value?.signatureTextSelf)
+  || communicationConsent.value?.signatureText
+  || 'Sign your communication choices. All choices may be No.'
+));
 const communicationsEmailAllLabel = computed(() => {
   if (communicationConsent.value?.emailAllLabel && !isWorkforceAudience.value) return tx(communicationConsent.value.emailAllLabel);
   const saved = officeCommsSaved('emailAllLabel');
@@ -8479,6 +8493,7 @@ const buildDraftSnapshot = () => ({
   organizationId: organizationId.value || null,
   guardian: {
     firstName: guardianFirstName.value || '',
+    middleName: guardianMiddleName.value || '',
     lastName: guardianLastName.value || '',
     email: guardianEmail.value || '',
     phone: guardianPhone.value || '',
@@ -8686,6 +8701,8 @@ const applyDraftSnapshot = (parsed) => {
       multiClientUpfrontPlan.value = !!mcp.upfront;
     }
     guardianFirstName.value = String(parsed.guardian?.firstName || guardianFirstName.value || '');
+    guardianMiddleName.value = String(parsed.guardian?.middleName
+      ?? (parsed.intakeForSelf === true ? parsed.clients?.[0]?.middleName : '') ?? '');
     guardianLastName.value = String(parsed.guardian?.lastName || guardianLastName.value || '');
     guardianEmail.value = String(parsed.guardian?.email || guardianEmail.value || '');
     guardianPhone.value = String(parsed.guardian?.phone || guardianPhone.value || '');
@@ -11855,15 +11872,24 @@ const completeInsuranceStep = async () => {
   if (!intakeResponses.submission.insuranceInfo || typeof intakeResponses.submission.insuranceInfo !== 'object') {
     intakeResponses.submission.insuranceInfo = {};
   }
-  const combined = insurancePaymentStepRef.value;
-  if (combined?.validateAuthorization && !combined.validateAuthorization()) {
-    stepError.value = 'Please complete the authorization to continue.';
-    return;
+  const entryInfo = intakeResponses.submission.insuranceInfo;
+  if (isSelfPayCoverage(entryInfo) && !hasMedicaidCoverage(entryInfo)) {
+    Object.assign(entryInfo, coverageWithChoice(entryInfo, true));
   }
+  const combined = insurancePaymentStepRef.value;
   try {
     await (combined?.awaitPhotoUploads?.() || insuranceStepRef.value?.awaitPhotoUploads?.());
   } catch (error) {
     stepError.value = error.message || 'Insurance card upload failed. Retry before continuing.';
+    return;
+  }
+  if (combined?.validateAuthorization && !combined.validateAuthorization()) {
+    stepError.value = tx('Please complete the authorization to continue.');
+    return;
+  }
+  if (!combined && insuranceStepRef.value?.validateCoverageConfirmations
+    && !insuranceStepRef.value.validateCoverageConfirmations()) {
+    stepError.value = tx('Please confirm coverage for every listed client.');
     return;
   }
   const photoFiles = combined?.getPhotoFiles?.() || insuranceStepRef.value?.getPhotoFiles?.();
@@ -11916,7 +11942,8 @@ const completeInsuranceStep = async () => {
     return;
   }
   if (photoFiles) {
-    const slots = Object.entries(photoFiles).filter(([, f]) => f instanceof File);
+    const slots = Object.entries(photoFiles).filter(([slot, f]) => f instanceof File
+      && (slot === 'identity_id' || !isSelfPayCoverage(insInfo) || hasMedicaidCoverage(insInfo)));
     if (slots.length && submissionId.value && publicKey) {
       try {
         const fd = new FormData();
@@ -12029,7 +12056,7 @@ const completeInsuranceStep = async () => {
   const drawnData = String(authBundle.authorizationSignatureData || '').trim();
   const hasDrawn = drawnData.length >= 50;
   const hasTyped = typedName.length >= 2;
-  if (!hasDrawn && !hasTyped) {
+  if ((!hasDrawn && !hasTyped) || authBundle.authorizationAgreed !== true) {
     const msg = lastSignatureData.value
       ? 'Please click "Apply my signature to this authorization" to sign the Insurance Authorization at the bottom of this step.'
       : 'Please sign the Insurance Authorization acknowledgment at the bottom of this step before continuing.';
@@ -12041,9 +12068,9 @@ const completeInsuranceStep = async () => {
   insInfo.authorizationSignature = typedName;
   insInfo.authorizationSignatureData = drawnData;
   insInfo.authorizationSignedAt = String(authBundle.authorizationSignedAt || new Date().toISOString());
-  if (officeAuthStep) {
-    insInfo.authorizationAgreed = authBundle.authorizationAgreed === true;
-  }
+  // Explicit standalone school signing acknowledges its displayed assignment
+  // of benefits too. Carry that new consent after a signer/coverage reset.
+  insInfo.authorizationAgreed = authBundle.authorizationAgreed === true;
   insInfo.authorizationSourceMethod = String(
     authBundle.authorizationSourceMethod
     || (intakeForSelf.value === true
@@ -12143,10 +12170,14 @@ const completeCommunicationsStep = () => {
   }
   intakeResponses.submission.communicationPreferences = {
     version: communicationConsent.value?.version,
-    disclosure: communicationConsent.value?.text,
+    disclosure: isSchoolScopedIntake.value
+      ? communicationConsent.value?.text
+      : (communicationConsent.value?.officeText || communicationConsent.value?.text),
     schoolDisclosure: isSchoolScopedIntake.value ? schoolCommunicationNotice.value : undefined,
     displayedDisclosure: communicationsSmsDisclosure.value,
-    emailDisclosure: communicationConsent.value?.emailText,
+    emailDisclosure: isSchoolScopedIntake.value
+      ? communicationConsent.value?.emailText
+      : (communicationConsent.value?.officeEmailText || communicationConsent.value?.emailText),
     emailNoticeVersion: communicationConsent.value?.emailNoticeVersion,
     essentialDisclosure: communicationConsent.value?.essentialText,
     noRoutineCalls: communications.noRoutineCalls,
@@ -12632,7 +12663,7 @@ const finalizePacket = async () => {
         'Your submission is too large to send (often caused by very high-resolution photo uploads). '
         + 'Try retaking insurance card photos with your camera held closer to the card so the image is smaller, then submit again.';
     } else {
-      error.value = e.response?.data?.error?.message || 'Failed to finalize packet';
+      error.value = tx(e.response?.data?.error?.message || 'Failed to finalize packet');
     }
   } finally {
     finalizingPacket.value = false;
@@ -12757,6 +12788,7 @@ const resetIntakeState = () => {
   registrationReturningAutoMatch.value = null;
   loginHelpMessage.value = '';
   guardianFirstName.value = '';
+  guardianMiddleName.value = '';
   guardianLastName.value = '';
   guardianEmail.value = '';
   guardianPhone.value = '';

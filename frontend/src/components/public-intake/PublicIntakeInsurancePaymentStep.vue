@@ -276,7 +276,7 @@ import api from '../../services/api';
 import PublicIntakeInsuranceStep from './PublicIntakeInsuranceStep.vue';
 import PublicIntakePaymentStep from './PublicIntakePaymentStep.vue';
 import { hasMedicaidCoverage } from '../../utils/insurancePaymentPolicy.js';
-import { coverageWithAuthorization, coverageWithChoice, isSelfPayCoverage } from '../../utils/enrollmentCoverage.js';
+import { clearCoverageAuthorization, coverageWithAuthorization, coverageWithChoice, enrollmentCoverageFingerprint, isSelfPayCoverage } from '../../utils/enrollmentCoverage.js';
 import { useIntakeStepTx } from '../../composables/useIntakeStepTx.js';
 const { tx: structuredTx } = useIntakeStepTx();
 
@@ -340,13 +340,7 @@ const isMedicaid = computed(() => {
 
 const coverageReviewError = ref('');
 const reviewedCoverage = ref(null);
-const coverageFingerprint = computed(() => JSON.stringify({
-  payerChoice: payerChoice.value,
-  primary: props.insuranceInfo?.primary || null,
-  secondary: props.insuranceInfo?.secondary || null,
-  hasSecondary: props.insuranceInfo?.hasSecondary === true,
-  clientCoverages: props.insuranceInfo?.clientCoverages || []
-}));
+const coverageFingerprint = computed(() => enrollmentCoverageFingerprint(props.insuranceInfo));
 const coverageReviewed = computed(() => reviewedCoverage.value === coverageFingerprint.value);
 // An edit needs a new review even if the user later restores the old value.
 watch(coverageFingerprint, () => { reviewedCoverage.value = null; }, { flush: 'sync' });
@@ -435,16 +429,15 @@ function patchInsurance(patch) {
 
 function setSelfPay(next) {
   const chosen = coverageWithChoice(props.insuranceInfo, next);
-  emit('update:insuranceInfo', coverageWithAuthorization(chosen, currentAuthorization()));
+  syncAuthorization(chosen);
+  emit('update:insuranceInfo', chosen);
 }
 
 function onInsuranceUpdate(v) {
   const chosen = coverageWithChoice({ ...v, payerChoice: payerChoice.value }, isSelfPay.value);
-  emit('update:insuranceInfo', coverageWithAuthorization(chosen, {
-    agreed: authAgreed.value || props.insuranceInfo?.authorizationAgreed === true,
-    signature: authSignature.value || v?.authorizationSignature,
-    signatureData: authSignatureData.value || v?.authorizationSignatureData
-  }));
+  const changed = enrollmentCoverageFingerprint(v) !== enrollmentCoverageFingerprint(props.insuranceInfo);
+  if (changed) syncAuthorization(clearCoverageAuthorization(chosen));
+  emit('update:insuranceInfo', coverageWithAuthorization(changed ? clearCoverageAuthorization(chosen) : chosen, currentAuthorization()));
 }
 
 function onMedicaidChange(v) {
@@ -480,25 +473,20 @@ watch(paymentChoice, (v) => {
   emit('update:paymentInfo', { ...(props.paymentInfo || {}), paymentChoice: v });
 });
 
+let syncingAuthorization = false;
+function syncAuthorization(info = {}) {
+  syncingAuthorization = true;
+  authAgreed.value = info.authorizationAgreed === true;
+  authSignature.value = String(info.authorizationSignature || '');
+  authSignatureData.value = String(info.authorizationSignatureData || '');
+  syncingAuthorization = false;
+}
 watch([authAgreed, authSignature], () => {
+  if (syncingAuthorization) return;
   authError.value = '';
   patchInsurance({});
-});
-
-watch(
-  () => props.insuranceInfo,
-  (info) => {
-    if (!info || typeof info !== 'object') return;
-    if (info.authorizationAgreed === true) authAgreed.value = true;
-    const typed = String(info.authorizationSignature || '').trim();
-    if (typed && typed !== String(authSignature.value || '').trim()) authSignature.value = typed;
-    const drawn = String(info.authorizationSignatureData || '').trim();
-    if (drawn.length >= 50 && drawn !== String(authSignatureData.value || '').trim()) {
-      authSignatureData.value = drawn;
-    }
-  },
-  { deep: true }
-);
+}, { flush: 'sync' });
+watch(() => props.insuranceInfo, info => syncAuthorization(info), { deep: true, flush: 'sync' });
 
 function validateAuthorization() {
   authError.value = '';
@@ -508,6 +496,10 @@ function validateAuthorization() {
   }
   if (!props.paymentOnly && !props.insuranceOnFile && payerChoice.value === 'insurance' && !isMedicaid.value && !coverageReviewed.value) {
     authError.value = 'Please confirm your primary and any secondary coverage.';
+    return false;
+  }
+  if (insuranceRef.value?.validateCoverageConfirmations && !insuranceRef.value.validateCoverageConfirmations()) {
+    authError.value = 'Please confirm coverage for every listed client.';
     return false;
   }
   if (showPaymentSection.value && !paymentChoice.value) {

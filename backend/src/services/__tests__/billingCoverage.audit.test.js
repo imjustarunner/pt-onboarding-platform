@@ -1,6 +1,7 @@
 import test, { after, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import pool from '../../config/database.js';
+import clinicalPool from '../../config/clinicalDatabase.js';
 import { hasMedicaidCoverage, shouldSuppressInsurancePayment } from '../../utils/insurancePaymentPolicy.js';
 import * as browserPolicy from '../../../../frontend/src/navigation/insurancePaymentPolicy.js';
 import { validateIntakeBilling } from '../intakeBillingValidation.service.js';
@@ -16,7 +17,7 @@ import Stripe from '../stripePayments.service.js';
 import { confirmPackageCheckout as confirmSavedPackage } from '../unifiedPackageCatalog.service.js';
 
 beforeEach(() => { mock.restoreAll(); process.env.FAMILY_BILLING_ENCRYPTION_KEY_BASE64 = Buffer.alloc(32, 3).toString('base64'); process.env.FAMILY_BILLING_ENCRYPTION_KEY_ID = 'v1'; });
-after(async () => { mock.restoreAll(); await pool.end(); });
+after(async () => { mock.restoreAll(); await Promise.all([pool.end(), clinicalPool.end()]); });
 const coverageCases = [
   [null, false], [{ primary: { insurerName: 'Commercial' } }, false],
   [{ primary: { isMedicaid: true } }, true],
@@ -26,7 +27,9 @@ const coverageCases = [
   [{ isSelfPay: true, secondary: { isMedicaid: 1 } }, true],
   [{ primaryIsMedicaid: true }, true],
   [{ primary: { insurerName: 'CHP+' } }, false],
-  [{ clientCoverages: [{ confirmed: true, primary: { insurerName: 'Medicaid' } }] }, true]
+  [{ clientCoverages: [{ confirmed: true, primary: { insurerName: 'Medicaid' } }] }, true],
+  [{ clientCoverages: [{ confirmed: false, primary: { insurerName: 'Medicaid' } }] }, true],
+  [{ clientCoverages: [{ confirmed: false, primary: { insurerName: 'Aetna' }, secondary: { insurerName: 'Health First Colorado' } }] }, true]
 ];
 test('server and browser agree on primary, secondary, and child-specific Medicaid protection', () => {
   for (const [info, expected] of coverageCases) {

@@ -36,3 +36,27 @@ it('keeps the school consent and group consent together without adding a provide
   expect(context.html).toContain('School terms'); expect(context.html).toContain('Group terms');
   expect(context.html).not.toContain('Generated roster');
 });
+
+it.each(['en', 'es'])('addresses a self-enrolling office client in $locale policy without changing the parent version', async locale => {
+  const self = await buildPacketSectionContext({ agencyId: 2, office: true, variant: 'self', locale, sectionKey: 'policy_services' });
+  const parent = await buildPacketSectionContext({ agencyId: 2, office: true, variant: 'parent', locale, sectionKey: 'policy_services' });
+  if (locale === 'en') {
+    expect(self.html).not.toContain('by the parent or guardian');
+    expect(self.html).not.toContain('outside of the school setting');
+    expect(self.html).toContain('unless you provide specific written approval');
+    expect(parent.html).toContain('by the parent or guardian');
+  } else {
+    expect(self.html).not.toContain('por escrito del padre o tutor');
+    expect(self.html).not.toContain('fuera del entorno escolar');
+    expect(self.html).toContain('su aprobación específica por escrito');
+    expect(parent.html).toContain('por escrito del padre o tutor');
+  }
+  expect(self.contentHash).toBe(hashPacketSectionHtml(self.html));
+  expect(parent.contentHash).toBe(hashPacketSectionHtml(parent.html));
+});
+
+it('keeps generic minors permission copy outside the known self-policy clause intact', async () => {
+  const { rewriteSelfEnrollmentWording } = await import('../selfEnrollmentWording.js');
+  const generic = "Minors' Health Information: Some actions must be approved by the parent or guardian.";
+  expect(rewriteSelfEnrollmentWording(generic, { office: true })).toBe(generic);
+});

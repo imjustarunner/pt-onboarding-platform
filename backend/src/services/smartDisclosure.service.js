@@ -39,7 +39,7 @@ const DEFAULT_COPY_EN = {
   introHtml: `<p>This document is MANDATORY for all mental health professions in Colorado. The specific agency within the Department that has responsibility specifically for licensed and unlicensed psychotherapists is:</p>
 <p><em>Department of Regulatory Agencies<br/>Division of Professions and Occupations<br/>Healthcare Professions Programs<br/>State Board Specific to Each Clinician/Provider is Listed with Each Individual<br/>1560 Broadway, Suite 1350 Denver, Colorado 80202 (303) 894-7800</em></p>
 <p>The purpose of this document is to explain the levels of regulation applicable to mental health professionals under the Mental Health Practice Act and the differences between licensure, registration, and certification, including the educational, experience, and training requirements applicable to the particular level of regulation. The direct entity covered by this document can be found below, as well as the Clinicians and Providers who are employees of that entity.</p>
-<p><em>Note: The Clinicians and Providers listed below are subject to change. This document will be sent, acknowledged, and signed by clients or their parent/guardian’s at the time of intake and accurate information about their specific clinician/provider will be listed.</em></p>`,
+<p><em>Note: The Clinicians and Providers listed below are subject to change. This document will be sent, acknowledged, and signed by the person completing enrollment at the time of intake and accurate information about their specific clinician/provider will be listed.</em></p>`,
   doraHtml: '',
   rightsHtml: `<p><strong>Client Rights and Disclosures:</strong></p>
 <p>(I) I understand that I am entitled to receive information about the methods of therapy, the techniques used, the duration of therapy, if known, and the fee structure.</p>
@@ -714,6 +714,12 @@ export async function buildSmartDisclosureContext({
       regulatoryBoards: mergeRegulatoryBoardSettings({}, DEFAULT_DISCLOSURE_STATE)
     };
   const copy = { ...defaultCopy(loc), ...(settings.terminology || {}) };
+  // Normalize only this application-authored boilerplate for a new context.
+  // Saved disclosure contexts retain their own copy and hashes when rendered.
+  copy.introHtml = String(copy.introHtml || '').replace(
+    /signed by clients or their parent\/guardian[’']s at the time of intake/gi,
+    'signed by the person completing enrollment at the time of intake'
+  );
   const businessEntity = resolveDisclosureBusinessEntity(agency, settings.businessEntity);
 
   const providers = agencyId

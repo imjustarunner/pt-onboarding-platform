@@ -7,6 +7,28 @@ beforeEach(()=>pool.execute.mockReset());
 it.each([{}, {authorizationAgreed:true},{authorizationSignature:'QA Parent'},{authorizationAgreed:false,authorizationSignature:'QA Parent'}])('rejects incomplete self-pay authorization before checking card availability: %j',async info=>{await expect(validateIntakeBilling(input(info))).rejects.toMatchObject({status:400});expect(pool.execute).not.toHaveBeenCalled();});
 it('allows payment follow-up when the authorization is complete and card collection is unavailable',async()=>{pool.execute.mockResolvedValue([[]]);await validateIntakeBilling(input({authorizationAgreed:true,authorizationSignature:'QA Parent'}));expect(pool.execute).toHaveBeenCalledTimes(1);});
 it('preserves the standalone school signature flow that does not display a checkbox',async()=>{const data=input({authorizationSignature:'QA Parent'});data.link={scope_type:'school',intake_steps:[{type:'insurance_info'}]};await validateIntakeBilling(data);expect(pool.execute).not.toHaveBeenCalled();});
+it('rejects a cleared school agreement until the new explicit signature also records agreement', async () => {
+  const data = input({ authorizationAgreed: false, authorizationSignature: 'QA New Signature' });
+  data.link = { scope_type: 'school', intake_steps: [{ type: 'insurance_info' }] };
+  await expect(validateIntakeBilling(data)).rejects.toMatchObject({ status: 400 });
+  data.intakeData.responses.submission.insuranceInfo.authorizationAgreed = true;
+  await expect(validateIntakeBilling(data)).resolves.toBeUndefined();
+  expect(pool.execute).not.toHaveBeenCalled();
+});
+it('rejects duplicate child Medicaid IDs and accepts the corrected, independently assigned IDs', async () => {
+  vi.stubEnv('FAMILY_BILLING_ENCRYPTION_KEY_BASE64', Buffer.alloc(32, 4).toString('base64'));
+  try {
+    const info = { primary: { insurerName: 'Medicaid', memberId: 'QA-ONE', isMedicaid: true },
+      authorizationAgreed: true, authorizationSignature: 'QA Parent',
+      medicaidByClient: [{ clientIndex: 0, memberId: 'QA-ONE' }, { clientIndex: 1, memberId: 'QA-ONE' }] };
+    const data = { agencyId: 450, submission: { id: 1 }, link: { scope_type: 'school', intake_steps: [{ type: 'insurance_info' }] },
+      intakeData: { clients: [{}, {}], responses: { submission: { insuranceInfo: info } } } };
+    await expect(validateIntakeBilling(data)).rejects.toMatchObject({ status: 400, message: 'Each client must have their own Medicaid member ID.' });
+    info.medicaidByClient[1].memberId = 'QA-TWO';
+    await expect(validateIntakeBilling(data)).resolves.toBeUndefined();
+    expect(pool.execute).not.toHaveBeenCalled();
+  } finally { vi.unstubAllEnvs(); }
+});
 const school=info=>({agencyId:450,submission:{id:1},link:{scope_type:'school',intake_steps:[{type:'insurance_info'}]},intakeData:{responses:{submission:{insuranceInfo:{...info}}}}});
 it('lets a school family finish self-pay without a signature when the step showed none',async()=>{
   await validateIntakeBilling(school({isSelfPay:true,authorizationSourceMethod:'self_pay',primary:{insurerName:'Self-Pay',memberId:''}}));
