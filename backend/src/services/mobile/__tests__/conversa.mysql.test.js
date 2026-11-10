@@ -3,6 +3,7 @@ import mysql from 'mysql2/promise';import {readFile} from 'node:fs/promises';
 vi.mock('../../../config/database.js',()=>({default:{execute:vi.fn()},onTableWrite:vi.fn()}));
 import {reserveSecureDelivery} from '../secureInvitation.service.js';
 import {createMobileConversaStore,mobileThreadItem,normalizeMobilePreferences,requireMobileThreadMembership} from '../conversa.service.js';
+import {recordSchoolGroupEmail} from '../../schoolGroupEmailInbox.service.js';
 it('uses names rather than numeric thread IDs and separates group conversations from direct messages',()=>{
  const base={thread_id:8,thread_type:'direct',participants:[{id:2,first_name:'Ari',last_name:'Example'},{id:3,first_name:'Sam',last_name:'Example'}],last_message:{body:'Hello',sender_user_id:2}};
  expect(mobileThreadItem(base,1)).toMatchObject({category:'groups',title:'Ari Example, Sam Example'});
@@ -26,7 +27,7 @@ describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('personal mobile inbox SQL',
     CREATE TABLE users(id INT PRIMARY KEY,email VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,work_email VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci,personal_email VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci,role VARCHAR(40) DEFAULT 'provider');
     CREATE TABLE user_agencies(user_id INT,agency_id INT,is_active BOOLEAN DEFAULT 1);
     CREATE TABLE communication_inboxes(id INT PRIMARY KEY,agency_id INT DEFAULT 10,identity_key VARCHAR(60),kind VARCHAR(20),display_name VARCHAR(255),owner_user_id INT,from_email VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci);
-    CREATE TABLE communication_conversations(id INT PRIMARY KEY,agency_id INT,inbox_id INT,owner_user_id INT,channel VARCHAR(20),subject VARCHAR(100),status VARCHAR(30),last_message_preview TEXT,last_message_at DATETIME,created_at DATETIME,archived_at DATETIME,is_spam BOOLEAN DEFAULT 0,support_ticket_id INT NULL,is_unknown_sender BOOLEAN DEFAULT 0,external_thread_id VARCHAR(80));
+    CREATE TABLE communication_conversations(id INT PRIMARY KEY,agency_id INT,inbox_id INT,owner_user_id INT,channel VARCHAR(20),subject VARCHAR(100),status ENUM('new','needs_reply','waiting_on_them','follow_up','resolved'),last_message_preview TEXT,last_message_at DATETIME,created_at DATETIME,archived_at DATETIME,is_spam BOOLEAN DEFAULT 0,support_ticket_id INT NULL,is_unknown_sender BOOLEAN DEFAULT 0,external_thread_id VARCHAR(80));
     CREATE TABLE communication_messages(id INT PRIMARY KEY,author_user_id INT,conversation_id INT,direction VARCHAR(20),is_internal_note BOOLEAN DEFAULT 0,send_status VARCHAR(20),sent_at DATETIME,created_at DATETIME,from_json JSON);
     CREATE TABLE communication_conversation_reads(conversation_id INT,user_id INT,forced_unread BOOLEAN DEFAULT 0,last_read_at DATETIME);
     CREATE TABLE communication_participants(id INT PRIMARY KEY,conversation_id INT,is_primary BOOLEAN,email VARCHAR(100),display_name VARCHAR(100));
@@ -64,7 +65,17 @@ describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('personal mobile inbox SQL',
  });
  it('keeps non-ticket school notifications unread per user in both Groups and All',async()=>{
   await db.query("INSERT INTO communication_inboxes(id,agency_id,kind,identity_key,display_name,from_email) VALUES(5,10,'shared','schools','Schools','schools@example.invalid')");
-  await mail(1,{inbox:5,owner:null,status:'waiting'});
+  const database={execute:async(sql,args)=>{
+   if(sql.startsWith('UPDATE communication_conversations'))return db.execute(sql,args);
+   if(sql.includes('FROM school_profiles'))return [[{school_organization_id:20,itsco_email:'school@example.invalid',name:'Example School'}]];
+   if(sql.includes('FROM email_sender_identities'))return [[{id:5,from_email:'schools@example.invalid'}]];
+   if(sql.includes('FROM communication_inboxes'))return [[{id:5}]];
+   if(sql.includes('FROM users'))return [[]];
+   throw Error(`Unexpected notification query: ${sql}`);
+  }};
+  await recordSchoolGroupEmail({agencyId:10,to:['school@example.invalid'],fromEmail:'schools@example.invalid',subject:'Example School - Paper Enrollment Packet Uploaded',messageId:'<school-packet@example.invalid>'},{database,persistEmail:async()=>{await mail(1,{inbox:5,owner:null,status:'needs_reply'});return {conversationId:1,messageId:1};}});
+  const [[saved]]=await db.execute('SELECT status,support_ticket_id FROM communication_conversations WHERE id=1');
+  expect(saved).toMatchObject({status:'resolved',support_ticket_id:null});
   const grouped=createMobileConversaStore(db,{listAgencies:async()=>({agencies:[{id:10}]}),groupAccess:async()=>true});
   expect((await grouped.emails(1,{suite:'groups'}))[0]).toMatchObject({id:1,unread:true,needsReply:false,category:'groups'});
   expect((await grouped.emails(1,{suite:'all'})).some(row=>row.id===1)).toBe(true);
@@ -74,7 +85,7 @@ describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('personal mobile inbox SQL',
   expect((await grouped.emailCounts(2)).find(row=>row.category==='groups').unread).toBe(1);
  });
  it('Sent is authored by this user and excludes failed or internal outbound mail',async()=>{
-  for(let id=1;id<=4;id++)await mail(id,{status:'open'});
+  for(let id=1;id<=4;id++)await mail(id,{status:'new'});
   await db.query("INSERT INTO communication_messages(id,conversation_id,direction,author_user_id,send_status,is_internal_note,created_at) VALUES (11,1,'outbound',1,'sent',0,NOW()),(12,2,'outbound',2,'sent',0,NOW()),(13,3,'outbound',1,'failed',0,NOW()),(14,4,'outbound',1,'sent',1,NOW())");
   expect((await store.emails(1,{filter:'sent'})).map(i=>i.id)).toEqual([1]);expect((await store.emailCounts(1)).reduce((n,c)=>n+c.sent,0)).toBe(1);
  });
@@ -119,7 +130,7 @@ describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('personal mobile inbox SQL',
   expect(await store.emailCounts(1)).toEqual(expect.arrayContaining([{category:'email',unknown:false,total:6,unread:6,needs:6,sent:0},{category:'email',unknown:true,total:2,unread:2,needs:2,sent:0}]));
  });
  it('computes counts beyond a visible page and filters before pagination',async()=>{
-  await seedMailRange(1,106,{statusFor:id=>id<=3?'closed':'new'});
+  await seedMailRange(1,106,{statusFor:id=>id<=3?'resolved':'new'});
   expect(await store.emails(1)).toHaveLength(101);expect((await store.emailCounts(1))[0]).toMatchObject({total:105,unread:105,needs:102});
   await db.execute("INSERT INTO communication_conversation_reads VALUES(105,1,0,'2026-11-06 13:00:00')");expect((await store.emails(1,{filter:'unread'})).some(item=>item.id===105)).toBe(false);
   expect((await store.emailCounts(1))[0].unread).toBe(104);
