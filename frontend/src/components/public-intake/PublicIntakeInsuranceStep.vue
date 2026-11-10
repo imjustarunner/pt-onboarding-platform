@@ -359,7 +359,7 @@
       <label>{{ tx("Policy applies to") }} <select v-model="coverageScope" @change="push"><option value="client">{{ tx("One client") }}</option><option value="account_holder">{{ tx("Account holder with covered dependents") }}</option></select>
       </label>
       <label v-for="(clientName, index) in clientDisplayNames" :key="index" class="checkbox-row"><input v-model="coverageClientIndexes" :value="index" type="checkbox" @change="push" /> {{ tx("I confirm") }} {{ clientName }} {{ tx("is covered by this policy.") }}</label>
-      <div v-for="index in coverageClientIndexes" :key="`separate-${index}`">
+      <div v-for="index in coveragePolicyIndexes" :key="`separate-${index}`">
         <label class="checkbox-row"><input :checked="!!separatePolicies[index]" type="checkbox" @change="toggleSeparatePolicy(index,$event.target.checked)" /> {{ clientDisplayNames[index] }} {{ tx("has a different policy") }}</label>
         <div v-if="separatePolicies[index]" class="pi-ins-claim-details">
           <h4>{{ tx("Policy for") }} {{ clientDisplayNames[index] }}</h4>
@@ -367,6 +367,7 @@
           <label v-for="slot in (policyIsMedicaid(separatePolicies[index].primary) ? [] : ['primary_front','primary_back'])" :key="slot">{{ tx(slot === 'primary_front' ? 'Card front' : 'Card back') }}<input type="file" accept="image/png,image/jpeg,application/pdf" :disabled="coverageUploadBusy" @change="uploadSeparateCard(index,slot,$event)" /><span v-if="separatePolicies[index][`${slot}_url`]">{{ tx("Uploaded securely") }}</span></label>
         </div>
       </div>
+      <p v-if="coverageConfirmationError" class="pi-ins-inline-error" role="alert">{{ tx(coverageConfirmationError) }}</p>
       <p v-if="coverageUploadError" role="alert">{{ tx(coverageUploadError) }}</p>
 
     </section>
@@ -437,11 +438,11 @@
       <!-- PRIMARY PATH: re-use the signature drawn earlier in this session -->
       <div v-if="savedSignatureData" class="pi-ins-auth-sign">
         <label class="pi-ins-lbl">{{ tx('Sign this authorization') }}</label>
-        <div v-if="!authorizationSignatureData" class="pi-ins-auth-apply-wrap">
+        <div v-if="!authorizationSignatureData || !authorizationAgreed" class="pi-ins-auth-apply-wrap">
           <button
             type="button"
             class="btn btn-primary btn-sm pi-ins-auth-apply"
-            @pointerdown.prevent="applySavedAuthSignature"
+            @click="applySavedAuthSignature"
           >
             {{ tx('Apply my signature to this authorization') }}
           </button>
@@ -489,7 +490,7 @@
           autocomplete="name"
           @input="onTypedAuthInput($event.target.value)"
         />
-        <div v-if="authorizationSignature.trim().length >= 2" class="pi-ins-auth-confirmed">
+        <div v-if="authorizationAgreed && authorizationSignature.trim().length >= 2" class="pi-ins-auth-confirmed">
           {{ tx('✓ Signed by') }} {{ authorizationSignature.trim() }}
           <span v-if="authorizationSignedAt" class="pi-ins-auth-stamp"> ({{ formatSignedAt(authorizationSignedAt) }})</span>
         </div>
@@ -505,7 +506,8 @@
 <script setup>
 import { formatAuditTimestamp } from '../../utils/formatDate';
 import { unref } from 'vue';
-import { ref, reactive, computed, watch, inject, onMounted } from 'vue';
+import { ref, reactive, computed, watch, inject, onMounted, onBeforeUnmount } from 'vue';
+import { clearCoverageAuthorization, coverageWithChoice, enrollmentCoverageFingerprint } from '../../utils/enrollmentCoverage.js';
 import { savedInsuranceCard } from '../../utils/savedInsuranceCard.js';
 import { hasMedicaidCoverage, policyIsMedicaid } from '../../utils/insurancePaymentPolicy.js';
 import { filterInsurances, isMedicaidInsurer } from '../../utils/coloradoInsurances.js';
@@ -558,8 +560,29 @@ const props = defineProps({
   externalSelfPay: { type: Boolean, default: null }
 });
 const emit = defineEmits(['update:modelValue', 'medicaid-change']);
+let componentActive = true;
+onBeforeUnmount(() => { componentActive = false; });
 
 // ── Local state ──────────────────────────────────────────────────────────────
+function storedAuthorizationAgreed(info = {}) {
+  if (info.authorizationAgreed === false) return false;
+  return info.authorizationAgreed === true || String(info.authorizationSignature || '').trim().length >= 2
+    || String(info.authorizationSignatureData || '').trim().length >= 50;
+}
+const authorizationAgreed = ref(storedAuthorizationAgreed(props.modelValue));
+const authorizationSignature = ref(String(props.modelValue?.authorizationSignature || ''));
+const authorizationSignatureData = ref(String(props.modelValue?.authorizationSignatureData || ''));
+const authorizationSignedAt = ref(String(props.modelValue?.authorizationSignedAt || ''));
+const authorizationSourceMethod = ref(String(props.modelValue?.authorizationSourceMethod || ''));
+const coverageConfirmationError = ref('');
+let syncingIncomingCoverage = false;
+function resetAuthorization() {
+  authorizationAgreed.value = false;
+  authorizationSignature.value = '';
+  authorizationSignatureData.value = '';
+  authorizationSignedAt.value = '';
+  authorizationSourceMethod.value = '';
+}
 const local = reactive({
   primary: {
     insurerName: props.modelValue?.primary?.insurerName || '',
@@ -585,6 +608,7 @@ const separatePolicies = reactive(Object.fromEntries((props.modelValue?.clientCo
 const coverageUploadError = ref('');
 const coverageUploadBusy = ref(false);
 const coverageClientIndexes = ref((props.modelValue?.clientCoverages || []).filter(row => row.confirmed).map(row => Number(row.clientIndex)));
+const coveragePolicyIndexes = computed(() => [...new Set([...coverageClientIndexes.value, ...Object.keys(separatePolicies).map(Number)])].sort((a, b) => a - b));
 const hasSecondary = ref(props.modelValue?.hasSecondary === true || !!(props.modelValue?.secondary?.insurerName || props.modelValue?.secondary?.isMedicaid));
 const noPrimaryCardAvailable = ref(!!props.modelValue?.noPrimaryCardAvailable);
 // Self-pay toggle — persisted alongside the rest of the insurance info so the
@@ -632,7 +656,9 @@ const photoFiles = reactive({ primary_front: null, primary_back: null, secondary
 const uploadedPhotoUrls = reactive({});
 const photoUploads = new Map();
 const photoUploadErrors = new Map();
+const photoPreviewRequests = new Map();
 const photoUploadCount = ref(0);
+let photoUploadGeneration = 0;
 const uploadingPhotos = computed(() => photoUploadCount.value > 0);
 async function awaitPhotoUploads() {
   await Promise.all([...photoUploads.values()]);
@@ -641,13 +667,14 @@ async function awaitPhotoUploads() {
 function uploadPhoto(file, slot) {
   if (!props.publicKey || !props.submissionId) return;
   photoUploadErrors.delete(slot);
+  const generation = photoUploadGeneration;
   photoUploadCount.value++;
   let operation;
   operation = (async () => {
     try {
       const form = new FormData(); form.append(slot, file, file.name);
       const { data } = await api.post(`/public-intake/${props.publicKey}/${props.submissionId}/insurance-card-photos`, form, { headers: { 'x-intake-session': intakeSessionToken.value } });
-      if (photoFiles[slot] !== file) return;
+      if (!componentActive || generation !== photoUploadGeneration || photoFiles[slot] !== file) return;
       const url = data?.urls?.[`${slot}_url`];
       if (!url) throw new Error('The insurance card upload was not confirmed. Select the file again.');
       uploadedPhotoUrls[`${slot}_url`] = url;
@@ -660,11 +687,11 @@ function uploadPhoto(file, slot) {
       photoFiles[slot] = null;
       push();
     } catch (error) {
-      if (photoFiles[slot] !== file) return;
+      if (!componentActive || generation !== photoUploadGeneration || photoFiles[slot] !== file) return;
       photoUploadErrors.set(slot, true);
       fileError.value = error.response?.data?.error?.message || error.message || 'Card upload failed. Select the file again.';
     } finally {
-      photoUploadCount.value--;
+      if (generation === photoUploadGeneration) photoUploadCount.value--;
       if (photoUploads.get(slot) === operation) photoUploads.delete(slot);
     }
   })();
@@ -793,20 +820,26 @@ function onPhotoSelected(event, slot) {
   if (!file) return;
   if (!validUpload(file)) return;
   photoFiles[slot] = file;
+  photoPreviewRequests.set(slot, file);
+  const generation = photoUploadGeneration;
   if (slot === 'primary_front' || slot === 'primary_back') noPrimaryCardAvailable.value = false;
   const reader = new FileReader();
   reader.onload = (e) => {
+    if (!componentActive || generation !== photoUploadGeneration || photoPreviewRequests.get(slot) !== file) return;
     if (slot === 'primary_front') primaryFrontPreview.value = e.target.result;
     else if (slot === 'primary_back') primaryBackPreview.value = e.target.result;
     else if (slot === 'secondary_front') secondaryFrontPreview.value = e.target.result;
     else if (slot === 'secondary_back') secondaryBackPreview.value = e.target.result;
     push();
   };
-  reader.onerror = () => { fileError.value = 'This file could not be read. Choose it again.'; };
+  reader.onerror = () => {
+    if (componentActive && generation === photoUploadGeneration && photoPreviewRequests.get(slot) === file) fileError.value = 'This file could not be read. Choose it again.';
+  };
   reader.readAsDataURL(file);
   uploadPhoto(file, slot);
 }
 function clearPhoto(slot) {
+  photoPreviewRequests.delete(slot);
   photoFiles[slot] = null;
   uploadedPhotoUrls[`${slot}_url`] = '';
   photoUploadErrors.delete(slot);
@@ -823,6 +856,8 @@ function onNoPrimaryCardToggle() {
     push();
     return;
   }
+  photoPreviewRequests.delete('primary_front');
+  photoPreviewRequests.delete('primary_back');
   photoFiles.primary_front = null;
   photoFiles.primary_back = null;
   primaryFrontPreview.value = '';
@@ -843,13 +878,42 @@ function fillPrimarySubscriberFromFirstClient() {
 }
 
 function toggleSelfPay(checked) {
+  syncingIncomingCoverage = true;
   isSelfPay.value = !!checked;
-  // A payment preference must not erase insurance or suppress Medicaid review.
+  resetAuthorization();
+  coverageClientIndexes.value = [];
+  // Recorded Medicaid remains visible to billing even if a stale UI requests self-pay.
+  const chosen = coverageWithChoice({ ...props.modelValue, primary: { ...local.primary }, secondary: hasSecondary.value ? { ...local.secondary } : null }, checked);
+  if (checked && !hasMedicaidCoverage(chosen)) {
+    Object.assign(local.primary, Object.fromEntries(Object.keys(local.primary).map(key => [key, key === 'isMedicaid' ? false : ''])));
+    local.primary.insurerName = 'Self-Pay';
+    hasSecondary.value = false;
+    medicaidByClient.value = [];
+    for (const key of Object.keys(separatePolicies)) delete separatePolicies[key];
+    discardInsuranceCards();
+  }
   if (!checked && String(local.primary.insurerName || '').trim().toLowerCase() === 'self-pay') {
     local.primary.insurerName = '';
     primaryQuery.value = '';
   }
+  syncingIncomingCoverage = false;
   push();
+}
+
+function discardInsuranceCards() {
+  photoUploadGeneration++;
+  photoUploads.clear();
+  photoUploadErrors.clear();
+  photoPreviewRequests.clear();
+  photoUploadCount.value = 0;
+  fileError.value = '';
+  for (const slot of Object.keys(photoFiles)) {
+    photoFiles[slot] = null;
+    uploadedPhotoUrls[`${slot}_url`] = null;
+  }
+  primaryFrontPreview.value = ''; primaryBackPreview.value = '';
+  secondaryFrontPreview.value = ''; secondaryBackPreview.value = '';
+  noPrimaryCardAvailable.value = false;
 }
 
 watch(
@@ -868,11 +932,14 @@ function toggleSeparatePolicy(index, enabled) {
 }
 async function uploadSeparateCard(index, slot, event) {
   const file = event.target.files?.[0]; if (!file) return;
+  const policy = separatePolicies[index];
+  const generation = photoUploadGeneration;
   coverageUploadBusy.value = true; coverageUploadError.value = '';
   try {
     const form = new FormData(); form.append(slot,file); form.append('clientIndex',String(index));
     const result = await api.post(`/public-intake/${props.publicKey}/${props.submissionId}/insurance-card-photos`,form,{headers:{'x-intake-session':intakeSessionToken.value}});
-    if (separatePolicies[index]) Object.assign(separatePolicies[index],result.data.urls);
+    if (!componentActive || generation !== photoUploadGeneration || separatePolicies[index] !== policy) return;
+    if (policy) Object.assign(policy,result.data.urls);
     push();
   } catch(e) { coverageUploadError.value = e.response?.data?.error?.message || 'Card upload failed. Please retry.'; }
   finally { coverageUploadBusy.value = false; }
@@ -880,6 +947,9 @@ async function uploadSeparateCard(index, slot, event) {
 
 // ── Emit helpers ─────────────────────────────────────────────────────────────
 function push() {
+  // An upload finishing after payer choice unmounts this step cannot restore
+  // the abandoned policy into the active enrollment.
+  if (!componentActive) return;
   const medicaidRows = showMultiClientMedicaidSection.value
     ? medicaidByClient.value.map((row, idx) => ({
         clientIndex: idx,
@@ -890,8 +960,16 @@ function push() {
   const out = {
     ...props.modelValue,
     ...uploadedPhotoUrls,
+    ...(!props.hideAuthorization ? {
+      ...clearCoverageAuthorization(),
+      authorizationAgreed: authorizationAgreed.value,
+      authorizationSignature: authorizationSignature.value,
+      authorizationSignatureData: authorizationSignatureData.value,
+      authorizationSignedAt: authorizationSignedAt.value || null,
+      authorizationSourceMethod: authorizationSourceMethod.value
+    } : {}),
     coverageScope: coverageScope.value,
-    clientCoverages: coverageClientIndexes.value.map(clientIndex => ({ ...separatePolicies[clientIndex], clientIndex, confirmed: true })),
+    clientCoverages: coveragePolicyIndexes.value.map(clientIndex => ({ ...separatePolicies[clientIndex], clientIndex, confirmed: coverageClientIndexes.value.includes(clientIndex) })),
     primary: { ...local.primary, isMedicaid: primaryIsMedicaid.value },
     secondary: hasSecondary.value ? { ...local.secondary, isMedicaid: secondaryIsMedicaid.value } : null,
     photos: {
@@ -906,6 +984,7 @@ function push() {
     medicaidPlanPosition: medicaidPlanPosition.value || null,
     medicaidByClient: medicaidRows,
     isSelfPay: isSelfPay.value,
+    payerChoice: isSelfPay.value ? 'self_pay' : 'insurance',
     guarantor: {
       mode: guarantorMode.value,
       name: guarantorMode.value === 'other'
@@ -934,7 +1013,9 @@ function push() {
 
 /** Returns the photo File objects (for upload at form finalize time). */
 function getPhotoFiles() {
-  return { ...photoFiles, identity_id: idFile.value || null };
+  const selected = isSelfPay.value && !hasAnyMedicaid.value
+    ? Object.fromEntries(Object.keys(photoFiles).map(key => [key, null])) : photoFiles;
+  return { ...selected, identity_id: idFile.value || null };
 }
 
 function onGuarantorModeChange() {
@@ -1031,6 +1112,7 @@ function getInsuranceEntryState() {
 // watcher emits its snapshot. Otherwise a parent refresh can erase secondary
 // coverage with a stale local value.
 watch(() => [props.modelValue?.primary, props.modelValue?.secondary], ([primary, secondary]) => {
+  syncingIncomingCoverage = true;
   for (const [tier, incoming] of [['primary', primary], ['secondary', secondary]]) {
     for (const key of new Set([...Object.keys(local[tier]), ...Object.keys(incoming || {})])) {
       const value = incoming?.[key] ?? (key === 'isMedicaid' ? false : '');
@@ -1040,6 +1122,7 @@ watch(() => [props.modelValue?.primary, props.modelValue?.secondary], ([primary,
   primaryQuery.value = local.primary.insurerName;
   secondaryQuery.value = local.secondary.insurerName;
   hasSecondary.value = props.modelValue?.hasSecondary === true || !!(secondary?.insurerName || secondary?.isMedicaid);
+  syncingIncomingCoverage = false;
 }, { deep: true, flush: 'sync' });
 watch([() => local.primary, () => local.secondary, hasSecondary], push, { deep: true });
 watch(
@@ -1083,10 +1166,6 @@ watch(
   { immediate: true, deep: true }
 );
 
-const authorizationSignature = ref(String(props.modelValue?.authorizationSignature || ''));
-const authorizationSignatureData = ref(String(props.modelValue?.authorizationSignatureData || ''));
-const authorizationSignedAt = ref(String(props.modelValue?.authorizationSignedAt || ''));
-const authorizationSourceMethod = ref(String(props.modelValue?.authorizationSourceMethod || ''));
 const authBlockRef = ref(null);
 
 function getAuthorizationSignature() {
@@ -1095,6 +1174,7 @@ function getAuthorizationSignature() {
 
 function getAuthorizationSignatureBundle() {
   return {
+    authorizationAgreed: authorizationAgreed.value,
     authorizationSignature: authorizationSignature.value,
     authorizationSignatureData: authorizationSignatureData.value,
     authorizationSignedAt: authorizationSignedAt.value,
@@ -1105,6 +1185,7 @@ function getAuthorizationSignatureBundle() {
 function applySavedAuthSignature() {
   const sig = String(props.savedSignatureData || '').trim();
   if (!sig) return;
+  authorizationAgreed.value = true;
   authorizationSignatureData.value = sig;
   authorizationSignedAt.value = new Date().toISOString();
   authorizationSourceMethod.value = 'reused_guardian_signature';
@@ -1118,14 +1199,13 @@ function applySavedAuthSignature() {
 }
 
 function resignAuth() {
-  authorizationSignatureData.value = '';
-  authorizationSignedAt.value = '';
-  authorizationSourceMethod.value = '';
+  resetAuthorization();
   push();
 }
 
 function onTypedAuthInput(v) {
   authorizationSignature.value = String(v || '');
+  authorizationAgreed.value = authorizationSignature.value.trim().length >= 2;
   if (authorizationSignature.value.trim().length >= 2) {
     if (!authorizationSignedAt.value) {
       authorizationSignedAt.value = new Date().toISOString();
@@ -1167,28 +1247,43 @@ function scrollToAnchor(anchor) {
   }
 }
 
-// Watch the auth-signature trio and re-emit so the parent step always
-// sees the latest signature artifact + timestamp + source method at
-// finalize time. push() above already emits modelValue; this watcher
-// just makes sure another push happens whenever the auth signature
-// fields change so the parent's reactive ref picks it up. We also
-// stash the bundle directly on props.modelValue so legacy pickers
-// still see the typed-name field via the same key.
-watch(
-  [authorizationSignature, authorizationSignatureData, authorizationSignedAt, authorizationSourceMethod],
-  () => {
-    const insBag = props.modelValue;
-    if (insBag && typeof insBag === 'object') {
-      insBag.authorizationSignature = authorizationSignature.value;
-      insBag.authorizationSignatureData = authorizationSignatureData.value;
-      insBag.authorizationSignedAt = authorizationSignedAt.value;
-      insBag.authorizationSourceMethod = authorizationSourceMethod.value;
-    }
-    push();
-  }
-);
+// Consent is emitted by explicit signing actions. A saved/reset parent state
+// must also clear local artifacts, so re-opening cannot revive an old signature.
+watch(() => [props.modelValue?.authorizationAgreed, props.modelValue?.authorizationSignature,
+  props.modelValue?.authorizationSignatureData, props.modelValue?.authorizationSignedAt,
+  props.modelValue?.authorizationSourceMethod], () => {
+  authorizationAgreed.value = storedAuthorizationAgreed(props.modelValue);
+  authorizationSignature.value = String(props.modelValue?.authorizationSignature || '');
+  authorizationSignatureData.value = String(props.modelValue?.authorizationSignatureData || '');
+  authorizationSignedAt.value = String(props.modelValue?.authorizationSignedAt || '');
+  authorizationSourceMethod.value = String(props.modelValue?.authorizationSourceMethod || '');
+}, { flush: 'sync' });
+
+const editableCoverageFingerprint = computed(() => enrollmentCoverageFingerprint({
+  primary: local.primary, secondary: hasSecondary.value ? local.secondary : null,
+  hasSecondary: hasSecondary.value, isSelfPay: isSelfPay.value, coverageScope: coverageScope.value,
+  medicaidByClient: showMultiClientMedicaidSection.value ? medicaidByClient.value : [],
+  clientCoverages: Object.values(separatePolicies), ...uploadedPhotoUrls,
+  noPrimaryCardAvailable: noPrimaryCardAvailable.value
+}));
+watch(editableCoverageFingerprint, () => {
+  if (syncingIncomingCoverage) return;
+  coverageClientIndexes.value = [];
+  coverageConfirmationError.value = '';
+  resetAuthorization();
+  push();
+}, { flush: 'sync' });
+
+function validateCoverageConfirmations() {
+  coverageConfirmationError.value = '';
+  if (!showInsuranceForm.value) return true;
+  if (clientDisplayNames.value.every((name, index) => coverageClientIndexes.value.includes(index))) return true;
+  coverageConfirmationError.value = 'Please confirm coverage for every listed client.';
+  return false;
+}
 
 onMounted(() => {
+  if (isSelfPay.value && !hasAnyMedicaid.value) { discardInsuranceCards(); return; }
   // Older saved drafts retained the card image but lost the browser File object.
   // Reuse that same image through the existing authenticated upload endpoint.
   for (const slot of ['primary_front', 'primary_back', 'secondary_front', 'secondary_back']) {
@@ -1207,6 +1302,7 @@ defineExpose({
   primaryIsMedicaid,
   getAuthorizationSignature,
   getAuthorizationSignatureBundle,
+  validateCoverageConfirmations,
   scrollToAnchor
 });
 </script>

@@ -10,8 +10,10 @@ export function hasMedicaidCoverage(info) {
   if (!info) return false;
   return info.primaryIsMedicaid === true || info.primaryIsMedicaid === 1
     || policyIsMedicaid(info.primary) || policyIsMedicaid(info.secondary)
+    // A required review can clear confirmation without removing the declared
+    // payer. Keep payment suppressed while that Medicaid policy is reviewed.
     || (Array.isArray(info.clientCoverages) && info.clientCoverages.some(c =>
-      c.confirmed === true && (policyIsMedicaid(c.primary) || policyIsMedicaid(c.secondary))));
+      policyIsMedicaid(c.primary) || policyIsMedicaid(c.secondary)));
 }
 export function isNonClinicalPaymentChannel(channel) {
   return ['tutoring', 'coaching', 'consulting', 'mentorship'].includes(String(channel || '').toLowerCase());

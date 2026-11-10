@@ -39,3 +39,20 @@ describe('deterministic office Spanish copy', () => {
     }
   });
 });
+
+
+describe('final1110 communication and authorization wording', () => {
+  it('translates both authorization recovery errors deterministically', () => {
+    expect(lookupStructuredIntakeTranslation('Please agree to and sign the insurance and payment authorization before completing enrollment.')).toBe('Acepte y firme la autorización de seguro y pago antes de completar la inscripción.');
+    expect(lookupStructuredIntakeTranslation('Please confirm coverage for every listed client.')).toBe('Confirme la cobertura de cada cliente indicado.');
+  });
+  it('translates office communication copy while preserving the agency name and STOP rules', () => {
+    const email = 'QA Agency offers optional account emails about appointments, schedule changes, secure-message alerts, forms and signatures, enrollment follow-ups, billing and required insurance cards. Medicaid cards are not requested. Choose all optional account emails, scheduling only, or essential messages only. This choice does not include marketing, enroll another adult, or affect your care. Requested login, password recovery and essential security messages are separate.';
+    const sms = 'QA Agency offers optional text messages for appointment reminders, schedule changes, cancellations and links to sign in or join a scheduled session. Choose Yes or No below. Message frequency varies. Message and data rates may apply. Reply STOP to opt out or HELP for help. Choosing No does not affect care or enrollment. This choice does not authorize marketing or enroll other contacts. Texts may appear on a shared phone or lock screen; use the secure app for private details.';
+    expect(lookupStructuredIntakeTranslation(email)).toContain('QA Agency ofrece correos opcionales');
+    expect(lookupStructuredIntakeTranslation(email)).not.toContain('sesiones escolares');
+    expect(lookupStructuredIntakeTranslation(sms)).toContain('Responda STOP para cancelar');
+    expect(lookupStructuredIntakeTranslation(sms)).not.toContain('servicios escolares');
+    expect(lookupStructuredIntakeTranslation('By typing my name and continuing, I electronically sign these choices. If I request texts, I control the listed phone and am the recipient. I can decline texts and still receive services.')).toContain('soy la persona destinataria');
+  });
+});

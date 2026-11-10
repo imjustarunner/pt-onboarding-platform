@@ -8,7 +8,7 @@ import Payment from '../PublicIntakePaymentStep.vue';
 import PolicyFields from '../../billing/InsurancePolicyFields.vue';
 import api from '../../../services/api';
 vi.mock('../../../services/api', () => ({ default: { get: vi.fn(), post: vi.fn() } }));
-const props = () => ({ insuranceInfo: { primary: { insurerName: 'Commercial' }, secondary: { insurerName: 'Health First Colorado', isMedicaid: true } }, clientNames: ['Sample Client'], guardianName: 'Sample Parent' });
+const props = () => ({ insuranceInfo: { primary: { insurerName: 'Commercial' }, secondary: { insurerName: 'Health First Colorado', isMedicaid: true }, clientCoverages: [{clientIndex:0,confirmed:true}] }, clientNames: ['Sample Client'], guardianName: 'Sample Parent' });
 const mountForm = overrides => mount(Combined, { props: { ...props(), ...overrides }, global: { stubs: { PublicIntakePaymentStep: { template: '<div data-card-form>Secure card form</div>' } } } });
 describe('insurance enrollment', () => {
   it('never prompts for a card while coverage is being entered before secondary Medicaid is identified', async () => {
@@ -272,4 +272,120 @@ it('saves distinct sibling Medicaid IDs as they are typed and restores them afte
  await fields[0].setValue('QA1108N01');await fields[1].setValue('QA1108N02');await flushPromises();
  expect(model.value.medicaidByClient.map(r=>r.memberId)).toEqual(['QA1108N01','QA1108N02']);w.unmount();
  w=mount(Host);await flushPromises();expect(w.findAll('.pi-ins-multi-client input').map(f=>f.element.value)).toEqual(['QA1108N01','QA1108N02']);w.unmount();
+});
+
+describe('coverage changes invalidate review and signing together', () => {
+ const drawn='data:image/png;base64,'+'A'.repeat(100);
+ const initial=()=>({payerChoice:'insurance',primary:{insurerName:'Health First Colorado',isMedicaid:true,memberId:'ONE',subscriberName:'One QA'},medicaidByClient:[{clientIndex:0,clientName:'One QA',memberId:'ONE'},{clientIndex:1,clientName:'Two QA',memberId:'TWO'}],clientCoverages:[{clientIndex:0,confirmed:true},{clientIndex:1,confirmed:true}],authorizationAgreed:true,authorizationSignature:'QA Parent',authorizationSignatureData:drawn,authorizationSignedAt:'2026-11-01T17:00:00Z'});
+ const confirmations=w=>w.findAll('section.pi-ins-claim-details > label.checkbox-row input');
+ function school(initialInfo=initial(),language='en') {
+  const model=ref(initialInfo);
+  const Host=defineComponent({setup:()=>()=>h(Insurance,{modelValue:model.value,guardianName:'QA Parent',clientNames:['One QA','Two QA'],savedSignatureData:drawn,'onUpdate:modelValue':v=>model.value=v})});
+  const wrapper=mount(Host,{global:{provide:{intakeLocale:ref(language)}}});
+  return {model,wrapper,step:()=>wrapper.findComponent(Insurance)};
+ }
+ it.each(['en','es'])('requires fresh per-child confirmations after an ID edit and revert in %s, including save/reload',async language=>{
+  const {model,wrapper:w,step}=school(initial(),language);await flushPromises();
+  expect(confirmations(w).map(c=>c.element.checked)).toEqual([true,true]);
+  const fields=w.findAll('.pi-ins-multi-client input');
+  await fields[1].setValue('TEMP');await fields[1].setValue('TWO');await flushPromises();
+  expect(confirmations(w).map(c=>c.element.checked)).toEqual([false,false]);
+  expect(model.value.authorizationAgreed).toBe(false);expect(model.value.authorizationSignatureData).toBe('');
+  expect(step().vm.validateCoverageConfirmations()).toBe(false);
+  for(const c of confirmations(w)) await c.setValue(true);
+  expect(step().vm.validateCoverageConfirmations()).toBe(true);
+  await w.find('.pi-ins-auth-apply').trigger('click');await flushPromises();
+  expect(model.value.authorizationAgreed).toBe(true);expect(step().vm.getAuthorizationSignatureBundle().authorizationAgreed).toBe(true);
+  expect(model.value.medicaidByClient.map(row=>row.memberId)).toEqual(['ONE','TWO']);
+  const stored=JSON.parse(JSON.stringify(model.value));w.unmount();
+  const restored=school(stored,language);await flushPromises();
+  expect(confirmations(restored.wrapper).map(c=>c.element.checked)).toEqual([true,true]);
+  expect(restored.step().vm.getAuthorizationSignatureBundle()).toMatchObject({authorizationAgreed:true,authorizationSignatureData:drawn});
+  restored.wrapper.unmount();
+ });
+ it('restores school AOB consent only after explicit signing following signer-email invalidation',async()=>{
+  const info=initial();info.authorizationAgreed=false;info.authorizationSignature='';info.authorizationSignatureData='';info.authorizationSignedAt=null;
+  const {model,wrapper:w,step}=school(info);await flushPromises();
+  expect(step().vm.getAuthorizationSignatureBundle().authorizationAgreed).toBe(false);
+  await w.find('.pi-ins-auth-apply').trigger('click');await flushPromises();
+  expect(model.value).toMatchObject({authorizationAgreed:true,authorizationSignature:'QA Parent',authorizationSignatureData:drawn});
+  await w.find('.pi-ins-auth-resign').trigger('click');await flushPromises();
+  expect(model.value).toMatchObject({authorizationAgreed:false,authorizationSignature:'',authorizationSignatureData:''});
+  w.unmount();
+ });
+ it('retains a previously signed standalone draft with no legacy agreement flag, while an explicit false needs signing again',async()=>{
+  const legacy=initial();delete legacy.authorizationAgreed;
+  const old=school(legacy);await flushPromises();
+  expect(old.step().vm.getAuthorizationSignatureBundle().authorizationAgreed).toBe(true);old.wrapper.unmount();
+  const reset=initial();reset.authorizationAgreed=false;
+  const current=school(reset);await flushPromises();
+  expect(current.wrapper.find('.pi-ins-auth-apply').exists()).toBe(true);
+  expect(current.step().vm.getAuthorizationSignatureBundle().authorizationAgreed).toBe(false);current.wrapper.unmount();
+ });
+ it('keeps separate policy entry visible and saved while a policy edit clears its confirmation',async()=>{
+  const info=initial();info.clientCoverages[1].primary={insurerName:'Commercial',memberId:'OTHER'};
+  const {model,wrapper:w}=school(info);await flushPromises();
+  const policy=w.findComponent(PolicyFields);expect(policy.exists()).toBe(true);
+  policy.vm.$emit('update:modelValue',{insurerName:'Commercial',memberId:'EDITED'});await flushPromises();
+  expect(confirmations(w).map(c=>c.element.checked)).toEqual([false,false]);
+  expect(w.findComponent(PolicyFields).exists()).toBe(true);
+  expect(model.value.clientCoverages.find(c=>c.clientIndex===1)).toMatchObject({confirmed:false,primary:{memberId:'EDITED'}});
+  w.unmount();
+ });
+ it('requires a new office agreement and removes prior commercial details on Self-Pay, then persists only the new agreement',async()=>{
+  const model=ref({payerChoice:'insurance',primary:{insurerName:'Aetna',memberId:'STALE',subscriberName:'QA Parent'},hasSecondary:false,clientCoverages:[{clientIndex:0,confirmed:true}],authorizationAgreed:true,authorizationSignature:'QA Parent',authorizationSignedAt:'2026-11-01T17:00:00Z'});
+  const Host=defineComponent({setup:()=>()=>h(Combined,{insuranceInfo:model.value,clientNames:['One QA'],guardianName:'QA Parent',paymentInfo:{paymentChoice:'later'},'onUpdate:insuranceInfo':v=>model.value=v})});
+  const w=mount(Host);await flushPromises();
+  await w.findAll('button').find(b=>b.text().startsWith('Self-Pay')).trigger('click');await flushPromises();
+  expect(model.value.primary).toEqual({insurerName:'Self-Pay',isMedicaid:false});
+  expect(model.value).toMatchObject({isSelfPay:true,authorizationAgreed:false,authorizationSignature:''});
+  expect(w.find('.pi-ip-auth-check input').element.checked).toBe(false);
+  expect(w.find('.pi-ip-sign input').element.value).toBe('');
+  expect(w.findComponent(Combined).vm.validateAuthorization()).toBe(false);
+  await w.find('.pi-ip-auth-check input').setValue(true);await w.find('.pi-ip-sign input').setValue('QA New');await flushPromises();
+  expect(w.findComponent(Combined).vm.validateAuthorization()).toBe(true);
+  expect(model.value.authorizationSignature).toBe('QA New');expect(JSON.stringify(model.value)).not.toContain('STALE');
+  w.unmount();
+ });
+ it('ignores insurance upload results arriving after the parent switched to Self-Pay',async()=>{
+  let resolveUpload;api.post.mockImplementationOnce(()=>new Promise(resolve=>{resolveUpload=resolve;}));
+  const model=ref({payerChoice:'insurance',primary:{insurerName:'Aetna',memberId:'STALE',subscriberName:'QA Parent'},clientCoverages:[{clientIndex:0,confirmed:true}]});
+  const Host=defineComponent({setup:()=>()=>h(Combined,{insuranceInfo:model.value,publicKey:'qa-key',submissionId:1110,clientNames:['One QA'],guardianName:'QA Parent','onUpdate:insuranceInfo':v=>model.value=v})});
+  const w=mount(Host);await flushPromises();
+  const input=w.find('.pi-ins input[type="file"]');
+  Object.defineProperty(input.element,'files',{value:[new File(['fictional'],'QA-card.pdf',{type:'application/pdf'})],configurable:true});
+  await input.trigger('change');await flushPromises();expect(resolveUpload).toBeTypeOf('function');
+  await w.findAll('button').find(b=>b.text().startsWith('Self-Pay')).trigger('click');await flushPromises();
+  resolveUpload({data:{urls:{primary_front_url:'/private/qa-card'},extracted:{primary:{insurerName:'Aetna',memberId:'LATE'}}}});await flushPromises();
+  expect(model.value.primary).toEqual({insurerName:'Self-Pay',isMedicaid:false});
+  expect(JSON.stringify(model.value)).not.toContain('LATE');w.unmount();api.post.mockReset();
+ });
+ it('keeps separately declared Medicaid protective while its edited policy awaits confirmation',async()=>{
+  const model=ref({payerChoice:'insurance',primary:{insurerName:'Commercial',memberId:'PRIMARY'},clientCoverages:[{clientIndex:0,confirmed:true,primary:{insurerName:'Medicaid',isMedicaid:true,memberId:'OLD'}}]});
+  const Host=defineComponent({setup:()=>()=>h(Combined,{insuranceInfo:model.value,clientNames:['One QA'],'onUpdate:insuranceInfo':v=>model.value=v})});
+  const w=mount(Host);await flushPromises();
+  w.findComponent(PolicyFields).vm.$emit('update:modelValue',{insurerName:'Medicaid',isMedicaid:true,memberId:'EDITED'});await flushPromises();
+  expect(model.value.clientCoverages[0].confirmed).toBe(false);
+  expect(w.findAll('button').some(b=>b.text().startsWith('Self-Pay'))).toBe(false);
+  expect(w.text()).not.toContain('How would you like to pay?');expect(w.find('[data-card-form]').exists()).toBe(false);w.unmount();
+ });
+ it('clears standalone files, previews and pending upload results when a controlled payer change selects Self-Pay',async()=>{
+  let finish;api.post.mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}));
+  const model=ref({primary:{insurerName:'Commercial',memberId:'OLD'},primary_front_url:'/old-card',photos:{primary_front_preview:'data:image/png;base64,OLD'}});const selfPay=ref(false);
+  const Host=defineComponent({setup:()=>()=>h(Insurance,{modelValue:model.value,externalSelfPay:selfPay.value,publicKey:'qa-key',submissionId:1110,clientNames:['One QA'],'onUpdate:modelValue':v=>model.value=v})});
+  const w=mount(Host);await flushPromises();
+  const field=w.find('input[type="file"]');Object.defineProperty(field.element,'files',{configurable:true,value:[new File(['fictional'],'QA-card.pdf',{type:'application/pdf'})]});
+  await field.trigger('change');await flushPromises();selfPay.value=true;await flushPromises();
+  await w.findComponent(Insurance).vm.awaitPhotoUploads();
+  expect(w.findComponent(Insurance).vm.getPhotoFiles().primary_front).toBeNull();
+  expect(model.value.primary_front_url).toBeNull();expect(model.value.photos.primary_front_preview).toBe('');
+  finish({data:{urls:{primary_front_url:'/LATE'},extracted:{primary:{insurerName:'Commercial',memberId:'LATE'}}}});await flushPromises();
+  expect(model.value.primary.insurerName).toBe('Self-Pay');expect(JSON.stringify(model.value)).not.toContain('LATE');w.unmount();api.post.mockReset();
+ });
+ it('clears a combined office signature when parent state is invalidated instead of merging the old local artifact back in',async()=>{
+  const w=mountForm({insuranceInfo:{isSelfPay:true,authorizationAgreed:true,authorizationSignature:'QA Old',authorizationSignatureData:drawn}});
+  await w.setProps({insuranceInfo:{isSelfPay:true,authorizationAgreed:false,authorizationSignature:'',authorizationSignatureData:'',authorizationSignedAt:null}});await flushPromises();
+  expect(w.find('.pi-ip-auth-check input').element.checked).toBe(false);expect(w.find('.pi-ip-sign input').element.value).toBe('');
+  expect(w.vm.validateAuthorization()).toBe(false);expect(w.vm.getInsuranceEntryState().authorizationSignatureData).toBe('');w.unmount();
+ });
 });

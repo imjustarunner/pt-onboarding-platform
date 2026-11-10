@@ -55,6 +55,10 @@ async function clickChoice(component, text) {
   await flushPromises();
 }
 async function confirmCoverageIfShown() {
+  const policy = wrapper.findComponent(SchoolInsurance);
+  if (policy.exists()) for (const field of policy.findAll('section.pi-ins-claim-details > label.checkbox-row input')) {
+    if (!field.element.checked) await field.setValue(true);
+  }
   const form=wrapper.findComponent(CombinedInsurance);
   if(!form.exists())return;
   const button=form.findAll('button').find(b=>b.text()==='Confirm primary and any secondary coverage');
@@ -92,6 +96,8 @@ describe('office insurance Continue and Back', () => {
       Object.defineProperty(fields[i].element, 'files', { configurable: true, value: [new File(['synthetic'], slots[i] + '.png', { type: 'image/png' })] });
       await fields[i].trigger('change');
     }
+    await flushPromises();
+    await authorize();
     await continueInsurance();
     const uploads = post.mock.calls.filter(([url]) => url.endsWith('/insurance-card-photos'));
     expect(uploads).toHaveLength(4);
@@ -102,26 +108,26 @@ describe('office insurance Continue and Back', () => {
     expect(wrapper.findComponent(SchoolInsurance).vm.getPhotoFiles().primary_front).toBeNull();
     expect(insurance()).toMatchObject(urls);
   });
-  it.each(['commercial'])('preserves %s coverage and authorization when Self-Pay continues and changes back to insurance', async tier => {
-    const primary = { insurerName: tier === 'primary Medicaid' ? 'Medicaid' : 'Commercial', memberId: 'QA-PRIMARY', groupNumber: 'QA-GROUP', subscriberName: 'QA Adult', isMedicaid: tier === 'primary Medicaid' };
-    const secondary = { insurerName: tier === 'secondary Medicaid' ? 'Medicaid' : 'Other Commercial', memberId: 'QA-SECONDARY', isMedicaid: tier === 'secondary Medicaid' };
+  it('requires a fresh agreement after changing between commercial coverage and Self-Pay', async () => {
+    const primary = { insurerName: 'Commercial', memberId: 'QA-PRIMARY', groupNumber: 'QA-GROUP', subscriberName: 'QA Adult' };
+    const secondary = { insurerName: 'Other Commercial', memberId: 'QA-SECONDARY' };
     await render({ insuranceInfo: { primary, secondary, hasSecondary: true, payerChoice: 'insurance', isSelfPay: false } });
-    await clickChoice(wrapper.findComponent(CombinedInsurance), 'Self-Pay');
     await authorize();
-    await continueInsurance();
-    expect(insurance()).toMatchObject({ isSelfPay: true, payerChoice: 'self_pay', primary, secondary, hasSecondary: true,
-      authorizationAgreed: true, authorizationSignature: 'QA Adult' });
-    expect(wrapper.vm.shouldSkipPaymentCollectionStep()).toBe(tier !== 'commercial');
-
-    wrapper.vm.goBackPublicPage();
-    await flushPromises();
-    const form = wrapper.findComponent(CombinedInsurance);
+    await clickChoice(wrapper.findComponent(CombinedInsurance), 'Self-Pay');
+    expect(insurance()).toMatchObject({isSelfPay:true,authorizationAgreed:false,authorizationSignature:'',primary:{insurerName:'Self-Pay'},secondary:null});
+    expect(JSON.stringify(insurance())).not.toContain('QA-PRIMARY');
+    await wrapper.vm.handleCurrentFlowContinue();await flushPromises();
+    expect(wrapper.vm.currentFlowStep.type).toBe('insurance_info');
+    await authorize();await continueInsurance();
+    expect(insurance()).toMatchObject({isSelfPay:true,authorizationAgreed:true,authorizationSignature:'QA Adult'});
+    wrapper.vm.goBackPublicPage();await flushPromises();
+    const form=wrapper.findComponent(CombinedInsurance);
     expect(form.get('.pi-ip-sign input').element.value).toBe('QA Adult');
-    await clickChoice(form, 'Use Insurance');
+    await clickChoice(form,'Use Insurance');
+    expect(insurance()).toMatchObject({isSelfPay:false,payerChoice:'insurance',primary:{insurerName:''},authorizationAgreed:false,authorizationSignature:''});
     expect(form.findComponent(SchoolInsurance).exists()).toBe(true);
-    expect(insurance()).toMatchObject({ isSelfPay: false, payerChoice: 'insurance', primary, secondary });
-    await continueInsurance();
-    expect(insurance()).toMatchObject({ primary, secondary, authorizationSignature: 'QA Adult' });
+    await wrapper.vm.handleCurrentFlowContinue();await flushPromises();
+    expect(wrapper.vm.currentFlowStep.type).toBe('insurance_info');
   });
 
   it.each(['primary', 'secondary'])('keeps %s Medicaid coverage editable without offering Self-Pay or payment', async tier => {
@@ -183,4 +189,29 @@ it('keeps enrollment on the insurance step when a selected card fails to upload'
   await wrapper.vm.handleCurrentFlowContinue(); await flushPromises();
   expect(wrapper.vm.currentFlowStep.type).toBe('insurance_info');
   expect(wrapper.vm.stepError).toContain('not saved');
+});
+
+it('completes school insurance after an email edit clears AOB and the signer explicitly applies a fresh signature', async () => {
+  await render({school:true,insuranceInfo:{primary:{insurerName:'Medicaid',memberId:'QA-ONE',isMedicaid:true},clientCoverages:[{clientIndex:0,confirmed:true}]}});
+  wrapper.vm.guardianEmail='testing+old@itsco.health';await flushPromises();
+  wrapper.vm.lastSignatureData='data:image/png;base64,'+'A'.repeat(100);await flushPromises();
+  const school=()=>wrapper.findComponent(SchoolInsurance);
+  await school().find('.pi-ins-auth-apply').trigger('click');await flushPromises();
+  expect(insurance().authorizationAgreed).toBe(true);
+  wrapper.vm.guardianEmail='testing+reviewed@itsco.health';await flushPromises();
+  expect(insurance()).toMatchObject({authorizationAgreed:false,authorizationSignature:'',authorizationSignatureData:''});
+  wrapper.vm.lastSignatureData='data:image/png;base64,'+'B'.repeat(100);await flushPromises();
+  await school().find('.pi-ins-auth-apply').trigger('click');await flushPromises();
+  expect(insurance().authorizationAgreed).toBe(true);
+  await continueInsurance();
+  expect(insurance()).toMatchObject({authorizationAgreed:true,authorizationSignatureData:wrapper.vm.lastSignatureData});
+});
+
+it('does not re-upload or OCR abandoned commercial card files while continuing school Self-Pay', async () => {
+  await render({school:true,insuranceInfo:{isSelfPay:true,payerChoice:'self_pay',primary:{insurerName:'Commercial',memberId:'STALE'},primary_front_url:'/old-commercial',photos:{primary_front_preview:'data:image/png;base64,'+'A'.repeat(100)}}});
+  wrapper.vm.submissionId=123;
+  await continueInsurance();
+  expect(post.mock.calls.some(([url])=>url.endsWith('/insurance-card-photos'))).toBe(false);
+  expect(insurance().primary.insurerName).toBe('Self-Pay');
+  expect(insurance().primary_front_url).toBeNull();expect(JSON.stringify(insurance())).not.toContain('STALE');
 });
