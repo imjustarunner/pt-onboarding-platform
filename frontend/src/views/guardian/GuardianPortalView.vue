@@ -25,13 +25,13 @@
       <GuardianPendingEnrollment v-if="!isSuperadminPreview" :key="`pending:${selectedChildAgencyId}:${selectedChildId}`" :agency-id="selectedChildAgencyId || currentAgencyId" :client-id="selectedChildId" @state="pendingEnrollmentState = $event" />
       <p v-if="onboardingRequired && activePanel !== 'onboarding'" class="onboarding-prompt" role="status"><span class="onboarding-dot" aria-hidden="true"></span><span>Please complete onboarding for <strong>{{ profileLabel(selectedChild) }}</strong> so your new portal is accurate.</span><button type="button" @click="navigatePortal('onboarding')">Continue onboarding</button></p>
       <p v-if="onboardingBillingNotice" class="onboarding-billing-notice" role="status">Please complete the available onboarding steps before opening billing. Payment setup is included below.</p>
-      <PortalMigrationChecklist :profiles="allFamilyProfiles" v-if="!isSuperadminPreview && selectedChildId" v-show="activePanel === 'onboarding'" :key="`${selectedChildAgencyId}:${selectedChildId}`" :agency-id="selectedChildAgencyId" :client-id="selectedChildId" :client-type="selectedChildClientType" :active="activePanel === 'onboarding'" @state="onMigrationState" @navigate="navigatePortal" @finished="navigatePortal('overview')" />
-      <ClientUpdateChecklist v-if="!isSuperadminPreview && selectedChildId && activePanel === 'updates'" :key="`updates:${selectedChildAgencyId}:${selectedChildId}`" :profiles="allFamilyProfiles" :agency-id="selectedChildAgencyId" :client-id="selectedChildId" :client-type="selectedChildClientType" />
+      <PortalMigrationChecklist :profiles="readableFamilyProfiles" v-if="!isSuperadminPreview && selectedChildId && selectedChildRecordAccess" v-show="activePanel === 'onboarding'" :key="`${selectedChildAgencyId}:${selectedChildId}`" :agency-id="selectedChildAgencyId" :client-id="selectedChildId" :client-type="selectedChildClientType" :active="activePanel === 'onboarding'" @state="onMigrationState" @navigate="navigatePortal" @finished="navigatePortal('overview')" />
+      <ClientUpdateChecklist v-if="!isSuperadminPreview && selectedChildId && selectedChildRecordAccess && activePanel === 'updates'" :key="`updates:${selectedChildAgencyId}:${selectedChildId}`" :profiles="readableFamilyProfiles" :agency-id="selectedChildAgencyId" :client-id="selectedChildId" :client-type="selectedChildClientType" />
       <AuricWellPortalGuide v-if="!isSuperadminPreview && activePanel === 'help'" :agency-id="selectedChildAgencyId" :client-id="selectedChildId" :brand-name="clinicalGuardianContext ? 'AuricWell' : careAgencyName || 'Your portal'" :learning="standardsLearningVisible" @navigate="navigatePortal" />
       <ClientSupportAccounts v-if="!isSuperadminPreview && activePanel === 'assistance'" />
       <GuardianEnrollmentStart v-if="!isSuperadminPreview && activePanel === 'enroll'" :agency-id="currentAgencyId" :language="familyLocale" />
       <GuardianInvitations v-if="!isSuperadminPreview && activePanel === 'family'" :agency-id="selectedChildAgencyId || currentAgencyId" :language="familyLocale" />
-      <FamilyNotificationChoices v-if="activePanel === 'notifications' && !isSuperadminPreview" :agency-id="selectedChildAgencyId" :client-id="selectedChildId" :profiles="allFamilyProfiles" />
+      <FamilyNotificationChoices v-if="activePanel === 'notifications' && !isSuperadminPreview && selectedChildRecordAccess" :agency-id="selectedChildAgencyId" :client-id="selectedChildId" :profiles="readableFamilyProfiles" />
 
       <div v-if="programs.length === 0 && children.length === 0 && !['account','messages','payment_methods','billing','assistance','enroll'].includes(activePanel)" class="empty-state">
         <p>No children or programs are linked to this guardian account yet.</p>
@@ -39,13 +39,20 @@
       </div>
 
       <template v-else>
-        <div class="detail guardian-detail">
+        <div v-if="restrictedRecordPanel" class="panel guardian-panel" role="status">
+          <h2>{{ ft('Your profile is linked') }}</h2>
+          <p>{{ pendingEnrollmentState.pending
+            ? ft('Complete your own enrollment above to continue. The other guardian’s private answers remain hidden.')
+            : ft('Detailed records are not available under your current access. Complete any enrollment forms shown above, or contact your care team to review access.') }}</p>
+        </div>
+        <div v-else class="detail guardian-detail">
           <div class="panel guardian-panel">
             <section v-if="activePanel === 'family'" class="family-overview" aria-label="All family profiles">
               <GuardianSchoolReleaseNotice v-if="!isSuperadminPreview && schoolReleasePeople.length" :people="schoolReleasePeople" @open="openSchoolRelease" />
               <FamilyDashboard :profiles="allFamilyProfiles" :preview="isSuperadminPreview" @navigate="navigatePortal" @profile="chooseFamilyProfile" /><h2>{{ allFamilyProfiles.length > 1 ? ft("Your family members") : ft("Your profile") }}</h2><p>{{ ft("Choose a profile to see their appointments, documents, and next steps.") }}</p>
               <div class="family-profile-grid"><article v-for="person in allFamilyProfiles" :key="person.client_id" class="family-profile-card">
                 <div class="profile-logos"><img v-if="profileAgencyLogo(person)" :src="profileAgencyLogo(person)" :alt="person.agency_name"/><img v-if="profileSchool(person)?.logo" :src="profileSchool(person).logo" :alt="profileSchool(person).name"/></div><strong>{{ profileLabel(person) }}</strong><span>{{ person.agency_name }}<template v-if="profileSchool(person)"> · {{ profileSchool(person).name }}</template></span>
+                <p v-if="!familyProfileHasRecordAccess(person)" role="status">{{ ft('Detailed records are restricted. Complete any enrollment forms shown above, or ask your care team to review access.') }}</p>
                 <details><summary>{{ ft("Profile details") }}</summary><p>{{ ['learning','tutoring'].includes(person.client_type) ? ft("Tutoring") : ft("Counseling and care") }}</p><p v-if="person.organization_type === 'school'">School: {{ person.organization_name }}</p><p>{{ person.relationship_type === 'self' ? ft("Your own client profile") : ft("Dependent linked to your account") }}</p></details>
                 <div v-if="person.care_contexts?.length" class="family-service-links"><template v-for="context in person.care_contexts" :key="context.agency_id"><button v-for="service in context.services" :key="service.id" type="button" @click="chooseFamilyProfile(person.client_id,null,context.agency_id,service.id)">{{context.agency_name}} · {{ft(service.label)}}<small>{{service.provider_name || ft("Provider being assigned")}}</small></button><button v-if="!context.services.length" @click="chooseFamilyProfile(person.client_id,null,context.agency_id)">{{context.agency_name}} →</button></template></div><button v-else type="button" @click="chooseFamilyProfile(person.client_id)">{{ ft("Open profile →") }}</button>
               </article></div>
@@ -632,7 +639,7 @@ import GuardianProgressRecords from '../../components/guardian/GuardianProgressR
 import FamilyDashboard from '../../components/guardian/FamilyDashboard.vue';
 import GuardianEnrollmentStart from '../../components/guardian/GuardianEnrollmentStart.vue';
 import FamilyPayments from '../../components/guardian/FamilyPayments.vue';
-import { resolveFamilyPortalOrganization, familyPortalClients, familyCareAgencies } from '../../utils/familyPortalContext.js';
+import { resolveFamilyPortalOrganization, familyPortalClients, familyCareAgencies, familyProfileHasRecordAccess } from '../../utils/familyPortalContext.js';
 import { AURICWELL_MARK_URL } from '../../constants/auricwellBrand';
 import GuardianSchoolCareBridge from '../../components/guardian/GuardianSchoolCareBridge.vue';
 import GuardianSchoolReleaseForm from '../../components/guardian/GuardianSchoolReleaseForm.vue';
@@ -772,6 +779,7 @@ const allFamilyProfiles = computed(() => {
   if (overview.value?.me && !linked.some(c => Number(c.client_id) === Number(overview.value.me.client_id))) linked.unshift(overview.value.me);
   return linked;
 });
+const readableFamilyProfiles = computed(() => allFamilyProfiles.value.filter(familyProfileHasRecordAccess));
 const children = computed(() => familyPortalClients(allFamilyProfiles.value, agencyStore.currentAgency));
 watch(children, (list) => {
   if (!list.some(c => Number(c.client_id) === Number(selectedChildId.value))) selectedChildId.value = Number(list[0]?.client_id || 0) || null;
@@ -822,6 +830,11 @@ const selectedChild = computed(() => {
   const child=(children.value || []).find((c) => Number(c?.client_id) === id);
   return child?{...child,client_type:selectedService.value?({tutoring:'learning',counseling:'clinical'}[selectedService.value.service_kind]||selectedService.value.service_kind):child.client_type}:null;
 });
+
+const selectedChildRecordAccess = computed(() => familyProfileHasRecordAccess(selectedChild.value));
+const restrictedRecordPanel = computed(() => !isSuperadminPreview.value && selectedChild.value?.no_view
+  && ['overview','tutoring','schoolcarebridge','plan','appointments','documents','child','checkins','evaluations',
+    'billing','payment_methods','dependents','contact','updates','onboarding','notifications'].includes(activePanel.value));
 
 const { ft, locale: familyLocale, setLocale: setFamilyLocale } = provideFamilyLocale({
   userId: computed(() => authStore.user?.id),
@@ -931,7 +944,7 @@ const familyHomeLabel = computed(() => portalAccountLabel.value === 'Family port
 const selectedFirstName = computed(() => String(selectedChild.value?.full_name || '').split(' — ')[0].trim().split(/\s+/)[0] || 'Client');
 const selectedPrograms = computed(() => programs.value.filter(p => [Number(selectedChild.value?.agency_id),Number(selectedChild.value?.organization_id)].includes(Number(p.id))));
 function profileSchool(person) { const school=person?.school_affiliations?.find(s=>s.status!=='former');return school ? {name:school.name,logo:school.logo_url} : person?.organization_type==='school' ? {name:person.organization_name,logo:person.organization_logo_url} : null; }
-const schoolReleasePeople = computed(() => allFamilyProfiles.value.filter(person => profileSchool(person)).map(person => ({ clientId: person.client_id, childName: childDisplayName(person), schoolName: profileSchool(person)?.name || '' })));
+const schoolReleasePeople = computed(() => allFamilyProfiles.value.filter(person => familyProfileHasRecordAccess(person) && profileSchool(person)).map(person => ({ clientId: person.client_id, childName: childDisplayName(person), schoolName: profileSchool(person)?.name || '' })));
 const selectedSchoolRelease = computed(() => schoolReleasePeople.value.find(person => Number(person.clientId) === Number(selectedChildId.value)) || null);
 const schoolReleaseVersion=ref(0);
 function openSchoolRelease(clientId) {
@@ -1600,6 +1613,7 @@ const openChild = (c) => {
 };
 
 const intakeSignedDocs = ref([]);
+let intakeDocumentsRequest = 0;
 const intakeDocsLoading = ref(false);
 const intakeDocOpeningId = ref(null);
 
@@ -1613,8 +1627,10 @@ const formatIntakeSignedAt = (iso) => {
 };
 
 const loadIntakeSignedDocumentsForChild = async () => {
+  const request = ++intakeDocumentsRequest;
   const id = Number(selectedChildId.value);
-  if (!id) {
+  if (!id || !selectedChildRecordAccess.value) {
+    intakeDocsLoading.value = false;
     intakeSignedDocs.value = [];
     return;
   }
@@ -1626,25 +1642,26 @@ const loadIntakeSignedDocumentsForChild = async () => {
   intakeDocsLoading.value = true;
   try {
     const { data } = await api.get(`/guardian-portal/clients/${id}/intake-documents`);
-    intakeSignedDocs.value = Array.isArray(data?.documents) ? data.documents : [];
+    if (request === intakeDocumentsRequest && selectedChildRecordAccess.value) intakeSignedDocs.value = Array.isArray(data?.documents) ? data.documents : [];
   } catch {
-    intakeSignedDocs.value = [];
+    if (request === intakeDocumentsRequest) intakeSignedDocs.value = [];
   } finally {
-    intakeDocsLoading.value = false;
+    if (request === intakeDocumentsRequest) intakeDocsLoading.value = false;
   }
 };
 
 const openIntakeSignedDoc = async (d) => {
   const cid = Number(selectedChildId.value);
-  if (!cid || !d?.id) return;
+  if (!cid || !d?.id || !selectedChildRecordAccess.value) return;
   intakeDocOpeningId.value = d.id;
   try {
     if (d.kind === 'enrollment_copy') {
       const {data}=await api.get(`/guardian-portal/clients/${cid}/enrollment-copies/${d.submissionId}/download`,{params:{agencyId:selectedChildAgencyId.value},responseType:'blob'});
-      if(cid!==Number(selectedChildId.value))return;
+      if(cid!==Number(selectedChildId.value)||!selectedChildRecordAccess.value)return;
       const href=URL.createObjectURL(data),a=document.createElement('a');a.href=href;a.download=`enrollment-${d.submissionId}.pdf`;a.click();setTimeout(()=>URL.revokeObjectURL(href),30000);return;
     }
     const { data } = await api.get(`/guardian-portal/clients/${cid}/intake-documents/${d.id}/download-url`);
+    if (cid !== Number(selectedChildId.value) || !selectedChildRecordAccess.value) return;
     const url = data?.url;
     if (url) window.open(url, '_blank', 'noopener,noreferrer');
   } catch {
@@ -1712,7 +1729,7 @@ const fmtUpcomingDate = (value) => {
 
 const loadSelectedChildLearningProgress = async () => {
   const clientId = Number(selectedChildId.value || 0);
-  if (!clientId || !standardsLearningVisible.value) {
+  if (!clientId || !standardsLearningVisible.value || !selectedChildRecordAccess.value) {
     learningDomainRows.value = [];
     learningGoalRows.value = [];
     learningRecommendationRows.value = [];
@@ -1879,7 +1896,7 @@ const formatStandardChip = (s) => {
 const loadGuardianDailyNotes = async () => {
   const clientId = selectedChildId.value;
   const date = guardianNoteDate.value;
-  if (!clientId || !date) {
+  if (!clientId || !date || !selectedChildRecordAccess.value) {
     guardianDailyNotes.value = [];
     return;
   }
@@ -1899,7 +1916,7 @@ const formatNoteTime = (dt) => {
   return Number.isNaN(d.getTime()) ? '' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 };
 
-watch(selectedChildId, (id) => {
+watch([selectedChildId, selectedChildRecordAccess], ([id]) => {
   void loadIntakeSignedDocumentsForChild();
   void loadSelectedChildLearningProgress();
   if (id) {

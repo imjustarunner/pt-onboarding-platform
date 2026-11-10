@@ -30,3 +30,31 @@ it('applies family preferences to both agencies without enrolling texts implicit
  await w.find('input[type=checkbox]').setValue(true);await w.find('form').trigger('submit');await flushPromises();
  expect(api.put.mock.calls.map(([,body])=>body.agencyId)).toEqual([2,6]);expect(api.post).not.toHaveBeenCalled();w.unmount();
 });
+
+
+it('does not fetch private dashboard data or claim empty records for restricted pending profiles', async () => {
+ const w = mount(Dashboard,{props:{profiles:profiles.slice(0,2).map(p=>({...p,no_view:true}))}});
+ await flushPromises();expect(api.get).not.toHaveBeenCalled();
+ expect(w.text()).toContain('restricted record access');expect(w.text()).toContain('Complete any enrollment forms shown above');
+ expect(w.text()).not.toContain('No upcoming appointments');expect(w.find('.family-summary-grid').exists()).toBe(false);w.unmount();
+});
+it('loads only readable profiles and reacts when server relationship access changes', async () => {
+ const pending = {...profiles[0],no_view:true};
+ api.get.mockImplementation(async url=>({data:url.endsWith('/appointments')?{appointments:[]}:{balances:[],threads:[]}}));
+ const w = mount(Dashboard,{props:{profiles:[pending,profiles[1]]}});await flushPromises();
+ expect(api.get.mock.calls.filter(([url])=>url.endsWith('/appointments')).map(([url])=>url)).toEqual(['/guardian-portal/clients/9/appointments']);
+ api.get.mockClear();await w.setProps({profiles:[{...pending,no_view:false},profiles[1]]});await flushPromises();
+ expect(api.get.mock.calls.filter(([url])=>url.endsWith('/appointments')).map(([url])=>url)).toEqual(['/guardian-portal/clients/8/appointments','/guardian-portal/clients/9/appointments']);
+ api.get.mockClear();await w.setProps({profiles:[{...pending,guardian_portal_locked:true}]});await flushPromises();
+ expect(api.get).not.toHaveBeenCalled();expect(w.find('.family-summary-grid').exists()).toBe(false);w.unmount();
+});
+
+it('ignores an old dashboard response after the server marks the linked profile restricted', async () => {
+ let complete;
+ api.get.mockImplementation(url=>url.endsWith('/appointments')?new Promise(resolve=>{complete=resolve}):Promise.resolve({data:{balances:[],threads:[]}}));
+ const w=mount(Dashboard,{props:{profiles:[profiles[0]]}});await flushPromises();
+ await w.setProps({profiles:[{...profiles[0],no_view:true}]});await flushPromises();
+ complete({data:{appointments:[{id:77,startAt:'2099-01-02T18:00:00Z',status:'confirmed',providerName:'Old private appointment'}]}});await flushPromises();
+ expect(w.text()).not.toContain('Old private appointment');expect(w.find('.family-summary-grid').exists()).toBe(false);
+ expect(w.text()).toContain('restricted record access');w.unmount();
+});
