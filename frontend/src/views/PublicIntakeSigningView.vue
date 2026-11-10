@@ -35,6 +35,7 @@
     @contact-support="openSplashSupportModal"
     @select-step="jumpToProgressStep"
   >
+    <p v-if="progressSaveError" class="error" role="alert">{{ progressSaveError }} <button type="button" @click="saveServerProgress()">{{ tx('Try saving again') }}</button></p>
     <template #billing-actions>
       <button type="button" class="df-btn df-btn-secondary" @click="saveAndComeBackLater">{{ t('saveAndComeBackLater') }}</button>
     </template>
@@ -3160,6 +3161,7 @@
 </template>
 
 <script setup>
+import { compactIntakeProgress, restoreIntakeProgressSnapshot } from '../utils/intakeProgressPayload.js';
 import EnrollmentContactOptions from '../components/public-intake/EnrollmentContactOptions.vue';
 import EnrollmentTerminationDialog from '../components/public-intake/EnrollmentTerminationDialog.vue';
 import { useEnrollmentTermination } from '../composables/useEnrollmentTermination.js';
@@ -8534,7 +8536,9 @@ const buildDraftSnapshot = () => ({
 });
 
 let serverProgressTimer = null;
-const buildServerProgressIntakeData = () => ({
+const progressSaveError = ref('');
+let progressSaveQueue = Promise.resolve();
+const buildServerProgressIntakeData = () => compactIntakeProgress({
   responses: intakeResponses || {},
   clients: typeof buildClientPayloads === 'function' ? buildClientPayloads() : (clients.value || []),
   intakeForSelf: intakeForSelf.value,
@@ -8555,15 +8559,16 @@ const saveServerProgress = async ({ required = false } = {}) => {
   if (loadingSavedProgress.value || savedProgressLoadFailed.value || stopEnrollmentLoading.value || enrollmentStopped.value) return;
   const token = String(sessionToken.value || '').trim();
   if (!token) return;
+  const payload = { sessionToken: token, step: step.value, intakeData: JSON.parse(JSON.stringify(buildServerProgressIntakeData())) };
+  // Keep writes in order so an earlier background save cannot replace a later Continue.
+  const pending = progressSaveQueue.catch(() => {}).then(() => api.post(`/public-intake/${publicKey}/progress`, payload, { skipGlobalLoading: true }));
+  progressSaveQueue = pending;
   try {
-    await api.post(`/public-intake/${publicKey}/progress`, {
-      sessionToken: token,
-      step: step.value,
-      intakeData: buildServerProgressIntakeData()
-    }, { skipGlobalLoading: true });
+    await pending;
+    if (progressSaveQueue === pending) progressSaveError.value = '';
   } catch (error) {
+    progressSaveError.value = error?.response?.data?.error?.message || tx('Your latest changes could not be saved. Keep this tab open and try again.');
     if (required) throw error;
-    /* Non-signing progress is retried on the next continue. */
   }
 };
 
@@ -8852,7 +8857,7 @@ const restoreServerProgress = async () => {
     if (!intakeData) return false;
     portalEnrollmentEmail.value = intakeData.portalEnrollment?.email || '';
     const snapshot = intakeData.progressSnapshot && typeof intakeData.progressSnapshot === 'object'
-      ? intakeData.progressSnapshot
+      ? restoreIntakeProgressSnapshot(intakeData)
       : {
           version: DRAFT_STORAGE_VERSION,
           step: intakeData.progressStep ?? null,
@@ -13742,7 +13747,14 @@ const advanceIntro = () => {
   goToFirstFormStep();
 };
 
+let flowAdvancePending = false;
 const nextFlowStep = async () => {
+  if (flowAdvancePending) return;
+  flowAdvancePending = true;
+  try {
+  try { await saveServerProgress({ required: true }); }
+  catch { stepError.value = progressSaveError.value; return; }
+
   if (usesSchoolChildDetails.value && Number.isInteger(currentFlowStep.value?.clientIndex)) {
     const completed = intakeResponses.submission.completedSchoolChildSteps ||= [];
     if (!completed.includes(currentFlowStep.value.id)) completed.push(currentFlowStep.value.id);
@@ -13769,6 +13781,7 @@ const nextFlowStep = async () => {
   } else {
     await finalizePacket();
   }
+  } finally { flowAdvancePending = false; }
 };
 
 const onUploadStepFilesChange = (e) => {

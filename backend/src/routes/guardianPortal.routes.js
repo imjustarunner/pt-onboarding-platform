@@ -1,3 +1,4 @@
+import { listGuardianEnrollmentDrafts, enrollmentDraftSummary, openGuardianEnrollmentDraft } from '../services/guardianEnrollmentDrafts.service.js';
 import { downloadEnrollmentCopy } from '../services/guardianEnrollmentCopies.service.js';
 import { enrollmentOptions, startGuardianEnrollment } from '../services/guardianEnrollmentStart.service.js';
 import * as guardianSessionBooking from '../controllers/guardianSessionBooking.controller.js';
@@ -170,7 +171,13 @@ router.get('/pending-enrollments', requireActiveStatus, async (req, res, next) =
     const { listOwnPendingEnrollments } = await import('../services/guardianPendingEnrollment.service.js');
     res.set('Cache-Control', 'no-store').json({ invitations: await listOwnPendingEnrollments({
       userId: req.user.id, agencyId: Number(req.query.agencyId), clientId: Number(req.query.clientId) || null
-    }) });
+    }), drafts: (await listGuardianEnrollmentDrafts({ userId: req.user.id, agencyId: Number(req.query.agencyId) })).map(enrollmentDraftSummary) });
+  } catch (error) { next(error); }
+});
+router.post('/enrollment-drafts/:submissionId/open', requireActiveStatus, rateLimit({ windowMs: 60000, max: 20 }), async (req, res, next) => {
+  try {
+    if (req.guardianPreviewMode) return res.status(403).json({ error: { message: 'Preview cannot open a saved enrollment.' } });
+    res.set('Cache-Control', 'no-store').json({ url: await openGuardianEnrollmentDraft({ userId: req.user.id, agencyId: Number(req.body.agencyId), submissionId: Number(req.params.submissionId) }) });
   } catch (error) { next(error); }
 });
 router.post('/pending-enrollments/:inviteId/open', requireActiveStatus, async (req, res, next) => {

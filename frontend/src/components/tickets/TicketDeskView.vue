@@ -214,7 +214,7 @@
               </p>
               <div class="breadcrumb">
                 <span v-if="selected.agency_name">{{ selected.agency_name }}</span>
-                <span v-if="selected.school_name"> → {{ selected.school_name }}</span>
+                <span v-if="selected.school_name && Number(selected.school_organization_id) !== Number(selected.agency_id)"> → {{ selected.school_name }}</span>
                 <span v-if="createdByName"> · Submitted by {{ createdByName }}</span>
               </div>
               <div class="badge-row">
@@ -435,7 +435,7 @@
                   </div>
                   <div class="detail-row">
                     <span class="detail-label">School</span>
-                    <span class="detail-value">{{ selected.school_name || '—' }}</span>
+                    <span class="detail-value">{{ Number(selected.school_organization_id) === Number(selected.agency_id) ? 'Not linked to a school' : (selected.school_name || 'Not linked to a school') }}</span>
                   </div>
                   <div class="detail-row">
                     <span class="detail-label">Status</span>
@@ -1020,7 +1020,7 @@
               </div>
               <div class="meta-block">
                 <label>School</label>
-                <div>{{ selected.school_name || '—' }}</div>
+                <div>{{ Number(selected.school_organization_id) === Number(selected.agency_id) ? 'Not linked to a school' : (selected.school_name || 'Not linked to a school') }}</div>
               </div>
               <div class="meta-block">
                 <label>Client</label>
@@ -1088,6 +1088,7 @@
 </template>
 
 <script setup>
+import { openPrivateAttachment } from '../../utils/openPrivateAttachment.js';
 import { canAccessTicketDesk } from '../../utils/ticketAccess.js';
 import ConversaBrand from '../../components/conversa/ConversaBrand.vue';
 import { recordsRequestQueueUrl } from '../../utils/recordsRequestTicket.js';
@@ -2113,14 +2114,10 @@ function dismissSuggestedActions() {
 async function openTicketAttachment(att) {
   if (!selected.value?.id || !att?.id) return;
   try {
-    const r = await api.get(
+    await openPrivateAttachment(() => api.get(
       `/support-tickets/${selected.value.id}/attachments/${att.id}/download`,
       { responseType: 'blob', skipGlobalLoading: true }
-    );
-    const blob = new Blob([r.data], { type: att.mime_type || 'application/octet-stream' });
-    const url = URL.createObjectURL(blob);
-    window.open(url, '_blank', 'noopener');
-    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    ), att.file_name);
   } catch (e) {
     actionError.value = e?.response?.data?.error?.message || e?.message || 'Failed to open attachment';
   }

@@ -1,3 +1,4 @@
+import { listDedicatedSchoolMailboxes, schoolContextForAddresses } from './schoolMailboxContext.service.js';
 import { isSchoolWelcomeSupportReply, isTechnologyIdentity, ingestTechnologyEmail, prioritizeTechnologyAddresses, ignoreOutboundTechnologyCopy } from '../technologySupport.service.js';
 import { deferredInboundMessages, deferInboundMessage, clearInboundRetry } from './gmailInboundRetry.js';
 import { resolvePersonalMailRecipients } from '../groupMailboxRouting.service.js';
@@ -294,36 +295,7 @@ async function hasClientPaperworkItemsTable() {
 }
 
 async function findSchoolContextByInboundAddresses({ agencyId, addresses }) {
-  const list = Array.from(new Set((addresses || []).map((x) => String(x || '').trim().toLowerCase()).filter(Boolean)));
-  if (!list.length) return null;
-  try {
-    const placeholders = list.map(() => '?').join(',');
-    const [rows] = await pool.execute(
-      `SELECT sp.school_organization_id, sp.itsco_email, a.name AS school_name
-       FROM school_profiles sp
-       JOIN agencies a ON a.id = sp.school_organization_id
-       LEFT JOIN organization_affiliations oa
-         ON oa.organization_id = sp.school_organization_id
-        AND oa.is_active = TRUE
-       LEFT JOIN agency_schools asch
-         ON asch.school_organization_id = sp.school_organization_id
-        AND asch.is_active = TRUE
-       WHERE LOWER(sp.itsco_email) IN (${placeholders})
-         ${agencyId ? 'AND (oa.agency_id = ? OR asch.agency_id = ?)' : ''}
-       ORDER BY sp.school_organization_id ASC
-       LIMIT 1`,
-      agencyId ? [...list, Number(agencyId), Number(agencyId)] : list
-    );
-    const row = rows?.[0] || null;
-    if (!row?.school_organization_id) return null;
-    return {
-      schoolOrganizationId: Number(row.school_organization_id),
-      schoolName: row.school_name || null,
-      mailboxAddress: row.itsco_email || null
-    };
-  } catch {
-    return null;
-  }
+  return schoolContextForAddresses(await listDedicatedSchoolMailboxes(agencyId), addresses);
 }
 
 // Roles considered internal employees / providers — emails from these senders

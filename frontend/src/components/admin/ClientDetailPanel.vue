@@ -1036,7 +1036,7 @@
               <div class="ov-card-body">
                 <div class="ov-cta-row">
                   <span class="hint" style="margin: 0;">
-                    Status for affiliated school:
+                    ROI date for affiliated school:
                     <strong>{{ schoolRoiStatusLabel }}</strong>
                   </span>
                   <button type="button" class="btn btn-secondary btn-sm" @click="goChartSub('school-roi')">
@@ -4188,10 +4188,11 @@ const canManageSchoolRoi = computed(
 );
 
 const schoolRoiStatusLabel = computed(() => {
+  if (props.client?.roi_expires_at === undefined) return 'Open staff access to review';
   const s = schoolRoiSimpleStatus(props.client?.roi_expires_at);
-  if (s === 'active') return 'Active';
+  if (s === 'active') return 'On file — review staff permissions';
   if (s === 'expired') return 'Expired';
-  return 'None';
+  return 'No date on file';
 });
 
 const canSupportClientAccount = computed(() => canAccessClientAccountSupport(authStore.user, clientAgencyId.value, myAgencies.value));

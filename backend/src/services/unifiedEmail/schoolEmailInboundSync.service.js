@@ -1,3 +1,4 @@
+import { listDedicatedSchoolMailboxes } from './schoolMailboxContext.service.js';
 import pool from '../../config/database.js';
 import EmailSenderIdentity from '../../models/EmailSenderIdentity.model.js';
 import AgencyEmailSettings from '../../models/AgencyEmailSettings.model.js';
@@ -30,32 +31,7 @@ export async function resolveAgencyBySlug(slug = 'itsco') {
 }
 
 export async function listAgencySchoolGroupEmails(agencyId) {
-  const aid = Number(agencyId);
-  if (!aid) return [];
-  const [rows] = await pool.execute(
-    `SELECT DISTINCT
-        a.id AS school_organization_id,
-        a.name AS school_name,
-        LOWER(TRIM(sp.itsco_email)) AS itsco_email
-     FROM school_profiles sp
-     JOIN agencies a ON a.id = sp.school_organization_id
-     LEFT JOIN organization_affiliations oa
-       ON oa.organization_id = sp.school_organization_id
-      AND oa.is_active = TRUE
-     LEFT JOIN agency_schools asch
-       ON asch.school_organization_id = sp.school_organization_id
-      AND asch.is_active = TRUE
-     WHERE (oa.agency_id = ? OR asch.agency_id = ?)
-       AND sp.itsco_email IS NOT NULL
-       AND TRIM(sp.itsco_email) <> ''
-     ORDER BY a.name ASC`,
-    [aid, aid]
-  );
-  return (rows || []).map((r) => ({
-    schoolOrganizationId: Number(r.school_organization_id),
-    schoolName: r.school_name || null,
-    itscoEmail: normalizeEmail(r.itsco_email)
-  })).filter((r) => r.itscoEmail.includes('@'));
+  return listDedicatedSchoolMailboxes(agencyId);
 }
 
 async function findSchoolreplyIdentity(agencyId) {

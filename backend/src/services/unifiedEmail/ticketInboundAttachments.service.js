@@ -1,3 +1,4 @@
+import { ticketAttachmentType } from '../../utils/ticketAttachmentType.js';
 /**
  * Persist Gmail inbound attachments onto support tickets and stream them back.
  */
@@ -186,12 +187,13 @@ export async function persistGmailAttachmentsForTicket({
       continue;
     }
     if (!buffer?.length) { failed += 1; continue; }
+    const detected = ticketAttachmentType(buffer, part.filename);
     const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const gcsPath = stablePath || `uploads/ticket_attachments/ticket_${tid}/${unique}-${sanitized}`;
     try {
       const bucket = await StorageService.getGCSBucket();
       await bucket.file(gcsPath).save(buffer, {
-        contentType: part.mimeType || 'application/octet-stream',
+        contentType: detected.mimeType,
         metadata: {
           uploadedAt: new Date().toISOString(),
           ticketId: String(tid),
@@ -201,9 +203,9 @@ export async function persistGmailAttachmentsForTicket({
       await insertAttachmentRow({
         ticketId: tid,
         ticketMessageId,
-        filename: part.filename || sanitized,
+        filename: detected.filename,
         path: gcsPath,
-        mimeType: part.mimeType,
+        mimeType: detected.mimeType,
         size: buffer.length
       }, database);
       existingNames.add(key);

@@ -10,7 +10,7 @@ function load(name, next, deps, exported = true) {
   return new Function(...Object.keys(deps), `${body}; return ${name};`)(...Object.values(deps));
 }
 const wrapPublicLegalHtml = load('wrapPublicLegalHtml', 'export const viewPublicPacketSectionHtml', {}, false);
-const buildPacketSectionSignedHtml = load('buildPacketSectionSignedHtml', 'async function persistPacketSectionFromIntakeData', { sectionTitle: () => 'Agreement' }, false);
+const buildPacketSectionSignedHtml = load('buildPacketSectionSignedHtml', 'async function validatePacketEditionsBeforeSubmission', { sectionTitle: () => 'Agreement' }, false);
 
 for (const [name, next, disclosure] of [
   ['getPublicIntakePacketSection', 'function wrapPublicLegalHtml', false],
