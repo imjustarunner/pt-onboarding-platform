@@ -7,7 +7,7 @@ vi.mock('../../models/clinical/ClinicalNote.model.js',()=>({default:{hasSignedIn
 vi.mock('../schoolContactProviderNotice.service.js',()=>({sendSchoolContactProviderNotice:(...args)=>m.notice(...args)}));
 vi.mock('../../config/database.js', () => ({ default: { execute: (...args) => m.execute(...args), getConnection: () => m.getConnection() } }));
 vi.mock('../schoolContactPlan.service.js', () => ({
-  SCHOOL_CONTACT_DEMO_AGENCY_ID: 450, SCHOOL_CONTACT_TEST_INBOX: 'testing@itsco.health', sendSchoolContactEmail: (...args) => m.send(...args),
+  SCHOOL_CONTACT_DEMO_AGENCY_ID: 450, SCHOOL_CONTACT_TEST_INBOX: 'testing@itsco.health',schoolContactRouting:provider=>({providerEmail:provider.email || 'provider@example.com'}), sendSchoolContactEmail: (...args) => m.send(...args),
   getContactPlanContext: async ({ agencyId, userId }) => {
     if (Number(agencyId) !== 450 || Number(userId) !== 1433) throw Object.assign(new Error('Wrong demo provider'), { status: 403 });
     return { agencyId: 450, userId: 1433, schools:[{id:451}], agency: { id: 450, feature_flags: {} }, provider: { id: 1433, first_name: 'Avery', last_name: 'Demo' } };
@@ -40,7 +40,7 @@ describe.skipIf(!process.env.HUB_SCOPE_MYSQL_SOCKET && !process.env.FAMILY_WELCO
     db = mysql.createPool({ ...testMysql, user: 'root', database: databaseName, timezone: '+00:00', connectionLimit: 4 });
     m.execute = (...args) => db.execute(...args); m.getConnection = () => db.getConnection();
     for (const sql of [
-      'CREATE TABLE agencies(id INT PRIMARY KEY,name VARCHAR(120),organization_type VARCHAR(32),is_active BOOLEAN DEFAULT TRUE,is_archived BOOLEAN DEFAULT FALSE)',
+      'CREATE TABLE agencies(id INT PRIMARY KEY,name VARCHAR(120),slug VARCHAR(100),feature_flags JSON,organization_type VARCHAR(32),is_active BOOLEAN DEFAULT TRUE,is_archived BOOLEAN DEFAULT FALSE)',
       'CREATE TABLE users(id INT PRIMARY KEY,first_name VARCHAR(80),last_name VARCHAR(80),role VARCHAR(40),email VARCHAR(160),personal_email VARCHAR(160),personal_phone VARCHAR(40),phone_number VARCHAR(40),work_phone VARCHAR(40),is_active BOOLEAN DEFAULT TRUE,is_archived BOOLEAN DEFAULT FALSE,terminated_at DATETIME NULL)',
       'CREATE TABLE user_agencies(agency_id INT,user_id INT,is_active BOOLEAN DEFAULT TRUE)',
       'CREATE TABLE organization_affiliations(agency_id INT,organization_id INT,is_active BOOLEAN DEFAULT TRUE)',
@@ -58,11 +58,11 @@ describe.skipIf(!process.env.HUB_SCOPE_MYSQL_SOCKET && !process.env.FAMILY_WELCO
       'CREATE TABLE chat_messages(id INT PRIMARY KEY,thread_id INT,topic_id INT)',
       'CREATE TABLE client_notes(id INT AUTO_INCREMENT PRIMARY KEY,client_id INT,author_id INT,category VARCHAR(32),urgency VARCHAR(32),message TEXT,message_ciphertext TEXT,message_iv VARCHAR(80),message_auth_tag VARCHAR(80),encryption_key_id VARCHAR(80),is_internal_only BOOLEAN)'
     ]) await db.query(sql);
-    for (const file of ['1719_school_provider_contact_plans.sql','1720_school_contact_automation.sql','1722_school_contact_three_attempts.sql','1689_parent_contact_events.sql','1691_parent_contact_attempts.sql']) {
+    for (const file of ['1719_school_provider_contact_plans.sql','1720_school_contact_automation.sql','1722_school_contact_three_attempts.sql','1759_family_welcome_follow_up.sql','1689_parent_contact_events.sql','1691_parent_contact_attempts.sql']) {
       const source = await readFile(new URL(`../../../../database/migrations/${file}`, import.meta.url), 'utf8');
       for (const statement of source.replace(/^\s*--.*$/gm,'').split(';').map(s => s.trim()).filter(Boolean)) await db.query(statement);
     }
-    await db.execute("INSERT INTO agencies(id,name,organization_type) VALUES(450,'Demo','agency'),(451,'Cedar Grove K-8','school'),(2,'Production','agency')");
+    await db.execute("INSERT INTO agencies(id,name,slug,feature_flags,organization_type) VALUES(450,'Demo','auricwell-qa-demo',JSON_OBJECT(),'agency'),(451,'Cedar Grove K-8','qa-school',JSON_OBJECT(),'school'),(2,'Production','itsco',JSON_OBJECT(),'agency')");
     await db.execute("INSERT INTO users(id,first_name,last_name,role,email) VALUES(1433,'Avery','Demo','provider','provider@example.com'),(8,'Parent','Demo','guardian','testing@itsco.health'),(9,'Support','Demo','support','support@example.com')");
     await db.execute('INSERT INTO user_agencies(agency_id,user_id) VALUES(450,1433),(450,9),(450,8)');
     await db.execute('INSERT INTO organization_affiliations(agency_id,organization_id) VALUES(450,451)');
@@ -174,4 +174,21 @@ describe.skipIf(!process.env.HUB_SCOPE_MYSQL_SOCKET && !process.env.FAMILY_WELCO
     const count=m.send.mock.calls.length;await processSchoolContactAutomation();const [[started]]=await db.execute('SELECT status FROM school_contact_workflows WHERE id=?',[id]);expect(started.status).toBe('waiting_parent');expect(m.send).toHaveBeenCalledTimes(count+1);
     m.intake.mockImplementation(async({clientId})=>clientId===106);await processSchoolContactAutomation();const [[done]]=await db.execute('SELECT status FROM school_contact_workflows WHERE id=?',[id]);expect(done.status).toBe('complete');expect(m.send).toHaveBeenCalledTimes(count+1);
   });
+  it('queues only acknowledged live-cohort preferences and assignments created after opt-in in actual MySQL',async()=>{
+    await db.execute("UPDATE agencies SET feature_flags=JSON_OBJECT('schoolContactPlanPilot',JSON_OBJECT('enabled',true,'providerIds',JSON_ARRAY(1433))) WHERE id=2");
+    await db.execute("INSERT INTO users(id,first_name,last_name,role,email) VALUES(1438,'Outside','Cohort','provider','outside@synthetic.test')");
+    await db.execute("INSERT INTO agencies(id,name,slug,organization_type) VALUES(452,'Live pilot school','live-pilot-school','school')");
+    await db.execute('INSERT INTO organization_affiliations(agency_id,organization_id) VALUES(2,452)');
+    await db.execute("INSERT INTO school_provider_contact_plans(agency_id,provider_user_id,status,template,decided_at,welcome_seen_at) VALUES(2,1433,'enabled','Saved live wording',DATE_SUB(UTC_TIMESTAMP(),INTERVAL 1 MINUTE),NULL),(2,1438,'enabled','Other provider wording',DATE_SUB(UTC_TIMESTAMP(),INTERVAL 1 MINUTE),UTC_TIMESTAMP())");
+    await db.execute("INSERT INTO clients(id,agency_id,initials) VALUES(201,2,'NEWLIVE'),(202,2,'OLDLIVE'),(203,2,'OUTSIDE')");
+    await db.execute("INSERT INTO client_provider_assignments(id,client_id,organization_id,provider_user_id,service_day,created_at,updated_at) VALUES(201,201,452,1433,'Monday',UTC_TIMESTAMP(),UTC_TIMESTAMP()),(202,202,452,1433,'Tuesday',DATE_SUB(UTC_TIMESTAMP(),INTERVAL 2 DAY),UTC_TIMESTAMP()),(203,203,452,1438,'Friday',UTC_TIMESTAMP(),UTC_TIMESTAMP())");
+    await queueSchoolContactAssignments();
+    const [[unacknowledged]]=await db.execute('SELECT COUNT(*) n FROM school_contact_workflows WHERE agency_id=2');expect(unacknowledged.n).toBe(0);
+    await db.execute('UPDATE school_provider_contact_plans SET welcome_seen_at=UTC_TIMESTAMP() WHERE agency_id=2 AND provider_user_id=1433');
+    await queueSchoolContactAssignments();await queueSchoolContactAssignments();
+    const [queued]=await db.execute('SELECT client_id,provider_user_id FROM school_contact_workflows WHERE agency_id=2');
+    expect(queued).toEqual([{client_id:201,provider_user_id:1433}]);
+    await db.execute("UPDATE agencies SET feature_flags=JSON_OBJECT() WHERE id=2");
+  });
+
 });

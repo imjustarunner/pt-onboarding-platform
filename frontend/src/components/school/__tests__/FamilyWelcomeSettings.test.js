@@ -121,3 +121,15 @@ it('previews and sends the selected assigned school without replacing reusable f
   await button('Send me an example').trigger('click');await flushPromises();
   expect(api.post).toHaveBeenCalledWith('/school-contact-plan/example',expect.objectContaining({schoolId:452,template:expect.stringContaining('{{school_name}}')}),expect.anything());
 });
+
+it('requires a new live pilot provider to explicitly choose On or Off before acknowledging setup', async () => {
+  await mountWith({agencyId:2,rolloutPhase:'phase_1',demoOnly:false});
+  expect(wrapper.findAll('input[type="radio"]').every(input=>!input.element.checked)).toBe(true);
+  await button('Save Family Welcome').trigger('click');await flushPromises();
+  expect(wrapper.text()).toContain('Choose On or Off');expect(api.put).not.toHaveBeenCalled();
+  api.put.mockResolvedValue({data:plan({agencyId:2,rolloutPhase:'phase_1',status:'declined',welcomeSeen:true})});
+  await wrapper.get('input[value="declined"]').setValue();
+  await button('Save Family Welcome').trigger('click');await flushPromises();
+  expect(api.put).toHaveBeenCalledWith('/school-contact-plan',expect.objectContaining({status:'declined'}),expect.anything());
+  expect(wrapper.text()).toContain('is off.');
+});
