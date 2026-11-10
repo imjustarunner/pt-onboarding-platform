@@ -177,7 +177,7 @@ describe('unified clinical and claim workflow', () => {
     const w = mount(BillingWorkspaceView); await flushPromises();
     expect(api.get.mock.calls[0][1].params.status).toBe('all');
     const filters = w.findAll('.queue-tabs button').map(b=>b.text());
-    expect(filters).toEqual(expect.arrayContaining(['All claims','Note needed','Draft','Pending review','Revisions needed','Ready to submit','Submitted','Processing','Paid','Denied','On hold','Closed']));
+    expect(filters).toEqual(expect.arrayContaining(['All claims','Note needed','Draft','Pending review','Revisions needed','Final checks required','Submitted','Processing','Paid','Denied','On hold','Closed']));
     await w.findAll('.claim-work-table th button').find(b=>b.text().startsWith('Organization')).trigger('click'); await flushPromises();
     expect(api.get.mock.calls.filter(([url])=>url==='/medical-billing/workspace').at(-1)[1].params).toMatchObject({sortBy:'organization',direction:'asc'});
     w.unmount();
@@ -193,7 +193,7 @@ describe('unified clinical and claim workflow', () => {
   it('opens an approved note as a claim for review without transmitting it', async () => {
     const payload=data();payload.claims=[{id:null,key:'note:71',source:'note',agency_id:1,client_id:12,client_name:'DEMO QA Client',clinical_note_id:71,clinical_session_id:9,stage:'ready_to_submit',canPrepareClaim:true,readOnly:false}];
     api.get.mockResolvedValue({data:payload});api.post.mockResolvedValue({data:{claim:{id:25,claim_lifecycle:'draft'}}});const w=mount(BillingWorkspaceView);await flushPromises();
-    await button(w,'Note #71').trigger('click');await flushPromises();await button(w,'Review ready claim').trigger('click');await flushPromises();
+    await button(w,'Note #71').trigger('click');await flushPromises();await button(w,'Run final checks').trigger('click');await flushPromises();
     expect(api.post).toHaveBeenCalledWith('/medical-billing/claims',{agencyId:1,clientId:12,clinicalSessionId:9,clinicalNoteId:71},{skipGlobalLoading:true});expect(w.find('[role="dialog"]').text()).toContain('Claim #25');expect(api.post.mock.calls.some(([url])=>url.endsWith('/submit'))).toBe(false);
     w.unmount();
   });

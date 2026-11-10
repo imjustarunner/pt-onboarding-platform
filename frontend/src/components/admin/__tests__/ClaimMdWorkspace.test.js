@@ -210,6 +210,12 @@ it('shows the recorded history actor and Denver date/time',async()=>{
  const w=mount(ClaimMdWorkspace,{props:{...props,section:'detail'}});await flushPromises();await w.vm.showHistory(11);await flushPromises();expect(w.text()).toContain('QA Biller');expect(w.text()).toContain('11/04/2026, 1:17 PM MST');expect(w.text()).not.toContain('2026-11-04T20:17');w.unmount();
 });
 
+it('shows the payer response time and message alongside the local recorded time',async()=>{
+ api.get.mockImplementation(async url=>({data:url.endsWith('/history')?{history:[{id:2,type:'response',createdAt:'2026-11-10T13:00:00Z',status:'A',sender:'COLORADO COMMUNITY HEALTH ALLIANCE',responseTime:'2026-11-07 08:06:22pm',messages:[{message:'Code 3 - Claim has been adjudicated and is awaiting payment cycle.'}]}]}:{items:[]}}));
+ const w=mount(ClaimMdWorkspace,{props:{...props,section:'detail'}});await flushPromises();await w.vm.showHistory(13);await flushPromises();
+ expect(w.text()).toContain('Response from COLORADO COMMUNITY HEALTH ALLIANCE · 2026-11-07 08:06:22pm');expect(w.text()).toContain('awaiting payment cycle');expect(w.text()).not.toContain('Payment posted');w.unmount();
+});
+
 it('opens the exact missing review from each blocker, explains saved date/stage mismatches, and refreshes completed checks', async () => {
  const coverage='Verify insurance and coordination of benefits for this date of service', documents='Review and verify the applicable screening documentation before claim submission', ai='Run the AI content and claim consistency review', policy='Verify the payer/product provider mapping for this date of service';
  let current={...claim,clientId:7,dateOfService:'2026-11-02',supervision:{supervisingProvider:{id:22}},aiReview:{status:'required',findings:[]},readiness:{ready:false,blockers:[coverage,documents,ai,policy],warnings:['No active treatment plan on chart'],coverageBlockers:[coverage],coverageReview:{latest:{status:'verified',serviceDate:'2026-11-04'}},payer:{payerId:'QA-PAYER',planType:''},clientDocumentation:{scope:'screening',ready:false,blockers:[documents],latestReview:{scope:'treatment',status:'verified',effectiveFrom:'2026-11-04'}}}};

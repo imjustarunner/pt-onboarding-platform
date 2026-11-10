@@ -1,11 +1,11 @@
 export const billingStages = [
   ['note_needed', 'Note needed'], ['draft', 'Draft'], ['pending_review', 'Pending review'],
-  ['revisions_needed', 'Revisions needed'], ['ready_to_submit', 'Ready to submit'],
+  ['revisions_needed', 'Revisions needed'], ['ready_to_submit', 'Final checks required'],
   ['submitted', 'Submitted'], ['processing', 'Processing'], ['paid', 'Paid'],
   ['denied', 'Denied'], ['rejected','Rejected'], ['on_hold', 'On hold'], ['closed', 'Closed']
 ].map(([id, label]) => ({ id, label }));
 export const claimQueueFilters=[{id:'pending_submission',label:'Pending initial submission or resubmission'},{id:'pending_initial_submission',label:'Pending initial submission'},{id:'pending_resubmission',label:'Pending resubmission'},{id:'open',label:'All open items'},{id:'information_required',label:'Information required'}];
-export const claimStatusLabel = status => ({ ...Object.fromEntries(billingStages.map(stage => [stage.id, stage.label])), ready: 'Ready to submit', queued: 'Processing', rejected: 'Rejected', adjusted: 'Closed · adjusted', void: 'Closed · voided' })[status] || status || 'Unknown';
+export const claimStatusLabel = status => ({ ...Object.fromEntries(billingStages.map(stage => [stage.id, stage.label])), ready: 'Final checks required', queued: 'Processing', rejected: 'Rejected', adjusted: 'Closed · adjusted', void: 'Closed · voided' })[status] || status || 'Unknown';
 export const clearinghouseStatusLabel = status => {
   const code = String(status || '').trim().toUpperCase();
   if (!code) return '';
@@ -50,7 +50,7 @@ export function claimHistoryChanges(event) {
   }
   return changes;
 }
-export const claimStatusTone = status => ['rejected', 'denied', 'revisions_needed'].includes(status) ? 'danger' : ['queued', 'draft', 'note_needed', 'on_hold', 'pending_review'].includes(status) ? 'warning' : status === 'paid' || status === 'ready_to_submit' ? 'success' : 'info';
+export const claimStatusTone = status => ['rejected', 'denied', 'revisions_needed'].includes(status) ? 'danger' : ['queued', 'draft', 'note_needed', 'on_hold', 'pending_review', 'ready', 'ready_to_submit'].includes(status) ? 'warning' : status === 'paid' ? 'success' : 'info';
 export const workStage = item => item.stage || ({ ready: 'ready_to_submit', queued: 'processing', rejected: 'rejected', adjusted: 'closed', void: 'closed' }[item.claim_lifecycle] || item.claim_lifecycle || 'note_needed');
 export const workClaimId = item => Number(item?.claimId || (item?.source && item.source !== 'claim' ? 0 : item?.id) || 0);
 export const workItemKey = item => `${item.agency_id}:${item.key || (workClaimId(item) ? `claim:${workClaimId(item)}` : `${item.source || 'note'}:${item.clinical_note_id || item.draft_id || item.clinical_session_id}`)}`;
