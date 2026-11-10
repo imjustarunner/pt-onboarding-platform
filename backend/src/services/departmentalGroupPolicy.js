@@ -6,7 +6,8 @@ export const DEPARTMENTAL_GROUPS = Object.freeze({
   billing: { label: 'Billing', topic: 'billing', localPart: 'billing' },
   credentialing: { label: 'Credentialing', topic: 'credentialing', localPart: 'credentialing' },
   support: { label: 'Support', topic: 'general', localPart: 'support' },
-  schools: { label: 'Schools', topic: 'general', localPart: 'schools' },
+  // School mail is provisioned separately; this grants app visibility only.
+  schools: { label: 'Schools', topic: 'general', localPart: 'schools', provision: false },
   admin: { label: 'Administration', topic: 'general', localPart: 'admin' },
   technology: { label: 'Technology', topic: 'technology', localPart: 'technology' },
   compliance: { label: 'Compliance', topic: 'general', localPart: 'compliance' },

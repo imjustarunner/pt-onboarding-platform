@@ -62,3 +62,9 @@ describe('departmental identities and permissions', () => {
     expect(await managedGroupEnvelope({ to: 'Payroll <payroll@agency.test>', actorUserId: 12 })).toEqual({ to: 'Payroll <payroll@agency.test>', cc: null, bcc: null });
   });
 });
+
+it('classifies Schools in the app without re-provisioning its existing Google memberships',()=>{
+ expect(groupKeyForIdentity({kind:'shared',identity_key:'schools',from_email:'schools@itsco.health'})).toBe('schools');
+ const plan=buildManagedGroupPlan({domain:'itsco.health',rows:[{...staff,role:'support'}]});
+ expect(plan.some(item=>item.key==='schools')).toBe(false);
+});

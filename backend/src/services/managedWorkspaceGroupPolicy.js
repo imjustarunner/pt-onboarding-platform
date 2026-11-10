@@ -6,7 +6,7 @@ export const CURRENT_MANAGED_DOMAINS = Object.freeze({
   tisi: 'innerstrengthin.com', mh4kidz: 'mh4kidz.org'
 });
 export const GROUP_LABELS = Object.freeze({
-  ...Object.fromEntries(Object.entries(DEPARTMENTAL_GROUPS).map(([key, value]) => [key, value.label])),
+  ...Object.fromEntries(Object.entries(DEPARTMENTAL_GROUPS).filter(([,value])=>value.provision!==false).map(([key, value]) => [key, value.label])),
   clinical: 'Clinical',
   schoolproviders: 'School Providers',
   staff: 'Staff', unlicensed: 'Unlicensed', prelicensed: 'Prelicensed', licensed: 'Licensed',
