@@ -45,6 +45,10 @@ describe('billing dashboard summary',()=>{
   const {rows,deps}=fixture();rows.splice(0,rows.length,claim(3,'queued'));
   expect((await billingDashboardSummary(user,{agencyId:2},deps)).counts).toEqual({submitted:0,review:0,needsHelp:1});
  });
+ it('keeps a submitted claim with a pending service correction in the help queue',async()=>{
+  const {rows,deps}=fixture();rows.splice(0,rows.length,claim(9,'submitted',{service_change_pending:1}));
+  expect((await billingDashboardSummary(user,{agencyId:2},deps)).counts).toEqual({submitted:0,review:0,needsHelp:1});
+ });
 });
 
 describe('saved billing corrections need no owner acceptance',()=>{

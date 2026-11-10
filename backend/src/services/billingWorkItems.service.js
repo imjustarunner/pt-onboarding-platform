@@ -18,6 +18,7 @@ export function billingDashboardBucket(row) {
   if (!Number(row.claimId) || ['paid','void','voided','closed','adjusted'].includes(row.claim_lifecycle)) return null;
   const stage=row.stage || billingWorkStage(row);
   if (['paid','closed'].includes(stage)) return null;
+  if (Number(row.service_change_pending)) return 'needsHelp';
   if (stage==='submitted' || (stage==='processing'&&!row.billing_issue_open)) return 'submitted';
   if (row.billing_issue_open || Number(row.service_change_pending) || ['rejected','denied','on_hold','revisions_needed'].includes(stage)) return 'needsHelp';
   return 'review';
