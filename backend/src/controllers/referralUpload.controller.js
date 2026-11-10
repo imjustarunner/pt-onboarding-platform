@@ -1,4 +1,5 @@
 import { authorizeReferralPacket, referralPacketMatch } from '../services/referralPacketMatch.service.js';
+import { ensurePaperPacketTask } from '../services/paperPacketTask.service.js';
 import Agency from '../models/Agency.model.js';
 import pool from '../config/database.js';
 import { referralPacketUploaderLabel } from '../utils/referralPacketUploader.js';
@@ -225,10 +226,18 @@ export const uploadReferralPacket = [
         await ReferralPacketDraft.updateById(draft.id, { phi_document_id: phiDoc.id });
       }
 
+      let taskId = null;
+      if (phiDoc?.id) {
+        try { taskId = await ensurePaperPacketTask({ draft: { ...draft, phi_document_id: phiDoc.id } }); }
+        catch { await ReferralPacketDraft.updateById(draft.id, { last_error: 'Support processing task needs recovery' }); }
+      }
+
       res.json({
         success: true,
         message: 'Referral packet uploaded successfully. Review and submit to create the client.',
         draftId: draft.id,
+        taskId,
+        taskNeedsReview: !isInternalUpload && !!phiDoc?.id && !taskId,
         phiDocumentId: phiDoc?.id || null,
         scanStatus: scan.status,
         organizationId: organization.id,
@@ -321,6 +330,7 @@ export const submitReferralPacketDraft = async (req, res, next) => {
     const computedInitials = buildAbbreviatedName(firstName, lastName);
     const initials = computedInitials || String(draft.initials || '').trim() || 'TBD';
     if (draft.status === 'submitted' && draft.created_client_id) {
+      await ensurePaperPacketTask({ draft });
       return res.json({
         success: true,
         message: 'Referral packet draft already submitted.',
@@ -350,9 +360,10 @@ export const submitReferralPacketDraft = async (req, res, next) => {
     }
 
     claimedDraftId = draft.id;
-    const isInternalUpload = !!req.user?.id && String(req.user.role || '').toLowerCase() !== 'school_staff';
-    const source = isInternalUpload ? 'SCHOOL_UPLOAD_INTERNAL' : 'SCHOOL_UPLOAD';
     const uploaderId = draft.uploaded_by_user_id || req.user?.id || null;
+    const [[uploader]] = await pool.execute('SELECT role FROM users WHERE id=?', [uploaderId]);
+    const isSchoolStaffUpload = uploader?.role === 'school_staff';
+    const source = isSchoolStaffUpload ? 'SCHOOL_UPLOAD' : 'SCHOOL_UPLOAD_INTERNAL';
     const uploaderLabel = await referralPacketUploaderLabel({
       uploaderId: draft.uploaded_by_user_id,
       currentUser: req.user,
@@ -395,6 +406,7 @@ export const submitReferralPacketDraft = async (req, res, next) => {
     });
 
     await ReferralPacketDraft.updateById(draft.id, { created_client_id: client.id });
+    await ensurePaperPacketTask({ draft, clientId: client.id });
     if (!attachingExisting) {
     await seedClientAffiliations({
       clientId: client.id,
@@ -408,7 +420,7 @@ export const submitReferralPacketDraft = async (req, res, next) => {
     await ClientSchoolStaffRoiAccess.resetForNewPacket({
       clientId: client.id,
       schoolOrganizationId: organization.id,
-      uploaderUserId: String(req.user?.role || '').toLowerCase() === 'school_staff' ? uploaderId : null,
+      uploaderUserId: isSchoolStaffUpload ? uploaderId : null,
       actorUserId: req.user?.id || uploaderId,
       packetDate: submissionDate || new Date()
     });
@@ -521,4 +533,31 @@ export const submitReferralPacketDraft = async (req, res, next) => {
     console.error('Referral submit error:', error);
     next(error);
   }
+};
+
+export const getReferralPacketForProcessing = async (req, res, next) => {
+  try {
+    const draft = await ReferralPacketDraft.findById(Number(req.params.draftId));
+    if (!draft) return res.status(404).json({ error: { message: 'Packet not found.' } });
+    await authorizeReferralPacket({ user: req.user, agencyId: draft.agency_id, organizationId: draft.organization_id, draft });
+    const organization = await Agency.findById(draft.organization_id);
+    const doc = draft.phi_document_id ? await ClientPhiDocument.findById(draft.phi_document_id) : null;
+    if (!organization || !doc || doc.removed_at || Number(doc.agency_id) !== Number(draft.agency_id)) {
+      return res.status(409).json({error:{message:'The saved packet source is not available. Review the upload before continuing.'}});
+    }
+    if (draft.created_client_id) {
+      const client = await Client.findById(draft.created_client_id);
+      if (!client || draft.status !== 'submitted' || Number(client.agency_id) !== Number(draft.agency_id)
+        || Number(client.organization_id) !== Number(draft.organization_id) || Number(doc.client_id) !== Number(client.id)) {
+        return res.status(409).json({error:{message:'This packet has not finished attaching to the client. Review the upload before continuing.'}});
+      }
+      const docs = typeof client?.onboarding_docs_json === 'string' ? JSON.parse(client.onboarding_docs_json || '{}') : client?.onboarding_docs_json;
+      const current = Number(docs?.paperPacketSource?.documentId || docs?.paperProcessing?.documentId);
+      if (current !== Number(draft.phi_document_id)) return res.status(409).json({error:{message:'This task does not match the current packet. Review the current packet and retained earlier documents in the client chart.'}});
+    }
+    res.json({ draft: { id: draft.id, organizationSlug: organization.slug, organizationName: organization.name,
+      agencyId: draft.agency_id, organizationId: draft.organization_id, clientId: draft.created_client_id || null,
+      phiDocumentId: draft.phi_document_id, scanStatus: doc?.scan_status || 'pending', status: draft.status,
+      firstName: draft.first_name || '', lastName: draft.last_name || '', initials: draft.initials || '', uploadNote: draft.upload_note || '' } });
+  } catch (error) { next(error); }
 };

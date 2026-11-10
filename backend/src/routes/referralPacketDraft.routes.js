@@ -1,6 +1,7 @@
 import express from 'express';
 import { body } from 'express-validator';
 import { authenticate } from '../middleware/auth.middleware.js';
+import { getReferralPacketForProcessing } from '../controllers/referralUpload.controller.js';
 import {
   clearReferralOcrResult,
   listReferralOcrRequests,
@@ -10,6 +11,7 @@ import {
 } from '../controllers/referralOcr.controller.js';
 
 const router = express.Router();
+router.get('/:draftId/processing', authenticate, getReferralPacketForProcessing);
 
 router.get('/:draftId/ocr', authenticate, listReferralOcrRequests);
 

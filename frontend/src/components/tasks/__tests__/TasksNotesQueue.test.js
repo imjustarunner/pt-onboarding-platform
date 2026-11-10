@@ -1,3 +1,4 @@
+vi.mock('../PaperPacketTaskAction.vue', () => ({ default: { template: '<div />' } }));
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushPromises, shallowMount } from '@vue/test-utils';
 import { createRouter, createMemoryHistory } from 'vue-router';
@@ -34,13 +35,13 @@ beforeEach(() => {
   api.post.mockResolvedValue({ data: {} });
 });
 
-async function hub(props = {}) {
+async function hub(props = {}, path = '/clinic/tasks') {
   const router = createRouter({ history: createMemoryHistory(), routes: [
     { path: '/:organizationSlug/tasks', component: { template: '<div />' } },
     { path: '/:organizationSlug/note-aid', component: { template: '<div />' } },
     { path: '/:pathMatch(.*)*', component: { template: '<div />' } }
   ] });
-  await router.push('/clinic/tasks');
+  await router.push(path);
   const wrapper = shallowMount(TasksHub, {
     props: { hideTimeline: true, ...props },
     global: { plugins: [router], stubs: { NoteAidWorkQueuePanel: false, RouterLink: false } }
@@ -129,4 +130,15 @@ describe('Tasks and Note Workspace share the ToDo Queue', () => {
     expect(api.post.mock.calls.some(([url]) => url === '/clinical-notes/work-queue')).toBe(false);
     wrapper.unmount();
   });
+});
+
+it('opens the authorized linked paper task on arrival and preserves that link on reload', async () => {
+  api.get.mockImplementation(async url => ({ data: url === '/tasks/90' ? { id: 90, task_type: 'custom', source_ref_type: 'paper_packet_processing', source_ref_id: '20', assigned_to_agency_id: 7 } : [] }));
+  const first = await hub({}, '/clinic/tasks?taskId=90');
+  expect(first.state.detailTask).toMatchObject({ id: 90, source_ref_id: '20' });
+  const savedPath = first.router.currentRoute.value.fullPath;
+  expect(savedPath).toContain('taskId=90');
+  first.wrapper.unmount();
+  const reloaded = await hub({}, savedPath);
+  expect(reloaded.state.detailTask.id).toBe(90); reloaded.wrapper.unmount();
 });

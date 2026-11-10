@@ -43,6 +43,19 @@ beforeEach(() => {
 afterEach(() => db.close());
 const input = { agencyId: 2, clientId: 8, userId: 15, fullName: 'Support Contact', phone: '(303) 555-0100', relationshipType: 'other' };
 describe('additional contact save against the client identity schema', () => {
+  it('lists only reminders authorized by an active linked guardian or self account without a clients.user_id column', async () => {
+    db.exec(`ALTER TABLE client_contact_affiliations ADD COLUMN sms_consent_status TEXT;
+      ALTER TABLE client_contact_affiliations ADD COLUMN sms_consent_phone_hash TEXT;
+      CREATE TABLE client_guardians(client_id INTEGER, guardian_user_id INTEGER, access_enabled INTEGER, permissions_json TEXT, relationship_type TEXT);
+      INSERT INTO client_guardians VALUES(8,15,1,'{}','self');`);
+    const saved = await upsertClientAffiliatedContact(input);
+    db.prepare('UPDATE client_contact_affiliations SET notify_ack_by_user_id=15,notify_ack_at=CURRENT_TIMESTAMP,email_reminders_enabled=1 WHERE id=?').run(saved.affiliation.id);
+    expect(await Contact.listReminderRecipientsForClient(8)).toHaveLength(1);
+    db.exec("UPDATE client_guardians SET permissions_json=' {\"noView\":true}'");
+    expect(await Contact.listReminderRecipientsForClient(8)).toHaveLength(0);
+    db.exec("UPDATE client_guardians SET permissions_json='{}',access_enabled=0");
+    expect(await Contact.listReminderRecipientsForClient(8)).toHaveLength(0);
+  });
   it('saves a staff-entered phone-only contact and returns the saved row without sending a reminder', async () => {
     const saved = await upsertClientAffiliatedContact(input);
     expect(saved).toMatchObject({ clientInitials: 'AB', affiliation: { id: 1, client: { initials: 'AB', fullName: 'Alex Brown' }, contact: { fullName: 'Support Contact', phone: '+13035550100' }, emailRemindersEnabled: false, smsRemindersEnabled: false } });

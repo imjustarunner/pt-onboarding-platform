@@ -14,6 +14,7 @@ import {
 } from '../services/clientOnboardingChecklist.service.js';
 import { logAuditEvent } from '../services/auditEvent.service.js';
 import { paperProcessingContext, paperProcessingSourceDocument, savePaperProcessingStep, completePaperProcessing } from '../services/paperPacketProcessing.service.js';
+import { completePaperPacketTask } from '../services/paperPacketTask.service.js';
 
 const paperProcessingHandler = action => async (req, res, next) => {
   try {
@@ -41,6 +42,7 @@ const paperProcessingHandler = action => async (req, res, next) => {
     const state = action === 'complete'
       ? await completePaperProcessing({clientId,actorId,signaturesConfirmed:req.body?.signaturesConfirmed,staffRoiConfirmed:req.body?.staffRoiConfirmed})
       : await savePaperProcessingStep({clientId,actorId,step:req.body?.step,data:req.body?.data});
+    if (action === 'complete') await completePaperPacketTask({ clientId, state });
     await logAuditEvent(req,{actionType:action==='complete'?'paper_packet_processed':'paper_packet_processing_step',agencyId:access.client.agency_id,
       metadata:{clientId,step:action==='complete'?'review':req.body?.step,sourceDocumentId:state.documentId}});
     res.set('Cache-Control','no-store').json({state});

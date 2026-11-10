@@ -7,8 +7,9 @@ export async function validateQaIntakeGuardian({agencyId,email}, db=pool) {
   const [[agency]]=await db.execute('SELECT id,slug,feature_flags FROM agencies WHERE id=?',[450]);
   if (!isAuricwellQaAgency(agency)) fail('The QA organization is not configured for synthetic intake.');
   const address=String(email||'').trim().toLowerCase();
-  if (!/^[a-z0-9][a-z0-9._+-]*@example\.com$/.test(address)) {
-    fail('Use a unique @example.com account for each QA family. testing@itsco.health receives redirected mail and must not be used as a guardian login.');
+  if (!/^[a-z0-9][a-z0-9._+-]*@example\.com$/.test(address)
+    && !/^testing\+[a-z0-9][a-z0-9._-]*@itsco\.health$/.test(address)) {
+    fail('Use a unique synthetic @example.com identity or testing+family@itsco.health alias for each QA guardian. The shared testing@itsco.health inbox cannot be used as a guardian login.');
   }
   const [users]=await db.execute(`SELECT u.id,u.role,ua.agency_id FROM users u
     LEFT JOIN user_agencies ua ON ua.user_id=u.id WHERE LOWER(u.email)=?`,[address]);

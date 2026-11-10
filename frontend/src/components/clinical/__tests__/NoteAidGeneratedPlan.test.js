@@ -4,6 +4,21 @@ import Review from '../NoteAidTreatmentPlanImportReview.vue';
 import api from '../../../services/api';
 vi.mock('../../../services/api', () => ({ default: { post: vi.fn(), get: vi.fn() } }));
 beforeEach(() => vi.resetAllMocks());
+it('shows the agency review schedule, keeps imported scheduling text separate and rejects a blank goal first', async () => {
+  api.get.mockResolvedValue({ data: { policy: { renewAfterDays: 90, flagAfterDays: 75, flagEnabled: true } } });
+  const plan = { effectiveDate: '2026-11-09', dischargePlan: '', goals: [{ goalText: '', objectives: [{ objectiveText: 'Practice a skill.', scaleCurrent: 3, scaleTarget: 7 }] }] };
+  const w = shallowMount(Review, { props: { open: false, agencyId: 450, clientId: 2449, initialPlan: plan } });
+  await w.setProps({ open: true }); await flushPromises();
+  expect(w.get('[data-plan-review-policy]').text()).toContain('90 days');
+  expect(w.get('[data-plan-review-policy]').text()).toContain('75 days');
+  const state = w.vm.$.setupState;
+  await state.save({ finalize: true });
+  expect(state.error).toContain('Enter a goal'); expect(api.post).not.toHaveBeenCalled();
+  state.model.goals[0].goalText = 'Practice coping.';
+  await state.save({ finalize: true });
+  expect(state.error).toContain('Discharge criteria'); expect(api.post).not.toHaveBeenCalled();
+  w.unmount();
+});
 
 it('reviews generated objective scores and persists an intake-generated plan with diagnosis and interventions', async () => {
   const plan = {

@@ -65,11 +65,16 @@ function navigate(popup, url) {
  * Resolves { ok, error, fallbackUrl }.
  */
 export async function openEnrollmentReceipt(docId) {
+  return openOperationalDocument(`/phi-documents/enrollment-receipts/${encodeURIComponent(docId)}/view`);
+}
+
+/** A scoped, authorized document endpoint; supports PDFs and signed-URL JSON. */
+export async function openOperationalDocument(endpoint) {
   const popup = window.open('about:blank', '_blank');
   writeLoading(popup);
   let url = '';
   try {
-    const resp = await api.get(`/phi-documents/enrollment-receipts/${encodeURIComponent(docId)}/view`, {
+    const resp = await api.get(endpoint, {
       responseType: 'blob',
       skipGlobalLoading: true
     });

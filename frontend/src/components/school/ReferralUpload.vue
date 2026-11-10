@@ -93,7 +93,7 @@
               maxlength="500"
               class="upload-note-input"
             />
-            <p class="muted upload-note-hint">This note will appear as the first comment from you once the client is created.</p>
+            <p class="muted upload-note-hint">{{ existingClientId ? 'This note will be added to this client when you attach the packet.' : 'This note will appear as the first comment from you once the client is created.' }}</p>
           </div>
 
           <div v-if="error" class="error-message">
@@ -136,7 +136,7 @@
               :disabled="submittingClient"
               @click="handleSubmitClient"
             >
-              {{ submittingClient ? 'Submitting…' : 'Submit Client' }}
+              {{ submittingClient ? 'Saving…' : existingClientId ? 'Attach packet to this client' : 'Submit Client' }}
             </button>
             <button
               v-else
@@ -295,6 +295,7 @@ import { useAuthStore } from '../../store/auth';
 import PDFPreview from '../documents/PDFPreview.vue';
 
 const props = defineProps({
+  initialDraft: { type: Object, default: null },
   existingClientId: { type: Number, default: null },
   organizationOptions: { type: Array, default: () => [] },
   organizationSlug: {
@@ -922,6 +923,11 @@ const loadLatestDraft = async () => {
   const generation = ++latestDraftGeneration;
   const schoolSlug = uploadOrganizationSlug.value;
   try {
+    if (props.initialDraft?.id) {
+      resumableDraft.value = props.initialDraft;
+      await resumeDraft();
+      return;
+    }
     const response = await api.get(`/organizations/${uploadOrganizationSlug.value}/upload-referral/latest-draft`);
     if (generation !== latestDraftGeneration || schoolSlug !== uploadOrganizationSlug.value) return;
     const draft = response.data?.draft || null;
@@ -1012,7 +1018,11 @@ const handleUpload = async () => {
     draftId.value = response.data?.draftId || null;
     phiDocumentId.value = response.data?.phiDocumentId || null;
     fileScanStatus.value = response.data?.scanStatus || 'pending';
-    success.value = 'Packet uploaded. Review OCR/initials, then click Submit Client.';
+    success.value = props.existingClientId
+      ? 'File uploaded. Click Attach packet to this client to save it on this chart.'
+      : 'Packet uploaded. Review OCR/initials, then click Submit Client.';
+    if (response.data?.taskId) success.value += ' A Support processing task has been created.';
+    if (response.data?.taskNeedsReview) success.value += ' The file is saved, but its Support task needs follow-up. Keep this draft; do not upload it again.';
     const agencyId = response.data?.agencyId || null;
     if (agencyId) {
       await loadPacketConfig(agencyId);

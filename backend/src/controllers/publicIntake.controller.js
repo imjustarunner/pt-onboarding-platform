@@ -8116,6 +8116,9 @@ export const finalizePublicIntake = async (req, res, next) => {
     if (requiredSignatureError) return res.status(400).json({ error: { message: requiredSignatureError } });
     // Validate editions before saving a submitted state or creating any family records.
     await validatePacketEditionsBeforeSubmission({ link, intakeData });
+    if (link.create_client && link.create_guardian) {
+      await validateQaIntakeGuardian({ agencyId: await resolveAgencyIdForLink(link), email: req.body?.guardian?.email || intakeData?.guardian?.email });
+    }
     stripIneligibleProviderPreference(link,intakeData);
     await validateSubmittedProviderPreferences(link,intakeData);
     await prepareLearningPacket(intakeData,link);
@@ -10783,6 +10786,9 @@ export const submitPublicIntake = async (req, res, next) => {
     if (requiredSignatureError) return res.status(400).json({ error: { message: requiredSignatureError } });
     // Validate editions before saving a submitted state or creating any family records.
     await validatePacketEditionsBeforeSubmission({ link, intakeData });
+    if (link.create_client && link.create_guardian) {
+      await validateQaIntakeGuardian({ agencyId: await resolveAgencyIdForLink(link), email: req.body?.guardian?.email || intakeData?.guardian?.email });
+    }
     stripIneligibleProviderPreference(link,intakeData);
     await validateSubmittedProviderPreferences(link,intakeData);
     await prepareLearningPacket(intakeData,link);

@@ -2906,7 +2906,7 @@ const ClientOnboardingChecklistPanel = defineAsyncComponent(() => import('../cli
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
-import { openEnrollmentReceipt } from '../../utils/openEnrollmentReceipt.js';
+import { openEnrollmentReceipt, openOperationalDocument } from '../../utils/openEnrollmentReceipt.js';
 import { canAccessMedicalBilling, canAccessClientAccountSupport } from '../../config/medicalBillingAccess';
 import ClientPendingTasks from '../billing/ClientPendingTasks.vue';
 import ClientInsuranceEditor from '../billing/ClientInsuranceEditor.vue';
@@ -3215,10 +3215,13 @@ const chartReceiptFallbackUrl = ref('');
 async function openChartDocument(viewKey) {
   const key = String(viewKey || '').trim();
   // Support cannot open the Documents tab, so receipts open directly from Records.
-  if (key.startsWith('receipt-')) {
+  if (key.startsWith('receipt-') || /^signed-roi-\d+$/.test(key) || /^paper-\d+$/.test(key)) {
     chartReceiptError.value = '';
     chartReceiptFallbackUrl.value = '';
-    const result = await openEnrollmentReceipt(key.slice(8));
+    const result = key.startsWith('receipt-') ? await openEnrollmentReceipt(key.slice(8))
+      : await openOperationalDocument(key.startsWith('signed-roi-')
+        ? `/clients/${Number(props.client?.id)}/school-roi-documents/${Number(key.slice(11))}/view`
+        : `/clients/${Number(props.client?.id)}/paper-packet-processing/documents/${Number(key.slice(6))}/view`);
     if (!result.ok) {
       chartReceiptError.value = result.error;
       chartReceiptFallbackUrl.value = result.fallbackUrl || '';

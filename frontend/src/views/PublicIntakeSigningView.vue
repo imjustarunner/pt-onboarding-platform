@@ -3172,6 +3172,7 @@ import { i18n, setPublicLocale } from '../i18n.js';
 import { readJoinBrandingForPacket } from '../utils/joinLandingTemplate.js';
 import { restoreInvitedChildren, sameInvitedSigningChildren } from '../utils/coGuardianEnrollmentRoster.js';
 import { snapshotOtherGuardian, restoreOtherGuardian } from '../utils/otherGuardianDraft.js';
+import { invalidateEnrollmentSignatures } from '../utils/invalidateEnrollmentSignatures.js';
 import { clinicalAnswersForStep, SHARED_SIGNING_STEP_TYPES, sharedSigningChildren } from '../utils/sharedIntakeSigning.js';
 import SchoolIntakeChildDetails from '../components/public-intake/SchoolIntakeChildDetails.vue';
 import { groupSchoolChildSteps, schoolStepRepeatsForChild, schoolChildDetailFields, childDetailKind, validChildDob, syncSchoolChildIdentity, syncSiblingAddresses, migrateLegacySchoolAnswers } from '../utils/schoolIntakeChildren.js';
@@ -5333,9 +5334,10 @@ function isQuestionnaireFlowStep(step = currentFlowStep.value) {
 }
 
 const isCurrentQuestionnairePage = computed(() => isQuestionnaireFlowStep(currentFlowStep.value));
+const signerRevision = ref(0);
 const flowStepRenderKey = computed(() => {
   const s = currentFlowStep.value;
-  return `${currentFlowIndex.value}:${String(s?.id || '')}:${String(s?.type || '')}`;
+  return `${currentFlowIndex.value}:${String(s?.id || '')}:${String(s?.type || '')}:${signerRevision.value}`;
 });
 
 const interviewShowIfValues = computed(() => {
@@ -14462,7 +14464,8 @@ watch([() => communications.smsPreference, () => communications.providerTextingO
 });
 
 watch(guardianEmail, (next, previous) => {
-  if (!previous || !next || next.trim().toLowerCase() === previous.trim().toLowerCase() || step.value === 3) return;
+  if (isRestoringDraft.value || !previous || String(next || '').trim().toLowerCase() === previous.trim().toLowerCase() || step.value === 3) return;
+  invalidateEnrollmentSignatures(intakeResponses.submission);
   for (const [capture, key] of [[embeddedSmartSchoolRoi, 'smartSchoolRoi'], [embeddedSmartDisclosure, 'smartDisclosure']]) {
     if (capture.value?.signatureData) { capture.value = null; intakeResponses.submission[key] = null; }
   }
@@ -14470,7 +14473,11 @@ watch(guardianEmail, (next, previous) => {
   intakeResponses.submission.packetSections = {};
   for (const key of Object.keys(docStatus)) docStatus[key] = false;
   documentSigningRoster.value = null;
-});
+  lastSignatureData.value = '';
+  signatureData.value = '';
+  communications.signatureAccepted = false;
+  signerRevision.value += 1;
+}, { flush: 'sync' });
 
 const handleEmbeddedSchoolRoiCaptured = async ({ smartSchoolRoi } = {}) => {
   if (smartSchoolRoi && isSharedFamilySigningStep.value) smartSchoolRoi = { ...smartSchoolRoi, sharedSigningChildren: sharedSigningRoster.value };

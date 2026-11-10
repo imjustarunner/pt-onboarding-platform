@@ -11,4 +11,12 @@ describe('isolated QA intake identities',()=>{
  it('does not treat an existing staff identity as a guardian',async()=>{db.execute.mockResolvedValueOnce([[agency]]).mockResolvedValueOnce([[{id:1433,role:'provider',agency_id:450}]]);await expect(validateQaIntakeGuardian({agencyId:450,email:'qa.provider.auricwell@example.com'},db)).rejects.toMatchObject({status:400});});
  it('marks a completed isolated guardian for recipient-only email access',async()=>{db.execute.mockResolvedValueOnce([[agency]]).mockResolvedValueOnce([[{id:9,role:'client_guardian',agency_id:450}]]).mockResolvedValueOnce([{affectedRows:1}]);await markQaIntakeGuardian({agencyId:450,userId:9,email:'qa.family@example.com'},db);expect(db.execute.mock.calls[2][0]).toContain('ua.agency_id=450 AND ua.is_active=1');expect(db.execute.mock.calls[2][1]).toEqual([9,'qa.family@example.com']);});
  it('fails closed when the QA flag is missing',async()=>{db.execute.mockResolvedValue([[{...agency,feature_flags:{}}]]);await expect(validateQaIntakeGuardian({agencyId:450,email:'qa.family@example.com'},db)).rejects.toMatchObject({status:400});});
+ it('accepts the owner-controlled unique testing alias for an isolated guardian',async()=>{
+  db.execute.mockResolvedValueOnce([[agency]]).mockResolvedValueOnce([[]]);
+  expect(await validateQaIntakeGuardian({agencyId:450,email:'testing+1109-parent2@itsco.health'},db)).toBe(true);
+ });
+ it.each(['testing+@itsco.health','parent@itsco.health','testing+family@elsewhere.test'])('rejects a nonapproved delivery identity %s',async email=>{
+  db.execute.mockResolvedValueOnce([[agency]]);
+  await expect(validateQaIntakeGuardian({agencyId:450,email},db)).rejects.toMatchObject({status:400});
+ });
 });

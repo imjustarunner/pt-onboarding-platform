@@ -1,5 +1,18 @@
 vi.mock('../../documents/PDFPreview.vue',()=>({default:{template:'<div/>'}}));
-import {expect,it,vi} from 'vitest';
+it('clearly requires attachment to the existing chart without creating another client',async()=>{
+ api.get.mockResolvedValue({data:{}});api.post.mockResolvedValue({data:{draftId:93,phiDocumentId:94}});
+ const w=mount(Upload,{props:{organizationSlug:'qa-school',existingClientId:2456}});await flushPromises();
+ w.vm.selectedFile=new File(['%PDF-synthetic'],'control.pdf',{type:'application/pdf'});
+ await w.vm.handleUpload();await flushPromises();
+ expect(w.text()).toContain('Click Attach packet to this client');
+ expect(w.text()).not.toContain('Submit Client');
+ api.post.mockResolvedValue({data:{client:{id:2456},attachedExisting:true}});
+ await w.findAll('button').find(b=>b.text()==='Attach packet to this client').trigger('click');await flushPromises();
+ expect(api.post).toHaveBeenLastCalledWith('/organizations/qa-school/upload-referral/93/submit',expect.objectContaining({existingClientId:2456,reviewOnly:false}));
+ expect(w.emitted('submitted')).toHaveLength(1);w.unmount();
+});
+import {expect,it,vi,beforeEach} from 'vitest';
+beforeEach(()=>vi.clearAllMocks());
 import {mount,flushPromises} from '@vue/test-utils';
 vi.mock('../../../store/auth',()=>({useAuthStore:()=>({isAuthenticated:true,user:{role:'support'}})}));
 vi.mock('../../../services/api',()=>({default:{get:vi.fn(async()=>({data:{}})),post:vi.fn(),defaults:{baseURL:'/api'}}}));
