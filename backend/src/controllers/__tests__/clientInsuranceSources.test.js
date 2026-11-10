@@ -4,6 +4,7 @@ vi.mock('../../models/GuardianInsuranceProfile.model.js',()=>({decodeInsurancePr
 vi.mock('../../services/clinicalEligibility.service.js',()=>({default:{ensureAgencyAccess:vi.fn()}}));
 vi.mock('../../services/clientInsurance.service.js',()=>({readClientInsurance:vi.fn(),writeClientInsurance:vi.fn(),claimInsuranceIssues:()=>[],insuranceDemographics:vi.fn()}));
 vi.mock('../../services/familyBillingPolicy.service.js',()=>({positiveId:n=>Number(n),auditBilling:vi.fn()}));
+vi.mock('../../services/eligibilityProfile.service.js',()=>({readEligibilityProfile:vi.fn(async()=>[])}));
 import pool from '../../config/database.js';
 import {writeClientInsurance} from '../../services/clientInsurance.service.js';
 import {saveClientInsurance} from '../clientInsurance.controller.js';

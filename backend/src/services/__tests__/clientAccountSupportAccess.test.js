@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()}}));
 vi.mock('../managedBillingAccess.service.js',()=>({managedBillingAgencies:vi.fn(async()=>[])}));
+vi.mock('../../utils/independentPracticeOwner.js',()=>({isIndependentPracticeOwner:vi.fn(async()=>false)}));
 import pool from '../../config/database.js';
 import { requireClientAccountSupport } from '../clientAccountSupportAccess.service.js';
 import { requireBillingStaff } from '../familyLedger/policy.js';

@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import pool from '../config/database.js';
+import clinicalPool from '../config/clinicalDatabase.js';
 import User from '../models/User.model.js';
 import { canLogin, isAccessExpired } from '../utils/accessControl.js';
 import { policyIsMedicaid } from '../utils/insurancePaymentPolicy.js';
@@ -11,10 +12,9 @@ import { resolveClaimMdConnection, requireClaimMdEligibility } from './claimMdCo
 import { getClaimMdBillingProfile } from './claimMdBillingProfile.service.js';
 import { runMeteredCoverageCheck } from './eligibilityUsage.service.js';
 import { queueInsuranceVerificationSafely } from './insuranceVerificationTask.service.js';
-import { auditBilling } from './familyBillingPolicy.service.js';
+import { applyEligibilityProfileResults } from './eligibilityProfile.service.js';
 
 const parse = v => typeof v === 'string' ? JSON.parse(v || '{}') : v || {};
-const list = v => Array.isArray(v) ? v : v ? [v] : [];
 export function intakeLookupModes(insurance, slot) {
   const policy = insurance?.[slot];
   const colorado = policy?.eligibilityPayerId === 'SKCO0' && policyIsMedicaid(policy);
@@ -29,8 +29,23 @@ export function intakeEligibilityKey({agencyId,clientId,fingerprint,slot,mode,jo
 }
 export function coloradoEligibilityPolicy(policy, patient, config) {
   if (!policyIsMedicaid(policy) || policy?.eligibilityPayerId || config.medicaidState !== 'CO') return policy;
-  const colorado = /health first colorado|colorado.*medicaid/i.test(policy.insurerName || '') || String(patient?.state).toUpperCase() === 'CO';
+  const colorado = /health first colorado|colorado.*medicaid/i.test(policy.insurerName || '') || String(patient?.state).toUpperCase() === 'CO' || (!patient?.state && (!policy.insurerName || /^medicaid$/i.test(policy.insurerName)));
   return colorado ? {...policy,eligibilityPayerId:'SKCO0'} : policy;
+}
+
+export function needsMedicaidDiscovery(insurance, config) {
+  return config?.medicaidState === 'CO' && (!insurance?.patient?.state || String(insurance.patient.state).toUpperCase() === 'CO')
+    && ![insurance?.primary, insurance?.secondary].some(p => p?.insurerName || p?.payerId || p?.eligibilityPayerId || p?.memberId || policyIsMedicaid(p));
+}
+
+export async function automaticEligibilityPayerReady({agencyId,payerId,profile,connection},deps={}) {
+  const [[payer]]=await (deps.db||pool).execute(`SELECT d.directory_snapshot_json FROM medical_payer_setup_requests r JOIN medical_payer_setup_details d ON d.request_id=r.id WHERE r.agency_id=? AND d.claimmd_payer_id=? AND d.directory_status='id_match' ORDER BY d.directory_checked_at DESC LIMIT 1`,[agencyId,payerId]);
+  const support=parse(payer?.directory_snapshot_json).eligibility;
+  if(support==='yes')return true;
+  if(support!=='enrollment')return false;
+  const taxHash=crypto.createHash('sha256').update(String(profile.practice.tax_id||'').replace(/\D/g,'')).digest('hex');
+  const [[enrollment]]=await (deps.clinicalDb||clinicalPool).execute(`SELECT status FROM claimmd_enrollments WHERE agency_id=? AND connection_id=? AND billing_office_location_id=? AND payer_id=? AND enrollment_type='elig' AND provider_npi=? AND tax_id_hash=?`,[agencyId,connection.connectionId,profile.officeId,payerId,profile.billingNpi,taxHash]);
+  return ['approved','active','completed','no_enrollment_required'].includes(String(enrollment?.status||'').toLowerCase());
 }
 
 export function intakeEligibilityInputs(insurance, config, profile, serviceDate) {
@@ -39,7 +54,7 @@ export function intakeEligibilityInputs(insurance, config, profile, serviceDate)
   const readySlots = [], missing = [];
   for (const slot of prepared.secondary ? ['primary', 'secondary'] : ['primary']) {
     try {
-      buildEligibilityRequest({ insurance: prepared, slot, serviceDate, profile, lookupMode: intakeLookupModes(prepared, slot)[0] });
+      buildEligibilityRequest({ insurance: prepared, slot, serviceDate, profile, lookupMode: intakeLookupModes(prepared, slot)[0], medicaidDiscovery: needsMedicaidDiscovery(prepared, config) });
       readySlots.push(slot);
     } catch (error) {
       if (![400,409].includes(error.status)) throw error;
@@ -61,6 +76,8 @@ export async function enqueueIntakeEligibility({agencyId,clientId,submissionId,i
     const fingerprint=coverageFingerprint(insurance);
     const [[existing]]=await db.execute('SELECT id FROM intake_eligibility_jobs WHERE agency_id=? AND client_id=? AND insurance_fingerprint=? ORDER BY id LIMIT 1',[agencyId,clientId,fingerprint]);
     if(existing)return {duplicate:true,id:existing.id};
+    const [[checked]]=await db.execute("SELECT id FROM client_coverage_checks WHERE agency_id=? AND client_id=? AND insurance_fingerprint=? AND status='returned' ORDER BY id DESC LIMIT 1",[agencyId,clientId,fingerprint]);
+    if(checked)return {duplicate:true,id:null};
     const [result]=await db.execute('INSERT IGNORE INTO intake_eligibility_jobs (agency_id,client_id,submission_id,insurance_fingerprint,status) VALUES (?,?,?,?,?)',[agencyId,clientId,submissionId||0,fingerprint,status]);
     return {duplicate:!result.affectedRows,id:result.insertId||null};
   };
@@ -105,24 +122,6 @@ async function configurePayers(job,config,db) {
   } catch(e) {await connection.rollback();throw e;} finally {connection.release();}
 }
 
-/** A unique, exact demographic match may supply a missing ID. Keep the raw
- * response encrypted and retain billing review for routing, TPL and enrollment. */
-async function saveDiscoveredMember(job,slot,result,fingerprint,actorUserId,db) {
-  if(result.summary?.status!=='active_reported' || result.summary?.identityMatches!==true) return;
-  const member=list(result.result?.elig || result.result?.result?.elig)[0];
-  if(!member?.ins_number) return;
-  const connection=await db.getConnection();
-  try {
-    await connection.beginTransaction();
-    await connection.execute('SELECT id FROM clients WHERE id=? AND agency_id=? FOR UPDATE',[job.client_id,job.agency_id]);
-    const insurance=await readClientInsurance(job.client_id,job.agency_id,connection);
-    if(coverageFingerprint(insurance)!==fingerprint || insurance[slot].memberId) {await connection.rollback();return;}
-    await writeClientInsurance({...insurance,agencyId:job.agency_id,clientId:job.client_id,[slot]:{...insurance[slot],memberId:String(member.ins_number)},verifiedForClaims:false,queueEligibility:false},connection);
-    await auditBilling({agencyId:job.agency_id,clientId:job.client_id,userId:actorUserId,action:'insurance_member_id_from_eligibility',objectId:result.id},connection);
-    await connection.commit();
-  }catch(e){await connection.rollback();throw e;}finally{connection.release();}
-}
-
 export async function processIntakeEligibility(job,policy,config,deps={}) {
   const db=deps.db||pool;
   const insurance=await (deps.configurePayers||configurePayers)(job,config,db);
@@ -133,24 +132,30 @@ export async function processIntakeEligibility(job,policy,config,deps={}) {
   const fingerprint=coverageFingerprint(insurance),serviceDate=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Denver',year:'numeric',month:'2-digit',day:'2-digit'}).format(deps.now||new Date());
   let needsReview=false;
   const discoveries=[];
+  const medicaidDiscovery=needsMedicaidDiscovery(insurance,config);
   for(const slot of insurance.secondary?['primary','secondary']:['primary']) {
     const p=insurance[slot];
     if(p.effectiveDate && p.effectiveDate>serviceDate || p.terminationDate && p.terminationDate<serviceDate) {needsReview=true;continue;}
-    try { buildEligibilityRequest({insurance,slot,serviceDate,profile,lookupMode:intakeLookupModes(insurance,slot)[0]}); }
+    try {
+      const payload=buildEligibilityRequest({insurance,slot,serviceDate,profile,lookupMode:intakeLookupModes(insurance,slot)[0],medicaidDiscovery});
+      // Unsupported and unresolved directory routes go to billing without spending
+      // a transaction. Enrollment-required routes also need confirmed setup.
+      if(!await (deps.payerReady||automaticEligibilityPayerReady)({agencyId:job.agency_id,payerId:payload.payerid,profile,connection},{...deps,db})) {needsReview=true;continue;}
+    }
     catch(error) { if(![400,409].includes(error.status)) throw error; needsReview=true; continue; }
     let result;
-    for(const mode of intakeLookupModes(insurance,slot)) {
+    for(const mode of medicaidDiscovery?['demographics']:intakeLookupModes(insurance,slot)) {
       if(result && !shouldTryDemographics(result)) break;
       const requestKey=intakeEligibilityKey({agencyId:job.agency_id,clientId:job.client_id,fingerprint,slot,mode,jobId:job.id});
       // A duplicate, timeout or interrupted transmission is never blindly retried.
       const [[prior]]=await db.execute('SELECT id FROM claimmd_eligibility_usage WHERE agency_id=? AND client_id=? AND request_key=?',[job.agency_id,job.client_id,requestKey]);
       if(prior) {needsReview=true;break;}
-      result=await (deps.check||runMeteredCoverageCheck)({agencyId:job.agency_id,clientId:job.client_id,slot,serviceDate,requestKey,actorUserId:policy.reviewer_user_id,profile,connection,expectedFingerprint:fingerprint,lookupMode:mode,source:'automatic'},deps);
+      result=await (deps.check||runMeteredCoverageCheck)({agencyId:job.agency_id,clientId:job.client_id,slot,serviceDate,requestKey,actorUserId:policy.reviewer_user_id,profile,connection,expectedFingerprint:fingerprint,lookupMode:mode,medicaidDiscovery,source:'automatic'},deps);
     }
-    if(!result || result.summary?.status!=='active_reported' || result.summary?.identityMatches!==true) needsReview=true;
+    if(!result || result.summary?.status!=='active_reported' || result.summary?.identityMatches!==true || result.summary?.otherCoverageReported) needsReview=true;
     if(result) discoveries.push({slot,result});
   }
-  for(const {slot,result} of discoveries) await (deps.saveMember||saveDiscoveredMember)(job,slot,result,fingerprint,policy.reviewer_user_id,db);
+  if(discoveries.length) await (deps.applyProfile||applyEligibilityProfileResults)({agencyId:job.agency_id,clientId:job.client_id,expectedFingerprint:fingerprint,results:discoveries,actorUserId:policy.reviewer_user_id},{db});
   // Billing owns final coverage coordination, including policies without cards.
   await (deps.queueTask||queueInsuranceVerificationSafely)({agencyId:job.agency_id,clientId:job.client_id,actorUserId:policy.reviewer_user_id,reason:needsReview?'eligibility_unresolved':'coverage_coordination'},db);
   return needsReview?'review_required':'completed';

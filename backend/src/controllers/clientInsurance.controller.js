@@ -4,6 +4,7 @@ import ClinicalEligibilityService from '../services/clinicalEligibility.service.
 import { readClientInsurance, writeClientInsurance, claimInsuranceIssues, insuranceDemographics } from '../services/clientInsurance.service.js';
 import { positiveId, auditBilling } from '../services/familyBillingPolicy.service.js';
 import { requireClientAccountSupport } from '../services/clientAccountSupportAccess.service.js';
+import { readEligibilityProfile } from '../services/eligibilityProfile.service.js';
 
 async function authorize(req, support) {
   if (support) {
@@ -24,7 +25,7 @@ async function getInsurance(req,res,next,support=false) {
     const [submitted]=await pool.execute(`SELECT DISTINCT p.*, u.first_name, u.last_name FROM guardian_insurance_profiles p JOIN users u ON u.id=p.guardian_user_id LEFT JOIN guardian_insurance_clients gic ON gic.profile_id=p.id AND gic.agency_id=p.agency_id WHERE p.agency_id=? AND (p.client_id=? OR gic.client_id=?) ORDER BY p.collected_at DESC`,[c.agencyId,c.clientId,c.clientId]);
     const policies=submitted.map(row=>{const value=decodeInsuranceProfile(row);return{id:row.id,submittedBy:[row.first_name,row.last_name].filter(Boolean).join(' '),primary:value.primary || {},secondary:value.secondary || null,hasCardEvidence:!!value.primary_card_front_url,cardEvidence:Object.fromEntries(['primary_front','primary_back','secondary_front','secondary_back'].map(slot=>[slot,!!value[`${slot.replace('_','_card_')}_url`]]))};});
     await auditBilling({...c,userId:req.user.id,action:'staff_view_insurance'});
-    res.set('Cache-Control','no-store').json({insurance:support?supportInsurance(insurance):insurance,policies,demographics,...(support?{}:{missingClaimFields:claimInsuranceIssues(insurance?.primary)})});
+    res.set('Cache-Control','no-store').json({insurance:support?supportInsurance(insurance):insurance,policies,demographics,...(support?{}:{missingClaimFields:claimInsuranceIssues(insurance?.primary),eligibilityFindings:await readEligibilityProfile(c)})});
   } catch(e){next(e);}
 }
 async function saveInsurance(req,res,next,support=false) {

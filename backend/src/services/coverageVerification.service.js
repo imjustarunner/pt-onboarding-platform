@@ -36,9 +36,11 @@ export function coverageDate(value) {
  if(!/^\d{4}-\d{2}-\d{2}$/.test(s)||!Number.isFinite(Date.parse(s))||new Date(s).toISOString().slice(0,10)!==s)throw billingError(400,'Choose a valid date of service');
  return s;
 }
-export function buildEligibilityRequest({insurance,slot,serviceDate,profile,lookupMode='member_id'}) {
+export function buildEligibilityRequest({insurance,slot,serviceDate,profile,lookupMode='member_id',medicaidDiscovery=false}) {
  if(!['primary','secondary'].includes(slot))throw billingError(400,'Choose primary or secondary coverage');
- const policy=insurance?.[slot],patient=insurance?.patient;
+ const savedPolicy=insurance?.[slot],patient=insurance?.patient;
+ if(medicaidDiscovery && (slot!=='primary' || [insurance?.primary,insurance?.secondary].some(p=>p?.insurerName||p?.payerId||p?.eligibilityPayerId||p?.memberId||policyIsMedicaid(p))))throw billingError(409,'Medicaid discovery is only for clients without recorded insurance');
+ const policy=medicaidDiscovery?{isMedicaid:true,eligibilityPayerId:'SKCO0'}:savedPolicy;
  if(!['member_id','demographics'].includes(lookupMode))throw billingError(400,'Choose a supported eligibility lookup');
  const payerId=policy?.eligibilityPayerId||policy?.payerId;
  // Colorado's 270 companion guide places all members in the subscriber loop
@@ -66,10 +68,16 @@ export function buildEligibilityRequest({insurance,slot,serviceDate,profile,look
 }
 const asList=v=>Array.isArray(v)?v:v?[v]:[];
 export function eligibilityIdentityMatches(payload,result) {
- if(payload.payerid!=='SKCO0')return null;
  const entries=asList(result?.elig||result?.result?.elig);
  if(entries.length!==1||asList(entries[0]?.error).length)return false;
  const member=entries[0],name=v=>String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().replace(/\s+/g,' ').toUpperCase();
+ if(payload.payerid!=='SKCO0') {
+  const required=['ins_number','ins_name_f','ins_name_l','ins_dob',...(payload.pat_rel==='G8'?['pat_name_f','pat_name_l','pat_dob']:[])];
+  // An omitted identity is unconfirmed; a contradictory identity is a mismatch.
+  const normalize=(key,value)=>key.endsWith('dob')?String(value||'').replaceAll('-',''):key==='ins_number'?String(value||'').trim():name(value);
+  if(required.some(key=>member[key]&&normalize(key,member[key])!==normalize(key,payload[key])))return false;
+  return required.every(key=>member[key])?true:null;
+ }
  return !!member.ins_number&&name(member.ins_name_f)===name(payload.ins_name_f)&&name(member.ins_name_l)===name(payload.ins_name_l)
   &&String(member.ins_dob||'').replaceAll('-','')===payload.ins_dob
   &&(!payload.ins_number||String(member.ins_number)===String(payload.ins_number));
@@ -103,9 +111,9 @@ export async function listCoverageEvidence({agencyId,clientId,serviceDate},db=po
   return {...row,evidence,evidence_encrypted:undefined};
  }),review:review?{...review,evidence:decryptFamilyBilling(review.evidence_encrypted,context(agencyId,clientId)),evidence_encrypted:undefined}:null};
 }
-export async function runCoverageCheck({agencyId,clientId,slot,serviceDate,requestKey,actorUserId,profile,accountKey,expectedFingerprint,lookupMode='member_id'},deps={}) {
+export async function runCoverageCheck({agencyId,clientId,slot,serviceDate,requestKey,actorUserId,profile,accountKey,expectedFingerprint,lookupMode='member_id',medicaidDiscovery=false,source='manual'},deps={}) {
  const db=deps.db||pool,date=coverageDate(serviceDate),insurance=await (deps.readInsurance||readClientInsurance)(clientId,agencyId,db);
- const payload=buildEligibilityRequest({insurance,slot,serviceDate:date,profile,lookupMode}),fingerprint=coverageFingerprint(insurance);
+ const payload=buildEligibilityRequest({insurance,slot,serviceDate:date,profile,lookupMode,medicaidDiscovery}),fingerprint=coverageFingerprint(insurance);
  if(expectedFingerprint&&expectedFingerprint!==fingerprint)throw billingError(409,'Insurance changed; refresh the verification request');
  if(!/^[a-zA-Z0-9:_-]{8,100}$/.test(requestKey||''))throw billingError(400,'An eligibility request key is required');
  assertFamilyBillingEncryption();
@@ -114,8 +122,10 @@ export async function runCoverageCheck({agencyId,clientId,slot,serviceDate,reque
  catch(e){if(e.code!=='ER_DUP_ENTRY')throw e;throw billingError(409,'This eligibility request was already started. Refresh its recorded result before starting another request');}
  try {
   const result=await (deps.request||requestEligibilityJson)({agencyId,accountKey,payload});
-  const evidence={result,summary:summarizeEligibility(result,{payerId:payload.payerid}),eligibilityPayerId:payload.payerid,billingOfficeId:profile.officeId,billingNpi:profile.billingNpi,lookupMode:payload.ins_number?'member_id':'demographics'};
-  evidence.summary.identityMatches=eligibilityIdentityMatches(payload,result);
+  const evidence={result,summary:summarizeEligibility(result,{payerId:payload.payerid}),requestInsuranceFingerprint:fingerprint,eligibilityPayerId:payload.payerid,billingOfficeId:profile.officeId,billingNpi:profile.billingNpi,lookupMode:payload.ins_number?'member_id':'demographics'};
+  // A demographic fallback may find the person under a different member ID.
+  // Preserve that finding, but do not approve the currently saved wrong ID.
+  evidence.summary.identityMatches=eligibilityIdentityMatches({...payload,...(insurance?.[slot]?.memberId?{ins_number:insurance[slot].memberId}:{})},result);
   await db.execute("UPDATE client_coverage_checks SET status='returned',completed_at=CURRENT_TIMESTAMP(6),evidence_encrypted=? WHERE id=? AND agency_id=? AND client_id=?",[encryptFamilyBilling(evidence,context(agencyId,clientId)),id,agencyId,clientId]);
   await auditBilling({agencyId,clientId,userId:actorUserId,action:'insurance_eligibility_checked',objectId:id},db);
   const errors=asList(result?.elig||result?.result?.elig).flatMap(e=>asList(e.error));
@@ -125,7 +135,12 @@ export async function runCoverageCheck({agencyId,clientId,slot,serviceDate,reque
     try {const {sendAutomaticBillingBenefits}=await import('./billingBenefitsEmail.service.js');await sendAutomaticBillingBenefits({agencyId,clientId,coverageCheckId:id,actorUserId});}
     catch { /* Eligibility evidence remains valid; notification failures never invalidate it. */ }
   }
-  return {id,status:'returned',...evidence,followUpTaskId};
+  const checked={id,status:'returned',...evidence,followUpTaskId};
+  if(source!=='automatic' && evidence.summary.identityMatches===true && evidence.summary.status==='active_reported') {
+   try {const {applyEligibilityProfileResults}=await import('./eligibilityProfile.service.js');await (deps.applyProfile||applyEligibilityProfileResults)({agencyId,clientId,expectedFingerprint:fingerprint,results:[{slot,result:checked}],actorUserId},{db});}
+   catch { checked.profileImportPending=true; await (deps.queueFollowUp||queueInsuranceVerificationSafely)({agencyId,clientId,actorUserId,coverageCheckId:id,reason:'eligibility_unresolved'},db); }
+  }
+  return checked;
  }catch(e){await db.execute("UPDATE client_coverage_checks SET status='error',completed_at=CURRENT_TIMESTAMP(6) WHERE id=? AND agency_id=? AND client_id=?",[id,agencyId,clientId]);await (deps.queueFollowUp||queueInsuranceVerificationSafely)({agencyId,clientId,actorUserId,coverageCheckId:id,reason:'eligibility_error'},db);throw billingError(502,'Eligibility could not be confirmed. Review payer enrollment or use the payer portal; coverage remains unverified');}
 }
 export function validateCoverageReview(input,insurance) {
@@ -133,7 +148,7 @@ export function validateCoverageReview(input,insurance) {
  if(input.status==='verified') {
   if(input.primaryChecked!==true||(insurance?.secondary&&input.secondaryChecked!==true)||input.otherCoverageChecked!==true||input.orderConfirmed!==true)throw billingError(409,'Verify each recorded policy, check for other coverage and confirm payer order');
   if(hasMedicaidCoverage(insurance)&&input.medicaidTplChecked!==true)throw billingError(409,'Review Colorado Medicaid Other Insurance/TPL records and resolve any discrepancies first');
-  if(policyIsMedicaid(insurance?.primary)&&insurance?.secondary&&!policyIsMedicaid(insurance.secondary))throw billingError(409,'Commercial coverage is recorded after Medicaid. Resolve payer order before verification');
+  if(policyIsMedicaid(insurance?.primary)&&insurance?.secondary)throw billingError(409,'Other coverage is recorded after Medicaid. Resolve payer order before verification');
  }
 }
 export async function saveCoverageReview(input,deps={}) {
@@ -165,6 +180,7 @@ export async function saveCoverageReview(input,deps={}) {
  }catch(e){await db.rollback();throw e;}finally{db.release();}
 }
 export function coverageReviewBlockers({insurance,review,latestReview=null,checks=[],latestCheckId=checks[0]?.id||0,now=new Date()}) {
+ if(policyIsMedicaid(insurance?.primary)&&insurance?.secondary)return ['Medicaid cannot be billed first while another policy is recorded. Resolve payer order'];
  if(latestReview?.status==='unresolved'&&Number(latestReview.id)>Number(review?.id||0))return ['Resolve the latest other-coverage investigation before submission'];
  if(!review||review.status!=='verified')return ['Verify insurance and coordination of benefits for this date of service'];
  if(review.insurance_fingerprint!==coverageFingerprint(insurance))return ['Insurance or client identity changed; repeat coverage review'];

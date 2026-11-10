@@ -2076,6 +2076,18 @@ export const persistChildIntakeData = async ({
       const { queueInsuranceVerificationSafely } = await import('../services/insuranceVerificationTask.service.js');
       await queueInsuranceVerificationSafely({agencyId,clientId:cid,reason:'missing_identity'});
     }
+    // Intake writes chart demographics directly before this point. Reconsider
+    // automatic eligibility even when no policy or member ID was supplied.
+    if(agencyId) {
+      try {
+        const {syncInsuranceDemographicsForEligibility}=await import('../services/insuranceDemographicsAutomation.service.js');
+        await syncInsuranceDemographicsForEligibility(cid);
+      } catch(error) {
+        console.warn('[publicIntake] eligibility queue needs recovery',{clientId:cid,code:error.code||'queue_failed'});
+        const {queueInsuranceVerificationSafely}=await import('../services/insuranceVerificationTask.service.js');
+        await queueInsuranceVerificationSafely({agencyId,clientId:cid,reason:'eligibility_error'});
+      }
+    }
 
     // Unified package selection from office enrollment — create pending entitlement
     // (or activate free packages). Card-on-file was collected via SetupIntent separately.

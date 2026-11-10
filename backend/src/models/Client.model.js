@@ -173,6 +173,10 @@ class Client {
     const query = `INSERT INTO clients (${fields.join(', ')}) VALUES (${placeholders})`;
 
     const [result] = await executor.execute(query, values);
+    try {
+      const { syncInsuranceDemographicsForEligibility } = await import('../services/insuranceDemographicsAutomation.service.js');
+      await syncInsuranceDemographicsForEligibility(result.insertId, executor);
+    } catch (error) { console.warn('[Client.create] eligibility queue needs recovery', { code: error.code || 'queue_failed' }); }
     return hydrate ? this.findById(result.insertId) : { id: result.insertId };
   }
 
@@ -667,6 +671,13 @@ class Client {
     const query = `UPDATE clients SET ${updates.join(', ')} WHERE id = ?${agencyId !== null ? ' AND agency_id = ?' : ''}`;
     const [result] = await executor.execute(query, values);
     if (!result.affectedRows && agencyId !== null) return null;
+
+    if (result.affectedRows) {
+      try {
+        const { eligibilityDemographicFields, syncInsuranceDemographicsForEligibility } = await import('../services/insuranceDemographicsAutomation.service.js');
+        if (eligibilityDemographicFields.some(field => clientData[field] !== undefined)) await syncInsuranceDemographicsForEligibility(id, executor);
+      } catch (error) { console.warn('[Client.update] eligibility queue needs recovery', { code: error.code || 'queue_failed' }); }
+    }
 
     if (schedulingStatusChange && result.affectedRows) {
       const { enqueueClientScheduleTermination } = await import('../services/clientScheduleTermination.service.js');

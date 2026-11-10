@@ -5,6 +5,7 @@ vi.mock('../../services/clinicalEligibility.service.js',()=>({default:{ensureAge
 vi.mock('../../services/clientAccountSupportAccess.service.js',()=>({requireClientAccountSupport:vi.fn()}));
 vi.mock('../../services/clientInsurance.service.js',()=>({readClientInsurance:vi.fn(),writeClientInsurance:vi.fn(),claimInsuranceIssues:vi.fn(()=>[]),insuranceDemographics:vi.fn(async()=>({firstName:'Test'}))}));
 vi.mock('../../services/familyBillingPolicy.service.js',()=>({positiveId:Number,auditBilling:vi.fn()}));
+vi.mock('../../services/eligibilityProfile.service.js',()=>({readEligibilityProfile:vi.fn(async()=>[])}));
 import pool from '../../config/database.js';
 import { requireClientAccountSupport } from '../../services/clientAccountSupportAccess.service.js';
 import { readClientInsurance, writeClientInsurance } from '../../services/clientInsurance.service.js';
@@ -20,7 +21,7 @@ it('reads insurance without disclosing claim verification metadata or requesting
   const response=res(),next=vi.fn();await getSupportClientInsurance(req(),response,next);
   expect(next).not.toHaveBeenCalled();expect(requireClientAccountSupport).toHaveBeenCalledWith(expect.objectContaining({role:'support'}),20);
   expect(response.json.mock.calls[0][0]).toMatchObject({insurance:{primary:{insurerName:'Previous'}},demographics:{firstName:'Test'}});
-  expect(JSON.stringify(response.json.mock.calls[0][0])).not.toMatch(/verifiedForClaims|acceptAssignment|confirmedBy|missingClaimFields/);
+  expect(JSON.stringify(response.json.mock.calls[0][0])).not.toMatch(/verifiedForClaims|acceptAssignment|confirmedBy|missingClaimFields|eligibilityFindings/);
 });
 it('saves partial insurance, resets verification, and preserves the billing assignment decision',async()=>{
   const response=res(),next=vi.fn();await saveSupportClientInsurance(req(),response,next);

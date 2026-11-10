@@ -5,6 +5,13 @@ import { billingError } from './familyBillingPolicy.service.js';
 import { hasMedicaidCoverage, policyIsMedicaid } from '../utils/insurancePaymentPolicy.js';
 
 export const POLICY_TEXT_FIELDS = ['insurerName', 'payerId', 'eligibilityPayerId', 'memberId', 'groupNumber', 'patientSuffix', 'subscriberName', 'subscriberFirstName', 'subscriberLastName', 'subscriberDob', 'subscriberSex', 'relationshipToSubscriber', 'subscriberAddressLine1', 'subscriberAddressLine2', 'subscriberCity', 'subscriberState', 'subscriberPostalCode', 'planType', 'effectiveDate', 'terminationDate', 'claimsPhone'];
+export function mergePatientDefaults(patient = {}, demographics = {}) {
+  const merged={...patient},identity=value=>String(value||'').trim().replace(/\s+/g,' ').toUpperCase();
+  // Do not construct a new identity by combining disagreeing chart and policy names.
+  if(['firstName','lastName','dateOfBirth'].some(key=>patient[key]&&demographics[key]&&identity(patient[key])!==identity(demographics[key])))return merged;
+  for(const [key,value] of Object.entries(demographics))if(!merged[key]&&value)merged[key]=value;
+  return merged;
+}
 export function normalizePolicy(value = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw billingError(400, 'Insurance policy must be an object');
   const out = {};
@@ -42,7 +49,11 @@ export function insuranceForIntakeClient(info, clientIndex, clientCount) {
 export async function writeClientInsurance({ clientId, agencyId, primary, secondary = null, profileId = null, coverageSources = null, confirmedBy = null, patient = null, verifiedForClaims = false, acceptAssignment = null, queueEligibility = true }, db = pool) {
   const previous = await readClientInsurance(clientId, agencyId, db);
   const patientFields = ['firstName','lastName','dateOfBirth','sex','addressLine1','addressLine2','city','state','postalCode'];
-  const patientValue = patient && typeof patient === 'object' ? Object.fromEntries(patientFields.map(key => [key, String(patient[key] || '').trim().slice(0,255)])) : (previous?.patient || {});
+  const patientValue = patient && typeof patient === 'object' ? Object.fromEntries(patientFields.map(key => [key, String(patient[key] || '').trim().slice(0,255)])) : { ...(previous?.patient || {}) };
+  if(queueEligibility && ['firstName','lastName','dateOfBirth','state'].some(key=>!patientValue[key])) {
+    const demographics=await insuranceDemographics(clientId,agencyId,db);
+    Object.assign(patientValue,mergePatientDefaults(patientValue,demographics));
+  }
   const value = { acceptAssignment, patient: patientValue, verifiedForClaims: verifiedForClaims === true, primary: normalizePolicy(selfSubscriberPolicy(primary,patientValue)), secondary: secondary ? normalizePolicy(selfSubscriberPolicy(secondary,patientValue)) : null, profileId, coverageSources, confirmedBy, updatedAt: new Date().toISOString() };
   const encrypted = encryptFamilyBilling(value, `client-insurance:${agencyId}:${clientId}`);
   const [result] = await db.execute(`UPDATE clients SET billing_insurance_payload = ?, primary_insurer_name = ?, insurance_member_id = NULL, insurance_group_number = NULL, insurance_subscriber_name = NULL WHERE id = ? AND agency_id = ?`, [encrypted, value.primary.insurerName || null, clientId, agencyId]);
@@ -75,7 +86,8 @@ export async function applySubmittedClientInsurance(input, connection = null) {
   const previous=await readClientInsurance(input.clientId,input.agencyId,connection);
   // Once staff coordinates multiple source policies, a guardian's later edits
   // remain a separate submission. They cannot erase another holder's coverage.
-  if(previous && ((!input.profileId || Number(previous.profileId)!==Number(input.profileId)) || Object.keys(previous.coverageSources || {}).length)) {
+  const hasExistingPolicy=[previous?.primary,previous?.secondary].some(p=>p?.insurerName||p?.payerId||p?.memberId||policyIsMedicaid(p));
+  if(previous && hasExistingPolicy && ((!input.profileId || Number(previous.profileId)!==Number(input.profileId)) || Object.keys(previous.coverageSources || {}).length)) {
     if (previous.verifiedForClaims) await writeClientInsurance({...previous,clientId:input.clientId,agencyId:input.agencyId,verifiedForClaims:false},connection);
     return false;
   }

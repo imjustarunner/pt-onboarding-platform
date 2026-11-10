@@ -8,6 +8,13 @@ const insurance=()=>({primary:{payerId:'TEST',insurerName:'Test Insurance',membe
 const profile={officeId:8,billingNpi:'1306688650',practice:{tax_id:'123456789',name:'Synthetic Agency'}};
 beforeEach(()=>{vi.stubEnv('FAMILY_BILLING_ENCRYPTION_KEY_BASE64',Buffer.alloc(32,7).toString('base64'));});
 describe('client-scoped eligibility and other coverage',()=>{
+ it('flags a different returned member ID after a demographics fallback instead of verifying the saved ID',async()=>{
+  const info=insurance();info.primary={...info.primary,isMedicaid:true,eligibilityPayerId:'SKCO0',memberId:'OLD-ID'};
+  const result={elig:{ins_number:'NEW-ID',ins_name_f:'Child',ins_name_l:'Test',ins_dob:'20100301',benefit:{benefit_code:'30',benefit_coverage_code:'1'}}};
+  const db={execute:vi.fn().mockResolvedValue([{insertId:11}])},queueFollowUp=vi.fn(),applyProfile=vi.fn();
+  const checked=await runCoverageCheck({agencyId:2,clientId:4,slot:'primary',serviceDate:'2026-11-10',requestKey:'demographic-fallback',lookupMode:'demographics',profile},{db,request:async()=>result,readInsurance:async()=>info,queueFollowUp,applyProfile});
+  expect(checked.summary.identityMatches).toBe(false);expect(applyProfile).not.toHaveBeenCalled();expect(queueFollowUp).toHaveBeenCalledWith(expect.objectContaining({reason:'identity_mismatch'}),db);
+ });
  it('flags a different returned surname even when the member ID and birth date match',()=>{
   const payload={payerid:'SKCO0',ins_number:'SYNTHETIC',ins_name_f:'Test',ins_name_l:'Member',ins_dob:'20100301'},result={elig:{...payload}};
   expect(eligibilityIdentityMatches(payload,result)).toBe(true);

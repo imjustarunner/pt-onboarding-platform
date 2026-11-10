@@ -6,7 +6,7 @@ import {intakeEligibilityInputs,intakeLookupModes,shouldTryDemographics,intakeEl
 import {coverageFingerprint} from '../coverageVerification.service.js';
 const insurance={primary:{isMedicaid:true,eligibilityPayerId:'SKCO0',memberId:'SYNTHETIC'},patient:{firstName:'Test',lastName:'Person',dateOfBirth:'2010-01-01'}};
 const job={id:1,agency_id:2,client_id:3,insurance_fingerprint:coverageFingerprint(insurance)};
-function deps(){return {db:{execute:vi.fn().mockResolvedValue([[]])},configurePayers:async()=>insurance,connection:async()=>({mode:'live'}),profile:async()=>({billingNpi:'1306688650',practice:{tax_id:'123456789',name:'Test'}}),check:vi.fn(),saveMember:vi.fn(),queueTask:vi.fn(),env:{}};}
+function deps(){return {db:{execute:vi.fn(async sql=>sql.includes('directory_snapshot_json')?[[{directory_snapshot_json:{eligibility:'yes'}}]]:[[]])},configurePayers:async()=>insurance,connection:async()=>({mode:'live'}),profile:async()=>({billingNpi:'1306688650',practice:{tax_id:'123456789',name:'Test'}}),check:vi.fn(),applyProfile:vi.fn(),queueTask:vi.fn(),env:{}};}
 describe('intake eligibility',()=>{
  it('supports name and DOB only for configured Colorado Medicaid',()=>{
   expect(intakeLookupModes(insurance,'primary')).toEqual(['member_id','demographics']);
@@ -41,7 +41,7 @@ describe('intake eligibility',()=>{
  it('never retries a timeout, a prior attempt or an active response with identity mismatch',async()=>{
   const timeout=deps();timeout.check.mockRejectedValue(new Error('Unknown delivery'));
   await expect(processIntakeEligibility(job,{reviewer_user_id:9},{},timeout)).rejects.toThrow();expect(timeout.check).toHaveBeenCalledTimes(1);
-  const prior=deps();prior.db.execute.mockResolvedValue([[{id:8}]]);
+  const prior=deps();prior.db.execute.mockImplementation(async sql=>sql.includes('directory_snapshot_json')?[[{directory_snapshot_json:{eligibility:'yes'}}]]:[[{id:8}]]);
   expect(await processIntakeEligibility(job,{}, {},prior)).toBe('review_required');expect(prior.check).not.toHaveBeenCalled();
   const mismatch=deps();mismatch.check.mockResolvedValue({summary:{status:'active_reported',identityMatches:false}});
   expect(await processIntakeEligibility(job,{}, {},mismatch)).toBe('review_required');expect(mismatch.check).toHaveBeenCalledTimes(1);
@@ -54,7 +54,7 @@ describe('intake eligibility',()=>{
  it.each([{claimed:true,allowed:true,calls:1},{claimed:false,allowed:true,calls:0},{claimed:true,allowed:false,calls:0}])('requires both current billing access and an exclusive job claim: %j',async({claimed,allowed,calls})=>{
   const d=deps();d.env={CLAIM_MD_INTAKE_ELIGIBILITY_ENABLED:'true'};d.actorAllowed=async()=>allowed;
   const row={...job,reviewer_user_id:9,feature_flags:{medicalBillingEnabled:true,intakeEligibilityAutomation:{enabled:true,officeId:6}}};
-  d.db.execute.mockImplementation(async sql=>sql.startsWith('SELECT j.*')?[[row]]:sql.includes("SET status='processing' WHERE id")?[{affectedRows:claimed?1:0}]:sql.startsWith('SELECT')?[[]]:[{}]);
+  d.db.execute.mockImplementation(async sql=>sql.includes('directory_snapshot_json')?[[{directory_snapshot_json:{eligibility:'yes'}}]]:sql.startsWith('SELECT j.*')?[[row]]:sql.includes("SET status='processing' WHERE id")?[{affectedRows:claimed?1:0}]:sql.startsWith('SELECT')?[[]]:[{}]);
   d.check.mockResolvedValue({summary:{status:'active_reported',identityMatches:true}});
   await runIntakeEligibilityJobs(d);expect(d.check).toHaveBeenCalledTimes(calls);
  });

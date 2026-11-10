@@ -4,6 +4,7 @@ vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn() }, onTa
 vi.mock('../../config/clinicalDatabase.js', () => ({ default: { execute: vi.fn() } }));
 vi.mock('../../services/clientInsurance.service.js', async original => ({ ...await original(), applySubmittedClientInsurance: vi.fn() }));
 vi.mock('../../services/intakeEligibility.service.js', () => ({ enqueueIntakeEligibility: vi.fn() }));
+vi.mock('../../services/insuranceDemographicsAutomation.service.js',()=>({syncInsuranceDemographicsForEligibility:vi.fn()}));
 vi.mock('../../utils/resolveInsuranceTypeId.js', () => ({ resolveInsuranceTypeIdForAgency: vi.fn(async () => null) }));
 import pool from '../../config/database.js';
 import { applySubmittedClientInsurance } from '../../services/clientInsurance.service.js';
