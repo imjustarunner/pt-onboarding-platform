@@ -5513,7 +5513,7 @@ router.beforeEach(async (to, from, next) => {
     next({ path: '/assistant', replace: true }); return;
   }
   if (to.name === 'AssistantTeams') {
-    if (!authStore.isAuthenticated) { next({ path: '/login', query: { redirect: '/admin/assistant-teams' }, replace: true }); return; }
+    if (!authStore.isAuthenticated) { next({ path: '/login', query: { redirect: to.fullPath }, replace: true }); return; }
     if (String(authStore.user?.role || '').toLowerCase() !== 'super_admin' || Number(authStore.user?.id) !== 501) { next({ path: getDashboardRoute(), replace: true }); return; }
     next(); return;
   }
