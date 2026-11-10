@@ -39,7 +39,7 @@ export function insuranceForIntakeClient(info, clientIndex, clientCount) {
   if (clientCount > 1 && secondary?.isMedicaid && !(medicaid && info.medicaidPlanPosition === 'secondary') && !assignment?.secondary?.memberId) return null;
   return { primary, secondary, primaryCardFrontUrl: assignment?.primary ? (assignment.primary_front_url || null) : (info.primary_front_url || null), primaryCardBackUrl: assignment?.primary ? (assignment.primary_back_url || null) : (info.primary_back_url || null), secondaryCardFrontUrl: assignment?.primary ? (assignment.secondary_front_url || null) : (info.secondary_front_url || null), secondaryCardBackUrl: assignment?.primary ? (assignment.secondary_back_url || null) : (info.secondary_back_url || null), coverageScope: !assignment?.primary && info.coverageScope === 'account_holder' ? 'account_holder' : 'client', confirmed: !!assignment || clientCount === 1 || !!medicaid };
 }
-export async function writeClientInsurance({ clientId, agencyId, primary, secondary = null, profileId = null, coverageSources = null, confirmedBy = null, patient = null, verifiedForClaims = false, acceptAssignment = null }, db = pool) {
+export async function writeClientInsurance({ clientId, agencyId, primary, secondary = null, profileId = null, coverageSources = null, confirmedBy = null, patient = null, verifiedForClaims = false, acceptAssignment = null, queueEligibility = true }, db = pool) {
   const previous = await readClientInsurance(clientId, agencyId, db);
   const patientFields = ['firstName','lastName','dateOfBirth','sex','addressLine1','addressLine2','city','state','postalCode'];
   const patientValue = patient && typeof patient === 'object' ? Object.fromEntries(patientFields.map(key => [key, String(patient[key] || '').trim().slice(0,255)])) : (previous?.patient || {});
@@ -47,6 +47,15 @@ export async function writeClientInsurance({ clientId, agencyId, primary, second
   const encrypted = encryptFamilyBilling(value, `client-insurance:${agencyId}:${clientId}`);
   const [result] = await db.execute(`UPDATE clients SET billing_insurance_payload = ?, primary_insurer_name = ?, insurance_member_id = NULL, insurance_group_number = NULL, insurance_subscriber_name = NULL WHERE id = ? AND agency_id = ?`, [encrypted, value.primary.insurerName || null, clientId, agencyId]);
   if (!result.affectedRows) throw billingError(404, 'Client not found in agency');
+  // The durable job shares the caller's transaction, including family/paper intake.
+  // Worker-owned payer/member corrections opt out to avoid duplicate paid lookups.
+  let automaticEligibility=null,eligibilityQueueWarning=null;
+  if(queueEligibility) {
+    try {const {enqueueIntakeEligibility}=await import('./intakeEligibility.service.js');automaticEligibility=await enqueueIntakeEligibility({agencyId,clientId,submissionId:0},db);}
+    catch(error){eligibilityQueueWarning='Insurance was saved. Automatic eligibility could not be queued; use Verify coverage to complete billing review.';console.warn('[insurance] eligibility queue failed',{agencyId,clientId,code:error.code||'queue_failed'});}
+  }
+  // Transient save feedback must never become part of the encrypted insurance record.
+  Object.defineProperties(value,{automaticEligibility:{value:automaticEligibility},eligibilityQueueWarning:{value:eligibilityQueueWarning}});
   return value;
 }
 export async function readClientInsurance(clientId, agencyId, db = pool) {

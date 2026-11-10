@@ -15,8 +15,8 @@ export function claimAutomationDay(now = new Date()) {
   return new Intl.DateTimeFormat('en-CA',{timeZone:'America/Denver',year:'numeric',month:'2-digit',day:'2-digit'}).format(now);
 }
 
-/** The same preparation and transmission guards apply to interactive and daily submissions. */
-export async function processAutomaticClaim({ agencyId, claimId, user, connection, allowSubmission=false }, deps = {}) {
+/** Daily preparation uses the manual submission checks and cannot transmit claims. */
+export async function processAutomaticClaim({ agencyId, claimId, user }, deps = {}) {
   const prepare = deps.prepare || (await import('../controllers/claimMdWorkflow.controller.js')).prepareClaimReview;
   const review = deps.review || (await import('./claimContentReview.service.js')).runClaimContentReview;
   let prepared = await prepare(agencyId,claimId);
@@ -31,20 +31,12 @@ export async function processAutomaticClaim({ agencyId, claimId, user, connectio
   // Warnings are human work too; do not silently approve an ambiguous AI result.
   if (prepared.aiReview?.findings?.some(finding => !finding.resolution))
     return { status:'held',blockers:prepared.aiReview.findings.filter(f=>!f.resolution).map(f=>f.message) };
-  if (!allowSubmission) return {status:'ready',blockers:[]};
-  const submit = deps.submit || (await import('../controllers/medicalBilling.controller.js')).submitClaimToClaimMd;
-  let statusCode=200,body=null,error=null;
-  const res={status(code){statusCode=code;return res;},json(value){body=value;return res;}};
-  await submit({user,params:{claimId:String(claimId)},body:{agencyId,approved:true,reviewHash:prepared.reviewHash,accountMode:connection.mode}},res,e=>{error=e;});
-  if(error || statusCode>=400 || body?.error) return {status:'held',blockers:[error?.message || body?.error?.message || 'Submission needs reconciliation']};
-  return body?.accepted===true && body?.practice!==true
-    ? {status:'submitted',blockers:[]}
-    : {status:'held',blockers:[body?.message || 'Claim.MD did not accept this claim. Review its response before any retry.']};
+  return {status:'ready',blockers:[]};
 }
 
 export async function queueAutomaticClaimIssue({agencyId,claimId,clientId,userId,taskListId,blockers},db=pool) {
   if (!taskListId) throw new Error('Configure the agency billing task list before automatic submissions');
-  const description=['The daily billing worker held this claim. Review the current claim, correct the documented issue, and leave submission to the next daily run.',
+  const description=['The daily billing worker held this claim. Review the current claim, correct the documented issue, and submit manually once every required check passes.',
     ...blockers.map(value=>`• ${value}`),'Never resubmit an uncertain upload without checking its Claim.MD history.'].join('\n');
   const [[existing]]=await db.execute("SELECT id FROM tasks WHERE assigned_to_agency_id=? AND source_ref_type='billing_claim_followup' AND source_ref_id=? ORDER BY id DESC LIMIT 1",[agencyId,String(claimId)]);
   if (existing) {
@@ -61,7 +53,7 @@ export async function queueAutomaticClaimIssue({agencyId,claimId,clientId,userId
   return task.id;
 }
 
-/** One durable daily pass per agency; an advisory lock serializes Cloud Run replicas.
+/** One durable daily review pass per agency; an advisory lock serializes Cloud Run replicas.
  * Submitted/queued/rejected claims never enter this worker's candidate set. */
 export async function runDailyClaimAutomation(deps={}) {
   const db=deps.db||pool,clinical=deps.clinical||clinicalPool,now=deps.now||new Date(),day=claimAutomationDay(now);
@@ -91,10 +83,10 @@ export async function runDailyClaimAutomation(deps={}) {
         AND COALESCE(JSON_EXTRACT(metadata_json,'$.hiddenFromQueue'),false)=false ORDER BY id LIMIT 25`,[agency.id,run.last_claim_id,day]);
       for(const claim of claims) {
         let outcome;
-        try {outcome=await (deps.process||processAutomaticClaim)({agencyId:agency.id,claimId:claim.id,user,connection,allowSubmission:config.submit===true},deps);}
+        try {outcome=await (deps.process||processAutomaticClaim)({agencyId:agency.id,claimId:claim.id,user},deps);}
         catch(error){outcome={status:'held',blockers:[error.message || 'Automatic claim review failed']};}
         if(outcome.status==='held')await (deps.queueIssue||queueAutomaticClaimIssue)({agencyId:agency.id,claimId:claim.id,clientId:claim.client_id,userId:user.id,taskListId,blockers:outcome.blockers},db);
-        if(outcome.status==='submitted')await db.execute("UPDATE tasks SET status='completed',completed_at=NOW() WHERE assigned_to_agency_id=? AND source_ref_type='billing_claim_followup' AND source_ref_id=? AND status NOT IN ('completed','overridden')",[agency.id,String(claim.id)]);
+        if(outcome.status==='ready')await db.execute("UPDATE tasks SET status='completed',completed_at=NOW() WHERE assigned_to_agency_id=? AND source_ref_type='billing_claim_followup' AND source_ref_id=? AND status NOT IN ('completed','overridden')",[agency.id,String(claim.id)]);
         await db.execute('UPDATE agency_claim_automation_runs SET last_claim_id=?,submitted_count=submitted_count+?,held_count=held_count+? WHERE agency_id=? AND run_date=?',
           [claim.id,outcome.status==='submitted'?1:0,outcome.status==='held'?1:0,agency.id,day]);
         results.push({agencyId:agency.id,claimId:claim.id,status:outcome.status});

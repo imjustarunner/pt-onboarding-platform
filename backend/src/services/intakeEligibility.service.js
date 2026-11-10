@@ -57,24 +57,32 @@ export async function enqueueIntakeEligibility({agencyId,clientId,submissionId,i
   const insurance = await readClientInsurance(clientId,agencyId,db);
   if (!insurance?.primary) return null;
   let jobId=null;
+  const persistJob = async status => {
+    const fingerprint=coverageFingerprint(insurance);
+    const [[existing]]=await db.execute('SELECT id FROM intake_eligibility_jobs WHERE agency_id=? AND client_id=? AND insurance_fingerprint=? ORDER BY id LIMIT 1',[agencyId,clientId,fingerprint]);
+    if(existing)return {duplicate:true,id:existing.id};
+    const [result]=await db.execute('INSERT IGNORE INTO intake_eligibility_jobs (agency_id,client_id,submission_id,insurance_fingerprint,status) VALUES (?,?,?,?,?)',[agencyId,clientId,submissionId||0,fingerprint,status]);
+    return {duplicate:!result.affectedRows,id:result.insertId||null};
+  };
   let automaticEligibility = { status: 'disabled', missing: [] };
   if (config?.enabled && getMedicalBillingFlags(agency).medicalBillingEnabled) {
     let profile;
     try { profile = await getClaimMdBillingProfile(agencyId,config.officeId); }
     catch (error) {
+      await persistJob('review_required');
       await queueInsuranceVerificationSafely({agencyId,clientId,reason:'eligibility_error'},db);
       return { status:'waiting_for_information',jobId:null,missing:[{slot:'primary',message:error.message}] };
     }
     const serviceDate = new Intl.DateTimeFormat('en-CA',{timeZone:'America/Denver',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
     const inputs = intakeEligibilityInputs(insurance,config,profile,serviceDate);
     automaticEligibility = { status: inputs.readySlots.length ? 'queued' : 'waiting_for_information', ...inputs };
-    if (inputs.readySlots.length) {
-    const [result] = await db.execute('INSERT IGNORE INTO intake_eligibility_jobs (agency_id,client_id,submission_id,insurance_fingerprint) VALUES (?,?,?,?)',[agencyId,clientId,submissionId||0,coverageFingerprint(insurance)]);
-    if(!result.affectedRows) automaticEligibility.status = 'already_queued';
-    jobId=result.insertId || null;
-    }
+    const job=await persistJob(inputs.readySlots.length?'pending':'review_required');
+    if(job.duplicate && inputs.readySlots.length)automaticEligibility.status='already_queued';
+    jobId=job.id;
   }
-  await queueInsuranceVerificationSafely({agencyId,clientId,reason:insuranceCardsMissing?'missing_card':'verification_pending'},db);
+  // A transaction connection cannot acquire a second connection for task locking.
+  // The worker's existing missing-task recovery creates its urgent to-do after commit.
+  if(typeof db.getConnection==='function')await queueInsuranceVerificationSafely({agencyId,clientId,reason:insuranceCardsMissing?'missing_card':'verification_pending'},db);
   return { ...automaticEligibility, jobId };
 }
 
@@ -92,7 +100,7 @@ async function configurePayers(job,config,db) {
     if(coverageFingerprint(insurance)!==job.insurance_fingerprint) {await connection.rollback();return null;}
     const primary=coloradoEligibilityPolicy(insurance.primary,insurance.patient,config);
     const secondary=insurance.secondary?coloradoEligibilityPolicy(insurance.secondary,insurance.patient,config):null;
-    if(primary!==insurance.primary || secondary!==insurance.secondary) insurance=await writeClientInsurance({...insurance,agencyId:job.agency_id,clientId:job.client_id,primary,secondary,verifiedForClaims:false},connection);
+    if(primary!==insurance.primary || secondary!==insurance.secondary) insurance=await writeClientInsurance({...insurance,agencyId:job.agency_id,clientId:job.client_id,primary,secondary,verifiedForClaims:false,queueEligibility:false},connection);
     await connection.commit();return insurance;
   } catch(e) {await connection.rollback();throw e;} finally {connection.release();}
 }
@@ -109,7 +117,7 @@ async function saveDiscoveredMember(job,slot,result,fingerprint,actorUserId,db) 
     await connection.execute('SELECT id FROM clients WHERE id=? AND agency_id=? FOR UPDATE',[job.client_id,job.agency_id]);
     const insurance=await readClientInsurance(job.client_id,job.agency_id,connection);
     if(coverageFingerprint(insurance)!==fingerprint || insurance[slot].memberId) {await connection.rollback();return;}
-    await writeClientInsurance({...insurance,agencyId:job.agency_id,clientId:job.client_id,[slot]:{...insurance[slot],memberId:String(member.ins_number)},verifiedForClaims:false},connection);
+    await writeClientInsurance({...insurance,agencyId:job.agency_id,clientId:job.client_id,[slot]:{...insurance[slot],memberId:String(member.ins_number)},verifiedForClaims:false,queueEligibility:false},connection);
     await auditBilling({agencyId:job.agency_id,clientId:job.client_id,userId:actorUserId,action:'insurance_member_id_from_eligibility',objectId:result.id},connection);
     await connection.commit();
   }catch(e){await connection.rollback();throw e;}finally{connection.release();}
