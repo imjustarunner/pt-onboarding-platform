@@ -8,7 +8,7 @@ vi.mock('axios',()=>({default:{get:mocks.get,post:mocks.quickPost,interceptors:{
 vi.mock('../../services/api',()=>({default:{get:mocks.get,post:mocks.quickPost}}));
 import MobileApp from '../MobileApp.vue';
 const profile={user:{id:1,firstName:'Test',email:'test@example.invalid'},workspace:{id:10,name:'My workspace'},agencies:[{id:10,name:'My workspace'}]};
-async function app(){const router=createRouter({history:createMemoryHistory(),routes:[{path:'/:pathMatch(.*)*',component:{template:'<span />'}}]});await router.push('/mobile');return mount(MobileApp,{global:{plugins:[router],stubs:{AccountSecurityPanel:{template:'<div>Existing account verification</div>'},QuickView:{props:['mobileSession'],emits:['locked','account','open-workspace-item'],template:'<div data-testid="private-workspace"><button @click="$emit(\'locked\')">Test lock</button><button @click="$emit(\'account\')">My Account</button>Private inbox</div>'}}}});}
+async function app(path='/mobile'){const router=createRouter({history:createMemoryHistory(),routes:[{path:'/:pathMatch(.*)*',component:{template:'<span />'}}]});await router.push(path);return mount(MobileApp,{global:{plugins:[router],stubs:{AccountSecurityPanel:{template:'<div>Existing account verification</div>'},QuickView:{props:['mobileSession'],emits:['locked','account','open-workspace-item'],template:'<div data-testid="private-workspace"><button @click="$emit(\'locked\')">Test lock</button><button @click="$emit(\'account\')">My Account</button>Private inbox</div>'}}}});}
 beforeEach(()=>{vi.resetAllMocks();sessionStorage.clear();localStorage.clear();history.replaceState(null,'','/mobile');mocks.quickPost.mockResolvedValue({});mocks.get.mockResolvedValue({data:profile});mocks.request.mockResolvedValue({data:{signedIn:true,needsCode:false,workspace:profile.workspace}});});
 it('unlocks the scoped account and locks without signing the device out',async()=>{
   const wrapper=await app();await flushPromises();expect(wrapper.text()).toContain('Your account is still signed in');
@@ -90,4 +90,12 @@ it('keeps the device disconnected until the existing account verification succee
  mocks.get.mockRejectedValueOnce({response:{status:403,data:{error:{code:'MFA_REQUIRED'}}}}).mockResolvedValueOnce({data:{id:1,first_name:'Synthetic',last_name:'Parent',email:'parent@example.invalid',role:'client_guardian'}});
  const wrapper=await app();await vi.waitFor(()=>expect(wrapper.text()).toContain('Verify your sign-in'));await vi.waitFor(()=>expect(wrapper.text()).toContain('Existing account verification'));expect(mocks.post).not.toHaveBeenCalled();
  mocks.get.mockResolvedValue({data:{...profile,surface:'family'}});await wrapper.findAll('button').find(b=>b.text().includes('continue connecting')).trigger('click');await flushPromises();expect(wrapper.text()).toContain('Continue as Test');expect(wrapper.text()).not.toContain('Verify your sign-in');expect(mocks.post).not.toHaveBeenCalled();wrapper.unmount();
+});
+
+it('keeps the exact secure-comment destination after normal family Unlock without forwarding unrelated query data',async()=>{
+ const family={...profile,surface:'family',user:{...profile.user,role:'client_guardian'},workspace:{...profile.workspace,portal_url:'qa-family'}};
+ const wrapper=await app('/mobile?secureCommentAppointmentId=101&secureCommentClientId=10&token=do-not-forward');await flushPromises();
+ mocks.request.mockResolvedValue({data:{sessionToken:'short-lived',userId:1,agencyId:10,expiresAt:new Date(Date.now()+600000),profile:family}});
+ await wrapper.find('input[type=password]').setValue('123456');await wrapper.find('form').trigger('submit');await flushPromises();
+ expect(wrapper.vm.$route.path).toBe('/mobile/family/qa-family/guardian');expect(wrapper.vm.$route.query).toEqual({panel:'appointments',secureCommentAppointmentId:'101',secureCommentClientId:'10',childId:'10'});wrapper.unmount();
 });

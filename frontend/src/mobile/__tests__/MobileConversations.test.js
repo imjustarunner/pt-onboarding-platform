@@ -4,6 +4,7 @@ import {createRouter,createWebHistory} from 'vue-router';
 const mocks=vi.hoisted(()=>({request:vi.fn(),get:vi.fn(),post:vi.fn(),quickGet:vi.fn(),quickPost:vi.fn(),quickPatch:vi.fn()}));
 vi.mock('../transport.js',()=>({native:false,MobileDevice:{},quickApiBase:'/api/quick-view',mobileApi:{request:mocks.request,get:mocks.get,post:mocks.post},randomSecret:()=>'',pkceChallenge:vi.fn(),accountUrl:()=>'',mobileRequestError:e=>e.message}));
 vi.mock('axios',()=>({default:{get:mocks.quickGet,post:mocks.quickPost,patch:mocks.quickPatch,interceptors:{response:{use:vi.fn(),eject:vi.fn()}}}}));
+vi.mock('../../services/api',()=>({default:{get:mocks.quickGet,post:mocks.quickPost,patch:mocks.quickPatch}}));
 import MobileApp from '../MobileApp.vue';
 const profile={user:{id:1,firstName:'Test',email:'staff@example.invalid'},workspace:{id:10,name:'Test workspace'},agencies:[{id:10,name:'Test workspace'}],appLock:{method:'none',hasCode:false}};
 let wrapper,router;

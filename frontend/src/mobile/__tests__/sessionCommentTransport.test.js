@@ -1,6 +1,6 @@
 import {expect,it,vi} from 'vitest';
 import {createMobileCommentTransport} from '../sessionCommentTransport.js';
-import {mobileLinkTarget} from '../mobileLinks.js';
+import {mobileLinkTarget,familySessionCommentQuery} from '../mobileLinks.js';
 it('uses current primary device session for scoped requests, without credential/config overrides',async()=>{
  const http={get:vi.fn().mockResolvedValue({data:{}}),post:vi.fn().mockResolvedValue({data:{}})};let token='first';
  const api=createMobileCommentTransport({base:'/api/quick-view',http,headers:()=>({'X-Quick-View-Session':token})});
@@ -24,4 +24,10 @@ it('keeps morning and per-session links inside the mobile calendar and rejects o
  expect(mobileLinkTarget('https://auricwell.com/mobile/workspace?view=calendar&secureCommentAppointmentId=15&secureCommentClientId=11',options)).toMatchObject({query:{view:'calendar',secureCommentAppointmentId:'15',secureCommentClientId:'11'}});
  expect(mobileLinkTarget('https://other.test/my-schedule?secureSessionComments=today',options)).toBeNull();
  expect(mobileLinkTarget('https://app.itsco.health/appointments?secureCommentAppointmentId=-1',options).query.secureCommentAppointmentId).toBeUndefined();
+});
+
+it('retains only authorized destination metadata across family authentication',()=>{
+ expect(familySessionCommentQuery({secureCommentAppointmentId:'101',secureCommentClientId:'10',token:'SECRET',redirect:'https://outside.test'})).toEqual({panel:'appointments',secureCommentAppointmentId:'101',secureCommentClientId:'10',childId:'10'});
+ expect(familySessionCommentQuery({secureCommentAppointmentId:'wrong',panel:'admin'})).toEqual({panel:'family'});
+ expect(mobileLinkTarget('https://auricwell.com/my-portal?secureCommentAppointmentId=101&secureCommentClientId=10')).toMatchObject({query:{view:'calendar',secureCommentAppointmentId:'101',secureCommentClientId:'10'}});
 });

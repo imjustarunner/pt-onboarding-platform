@@ -1,5 +1,6 @@
 import {expect,it,vi} from 'vitest';import {mount,flushPromises} from '@vue/test-utils';import {createRouter,createMemoryHistory} from 'vue-router';
 const api=vi.hoisted(()=>({get:vi.fn(),post:vi.fn(),patch:vi.fn()}));vi.mock('axios',()=>({default:api}));
+vi.mock('../../services/api',()=>({default:api}));
 import QuickView from '../../views/QuickViewAccessView.vue';
 it('opens a work item in its scoped clinical writer without putting client names into the route',async()=>{
  api.get.mockImplementation(async url=>({data:url.endsWith('/clinical/context')?{agencyId:10,client:{id:34,maskedName:'Exa**** Cli***',age:14},session:{id:45,serviceCode:'90834',dateOfService:'2026-11-06'},preferences:{defaultMode:'narriva',features:{}},serviceCodes:[],alerts:[]}:url.endsWith('/messages/preferences')?{preferences:{pinnedNavigation:['calendar','home','tasks'],usage:{}}}:{}}));api.post.mockResolvedValue({data:{ok:true}});

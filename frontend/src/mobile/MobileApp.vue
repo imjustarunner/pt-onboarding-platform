@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import axios from 'axios';
 import { LockKeyhole, UserRound, Fingerprint, Bell, ArrowRight, LogOut } from '@lucide/vue';
 import AuricWellBrand from '../components/auricwell/AuricWellBrand.vue';
-import {mobileLinkTarget} from './mobileLinks.js';
+import {mobileLinkTarget,familySessionCommentQuery} from './mobileLinks.js';
 import {activateClinicalRecovery,clearClinicalRecovery} from './clinicalRecovery.js';
 import {activateFamilyDevice,clearFamilyDevice} from './familyContext.js';
 const AccountSecurityPanel=defineAsyncComponent(()=>import('../components/AccountSecurityPanel.vue'));
@@ -60,7 +60,7 @@ function applySession(result) {
   passcode.value='';confirmCode.value='';screen.value='workspace';
 }
 async function normalizeWorkspaceRoute() {
-  if(profile.value?.surface==='family'){const slug=profile.value.workspace?.portal_url || 'family';if(!route.path.startsWith('/mobile/family/'))await router.replace({path:`/mobile/family/${encodeURIComponent(slug)}/guardian`,query:{panel:'family'}});return;}
+  if(profile.value?.surface==='family'){const slug=profile.value.workspace?.portal_url || 'family';if(!route.path.startsWith('/mobile/family/'))await router.replace({path:`/mobile/family/${encodeURIComponent(slug)}/guardian`,query:familySessionCommentQuery(route.query)});return;}
   if(route.path==='/mobile/workspace')return;
   const query={...route.query};
   await router.replace({path:'/mobile/workspace',query:{view:'home'}});
@@ -208,7 +208,7 @@ async function switchWorkspace(agencyId,query=null) {
   try {
     const result=await deviceRequest('POST','/workspace',{agencyId:Number(agencyId)});
     if(current!==generation || access.value?.sessionToken!==token)return;
-    if(result.profile?.surface==='family'){applySession(result);accountOpen.value=false;await router.replace({path:`/mobile/family/${encodeURIComponent(result.profile.workspace.portal_url || 'family')}/guardian`,query:{panel:'family'}});return;}
+    if(result.profile?.surface==='family'){applySession(result);accountOpen.value=false;await router.replace({path:`/mobile/family/${encodeURIComponent(result.profile.workspace.portal_url || 'family')}/guardian`,query:familySessionCommentQuery(route.query)});return;}
     // Move away from the previous tenant's resource before mounting its replacement.
     await router.replace({path:'/mobile/workspace',query:route.query.view==='mywork'?{...route.query}:{view:'mywork'}});
     applySession(result);accountOpen.value=false;
