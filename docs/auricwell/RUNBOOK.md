@@ -30,6 +30,8 @@ Bootstrap a dedicated operator using `node src/scripts/auricwellOperator.js USER
 
 ## Onboarding
 
+For the shared-app provider/caseload handoff, start at **Management → AuricWell → EHR Transition** and use [EHR_TRANSITION_TRIAL.md](EHR_TRANSITION_TRIAL.md) for the functional workflow, setup and sample preview. [EHR_TRANSITION_PLAN.md](EHR_TRANSITION_PLAN.md) records the process contract. The prototype instructions below do not establish acceptance of that transition.
+
 1. Choose new practice or transition; save legal identity, locations, timezone and therapy services.
 2. Create the customer service agreement, order and BAA drafts. Fill actual entity/notice details and commercial terms. Have the operator approve the exact documents; activate signers and collect all required signatures.
 3. Operator records separate infrastructure/vendor review evidence, then activates PHI workflows.

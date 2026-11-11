@@ -7,6 +7,7 @@ import AgencySchool from '../models/AgencySchool.model.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import { adjustProviderSlots, clientStatusConsumesProviderSlot } from '../services/providerSlots.service.js';
 import { syncSchoolPortalDayProvider } from '../services/schoolPortalDaySync.service.js';
+import { annotateSchoolSlotLinks, assertLinkedSchoolSlotPlanningEdits } from '../services/schoolAppointmentTransition.service.js';
 import { enqueueD11ComplianceEnsure } from '../services/d11Compliance.service.js';
 import { bumpGradeCanonical } from '../utils/clientGrade.js';
 import { computeCurrentSchoolYearLabel, normalizeSchoolYearLabel } from '../utils/schoolYear.js';
@@ -753,7 +754,7 @@ export const getSoftScheduleSlots = async (req, res, next) => {
     );
 
     if ((rows || []).length > 0) {
-      return res.json({ persisted: true, slots: rows || [] });
+      return res.json({ persisted: true, slots: await annotateSchoolSlotLinks({schoolId,providerId:providerUserId,slots:rows||[]}) });
     }
 
     const meta = await getProviderSchoolAssignmentMeta({ schoolId, weekday, providerUserId });
@@ -865,6 +866,16 @@ export const putSoftScheduleSlots = async (req, res, next) => {
     );
     const existingIds = new Set((existingRows || []).map((r) => Number(r.id)));
     const keptIds = new Set();
+    // The shared source-slot lock serializes this check with new appointment links.
+    try {
+      await assertLinkedSchoolSlotPlanningEdits({schoolId,providerId:providerUserId,weekday,slots:normalizedSlots,db:connection});
+    } catch(error) {
+      if(error.code!=='ER_NO_SUCH_TABLE' || !/school_schedule_appointment_links/.test(error.message||'')) throw error;
+    }
+    // Free the unique slot indexes inside this transaction before applying the
+    // complete reviewed order, including hidden linked booking placeholders.
+    await connection.execute(`UPDATE soft_schedule_slots SET slot_index=slot_index+10000 WHERE school_organization_id=? AND weekday=? AND provider_user_id=?`,
+      [parseInt(schoolId,10),weekday,providerUserId]);
 
     for (let i = 0; i < normalizedSlots.length; i++) {
       const slot = normalizedSlots[i];
@@ -919,7 +930,7 @@ export const putSoftScheduleSlots = async (req, res, next) => {
        ORDER BY slot_index ASC`,
       [parseInt(schoolId, 10), weekday, providerUserId]
     );
-    res.json({ persisted: true, slots: rows || [] });
+    res.json({ persisted: true, slots: await annotateSchoolSlotLinks({schoolId,providerId:providerUserId,slots:rows||[]}) });
   } catch (e) {
     try {
       await connection.rollback();
@@ -992,8 +1003,9 @@ export const moveSoftScheduleSlot = async (req, res, next) => {
 
     const a = list[idx];
     const b = list[neighborIdx];
-    await connection.execute(`UPDATE soft_schedule_slots SET slot_index = ?, updated_by_user_id = ? WHERE id = ?`, [b.slot_index, req.user.id, a.id]);
+    await connection.execute(`UPDATE soft_schedule_slots SET slot_index = slot_index+10000 WHERE id = ?`, [a.id]);
     await connection.execute(`UPDATE soft_schedule_slots SET slot_index = ?, updated_by_user_id = ? WHERE id = ?`, [a.slot_index, req.user.id, b.id]);
+    await connection.execute(`UPDATE soft_schedule_slots SET slot_index = ?, updated_by_user_id = ? WHERE id = ?`, [b.slot_index, req.user.id, a.id]);
 
     await connection.commit();
     const [outRows] = await pool.execute(

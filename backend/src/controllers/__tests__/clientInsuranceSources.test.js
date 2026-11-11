@@ -6,7 +6,7 @@ vi.mock('../../services/clientInsurance.service.js',()=>({readClientInsurance:vi
 vi.mock('../../services/familyBillingPolicy.service.js',()=>({positiveId:n=>Number(n),auditBilling:vi.fn()}));
 vi.mock('../../services/eligibilityProfile.service.js',()=>({readEligibilityProfile:vi.fn(async()=>[])}));
 import pool from '../../config/database.js';
-import {writeClientInsurance} from '../../services/clientInsurance.service.js';
+import {readClientInsurance,writeClientInsurance} from '../../services/clientInsurance.service.js';
 import {saveClientInsurance} from '../clientInsurance.controller.js';
 const request=()=>({user:{id:9},params:{clientId:101},body:{agencyId:1,primary:{insurerName:'First'},secondary:{insurerName:'Second'},coverageSources:{primary:{profileId:11,slot:'primary'},secondary:{profileId:22,slot:'primary'}}}});
 const response=()=>({set:vi.fn().mockReturnThis(),json:vi.fn()});
@@ -15,6 +15,11 @@ it('validates both policy sources against the client and agency before recording
  const next=vi.fn();await saveClientInsurance(request(),response(),next);expect(next).not.toHaveBeenCalled();
  expect(pool.execute.mock.calls.filter(([sql])=>sql.includes('SELECT DISTINCT p.*')).map(([,args])=>args)).toEqual([[11,1,101,101],[22,1,101,101]]);
  expect(writeClientInsurance).toHaveBeenCalledWith(expect.objectContaining({profileId:11,coverageSources:{primary:{profileId:11,slot:'primary'},secondary:{profileId:22,slot:'primary'}}}));
+});
+it('does not verify coverage or enqueue eligibility when billing staff import historical insurance',async()=>{
+ readClientInsurance.mockResolvedValue({acceptAssignment:true});const req=request();Object.assign(req.body,{importContext:'ehr_transition',verifiedForClaims:true,acceptAssignment:false});
+ const next=vi.fn();await saveClientInsurance(req,response(),next);
+ expect(next).not.toHaveBeenCalled();expect(writeClientInsurance).toHaveBeenCalledWith(expect.objectContaining({queueEligibility:false,verifiedForClaims:false,acceptAssignment:true}));
 });
 it('rejects another client’s or agency’s submitted coverage without changing the chart',async()=>{
  pool.execute.mockImplementation(async(sql,args)=>sql.includes('SELECT DISTINCT p.*')&&args[0]===22?[[]]:[[{id:101,primary:{}}]]);

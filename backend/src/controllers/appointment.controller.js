@@ -190,6 +190,9 @@ export const createAppointmentHandler = async (req, res, next) => {
               recurrencePolicy: recurrenceSeriesId ? 'future_only' : null,
               recurrenceIndex,
               kind: 'PERSONAL_EVENT',
+              // Trusted server callers can persist retry identity before the event is linked.
+              // A similarly named field in req.body is never consulted.
+              reasonCode: typeof req.appointmentCalendarIdentity === 'function' ? req.appointmentCalendarIdentity(appointment) : null,
               title: appointment.title || 'Session',
               description: appointment.notes || null,
               isPrivate: false,
@@ -231,6 +234,13 @@ export const createAppointmentHandler = async (req, res, next) => {
     } catch (error) {
       return res.status(error.status || 500).json({ error: { message: error.message,
         code: 'BOOKING_INCOMPLETE' }, createdAppointmentIds: [...new Set([...createdAppointments.map((a) => a.id), error.appointmentId].filter(Boolean))] });
+    }
+    if (typeof req.onAppointmentsCreated === 'function') {
+      try { await req.onAppointmentsCreated({ appointments: createdAppointments, recurrenceSeriesId }); }
+      catch (error) {
+        return res.status(error.status || 500).json({ error: { message: error.message, code: 'BOOKING_LINK_INCOMPLETE' },
+          createdAppointmentIds: createdAppointments.map(appointment => appointment.id) });
+      }
     }
     res.status(201).json(await schedulingResponseForUser(req.user, agencyId, {
       ok: true, appointment: createdAppointments[0], appointments: createdAppointments, recurrenceSeriesId,

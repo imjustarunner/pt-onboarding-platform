@@ -1,5 +1,6 @@
 import { hasScreeningDocumentRead } from '../services/h0002DocumentAccess.service.js';
 import Client from '../models/Client.model.js';
+import { withMedicalArchiveUpload } from '../services/medicalArchiveUpload.service.js';
 import {clientAccess as clinicalClientAccess} from '../services/safetyPlans/access.js';
 import ClientPhiDocument from '../models/ClientPhiDocument.model.js';
 import ReferralPacketDraft from '../models/ReferralPacketDraft.model.js';
@@ -263,70 +264,74 @@ export const uploadClientPhiDocument = [
       if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
 
       if(['provider','provider_plus','intern','intern_plus','supervisor','facilitator','qbha'].includes(String(req.user.role||'')))await clinicalClientAccess(req.user,clientId,{write:true});
-      const sanitizedFilename = StorageService.sanitizeFilename(req.file.originalname);
       const documentTitle = req.body?.documentTitle ? String(req.body.documentTitle).trim().slice(0, 255) : req.body?.documentType==='full_paper_enrollment'?'Full paper enrollment':null;
       const documentType = req.body?.documentType ? String(req.body.documentType).trim().slice(0, 80) : null;
-      const timestamp = Date.now();
-      const randomId = Math.random().toString(36).substring(7);
-      const orgId = client.organization_id || client.school_organization_id || null;
-      const fileName = `phi-documents/${orgId || 'unknown-org'}/${clientId}/${timestamp}-${randomId}-${sanitizedFilename}`;
+      return await withMedicalArchiveUpload({ agencyId: client.agency_id, clientId, documentTitle, documentType, file: req.file }, async (archiveDescriptor, existingDocument) => {
+        if (existingDocument) return res.status(200).json({ document: existingDocument, reused: true });
+        const sanitizedFilename = StorageService.sanitizeFilename(req.file.originalname);
+        const timestamp = Date.now();
+        const randomId = Math.random().toString(36).substring(7);
+        const orgId = client.organization_id || client.school_organization_id || null;
+        const fileName = `phi-documents/${orgId || 'unknown-org'}/${clientId}/${archiveDescriptor?.filename || `${timestamp}-${randomId}-${sanitizedFilename}`}`;
 
-      const bucket = await StorageService.getGCSBucket();
-      const file = bucket.file(fileName);
-      await file.save(req.file.buffer, {
-        contentType: req.file.mimetype,
-        metadata: {
-          clientId: String(clientId),
-          agencyId: String(client.agency_id),
-          organizationId: String(orgId || ''),
-          uploadedByUserId: String(req.user.id),
-          uploadType: 'client_documentation',
-          uploadedAt: new Date().toISOString()
-        }
-      });
-
-      let phiDoc = null;
-      try {
-        phiDoc = await ClientPhiDocument.create({
-          clientId,
-          agencyId: client.agency_id,
-          schoolOrganizationId: orgId || client.organization_id,
-          storagePath: fileName,
-          originalName: req.file.originalname || null,
-          documentTitle,
-          documentType,
-          mimeType: req.file.mimetype || null,
-          uploadedByUserId: req.user.id
+        const bucket = await StorageService.getGCSBucket();
+        const file = bucket.file(fileName);
+        await file.save(req.file.buffer, {
+          contentType: req.file.mimetype,
+          metadata: {
+            clientId: String(clientId),
+            agencyId: String(client.agency_id),
+            organizationId: String(orgId || ''),
+            uploadedByUserId: String(req.user.id),
+            uploadType: 'client_documentation',
+            ...(archiveDescriptor ? { archiveContentSha256: archiveDescriptor.contentSha256 } : {}),
+            uploadedAt: new Date().toISOString()
+          }
         });
+
+        let phiDoc = null;
         try {
-          const ip = req.headers['x-forwarded-for']?.toString().split(',')[0].trim() || req.ip || null;
-          await PhiDocumentAuditLog.create({
-            documentId: phiDoc.id,
+          phiDoc = await ClientPhiDocument.create({
             clientId,
-            action: 'uploaded',
-            actorUserId: req.user.id,
-            actorLabel: req.user?.email || req.user?.name || null,
-            ipAddress: ip,
-            metadata: { source: 'manual_upload' }
+            agencyId: client.agency_id,
+            schoolOrganizationId: orgId || client.organization_id,
+            storagePath: fileName,
+            originalName: req.file.originalname || null,
+            documentTitle,
+            documentType,
+            mimeType: req.file.mimetype || null,
+            uploadedByUserId: req.user.id
           });
+          try {
+            const ip = req.headers['x-forwarded-for']?.toString().split(',')[0].trim() || req.ip || null;
+            await PhiDocumentAuditLog.create({
+              documentId: phiDoc.id,
+              clientId,
+              action: 'uploaded',
+              actorUserId: req.user.id,
+              actorLabel: req.user?.email || req.user?.name || null,
+              ipAddress: ip,
+              metadata: { source: archiveDescriptor ? 'ehr_transition_archive' : 'manual_upload' }
+            });
+          } catch {
+            // best-effort logging
+          }
+        } catch (e) {
+          if (e.code === 'ER_NO_SUCH_TABLE') {
+            return res.status(503).json({ error: { message: 'PHI documents feature not available (migration not run yet).' } });
+          }
+          throw e;
+        }
+
+        // Best-effort: set legacy document_status flag so older UI reflects upload.
+        try {
+          await pool.execute(`UPDATE clients SET document_status = 'UPLOADED' WHERE id = ?`, [clientId]);
         } catch {
-          // best-effort logging
+          // ignore
         }
-      } catch (e) {
-        if (e.code === 'ER_NO_SUCH_TABLE') {
-          return res.status(503).json({ error: { message: 'PHI documents feature not available (migration not run yet).' } });
-        }
-        throw e;
-      }
 
-      // Best-effort: set legacy document_status flag so older UI reflects upload.
-      try {
-        await pool.execute(`UPDATE clients SET document_status = 'UPLOADED' WHERE id = ?`, [clientId]);
-      } catch {
-        // ignore
-      }
-
-      res.status(201).json({ document: phiDoc });
+        res.status(201).json({ document: phiDoc });
+      });
     } catch (e) {
       next(e);
     }

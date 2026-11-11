@@ -142,8 +142,15 @@ export async function upsertClientAffiliatedContact({
   smsRemindersEnabled = false,
   acknowledgeNotify = false,
   existingContactId = null,
-  recipientPermissionToInvite = false
+  recipientPermissionToInvite = false,
+  importOnly = false
 } = {}) {
+  if (importOnly) {
+    emailRemindersEnabled = false;
+    smsRemindersEnabled = false;
+    acknowledgeNotify = false;
+    recipientPermissionToInvite = false;
+  }
   const client = await Client.findById(clientId, { includeSensitive: true });
   if (!client) {
     const err = new Error('Client not found');
@@ -268,10 +275,7 @@ export async function upsertClientAffiliatedContact({
       (emailRemindersEnabled && !wasEmail) || (smsRemindersEnabled && !wasSms);
     affiliation = await ClientContactAffiliation.update(affiliation.id, {
       relationshipType: relationshipType || affiliation.relationship_type,
-      emailRemindersEnabled,
-      smsRemindersEnabled,
-
-      isActive: true,
+      ...(!importOnly ? { emailRemindersEnabled, smsRemindersEnabled, isActive: true } : {}),
       ...(enabling && acknowledgeNotify
         ? { notifyAckByUserId: userId, notifyAckAt: new Date() }
         : {})

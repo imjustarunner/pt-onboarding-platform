@@ -34,7 +34,8 @@ async function saveInsurance(req,res,next,support=false) {
     if (support && (req.body.verifiedForClaims === true || req.body.acceptAssignment !== undefined)) {
       throw Object.assign(new Error('Claim verification and payment assignment require billing access'), {status:403});
     }
-    const previous = support ? await readClientInsurance(c.clientId,c.agencyId) : null;
+    const transitionImport = req.body.importContext === 'ehr_transition';
+    const previous = support || transitionImport ? await readClientInsurance(c.clientId,c.agencyId) : null;
     let profileId = req.body.profileId ? positiveId(req.body.profileId) : null;
     if(profileId){const [matches]=await pool.execute('SELECT p.id FROM guardian_insurance_profiles p LEFT JOIN guardian_insurance_clients gic ON gic.profile_id=p.id AND gic.agency_id=p.agency_id WHERE p.id=? AND p.agency_id=? AND (p.client_id=? OR gic.client_id=?)',[profileId,c.agencyId,c.clientId,c.clientId]);if(!matches.length)throw Object.assign(new Error('Policy is not assigned to this client'),{status:403});}
     const coverageSources = {};
@@ -49,7 +50,7 @@ async function saveInsurance(req,res,next,support=false) {
     }
     if (coverageSources.primary && coverageSources.secondary && coverageSources.primary.profileId === coverageSources.secondary.profileId && coverageSources.primary.slot === coverageSources.secondary.slot) throw Object.assign(new Error('The same submitted policy cannot be both primary and secondary'), {status:400});
     if (coverageSources.primary) profileId = coverageSources.primary.profileId;
-    const insurance = await writeClientInsurance({...c,primary:req.body.primary,secondary:req.body.secondary,patient:req.body.patient,profileId,coverageSources,confirmedBy:req.user.id,verifiedForClaims:!support&&req.body.verifiedForClaims===true,acceptAssignment:support?(previous?.acceptAssignment??null):req.body.acceptAssignment===true ? true : req.body.acceptAssignment===false ? false : null});
+    const insurance = await writeClientInsurance({...c,primary:req.body.primary,secondary:req.body.secondary,patient:req.body.patient,profileId,coverageSources,confirmedBy:req.user.id,verifiedForClaims:!transitionImport&&!support&&req.body.verifiedForClaims===true,acceptAssignment:support||transitionImport?(previous?.acceptAssignment??null):req.body.acceptAssignment===true ? true : req.body.acceptAssignment===false ? false : null,...(transitionImport?{queueEligibility:false}:{})});
     await auditBilling({...c,userId:req.user.id,action:'staff_update_insurance'});
     const eligibilityQueueWarning=insurance.eligibilityQueueWarning||null,automaticEligibility=insurance.automaticEligibility||null;
     res.set('Cache-Control','no-store').json({insurance:support?supportInsurance(insurance):insurance,eligibilityQueueWarning,automaticEligibility,...(support?{}:{missingClaimFields:claimInsuranceIssues(insurance.primary)})});

@@ -69,7 +69,8 @@ import {
   toPeerAvailabilitySummary,
   resolveScheduleDetailLevel,
   toBusyOnlyScheduleSummary,
-  toTypedPeerScheduleSummary
+  toTypedPeerScheduleSummary,
+  publicScheduleReasonCode
 } from '../services/scheduleSummaryPrivacy.service.js';
 import { generateJoinToken, joinUrlForSupervision, joinUrlForTeamMeeting } from '../utils/joinToken.js';
 import { assertRecurringWindow } from '../utils/recurringWindow.js';
@@ -4965,7 +4966,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
           timeZone: r.event_timezone || null,
           startDate: r.start_date ? String(r.start_date).slice(0, 10) : null,
           endDate: r.end_date ? String(r.end_date).slice(0, 10) : null,
-          reasonCode: String(r.reason_code || '').trim().toUpperCase() || null,
+          reasonCode: publicScheduleReasonCode(r.reason_code),
           focusSessionEnabled: Number(r.focus_session_enabled || 0) === 1,
           recurrenceSeriesId: String(r.recurrence_series_id || '').trim() || null,
           recurrenceFrequency: String(r.recurrence_frequency || '').trim().toUpperCase() || null,

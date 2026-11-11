@@ -101,6 +101,7 @@
         @save="$emit('save-slots', $event)"
       />
       <SchoolWeeklyBooking v-if="canBookWeekly && !hideSoftSchedule" :school-organization-id="schoolOrganizationId" :provider-user-id="provider.provider_user_id" :weekday="weekday" :revision="slots" />
+      <SchoolBookedSessions v-if="!hideSoftSchedule" :school-organization-id="schoolOrganizationId" :provider-user-id="provider.provider_user_id" :revision="slots" />
     </div>
   </div>
 </template>
@@ -110,6 +111,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import ClientInitialsList from './ClientInitialsList.vue';
 import SoftScheduleEditor from './SoftScheduleEditor.vue';
 import SchoolWeeklyBooking from './SchoolWeeklyBooking.vue';
+import SchoolBookedSessions from './SchoolBookedSessions.vue';
 import { toUploadsUrl } from '../../../utils/uploadsUrl';
 import {
   useSlotVerification,

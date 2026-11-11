@@ -7,7 +7,7 @@
     <div :class="embedded ? undefined : 'ehr-bring'" role="dialog" aria-labelledby="ehr-bring-title">
       <header class="ehr-bring-head">
         <div>
-          <h3 id="ehr-bring-title">{{ creationFlow ? 'Import new client records' : 'Bring up to date' }}</h3>
+          <h3 id="ehr-bring-title">{{ historicalImport ? 'Intake and latest treatment plan' : creationFlow ? 'Import new client records' : 'Bring up to date' }}</h3>
           <p class="ehr-bring-sub">
             {{ clientLabel || 'Client' }}
             <span v-if="clientId"> · #{{ clientId }}</span>
@@ -17,27 +17,37 @@
       </header>
 
       <div class="ehr-status-row" aria-label="Setup status">
-        <span class="ehr-chip" :class="statusClass(status.demographics)">Demographics · {{ status.demographics }}</span>
+        <span v-if="!hideDemographics" class="ehr-chip" :class="statusClass(status.demographics)">Demographics · {{ status.demographics }}</span>
         <span class="ehr-chip" :class="statusClass(status.intake)">Clinical intake assessment · {{ status.intake }}</span>
         <span class="ehr-chip" :class="statusClass(status.plan)">Treatment plan · {{ status.plan }}</span>
       </div>
 
       <p v-if="status.intake !== 'on_file'" class="ehr-muted">Enrollment responses and the enrollment summary remain in Documents. This status tracks the completed clinical intake assessment.</p>
 
-      <label class="ehr-label">
+      <label v-if="!hideDemographics" class="ehr-label">
         1. Demographics paste
-        <textarea v-model="demographicsText" class="ehr-textarea" rows="6" placeholder="Legal Name&#10;Date of Birth&#10;…" />
+        <textarea v-model="demographicsText" class="ehr-textarea" rows="6" :disabled="busy" placeholder="Legal Name&#10;Date of Birth&#10;…" />
       </label>
       <label class="ehr-label">
-        2. Intake paste
-        <textarea v-model="intakeText" class="ehr-textarea" rows="8" placeholder="Paste intake note text…" />
+        {{ hideDemographics ? 'Intake paste' : '2. Intake paste' }}
+        <textarea v-model="intakeText" class="ehr-textarea" rows="8" :disabled="busy" placeholder="Paste intake note text…" />
       </label>
+      <div v-if="historicalImport" class="ehr-source-fields">
+        <label class="ehr-label">Original intake date<input v-model="intakeSourceDate" type="date" :disabled="busy" /></label>
+        <label class="ehr-label">Original intake author<input v-model="intakeSourceAuthor" :disabled="busy" placeholder="Name in the source, or Unknown" /></label>
+      </div>
       <label class="ehr-label">
-        3. Treatment plan paste
-        <textarea v-model="planText" class="ehr-textarea" rows="8" placeholder="Paste treatment plan text…" />
+        {{ hideDemographics ? 'Latest treatment plan paste' : '3. Treatment plan paste' }}
+        <textarea v-model="planText" class="ehr-textarea" rows="8" :disabled="busy" placeholder="Paste treatment plan text…" />
       </label>
+      <div v-if="historicalImport" class="ehr-source-fields">
+        <label class="ehr-label">Original plan effective date<input v-model="planSourceDate" type="date" :disabled="busy" /></label>
+        <label class="ehr-label">Original plan author<input v-model="planSourceAuthor" :disabled="busy" placeholder="Name in the source, or Unknown" /></label>
+      </div>
 
-      <p class="ehr-muted">
+      <p v-if="historicalImport" class="ehr-muted">Records from {{ sourceSystem }} are saved as unsigned drafts with their original dates and source author. Review them in the clinical chart before approving current care. Importing does not recreate the original clinician’s signature.</p>
+      <label v-if="historicalImport" class="ehr-label"><span><input v-model="sourceReviewed" type="checkbox" :disabled="busy" /> I compared this paste and original dates/authorship with the source. Clinical approval remains a separate review.</span></label>
+      <p v-else class="ehr-muted">
         Import runs only the boxes you fill, in order. Default date for a new undated treatment plan:
         <strong>{{ todayIso }}</strong>.
         If 1–10 scales (or discharge) can’t be read cleanly, the same treatment-plan review opens so you can fix flags before saving.
@@ -50,16 +60,16 @@
       <p v-if="successMessage" class="ehr-ok">{{ successMessage }}</p>
 
       <div class="ehr-actions">
-        <button v-if="!creationFlow" type="button" class="ehr-btn-ghost" :disabled="busy" @click="markDoneOnly">
+        <button v-if="!creationFlow && !historicalImport" type="button" class="ehr-btn-ghost" :disabled="busy" @click="markDoneOnly">
           {{ markingDone ? 'Marking…' : 'Mark done' }}
         </button>
         <button
           type="button"
           class="ehr-btn-primary"
-          :disabled="busy || !hasAnyPaste"
+          :disabled="busy || !hasAnyPaste || (historicalImport && !sourceReviewed)"
           @click="importAll"
         >
-          {{ importing ? 'Importing…' : 'Import pasted chart content' }}
+          {{ importing ? 'Importing…' : historicalImport ? 'Save historical intake and plan for clinical review' : 'Import pasted chart content' }}
         </button>
       </div>
     </div>
@@ -83,7 +93,7 @@
 
 <script setup>
 import { todayCalendarDate } from '../../../utils/formatDate.js';
-import { computed, reactive, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import api from '../../../services/api';
 import NoteAidTreatmentPlanImportReview from '../../clinical/NoteAidTreatmentPlanImportReview.vue';
 import {
@@ -101,16 +111,20 @@ const props = defineProps({
   initialTexts: { type: Object, default: () => ({}) },
   creationFlow: { type: Boolean, default: false },
   embedded: { type: Boolean, default: false },
+  historicalImport: { type: Boolean, default: false },
+  hideDemographics: { type: Boolean, default: false },
+  sourceSystem: { type: String, default: 'TherapyNotes' },
   recordStatus: { type: Object, default: () => ({}) }
 });
 
-const emit = defineEmits(['close', 'done', 'imported']);
+const emit = defineEmits(['close', 'done', 'imported', 'busy']);
 
 const demographicsText = ref('');
 const intakeText = ref('');
 let importedIntakeDraft = null;
 const reviewPending = reactive({ intake: false, plan: false });
 const planText = ref('');
+const intakeSourceDate = ref(''), intakeSourceAuthor = ref(''), planSourceDate = ref(''), planSourceAuthor = ref(''), sourceReviewed = ref(false);
 const importing = ref(false);
 const markingDone = ref(false);
 const error = ref('');
@@ -130,6 +144,16 @@ const hasAnyPaste = computed(
   () => !!(demographicsText.value.trim() || intakeText.value.trim() || planText.value.trim())
 );
 const busy = computed(() => importing.value || markingDone.value || showPlanReview.value);
+watch(busy, value => emit('busy', value), { flush: 'sync' });
+let scopeGeneration = 0;
+let importScopeGeneration = 0;
+watch(() => [props.clientId, props.agencyId, props.sourceSystem], () => { scopeGeneration++; }, { flush: 'sync' });
+onBeforeUnmount(() => { scopeGeneration++; emit('busy', false); });
+function assertScope() { if (importScopeGeneration !== scopeGeneration) throw new Error('The selected client changed; no further import steps were run.'); }
+function historicalSource(date, author, text) {
+  if (!sourceReviewed.value || !date || !String(author || '').trim()) throw new Error('Compare the source and enter its original date and author (or Unknown) before importing.');
+  return { sourceSystem: props.sourceSystem, sourceDate: date, sourceAuthor: author.trim(), sourceText: text, reviewed: true };
+}
 
 function statusClass(s) {
   if (s === 'imported' || s === 'done') return 'is-ok';
@@ -160,17 +184,20 @@ watch(
     status.demographics = props.recordStatus?.demographics || 'missing';
     status.intake = props.recordStatus?.intake || 'missing';
     importedIntakeDraft = null;
+    intakeSourceDate.value = ''; intakeSourceAuthor.value = ''; planSourceDate.value = ''; planSourceAuthor.value = ''; sourceReviewed.value = false;
     status.plan = props.recordStatus?.plan || 'missing';
     reviewPending.intake = false;
     reviewPending.plan = false;
-    if (props.creationFlow) importAll();
+    if (props.creationFlow && !props.historicalImport) importAll();
   },
   { immediate: true }
 );
 
 for (const [text, key] of [[demographicsText, 'demographics'], [intakeText, 'intake'], [planText, 'plan']]) {
-  watch(text, () => { if (status[key] === 'imported') status[key] = 'missing'; if (key === 'intake') importedIntakeDraft = null; });
+  watch(text, () => { if (status[key] === 'imported') status[key] = 'missing'; if (key === 'intake') importedIntakeDraft = null; if (props.historicalImport) sourceReviewed.value = false; });
 }
+watch([intakeSourceDate, intakeSourceAuthor], () => { sourceReviewed.value = false; if (props.historicalImport) { status.intake = 'missing'; importedIntakeDraft = null; } });
+watch([planSourceDate, planSourceAuthor], () => { sourceReviewed.value = false; if (props.historicalImport) status.plan = 'missing'; });
 
 function log(ok, message) {
   stepLog.value = [...stepLog.value, { ok, message }];
@@ -246,6 +273,7 @@ async function importDemographics() {
     { skipGlobalLoading: true, headers: agencyHeaders() }
   );
   const p = parseRes?.data?.parsed || {};
+  assertScope();
   await api.post(
     `/clients/${props.clientId}/demographics/import`,
     {
@@ -276,13 +304,20 @@ async function importIntake() {
   if (!text) return false;
   const res = importedIntakeDraft || await api.post(
     `/clients/${props.clientId}/intake-note/import`,
-    { text, ...(props.creationFlow ? { sessionContext: { source: 'client_creation_record_import' } } : {}) },
+    { text, ...(props.historicalImport ? { historicalImport: historicalSource(intakeSourceDate.value, intakeSourceAuthor.value, text) } : props.creationFlow ? { sessionContext: { source: 'client_creation_record_import' } } : {}) },
     { skipGlobalLoading: true, headers: agencyHeaders() }
   );
+  assertScope();
   importedIntakeDraft = res;
   const draft = res?.data?.draft;
   const draftId = draft?.id;
   if (!draftId) throw new Error('Intake import did not return a draft');
+  if (props.historicalImport) {
+    reviewPending.intake = draft.status !== 'final';
+    status.intake = 'imported';
+    log(true, `Historical intake retained from ${intakeSourceDate.value}; clinical review remains pending.`);
+    return true;
+  }
 
   const sections = (draft?.sections || res?.data?.parsed?.sections || []).map((s, i) => ({
     key: s.key || `section_${i + 1}`,
@@ -371,6 +406,7 @@ async function importPlan() {
     { skipGlobalLoading: true }
   );
   const parsed = parseRes?.data?.parsed || {};
+  assertScope();
   const dxList = parsed.diagnoses || [];
   const sharedJust = String(parsed.diagnosticJustification || '').trim()
     || dxList.map((d) => String(d.justification || '').trim()).find(Boolean)
@@ -384,6 +420,20 @@ async function importPlan() {
     }))
     : [];
   const goals = (parsed.goals || []).map((g) => mapGoal(g));
+
+  if (props.historicalImport) {
+    const result = await api.post('/medical-billing/treatment-plans', {
+      agencyId: Number(props.agencyId), clientId: Number(props.clientId),
+      status: 'draft', finalize: false, effectiveDate: planSourceDate.value,
+      historicalImport: historicalSource(planSourceDate.value, planSourceAuthor.value, text),
+      sourceToolId: 'ehr_transition_import', goals,
+      presentingProblem: parsed.presentingProblem || null, prescribedFrequency: parsed.prescribedFrequency || null
+    }, { skipGlobalLoading: true });
+    assertScope();
+    status.plan = 'imported'; reviewPending.plan = result.data?.plan?.status !== 'active';
+    log(true, `Historical treatment plan retained with original effective date ${planSourceDate.value}; clinical review remains pending.`);
+    return true;
+  }
 
   if (planNeedsReview(parsed, goals)) {
     openPlanReview(text);
@@ -468,7 +518,7 @@ async function finishImportPipeline() {
     return;
   }
   try {
-    if (!reviewPending.intake && !reviewPending.plan
+    if (!props.historicalImport && !reviewPending.intake && !reviewPending.plan
       && (!props.creationFlow || (status.intake === 'imported' && status.plan === 'imported'))) await promoteSetupComplete();
   } catch (e) {
     log(false, `Setup complete skipped: ${e.response?.data?.error?.message || e.message}`);
@@ -480,12 +530,17 @@ async function finishImportPipeline() {
 }
 
 async function importAll() {
-  if (!hasAnyPaste.value) return;
+  if (!hasAnyPaste.value || importing.value) return;
+  importScopeGeneration = scopeGeneration;
   importing.value = true;
   error.value = '';
   successMessage.value = '';
   stepLog.value = [];
   try {
+    if (props.historicalImport) {
+      if (intakeText.value.trim()) historicalSource(intakeSourceDate.value, intakeSourceAuthor.value, intakeText.value);
+      if (planText.value.trim()) historicalSource(planSourceDate.value, planSourceAuthor.value, planText.value);
+    }
     if (demographicsText.value.trim() && status.demographics !== 'imported') {
       try {
         await importDemographics();
@@ -494,6 +549,7 @@ async function importAll() {
         log(false, `Demographics failed: ${e.response?.data?.error?.message || e.message}`);
       }
     }
+    assertScope();
     if (intakeText.value.trim() && status.intake !== 'imported') {
       try {
         await importIntake();
@@ -502,6 +558,7 @@ async function importAll() {
         log(false, `Intake failed: ${e.response?.data?.error?.message || e.message}`);
       }
     }
+    assertScope();
     if (planText.value.trim() && status.plan !== 'imported' && (!intakeText.value.trim() || status.intake === 'imported')) {
       try {
         const planResult = await importPlan();
@@ -515,7 +572,10 @@ async function importAll() {
       }
     }
 
+    assertScope();
     await finishImportPipeline();
+  } catch (e) {
+    if (scopeGeneration === importScopeGeneration) error.value = e.response?.data?.error?.message || e.message || 'Import failed';
   } finally {
     importing.value = false;
   }
@@ -537,6 +597,8 @@ async function markDoneOnly() {
 </script>
 
 <style scoped>
+.ehr-source-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin: 10px 0 16px; }
+.ehr-source-fields input { font: inherit; padding: 8px; border: 1px solid #b8c6d2; border-radius: 7px; }
 .ehr-bring-backdrop {
   position: fixed;
   inset: 0;

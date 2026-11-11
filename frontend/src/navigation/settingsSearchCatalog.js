@@ -32,6 +32,8 @@ export const SETTINGS_DISPLAY_LABELS = {
 
 /** Short descriptions used for search + hub cards. */
 export const SETTINGS_SEARCH_DESCRIPTIONS = {
+  'auricwell-management': 'AuricWell practice operations: provider imports, clients, caseloads, medical files, documentation, appointments, school schedules, billing, and insurance.',
+  'auricwell-transition': 'EHR Transition workspace: provider selection, existing client matching, demographics, additional contacts, insurance, intake, treatment plans, medical PDF archives, weekly agenda, and school schedule synchronization.',
   'service-codes': 'Shared service code catalog, CPT, HCPCS, units, time bands, modifiers, billing rules, fee schedules and practice charges.',
   'fee-schedule': 'Practice fee schedule. Charges by service, payer, provider category, and individual provider.',
   'billing-rules': 'Colorado defaults for credential eligibility, and provider exceptions such as H0002.',
@@ -96,6 +98,8 @@ export const SETTINGS_SEARCH_DESCRIPTIONS = {
 
 /** Extra search aliases beyond label / description / item id. */
 export const SETTINGS_SEARCH_ALIASES = {
+  'auricwell-management': ['auricwell', 'auric well', 'practice management', 'ehr operations', 'import providers'],
+  'auricwell-transition': ['auricwell', 'ehr migration', 'ehr transition', 'TherapyNotes migration', 'Therapy Notes transition', 'cutover', 'medical pdf', 'weekly agenda', 'insurance import', 'additional contacts', 'school schedule sync'],
   'business-journey': ['company setup', 'onboarding a business', 'interview', 'discovery', 'contract', 'training', 'facilitation', 'management', 'exit', 'offboarding', 'transition', 'plottwistco', 'plottwisthq'],
   'business-commercial': ['contract', 'agreement', 'pricing', 'revenue share', 'percentage', '10%', 'a la carte', 'à-la-carte', 'break even', 'monthly revenue', 'management fee', 'final billing'],
   'business-details': ['company profile', 'ocmpany profile', 'company settings', 'business name', 'identity', 'contact', 'branding'],

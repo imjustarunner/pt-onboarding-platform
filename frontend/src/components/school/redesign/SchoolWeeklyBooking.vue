@@ -1,7 +1,8 @@
 <template>
   <section v-if="context" class="weekly-booking" aria-label="Book school sessions">
     <h4>Weekly appointments from this school schedule</h4>
-    <p>The school’s planning times stay the same when one appointment changes. Save any regular school-time changes in the schedule above, then book the new weekly appointments here.</p>
+    <p v-if="context?.transition">Save a client and time in school planning first. Bookings connect to that slot and their actual times appear in Booked school sessions.</p>
+    <p v-else>The school’s planning times stay the same when one appointment changes. Save the client and time in school planning first. Reviewed school transitions connect future bookings to Booked school sessions.</p>
     <p v-if="!context.enabled" class="hint">{{ context.reason }}</p>
     <template v-else>
       <p v-if="!context.slots.length" class="hint">Save a client and start/end time in the school schedule first.</p>
@@ -71,7 +72,7 @@ async function book(acknowledgeSameDayServices) {
     const response=await api.post(url(),{slotId:slotId.value,tenantServiceId:tenantServiceId.value,startMode:startMode.value,startDate:startDate.value,occurrenceCount:occurrenceCount.value,acknowledgeSameDayServices});
     completed.value=true;
     const count=response.data?.appointments?.length || 1;
-    success.value=`${count} weekly appointment${count===1?'':'s'} booked. Review them on your calendar. The school’s planning times are unchanged.`;
+    success.value=`${count} weekly appointment${count===1?'':'s'} booked. Review them on your calendar${context.value?.transition ? ' and refresh Booked school sessions.' : '.'}`;
   } catch(e) {
     const data=e.response?.data;
     if(data?.error?.code==='SAME_DAY_SERVICE_WARNING') sameDayWarning.value=data.error.message;

@@ -5,10 +5,17 @@ import {
   resolveScheduleDetailLevel,
   toBusyOnlyScheduleSummary,
   toTypedPeerScheduleSummary,
-  toPeerAvailabilitySummary, canViewPeerSchedule, canIncludeAllScheduleAgencies
+  toPeerAvailabilitySummary, canViewPeerSchedule, canIncludeAllScheduleAgencies, publicScheduleReasonCode
 } from '../scheduleSummaryPrivacy.service.js';
 
 describe('scheduleSummaryPrivacy', () => {
+  it('hides internal agenda retry identities while preserving normal schedule reasons', () => {
+    expect(publicScheduleReasonCode('AW_AGENDA:101:ABCDEF0123456789ABCDEF0123456789')).toBeNull();
+    expect(publicScheduleReasonCode(' aw_agenda:101:internal ')).toBeNull();
+    expect(publicScheduleReasonCode(' planned_out ')).toBe('PLANNED_OUT');
+    expect(publicScheduleReasonCode('CLIENT_SESSION')).toBe('CLIENT_SESSION');
+    expect(publicScheduleReasonCode(null)).toBeNull();
+  });
   it.each(['provider', 'intern', 'tutor', 'staff', 'supervisor', 'assistant_admin'])('lets %s browse coworkers without management access being implied', role => {
     expect(canViewPeerSchedule(role)).toBe(true);
     expect(canIncludeAllScheduleAgencies({ isSelf: false, actorRole: role })).toBe(false);

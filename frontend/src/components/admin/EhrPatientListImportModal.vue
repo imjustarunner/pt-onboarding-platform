@@ -1,21 +1,22 @@
 <template>
-  <div v-if="open" class="ehr-modal-backdrop" @click.self="emit('close')">
+  <div v-if="open" class="ehr-modal-backdrop" @click.self="!saving && emit('close')">
     <div class="ehr-modal" role="dialog" aria-labelledby="ehr-patient-list-title">
       <header class="ehr-modal-head">
         <h3 id="ehr-patient-list-title">Paste patient list</h3>
-        <button type="button" class="ehr-link" @click="emit('close')">Close</button>
+        <button type="button" class="ehr-link" :disabled="saving" @click="emit('close')">Close</button>
       </header>
       <p class="ehr-hint">
         Paste the EHR patient list for
         <strong>{{ providerLabel || 'this provider' }}</strong>.
-        We create or match chart clients by name and date of birth, assign them to this provider,
-        and skip reminder counts, clinicians, and appointment columns.
+        We match chart clients by name and date of birth, then assign them to this provider.
+        Uncertain matches need chart review before import. Reminder counts, clinicians, and appointment columns are skipped.
       </p>
 
       <label class="ehr-label">
         Patient list paste
         <textarea
           v-model="pasteText"
+          :disabled="saving"
           class="ehr-textarea"
           rows="14"
           placeholder="Patient Name&#9;DOB&#9;Phone Number&#9;…&#10;Sheldon Baron&#9;12/11/1982&#9;(218) 556-0827&#9;…"
@@ -51,10 +52,13 @@
       </p>
 
       <p v-if="resultSummary" class="ehr-ok">{{ resultSummary }}</p>
-      <p v-if="error" class="ehr-error">{{ error }}</p>
+      <p v-if="error" class="ehr-error" role="alert">{{ error }}</p>
+      <ul v-if="rowFailures.length" class="ehr-error" aria-label="Clients needing review">
+        <li v-for="failure in rowFailures" :key="failure">{{ failure }}</li>
+      </ul>
 
       <div class="ehr-actions">
-        <button type="button" class="ehr-btn-ghost" @click="emit('close')">Cancel</button>
+        <button type="button" class="ehr-btn-ghost" :disabled="saving" @click="emit('close')">Cancel</button>
         <button
           type="button"
           class="ehr-btn-primary"
@@ -88,19 +92,34 @@ const pasteText = ref('');
 const saving = ref(false);
 const error = ref('');
 const resultSummary = ref('');
+const rowFailures = ref([]);
+// Keep successful rows in memory while the operator fixes other rows and retries.
+const completedRows = new Map();
+const pendingRows = new Map();
+let importGeneration = 0;
 
 const preview = computed(() => parseEhrPatientListPaste(pasteText.value));
 const canImport = computed(() => Number(props.providerUserId) > 0 && Number(props.agencyId) > 0);
 
 watch(
-  () => props.open,
-  (open) => {
+  () => [props.open, props.agencyId, props.providerUserId, props.organizationId],
+  ([open]) => {
+    importGeneration += 1;
     if (!open) return;
     pasteText.value = '';
     error.value = '';
     resultSummary.value = '';
-  }
+    rowFailures.value = [];
+    completedRows.clear();
+  },
+  { flush: 'sync' }
 );
+
+function assertImportContext(context) {
+  if (context.generation !== importGeneration || !props.open) {
+    throw new Error('The provider or agency changed during import. Review the selected context before retrying; no further import steps were run.');
+  }
+}
 
 function dobKey(raw) {
   const s = String(raw || '').trim();
@@ -111,29 +130,33 @@ function dobKey(raw) {
 function matchExistingClient(item, rows) {
   const nameKey = normalizePersonNameKey(item.fullName);
   const dob = String(item.dateOfBirth || '').slice(0, 10);
-  const list = Array.isArray(rows) ? rows : [];
-  const withDob = list.filter((c) => {
+  if (!nameKey || !dob) throw new Error('Review the client name and date of birth before importing.');
+  const sameName = rows.filter((c) => {
     const full = normalizePersonNameKey(c.full_name || c.fullName || '');
     const firstLast = normalizePersonNameKey(
       [c.first_name || c.firstName, c.last_name || c.lastName].filter(Boolean).join(' ')
     );
     const nameOk = full === nameKey || (firstLast && firstLast === nameKey);
-    if (!nameOk) return false;
-    const clientDob = dobKey(c.date_of_birth || c.dateOfBirth || c.dob);
-    if (dob && clientDob) return clientDob === dob;
-    if (dob && !clientDob) return true; // name-only fallback when chart DOB missing
-    return !dob;
+    return nameOk;
   });
-  if (withDob.length === 1) return withDob[0];
-  if (withDob.length > 1 && dob) {
-    const exactDob = withDob.filter((c) => dobKey(c.date_of_birth || c.dateOfBirth || c.dob) === dob);
-    if (exactDob.length === 1) return exactDob[0];
+  const missingDob = sameName.filter((c) => !dobKey(c.date_of_birth || c.dateOfBirth || c.dob));
+  if (missingDob.length) {
+    throw new Error(`Existing chart${missingDob.length === 1 ? '' : 's'} ${missingDob.map(c => `#${c.id}`).join(', ')} lack a date of birth. Review and complete the matching chart before retrying; no client was created or linked.`);
   }
-  return null;
+  const exactDob = sameName.filter((c) => dobKey(c.date_of_birth || c.dateOfBirth || c.dob) === dob);
+  if (exactDob.length > 1) {
+    throw new Error(`Multiple charts match this name and date of birth (${exactDob.map(c => `#${c.id}`).join(', ')}). Resolve the duplicate charts before retrying; no client was created or linked.`);
+  }
+  const match = exactDob[0] || null;
+  if (match && String(match.status || '').toUpperCase() === 'ARCHIVED') {
+    throw new Error(`Matching chart #${match.id} is archived. Review and restore it before retrying; no client was created or linked.`);
+  }
+  return match;
 }
 
-async function ensureProviderAssignment(client, organizationId) {
-  const providerId = Number(props.providerUserId);
+async function ensureProviderAssignment(client, organizationId, context) {
+  assertImportContext(context);
+  const providerId = context.providerId;
   const existingProvider = Number(client?.provider_id || client?.providerId || 0) || null;
   const clientId = Number(client?.id || 0);
   if (!clientId || !providerId) return 'none';
@@ -144,6 +167,7 @@ async function ensureProviderAssignment(client, organizationId) {
       { provider_id: providerId },
       { skipGlobalLoading: true }
     );
+    assertImportContext(context);
     return 'assigned';
   }
   if (existingProvider === providerId) return 'already';
@@ -151,8 +175,7 @@ async function ensureProviderAssignment(client, organizationId) {
   // Different primary provider — add this provider as an additional assignment when possible.
   const orgId = Number(organizationId || client?.organization_id || client?.organizationId || 0);
   if (!orgId) {
-    // Fall back to also setting primary only when org for dual-assign is unknown.
-    return 'matched_other_provider';
+    throw new Error(`Chart #${clientId} has another primary provider and needs an organization for an additional assignment. Review the assignment before retrying.`);
   }
   try {
     await api.post(
@@ -165,13 +188,16 @@ async function ensureProviderAssignment(client, organizationId) {
       },
       { skipGlobalLoading: true }
     );
+    assertImportContext(context);
     return 'co_assigned';
-  } catch {
-    return 'matched_other_provider';
+  } catch (e) {
+    assertImportContext(context);
+    throw new Error(`Chart #${clientId} was matched, but the provider assignment was not saved. Retry after reviewing the assignment. ${e.response?.data?.error?.message || e.message || ''}`.trim());
   }
 }
 
-async function seedDemographics(clientId, item) {
+async function seedDemographics(clientId, item, context) {
+  assertImportContext(context);
   try {
     await api.post(
       `/clients/${clientId}/demographics/import`,
@@ -184,33 +210,45 @@ async function seedDemographics(clientId, item) {
       },
       { skipGlobalLoading: true }
     );
-  } catch {
-    // best-effort — bring-up-to-date can fill full demographics later
+    assertImportContext(context);
+  } catch (e) {
+    assertImportContext(context);
+    throw new Error(`Chart #${clientId} was created, but demographics were not saved. Retry in this window to finish the same chart. ${e.response?.data?.error?.message || e.message || ''}`.trim());
   }
 }
 
-async function findOrCreate(item) {
-  const agencyId = Number(props.agencyId);
-  const providerId = Number(props.providerUserId);
-  const organizationId = Number(props.organizationId || 0) || null;
-
-  let match = null;
-  try {
-    const searchRes = await api.get('/clients', {
-      params: { agency_id: agencyId, search: item.fullName, limit: 40 },
-      skipGlobalLoading: true
-    });
-    const rows = searchRes?.data?.clients || searchRes?.data?.items || searchRes?.data || [];
-    match = matchExistingClient(item, rows);
-  } catch {
-    match = null;
+async function findOrCreate(item, context, rowKey) {
+  assertImportContext(context);
+  const { agencyId, providerId, organizationId } = context;
+  const pending = pendingRows.get(rowKey);
+  if (pending) {
+    await seedDemographics(pending.clientId, item, context);
+    pendingRows.delete(rowKey);
+    return pending;
   }
 
+  let searchRes;
+  try {
+    searchRes = await api.get('/clients', {
+      params: { agency_id: agencyId, search: item.fullName, includeArchived: true },
+      skipGlobalLoading: true
+    });
+  } catch {
+    assertImportContext(context);
+    throw new Error('Existing-client lookup failed. Retry when lookup is available; no client was created or linked.');
+  }
+  assertImportContext(context);
+  const payload = searchRes?.data;
+  const rows = Array.isArray(payload) ? payload : payload?.clients || payload?.items;
+  if (!Array.isArray(rows) || rows.some(row => !Number.isSafeInteger(Number(row?.id)) || Number(row.id) < 1)
+      || (payload?.total != null && Number(payload.total) > rows.length)
+      || rows.some(row => row.agency_id != null && Number(row.agency_id) !== agencyId)) {
+    throw new Error('Existing-client lookup was incomplete. Review the client search before retrying; no client was created or linked.');
+  }
+  const match = matchExistingClient(item, rows);
+
   if (match?.id) {
-    const assign = await ensureProviderAssignment(match, organizationId || match.organization_id);
-    if (!dobKey(match.date_of_birth || match.dateOfBirth) && item.dateOfBirth) {
-      await seedDemographics(match.id, item);
-    }
+    const assign = await ensureProviderAssignment(match, organizationId || match.organization_id, context);
     return { clientId: Number(match.id), created: false, assign };
   }
 
@@ -220,6 +258,7 @@ async function findOrCreate(item) {
       agency_id: agencyId,
       organization_id: organizationId || agencyId,
       full_name: item.fullName,
+      date_of_birth: item.dateOfBirth,
       initials: deriveInitialsFromName(item.fullName),
       contact_phone: item.phone || undefined,
       submission_date: new Date().toISOString().slice(0, 10),
@@ -232,27 +271,41 @@ async function findOrCreate(item) {
   );
   const row = createRes?.data?.client || createRes?.data || {};
   const clientId = Number(row.id);
-  if (clientId) await seedDemographics(clientId, item);
-  return { clientId, created: true, assign: 'assigned' };
+  if (!Number.isSafeInteger(clientId) || clientId < 1) throw new Error('Client creation did not return a chart ID. Review the client search before retrying.');
+  if (createRes?.data?.reused) {
+    throw new Error(`The server returned an existing chart (#${clientId}) without a reviewed match. Review the chart before retrying; demographics were not changed.`);
+  }
+  const result = { clientId, created: true, assign: 'assigned' };
+  pendingRows.set(rowKey, result);
+  await seedDemographics(clientId, item, context);
+  pendingRows.delete(rowKey);
+  return result;
 }
 
 async function submit() {
-  if (!canImport.value || !preview.value.items.length) return;
+  if (saving.value || !canImport.value || !preview.value.items.length) return;
   saving.value = true;
   error.value = '';
   resultSummary.value = '';
+  rowFailures.value = [];
   let created = 0;
   let matched = 0;
   let coAssigned = 0;
   const failures = [];
+  const context = { generation: importGeneration, agencyId: Number(props.agencyId), providerId: Number(props.providerUserId), organizationId: Number(props.organizationId || 0) || null };
   try {
     for (const item of preview.value.items) {
+      assertImportContext(context);
       try {
-        const res = await findOrCreate(item);
+        const key = JSON.stringify([context.agencyId, context.providerId, context.organizationId, normalizePersonNameKey(item.fullName), item.dateOfBirth]);
+        const res = completedRows.get(key) || await findOrCreate(item, context, key);
+        assertImportContext(context);
+        completedRows.set(key, res);
         if (res.created) created += 1;
         else matched += 1;
         if (res.assign === 'co_assigned') coAssigned += 1;
       } catch (e) {
+        assertImportContext(context);
         failures.push(`${item.fullName}: ${e.response?.data?.error?.message || e.message || 'failed'}`);
       }
     }
@@ -262,8 +315,9 @@ async function submit() {
       coAssigned ? `co-assigned ${coAssigned}` : null,
       failures.length ? `${failures.length} failed` : null
     ].filter(Boolean).join(' · ');
-    if (failures.length && !created && !matched) {
-      error.value = failures.slice(0, 3).join('; ');
+    if (failures.length) {
+      rowFailures.value = failures;
+      error.value = 'Review the clients listed below, then retry. Successful rows are kept and will not be imported again.';
     } else {
       emit('imported', { created, matched, coAssigned, failures });
     }

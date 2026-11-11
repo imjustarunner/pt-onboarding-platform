@@ -1283,6 +1283,7 @@ export const createClient = async (req, res, next) => {
     } = req.body;
     if (date_of_birth && (!/^\d{4}-\d{2}-\d{2}$/.test(String(date_of_birth)) || Number.isNaN(Date.parse(date_of_birth)) || new Date(`${date_of_birth}T00:00:00Z`).toISOString().slice(0,10)!==date_of_birth)) return res.status(400).json({error:{message:'Enter a valid date of birth.'}});
     const forceCreate = req.body?.forceCreate === true || req.body?.force_create === true;
+    const sourceNorm = String(source || '').trim().toUpperCase();
 
     const userId = req.user.id;
     const userRole = req.user.role;
@@ -1485,6 +1486,28 @@ export const createClient = async (req, res, next) => {
         error: { message: 'School clients require exactly 6 initials (first 3 + last 3 letters).' }
       });
     }
+    // EHR imports resolve an existing chart explicitly before calling create.
+    // Initials cannot establish identity, and forceCreate must not bypass that review.
+    // Keep this lookup outside best-effort duplicate checks: failure must block creation.
+    if (sourceNorm === 'EHR_PATIENT_LIST') {
+      const [existingRows] = await pool.execute(
+        `SELECT id
+         FROM clients
+         WHERE agency_id = ?
+           AND UPPER(REPLACE(COALESCE(initials, ''), ' ', '')) = ?
+         ORDER BY id ASC
+         LIMIT 1`,
+        [parsedAgencyId, normalizedInitials.replace(/\s+/g, '')]
+      );
+      if (existingRows.length) {
+        return res.status(409).json({
+          error: {
+            code: 'EHR_CLIENT_MATCH_REVIEW_REQUIRED',
+            message: `An existing chart (#${existingRows[0].id}) has these initials. Review its name and date of birth, then assign the matching existing client explicitly. No client was created or assigned.`
+          }
+        });
+      }
+    }
     try {
       const [matchKeyRows] = await pool.execute(
         `SELECT
@@ -1676,7 +1699,6 @@ export const createClient = async (req, res, next) => {
     // Agency staff/admin can still set provider_id explicitly.
     let resolvedProviderId = null;
     const roleNorm2 = String(userRole || '').toLowerCase();
-    const sourceNorm = String(source || '').trim().toUpperCase();
     if (roleNorm2 === 'provider') {
       resolvedProviderId = userId;
     } else if (provider_id !== undefined && provider_id !== null && provider_id !== '') {
@@ -1751,11 +1773,11 @@ export const createClient = async (req, res, next) => {
         : false
     };
 
-    // Documentation Hub / EHR list creates: reuse an active same-agency initials match instead of duplicating.
+    // Preserve legacy Documentation Hub reuse; EHR imports require explicit identity review above.
     if (
       !forceCreate
       && normalizedInitials
-      && (sourceNorm === 'NOTE_AID_MINIMAL' || sourceNorm === 'EHR_PATIENT_LIST')
+      && sourceNorm === 'NOTE_AID_MINIMAL'
     ) {
       try {
         const [existingRows] = await pool.execute(

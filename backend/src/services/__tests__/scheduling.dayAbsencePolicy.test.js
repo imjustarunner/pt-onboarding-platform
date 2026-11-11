@@ -1,5 +1,5 @@
 import { describe,it,expect,vi } from 'vitest';
-vi.mock('../../config/database.js',()=>({default:{}}));
+vi.mock('../../config/database.js',()=>({default:{execute:vi.fn(async()=>[[]])}}));
 vi.mock('../providerDayCancellation.service.js',()=>({default:{}}));
 import { dayAbsenceMessage, schoolDayAbsenceMessage } from '../dayAbsencePolicy.service.js';
 import { plannedOutCancellationInput } from '../plannedOutCancellation.service.js';

@@ -29,6 +29,12 @@ it('saves partial insurance, resets verification, and preserves the billing assi
   expect(writeClientInsurance).toHaveBeenCalledWith(expect.objectContaining({clientId:20,agencyId:2,primary:{insurerName:'Updated',memberId:'MEMBER'},verifiedForClaims:false,acceptAssignment:true,confirmedBy:10}));
   expect(response.json.mock.calls[0][0].insurance).not.toHaveProperty('verifiedForClaims');
 });
+it('stores EHR transition insurance without initiating eligibility or changing the billing assignment decision',async()=>{
+  const request=req();request.body.importContext='ehr_transition';
+  const next=vi.fn();await saveSupportClientInsurance(request,res(),next);
+  expect(next).not.toHaveBeenCalled();
+  expect(writeClientInsurance).toHaveBeenCalledWith(expect.objectContaining({queueEligibility:false,verifiedForClaims:false,acceptAssignment:true}));
+});
 it.each([{verifiedForClaims:true},{acceptAssignment:false}])('rejects forged billing-only controls %j',async fields=>{
   const request=req();Object.assign(request.body,fields);const next=vi.fn();await saveSupportClientInsurance(request,res(),next);
   expect(next).toHaveBeenCalledWith(expect.objectContaining({status:403}));expect(writeClientInsurance).not.toHaveBeenCalled();

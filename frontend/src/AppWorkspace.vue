@@ -713,6 +713,7 @@
                         {{ formatNavBadgeCount(workforceOperationsPendingCount) }}
                       </span>
                     </router-link>
+                    <router-link v-if="canSeeAuricWellManagementNav" :to="auricwellManagementTo" @click="closeAllNavMenus">AuricWell</router-link>
                     <router-link v-if="canSeeFinanceOperationsNav" :to="orgTo('/finance-operations')" @click="closeAllNavMenus"><span class="product-nav-label"><img src="/assets/fundthred/icon.svg" alt=""/>FundThred</span></router-link>
                     <router-link
                       v-if="canSeePeopleOperationsNav"
@@ -1791,6 +1792,7 @@
                       {{ formatNavBadgeCount(workforceOperationsPendingCount) }}
                     </span>
                   </router-link>
+                  <router-link v-if="canSeeAuricWellManagementNav" :to="auricwellManagementTo" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">AuricWell</router-link>
                   <router-link v-if="canSeeFinanceOperationsNav" :to="orgTo('/finance-operations')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink"><span class="product-nav-label"><img src="/assets/fundthred/icon.svg" alt=""/>FundThred</span></router-link>
                   <router-link
                     v-if="canSeePeopleOperationsNav"
@@ -5626,6 +5628,12 @@ const navBucketSlug = computed(() => {
   if (orgContext?.slug) return String(orgContext.slug).trim();
   return null;
 });
+
+const canSeeAuricWellManagementNav = computed(() => !!agencyStore.currentAgency?.id && ['admin', 'super_admin'].includes(String(user.value?.role || '').toLowerCase()));
+const auricwellManagementTo = computed(() => ({
+  path: orgTo('/admin/settings'),
+  query: { agencyId: String(agencyStore.currentAgency?.id || ''), category: 'auricwell', item: 'auricwell-management' }
+}));
 
 const settingsNavTo = computed(() => settingsLocationForAgency(agencyStore.currentAgency, {
   platform: agencyStore.platformMode && !agencyStore.currentAgency

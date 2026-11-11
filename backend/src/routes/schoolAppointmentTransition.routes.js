@@ -1,0 +1,11 @@
+import express from 'express';
+import { authenticate } from '../middleware/auth.middleware.js';
+import { listTransitionSchools, getSchoolTransition, putSchoolTransition, linkSchoolTransitionAppointments, putSchoolBookedSession } from '../controllers/schoolAppointmentTransition.controller.js';
+const router=express.Router();
+router.use(authenticate);
+router.get('/schools',listTransitionSchools);
+router.get('/:schoolId/providers/:providerId',getSchoolTransition);
+router.put('/:schoolId/providers/:providerId',putSchoolTransition);
+router.post('/:schoolId/providers/:providerId/links',linkSchoolTransitionAppointments);
+router.put('/:schoolId/providers/:providerId/appointments/:appointmentId',putSchoolBookedSession);
+export default router;

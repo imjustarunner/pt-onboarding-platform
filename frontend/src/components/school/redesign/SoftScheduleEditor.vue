@@ -4,8 +4,7 @@
       <div>
         <div class="title">Regular school planning times</div>
         <div class="subtitle">
-          Shared weekly times and pickup/location notes. One-time appointment changes do not change this plan.
-          Save the plan before booking weekly appointments.
+          Save a client and planning time before booking weekly appointments. Linked bookings appear in Booked school sessions, where time changes update the actual appointment.
         </div>
       </div>
       <button class="btn btn-primary btn-sm" type="button" :disabled="saving" @click="save">
@@ -14,10 +13,11 @@
     </div>
 
     <div v-if="error" class="error">{{ error }}</div>
+    <p v-if="draftSlots.some(slot=>slot.appointment_linked)" class="subtitle">Linked slots are now shown as actual appointments in Booked school sessions. Their capacity and history are retained.</p>
 
     <div class="rows">
       <div
-        v-for="(s, idx) in draftSlots"
+        v-for="(s, idx) in planningSlots"
         :key="slotKey(s, idx)"
         :class="['row', { 'row-highlight-client': isHighlightedSlot(s) }]"
       >
@@ -69,7 +69,7 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { formatSchoolPortalClientLabel } from '../../../utils/schoolPortalClientLabel.js';
 import { isSchoolScheduleClientLocked } from '../../../utils/schoolStaffRoiLabels.js';
 
@@ -91,11 +91,13 @@ const isHighlightedSlot = (s) => {
 const emit = defineEmits(['save']);
 
 const draftSlots = ref([]);
+const planningSlots = computed(()=>draftSlots.value.filter(slot=>!slot.appointment_linked));
 
 const normalize = (s) => {
   const rawId = Number(s?.client_id);
   return {
     id: s?.id || null,
+    appointment_linked: s?.appointment_linked === true,
     client_id: Number.isFinite(rawId) && rawId > 0 ? rawId : '',
     start_time: s?.start_time ? String(s.start_time).slice(0, 5) : '',
     end_time: s?.end_time ? String(s.end_time).slice(0, 5) : '',
