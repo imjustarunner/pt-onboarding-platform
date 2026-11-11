@@ -8,7 +8,7 @@ import { buildPublicPortalLoginUrl } from '../../utils/publicPortalUrl.js';
 import { startAuthenticatedMobileSession } from '../quickViewAuth.service.js';
 import {FAMILY_ROLES,listMobileFamilyAgencies} from './familyScope.service.js';
 import {listMobileAgencies} from './agencyScope.service.js';
-import { accountFingerprint, digest, opaqueToken, validClient, validChallenge, verifyChallenge, requireQuickCode, failure, STAFF_ROLES, MAX_CODE_ATTEMPTS, DEVICE_IDLE_MS } from './policy.js';
+import { accountFingerprint, digest, opaqueToken, validClient, validChallenge, verifyChallenge, requireQuickCode, failure, STAFF_ROLES, MAX_CODE_ATTEMPTS, DEVICE_IDLE_MS, PRIMARY_AUTH_MAX_AGE_MS } from './policy.js';
 
 export function parsePrimaryAuthentication(value){try{const parsed=typeof value==='string'?JSON.parse(value):value;return parsed && typeof parsed.sessionKey==='string' && parsed.sessionKey.length<=128?{sessionKey:parsed.sessionKey,authMethod:parsed.authMethod==='google'?'google':'account',issuedAt:Number(parsed.issuedAt)||0}:null;}catch{return null;}}
 
@@ -31,7 +31,7 @@ export function createMobileSessionService({ db=pool, findUser=id=>User.findById
     if(agencyId && !workspace) throw failure(403,'MOBILE_WORKSPACE_UNAVAILABLE','Your access to this workspace has changed.');
     return {user,agencies,workspace,surface:family?'family':'staff',qaAgencyIds:scoped.qaAgencyIds};
   }
-  function lockInfo(device) { return {method:device.app_lock_method || (device.quick_code_hash?'code':'none'),hasCode:!!device.quick_code_hash}; }
+  function lockInfo(device) { return {method:device.app_lock_method==='biometric'?'biometric':'code',hasCode:true,usesAccountCode:true}; }
   function publicProfile(context) {
     const {user,agencies,workspace}=context;
     return {surface:context.surface || 'staff',...(context.device?{appLock:lockInfo(context.device)}:{}),user:{id:user.id,firstName:user.first_name || '',lastName:user.last_name || '',email:user.email,role:user.role,profilePhotoPath:user.profile_photo_path || null},agencies,workspace};
@@ -39,6 +39,7 @@ export function createMobileSessionService({ db=pool, findUser=id=>User.findById
   async function authorize({userId,agencyId,clientId,redirectUri,challenge,primaryAuthentication=null}) {
     validClient(clientId,redirectUri);validChallenge(challenge);
     if(!agencyId)throw failure(400,'MOBILE_WORKSPACE_INVALID','Choose a workspace.');
+    if(primaryAuthentication?.issuedAt && (now().getTime()-Number(primaryAuthentication.issuedAt)*1000>=PRIMARY_AUTH_MAX_AGE_MS || Number(primaryAuthentication.issuedAt)*1000>now().getTime()+300000))throw failure(403,'MOBILE_PRIMARY_REQUIRED','Sign in with your password, SSO or passkey again. Primary sign-in is required every 30 days.');
     const context=await actor(userId,agencyId);
     const code=opaqueToken();
     await db.execute(`INSERT INTO mobile_authorization_codes (code_hash,user_id,agency_id,client_id,redirect_uri,code_challenge,account_fingerprint,expires_at,primary_authentication_json)
@@ -66,12 +67,12 @@ export function createMobileSessionService({ db=pool, findUser=id=>User.findById
       let deviceId;
       if(existing){
         deviceId=existing.id;
-        await connection.execute('UPDATE mobile_device_sessions SET agency_id=?,last_used_at=? WHERE id=?',[grant.agency_id,now(),deviceId]);
+        await connection.execute('UPDATE mobile_device_sessions SET agency_id=?,last_used_at=?,enrolled_at=? WHERE id=?',[grant.agency_id,now(),now(),deviceId]);
         await connection.execute('UPDATE quick_view_sessions SET revoked_at=? WHERE mobile_device_session_id=? AND revoked_at IS NULL',[now(),deviceId]);
       }else{
         const [result]=await connection.execute(`INSERT INTO mobile_device_sessions
           (user_id,agency_id,token_hash,account_fingerprint,client_id,device_name,last_used_at,enrolled_at,app_lock_method)
-          VALUES (?,?,?,?,?,?,?,?, 'none')`,[grant.user_id,grant.agency_id,digest(token),grant.account_fingerprint,clientId,String(deviceName || (clientId==='ios'?'iPhone':'Browser')).slice(0,120),now(),now()]);
+          VALUES (?,?,?,?,?,?,?,?, 'code')`,[grant.user_id,grant.agency_id,digest(token),grant.account_fingerprint,clientId,String(deviceName || (clientId==='ios'?'iPhone':'Browser')).slice(0,120),now(),now()]);
         deviceId=result.insertId;
       }
       await connection.execute('UPDATE mobile_device_sessions SET primary_authentication_json=? WHERE id=?',[typeof grant.primary_authentication_json==='string'?grant.primary_authentication_json:grant.primary_authentication_json?JSON.stringify(grant.primary_authentication_json):null,deviceId]);
@@ -79,7 +80,8 @@ export function createMobileSessionService({ db=pool, findUser=id=>User.findById
       await connection.commit();
       enrollment={deviceToken:token,deviceId,newDevice:!existing};
     }catch(error){await connection.rollback();throw error;}finally{connection.release();}
-    return {...enrollment,...await issue(await device(enrollment.deviceToken)),needsCode:false};
+    const context=await device(enrollment.deviceToken),initialAccountCode=await ensureAccountCode(context);
+    return {...enrollment,...await issue(context),needsCode:false,...(initialAccountCode?{initialAccountCode}:{})};
   }
   async function revokeById(id, executor=db) {
     await executor.execute('UPDATE mobile_device_sessions SET revoked_at=?,push_enabled=0,push_token=NULL,web_push_subscription=NULL WHERE id=?',[now(),id]);
@@ -87,6 +89,8 @@ export function createMobileSessionService({ db=pool, findUser=id=>User.findById
   }
   async function validateDevice(row) {
     if(!row || row.revoked_at || now().getTime()-new Date(row.last_used_at).getTime()>DEVICE_IDLE_MS)throw failure(401,'MOBILE_SIGN_IN_REQUIRED','Sign in to this device again.');
+    const primary=parsePrimaryAuthentication(row.primary_authentication_json),primaryAt=primary?.issuedAt?primary.issuedAt*1000:new Date(row.enrolled_at).getTime();
+    if(!Number.isFinite(primaryAt) || primaryAt>now().getTime()+300000 || now().getTime()-primaryAt>=PRIMARY_AUTH_MAX_AGE_MS){await revokeById(row.id);throw failure(401,'MOBILE_SIGN_IN_REQUIRED','Sign in with your password, SSO or passkey again. Primary sign-in is required every 30 days.');}
     let context;
     try{context=await actor(row.user_id,row.agency_id);}catch(error){await revokeById(row.id);throw error;}
     if(row.account_fingerprint!==accountFingerprint(context.user)){await revokeById(row.id);throw failure(401,'MOBILE_ACCOUNT_CHANGED','Sign in again after the account security change.');}
@@ -115,15 +119,17 @@ export function createMobileSessionService({ db=pool, findUser=id=>User.findById
     const session=await issueSession({userId:context.user.id,agencyId:context.workspace.id,mobileDeviceId:context.device.id,mobileDeviceVersion:Number(context.device.app_lock_version || 0)});
     return {...session,profile:publicProfile(context)};
   }
-  async function setCode(raw,code) {
-    const context=await device(raw);requireQuickCode(code);
-    if(lockInfo(context.device).method!=='none' || context.device.quick_code_hash || now().getTime()-new Date(context.device.enrolled_at).getTime()>300000)throw failure(403,'MOBILE_PRIMARY_REQUIRED','Sign in again to change this device’s quick access code.');
-    const encoded=await hash(code);
-    const [result]=await db.execute("UPDATE mobile_device_sessions SET quick_code_hash=?,app_lock_method='code',app_lock_version=app_lock_version+1 WHERE id=? AND quick_code_hash IS NULL AND revoked_at IS NULL",[encoded,context.device.id]);
-    if(result.affectedRows!==1)throw failure(409,'MOBILE_CODE_ALREADY_SET','This device’s code is already configured.');
-    await db.execute('UPDATE quick_view_sessions SET revoked_at=? WHERE mobile_device_session_id=? AND revoked_at IS NULL',[now(),context.device.id]);
-    return issue(await access(context.device.id,context.user.id,context.workspace.id));
+  async function ensureAccountCode(context) {
+    const [[credential]]=await db.execute('SELECT passcode_hash,passcode_set_at FROM user_quick_view_credentials WHERE user_id=? LIMIT 1',[context.user.id]);
+    if(credential?.passcode_hash)return null;
+    // The only caller has just exchanged a primary-authenticated PKCE grant.
+    // Reuse the existing account credential and show a new random value once.
+    if(db===pool){const {createInitialPasscode}=await import('../quickViewAuth.service.js');try{return (await createInitialPasscode({userId:context.user.id,agencyId:context.workspace.id})).passcode;}catch(error){if(error.status===409)return null;throw error;}}
+    const {randomInt}=await import('node:crypto');const digits=String(randomInt(0,1000000)).padStart(6,'0'),encoded=await hash(digits);
+    await db.execute('INSERT INTO user_quick_view_credentials(user_id,agency_id) VALUES(?,?) ON DUPLICATE KEY UPDATE user_id=user_id',[context.user.id,context.workspace.id]);
+    const [saved]=await db.execute('UPDATE user_quick_view_credentials SET passcode_hash=?,passcode_set_at=?,passcode_version=passcode_version+1 WHERE user_id=? AND passcode_hash IS NULL',[encoded,now(),context.user.id]);return saved.affectedRows===1?digits:null;
   }
+  async function setCode() {throw failure(403,'MOBILE_ACCOUNT_CODE_REQUIRED','Use your existing account Quick View code. Reset a forgotten code in authenticated account settings.');}
   async function unlock(raw,{code,biometric=false}={}) {
     const initial=await device(raw);
     if(biometric){
@@ -139,8 +145,12 @@ export function createMobileSessionService({ db=pool, findUser=id=>User.findById
       await connection.beginTransaction();
       const [[row]]=await connection.execute('SELECT * FROM mobile_device_sessions WHERE id=? FOR UPDATE',[initial.device.id]);
       if(!row || row.revoked_at || row.code_attempts>=MAX_CODE_ATTEMPTS)throw failure(401,'MOBILE_SIGN_IN_REQUIRED','Sign in again to recover this device.');
-      if(!row.quick_code_hash)throw failure(409,'MOBILE_SETUP_REQUIRED','Set up a quick access code first.');
-      accepted=await compare(code,row.quick_code_hash);
+      const [[credential]]=await connection.execute('SELECT passcode_hash,failed_passcode_attempts,passcode_locked_until FROM user_quick_view_credentials WHERE user_id=? FOR UPDATE',[row.user_id]);
+      if(!credential?.passcode_hash)throw failure(409,'MOBILE_ACCOUNT_CODE_REQUIRED','Sign in and set up your account Quick View code in account settings.');
+      if(Number(credential.failed_passcode_attempts || 0)>=3 || credential.passcode_locked_until && new Date(credential.passcode_locked_until)>now())throw failure(409,'MOBILE_ACCOUNT_CODE_LOCKED','Reset your account Quick View code in authenticated account settings.');
+      accepted=await compare(code,credential.passcode_hash);
+      if(accepted)await connection.execute('UPDATE user_quick_view_credentials SET failed_passcode_attempts=0,passcode_locked_until=NULL,last_passcode_ok_at=? WHERE user_id=?',[now(),row.user_id]);
+      else {const failures=Number(credential.failed_passcode_attempts || 0)+1;await connection.execute('UPDATE user_quick_view_credentials SET failed_passcode_attempts=?,passcode_locked_until=? WHERE user_id=?',[failures,failures>=3?new Date('2099-12-31T23:59:59Z'):null,row.user_id]);}
       if(!accepted){
         const attempts=Number(row.code_attempts || 0)+1;
         await connection.execute('UPDATE mobile_device_sessions SET code_attempts=? WHERE id=?',[attempts,row.id]);
@@ -152,16 +162,17 @@ export function createMobileSessionService({ db=pool, findUser=id=>User.findById
     return issue(await device(raw));
   }
   async function resume(raw) {
-    const context=await device(raw);
-    if(lockInfo(context.device).method!=='none')throw failure(423,'MOBILE_LOCKED','Unlock this device with the app lock you selected.');
-    return issue(context);
+    await device(raw);
+    throw failure(423,'MOBILE_LOCKED','Unlock with Face ID, Touch ID or your account Quick View code.');
   }
   async function configureLock(context,{method,code,biometricVerified=false}) {
-    if(!['none','code','biometric'].includes(method))throw failure(400,'MOBILE_METHOD_INVALID','Choose an available app lock option.');
+    if(!['code','biometric'].includes(method))throw failure(400,'MOBILE_METHOD_INVALID','App lock is required. Choose your account Quick View code or Face ID / Touch ID.');
     if(method==='biometric' && (context.device.client_id!=='ios' || !biometricVerified))throw failure(403,'MOBILE_NATIVE_ONLY','Confirm Face ID or Touch ID in the native app first.');
-    let encoded=null;
-    if(method==='code'){requireQuickCode(code);encoded=await hash(code);}
-    const [result]=await db.execute('UPDATE mobile_device_sessions SET app_lock_method=?,quick_code_hash=?,code_attempts=0,app_lock_version=app_lock_version+1 WHERE id=? AND revoked_at IS NULL',[method,encoded,context.device.id]);
+    if(method==='code'){
+      requireQuickCode(code);const [[credential]]=await db.execute('SELECT passcode_hash,failed_passcode_attempts,passcode_locked_until FROM user_quick_view_credentials WHERE user_id=? LIMIT 1',[context.user.id]);
+      if(!credential?.passcode_hash || Number(credential.failed_passcode_attempts || 0)>=3 || credential.passcode_locked_until && new Date(credential.passcode_locked_until)>now() || !await compare(code,credential.passcode_hash))throw failure(403,'MOBILE_ACCOUNT_CODE_REQUIRED','Enter your existing account Quick View code. Reset it in authenticated account settings if forgotten.');
+    }
+    const [result]=await db.execute('UPDATE mobile_device_sessions SET app_lock_method=?,quick_code_hash=NULL,code_attempts=0,app_lock_version=app_lock_version+1 WHERE id=? AND revoked_at IS NULL',[method,context.device.id]);
     if(result.affectedRows!==1)throw failure(401,'MOBILE_SIGN_IN_REQUIRED','Sign in to this device again.');
     await db.execute('UPDATE quick_view_sessions SET revoked_at=? WHERE mobile_device_session_id=? AND revoked_at IS NULL',[now(),context.device.id]);
     return issue(await access(context.device.id,context.user.id,context.workspace.id));

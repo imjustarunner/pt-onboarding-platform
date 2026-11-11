@@ -18,34 +18,36 @@ import { MobileDevice, native, apiOrigin, mobileApi, quickApiBase, randomSecret,
 
 const route=useRoute(),router=useRouter();
 const screen=ref('loading'),busy=ref(false),error=ref(''),username=ref(''),organizationChoices=ref([]),passcode=ref(''),confirmCode=ref('');
-const access=ref(null),profile=ref(null),workspace=ref(null),accountOpen=ref(false),connectAccount=ref(null),connectVerification=ref(null),selectedAgency=ref('');
+const access=ref(null),profile=ref(null),workspace=ref(null),accountOpen=ref(false),connectAccount=ref(null),connectVerification=ref(null),selectedAgency=ref(''),accountCodeUserId=ref(null);
 const qv=ref(null),notificationStatus=ref(''),biometry=ref(false),accountLoading=ref(false);
-const appLock=ref({method:'none',hasCode:false}),lockChoice=ref('none'),newCode=ref(''),newCodeConfirm=ref(''),lockNotice=ref(''),privacyIntro=ref(false);
+const appLock=ref({method:'code',hasCode:true}),lockChoice=ref('code'),newCode=ref(''),newCodeConfirm=ref(''),lockNotice=ref(''),privacyIntro=ref(false),initialAccountCode=ref('');
+const requiredLock=value=>({...value,method:value?.method==='biometric'?'biometric':'code',usesAccountCode:true});
 let wasBackground=false,resumeFlight=null,activityAt=0;let activityTimer;
 let generation=0,interceptor,deviceListener,pushListener,privacyListener,notificationTimer;
 const accountLink=computed(()=>accountUrl(profile.value?.workspace));
 const securityLink=computed(()=>accountUrl(profile.value?.workspace,'account-security'));
 const preferencesLink=computed(()=>accountUrl(profile.value?.workspace,'preferences'));
+const codeRecoveryLink=computed(()=>{const url=accountUrl(workspace.value,'account-security');return url && accountCodeUserId.value?`${url}?mobileCodeRecovery=1&expectedUserId=${accountCodeUserId.value}`:'';});
 const connectQuery=()=>Object.fromEntries(new URLSearchParams(window.location.search));
 async function refreshNotificationCount(){const token=access.value?.sessionToken;if(!token||screen.value!=='workspace'||profile.value?.surface==='family')return;try{const data=await notificationRequest('GET','/notification-count');if(access.value?.sessionToken===token)notificationUnread.value=Number(data._total||0);}catch{/* The inbox retains its own retry control. */}}
 watch(()=>access.value?.sessionToken,()=>{notificationUnread.value=0;void refreshNotificationCount();});
-async function notificationRequest(method,path,data={}){try{return (await mobileApi.request({method,url:path,...(method==='GET'?{}:{data}),headers:{'X-Quick-View-Session':access.value?.sessionToken || ''}})).data;}catch(error){if([401,423].includes(error.response?.status)){if(appLock.value.method==='none')void renewWorkspace();else lock();}throw error;}}
+async function notificationRequest(method,path,data={}){try{return (await mobileApi.request({method,url:path,...(method==='GET'?{}:{data}),headers:{'X-Quick-View-Session':access.value?.sessionToken || ''}})).data;}catch(error){if([401,423].includes(error.response?.status)){lock();}throw error;}}
 function showNotifications(settings=false){return router.push({path:'/mobile/workspace',query:{...route.query,mobilePanel:settings?'notification-settings':'notifications'}});}
 function closeNotifications(){const query={...route.query};delete query.mobilePanel;void router.replace({path:'/mobile/workspace',query});void refreshNotificationCount();}
 watch(()=>route.query.mobilePanel,value=>{notificationPanel.value=value==='notifications'||value==='notification-settings';notificationSettings.value=value==='notification-settings';},{immediate:true});
 async function openMainWorkspace(target){
  if(!access.value)return;
  const agency=profile.value?.agencies?.find(item=>Number(item.id)===Number(target.agencyId || workspace.value?.id));
- if(!agency || !['client','schedule'].includes(target.kind))return;
+ if(!agency || !['client','schedule','applicants'].includes(target.kind))return;
  if(native){
   // Capacitor's current external-window delegate forwards only the URL, not a POST body.
   // Use ordinary main-app authentication rather than leaking a grant into that URL.
-  const path=target.kind==='client'&&Number.isSafeInteger(Number(target.clientId))&&Number(target.clientId)>0?`admin/clients/${Number(target.clientId)}`:target.kind==='schedule'?'my-schedule':null;
+  const path=target.kind==='client'&&Number.isSafeInteger(Number(target.clientId))&&Number(target.clientId)>0?`admin/clients/${Number(target.clientId)}`:target.kind==='schedule'?'my-schedule':target.kind==='applicants'&&Number.isSafeInteger(Number(target.candidateId))&&Number(target.candidateId)>0?`admin/hiring/people/${Number(target.candidateId)}/packages`:null;
   if(path)window.open(accountUrl(agency,path),'_blank','noopener,noreferrer');
   return;
  }
  const form=document.createElement('form');form.method='POST';form.target='_blank';const origin=agency.loginUrl?new URL(agency.loginUrl).origin:apiOrigin;form.action=`${origin}/api/mobile/open-main`;form.style.display='none';
- for(const [name,value] of Object.entries({sessionToken:access.value.sessionToken,kind:target.kind,agencyId:target.agencyId || workspace.value?.id,...(target.clientId?{clientId:target.clientId}:{})})){const input=document.createElement('input');input.type='hidden';input.name=name;input.value=String(value);form.appendChild(input);}
+ for(const [name,value] of Object.entries({sessionToken:access.value.sessionToken,kind:target.kind,agencyId:target.agencyId || workspace.value?.id,...(target.clientId?{clientId:target.clientId}:{}),...(target.candidateId?{candidateId:target.candidateId}:{})})){const input=document.createElement('input');input.type='hidden';input.name=name;input.value=String(value);form.appendChild(input);}
  document.body.appendChild(form);form.submit();form.remove();
 }
 async function openNotificationEmail(item){
@@ -58,8 +60,13 @@ async function openNotificationEmail(item){
   else await router.push(target);
   return;
  }
+ if(item.type==='website_chat_waiting'){
+  let metadata=item.audience_json;try{if(typeof metadata==='string')metadata=JSON.parse(metadata);}catch{return;}
+  const chatId=String(metadata?.websiteChatSessionId||'');if(!/^[a-f0-9-]{36}$/i.test(chatId))return;
+  notificationPanel.value=false;await router.push({path:'/mobile/workspace',query:{view:'livechat',chatId,agencyId:String(item.agency_id)}});return;
+ }
  const id=Number(item.related_entity_id);if(!Number.isSafeInteger(id)||id<1)return;
- const type=item.related_entity_type,query=type==='communication_conversation'?{view:'home',conversationId:String(id)}:type==='chat_thread'?{view:'home',threadId:String(id),suite:'direct'}:type==='task'?{view:'tasks'}:type==='client'?{view:'client',clientId:String(id)}:null;
+ const type=item.related_entity_type,query=type==='communication_conversation'?{view:'home',conversationId:String(id)}:type==='chat_thread'?{view:'home',threadId:String(id),suite:'direct'}:type==='task'?{view:'tasks'}:type==='client'?{view:'client',clientId:String(id)}:type==='client_exchange_listing'?{view:'exchange',listingId:String(id),agencyId:String(item.agency_id)}:type==='hiring_candidate'?{view:'applicants',candidateId:String(id),agencyId:String(item.agency_id)}:null;
  if(!query)return;notificationPanel.value=false;
  if(type==='client')query.agencyId=String(item.agency_id);
  await router.push({path:'/mobile/workspace',query});
@@ -75,9 +82,11 @@ function applySession(result) {
   clearFamilyDevice();if(result.profile?.surface==='family')activateFamilyDevice({sessionToken:result.sessionToken,apiOrigin,onLocked:lock});
   activateClinicalRecovery(result.userId || result.profile?.user?.id,result.agencyId || result.profile?.workspace?.id);
   const notifications=profile.value?.user?.id===result.profile.user?.id?profile.value.notifications:null;
-  access.value=result;profile.value={...result.profile,...(notifications?{notifications}:{})};workspace.value=result.profile.workspace;
-  appLock.value=result.profile.appLock || {method:'code',hasCode:true};lockChoice.value=appLock.value.method;
-  passcode.value='';confirmCode.value='';screen.value='workspace';
+  const {initialAccountCode:assignedCode,...safeResult}=result;access.value=safeResult;profile.value={...result.profile,...(notifications?{notifications}:{})};workspace.value=result.profile.workspace;
+  accountCodeUserId.value=Number(result.userId || result.profile?.user?.id) || null;
+  appLock.value=requiredLock(result.profile.appLock);lockChoice.value=appLock.value.method;
+  passcode.value='';confirmCode.value='';initialAccountCode.value=assignedCode || '';screen.value=initialAccountCode.value?'code-ready':'workspace';
+  if(document.hidden)lock();
 }
 async function normalizeWorkspaceRoute() {
   if(profile.value?.surface==='family'){const slug=profile.value.workspace?.portal_url || 'family';if(!route.path.startsWith('/mobile/family/'))await router.replace({path:`/mobile/family/${encodeURIComponent(slug)}/guardian`,query:familySessionCommentQuery(route.query)});return;}
@@ -90,10 +99,7 @@ async function detectSession() {
   const current=++generation;screen.value='loading';error.value='';
   try {
     const status=await deviceRequest('GET','/session');if(current!==generation)return false;
-    workspace.value=status.workspace;appLock.value=status.appLock || {method:'code',hasCode:!status.needsCode};
-    if(appLock.value.method==='none'){
-      const result=await deviceRequest('POST','/resume');if(current!==generation)return false;applySession(result);await normalizeWorkspaceRoute();await afterOpen();
-    }else screen.value='locked';
+    workspace.value=status.workspace;accountCodeUserId.value=Number(status.userId) || accountCodeUserId.value;appLock.value=requiredLock(status.appLock);screen.value='locked';
     return true;
   }catch(e){if(current!==generation)return false;screen.value='signin';if(e.response?.status!==401)error.value=mobileRequestError(e);return false;}
 }
@@ -154,7 +160,7 @@ async function completeSignIn(url,pending) {
   if(!pending || pending.state!==callback.searchParams.get('state') || !code || pending.createdAt && Date.now()-pending.createdAt>600000)throw new Error('The sign-in request expired. Start again from this device.');
   const data={code,verifier:pending.verifier,clientId:pending.clientId,redirectUri:pending.callback,deviceName:native?'Auricwell iPhone':'Auricwell browser'};
   const result=native?await MobileDevice.exchange({data}):(await mobileApi.post('/exchange',data)).data;
-  if(result.sessionToken){applySession(result);await normalizeWorkspaceRoute();await afterOpen();privacyIntro.value=!!result.newDevice;if(result.newDevice)await showAccount();}else await detectSession();
+  if(result.sessionToken){applySession(result);await normalizeWorkspaceRoute();if(screen.value==='workspace'){await afterOpen();privacyIntro.value=!!result.newDevice;if(result.newDevice)await showAccount();}}else await detectSession();
 }
 async function callback() {
   try {
@@ -166,7 +172,7 @@ async function callback() {
 async function enter(biometrics=false) {
   busy.value=true;error.value='';const current=generation;
   try {
-    const result=biometrics?await MobileDevice.unlockWithBiometrics():await deviceRequest('POST',appLock.value.method==='none'?'/resume':'/unlock',{passcode:passcode.value});
+    const result=biometrics?await MobileDevice.unlockWithBiometrics():await deviceRequest('POST','/unlock',{passcode:passcode.value});
     if(current!==generation)return;
     applySession(result);await normalizeWorkspaceRoute();
     await afterOpen();
@@ -174,7 +180,7 @@ async function enter(biometrics=false) {
     if(current!==generation)return;
     error.value=mobileRequestError(e);
     const code=e.response?.data?.error?.code || e.code;
-    if(['MOBILE_SIGN_IN_REQUIRED','MOBILE_ACCOUNT_CHANGED','ACCOUNT_DISABLED','ACCOUNT_UNAVAILABLE','MOBILE_WORKSPACE_UNAVAILABLE','PRODUCT_SESSION_MISMATCH'].includes(code))screen.value='signin';
+    if(['MOBILE_SIGN_IN_REQUIRED','MOBILE_ACCOUNT_CHANGED','ACCOUNT_DISABLED','ACCOUNT_UNAVAILABLE','MOBILE_WORKSPACE_UNAVAILABLE','MOBILE_FAMILY_UNAVAILABLE','HIRE_ACTIVATION_REQUIRED','PRODUCT_SESSION_MISMATCH'].includes(code))screen.value='signin';
     if(['MOBILE_SETUP_REQUIRED','MOBILE_METHOD_CHANGED'].includes(code))await detectSession();
   } finally {busy.value=false;}
 }
@@ -192,45 +198,43 @@ function lock() {
   privacyHidden.value=false;notificationPanel.value=false;
   clearFamilyDevice();
   ++generation;
-  const old=access.value;access.value=null;profile.value=null;accountOpen.value=false;passcode.value='';confirmCode.value='';newCode.value='';newCodeConfirm.value='';
-  if(screen.value==='workspace')screen.value='locked';
+  const old=access.value;access.value=null;profile.value=null;accountOpen.value=false;passcode.value='';confirmCode.value='';newCode.value='';newCodeConfirm.value='';initialAccountCode.value='';
+  if(['workspace','code-ready'].includes(screen.value))screen.value='locked';
   if(old)axios.post(`${quickApiBase}/session/logout`,{},{headers:{'X-Quick-View-Session':old.sessionToken},withCredentials:true}).catch(()=>{});
 }
-async function renewWorkspace(){
- if(resumeFlight)return resumeFlight;if(appLock.value.method!=='none'){lock();return;}
- const current=generation;resumeFlight=(async()=>{try{const result=await deviceRequest('POST','/resume');if(current!==generation)return;applySession(result);await afterOpen();}catch(e){if(current!==generation)return;lock();error.value=mobileRequestError(e);await detectSession();}finally{resumeFlight=null;}})();return resumeFlight;
-}
+async function renewWorkspace(){lock();}
 async function maintainWorkspace(force=false){
  if(document.hidden || screen.value!=='workspace' || !access.value)return;
  const remaining=new Date(access.value.expiresAt).getTime()-Date.now();
- if(remaining<=0 && appLock.value.method==='none')return renewWorkspace();
- if(!force && (appLock.value.method!=='none' || remaining>120000))return;
- if(Date.now()-activityAt<30000 && !force)return;activityAt=Date.now();const token=access.value.sessionToken;
+ if(remaining<=0){lock();return;}
+ if(!force)return;
+ if(Date.now()-activityAt<30000)return;activityAt=Date.now();const token=access.value.sessionToken;
  try{const data=await deviceRequest('POST','/activity');if(access.value?.sessionToken===token && data.expiresAt)access.value={...access.value,expiresAt:data.expiresAt};}
- catch(e){if(access.value?.sessionToken!==token)return;if([401,423].includes(e.response?.status)){if(appLock.value.method==='none')await renewWorkspace();else lock();}}
+ catch(e){if(access.value?.sessionToken!==token)return;if([401,423].includes(e.response?.status))lock();}
 }
 function recordWorkspaceActivity(event){if(event.isTrusted && Date.now()-activityAt>=30000)void maintainWorkspace(true);}
 async function background() {
- if(native)return;
- if(document.hidden){wasBackground=true;if(screen.value==='workspace' && appLock.value.method==='none')privacyHidden.value=true;else if(['workspace','locked','loading'].includes(screen.value))lock();}
- else if(wasBackground){wasBackground=false;if(appLock.value.method==='none'){if(access.value){const token=access.value.sessionToken;try{await mobileApi.get('/profile',{headers:{'X-Quick-View-Session':token}});if(access.value?.sessionToken===token && !document.hidden){privacyHidden.value=false;await maintainWorkspace(true);}}catch(e){if(access.value?.sessionToken===token)await renewWorkspace();}}else if(screen.value==='locked')await detectSession();}}
+ if(document.hidden){wasBackground=true;lock();}
+ else if(wasBackground){wasBackground=false;if(!busy.value)await detectSession();}
 }
+function pageLeaving(){wasBackground=true;lock();}
+async function acceptAccountCode(){initialAccountCode.value='';screen.value='workspace';await normalizeWorkspaceRoute();await afterOpen();await showAccount();}
 function restorePage(event){if(!event.persisted)return;if(location.pathname==='/mobile/connect' && connectQuery().clientId==='web'){location.replace('https://auricwell.com/mobile');return;}lock();detectSession();}
 function recoverSignIn(){lock();screen.value='signin';error.value='';}
 async function saveAppLock(){
   busy.value=true;lockNotice.value='';
   try{
-    if(lockChoice.value==='code' && newCode.value!==newCodeConfirm.value)throw new Error('The quick access codes must match.');
+    if(lockChoice.value==='code' && !/^\d{6}$/.test(newCode.value))throw new Error('Enter your existing account Quick View code.');
     const result=lockChoice.value==='biometric'?await MobileDevice.configureBiometrics({sessionToken:access.value.sessionToken}):await deviceRequest('POST','/app-lock',{method:lockChoice.value,passcode:newCode.value});
     applySession(result);newCode.value='';newCodeConfirm.value='';privacyIntro.value=false;
-    lockNotice.value=lockChoice.value==='none'?'App lock is off. Your device stays signed in.':lockChoice.value==='code'?'Your optional quick access code is saved.':'Biometric app lock is enabled.';
+    lockNotice.value=lockChoice.value==='code'?'Your account Quick View code protects this device.':'Biometric app lock is enabled.';
   }catch(e){lockNotice.value=mobileRequestError(e);}finally{busy.value=false;}
 }
 async function signOut() {
   clearClinicalRecovery({deactivate:true});
   busy.value=true;error.value='';
   lock();
-  try { await deviceRequest('POST','/logout');workspace.value=null;screen.value='signin'; }
+  try { await deviceRequest('POST','/logout');workspace.value=null;accountCodeUserId.value=null;screen.value='signin'; }
   catch(e){error.value=mobileRequestError(e);} finally {busy.value=false;}
 }
 async function showAccount() {
@@ -298,9 +302,10 @@ async function openNotification(url) {
   if(parsed.origin!=='https://auricwell.com' || parsed.pathname!=='/mobile/workspace')return;
   if(!access.value){await router.replace(parsed.pathname+parsed.search);return;}
   const kind=parsed.searchParams.get('kind'),id=parsed.searchParams.get('id');
-  if(!['email','sms','chat'].includes(kind) || !/^[1-9]\d*$/.test(id || ''))return;
+  if(!['email','sms','chat','notification'].includes(kind) || !/^[1-9]\d*$/.test(id || ''))return;
   try {
     const {data}=await mobileApi.get(`/notification-target/${kind}/${id}`,{headers:{'X-Quick-View-Session':access.value.sessionToken}});
+    if(kind==='notification'){if(data.notification)await openNotificationEmail(data.notification);return;}
     if(profile.value?.surface==='family'){await router.push({path:`/mobile/family/${encodeURIComponent(profile.value.workspace.portal_url || 'family')}/guardian`,query:{panel:'family_messages',familyThreadId:data.threadId}});return;}
     if(route.query.kind)await router.replace({path:'/mobile/workspace',query:{view:'home'}});
     if(route.path!=='/mobile/workspace' || JSON.stringify(route.query)!==JSON.stringify(data))await router.push({path:'/mobile/workspace',query:{view:'home',...data}});
@@ -310,10 +315,10 @@ async function openNotification(url) {
 onMounted(async()=>{
   activityTimer=setInterval(()=>{void maintainWorkspace();},45000);document.addEventListener('pointerdown',recordWorkspaceActivity,{passive:true});document.addEventListener('keydown',recordWorkspaceActivity);
   notificationTimer=setInterval(()=>{if(!document.hidden)void refreshNotificationCount();},30000);
-  document.addEventListener('visibilitychange',background);window.addEventListener('pageshow',restorePage);
-  interceptor=axios.interceptors.response.use(r=>r,e=>{const failed=e.config?.headers?.get?.('X-Quick-View-Session') || e.config?.headers?.['X-Quick-View-Session'];if(access.value && failed===access.value.sessionToken && [401,423].includes(e.response?.status)){if(appLock.value.method==='none')void renewWorkspace();else lock();}return Promise.reject(e);});
+  document.addEventListener('visibilitychange',background);window.addEventListener('pagehide',pageLeaving);window.addEventListener('pageshow',restorePage);
+  interceptor=axios.interceptors.response.use(r=>r,e=>{const failed=e.config?.headers?.get?.('X-Quick-View-Session') || e.config?.headers?.['X-Quick-View-Session'];if(access.value && failed===access.value.sessionToken && [401,423].includes(e.response?.status)){lock();}return Promise.reject(e);});
   if(native){
-    try {biometry.value=(await MobileDevice.status()).biometrics;deviceListener=await MobileDevice.addListener('deviceLocked',lock);privacyListener=await MobileDevice.addListener('privacyReady',async()=>{if(appLock.value.method==='none' && screen.value==='locked' && !busy.value)await detectSession();await nextTick();await MobileDevice.reveal();});pushListener=await MobileDevice.addListener('notificationTapped',event=>openNotification(event.url));}catch{error.value='This native build needs the Auricwell device plugin.';}
+    try {biometry.value=(await MobileDevice.status()).biometrics;deviceListener=await MobileDevice.addListener('deviceLocked',lock);privacyListener=await MobileDevice.addListener('privacyReady',async()=>{if(screen.value==='locked' && !busy.value)await detectSession();await nextTick();await MobileDevice.reveal();});pushListener=await MobileDevice.addListener('notificationTapped',event=>openNotification(event.url));}catch{error.value='This native build needs the Auricwell device plugin.';}
   }
   if(!native && location.pathname==='/mobile/connect')await loadConnect();
   else if(!native && location.pathname==='/mobile/callback')await callback();
@@ -321,7 +326,7 @@ onMounted(async()=>{
   if(native){await nextTick();await MobileDevice.reveal();}
 });
 onUnmounted(()=>{
-  clearInterval(notificationTimer);clearInterval(activityTimer);document.removeEventListener('pointerdown',recordWorkspaceActivity);document.removeEventListener('keydown',recordWorkspaceActivity);lock();document.removeEventListener('visibilitychange',background);window.removeEventListener('pageshow',restorePage);axios.interceptors.response.eject(interceptor);deviceListener?.remove();pushListener?.remove();privacyListener?.remove();});
+  clearInterval(notificationTimer);clearInterval(activityTimer);document.removeEventListener('pointerdown',recordWorkspaceActivity);document.removeEventListener('keydown',recordWorkspaceActivity);lock();document.removeEventListener('visibilitychange',background);window.removeEventListener('pagehide',pageLeaving);window.removeEventListener('pageshow',restorePage);axios.interceptors.response.eject(interceptor);deviceListener?.remove();pushListener?.remove();privacyListener?.remove();});
 </script>
 
 <template>
@@ -343,19 +348,19 @@ onUnmounted(()=>{
           <a v-if="preferencesLink" :href="preferencesLink" target="_blank" rel="noopener">Account preferences <ArrowRight :size="17" /></a>
           <button v-if="profile?.surface!=='family'" class="secondary" @click="accountOpen=false;qv?.openPreferences()">Mobile layout &amp; swipe settings</button>
           <section class="mobile-lock-options" aria-labelledby="app-lock-title">
-            <h2 id="app-lock-title">App lock · optional</h2>
-            <p>Your sign-in stays on this device. Choose an extra app lock if you want one; otherwise use your phone’s normal screen lock.</p>
+            <h2 id="app-lock-title">App lock · required</h2>
+            <p>Your account stays signed in. Each time you leave or close the app, unlock with your account Quick View code or Face ID / Touch ID. Sign in with your password, SSO or passkey again every 30 days.</p>
             <form @submit.prevent="saveAppLock">
-              <label for="mobile-app-lock">App lock</label><select id="mobile-app-lock" v-model="lockChoice" :disabled="busy"><option value="none">No extra app lock</option><option value="code">Six-digit quick access code</option><option v-if="native && biometry" value="biometric">Face ID / Touch ID</option></select>
-              <template v-if="lockChoice==='code'"><label>New six-digit code<input v-model="newCode" type="password" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="new-password" required></label><label>Confirm code<input v-model="newCodeConfirm" type="password" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="new-password" required></label></template>
+              <label for="mobile-app-lock">App lock</label><select id="mobile-app-lock" v-model="lockChoice" :disabled="busy"><option value="code">Six-digit quick access code</option><option v-if="native && biometry" value="biometric">Face ID / Touch ID</option></select>
+              <template v-if="lockChoice==='code'"><label>Existing account Quick View code<input v-model="newCode" type="password" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="current-password" required></label><p>Use the same six-digit code assigned in your account.</p><a v-if="codeRecoveryLink" :href="codeRecoveryLink" target="_blank" rel="noopener noreferrer">Change or recover account code</a><p>Sign in to the same account in the browser to reset a forgotten code. The old code stops working on every device.</p></template>
               <button :disabled="busy">{{ lockChoice==='biometric'?'Enable Face ID / Touch ID':'Save app lock preference' }}</button>
             </form>
-            <button v-if="privacyIntro" class="secondary" @click="accountOpen=false;privacyIntro=false">Not now · open my workspace</button>
+
             <p role="status">{{ lockNotice }}</p>
           </section>
           <h2><Bell :size="18" />Conversa notifications</h2><p>{{ profile?.surface==='family'?'Secure messages from your care team.':'Email, text messages, direct messages, channels, replies, mentions and secure messages.' }} Message previews stay private.</p>
           <button :disabled="busy || accountLoading" @click="enableNotifications">Enable notifications</button><button class="secondary" :disabled="busy" @click="registerPush({enabled:false})">Turn off on this device</button><p role="status">{{ notificationStatus }}</p>
-          <button class="secondary" @click="lock"><LockKeyhole :size="17" />{{ appLock.method==='none'?'Hide workspace':'Lock workspace' }}</button><button class="secondary danger" :disabled="busy" @click="signOut"><LogOut :size="17" />Sign out of this device</button>
+          <button class="secondary" @click="lock"><LockKeyhole :size="17" />Lock workspace</button><button class="secondary danger" :disabled="busy" @click="signOut"><LogOut :size="17" />Sign out of this device</button>
           <p v-if="error" role="alert" class="error">{{ error }}</p>
         </section>
       </div>
@@ -367,7 +372,7 @@ onUnmounted(()=>{
         <template v-else-if="screen==='connect'">
           <template v-if="connectVerification"><h1>Verify your sign-in</h1><p>{{ connectVerification.name }} · {{ connectVerification.email }}</p><AccountSecurityPanel :show-workspace-return="false"/><button class="secondary" :disabled="busy" @click="loadConnect">I’ve verified · continue connecting</button></template><h1 v-else>Connect this device</h1><p v-if="connectAccount">Continue as {{ connectAccount.user.firstName }} {{ connectAccount.user.lastName }} ({{ connectAccount.user.email }}).</p>
           <label v-if="connectAccount">Workspace<select v-model="selectedAgency"><option v-for="agency in connectAccount.agencies" :key="agency.id" :value="String(agency.id)">{{ agency.name }}</option></select></label>
-          <p>Your account’s permissions apply. This device will stay signed in until you sign out or account security requires a new sign-in.</p>
+          <p>Your account’s permissions apply. Unlock whenever you reopen the app; a full account sign-in is required every 30 days.</p>
           <button :disabled="busy || !selectedAgency" @click="authorize">Connect to Auricwell <ArrowRight :size="18" /></button>
           <template v-if="error"><button class="secondary" :disabled="busy" @click="loadConnect">Try again</button><button v-if="connectLoginUrl()" class="secondary" :disabled="busy" @click="changeConnectAccount">Sign in with a different account</button><a href="https://auricwell.com/mobile">Restart Auricwell sign-in</a></template>
         </template>
@@ -377,14 +382,14 @@ onUnmounted(()=>{
           <button :disabled="busy">{{ busy?'Connecting…':'Continue to sign in' }}<ArrowRight :size="18" /></button>
           <p class="small">Sign in with your password, SSO or an existing passkey. You can add a passkey in your account settings.</p>
         </form>
-        <form v-else @submit.prevent="enter()">
+        <section v-else-if="screen==='code-ready'" aria-label="Your account Quick View code"><h1>Your six-digit account code</h1><p>Your account did not have a Quick View code. This randomly assigned code is shown once. Memorize it and use it to unlock AuricWell.</p><output class="initial-account-code">{{ initialAccountCode }}</output><p>You can reset a forgotten code after signing in through account settings.</p><button type="button" @click="acceptAccountCode">I saved my code · continue</button></section><form v-else @submit.prevent="enter()">
           <span class="gate-icon"><LockKeyhole :size="26" /></span><p class="eyebrow">{{ workspace?.name || 'Your workspace' }}</p>
-          <h1>{{ appLock.method==='none'?'Workspace hidden':'Welcome back' }}</h1>
-          <p>{{ appLock.method==='none'?'Your account is still signed in. Continue when you’re ready.':'Unlock to pick up where you left off. Your account is still signed in.' }}</p>
+          <h1>Welcome back</h1>
+          <p>Unlock to pick up where you left off. Your account is still signed in.</p>
           <label v-if="appLock.method==='code'">Quick access code<input v-model="passcode" type="password" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="current-password" required></label>
-          <button v-if="appLock.method!=='biometric'" :disabled="busy || appLock.method==='code' && passcode.length!==6">{{ busy?'Opening…':appLock.method==='none'?'Continue to workspace':'Unlock workspace' }}<ArrowRight :size="18" /></button>
+          <button v-if="appLock.method!=='biometric'" :disabled="busy || appLock.method==='code' && passcode.length!==6">{{ busy?'Opening…':'Unlock workspace' }}<ArrowRight :size="18" /></button>
           <button v-if="native && biometry && appLock.method==='biometric'" type="button" class="secondary" :disabled="busy" @click="enter(true)"><Fingerprint :size="20" />Unlock with Face ID / Touch ID</button>
-          <button type="button" class="text-button" :disabled="busy" @click="recoverSignIn">Use password, SSO or passkey</button><button type="button" class="text-button" :disabled="busy" @click="signOut">Sign out of this device</button>
+          <a v-if="codeRecoveryLink" :href="codeRecoveryLink" target="_blank" rel="noopener noreferrer">Forgot your account code? Sign in to reset it</a><button type="button" class="text-button" :disabled="busy" @click="recoverSignIn">Use password, SSO or passkey</button><button type="button" class="text-button" :disabled="busy" @click="signOut">Sign out of this device</button>
         </form>
         <p v-if="error" role="alert" class="error">{{ error }}</p>
       </section>
@@ -401,3 +406,5 @@ html,body,#app{margin:0;min-height:100%;font-family:Inter,-apple-system,BlinkMac
 <style scoped>
 .mobile-app.privacy-hidden>:not(.mobile-privacy-cover){visibility:hidden;pointer-events:none}.mobile-privacy-cover{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;background:#f4f7fc;color:#203b60;font:16px system-ui}
 </style>
+
+<style scoped>.initial-account-code{display:block;font-size:28px;letter-spacing:8px;text-align:center;background:#edf3ff;border-radius:12px;padding:20px;color:#183655}</style>

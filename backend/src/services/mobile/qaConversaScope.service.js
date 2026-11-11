@@ -8,6 +8,7 @@ export function mobileQaAgencyId(req){
 }
 export function qaConversaRouteAllowed(method,path){
  if(method==='GET')return /^(?:\/messages\/inbox|\/messages\/preferences|\/directory|\/chat\/threads|\/chat\/inbox\/(?:threads|mentions|files)|\/chat\/threads\/\d+\/messages|\/messages\/chat\/\d+|\/messages\/files\/\d+|\/conversations\/\d+(?:\/attachments\/\d+|\/messages\/\d+\/delivery)?)$/.test(path);
+ if(method==='POST'&&/^\/messages\/email\/\d+\/spam$/.test(path))return true;
  if(method==='PATCH')return /^(?:\/messages\/preferences|\/messages\/(?:chat|email|sms)\/\d+\/(?:archive|state)|\/conversations\/\d+)$/.test(path);
  return method==='POST'&&/^(?:\/chat\/direct|\/chat\/threads\/\d+\/(?:messages|read)|\/messages\/chat\/\d+\/viewed)$/.test(path);
 }

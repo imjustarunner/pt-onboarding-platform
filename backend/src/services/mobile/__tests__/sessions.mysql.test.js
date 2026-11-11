@@ -29,6 +29,7 @@ describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('isolated MySQL device sessi
     await admin.query(`CREATE DATABASE ${name} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
     db=mysql.createPool({...options,user:'root',password:process.env.MOBILE_MYSQL_PASSWORD || '',database:name,timezone:'+00:00',multipleStatements:true});
     await db.query(`CREATE TABLE users(id INT PRIMARY KEY,first_name VARCHAR(40),last_name VARCHAR(40),email VARCHAR(100),role VARCHAR(40),password_hash VARCHAR(100),is_active BOOLEAN DEFAULT 1,is_archived BOOLEAN DEFAULT 0,status VARCHAR(40),terminated_at DATETIME);
+      CREATE TABLE user_quick_view_credentials(user_id INT PRIMARY KEY,agency_id INT,passcode_hash VARCHAR(100),passcode_set_at DATETIME,passcode_version INT DEFAULT 0,failed_passcode_attempts INT DEFAULT 0,passcode_locked_until DATETIME,last_passcode_ok_at DATETIME);
       CREATE TABLE agencies(id INT PRIMARY KEY,name VARCHAR(50),portal_url VARCHAR(50),is_active BOOLEAN DEFAULT 1,is_archived BOOLEAN DEFAULT 0);
       CREATE TABLE user_agencies(user_id INT,agency_id INT,is_active BOOLEAN DEFAULT 1);
       CREATE TABLE quick_view_sessions(id INT PRIMARY KEY AUTO_INCREMENT,user_id INT,agency_id INT,session_token_hash VARCHAR(64),credential_token_version INT DEFAULT 0,expires_at DATETIME,revoked_at DATETIME);
@@ -48,6 +49,8 @@ describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('isolated MySQL device sessi
     await db.query(migration);
     await db.query(await readFile(new URL('../../../../../database/migrations/1768_mobile_optional_app_lock.sql',import.meta.url),'utf8'));
     await db.query(await readFile(new URL('../../../../../database/migrations/1778_mobile_primary_authentication_context.sql',import.meta.url),'utf8'));
+    await db.query('ALTER TABLE mobile_device_sessions ADD COLUMN notification_cursor BIGINT UNSIGNED NULL');
+    await db.query(await readFile(new URL('../../../../../database/migrations/1797_mandatory_mobile_account_lock.sql',import.meta.url),'utf8'));
     const secureBoundary=await readFile(new URL('../../../../../database/migrations/1556_secure_message_boundaries.sql',import.meta.url),'utf8');
     await db.query(secureBoundary.slice(secureBoundary.indexOf('CREATE TABLE client_secure_message_records')));
     await db.query(await readFile(new URL('../../../../../database/migrations/1794_family_shared_conversations.sql',import.meta.url),'utf8'));
@@ -55,12 +58,12 @@ describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('isolated MySQL device sessi
   afterAll(async()=>{await db?.end();if(admin){await admin.query(`DROP DATABASE ${name}`);await admin.end();}});
   beforeEach(async()=>{
     clock=new Date();
-    await db.query(`SET FOREIGN_KEY_CHECKS=0;TRUNCATE mobile_push_deliveries;TRUNCATE mobile_authorization_codes;TRUNCATE mobile_device_sessions;TRUNCATE quick_view_sessions;TRUNCATE users;TRUNCATE agencies;TRUNCATE user_agencies;TRUNCATE chat_messages;TRUNCATE chat_threads;TRUNCATE chat_thread_participants;TRUNCATE communication_messages;TRUNCATE communication_conversations;TRUNCATE message_logs;TRUNCATE notifications;SET FOREIGN_KEY_CHECKS=1;
+    await db.query(`SET FOREIGN_KEY_CHECKS=0;TRUNCATE mobile_push_deliveries;TRUNCATE mobile_authorization_codes;TRUNCATE mobile_device_sessions;TRUNCATE user_quick_view_credentials;TRUNCATE quick_view_sessions;TRUNCATE users;TRUNCATE agencies;TRUNCATE user_agencies;TRUNCATE chat_messages;TRUNCATE chat_threads;TRUNCATE chat_thread_participants;TRUNCATE communication_messages;TRUNCATE communication_conversations;TRUNCATE message_logs;TRUNCATE notifications;SET FOREIGN_KEY_CHECKS=1;
       INSERT INTO users(id,first_name,email,role,password_hash)VALUES(1,'Test','one@example.invalid','provider','hash'),(2,'Other','two@example.invalid','provider','other');
       INSERT INTO agencies(id,name,portal_url)VALUES(10,'Test','itsco'),(20,'Other','other');
-      INSERT INTO user_agencies(user_id,agency_id)VALUES(1,10),(2,10);`);
+      INSERT INTO user_agencies(user_id,agency_id)VALUES(1,10),(2,10);INSERT INTO user_quick_view_credentials(user_id,agency_id,passcode_hash,passcode_set_at)VALUES(1,10,'fixture:123456',NOW());`);
     service=createMobileSessionService({db,findUser:async id=>(await db.execute('SELECT * FROM users WHERE id=?',[id]))[0][0],assertStaff:async()=>{},assertProduct:async()=>{},now:()=>clock,
-      issueSession:async({userId,agencyId,mobileDeviceId,mobileDeviceVersion=0})=>{const sessionToken=opaqueToken(),expiresAt=new Date(clock.getTime()+600000);await db.execute('INSERT INTO quick_view_sessions(user_id,agency_id,mobile_device_session_id,session_token_hash,credential_token_version,expires_at)VALUES(?,?,?,?,?,?)',[userId,agencyId,mobileDeviceId,digest(sessionToken),mobileDeviceVersion,expiresAt]);return {sessionToken,userId,agencyId,expiresAt};}});
+      compare:async(code,encoded)=>encoded===`fixture:${code}`,hash:async code=>`fixture:${code}`,issueSession:async({userId,agencyId,mobileDeviceId,mobileDeviceVersion=0})=>{const sessionToken=opaqueToken(),expiresAt=new Date(clock.getTime()+600000);await db.execute('INSERT INTO quick_view_sessions(user_id,agency_id,mobile_device_session_id,session_token_hash,credential_token_version,expires_at)VALUES(?,?,?,?,?,?)',[userId,agencyId,mobileDeviceId,digest(sessionToken),mobileDeviceVersion,expiresAt]);return {sessionToken,userId,agencyId,expiresAt};}});
   });
   async function enroll(clientId='web',existingToken=null,primaryAuthentication=null) {
     const verifier=opaqueToken(),challenge=crypto.createHash('sha256').update(verifier).digest('base64url');
@@ -68,6 +71,7 @@ describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('isolated MySQL device sessi
     const grant=await service.authorize({userId:1,agencyId:10,clientId,redirectUri:callback,challenge,primaryAuthentication});
     return {...await service.exchange({code:grant.code,verifier,clientId,redirectUri:callback},existingToken),code:grant.code,verifier};
   }
+  async function configureAccountCode(raw,code){await db.execute('UPDATE user_quick_view_credentials SET passcode_hash=? WHERE user_id=1',[`fixture:${code}`]);return service.configureLock(await service.device(raw),{method:'code',code});}
   it('rejects a wrong verifier without consuming the code; allows exactly one exchange',async()=>{
     const verifier=opaqueToken(),challenge=crypto.createHash('sha256').update(verifier).digest('base64url');
     const {code}=await service.authorize({userId:1,agencyId:10,clientId:'web',redirectUri,challenge});
@@ -85,24 +89,18 @@ describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('isolated MySQL device sessi
     const renewed=await enroll('web',grant.deviceToken,replacement);
     expect(renewed.deviceId).toBe(grant.deviceId);expect(decode((await service.device(grant.deviceToken)).device.primary_authentication_json)).toEqual(replacement);
   });
-  it('does not require a code and retains the chosen lock across repeated sign-in',async()=>{
-    const first=await enroll();expect(first.needsCode).toBe(false);expect(first.profile.appLock.method).toBe('none');
-    expect((await service.resume(first.deviceToken)).sessionToken).toBeTruthy();
-    await service.setCode(first.deviceToken,'123456');
-    await expect(service.resume(first.deviceToken)).rejects.toMatchObject({code:'MOBILE_LOCKED'});
-    const second=await enroll('web',first.deviceToken);expect(second.deviceId).toBe(first.deviceId);expect(second.newDevice).toBe(false);expect(second.profile.appLock.method).toBe('code');
-    expect((await service.unlock(second.deviceToken,{code:'123456'})).sessionToken).toBeTruthy();
+  it('requires the existing account code and preserves it across primary re-sign-in',async()=>{
+    const first=await enroll();expect(first.needsCode).toBe(false);expect(first.profile.appLock).toMatchObject({method:'code',usesAccountCode:true});expect(first.initialAccountCode).toBeUndefined();
+    await expect(service.resume(first.deviceToken)).rejects.toMatchObject({code:'MOBILE_LOCKED'});await expect(service.setCode(first.deviceToken,'999999')).rejects.toMatchObject({code:'MOBILE_ACCOUNT_CODE_REQUIRED'});
+    const second=await enroll('web',first.deviceToken);expect(second.deviceId).toBe(first.deviceId);expect(second.newDevice).toBe(false);expect((await service.unlock(second.deviceToken,{code:'123456'})).sessionToken).toBeTruthy();
+    const [[credential]]=await db.execute('SELECT passcode_hash FROM user_quick_view_credentials WHERE user_id=1');expect(credential.passcode_hash).toBe('fixture:123456');
   });
-  it('enables biometric lock without a code and permits an explicit unlocked opt-out',async()=>{
-    const grant=await enroll('ios'),context=await service.device(grant.deviceToken);
-    await expect(service.configureLock(context,{method:'biometric'})).rejects.toMatchObject({code:'MOBILE_NATIVE_ONLY'});
-    const protectedSession=await service.configureLock(context,{method:'biometric',biometricVerified:true});
-    expect(protectedSession.profile.appLock).toEqual({method:'biometric',hasCode:false});
-    await expect(service.resume(grant.deviceToken)).rejects.toMatchObject({code:'MOBILE_LOCKED'});
-    expect((await service.unlock(grant.deviceToken,{biometric:true})).sessionToken).toBeTruthy();
-    const openSession=await service.configureLock(await service.device(grant.deviceToken),{method:'none'});
-    expect(openSession.profile.appLock.method).toBe('none');expect((await service.resume(grant.deviceToken)).sessionToken).toBeTruthy();
+  it('creates a random account code only when missing and returns it once after primary sign-in',async()=>{await db.query('DELETE FROM user_quick_view_credentials');const first=await enroll();expect(first.initialAccountCode).toMatch(/^\d{6}$/);expect((await service.unlock(first.deviceToken,{code:first.initialAccountCode})).sessionToken).toBeTruthy();expect((await enroll('web',first.deviceToken)).initialAccountCode).toBeUndefined();});
+  it('enables native biometrics, rejects browser biometric claims and never permits opting out',async()=>{
+    const grant=await enroll('ios'),context=await service.device(grant.deviceToken);await expect(service.configureLock(context,{method:'biometric'})).rejects.toMatchObject({code:'MOBILE_NATIVE_ONLY'});
+    const protectedSession=await service.configureLock(context,{method:'biometric',biometricVerified:true});expect(protectedSession.profile.appLock).toMatchObject({method:'biometric',usesAccountCode:true});await expect(service.resume(grant.deviceToken)).rejects.toMatchObject({code:'MOBILE_LOCKED'});expect((await service.unlock(grant.deviceToken,{biometric:true})).sessionToken).toBeTruthy();await expect(service.configureLock(await service.device(grant.deviceToken),{method:'none'})).rejects.toMatchObject({code:'MOBILE_METHOD_INVALID'});
   });
+  it('migrates a legacy opt-out to the account code without accepting its old custom device code',async()=>{const grant=await enroll();await db.execute("UPDATE mobile_device_sessions SET app_lock_method='none',quick_code_hash='fixture:999999' WHERE id=?",[grant.deviceId]);expect(service.lockInfo((await service.device(grant.deviceToken)).device).method).toBe('code');await expect(service.resume(grant.deviceToken)).rejects.toMatchObject({code:'MOBILE_LOCKED'});await expect(service.unlock(grant.deviceToken,{code:'999999'})).rejects.toMatchObject({code:'MOBILE_UNLOCK_FAILED'});expect((await service.unlock(grant.deviceToken,{code:'123456'})).sessionToken).toBeTruthy();});
   it('invalidates short sessions minted against a previous app lock preference',async()=>{
     const grant=await enroll();
     const oldVersion=(await service.device(grant.deviceToken)).device.app_lock_version;
@@ -112,26 +110,28 @@ describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('isolated MySQL device sessi
     await expect(service.access(grant.deviceId,1,10,current.device.app_lock_version)).resolves.toMatchObject({device:{id:grant.deviceId}});
   });
   it('keeps the device signed in across locks and revokes every scoped session on logout',async()=>{
-    const {deviceToken,deviceId}=await enroll();const first=await service.setCode(deviceToken,'012345');
+    const {deviceToken,deviceId}=await enroll();const first=await configureAccountCode(deviceToken,'012345');
     clock=new Date(clock.getTime()+20*60000);
     const second=await service.unlock(deviceToken,{code:'012345'});expect(second.sessionToken).not.toBe(first.sessionToken);
     await service.logout(deviceToken);await expect(service.device(deviceToken)).rejects.toMatchObject({code:'MOBILE_SIGN_IN_REQUIRED'});
     const [[remaining]]=await db.execute('SELECT COUNT(*) AS n FROM quick_view_sessions WHERE mobile_device_session_id=? AND revoked_at IS NULL',[deviceId]);expect(remaining.n).toBe(0);
   });
-  it('serializes failed unlock attempts and revokes after five; browser cannot claim biometric unlock',async()=>{
-    const {deviceToken}=await enroll();await service.setCode(deviceToken,'123456');
+  it('serializes account-code attempts and locks after three; browser cannot claim biometric unlock',async()=>{
+    const {deviceToken}=await enroll();await configureAccountCode(deviceToken,'123456');
     await expect(service.unlock(deviceToken,{biometric:true})).rejects.toMatchObject({code:'MOBILE_NATIVE_ONLY'});
-    await Promise.allSettled(Array.from({length:5},()=>service.unlock(deviceToken,{code:'111111'})));
-    await expect(service.unlock(deviceToken,{code:'123456'})).rejects.toMatchObject({code:'MOBILE_SIGN_IN_REQUIRED'});
+    await Promise.allSettled(Array.from({length:3},()=>service.unlock(deviceToken,{code:'111111'})));
+    await expect(service.unlock(deviceToken,{code:'123456'})).rejects.toMatchObject({code:'MOBILE_ACCOUNT_CODE_LOCKED'});
   });
   it('blocks removed memberships, disabled users, password changes and expired device grants',async()=>{
-    const {deviceToken}=await enroll();await service.setCode(deviceToken,'123456');
+    const {deviceToken}=await enroll();await configureAccountCode(deviceToken,'123456');
     await expect(service.switchWorkspace(await service.device(deviceToken),20)).rejects.toMatchObject({code:'MOBILE_WORKSPACE_UNAVAILABLE'});
     await db.execute("UPDATE users SET password_hash='changed' WHERE id=1");
     await expect(service.device(deviceToken)).rejects.toMatchObject({code:'MOBILE_ACCOUNT_CHANGED'});
     const next=await enroll();clock=new Date(clock.getTime()+91*86400000);
     await expect(service.device(next.deviceToken)).rejects.toMatchObject({code:'MOBILE_SIGN_IN_REQUIRED'});
   });
+  it('rolls out mandatory lock without changing the account code or durable primary authentication',async()=>{const grant=await enroll(),before=(await service.device(grant.deviceToken)).device;await db.execute("UPDATE mobile_device_sessions SET app_lock_method='none',quick_code_hash='fixture:654321' WHERE id=?",[grant.deviceId]);await db.query(await readFile(new URL('../../../../../database/migrations/1797_mandatory_mobile_account_lock.sql',import.meta.url),'utf8'));const after=(await service.device(grant.deviceToken)).device;expect(after.app_lock_method).toBe('code');expect(after.quick_code_hash).toBeNull();expect(after.enrolled_at).toEqual(before.enrolled_at);expect(after.revoked_at).toBeNull();const [[active]]=await db.execute('SELECT COUNT(*) AS n FROM quick_view_sessions WHERE mobile_device_session_id=? AND revoked_at IS NULL',[grant.deviceId]);expect(active.n).toBe(0);expect((await service.unlock(grant.deviceToken,{code:'123456'})).sessionToken).toBeTruthy();});
+  it('requires primary sign-in at 30 days despite continued code unlocks or activity',async()=>{const proof={sessionKey:'verified-account',authMethod:'account',issuedAt:Math.floor(clock.getTime()/1000)},grant=await enroll('web',null,proof);clock=new Date(clock.getTime()+29*86400000);expect((await service.unlock(grant.deviceToken,{code:'123456'})).sessionToken).toBeTruthy();clock=new Date(clock.getTime()+86400000);await expect(service.unlock(grant.deviceToken,{code:'123456'})).rejects.toMatchObject({code:'MOBILE_SIGN_IN_REQUIRED'});const [[row]]=await db.execute('SELECT revoked_at,push_enabled FROM mobile_device_sessions WHERE id=?',[grant.deviceId]);expect(row.revoked_at).toBeTruthy();expect(Number(row.push_enabled)).toBe(0);await expect(enroll('web',null,proof)).rejects.toMatchObject({code:'MOBILE_PRIMARY_REQUIRED'});const next=await enroll('web',grant.deviceToken,{...proof,issuedAt:Math.floor(clock.getTime()/1000)});expect((await service.unlock(next.deviceToken,{code:'123456'})).sessionToken).toBeTruthy();});
   it('revalidates disabled accounts and removed workspace membership on an existing device',async()=>{
     let grant=await enroll();await db.execute('UPDATE user_agencies SET is_active=0 WHERE user_id=1');
     await expect(service.device(grant.deviceToken)).rejects.toMatchObject({code:'MOBILE_WORKSPACE_UNAVAILABLE'});
@@ -140,7 +140,7 @@ describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('isolated MySQL device sessi
     await expect(service.device(grant.deviceToken)).rejects.toMatchObject({code:'ACCOUNT_DISABLED'});
   });
   it('starts notification cursors at opt-in and preserves them on token renewal',async()=>{
-    const {deviceToken,deviceId}=await enroll('ios');await service.setCode(deviceToken,'123456');
+    const {deviceToken,deviceId}=await enroll('ios');await configureAccountCode(deviceToken,'123456');
     const register=createMobilePushRegistration(db),context=await service.device(deviceToken);
     await db.query('INSERT INTO chat_messages(thread_id,sender_user_id)VALUES(1,2)');
     await register(context,{enabled:true,token:'a'.repeat(64),environment:'sandbox'});
@@ -152,7 +152,7 @@ describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('isolated MySQL device sessi
     expect(Number(device.id)).toBe(deviceId);
   });
   it('includes authorized secondary workspaces and skips explicit chat mutes',async()=>{
-    const {deviceToken}=await enroll();await service.setCode(deviceToken,'123456');
+    const {deviceToken}=await enroll();await configureAccountCode(deviceToken,'123456');
     await db.query('INSERT INTO user_agencies VALUES(1,20,1);INSERT INTO chat_threads(id,agency_id) VALUES(2,20);INSERT INTO chat_thread_participants(thread_id,user_id) VALUES(2,1);INSERT INTO chat_messages(thread_id,sender_user_id)VALUES(2,2)');
     const worker=createMobilePushWorker({db,sessions:service,refreshSecure:async()=>{}}),device=(await service.device(deviceToken)).device;
     expect(await worker.permitted(device,'chat',1)).toBe(2);
@@ -162,7 +162,7 @@ describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('isolated MySQL device sessi
     expect(await worker.permitted(device,'chat',1)).toBeNull();
   });
   it('queues every chat/reply, email and SMS once and rechecks recipient permissions before delivery',async()=>{
-    const {deviceToken,deviceId}=await enroll();await service.setCode(deviceToken,'123456');
+    const {deviceToken,deviceId}=await enroll();await configureAccountCode(deviceToken,'123456');
     await db.execute('UPDATE mobile_device_sessions SET push_enabled=1,chat_cursor=0,email_cursor=0,sms_cursor=0 WHERE id=?',[deviceId]);
     await db.query(`INSERT INTO chat_threads(id,agency_id) VALUES(1,10),(2,20);INSERT INTO chat_thread_participants(thread_id,user_id) VALUES(1,1),(2,1);
       INSERT INTO chat_messages(thread_id,sender_user_id)VALUES(1,2),(1,2),(1,1),(2,2);

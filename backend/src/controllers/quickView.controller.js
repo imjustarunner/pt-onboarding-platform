@@ -1,3 +1,4 @@
+import {identifyMobileContext,auditMobileAction} from '../services/mobile/audit.service.js';
 import { recordQuickPresenceActivity } from './quickViewPresence.controller.js';
 import {enrichMobileClinicalCalendar} from '../services/mobileClinicalCalendar.service.js';
 import { quickDayWindow, quickMeetingLink } from '../utils/quickViewCalendar.js';
@@ -598,7 +599,11 @@ export const postExtendSession = async (req, res, next) => {
 export const postLogout = async (req, res, next) => {
   try {
     const raw = req.headers['x-quick-view-session'] || req.cookies?.qv_session || req.body?.sessionToken;
-    if (raw) await revokeSession(raw);
+    if(raw){
+      let context;try{const active=await touchSession(raw);if(active?.mobileDeviceSessionId){const {mobileSessions}=await import('../services/mobile/session.service.js');context=await mobileSessions.access(active.mobileDeviceSessionId,active.userId,active.agencyId);}}catch(error){if(![401,403,423].includes(error.status))throw error;}
+      if(context){await identifyMobileContext(req,context);await auditMobileAction(req,'locked',context);}
+      await revokeSession(raw);
+    }
     res.clearCookie('qv_session');
     res.json({ ok: true });
   } catch (e) {
@@ -632,7 +637,7 @@ export async function requireQuickViewSession(req, res, next) {
     req.user = { id: session.userId, role: 'quick_view' };
     if(session.mobileDeviceSessionId){
       const {mobileSessions,parsePrimaryAuthentication}=await import('../services/mobile/session.service.js');
-      const context=await mobileSessions.access(session.mobileDeviceSessionId,session.userId,session.agencyId),proof=parsePrimaryAuthentication(context.device.primary_authentication_json);
+      const context=await mobileSessions.access(session.mobileDeviceSessionId,session.userId,session.agencyId);await identifyMobileContext(req,context);const proof=parsePrimaryAuthentication(context.device.primary_authentication_json);
       if(proof){req.sessionSecurity={key:proof.sessionKey};req.authClaims={authMethod:proof.authMethod};}
     }
     return enforceAccountSecurity(req, res, next);

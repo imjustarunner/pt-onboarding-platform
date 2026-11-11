@@ -1,5 +1,5 @@
 vi.mock('../../../models/CommunicationConversation.model.js',()=>({default:{markRead:vi.fn(),markUnread:vi.fn()}}));
-vi.mock('../../../models/UserCommunicationContact.model.js',()=>({default:{upsertSafe:vi.fn()}}));
+vi.mock('../../../models/UserCommunicationContact.model.js',()=>({default:{upsertSafe:vi.fn(),findByEmail:vi.fn(),block:vi.fn()}}));
 import Conversation from '../../../models/CommunicationConversation.model.js';
 import Contact from '../../../models/UserCommunicationContact.model.js';
 import {beforeEach,expect,it,vi} from 'vitest';
@@ -17,7 +17,7 @@ vi.mock('../documentationQueue.service.js',()=>({getMobileDocumentationQueue:vi.
 vi.mock('../../../services/storage.service.js',()=>({default:{}}));
 import {listMobileAgencies} from '../agencyScope.service.js';
 import {qvListChatChannels} from '../../../controllers/quickViewSurfaces.controller.js';
-import {getMobileWorkspaceCounts,postMobileKnownSender,patchMobileMessageState,getMobileInbox,patchMobileArchive,getMobileChatContext,getMobileFile} from '../../../controllers/mobileConversa.controller.js';
+import {getMobileWorkspaceCounts,postMobileSpam,postMobileKnownSender,patchMobileMessageState,getMobileInbox,patchMobileArchive,getMobileChatContext,getMobileFile} from '../../../controllers/mobileConversa.controller.js';
 const request=()=>({quickView:{userId:3,agencyId:2,mobileDeviceSessionId:7},params:{id:'10',kind:'chat',threadId:'10'},query:{},headers:{},body:{archived:true,userId:999}});
 const response=()=>({set:vi.fn().mockReturnThis(),status:vi.fn().mockReturnThis(),json:vi.fn()});
 beforeEach(()=>{vi.resetAllMocks();listMobileAgencies.mockResolvedValue({agencies:[]});qvListChatChannels.mockImplementation((req,res)=>res.json({channels:[]}));mocks.access.mockResolvedValue(true);mocks.emails.mockResolvedValue([]);mocks.emailCounts.mockResolvedValue([]);mocks.archives.mockResolvedValue(new Map());mocks.extraCounts.mockResolvedValue({threads:{total:0,unread:0,needs:0},mentions:{total:0,unread:0,needs:0},files:{total:0,unread:0,needs:0}});mocks.threads.mockImplementation((req,res)=>res.json([{thread_id:10,thread_type:'client_secure',message_channel:'secure',participants:[{id:5,first_name:'Private',last_name:'Person'}],last_message:{id:50,body:'SENSITIVE MESSAGE',sender_user_id:5,created_at:'2026-11-06T10:00:00Z'},unread_count:1}]));});
@@ -65,3 +65,15 @@ it('saves the authorized conversation sender for this owner and rejects blocked 
  Contact.upsertSafe.mockResolvedValue({trust_status:'blocked'});const blocked=response();await postMobileKnownSender(request(),blocked,vi.fn());expect(blocked.status).toHaveBeenCalledWith(409);
 });
 it('returns startup unread counts without loading email rows, channel discovery, or secondary message folders',async()=>{const req=request(),res=response();req.query={countsOnly:'1'};mocks.emailCounts.mockResolvedValue([{category:'email',total:8,unread:4,needs:0,sent:1}]);await getMobileInbox(req,res,vi.fn());expect(res.json).toHaveBeenCalledWith({counts:expect.objectContaining({all:expect.objectContaining({unread:5}),email:expect.objectContaining({unread:4})})});expect(mocks.emails).not.toHaveBeenCalled();expect(mocks.extraCounts).not.toHaveBeenCalled();expect(qvListChatChannels).not.toHaveBeenCalled();});
+
+it('marks a confirmed unknown sender as spam for the signed-in recipient only',async()=>{
+ mocks.conversationAccess.mockResolvedValue({id:10,agency_id:2,channel:'email',is_unknown_sender:1,support_ticket_id:77});mocks.execute.mockResolvedValueOnce([[{email:'unknown@example.invalid',display_name:'Synthetic sender'}]]).mockResolvedValueOnce([[]]);Contact.findByEmail.mockResolvedValue(null);Contact.block.mockResolvedValue({});const req=request();req.body={confirmed:true,userId:999};const res=response(),next=vi.fn();await postMobileSpam(req,res,next);expect(next).not.toHaveBeenCalled();expect(Contact.block).toHaveBeenCalledWith(expect.objectContaining({ownerUserId:3,blockedByUserId:3,agencyId:2,email:'unknown@example.invalid'}));expect(res.json).toHaveBeenCalledWith({ok:true});expect(Conversation.markRead).not.toHaveBeenCalled();expect(mocks.execute.mock.calls.every(([sql])=>sql.startsWith('SELECT'))).toBe(true);
+});
+it('rejects unconfirmed, known, internal, revoked and legacy-PIN spam operations',async()=>{
+ let req=request(),res=response();await postMobileSpam(req,res,vi.fn());expect(res.status).toHaveBeenCalledWith(400);expect(Contact.block).not.toHaveBeenCalled();
+ req=request();req.body={confirmed:true};mocks.conversationAccess.mockResolvedValue({agency_id:2,channel:'email',is_unknown_sender:0});res=response();await postMobileSpam(req,res,vi.fn());expect(res.status).toHaveBeenCalledWith(409);
+ mocks.conversationAccess.mockResolvedValue({agency_id:2,channel:'email',is_unknown_sender:1});mocks.execute.mockResolvedValueOnce([[{email:'staff@example.invalid'}]]).mockResolvedValueOnce([[{id:4}]]);res=response();await postMobileSpam(req,res,vi.fn());expect(res.status).toHaveBeenCalledWith(409);
+ mocks.conversationAccess.mockRejectedValue(Object.assign(new Error('Not authorized'),{status:403}));res=response();await postMobileSpam(req,res,vi.fn());expect(res.status).toHaveBeenCalledWith(403);
+ delete req.quickView.mobileDeviceSessionId;res=response();await postMobileSpam(req,res,vi.fn());expect(res.status).toHaveBeenCalledWith(403);expect(Contact.block).not.toHaveBeenCalled();
+});
+it('excludes spam from the combined badge while retaining its separate folder',async()=>{mocks.emailCounts.mockResolvedValue([{category:'spam',unknown:false,total:12,unread:12},{category:'email',unknown:false,total:1,unread:1}]);mocks.emails.mockResolvedValue([{id:2,key:'email:2',category:'spam',unread:true},{id:3,key:'email:3',category:'email',unread:true}]);const req=request(),res=response();await getMobileInbox(req,res,vi.fn());expect(res.json.mock.calls[0][0].counts.spam.unread).toBe(12);expect(res.json.mock.calls[0][0].counts.all.unread).toBe(2);expect(res.json.mock.calls[0][0].items.some(item=>item.category==='spam')).toBe(false);req.query.suite='spam';const spam=response();await getMobileInbox(req,spam,vi.fn());expect(spam.json.mock.calls[0][0].items.map(item=>item.id)).toEqual([2]);});

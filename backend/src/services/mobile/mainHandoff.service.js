@@ -1,3 +1,5 @@
+import pool from '../../config/database.js';
+import {getUserCapabilities} from '../../utils/capabilities.js';
 import {randomUUID} from 'node:crypto';
 import config from '../../config/config.js';
 import {touchSession} from '../quickViewAuth.service.js';
@@ -37,6 +39,7 @@ async function freshActor(user,agencyId){
 export function createMobileMainHandoff({
  touch=touchSession,access=(...args)=>mobileSessions.access(...args),assertProduct=assertFullSuiteIdentity,
  agencies=listMobileAgencies,getActor=freshActor,clientContext=mobileClientDirectoryContext,
+ candidateInAgency=async(id,agencyId)=>{const [[row]]=await pool.execute('SELECT 1 FROM user_agencies WHERE user_id=? AND agency_id=? AND COALESCE(is_active,1)=1 LIMIT 1',[id,agencyId]);return !!row;},
  sign=signFullSuiteToken,buildUrl=buildPublicAppUrl,settings=config,trustedOrigins=mobileMainTrustedOrigins(),
  now=()=>Date.now(),newSessionId=randomUUID
 }={}){
@@ -53,9 +56,9 @@ export function createMobileMainHandoff({
    if(request.method!=='POST'||!/^application\/x-www-form-urlencoded(?:\s*;|$)/i.test(header('content-type')))throw fail(400);
    if((header('sec-fetch-mode')&&header('sec-fetch-mode')!=='navigate')||(header('sec-fetch-dest')&&header('sec-fetch-dest')!=='document'))throw fail(403);
    if(!trustedOrigins.has(origin)&&!NATIVE_ORIGINS.has(origin))throw fail(403);
-   if(!body||typeof body!=='object'||Array.isArray(body)||Object.keys(body).some(key=>!['kind','agencyId','clientId'].includes(key))||Object.keys(request.query||{}).length)throw fail(400);
-   const agencyId=positiveId(body.agencyId),clientId=positiveId(body.clientId),kind=body.kind;
-   if(!agencyId||!['client','schedule'].includes(kind)||(kind==='client'&&!clientId)||(kind==='schedule'&&body.clientId!==undefined))throw fail(400);
+   if(!body||typeof body!=='object'||Array.isArray(body)||Object.keys(body).some(key=>!['kind','agencyId','clientId','candidateId'].includes(key))||Object.keys(request.query||{}).length)throw fail(400);
+   const agencyId=positiveId(body.agencyId),clientId=positiveId(body.clientId),candidateId=positiveId(body.candidateId),kind=body.kind;
+   if(!agencyId||!['client','schedule','applicants'].includes(kind)||(kind==='client'&&!clientId)||(kind==='schedule'&&(body.clientId!==undefined||body.candidateId!==undefined))||(kind==='applicants'&&(!candidateId||body.clientId!==undefined))||(kind==='client'&&body.candidateId!==undefined))throw fail(400);
    if(typeof token!=='string'||!/^[a-f0-9]{64}$/i.test(token))throw fail(401);
    // Validation does not extend the mobile workspace's absolute lock deadline.
    const unlocked=await touch(token,{activity:false});
@@ -85,6 +88,7 @@ export function createMobileMainHandoff({
     if(!authorized?.fullProfileUrl||Number(authorized.client?.id)!==clientId||Number(authorized.agency?.id)!==agencyId||!CLIENT_ROLES.has(authorized.actor?.role))throw fail(403);
     path=`admin/clients/${clientId}`;
    }
+   if(kind==='applicants'){if(!getUserCapabilities(actor).canManageHiring||!await candidateInAgency(candidateId,agencyId))throw fail(403);path=`admin/hiring/people/${candidateId}/packages`;}
    const target=new URL(buildUrl(agency,path));
    if(target.protocol!=='https:'||target.username||target.password||target.search||target.hash||!trustedOrigins.has(target.origin))throw fail(403);
    if(target.host.toLowerCase()!==header('host').toLowerCase())throw fail(403);

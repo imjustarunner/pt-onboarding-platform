@@ -17,7 +17,7 @@ const agencyName=n=>agencies.value.find(a=>Number(a.id)===Number(n.agency_id))?.
 const agencyLogo=n=>n.agency_logo_url || agencies.value.find(a=>Number(a.id)===Number(n.agency_id))?.logoUrl || '';
 function setSettings(value){const next=!!value;if(settings.value===next)return;settings.value=next;emit('settings-change',next);}
 function back(){if(settings.value){setSettings(false);return;}emit('close');}
-const sourceLabel=n=>({communication_conversation:'Open email',chat_thread:'Open message',task:'Open task',client:'Open profile'}[n.related_entity_type] || '');
+const sourceLabel=n=>n.type==='website_chat_waiting'?'Open live chat':({communication_conversation:'Open email',chat_thread:'Open message',task:'Open task',client:'Open profile',client_exchange_listing:'Open Client Exchange',hiring_candidate:'View applicant'}[n.related_entity_type] || '');
 async function load(force=false){const current=++version,scope=key(),cached=cache.get(scope);if(scope!==loadedScope){items.value=cached?.items || [];loadedScope=scope;}if(!force && cached && Date.now()-cached.at<60000){items.value=cached.items;totalPages.value=cached.totalPages;loading.value=false;return;}loading.value=true;error.value='';try{
  const params=new URLSearchParams({status:status.value,page:String(page.value),agencyId:agencyId.value,sort:sort.value,...(feedSearch.value?{search:feedSearch.value}:{})});
  const data=await props.request('GET',settings.value?'/notification-settings':`/notification-feed?${params}`);

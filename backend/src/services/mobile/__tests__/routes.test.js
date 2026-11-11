@@ -6,6 +6,7 @@ vi.mock('../../../middleware/auth.middleware.js',()=>({authenticate:(req,_res,ne
 vi.mock('../../../middleware/loginProtection.middleware.js',()=>({sharedLoginLimiter:()=>((_req,_res,next)=>next())}));
 vi.mock('../session.service.js',()=>({mobileSessions:mocks}));
 vi.mock('../../quickViewAuth.service.js',()=>({touchSession:vi.fn()}));
+vi.mock('../audit.service.js',()=>({identifyMobileContext:vi.fn(),auditMobileAction:vi.fn()}));
 vi.mock('../push.service.js',()=>({registerMobilePush:vi.fn(),pushConfiguration:()=>({}),createMobilePushWorker:()=>({permitted:mocks.permitted})}));
 vi.mock('../../../config/database.js',()=>({default:{execute:mocks.execute}}));
 import {touchSession} from '../../quickViewAuth.service.js';
@@ -33,9 +34,9 @@ it('cannot connect an impersonated/demo session or a different account than conf
   expect((await post('/authorize',{expectedUserId:1,agencyId:10})).status).toBe(200);
 });
 it('never returns the private profile in the locked device status',async()=>{
-  mocks.device.mockResolvedValue({device:{quick_code_hash:'hash'},workspace:{id:10,name:'Test'},user:{password_hash:'private'}});
+  mocks.device.mockResolvedValue({device:{quick_code_hash:'private-code-hash',token_hash:'private-durable-hash'},workspace:{id:10,name:'Test'},user:{id:1,password_hash:'private-password',first_name:'PRIVATE-PROFILE-NAME',email:'private@example.invalid'}});
   const response=await fetch(base+'/session',{headers:{Cookie:'__Secure-auricwell_mobile_device=secret'}});
-  expect(await response.json()).toEqual({signedIn:true,needsCode:false,appLock:{method:'code',hasCode:true},workspace:{id:10,name:'Test'}});
+  const body=await response.json();expect(body).toEqual({signedIn:true,userId:1,needsCode:false,appLock:{method:'code',hasCode:true},workspace:{id:10,name:'Test'}});expect(JSON.stringify(body)).not.toMatch(/private|secret|PROFILE|passcode|token/i);
   expect(mocks.device).toHaveBeenCalledWith('secret');
 });
 
@@ -58,6 +59,15 @@ it('opens a notification at its exact authorized secure reply without exchanging
 it('does not resolve a notification after its conversation access has been revoked',async()=>{
  touchSession.mockResolvedValue({mobileDeviceSessionId:7,userId:1,agencyId:10});mocks.access.mockResolvedValue({device:{id:7,user_id:1,agency_id:10}});mocks.permitted.mockResolvedValue(null);
  const response=await fetch(base+'/notification-target/chat/88',{headers:{'X-Quick-View-Session':'retained-scoped'}});expect(response.status).toBe(404);expect(mocks.execute).not.toHaveBeenCalled();
+});
+it('resolves an authorized offline Live Chat notification as a read target without enabling push or chat presence',async()=>{
+ const context={device:{id:7,user_id:1,agency_id:10},user:{id:1,role:'support'}};
+ touchSession.mockResolvedValue({mobileDeviceSessionId:7,userId:1,agencyId:10});mocks.access.mockResolvedValue(context);mocks.permitted.mockResolvedValue(60);
+ const notification={id:60,type:'website_chat_waiting',agency_id:10,related_entity_type:'website_chat_session',related_entity_id:null,audience_json:JSON.stringify({websiteChatSessionId:'11111111-2222-4333-8444-555555555555'})};mocks.execute.mockResolvedValue([[notification]]);
+ const response=await fetch(base+'/notification-target/notification/60',{headers:{'X-Quick-View-Session':'retained-scoped'}});
+ expect(response.status).toBe(200);expect(await response.json()).toEqual({notification});
+ expect(mocks.permitted).toHaveBeenCalledWith(context.device,'notification',60,context,{forDelivery:false});
+ expect(mocks.execute.mock.calls[0][1]).toEqual([60,1]);
 });
 
 it('keeps verified enrollment context server-owned instead of accepting a client claim',async()=>{

@@ -8541,30 +8541,12 @@ export const finalizePublicIntake = async (req, res, next) => {
         // best-effort applicant confirmation email
       }
       try {
-        const jobTitle = String((await HiringJobDescription.findById(jobDescriptionId))?.title || '').trim()
-          || String(link?.title || 'Job application').trim();
-        await Notification.create({
-          type: 'new_job_application_submitted',
-          severity: 'info',
-          title: reusedApplicant ? 'New application submitted' : 'New applicant submitted',
-          message: reusedApplicant
-            ? `${jobTitle}: ${gFirst} ${gLast} submitted another application${unarchivedForApplication ? ' (unarchived)' : ''}${isCurrentEmployee ? ' (existing employee)' : ''}.`
-            : `${jobTitle}: ${gFirst} ${gLast} submitted a new application.`,
-          audienceJson: {
-            admin: true,
-            support: true,
-            staff: true,
-            provider: false
-          },
-          userId: null,
-          agencyId,
-          relatedEntityType: 'hiring_candidate',
-          relatedEntityId: user.id,
-          actorUserId: null
-        });
-      } catch {
-        // best effort
+        const {queueApplicantAdminNotice}=await import('../services/applicantAdminNotices.service.js');
+        await queueApplicantAdminNotice({agencyId,candidateId:user.id,submissionId});
+      } catch(error) {
+        console.warn('[job_application] administrator notice needs review', error?.code || error?.name);
       }
+
 
       return res.json({
         success: true,

@@ -6,6 +6,9 @@ import {encryptChatText,decryptChatText,isChatEncryptionConfigured} from './chat
 import {moderateWebsiteChat,websitePagePath,standardsNotice} from '../utils/websiteChatPolicy.js';
 import {PUBLIC_SUPPORT_CATEGORIES} from './publicAgencySupport.service.js';
 import {verifyRecaptchaV3} from './captcha.service.js';
+import {readAgencyAccess} from './agencyAccessProfiles.service.js';
+import {applyAgencyAccess} from '../utils/agencyAccessPolicy.js';
+import {STAFF_ROLES} from '../utils/staffEligibility.js';
 
 const fail=(message,status=400)=>Object.assign(new Error(message),{status});
 const hash=token=>createHash('sha256').update(String(token||'')).digest('hex');
@@ -23,22 +26,28 @@ export function websiteQuickReplies(site) {
   {label:'Follow up',body:`If you need to leave, please use our contact form at ${root}/contact so our team has your email for follow-up.`}
  ];
 }
-export function createWebsiteChatService(db=pool,identity=getPublicWebsiteIdentity) {
+export function createWebsiteChatService(db=pool,identity=getPublicWebsiteIdentity,notifications=null,{agencyAccess=(userId,agencyId)=>readAgencyAccess(userId,agencyId,db)}={}) {
+ async function notify(sessionId,eventKey){
+  // A failed notification never rejects a chat that was already committed.
+  try{const queue=notifications || (db===pool?(await import('./websiteChatNotifications.service.js')).websiteChatNotifications:null);await queue?.enqueue({sessionId,eventKey});}
+  catch(error){if(db===pool)console.warn('[website-chat] Notification pending:',String(error.code || 'queue_unavailable'));}
+ }
  async function site(slug){const s=await identity(slug);if(!s||!s.chat_enabled||s.coming_soon)throw fail('Live Chat unavailable',404);return s;}
  async function actor(user){
   if(!user?.id||user.demoMode)throw fail('Sign in required',401);
-  const [rows]=await db.execute(`SELECT id,role FROM users WHERE id=? AND COALESCE(is_active,1)=1 AND COALESCE(is_archived,0)=0 AND UPPER(status) IN ('ACTIVE','ACTIVE_EMPLOYEE')`,[user.id]);
-  if(!roles.includes(String(rows[0]?.role||'').toLowerCase()))throw fail('Support access required',403);
-  const [members]=await db.execute("SELECT agency_id FROM user_agencies WHERE user_id=? AND COALESCE(is_active,1)=1 AND COALESCE(NULLIF(agency_role,''),?) IN ('admin','support','super_admin')",[user.id,rows[0].role]);
-  return {id:user.id,global:rows[0].role==='super_admin',agencies:members.map(r=>Number(r.agency_id))};
+  const [rows]=await db.execute(`SELECT id,role FROM users WHERE id=? AND COALESCE(is_active,1)=1 AND COALESCE(is_archived,0)=0 AND COALESCE(is_assistant_account,0)=0 AND COALESCE(is_demo,0)=0 AND UPPER(status) IN ('ACTIVE','ACTIVE_EMPLOYEE')`,[user.id]);
+  if(!STAFF_ROLES.includes(String(rows[0]?.role||'').toLowerCase()))throw fail('Support access required',403);
+  return {id:Number(rows[0].id),user:rows[0]};
  }
- async function authorize(user,slug){const a=await actor(user),s=await site(slug);if(!a.global&&!a.agencies.includes(1)&&!a.agencies.includes(Number(s.support_agency_id)))throw fail('Website not in your support scope',403);return s;}
- async function online(s){const [rows]=await db.execute(`SELECT 1 FROM public_website_chat_staff c JOIN users u ON u.id=c.user_id
+ async function supportGrant(user,agencyId){const grant=await agencyAccess(user.id,Number(agencyId));return !!grant&&roles.includes(String(applyAgencyAccess(user,grant).role).toLowerCase());}
+ async function authorizedAgencies(a){const [sites]=await db.execute('SELECT DISTINCT support_agency_id FROM public_website_support_sites WHERE chat_enabled=1 AND coming_soon=0');const allowed=await Promise.all(sites.map(async s=>await supportGrant(a.user,s.support_agency_id)?Number(s.support_agency_id):null));return [...new Set(allowed.filter(Boolean))];}
+ async function authorize(user,slug){const a=await actor(user),s=await site(slug);if(!await supportGrant(a.user,s.support_agency_id))throw fail('Website not in your support scope',403);return s;}
+ async function online(s){const [rows]=await db.execute(`SELECT u.id,u.role FROM public_website_chat_staff c JOIN users u ON u.id=c.user_id
  JOIN user_presence p ON p.user_id=u.id LEFT JOIN user_presence_status ps ON ps.user_id=u.id
  WHERE c.last_seen_at>UTC_TIMESTAMP()-INTERVAL 75 SECOND AND p.last_heartbeat_at>UTC_TIMESTAMP()-INTERVAL 90 SECOND
- AND COALESCE(u.is_archived,0)=0 AND COALESCE(u.is_active,1)=1 AND u.role IN ('admin','support','super_admin')
+ AND COALESCE(u.is_archived,0)=0 AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_assistant_account,0)=0 AND COALESCE(u.is_demo,0)=0 AND UPPER(u.status) IN ('ACTIVE','ACTIVE_EMPLOYEE')
  AND COALESCE(ps.status,'in_available') IN ('in_available','in_available_for_phone')
- AND (u.role='super_admin' OR EXISTS(SELECT 1 FROM user_agencies ua WHERE ua.user_id=u.id AND COALESCE(ua.is_active,1)=1 AND ua.agency_id IN (1,?) AND COALESCE(NULLIF(ua.agency_role,''),u.role) IN ('admin','support','super_admin'))) LIMIT 1`,[s.support_agency_id]);return rows.length>0;}
+ LIMIT 500`);for(const user of rows)if(STAFF_ROLES.includes(user.role)&&await supportGrant(user,s.support_agency_id))return true;return false;}
  async function publicConfig(slug,region){const s=await site(slug);return {eligible:localWebsiteVisitor(region,s.local_region)&&isChatEncryptionConfigured(),online:await online(s),site:{slug:s.slug,name:s.name,logoUrl:s.logoUrl,color:s.accent_color},captchaSiteKey:config.recaptcha?.siteKey||null};}
  async function start(slug,{region,ip,captchaToken,honeypot,userAgent}){
   const s=await site(slug);if(honeypot||!localWebsiteVisitor(region,s.local_region)||!await online(s))throw fail('Live chat is unavailable. Please use the contact form.',409);
@@ -52,6 +61,7 @@ export function createWebsiteChatService(db=pool,identity=getPublicWebsiteIdenti
   const id=randomUUID(),token=randomBytes(32).toString('hex');
   await db.execute(`INSERT INTO public_website_chat_sessions(id,site_slug,token_hash,ip_hash,last_seen_at,created_at,expires_at) VALUES(?,?,?,?,UTC_TIMESTAMP(),UTC_TIMESTAMP(),UTC_TIMESTAMP()+INTERVAL 2 HOUR)`,[id,s.slug,hash(token),ipHash]);
 
+  await notify(id,'started');
   return {id,token};
  }
  async function session(slug,id,token){if(!/^[a-f0-9]{64}$/.test(String(token||'')))throw fail('Chat session unavailable',404);
@@ -97,10 +107,11 @@ export function createWebsiteChatService(db=pool,identity=getPublicWebsiteIdenti
    if(moderated.filtered){const [sites]=await c.execute('SELECT website_url FROM public_website_support_sites WHERE slug=?',[s.site_slug]);await event(c,id,`Our chats are protected by Community Standards. Obscene language is automatically replaced with ****. Please keep this conversation respectful. ${sites[0].website_url}/community-standards`);}
   });
  }
- async function visitorSend(slug,id,token,payload){await session(slug,id,token);await append(id,'visitor',null,payload);return read(slug,id,token);}
+ async function visitorSend(slug,id,token,payload){await session(slug,id,token);await append(id,'visitor',null,payload);await notify(id,`message:${payload.clientMessageId}`);return read(slug,id,token);}
  async function staffHeartbeat(user,available){const a=await actor(user);if(!available){await db.execute('DELETE FROM public_website_chat_staff WHERE user_id=?',[a.id]);return;}
+ if(!(await authorizedAgencies(a)).length)throw fail('Support access required',403);
  await db.execute('INSERT INTO public_website_chat_staff(user_id,last_seen_at) VALUES(?,UTC_TIMESTAMP()) ON DUPLICATE KEY UPDATE last_seen_at=UTC_TIMESTAMP()',[a.id]);}
- async function queue(user){const a=await actor(user);const params=[];let scope='';if(!a.global&&!a.agencies.includes(1)){if(!a.agencies.length)return [];scope=` AND s.support_agency_id IN (${a.agencies.map(()=>'?').join(',')})`;params.push(...a.agencies);}
+ async function queue(user){const a=await actor(user),agencies=await authorizedAgencies(a);if(!agencies.length)return [];const params=[...agencies],scope=` AND s.support_agency_id IN (${agencies.map(()=>'?').join(',')})`;
  const [rows]=await db.execute(`SELECT c.id,c.site_slug AS siteSlug,c.created_at AS createdAt,c.last_seen_at AS lastSeen,c.page_path AS pagePath,c.state,c.claimed_by AS claimedBy,
  (c.expires_at<=UTC_TIMESTAMP()) AS expired,c.visitor_ended_at AS endedAt,c.visitor_left_at AS leftAt,c.initiated_at AS initiatedAt,
  (c.visitor_left_at IS NOT NULL OR c.last_seen_at<UTC_TIMESTAMP()-INTERVAL 40 SECOND) AS visitorLeft,
@@ -138,12 +149,12 @@ export function createWebsiteChatService(db=pool,identity=getPublicWebsiteIdenti
  async function flag(user,id,confirmed){const {site}=await staffSession(user,id);if(confirmed!==true)throw fail('Confirm the Community Standards flag.');await transaction(id,async(c,s)=>{if(!s.initiated_at||s.visitor_ended_at)throw fail('Only an active conversation can be flagged.',409);if(s.claimed_by&&Number(s.claimed_by)!==Number(user.id))throw fail('Only the responsible support member may flag this chat.',409);if(s.standards_flagged_at)return;await c.execute('UPDATE public_website_chat_sessions SET standards_flagged_at=UTC_TIMESTAMP() WHERE id=?',[id]);await event(c,id,`${standardsNotice} ${site.website_url}/community-standards`);});return staffRead(user,id);}
  async function referral(user,id,category=''){const {site}=await staffSession(user,id);if(category&&!PUBLIC_SUPPORT_CATEGORIES.some(t=>t.id===category))throw fail('Choose a valid topic.');const token=randomBytes(32).toString('hex');await db.execute('INSERT INTO public_website_chat_referrals(token_hash,session_id,author_user_id,category) VALUES(?,?,?,?)',[hash(token),id,user.id,category]);return {url:`${site.website_url}/live-chat-support?ref=${token}`,category};}
  async function visitorReferral(slug,id,token){await session(slug,id,token);const ref=randomBytes(32).toString('hex');await db.execute('INSERT INTO public_website_chat_referrals(token_hash,session_id) VALUES(?,?)',[hash(ref),id]);return {token:ref};}
- async function team(user){const a=await actor(user);const [rows]=await db.execute(`SELECT DISTINCT c.user_id AS userId,CONCAT_WS(' ',u.first_name,u.last_name) AS name FROM public_website_chat_staff c JOIN users u ON u.id=c.user_id
+ async function team(user){const a=await actor(user),agencies=await authorizedAgencies(a);if(!agencies.length)throw fail('Support access required',403);const [rows]=await db.execute(`SELECT DISTINCT c.user_id AS userId,u.role,CONCAT_WS(' ',u.first_name,u.last_name) AS name FROM public_website_chat_staff c JOIN users u ON u.id=c.user_id
  JOIN user_presence p ON p.user_id=u.id LEFT JOIN user_presence_status ps ON ps.user_id=u.id
  WHERE c.last_seen_at>UTC_TIMESTAMP()-INTERVAL 75 SECOND AND p.last_heartbeat_at>UTC_TIMESTAMP()-INTERVAL 90 SECOND
- AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0 AND u.role IN ('admin','support','super_admin')
+ AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0 AND COALESCE(u.is_assistant_account,0)=0 AND COALESCE(u.is_demo,0)=0 AND UPPER(u.status) IN ('ACTIVE','ACTIVE_EMPLOYEE')
  AND COALESCE(ps.status,'in_available') IN ('in_available','in_available_for_phone')
- AND (? OR EXISTS(SELECT 1 FROM user_agencies ua WHERE ua.user_id=u.id AND COALESCE(ua.is_active,1)=1 AND ua.agency_id IN (${a.agencies.length?a.agencies.map(()=>'?').join(','):'NULL'})))`,[a.global||a.agencies.includes(1),...a.agencies]);return rows;}
+ LIMIT 500`);const visible=[];for(const row of rows){if(!STAFF_ROLES.includes(row.role))continue;for(const agencyId of agencies)if(await supportGrant({id:Number(row.userId),role:row.role},agencyId)){visible.push({userId:row.userId,name:row.name});break;}}return visible;}
  return {publicConfig,start,read,visitorPresence,visitorLeave,visitorSend,visitorReferral,staffHeartbeat,queue,staffRead,staffSend,staffPresence,close,claim,flag,referral,team,authorize};
 }
 export const websiteChat=createWebsiteChatService();

@@ -1,0 +1,35 @@
+AuricWell mobile workspace and required app lock — targeted QA
+Use synthetic QA accounts and assigned synthetic clients. Record the frontend/API build IDs, role, agency, time, record IDs, and actual results. Do not send real messages, change real staff status, sign clinical records, or create real applications to test this release. A desktop phone-width test is not a physical iPhone pass.
+
+Required lock and account lifetime
+1. After ordinary password/SSO/passkey sign-in, use the existing six-digit account Quick View code or supported native Face ID/Touch ID. There is no lock-off option and no second per-device PIN. If the account has no code, the primary connection assigns one random account code and displays it once; do not put codes or tokens in the QA report.
+2. Background the app, switch applications, lock the phone, close/reopen, and restore a cached browser tab. Private staff/family content must remain covered until authorized unlock. Test slow unlock/profile requests that finish after the app was backgrounded again. Test both staff and a secondary guardian.
+3. Check the account's existing failed-code protection. A passcode-only legacy Quick View sign-in must not gain mobile clinical or staff tools.
+4. With an isolated synthetic fixture, test just before and at 30 days from primary authentication. Recent unlocks and +10 minutes must not extend that absolute date. The boundary requires password/SSO/passkey again.
+5. With approved setup access, make only the synthetic account inactive, revoke an agency membership, and change a synthetic password. The next API/foreground validation must reject access. Restore the test fixture through the normal admin workflow afterward. An offline device cannot receive an instantaneous status update.
+6. Check the existing security evidence/audit view: authorized mobile API reads/actions identify the actor; connect, unlock, lock, preference, workspace switch and signout produce the applicable mobile lifecycle activity. No code, token, email body, narrative, or other PHI belongs in lifecycle metadata.
+
+Today, My Work, and navigation
+1. Empty day opens around 7 AM. A populated day opens at the first actual appointment. All 24 hours remain accessible. Test after an initially hidden layout, phone rotation, Office, Agenda, and returning from another view.
+2. Today stays at the fixed left position. Saved shortcut order remains unchanged during navigation/count updates. Tap Today while already viewing Office to return to the current My Day.
+3. Introductory heading and scheduling hint appear on first use, then stay hidden on return. Date/previous/next/Office controls and top-right refresh remain pinned. Additional schedule controls collapse and expand without hiding appointments.
+4. Office roster shows the actual staff photo, agency, separated credentials and working contacts. Open the compact profile and only public selected focus information. Confirm Message targets that staff member in the correct agency.
+5. My Work collapses its upper filters after scrolling and retains that state. Search/sort can be reopened. Open note is the row action; started and not-started rows have different light tints. Existing review/Quick Sign authority remains unchanged.
+6. More sums known actionable counts for tools omitted from bottom shortcuts. Count updates and preferences must not reorder icons. Preferences opens the dialog without activating a native select.
+
+Messages and personal clients
+1. First-use swipe teaching demonstrates the configured left/right actions without changing a message. Respect reduced-motion preferences.
+2. Hold a known email/direct/group/channel/secure conversation to preview it without marking it read; close unchanged. Secure content requires explicit reveal. Three dots retains Select multiple. No iOS native text-selection menu should cover the preview controls.
+3. Unknown-sender hold offers explicit personal spam/contact actions. Mark spam only on a controlled external synthetic sender. New mail from that sender stays in the personal Spam view and is excluded from All/unread; internal/known senders cannot be blocked through this operation.
+4. School/group mail uses the stored actual school/alias identity; provider/group mail shows the actual staff photo and agency when the envelope identifies them. Do not infer a school or person from an unverified subject line.
+5. My Clients contains direct active assignments only, including when using a super-admin account. Confirm affiliated agency labels and that another admin-visible but unassigned client is absent. Broader authorized access from an actual notification/full app remains a separate workflow.
+
+Role tools
+1. Client Exchange: authorized agencies, available/all/my-request views, actual listing details, matching explanations, required warning acknowledgements and adjustment plan, request persistence, closed-listing notification links, and fast repeated agency/selection changes. Canonical eligibility rules still govern requests.
+2. Support Messages: permitted support/admin agencies only, tickets/main-number SMS/sent communication history, agency/type/date/search filters, delivery details, claim/release/reply/internal note/close. Do not test real recipients. Personal provider mail is not a substitute for the agency support feed.
+3. Live Chat: explicit online/offline, current permitted websites, claim/reply/quick responses/referral/close, online notifications, background/offline behavior and per-user removal. Removal keeps the canonical transcript. A provider with an explicit agency-support grant must work only in that agency. The synthetic QA pilot cannot access public live chat without an approved synthetic website fixture; record this as BLOCKED, not passed.
+4. People Operations: current/recent applicants across permitted hiring agencies, search, contact and application summary, notification-to-applicant links. Ordinary staff without hiring authority cannot read applicant alerts/details. A future synthetic application creates one personal alert per current hiring reviewer, without historical replay or duplicate retries.
+5. Admin application email uses the agency's reviewed enabled PO configuration, its actual ready PO sender/Reply-To/signature, and configured same-domain admin@ mailbox. Missing configuration is held for review, not reported as sent. Do not enable an unreviewed sender or resend old applications to make QA pass.
+
+Release limits
+The web and native web bundles can be validated here. A fresh signed iOS/TestFlight upload and physical iPhone Face ID/Touch ID, microphone/lifecycle and touch QA require the normal developer/device workflow. Existing draft notes, signatures, transcripts, account codes and application history must be preserved.

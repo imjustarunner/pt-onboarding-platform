@@ -1,15 +1,26 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createWebsiteChatService,localWebsiteVisitor,validChatMessageId,websiteQuickReplies} from '../publicWebsiteChat.service.js';
+import {createWebsiteChatService as createChatService,localWebsiteVisitor,validChatMessageId,websiteQuickReplies} from '../publicWebsiteChat.service.js';
 import {itscoWebsiteRouting} from '../publicWebsiteTicketRouting.service.js';
 const site={slug:'itsco',name:'ITSCO',website_url:'https://www.itsco.health',support_agency_id:2,chat_enabled:1};
+// The source service uses current access profiles. These fixtures model the
+// ordinary local grant explicitly and never connect unit tests to a real DB.
+function createWebsiteChatService(db,identity,notifications=null,options={}){return createChatService(db,identity,notifications,{agencyAccess:async(userId,agencyId)=>{
+ const [[user]]=await db.execute('SELECT id,role FROM users WHERE id=?',[userId]);
+ const [members]=await db.execute('SELECT agency_id FROM user_agencies WHERE user_id=?',[userId]);
+ return members.some(row=>Number(row.agency_id)===Number(agencyId))?{role:user.role,permissions:{}}:null;
+},...options});}
 test('unknown and non-Colorado regions do not trigger chat',()=>{assert.equal(localWebsiteVisitor('USCO'),true);for(const r of ['',null,'USCA','Colorado','US'])assert.equal(localWebsiteVisitor(r),false);});
 test('ITSCO topics route to the requested staff and billing category',()=>{assert.deepEqual(itscoWebsiteRouting('Insurance and billing'),{firstName:'Hannah',lastName:'Inyart',topic:'billing'});assert.equal(itscoWebsiteRouting('School partnership').firstName,'Rachel');assert.equal(itscoWebsiteRouting('careers').firstName,'Rachel');assert.equal(itscoWebsiteRouting('Website help').firstName,'Michael');assert.equal(itscoWebsiteRouting('Finding a provider'),null);});
 test('quick replies use public website enrollment, not app login',()=>{assert.match(websiteQuickReplies(site)[1].body,/https:\/\/www.itsco.health\/join\/itsco\/counseling/);assert.match(websiteQuickReplies({...site,slug:'kimi',website_url:'https://kimicain.com'})[1].body,/kimi-coaching-inquiry/);});
 test('valid message ids support idempotent retries',()=>{assert.equal(validChatMessageId('a93fb9bb-0a3f-4a11-a124-fcb5e6f99901'),true);assert.equal(validChatMessageId('1 OR 1=1'),false);});
 function dbFor(role,agencyIds){return {execute:async(sql)=>sql.includes('FROM users')?[[{id:7,role}]]:[agencyIds.map(agency_id=>({agency_id}))]};}
 test('staff cannot open another agency website chat',async()=>{const service=createWebsiteChatService(dbFor('support',[6]),async()=>site);await assert.rejects(()=>service.authorize({id:7},'itsco'),e=>e.status===403);});
-test('agency staff and central management support can open their scoped chats',async()=>{for(const agencies of [[2],[1]]){const service=createWebsiteChatService(dbFor('support',agencies),async()=>site);assert.equal((await service.authorize({id:7},'itsco')).slug,'itsco');}});
+test('agency staff can open their scoped chat; headquarters membership alone grants no foreign website',async()=>{const service=createWebsiteChatService(dbFor('support',[2]),async()=>site);assert.equal((await service.authorize({id:7},'itsco')).slug,'itsco');await assert.rejects(()=>createWebsiteChatService(dbFor('support',[1]),async()=>site).authorize({id:7},'itsco'),e=>e.status===403);});
+test('a global provider with an explicit support agency grant can chat only at that website and loses access immediately on revocation',async()=>{
+ let enabled=true;const db=dbFor('provider',[2]),service=createWebsiteChatService(db,async slug=>({...site,slug,support_agency_id:slug==='itsco'?2:6}),null,{agencyAccess:async(uid,agencyId)=>enabled&&uid===7&&agencyId===2?{role:'support',permissions:{}}:null});
+ assert.equal((await service.authorize({id:7},'itsco')).slug,'itsco');await assert.rejects(()=>service.authorize({id:7},'nlu'),e=>e.status===403);enabled=false;await assert.rejects(()=>service.authorize({id:7},'itsco'),e=>e.status===403);
+});
 test('providers cannot access website support messages even with membership',async()=>{const service=createWebsiteChatService(dbFor('provider',[2]),async()=>site);await assert.rejects(()=>service.authorize({id:7},'itsco'),e=>e.status===403);});
 test('anonymous users cannot access staff chat APIs',async()=>{const service=createWebsiteChatService(dbFor('super_admin',[1]),async()=>site);await assert.rejects(()=>service.queue(null),e=>e.status===401);});
 test('visitor session lookup binds the token to both site and session',async()=>{let captured;const db={execute:async(sql,params)=>{captured={sql,params};return [[]];}};const service=createWebsiteChatService(db,async()=>site);await assert.rejects(()=>service.read('nlu','session-id','a'.repeat(64)),e=>e.status===404);assert.match(captured.sql,/id=\? AND site_slug=\? AND token_hash=\?/);assert.deepEqual(captured.params.slice(0,2),['session-id','nlu']);assert.notEqual(captured.params[2],'a'.repeat(64));});

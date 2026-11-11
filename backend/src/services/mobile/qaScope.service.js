@@ -81,12 +81,18 @@ export async function enforceMobileQaBoundary(req) {
  const path=String(req.originalUrl||req.path||'').split('?')[0].replace(/^\/api\/quick-view/,'').replace(/\/$/,'');
  const method=String(req.method).toUpperCase();
  let allowed=method==='GET'&&['/my-work','/calendar/day','/tasks','/clients'].includes(path);
+ if(method==='GET'&&/^\/applicants(?:\/[1-9][0-9]*)?$/.test(path))allowed=true;
+ if(method==='GET'&&path==='/tools')allowed=true;
+ if(method==='GET'&&/^\/directory\/[1-9][0-9]*$/.test(path))allowed=true;
+ if(method==='GET'&&/^\/exchange\/(?:listings(?:\/[1-9][0-9]*)?|my-requests)$/.test(path))allowed=true;
+ if(method==='POST'&&/^\/exchange\/listings\/[1-9][0-9]*\/requests$/.test(path))allowed=true;
  if(method==='GET'&&/^\/clients\/[1-9][0-9]*\/summary$/.test(path))allowed=true;
  if(method==='GET'&&/^\/my-work\/notes\/[1-9][0-9]*\/review-insights$/.test(path))allowed=true;
  // Clinical adapters enforce the exact token agency, author/assigned reviewer and
  // client/record bindings. Outbound family delivery remains a separate QA grant.
  if(qaClinicalRouteAllowed(method,path,req.body)||qaScheduleRouteAllowed(method,path))allowed=true;
  if(/^\/messages\/preferences$/.test(path)&&['GET','PATCH'].includes(method))allowed=true;
+ if(!allowed){const {qaStaffToolsRouteAllowed}=await import('./staffToolsPolicy.js');allowed=qaStaffToolsRouteAllowed(method,path);}
  if(!allowed){const {qaConversaRouteAllowed}=await import('./qaConversaScope.service.js');allowed=qaConversaRouteAllowed(method,path);}
  if(!allowed)throw failure(403,'MOBILE_QA_SURFACE_UNAVAILABLE','This action is not enabled for the synthetic mobile pilot. Use an authorized staff account to test it.');
 }

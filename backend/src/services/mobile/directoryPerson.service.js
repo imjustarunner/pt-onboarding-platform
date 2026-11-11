@@ -1,5 +1,6 @@
 import {staffWorkPhone,normalizePhoneExtension} from '../../utils/staffWorkContact.js';
 import {classifyPayAndHcbsCategories} from '../../utils/credentialNormalization.js';
+import {mobileAgencyIcon} from './agencyBrand.service.js';
 import {publicUploadsUrlFromStoredPath} from '../../utils/uploads.js';
 export function mapDirectoryPerson(r, section, agency={}) {
   const first = r.first_name || r.firstName || '';
@@ -28,7 +29,10 @@ export function mapDirectoryPerson(r, section, agency={}) {
     hcbsCategory: axes.hcbsCategory,
     hcbsCategoryLabel: axes.hcbsCategoryLabel,
     credential: r.credential || null,
-    section
+    section,
+    agencyId:Number(agency.id)||null,
+    agencyName:agency.name || null,
+    agencyLogoUrl:mobileAgencyIcon(agency)
   };
 }
 

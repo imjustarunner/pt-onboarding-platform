@@ -8,24 +8,26 @@ function recipients(value){
  if(!Array.isArray(parsed))return [];
  return parsed.map(item=>normalizeAddress(item?.email)).filter(email=>email && email.length<=320);
 }
+function sender(value){let parsed=value;if(typeof parsed==='string'){try{parsed=JSON.parse(parsed);}catch{return [];}}const email=normalizeAddress(parsed?.email);return email && email.length<=320?[email]:[];}
 const addressSql="LOWER(TRIM(CAST(sp.itsco_email AS CHAR CHARACTER SET utf8mb4))) COLLATE utf8mb4_unicode_ci";
 
-/** Resolve school logos from trusted receipts and exact recipients, never subject text. */
+/** Resolve school logos from stored envelope metadata and active affiliations only. */
 export async function mobileEmailSchoolIdentities(rows,{db=pool}={}){
- const ids=[...new Set(rows.filter(row=>row.latest_kind==='school_group_notification').map(row=>Number(row.id)).filter(id=>Number.isSafeInteger(id)&&id>0))];
+ const ids=[...new Set(rows.map(row=>Number(row.id)).filter(id=>Number.isSafeInteger(id)&&id>0))];
  if(!ids.length)return new Map();
  // Keep JSON decoding outside a correlated JSON_TABLE/EXISTS join. MySQL 8.0
  // can optimize that lateral subquery differently from newer local versions.
- const [receipts]=await db.execute(`SELECT c.id AS conversation_id,c.agency_id,m.to_json,m.cc_json
+ const [receipts]=await db.execute(`SELECT c.id AS conversation_id,c.agency_id,m.from_json,m.to_json,m.cc_json
   FROM communication_conversations c JOIN communication_messages m ON m.conversation_id=c.id
-  WHERE c.id IN(${ids.map(()=>'?').join(',')}) AND m.auto_reply_kind='school_group_notification'
+  WHERE c.id IN(${ids.map(()=>'?').join(',')}) AND COALESCE(m.is_internal_note,0)=0
+   AND (m.auto_reply_kind='school_group_notification' OR m.id=(SELECT MAX(latest.id) FROM communication_messages latest WHERE latest.conversation_id=c.id AND COALESCE(latest.is_internal_note,0)=0 AND COALESCE(latest.send_status,'sent') NOT IN('cancelled','preparing')))
   LIMIT 1001`,ids);
  if(receipts.length>1000)return new Map();
  const byConversation=new Map(),addresses=new Set(),agencyIds=new Set();
  for(const receipt of receipts){
   const id=Number(receipt.conversation_id),agencyId=Number(receipt.agency_id);
   if(!ids.includes(id)||!Number.isSafeInteger(agencyId)||agencyId<1)continue;
-  const selected=[...new Set([...recipients(receipt.to_json),...recipients(receipt.cc_json)])];
+  const selected=[...new Set([...sender(receipt.from_json),...recipients(receipt.to_json),...recipients(receipt.cc_json)])];
   if(!selected.length)continue;
   const entries=byConversation.get(id)||[];entries.push({agencyId,addresses:selected});byConversation.set(id,entries);
   agencyIds.add(agencyId);for(const email of selected)addresses.add(email);
@@ -51,5 +53,21 @@ export async function mobileEmailSchoolIdentities(rows,{db=pool}={}){
   const school=[...schools.values()][0],logo=publicUploadsUrlFromStoredPath(school.school_icon_path||school.icon_file_path||school.icon_path||school.logo_path||school.logo_url);
   if(logo)result.set(id,{schoolId:Number(school.id),schoolName:school.name,avatar:logo});
  }
+ return result;
+}
+
+/** Actual staff sender/counterparty, matched to a current agency membership. */
+export async function mobileEmailPersonIdentities(rows,{db=pool}={}){
+ const candidates=new Map(),addresses=new Set(),agencyIds=new Set();
+ for(const row of rows){const agencyId=Number(row.agency_id),emails=[...new Set([...sender(row.latest_from),normalizeAddress(row.sender_email)].filter(Boolean))];if(!Number.isSafeInteger(agencyId)||agencyId<=0||!emails.length)continue;candidates.set(Number(row.id),{agencyId,emails});agencyIds.add(agencyId);for(const email of emails)addresses.add(email);}
+ if(!addresses.size || addresses.size>1000)return new Map();
+ const [matches]=await db.execute(`SELECT DISTINCT ua.agency_id,u.id,u.email,u.work_email,u.personal_email,u.profile_photo_path
+  FROM users u JOIN user_agencies ua ON ua.user_id=u.id AND COALESCE(ua.is_active,1)=1
+  WHERE ua.agency_id IN(${[...agencyIds].map(()=>'?').join(',')}) AND u.role IN('provider','admin','support','super_admin')
+   AND (LOWER(TRIM(CONVERT(u.email USING utf8mb4))) COLLATE utf8mb4_unicode_ci IN(${[...addresses].map(()=>'?').join(',')})
+    OR LOWER(TRIM(CONVERT(u.work_email USING utf8mb4))) COLLATE utf8mb4_unicode_ci IN(${[...addresses].map(()=>'?').join(',')})
+    OR LOWER(TRIM(CONVERT(u.personal_email USING utf8mb4))) COLLATE utf8mb4_unicode_ci IN(${[...addresses].map(()=>'?').join(',')}))`,[...agencyIds,...addresses,...addresses,...addresses]);
+ const byAddress=new Map();for(const person of matches){for(const value of [person.email,person.work_email,person.personal_email]){const email=normalizeAddress(value);if(!email)continue;const key=`${Number(person.agency_id)}:${email}`,people=byAddress.get(key)||new Map();people.set(Number(person.id),person);byAddress.set(key,people);}}
+ const result=new Map();for(const [id,{agencyId,emails}]of candidates){for(const email of emails){const people=byAddress.get(`${agencyId}:${email}`);if(people?.size!==1)continue;const person=[...people.values()][0],avatar=publicUploadsUrlFromStoredPath(person.profile_photo_path);if(avatar)result.set(id,{avatar,staffId:Number(person.id)});break;}}
  return result;
 }

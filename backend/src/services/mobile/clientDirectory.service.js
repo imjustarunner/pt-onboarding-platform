@@ -4,14 +4,12 @@ import ClientSchoolStaffRoiAccess from '../../models/ClientSchoolStaffRoiAccess.
 import {readAgencyAccess} from '../agencyAccessProfiles.service.js';
 import {applyAgencyAccess} from '../../utils/agencyAccessPolicy.js';
 import {resolveClientRecordAccess} from '../clientRecordAccess.service.js';
-import {hubClientScope} from '../hubPeopleAccess.service.js';
 import {maskMobileClientName,positiveId} from '../narrivaAccess.service.js';
 import {mobileClinicalAge} from '../mobileClinicalPrivacy.service.js';
 import {buildPublicAppUrl} from '../../utils/publicPortalUrl.js';
 import {listMobileAgencies} from './agencyScope.service.js';
 import {mobileAgencyIcon} from './agencyBrand.service.js';
 const allowed=new Set(['admin','support','staff','provider','provider_plus','intern','intern_plus','clinical_practice_assistant','super_admin','school_staff','school_admin']);
-const assigned=new Set(['provider','provider_plus','intern','intern_plus']);
 const clinical=new Set(['admin','provider','provider_plus','intern','intern_plus','clinical_practice_assistant','super_admin']);
 const fail=(status,message)=>Object.assign(new Error(message),{status});
 const inactiveUser=user=>!user||[false,0,'0'].includes(user.is_active)||Number(user.is_archived)===1||['inactive','inactive_employee','terminated','terminated_pending','archived','deleted'].includes(String(user.status||'').toLowerCase());
@@ -30,11 +28,11 @@ export function createMobileClientDirectory({db=pool,findUser=id=>User.findById(
   const visible=eligible.filter(a=>requested==='all'||String(a.id)===requested);
   if(!visible.length)return {clients:[],agencies:eligible.map(a=>({id:Number(a.id),name:a.name,logoUrl:mobileAgencyIcon(a)})),nextPage:null};
   const scope=visible.map(()=>'?').join(','),scopeArgs=[];
+  // My Clients is a personal caseload, including for administrators. Broader
+  // record access remains available through the authorized full application.
   const conditions=visible.map(a=>{
-   const actor=actors.get(Number(a.id));
-   if(!assigned.has(actor.role))return `(scoped.id=${Number(a.id)})`;
-   const caseload=hubClientScope(Number(user.id));scopeArgs.push(...caseload.params);
-   return `(scoped.id=${Number(a.id)} AND ${caseload.sql})`;
+   scopeArgs.push(Number(user.id),Number(user.id));
+   return `(scoped.id=${Number(a.id)} AND (c.provider_id=? OR EXISTS(SELECT 1 FROM client_provider_assignments personal_assignment WHERE personal_assignment.client_id=c.id AND personal_assignment.provider_user_id=? AND personal_assignment.is_active=1)))`;
   }).join(' OR ');
   const [rows]=await db.execute(`SELECT c.id,c.agency_id,c.organization_id,c.provider_id,c.full_name,c.initials,c.identifier_code,c.date_of_birth,c.client_type,c.status,scoped.id AS scope_agency_id FROM clients c JOIN agencies scoped ON scoped.id IN(${scope}) AND (c.agency_id=scoped.id OR c.organization_id=scoped.id OR EXISTS(SELECT 1 FROM client_agency_assignments ca WHERE ca.client_id=c.id AND ca.agency_id=scoped.id AND ca.is_active=1) OR EXISTS(SELECT 1 FROM organization_affiliations affiliation WHERE affiliation.organization_id=c.organization_id AND affiliation.agency_id=scoped.id AND COALESCE(affiliation.is_active,1)=1)) WHERE COALESCE(c.status,'')<>'ARCHIVED' AND (${conditions}) AND (?='' OR LOCATE(?,COALESCE(c.full_name,''))>0 OR LOCATE(?,COALESCE(c.initials,''))>0) ORDER BY c.id DESC,scoped.id LIMIT 51 OFFSET ${page*50}`,[...visible.map(a=>Number(a.id)),...scopeArgs,query,query,query]);
   const cards=[],candidates=rows.slice(0,50);

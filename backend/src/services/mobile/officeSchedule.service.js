@@ -1,5 +1,6 @@
 import pool from '../../config/database.js';
 import {quickDayWindow} from '../../utils/quickViewCalendar.js';
+import {mapDirectoryPerson} from './directoryPerson.service.js';
 
 const id=value=>Number.isSafeInteger(Number(value)) && Number(value)>0?Number(value):0;
 const address=row=>[row.street_address,row.city,row.state].filter(Boolean).join(', ');
@@ -23,7 +24,7 @@ export function projectOfficeSchedule({locations=[],myRows=[],rosterRows=[],user
   if(!byOffice.has(oid)){const location=uniqueLocations.find(item=>item.id===oid);byOffice.set(oid,{...location,people:[],slotCount:0});}
   const office=byOffice.get(oid);office.slotCount++;
   const pkey=`${oid}:${pid}`;
-  if(!byPerson.has(pkey)){const person={providerId:pid,name:String(row.provider_name || '').trim() || 'Staff member',officeId:oid,officeName:office.name,firstStart:row.start_at,lastEnd:row.end_at,rooms:[],slots:[]};byPerson.set(pkey,person);office.people.push(person);}
+  if(!byPerson.has(pkey)){const basic=mapDirectoryPerson({...row,id:pid},'providers',{id:row.agency_id,name:row.agency_name,slug:row.agency_slug,phone_number:row.agency_phone,logo_path:row.agency_logo_path});const person={...basic,providerId:pid,name:String(row.provider_name || '').trim() || 'Staff member',officeId:oid,officeName:office.name,firstStart:row.start_at,lastEnd:row.end_at,rooms:[],slots:[]};byPerson.set(pkey,person);office.people.push(person);}
   const person=byPerson.get(pkey);
   if(row.start_at && (!person.firstStart || new Date(row.start_at)<new Date(person.firstStart)))person.firstStart=row.start_at;
   if(row.end_at && (!person.lastEnd || new Date(row.end_at)>new Date(person.lastEnd)))person.lastEnd=row.end_at;
@@ -50,7 +51,7 @@ export async function loadOfficeSchedule({userId,agencyId,day,timeZone='America/
  const joins=`FROM office_events e JOIN office_locations location ON location.id=e.office_location_id JOIN office_locations physical ON physical.id=COALESCE(location.physical_office_location_id,location.id) LEFT JOIN office_rooms room ON room.id=e.room_id LEFT JOIN office_standing_assignments sa ON sa.id=e.standing_assignment_id`;
  const [mine,roster]=await Promise.all([
   db.execute(`SELECT ${columns} ${joins} WHERE ${where} AND COALESCE(e.booked_provider_id,e.assigned_provider_id,sa.provider_id)=? ORDER BY e.start_at,e.id LIMIT 200`,[...ids,windowEnd,windowStart,userId]),
-  db.execute(`SELECT ${columns},e.id AS event_id,COALESCE(e.booked_provider_id,e.assigned_provider_id,sa.provider_id) AS provider_id,TRIM(CONCAT(COALESCE(person.first_name,''),' ',COALESCE(person.last_name,''))) AS provider_name ${joins} JOIN users person ON person.id=COALESCE(e.booked_provider_id,e.assigned_provider_id,sa.provider_id) WHERE ${where} ORDER BY physical.name,person.first_name,e.start_at,e.id LIMIT 800`,[...ids,windowEnd,windowStart])
+  db.execute(`SELECT ${columns},e.id AS event_id,COALESCE(e.booked_provider_id,e.assigned_provider_id,sa.provider_id) AS provider_id,TRIM(CONCAT(COALESCE(person.first_name,''),' ',COALESCE(person.last_name,''))) AS provider_name,person.first_name,person.last_name,person.preferred_name,person.profile_photo_path,person.credential,person.work_email,person.email,person.work_phone,person.work_phone_extension,person.role,person.title,person.is_hourly_worker,agency.id AS agency_id,agency.name AS agency_name,agency.slug AS agency_slug,agency.phone_number AS agency_phone,agency.logo_path AS agency_logo_path ${joins} JOIN users person ON person.id=COALESCE(e.booked_provider_id,e.assigned_provider_id,sa.provider_id) JOIN user_agencies membership ON membership.user_id=person.id AND membership.agency_id=? AND COALESCE(membership.is_active,1)=1 JOIN agencies agency ON agency.id=membership.agency_id WHERE ${where} AND COALESCE(person.is_archived,0)=0 ORDER BY physical.name,person.first_name,e.start_at,e.id LIMIT 800`,[agencyId,...ids,windowEnd,windowStart])
  ]);
  return {ok:true,day,timeZone,agencyId,...projectOfficeSchedule({locations,myRows:mine[0],rosterRows:roster[0],userId,filterId:officeFilterId})};
 }

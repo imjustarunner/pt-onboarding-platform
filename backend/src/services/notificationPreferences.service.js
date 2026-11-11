@@ -23,7 +23,7 @@ function databaseBoolean(value, fallback = false) {
   return value === true || value === 1 || value === '1';
 }
 
-export async function loadNotificationPreferenceContext({ userId, agencyId = null, userRole = null, user = null }) {
+export async function loadNotificationPreferenceContext({ userId, agencyId = null, userRole = null, user = null, hiringAccess = null }) {
   const [
     { default: UserPreferences },
     { default: NotificationTypePreference },
@@ -38,6 +38,15 @@ export async function loadNotificationPreferenceContext({ userId, agencyId = nul
     NotificationTypePreference.listForUser(Number(userId)),
     agencyId ? AgencyNotificationPreferences.getByAgencyId(Number(agencyId)) : Promise.resolve(null)
   ]);
+  let currentHiringAccess = hiringAccess;
+  if (typeof currentHiringAccess !== 'boolean') {
+    const [{ default: User }, { hiringNotificationAgencyIds }] = await Promise.all([
+      import('../models/User.model.js'), import('./notificationHiringAccess.service.js')
+    ]);
+    const currentUser = user || await User.findById(Number(userId));
+    const permitted = await hiringNotificationAgencyIds(currentUser, agencyId ? [Number(agencyId)] : null);
+    currentHiringAccess = permitted === null || permitted.size > 0;
+  }
   return {
     userId: Number(userId),
     agencyId: Number(agencyId) || null,
@@ -46,6 +55,7 @@ export async function loadNotificationPreferenceContext({ userId, agencyId = nul
     legacyCategories: parseJson(globalPreferences?.notification_categories),
     typePreferences: new Map(typePreferences.map((p) => [p.type, p])),
     agencyPreferences,
+    hiringAccess: currentHiringAccess,
     user
   };
 }
@@ -60,8 +70,9 @@ export function resolveNotificationTypePreference(type, context) {
   const agencyDefaults = agency?.defaults || {};
   const legacyKey = entry.legacyCategoryKey;
   const roleProfile = notificationRoleProfile(context?.userRole);
-  const recommendedForRole = isNotificationRecommendedForRole(type, context?.userRole);
-  const essentialForRole = isNotificationEssentialForRole(type, context?.userRole);
+  const hiringScoped = type === 'new_job_application_submitted' && typeof context?.hiringAccess === 'boolean';
+  const recommendedForRole = hiringScoped ? context.hiringAccess : isNotificationRecommendedForRole(type, context?.userRole);
+  const essentialForRole = hiringScoped ? context.hiringAccess : isNotificationEssentialForRole(type, context?.userRole);
 
   let defaultInApp = entry.defaults.inApp && essentialForRole;
   // A legacy category opt-out still narrows delivery. A broad legacy opt-in no

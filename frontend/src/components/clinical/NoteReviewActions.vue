@@ -10,7 +10,8 @@ const props = defineProps({
   loadInsights: { type: Function, default: null },
   accessKey: { type: String, default: '' },
   unavailableReason: { type: String, default: '' },
-  allowQuickSign: { type: Boolean, default: false }
+  allowQuickSign: { type: Boolean, default: false },
+  showOpenNote: { type: Boolean, default: true }
 });
 const emit = defineEmits(['open-note', 'quick-sign']);
 const canonicalId = value => /^[1-9]\d*$/.test(String(value ?? '')) ? Number(value) : null;
@@ -101,7 +102,7 @@ onBeforeUnmount(() => { reset(); window.removeEventListener('keydown', handleKey
   <div class="note-review-actions" @click.stop>
     <button v-if="eligible" type="button" class="nra-quick-sign" @click="emit('quick-sign',item)"><img :src="NARRIVA_BRAND.verified" alt=""/>Quick Sign</button>
     <button v-if="canPreview" type="button" class="nra-summary" :aria-expanded="active==='summary'" aria-haspopup="dialog" @pointerenter="hover" @pointerleave="leave" @focus="!restoringFocus && open('summary',$event,false)" @click="open('summary',$event,true)"><Eye :size="14"/>Quick look</button>
-    <button type="button" class="nra-open" @click="openNote"><FileText :size="14"/>Open note</button>
+    <button v-if="showOpenNote" type="button" class="nra-open" @click="openNote"><FileText :size="14"/>Open note</button>
     <button v-if="canPreview" type="button" class="nra-history" :aria-expanded="active==='history'" aria-haspopup="dialog" @click="open('history',$event,true)"><ChartNoAxesCombined :size="14"/>Treatment history</button>
     <Teleport to="body">
       <div v-if="active && pinned" class="nra-backdrop" @click="close(true)"/>

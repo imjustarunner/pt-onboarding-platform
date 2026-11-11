@@ -11,10 +11,10 @@ it('opens a work item in its scoped clinical writer without putting client names
 });
 
 it('opens the directory Message action in the scoped mobile conversation route',async()=>{
- api.get.mockImplementation(async url=>({data:url.endsWith('/directory')?{providers:[{id:2,displayName:'Jordan Example',credential:'LPC',email:'jordan@example.invalid'}],schoolStaff:[]}:url.endsWith('/messages/preferences')?{preferences:{pinnedNavigation:['calendar','home','tasks'],usage:{}}}:{}}));api.post.mockResolvedValue({data:{threadId:45}});
+ api.get.mockImplementation(async url=>({data:url.endsWith('/directory')?{providers:[{id:2,displayName:'Jordan Example',credential:'LPC',email:'jordan@example.invalid',agencyId:20,agencyName:'Other affiliated practice'}],schoolStaff:[]}:url.endsWith('/messages/preferences')?{preferences:{pinnedNavigation:['calendar','home','tasks'],usage:{}}}:{}}));api.post.mockResolvedValue({data:{threadId:45}});
  const router=createRouter({history:createMemoryHistory(),routes:[{path:'/:pathMatch(.*)*',component:{template:'<span/>'}}]});await router.push('/mobile/workspace?view=contacts');
  const wrapper=mount(QuickView,{props:{mobileSession:{sessionToken:'scoped',userId:1,agencyId:10,expiresAt:'2099-01-01',profile:{workspace:{name:'Test'},appLock:{method:'none'}}}},global:{plugins:[router],stubs:{MobileMessages:true,QuickViewMusicDock:true,QuickViewPresence:true}}});await flushPromises();
- await wrapper.get('.qv-contact-row button').trigger('click');await flushPromises();expect(router.currentRoute.value.query).toEqual({view:'home',suite:'direct',threadId:'45'});wrapper.unmount();
+ await wrapper.get('.mobile-people .message-button').trigger('click');await flushPromises();expect(api.post).toHaveBeenCalledWith('/api/quick-view/chat/direct',{otherUserId:2,agencyId:20},expect.any(Object));expect(router.currentRoute.value.query).toEqual({view:'home',suite:'direct',threadId:'45'});wrapper.unmount();
 });
 it('opens canonical session comments through the new calendar while keeping the session card note action',async()=>{
  const item={id:'clinical-45',appointmentId:60,clientId:34,agencyId:10,clinicalSessionId:45,hasClient:true,clientMaskedName:'Fic* Cli*',startAt:'2026-11-11T18:00:00Z',endAt:'2026-11-11T19:00:00Z'};

@@ -1,20 +1,21 @@
 <script setup>
-import {nextTick,onMounted,onUnmounted,ref,watch} from 'vue';
+import {computed,nextTick,onMounted,onUnmounted,ref,watch} from 'vue';
 import axios from 'axios';
 import {X,ArrowUp,ArrowDown} from '@lucide/vue';
-const props=defineProps({apiBase:String,sessionToken:String,preferences:Object});const emit=defineEmits(['close','saved']);
+const props=defineProps({apiBase:String,sessionToken:String,preferences:Object,availableDestinations:Array});const emit=defineEmits(['close','saved']);
 const dialog=ref(null),previousFocus=document.activeElement;
 function trapTab(event){const nodes=[...dialog.value.querySelectorAll('button:not(:disabled),input:not(:disabled),select:not(:disabled)')];if(event.shiftKey && document.activeElement===nodes[0]){event.preventDefault();nodes.at(-1)?.focus();}else if(!event.shiftKey && document.activeElement===nodes.at(-1)){event.preventDefault();nodes[0]?.focus();}}
-onMounted(async()=>{await nextTick();dialog.value?.querySelector('select')?.focus();});onUnmounted(()=>{if(previousFocus?.isConnected)previousFocus.focus();else document.querySelector('[aria-label="My Account"]')?.focus();});
+onMounted(async()=>{await nextTick();dialog.value?.focus({preventScroll:true});});onUnmounted(()=>{if(previousFocus?.isConnected)previousFocus.focus();else document.querySelector('[aria-label="My Account"]')?.focus();});
 const draft=ref({}),busy=ref(false),error=ref('');
-const destinations=[['calendar','Today'],['home','Messages'],['tasks','Tasks'],['mywork','My Work'],['noteaid','Note Workspace'],['contacts','Contacts'],['presence','Presence'],['notifications','Notifications'],['clients','My Clients']];
+const destinationCatalog=[['calendar','Today'],['home','Messages'],['tasks','Tasks'],['mywork','My Work'],['noteaid','Note Workspace'],['contacts','Contacts'],['presence','Presence'],['notifications','Notifications'],['clients','My Clients'],['exchange','Client Exchange'],['support','Support Messages'],['livechat','Live Chat'],['applicants','People Operations']];
+const destinations=computed(()=>destinationCatalog.filter(([id])=>!props.availableDestinations || props.availableDestinations.includes(id)));
 watch(()=>props.preferences,value=>{draft.value={navigationSlots:4,lockedNavigation:'calendar',...value,navigationSlots:[2,3,4].includes(Number(value?.navigationSlots))?Number(value.navigationSlots):4,navigationMode:'pinned',pinnedNavigation:[...(value?.pinnedNavigation || ['calendar','mywork','tasks','home'])]};},{immediate:true});
 function toggle(id){const ids=draft.value.pinnedNavigation;draft.value.pinnedNavigation=ids.includes(id)?ids.filter(item=>item!==id):[...ids,id].slice(0,4);}
 function move(index,step){const ids=[...draft.value.pinnedNavigation],other=index+step;if(other<0 || other>=ids.length)return;[ids[index],ids[other]]=[ids[other],ids[index]];draft.value.pinnedNavigation=ids;}
 async function save(){busy.value=true;error.value='';try{const {data}=await axios.patch(`${props.apiBase}/messages/preferences`,draft.value,{headers:{'X-Quick-View-Session':props.sessionToken},withCredentials:true});emit('saved',data.preferences);emit('close');}catch(e){error.value=e.response?.data?.error?.message || 'Could not save your settings.';}finally{busy.value=false;}}
 </script>
 <template>
-  <Teleport to="body"><div class="mobile-settings-overlay" @keydown.esc="emit('close')"><section ref="dialog" @keydown.tab="trapTab" role="dialog" aria-modal="true" aria-labelledby="mobile-settings-title"><header><h2 id="mobile-settings-title">Mobile preferences</h2><button aria-label="Close mobile preferences" @click="emit('close')"><X :size="22"/></button></header><form @submit.prevent="save"><p>These choices follow your account on your mobile devices.</p>
+  <Teleport to="body"><div class="mobile-settings-overlay" @keydown.esc="emit('close')"><section ref="dialog" tabindex="-1" @keydown.tab="trapTab" role="dialog" aria-modal="true" aria-labelledby="mobile-settings-title"><header><h2 id="mobile-settings-title">Mobile preferences</h2><button aria-label="Close mobile preferences" @click="emit('close')"><X :size="22"/></button></header><form @submit.prevent="save"><p>These choices follow your account on your mobile devices.</p>
     <label for="mobile-swipeLeft">Swipe left</label><select id="mobile-swipeLeft" v-model="draft.swipeLeft"><option value="archive">Archive / restore</option><option value="read">Mark read</option><option value="unread">Mark unread</option><option value="none">No action</option></select>
     <label for="mobile-swipeRight">Swipe right</label><select id="mobile-swipeRight" v-model="draft.swipeRight"><option value="read">Mark read</option><option value="archive">Archive / restore</option><option value="unread">Mark unread</option><option value="none">No action</option></select>
     <p>Message swipe choices also apply to notifications. Archive becomes Delete for notifications; deleted items can be restored.</p>

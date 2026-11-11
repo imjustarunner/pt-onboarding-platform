@@ -8,6 +8,13 @@ import { refreshClientSecureAccess } from '../clientSecureConversation.service.j
 import { failure } from './policy.js';
 import {qaAgencyAllowed} from './qaScope.service.js';
 import { sendApplePush, applePushConfigured } from './applePush.service.js';
+import { readAgencyAccess } from '../agencyAccessProfiles.service.js';
+import { applyAgencyAccess } from '../../utils/agencyAccessPolicy.js';
+import { getUserCapabilities } from '../../utils/capabilities.js';
+import { isNotificationChannelEnabled } from '../notificationPreferences.service.js';
+import { isDemoExchangeListing } from '../clientExchangeDemo.service.js';
+
+const EVENT_NOTIFICATION_TYPES = ['website_chat_waiting','client_exchange_match','client_exchange_assigned','client_exchange_shared','new_job_application_submitted'];
 
 export function pushConfiguration() {
   return { appleReady: applePushConfigured(), webReady: !!(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY), webPublicKey: process.env.VAPID_PUBLIC_KEY || '' };
@@ -15,6 +22,7 @@ export function pushConfiguration() {
 
 // Persist only an opaque reference, never a sender, subject, message body or PHI.
 export function mobilePushPayload(delivery) {
+  if (['websitechat','notification'].includes(delivery.source_kind)) return { title:'Auricwell',body:'New update',url:`/mobile/workspace?kind=notification&id=${delivery.source_id}`,tag:`auricwell-notification-${delivery.source_id}` };
   return { title: 'Auricwell', body: 'New message', url: `/mobile/workspace?kind=${delivery.source_kind}&id=${delivery.source_id}`, tag: `auricwell-${delivery.source_kind}-${delivery.source_id}` };
 }
 
@@ -48,6 +56,7 @@ export function createMobilePushRegistration(db=pool) { return async function re
     chat_cursor=IF(push_enabled=1,chat_cursor,(SELECT COALESCE(MAX(id),0) FROM chat_messages)),
     email_cursor=IF(push_enabled=1,email_cursor,(SELECT COALESCE(MAX(id),0) FROM communication_messages)),
     sms_cursor=IF(push_enabled=1,sms_cursor,(SELECT COALESCE(MAX(id),0) FROM message_logs)),
+    notification_cursor=IF(push_enabled=1,notification_cursor,(SELECT COALESCE(MAX(id),0) FROM notifications)),
     push_enabled=1,push_token=?,push_environment=?,web_push_subscription=? WHERE id=? AND revoked_at IS NULL`,
     [token,environment,subscription ? JSON.stringify(subscription) : null,context.device.id]);
   return {enabled:true,...pushConfiguration()};
@@ -55,10 +64,11 @@ export function createMobilePushRegistration(db=pool) { return async function re
 export const registerMobilePush=createMobilePushRegistration();
 
 export function createMobilePushWorker({db=pool, sessions=mobileSessions, conversationAccess=requireConversationAccess,refreshSecure=refreshClientSecureAccess,
+  agencyAccess=readAgencyAccess, channelEnabled=isNotificationChannelEnabled, demoListing=isDemoExchangeListing,
   sendApple=sendApplePush, sendWeb=(sub,payload)=>webpush.sendNotification(sub,JSON.stringify(payload),{
     TTL:3600,vapidDetails:{subject:'mailto:support@auricwell.com',publicKey:process.env.VAPID_PUBLIC_KEY,privateKey:process.env.VAPID_PRIVATE_KEY}
   }), configuration=pushConfiguration}={}) {
-  async function permitted(device, kind, id, context=null) {
+  async function permitted(device, kind, id, context=null, {forDelivery=true}={}) {
     context=context || await sessions.access(device.id,device.user_id,device.agency_id);
     const uid=Number(device.user_id);
     const agencyScope=column=>{
@@ -77,6 +87,26 @@ export function createMobilePushWorker({db=pool, sessions=mobileSessions, conver
           WHERE n.user_id=? AND n.related_entity_type='chat_thread' AND n.related_entity_id=t.id AND COALESCE(r.muted_until,n.muted_until)>NOW()) LIMIT 1`,[uid,id,uid,uid,uid,uid]);
       if(!row)return null;
       try{await refreshSecure(row.thread_id,uid);return Number(row.thread_id);}catch(error){if([403,404].includes(error.status))return null;throw error;}
+    }
+
+    if (['websitechat','notification'].includes(kind)) {
+      const scope=agencyScope('n.agency_id');
+      const [[row]]=await db.execute(`SELECT n.*,r.dismissed_at,r.snoozed_until,r.muted_until AS viewer_muted_until FROM notifications n
+        LEFT JOIN notification_user_reads r ON r.notification_id=n.id AND r.user_id=?
+        WHERE n.id=? AND n.user_id=? AND ${scope.sql} AND n.type IN (${EVENT_NOTIFICATION_TYPES.map(()=>'?').join(',')})
+        AND r.dismissed_at IS NULL AND (r.snoozed_until IS NULL OR r.snoozed_until<=NOW())
+        AND (COALESCE(r.muted_until,n.muted_until) IS NULL OR COALESCE(r.muted_until,n.muted_until)<=NOW()) LIMIT 1`,[uid,id,uid,...scope.params,...EVENT_NOTIFICATION_TYPES]);
+      if(!row || !qaAgencyAllowed(context.qaAgencyIds,row.agency_id))return null;
+      const grant=await agencyAccess(uid,row.agency_id);if(!grant)return null;
+      const actor=applyAgencyAccess(context.user,grant);
+      if(row.type==='website_chat_waiting') {
+        if(!['admin','support','super_admin'].includes(actor.role))return null;
+        if(forDelivery){const [[online]]=await db.execute('SELECT 1 FROM public_website_chat_staff WHERE user_id=? AND last_seen_at>UTC_TIMESTAMP()-INTERVAL 75 SECOND',[uid]);if(!online)return null;}
+      } else if(row.type==='new_job_application_submitted') {
+        if(getUserCapabilities(actor).canManageHiring!==true)return null;
+      } else if(await demoListing({listingId:row.related_entity_id,agencyId:row.agency_id}))return null;
+      if(!await channelEnabled({userId:uid,userRole:actor.role,agencyId:row.agency_id,type:row.type,channel:forDelivery?'push':'inApp'}))return null;
+      return Number(row.id);
     }
 
     if(kind==='chat') {
@@ -127,6 +157,16 @@ export function createMobilePushWorker({db=pool, sessions=mobileSessions, conver
         await db.execute(`UPDATE mobile_device_sessions SET ${cursor}=GREATEST(${cursor},?) WHERE id=?`,[row.id,device.id]);
       }
     }
+    if(device.notification_cursor==null) {
+      await db.execute('UPDATE mobile_device_sessions SET notification_cursor=(SELECT COALESCE(MAX(id),0) FROM notifications) WHERE id=? AND notification_cursor IS NULL',[device.id]);
+    } else {
+      const [rows]=await db.execute('SELECT id FROM notifications WHERE id>? AND user_id=? ORDER BY id LIMIT 100',[device.notification_cursor,device.user_id]);
+      for(const row of rows){
+        const target=await permitted(device,'notification',row.id,context);
+        if(target)await db.execute(`INSERT IGNORE INTO mobile_push_deliveries(device_session_id,source_kind,source_id,target_id) VALUES(?,?,?,?)`,[device.id,'notification',row.id,target]);
+        await db.execute('UPDATE mobile_device_sessions SET notification_cursor=GREATEST(notification_cursor,?) WHERE id=?',[row.id,device.id]);
+      }
+    }
   }
   async function deliver(row) {
     const [claim]=await db.execute(`UPDATE mobile_push_deliveries SET locked_until=DATE_ADD(NOW(),INTERVAL 60 SECOND),attempts=attempts+1,last_attempt_at=NOW()
@@ -171,7 +211,7 @@ let running=false;
 export async function mobilePushTick() {
   if(running)return;
   running=true;
-  try { await createMobilePushWorker().tick(); }
+  try { await (await import('../websiteChatNotifications.service.js')).websiteChatNotifications.drain();await createMobilePushWorker().tick(); }
   catch(error) { if(!['ER_NO_SUCH_TABLE','ER_BAD_FIELD_ERROR'].includes(error.code))console.warn('[mobile push]',error.code || 'worker_failed'); }
   finally {running=false;}
 }
