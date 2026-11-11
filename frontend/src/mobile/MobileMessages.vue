@@ -115,7 +115,7 @@ function rememberListScroll(){const pane=document.getElementById('qv-workspace')
 async function loadInbox({older=false,quiet=false,force=false}={}) {
   if(pendingRead.size || bulkBusy.value)return;
   const scope=`${suite.value}:${filter.value}:${includeArchived.value}`;
-  if(scope!==inboxScope){cacheInbox(false);inboxScope=scope;const cached=inboxCache.get(scope);items.value=cached?[...cached.items]:[];cursor.value=cached?.cursor || null;inboxReady.value=!!cached;}
+  if(scope!==inboxScope){++inboxRequest;cacheInbox(false);inboxScope=scope;const cached=inboxCache.get(scope);items.value=cached?[...cached.items]:[];cursor.value=cached?.cursor || null;inboxReady.value=!!cached;}
   const cached=inboxCache.get(scope);if(!force && !older && cached && Date.now()-cached.at<60000){loading.value=false;inboxFailed.value=false;return;}
   const request=++inboxRequest,token=props.sessionToken;if(!quiet)loading.value=true;error.value='';
   try{

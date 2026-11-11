@@ -1798,7 +1798,7 @@ async function openConversation(c, { refresh = false, preserveCurrent = true } =
   try {
     const { data } = fresh?{data:cached.data}:await axios.get(`${apiBase}/conversations/${c.id}`, { headers: authHeaders(), withCredentials: true });
     if(session.value!==activeToken || cacheEpoch!==emailCacheEpoch)return;
-    if(isMobile.value){emailDetailCache.set(String(c.id),{data,at:Date.now()});if(emailDetailCache.size>12)emailDetailCache.delete(emailDetailCache.keys().next().value);}
+    if(isMobile.value){emailDetailCache.set(String(c.id),{data,at:fresh?cached.at:Date.now()});if(emailDetailCache.size>12)emailDetailCache.delete(emailDetailCache.keys().next().value);}
     if (request !== conversationRequest || activeConv.value?.id !== c.id) return;
     activeConv.value = data.conversation || c;
     threadMessages.value = data.messages || []; nextBeforeId.value = data.nextBeforeId || null;
