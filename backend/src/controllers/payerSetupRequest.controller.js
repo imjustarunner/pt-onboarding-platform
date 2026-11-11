@@ -14,7 +14,7 @@ export async function payerSetupRequests(req,res,next) {
         const payerId = String(req.body.payerId).trim();
         if (!/^[A-Za-z0-9_-]{1,32}$/.test(payerId)) return res.status(400).json({error:{message:'Select a payer from the directory'}});
         const connection = await resolveClaimMdConnection(agencyId);
-        const result = await fetchPayers({accountKey:connection.accountKey,payerId});
+        const result = await fetchPayers({ agencyId, accountKey:connection.accountKey,payerId});
         const payers = Array.isArray(result.payer) ? result.payer : result.payer ? [result.payer] : [];
         const matches = payers.filter(p => String(p.payerid).toUpperCase() === payerId.toUpperCase());
         if (matches.length !== 1) return res.status(409).json({error:{message:'This payer ID has changed or is unavailable. Search the directory again.'}});

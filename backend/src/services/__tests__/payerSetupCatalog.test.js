@@ -7,6 +7,11 @@ it('preserves leading zeros and keeps directory support separate from enrollment
  const result=matchPayerDirectory({name:'CO BCBS',sourcePayerId:'00050'},directory);
  expect(result.claimmdPayerId).toBe('00050');expect(result.directoryStatus).toBe('id_match');expect(result).not.toHaveProperty('enrolled');
 });
+it('retains additional directory capabilities and future fields in the saved snapshot',()=>{
+ const payer={...directory[0],attachment:'Enrollment',eligibility_request_fields:{optional:['group_number']},future_capability:'available'};
+ const result=matchPayerDirectory({sourcePayerId:'00050'},[payer]);
+ expect(result.capabilities).toMatchObject(payer);expect(result.capabilities.secondary_support).toBe('unknown');
+});
 it('requires review for a legacy ID and does not guess routing from a similar payer name',()=>{
  expect(matchPayerDirectory({name:'Tricare East',sourcePayerId:'TREST'},directory)).toMatchObject({claimmdPayerId:'99727',directoryStatus:'alias_review'});
  expect(matchPayerDirectory({name:'CO BCBS',sourcePayerId:'NOTFOUND'},directory)).toMatchObject({claimmdPayerId:null,directoryStatus:'not_found'});

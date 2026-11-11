@@ -23,7 +23,9 @@ export async function saveDirectoryPayer({agencyId,payer,actorUserId}, db) {
       }
       requestId = request.id;
     }
-    const capabilities = Object.fromEntries(['1500_claims','era','eligibility','secondary_support'].map(k=>[k,payer[k] || 'unknown']));
+    // Preserve all directory metadata; existing capability consumers keep their
+    // current top-level keys. A directory record contains no patient evidence.
+    const capabilities = { ...payer, ...Object.fromEntries(['1500_claims','era','eligibility','secondary_support'].map(k=>[k,payer[k] || 'unknown'])) };
     await db.execute(`INSERT INTO medical_payer_setup_details
       (request_id,claimmd_payer_id,directory_name,directory_status,directory_snapshot_json,directory_checked_at)
       VALUES (?,?,?,'id_match',?,UTC_TIMESTAMP()) ON DUPLICATE KEY UPDATE
@@ -48,7 +50,7 @@ export function matchPayerDirectory(source, directory) {
     claimmdPayerId: match?.payerid || null,
     directoryName: match?.payer_name || null,
     directoryStatus: !id ? 'manual_review' : exact.length === 1 ? 'id_match' : aliases.length === 1 ? 'alias_review' : 'not_found',
-    capabilities: match ? Object.fromEntries(['1500_claims','era','eligibility','secondary_support'].map(k => [k, match[k] || 'unknown'])) : null
+    capabilities: match ? { ...match, ...Object.fromEntries(['1500_claims','era','eligibility','secondary_support'].map(k => [k, match[k] || 'unknown'])) } : null
   };
 }
 

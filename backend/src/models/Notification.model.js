@@ -2,6 +2,7 @@ import pool from '../config/database.js';
 import { NOTIFICATION_TYPES } from '../services/notificationCatalog.service.js';
 
 const PRIVATE_CROSS_USER_TYPES = new Set([
+  'claimmd_data_gap',
   'school_group_email_received',
   'school_closure_notice',
   'credentialing_reminder', 'credentialing_email',

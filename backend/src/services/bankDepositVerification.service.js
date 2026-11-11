@@ -36,13 +36,13 @@ export async function requestEraDepositVerification({ agencyId, accountId, actor
   await assertExclusiveClaimMdTaxId(agencyId, taxId);
   const connection = await resolveClaimMdConnection(agencyId);
   requireClaimMdTransmission(connection);
-  const result = await fetchEraList({ accountKey: connection.accountKey, page, taxId });
+  const result = await fetchEraList({ agencyId, accountKey: connection.accountKey, page, taxId });
   const rows = Array.isArray(result.era) ? result.era : result.era ? [result.era] : [];
   const selected = rows.filter(e => String(e.eraid) === eraId);
   if (selected.length !== 1) throw billingError(409, 'ERA not found uniquely on this directory page; refresh or use manual review');
   const profiles = await listClaimMdBillingProfiles(agencyId);
   const era = eraDepositEvidence(selected[0], taxId, profiles.map(p => String(p.practice_npi)));
-  const details = await fetchEraData({ accountKey: connection.accountKey, eraId });
+  const details = await fetchEraData({ agencyId, accountKey: connection.accountKey, eraId });
   const detailedEra = eraDepositEvidence({ ...details, check_type: 'eft' }, taxId, [era.providerNpi]);
   if (String(details.eraid) !== eraId || String(details.prov_taxid || '').replace(/\D/g, '') !== taxId || String(details.prov_npi) !== era.providerNpi || String(details.check_number) !== era.trace || String(details.payerid) !== era.payerId || detailedEra.amountCents !== era.amountCents || details.paid_date !== era.paidDate || details.payment_method !== 'ACH' || !/^1[0-9]{9}$/.test(String(details.payer_companyid || ''))) throw billingError(409, 'Complete ERA originator identity is unavailable or inconsistent; verify this deposit manually');
   era.originatorId = String(details.payer_companyid);

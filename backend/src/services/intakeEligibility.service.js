@@ -13,6 +13,7 @@ import { getClaimMdBillingProfile } from './claimMdBillingProfile.service.js';
 import { runMeteredCoverageCheck } from './eligibilityUsage.service.js';
 import { queueInsuranceVerificationSafely } from './insuranceVerificationTask.service.js';
 import { applyEligibilityProfileResults } from './eligibilityProfile.service.js';
+import { observeClaimMdData } from './claimMdDataMonitor.service.js';
 
 const parse = v => typeof v === 'string' ? JSON.parse(v || '{}') : v || {};
 export function intakeLookupModes(insurance, slot) {
@@ -155,7 +156,10 @@ export async function processIntakeEligibility(job,policy,config,deps={}) {
     if(!result || result.summary?.status!=='active_reported' || result.summary?.identityMatches!==true || result.summary?.otherCoverageReported) needsReview=true;
     if(result) discoveries.push({slot,result});
   }
-  if(discoveries.length) await (deps.applyProfile||applyEligibilityProfileResults)({agencyId:job.agency_id,clientId:job.client_id,expectedFingerprint:fingerprint,results:discoveries,actorUserId:policy.reviewer_user_id},{db});
+  if(discoveries.length) {
+    try { await (deps.applyProfile||applyEligibilityProfileResults)({agencyId:job.agency_id,clientId:job.client_id,expectedFingerprint:fingerprint,results:discoveries,actorUserId:policy.reviewer_user_id},{db}); }
+    catch(error) { await observeClaimMdData({agencyId:job.agency_id,endpoint:'eligdata',failure:'profile_import_failed'}); throw error; }
+  }
   // Billing owns final coverage coordination, including policies without cards.
   await (deps.queueTask||queueInsuranceVerificationSafely)({agencyId:job.agency_id,clientId:job.client_id,actorUserId:policy.reviewer_user_id,reason:needsReview?'eligibility_unresolved':'coverage_coordination'},db);
   return needsReview?'review_required':'completed';

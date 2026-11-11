@@ -3117,7 +3117,7 @@ export const listClaimMdEras = async (req, res, next) => {
     if (taxId.length !== 9) return res.status(409).json({ error: { message: 'Configure the agency tax ID first' } });
     const { assertExclusiveClaimMdTaxId } = await import('../services/claimMdBillingProfile.service.js');
     await assertExclusiveClaimMdTaxId(agencyId, taxId);
-    const result = await fetchEraList({ accountKey, page: req.query.page || '1', taxId });
+    const result = await fetchEraList({ agencyId, accountKey, page: req.query.page || '1', taxId });
     const eras = asList(result.era).filter(row => taxId.length === 9 && String(row.prov_taxid || '').replace(/\D/g, '') === taxId);
     return res.json({ eras });
   } catch (e) {

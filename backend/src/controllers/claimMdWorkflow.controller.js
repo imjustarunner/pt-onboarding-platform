@@ -226,7 +226,7 @@ export async function searchClaimMdPayers(req, res, next) {
     const query = String(req.query.search || '').trim();
     const payerId = String(req.query.payerId || '').trim();
     if (payerId ? !/^[A-Za-z0-9_-]{1,32}$/.test(payerId) : query.length < 2 || query.length > 64) throw fail(400, 'Enter a payer ID or 2–64 characters of a payer name');
-    const result = await fetchPayers({ accountKey: connection.accountKey, ...(payerId ? {payerId} : {payerName: query}) });
+    const result = await fetchPayers({ agencyId, accountKey: connection.accountKey, ...(payerId ? {payerId} : {payerName: query}) });
     res.json({ payers: asList(result.payer).slice(0, 100) });
   } catch (e) { next(e); }
 }

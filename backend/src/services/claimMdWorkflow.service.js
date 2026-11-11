@@ -84,7 +84,7 @@ export async function syncClaimMdResponses({ agencyId, connection, db = clinical
     await conn.beginTransaction();
     await conn.execute('INSERT IGNORE INTO claimmd_sync_state (agency_id, connection_id) VALUES (?, ?)', [agencyId, connection.connectionId]);
     const [[state]] = await conn.execute('SELECT last_response_id FROM claimmd_sync_state WHERE agency_id = ? AND connection_id = ? FOR UPDATE', [agencyId, connection.connectionId]);
-    const result = await download({ accountKey: connection.accountKey, responseId: state.last_response_id });
+    const result = await download({ agencyId, accountKey: connection.accountKey, responseId: state.last_response_id });
     const cursor = String(result.last_responseid || state.last_response_id);
     if (!/^\d{1,40}$/.test(cursor) || BigInt(cursor) < BigInt(state.last_response_id)) throw error(502, 'Claim.MD returned an invalid response cursor');
     let updated = 0;

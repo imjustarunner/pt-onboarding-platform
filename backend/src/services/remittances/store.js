@@ -70,13 +70,13 @@ export async function syncRemittances({agencyId,maxDownloads=10}) {
  // Rescan directory pages: a cursor must never skip an older unimported ERA.
  // Bounded runs resume by skipping durable imports. This also works for initial backfill.
  for(let page=1;page<=100;page++){
-  const result=await fetchEraList({accountKey:connection.accountKey,taxId:identity.taxId,page:String(page)}),rows=list(result.era);
+  const result=await fetchEraList({ agencyId, accountKey:connection.accountKey,taxId:identity.taxId,page:String(page)}),rows=list(result.era);
   for(const entry of rows){
    if(String(entry.prov_taxid||'').replace(/\D/g,'')!==identity.taxId||!identity.npis.includes(String(entry.prov_npi))){skipped++;continue;}
    const [[known]]=await clinicalPool.execute('SELECT id FROM claimmd_remittances WHERE agency_id=? AND connection_id=? AND era_id=?',[agencyId,connection.connectionId,String(entry.eraid)]);
    if(known)continue;
    if(imported>=maxDownloads){moreAvailable=true;break;}
-   const raw=await fetchEraData({accountKey:connection.accountKey,eraId:String(entry.eraid)});
+   const raw=await fetchEraData({ agencyId, accountKey:connection.accountKey,eraId:String(entry.eraid)});
    normalizeEra(raw,{...identity,eraId:String(entry.eraid)});
    await importRemittance({agencyId,connection,raw,identity});imported++;
    await new Promise(resolve=>setTimeout(resolve,700));

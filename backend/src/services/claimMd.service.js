@@ -2,6 +2,7 @@ import { claimResubmissionFields } from './claimResubmissionPolicy.js';
 import { assertLiveClearinghouseAgency } from './syntheticClearinghouseGuard.service.js';
 import { normalizeUsStateCode } from '../utils/usStateTimezone.js';
 import { policyIsMedicaid } from '../utils/insurancePaymentPolicy.js';
+import { observeClaimMdData } from './claimMdDataMonitor.service.js';
 /**
  * Claim.MD clearinghouse adapter (https://api.claim.md/).
  * AccountKey is required on every call. Responses are passthrough JSON/text.
@@ -9,7 +10,7 @@ import { policyIsMedicaid } from '../utils/insurancePaymentPolicy.js';
 
 const CLAIM_MD_BASE = String(process.env.CLAIM_MD_API_BASE || 'https://svc.claim.md/services').replace(/\/$/, '');
 
-async function postForm(path, fields = {}) {
+async function postForm(path, fields = {}, agencyId) {
   const body = new URLSearchParams();
   for (const [k, v] of Object.entries(fields)) {
     if (v === undefined || v === null) continue;
@@ -34,8 +35,10 @@ async function postForm(path, fields = {}) {
     throw err;
   }
   if (!json || typeof json !== 'object' || json.error || json.errors) {
+    await observeClaimMdData({agencyId,endpoint:path.replaceAll('/',''),failure:'invalid_api_response'});
     throw Object.assign(new Error('Claim.MD returned an error or an invalid response. Check the account configuration in Claim.MD.'), { status: 502 });
   }
+  await observeClaimMdData({agencyId,payerId:fields.payerid,endpoint:path.replaceAll('/',''),result:json});
   return json;
 }
 
@@ -50,29 +53,36 @@ export async function uploadClaims({ agencyId, accountKey, fileContents, filenam
   body.append('File', new Blob([fileContents], { type: 'application/json' }), filename);
   const response = await fetch(`${CLAIM_MD_BASE}/upload/`, { method:'POST', headers:{Accept:'application/json'}, body, signal:AbortSignal.timeout(30000) });
   if (!response.ok) throw Object.assign(new Error('Claim.MD upload failed; review submission status before retrying'), { status:502 });
-  const result = await response.json();
+  let result;
+  try { result = await response.json(); }
+  catch { await observeClaimMdData({agencyId,endpoint:'upload',failure:'invalid_api_response'}); throw Object.assign(new Error('Claim.MD returned an unreadable upload response; review submission status before retrying'),{status:502}); }
+  if (!result || typeof result !== 'object') {
+    await observeClaimMdData({agencyId,endpoint:'upload',failure:'invalid_api_response'});
+    throw Object.assign(new Error('Claim.MD returned an invalid upload response; review submission status before retrying'),{status:502});
+  }
+  await observeClaimMdData({agencyId,endpoint:'upload',result});
   if (result.error || result.errors) throw Object.assign(new Error('Claim.MD rejected the upload; review the clearinghouse response'), { status:422 });
   return result;
 }
 
 /** Incremental response download — ResponseID=0 for first pull. */
-export async function fetchResponses({ accountKey, responseId = '0' }) {
+export async function fetchResponses({ agencyId, accountKey, responseId = '0' }) {
   return postForm('/response/', {
     AccountKey: accountKey,
     ResponseID: String(responseId)
-  });
+  }, agencyId);
 }
 
-export async function fetchEraList({ accountKey, page = '1', taxId }) {
+export async function fetchEraList({ agencyId, accountKey, page = '1', taxId }) {
   return postForm('/eralist/', {
     AccountKey: accountKey,
     Page: String(page), TaxID: taxId, NewOnly: '0'
-  });
+  }, agencyId);
 }
 
 // Call only after an agency-scoped ERA directory lookup verifies its ownership.
-export async function fetchEraData({ accountKey, eraId }) {
-  return postForm('/eradata/', { AccountKey: accountKey, eraid: eraId });
+export async function fetchEraData({ agencyId, accountKey, eraId }) {
+  return postForm('/eradata/', { AccountKey: accountKey, eraid: eraId }, agencyId);
 }
 
 export async function requestEligibilityJson({ agencyId, accountKey, payload }) {
@@ -80,11 +90,11 @@ export async function requestEligibilityJson({ agencyId, accountKey, payload }) 
   return postForm('/eligdata/', {
     ...(payload && typeof payload === 'object' ? payload : {}),
     AccountKey: accountKey
-  });
+  }, agencyId);
 }
 
-export function fetchPayers({ accountKey, payerId, payerName }) {
-  return postForm('/payerlist/', { AccountKey: accountKey, payerid: payerId, payer_name: payerName });
+export function fetchPayers({ agencyId, accountKey, payerId, payerName }) {
+  return postForm('/payerlist/', { AccountKey: accountKey, payerid: payerId, payer_name: payerName }, agencyId);
 }
 
 export async function requestEnrollment({ agencyId, accountKey, payerId, enrollmentType, practice, npi, contact, contactEmail }) {
@@ -93,7 +103,7 @@ export async function requestEnrollment({ agencyId, accountKey, payerId, enrollm
     prov_taxid: String(practice.tax_id || '').replace(/\D/g, ''), prov_npi: npi,
     prov_name_l: practice.name, contact, contact_email: contactEmail, contact_phone: practice.phone_number,
     prov_addr_1: practice.street_address,
-    prov_city: practice.city, prov_state: practice.state, prov_zip: String(practice.postal_code || '').replace(/\D/g, '') });
+    prov_city: practice.city, prov_state: practice.state, prov_zip: String(practice.postal_code || '').replace(/\D/g, '') }, agencyId);
 }
 
 /** Professional-claim fields per Claim.MD's published JSON example.

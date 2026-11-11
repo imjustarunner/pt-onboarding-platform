@@ -3,6 +3,7 @@ import pool from '../config/database.js';
 import { readClientInsurance } from './clientInsurance.service.js';
 import { encryptFamilyBilling, decryptFamilyBilling, assertFamilyBillingEncryption } from './familyBillingEncryption.service.js';
 import { requestEligibilityJson } from './claimMd.service.js';
+import { observeClaimMdData } from './claimMdDataMonitor.service.js';
 import { hasMedicaidCoverage, policyIsMedicaid } from '../utils/insurancePaymentPolicy.js';
 import { billingError, auditBilling } from './familyBillingPolicy.service.js';
 import { validNpi } from './supervisedBillingPolicy.service.js';
@@ -126,7 +127,8 @@ export async function runCoverageCheck({agencyId,clientId,slot,serviceDate,reque
   // A demographic fallback may find the person under a different member ID.
   // Preserve that finding, but do not approve the currently saved wrong ID.
   evidence.summary.identityMatches=eligibilityIdentityMatches({...payload,...(insurance?.[slot]?.memberId?{ins_number:insurance[slot].memberId}:{})},result);
-  await db.execute("UPDATE client_coverage_checks SET status='returned',completed_at=CURRENT_TIMESTAMP(6),evidence_encrypted=? WHERE id=? AND agency_id=? AND client_id=?",[encryptFamilyBilling(evidence,context(agencyId,clientId)),id,agencyId,clientId]);
+  try { await db.execute("UPDATE client_coverage_checks SET status='returned',completed_at=CURRENT_TIMESTAMP(6),evidence_encrypted=? WHERE id=? AND agency_id=? AND client_id=?",[encryptFamilyBilling(evidence,context(agencyId,clientId)),id,agencyId,clientId]); }
+  catch(error) { await observeClaimMdData({agencyId,endpoint:'eligdata',failure:'evidence_storage_failed'}); throw error; }
   await auditBilling({agencyId,clientId,userId:actorUserId,action:'insurance_eligibility_checked',objectId:id},db);
   const errors=asList(result?.elig||result?.result?.elig).flatMap(e=>asList(e.error));
   let followUpTaskId=null;
@@ -138,7 +140,7 @@ export async function runCoverageCheck({agencyId,clientId,slot,serviceDate,reque
   const checked={id,status:'returned',...evidence,followUpTaskId};
   if(source!=='automatic' && evidence.summary.identityMatches===true && evidence.summary.status==='active_reported') {
    try {const {applyEligibilityProfileResults}=await import('./eligibilityProfile.service.js');await (deps.applyProfile||applyEligibilityProfileResults)({agencyId,clientId,expectedFingerprint:fingerprint,results:[{slot,result:checked}],actorUserId},{db});}
-   catch { checked.profileImportPending=true; await (deps.queueFollowUp||queueInsuranceVerificationSafely)({agencyId,clientId,actorUserId,coverageCheckId:id,reason:'eligibility_unresolved'},db); }
+   catch { checked.profileImportPending=true; await observeClaimMdData({agencyId,endpoint:'eligdata',failure:'profile_import_failed'}); await (deps.queueFollowUp||queueInsuranceVerificationSafely)({agencyId,clientId,actorUserId,coverageCheckId:id,reason:'eligibility_unresolved'},db); }
   }
   return checked;
  }catch(e){await db.execute("UPDATE client_coverage_checks SET status='error',completed_at=CURRENT_TIMESTAMP(6) WHERE id=? AND agency_id=? AND client_id=?",[id,agencyId,clientId]);await (deps.queueFollowUp||queueInsuranceVerificationSafely)({agencyId,clientId,actorUserId,coverageCheckId:id,reason:'eligibility_error'},db);throw billingError(502,'Eligibility could not be confirmed. Review payer enrollment or use the payer portal; coverage remains unverified');}

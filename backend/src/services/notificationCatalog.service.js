@@ -67,6 +67,7 @@ const TYPES_BY_CATEGORY = {
     'company_event_shift_requested', 'company_event_shift_approved', 'company_event_shift_denied'
   ],
   payroll_billing: [
+    'claimmd_data_gap',
     'payment_setup_required',
     'mileage_claim_approved', 'mileage_claim_rejected', 'mileage_claim_returned',
     'medcancel_claim_approved', 'medcancel_claim_rejected', 'medcancel_claim_returned',
@@ -101,6 +102,7 @@ const TYPES_BY_CATEGORY = {
 };
 
 const LABEL_OVERRIDES = {
+  claimmd_data_gap: 'Payer data needs Technology review',
   school_closure_notice: 'School closure reminders',
   client_exchange_match: 'New matching clients in Client Exchange',
   client_exchange_shared: 'Clients shared by your support team',

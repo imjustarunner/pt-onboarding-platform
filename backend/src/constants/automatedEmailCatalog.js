@@ -38,6 +38,7 @@ export const PREFERRED_IDENTITY_KEYS_BY_TEMPLATE_TYPE = {
   client_renewal: ['schools', 'school_intake'],
   intake: ['school_intake', 'intake'],
   intake_summary_pdf_copy: ['school_intake', 'intake', 'notifications'],
+  claimmd_data_gap_digest: ['notifications'],
   family_balance_due: ['billing'],
   family_payment_receipt: ['billing'],
   co_guardian_invite: ['notifications'],

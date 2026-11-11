@@ -3088,6 +3088,20 @@ if (process.env.CLAIM_MD_ELIGIBILITY_AUTOMATION_ENABLED === 'true' || process.en
   timer.unref();
 }
 
+// Metadata-only payer-data monitoring. The worker verifies the live revision,
+// shares a database lock and sends at most one Technology digest per day.
+if (process.env.NODE_ENV !== 'test') {
+  let payerDataMonitorRunning = false;
+  const timer = setInterval(async () => {
+    if (payerDataMonitorRunning) return;
+    payerDataMonitorRunning = true;
+    try { const { runClaimMdDataMonitor } = await import('./services/claimMdDataMonitor.service.js'); await runClaimMdDataMonitor(); }
+    catch { console.warn('[claimmd data monitor] Worker needs configuration or migration review'); }
+    finally { payerDataMonitorRunning = false; }
+  }, 5 * 60 * 1000);
+  timer.unref();
+}
+
 // Recovery does not activate existing annual schedule rows or queued follow-ups.
 if (process.env.NODE_ENV !== 'test' && process.env.SCHOOL_YEAR_UPDATE_AUTOMATION_ENABLED === 'true') {
   let annualUpdateRunning=false;

@@ -3,6 +3,7 @@ import clinicalPool from '../config/clinicalDatabase.js';
 import { sharedClaimMdConnection } from '../services/claimMdConnection.service.js';
 import { verifyClaimMdWebhook, taxIdHash } from '../services/claimMdWorkflow.service.js';
 import { encryptFamilyBilling } from '../services/familyBillingEncryption.service.js';
+import { observeClaimMdData } from '../services/claimMdDataMonitor.service.js';
 
 const router = express.Router();
 router.post('/', express.raw({ type: 'application/json', limit: '1mb' }), async (req, res, next) => {
@@ -37,6 +38,8 @@ router.post('/', express.raw({ type: 'application/json', limit: '1mb' }), async 
       }
     }
     await db.commit();
+    // Signed account-wide event metadata only; patient values never enter alerts.
+    await observeClaimMdData({agencyId:Number(firstAgency),endpoint:'webhook',result:body});
     res.sendStatus(200);
   } catch (e) { if (db) await db.rollback(); next(e); } finally { db?.release(); }
 });
