@@ -1,12 +1,29 @@
 import { describe, expect, it } from 'vitest';
 import { auricwellSettingsLocation, buildAuricWellOperations, canManageAuricWell } from '../auricwellManagement.js';
 import { buildSettingsSearchTargets, filterSettingsSearchTargets } from '../settingsSearchCatalog.js';
+import { buildAuricWellOperationSections } from '../auricwellOperationSections.js';
 
 const agency = { id: 12, slug: 'practice-a', feature_flags: { medicalBillingEnabled: true, schoolPortalsEnabled: true } };
 const admin = { role: 'admin', billingAgencyIds: [12] };
 const operations = (user = admin, practice = agency) => buildAuricWellOperations({ user, agency: practice });
 
 describe('AuricWell management operations', () => {
+  it('keeps every permitted workflow reachable exactly once in the hub areas', () => {
+    const items = operations({ role: 'super_admin', capabilities: { canViewLibrary: true } }, { ...agency, feature_flags: { ...agency.feature_flags, sessionRecordingEnabled: true } });
+    const sections = buildAuricWellOperationSections(items);
+    const cards = sections.flatMap(section => section.cards);
+    expect(sections).toHaveLength(6);
+    expect(cards.map(card => card.id).sort()).toEqual(items.map(item => item.id).sort());
+    for (const item of items) expect(cards.find(card => card.id === item.id).to).toBe(item.href);
+    expect(sections[0].cards.map(card => card.id)).toEqual(['transition', 'providers']);
+  });
+
+  it('omits empty billing areas and resets to no areas for an unauthorized user', () => {
+    const items = operations(admin, { ...agency, feature_flags: { medicalBillingEnabled: false } });
+    expect(buildAuricWellOperationSections(items).some(section => section.id === 'billing')).toBe(false);
+    expect(buildAuricWellOperationSections(operations({ role: 'provider' }))).toEqual([]);
+  });
+
   it('requires an administered organization and limits the preview to superadmin', () => {
     for (const role of ['provider', 'support', 'staff', 'client_guardian']) {
       expect(canManageAuricWell({ role }, agency)).toBe(false);

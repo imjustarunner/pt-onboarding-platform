@@ -2066,6 +2066,12 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: SCHEDULE_HUB_ROLES, organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/auricwell-operations',
+    name: 'OrganizationAuricWellOperations',
+    component: () => import('../views/AuricWellOperationsHubView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'super_admin'], organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/people-operations',
     name: 'OrganizationPeopleOperations',
     component: () => import('../views/PeopleOperationsHubView.vue'),
@@ -3745,6 +3751,12 @@ const routes = [
     name: 'SchoolOperations',
     component: () => import('../views/SchoolOperationsHubView.vue'),
     meta: { requiresAuth: true, requiresRole: SCHEDULE_HUB_ROLES }
+  },
+  {
+    path: '/auricwell-operations',
+    name: 'AuricWellOperations',
+    component: () => import('../views/AuricWellOperationsHubView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'super_admin'] }
   },
   {
     path: '/people-operations',
