@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS school_weekday_followups (
   opened_at DATETIME(3) NULL,
   completed_at DATETIME(3) NULL,
   cancelled_at DATETIME(3) NULL,
+  active_request TINYINT GENERATED ALWAYS AS (IF(completed_at IS NULL AND cancelled_at IS NULL,1,NULL)) STORED,
   invitation_status VARCHAR(20) NOT NULL DEFAULT 'pending',
   invitation_communication_id BIGINT NULL,
   invitation_sent_at DATETIME(3) NULL,
@@ -31,6 +32,7 @@ CREATE TABLE IF NOT EXISTS school_weekday_followups (
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uq_school_weekday_request (agency_id,provider_id,request_key),
+  UNIQUE KEY uq_school_weekday_active_request (agency_id,provider_id,active_request),
   KEY idx_school_weekday_progress (agency_id,provider_id,id),
   KEY idx_school_weekday_due (cancelled_at,completed_at,sms_status,sms_due_at)
 );

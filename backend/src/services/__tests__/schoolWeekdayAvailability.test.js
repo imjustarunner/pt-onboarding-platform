@@ -21,6 +21,7 @@ beforeEach(() => {
     }
     if (sql.includes('INSERT INTO notifications')) { events.push(args); return [{ insertId: 1 }]; }
     if (sql.includes('SELECT * FROM notifications')) return [[{ id: 1, user_id: 7 }]];
+    if (sql.includes('SELECT enabled FROM school_weekday_followup_settings')) return [[]];
     if (sql.includes('FOR UPDATE')) return [[{ id: 7 }]];
     throw new Error(`Unexpected query: ${sql}`);
   }) };
@@ -107,4 +108,13 @@ it('tracks an actual modal opening separately from answering and preserves the f
  expect((await markSchoolWeekdaysOpened({providerId:7,agencyId:2,actorId:7},db)).openedAt).toBe(first.openedAt);
  await expect(markSchoolWeekdaysOpened({providerId:7,agencyId:2,actorId:99},db)).rejects.toThrow('Only the provider');
  expect(details.anotherFeature).toBe('keep');
+});
+it('commits the follow-up job with the in-app request so immediate completion cannot miss its thank-you',async()=>{
+ const execute=db.execute.getMockImplementation();db.execute.mockImplementation(async(sql,args)=>{
+  if(sql.includes('SELECT enabled FROM school_weekday_followup_settings'))return [[{enabled:1}]];
+  if(sql.includes('INSERT IGNORE INTO school_weekday_followups')){events.push('followup_queued');return [{affectedRows:1}];}
+  return execute(sql,args);
+ });
+ const result=await requestSchoolWeekdayUpdates({agencyId:2,actorId:99},db);expect(result.requested).toEqual([7]);expect(events).toContain('followup_queued');
+ const queued=db.execute.mock.invocationCallOrder[db.execute.mock.calls.findIndex(([sql])=>sql.includes('INSERT IGNORE INTO school_weekday_followups'))];expect(queued).toBeLessThan(db.commit.mock.invocationCallOrder[0]);
 });

@@ -87,6 +87,14 @@ export async function requestSchoolWeekdayUpdates({ agencyId, providerId = null,
         await db.execute(`INSERT INTO notifications (type,severity,title,message,user_id,agency_id,related_entity_type,related_entity_id,actor_user_id,actor_source)
           VALUES ('school_weekday_availability_requested','info',?,?,?,?,?,?,?,?)`,
         ['Update your school availability', 'Please confirm your Monday–Friday school availability. Assigned school days stay reserved; mark other days Available or Not available.', person.id, agencyId, 'school_weekday_availability', person.id, actorId, 'school_weekday_availability']);
+        // Queue before committing the prompt: even a provider who saves
+        // immediately must receive the completion thank-you. The active-request
+        // unique index also protects against the worker seeding at the same time.
+        const [[followups]] = await db.execute('SELECT enabled FROM school_weekday_followup_settings WHERE agency_id=?',[agencyId]);
+        if (Number(followups?.enabled)===1) {
+          await db.execute(`INSERT IGNORE INTO school_weekday_followups (agency_id,provider_id,request_key,requested_at)
+            VALUES (?,?,?,?)`,[agencyId,person.id,requestedAt,new Date(requestedAt)]);
+        }
         await db.commit();
       } catch (error) { await db.rollback(); throw error; } finally { db.release(); }
       results.requested.push(person.id);
