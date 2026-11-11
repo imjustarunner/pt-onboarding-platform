@@ -5,6 +5,7 @@ import Agency from '../models/Agency.model.js';
 import { authenticate, requireActiveStatus } from './auth.middleware.js';
 import { assertPreviewActor, constrainPreviewInput, previewError, previewRouteAllowed, isQaPreviewIdentity, assertQaPreviewPractice, qaPreviewRouteAllowed, AURICWELL_QA_SLUG } from '../services/auricwellPreviewPolicy.js';
 import { logAuditEvent } from '../services/auditEvent.service.js';
+import {getUserCapabilities} from '../utils/capabilities.js';
 
 export async function requirePreviewAdmin(req, res, next) {
   try {
@@ -27,7 +28,7 @@ export async function requirePreviewAdmin(req, res, next) {
     assertPreviewActor(actor, req.authClaims || req.user, {qaAgencyId, prospectAgencyIds});
     if (qaAgencyId) req.auricwellQaAgencyId = qaAgencyId;
     if (prospectAgencyIds.length) req.auricwellProspectAgencyIds = prospectAgencyIds;
-    req.previewActor = { id: actor.id, role: actor.role, first_name: actor.first_name, last_name: actor.last_name, email: actor.email, credential: actor.credential || null, timezone: actor.timezone || null };
+    req.previewActor = { id: actor.id, role: actor.role, first_name: actor.first_name, last_name: actor.last_name, email: actor.email, credential: actor.credential || null, timezone: actor.timezone || null, status:actor.status, is_demo:actor.is_demo, has_provider_access:actor.has_provider_access, capabilities:getUserCapabilities(actor) };
     next();
   } catch (error) { next(error); }
 }

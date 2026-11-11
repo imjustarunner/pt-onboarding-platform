@@ -8,6 +8,7 @@ COPY backend/src/routes/auricwellPreview.routes.js /app/src/routes/auricwellPrev
 COPY backend/src/routes/prospectDemo.routes.js /app/src/routes/prospectDemo.routes.js
 COPY backend/src/scripts/provisionProspectDemo.mjs /app/src/scripts/provisionProspectDemo.mjs
 COPY backend/src/server.js /app/src/server.js
+COPY backend/src/services/auricwellAgenda.service.js /app/src/services/auricwellAgenda.service.js
 COPY backend/src/services/auricwellPreviewPolicy.js /app/src/services/auricwellPreviewPolicy.js
 COPY backend/src/services/passwordRecovery.service.js /app/src/services/passwordRecovery.service.js
 COPY backend/src/services/prospectDemo.service.js /app/src/services/prospectDemo.service.js

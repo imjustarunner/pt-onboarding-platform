@@ -83,7 +83,7 @@ router.get('/providers', async (req, res, next) => {
     if (!agencyId) throw previewError(400, 'Select a practice first.');
     const [providers] = await pool.execute(`SELECT u.id,u.first_name,u.last_name,u.credential,u.is_active,u.status
       FROM users u JOIN user_agencies ua ON ua.user_id=u.id
-      WHERE ua.agency_id=? AND u.role IN ('provider','provider_plus','intern','intern_plus','supervisor') ORDER BY u.last_name,u.first_name`, [agencyId]);
+      WHERE ua.agency_id=? AND (u.role IN ('provider','provider_plus','intern','intern_plus','supervisor') OR (u.has_provider_access=1 AND COALESCE(u.sees_clients,1)=1)) ORDER BY u.last_name,u.first_name`, [agencyId]);
     res.json({ providers });
   } catch (error) { next(error); }
 });
