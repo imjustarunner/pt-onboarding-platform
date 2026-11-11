@@ -42,9 +42,9 @@ jobs:
           cache-dependency-path: |
             backend/package-lock.json
             frontend/package-lock.json
-      - name: Install existing dependencies without builds
+      - name: Install dependencies without the frontend postinstall build
         run: |
-          npm ci --prefix backend --ignore-scripts
+          npm ci --prefix backend
           npm ci --prefix frontend --ignore-scripts
       - name: Guided navigation, review gates and empty states
         run: node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.payroll-wizard.config.js
