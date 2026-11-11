@@ -6,7 +6,8 @@ import {beforeEach,expect,it,vi} from 'vitest';
 const mocks=vi.hoisted(()=>({execute:vi.fn(),access:vi.fn(),conversationAccess:vi.fn(),archive:vi.fn(),emails:vi.fn(),emailCounts:vi.fn(),archives:vi.fn(),extraCounts:vi.fn(),threads:vi.fn(),drafts:vi.fn()}));
 vi.mock('../../../config/database.js',()=>({default:{execute:mocks.execute}}));
 vi.mock('../agencyScope.service.js',()=>({listMobileAgencies:vi.fn(async()=>({agencies:[]}))}));
-vi.mock('../../../services/emailDraft.service.js',()=>({listEmailDrafts:mocks.drafts}));
+// A cold dynamic import may finish after several event-loop turns in CI.
+vi.mock('../../../services/emailDraft.service.js',async()=>{await new Promise(resolve=>setTimeout(resolve,75));return {listEmailDrafts:mocks.drafts};});
 vi.mock('../../../models/User.model.js',()=>({default:{findById:vi.fn()}}));
 vi.mock('../../../controllers/chat.controller.js',()=>({assertThreadAccess:mocks.access,markRead:vi.fn(),markUnread:vi.fn()}));
 vi.mock('../../../controllers/quickViewSurfaces.controller.js',()=>({qvListChatThreads:mocks.threads,qvListChatChannels:vi.fn((req,res)=>res.json({channels:[]})),qvListThreadsInbox:vi.fn(),qvListMentions:vi.fn(),qvListFiles:vi.fn()}));
@@ -92,9 +93,13 @@ it('does not discover empty available channels for All unread',async()=>{
 });
 it('loads drafts in bounded parallel batches without waiting on inbox history or counts',async()=>{
  listMobileAgencies.mockResolvedValue({agencies:[{id:2,name:'Agency two'},{id:4,name:'Agency four'}]});let resolveFirst;const first=new Promise(resolve=>{resolveFirst=resolve;});mocks.drafts.mockImplementation((_user,id)=>id===2?first:Promise.resolve([{id:'newer',subject:'Second agency draft',updated_at:'2026-11-06T13:00:00Z'}]));
- const req=request();req.query={suite:'drafts'};const res=response(),pending=getMobileInbox(req,res,vi.fn());for(let i=0;i<10 && mocks.drafts.mock.calls.length<2;i++)await new Promise(resolve=>setImmediate(resolve));expect(mocks.drafts.mock.calls.map(call=>call[1])).toEqual([2,4]);resolveFirst([{id:'older',subject:'First agency draft',updated_at:'2026-11-06T12:00:00Z'}]);await pending;
+ const req=request();req.query={suite:'drafts'};const res=response(),pending=getMobileInbox(req,res,vi.fn());
+ // Observe actual draft reads, not a fixed number of ticks. Always settle this
+ // handler before the next test resets mocks or changes its agency fixtures.
+ try{await vi.waitFor(()=>expect(mocks.drafts.mock.calls.map(call=>call[1])).toEqual([2,4]),{timeout:3000,interval:5});}
+ finally{resolveFirst([{id:'older',subject:'First agency draft',updated_at:'2026-11-06T12:00:00Z'}]);await pending;}
  expect(res.json.mock.calls[0][0].items.map(item=>item.id)).toEqual(['newer','older']);expect(mocks.drafts).toHaveBeenCalledWith({id:3,role:'provider',mobileDevice:true},2);for(const spy of [mocks.emails,mocks.threads,mocks.archives,mocks.emailCounts,mocks.extraCounts,qvListChatChannels])expect(spy).not.toHaveBeenCalled();
 });
 it('clamps the draft lookup to the approved QA tenant',async()=>{
- listMobileAgencies.mockResolvedValue({agencies:[{id:450},{id:456}]});mocks.drafts.mockResolvedValue([]);const req=request();req.quickView.agencyId=450;req.quickView.qaAgencyIds=[450];req.query={suite:'drafts'};const res=response();await getMobileInbox(req,res,vi.fn());expect(mocks.drafts.mock.calls.map(call=>call[1])).toEqual([450]);
+ listMobileAgencies.mockResolvedValue({agencies:[{id:450},{id:456}]});mocks.drafts.mockImplementation(async(_user,agencyId)=>[{id:'agency-'+agencyId,subject:'Synthetic agency draft'}]);const req=request();req.quickView.agencyId=450;req.quickView.qaAgencyIds=[450];req.query={suite:'drafts'};const res=response();await getMobileInbox(req,res,vi.fn());expect(mocks.drafts.mock.calls.map(call=>call[1])).toEqual([450]);expect(res.json.mock.calls[0][0].items.map(item=>item.agencyId)).toEqual([450]);
 });
