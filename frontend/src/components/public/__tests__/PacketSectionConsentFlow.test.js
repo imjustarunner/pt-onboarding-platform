@@ -32,3 +32,19 @@ it('restores a signature only for the same document edition', () => {
   expect(wrapper.find('.applied-sig').exists()).toBe(true);
   wrapper.unmount();
 });
+
+it('requires explicit signature application after acknowledgment and after the saved capture is invalidated',async()=>{
+ const wrapper=render({savedCapture:saved,sessionSavedSignature:'reusable-signature'});
+ expect(wrapper.find('.applied-sig').exists()).toBe(true);
+ await wrapper.setProps({savedCapture:null});
+ expect(wrapper.get('input[type=checkbox]').element.checked).toBe(false);
+ await wrapper.get('input[type=checkbox]').setValue(true);
+ await wrapper.vm.goNext();
+ expect(wrapper.find('.applied-sig').exists()).toBe(false);
+ await wrapper.vm.goNext();
+ expect(wrapper.emitted('captured')).toBeUndefined();
+ await wrapper.get('.saved-sig-thumb').trigger('click');
+ await wrapper.vm.goNext();
+ expect(wrapper.emitted('captured')[0][0].signatureData).toBe('reusable-signature');
+ wrapper.unmount();
+});

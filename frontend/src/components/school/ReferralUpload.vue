@@ -15,6 +15,7 @@
             <p class="muted">To start a different packet, select its file below.</p>
           </div>
           <div class="form-group">
+            <p v-if="uploadComplete" role="status">This draft already has its packet saved. The original file is kept for this draft; review and submit it below. To start another packet, close this dialog and reopen Upload Packet without choosing Resume.</p>
             <label for="file-input" class="file-label">
               <div
                 class="file-input-area"
@@ -107,8 +108,9 @@
             <p v-if="!clientMatches.length">No possible matches were found for this name in this school.</p>
             <label><input v-model="matchChoice" type="radio" value="new" /> {{ clientMatches.length ? 'I reviewed these matches; this is a different child.' : 'I reviewed the child’s name and packet; create a new client.' }}</label>
           </fieldset>
-          <div v-if="success" class="success-message">
+          <div v-if="success" class="success-message" role="status">
             {{ success }}
+            <template v-if="clientSubmitted"><p><strong>Saved client record #{{ submittedClientId }}.</strong> {{ selectedFile?.name || 'Your uploaded packet' }} remains attached to this record.</p><p v-if="roleNorm === 'school_staff'">{{ submittedTaskNeedsReview ? 'The packet is saved. Support task delivery needs review; do not submit another copy.' : 'Support will review this saved packet and complete its enrollment steps. You may close this confirmation.' }}</p></template>
           </div>
 
           <div class="form-actions form-actions-primary">
@@ -311,6 +313,8 @@ const uploadOrganizationSlug = ref(props.organizationSlug);
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
 const fileInput = ref(null);
 const selectedFile = ref(null);
+const submittedClientId = ref(null);
+const submittedTaskNeedsReview = ref(false);
 const selectedImages = ref([]);
 const uploadNote = ref('');
 const isDragging = ref(false);
@@ -1158,6 +1162,8 @@ const handleSubmitClient = async () => {
       success.value = 'Review the matching results, then confirm the client for this packet.'; return;
     }
     success.value = response.data.attachedExisting ? 'Packet attached to the selected client.' : 'Client created successfully from referral packet.';
+    submittedClientId.value = response.data.clientId || response.data.client?.id || null;
+    submittedTaskNeedsReview.value = !!response.data.taskNeedsReview;
     clientSubmitted.value = true;
     pdfPreviewKey.value += 1;
     emit('uploaded', response.data);

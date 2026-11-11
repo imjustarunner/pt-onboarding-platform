@@ -46,7 +46,8 @@
               <div class="cdp-identity-line">
                 <span v-if="client.initials">Initials {{ client.initials }}</span>
                 <span v-if="clientAgeLabel">Age {{ clientAgeLabel }}</span>
-                <span v-if="client.identifier_code" class="mono">ID {{ client.identifier_code }}</span>
+                <span v-if="client.identifier_code" class="mono">Client code {{ client.identifier_code }}</span>
+                <span v-if="isBackofficeRole" class="mono">Record #{{ client.id }}</span>
                 <span v-else-if="client.id" class="mono">ID {{ client.id }}</span>
                 <span v-if="clientDobLabel">DOB {{ clientDobLabel }}</span>
                 <span v-if="recordSexLabel">Sex {{ recordSexLabel }}</span>
@@ -232,7 +233,7 @@
           </p>
           <ClientOperationalStatus v-if="roleNorm === 'support' && clientChartClientId" :client-id="clientChartClientId" />
           <ClientReminderTextConsent v-if="['support','admin','super_admin'].includes(roleNorm) && clientChartClientId" :key="clientChartClientId" :client-id="Number(clientChartClientId)" />
-          <ClientPendingTasks v-if="clientChartClientId && !route.meta?.auricwellPreview" :agency-id="clientAgencyId" :client-id="clientChartClientId" :billing-enabled="canViewClientBillingImport" :clinical-notes="canViewMedicalRecord ? clientTaskEncounters : []" @open-note="goChartSub('medical-record')" />
+          <ClientPendingTasks v-if="clientChartClientId && !route.meta?.auricwellPreview" :agency-id="clientAgencyId" :client-id="clientChartClientId" :billing-enabled="canViewClientBillingImport" :paper-enabled="canEditPaperwork && effectiveClientType === 'school'" :agency-slug="route.params.organizationSlug" :clinical-notes="canViewMedicalRecord ? clientTaskEncounters : []" @open-note="goChartSub('medical-record')" />
         </div>
 
         <div
@@ -1648,7 +1649,9 @@
           </div>
 
           <div v-if="!canViewGuardians" class="empty-state">
-            <p>You don’t have permission to view guardians for this client.</p>
+            <p v-if="agencyAccessLoading">Checking guardian access…</p>
+            <template v-else-if="agencyAccessError"><p role="alert">{{ agencyAccessError }}</p><button type="button" class="btn btn-secondary" @click="fetchAccess">Retry access check</button></template>
+            <p v-else>You don’t have permission to view guardians for this client.</p>
           </div>
 
           <div v-else>
@@ -1768,7 +1771,8 @@
                     <th>Name</th>
                     <th>Email</th>
                     <th>Relationship title</th>
-                    <th>Enabled</th>
+                    <th>Relationship access</th>
+                    <th>Enrollment / record access</th>
                     <th class="right"></th>
                   </tr>
                 </thead>
@@ -1793,8 +1797,10 @@
                         :true-value="1"
                         :false-value="0"
                       />
-                      <span v-else>{{ Number(g.access_enabled) === 1 ? 'Yes' : 'No' }}</span>
+                      <span v-else>{{ Number(g.access_enabled) === 1 ? 'Available' : 'Disabled' }}</span>
+                      <span v-if="canManageGuardians" class="hint">{{ Number(g.access_enabled) === 1 ? 'Available' : 'Disabled' }}</span>
                     </td>
+                    <td><strong>{{ guardianPortalStatus(g).label }}</strong><p class="hint">{{ guardianPortalStatus(g).detail }}</p></td>
                     <td class="right" style="white-space: nowrap;">
                       <button
                         v-if="canMessageGuardian"
@@ -2895,6 +2901,8 @@
 </template>
 
 <script setup>
+import { guardianPortalStatus } from '../../utils/guardianPortalStatus.js';
+import { useAgencyMemberships } from '../../composables/useAgencyMemberships.js';
 import ClientOperationalStatus from '../clients/ClientOperationalStatus.vue';
 import ClientPortalOverview from '../clients/ClientPortalOverview.vue';
 import DependentPortalSharing from './DependentPortalSharing.vue';
@@ -5725,15 +5733,13 @@ const removeGuardian = async (g) => {
   }
 };
 
+const membershipAccess = useAgencyMemberships({ api, actorId: computed(() => authStore.user?.id), memberships: myAgencies });
+const agencyAccessLoading = membershipAccess.loading;
+const agencyAccessError = membershipAccess.error;
 const fetchAccess = async () => {
-  try {
-    const response = await api.get('/users/me/agencies', { skipGlobalLoading: true });
-    const agencies = response.data || [];
-    myAgencies.value = Array.isArray(agencies) ? agencies : [];
-    // Keep selected agency synced to client's primary agency.
+  const clientId = Number(props.client?.id);
+  if (await membershipAccess.load() && clientId === Number(props.client?.id)) {
     selectedAgencyId.value = props.client?.agency_id ? String(props.client.agency_id) : '';
-  } catch {
-    myAgencies.value = [];
   }
 };
 

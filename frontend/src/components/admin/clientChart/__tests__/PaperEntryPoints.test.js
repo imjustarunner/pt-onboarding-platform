@@ -9,3 +9,8 @@ it.each([['Overview',Overview],['Records',Records]])('%s exposes uploaded packet
  await w.findAll('button').find(b=>b.text().toLowerCase().includes('process paper packet')).trigger('click');expect(w.emitted('client-actions')).toHaveLength(1);
  await w.findAll('button').find(b=>b.text().startsWith('Upload')).trigger('click');expect(w.emitted('upload')).toHaveLength(1);w.unmount();
 });
+
+it('School ROI menu opens the school-specific operational permission panel',async()=>{
+ api.get.mockResolvedValue({data:[]});const w=mount(Records,{props:{clientId:4,client:{id:4},canManageSchoolRoi:true},global:{stubs:{ClientCareTimeline:true}}});await flushPromises();
+ await w.findAll('button').find(b=>b.text()==='School ROI').trigger('click');expect(w.emitted('navigate')).toContainEqual(['school-roi']);w.unmount();
+});

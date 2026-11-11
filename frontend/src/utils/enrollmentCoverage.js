@@ -1,4 +1,4 @@
-import { hasMedicaidCoverage } from './insurancePaymentPolicy.js';
+import { hasMedicaidCoverage, policyIsMedicaid } from './insurancePaymentPolicy.js';
 
 /** Coverage, confirmation, and authorization are saved on the enrollment record. */
 export function isSelfPayCoverage(info) {
@@ -104,4 +104,25 @@ export function authorizationIsComplete(info, { paymentChoice = '' } = {}) {
   if (!info || info.authorizationAgreed !== true || !paymentChoice) return false;
   return String(info.authorizationSignature || '').trim().length >= 2
     || String(info.authorizationSignatureData || '').trim().length >= 50;
+}
+
+/** A shared commercial policy is valid; Medicaid IDs identify one child each. */
+export function duplicateMedicaidMemberId(info = {}, clientCount = 1) {
+  const seen = new Map();
+  for (let index = 0; index < clientCount; index++) {
+    const own = (info.clientCoverages || []).find(row => Number(row.clientIndex) === index && row.primary);
+    const child = (info.medicaidByClient || []).find(row => Number(row.clientIndex) === index);
+    const secondaryMedicaid = info.medicaidPlanPosition === 'secondary';
+    const primary = own?.primary || info.primary;
+    const secondary = own?.primary ? own.secondary : info.secondary;
+    for (const [tier, policy] of [['primary', primary], ['secondary', secondary]]) {
+      if (!policyIsMedicaid(policy) && !(tier === 'primary' && !own && info.primaryIsMedicaid)) continue;
+      const individual = !own && child && (tier === 'secondary') === secondaryMedicaid ? child.memberId : policy?.memberId;
+      const id = String(individual || '').trim().toUpperCase();
+      if (!id) continue;
+      if (seen.has(id) && seen.get(id) !== index) return true;
+      seen.set(id, index);
+    }
+  }
+  return false;
 }

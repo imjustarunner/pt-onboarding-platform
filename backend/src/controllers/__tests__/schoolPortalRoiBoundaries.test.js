@@ -16,6 +16,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   m.execute.mockImplementation(async sql => sql.includes('FROM client_parent_contact_attempts') ? [[]] : undefined);
   m.client.mockResolvedValue({ id: 1, organization_id: 2, agency_id: 3, roi_expires_at: '2020-01-01' });
+  vi.spyOn(ClientSchoolStaffRoiAccess, 'resolveSchoolStaffClientAccessState').mockResolvedValue('expired');
 });
 
 describe('expired ROI document endpoints', () => {

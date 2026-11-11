@@ -114,3 +114,9 @@ test('paperPacketDemographicFill writes only empty client fields', () => {
   assert.equal(patch.contact_phone, '(719) 555-0101');
   assert.equal(patch.grade, '5');
 });
+
+
+test('reads only the DOB attached to a wrapped current-packet label',()=>{
+ const parsed=extractPaperPacketDemographics("Dependent’s Date of\nBirth\n03/12/2016\nDependent's\nGrade\n5\nSIGN HERE — REQUIRED\n11/09/2026");
+ assert.equal(parsed.dateOfBirth,'2016-03-12');assert.equal(parsed.grade,'5');
+});

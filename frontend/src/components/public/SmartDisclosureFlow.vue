@@ -607,9 +607,8 @@ function applySessionSignature() {
   error.value = '';
 }
 
-watch(stage, (next) => {
-  if (next === 'sign' && !forceResign.value && !signatureData.value) applySessionSignature();
-});
+// Reaching the signing page or acknowledging text must not silently apply a
+// signature from another section. The signer uses Apply my signature explicitly.
 
 function resign() {
   signatureData.value = '';

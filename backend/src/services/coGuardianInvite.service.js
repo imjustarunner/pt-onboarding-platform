@@ -510,14 +510,28 @@ export function assertCoGuardianSubmissionBinding(submission, binding) {
 
 export async function emailCoGuardianInvite({ inviteId, agency, to, firstName, inviteUrl, clientId, enrollmentChannel = null, school = false, reminder = false }) {
   const org = String(agency?.official_name || agency?.name || 'our care team').trim();
-  const greeting = firstName ? `Hi ${firstName},` : 'Hello,';
-  const subject = `${org}: ${reminder ? 'reminder to complete' : 'complete'} your guardian enrollment`;
   const requester = await requestingGuardianContext({ inviteId, agencyId: agency.id, clientId });
+  const locale = requester?.locale === 'es' ? 'es' : 'en';
+  const es = locale === 'es';
+  const greeting = firstName ? `${es ? 'Hola' : 'Hi'} ${firstName},` : es ? 'Hola,' : 'Hello,';
+  const subject = es
+    ? `${org}: ${reminder ? 'recordatorio para completar' : 'complete'} su inscripción como tutor`
+    : `${org}: ${reminder ? 'reminder to complete' : 'complete'} your guardian enrollment`;
   const requesterLabel = requester?.name
     ? `${requester.name}${requester.email ? ` (${requester.email})` : ''}` : null;
-  const childReference = requester?.clientNames?.length ? ` for ${requester.clientNames.join(', ')}`
-    : requester?.clientInitials ? ` for the dependent(s) with initials ${requester.clientInitials}` : '';
-  const text = [
+  const childReference = requester?.clientNames?.length ? `${es ? ' para' : ' for'} ${requester.clientNames.join(', ')}`
+    : requester?.clientInitials ? `${es ? ' para los dependientes con iniciales' : ' for the dependent(s) with initials'} ${requester.clientInitials}` : '';
+  const text = (es ? [
+    greeting,
+    requesterLabel ? `${requesterLabel} proporcionó sus datos como otro tutor${childReference} para la inscripción con ${org}.` : `${org} le ha invitado a completar su propia inscripción como tutor${childReference}.`,
+    reminder ? `Este es un recordatorio para completar su propia inscripción como tutor con ${org}.` : `Se le ha invitado a completar su propia inscripción como tutor con ${org}.`,
+    'Revise y firme sus propios acuerdos requeridos y comparta sus observaciones y expectativas para su dependiente. Su equipo de atención puede revisar su envío por separado; no reemplazará los datos de identidad del niño.',
+    'Use el correo electrónico que recibió esta invitación para su propia cuenta del portal. No verá las respuestas privadas del otro tutor. Las citas, mensajes, planes e información de facturación compartidos están disponibles según el acceso autorizado por su agencia.',
+    'Después de enviar el formulario, su confirmación de inscripción incluye un enlace seguro para crear su propia contraseña del portal. Si ya tiene una cuenta, siga usando su acceso actual.',
+    inviteUrl,
+    `Este enlace vence en ${INVITE_DAYS} días.`,
+    'Esta invitación es para usted. No comparta su enlace personal de inscripción.'
+  ] : [
     greeting,
     requesterLabel ? `${requesterLabel} provided your information as another guardian${childReference} for enrollment with ${org}.` : `${org} has invited you to complete your own guardian enrollment${childReference}.`,
     reminder ? `This is a reminder to complete your own guardian enrollment for ${org}.` : `You have been invited to complete your own guardian enrollment for ${org}.`,
@@ -527,7 +541,7 @@ export async function emailCoGuardianInvite({ inviteId, agency, to, firstName, i
     inviteUrl,
     `This link expires in ${INVITE_DAYS} days.`,
     'This invitation is for you. Please do not share your personal enrollment link.'
-  ].join('\n\n');
+  ]).join('\n\n');
   try {
     return await sendEnrollmentPortalEmail({
       to,
@@ -535,11 +549,11 @@ export async function emailCoGuardianInvite({ inviteId, agency, to, firstName, i
       text,
       agencyId: agency.id,
       clientId,
-      enrollmentChannel, schoolEnrollment: school,
+      enrollmentChannel, schoolEnrollment: school, locale,
       source: 'co_guardian_invite',
       templateType: 'co_guardian_invite',
       linkUrl: inviteUrl,
-      linkLabel: 'Complete your enrollment'
+      linkLabel: es ? 'Completar su inscripción' : 'Complete your enrollment'
     });
   } catch (err) {
     console.warn('Co-guardian invite email skipped:', err?.message || err);

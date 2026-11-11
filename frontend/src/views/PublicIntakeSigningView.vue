@@ -1484,8 +1484,8 @@
         <DigitalFormNotice
           v-if="isCurrentStepPrivateSafety"
           variant="info"
-          title="Private answers"
-          body="Please complete this page alone when possible. These answers stay private to clinical review and are not shown on shared review screens."
+          :title="tx('Private answers')"
+          :body="tx('Please complete this page alone when possible. These answers stay private to clinical review and are not shown on shared review screens.')"
         />
         <div v-if="stepError" class="error" role="alert" style="margin-bottom: 10px;">
           {{ missingRequiredQuestionKeys.length ? t('completeRequiredFields') : stepError }}
@@ -1520,6 +1520,7 @@
             :locale="intakeLocale"
             mode="embedded"
             @captured="handleEmbeddedSchoolRoiCaptured"
+            @invalidated="handleEmbeddedSchoolRoiInvalidated"
           />
         </div>
         <div
@@ -1899,7 +1900,11 @@
                 <span>{{ tx('No - Do not text me') }}</span>
               </label>
             </div>
-            <p v-if="isSchoolScopedIntake && schoolCommunicationNotice" class="communications-disclosure">{{ tx(schoolCommunicationNotice) }}</p>
+            <section v-if="isSchoolScopedIntake && schoolCommunicationNotice" class="communications-campaign-card school-communication-notice" aria-labelledby="school-communication-notice-title">
+              <h4 id="school-communication-notice-title">{{ tx('School communication notice') }}</h4>
+              <p class="communications-disclosure">{{ tx(schoolCommunicationNotice) }}</p>
+              <p class="muted">{{ tx('Your electronic signature below includes this school notice and your communication choices, even when you choose No texts.') }}</p>
+            </section>
             <p class="communications-disclosure">{{ tx('A past appointment confirmation is not a new text subscription. Other adults must make their own choices. You may choose No now and change your preference later.') }}</p>
             <p class="communications-disclosure">{{ communicationsTextActivationNotice }}</p>
             <label v-if="communications.smsPreference === 'scheduling_only' || communications.providerTextingOptIn === 'yes'">{{ tx('Your phone number for these texts') }}
@@ -2988,14 +2993,14 @@
           </p>
           <div v-if="!isMultiChildPacketsAllReady" class="multi-child-prep-header">
             <span>
-              {{ downloadableChildBundles.length }} of {{ expectedChildCount }} PDF packets ready.
+              {{ intakeLocale === 'es' ? `${downloadableChildBundles.length} de ${expectedChildCount} paquetes PDF listos.` : `${downloadableChildBundles.length} of ${expectedChildCount} PDF packets ready.` }}
               <br />
               <span class="muted small">{{ t('packetPdfStillPreparing') }}</span>
             </span>
           </div>
           <div v-else class="multi-child-prep-header multi-child-prep-header--ready">
             <span class="check-mark">✓</span>
-            <span>All {{ expectedChildCount }} packets ready. Download links below expire in 7 days.</span>
+            <span>{{ intakeLocale === 'es' ? `Los ${expectedChildCount} paquetes están listos. Los enlaces de descarga a continuación vencen en 7 días.` : `All ${expectedChildCount} packets ready. Download links below expire in 7 days.` }}</span>
           </div>
         </div>
         <div
@@ -3004,7 +3009,7 @@
         >
           <div class="bundle-title">{{ tx(formTypeKey === 'smart_school_roi' ? 'Download per-client releases' : 'Download per-child packets') }}</div>
           <div v-for="bundle in clientBundleLinks" :key="bundle.clientId || bundle.filename" class="bundle-item">
-            <div class="bundle-name">{{ bundle.clientName || `Client ${bundle.clientId}` }}</div>
+            <div class="bundle-name">{{ bundle.clientName || `${t('clientN')} ${bundle.clientId}` }}</div>
             <template v-if="bundle.downloadUrl">
               <a class="btn btn-secondary btn-sm" :href="bundle.downloadUrl" target="_blank" rel="noopener noreferrer" :data-client-id="bundle.clientId">
                 {{ formTypeKey === 'smart_school_roi' ? 'View' : enrollmentPacketViewLabel(bundle.clientName) }}
@@ -11197,11 +11202,11 @@ const completeCurrentDocument = async () => {
     }
     if (currentDoc.value.document_action_type === 'signature' && !signatureData.value) {
       if (lastSignatureData.value) {
-        // Auto-apply saved signature so the user can proceed in one click.
-        signatureData.value = lastSignatureData.value;
-        stepError.value = '';
-        showSavedSigPrompt.value = false;
-        // Fall through to continue.
+        // Continuing is not a signature application. Ask for the explicit
+        // Apply action, including after a corrected signer invalidates consent.
+        showSavedSigPrompt.value = true;
+        stepError.value = t('signatureRequired');
+        return;
       } else {
         stepError.value = t('signatureRequired');
         signatureBlockFlash.value = true;
@@ -11889,7 +11894,7 @@ const completeInsuranceStep = async () => {
   }
   if (!combined && insuranceStepRef.value?.validateCoverageConfirmations
     && !insuranceStepRef.value.validateCoverageConfirmations()) {
-    stepError.value = tx('Please confirm coverage for every listed client.');
+    stepError.value = tx(insuranceStepRef.value.getCoverageValidationError?.() || 'Please confirm coverage for every listed client.');
     return;
   }
   const photoFiles = combined?.getPhotoFiles?.() || insuranceStepRef.value?.getPhotoFiles?.();
@@ -12060,8 +12065,8 @@ const completeInsuranceStep = async () => {
     const msg = lastSignatureData.value
       ? 'Please click "Apply my signature to this authorization" to sign the Insurance Authorization at the bottom of this step.'
       : 'Please sign the Insurance Authorization acknowledgment at the bottom of this step before continuing.';
-    stepError.value = msg;
-    setInsuranceError('authorization', msg);
+    stepError.value = tx(msg);
+    setInsuranceError('authorization', tx(msg));
     nextTick(() => insuranceStepRef.value?.scrollToAnchor?.('authorization'));
     return;
   }
@@ -14496,10 +14501,22 @@ watch([() => communications.smsPreference, () => communications.providerTextingO
 });
 
 watch(guardianEmail, (next, previous) => {
-  if (isRestoringDraft.value || !previous || String(next || '').trim().toLowerCase() === previous.trim().toLowerCase() || step.value === 3) return;
+  if (isRestoringDraft.value || String(next || '').trim().toLowerCase() === String(previous || '').trim().toLowerCase() || step.value === 3) return;
+  // Clearing/retyping is one signer correction. Keep the reviewed decisions,
+  // including a denial, while updating the unsigned draft to the final email.
+  const priorRoi = embeddedSmartSchoolRoi.value;
+  if (!previous && !priorRoi?.needsResign) return;
   invalidateEnrollmentSignatures(intakeResponses.submission);
   for (const [capture, key] of [[embeddedSmartSchoolRoi, 'smartSchoolRoi'], [embeddedSmartDisclosure, 'smartDisclosure']]) {
     if (capture.value?.signatureData) { capture.value = null; intakeResponses.submission[key] = null; }
+  }
+  if (priorRoi) {
+    embeddedSmartSchoolRoi.value = {
+      ...priorRoi, signatureData: null, signatureMeta: null, needsResign: true,
+      signer: { ...priorRoi.signer, email: String(next || '').trim() },
+      requiredAcknowledgements: Object.fromEntries(Object.keys(priorRoi.requiredAcknowledgements || {}).map(key => [key, null]))
+    };
+    intakeResponses.submission.smartSchoolRoi = embeddedSmartSchoolRoi.value;
   }
   embeddedPacketSections.value = {};
   intakeResponses.submission.packetSections = {};
@@ -14510,6 +14527,16 @@ watch(guardianEmail, (next, previous) => {
   communications.signatureAccepted = false;
   signerRevision.value += 1;
 }, { flush: 'sync' });
+
+const handleEmbeddedSchoolRoiInvalidated = ({ smartSchoolRoi } = {}) => {
+  if (!smartSchoolRoi) return;
+  embeddedSmartSchoolRoi.value = { ...smartSchoolRoi,
+    ...(isSharedFamilySigningStep.value ? { sharedSigningChildren: sharedSigningRoster.value } : {}),
+    signatureData: null, signatureMeta: null, needsResign: true };
+  intakeResponses.submission.smartSchoolRoi = embeddedSmartSchoolRoi.value;
+  lastSignatureData.value = '';
+  stepError.value = '';
+};
 
 const handleEmbeddedSchoolRoiCaptured = async ({ smartSchoolRoi } = {}) => {
   if (smartSchoolRoi && isSharedFamilySigningStep.value) smartSchoolRoi = { ...smartSchoolRoi, sharedSigningChildren: sharedSigningRoster.value };

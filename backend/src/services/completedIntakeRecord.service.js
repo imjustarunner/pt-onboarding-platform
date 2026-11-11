@@ -988,6 +988,7 @@ export function buildCompletedIntakeRecord({
   const selectedSubject = intakeData?.responses?.submission?.serviceSubject || intakeData.serviceSubject || (intakeData.intakeForSelf === true ? 'self' : '');
   if (selectedSubject) link = { ...link, intake_steps: (link.intake_steps || []).filter(step => intakeAudienceMatches(step.audience, selectedSubject)) };
   const locale = resolveIntakeFormLocale(link, intakeData);
+  const recordText = text => locale === 'es' ? lookupStructuredIntakeTranslation(text) : text;
   link = { ...link, intakeForSelf: intakeData.intakeForSelf };
   const byKey = fieldIndex(link);
   const printed = new Set();
@@ -1017,10 +1018,10 @@ export function buildCompletedIntakeRecord({
   const isJobApplication = String(link?.form_type || '').toLowerCase() === 'job_application';
   if (!isJobApplication) {
     listedClients.forEach((client, index) => {
-      const fallback = listedClients.length > 1 ? `Client ${index + 1}` : 'Client';
+      const fallback = recordText(listedClients.length > 1 ? `Client ${index + 1}` : 'Client');
       const name = String(client?.fullName || `${client?.firstName || ''} ${client?.lastName || ''}`.trim() || fallback).trim();
       const dob = String(client?.dateOfBirth || client?.date_of_birth || '').trim();
-      pushRow(contactRows, fallback, dob ? `${name} · Date of birth ${dob}` : name);
+      pushRow(contactRows, fallback, dob ? `${name} · ${recordText('Date of birth')} ${dob}` : name);
     });
   }
 

@@ -29,7 +29,7 @@ async function render() { wrapper = mount(PublicIntakeSigningView, { global: { p
 it.each(['en', 'es'])('requires new signatures for every sibling after an email correction (%s)', async locale => {
  delete progress.coGuardianInvite;
  const snapshot = progress.intakeData.progressSnapshot;
- snapshot.embeddedSmartSchoolRoi = capture;
+ snapshot.embeddedSmartSchoolRoi = {...capture,staffDecisions:[{schoolStaffUserId:99,decision:'none',allowed:false,packetAllowed:false}]};
  snapshot.intakeResponses.submission = {
   guardianWaiverIntake: { clients: [0, 1].map(() => ({ sections: { emergency_contacts: { payload: { phone: '3035550100' }, signatureData: capture.signatureData, signatureMeta: { signedAt: '2026-11-09' } } } })) },
   insuranceInfo: { primary: { memberId: 'KEEP' }, authorizationAgreed: true, authorizationSignature: 'Parent', authorizationSignatureData: capture.signatureData },
@@ -42,7 +42,7 @@ it.each(['en', 'es'])('requires new signatures for every sibling after an email 
  wrapper.vm.guardianEmail = ''; // clear-and-retype must not preserve the old signer
  wrapper.vm.guardianEmail = 'testing+corrected@itsco.health';
  await flushPromises();
- expect(wrapper.vm.embeddedSmartSchoolRoi).toBeNull();
+ expect(wrapper.vm.embeddedSmartSchoolRoi).toMatchObject({signatureData:null,needsResign:true,signer:{email:'testing+corrected@itsco.health'},staffDecisions:[{schoolStaffUserId:99,decision:'none',allowed:false,packetAllowed:false}]});
  expect(wrapper.vm.embeddedSmartDisclosure).toBeNull();
  expect(wrapper.vm.embeddedPacketSections).toEqual({});
  expect(wrapper.vm.lastSignatureData).toBe('');

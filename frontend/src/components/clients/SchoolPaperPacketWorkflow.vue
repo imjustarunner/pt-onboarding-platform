@@ -1,7 +1,7 @@
 <template>
   <section class="paper-workflow" aria-label="Process school paper packet">
     <header class="paper-header"><div><h3>Process school paper packet</h3><p>Compare each step with the uploaded packet. Existing paper signatures stay on file.</p></div><button type="button" class="btn btn-secondary" :disabled="busy" @click="$emit('close')">Close</button></header>
-    <p v-if="error" class="error" role="alert">{{ error }}</p>
+    <p v-if="error" ref="validationMessage" tabindex="-1" class="error" role="alert">{{ error }}</p>
     <p v-if="loading" role="status">Loading packet and saved information…</p>
     <div v-else-if="context" class="paper-columns">
       <div class="paper-entry">
@@ -17,6 +17,7 @@
           <p v-if="state.processedAt">Saved information · read only</p>
           <fieldset ref="stepFields" :disabled="busy || !!state.processedAt">
             <template v-if="stage === 0">
+              <p>Confirm the child’s identity against the source PDF. Required fields need a value before continuing; OCR may leave fields blank when it cannot read them reliably. Apartment/unit and other unprinted optional details may stay blank.</p>
               <div class="paper-fields"><label>Client first name<input v-model="demographics.firstName" required maxlength="255" /></label><label>Client last name<input v-model="demographics.lastName" required maxlength="255" /></label>
               <label>Date of birth<input v-model="demographics.dateOfBirth" required type="date" /></label><label>Sex<select v-model="demographics.gender"><option value="">Select</option><option>Male</option><option>Female</option><option>Other</option><option>Prefer not to say</option></select></label>
               <label>Grade<input v-model="demographics.grade" maxlength="40" /></label><label>Preferred language<input v-model="demographics.preferred_language" maxlength="100" /></label>
@@ -76,7 +77,7 @@
   </section>
 </template>
 <script setup>
-import { computed, onMounted, onBeforeUnmount, reactive, ref } from 'vue';
+import { computed, nextTick, onMounted, onBeforeUnmount, reactive, ref } from 'vue';
 import api from '../../services/api';
 import PDFPreview from '../documents/PDFPreview.vue';
 import ClientInsuranceEditor from '../billing/ClientInsuranceEditor.vue';
@@ -87,7 +88,7 @@ const emit=defineEmits(['close','processed']);
 const labels=['Client demographics','Parent 1 portal account','Parent 2 portal account','School and custody','Insurance','Paper consents and release','Review'];
 const keys=['demographics','guardian1','guardian2','school','insurance','consents'];
 const context=ref(null), state=ref({completedSteps:[],invitations:{}}), stage=ref(0), loading=ref(true),busy=ref(false),error=ref('');
-const stepFields=ref(null), insuranceEditor=ref(null), roiEditor=ref(null);
+const stepFields=ref(null), validationMessage=ref(null), insuranceEditor=ref(null), roiEditor=ref(null);
 const checkingFile=ref(false),fileCheckMessage=ref(''),fileCheckQueued=ref(false);
 const selectedDocument=computed(()=>documents.value.find(d=>Number(d.id)===Number(documentId.value)));
 const reviewReasonLabel=reason=>String(reason||'').replaceAll('_',' ');
@@ -136,7 +137,7 @@ async function refreshPacketRead(){const {data}=await api.get(endpoint.value);co
 async function refreshFileCheck(){checkingFile.value=true;try{const {data}=await api.get(endpoint.value);documents.value=data.documents||[];context.value.packetRead=data.packetRead;if(selectedDocument.value?.scan_status==='clean'){fileCheckQueued.value=false;fileCheckMessage.value='File check passed. Review the packet reading results below.';await viewPacket();}}catch(e){fileCheckMessage.value=e.response?.data?.error?.message||'Unable to refresh the file check. Your entered information is still here.';}finally{checkingFile.value=false;}}
 onMounted(async()=>{try{
   const {data}=await api.get(endpoint.value);context.value=data;state.value=data.state;stage.value=furthest.value;
-  const c=data.client, names=String(c.full_name||'').trim().split(/\s+/);Object.assign(demographics,c,{firstName:names.shift()||'',lastName:names.join(' '),dateOfBirth:String(c.date_of_birth||'').slice(0,10)});
+  const c=data.client, names=String(c.full_name||'').trim().split(/\s+/);Object.assign(demographics,c,{firstName:names.shift()||'',lastName:names.join(' '),dateOfBirth:dateInputValue(c.date_of_birth)});
   selectGuardian(0,state.value.guardian1Id||data.guardians[0]?.guardian_user_id);selectGuardian(1,state.value.guardian2Id||data.guardians[1]?.guardian_user_id);
   secondNotListed.value=(state.value.completedSteps||[]).includes('guardian2')&&!state.value.guardian2Id;sharedCustody.value=state.value.sharedCustody||'';schoolConfirmed.value=(state.value.completedSteps||[]).includes('school');insuranceTypeId.value=String(c.insurance_type_id||'');insuranceReviewed.value=(state.value.completedSteps||[]).includes('insurance');signaturesConfirmed.value=staffRoiConfirmed.value=!!state.value.processedAt||Number(state.value.consentReview?.documentId)===Number(state.value.documentId);
   const types=await api.get('/client-settings/insurance-types',{params:{agencyId:c.agency_id}});
@@ -151,8 +152,19 @@ async function connectGuardian(index){
   const id=Number(data.guardianUser?.id);if(!id)throw new Error('The guardian account could not be connected.');
   const {data:updated}=await api.get(endpoint.value);context.value.guardians=updated.guardians;return id;
 }
+function dateInputValue(value){
+  // DATE values are calendar days. ISO strings must not move through a local timezone.
+  const raw=String(value||'').trim();
+  return /^\d{4}-\d{2}-\d{2}(?:$|[T ])/.test(raw)?raw.slice(0,10):'';
+}
 async function next(){
-  for(const field of stepFields.value?.querySelectorAll('input[required],select[required],textarea[required]')||[])if(!field.reportValidity())return;
+  error.value='';
+  const invalid=[...(stepFields.value?.querySelectorAll('input[required],select[required],textarea[required]')||[])].filter(field=>!field.checkValidity());
+  if(invalid.length){
+    const names=invalid.map(field=>field.closest('label')?.textContent?.replace(/\s+/g,' ').trim()||'Required field');
+    error.value=`Complete or correct: ${[...new Set(names)].join('; ')}. Compare with the uploaded packet. If information is missing, leave this step pending for follow-up.`;
+    await nextTick();validationMessage.value?.focus();invalid[0].reportValidity();return;
+  }
   if(state.value.processedAt)return;
   if(stage.value===6)return finish();busy.value=true;error.value='';try{
   let data={};

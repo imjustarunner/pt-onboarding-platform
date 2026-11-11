@@ -59,3 +59,26 @@ it('does not use clinical deferral to bypass a required nonclinical payment', as
   data.intakeData.responses.submission.paymentInfo.paymentChoice = 'later';
   await expect(validateIntakeBilling(data)).rejects.toMatchObject({ status: 409 });
 });
+
+it.each(['agency','school'])('rejects duplicate Medicaid IDs at finalization for %s forms even without card collection',async scope=>{
+ vi.stubEnv('FAMILY_BILLING_ENCRYPTION_KEY_BASE64',Buffer.alloc(32,4).toString('base64'));
+ try {
+ const info={primary:{insurerName:'Commercial',memberId:'SHARED'},secondary:{insurerName:'Medicaid',isMedicaid:true},medicaidPlanPosition:'secondary',authorizationAgreed:true,authorizationSignature:'QA Parent',coverageScope:'account_holder',clientCoverages:[{clientIndex:0,confirmed:true},{clientIndex:1,confirmed:true}],medicaidByClient:[{clientIndex:0,memberId:'SAME'},{clientIndex:1,memberId:' same '}]};
+ const data={agencyId:450,submission:{id:1},link:{scope_type:scope,inherits_office_master:scope==='agency'?1:0,intake_steps:[{type:'insurance_info',paymentRequired:false}]},intakeData:{responses:{clients:[{},{}],submission:{insuranceInfo:info}}}};
+ await expect(validateIntakeBilling(data)).rejects.toMatchObject({status:400,message:'Each client must have their own Medicaid member ID.'});
+ info.medicaidByClient[1].memberId='DISTINCT';
+ await expect(validateIntakeBilling(data)).resolves.toBeUndefined();
+ expect(pool.execute).not.toHaveBeenCalled();
+ }finally{vi.unstubAllEnvs();}
+});
+
+it('validates every identifying child even when questionnaire response rows are incomplete',async()=>{
+ vi.stubEnv('FAMILY_BILLING_ENCRYPTION_KEY_BASE64',Buffer.alloc(32,4).toString('base64'));
+ try {
+ const data=input({isSelfPay:false,authorizationAgreed:true,authorizationSignature:'QA Parent',primary:{insurerName:'Medicaid',isMedicaid:true},medicaidByClient:[{clientIndex:0,memberId:'SAME'},{clientIndex:1,memberId:'SAME'}]});
+ data.intakeData.clients=[{firstName:'One'},{firstName:'Two'}];
+ data.intakeData.responses.clients=[{}];
+ await expect(validateIntakeBilling(data)).rejects.toMatchObject({status:400,message:'Each client must have their own Medicaid member ID.'});
+ expect(pool.execute).not.toHaveBeenCalled();
+ }finally{vi.unstubAllEnvs();}
+});

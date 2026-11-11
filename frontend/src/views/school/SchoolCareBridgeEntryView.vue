@@ -48,12 +48,14 @@
  </div>
 </template>
 <script setup>
-import {computed,onMounted,onUnmounted,ref,watch} from 'vue';
+import {computed,defineAsyncComponent,onMounted,onUnmounted,ref,watch} from 'vue';
 import {useRoute,useRouter} from 'vue-router';
 import SchoolCareBridgeBrand from '../../components/schoolcarebridge/SchoolCareBridgeBrand.vue';
 import ServiceUseNotice from '../../components/legal/ServiceUseNotice.vue';
 import LoginView from '../LoginView.vue';
-import OrganizationDashboardView from '../OrganizationDashboardView.vue';
+// The school login does not need the authenticated roster, chart, or scheduling
+// workspace. Load that graph only after school access has been verified.
+const OrganizationDashboardView = defineAsyncComponent(() => import('../OrganizationDashboardView.vue'));
 import {useAuthStore} from '../../store/auth';
 import {useAgencyStore} from '../../store/agency';
 import {useOrganizationStore} from '../../store/organization';

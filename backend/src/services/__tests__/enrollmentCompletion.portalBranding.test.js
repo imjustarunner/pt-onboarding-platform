@@ -49,7 +49,7 @@ it('never labels the staff member who resends an invitation as a guardian', asyn
 });
 it('includes only the requesting guardian identity and child initials in invitation context', async () => {
  m.execute.mockResolvedValue([[{ role: 'client_guardian', access_enabled: 1, first_name: 'Alex', last_name: 'Parent', email: 'alex@example.test', client_initials: 'SC', private_answer: 'must not leak' }]]);
- expect(await requestingGuardianContext({inviteId:18,agencyId:2,clientId:20})).toEqual({name:'Alex Parent',email:'alex@example.test',clientInitials:'SC',clientNames:[]});
+ expect(await requestingGuardianContext({inviteId:18,agencyId:2,clientId:20})).toEqual({name:'Alex Parent',email:'alex@example.test',clientInitials:'SC',clientNames:[],locale:'en'});
 });
 it('does not expose request context for an invite outside the tenant and dependent', async () => {
  m.execute.mockResolvedValue([[]]);

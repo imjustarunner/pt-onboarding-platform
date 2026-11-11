@@ -6,7 +6,7 @@
 
 const LABEL_RULES = [
   ['fullName', /^dependent'?s?\s+name\b/i],
-  ['dateOfBirth', /^dependent'?s?\s+date of birth\b/i],
+  ['dateOfBirth', /^dependent['’]?s?\s+date\s+of\s+birth\b/i],
   ['age', /^dependent'?s?\s+age\b/i],
   ['administrativeSex', /^dependent'?s?\s+sex\b/i],
   ['grade', /^dependent'?s?\s+grade\b/i],
@@ -187,7 +187,12 @@ function cleanCity(value) {
 
 export function extractPaperPacketDemographics(rawText) {
   const result = emptyParsed();
-  const lines = String(rawText || '').replace(/\r\n/g, '\n').split('\n');
+  const lines = String(rawText || '').replace(/\r\n/g, '\n')
+    // Vision can wrap the printed labels on the current packet across lines.
+    // Join labels only; never take an unrelated date elsewhere as a child's DOB.
+    .replace(/dependent['’]?s?\s*\n\s*(date\s+of\s+birth|age|sex|grade|name|address|city)/gi, "Dependent's $1")
+    .replace(/(dependent['’]?s?\s+date\s+of)\s*\n\s*birth/gi, '$1 Birth')
+    .split('\n');
   let i = 0;
   while (i < lines.length) {
     const line = String(lines[i] || '').trim();

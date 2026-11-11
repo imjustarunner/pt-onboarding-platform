@@ -1,3 +1,5 @@
+import { paperPacketReviewPending, paperPacketReviewPendingSql } from '../utils/paperPacketReviewPending.js';
+import { schoolIntakeNotificationFeed } from '../services/schoolIntakeNotificationFeed.service.js';
 import { attachParentContactCounts } from '../services/parentContactCounts.service.js';
 import { visibleSchoolRosterClients } from '../services/clientTerminationRoster.service.js';
 import { createSchoolPortalEmailHandlers } from './schoolPortalEmail.controller.js';
@@ -40,7 +42,6 @@ import { ensureIssuedRoiSigningLinkForClient } from './clientSchoolRoiAccess.con
 import { assertSchoolPortalAccess } from './schoolPortalIntakeLinks.controller.js';
 import { buildIntakeAnswersText, buildClinicalSummaryText } from './publicIntake.controller.js';
 import { decryptIntakeSubmissionRows } from '../services/intakeResponsesEncryption.service.js';
-import { decryptIntakeSubmissionClientRow } from '../models/IntakeSubmissionClient.model.js';
 import {
   getSupervisorSuperviseeIds,
   isAdminLikeRole,
@@ -975,6 +976,7 @@ export const getSchoolClients = async (req, res, next) => {
            c.roi_expires_at,
            c.disclosure_required,
            c.paper_packet_staff_roi_pending,
+           EXISTS (SELECT 1 FROM referral_packet_upload_drafts ppd JOIN client_phi_documents pp ON pp.id=ppd.phi_document_id AND pp.client_id=ppd.created_client_id AND pp.agency_id=ppd.agency_id AND pp.removed_at IS NULL WHERE ppd.created_client_id=c.id AND ppd.agency_id=c.agency_id AND ppd.status='submitted') AS paper_packet_has_submitted_source,
            c.onboarding_docs_json,
            c.staff_onboarding_completed_at,
            c.client_type,
@@ -1431,11 +1433,9 @@ export const getSchoolClients = async (req, res, next) => {
         terminated_at: client.terminated_at || null,
         termination_school_year: client.termination_school_year || null,
         roi_expires_at: client.roi_expires_at || null,
-        paper_packet_staff_roi_pending: client.paper_packet_staff_roi_pending === 1
-          || client.paper_packet_staff_roi_pending === true,
+        paper_packet_staff_roi_pending: paperPacketReviewPending(client),
         paper_packet_staff_roi_notice: (() => {
-          const pending = client.paper_packet_staff_roi_pending === 1
-            || client.paper_packet_staff_roi_pending === true;
+          const pending = paperPacketReviewPending(client);
           if (!pending || !viewerSchoolFlags) return false;
           if (viewerSchoolFlags.isScheduler) return false;
           const state = String(schoolStaffAccessMeta.school_staff_effective_access_state || '').toLowerCase();
@@ -2798,7 +2798,7 @@ export const getSchoolPortalStats = async (req, res, next) => {
            COUNT(DISTINCT c.id) AS clients_total,
            COUNT(DISTINCT CASE WHEN cpa.provider_user_id IS NOT NULL THEN c.id END) AS clients_assigned,
            COUNT(DISTINCT CASE WHEN LOWER(COALESCE(cs.status_key,'')) = 'pending' THEN c.id END) AS clients_pending,
-           COUNT(DISTINCT CASE WHEN c.paper_packet_staff_roi_pending=1 THEN c.id END) AS packets_pending,
+           COUNT(DISTINCT CASE WHEN ${paperPacketReviewPendingSql} THEN c.id END) AS packets_pending,
            COUNT(DISTINCT CASE WHEN LOWER(COALESCE(cs.status_key,'')) = 'waitlist' THEN c.id END) AS clients_waitlist
          FROM clients c
          JOIN client_organization_assignments coa
@@ -2832,7 +2832,7 @@ export const getSchoolPortalStats = async (req, res, next) => {
            COUNT(*) AS clients_total,
            COUNT(CASE WHEN provider_id IS NOT NULL THEN 1 END) AS clients_assigned,
            COUNT(CASE WHEN LOWER(COALESCE(cs.status_key,'')) = 'pending' THEN 1 END) AS clients_pending,
-           COUNT(CASE WHEN c.paper_packet_staff_roi_pending=1 THEN 1 END) AS packets_pending,
+           COUNT(CASE WHEN ${paperPacketReviewPendingSql} THEN 1 END) AS packets_pending,
            COUNT(CASE WHEN LOWER(COALESCE(cs.status_key,'')) = 'waitlist' THEN 1 END) AS clients_waitlist
          FROM clients c
          LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
@@ -6471,84 +6471,18 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
       docsLinks = [];
     }
 
-    // Intake packet/link submissions (digital forms submitted to this school)
+    // Digital enrollment notifications use school-safe metadata only. One broken
+    // historic encrypted answer must not hide every later family's submission.
     let intakePacketSubmitted = [];
-    try {
-      if (!allowIntakePacketSubmitted) {
-        intakePacketSubmitted = [];
-      } else {
-        const [intakeRows] = await pool.execute(
-          `SELECT
-             s.id,
-             s.submitted_at,
-             s.signer_name,
-             s.payload_encrypted,
-             s.payload_iv_b64,
-             s.payload_auth_tag_b64,
-             s.payload_key_id,
-             s.client_id,
-             isc.full_name AS client_full_name,
-             isc.pii_encrypted AS isc_pii_encrypted,
-             isc.pii_iv_b64 AS isc_pii_iv_b64,
-             isc.pii_auth_tag_b64 AS isc_pii_auth_tag_b64,
-             isc.pii_key_id AS isc_pii_key_id,
-             c.initials AS client_initials,
-             c.identifier_code AS client_identifier_code
-           FROM intake_submissions s
-           JOIN intake_links l ON s.intake_link_id = l.id
-           LEFT JOIN intake_submission_clients isc ON isc.intake_submission_id = s.id
-           LEFT JOIN clients c ON c.id = COALESCE(isc.client_id, s.client_id)
-           WHERE l.organization_id = ?
-             AND LOWER(COALESCE(l.scope_type, 'agency')) = 'school'
-             AND s.submitted_at IS NOT NULL
-           ORDER BY s.submitted_at DESC, s.id DESC
-           LIMIT 200`,
-          [orgId]
-        );
-        decryptIntakeSubmissionRows(intakeRows);
-        // Hydrate per-child full_name when only the encrypted blob exists
-        // (intake_submission_clients PII encryption — migration 726).
-        for (const r of intakeRows) {
-          if (!r.client_full_name && r.isc_pii_encrypted) {
-            const tmp = decryptIntakeSubmissionClientRow({
-              full_name: null,
-              contact_phone: null,
-              pii_encrypted: r.isc_pii_encrypted,
-              pii_iv_b64: r.isc_pii_iv_b64,
-              pii_auth_tag_b64: r.isc_pii_auth_tag_b64,
-              pii_key_id: r.isc_pii_key_id
-            });
-            if (tmp?.full_name) r.client_full_name = tmp.full_name;
-          }
-        }
-        const seen = new Set();
-        intakePacketSubmitted = (intakeRows || [])
-          .filter((r) => {
-            const key = `${r.id}`;
-            if (seen.has(key)) return false;
-            seen.add(key);
-            return true;
-          })
-          .map((r) => {
-            const signer = String(r.signer_name || '').trim() || 'Parent/Guardian';
-            const clientLabel =
-              r.client_identifier_code || r.client_initials || r.client_full_name || '—';
-            return {
-              id: `intake_submitted:${r.id}`,
-              kind: 'intake_packet_submitted',
-              created_at: r.submitted_at,
-              title: 'Intake packet submitted',
-              message: `${clientLabel}: ${signer} submitted via digital form`,
-              actor_name: signer,
-              client_id: r.client_id ? Number(r.client_id) : null,
-              client_initials: r.client_initials || null,
-              client_identifier_code: r.client_identifier_code || null,
-              client_full_name: r.client_full_name || null
-            };
-          });
+    if (allowIntakePacketSubmitted && canQueryScopedClients) {
+      try {
+        intakePacketSubmitted = await schoolIntakeNotificationFeed({
+          schoolOrganizationId: orgId,
+          clientIds: hasScopedRole ? scopedClientIds : null
+        });
+      } catch (error) {
+        console.error('[school portal] digital enrollment notification metadata unavailable', { schoolOrganizationId: orgId, code: error?.code || 'unknown' });
       }
-    } catch {
-      intakePacketSubmitted = [];
     }
 
     const all = [

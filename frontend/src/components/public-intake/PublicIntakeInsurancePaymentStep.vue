@@ -499,7 +499,7 @@ function validateAuthorization() {
     return false;
   }
   if (insuranceRef.value?.validateCoverageConfirmations && !insuranceRef.value.validateCoverageConfirmations()) {
-    authError.value = 'Please confirm coverage for every listed client.';
+    authError.value = insuranceRef.value.getCoverageValidationError?.() || 'Please confirm coverage for every listed client.';
     return false;
   }
   if (showPaymentSection.value && !paymentChoice.value) {

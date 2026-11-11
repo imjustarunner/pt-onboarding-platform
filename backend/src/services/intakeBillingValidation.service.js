@@ -32,7 +32,9 @@ export async function validateIntakeBilling({ link, submission, intakeData, agen
       throw billingError(400, 'Please agree to and sign the insurance and payment authorization before completing enrollment.');
     }
   }
-  const clientCount = Math.max(1,data.responses?.clients?.length || data.clients?.length || 1);
+  // Identifying children and their questionnaire response rows are independent.
+  // A short/unfinished response array must not hide a sibling from validation.
+  const clientCount = Math.max(1, data.responses?.clients?.length || 0, data.clients?.length || 0);
   if (info && (!info.isSelfPay || hasMedicaidCoverage(info)) && info.primary?.insurerName) {
     assertFamilyBillingEncryption();
     const medicaidMembers = new Map();

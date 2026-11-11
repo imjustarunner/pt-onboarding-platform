@@ -438,7 +438,7 @@ class ClientSchoolStaffRoiAccess {
     });
     if (requireDocumentAccess) return state === 'roi_docs';
     // No personal grant stays No ROI. Overview, comments, and tickets use allowNoRoiInterface.
-    if ((state === 'none' || state === 'packet') && allowNoRoiInterface) return true;
+    if ((state === 'none' || state === 'packet' || state === 'denied') && allowNoRoiInterface) return true;
     // Expired ROI permits only the basic client overview, never collaboration.
     if (state === 'expired') return allowExpiredOverview;
     // includeLimited is kept for callers; limited is ROI Active (portal except referral docs).

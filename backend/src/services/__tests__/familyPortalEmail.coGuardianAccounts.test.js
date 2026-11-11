@@ -77,3 +77,11 @@ it('addresses the invite to the second parent with inviter name, email, and chil
  expect(m.send.mock.calls[0][0].text).toContain('dependent(s) with initials EQ');
  expect(m.send.mock.calls[0][0].text).toContain('will not see the other guardian');
 });
+
+it('uses the originating Spanish form for the second guardian invitation, including privacy and password setup copy',async()=>{
+ m.origin.mockResolvedValue({name:'Persona Tutora',email:'testing+guardian@example.test',clientNames:['Primer Menor','Segundo Menor'],locale:'es'});
+ m.send.mockResolvedValue({sent:true});
+ await emailCoGuardianInvite({inviteId:7,agency:{id:2,name:'Example'},to:user.email,firstName:'Jamie',inviteUrl:'https://agency.test/intake/packet?coGuardian=token',clientId:22});
+ const message=m.send.mock.calls[0][0];expect(message.locale).toBe('es');expect(message.subject).toContain('su inscripción como tutor');expect(message.linkLabel).toBe('Completar su inscripción');
+ expect(message.text).toContain('Primer Menor, Segundo Menor');expect(message.text).toContain('No verá las respuestas privadas del otro tutor');expect(message.text).toContain('crear su propia contraseña');expect(message.text).not.toContain('You have been invited');
+});

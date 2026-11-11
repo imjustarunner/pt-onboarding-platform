@@ -161,7 +161,7 @@ it.each(['en', 'es'])('labels the separate %s demographics step according to its
   await wrapper.vm.handleCurrentFlowContinue();
   expect(wrapper.vm.currentFlowStep.id).toBe('demographic-details');
   expect(wrapper.vm.demographicsErrors.dob).toBe(true);
-  await page.get('input[type="date"]').setValue('1990-01-01');
+  await page.get('input.birth-date-input').setValue('01/01/1990');
   await wrapper.vm.handleCurrentFlowContinue();
   await flushPromises();
   expect(wrapper.vm.currentFlowStep.id).toBe('next-page');

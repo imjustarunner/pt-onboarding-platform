@@ -24,10 +24,10 @@ describe('expired school ROI boundaries', () => {
     mock.restoreAll();
   });
   it('preserves access with current ROI and denies clients with no grant', async () => {
-    for (const state of ['none', 'packet', 'limited', 'roi', 'roi_docs']) {
+    for (const state of ['none', 'packet', 'denied', 'limited', 'roi', 'roi_docs']) {
       mock.method(ClientSchoolStaffRoiAccess, 'resolveSchoolStaffClientAccessState', async () => state);
       assert.equal(await ClientSchoolStaffRoiAccess.schoolStaffHasActiveRoiAccess(scope), ['limited', 'roi', 'roi_docs'].includes(state));
-      assert.equal(await ClientSchoolStaffRoiAccess.schoolStaffHasActiveRoiAccess({ ...scope, allowNoRoiInterface: true }), ['none', 'packet', 'limited', 'roi', 'roi_docs'].includes(state));
+      assert.equal(await ClientSchoolStaffRoiAccess.schoolStaffHasActiveRoiAccess({ ...scope, allowNoRoiInterface: true }), ['none', 'packet', 'denied', 'limited', 'roi', 'roi_docs'].includes(state));
       mock.restoreAll();
     }
   });

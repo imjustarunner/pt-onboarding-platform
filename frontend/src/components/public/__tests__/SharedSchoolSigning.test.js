@@ -36,6 +36,8 @@ describe('shared school signing', () => {
     w.vm.stageIndex = w.vm.stageOrder.indexOf('review');
     await w.vm.$nextTick();
     expect(w.find('[data-signature-pad]').exists()).toBe(false);
+    expect(w.vm.signatureData).toBe('');
+    await w.findAll('button').find(button=>button.text()==='Apply my signature').trigger('click');
     expect(w.vm.signatureData).toBe(signature);
     expect(w.text()).toContain('Blair Example');
     await w.findAll('button').find(b => b.text() === 'Sign again').trigger('click');

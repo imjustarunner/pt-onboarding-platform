@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   authorizationIsComplete,
+  duplicateMedicaidMemberId,
   coverageWithAuthorization,
   coverageWithChoice,
   enrollmentCoverageFingerprint,
@@ -42,4 +43,20 @@ describe('enrollment coverage', () => {
     expect(enrollmentCoverageFingerprint({...before,clientCoverages:[{clientIndex:0,confirmed:false}]})).toBe(enrollmentCoverageFingerprint(before));
     expect(enrollmentCoverageFingerprint({...before,medicaidByClient:[{clientIndex:0,memberId:'A'},{clientIndex:1,memberId:'CHANGED'}]})).not.toBe(enrollmentCoverageFingerprint(before));
   });
+});
+
+it.each(['primary', 'secondary'])('rejects repeated sibling Medicaid IDs in %s but accepts a shared commercial subscriber', position => {
+  const info = { primary: { insurerName: position === 'primary' ? 'Medicaid' : 'Commercial', memberId: 'SHARED-COMMERCIAL' },
+    secondary: position === 'secondary' ? { insurerName: 'Medicaid' } : null, medicaidPlanPosition: position,
+    medicaidByClient: [{clientIndex:0,memberId:'QA-ONE'}, {clientIndex:1,memberId:' qa-one '}] };
+  expect(duplicateMedicaidMemberId(info,2)).toBe(true);
+  info.medicaidByClient[1].memberId='QA-TWO';
+  expect(duplicateMedicaidMemberId(info,2)).toBe(false);
+  expect(duplicateMedicaidMemberId({primary:{insurerName:'Commercial',memberId:'FAMILY'}},2)).toBe(false);
+});
+it('checks separately entered Medicaid policies and allows the same ID in both tiers of one child', () => {
+  const info={clientCoverages:[{clientIndex:0,primary:{insurerName:'Medicaid',memberId:'ONE'},secondary:{insurerName:'Medicaid',memberId:'ONE'}},{clientIndex:1,primary:{insurerName:'Medicaid',memberId:'TWO'}}]};
+  expect(duplicateMedicaidMemberId(info,2)).toBe(false);
+  info.clientCoverages[1].primary.memberId='ONE';
+  expect(duplicateMedicaidMemberId(info,2)).toBe(true);
 });

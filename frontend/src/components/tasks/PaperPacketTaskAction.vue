@@ -1,5 +1,7 @@
 <template>
   <section class="client-action-banner">
+    <p v-if="metadata.clientId">Client record #{{ metadata.clientId }} · {{ metadata.packetFilename || 'Paper packet' }} · Document #{{ metadata.documentId }} · {{ metadata.schoolName }}</p>
+    <a v-if="metadata.clientId && clientRecordUrl" :href="clientRecordUrl">Open this client record</a>
     <p>Review the uploaded school packet, match the child, and process enrollment. Existing paper signatures remain the source.</p>
     <button type="button" class="btn btn-primary" :disabled="loading" @click="openPacket">{{ loading ? 'Opening…' : 'Process paper packet enrollment' }}</button>
     <p v-if="error" role="alert" class="error">{{ error }}</p>
@@ -14,7 +16,7 @@ import { ref } from 'vue';
 import api from '../../services/api';
 import ReferralUpload from '../school/ReferralUpload.vue';
 import SchoolPaperPacketWorkflow from '../clients/SchoolPaperPacketWorkflow.vue';
-const props=defineProps({draftId:{type:[String,Number],required:true}});
+const props=defineProps({draftId:{type:[String,Number],required:true},metadata:{type:Object,default:()=>({})},clientRecordUrl:{type:String,default:''}});
 defineEmits(['processed']);
 const loading=ref(false),error=ref(''),opened=ref(false),packet=ref(null);
 async function openPacket(){loading.value=true;error.value='';try{

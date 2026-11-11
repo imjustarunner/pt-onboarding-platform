@@ -48,3 +48,10 @@ it('reports unavailable authorization data rather than Due when both authorized 
   expect(activity('Enrollment & consents').findAll('td').map(cell => cell.text()).slice(0, 3)).toEqual(['Enrollment & consents', 'Unavailable', '—']);
   expect(wrapper.find('.rco-auth-counts').exists()).toBe(false);
 });
+
+it('shows restricted clinical content accurately for Support instead of asserting zero or no plans', async () => {
+ m.get.mockResolvedValue({data:[]});
+ wrapper=mount(Overview,{props:{clientId:2271,agencyId:450,operationalOnly:true}});await flushPromises();
+ expect(wrapper.text()).toContain('Restricted');expect(wrapper.text()).not.toContain('No treatment plans on file yet.');expect(wrapper.text()).not.toContain('No progress notes on the chart yet.');
+ expect(wrapper.findAll('button').some(b=>b.text()==='+ New note')).toBe(false);expect(m.get.mock.calls.some(([url])=>url.includes('/medical-billing/'))).toBe(false);
+});

@@ -731,3 +731,9 @@ test('a separate commercial child policy is not overwritten by a family Medicaid
   assert.ok(text.includes('COMMERCIAL-MILO'));
   assert.ok(!text.includes('MEDICAID-ADA'));
 });
+
+test('Spanish receipt identity and communication labels never fall back to English application labels', () => {
+ const record=buildCompletedIntakeRecord({link:{language_code:'es'},submission:{intake_data:{formLocale:'es',clients:[{fullName:'Primer Menor',dateOfBirth:'2016-03-12'},{fullName:'Segundo Menor',dateOfBirth:'2018-10-22'}],responses:{clients:[{},{}],submission:{communicationPreferences:{smsPreference:'no',programUpdatesOptIn:'no',termsUrl:'/terms',privacyUrl:'/privacypolicy'}}}}}});
+ const text=JSON.stringify(record.sections);assert.ok(text.includes('Cliente 1'));assert.ok(text.includes('Fecha de nacimiento 2016-03-12'));assert.ok(text.includes('Mensajes de texto (SMS)'));assert.ok(text.includes('Novedades del programa'));assert.ok(text.includes('Términos de uso'));assert.ok(text.includes('Política de privacidad'));
+ for(const label of ['Date of birth','Text messages (SMS)','Terms of Use','Program updates'])assert.ok(!text.includes(label),label);
+});

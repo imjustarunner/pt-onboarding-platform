@@ -3,18 +3,18 @@
     <header class="rco-head">
       <div>
         <h3 class="rco-title">Record Center</h3>
-        <p class="rco-sub">Clinical record, documents, and billing in one place.</p>
+        <p class="rco-sub">{{ operationalOnly ? 'Enrollment, school records, and administrative status. Clinical notes and plans require clinical access.' : 'Clinical record, documents, and billing in one place.' }}</p>
       </div>
       <div class="rco-head-actions">
         <button type="button" class="cdp-btn-soft" @click="$emit('upload')">Upload</button>
-        <button type="button" class="cdp-btn-primary" @click="$emit('navigate', 'notes')">+ New note</button>
+        <button v-if="!operationalOnly" type="button" class="cdp-btn-primary" @click="$emit('navigate', 'notes')">+ New note</button>
         <button v-if="canProcessPaper" type="button" class="cdp-btn-soft" @click="$emit('client-actions')">Client actions / process paper packet</button>
         <details class="rco-more">
           <summary aria-label="More">⋯</summary>
           <div class="rco-more__menu">
             <button type="button" @click="$emit('navigate-secondary', 'surveys')">Surveys</button>
-            <button type="button" @click="$emit('navigate-secondary', 'assessments')">Assessments</button>
-            <button v-if="canManageSchoolRoi" type="button" @click="$emit('navigate', 'authorizations')">School ROI</button>
+            <button v-if="!operationalOnly" type="button" @click="$emit('navigate-secondary', 'assessments')">Assessments</button>
+            <button v-if="canManageSchoolRoi" type="button" @click="$emit('navigate', 'school-roi')">School ROI</button>
             <button v-if="packagesEnabled" type="button" @click="$emit('navigate-secondary', 'packages')">Packages</button>
             <button type="button" @click="$emit('navigate', 'audit')">Audit trail</button>
           </div>
@@ -28,19 +28,19 @@
     </div>
 
     <div class="rco-metrics">
-      <button type="button" class="rco-metric" @click="$emit('navigate', 'notes')">
-        <span class="rco-metric__k">Open tasks</span>
+      <button type="button" class="rco-metric" :disabled="operationalOnly" @click="$emit('navigate', 'notes')">
+        <span class="rco-metric__k">Chart alerts</span>
         <strong class="rco-metric__v">{{ openTaskCount }}</strong>
-        <span class="rco-metric__l">View tasks →</span>
+        <span class="rco-metric__l">View alerts →</span>
       </button>
-      <button type="button" class="rco-metric" @click="$emit('navigate', 'notes')">
+      <button type="button" class="rco-metric" :disabled="operationalOnly" @click="$emit('navigate', 'notes')">
         <span class="rco-metric__k">Progress notes</span>
-        <strong class="rco-metric__v">{{ notes.length }}</strong>
+        <strong class="rco-metric__v">{{ operationalOnly ? 'Restricted' : notes.length }}</strong>
         <span class="rco-metric__l">View notes →</span>
       </button>
-      <button type="button" class="rco-metric" @click="$emit('navigate', 'treatment-plans')">
+      <button type="button" class="rco-metric" :disabled="operationalOnly" @click="$emit('navigate', 'treatment-plans')">
         <span class="rco-metric__k">Active treatment plans</span>
-        <strong class="rco-metric__v">{{ activePlanCount }}</strong>
+        <strong class="rco-metric__v">{{ operationalOnly ? 'Restricted' : activePlanCount }}</strong>
         <span class="rco-metric__l">View plans →</span>
       </button>
       <button
@@ -53,7 +53,7 @@
         <strong class="rco-metric__v">{{ claimsAttentionCount }}</strong>
         <span class="rco-metric__l">View claims →</span>
       </button>
-      <button type="button" class="rco-metric" @click="$emit('navigate', 'notes')">
+      <button type="button" class="rco-metric" :disabled="operationalOnly" @click="$emit('navigate', 'notes')">
         <span class="rco-metric__k">Unsigned items</span>
         <strong class="rco-metric__v">{{ unsignedCount }}</strong>
         <span class="rco-metric__l">Review items →</span>
@@ -72,7 +72,7 @@
     <div class="rco-grid">
       <div class="rco-col">
         <section class="rco-card">
-          <h4>Clinical activity</h4>
+          <h4>{{ operationalOnly ? 'Record availability' : 'Clinical activity' }}</h4>
           <table class="rco-table">
             <thead>
               <tr>
@@ -95,7 +95,7 @@
           </table>
         </section>
 
-        <section class="rco-card">
+        <section v-if="!operationalOnly" class="rco-card">
           <div class="rco-card__row">
             <h4>Treatment plans</h4>
             <button type="button" class="rco-link" @click="$emit('navigate', 'treatment-plans')">View all plans</button>
@@ -147,7 +147,7 @@
       </div>
 
       <div class="rco-col">
-        <section class="rco-card">
+        <section v-if="!operationalOnly" class="rco-card">
           <div class="rco-card__row">
             <h4>Recent progress notes</h4>
             <button type="button" class="rco-link" @click="$emit('navigate', 'notes')">View notes</button>
@@ -179,7 +179,7 @@
           </table>
         </section>
 
-        <section class="rco-card rco-note-aid">
+        <section v-if="!operationalOnly" class="rco-card rco-note-aid">
           <div class="rco-card__row">
             <h4>Clinical Note Workspace</h4>
             <span class="rco-badge rco-badge--ok">Connected</span>
@@ -247,8 +247,8 @@
         </section>
 
         <section class="rco-card">
-          <h4>Open tasks</h4>
-          <div v-if="!taskItems.length" class="muted tiny">No open chart tasks flagged.</div>
+          <h4>Chart alerts</h4>
+          <div v-if="!taskItems.length" class="muted tiny">No chart alerts are flagged. Operational enrollment tasks appear in Pending tasks.</div>
           <ul v-else class="rco-list">
             <li v-for="task in taskItems" :key="task.id">
               <button type="button" class="rco-task" @click="$emit('alert-click', task)">
@@ -451,7 +451,7 @@ const activityRows = computed(() => {
       updated: formatDate(latestClaim),
       nav: 'billing'
     }
-  ];
+  ].filter(row => !props.operationalOnly || !['notes', 'plans', 'assess'].includes(row.id));
 });
 
 function formatWhen(v) {
