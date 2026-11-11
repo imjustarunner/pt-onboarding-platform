@@ -6,6 +6,12 @@ import { isEventCoordinator, validateEventOperations } from '../companyEventOper
 
 beforeEach(() => vi.clearAllMocks());
 describe('event fees and publication', () => {
+  it('retains work-event behavior for legacy programs while company gatherings default to social', () => {
+    expect(mapEventOperations({ id: 1, event_type: 'company_event' }).isWorkEvent).toBe(false);
+    expect(mapEventOperations({ id: 1, event_type: 'company_event', organization_id: 5 }).isWorkEvent).toBe(true);
+    expect(mapEventOperations({ id: 1, event_type: 'guardian_program_class' }).isWorkEvent).toBe(true);
+    expect(mapEventOperations({ id: 1, event_type: 'company_event', organization_id: 5, operations_json: { isWorkEvent: false } }).isWorkEvent).toBe(false);
+  });
   it('tracks an unpaid fee without requiring a known amount or changing attendee pricing', () => {
     const operations = normalizeEventOperations({ requiresPayment: true, programCostDollars: 200 });
     expect(mapEventOperations({ id: 1, operations_json: operations })).toMatchObject({ paymentOutstanding: true, paymentAmount: null });

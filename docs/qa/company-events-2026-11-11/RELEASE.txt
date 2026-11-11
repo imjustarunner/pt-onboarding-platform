@@ -1,0 +1,47 @@
+Company events audit and implementation — November 11, 2026
+
+The old editor mixed company gatherings with service enrollment, guessed SMS status from absent feature flags, displayed expired groups and guardians as staff choices, hid reminders behind legacy voting, and silently cleared successful saves. The directory loaded only the newest 300 records before filtering, allowing future school calendars to bury company events and undated plans.
+
+Implemented:
+- Upcoming and planning view by default, searchable/sortable event directory, separate past/inactive/type filters, compact secondary-action menu.
+- Five-step event editor with invitation preview and persistent congratulations. Company events have no required program affiliation; program registration remains available.
+- Searchable/sortable staff and coordinator pickers with role/email/agency context; current active eligible staff only, no expired/inactive groups or demo/guardian accounts.
+- Cross-agency invitation scope validated against the organizer's management access. Optional attendance by default, mandatory attendees explicitly selected from the effective audience.
+- Date/time can be undecided. Event remains on a stable private invitation page with RSVP, current details, multiple modern linked votes, potluck and group conversation.
+- Separate RSVP and event votes. Current parent invitation is enforced for linked-vote listing, delivery and submission, including cross-agency invitees and membership revocation.
+- One event-named internal group direct message, accessible in Direct Messages and Groups. Conversation access follows current invitees; no channel is created. General group DM composer supports multiple staff recipients.
+- Private invitee page by default; public registration is explicit and explained. Payroll controls and check-in are limited to work events, preserving existing program workflows and open-punch checkout.
+- Organizer potluck requests and invitees' own suggested contributions can be updated transactionally without duplicate claims.
+- Independent configurable RSVP reminders defaulting to every 48 hours (email/in-app), stopping after any RSVP. Attendance reminders at seven days/24 hours for Yes/Maybe, skipping undated events.
+- Multiple scheduled invitee-only dashboard announcements; removed/rescheduled/expired announcements and revoked invitees are rechecked before display.
+- Authoritative workforce SMS readiness and Yes/No/Maybe RSVP replies, with existing sending permissions and ambiguous-event handling retained.
+- Branded event invitation email from events@; multiple agencies use PlotTwistCo events@ and display both hosts. Personal reply links require confirmation before recording attendance preferences.
+
+Live operations completed:
+- Migrations 1799_company_event_planning, 1800_company_event_invitation_reminders and 1801_company_event_conversation_names applied successfully.
+- Five pictured ITSCO groups (IDs 1,2,3,5,6) and their five old linked events made inactive; history preserved.
+- Two confirmed demo guardian accounts (IDs 1133,1138) repaired to explicit Demo Guardian names and marked is_demo, retaining linked intake/client records.
+- events@ Groups/sender identities/inbound inboxes verified for PlotTwistCo, ITSCO, Inner Strength and MH4Kidz through the existing approved relay. Owner no-mail and app-manager delivery settings preserved; no Gmail aliases or unapproved relay domains added.
+- ITSCO's approved Campaign 2 sender was already ready; no texting settings changed.
+
+Verification:
+- 228 focused backend event, linked-vote, invitation, announcement and authorization tests passed.
+- 1,313 existing SMS carrier/topic/vote and messaging tests passed (39 external/database integration cases skipped). Two older fixture mocks were corrected to model the current family-message access checks; production access rules were unchanged.
+- 181 frontend workflow, picker, private page, email RSVP confirmation, polls, group message and announcement tests passed.
+- 1,302 scheduling tests passed (89 integration cases skipped), plus 170 calendar/subscription tests and 290 mobile tests.
+- Potluck concurrency/rollback/claim ownership regressions.
+- Production application Vite build passed: 6,907 transformed modules. Existing chunk-size warnings only. Independent marketing bundles were outside this app-only validation.
+- Actual Vue components checked in an installed browser at desktop and 390px phone width; no JavaScript errors or horizontal phone overflow. Screenshots show illustrative event data, not a newly created live anniversary event.
+
+Storage:
+Existing dependencies were reused. The isolated sparse checkout contains only task source and review artifacts. Reproducible app build and temporary public fallback were removed after validation; approximately 64 GiB was free afterward. Main workspace's unrelated edits were preserved.
+
+Dashboard and calendar behavior:
+- My Dashboard's Events card now has searchable Invited events and Declined events views. Unanswered, Yes and Maybe invitations remain in the main view; No moves to Declined without losing access to event details or the ability to change the response.
+- Inline Yes/Maybe/No actions and private event links preserve the existing supervision, program and school staffing lists. Undated company invitations are visible while people help decide the date.
+- Calendar/schedule inclusion follows Yes or Maybe for ordinary company invitations; No and unanswered invitations stay out of those calendars. Existing school and program staffing rules are retained.
+- RSVP changes refresh the dashboard and calendars in the same tab and across app tabs; returning focus refreshes server state after a text or external response. The invitation endpoint owns current RSVP state, so a slower calendar refresh cannot restore an earlier response.
+- Combined frontend verification: 181 tests passed across 25 files, covering the dashboard, main schedule grid, invitation controls and existing layouts/loading.
+- Dashboard screenshots dashboard-invitations.png and dashboard-declined-events.png show the actual Vue invitation component using illustrative data; no live RSVP was recorded. Temporary browser/preview processes and source files were removed afterward.
+
+Calendar details: Yes/Maybe company invitations use read-only schedule projections with distinct identifiers; they do not create appointments, staffing assignments or payroll records. Other-provider views show generic Busy blocks without event titles, private links, RSVP state or canonical event IDs. Program, school and affiliated club rules remain intact. Calendar cards and main-grid event details support changing RSVP. Declining releases potluck claims through the existing transactional claim service.

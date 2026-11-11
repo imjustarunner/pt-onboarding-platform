@@ -5,7 +5,7 @@ vi.mock('../companyEventSms.service.js', () => ({ sendCompanyEventSms: vi.fn() }
 import { processCompanyEventCheckinReminders } from '../companyEventCheckinReminder.service.js';
 import { eventAttendanceReminderType, eventCheckinMessage } from '../../utils/companyEventCheckin.js';
 
-const event = { id: 4, agency_id: 2, title: 'School fair', timezone: 'America/Denver',
+const event = { id: 4, agency_id: 2, event_type: 'school_outreach', title: 'School fair', timezone: 'America/Denver',
   starts_at: '2026-10-24T16:00:00Z', ends_at: '2026-10-24T20:00:00Z', staff_link_token: 'staff-token' };
 const before = '2026-10-24T15:00:00Z', start = event.starts_at, overdue = '2026-10-24T20:30:00Z';
 const unclocked = { assigned: true, canCheckIn: true, canCheckOut: false, lastPunch: null };
@@ -37,6 +37,14 @@ function harness({ occurrence = event, state = unclocked, clockIns = [], phone =
 }
 
 describe('event attendance reminder stages', () => {
+  it('does not send payroll check-in reminders for a social event', async () => {
+    const h = harness({ occurrence: { ...event, event_type: 'company_event', operations_json: { isWorkEvent: false } } });
+    await h.run(start);
+    expect(h.sendEmail).not.toHaveBeenCalled();
+    expect(h.sendSms).not.toHaveBeenCalled();
+    expect(h.claims.size).toBe(0);
+    expect(h.participation).not.toHaveBeenCalled();
+  });
   it('uses exact start and 30-minute checkout thresholds and bounds stale reminders', () => {
     for (const [instant, expected] of [
       ['2026-10-24T14:59:59Z', null], [before, 'checkin'], [start, 'missing_checkin'],

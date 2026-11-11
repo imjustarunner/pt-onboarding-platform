@@ -16,6 +16,7 @@ function threadLabel(t) {
   if (t.thread_type === 'team') return t.thread_label || 'Team thread';
   if (t.thread_type === 'club') return t.thread_label || 'Club — Everyone';
   if (t.thread_type === 'group') {
+    if (t.thread_label && t.thread_label !== 'Group chat') return t.thread_label;
     const others = t.participants || [];
     const names = others.map((p) => `${p.first_name || ''} ${p.last_name || ''}`.trim()).filter(Boolean);
     return names.length ? names.join(', ') : 'Group';

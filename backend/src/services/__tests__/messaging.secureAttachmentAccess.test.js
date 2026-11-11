@@ -19,7 +19,7 @@ it('denies a revoked guardian before reading or decrypting the file', async () =
   expect(response.status).toHaveBeenCalledWith(403); expect(readSecureChatAttachment).not.toHaveBeenCalled(); expect(resolveClientRecordAccess).not.toHaveBeenCalled();
 });
 it('allows an authorized participant, logs the opening, and disables browser caching', async () => {
-  pool.execute.mockResolvedValueOnce([[{ id: 1 }]]); const response = res(), next = vi.fn();
+  pool.execute.mockResolvedValueOnce([[{ id: 1 }]]).mockResolvedValueOnce([[{ id: 7, thread_id: 5 }]]).mockResolvedValueOnce([[{ id: 7 }]]); const response = res(), next = vi.fn();
   await downloadSecureChatAttachment({ user: { id: 9, role: 'client_guardian' }, params: { attachmentId: 6 } }, response, next);
   expect(next).not.toHaveBeenCalled(); expect(response.send).toHaveBeenCalledWith(Buffer.from('Protected attachment'));
   expect(recordSecureMessageEvent).toHaveBeenCalledWith(expect.objectContaining({ messageId: 7, userId: 9, eventType: 'attachment_opened' })); expect(response.set).toHaveBeenCalledWith('Cache-Control', 'no-store');

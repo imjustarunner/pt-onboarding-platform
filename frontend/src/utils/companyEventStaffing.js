@@ -32,6 +32,7 @@ export function isCalendarOnlyCompanyEvent(event) {
 export function isUpcomingCompanyEvent(event, now = Date.now()) {
   if (!event || event.isActive === false || event.is_active === 0) return false;
   if (['canceled', 'cancelled'].includes(String(event.schoolEventStatus || event.school_event_status || '').toLowerCase())) return false;
+  if (event.isInvitedCompanyEvent === true && (event.dateToBeDecided === true || !event.startsAt)) return true;
   const sessions = Array.isArray(event.sessions) ? event.sessions : [];
   if (sessions.some((session) => new Date(session.endsAt || session.startsAt).getTime() > now)) return true;
   const end = new Date(event.nextOccurrenceEnd || event.endsAt || event.nextOccurrenceStart || event.startsAt).getTime();

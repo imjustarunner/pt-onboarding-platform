@@ -1,0 +1,12 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mount,flushPromises } from '@vue/test-utils';
+import EventLinkedPolls from '../EventLinkedPolls.vue';
+import api from '../../../services/api';
+vi.mock('../../../services/api',()=>({default:{get:vi.fn(),post:vi.fn()}}));
+let wrapper;
+beforeEach(()=>{api.get.mockResolvedValue({data:[{id:1,title:'Our date',votingConfig:{enabled:true,linkedEventId:8,question:'Which date?',options:[{key:'1',label:'Friday'},{key:'2',label:'Saturday'}]},endsAt:'2027-01-01T20:00:00Z'},{id:2,title:'Someone else’s poll',votingConfig:{enabled:true,linkedEventId:9}}]});api.post.mockResolvedValue({data:{id:3}});});
+afterEach(()=>{wrapper?.unmount();vi.clearAllMocks();});
+describe('independent event votes',()=>{
+ it('shows only votes linked to this event and creates another using the current invited people',async()=>{wrapper=mount(EventLinkedPolls,{props:{agencyId:3,event:{id:8,title:'Anniversary',dateToBeDecided:true,timezone:'America/Denver',invitedAgencyIds:[9]},userIds:[4,5]},global:{stubs:{StaffPollResultsReview:true}}});await flushPromises();expect(wrapper.text()).toContain('Which date?');expect(wrapper.text()).not.toContain('Someone else’s poll');await wrapper.find('.outline-button').trigger('click');const inputs=wrapper.findAll('.poll-compose input');await inputs[0].setValue('Which venue?');await inputs[1].setValue('River Hall');await inputs[2].setValue('Garden Room');await inputs[3].setValue('2027-01-01T12:00');await wrapper.find('form').trigger('submit');await flushPromises();expect(api.post).toHaveBeenCalledWith('/agencies/3/company-events',expect.objectContaining({eventType:'team_poll',invitedAgencyIds:[9],audience:{userIds:[4,5],groupIds:[],roleKeys:[]},votingConfig:expect.objectContaining({enabled:true,question:'Which venue?',linkedEventId:8,deliveryMode:'internal',options:[{key:'1',label:'River Hall'},{key:'2',label:'Garden Room'}]})}));expect(api.post.mock.calls.some(([url])=>url.includes('send-poll'))).toBe(false);expect(wrapper.text()).toContain('Vote created and linked');});
+ it('requires the parent event to be saved before a vote can be created',async()=>{wrapper=mount(EventLinkedPolls,{props:{agencyId:3,event:{title:'Planning'},userIds:[4]}});await flushPromises();expect(wrapper.find('.outline-button').attributes('disabled')).toBeDefined();expect(wrapper.text()).toContain('Save the event first');expect(api.get).not.toHaveBeenCalled();});
+});

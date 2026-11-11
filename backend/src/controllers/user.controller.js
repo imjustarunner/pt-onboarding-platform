@@ -1,3 +1,4 @@
+import { acceptedCompanyEventCalendar, companyEventScheduleVisibility } from '../services/companyEventPersonalAgenda.service.js';
 import { meetingDialInEnabled, supervisionDialInRequired } from '../services/meetingDialInPolicy.js';
 import { listProvidersForSupport } from '../services/supportProviderDirectory.service.js';
 import { getUserOnboardingChecklist } from '../services/userOnboardingChecklist.service.js';
@@ -6044,6 +6045,9 @@ export const getUserScheduleSummary = async (req, res, next) => {
         offerRequested: !!Number(slot.requested), canEdit: false, canReschedule: false, isPrivate: true,
         description: 'Reserved for invited clients. Hidden from public booking until released or expired.' });
     }
+
+    const invitedCompanyEvents = await acceptedCompanyEventCalendar({ userId: providerId, agencyId, from: windowStart, to: windowEnd, includeAllAgencies });
+    scheduleEvents.push(...invitedCompanyEvents.map(event => companyEventScheduleVisibility(event, isSelf)));
 
     const fullPayload = {
       ok: true,

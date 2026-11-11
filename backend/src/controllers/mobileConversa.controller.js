@@ -58,11 +58,12 @@ export const getMobileInbox=mobile(async(req,res)=>{
   if(!includeArchived)chats=chats.filter(item=>!item.archived);
   const counts=countsOnly || !includeCounts?{}:await mobileConversaStore.extraCounts(userId,chats.filter(item=>!item.secure).map(item=>item.id));
   if(includeCounts){
-  for(const category of ['direct','groups','channels','secure'])counts[category]=countsFor(chats.filter(i=>i.category===category));
+  for(const category of ['direct','groups','channels','secure'])counts[category]=countsFor(chats.filter(i=>i.category===category || (category==='direct' && i.isGroupDirect)));
   for(const category of ['email','sms','unknown','spam'])counts[category]={total:0,unread:0,needs:0,sent:0};
   for(const row of emailCounts){const key=row.category==='spam'?'spam':row.unknown && row.category!=='groups'?'unknown':row.category;for(const field of ['total','unread','needs','sent'])counts[key][field]+=(row[field]||0);}
   counts.all=['direct','groups','channels','secure','email','sms','unknown'].map(key=>counts[key]).reduce((sum,c)=>({total:sum.total+c.total,unread:sum.unread+c.unread,needs:sum.needs+c.needs,sent:sum.sent+(c.sent||0)}),{total:0,unread:0,needs:0,sent:0});
   }
+  if(includeCounts) { const overlap=countsFor(chats.filter(i=>i.isGroupDirect)); for(const field of ['total','unread','needs','sent']) counts.all[field]-=overlap[field] || 0; }
   if(countsOnly)return res.json({counts});
   // Unknown mail remains in its own folder, while All really includes every source.
   let availableChannels=[];
@@ -76,7 +77,7 @@ export const getMobileInbox=mobile(async(req,res)=>{
     availableChannels=(data.channels || []).filter(channel=>!chats.some(item=>item.id===Number(channel.thread_id || channel.id)) && (includeArchived || !archives.has(`chat:${channel.thread_id || channel.id}`))).map(channel=>({...mobileThreadItem({...channel,thread_id:channel.thread_id || channel.id,thread_type:'channel',channel_name:channel.name || channel.channel_name},userId),at:channel.updated_at || channel.created_at || null,preview:channel.description || 'Open this channel',join:!(channel.is_member===true || Number(channel.is_member)===1 || channel.isMember===true)}));
     if(includeCounts){counts.channels.total+=availableChannels.length;counts.all.total+=availableChannels.length;}
   }
-  let items=[...emails,...chats,...availableChannels].filter(item=>suite==='all'?item.category!=='spam':suite==='unknown'?item.unknown:item.category===suite && !item.unknown).filter(i=>matches(i,filter));
+  let items=[...emails,...chats,...availableChannels].filter(item=>suite==='all'?item.category!=='spam':suite==='unknown'?item.unknown:(item.category===suite || (suite==='direct' && item.isGroupDirect)) && !item.unknown).filter(i=>matches(i,filter));
   if(['threads','mentions','files'].includes(suite)){
     const body=await invoke(suite==='threads'?qvListThreadsInbox:suite==='mentions'?qvListMentions:qvListFiles,req,{agencyId:'all',beforeAt:cursor?.at,beforeId:cursor?Number(cursor.key.split(':')[1]):undefined,limit:'100'});
     const byThread=new Map(chats.map(i=>[i.id,i]));

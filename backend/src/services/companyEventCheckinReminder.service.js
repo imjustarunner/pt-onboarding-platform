@@ -1,3 +1,4 @@
+import { readEventOperations } from '../utils/companyEventOperations.js';
 import { randomBytes } from 'node:crypto';
 import pool from '../config/database.js';
 import { utcDateToZonedYmd, utcMysqlToIso, zonedDateHourToMysqlUtc, dateToMysqlUtcDateTime } from '../utils/zonedWallTime.util.js';
@@ -31,6 +32,7 @@ export async function processCompanyEventCheckinReminders({ now = new Date(), db
       AND COALESCE(sd.ends_at, e.ends_at) > DATE_SUB(?, INTERVAL 24 HOUR)`, [now, now]);
   const results = [];
   for (const event of events) {
+    if (!readEventOperations(event).isWorkEvent || !event.starts_at || !event.ends_at) continue;
     event.timezone = event.occurrence_timezone || event.timezone;
     const reminderType = eventAttendanceReminderType(event, now);
     if (!reminderType) continue;

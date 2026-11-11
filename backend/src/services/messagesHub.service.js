@@ -1,3 +1,4 @@
+import { pruneUserCompanyEventConversations } from './companyEventConversation.service.js';
 import { familyMessageVisibilitySql, currentSecureThreadFilterSql } from './familySecureMessageAccess.service.js';
 import { resolveClientForSecureRecipients, refreshClientSecureAccess } from './clientSecureConversation.service.js';
 import { protectSecurePreview } from './secureMessageBoundary.service.js';
@@ -3199,6 +3200,7 @@ function looksLikePhone(q) {
 async function listHubChatGroups({ agencyIds, userId, limit = 8, q = '' } = {}) {
   const ids = [...new Set((agencyIds || []).map(Number).filter((n) => n > 0))];
   if (!ids.length || !userId) return [];
+  await pruneUserCompanyEventConversations(userId);
   const lim = Math.min(Math.max(Number(limit) || 8, 1), 40);
   const query = String(q || '').trim();
   const like = query.length >= 2 ? likeParam(query) : null;
@@ -3211,7 +3213,7 @@ async function listHubChatGroups({ agencyIds, userId, limit = 8, q = '' } = {}) 
        LEFT JOIN chat_thread_participants p ON p.thread_id = t.id
        WHERE t.thread_type IN ('group', 'channel', 'team')
          AND t.archived_at IS NULL
-         AND (t.agency_id IN (${ph}) OR t.agency_id IS NULL)
+         AND (t.agency_id IN (${ph}) OR t.agency_id IS NULL OR (t.thread_type='group' AND t.company_event_id IS NOT NULL AND t.message_channel='internal'))
          ${like ? 'AND t.name LIKE ?' : ''}
        GROUP BY t.id, t.name, t.agency_id, t.thread_type
        ORDER BY COALESCE(t.updated_at, t.created_at) DESC
@@ -4007,6 +4009,7 @@ export async function listHubConversationFeed({
     };
   }
 
+  await pruneUserCompanyEventConversations(uid);
   const items = [];
   const CLIENT_FACING_ROLES = new Set(['client', 'client_guardian', 'guardian']);
   const { publicUploadsUrlFromStoredPath } = await import('../utils/uploads.js');
@@ -4134,7 +4137,7 @@ export async function listHubConversationFeed({
 
   // Chat threads (direct + channels / team / club)
   try {
-    const agencyClause = aid ? 'AND t.agency_id = ?' : '';
+    const agencyClause = aid ? "AND (t.agency_id = ? OR (t.thread_type='group' AND t.company_event_id IS NOT NULL AND t.message_channel='internal'))" : '';
     // unread(2) + other(1) + tp/r/td(3) + lm delete(1) + ou(1) [+ agency]
     // For inbox, last message is any sender; for unread, prefer unread inbound preview.
     const params = unreadOnly
@@ -4285,7 +4288,7 @@ export async function listHubConversationFeed({
         primaryEmail: null,
         personKey: isDirect && otherId ? formatPersonKey('user', otherId, row.agency_id || aid) : null,
         threadId: Number(row.thread_id),
-        threadType, clientId: row.client_id || null,
+        threadType, isGroupDirect: threadType === 'group' && row.message_channel === 'internal', clientId: row.client_id || null,
         photoUrl: isDirect
           ? publicUploadsUrlFromStoredPath(row.other_photo) || row.other_photo || null
           : null,
@@ -4365,7 +4368,7 @@ export async function listHubConversationFeed({
   const sliced = collapsed.filter(item => (!assignedOnly || ['email','sms','call','voicemail'].includes(item.channel)) && (channelFilter === 'all'
     || (['group','groups'].includes(channelFilter) ? item.is_ticketed_group || ['group','channel'].includes(item.channel)
       : channelFilter === 'email' ? item.channel === 'email' && !item.is_ticketed_group
-      : channelFilter === 'calls' ? ['call', 'voicemail'].includes(item.channel) : item.channel === channelFilter))).slice(0, lim);
+      : channelFilter === 'calls' ? ['call', 'voicemail'].includes(item.channel) : item.channel === channelFilter || (channelFilter === 'internal' && item.isGroupDirect)))).slice(0, lim);
   const emailCount = sliced.filter((i) => i.kind === 'email' || i.channel === 'email').length;
   const smsCount = sliced.filter((i) => i.channel === 'sms').length;
   const chatCount = sliced.filter((i) =>
@@ -4409,7 +4412,8 @@ export async function countHubChatUnreadThreads({ agencyId, userId, byChannel = 
   const uid = Number(userId || 0);
   if (!uid) return byChannel ? {} : 0;
   try {
-    const agencyClause = aid ? 'AND t.agency_id = ?' : '';
+    await pruneUserCompanyEventConversations(uid);
+    const agencyClause = aid ? "AND (t.agency_id = ? OR (t.thread_type='group' AND t.company_event_id IS NOT NULL AND t.message_channel='internal'))" : '';
     const secureAccessSql=await currentSecureThreadFilterSql(uid);
     const params = [uid, uid, uid, uid, uid];
     if (aid) params.push(aid);

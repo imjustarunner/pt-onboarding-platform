@@ -2,7 +2,7 @@ import { beforeEach, describe, it, expect, vi } from 'vitest';
 const mock = vi.hoisted(() => ({ execute: vi.fn(), getConnection: vi.fn(), sms: vi.fn(), email: vi.fn(), agency: vi.fn(), prepare: vi.fn(), notification: vi.fn(), communication: vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: { execute: mock.execute, query: mock.execute, getConnection: mock.getConnection }, onTableWrite: vi.fn() }));
 vi.mock('../../utils/userAgencyAffiliationAccess.js', () => ({ userHasAgencyOrAffiliatedOrgAccessForRequest: async () => true }));
-vi.mock('../../utils/meDashboardTenantScope.js', () => ({ resolveScopedAgencyIdsForMyDashboard: async () => [4] }));
+vi.mock('../../utils/meDashboardTenantScope.js', () => ({ resolveScopedAgencyIdsForMyDashboard: async req => req.scopedAgencyIds || [4] }));
 vi.mock('../../models/User.model.js', () => ({ default: { findById: vi.fn(async () => ({ id: 8, role: 'admin' })) } }));
 vi.mock('../../models/Agency.model.js', () => ({ default: { findById: mock.agency } }));
 vi.mock('../../services/unifiedEmail/unifiedEmailSender.service.js', () => ({ sendNotificationEmail: mock.email, sendEmailFromIdentity: vi.fn() }));
@@ -43,9 +43,14 @@ beforeEach(() => {
     if (sql.includes('GET_LOCK')) return [[{ acquired: 1 }]];
     if (sql.includes('INSERT INTO company_event_dispatch_logs') && args[2] === 'email' && args[5] === 'sent') emailInvited.add(args[1]);
     if (sql.includes('SELECT id FROM company_event_dispatch_logs')) return [emailInvited.has(Number(args[1])) ? [{ id: 1 }] : []];
-    if (sql.includes('FROM users u JOIN user_agencies ua')) return [users.filter(u => !sql.includes('AND u.id = ?') || u.id === args[1])];
-    if (sql.includes('FROM company_event_audiences')) return [[...users.map(u => ({ company_event_id: 20, audience_type: 'user', target_id: u.id })),
-      ...[...linkedEvents.keys()].flatMap(id => (linkedAudiences.get(id) || [2]).map(userId => ({ company_event_id: id, audience_type: 'user', target_id: userId })))]];
+    if (sql.includes('FROM users u JOIN user_agencies ua')) return [users.filter(u => (!sql.includes('AND u.id = ?') || u.id === args[1])
+      && (!sql.includes('WHERE ua.agency_id = ?') || Number(u.agency_id || 4)===Number(args[0])))];
+    if (sql.includes('FROM company_event_audiences')) {
+      const rows=[...users.map(u => ({ company_event_id: 20, audience_type: 'user', target_id: u.id })),
+        ...[...linkedEvents.keys()].flatMap(id => (linkedAudiences.get(id) || [2]).map(userId => ({ company_event_id: id, audience_type: 'user', target_id: userId })))];
+      return [sql.includes('WHERE company_event_id = ?') ? rows.filter(row=>row.company_event_id===Number(args[0])) : rows];
+    }
+    if (sql.includes('SELECT DISTINCT a.id') && sql.includes('FROM agencies a')) return [[{id:4,name:'ITSCO'}]];
     if (sql.includes('INSERT INTO company_event_responses')) { replies.set(args[1], { id: args[1], user_id: args[1], response_key: args[2], response_label: args[3], response_body: args[4] }); return [{ insertId: args[1] }]; }
     if (sql.includes('SELECT ce.*')) return [[{ ...event, participated: replies.has(2) ? 1 : 0 }, ...[...linkedEvents.values()].filter(row => row.agency_id === 4 && row.is_active)]];
     if (sql.includes('FROM company_event_responses')) return [[...replies.values()].filter(r => !sql.includes('AND user_id = ?') || r.user_id === args[1])];
@@ -322,6 +327,22 @@ describe('Conversa participant poll presentation and internal event links', () =
     const list = await pollsForParticipant();
     expect(list.json.mock.calls[0][0][0].linkedEvent).toMatchObject({ id: 20, title: event.title, available: true });
   });
+  it('lists, delivers and accepts a linked vote for another agency’s invited employee, then revokes access with the parent invitation',async()=>{
+    users=[{...member,agency_id:4},{...member,id:6,agency_id:9,personal_phone:'+13035550106'},{...member,id:7,agency_id:9,personal_phone:'+13035550107'}];
+    event.voting_config_json.deliveryMode='internal';event.voting_config_json.viaSms=false;
+    linked({operations_json:{invitedAgencyIds:[9]},staff_link_token:'a'.repeat(48)});linkedAudiences.set(90,[2,6]);
+    mock.notification.mockResolvedValue({id:91});
+    const participant=req();participant.user={id:6,role:'provider'};participant.scopedAgencyIds=[9];
+    const list=await invoke('listMyStaffPolls',participant);
+    expect(list.json.mock.calls[0][0]).toHaveLength(1);expect(list.json.mock.calls[0][0][0]).toMatchObject({linkedEventId:90,canVote:true,canManage:false});
+    expect(list.json.mock.calls[0][0][0].linkedEvent.staffPageUrl).toContain('/company-events/90/staff/');
+    await invoke('sendCompanyEventVotingSms');
+    expect(mock.notification.mock.calls.map(([notification])=>notification.userId).sort()).toEqual([2,6]);
+    participant.body.responseKey='2';await invoke('respondToMyCompanyEvent',participant);expect(replies.get(6)).toMatchObject({response_key:'2'});
+    linkedAudiences.set(90,[2]);
+    expect((await invoke('listMyStaffPolls',participant)).json).toHaveBeenCalledWith([]);
+    expect((await invoke('respondToMyCompanyEvent',participant)).status).toHaveBeenCalledWith(404);
+  });
   it('does not grant the internal event detail route to non-team accounts', async () => {
     linked(); users = [{ ...member, role: 'school_staff' }];
     const request = req(); request.params.eventId = '90';
@@ -331,8 +352,8 @@ describe('Conversa participant poll presentation and internal event links', () =
     linked(state === 'other_agency' ? { agency_id: 9 } : state === 'inactive' ? { is_active: 0 } : state === 'canceled' ? { school_event_status: 'canceled' } : {});
     if (state === 'private') linkedAudiences.set(90, [5]);
     if (state === 'removed') linkedEvents.delete(90);
-    const list = await pollsForParticipant(); expect(list.json.mock.calls[0][0][0].linkedEvent).toEqual({ available: false });
-    expect(JSON.stringify(list.json.mock.calls[0][0][0])).not.toContain('Team dinner');
+    const list = await pollsForParticipant(); expect(list.json.mock.calls[0][0]).toEqual([]);
+    expect(JSON.stringify(list.json.mock.calls[0][0])).not.toContain('Team dinner');
     const request = req(); request.params.eventId = '90';
     expect((await invoke('getMyStaffEvent', request)).status).toHaveBeenCalledWith(404);
   });

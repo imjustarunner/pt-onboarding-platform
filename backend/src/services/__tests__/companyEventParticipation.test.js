@@ -8,7 +8,7 @@ import { loadEventPayrollContext } from '../eventPayrollRate.service.js';
 import { saveEventOperations } from '../companyEventOperations.service.js';
 after(() => pool.end());
 
-const event = { id: 4, agency_id: 2, title: 'School Outreach', timezone: 'America/Denver', is_active: 1, starts_at: '2026-10-24T16:00:00Z', ends_at: '2026-10-24T20:00:00Z' };
+const event = { id: 4, agency_id: 2, title: 'School Outreach', operations_json: { isWorkEvent: true }, timezone: 'America/Denver', is_active: 1, starts_at: '2026-10-24T16:00:00Z', ends_at: '2026-10-24T20:00:00Z' };
 const payload = { companyEventId: 4, eventWorkType: 'travel', categoryGroup: 'support_activity', travelStartedAt: '2026-10-24T15:00:00Z', travelEndedAt: '2026-10-24T15:30:00Z', totalMinutes: 30, allocations: [{ serviceTypeId: 8, minutes: 30 }], attestation: true };
 const fakeDb = ({ overlap = [], claims = [], assigned = true, foundEvent = event } = {}) => ({ execute: async (sql) => {
   if (sql.includes('FROM company_events e')) return [foundEvent ? [foundEvent] : []];
@@ -174,4 +174,26 @@ test('keeps travel entry available after an assigned date without opening check-
   } };
   const p = await getEmployeeEventParticipation({ eventId: 4, userId: 9, db, now: new Date('2026-10-26T18:00:00Z') });
   assert.equal(p.assigned, false); assert.equal(p.canSubmitTravel, true); assert.equal(p.canCheckIn, false);
+});
+
+
+test('social invitations do not permit work clock-in or payroll travel even when a provider is assigned', async (t) => {
+  const socialEvent = { ...event, operations_json: { isWorkEvent: false }, user_role: 'admin' };
+  const baseDb = fakeDb({ foundEvent: socialEvent });
+  const db = { execute: async (sql, args) => sql.includes('SELECT id, punch_type') ? [[]] : baseDb.execute(sql, args) };
+  const participation = await getEmployeeEventParticipation({ eventId: 4, userId: 9, db, now: new Date('2026-10-24T18:00:00Z') });
+  assert.equal(participation.assigned, true);
+  assert.equal(participation.isEventDay, true);
+  assert.equal(participation.canCheckIn, false);
+  assert.equal(participation.canSubmitTravel, false);
+  const statements = [];
+  const transaction = {
+    beginTransaction: async () => {}, commit: async () => statements.push('commit'),
+    rollback: async () => statements.push('rollback'), release: () => statements.push('release'),
+    execute: async (sql, args) => { statements.push(sql); return sql.includes('FOR UPDATE') ? [[{ id: 4 }]] : db.execute(sql, args); }
+  };
+  t.mock.method(pool, 'getConnection', async () => transaction);
+  await assert.rejects(recordEmployeeEventParticipation({ eventId: 4, userId: 9, action: 'check-in' }), { status: 403, message: 'Clock-in is only available for work events' });
+  assert.equal(statements.some(sql => sql.startsWith('INSERT') || sql.startsWith('UPDATE')), false);
+  assert.deepEqual(statements.slice(-2), ['rollback', 'release']);
 });

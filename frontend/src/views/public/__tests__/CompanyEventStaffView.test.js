@@ -4,29 +4,62 @@ import CompanyEventStaffView from '../CompanyEventStaffView.vue';
 import api from '../../../services/api';
 const state = vi.hoisted(() => ({ signedIn: true, query: {}, participation: { assigned: false, clockedIn: false, canCheckIn: false, canCheckOut: false } }));
 vi.mock('../../../services/api', () => ({ default: { get: vi.fn(), post: vi.fn() } }));
-vi.mock('vue-router', () => ({ useRoute: () => ({ params: { eventId: '8', token: 'share-token' }, query: state.query, hash: '#event-check-in', fullPath: '/company-events/8/staff/share-token?attendance=checkout-time#event-check-in' }) }));
+vi.mock('vue-router', () => ({ useRouter: () => ({ push: vi.fn() }), useRoute: () => ({ params: { eventId: '8', token: 'share-token' }, query: state.query, hash: '#event-check-in', fullPath: '/company-events/8/staff/share-token?attendance=checkout-time#event-check-in' }) }));
 vi.mock('../../../store/auth', () => ({ useAuthStore: () => ({ get isAuthenticated() { return state.signedIn; } }) }));
 const wrappers = [];
 const button = (wrapper, text) => wrapper.findAll('button').find(item => item.text() === text);
-async function render() { const wrapper = mount(CompanyEventStaffView); wrappers.push(wrapper); await flushPromises(); return wrapper; }
+async function render() { const wrapper = mount(CompanyEventStaffView, { global: { stubs: { StaffPollsPanel: true } } }); wrappers.push(wrapper); await flushPromises(); return wrapper; }
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date('2026-10-27T12:00:00Z'));
   state.signedIn = true;
   state.query = {};
   state.participation = { assigned: false, clockedIn: false, canCheckIn: false, canCheckOut: false };
-  api.get.mockImplementation(url => Promise.resolve({ data: url.includes('/participation') ? state.participation : { event: { id: 8, title: 'School outreach', startsAt: '2026-10-24T18:00:00Z' }, branding: { agencyName: 'ITSCO' } } }));
+  api.get.mockImplementation(url => Promise.resolve({ data: url.includes('/participation') ? state.participation : { event: { id: 8, title: 'School outreach', startsAt: '2026-10-24T18:00:00Z', isWorkEvent: true }, branding: { agencyName: 'ITSCO' } } }));
   api.post.mockResolvedValue({ data: { ok: true } });
 });
 afterEach(() => { wrappers.splice(0).forEach(wrapper => wrapper.unmount()); vi.clearAllMocks(); vi.useRealTimers(); });
 
 describe('staff event participation', () => {
+  it('shows an undated private social event with RSVP, linked votes and a group conversation but no payroll',async()=>{
+    api.get.mockResolvedValue({data:{event:{id:8,title:'Two years together',startsAt:null,endsAt:null,isWorkEvent:false,mandatory:false},branding:{agencyName:'ITSCO'}}});
+    const wrapper=await render();
+    expect(wrapper.text()).toContain('Date & time to be decided');
+    expect(wrapper.text()).toContain('Optional invitation');
+    expect(wrapper.find('#event-check-in').exists()).toBe(false);
+    expect(wrapper.findComponent({ name: 'StaffPollsPanel' }).props('linkedEventId')).toBe(8);
+    await button(wrapper,'Yes, I’ll be there').trigger('click');await flushPromises();
+    expect(api.post).toHaveBeenCalledWith('/company-events/staff/8/share-token/respond',{response:'yes'});
+    expect(wrapper.text()).toContain('Your RSVP was saved');
+    expect(api.get.mock.calls.some(([url])=>url.endsWith('/participation'))).toBe(false);
+    expect(button(wrapper,'Message event group')).toBeDefined();
+  });
+
+  it('lets an invitee suggest a dish without any organizer slots and keeps their saved contribution editable',async()=>{
+    const event={id:8,title:'Team potluck',startsAt:null,endsAt:null,isWorkEvent:false,potluckEnabled:true,organizerProviding:['Main dishes']};
+    api.get.mockResolvedValue({data:{event,needList:[],branding:{agencyName:'ITSCO'}}});
+    const wrapper=await render();
+    const form=wrapper.find('.event-potluck form');
+    await form.find('select').setValue('__custom');
+    await form.find('input').setValue('Fresh fruit salad');
+    api.get.mockResolvedValue({data:{event,needList:[{id:91,name:'Fresh fruit salad',mine:true,custom:true,claimed:true}],branding:{agencyName:'ITSCO'}}});
+    await form.trigger('submit');await flushPromises();
+    expect(api.post).toHaveBeenCalledWith('/company-events/staff/8/share-token/potluck',{itemId:null,customItemName:'Fresh fruit salad'});
+    expect(wrapper.text()).toContain('Your contribution was saved. Thank you!');
+    expect(wrapper.find('.event-potluck article.mine').text()).toContain('Fresh fruit salad');
+    expect(wrapper.find('.event-potluck select').element.value).toBe('__custom');
+    expect(wrapper.find('.event-potluck input').element.value).toBe('Fresh fruit salad');
+    await wrapper.find('.event-potluck input').setValue('Watermelon and berries');
+    await wrapper.find('.event-potluck form').trigger('submit');await flushPromises();
+    expect(api.post).toHaveBeenLastCalledWith('/company-events/staff/8/share-token/potluck',{itemId:null,customItemName:'Watermelon and berries'});
+  });
+
   it('requires sign-in before allowing interest, check-in, or travel', async () => {
     state.signedIn = false;
     const wrapper = await render();
     expect(wrapper.find('a').attributes('href')).toContain('/login?redirect=');
     expect(wrapper.findAll('button')).toHaveLength(0);
-    expect(api.get).toHaveBeenCalledTimes(1);
+    expect(api.get).not.toHaveBeenCalled();
   });
   it('records interest without assigning staff or opening check-in', async () => {
     const wrapper = await render();

@@ -33,6 +33,16 @@ it('opens only the email-linked poll and never substitutes another one', async (
   expect(w.findAll('article')).toHaveLength(1); expect(w.text()).not.toContain('Another poll'); expect(api.post).not.toHaveBeenCalled();
   await w.setProps({ pollId: '99' }); await flushPromises(); expect(w.text()).toContain('unavailable for your account'); expect(w.find('article').exists()).toBe(false);
 });
+it('shows only votes for the private event using the API linkedEventId contract',async()=>{
+  api.get.mockResolvedValue({data:[{...poll,linkedEventId:7},{...poll,id:13,title:'Another event vote',linkedEventId:8},{...poll,id:14,title:'Standalone vote'}]});
+  const w=await panel({linkedEventId:7});expect(w.findAll('article')).toHaveLength(1);expect(w.text()).not.toContain('Another event vote');expect(w.text()).not.toContain('Standalone vote');
+  await w.setProps({linkedEventId:8});await flushPromises();expect(w.findAll('article')).toHaveLength(1);expect(w.text()).toContain('Another event vote');
+});
+it('retains compatible event filtering and uses the stable private event link when available',async()=>{
+  const privateUrl='https://app.example.com/company-events/7/staff/private';
+  api.get.mockResolvedValue({data:[{...poll,linkedEvent:{id:7,available:true,title:'Anniversary',staffPageUrl:privateUrl}},{...poll,id:13,title:'Unrelated',linkedEvent:{id:8,available:true}}]});
+  const w=await panel({linkedEventId:7});expect(w.findAll('article')).toHaveLength(1);expect(w.get('.poll-linked-event a').attributes('href')).toBe(privateUrl);expect(w.text()).not.toContain('Unrelated');
+});
 it('keeps optional result texts unchecked until requested and restores the choice after a rejected save', async () => {
   const w = await panel(); const input = w.get('.poll-text-preference input');
   expect(input.element.checked).toBe(false); expect(api.put).not.toHaveBeenCalled();

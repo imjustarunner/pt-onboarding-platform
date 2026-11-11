@@ -99,6 +99,7 @@ export function formatIcsDate(date) {
 }
 
 export function computeOccurrenceEnd(startsAtInput, endsAtInput, recurrenceInput) {
+  if (!startsAtInput || !endsAtInput) return null;
   const startsAt = startsAtInput instanceof Date ? startsAtInput : new Date(startsAtInput || 0);
   const endsAt = endsAtInput instanceof Date ? endsAtInput : new Date(endsAtInput || 0);
   if (!Number.isFinite(startsAt.getTime()) || !Number.isFinite(endsAt.getTime())) return null;
@@ -118,6 +119,7 @@ export function computeOccurrenceEnd(startsAtInput, endsAtInput, recurrenceInput
 }
 
 export function makeGoogleCalendarUrl(event) {
+  if (event?.dateToBeDecided || !(event?.startsAt || event?.starts_at) || !(event?.endsAt || event?.ends_at)) return null;
   const startsAt = new Date(event?.startsAt || event?.starts_at || 0);
   const endsAt = new Date(event?.endsAt || event?.ends_at || 0);
   if (!Number.isFinite(startsAt.getTime()) || !Number.isFinite(endsAt.getTime())) return null;
@@ -135,6 +137,7 @@ export function makeGoogleCalendarUrl(event) {
 }
 
 export function buildEventIcs(event) {
+  if (event?.dateToBeDecided || !(event?.startsAt || event?.starts_at) || !(event?.endsAt || event?.ends_at)) return null;
   const startsAt = new Date(event?.startsAt || event?.starts_at || 0);
   const endsAt = new Date(event?.endsAt || event?.ends_at || 0);
   if (!Number.isFinite(startsAt.getTime()) || !Number.isFinite(endsAt.getTime())) return null;
@@ -163,6 +166,7 @@ export function buildEventIcs(event) {
 }
 
 export function computeNextOccurrence(event, nowInput = new Date()) {
+  if (event?.dateToBeDecided || !(event?.startsAt || event?.starts_at) || !(event?.endsAt || event?.ends_at)) return null;
   const now = nowInput instanceof Date ? nowInput : new Date(nowInput);
   const startsAt = new Date(event?.startsAt || event?.starts_at || 0);
   const endsAt = new Date(event?.endsAt || event?.ends_at || 0);

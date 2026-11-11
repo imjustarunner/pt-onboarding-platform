@@ -2199,6 +2199,7 @@
         :load-items="loadOfficeToasts"
         :record-event="recordOfficeToastEvent"
       />
+      <CompanyEventAnnouncements v-if="isAuthenticated && !isFamilyPortalAccount && user?.id && !sessionLockStore.isLocked && !sessionLockStore.warningActive" :key="`event-updates-${user.id}`" :user-id="user.id" />
       <ActiveMeetingToasts v-if="isAuthenticated && !isFamilyPortalAccount && user?.id" :key="user.id" :user-id="user.id" />
       <TimeCapsuleRevealSplashModal v-if="isAuthenticated && hasCapability('canManageHiring')" />
       <ToolsAssignModal
@@ -2344,6 +2345,7 @@ import {
   isSessionRecordingEnabledForAgencyFlags
 } from './config/sessionRecordingAccess.js';
 import api from './services/api';
+import CompanyEventAnnouncements from './components/notifications/CompanyEventAnnouncements.vue';
 import AnnouncementToasts from './components/notifications/AnnouncementToasts.vue';
 import { loadStaffAnnouncementToasts } from './utils/staffAnnouncementToasts';
 import ActiveMeetingToasts from './components/meetings/ActiveMeetingToasts.vue';

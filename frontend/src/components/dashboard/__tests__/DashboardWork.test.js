@@ -1,11 +1,11 @@
 import {shallowMount,flushPromises} from '@vue/test-utils';
 import {beforeEach,describe,it,expect,vi} from 'vitest';
 import {reactive,ref} from 'vue';
-const mocks=vi.hoisted(()=>({push:vi.fn(),get:vi.fn(),user:{id:8,role:'provider'},queue:vi.fn()}));
+const mocks=vi.hoisted(()=>({push:vi.fn(),get:vi.fn(),user:{id:8,role:'provider'},queue:vi.fn(),invitedEvents:[]}));
 vi.mock('vue-router',()=>({useRoute:()=>({params:{organizationSlug:'agency'}}),useRouter:()=>({push:mocks.push})}));
 vi.mock('../../../store/auth',()=>({useAuthStore:()=>({user:mocks.user})}));
 vi.mock('../../../services/api',()=>({default:{get:mocks.get}}));
-vi.mock('../../../composables/useDashboardOverview',()=>({useDashboardOverview:()=>Object.fromEntries(Object.entries({loading:false,error:'',summary:{},todayScheduleItems:[],nextScheduleItem:null,notesStats:{},directIndirect:{},supervisionHours:{},payPeriod:{},paycheckCompare:null,upcomingEvents:[],featuredEvent:null,recentActivityItems:[],unreadCount:0,notesToSignCount:0,taskCount:0}).map(([k,v])=>[k,ref(v)]).concat([
+vi.mock('../../../composables/useDashboardOverview',()=>({useDashboardOverview:()=>Object.fromEntries(Object.entries({loading:false,error:'',summary:{},todayScheduleItems:[],nextScheduleItem:null,notesStats:{},directIndirect:{},supervisionHours:{},payPeriod:{},paycheckCompare:null,upcomingEvents:[],invitedCompanyEvents:mocks.invitedEvents,featuredEvent:null,recentActivityItems:[],unreadCount:0,notesToSignCount:0,taskCount:0}).map(([k,v])=>[k,ref(v)]).concat([
  ['sectionState',reactive({schedule:{loading:false,error:''},pay:{loading:false,error:''},activity:{loading:false,error:''},events:{loading:false,error:''}})],
  ['refresh',vi.fn()]
 ]))}));
@@ -65,4 +65,12 @@ it('closes dashboard customization with Escape or an outside click',async()=>{
  await trigger.trigger('click');
  document.body.dispatchEvent(new Event('pointerdown',{bubbles:true}));await flushPromises();
  expect(trigger.attributes('aria-expanded')).toBe('false');expect(w.find('.ov-card-editor').exists()).toBe(false);w.unmount();
+});
+
+
+it('passes all company invitations, including declined ones, to the dashboard Events card',async()=>{
+ mocks.invitedEvents=[{id:90,title:'Anniversary',isInvitedCompanyEvent:true,myRsvp:null},{id:91,title:'Declined dinner',isInvitedCompanyEvent:true,myRsvp:'no'}];
+ const w=shallowMount(Home,{global:{stubs:{DashboardOverviewSection:false},renderStubDefaultSlot:true},props:{agencyId:2}});await flushPromises();
+ expect(w.findComponent({name:'OverviewEventsCard'}).props('invitedEvents')).toEqual(mocks.invitedEvents);
+ w.unmount();mocks.invitedEvents=[];
 });

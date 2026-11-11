@@ -1,3 +1,4 @@
+import { openCompanyEventConversation } from '../controllers/companyEventConversation.controller.js';
 import { excludeSupportSettings } from '../middleware/supportContentAccess.middleware.js';
 import { updateDashboardIcon } from '../controllers/dashboardIcons.controller.js';
 import express from 'express';
@@ -690,6 +691,7 @@ router.post('/:id/company-events', authenticate, createCompanyEvent);
 router.put('/:id/company-events/:eventId', authenticate, updateCompanyEvent);
 router.delete('/:id/company-events/:eventId', authenticate, deleteCompanyEvent);
 router.post('/:id/company-events/:eventId/copy-to', authenticate, requireSuperAdmin, copyCompanyEventToTarget);
+router.post('/:id/company-events/:eventId/conversation', authenticate, openCompanyEventConversation);
 router.get('/:id/company-events/:eventId/responses', authenticate, listCompanyEventResponses);
 router.put('/:id/company-events/:eventId/responses/:responseId/review',authenticate,classifyCompanyEventResponse);
 router.get('/:id/company-events/:eventId/delivery-logs', authenticate, listCompanyEventDeliveryLogs);

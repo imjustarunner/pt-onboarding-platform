@@ -35,7 +35,7 @@
             </template>
             <p v-else class="poll-hint">{{ poll.shareResults === false ? 'The organizer has kept totals private. Your own vote is always visible here.' : 'The organizer will share totals after voting closes.' }}</p>
           </section>
-          <div v-if="poll.linkedEvent" class="poll-linked-event"><template v-if="poll.linkedEvent.available"><span class="poll-event-symbol" aria-hidden="true">▦</span><div><span class="poll-eyebrow">Linked event</span><strong>{{ poll.linkedEvent.title }}</strong><span>{{ moment(poll.linkedEvent.startsAt, poll.linkedEvent) }}</span></div><a :href="`/staff-events/${poll.linkedEvent.id}?agencyId=${poll.agencyId || agencyId}`">View event <span aria-hidden="true">↗</span></a></template><p v-else>Event details will appear here when available to you.</p></div>
+          <div v-if="poll.linkedEvent" class="poll-linked-event"><template v-if="poll.linkedEvent.available"><span class="poll-event-symbol" aria-hidden="true">▦</span><div><span class="poll-eyebrow">Linked event</span><strong>{{ poll.linkedEvent.title }}</strong><span>{{ moment(poll.linkedEvent.startsAt, poll.linkedEvent) }}</span></div><a :href="poll.linkedEvent.staffPageUrl || `/staff-events/${poll.linkedEvent.id}?agencyId=${poll.agencyId || agencyId}`">View event <span aria-hidden="true">↗</span></a></template><p v-else>Event details will appear here when available to you.</p></div>
           <div v-if="!isClosed(poll) && poll.shareResults !== false" class="poll-text-preference"><label><input type="checkbox" :checked="poll.resultsText" :disabled="busy" @change="setPreference(poll, $event)" /><span>Text me the final results</span></label><p class="poll-hint">Optional · Requires poll-text opt-in. Reply NOPOLLS to stop poll texts only.</p></div>
           <section v-if="poll.canManage" class="poll-owner-controls" aria-label="Poll owner controls">
             <span class="poll-eyebrow">Owner controls</span>
@@ -52,7 +52,7 @@
 import { CONVERSA_LOGO_URL } from '../../constants/conversa';
 import { ref, watch, computed, onMounted, onBeforeUnmount, getCurrentInstance, nextTick } from 'vue';
 import api from '../../services/api';
-const props = defineProps({ agencyId: { type: [Number, String], default: null }, pollId: { type: [Number, String], default: null } });
+const props = defineProps({ agencyId: { type: [Number, String], default: null }, pollId: { type: [Number, String], default: null }, linkedEventId: { type: [Number, String], default: null } });
 const panelId = `staff-polls-${getCurrentInstance().uid}`;
 const polls = ref([]), opened = ref(!!props.pollId), loading = ref(false), busy = ref(null), error = ref(''), notice = ref('');
 const showHistory = ref(false), choices = ref({}), otherReplies = ref({}), changing = ref({}), now = ref(Date.now());
@@ -105,7 +105,7 @@ async function load(quiet = false) {
     const { data } = await api.get('/me/staff-polls', { params: params(), skipGlobalLoading: true });
     if (scope !== context || id !== request) return;
     const previous = new Set(activePolls.value.map(p => p.id));
-    polls.value = Array.isArray(data) ? data : []; now.value = Date.now(); error.value = '';
+    polls.value = (Array.isArray(data) ? data : []).filter(p => !props.linkedEventId || Number(p.linkedEventId || p.linkedEvent?.id) === Number(props.linkedEventId)); now.value = Date.now(); error.value = '';
     if (props.pollId || activePolls.value.some(p => !previous.has(p.id))) opened.value = true;
     await nextTick(); if (scope === context) recordVisiblePolls();
   } catch (e) { if (scope === context && id === request) { error.value = e.response?.data?.error?.message || 'Unable to load staff polls.'; if (!polls.value.length) opened.value = true; } }
@@ -143,7 +143,7 @@ async function closeNow(poll) {
   catch (e) { if (scope === context) error.value = e.response?.data?.error?.message || 'Unable to close the poll.'; }
   finally { if (scope === context) busy.value = null; }
 }
-watch(() => [props.agencyId, props.pollId], () => { context++; request++; viewedRecently.clear(); pollHeaders.clear(); polls.value = []; opened.value = !!props.pollId; showHistory.value = false; choices.value = {}; closingTimes.value = {}; changing.value = {}; otherReplies.value = {}; busy.value = null; notice.value = ''; error.value = ''; load(); }, { immediate: true });
+watch(() => [props.agencyId, props.pollId, props.linkedEventId], () => { context++; request++; viewedRecently.clear(); pollHeaders.clear(); polls.value = []; opened.value = !!props.pollId; showHistory.value = false; choices.value = {}; closingTimes.value = {}; changing.value = {}; otherReplies.value = {}; busy.value = null; notice.value = ''; error.value = ''; load(); }, { immediate: true });
 onMounted(() => { if (typeof IntersectionObserver !== 'undefined') { viewObserver = new IntersectionObserver(recordVisiblePolls, { threshold: 0.5 }); for (const { element } of pollHeaders.values()) viewObserver.observe(element); } timer = setInterval(refresh, 30000); window.addEventListener('focus', refresh); document.addEventListener('visibilitychange', refresh); });
 onBeforeUnmount(() => { context++; request++; clearInterval(timer); viewObserver?.disconnect(); window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', refresh); });
 </script>

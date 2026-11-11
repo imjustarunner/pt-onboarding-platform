@@ -149,11 +149,13 @@
         class="ov-mid-events"
         :featured="featuredEvent"
         :events="upcomingEvents"
+        :invited-events="invitedCompanyEvents"
         :is-supervisor="isSupervisor"
         @navigate="navigate"
         @view-all="$emit('open-company-events')"
         @join="onJoinEvent"
         @request-changed="onEventsRequestChanged"
+        @invitation-changed="refresh('events')"
       />
       </DashboardOverviewSection>
 
@@ -303,7 +305,7 @@ function cardSummary(key) {
   if (section?.loading) return 'Loading…';
   if (section?.error) return 'Could not load';
   return { work: `${noteAidQueueCount.value} not started · ${noteAidInProgressCount.value} in progress`, schedule: `${todayScheduleItems.value.length} today`,
-    pay: payPeriod.value.tierLabel || 'Pay period', events: `${upcomingEvents.value.length} upcoming`, notes: `${notesStats.value.incomplete || 0} incomplete`,
+    pay: payPeriod.value.tierLabel || 'Pay period', events: `${upcomingEvents.value.length + invitedCompanyEvents.value.filter(event => event.myRsvp !== 'no').length} upcoming`, notes: `${notesStats.value.incomplete || 0} incomplete`,
     activity: `${recentActivityItems.value.length} updates`, actions: `${quickActions.value.length} shortcuts` }[key];
 }
 const enabledRef = toRef(props, 'enabled');
@@ -323,6 +325,7 @@ const {
   payPeriod,
   paycheckCompare,
   upcomingEvents,
+  invitedCompanyEvents,
   featuredEvent,
   recentActivityItems,
   unreadCount,

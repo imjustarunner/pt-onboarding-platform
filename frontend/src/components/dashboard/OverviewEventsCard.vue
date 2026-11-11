@@ -5,6 +5,8 @@
       <button type="button" class="ov-link" @click="$emit('view-all')">View All</button>
     </header>
 
+    <InvitedEventsPanel v-if="!loading && !error && invitedEvents.length" :events="invitedEvents" @changed="$emit('invitation-changed')" />
+
     <div v-if="requestError" class="ov-request-error" role="alert">{{ requestError }}</div>
 
     <DashboardCardStatus v-if="loading || error" :loading="loading" :error="error" label="Loading events…" @retry="$emit('retry')" />
@@ -45,7 +47,7 @@
         <span v-else-if="requestStatusLabel(featured)" class="ov-status-pill">{{ requestStatusLabel(featured) }}</span>
       </div>
     </div>
-    <div v-else class="ov-empty">No events coming up soon.</div>
+    <div v-else-if="!invitedEvents.length" class="ov-empty">No events coming up soon.</div>
 
     <ul v-if="!loading && !error && upcomingList.length" class="ov-event-list">
       <li v-for="ev in upcomingList" :key="ev.id" class="ov-event-row">
@@ -85,6 +87,7 @@
 </template>
 
 <script setup>
+import InvitedEventsPanel from './InvitedEventsPanel.vue';
 import HowToVideoButton from '../HowToVideoButton.vue';
 import DashboardCardStatus from './DashboardCardStatus.vue';
 import { computed, ref } from 'vue';
@@ -103,10 +106,11 @@ const props = defineProps({
   agencyId: { type: [Number, String], default: null },
   featured: { type: Object, default: null },
   events: { type: Array, default: () => [] },
+  invitedEvents: { type: Array, default: () => [] },
   isSupervisor: { type: Boolean, default: false }
 });
 
-const emit = defineEmits(['retry', 'navigate', 'view-all', 'join', 'request-changed']);
+const emit = defineEmits(['retry', 'navigate', 'view-all', 'join', 'request-changed', 'invitation-changed']);
 
 const supervisionTab = computed(() => (props.isSupervisor ? 'supervision' : 'my_supervision'));
 

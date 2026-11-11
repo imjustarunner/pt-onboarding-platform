@@ -1,5 +1,6 @@
 import pool from '../config/database.js';
 import { pollClosedAt, pollDeadline } from '../utils/staffPollPresentation.js';
+import { linkedCompanyEventId, linkedCompanyEventPollAudience } from './companyEventLinkedPolls.service.js';
 
 const configFor = row => typeof row.voting_config_json === 'string' ? JSON.parse(row.voting_config_json) : row.voting_config_json || {};
 const closedError = () => Object.assign(new Error('Voting has closed. Your previous response is unchanged.'), { status: 409, code: 'poll_closed' });
@@ -22,6 +23,9 @@ async function lockedPoll(eventId, agencyId, action, db) {
 export async function saveStaffPollVote({ eventId, agencyId, userId, response, source, fromNumber = null }, db = pool) {
   return lockedPoll(eventId, agencyId, async (row, conn) => {
     if (pollClosedAt(row)) throw closedError();
+    if (linkedCompanyEventId(row) && !(await linkedCompanyEventPollAudience({ poll: row, db: conn })).userIds.includes(Number(userId))) {
+      throw Object.assign(new Error('This vote is available only to the event’s current invited people.'), { status: 403 });
+    }
     await conn.execute(`INSERT INTO company_event_responses
       (company_event_id, user_id, response_key, response_label, response_body, source, from_number, received_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, UTC_TIMESTAMP())
