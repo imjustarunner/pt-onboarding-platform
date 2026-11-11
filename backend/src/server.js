@@ -26,6 +26,7 @@ import faxIntakeRoutes from './routes/faxIntake.routes.js';
 import clientReferralLinksRoutes from './routes/clientReferralLinks.routes.js';
 import {publicRouter as publicWebsiteChatRoutes,staffRouter as websiteChatStaffRoutes} from './routes/publicWebsiteChat.routes.js';
 import {redactPrivateBillingUrl} from './utils/sanitizeRequest.js';
+import { safeFamilySharingErrorDetails } from './utils/safeFamilySharingErrorDetails.js';
 import familyLedgerRoutes from './routes/familyLedger.routes.js';
 import portalMigrationRoutes from './routes/portalMigration.routes.js';
 import familyCostEstimatesRoutes from './routes/familyCostEstimates.routes.js';
@@ -1259,7 +1260,8 @@ app.use((err, req, res, next) => {
     });
   }
 
-  if (['ACTIVITY_REVIEW_REQUIRED','MFA_REQUIRED','MFA_FRESH_REQUIRED'].includes(err.code)) {
+  const familySharingDetails = safeFamilySharingErrorDetails(err);
+  if (familySharingDetails.code || ['ACTIVITY_REVIEW_REQUIRED','MFA_REQUIRED','MFA_FRESH_REQUIRED'].includes(err.code)) {
     res.removeHeader('Content-Disposition');
     res.removeHeader('Content-Type');
     res.setHeader('Cache-Control', 'no-store');
@@ -1267,6 +1269,7 @@ app.use((err, req, res, next) => {
   res.status(err.status || 500).json({
     error: {
       message: err.message || 'Internal server error',
+      ...familySharingDetails,
       ...(err.code === 'PROVIDER_TIME_CONFLICT' ? { code: err.code, overridable: !!err.overridable } : {}),
       ...(err.code === 'PAYMENT_SETUP_REVIEW_REQUIRED' ? { code: err.code } : {}),
       ...(err.code === 'INSURANCE_VERIFICATION_REQUIRED' ? { code: err.code, clientId: Number(err.details?.clientId), agencyId: Number(err.details?.agencyId) } : {}),
