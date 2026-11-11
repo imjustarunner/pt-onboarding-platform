@@ -32,9 +32,9 @@ describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('isolated MySQL device sessi
       CREATE TABLE agencies(id INT PRIMARY KEY,name VARCHAR(50),portal_url VARCHAR(50),is_active BOOLEAN DEFAULT 1,is_archived BOOLEAN DEFAULT 0);
       CREATE TABLE user_agencies(user_id INT,agency_id INT,is_active BOOLEAN DEFAULT 1);
       CREATE TABLE quick_view_sessions(id INT PRIMARY KEY AUTO_INCREMENT,user_id INT,agency_id INT,session_token_hash VARCHAR(64),credential_token_version INT DEFAULT 0,expires_at DATETIME,revoked_at DATETIME);
-      CREATE TABLE chat_threads(id INT PRIMARY KEY,agency_id INT);
-      CREATE TABLE chat_messages(id INT PRIMARY KEY AUTO_INCREMENT,thread_id INT,sender_user_id INT);
-      CREATE TABLE chat_thread_participants(thread_id INT,user_id INT);
+      CREATE TABLE chat_threads(id INT PRIMARY KEY,agency_id INT,message_channel VARCHAR(20) NOT NULL DEFAULT 'internal');
+      CREATE TABLE chat_messages(id INT PRIMARY KEY AUTO_INCREMENT,thread_id INT,sender_user_id INT,parent_message_id INT NULL,created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
+      CREATE TABLE chat_thread_participants(thread_id INT,user_id INT,created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
       CREATE TABLE chat_message_deletes(message_id INT,user_id INT);
       CREATE TABLE notifications(id INT PRIMARY KEY,user_id INT,related_entity_type VARCHAR(40),related_entity_id INT,muted_until DATETIME);
       CREATE TABLE notification_user_reads(notification_id INT,user_id INT,muted_until DATETIME);
@@ -48,6 +48,9 @@ describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('isolated MySQL device sessi
     await db.query(migration);
     await db.query(await readFile(new URL('../../../../../database/migrations/1768_mobile_optional_app_lock.sql',import.meta.url),'utf8'));
     await db.query(await readFile(new URL('../../../../../database/migrations/1778_mobile_primary_authentication_context.sql',import.meta.url),'utf8'));
+    const secureBoundary=await readFile(new URL('../../../../../database/migrations/1556_secure_message_boundaries.sql',import.meta.url),'utf8');
+    await db.query(secureBoundary.slice(secureBoundary.indexOf('CREATE TABLE client_secure_message_records')));
+    await db.query(await readFile(new URL('../../../../../database/migrations/1794_family_shared_conversations.sql',import.meta.url),'utf8'));
   });
   afterAll(async()=>{await db?.end();if(admin){await admin.query(`DROP DATABASE ${name}`);await admin.end();}});
   beforeEach(async()=>{
@@ -150,7 +153,7 @@ describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('isolated MySQL device sessi
   });
   it('includes authorized secondary workspaces and skips explicit chat mutes',async()=>{
     const {deviceToken}=await enroll();await service.setCode(deviceToken,'123456');
-    await db.query('INSERT INTO user_agencies VALUES(1,20,1);INSERT INTO chat_threads VALUES(2,20);INSERT INTO chat_thread_participants VALUES(2,1);INSERT INTO chat_messages(thread_id,sender_user_id)VALUES(2,2)');
+    await db.query('INSERT INTO user_agencies VALUES(1,20,1);INSERT INTO chat_threads(id,agency_id) VALUES(2,20);INSERT INTO chat_thread_participants(thread_id,user_id) VALUES(2,1);INSERT INTO chat_messages(thread_id,sender_user_id)VALUES(2,2)');
     const worker=createMobilePushWorker({db,sessions:service,refreshSecure:async()=>{}}),device=(await service.device(deviceToken)).device;
     expect(await worker.permitted(device,'chat',1)).toBe(2);
     await db.query("INSERT INTO notifications VALUES(1,1,'chat_thread',2,DATE_ADD(NOW(),INTERVAL 1 HOUR))");
@@ -161,7 +164,7 @@ describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('isolated MySQL device sessi
   it('queues every chat/reply, email and SMS once and rechecks recipient permissions before delivery',async()=>{
     const {deviceToken,deviceId}=await enroll();await service.setCode(deviceToken,'123456');
     await db.execute('UPDATE mobile_device_sessions SET push_enabled=1,chat_cursor=0,email_cursor=0,sms_cursor=0 WHERE id=?',[deviceId]);
-    await db.query(`INSERT INTO chat_threads VALUES(1,10),(2,20);INSERT INTO chat_thread_participants VALUES(1,1),(2,1);
+    await db.query(`INSERT INTO chat_threads(id,agency_id) VALUES(1,10),(2,20);INSERT INTO chat_thread_participants(thread_id,user_id) VALUES(1,1),(2,1);
       INSERT INTO chat_messages(thread_id,sender_user_id)VALUES(1,2),(1,2),(1,1),(2,2);
       INSERT INTO communication_conversations VALUES(1,10),(2,20);INSERT INTO communication_messages(conversation_id,channel,direction)VALUES(1,'email','inbound'),(1,'email','outbound'),(2,'email','inbound');
       INSERT INTO message_logs(agency_id,user_id,direction)VALUES(10,1,'INBOUND'),(10,2,'INBOUND'),(20,1,'INBOUND');`);

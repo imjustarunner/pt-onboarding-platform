@@ -1,3 +1,4 @@
+import { familyMessageVisibilitySql, assertCanReadFamilySecureMessage, describeFamilySecureThread } from '../services/familySecureMessageAccess.service.js';
 import {listMobileAgencies} from '../services/mobile/agencyScope.service.js';
 import {requireMobileThreadMembership} from '../services/mobile/conversa.service.js';
 import {mobileQaAgencyId,mobileQaScopeError} from '../services/mobile/qaConversaScope.service.js';
@@ -184,15 +185,15 @@ async function loadMentionsForMessages(messageIds) {
   return out;
 }
 
-async function loadReplyCountsForRoots(rootIds) {
+async function loadReplyCountsForRoots(rootIds, viewerUserId) {
   const out = new Map();
   if (!rootIds.length) return out;
   if (!(await hasParentMessageColumn())) return out;
   const placeholders = rootIds.map(() => '?').join(',');
   const [rows] = await pool.execute(
     `SELECT parent_message_id AS root_id, COUNT(*) AS c
-       FROM chat_messages
-      WHERE parent_message_id IN (${placeholders})
+       FROM chat_messages m
+      WHERE parent_message_id IN (${placeholders}) AND ${familyMessageVisibilitySql(viewerUserId)}
       GROUP BY parent_message_id`,
     rootIds
   );
@@ -411,11 +412,11 @@ export async function findExistingDirectThreadBetweenUsers(
             t.agency_id,
             t.organization_id,
             t.updated_at,
-            (SELECT MAX(m.created_at) FROM chat_messages m WHERE m.thread_id = t.id) AS last_message_at,
+            (SELECT MAX(m.created_at) FROM chat_messages m WHERE m.thread_id = t.id AND ${familyMessageVisibilitySql(me)}) AS last_message_at,
             (
               SELECT COUNT(*) FROM chat_messages m2
               LEFT JOIN chat_thread_reads r ON r.thread_id = t.id AND r.user_id = ?
-              WHERE m2.thread_id = t.id
+              WHERE m2.thread_id = t.id AND ${familyMessageVisibilitySql(me, 'm2')}
                 AND m2.sender_user_id <> ?
                 AND (r.last_read_message_id IS NULL OR m2.id > r.last_read_message_id)
                 AND NOT EXISTS (
@@ -936,12 +937,12 @@ export const listMyThreads = async (req, res, next) => {
               lm.sender_user_id AS last_message_sender_user_id,
               ${attachmentCountSql} AS last_message_attachment_count,
               r.last_read_message_id,
-              EXISTS(SELECT 1 FROM chat_messages sent WHERE sent.thread_id=t.id AND sent.sender_user_id=${Number(userId)} AND (td.deleted_at IS NULL OR sent.created_at>td.deleted_at) AND NOT EXISTS(SELECT 1 FROM chat_message_deletes hidden WHERE hidden.message_id=sent.id AND hidden.user_id=${Number(userId)})) AS has_sent,
+              EXISTS(SELECT 1 FROM chat_messages sent WHERE sent.thread_id=t.id AND ${familyMessageVisibilitySql(userId, 'sent')} AND sent.sender_user_id=${Number(userId)} AND (td.deleted_at IS NULL OR sent.created_at>td.deleted_at) AND NOT EXISTS(SELECT 1 FROM chat_message_deletes hidden WHERE hidden.message_id=sent.id AND hidden.user_id=${Number(userId)})) AS has_sent,
               td.deleted_at AS thread_deleted_at,
               (
                 SELECT COUNT(*)
                 FROM chat_messages m2
-                WHERE m2.thread_id = t.id
+                WHERE m2.thread_id = t.id AND ${familyMessageVisibilitySql(userId, 'm2')}
                   AND (r.last_read_message_id IS NULL OR m2.id > r.last_read_message_id)
                   AND m2.sender_user_id <> ?
                   ${req.quickView?.mobileDeviceSessionId ? `AND NOT EXISTS(SELECT 1 FROM chat_message_views seen WHERE seen.message_id=m2.id AND seen.user_id=${Number(userId)})` : ''}
@@ -959,7 +960,7 @@ export const listMyThreads = async (req, res, next) => {
          SELECT m.id
          FROM chat_messages m
          LEFT JOIN chat_message_deletes d ON d.message_id = m.id AND d.user_id = ?
-         WHERE m.thread_id = t.id AND d.message_id IS NULL
+         WHERE m.thread_id = t.id AND d.message_id IS NULL AND ${familyMessageVisibilitySql(userId)}
          ORDER BY m.id DESC
          LIMIT 1
        )
@@ -974,7 +975,7 @@ export const listMyThreads = async (req, res, next) => {
 
     const visibleRows = [];
     for (const row of rows || []) {
-      try { if (row.client_id || row.personal_portal) await refreshClientSecureAccess(row.thread_id, userId); visibleRows.push(row); }
+      try { if (row.client_id || row.personal_portal || row.thread_type === 'client_secure' || row.message_channel === 'secure') await refreshClientSecureAccess(row.thread_id, userId); visibleRows.push(row); }
       catch (e) { if (![403, 404].includes(e.status)) throw e; }
     }
 
@@ -1370,6 +1371,7 @@ export const listMessages = async (req, res, next) => {
     const sqlParams = [req.user.id, threadId];
     if (hasParentCol) {
       if (Number.isFinite(parentMessageIdQ) && parentMessageIdQ > 0) {
+        await assertCanReadFamilySecureMessage({userId:req.user.id,messageId:parentMessageIdQ,threadId});
         parentClause = 'AND m.parent_message_id = ?';
         sqlParams.push(parentMessageIdQ);
       } else {
@@ -1388,7 +1390,7 @@ export const listMessages = async (req, res, next) => {
        JOIN users u ON u.id = m.sender_user_id
        LEFT JOIN chat_message_deletes d ON d.message_id = m.id AND d.user_id = ?
        WHERE m.thread_id = ?
-         AND d.message_id IS NULL
+         AND d.message_id IS NULL AND ${familyMessageVisibilitySql(req.user.id)}
          ${parentClause}
        ORDER BY m.id DESC
        LIMIT ${limit}`,
@@ -1397,7 +1399,7 @@ export const listMessages = async (req, res, next) => {
     const ordered = (rows || []).reverse();
     if(req.quickView?.mobileDeviceSessionId && parentMessageIdQ){
       const [parents]=await pool.execute(`SELECT m.id,m.thread_id,m.sender_user_id,m.body${encCols}${parentCol},m.created_at,u.first_name AS sender_first_name,u.last_name AS sender_last_name,u.profile_photo_path AS sender_profile_photo_path
-        FROM chat_messages m JOIN users u ON u.id=m.sender_user_id WHERE m.id=? AND m.thread_id=? AND m.parent_message_id IS NULL AND NOT EXISTS(SELECT 1 FROM chat_message_deletes d WHERE d.message_id=m.id AND d.user_id=?)`,[parentMessageIdQ,threadId,req.user.id]);
+        FROM chat_messages m JOIN users u ON u.id=m.sender_user_id WHERE m.id=? AND m.thread_id=? AND m.parent_message_id IS NULL AND ${familyMessageVisibilitySql(req.user.id)} AND NOT EXISTS(SELECT 1 FROM chat_message_deletes d WHERE d.message_id=m.id AND d.user_id=?)`,[parentMessageIdQ,threadId,req.user.id]);
       if(!parents.length)return res.status(404).json({error:{message:'The original message is unavailable.'}});
       ordered.unshift(parents[0]);
     }
@@ -1409,14 +1411,14 @@ export const listMessages = async (req, res, next) => {
         loadReactionsForMessages(messageIds, me),
         loadMentionsForMessages(messageIds),
         // Reply counts only meaningful for root timeline
-        !parentMessageIdQ ? loadReplyCountsForRoots(messageIds) : Promise.resolve(new Map()),
+        !parentMessageIdQ ? loadReplyCountsForRoots(messageIds, me) : Promise.resolve(new Map()),
         loadViewedMessageIds(messageIds, me)
       ]);
     const latestReplies=new Map();
     if(req.quickView?.mobileDeviceSessionId && !parentMessageIdQ && messageIds.length && hasParentCol){
       const [previews]=await pool.execute(`SELECT m.id,m.parent_message_id,m.body${encCols},m.sender_user_id,m.created_at,u.first_name AS sender_first_name,u.last_name AS sender_last_name,u.profile_photo_path AS sender_profile_photo_path
-        FROM chat_messages m JOIN users u ON u.id=m.sender_user_id WHERE m.parent_message_id IN(${messageIds.map(()=>'?').join(',')})
-        AND m.id=(SELECT MAX(latest.id) FROM chat_messages latest WHERE latest.parent_message_id=m.parent_message_id AND NOT EXISTS(SELECT 1 FROM chat_message_deletes d WHERE d.message_id=latest.id AND d.user_id=?))`,[...messageIds,me]);
+        FROM chat_messages m JOIN users u ON u.id=m.sender_user_id WHERE ${familyMessageVisibilitySql(me)} AND m.parent_message_id IN(${messageIds.map(()=>'?').join(',')})
+        AND m.id=(SELECT MAX(latest.id) FROM chat_messages latest WHERE latest.parent_message_id=m.parent_message_id AND ${familyMessageVisibilitySql(me, 'latest')} AND NOT EXISTS(SELECT 1 FROM chat_message_deletes d WHERE d.message_id=latest.id AND d.user_id=?))`,[...messageIds,me]);
       for(const reply of previews){let body=reply.body;if(!body && reply.body_ciphertext)try{body=decryptChatText({ciphertextB64:reply.body_ciphertext,ivB64:reply.body_iv,authTagB64:reply.body_auth_tag,keyId:reply.encryption_key_id || null});}catch{body='Message unavailable';}
         latestReplies.set(Number(reply.parent_message_id),{id:reply.id,body:body || '',sender_user_id:reply.sender_user_id,sender_first_name:reply.sender_first_name,sender_last_name:reply.sender_last_name,created_at:reply.created_at});}
     }
@@ -1460,7 +1462,7 @@ export const listMessages = async (req, res, next) => {
       : enriched;
     const result=visible.map((message)=>({...message,message_channel:messageChannel}));
     if(req.quickView?.mobileDeviceSessionId){
-      const [[first]]=await pool.execute(`SELECT COALESCE(m.parent_message_id,m.id) AS id FROM chat_messages m LEFT JOIN chat_thread_reads r ON r.thread_id=m.thread_id AND r.user_id=? WHERE m.thread_id=? AND m.sender_user_id<>? AND (r.last_read_message_id IS NULL OR m.id>r.last_read_message_id)
+      const [[first]]=await pool.execute(`SELECT COALESCE(m.parent_message_id,m.id) AS id FROM chat_messages m LEFT JOIN chat_thread_reads r ON r.thread_id=m.thread_id AND r.user_id=? WHERE m.thread_id=? AND ${familyMessageVisibilitySql(me)} AND m.sender_user_id<>? AND (r.last_read_message_id IS NULL OR m.id>r.last_read_message_id)
         AND NOT EXISTS(SELECT 1 FROM chat_message_deletes d WHERE d.message_id=m.id AND d.user_id=?) AND NOT EXISTS(SELECT 1 FROM chat_message_views v WHERE v.message_id=m.id AND v.user_id=?) ORDER BY m.id LIMIT 1`,[me,threadId,me,me,me]);
       return res.json({messages:result,hasOlder:rows.length===limit,firstUnreadId:first?.id || null});
     }
@@ -1484,7 +1486,7 @@ export const sendMessage = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'body or attachments required' } });
     }
     const { assertSharedGuardianSend } = await import('../services/guardianSharedMessages.service.js');
-    await assertSharedGuardianSend(req.user.id, threadId);
+    await assertSharedGuardianSend(req.user.id, threadId,{expectedRecipientUserIds:req.body?.expectedRecipientUserIds});
     await assertThreadAccess(req.user.id, threadId,{requireActiveAgency:!!req.quickView?.mobileDeviceSessionId});
     const { assertManagedChatPost } = await import('../services/managedWorkspaceGroupAccess.service.js');
     await assertManagedChatPost(threadId, req.user.id);
@@ -1532,6 +1534,8 @@ export const sendMessage = async (req, res, next) => {
         threadId,
         req.body?.parentMessageId ?? req.body?.parent_message_id
       );
+      const {assertCanReadFamilySecureMessage}=await import('../services/familySecureMessageAccess.service.js');
+      if(rootParentId)await assertCanReadFamilySecureMessage({userId:req.user.id,messageId:rootParentId});
     }
 
     let topicId = req.body?.topicId || null;
@@ -1607,6 +1611,11 @@ export const sendMessage = async (req, res, next) => {
     const messageDb = isSecureMessage ? await pool.getConnection() : pool;
     try {
       if (isSecureMessage) await messageDb.beginTransaction();
+      if(isSecureMessage){
+        const {familySharedConversations,assertReviewedFamilyRecipients}=await import('../services/familySharedConversations.service.js');
+        const shared=await familySharedConversations.requireAccess(req.user.id,threadId,{forSend:true,db:messageDb});
+        if(shared){assertReviewedFamilyRecipients({shared,userId:req.user.id,expectedRecipientUserIds:req.body?.expectedRecipientUserIds});const {requireSharedFamilyAck}=await import('../services/sharedFamilyNotice.service.js');await requireSharedFamilyAck({userId:req.user.id,agencyId:shared.agencyId},messageDb);}
+      }
       const [ins] = await messageDb.execute(`INSERT INTO chat_messages (${columns.join(', ')}) VALUES (${values.map(() => '?').join(', ')})`, values);
       insertedMessageId = Number(ins.insertId);
       const subjectRaw = String(req.body?.subject || '').trim();
@@ -1978,6 +1987,7 @@ export const unsendMessage = async (req, res, next) => {
     const [secureThread] = await pool.execute('SELECT message_channel FROM chat_threads WHERE id = ?', [threadId]);
     if (secureThread[0]?.message_channel === 'secure') return res.status(409).json({ error: { message: 'Sent secure messages are retained in the record. Send a correction or hide the message from your inbox.' } });
 
+    await assertCanReadFamilySecureMessage({userId:req.user.id,messageId,threadId});
     const hasEncCols = await hasChatMessageEncryptionColumns();
     const encCols = hasEncCols ? ', body_ciphertext, body_iv, body_auth_tag, encryption_key_id' : '';
     const [[msg]] = await pool.execute(
@@ -2074,6 +2084,7 @@ export const deleteForMe = async (req, res, next) => {
     }
     await assertThreadAccess(req.user.id, threadId,{requireActiveAgency:!!req.quickView?.mobileDeviceSessionId});
 
+    await assertCanReadFamilySecureMessage({userId:req.user.id,messageId,threadId});
     const hasEncCols = await hasChatMessageEncryptionColumns();
     const encCols = hasEncCols ? ', body_ciphertext, body_iv, body_auth_tag, encryption_key_id' : '';
     const [[msg]] = await pool.execute(
@@ -2157,8 +2168,8 @@ export const bulkDeleteForMe = async (req, res, next) => {
     const placeholders = messageIds.map(() => '?').join(',');
     const [rows] = await pool.execute(
       `SELECT id
-       FROM chat_messages
-       WHERE thread_id = ? AND id IN (${placeholders})`,
+       FROM chat_messages m
+       WHERE thread_id = ? AND ${familyMessageVisibilitySql(req.user.id)} AND id IN (${placeholders})`,
       [threadId, ...messageIds]
     );
     const validIds = (rows || []).map((r) => Number(r.id)).filter(Boolean);
@@ -2205,12 +2216,13 @@ export const markRead = async (req, res, next) => {
 
     if (!lastReadMessageId) {
       const [rows] = await pool.execute(
-        `SELECT MAX(id) AS max_id FROM chat_messages WHERE thread_id = ?`,
+        `SELECT MAX(m.id) AS max_id FROM chat_messages m WHERE thread_id = ? AND ${familyMessageVisibilitySql(req.user.id)}`,
         [threadId]
       );
       lastReadMessageId = Number(rows[0]?.max_id || 0);
     }
     if (!lastReadMessageId) return res.json({ ok: true });
+    await assertCanReadFamilySecureMessage({userId:req.user.id,messageId:lastReadMessageId,threadId});
 
     await pool.execute(
       `INSERT INTO chat_thread_reads (thread_id, user_id, last_read_message_id, last_read_at)
@@ -2235,8 +2247,8 @@ export const markUnread = async (req, res, next) => {
     await assertThreadAccess(req.user.id, threadId,{requireActiveAgency:!!req.quickView?.mobileDeviceSessionId});
     const [rows] = await pool.execute(
       `SELECT MAX(id) AS last_inbound
-       FROM chat_messages
-       WHERE thread_id = ?
+       FROM chat_messages m
+       WHERE thread_id = ? AND ${familyMessageVisibilitySql(req.user.id)}
          AND sender_user_id <> ?`,
       [threadId, req.user.id]
     );
@@ -2313,7 +2325,8 @@ export const getThreadMeta = async (req, res, next) => {
       message_channel: t.message_channel, client_id: t.client_id || null,
       thread_name: t.thread_name || null,
       company_event_id: t.company_event_id || null,
-      event_title: eventTitle
+      event_title: eventTitle,
+      ...await describeFamilySecureThread(req.user.id,threadId)
     });
   } catch (e) {
     next(e);
@@ -2453,6 +2466,7 @@ export const bookmarkMessage = async (req, res, next) => {
     );
     if (!msg) return res.status(404).json({ error: { message: 'Message not found' } });
     await assertThreadAccess(req.user.id, msg.thread_id);
+    await assertCanReadFamilySecureMessage({userId:req.user.id,messageId,threadId:msg.thread_id});
     await pool.execute(
       `INSERT INTO chat_message_bookmarks (user_id, message_id)
        VALUES (?, ?)
@@ -2540,6 +2554,7 @@ export const pinMessage = async (req, res, next) => {
     );
     if (!msg) return res.status(404).json({ error: { message: 'Message not found' } });
     await assertThreadAccess(req.user.id, msg.thread_id);
+    await assertCanReadFamilySecureMessage({userId:req.user.id,messageId,threadId:msg.thread_id});
     await pool.execute(
       `INSERT INTO chat_thread_pins (thread_id, message_id, pinned_by_user_id)
        VALUES (?, ?, ?)
@@ -2566,6 +2581,7 @@ export const unpinMessage = async (req, res, next) => {
     );
     if (!msg) return res.status(404).json({ error: { message: 'Message not found' } });
     await assertThreadAccess(req.user.id, msg.thread_id);
+    await assertCanReadFamilySecureMessage({userId:req.user.id,messageId,threadId:msg.thread_id});
     await pool.execute(
       `DELETE FROM chat_thread_pins WHERE thread_id = ? AND message_id = ?`,
       [msg.thread_id, messageId]

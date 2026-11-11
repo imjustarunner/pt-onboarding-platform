@@ -1,3 +1,4 @@
+import { canReadFamilySecureMessage } from '../services/familySecureMessageAccess.service.js';
 import pool from '../config/database.js';
 
 /**
@@ -19,16 +20,7 @@ const VALID_EMOJI = new Set([
 const isIconRef = (v) => /^icon:\d+$/.test(String(v || ''));
 
 async function assertCallerInThreadForMessage(userId, messageId) {
-  const [rows] = await pool.execute(
-    `SELECT 1
-       FROM chat_messages m
-       INNER JOIN chat_thread_participants tp
-         ON tp.thread_id = m.thread_id AND tp.user_id = ?
-      WHERE m.id = ?
-      LIMIT 1`,
-    [userId, messageId]
-  );
-  return rows?.length > 0;
+  return canReadFamilySecureMessage({userId,messageId});
 }
 
 export const addReaction = async (req, res, next) => {

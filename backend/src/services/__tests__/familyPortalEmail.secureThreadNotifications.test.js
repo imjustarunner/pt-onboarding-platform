@@ -7,14 +7,17 @@ import {notifySecureThreadParticipants} from '../secureThreadNotifications.servi
 const input={agencyId:450,threadId:20,clientId:2277,senderUserId:1459,messageId:77};
 let d;
 beforeEach(()=>{
- d={refresh:vi.fn(),database:{execute:vi.fn(async()=>[[{id:1460,email:'parent-b@example.test'},{id:1433,email:'provider@example.test'}]])},send:vi.fn(async()=>({sent:true})),audit:vi.fn()};
+ d={refresh:vi.fn(),sharedAccess:vi.fn(async()=>({audienceUserIds:[1459,1460,1433]})),database:{execute:vi.fn(async()=>[[{id:1460,email:'parent-b@example.test'},{id:1433,email:'provider@example.test'}]])},send:vi.fn(async()=>({sent:true})),audit:vi.fn()};
 });
 it('notifies the other parent and care team after a parent posts, without notifying the sender',async()=>{
  await notifySecureThreadParticipants(input,d);
  expect(d.refresh).toHaveBeenCalledWith(20,1459);
  expect(d.send.mock.calls.map(([v])=>v.recipientUserId)).toEqual([1460,1433]);
  expect(d.send.mock.calls.every(([v])=>v.messageId===77&&v.chatThreadId===20&&v.clientId===2277)).toBe(true);
- expect(d.database.execute).toHaveBeenCalledWith(expect.stringContaining("t.message_channel = 'secure'"),[20,450,2277,1459]);
+ expect(d.database.execute).toHaveBeenCalledWith(expect.stringContaining("t.message_channel = 'secure'"),[20,450,2277,2277,1459]);
+});
+it('ignores stale thread members outside the current immutable authorized audience',async()=>{
+ d.sharedAccess.mockResolvedValue({audienceUserIds:[1433]});await notifySecureThreadParticipants(input,d);expect(d.send.mock.calls.map(([v])=>v.recipientUserId)).toEqual([1433]);
 });
 it('also notifies the first parent when the second parent posts',async()=>{
  d.database.execute.mockResolvedValue([[{id:1459,email:'parent-a@example.test'},{id:1460,email:'parent-b@example.test'}]]);

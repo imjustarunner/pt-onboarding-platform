@@ -21,6 +21,16 @@ import { eligibleClientAfterHoursReply, eligibleVacationReply } from '../afterHo
 import { priorityEventEmailRecipient, savePriorityEventInboxCopy, PRIORITY_EVENT_EMAILS } from '../priorityEventEmail.service.js';
 import { protectOutboundEmail } from '../activityProtection.service.js';
 import { assertMessageReminderRecipient } from '../messageReminderRecipient.service.js';
+async function guardSessionCommentNotice(input) {
+  if (!String(input.templateType || '').startsWith('secure_session_comment_notice:')) return;
+  const { assertSessionCommentEmailRecipient } = await import('../secureSessionCommentNotifications.service.js');
+  await assertSessionCommentEmailRecipient(input);
+}
+async function finishSessionCommentNotice(input) {
+  if (!String(input.templateType || '').startsWith('secure_session_comment_notice:')) return;
+  const { recordSessionCommentEmailTransport } = await import('../secureSessionCommentNotifications.service.js');
+  await recordSessionCommentEmailTransport(input);
+}
 import { randomUUID } from 'node:crypto';
 import { getGmailClient, getImpersonatedUser } from './gmailClient.js';
 import { base64UrlEncode, buildMimeMessage } from './mime.js';
@@ -631,6 +641,7 @@ export async function sendNotificationEmail({
   const eventDelivery = await priorityEventEmailRecipient({agencyId,userId,templateType:templateType || triggerKey,to,subject});
   to=eventDelivery.to; subject=eventDelivery.subject;
   await assertMessageReminderRecipient({ templateType, userId, agencyId, to });
+  await guardSessionCommentNotice({ templateType, userId, agencyId, to });
   await managedGroupEnvelope({ to, actorUserId: generatedByUserId });
   const emailGate = await canSendEmail({ source, agencyId });
   const gate = emailGate.allowed ? await routineParentEmailGate({source,agencyId,to,templateType:templateType || triggerKey,clientId}) : emailGate;
@@ -925,6 +936,7 @@ export async function sendNotificationEmail({
   try {
     await protectOutboundEmail({ ...groupEnvelope, actorUserId: generatedByUserId });
     await assertVerifiedGmailSender(gmail, identity.from_email);
+    await guardSessionCommentNotice({ templateType, userId, agencyId, to, communicationId:comm?.id || null, claim:true });
     result = await deliverWorkspaceMime({ gmail, fromEmail: identity.from_email, requestBody: { raw }, communicationId: comm?.id });
   } catch (sendErr) {
     if (comm?.id) {
@@ -950,6 +962,7 @@ export async function sendNotificationEmail({
   }
 
   const messageId = result.data?.id || null;
+  await finishSessionCommentNotice({ templateType, communicationId:comm?.id || null, accepted:!!messageId, redirected:!!redirected.redirected });
   const threadId = result.data?.threadId || null;
 
   if (comm?.id && messageId) {
@@ -1045,6 +1058,7 @@ export async function sendEmailFromIdentity({
   await managedGroupEnvelope({ to, cc, bcc, actorUserId: generatedByUserId });
   const identity = await EmailSenderIdentity.findById(senderIdentityId);
   if (!identity) throw new Error('Sender identity not found');
+  await guardSessionCommentNotice({ templateType, userId, agencyId:identity.agency_id, to, cc, bcc, communicationId:existingCommunicationId });
   await assertPeopleOperationsSubmissionRecipient({templateType,agencyId:identity.agency_id,senderIdentityId:identity.id,to,cc,bcc,existingCommunicationId});
   const operational=await reviewedDayCancellationContext({agencyId:identity.agency_id,clientId,to,cc,bcc,templateType,
     reviewedCancellationToken,reviewedCancellationItemKey,existingCommunicationId,generatedByUserId},{verifyEnvelope:true})
@@ -1442,6 +1456,7 @@ export async function sendEmailFromIdentity({
   try {
     await protectOutboundEmail({ ...groupEnvelope, actorUserId: generatedByUserId });
     await assertVerifiedGmailSender(gmail, identity.from_email);
+    await guardSessionCommentNotice({ templateType, userId, agencyId:identity.agency_id, to, cc, bcc, communicationId:comm?.id || null, claim:true });
     result = await deliverWorkspaceMime({ gmail, fromEmail: identity.from_email, requestBody, communicationId: comm?.id });
   } catch (sendErr) {
     const agencyIdForFail = identity?.agency_id || null;
@@ -1470,6 +1485,7 @@ export async function sendEmailFromIdentity({
 
   const messageId = result.data?.id || null;
   const finalThreadId = result.data?.threadId || threadId || null;
+  await finishSessionCommentNotice({ templateType, communicationId:comm?.id || null, accepted:!!messageId, redirected:!!redirected.redirected });
   if (result.data?.relay?.messageId) internetMessageId = result.data.relay.messageId;
   // Gmail may replace the supplied RFC Message-ID for a send-as alias. Persist
   // the delivered header so replies can be matched to the original app thread.

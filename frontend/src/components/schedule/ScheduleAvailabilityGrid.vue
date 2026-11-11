@@ -1124,10 +1124,7 @@
               fallCheckinEventClass(item)
             ]"
             :style="agendaItemStyle(item)"
-            role="button"
-            tabindex="0"
             @click="item.allDay ? openAllDayBlock($event, item, agendaDayName) : onCellBlockClick($event, item, agendaDayName, item.hour, item.cellMinute || 0)"
-            @keydown.enter="item.allDay ? openAllDayBlock($event, item, agendaDayName) : onCellBlockClick($event, item, agendaDayName, item.hour, item.cellMinute || 0)"
           >
             <div class="sched-agenda__time">{{ item.timeLabel }}</div>
             <div class="sched-agenda__body">
@@ -1139,7 +1136,8 @@
                   alt=""
                 />
                 <span v-if="staffAlertForBlock(item)" class="cell-staff-alert cell-staff-alert--inline" role="img" :aria-label="staffAlertFaceLabel(item)" :title="staffAlertFaceLabel(item)">⚑</span>
-                <div class="sched-agenda__title">
+                <SecureSessionCommentButton v-if="item.appointmentId && canUseSessionComments(authStore.user?.role)" icon-only :appointment-id="item.appointmentId" :client-id="parseClientIdFromScheduleEvent(item)" />
+                <button type="button" class="sched-agenda__title sched-agenda__open" @click.stop="item.allDay ? openAllDayBlock($event, item, agendaDayName) : onCellBlockClick($event, item, agendaDayName, item.hour, item.cellMinute || 0)">
                   <span
                     v-if="item.confirmationState === 'confirmed'"
                     class="cell-block-confirm-chip cell-block-confirm-chip--ok"
@@ -1149,7 +1147,7 @@
                     class="cell-block-confirm-chip cell-block-confirm-chip--pending"
                   >Unconfirmed</span>
                   {{ agendaItemTitle(item) }}
-                </div>
+                </button>
               </div>
               <div v-if="item.isOfficeBlock" class="sched-agenda__meta">{{ item.officeStatusLabel }}</div>
               <div v-else-if="item.kind === 'peerbusy'" class="sched-agenda__meta muted">Peer busy</div>
@@ -1224,9 +1222,8 @@
           >
             <div class="sched-day-timeline__time">{{ hourLabel(h) }}</div>
             <div class="sched-day-timeline__cards">
+              <div v-for="b in mobileDayCardsForHour(h)" :key="`mcard-${b.key}`" class="sched-day-card-wrap">
               <button
-                v-for="b in mobileDayCardsForHour(h)"
-                :key="`mcard-${b.key}`"
                 type="button"
                 class="sched-day-card"
                 :class="[
@@ -1294,6 +1291,8 @@
                   </div>
                 </div>
               </button>
+              <SecureSessionCommentButton v-if="b.appointmentId && canUseSessionComments(authStore.user?.role)" class="sched-day-comment-shortcut" icon-only :appointment-id="b.appointmentId" :client-id="parseClientIdFromScheduleEvent(b)" />
+              </div>
               <button
                 v-if="canBookFromGrid"
                 type="button"
@@ -1540,6 +1539,7 @@
                 @click="onCellBlockClick($event, b, d, slot.hour, slot.minute)"
                 @dblclick="onCellBlockDoubleClick($event, b, d, slot.hour, slot.minute)"
               >
+                <SecureSessionCommentButton v-if="b.appointmentId && canUseSessionComments(authStore.user?.role)" icon-only :appointment-id="b.appointmentId" :client-id="parseClientIdFromScheduleEvent(b)" />
                 <span v-if="b.recurrenceSeriesId" class="cell-recurrence-marker" role="img" aria-label="Recurring appointment">↻</span>
                 <span v-if="staffAlertForBlock(b)" class="cell-staff-alert" role="img" :aria-label="staffAlertFaceLabel(b)">⚑</span>
                 <!-- Top resize handle — any draggable block -->
@@ -1897,6 +1897,7 @@
               'supv-info-layout--with-workspace': showSupervisionAgendaWorkspace
             }"
           >
+            <SecureSessionCommentButton v-if="editorIsClinical && canUseSessionComments(authStore.user?.role) && Number(editorAppointmentId || 0) > 0" :appointment-id="Number(editorAppointmentId)" :client-id="Number(editorInfoClientId || 0) || null" />
             <GuardianAppointmentRequests v-if="Number(editorAppointmentId || 0) > 0" :appointment-id="Number(editorAppointmentId)" />
             <AppointmentInfoPanel
               :when-label="editorInfoWhenLabel"
@@ -5962,6 +5963,8 @@ import AppointmentChangeWizard from './AppointmentChangeWizard.vue';
 import AppointmentWaiverReviewQueue from './AppointmentWaiverReviewQueue.vue';
 import AppointmentInfoPanel from './AppointmentInfoPanel.vue';
 import GuardianAppointmentRequests from './GuardianAppointmentRequests.vue';
+import SecureSessionCommentButton from '../session-comments/SecureSessionCommentButton.vue';
+import { canUseSessionComments } from '../session-comments/sessionComments';
 import AppointmentBillingPanel from './AppointmentBillingPanel.vue';
 import AppointmentPackageSettlement from './AppointmentPackageSettlement.vue';
 import AppointmentClinicalPanel from './AppointmentClinicalPanel.vue';
@@ -28338,6 +28341,7 @@ watch(()=>props.spanMode,value=>{
   gap: 6px;
   min-width: 0;
 }
+.sched-day-card-wrap{position:relative;flex:1 1 160px;min-width:min(160px,100%);max-width:100%}.sched-day-card-wrap .sched-day-card{height:100%;padding-right:48px}.sched-day-comment-shortcut{position:absolute;top:8px;right:8px}.sched-agenda__open{padding:0;border:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
 .sched-day-timeline__cards .sched-day-card {
   flex: 1 1 160px;
   max-width: 100%;

@@ -1,5 +1,7 @@
 <template>
   <div class="aw-app">
+    <FamilySharingNoticeHost v-if="actor && context && !demoContext" :user-id="actor.id" :scope-key="secureCommentsScopeGeneration" :enabled="!locked && !loading && !error" />
+    <SecureSessionCommentsHost v-if="actor && canUseSessionComments(actor.role) && context && !demoContext" :user-id="actor.id" :scope-key="secureCommentsScopeGeneration" :enabled="!locked && !loading && !error" :schedule-path="`/${slug}/appointments`" />
     <header v-if="!context" class="aw-header"><a class="aw-brand" :href="websiteBase" aria-label="AuricWell website"><img :src="AURICWELL_MARK_URL" alt="" width="48" height="48"><span>AuricWell</span></a><div v-if="context"><strong>{{ context.practice.name }}</strong><small>Practice workspace</small></div><a class="aw-exit" :href="demoContext ? websiteBase : '/admin'">{{ demoContext ? 'AuricWell website ↗' : 'Return to full suite ↗' }}</a></header>
     <WorkspaceNavigation v-if="actor && !context" :actor="actor" interface-name="auricwell" :demo="!!demoContext" />
     <main v-if="isLogin" class="aw-welcome aw-login"><p class="aw-eyebrow">AURICWELL · PRACTICE ACCESS</p><h1>A clear place for your clinical work.</h1><p>Sign in with the account assigned to your practice workspace.</p><a class="aw-button" :href="loginUrl">Continue to secure sign-in →</a><p>Your account's practice access and permissions apply.</p><a :href="websiteBase">← Back to the AuricWell website</a></main>
@@ -41,6 +43,9 @@
 </template>
 <script setup>
 import AnnouncementToasts from '../components/notifications/AnnouncementToasts.vue';
+import SecureSessionCommentsHost from '../components/session-comments/SecureSessionCommentsHost.vue';
+import FamilySharingNoticeHost from '../components/session-comments/FamilySharingNoticeHost.vue';
+import { canUseSessionComments } from '../components/session-comments/sessionComments';
 import ToastAnnouncementManager from '../components/admin/ToastAnnouncementManager.vue';
 import api from '../services/api';
 import { AURICWELL_MARK_URL } from '../constants/auricwellBrand';
@@ -71,6 +76,8 @@ const NarrivaComplianceReportsView = defineAsyncComponent(() => import('../views
 const route = useRoute(), agencyStore = useAgencyStore(), authStore = useAuthStore();
 const locked=ref(false);
 const context = ref(null), actor = ref(null), practices = ref([]), loading = ref(true), error = ref('');
+const secureCommentsScopeGeneration = ref(0);
+watch(() => [authStore.token, actor.value, context.value?.practice?.id], () => { secureCommentsScopeGeneration.value++; }, { flush: 'sync' });
 const slug = computed(() => String(route.params.organizationSlug || ''));
 const section = computed(() => route.params.section === 'my-schedule' ? 'appointments' : String(route.params.section || 'overview'));
 const actorName = computed(() => [actor.value?.first_name, actor.value?.last_name].filter(Boolean).join(' ') || actor.value?.email || 'Your account');

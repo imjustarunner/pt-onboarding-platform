@@ -320,6 +320,8 @@ import medicalBillingRoutes from './routes/medicalBilling.routes.js';
 import claimMdWebhookRoutes from './routes/claimMdWebhook.routes.js';
 import tenantServicesRoutes from './routes/tenantServices.routes.js';
 import appointmentRoutes from './routes/appointment.routes.js';
+import secureSessionCommentsRoutes from './routes/secureSessionComments.routes.js';
+import sharedFamilyNoticeRoutes from './routes/sharedFamilyNotice.routes.js';
 import providerMyRoomRoutes from './routes/providerMyRoom.routes.js';
 import betaFeedbackRoutes from './routes/betaFeedback.routes.js';
 import meRoutes from './routes/me.routes.js';
@@ -1113,6 +1115,8 @@ app.use('/api/public/mh4kidz/donations', publicDonationsRoutes);
 app.use('/api/medical-billing', medicalBillingRoutes);
 app.use('/api/tenant-booking', tenantServicesRoutes);
 app.use('/api/appointments', appointmentRoutes);
+app.use('/api/secure-session-comments', secureSessionCommentsRoutes);
+app.use('/api/secure-family-sharing-notice', sharedFamilyNoticeRoutes);
 
 app.use('/api/offices', officeSettingsRoutes);
 app.use('/api/office-slots', officeSlotActionsRoutes);
@@ -2829,6 +2833,20 @@ if (!isBootstrap) {
   void providerOffboardingTick();
   setInterval(providerOffboardingTick, 60 * 1000).unref();
 
+
+  // Cloud Run has always-allocated CPU and minimum instances. Row locks protect
+  // Secure comments use this existing process, with a durable recipient outbox.
+  // Transport claims prevent duplicate/uncertain-send retries across replicas.
+  let secureSessionCommentTickRunning = false;
+  const secureSessionCommentTick = async () => {
+    if (secureSessionCommentTickRunning) return;
+    secureSessionCommentTickRunning = true;
+    try { await (await import('./services/secureSessionCommentNotifications.service.js')).sessionCommentNotificationWorker.tick(); }
+    catch (error) { console.warn('[secure-session-comments] Notification worker needs review', { code:error.code === 'ER_NO_SUCH_TABLE' ? 'schema_not_ready' : 'worker_unavailable' }); }
+    finally { secureSessionCommentTickRunning = false; }
+  };
+  setTimeout(secureSessionCommentTick, 10000).unref();
+  setInterval(secureSessionCommentTick, 60000).unref();
 
   // Cloud Run has always-allocated CPU and minimum instances. Row locks protect
   // this bounded demo worker across replicas; it never drains another tenant.

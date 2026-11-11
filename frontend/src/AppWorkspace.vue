@@ -1,6 +1,8 @@
 <template>
   <BrandingProvider>
     <AccountSecurityNotice v-if="isAuthenticated" />
+    <FamilySharingNoticeHost v-if="isAuthenticated && user?.id && !isLoginEntry && !isImmersiveJoinRoute && !isPublicOfficeRoute" :user-id="user.id" :scope-key="secureCommentsScopeGeneration" :enabled="!sessionLockStore.isLocked && !sessionLockStore.warningActive" />
+    <SecureSessionCommentsHost v-if="isAuthenticated && canUseSessionComments(user?.role) && user?.id && !isLoginEntry && !isImmersiveJoinRoute && !isPublicOfficeRoute && !route.meta?.publicMarketingHub && !route.meta?.fundthred" :user-id="user.id" :family="isFamilyPortalAccount" :scope-key="secureCommentsScopeGeneration" :enabled="!sessionLockStore.isLocked && !sessionLockStore.warningActive" />
     <InsuranceVerificationGate v-if="isAuthenticated && !sessionLockStore.isLocked && !sessionLockStore.warningActive" />
     <OfficeArrivalSplash v-if="isAuthenticated && !isFamilyPortalAccount && user?.id && !isLoginEntry && !sessionLockStore.isLocked && !sessionLockStore.warningActive && !isPublicOfficeRoute && !route.meta?.publicMarketingHub && !route.meta?.fundthred" :key="user.id" />
     <BillingFollowupSplash v-if="!route.meta?.auricwellPreview && canSeeMedicalBilling && isAuthenticated && user?.id && !isLoginEntry && !sessionLockStore.isLocked && !sessionLockStore.warningActive && !isPublicOfficeRoute && !route.meta?.publicMarketingHub && !route.meta?.fundthred" :key="`billing-followup-${user.id}`" />
@@ -2305,6 +2307,9 @@ import EmailComposerDock from './components/messages/EmailComposerDock.vue';
 import AccountSecurityNotice from './components/AccountSecurityNotice.vue';
 import InsuranceVerificationGate from './components/billing/InsuranceVerificationGate.vue';
 import SchoolContactPlanSplash from './components/school/SchoolContactPlanSplash.vue';
+import SecureSessionCommentsHost from './components/session-comments/SecureSessionCommentsHost.vue';
+import FamilySharingNoticeHost from './components/session-comments/FamilySharingNoticeHost.vue';
+import { canUseSessionComments } from './components/session-comments/sessionComments';
 import { useBrandingStore } from './store/branding';
 import { useAgencyStore } from './store/agency';
 import { useOrganizationStore } from './store/organization';
@@ -2452,6 +2457,8 @@ const authStore = useAuthStore();
 const isFamilyPortalAccount = computed(() => ['client_guardian', 'guardian', 'client'].includes(String(authStore.user?.role || '').toLowerCase()));
 const brandingStore = useBrandingStore();
 const agencyStore = useAgencyStore();
+const secureCommentsScopeGeneration = ref(0);
+watch(() => [authStore.token, authStore.user, agencyStore.currentAgency?.id], () => { secureCommentsScopeGeneration.value++; }, { flush: 'sync' });
 const indirectTimeSessionStore = useIndirectTimeSessionStore();
 const isSummitStatsChallengeChrome = useSummitStatsChallengeChrome();
 const summitTeamBrandLabel = SUMMIT_STATS_TEAM_CHALLENGE_NAME;

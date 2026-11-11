@@ -1,3 +1,4 @@
+import { dispatchFamilySharingNoticeRequired } from '../utils/familySharingNotice';
 import {familyDeviceContext} from '../mobile/familyContext.js';
 import { isFamilyWebsiteHost, isMichaelHost } from '../utils/productDomains';
 import { isFundthredHost } from '../utils/fundthred';
@@ -302,6 +303,7 @@ api.interceptors.response.use(
     return response;
   },
   async (error) => {
+    dispatchFamilySharingNoticeRequired(error);
     if(error.config?.headers?.['X-Auricwell-Family']==='1'){const family=familyDeviceContext();if(family && error.config.headers['X-Quick-View-Session']===family.sessionToken && [401,423].includes(error.response?.status))family.onLocked?.();return Promise.reject(error);}
     if (error.response?.data?.error?.code === 'INSURANCE_VERIFICATION_REQUIRED' && Number(error.response.data.error.clientId)>0) {
       window.dispatchEvent(new CustomEvent('pt:insurance-verification-required', { detail: error.response.data.error }));

@@ -1,3 +1,4 @@
+import { familyMessageVisibilitySql } from '../familySecureMessageAccess.service.js';
 import pool from '../../config/database.js';
 import webpush from 'web-push';
 import { mobileSessions } from './session.service.js';
@@ -71,7 +72,7 @@ export function createMobilePushWorker({db=pool, sessions=mobileSessions, conver
       if(kind!=='chat')return null;
       const [[row]]=await db.execute(`SELECT m.thread_id,t.agency_id FROM chat_messages m JOIN chat_threads t ON t.id=m.thread_id
         JOIN chat_thread_participants p ON p.thread_id=t.id AND p.user_id=? JOIN agencies a ON a.id=t.agency_id AND a.is_active=1 AND COALESCE(a.is_archived,0)=0
-        WHERE m.id=? AND t.message_channel='secure' AND m.sender_user_id<>? AND NOT EXISTS(SELECT 1 FROM chat_message_deletes d WHERE d.message_id=m.id AND d.user_id=?)
+        WHERE m.id=? AND ${familyMessageVisibilitySql(uid)} AND t.message_channel='secure' AND m.sender_user_id<>? AND NOT EXISTS(SELECT 1 FROM chat_message_deletes d WHERE d.message_id=m.id AND d.user_id=?)
         AND NOT EXISTS(SELECT 1 FROM notifications n LEFT JOIN notification_user_reads r ON r.notification_id=n.id AND r.user_id=?
           WHERE n.user_id=? AND n.related_entity_type='chat_thread' AND n.related_entity_id=t.id AND COALESCE(r.muted_until,n.muted_until)>NOW()) LIMIT 1`,[uid,id,uid,uid,uid,uid]);
       if(!row)return null;
@@ -82,7 +83,7 @@ export function createMobilePushWorker({db=pool, sessions=mobileSessions, conver
       const scope=agencyScope('t.agency_id');
       const [[row]]=await db.execute(`SELECT m.thread_id,t.agency_id FROM chat_messages m
         JOIN chat_threads t ON t.id=m.thread_id JOIN chat_thread_participants p ON p.thread_id=t.id AND p.user_id=?
-        WHERE m.id=? AND ${scope.sql} AND m.sender_user_id<>?
+        WHERE m.id=? AND ${familyMessageVisibilitySql(uid)} AND ${scope.sql} AND m.sender_user_id<>?
         AND NOT EXISTS (SELECT 1 FROM chat_message_deletes d WHERE d.message_id=m.id AND d.user_id=?)
         AND NOT EXISTS (SELECT 1 FROM notifications n LEFT JOIN notification_user_reads r ON r.notification_id=n.id AND r.user_id=?
           WHERE n.user_id=? AND n.related_entity_type='chat_thread' AND n.related_entity_id=t.id

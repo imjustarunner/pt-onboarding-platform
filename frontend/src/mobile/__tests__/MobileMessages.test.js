@@ -2,6 +2,7 @@ import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 import {mount,flushPromises} from '@vue/test-utils';
 import {createRouter,createWebHistory} from 'vue-router';
 const api=vi.hoisted(()=>({get:vi.fn(),post:vi.fn(),patch:vi.fn(),delete:vi.fn()}));vi.mock('axios',()=>({default:api}));
+vi.mock('../../services/api',()=>({default:api}));
 import MobileMessages from '../MobileMessages.vue';
 let wrapper,router;
 const direct={key:'chat:10',id:10,kind:'chat',category:'direct',title:'Jordan Example',sender:'Jordan Example',preview:'Latest message',at:'2026-11-06T13:00:00Z',unread:true,unreadCount:2};
@@ -215,3 +216,20 @@ it('clears cached lists when the device session changes',async()=>{await start()
 it('shows a recent direct conversation while refreshing access and clears it if access was revoked',async()=>{await start();await wrapper.findAll('.mm-row')[0].trigger('click');await flushPromises();expect(wrapper.text()).toContain('ORIGINAL MESSAGE');await router.push('/mobile/workspace?view=home&suite=direct');await flushPromises();let reject;const old=api.get.getMockImplementation();api.get.mockImplementation((url,config)=>url.includes('/chat/threads/10/messages')?new Promise((_done,fail)=>{reject=fail;}):old(url,config));await router.push('/mobile/workspace?view=home&suite=direct&threadId=10');await flushPromises();expect(wrapper.text()).toContain('ORIGINAL MESSAGE');reject({response:{status:403,data:{error:{message:'Membership revoked'}}}});await flushPromises();expect(wrapper.text()).not.toContain('ORIGINAL MESSAGE');expect(wrapper.text()).toContain('Membership revoked');});
 
 it('does not let a delayed category response overwrite a restored cached view',async()=>{await start();const get=api.get.getMockImplementation();let resolveEmail;api.get.mockImplementation((url,config)=>url.endsWith('/messages/inbox')&&config?.params?.suite==='email'?new Promise(resolve=>{resolveEmail=resolve;}):get(url,config));await router.push('/mobile/workspace?view=home&suite=email');await flushPromises();expect(resolveEmail).toBeTypeOf('function');await router.push('/mobile/workspace?view=home&suite=direct');await flushPromises();expect(wrapper.text()).toContain('Jordan Example');resolveEmail({data:{items:[{key:'email:44',kind:'email',id:44,title:'WRONG FILTER RESULT'}],counts:{},nextCursor:null}});await flushPromises();expect(wrapper.text()).toContain('Jordan Example');expect(wrapper.text()).not.toContain('WRONG FILTER RESULT');});
+
+it('previews the complete secure audience and sends those exact IDs after the saved acknowledgment',async()=>{
+ const fallback=api.get.getMockImplementation();
+ api.get.mockImplementation(async(url,config)=>url.endsWith('/meta')?{data:{thread_id:11,agencyId:450,shared:true,sharingPolicy:'all_eligible_family',thread_type:'client_secure',participants:[{id:1,name:'Avery QA',role:'provider'},{id:2,name:'Parent One QA',role:'guardian'},{id:3,name:'Parent Two QA',role:'guardian'}]}}:url.endsWith('/secure-family-sharing-notice')?{data:{version:'2026-11-11',acknowledged:true}}:fallback(url,config));
+ await start('/mobile/workspace?view=home&suite=secure&threadId=11&secure=1');
+ expect(wrapper.get('[aria-label="Actual shared message recipients"]').text()).toContain('Parent One QA');expect(wrapper.text()).toContain('Parent Two QA');
+ await wrapper.get('.mm-composer textarea').setValue('Synthetic shared update');await wrapper.get('.mm-composer').trigger('submit');await flushPromises();
+ expect(api.post).toHaveBeenCalledWith('/api/quick-view/chat/threads/11/messages',expect.objectContaining({body:'Synthetic shared update',expectedRecipientUserIds:[2,3]}),expect.any(Object));
+});
+it('does not send or erase the draft when the first shared-message notice is canceled',async()=>{
+ const fallback=api.get.getMockImplementation();
+ api.get.mockImplementation(async(url,config)=>url.endsWith('/meta')?{data:{thread_id:11,agencyId:450,shared:true,sharingPolicy:'all_eligible_family',participants:[{id:1,name:'Avery QA'},{id:2,name:'Parent QA'}]}}:url.endsWith('/secure-family-sharing-notice')?{data:{version:'2026-11-11',acknowledged:false,notice:{statements:['All eligible family users receive this message.']}}}:fallback(url,config));
+ await start('/mobile/workspace?view=home&suite=secure&threadId=11&secure=1');await wrapper.get('.mm-composer textarea').setValue('Draft preserved');await wrapper.get('.mm-composer').trigger('submit');await flushPromises();
+ expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+ const buttons=[...document.querySelectorAll('[role="dialog"] button')];buttons.find(button=>/cancel|not now/i.test(button.textContent))?.click();await flushPromises();
+ expect(api.post.mock.calls.some(([url])=>url.endsWith('/messages'))).toBe(false);expect(wrapper.get('.mm-composer textarea').element.value).toBe('Draft preserved');
+});

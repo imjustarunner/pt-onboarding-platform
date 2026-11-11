@@ -67,8 +67,9 @@ it('releases the connection even if releasing the advisory lock fails', async ()
 it('limits the upcoming display to six without changing reservations', async () => {
   m.execute.mockResolvedValue([[]]);
   expect(await listGuardianAppointments({ userId: 9, clientId: 8 })).toEqual([]);
-  expect(m.execute.mock.calls[0][0]).toContain('LIMIT 6');
-  expect(m.execute.mock.calls[1][0]).toContain('a.start_at<UTC_TIMESTAMP()');
+  const appointmentQueries=m.execute.mock.calls.filter(([sql])=>sql.includes('FROM appointments a'));
+  expect(appointmentQueries[0][0]).toContain('LIMIT 6');
+  expect(appointmentQueries[1][0]).toContain('a.start_at<UTC_TIMESTAMP()');
   expect(m.execute.mock.calls.every(([sql]) => sql.startsWith('SELECT'))).toBe(true);
 });
 

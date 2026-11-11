@@ -50,9 +50,9 @@
               <span v-if="selectedType === 'email'" class="muted">{{ selectedSubtitle }}</span>
             </div>
             <section v-if="selectedType === 'secure'" class="conversation-audience" :aria-label="ft('Who can see these messages')">
-              <strong>{{ ft("Who can read and reply") }}</strong>
+              <strong>{{ selected?.readOnly ? 'Retained conversation history' : ft("Who can read and reply") }}</strong>
               <ul><li v-for="person in selected?.participants || []" :key="person.id">{{ person.name }}{{ Number(person.id) === Number(meId) ? ' (you)' : '' }} <span>· {{ person.role === 'guardian' ? ft("Guardian") : person.role === 'client' ? ft("Client") : person.role === 'provider' ? ft("Provider") : ft("Care team") }}</span></li></ul>
-              <p>{{ ft("This is a group conversation. Everyone listed can read your replies, including when you address one person.") }}</p>
+              <p v-if="!selected?.readOnly">{{ ft("This is a group conversation. Everyone listed can read your replies, including when you address one person.") }}</p><p v-else>Previous messages retain their original audiences. Access is checked when you open them.</p>
             </section>
             <div v-if="messagesLoading" class="muted pad">{{ ft("Loading…") }}</div>
             <div v-else class="gmsg-thread" ref="threadEl">
@@ -67,8 +67,11 @@
               </div>
               <div v-if="!messages.length" class="muted">{{ ft("No messages yet. Say hello.") }}</div>
             </div>
-            <p v-if="selectedType === 'email' && threads.some(t => t.shared)" class="muted pad">{{ ft("Reply about your child in their shared care conversation so all authorized guardians can see it. Select that child’s Secure conversation from the list.") }}</p>
-            <div v-else class="gmsg-composer">
+            <p v-if="selectedType === 'secure' && selected?.readOnly" class="muted pad">This previous secure conversation is read-only. Choose the current shared conversation to send an update.</p>
+            <label v-if="selectedType==='secure' && selected?.readOnly && draft">Your unsent draft (not sent)<textarea :value="draft" readonly /></label>
+            <div v-if="selectedType === 'email' || !selected?.readOnly" class="gmsg-composer">
+              <div v-if="selectedType === 'secure'" class="gmsg-sharing-notice"><FamilySharingNotice ref="sharingNotice" :agency-id="selected?.agency_id" :scope-key="`${meId}:${selected?.client_id}:${selected?.thread_id}`" /></div>
+              <label v-if="selectedType==='secure' && audienceReviewNeeded"><input v-model="audienceReviewed" type="checkbox" /> I reviewed the updated shared recipients above.</label>
               <textarea
                 v-model="draft"
                 rows="2"
@@ -77,7 +80,7 @@
               <button
                 type="button"
                 class="btn btn-primary"
-                :disabled="sending || messagesLoading || (selectedType === 'secure' && !audienceReady) || !draft.trim()"
+                :disabled="sending || messagesLoading || (audienceReviewNeeded && !audienceReviewed) || (selectedType === 'secure' && !audienceReady) || !draft.trim()"
                 @click="send"
               >
                 {{ sending ? ft("Sending…") : selectedType === 'email' ? ft("Send reply") : ft("Send to group") }}
@@ -207,6 +210,7 @@ import { useFamilyLocale } from '../../composables/useFamilyLocale';
 const { ft, locale: familyLocale } = useFamilyLocale();
 import QaRecipientEmailInbox from '../messages/QaRecipientEmailInbox.vue';
 import SecureMessageBanner from '../conversa/SecureMessageBanner.vue';
+import FamilySharingNotice from '../session-comments/FamilySharingNotice.vue';
 import ConversaBrand from '../../components/conversa/ConversaBrand.vue';
 import ConversaBadge from '../../components/conversa/ConversaBadge.vue';
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
@@ -232,6 +236,8 @@ const messages = ref([]);
 const loading = ref(false);
 const messagesLoading = ref(false);
 const sending = ref(false);
+const sharingNotice = ref(null), audienceReviewNeeded=ref(false), audienceReviewed=ref(false);
+let sendIntent = 0;
 const audienceReady = ref(false);
 const error = ref('');
 const draft = ref('');
@@ -371,7 +377,7 @@ async function selectEmail(item) {
 }
 
 async function selectThread(t) {
-  audienceReady.value = false;
+  audienceReady.value = false; audienceReviewNeeded.value=false; audienceReviewed.value=false;
   if (!t?.provider?.id && !t?.available) return;
   creatingTicket.value = false;
   messagesLoading.value = true;
@@ -401,7 +407,7 @@ async function selectThread(t) {
     selectedEmail.value = null;
     selected.value = thread;
     const [r, audience] = await Promise.all([api.get(`/guardian-portal/messages/${thread.thread_id}`, { skipGlobalLoading: true }), api.get(`/guardian-portal/clients/${thread.client_id}/care-access`, { params:{agencyId:thread.agency_id,serviceId:thread.service_id},skipGlobalLoading:true })]);
-    selected.value = {...thread, participants:audience.data.participants || []};
+    selected.value = {...thread, participants: thread.readOnly ? (thread.participants || []) : (audience.data.participants || [])};
     audienceReady.value = selected.value.participants.length > 0;
     const raw = Array.isArray(r.data?.messages) ? r.data.messages : (Array.isArray(r.data) ? r.data : []);
     messages.value = raw.map((m) => ({
@@ -422,29 +428,25 @@ async function selectThread(t) {
 }
 
 async function send() {
-  if (!draft.value.trim() || messagesLoading.value || (selectedType.value === 'secure' && !audienceReady.value)) return;
+  if (sending.value || (audienceReviewNeeded.value&&!audienceReviewed.value) || !draft.value.trim() || messagesLoading.value || (selectedType.value === 'secure' && !audienceReady.value)) return;
+  const own = ++sendIntent, thread = selected.value, email = selectedEmail.value, type = selectedType.value, text = draft.value.trim();
+  const stillSelected = () => own === sendIntent && selectedType.value === type && (type === 'secure' ? selected.value?.thread_id === thread?.thread_id : selectedEmail.value?.conversationId === email?.conversationId);
   sending.value = true;
   try {
-    if (selectedType.value === 'email' && selectedEmail.value?.conversationId) {
-      await api.post(`/guardian-portal/emails/${selectedEmail.value.conversationId}`, {
-        body: draft.value.trim()
-      });
-      draft.value = '';
-      await selectEmail(selectedEmail.value);
+    if (type === 'email' && email?.conversationId) {
+      await api.post(`/guardian-portal/emails/${email.conversationId}`, { body: text });
+      if (stillSelected()) { draft.value = ''; await selectEmail(email); }
       return;
     }
-    if (!selected.value?.thread_id) return;
-    await api.post(`/guardian-portal/messages/${selected.value.thread_id}`, {
-      clientId: selected.value.client_id,
-      body: draft.value.trim()
-    });
-    draft.value = '';
-    await selectThread(selected.value);
+    if (!thread?.thread_id || thread.readOnly || !await sharingNotice.value?.ensureAcknowledged() || !stillSelected()) return;
+    await api.post(`/guardian-portal/messages/${thread.thread_id}`, { clientId: thread.client_id, body: text, expectedRecipientUserIds: (thread.participants || []).map(p => Number(p.id || p.userId || p.user_id)).filter(id => id > 0 && id !== Number(meId.value)) });
+    if (stillSelected()) { draft.value = ''; await selectThread(thread); }
   } catch (e) {
-    error.value = (e?.response?.status < 500 ? e.response?.data?.error?.message : '') || 'Send failed';
-  } finally {
-    sending.value = false;
-  }
+    if (stillSelected()) {
+      if(['FAMILY_SHARED_AUDIENCE_REVIEW_REQUIRED','FAMILY_SHARED_AUDIENCE_CHANGED'].includes(e.response?.data?.error?.code)){try{const {data}=await api.get(`/guardian-portal/clients/${thread.client_id}/care-access`,{params:{agencyId:thread.agency_id,serviceId:thread.service_id},skipGlobalLoading:true});if(stillSelected()){selected.value={...selected.value,participants:data.participants||[]};audienceReviewNeeded.value=true;audienceReviewed.value=false;error.value='The shared recipients changed. Review the updated list and confirm before sending your preserved draft.';}}catch{audienceReady.value=false;error.value='The updated recipient list could not be verified. Your draft is preserved; reopen the current shared conversation.';}}
+      else {if(e.response?.data?.error?.code==='FAMILY_SHARED_THREAD_REQUIRED')selected.value={...selected.value,readOnly:true};error.value=(e?.response?.status<500?e.response?.data?.error?.message:'')||'Send failed';}
+    }
+  } finally { if (own === sendIntent) sending.value = false; }
 }
 
 async function loadTickets() {
@@ -565,6 +567,8 @@ onMounted(async()=>{await loadThreads();await openRequestedThread();});
 </script>
 
 <style scoped>
+.gmsg-composer{flex-wrap:wrap}.gmsg-sharing-notice{flex:1 1 100%;width:100%}
+
 .message-action{display:inline-block;padding:10px 12px;margin-top:12px;border-radius:8px;background:#16457c;color:white;font-size:13px;font-weight:600}.gmsg-message-text{white-space:pre-wrap;overflow-wrap:anywhere}.back-conversations{display:none}.gmsg-chat{min-height:220px}@media(max-width:700px){.conversation-picked{display:none}.has-conversation .back-conversations{display:block;padding:12px;border:0;border-bottom:1px solid #dce4ee;background:#f5f8fc;color:#16457c;text-align:left}.message-placeholder{display:none}.gmsg-provider-body:not(.has-conversation){min-height:0}.gmsg-provider-body:not(.has-conversation) .gmsg-chat{display:none}}
 
 .gmsg { display: flex; flex-direction: column; gap: 12px; min-height: 420px; }

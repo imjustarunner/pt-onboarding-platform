@@ -25,6 +25,7 @@ const TYPES_BY_CATEGORY = {
     'presence_user_returned', 'user_activity_digest'
   ],
   tasks_messaging: [
+    'secure_session_comment',
     'task_overdue', 'inbound_client_message', 'support_safety_net_alert', 'client_note',
     'credentialing_reminder', 'credentialing_email',
     'chat_message', 'task_comment_mention', 'escalation_mention', 'support_ticket_created',
@@ -102,6 +103,7 @@ const TYPES_BY_CATEGORY = {
 };
 
 const LABEL_OVERRIDES = {
+  secure_session_comment: 'AuricWell secure session comments',
   claimmd_data_gap: 'Payer data needs Technology review',
   school_closure_notice: 'School closure reminders',
   client_exchange_match: 'New matching clients in Client Exchange',
@@ -383,6 +385,7 @@ export function notificationRoleProfile(role) {
 
 export function isNotificationRecommendedForRole(type, role) {
   const normalizedType = String(type || '').trim();
+  if (normalizedType === 'secure_session_comment') return ['provider','provider_plus','intern','intern_plus','clinician','therapist','supervisor','clinical_practice_assistant','admin','super_admin','client','client_guardian'].includes(String(role || '').toLowerCase());
   if (normalizedType === 'emergency_broadcast' || normalizedType === 'credential_expired_blocking') return true;
   const profile = notificationRoleProfile(role);
   if (normalizedType === 'school_closure_notice') return SCHOOL_CLOSURE_STAFF_ROLES.has(String(role || '').toLowerCase());
@@ -397,6 +400,7 @@ export function isNotificationRecommendedForRole(type, role) {
 
 export function isNotificationEssentialForRole(type, role) {
   const normalizedType = String(type || '').trim();
+  if (normalizedType === 'secure_session_comment') return isNotificationRecommendedForRole(type, role);
   if (normalizedType === 'emergency_broadcast' || normalizedType === 'credential_expired_blocking') return true;
   const profile = notificationRoleProfile(role);
   if (normalizedType === 'school_closure_notice') return SCHOOL_CLOSURE_STAFF_ROLES.has(String(role || '').toLowerCase());
@@ -476,6 +480,7 @@ const SMS_CAPABLE = new Set([
 ]);
 
 const EMAIL_CAPABLE = new Set([
+  'secure_session_comment',
   ...SMS_CAPABLE, 'emergency_broadcast','password_changed', 'assistant_account_changed','temp_password_expired',
   'supervision_session_scheduled','team_meeting_scheduled','supervision_presenter_reminder',
   'training_assigned','training_due_soon','company_event_message','custom_task_assigned',
@@ -529,7 +534,7 @@ for (const [category, types] of Object.entries(TYPES_BY_CATEGORY)) {
         sound: defaultOverrides.sound ?? required,
         digest: false,
         push: required && PUSH_CAPABLE.has(type),
-        email: required || type === 'kiosk_checkin',
+        email: required || type === 'kiosk_checkin' || type === 'secure_session_comment',
         sms: required && SMS_CAPABLE.has(type),
         toastDurationMode:
           defaultOverrides.toastDurationMode ?? (required ? 'dismissable' : 'timed'),

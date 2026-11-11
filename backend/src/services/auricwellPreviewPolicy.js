@@ -55,6 +55,11 @@ export function constrainPreviewInput(input, agencyId) {
   }
 }
 export function previewRouteAllowed(method, path) {
+  if(method==='GET' && path==='/secure-family-sharing-notice')return true;
+  if(method==='POST' && path==='/secure-family-sharing-notice/ack')return true;
+  if (method === 'GET' && /^\/secure-session-comments\/(today|history|badges|appointments\/\d+)$/.test(path)) return true;
+  if (method === 'POST' && /^\/secure-session-comments\/(attention|appointments\/\d+(?:\/read)?)$/.test(path)) return true;
+  if(method==='PATCH' && /^\/secure-session-comments\/appointments\/\d+\/comments\/\d+$/.test(path))return true;
   if (method === 'POST' && /^\/address-lookup\/(suggest|select)$/.test(path)) return true;
   if (method === 'GET') return [
     /^\/(?:auricwell-preview\/portal|portal-admin)\/clients\/[1-9][0-9]*\/accounts(?:\/[1-9][0-9]*\/(?:read|activity))?$/,

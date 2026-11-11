@@ -11,7 +11,7 @@ export async function mobileFamilyPrincipal(req,{touch=touchSession,sessions=mob
  if(!FAMILY_ROLES.has(String(user?.role)))throw failure(403,'MOBILE_FAMILY_UNAVAILABLE','Family portal access is no longer available.');
  const context=await sessions.access(session.mobileDeviceSessionId,session.userId,session.agencyId);
  const proof=parsePrimaryAuthentication(context.device.primary_authentication_json);
- return {user:{...user,role:user.role==='guardian'?'client_guardian':user.role,sessionId:`mobile:${session.sessionId}`},
+ return {user:{...user,role:user.role==='guardian'?'client_guardian':user.role,sessionId:`mobile:${session.sessionId}`,sessionCommentAgencyId:session.agencyId},
   authClaims:{id:user.id,role:user.role==='guardian'?'client_guardian':user.role,sessionId:`mobile:${session.sessionId}`,mobileFamily:true,authMethod:proof?.authMethod},
   ...(proof?{sessionSecurity:{key:proof.sessionKey}}:{})};
 }

@@ -1,0 +1,478 @@
+{
+  "edition": "2026-11-11",
+  "title": "Your AuricWell provider field guide",
+  "subtitle": "Move from Gmail / Workspace and TherapyNotes with one practical reference for the workday.",
+  "scope": "Reference material for authorized providers and supervisors. Your agency, assignment, service eligibility and rollout settings control which actions you can use. A screenshot proves only the screen captured; it is not acceptance of every workflow.",
+  "modules": [
+    {
+      "id": "start",
+      "category": "Start here",
+      "title": "Start your day in the right workspace",
+      "minutes": 5,
+      "summary": "Confirm your company and account, then use My Schedule, My Work, Tasks and Messages as your starting points.",
+      "status": "Existing application workflow; agency configuration applies",
+      "image": "schedule",
+      "imageAlt": "Actual synthetic QA My Schedule, an entry point for the provider workday.",
+      "steps": [
+        "Sign in with your own account on your agency’s approved app address. Confirm your name and the selected company before opening a chart or sending anything.",
+        "Open My Schedule for appointments. Use My Work / Note Workspace for linked documentation and Tasks for assigned follow-up. The same client may appear in several worklists; confirm the chart and appointment each time.",
+        "Open notifications for the actual item. A count, reminder or empty list is not proof that work was completed. Refresh after an authorized change and confirm its saved state.",
+        "Open Account information to verify your own profile and contact details, including the correct provider name and approved communication preferences. Review your agency’s required provider-update items rather than copying another provider’s settings.",
+        "Use normal Unlock when the app locks. Keep your own credentials private; do not use a coworker’s account or work around a permission error."
+      ],
+      "practice": "In the training agency, identify your name and company, open My Schedule, then find Messages and My Learning without changing any client data.",
+      "check": "You can name the company and the purpose of each worklist, and return to the same appointment without creating another.",
+      "pitfall": "The browser tab title or a previous selection may belong to another company. Recheck context after changing workspaces.",
+      "sources": [
+        "frontend/src/AppWorkspace.vue",
+        "frontend/src/views/MyScheduleView.vue",
+        "frontend/src/components/clinical/NoteAidWorkQueuePanel.vue",
+        "frontend/src/views/AccountInfoView.vue"
+      ],
+      "slideBullets": [
+        "Confirm your own name and selected company.",
+        "Use My Schedule, My Work, Tasks and Messages for their linked work.",
+        "Review your own profile, then use normal Unlock when needed."
+      ]
+    },
+    {
+      "id": "book",
+      "category": "Scheduling",
+      "title": "Book one correct appointment",
+      "minutes": 8,
+      "summary": "Choose the right client, provider, service, date, duration and location before saving.",
+      "status": "Existing application workflow; provider booking rollout and eligibility apply",
+      "image": "schedule",
+      "imageAlt": "Actual My Schedule screen for the synthetic QA provider.",
+      "steps": [
+        "Open My Schedule and the appropriate day. Start the booking action available to your role. Search for the existing client; confirm identity and assignment before choosing a service.",
+        "Review the exact date, start/end time and timezone. Choose the service actually planned, the care setting, and the correct location. Telehealth and an office room are different choices.",
+        "Read any conflict, eligibility, insurance or assignment warning. Ask the responsible staff member to resolve it; changing a service or payer simply to get past a warning creates incorrect source data.",
+        "Review recurrence and notifications, then save once. Reopen the appointment to confirm its details and identifier. A school planning slot or general availability is not itself a booked session.",
+        "Review Availability separately from booked appointments and office reservations. Offered time does not itself create a client visit. Keep the provider/company context correct and use the normal room/reservation controls when an office is needed."
+      ],
+      "practice": "Use a designated synthetic client to review a single-session booking. The trainer decides whether the exercise may save a new synthetic appointment; otherwise stop at review.",
+      "check": "The saved occurrence has the intended client, provider, time, duration, service and location, and appears only once.",
+      "pitfall": "Do not copy an appointment’s service, room or recurrence from another client without reviewing every value.",
+      "sources": [
+        "frontend/src/views/MyScheduleView.vue",
+        "frontend/src/components/schedule/ClinicalSessionBody.vue",
+        "backend/src/controllers/appointment.controller.js"
+      ],
+      "slideBullets": [
+        "Confirm client, provider, service, time, duration and location.",
+        "Review conflicts, eligibility, recurrence and notifications.",
+        "Save once and reopen the actual booked occurrence."
+      ]
+    },
+    {
+      "id": "change-schedule",
+      "category": "Scheduling",
+      "title": "Change a visit without changing the wrong series",
+      "minutes": 6,
+      "summary": "Distinguish one occurrence, future recurring visits, school planning and office reservations.",
+      "status": "Existing application workflow; school transition is a supervised trial",
+      "image": "schedule",
+      "imageAlt": "Synthetic provider calendar used to locate a specific appointment occurrence.",
+      "steps": [
+        "Open the exact appointment occurrence and inspect its date before editing or canceling. Read the scope control: one visit and a recurring series are different actions.",
+        "Use the ordinary reschedule/cancel flow and review notification choices. Reopen the affected day and a nearby unaffected occurrence to confirm the scope.",
+        "For linked school bookings, the booked appointment is the canonical visit. School staff’s dated time change moves one occurrence; provider recurring changes use the calendar editor. A planning template does not silently create or cancel visits.",
+        "Preserve completed, signed or claim-protected history. If a conflict, stale edit or protected-history message appears, stop and report the exact item rather than deleting and recreating the client or visit.",
+        "To see work in Google, Apple Calendar or Outlook, use Add my schedule to a personal calendar / My calendar subscription where available. The work subscription is private and read-only: make changes in this app, allow for the calendar app’s refresh delay and protect the subscription link. Importing a file once is different from subscribing, and revoking a link does not erase copies already downloaded."
+      ],
+      "practice": "On a trainer-designated synthetic series, describe which option changes only next Tuesday. Compare the before/after date and an unaffected week.",
+      "check": "Only the reviewed scope changed; no duplicate appointment or detached historical note was created.",
+      "pitfall": "A week copied from an old calendar is not automatically permission to make it a recurring series.",
+      "sources": [
+        "docs/auricwell/EHR_TRANSITION_PLAN.md",
+        "docs/auricwell/EHR_TRANSITION_TRIAL.md",
+        "backend/src/services/schoolAppointmentTransition.service.js",
+        "frontend/src/components/CalendarSharing.vue"
+      ],
+      "slideBullets": [
+        "Choose one occurrence or the intended future-series scope.",
+        "Check the changed visit and an unaffected week.",
+        "Keep calendar subscriptions private; edit the schedule in this app."
+      ]
+    },
+    {
+      "id": "telehealth",
+      "category": "Scheduling",
+      "title": "Join telehealth and supervision using the intended audio",
+      "minutes": 5,
+      "summary": "Use browser audio/video for the scheduled virtual session; phone dial-in is a separately configured option.",
+      "status": "Existing application workflow; participant eligibility and device permission apply",
+      "image": "schedule",
+      "imageAlt": "My Schedule provides the entry to the scheduled virtual session.",
+      "steps": [
+        "Open the scheduled session and confirm the participants and date. Use its ordinary Join action, not a link copied from another client’s meeting.",
+        "Allow the browser to use the intended microphone and camera. Select browser audio/video. A ‘phone dial-in is not enabled’ message refers to phone access, not permission to use another person’s meeting.",
+        "For supervision, confirm your named invitation or eligible join access, session type and host. Attendance, tracked duration, clinical note and payroll review are separate records.",
+        "If joining fails, record the appointment/session ID, time, browser and exact message. Use the approved fallback and tell the team where the meeting occurred; do not invent app attendance."
+      ],
+      "practice": "Two authorized synthetic participants test browser microphone/camera join and leave. Do not enable phone dial-in merely to make a test pass.",
+      "check": "Each participant reaches the intended session with the intended audio mode; an actual join is distinguished from opening the page.",
+      "pitfall": "A visible join button does not prove both devices joined or that their microphones work.",
+      "sources": [
+        "frontend/src/components/schedule/SupervisionBody.vue",
+        "frontend/src/composables/useSupervisionLiveSession.js",
+        "frontend/src/components/meetings/ManualMeetingLog.vue"
+      ],
+      "slideBullets": [
+        "Open the intended session with your own invited account.",
+        "Use browser audio/video; phone dial-in is a separate setting.",
+        "Report the exact join error and record any approved fallback accurately."
+      ]
+    },
+    {
+      "id": "chart",
+      "category": "Clinical documentation",
+      "title": "Read the correct chart and readiness state",
+      "minutes": 6,
+      "summary": "Separate enrollment paperwork, signed releases, clinical assessment and treatment-plan readiness.",
+      "status": "Existing application workflow; chart access and coverage review remain enforced",
+      "image": "clinical",
+      "imageAlt": "Actual structured clinical chart component rendered locally with blank fictional training inputs; not a live chart or signed record.",
+      "steps": [
+        "Open the assigned client and confirm the client identity. Read current demographics, guardian relationships and relevant enrollment/release status before using information.",
+        "Use clinical setup to review demographics, clinical intake and treatment goals. Enrollment answers and an enrollment summary PDF do not equal a signed clinical intake assessment.",
+        "Read the actual current release and recipient scope. A stored answer or old release does not create current permission. Shared-custody responses and an explicit denial affect clinical sharing; required school logistics remain a separate access purpose.",
+        "If assignment is blocked by insurance verification, send the task to billing/support through the normal workflow. Providers should not mark invented coverage reviews or expand their own permissions."
+      ],
+      "practice": "Explain why ‘paper packet processed,’ ‘enrollment complete’ and ‘clinical readiness complete’ can have different states on a synthetic chart.",
+      "check": "You can identify the current clinical source, outstanding setup requirements and the responsible role without treating a summary as a signature.",
+      "pitfall": "Do not change insurance to Self-Pay just to gain provider access.",
+      "sources": [
+        "frontend/src/components/clinical/NoteAidClientContextPanel.vue",
+        "frontend/src/components/clinical/NoteAidClientSetupDrawer.vue",
+        "frontend/src/components/admin/clientChart/TreatmentPlanAckPanel.vue"
+      ],
+      "slideBullets": [
+        "Confirm the assigned client and current clinical source.",
+        "Enrollment paperwork is separate from a clinical intake assessment.",
+        "Read current release decisions and route coverage blocks to billing/support."
+      ]
+    },
+    {
+      "id": "note",
+      "category": "Clinical documentation",
+      "title": "Write the note linked to the actual session",
+      "minutes": 10,
+      "summary": "Start from the appointment, review source context, save a draft and reopen the same work.",
+      "status": "Existing application workflow; service-specific fields and signing permissions apply",
+      "image": "clinical",
+      "imageAlt": "Actual structured clinical chart component rendered locally with blank fictional training inputs; not a live chart or signed record.",
+      "steps": [
+        "Open the appointment and choose its Session note / clinical note action. Review client, provider, date, start/end, duration, service code and location/POS against the actual source.",
+        "Write or dictate the source and open Note Workspace for the linked draft. Structured responses and generated narrative both require your clinical review. A generated phrase is not a finding you have assessed.",
+        "In a fresh assessment, unassessed medication and MSE fields remain blank until you answer. Use the service’s correct documentation workflow; an H-code counseling note does not acquire an assessment MSE merely because another service has it.",
+        "Save the draft, reload, and reopen the same linked note from My Work / Tasks or the appointment. Confirm your explicit answers persisted. Correct a source discrepancy through the appropriate workflow rather than silently changing historical saved metadata.",
+        "Review the final content and use the existing signature/cosign process only when the actual clinical record is ready. Training exercises stay unsigned. Saving a draft, signing a note, preparing a claim and transmitting a claim are separate events."
+      ],
+      "practice": "On an approved synthetic appointment, enter explicit fictional answers, save/reload and open the same draft from two worklists. Never sign a clinical record for training.",
+      "check": "The same draft ID and accurate appointment context remain visible; blank/unassessed fields and your explicit answers are correctly preserved.",
+      "pitfall": "Do not invent a missing historical code, POS or medication answer to make the screen look complete.",
+      "sources": [
+        "frontend/src/components/schedule/AppointmentClinicalPanel.vue",
+        "frontend/src/components/clinical/NoteAidStructuredChartPanel.vue",
+        "frontend/src/components/clinical/NoteAidWorkQueuePanel.vue"
+      ],
+      "slideBullets": [
+        "Start from the actual appointment and review its source details.",
+        "Assess and review the content; blank does not mean normal.",
+        "Save, reload and reopen the same unsigned draft from linked worklists."
+      ]
+    },
+    {
+      "id": "plan",
+      "category": "Clinical documentation",
+      "title": "Build and review an individualized treatment plan",
+      "minutes": 7,
+      "summary": "Check diagnoses, goals, objectives, original dates and reminders instead of accepting an imported or generated draft unchanged.",
+      "status": "Existing application workflow; clinical review and plan permissions apply",
+      "image": "clinical",
+      "imageAlt": "Actual structured clinical chart component rendered locally with blank fictional training inputs; not a live chart or signed record.",
+      "steps": [
+        "Open the intended client’s Treatment plan / goals. Review the presenting concerns, diagnosis and current plan before creating or importing a replacement.",
+        "For imported source, retain its stated original effective date and author. If no date is stated, review the proposed local calendar day; do not pretend it was a historical effective date.",
+        "Write individualized goals and measurable objectives, then review the interval and reminder. A starter or generated plan is a draft for clinical judgment and individualization.",
+        "Save and reload to confirm the required goal/objective content and dates. Use ordinary clinical review/signature steps; do not sign in a demonstration or overwrite another client’s existing plan to get a fresh fixture."
+      ],
+      "practice": "Review a controlled undated synthetic source. Try saving a blank required goal, record the validation, correct it and verify persistence without signing.",
+      "check": "Goals/objectives, effective date and review reminder match the reviewed source and the intended client.",
+      "pitfall": "An enrollment receipt is not a treatment plan or completed clinical assessment.",
+      "sources": [
+        "frontend/src/components/clinical/NoteAidTreatmentPlanStandaloneModal.vue",
+        "frontend/src/components/clinical/NoteAidTreatmentPlanImportReview.vue",
+        "frontend/src/components/admin/clientChart/ClientTreatmentPlansPanel.vue"
+      ],
+      "slideBullets": [
+        "Review this client’s diagnosis, concerns, goals and objectives.",
+        "Preserve stated original dates and review any proposed new date.",
+        "Check the review interval/reminder and save without a training signature."
+      ]
+    },
+    {
+      "id": "messages",
+      "category": "Communication",
+      "title": "Move sensitive conversations into secure messaging",
+      "minutes": 7,
+      "summary": "Use protected in-app communication with a clearly identified audience; secure does not mean private from other eligible family users.",
+      "status": "Existing secure messaging; new shared-family notice requires release acceptance",
+      "image": "messages",
+      "imageAlt": "Actual synthetic provider Messages screen.",
+      "steps": [
+        "Open Messages and choose the intended conversation/channel. Confirm the client, company and every named recipient before composing. Shared secure portal messages, individual ordinary email, staff messages and shared inbox tickets serve different purposes.",
+        "Shared portal secure messages and session comments in either direction are visible to all currently eligible family portal users for that child, including both parents when eligible. Read the versioned sharing notice, choose I Understand before first sending and inspect every recipient name before Send. Providers cannot hide a shared portal item from one eligible family recipient.",
+        "For an individual concern that should not be shared with that family audience, choose a private scheduled session or individual email. Ordinary individual email is separate and is not labeled or assumed to be an encrypted secure-portal channel; avoid treating it as confidential clinical communication by default. Portal messages and comments are not therapy, a therapeutic intervention or a substitute for scheduled sessions. Notification emails contain no private portal body; sign in to read authorized content.",
+        "Open attachments through the authenticated app. If an attachment fails, preserve the ticket/message ID and filename/type and report the failure. Do not make a public file link as a workaround.",
+        "Inspect communication history and its actual delivery state. Sent, queued, redirected, failed, unknown and opened mean different things. An uncertain send needs history review rather than a blind resend.",
+        "For ordinary mail, review the selected sender/reply routing and school context. A shared agency address does not justify assigning an arbitrary school. Preserve the approved mailbox cutover/fallback until the team verifies it."
+      ],
+      "practice": "Using controlled QA recipients, identify the channel and preview To/CC before any authorized send. Read an existing synthetic secure item and follow its context link.",
+      "check": "The composer names the complete eligible audience, later-added users cannot read earlier content, and communication history and attachment access remain accurately scoped.",
+      "pitfall": "Do not promise that a provider or family shared-portal message is hidden from another eligible parent. For an individual channel, deliberately choose a private scheduled session or individual ordinary email and read its privacy limits.",
+      "sources": [
+        "frontend/src/navigation/familyCommunicationPolicy.js",
+        "frontend/src/components/unifiedInbox/UnifiedInboxShell.vue",
+        "frontend/src/components/conversa/ClientSecureMessageRecords.vue",
+        "backend/src/controllers/clientSecureMessages.controller.js"
+      ],
+      "slideBullets": [
+        "Check the channel and every named recipient before Send.",
+        "Shared portal messages include all currently eligible family users.",
+        "Ordinary individual email is a separate channel.",
+        "Review delivery history before retrying an uncertain send."
+      ]
+    },
+    {
+      "id": "session-comments",
+      "category": "Communication",
+      "title": "Use AuricWell Secure Session Comments",
+      "minutes": 8,
+      "summary": "Leave one short session-linked update, edit your own comment when needed, and find the current version on the appointment and in history.",
+      "status": "Implemented in release candidate — live acceptance pending; availability has not been announced.",
+      "image": "secure-thread",
+      "imageAlt": "Actual branded Secure Session Comments component rendered with fictional fixtures, showing the session context, current comments, Edited timestamp, named audience and Edit my comment action; not live acceptance.",
+      "steps": [
+        "Open the exact scheduled occurrence and confirm the client and date/time, including when reviewing a past appointment. Choose the AuricWell secure session comments button.",
+        "Each person has one comment for that appointment and client. Write up to 250 Unicode characters, using the on-screen counter. Use secure messages for longer communication; the 250-character limit does not apply to secure messages.",
+        "Provider and family comments automatically include all currently eligible family portal users for this client, plus the authorized provider/author. Read the explicit recipient names before Send. Complete the versioned I Understand notice before your first shared portal send.",
+        "To change your own comment, choose Edit my comment, review its current text and recipient names, and save. The displayed comment identifies Edited and the updated date/time. Editing creates a new version rather than another comment from you on that appointment.",
+        "Each edited version is shared with the currently eligible audience at that update. A newly added guardian can see that updated version if eligible, but cannot read earlier versions or earlier messages. Revoked/ineligible users cannot read. Do not edit an old comment as a way to reveal its earlier versions.",
+        "Write a concise preparation reminder or update. For example: “Please bring the reframing chart to our next session.” Notification emails contain no comment body, client name or appointment details; sign in through the branded button to read the authorized content. The comment remains linked to the occurrence and its communication history.",
+        "At 7:00 AM in the provider schedule’s local timezone, eligible providers can receive the generic daily reminder when unread comments apply. Open today’s comments over My Schedule, choose Remind me in 30 minutes or Dismiss for today. After the day’s final session ends, use appointment icons/history. Opening a comment and dismissing the splash are different actions; a new or edited unread update can make a reminder appear again.",
+        "Use a private scheduled session for an individual concern that should not be shared with this eligible family audience. Ordinary individual email is available separately and is not the encrypted portal channel. Portal messages/comments are not therapy, therapeutic interventions or a substitute for scheduled sessions, and may not be read before the appointment."
+      ],
+      "practice": "In QA, review the named audience and acknowledgment, enter a brief comment and check the 250-character counter. Reopen it, edit the same comment, and verify Edited/date-time and the current version. Confirm the UI offers editing rather than a second own comment. Inspect a later-added guardian’s updated-version view without exposing an earlier version. Test the day list, reminder controls, history and past-appointment link separately.",
+      "check": "The UI identifies one own comment per appointment/client, enforces the displayed 250-character limit, shows current recipients and versioned acknowledgment, preserves edit labeling/time, and distinguishes current-version access from older-version history. Live acceptance requires actual independent evidence.",
+      "pitfall": "Comments are brief shared portal updates. Longer content belongs in secure messages, whose recipient preview and historical audience still apply. Group appointment membership never exposes another client’s comments, and an edit must not reveal earlier versions to a later-added recipient.",
+      "sources": [
+        "frontend/src/navigation/familyCommunicationPolicy.js",
+        "frontend/src/components/session-comments/",
+        "backend/src/services/secureSessionComments.service.js",
+        "backend/src/services/secureSessionCommentNotifications.service.js",
+        "User request and four supplied mockups, November 11, 2026"
+      ],
+      "additionalImages": [
+        {
+          "image": "secure-edit",
+          "alt": "Actual author-edit form rendered with fictional fixtures, including the250-character counter, current named audience and Save my edit control; not live acceptance."
+        },
+        {
+          "image": "secure-today",
+          "alt": "Actual Today’s Secure Session Comments component rendered with synthetic fixtures and links to each appointment; not live acceptance."
+        },
+        {
+          "image": "secure-ack",
+          "alt": "Actual versioned family-sharing acknowledgment shown before first send, rendered with synthetic fixtures; not live acceptance."
+        }
+      ],
+      "slideBullets": [
+        "Open the exact client’s appointment and confirm its date/time.",
+        "Review the existing comments and the full named eligible audience.",
+        "Leave one brief comment; edit your own when it needs an update."
+      ]
+    },
+    {
+      "id": "family-welcome",
+      "category": "Communication",
+      "title": "Personalize Family Welcome & Follow-Up safely",
+      "minutes": 8,
+      "summary": "Write your preferred wording once; use labeled automatic fields for the right family, provider and school.",
+      "status": "Existing pilot; agency/provider opt-in and school assignment apply",
+      "image": "account",
+      "imageAlt": "Actual application component rendered locally with fictional training fixtures; not proof of live workflow acceptance.",
+      "steps": [
+        "Open Account information and Family Welcome & Follow-Up where available. Read the pilot description and choose On or Off. Save your choice; simply editing text does not enable the plan.",
+        "Use the labeled buttons for Parent name, My name, School name, Service day and Add profile link. These insert automatic fields; keep them intact instead of typing one real family or school into reusable wording.",
+        "Preview every message and select each of your schools in the preview picker. Check your name/profile, the school, family greeting and service day. Use recommended wording if you need a safe starting point; send yourself an example only through the normal permitted action.",
+        "When enabled for new school assignments, the welcome email starts the sequence. At 48 hours, use a text only with family permission to text; otherwise the 48-hour email. The final email is at 96 hours from the welcome, another 48 hours later. A family reply stops follow-ups.",
+        "Save, reopen and confirm your exact text and setting. An existing assignment is not permission to bulk restart the sequence; do not resend prior welcome messages to repair a display discrepancy."
+      ],
+      "practice": "On your synthetic provider profile, insert automatic fields using buttons and preview two schools. Inspect for another provider’s name, a fixed school name, broken braces or an incorrect profile link before saving.",
+      "check": "Your saved wording renders the current family/provider/school values, respects text consent and stops follow-up after a reply.",
+      "pitfall": "Never paste another provider’s finished message with their real name/school into your reusable template. Use the field buttons for changing details.",
+      "sources": [
+        "frontend/src/components/school/FamilyWelcomeSettings.vue",
+        "frontend/src/components/school/FamilyWelcomeFields.vue",
+        "frontend/src/utils/familyWelcome.js"
+      ],
+      "slideBullets": [
+        "Write your own wording using the labeled automatic-field buttons.",
+        "Preview each school, your name and your profile link.",
+        "Welcome at assignment; follow-ups at 48 and 96 hours; a reply stops them."
+      ]
+    },
+    {
+      "id": "family-access",
+      "category": "Communication",
+      "title": "Help families use the portal without crossing access",
+      "minutes": 5,
+      "summary": "Each guardian uses their own account, enrollment and signatures; a pending invitation is a distinct state.",
+      "status": "Existing application workflow; legal authority, eligibility and current releases apply",
+      "image": "messages",
+      "imageAlt": "Provider communications are one entry for authorized family follow-up.",
+      "steps": [
+        "Direct a family to its own portal setup or exact owned enrollment-resume link. Missing requirements can be portal to-dos; a summary PDF does not mean every remaining form was completed.",
+        "A second guardian receives a separate invitation when the ordinary workflow calls for it. Do not share parent 1’s login or private responses. Pending own enrollment must remain distinguishable from no linked client.",
+        "For ROI/disclosure updates, use the existing authorized request controls and selected eligible guardian(s). First signed permission applies while another response is pending; an explicit denial restricts clinical sharing. Read both decisions and the current release before sharing.",
+        "Let support handle recorded failed/bounced/undelivered invitation correction through the permitted control. Sent, pending or unknown is not a reason to invent another account or resend automatically."
+      ],
+      "practice": "Explain how two guardians can be linked to the same children while keeping their own answers and signatures separate. Verify a synthetic pending guardian’s own invitation is visible.",
+      "check": "The family reaches its intended child/form, and one guardian cannot see the other’s private enrollment answers.",
+      "pitfall": "Do not treat every linked guardian as eligible to receive every clinical item.",
+      "sources": [
+        "frontend/src/components/guardian/GuardianAppointmentsPanel.vue",
+        "frontend/src/components/guardian/AuricWellPortalGuide.vue",
+        "backend/src/controllers/guardianAppointments.controller.js"
+      ],
+      "slideBullets": [
+        "Each eligible guardian uses their own account and private enrollment answers.",
+        "Distinguish pending own enrollment from no linked client.",
+        "Use current release decisions and the authorized update-request controls."
+      ]
+    },
+    {
+      "id": "tasks-supervision",
+      "category": "Team workflows",
+      "title": "Close the loop on tasks and supervision",
+      "minutes": 6,
+      "summary": "Follow the linked work item, preserve draft/signature boundaries, and use the supervisor’s actual queue.",
+      "status": "Existing application workflow; assigned responsibilities and supervisor permissions apply",
+      "image": "schedule",
+      "imageAlt": "Actual synthetic QA My Schedule, an entry point for the provider workday.",
+      "steps": [
+        "Open the assigned task and its linked client/appointment/document. Read the requested action and due date rather than marking it done from the list.",
+        "For documentation, open the existing linked draft instead of creating a second note. Resolve required fields and use normal review/cosign handoff. A task checkbox does not supply a clinical signature.",
+        "Supervisors open their own documentation queue and review the actual record under their account. A provider or admin preview is not proof of a supervisor’s access or approval.",
+        "For supervision, distinguish the scheduled meeting, participation/attendance, tracked time, supervision note and any payroll review. Report corrections through the responsible role; never alter time to meet a quota or a demonstration."
+      ],
+      "practice": "Locate an existing synthetic task and show its linked record. A supervisor demonstrates their own queue without signing an actual clinical record.",
+      "check": "Work is linked to the correct record, the responsible person can see it, and completion/signature states are accurately distinguished.",
+      "pitfall": "An empty queue may reflect filters, role, assignment or no work; it is not proof every obligation was completed.",
+      "sources": [
+        "frontend/src/components/clinical/NoteAidDocumentationQueue.vue",
+        "frontend/src/components/tasks/TasksHub.vue",
+        "frontend/src/components/schedule/SupervisionRecordPanel.vue"
+      ],
+      "slideBullets": [
+        "Open the linked record before completing a task.",
+        "Reuse the existing note draft and normal review/cosign process.",
+        "A supervisor demonstrates their own actual queue."
+      ]
+    },
+    {
+      "id": "insurance-billing",
+      "category": "Team workflows",
+      "title": "Know what belongs to billing and support",
+      "minutes": 5,
+      "summary": "Accurate identity, coverage review, clinical completion and claim transmission are separate checkpoints.",
+      "status": "Existing application workflow; payment processor additions remain deferred",
+      "image": "schedule",
+      "imageAlt": "Actual synthetic QA My Schedule, an entry point for the provider workday.",
+      "steps": [
+        "Keep client identity, service, date/time, duration and clinical documentation accurate. Report coverage/assignment blocks to the responsible billing or support staff.",
+        "Primary and secondary coverage both matter. Medicaid in either position suppresses the family’s payment-card collection in enrollment. Providers should not collect card numbers in a session comment, paper-processing field or ordinary message.",
+        "Clinical signing may prepare downstream billing work, but it is not payer submission or payment. Billing must perform its current documentation, identity, coverage and coordination checks.",
+        "Do not change codes, payer information or quantities merely to clear a warning. Use the normal correction workflow with the responsible staff. Deferred card-now / Link setup is not part of this training release."
+      ],
+      "practice": "Describe the action you would take if an assigned client’s new coverage needs review or a scheduled service is missing its correct code.",
+      "check": "The issue reaches the proper role without fabricated verification, payment data or claim submission.",
+      "pitfall": "Never store real payment-card data in comments, notes, uploaded forms or a training exercise.",
+      "sources": [
+        "frontend/src/components/schedule/ClinicalSessionBody.vue",
+        "frontend/src/components/public-intake/PublicIntakeSchoolPaymentOptions.vue",
+        "docs/auricwell/EHR_TRANSITION_TRIAL.md"
+      ],
+      "slideBullets": [
+        "Keep clinical identity, service, source time and documentation accurate.",
+        "Billing reviews primary/secondary coverage and coordination.",
+        "Never collect card numbers in comments, notes or ordinary messages.",
+        "Clinical signing, claim preparation and payer submission are separate."
+      ]
+    },
+    {
+      "id": "cutover",
+      "category": "Transition",
+      "title": "Reconcile TherapyNotes and Workspace before cutover",
+      "minutes": 10,
+      "summary": "Move one reviewed caseload at a time while retaining source access and explicit calendar/mail responsibilities.",
+      "status": "EHR Transition supervised live trial; agency/provider rollout remains explicit",
+      "image": "schedule",
+      "imageAlt": "Verify the reviewed imported agenda against the provider’s actual My Schedule.",
+      "steps": [
+        "Use Management → AuricWell → EHR Transition with the authorized team. Select the practice/provider, then resolve each existing client explicitly. Review identity conflicts instead of matching on initials alone.",
+        "Compare incoming demographics/contacts and primary/secondary insurance with existing values. Preserve chart IDs, guardians, enrollment and history. Contact import does not itself invite families or enable reminders.",
+        "Import intake/plan source with original dates and authors as unsigned historical drafts. Review client-specific medical archive volumes and their manifest; open/download every volume. A practice-wide multi-client export must not be attached to one chart.",
+        "Preview the provider’s actual week with explicit timezone, clients, services, locations and recurrence. Review conflict and school-slot matches before confirming. Exact retries should reuse saved records; do not recreate a client because an in-memory progress label reset.",
+        "Agree on the transition date and which system owns future booking, outstanding notes, old claims/balances and email routing. Retain TherapyNotes/source access until every archive/fallback is reconciled. Workspace email/calendar cutover is a separate reviewed responsibility, not an automatic effect of importing a week."
+      ],
+      "practice": "Reconcile one synthetic client and one week in the supervised rehearsal. Compare chart identity, archive completeness, appointment count and original dates before expanding.",
+      "check": "An agreed owner has verified each source/destination item, and the provider knows where to work on both sides of the transition date.",
+      "pitfall": "Do not retire source-system access merely because the import screen reports success. Source export compatibility and actual practice rehearsal still require acceptance.",
+      "sources": [
+        "docs/auricwell/EHR_TRANSITION_PLAN.md",
+        "docs/auricwell/EHR_TRANSITION_TRIAL.md",
+        "docs/auricwell/LIVE_TRIAL_2026-11-11.md"
+      ],
+      "slideBullets": [
+        "Rehearse one provider, one client and one actual week.",
+        "Resolve existing identity; preserve chart and clinical history.",
+        "Verify original dates and every medical archive volume.",
+        "Keep source access until calendar, mail and record ownership are reconciled."
+      ]
+    },
+    {
+      "id": "security-help",
+      "category": "Start here",
+      "title": "Protect access and report a useful problem",
+      "minutes": 4,
+      "summary": "Keep private information out of ordinary email and report exact context without guessing or retrying blindly.",
+      "status": "Existing application workflow; normal security controls stay enabled",
+      "image": "learning",
+      "imageAlt": "Actual application component rendered locally with fictional training fixtures; not proof of live workflow acceptance.",
+      "steps": [
+        "Use your own login, normal Unlock and agency-approved devices. Read security prompts. Do not copy passwords or private access links into tickets, slides, chat reports or screenshots.",
+        "When reporting a problem, include the screen, role, time/timezone, exact error, client/appointment/document reference and what you expected. Share only the minimum private detail through an authorized support channel.",
+        "After an uncertain submit or send, check saved state/history before retrying. A rate-limit message calls for a pause and exact report, not repeated submissions or creation of another family.",
+        "Use My Learning → On-Demand to revisit this guide. Reading it and trying a practice activity do not mark an assigned course complete or create paid training time; use the existing assigned training controls where required."
+      ],
+      "practice": "Write a synthetic issue report: ‘Provider, My Schedule, 10:15 MST, appointment QA-123; opening the note shows [exact error]; expected the existing draft.’ No patient details or secret links.",
+      "check": "Support can locate and reproduce the issue without your password, another account or an unsafe data dump.",
+      "pitfall": "A workaround that disables permission checks or exposes a public attachment is not a fix.",
+      "sources": [
+        "frontend/src/components/training/DocumentLearningCatalog.vue",
+        "frontend/src/components/ActivityProtectionPanel.vue",
+        "frontend/src/views/LoginView.vue"
+      ],
+      "slideBullets": [
+        "Use your own login, company context and normal Unlock.",
+        "Report the exact screen, time, reference and error safely.",
+        "Check saved state/history before retrying an uncertain action."
+      ]
+    }
+  ],
+  "communicationPolicySource": "frontend/src/navigation/familyCommunicationPolicy.js"
+}

@@ -796,6 +796,7 @@
             </div>
 
             <SecureMessageBanner v-if="activeMessageChannel === 'secure'" :thread-id="activeThreadId" />
+            <SecureFamilyAudience v-if="activeMessageChannel === 'secure' && activeThreadId" ref="sharedAudience" required :thread-id="activeThreadId" :agency-id="activeThreadAgencyId" :me-id="authStore.user?.id" :scope-key="activeThreadId" />
             <div class="chat-messages" ref="chatMessagesEl">
               <div v-if="chatLoading" class="chat-loading-strip" aria-label="Loading messages" />
               <div v-if="chatError" class="error">{{ chatError }}</div>
@@ -1038,7 +1039,7 @@
             </div>
 
             <p v-if="activeChannel?.can_post === false" class="muted">Only group managers can send to this group.</p>
-            <div v-else class="chat-composer">
+            <div v-else-if="activeMessageChannel !== 'secure' || !sharedAudience?.readOnly" class="chat-composer">
               <div class="composer-main">
                 <div v-if="replyRoot" class="reply-composer-banner">
                   Replying to {{ replyRoot.sender_first_name }} {{ replyRoot.sender_last_name }}
@@ -1201,6 +1202,7 @@ import { isMessagingTenant } from '../../utils/peerTenantBrand';
 import { downloadAttachment } from '../../utils/communicationAttachments';
 import ConversaBrand from '../../components/conversa/ConversaBrand.vue';
 import SecureMessageBanner from '../conversa/SecureMessageBanner.vue';
+import SecureFamilyAudience from '../session-comments/SecureFamilyAudience.vue';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
@@ -1743,6 +1745,7 @@ const q = ref('');
 const myAvailability = ref(null);
 
 const activeChatUser = ref(null);
+const sharedAudience = ref(null);
 const activeThreadId = ref(null);
 const activeThreadAgencyId = ref(null);
 const chatMessages = ref([]);
@@ -3239,21 +3242,24 @@ const loadMessages = async ({ markRead, scrollToBottom } = { markRead: true, scr
 };
 
 const send = async () => {
-  if (!activeThreadId.value) return;
+  if (!activeThreadId.value || sending.value) return;
+  const thread = activeThreadId.value;
+  if (activeMessageChannel.value === 'secure' && (!await sharedAudience.value?.prepareSend() || thread !== activeThreadId.value)) return;
   const body = draft.value.trim();
   const attachments = [...(stagedAttachments.value || [])];
   if (!body && !attachments.length) return;
   try {
     sending.value = true;
     attachError.value = '';
-    draft.value = '';
-    stagedAttachments.value = [];
     mentionSuggestions.value = [];
     reactionPickerFor.value = null;
     const payload = { body };
+    if (activeMessageChannel.value === 'secure') payload.expectedRecipientUserIds = [...(sharedAudience.value?.recipientUserIds || [])];
     if (attachments.length) payload.attachments = attachments;
     if (replyRoot.value?.id) payload.parentMessageId = replyRoot.value.id;
-    await api.post(`/chat/threads/${activeThreadId.value}/messages`, payload, { skipGlobalLoading: true });
+    await api.post(`/chat/threads/${thread}/messages`, payload, { skipGlobalLoading: true });
+    if (thread !== activeThreadId.value) return;
+    draft.value = ''; stagedAttachments.value = [];
     await loadMessages({ markRead: true, scrollToBottom: !replyRoot.value });
     if (replyRoot.value) {
       await refreshReplyPanel();
@@ -3264,6 +3270,8 @@ const send = async () => {
     if (mainTab.value === 'threads') loadThreadsInbox().catch(() => {});
     if (mainTab.value === 'mentions') loadMentionsInbox().catch(() => {});
   } catch (e) {
+    if (thread !== activeThreadId.value) return;
+    if (['FAMILY_SHARED_AUDIENCE_REVIEW_REQUIRED','FAMILY_SHARED_AUDIENCE_CHANGED'].includes(e.response?.data?.error?.code)) await sharedAudience.value?.refreshAfterAudienceChange();
     chatError.value = e.response?.data?.error?.message || 'Failed to send message';
   } finally {
     sending.value = false;

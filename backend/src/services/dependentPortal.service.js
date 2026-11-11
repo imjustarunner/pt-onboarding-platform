@@ -29,7 +29,7 @@ export async function personalOverview(userId){
 }
 export async function personalAppointments(userId,input){
  const context=await personalContext(userId,input);
- return (await listGuardianAppointments(context)).map(a=>({id:a.id,startAt:a.startAt,endAt:a.endAt,timeZone:a.timeZone||'America/Denver',providerName:a.providerName,status:a.status,modality:a.modality,joinUrl:a.joinUrl||null}));
+ return (await listGuardianAppointments(context)).map(a=>({id:a.id,startAt:a.startAt,endAt:a.endAt,timeZone:a.timeZone||'America/Denver',providerName:a.providerName,status:a.status,modality:a.modality,joinUrl:a.joinUrl||null,secureCommentsAvailable:a.secureCommentsAvailable===true}));
 }
 export async function personalPlan(userId,input){
  const context=await personalContext(userId,input);

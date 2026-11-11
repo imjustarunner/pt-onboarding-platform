@@ -1,3 +1,4 @@
+import { familyMessageVisibilitySql, currentSecureThreadFilterSql } from './familySecureMessageAccess.service.js';
 import { resolveClientForSecureRecipients, refreshClientSecureAccess } from './clientSecureConversation.service.js';
 import { protectSecurePreview } from './secureMessageBoundary.service.js';
 import { messageSender } from '../utils/messageSender.js';
@@ -1842,8 +1843,10 @@ async function loadChatTimeline({ agencyId, actorUserId, otherUserId, limit = 40
          ON p_other.thread_id = t.id AND p_other.user_id = ?
        WHERE t.thread_type IN ('direct', 'client_secure')
          AND (t.client_id IS NULL OR t.client_id = ?)
+         AND NOT EXISTS(SELECT 1 FROM family_shared_conversations fs WHERE fs.thread_id=t.id AND (fs.client_id<>${Number(clientId)||0} OR fs.agency_id<>${Number(agencyId)||0}))
+         AND NOT EXISTS(SELECT 1 FROM dependent_portal_threads dp WHERE dp.thread_id=t.id AND (dp.client_id<>${Number(clientId)||0} OR dp.agency_id<>${Number(agencyId)||0}))
        ORDER BY COALESCE(
-         (SELECT MAX(m.created_at) FROM chat_messages m WHERE m.thread_id = t.id),
+         (SELECT MAX(m.created_at) FROM chat_messages m WHERE m.thread_id = t.id AND ${familyMessageVisibilitySql(actorUserId)}),
          t.updated_at,
          t.created_at
        ) DESC`,
@@ -1857,6 +1860,8 @@ async function loadChatTimeline({ agencyId, actorUserId, otherUserId, limit = 40
          JOIN chat_thread_participants tp ON tp.thread_id = t.id
          WHERE t.agency_id = ?
            AND t.thread_type IN ('direct', 'client_secure') AND (t.client_id IS NULL OR t.client_id = ?)
+           AND NOT EXISTS(SELECT 1 FROM family_shared_conversations fs WHERE fs.thread_id=t.id AND fs.client_id<>${Number(clientId)||0})
+           AND NOT EXISTS(SELECT 1 FROM dependent_portal_threads dp WHERE dp.thread_id=t.id AND dp.client_id<>${Number(clientId)||0})
            AND tp.user_id IN (?, ?)
          GROUP BY tp.thread_id
          HAVING COUNT(DISTINCT tp.user_id) = 2
@@ -1880,7 +1885,9 @@ async function loadChatTimeline({ agencyId, actorUserId, otherUserId, limit = 40
               u.first_name AS sender_first_name, u.last_name AS sender_last_name,
               u.profile_photo_path AS sender_profile_photo_path, u.role AS sender_role, u.title AS sender_title
        FROM chat_messages m JOIN chat_threads t ON t.id = m.thread_id LEFT JOIN users u ON u.id = m.sender_user_id
-       WHERE m.thread_id IN (${ph})
+       WHERE m.thread_id IN (${ph}) AND ${familyMessageVisibilitySql(actorUserId)}
+         AND (t.message_channel<>'secure' OR t.agency_id=${Number(agencyId)||0})
+         ${clientId ? `AND NOT EXISTS(SELECT 1 FROM client_secure_message_records other_child WHERE other_child.message_id=m.id AND other_child.client_id<>${Number(clientId)})` : ''}
          ${['secure', 'internal'].includes(channel) ? `AND t.message_channel = '${channel}'` : ''}
          ${Number.isSafeInteger(Number(beforeId)) && Number(beforeId) > 0 ? 'AND m.id < ' + Number(beforeId) : ''}
          AND NOT EXISTS (SELECT 1 FROM chat_message_deletes d WHERE d.message_id = m.id AND d.user_id = ?)
@@ -2321,8 +2328,9 @@ export async function markChatThreadReadToLatest({ threadId, userId } = {}) {
   const tid = Number(threadId || 0);
   const uid = Number(userId || 0);
   if (!tid || !uid) return false;
+  await refreshClientSecureAccess(tid,uid);
   const [rows] = await pool.execute(
-    `SELECT MAX(id) AS max_id FROM chat_messages WHERE thread_id = ?`,
+    `SELECT MAX(m.id) AS max_id FROM chat_messages m WHERE thread_id = ? AND ${familyMessageVisibilitySql(uid)}`,
     [tid]
   );
   const maxId = Number(rows[0]?.max_id || 0);
@@ -2413,10 +2421,11 @@ export async function markChatThreadUnread({ threadId, userId } = {}) {
   const tid = Number(threadId || 0);
   const uid = Number(userId || 0);
   if (!tid || !uid) return false;
+  await refreshClientSecureAccess(tid,uid);
   const [rows] = await pool.execute(
-    `SELECT MAX(id) AS last_inbound
-     FROM chat_messages
-     WHERE thread_id = ?
+    `SELECT MAX(m.id) AS last_inbound
+     FROM chat_messages m
+     WHERE thread_id = ? AND ${familyMessageVisibilitySql(uid)}
        AND sender_user_id <> ?`,
     [tid, uid]
   );
@@ -4138,7 +4147,7 @@ export async function listHubConversationFeed({
            SELECT m.id
            FROM chat_messages m
            LEFT JOIN chat_message_deletes d ON d.message_id = m.id AND d.user_id = ?
-           WHERE m.thread_id = t.id
+           WHERE m.thread_id = t.id AND ${familyMessageVisibilitySql(uid)}
              AND d.message_id IS NULL
              AND m.sender_user_id <> ?
              AND (r.last_read_message_id IS NULL OR m.id > r.last_read_message_id)
@@ -4149,7 +4158,7 @@ export async function listHubConversationFeed({
            SELECT m.id
            FROM chat_messages m
            LEFT JOIN chat_message_deletes d ON d.message_id = m.id AND d.user_id = ?
-           WHERE m.thread_id = t.id AND d.message_id IS NULL
+           WHERE m.thread_id = t.id AND ${familyMessageVisibilitySql(uid)} AND d.message_id IS NULL
            ORDER BY m.id DESC
            LIMIT 1
          )`;
@@ -4174,7 +4183,7 @@ export async function listHubConversationFeed({
               (
                 SELECT COUNT(*)
                 FROM chat_messages m2
-                WHERE m2.thread_id = t.id
+                WHERE m2.thread_id = t.id AND ${familyMessageVisibilitySql(uid, 'm2')}
                   AND (r.last_read_message_id IS NULL OR m2.id > r.last_read_message_id)
                   AND m2.sender_user_id <> ?
                   AND NOT EXISTS (
@@ -4214,7 +4223,7 @@ export async function listHubConversationFeed({
     );
 
     for (const row of chatRows || []) {
-      if (row.client_id) {
+      if (row.client_id || row.thread_type === 'client_secure' || row.message_channel === 'secure') {
         try { await refreshClientSecureAccess(row.thread_id, userId); }
         catch (e) { if ([403, 404].includes(e.status)) continue; throw e; }
       }
@@ -4401,6 +4410,7 @@ export async function countHubChatUnreadThreads({ agencyId, userId, byChannel = 
   if (!uid) return byChannel ? {} : 0;
   try {
     const agencyClause = aid ? 'AND t.agency_id = ?' : '';
+    const secureAccessSql=await currentSecureThreadFilterSql(uid);
     const params = [uid, uid, uid, uid, uid];
     if (aid) params.push(aid);
     const [rows] = await pool.execute(
@@ -4411,7 +4421,7 @@ export async function countHubChatUnreadThreads({ agencyId, userId, byChannel = 
                 (
                   SELECT COUNT(*)
                   FROM chat_messages m2
-                  WHERE m2.thread_id = t.id
+                  WHERE m2.thread_id = t.id AND ${familyMessageVisibilitySql(uid, 'm2')}
                     AND (r.last_read_message_id IS NULL OR m2.id > r.last_read_message_id)
                     AND m2.sender_user_id <> ?
                     AND NOT EXISTS (
@@ -4423,7 +4433,7 @@ export async function countHubChatUnreadThreads({ agencyId, userId, byChannel = 
          JOIN chat_thread_participants tp ON tp.thread_id = t.id AND tp.user_id = ?
          LEFT JOIN chat_thread_reads r ON r.thread_id = t.id AND r.user_id = ?
          LEFT JOIN chat_thread_deletes td ON td.thread_id = t.id AND td.user_id = ?
-         WHERE td.deleted_at IS NULL
+         WHERE td.deleted_at IS NULL AND ${secureAccessSql}
            ${agencyClause}
          HAVING unread_count > 0
        ) x GROUP BY channel`,

@@ -48,6 +48,7 @@ export function accountUpdateChoices(stored,{isSchool=false}={}) {
 export const choiceAllows=(choice,channel)=>choice==='both'||choice===(channel==='sms'?'sms':'email');
 export function familyNotificationCategory(templateType) {
   const type=String(templateType||'').replace(/^trigger:/,'');
+  if(type.startsWith('secure_session_comment_notice:'))return 'messages';
   if(['session_reminder','session_confirmation','auricwell_session_reminder'].includes(type))return 'appointments';
   if(['session_change','session_cancellation'].includes(type))return 'schedule_changes';
   if(type==='school_session_notice')return 'school_sessions';

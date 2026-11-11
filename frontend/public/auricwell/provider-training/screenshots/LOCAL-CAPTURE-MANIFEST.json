@@ -1,0 +1,34 @@
+{
+  "capturedAt": "2026-11-11T13:09:33.919Z",
+  "source": "Actual application components rendered with fixture-only API adapter",
+  "liveAcceptance": false,
+  "network": "Loopback only; external requests blocked",
+  "screenshots": [
+    {
+      "name": "account",
+      "file": "account.png",
+      "viewport": "1440×1050",
+      "source": "Local actual-component synthetic preview",
+      "build": "Source checkout912a48c05 + provider training changes"
+    },
+    {
+      "name": "clinical",
+      "file": "clinical.png",
+      "viewport": "1440×1050",
+      "source": "Local actual-component synthetic preview",
+      "build": "Source checkout912a48c05 + provider training changes"
+    },
+    {
+      "name": "learning",
+      "file": "learning.png",
+      "viewport": "1440×1050",
+      "source": "Local actual-component synthetic preview",
+      "build": "Source checkout912a48c05 + provider training changes"
+    }
+  ],
+  "phone": {
+    "viewport": "390×844",
+    "horizontalOverflow": false,
+    "browser": "Chrome; not iPhone Safari acceptance"
+  }
+}

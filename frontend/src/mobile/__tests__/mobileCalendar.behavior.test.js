@@ -2,7 +2,9 @@ import {mount,flushPromises} from '@vue/test-utils';
 import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 const api=vi.hoisted(()=>({get:vi.fn(),post:vi.fn(),patch:vi.fn()}));
 vi.mock('axios',()=>({default:api}));
+vi.mock('../../services/api',()=>({default:api}));
 import Calendar from '../MobileCalendar.vue';
+import {secureCommentState,setSecureCommentsScope} from '../../components/session-comments/sessionComments';
 let w;
 const choices={agencyId:2,agencies:[{id:2,name:'Synthetic agency'}],services:[{id:9,serviceCode:'90837',name:'Psychotherapy',modality:'EITHER'}],clients:[{id:12,maskedName:'Fic* Cli*'}],locations:[{id:4,name:'Office',placeOfService:'11'}]};
 const appointment={id:60,agencyId:2,providerUserId:7,tenantServiceId:9,sourceTimezone:'America/Denver',startAt:'2026-11-11T18:00:00Z',endAt:'2026-11-11T19:00:00Z',serviceLocationId:4,modality:'IN_PERSON',participants:[{role:'client',clientId:12}]};
@@ -20,4 +22,12 @@ it('reschedules a dragged card in the displayed timezone rather than shifting it
  await start();await w.get('.calendar-toolbar input[type="date"]').setValue('2026-11-11');await flushPromises();w.get('.day-grid').element.getBoundingClientRect=()=>({top:0});
  const grip=w.get('.event-grip');for(const[type,clientY]of[['pointerdown',720],['pointermove',792],['pointerup',792]]){const event=new Event(type,{bubbles:true});Object.defineProperties(event,{pointerId:{value:1},clientY:{value:clientY},button:{value:0}});grip.element.dispatchEvent(event);}await flushPromises();
  await w.get('[role="dialog"] form').trigger('submit');await flushPromises();expect(api.patch).toHaveBeenCalledWith('/api/quick-view/schedule/appointments/60',expect.objectContaining({startAt:'2026-11-11 11:00:00',timeZone:'America/Denver'}),expect.any(Object));
+});
+it('keeps session opening separate from comments and exposes the canonical unread indicator',async()=>{
+ const item={id:'a',appointmentId:60,clientId:12,clinicalSessionId:77,agencyId:2,hasClient:true,clientMaskedName:'Fic* Cli*',startAt:appointment.startAt,endAt:appointment.endAt};
+ setSecureCommentsScope('calendar-fixture',true);api.get.mockImplementation(async url=>({data:url.endsWith('/badges')?{appointments:[{appointmentId:60,clientId:12,count:1,unreadCount:1}]}:{items:[item]}}));
+ await start();await w.get('.calendar-toolbar input[type="date"]').setValue('2026-11-11');await flushPromises();
+ await w.get('.event-open').trigger('click');expect(w.emitted('open')[0][0]).toMatchObject({appointmentId:60,clinicalSessionId:77});expect(w.emitted('comments')).toBeUndefined();
+ await w.get('[aria-label="Session comments for Fic* Cli*"]').trigger('click');expect(w.emitted('comments')[0][0]).toMatchObject({appointmentId:60,clientId:12});
+ expect(w.get('.aw-comment-button--unread').attributes('aria-label')).toContain('1 unread');await w.get('.aw-comment-button--unread').trigger('click');expect(secureCommentState.selected).toEqual({appointmentId:60,clientId:12});setSecureCommentsScope('',false);
 });

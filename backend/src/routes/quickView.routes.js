@@ -7,6 +7,8 @@ import mobileClinicalRoutes from './mobileClinical.routes.js';
 import {getMobileNoteReviewInsights} from '../controllers/clinicalNoteReviewInsights.controller.js';
 import { getQuickDeliveryReceipt, getQuickConversation, patchQuickConversation, postQuickReply, postQuickCompose, getQuickAttachment, postQuickReaction, postQuickUndo } from '../controllers/quickViewMessaging.controller.js';
 import express from 'express';
+import quickViewSessionCommentsRoutes from './quickViewSessionComments.routes.js';
+import quickViewFamilyNoticeRoutes from './quickViewFamilyNotice.routes.js';
 import multer from 'multer';
 import { getQuickMeetingLink } from '../controllers/quickViewMeeting.controller.js';
 import { authenticate } from '../middleware/auth.middleware.js';
@@ -93,6 +95,8 @@ router.post('/session/extend', postExtendSession);
 router.post('/session/logout', postLogout);
 
 // Scoped Quick View data
+router.use('/secure-session-comments', requireQuickViewSession, quickViewSessionCommentsRoutes);
+router.use('/secure-family-sharing-notice', requireQuickViewSession, quickViewFamilyNoticeRoutes);
 router.get('/presence', requireQuickViewSession, getQuickPresence);
 router.post('/presence/away', requireQuickViewSession, postQuickAway);
 router.post('/presence/clear', requireQuickViewSession, postQuickPresenceClear);

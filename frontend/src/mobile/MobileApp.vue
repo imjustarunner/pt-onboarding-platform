@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import axios from 'axios';
 import { LockKeyhole, UserRound, Fingerprint, Bell, ArrowRight, LogOut } from '@lucide/vue';
 import AuricWellBrand from '../components/auricwell/AuricWellBrand.vue';
+import {mobileLinkTarget,familySessionCommentQuery} from './mobileLinks.js';
 import {activateClinicalRecovery,clearClinicalRecovery} from './clinicalRecovery.js';
 import {activateFamilyDevice,clearFamilyDevice} from './familyContext.js';
 const AccountSecurityPanel=defineAsyncComponent(()=>import('../components/AccountSecurityPanel.vue'));
@@ -48,6 +49,15 @@ async function openMainWorkspace(target){
  document.body.appendChild(form);form.submit();form.remove();
 }
 async function openNotificationEmail(item){
+ if(item.type==='secure_session_comment' || item.related_entity_type==='secure_session_comment'){
+  let metadata=item.audience_json;try{if(typeof metadata==='string')metadata=JSON.parse(metadata);}catch{return;}
+  const target=mobileLinkTarget(metadata?.actionUrl || '',{workspaceLoginUrl:profile.value?.workspace?.loginUrl});
+  if(!target || target.query.view!=='calendar')return;
+  notificationPanel.value=false;
+  if(Number(item.agency_id)!==Number(workspace.value?.id))await switchWorkspace(item.agency_id,target.query);
+  else await router.push(target);
+  return;
+ }
  const id=Number(item.related_entity_id);if(!Number.isSafeInteger(id)||id<1)return;
  const type=item.related_entity_type,query=type==='communication_conversation'?{view:'home',conversationId:String(id)}:type==='chat_thread'?{view:'home',threadId:String(id),suite:'direct'}:type==='task'?{view:'tasks'}:type==='client'?{view:'client',clientId:String(id)}:null;
  if(!query)return;notificationPanel.value=false;
@@ -70,11 +80,11 @@ function applySession(result) {
   passcode.value='';confirmCode.value='';screen.value='workspace';
 }
 async function normalizeWorkspaceRoute() {
-  if(profile.value?.surface==='family'){const slug=profile.value.workspace?.portal_url || 'family';if(!route.path.startsWith('/mobile/family/'))await router.replace({path:`/mobile/family/${encodeURIComponent(slug)}/guardian`,query:{panel:'family'}});return;}
+  if(profile.value?.surface==='family'){const slug=profile.value.workspace?.portal_url || 'family';if(!route.path.startsWith('/mobile/family/'))await router.replace({path:`/mobile/family/${encodeURIComponent(slug)}/guardian`,query:familySessionCommentQuery(route.query)});return;}
   if(route.path==='/mobile/workspace'){if(!Object.keys(route.query).length)await router.replace({path:'/mobile/workspace',query:{view:'calendar'}});return;}
   const query={...route.query};
   await router.replace({path:'/mobile/workspace',query:{view:'calendar'}});
-  if(query.conversationId || query.threadId || query.kind)await router.push({path:'/mobile/workspace',query:Object.fromEntries(Object.entries(query).filter(([key])=>['conversationId','threadId','parentId','messageId','secure','kind','id','suite','view'].includes(key)))});
+  if(query.conversationId || query.threadId || query.kind || query.secureSessionComments || query.secureCommentAppointmentId)await router.push({path:'/mobile/workspace',query:Object.fromEntries(Object.entries(query).filter(([key])=>['conversationId','threadId','parentId','messageId','secure','kind','id','suite','view','secureSessionComments','secureCommentAppointmentId','secureCommentClientId'].includes(key)))});
 }
 async function detectSession() {
   const current=++generation;screen.value='loading';error.value='';
@@ -236,7 +246,7 @@ async function switchWorkspace(agencyId,query=null) {
   try {
     const result=await deviceRequest('POST','/workspace',{agencyId:Number(agencyId)});
     if(current!==generation || access.value?.sessionToken!==token)return;
-    if(result.profile?.surface==='family'){applySession(result);accountOpen.value=false;await router.replace({path:`/mobile/family/${encodeURIComponent(result.profile.workspace.portal_url || 'family')}/guardian`,query:{panel:'family'}});return;}
+    if(result.profile?.surface==='family'){applySession(result);accountOpen.value=false;await router.replace({path:`/mobile/family/${encodeURIComponent(result.profile.workspace.portal_url || 'family')}/guardian`,query:familySessionCommentQuery(route.query)});return;}
     // Move away from the previous tenant's resource before mounting its replacement.
     await router.replace({path:'/mobile/workspace',query:route.query.view==='mywork'?{...route.query}:{view:'mywork'}});
     applySession(result);accountOpen.value=false;
@@ -319,8 +329,8 @@ onUnmounted(()=>{
     <div v-if="privacyHidden" class="mobile-privacy-cover" role="status">AuricWell · Workspace protected</div>
     <template v-if="screen==='workspace' && access">
 
-      <MobileFamilyPortal v-if="profile?.surface==='family'" :key="access.sessionToken" :profile="profile" @logout="signOut" @account="showAccount"/>
-      <QuickView v-else :key="access.sessionToken" ref="qv" :mobile-session="access" :notification-unread="notificationUnread" :overlay-open="notificationPanel || accountOpen || privacyHidden" @locked="lock" @refresh-session="renewWorkspace" @open-main="openMainWorkspace" @account="showAccount" @notifications="showNotifications(false)" @open-workspace-item="openWorkspaceItem" @preferences="mobilePreferences=$event" />
+      <MobileFamilyPortal v-if="profile?.surface==='family'" :key="access.sessionToken" :profile="profile" :private-visible="!privacyHidden" @logout="signOut" @account="showAccount"/>
+      <QuickView v-else :key="access.sessionToken" ref="qv" :mobile-session="access" :notification-unread="notificationUnread" :privacy-hidden="privacyHidden" :overlay-open="notificationPanel || accountOpen || privacyHidden" @locked="lock" @refresh-session="renewWorkspace" @open-main="openMainWorkspace" @account="showAccount" @notifications="showNotifications(false)" @open-workspace-item="openWorkspaceItem" @preferences="mobilePreferences=$event" />
       <MobileNotifications v-if="notificationMounted && profile?.surface!=='family'" v-show="notificationPanel" :visible="notificationPanel" :preferences="mobilePreferences" :key="access.sessionToken" :request="notificationRequest" :workspace-id="workspace?.id" :start-in-settings="notificationSettings" @close="closeNotifications" @settings-change="showNotifications($event)" @changed="refreshNotificationCount" @open="openNotificationEmail" />
       <p v-if="error && !accountOpen" class="workspace-error" role="alert">{{ error }} <button @click="error=''" aria-label="Dismiss workspace error">×</button></p>
       <div v-if="accountOpen" class="mobile-overlay" @keydown.esc="accountOpen=false">

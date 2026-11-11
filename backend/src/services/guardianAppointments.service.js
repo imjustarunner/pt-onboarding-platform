@@ -141,6 +141,8 @@ export async function appointmentRequests(appointmentId, db = pool) {
 }
 export async function listGuardianAppointments({ userId, clientId, agencyId, serviceId }) {
   const client = await authorizedAppointmentClient(userId, clientId,{agencyId,serviceId});
+  const { clinicalAccess } = await import('./guardianClinicalAccess.service.js');
+  const commentAccess = await clinicalAccess({ userId, clientId, agencyId: client.agency_id });
   const params=[clientId,client.agency_id];
   let serviceFilter='';
   if(client.service){
@@ -160,6 +162,7 @@ export async function listGuardianAppointments({ userId, clientId, agencyId, ser
   const [offers] = await pool.execute('SELECT appointment_id FROM appointment_replacement_offers WHERE client_id=? AND agency_id=?', [clientId, client.agency_id]);
   const offerIds = new Set(offers.map(o => Number(o.appointment_id)));
   for (const row of rows) {
+    row.secureCommentsAvailable = commentAccess.scopes.includes('clinical_messages') && client.permissions_json?.canMessage !== false;
     row.joinUrl = await guardianAppointmentJoin(row,client,pool);
     delete row.googleMeetLink;
     row.requests = (await appointmentRequests(row.id)).filter(r => Number(r.clientId) === Number(clientId));

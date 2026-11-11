@@ -20,6 +20,11 @@ export function personalBillingRouteAllowed(method,path,clientId){
 export function dependentRouteAllowed(method,path,clientId){
  // Public address assistance has no client-record scope; normal personal-login checks remain in force.
  if(method==='POST' && /^\/api\/address-lookup\/(suggest|select)$/.test(path))return true;
+ if(method==='GET' && /^\/api\/secure-session-comments\/(today|history|badges|appointments\/\d+)$/.test(path))return true;
+ if(method==='POST' && /^\/api\/secure-session-comments\/(attention|appointments\/\d+(?:\/read)?)$/.test(path))return true;
+ if(method==='PATCH' && /^\/api\/secure-session-comments\/appointments\/\d+\/comments\/\d+$/.test(path))return true;
+ if(method==='GET' && path==='/api/secure-family-sharing-notice')return true;
+ if(method==='POST' && path==='/api/secure-family-sharing-notice/ack')return true;
  // The handler independently requires an isolated demo account and exact email recipient.
  if(method==='GET' && /^\/api\/communications\/qa-email-inbox(?:\/\d+)?$/.test(path))return true;
  if(path.startsWith('/api/dependent-portal/'))return !/\/(manage|staff)\//.test(path);

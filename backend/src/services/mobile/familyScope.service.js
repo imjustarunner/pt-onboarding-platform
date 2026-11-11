@@ -16,6 +16,11 @@ export function mobileFamilyRouteAllowed(method,path,userId){
  const route=String(path).split('?')[0].replace(/\/$/,'');
  // Address-only assistance reads no staff, client or billing data. Existing family authentication still applies.
  if(method==='POST' && /^\/api\/address-lookup\/(suggest|select)$/.test(route))return true;
+ if(method==='GET' && /^\/api\/secure-session-comments\/(today|history|badges|appointments\/\d+)$/.test(route))return true;
+ if(method==='POST' && /^\/api\/secure-session-comments\/(attention|appointments\/\d+(?:\/read)?)$/.test(route))return true;
+ if(method==='PATCH' && /^\/api\/secure-session-comments\/appointments\/\d+\/comments\/\d+$/.test(route))return true;
+ if(method==='GET' && route==='/api/secure-family-sharing-notice')return true;
+ if(method==='POST' && route==='/api/secure-family-sharing-notice/ack')return true;
  if(/^\/api\/(guardian-portal|guardian-billing|family-billing|dependent-portal)(?:\/|$)/.test(route))return true;
  if(method==='GET' && /^\/api\/(?:learning-progress\/students\/\d+|learning-recommendations\/students\/\d+|tutoring-learning-os\/clients\/\d+)(?:\/|$)/.test(route))return true;
  if(method==='GET' && /^\/api\/(?:agencies\/(?:slug\/[^/]+|portal\/[^/]+\/theme|\d+\/(?:branding|public))|icons\/[^/]+|platform-branding|dependent-portal\/status)$/.test(route))return true;

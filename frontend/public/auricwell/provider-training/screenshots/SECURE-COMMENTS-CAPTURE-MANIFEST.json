@@ -1,0 +1,67 @@
+{
+  "capturedAt": "2026-11-11T13:07:37.475Z",
+  "source": "Actual production Vue session-comment/notice/audience components; fixture-only local adapter and clearly labeled synthetic scheduling backdrop",
+  "liveAcceptance": false,
+  "network": "Loopback only; all /api and external requests blocked",
+  "policy": "250 Unicode codepoints; one comment per author/session/client; own edits with Edited timestamp; all current eligible family audience; first-send acknowledgement",
+  "screenshots": [
+    {
+      "file": "secure-thread.png",
+      "screen": "thread",
+      "viewport": "1440×1050",
+      "horizontalOverflow": false,
+      "browser": "Desktop Chrome; phone width is not actual iPhone Safari acceptance"
+    },
+    {
+      "file": "secure-edit.png",
+      "screen": "edit",
+      "viewport": "1440×1050",
+      "horizontalOverflow": false,
+      "browser": "Desktop Chrome; phone width is not actual iPhone Safari acceptance"
+    },
+    {
+      "file": "secure-today.png",
+      "screen": "today",
+      "viewport": "1440×1050",
+      "horizontalOverflow": false,
+      "browser": "Desktop Chrome; phone width is not actual iPhone Safari acceptance"
+    },
+    {
+      "file": "secure-splash.png",
+      "screen": "splash",
+      "viewport": "1440×1050",
+      "horizontalOverflow": false,
+      "browser": "Desktop Chrome; phone width is not actual iPhone Safari acceptance"
+    },
+    {
+      "file": "secure-audience.png",
+      "screen": "audience",
+      "viewport": "1440×1050",
+      "horizontalOverflow": false,
+      "browser": "Desktop Chrome; phone width is not actual iPhone Safari acceptance"
+    },
+    {
+      "file": "secure-ack.png",
+      "screen": "ack",
+      "viewport": "1440×1050",
+      "horizontalOverflow": false,
+      "browser": "Desktop Chrome; phone width is not actual iPhone Safari acceptance"
+    },
+    {
+      "file": "secure-phone.png",
+      "screen": "phone",
+      "viewport": "390×844",
+      "horizontalOverflow": false,
+      "browser": "Desktop Chrome; phone width is not actual iPhone Safari acceptance"
+    }
+  ],
+  "sourceFiles": {
+    "frontend/src/sessionCommentsPreview.js": "2aa814f2a9439eec7ffa31ba19b5128403960110deafbe70bfe8f3b466d22485",
+    "frontend/src/components/session-comments/sessionComments.js": "b8c8c62e69e357f16b043bad361f0fdc8b3820d840e9f26db62e171e75c4c9a1",
+    "frontend/src/components/session-comments/SecureSessionCommentHistory.vue": "2cd5ecf323287c7ab7d2bfb3ca2b8bd27525f4585acc8136e7479fa154a253eb",
+    "frontend/src/components/session-comments/SecureSessionCommentDialog.vue": "65cb916ea4ecb7d971c6c62e729e228b0ddaad8844e31255a2040276eba32bc7",
+    "frontend/src/components/session-comments/SecureSessionCommentsHost.vue": "72c3c674bf3b9118e8a3e985b7c22d682566f012909941f81da6adfbdd8866c9",
+    "frontend/src/components/session-comments/FamilySharingNotice.vue": "55d4e3113bf32eb94c4bc08726cef78bc368614a656810316d9e865d310ba8b6",
+    "frontend/src/components/session-comments/SecureFamilyAudience.vue": "d089be8a45fd7e16ffb31c2e96bd78866f5140eba38592d59f7f3221a13ca2a1"
+  }
+}

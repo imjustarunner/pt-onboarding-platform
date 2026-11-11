@@ -20,6 +20,8 @@
     <article v-for="a in appointments" :key="a.id" :id="`appointment-${a.id}`" tabindex="-1">
       <h3>{{ when(a.startAt, a.timeZone) }}</h3><p>{{ a.providerName }} · {{ a.modality === 'IN_PERSON' ? ft('In person') : a.modality === 'VIRTUAL' ? ft('Online') : a.modality }} · {{ ft(a.status.replaceAll('_',' ')) }}</p>
       <a v-if="a.joinUrl" :href="a.joinUrl" target="_blank" rel="noopener noreferrer" class="join-appointment">{{ ft("Join online appointment →") }}</a>
+      <SecureSessionCommentButton v-if="!preview && a.secureCommentsAvailable" :appointment-id="a.id" :client-id="clientId" />
+      <SecureSessionCommentTip v-if="!preview && a.secureCommentsAvailable" :appointment-id="a.id" :start-at="a.startAt" :user-id="authStore.user?.id" :self="authStore.user?.role === 'client'" />
       <p v-if="a.attendanceDetails">{{ a.attendanceDetails }}</p>
       <p v-else-if="a.serviceSetting">Service location: {{ a.serviceSetting.locationLabel }}</p>
       <p v-if="a.serviceSetting?.isSchool">{{ ft("No confirmation is needed. If your child will be absent, let the care team know below and report the absence to school as usual.") }}</p>
@@ -74,6 +76,11 @@ import { useFamilyLocale } from '../../composables/useFamilyLocale';
 const { ft, locale: familyLocale } = useFamilyLocale();
 import { ref, reactive, watch, nextTick } from 'vue';
 import GuardianClinicalBooking from './GuardianClinicalBooking.vue';
+import SecureSessionCommentButton from '../session-comments/SecureSessionCommentButton.vue';
+import SecureSessionCommentTip from '../session-comments/SecureSessionCommentTip.vue';
+import { useAuthStore } from '../../store/auth';
+import { getActivePinia } from 'pinia';
+const authStore = getActivePinia() ? useAuthStore() : { user: null };
 import {usePortalCareApi} from '../../composables/usePortalCareApi';
 const api=usePortalCareApi();
 const props=defineProps({clientId:{type:Number,default:null},preview:{type:Boolean,default:false},familyNotifications:Boolean});

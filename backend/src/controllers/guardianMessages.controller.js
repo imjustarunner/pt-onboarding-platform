@@ -1,3 +1,5 @@
+import { listFamilySecureHistory } from '../services/familySecureHistory.service.js';
+import { familyMessageVisibilitySql } from '../services/familySecureMessageAccess.service.js';
 import {guardianServiceContext,guardianCareContexts} from '../services/clientServiceEnrollment.service.js';
 import { refreshClientSecureAccess, ensureClientSecureConversation } from '../services/clientSecureConversation.service.js';
 import pool from '../config/database.js';
@@ -111,12 +113,21 @@ export const listGuardianMessageThreads = async (req, res, next) => {
         }
         // Keep earlier conversations accessible without moving their history
         // into a different service or adding new recipients to that history.
-        const [[prior]]=await pool.execute("SELECT id FROM chat_threads WHERE client_id=? AND agency_id=? AND service_enrollment_id=0 AND thread_type='client_secure' AND EXISTS (SELECT 1 FROM chat_messages m WHERE m.thread_id=chat_threads.id) LIMIT 1",[profile.client_id,profile.agency_id]);
+        const [[prior]]=await pool.execute("SELECT t.id FROM chat_threads t JOIN chat_thread_participants member ON member.thread_id=t.id AND member.user_id=? WHERE t.agency_id=? AND t.message_channel='secure' AND (t.client_id=? OR EXISTS(SELECT 1 FROM family_shared_conversations mapped WHERE mapped.thread_id=t.id AND mapped.client_id=?) OR EXISTS(SELECT 1 FROM client_secure_message_records recorded WHERE recorded.thread_id=t.id AND recorded.client_id=?)) AND EXISTS (SELECT 1 FROM chat_messages m WHERE m.thread_id=t.id) LIMIT 1",[req.user.id,profile.agency_id,profile.client_id,profile.client_id,profile.client_id]);
         if(prior){try{clients.push({...await guardianServiceContext({userId:req.user.id,clientId:profile.client_id,agencyId:profile.agency_id,scope:'clinical_messages'}),legacy_conversation:true});}catch(e){if(e.status!==403)throw e;}}
       }
     }
     const threads = [];
+    const seen = new Set();
     for (const c of clients || []) {
+      const appendHistory = async (excludeThreadId = null) => {
+        const history = await listFamilySecureHistory({userId:req.user.id,clientId:c.client_id,agencyId:c.agency_id,serviceId:c.service?.id,excludeThreadId});
+        for (const item of history) if (!seen.has(item.thread_id)) {
+          seen.add(item.thread_id);
+          threads.push({...item,client_label:c.full_name || c.initials || `Child #${c.client_id}`,organization_name:c.organization_name,agency_name:c.agency_name || null});
+        }
+      };
+      if (c.legacy_conversation) { await appendHistory(); continue; }
       const provider = c.service ? (c.service.provider_user_id ? {id:c.service.provider_user_id,first_name:c.service.provider_name,last_name:''} : null) : await resolveAssignedProvider(c.client_id, c.organization_id);
       if (!provider?.id) {
         threads.push({
@@ -129,6 +140,7 @@ export const listGuardianMessageThreads = async (req, res, next) => {
           thread_id: null,
           available: false
         });
+        await appendHistory();
         continue;
       }
       let threadId = null;
@@ -140,7 +152,7 @@ export const listGuardianMessageThreads = async (req, res, next) => {
       } catch {
         threadId = null;
       }
-      const [[activity]] = threadId ? await pool.execute(`SELECT MAX(m.created_at) AS last_message_at FROM chat_messages m WHERE m.thread_id=? AND NOT EXISTS(SELECT 1 FROM chat_message_deletes d WHERE d.message_id=m.id AND d.user_id=?)`,[threadId,req.user.id]) : [[null]];
+      const [[activity]] = threadId ? await pool.execute(`SELECT MAX(m.created_at) AS last_message_at FROM chat_messages m WHERE m.thread_id=? AND ${familyMessageVisibilitySql(req.user.id)} AND NOT EXISTS(SELECT 1 FROM chat_message_deletes d WHERE d.message_id=m.id AND d.user_id=?)`,[threadId,req.user.id]) : [[null]];
       threads.push({
         service_id:c.service?.id||null,service_label:c.legacy_conversation?'Previous shared conversation':c.service?.label||null,agency_name:c.agency_name||null,
         last_message_at: activity?.last_message_at || null,
@@ -158,8 +170,11 @@ export const listGuardianMessageThreads = async (req, res, next) => {
         thread_id: threadId,
         participants,
         shared: true,
-        available: !!threadId
+        available: !!threadId,
+        readOnly: false
       });
+      if (threadId) seen.add(threadId);
+      await appendHistory(threadId);
     }
 
     let emails = [];
@@ -213,10 +228,7 @@ export const replyGuardianEmail = async (req, res, next) => {
     if (req.guardianPreviewMode) {
       return res.status(403).json({ error: { message: 'Preview cannot send messages' } });
     }
-    const children = await ClientGuardian.listClientsForGuardian({guardianUserId:req.user.id});
-    if (children.some(child => child.relationship_type !== 'self')) {
-      return res.status(409).json({error:{message:'Please reply in the child’s shared care conversation so all authorized guardians can see the message.'}});
-    }
+    // Ordinary email retains its own individual mailbox permissions.
     const conversationId = parseInt(req.params.conversationId, 10);
     const { replyPortalEmail } = await import('../services/portalMailbox.service.js');
     const out = await replyPortalEmail({

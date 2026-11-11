@@ -7,18 +7,21 @@ import { recordSecureMessageEvent } from './secureMessageBoundary.service.js';
 // parent posts. One recipient's delivery failure must not suppress the others.
 export async function notifySecureThreadParticipants({ agencyId, threadId, clientId, senderUserId, messageId }, overrides = {}) {
   const d = { database: pool, refresh: refreshClientSecureAccess,
-    send: sendSecureMessageNotification, audit: recordSecureMessageEvent, ...overrides };
+    send: sendSecureMessageNotification, audit: recordSecureMessageEvent,
+    sharedAccess:async(userId,id)=>{const {familySharedConversations}=await import('./familySharedConversations.service.js');return familySharedConversations.requireAccess(userId,id);},...overrides };
   await d.refresh(threadId, senderUserId);
+  const shared=await d.sharedAccess(senderUserId,threadId);
   const [participants] = await d.database.execute(
     `SELECT u.id, u.email, u.personal_email FROM chat_thread_participants p
      JOIN users u ON u.id = p.user_id JOIN chat_threads t ON t.id = p.thread_id
      WHERE p.thread_id = ? AND t.agency_id = ? AND t.message_channel = 'secure'
-       AND t.client_id <=> ? AND p.user_id <> ?
+       AND (t.client_id <=> ? OR EXISTS(SELECT 1 FROM family_shared_conversations fs WHERE fs.thread_id=t.id AND fs.client_id=? AND fs.agency_id=t.agency_id)) AND p.user_id <> ?
        AND LOWER(u.status) IN ('active', 'active_employee')`,
-    [threadId, agencyId, clientId || null, senderUserId]
+    [threadId, agencyId, clientId || null,clientId || null,senderUserId]
   );
   const results = [];
   for (const recipient of participants) {
+    if(shared&&!shared.audienceUserIds.includes(Number(recipient.id)))continue;
     // Keep individual links even when two accounts share an email address.
     if (Number(recipient.id) === Number(senderUserId)) continue;
     const email = recipient.email || recipient.personal_email;

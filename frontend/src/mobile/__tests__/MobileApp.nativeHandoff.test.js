@@ -4,6 +4,7 @@ import {createMemoryHistory,createRouter} from 'vue-router';
 const mocks=vi.hoisted(()=>({request:vi.fn(),post:vi.fn(),get:vi.fn()}));
 vi.mock('../transport.js',()=>({native:true,apiOrigin:'https://auricwell.com',quickApiBase:'https://auricwell.com/api/quick-view',MobileDevice:{request:mocks.request,pendingNotification:async()=>({}),reveal:async()=>{},status:async()=>({biometrics:false}),addListener:async()=>({remove(){}})},mobileApi:{get:mocks.get,post:mocks.post},accountUrl:(agency,path)=>new URL(path,agency.loginUrl.replace(/login$/,'')).href,mobileRequestError:e=>e.message}));
 vi.mock('axios',()=>({default:{post:mocks.post,interceptors:{response:{use:vi.fn(),eject:vi.fn()}}}}));
+vi.mock('../../services/api',()=>({default:{get:mocks.get,post:mocks.post}}));
 import App from '../MobileApp.vue';
 it('opens the ordinary native browser destination without submitting or exposing a mobile grant',async()=>{
  const profile={surface:'staff',user:{id:1},workspace:{id:10},agencies:[{id:10,loginUrl:'https://app.itsco.health/test/login'}],appLock:{method:'none'},notifications:{enabled:false}};

@@ -3,6 +3,11 @@ import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
 import ConversaBrand from '../conversa/ConversaBrand.vue';
 import SecureMessageBanner from '../conversa/SecureMessageBanner.vue';
+import SecureFamilyAudience from '../session-comments/SecureFamilyAudience.vue';
+import { useAuthStore } from '../../store/auth';
+import { getActivePinia } from 'pinia';
+const auth = getActivePinia() ? useAuthStore() : { user: null };
+const sharedAudience = ref(null);
 import EmailDeliveryChoice from '../messages/EmailDeliveryChoice.vue';
 
 const props = defineProps({ agencyId: { type: Number, required: true }, clientId: { type: Number, required: true }, clientName: { type: String, default: '' } });
@@ -45,17 +50,20 @@ async function load() {
 function selectMethod(id) { if (busy.value) return; method.value = id; body.value = ''; subject.value = ''; error.value = ''; status.value = ''; deliveryChoice.value = null; }
 async function send(choice = null) {
   if (busy.value || loading.value || !body.value.trim() || !activeMethod.value?.available) return;
+  const current=request;
+  if(method.value==='secure'&&(!await sharedAudience.value?.prepareSend()||current!==request))return;
   busy.value = true; error.value = ''; status.value = '';
   try {
     const { data } = await api.post('/messages/hub/send', {
       agencyId: props.agencyId, personKey: method.value === 'sms' ? clientKey.value : recipientKey.value,
       clientId: props.clientId, method: method.value, body: body.value.trim(), subject: subject.value.trim(),
-      mode: 'new', newTopic: true, deliveryChoice: choice
+      mode: 'new', newTopic: true, deliveryChoice: choice, ...(method.value==='secure'?{expectedRecipientUserIds:[...(sharedAudience.value?.recipientUserIds||[])]}:{})
     }, { skipGlobalLoading: true });
     if (data?.error) throw new Error(data.error.message || 'Message was not sent.');
     status.value = data.queued || data.scheduled ? 'Message queued in Conversa. Delivery follows the recipient’s settings.' : 'Message sent through Conversa.';
     body.value = ''; subject.value = ''; deliveryChoice.value = null;
   } catch (e) {
+    if (['FAMILY_SHARED_AUDIENCE_REVIEW_REQUIRED','FAMILY_SHARED_AUDIENCE_CHANGED'].includes(e.response?.data?.error?.code)) await sharedAudience.value?.refreshAfterAudienceChange();
     if (e.response?.data?.error?.code === 'RECIPIENT_AVAILABILITY_CHOICE_REQUIRED') deliveryChoice.value = e.response.data.error.availability;
     else error.value = e.response?.data?.error?.message || e.message || 'Message could not be sent.';
   } finally { busy.value = false; }
@@ -67,15 +75,16 @@ watch(() => [props.clientId, props.agencyId], load, { immediate: true });
     <header><ConversaBrand compact /><button type="button" :disabled="busy" @click="emit('close')">Close messages</button></header>
     <p>For {{ clientName }}. Messages use the client’s existing Conversa conversation and communication permissions.</p>
     <p v-if="loading" role="status">Loading communication options…</p>
-    <label v-if="recipients.length > 1 && method !== 'sms'">Recipient
+    <label v-if="recipients.length > 1 && method === 'email'">Recipient
       <select v-model="recipientKey" :disabled="busy || loading" @change="loadRecipient(recipientKey)"><option v-for="person in recipients" :key="person.personKey" :value="person.personKey">{{ person.displayName }}{{ person.email ? ` · ${person.email}` : '' }}</option></select>
     </label>
     <div class="channels" role="group" aria-label="Communication channel"><button v-for="channel in availableMethods" :key="channel.id" type="button" :aria-pressed="method === channel.id" :disabled="busy || loading" @click="selectMethod(channel.id)">{{ channel.label }}</button></div>
     <SecureMessageBanner v-if="method === 'secure'" shared />
+    <SecureFamilyAudience v-if="method==='secure' && recipientKey" ref="sharedAudience" required :agency-id="agencyId" :client-id="clientId" :person-key="recipientKey" :me-id="auth.user?.id" :scope-key="`${clientId}:${recipientKey}`" />
     <p v-if="target">{{ method === 'secure' ? 'Shared care conversation' : `To: ${target.displayName || clientName}${address ? ` · ${address}` : ''}` }}</p>
     <p v-if="!loading && !activeMethod?.available" role="status">{{ activeMethod?.reason || 'This channel is not available for this recipient.' }}</p>
     <label v-if="method !== 'sms'">Subject<input v-model="subject" :disabled="busy" maxlength="200" /></label>
-    <label>Message<textarea v-model="body" :disabled="busy || loading || !activeMethod?.available" rows="5" maxlength="10000" placeholder="Write to the client or their selected contact…" /></label>
+    <label>Message<textarea v-model="body" :disabled="busy || loading || !activeMethod?.available" rows="5" maxlength="10000" :placeholder="method === 'secure' ? 'Write to all listed eligible recipients…' : 'Write to the selected contact…'" /></label>
     <p v-if="method === 'sms'" class="hint">Texts follow existing consent and opt-out rules. Use secure messages for private care details.</p>
     <EmailDeliveryChoice :info="deliveryChoice" :busy="busy" @choose="send($event)" @cancel="deliveryChoice = null" />
     <p v-if="error" role="alert">{{ error }}</p><p v-if="status" role="status">{{ status }}</p>
