@@ -14,6 +14,12 @@ async function load() {
     const { data } = await api.get(`/availability/providers/${props.providerId}/school-weekdays`, { params: { agencyId: props.agencyId }, skipGlobalLoading: true });
     if (current !== generation) return;
     context.value = data; choices.value = Object.fromEntries(data.days.map(day => [day.day, day.available]));
+    await nextTick();
+    if(current===generation && data.eligible) {
+      // The server records only the provider's own rendered modal. A manager
+      // preview is ignored and an email open never substitutes for this event.
+      try {await api.post(`/availability/providers/${props.providerId}/school-weekdays/opened`,{agencyId:props.agencyId},{skipGlobalLoading:true});} catch { /* Saving remains available if view tracking is temporarily offline. */ }
+    }
   } catch (e) { if (current === generation) error.value = e.response?.data?.error?.message || 'Could not load school availability.'; }
   finally { if (current === generation) loading.value = false; }
 }

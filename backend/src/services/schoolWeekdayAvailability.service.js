@@ -30,10 +30,29 @@ export async function writeSchoolWeekdays({ providerId, agencyId, days, actorId 
     }
     await db.execute(`INSERT INTO provider_public_profiles (user_id,public_details_json) VALUES (?,?)
       ON DUPLICATE KEY UPDATE public_details_json=JSON_MERGE_PATCH(COALESCE(public_details_json,JSON_OBJECT()),VALUES(public_details_json)),updated_at=CURRENT_TIMESTAMP`,
-    [providerId, JSON.stringify({ schoolWeekdaysByAgency: { [agencyId]: { days, updatedAt: new Date().toISOString(), updatedBy: actorId } } })]);
+    [providerId, JSON.stringify({ schoolWeekdaysByAgency: { [agencyId]: { days, updatedAt: new Date().toISOString(), completedAt: new Date().toISOString(), updatedBy: actorId } } })]);
     await db.commit();
   } catch (error) { await db.rollback(); throw error; } finally { db.release(); }
   return readSchoolWeekdays(providerId, agencyId, database);
+}
+
+// Called only after the signed-in provider has rendered their own modal. Reads,
+// email tracking pixels and a manager preview do not count as opening the form.
+export async function markSchoolWeekdaysOpened({ providerId, agencyId, actorId }, database = pool) {
+  if (Number(providerId) !== Number(actorId)) throw Object.assign(new Error('Only the provider can record opening their form.'), {status:403});
+  const db = await database.getConnection();
+  try {
+    await db.beginTransaction();
+    await db.execute('SELECT id FROM users WHERE id=? FOR UPDATE',[providerId]);
+    const context = await readSchoolWeekdays(providerId,agencyId,db);
+    if (!context.eligible) throw Object.assign(new Error('School availability is not enabled for this provider.'),{status:409});
+    const openedAt = context.openedAt || new Date().toISOString();
+    await db.execute(`INSERT INTO provider_public_profiles (user_id,public_details_json) VALUES (?,?)
+      ON DUPLICATE KEY UPDATE public_details_json=JSON_MERGE_PATCH(COALESCE(public_details_json,JSON_OBJECT()),VALUES(public_details_json)),updated_at=CURRENT_TIMESTAMP`,
+      [providerId,JSON.stringify({schoolWeekdaysByAgency:{[agencyId]:{openedAt}}})]);
+    await db.commit();
+    return {openedAt};
+  } catch(error) { await db.rollback(); throw error; } finally {db.release();}
 }
 
 export async function requestSchoolWeekdayUpdates({ agencyId, providerId = null, actorId }, database = pool) {

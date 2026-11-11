@@ -1695,6 +1695,16 @@ if (!isBootstrap) {
   void processPortalOnboarding();
   setInterval(processPortalOnboarding, 60*60*1000).unref();
   let credentialingRemindersBusy = false;
+  let schoolWeekdayFollowupsBusy = false;
+  const schoolWeekdayFollowupTick = async () => {
+    if(schoolWeekdayFollowupsBusy)return;
+    schoolWeekdayFollowupsBusy=true;
+    try {await (await import('./services/schoolWeekdayFollowups.service.js')).processSchoolWeekdayFollowups();}
+    catch(error) {if(error.code!=='ER_NO_SUCH_TABLE')console.error('[school weekday followups]',error.code||'processing_failed');}
+    finally {schoolWeekdayFollowupsBusy=false;}
+  };
+  void schoolWeekdayFollowupTick();
+  setInterval(schoolWeekdayFollowupTick,60000).unref();
   const credentialingReminderTick = async () => {
     if (credentialingRemindersBusy) return;
     credentialingRemindersBusy = true;

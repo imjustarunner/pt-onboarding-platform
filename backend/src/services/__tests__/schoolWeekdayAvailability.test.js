@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../../config/database.js', () => ({ default: {} }));
 vi.mock('../notificationDispatcher.service.js', () => ({ default: { dispatchPushForNotification: vi.fn(async () => ({ dispatched: false })) } }));
 import { SCHOOL_WEEKDAYS, schoolBasedFocus, schoolWeekdayContext } from '../../utils/schoolWeekdayAvailability.js';
-import { readSchoolWeekdays, writeSchoolWeekdays, requestSchoolWeekdayUpdates, updateSchoolProviderFocus } from '../schoolWeekdayAvailability.service.js';
+import { readSchoolWeekdays, writeSchoolWeekdays, requestSchoolWeekdayUpdates, updateSchoolProviderFocus,markSchoolWeekdaysOpened } from '../schoolWeekdayAvailability.service.js';
 import Dispatcher from '../notificationDispatcher.service.js';
 const choices = () => Object.fromEntries(SCHOOL_WEEKDAYS.map(day => [day, true]));
 const assigned = [{ provider_user_id: 7, school_organization_id: 10, school_name: 'Cedar', day_of_week: 'Monday' }];
@@ -100,4 +100,11 @@ it('reminds unanswered assigned-school providers after a day and then deduplicat
  expect((await requestSchoolWeekdayUpdates({agencyId:2,actorId:99},db)).skipped).toEqual([7]);
  expect(Dispatcher.dispatchPushForNotification).toHaveBeenCalledOnce();
  expect(schoolWeekdayContext({service_focus:'School-Based Counseling'},[],2).needsResponse).toBe(false);
+});
+it('tracks an actual modal opening separately from answering and preserves the first open',async()=>{
+ const first=await markSchoolWeekdaysOpened({providerId:7,agencyId:2,actorId:7},db);
+ expect((await readSchoolWeekdays(7,2,db)).needsResponse).toBe(true);
+ expect((await markSchoolWeekdaysOpened({providerId:7,agencyId:2,actorId:7},db)).openedAt).toBe(first.openedAt);
+ await expect(markSchoolWeekdaysOpened({providerId:7,agencyId:2,actorId:99},db)).rejects.toThrow('Only the provider');
+ expect(details.anotherFeature).toBe('keep');
 });

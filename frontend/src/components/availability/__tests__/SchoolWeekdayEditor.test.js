@@ -2,7 +2,7 @@ import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import Editor from '../SchoolWeekdayEditor.vue';
 import api from '../../../services/api';
-vi.mock('../../../services/api', () => ({ default: { get: vi.fn(), put: vi.fn() } }));
+vi.mock('../../../services/api', () => ({ default: { get: vi.fn(), put: vi.fn(), post: vi.fn() } }));
 const context = () => ({ eligible: true, days: ['Monday','Tuesday','Wednesday','Thursday','Friday'].map((day,i) => ({ day, status: i === 0 ? 'assigned' : 'available', available: true, schools: i === 0 ? [{ schoolOrganizationId: 10, schoolName: 'Cedar' }] : [] })) });
 let wrapper;
 beforeEach(() => { vi.resetAllMocks(); api.get.mockResolvedValue({ data: context() }); });
@@ -10,6 +10,7 @@ afterEach(() => wrapper?.unmount());
 async function render() { wrapper = mount(Editor, { props: { providerId: 7, agencyId: 2 }, global: { stubs: { Teleport: true } } }); await flushPromises(); return wrapper; }
 it('shows a five-day editor, locks assigned schools, and saves weekday choices to the shared endpoint', async () => {
   await render(); const days = wrapper.findAll('fieldset');
+  expect(api.post).toHaveBeenCalledWith('/availability/providers/7/school-weekdays/opened',{agencyId:2},expect.anything());
   expect(days).toHaveLength(5); expect(days[0].attributes('disabled')).toBeDefined(); expect(days[0].text()).toContain('Cedar');
   await days[1].findAll('button')[1].trigger('click'); await flushPromises(); expect(wrapper.findAll('fieldset')[1].classes()).toContain('unavailable');
   api.put.mockResolvedValue({ data: context() }); await wrapper.find('form').trigger('submit'); await flushPromises();
