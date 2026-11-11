@@ -52,6 +52,9 @@ export function cobFindings(response,request) {
   const cob=response.coordinationOfBenefits || {},issues=[];
   if(response.httpError)issues.push('Stedi returned an HTTP error. Review its saved response and reconcile the attempt before another paid check.');
   if(request.insuranceChangedWhileChecking)issues.push('Saved insurance changed while this check was running. Reconcile the response against the current billing profile.');
+  if(response.meta?.applicationMode && response.meta.applicationMode!=='production')issues.push('This result is not identified as a production response.');
+  const planDates=response.planDateInformation || {};
+  if((planDates.planBegin && (!validDiscoveryDate(planDates.planBegin) || planDates.planBegin>payload.encounter.dateOfService)) || (planDates.planEnd && (!validDiscoveryDate(planDates.planEnd) || planDates.planEnd<payload.encounter.dateOfService)))issues.push('Returned coverage dates do not confirm the requested date of service.');
   if(errorLists.some(v=>v!==undefined && !Array.isArray(v)) || !Array.isArray(response.benefitsInformation) || list(response.benefitsInformation).some(b=>!b || typeof b!=='object'))issues.push('The response contains unexpected field types. Review the full saved response.');
   if(errors.length)issues.push('The payer returned an error. Check the submitted policy and the saved full response.');
   if(!identityMatches)issues.push('The returned identity or member ID is missing or differs from the submitted policy. Verify it with the payer.');

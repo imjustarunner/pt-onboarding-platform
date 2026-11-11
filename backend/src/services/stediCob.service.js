@@ -110,9 +110,11 @@ export async function startCob(input,deps={}) {
   catch{request.insuranceChangedWhileChecking=true;}
   const assessment=cobFindings(response,request),encrypted=encryptFamilyBilling(response,context(reserved.row));
   const requestEncrypted=encryptFamilyBilling(request,context(reserved.row));
-  await (deps.db || pool).execute("UPDATE stedi_insurance_discoveries SET status='complete',response_encrypted=?,review_required=?,request_encrypted=? WHERE request_kind='cob' AND id=? AND agency_id=? AND client_id=?",[encrypted,assessment.reviewRequired?1:0,requestEncrypted,reserved.row.id,input.agencyId,input.clientId]);
+  // A consistent result that adds no coverage does not invalidate existing review.
+  const status=assessment.reviewRequired?'complete':'clear';
+  await (deps.db || pool).execute("UPDATE stedi_insurance_discoveries SET response_encrypted=?,review_required=?,request_encrypted=?,status=? WHERE request_kind='cob' AND id=? AND agency_id=? AND client_id=?",[encrypted,assessment.reviewRequired?1:0,requestEncrypted,status,reserved.row.id,input.agencyId,input.clientId]);
   if(assessment.reviewRequired)await (deps.queueFollowUp || queueInsuranceVerificationSafely)({...input,reason:assessment.identityMatches?'cob_unresolved':'identity_mismatch'});
-  return decodeCob({...reserved.row,status:'complete',request_encrypted:requestEncrypted,response_encrypted:encrypted,review_required:assessment.reviewRequired?1:0});
+  return decodeCob({...reserved.row,status,request_encrypted:requestEncrypted,response_encrypted:encrypted,review_required:assessment.reviewRequired?1:0});
 }
 export async function reviewCob(input,deps={}) {
   if(input.portalChecked!==true || input.coverageRecorded!==true || input.billingOrderConfirmed!==true || typeof input.reference!=='string' || input.reference.trim().length<10 || input.reference.length>500)throw billingError(409,'Confirm payer evidence, saved coverage and billing order, and record a reference explaining the resolution.');

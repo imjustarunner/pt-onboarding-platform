@@ -38,7 +38,7 @@ it('only completes an exact, active, consistent no-overlap result automatically 
  expect(cobFindings(response(),request())).toMatchObject({identityMatches:true,reviewRequired:false});
  const other={...request(),snapshot:{...snapshot,insurance:{...insurance,secondary:{memberId:'OTHER'}}}};
  expect(cobFindings(response(),other).issues.join(' ')).toContain('Another policy is already recorded');
- for(const change of [{subscriber:{...patient,memberId:'WRONG'}},{errors:[{code:'75'}]},{benefitsInformation:[]},{coordinationOfBenefits:{}},{benefitsInformation:'unexpected'},{errors:{unexpected:true}},{subscriber:{...patient,memberId:'ABC-0001',aaaErrors:[{code:'75'}]}}])expect(cobFindings({...response(),...change},request()).reviewRequired).toBe(true);
+ for(const change of [{subscriber:{...patient,memberId:'WRONG'}},{meta:{applicationMode:'test'}},{planDateInformation:{planBegin:'2026-11-11'}},{errors:[{code:'75'}]},{benefitsInformation:[]},{coordinationOfBenefits:{}},{benefitsInformation:'unexpected'},{errors:{unexpected:true}},{subscriber:{...patient,memberId:'ABC-0001',aaaErrors:[{code:'75'}]}}])expect(cobFindings({...response(),...change},request()).reviewRequired).toBe(true);
 });
 it('extracts every reported payer and order but never converts proprietary COB IDs to routing IDs',()=>{
  const r={...response(),coordinationOfBenefits:{classification:'CobInstanceExistsPrimacyUndetermined',coverageOverlap:true,instanceExists:true,primacyDetermined:false},benefitsInformation:[{code:'R',serviceTypeCodes:['30'],benefitsRelatedEntities:[{entityIdentification:'PI',entityIdentificationValue:'1006',entityIdentifier:'Primary Payer',entityName:'Other Payer'},{entityIdentification:'MI',entityIdentificationValue:'OTHER-MEMBER',entityFirstname:'Synthetic',entityLastname:'Person'}]}]};
@@ -86,7 +86,7 @@ it('uses only fixed origins, bounded JSON and no redirects or automatic transpor
 });
 it('flags a late result when saved policy details changed, while allowing unchanged clean results to complete',async()=>{
  const db={execute:vi.fn().mockResolvedValue([{affectedRows:1}])},queueFollowUp=vi.fn(),base={configured:()=>true,getPayer:async()=>payer,reserve:async()=>({row:row(),payload:request().payload}),call:async()=>response(),db,queueFollowUp};
- expect((await startCob(input(),{...base,snapshotFor:async()=>snapshot})).reviewRequired).toBe(false);expect(queueFollowUp).not.toHaveBeenCalled();
+ expect(await startCob(input(),{...base,snapshotFor:async()=>snapshot})).toMatchObject({status:'clear',reviewRequired:false});expect(queueFollowUp).not.toHaveBeenCalled();
  const changed=await startCob(input(),{...base,snapshotFor:async()=>({...snapshot,insurance:{...insurance,secondary:{memberId:'OTHER'}}})});expect(changed.reviewRequired).toBe(true);expect(changed.assessment.issues.join(' ')).toContain('changed while this check');expect(queueFollowUp).toHaveBeenCalledOnce();
 });
 it('looks up payer participation using only the saved insurer, and fails closed on unsupported payers',async()=>{

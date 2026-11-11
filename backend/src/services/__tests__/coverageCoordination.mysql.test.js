@@ -50,6 +50,8 @@ test('coverage evidence and secondary responsibility remain tenant scoped and pr
    const evidence=await listCoverageEvidence({...c,serviceDate});assert.equal(evidence.review.status,'verified');assert.equal(Number(evidence.review.has_new_evidence),0);
    assert.equal(evidence.checks[0].evidence.result.elig.eligid,'SYNTHETIC-RESPONSE');await assertCoverageCollectionSafe(1,102);
    assert.equal((await listCoverageEvidence({agencyId:2,clientId:102,serviceDate})).checks.length,0);
+   await pool.execute(`INSERT INTO stedi_insurance_discoveries(request_kind,agency_id,client_id,actor_user_id,request_key,identity_fingerprint,service_date,month_key,status,request_encrypted,review_required) VALUES('cob',1,102,99,'synthetic-cob-clear',?,'2026-09-20','2026-09','clear','synthetic-no-phi',0)`,['c'.repeat(64)]);
+   const unchanged=await listCoverageEvidence({...c,serviceDate});assert.equal(unchanged.discoveryPending,0);assert.equal(Number(unchanged.review.has_new_evidence),0);await assertCoverageCollectionSafe(1,102);
    await pool.execute('UPDATE client_coverage_checks SET completed_at=DATE_ADD(CURRENT_TIMESTAMP(6),INTERVAL 1 SECOND) WHERE id=?',[check.id]);
    assert.equal(Number((await listCoverageEvidence({...c,serviceDate})).review.has_new_evidence),1);
    await assert.rejects(assertCoverageCollectionSafe(1,102),/new eligibility/);

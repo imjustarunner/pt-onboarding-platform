@@ -57,10 +57,11 @@ silently changed.
 A consistent MemberFoundNoCob response with matching subscriber/client identity,
 matching member ID, active coverage, no errors, and no other saved policy needs
 no extra COB resolution. It does not prove that other coverage does not exist.
+It is stored with status clear and preserves an otherwise valid coverage review.
 Overlap, unknown order, errors, missing fields, or identity discrepancies create
 an urgent billing follow-up and a durable hold shared by claim readiness and
-collection checks. Coverage review cannot bypass that hold. New evidence
-invalidates earlier coverage reviews. Existing Medicaid-first guards remain.
+collection checks. Coverage review cannot bypass that hold. New findings and
+their resolution invalidate earlier coverage reviews. Medicaid-first guards remain.
 
 Billing staff resolve each reported policy, save verified coverage and Claim.MD
 routing, confirm billing order against payer evidence, and record the reference.
