@@ -1,5 +1,5 @@
 <template>
-  <details class="staff-polls" :class="{ 'needs-vote': pendingCount > 0 }" :open="opened" @toggle="opened = $event.target.open">
+  <details class="staff-polls" :class="{ 'needs-vote': pendingCount > 0, 'staff-polls--event': variant === 'event' }" :open="variant === 'event' || opened" @toggle="opened = $event.target.open">
     <summary class="poll-heading">
       <span class="poll-brand"><img :src="CONVERSA_LOGO_URL" alt="Conversa" width="132" height="35" /><span class="poll-heading-title">Team polls</span></span>
       <span class="poll-overview"><span class="poll-count" :class="{ 'poll-count--attention': pendingCount }">{{ headingStatus }}</span><span v-if="nextDeadline" class="poll-next-deadline">Next deadline · {{ moment(nextDeadline.closesAt, nextDeadline) }}</span></span>
@@ -19,6 +19,8 @@
           <header :ref="el => trackPollHeader(el, poll)" class="poll-card-header"><div><span class="poll-eyebrow">{{ isClosed(poll) ? 'Past poll' : 'Team decision' }}</span><h3 :id="`${panelId}-title-${poll.id}`">{{ poll.title }}</h3></div><span class="poll-status" :class="{ 'poll-status--voted': poll.myResponse, 'poll-status--closed': isClosed(poll) }">{{ isClosed(poll) ? 'Closed' : poll.myResponse ? 'You voted' : poll.canVote === false ? 'Open' : 'Awaiting your vote' }}</span></header>
           <div v-if="poll.closesAt || poll.closedAt" class="poll-deadline" :class="{ 'poll-deadline--soon': dueSoon(poll) }"><span aria-hidden="true">◷</span><span>{{ isClosed(poll) ? 'Voting closed' : 'Vote by' }} <time :datetime="poll.closedAt || poll.closesAt">{{ moment(poll.closedAt || poll.closesAt, poll) }}</time><strong v-if="!isClosed(poll)"> · {{ remaining(poll) }}</strong></span></div>
           <p class="poll-question">{{ poll.question }}</p>
+          <button v-if="variant === 'event'" class="poll-event-toggle" type="button" :aria-expanded="!!expandedPolls[poll.id]" :aria-controls="`${panelId}-body-${poll.id}`" @click="expandedPolls[poll.id] = !expandedPolls[poll.id]">{{ expandedPolls[poll.id] ? 'Hide poll' : isClosed(poll) ? 'View results' : poll.myResponse ? 'View your vote' : 'Vote now' }} <span aria-hidden="true">{{ expandedPolls[poll.id] ? '⌃' : '→' }}</span></button>
+          <div v-show="variant !== 'event' || expandedPolls[poll.id]" :id="`${panelId}-body-${poll.id}`">
           <div v-if="poll.myResponse" class="poll-receipt">
             <span class="poll-receipt-check" aria-hidden="true">✓</span><div><span class="poll-eyebrow">Your vote</span><strong class="poll-answer">{{ answer(poll) }}</strong><span class="poll-vote-meta">{{ sourceLabel(poll.myResponse.source) }}<template v-if="poll.myResponse.receivedAt"> · {{ moment(poll.myResponse.receivedAt, poll) }}</template></span><p v-if="poll.myResponse.excluded" class="poll-review-note">The organizer excluded this response from the totals.</p><p v-else-if="poll.myResponse.bucketKey" class="poll-review-note">Counted as {{ optionLabel(poll, poll.myResponse.bucketKey) }} after organizer review.</p></div>
           </div>
@@ -35,13 +37,14 @@
             </template>
             <p v-else class="poll-hint">{{ poll.shareResults === false ? 'The organizer has kept totals private. Your own vote is always visible here.' : 'The organizer will share totals after voting closes.' }}</p>
           </section>
-          <div v-if="poll.linkedEvent" class="poll-linked-event"><template v-if="poll.linkedEvent.available"><span class="poll-event-symbol" aria-hidden="true">▦</span><div><span class="poll-eyebrow">Linked event</span><strong>{{ poll.linkedEvent.title }}</strong><span>{{ moment(poll.linkedEvent.startsAt, poll.linkedEvent) }}</span></div><a :href="poll.linkedEvent.staffPageUrl || `/staff-events/${poll.linkedEvent.id}?agencyId=${poll.agencyId || agencyId}`">View event <span aria-hidden="true">↗</span></a></template><p v-else>Event details will appear here when available to you.</p></div>
+          <div v-if="poll.linkedEvent && variant !== 'event'" class="poll-linked-event"><template v-if="poll.linkedEvent.available"><span class="poll-event-symbol" aria-hidden="true">▦</span><div><span class="poll-eyebrow">Linked event</span><strong>{{ poll.linkedEvent.title }}</strong><span>{{ moment(poll.linkedEvent.startsAt, poll.linkedEvent) }}</span></div><a :href="poll.linkedEvent.staffPageUrl || `/staff-events/${poll.linkedEvent.id}?agencyId=${poll.agencyId || agencyId}`">View event <span aria-hidden="true">↗</span></a></template><p v-else>Event details will appear here when available to you.</p></div>
           <div v-if="!isClosed(poll) && poll.shareResults !== false" class="poll-text-preference"><label><input type="checkbox" :checked="poll.resultsText" :disabled="busy" @change="setPreference(poll, $event)" /><span>Text me the final results</span></label><p class="poll-hint">Optional · Requires poll-text opt-in. Reply NOPOLLS to stop poll texts only.</p></div>
           <section v-if="poll.canManage" class="poll-owner-controls" aria-label="Poll owner controls">
             <span class="poll-eyebrow">Owner controls</span>
             <template v-if="!isClosed(poll)"><form @submit.prevent="scheduleClosing(poll)"><label>Close automatically<input type="datetime-local" :value="closingTimes[poll.id] ?? localInput(poll.closesAt)" :disabled="busy" required @input="closingTimes[poll.id] = $event.target.value" /></label><span class="poll-hint">Your local time. You can change the schedule while voting is open.</span><button class="poll-secondary" type="submit" :disabled="busy">{{ poll.scheduledClosing ? 'Update closing time' : 'Schedule closing' }}</button></form><button class="poll-close-now" type="button" :disabled="busy" @click="closeNow(poll)">Close poll now</button></template>
             <p v-else class="poll-hint">Voting is closed. Saved responses and results remain available.</p>
           </section>
+          </div>
         </article>
       </template>
       <footer class="poll-footer"><span>Updates automatically</span><button class="poll-text-button" type="button" :disabled="busy || loading" @click="load()">{{ loading ? 'Refreshing…' : 'Refresh polls' }}</button></footer>
@@ -52,11 +55,11 @@
 import { CONVERSA_LOGO_URL } from '../../constants/conversa';
 import { ref, watch, computed, onMounted, onBeforeUnmount, getCurrentInstance, nextTick } from 'vue';
 import api from '../../services/api';
-const props = defineProps({ agencyId: { type: [Number, String], default: null }, pollId: { type: [Number, String], default: null }, linkedEventId: { type: [Number, String], default: null } });
+const props = defineProps({ agencyId: { type: [Number, String], default: null }, pollId: { type: [Number, String], default: null }, linkedEventId: { type: [Number, String], default: null }, variant: { type: String, default: 'dashboard' } });
 const panelId = `staff-polls-${getCurrentInstance().uid}`;
 const polls = ref([]), opened = ref(!!props.pollId), loading = ref(false), busy = ref(null), error = ref(''), notice = ref('');
 const showHistory = ref(false), choices = ref({}), otherReplies = ref({}), changing = ref({}), now = ref(Date.now());
-const closingTimes = ref({});
+const closingTimes = ref({}), expandedPolls = ref({});
 let context = 0, request = 0, pendingRequest = 0, timer, viewObserver;
 const pollHeaders = new Map(), viewedRecently = new Map();
 function trackPollHeader(element, poll) {
@@ -152,4 +155,8 @@ onBeforeUnmount(() => { context++; request++; clearInterval(timer); viewObserver
 </style>
 <style scoped>
 .poll-owner-controls{border-top:1px solid #e0e7f1;padding-top:16px;margin-top:16px}.poll-owner-controls form{display:grid;gap:8px}.poll-owner-controls label{display:grid;gap:6px;font-size:12px;font-weight:600;color:#344a6a}.poll-owner-controls input{width:100%;min-width:0;padding:9px;border:1px solid #b8c8df;border-radius:7px;background:#fff;color:#152c50;font:inherit}.poll-owner-controls .poll-secondary{justify-self:start;font-size:12px}.poll-close-now{margin-top:14px;padding:8px 12px;border:1px solid #e5bec5;border-radius:7px;background:#fff;color:#a02b3e;font:inherit;font-size:12px;font-weight:650;cursor:pointer}
+</style>
+
+<style scoped>
+.staff-polls--event{border:0;border-radius:0;box-shadow:none;background:transparent}.staff-polls--event>.poll-heading{display:none}.staff-polls--event .poll-content{border:0;padding:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.staff-polls--event .poll-content>:not(.poll-card){grid-column:1/-1}.staff-polls--event .poll-tabs{padding:0}.staff-polls--event .poll-card{margin:0;background:linear-gradient(120deg,#fff,#fbfcff);padding:19px;border-color:#e0e6f0}.staff-polls--event .poll-card h3{font-size:14px}.staff-polls--event .poll-question{font-size:13px;margin:14px 0}.staff-polls--event .poll-status{font-size:9px;white-space:normal}.staff-polls--event .poll-card-header{gap:12px}.staff-polls--event .poll-event-toggle{display:flex;gap:12px;align-items:center;justify-content:center;margin:12px 0 0 auto;padding:9px 14px;font:inherit;font-size:12px;font-weight:650;border:0;border-radius:9px;background:#ecf5ef;color:#1a5a47;cursor:pointer}.staff-polls--event .poll-event-toggle+div{margin-top:18px}.staff-polls--event .poll-primary{background:#1e5a4c;border-color:#1e5a4c}.staff-polls--event .poll-footer{margin-top:0}.staff-polls--event .poll-option{font-size:12px}.staff-polls--event .poll-deadline{font-size:10px;flex-wrap:wrap}.staff-polls--event .poll-empty{margin:0;padding:5px 0 10px}@media(max-width:760px){.staff-polls--event .poll-content{grid-template-columns:minmax(0,1fr)}.staff-polls--event .poll-card{padding:17px}}
 </style>

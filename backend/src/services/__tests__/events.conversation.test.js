@@ -52,6 +52,7 @@ describe('one durable event conversation',()=>{
   it('reuses the event group and synchronizes named membership without sending a message',async()=>{
     const {db,conn}=fixture();const result=await syncCompanyEventConversation({eventId:7,create:true,db});
     expect(result).toMatchObject({threadId:12,name:'Anniversary',participantCount:3});
+    expect(result.url).toBe('/messages?view=workspace&tab=dms&threadId=12&agencyId=2');
     expect(conn.execute.mock.calls.some(([sql])=>sql.startsWith('INSERT INTO chat_threads'))).toBe(false);
     expect(conn.execute.mock.calls.some(([sql])=>sql.includes('chat_messages'))).toBe(false);
     expect(conn.execute.mock.calls.find(([sql])=>sql.startsWith('INSERT IGNORE INTO chat_thread_participants'))[1]).toEqual([12,5,12,6,12,9]);

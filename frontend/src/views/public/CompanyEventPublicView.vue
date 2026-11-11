@@ -1,5 +1,5 @@
 <template>
-  <main class="event-page" :style="cssVars">
+  <main class="event-page event-experience" :style="cssVars">
     <!-- Loading / Error -->
     <div v-if="loading" class="event-centered">
       <div class="event-spinner"></div>
@@ -10,35 +10,18 @@
     </div>
 
     <template v-else-if="event">
-      <!-- Hero image -->
-      <div v-if="heroImage" class="event-hero" :style="{ backgroundImage: `url(${displayAsset(heroImage)})`, backgroundPosition: event.publicHeroFocalPoint || 'center center' }">
-        <div class="event-hero-overlay">
-          <img v-if="branding.logoUrl && !isProgramEvent" :src="displayAsset(branding.logoUrl)" alt="Logo" class="hero-logo" />
-        </div>
-      </div>
-      <!-- No hero: show branded header bar -->
-      <header v-else class="event-header-bar">
-        <img v-if="branding.logoUrl && !isProgramEvent" :src="displayAsset(branding.logoUrl)" alt="Logo" class="header-logo" />
-        <span class="header-agency">{{ branding.agencyName }}</span>
-      </header>
+      <div class="event-public-hero"><EventPageHero :event="{...event,heroImageUrl:heroImage,description:''}" :branding="branding" visibility="Public event" :status="isProgramEvent ? prettyType : registrationUnavailableMessage ? 'Registration closed' : 'Open RSVP'" /></div>
 
       <div class="event-body">
         <!-- Already-RSVPd banner -->
         <div v-if="rsvpResponse" class="rsvp-banner" :class="`rsvp-banner--${rsvpResponse}`">
-          <div class="rsvp-banner-icon">{{ rsvpResponse === 'yes' ? '🎉' : rsvpResponse === 'maybe' ? '🤔' : '😔' }}</div>
+          <div class="rsvp-banner-icon"><component :is="rsvpResponse === 'yes' ? CheckCircle2 : rsvpResponse === 'maybe' ? CircleHelp : CircleX" :size="26" aria-hidden="true" /></div>
           <div>
             <strong class="rsvp-banner-title">{{ rsvpBannerTitle }}</strong>
             <p class="rsvp-banner-body">{{ rsvpBannerBody }}</p>
           </div>
         </div>
 
-        <!-- Event title + type -->
-        <div class="event-title-row">
-          <div>
-            <p class="event-type-label">{{ prettyType }}</p>
-            <h1 class="event-title">{{ event.title }}</h1>
-          </div>
-        </div>
         <div v-if="isProgramEvent && registrationFormUrl" class="program-cta-banner">
           <div>
             <div class="program-cta-label">Ready to enroll?</div>
@@ -66,14 +49,14 @@
         <!-- Key details -->
         <div class="event-details-card">
           <div class="detail-row" v-if="event.startsAt">
-            <span class="detail-icon">📅</span>
+            <span class="detail-icon"><CalendarDays :size="22" aria-hidden="true" /></span>
             <div>
               <strong>When</strong>
               <div>{{ formatDateRange(event.startsAt, event.endsAt) }}</div>
             </div>
           </div>
           <div class="detail-row" v-if="event.locationName || event.locationAddress">
-            <span class="detail-icon">📍</span>
+            <span class="detail-icon"><MapPin :size="22" aria-hidden="true" /></span>
             <div>
               <strong>Where</strong>
               <div>{{ event.locationName }}</div>
@@ -81,28 +64,28 @@
             </div>
           </div>
           <div class="detail-row" v-if="event.locationPhone">
-            <span class="detail-icon">📞</span>
+            <span class="detail-icon"><Phone :size="22" aria-hidden="true" /></span>
             <div>
               <strong>Venue phone</strong>
               <div>{{ event.locationPhone }}</div>
             </div>
           </div>
           <div class="detail-row" v-if="event.rsvpDeadline">
-            <span class="detail-icon">⏰</span>
+            <span class="detail-icon"><Clock3 :size="22" aria-hidden="true" /></span>
             <div>
               <strong>RSVP by</strong>
               <div>{{ formatDate(event.rsvpDeadline) }}</div>
             </div>
           </div>
           <div class="detail-row" v-if="!isProgramEvent && event.guestPolicy && event.guestPolicy !== 'staff_only'">
-            <span class="detail-icon">👥</span>
+            <span class="detail-icon"><Users :size="22" aria-hidden="true" /></span>
             <div>
               <strong>Guests</strong>
               <div>{{ prettyGuestPolicy }}</div>
             </div>
           </div>
           <div class="detail-row" v-if="isProgramEvent && ageRangeLabel">
-            <span class="detail-icon">🎯</span>
+            <span class="detail-icon"><Tag :size="22" aria-hidden="true" /></span>
             <div>
               <strong>Age group</strong>
               <div>{{ ageRangeLabel }}</div>
@@ -363,6 +346,9 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import EventPageHero from '../../components/events/EventPageHero.vue';
+import { CheckCircle2, CircleHelp, CircleX, CalendarDays, MapPin, Phone, Clock3, Users, Tag } from '@lucide/vue';
+import '../../styles/eventExperience.css';
 import api from '../../services/api';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
@@ -1163,4 +1149,8 @@ onMounted(async () => {
 .event-spinner { width: 36px; height: 36px; border: 3px solid #e2e8f0; border-top-color: var(--ep-primary, #15803d); border-radius: 50%; animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .event-error { color: #b91c1c; font-size: 1rem; }
+</style>
+
+<style scoped>
+.event-page.event-experience{padding:28px 24px 40px;background:radial-gradient(ellipse at 50% 0,#fff,transparent 65%),#f1f4f9}.event-public-hero{max-width:1264px;margin:0 auto}.event-body{max-width:1264px;padding:20px 0 0;display:grid;gap:20px}.event-body>:is(.event-details-card,.event-section,.event-rsvp-card,.rsvp-banner,.program-cta-banner){margin:0;padding:26px 30px;border:1px solid #e4eaf1;border-radius:17px;background:linear-gradient(115deg,#fff,#fcfdff);box-shadow:0 4px 24px #23395507}.event-details-card{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}.event-details-card .detail-row{margin:0;border:0;padding:0;gap:13px;font-size:13px}.detail-icon{display:flex;align-items:center;color:#3c526b}.event-section .event-description{font-size:14px;line-height:1.85;white-space:pre-wrap}.event-body h2{font-size:22px;font-weight:750;color:#1b2a40;letter-spacing:-.5px}.event-body h3{color:#1d3449}.event-rsvp-card{color:#243b4f}.event-rsvp-card input,.event-rsvp-card select,.event-rsvp-card textarea{border-radius:9px;border-color:#d5dfe7}.rsvp-choices{gap:12px}.rsvp-choice{border-radius:10px;background:#f6f8f9;color:#28394f}.rsvp-choice.active,.rsvp-choice--yes.active{background:#195345;border-color:#195345;color:white}.btn-event-primary{background:var(--ep-primary,#195345);border-color:var(--ep-primary,#195345);border-radius:9px}.rsvp-banner-icon{display:flex;color:#28614e}.event-footer{margin-top:8px;color:#617289}.program-cta-banner{position:static}.event-photo-strip{margin:0}.event-strip-item{border-radius:12px}@media(max-width:650px){.event-page.event-experience{padding:16px 12px 30px}.event-body{gap:14px;padding-top:14px}.event-body>:is(.event-details-card,.event-section,.event-rsvp-card,.rsvp-banner,.program-cta-banner){padding:22px 20px;border-radius:15px}.event-details-card{grid-template-columns:minmax(0,1fr)}.event-body h2{font-size:20px}}
 </style>

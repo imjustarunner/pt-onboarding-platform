@@ -10,6 +10,19 @@ beforeEach(() => { vi.resetAllMocks(); api.get.mockResolvedValue({ data: [struct
 afterEach(() => vi.useRealTimers());
 async function panel(props = {}) { const w = mount(Panel, { props: { agencyId: 2, ...props } }); await flushPromises(); return w; }
 async function past(w) { w.get('details').element.open = true; await w.get('details').trigger('toggle'); await w.findAll('.poll-tabs button')[1].trigger('click'); }
+it('opens an event poll card in place and records a vote only on explicit submit', async () => {
+  api.get.mockResolvedValue({data:[{...poll,linkedEventId:7}]});
+  const w=await panel({linkedEventId:7,variant:'event'});
+  expect(w.get('.poll-vote-form').isVisible()).toBe(false);
+  await w.get('.poll-event-toggle').trigger('click');
+  expect(w.get('.poll-event-toggle').attributes('aria-expanded')).toBe('true');
+  expect(w.get('details').element.open).toBe(true);
+  expect(w.get('.poll-vote-form').element.parentElement.style.display).not.toBe('none');
+  await w.get('input[type=radio]').setValue(true);
+  expect(api.post).not.toHaveBeenCalled();
+  await w.get('.poll-vote-form').trigger('submit');await flushPromises();
+  expect(api.post).toHaveBeenCalledWith('/me/company-events/12/respond',{responseKey:'1',agencyId:2},{params:{agencyId:2}});
+});
 it('discovers active polls before opening, expands automatically, and advertises the next deadline with Conversa branding', async () => {
   const w = await panel();
   expect(api.get).toHaveBeenCalledWith('/me/staff-polls', { params: { agencyId: 2 }, skipGlobalLoading: true });

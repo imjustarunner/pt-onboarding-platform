@@ -39,7 +39,8 @@ export async function syncCompanyEventConversation({ eventId, create = false, db
     await conn.execute(`DELETE FROM chat_thread_participants WHERE thread_id=? AND user_id NOT IN (${members.map(() => '?').join(',')})`, [threadId, ...members]);
     await conn.execute(`INSERT IGNORE INTO chat_thread_participants (thread_id,user_id) VALUES ${members.map(() => '(?,?)').join(',')}`, members.flatMap(userId => [threadId, userId]));
     await conn.commit();
-    return { threadId: Number(threadId), agencyId: Number(event.agency_id), name: event.title, participantCount: members.length, url: `/messages?threadId=${threadId}` };
+    return { threadId: Number(threadId), agencyId: Number(event.agency_id), name: event.title, participantCount: members.length,
+      url: `/messages?view=workspace&tab=dms&threadId=${threadId}&agencyId=${event.agency_id}` };
   } catch (error) { await conn.rollback(); throw error; }
   finally { conn.release(); }
 }

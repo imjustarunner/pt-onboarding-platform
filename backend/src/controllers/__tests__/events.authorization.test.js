@@ -25,6 +25,21 @@ function privateEventFixture({ event = {}, members = [staff(7)], audience = [] }
   return record;
 }
 beforeEach(() => { vi.clearAllMocks(); saveStaffPotluckContribution.mockReset().mockResolvedValue(); });
+it('shows actual attendee names and counts only for the current private audience', async () => {
+  privateEventFixture({ members: [staff(7),staff(8),staff(99)], audience: [{audience_type:'user',target_id:7},{audience_type:'user',target_id:8}] });
+  const previous=pool.execute.getMockImplementation();
+  pool.execute.mockImplementation(async (sql,args) => sql.includes('FROM company_event_responses')
+    ? [[{user_id:7,response_key:'yes'},{user_id:8,response_key:'maybe'},{user_id:99,response_key:'yes'}]] : previous(sql,args));
+  const res=response(),next=vi.fn();
+  await getCompanyEventStaffLink({params:{id:'12',token:'a'.repeat(48)},user:{id:7,role:'provider'}},res,next);
+  expect(next).not.toHaveBeenCalled();
+  const {event}=res.json.mock.calls[0][0];
+  expect(event.attendance).toEqual({invited:2,attending:1,maybe:1});
+  expect(event.attendees).toEqual([{id:7,name:'Person 7 Staff'}]);
+  expect(event.response).toBe('yes');
+  expect(event.audienceLabel).toBe('2 invited people');
+  expect(JSON.stringify(event.attendees)).not.toMatch(/email|response_body|99/);
+});
 it('a coordinator cannot use a query parameter to export unrelated event rosters', async () => {
   const req = { params: { id: '2' }, query: { eventId: '12' }, user: { id: 7, role: 'provider' } };
   pool.execute.mockResolvedValue([[{ id: 1 }]]);

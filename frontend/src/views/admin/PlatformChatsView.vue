@@ -84,7 +84,10 @@ const canUseCommunicationsCenter = computed(() => {
   return r === 'admin' || r === 'support' || r === 'super_admin';
 });
 
-const showWorkspace = computed(() => String(route.query?.view || '').toLowerCase() === 'workspace');
+// Older notification and event links carry only a thread ID. A chat thread
+// belongs in Team chat; the email inbox cannot select it by conversation ID.
+const showWorkspace = computed(() => String(route.query?.view || '').toLowerCase() === 'workspace'
+  || /^[1-9]\d*$/.test(String(route.query?.threadId || '').replace(/^chat-/, '')));
 
 const agencyId = computed(() => {
   const q = route.query?.agencyId ? parseInt(String(route.query.agencyId), 10) : null;
