@@ -54,6 +54,14 @@ describe('personal invitation authorization',()=>{
     const result=await resolvePersonalMeetingInvitation(token,5,new Date('2026-09-28T21:59Z'));
     expect(result.joinUrl).toContain('/join/supervision/participant');expect(m.execute.mock.calls[1][0]).toContain("'DECLINED','REMOVED','CANCELLED'");
   });
+  it('keeps a current supervision eligible after its schedule window was closed',async()=>{
+    const current={...event,id:427,supervisor_user_id:3,status:'COMPLETED_PENDING_FINALIZE',start_at:'2026-11-10 19:00:00',end_at:'2026-11-10 20:00:00',participant_join_token:'current'};
+    const next={...current,id:428,status:'SCHEDULED',start_at:'2026-11-17 19:00:00',end_at:'2026-11-17 20:00:00',participant_join_token:'next'};
+    m.execute.mockImplementation(async sql=>sql.includes('SELECT * FROM meeting_email')?[[{...invite,meeting_type:'supervision'}]]:[[current,next]]);
+    expect((await resolvePersonalMeetingInvitation(token,5,new Date('2026-11-10T19:03:59Z'))).joinUrl).toContain('/current');
+    const [sql]=m.execute.mock.calls.find(([sql])=>sql.includes('SELECT s.*'));
+    expect(sql).toContain("s.status IN ('SCHEDULED','IN_PROGRESS','COMPLETED_PENDING_FINALIZE')");
+  });
   it('allows rejoining an ongoing meeting after the scheduled end time',async()=>{
     m.execute.mockImplementation(async sql=>sql.includes('SELECT * FROM meeting_email')?[[invite]]:[[{...event,has_live_presence:1}]]);
     expect((await resolvePersonalMeetingInvitation(token,5,new Date('2026-09-28T23:30Z'))).joinUrl).toContain('/participant');

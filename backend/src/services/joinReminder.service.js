@@ -285,9 +285,9 @@ export async function runJoinReminderTick({ now = new Date() } = {}) {
               CONCAT(COALESCE(sup.first_name,''), ' ', COALESCE(sup.last_name,'')) AS supervisor_name
        FROM supervision_sessions ss
        JOIN users sup ON sup.id = ss.supervisor_user_id
-       WHERE (ss.status IS NULL OR ss.status <> 'CANCELLED')
+       WHERE ss.status IN ('SCHEDULED','IN_PROGRESS','COMPLETED_PENDING_FINALIZE')
+         AND ss.live_ended_at IS NULL AND ss.finalized_at IS NULL
          AND (ss.reminder_minutes IS NOT NULL OR ss.meeting_settings_json IS NOT NULL)
-         AND ss.status='SCHEDULED'
          AND ss.start_at > ?
          AND ss.start_at < DATE_ADD(?, INTERVAL 8 DAY)
        ORDER BY ss.start_at ASC`,

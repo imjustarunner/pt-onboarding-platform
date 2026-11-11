@@ -21,6 +21,20 @@ beforeEach(()=>{vi.clearAllMocks();m.signup.mockResolvedValue({ok:true});m.signu
  if(sql.startsWith('SELECT u.id'))return [[{id:3,first_name:'Host'},{id:8,first_name:'Ada',status:'INVITED',is_required:1,participant_role:'supervisee'}]];
  return [{affectedRows:1}];
 });});
+it.each(['IN_PROGRESS','COMPLETED_PENDING_FINALIZE'])('delivers the upcoming reminder despite a prior preview or window close (%s)',async status=>{
+ await sendSupervisionEmail({session:{...session,status},user,kind:'join:5'});
+ expect(m.send).toHaveBeenCalledOnce();expect(m.sms).toHaveBeenCalledOnce();
+});
+it.each([{status:'FINALIZED'},{status:'CANCELLED'},{status:'MISSED'},{live_ended_at:'2098-12-31 18:00:00'},{finalized_at:'2098-12-31 18:00:00'}])('does not remind a closed session: %j',async closed=>{
+ expect(await sendSupervisionEmail({session:{...session,...closed},user,kind:'join:5'})).toMatchObject({skipped:true});
+ expect(m.send).not.toHaveBeenCalled();expect(m.sms).not.toHaveBeenCalled();
+});
+it('includes pending and in-progress sessions when finding upcoming day-ahead reminders',async()=>{
+ m.execute.mockResolvedValueOnce([[]]);await sendSupervisionDayAheadReminders(new Date('2098-12-31T18:00:00Z'));
+ const [sql]=m.execute.mock.calls[0];
+ expect(sql).toContain("status IN ('SCHEDULED','IN_PROGRESS','COMPLETED_PENDING_FINALIZE')");
+ expect(sql).toContain('live_ended_at IS NULL');expect(sql).toContain('finalized_at IS NULL');
+});
 it('sends branded HTML from notifications, replies to tenant leadership, and records the actual RFC id',async()=>{await sendSupervisionEmail({session,user});expect(m.send).toHaveBeenCalledWith(expect.objectContaining({senderIdentityId:6,replyToOverride:'leadership@tenant.test',templateType:'meeting_invited',to:'participant@tenant.test',attachments:[expect.objectContaining({filename:'supervision.ics'})]}));expect(m.execute).toHaveBeenCalledWith(expect.stringContaining('UPDATE supervision_email_deliveries SET delivery_status='),expect.arrayContaining(['sent','<actual@test>']));});
 it('claims delivery before sending and holds uncertain network failures for review instead of resending',async()=>{m.send.mockRejectedValue(new Error('timeout'));await expect(sendSupervisionEmail({session,user})).rejects.toThrow('timeout');const claim=m.execute.mock.calls.findIndex(([sql])=>sql.startsWith('INSERT INTO supervision_email_deliveries'));expect(claim).toBeGreaterThan(-1);expect(m.execute.mock.invocationCallOrder[claim]).toBeLessThan(m.send.mock.invocationCallOrder[0]);expect(m.execute).toHaveBeenCalledWith(expect.stringContaining("delivery_status='review'"),expect.any(Array));expect(m.release).toHaveBeenCalled();});
 it('does not duplicate a sent or uncertain delivery and honors notification opt-out',async()=>{m.execute.mockResolvedValueOnce([[{acquired:1}]]).mockResolvedValueOnce([[{delivery_status:'sent'}]]);expect((await sendSupervisionEmail({session,user})).id).toBe('already_sent');expect(m.send).not.toHaveBeenCalled();await sendSupervisionEmail({session:{...session,notify_participants:0},user});expect(m.send).not.toHaveBeenCalled();});

@@ -108,6 +108,8 @@ export async function sendMeetingScheduleChange(rawEvents, action, { scope = 'si
 }
 
 // Re-check the live roster on every click/send. Removed invitees cannot reuse an old link.
+// Closing a schedule window sets COMPLETED_PENDING_FINALIZE even before the
+// meeting starts. That attendance state must not send the email link to next week.
 export async function invitationEvents(invitation, { includeDeclined = false } = {}) {
   if (invitation.meeting_type === 'supervision') {
     const [rows] = await pool.execute(`SELECT s.*, COALESCE(s.event_timezone,(SELECT timezone FROM agencies WHERE id=s.agency_id),'America/Denver') AS event_timezone,
@@ -115,7 +117,7 @@ export async function invitationEvents(invitation, { includeDeclined = false } =
         AND presence.left_at IS NULL AND presence.last_seen_at>DATE_SUB(UTC_TIMESTAMP(),INTERVAL 2 MINUTE)) AS has_live_presence
       FROM supervision_sessions s
       JOIN supervision_sessions anchor ON anchor.id=?
-      WHERE s.agency_id=? AND s.supervisor_user_id=? AND s.status IN ('SCHEDULED','IN_PROGRESS')
+      WHERE s.agency_id=? AND s.supervisor_user_id=? AND s.status IN ('SCHEDULED','IN_PROGRESS','COMPLETED_PENDING_FINALIZE')
         AND EXISTS(SELECT 1 FROM agencies org WHERE org.id=s.agency_id AND org.is_active=1)
         AND (s.id=anchor.id OR (anchor.recurrence_series_id IS NOT NULL AND s.recurrence_series_id=anchor.recurrence_series_id))
         AND (s.supervisor_user_id=? OR s.co_facilitator_user_id=? OR s.supervisee_user_id=? OR

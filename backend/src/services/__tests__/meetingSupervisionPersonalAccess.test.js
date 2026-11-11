@@ -61,6 +61,18 @@ describe('personal supervision invitation without app sign-in', () => {
     session.end_at = '2026-10-01 14:59:00'; session.has_live_presence = 1;
     expect((await resolveSupervisionInvitationAccess(personalToken)).supervisionAccess.sessionId).toBe(9);
   });
+  it('opens the current pending-finalization session instead of next week from a series email',async()=>{
+    session.status='COMPLETED_PENDING_FINALIZE';
+    m.events.mockResolvedValue([session,{...session,id:10,status:'SCHEDULED',start_at:'2026-10-08 15:00:00',end_at:'2026-10-08 16:00:00'}]);
+    const result=await resolveSupervisionInvitationAccess(personalToken);
+    expect(result.supervisionAccess.sessionId).toBe(9);
+    expect((await validateSupervisionAccess(result.supervisionAccess.token,{sessionId:9,action:'video-token'})).sessionId).toBe(9);
+  });
+  it('moves on only after the pending session has ended without live presence',async()=>{
+    session.status='COMPLETED_PENDING_FINALIZE';session.end_at='2026-10-01 14:59:00';
+    m.events.mockResolvedValue([session,{...session,id:10,status:'SCHEDULED',start_at:'2026-10-08 15:00:00',end_at:'2026-10-08 16:00:00'}]);
+    expect((await resolveSupervisionInvitationAccess(personalToken)).supervisionAccess.sessionId).toBe(10);
+  });
   it('does not issue credentials for an ended or uninvited session', async () => {
     session.live_ended_at = '2026-10-01 14:59:00';
     await expect(grant()).rejects.toMatchObject({ status: 410 });
