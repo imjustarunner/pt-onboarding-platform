@@ -7078,9 +7078,18 @@ const approvingTimeClaimId = ref(null);
 
 const showTimeClaimReviewModal = ref(false);
 const reviewedTimeClaim = ref(null);
-const openTimeClaimReview = (c) => {
+const openTimeClaimReview = async (c) => {
   reviewedTimeClaim.value = c;
   showTimeClaimReviewModal.value = true;
+  const requestedAgencyId = agencyId.value;
+  try {
+    const { data } = await api.get(`/payroll/time-claims/${c.id}`);
+    if (showTimeClaimReviewModal.value && Number(reviewedTimeClaim.value?.id) === Number(c.id) && agencyId.value === requestedAgencyId && Number(data?.claim?.id) === Number(c.id)) {
+      reviewedTimeClaim.value = { ...c, ...data.claim };
+    }
+  } catch (e) {
+    if (agencyId.value === requestedAgencyId) pendingTimeError.value = e?.response?.data?.error?.message || 'Claim details could not be loaded. Try View again.';
+  }
 };
 const timeTargetPeriodByClaimId = ref({});
 const pendingTimeMode = ref('period'); // 'period' | 'all'

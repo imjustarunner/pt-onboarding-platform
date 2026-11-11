@@ -55,6 +55,34 @@ it('shows tier and estimate, retains only View/Approve/Reject, and moves mileage
   expect(w.text()).toContain('No pending mileage claims.');
   expect(w.text()).toContain('Payroll Admin'); expect(w.text()).toContain('Approved Mileage Claims');
 });
+it('approves without reloading every claims queue and lays out actions in one row', async () => {
+  times[0].status = 'submitted'; const w = await page('time');
+  const gets = mock.get.mock.calls.length;
+  expect(w.find('.pps-row-actions').exists()).toBe(true);
+  await button(w,'Approve').trigger('click'); await flushPromises();
+  expect(mock.get.mock.calls.length).toBe(gets);
+  expect(w.text()).toContain('No pending time claims.'); expect(w.text()).toContain('Approved Test Provider');
+});
+it('bulk approves selected claims in one request and retains a failed row with its reason', async () => {
+  vi.spyOn(window,'confirm').mockReturnValueOnce(true);
+  times = [11,12].map(id => ({ ...structuredClone(time), id, status:'submitted',target_payroll_period_id:null }));
+  const w = await page('time'); const gets=mock.get.mock.calls.length; mock.post.mockClear();
+  await w.get('[aria-label="Select all time claims"]').setValue(true);
+  mock.post.mockResolvedValue({data:{results:[{kind:'time',id:11,ok:true,claim:{...times[0],status:'approved',applied_amount:20,target_payroll_period_id:8}},{kind:'time',id:12,ok:false,error:{message:'Review the travel report first'}}]}});
+  await button(w,'Approve selected').trigger('click');await flushPromises();
+  expect(mock.post).toHaveBeenCalledOnce();expect(mock.post).toHaveBeenCalledWith('/payroll/claims/batch',expect.objectContaining({action:'approve',items:expect.arrayContaining([expect.objectContaining({id:11,targetPayrollPeriodId:8,creditsHours:1,bucket:'indirect'})])}));
+  expect(mock.get.mock.calls.length).toBe(gets);expect(w.text()).toContain('1 of 2 decisions saved');expect(w.text()).toContain('Review the travel report first');
+  expect(w.get('[aria-label="Select time claim 12 for Test Provider"]').element.checked).toBe(true);
+  expect(w.find('[aria-label="Select time claim 11 for Test Provider"]').exists()).toBe(false);
+});
+it('does not announce success on a 409 or a declined override',async()=>{
+  times=[11,12].map(id=>({...structuredClone(time),id,status:'submitted'}));const w=await page('time');
+  await button(w,'Approve').trigger('click');await flushPromises();expect(w.text()).toContain('Approved Test Provider');
+  vi.spyOn(window,'confirm').mockReturnValueOnce(false);
+  mock.patch.mockRejectedValue({response:{status:409,data:{error:{message:'Submitted after cutoff'}}}});
+  await button(w,'Approve').trigger('click');await flushPromises();
+  expect(w.text()).toContain('Submitted after cutoff');expect(w.text()).not.toContain('Approved Test Provider');expect(w.find('[aria-label="Select time claim 12 for Test Provider"]').exists()).toBe(true);
+});
 it('hides approved claims on posting and restores them after unposting and refresh', async () => {
   rows[0].status = 'approved'; rows[0].target_payroll_period_id = 8;
   const w = await page(); expect(w.findAll('tbody tr')).toHaveLength(1);

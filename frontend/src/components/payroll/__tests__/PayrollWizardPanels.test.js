@@ -20,3 +20,13 @@ it('shows confirmed delivery and sends explicit repeat copies only on click',asy
 it('keeps payroll posted while clearly reporting an email failure',async()=>{api.get.mockResolvedValue({data:{status:'failed',configured:true}});const w=mounted(Email,{periodId:912,posted:true});await flushPromises();expect(w.text()).toContain('Payroll remains posted');});
 
 it('shows explicitly targeted claims even if their old suggested period differs',async()=>{api.get.mockImplementation(async url=>({data:url.endsWith('time-claims')?[{id:8,user_id:532,claim_type:'indirect_time',hours:1,target_payroll_period_id:912,suggested_payroll_period_id:911}]:[]}));const w=mounted(Claims,{agencyId:6,periodId:912,guided:true});await flushPromises();expect(lastState(w)).toMatchObject({ready:false,pendingCount:1});expect(w.text()).not.toContain('No pending claims');});
+it('bulk selects wizard claims and removes confirmed approvals without another list request',async()=>{
+  const rows=[7,8].map(id=>({id,user_id:532,agency_id:6,status:'submitted',claim_type:'indirect_time',hours:1}));
+  api.get.mockImplementation(async url=>({data:url.endsWith('time-claims')?rows:[]}));
+  api.post.mockResolvedValue({data:{results:rows.map(c=>({kind:'time',id:c.id,ok:true,claim:{...c,status:'approved'}}))}});
+  vi.spyOn(window,'confirm').mockReturnValueOnce(true);
+  const w=mounted(Claims,{agencyId:6,periodId:912,guided:true});await flushPromises();const gets=api.get.mock.calls.length;
+  await w.get('[aria-label="Select all time claims"]').setValue(true);
+  await w.findAll('button').find(b=>b.text()==='Approve selected').trigger('click');await flushPromises();
+  expect(api.post).toHaveBeenCalledOnce();expect(api.get.mock.calls.length).toBe(gets);expect(lastState(w)).toMatchObject({ready:true,pendingCount:0});expect(w.text()).toContain('No pending claims');
+});
