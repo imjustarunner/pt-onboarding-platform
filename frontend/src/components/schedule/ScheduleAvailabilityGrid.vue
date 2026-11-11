@@ -5907,6 +5907,7 @@ import { schoolClosureBlocks } from '../../utils/schoolClosureBlocks.js';
 import { useRoute, useRouter } from 'vue-router';
 import { createCounselingSession, openCounselingFromAppointment } from '../../services/counselingApi.js';
 import { isSupervisor, canScheduleGroupSupervision } from '../../utils/helpers.js';
+import {readMobileScheduleSelection,availableMobileScheduleAction,MOBILE_SCHEDULE_QUERY_KEYS} from '../../utils/mobileScheduleSelection.js';
 import api, { apiRateLimitRetryAt } from '../../services/api';
 import { rateLimitRetryAt } from '../../utils/rateLimitRetry';
 import { officeRoomTitle } from '../../utils/officeRoomTitle.js';
@@ -7753,7 +7754,7 @@ const openQuickBook = async ({ virtual = false } = {}) => {
 const clearScheduleActionQuery = () => {
   if (!route.query?.scheduleAction) return;
   const nextQuery = { ...route.query };
-  delete nextQuery.scheduleAction;
+  for(const key of MOBILE_SCHEDULE_QUERY_KEYS)delete nextQuery[key];
   delete nextQuery.scheduleSuperviseeId;
   delete nextQuery.scheduleAgencyId;
   delete nextQuery.scheduleAppointmentId;
@@ -7803,13 +7804,38 @@ const waitForScheduleReady = async (timeoutMs = 4500) => {
 
 const consumeScheduleActionQuery = async () => {
   const action = String(route.query?.scheduleAction || '').trim().toLowerCase();
-  if (!['book', 'book_virtual', 'supervision', 'appointment'].includes(action)) return;
+  const mobileSelection=readMobileScheduleSelection(route.query);
+  if (!mobileSelection&&!['book', 'book_virtual', 'supervision', 'appointment'].includes(action)) return;
   const appointmentId = Number(route.query?.scheduleAppointmentId || 0);
   const superviseeId = Number(route.query?.scheduleSuperviseeId || 0);
   const agencyId = Number(route.query?.scheduleAgencyId || 0);
   clearScheduleActionQuery();
   // Wait for schedule/office locations so session booking can preselect an office when possible.
   await waitForScheduleReady();
+  if(mobileSelection){
+    // A mobile slot uses this same chooser/editor, including rollout and role checks.
+    // Keep the selected wall clock and its explicit timezone for this modal only.
+    mobileScheduleTimeZone.value=mobileSelection.timeZone;
+    weekStart.value=startOfWeekForPreference(mobileSelection.date);
+    showAllHours.value=true;
+    await nextTick();
+    await openSlotActionModal({dayName:dayNameForDateYmd(mobileSelection.date),hour:Math.floor(mobileSelection.start/60),minute:mobileSelection.start%60,dateYmd:mobileSelection.date,preserveSelectionRange:false,actionSource:'mobile_schedule'});
+    if(!showRequestModal.value){mobileScheduleTimeZone.value='';return;}
+    const permitted=bookingAgencyOptions.value.some(row=>Number(row.id)===mobileSelection.agencyId);
+    if(!permitted){modalError.value='This agency is no longer available for scheduling.';return;}
+    selectedActionAgencyId.value=mobileSelection.agencyId;
+    await nextTick();
+    if(mobileSelection.action==='supervision')await loadSupervisionProviders();
+    const selectedAction=availableMobileScheduleAction(visibleQuickActions.value,mobileSelection);
+    if(!selectedAction){modalError.value='This scheduling action is unavailable for your current account. Choose an available action.';return;}
+    onQuickActionSelect(selectedAction);
+    await nextTick();
+    modalHour.value=Math.floor(mobileSelection.start/60);modalStartHour.value=modalHour.value;modalStartMinute.value=mobileSelection.start%60;
+    modalEndHour.value=Math.floor(mobileSelection.end/60);modalEndMinute.value=mobileSelection.end%60;
+    officeAssignStartHour.value=modalHour.value;officeAssignEndHour.value=modalEndHour.value;
+    modalContext.value={...modalContext.value,dateYmd:mobileSelection.date,agencyId:mobileSelection.agencyId};
+    return;
+  }
   if (action === 'appointment' && appointmentId) {
     try {
       const {data} = await api.get(`/appointments/${appointmentId}`);
@@ -8023,7 +8049,7 @@ watch(
   () => String(route.query?.scheduleAction || ''),
   (action) => {
     const a = String(action || '').trim().toLowerCase();
-    if (a === 'book' || a === 'book_virtual') {
+    if (a === 'book' || a === 'book_virtual' || a === 'supervision' || a === 'appointment' || readMobileScheduleSelection(route.query)) {
       void consumeScheduleActionQuery();
     }
   }
@@ -19945,7 +19971,10 @@ watch(hasSingleAssignedOffice, (single) => {
 });
 
 /** IANA timezone for the selected (or first) office — schedule wall clock source of truth. */
+const mobileScheduleTimeZone=ref('');
+watch(showRequestModal,open=>{if(!open)mobileScheduleTimeZone.value='';});
 const bookingTimezoneIana = computed(() => {
+  if(mobileScheduleTimeZone.value)return mobileScheduleTimeZone.value;
   const offices = officeLocations.value || [];
   const selectedId = Number(selectedOfficeLocationId.value || modalContext.value?.officeLocationId || 0);
   const selected = selectedId > 0

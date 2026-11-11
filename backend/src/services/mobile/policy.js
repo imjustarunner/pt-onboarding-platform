@@ -9,6 +9,7 @@ export const MOBILE_CLIENTS = Object.freeze({
 export const DEVICE_IDLE_MS = 90 * 24 * 60 * 60 * 1000;
 // Local unlock/continued activity cannot extend primary account authentication.
 export const PRIMARY_AUTH_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+export const MOBILE_INACTIVITY_MS = 60 * 60 * 1000;
 export const MAX_CODE_ATTEMPTS = 5;
 export const STAFF_ROLES = new Set([...workforceRoles,'clinical_director','school_staff','school_admin','schedule_manager']);
 export const digest = value => crypto.createHash('sha256').update(String(value)).digest('hex');

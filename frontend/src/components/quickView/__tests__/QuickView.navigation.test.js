@@ -324,3 +324,55 @@ describe('Quick View mobile navigation', () => {
 it('opens the full navigation from the brand shortcut, including tools already pinned below',async()=>{
  await wrapper.get('[aria-label="All workspace options"]').trigger('click');expect(moreTools().isVisible()).toBe(true);const labels=moreTools().findAll('.qv-tool-card').map(buttonName);expect(labels).toEqual(expect.arrayContaining(['Today','Messages','Tasks','My Work','Note Workspace','Presence','Contacts']));
 });
+
+async function mobileWorkspace(notificationUnread=760){
+ wrapper.unmount();
+ wrapper=shallowMount(QuickView,{attachTo:document.body,props:{notificationUnread,mobileSession:{sessionToken:'synthetic-device',userId:5,agencyId:2,expiresAt:'2099-01-01T00:00:00Z',profile:{workspace:{name:'Synthetic agency'},appLock:{method:'code'}}}}});
+ await flushPromises();
+ const state=wrapper.vm.$.setupState;
+ state.workspacePreferences={...state.workspacePreferences,navigationSlots:4,pinnedNavigation:['calendar','home','tasks','mywork']};
+ state.mobileCounts={all:{unread:313}};state.workspaceBadges={tasks:20,mywork:15};
+ await flushPromises();return state;
+}
+
+it('explains the More total with individual unread and to-do card counts without double-counting pinned views',async()=>{
+ const state=await mobileWorkspace();await navButton('More').trigger('click');
+ expect(moreTools().get('[data-count-for="notifications"]').text()).toBe('760 unread');
+ expect(moreTools().get('[data-count-for="home"]').text()).toBe('313 unread');
+ expect(moreTools().get('[data-count-for="tasks"]').text()).toBe('20 to do');
+ expect(moreTools().get('[data-count-for="mywork"]').text()).toBe('15 to do');
+ expect(navButton('More').get('.qv-nav-badge').text()).toBe('760');
+ expect(moreTools().get('.qv-more-count-note').text()).toContain('760');
+ await wrapper.setProps({notificationUnread:759});state.workspaceBadges={tasks:19,mywork:15};
+ state.workspacePreferences={...state.workspacePreferences,navigationSlots:3};await flushPromises();
+ expect(navButton('More').get('.qv-nav-badge').text()).toBe('774');
+ expect(moreTools().get('[data-count-for="tasks"]').text()).toBe('19 to do');
+});
+
+it('shows unknown hidden counts as updating and preserves known work counts after a failed refresh',async()=>{
+ const state=await mobileWorkspace(null);await navButton('More').trigger('click');
+ expect(navButton('More').get('.qv-nav-badge').text()).toBe('…');
+ expect(moreTools().get('.qv-more-count-note').text()).toContain('Updating counts');
+ expect(moreTools().get('[data-count-for="notifications"]').text()).toBe('… unread');
+ axios.get.mockRejectedValueOnce(new Error('Temporary network failure'));
+ await state.loadWorkspaceBadges(true);await flushPromises();
+ expect(state.workspaceBadges).toEqual({tasks:20,mywork:15});
+ await wrapper.setProps({notificationUnread:0});
+ expect(navButton('More').find('.qv-nav-badge').exists()).toBe(false);
+ expect(moreTools().get('.qv-more-count-note').text()).toContain('0 unread or to do');
+});
+
+it('lets Today own the viewport without an outer heading, and releases it for More',async()=>{
+ const state=await mobileWorkspace();state.tab='calendar';await flushPromises();
+ expect(wrapper.get('.qv').classes()).toContain('qv-mobile-calendar');
+ expect(wrapper.find('.qv-page-heading').exists()).toBe(false);
+ expect(wrapper.findComponent({name:'MobileCalendar'}).props('showIntro')).toBe(true);
+ await navButton('More').trigger('click');expect(wrapper.get('.qv').classes()).not.toContain('qv-mobile-calendar');
+});
+
+it('synchronizes the server inactivity deadline with the parent after activity and extension',async()=>{
+ const state=await mobileWorkspace();const deadline='2099-01-01T00:10:00Z';
+ axios.post.mockResolvedValue({data:{expiresAt:deadline}});
+ await wrapper.get('[aria-label="Extend session by 10 minutes"]').trigger('click');await flushPromises();
+ expect(state.expiresAt).toBe(deadline);expect(wrapper.emitted('session-expiry').at(-1)).toEqual([deadline]);
+});

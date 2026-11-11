@@ -1,7 +1,7 @@
 import {beforeAll,afterAll,beforeEach,it,expect,vi} from 'vitest';
 import express from 'express';
 import cookieParser from 'cookie-parser';
-const mocks=vi.hoisted(()=>({execute:vi.fn(),access:vi.fn(),permitted:vi.fn(),exchange:vi.fn(),authorize:vi.fn(),device:vi.fn(),unlock:vi.fn(),configureLock:vi.fn(),resume:vi.fn(),lockInfo:row=>({method:row.quick_code_hash?'code':'none',hasCode:!!row.quick_code_hash})}));
+const mocks=vi.hoisted(()=>({execute:vi.fn(),access:vi.fn(),permitted:vi.fn(),exchange:vi.fn(),authorize:vi.fn(),device:vi.fn(),unlock:vi.fn(),configureLock:vi.fn(),resume:vi.fn(),lock:vi.fn(),lockInfo:row=>({method:row.quick_code_hash?'code':'none',hasCode:!!row.quick_code_hash})}));
 vi.mock('../../../middleware/auth.middleware.js',()=>({authenticate:(req,_res,next)=>{req.user={id:1,switchedFromUserId:req.get('X-Test-Impersonating')?2:null};req.sessionSecurity={key:'server-verification-key'};req.authClaims={iat:1794150000,authMethod:'google',demoMode:req.get('X-Test-Demo')==='1',testAccountSwitch:req.get('X-Test-Switch')==='1'};next();}}));
 vi.mock('../../../middleware/loginProtection.middleware.js',()=>({sharedLoginLimiter:()=>((_req,_res,next)=>next())}));
 vi.mock('../session.service.js',()=>({mobileSessions:mocks}));
@@ -74,3 +74,6 @@ it('keeps verified enrollment context server-owned instead of accepting a client
  const response=await post('/authorize',{expectedUserId:1,agencyId:10,primaryAuthentication:{sessionKey:'forged',authMethod:'google',issuedAt:9999999999}});
  expect(response.status).toBe(200);expect(mocks.authorize).toHaveBeenCalledWith(expect.objectContaining({primaryAuthentication:{sessionKey:'server-verification-key',authMethod:'google',issuedAt:1794150000}}));
 });
+
+it('passes the retained short token to resume without using a code or primary exchange',async()=>{mocks.resume.mockResolvedValue({sessionToken:'same-short',expiresAt:'2026-11-11T17:00:00Z'});const response=await post('/resume',{}, {'X-Quick-View-Session':'same-short',Cookie:'__Secure-auricwell_mobile_device=existing-device'});expect(response.status).toBe(200);expect(mocks.resume).toHaveBeenCalledWith('existing-device',{sessionToken:'same-short'});expect(mocks.unlock).not.toHaveBeenCalled();expect(mocks.exchange).not.toHaveBeenCalled();});
+it('clears the device activity window on explicit lock without deleting its durable cookie',async()=>{mocks.lock.mockResolvedValue({locked:true});const response=await post('/lock',{}, {Cookie:'__Secure-auricwell_mobile_device=existing-device'});expect(response.status).toBe(200);expect(mocks.lock).toHaveBeenCalledWith('existing-device');expect(response.headers.get('set-cookie')).toBeNull();});

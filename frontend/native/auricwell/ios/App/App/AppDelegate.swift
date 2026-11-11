@@ -46,8 +46,8 @@ class AuricwellDevice: CAPPlugin, CAPBridgedPlugin, ASWebAuthenticationPresentat
         let session = URLSession(configuration: config, delegate: NoRedirect(), delegateQueue: nil)
         session.dataTask(with: request) { bytes, response, error in
             defer { session.finishTasksAndInvalidate() }
-            if error != nil { call.reject("Could not connect. Please try again."); return }
-            guard let http = response as? HTTPURLResponse, let bytes = bytes, var result = (try? JSONSerialization.jsonObject(with: bytes)) as? [String: Any] else { call.reject("Invalid server response."); return }
+            if error != nil { call.reject("Could not reach AuricWell. Your code is still entered. Check your connection and try again.", "MOBILE_CONNECTION_FAILED"); return }
+            guard let http = response as? HTTPURLResponse, let bytes = bytes, var result = (try? JSONSerialization.jsonObject(with: bytes)) as? [String: Any] else { call.reject("AuricWell returned an incomplete response. Please try again.", "MOBILE_INVALID_RESPONSE"); return }
             guard (200..<300).contains(http.statusCode) else {
                 let failure = result["error"] as? [String: Any], code = (result["error"] as? [String: Any])?["code"] as? String ?? "MOBILE_REQUEST_FAILED"
                 if ["MOBILE_SIGN_IN_REQUIRED", "MOBILE_ACCOUNT_CHANGED", "ACCOUNT_DISABLED", "ACCOUNT_UNAVAILABLE", "MOBILE_WORKSPACE_UNAVAILABLE", "MOBILE_FAMILY_UNAVAILABLE", "HIRE_ACTIVATION_REQUIRED", "PRODUCT_SESSION_MISMATCH"].contains(code) { SecItemDelete(self.keychainQuery as CFDictionary) }
@@ -63,7 +63,7 @@ class AuricwellDevice: CAPPlugin, CAPBridgedPlugin, ASWebAuthenticationPresentat
     }
     @objc func request(_ call: CAPPluginCall) {
         let path = call.getString("path") ?? "", method = call.getString("method") ?? "GET"
-        guard (path == "/session" && method == "GET") || (["/code", "/unlock", "/logout", "/resume", "/app-lock", "/activity"].contains(path) && method == "POST") else { call.reject("Unsupported request"); return }
+        guard (path == "/session" && method == "GET") || (["/code", "/unlock", "/logout", "/resume", "/lock", "/app-lock", "/activity"].contains(path) && method == "POST") else { call.reject("Unsupported request"); return }
         var data = call.getObject("data") ?? [:]; data.removeValue(forKey: "biometric")
         send(call, path: path, method: method, data: data, sessionToken: call.getString("sessionToken"))
     }
@@ -146,7 +146,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     func applicationWillResignActive(_ application: UIApplication) {
         guard privacy == nil, let window = window else { return }
         let cover = UIView(frame: window.bounds); cover.backgroundColor = UIColor(red: 0.95, green: 0.97, blue: 1, alpha: 1); cover.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        let label = UILabel(frame: cover.bounds); label.text = "Auricwell · Locked"; label.textAlignment = .center; label.textColor = .systemBlue
+        let label = UILabel(frame: cover.bounds); label.text = "AuricWell · Workspace protected"; label.textAlignment = .center; label.textColor = .systemBlue
         cover.addSubview(label); window.addSubview(cover); privacy = cover
     }
     func applicationDidEnterBackground(_ application: UIApplication) { AuricwellDevice.current?.notifyListeners("deviceLocked", data: [:]) }

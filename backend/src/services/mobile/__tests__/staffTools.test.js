@@ -43,6 +43,13 @@ describe('fresh staff support scope', () => {
 });
 
 describe('Support Messages canonical operations', () => {
+  it('extracts ticket preview content without exposing email stylesheet or script text', async () => {
+    req.mobileSupportOperation = 'feed'; req.query.type = 'ticket';
+    const question = '<style>@media(max-width:600px){.email-card{padding:0}}</style><script>alert("bad")</script><p>First &amp; second request</p>';
+    const handlers = { listSupportTicketsQueue: async (_req, out) => out.json([{ id: 3, subject: 'Synthetic', question }]) };
+    await createMobileSupportMessages({ db: { execute: async () => [[]] }, context: async () => makeContext(), handlers })(req, res, next);
+    expect(res.json.mock.calls[0][0].items[0].preview).toBe('First & second request');
+  });
   it('binds direct ticket ID to its stored agency and preserves canonical denial', async () => {
     const handler = vi.fn(async (_req, out) => out.status(403).json({ error: { message: 'Topic access denied' } }));
     const db = { execute: vi.fn(async () => [[{ id: 3, agency_id: 20 }]]) };

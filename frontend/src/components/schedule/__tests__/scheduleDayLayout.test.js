@@ -2,10 +2,10 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { flushPromises, shallowMount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import { reactive } from 'vue';
-const m = vi.hoisted(() => ({ get: vi.fn(), route: null, summary: {} }));
+const m = vi.hoisted(() => ({ get: vi.fn(), route: null, summary: {}, user: null }));
 vi.mock('../../../services/api', () => ({ default: { get: m.get, put: vi.fn(), post: vi.fn() }, isApiRateLimited: () => false }));
-vi.mock('vue-router', () => ({ useRoute: () => m.route, useRouter: () => ({ push: vi.fn(), replace: vi.fn(), resolve: () => ({ href: '/dashboard' }) }) }));
-vi.mock('../../../store/auth', () => ({ useAuthStore: () => ({ user: { id: 7, role: 'provider' }, isAuthenticated: true }) }));
+vi.mock('vue-router', () => ({ useRoute: () => m.route, useRouter: () => ({ push: vi.fn(), replace: vi.fn(async()=>{}), resolve: () => ({ href: '/dashboard' }) }) }));
+vi.mock('../../../store/auth', () => ({ useAuthStore: () => ({ user: m.user || { id: 7, role: 'provider' }, isAuthenticated: true }) }));
 vi.mock('../../../store/agency', () => ({ useAgencyStore: () => ({ currentAgency: { id: 2, name: 'Test' }, agencies: [], userAgencies: [] }) }));
 import Grid from '../ScheduleAvailabilityGrid.vue';
 import { clearScheduleSummaryCache } from '../../../utils/scheduleSummaryCache.js';
@@ -13,7 +13,7 @@ let wrapper;
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date('2026-10-13T18:00:00Z'));
-  setActivePinia(createPinia()); localStorage.clear(); clearScheduleSummaryCache(); vi.clearAllMocks();
+  m.user=null;setActivePinia(createPinia()); localStorage.clear(); clearScheduleSummaryCache(); vi.clearAllMocks();
   m.route = reactive({ path: '/dashboard', params: {}, query: {} });
   m.summary = { providerId: 7, weekStart: '2026-10-12', scheduleEvents: [], scheduleAgencyIds: [2] };
   m.get.mockImplementation(async url => ({ data: url.includes('/schedule-summary') ? m.summary : {} }));
@@ -147,4 +147,29 @@ it('opens a pending pushed school-availability request for the provider', async 
   const get = m.get.getMockImplementation();
   m.get.mockImplementation(async (url, options) => url.endsWith('/school-weekdays') ? { data: { eligible: true, pending: true, requestedAt: '2026-10-13T18:00:00Z', days: [] } } : get(url, options));
   await mount(); expect(wrapper.findComponent({ name: 'SchoolWeekdayEditor' }).exists()).toBe(true);
+});
+
+it.each(['agency_meeting','personal_event','schedule_hold','portal_intake','office_request_only','supervision','huddle'])('opens the canonical %s editor from a mobile selection without losing an early range',async action=>{m.user={id:7,role:action==='huddle'?'provider_plus':'provider',has_supervisor_privileges:action==='supervision'};const state=await mount();state.officeLocations=[{id:1,name:'Synthetic office',timezone:'America/Denver'}];Object.assign(m.route.query,{scheduleAction:action,scheduleAgencyId:'2',scheduleDate:'2026-12-02',scheduleStart:'05:15',scheduleEnd:'06:45',scheduleTimeZone:'America/New_York'});await vi.waitFor(async()=>{await flushPromises();expect(state.showRequestModal).toBe(true);expect(state.requestType).toBe(action);expect(state.modalStartMinute).toBe(15);expect(state.modalEndMinute).toBe(45);},{timeout:2500,interval:10});expect(state.showRequestModal).toBe(true);expect(state.modalError).toBe('');expect(state.requestType).toBe(action);expect(state.editorDateYmd).toBe('2026-12-02');expect(state.modalStartHour).toBe(5);expect(state.modalStartMinute).toBe(15);expect(state.modalEndHour).toBe(6);expect(state.modalEndMinute).toBe(45);expect(state.bookingTimezoneIana).toBe('America/New_York');expect(state.selectedActionAgencyId).toBe(2);state.showRequestModal=false;await flushPromises();expect(state.bookingTimezoneIana).toBe('America/Denver');});
+it('does not force an unavailable supervision editor for an ordinary provider',async()=>{const state=await mount();state.officeLocations=[{id:1,timezone:'America/Denver'}];Object.assign(m.route.query,{scheduleAction:'supervision',scheduleAgencyId:'2',scheduleDate:'2026-12-02',scheduleStart:'05:15',scheduleEnd:'06:45',scheduleTimeZone:'America/Denver'});await vi.waitFor(async()=>{await flushPromises();expect(state.modalError).toContain('unavailable for your current account');},{timeout:2500,interval:10});expect(state.requestType).toBe('');expect(state.modalError).toContain('unavailable for your current account');});
+
+it('waits for delayed canonical office context before asserting the mobile booking editor is ready',async()=>{
+ const state=await mount();
+ state.officeLocations=[{id:1,name:'Synthetic office',timezone:'America/Denver'}];
+ state.selectedOfficeLocationId=1;
+ await flushPromises();
+ // Deliberately hold a real awaited prerequisite rather than depending on how
+ // quickly this runner resolves lazy imports, HTTP mocks and Vue rendering.
+ let releaseOffice,officeStarted=false;
+ const officeReady=new Promise(resolve=>releaseOffice=resolve),get=m.get.getMockImplementation();
+ m.get.mockImplementation((url,options)=>{if(url==='/offices/1'){officeStarted=true;return officeReady;}return get(url,options);});
+ Object.assign(m.route.query,{scheduleAction:'portal_intake',scheduleAgencyId:'2',scheduleDate:'2026-12-02',scheduleStart:'05:15',scheduleEnd:'06:45',scheduleTimeZone:'America/New_York'});
+ try{
+  await vi.waitFor(()=>expect(officeStarted).toBe(true),{timeout:2500,interval:10});
+  expect(state.showRequestModal).toBe(false);
+  releaseOffice({data:{agencies:[{id:2}]}});
+  await vi.waitFor(async()=>{await flushPromises();expect(state.showRequestModal).toBe(true);expect(state.requestType).toBe('portal_intake');expect(state.modalStartMinute).toBe(15);expect(state.modalEndMinute).toBe(45);},{timeout:2500,interval:10});
+  expect(state.editorDateYmd).toBe('2026-12-02');
+  expect(state.bookingTimezoneIana).toBe('America/New_York');
+  expect(state.modalError).toBe('');
+ }finally{releaseOffice({data:{agencies:[{id:2}]}});}
 });

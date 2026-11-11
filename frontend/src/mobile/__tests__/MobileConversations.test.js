@@ -17,7 +17,10 @@ beforeEach(async()=>{
   mocks.quickGet.mockImplementation(async (url,config)=>({data:url.endsWith('/messages/inbox') && config?.params?.countsOnly==='1'?{counts:{all:{unread:312}}}:url.endsWith('/messages/preferences')?{preferences:{navigationMode:'pinned',pinnedNavigation:['mywork','tasks','home'],usage:{}}}:url.endsWith('/workspace-counts')?{mywork:15,tasks:257}:url.endsWith('/messages/inbox')?{items:[{key:'email:41',id:41,kind:'email',channel:'email',category:'email',title:'SYNTHETIC-EMAIL-41',subject:'SYNTHETIC-EMAIL-41',sender:'Synthetic Sender',preview:'Preview',at:'2026-11-05'}],mailboxEmail:'staff@example.invalid'}:url.endsWith('/conversations/41')?{conversation:{id:41,channel:'email',subject:'SYNTHETIC-EMAIL-41',inbox_from_email:'staff@example.invalid'},messages:[{id:100,from:{email:'sender@example.invalid'},to:[{email:'staff@example.invalid'}],body_text:'LONG-EMAIL-BODY\n'.repeat(100),direction:'inbound',send_status:'sent'}]}:{items:[],tasks:[],conversations:[]}}));
   router=createRouter({history:createWebHistory(),routes:[{path:'/:pathMatch(.*)*',component:{template:'<span />'}}]});await router.push('/mobile/workspace?view=home');
   wrapper=mount(MobileApp,{attachTo:document.body,global:{plugins:[router],stubs:{QuickViewMusicDock:true,QuickViewPresence:true}}});await flushPromises();
-  await wrapper.get('.mobile-gate input[type=password]').setValue('123456');await wrapper.get('.mobile-gate form').trigger('submit');await flushPromises();
+  // The retained device fixture has a valid server activity grant: restore it directly.
+  expect(wrapper.find('.mobile-gate input[type=password]').exists()).toBe(false);
+  expect(mocks.request.mock.calls.some(([request])=>request.url==='/resume')).toBe(true);
+  await flushPromises();
 });
 afterEach(async()=>{wrapper?.unmount();router?.options.history.destroy();await new Promise(resolve=>setTimeout(resolve,35));document.body.innerHTML='';vi.restoreAllMocks();vi.unstubAllGlobals();});
 const email=()=>wrapper.findAll('button').find(button=>button.text().includes('SYNTHETIC-EMAIL-41'));

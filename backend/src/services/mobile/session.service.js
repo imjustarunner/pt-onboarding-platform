@@ -8,7 +8,7 @@ import { buildPublicPortalLoginUrl } from '../../utils/publicPortalUrl.js';
 import { startAuthenticatedMobileSession } from '../quickViewAuth.service.js';
 import {FAMILY_ROLES,listMobileFamilyAgencies} from './familyScope.service.js';
 import {listMobileAgencies} from './agencyScope.service.js';
-import { accountFingerprint, digest, opaqueToken, validClient, validChallenge, verifyChallenge, requireQuickCode, failure, STAFF_ROLES, MAX_CODE_ATTEMPTS, DEVICE_IDLE_MS, PRIMARY_AUTH_MAX_AGE_MS } from './policy.js';
+import { accountFingerprint, digest, opaqueToken, validClient, validChallenge, verifyChallenge, requireQuickCode, failure, STAFF_ROLES, MAX_CODE_ATTEMPTS, DEVICE_IDLE_MS, PRIMARY_AUTH_MAX_AGE_MS, MOBILE_INACTIVITY_MS } from './policy.js';
 
 export function parsePrimaryAuthentication(value){try{const parsed=typeof value==='string'?JSON.parse(value):value;return parsed && typeof parsed.sessionKey==='string' && parsed.sessionKey.length<=128?{sessionKey:parsed.sessionKey,authMethod:parsed.authMethod==='google'?'google':'account',issuedAt:Number(parsed.issuedAt)||0}:null;}catch{return null;}}
 
@@ -31,16 +31,19 @@ export function createMobileSessionService({ db=pool, findUser=id=>User.findById
     if(agencyId && !workspace) throw failure(403,'MOBILE_WORKSPACE_UNAVAILABLE','Your access to this workspace has changed.');
     return {user,agencies,workspace,surface:family?'family':'staff',qaAgencyIds:scoped.qaAgencyIds};
   }
-  function lockInfo(device) { return {method:device.app_lock_method==='biometric'?'biometric':'code',hasCode:true,usesAccountCode:true}; }
+  function lockInfo(device) { return {method:device.app_lock_method==='biometric'?'biometric':'code',hasCode:true,usesAccountCode:true,inactivityMinutes:MOBILE_INACTIVITY_MS/60000}; }
   function publicProfile(context) {
     const {user,agencies,workspace}=context;
     return {surface:context.surface || 'staff',...(context.device?{appLock:lockInfo(context.device)}:{}),user:{id:user.id,firstName:user.first_name || '',lastName:user.last_name || '',email:user.email,role:user.role,profilePhotoPath:user.profile_photo_path || null},agencies,workspace};
   }
   async function authorize({userId,agencyId,clientId,redirectUri,challenge,primaryAuthentication=null}) {
     validClient(clientId,redirectUri);validChallenge(challenge);
-    if(!agencyId)throw failure(400,'MOBILE_WORKSPACE_INVALID','Choose a workspace.');
     if(primaryAuthentication?.issuedAt && (now().getTime()-Number(primaryAuthentication.issuedAt)*1000>=PRIMARY_AUTH_MAX_AGE_MS || Number(primaryAuthentication.issuedAt)*1000>now().getTime()+300000))throw failure(403,'MOBILE_PRIMARY_REQUIRED','Sign in with your password, SSO or passkey again. Primary sign-in is required every 30 days.');
-    const context=await actor(userId,agencyId);
+    const available=await actor(userId,agencyId || null);
+    const selected=available.workspace || available.agencies[0];
+    if(!selected)throw failure(403,'MOBILE_WORKSPACE_UNAVAILABLE','No authorized workspace is available.');
+    agencyId=selected.id;
+    const context={...available,workspace:selected};
     const code=opaqueToken();
     await db.execute(`INSERT INTO mobile_authorization_codes (code_hash,user_id,agency_id,client_id,redirect_uri,code_challenge,account_fingerprint,expires_at,primary_authentication_json)
       VALUES (?,?,?,?,?,?,?,?,?)`,[digest(code),Number(userId),Number(agencyId),clientId,redirectUri,challenge,accountFingerprint(context.user),new Date(now().getTime()+300000),primaryAuthentication?JSON.stringify(primaryAuthentication):null]);
@@ -113,11 +116,35 @@ export function createMobileSessionService({ db=pool, findUser=id=>User.findById
     if(expectedLockVersion!==null && Number(expectedLockVersion)!==Number(row.app_lock_version || 0))throw failure(423,'MOBILE_LOCKED','Your app lock preference changed. Reopen this workspace.');
     return context;
   }
-  async function issue(context) {
-    const [updated]=await db.execute('UPDATE mobile_device_sessions SET last_used_at=? WHERE id=? AND revoked_at IS NULL AND app_lock_version=?',[now(),context.device.id,Number(context.device.app_lock_version || 0)]);
-    if(updated.affectedRows!==1)throw failure(401,'MOBILE_SIGN_IN_REQUIRED','Sign in to this device again.');
-    const session=await issueSession({userId:context.user.id,agencyId:context.workspace.id,mobileDeviceId:context.device.id,mobileDeviceVersion:Number(context.device.app_lock_version || 0)});
-    return {...session,profile:publicProfile(context)};
+  function assertUnlocked(context) {
+    const expiresAt=new Date(context.device.unlocked_until || 0);
+    if(!Number.isFinite(expiresAt.getTime()) || expiresAt<=now())throw failure(423,'MOBILE_LOCKED','Your activity timer expired. Unlock with your account code, Face ID / Touch ID, or sign in again.');
+    return expiresAt;
+  }
+  function primaryDeadline(row) {
+    const primary=parsePrimaryAuthentication(row.primary_authentication_json);
+    return new Date((primary?.issuedAt?primary.issuedAt*1000:new Date(row.enrolled_at).getTime())+PRIMARY_AUTH_MAX_AGE_MS);
+  }
+  async function recordActivity(context,{extendMinutes=null}={}) {
+    const current=assertUnlocked(context),at=now();
+    const requested=extendMinutes===null?at.getTime()+MOBILE_INACTIVITY_MS:current.getTime()+Math.max(1,Math.min(60,Number(extendMinutes)||10))*60000;
+    const expiresAt=new Date(Math.floor(Math.min(Math.max(current.getTime(),requested),primaryDeadline(context.device).getTime())/1000)*1000);
+    const [updated]=await db.execute(`UPDATE mobile_device_sessions SET unlocked_until=GREATEST(unlocked_until,?),last_used_at=? WHERE id=? AND revoked_at IS NULL AND app_lock_version=? AND unlocked_until>?`,[expiresAt,at,context.device.id,Number(context.device.app_lock_version||0),at]);
+    if(updated.affectedRows!==1)throw failure(423,'MOBILE_LOCKED','Unlock AuricWell to continue.');
+    // Return the stored value so overlapping activity/extension requests never shorten it.
+    const [[row]]=await db.execute('SELECT unlocked_until FROM mobile_device_sessions WHERE id=?',[context.device.id]);
+    return {expiresAt:new Date(row.unlocked_until)};
+  }
+  async function issue(context,{renewWindow=true}={}) {
+    let expiresAt=renewWindow?new Date(Math.floor(Math.min(now().getTime()+MOBILE_INACTIVITY_MS,primaryDeadline(context.device).getTime())/1000)*1000):assertUnlocked(context);
+    // Resume/switching context cannot revive a grant cleared by a simultaneous lock.
+    const [updated]=renewWindow
+      ?await db.execute('UPDATE mobile_device_sessions SET last_used_at=?,unlocked_until=? WHERE id=? AND revoked_at IS NULL AND app_lock_version=?',[now(),expiresAt,context.device.id,Number(context.device.app_lock_version || 0)])
+      :await db.execute('UPDATE mobile_device_sessions SET last_used_at=? WHERE id=? AND revoked_at IS NULL AND app_lock_version=? AND unlocked_until>?',[now(),context.device.id,Number(context.device.app_lock_version || 0),now()]);
+    if(updated.affectedRows!==1)throw failure(renewWindow?401:423,renewWindow?'MOBILE_SIGN_IN_REQUIRED':'MOBILE_LOCKED',renewWindow?'Sign in to this device again.':'Unlock AuricWell to continue.');
+    if(!renewWindow){const [[row]]=await db.execute('SELECT unlocked_until FROM mobile_device_sessions WHERE id=?',[context.device.id]);expiresAt=assertUnlocked({device:row});}
+    const session=await issueSession({userId:context.user.id,agencyId:context.workspace.id,mobileDeviceId:context.device.id,mobileDeviceVersion:Number(context.device.app_lock_version || 0),expiresAt});
+    return {...session,expiresAt,profile:publicProfile(context)};
   }
   async function ensureAccountCode(context) {
     const [[credential]]=await db.execute('SELECT passcode_hash,passcode_set_at FROM user_quick_view_credentials WHERE user_id=? LIMIT 1',[context.user.id]);
@@ -137,7 +164,6 @@ export function createMobileSessionService({ db=pool, findUser=id=>User.findById
       if(lockInfo(initial.device).method!=='biometric')throw failure(403,'MOBILE_BIOMETRIC_NOT_ENABLED','Biometric app lock is not enabled on this device.');
       return issue(initial);
     }
-    if(lockInfo(initial.device).method!=='code')throw failure(409,'MOBILE_METHOD_CHANGED','Your app lock preference changed. Reopen the app.');
     requireQuickCode(code);
     const connection=await db.getConnection();
     let accepted=false;
@@ -161,9 +187,19 @@ export function createMobileSessionService({ db=pool, findUser=id=>User.findById
     if(!accepted)throw failure(401,'MOBILE_UNLOCK_FAILED','The quick access code did not match.');
     return issue(await device(raw));
   }
-  async function resume(raw) {
-    await device(raw);
-    throw failure(423,'MOBILE_LOCKED','Unlock with Face ID, Touch ID or your account Quick View code.');
+  async function resume(raw,{sessionToken=null}={}) {
+    const context=await device(raw),expiresAt=assertUnlocked(context);
+    if(sessionToken){
+      const [[session]]=await db.execute(`SELECT * FROM quick_view_sessions WHERE session_token_hash=? AND mobile_device_session_id=? AND user_id=? AND revoked_at IS NULL LIMIT 1`,[digest(sessionToken),context.device.id,context.user.id]);
+      if(session && Number(session.credential_token_version)===Number(context.device.app_lock_version||0) && Number(session.agency_id)===Number(context.workspace.id) && new Date(session.expires_at)>now())return {sessionToken,userId:context.user.id,agencyId:context.workspace.id,expiresAt,profile:publicProfile(context)};
+    }
+    return issue(context,{renewWindow:false});
+  }
+  async function lock(raw) {
+    const context=await device(raw);
+    await db.execute('UPDATE mobile_device_sessions SET unlocked_until=NULL WHERE id=? AND revoked_at IS NULL',[context.device.id]);
+    await db.execute('UPDATE quick_view_sessions SET revoked_at=? WHERE mobile_device_session_id=? AND revoked_at IS NULL',[now(),context.device.id]);
+    return {locked:true};
   }
   async function configureLock(context,{method,code,biometricVerified=false}) {
     if(!['code','biometric'].includes(method))throw failure(400,'MOBILE_METHOD_INVALID','App lock is required. Choose your account Quick View code or Face ID / Touch ID.');
@@ -187,8 +223,8 @@ export function createMobileSessionService({ db=pool, findUser=id=>User.findById
     const next=await actor(context.user.id,agencyId);
     await db.execute('UPDATE quick_view_sessions SET revoked_at=? WHERE mobile_device_session_id=? AND revoked_at IS NULL',[now(),context.device.id]);
     await db.execute('UPDATE mobile_device_sessions SET agency_id=? WHERE id=? AND revoked_at IS NULL',[Number(agencyId),context.device.id]);
-    return issue({...next,device:{...context.device,agency_id:Number(agencyId)}});
+    return issue({...next,device:{...context.device,agency_id:Number(agencyId)}},{renewWindow:false});
   }
-  return {actor,publicProfile,lockInfo,authorize,exchange,device,access,setCode,unlock,resume,configureLock,logout,switchWorkspace};
+  return {actor,publicProfile,lockInfo,authorize,exchange,device,access,assertUnlocked,recordActivity,setCode,unlock,resume,lock,configureLock,logout,switchWorkspace};
 }
 export const mobileSessions=createMobileSessionService();

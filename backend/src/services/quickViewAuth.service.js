@@ -9,6 +9,7 @@ import crypto from 'crypto';
 import { assertHireStaffAccess } from './hireStaffAccess.service.js';
 import bcrypt from 'bcrypt';
 import pool from '../config/database.js';
+import {MOBILE_INACTIVITY_MS} from './mobile/policy.js';
 
 const TOKEN_BYTES = 32;
 const SESSION_BYTES = 32;
@@ -592,10 +593,11 @@ export async function touchSession(rawSessionToken, { meetingEndsAt = null, acti
   }
 
   await assertHireStaffAccess({ id: session.user_id });
-  let qaAgencyIds=null,mobileSurface=null;
+  let qaAgencyIds=null,mobileSurface=null,mobileContext=null;
   if (session.mobile_device_session_id) {
     const { mobileSessions } = await import('./mobile/session.service.js');
     const context=await mobileSessions.access(session.mobile_device_session_id,session.user_id,session.agency_id,session.credential_token_version);
+    expiresAt=mobileSessions.assertUnlocked(context);mobileContext=context;
     qaAgencyIds=context.qaAgencyIds || null;mobileSurface=context.surface;
   }
 
@@ -605,7 +607,13 @@ export async function touchSession(rawSessionToken, { meetingEndsAt = null, acti
     qaAgencyIds,mobileSurface,expiresAt, meetingEventType: session.meeting_event_type, meetingEventId: session.meeting_event_id
   };
 
-  // Sliding 10-minute window for explicit activity unless meeting grace is longer
+  if(mobileContext){
+    const {mobileSessions}=await import('./mobile/session.service.js');
+    const renewal=await mobileSessions.recordActivity(mobileContext);
+    await pool.execute('UPDATE quick_view_sessions SET last_activity_at=?,expires_at=? WHERE id=? AND revoked_at IS NULL',[now,renewal.expiresAt,session.id]);
+    return {userId:session.user_id,agencyId:session.agency_id,sessionId:session.id,mobileDeviceSessionId:session.mobile_device_session_id,qaAgencyIds,mobileSurface,expiresAt:renewal.expiresAt};
+  }
+  // Sliding 10-minute window for legacy Quick View activity.
   let nextExpiry = new Date(now.getTime() + SESSION_TTL_MS);
   const meetingEnd = meetingEndsAt || session.meeting_ends_at;
   if (meetingEnd) {
@@ -654,7 +662,12 @@ export async function extendSession(rawSessionToken, { minutes = 10 } = {}) {
   const addMs = Math.max(1, Math.min(60, Number(minutes) || 10)) * 60 * 1000;
   const fromNow = new Date(now.getTime() + addMs);
   const current = new Date(session.expires_at);
-  const nextExpiry = fromNow > current ? fromNow : new Date(current.getTime() + addMs);
+  let nextExpiry = fromNow > current ? fromNow : new Date(current.getTime() + addMs);
+  if(session.mobile_device_session_id){
+    const {mobileSessions}=await import('./mobile/session.service.js');
+    const context=await mobileSessions.access(session.mobile_device_session_id,session.user_id,session.agency_id,session.credential_token_version);
+    nextExpiry=(await mobileSessions.recordActivity(context,{extendMinutes:Math.round(addMs/60000)})).expiresAt;
+  }
   await pool.execute(
     `UPDATE quick_view_sessions
      SET last_activity_at = ?, expires_at = ?
@@ -830,10 +843,9 @@ export async function createInitialPasscode({userId,agencyId=null}) {
 }
 
 /** Called only after a durable mobile device grant has verified this actor/workspace. */
-export async function startAuthenticatedMobileSession({userId,agencyId,mobileDeviceId,mobileDeviceVersion=0}) {
+export async function startAuthenticatedMobileSession({userId,agencyId,mobileDeviceId,mobileDeviceVersion=0,expiresAt=new Date(Date.now()+MOBILE_INACTIVITY_MS)}) {
   await assertHireStaffAccess({id:userId});
   const raw=randomSession();
-  const expiresAt=new Date(Date.now()+SESSION_TTL_MS);
   const [result]=await pool.execute(`INSERT INTO quick_view_sessions
     (user_id,agency_id,session_token_hash,credential_token_version,mobile_device_session_id,expires_at,last_activity_at)
     VALUES (?,?,?,?,?,?,CURRENT_TIMESTAMP)`,[userId,agencyId,sha256(raw),mobileDeviceVersion,mobileDeviceId,expiresAt]);

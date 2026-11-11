@@ -38,6 +38,29 @@ it('renders failed sources explicitly and keeps other support history available'
   wrapper = mount(Support, { props }); await flushPromises(); expect(wrapper.text()).toContain('Ticket service unavailable'); expect(wrapper.findAll('.ms-row')).toHaveLength(1);
 });
 
+it('shows readable sent email content without exposing its stylesheet or executing sender HTML', async () => {
+  const sent = { ...ticket, kind: 'communication', id: 4, key: 'communication:4' };
+  api.get.mockImplementation(async url => ({ data: url.endsWith('/feed') ? { items: [sent] } : { detail: {
+    recipient_address: 'synthetic@example.invalid', delivery_status: 'sent', body: '<html><head><style>@media(max-width:600px){.email-card{width:100%}}</style><script>alert("bad")</script></head><body><p>Your <strong>message</strong> is waiting &amp; ready.</p><a href="https://example.invalid/portal" onclick="alert(1)">Open portal</a><img src="https://example.invalid/tracker.png" onerror="alert(1)"></body></html>'
+  } } }));
+  wrapper = mount(Support, { props }); await flushPromises(); await wrapper.get('.ms-row').trigger('click'); await flushPromises();
+  const body = wrapper.get('.support-body'); expect(body.text()).toContain('Your message is waiting & ready.');
+  expect(body.text()).not.toMatch(/@media|email-card|alert/); expect(body.find('strong').text()).toBe('message');
+  expect(body.find('script,style,[onclick],[onerror],img').exists()).toBe(false);
+  expect(body.get('a').attributes()).toMatchObject({ href: 'https://example.invalid/portal', rel: 'noopener noreferrer' });
+  expect(api.post).not.toHaveBeenCalled(); expect(wrapper.find('form').exists()).toBe(false);
+});
+
+it('preserves literal SMS text and renders original ticket requests safely', async () => {
+  api.get.mockImplementation(async url => ({ data: url.endsWith('/feed') ? { items: [ticket] } : { detail: {
+    ticket: { question: '<style>.hidden{display:none}</style><p>Original request</p>' },
+    messages: [{ id: 2, body_text: 'Use <client> & confirm 3 < 5.\nSecond line.' }]
+  } } }));
+  wrapper = mount(Support, { props }); await flushPromises(); await wrapper.get('.ms-row').trigger('click'); await flushPromises();
+  expect(wrapper.findAll('.support-body')[0].text()).toBe('Original request');
+  expect(wrapper.findAll('.support-body')[1].text()).toBe('Use <client> & confirm 3 < 5.\nSecond line.');
+});
+
 it('starts Live Chat offline and requires an explicit online action to enable sending', async () => {
   wrapper = mount(LiveChat, { props }); await flushPromises(); expect(wrapper.text()).toContain('Offline'); expect(api.post).not.toHaveBeenCalled();
   await wrapper.get('.lc-row').trigger('click'); await flushPromises(); expect(wrapper.text()).toContain('Synthetic question'); expect(button('Send message').attributes('disabled')).toBeDefined();

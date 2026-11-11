@@ -59,7 +59,8 @@ router.post('/unlock',limiter,handle(async(req,res)=>{
   await auditMobileAction(req,'unlocked',context);
   refreshBrowserDevice(req,res);res.json(result);
 }));
-router.post('/resume',limiter,handle(async(req,res)=>{const result=await mobileSessions.resume(rawDevice(req));refreshBrowserDevice(req,res);res.json(result);}));
+router.post('/resume',handle(async(req,res)=>{const result=await mobileSessions.resume(rawDevice(req),{sessionToken:req.get('X-Quick-View-Session') || null});refreshBrowserDevice(req,res);res.json(result);}));
+router.post('/lock',handle(async(req,res)=>{const context=await mobileSessions.device(rawDevice(req));await identifyMobileContext(req,context);const result=await mobileSessions.lock(rawDevice(req));await auditMobileAction(req,'locked',context);res.json(result);}));
 router.post('/app-lock',limiter,handle(async(req,res)=>{
   const context=await unlocked(req),device=await mobileSessions.device(rawDevice(req));
   if(Number(context.device.id)!==Number(device.device.id))throw failure(403,'MOBILE_DEVICE_MISMATCH','Use this device’s current sign-in.');
