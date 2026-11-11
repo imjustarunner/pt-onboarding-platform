@@ -38,7 +38,7 @@
       </label>
 
       <p class="ehr-muted">
-        Import runs only the boxes you fill, in order. Treatment plan effective date:
+        Import runs only the boxes you fill, in order. Default date for a new undated treatment plan:
         <strong>{{ todayIso }}</strong>.
         If 1–10 scales (or discharge) can’t be read cleanly, the same treatment-plan review opens so you can fix flags before saving.
       </p>

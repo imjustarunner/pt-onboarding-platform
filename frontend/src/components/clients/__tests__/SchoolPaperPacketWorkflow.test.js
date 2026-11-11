@@ -74,3 +74,16 @@ it('does not request a quarantined preview and refreshes a completed check witho
  expect(w.get('[data-test="packet"]').text()).toContain('synthetic-private-packet.pdf');
  expect(api.post).toHaveBeenCalledTimes(1);
 });
+
+it('shows the missing required field without silently swallowing Save and continue',async()=>{
+ context.client.date_of_birth=null;await render();await next();await flushPromises();
+ expect(w.get('[role="alert"]').text()).toContain('Date of birth');
+ expect(w.get('[role="alert"]').text()).toContain('leave this step pending');
+ expect(api.put).not.toHaveBeenCalled();expect(w.get('h4').text()).toContain('Client demographics');
+ const date=w.get('input[type="date"]');await date.setValue('2016-03-12');await next();await flushPromises();
+ expect(api.put).toHaveBeenCalledWith(expect.anything(),expect.objectContaining({step:'demographics',data:expect.objectContaining({dateOfBirth:'2016-03-12'})}));
+ expect(w.get('h4').text()).toContain('Parent 1');
+});
+it('hydrates a date-only field from a serialized database DATE without timezone conversion',async()=>{
+ context.client.date_of_birth='2016-03-12T00:00:00.000Z';await render();expect(w.get('input[type="date"]').element.value).toBe('2016-03-12');
+});

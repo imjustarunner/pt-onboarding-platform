@@ -1,3 +1,4 @@
+import { referralSubmissionDate } from '../utils/referralSubmissionDate.js';
 import { authorizeReferralPacket, referralPacketMatch } from '../services/referralPacketMatch.service.js';
 import { ensurePaperPacketTask } from '../services/paperPacketTask.service.js';
 import Agency from '../models/Agency.model.js';
@@ -148,16 +149,12 @@ export const uploadReferralPacket = [
       
       // Note: referral packets are PHI. Do not return a public URL here.
 
-      const isInternalUpload = !!req.user?.id && String(req.user.role || '').toLowerCase() !== 'school_staff';
       const uploaderId = req.user?.id || null;
 
       // Use client-provided submission date (user's local date) to avoid timezone drift.
       // Server UTC date can be a day off for users in US timezones (e.g. evening upload = next day UTC).
-      let submissionDate = req.body?.submissionDate || req.body?.submission_date;
-      if (typeof submissionDate === 'string') submissionDate = submissionDate.trim();
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(submissionDate)) {
-        submissionDate = new Date().toISOString().split('T')[0];
-      }
+      const agency = await Agency.findById(agencyId);
+      const submissionDate = referralSubmissionDate(req.body?.submissionDate || req.body?.submission_date, { timeZone: agency?.timezone || 'America/Denver' });
 
       const uploadNote = String(req.body?.uploadNote || '').trim();
       const firstName = String(req.body?.firstName || '').trim();
@@ -226,18 +223,12 @@ export const uploadReferralPacket = [
         await ReferralPacketDraft.updateById(draft.id, { phi_document_id: phiDoc.id });
       }
 
-      let taskId = null;
-      if (phiDoc?.id) {
-        try { taskId = await ensurePaperPacketTask({ draft: { ...draft, phi_document_id: phiDoc.id } }); }
-        catch { await ReferralPacketDraft.updateById(draft.id, { last_error: 'Support processing task needs recovery' }); }
-      }
-
       res.json({
         success: true,
         message: 'Referral packet uploaded successfully. Review and submit to create the client.',
         draftId: draft.id,
-        taskId,
-        taskNeedsReview: !isInternalUpload && !!phiDoc?.id && !taskId,
+        taskId: null,
+        taskNeedsReview: false,
         phiDocumentId: phiDoc?.id || null,
         scanStatus: scan.status,
         organizationId: organization.id,
@@ -330,12 +321,16 @@ export const submitReferralPacketDraft = async (req, res, next) => {
     const computedInitials = buildAbbreviatedName(firstName, lastName);
     const initials = computedInitials || String(draft.initials || '').trim() || 'TBD';
     if (draft.status === 'submitted' && draft.created_client_id) {
-      await ensurePaperPacketTask({ draft });
+      let taskId=null,taskNeedsReview=false;
+      try { taskId=await ensurePaperPacketTask({ draft }); }
+      catch { taskNeedsReview=true; }
       return res.json({
         success: true,
         message: 'Referral packet draft already submitted.',
         draftId: draft.id,
         clientId: draft.created_client_id,
+        taskId,
+        taskNeedsReview,
         alreadySubmitted: true
       });
     }
@@ -378,11 +373,8 @@ export const submitReferralPacketDraft = async (req, res, next) => {
     }
     const clientType = orgType === 'school' ? 'school' : 'clinical';
 
-    let submissionDate = req.body?.submissionDate || req.body?.submission_date || draft.submission_date;
-    if (typeof submissionDate === 'string') submissionDate = submissionDate.trim();
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(submissionDate || ''))) {
-      submissionDate = new Date().toISOString().split('T')[0];
-    }
+    const agency = await Agency.findById(agencyId);
+    const submissionDate = referralSubmissionDate(req.body?.submissionDate || req.body?.submission_date, { storedValue: draft.submission_date, timeZone: agency?.timezone || 'America/Denver' });
 
     const noteFromRequest = String(req.body?.uploadNote || '').trim();
     const uploadNote = noteFromRequest || String(draft.upload_note || '').trim();
@@ -406,7 +398,6 @@ export const submitReferralPacketDraft = async (req, res, next) => {
     });
 
     await ReferralPacketDraft.updateById(draft.id, { created_client_id: client.id });
-    await ensurePaperPacketTask({ draft, clientId: client.id });
     if (!attachingExisting) {
     await seedClientAffiliations({
       clientId: client.id,
@@ -434,6 +425,10 @@ export const submitReferralPacketDraft = async (req, res, next) => {
       note: `Client created via referral packet submit (${uploaderLabel})`
     });
 
+    }
+    if (!attachingExisting) {
+      const docs = typeof client.onboarding_docs_json === 'string' ? JSON.parse(client.onboarding_docs_json || '{}') : (client.onboarding_docs_json || {});
+      await Client.update(client.id, { onboarding_docs_json: JSON.stringify({ ...docs, paperPacketSource: { documentId: draft.phi_document_id, draftId: draft.id } }) });
     }
     if (attachingExisting) {
       const docs = typeof client.onboarding_docs_json === 'string' ? JSON.parse(client.onboarding_docs_json || '{}') : (client.onboarding_docs_json || {});
@@ -469,6 +464,7 @@ export const submitReferralPacketDraft = async (req, res, next) => {
       clientNameOrIdentifier: client.identifier_code || client.initials || `ID ${client.id}`,
       clientInitials: client.initials || null,
       mode: 'paper_upload',
+      packetFilename: (await ClientPhiDocument.findById(draft.phi_document_id))?.original_name || null,
       schoolStaffName: uploaderLabel,
       sendSchoolEmail: req.emailPacketReceipt !== true
     }).catch((error) => {
@@ -507,6 +503,10 @@ export const submitReferralPacketDraft = async (req, res, next) => {
       last_error: null
     });
 
+    let taskId = null;
+    try { taskId = await ensurePaperPacketTask({ draft: { ...draft, status: 'submitted', created_client_id: client.id }, clientId: client.id }); }
+    catch (error) { await ReferralPacketDraft.updateById(draft.id, { last_error: 'Support processing task needs recovery' }); }
+
     // Attach and persist the source before queueing its private check and OCR.
     const { checkPaperPacketFile } = await import('../services/paperPacketScan.service.js');
     await checkPaperPacketFile({clientId:client.id,documentId:draft.phi_document_id,actorId:req.user?.id||uploaderId}).catch(()=>null);
@@ -515,6 +515,8 @@ export const submitReferralPacketDraft = async (req, res, next) => {
       success: true,
       message: attachingExisting ? 'Packet attached to the existing client.' : 'Client created from referral packet.',
       attachedExisting: attachingExisting,
+      taskId,
+      taskNeedsReview: isSchoolStaffUpload && !taskId,
       draftId: draft.id,
       clientId: client.id,
       agencyId,
@@ -553,7 +555,13 @@ export const getReferralPacketForProcessing = async (req, res, next) => {
         return res.status(409).json({error:{message:'This packet has not finished attaching to the client. Review the upload before continuing.'}});
       }
       const docs = typeof client?.onboarding_docs_json === 'string' ? JSON.parse(client.onboarding_docs_json || '{}') : client?.onboarding_docs_json;
-      const current = Number(docs?.paperPacketSource?.documentId || docs?.paperProcessing?.documentId);
+      let current = Number(docs?.paperPacketSource?.documentId || docs?.paperProcessing?.documentId);
+      if (!current) {
+        // Older newly-created paper clients did not store paperPacketSource. Verify
+        // the latest attached source rather than letting an old task open a replacement.
+        const sources = await ClientPhiDocument.findSchoolPaperPacketsForClient(client.id);
+        current = Number(sources.find(source => !source.removed_at && Number(source.client_id) === Number(client.id) && Number(source.agency_id) === Number(draft.agency_id))?.id);
+      }
       if (current !== Number(draft.phi_document_id)) return res.status(409).json({error:{message:'This task does not match the current packet. Review the current packet and retained earlier documents in the client chart.'}});
     }
     res.json({ draft: { id: draft.id, organizationSlug: organization.slug, organizationName: organization.name,

@@ -162,9 +162,7 @@ const restoreSaved = (key) => {
 const goToSign = () => {
   stage.value = 'sign';
   forceResign.value = false;
-  if (!signatureData.value && sessionSavedSignature.value) {
-    signatureData.value = sessionSavedSignature.value;
-  }
+  // A checkbox acknowledges the text; applying a reusable signature is a separate, explicit action.
 };
 
 const renderTypedSignature = (name) => {
@@ -249,7 +247,7 @@ defineExpose({ goNext });
 
 watch(
   () => [props.sectionContext?.sectionKey, props.sectionContext?.locale,
-    props.sectionContext?.contentHash, props.sectionContext?.packetVersion, props.sectionContext?.variant],
+    props.sectionContext?.contentHash, props.sectionContext?.packetVersion, props.sectionContext?.variant, props.savedCapture],
   ([key]) => {
     error.value = '';
     forceResign.value = false;

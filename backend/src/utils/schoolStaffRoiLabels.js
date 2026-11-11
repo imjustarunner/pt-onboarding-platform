@@ -1,7 +1,7 @@
-export const SCHOOL_STAFF_OPEN_STATES = ['none', 'packet', 'limited', 'roi', 'roi_docs', 'expired'];
+export const SCHOOL_STAFF_OPEN_STATES = ['none', 'packet', 'denied', 'limited', 'roi', 'roi_docs', 'expired'];
 
 const LABELS = {
-  denied: { label: 'Denied by guardian', hover: 'A guardian denied permission for this staff member. School sharing is blocked until that guardian changes their signed decision.' },
+  denied: { label: 'Denied by guardian', hover: 'A guardian denied clinical sharing for this staff member. Basic scheduling, logistics, comments, and messages remain available; treatment details and referral documents stay closed until that guardian changes their signed decision.' },
   none: {
     label: 'No ROI on file',
     hover: 'No ROI on file. The overview, comments, and tickets are available. Clinical notes and referral documents stay closed.'
@@ -58,7 +58,7 @@ export function schoolStaffHidesReferralPackets(state) {
 
 /** Comments and tickets stay available without a personal ROI grant. Documents do not. */
 export function schoolStaffCanInterfaceFromState(state) {
-  return ['none', 'packet', 'limited', 'roi', 'roi_docs'].includes(String(state || '').trim().toLowerCase());
+  return ['none', 'packet', 'denied', 'limited', 'roi', 'roi_docs'].includes(String(state || '').trim().toLowerCase());
 }
 
 /** Clinical notes and referral documents require a current personal ROI grant. */

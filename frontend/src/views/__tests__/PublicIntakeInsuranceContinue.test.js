@@ -23,7 +23,7 @@ beforeEach(() => {
 });
 afterEach(() => wrapper?.unmount());
 
-async function render({ school = false, insuranceInfo = {} } = {}) {
+async function render({ school = false, insuranceInfo = {}, children = [] } = {}) {
   const scope = school ? 'school' : 'agency';
   const data = {
     link: { id: 1, form_type: 'intake', scope_type: scope, organization_id: 2, agency_id: 1,
@@ -41,8 +41,9 @@ async function render({ school = false, insuranceInfo = {} } = {}) {
     stubs: { DigitalFormShell: { template: '<main><slot /></main>' }, SignaturePad: true, SecureCardSetup: true }
   } });
   await flushPromises();
-  wrapper.vm.intakeForSelf = true;
-  wrapper.vm.serviceSubject = 'self';
+  wrapper.vm.intakeForSelf = !children.length;
+  wrapper.vm.serviceSubject = children.length ? 'dependent' : 'self';
+  if (children.length) { wrapper.vm.clients = children; wrapper.vm.intakeResponses.clients = children.map(() => ({})); }
   wrapper.vm.intakeResponses.submission.insuranceInfo = structuredClone(insuranceInfo);
   wrapper.vm.step = 2;
   wrapper.vm.currentFlowIndex = wrapper.vm.flowSteps.findIndex(step => step.type === 'insurance_info');
@@ -214,4 +215,21 @@ it('does not re-upload or OCR abandoned commercial card files while continuing s
   expect(post.mock.calls.some(([url])=>url.endsWith('/insurance-card-photos'))).toBe(false);
   expect(insurance().primary.insurerName).toBe('Self-Pay');
   expect(insurance().primary_front_url).toBeNull();expect(JSON.stringify(insurance())).not.toContain('STALE');
+});
+
+it('retains each newly typed school Medicaid ID on the first Continue/Back and saved-progress restore',async()=>{
+ await render({school:true,children:[{firstName:'One',lastName:'QA',dateOfBirth:'2015-01-01'},{firstName:'Two',lastName:'QA',dateOfBirth:'2017-02-02'}],insuranceInfo:{primary:{insurerName:'Medicaid',isMedicaid:true}}});
+ const fields=wrapper.findComponent(SchoolInsurance).findAll('.pi-ins-multi-client input');
+ expect(fields).toHaveLength(2);
+ await fields[0].setValue('QA-ONE');await fields[1].setValue('QA-TWO');
+ await confirmCoverageIfShown();
+ wrapper.vm.lastSignatureData='data:image/png;base64,'+'S'.repeat(100);await flushPromises();
+ await wrapper.findComponent(SchoolInsurance).get('.pi-ins-auth-apply').trigger('click');
+ await continueInsurance();
+ expect(insurance().medicaidByClient.map(row=>row.memberId)).toEqual(['QA-ONE','QA-TWO']);
+ wrapper.vm.goBackPublicPage();await flushPromises();
+ expect(wrapper.findComponent(SchoolInsurance).findAll('.pi-ins-multi-client input').map(field=>field.element.value)).toEqual(['QA-ONE','QA-TWO']);
+ const snapshot=wrapper.vm.buildDraftSnapshot();
+ wrapper.vm.applyDraftSnapshot(snapshot);await flushPromises();
+ expect(wrapper.findComponent(SchoolInsurance).findAll('.pi-ins-multi-client input').map(field=>field.element.value)).toEqual(['QA-ONE','QA-TWO']);
 });

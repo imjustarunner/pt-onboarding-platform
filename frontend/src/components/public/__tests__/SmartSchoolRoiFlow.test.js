@@ -191,3 +191,51 @@ it('keeps legacy explicit permissions on resume and blocks an unknown choice at 
  expect(w.vm.buildRoiPayload().staffDecisions[0].allowed).toBeNull();
  await w.vm.submitRoi();expect(w.emitted('captured')).toBeUndefined();expect(w.text()).toContain('Choose ROI All Active');w.unmount();
 });
+
+it.each(['en','es'])('keeps fresh All Active through review, capture and signed restore (%s)',async locale=>{
+ const roster=[...roiContext.staffRoster,{schoolStaffUserId:100,fullName:'Second Staff'}];
+ const w=mountFlow({mode:'embedded',locale,roiContext:{...roiContext,staffRoster:roster},sessionSavedSignature:'QA-SIGNATURE'});
+ w.vm.stageIndex=w.vm.stageOrder.indexOf('staff');await w.vm.$nextTick();
+ expect(w.findAll('input[type=radio]:checked').map(field=>field.element.value)).toEqual(['roi_docs','roi_docs']);
+ w.vm.stageIndex=w.vm.stageOrder.indexOf('review');await w.vm.$nextTick();
+ expect(w.vm.signatureData).toBe('');
+ await w.get('.saved-sig-thumb').trigger('click');
+ await w.vm.submitRoi();
+ const saved=w.emitted('captured')[0][0].smartSchoolRoi;
+ expect(saved.staffDecisions.map(row=>[row.decision,row.allowed,row.packetAllowed])).toEqual([['roi_docs',true,true],['roi_docs',true,true]]);
+ w.unmount();
+ const restored=mountFlow({mode:'embedded',locale,roiContext:{...roiContext,staffRoster:roster},savedCapture:saved});
+ expect(restored.vm.buildRoiPayload().staffDecisions.map(row=>row.decision)).toEqual(['roi_docs','roi_docs']);
+ restored.unmount();
+});
+it('keeps explicit Deny choices unsigned after a signer edit instead of applying fresh defaults',async()=>{
+ const w=mountFlow({mode:'embedded',savedCapture:{signatureData:null,needsResign:true,signer:{email:'testing+corrected@itsco.health'},staffDecisions:[{schoolStaffUserId:99,decision:'none',allowed:false,packetAllowed:false}]},sessionSavedSignature:'OTHER-SECTION'});
+ expect(w.vm.form.staffDecisions[99]).toBe('none');
+ expect(w.vm.signatureData).toBe('');
+ w.vm.stageIndex=w.vm.stageOrder.indexOf('review');await w.vm.$nextTick();
+ expect(w.vm.signatureData).toBe('');
+ await w.get('.saved-sig-thumb').trigger('click');await w.vm.submitRoi();
+ expect(w.emitted('captured')[0][0].smartSchoolRoi.staffDecisions[0]).toMatchObject({decision:'none',allowed:false,packetAllowed:false});
+ w.unmount();
+});
+
+it('invalidates a saved ROI when local signer identity changes and preserves unsigned denials through clear/retype',async()=>{
+ const saved={signatureData:'QA-PREVIOUS-SIGNATURE',signer:{firstName:'Pat',lastName:'Parent',email:'testing+before@itsco.health',relationship:'Parent'},staffDecisions:[{schoolStaffUserId:99,decision:'none',allowed:false,packetAllowed:false}],requiredAcknowledgements:{esign_consent:true},waiverItems:{communication_and_care_planning:'accept'}};
+ const w=mountFlow({mode:'embedded',savedCapture:saved,sessionSavedSignature:'OLD-REUSABLE'});
+ expect(w.vm.signatureData).toBe(saved.signatureData);
+ w.vm.form.signer.email='';await w.vm.$nextTick();
+ expect(w.vm.signatureData).toBe('');expect(w.emitted('invalidated').at(-1)[0].smartSchoolRoi).toMatchObject({signatureData:null,needsResign:true,staffDecisions:[expect.objectContaining({decision:'none'})]});
+ w.vm.form.signer.email='testing+corrected@itsco.health';await w.vm.$nextTick();
+ expect(w.emitted('invalidated').at(-1)[0].smartSchoolRoi.signer.email).toBe('testing+corrected@itsco.health');
+ w.vm.stageIndex=w.vm.stageOrder.indexOf('review');await w.vm.$nextTick();
+ await w.vm.submitRoi();expect(w.emitted('captured')).toBeUndefined();
+ await w.get('.saved-sig-thumb').trigger('click');await w.vm.submitRoi();
+ expect(w.emitted('captured')[0][0].smartSchoolRoi).toMatchObject({signer:{email:'testing+corrected@itsco.health'},staffDecisions:[expect.objectContaining({decision:'none'})]});w.unmount();
+});
+it('invalidates an already applied signature if a reviewed staff permission changes',async()=>{
+ const w=mountFlow({mode:'embedded',savedCapture:{signatureData:'QA-SIGNED',staffDecisions:[{schoolStaffUserId:99,decision:'roi_docs'}]}});
+ w.vm.form.staffDecisions[99]='none';await w.vm.$nextTick();
+ expect(w.vm.signatureData).toBe('');expect(w.emitted('invalidated').at(-1)[0].smartSchoolRoi.staffDecisions[0].decision).toBe('none');
+ await w.setProps({savedCapture:{signatureData:'QA-LEGITIMATE-RESTORE',staffDecisions:[{schoolStaffUserId:99,decision:'roi_docs'}]}});
+ expect(w.vm.signatureData).toBe('QA-LEGITIMATE-RESTORE');expect(w.vm.form.staffDecisions[99]).toBe('roi_docs');w.unmount();
+});

@@ -153,7 +153,7 @@
 
           <!-- Added date -->
           <div class="task-row__added">
-            <span v-if="task.created_at" class="muted">{{ formatDate(task.created_at) }}</span>
+            <span v-if="task.created_at" class="muted" :title="task.source_ref_type === 'paper_packet_processing' ? new Date(task.created_at).toLocaleString() : undefined">{{ task.source_ref_type === 'paper_packet_processing' ? new Date(task.created_at).toLocaleString() : formatDate(task.created_at) }}</span>
             <span v-else class="muted">—</span>
           </div>
           <button type="button" class="more-btn" title="Actions" @click.stop="$emit('menu', task)">⋯</button>
@@ -525,7 +525,7 @@ const showAssigneeAvatars = computed(() => props.view === 'all');
 
 function assigneeLabel(task) {
   const uid = Number(props.currentUserId || 0);
-  if (task.assigned_to_user_id == null) return 'Unassigned';
+  if (task.assigned_to_user_id == null) return task.source_ref_type === 'paper_packet_processing' && task.assigned_to_role === 'support' ? 'Support queue' : 'Unassigned';
   if (uid && Number(task.assigned_to_user_id) === uid) return 'Me';
   const first = task.assignee_first_name || '';
   const last = task.assignee_last_name || '';

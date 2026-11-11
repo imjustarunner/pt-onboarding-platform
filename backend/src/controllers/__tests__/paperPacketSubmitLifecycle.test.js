@@ -1,0 +1,46 @@
+import {beforeEach,expect,it,vi} from 'vitest';
+const m=vi.hoisted(()=>({attached:false,submitted:false,task:vi.fn(),patch:vi.fn(),createClient:vi.fn(),findDraft:vi.fn(),clientPatch:vi.fn()}));
+vi.mock('../../services/referralPacketMatch.service.js',()=>({authorizeReferralPacket:vi.fn(),referralPacketMatch:vi.fn(async()=>({}))}));
+vi.mock('../../services/paperPacketTask.service.js',()=>({ensurePaperPacketTask:m.task}));
+vi.mock('../../models/Agency.model.js',()=>({default:{findBySlug:vi.fn(async()=>({id:451,organization_type:'school'})),findById:vi.fn(async()=>({id:450,timezone:'America/Denver'}))}}));
+vi.mock('../../config/database.js',()=>({default:{execute:vi.fn(async()=>[[{role:'school_staff'}]])}}));
+vi.mock('../../utils/referralPacketUploader.js',()=>({referralPacketUploaderLabel:vi.fn(async()=> 'Synthetic uploader')}));
+vi.mock('../../models/Client.model.js',()=>({default:{create:m.createClient,update:m.clientPatch}}));
+vi.mock('../../models/ClientNotes.model.js',()=>({default:{create:vi.fn()}}));
+vi.mock('../../models/ClientStatusHistory.model.js',()=>({default:{create:vi.fn()}}));
+vi.mock('../../services/storage.service.js',()=>({default:{}}));
+vi.mock('../../models/ClientPhiDocument.model.js',()=>({default:{findById:vi.fn(async()=>({id:30,original_name:'Synthetic packet.pdf'})),updateById:vi.fn(async()=>{m.attached=true})}}));
+vi.mock('../../models/ReferralPacketDraft.model.js',()=>({default:{findById:m.findDraft,claimForSubmit:vi.fn(async()=>true),updateById:m.patch}}));
+vi.mock('../../models/ClientSchoolStaffRoiAccess.model.js',()=>({default:{resetForNewPacket:vi.fn()}}));
+vi.mock('../../models/OrganizationAffiliation.model.js',()=>({default:{}}));
+vi.mock('../../models/AgencySchool.model.js',()=>({default:{}}));
+vi.mock('../../services/clientNotifications.service.js',()=>({notifyNewPacketUploaded:vi.fn(async()=>{})}));
+vi.mock('../../services/documentEncryption.service.js',()=>({default:{}}));
+vi.mock('../../models/PhiDocumentAuditLog.model.js',()=>({default:{}}));
+vi.mock('../../utils/clientCode.js',()=>({generateUniqueSixDigitClientCode:vi.fn(async()=> 'private-client-code')}));
+vi.mock('../../utils/clientProvisioning.js',()=>({resolvePaperworkStatusId:vi.fn(async()=>1),seedClientAffiliations:vi.fn(),seedClientPaperworkItems:vi.fn()}));
+vi.mock('../../utils/clientStatusCatalog.js',()=>({getClientStatusIdByKey:vi.fn(async()=>1)}));
+vi.mock('../../services/paperPacketVision.service.js',()=>({schedulePaperPacketVisionEval:vi.fn()}));
+vi.mock('../../services/sessionMaterialScan.service.js',()=>({scanSessionMaterial:vi.fn()}));
+vi.mock('../../services/paperPacketScan.service.js',()=>({checkPaperPacketFile:vi.fn(async()=>({status:'queued'}))}));
+import {submitReferralPacketDraft} from '../referralUpload.controller.js';
+let draft,res,next,req;
+beforeEach(()=>{vi.clearAllMocks();m.attached=false;m.submitted=false;draft={id:20,organization_id:451,agency_id:450,uploaded_by_user_id:40,phi_document_id:30,status:'draft',first_name:'Synthetic',last_name:'Student',initials:'SynStu'};
+ m.findDraft.mockImplementation(async()=>({...draft}));m.createClient.mockResolvedValue({id:55,organization_id:451,agency_id:450,initials:'SynStu'});
+ m.patch.mockImplementation(async(id,patch)=>{Object.assign(draft,patch);if(patch.status==='submitted')m.submitted=true;return draft});m.task.mockImplementation(async({draft:d})=>{expect(m.attached).toBe(true);expect(m.submitted).toBe(true);expect(d.status).toBe('submitted');return 90});
+ req={params:{slug:'qa-school',draftId:'20'},user:{id:40,role:'school_staff'},body:{firstName:'Synthetic',lastName:'Student',submissionDate:'2026-11-10',reviewedMatchIds:[]}};
+ res={json:vi.fn(),status:vi.fn().mockReturnThis()};next=vi.fn();
+});
+it('creates the Support task only after saving the matched client and attaching its private source',async()=>{
+ await submitReferralPacketDraft(req,res,next);expect(next).not.toHaveBeenCalled();expect(m.task).toHaveBeenCalledOnce();
+ expect(m.clientPatch).toHaveBeenCalledWith(55,expect.objectContaining({onboarding_docs_json:expect.stringContaining('"paperPacketSource":{"documentId":30,"draftId":20}')}));
+ expect(res.json).toHaveBeenCalledWith(expect.objectContaining({clientId:55,taskId:90,taskNeedsReview:false}));
+});
+it('keeps a successfully saved client and reports task follow-up if task creation fails',async()=>{
+ m.task.mockRejectedValue(new Error('task temporarily unavailable'));await submitReferralPacketDraft(req,res,next);
+ expect(next).not.toHaveBeenCalled();expect(draft.status).toBe('submitted');expect(m.createClient).toHaveBeenCalledOnce();expect(res.json).toHaveBeenCalledWith(expect.objectContaining({clientId:55,taskId:null,taskNeedsReview:true}));
+});
+it('reuses an already-submitted draft without duplicating its client when task recovery is unavailable',async()=>{
+ Object.assign(draft,{status:'submitted',created_client_id:55});m.task.mockRejectedValue(new Error('task temporarily unavailable'));
+ await submitReferralPacketDraft(req,res,next);expect(m.createClient).not.toHaveBeenCalled();expect(next).not.toHaveBeenCalled();expect(res.json).toHaveBeenCalledWith(expect.objectContaining({alreadySubmitted:true,clientId:55,taskNeedsReview:true}));
+});

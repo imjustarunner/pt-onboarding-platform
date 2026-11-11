@@ -146,16 +146,8 @@ export async function applyVersionStaffRoiGrants({
     granted += 1;
   }
 
-  try {
-    await pool.execute(
-      `UPDATE clients
-       SET paper_packet_staff_roi_pending = 0, updated_at = CURRENT_TIMESTAMP
-       WHERE id = ?`,
-      [cid]
-    );
-  } catch (e) {
-    if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
-  }
+  // OCR recognition is evidence, not the Support worker's consent review.
+  // The paper processor clears the review flag only after human confirmation.
 
   return { granted, denied };
 }

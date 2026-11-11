@@ -1,3 +1,4 @@
+import { guardianAccountStatuses } from '../services/guardianAccountStatus.service.js';
 import { deferGuardianInvitation } from '../utils/schoolGuardianPortalPolicy.js';
 import { validationResult } from 'express-validator';
 import Client from '../models/Client.model.js';
@@ -31,7 +32,7 @@ export const listClientGuardians = async (req, res, next) => {
     const clientId = parseInt(req.params.id, 10);
     if (!clientId) return res.status(400).json({ error: { message: 'Invalid client id' } });
     const rows = await ClientGuardian.listForClient(clientId);
-    res.json(rows);
+    res.json(await guardianAccountStatuses({ clientId, guardians: rows }));
   } catch (e) {
     next(e);
   }

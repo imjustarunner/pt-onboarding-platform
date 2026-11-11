@@ -389,3 +389,27 @@ describe('coverage changes invalidate review and signing together', () => {
   expect(w.vm.validateAuthorization()).toBe(false);expect(w.vm.getInsuranceEntryState().authorizationSignatureData).toBe('');w.unmount();
  });
 });
+
+it.each(['en','es'])('blocks duplicate sibling Medicaid IDs before leaving insurance and permits correction (%s)', async language => {
+ const model=ref({primary:{insurerName:'Medicaid',isMedicaid:true},medicaidByClient:[{clientIndex:0,memberId:'SAME'},{clientIndex:1,memberId:' same '}],clientCoverages:[{clientIndex:0,confirmed:true},{clientIndex:1,confirmed:true}]});
+ const Host=defineComponent({setup:()=>()=>h(Insurance,{modelValue:model.value,clientNames:['One QA','Two QA'],'onUpdate:modelValue':v=>model.value=v})});
+ const w=mount(Host,{global:{provide:{intakeLocale:ref(language)}}});await flushPromises();
+ const step=w.findComponent(Insurance);
+ expect(step.vm.validateCoverageConfirmations()).toBe(false);await flushPromises();
+ expect(w.text()).toContain(language==='es'?'Cada cliente debe tener su propio':'Each client must have their own');
+ await w.findAll('.pi-ins-multi-client input')[1].setValue('TWO');
+ for(const field of w.findAll('section.pi-ins-claim-details > label.checkbox-row input')) await field.setValue(true);
+ expect(step.vm.validateCoverageConfirmations()).toBe(true);w.unmount();
+});
+it('retains IDs when Back mounts before child labels and when saved progress arrives after mounting',async()=>{
+ const model=ref({primary:{insurerName:'Medicaid',isMedicaid:true},medicaidByClient:[{clientIndex:0,memberId:'FIRST'},{clientIndex:1,memberId:'SECOND'}]});
+ const names=ref([]);
+ const Host=defineComponent({setup:()=>()=>h(Insurance,{modelValue:model.value,clientNames:names.value,'onUpdate:modelValue':v=>model.value=v})});
+ const w=mount(Host);await flushPromises();
+ expect(model.value.medicaidByClient.map(row=>row.memberId)).toEqual(['FIRST','SECOND']);
+ names.value=['One QA','Two QA'];await flushPromises();
+ expect(w.findAll('.pi-ins-multi-client input').map(field=>field.element.value)).toEqual(['FIRST','SECOND']);
+ model.value={...model.value,medicaidByClient:[{clientIndex:0,memberId:'RESTORED-ONE'},{clientIndex:1,memberId:'RESTORED-TWO'}]};await flushPromises();
+ expect(w.findAll('.pi-ins-multi-client input').map(field=>field.element.value)).toEqual(['RESTORED-ONE','RESTORED-TWO']);
+ w.unmount();
+});

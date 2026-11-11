@@ -647,6 +647,13 @@
           <img :src="signatureData" :alt="tr('Your signature', 'Su firma')" style="max-width: 220px; max-height: 80px;" />
           <p>{{ tr('Signature applied to this release.', 'Firma aplicada a esta autorización.') }}</p>
         </div>
+        <div v-else-if="sessionSavedSignature && !forceResign" class="saved-sig-preview">
+          <button type="button" class="btn btn-secondary saved-sig-thumb" @click="applySessionSignature">
+            <img :src="sessionSavedSignature" :alt="tr('Saved signature preview', 'Vista previa de la firma guardada')" style="max-width: 220px; max-height: 80px;" />
+            {{ tr('Apply my signature', 'Aplicar mi firma') }}
+          </button>
+          <button type="button" class="btn btn-secondary" @click="forceResign = true">{{ tr('Use a new signature', 'Usar una firma nueva') }}</button>
+        </div>
         <div v-else class="typed-signature">
           <label for="roi-typed-signature">{{ tr('Type your full name', 'Escriba su nombre completo') }}</label>
           <input id="roi-typed-signature" v-model="typedSignatureName" class="roi-input" type="text" autocomplete="name" />
@@ -723,7 +730,7 @@ const props = defineProps({
   }
 });
 
-const emit = defineEmits(['completed', 'captured']);
+const emit = defineEmits(['completed', 'captured', 'invalidated']);
 
 const ackItems = computed(() => Array.isArray(props.roiContext?.requiredAcknowledgements) ? props.roiContext.requiredAcknowledgements : []);
 const waiverItems = computed(() => Array.isArray(props.roiContext?.waiverItems) ? props.roiContext.waiverItems : []);
@@ -869,7 +876,7 @@ const form = reactive({
     phone: prefillSignerPhone,
     relationship: prefillIntakeForSelf === true ? 'Self' : prefillSignerRelationship
   },
-  staffDecisions: Object.fromEntries(staffRoster.value.map((staff) => [staff.schoolStaffUserId, props.savedCapture?.signatureData ? null : 'roi_docs'])),
+  staffDecisions: Object.fromEntries(staffRoster.value.map((staff) => [staff.schoolStaffUserId, props.savedCapture ? null : 'roi_docs'])),
   requiredAcknowledgements: Object.fromEntries(ackItems.value.map((item) => [item.id, null])),
   waiverItems: Object.fromEntries(waiverItems.value.map((item) => [item.id, null])),
   thirdPartyRecipients: [],
@@ -891,7 +898,7 @@ const form = reactive({
 watch(staffRoster, roster => {
   for (const staff of roster) {
     if (!Object.prototype.hasOwnProperty.call(form.staffDecisions, staff.schoolStaffUserId)) {
-      form.staffDecisions[staff.schoolStaffUserId] = props.savedCapture?.signatureData ? null : 'roi_docs';
+      form.staffDecisions[staff.schoolStaffUserId] = props.savedCapture ? null : 'roi_docs';
     }
   }
 }, { deep: true, immediate: true });
@@ -1424,22 +1431,50 @@ watch(
 
 restoreDraftSnapshot();
 
+let restoringSavedCapture = false;
+let invalidatedCapture = false;
 watch(() => props.savedCapture, saved => {
-  if (!saved?.signatureData) return;
-  form.signer = { ...form.signer, ...saved.signer };
-  form.requiredAcknowledgements = { ...saved.requiredAcknowledgements };
-  form.waiverItems = { ...saved.waiverItems };
-  form.staffDecisions = Object.fromEntries(staffRoster.value.map(staff => [staff.schoolStaffUserId, null]));
-  for (const staff of saved.staffDecisions || []) {
-    form.staffDecisions[staff.schoolStaffUserId] = ['roi_docs', 'roi', 'none'].includes(staff.decision)
-      ? staff.decision : staff.allowed === true ? (staff.packetAllowed === true ? 'roi_docs' : 'roi') : staff.allowed === false ? 'none' : null;
+  if (!saved) return;
+  restoringSavedCapture = true;
+  try {
+    form.signer = { ...form.signer, ...saved.signer };
+    form.requiredAcknowledgements = { ...saved.requiredAcknowledgements };
+    form.waiverItems = { ...saved.waiverItems };
+    form.staffDecisions = Object.fromEntries(staffRoster.value.map(staff => [staff.schoolStaffUserId, null]));
+    for (const staff of saved.staffDecisions || []) {
+      form.staffDecisions[staff.schoolStaffUserId] = ['roi_docs', 'roi', 'none'].includes(staff.decision)
+        ? staff.decision : staff.allowed === true ? (staff.packetAllowed === true ? 'roi_docs' : 'roi') : staff.allowed === false ? 'none' : null;
+    }
+    if (Array.isArray(saved.thirdPartyRecipients)) form.thirdPartyRecipients = saved.thirdPartyRecipients.map(row => ({ ...row }));
+    if (Array.isArray(saved.externalRecipients)) form.parentExternalRecipients = saved.externalRecipients.map(row => ({ ...row }));
+    if (saved.programmedExternalRecipient) form.programmedExternalDecision = saved.programmedExternalRecipient.decision;
+    signatureData.value = saved.signatureData || '';
+    // Unsigned decisions survive a signer correction, but all acknowledgements
+    // and the explicit signature application still need fresh review.
+    stageIndex.value = saved.signatureData ? stageOrder.value.indexOf('review') : 0;
+
+    invalidatedCapture = saved.needsResign === true && !saved.signatureData;
+  } finally {
+    restoringSavedCapture = false;
   }
-  if (Array.isArray(saved.thirdPartyRecipients)) form.thirdPartyRecipients = saved.thirdPartyRecipients.map(row => ({ ...row }));
-  if (Array.isArray(saved.externalRecipients)) form.parentExternalRecipients = saved.externalRecipients.map(row => ({ ...row }));
-  if (saved.programmedExternalRecipient) form.programmedExternalDecision = saved.programmedExternalRecipient.decision;
-  signatureData.value = saved.signatureData;
-  stageIndex.value = stageOrder.value.indexOf('review');
 }, { immediate: true });
+
+// A previously applied signature describes the reviewed identity and choices.
+// Editing that release keeps the choices but requires a new explicit signature.
+watch(() => JSON.stringify({
+  intakeForSelf: form.intakeForSelf, clientFullName: form.clientFullName,
+  clientDateOfBirth: form.clientDateOfBirth, signer: form.signer,
+  staffDecisions: form.staffDecisions, requiredAcknowledgements: form.requiredAcknowledgements,
+  waiverItems: form.waiverItems, thirdPartyRecipients: form.thirdPartyRecipients,
+  programmedExternalDecision: form.programmedExternalDecision,
+  parentExternalRecipients: form.parentExternalRecipients
+}), () => {
+  if (restoringSavedCapture || (!signatureData.value && !invalidatedCapture)) return;
+  signatureData.value = '';
+  invalidatedCapture = true;
+  error.value = tr('Your changes require a new signature. Review this release and sign again.', 'Sus cambios requieren una firma nueva. Revise esta autorización y vuelva a firmar.');
+  if (isEmbeddedMode.value) emit('invalidated', { smartSchoolRoi: { ...buildRoiPayload(), needsResign: true, signatureMeta: null } });
+}, { flush: 'sync' });
 
 const typedSignatureName = ref('');
 const renderTypedSignature = (name) => {
@@ -1461,11 +1496,14 @@ const applyTypedSignature = () => {
   if (!name) return;
   onSigned(renderTypedSignature(name));
 };
-watch([stage, () => props.sessionSavedSignature], () => {
-  if (stage.value !== 'review' || forceResign.value || signatureData.value) return;
+// The reusable signature is offered on Review; only the Apply button applies it.
+function applySessionSignature() {
   const saved = String(props.sessionSavedSignature || '').trim();
-  if (saved) signatureData.value = saved;
-}, { immediate: true });
+  if (!saved) return;
+  signatureData.value = saved;
+  forceResign.value = false;
+  error.value = '';
+}
 
 const onSigned = (dataUrl) => {
   signatureData.value = dataUrl;

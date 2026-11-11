@@ -31,3 +31,22 @@ it('does not carry acknowledgment or signature from English into a Spanish discl
  expect(wrapper.emitted('captured')[0][0].smartDisclosure).toMatchObject({ locale: 'es', contentHash: 'es-hash', signatureData: 'new-demo-signature' });
  wrapper.unmount();
 });
+
+it('does not auto-apply an earlier reusable signature after an email edit invalidates the disclosure',async()=>{
+ const context={locale:'en',contentHash:'same',providers:[{id:9,fullName:'QA Provider'}]};
+ const saved={locale:'en',contentHash:'same',signatureData:'OLD'};
+ const wrapper=mount(Flow,{props:{publicKey:'qa',mode:'embedded',disclosureContext:context,savedCapture:saved,sessionSavedSignature:'NEW-OTHER-SECTION'},global:{stubs:{SignaturePad:true,AdaptiveSignatureCapture:true}}});
+ expect(wrapper.vm.signatureData).toBe('OLD');
+ await wrapper.setProps({savedCapture:null});
+ expect(wrapper.vm.acknowledged).toBe(false);
+ wrapper.vm.acknowledged=true;
+ for(let index=0;index<6&&wrapper.vm.stage!=='sign';index++) {await wrapper.vm.goNext();await flushPromises();}
+ expect(wrapper.vm.stage).toBe('sign');
+ expect(wrapper.vm.signatureData).toBe('');
+ await wrapper.vm.goNext();await flushPromises();
+ expect(wrapper.emitted('captured')).toBeUndefined();
+ await wrapper.get('.saved-sig-thumb').trigger('click');
+ await wrapper.vm.goNext();await flushPromises();
+ expect(wrapper.emitted('captured')[0][0].smartDisclosure.signatureData).toBe('NEW-OTHER-SECTION');
+ wrapper.unmount();
+});

@@ -481,14 +481,17 @@ export async function notifyNewPacketUploaded({
   clientInitials,
   mode = 'digital_submission',
   schoolStaffName = null,
-  sendSchoolEmail = true
+  sendSchoolEmail = true,
+  packetFilename = null
 }) {
   if (!agencyId || !clientId) return;
 
   const alreadyNotified = await alreadyNotifiedNewPacketUploadedAgencyWide({ agencyId, clientId });
   if (!alreadyNotified) {
     const title = 'New packet uploaded';
-    const message = `A new packet was uploaded for client ${clientNameOrIdentifier || `ID ${clientId}`}.`;
+    const message = mode === 'paper_upload'
+      ? `${packetFilename || 'Paper packet'} was saved for ${clientInitials || 'the client'} · Record #${clientId}. Open the saved packet for Support processing.`
+      : `A new packet was uploaded for client ${clientNameOrIdentifier || `ID ${clientId}`}.`;
 
     await createNotificationAndDispatch({
       type: 'new_packet_uploaded',

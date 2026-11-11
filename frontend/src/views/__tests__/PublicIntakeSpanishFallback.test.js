@@ -62,7 +62,7 @@ it('renders Spanish schema copy without a translation API response and keeps ans
   expect(wrapper.text()).toContain('Guardar y continuar');
   expect(wrapper.text()).not.toContain('What is the main reason you are looking for therapy?');
 });
-it('uses published Spanish instrument items while preserving original unsupported instruments and required responses', async () => {
+it('uses Spanish self safety wording alongside published Spanish instrument items and retains required responses', async () => {
   const questionStep = { id: 'screen-language', type: 'questions', label: 'About you', fields: [
     { key: 'phq9_1', instrument: 'phq9', type: 'radio', label: 'Little interest or pleasure in doing things', options: [{value:'0',label:'Not at all'},{value:'1',label:'Several days'}] },
     { key: 'asq_1', instrument: 'asq', type: 'radio', label: 'Original standardized question', helperText: 'Original instrument instructions', options: [{value:'yes',label:'Yes'},{value:'no',label:'No'}] },
@@ -75,13 +75,16 @@ it('uses published Spanish instrument items while preserving original unsupporte
   await phq.findAll('button')[1].trigger('click');
   expect(wrapper.vm.questionValues.phq9_1).toBe('1');
   const asq=wrapper.get('[data-question-key="asq_1"]');
-  expect(asq.text()).toContain('Original standardized question');
-  expect(asq.text()).toContain('Original instrument instructions');
-  expect(asq.findAll('.df-choice-btn').map(b=>b.text())).toEqual(['Yes','No']);
+  expect(asq.text()).toContain('En las últimas semanas, ¿ha deseado estar muerto?');
+  expect(asq.text()).toContain('Responda estas preguntas sobre usted.');
+  expect(asq.findAll('.df-choice-btn').map(b=>b.text())).toEqual(['Sí','No']);
+  await asq.findAll('.df-choice-btn')[1].trigger('click');
+  expect(wrapper.vm.questionValues.asq_1).toBe('no');
   expect(wrapper.get('[data-question-key="safety_immediate_danger"]').find('.df-field-required').exists()).toBe(true);
-  expect(wrapper.text()).toContain('Las preguntas obligatorias aún requieren una respuesta.');
+  expect(wrapper.find('.instrument-language-notice').exists()).toBe(false);
   await wrapper.vm.completeQuestionStep(); await flushPromises();
   expect(wrapper.vm.currentFlowStep.id).toBe('screen-language');
+  expect(wrapper.vm.missingRequiredQuestionKeys).toContain('safety_immediate_danger');
   wrapper.vm.inPageLocale='en'; await flushPromises();
   expect(phq.text()).toContain('Little interest or pleasure in doing things');
   expect(wrapper.text()).not.toContain('Las preguntas obligatorias aún requieren una respuesta.');

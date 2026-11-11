@@ -6,6 +6,7 @@ vi.mock('../../models/User.model.js',()=>({default:{getAgencies:vi.fn()}}));
 vi.mock('../../services/clientOnboardingChecklist.service.js',()=>({isAssignedProvider:vi.fn()}));
 vi.mock('../../services/auditEvent.service.js',()=>({logAuditEvent:vi.fn()}));
 vi.mock('../../services/paperPacketProcessing.service.js',()=>({paperProcessingContext:vi.fn(),paperProcessingSourceDocument:vi.fn(),savePaperProcessingStep:vi.fn(),completePaperProcessing:vi.fn()}));
+vi.mock('../../services/paperPacketTask.service.js',()=>({completePaperPacketTask:vi.fn(),listPaperPacketTasks:vi.fn(async()=>[])}));
 vi.mock('../phiDocuments.controller.js',()=>({viewPhiDocument:vi.fn()}));
 import Client from '../../models/Client.model.js';
 import User from '../../models/User.model.js';
@@ -38,7 +39,7 @@ it('lists scoped pending and clean paper metadata without exposing storage paths
   {id:10,client_id:5,agency_id:2},{id:11,client_id:4,agency_id:3},{id:12,client_id:4,agency_id:2,removed_at:'2026-11-08'}
  ]);
  await listPaperPacketDocuments(request('support'),res,next);
- expect(res.json).toHaveBeenCalledWith({documents:[expect.objectContaining({id:9,scan_status:'pending'})]});
+ expect(res.json).toHaveBeenCalledWith({tasks:[],documents:[expect.objectContaining({id:9,scan_status:'pending'})]});
  expect(JSON.stringify(res.json.mock.calls)).not.toMatch(/storage_path|secret/);
  User.getAgencies.mockResolvedValue([{id:9}]);ClientPhiDocument.findSchoolPaperPacketsForClient.mockClear();
  await listPaperPacketDocuments(request('support'),res,next);expect(res.status).toHaveBeenCalledWith(403);expect(ClientPhiDocument.findSchoolPaperPacketsForClient).not.toHaveBeenCalled();

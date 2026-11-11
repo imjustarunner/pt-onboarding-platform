@@ -507,7 +507,7 @@
 import { formatAuditTimestamp } from '../../utils/formatDate';
 import { unref } from 'vue';
 import { ref, reactive, computed, watch, inject, onMounted, onBeforeUnmount } from 'vue';
-import { clearCoverageAuthorization, coverageWithChoice, enrollmentCoverageFingerprint } from '../../utils/enrollmentCoverage.js';
+import { clearCoverageAuthorization, coverageWithChoice, enrollmentCoverageFingerprint, duplicateMedicaidMemberId } from '../../utils/enrollmentCoverage.js';
 import { savedInsuranceCard } from '../../utils/savedInsuranceCard.js';
 import { hasMedicaidCoverage, policyIsMedicaid } from '../../utils/insurancePaymentPolicy.js';
 import { filterInsurances, isMedicaidInsurer } from '../../utils/coloradoInsurances.js';
@@ -950,7 +950,7 @@ function push() {
   // An upload finishing after payer choice unmounts this step cannot restore
   // the abandoned policy into the active enrollment.
   if (!componentActive) return;
-  const medicaidRows = showMultiClientMedicaidSection.value
+  const medicaidRows = hasAnyMedicaid.value
     ? medicaidByClient.value.map((row, idx) => ({
         clientIndex: idx,
         clientName: clientDisplayNames.value[idx] || `Client ${idx + 1}`,
@@ -1108,6 +1108,19 @@ function getInsuranceEntryState() {
   };
 }
 
+// Save/resume may replace the parent model without unmounting the step.
+watch(() => props.modelValue?.medicaidByClient, rows => {
+  if (!Array.isArray(rows)) return;
+  if (JSON.stringify(rows) === JSON.stringify(medicaidByClient.value)) return;
+  syncingIncomingCoverage = true;
+  medicaidByClient.value = rows.map((row, index) => ({
+    clientIndex: Number(row?.clientIndex ?? index),
+    clientName: String(row?.clientName || clientDisplayNames.value[index] || ''),
+    memberId: String(row?.memberId || '')
+  }));
+  syncingIncomingCoverage = false;
+}, { deep: true, flush: 'sync' });
+
 // Restored/OCR-updated policies must reach local controls before another child
 // watcher emits its snapshot. Otherwise a parent refresh can erase secondary
 // coverage with a stale local value.
@@ -1145,11 +1158,9 @@ watch(
   [clientDisplayNames, showMultiClientMedicaidSection],
   () => {
     const names = clientDisplayNames.value;
-    if (!names.length) {
-      medicaidByClient.value = [];
-      push();
-      return;
-    }
+    // The child list may be momentarily empty while returning to this step.
+    // It is not an instruction to erase the already saved member IDs.
+    if (!names.length) return;
     const base = Array.isArray(medicaidByClient.value) ? medicaidByClient.value : [];
     medicaidByClient.value = names.map((name, idx) => ({
       clientIndex: idx,
@@ -1277,6 +1288,15 @@ watch(editableCoverageFingerprint, () => {
 function validateCoverageConfirmations() {
   coverageConfirmationError.value = '';
   if (!showInsuranceForm.value) return true;
+  if (duplicateMedicaidMemberId({
+    primary: local.primary, secondary: hasSecondary.value ? local.secondary : null,
+    primaryIsMedicaid: primaryIsMedicaid.value, medicaidPlanPosition: medicaidPlanPosition.value,
+    medicaidByClient: medicaidByClient.value,
+    clientCoverages: Object.values(separatePolicies)
+  }, clientDisplayNames.value.length)) {
+    coverageConfirmationError.value = 'Each client must have their own Medicaid member ID.';
+    return false;
+  }
   if (clientDisplayNames.value.every((name, index) => coverageClientIndexes.value.includes(index))) return true;
   coverageConfirmationError.value = 'Please confirm coverage for every listed client.';
   return false;
@@ -1303,6 +1323,7 @@ defineExpose({
   getAuthorizationSignature,
   getAuthorizationSignatureBundle,
   validateCoverageConfirmations,
+  getCoverageValidationError: () => coverageConfirmationError.value,
   scrollToAnchor
 });
 </script>

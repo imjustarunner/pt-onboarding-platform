@@ -3105,8 +3105,12 @@ const openComingSoon = (key) => {
   comingSoonKey.value = String(key || '');
 };
 
-const handleUploadSuccess = () => {
-  // Keep the modal open so OCR + initials can be completed.
+const handleUploadSuccess = async (result = {}) => {
+  // Upload and submit are separate actions. Refresh only once the packet has a saved client.
+  // Keep the confirmation visible in the dialog until the user closes it.
+  if (!result.clientId) return;
+  schoolRosterRefreshToken.value += 1;
+  await store.fetchPortalStats({ force: true });
 };
 
 // The API selects the current school packet. Its other active forms are not duplicates to display.
@@ -5240,7 +5244,7 @@ const portalUserDisplayName = computed(() => {
   const u = authStore.user || {};
   const first = String(u.first_name || u.firstName || '').trim();
   const last = String(u.last_name || u.lastName || '').trim();
-  if (first && last) return clientLabelMode.value === 'full_name' ? `${first} ${last}` : `${first} ${last.charAt(0)}.`;
+  if (first && last) return `${first} ${last}`;
   if (first) return first;
   if (roleNorm.value === 'super_admin') return 'Super Admin';
   return portalUserFirstName.value || 'User';

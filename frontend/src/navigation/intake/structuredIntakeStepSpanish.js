@@ -8,6 +8,26 @@ import { OFFICE_SCREEN_ES } from './officeClinicalSpanish.js';
  */
 
 export const STRUCTURED_INTAKE_STEP_ES = {
+  'Private answers': 'Respuestas privadas',
+  'Please complete this page alone when possible. These answers stay private to clinical review and are not shown on shared review screens.': 'Complete esta página a solas cuando sea posible. Estas respuestas son privadas para la revisión clínica y no se muestran en las pantallas de revisión compartida.',
+  'Client': 'Cliente',
+  'Date of birth': 'Fecha de nacimiento',
+  'Text messages (SMS)': 'Mensajes de texto (SMS)',
+  'Program updates': 'Novedades del programa',
+  'Terms of Use': 'Términos de uso',
+  'Privacy Policy': 'Política de privacidad',
+  'Initials': 'Iniciales',
+  'Contact Phone': 'Teléfono de contacto',
+  'Child Legal First': 'Nombre legal del niño',
+  'Child Legal Last': 'Apellido legal del niño',
+  'Child Dob': 'Fecha de nacimiento del niño',
+  'Sex': 'Sexo',
+  'Grade': 'Grado',
+  'Each client must have their own Medicaid member ID.': 'Cada cliente debe tener su propio número de miembro de Medicaid.',
+  'School communication notice': 'Aviso de comunicación escolar',
+  'Your electronic signature below includes this school notice and your communication choices, even when you choose No texts.': 'Su firma electrónica a continuación incluye este aviso escolar y sus opciones de comunicación, incluso si elige no recibir mensajes de texto.',
+  'Please click "Apply my signature to this authorization" to sign the Insurance Authorization at the bottom of this step.': 'Haga clic en «Aplicar mi firma a esta autorización» para firmar la autorización del seguro al final de este paso.',
+  'Please sign the Insurance Authorization acknowledgment at the bottom of this step before continuing.': 'Firme el reconocimiento de la autorización del seguro al final de este paso antes de continuar.',
   'Please agree to and sign the insurance and payment authorization before completing enrollment.': 'Acepte y firme la autorización de seguro y pago antes de completar la inscripción.',
   'Please confirm coverage for every listed client.': 'Confirme la cobertura de cada cliente indicado.',
   'By typing my name and continuing, I electronically sign these choices. If I request texts, I control the listed phone and am the recipient. I can decline texts and still receive services.': 'Al escribir mi nombre y continuar, firmo electrónicamente estas opciones. Si solicito mensajes de texto, controlo el teléfono indicado y soy la persona destinataria. Puedo rechazar los mensajes de texto y seguir recibiendo servicios.',
@@ -569,6 +589,8 @@ export function hasStructuredIntakeTranslation(text) {
 export function lookupStructuredIntakeTranslation(en, apiMap = {}) {
   const key = String(en || '');
   if (!key) return key;
+  const numberedClient = /^Client (\d+)$/i.exec(key.trim());
+  if (numberedClient) return `Cliente ${numberedClient[1]}`;
   return CURATED_INTAKE_ES[key] || NORMALIZED_INTAKE_ES.get(normalizedCopyKey(key)) || translatedBrandedDisclosure(key) || apiMap[key] || key;
 }
 

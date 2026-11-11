@@ -394,7 +394,8 @@
             </td>
             <td class="col-status">
               <div class="status-cell">
-                <span v-if="isSchoolStaff && client.school_staff_effective_access_state === 'expired'" class="roi-expired-badge">ROI expired</span>
+                <span v-if="isSchoolStaff && client.school_staff_effective_access_state === 'denied'" class="roi-expired-badge" :title="schoolStaffRoiHover('denied')">Clinical ROI denied</span>
+                <span v-else-if="isSchoolStaff && client.school_staff_effective_access_state === 'expired'" class="roi-expired-badge">ROI expired</span>
                 <span
                   :class="[
                     'status-badge',
@@ -948,7 +949,7 @@ const isSchoolClientLocked = (client) => {
   if (!isSchoolStaff.value) return false;
   return isSchoolScheduleClientLocked(client);
 };
-const canViewCollaboration = (client) => !isSchoolStaff.value || ['none', 'packet', 'limited', 'roi', 'roi_docs'].includes(
+const canViewCollaboration = (client) => !isSchoolStaff.value || ['none', 'packet', 'denied', 'limited', 'roi', 'roi_docs'].includes(
   String(client?.school_staff_effective_access_state || client?.school_staff_access_level || '').toLowerCase()
 );
 const canOpenSchoolClient = (client) => {
@@ -2119,6 +2120,7 @@ const lockedClientTitle = (client) => {
     return 'A printed referral packet was recently uploaded. If your name is on the signed form, you will receive access.';
   }
   const state = String(client?.school_staff_effective_access_state || '').toLowerCase();
+  if (state === 'denied') return schoolStaffRoiHover('denied');
   if (state === 'expired') {
     return 'ROI is currently expired. Schedule and Soft Schedule remain available. Document access is paused until renewed.';
   }
@@ -2129,6 +2131,7 @@ const lockedInitialsTitle = (client) => lockedClientTitle(client);
 
 const lockedClientButtonLabel = (client) => {
   const state = String(client?.school_staff_effective_access_state || '').toLowerCase();
+  if (state === 'denied') return 'Clinical ROI denied';
   if (state === 'expired' || state === 'limited' || state === 'roi' || state === 'roi_docs') return 'Comments';
   return 'No ROI';
 };

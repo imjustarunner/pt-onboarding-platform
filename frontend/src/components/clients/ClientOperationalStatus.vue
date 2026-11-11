@@ -9,7 +9,7 @@
       <div class="table-wrap" v-else><table>
         <thead><tr><th>Session date</th><th>Session</th><th>Note</th><th>Claim</th></tr></thead>
         <tbody><tr v-for="session in sessions" :key="session.sessionId">
-          <td>{{ session.startsAt || 'Date not recorded' }}</td><td>{{ session.sessionStatus }}</td>
+          <td>{{ formatSessionStart(session.startsAt) }}</td><td>{{ session.sessionStatus }}</td>
           <td>{{ session.noteStatus }}</td><td>{{ session.claimStatus }}</td>
         </tr></tbody>
       </table></div>
@@ -20,6 +20,8 @@
 <script setup>
 import { ref, watch } from 'vue';
 import api from '../../services/api';
+import { formatAuditTimestamp } from '../../utils/formatDate.js';
+const formatSessionStart = value => formatAuditTimestamp(value) || 'Date not recorded';
 const props=defineProps({clientId:{type:Number,required:true}});
 const sessions=ref([]),scope=ref(''),loading=ref(false),error=ref('');let generation=0;
 async function load(){const version=++generation;sessions.value=[];error.value='';loading.value=true;

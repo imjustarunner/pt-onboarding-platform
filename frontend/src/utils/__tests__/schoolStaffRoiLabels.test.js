@@ -71,3 +71,7 @@ it('keeps expired overviews open but blocks all collaboration', () => {
   for (const state of ['limited', 'roi', 'roi_docs']) expect(schoolStaffCanCollaborateFromState(state)).toBe(true);
   expect(isSchoolScheduleClientLocked({school_staff_effective_access_state: 'expired', school_portal_can_open: false})).toBe(false);
 });
+
+it('keeps denied clinical sharing explicit while preserving school logistics and messaging',()=>{
+ expect(schoolStaffRoiLabel('denied')).toBe('Denied by guardian');expect(schoolStaffCanOpenFromState('denied')).toBe(true);expect(schoolStaffCanInterfaceFromState('denied')).toBe(true);expect(schoolStaffCanCollaborateFromState('denied')).toBe(false);expect(schoolStaffOwnDocumentsOnly('denied')).toBe(false);expect(isSchoolScheduleClientLocked({school_staff_effective_access_state:'denied',school_portal_can_open:false})).toBe(false);
+});

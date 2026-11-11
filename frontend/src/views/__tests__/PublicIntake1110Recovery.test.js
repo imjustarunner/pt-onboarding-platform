@@ -18,13 +18,13 @@ beforeEach(() => {
   post.mockReset().mockResolvedValue({ data: {} });
 });
 afterEach(() => { wrapper?.unmount(); setPublicLocale('en'); });
-async function render({ school = false, self = true, locale = 'en' } = {}) {
+async function render({ school = false, self = true, locale = 'en', withDocument = false } = {}) {
   const data = {
     link: { id: 1, form_type: 'intake', scope_type: school ? 'school' : 'agency', organization_id: 2,
       agency_id: 1, inherits_office_master: school ? 0 : 1, master_channel: 'counseling', language_code: locale,
-      intake_fields: [], intake_steps: [{ id: 'communications', type: 'communications' }, { id: 'review', type: 'questions', fields: [] }] },
+      intake_fields: [], intake_steps: [...(withDocument ? [{id:'terms',type:'document',templateId:9}] : []), { id: 'communications', type: 'communications' }, { id: 'review', type: 'questions', fields: [] }] },
     organization: { id: 2, name: 'QA Organization', organization_type: school ? 'school' : 'agency' },
-    agency: { id: 1, name: 'QA Agency' }, templates: []
+    agency: { id: 1, name: 'QA Agency' }, templates: withDocument ? [{id:9,name:'QA terms',template_type:'html',document_action_type:'signature',html_content:'<p>QA terms</p>'}] : []
   };
   get.mockReset().mockImplementation(async url => ({ data: url === '/public-intake/qa1110-recovery' ? data : {} }));
   wrapper = mount(PublicIntakeSigningView, { global: {
@@ -35,7 +35,7 @@ async function render({ school = false, self = true, locale = 'en' } = {}) {
   wrapper.vm.serviceSubject = self ? 'self' : 'dependent';
   wrapper.vm.sessionToken = 'synthetic-session'; wrapper.vm.submissionId = 100;
   wrapper.vm.communicationConsent = {
-    version: 'test', text: 'School SMS notice', officeText: 'Office SMS notice',
+    version: 'test', text: 'School SMS notice', officeText: 'Office SMS notice', schoolText:'School logistics notice', schoolTextSelf:'School self notice',
     emailText: 'School email notice', officeEmailText: 'Office email notice',
     signatureText: 'Guardian signature notice', signatureTextSelf: 'My signature notice'
   };
@@ -50,7 +50,8 @@ it.each([false, true])('uses the displayed office/school notices in the saved co
   expect(wrapper.text()).toContain(`${context} SMS notice`);
   expect(wrapper.text()).toContain(`${context} email notice`);
   expect(wrapper.text()).toContain(school ? 'Guardian signature notice' : 'My signature notice');
-  if (!school) expect(wrapper.text()).not.toContain('parent texting program');
+  if (!school) { expect(wrapper.text()).not.toContain('parent texting program'); expect(wrapper.find('.school-communication-notice').exists()).toBe(false); }
+  else { expect(wrapper.get('.school-communication-notice').text()).toContain('School logistics notice'); expect(wrapper.get('.school-communication-notice h4').text()).toBe('School communication notice'); }
   Object.assign(wrapper.vm.communications, { emailPreference: 'no', smsPreference: 'no', providerTextingOptIn: 'no', signerName: 'Synthetic Signer', signatureAccepted: true });
   wrapper.vm.completeCommunicationsStep(); await flushPromises();
   expect(wrapper.vm.stepError).toBe('');
@@ -89,4 +90,28 @@ it('localizes an authorization rejection and permits a corrected retry without l
   post.mockResolvedValue({ data: { submissionId: 100, downloadUrl: '/synthetic-receipt.pdf' } });
   await wrapper.vm.finalizePacket(); await flushPromises();
   expect(wrapper.vm.step).toBe(3); expect(wrapper.vm.error).toBe('');
+});
+
+it('requires an explicit reusable-signature application instead of signing a document when Continue is clicked',async()=>{
+ await render({withDocument:true});
+ wrapper.vm.currentFlowIndex=wrapper.vm.flowSteps.findIndex(step=>step.type==='document');
+ wrapper.vm.lastSignatureData='data:image/png;base64,'+'D'.repeat(100);await flushPromises();
+ expect(wrapper.vm.signatureData).toBe('');
+ await wrapper.vm.completeCurrentDocument();await flushPromises();
+ expect(wrapper.vm.showSavedSigPrompt).toBe(true);
+ expect(post.mock.calls.some(([url])=>url.endsWith('/sign'))).toBe(false);
+ wrapper.vm.applyPromptedSavedSignature();
+ await wrapper.vm.completeCurrentDocument();await flushPromises();
+ expect(post.mock.calls.filter(([url])=>url.endsWith('/sign'))).toHaveLength(1);
+ expect(wrapper.vm.currentFlowStep.type).toBe('communications');
+});
+
+it('keeps a locally edited ROI unsigned in the parent flow without advancing or discarding its choices',async()=>{
+ await render({school:true,self:false});
+ const index=wrapper.vm.currentFlowIndex;
+ wrapper.vm.lastSignatureData='QA-OLD';
+ wrapper.vm.handleEmbeddedSchoolRoiInvalidated({smartSchoolRoi:{signatureData:'QA-OLD',signer:{email:'testing+corrected@itsco.health'},staffDecisions:[{schoolStaffUserId:99,decision:'none'}]}});
+ expect(wrapper.vm.currentFlowIndex).toBe(index);expect(wrapper.vm.lastSignatureData).toBe('');
+ expect(wrapper.vm.embeddedSmartSchoolRoi).toMatchObject({signatureData:null,needsResign:true,staffDecisions:[{schoolStaffUserId:99,decision:'none'}]});
+ expect(wrapper.vm.intakeResponses.submission.smartSchoolRoi).toBe(wrapper.vm.embeddedSmartSchoolRoi);
 });
