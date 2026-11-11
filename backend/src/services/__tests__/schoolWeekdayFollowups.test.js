@@ -98,6 +98,10 @@ describe('school weekday follow-ups',()=>{
   expect((await service.process({now,dryRun:true})).results).toEqual([{providerId:7,agencyId:2,to:'avery@itsco.health',cc:'rachel@itsco.health'}]);
   expect(rows).toHaveLength(0);expect(sendEmail).not.toHaveBeenCalled();
  });
+ it('does not list old requests as pending when a provider no longer has a school assignment',async()=>{
+  context.needsResponse=false;context.days.forEach(day=>day.status='available');
+  expect(await service.progress(2)).toEqual({providers:[],counts:{pending:0,opened:0,completed:0}});
+ });
  it('defers texts on nights and weekends and preserves previously sent text history after completion',()=>{
   const row={invitation_status:'sent',sms_status:'waiting',sms_due_at:'2026-11-11T10:00:00Z'};
   expect(schoolWeekdaySmsDue(row,new Date('2026-11-12T03:00:00Z'))).toBe(false);
