@@ -7,10 +7,10 @@
         <img v-if="agencyLogoUrl" :src="agencyLogoUrl" alt="" class="qv-logo" />
         <span>{{ agencyName || 'Your workspace' }}</span>
       </div>
-      <div v-if="session" class="qv-top-actions"><button v-if="isMobile" type="button" class="qv-icon-button" aria-label="Notifications" @click="emit('notifications')"><Bell :size="18"/><span v-if="notificationUnread>0" class="qv-nav-badge">{{notificationUnread}}</span></button><button v-if="isMobile" type="button" class="qv-icon-button" aria-label="My Account" @click="emit('account')"><UserRound :size="18"/></button>
+      <div v-if="session" class="qv-top-actions"><button v-if="isMobile" type="button" class="qv-icon-button" aria-label="Notifications" @click="emit('notifications')"><Bell :size="18"/><span v-if="notificationUnread>0" class="qv-notification-dot" aria-label="Unread notifications"/></button><button v-if="isMobile" type="button" class="qv-icon-button" aria-label="My Account" @click="emit('account')"><UserRound :size="18"/></button>
         <span class="qv-session-status"><span aria-hidden="true" />{{ isMobile && mobileSession.profile?.appLock?.method==='none'?'Refreshes at':'Locks at' }} {{ formatExpiry(expiresAt) }}</span>
         <button type="button" class="qv-icon-button qv-extend" :disabled="extendBusy" aria-label="Extend session by 10 minutes" @click="extendSession">
-          <Clock3 :size="17" aria-hidden="true" /><span>{{ extendBusy ? 'Extending…' : '+10 min' }}</span>
+          <Clock3 :size="17" aria-hidden="true" /><span>{{ extendBusy ? 'Extending…' : '+10 min' }}</span><small v-if="isMobile" class="qv-countdown">{{ mobileSession.profile?.appLock?.method==='none'?'Refresh':'Lock' }} {{ lockCountdown }}</small>
         </button>
         <button type="button" class="qv-icon-button" :aria-label="isMobile && mobileSession.profile?.appLock?.method==='none'?'Hide workspace':'Lock Quick View'" @click="logout"><LockKeyhole :size="18" aria-hidden="true" /><span class="qv-lock-label">{{ isMobile && mobileSession.profile?.appLock?.method==='none'?'Hide':'Lock' }}</span></button>
       </div>
@@ -99,7 +99,7 @@
       </section>
       <div v-show="!moreOpen" class="qv-content" :aria-busy="navigationBusy || undefined">
       <QuickViewPresence v-if="tab==='presence'" :http="presenceHttp" />
-      <MobileMessages v-if="isMobile" v-show="tab==='home' || tab==='chat'" ref="mobileMessages" :api-base="apiBase" :session-token="session" :user-id="sessionUserId" :visible="!moreOpen && (tab==='home' || tab==='chat')" :preferences="workspacePreferences" @open-email="openMobileConversation" @compose-email="openMobileEmailDraft" @counts="mobileCounts=$event" @settings="showMobileSettings=true"/>
+      <MobileMessages v-if="isMobile" v-show="tab==='home' || tab==='chat'" ref="mobileMessages" :api-base="apiBase" :session-token="session" :user-id="sessionUserId" :visible="!overlayOpen && !moreOpen && (tab==='home' || tab==='chat')" :preferences="workspacePreferences" @open-email="openMobileConversation" @access-denied="clearCachedEmailAccess" @compose-email="openMobileEmailDraft" @counts="mobileCounts=$event" @settings="showMobileSettings=true"/>
       <MobilePreferences v-if="isMobile && showMobileSettings" :api-base="apiBase" :session-token="session" :preferences="workspacePreferences" @close="showMobileSettings=false" @saved="workspacePreferences=$event"/>
       <MobileClinicalWorkspace v-if="isMobile && tab==='clinical'" :api-base="apiBase" :session-token="session" :user-id="sessionUserId" @signed="sendNotice='Note signed and saved to the chart.'" />
       <MobileClientSummary v-if="isMobile && tab==='client'" :api-base="apiBase" :session-token="session" :client-id="route.query.clientId" @back="returnInApp({view:'mywork'})" @contact="openMobileClinicalContact" />
@@ -844,8 +844,8 @@ import { encodeEmailFiles } from '../utils/communicationAttachments';
 import QuickViewMusicDock from '../components/quickView/QuickViewMusicDock.vue';
 import { buildDisplaySections, extractSections, formatFullNoteCopy } from '../utils/noteAidUiHelpers.js';
 
-const props=defineProps({ mobileSession:Object,notificationUnread:{type:Number,default:0} });
-const emit=defineEmits(['locked','account','notifications','open-workspace-item']);
+const props=defineProps({ mobileSession:Object,notificationUnread:{type:Number,default:0},overlayOpen:Boolean });
+const emit=defineEmits(['locked','account','notifications','open-workspace-item','preferences']);
 const isMobile=computed(()=>!!props.mobileSession);
 
 const BOOKMARK_KEY = 'plottwist.quickViewBookmark';
@@ -893,6 +893,7 @@ const session = ref(null);
 const sessionUserId = ref(null);
 const expiresAt = ref(null);
 const clockNow=ref(Date.now());
+const lockCountdown=computed(()=>Number.isFinite(remainingSeconds.value)?`${Math.floor(remainingSeconds.value/60)}:${String(remainingSeconds.value%60).padStart(2,'0')}`:'—');
 const remainingSeconds=computed(()=>Math.max(0,Math.ceil((new Date(expiresAt.value).getTime()-clockNow.value)/1000)));
 let deadlineTimer,lastActivitySent=0,activityPending=false;
 const agencyName = ref('');
@@ -917,7 +918,8 @@ const allNavigation = [
   { id:'mywork',label:'My Work',icon:BriefcaseBusiness,description:'Your documentation queue.' },
   { id:'noteaid',label:'Note Workspace',icon:NotebookPen,description:'Prepare your documentation.' },
   { id:'presence',label:'Presence',icon:Radio,description:'See who’s available and set your status.' },
-  { id:'contacts',label:'Contacts',icon:Users,description:'Find and message your team.' }
+  { id:'contacts',label:'Contacts',icon:Users,description:'Find and message your team.' },
+  { id:'notifications',label:'Notifications',icon:Bell,description:'Updates across your agencies.' }
 ];
 const workspacePreferences=ref({swipeLeft:'archive',swipeRight:'read',navigationMode:'automatic',pinnedNavigation:['calendar','home','tasks'],usage:{}});
 const viewportWidth=ref(window.innerWidth),showMobileSettings=ref(false),mobileMessages=ref(null),mobileCounts=ref({});
@@ -934,11 +936,13 @@ function refreshVisibleBadges(){if(!document.hidden)loadWorkspaceBadges();}
 let preferenceTimer;
 const primaryNavigation=computed(()=>{
   if(!isMobile.value)return [...allNavigation.slice(0,3),{id:'more',label:'More',icon:Ellipsis}];
-  const slots=viewportWidth.value>=430?4:viewportWidth.value>=350?3:2;
+  const requested=Number(workspacePreferences.value.navigationSlots);
+  const slots=[2,3,4].includes(requested)?requested:viewportWidth.value>=430?4:viewportWidth.value>=350?3:2;
   const ids=workspacePreferences.value.navigationMode==='pinned'?workspacePreferences.value.pinnedNavigation:[...allNavigation].sort((a,b)=>(workspacePreferences.value.usage?.[b.id] || 0)-(workspacePreferences.value.usage?.[a.id] || 0)).map(item=>item.id);
   return [...ids.slice(0,slots).map(id=>allNavigation.find(item=>item.id===id)).filter(Boolean),{id:'more',label:'More',icon:ChevronDown}];
 });
-const secondaryNavigation=computed(()=>allNavigation);
+const secondaryNavigation=computed(()=>allNavigation.filter(item=>isMobile.value || item.id!=='notifications'));
+watch(workspacePreferences,value=>{if(isMobile.value)emit('preferences',value);},{deep:true,immediate:true});
 function resizeMobile(){viewportWidth.value=window.innerWidth;}
 async function loadWorkspacePreferences(){try{const {data}=await axios.get(`${apiBase}/messages/preferences`,{headers:authHeaders(),withCredentials:true});workspacePreferences.value=data.preferences || workspacePreferences.value;}catch{/* Defaults remain usable if preferences are temporarily unavailable. */}}
 function countNavigation(destination){if(!isMobile.value)return;workspacePreferences.value={...workspacePreferences.value,usage:{...workspacePreferences.value.usage,[destination]:(workspacePreferences.value.usage?.[destination] || 0)+1}};clearTimeout(preferenceTimer);preferenceTimer=setTimeout(()=>{if(session.value)axios.patch(`${apiBase}/messages/preferences`,{usage:workspacePreferences.value.usage},{headers:authHeaders(),withCredentials:true}).catch(()=>{});},1200);}
@@ -985,6 +989,7 @@ const currentHeading = computed(() => {
 });
 
 async function navigateTo(destination,{fromRoute=false}={}) {
+  if(destination==='notifications' && isMobile.value){moreOpen.value=false;countNavigation(destination);emit('notifications');return;}
   if(isMobile.value && destination==='noteaid')destination='mywork';
   if (destination === 'more') { moreOpen.value = !moreOpen.value; return; }
   if(isMobile.value && !fromRoute){countNavigation(destination);const query=destination==='home'?{view:'home',...(route.query.suite?{suite:route.query.suite}:{}),...(route.query.filter?{filter:route.query.filter}:{}),...(route.query.archived?{archived:route.query.archived}:{})}:{view:destination};if(router.resolve({path:'/mobile/workspace',query}).fullPath!==route.fullPath){moreOpen.value=false;await mobileNavigate(query);return;}}
@@ -1171,7 +1176,8 @@ const nextBeforeId = ref(null);
 const olderLoading = ref(false);
 const sendNotice = ref('');
 const undoSend = ref(null);
-const emailDrafts = new Map();
+const emailDrafts = new Map(),emailDetailCache=new Map();let emailCacheEpoch=0;
+function clearCachedEmailAccess(){++emailCacheEpoch;++conversationRequest;emailDetailCache.clear();threadMessages.value=[];activeConv.value=null;threadLoading.value=false;error.value='Conversation access changed. Return to Messages and refresh.';}
 const chatDrafts = new Map();
 const chatAttachments = ref([]);
 const chatParentId = ref(null);
@@ -1525,7 +1531,7 @@ function stopHeartbeat() {
 
 async function refreshMessages() {
   if(isMobile.value && ['home','chat'].includes(tab.value))return;
-  if (!session.value || document.visibilityState === 'hidden' || threadLoading.value || replyBusy.value || chatBusy.value) return;
+  if (!session.value || props.overlayOpen || document.visibilityState === 'hidden' || threadLoading.value || replyBusy.value || chatBusy.value) return;
   try {
     if (tab.value === 'chat') { await loadChatMessages({ quiet: true }); return; }
     if (tab.value === 'thread' && activeConv.value?.id) {
@@ -1534,6 +1540,7 @@ async function refreshMessages() {
       if (request !== conversationRequest || tab.value !== 'thread' || activeConv.value?.id !== id) return;
       const merged = new Map(threadMessages.value.map((m) => [m.id, m])); (data.messages || []).forEach((m) => merged.set(m.id, m));
       threadMessages.value = [...merged.values()].sort((a, b) => new Date(a.sent_at || a.created_at) - new Date(b.sent_at || b.created_at) || Number(a.id) - Number(b.id));
+      if(isMobile.value)emailDetailCache.set(String(id),{data:{...data,messages:threadMessages.value},at:Date.now()});
     } else if (tab.value === 'home' && ['email', 'sms'].includes(msgSuite.value) && sort.value !== 'drafts') {
       const request = homeRequest; const channel = msgSuite.value;
     const { data } = await axios.get(`${apiBase}/home`, { params: { channel, filter:sort.value }, headers: authHeaders(), withCredentials: true });
@@ -1542,7 +1549,7 @@ async function refreshMessages() {
         conversations.value = sort.value === 'unread' ? (data.conversations || []) : [...merged.values()].sort((a, b) => new Date(b.last_message_at) - new Date(a.last_message_at));
       }
     }
-  } catch { /* Keep the current view through temporary network failures; heartbeat enforces expiry. */ }
+  } catch(e) { if(isMobile.value && [401,403].includes(e.response?.status))clearCachedEmailAccess(); /* Temporary network failures retain the current view. */ }
 }
 
 async function loadHome(channel = 'email') {
@@ -1779,14 +1786,19 @@ async function openConversation(c, { refresh = false, preserveCurrent = true } =
   if(c.draftId)return openEmailComposer(router,{quickView:true,session:session.value,draftId:c.draftId});
   dismissQuickPreview();if(!refresh){showMobileReply.value=false;showReplyCopies.value=false;}
   if (preserveCurrent) rememberReply();
-  const request = ++conversationRequest;
-  activeConv.value = c; threadMessages.value = []; threadLoading.value = true; tab.value = 'thread';
+  const request = ++conversationRequest,activeToken=session.value,cacheEpoch=emailCacheEpoch;
+  const cached=isMobile.value && !refresh?emailDetailCache.get(String(c.id)):null;
+  const fresh=cached && Date.now()-cached.at<60000;
+  activeConv.value = fresh?cached.data.conversation:c; threadMessages.value = fresh?cached.data.messages || []:[]; threadLoading.value = !fresh; tab.value = 'thread';
+  if(isMobile.value)void mobileMessages.value?.markConversationRead(c);
   if(isMobile.value && String(route.query.conversationId || '')!==String(c.id))await mobileNavigate({...route.query,view:'home',suite:msgSuite.value,conversationId:String(c.id),threadId:undefined,parentId:undefined,secure:undefined,compose:undefined});
   if(isMobile.value){await nextTick();if(request!==conversationRequest || activeConv.value?.id!==c.id)return;document.getElementById('qv-workspace')?.scrollTo?.({top:0});}
   error.value = ''; nextBeforeId.value = null;
   replyText.value = ''; replyAttachments.value = [];
   try {
-    const { data } = await axios.get(`${apiBase}/conversations/${c.id}`, { headers: authHeaders(), withCredentials: true });
+    const { data } = fresh?{data:cached.data}:await axios.get(`${apiBase}/conversations/${c.id}`, { headers: authHeaders(), withCredentials: true });
+    if(session.value!==activeToken || cacheEpoch!==emailCacheEpoch)return;
+    if(isMobile.value){emailDetailCache.set(String(c.id),{data,at:fresh?cached.at:Date.now()});if(emailDetailCache.size>12)emailDetailCache.delete(emailDetailCache.keys().next().value);}
     if (request !== conversationRequest || activeConv.value?.id !== c.id) return;
     activeConv.value = data.conversation || c;
     threadMessages.value = data.messages || []; nextBeforeId.value = data.nextBeforeId || null;
@@ -1794,7 +1806,7 @@ async function openConversation(c, { refresh = false, preserveCurrent = true } =
     const draft = emailDrafts.get(c.id);
     if (draft && !refresh) { replyText.value = draft.text || ''; replyMode.value = draft.mode || 'reply'; replyTo.value = draft.to ?? replyTo.value; replyCc.value = draft.cc || ''; replyBcc.value = draft.bcc || ''; replyAttachments.value = draft.attachments || []; }
     c.is_unread = 0;
-  } catch (e) { if (request === conversationRequest) error.value = e?.response?.data?.error?.message || 'Could not open conversation'; }
+  } catch (e) { if (request === conversationRequest){if([401,403].includes(e.response?.status))clearCachedEmailAccess();error.value = e?.response?.data?.error?.message || 'Could not open conversation';} }
   finally { if (request === conversationRequest) threadLoading.value = false; }
 }
 async function loadOlderEmail() {
@@ -2605,7 +2617,7 @@ function clearSession({notify=true}={}) {
   stopHeartbeat(); clearTimeout(undoTimer); clearTimeout(quickPreviewTimer); clearTimeout(quickPreviewHideTimer);
   ++conversationRequest; ++homeRequest; ++chatRequest; ++calendarRequest;
   ++taskDetailRequest; ++noteAidRequest; noteAidBusy.value = false;
-  emailDrafts.clear(); chatDrafts.clear();
+  emailDrafts.clear(); ++emailCacheEpoch;emailDetailCache.clear(); chatDrafts.clear();
   activeConv.value = null; threadMessages.value = []; conversations.value = [];
   chatMessages.value = []; chatList.value = []; inboxItems.value = []; activeChatId.value = null;
   replyText.value = ''; replyAttachments.value = []; chatReply.value = ''; chatAttachments.value = [];
@@ -2713,7 +2725,7 @@ onMounted(() => {
     loadTokenInfo();
   }
 });
-defineExpose({lock:logout,openDeepLink,openPreferences:openMobilePreferences});
+defineExpose({openNotificationTask:id=>openTaskDetail({id}),lock:logout,openDeepLink,openPreferences:openMobilePreferences});
 onUnmounted(() => {
   window.removeEventListener('resize',resizeMobile);clearTimeout(preferenceTimer);
   document.removeEventListener('pointerdown',outsidePreview);dismissQuickPreview();
@@ -3039,3 +3051,7 @@ button.qv-row:hover { background: #f8faff; }
 </style>
 
 <style scoped>.qv-task-count{font-size:11px;font-variant-numeric:tabular-nums;margin-left:4px}.qv-selected-day{font-size:13px;color:#466384;margin:0;padding:0 16px 12px}.qv-task-due{display:grid;gap:9px;font-size:14px}.qv-task-due input{font:inherit;font-size:16px;min-width:0;max-width:100%;box-sizing:border-box;padding:12px;border:1px solid #cbd9ed;border-radius:9px}.qv-task-action-buttons{display:flex;gap:8px;flex-wrap:wrap;margin-top:18px}.qv-task-action>p{white-space:pre-wrap;overflow-wrap:anywhere}.qv-task-action button{min-height:44px}</style>
+
+<style scoped>
+.qv-top-actions>.qv-icon-button{position:relative}.qv-notification-dot{position:absolute;top:6px;right:6px;width:8px;height:8px;border-radius:50%;background:#2860df;box-shadow:0 0 0 3px #eef3ff;animation:qv-pulse 2s ease-out infinite}.qv-countdown{font-size:9px;line-height:1.2;white-space:nowrap;color:#526b90}.qv-mobile .qv-extend{display:grid;grid-template-columns:auto auto;gap:2px 5px;min-width:68px}.qv-countdown{grid-column:1/-1}.qv-mobile .qv-tabs>button{min-width:0;flex:1}.qv-mobile .qv-tabs>button>span:not(.qv-nav-badge){font-size:10px;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}@keyframes qv-pulse{0%,100%{box-shadow:0 0 0 3px #eef3ff}50%{box-shadow:0 0 0 6px #2860df20}}@media(prefers-reduced-motion:reduce){.qv-notification-dot{animation:none}}
+</style>

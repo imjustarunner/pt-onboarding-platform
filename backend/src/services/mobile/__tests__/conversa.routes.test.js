@@ -11,7 +11,7 @@ vi.mock('../../../controllers/chat.controller.js',()=>({assertThreadAccess:mocks
 vi.mock('../../../controllers/quickViewSurfaces.controller.js',()=>({qvListChatThreads:mocks.threads,qvListChatChannels:vi.fn((req,res)=>res.json({channels:[]})),qvListThreadsInbox:vi.fn(),qvListMentions:vi.fn(),qvListFiles:vi.fn()}));
 vi.mock('../../../services/communicationAccess.service.js',()=>({requireConversationAccess:mocks.conversationAccess}));
 vi.mock('../../../services/unifiedInbox.service.js',()=>({updateConversation:vi.fn()}));
-vi.mock('../conversa.service.js',async importOriginal=>{const actual=await importOriginal();return {...actual,mobileConversaStore:{archive:mocks.archive,emails:mocks.emails,emailCounts:mocks.emailCounts,archives:mocks.archives,extraCounts:mocks.extraCounts}};});
+vi.mock('../conversa.service.js',async importOriginal=>{const actual=await importOriginal();return {...actual,mobileConversaStore:{emailInbox:async(id,options)=>Promise.all([mocks.emails(id,options),mocks.emailCounts(id,options.includeArchived,options.agencyId)]),archive:mocks.archive,emails:mocks.emails,emailCounts:mocks.emailCounts,archives:mocks.archives,extraCounts:mocks.extraCounts}};});
 vi.mock('../../../controllers/chatAttachments.controller.js',()=>({downloadSecureChatAttachment:vi.fn()}));
 vi.mock('../documentationQueue.service.js',()=>({getMobileDocumentationQueue:vi.fn()}));
 vi.mock('../../../services/storage.service.js',()=>({default:{}}));

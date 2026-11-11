@@ -3,7 +3,7 @@
     <header>
       <h2>{{ conversation?.subject || '(No subject)' }}</h2>
       <p v-if="conversation?.is_group_email || conversation?.is_ticketed_group" class="addresses">Groups – {{ conversation.inbox_display_name || conversation.inbox_from_email || 'Group mailbox' }}<template v-if="conversation.inbox_from_email"> · Account: {{ conversation.inbox_from_email }}</template><template v-if="conversation.ticket_status"> · Ticket: {{ conversation.ticket_status }}</template></p>
-      <button v-if="mobile" type="button" class="reading-mode" :aria-pressed="compactLayout" @click="compactLayout=!compactLayout">{{ compactLayout?'Reading view':'Original layout' }}</button>
+      <button v-if="mobile || messages.some(hasAppEmailChrome)" type="button" class="reading-mode" :aria-pressed="compactLayout" @click="compactLayout=!compactLayout">{{ compactLayout?'Reading view':'Original layout' }}</button>
       <div class="actions">
         <button v-if="!isReadOnly" type="button" @click="$emit('compose','reply')">Reply</button>
         <button v-if="!isReadOnly" type="button" @click="$emit('compose','reply_all')">Reply all</button>
@@ -45,13 +45,13 @@ import EmailAudioAttachment from './EmailAudioAttachment.vue';
 import ConversaSender from '../../components/conversa/ConversaSender.vue';
 import ConversaIcon from '../../components/conversa/ConversaIcon.vue';
 import { computed, ref, watch } from 'vue';
-import { renderEmailContent, emailDeliveryLabel } from '../../utils/emailPresentation';
+import { renderEmailContent, emailDeliveryLabel, hasAppEmailChrome } from '../../utils/emailPresentation';
 const props = defineProps({ conversation:Object,messages:{type:Array,default:()=>[]},hasOlder:Boolean,loadingOlder:Boolean,readOnly:Boolean,canPrint:Boolean,canFile:Boolean,mobile:Boolean,currentUserPhoto:String });
 const isReadOnly = computed(() => props.readOnly || !!props.conversation?.support_ticket_id);
 defineEmits(['compose','unread','older','attachment','like','print','file']);
-const expansion=ref({}),showImages=ref({}),compactLayout=ref(props.mobile);
+const expansion=ref({}),showImages=ref({}),compactLayout=ref(true);
 const photoUrl=path=>/^https?:\/\//.test(path)?path:`${import.meta.env.VITE_AURICWELL_MOBILE?'https://auricwell.com':''}/api/uploads/${String(path).replace(/^\/?(?:api\/)?uploads\//,'')}`;
-const rendered=computed(()=>Object.fromEntries(props.messages.map(message=>[message.id,renderEmailContent(message,{loadExternalImages:!!showImages.value[message.id],compactLayout:props.mobile && compactLayout.value})])));
+const rendered=computed(()=>Object.fromEntries(props.messages.map(message=>[message.id,renderEmailContent(message,{loadExternalImages:!!showImages.value[message.id],compactLayout:props.mobile && compactLayout.value,simplifyAppChrome:compactLayout.value})])));
 watch(()=>props.conversation?.id,()=>{expansion.value={};showImages.value={};});
 const isExpanded=message=>expansion.value[message.id] ?? (message.id===props.messages.at(-1)?.id);
 function rememberExpansion(message,event){expansion.value[message.id]=event.target.open;}

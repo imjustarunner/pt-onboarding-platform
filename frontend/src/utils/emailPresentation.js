@@ -1,6 +1,29 @@
 import DOMPurify from 'dompurify';
 
-export function renderEmailContent({ body_html, body_text } = {}, { collapseQuotes = true, loadExternalImages = false, compactLayout = false } = {}) {
+export const hasAppEmailChrome = message => /data-portal-email=["']v[12]|\/email-signatures\/|Part of the SchoolCareBridge network|MH4Kidz/i.test(String(message?.body_html || ''));
+
+// Presentation only. Keep all footer content available, without repeating it inline.
+function collapseAppEmailChrome(container){
+ const footer=document.createElement('details'),summary=document.createElement('summary');summary.textContent='Email signature and footer';footer.append(summary);
+ const move=node=>{if(node && !footer.contains(node) && node!==container)footer.append(node);};
+ for(const image of [...container.querySelectorAll('img')]){
+  const value=`${image.getAttribute('src') || ''} ${image.alt || ''}`;
+  const socialLink=/https?:\/\/(?:www\.)?(?:facebook|instagram|youtube|linkedin|twitter|x)\.com\//i.test(image.closest('a')?.getAttribute('href') || '');
+  if(socialLink || /email-signatures|schoolcarebridge|plottwist|MH4Kidz|(?:facebook|instagram|youtube|linkedin|twitter|social)[-_./]/i.test(value))move(image.closest('a') || image);
+ }
+ const labels=/^(?:CONFIDENTIAL AND POTENTIALLY SENSITIVE INFORMATION!?|Part of the SchoolCareBridge network|A program of MH4Kidz|MENTAL HEALTH SUPPORT\. STRONGER SCHOOL COMMUNITIES\.?|powered by\s*Plot\s*TwistCo)$/i;
+ for(const node of [...container.querySelectorAll('p,div,strong,b,h1,h2,h3,h4,td')]){
+  if(footer.contains(node) || !labels.test((node.textContent || '').replace(/\s+/g,' ').trim()))continue;
+  if([...node.children].some(child=>labels.test((child.textContent || '').replace(/\s+/g,' ').trim())))continue;
+  const block=node.closest('p') || node;
+  const next=block.nextElementSibling;
+  const confidential=/^CONFIDENTIAL/i.test(node.textContent.trim());move(block);
+  if(confidential && next && /^(?:The information enclosed|If you are not the intended recipient)/i.test(next.textContent.trim()))move(next);
+ }
+ if(footer.childNodes.length>1)container.append(footer);
+}
+
+export function renderEmailContent({ body_html, body_text } = {}, { collapseQuotes = true, loadExternalImages = false, compactLayout = false, simplifyAppChrome = false } = {}) {
   let hasBlockedImages = false;
   const html = body_html || '';
   const fragment = DOMPurify.sanitize(html, {
@@ -69,6 +92,7 @@ export function renderEmailContent({ body_html, body_text } = {}, { collapseQuot
     node.removeAttribute('style');
     if (clean.cssText) node.setAttribute('style', clean.cssText);
   }
+  const imageWidths=new Map([...container.querySelectorAll('img')].map(image=>[image,Number.parseFloat(image.getAttribute('width') || image.style.width) || 160]));
   if(compactLayout){
     // Reading presentation only: keep content and links, discard fixed-width email chrome.
     for(const node of container.querySelectorAll('[style]')){
@@ -81,8 +105,9 @@ export function renderEmailContent({ body_html, body_text } = {}, { collapseQuot
       const box=document.createElement('div');while(table.firstChild)box.append(table.firstChild);table.replaceWith(box);
       for(const node of [...box.querySelectorAll('thead,tbody,tr,td')]){const block=document.createElement('div');while(node.firstChild)block.append(node.firstChild);node.replaceWith(block);}
     }
-    for(const image of container.querySelectorAll('img')){image.removeAttribute('width');image.removeAttribute('height');}
+    for(const image of container.querySelectorAll('img')){image.removeAttribute('width');image.removeAttribute('height');image.style.setProperty('width',`${Math.min(160,imageWidths.get(image))}px`,'important');image.style.setProperty('max-width','100%','important');image.style.setProperty('height','auto','important');}
   }
+  if(simplifyAppChrome && hasAppEmailChrome({body_html:html}))collapseAppEmailChrome(container);
   for (const node of container.querySelectorAll('[class]')) node.removeAttribute('class');
   for (const link of container.querySelectorAll('a')) {
     const href = link.getAttribute('href') || '';

@@ -9,10 +9,14 @@ import MobileMessageText from './MobileMessageText.vue';
 import MobileIdentityAvatar from './MobileIdentityAvatar.vue';
 import ConversaBrand from '../components/conversa/ConversaBrand.vue';
 const props=defineProps({apiBase:{type:String,required:true},sessionToken:{type:String,required:true},userId:[String,Number],visible:Boolean,preferences:{type:Object,default:()=>({swipeLeft:'archive',swipeRight:'read'})}});
-const emit=defineEmits(['open-email','compose-email','counts','settings']);
+const emit=defineEmits(['open-email','compose-email','counts','settings','access-denied']);
 const route=useRoute(),router=useRouter();trackMobileNavigation(router);
 const items=ref([]),counts=ref({}),cursor=ref(null),loading=ref(false),error=ref(''),notice=ref(''),undoItem=ref(null);
 const inboxReady=ref(false),inboxFailed=ref(false);let inboxScope='';
+// Bounded component memory only; the device session owns and clears this cache.
+const inboxCache=new Map(),inboxFlights=new Map(),chatCache=new Map();
+function cacheInbox(touch=true){if(!inboxScope || !inboxReady.value)return;inboxCache.set(inboxScope,{items:[...items.value],cursor:cursor.value,at:touch?Date.now():inboxCache.get(inboxScope)?.at || 0});if(inboxCache.size>12)inboxCache.delete(inboxCache.keys().next().value);}
+function inboxGet(key,options){if(inboxFlights.has(key))return inboxFlights.get(key);const task=axios.get(`${props.apiBase}/messages/inbox`,options);inboxFlights.set(key,task);task.finally(()=>{if(inboxFlights.get(key)===task)inboxFlights.delete(key);}).catch(()=>{});return task;}
 const chat=ref(null),messages=ref([]),chatLoading=ref(false),chatBusy=ref(false),reply=ref(''),firstUnreadId=ref(null),unreadAbove=ref(false),hasOlder=ref(false),secureOpen=ref(false),revealNames=ref(false),revealedMessages=ref(new Set()),timeline=ref(null),chatFiles=ref([]),uploading=ref(false);
 const composeMenu=ref(false),recipientOpen=ref(false),recipientQuery=ref(''),recipients=ref([]),recipientLoading=ref(false),recipientError=ref(''),recipientBusy=ref(null);let recipientRequest=0;
 const recipientNextPage=ref(null),recipientSendKey=ref('');
@@ -108,18 +112,19 @@ function clearChat(){++chatRequest;chatLoading.value=false;hasOlder.value=false;
 async function changeSuite(value){rememberTabs();rememberListScroll();await go({view:'home',suite:value,filter:value==='all'?'unread':'all',archived:includeArchived.value?'1':undefined});}
 async function changeFilter(value){rememberTabs();rememberListScroll();await go({view:'home',suite:suite.value,filter:value,archived:includeArchived.value?'1':undefined});}
 function rememberListScroll(){const pane=document.getElementById('qv-workspace');if(pane)scrollPositions.set(`${suite.value}:${filter.value}`,pane.scrollTop);}
-async function loadInbox({older=false,quiet=false}={}) {
+async function loadInbox({older=false,quiet=false,force=false}={}) {
   if(pendingRead.size || bulkBusy.value)return;
   const scope=`${suite.value}:${filter.value}:${includeArchived.value}`;
-  if(scope!==inboxScope){inboxScope=scope;items.value=[];cursor.value=null;inboxReady.value=false;}
-  const request=++inboxRequest;if(!quiet)loading.value=true;error.value='';
+  if(scope!==inboxScope){++inboxRequest;cacheInbox(false);inboxScope=scope;const cached=inboxCache.get(scope);items.value=cached?[...cached.items]:[];cursor.value=cached?.cursor || null;inboxReady.value=!!cached;}
+  const cached=inboxCache.get(scope);if(!force && !older && cached && Date.now()-cached.at<60000){loading.value=false;inboxFailed.value=false;return;}
+  const request=++inboxRequest,token=props.sessionToken;if(!quiet)loading.value=true;error.value='';
   try{
-    const {data}=await axios.get(`${props.apiBase}/messages/inbox`,{...config(),params:{suite:showingDrafts.value?'drafts':suite.value,filter:showingDrafts.value?'all':filter.value,includeArchived:includeArchived.value?'1':'0',cursor:older?cursor.value:undefined}});
-    if(request!==inboxRequest)return;
+    const {data}=await inboxGet(`${scope}:${older?cursor.value || 'older':'first'}`,{...config(),params:{suite:showingDrafts.value?'drafts':suite.value,filter:showingDrafts.value?'all':filter.value,includeArchived:includeArchived.value?'1':'0',cursor:older?cursor.value:undefined}});
+    if(request!==inboxRequest || token!==props.sessionToken)return;
     inboxReady.value=true;inboxFailed.value=false;
     items.value=older?[...items.value,...data.items]:data.items || [];counts.value={...counts.value,...data.counts};orderCategories();cursor.value=data.nextCursor || null;
-    if(showingDrafts.value){const local=[...drafts.values()].filter(d=>(d.text?.trim() || d.files?.length) && (suite.value==='all' || suite.value===d.category)).map(d=>({...d,id:d.threadId,key:`chat-draft:${d.threadId}:${d.parentId||0}`,kind:'chat-draft',preview:d.secure?'Unsent secure message':d.text}));items.value=[...local,...(['all','email','drafts'].includes(suite.value)?items.value:[])];counts.value.drafts={total:items.value.length};}emit('counts',counts.value);await restoreTabs();
-  }catch(e){if(request===inboxRequest){inboxFailed.value=true;if([401,403].includes(e.response?.status)){items.value=[];counts.value={};cursor.value=null;inboxReady.value=false;}error.value=e.response?.status<500?e.response?.data?.error?.message || 'Messages are unavailable for this account.':inboxReady.value?'Messages could not be refreshed. Previously loaded conversations are shown.':'Messages could not be loaded. Try again.';}}
+    if(showingDrafts.value){const local=[...drafts.values()].filter(d=>(d.text?.trim() || d.files?.length) && (suite.value==='all' || suite.value===d.category)).map(d=>({...d,id:d.threadId,key:`chat-draft:${d.threadId}:${d.parentId||0}`,kind:'chat-draft',preview:d.secure?'Unsent secure message':d.text}));items.value=[...local,...(['all','email','drafts'].includes(suite.value)?items.value:[])];counts.value.drafts={total:items.value.length};}cacheInbox();emit('counts',counts.value);await restoreTabs();
+  }catch(e){if(request===inboxRequest){inboxFailed.value=true;if([401,403].includes(e.response?.status)){inboxCache.clear();inboxFlights.clear();items.value=[];counts.value={};cursor.value=null;inboxReady.value=false;}error.value=e.response?.status<500?e.response?.data?.error?.message || 'Messages are unavailable for this account.':inboxReady.value?'Messages could not be refreshed. Previously loaded conversations are shown.':'Messages could not be loaded. Try again.';}}
   finally{if(request===inboxRequest)loading.value=false;}
 }
 async function openItem(item){
@@ -152,7 +157,7 @@ const previewText=item=>item.secure?'Secure message · tap to unlock':compact(it
 const icon=item=>item.secure?LockKeyhole:item.kind==='email'?Mail:item.category==='channels'?Hash:item.category==='groups'?Users:MessageSquare;
 async function archive(item,active=!item.archived){
   const kind=['email','sms'].includes(item.kind)?item.kind:'chat',id=item.threadId || item.thread_id || item.id;
-  try{await axios.patch(`${props.apiBase}/messages/${kind}/${id}/archive`,{archived:active},config());notice.value=active?'Conversation archived':'Conversation restored';undoItem.value=active?{...item,archived:true}:null;await loadInbox({quiet:true});}
+  try{await axios.patch(`${props.apiBase}/messages/${kind}/${id}/archive`,{archived:active},config());inboxCache.clear();notice.value=active?'Conversation archived':'Conversation restored';undoItem.value=active?{...item,archived:true}:null;await loadInbox({quiet:true,force:true});}
   catch(e){error.value=e.response?.data?.error?.message || 'Could not update this conversation.';}
 }
 const pendingRead=new Set();
@@ -162,11 +167,12 @@ async function markRead(item,read=true){
   const previous={unread:item.unread,unreadCount:item.unreadCount},previousItems=[...items.value],previousCounts=structuredClone(JSON.parse(JSON.stringify(counts.value))),scope=inboxScope;let failure='';loading.value=false;
   notice.value=read?'Marked as read':'Marked as unread';
   const delta=(read?0:1)-(item.unread?1:0);item.unread=!read;item.unreadCount=read?0:1;
+  inboxCache.clear();
   for(const key of new Set(['all',item.category]))if(counts.value[key])counts.value[key]={...counts.value[key],unread:Math.max(0,Number(counts.value[key].unread||0)+delta)};
-  if(filter.value==='unread' && read)items.value=items.value.filter(row=>row.key!==item.key);emit('counts',counts.value);
+  if(filter.value==='unread' && read)items.value=items.value.filter(row=>row.key!==item.key);cacheInbox();emit('counts',counts.value);
   try{await axios.patch(`${props.apiBase}/messages/${kind}/${id}/state`,{read},config());}
-  catch(e){if(scope===inboxScope){items.value=previousItems;Object.assign(item,previous);counts.value=previousCounts;emit('counts',counts.value);}failure=e.response?.data?.error?.message || 'Could not update read status.';notice.value='';}
-  finally{pendingRead.delete(item.key);if(!threadId.value)await loadInbox({quiet:true});if(failure)error.value=failure;}
+  catch(e){if([401,403].includes(e.response?.status)){inboxCache.clear();inboxFlights.clear();items.value=[];counts.value={};cursor.value=null;inboxReady.value=false;emit('counts',counts.value);emit('access-denied');}else if(scope===inboxScope){items.value=previousItems;Object.assign(item,previous);counts.value=previousCounts;emit('counts',counts.value);}failure=e.response?.data?.error?.message || 'Could not update read status.';notice.value='';}
+  finally{pendingRead.delete(item.key);inboxCache.clear();cacheInbox();if(props.visible && !threadId.value)await loadInbox({quiet:true,force:true});if(failure)error.value=failure;}
 
 }
 let bulkRequest=0;
@@ -180,14 +186,15 @@ function showRowMenu(item){if(!selectable(item))return;cancelHold();cancelSwipe(
 async function applyBulk(action){
  if(bulkBusy.value||!selectedRows.value.size)return;bulkBusy.value=true;rowMenu.value=null;error.value='';++inboxRequest;loading.value=false;const batch=++bulkRequest,token=props.sessionToken,scope=inboxScope,rows=[...selectedRows.value.values()];let succeeded=0;const failed=new Map();
  for(const item of rows){if(token!==props.sessionToken || scope!==inboxScope)break;try{await axios.patch(`${props.apiBase}/messages/${item.kind}/${item.id}/${action==='archive'?'archive':'state'}`,action==='archive'?{archived:true}:{read:true},config());succeeded++;}catch{failed.set(item.key,item);}}
- if(batch!==bulkRequest)return;bulkBusy.value=false;if(token!==props.sessionToken || scope!==inboxScope)return;selectedRows.value=failed;selectionMode.value=failed.size>0;notice.value=`${succeeded} conversation${succeeded===1?'':'s'} ${action==='archive'?'archived':'marked as read'}.`;await loadInbox({quiet:true});if(failed.size)error.value=`${failed.size} conversation${failed.size===1?' could':'s could'} not be updated. They remain selected; try again.${error.value?' '+error.value:''}`;
+ if(batch!==bulkRequest)return;bulkBusy.value=false;if(token!==props.sessionToken || scope!==inboxScope)return;selectedRows.value=failed;selectionMode.value=failed.size>0;inboxCache.clear();notice.value=`${succeeded} conversation${succeeded===1?'':'s'} ${action==='archive'?'archived':'marked as read'}.`;await loadInbox({quiet:true,force:true});if(failed.size)error.value=`${failed.size} conversation${failed.size===1?' could':'s could'} not be updated. They remain selected; try again.${error.value?' '+error.value:''}`;
 }
+watch(()=>props.sessionToken,()=>{++inboxRequest;inboxCache.clear();inboxFlights.clear();chatCache.clear();clearChat();items.value=[];counts.value={};cursor.value=null;inboxReady.value=false;inboxScope='';});
 watch([suite,filter,includeArchived,()=>props.sessionToken],()=>{++bulkRequest;bulkBusy.value=false;selectionMode.value=false;selectedRows.value=new Map();rowMenu.value=null;});
 const knownSender=ref(null),savingKnown=ref(false);let holdTimer=null;
 watch(knownSender,async value=>{if(value){await nextTick();document.querySelector('[aria-label="Create known contact"] button')?.focus({preventScroll:true});}});
 function cancelHold(){clearTimeout(holdTimer);holdTimer=null;}
 function showKnownSender(item){if(item.kind!=='email' || !item.unknown)return;cancelHold();suppressClickUntil=Date.now()+600;knownSender.value=item;drag=null;dragOffset.value={key:null,x:0};}
-async function saveKnownSender(){const item=knownSender.value;if(!item || savingKnown.value)return;savingKnown.value=true;try{await axios.post(`${props.apiBase}/messages/email/${item.id}/known-sender`,{},config());knownSender.value=null;notice.value='Contact saved. Emails from this sender now appear in your inbox.';await loadInbox({quiet:true});}catch(e){error.value=e.response?.data?.error?.message || 'The contact could not be saved.';}finally{savingKnown.value=false;}}
+async function saveKnownSender(){const item=knownSender.value;if(!item || savingKnown.value)return;savingKnown.value=true;try{await axios.post(`${props.apiBase}/messages/email/${item.id}/known-sender`,{},config());knownSender.value=null;notice.value='Contact saved. Emails from this sender now appear in your inbox.';await loadInbox({quiet:true,force:true});}catch(e){error.value=e.response?.data?.error?.message || 'The contact could not be saved.';}finally{savingKnown.value=false;}}
 function cancelSwipe(){cancelHold();drag=null;dragOffset.value={key:null,x:0};}
 function startSwipe(item,event){if(event.pointerType==='mouse' && event.button!==0)return;cancelHold();if(selectionMode.value)return;if(selectable(item))holdTimer=setTimeout(()=>showRowMenu(item),550);drag={key:item.key,x:event.clientX,y:event.clientY,target:event.currentTarget,pointerId:event.pointerId};}
 function moveSwipe(event){
@@ -230,13 +237,14 @@ async function loadChat({older=false,quiet=false,restore=false}={}){
     if(quiet || older){const map=new Map(messages.value.map(m=>[m.id,m]));rows.forEach(m=>map.set(m.id,m));messages.value=[...map.values()].sort((a,b)=>Number(a.id)-Number(b.id));}else messages.value=rows;
     if(!quiet)hasOlder.value=!!data.hasOlder;
     if(!quiet && !older)firstUnreadId.value=pid?null:data.firstUnreadId || null;
+    if(!secure.value && context.data.message_channel!=='secure'){chatCache.set(`${id}:${pid || 0}:${route.query.messageId || ''}`,{context:chat.value,messages:[...messages.value],hasOlder:hasOlder.value,firstUnreadId:firstUnreadId.value,at:Date.now()});if(chatCache.size>8)chatCache.delete(chatCache.keys().next().value);}
     await nextTick();
     if(timeline.value){if(older)timeline.value.scrollTop=timeline.value.scrollHeight-oldHeight+oldTop;
       else if(!quiet)timeline.value.scrollTop=restore && scrollPositions.has(`chat:${draftKey()}`)?scrollPositions.get(`chat:${draftKey()}`):timeline.value.scrollHeight;
       else if(wasBottom)timeline.value.scrollTop=timeline.value.scrollHeight;}
     if(!older && !quiet && route.query.messageId)timeline.value?.querySelector(`[data-message-id="${route.query.messageId}"]`)?.scrollIntoView?.({block:'center'});
     observeMessages();updateUnreadArrow();
-  }catch(e){if(request===chatRequest){const message=e.response?.data?.error?.message || 'Could not open this conversation.';if([403,404].includes(e.response?.status))clearChat();error.value=message;}}
+  }catch(e){if(request===chatRequest){const message=e.response?.data?.error?.message || 'Could not open this conversation.';if([401,403,404].includes(e.response?.status)){chatCache.clear();clearChat();}error.value=message;}}
   finally{if(request===chatRequest)chatLoading.value=false;}
 }
 async function openReplies(message){rememberDraft();saveScroll();await go({...route.query,parentId:String(message.id)});}
@@ -261,15 +269,20 @@ async function syncRoute(){
   if(route.query.view && route.query.view!=='home')return;
   const key=`${threadId.value || ''}:${parentId.value || ''}:${suite.value}:${filter.value}:${includeArchived.value}:${route.query.messageId || ''}`;if(key===routeKey)return;routeKey=key;
   clearFile();error.value='';notice.value='';
-  if(threadId.value){rememberTabs();const draft=drafts.get(draftKey());reply.value=draft?.text || '';chatFiles.value=draft?.files || [];const previous=chat.value?.id;chat.value=null;messages.value=[];revealNames.value=false;revealedMessages.value=new Set();secureOpen.value=route.query.secure==='1';await loadChat({restore:!!previous});}
+  if(threadId.value){rememberTabs();const draft=drafts.get(draftKey());reply.value=draft?.text || '';chatFiles.value=draft?.files || [];const previous=chat.value?.id;chat.value=null;messages.value=[];revealNames.value=false;revealedMessages.value=new Set();secureOpen.value=route.query.secure==='1';
+    const cached=!secure.value && chatCache.get(`${threadId.value}:${parentId.value || 0}:${route.query.messageId || ''}`),fresh=cached && Date.now()-cached.at<60000;
+    if(fresh){chat.value=cached.context;messages.value=[...cached.messages];hasOlder.value=cached.hasOlder;firstUnreadId.value=cached.firstUnreadId;chatLoading.value=false;await nextTick();if(timeline.value)timeline.value.scrollTop=scrollPositions.get(`chat:${draftKey()}`) ?? timeline.value.scrollHeight;}
+    // Cached text is displayed immediately; the server still rechecks thread access.
+    await loadChat({restore:!!previous,quiet:!!fresh});}
   else{clearChat();await loadInbox();await restoreTabs(true);await nextTick();const pane=document.getElementById('qv-workspace');if(pane)pane.scrollTop=scrollPositions.get(`${suite.value}:${filter.value}`)||0;}
 }
 watch(()=>route.fullPath,syncRoute);
 watch(()=>props.visible,async visible=>{if(visible){await restoreTabs(true);if(threadId.value){if(!chat.value)await syncRoute();else await loadChat({quiet:true});}else if(!threadId.value)await loadInbox({quiet:true});}else{knownSender.value=null;cancelHold();clearFile();composeMenu.value=false;closeRecipients();if(secure.value){rememberDraft();clearChat();}}});
-defineExpose({refresh:()=>loadInbox()});
-onMounted(async()=>{await syncRoute();timer=setInterval(()=>{if(!props.visible || document.hidden || chatBusy.value || uploading.value || pendingRead.size)return;if(threadId.value)loadChat({quiet:true});else loadInbox({quiet:true});},15000);});
+function markConversationRead(conversation){const item=items.value.find(row=>['email','sms'].includes(row.kind) && Number(row.id)===Number(conversation.id));if(item?.unread)return markRead(item,true);}
+defineExpose({refresh:()=>loadInbox({force:true}),markConversationRead});
+onMounted(async()=>{await syncRoute();timer=setInterval(()=>{if(!props.visible || document.hidden || chatBusy.value || uploading.value || pendingRead.size)return;if(threadId.value)loadChat({quiet:true});else loadInbox({quiet:true,force:true});},15000);});
 let noticeTimer;watch(notice,value=>{clearTimeout(noticeTimer);if(value)noticeTimer=setTimeout(()=>{notice.value='';undoItem.value=null;},4500);});
-onUnmounted(()=>{cancelHold();clearTimeout(noticeTimer);clearTimeout(recipientSearchTimer);++recipientRequest;++inboxRequest;clearChat();clearInterval(timer);clearTimeout(scrollTimer);drafts.clear();scrollPositions.clear();});
+onUnmounted(()=>{cancelHold();clearTimeout(noticeTimer);clearTimeout(recipientSearchTimer);++recipientRequest;++inboxRequest;clearChat();clearInterval(timer);clearTimeout(scrollTimer);drafts.clear();scrollPositions.clear();inboxCache.clear();inboxFlights.clear();chatCache.clear();});
 </script>
 
 <template>
@@ -291,7 +304,7 @@ onUnmounted(()=>{cancelHold();clearTimeout(noticeTimer);clearTimeout(recipientSe
       <div class="mm-toolbar">
         <div ref="filterNav" @scroll.passive="rememberTabs" class="mm-filters" aria-label="Message filters"><button v-for="[id,label,field] in [['all','All',null],['unread','Unread','unread'],['sent','Sent','sent'],['drafts','Drafts','drafts']]" :key="id" :aria-pressed="filter===id" @click="changeFilter(id)">{{ label }} <span v-if="id!=='all'">{{ id==='drafts' ? counts.drafts?.total ?? '—' : inboxReady ? selectedCounts[field] || 0 : '—' }}</span></button></div>
         <button class="mm-icon" :aria-pressed="includeArchived" aria-label="Include archived conversations" title="Include archived" @click="go({...route.query,archived:includeArchived?undefined:'1'})"><Archive :size="18"/></button>
-        <button class="mm-icon" aria-label="Refresh messages" @click="loadInbox()"><RefreshCw :size="17"/></button>
+        <button class="mm-icon" aria-label="Refresh messages" @click="loadInbox({force:true})"><RefreshCw :size="17"/></button>
         <button class="mm-icon mm-primary" :aria-label="composeLabel" @click="compose"><Plus :size="19"/></button>
       </div>
       <div v-if="composeMenu" class="mm-compose-menu" role="group" aria-label="New message options"><button @click="chooseRecipient('direct')">New direct message</button><button @click="chooseRecipient('groups')">New group message</button><button @click="chooseRecipient('channels')">Browse channels</button><button @click="composeMenu=false;emit('compose-email')">New email</button><button @click="chooseRecipient('secure')">New secure message</button><button @click="chooseRecipient('sms')">New text message</button><button @click="composeMenu=false;changeSuite('drafts')">Drafts</button></div>

@@ -39,8 +39,8 @@ export const getMobileInbox=mobile(async(req,res)=>{
   const userId=req.quickView.userId,includeArchived=req.query.includeArchived==='1',cursor=parseCursor(req.query.cursor);
   const suite=String(req.query.suite || 'all'),filter=String(req.query.filter || 'all');
   const qaAgencyId=mobileQaAgencyId(req);
-  const [rawThreads,emails,emailCounts,archives]=await Promise.all([
-    invoke(qvListChatThreads,req,{agencyId:qaAgencyId || 'all'}),mobileConversaStore.emails(userId,{includeArchived,beforeAt:cursor?.at,beforeKey:cursor?.key,suite,filter,agencyId:qaAgencyId}),mobileConversaStore.emailCounts(userId,includeArchived,qaAgencyId),mobileConversaStore.archives(userId)
+  const [rawThreads,[emails,emailCounts],archives]=await Promise.all([
+    invoke(qvListChatThreads,req,{agencyId:qaAgencyId || 'all'}),mobileConversaStore.emailInbox(userId,{includeArchived,beforeAt:cursor?.at,beforeKey:cursor?.key,suite,filter,agencyId:qaAgencyId}),mobileConversaStore.archives(userId)
   ]);
   let chats=(Array.isArray(rawThreads)?rawThreads:rawThreads.threads || []).filter(thread=>(!qaAgencyId||Number(thread.agency_id)===qaAgencyId)&&hasMobileThreadActivity(thread)).map(thread=>({...mobileThreadItem(thread,userId),archived:archives.has(`chat:${thread.thread_id}`)}));
   if(!includeArchived)chats=chats.filter(item=>!item.archived);
@@ -53,7 +53,11 @@ export const getMobileInbox=mobile(async(req,res)=>{
   let availableChannels=[];
   if(['all','channels'].includes(suite)&&!qaAgencyId){
     const {listMobileAgencies}=await import('../services/mobile/agencyScope.service.js');const {agencies}=await listMobileAgencies(await User.findById(userId,{raw:true}));
-    const data={channels:[]};for(const agency of agencies){const result=await invoke(qvListChatChannels,req,{agencyId:String(agency.id)});data.channels.push(...(result.channels || []).map(channel=>({...channel,agency_id:Number(agency.id),agency_name:agency.name,agency_logo_path:mobileAgencyIcon(agency)})));}
+    const data={channels:[]};
+    for(let offset=0;offset<agencies.length;offset+=4){
+      const batch=await Promise.all(agencies.slice(offset,offset+4).map(async agency=>{const result=await invoke(qvListChatChannels,req,{agencyId:String(agency.id)});return (result.channels || []).map(channel=>({...channel,agency_id:Number(agency.id),agency_name:agency.name,agency_logo_path:mobileAgencyIcon(agency)}));}));
+      data.channels.push(...batch.flat());
+    }
     availableChannels=(data.channels || []).filter(channel=>!chats.some(item=>item.id===Number(channel.thread_id || channel.id)) && (includeArchived || !archives.has(`chat:${channel.thread_id || channel.id}`))).map(channel=>({...mobileThreadItem({...channel,thread_id:channel.thread_id || channel.id,thread_type:'channel',channel_name:channel.name || channel.channel_name},userId),at:channel.updated_at || channel.created_at || null,preview:channel.description || 'Open this channel',join:!(channel.is_member===true || Number(channel.is_member)===1 || channel.isMember===true)}));
     counts.channels.total+=availableChannels.length;counts.all.total+=availableChannels.length;
   }

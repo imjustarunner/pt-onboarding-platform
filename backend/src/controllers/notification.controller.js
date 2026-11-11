@@ -1376,6 +1376,7 @@ async function getFeedAccess(req, requestedAgencyId = null, requestedScope = 'in
     agencyIds = [aid];
   }
 
+  if(Array.isArray(req.mobileNotificationAgencyIds))agencyIds=agencyIds.filter(id=>req.mobileNotificationAgencyIds.includes(Number(id)));
   let superviseeIds = [];
   if (scope === 'team') {
     if (!['supervisor', 'clinical_practice_assistant', 'provider_plus'].includes(role)) {

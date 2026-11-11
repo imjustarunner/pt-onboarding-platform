@@ -19,13 +19,13 @@ export async function requireMobileThreadMembership(userId,threadId,db=pool,veri
   throw Object.assign(new Error('Access denied to this conversation.'),{status:403});
 }
 
-export const MOBILE_DESTINATIONS = ['calendar','home','tasks','mywork','noteaid','presence','contacts'];
-export const DEFAULT_MOBILE_PREFERENCES = { swipeLeft:'archive', swipeRight:'read', navigationMode:'automatic', pinnedNavigation:['calendar','home','tasks'], usage:{} };
+export const MOBILE_DESTINATIONS = ['calendar','home','tasks','mywork','noteaid','presence','contacts','notifications'];
+export const DEFAULT_MOBILE_PREFERENCES = { swipeLeft:'archive', swipeRight:'read', navigationMode:'automatic', navigationSlots:'automatic', pinnedNavigation:['calendar','home','tasks'], usage:{} };
 const actions = new Set(['archive','read','unread','none']);
 export function normalizeMobilePreferences(value = {}) {
   const pinned = [...new Set((Array.isArray(value.pinnedNavigation) ? value.pinnedNavigation : []).filter(id => MOBILE_DESTINATIONS.includes(id)))].slice(0,4);
   const usage = Object.fromEntries(MOBILE_DESTINATIONS.map(id => [id,Math.max(0,Math.min(1000000,Number(value.usage?.[id]) || 0))]));
-  return {swipeLeft:actions.has(value.swipeLeft)?value.swipeLeft:'archive',swipeRight:actions.has(value.swipeRight)?value.swipeRight:'read',navigationMode:value.navigationMode==='pinned'?'pinned':'automatic',pinnedNavigation:pinned.length?pinned:DEFAULT_MOBILE_PREFERENCES.pinnedNavigation,usage};
+  return {swipeLeft:actions.has(value.swipeLeft)?value.swipeLeft:'archive',swipeRight:actions.has(value.swipeRight)?value.swipeRight:'read',navigationMode:value.navigationMode==='pinned'?'pinned':'automatic',navigationSlots:[2,3,4].includes(Number(value.navigationSlots))?Number(value.navigationSlots):'automatic',pinnedNavigation:pinned.length?pinned:DEFAULT_MOBILE_PREFERENCES.pinnedNavigation,usage};
 }
 export function maskMobileName(value) { return String(value || 'Private conversation').split(/\s+/).map(word=>word.slice(0,Math.min(2,word.length))+'•••'+(word.match(/[,;:]$/)?.[0] || '')).join(' '); }
 export function mobileThreadCategory(thread) {
@@ -108,8 +108,8 @@ export function createMobileConversaStore(db=pool,{listAgencies=null,groupAccess
   // determines whose personal unread badge it belongs in. Visibility is unchanged.
    const effectiveUnread=(scope,userId)=>`(${unreadSql} AND (NOT ${groupSql(scope)} OR t.id IS NULL OR (t.claimed_by_user_id=${Number(userId)} AND t.status NOT IN('closed','resolved','done','answered','waiting','pending_external'))))`;
   const groupNameSql=groupEmailNameSql;
-  async function emails(userId,{includeArchived=false,beforeAt=null,beforeKey=null,suite='all',filter='all',agencyId=null}={}) {
-    const scope=await emailScope(userId,includeArchived,agencyId),unknownSql=unknownSqlFor(userId),effectiveRead=effectiveUnread(scope,userId);
+  async function emails(userId,{includeArchived=false,beforeAt=null,beforeKey=null,suite='all',filter='all',agencyId=null}={},resolvedScope=null) {
+    const scope=resolvedScope || await emailScope(userId,includeArchived,agencyId),unknownSql=unknownSqlFor(userId),effectiveRead=effectiveUnread(scope,userId);
     const [rows]=await db.execute(`SELECT c.id,c.agency_id,c.inbox_id,${groupSql(scope)} AS is_group,c.channel,c.subject,c.status,${groupNameSql} AS group_name,i.from_email AS destination_account,c.last_message_preview,COALESCE(c.last_message_at,c.created_at) AS sort_at,
       COALESCE(archive.archived_at,c.archived_at) AS archived_at,${effectiveRead} AS is_unread,${sentSql(userId)} AS has_sent,${unknownSql} AS is_unknown_sender,
       (SELECT p.display_name FROM communication_participants p WHERE p.conversation_id=c.id ORDER BY p.is_primary DESC,p.id LIMIT 1) AS sender_name,
@@ -124,8 +124,8 @@ export function createMobileConversaStore(db=pool,{listAgencies=null,groupAccess
       return {key:`${r.channel}:${r.id}`,kind:r.channel,category:Number(r.is_group)?'groups':r.channel,groupName:Number(r.is_group)?r.group_name || 'Group':null,destinationAccount:r.destination_account || null,agencyId:Number(r.agency_id),id:Number(r.id),title:r.subject || '(No subject)',sender:from.name || r.sender_name || from.email || r.sender_email || 'Sender',senderEmail:from.email || r.sender_email,preview:r.last_message_preview || '',at:r.sort_at,archived:!!r.archived_at,unread:!!Number(r.is_unread),unreadCount:r.is_unread?1:0,hasSent:!!Number(r.has_sent),needsReply:['new','needs_reply'].includes(r.status),unknown:!Number(r.is_group) && !!Number(r.is_unknown_sender)};
     });
   }
-  async function emailCounts(userId,includeArchived=false,agencyId=null) {
-    const scope=await emailScope(userId,includeArchived,agencyId),unknownSql=unknownSqlFor(userId),effectiveRead=effectiveUnread(scope,userId);
+  async function emailCounts(userId,includeArchived=false,agencyId=null,resolvedScope=null) {
+    const scope=resolvedScope || await emailScope(userId,includeArchived,agencyId),unknownSql=unknownSqlFor(userId),effectiveRead=effectiveUnread(scope,userId);
     const [rows]=await db.execute(`SELECT c.channel,${groupSql(scope)} AS is_group,${unknownSql} AS effective_unknown,COUNT(*) AS total,SUM(${effectiveRead}) AS unread,SUM(c.status IN('new','needs_reply')) AS needs,SUM(${sentSql(userId)}) AS sent FROM communication_conversations c
       LEFT JOIN communication_inboxes i ON i.id=c.inbox_id LEFT JOIN support_tickets t ON t.id=c.support_ticket_id AND t.agency_id=c.agency_id
       LEFT JOIN communication_conversation_reads r ON r.conversation_id=c.id AND r.user_id=?
@@ -151,6 +151,11 @@ export function createMobileConversaStore(db=pool,{listAgencies=null,groupAccess
     }
     return result;
   }
-  return {preferences,savePreferences,archives,archive,emails,emailCounts,extraCounts};
+  async function emailInbox(userId,options={}) {
+    // This scope is shared only inside this request, never across users or requests.
+    const scope=await emailScope(userId,options.includeArchived || false,options.agencyId || null);
+    return Promise.all([emails(userId,options,scope),emailCounts(userId,options.includeArchived || false,options.agencyId || null,scope)]);
+  }
+  return {preferences,savePreferences,archives,archive,emails,emailCounts,emailInbox,extraCounts};
 }
 export const mobileConversaStore=createMobileConversaStore();

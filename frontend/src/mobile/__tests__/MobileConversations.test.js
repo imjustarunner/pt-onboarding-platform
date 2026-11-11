@@ -64,3 +64,5 @@ it('edits a due date from the task preview and preserves the prompt on a rejecte
 it('shows the weekday of the selected calendar date rather than only today',async()=>{
  await router.push('/mobile/workspace?view=calendar');await flushPromises();await wrapper.get('[aria-label="Calendar date"]').setValue('2026-11-10');await flushPromises();expect(wrapper.get('.qv-selected-day').text()).toContain('Tuesday');expect(wrapper.get('.qv-selected-day').text()).toContain('November 10');
 });
+
+it('reopens a recent email without waiting for a second detail request',async()=>{await email().trigger('click');await flushPromises();const details=()=>mocks.quickGet.mock.calls.filter(([url])=>url.endsWith('/conversations/41')).length;expect(details()).toBe(1);await historyBack();await email().trigger('click');await flushPromises();expect(details()).toBe(1);expect(wrapper.find('.email-reader').exists()).toBe(true);});
