@@ -4089,7 +4089,16 @@ const hideGlobalNavForSchoolStaff = computed(() => {
 
 /** Team-meeting / supervision join rooms + Quick View — hide app chrome that squeezes mobile layout. */
 const secureCommunicationRouteExcluded = computed(() => isSecureCommunicationRouteExcluded(route));
-const isImmersiveJoinRoute = computed(() => clinicalWorkspaceActive.value || secureCommunicationRouteExcluded.value);
+const isImmersiveJoinRoute = computed(() => {
+  if (clinicalWorkspaceActive.value) return true;
+  if (['AdaptiveJoinHub','AdaptiveJoinService','OrganizationAdaptiveJoinAlt','OrganizationAdaptiveJoinService'].includes(route.name)) return true;
+  if (route.path.startsWith('/schoolcarebridge') || route.meta?.publicQuickView === true || route.meta?.publicMarketingHub === true || route.meta?.publicPageDesignPreview === true) return true;
+  const path = String(route.path || '');
+  return (
+    path.startsWith('/quick-view/')
+    || /\/join\/(?:team-meeting|supervision)\//.test(path)
+  );
+});
 
 // Mount Momentum Stickies only after auth+addon settle and setup finishes.
 // Prevents post-login races (and any remaining TDZ) from crashing the login redirect chain.
