@@ -1088,7 +1088,7 @@ const routes = [
     path: '/company-events/:eventId/staff/:token',
     name: 'CompanyEventStaff',
     component: () => import('../views/public/CompanyEventStaffView.vue'),
-    meta: { requiresGuest: false }
+    meta: { requiresGuest: false, hideNav: true }
   },
   {
     path: '/company-events/:eventId',
