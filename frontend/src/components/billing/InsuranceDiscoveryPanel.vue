@@ -1,6 +1,6 @@
 <template>
   <section class="insurance-discovery" aria-label="Find insurance">
-    <button type="button" class="btn btn-secondary" :disabled="busy" @click="open">Find insurance / view previous searches</button>
+    <BillingLookupAction kind="discovery" :disabled="busy" @open="open">Find insurance / view previous searches</BillingLookupAction>
     <p v-if="error" role="alert">{{ error }}</p><p v-if="notice" role="status">{{ notice }}</p>
     <div v-if="workspace">
       <p v-if="!workspace.enabled">Stedi insurance discovery is awaiting account setup. Previous results remain available.</p>
@@ -63,6 +63,7 @@
   </section>
 </template>
 <script setup>
+import BillingLookupAction from './BillingLookupAction.vue';
 import {ref,computed,watch,onBeforeUnmount} from 'vue';
 import api from '../../services/api';
 const props=defineProps({agencyId:[Number,String],clientId:[Number,String],serviceDate:String,currentPatient:Object});
