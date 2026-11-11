@@ -84,7 +84,7 @@
     </section>
 
     <template v-if="session">
-      <div v-if="!isMobile || !['home','thread','chat','clinical','client','session'].includes(tab) && (moreOpen || tab!=='calendar') && (moreOpen || tab!=='mywork' || workControlsOpen)" class="qv-page-heading" :class="{'qv-work-heading':isMobile && tab==='mywork'}">
+      <div v-if="!isMobile || !['home','thread','chat','clinical','client','session','exchange','support','livechat','applicants'].includes(tab) && (moreOpen || tab!=='calendar') && (moreOpen || tab!=='mywork' || workControlsOpen)" class="qv-page-heading" :class="{'qv-work-heading':isMobile && tab==='mywork'}">
         <div><p class="qv-eyebrow">{{ workspaceDate }}</p><h1>{{ currentHeading.title }}</h1><p class="qv-page-description">{{ currentHeading.description }}</p></div>
         <span class="qv-workspace-tag">QUICK VIEW</span>
       </div>

@@ -1,0 +1,30 @@
+MOBILE PROVIDER IDENTITY, ACTIONS AND CHAT — NOVEMBER 11, 2026
+
+Implementation and local validation complete; deployment verification is recorded separately.
+
+CAUSE AND REPAIRS
+Exchange used the platform-wide users role and missed tenant-specific provider authority. The owner's platform account is super admin but has active provider roles within affiliated clinical agencies. Provider selection now honors the agency access profile and active membership, including explicit permission overrides. Mixed MySQL collations are normalized in this predicate. No provider profile, insurance acceptance, clinical record, or availability data was edited to make a match pass.
+Read-only verification recognized the owner's saved ITSCO in-person/virtual offering and recorded insurance acceptance. No open slots remains a separate capacity fact. Other agencies' saved modality/insurance restrictions remain unchanged. Matched listings sort before eligible and blocked listings.
+
+Mobile removes the redundant outer titles for Exchange, Support Messages, Live Chat and People Operations. Uploaded applicant résumés open in a compact reader through the existing tenant-authorized hiring document handler. Full hiring tools remain an explicit optional action.
+
+Today displays a current-time line and follows the current hour while the user is following today. Before 7 AM, the opening floor is 7 AM unless an earlier appointment exists. Past/future dates open at their earliest scheduled item or 7 AM. All 24 hours remain scrollable. Manual scrolling pauses automatic following; Today restores it.
+
+CHAT AVAILABILITY
+Staff deliberately choosing Go online remain available after closing/backgrounding mobile when that verified device has a permitted push destination. Staff no longer go offline because a component unmounts. Desktop now respects the same server choice. Periodic refresh cannot recreate an offline choice made on another device.
+Background reachability requires an unrevoked connected device, push enabled with a destination, and primary sign-in within 30 days. Existing active-account, current support-agency authority, presence status and notification preference checks still apply. A foreground-only staff member without device push is no longer advertised after foreground heartbeats expire; the UI explains this.
+Visitor presence is separate: a visitor who left, ended, expired or stopped heartbeating is not waiting/available. New claims and replies reject an absent visitor on the server. History is retained. Enqueue, retry and final native delivery recheck visitor presence so a delayed queued alert is suppressed after departure. Notifications contain no visitor transcript or token.
+Migration 1802 adds the nullable staff device-session link/index without rewriting existing transcripts.
+
+VALIDATION
+- Backend mobile: 47 files / 347 tests passed, including actual isolated MySQL tests for mixed-collation tenant provider selection, canonical chat presence and durable notification idempotency.
+- Frontend mobile: 30 files / 282 tests passed.
+- Desktop chat: 18 tests passed.
+- Canonical Exchange regressions: 35 files / 310 tests passed.
+- Canonical website chat: 23 tests passed.
+- Full web production build passed (increased Node heap after the default-heap build exhausted memory).
+- Bundled native mobile web build passed. This is not a signed iOS archive or a TestFlight upload.
+- Synthetic Chrome checks at 390 and 1024 CSS pixels: current-hour scroll 11 AM, current-time line visible, résumé reader usable, no horizontal overflow. This is not a physical iPhone push-delivery pass.
+
+MOBILE ACTION LIMITS
+Exchange requests, support replies and live-chat actions use scoped server adapters inside mobile. The app does not have to open the full website for these actions. Certain complex scheduling/event editors still use the canonical full scheduling handoff; this release does not claim those editors have complete compact-screen parity.

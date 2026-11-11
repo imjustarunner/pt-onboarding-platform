@@ -81,7 +81,7 @@ export async function enforceMobileQaBoundary(req) {
  const path=String(req.originalUrl||req.path||'').split('?')[0].replace(/^\/api\/quick-view/,'').replace(/\/$/,'');
  const method=String(req.method).toUpperCase();
  let allowed=method==='GET'&&['/my-work','/calendar/day','/tasks','/clients'].includes(path);
- if(method==='GET'&&/^\/applicants(?:\/[1-9][0-9]*)?$/.test(path))allowed=true;
+ if(method==='GET'&&/^\/applicants(?:\/[1-9][0-9]*(?:\/resumes\/[1-9][0-9]*)?)?$/.test(path))allowed=true;
  if(method==='GET'&&path==='/tools')allowed=true;
  if(method==='GET'&&/^\/directory\/[1-9][0-9]*$/.test(path))allowed=true;
  if(method==='GET'&&/^\/exchange\/(?:listings(?:\/[1-9][0-9]*)?|my-requests)$/.test(path))allowed=true;

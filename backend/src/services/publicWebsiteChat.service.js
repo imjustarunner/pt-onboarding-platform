@@ -8,6 +8,7 @@ import {PUBLIC_SUPPORT_CATEGORIES} from './publicAgencySupport.service.js';
 import {verifyRecaptchaV3} from './captcha.service.js';
 import {readAgencyAccess} from './agencyAccessProfiles.service.js';
 import {applyAgencyAccess} from '../utils/agencyAccessPolicy.js';
+import {availableChatStaffSql,backgroundChatDeviceSql,visitorChatAvailable} from '../utils/websiteChatAvailability.js';
 import {STAFF_ROLES} from '../utils/staffEligibility.js';
 
 const fail=(message,status=400)=>Object.assign(new Error(message),{status});
@@ -44,7 +45,7 @@ export function createWebsiteChatService(db=pool,identity=getPublicWebsiteIdenti
  async function authorize(user,slug){const a=await actor(user),s=await site(slug);if(!await supportGrant(a.user,s.support_agency_id))throw fail('Website not in your support scope',403);return s;}
  async function online(s){const [rows]=await db.execute(`SELECT u.id,u.role FROM public_website_chat_staff c JOIN users u ON u.id=c.user_id
  JOIN user_presence p ON p.user_id=u.id LEFT JOIN user_presence_status ps ON ps.user_id=u.id
- WHERE c.last_seen_at>UTC_TIMESTAMP()-INTERVAL 75 SECOND AND p.last_heartbeat_at>UTC_TIMESTAMP()-INTERVAL 90 SECOND
+ WHERE ${availableChatStaffSql('c','p')}
  AND COALESCE(u.is_archived,0)=0 AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_assistant_account,0)=0 AND COALESCE(u.is_demo,0)=0 AND UPPER(u.status) IN ('ACTIVE','ACTIVE_EMPLOYEE')
  AND COALESCE(ps.status,'in_available') IN ('in_available','in_available_for_phone')
  LIMIT 500`);for(const user of rows)if(STAFF_ROLES.includes(user.role)&&await supportGrant(user,s.support_agency_id))return true;return false;}
@@ -97,6 +98,7 @@ export function createWebsiteChatService(db=pool,identity=getPublicWebsiteIdenti
    if(s.visitor_ended_at)throw fail('The visitor ended this chat.',409);
    if(sender==='visitor'&&!s.initiated_at)throw fail('A support member must send the first message.',409);
    if(sender==='staff'&&s.claimed_by&&Number(s.claimed_by)!==Number(userId))throw fail('Another support member has claimed this chat.',409);
+   if(sender==='staff'&&!visitorChatAvailable(s))throw fail('The visitor has left or this chat expired. Wait for them to return.',409);
    const [existing]=await c.execute('SELECT id FROM public_website_chat_messages WHERE session_id=? AND client_message_id=?',[id,clientMessageId]);
    if(existing.length)return;
    const [counts]=await c.execute("SELECT COUNT(*) n,SUM(created_at>UTC_TIMESTAMP()-INTERVAL 1 MINUTE) recent FROM public_website_chat_messages WHERE session_id=? AND sender<>'system'",[id]);
@@ -108,9 +110,12 @@ export function createWebsiteChatService(db=pool,identity=getPublicWebsiteIdenti
   });
  }
  async function visitorSend(slug,id,token,payload){await session(slug,id,token);await append(id,'visitor',null,payload);await notify(id,`message:${payload.clientMessageId}`);return read(slug,id,token);}
- async function staffHeartbeat(user,available){const a=await actor(user);if(!available){await db.execute('DELETE FROM public_website_chat_staff WHERE user_id=?',[a.id]);return;}
+ async function staffHeartbeat(user,available,{mobileDeviceSessionId=null,refreshOnly=false}={}){const a=await actor(user);if(!available){await db.execute('DELETE FROM public_website_chat_staff WHERE user_id=?',[a.id]);return;}
  if(!(await authorizedAgencies(a)).length)throw fail('Support access required',403);
- await db.execute('INSERT INTO public_website_chat_staff(user_id,last_seen_at) VALUES(?,UTC_TIMESTAMP()) ON DUPLICATE KEY UPDATE last_seen_at=UTC_TIMESTAMP()',[a.id]);}
+ if(refreshOnly){const [result]=await db.execute('UPDATE public_website_chat_staff SET last_seen_at=UTC_TIMESTAMP() WHERE user_id=?',[a.id]);return result.affectedRows>0;}
+ if(mobileDeviceSessionId){const [[device]]=await db.execute('SELECT id FROM mobile_device_sessions WHERE id=? AND user_id=? AND revoked_at IS NULL',[mobileDeviceSessionId,a.id]);if(!device)throw fail('This mobile device is no longer connected.',403);}
+ await db.execute('INSERT INTO public_website_chat_staff(user_id,last_seen_at,mobile_device_session_id) VALUES(?,UTC_TIMESTAMP(),?) ON DUPLICATE KEY UPDATE last_seen_at=UTC_TIMESTAMP(),mobile_device_session_id=COALESCE(VALUES(mobile_device_session_id),mobile_device_session_id)',[a.id,mobileDeviceSessionId]);return true;}
+ async function staffAvailability(user){const a=await actor(user);const [[row]]=await db.execute(`SELECT 1 AS available,${backgroundChatDeviceSql('c')} AS backgroundReady FROM public_website_chat_staff c WHERE c.user_id=?`,[a.id]);return {available:!!row,backgroundReady:!!row?.backgroundReady};}
  async function queue(user){const a=await actor(user),agencies=await authorizedAgencies(a);if(!agencies.length)return [];const params=[...agencies],scope=` AND s.support_agency_id IN (${agencies.map(()=>'?').join(',')})`;
  const [rows]=await db.execute(`SELECT c.id,c.site_slug AS siteSlug,c.created_at AS createdAt,c.last_seen_at AS lastSeen,c.page_path AS pagePath,c.state,c.claimed_by AS claimedBy,
  (c.expires_at<=UTC_TIMESTAMP()) AS expired,c.visitor_ended_at AS endedAt,c.visitor_left_at AS leftAt,c.initiated_at AS initiatedAt,
@@ -128,8 +133,8 @@ export function createWebsiteChatService(db=pool,identity=getPublicWebsiteIdenti
   const [viewers]=await db.execute(`SELECT p.user_id AS userId,p.member_number AS memberNumber,CONCAT_WS(' ',u.first_name,u.last_name) AS name,
    (p.viewing_at>UTC_TIMESTAMP()-INTERVAL 30 SECOND) AS viewing,(p.typing_at>UTC_TIMESTAMP()-INTERVAL 20 SECOND AND p.viewing_at>UTC_TIMESTAMP()-INTERVAL 30 SECOND) AS typing
    FROM public_website_chat_participants p JOIN users u ON u.id=p.user_id WHERE p.session_id=? ORDER BY member_number`,[id]);
-  return {state:s.state,ended:!!s.visitor_ended_at,expired:new Date(s.expires_at).getTime()<=Date.now(),claimedBy:s.claimed_by,referrals,canReply:!(new Date(s.expires_at).getTime()<=Date.now())&&!s.visitor_ended_at&&(!s.claimed_by||Number(s.claimed_by)===Number(user.id)),claimedByMe:Number(s.claimed_by)===Number(user.id),viewers,
-   visitorTyping:!!s.visitor_typing_at&&Date.now()-new Date(s.visitor_typing_at).getTime()<20000,site:{slug:site.slug,name:site.name,logoUrl:site.logoUrl,color:site.accent_color},messages:await messages(id),quickReplies:websiteQuickReplies(site),topics:PUBLIC_SUPPORT_CATEGORIES,
+  return {state:s.state,ended:!!s.visitor_ended_at,expired:new Date(s.expires_at).getTime()<=Date.now(),claimedBy:s.claimed_by,referrals,visitorAvailable:visitorChatAvailable(s),visitorLeft:!visitorChatAvailable(s),canReply:visitorChatAvailable(s)&&(!s.claimed_by||Number(s.claimed_by)===Number(user.id)),claimedByMe:Number(s.claimed_by)===Number(user.id),viewers,
+   visitorTyping:visitorChatAvailable(s)&&!!s.visitor_typing_at&&Date.now()-new Date(s.visitor_typing_at).getTime()<20000,site:{slug:site.slug,name:site.name,logoUrl:site.logoUrl,color:site.accent_color},messages:await messages(id),quickReplies:websiteQuickReplies(site),topics:PUBLIC_SUPPORT_CATEGORIES,
    pageLinks:await pageLinks(site)};
  }
  async function pageLinks(site){
@@ -145,16 +150,16 @@ export function createWebsiteChatService(db=pool,identity=getPublicWebsiteIdenti
   await c.execute('UPDATE public_website_chat_participants SET viewing_at=NULL,typing_at=NULL WHERE session_id=? AND user_id=?',[id,user.id]);
   await c.execute('UPDATE public_website_chat_sessions SET claimed_by=IF(claimed_by=?,NULL,claimed_by) WHERE id=?',[user.id,id]);
  },true);}
- async function claim(user,id,release=false){await staffSession(user,id);await transaction(id,async(c,s)=>{if(s.visitor_ended_at)throw fail('Visitor ended the chat',409);if(s.claimed_by&&Number(s.claimed_by)!==Number(user.id))throw fail('Another support member already claimed this chat.',409);await participant(c,id,user.id);await c.execute('UPDATE public_website_chat_sessions SET claimed_by=? WHERE id=?',[release?null:user.id,id]);});return staffRead(user,id);}
+ async function claim(user,id,release=false){await staffSession(user,id);await transaction(id,async(c,s)=>{if(!release&&!visitorChatAvailable(s))throw fail('The visitor has left or this chat expired.',409);if(s.claimed_by&&Number(s.claimed_by)!==Number(user.id))throw fail('Another support member already claimed this chat.',409);await participant(c,id,user.id);await c.execute('UPDATE public_website_chat_sessions SET claimed_by=? WHERE id=?',[release?null:user.id,id]);});return staffRead(user,id);}
  async function flag(user,id,confirmed){const {site}=await staffSession(user,id);if(confirmed!==true)throw fail('Confirm the Community Standards flag.');await transaction(id,async(c,s)=>{if(!s.initiated_at||s.visitor_ended_at)throw fail('Only an active conversation can be flagged.',409);if(s.claimed_by&&Number(s.claimed_by)!==Number(user.id))throw fail('Only the responsible support member may flag this chat.',409);if(s.standards_flagged_at)return;await c.execute('UPDATE public_website_chat_sessions SET standards_flagged_at=UTC_TIMESTAMP() WHERE id=?',[id]);await event(c,id,`${standardsNotice} ${site.website_url}/community-standards`);});return staffRead(user,id);}
  async function referral(user,id,category=''){const {site}=await staffSession(user,id);if(category&&!PUBLIC_SUPPORT_CATEGORIES.some(t=>t.id===category))throw fail('Choose a valid topic.');const token=randomBytes(32).toString('hex');await db.execute('INSERT INTO public_website_chat_referrals(token_hash,session_id,author_user_id,category) VALUES(?,?,?,?)',[hash(token),id,user.id,category]);return {url:`${site.website_url}/live-chat-support?ref=${token}`,category};}
  async function visitorReferral(slug,id,token){await session(slug,id,token);const ref=randomBytes(32).toString('hex');await db.execute('INSERT INTO public_website_chat_referrals(token_hash,session_id) VALUES(?,?)',[hash(ref),id]);return {token:ref};}
  async function team(user){const a=await actor(user),agencies=await authorizedAgencies(a);if(!agencies.length)throw fail('Support access required',403);const [rows]=await db.execute(`SELECT DISTINCT c.user_id AS userId,u.role,CONCAT_WS(' ',u.first_name,u.last_name) AS name FROM public_website_chat_staff c JOIN users u ON u.id=c.user_id
  JOIN user_presence p ON p.user_id=u.id LEFT JOIN user_presence_status ps ON ps.user_id=u.id
- WHERE c.last_seen_at>UTC_TIMESTAMP()-INTERVAL 75 SECOND AND p.last_heartbeat_at>UTC_TIMESTAMP()-INTERVAL 90 SECOND
+ WHERE ${availableChatStaffSql('c','p')}
  AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0 AND COALESCE(u.is_assistant_account,0)=0 AND COALESCE(u.is_demo,0)=0 AND UPPER(u.status) IN ('ACTIVE','ACTIVE_EMPLOYEE')
  AND COALESCE(ps.status,'in_available') IN ('in_available','in_available_for_phone')
  LIMIT 500`);const visible=[];for(const row of rows){if(!STAFF_ROLES.includes(row.role))continue;for(const agencyId of agencies)if(await supportGrant({id:Number(row.userId),role:row.role},agencyId)){visible.push({userId:row.userId,name:row.name});break;}}return visible;}
- return {publicConfig,start,read,visitorPresence,visitorLeave,visitorSend,visitorReferral,staffHeartbeat,queue,staffRead,staffSend,staffPresence,close,claim,flag,referral,team,authorize};
+ return {publicConfig,start,read,visitorPresence,visitorLeave,visitorSend,visitorReferral,staffHeartbeat,staffAvailability,queue,staffRead,staffSend,staffPresence,close,claim,flag,referral,team,authorize};
 }
 export const websiteChat=createWebsiteChatService();

@@ -8,7 +8,7 @@ let wrapper;
 const props = { apiBase: '/api/quick-view', sessionToken: 'synthetic', visible: true };
 const ticket = { key: 'ticket:1', id: 1, kind: 'ticket', agencyId: 450, title: 'Synthetic ticket', source: 'email', status: 'open', at: '2026-11-11T18:00:00Z' };
 const chat = { id: '11111111-2222-4333-8444-555555555555', siteSlug: 'synthetic', name: 'Synthetic website', lastVisitorMessageId: 8, lastMessageId: 8 };
-const detail = { site: { name: 'Synthetic website' }, canReply: true, messages: [{ id: 8, sender: 'visitor', body: 'Synthetic question', createdAt: '2026-11-11T18:00:00Z' }], quickReplies: [{ label: 'Welcome', body: 'Synthetic welcome' }], pageLinks: [{ label: 'Contact', url: 'https://example.invalid/contact' }] };
+const detail = { visitorAvailable:true, site: { name: 'Synthetic website' }, canReply: true, messages: [{ id: 8, sender: 'visitor', body: 'Synthetic question', createdAt: '2026-11-11T18:00:00Z' }], quickReplies: [{ label: 'Welcome', body: 'Synthetic welcome' }], pageLinks: [{ label: 'Contact', url: 'https://example.invalid/contact' }] };
 beforeEach(() => {
   vi.resetAllMocks(); api.post.mockResolvedValue({ data: {} });
   api.get.mockImplementation(async url => url.includes('support') ? { data: url.endsWith('/feed') ? { items: [ticket], agencies: [{ id: 450, name: 'Synthetic QA' }] } : { detail: { ticket: { subject: 'Synthetic ticket', status: 'open' }, messages: [{ id: 2, body: 'Synthetic ticket content' }] } } }
@@ -76,10 +76,20 @@ it('inserts quick responses for review and never sends them until submit', async
   await wrapper.get('form').trigger('submit'); await flushPromises(); expect(api.post.mock.calls.find(([url]) => url.endsWith('/messages'))[1]).toMatchObject({ body: 'Synthetic welcome' }); expect(wrapper.get('textarea').element.value).toBe('');
 });
 
-it('confirms per-user removal and goes offline when the component is removed', async () => {
+it('confirms per-user removal and preserves explicit online availability when the component is removed', async () => {
   vi.spyOn(window, 'confirm').mockReturnValue(false);
   wrapper = mount(LiveChat, { props }); await flushPromises(); await button('Go online').trigger('click'); await flushPromises(); await wrapper.get('.lc-row').trigger('click'); await flushPromises();
   await button('Remove from my list').trigger('click'); await flushPromises(); expect(api.post.mock.calls.some(([url]) => url.endsWith('/dismiss'))).toBe(false);
   window.confirm.mockReturnValue(true); await button('Remove from my list').trigger('click'); await flushPromises(); expect(api.post.mock.calls.find(([url]) => url.endsWith('/dismiss'))[1]).toEqual({ confirmed: true });
-  wrapper.unmount(); wrapper = null; await flushPromises(); expect(api.post.mock.calls.at(-1)[1]).toEqual({ available: false });
+  wrapper.unmount(); wrapper = null; await flushPromises(); expect(api.post.mock.calls.some(([url,body])=>url.endsWith('/availability')&&body.available===false)).toBe(false);
+});
+
+it('restores the saved online choice and never opts out on background or unmount',async()=>{
+ api.get.mockResolvedValue({data:{sessions:[],sites:[],agencies:[],available:true,backgroundReady:true}});
+ wrapper=mount(LiveChat,{props});await flushPromises();expect(wrapper.text()).toContain('Go offline');
+ vi.spyOn(document,'hidden','get').mockReturnValue(true);document.dispatchEvent(new Event('visibilitychange'));await flushPromises();
+ wrapper.unmount();wrapper=null;await flushPromises();expect(api.post.mock.calls.some(([url,body])=>url.endsWith('/availability')&&body.available===false)).toBe(false);
+});
+it('does not advertise a departed visitor as an active conversation',async()=>{
+ api.get.mockResolvedValue({data:{sessions:[{...chat,visitorLeft:true}],sites:[],agencies:[],available:false}});wrapper=mount(LiveChat,{props});await flushPromises();expect(wrapper.find('.lc-row').exists()).toBe(false);await wrapper.get('.lc-tools input').setValue(true);expect(wrapper.find('.lc-row').exists()).toBe(true);
 });

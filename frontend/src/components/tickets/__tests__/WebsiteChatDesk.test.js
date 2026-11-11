@@ -8,7 +8,7 @@ let wrapper,rows,threads,host;
 const originalViewport={width:window.innerWidth,height:window.innerHeight};
 function resizeViewport(width,height){Object.defineProperty(window,'innerWidth',{configurable:true,value:width});Object.defineProperty(window,'innerHeight',{configurable:true,value:height});window.dispatchEvent(new Event('resize'));}
 const detail=id=>({messages:threads[id],quickReplies:[{label:'Get started',body:'Welcome. https://www.itsco.health/join/itsco/counseling'}],pageLinks:[{label:'Services',url:'https://www.itsco.health/services'}],viewers:[{userId:1,name:'Staff One',memberNumber:1,viewing:true,typing:true}],topics:[{id:'billing',label:'Billing'}],canReply:true});
-beforeEach(()=>{vi.useFakeTimers();localStorage.clear();sessionStorage.clear();rows=[{id:'visitor-a',name:'ITSCO',color:'#165c4f',lastMessageId:1,lastVisitorMessageId:1,pagePath:'/services',visitorMessages:1},{id:'visitor-b',name:'NLU',color:'#234567',lastMessageId:2,lastVisitorMessageId:2,pagePath:'/tutoring',visitorMessages:1}];threads={'visitor-a':[{id:1,sender:'visitor',body:'Question'}],'visitor-b':[{id:2,sender:'visitor',body:'Another question'}]};api.post.mockImplementation(async url=>({data:url.endsWith('/referral')?{url:'https://www.itsco.health/live-chat-support?ref=test'}:detail(url.includes('visitor-b')?'visitor-b':'visitor-a')}));api.get.mockImplementation(async url=>({data:url==='/website-chat/sessions'?{sessions:rows}:url==='/website-chat/team'?{team:[{userId:1,name:'Staff One'}]}:detail(url.split('/').at(-1))}));});
+beforeEach(()=>{vi.useFakeTimers();localStorage.clear();sessionStorage.clear();rows=[{id:'visitor-a',name:'ITSCO',color:'#165c4f',lastMessageId:1,lastVisitorMessageId:1,pagePath:'/services',visitorMessages:1},{id:'visitor-b',name:'NLU',color:'#234567',lastMessageId:2,lastVisitorMessageId:2,pagePath:'/tutoring',visitorMessages:1}];threads={'visitor-a':[{id:1,sender:'visitor',body:'Question'}],'visitor-b':[{id:2,sender:'visitor',body:'Another question'}]};api.post.mockImplementation(async url=>({data:url.endsWith('/referral')?{url:'https://www.itsco.health/live-chat-support?ref=test'}:detail(url.includes('visitor-b')?'visitor-b':'visitor-a')}));api.get.mockImplementation(async url=>({data:url==='/website-chat/sessions'?{sessions:rows,available:true}:url==='/website-chat/team'?{team:[{userId:1,name:'Staff One'}]}:detail(url.split('/').at(-1))}));});
 afterEach(()=>{wrapper?.unmount();host?.remove();host=null;resizeViewport(originalViewport.width,originalViewport.height);vi.useRealTimers();vi.clearAllMocks();});
 async function render(){wrapper=mount(Desk,{global:{stubs:{teleport:true}}});await flushPromises();}
 async function pointer(handle,type,options){const event=new MouseEvent(type,{bubbles:true,cancelable:true,...options});event._vts=Date.now()+1;Object.defineProperty(event,'pointerId',{value:options.pointerId});handle.element.dispatchEvent(event);await flushPromises();}
@@ -83,3 +83,11 @@ it.each([[512,320],[427,267],[390,844],[1200,450]])('keeps chat in its page loca
  expect(host.querySelector('textarea').value).toBe('Unsent reply survives zoom');
  expect(api.post.mock.calls.some(([url])=>url.endsWith('/messages'))).toBe(false);
 });
+
+it('does not change deliberate availability or release a claim on mount/unmount',async()=>{
+ await render();expect(api.post.mock.calls.some(([url])=>url==='/website-chat/presence')).toBe(false);await select();
+ await vi.advanceTimersByTimeAsync(8000);expect(api.post).toHaveBeenCalledWith('/website-chat/presence',{available:true,refreshOnly:true},expect.anything());
+ api.post.mockClear();wrapper.unmount();expect(api.post).toHaveBeenCalledWith('/website-chat/sessions/visitor-a/presence',{viewing:false,typing:false},expect.anything());
+ expect(api.post.mock.calls.some(([url])=>url==='/website-chat/presence'||url.endsWith('/close'))).toBe(false);
+});
+it('does not advertise a departed visitor as a waiting message',async()=>{rows[0].visitorLeft=true;rows[1].expired=true;await render();expect(wrapper.findAll('.visitor-toast b')).toHaveLength(0);});
