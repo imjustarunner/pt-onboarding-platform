@@ -3,6 +3,7 @@ vi.mock('../../config/database.js', () => ({default:{execute:vi.fn()}}));
 import { inspectReturnedFields, publicIssuePath, comparePublishedContract, publishedContract, parsePublishedState, summarizePublishedContract } from '../claimMdDataContract.js';
 import { observeClaimMdData, recordDataGaps, runClaimMdDataMonitor, dataGapDigest, fetchPublicContract } from '../claimMdDataMonitor.service.js';
 import { decryptFamilyBilling } from '../familyBillingEncryption.service.js';
+import { validateOutboundEmailQuality } from '../outboundEmailQuality.service.js';
 
 beforeEach(() => { vi.stubEnv('FAMILY_BILLING_ENCRYPTION_KEY_BASE64',Buffer.alloc(32,7).toString('base64')); });
 
@@ -37,6 +38,15 @@ it('does not mail patient identifiers embedded in unknown object keys', async ()
   expect(decryptFamilyBilling(params[6],`claimmd-data-gap:${params[2]}`)).toEqual({path:issue.path});
   const email=dataGapDigest([{agency_id:2,payer_id:'00050',endpoint:'eligdata',issue_kind:issue.kind,public_path:params[5]}]);
   expect(email.text).toContain('Payer 00050');expect(email.text).not.toContain('123456789');
+  expect(Buffer.from(email.attachments[0].contentBase64,'base64').toString()).not.toContain('123456789');
+});
+
+it('passes real outbound email checks with the entire documented-field assessment and a usable CSV',()=>{
+ const rows=comparePublishedContract(publishedContract).map(i=>({agency_id:0,endpoint:i.endpoint,issue_kind:i.kind,public_path:publicIssuePath(i)}));
+ const email=dataGapDigest(rows);
+ expect(validateOutboundEmailQuality({...email,templateType:'claimmd_data_gap_digest',source:'auto'})).toEqual({ok:true,flags:[]});
+ const csv=Buffer.from(email.attachments[0].contentBase64,'base64').toString();
+ expect(csv).toContain('payer.attachment');expect(csv.split('\r\n')).toHaveLength(rows.length+1);
 });
 
 it('deduplicates by agency, payer, field and issue without including returned values', async () => {

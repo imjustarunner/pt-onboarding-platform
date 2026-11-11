@@ -71,10 +71,14 @@ export function dataGapDigest(rows) {
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(row.public_path);
   }
-  const details = [...groups].map(([key, paths]) => `${key}\n${paths.map(path => `  ${path}`).join('\n')}`).join('\n\n');
+  const details = [...groups].map(([key, paths]) => `${key}: ${paths.length} finding(s)`).join('\n');
+  const cell = value => `"${String(value || '').replaceAll('"','""')}"`;
+  const csv = ['Scope,Payer ID,Endpoint,Finding,Field', ...rows.map(row =>
+    [Number(row.agency_id)===0?'Published API':({2:'ITSCO',6:'NLU',377:'Inner Strength'}[row.agency_id] || 'Agency'),row.payer_id,row.endpoint,row.issue_kind,row.public_path].map(cell).join(','))].join('\r\n');
   return {
     subject: `AuricWell: ${rows.length} payer-data integration findings for Technology`,
-    text: `Technology team,\n\nThe billing data monitor found ${rows.length} new integration findings.\n\n${details}\n\n“Without dedicated mapping” means the field is not assigned to a specific application feature. Eligibility responses remain available in the billing profile; retained evidence is different from automatic field population. Published fields and endpoints show potential availability, not a guarantee that a payer will return them. Alternative formats need comparison before assuming they add data.\n\nPlease assess the importers and update the reviewed coverage contract after implementing or explicitly documenting each decision. Unknown field names are encrypted in claimmd_data_gaps; this email contains no patient values, identifiers, response bodies, or account keys.\n\nReference: https://api.claim.md/\nNo additional eligibility inquiries were sent by this monitor.`
+    text: `Technology team,\n\nThe billing data monitor found ${rows.length} new integration findings. Detailed field names are in the attached CSV.\n\n${details}\n\n“Without dedicated mapping” means the field is not assigned to a specific application feature. Eligibility responses remain available in the billing profile; retained evidence is different from automatic field population. Published fields and endpoints show potential availability, not a guarantee that a payer will return them. Alternative formats need comparison before assuming they add data.\n\nPlease assess the importers and update the reviewed coverage contract after implementing or explicitly documenting each decision. Unknown field names are encrypted in claimmd_data_gaps; this email and its CSV contain no patient values, identifiers, response bodies, or account keys.\n\nReference: https://api.claim.md/\nNo additional eligibility inquiries were sent by this monitor.`,
+    attachments: [{filename:'payer-data-findings.csv',contentType:'text/csv; charset=utf-8',contentBase64:Buffer.from(csv,'utf8').toString('base64')}]
   };
 }
 
