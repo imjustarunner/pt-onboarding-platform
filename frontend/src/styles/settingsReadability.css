@@ -1,0 +1,40 @@
+/* Settings are a reading and editing surface. Agency brand colors remain in
+   previews and identity; everyday text must remain readable on its surface. */
+.settings-page,
+.settings-modal {
+  --text-primary: #1d2633;
+  --text-secondary: #475569;
+  --text-muted: #64748b;
+  --link-color: #1e4e79;
+  --settings-action: #234f74;
+  --settings-action-hover: #193d5d;
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .settings-page,
+[data-theme="dark"] .settings-modal {
+  --text-primary: #e7ebf0;
+  --text-secondary: #b8c3d1;
+  --text-muted: #a8b3c2;
+  --link-color: #a8d2ff;
+  --settings-action: #285b86;
+  --settings-action-hover: #326c9c;
+}
+
+:is(.settings-page, .settings-modal) .btn-primary {
+  color: #fff;
+  background: var(--settings-action);
+  border-color: var(--settings-action);
+}
+:is(.settings-page, .settings-modal) .btn-primary:hover:not(:disabled) {
+  background: var(--settings-action-hover);
+  border-color: var(--settings-action-hover);
+}
+:is(.settings-page, .settings-modal) :is(input, select, textarea) {
+  color: var(--text-primary);
+  caret-color: var(--text-primary);
+}
+:is(.settings-page, .settings-modal) :is(input, textarea)::placeholder {
+  color: var(--text-muted);
+  opacity: 1;
+}
