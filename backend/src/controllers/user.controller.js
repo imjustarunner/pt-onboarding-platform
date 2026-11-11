@@ -3268,7 +3268,7 @@ export const updateUser = async (req, res, next) => {
       }
     }
     console.log('Calling User.update with updateData:', updateData);
-    const user = await User.update(id, updateData);
+    const user = await User.update(id, {...updateData,actorUserId:req.user.id});
     if (updateData.seesClients !== undefined || updateData.providerAcceptingNewClients !== undefined) {
       // Invalidate the scheduled check now; keep the header save fast. Closing either control
       // also removes stale banners immediately. The next tick resolves linked tasks/notifications.

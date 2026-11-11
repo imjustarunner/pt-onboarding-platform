@@ -202,6 +202,10 @@ export function checkAccess(user, { effectiveRole } = {}) {
       canAccessAdmin = false;
       break;
 
+    case 'DEMO':
+      // Demo is its own lifecycle. Existing endpoint membership/role checks still
+      // apply; an arbitrary status change alone never creates demo access.
+      if (!Number(user.is_demo)) break;
     case 'ACTIVE_EMPLOYEE':
       // Full access including on-demand
       canAccessOnDemand = true;

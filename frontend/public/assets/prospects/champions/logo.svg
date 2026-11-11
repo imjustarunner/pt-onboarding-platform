@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="144" viewBox="0 0 640 144" fill="none" role="img" aria-labelledby="title description">
+  <!-- Original proposed demo branding. Not official Champions Counseling artwork. -->
+  <title id="title">Champions Counseling</title>
+  <desc id="description">Proposed Champions Counseling wordmark beside two ascending arches and a gold rising sun.</desc>
+  <g transform="translate(12 21)">
+    <path d="M17 74V47C17 30.431 30.431 17 47 17" stroke="#18324c" stroke-width="8" stroke-linecap="round"/>
+    <path d="M39 74V54C39 40.193 50.193 29 64 29H79V74" stroke="#5ea2e7" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M17 79H79" stroke="#18324c" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="66" cy="14" r="6" fill="#cfab68"/>
+  </g>
+  <text x="129" y="78" fill="#18324c" font-family="Georgia, 'Times New Roman', serif" font-size="57" letter-spacing="-1.4">Champions</text>
+  <text x="133" y="107" fill="#3a79ba" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="600" letter-spacing="5.8">COUNSELING</text>
+</svg>

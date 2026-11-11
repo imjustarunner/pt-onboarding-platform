@@ -30,12 +30,16 @@ export const plotlinePaths = {
     if (/^\/app\/?(?:[?#]|$)/.test(path)) return path.replace(/^\/app\/?/, '/plotline/app');
     const staff = path.match(/^\/app\/([a-z0-9-]+)(\/[^?#]*)?([?#].*)?$/);
     if (staff && isPlotlineCompanySlug(staff[1])) return `/${staff[1]}${staff[2] && staff[2] !== '/' ? staff[2] : '/people-operations'}${staff[3] || ''}`;
+    const prospect = path.match(/^\/([a-z0-9-]+careers)\/?([?#].*)?$/);
+    if (prospect) return `/prospect-demo/careers/${prospect[1]}${prospect[2] || ''}`;
     const careers = path.match(/^\/([a-z0-9-]+)(\/jobs\/[^/?#]+)?\/?([?#].*)?$/);
     if (careers && isPlotlineCompanySlug(careers[1])) return `/careers/${careers[1]}${careers[2] || ''}${careers[3] || ''}`;
     return path;
   },
   clean(value) {
     const path = String(value);
+    const prospect = path.match(/^\/prospect-demo\/careers\/([a-z0-9-]+careers)([?#].*)?$/);
+    if (prospect) return `/${prospect[1]}${prospect[2] || ''}`;
     if (/^\/plott?line\/(product|solutions|resources|about|pricing|start)(?:[/?#]|$)/.test(path)) return path.replace(/^\/plott?line/, '');
     if (/^\/plotline\/app(?=[/?#]|$)/.test(path)) return path.replace(/^\/plotline/, '');
     if (/^\/plott?line(?=[?#]|\/?$)/.test(path)) return path.replace(/^\/plott?line\/?/, '/');

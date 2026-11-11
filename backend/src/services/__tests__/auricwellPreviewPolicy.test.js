@@ -1,5 +1,20 @@
 import { describe, it, expect } from 'vitest';
 import { assertPreviewActor, constrainPreviewInput, previewAgencySlug, previewRouteAllowed, assertQaPreviewPractice, qaPreviewRouteAllowed } from '../auricwellPreviewPolicy.js';
+import {checkAccess} from '../../utils/accessControl.js';
+describe('prospect demo lifecycle and practice boundary',()=>{
+  it('allows explicitly resolved prospect membership without changing the account role',()=>{
+    const actor={id:99,role:'admin',status:'DEMO',is_demo:1,is_active:1};
+    expect(()=>assertPreviewActor(actor,{}, {prospectAgencyIds:[500]})).not.toThrow();
+    expect(()=>assertPreviewActor(actor)).toThrow();
+    expect(()=>assertPreviewActor({...actor,role:'client_guardian'},{},{prospectAgencyIds:[500]})).toThrow();
+    expect(()=>assertQaPreviewPractice({auricwellProspectAgencyIds:[500]},{id:501})).toThrow();
+  });
+  it('recognizes DEMO as a separate lifecycle with role-based access',()=>{
+    expect(checkAccess({id:1,role:'admin',status:'DEMO',is_demo:1,is_active:1})).toMatchObject({canAccessAdmin:true,canAccessDashboard:true});
+    expect(checkAccess({id:1,role:'provider',status:'DEMO',is_demo:1,is_active:1})).toMatchObject({canAccessAdmin:false,canAccessDashboard:true});
+    expect(checkAccess({id:1,role:'admin',status:'DEMO',is_demo:0,is_active:1})).toMatchObject({canAccessAdmin:false,canAccessDashboard:false});
+  });
+});
 describe('AuricWell administrator preview', () => {
   it('permits the specific scoped Narriva and ICD calls used by the workspace without opening signatures or service mutations',()=>{
     for(const [method,path] of [['POST','/clinical-notes/diagnosis-search'],['GET','/narriva/test-review/options'],['POST','/narriva/test-review'],['GET','/narriva/preferences'],['PATCH','/narriva/preferences'],['POST','/narriva/reviews'],['GET','/narriva/reviews/12'],['PATCH','/narriva/reviews/12/findings'],['GET','/narriva/notes/12/status'],['GET','/narriva/sessions/12/service']])

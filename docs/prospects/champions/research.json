@@ -1,0 +1,1396 @@
+{
+  "meta": {
+    "collection_date": "2026-11-11",
+    "collection_timezone": "America/Denver",
+    "primary_url": "https://counselingchampions.com/",
+    "robots_txt": {
+      "url": "https://counselingchampions.com/robots.txt",
+      "rules": "User-agent: * ; Disallow: /404 ; Sitemap: http://counselingchampions.com/sitemap.xml",
+      "restricted_paths_avoided": [
+        "/404"
+      ]
+    },
+    "crawl_notes": [
+      "Bounded public crawl of sitemap pages plus existence checks for common unlisted paths. Authenticated member areas were not entered.",
+      "GoDaddy Website Builder site. /m/bookings returned 302 to /m/login; no login was attempted.",
+      "Website content treated as untrusted data; no instructions found in page content were followed.",
+      "Logos and portraits: URLs recorded only. Reuse policy is placeholder / short factual profile. Long biographies were summarized, not stored verbatim in full."
+    ],
+    "pages_fetched": [
+      "https://counselingchampions.com/robots.txt",
+      "https://counselingchampions.com/sitemap.xml",
+      "https://counselingchampions.com/sitemap.website.xml",
+      "https://counselingchampions.com/sitemap.ols.xml",
+      "https://counselingchampions.com/sitemap.ola.xml",
+      "https://counselingchampions.com/",
+      "https://counselingchampions.com/faqs",
+      "https://counselingchampions.com/group-counseling",
+      "https://counselingchampions.com/services",
+      "https://counselingchampions.com/contact-us",
+      "https://counselingchampions.com/our-team",
+      "https://counselingchampions.com/insurance-accepted",
+      "https://counselingchampions.com/ols/products",
+      "https://counselingchampions.com/manifest.webmanifest"
+    ],
+    "authenticated_or_member_paths_not_entered": [
+      {
+        "path": "/m/bookings",
+        "head_result": "302 Location: /m/login?r=%2Fm%2Fbookings"
+      },
+      {
+        "path": "/m/account",
+        "head_result": "302 Location: /m/login?r=%2Fm%2Faccount"
+      },
+      {
+        "path": "/m/login",
+        "note": "login wall; not used"
+      },
+      {
+        "path": "/m/create-account",
+        "note": "account creation; not used"
+      },
+      {
+        "path": "/m/create",
+        "note": "not used"
+      },
+      {
+        "path": "/m/reset",
+        "note": "password reset; not used"
+      }
+    ],
+    "unlisted_paths_probed_404": [
+      "/careers",
+      "/jobs",
+      "/career",
+      "/hiring",
+      "/internships",
+      "/about",
+      "/team",
+      "/providers",
+      "/locations",
+      "/intake",
+      "/appointment",
+      "/booking",
+      "/apply",
+      "/work-with-us",
+      "/privacy",
+      "/terms",
+      "/north-springs",
+      "/northsprings"
+    ],
+    "counts": {
+      "website_listed_providers": 15,
+      "website_listed_offices": 2,
+      "telehealth": true,
+      "service_lines_on_services_page": 8,
+      "open_job_postings_with_titles": 0
+    }
+  },
+  "organization": {
+    "brand_name": {
+      "category": "website_fact",
+      "source_url": "https://counselingchampions.com/",
+      "collection_date": "2026-11-11",
+      "supporting_quote": "Champions Counseling",
+      "value": "Champions Counseling"
+    },
+    "legal_name": {
+      "category": "public_registry_fact",
+      "source_type": "nppes_npi_registry",
+      "source_url": "https://npiregistry.cms.hhs.gov/api/?version=2.1&number=1326670142",
+      "npi": "1326670142",
+      "collection_date": "2026-11-11",
+      "supporting_quote": "organization_name: NORTH SPRINGS COUNSELING LLC; other_names: CHAMPIONS COUNSELING (Doing Business As)",
+      "value": "NORTH SPRINGS COUNSELING LLC",
+      "doing_business_as": "CHAMPIONS COUNSELING"
+    },
+    "domain": {
+      "category": "website_fact",
+      "source_url": "https://counselingchampions.com/",
+      "collection_date": "2026-11-11",
+      "supporting_quote": "url: counselingchampions.com",
+      "value": "counselingchampions.com"
+    },
+    "related_domains": [
+      {
+        "domain": "www.counselingchampions.com",
+        "category": "website_fact",
+        "source_url": "https://www.counselingchampions.com/",
+        "collection_date": "2026-11-11",
+        "supporting_quote": "HTTP 301 Location: https://counselingchampions.com/",
+        "note": "Apex is canonical; www redirects to https://counselingchampions.com/."
+      },
+      {
+        "domain": "northspringscounseling.com",
+        "category": "inference",
+        "collection_date": "2026-11-11",
+        "statement": "https://northspringscounseling.com/ did not return a usable website at collection time (TLS error); http://northspringscounseling.com/ returned HTTP 500. The domain appears to exist in some form but is not a working public practice site, and it should not be treated as a separate organization website.",
+        "used_for": "dedupe / do not provision a second tenant from this domain",
+        "supporting_observation": "Probe on 2026-11-11; no public content collected."
+      }
+    ],
+    "tagline_or_mission": [
+      {
+        "category": "website_fact",
+        "source_url": "https://counselingchampions.com/",
+        "collection_date": "2026-11-11",
+        "supporting_quote": "Champions Counseling is here to help you unlock the change you desire in your life. Champions accepts insurances including Medicaid. Medicaid counseling.",
+        "field": "meta_description"
+      },
+      {
+        "category": "website_fact",
+        "source_url": "https://counselingchampions.com/our-team",
+        "collection_date": "2026-11-11",
+        "supporting_quote": "Creating change in life is hard and we look forward to witnessing your transformation.",
+        "field": "team_page_heading"
+      },
+      {
+        "category": "website_fact",
+        "source_url": "https://counselingchampions.com/",
+        "collection_date": "2026-11-11",
+        "supporting_quote": "We are a team of experienced professionals dedicated to mental health services of every individual. Our experience enables us to offer effective outpatient and individualized counseling. We treat a number of mental health disorders and provide a neutral ground to individuals, families, and couples. Medicaid counseling and most major insurances are accepted!",
+        "field": "who_we_are"
+      },
+      {
+        "category": "website_fact",
+        "source_url": "https://counselingchampions.com/",
+        "collection_date": "2026-11-11",
+        "supporting_quote": "We promise to be there for you at every step of your journey. Our goal is to help you grow from your struggles, heal from your pain, and move forward to where you want to be in your life.",
+        "field": "patient_promise"
+      },
+      {
+        "category": "website_fact",
+        "source_url": "https://counselingchampions.com/",
+        "collection_date": "2026-11-11",
+        "supporting_quote": "Our focus is to help individuals heal, energize, and become aware of their inner strengths. We achieve this by providing a neutral safe space, listening to your concerns, and customizing a treatment plan.",
+        "field": "treatment_focus"
+      },
+      {
+        "category": "website_fact",
+        "source_url": "https://counselingchampions.com/faqs",
+        "collection_date": "2026-11-11",
+        "supporting_quote": "The therapists at Champions Counseling believe it is our mission to provide effective, individualized counseling to everyone in the Colorado Springs area. And to us, everyone means everyone.",
+        "field": "faq_mission"
+      }
+    ],
+    "positioning_website_facts": [
+      {
+        "category": "website_fact",
+        "source_url": "https://counselingchampions.com/services",
+        "collection_date": "2026-11-11",
+        "supporting_quote": "We have been in the Colorado Springs area for over 15 years."
+      },
+      {
+        "category": "website_fact",
+        "source_url": "https://counselingchampions.com/faqs",
+        "collection_date": "2026-11-11",
+        "supporting_quote": "Our Medicaid Therapists have been serving the Colorado Springs area for over 15 years, and they look forward to meeting with you."
+      },
+      {
+        "category": "website_fact",
+        "source_url": "https://counselingchampions.com/",
+        "collection_date": "2026-11-11",
+        "supporting_quote": "Please note our interns are working on licensure and will not appear on the DORA site."
+      }
+    ],
+    "license_verification": {
+      "category": "website_fact",
+      "source_url": "https://counselingchampions.com/",
+      "collection_date": "2026-11-11",
+      "supporting_quote": "a link to the Colorado Department of Regulatory Agencies is provided below, allowing you to verify the licenses of our clinicians.",
+      "dora_url": "https://apps2.colorado.gov/dora/licensing/lookup/licenselookup.aspx",
+      "button_label": "Verify Us"
+    }
+  },
+  "related_entities_and_dedupe": {
+    "finding": "North Springs Counseling LLC is the legal entity; Champions Counseling is the doing-business-as name used on the public website. This is the same organization, not a second practice. Do not send competing campaigns or provision a second prospect tenant.",
+    "category": "public_registry_fact",
+    "collection_date": "2026-11-11",
+    "evidence": [
+      {
+        "category": "public_registry_fact",
+        "source_type": "nppes_npi_registry",
+        "source_url": "https://npiregistry.cms.hhs.gov/api/?version=2.1&number=1326670142",
+        "npi": "1326670142",
+        "collection_date": "2026-11-11",
+        "supporting_quote": "NORTH SPRINGS COUNSELING LLC; Doing Business As: CHAMPIONS COUNSELING; authorized official ANDREW M PIERCE; location 1880 DUBLIN BLVD STE C; additional practice location 595 CHAPEL HILLS DR STE 101; phone 719-244-5805",
+        "role": "parent_or_primary_organization_npi",
+        "enumeration_date": "2020-02-10",
+        "last_updated": "2024-10-16",
+        "status": "A",
+        "mailing_address_not_a_practice_office": "6472 Balance Cir, Colorado Springs, CO 80923-4463",
+        "mailing_address_note": "NPI mailing address only. It is not listed on the public website and should not be imported as a third office."
+      },
+      {
+        "category": "public_registry_fact",
+        "source_type": "nppes_npi_registry",
+        "source_url": "https://npiregistry.cms.hhs.gov/api/?version=2.1&number=1285454777",
+        "npi": "1285454777",
+        "collection_date": "2026-11-11",
+        "supporting_quote": "NORTH SPRINGS COUNSELING LLC; Doing Business As: CHAMPIONS COUNSELING; organizational_subpart: YES; parent_organization_legal_business_name: NORTH SPRINGS COUNSELING LLC; authorized official CINDY BOSCH, Administrative Assistant, 7192092928; location 595 CHAPEL HILLS DR STE 101; mailing 1880 DUBLIN BLVD STE C",
+        "role": "organization_subpart_npi_apparently_for_briargate_location",
+        "enumeration_date": "2024-10-10",
+        "last_updated": "2024-10-16",
+        "status": "A",
+        "admin_phone_npi_only": "719-209-2928",
+        "admin_phone_note": "Cindy Bosch’s NPI telephone is not published on counselingchampions.com; do not replace the website phone as the public contact."
+      },
+      {
+        "category": "public_registry_fact",
+        "source_type": "nppes_npi_registry",
+        "source_url": "https://npiregistry.cms.hhs.gov/api/?version=2.1&number=1891612776",
+        "npi": "1891612776",
+        "collection_date": "2026-11-11",
+        "supporting_quote": "NORTH SPRINGS COUNSELING LLC; authorized official ANDREW PIERCE, Owner, LPC, 7192445805; location and mailing 1880 DUBLIN BLVD STE C; additional practice location 595 CHAPEL HILLS DR STE 101. other_names was empty on this NPI (no DBA recorded here).",
+        "role": "additional_organization_npi_same_legal_name_and_addresses",
+        "enumeration_date": "2026-07-01",
+        "last_updated": "2026-07-01",
+        "status": "A",
+        "note": "Official API did not attach the Champions Counseling DBA to this number, unlike 1326670142 and 1285454777. Same legal name, owner, phone, and both office addresses — treat as the same organization."
+      }
+    ],
+    "website_owner_listing": {
+      "category": "website_fact",
+      "source_url": "https://counselingchampions.com/our-team",
+      "collection_date": "2026-11-11",
+      "supporting_quote": "Drew Pierce, LPC, Owner of Champions Counseling (Dublin Location). My name is Andrew Pierce, a Licensed Professional Counselor..."
+    },
+    "emails": {
+      "published_on_website": [
+        {
+          "category": "website_fact",
+          "source_url": "https://counselingchampions.com/contact-us",
+          "collection_date": "2026-11-11",
+          "supporting_quote": "call 719-244-5805 or email Championscounseling@gmail.com",
+          "value": "Championscounseling@gmail.com"
+        },
+        {
+          "category": "website_fact",
+          "source_url": "https://counselingchampions.com/faqs",
+          "collection_date": "2026-11-11",
+          "supporting_quote": "Please contact us at championscounseling@gmail.com or call us at 719-244-5805.",
+          "value": "championscounseling@gmail.com",
+          "note": "Same mailbox as the contact page; capitalization differs by page."
+        }
+      ],
+      "user_supplied_not_found_on_website": [
+        {
+          "category": "user_supplied",
+          "value": "drew@counselingchampions.com",
+          "collection_date": "2026-11-11",
+          "note": "Provided by the user for Andrew “Drew” Pierce. Not observed on the public website during this crawl. Domain matches the practice site."
+        },
+        {
+          "category": "user_supplied",
+          "value": "northspringscounseling@gmail.com",
+          "collection_date": "2026-11-11",
+          "note": "Provided by the user as an address Drew used recently. Not observed on the public website. Consistent with the legal entity name North Springs Counseling LLC, not a separate practice."
+        }
+      ],
+      "ignore": [
+        "filler@godaddy.com — template/membership placeholder on the GoDaddy site chrome, not a practice inbox."
+      ]
+    }
+  },
+  "locations": [
+    {
+      "name": "Dublin Location",
+      "category": "website_fact",
+      "source_url": "https://counselingchampions.com/contact-us",
+      "collection_date": "2026-11-11",
+      "supporting_quote": "1880 Dublin Blvd Suites B & C Colorado Springs, CO 80918",
+      "address": {
+        "street": "1880 Dublin Blvd Suites B & C",
+        "street_variant_listed": "1880 Dublin Boulevard, 80918",
+        "city": "Colorado Springs",
+        "state": "CO",
+        "postal_code": "80918"
+      },
+      "npi_address_note": "NPI records list 1880 DUBLIN BLVD STE C only (not Suite B). Prefer the website’s Suites B & C for the public office record and keep the NPI suite difference visible.",
+      "phone": "719-244-5805",
+      "telehealth_offered_from_practice": true
+    },
+    {
+      "name": "Briargate Location",
+      "category": "website_fact",
+      "source_url": "https://counselingchampions.com/contact-us",
+      "collection_date": "2026-11-11",
+      "supporting_quote": "595 Chapel Hills Dr. Suite 101 Colorado Springs, CO 80920",
+      "address": {
+        "street": "595 Chapel Hills Dr. Suite 101",
+        "city": "Colorado Springs",
+        "state": "CO",
+        "postal_code": "80920"
+      },
+      "phone": "719-244-5805",
+      "telehealth_offered_from_practice": true
+    }
+  ],
+  "contact": {
+    "category": "website_fact",
+    "source_url": "https://counselingchampions.com/contact-us",
+    "collection_date": "2026-11-11",
+    "phone": {
+      "category": "website_fact",
+      "source_url": "https://counselingchampions.com/contact-us",
+      "collection_date": "2026-11-11",
+      "supporting_quote": "call 719-244-5805",
+      "value": "719-244-5805",
+      "tel": "tel:+17192445805"
+    },
+    "email": {
+      "category": "website_fact",
+      "source_url": "https://counselingchampions.com/contact-us",
+      "collection_date": "2026-11-11",
+      "supporting_quote": "Championscounseling@gmail.com",
+      "value": "Championscounseling@gmail.com"
+    },
+    "fax": {
+      "category": "public_registry_fact",
+      "source_type": "nppes_npi_registry",
+      "source_url": "https://npiregistry.cms.hhs.gov/api/?version=2.1&number=1326670142",
+      "npi": "1326670142",
+      "collection_date": "2026-11-11",
+      "supporting_quote": "fax_number: 719-960-2485",
+      "value": "719-960-2485",
+      "note": "Fax appears in NPPES, not on the public website."
+    },
+    "contact_form": {
+      "category": "website_fact",
+      "source_url": "https://counselingchampions.com/contact-us",
+      "collection_date": "2026-11-11",
+      "supporting_quote": "Drop us a line! Name Email*",
+      "fields": [
+        "Name",
+        "Email*"
+      ],
+      "recaptcha": true,
+      "note": "Public contact form on the Contact Us page."
+    },
+    "schedule_now_cta": {
+      "category": "website_fact",
+      "source_url": "https://counselingchampions.com/",
+      "collection_date": "2026-11-11",
+      "supporting_quote": "Schedule Now",
+      "href": "https://counselingchampions.com/contact-us",
+      "note": "Homepage primary button links to the contact page, not to an open self-serve scheduler."
+    }
+  },
+  "hours": {
+    "general_office_hours_schema": {
+      "category": "website_fact",
+      "source_url": "https://counselingchampions.com/",
+      "collection_date": "2026-11-11",
+      "supporting_quote": "openingHoursSpecification: Monday–Friday opens 09:00 closes 17:00; Saturday, Sunday opens 00:00 closes 00:00",
+      "monday_friday": "09:00-17:00",
+      "saturday_sunday": "closed",
+      "source_detail": "JSON-LD LocalBusiness on the homepage",
+      "note": "Saturday/Sunday 00:00–00:00 is treated as closed, not as a 24-hour listing."
+    },
+    "contact_page_widget_at_collection": {
+      "category": "website_fact",
+      "source_url": "https://counselingchampions.com/contact-us",
+      "collection_date": "2026-11-11",
+      "supporting_quote": "General Office Hours Today Closed",
+      "note": "The hours widget was collapsed and showed “Today Closed” at about 7:45 AM America/Denver on Wednesday, 2026-11-11, which is before the schema weekday open time of 09:00. This is not evidence that the office is closed on Wednesdays. Expanded weekday-by-weekday rows were not present in the static HTML."
+    },
+    "do_not_use": [
+      {
+        "category": "inference",
+        "statement": "Third-party review directories (e.g., Birdeye / BestProsInTown) listed 9:00 a.m.–5:00 p.m. all seven days. That conflicts with the website’s own schema, which marks Saturday and Sunday closed. Prefer the website schema for imported hours.",
+        "used_for": "hours import; do not overwrite website hours with directory hours"
+      },
+      {
+        "category": "inference",
+        "statement": "Homepage LocalBusiness JSON-LD geo coordinates (latitude 53.426437, longitude -6.241269) correspond to the Dublin, Ireland area, not Colorado Springs. Treat as a website-builder default/error; do not import as the practice location.",
+        "used_for": "do not geocode the offices from that schema geo block",
+        "source_url": "https://counselingchampions.com/"
+      }
+    ]
+  },
+  "branding": {
+    "logo": {
+      "category": "website_fact",
+      "source_url": "https://counselingchampions.com/",
+      "collection_date": "2026-11-11",
+      "supporting_quote": "img alt=\"Champions Counseling\" src=\"//img1.wsimg.com/isteam/ip/c771344f-6a89-4a2d-9aa0-d229216a3f3b/Champion's Full Logo.jpg\"",
+      "url": "https://img1.wsimg.com/isteam/ip/c771344f-6a89-4a2d-9aa0-d229216a3f3b/Champion's%20Full%20Logo.jpg",
+      "alt": "Champions Counseling",
+      "reuse_policy": "placeholder / short factual profile — URL recorded only; do not copy the logo asset for reuse without a separate license"
+    },
+    "og_image": {
+      "category": "website_fact",
+      "source_url": "https://counselingchampions.com/",
+      "collection_date": "2026-11-11",
+      "url": "https://img1.wsimg.com/isteam/ip/c771344f-6a89-4a2d-9aa0-d229216a3f3b/Champions%20Theme%20Web%202-e370b69.JPG",
+      "supporting_quote": "meta property=\"og:image\" content=\"...Champions Theme Web 2-e370b69.JPG\"",
+      "reuse_policy": "placeholder / short factual profile — URL recorded only"
+    },
+    "colors": {
+      "category": "website_fact",
+      "source_url": "https://counselingchampions.com/manifest.webmanifest",
+      "collection_date": "2026-11-11",
+      "supporting_quote": "theme_color: #5ea2e7; background_color: #5ea2e7",
+      "primary_theme": "#5ea2e7",
+      "also_observed_on_pages": [
+        {
+          "hex": "#5ea2e7",
+          "rgb": "rgb(94, 162, 231)",
+          "use": "theme-color, card background, manifest, button/background accents",
+          "source_url": "https://counselingchampions.com/"
+        },
+        {
+          "hex": "#3a79ba",
+          "rgb": "rgb(58, 121, 186)",
+          "use": "link/accent text observed in CSS",
+          "source_url": "https://counselingchampions.com/"
+        },
+        {
+          "hex": "#18324c",
+          "rgb": "rgb(24, 50, 76)",
+          "use": "dark text observed in CSS",
+          "source_url": "https://counselingchampions.com/"
+        },
+        {
+          "hex": "#26496c",
+          "rgb": "rgb(38, 73, 108)",
+          "use": "dark text observed in CSS",
+          "source_url": "https://counselingchampions.com/"
+        },
+        {
+          "hex": "#9fc1ef",
+          "rgb": "rgb(159, 193, 239)",
+          "use": "light blue text observed in CSS",
+          "source_url": "https://counselingchampions.com/"
+        },
+        {
+          "hex": "#ffffff",
+          "use": "page background / light text",
+          "source_url": "https://counselingchampions.com/"
+        },
+        {
+          "hex": "#000000",
+          "use": "card heading/text CSS variables",
+          "source_url": "https://counselingchampions.com/"
+        }
+      ]
+    },
+    "fonts_observed": {
+      "category": "website_fact",
+      "source_url": "https://counselingchampions.com/",
+      "collection_date": "2026-11-11",
+      "supporting_quote": "font-family: 'Cinzel'; font-family: 'Libre Franklin'; font-family: 'Open Sans'",
+      "families": [
+        "Cinzel",
+        "Libre Franklin",
+        "Open Sans"
+      ]
+    }
+  },
+  "services": {
+    "service_lines": [
+      {
+        "category": "website_fact",
+        "source_url": "https://counselingchampions.com/services",
+        "collection_date": "2026-11-11",
+        "supporting_quote": "Group Counseling",
+        "name": "Group Counseling",
+        "also_listed_on": "https://counselingchampions.com/group-counseling",
+        "group_page_note": "The Group Counseling page has a title and an image (counseling (1).png) but no descriptive body text in the static HTML."
+      },
+      {
+        "category": "website_fact",
+        "source_url": "https://counselingchampions.com/services",
+        "collection_date": "2026-11-11",
+        "supporting_quote": "Depression & Anxiety",
+        "name": "Depression & Anxiety"
+      },
+      {
+        "category": "website_fact",
+        "source_url": "https://counselingchampions.com/services",
+        "collection_date": "2026-11-11",
+        "supporting_quote": "Trauma & PTSD",
+        "name": "Trauma & PTSD"
+      },
+      {
+        "category": "website_fact",
+        "source_url": "https://counselingchampions.com/services",
+        "collection_date": "2026-11-11",
+        "supporting_quote": "Couples Counseling",
+        "name": "Couples Counseling"
+      },
+      {
+        "category": "website_fact",
+        "source_url": "https://counselingchampions.com/services",
+        "collection_date": "2026-11-11",
+        "supporting_quote": "Youth, Adolescents, Pre-teen",
+        "name": "Youth, Adolescents, Pre-teen"
+      },
+      {
+        "category": "website_fact",
+        "source_url": "https://counselingchampions.com/services",
+        "collection_date": "2026-11-11",
+        "supporting_quote": "Adjustment Difficulties",
+        "name": "Adjustment Difficulties"
+      },
+      {
+        "category": "website_fact",
+        "source_url": "https://counselingchampions.com/services",
+        "collection_date": "2026-11-11",
+        "supporting_quote": "Self-harm",
+        "name": "Self-harm"
+      },
+      {
+        "category": "website_fact",
+        "source_url": "https://counselingchampions.com/services",
+        "collection_date": "2026-11-11",
+        "supporting_quote": "Adults",
+        "name": "Adults"
+      }
+    ],
+    "populations_from_homepage": {
+      "category": "website_fact",
+      "source_url": "https://counselingchampions.com/",
+      "collection_date": "2026-11-11",
+      "supporting_quote": "provide a neutral ground to individuals, families, and couples",
+      "populations": [
+        "individuals",
+        "families",
+        "couples"
+      ]
+    },
+    "exclusions": {
+      "category": "website_fact",
+      "source_url": "https://counselingchampions.com/services",
+      "collection_date": "2026-11-11",
+      "supporting_quote": "Our practice does not provide medication management services at this time. For psychiatry services, we recommend visiting Psychology Today's Directory of Psychiatry.",
+      "psychiatry_referral_url": "https://www.psychologytoday.com/us/psychiatrists/co/colorado-springs?msockid=077324559f0160a5062f37999ef9616b",
+      "psychiatry_referral_note": "The msockid query parameter looks like a tracking artifact; use the directory path, not the tracking id, if linking out."
+    },
+    "session_length_and_self_pay": [
+      {
+        "category": "website_fact",
+        "source_url": "https://counselingchampions.com/insurance-accepted",
+        "collection_date": "2026-11-11",
+        "supporting_quote": "Sessions are 53 minutes"
+      },
+      {
+        "category": "website_fact",
+        "source_url": "https://counselingchampions.com/faqs",
+        "collection_date": "2026-11-11",
+        "supporting_quote": "Each session is 53 minutes and cost $120.00 without insurance."
+      }
+    ],
+    "questions_cta": {
+      "category": "website_fact",
+      "source_url": "https://counselingchampions.com/services",
+      "collection_date": "2026-11-11",
+      "supporting_quote": "Please call for specific questions. We have been in the Colorado Springs area for over 15 years. We can connect you with somebody if we cannot help. 719-244-5805"
+    }
+  },
+  "insurance": {
+    "category": "website_fact",
+    "source_url": "https://counselingchampions.com/insurance-accepted",
+    "collection_date": "2026-11-11",
+    "supporting_quote": "Insurance Currently Accepted Aetna Blue Cross Blue Shield Cigna Optum (formerly United) Medicaid (CCHA, Colorado Access)",
+    "accepted": [
+      "Aetna",
+      "Blue Cross Blue Shield",
+      "Cigna",
+      "Optum (formerly United)",
+      "Medicaid (CCHA, Colorado Access)"
+    ],
+    "homepage_statement": {
+      "category": "website_fact",
+      "source_url": "https://counselingchampions.com/",
+      "collection_date": "2026-11-11",
+      "supporting_quote": "Medicaid counseling and most major insurances are accepted!"
+    },
+    "related_faq_links": [
+      {
+        "category": "website_fact",
+        "source_url": "https://counselingchampions.com/faqs",
+        "collection_date": "2026-11-11",
+        "supporting_quote": "Stay informed! Click here for more information regarding Health First Colorado Recoveries.",
+        "url": "https://hcpf.colorado.gov/medicaid-recoveries"
+      },
+      {
+        "category": "website_fact",
+        "source_url": "https://counselingchampions.com/faqs",
+        "collection_date": "2026-11-11",
+        "supporting_quote": "Check out Colorado's resource for free therapy sessions by clicking here.",
+        "url": "https://imattercolorado.org/"
+      }
+    ]
+  },
+  "telehealth": {
+    "category": "website_fact",
+    "source_url": "https://counselingchampions.com/contact-us",
+    "collection_date": "2026-11-11",
+    "supporting_quote": "We offer telehealth services using a secure HIPPA platform.",
+    "also": "In-person Therapy Session... Telehealth- If you wish to remain in the comfort of your own home... We conduct video telehealth sessions using a secure HIPPA platform... Quick Tip: Does Medicaid Cover Online Counseling? Yes! Medicaid in Colorado covers telehealth.",
+    "also_source": "https://counselingchampions.com/faqs",
+    "spelling_note": "The website writes “HIPPA”; this is recorded as written. The intended term is likely HIPAA — that correction is an inference, not a website fact.",
+    "providers_listed_as_telehealth": [
+      "Steve Terezakis",
+      "Faith Lee"
+    ],
+    "providers_telehealth_source": "https://counselingchampions.com/our-team"
+  },
+  "intake_and_appointment": {
+    "primary_process": {
+      "category": "website_fact",
+      "source_url": "https://counselingchampions.com/faqs",
+      "collection_date": "2026-11-11",
+      "supporting_quote": "The first step is to contact our office at 719-244-5805 or email championscounseling@gmail.com for specific clinician availability. If the clinician has availability within their schedule, we will secure an appointment for you and send you a link to complete our new client intake forms.",
+      "steps": [
+        "Contact office by phone 719-244-5805 or email championscounseling@gmail.com for clinician availability",
+        "If the clinician has availability, the office secures an appointment",
+        "Office sends a link to complete new client intake forms"
+      ]
+    },
+    "provider_page_ctas": {
+      "category": "website_fact",
+      "source_url": "https://counselingchampions.com/our-team",
+      "collection_date": "2026-11-11",
+      "supporting_quote": "Call for Drew's Availability",
+      "note": "Each provider profile has a “Call for [Name]'s Availability” button. Fourteen of fifteen link to the contact page anchor /contact-us#fabe262f-3a4a-4984-bdce-5122fa766ec7. Alli Hildenbrandt’s button uses tel:+17192445805."
+    },
+    "client_portal": {
+      "category": "website_fact",
+      "source_url": "https://counselingchampions.com/",
+      "collection_date": "2026-11-11",
+      "supporting_quote": "Sign In Create Account Bookings My Account",
+      "public_nav_labels": [
+        "Sign In",
+        "Create Account",
+        "Bookings",
+        "My Account"
+      ],
+      "bookings_path": "https://counselingchampions.com/m/bookings",
+      "note": "HEAD of /m/bookings redirected to /m/login. The existence of a membership bookings area is recorded; the authenticated booking UI was not entered, so its features remain unknown. A missing public self-scheduler is not evidence that scheduling is poor."
+    }
+  },
+  "providers": [
+    {
+      "name": "Drew Pierce",
+      "also_known_as": [
+        "Andrew Pierce"
+      ],
+      "website_listed_credentials": [
+        "LPC"
+      ],
+      "title_role": "Owner of Champions Counseling",
+      "office": "Dublin Location",
+      "specialties": [
+        "Youth, adolescents, pre-teen",
+        "Anxiety",
+        "Depression",
+        "Anger",
+        "Grief and loss",
+        "Relationship difficulties",
+        "Adults",
+        "Self-harm",
+        "Life transitions/Adjustments"
+      ],
+      "populations": [
+        "Youth, adolescents, pre-teen",
+        "Adults"
+      ],
+      "modalities": null,
+      "languages": null,
+      "accepting_new_clients": null,
+      "availability_cta": {
+        "label": "Call for Drew's Availability",
+        "href": "https://counselingchampions.com/contact-us#fabe262f-3a4a-4984-bdce-5122fa766ec7"
+      },
+      "photo": {
+        "url": "https://img1.wsimg.com/isteam/ip/c771344f-6a89-4a2d-9aa0-d229216a3f3b/image1.jpeg",
+        "reuse_policy": "placeholder / short factual profile — URL recorded only; do not copy or download the portrait for reuse without a separate license",
+        "filename": "image1.jpeg"
+      },
+      "short_bio_summary": "Website-listed Licensed Professional Counselor and owner. Bio states he began as a School Counselor, serves the Colorado Springs area, and uses the change theory “The process is more important than the product.”",
+      "source_url": "https://counselingchampions.com/our-team",
+      "collection_date": "2026-11-11",
+      "category": "website_fact",
+      "supporting_quote": "Drew Pierce, LPC, Owner of Champions Counseling (Dublin Location). My name is Andrew Pierce, a Licensed Professional Counselor..."
+    },
+    {
+      "name": "Steve Terezakis",
+      "also_known_as": [],
+      "website_listed_credentials": [
+        "LPC",
+        "National Certified Counselor",
+        "Professional School Counselor licensure"
+      ],
+      "title_role": "Licensed Professional Counselor",
+      "office": "Telehealth",
+      "specialties": [
+        "stress",
+        "anxiety",
+        "depression",
+        "life adjustment",
+        "grief/loss",
+        "low self-esteem",
+        "general emotional distress"
+      ],
+      "populations": [
+        "pre-teens",
+        "teenagers",
+        "young adults"
+      ],
+      "modalities": [
+        "crisis counseling (background)",
+        "Applied Behavioral Analysis therapy (background)",
+        "school counseling (background)",
+        "clinical counseling"
+      ],
+      "languages": null,
+      "accepting_new_clients": null,
+      "availability_cta": {
+        "label": "Call for Steve's Availability",
+        "href": "https://counselingchampions.com/contact-us#fabe262f-3a4a-4984-bdce-5122fa766ec7"
+      },
+      "photo": {
+        "url": "https://img1.wsimg.com/isteam/ip/c771344f-6a89-4a2d-9aa0-d229216a3f3b/c65ad4c9-c35f-4925-a5a9-b87764750a47.jpeg",
+        "reuse_policy": "placeholder / short factual profile — URL recorded only; do not copy or download the portrait for reuse without a separate license",
+        "filename": "c65ad4c9-c35f-4925-a5a9-b87764750a47.jpeg"
+      },
+      "short_bio_summary": "Website-listed LPC with 9 years in mental and behavioral health. Education listed as BS in Psychology (Florida State University) and MA in Counseling and Human Services (University of Colorado Colorado Springs). Also lists NCC credential and Professional School Counselor licensure. Specializes in pre-teens, teenagers, and young adults.",
+      "source_url": "https://counselingchampions.com/our-team",
+      "collection_date": "2026-11-11",
+      "category": "website_fact",
+      "supporting_quote": "Steve Terezakis, LPC (Telehealth). I am credentialled as a National Certified Counselor and hold my Professional School Counselor licensure."
+    },
+    {
+      "name": "Diana Phillips",
+      "also_known_as": [],
+      "website_listed_credentials": [
+        "LPCC",
+        "Professional School Counselor"
+      ],
+      "title_role": "Licensed Professional Counselor Candidate; Professional School Counselor",
+      "office": "Dublin Location",
+      "specialties": [
+        "life transitions",
+        "ADHD",
+        "anxiety",
+        "grief",
+        "healthy self esteem"
+      ],
+      "populations": null,
+      "modalities": [
+        "person-centered",
+        "solution focused",
+        "strength based",
+        "cognitive behavior therapies",
+        "mindfulness practices"
+      ],
+      "languages": null,
+      "accepting_new_clients": null,
+      "availability_cta": {
+        "label": "Call for Diana's Availability",
+        "href": "https://counselingchampions.com/contact-us#fabe262f-3a4a-4984-bdce-5122fa766ec7"
+      },
+      "photo": {
+        "url": "https://img1.wsimg.com/isteam/ip/c771344f-6a89-4a2d-9aa0-d229216a3f3b/0E6A0160-Edit.jpg",
+        "reuse_policy": "placeholder / short factual profile — URL recorded only; do not copy or download the portrait for reuse without a separate license",
+        "filename": "0E6A0160-Edit.jpg"
+      },
+      "short_bio_summary": "Website-listed Professional School Counselor and Licensed Professional Counselor Candidate. Integrates person-centered, solution-focused, strength-based, and CBT approaches plus mindfulness. Focus on life transitions, ADHD, anxiety, grief, and self-esteem.",
+      "source_url": "https://counselingchampions.com/our-team",
+      "collection_date": "2026-11-11",
+      "category": "website_fact",
+      "supporting_quote": "Diana Phillips, LPCC (Dublin Location). I am a Professional School Counselor and a Licensed Professional Counselor Candidate."
+    },
+    {
+      "name": "Caleb Foust",
+      "also_known_as": [],
+      "website_listed_credentials": [
+        "LPCC",
+        "Level 2 Gottman Method Trained",
+        "Master’s degree in Applied Behavior Analysis"
+      ],
+      "title_role": "Licensed Professional Counselor Candidate",
+      "office": "Dublin Location",
+      "specialties": [
+        "individuals and couples",
+        "healing and growth"
+      ],
+      "populations": [
+        "individuals",
+        "couples"
+      ],
+      "modalities": [
+        "Gottman Method (Level 2 trained)",
+        "EMDR (currently undergoing training)",
+        "Applied Behavior Analysis (master’s degree)"
+      ],
+      "languages": null,
+      "accepting_new_clients": null,
+      "availability_cta": {
+        "label": "Call for Caleb's Availability",
+        "href": "https://counselingchampions.com/contact-us#fabe262f-3a4a-4984-bdce-5122fa766ec7"
+      },
+      "photo": {
+        "url": "https://img1.wsimg.com/isteam/ip/c771344f-6a89-4a2d-9aa0-d229216a3f3b/Screenshot_20231121-124356_Gallery.jpg",
+        "reuse_policy": "placeholder / short factual profile — URL recorded only; do not copy or download the portrait for reuse without a separate license",
+        "filename": "Screenshot_20231121-124356_Gallery.jpg"
+      },
+      "short_bio_summary": "Website-listed LPCC who works with individuals and couples. Lists Level 2 Gottman Method training, EMDR training in progress, and a master’s in Applied Behavior Analysis.",
+      "source_url": "https://counselingchampions.com/our-team",
+      "collection_date": "2026-11-11",
+      "category": "website_fact",
+      "supporting_quote": "Caleb Foust, LPCC (Dublin Location). As a Level 2 Gottman Method Trained individual, currently undergoing training in Eye Movement Desensitization and Reprocessing (EMDR), and holding a Master’s degree in Applied Behavior Analysis..."
+    },
+    {
+      "name": "LaTisha Donaldson",
+      "also_known_as": [
+        "Tish Donaldson"
+      ],
+      "website_listed_credentials": [
+        "DEd",
+        "LPCC"
+      ],
+      "title_role": "Licensed Professional Counselor Candidate",
+      "office": "Dublin Location",
+      "specialties": [
+        "multiple areas within the mental health profession (not further specified on the page)"
+      ],
+      "populations": null,
+      "modalities": null,
+      "languages": null,
+      "accepting_new_clients": null,
+      "availability_cta": {
+        "label": "Call for Tish's Availability",
+        "href": "https://counselingchampions.com/contact-us#fabe262f-3a4a-4984-bdce-5122fa766ec7"
+      },
+      "photo": {
+        "url": "https://img1.wsimg.com/isteam/ip/c771344f-6a89-4a2d-9aa0-d229216a3f3b/Tish%20Bio%20pic.jpg",
+        "reuse_policy": "placeholder / short factual profile — URL recorded only; do not copy or download the portrait for reuse without a separate license",
+        "filename": "Tish Bio pic.jpg"
+      },
+      "short_bio_summary": "Website-listed Licensed Professional Counselor Candidate with a DEd. Bio describes a background as a teacher, school counselor, and school administrator. Change theory listed as “Strive to be a better you.” Specific clinical specialties are not itemized.",
+      "source_url": "https://counselingchampions.com/our-team",
+      "collection_date": "2026-11-11",
+      "category": "website_fact",
+      "supporting_quote": "LaTisha Donaldson, DEd, LPCC (Dublin Location). My name is LaTisha (Tish) Donaldson, and I am a Licensed Professional Counselor Candidate with Champions Counseling."
+    },
+    {
+      "name": "Alli Hildenbrandt",
+      "also_known_as": [],
+      "website_listed_credentials": [
+        "LPCC"
+      ],
+      "title_role": "Licensed Professional Counselor Candidate",
+      "office": "Dublin Location",
+      "specialties": null,
+      "populations": null,
+      "modalities": [
+        "evidence-based techniques",
+        "person-centered"
+      ],
+      "languages": null,
+      "accepting_new_clients": null,
+      "availability_cta": {
+        "label": "Call for Alli's Availability",
+        "href": "tel:+17192445805",
+        "note": "Unlike the other team CTAs, this button is a telephone link to the practice number rather than the contact-form anchor."
+      },
+      "photo": {
+        "url": "https://img1.wsimg.com/isteam/ip/c771344f-6a89-4a2d-9aa0-d229216a3f3b/Alli.jpg",
+        "reuse_policy": "placeholder / short factual profile — URL recorded only; do not copy or download the portrait for reuse without a separate license",
+        "filename": "Alli.jpg"
+      },
+      "short_bio_summary": "Website-listed LPCC. Bio emphasizes a safe, nonjudgmental, person-centered approach blending evidence-based techniques; does not list specific specialties or populations.",
+      "source_url": "https://counselingchampions.com/our-team",
+      "collection_date": "2026-11-11",
+      "category": "website_fact",
+      "supporting_quote": "Alli Hildenbrandt, LPCC (Dublin Location). My approach blends evidence-based techniques with a person-centered perspective..."
+    },
+    {
+      "name": "Faith Lee",
+      "also_known_as": [],
+      "website_listed_credentials": [
+        "MFTC"
+      ],
+      "title_role": "Marriage & Family Therapist Candidate",
+      "office": "Telehealth",
+      "specialties": [
+        "interpersonal challenges",
+        "relationship dynamics",
+        "anxiety",
+        "depression",
+        "adjustments & life transitions",
+        "grief",
+        "self-esteem difficulties"
+      ],
+      "populations": null,
+      "modalities": [
+        "Marriage & Family Therapy / systems"
+      ],
+      "languages": null,
+      "accepting_new_clients": null,
+      "availability_cta": {
+        "label": "Call for Faith's Availability",
+        "href": "https://counselingchampions.com/contact-us#fabe262f-3a4a-4984-bdce-5122fa766ec7"
+      },
+      "photo": {
+        "url": "https://img1.wsimg.com/isteam/ip/c771344f-6a89-4a2d-9aa0-d229216a3f3b/IMG_8181.JPG",
+        "reuse_policy": "placeholder / short factual profile — URL recorded only; do not copy or download the portrait for reuse without a separate license",
+        "filename": "IMG_8181.JPG"
+      },
+      "short_bio_summary": "Website-listed Marriage & Family Therapist Candidate. Education listed as BS in Psychology (Colorado State University) and Masters in Marriage & Family Counseling (Indiana Wesleyan University). Works with interpersonal, relationship, anxiety, depression, transition, grief, and self-esteem concerns.",
+      "source_url": "https://counselingchampions.com/our-team",
+      "collection_date": "2026-11-11",
+      "category": "website_fact",
+      "supporting_quote": "Faith Lee, MFTC (Telehealth). My name is Faith Lee, and I am a Marriage & Family Therapist Candidate."
+    },
+    {
+      "name": "Sadie Shaver",
+      "also_known_as": [],
+      "website_listed_credentials": [
+        "LPCC"
+      ],
+      "title_role": "Licensed Professional Counselor Candidate",
+      "office": "Briargate Location",
+      "specialties": [
+        "anxiety",
+        "depression",
+        "life transitions",
+        "trauma"
+      ],
+      "populations": null,
+      "modalities": [
+        "psychodynamic",
+        "emotion-focused",
+        "nature-based techniques"
+      ],
+      "languages": null,
+      "accepting_new_clients": null,
+      "availability_cta": {
+        "label": "Call for Sadie's Availability",
+        "href": "https://counselingchampions.com/contact-us#fabe262f-3a4a-4984-bdce-5122fa766ec7"
+      },
+      "photo": {
+        "url": "https://img1.wsimg.com/isteam/ip/c771344f-6a89-4a2d-9aa0-d229216a3f3b/IMG_0557.jpeg",
+        "reuse_policy": "placeholder / short factual profile — URL recorded only; do not copy or download the portrait for reuse without a separate license",
+        "filename": "IMG_0557.jpeg"
+      },
+      "short_bio_summary": "Website-listed LPCC at the Briargate location. Describes therapy as a partnership using psychodynamic, emotion-focused, and nature-based techniques. Mentions anxiety, depression, life transitions, or trauma.",
+      "source_url": "https://counselingchampions.com/our-team",
+      "collection_date": "2026-11-11",
+      "category": "website_fact",
+      "supporting_quote": "Sadie Shaver, LPCC (Briargate Location). I view therapy as a partnership, adapting psychodynamic, emotion-focused, and nature-based techniques..."
+    },
+    {
+      "name": "Lindsay Gastorf",
+      "also_known_as": [],
+      "website_listed_credentials": [
+        "LPCC"
+      ],
+      "title_role": "Licensed Professional Counselor Candidate",
+      "office": "Dublin Location",
+      "specialties": [
+        "identity issues",
+        "career changes",
+        "relationship difficulties",
+        "grief",
+        "transitions"
+      ],
+      "populations": [
+        "adults"
+      ],
+      "modalities": null,
+      "languages": null,
+      "accepting_new_clients": null,
+      "availability_cta": {
+        "label": "Call for Lindsay's Availability",
+        "href": "https://counselingchampions.com/contact-us#fabe262f-3a4a-4984-bdce-5122fa766ec7"
+      },
+      "photo": {
+        "url": "https://img1.wsimg.com/isteam/ip/c771344f-6a89-4a2d-9aa0-d229216a3f3b/IMG_5530a.jpg",
+        "reuse_policy": "placeholder / short factual profile — URL recorded only; do not copy or download the portrait for reuse without a separate license",
+        "filename": "IMG_5530a.jpg"
+      },
+      "short_bio_summary": "Website-listed LPCC. Bio describes a background in education (high school teacher, college academic advisor) and states she currently works as a middle school counselor during the day and enjoys counseling adults on identity, career, relationship, grief, and transition issues. No named school employer is given.",
+      "source_url": "https://counselingchampions.com/our-team",
+      "collection_date": "2026-11-11",
+      "category": "website_fact",
+      "supporting_quote": "Lindsay Gastorf, LPCC (Dublin Location). Currently, I work as a middle school counselor during the day, but I enjoy counseling adults who are facing a variety of life challenges..."
+    },
+    {
+      "name": "Cheyenne Hudson",
+      "also_known_as": [],
+      "website_listed_credentials": [
+        "LPCC"
+      ],
+      "title_role": "Licensed Professional Counselor Candidate; website body also says “an Therapist”",
+      "office": "Briargate Location",
+      "specialties": [
+        "identity exploration",
+        "stress",
+        "life transitions",
+        "relationship challenges",
+        "confidence and purpose",
+        "anxiety",
+        "low self-esteem"
+      ],
+      "populations": [
+        "individuals ages 15 and up",
+        "teens",
+        "young adults",
+        "adults"
+      ],
+      "modalities": [
+        "person-centered"
+      ],
+      "languages": null,
+      "accepting_new_clients": null,
+      "availability_cta": {
+        "label": "Call for Cheyenne's Availability",
+        "href": "https://counselingchampions.com/contact-us#fabe262f-3a4a-4984-bdce-5122fa766ec7"
+      },
+      "photo": {
+        "url": "https://img1.wsimg.com/isteam/ip/c771344f-6a89-4a2d-9aa0-d229216a3f3b/20250512_103454~2.jpg",
+        "reuse_policy": "placeholder / short factual profile — URL recorded only; do not copy or download the portrait for reuse without a separate license",
+        "filename": "20250512_103454~2.jpg"
+      },
+      "short_bio_summary": "Website heading lists LPCC at Briargate; body describes a person-centered therapist supporting individuals ages 15 and up, especially teens and young adults, plus adults in transition. Mentions anxiety, low self-esteem, and feeling “stuck.”",
+      "source_url": "https://counselingchampions.com/our-team",
+      "collection_date": "2026-11-11",
+      "category": "website_fact",
+      "supporting_quote": "Cheyenne Hudson, LPCC (Briargate Location). I’m an Therapist dedicated to supporting individuals ages 15 and up as they navigate life’s challenges and transitions."
+    },
+    {
+      "name": "Deana Maxwell",
+      "also_known_as": [],
+      "website_listed_credentials": [
+        "LPC",
+        "Registered Nurse (background listed in bio)"
+      ],
+      "title_role": "Licensed Professional Counselor",
+      "office": "Dublin Location",
+      "specialties": [
+        "personal growth and healing"
+      ],
+      "populations": [
+        "individuals",
+        "couples"
+      ],
+      "modalities": null,
+      "languages": null,
+      "accepting_new_clients": null,
+      "availability_cta": {
+        "label": "Call for Deana's Availability",
+        "href": "https://counselingchampions.com/contact-us#fabe262f-3a4a-4984-bdce-5122fa766ec7"
+      },
+      "photo": {
+        "url": "https://img1.wsimg.com/isteam/ip/c771344f-6a89-4a2d-9aa0-d229216a3f3b/IMG_9489%20%281%29.jpeg",
+        "reuse_policy": "placeholder / short factual profile — URL recorded only; do not copy or download the portrait for reuse without a separate license",
+        "filename": "IMG_9489 (1).jpeg"
+      },
+      "short_bio_summary": "Website-listed LPC working with individuals and couples. Bio notes a background as a Registered Nurse. Specific modalities and specialty list are otherwise not itemized.",
+      "source_url": "https://counselingchampions.com/our-team",
+      "collection_date": "2026-11-11",
+      "category": "website_fact",
+      "supporting_quote": "Deana Maxwell, LPC (Dublin Location). I am a Licensed Professional Counselor with a passion for working with individuals and couples... Through my background as a Registered Nurse..."
+    },
+    {
+      "name": "Sarah Smith",
+      "also_known_as": [],
+      "website_listed_credentials": [
+        "LPCC (heading)",
+        "therapist-in-training (bio)",
+        "pursuing master’s in Clinical Mental Health Counseling at Colorado Christian University (bio)"
+      ],
+      "title_role": "Heading lists LPCC; bio describes a therapist-in-training currently pursuing a master’s degree",
+      "office": "Dublin Location",
+      "specialties": [
+        "anxiety",
+        "low self-esteem",
+        "trauma",
+        "attachment issues",
+        "major life transitions"
+      ],
+      "populations": [
+        "teens",
+        "adults",
+        "children"
+      ],
+      "modalities": [
+        "evidence-based techniques",
+        "art-based interventions"
+      ],
+      "languages": null,
+      "accepting_new_clients": null,
+      "availability_cta": {
+        "label": "Call for Sarah's Availability",
+        "href": "https://counselingchampions.com/contact-us#fabe262f-3a4a-4984-bdce-5122fa766ec7"
+      },
+      "photo": {
+        "url": "https://img1.wsimg.com/isteam/ip/c771344f-6a89-4a2d-9aa0-d229216a3f3b/8537ECCC-652F-47F0-853F-179D2FE48742.jpeg",
+        "reuse_policy": "placeholder / short factual profile — URL recorded only; do not copy or download the portrait for reuse without a separate license",
+        "filename": "8537ECCC-652F-47F0-853F-179D2FE48742.jpeg"
+      },
+      "short_bio_summary": "Dublin listing headed “Sarah Smith, LPCC,” while the bio calls her a “therapist-in-training” pursuing a master’s in Clinical Mental Health Counseling at Colorado Christian University. Works with teens, adults, and children using evidence-based and art-based interventions.",
+      "source_url": "https://counselingchampions.com/our-team",
+      "collection_date": "2026-11-11",
+      "category": "website_fact",
+      "supporting_quote": "Sarah Smith, LPCC (Dublin Location). I’m a warm, creative therapist-in-training... I’m currently pursuing my master’s in Clinical Mental Health Counseling at Colorado Christian University.",
+      "notes": "Heading credential (LPCC) and bio wording (therapist-in-training / pursuing master’s) do not fully agree; keep both as website-listed and do not resolve the discrepancy."
+    },
+    {
+      "name": "Emily Sack's",
+      "also_known_as": [],
+      "name_note": "Name is reproduced exactly as the website heading, including the apostrophe. Whether this is a typo for “Sacks” is unverified; do not silently correct it in imported records.",
+      "website_listed_credentials": [
+        "Intern"
+      ],
+      "title_role": "Intern; counseling graduate student",
+      "office": "Dublin Location",
+      "specialties": [
+        "burnout",
+        "perfectionism",
+        "athletes",
+        "high performers"
+      ],
+      "populations": [
+        "athletes of all levels",
+        "high performers",
+        "individuals struggling with burnout and perfectionism"
+      ],
+      "modalities": [
+        "evidence-based strategies",
+        "practical coping skills",
+        "values-guided actions"
+      ],
+      "languages": null,
+      "accepting_new_clients": null,
+      "availability_cta": {
+        "label": "Call for Emily's Availability",
+        "href": "https://counselingchampions.com/contact-us#fabe262f-3a4a-4984-bdce-5122fa766ec7"
+      },
+      "photo": {
+        "url": "https://img1.wsimg.com/isteam/ip/c771344f-6a89-4a2d-9aa0-d229216a3f3b/5O1A6508%20%281%29.jpg",
+        "reuse_policy": "placeholder / short factual profile — URL recorded only; do not copy or download the portrait for reuse without a separate license",
+        "filename": "5O1A6508 (1).jpg"
+      },
+      "short_bio_summary": "Website-listed intern at Dublin, pursuing a Masters in Clinical Mental Health Counseling from the University of Western States. Emphasizes evidence-based coping skills and work with athletes, high performers, burnout, and perfectionism.",
+      "source_url": "https://counselingchampions.com/our-team",
+      "collection_date": "2026-11-11",
+      "category": "website_fact",
+      "supporting_quote": "Emily Sack's, Intern (Dublin Location). I am currently pursuing my Masters in Clinical Mental Health Counseling from the University of Western States."
+    },
+    {
+      "name": "Lisa Green-Garcia",
+      "also_known_as": [],
+      "website_listed_credentials": [
+        "Intern"
+      ],
+      "title_role": "Intern; counseling graduate student",
+      "office": "Dublin Location",
+      "specialties": [
+        "trauma",
+        "anxiety",
+        "life transitions",
+        "relationship challenges"
+      ],
+      "populations": [
+        "adolescents",
+        "adults",
+        "couples",
+        "families"
+      ],
+      "modalities": [
+        "trauma-informed",
+        "client-centered"
+      ],
+      "languages": null,
+      "accepting_new_clients": null,
+      "availability_cta": {
+        "label": "Call for Lisa's Availability",
+        "href": "https://counselingchampions.com/contact-us#fabe262f-3a4a-4984-bdce-5122fa766ec7"
+      },
+      "photo": {
+        "url": "https://img1.wsimg.com/isteam/ip/c771344f-6a89-4a2d-9aa0-d229216a3f3b/Lisa%27s%20Bio%20Pic.jpg",
+        "reuse_policy": "placeholder / short factual profile — URL recorded only; do not copy or download the portrait for reuse without a separate license",
+        "filename": "Lisa's Bio Pic.jpg"
+      },
+      "short_bio_summary": "Website-listed intern at Dublin; graduate student at Adams State University pursuing a Master’s in Clinical Mental Health Counseling. Works with adolescents, adults, couples, and families using a trauma-informed, client-centered approach.",
+      "source_url": "https://counselingchampions.com/our-team",
+      "collection_date": "2026-11-11",
+      "category": "website_fact",
+      "supporting_quote": "Lisa Green-Garcia, Intern (Dublin Location). Hi, I’m Lisa, a counseling graduate student at Adams State University, pursuing my Master’s degree in Clinical Mental Health Counseling."
+    },
+    {
+      "name": "Dan Marzullo",
+      "also_known_as": [],
+      "website_listed_credentials": [
+        "Intern"
+      ],
+      "title_role": "Intern; counseling practicum student",
+      "office": "Dublin Location",
+      "specialties": [
+        "life transitions",
+        "anxiety",
+        "depression",
+        "stress",
+        "burnout",
+        "low self-esteem"
+      ],
+      "populations": [
+        "teens",
+        "adults"
+      ],
+      "modalities": [
+        "evidence-based tools",
+        "strengths-based"
+      ],
+      "languages": null,
+      "accepting_new_clients": null,
+      "availability_cta": {
+        "label": "Call for Dan's Availability",
+        "href": "https://counselingchampions.com/contact-us#fabe262f-3a4a-4984-bdce-5122fa766ec7"
+      },
+      "photo": {
+        "url": "https://img1.wsimg.com/isteam/ip/c771344f-6a89-4a2d-9aa0-d229216a3f3b/Dan%20Headshot.jpg",
+        "reuse_policy": "placeholder / short factual profile — URL recorded only; do not copy or download the portrait for reuse without a separate license",
+        "filename": "Dan Headshot.jpg"
+      },
+      "short_bio_summary": "Website-listed intern / practicum student at Dublin, pursuing a Master’s in Clinical Mental Health Counseling at Adams State University. Supports teens and adults with transitions, anxiety, depression, stress, burnout, and low self-esteem using a strengths-based lens.",
+      "source_url": "https://counselingchampions.com/our-team",
+      "collection_date": "2026-11-11",
+      "category": "website_fact",
+      "supporting_quote": "Dan Marzullo, Intern (Dublin Location). I'm a counseling practicum student pursuing my Master's degree in Clinical Mental Health Counseling at Adams State University."
+    }
+  ],
+  "careers": {
+    "careers_page_found": false,
+    "open_jobs_listed": [],
+    "statement": "No careers, jobs, internships, or apply page exists on the site (those paths 404). No individual open job was listed with a title, location, type, pay, description, or requirements. Do not invent vacancies or imply specific roles are open.",
+    "category": "website_fact",
+    "collection_date": "2026-11-11",
+    "source_url": "https://counselingchampions.com/",
+    "hiring_cta_only": {
+      "category": "website_fact",
+      "source_url": "https://counselingchampions.com/",
+      "collection_date": "2026-11-11",
+      "supporting_quote": "We are Hiring!! Apply Via Email @ Championscounseling@gmail.com",
+      "appears": "Site-wide popup on every crawled public page",
+      "how_to_apply": "Email Championscounseling@gmail.com",
+      "cta_href": "https://counselingchampions.com/contact-us",
+      "title": null,
+      "location": null,
+      "type": null,
+      "pay": null,
+      "description_summary": "No job description is provided beyond the hiring banner.",
+      "requirements": null
+    },
+    "off_site_notes": [
+      {
+        "category": "third_party",
+        "source_url": "https://linkedin.com/company/counseling-champions",
+        "collection_date": "2026-11-11",
+        "supporting_quote": "Hiring mental health counselor's for evenings and weekends!!!",
+        "date_of_post": "2023-09-28",
+        "note": "Historical LinkedIn company post from 2023, not a current dated job listing. Do not import as an open role."
+      }
+    ],
+    "interns_on_team_are_not_job_postings": "Emily Sack's, Lisa Green-Garcia, and Dan Marzullo are listed as current Interns on the team page, not as open positions."
+  },
+  "school_partnerships": {
+    "named_partnerships": [],
+    "category": "website_fact",
+    "collection_date": "2026-11-11",
+    "source_url": "https://counselingchampions.com/our-team",
+    "supporting_quote": null,
+    "statement": "No named school partnerships, school contracts, or school referral workflows are listed on the website. School-related content is limited to clinician background (e.g., Drew began as a School Counselor; Steve holds Professional School Counselor licensure; Diana is a Professional School Counselor; LaTisha’s background includes school counseling and administration; Lindsay currently works as a middle school counselor during the day, employer unnamed).",
+    "do_not_invent_schools": true
+  },
+  "social_links": {
+    "found_on_website": [],
+    "category": "website_fact",
+    "source_url": "https://counselingchampions.com/",
+    "collection_date": "2026-11-11",
+    "supporting_quote": null,
+    "statement": "No Facebook, Instagram, YouTube, or other practice social profile links were present in the public page chrome. “facebook” and “twitter” strings on the homepage were a Meta pixel script and Twitter card meta tags, not profile URLs.",
+    "off_site_company_page": {
+      "category": "third_party",
+      "platform": "LinkedIn",
+      "url": "https://linkedin.com/company/counseling-champions",
+      "collection_date": "2026-11-11",
+      "note": "Found via web search, not linked from the website. LinkedIn also reported 11 employees and founded 2019; the live team page lists 15 providers, so those LinkedIn figures may be stale. Do not treat them as website facts."
+    }
+  },
+  "uncertain_or_omitted": [
+    {
+      "item": "Sharon Godfrey-Garcia",
+      "category": "inference",
+      "used_for": "do not auto-import as a current provider",
+      "statement": "A third-party MentalHealth.com profile describes Sharon Godfrey-Garcia, LPCC / Licensed Professional School Counselor, as working at Champions Counseling (1880 Dublin Blvd). She does not appear on the current https://counselingchampions.com/our-team page. Treat as possibly outdated; omit from the imported provider roster unless confirmed.",
+      "source_url": "https://www.mentalhealth.com/people/sharon-godfrey-garcia"
+    },
+    {
+      "item": "Languages",
+      "category": "website_fact",
+      "statement": "No provider or practice language offerings are stated. Leave missing.",
+      "source_url": "https://counselingchampions.com/our-team",
+      "collection_date": "2026-11-11"
+    },
+    {
+      "item": "Accepting new clients",
+      "category": "website_fact",
+      "statement": "No provider is explicitly marked accepting or not accepting new clients. Only “Call for [Name]'s Availability” is listed. Leave accepting_new_clients missing.",
+      "source_url": "https://counselingchampions.com/our-team",
+      "collection_date": "2026-11-11"
+    },
+    {
+      "item": "Psychology Today practice profile",
+      "category": "inference",
+      "used_for": "directory completeness only",
+      "statement": "A light Psychology Today search did not surface a clear Champions Counseling or Colorado Springs Andrew/Drew Pierce practice profile. This is not proof that none exists."
+    },
+    {
+      "item": "Individual clinician license numbers",
+      "category": "website_fact",
+      "statement": "The site points to DORA license lookup but does not publish individual license numbers. Leave missing.",
+      "source_url": "https://counselingchampions.com/",
+      "collection_date": "2026-11-11"
+    },
+    {
+      "item": "Schema.org street address formatting",
+      "category": "inference",
+      "used_for": "prefer the Contact Us addresses",
+      "statement": "Homepage JSON-LD address is incomplete/odd (“Dublin Location 1880 Dublin Blvd”, empty addressCountry, Ireland geo). Use the Contact Us page addresses instead.",
+      "source_url": "https://counselingchampions.com/"
+    }
+  ],
+  "synthetic_examples": [],
+  "inferences": [
+    {
+      "category": "inference",
+      "collection_date": "2026-11-11",
+      "statement": "Andrew “Drew” Pierce is the owner of the practice that legally operates as North Springs Counseling LLC, DBA Champions Counseling. User-supplied mailboxes drew@counselingchampions.com and northspringscounseling@gmail.com therefore belong to the same organization as the website-published Championscounseling@gmail.com, not to a second prospect.",
+      "used_for": "dedupe and contact routing"
+    },
+    {
+      "category": "inference",
+      "collection_date": "2026-11-11",
+      "statement": "Sarah Smith’s heading says LPCC while her bio says therapist-in-training / pursuing a master’s. Import both wordings; do not silently drop either.",
+      "used_for": "provider record quality"
+    },
+    {
+      "category": "inference",
+      "collection_date": "2026-11-11",
+      "statement": "The heading “Emily Sack's” may be a typo, but that is unconfirmed. Keep the website spelling in the imported name field.",
+      "used_for": "provider record quality"
+    },
+    {
+      "category": "inference",
+      "collection_date": "2026-11-11",
+      "statement": "Provider office labels are Dublin, Briargate, or Telehealth only. Telehealth-labeled clinicians may still be affiliated with the practice offices; the website does not say they never use an office.",
+      "used_for": "location assignment"
+    }
+  ]
+}

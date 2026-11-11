@@ -278,6 +278,14 @@ export const listDirectoryPublicLinks = async (req, res, next) => {
       }
     }
 
+    if (agencyId) {
+      const [demos] = await pool.execute('SELECT provider_alias,careers_alias FROM prospect_demo_instances WHERE agency_id=?',[agencyId]);
+      if (demos[0]) {
+        providerFinder = {label:'Branded provider page',url:`https://auricwell.com/${demos[0].provider_alias}`};
+        publicEventPages.push({label:'Careers · Plotline',kind:'careers',url:`https://plotlinepo.com/${demos[0].careers_alias}`});
+      }
+    }
+
     res.json({
       ok: true,
       intakeLinks: intakeLinksOut,

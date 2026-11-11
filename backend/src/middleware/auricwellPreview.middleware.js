@@ -16,8 +16,17 @@ export async function requirePreviewAdmin(req, res, next) {
         AND JSON_EXTRACT(a.feature_flags,'$.qaSandbox.syntheticOnly')=true`,[actor.id,AURICWELL_QA_SLUG]);
       if (membership) qaAgencyId = Number(membership.id);
     }
-    assertPreviewActor(actor, req.authClaims || req.user, {qaAgencyId});
+    let prospectAgencyIds = [];
+    if (actor && actor.role !== 'super_admin' && !qaAgencyId) {
+      const [memberships] = await pool.execute(`SELECT a.id FROM agencies a
+        JOIN user_agencies ua ON ua.agency_id=a.id AND ua.is_active=1
+        JOIN prospect_demo_instances d ON d.agency_id=a.id
+        WHERE ua.user_id=? AND a.is_active=1 AND COALESCE(a.is_archived,0)=0`, [actor.id]);
+      prospectAgencyIds = memberships.map(row => Number(row.id));
+    }
+    assertPreviewActor(actor, req.authClaims || req.user, {qaAgencyId, prospectAgencyIds});
     if (qaAgencyId) req.auricwellQaAgencyId = qaAgencyId;
+    if (prospectAgencyIds.length) req.auricwellProspectAgencyIds = prospectAgencyIds;
     req.previewActor = { id: actor.id, role: actor.role, first_name: actor.first_name, last_name: actor.last_name, email: actor.email, credential: actor.credential || null, timezone: actor.timezone || null };
     next();
   } catch (error) { next(error); }

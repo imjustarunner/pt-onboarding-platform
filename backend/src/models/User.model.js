@@ -8,6 +8,7 @@ import crypto from 'crypto';
 import { normalizePhoneExtension } from '../utils/staffWorkContact.js';
 import { directBillingAgencyIds, managedBillingAgencies } from '../services/managedBillingAccess.service.js';
 import bcrypt from 'bcrypt';
+import {createProspectDemoService,isTemporaryDemoEmail} from '../services/prospectDemo.service.js';
 import { changeAccountLifecycle } from '../services/accountLifecycle.service.js';
 
 /**
@@ -944,6 +945,8 @@ class User {
       throw new Error('Cannot change school_staff role to provider – school_staff is a distinct portal role');
     }
 
+    const claimingProspectEmail = currentUser.status === 'DEMO' && isTemporaryDemoEmail(currentUser.email)
+      && email !== undefined && String(email).trim().toLowerCase() !== String(currentUser.email).toLowerCase();
     const updates = [];
     const values = [];
     let hasSupervisorPrivilegesAdded = false; // Track if we've already added this column
@@ -1014,7 +1017,7 @@ class User {
         );
         if (columns.length > 0) {
           updates.push('personal_email = ?');
-          values.push(personalEmail ? String(personalEmail).trim().toLowerCase() : null);
+          values.push(claimingProspectEmail && isTemporaryDemoEmail(personalEmail) ? null : personalEmail ? String(personalEmail).trim().toLowerCase() : null);
         }
       } catch {
         // ignore (older DBs)
@@ -1914,13 +1917,22 @@ class User {
     
     // Closing global intake withdraws actual publications atomically, so newly
     // published openings can subsequently make the provider available again.
-    if (providerAcceptingNewClients === false || seesClients === false) {
+    if (providerAcceptingNewClients === false || seesClients === false || claimingProspectEmail) {
       const connection = await pool.getConnection();
       try {
         await connection.beginTransaction();
         await connection.execute('SELECT id FROM users WHERE id=? FOR UPDATE', [id]);
-        const {withdrawProviderIntakeOpenings} = await import('../services/providerIntakePublication.service.js');
-        await withdrawProviderIntakeOpenings(connection, id);
+        if (claimingProspectEmail) {
+          const [[demo]] = await connection.execute(`SELECT d.agency_id FROM prospect_demo_records r
+            JOIN prospect_demo_instances d ON d.id=r.demo_id WHERE r.entity_type='provider' AND r.entity_id=? AND r.removed_at IS NULL`,[id]);
+          if (!demo) throw new Error('Temporary demo account has no prospect ownership record.');
+          const prospectService=createProspectDemoService({database:pool,hashPassword:value=>bcrypt.hash(value,12)});
+          await prospectService.updateEmployee(demo.agency_id,Number(id),email,{id:Number(userData.actorUserId)},{connection});
+        }
+        if (providerAcceptingNewClients === false || seesClients === false) {
+          const {withdrawProviderIntakeOpenings} = await import('../services/providerIntakePublication.service.js');
+          await withdrawProviderIntakeOpenings(connection, id);
+        }
         await connection.execute(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`, values);
         await connection.commit();
       } catch (error) { await connection.rollback(); throw error; }
