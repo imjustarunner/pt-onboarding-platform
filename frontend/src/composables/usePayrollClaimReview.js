@@ -35,7 +35,7 @@ export function usePayrollClaimReview({ agencyId, queues, onSaved = () => {}, on
   const apply = (kind, original, claim, action) => {
     const expected = { approve: 'approved', reject: 'rejected', return: 'deferred' }[action];
     if (!claim || Number(claim.id) !== Number(original.id) || claim.status !== expected ||
-        (claim.agency_id != null && Number(claim.agency_id) !== Number(agencyId()))) {
+        (claim.agency_id != null && Number(claim.agency_id) !== Number(original.agency_id ?? agencyId()))) {
       throw new Error('The server did not confirm this decision. Refresh and check the claim.');
     }
     const saved = { ...original, ...claim, payload: claim.payload || original.payload };

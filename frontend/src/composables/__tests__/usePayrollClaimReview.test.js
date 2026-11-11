@@ -4,11 +4,11 @@ import { usePayrollClaimReview } from '../usePayrollClaimReview';
 const api = vi.hoisted(() => ({ patch: vi.fn(), post: vi.fn() }));
 vi.mock('../../services/api', () => ({ default: api }));
 const row = id => ({ id, agency_id: 2, status: 'submitted', first_name: 'Test' });
-let queues, review, saved, open;
+let queues, review, saved, open, selectedAgencyId;
 beforeEach(() => {
-  vi.clearAllMocks(); queues = { time: ref([row(1),row(2)]), mileage: ref([]), reimb: ref([]) };
+  vi.clearAllMocks(); selectedAgencyId = 2; queues = { time: ref([row(1),row(2)]), mileage: ref([]), reimb: ref([]) };
   saved = vi.fn(); open = vi.fn();
-  review = usePayrollClaimReview({ agencyId: () => 2, queues, onSaved: saved, onReview: open });
+  review = usePayrollClaimReview({ agencyId: () => selectedAgencyId, queues, onSaved: saved, onReview: open });
 });
 it('removes only server-confirmed approvals without fetching queues, and overlays an older list response', async () => {
   const original = [...queues.time.value], since = review.revision.value;
@@ -53,4 +53,14 @@ it('ignores an old agency mutation response after scope changes', async () => {
   const pending=review.decide('time',row(1),{action:'approve'}); review.reset();
   finish({data:{claim:{...row(1),status:'approved'}}}); await pending;
   expect(saved).not.toHaveBeenCalled(); expect(queues.time.value).toHaveLength(2);
+});
+it('accepts confirmed single and bulk decisions for an authorized parent agency when a child organization is selected', async () => {
+  selectedAgencyId = 9;
+  api.patch.mockResolvedValue({data:{claim:{...row(1),status:'approved'}}});
+  expect(await review.decide('time',row(1),{action:'approve'})).toBe(true);
+  review.toggleAll('time',queues.time.value,true);
+  api.post.mockResolvedValue({data:{results:[{kind:'time',id:2,ok:true,claim:{...row(2),status:'approved'}}]}});
+  await review.bulk([{kind:'time',claim:row(2),targetPayrollPeriodId:8}],'approve');
+  expect(api.post).toHaveBeenCalledWith('/payroll/claims/batch',expect.objectContaining({agencyId:9}));
+  expect(queues.time.value).toEqual([]);expect(saved).toHaveBeenCalledTimes(2);expect(Object.keys(review.errors)).toEqual([]);
 });
