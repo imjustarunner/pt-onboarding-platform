@@ -1,6 +1,6 @@
 import pool from '../config/database.js';
 import { readSchoolWeekdays } from './schoolWeekdayAvailability.service.js';
-import { schoolWeekdayCompletion, schoolWeekdayProgress, schoolWeekdayEmail, schoolWeekdayUrl, schoolWeekdaySmsDue } from '../utils/schoolWeekdayFollowups.js';
+import { schoolWeekdayCompletion, schoolWeekdayProgress, schoolWeekdayEmail, schoolWeekdayUrl, schoolWeekdaySmsDue, schoolWeekdayEmailRecipient } from '../utils/schoolWeekdayFollowups.js';
 
 const mysql = value => new Date(value).toISOString().replace('T',' ').slice(0,23);
 const validEmail = value => /^[^\s<>@,;]+@[^\s<>@,;]+\.[^\s<>@,;]+$/.test(String(value || ''));
@@ -30,9 +30,9 @@ export function createSchoolWeekdayFollowups({ database = pool, readContext = re
     for (const person of people) {
       const context = await readContext(person.id,config.agency_id,database);
       if (!context.eligible || !context.needsResponse || !context.requestedAt) continue;
-      const to = String(person.work_email || person.email || '').trim().toLowerCase();
+      const to = schoolWeekdayEmailRecipient(person,config.from_email);
       // A work update never falls back to a separately recorded personal email.
-      if (!validEmail(to) || to === String(person.personal_email || '').trim().toLowerCase()) continue;
+      if (!to) continue;
       plan.push({ providerId:Number(person.id),agencyId:Number(config.agency_id),to,cc:config.owner_email });
       if (dryRun) continue;
       // Repeated in-app reminders may update requestedAt. Reuse the outstanding
@@ -57,8 +57,8 @@ export function createSchoolWeekdayFollowups({ database = pool, readContext = re
         return {status:'cancelled'};
       }
       const content = schoolWeekdayEmail({person,agency:{...config,id:config.agency_id,name:config.agency_name},owner:{first_name:config.owner_name},kind});
-      const to = String(person.work_email || person.email || '').trim().toLowerCase();
-      if (!validEmail(to) || to === String(person.personal_email || '').trim().toLowerCase()) throw new Error('A valid work email is required.');
+      const to = schoolWeekdayEmailRecipient(person,config.from_email);
+      if (!to) throw new Error('A valid work email is required.');
       const create = createCommunication || (async input => (await import('../models/UserCommunication.model.js')).default.create(input));
       const communication = await create({agencyId:config.agency_id,userId:person.id,templateType:`school_weekday_${kind}`,templateId:row.id,
         subject:content.subject,body:content.text,recipientAddress:to,deliveryStatus:'pending',generatedByUserId:config.owner_user_id,
