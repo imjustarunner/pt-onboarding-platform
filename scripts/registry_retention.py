@@ -39,7 +39,35 @@ def manual_tag(tag):
             and not tag.startswith(KEEP_PREFIXES + OLD_TEST_PREFIXES))
 
 
-def select_images(images, referenced, now, days=7, keep_count=20):
+def keep_condition_matches(image, condition, now):
+    """Evaluate native conditional KEEP rules; an unknown field means retain."""
+    known = {'tagState', 'tagPrefixes', 'versionNamePrefixes', 'packageNamePrefixes', 'olderThan', 'newerThan'}
+    if set(condition) - known:
+        return True
+    tags = image.get('tags', [])
+    state = str(condition.get('tagState', 'ANY')).upper()
+    if state == 'TAGGED' and not tags or state == 'UNTAGGED' and tags:
+        return False
+    for key, values in [('tagPrefixes', tags), ('versionNamePrefixes', [image['uri'].split('@')[-1]]), ('packageNamePrefixes', [package_uri(image).split('/', 3)[-1]])]:
+        prefixes = condition.get(key, [])
+        if prefixes and not any(value.startswith(prefix) for value in values for prefix in prefixes):
+            return False
+    try:
+        age = (now - timestamp(image['uploadTime'])).total_seconds()
+        for key, minimum in [('olderThan', True), ('newerThan', False)]:
+            if key in condition:
+                match = re.fullmatch(r'(\d+(?:\.\d+)?)([smhd])', condition[key])
+                if not match:
+                    return True
+                threshold = float(match[1]) * {'s': 1, 'm': 60, 'h': 3600, 'd': 86400}[match[2]]
+                if minimum and age < threshold or not minimum and age > threshold:
+                    return False
+    except (KeyError, ValueError):
+        return True
+    return True
+
+
+def select_images(images, referenced, now, days=7, keep_count=20, keep_policies=None):
     """Fail conservatively on unknown formats/times; keep recent versions per package."""
     by_package = {}
     for image in images:
@@ -50,6 +78,20 @@ def select_images(images, referenced, now, days=7, keep_count=20):
     kept, deleted = [], []
     for image in images:
         reasons = list(referenced.get(image['uri'], []))
+        repo = image['uri'].split('/')[2]
+        for name, rule in (keep_policies or {}).get(repo, {}).items():
+            if str(rule.get('action', '')).upper() != 'KEEP':
+                continue
+            if 'condition' in rule and keep_condition_matches(image, rule['condition'], now):
+                reasons.append('existing-keep-policy:' + name)
+            if 'mostRecentVersions' in rule:
+                spec = rule['mostRecentVersions']
+                package = package_uri(image)
+                prefixes = spec.get('packageNamePrefixes', [])
+                if not prefixes or any(package.split('/', 3)[-1].startswith(p) for p in prefixes):
+                    recent = sorted(by_package[package], key=lambda i: i['uploadTime'], reverse=True)[:int(spec['keepCount'])]
+                    if image['uri'] in {i['uri'] for i in recent}:
+                        reasons.append('existing-keep-policy:' + name)
         if image['uri'] in newest:
             reasons.append('newest-versions')
         if image.get('mediaType') != MANIFEST:
@@ -242,7 +284,8 @@ def main():
     inventory = client.inventory()
     images = [i for repo in inventory.values() for i in repo['images']]
     referenced, pins, missing, routes = client.references(images)
-    kept, candidates = select_images(images, referenced, now)
+    keep_policies = {repo: data['repository'].get('cleanupPolicies', {}) for repo, data in inventory.items()}
+    kept, candidates = select_images(images, referenced, now, keep_policies=keep_policies)
     report = {'capturedAt': now.isoformat(), 'mode': 'apply' if args.apply else 'sync' if args.sync_only else 'plan', 'inventoryBefore': inventory, 'protectedRoutes': routes, 'alreadyMissingPreviewImages': missing, 'retainedImages': kept, 'deleteCandidates': candidates, 'policies': policies(), 'deleted': []}
     def save():
         (args.report_dir / 'retention-result.json').write_text(json.dumps(report, indent=2) + '\n')
@@ -263,7 +306,8 @@ def main():
             fresh_images = [i for data in fresh.values() for i in data['images']]
             refs, fresh_pins, new_missing, current_routes = client.references(fresh_images)
             client.sync_pins(fresh_images, fresh_pins)
-            _, safe = select_images(fresh_images, refs, dt.datetime.now(dt.timezone.utc))
+            keep_rules = {repo: data['repository'].get('cleanupPolicies', {}) for repo, data in fresh.items()}
+            _, safe = select_images(fresh_images, refs, dt.datetime.now(dt.timezone.utc), keep_policies=keep_rules)
             safe_uris = {i['uri'] for i in safe}
             batch = [i for i in repo_candidates[offset:offset+40] if i['uri'] in safe_uris]
             if not batch:
@@ -286,8 +330,10 @@ def main():
     for repo in REPOS:
         existing = after[repo]['repository'].get('cleanupPolicies', {})
         merged = dict(existing, **policies())
-        operation = client.request(client.ar(client.parent(repo)), {'updateMask': 'cleanupPolicies,cleanupPolicyDryRun'}, 'PATCH', {'name': client.parent(repo), 'cleanupPolicies': merged, 'cleanupPolicyDryRun': False})
-        client.wait(operation)
+        # Repository PATCH returns the updated Repository, not a long-running operation.
+        updated = client.request(client.ar(client.parent(repo)), {'updateMask': 'cleanupPolicies,cleanupPolicyDryRun'}, 'PATCH', {'name': client.parent(repo), 'cleanupPolicies': merged, 'cleanupPolicyDryRun': False})
+        if updated.get('cleanupPolicyDryRun', False) or not set(policies()).issubset(updated.get('cleanupPolicies', {})):
+            raise RuntimeError('Retention policies were not confirmed for ' + repo)
     report['inventoryAfter'] = client.inventory()
     report['completedAt'] = dt.datetime.now(dt.timezone.utc).isoformat()
     save()

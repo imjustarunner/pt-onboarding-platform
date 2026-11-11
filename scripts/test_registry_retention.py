@@ -56,6 +56,30 @@ class RetentionSafety(unittest.TestCase):
         self.assertIn(PIN_PREFIX, rules['keep-protected']['condition']['tagPrefixes'])
         self.assertEqual(rules['keep-newest-20']['mostRecentVersions']['keepCount'], 20)
 
+    def test_explicit_native_digest_keep_overrides_age_and_missing_live_reference(self):
+        row = image(1)
+        rules = {'repo': {'archived-rollback': {'action': 'KEEP', 'condition': {
+            'tagState': 'ANY', 'versionNamePrefixes': [row['uri'].split('@')[-1][:30]]}}}}
+        kept, deleted = select_images([row], {}, NOW, keep_count=0, keep_policies=rules)
+        self.assertEqual(deleted, [])
+        self.assertIn('existing-keep-policy:archived-rollback', kept[0]['keepReasons'])
+
+    def test_native_keep_rules_honor_tag_and_package_conditions(self):
+        rows = [image(1, tags=['archive-1'], package='app'), image(2, tags=['archive-2'], package='other')]
+        rules = {'repo': {'owner-archive': {'action': 'KEEP', 'condition': {
+            'tagState': 'TAGGED', 'tagPrefixes': ['archive-'], 'packageNamePrefixes': ['app'], 'olderThan': '14d'}}}}
+        kept, deleted = select_images(rows, {}, NOW, keep_count=0, keep_policies=rules)
+        # Unknown human tags are retained even without a policy; use their reasons.
+        self.assertIn('existing-keep-policy:owner-archive', kept[0]['keepReasons'])
+        self.assertNotIn('existing-keep-policy:owner-archive', kept[1]['keepReasons'])
+
+    def test_existing_larger_history_keep_is_respected(self):
+        rows = [image(i, days=10+i) for i in range(30)]
+        rules = {'repo': {'keep-25': {'action': 'KEEP', 'mostRecentVersions': {'keepCount': 25}}}}
+        kept, deleted = select_images(rows, {}, NOW, keep_count=0, keep_policies=rules)
+        self.assertEqual(len(kept), 25)
+        self.assertEqual(len(deleted), 5)
+
 
 if __name__ == '__main__':
     unittest.main()
