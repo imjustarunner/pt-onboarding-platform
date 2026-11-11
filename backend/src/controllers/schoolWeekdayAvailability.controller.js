@@ -1,5 +1,6 @@
 import User from '../models/User.model.js';
-import { readSchoolWeekdays, writeSchoolWeekdays, requestSchoolWeekdayUpdates, updateSchoolProviderFocus } from '../services/schoolWeekdayAvailability.service.js';
+import { readSchoolWeekdays, writeSchoolWeekdays, requestSchoolWeekdayUpdates, updateSchoolProviderFocus, markSchoolWeekdaysOpened } from '../services/schoolWeekdayAvailability.service.js';
+import { readSchoolWeekdayProgress } from '../services/schoolWeekdayFollowups.service.js';
 const managers = ['super_admin', 'admin', 'support', 'staff'];
 async function authorize(req, res, request = false) {
   const agencyId = Number(req.query.agencyId || req.body?.agencyId);
@@ -33,4 +34,18 @@ export async function pushSchoolWeekdays(req, res, next) {
 
 export async function putSchoolProviderFocus(req, res, next) {
   try { const ids = await authorize(req, res, true); if (ids) res.json(await updateSchoolProviderFocus({ ...ids, serviceFocus: req.body.serviceFocus, expectedServiceFocus: req.body.expectedServiceFocus })); } catch (e) { fail(e, res, next); }
+}
+
+export async function postSchoolWeekdaysOpened(req,res,next) {
+  try {
+    const ids=await authorize(req,res);
+    if(!ids)return;
+    // A manager preview must never be reported as the provider opening it.
+    if(Number(ids.actorId)!==Number(ids.providerId))return res.json({recorded:false});
+    res.json({recorded:true,...await markSchoolWeekdaysOpened(ids)});
+  } catch(error) {fail(error,res,next);}
+}
+export async function getSchoolWeekdayProgress(req,res,next) {
+  try {const ids=await authorize(req,res,true);if(ids)res.json(await readSchoolWeekdayProgress(ids.agencyId));}
+  catch(error) {fail(error,res,next);}
 }

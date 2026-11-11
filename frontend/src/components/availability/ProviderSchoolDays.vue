@@ -2,8 +2,11 @@
   <section class="provider-days" aria-label="Provider Days">
     <header>
       <div><h2>Provider Days</h2><p>Find school coverage across Monday–Friday.</p></div>
-      <button type="button" class="btn btn-secondary" :disabled="loading" @click="load">{{ loading ? 'Refreshing…' : 'Refresh providers' }}</button>
+      <button v-if="canRequest" type="button" class="btn btn-secondary" @click="showResponses=!showResponses">{{showResponses?'Back to provider days':'Track responses'}}</button>
+      <button v-if="!showResponses" type="button" class="btn btn-secondary" :disabled="loading" @click="load">{{ loading ? 'Refreshing…' : 'Refresh providers' }}</button>
     </header>
+    <SchoolWeekdayResponseTracker v-if="showResponses&&canRequest" :agency-id="agencyId" />
+    <template v-else>
     <p>Green means available for a school, gray shows an assigned school, and red means not available. Providers can update their usual five-day school availability.</p>
     <button v-if="canRequest" type="button" class="btn btn-primary" :disabled="requesting || loading" @click="requestUpdate()">{{ requesting ? 'Requesting…' : 'Request update from all school providers' }}</button>
     <p v-if="requestNotice" role="status">{{ requestNotice }}</p>
@@ -39,6 +42,7 @@
       </div>
       <p v-if="!filtered.length" class="empty">{{ selectedDay ? `No matching providers are available ${selectedDay}.` : 'No providers match these filters.' }}</p>
     </template>
+    </template>
   </section>
 </template>
 
@@ -47,6 +51,7 @@ import { computed, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import SchoolProviderFocusEditor from './SchoolProviderFocusEditor.vue';
+import SchoolWeekdayResponseTracker from './SchoolWeekdayResponseTracker.vue';
 import { useAuthStore } from '../../store/auth';
 import SchoolAvailabilityIcon from './SchoolAvailabilityIcon.vue';
 import SchoolWeekdayEditor from './SchoolWeekdayEditor.vue';
@@ -54,6 +59,7 @@ import SchoolDayBar from '../school/redesign/SchoolDayBar.vue';
 
 const props = defineProps({ agencyId: { type: Number, required: true }, organizationSlug: { type: String, default: null } });
 const route = useRoute();
+const showResponses=ref(route.query?.responses==='1');
 const auth = useAuthStore();
 const canRequest = computed(() => ['admin','super_admin','staff','support'].includes(auth.user?.role));
 const editingFocus = ref(false);

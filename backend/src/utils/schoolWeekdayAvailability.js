@@ -16,6 +16,7 @@ export function schoolWeekdayContext(person, assignments, agencyId) {
   const eligible = schoolBasedFocus(person.service_focus) && !excludedFromSchoolRoster(person);
   const needsResponse = eligible && assignments.some(s => s.days?.some(day => SCHOOL_WEEKDAYS.includes(day))) && SCHOOL_WEEKDAYS.some(day => !assignments.some(s => s.days?.includes(day)) && typeof record.days?.[day] !== 'boolean');
   return { eligible, needsResponse, requestedAt: record.requestedAt || null, updatedAt: record.updatedAt || null,
+    openedAt: record.openedAt || null, completedAt: record.completedAt || null,
     pending: !!record.requestedAt && (!record.updatedAt || record.requestedAt > record.updatedAt),
     days: SCHOOL_WEEKDAYS.map(day => {
       const schools = assignments.filter(s => s.days?.includes(day));
