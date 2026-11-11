@@ -1,12 +1,12 @@
 <script setup>
-import {computed,onMounted,ref} from 'vue';
+import {computed,onMounted,onBeforeUnmount,watch,ref} from 'vue';
 import axios from 'axios';
 import {useRoute,useRouter} from 'vue-router';
 import {trackMobileNavigation} from './mobileNavigation.js';
 import {FilePenLine,RefreshCw,ChevronRight,Building2} from '@lucide/vue';
 import NoteReviewActions from '../components/clinical/NoteReviewActions.vue';
 const route=useRoute(),router=useRouter();trackMobileNavigation(router);
-const props=defineProps({apiBase:String,sessionToken:String});
+const props=defineProps({apiBase:String,sessionToken:String,visible:{type:Boolean,default:true}});
 const emit=defineEmits(['draft','tasks','counts']);
 const items=ref([]),agencies=ref([]),failures=ref([]),loading=ref(false),error=ref(''),clinicalAvailable=ref(true),ready=ref(false);
 const tabs=[{id:'todo',label:'To Do'},{id:'unstarted',label:'Not started'},{id:'started',label:'Started'},{id:'cosign',label:'Co-sign'},{id:'signed',label:'Signed'}];
@@ -26,13 +26,15 @@ const visibleItems=computed(()=>agencyItems.value.filter(item=>currentTab.value=
 }));
 const activeFailures=computed(()=>failures.value.filter(item=>(agencyFilter.value==='all'||String(item.agencyId)===agencyFilter.value)&&(currentTab.value==='todo'||(currentTab.value==='cosign'?item.section==='cosign':item.section==='notes'))));
 function changeView(key,value){router.replace({path:route.path,query:{...route.query,[key]:value==='all'?undefined:value}});}
-async function load(){
+let generation=0,lastLoaded=0;
+async function load(force=true){
+ if(loading.value)return;if(!force && ready.value && Date.now()-lastLoaded<60000)return;const current=++generation,token=props.sessionToken;
  loading.value=true;error.value='';
  try{
-  const {data}=await axios.get(`${props.apiBase}/my-work`,{headers:{'X-Quick-View-Session':props.sessionToken},withCredentials:true});
+  const {data}=await axios.get(`${props.apiBase}/my-work`,{headers:{'X-Quick-View-Session':token},withCredentials:true});if(current!==generation || token!==props.sessionToken)return;lastLoaded=Date.now();
   items.value=data.items || [];agencies.value=data.agencies || [];failures.value=data.failures || [];clinicalAvailable.value=data.clinicalAvailable!==false;ready.value=true;emit('counts',{mywork:failures.value.length?null:items.value.filter(item=>bucket(item)!=='signed').length});
- }catch(e){items.value=[];failures.value=[];ready.value=false;error.value=e.response?.status<500?e.response?.data?.error?.message || 'Your work is unavailable for this account.':'Your work could not be loaded. Try again.';}
- finally{loading.value=false;}
+ }catch(e){if(current!==generation || token!==props.sessionToken)return;if([401,403].includes(e.response?.status)){items.value=[];agencies.value=[];failures.value=[];ready.value=false;emit('counts',{mywork:null});}error.value=e.response?.status<500?e.response?.data?.error?.message || 'Your work is unavailable for this account.':'Your work could not be loaded. Try again.';}
+ finally{if(current===generation)loading.value=false;}
 }
 const agencyLogo=item=>{const value=item.agencyLogoUrl || '';return !value || /^https?:\/\//i.test(value)?value:`${props.apiBase.replace(/\/api\/quick-view$/,'')}/${value.replace(/^\/+/,'')}`;};
 const title=item=>item.maskedName || item.clientMaskedName || 'Client documentation';
@@ -46,7 +48,7 @@ function time(item){
 }
 const status=item=>item.clinicalRevisionId?'Amendment':item.queueKind==='cosign'?'Awaiting co-sign':({not_started:'To do',started:'Started',completed:'Ready to sign',signed:'Signed'}[item.status] || 'To do');
 const loadReviewInsights=({noteId,agencyId})=>axios.get(`${props.apiBase}/my-work/notes/${noteId}/review-insights`,{params:{agencyId},headers:{'X-Quick-View-Session':props.sessionToken},withCredentials:true});
-onMounted(load);
+watch(()=>props.visible,value=>{if(value)void load(false);});watch(()=>props.sessionToken,()=>{generation++;loading.value=false;lastLoaded=0;items.value=[];agencies.value=[];failures.value=[];ready.value=false;if(props.visible)void load();});onMounted(()=>{if(props.visible)void load();});onBeforeUnmount(()=>{generation++;items.value=[];lastLoaded=0;});
 </script>
 <template>
  <section class="mobile-mywork">
@@ -54,7 +56,7 @@ onMounted(load);
   <label class="agency-filter">Agency<select aria-label="Filter documentation by agency" :value="agencyFilter" @change="changeView('workAgency',$event.target.value)"><option value="all">All agencies</option><option v-for="agency in agencies" :key="agency.id" :value="String(agency.id)">{{ agency.name }}</option></select></label>
   <label class="agency-filter">Sort<select aria-label="Sort My Work" :value="sortOrder" @change="changeView('workSort',$event.target.value)"><option value="recent">Most recent</option><option value="oldest">Oldest first</option><option value="client">Client A–Z</option><option value="agency">Agency A–Z</option><option value="service">Service code</option><option value="status">Status</option></select></label>
   <nav class="work-tabs" aria-label="Documentation status"><button v-for="tab in tabs" :key="tab.id" :aria-pressed="currentTab===tab.id" @click="changeView('workTab',tab.id)">{{ tab.label }} <span v-if="tab.id!=='signed'">{{ ready && !failures.some(f=>(agencyFilter==='all'||String(f.agencyId)===agencyFilter)&&(tab.id==='todo'||(tab.id==='cosign'?f.section==='cosign':f.section==='notes')))?counts[tab.id]:'—' }}</span></button></nav>
-  <p v-if="loading" role="status">Loading your work…</p>
+  <p v-if="loading && !ready" role="status">Loading your work…</p>
   <p v-if="error" role="alert">{{ error }} <button @click="load">Try again</button></p>
   <div v-if="activeFailures.length" class="work-errors" role="alert"><p v-for="failure in activeFailures" :key="`${failure.agencyId}:${failure.section}`">{{ failure.agencyName }}: {{ failure.message }}</p><button @click="load">Try again</button></div>
   <article v-for="item in visibleItems" :key="`${item.agencyId}:${item.queueKind}:${item.serverId || item.id}`" class="work-row">

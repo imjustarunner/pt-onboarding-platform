@@ -61,6 +61,17 @@ export function qaClinicalRouteAllowed(method,path,body={}) {
  return (routes[method]||[]).some(pattern=>pattern.test(path));
 }
 
+// These are dedicated personal scheduling adapters, not arbitrary main API
+// forwarding. They recheck the device, approved tenant, own provider, authorized
+// clients and canonical appointment binding before invoking normal source rules.
+export function qaScheduleRouteAllowed(method,path) {
+ if(method==='GET'&&path==='/schedule/options')return true;
+ if(method==='POST'&&path==='/schedule/appointments')return true;
+ const match=path.match(/^\/schedule\/appointments\/([1-9][0-9]*)(\/cancel)?$/);
+ if(!match||!Number.isSafeInteger(Number(match[1])))return false;
+ return match[2]?method==='POST':['GET','PATCH'].includes(method);
+}
+
 /** Unknown surfaces stay closed until their tenant and direct-ID checks are reviewed. */
 export async function enforceMobileQaBoundary(req) {
  const ids=req.quickView?.qaAgencyIds;if(!ids)return;
@@ -69,11 +80,12 @@ export async function enforceMobileQaBoundary(req) {
  for(const[key,value]of Object.entries(req.params||{}))if(/(?:^id$|Id$|_id$)/.test(key)&&(!/^[1-9][0-9]*$/.test(String(value))||!Number.isSafeInteger(Number(value))))throw failure(403,'MOBILE_QA_SURFACE_UNAVAILABLE','Use the canonical record link in the synthetic mobile workspace.');
  const path=String(req.originalUrl||req.path||'').split('?')[0].replace(/^\/api\/quick-view/,'').replace(/\/$/,'');
  const method=String(req.method).toUpperCase();
- let allowed=method==='GET'&&['/my-work','/calendar/day','/tasks'].includes(path);
+ let allowed=method==='GET'&&['/my-work','/calendar/day','/tasks','/clients'].includes(path);
+ if(method==='GET'&&/^\/clients\/[1-9][0-9]*\/summary$/.test(path))allowed=true;
  if(method==='GET'&&/^\/my-work\/notes\/[1-9][0-9]*\/review-insights$/.test(path))allowed=true;
  // Clinical adapters enforce the exact token agency, author/assigned reviewer and
  // client/record bindings. Outbound family delivery remains a separate QA grant.
- if(qaClinicalRouteAllowed(method,path,req.body))allowed=true;
+ if(qaClinicalRouteAllowed(method,path,req.body)||qaScheduleRouteAllowed(method,path))allowed=true;
  if(/^\/messages\/preferences$/.test(path)&&['GET','PATCH'].includes(method))allowed=true;
  if(!allowed){const {qaConversaRouteAllowed}=await import('./qaConversaScope.service.js');allowed=qaConversaRouteAllowed(method,path);}
  if(!allowed)throw failure(403,'MOBILE_QA_SURFACE_UNAVAILABLE','This action is not enabled for the synthetic mobile pilot. Use an authorized staff account to test it.');

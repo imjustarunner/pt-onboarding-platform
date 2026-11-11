@@ -100,6 +100,7 @@ function sanitizeQuickViewCalendarItem(e, { clientInitials = null, attendees = [
   }
   return {
     id: `${source === 'supervision' ? 'supervision' : 'pse'}-${e.id}`,
+    agencyId:Number(e.agency_id || e.agencyId) || null,
     eventId: e.id,
     title,
     kind: e.kind || 'SCHEDULE',
@@ -814,13 +815,13 @@ export const getQuickDayCalendar = async (req, res, next) => {
        FROM office_events e
        LEFT JOIN office_locations ol ON ol.id = e.office_location_id
        LEFT JOIN office_rooms r ON r.id = e.room_id
-       WHERE (e.assigned_provider_id = ? OR e.booked_provider_id = ?)
-         AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
+       WHERE COALESCE(e.booked_provider_id,e.assigned_provider_id) = ?
+         AND UPPER(COALESCE(e.status,'')) NOT IN('CANCELLED','CANCELED','DELETED','RELEASED')
          AND e.start_at < ? AND e.end_at > ?
          ${qaAgencyIds?'AND EXISTS(SELECT 1 FROM appointments qa_appointment WHERE qa_appointment.office_event_id=e.id AND qa_appointment.agency_id=? AND qa_appointment.provider_user_id=?)':''}
        ORDER BY e.start_at ASC
        LIMIT 80`,
-      [userId, userId, windowEnd, windowStart,...(qaAgencyIds?[req.quickView.agencyId,userId]:[])]
+      [userId, windowEnd, windowStart,...(qaAgencyIds?[req.quickView.agencyId,userId]:[])]
     ).catch(() => [[]]);
 
     const items = [
@@ -832,7 +833,7 @@ export const getQuickDayCalendar = async (req, res, next) => {
       ...supervision.map((e) => sanitizeQuickViewCalendarItem({ ...e, kind: 'SUPERVISION', title: 'Supervision', location: e.location_text }, { source: 'supervision', viewerId: userId, portalBase: portalByAgency.get(Number(e.agency_id)) })),
       ...(officeRows || []).map((o) => {
         const officeName = o.office_name || 'Office';
-        const availability = humanizeOfficeAvailability(o.status, o.slot_state);
+        const availability = String(o.slot_state || '').toUpperCase()==='COMPANY_HOLD'?'Office hold':'Office reservation';
         const roomLabel = String(o.room_number || o.room_name || '').trim();
         return {
           id: `office-${o.id}`,
@@ -859,7 +860,17 @@ export const getQuickDayCalendar = async (req, res, next) => {
 
     if(req.quickView.mobileDeviceSessionId) {
       const user=await User.findById(userId);
-      if(!['support','school_staff'].includes(String(user?.role).toLowerCase()))return res.json({ok:true,day,timeZone,items:await enrichMobileClinicalCalendar({user,agencyId:req.quickView.agencyId,windowStart,windowEnd,items,events})});
+      if(user){
+        // Recheck each agency using the primary account; a workspace selection must
+        // not discard this provider's own appointments at other authorized agencies.
+        const ids=qaAgencyIds?[Number(req.quickView.agencyId)]:(await (await import('../services/mobile/agencyScope.service.js')).listMobileAgencies(user)).agencies.map(agency=>Number(agency.id));
+        let enriched=items;
+        for(const agencyId of ids){
+          try{enriched=await enrichMobileClinicalCalendar({user:{...user},agencyId,windowStart,windowEnd,items:enriched,events});}
+          catch(error){if(error.status!==403)throw error; /* non-clinical agency: retain ordinary calendar entries */}
+        }
+        return res.json({ok:true,day,timeZone,items:enriched});
+      }
     }
     res.json({ ok: true, day, timeZone, items });
   } catch (e) {
@@ -868,177 +879,10 @@ export const getQuickDayCalendar = async (req, res, next) => {
 };
 
 export const getQuickOfficeAvailability = async (req, res, next) => {
-  try {
-    const userId = req.quickView.userId;
-    const agencyId = req.quickView.agencyId;
-    const day = String(req.query.day || new Date().toISOString().slice(0, 10)).slice(0, 10);
-    const windowStart = `${day} 00:00:00`;
-    const dayEnd = new Date(`${day}T12:00:00`);
-    dayEnd.setDate(dayEnd.getDate() + 1);
-    const windowEnd = `${dayEnd.toISOString().slice(0, 10)} 00:00:00`;
-    const officeFilter = Number(req.query.officeId || 0) || null;
-
-    // My slots today
-    const [myRows] = await pool.execute(
-      `SELECT e.id, e.start_at, e.end_at, e.status, e.slot_state,
-              ol.name AS office_name,
-              e.office_location_id AS office_id
-       FROM office_events e
-       LEFT JOIN office_locations ol ON ol.id = e.office_location_id
-       WHERE (e.assigned_provider_id = ? OR e.booked_provider_id = ?)
-         AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
-         AND e.start_at < ? AND e.end_at > ?
-       ORDER BY e.start_at ASC
-       LIMIT 100`,
-      [userId, userId, windowEnd, windowStart]
-    ).catch(() => [[]]);
-
-    let locations = [];
-    let rosterRows = [];
-    if (agencyId) {
-      const [locs] = await pool.execute(
-        `SELECT ol.id, ol.name
-         FROM office_locations ol
-         JOIN office_location_agencies ola ON ola.office_location_id = ol.id
-         WHERE ola.agency_id = ?
-           AND (ol.is_active = TRUE OR ol.is_active IS NULL)
-         ORDER BY ol.name ASC
-         LIMIT 50`,
-        [agencyId]
-      ).catch(() => [[]]);
-      locations = locs || [];
-
-      const where = [
-        'ola.agency_id = ?',
-        '(ol.is_active = TRUE OR ol.is_active IS NULL)',
-        'e.start_at < ?',
-        'e.end_at > ?',
-        "(e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')",
-        'COALESCE(e.booked_provider_id, e.assigned_provider_id, sa.provider_id) IS NOT NULL'
-      ];
-      const params = [agencyId, windowEnd, windowStart];
-      if (officeFilter) {
-        where.push('ol.id = ?');
-        params.push(officeFilter);
-      }
-      const [rows] = await pool.execute(
-        `SELECT
-           ol.id AS office_id,
-           ol.name AS office_name,
-           e.id AS event_id,
-           e.start_at,
-           e.end_at,
-           e.status,
-           r.name AS room_name,
-           r.room_number,
-           COALESCE(e.booked_provider_id, e.assigned_provider_id, sa.provider_id) AS provider_id,
-           COALESCE(
-             NULLIF(TRIM(CONCAT(COALESCE(bu.first_name, ''), ' ', COALESCE(bu.last_name, ''))), ''),
-             NULLIF(TRIM(CONCAT(COALESCE(au.first_name, ''), ' ', COALESCE(au.last_name, ''))), ''),
-             NULLIF(TRIM(CONCAT(COALESCE(su.first_name, ''), ' ', COALESCE(su.last_name, ''))), '')
-           ) AS provider_name
-         FROM office_events e
-         JOIN office_locations ol ON ol.id = e.office_location_id
-         JOIN office_location_agencies ola ON ola.office_location_id = ol.id
-         LEFT JOIN office_rooms r ON r.id = e.room_id
-         LEFT JOIN users bu ON e.booked_provider_id = bu.id
-         LEFT JOIN users au ON e.assigned_provider_id = au.id
-         LEFT JOIN office_standing_assignments sa ON e.standing_assignment_id = sa.id
-         LEFT JOIN users su ON sa.provider_id = su.id
-         WHERE ${where.join(' AND ')}
-         ORDER BY ol.name ASC, provider_name ASC, e.start_at ASC
-         LIMIT 400`,
-        params
-      ).catch(() => [[]]);
-      rosterRows = rows || [];
-    }
-
-    const byOffice = new Map();
-    const byPerson = new Map();
-    for (const row of rosterRows) {
-      const officeId = Number(row.office_id || 0);
-      const providerId = Number(row.provider_id || 0);
-      if (!officeId || !providerId) continue;
-      if (!byOffice.has(officeId)) {
-        byOffice.set(officeId, {
-          id: officeId,
-          name: row.office_name || 'Office',
-          people: [],
-          slotCount: 0
-        });
-      }
-      const office = byOffice.get(officeId);
-      office.slotCount += 1;
-
-      const personKey = `${officeId}:${providerId}`;
-      if (!byPerson.has(personKey)) {
-        const person = {
-          providerId,
-          name: String(row.provider_name || '').trim() || `Provider #${providerId}`,
-          officeId,
-          officeName: row.office_name || 'Office',
-          firstStart: row.start_at,
-          lastEnd: row.end_at,
-          rooms: [],
-          slots: []
-        };
-        byPerson.set(personKey, person);
-        office.people.push(person);
-      }
-      const person = byPerson.get(personKey);
-      if (row.start_at && (!person.firstStart || row.start_at < person.firstStart)) {
-        person.firstStart = row.start_at;
-      }
-      if (row.end_at && (!person.lastEnd || row.end_at > person.lastEnd)) {
-        person.lastEnd = row.end_at;
-      }
-      const roomLabel = String(row.room_number || row.room_name || '').trim();
-      if (roomLabel && !person.rooms.includes(roomLabel)) person.rooms.push(roomLabel);
-      person.slots.push({
-        id: row.event_id,
-        startAt: row.start_at,
-        endAt: row.end_at,
-        status: row.status || null,
-        room: roomLabel || null
-      });
-    }
-
-    const offices = Array.from(byOffice.values()).map((o) => ({
-      ...o,
-      people: o.people.sort((a, b) => String(a.name).localeCompare(String(b.name)))
-    }));
-
-    // Flat unique people (for messaging) — earliest office window wins as primary
-    const peopleMap = new Map();
-    for (const p of byPerson.values()) {
-      if (!peopleMap.has(p.providerId)) {
-        peopleMap.set(p.providerId, { ...p });
-      } else {
-        const existing = peopleMap.get(p.providerId);
-        if (p.firstStart && (!existing.firstStart || p.firstStart < existing.firstStart)) {
-          existing.firstStart = p.firstStart;
-          existing.officeId = p.officeId;
-          existing.officeName = p.officeName;
-        }
-        if (p.lastEnd && (!existing.lastEnd || p.lastEnd > existing.lastEnd)) {
-          existing.lastEnd = p.lastEnd;
-        }
-      }
-    }
-
-    res.json({
-      ok: true,
-      day,
-      agencyId: agencyId || null,
-      slots: myRows || [],
-      mySlots: myRows || [],
-      locations,
-      offices,
-      people: Array.from(peopleMap.values()).sort((a, b) => String(a.name).localeCompare(String(b.name)))
-    });
-  } catch (e) {
-    next(e);
-  }
+ try {
+  const {loadOfficeSchedule}=await import('../services/mobile/officeSchedule.service.js');
+  res.json(await loadOfficeSchedule({userId:req.quickView.userId,agencyId:req.quickView.agencyId,day:String(req.query.day || new Date().toISOString().slice(0,10)),timeZone:String(req.query.timeZone || 'America/Denver'),officeFilterId:Number(req.query.officeId)||null}));
+ } catch(error){next(error);}
 };
 
 export const getQuickContacts = async (req, res, next) => {
