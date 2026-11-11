@@ -1,0 +1,85 @@
+Stedi coordination of benefits (COB)
+===================================
+
+Purpose and scope
+Billing staff at ITSCO (2), Next Level Up (6), and Inner Strength (377) can open
+Check overlapping coverage from the private insurance editor. COB investigates
+overlapping coverage using a saved, verified, participating policy. Find insurance
+remains the separate discovery action for unknown coverage. Claim.MD continues
+to handle ordinary eligibility, claims, and ERAs.
+
+Connection
+- Use the production STEDI_API_KEY server secret, shared with discovery.
+- STEDI_COB_ENABLED=true enables this separate feature. It defaults off.
+- STEDI_DISCOVERY_ENABLED is independent. Keys are never sent to the browser.
+- The production key is managed in Google Secret Manager, project ptonboard-dev,
+  secret STEDI_API_KEY. The Cloud Run runtime identity needs access to that secret.
+- A read-only Stedi payer-directory request can validate authentication without
+  sending patient data or creating a paid eligibility/COB request.
+- No enrollment, live patient checks, batch checks, or claims are triggered by
+  deploying this feature, viewing history, or saving the key alone.
+
+Staff flow
+1. Save and verify the existing policy, client and subscriber identities.
+2. Open the COB panel and choose primary or secondary saved coverage.
+3. Check participation. Only the saved insurer name is sent to the Stedi payer
+   directory. Select the exact participating insurer/plan entity; the server
+   independently verifies current COB support before reserving the paid check.
+4. Choose an agency-owned billing office with a practice name and valid group
+   NPI, a service date within the past two years through today, and a reason.
+5. Confirm legal name spelling, birthdates, address, active policy/member ID,
+   selected payer, and charge. The COB API receives provider, subscriber,
+   dependent when needed, service date, and service type 30. Address confirmation
+   is a staff accuracy gate; address and SSN are not sent in this COB request.
+6. Submit once. Stedi's listed starting price checked November 10, 2026 is $1
+   per COB check. Account pricing applies. There is no daily or monthly hard cap.
+
+Duplicate and transport safeguards
+Migration 1791 adds a request_kind to the existing encrypted Stedi ledger. Older
+rows default to discovery. Both products use the same monthly usage lock and
+client lock; each new attempt is committed before its network request. Matching
+request keys always reuse the existing row. Same policy, selected payer, identity,
+and service date within 30 days reuse the saved result unless staff explicitly
+request a fresh paid check and explain why. There is no automatic POST retry.
+An unresolved COB attempt prevents another new paid COB attempt until reconciled.
+Unresolved discovery matches can still be investigated with COB. Read-only
+directory requests do not increment the usage counter.
+
+Results and billing safety
+The full response, including unfamiliar fields, is encrypted and retained with
+the billing profile. Structured findings show payer names, reported member IDs,
+coverage dates, service types, reported order, and identity consistency.
+COB entity payer IDs are proprietary, not Claim.MD IDs or Stedi routing IDs.
+Copying a policy to an empty form leaves both routing IDs blank and coverage
+unverified. Existing policies are never overwritten and billing order is never
+silently changed.
+
+A consistent MemberFoundNoCob response with matching subscriber/client identity,
+matching member ID, active coverage, no errors, and no other saved policy needs
+no extra COB resolution. It does not prove that other coverage does not exist.
+Overlap, unknown order, errors, missing fields, or identity discrepancies create
+an urgent billing follow-up and a durable hold shared by claim readiness and
+collection checks. Coverage review cannot bypass that hold. New evidence
+invalidates earlier coverage reviews. Existing Medicaid-first guards remain.
+
+Billing staff resolve each reported policy, save verified coverage and Claim.MD
+routing, confirm billing order against payer evidence, and record the reference.
+Recorded positions must match an order explicitly returned by Stedi. A payer
+correction or inapplicable finding needs a documented explanation. Ambiguous
+transport outcomes are reconciled using the Stedi portal, without another POST.
+Third/additional policies remain in the full response and findings; this feature
+does not expand the insurance editor beyond primary/secondary. A third policy
+that applies requires billing follow-up rather than silently dropping coverage.
+
+Limitations
+Only participating plans can be queried. Original Medicare is not supported;
+some Medicare Advantage plans are. COB data can be incomplete or negative even
+when other coverage exists. Stedi may not determine primacy. Unknown order must
+be confirmed with the payers. No-result responses never remove saved coverage.
+
+Sources
+https://www.stedi.com/docs/healthcare/coordination-of-benefits
+https://www.stedi.com/docs/healthcare/api-reference/post-coordination-of-benefits
+https://www.stedi.com/docs/healthcare/cob-response
+https://www.stedi.com/docs/healthcare/api-reference/get-payer
+https://www.stedi.com/pricing

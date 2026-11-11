@@ -25,7 +25,7 @@ export function decodeDiscovery(row) {
 }
 export async function discoveryWorkspace(scope, deps = {}) {
   const db = deps.db || pool, patient = await (deps.patientFor || patientFor)(scope,db);
-  const [rows] = await db.execute('SELECT * FROM stedi_insurance_discoveries WHERE agency_id=? AND client_id=? ORDER BY id DESC LIMIT 20',[scope.agencyId,scope.clientId]);
+  const [rows] = await db.execute("SELECT * FROM stedi_insurance_discoveries WHERE request_kind='discovery' AND agency_id=? AND client_id=? ORDER BY id DESC LIMIT 20",[scope.agencyId,scope.clientId]);
   const [[budget]] = await db.execute('SELECT reserved_count FROM stedi_discovery_budget WHERE month_key=?',[discoveryMonth()]);
   const enabled = stediDiscoveryConfigured(scope.agencyId);
   const offices = enabled ? await (deps.offices || listClaimMdBillingProfiles)(scope.agencyId) : [];
@@ -47,10 +47,10 @@ export async function reserveDiscovery(input, deps = {}) {
     if (!client) throw billingError(404,'Client not found in this agency');
     const patient = await (deps.patientFor || patientFor)(input,db);
     validateDiscoveryConfirmation(input,patient);
-    const [[duplicate]] = await db.execute(`SELECT * FROM stedi_insurance_discoveries WHERE agency_id=? AND client_id=? AND
+    const [[duplicate]] = await db.execute(`SELECT * FROM stedi_insurance_discoveries WHERE request_kind='discovery' AND agency_id=? AND client_id=? AND
       (request_key=? OR (?=0 AND identity_fingerprint=? AND service_date=? AND created_at>UTC_TIMESTAMP()-INTERVAL 30 DAY)) ORDER BY id DESC LIMIT 1`,[input.agencyId,input.clientId,input.requestKey,input.freshSearch===true?1:0,input.fingerprint,input.serviceDate]);
     if (duplicate) { await db.commit(); return {row:duplicate,reused:true}; }
-    const [[recent]] = await db.execute(`SELECT id FROM stedi_insurance_discoveries WHERE agency_id=? AND client_id=? AND
+    const [[recent]] = await db.execute(`SELECT id FROM stedi_insurance_discoveries WHERE request_kind='discovery' AND agency_id=? AND client_id=? AND
       (status IN ('sending','pending','unknown') OR review_required=1) LIMIT 1`,[input.agencyId,input.clientId]);
     if (recent) throw billingError(409,'An unresolved search already exists. Retrieve its results or reconcile the attempt before paying for another search.');
     const offices = await (deps.offices || listClaimMdBillingProfiles)(input.agencyId);
@@ -76,7 +76,7 @@ export async function callStediDiscovery({discoveryId,payload}, deps = {}) {
     method:discoveryId?'GET':'POST', redirect:'error', signal:AbortSignal.timeout(125000),
     headers:{Authorization:process.env.STEDI_API_KEY,'Content-Type':'application/json'},...(discoveryId?{}:{body:JSON.stringify(payload)})
   });
-  // A definite HTTP rejection is still counted conservatively against our cap.
+  // A definite HTTP rejection is still retained as a reserved paid attempt.
   if (![200,202,502].includes(response.status)) throw billingError(502,'Stedi could not return this search. Check the saved search in Stedi before trying again.');
   const bytes = [];
   let size = 0;
@@ -107,7 +107,7 @@ export async function startDiscovery(input, deps = {}) {
 }
 export async function refreshDiscovery(scope, deps = {}) {
   const db = deps.db || pool;
-  const [[row]] = await db.execute('SELECT * FROM stedi_insurance_discoveries WHERE id=? AND agency_id=? AND client_id=?',[scope.id,scope.agencyId,scope.clientId]);
+  const [[row]] = await db.execute("SELECT * FROM stedi_insurance_discoveries WHERE request_kind='discovery' AND id=? AND agency_id=? AND client_id=?",[scope.id,scope.agencyId,scope.clientId]);
   if (!row) throw billingError(404,'Search not found');
   if (row.status !== 'pending' || !row.discovery_id) return decodeDiscovery(row);
   if (!(deps.configured || stediDiscoveryConfigured)(scope.agencyId)) throw billingError(409,'Reconnect Stedi to retrieve this search');
@@ -122,7 +122,7 @@ export async function reviewDiscovery(input, deps = {}) {
   try {
     await db.beginTransaction();
     await db.execute('SELECT id FROM clients WHERE id=? AND agency_id=? FOR UPDATE',[input.clientId,input.agencyId]);
-    const [[row]] = await db.execute('SELECT * FROM stedi_insurance_discoveries WHERE id=? AND agency_id=? AND client_id=? FOR UPDATE',[input.id,input.agencyId,input.clientId]);
+    const [[row]] = await db.execute("SELECT * FROM stedi_insurance_discoveries WHERE request_kind='discovery' AND id=? AND agency_id=? AND client_id=? FOR UPDATE",[input.id,input.agencyId,input.clientId]);
     if (!row) throw billingError(404,'Search not found');
     const current = decodeDiscovery(row), decisions = input.decisions;
     if (row.status !== 'complete' || !current.candidates.length) throw billingError(409,'Only completed matches can be reconciled here.');
@@ -153,7 +153,7 @@ export async function reviewDiscovery(input, deps = {}) {
 export async function reconcileUncertainDiscovery(input, deps = {}) {
   if (input.portalChecked !== true || input.coverageRecorded !== true || typeof input.reference !== 'string' || input.reference.trim().length < 10 || input.reference.length > 500) throw billingError(409,'Check this attempt in the Stedi portal, record any returned coverage, and provide a reconciliation reference.');
   const db = deps.db || pool;
-  const [[row]] = await db.execute('SELECT * FROM stedi_insurance_discoveries WHERE id=? AND agency_id=? AND client_id=?',[input.id,input.agencyId,input.clientId]);
+  const [[row]] = await db.execute("SELECT * FROM stedi_insurance_discoveries WHERE request_kind='discovery' AND id=? AND agency_id=? AND client_id=?",[input.id,input.agencyId,input.clientId]);
   if (!row) throw billingError(404,'Search not found');
   const evidence = encryptFamilyBilling({reference:input.reference.trim(),portalChecked:true,coverageRecorded:true,reconciledAt:new Date().toISOString()},context(row));
   const [updated] = await db.execute(`UPDATE stedi_insurance_discoveries SET status='reconciled',review_required=0,review_encrypted=?,reviewed_by_user_id=? WHERE id=? AND agency_id=? AND client_id=? AND

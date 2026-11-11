@@ -1,3 +1,4 @@
+import { getCobWorkspace, getCobPayers, createCob, reconcileCob } from '../controllers/stediCob.controller.js';
 import { getDiagnosisReview, postDiagnosisReview, getSupervisorDiagnosisPolicy, putSupervisorDiagnosisPolicy } from '../controllers/clinicalDiagnosisPolicy.controller.js';
 import { getFeeSchedule, postFeeSchedule, postFeeScheduleDefaults, postFeeSchedulePayerSync } from '../controllers/feeSchedule.controller.js';
 import { postSupervisorReview, acknowledgeNoteReview, listMyNoteReviewWork, correctNoteServiceDetails } from '../controllers/clinicalSupervisorReview.controller.js';
@@ -162,6 +163,10 @@ router.get('/payer-eft', ...masterGate, requireMedicalBillingFinancialAccess, ge
 router.post('/payer-eft', ...masterGate, requireMedicalBillingFinancialAccess, saveEft);
 router.get('/payer-eft/:id/history', ...masterGate, requireMedicalBillingFinancialAccess, getEftHistory);
 router.get('/clients/:clientId/insurance', ...masterGate, requireMedicalBillingFinancialAccess, getClientInsurance);
+router.get('/clients/:clientId/coordination-of-benefits', ...masterGate, requireMedicalBillingFinancialAccess, getCobWorkspace);
+router.get('/clients/:clientId/coordination-of-benefits/payers', ...masterGate, requireMedicalBillingFinancialAccess, getCobPayers);
+router.post('/clients/:clientId/coordination-of-benefits', ...masterGate, requireMedicalBillingFinancialAccess, createCob);
+router.post('/clients/:clientId/coordination-of-benefits/:id/reconcile', ...masterGate, requireMedicalBillingFinancialAccess, reconcileCob);
 router.get('/clients/:clientId/insurance-discovery', ...masterGate, requireMedicalBillingFinancialAccess, getDiscoveryWorkspace);
 router.post('/clients/:clientId/insurance-discovery', ...masterGate, requireMedicalBillingFinancialAccess, createDiscovery);
 router.get('/clients/:clientId/insurance-discovery/:id', ...masterGate, requireMedicalBillingFinancialAccess, getDiscoveryResults);

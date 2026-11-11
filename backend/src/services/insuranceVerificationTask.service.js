@@ -4,6 +4,7 @@ import { hasSchedulingBillingAccess } from './schedulingBillingAccess.service.js
 
 const parse = value => typeof value === 'string' ? JSON.parse(value || '{}') : value || {};
 const reasons = {
+  cob_unresolved: 'A Stedi coordination of benefits check needs help. Open Check overlapping coverage in the private billing profile, resolve each reported policy and the billing order, or reconcile the uncertain attempt in Stedi.',
   missing_card: 'No complete insurance card was uploaded. Cards are optional; verify the coverage electronically or through the payer portal and help with missing information.',
   verification_pending: 'Intake insurance is ready for eligibility verification and billing review.',
   coverage_coordination: 'Electronic coverage was found. Review payer routing, other insurance/TPL and provider enrollment before billing.',

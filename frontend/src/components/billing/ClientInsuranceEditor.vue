@@ -40,6 +40,7 @@
       <div><button class="btn btn-primary" :disabled="busy">{{ busy ? 'Saving…' : 'Save insurance information' }}</button> <button class="btn btn-secondary" type="button" @click="opened=false;draft=null">Close private details</button></div>
     </form>
     <InsuranceDiscoveryPanel v-if="opened && canSeeBilling && !assignmentReview && [2,6,377].includes(Number(agencyId))" :client-id="clientId" :agency-id="agencyId" :service-date="serviceDate" :current-patient="draft?.patient" @use-policy="useDiscoveredPolicy" @saved="emit('saved')" />
+    <CoordinationOfBenefitsPanel v-if="opened && canSeeBilling && !assignmentReview && [2,6,377].includes(Number(agencyId))" :client-id="clientId" :agency-id="agencyId" :service-date="serviceDate" :current-insurance="draft" @use-policy="useDiscoveredPolicy" @saved="emit('saved')" />
     <ClientCoverageVerification v-if="opened && canSeeBilling && !assignmentReview && showRelatedReviews" :client-id="clientId" :agency-id="agencyId" :service-date="serviceDate" @saved="load();emit('saved')" />
     <ClientDocumentationReadiness v-if="opened && canSeeBilling && !assignmentReview && showRelatedReviews" :client-id="clientId" :agency-id="agencyId" :service-date="serviceDate" @saved="emit('saved')" />
   </section>
@@ -55,6 +56,7 @@ import InsurancePolicyFields from './InsurancePolicyFields.vue';
 import ClientCoverageVerification from './ClientCoverageVerification.vue';
 import ClientDocumentationReadiness from './ClientDocumentationReadiness.vue';
 import InsuranceDiscoveryPanel from './InsuranceDiscoveryPanel.vue';
+import CoordinationOfBenefitsPanel from './CoordinationOfBenefitsPanel.vue';
 import PayerResponseFields from './PayerResponseFields.vue';
 const props=defineProps({clientId:[String,Number],agencyId:[String,Number],accountSupport:Boolean,assignmentReview:Boolean,startOpen:Boolean,showRelatedReviews:{type:Boolean,default:true},serviceDate:String});
 const emit=defineEmits(['saved']);
