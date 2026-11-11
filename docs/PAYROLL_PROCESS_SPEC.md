@@ -1,7 +1,9 @@
 # Payroll Process Specification
 
-**Version:** 1.1  
-**Last Updated:** 2026-03-16  
+**Version:** 1.2
+
+**Last Updated:** 2026-11-11
+
 **Purpose:** Single source of truth for payroll workflow, dropdown behavior, import/run visibility, and stage expectations. Update this document as requirements evolve.
 
 ---
@@ -186,3 +188,41 @@ When a prior period is selected in **Prior period (for DB baseline)**:
   - Import/run visibility behavior changes.
   - New workflow steps are introduced.
 - Keep version and last-updated date current at the top.
+
+
+## 6. Guided wizard
+
+The wizard opens the working data directly. Its single Continue button follows this order:
+
+1. Upload current and optional prior reports.
+2. Review prior Run 2, then two-periods-ago Run 3.
+3. Compare reports and add payable late notes.
+4. Review current drafts, missed fees, and each required service-code processing step.
+5. Review submitted claims, then Payroll Stage and its pending To-Dos.
+6. Review optional compliance reminders, calculate payroll, preview, and post.
+
+A successfully loaded empty step displays a FundThred all-clear message and can continue. Loading, failed requests, unsaved draft decisions, unfinished processing, and unadded payable catch-up notes block Continue. Navigation shortcuts cannot skip an unreviewed prerequisite. A replaced or materially edited import invalidates saved progress for its prior input revision.
+
+Draft review requires an explicit saved Payable or Keep unpaid choice. No-note rows and sessions already paid in the comparison baseline do not trigger draft-review attention. Posted original imports remain locked; only new, unpaid catch-up drafts from reports uploaded after posting can receive a review decision, without changing the previously posted payroll.
+
+Catch-up rows retain their clinical note status and separately display Added to current payroll after application. Applied rows remain recognizable after reopening the wizard and cannot be added twice. Persistent no-note rows are informational and have no Add-to-payroll action. Paid service-code corrections and location changes require distinct review rather than automatic duplicate compensation.
+
+Claims must be approved/returned/rejected or explicitly left for the next payroll. Payroll Stage selectors and pasted bulk employee names are restricted to active employees of the selected agency. Historical saved manual lines retain their employee names. Compliance supports Deselect all for each provider; this controls only the current reminder selection.
+
+Run status is read from the server. Preview requires calculated results; Finish requires a successful posted/finalized state. A separate manual work-hours attestation is not a posting prerequisite. The existing optional hours-correction record remains available and never invents verified time. Historical prior-payroll unpaid totals are labeled as historical, since later catch-up payments may already include some of those sessions.
+
+### Posted payroll email
+
+Successful posting attempts to email the existing reconciliation CSV from the agency's configured active Payroll mailbox to that same mailbox. A durable delivery key prevents duplicate automatic attempts. Delivery status is separate from posting status; failed or queued email does not make posted payroll appear unposted. Posted payroll also offers an explicit Email payroll CSV / Email CSV again action and status refresh.
+
+Apply migration `1803_payroll_report_email_deliveries.sql` before enabling report email. Recipients cannot be overridden through the report endpoint. Email tests use a stub transport and must not send live payroll data.
+
+### Focused validation
+
+From the repository root:
+
+```sh
+node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.payroll-wizard.config.js
+NODE_OPTIONS=--experimental-sqlite node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.payroll-wizard.config.js
+node --test backend/src/utils/__tests__/payrollActualHoursReview.test.js backend/src/utils/__tests__/payrollSickLeaveHours.test.js
+```

@@ -60,6 +60,15 @@
             </div>
           </div>
           <div class="pcp-person-actions">
+            <button
+              type="button"
+              class="btn btn-secondary btn-sm"
+              :aria-label="`Deselect all reminders for ${p.name}`"
+              :disabled="loading || sendingAll || !!sendingUserId || !providerHasSelection(p)"
+              @click="deselectProvider(p)"
+            >
+              Deselect all
+            </button>
             <button type="button" class="btn btn-secondary btn-sm" @click="previewOne(p)">
               Preview email
             </button>
@@ -221,6 +230,25 @@ function toggleRow(userId, rowId, checked) {
   next.excludedRowIds = next.excludedRowIds.map(Number).filter((x) => x !== id);
   if (!checked) next.excludedRowIds.push(id);
   writeUserExclusions(userId, next);
+}
+
+function providerHasSelection(provider) {
+  return (provider.lateNotesByPeriod || []).some(group => (group.rows || []).some(row => !isRowExcluded(provider.userId, row.id)))
+    || (provider.sessionLimits || []).some(item => !item.muted && !isClientExcluded(provider.userId, item));
+}
+
+function deselectProvider(provider) {
+  const next = ensureUserExclusions(provider.userId);
+  next.excludedRowIds = [...new Set([
+    ...next.excludedRowIds.map(Number),
+    ...(provider.lateNotesByPeriod || []).flatMap(group => (group.rows || []).map(row => Number(row.id)))
+  ])];
+  next.excludedClientKeys = [...new Set([
+    ...next.excludedClientKeys,
+    ...(provider.sessionLimits || []).map(item => `${item.providerUserId}:${item.clientId}`)
+  ])];
+  // This is a selection for this run, not a permanent session-limit mute.
+  writeUserExclusions(provider.userId, next);
 }
 
 async function toggleClient(provider, item, checked) {
@@ -446,6 +474,7 @@ defineExpose({ reload });
 }
 .pcp-person-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 .pcp-section {

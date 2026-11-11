@@ -1114,7 +1114,7 @@
                 style="margin-bottom: 10px; border: 1px solid #ffb5b5; background: #ffecec;"
               >
                 <div>
-                  <strong>Still unpaid from the prior pay period (not paid this period):</strong>
+                  <strong>Unpaid when the prior payroll was posted (historical):</strong>
                   {{ fmtNum(previewPostV2PriorStillUnpaid.totalUnits) }} units
                 </div>
                 <div class="muted" style="margin-top: 4px;" v-if="previewPostV2PriorStillUnpaid.periodStart">

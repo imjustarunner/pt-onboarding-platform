@@ -83,12 +83,14 @@
               :class="{
                 active: s.globalIdx === stepIdx,
                 done: s.globalIdx < stepIdx,
-                upcoming: s.globalIdx > stepIdx
+                upcoming: s.globalIdx > stepIdx,
+                attention: reviewStates[s.key]?.pendingCount > 0
               }"
               @click="goToStep(s.globalIdx)"
             >
               <span class="pw-substep-num">{{ si + 1 }}</span>
               <span class="pw-substep-title">{{ s.title }}</span>
+              <span v-if="reviewStates[s.key]?.pendingCount > 0" class="pw-count">{{ reviewStates[s.key].pendingCount }}</span>
             </button>
           </div>
         </div>
@@ -276,14 +278,7 @@
                     >
                       {{ uploading ? 'Uploading…' : 'Upload selected reports' }}
                     </button>
-                    <button
-                      type="button"
-                      class="btn btn-secondary"
-                      :disabled="!selectedPeriodId || uploading"
-                      @click="markCompleteAndNext"
-                    >
-                      Skip uploads (already imported)
-                    </button>
+
                   </div>
                   <div v-if="uploadError" class="pw-error" style="margin-top: 10px;">{{ uploadError }}</div>
                 </div>
@@ -292,51 +287,36 @@
 
             <!-- Generic guided steps -->
             <template v-else>
+              <PayrollWizardEmpty v-if="missingPriorReport && !Object.keys(importErrors).length" title="No catch-up report to review" message="No report was uploaded for this prior period. Continue to the next review." />
               <!-- Inline Raw Import panel -->
-              <template v-if="showRawPanel">
-                <div class="pw-inline-panel">
-                  <div v-if="rawPanelCatchUp" class="pw-catchup-switch">
-                    <span class="pw-catchup-switch-label">Review period:</span>
-                    <button
-                      type="button"
-                      class="btn btn-sm"
-                      :class="rawPanelCatchUp === 'prior' ? 'btn-primary' : 'btn-secondary'"
-                      :disabled="!priorPeriod?.id && !wizardState?.priorPeriodId"
-                      @click="openRawInWizard({ mode: rawPanelMode || 'draft_audit', catchUp: 'prior' })"
-                    >
-                      Prior (Run 2){{ priorPeriod ? ` · ${shortRange(priorPeriod)}` : '' }}
-                    </button>
-                    <button
-                      type="button"
-                      class="btn btn-sm"
-                      :class="rawPanelCatchUp === 'twoAgo' ? 'btn-primary' : 'btn-secondary'"
-                      :disabled="!twoAgoPeriod?.id && !wizardState?.twoAgoPeriodId"
-                      @click="openRawInWizard({ mode: rawPanelMode || 'draft_audit', catchUp: 'twoAgo' })"
-                    >
-                      Two ago (Run 3){{ twoAgoPeriod ? ` · ${shortRange(twoAgoPeriod)}` : '' }}
-                    </button>
-                  </div>
+              <template v-else-if="showRawPanel">
+                <div class="pw-inline-panel pw-inline-panel--guided">
                   <PayrollRawImportPanel
-                    :key="`${rawPanelPeriodId}-${rawPanelMode}`"
+                    ref="rawPanelRef"
+                    :key="`${rawPanelPeriodId}-${rawPanelImportId}-${rawPanelMode}`"
                     :period-id="rawPanelPeriodId"
                     :period-label="rawPanelPeriodLabel"
                     :period-status="rawPanelPeriodStatus"
                     :initial-mode="rawPanelMode"
+                    :initial-import-id="rawPanelImportId"
+                    :guided="true"
+                    @readiness="onRawReadiness"
+                    @changed="onPayrollInputsChanged"
                     :embedded="true"
                     :catch-up-mode="!!rawPanelCatchUp"
                     @close="closeRawPanel"
                   />
-                  <div class="pw-inline-panel-footer">
-                    <button type="button" class="btn btn-secondary btn-sm" @click="closeRawPanel">Collapse</button>
-                    <button type="button" class="btn btn-secondary btn-sm" @click="openRawOnPayrollPage">Open full Raw Import on Payroll page</button>
-                  </div>
                 </div>
               </template>
 
               <!-- Inline Claims panel -->
               <template v-else-if="showClaimsPanel">
-                <div class="pw-inline-panel">
+                <div class="pw-inline-panel pw-inline-panel--guided">
                   <PayrollClaimsPanel
+                    ref="claimsPanelRef"
+                    :guided="true"
+                    @readiness="onStepReadiness('claims', $event)"
+                    @changed="onPayrollInputsChanged"
                     :key="`claims-${selectedPeriodId}`"
                     :agency-id="agencyId"
                     :period-id="selectedPeriodId"
@@ -344,33 +324,31 @@
                     :period-status="selectedPeriod?.status || ''"
                     :embedded="true"
                   />
-                  <div class="pw-inline-panel-footer">
-                    <button type="button" class="btn btn-secondary btn-sm" @click="closeClaimsPanel">Collapse</button>
-                    <button type="button" class="btn btn-secondary btn-sm" @click="openClaimsOnPayrollPage">Open full Pending Submissions on Payroll page</button>
-                  </div>
                 </div>
               </template>
 
               <!-- Inline Manual Pay / Adjustments panel -->
               <template v-else-if="showStagePanel">
-                <div class="pw-inline-panel">
+                <div class="pw-inline-panel pw-inline-panel--guided">
+                  <div class="pw-stage-tools">
+                    <button type="button" class="btn btn-secondary btn-sm" @click="openTodosInWizard">Manage To-Dos</button>
+                    <button v-if="isPeriodRan" type="button" class="btn btn-secondary btn-sm" @click="restagePeriodInWizard">Restage payroll to edit</button>
+                  </div>
                   <PayrollStagePanel
                     :key="`stage-${selectedPeriodId}`"
                     :agency-id="agencyId"
                     :period-id="selectedPeriodId"
                     :period-label="periodRangeLabel(selectedPeriod)"
                     :period-status="selectedPeriod?.status || ''"
+                    @changed="onStageChanged"
                   />
-                  <div class="pw-inline-panel-footer">
-                    <button type="button" class="btn btn-secondary btn-sm" @click="closeStagePanel">Collapse</button>
-                    <button type="button" class="btn btn-secondary btn-sm" @click="openStageOnPayrollPage">Open full Stage on Payroll page</button>
-                  </div>
                 </div>
               </template>
 
               <!-- Inline To-Dos (check off / add / manage without leaving wizard) -->
               <template v-else-if="showTodosPanel">
-                <div class="pw-inline-panel">
+                <div class="pw-inline-panel pw-inline-panel--guided">
+                  <button type="button" class="btn btn-secondary btn-sm" @click="openStageInWizard">Back to Payroll Stage</button>
                   <PayrollTodosPanel
                     :key="`todos-${selectedPeriodId}`"
                     :agency-id="agencyId"
@@ -378,25 +356,19 @@
                     :period-label="periodRangeLabel(selectedPeriod)"
                     :period-status="selectedPeriod?.status || ''"
                     :periods="periodsForSelect"
+                    @changed="refreshStageReadiness"
                   />
-                  <div class="pw-inline-panel-footer">
-                    <button type="button" class="btn btn-secondary btn-sm" @click="closeTodosPanel">Collapse</button>
-                    <button
-                      type="button"
-                      class="btn btn-primary btn-sm"
-                      :disabled="!selectedPeriodId"
-                      @click="markCompleteAndNext"
-                    >
-                      Mark done &amp; continue
-                    </button>
-                  </div>
                 </div>
               </template>
 
               <!-- Inline Process Changes (compare & add late notes) -->
               <template v-else-if="showProcessPanel">
-                <div class="pw-inline-panel">
+                <div class="pw-inline-panel pw-inline-panel--guided">
                   <PayrollProcessChangesPanel
+                    ref="processPanelRef"
+                    :embedded="true"
+                    @readiness="onStepReadiness('batch_catchup', $event)"
+                    @blocked="onProcessBlocked"
                     :key="`process-${selectedPeriodId}-${priorPeriod?.id || ''}-${twoAgoPeriod?.id || ''}`"
                     :agency-id="agencyId"
                     :destination-period-id="selectedPeriodId"
@@ -408,17 +380,6 @@
                     :two-ago-period-label="twoAgoPeriod ? periodRangeLabel(twoAgoPeriod) : ''"
                     @applied="onProcessChangesApplied"
                   />
-                  <div class="pw-inline-panel-footer">
-                    <button type="button" class="btn btn-secondary btn-sm" @click="closeProcessPanel">Collapse</button>
-                    <button
-                      type="button"
-                      class="btn btn-primary btn-sm"
-                      :disabled="!selectedPeriodId"
-                      @click="markCompleteAndNext"
-                    >
-                      Mark done &amp; continue
-                    </button>
-                  </div>
                 </div>
               </template>
 
@@ -436,42 +397,30 @@
 
               <!-- Inline Preview Post (provider view + notifications) -->
               <template v-else-if="showPreviewPanel">
-                <div class="pw-inline-panel">
+                <div class="pw-inline-panel pw-inline-panel--guided">
                   <PayrollPreviewPostPanel
+                    ref="previewPanelRef"
+                    :embedded="true"
+                    :initial-user-id="previewUserId"
+                    @readiness="onStepReadiness('preview', $event)"
+                    @changed="loadPeriodDetails"
                     :key="`preview-${selectedPeriodId}`"
                     :period-id="selectedPeriodId"
                     :period-label="periodRangeLabel(selectedPeriod)"
                   />
-                  <div class="pw-inline-panel-footer">
-                    <button type="button" class="btn btn-secondary btn-sm" @click="closePreviewPanel">Collapse</button>
-                    <button
-                      type="button"
-                      class="btn btn-secondary btn-sm"
-                      :disabled="!selectedPeriodId || downloadingExport"
-                      @click="downloadAdpExportCsv"
-                    >
-                      {{ downloadingExport ? 'Downloading…' : 'Download Payroll Reconciliation CSV' }}
-                    </button>
-                    <button
-                      type="button"
-                      class="btn btn-primary btn-sm"
-                      :disabled="!selectedPeriodId"
-                      @click="markCompleteAndNext"
-                    >
-                      Mark done &amp; continue
-                    </button>
-                  </div>
                 </div>
               </template>
 
               <template v-else>
+                <div v-if="currentStep?.key === 'post' && isPeriodPosted" class="pw-posted" role="status">✓ Posted — payroll is visible to providers.</div>
+                <div v-else-if="currentStep?.key === 'run' && canSeeRunResults" class="pw-posted" role="status">✓ Payroll calculated. Continue to review the results.</div>
                 <ul class="pw-checklist">
                   <li v-for="(item, idx) in (currentStep?.checklist || [])" :key="idx">{{ item }}</li>
                 </ul>
 
                 <div class="pw-actions-stack">
                   <button
-                    v-for="action in (currentStep?.actions || [])"
+                    v-for="action in visibleActions"
                     :key="action.id"
                     type="button"
                     :class="action.primary ? 'btn btn-primary' : 'btn btn-secondary'"
@@ -480,17 +429,9 @@
                   >
                     {{ actionButtonLabel(action) }}
                   </button>
-                  <button
-                    v-if="currentStep?.skippable"
-                    type="button"
-                    class="btn btn-secondary"
-                    @click="markCompleteAndNext"
-                  >
-                    Skip this step
-                  </button>
                 </div>
 
-                <div v-if="actionMessage" class="pw-action-msg" :class="{ error: actionError }">{{ actionMessage }}</div>
+
               </template>
             </template>
           </div>
@@ -502,7 +443,7 @@
               </div>
               <div>
                 <strong>Tip</strong>
-                <p>{{ currentStep?.tip || 'Complete this step carefully before continuing. Progress is saved automatically.' }}</p>
+                <p>{{ currentStep?.tip || 'Continue opens the next step once this review is complete.' }}</p>
               </div>
             </div>
 
@@ -564,6 +505,12 @@
           </div>
         </div>
 
+        <PayrollReportEmail v-if="currentStep?.key === 'post'" :period-id="selectedPeriodId" :posted="isPeriodPosted" :initial-delivery="reportEmailDelivery" />
+        <div v-if="actionMessage" class="pw-action-msg" :class="{ error: actionError }" :role="actionError ? 'alert' : 'status'">{{ actionMessage }}</div>
+        <div v-if="continueBlocker" class="pw-blocker" role="status">
+          <span>{{ continueBlocker }}</span>
+          <button v-if="!stepIsLoading" type="button" class="btn btn-secondary btn-sm" @click="focusCurrentBlocker">Show what needs attention</button>
+        </div>
         <div class="pw-footer-actions">
           <button type="button" class="btn btn-secondary" @click="goBackToPayroll">Cancel</button>
           <div class="pw-footer-right">
@@ -574,9 +521,9 @@
               type="button"
               class="btn btn-primary pw-continue"
               @click="goNext"
-              :disabled="!canContinue || saving"
+              :disabled="!canContinue || saving || transitioning"
             >
-              {{ stepIdx >= steps.length - 1 ? 'Finish' : 'Continue' }}
+              {{ transitioning ? 'Opening…' : stepIdx >= steps.length - 1 ? 'Finish' : 'Continue' }}
               <svg v-if="stepIdx < steps.length - 1" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M9 18l6-6-6-6"/></svg>
             </button>
           </div>
@@ -634,7 +581,10 @@ import FundThredPayrollBrand from '../../components/payroll/FundThredPayrollBran
 import { useFundThredBranding } from '../../composables/useFundThredBranding';
 import { payrollPeriodChoices } from '../../utils/payrollPeriodChoices';
 useFundThredBranding('Payroll | FundThred');
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import PayrollReportEmail from '../../components/payroll/PayrollReportEmail.vue';
+import PayrollWizardEmpty from '../../components/payroll/PayrollWizardEmpty.vue';
+import { payrollRawStepModes, payrollWizardBlocker, payrollReviewBlocker } from '../../utils/payrollWizardFlow';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
@@ -682,8 +632,26 @@ const uploadResetKey = ref(0);
 const existingImports = ref({ current: null, prior: null, twoAgo: null });
 const deletingImportSlot = ref(null);
 const loadingExistingImports = ref(false);
+const importErrors = ref({});
+let importsRequestVersion = 0;
+let detailsRequestVersion = 0;
+let progressRequestVersion = 0;
+let periodsRequestVersion = 0;
+let bootstrapVersion = 0;
+let saveRequestVersion = 0;
+let progressQueue = Promise.resolve();
 
 // In-wizard Raw Import overlay (same APIs as Payroll page — stays in sync)
+const rawPanelRef = ref(null);
+const processPanelRef = ref(null);
+const claimsPanelRef = ref(null);
+const previewPanelRef = ref(null);
+const reviewStates = ref({});
+const transitioning = ref(false);
+const previewUserId = ref(null);
+const reportEmailDelivery = ref(null);
+const rawReturnStep = ref(null);
+const rawPanelImportId = ref(null);
 const showRawPanel = ref(false);
 const rawPanelPeriodId = ref(null);
 const rawPanelPeriodLabel = ref('');
@@ -710,7 +678,7 @@ const isPeriodRan = computed(() => periodStatus.value === 'ran');
 
 const canSeeRunResults = computed(() => {
   const st = periodStatus.value;
-  return st === 'ran' || st === 'posted' || st === 'finalized' || (summaries.value || []).length > 0;
+  return ['ran', 'posted', 'finalized'].includes(st) && summaries.value.length > 0;
 });
 
 const showInlinePanel = computed(() =>
@@ -747,45 +715,23 @@ const canUploadReports = computed(() => {
 
 /** Fetch existing imports for all three slots so the UI shows what's already on the server. */
 const loadExistingImports = async () => {
-  const ids = {
-    current: selectedPeriod.value?.id || null,
-    prior: priorPeriod.value?.id || null,
-    twoAgo: twoAgoPeriod.value?.id || null,
-  };
-  if (!ids.current) {
-    existingImports.value = { current: null, prior: null, twoAgo: null };
-    return;
-  }
+  const version = ++importsRequestVersion;
+  const contextAgency = agencyId.value;
+  const ids = { current: selectedPeriodId.value, prior: priorPeriod.value?.id, twoAgo: twoAgoPeriod.value?.id };
+  if (!ids.current) { existingImports.value = { current: null, prior: null, twoAgo: null }; importErrors.value = {}; return; }
   loadingExistingImports.value = true;
+  const fetchSlot = async (periodId, slot) => {
+    if (!periodId) return { slot, list: [] };
+    try { const resp = await api.get(`/payroll/periods/${periodId}/imports`); return { slot, list: resp.data?.imports || [] }; }
+    catch (e) { return { slot, error: e?.response?.data?.error?.message || `Could not check the ${slot === 'current' ? 'current' : slot === 'prior' ? 'prior Run 2' : 'two-ago Run 3'} report. Retry before continuing.`, list: [] }; }
+  };
   try {
-    const fetchSlot = async (periodId) => {
-      if (!periodId) return null;
-      try {
-        const resp = await api.get(`/payroll/periods/${periodId}/imports`);
-        const list = resp.data?.imports || [];
-        // slot_number 1 = current, 2 = prior (Run 2), 3 = two-ago (Run 3)
-        return list;
-      } catch {
-        return null;
-      }
-    };
-    const [currentList, priorList, twoAgoList] = await Promise.all([
-      fetchSlot(ids.current),
-      fetchSlot(ids.prior),
-      fetchSlot(ids.twoAgo),
-    ]);
-    // Match the run this wizard slot expects — not "any latest import" on that period.
-    // Prior still has Run 1 from when it was current; two-ago may have Run 1/2. Those must
-    // not look like Version 2 / Version 3 already done.
-    // slot_number 1 = current Run 1, 2 = prior Run 2, 3 = two-ago Run 3
-    existingImports.value = {
-      current: (currentList || []).find((i) => Number(i.slot_number) === 1) || null,
-      prior:   (priorList || []).find((i) => Number(i.slot_number) === 2) || null,
-      twoAgo:  (twoAgoList || []).find((i) => Number(i.slot_number) === 3) || null,
-    };
-  } finally {
-    loadingExistingImports.value = false;
-  }
+    const results = await Promise.all(Object.entries(ids).map(([slot,id]) => fetchSlot(id, slot)));
+    if (version !== importsRequestVersion || Number(ids.current) !== Number(selectedPeriodId.value) || Number(contextAgency) !== Number(agencyId.value)) return;
+    importErrors.value = Object.fromEntries(results.filter(r => r.error).map(r => [r.slot,r.error]));
+    const slotNumbers = { current: 1, prior: 2, twoAgo: 3 };
+    existingImports.value = Object.fromEntries(results.map(({slot,list}) => [slot, list.find(i => Number(i.slot_number) === slotNumbers[slot]) || null]));
+  } finally { if (version === importsRequestVersion) loadingExistingImports.value = false; }
 };
 
 const onUploadPick = (evt, slot) => {
@@ -952,7 +898,7 @@ const iconSubmit = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" 
 
 const phasesAll = [
   { key: 'uploads', title: 'Upload Reports', subtitle: 'Current + prior catch-up files', icon: iconCalendar, stepKeys: ['upload_reports'] },
-  { key: 'prior', title: 'Prior Catch-up', subtitle: 'Draft audit Run 2 & 3', icon: iconReview, stepKeys: ['draft_audit_prior', 'batch_catchup'] },
+  { key: 'prior', title: 'Prior Catch-up', subtitle: 'Draft audit Run 2 & 3', icon: iconReview, stepKeys: ['draft_audit_prior', 'draft_audit_two_ago', 'batch_catchup'] },
   { key: 'review', title: 'Review Data', subtitle: 'Drafts, missed appts & codes', icon: iconAdjust, stepKeys: ['drafts', 'missed_appts', 'h0031', 'h0032', 'h2014', '90853', 'h2032'] },
   { key: 'stage', title: 'Adjustments', subtitle: 'Claims, stage & to-dos', icon: iconPreview, stepKeys: ['claims', 'stage'] },
   { key: 'compliance', title: 'Compliance', subtitle: 'Late notes & session limits', icon: iconCompliance, stepKeys: ['compliance'] },
@@ -968,22 +914,12 @@ const stepsAll = [
     skippable: false
   },
   {
-    key: 'draft_audit_prior',
-    title: 'Draft Audit Prior Periods',
-    description: 'If you uploaded catch-up files, review draft-payable decisions on last period (Run 2) and two periods ago (Run 3) before comparing.',
-    tip: 'Open Prior (Run 2) and Two ago (Run 3) separately. Use Draft Audit the same way as on the Payroll page — mark unpaid drafts so late notes are tracked correctly when you compare.',
-    checklist: [
-      'Review Draft Audit for Prior (Run 2)',
-      'Review Draft Audit for Two ago (Run 3) if you uploaded it',
-      'Review draft / unpaid rows on each',
-      'Close the panel when finished'
-    ],
-    actions: [
-      { id: 'open_raw_prior', label: 'Review Prior (Run 2)', primary: true, open: 'raw', mode: 'draft_audit', usePrior: true },
-      { id: 'open_raw_two_ago', label: 'Review Two ago (Run 3)', primary: false, open: 'raw', mode: 'draft_audit', useTwoAgo: true },
-      { id: 'done', label: 'Mark done & continue', primary: false, complete: true }
-    ],
-    skippable: true
+    key: 'draft_audit_prior', title: 'Review Prior Period — Run 2',
+    description: 'Review new draft decisions from last period. Previously paid sessions are excluded.'
+  },
+  {
+    key: 'draft_audit_two_ago', title: 'Review Two Periods Ago — Run 3',
+    description: 'Review remaining draft decisions from two periods ago. Continue opens the late-note comparison.'
   },
   {
     key: 'batch_catchup',
@@ -996,8 +932,7 @@ const stepsAll = [
       'Add selected differences into the current period'
     ],
     actions: [
-      { id: 'open_process', label: 'Review changes & add late notes', primary: true, open: 'process_inline' },
-      { id: 'done', label: 'Mark done & continue', primary: false, complete: true }
+
     ],
     skippable: true
   },
@@ -1009,7 +944,6 @@ const stepsAll = [
     checklist: ['Review Draft Audit in this wizard', 'Review and mark unpaid drafts', 'Close when finished'],
     actions: [
       { id: 'open_raw', label: 'Review Draft Audit', primary: true, open: 'raw', mode: 'draft_audit' },
-      { id: 'done', label: 'Mark done & continue', primary: false, complete: true }
     ],
     skippable: false
   },
@@ -1025,7 +959,6 @@ const stepsAll = [
     ],
     actions: [
       { id: 'open_raw', label: 'Review Missed Appointment Fees', primary: true, open: 'raw', mode: 'missed_appts_paid_in_full' },
-      { id: 'done', label: 'Mark done & continue', primary: false, complete: true }
     ],
     skippable: false
   },
@@ -1037,7 +970,6 @@ const stepsAll = [
     checklist: ['Process H0031 in this wizard', 'Update minutes', 'Mark Done'],
     actions: [
       { id: 'open_raw', label: 'Process H0031', primary: true, open: 'raw', mode: 'process_h0031' },
-      { id: 'done', label: 'Mark done & continue', primary: false, complete: true }
     ],
     skippable: false
   },
@@ -1049,7 +981,6 @@ const stepsAll = [
     checklist: ['Process H0032 in this wizard', 'Update minutes', 'Mark Done'],
     actions: [
       { id: 'open_raw', label: 'Process H0032', primary: true, open: 'raw', mode: 'process_h0032' },
-      { id: 'done', label: 'Mark done & continue', primary: false, complete: true }
     ],
     skippable: false
   },
@@ -1061,7 +992,6 @@ const stepsAll = [
     checklist: ['Process H2014 in this wizard', 'Update minutes', 'Mark Done'],
     actions: [
       { id: 'open_raw', label: 'Process H2014', primary: true, open: 'raw', mode: 'process_h2014' },
-      { id: 'done', label: 'Mark done & continue', primary: false, complete: true }
     ],
     skippable: false
   },
@@ -1073,7 +1003,6 @@ const stepsAll = [
     checklist: ['Process 90853 in this wizard', 'Update minutes', 'Mark Done'],
     actions: [
       { id: 'open_raw', label: 'Process 90853', primary: true, open: 'raw', mode: 'process_90853' },
-      { id: 'done', label: 'Mark done & continue', primary: false, complete: true }
     ],
     skippable: false
   },
@@ -1085,7 +1014,6 @@ const stepsAll = [
     checklist: ['Process H2032 in this wizard', 'Update minutes', 'Mark Done'],
     actions: [
       { id: 'open_raw', label: 'Process H2032', primary: true, open: 'raw', mode: 'process_h2032' },
-      { id: 'done', label: 'Mark done & continue', primary: false, complete: true }
     ],
     skippable: false
   },
@@ -1101,7 +1029,6 @@ const stepsAll = [
     ],
     actions: [
       { id: 'open_claims', label: 'Review Pending Claims', primary: true, open: 'claims' },
-      { id: 'done', label: 'Mark done & continue', primary: false, complete: true }
     ],
     skippable: false
   },
@@ -1120,7 +1047,6 @@ const stepsAll = [
       { id: 'restage_payroll', label: 'Restage (clear run)', primary: false, restage: true },
       { id: 'open_todos', label: 'Manage To-Dos', primary: false, open: 'todos_inline' },
       { id: 'open_stage', label: 'Open full Stage on Payroll page', primary: false, open: 'stage' },
-      { id: 'done', label: 'Mark done & continue', primary: false, complete: true }
     ],
     skippable: false
   },
@@ -1139,14 +1065,13 @@ const stepsAll = [
   {
     key: 'run',
     title: 'Run Payroll',
-    description: 'Calculate provider totals for this pay period. Blocked if To-Dos are still open. Pending claims can be left for the next period.',
+    description: 'Calculate totals from the recorded services, approved claims, and saved adjustments. Resolve any highlighted items before running.',
     tip: 'Run results stay private until you post. Skipped claims stay submitted and move to the next period so you can approve them later.',
     checklist: ['Confirm stage is complete', 'Click Run Payroll', 'Download payroll reconciliation CSV if needed', 'Review totals'],
     actions: [
       { id: 'run_payroll', label: 'Run Payroll', primary: true, runPayroll: true },
       { id: 'restage_payroll', label: 'Restage (clear run)', primary: false, restage: true },
       { id: 'download_adp', label: 'Download Payroll Reconciliation CSV', primary: false, downloadAdp: true },
-      { id: 'done', label: 'Already ran — continue', primary: false, complete: true }
     ],
     skippable: false
   },
@@ -1154,25 +1079,23 @@ const stepsAll = [
     key: 'preview',
     title: 'Preview Post',
     description: 'Preview what providers will see and which notifications will send on post.',
-    tip: 'Open Preview Post here in the wizard to spot-check providers, then collapse when done. Download the payroll reconciliation CSV anytime after run.',
+    tip: 'Review the calculated payroll, then Continue to posting. Hours corrections are available when needed.',
     checklist: ['Open Preview Post in the wizard', 'Spot-check a few providers', 'Confirm notifications look right'],
     actions: [
       { id: 'open_preview', label: 'Open Preview Post', primary: true, open: 'preview_inline' },
       { id: 'download_adp', label: 'Download Payroll Reconciliation CSV', primary: false, downloadAdp: true },
-      { id: 'done', label: 'Mark done & continue', primary: false, complete: true }
     ],
     skippable: false
   },
   {
     key: 'post',
     title: 'Post Payroll',
-    description: 'Post payroll to make it visible to providers. This locks the period as posted.',
+    description: 'Post the calculated payroll to make it visible to providers and email its CSV to the agency’s payroll mailbox.',
     tip: 'Only post when you are confident. Download the payroll reconciliation CSV before or after posting if you still need the file.',
     checklist: ['Confirm run looks correct', 'Download payroll reconciliation CSV if needed', 'Post Payroll', 'Verify providers can see results'],
     actions: [
       { id: 'download_adp', label: 'Download Payroll Reconciliation CSV', primary: false, downloadAdp: true },
       { id: 'post_payroll', label: 'Post Payroll', primary: true, postPayroll: true },
-      { id: 'done', label: 'Already posted — finish', primary: false, complete: true }
     ],
     skippable: false
   }
@@ -1225,18 +1148,25 @@ const phaseStepPosition = computed(() => {
 });
 
 const goToStep = async (idx) => {
-  if (!Number.isFinite(idx) || idx < 0 || idx >= steps.value.length) return;
+  if (!Number.isFinite(idx) || idx < 0 || idx >= steps.value.length || transitioning.value) return;
   if (idx === stepIdx.value) return;
-  showRawPanel.value = false;
-  rawPanelCatchUp.value = null;
-  showClaimsPanel.value = false;
-  showStagePanel.value = false;
-  showTodosPanel.value = false;
-  showProcessPanel.value = false;
-  showPreviewPanel.value = false;
-  await saveProgress();
-  stepIdx.value = idx;
-  await saveProgress();
+  if (idx > stepIdx.value) {
+    if (!canContinue.value) { focusCurrentBlocker(); return; }
+    // A phase shortcut cannot skip reviews that have never passed their data checks.
+    const firstUnchecked = steps.value.findIndex((s, i) => i > stepIdx.value && i < idx && !reviewCompleted(s.key));
+    if (firstUnchecked >= 0) idx = firstUnchecked;
+    if (['preview', 'post'].includes(steps.value[idx]?.key) && !canSeeRunResults.value) {
+      idx = steps.value.findIndex(s => s.key === 'run');
+    }
+  }
+  transitioning.value = true;
+  try {
+    if (idx > stepIdx.value) await markStepComplete(currentStep.value.key);
+    actionMessage.value = ''; actionError.value = false;
+    stepIdx.value = idx;
+    await nextTick();
+    await saveProgress();
+  } finally { transitioning.value = false; }
 };
 
 const goToPhase = async (phaseIdx) => {
@@ -1272,13 +1202,147 @@ const statusHelpText = computed(() => {
   return 'Draft: start by importing the billing report for this period.';
 });
 
-const canContinue = computed(() => {
-  if (currentStep.value?.key === 'upload_reports') {
-    // Period required; uploads can be done now or skipped if already imported
-    return !!selectedPeriodId.value;
-  }
-  return !!selectedPeriodId.value;
+const missingPriorReport = computed(() => {
+  if (currentStep.value?.key === 'draft_audit_prior') return !existingImports.value.prior;
+  if (currentStep.value?.key === 'draft_audit_two_ago') return !existingImports.value.twoAgo;
+  return false;
 });
+const currentReview = computed(() => reviewStates.value[currentStep.value?.key]);
+const stepIsLoading = computed(() => {
+  if (Object.keys(importErrors.value).length || missingPriorReport.value) return false;
+  const key = currentStep.value?.key;
+  if (!payrollRawStepModes[key] && !['batch_catchup','claims','stage','preview'].includes(key)) return false;
+  return !currentReview.value || currentReview.value.loading || currentReview.value.saving;
+});
+const continueBlocker = computed(() => {
+  if (!selectedPeriodId.value) return 'Select a pay period first.';
+  const key = currentStep.value?.key;
+  const importError = key === 'draft_audit_prior' ? importErrors.value.prior : key === 'draft_audit_two_ago' ? importErrors.value.twoAgo : key === 'upload_reports' ? Object.values(importErrors.value)[0] : null;
+  if (importError) return importError;
+  if (key === 'upload_reports') return loadingExistingImports.value ? 'Checking uploaded reports…' : !existingImports.value.current ? 'Upload the current payroll report before continuing.' : Object.values(uploadFiles.value).some(Boolean) ? 'Upload or clear the selected files before continuing.' : '';
+  if (missingPriorReport.value) return loadingExistingImports.value ? 'Checking catch-up reports…' : '';
+  if (payrollRawStepModes[key] || ['batch_catchup', 'claims'].includes(key)) return payrollReviewBlocker(currentReview.value);
+  if (key === 'run') return canSeeRunResults.value ? '' : 'Run Payroll to calculate this period before continuing.';
+  if (key === 'preview') return canSeeRunResults.value ? payrollReviewBlocker(currentReview.value) : 'Run Payroll before opening Preview Post.';
+  if (key === 'post') return isPeriodPosted.value ? '' : !postPrerequisitesReady.value ? 'The payroll inputs changed or a review is unfinished. Complete the required reviews before posting.' : 'Post Payroll successfully before finishing.';
+  if (key === 'stage') return payrollReviewBlocker(reviewStates.value.stage);
+  return '';
+});
+const canContinue = computed(() => !continueBlocker.value && !runningPayroll.value && !postingPayroll.value && !uploading.value);
+const visibleActions = computed(() => (currentStep.value?.actions || []).filter(action => {
+  if (action.complete) return false;
+  if (action.postPayroll) return !isPeriodPosted.value;
+  if (action.runPayroll) return !isPeriodPosted.value;
+  if (action.downloadAdp) return canSeeRunResults.value;
+  if (action.restage) return isPeriodRan.value;
+  return true;
+}));
+const flowFingerprint = computed(() => JSON.stringify([Number(selectedPeriodId.value), ...['current','prior','twoAgo'].map(slot => { const i = existingImports.value[slot]; return i ? [i.id, i.created_at, i.row_count, i.row_revision] : null; })]));
+const reviewCompleted = key => wizardState.value?.flowVersion === 2 && wizardState.value?.flowFingerprint === flowFingerprint.value && wizardState.value?.completed?.[key] === true;
+const invalidateFromStep = key => {
+  const from = steps.value.findIndex(s => s.key === key);
+  const completed = { ...(wizardState.value?.completed || {}) };
+  steps.value.forEach((s,i) => { if (i >= Math.max(0,from)) delete completed[s.key]; });
+  wizardState.value = { ...(wizardState.value || {}), completed };
+};
+const onStepReadiness = (key, state) => {
+  reviewStates.value = { ...reviewStates.value, [key]: state };
+  if (!state.loading && !state.saving && state.ready === false) invalidateFromStep(key);
+};
+const firstUnreviewedPrerequisite = computed(() => steps.value.findIndex(s => s.key !== 'compliance' && !['post'].includes(s.key) && !reviewCompleted(s.key)));
+const postPrerequisitesReady = computed(() => isPeriodPosted.value || firstUnreviewedPrerequisite.value < 0);
+const synchronizeReviewProgress = () => {
+  if (isPeriodPosted.value) return;
+  if (wizardState.value?.flowVersion === 2 && wizardState.value?.flowFingerprint === flowFingerprint.value) return;
+  wizardState.value = { ...(wizardState.value || {}), flowVersion: 2, flowFingerprint: flowFingerprint.value, completed: {} };
+  stepIdx.value = 0;
+};
+const onPayrollInputsChanged = async () => {
+  const key = currentStep.value?.key;
+  invalidateFromStep(key);
+  await Promise.all([loadPeriodDetails(), loadExistingImports()]);
+  wizardState.value = { ...(wizardState.value || {}), flowFingerprint: flowFingerprint.value };
+};
+const onRawReadiness = state => {
+  if (Number(state.periodId) !== Number(rawPanelPeriodId.value) || state.mode !== rawPanelMode.value) return;
+  onStepReadiness(currentStep.value?.key, state);
+  // Keep all service-code attention indicators in sync without a separate fetch per tab.
+  if (!rawPanelCatchUp.value && state.counts) {
+    for (const [key, mode] of Object.entries(payrollRawStepModes)) {
+      if (key.startsWith('draft_audit_') || key === currentStep.value?.key) continue;
+      reviewStates.value[key] = { ...reviewStates.value[key], pendingCount: state.counts[mode], attentionKnown: !state.loading && !state.error };
+    }
+  }
+};
+const focusCurrentBlocker = async () => {
+  const key = currentStep.value?.key;
+  if (Object.keys(importErrors.value).length) { await loadExistingImports(); activateCurrentStep(); return; }
+  if (key === 'post' && !postPrerequisitesReady.value) { await goToStep(firstUnreviewedPrerequisite.value); return; }
+  if (showRawPanel.value) rawPanelRef.value?.focusPending?.();
+  else if (key === 'batch_catchup') processPanelRef.value?.focusPending?.();
+  else if (key === 'claims') claimsPanelRef.value?.focusPending?.();
+  else if (key === 'preview' && currentReview.value?.hasRunResults === false) await goToStep(steps.value.findIndex(s => s.key === 'run'));
+  else if (key === 'preview') previewPanelRef.value?.focusPending?.();
+  else if (key === 'stage') { showTodosPanel.value = true; showStagePanel.value = false; }
+  else if (key === 'post' && !isPeriodPosted.value) document.querySelector('.pw-actions-stack .btn-primary')?.focus();
+};
+const refreshStageReadiness = async () => {
+  if (!selectedPeriodId.value) return;
+  const id = selectedPeriodId.value;
+  onStepReadiness('stage', { loading: true, ready: false });
+  try {
+    const resp = await api.get(`/payroll/periods/${id}/todos`);
+    if (Number(id) !== Number(selectedPeriodId.value)) return;
+    const rows = resp.data?.todos || (Array.isArray(resp.data) ? resp.data : []);
+    const pending = rows.filter(t => String(t.status || '').toLowerCase() !== 'done');
+    onStepReadiness('stage', { loading: false, ready: pending.length === 0, pendingCount: pending.length, blockers: pending.map(t => ({ message: `Complete To-Do: ${t.title || t.label || 'Untitled task'}` })) });
+  } catch (e) { onStepReadiness('stage', { loading: false, ready: false, error: e?.response?.data?.error?.message || 'Could not check payroll To-Dos. Refresh before continuing.' }); }
+};
+const activateCurrentStep = () => {
+  if (loading.value || !selectedPeriodId.value) return;
+  const key = currentStep.value?.key;
+  showRawPanel.value = false; rawPanelCatchUp.value = null;
+  showClaimsPanel.value = false; showStagePanel.value = false; showTodosPanel.value = false;
+  showProcessPanel.value = false; showPreviewPanel.value = false;
+  if (payrollRawStepModes[key]) {
+    const slot = key === 'draft_audit_prior' ? 'prior' : key === 'draft_audit_two_ago' ? 'twoAgo' : null;
+    const period = slot === 'prior' ? priorPeriod.value : slot === 'twoAgo' ? twoAgoPeriod.value : selectedPeriod.value;
+    if (!period?.id || (slot && !existingImports.value[slot])) return;
+    rawPanelPeriodId.value = period.id; rawPanelPeriodLabel.value = periodRangeLabel(period);
+    rawPanelPeriodStatus.value = period.status || ''; rawPanelCatchUp.value = slot;
+    rawPanelMode.value = payrollRawStepModes[key];
+    rawPanelImportId.value = existingImports.value[slot || 'current']?.id || null;
+    onStepReadiness(key, { loading: true, ready: false }); showRawPanel.value = true;
+  } else if (key === 'batch_catchup') { onStepReadiness(key, { loading: true, ready: false }); showProcessPanel.value = true; }
+  else if (key === 'claims') { onStepReadiness(key, { loading: true, ready: false }); showClaimsPanel.value = true; }
+  else if (key === 'stage') { showStagePanel.value = true; refreshStageReadiness(); }
+  else if (key === 'preview' && canSeeRunResults.value) { onStepReadiness(key, { loading: true, ready: false }); showPreviewPanel.value = true; }
+};
+const onProcessBlocked = async state => {
+  actionError.value = true; actionMessage.value = state.message || 'Finish processing the highlighted source sessions before adding them.';
+  rawReturnStep.value = 'batch_catchup';
+  rawPanelPeriodId.value = state.sourcePeriodId || selectedPeriodId.value;
+  const p = periods.value.find(p => Number(p.id) === Number(rawPanelPeriodId.value));
+  rawPanelPeriodLabel.value = periodRangeLabel(p); rawPanelPeriodStatus.value = p?.status || '';
+  rawPanelImportId.value = null;
+  const code = String(state.targetMode || 'H0031').toLowerCase().replace(/^process_/, '');
+  rawPanelMode.value = payrollRawStepModes[code] || 'process_h0031';
+  rawPanelCatchUp.value = Number(rawPanelPeriodId.value) !== Number(selectedPeriodId.value) ? 'prior' : null;
+  showProcessPanel.value = false; showRawPanel.value = true;
+  onStepReadiness('batch_catchup', { loading: true, ready: false });
+};
+const routeServerBlocker = async data => {
+  const target = payrollWizardBlocker(data);
+  if (!target) return false;
+  previewUserId.value = target.userId || null;
+  const idx = steps.value.findIndex(s => s.key === target.step);
+  if (idx < 0) return false;
+  stepIdx.value = idx;
+  await nextTick();
+  if (target.tool === 'todos') { showStagePanel.value = false; showTodosPanel.value = true; }
+  await saveProgress();
+  return true;
+};
 
 const summary = computed(() => {
   const rows = summaries.value || [];
@@ -1364,6 +1428,7 @@ const actionDisabled = (action) => {
     return restagingPeriod.value || runningPayroll.value || postingPayroll.value || isPeriodPosted.value || !isPeriodRan.value;
   }
   if (action?.postPayroll) {
+    if (!postPrerequisitesReady.value) return true;
     const st = periodStatus.value;
     return postingPayroll.value || runningPayroll.value || st === 'posted' || st === 'finalized';
   }
@@ -1676,59 +1741,12 @@ const runPayrollInWizard = async () => {
   actionError.value = false;
   actionMessage.value = '';
   try {
-    await runPayrollRequest();
+    await runPayrollRequest(reviewStates.value.claims?.deferred ? { allowPendingClaims: 'true' } : {});
   } catch (e) {
     const data = e?.response?.data || {};
-    // Leave pending claims for next period (same as Payroll page).
-    if (
-      e?.response?.status === 409 &&
-      data.allowPendingClaims &&
-      (data.pendingTime || data.pendingMileage || data.pendingReimbursement)
-    ) {
-      const ok = window.confirm(pendingClaimsConfirmMessage(data));
-      if (ok) {
-        try {
-          await runPayrollRequest({ allowPendingClaims: 'true' });
-          return;
-        } catch (e2) {
-          actionError.value = true;
-          actionMessage.value = e2?.response?.data?.error?.message || e2?.message || 'Failed to run payroll';
-          return;
-        }
-      }
-      actionError.value = true;
-      actionMessage.value = 'Run cancelled. Approve or reject claims in Adjustments, or confirm leaving them for next period.';
-      return;
-    }
-    // Historical re-run bypass for H0031/H0032 processing gate (same as Payroll page).
-    if (e?.response?.status === 409 && data.pendingProcessing && selectedPeriod.value?.period_end) {
-      const endYmd = String(selectedPeriod.value.period_end || '').slice(0, 10);
-      const now = new Date();
-      const todayYmd = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-      if (endYmd && endYmd < todayYmd) {
-        const ok = window.confirm(
-          'This looks like an older pay period. Run payroll anyway (skip H0031/H0032 minutes gate)?\n\nDo not use if you are paying this period.'
-        );
-        if (ok) {
-          try {
-            await runPayrollRequest({ skipProcessingGate: 'true' });
-            actionMessage.value = 'Payroll ran successfully (processing gate skipped).';
-            return;
-          } catch (e2) {
-            actionError.value = true;
-            actionMessage.value = e2?.response?.data?.error?.message || e2?.message || 'Failed to run payroll';
-            return;
-          }
-        }
-      }
-    }
     actionError.value = true;
-    const msg = data?.error?.message || e?.message || 'Failed to run payroll';
-    if (e?.response?.status === 409 && data.pendingTodos) {
-      actionMessage.value = `${msg} Open Manage To-Dos in Adjustments, mark them Done, then try Run again.`;
-    } else {
-      actionMessage.value = msg;
-    }
+    actionMessage.value = data?.error?.message || e?.message || 'Failed to run payroll';
+    await routeServerBlocker(data);
   } finally {
     runningPayroll.value = false;
   }
@@ -1741,12 +1759,9 @@ const postPayrollInWizard = async () => {
     return;
   }
   const st = periodStatus.value;
-  if (st === 'posted' || st === 'finalized') {
-    actionError.value = true;
-    actionMessage.value = 'This pay period is already posted.';
-    return;
-  }
-  if (st !== 'ran' && !(summaries.value || []).length) {
+  if (st === 'posted' || st === 'finalized') return;
+  if (!postPrerequisitesReady.value) { await focusCurrentBlocker(); return; }
+  if (!canSeeRunResults.value) {
     actionError.value = true;
     actionMessage.value = 'Run Payroll first before posting.';
     return;
@@ -1760,6 +1775,7 @@ const postPayrollInWizard = async () => {
   actionMessage.value = '';
   try {
     const resp = await api.post(`/payroll/periods/${selectedPeriodId.value}/post`);
+    reportEmailDelivery.value = resp.data?.reportEmail || null;
     await loadPeriods();
     await loadPeriodDetails();
     const accrual = resp?.data?.ptoAccrual;
@@ -1775,14 +1791,17 @@ const postPayrollInWizard = async () => {
   } catch (e) {
     actionError.value = true;
     actionMessage.value = e?.response?.data?.error?.message || e?.message || 'Failed to post payroll';
+    await routeServerBlocker(e?.response?.data || {});
   } finally {
     postingPayroll.value = false;
   }
 };
 
+const onStageChanged = async () => { await loadPeriodDetails(); await refreshStageReadiness(); };
+
 const onProcessChangesApplied = async () => {
   actionError.value = false;
-  actionMessage.value = 'Late notes added to the current period. You can mark this step done and continue.';
+  actionMessage.value = 'Late notes added to the current payroll. Added rows are marked in the comparison.';
   await loadPeriodDetails();
 };
 
@@ -1822,7 +1841,7 @@ const openOnPayroll = async ({ open, mode = null, usePrior = false, useTwoAgo = 
 
 const markStepComplete = async (key) => {
   const completed = {
-    ...(wizardState.value?.completed && typeof wizardState.value.completed === 'object' ? wizardState.value.completed : {}),
+    ...(wizardState.value?.flowVersion === 2 && wizardState.value?.flowFingerprint === flowFingerprint.value ? wizardState.value.completed || {} : {}),
     [key]: true
   };
   wizardState.value = { ...(wizardState.value || {}), completed };
@@ -1899,24 +1918,24 @@ const runStepAction = async (action) => {
 
 const saveProgress = async () => {
   if (!selectedPeriodId.value) return;
+  const version = ++saveRequestVersion;
+  const id = selectedPeriodId.value;
+  const sameInputs = wizardState.value?.flowVersion === 2 && wizardState.value?.flowFingerprint === flowFingerprint.value;
+  const state = {
+    ...(wizardState.value || {}), flowVersion: 2, flowFingerprint: flowFingerprint.value,
+    completed: sameInputs ? wizardState.value?.completed || {} : {},
+    stepIdx: stepIdx.value, stepKey: currentStep.value?.key || null,
+    priorPeriodId: priorPeriod.value?.id || null, twoAgoPeriodId: twoAgoPeriod.value?.id || null,
+    complianceExclusions: complianceExclusions.value || {}, updatedAt: new Date().toISOString()
+  };
+  saving.value = true;
+  const request = progressQueue.catch(() => {}).then(() => api.put(`/payroll/periods/${id}/wizard-progress`, { state }));
+  progressQueue = request;
   try {
-    saving.value = true;
-    const state = {
-      ...(wizardState.value && typeof wizardState.value === 'object' ? wizardState.value : {}),
-      stepIdx: stepIdx.value,
-      stepKey: currentStep.value?.key || null,
-      priorPeriodId: priorPeriod.value?.id || wizardState.value?.priorPeriodId || null,
-      twoAgoPeriodId: twoAgoPeriod.value?.id || wizardState.value?.twoAgoPeriodId || null,
-      complianceExclusions: complianceExclusions.value || {},
-      updatedAt: new Date().toISOString()
-    };
-    const resp = await api.put(`/payroll/periods/${selectedPeriodId.value}/wizard-progress`, { state });
-    wizardState.value = resp.data?.state || state;
-  } catch (e) {
-    console.warn('Failed to save wizard progress', e);
-  } finally {
-    saving.value = false;
-  }
+    const resp = await request;
+    if (version === saveRequestVersion && Number(id) === Number(selectedPeriodId.value)) wizardState.value = { ...state, updatedAt: resp.data?.state?.updatedAt || state.updatedAt };
+  } catch (e) { console.warn('Failed to save wizard progress', e); }
+  finally { if (version === saveRequestVersion) saving.value = false; }
 };
 
 const onComplianceExclusions = (next) => {
@@ -1988,15 +2007,19 @@ const readWizardReturnStep = () => {
 };
 
 const loadProgress = async () => {
+  const version = ++progressRequestVersion;
+  const id = selectedPeriodId.value;
   if (!selectedPeriodId.value) {
     stepIdx.value = 0;
     wizardState.value = null;
     return;
   }
   try {
-    const resp = await api.get(`/payroll/periods/${selectedPeriodId.value}/wizard-progress`);
+    const resp = await api.get(`/payroll/periods/${id}/wizard-progress`);
+    if (version !== progressRequestVersion || Number(id) !== Number(selectedPeriodId.value)) return;
     const state = resp.data?.state || null;
     wizardState.value = state && typeof state === 'object' ? state : null;
+    if (wizardState.value?.flowVersion !== 2) wizardState.value = { ...(wizardState.value || {}), completed: {} };
     complianceExclusions.value =
       wizardState.value?.complianceExclusions && typeof wizardState.value.complianceExclusions === 'object'
         ? wizardState.value.complianceExclusions
@@ -2022,6 +2045,7 @@ const loadProgress = async () => {
     stepIdx.value = Number.isFinite(idx) && idx >= 0 ? Math.min(idx, steps.value.length - 1) : 0;
     clampStepToPeriodReality();
   } catch (e) {
+    if (version !== progressRequestVersion || Number(id) !== Number(selectedPeriodId.value)) return;
     wizardState.value = null;
     complianceExclusions.value = {};
     stepIdx.value = 0;
@@ -2056,34 +2080,44 @@ const restartWizard = async () => {
 };
 
 const loadPeriodDetails = async () => {
+  const version = ++detailsRequestVersion;
+  const id = selectedPeriodId.value;
+  const contextAgency = agencyId.value;
   if (!selectedPeriodId.value) {
     selectedPeriod.value = null;
     summaries.value = [];
     return;
   }
   try {
-    const resp = await api.get(`/payroll/periods/${selectedPeriodId.value}`);
+    const resp = await api.get(`/payroll/periods/${id}`);
+    if (version !== detailsRequestVersion || Number(id) !== Number(selectedPeriodId.value) || Number(contextAgency) !== Number(agencyId.value)) return;
     selectedPeriod.value = resp.data?.period || periods.value.find((p) => p.id === selectedPeriodId.value) || null;
     summaries.value = resp.data?.summaries || [];
   } catch {
+    if (version !== detailsRequestVersion || Number(id) !== Number(selectedPeriodId.value)) return;
     selectedPeriod.value = periods.value.find((p) => Number(p.id) === Number(selectedPeriodId.value)) || null;
     summaries.value = [];
   }
 };
 
 const loadPeriods = async () => {
-  if (!agencyId.value) return;
+  const version = ++periodsRequestVersion;
+  const id = agencyId.value;
+  if (!id) return;
   try {
-    await api.post('/payroll/periods/ensure-future', { months: 6, pastPeriods: 2 }, { params: { agencyId: agencyId.value } });
-    const resp = await api.get('/payroll/periods', { params: { agencyId: agencyId.value, alignedOnly: 'false' } });
+    await api.post('/payroll/periods/ensure-future', { months: 6, pastPeriods: 2 }, { params: { agencyId: id } });
+    const resp = await api.get('/payroll/periods', { params: { agencyId: id, alignedOnly: 'false' } });
+    if (version !== periodsRequestVersion || Number(id) !== Number(agencyId.value)) return;
     periods.value = resp.data || [];
   } catch (e) {
+    if (version !== periodsRequestVersion || Number(id) !== Number(agencyId.value)) return;
     pageError.value = e?.response?.data?.error?.message || e?.message || 'Failed to load pay periods';
     periods.value = [];
   }
 };
 
 const onPeriodChange = async () => {
+  const id = selectedPeriodId.value;
   stepIdx.value = 0;
   uploadFiles.value = { current: null, prior: null, twoAgo: null };
   uploadResults.value = { current: '', prior: '', twoAgo: '' };
@@ -2094,6 +2128,10 @@ const onPeriodChange = async () => {
   await refreshComplianceUnlock();
   await loadProgress();
   await loadExistingImports();
+  if (Number(id) !== Number(selectedPeriodId.value)) return;
+  synchronizeReviewProgress();
+  reviewStates.value = {}; reportEmailDelivery.value = null;
+  activateCurrentStep();
   // Keep prior ids in sync for deep-links even before upload
   wizardState.value = {
     ...(wizardState.value || {}),
@@ -2108,35 +2146,17 @@ const onPeriodChange = async () => {
 };
 
 const goNext = async () => {
-  if (!canContinue.value) return;
-  showRawPanel.value = false;
-  rawPanelCatchUp.value = null;
-  showClaimsPanel.value = false;
-  showStagePanel.value = false;
-  showTodosPanel.value = false;
-  showProcessPanel.value = false;
-  showPreviewPanel.value = false;
-  await saveProgress();
-  if (stepIdx.value >= steps.value.length - 1) {
-    await goBackToPayroll();
-    return;
+  if (transitioning.value || saving.value) return;
+  if (!canContinue.value) { await focusCurrentBlocker(); return; }
+  if (rawReturnStep.value) {
+    rawReturnStep.value = null; activateCurrentStep(); return;
   }
-  stepIdx.value += 1;
-  await saveProgress();
+  if (stepIdx.value >= steps.value.length - 1) { await goBackToPayroll(); return; }
+  await goToStep(stepIdx.value + 1);
 };
-
 const goBack = async () => {
-  if (stepIdx.value <= 0) return;
-  showRawPanel.value = false;
-  rawPanelCatchUp.value = null;
-  showClaimsPanel.value = false;
-  showStagePanel.value = false;
-  showTodosPanel.value = false;
-  showProcessPanel.value = false;
-  showPreviewPanel.value = false;
-  await saveProgress();
-  stepIdx.value -= 1;
-  await saveProgress();
+  if (rawReturnStep.value) { rawReturnStep.value = null; activateCurrentStep(); return; }
+  if (stepIdx.value > 0) await goToStep(stepIdx.value - 1);
 };
 
 const isPeriodClosed = (p) => {
@@ -2148,7 +2168,7 @@ const isPeriodClosed = (p) => {
 const pickBootstrapPeriodId = (fromRoute, fromStorage) => {
   const list = periodsForSelect.value.length ? periodsForSelect.value : periods.value;
   const byId = (id) => (list || []).find((p) => Number(p.id) === Number(id)) || null;
-  if (fromRoute) return fromRoute;
+  if (fromRoute && (periods.value || []).some(p => Number(p.id) === Number(fromRoute))) return fromRoute;
   const stored = fromStorage ? byId(fromStorage) : null;
   if (stored && !isPeriodClosed(stored)) return Number(stored.id);
   const open = (list || []).find((p) => !isPeriodClosed(p));
@@ -2158,10 +2178,12 @@ const pickBootstrapPeriodId = (fromRoute, fromStorage) => {
 };
 
 const bootstrap = async () => {
+  const version = ++bootstrapVersion;
   loading.value = true;
   pageError.value = '';
   try {
     await loadPeriods();
+    if (version !== bootstrapVersion) return;
     const fromRoute = Number(route.params.periodId || route.query.periodId || 0) || null;
     const fromStorage = (() => {
       try {
@@ -2177,19 +2199,13 @@ const bootstrap = async () => {
       await loadPeriodDetails();
       await refreshComplianceUnlock();
       await loadProgress();
-      // If this period is already posted, don't park on the last step — start clean for review/next run.
+      if (version !== bootstrapVersion) return;
       if (isPeriodClosed(selectedPeriod.value) && stepIdx.value > 0) {
-        stepIdx.value = 0;
-        wizardState.value = {
-          stepIdx: 0,
-          stepKey: 'upload_reports',
-          priorPeriodId: priorPeriod.value?.id || null,
-          twoAgoPeriodId: twoAgoPeriod.value?.id || null,
-          completed: {},
-          updatedAt: new Date().toISOString()
-        };
+        stepIdx.value = steps.value.findIndex(s => s.key === 'post');
       }
-      loadExistingImports().catch(() => {/* non-critical */});
+      await loadExistingImports();
+      if (version !== bootstrapVersion) return;
+      synchronizeReviewProgress();
       await saveProgress();
       try {
         localStorage.setItem(`payroll:lastPeriodId:${agencyId.value}`, String(selectedPeriodId.value));
@@ -2207,9 +2223,11 @@ const bootstrap = async () => {
       }
     }
   } finally {
-    loading.value = false;
+    if (version === bootstrapVersion) loading.value = false;
   }
 };
+
+watch([() => loading.value, () => currentStep.value?.key, () => selectedPeriodId.value, () => existingImports.value.current?.id, () => existingImports.value.prior?.id, () => existingImports.value.twoAgo?.id], activateCurrentStep);
 
 watch(agencyId, async (id, prev) => {
   if (id && id !== prev) await bootstrap();
@@ -2219,6 +2237,16 @@ onMounted(bootstrap);
 </script>
 
 <style scoped>
+.pw-stage-tools { display:flex; gap:8px; margin-bottom:12px; }
+.pw-inline-panel--guided { border:0; padding:0; background:transparent; box-shadow:none; }
+.pw-inline-panel--guided :deep(.psp) { border:0; box-shadow:none; }
+.pw-blocker { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:18px; padding:12px 14px; border-left:4px solid #bd7612; background:#fff8e9; border-radius:8px; }
+.pw-posted { padding:14px; background:#e8f5e9; border:1px solid #c8e6c9; border-radius:8px; font-weight:700; }
+.pw-count { min-width:22px; border-radius:12px; background:#a64b08; color:#fff; padding:2px 6px; font-size:12px; }
+.pw-substep.attention { border-color:#bf7c18; box-shadow:0 0 0 2px #fce9b8; animation:payroll-attention 2s ease-in-out 3; }
+@keyframes payroll-attention { 50% { box-shadow:0 0 0 4px #fce9b8; } }
+@media(prefers-reduced-motion:reduce) { .pw-substep.attention { animation:none; } }
+
 .pw-page {
   --pw-forest: #1E3A34;
   --pw-forest-hover: #16302b;
