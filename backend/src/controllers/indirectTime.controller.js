@@ -84,7 +84,10 @@ export const listMyIndirectServiceTypes = async (req, res, next) => {
     const types = await PayrollUserIndirectServiceAssignment.listMergedTypesForUser({
       agencyId,
       userId: req.user.id,
-      activeOnly: true
+      activeOnly: true,
+      // Manual note-review access is standard for supervisors until tracked
+      // note-signing claims replace manual submission. Other duties stay restricted.
+      ensureSupervisorNote: caps.isSupervisor
     });
     // Meeting attendance creates these claims; retain the type for historical reporting only.
     const manualTypes = types.filter(t => String(t.typeKey || t.type_key || '').trim().toLowerCase() !== 'supervisors_meeting');

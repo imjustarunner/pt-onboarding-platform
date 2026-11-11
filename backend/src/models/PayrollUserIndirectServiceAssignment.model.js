@@ -66,8 +66,9 @@ class PayrollUserIndirectServiceAssignment {
    * i.e. the provider-facing view). Admin edit views (activeOnly=false) always see the
    * full catalog so they can still assign restricted types to new people.
    */
-  static async listMergedTypesForUser({ agencyId, userId, activeOnly = true }) {
+  static async listMergedTypesForUser({ agencyId, userId, activeOnly = true, ensureSupervisorNote = false }) {
     const types = await PayrollIndirectServiceType.listForAgency({ agencyId, activeOnly: false });
+    if (activeOnly && ensureSupervisorNote) await this.ensureSupervisorNoteAssignment({ agencyId, userId });
     const assignments = await this.listForUser({ agencyId, userId });
     const byTypeId = new Map(assignments.map((a) => [a.serviceTypeId, a]));
     const restrictedTypeIds = activeOnly ? await this.listRestrictedTypeIds({ agencyId }) : new Set();
@@ -87,6 +88,24 @@ class PayrollUserIndirectServiceAssignment {
     }
     out.sort((x, y) => Number(x.sortOrder || 0) - Number(y.sortOrder || 0) || String(x.label).localeCompare(String(y.label)));
     return out;
+  }
+
+  /** Standard manual note-review access follows the supervisor role in each active agency. */
+  static async ensureSupervisorNoteAssignment({ agencyId, userId }) {
+    await pool.execute(
+      `INSERT INTO payroll_user_indirect_service_assignments (agency_id, user_id, service_type_id, is_enabled)
+       SELECT DISTINCT t.agency_id, u.id, t.id, 1
+       FROM payroll_indirect_service_types t
+       JOIN user_agencies ua ON ua.agency_id = t.agency_id
+       JOIN users u ON u.id = ua.user_id
+       WHERE t.agency_id = ? AND u.id = ?
+         AND t.type_key = 'supervision_note_time' AND t.pay_bucket = 'supervision_note' AND t.is_active = 1
+         AND (u.has_supervisor_privileges = 1 OR LOWER(u.role) = 'supervisor')
+         AND u.status = 'ACTIVE_EMPLOYEE' AND COALESCE(u.is_active, 1) = 1 AND COALESCE(u.is_archived, 0) = 0
+         AND COALESCE(ua.is_active, 1) = 1
+       ON DUPLICATE KEY UPDATE is_enabled = 1`,
+      [Number(agencyId), Number(userId)]
+    );
   }
 
   /** Add/update a single (agency, user, type) assignment row without touching the user's other types. */

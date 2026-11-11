@@ -377,7 +377,7 @@
             <div v-if="showSupervisionColumn" class="itl-dual-col itl-dual-col--supervision">
               <div class="itl-dual-head">
                 <span class="itl-dual-badge itl-dual-badge--supervision">Supervision Note Time</span>
-                <span class="itl-dual-sub">Paid at Admin Time rate · counts toward indirect / PTO</span>
+                <span class="itl-dual-sub">Admin Time rate · 50% of your supervision rate · counts toward indirect / PTO</span>
               </div>
               <div class="itl-type-grid" role="group" aria-label="Supervision Note Time">
                 <label

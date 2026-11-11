@@ -1,4 +1,5 @@
 import { createClaimReviewContext, claimReviewRead, claimReviewDay, mapClaimReviews, compactTimeClaim } from '../services/payrollClaimReview.service.js';
+import { isSupervisionNoteClaim, supervisionNoteHourlyRate } from '../services/supervisionNotePay.service.js';
 import { scopedPayrollCommand } from '../services/assistantPayrollCommand.service.js';
 import { humanRosterSql } from '../utils/workplacePeople.js';
 import { extractBillingProfileFields } from '../services/billingClientProfileEnrichment.service.js';
@@ -18638,6 +18639,9 @@ const _createMyTimeClaimHandler = async (req, res, next) => {
       || (Array.isArray(payload.allocations) ? payload.allocations : []).some(a => (a.serviceTypeKey || a.typeKey) === 'approved_travel')) {
       return res.status(409).json({ error: { message: 'Use Submit → Event travel reimbursement to submit travel time and mileage together.' } });
     }
+    if (payload.source === 'cosign_review_activity' || payload.cosignActivityId) {
+      return res.status(403).json({ error: { message: 'Submit tracked note-signing time from its note-review record. Use Supervision Note Time for untracked work.' } });
+    }
     await assertNoManualSupervisionClaim(payload);
     if (payload.ffsExcess && (claimType !== 'indirect_time' || payload.eventWorkType || payload.source)) return res.status(400).json({error:{message:'Use a clinical FFS indirect-time request without an automated source.'}});
     const attestation = payload?.attestation === true || payload?.attestation === 1 || payload?.attestation === '1';
@@ -18762,7 +18766,7 @@ const _createMyTimeClaimHandler = async (req, res, next) => {
 
       payload.categoryGroup = categoryGroup;
       await validateJacquelyneTime({ agencyId, userId, claimDate, payload });
-      if(categoryGroup==='admin_duties'||payload.excessIndirect){
+      if(categoryGroup==='admin_duties'||categoryGroup==='supervision_note'||payload.excessIndirect){
         delete payload.amount;delete payload.amountExplicit;delete payload.payRateAmountOverride;
       }
       await validateFfsExcess({agencyId,userId,claimDate,payload});
@@ -19118,6 +19122,10 @@ export const updateMyTimeClaim = async (req, res, next) => {
     const payloadIn = req.body?.payload && typeof req.body.payload === 'object'
       ? req.body.payload
       : {};
+    if ((payloadIn.source === 'cosign_review_activity' || payloadIn.cosignActivityId)
+      && claim.payload?.source !== 'cosign_review_activity') {
+      return res.status(403).json({ error: { message: 'Manual time cannot be converted to automatically tracked note-signing time.' } });
+    }
     if (claim.payload?.ffsExcess && (!payloadIn.ffsExcess || Number(payloadIn.ffsExcess.periodId)!==Number(claim.payload.ffsExcess.periodId))) return res.status(400).json({error:{message:'Keep this request in its original pay period and edit it using the clinical FFS calculator.'}});
     if (payloadIn.eventTravelReportId || payloadIn.eventTravelReport || payloadIn.source === 'event_travel_report') return res.status(409).json({ error: { message: 'Use the Event travel reimbursement form.' } });
     await assertNoManualSupervisionClaim(claim.payload);
@@ -19169,7 +19177,14 @@ export const updateMyTimeClaim = async (req, res, next) => {
       fromStatus: s
     });
 
-    const categoryGroup = String(payloadIn.categoryGroup || prevPayload.categoryGroup || 'indirect_service').trim();
+    const categoryGroup = String(payloadIn.categoryGroup || prevPayload.categoryGroup || 'indirect_service').trim().toLowerCase();
+    if ((categoryGroup === 'supervision_note' || prevPayload.source === 'cosign_review_activity') && !isAdminRole(req.user?.role)) {
+      const [users] = await pool.execute('SELECT has_supervisor_privileges, role FROM users WHERE id = ? LIMIT 1', [userId]);
+      const user = users?.[0] || {};
+      if (![true, 1, '1'].includes(user.has_supervisor_privileges) && String(user.role || '').toLowerCase() !== 'supervisor') {
+        return res.status(403).json({ error: { message: 'Supervision Note Time is for supervisors only' } });
+      }
+    }
     const serviceCode = serviceCodeForCategoryGroup(categoryGroup)
       || String(payloadIn.serviceCode || prevPayload.serviceCode || '').trim()
       || null;
@@ -19190,7 +19205,7 @@ export const updateMyTimeClaim = async (req, res, next) => {
 
     await validateJacquelyneTime({agencyId:claim.agency_id,userId,claimDate:recurringDay(req.body?.claimDate||claim.claim_date),payload:nextPayload,claimId:id});
     await validateFfsExcess({agencyId:claim.agency_id,userId,claimDate:recurringDay(req.body?.claimDate||claim.claim_date),payload:nextPayload,claimId:id});
-    if(categoryGroup==='admin_duties'||nextPayload.excessIndirect||nextPayload.ffsExcess){delete nextPayload.amount;delete nextPayload.amountExplicit;delete nextPayload.payRateAmountOverride;}
+    if(categoryGroup==='admin_duties'||categoryGroup==='supervision_note'||nextPayload.excessIndirect||nextPayload.ffsExcess){delete nextPayload.amount;delete nextPayload.amountExplicit;delete nextPayload.payRateAmountOverride;}
 
     let claimDate = claim.claim_date;
     if (req.body?.claimDate) {
@@ -19469,6 +19484,8 @@ export const listTimeClaims = async (req, res, next) => {
         const categoryGroup = String(payload.categoryGroup || '').trim().toLowerCase();
         if (payload.hourlySupervision) {
           rateLabel = 'Hourly Supervision Rate';
+        } else if (isSupervisionNoteClaim(row)) {
+          rateLabel = 'Admin Time rate (supervision notes)';
         } else if (categoryGroup === 'support_activity' || code === 'MEETING') {
           rateLabel = 'Support Activity rate';
         } else if (code) {
@@ -19485,6 +19502,12 @@ export const listTimeClaims = async (req, res, next) => {
           rateLabel = MEETING_RATE_TYPES[override?.rate_type] || rateLabel;
         }
         const extraRates = [];
+        if (isSupervisionNoteClaim(row)) {
+          try {
+            const noteRate = estimateDetails.hourlyRate ?? await supervisionNoteHourlyRate({ agencyId, userId: row.user_id, asOf: row.claim_date, rateContext });
+            if (noteRate > 0) extraRates.push({ key: 'supervision_note_admin', label: 'Admin Time (supervision notes)', bucket: 'indirect', amount: noteRate, unit: 'hour' });
+          } catch { /* Keep saved approved amounts visible when rate setup needs review. */ }
+        }
         try {
           // eslint-disable-next-line no-await-in-loop
           const perCodeRates = await rateContext.read(`codes:${row.user_id}`, () => PayrollRate.listForUser(agencyId, Number(row.user_id)));
@@ -19494,7 +19517,7 @@ export const listTimeClaims = async (req, res, next) => {
             if (!sc || seenCodes.has(sc)) continue;
             seenCodes.add(sc);
             const unitRaw = String(rr.rate_unit || 'per_unit').trim().toLowerCase();
-            const unitLabel = ['99414', '99415', '99416', 'MEETING'].includes(sc) || unitRaw === 'per_hour' ? 'hour' : 'unit';
+            const unitLabel = ['99414', '99415', '99416', 'MEETING', 'ADMIN TIME', 'INDIVIDUAL MEETING', 'MENTOR/CPA MEETING', 'SUPERVISOR MEETING'].includes(sc) || unitRaw === 'per_hour' ? 'hour' : 'unit';
             extraRates.push({
               key: `comp_${sc}`,
               label: ({ MEETING: 'Support Activity Rate', '99415': 'Individual Supervision Rate', '99416': 'Group Supervision Rate' })[sc] || `${sc} (compensation table)`,
@@ -19531,7 +19554,7 @@ export const listTimeClaims = async (req, res, next) => {
           extraRates
         });
         const typeId = Number(payload?.allocations?.[0]?.serviceTypeId || 0);
-        if (typeId > 0 && row.user_id) {
+        if (typeId > 0 && row.user_id && !isSupervisionNoteClaim(row)) {
           try {
             // eslint-disable-next-line no-await-in-loop
             const override = await rateContext.read(`duty:${row.user_id}:${typeId}`, () => PayrollUserIndirectServiceAssignment.findRateOverride({
@@ -19774,6 +19797,11 @@ export async function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard,
       if (Number.isFinite(mins) && mins > 0) hrs = mins / 60;
     }
     if (!(Number.isFinite(hrs) && hrs > 0)) return null;
+
+    if (isSupervisionNoteClaim(claim)) {
+      const rate = await supervisionNoteHourlyRate({ agencyId: claim.agency_id, userId: claim.user_id, asOf: claim.claim_date, rateContext });
+      return rate > 0 ? hourlyPay(hrs, rate) : null;
+    }
 
     if (type === 'meeting_training' && payload.source === 'meeting_compensation_auto') {
       const hourlyRate = await meetingClaimHourlyRate(claim);

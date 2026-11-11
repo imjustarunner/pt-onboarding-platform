@@ -81,3 +81,12 @@ it('keeps approved historical amounts and provides full detail only on explicit 
  expect(r.json.mock.calls[0][0][0]).toMatchObject({payEstimate:{amount:17},hasTranscript:true});expect(r.json.mock.calls[0][0][0].payload.transcriptText).toBeUndefined();
  const detail=res();await getTimeClaim({...req(),params:{id:'1'}},detail,vi.fn());expect(detail.json.mock.calls[0][0].claim.payload.transcriptText).toBe('A detailed transcript');
 });
+it('pays supervision notes at half the signed supervision rate and labels the actual Admin Time rate',async()=>{
+ times=[{...time(1),credits_hours:0.5,payload:{categoryGroup:'supervision_note',serviceCode:'Admin Time',totalMinutes:30,allocations:[{serviceTypeId:9}]}}];
+ m.pay.mockResolvedValue({enabled:true,status:{useReducedRates:true},rateProfile:{indirectRate:24,supportActivityRate:18,roleCompensation:{supervisor:{hourlyRate:65}}}});
+ const r=res(),next=vi.fn();await listTimeClaims({...req(),query:{agencyId:2,status:'submitted'}},r,next);
+ expect(next).not.toHaveBeenCalled();expect(r.json.mock.calls[0][0][0]).toMatchObject({payEstimate:{amount:16.25,hourlyRate:32.5,rateLabel:'Admin Time rate (supervision notes)',rateBucket:'indirect'}});
+ expect(r.json.mock.calls[0][0][0].payEstimate.availableRates).toContainEqual(expect.objectContaining({key:'supervision_note_admin',amount:32.5,unit:'hour',bucket:'indirect'}));
+ const batch=res();await batchPayrollClaims(req([{kind:'time',id:1,targetPayrollPeriodId:8,creditsHours:0.5,bucket:'indirect',overrideDeadline:true}]),batch,next);
+ expect(m.approve).toHaveBeenCalledWith(expect.objectContaining({appliedAmount:16.25,bucket:'indirect'}));
+});

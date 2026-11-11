@@ -32,3 +32,26 @@ it('rejects manual supervisors meeting claims from payroll', async () => {
  expect(next).toHaveBeenCalledWith(expect.objectContaining({ status: 403, message: expect.stringContaining('automatically') }));
  expect(m.create).not.toHaveBeenCalled();
 });
+it('does not let a non-supervisor convert an existing claim to supervisor note time',async()=>{
+ m.execute.mockResolvedValue([[{has_supervisor_privileges:0,role:'provider'}]]);
+ const response=res(),next=vi.fn();
+ await updateMyTimeClaim({user:{id:20,role:'provider'},params:{id:1},body:{editReason:'Correct the activity',payload:{categoryGroup:'SUPERVISION_NOTE',attestation:true,totalMinutes:30,allocations:[{serviceTypeLabel:'Supervision notes',minutes:30}]}}},response,next);
+ expect(next).not.toHaveBeenCalled();expect(response.status).toHaveBeenCalledWith(403);expect(response.json).toHaveBeenCalledWith({error:{message:'Supervision Note Time is for supervisors only'}});
+ expect(m.execute.mock.calls.every(([sql])=>sql.startsWith('SELECT'))).toBe(true);
+});
+it('allows supervisors past the note-edit permission check without weakening the remaining validation',async()=>{
+ const stop=new Error('Stop before persistence');m.execute.mockImplementation(async sql=>{if(sql.includes('SELECT has_supervisor_privileges'))return[[{has_supervisor_privileges:1,role:'provider'}]];throw stop;});
+ const response=res(),next=vi.fn();
+ await updateMyTimeClaim({user:{id:20,role:'provider'},params:{id:1},body:{editReason:'Correct the activity',payload:{categoryGroup:'supervision_note',attestation:true,totalMinutes:30,allocations:[{serviceTypeLabel:'Supervision notes',minutes:30}]}}},response,next);
+ expect(response.status).not.toHaveBeenCalledWith(403);expect(next).toHaveBeenCalledWith(stop);
+});
+it('does not let employee payroll submissions claim the trusted automatic co-sign source',async()=>{
+ const response=res(),next=vi.fn();
+ await createMyTimeClaim.at(-1)({user:{id:20,role:'provider'},body:{agencyId:2,claimType:'indirect_time',payload:{source:'cosign_review_activity',attestation:true,categoryGroup:'support_activity'}}},response,next);
+ expect(response.status).toHaveBeenCalledWith(403);expect(m.create).not.toHaveBeenCalled();
+});
+it('does not let a manual claim be edited into the trusted automatic co-sign source',async()=>{
+ const response=res(),next=vi.fn();
+ await updateMyTimeClaim({user:{id:20,role:'provider'},params:{id:1},body:{editReason:'Changing the source',payload:{source:'cosign_review_activity'}}},response,next);
+ expect(response.status).toHaveBeenCalledWith(403);expect(next).not.toHaveBeenCalled();
+});
