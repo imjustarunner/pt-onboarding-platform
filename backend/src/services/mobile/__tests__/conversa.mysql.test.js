@@ -66,7 +66,21 @@ describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('personal mobile inbox SQL',
   expect((await grouped.emails(1,{suite:'groups'}))).toHaveLength(4);expect((await grouped.emails(1,{suite:'groups',filter:'unread'})).map(i=>i.id)).toEqual([1]);expect((await grouped.emails(1,{suite:'groups'}))[0]).toMatchObject({groupName:'Support',destinationAccount:'support@example.invalid'});expect((await grouped.emailCounts(1)).find(c=>c.category==='groups').unread).toBe(1);
   await db.execute('UPDATE support_tickets SET claimed_by_user_id=2 WHERE id=1');expect(await grouped.emails(1,{suite:'groups',filter:'unread'})).toHaveLength(0);
  });
- it('uses the exact school recipient logo with mixed collations, not a school named in the subject',async()=>{await mail(1);await db.query("INSERT INTO agencies(id,name,organization_type,logo_url,icon_id) VALUES(77,'Bradley','school','fallback.png',8);INSERT INTO icons VALUES(8,'schools/bradley-icon.png');INSERT INTO school_profiles VALUES(77,'Bradley@Example.invalid');INSERT INTO organization_affiliations VALUES(77,10,1)");await db.execute("UPDATE communication_messages SET auto_reply_kind='school_group_notification',to_json=JSON_ARRAY(JSON_OBJECT('email','bradley@example.invalid')) WHERE conversation_id=1");const identities=await mobileEmailSchoolIdentities([{id:1,latest_kind:'school_group_notification'}],{db});expect(identities.get(1)).toMatchObject({schoolId:77,schoolName:'Bradley',avatar:expect.stringContaining('bradley-icon.png')});await db.execute('UPDATE organization_affiliations SET is_active=0');expect((await mobileEmailSchoolIdentities([{id:1,latest_kind:'school_group_notification'}],{db})).size).toBe(0);});
+ it('uses the exact school recipient logo with mixed collations, not a school named in the subject',async()=>{
+  await mail(1);
+  await db.query("INSERT INTO agencies(id,name,organization_type,logo_url,icon_id) VALUES(77,'Bradley','school','fallback.png',8);INSERT INTO icons VALUES(8,'schools/bradley-icon.png');INSERT INTO school_profiles VALUES(77,'Bradley@Example.invalid');INSERT INTO organization_affiliations VALUES(77,10,1)");
+  await db.execute("UPDATE communication_messages SET auto_reply_kind='school_group_notification',to_json=JSON_ARRAY(JSON_OBJECT('email','bradley@example.invalid')) WHERE conversation_id=1");
+  const candidates=[{id:1,latest_kind:'school_group_notification'}];
+  const identities=await mobileEmailSchoolIdentities(candidates,{db});
+  expect(identities.get(1)).toMatchObject({schoolId:77,schoolName:'Bradley',avatar:expect.stringContaining('bradley-icon.png')});
+  await db.execute("UPDATE communication_messages SET to_json=JSON_ARRAY(),cc_json=JSON_ARRAY(JSON_OBJECT('email',' BRADLEY@example.invalid ')) WHERE conversation_id=1");
+  expect((await mobileEmailSchoolIdentities(candidates,{db})).get(1)?.schoolId).toBe(77);
+  await db.execute('UPDATE communication_conversations SET agency_id=20 WHERE id=1');
+  expect((await mobileEmailSchoolIdentities(candidates,{db})).size).toBe(0);
+  await db.execute('UPDATE communication_conversations SET agency_id=10 WHERE id=1');
+  await db.execute('UPDATE organization_affiliations SET is_active=0');
+  expect((await mobileEmailSchoolIdentities(candidates,{db})).size).toBe(0);
+ });
  it('keeps non-ticket school notifications unread per user in both Groups and All',async()=>{
   await db.query("INSERT INTO communication_inboxes(id,agency_id,kind,identity_key,display_name,from_email) VALUES(5,10,'shared','schools','Schools','schools@example.invalid')");
   const database={execute:async(sql,args)=>{
