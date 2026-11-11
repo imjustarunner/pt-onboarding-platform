@@ -23,7 +23,7 @@ it.skipIf(process.env.BILLING_FOLLOWUP_MYSQL_TEST!=='1')('deduplicates findings 
   const send=vi.fn(async()=>({id:'synthetic-message',communicationId:30}));
   const deps={pool:{getConnection:async()=>connection},canRun:async()=>true,resolveSender:async()=>({identity:{id:2},replyTo:'technology@example.test'}),notify:async()=>({id:1}),send};
   expect(await runClaimMdDataMonitor(deps)).toEqual({findings:2,status:'sent'});
-  expect(await runClaimMdDataMonitor(deps)).toEqual({skipped:'daily_digest_cooldown'});
+  expect(await runClaimMdDataMonitor(deps)).toEqual({skipped:'monthly_digest_cooldown'});
   await recordDataGaps(2,[issue],db);expect(send).toHaveBeenCalledOnce();
   const [sent]=await db.query('SELECT notification_status,communication_id FROM claimmd_data_gaps');
   expect(sent.every(r=>r.notification_status==='sent'&&Number(r.communication_id)===30)).toBe(true);

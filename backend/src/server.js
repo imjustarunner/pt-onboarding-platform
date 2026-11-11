@@ -3089,7 +3089,7 @@ if (process.env.CLAIM_MD_ELIGIBILITY_AUTOMATION_ENABLED === 'true' || process.en
 }
 
 // Metadata-only payer-data monitoring. The worker verifies the live revision,
-// shares a database lock and sends at most one Technology digest per day.
+// shares a database lock and sends at most one Technology digest per calendar month.
 if (process.env.NODE_ENV !== 'test') {
   let payerDataMonitorRunning = false;
   const timer = setInterval(async () => {

@@ -4,7 +4,12 @@ import { contractHash, inspectReturnedFields, publicIssuePath, comparePublishedC
 
 const supportedAgencies = new Set([2, 6, 377]);
 const technologyAgency = 2;
-const day = 24 * 60 * 60 * 1000;
+const calendarMonth = new Intl.DateTimeFormat('en-US', {timeZone:'America/Denver',year:'numeric',month:'2-digit'});
+export function payerMonitorMonthDue(previous, now = Date.now()) {
+  if (!previous) return true;
+  const last = new Date(previous);
+  return !Number.isFinite(last.getTime()) || calendarMonth.format(last) !== calendarMonth.format(new Date(now));
+}
 const failureKinds = new Set(['invalid_api_response', 'profile_import_failed', 'evidence_storage_failed', 'published_contract_unavailable']);
 
 export async function recordDataGaps(agencyId, issues, db = pool) {
@@ -94,14 +99,14 @@ export async function runClaimMdDataMonitor(deps = {}) {
     const [[state]] = await db.execute('SELECT * FROM claimmd_data_monitor_state WHERE id=1');
     if (!state) throw Error('claimmd_monitor_migration_required');
     const now = deps.now ? deps.now() : Date.now();
-    if (!state.catalog_checked_at || now - new Date(state.catalog_checked_at).getTime() >= day) {
+    if (payerMonitorMonthDue(state.catalog_checked_at, now)) {
       // Mark the attempt first, including failures: repeated polls must not hammer
       // the documentation site. A failure itself creates a durable finding.
       await db.execute('UPDATE claimmd_data_monitor_state SET catalog_checked_at=UTC_TIMESTAMP() WHERE id=1');
       try { await recordDataGaps(0, comparePublishedContract(await (deps.fetchContract || fetchPublicContract)()), db); }
       catch { await recordDataGaps(0, [{endpoint:'documentation',path:'$catalog',kind:'published_contract_unavailable'}], db); }
     }
-    if (state.digest_attempted_at && now - new Date(state.digest_attempted_at).getTime() < day) return { skipped: 'daily_digest_cooldown' };
+    if (!payerMonitorMonthDue(state.digest_attempted_at, now)) return { skipped: 'monthly_digest_cooldown' };
     const [rows] = await db.execute("SELECT id,agency_id,payer_id,endpoint,issue_kind,public_path FROM claimmd_data_gaps WHERE notification_status='pending' ORDER BY id LIMIT 1000");
     if (!rows.length) return { findings: 0 };
     const resolveSender = deps.resolveSender || (await import('./providerUpdateEmailSender.service.js')).resolveProviderUpdateSender;

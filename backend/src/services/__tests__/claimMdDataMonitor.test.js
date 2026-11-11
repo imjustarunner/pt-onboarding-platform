@@ -1,7 +1,7 @@
 import { beforeEach, it, expect, vi } from 'vitest';
 vi.mock('../../config/database.js', () => ({default:{execute:vi.fn()}}));
 import { inspectReturnedFields, publicIssuePath, comparePublishedContract, publishedContract, parsePublishedState, summarizePublishedContract } from '../claimMdDataContract.js';
-import { observeClaimMdData, recordDataGaps, runClaimMdDataMonitor, dataGapDigest, fetchPublicContract } from '../claimMdDataMonitor.service.js';
+import { observeClaimMdData, recordDataGaps, runClaimMdDataMonitor, dataGapDigest, fetchPublicContract, payerMonitorMonthDue } from '../claimMdDataMonitor.service.js';
 import { decryptFamilyBilling } from '../familyBillingEncryption.service.js';
 import { validateOutboundEmailQuality } from '../outboundEmailQuality.service.js';
 
@@ -122,7 +122,7 @@ it('durably claims a grouped digest before sending and logs successful delivery'
 
 it('defers repeated digests and prevents preview revisions or competing workers from sending', async () => {
   const w=worker({state:{digest_attempted_at:new Date('2026-11-11T11:00:00Z')}});
-  expect(await runClaimMdDataMonitor(w.deps)).toEqual({skipped:'daily_digest_cooldown'});expect(w.send).not.toHaveBeenCalled();
+  expect(await runClaimMdDataMonitor(w.deps)).toEqual({skipped:'monthly_digest_cooldown'});expect(w.send).not.toHaveBeenCalled();
   expect(await runClaimMdDataMonitor({...w.deps,canRun:async()=>false})).toEqual({skipped:'inactive_revision'});
   w.db.execute.mockResolvedValueOnce([[{acquired:0}]]);
   expect(await runClaimMdDataMonitor(w.deps)).toEqual({skipped:'already_running'});
@@ -136,10 +136,32 @@ it('records blocked, queued, and ambiguous sends honestly without declaring an e
   expect(await runClaimMdDataMonitor(w.deps)).toEqual({findings:1,status:'unknown'});
 });
 
-it('records a broken documentation feed as a finding and limits polling to once daily', async () => {
+it('records a broken documentation feed as a finding and limits polling to once monthly', async () => {
   const w=worker({state:{catalog_checked_at:null},rows:[]});const fetchContract=vi.fn().mockRejectedValue(Error('parse failed'));
   await runClaimMdDataMonitor({...w.deps,fetchContract});
   expect(fetchContract).toHaveBeenCalledOnce();
   expect(w.db.execute).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO claimmd_data_gaps'),expect.arrayContaining(['published_contract_unavailable']));
   expect(w.events.findIndex(s=>s.includes('SET catalog_checked_at'))).toBeLessThan(w.events.findIndex(s=>s.includes('INSERT INTO claimmd_data_gaps')));
+});
+
+it('uses calendar months in Denver rather than elapsed days or the UTC month boundary',()=>{
+ expect(payerMonitorMonthDue(null,Date.parse('2026-11-11T12:00:00Z'))).toBe(true);
+ expect(payerMonitorMonthDue('2026-11-01T09:00:00Z',Date.parse('2026-11-30T23:00:00Z'))).toBe(false);
+ expect(payerMonitorMonthDue('2026-11-01T09:00:00Z',Date.parse('2026-12-01T06:59:59Z'))).toBe(false);
+ expect(payerMonitorMonthDue('2026-11-01T09:00:00Z',Date.parse('2026-12-01T07:00:00Z'))).toBe(true);
+ expect(payerMonitorMonthDue('2026-12-05T12:00:00Z',Date.parse('2027-01-01T07:00:00Z'))).toBe(true);
+});
+
+it('does not recheck documentation or resend a digest on later days in the same month',async()=>{
+ const w=worker({state:{catalog_checked_at:new Date('2026-11-02T12:00:00Z'),digest_attempted_at:new Date('2026-11-02T12:00:00Z')}});
+ const fetchContract=vi.fn();
+ expect(await runClaimMdDataMonitor({...w.deps,fetchContract})).toEqual({skipped:'monthly_digest_cooldown'});
+ expect(fetchContract).not.toHaveBeenCalled();expect(w.send).not.toHaveBeenCalled();
+});
+
+it('runs the next month’s audit and digest when new findings are pending',async()=>{
+ const w=worker({state:{catalog_checked_at:new Date('2026-10-29T12:00:00Z'),digest_attempted_at:new Date('2026-10-29T12:00:00Z')}});
+ const fetchContract=vi.fn().mockResolvedValue(publishedContract);
+ expect(await runClaimMdDataMonitor({...w.deps,fetchContract})).toEqual({findings:1,status:'sent'});
+ expect(fetchContract).toHaveBeenCalledOnce();expect(w.send).toHaveBeenCalledOnce();
 });
