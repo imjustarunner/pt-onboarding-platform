@@ -36,7 +36,7 @@ async function load(append=false){const current=++version;loading.value=true;err
     props.paperEnabled&&!append?api.get(`/clients/${props.clientId}/paper-packet-documents`,{skipGlobalLoading:true}):Promise.resolve(null)
   ]);if(current!==version)return;
   const [billing,clinical,paper]=results;
-  if(paper.status==='fulfilled'&&paper.value)paperTasks.value=paper.value.data.tasks||[];
+  if(paper.status==='fulfilled'&&paper.value){paperTasks.value=paper.value.data.tasks||[];if(paper.value.data.tasksUnavailable)error.value='Paper-processing tasks could not load. The saved packet documents remain available; refresh tasks to try again.';}
   if(billing.status==='fulfilled'&&billing.value){tasks.value=append?[...tasks.value,...billing.value.data.rows]:billing.value.data.rows;more.value=billing.value.data.nextAfter;}
   if(clinical.status==='fulfilled'&&clinical.value)notes.value=clinical.value.data.encounters||[];
   if(results.some(r=>r.status==='rejected'&&r.reason.response?.status!==403))error.value='Some tasks could not load. Refresh to try again.';

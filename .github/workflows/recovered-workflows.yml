@@ -56,6 +56,7 @@ jobs:
         run: |
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.qa-final1110.config.js
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.paper-followup.config.js
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.paper-mysql.config.js
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.school-roi-followup.config.js
           node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.qa-final1110.config.js
           node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.paper-followup.config.js
