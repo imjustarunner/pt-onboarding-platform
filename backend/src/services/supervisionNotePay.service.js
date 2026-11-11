@@ -1,6 +1,7 @@
 import PayrollRate from '../models/PayrollRate.model.js';
 import { loadUserPaySystemContext } from './paySystem.service.js';
 import { claimReviewRead, claimReviewDay } from './payrollClaimReview.service.js';
+import { roleCompensationRate } from './roleCompensationRate.js';
 
 export function isSupervisionNoteClaim(claim) {
   const payload = claim?.payload || {};
@@ -17,8 +18,8 @@ export async function supervisionNoteHourlyRate({ agencyId, userId, asOf, rateCo
     const context = await claimReviewRead(rateContext, `pay:${userId}:${date}`, () => loadUserPaySystemContext({
       agencyId: Number(agencyId), userId: Number(userId), periodEnd: new Date(date)
     }));
-    const supervision = Number(context?.rateProfile?.roleCompensation?.supervisor?.hourlyRate);
-    if (context?.enabled && Number.isFinite(supervision) && supervision > 0) return supervision * 0.5;
+    const assigned = roleCompensationRate(context?.rateProfile?.roleCompensation, 'Admin Time', { categoryGroup: 'supervision_note' });
+    if (context?.enabled && Number.isFinite(assigned) && assigned > 0) return assigned;
 
     // Retain dated, employee-specific administrative rates on legacy schedules.
     const admin = await PayrollRate.findBestRate({ agencyId: Number(agencyId), userId: Number(userId), serviceCode: 'Admin Time', asOf: date });

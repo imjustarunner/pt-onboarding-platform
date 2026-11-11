@@ -14,6 +14,10 @@ it('preserves a configured employee Admin Time rate on legacy schedules',async()
  m.rate.mockResolvedValue({rate_amount:32.5});expect(await supervisionNoteHourlyRate(input)).toBe(32.5);
  expect(m.rate).toHaveBeenCalledExactlyOnceWith({agencyId:2,userId:7,serviceCode:'Admin Time',asOf:'2026-11-06'});
 });
+it('retains signed personal administrative terms when the employee has a mentor/CPA administrative assignment',async()=>{
+ m.context.mockResolvedValue({enabled:true,rateProfile:{roleCompensation:{mentor:{meetingRate:28,adminRate:23}}}});
+ expect(await supervisionNoteHourlyRate(input)).toBe(23);expect(m.rate).not.toHaveBeenCalled();
+});
 it('derives legacy Admin Time from individual supervision when no Admin Time rate exists',async()=>{
  m.rate.mockImplementation(async({serviceCode})=>serviceCode==='99415'?{rate_amount:65}:null);
  expect(await supervisionNoteHourlyRate({...input,agencyId:6})).toBe(32.5);
