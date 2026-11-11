@@ -3,7 +3,7 @@ const m = vi.hoisted(() => ({ execute: vi.fn(), beginTransaction: vi.fn(), commi
 vi.mock('../../config/database.js', () => ({ default: { execute: m.execute, getConnection: async () => m } }));
 vi.mock('../clientExchange.service.js', () => ({ getListingForMatching: m.listing }));
 vi.mock('../clientExchangeEligibility.service.js', () => ({ loadExchangeProvider: m.provider, evaluateCurrentExchangeFit: m.fit }));
-import { changeExchangeWaiver, loadExchangeWaivers } from '../clientExchangeWaivers.service.js';
+import { changeExchangeWaiver, loadExchangeWaivers, loadExchangeWaiversBatch } from '../clientExchangeWaivers.service.js';
 const input = { listingId: 11, agencyId: 2, providerUserId: 10, actor: { id: 7, role: 'support' }, field: 'age', fingerprint: 'current', reason: 'Discussed age coverage with the provider' };
 beforeEach(() => {
   vi.clearAllMocks(); m.listing.mockResolvedValue({ id: 11, agencyId: 2 }); m.provider.mockResolvedValue({ user: { id: 10 } });
@@ -42,3 +42,6 @@ it('loads waivers only for the requested listing and provider', async () => {
   expect(m.execute).toHaveBeenCalledWith(expect.stringContaining('AND w.provider_user_id = ? AND w.revoked_at IS NULL'), [11, 10]);
   expect(rows[0]).toMatchObject({ id: 4, field: 'age', waivedByName: 'Support Person' });
 });
+
+it('batches current personal waivers with agency, viewer, active-evidence and bounded listing restrictions',async()=>{const execute=vi.fn(async()=>[[{id:4,listing_id:11,provider_user_id:10,field:'age',fingerprint:'current'}]]);const result=await loadExchangeWaiversBatch({listingIds:[11,11,12,-1,'bad'],agencyId:2,userId:10,database:{execute}});expect(execute).toHaveBeenCalledTimes(1);expect(execute.mock.calls[0][0]).toContain('JOIN client_exchange_listings l ON l.id=w.listing_id');expect(execute.mock.calls[0][0]).toContain('l.agency_id=? AND w.provider_user_id=? AND w.revoked_at IS NULL');expect(execute.mock.calls[0][1]).toEqual([2,10,11,12]);expect(result.get(11)[0]).toMatchObject({id:4,providerUserId:10,field:'age'});expect(result.get(12)).toBeUndefined();});
+it('bounds batch size and does not query with an invalid viewer or no listings',async()=>{const execute=vi.fn(async()=>[[]]);await loadExchangeWaiversBatch({listingIds:Array.from({length:205},(_,i)=>i+1),agencyId:2,userId:10,database:{execute}});expect(execute.mock.calls.map(([,values])=>values.length)).toEqual([102,102,7]);execute.mockClear();await loadExchangeWaiversBatch({listingIds:[11],agencyId:2,userId:0,database:{execute}});await loadExchangeWaiversBatch({listingIds:[],agencyId:2,userId:10,database:{execute}});expect(execute).not.toHaveBeenCalled();});

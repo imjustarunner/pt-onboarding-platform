@@ -19,5 +19,8 @@ export function accountUrl(workspace,path='account-info') {
   const url=new URL(workspace.loginUrl);url.pathname=url.pathname.replace(/login\/?$/,path);url.search='';url.hash='';return url.href;
 }
 export function mobileRequestError(error) {
-  return error.response?.data?.error?.message || error.message || 'Could not connect. Please try again.';
+  const server=error?.response?.data?.error?.message;
+  if(server)return server;
+  if(['ERR_NETWORK','ECONNABORTED','ETIMEDOUT','MOBILE_CONNECTION_FAILED','MOBILE_INVALID_RESPONSE'].includes(error?.code) || /^(?:Network error|Network Error|Failed to fetch|Could not connect\. Please try again\.)$/i.test(error?.message || ''))return 'Could not reach AuricWell. Your code is still entered. Check your connection and tap Try again. No extra attempt will be sent automatically.';
+  return error?.message || 'Could not reach AuricWell. Please try again.';
 }

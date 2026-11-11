@@ -50,7 +50,8 @@ export async function listListings(req, res, next) {
       agencyId,
       status: req.query.status || null,
       viewerUserId: req.user.id,
-      viewerRole: req.user.role
+      viewerRole: req.user.role,
+      personalFit: req.mobileExchangePersonalFit === true
     });
     res.json({ listings });
   } catch (e) {
@@ -65,7 +66,8 @@ export async function getListing(req, res, next) {
     if (!listingId) return res.status(400).json({ error: { message: 'Invalid listing id' } });
     const listing = await ClientExchange.getListingById(listingId, {
       viewerUserId: req.user.id,
-      viewerRole: req.user.role
+      viewerRole: req.user.role,
+      personalFit: req.mobileExchangePersonalFit === true
     });
     if (!listing) return res.status(404).json({ error: { message: 'Listing not found' } });
     if (!(await assertAgencyAccess(req, listing.agencyId))) {

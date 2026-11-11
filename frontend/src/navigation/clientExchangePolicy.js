@@ -73,3 +73,12 @@ export function groupedExchangeParameters(providers,showEligibility=false) {
     return row;
   }).filter(row=>row.pass.length+row.fail.length+row.unknown.length+row.unspecified.length>0);
 }
+
+/** A viewer's request decision, not a guarantee of assignment or an agency-wide match. */
+export function exchangePersonalFitSummary(fit){
+ if(typeof fit?.canRequest!=='boolean')return {state:'unavailable',label:'Matching unavailable',reasons:['Open the listing to review current matching details.']};
+ const state=!fit.canRequest?'blocked':fit.status==='match'?'matched':'eligible';
+ const label=state==='blocked'?'Request blocked':state==='matched'?'Matched to you':'Not matched yet · Can request';
+ const reasons=[...new Set([...(fit.blockers||[]),...(fit.adjustments||[]),...(fit.review||[])].map(reason=>String(reason.message||reason.reason||'').trim()).filter(Boolean))];
+ return {state,label,reasons};
+}

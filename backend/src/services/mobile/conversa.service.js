@@ -68,7 +68,7 @@ const unknownSqlFor=userId=>`(c.channel='email' AND COALESCE(c.is_unknown_sender
   AND NOT EXISTS(SELECT 1 FROM email_sender_identities known_sender WHERE known_sender.is_active=1 AND ${emailAddressSql('known_sender.from_email')}=${senderAddress})
   AND NOT EXISTS(SELECT 1 FROM communication_inboxes known_box WHERE ${emailAddressSql('known_box.from_email')}=${senderAddress}))`;
 const unreadSql=`(COALESCE(r.forced_unread,0)=1 OR EXISTS(SELECT 1 FROM communication_messages incoming WHERE incoming.conversation_id=c.id AND incoming.direction='inbound' AND COALESCE(incoming.is_internal_note,0)=0 AND COALESCE(incoming.send_status,'sent') NOT IN('cancelled','preparing') AND (r.last_read_at IS NULL OR r.last_read_at<COALESCE(incoming.sent_at,incoming.created_at))))`;
-export function createMobileConversaStore(db=pool,{listAgencies=null,groupAccess=null}={}) {
+export function createMobileConversaStore(db=pool,{listAgencies=null,groupAccess=null,groupKeys=null}={}) {
   async function preferences(userId) {
     const [[row]]=await db.execute('SELECT preferences_json FROM mobile_workspace_preferences WHERE user_id=?',[userId]);
     let value=row?.preferences_json || {};if(typeof value==='string')try{value=JSON.parse(value);}catch{value={};}
@@ -90,15 +90,18 @@ export function createMobileConversaStore(db=pool,{listAgencies=null,groupAccess
   async function emailScope(userId,includeArchived,agencyId=null) {
     let access=MOBILE_EMAIL_ACCESS_SQL,params=Array(6).fill(userId),groupIds=[],agencyBrands=new Map();
     if(db===pool || listAgencies){
-      const {default:User}=await import('../../models/User.model.js');const {listMobileAgencies}=await import('./agencyScope.service.js');const {groupKeyForIdentity,canAccessDepartmentalGroup}=await import('../departmentalGroupAccess.service.js');
+      const {default:User}=await import('../../models/User.model.js');const {listMobileAgencies}=await import('./agencyScope.service.js');const {groupKeyForIdentity,listUserDepartmentalGroupKeys}=await import('../departmentalGroupAccess.service.js');
       const user=listAgencies?{id:userId}:await User.findById(userId,{raw:true}),{agencies}=await (listAgencies || listMobileAgencies)(user);
       for(const agency of agencies)agencyBrands.set(Number(agency.id),{agencyName:agency.name,agencyLogoUrl:mobileAgencyIcon(agency)});
       const ids=agencies.map(a=>Number(a.id)).filter(id=>!agencyId || id===Number(agencyId));
       if(!ids.length)return {where:'1=0',params:[],groupIds,agencyBrands};
       const [boxes]=await db.execute(`SELECT * FROM communication_inboxes WHERE agency_id IN(${ids.map(()=>'?').join(',')}) AND kind<>'personal'`,ids);
       const [managed]=await db.execute(`SELECT g.* FROM managed_workspace_groups g JOIN chat_thread_participants p ON p.thread_id=g.chat_thread_id AND p.user_id=? WHERE g.agency_id IN(${ids.map(()=>'?').join(',')})`,[userId,...ids]);
-      const denied=[];
-      for(const box of boxes){const identity=groupEmailIdentity(box,managed),key=groupKeyForIdentity(box);if(!identity)continue;if(!key){groupIds.push(Number(box.id));continue;}if(await (groupAccess || canAccessDepartmentalGroup)({agencyId:box.agency_id,userId,groupKey:key,db}))groupIds.push(Number(box.id));else denied.push(Number(box.id));}
+      // One fresh role/profile lookup per agency in this request, rather than
+      // repeating that same lookup for every departmental mailbox and counter.
+      const denied=[],keysByAgency=new Map();
+      async function permitted(box,key){if(groupAccess)return groupAccess({agencyId:box.agency_id,userId,groupKey:key,db});const id=Number(box.agency_id);if(!keysByAgency.has(id))keysByAgency.set(id,(groupKeys || listUserDepartmentalGroupKeys)({agencyId:id,userId,db}));return (await keysByAgency.get(id)).includes(key);}
+      for(let offset=0;offset<boxes.length;offset+=4){const decisions=await Promise.all(boxes.slice(offset,offset+4).map(async box=>{const identity=groupEmailIdentity(box,managed),key=groupKeyForIdentity(box);return !identity?null:{id:Number(box.id),allowed:!key || await permitted(box,key)};}));for(const decision of decisions)if(decision)(decision.allowed?groupIds:denied).push(decision.id);}
       const personal=MOBILE_EMAIL_ACCESS_SQL.slice(MOBILE_EMAIL_ACCESS_SQL.indexOf('AND (')+4);
       access=`c.agency_id IN(${ids.map(()=>'?').join(',')}) AND (${personal}${groupIds.length?` OR c.inbox_id IN(${groupIds.map(()=>'?').join(',')})`:''})${denied.length?` AND (c.inbox_id IS NULL OR c.inbox_id NOT IN(${denied.map(()=>'?').join(',')}))`:''}`;
       params=[...ids,...Array(5).fill(userId),...groupIds,...denied];
@@ -142,7 +145,7 @@ export function createMobileConversaStore(db=pool,{listAgencies=null,groupAccess
     const result=Object.fromEntries(['threads','mentions','files'].map(key=>[key,{total:0,unread:0,needs:0,sent:0}]));if(!threadIds.length)return result;
     const placeholders=threadIds.map(()=>'?').join(',');
     const unread=`(m.sender_user_id<>? AND (r.last_read_message_id IS NULL OR m.id>r.last_read_message_id) AND NOT EXISTS(SELECT 1 FROM chat_message_views v WHERE v.message_id=m.id AND v.user_id=?))`;
-    for(const kind of ['threads','mentions','files']){
+    await Promise.all(['threads','mentions','files'].map(async kind=>{
       let join='',where='',target='m.id',whereParams=[];
       if(kind==='threads'){
         join='JOIN chat_messages root ON root.id=m.parent_message_id';target='root.id';
@@ -153,13 +156,13 @@ export function createMobileConversaStore(db=pool,{listAgencies=null,groupAccess
       const needs=kind==='files'?'0':kind==='threads'?`COUNT(DISTINCT CASE WHEN m.sender_user_id<>? AND m.id=(SELECT MAX(latest.id) FROM chat_messages latest WHERE latest.parent_message_id=m.parent_message_id AND NOT EXISTS(SELECT 1 FROM chat_message_deletes d WHERE d.message_id=latest.id AND d.user_id=?)) THEN root.id END)`:`COUNT(DISTINCT CASE WHEN ${unread} THEN ${target} END)`;
       const [[row]]=await db.execute(`SELECT COUNT(DISTINCT ${target}) AS total,COUNT(DISTINCT CASE WHEN ${unread} THEN ${target} END) AS unread,${needs} AS needs,COUNT(DISTINCT CASE WHEN (m.sender_user_id=${Number(userId)}${kind==='threads'?` OR root.sender_user_id=${Number(userId)}`:''}) THEN ${target} END) AS sent FROM chat_messages m ${join} LEFT JOIN chat_thread_reads r ON r.thread_id=m.thread_id AND r.user_id=? WHERE m.thread_id IN(${placeholders}) AND NOT EXISTS(SELECT 1 FROM chat_message_deletes d WHERE d.message_id=m.id AND d.user_id=?) ${where}`,[userId,userId,...(kind==='files'?[]:[userId,userId]),userId,...threadIds,userId,...whereParams]);
       result[kind]={total:Number(row.total)||0,unread:Number(row.unread)||0,needs:Number(row.needs)||0,sent:Number(row.sent)||0};
-    }
+    }));
     return result;
   }
   async function emailInbox(userId,options={}) {
     // This scope is shared only inside this request, never across users or requests.
     const scope=await emailScope(userId,options.includeArchived || false,options.agencyId || null);
-    return Promise.all([emails(userId,options,scope),emailCounts(userId,options.includeArchived || false,options.agencyId || null,scope)]);
+    return Promise.all([emails(userId,options,scope),options.includeCounts===false?[]:emailCounts(userId,options.includeArchived || false,options.agencyId || null,scope)]);
   }
   return {preferences,savePreferences,archives,archive,emails,emailCounts,emailInbox,extraCounts};
 }

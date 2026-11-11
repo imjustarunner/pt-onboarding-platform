@@ -1,112 +1,111 @@
-import {beforeEach,expect,it,vi} from 'vitest';
+import {beforeEach,afterEach,expect,it,vi} from 'vitest';
 import {mount,flushPromises} from '@vue/test-utils';
 import {createMemoryHistory,createRouter} from 'vue-router';
 const mocks=vi.hoisted(()=>({request:vi.fn(),get:vi.fn(),post:vi.fn(),quickPost:vi.fn(),auth:{user:null}}));
 vi.mock('../../store/auth.js',()=>({useAuthStore:()=>mocks.auth}));
-vi.mock('../transport.js',()=>({native:false,apiOrigin:'',MobileDevice:{},quickApiBase:'/api/quick-view',mobileApi:{request:mocks.request,get:mocks.get,post:mocks.post},randomSecret:()=>'',pkceChallenge:vi.fn(),accountUrl:()=>'',mobileRequestError:e=>e.response?.data?.error?.message || e.message}));
+vi.mock('../transport.js',()=>({native:false,apiOrigin:'',MobileDevice:{},quickApiBase:'/api/quick-view',mobileApi:{request:mocks.request,get:mocks.get,post:mocks.post},randomSecret:()=>'',pkceChallenge:vi.fn(),accountUrl:()=>'',mobileRequestError:e=>e.response?.data?.error?.message || e.message || 'Please try again.'}));
 vi.mock('axios',()=>({default:{get:mocks.get,post:mocks.quickPost,interceptors:{response:{use:vi.fn(),eject:vi.fn()}}}}));
 vi.mock('../../services/api',()=>({default:{get:mocks.get,post:mocks.quickPost}}));
 import MobileApp from '../MobileApp.vue';
-async function openWorkspace(wrapper){await flushPromises();await wrapper.get('input[type=password]').setValue('123456');await wrapper.get('form').trigger('submit');await flushPromises();}
-const profile={user:{id:1,firstName:'Test',email:'test@example.invalid'},workspace:{id:10,name:'My workspace'},agencies:[{id:10,name:'My workspace'}]};
-async function app(path='/mobile'){const router=createRouter({history:createMemoryHistory(),routes:[{path:'/:pathMatch(.*)*',component:{template:'<span />'}}]});await router.push(path);return mount(MobileApp,{global:{plugins:[router],stubs:{AccountSecurityPanel:{template:'<div>Existing account verification</div>'},QuickView:{props:['mobileSession'],emits:['locked','account','open-workspace-item','refresh-session'],template:'<div data-testid="private-workspace"><button @click="$emit(\'locked\')">Test lock</button><button @click="$emit(\'account\')">My Account</button>Private inbox</div>'}}}});}
-beforeEach(()=>{vi.restoreAllMocks();vi.resetAllMocks();sessionStorage.clear();localStorage.clear();history.replaceState(null,'','/mobile');mocks.quickPost.mockResolvedValue({});mocks.get.mockResolvedValue({data:profile});mocks.request.mockResolvedValue({data:{signedIn:true,needsCode:false,workspace:profile.workspace}});});
-it('unlocks the scoped account and locks without signing the device out',async()=>{
-  const wrapper=await app();await flushPromises();expect(wrapper.text()).toContain('Your account is still signed in');
-  mocks.request.mockResolvedValue({data:{sessionToken:'short-lived',userId:1,agencyId:10,expiresAt:new Date(Date.now()+600000),profile}});
-  await wrapper.find('input[type=password]').setValue('123456');await wrapper.find('form').trigger('submit');await flushPromises();
-  expect(wrapper.text()).toContain('Private inbox');expect(sessionStorage.length).toBe(0);expect(localStorage.length).toBe(0);
-  await wrapper.find('[data-testid=private-workspace] button').trigger('click');await flushPromises();
-  expect(wrapper.text()).not.toContain('Private inbox');expect(wrapper.text()).toContain('Welcome back');
-  expect(mocks.request.mock.calls.some(([request])=>request.url==='/logout')).toBe(false);
-  expect(mocks.quickPost).toHaveBeenCalledWith('/api/quick-view/session/logout',{},expect.objectContaining({headers:{'X-Quick-View-Session':'short-lived'}}));
-  wrapper.unmount();
+const profile={surface:'staff',user:{id:1,firstName:'Test',email:'test@example.invalid'},workspace:{id:10,name:'My workspace'},agencies:[{id:10,name:'My workspace'},{id:20,name:'School'}],appLock:{method:'code',hasCode:true,usesAccountCode:true}};
+let result,requestHandler,wrappers=[];
+const locked=()=>Promise.reject({response:{status:423,data:{error:{code:'MOBILE_LOCKED',message:'Activity timer expired.'}}}});
+async function app(path='/mobile'){
+ const router=createRouter({history:createMemoryHistory(),routes:[{path:'/:pathMatch(.*)*',component:{template:'<span />'}}]});await router.push(path);
+ const wrapper=mount(MobileApp,{global:{plugins:[router],stubs:{AccountSecurityPanel:{template:'<div>Existing account verification</div>'},MobileFamilyPortal:{props:['profile','privateVisible'],template:'<div data-testid="family">Family portal</div>'},QuickView:{props:['mobileSession','privacyHidden','notificationUnread'],emits:['locked','account','open-workspace-item','refresh-session','session-expiry'],template:'<div data-testid="private-workspace"><button @click="$emit(\'locked\')">Test lock</button><button @click="$emit(\'account\')">My Account</button>Private inbox</div>'}}}});wrappers.push(wrapper);await flushPromises();return wrapper;
+}
+async function openWorkspace(wrapper){await wrapper.get('input[type=password]').setValue('123456');await wrapper.get('form').trigger('submit');await flushPromises();}
+function privateView(w){return w.findComponent('[data-testid=private-workspace]');}
+beforeEach(()=>{
+ vi.restoreAllMocks();vi.resetAllMocks();sessionStorage.clear();localStorage.clear();history.replaceState(null,'','/mobile');
+ result={sessionToken:'same-token',userId:1,agencyId:10,expiresAt:new Date(Date.now()+3600000).toISOString(),profile};
+ requestHandler=async({url})=>{if(url==='/session')return {data:{signedIn:true,userId:1,needsCode:false,workspace:profile.workspace,appLock:profile.appLock}};if(url==='/resume')return locked();return {data:result};};
+ mocks.request.mockImplementation(r=>requestHandler(r));mocks.quickPost.mockResolvedValue({});mocks.get.mockResolvedValue({data:profile});
 });
-it('clears private content when the browser goes to the background',async()=>{
-  const wrapper=await app();await flushPromises();mocks.request.mockResolvedValue({data:{sessionToken:'short-lived',profile}});
-  await wrapper.find('input').setValue('123456');await wrapper.find('form').trigger('submit');await flushPromises();
-  vi.spyOn(document,'hidden','get').mockReturnValue(true);document.dispatchEvent(new Event('visibilitychange'));await flushPromises();
-  expect(wrapper.find('[data-testid=private-workspace]').exists()).toBe(false);wrapper.unmount();
+afterEach(()=>{for(const w of wrappers)w.unmount();wrappers=[];vi.useRealTimers();});
+it('unlocks with the existing account code and manual lock clears the server activity grant without signing out',async()=>{
+ const w=await app();await openWorkspace(w);expect(privateView(w).exists()).toBe(true);
+ await privateView(w).find('button').trigger('click');await flushPromises();expect(privateView(w).exists()).toBe(false);expect(w.text()).toContain('Welcome back');
+ expect(mocks.request).toHaveBeenCalledWith(expect.objectContaining({method:'POST',url:'/lock'}));expect(mocks.request.mock.calls.some(([r])=>r.url==='/logout')).toBe(false);
 });
-it('rejects a mismatched sign-in state and reopens the existing device instead of resetting its code',async()=>{
-  history.replaceState(null,'','/mobile/callback?code=untrusted&state=wrong');
-  sessionStorage.setItem('auricwell.mobile.pending',JSON.stringify({state:'expected',verifier:'private',createdAt:Date.now()}));
-  const wrapper=await app();await flushPromises();expect(wrapper.text()).toContain('Welcome back');expect(wrapper.text()).not.toContain('Confirm code');expect(mocks.post).not.toHaveBeenCalled();wrapper.unmount();
+it('immediately covers private content on background and resumes the same mounted view without another code or timer reset',async()=>{
+ const hidden=vi.spyOn(document,'hidden','get').mockReturnValue(false),w=await app();await openWorkspace(w);const vm=privateView(w).vm,deadline=result.expiresAt;
+ hidden.mockReturnValue(true);document.dispatchEvent(new Event('visibilitychange'));await flushPromises();expect(w.classes()).toContain('privacy-hidden');expect(privateView(w).vm).toBe(vm);expect(w.find('.mobile-privacy-cover').exists()).toBe(true);
+ requestHandler=async()=>({data:result});hidden.mockReturnValue(false);document.dispatchEvent(new Event('visibilitychange'));await flushPromises();
+ expect(w.classes()).not.toContain('privacy-hidden');expect(privateView(w).vm).toBe(vm);expect(privateView(w).props('mobileSession').expiresAt).toBe(deadline);expect(mocks.request.mock.calls.some(([r])=>r.url==='/lock')).toBe(false);
 });
-
-it('requires account-code unlock even for an existing device that previously opted out',async()=>{
- mocks.request.mockResolvedValue({data:{signedIn:true,workspace:profile.workspace,appLock:{method:'none',hasCode:false}}});const wrapper=await app();await flushPromises();expect(wrapper.text()).not.toContain('Private inbox');expect(wrapper.get('input[type=password]').exists()).toBe(true);expect(mocks.request.mock.calls.some(([request])=>request.url==='/resume')).toBe(false);wrapper.unmount();
+it('requires account unlock when the server says the activity window expired while away',async()=>{
+ const hidden=vi.spyOn(document,'hidden','get').mockReturnValue(false),w=await app();await openWorkspace(w);hidden.mockReturnValue(true);document.dispatchEvent(new Event('visibilitychange'));hidden.mockReturnValue(false);document.dispatchEvent(new Event('visibilitychange'));await flushPromises();
+ expect(privateView(w).exists()).toBe(false);expect(w.get('input[type=password]').exists()).toBe(true);expect(w.text()).toContain('Your activity timer has ended');
 });
-
-it('requires app lock after primary sign-in and reuses the account code instead of creating a device PIN',async()=>{
- history.replaceState(null,'','/mobile/callback?code=verified-code&state=expected');sessionStorage.setItem('auricwell.mobile.pending',JSON.stringify({state:'expected',verifier:'private',callback:'https://auricwell.com/mobile/callback',clientId:'web',createdAt:Date.now()}));mocks.post.mockResolvedValue({data:{sessionToken:'fresh-primary-session',newDevice:true,profile:{...profile,appLock:{method:'none',hasCode:false}}}});const wrapper=await app();await flushPromises();expect(wrapper.text()).toContain('App lock · required');expect(wrapper.text()).not.toContain('Not now');expect(wrapper.text()).toContain('Existing account Quick View code');expect(wrapper.find('option[value=none]').exists()).toBe(false);expect(wrapper.findAll('input[type=password]')).toHaveLength(1);expect(wrapper.text()).not.toContain('New six-digit code');wrapper.unmount();
+it('automatically restores a valid retained grant at startup without challenging for the code',async()=>{
+ requestHandler=async({url})=>({data:url==='/session'?{workspace:profile.workspace,appLock:profile.appLock}:result});const w=await app();expect(privateView(w).exists()).toBe(true);expect(w.find('input[type=password]').exists()).toBe(false);expect(mocks.request.mock.calls.some(([r])=>r.url==='/unlock')).toBe(false);
 });
-
-it('does not let a late account response erase an entered account-code confirmation',async()=>{
- mocks.request.mockImplementation(async({url})=>({data:url==='/session'?{signedIn:true,workspace:profile.workspace,appLock:{method:'code',hasCode:true}}:{sessionToken:'open-session',profile:{...profile,appLock:{method:'code',hasCode:true}}}}));const wrapper=await app();await openWorkspace(wrapper);let finishProfile;mocks.get.mockImplementation(()=>new Promise(resolve=>finishProfile=resolve));await wrapper.findAll('button').find(button=>button.text()==='My Account').trigger('click');await wrapper.get('.account input[type=password]').setValue('654321');finishProfile({data:{...profile,appLock:{method:'code',hasCode:true}}});await flushPromises();expect(wrapper.get('.account input[type=password]').element.value).toBe('654321');expect(wrapper.findAll('input[type=password]')).toHaveLength(1);wrapper.unmount();
+it('fresh password or SSO exchange opens immediately with optional setup instead of a PIN acknowledgement',async()=>{
+ history.replaceState(null,'','/mobile/callback?code=verified&state=expected');sessionStorage.setItem('auricwell.mobile.pending',JSON.stringify({state:'expected',verifier:'private',callback:'https://auricwell.com/mobile/callback',clientId:'web',createdAt:Date.now()}));mocks.post.mockResolvedValue({data:{...result,newDevice:true,initialAccountCode:'081527'}});
+ const w=await app();expect(privateView(w).exists()).toBe(true);expect(w.text()).toContain('Set up access');expect(w.text()).not.toContain('081527');expect(w.find('.mobile-card.account').exists()).toBe(false);
+ await w.findAll('button').find(b=>b.text()==='Set up access').trigger('click');await flushPromises();expect(w.get('output').text()).toBe('081527');expect(w.find('select[value=none]').exists()).toBe(false);expect(Object.values(localStorage).join('')).not.toContain('081527');
 });
-
-it('restores a cached page using the existing device rather than a new enrollment',async()=>{
-  const wrapper=await app();await flushPromises();
-  window.dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true}));await flushPromises();
-  expect(wrapper.text()).toContain('Welcome back');expect(wrapper.text()).not.toContain('Confirm code');
-  expect(mocks.post).not.toHaveBeenCalled();expect(mocks.request.mock.calls.filter(([request])=>request.url==='/session')).toHaveLength(2);wrapper.unmount();
+it('retains only the account username for a password-manager-compatible code form, never the code or grant',async()=>{
+ const w=await app();await openWorkspace(w);await privateView(w).find('button').trigger('click');await flushPromises();
+ expect(w.get('input[name=username]').attributes('autocomplete')).toBe('username');expect(w.get('input[name=password]').attributes('autocomplete')).toBe('current-password');expect(w.get('input[name=username]').element.value).toBe('test@example.invalid');
+ expect(Object.values(localStorage)).toEqual(['test@example.invalid']);expect(sessionStorage.length).toBe(0);
 });
-
-it('switches the device workspace before opening another agency’s note',async()=>{
- mocks.request.mockImplementation(async({url})=>({data:url==='/session'?{signedIn:true,workspace:profile.workspace,appLock:{method:'none',hasCode:false}}:url==='/workspace'?{sessionToken:'agency-20',agencyId:20,userId:1,profile:{...profile,workspace:{id:20,name:'School'},appLock:{method:'none',hasCode:false}}}:{sessionToken:'agency-10',agencyId:10,userId:1,profile:{...profile,appLock:{method:'none',hasCode:false}}}}));
- const wrapper=await app();await openWorkspace(wrapper);const router=wrapper.vm.$router;await router.replace('/mobile/workspace?view=mywork&workTab=started&workAgency=20');
- wrapper.findComponent('[data-testid="private-workspace"]').vm.$emit('open-workspace-item',{agencyId:20,query:{view:'clinical',workId:'work_20',clientId:'120'}});await flushPromises();
- expect(mocks.request).toHaveBeenCalledWith(expect.objectContaining({url:'/workspace',data:{agencyId:20},headers:{'X-Quick-View-Session':'agency-10'}}));
- expect(router.currentRoute.value.query).toMatchObject({view:'clinical',workId:'work_20'});expect(wrapper.findComponent('[data-testid="private-workspace"]').props('mobileSession').agencyId).toBe(20);
- await router.back();await flushPromises();expect(router.currentRoute.value.query).toMatchObject({view:'mywork',workTab:'started',workAgency:'20'});wrapper.unmount();
+it('does not retry account-code guesses automatically or erase the entered code after a network failure',async()=>{
+ const w=await app();const initial=requestHandler;requestHandler=async r=>{if(r.url==='/unlock')throw {code:'ERR_NETWORK',message:'Network error'};return initial(r);};
+ await openWorkspace(w);expect(w.get('input[name=password]').element.value).toBe('123456');expect(mocks.request.mock.calls.filter(([r])=>r.url==='/unlock')).toHaveLength(1);expect(w.text()).toContain('Network error');
+ requestHandler=async()=>({data:result});await w.get('form').trigger('submit');await flushPromises();expect(privateView(w).exists()).toBe(true);expect(mocks.request.mock.calls.filter(([r])=>r.url==='/unlock')).toHaveLength(2);
 });
-it('shows a failed workspace switch without opening an unauthorized note',async()=>{
- mocks.request.mockImplementation(async({url})=>{if(url==='/workspace')throw {response:{status:403,data:{error:{message:'Workspace access changed'}}}};return {data:url==='/session'?{signedIn:true,workspace:profile.workspace,appLock:{method:'none',hasCode:false}}:{sessionToken:'agency-10',profile:{...profile,appLock:{method:'none',hasCode:false}}}};});
- const wrapper=await app();await openWorkspace(wrapper);wrapper.findComponent('[data-testid="private-workspace"]').vm.$emit('open-workspace-item',{agencyId:20,query:{view:'clinical',noteId:'90'}});await flushPromises();expect(wrapper.get('[role="alert"]').text()).toContain('Workspace access changed');expect(wrapper.vm.$route.query.noteId).toBeUndefined();expect(wrapper.findComponent('[data-testid="private-workspace"]').props('mobileSession').sessionToken).toBe('agency-10');wrapper.unmount();
+it('keeps private content covered after a transient resume failure and permits manual retry',async()=>{
+ const hidden=vi.spyOn(document,'hidden','get').mockReturnValue(false),w=await app();await openWorkspace(w);hidden.mockReturnValue(true);document.dispatchEvent(new Event('visibilitychange'));requestHandler=async()=>{throw {code:'ERR_NETWORK',message:'Network error'};};hidden.mockReturnValue(false);document.dispatchEvent(new Event('visibilitychange'));await flushPromises();
+ expect(w.classes()).toContain('privacy-hidden');expect(w.text()).toContain('Try again');requestHandler=async()=>({data:result});await w.get('.mobile-privacy-cover button').trigger('click');await flushPromises();expect(w.classes()).not.toContain('privacy-hidden');
 });
-it('offers retry and an explicit account change when connect refuses a retained primary account',async()=>{
- history.replaceState(null,'','/mobile/connect?clientId=web&challenge='+('a'.repeat(43))+'&state='+('b'.repeat(43))+'&loginPath=%2Fitsco%2Flogin');
- mocks.get.mockRejectedValue({response:{status:403,data:{error:{message:'This account cannot use the staff mobile workspace.'}}}});
- const wrapper=await app();await flushPromises();expect(wrapper.text()).toContain('Sign in with a different account');expect(wrapper.text()).toContain('Try again');
- await wrapper.findAll('button').find(b=>b.text()==='Try again').trigger('click');await flushPromises();expect(mocks.get).toHaveBeenCalledTimes(2);expect(mocks.quickPost).not.toHaveBeenCalledWith('/api/auth/logout',expect.anything(),expect.anything());wrapper.unmount();
+it('does not uncover a delayed foreground response after another background transition',async()=>{
+ const hidden=vi.spyOn(document,'hidden','get').mockReturnValue(false),w=await app();await openWorkspace(w);hidden.mockReturnValue(true);document.dispatchEvent(new Event('visibilitychange'));let finish;requestHandler=()=>new Promise(resolve=>finish=resolve);hidden.mockReturnValue(false);document.dispatchEvent(new Event('visibilitychange'));await flushPromises();hidden.mockReturnValue(true);document.dispatchEvent(new Event('visibilitychange'));finish({data:result});await flushPromises();expect(w.classes()).toContain('privacy-hidden');
 });
-
-it('starts with username rather than requiring an organization name, and uses the existing school choice resolver',async()=>{mocks.request.mockRejectedValue({response:{status:401}});mocks.quickPost.mockResolvedValue({data:{needsOrgChoice:true,orgOptions:[{id:20,name:'Synthetic school',slug:'synthetic-school'}]}});const wrapper=await app();await flushPromises();expect(wrapper.text()).toContain('Username or email');expect(wrapper.text()).not.toContain('Organization workspace');await wrapper.get('input[autocomplete="username"]').setValue('school.staff@example.invalid');await wrapper.get('form').trigger('submit');await flushPromises();expect(mocks.quickPost).toHaveBeenCalledWith('/api/auth/identify',{username:'school.staff@example.invalid',surface:'schoolcarebridge'});expect(wrapper.text()).toContain('Synthetic school');wrapper.unmount();});
-
-it('keeps the device disconnected until the existing account verification succeeds',async()=>{
- history.replaceState(null,'','/mobile/connect?clientId=web&challenge='+('a'.repeat(43))+'&state='+('b'.repeat(43))+'&loginPath=%2Fitsco%2Flogin');
- mocks.get.mockRejectedValueOnce({response:{status:403,data:{error:{code:'MFA_REQUIRED'}}}}).mockResolvedValueOnce({data:{id:1,first_name:'Synthetic',last_name:'Parent',email:'parent@example.invalid',role:'client_guardian'}});
- const wrapper=await app();await vi.waitFor(()=>expect(wrapper.text()).toContain('Verify your sign-in'));await vi.waitFor(()=>expect(wrapper.text()).toContain('Existing account verification'));expect(mocks.post).not.toHaveBeenCalled();
- mocks.get.mockResolvedValue({data:{...profile,surface:'family'}});await wrapper.findAll('button').find(b=>b.text().includes('continue connecting')).trigger('click');await flushPromises();expect(wrapper.text()).toContain('Continue as Test');expect(wrapper.text()).not.toContain('Verify your sign-in');expect(mocks.post).not.toHaveBeenCalled();wrapper.unmount();
+it('keeps an unlock completed in the background covered until a foreground server recheck succeeds',async()=>{
+ const hidden=vi.spyOn(document,'hidden','get').mockReturnValue(false),w=await app();let finish;requestHandler=()=>new Promise(resolve=>finish=resolve);await w.get('input[type=password]').setValue('123456');await w.get('form').trigger('submit');hidden.mockReturnValue(true);document.dispatchEvent(new Event('visibilitychange'));finish({data:result});await flushPromises();expect(w.classes()).toContain('privacy-hidden');
+ requestHandler=async()=>({data:result});hidden.mockReturnValue(false);document.dispatchEvent(new Event('visibilitychange'));await flushPromises();expect(privateView(w).exists()).toBe(true);expect(w.classes()).not.toContain('privacy-hidden');
 });
-
-it('keeps the exact secure-comment destination after normal family Unlock without forwarding unrelated query data',async()=>{
- const family={...profile,surface:'family',user:{...profile.user,role:'client_guardian'},workspace:{...profile.workspace,portal_url:'qa-family'}};
- const wrapper=await app('/mobile?secureCommentAppointmentId=101&secureCommentClientId=10&token=do-not-forward');await flushPromises();
- mocks.request.mockResolvedValue({data:{sessionToken:'short-lived',userId:1,agencyId:10,expiresAt:new Date(Date.now()+600000),profile:family}});
- await wrapper.find('input[type=password]').setValue('123456');await wrapper.find('form').trigger('submit');await flushPromises();
- expect(wrapper.vm.$route.path).toBe('/mobile/family/qa-family/guardian');expect(wrapper.vm.$route.query).toEqual({panel:'appointments',secureCommentAppointmentId:'101',secureCommentClientId:'10',childId:'10'});wrapper.unmount();
+it('covers pagehide even without visibilitychange and rechecks a cached pageshow',async()=>{
+ const w=await app();await openWorkspace(w);window.dispatchEvent(new Event('pagehide'));await flushPromises();expect(w.classes()).toContain('privacy-hidden');requestHandler=async()=>({data:result});window.dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true}));await flushPromises();expect(w.classes()).not.toContain('privacy-hidden');expect(privateView(w).exists()).toBe(true);
 });
-
-it('starts a fresh staff workspace in Today',async()=>{mocks.request.mockImplementation(async({url})=>({data:url==='/session'?{workspace:profile.workspace,appLock:{method:'none'}}:{sessionToken:'same-token',userId:1,agencyId:10,expiresAt:new Date(Date.now()+600000).toISOString(),profile:{...profile,appLock:{method:'none'}}}}));const w=await app();await openWorkspace(w);expect(w.vm.$router.currentRoute.value.query.view).toBe('calendar');w.unmount();});
-it('immediately unmounts the private workspace when leaving and never resumes without unlock',async()=>{
- mocks.request.mockImplementation(async({url})=>({data:url==='/session'?{workspace:profile.workspace,appLock:{method:'code'}}:{sessionToken:'same-token',profile:{...profile,appLock:{method:'code'}}}}));const hidden=vi.spyOn(document,'hidden','get').mockReturnValue(false),w=await app();await openWorkspace(w);hidden.mockReturnValue(true);document.dispatchEvent(new Event('visibilitychange'));await flushPromises();expect(w.find('[data-testid=private-workspace]').exists()).toBe(false);expect(mocks.quickPost).toHaveBeenCalledWith('/api/quick-view/session/logout',{},expect.anything());hidden.mockReturnValue(false);document.dispatchEvent(new Event('visibilitychange'));await flushPromises();expect(w.text()).toContain('Welcome back');expect(w.find('[data-testid=private-workspace]').exists()).toBe(false);expect(mocks.request.mock.calls.some(([r])=>r.url==='/resume')).toBe(false);w.unmount();hidden.mockRestore();
+it('keeps a background initial load private, then resumes the unexpired device on foreground',async()=>{
+ const hidden=vi.spyOn(document,'hidden','get').mockReturnValue(true),w=await app();expect(privateView(w).exists()).toBe(false);expect(mocks.request.mock.calls.filter(([r])=>r.url==='/resume')).toHaveLength(0);
+ requestHandler=async()=>({data:result});hidden.mockReturnValue(false);document.dispatchEvent(new Event('visibilitychange'));await flushPromises();expect(privateView(w).exists()).toBe(true);expect(w.classes()).not.toContain('privacy-hidden');
 });
-
-it('does not uncover the workspace when a delayed foreground status completes after another background transition',async()=>{
- mocks.request.mockImplementation(async({url})=>({data:url==='/session'?{workspace:profile.workspace,appLock:{method:'code'}}:{sessionToken:'same-token',profile:{...profile,appLock:{method:'code'}}}}));const hidden=vi.spyOn(document,'hidden','get').mockReturnValue(false),w=await app();await openWorkspace(w);hidden.mockReturnValue(true);document.dispatchEvent(new Event('visibilitychange'));await flushPromises();let finishStatus;mocks.request.mockImplementationOnce(()=>new Promise(resolve=>finishStatus=resolve));hidden.mockReturnValue(false);document.dispatchEvent(new Event('visibilitychange'));await flushPromises();hidden.mockReturnValue(true);document.dispatchEvent(new Event('visibilitychange'));await flushPromises();finishStatus({data:{workspace:profile.workspace,appLock:{method:'code'}}});await flushPromises();expect(w.find('[data-testid=private-workspace]').exists()).toBe(false);hidden.mockReturnValue(false);document.dispatchEvent(new Event('visibilitychange'));await flushPromises();expect(w.find('[data-testid=private-workspace]').exists()).toBe(false);w.unmount();hidden.mockRestore();
+it('synchronizes server expiry updates from Quick View and locks on the actual deadline',async()=>{
+ vi.useFakeTimers();const w=await app();await openWorkspace(w);const deadline=new Date(Date.now()+5000).toISOString();privateView(w).vm.$emit('session-expiry',deadline);await flushPromises();expect(privateView(w).props('mobileSession').expiresAt).toBe(deadline);await vi.advanceTimersByTimeAsync(5001);await flushPromises();expect(privateView(w).exists()).toBe(false);
 });
-
-it('discards an in-flight unlock when the app closes before it completes',async()=>{
- const hidden=vi.spyOn(document,'hidden','get').mockReturnValue(false),w=await app();await flushPromises();let finishUnlock;mocks.request.mockImplementationOnce(()=>new Promise(resolve=>finishUnlock=resolve));await w.get('input[type=password]').setValue('123456');await w.get('form').trigger('submit');hidden.mockReturnValue(true);document.dispatchEvent(new Event('visibilitychange'));await flushPromises();finishUnlock({data:{sessionToken:'late-token',profile}});await flushPromises();expect(w.find('[data-testid=private-workspace]').exists()).toBe(false);expect(w.text()).toContain('Welcome back');w.unmount();hidden.mockRestore();
+it('invalidated or 30-day-expired grants require primary sign-in rather than another unlock',async()=>{
+ requestHandler=async({url})=>{if(url==='/session')return {data:{workspace:profile.workspace,appLock:profile.appLock}};throw {response:{status:401,data:{error:{code:'MOBILE_SIGN_IN_REQUIRED',message:'Primary sign-in is required every 30 days.'}}}};};const w=await app();expect(w.text()).toContain('Welcome to AuricWell');expect(w.text()).toContain('Primary sign-in is required every 30 days');expect(privateView(w).exists()).toBe(false);
+});
+it('connects one unified workspace without an agency selector, retaining explicit account verification',async()=>{
+ history.replaceState(null,'','/mobile/connect?clientId=web&challenge='+('a'.repeat(43))+'&state='+('b'.repeat(43))+'&loginPath=%2Fitsco%2Flogin');const w=await app();expect(w.text()).toContain('Continue as Test');expect(w.find('select').exists()).toBe(false);mocks.post.mockRejectedValue(new Error('synthetic stop before redirect'));await w.findAll('button').find(b=>b.text().includes('Connect to Auricwell')).trigger('click');await flushPromises();expect(mocks.post).toHaveBeenCalledWith('/authorize',expect.objectContaining({expectedUserId:1}));expect(mocks.post.mock.calls[0][1]).not.toHaveProperty('agencyId');
+});
+it('identifies the mobile account without forcing the SchoolCareBridge school chooser',async()=>{
+ requestHandler=async()=>{throw {response:{status:401}};};mocks.quickPost.mockResolvedValue({data:{needsOrgChoice:true,orgOptions:[{id:20,name:'Ambiguous school',slug:'synthetic-school'}]}});const w=await app();await w.get('input[autocomplete=username]').setValue('staff@example.invalid');await w.get('form').trigger('submit');await flushPromises();expect(mocks.quickPost).toHaveBeenCalledWith('/api/auth/identify',{username:'staff@example.invalid',surface:'auricwell-mobile'});expect(w.text()).toContain('Ambiguous school');
+});
+it('keeps the device disconnected until existing MFA verification succeeds',async()=>{
+ history.replaceState(null,'','/mobile/connect?clientId=web&challenge='+('a'.repeat(43))+'&state='+('b'.repeat(43))+'&loginPath=%2Fitsco%2Flogin');mocks.get.mockRejectedValueOnce({response:{status:403,data:{error:{code:'MFA_REQUIRED'}}}}).mockResolvedValueOnce({data:{id:1,first_name:'Synthetic',last_name:'Parent',email:'parent@example.invalid',role:'client_guardian'}});const w=await app();await vi.waitFor(()=>expect(w.text()).toContain('Existing account verification'));expect(mocks.post).not.toHaveBeenCalled();
+ mocks.get.mockResolvedValue({data:{...profile,surface:'family'}});await w.findAll('button').find(b=>b.text().includes('continue connecting')).trigger('click');await flushPromises();expect(w.text()).toContain('Continue as Test');expect(mocks.post).not.toHaveBeenCalled();
+});
+it('switches internal authorized context before opening another agency note and preserves the source route',async()=>{
+ const w=await app();await openWorkspace(w);await w.vm.$router.replace('/mobile/workspace?view=mywork&workTab=started&workAgency=20');requestHandler=async({url})=>{expect(url).toBe('/workspace');return {data:{...result,sessionToken:'agency-20',agencyId:20,profile:{...profile,workspace:{id:20,name:'School'}}}};};privateView(w).vm.$emit('open-workspace-item',{agencyId:20,query:{view:'clinical',workId:'work_20',clientId:'120'}});await flushPromises();expect(w.vm.$route.query).toMatchObject({view:'clinical',workId:'work_20'});expect(privateView(w).props('mobileSession').agencyId).toBe(20);await w.vm.$router.back();await flushPromises();expect(w.vm.$route.query).toMatchObject({view:'mywork',workTab:'started',workAgency:'20'});
+});
+it('never opens a note when fresh context authorization refuses the agency',async()=>{
+ const w=await app();await openWorkspace(w);requestHandler=async()=>{throw {response:{status:403,data:{error:{message:'Workspace access changed'}}}};};privateView(w).vm.$emit('open-workspace-item',{agencyId:20,query:{view:'clinical',noteId:'90'}});await flushPromises();expect(w.get('[role=alert]').text()).toContain('Workspace access changed');expect(w.vm.$route.query.noteId).toBeUndefined();expect(privateView(w).props('mobileSession').sessionToken).toBe('same-token');
+});
+it('retains the exact secure-comment family destination through normal account unlock',async()=>{
+ const family={...profile,surface:'family',user:{...profile.user,role:'client_guardian'},workspace:{...profile.workspace,portal_url:'qa-family'}};result={...result,profile:family};const w=await app('/mobile?secureCommentAppointmentId=101&secureCommentClientId=10&token=do-not-forward');await openWorkspace(w);expect(w.vm.$route.path).toBe('/mobile/family/qa-family/guardian');expect(w.vm.$route.query).toEqual({panel:'appointments',secureCommentAppointmentId:'101',secureCommentClientId:'10',childId:'10'});
 });
 
-it('requires explicit unlock when the app is initially loaded in the background',async()=>{
- mocks.request.mockImplementation(async()=>({data:{workspace:profile.workspace,appLock:{method:'none'}}}));const hidden=vi.spyOn(document,'hidden','get').mockReturnValue(true),w=await app();await flushPromises();expect(w.find('[data-testid=private-workspace]').exists()).toBe(false);hidden.mockReturnValue(false);document.dispatchEvent(new Event('visibilitychange'));await flushPromises();expect(w.text()).toContain('Welcome back');expect(w.find('[data-testid=private-workspace]').exists()).toBe(false);expect(mocks.request.mock.calls.some(([r])=>r.url==='/resume')).toBe(false);w.unmount();hidden.mockRestore();
+it('retains known notification count across a same-account replacement token while refreshing in the background',async()=>{
+ const initial=requestHandler;requestHandler=async r=>r.url==='/notification-count'?{data:{_total:12}}:initial(r);const hidden=vi.spyOn(document,'hidden','get').mockReturnValue(false),w=await app();await openWorkspace(w);expect(privateView(w).props('notificationUnread')).toBe(12);
+ hidden.mockReturnValue(true);document.dispatchEvent(new Event('visibilitychange'));result={...result,sessionToken:'replacement-same-account'};requestHandler=async r=>{if(r.url==='/notification-count')throw {code:'ERR_NETWORK'};return {data:result};};hidden.mockReturnValue(false);document.dispatchEvent(new Event('visibilitychange'));await flushPromises();expect(privateView(w).props('mobileSession').sessionToken).toBe('replacement-same-account');expect(privateView(w).props('notificationUnread')).toBe(12);
 });
 
-it('shows a newly assigned random account code once before revealing the first workspace',async()=>{
- history.replaceState(null,'','/mobile/callback?code=verified-code&state=expected');sessionStorage.setItem('auricwell.mobile.pending',JSON.stringify({state:'expected',verifier:'private',callback:'https://auricwell.com/mobile/callback',clientId:'web',createdAt:Date.now()}));mocks.post.mockResolvedValue({data:{sessionToken:'fresh',newDevice:true,initialAccountCode:'081527',profile:{...profile,appLock:{method:'code',usesAccountCode:true}}}});const w=await app();await flushPromises();expect(w.get('output').text()).toBe('081527');expect(w.find('[data-testid=private-workspace]').exists()).toBe(false);await w.findAll('button').find(b=>b.text().includes('I saved my code')).trigger('click');await flushPromises();expect(w.text()).toContain('Private inbox');expect(w.text()).not.toContain('081527');expect(localStorage.length).toBe(0);w.unmount();
+it('keeps an unknown notification count distinct from an authoritative zero',async()=>{
+ const initial=requestHandler;requestHandler=async r=>{if(r.url==='/notification-count')throw {code:'ERR_NETWORK'};return initial(r);};const hidden=vi.spyOn(document,'hidden','get').mockReturnValue(false),w=await app();await openWorkspace(w);expect(privateView(w).props('notificationUnread')).toBeNull();
+ hidden.mockReturnValue(true);document.dispatchEvent(new Event('visibilitychange'));requestHandler=async r=>({data:r.url==='/notification-count'?{_total:0}:result});hidden.mockReturnValue(false);document.dispatchEvent(new Event('visibilitychange'));await flushPromises();expect(privateView(w).props('notificationUnread')).toBe(0);
 });
-it('locks when pagehide occurs even if the browser has not emitted visibilitychange',async()=>{mocks.request.mockImplementation(async({url})=>({data:url==='/session'?{workspace:profile.workspace,appLock:{method:'code'}}:{sessionToken:'active',profile}}));const w=await app();await openWorkspace(w);window.dispatchEvent(new Event('pagehide'));await flushPromises();expect(w.find('[data-testid=private-workspace]').exists()).toBe(false);expect(w.text()).toContain('Welcome back');w.unmount();});

@@ -8,12 +8,12 @@ vi.mock('../../services/api',()=>({default:{get:mocks.get,post:mocks.post}}));
 import App from '../MobileApp.vue';
 it('opens the ordinary native browser destination without submitting or exposing a mobile grant',async()=>{
  const profile={surface:'staff',user:{id:1},workspace:{id:10,loginUrl:'https://app.itsco.health/test/login'},agencies:[{id:10,loginUrl:'https://app.itsco.health/test/login'}],appLock:{method:'code',hasCode:true,usesAccountCode:true},notifications:{enabled:false}};
- mocks.request.mockImplementation(async({path})=>path==='/session'?{userId:1,workspace:profile.workspace,appLock:profile.appLock}:{sessionToken:'private-mobile-grant',userId:1,agencyId:10,profile});mocks.get.mockResolvedValue({data:profile});mocks.post.mockResolvedValue({});
+ mocks.request.mockImplementation(async({path})=>{if(path==='/resume')throw {code:'MOBILE_LOCKED'};return path==='/session'?{userId:1,workspace:profile.workspace,appLock:profile.appLock}:{sessionToken:'private-mobile-grant',userId:1,agencyId:10,profile};});mocks.get.mockResolvedValue({data:profile});mocks.post.mockResolvedValue({});
  const open=vi.spyOn(window,'open').mockImplementation(()=>null),submit=vi.spyOn(HTMLFormElement.prototype,'submit').mockImplementation(()=>{});
  history.replaceState({},'','/mobile');const router=createRouter({history:createMemoryHistory(),routes:[{path:'/:pathMatch(.*)*',component:{template:'<span />'}}]});await router.push('/mobile');
  const w=mount(App,{global:{plugins:[router],stubs:{QuickView:{props:['mobileSession'],emits:['open-main'],template:'<div data-test="workspace"/>'}}}});await flushPromises();
  expect(w.find('[data-test="workspace"]').exists()).toBe(false);await w.get('input[type=password]').setValue('123456');await w.get('form').trigger('submit');await flushPromises();
- expect(mocks.request.mock.calls.some(([request])=>request.path==='/resume')).toBe(false);
+ expect(mocks.request.mock.calls.some(([request])=>request.path==='/resume')).toBe(true);
  await vi.waitFor(()=>expect(w.html()).toContain('data-test="workspace"'));w.findComponent('[data-test="workspace"]').vm.$emit('open-main',{kind:'client',agencyId:10,clientId:31});await flushPromises();
  expect(open).toHaveBeenCalledWith('https://app.itsco.health/test/admin/clients/31','_blank','noopener,noreferrer');expect(submit).not.toHaveBeenCalled();expect(String(open.mock.calls)).not.toContain('private-mobile-grant');
  w.unmount();open.mockRestore();submit.mockRestore();

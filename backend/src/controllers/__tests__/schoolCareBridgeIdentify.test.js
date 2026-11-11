@@ -21,4 +21,20 @@ describe('SchoolCareBridge identity discovery',()=>{
  it('resolves a single school and leaves legacy redirection disabled',async()=>{
   m.agencies.mockResolvedValue([schools[0]]);const result=await identify({username:'staff@school.test',surface:'schoolcarebridge'});expect(result.resolvedOrg.slug).toBe('ashley');expect(result.schoolCareBridgeRedirect).toBeNull();
  });
+ it('uses one account context for AuricWell mobile across multiple affiliated schools',async()=>{
+  const result=await identify({username:'staff@school.test',surface:'auricwell-mobile'});
+  expect(result.needsOrgChoice).toBe(false);expect(result.resolvedOrg.slug).toBe('ashley');
+ });
+ it('does not add an unrelated organization to the mobile account context',async()=>{
+  const result=await identify({username:'staff@school.test',surface:'auricwell-mobile',organizationSlug:'unrelated'});
+  expect(result.needsOrgChoice).toBe(false);
+  expect(result.orgOptions).toBeUndefined();
+  expect(result.resolvedOrg?.slug).not.toBe('unrelated');
+ });
+ it('retains required SSO across all affiliations when mobile chooses a starting context',async()=>{
+  m.byEmail.mockResolvedValue({id:5,role:'provider',email:'staff@school.test'});
+  m.agencies.mockResolvedValue([{...schools[0],organization_type:'agency'},{...schools[1],organization_type:'agency',feature_flags:{googleSsoEnabled:true,googleSsoRequiredRoles:['provider']}}]);
+  const result=await identify({username:'staff@school.test',surface:'auricwell-mobile'});
+  expect(result.needsOrgChoice).toBe(false);expect(result.login.method).toBe('google');
+ });
 });

@@ -3,7 +3,7 @@ import { isDemoExchangeClient, viewerMayOpenDemoExchange } from './clientExchang
 import { assertExchangeEssentials } from '../../../frontend/src/navigation/clientExchangeEssentials.js';
 import { resolveExchangeLocation } from '../../../frontend/src/navigation/clientExchangeLocation.js';
 import { scheduleFromIntake } from '../utils/clientExchangeSchedule.js';
-import { loadExchangeWaivers } from './clientExchangeWaivers.service.js';
+import { loadExchangeWaivers, loadExchangeWaiversBatch } from './clientExchangeWaivers.service.js';
 import { exchangeStaffRole, normalizeExchangeQualification } from '../../../frontend/src/navigation/clientExchangePolicy.js';
 import Agency from '../models/Agency.model.js';
 import { eligibleExchangeProvider, exchangeProviderSql } from '../utils/clientExchangeProvider.js';
@@ -157,7 +157,7 @@ function redactListing(listing, { viewerRole, viewerUserId, qaDemoViewer = false
   return { ...rest, clientId: null, clientInitials: listing.client_initials || null, currentProviderName: null };
 }
 
-export async function listListings({ agencyId, status, viewerUserId, viewerRole }) {
+export async function listListings({ agencyId, status, viewerUserId, viewerRole, personalFit = false }) {
   const aid = Number(agencyId);
   if (!aid) return [];
   const values = [aid];
@@ -190,7 +190,7 @@ export async function listListings({ agencyId, status, viewerUserId, viewerRole 
   }
   const qaDemoViewer = await viewerMayOpenDemoExchange({ userId: viewerUserId, role: viewerRole, agencyId: aid });
   const listings = (rows || []).map((row) => redactListing(row, { viewerUserId, viewerRole, qaDemoViewer })).filter(Boolean);
-  await attachViewerFit(listings, { viewerUserId, viewerRole, agencyId: aid, sourceRows: rows });
+  await attachViewerFit(listings, { viewerUserId, viewerRole, agencyId: aid, sourceRows: rows, personalFit });
   return listings;
 }
 
@@ -254,45 +254,40 @@ export async function getListingForMatching(listingId) {
   return mapListingRow(row);
 }
 
-export async function getListingById(listingId, { viewerUserId, viewerRole } = {}) {
+export async function getListingById(listingId, { viewerUserId, viewerRole, personalFit = false } = {}) {
   const row = await getRawListingById(listingId);
   if (!row) return null;
   await hydrateListingSummary(row);
   const qaDemoViewer = await viewerMayOpenDemoExchange({ userId: viewerUserId, role: viewerRole, agencyId: row.agency_id });
   const listing = redactListing(row, { viewerUserId, viewerRole, qaDemoViewer });
-  if (listing) await attachViewerFit([listing], { viewerUserId, viewerRole, agencyId: listing.agencyId, sourceRows: [row] });
+  if (listing) await attachViewerFit([listing], { viewerUserId, viewerRole, agencyId: listing.agencyId, sourceRows: [row], personalFit });
   return listing;
 }
 
-async function attachViewerFit(listings, { viewerUserId, viewerRole, agencyId, sourceRows = [] }) {
+export async function attachViewerFit(listings, { viewerUserId, viewerRole, agencyId, sourceRows = [], personalFit = false }) {
   if (!viewerUserId || !listings.length) return;
+  // This is always the current viewer's provider record; admin privileges do not
+  // substitute another provider or imply that this person is eligible to request.
   const context = await loadExchangeProvider({ userId: viewerUserId, agencyId });
-  if (!context.user && ['admin', 'super_admin', 'support', 'staff'].includes(String(viewerRole || '').toLowerCase())) return;
+  if (!context.user && !personalFit && ['admin', 'super_admin', 'support', 'staff'].includes(String(viewerRole || '').toLowerCase())) return;
   const needsSchedule = listings.some(exchangeNeedsOpenings);
   let openings;
   if (context.user && needsSchedule) {
     try { openings = await loadExchangeOpenings({ userId: viewerUserId, agencyId, scheduleAgencyId: context.profile?.agencyAvailability?.scheduleAgencyId || agencyId }); }
-    catch { /* Fit stays explicitly unverified when the scheduling service is unavailable. */ }
+    catch { /* The canonical evaluator keeps unavailable scheduling evidence unverified. */ }
   }
-  for (const listing of listings) {
-    const source = sourceRows.find(row => Number(row.id) === listing.id);
-    const waivers = await loadExchangeWaivers({ listingId: listing.id, userId: viewerUserId });
-    const evaluated = source ? mapListingRow(source) : listing;
-    const modality = String(evaluated.preferences?.modality || evaluated.preferences?.preferredModality || '').toLowerCase();
-    let officeCoverage;
-    if (context.user && ['in_person', 'either'].includes(modality)) {
-      try {
-        officeCoverage = await loadExchangeOfficeCoverage({
-          userId: context.user.id,
-          agencyId,
-          officeIds: context.profile?.agencyAvailability?.officeIds
-        });
-      } catch {
-        officeCoverage = { known: false, cities: [], officeIds: [] };
-      }
-    }
-    listing.viewerFit = evaluateExchangeListing({ ...context, waivers, officeCoverage, listing: evaluated, ...openings });
-    if (needsSchedule && !openings) listing.viewerFit.canNotify = false;
+  const sources=new Map(sourceRows.map(row=>[Number(row.id),row]));
+  const evaluated=listings.map(listing=>sources.has(Number(listing.id))?mapListingRow(sources.get(Number(listing.id))):listing);
+  let officeCoverage;
+  if(context.user && evaluated.some(row=>['in_person','either'].includes(String(row.preferences?.modality || row.preferences?.preferredModality || '').toLowerCase()))){
+    try {officeCoverage=await loadExchangeOfficeCoverage({userId:context.user.id,agencyId,officeIds:context.profile?.agencyAvailability?.officeIds});}
+    catch {officeCoverage={known:false,cities:[],officeIds:[]};}
+  }
+  const waiversByListing=context.user?await loadExchangeWaiversBatch({listingIds:listings.map(row=>row.id),userId:viewerUserId,agencyId}):new Map();
+  for(let i=0;i<listings.length;i++){
+    const listing=listings[i];
+    listing.viewerFit=evaluateExchangeListing({...context,waivers:waiversByListing.get(Number(listing.id))||[],officeCoverage,listing:evaluated[i],...openings});
+    if(needsSchedule&&!openings)listing.viewerFit.canNotify=false;
   }
 }
 

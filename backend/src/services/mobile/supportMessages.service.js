@@ -1,11 +1,16 @@
 import pool from '../../config/database.js';
+import sanitizeHtml from 'sanitize-html';
 import UserCommunication from '../../models/UserCommunication.model.js';
 import { appCommunicationVisibilitySql } from '../../utils/externalTestingEmail.js';
 import { requireConversationAccess } from '../communicationAccess.service.js';
 import { mobileSupportContext, supportAgencies, supportFailure, supportId,
   invokeSupportHandler, requireSupportResult } from './supportContext.service.js';
 
-const plain = value => String(value || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+// Drop non-content nodes before extracting text: removing tags alone exposes email CSS.
+const plain = value => sanitizeHtml(String(value || ''), { allowedTags: [], allowedAttributes: {} })
+  .replace(/&nbsp;/gi, ' ').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
+  .replace(/&quot;/gi, '"').replace(/&#39;/g, "'").replace(/&amp;/gi, '&')
+  .replace(/\s+/g, ' ').trim();
 const mainNumberSql = `EXISTS(SELECT 1 FROM message_logs ml JOIN twilio_numbers n ON n.id=ml.number_id
  JOIN agencies a ON a.id=ml.agency_id WHERE ml.agency_id=c.agency_id
  AND CONVERT(ml.sms_thread_key USING utf8mb4) COLLATE utf8mb4_unicode_ci=CONVERT(c.external_thread_id USING utf8mb4) COLLATE utf8mb4_unicode_ci

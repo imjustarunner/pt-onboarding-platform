@@ -3,15 +3,16 @@ vi.mock('../../../models/UserCommunicationContact.model.js',()=>({default:{upser
 import Conversation from '../../../models/CommunicationConversation.model.js';
 import Contact from '../../../models/UserCommunicationContact.model.js';
 import {beforeEach,expect,it,vi} from 'vitest';
-const mocks=vi.hoisted(()=>({execute:vi.fn(),access:vi.fn(),conversationAccess:vi.fn(),archive:vi.fn(),emails:vi.fn(),emailCounts:vi.fn(),archives:vi.fn(),extraCounts:vi.fn(),threads:vi.fn()}));
+const mocks=vi.hoisted(()=>({execute:vi.fn(),access:vi.fn(),conversationAccess:vi.fn(),archive:vi.fn(),emails:vi.fn(),emailCounts:vi.fn(),archives:vi.fn(),extraCounts:vi.fn(),threads:vi.fn(),drafts:vi.fn()}));
 vi.mock('../../../config/database.js',()=>({default:{execute:mocks.execute}}));
 vi.mock('../agencyScope.service.js',()=>({listMobileAgencies:vi.fn(async()=>({agencies:[]}))}));
+vi.mock('../../../services/emailDraft.service.js',()=>({listEmailDrafts:mocks.drafts}));
 vi.mock('../../../models/User.model.js',()=>({default:{findById:vi.fn()}}));
 vi.mock('../../../controllers/chat.controller.js',()=>({assertThreadAccess:mocks.access,markRead:vi.fn(),markUnread:vi.fn()}));
 vi.mock('../../../controllers/quickViewSurfaces.controller.js',()=>({qvListChatThreads:mocks.threads,qvListChatChannels:vi.fn((req,res)=>res.json({channels:[]})),qvListThreadsInbox:vi.fn(),qvListMentions:vi.fn(),qvListFiles:vi.fn()}));
 vi.mock('../../../services/communicationAccess.service.js',()=>({requireConversationAccess:mocks.conversationAccess}));
 vi.mock('../../../services/unifiedInbox.service.js',()=>({updateConversation:vi.fn()}));
-vi.mock('../conversa.service.js',async importOriginal=>{const actual=await importOriginal();return {...actual,mobileConversaStore:{emailInbox:async(id,options)=>Promise.all([mocks.emails(id,options),mocks.emailCounts(id,options.includeArchived,options.agencyId)]),archive:mocks.archive,emails:mocks.emails,emailCounts:mocks.emailCounts,archives:mocks.archives,extraCounts:mocks.extraCounts}};});
+vi.mock('../conversa.service.js',async importOriginal=>{const actual=await importOriginal();return {...actual,mobileConversaStore:{emailInbox:async(id,options)=>Promise.all([mocks.emails(id,options),options.includeCounts===false?[]:mocks.emailCounts(id,options.includeArchived,options.agencyId)]),archive:mocks.archive,emails:mocks.emails,emailCounts:mocks.emailCounts,archives:mocks.archives,extraCounts:mocks.extraCounts}};});
 vi.mock('../../../controllers/chatAttachments.controller.js',()=>({downloadSecureChatAttachment:vi.fn()}));
 vi.mock('../documentationQueue.service.js',()=>({getMobileDocumentationQueue:vi.fn()}));
 vi.mock('../../../services/storage.service.js',()=>({default:{}}));
@@ -77,3 +78,23 @@ it('rejects unconfirmed, known, internal, revoked and legacy-PIN spam operations
  delete req.quickView.mobileDeviceSessionId;res=response();await postMobileSpam(req,res,vi.fn());expect(res.status).toHaveBeenCalledWith(403);expect(Contact.block).not.toHaveBeenCalled();
 });
 it('excludes spam from the combined badge while retaining its separate folder',async()=>{mocks.emailCounts.mockResolvedValue([{category:'spam',unknown:false,total:12,unread:12},{category:'email',unknown:false,total:1,unread:1}]);mocks.emails.mockResolvedValue([{id:2,key:'email:2',category:'spam',unread:true},{id:3,key:'email:3',category:'email',unread:true}]);const req=request(),res=response();await getMobileInbox(req,res,vi.fn());expect(res.json.mock.calls[0][0].counts.spam.unread).toBe(12);expect(res.json.mock.calls[0][0].counts.all.unread).toBe(2);expect(res.json.mock.calls[0][0].items.some(item=>item.category==='spam')).toBe(false);req.query.suite='spam';const spam=response();await getMobileInbox(req,spam,vi.fn());expect(spam.json.mock.calls[0][0].items.map(item=>item.id)).toEqual([2]);});
+
+it('loads Email and Sent rows without unrelated chats, counts, archives, or channel discovery',async()=>{
+ const req=request();req.query={suite:'email',filter:'sent',includeCounts:'0'};mocks.emails.mockResolvedValue([{key:'email:7',id:7,kind:'email',category:'email',title:'Sent fixture',hasSent:true,at:'2026-11-06T12:00:00Z'}]);
+ const res=response();await getMobileInbox(req,res,vi.fn());expect(res.json.mock.calls[0][0]).toMatchObject({items:[{id:7}],counts:{},nextCursor:null});expect(mocks.emails).toHaveBeenCalledWith(3,expect.objectContaining({suite:'email',filter:'sent',includeCounts:false}));
+ for(const spy of [mocks.threads,mocks.emailCounts,mocks.archives,mocks.extraCounts,qvListChatChannels])expect(spy).not.toHaveBeenCalled();
+});
+it('loads Direct without fetching any email rows or unused counters',async()=>{
+ const req=request();req.query={suite:'direct',filter:'all',includeCounts:'0'};const res=response();await getMobileInbox(req,res,vi.fn());expect(mocks.threads).toHaveBeenCalledTimes(1);expect(mocks.archives).toHaveBeenCalledWith(3);for(const spy of [mocks.emails,mocks.emailCounts,mocks.extraCounts,qvListChatChannels])expect(spy).not.toHaveBeenCalled();expect(res.json.mock.calls[0][0].counts).toEqual({});
+});
+it('does not discover empty available channels for All unread',async()=>{
+ const req=request();req.query={suite:'all',filter:'unread'};const res=response();await getMobileInbox(req,res,vi.fn());expect(res.json.mock.calls[0][0].items).toHaveLength(1);expect(qvListChatChannels).not.toHaveBeenCalled();
+});
+it('loads drafts in bounded parallel batches without waiting on inbox history or counts',async()=>{
+ listMobileAgencies.mockResolvedValue({agencies:[{id:2,name:'Agency two'},{id:4,name:'Agency four'}]});let resolveFirst;const first=new Promise(resolve=>{resolveFirst=resolve;});mocks.drafts.mockImplementation((_user,id)=>id===2?first:Promise.resolve([{id:'newer',subject:'Second agency draft',updated_at:'2026-11-06T13:00:00Z'}]));
+ const req=request();req.query={suite:'drafts'};const res=response(),pending=getMobileInbox(req,res,vi.fn());for(let i=0;i<10 && mocks.drafts.mock.calls.length<2;i++)await new Promise(resolve=>setImmediate(resolve));expect(mocks.drafts.mock.calls.map(call=>call[1])).toEqual([2,4]);resolveFirst([{id:'older',subject:'First agency draft',updated_at:'2026-11-06T12:00:00Z'}]);await pending;
+ expect(res.json.mock.calls[0][0].items.map(item=>item.id)).toEqual(['newer','older']);expect(mocks.drafts).toHaveBeenCalledWith({id:3,role:'provider',mobileDevice:true},2);for(const spy of [mocks.emails,mocks.threads,mocks.archives,mocks.emailCounts,mocks.extraCounts,qvListChatChannels])expect(spy).not.toHaveBeenCalled();
+});
+it('clamps the draft lookup to the approved QA tenant',async()=>{
+ listMobileAgencies.mockResolvedValue({agencies:[{id:450},{id:456}]});mocks.drafts.mockResolvedValue([]);const req=request();req.quickView.agencyId=450;req.quickView.qaAgencyIds=[450];req.query={suite:'drafts'};const res=response();await getMobileInbox(req,res,vi.fn());expect(mocks.drafts.mock.calls.map(call=>call[1])).toEqual([450]);
+});

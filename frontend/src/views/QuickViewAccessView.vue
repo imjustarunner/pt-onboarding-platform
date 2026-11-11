@@ -1,5 +1,5 @@
 <template>
-  <div class="qv" :class="{ 'qv-signed-in': session, 'qv-mobile':isMobile, 'qv-mobile-messages':isMobile && ['home','thread','chat'].includes(tab) }" :style="brandStyle" @click.capture="handleMobileLink" @keydown.esc="closeMore" @keydown.tab="trapDialogFocus">
+  <div class="qv" :class="{ 'qv-signed-in': session, 'qv-mobile':isMobile, 'qv-mobile-messages':isMobile && ['home','thread','chat'].includes(tab), 'qv-mobile-calendar':isMobile && tab==='calendar' && !moreOpen && !overlayOpen }" :style="brandStyle" @click.capture="handleMobileLink" @keydown.esc="closeMore" @keydown.tab="trapDialogFocus">
     <a v-if="session" class="qv-skip" href="#qv-workspace">Skip to workspace</a>
     <header class="qv-top">
       <button v-if="session" class="qv-brand-row qv-brand-menu" type="button" aria-label="All workspace options" :aria-expanded="moreOpen" aria-controls="qv-more-tools" @click="navigateTo('more')"><AuricWellBrand :context="agencyName || 'Quick View'" /></button><div v-else class="qv-brand-row"><AuricWellBrand :context="agencyName || 'Quick View'" /></div>
@@ -84,15 +84,16 @@
     </section>
 
     <template v-if="session">
-      <div v-if="!isMobile || !['home','thread','chat','clinical','client','session'].includes(tab) && (moreOpen || tab!=='calendar' || todayIntro) && (moreOpen || tab!=='mywork' || workControlsOpen)" class="qv-page-heading" :class="{'qv-work-heading':isMobile && tab==='mywork'}">
+      <div v-if="!isMobile || !['home','thread','chat','clinical','client','session'].includes(tab) && (moreOpen || tab!=='calendar') && (moreOpen || tab!=='mywork' || workControlsOpen)" class="qv-page-heading" :class="{'qv-work-heading':isMobile && tab==='mywork'}">
         <div><p class="qv-eyebrow">{{ workspaceDate }}</p><h1>{{ currentHeading.title }}</h1><p class="qv-page-description">{{ currentHeading.description }}</p></div>
         <span class="qv-workspace-tag">QUICK VIEW</span>
       </div>
       <div v-if="sendNotice" class="qv-notice" role="status">{{ sendNotice }} <button v-if="undoSend" type="button" class="qv-btn ghost sm" @click="undoEmail">Undo send</button></div>
       <div v-if="remainingSeconds<=120 && (!isMobile || mobileSession.profile?.appLock?.method!=='none')" class="qv-lock-warning" role="status"><Clock3 :size="18" aria-hidden="true" /><span>Quick View locks in {{ remainingSeconds }} seconds.</span><button class="qv-btn primary sm" :disabled="extendBusy" @click="extendSession">Keep me signed in</button></div>
       <section id="qv-more-tools" v-show="moreOpen" class="qv-more-panel" role="region" aria-label="More tools">
+        <p v-if="isMobile" class="qv-more-count-note">{{ moreBadge == null ? 'Updating counts for views outside your bottom bar…' : `${moreBadge} unread or to do in views outside your bottom bar.` }}</p>
         <div class="qv-tool-grid">
-          <button v-for="item in secondaryNavigation" :key="item.id" type="button" class="qv-tool-card" :aria-label="item.label" @click="navigateTo(item.id)"><span class="qv-tool-icon"><component :is="item.icon" :size="23" aria-hidden="true" /></span><span><strong>{{ item.label }}</strong><small>{{ item.description }}</small></span><ChevronRight :size="18" aria-hidden="true" /></button>
+          <button v-for="item in secondaryNavigation" :key="item.id" type="button" class="qv-tool-card" :aria-label="item.label" @click="navigateTo(item.id)"><span class="qv-tool-icon"><component :is="item.icon" :size="23" aria-hidden="true" /></span><span class="qv-tool-copy"><span class="qv-tool-title"><strong>{{ item.label }}</strong><span v-if="isMobile && hasNavigationBadge(item.id)" class="qv-tool-count" :data-count-for="item.id">{{ navigationBadge(item.id) ?? '…' }} {{ ['home','notifications'].includes(item.id)?'unread':'to do' }}</span></span><small>{{ item.description }}</small></span><ChevronRight :size="18" aria-hidden="true" /></button>
         </div>
         <button v-if="isMobile" type="button" class="qv-btn ghost" @click="showMobileSettings=true">Mobile layout &amp; swipe settings</button><button v-if="isMobile" type="button" class="qv-btn ghost" @click="emit('account')">My Account</button><div class="qv-more-account"><div><h2>Workspace access</h2><p>Manage your session or continue in the full workspace.</p></div><div class="qv-more-actions"><a v-if="loginUrl" class="qv-btn ghost" :href="loginUrl">Full workspace<ArrowUpRight :size="16" aria-hidden="true" /></a><button type="button" class="qv-btn ghost" @click="logout"><LockKeyhole :size="16" aria-hidden="true" />Lock Quick View</button></div></div>
         <QuickViewMusicDock inline :scoped-playback="isMobile" :api-base="apiBase" :auth-headers="authHeaders" :visible="!!session" />
@@ -867,8 +868,8 @@ import { encodeEmailFiles } from '../utils/communicationAttachments';
 import QuickViewMusicDock from '../components/quickView/QuickViewMusicDock.vue';
 import { buildDisplaySections, extractSections, formatFullNoteCopy } from '../utils/noteAidUiHelpers.js';
 
-const props=defineProps({ mobileSession:Object,notificationUnread:{type:Number,default:0},overlayOpen:Boolean,privacyHidden:Boolean });
-const emit=defineEmits(['locked','account','notifications','open-workspace-item','preferences','refresh-session','open-main']);
+const props=defineProps({ mobileSession:Object,notificationUnread:{type:Number,default:null},overlayOpen:Boolean,privacyHidden:Boolean });
+const emit=defineEmits(['locked','account','notifications','open-workspace-item','preferences','refresh-session','session-expiry','open-main']);
 const isMobile=computed(()=>!!props.mobileSession);
 
 const BOOKMARK_KEY = 'plottwist.quickViewBookmark';
@@ -919,6 +920,7 @@ const expiresAt = ref(null);
 const clockNow=ref(Date.now());
 const lockCountdown=computed(()=>Number.isFinite(remainingSeconds.value)?`${Math.floor(remainingSeconds.value/60)}:${String(remainingSeconds.value%60).padStart(2,'0')}`:'—');
 watch(()=>props.mobileSession?.expiresAt,value=>{if(isMobile.value && value)expiresAt.value=value;});
+watch(expiresAt,value=>{if(isMobile.value && value)emit('session-expiry',value);});
 const remainingSeconds=computed(()=>Math.max(0,Math.ceil((new Date(expiresAt.value).getTime()-clockNow.value)/1000)));
 let deadlineTimer,lastActivitySent=0,activityPending=false;
 const agencyName = ref('');
@@ -963,13 +965,14 @@ watch(tab,(value,previous)=>{if(previous==='calendar' && value!=='calendar')dism
 watch(moreOpen,value=>{if(value && tab.value==='calendar')dismissTodayIntro();});
 const mobileUnreadCount=computed(()=>mobileCounts.value.all?.unread ?? messageBadge.value);
 const workspaceBadges=ref({mywork:null,tasks:null});let badgeRequest=0,lastBadgeRefresh=0;
-const navigationBadge=id=>id==='more'?moreBadge.value:id==='home'?mobileUnreadCount.value:workspaceBadges.value[id];
-const moreBadge=computed(()=>{const shown=new Set(primaryNavigation.value.map(item=>item.id));return ['home','mywork','tasks','notifications'].filter(id=>!shown.has(id)).reduce((sum,id)=>sum+Number(id==='home'?mobileUnreadCount.value||0:id==='notifications'?props.notificationUnread||0:workspaceBadges.value[id]||0),0);});
+const hasNavigationBadge=id=>['home','mywork','tasks','notifications'].includes(id);
+const navigationBadge=id=>id==='more'?moreBadge.value:id==='home'?mobileUnreadCount.value:id==='notifications'?props.notificationUnread:workspaceBadges.value[id];
+const moreBadge=computed(()=>{const shown=new Set(primaryNavigation.value.map(item=>item.id));const counts=['home','mywork','tasks','notifications'].filter(id=>!shown.has(id)).map(id=>id==='home'?mobileUnreadCount.value:id==='notifications'?props.notificationUnread:workspaceBadges.value[id]);return counts.some(value=>value==null)?null:counts.reduce((sum,value)=>sum+Number(value),0);});
 async function loadWorkspaceBadges(force=false){
  if(!isMobile.value || !session.value || (!force && Date.now()-lastBadgeRefresh<60000))return;
  const request=++badgeRequest,token=session.value;lastBadgeRefresh=Date.now();
  try{const {data}=await axios.get(`${apiBase}/workspace-counts`,{headers:authHeaders(),withCredentials:true});if(request===badgeRequest && token===session.value)workspaceBadges.value={mywork:data.mywork??null,tasks:data.tasks??null};}
- catch{if(request===badgeRequest && token===session.value)workspaceBadges.value={mywork:null,tasks:null};}
+ catch{/* Keep known counts during a failed refresh; an initial failure remains unknown. */}
 }
 async function loadMessageBadge(force=false){
  if(!isMobile.value || !session.value || document.hidden || (!force && Date.now()-lastMessageBadgeRefresh<30000))return;
@@ -3114,6 +3117,20 @@ button.qv-row:hover { background: #f8faff; }
 
 <style scoped>
 .qv-mobile,.qv-mobile .qv-workspace,.qv-mobile .qv-content{box-sizing:border-box;width:100%;max-width:100%;min-width:0}.qv-mobile .qv-workspace{overflow-x:hidden}.qv-mobile .qv-content>*{min-width:0;max-width:100%;box-sizing:border-box}
+.qv-mobile.qv-signed-in{display:flex;flex-direction:column;height:100dvh;min-height:0;overflow:hidden;padding-left:0}
+.qv-mobile.qv-signed-in::before{display:none}
+.qv-mobile .qv-top{flex-shrink:0;box-sizing:border-box;min-height:72px;padding:12px 14px}
+.qv-mobile.qv-signed-in .qv-brand-row{position:static}
+.qv-mobile.qv-signed-in .qv-workspace{flex:1;min-height:0;overflow-y:auto;overscroll-behavior-y:contain;padding-bottom:calc(100px + env(safe-area-inset-bottom,0px))}
+.qv-mobile-calendar.qv-signed-in .qv-workspace{display:flex;flex:1;flex-direction:column;min-height:0;max-width:none;width:100%;padding:0;overflow:hidden;margin:0 0 calc(74px + env(safe-area-inset-bottom,0px))}
+.qv-mobile-calendar .qv-content{display:flex;flex-direction:column;flex:1;min-height:0;overflow:hidden}
+.qv-mobile .qv-tabs{inset:auto 0 0;width:100%;height:calc(74px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:row;align-items:center;gap:3px;padding:5px 5px calc(5px + env(safe-area-inset-bottom,0px));box-sizing:border-box;background:#fff;border-top:1px solid var(--qv-border)}
+.qv-mobile .qv-tabs>button{flex:1;flex-direction:column;justify-content:center;min-width:0;gap:4px;padding:7px 4px;font-size:11px;min-height:54px}
+.qv-mobile .qv-nav-caption,.qv-mobile .qv-nav-footer,.qv-mobile .qv-session-status,.qv-mobile .qv-organization{display:none}
+.qv-tool-copy{min-width:0;flex:1}
+.qv-tool-title{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.qv-tool-count{display:inline-block;padding:3px 7px;border-radius:10px;background:#eaf0fd;color:#2454a2;font-size:11px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.qv-more-count-note{margin:0 0 12px;color:var(--qv-muted);font-size:12px;line-height:1.5}
 </style>
 
 <style scoped>.qv-task-count{font-size:11px;font-variant-numeric:tabular-nums;margin-left:4px}.qv-selected-day{font-size:13px;color:#466384;margin:0;padding:0 16px 12px}.qv-task-due{display:grid;gap:9px;font-size:14px}.qv-task-due input{font:inherit;font-size:16px;min-width:0;max-width:100%;box-sizing:border-box;padding:12px;border:1px solid #cbd9ed;border-radius:9px}.qv-task-action-buttons{display:flex;gap:8px;flex-wrap:wrap;margin-top:18px}.qv-task-action>p{white-space:pre-wrap;overflow-wrap:anywhere}.qv-task-action button{min-height:44px}</style>

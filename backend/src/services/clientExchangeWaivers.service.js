@@ -53,3 +53,15 @@ export async function changeExchangeWaiver({ listingId, agencyId, providerUserId
   } catch (error) { await connection.rollback(); throw error; }
   finally { connection.release(); }
 }
+
+/** Current waivers for one viewer, scoped to authorized listing IDs in a single agency. */
+export async function loadExchangeWaiversBatch({listingIds,userId,agencyId,database=pool}){
+ const ids=[...new Set((listingIds||[]).map(Number).filter(id=>Number.isSafeInteger(id)&&id>0))],result=new Map();
+ if(!ids.length||!Number.isSafeInteger(Number(userId))||Number(userId)<=0||!Number.isSafeInteger(Number(agencyId))||Number(agencyId)<=0)return result;
+ for(let start=0;start<ids.length;start+=100){const batch=ids.slice(start,start+100);const [rows]=await database.execute(`SELECT w.*,CONCAT_WS(' ',actor.first_name,actor.last_name) AS waived_by_name,CONCAT_WS(' ',revoker.first_name,revoker.last_name) AS revoked_by_name
+   FROM client_exchange_match_waivers w JOIN client_exchange_listings l ON l.id=w.listing_id JOIN users actor ON actor.id=w.waived_by_user_id LEFT JOIN users revoker ON revoker.id=w.revoked_by_user_id
+   WHERE l.agency_id=? AND w.provider_user_id=? AND w.revoked_at IS NULL AND w.listing_id IN (${batch.map(()=>'?').join(',')}) ORDER BY w.id DESC`,[Number(agencyId),Number(userId),...batch]);
+  for(const row of rows){const id=Number(row.listing_id);if(!result.has(id))result.set(id,[]);result.get(id).push(mapWaiver(row));}
+ }
+ return result;
+}

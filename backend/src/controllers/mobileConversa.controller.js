@@ -39,21 +39,34 @@ const matches=(item,filter)=>filter==='unread'?item.unread:filter==='needs'?item
 export const getMobileInbox=mobile(async(req,res)=>{
   const userId=req.quickView.userId,includeArchived=req.query.includeArchived==='1',cursor=parseCursor(req.query.cursor);
   const suite=String(req.query.suite || 'all'),filter=String(req.query.filter || 'all');
-  const qaAgencyId=mobileQaAgencyId(req),countsOnly=req.query.countsOnly==='1';
+  const qaAgencyId=mobileQaAgencyId(req),countsOnly=req.query.countsOnly==='1',includeCounts=countsOnly || req.query.includeCounts!=='0';
+  // Unsent drafts never need received mail, chat history or attachment counts.
+  // Recheck each agency and use the existing owner-scoped draft reader.
+  if(suite==='drafts' && !countsOnly){
+    const {listMobileAgencies}=await import('../services/mobile/agencyScope.service.js');const {listEmailDrafts}=await import('../services/emailDraft.service.js');
+    const {agencies}=await listMobileAgencies(await User.findById(userId,{raw:true}));const items=[],allowed=agencies.filter(agency=>!qaAgencyId || Number(agency.id)===qaAgencyId);
+    for(let offset=0;offset<allowed.length;offset+=4){const batch=await Promise.all(allowed.slice(offset,offset+4).map(async agency=>(await listEmailDrafts({id:userId,role:'provider',mobileDevice:true},agency.id)).map(draft=>({key:`draft:${draft.id}`,id:draft.id,kind:'draft',category:'drafts',agencyId:Number(agency.id),title:draft.subject || 'Untitled email',sender:draft.recipient || 'No recipient yet',preview:draft.preview,at:draft.updated_at,agencyName:agency.name}))));items.push(...batch.flat());}
+    items.sort((a,b)=>new Date(b.at)-new Date(a.at));return res.json({items,counts:{drafts:countsFor(items)},nextCursor:null});
+  }
+  const needsChatRows=['all','direct','groups','channels','secure','threads','mentions','files'].includes(suite),needsEmailRows=['all','email','sms','groups','unknown','spam'].includes(suite);
   const [rawThreads,[emails,emailCounts],archives]=await Promise.all([
-    invoke(qvListChatThreads,req,{agencyId:qaAgencyId || 'all'}),(countsOnly?mobileConversaStore.emailCounts(userId,includeArchived,qaAgencyId).then(counts=>[[],counts]):mobileConversaStore.emailInbox(userId,{includeArchived,beforeAt:cursor?.at,beforeKey:cursor?.key,suite,filter,agencyId:qaAgencyId})),mobileConversaStore.archives(userId)
+    includeCounts || needsChatRows?invoke(qvListChatThreads,req,{agencyId:qaAgencyId || 'all'}):[],
+    !countsOnly && needsEmailRows?mobileConversaStore.emailInbox(userId,{includeArchived,beforeAt:cursor?.at,beforeKey:cursor?.key,suite,filter,agencyId:qaAgencyId,includeCounts}):includeCounts?mobileConversaStore.emailCounts(userId,includeArchived,qaAgencyId).then(counts=>[[],counts]):[[],[]],
+    includeCounts || needsChatRows?mobileConversaStore.archives(userId):new Map()
   ]);
   let chats=(Array.isArray(rawThreads)?rawThreads:rawThreads.threads || []).filter(thread=>(!qaAgencyId||Number(thread.agency_id)===qaAgencyId)&&hasMobileThreadActivity(thread)).map(thread=>({...mobileThreadItem(thread,userId),archived:archives.has(`chat:${thread.thread_id}`)}));
   if(!includeArchived)chats=chats.filter(item=>!item.archived);
-  const counts=countsOnly?{}:await mobileConversaStore.extraCounts(userId,chats.filter(item=>!item.secure).map(item=>item.id));
+  const counts=countsOnly || !includeCounts?{}:await mobileConversaStore.extraCounts(userId,chats.filter(item=>!item.secure).map(item=>item.id));
+  if(includeCounts){
   for(const category of ['direct','groups','channels','secure'])counts[category]=countsFor(chats.filter(i=>i.category===category));
   for(const category of ['email','sms','unknown','spam'])counts[category]={total:0,unread:0,needs:0,sent:0};
   for(const row of emailCounts){const key=row.category==='spam'?'spam':row.unknown && row.category!=='groups'?'unknown':row.category;for(const field of ['total','unread','needs','sent'])counts[key][field]+=(row[field]||0);}
   counts.all=['direct','groups','channels','secure','email','sms','unknown'].map(key=>counts[key]).reduce((sum,c)=>({total:sum.total+c.total,unread:sum.unread+c.unread,needs:sum.needs+c.needs,sent:sum.sent+(c.sent||0)}),{total:0,unread:0,needs:0,sent:0});
+  }
   if(countsOnly)return res.json({counts});
   // Unknown mail remains in its own folder, while All really includes every source.
   let availableChannels=[];
-  if(['all','channels'].includes(suite)&&!qaAgencyId){
+  if((suite==='channels' && (filter==='all' || includeCounts) || suite==='all' && filter==='all')&&!qaAgencyId){
     const {listMobileAgencies}=await import('../services/mobile/agencyScope.service.js');const {agencies}=await listMobileAgencies(await User.findById(userId,{raw:true}));
     const data={channels:[]};
     for(let offset=0;offset<agencies.length;offset+=4){
@@ -61,7 +74,7 @@ export const getMobileInbox=mobile(async(req,res)=>{
       data.channels.push(...batch.flat());
     }
     availableChannels=(data.channels || []).filter(channel=>!chats.some(item=>item.id===Number(channel.thread_id || channel.id)) && (includeArchived || !archives.has(`chat:${channel.thread_id || channel.id}`))).map(channel=>({...mobileThreadItem({...channel,thread_id:channel.thread_id || channel.id,thread_type:'channel',channel_name:channel.name || channel.channel_name},userId),at:channel.updated_at || channel.created_at || null,preview:channel.description || 'Open this channel',join:!(channel.is_member===true || Number(channel.is_member)===1 || channel.isMember===true)}));
-    counts.channels.total+=availableChannels.length;counts.all.total+=availableChannels.length;
+    if(includeCounts){counts.channels.total+=availableChannels.length;counts.all.total+=availableChannels.length;}
   }
   let items=[...emails,...chats,...availableChannels].filter(item=>suite==='all'?item.category!=='spam':suite==='unknown'?item.unknown:item.category===suite && !item.unknown).filter(i=>matches(i,filter));
   if(['threads','mentions','files'].includes(suite)){
@@ -77,12 +90,6 @@ export const getMobileInbox=mobile(async(req,res)=>{
         at:item.latest_reply?.created_at || item.mentioned_at || item.created_at || thread.at,unread:suite==='threads'?Number(item.unread_reply_count)>0:!viewed.has(Number(item.message_id)) && !item.is_read && Number(item.message_id)>thread.lastReadMessageId && Number(item.sender?.id)!==Number(userId),needsReply:suite==='files'?false:suite==='threads'?Number(item.latest_reply?.sender?.id)!==Number(userId):!viewed.has(Number(item.message_id)) && !item.is_read && Number(item.message_id)>thread.lastReadMessageId};
     });
     items=items.filter(i=>matches(i,filter));
-  }
-  if(suite==='drafts'){
-    const {listMobileAgencies}=await import('../services/mobile/agencyScope.service.js');const {listEmailDrafts}=await import('../services/emailDraft.service.js');
-    const {agencies}=await listMobileAgencies(await User.findById(userId,{raw:true}));items=[];
-    for(const agency of agencies)for(const draft of await listEmailDrafts({id:userId,role:'provider',mobileDevice:true},agency.id))items.push({key:`draft:${draft.id}`,id:draft.id,kind:'draft',category:'drafts',agencyId:Number(agency.id),title:draft.subject || 'Untitled email',sender:draft.recipient || 'No recipient yet',preview:draft.preview,at:draft.updated_at,agencyName:agency.name});
-    items.sort((a,b)=>new Date(b.at)-new Date(a.at));counts.drafts=countsFor(items);return res.json({items,counts,nextCursor:null});
   }
   items.sort((a,b)=>new Date(b.at)-new Date(a.at) || sortKey(b).localeCompare(sortKey(a)));
   if(cursor)items=items.filter(i=>new Date(i.at)<new Date(cursor.at) || new Date(i.at).getTime()===new Date(cursor.at).getTime() && sortKey(i).localeCompare(cursor.key)<0);

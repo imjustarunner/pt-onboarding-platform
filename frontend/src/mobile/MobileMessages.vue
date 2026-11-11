@@ -20,7 +20,25 @@ const items=ref([]),counts=ref({}),cursor=ref(null),loading=ref(false),error=ref
 const inboxReady=ref(false),inboxFailed=ref(false);let inboxScope='';
 // Bounded component memory only; the device session owns and clears this cache.
 const inboxCache=new Map(),inboxFlights=new Map(),chatCache=new Map();
-function cacheInbox(touch=true){if(!inboxScope || !inboxReady.value)return;inboxCache.set(inboxScope,{items:[...items.value],cursor:cursor.value,at:touch?Date.now():inboxCache.get(inboxScope)?.at || 0});if(inboxCache.size>12)inboxCache.delete(inboxCache.keys().next().value);}
+let inboxRevision=0,countsFlight=null;
+function rememberInbox(scope,value){inboxCache.set(scope,value);if(inboxCache.size>12)inboxCache.delete(inboxCache.keys().next().value);}
+function cacheInbox(touch=true){if(!inboxScope || !inboxReady.value)return;const previous=inboxCache.get(inboxScope);rememberInbox(inboxScope,{items:items.value.map(item=>({...item})),cursor:cursor.value,counts:{...counts.value},partial:previous?.partial || false,at:touch?Date.now():previous?.at || 0});}
+function invalidateInbox(){++inboxRevision;++inboxRequest;inboxCache.clear();inboxFlights.clear();countsFlight=null;}
+function deriveInbox(scope){
+ const [targetSuite,targetFilter,archived]=scope.split(':');if(!['all','email','sms','groups','direct','channels','secure','unknown','spam'].includes(targetSuite) || !['all','unread','sent'].includes(targetFilter))return null;
+ for(const [sourceScope,source] of [...inboxCache].sort((a,b)=>b[1].at-a[1].at)){
+  const [sourceSuite,sourceFilter,sourceArchived]=sourceScope.split(':');
+  if(sourceArchived!==archived || ![targetSuite,'all'].includes(sourceSuite) || sourceSuite==='all' && targetSuite==='spam' || !['all',targetFilter].includes(sourceFilter) || source.partial)continue;
+  const rows=source.items.filter(item=>(targetSuite==='all'?item.category!=='spam':targetSuite==='unknown'?item.unknown:item.category===targetSuite && !item.unknown) && (targetFilter==='unread'?item.unread:targetFilter==='sent'?item.hasSent:true));
+  const expected=source.counts?.[targetSuite]?.[targetFilter==='unread'?'unread':targetFilter==='sent'?'sent':'total'];
+  const complete=!source.cursor || Number.isFinite(expected) && expected===rows.length;
+  // A truncated All page can paint a folder immediately while its own cursor
+  // and remaining rows are loaded. Never reuse an All cursor in a subfolder.
+  if(!rows.length && !complete)continue;
+  return {items:rows.map(item=>({...item})),cursor:null,counts:source.counts,at:source.at,partial:!complete};
+ }
+ return null;
+}
 function inboxGet(key,options){if(inboxFlights.has(key))return inboxFlights.get(key);const task=axios.get(`${props.apiBase}/messages/inbox`,options);inboxFlights.set(key,task);task.finally(()=>{if(inboxFlights.get(key)===task)inboxFlights.delete(key);}).catch(()=>{});return task;}
 const sharingNotice=ref(null),commentHistoryOpen=ref(false),commentHistoryDialog=ref(null);
 async function showCommentHistory(){commentHistoryOpen.value=true;await nextTick();commentHistoryDialog.value?.focus();}
@@ -90,19 +108,23 @@ const baseCategories=[['all','All',MessageSquare],['email','Email',Mail],['direc
 // Freeze the category order for this mounted workspace. Quiet count refreshes
 // never move a target under a finger; the next visit promotes unread categories.
 const categoryOrder=ref(null);
-const swipeGuide=ref(false);
+const swipeGuide=ref(null),swipeGuideDirection=ref(0);let swipeGuideTimers=[];
 const actionName=action=>({archive:'archive',read:'mark as read',unread:'mark as unread',none:'no action'}[action] || 'no action');
+function stopSwipeGuide(){for(const timer of swipeGuideTimers)clearTimeout(timer);swipeGuideTimers=[];swipeGuide.value=null;swipeGuideDirection.value=0;}
 function maybeShowSwipeGuide(){
- if(!props.visible || threadId.value || !inboxReady.value || !items.value.some(selectable) || !props.userId)return;
- const key=`auricwell:swipe-guide:v1:${props.userId}`;
+ if(!props.visible || threadId.value || !inboxReady.value || !items.value.some(selectable) || !props.userId || swipeGuide.value)return;
+ const key=`auricwell:swipe-guide:v2:${props.userId}`;
  try{if(localStorage.getItem(key))return;localStorage.setItem(key,'seen');}catch{/* The demonstration still works when browser storage is disabled. */}
- swipeGuide.value=true;
+ swipeGuide.value=items.value.find(selectable).key;
+ const reduced=window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+ if(!reduced)for(const [delay,direction] of [[40,-1],[750,0],[1150,1],[1850,0]])swipeGuideTimers.push(setTimeout(()=>{swipeGuideDirection.value=direction;},delay));
+ swipeGuideTimers.push(setTimeout(stopSwipeGuide,4200));
 }
 watch([inboxReady,()=>props.visible],()=>nextTick(maybeShowSwipeGuide));
 const categories=computed(()=>categoryOrder.value || baseCategories);
 function orderCategories(){if(categoryOrder.value)return;categoryOrder.value=[baseCategories[0],...baseCategories.slice(1).sort((a,b)=>Number((counts.value[b[0]]?.unread||0)>0)-Number((counts.value[a[0]]?.unread||0)>0))];}
 const suite=computed(()=>String(route.query.suite || 'all'));
-const filter=computed(()=>suite.value==='drafts'?'drafts':(route.query.filter==='needs'?'unread':String(route.query.filter || (suite.value==='all'?'unread':'all'))));
+const filter=computed(()=>suite.value==='drafts'?'drafts':(route.query.filter==='needs'?'unread':String(route.query.filter || (['all','email'].includes(suite.value)?'unread':'all'))));
 const showingDrafts=computed(()=>filter.value==='drafts');
 const includeArchived=computed(()=>route.query.archived==='1');
 const threadId=computed(()=>Number(route.query.threadId)||null),parentId=computed(()=>Number(route.query.parentId)||null);
@@ -116,32 +138,40 @@ const draftKey=()=>`${threadId.value}:${parentId.value || 'root'}`;
 let inboxRequest=0,chatRequest=0,timer,observer,scrollTimer;
 let drag=null,suppressClickUntil=0;
 const dragOffset=ref({key:null,x:0});
-const swipeAction=item=>dragOffset.value.key===item.key?(dragOffset.value.x<0?props.preferences.swipeLeft:props.preferences.swipeRight):'none';
+const swipeOffset=item=>dragOffset.value.key===item.key?dragOffset.value.x:swipeGuide.value===item.key?swipeGuideDirection.value*88:0;
+const swipeAction=item=>swipeOffset(item)?(swipeOffset(item)<0?props.preferences.swipeLeft:props.preferences.swipeRight):'none';
 const swipeLabel=item=>({archive:item.archived?'Restore':'Archive',read:'Read',unread:'Unread',none:''}[swipeAction(item)] || '');
 const failedPhotos=ref(new Set());
 function photoFailed(key){failedPhotos.value=new Set([...failedPhotos.value,key]);}
 const clean=query=>Object.fromEntries(Object.entries(query).filter(([,value])=>value!==undefined && value!==null && value!==''));
 function go(query,{replace=false}={}) {return router[replace?'replace':'push']({path:'/mobile/workspace',query:clean(query)});}
-function rememberDraft(){if(threadId.value)drafts.set(draftKey(),{text:reply.value,files:chatFiles.value,threadId:threadId.value,parentId:parentId.value,title:chatTitle.value,secure:secure.value,category:secure.value?'secure':chat.value?.thread_type==='channel'?'channels':chat.value?.thread_type==='direct'?'direct':'groups',agencyLogoUrl:chat.value?.agencyLogoUrl,at:new Date().toISOString()});}
+function rememberDraft(){if(!threadId.value)return;drafts.set(draftKey(),{text:reply.value,files:chatFiles.value,threadId:threadId.value,parentId:parentId.value,title:chatTitle.value,secure:secure.value,category:secure.value?'secure':chat.value?.thread_type==='channel'?'channels':chat.value?.thread_type==='direct'?'direct':'groups',agencyLogoUrl:chat.value?.agencyLogoUrl,at:new Date().toISOString()});for(const key of inboxCache.keys())if(key.startsWith('drafts:') || key.split(':')[1]==='drafts')inboxCache.delete(key);}
 function clearFile(){if(fileUrl.value)URL.revokeObjectURL(fileUrl.value);fileUrl.value='';fileData.value=null;filePreview.value=null;}
 function clearChat(){++chatRequest;chatLoading.value=false;hasOlder.value=false;observer?.disconnect();chat.value=null;messages.value=[];secureOpen.value=false;revealNames.value=false;revealedMessages.value=new Set();firstUnreadId.value=null;unreadAbove.value=false;reply.value='';chatFiles.value=[];clearFile();}
-async function changeSuite(value){rememberTabs();rememberListScroll();await go({view:'home',suite:value,filter:value==='all'?'unread':'all',archived:includeArchived.value?'1':undefined});}
+async function changeSuite(value){rememberTabs();rememberListScroll();await go({view:'home',suite:value,filter:['all','email'].includes(value)?'unread':'all',archived:includeArchived.value?'1':undefined});}
 async function changeFilter(value){rememberTabs();rememberListScroll();await go({view:'home',suite:suite.value,filter:value,archived:includeArchived.value?'1':undefined});}
 function rememberListScroll(){const pane=document.getElementById('qv-workspace');if(pane)scrollPositions.set(`${suite.value}:${filter.value}`,pane.scrollTop);}
 async function loadInbox({older=false,quiet=false,force=false}={}) {
-  if(pendingRead.size || bulkBusy.value)return;
   const scope=`${suite.value}:${filter.value}:${includeArchived.value}`;
-  if(scope!==inboxScope){++inboxRequest;cacheInbox(false);inboxScope=scope;const cached=inboxCache.get(scope);items.value=cached?[...cached.items]:[];cursor.value=cached?.cursor || null;inboxReady.value=!!cached;}
-  const cached=inboxCache.get(scope);if(!force && !older && cached && Date.now()-cached.at<60000){loading.value=false;inboxFailed.value=false;return;}
-  const request=++inboxRequest,token=props.sessionToken;if(!quiet)loading.value=true;error.value='';
+  if(scope!==inboxScope){++inboxRequest;cacheInbox(false);const cached=inboxCache.get(scope) || deriveInbox(scope);inboxScope=scope;if(cached)rememberInbox(scope,cached);items.value=cached?cached.items.map(item=>({...item})):[];cursor.value=cached?.cursor || null;inboxReady.value=!!cached;}
+  if(pendingRead.size || bulkBusy.value)return;
+  const cached=inboxCache.get(scope);if(!force && !older && cached && !cached.partial && Date.now()-cached.at<60000){loading.value=false;inboxFailed.value=false;void nextTick(maybeShowSwipeGuide);return;}
+  const request=++inboxRequest,token=props.sessionToken,revision=inboxRevision,sourceItems=[...items.value],targetSuite=suite.value,targetDrafts=showingDrafts.value;
+  const includeCounts=!targetDrafts && (force || !Object.keys(counts.value).length) && !countsFlight;if(!quiet)loading.value=true;error.value='';
+  let flight;
   try{
-    const {data}=await inboxGet(`${scope}:${older?cursor.value || 'older':'first'}`,{...config(),params:{suite:showingDrafts.value?'drafts':suite.value,filter:showingDrafts.value?'all':filter.value,includeArchived:includeArchived.value?'1':'0',cursor:older?cursor.value:undefined}});
-    if(request!==inboxRequest || token!==props.sessionToken)return;
+    flight=inboxGet(`${revision}:${scope}:${older?cursor.value || 'older':'first'}`,{...config(),params:{suite:targetDrafts?'drafts':targetSuite,filter:targetDrafts?'all':filter.value,includeArchived:includeArchived.value?'1':'0',includeCounts:includeCounts?'1':'0',cursor:older?cursor.value:undefined}});if(includeCounts)countsFlight=flight;
+    const {data}=await flight;
+    if(token!==props.sessionToken || revision!==inboxRevision)return;
+    let received=older?[...sourceItems,...(data.items || [])]:data.items || [];
+    if(targetDrafts){const local=[...drafts.values()].filter(d=>(d.text?.trim() || d.files?.length) && (targetSuite==='all' || targetSuite===d.category)).map(d=>({...d,id:d.threadId,key:`chat-draft:${d.threadId}:${d.parentId||0}`,kind:'chat-draft',preview:d.secure?'Unsent secure message':d.text}));received=[...local,...(['all','email','drafts'].includes(targetSuite)?received:[])];}
+    if(data.counts && Object.keys(data.counts).length){counts.value={...counts.value,...data.counts};if(targetDrafts)counts.value.drafts={total:received.length};emit('counts',counts.value);}
+    rememberInbox(scope,{items:received.map(item=>({...item})),cursor:data.nextCursor || null,counts:{...counts.value},at:Date.now(),partial:false});
+    if(request!==inboxRequest)return;
     inboxReady.value=true;inboxFailed.value=false;
-    items.value=older?[...items.value,...data.items]:data.items || [];counts.value={...counts.value,...data.counts};orderCategories();cursor.value=data.nextCursor || null;
-    if(showingDrafts.value){const local=[...drafts.values()].filter(d=>(d.text?.trim() || d.files?.length) && (suite.value==='all' || suite.value===d.category)).map(d=>({...d,id:d.threadId,key:`chat-draft:${d.threadId}:${d.parentId||0}`,kind:'chat-draft',preview:d.secure?'Unsent secure message':d.text}));items.value=[...local,...(['all','email','drafts'].includes(suite.value)?items.value:[])];counts.value.drafts={total:items.value.length};}cacheInbox();emit('counts',counts.value);await restoreTabs();
-  }catch(e){if(request===inboxRequest){inboxFailed.value=true;if([401,403].includes(e.response?.status)){inboxCache.clear();inboxFlights.clear();items.value=[];counts.value={};cursor.value=null;inboxReady.value=false;}error.value=e.response?.status<500?e.response?.data?.error?.message || 'Messages are unavailable for this account.':inboxReady.value?'Messages could not be refreshed. Previously loaded conversations are shown.':'Messages could not be loaded. Try again.';}}
-  finally{if(request===inboxRequest)loading.value=false;}
+    items.value=received;orderCategories();cursor.value=data.nextCursor || null;await restoreTabs();void nextTick(maybeShowSwipeGuide);
+  }catch(e){if(token===props.sessionToken && [401,403].includes(e.response?.status)){invalidateInbox();items.value=[];counts.value={};cursor.value=null;inboxReady.value=false;inboxFailed.value=true;loading.value=false;error.value=e.response?.data?.error?.message || 'Messages are unavailable for this account.';emit('counts',counts.value);}else if(request===inboxRequest){inboxFailed.value=true;error.value=e.response?.status<500?e.response?.data?.error?.message || 'Messages are unavailable for this account.':inboxReady.value?'Messages could not be refreshed. Previously loaded conversations are shown.':'Messages could not be loaded. Try again.';}}
+  finally{if(countsFlight===flight)countsFlight=null;if(request===inboxRequest)loading.value=false;}
 }
 async function openItem(item){
   if(Date.now()<suppressClickUntil)return;
@@ -173,7 +203,7 @@ const previewText=item=>item.secure?'Secure message · tap to unlock':compact(it
 const icon=item=>item.secure?LockKeyhole:item.kind==='email'?Mail:item.category==='channels'?Hash:item.category==='groups'?Users:MessageSquare;
 async function archive(item,active=!item.archived){
   const kind=['email','sms'].includes(item.kind)?item.kind:'chat',id=item.threadId || item.thread_id || item.id;
-  try{await axios.patch(`${props.apiBase}/messages/${kind}/${id}/archive`,{archived:active},config());inboxCache.clear();notice.value=active?'Conversation archived':'Conversation restored';undoItem.value=active?{...item,archived:true}:null;await loadInbox({quiet:true,force:true});}
+  try{await axios.patch(`${props.apiBase}/messages/${kind}/${id}/archive`,{archived:active},config());invalidateInbox();notice.value=active?'Conversation archived':'Conversation restored';undoItem.value=active?{...item,archived:true}:null;await loadInbox({quiet:true,force:true});}
   catch(e){error.value=e.response?.data?.error?.message || 'Could not update this conversation.';}
 }
 const pendingRead=new Set();
@@ -183,12 +213,12 @@ async function markRead(item,read=true){
   const previous={unread:item.unread,unreadCount:item.unreadCount},previousItems=[...items.value],previousCounts=structuredClone(JSON.parse(JSON.stringify(counts.value))),scope=inboxScope;let failure='';loading.value=false;
   notice.value=read?'Marked as read':'Marked as unread';
   const delta=(read?0:1)-(item.unread?1:0);item.unread=!read;item.unreadCount=read?0:1;
-  inboxCache.clear();
+  invalidateInbox();
   for(const key of new Set(['all',item.category]))if(counts.value[key])counts.value[key]={...counts.value[key],unread:Math.max(0,Number(counts.value[key].unread||0)+delta)};
   if(filter.value==='unread' && read)items.value=items.value.filter(row=>row.key!==item.key);cacheInbox();emit('counts',counts.value);
   try{await axios.patch(`${props.apiBase}/messages/${kind}/${id}/state`,{read},config());}
   catch(e){if([401,403].includes(e.response?.status)){inboxCache.clear();inboxFlights.clear();items.value=[];counts.value={};cursor.value=null;inboxReady.value=false;emit('counts',counts.value);emit('access-denied');}else if(scope===inboxScope){items.value=previousItems;Object.assign(item,previous);counts.value=previousCounts;emit('counts',counts.value);}failure=e.response?.data?.error?.message || 'Could not update read status.';notice.value='';}
-  finally{pendingRead.delete(item.key);inboxCache.clear();cacheInbox();if(props.visible && !threadId.value)await loadInbox({quiet:true,force:true});if(failure)error.value=failure;}
+  finally{pendingRead.delete(item.key);invalidateInbox();cacheInbox();if(props.visible && !threadId.value)await loadInbox({quiet:true,force:true});if(failure)error.value=failure;}
 
 }
 let bulkRequest=0;
@@ -217,21 +247,21 @@ async function showPreview(item){
 }
 async function unlockPreview(){previewUnlocked.value=true;await loadPreview();}
 function confirmSpam(item){if(item.kind!=='email'||!item.unknown)return;rowMenu.value=null;spamItem.value=item;}
-async function markSpam(){const item=spamItem.value;if(!item || spamBusy.value)return;spamBusy.value=true;try{await axios.post(`${props.apiBase}/messages/email/${item.id}/spam`,{confirmed:true},config());spamItem.value=null;inboxCache.clear();notice.value='Sender marked as spam. Their emails are in Spam.';await loadInbox({quiet:true,force:true});}catch(e){error.value=e.response?.data?.error?.message || 'This sender could not be marked as spam.';}finally{spamBusy.value=false;}}
+async function markSpam(){const item=spamItem.value;if(!item || spamBusy.value)return;spamBusy.value=true;try{await axios.post(`${props.apiBase}/messages/email/${item.id}/spam`,{confirmed:true},config());spamItem.value=null;invalidateInbox();notice.value='Sender marked as spam. Their emails are in Spam.';await loadInbox({quiet:true,force:true});}catch(e){error.value=e.response?.data?.error?.message || 'This sender could not be marked as spam.';}finally{spamBusy.value=false;}}
 async function applyBulk(action){
  if(bulkBusy.value||!selectedRows.value.size)return;bulkBusy.value=true;rowMenu.value=null;error.value='';++inboxRequest;loading.value=false;const batch=++bulkRequest,token=props.sessionToken,scope=inboxScope,rows=[...selectedRows.value.values()];let succeeded=0;const failed=new Map();
  for(const item of rows){if(token!==props.sessionToken || scope!==inboxScope)break;try{await axios.patch(`${props.apiBase}/messages/${item.kind}/${item.id}/${action==='archive'?'archive':'state'}`,action==='archive'?{archived:true}:{read:true},config());succeeded++;}catch{failed.set(item.key,item);}}
- if(batch!==bulkRequest)return;bulkBusy.value=false;if(token!==props.sessionToken || scope!==inboxScope)return;selectedRows.value=failed;selectionMode.value=failed.size>0;inboxCache.clear();notice.value=`${succeeded} conversation${succeeded===1?'':'s'} ${action==='archive'?'archived':'marked as read'}.`;await loadInbox({quiet:true,force:true});if(failed.size)error.value=`${failed.size} conversation${failed.size===1?' could':'s could'} not be updated. They remain selected; try again.${error.value?' '+error.value:''}`;
+ if(batch!==bulkRequest)return;bulkBusy.value=false;if(token!==props.sessionToken || scope!==inboxScope)return;selectedRows.value=failed;selectionMode.value=failed.size>0;invalidateInbox();notice.value=`${succeeded} conversation${succeeded===1?'':'s'} ${action==='archive'?'archived':'marked as read'}.`;await loadInbox({quiet:true,force:true});if(failed.size)error.value=`${failed.size} conversation${failed.size===1?' could':'s could'} not be updated. They remain selected; try again.${error.value?' '+error.value:''}`;
 }
-watch(()=>props.sessionToken,()=>{++inboxRequest;inboxCache.clear();inboxFlights.clear();chatCache.clear();clearChat();items.value=[];counts.value={};cursor.value=null;inboxReady.value=false;inboxScope='';});
-watch([suite,filter,includeArchived,()=>props.sessionToken],()=>{++bulkRequest;bulkBusy.value=false;selectionMode.value=false;selectedRows.value=new Map();rowMenu.value=null;spamItem.value=null;closePreview();});
+watch(()=>[props.sessionToken,props.apiBase],()=>{invalidateInbox();chatCache.clear();clearChat();items.value=[];counts.value={};cursor.value=null;inboxReady.value=false;inboxScope='';});
+watch([suite,filter,includeArchived,()=>props.sessionToken],()=>{stopSwipeGuide();++bulkRequest;bulkBusy.value=false;selectionMode.value=false;selectedRows.value=new Map();rowMenu.value=null;spamItem.value=null;closePreview();});
 const knownSender=ref(null),savingKnown=ref(false);let holdTimer=null;
 watch(knownSender,async value=>{if(value){await nextTick();const panel=document.querySelector('[aria-label="Create known contact"]');panel?.setAttribute('tabindex','-1');panel?.focus({preventScroll:true});}});
 function cancelHold(){clearTimeout(holdTimer);holdTimer=null;}
 function showKnownSender(item){if(item.kind!=='email' || !item.unknown)return;cancelHold();suppressClickUntil=Date.now()+600;knownSender.value=item;drag=null;dragOffset.value={key:null,x:0};}
-async function saveKnownSender(){const item=knownSender.value;if(!item || savingKnown.value)return;savingKnown.value=true;try{await axios.post(`${props.apiBase}/messages/email/${item.id}/known-sender`,{},config());knownSender.value=null;notice.value='Contact saved. Emails from this sender now appear in your inbox.';await loadInbox({quiet:true,force:true});}catch(e){error.value=e.response?.data?.error?.message || 'The contact could not be saved.';}finally{savingKnown.value=false;}}
+async function saveKnownSender(){const item=knownSender.value;if(!item || savingKnown.value)return;savingKnown.value=true;try{await axios.post(`${props.apiBase}/messages/email/${item.id}/known-sender`,{},config());knownSender.value=null;invalidateInbox();notice.value='Contact saved. Emails from this sender now appear in your inbox.';await loadInbox({quiet:true,force:true});}catch(e){error.value=e.response?.data?.error?.message || 'The contact could not be saved.';}finally{savingKnown.value=false;}}
 function cancelSwipe(){cancelHold();drag=null;dragOffset.value={key:null,x:0};}
-function startSwipe(item,event){if(event.pointerType==='mouse' && event.button!==0)return;cancelHold();if(selectionMode.value)return;if(selectable(item) || ['threads','mentions'].includes(item.kind))holdTimer=setTimeout(()=>showPreview(item),550);drag={key:item.key,x:event.clientX,y:event.clientY,target:event.currentTarget,pointerId:event.pointerId};}
+function startSwipe(item,event){if(event.pointerType==='mouse' && event.button!==0)return;stopSwipeGuide();cancelHold();if(selectionMode.value)return;if(selectable(item) || ['threads','mentions'].includes(item.kind))holdTimer=setTimeout(()=>showPreview(item),550);drag={key:item.key,x:event.clientX,y:event.clientY,target:event.currentTarget,pointerId:event.pointerId};}
 function moveSwipe(event){
   if(!drag)return;const x=event.clientX-drag.x,y=event.clientY-drag.y;if(Math.abs(x)>8||Math.abs(y)>8)cancelHold();
   if(Math.abs(y)>Math.abs(x) && Math.abs(y)>12){drag=null;dragOffset.value={key:null,x:0};return;}
@@ -313,12 +343,12 @@ async function syncRoute(){
   else{clearChat();await loadInbox();await restoreTabs(true);await nextTick();const pane=document.getElementById('qv-workspace');if(pane)pane.scrollTop=scrollPositions.get(`${suite.value}:${filter.value}`)||0;}
 }
 watch(()=>route.fullPath,syncRoute);
-watch(()=>props.visible,async visible=>{if(visible){await restoreTabs(true);if(threadId.value){if(!chat.value)await syncRoute();else await loadChat({quiet:true});}else if(!threadId.value)await loadInbox({quiet:true});}else{closePreview();rowMenu.value=null;spamItem.value=null;swipeGuide.value=false;commentHistoryOpen.value=false;knownSender.value=null;cancelHold();clearFile();composeMenu.value=false;closeRecipients();if(secure.value){rememberDraft();clearChat();}}});
+watch(()=>props.visible,async visible=>{if(visible){await restoreTabs(true);if(threadId.value){if(!chat.value)await syncRoute();else await loadChat({quiet:true});}else if(!threadId.value)await loadInbox({quiet:true});}else{stopSwipeGuide();closePreview();rowMenu.value=null;spamItem.value=null;commentHistoryOpen.value=false;knownSender.value=null;cancelHold();clearFile();composeMenu.value=false;closeRecipients();if(secure.value){rememberDraft();clearChat();}}});
 function markConversationRead(conversation){const item=items.value.find(row=>['email','sms'].includes(row.kind) && Number(row.id)===Number(conversation.id));if(item?.unread)return markRead(item,true);}
 defineExpose({refresh:()=>loadInbox({force:true}),markConversationRead});
 onMounted(async()=>{await syncRoute();timer=setInterval(()=>{if(!props.visible || document.hidden || chatBusy.value || uploading.value || pendingRead.size)return;if(threadId.value)loadChat({quiet:true});else loadInbox({quiet:true,force:true});},15000);});
 let noticeTimer;watch(notice,value=>{clearTimeout(noticeTimer);if(value)noticeTimer=setTimeout(()=>{notice.value='';undoItem.value=null;},4500);});
-onUnmounted(()=>{closePreview();cancelHold();clearTimeout(noticeTimer);clearTimeout(recipientSearchTimer);++recipientRequest;++inboxRequest;clearChat();clearInterval(timer);clearTimeout(scrollTimer);drafts.clear();scrollPositions.clear();inboxCache.clear();inboxFlights.clear();chatCache.clear();});
+onUnmounted(()=>{stopSwipeGuide();closePreview();cancelHold();clearTimeout(noticeTimer);clearTimeout(recipientSearchTimer);++recipientRequest;invalidateInbox();clearChat();clearInterval(timer);clearTimeout(scrollTimer);drafts.clear();scrollPositions.clear();chatCache.clear();});
 </script>
 
 <template>
@@ -352,15 +382,14 @@ onUnmounted(()=>{closePreview();cancelHold();clearTimeout(noticeTimer);clearTime
       <label v-if="suite==='channels'" class="mm-folder">Search channels<input v-model="channelQuery" type="search" placeholder="Channel name"/></label>
       <div v-if="includeArchived" class="mm-included">Showing active and archived conversations</div>
       <div v-if="suite==='email' || suite==='unknown'" class="mm-folder"><button :aria-pressed="suite==='unknown'" @click="changeSuite(suite==='unknown'?'email':'unknown')">Unknown senders <span>{{ inboxReady ? counts.unknown?.total || 0 : '—' }}</span></button><button @click="emit('settings')">Swipe settings</button></div>
-      <div v-if="swipeGuide" class="mm-swipe-guide" aria-label="Swipe gesture introduction"><button type="button" aria-label="Dismiss swipe introduction" @click="swipeGuide=false">×</button><div class="mm-swipe-demo" aria-hidden="true"><span>←</span><span class="mm-swipe-demo-card">Message</span><span>→</span></div><p>Swipe left: {{ actionName(preferences.swipeLeft) }}.<br/>Swipe right: {{ actionName(preferences.swipeRight) }}.</p><small>Change these in mobile preferences.</small></div>
       <div v-if="selectionMode" class="mm-bulk" role="toolbar" aria-label="Selected conversations"><strong>{{ selectedRows.size }} selected</strong><button :disabled="bulkBusy || !selectedRows.size" @click="applyBulk('read')">Read</button><button :disabled="bulkBusy || !selectedRows.size" @click="applyBulk('archive')">Archive</button><button :disabled="bulkBusy" @click="selectedRows=new Map(shownSelectable.map(item=>[item.key,item]))">Select all shown</button><button :disabled="bulkBusy" @click="clearSelection">Cancel</button><span v-if="bulkBusy" role="status">Updating…</span></div>
       <p v-if="loading && !items.length" class="mm-empty" role="status">Loading your conversations…</p>
       <article v-for="item in items.filter(item=>suite!=='channels' || item.title.toLowerCase().includes(channelQuery.toLowerCase()))" :key="item.key" class="mm-card" :class="{unread:item.unread,secure:item.secure,archived:item.archived,files:item.kind==='files'}">
-        <div class="mm-swipe" :class="[`action-${swipeAction(item)}`,{'swipe-left':dragOffset.key===item.key && dragOffset.x<0}]"><span class="mm-swipe-label">{{ swipeLabel(item) }}</span>
-          <button class="mm-row" :aria-pressed="selectionMode && selectable(item) ? selectedRows.has(item.key) : undefined" :disabled="bulkBusy" :style="{transform:`translateX(${dragOffset.key===item.key?dragOffset.x:0}px)`}" @pointerdown="startSwipe(item,$event)" @pointermove="moveSwipe" @pointerup="finishSwipe(item)" @pointercancel="cancelSwipe" @contextmenu.prevent="showPreview(item)" @click="openItem(item)">
+        <div class="mm-swipe" :class="[`action-${swipeAction(item)}`,{'swipe-left':swipeOffset(item)<0}]"><span class="mm-swipe-label">{{ swipeLabel(item) }}</span>
+          <button class="mm-row" :class="{'is-demonstrating':swipeGuide===item.key}" :aria-pressed="selectionMode && selectable(item) ? selectedRows.has(item.key) : undefined" :disabled="bulkBusy" :style="{transform:`translateX(${swipeOffset(item)}px)`}" @pointerdown="startSwipe(item,$event)" @pointermove="moveSwipe" @pointerup="finishSwipe(item)" @pointercancel="cancelSwipe" @contextmenu.prevent="showPreview(item)" @click="openItem(item)">
             <span v-if="selectionMode && selectable(item)" class="mm-select-check" role="checkbox" :aria-checked="selectedRows.has(item.key)" :aria-label="`Select ${item.title}`">{{ selectedRows.has(item.key) ? '✓' : '' }}</span><MobileIdentityAvatar v-else :photo="imageUrl(item.avatar)" :contain-photo="!!item.schoolId && !item.staffId" :agency-icon="imageUrl(item.agencyLogoUrl)" :name="item.title" :private-identity="item.secure"/>
             <span class="mm-meta"><span class="mm-row-top"><strong>{{ item.category==='groups' && item.groupName ? item.groupName : ['chat','threads','mentions','sms'].includes(item.kind)?item.title:(item.sender || item.title) }}</strong><time>{{ time(item.at) }}</time></span><strong v-if="item.kind==='email' || item.kind==='files' || ['draft','chat-draft'].includes(item.kind)" class="mm-subject">{{ item.title }}</strong><span class="mm-preview"><template v-if="item.kind==='chat' && item.sender && item.sender!==item.title && !item.secure">{{ item.sender }}: </template>{{ previewText(item) }}</span><span class="mm-category-label">{{ item.category==='groups' ? 'Groups' : item.category }}<template v-if="item.destinationAccount && item.category!=='groups'"> · To {{ item.destinationAccount }}</template><template v-if="item.agencyName"> · {{ item.agencyName }}</template><template v-if="item.reply_count"> · {{ item.reply_count }} replies</template><template v-if="item.kind==='files'"> · {{ fileSize(item) }}</template><template v-if="item.archived"> · Archived</template></span></span>
-            <span v-if="item.unread" class="mm-unread" :aria-label="`${item.unreadCount || 1} unread`">{{ item.unreadCount || 1 }}</span>
+            <span v-if="item.unread" class="mm-unread" :aria-label="`${item.unreadCount || 1} unread`">{{ item.unreadCount || 1 }}</span><span v-if="swipeGuide===item.key" class="mm-swipe-tip" role="status">Swipe left: {{ actionName(preferences.swipeLeft) }}. Swipe right: {{ actionName(preferences.swipeRight) }}.</span>
           </button>
         </div>
         <div class="mm-row-tools"><template v-if="item.kind==='files'"><button @click="viewFile(item)">View</button><button @click="openItem(item)">Open message</button></template><button v-else-if="['draft','chat-draft'].includes(item.kind)" @click="openItem(item)">Open draft</button><span v-else-if="item.join" class="mm-join-label">Join</span><details v-else><summary :aria-label="`Actions for ${item.title}`"><MoreHorizontal :size="18"/></summary><div><button v-if="selectable(item)" @click="beginSelection(item)">Select multiple</button><button v-if="item.kind==='email' && item.unknown" @click="showKnownSender(item)">Create known contact</button><button v-if="item.kind==='email' && item.unknown" @click="confirmSpam(item)">Mark as spam</button><button @click="showPreview(item)">View preview</button><button @click="openItem(item)">Open conversation</button><button @click="archive(item)">{{ item.archived?'Restore':'Archive' }}</button><button @click="markRead(item,item.unread)">{{ item.unread?'Mark read':'Mark unread' }}</button></div></details></div>
@@ -411,5 +440,5 @@ onUnmounted(()=>{closePreview();cancelHold();clearTimeout(noticeTimer);clearTime
 <style scoped>.mm-family-recipients{padding:9px 12px;font-size:12px;line-height:1.5;background:#f0f5ff;color:#284d7a;max-height:25vh;overflow:auto;flex-shrink:0}</style>
 
 <style scoped>
-.mm-row,.mm-row-tools,.mm-selection-overlay{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}.mm-selection-overlay{align-items:center}.mm-selection-overlay>section{max-height:calc(100dvh - 48px);overflow:auto}.mm-selection-overlay p{font-size:14px;line-height:1.6}.mm-swipe-guide{margin:10px 14px;padding:12px 35px 12px 14px;background:#f0f5ff;border:1px solid #dce7f8;border-radius:12px;position:relative;color:#294a79;font-size:13px}.mm-swipe-guide>button{position:absolute;right:7px;top:5px;background:transparent;border:0;font-size:23px;color:inherit;padding:4px 8px}.mm-swipe-guide p{margin:8px 0 4px;line-height:1.5}.mm-swipe-guide small{font-size:11px}.mm-swipe-demo{display:flex;align-items:center;gap:14px;width:200px;max-width:100%;justify-content:space-between;overflow:hidden}.mm-swipe-demo-card{background:white;border:1px solid #cadaf4;border-radius:8px;padding:7px 22px;animation:swipe-introduction 2.4s ease-in-out 1}@keyframes swipe-introduction{0%,45%,100%{transform:translateX(0)}20%{transform:translateX(-25px)}70%{transform:translateX(25px)}}@media(prefers-reduced-motion:reduce){.mm-swipe-demo-card{animation:none}}
+.mm-row,.mm-row-tools,.mm-selection-overlay{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}.mm-selection-overlay{align-items:center}.mm-selection-overlay>section{max-height:calc(100dvh - 48px);overflow:auto}.mm-selection-overlay p{font-size:14px;line-height:1.6}.mm-row.is-demonstrating{transition:transform .42s ease-in-out;padding-bottom:38px}.mm-swipe-tip{position:absolute;bottom:8px;left:16px;right:16px;font-size:11px;color:#355c8f;line-height:1.3;text-align:left}@media(prefers-reduced-motion:reduce){.mm-row.is-demonstrating{transition:none}}
 </style>

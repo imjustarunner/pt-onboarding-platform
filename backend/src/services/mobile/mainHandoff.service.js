@@ -1,4 +1,5 @@
 import pool from '../../config/database.js';
+import {mobileScheduleActions,mobileScheduleContext,SCHEDULE_CONTEXT_FIELDS} from './scheduleContext.service.js';
 import {getUserCapabilities} from '../../utils/capabilities.js';
 import {randomUUID} from 'node:crypto';
 import config from '../../config/config.js';
@@ -56,9 +57,11 @@ export function createMobileMainHandoff({
    if(request.method!=='POST'||!/^application\/x-www-form-urlencoded(?:\s*;|$)/i.test(header('content-type')))throw fail(400);
    if((header('sec-fetch-mode')&&header('sec-fetch-mode')!=='navigate')||(header('sec-fetch-dest')&&header('sec-fetch-dest')!=='document'))throw fail(403);
    if(!trustedOrigins.has(origin)&&!NATIVE_ORIGINS.has(origin))throw fail(403);
-   if(!body||typeof body!=='object'||Array.isArray(body)||Object.keys(body).some(key=>!['kind','agencyId','clientId','candidateId'].includes(key))||Object.keys(request.query||{}).length)throw fail(400);
+   if(!body||typeof body!=='object'||Array.isArray(body)||Object.keys(body).some(key=>!['kind','agencyId','clientId','candidateId',...SCHEDULE_CONTEXT_FIELDS].includes(key))||Object.keys(request.query||{}).length)throw fail(400);
    const agencyId=positiveId(body.agencyId),clientId=positiveId(body.clientId),candidateId=positiveId(body.candidateId),kind=body.kind;
    if(!agencyId||!['client','schedule','applicants'].includes(kind)||(kind==='client'&&!clientId)||(kind==='schedule'&&(body.clientId!==undefined||body.candidateId!==undefined))||(kind==='applicants'&&(!candidateId||body.clientId!==undefined))||(kind==='client'&&body.candidateId!==undefined))throw fail(400);
+   const scheduleContext=mobileScheduleContext(body);
+   if(scheduleContext&&kind!=='schedule')throw fail(400);
    if(typeof token!=='string'||!/^[a-f0-9]{64}$/i.test(token))throw fail(401);
    // Validation does not extend the mobile workspace's absolute lock deadline.
    const unlocked=await touch(token,{activity:false});
@@ -81,6 +84,7 @@ export function createMobileMainHandoff({
    if(!agency)throw fail(403);
    const actor=await getActor(context.user,agencyId);
    if(!STAFF_ROLES.has(actor?.role))throw fail(403);
+   if(scheduleContext&&!mobileScheduleActions(actor).some(action=>action.id===scheduleContext.scheduleAction))throw fail(403);
    let path='my-schedule';
    if(kind==='client'){
     if(!CLIENT_ROLES.has(actor.role))throw fail(403);
@@ -98,7 +102,8 @@ export function createMobileMainHandoff({
    const mainToken=await sign({id:Number(context.user.id),email:context.user.email,role:context.user.role,agencyId,product:'full_suite',authMethod:'mobile',sessionId:newSessionId()},settings.jwt.secret,{expiresIn:ttl});
    response.cookie('authToken',mainToken,{...settings.authCookie.set(),httpOnly:true,secure:true,maxAge:ttl*1000});
    // This public marker makes the SPA discard any old localStorage bearer before cookie bootstrap.
-   response.redirect(303,`${target.pathname}?mobileHandoff=1&mobileHandoffAgency=${agencyId}`);
+   const query=new URLSearchParams({mobileHandoff:'1',mobileHandoffAgency:String(agencyId),...(scheduleContext?{...scheduleContext,scheduleAgencyId:String(agencyId)}:{})});
+   response.redirect(303,`${target.pathname}?${query}`);
   }catch(error){
    const status=[400,401,403,404,423].includes(error?.status)?error.status:500;
    response.status(status).json({code:'MOBILE_MAIN_HANDOFF_UNAVAILABLE',message:status===401||status===423?'Reopen AuricWell and unlock this workspace, then try again.':'The main app could not be opened. Return to AuricWell and try again.'});
