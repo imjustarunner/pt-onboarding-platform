@@ -55,14 +55,15 @@ it('allowlists each supported clinical workflow explicitly by HTTP method',()=>{
 
 it('allowlists dedicated personal scheduling actions with canonical IDs and exact methods only',async()=>{
  const req={quickView:{qaAgencyIds:[450],agencyId:450,mobileDeviceSessionId:2},query:{agencyId:450},body:{agencyId:450}};
- for(const[method,path]of [['GET','/schedule/options'],['POST','/schedule/appointments'],['GET','/schedule/appointments/1'],['PATCH','/schedule/appointments/1'],['POST','/schedule/appointments/1/cancel']]){
+ for(const[method,path]of [['GET','/schedule/actions'],['GET','/schedule/options'],['POST','/schedule/appointments'],['GET','/schedule/appointments/1'],['PATCH','/schedule/appointments/1'],['POST','/schedule/appointments/1/cancel']]){
   expect(qaScheduleRouteAllowed(method,path)).toBe(true);
   await expect(enforceMobileQaBoundary({...req,method,originalUrl:'/api/quick-view'+path})).resolves.toBeUndefined();
  }
  for(const id of ['0','01','1e0','1.0','+1','0x1','%31','1%2f2','9007199254740993'])for(const method of ['GET','POST','PATCH','DELETE'])expect(qaScheduleRouteAllowed(method,'/schedule/appointments/'+id)).toBe(false);
- for(const[method,path]of [['PATCH','/schedule/options'],['GET','/schedule/appointments'],['DELETE','/schedule/appointments/1'],['GET','/schedule/appointments/1/cancel'],['POST','/schedule/appointments/1/settle'],['POST','/schedule/proxy']]){
+ for(const[method,path]of [['POST','/schedule/actions'],['GET','/schedule/actions/future'],['GET','/schedule/%61ctions'],['PATCH','/schedule/options'],['GET','/schedule/appointments'],['DELETE','/schedule/appointments/1'],['GET','/schedule/appointments/1/cancel'],['POST','/schedule/appointments/1/settle'],['POST','/schedule/proxy']]){
   expect(qaScheduleRouteAllowed(method,path)).toBe(false);
   await expect(enforceMobileQaBoundary({...req,method,originalUrl:'/api/quick-view'+path})).rejects.toMatchObject({status:403});
  }
  await expect(enforceMobileQaBoundary({...req,method:'POST',body:{agencyId:456},originalUrl:'/api/quick-view/schedule/appointments'})).rejects.toMatchObject({status:403});
+ await expect(enforceMobileQaBoundary({...req,method:'GET',query:{agencyId:456},originalUrl:'/api/quick-view/schedule/actions'})).rejects.toMatchObject({status:403});
 });
