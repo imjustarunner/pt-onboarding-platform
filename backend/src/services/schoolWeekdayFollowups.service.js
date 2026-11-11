@@ -160,7 +160,7 @@ export function createSchoolWeekdayFollowups({ database = pool, readContext = re
     const result=[];
     for(const person of people) {
       const context=await readContext(person.id,agencyId,database);
-      if(!context.eligible || (!context.requestedAt && !context.days.some(day=>day.status==='assigned')))continue;
+      if(!context.eligible || (!context.needsResponse && !schoolWeekdayCompletion(context).complete) || (!context.requestedAt && !context.days.some(day=>day.status==='assigned')))continue;
       const tracking=rows.find(row=>Number(row.provider_id)===Number(person.id)) || {};
       result.push({providerId:person.id,name:[person.first_name,person.last_name].filter(Boolean).join(' '),...schoolWeekdayProgress(context,tracking)});
     }
