@@ -53,11 +53,12 @@ class PayrollManualPayLine {
 
     const hasMetadataJson = await this._hasMetadataJsonColumn();
     const [rows] = await pool.execute(
-      `SELECT *
-       FROM payroll_manual_pay_lines
-       WHERE payroll_period_id = ?
-         ${agencyId ? 'AND agency_id = ?' : ''}
-       ORDER BY id ASC`,
+      `SELECT mpl.*, u.first_name, u.last_name
+       FROM payroll_manual_pay_lines mpl
+       LEFT JOIN users u ON u.id = mpl.user_id
+       WHERE mpl.payroll_period_id = ?
+         ${agencyId ? 'AND mpl.agency_id = ?' : ''}
+       ORDER BY mpl.id ASC`,
       agencyId ? [payrollPeriodId, agencyId] : [payrollPeriodId]
     );
     return (rows || []).map((row) => ({

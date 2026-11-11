@@ -1,11 +1,10 @@
 <template>
-  <div class="ppc">
-    <div class="ppc-head">
+  <div class="ppc" :class="{ 'ppc--embedded': embedded }">
+    <div v-if="!embedded" class="ppc-head">
       <div>
         <div class="ppc-title">Compare &amp; Add Late Notes</div>
         <div class="ppc-hint">
-          Same as Process Changes on the Payroll page, using the reports already uploaded in step 1.
-          Section 1 = late notes to pay. Section 2 = persistent no-notes (still incomplete in the billing report).
+          Review payable late notes and corrections from your uploaded reports. Incomplete notes stay unpaid.
         </div>
         <div v-if="destinationPeriodLabel" class="ppc-period">
           Destination (current): <strong>{{ destinationPeriodLabel }}</strong>
@@ -19,10 +18,21 @@
     <div v-if="destPosted" class="ppc-warn">
       The destination pay period is posted/finalized. Choose a different current period before applying late notes.
     </div>
-    <div v-if="error" class="ppc-error">{{ error }}</div>
+    <div v-if="error" class="ppc-error" role="alert">
+      {{ error }}
+      <button type="button" class="btn btn-secondary btn-sm" :disabled="loading || applying" @click="reloadAll">Retry review</button>
+    </div>
+    <div v-if="!loading && pendingCount" class="ppc-warn" role="status">
+      {{ pendingCount }} payable late note{{ pendingCount === 1 ? '' : 's' }} still need{{ pendingCount === 1 ? 's' : '' }} to be added before continuing.
+    </div>
+    <PayrollWizardEmpty
+      v-if="embedded && !loading && !error && readiness.empty"
+      title="No payable late notes"
+      message="No new payable notes were found in the uploaded prior reports. Continue to review the current period."
+    />
     <div v-if="loading && !sections.length" class="ppc-muted">Loading comparisons from uploaded runs…</div>
 
-    <div v-for="sec in sections" :key="sec.key" class="ppc-card">
+    <div v-for="sec in visibleSections" :key="sec.key" class="ppc-card">
       <div class="ppc-card-title">{{ sec.title }}</div>
       <div class="ppc-muted">
         Source: <strong>{{ sec.periodLabel || '—' }}</strong>
@@ -34,17 +44,17 @@
 
       <template v-else>
         <!-- Section 1 — Late Add & Notes to be Paid (same as Process Changes) -->
-        <div class="ppc-section ppc-section--ok" style="margin-top: 12px;">
+        <div v-if="!embedded || sec.actionable.length" class="ppc-section ppc-section--ok" style="margin-top: 12px;">
           <div class="ppc-section-label">
-            Section 1 — Late Add &amp; Notes to be Paid
+            Late notes and changes
             <span class="ppc-muted" style="font-weight: 400;">
-              ({{ selectedCountFor(sec) }} of {{ sec.actionable.length }} selected)
+              ({{ pendingRowsFor(sec).length }} remaining · {{ selectedCountFor(sec) }} selected)
             </span>
           </div>
           <div class="ppc-muted" style="margin: 6px 0 10px;">
             {{ sec.twoRunMode
-              ? 'Late add: new in Run 2. Notes to be paid: no note or draft unpaid in Run 1 → finalized or draft in Run 2.'
-              : 'Late add: new in Run 3. Notes to be paid: no note or draft unpaid in Run 2 → finalized or draft in Run 3.' }}
+              ? 'Compare Run 2 with Run 1. Add previously unpaid notes that are now finalized or marked payable.'
+              : 'Compare Run 3 with Run 2. Add previously unpaid notes that are now finalized or marked payable.' }}
           </div>
 
           <div v-if="!sec.actionable.length" class="ppc-muted">No payable late-note differences for this period.</div>
@@ -56,12 +66,12 @@
                 class="ppc-search"
                 placeholder="Search provider, code, client, date…"
               />
-              <button type="button" class="btn btn-secondary btn-sm" :disabled="applying" @click="selectAll(sec, true)">Select all</button>
-              <button type="button" class="btn btn-secondary btn-sm" :disabled="applying" @click="selectAll(sec, false)">Select none</button>
+              <button type="button" class="btn btn-secondary btn-sm" :disabled="applying || loading" @click="selectAll(sec, true)">Select all</button>
+              <button type="button" class="btn btn-secondary btn-sm" :disabled="applying || loading" @click="selectAll(sec, false)">Select none</button>
               <button
                 type="button"
                 class="btn btn-primary"
-                :disabled="applying || destPosted || !destinationPeriodId || selectedCountFor(sec) === 0"
+                :disabled="loading || applying || destPosted || !destinationPeriodId || selectedCountFor(sec) === 0"
                 @click="applySection(sec)"
               >
                 {{ applying && applyingKey === sec.key ? 'Adding…' : 'Add selected to current period' }}
@@ -77,9 +87,9 @@
                     <th>Service</th>
                     <th>Client</th>
                     <th>DOS</th>
-                    <th>From → To</th>
+                    <th>Source note status</th>
                     <th>Change</th>
-                    <th>Type</th>
+                    <th>Payroll status</th>
                     <th class="right">Units</th>
                   </tr>
                 </thead>
@@ -87,12 +97,15 @@
                   <tr
                     v-for="c in filteredActionable(sec)"
                     :key="`${sec.key}-${c.rowMatchKey}`"
-                    :style="rowAction(sec, c) === 'skip' ? { opacity: 0.5 } : {}"
+                    :id="rowElementId(sec, c)"
+                    :class="{ 'ppc-row--pending': isPending(c), 'ppc-row--added': isApplied(c) }"
                   >
                     <td>
                       <input
                         type="checkbox"
-                        :checked="rowAction(sec, c) !== 'skip'"
+                        :checked="!isApplied(c) && rowAction(sec, c) !== 'skip'"
+                        :disabled="loading || applying || destPosted || isApplied(c) || !canChooseRow(c)"
+                        :aria-label="`Select ${c.provider_name || 'provider'} ${ymd(c.service_date)} ${c.to_service_code || c.from_service_code}`"
                         @change="toggleRow(sec, c, $event.target.checked)"
                       />
                     </td>
@@ -102,11 +115,15 @@
                     <td class="muted">{{ ymd(c.service_date) || '—' }}</td>
                     <td class="muted">{{ c.from_status || '—' }} → {{ c.to_status || '—' }}</td>
                     <td>{{ changeTypeLabel(c.changeType) }}</td>
-                    <td><span class="badge" :class="typeBadgeClass(c)">{{ payableTypeBadge(c) }}</span></td>
+                    <td>
+                      <span v-if="isApplied(c)" class="badge badge-ok">Added to current payroll</span>
+                      <span v-else class="badge" :class="typeBadgeClass(c)">{{ payableTypeBadge(c) }}</span>
+                    </td>
                     <td class="right">
                       <input
                         type="number"
                         :value="rowUnits(sec, c)"
+                        :disabled="loading || applying || destPosted || isApplied(c) || !canChooseRow(c)"
                         min="0"
                         step="0.01"
                         style="width: 80px; text-align: right;"
@@ -124,35 +141,22 @@
         </div>
 
         <!-- Section 2 — Persistent No-Notes (same meaning as Process Changes) -->
-        <div class="ppc-section ppc-section--warn" style="margin-top: 14px;">
+        <div v-if="!embedded || sec.persistentNoNotes.length" class="ppc-section ppc-section--warn" style="margin-top: 14px;">
           <div class="ppc-section-label ppc-section-label--warn">
-            Section 2 — Persistent No-Notes
+            Still incomplete — not payable
             <span class="ppc-muted" style="font-weight: 400;">({{ sec.persistentNoNotes.length }})</span>
           </div>
           <div class="ppc-muted" style="margin: 6px 0 10px;">
             {{ sec.twoRunMode
               ? 'No note in Run 1, still no note in Run 2. These are still incomplete in the billing report.'
               : 'No note in Run 2, still no note in Run 3. These are still incomplete in the billing report.' }}
-            Add these to the current period so providers know what they’re missing.
+            These remain unpaid. They cannot be added as payable work until a note becomes eligible.
           </div>
 
           <div v-if="!sec.persistentNoNotes.length" class="ppc-muted">
             No persistent no-notes for this compare.
           </div>
           <template v-else>
-            <div class="ppc-actions">
-              <button
-                type="button"
-                class="btn btn-primary"
-                :disabled="applying || destPosted || !destinationPeriodId"
-                @click="applyPersistentNoNotes(sec)"
-              >
-                {{ applying && applyingKey === `${sec.key}-nonote` ? 'Adding…' : 'Add no-note to current period' }}
-              </button>
-              <span v-if="sec.noNoteAppliedCount != null" class="ppc-ok-inline">
-                Added {{ sec.noNoteAppliedCount }} no-note group(s).
-              </span>
-            </div>
             <div class="ppc-table-wrap">
               <table class="ppc-table">
                 <thead>
@@ -183,16 +187,19 @@
     </div>
 
     <div v-if="!loading && !sections.length && !error" class="ppc-warn">
-      No prior-period Run 2 / Run 3 imports found yet. Go back to Upload Reports and upload those files first.
+      No prior reports were uploaded. There are no catch-up notes to add.
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
+import PayrollWizardEmpty from './PayrollWizardEmpty.vue';
+import { appliedCatchupKeys, catchupAppliedKey, catchupIsPayableAddition, pairCatchupCorrections } from '../../utils/payrollCatchupReview';
 
 const props = defineProps({
+  embedded: { type: Boolean, default: false },
   agencyId: { type: [Number, String], default: null },
   destinationPeriodId: { type: [Number, String], default: null },
   destinationPeriodLabel: { type: String, default: '' },
@@ -203,15 +210,20 @@ const props = defineProps({
   twoAgoPeriodLabel: { type: String, default: '' }
 });
 
-const emit = defineEmits(['applied']);
+const emit = defineEmits(['applied', 'readiness', 'blocked']);
 
-const loading = ref(false);
+const loading = ref(true);
 const applying = ref(false);
 const applyingKey = ref('');
 const error = ref('');
 const sections = ref([]);
+const visibleSections = computed(() => props.embedded
+  ? sections.value.filter(section => section.blockingMissing || section.actionable.length || section.persistentNoNotes.length)
+  : sections.value);
 /** selection[secKey][rowMatchKey] = { action, units } */
 const selection = ref({});
+const appliedKeys = ref(new Set());
+let requestVersion = 0;
 
 const destPosted = computed(() => {
   const s = String(props.destinationPeriodStatus || '').toLowerCase();
@@ -238,23 +250,12 @@ const changeTypeLabel = (type) => {
   if (t === 'removed') return 'Removed in selected run';
   if (t === 'location_changed') return 'Place of service changed';
   if (t === 'service_code_changed') return 'Service code changed';
-  if (t === 'overpaid_deleted') return 'Overpaid—session deleted';
+  if (t === 'ambiguous_correction') return 'Possible correction — review source sessions';
+  if (t === 'overpaid_deleted') return 'Previously paid row removed — review';
   return type || 'Changed';
 };
 
-const canAddAsCarryover = (c) => {
-  const toStatus = String(c?.to_status || '').toUpperCase();
-  const fromStatus = String(c?.from_status || '').toUpperCase();
-  const toUnits = Number(c?.to_units || 0);
-  const userId = Number(c?.user_id || 0);
-  if (!userId || !(toUnits > 1e-9)) return false;
-  if (toStatus === 'DRAFT_PAID') return true;
-  if (toStatus === 'FINALIZED') {
-    if (fromStatus === 'DRAFT_PAID') return false;
-    return true;
-  }
-  return false;
-};
+const canAddAsCarryover = catchupIsPayableAddition;
 
 const canAddAsReduction = (c) => {
   const changeType = String(c?.changeType || '').trim().toLowerCase();
@@ -263,28 +264,48 @@ const canAddAsReduction = (c) => {
   return changeType === 'overpaid_deleted' && userId > 0 && fromUnits > 1e-9;
 };
 
-const defaultAction = (c) => {
-  const changeType = String(c?.changeType || '').trim().toLowerCase();
-  if (changeType === 'overpaid_deleted') return 'skip';
-  if (changeType === 'location_changed' || changeType === 'service_code_changed' || changeType === 'code_change') return 'skip';
-  if (canAddAsReduction(c)) return 'skip';
-  return canAddAsCarryover(c) ? 'add' : 'skip';
-};
+const canChooseRow = c => canAddAsCarryover(c) || canAddAsReduction(c) || (
+  ['service_code_changed', 'code_change'].includes(String(c?.changeType || '').toLowerCase())
+  && Number(c?.user_id) > 0 && Number(c?.to_units) > 0
+  && ['FINALIZED', 'DRAFT_PAID'].includes(String(c?.to_status || '').toUpperCase())
+);
+const defaultAction = c => canAddAsCarryover(c) ? 'add' : 'skip';
+const keyForChange = c => catchupAppliedKey({ userId: c?.user_id, serviceCode: c?.to_service_code || c?.from_service_code, rowMatchKey: c?.rowMatchKey });
+const isApplied = c => appliedKeys.value.has(keyForChange(c));
+const isPending = c => canAddAsCarryover(c) && !isApplied(c);
+const pendingRowsFor = sec => (sec.actionable || []).filter(isPending);
+const pendingCount = computed(() => sections.value.reduce((total, sec) => total + pendingRowsFor(sec).length, 0));
+const rowElementId = (sec, c) => `catchup-${sec.key}-${encodeURIComponent(c.rowMatchKey || '')}`;
+const readiness = computed(() => {
+  const blockers = sections.value.flatMap(sec => pendingRowsFor(sec).map(c => ({
+    section: sec.key, rowMatchKey: c.rowMatchKey, providerName: c.provider_name || '',
+    serviceDate: ymd(c.service_date), serviceCode: c.to_service_code,
+    message: `${c.provider_name || 'Provider'} · ${ymd(c.service_date)} · ${c.to_service_code}: add this payable late note.`
+  })));
+  const missing = sections.value.find(sec => sec.blockingMissing)?.missing || '';
+  const failure = error.value || missing;
+  return { loading: loading.value || applying.value, error: failure, pendingCount: pendingCount.value,
+    addedCount: sections.value.reduce((total, sec) => total + sec.actionable.filter(isApplied).length, 0),
+    ready: !loading.value && !applying.value && !failure && pendingCount.value === 0,
+    empty: !loading.value && !failure && sections.value.every(sec => !sec.actionable.length), blockers };
+});
+watch(readiness, value => emit('readiness', value), { immediate: true, deep: true });
 
 const payableTypeBadge = (c) => {
   const changeType = String(c?.changeType || '').toLowerCase();
   if (changeType === 'overpaid_deleted') return 'Reduction';
   if (changeType === 'location_changed') return 'Review location';
   if (changeType === 'service_code_changed' || changeType === 'code_change') return 'Review code';
-  if (changeType === 'added') return 'Added';
+  if (changeType === 'ambiguous_correction') return 'Review correction';
+  if (changeType === 'added') return 'Ready to add';
   const to = String(c?.to_status || '').toUpperCase();
-  if (to === 'DRAFT_PAID') return 'Draft';
-  return 'Finalized';
+  if (to === 'DRAFT_PAID') return 'Ready to add · payable draft';
+  return 'Ready to add · finalized';
 };
 
 const typeBadgeClass = (c) => {
   const t = payableTypeBadge(c);
-  if (t === 'Added') return 'badge-info';
+  if (t.startsWith('Ready to add')) return 'badge-info';
   if (t === 'Draft') return 'badge-warning';
   if (t === 'Reduction' || t.startsWith('Review')) return 'badge-secondary';
   return 'badge-ok';
@@ -301,12 +322,14 @@ const findSlot = (list, slot) => (list || []).find((i) => Number(i.slot_number) 
 
 const loadImports = async (periodId) => {
   if (!periodId) return [];
-  try {
-    const resp = await api.get(`/payroll/periods/${periodId}/imports`);
-    return resp.data?.imports || [];
-  } catch {
-    return [];
-  }
+  const resp = await api.get(`/payroll/periods/${periodId}/imports`);
+  return resp.data?.imports || [];
+};
+
+const loadAppliedRows = async () => {
+  if (!props.destinationPeriodId) return new Set();
+  const response = await api.get(`/payroll/periods/${props.destinationPeriodId}/staging`);
+  return appliedCatchupKeys(response.data);
 };
 
 /** Same raw-audit endpoint Process Changes / Raw Import uses. */
@@ -423,6 +446,7 @@ const initSelectionForSection = (sec) => {
   for (const c of sec.actionable || []) {
     const k = c.rowMatchKey;
     if (!k) continue;
+    if (isApplied(c)) { sel[k] = { action: 'skip', units: Number(c.to_units || 0) }; continue; }
     if (!sel[k]) {
       sel[k] = {
         action: defaultAction(c),
@@ -443,6 +467,7 @@ const rowUnits = (sec, c) => {
   return s ? s.units : def;
 };
 const toggleRow = (sec, c, on) => {
+  if (isApplied(c) || !canChooseRow(c) || loading.value || applying.value || destPosted.value) return;
   const k = c.rowMatchKey;
   const base = selection.value[sec.key]?.[k] || {
     action: defaultAction(c),
@@ -455,6 +480,7 @@ const toggleRow = (sec, c, on) => {
   };
 };
 const setRowUnits = (sec, c, val) => {
+  if (isApplied(c) || !canChooseRow(c) || loading.value || applying.value || destPosted.value) return;
   const k = c.rowMatchKey;
   const base = selection.value[sec.key]?.[k] || {
     action: defaultAction(c),
@@ -472,7 +498,7 @@ const selectAll = (sec, on) => {
   const next = { ...(selection.value[sec.key] || {}) };
   for (const c of sec.actionable || []) {
     const k = c.rowMatchKey;
-    if (!k) continue;
+    if (!k || isApplied(c) || (on ? !canAddAsCarryover(c) : !canChooseRow(c))) continue;
     const base = next[k] || {
       action: defaultAction(c),
       units: Number((c?.to_units ?? c?.from_units) || 0)
@@ -486,7 +512,7 @@ const selectAll = (sec, on) => {
 };
 const selectedCountFor = (sec) => {
   const sel = selection.value[sec.key] || {};
-  return (sec.actionable || []).filter((c) => String(sel[c.rowMatchKey]?.action || 'skip') !== 'skip').length;
+  return (sec.actionable || []).filter((c) => !isApplied(c) && canChooseRow(c) && String(sel[c.rowMatchKey]?.action || 'skip') !== 'skip').length;
 };
 
 const filteredActionable = (sec) => {
@@ -545,10 +571,11 @@ const carryoverMeta = (c, units) => {
 /** Same as PayrollView applyRawAddToCurrentPeriod. */
 const applySection = async (sec) => {
   const destId = props.destinationPeriodId;
-  if (!destId || !sec?.sourcePeriodId) return;
+  if (!destId || !sec?.sourcePeriodId || loading.value || applying.value || destPosted.value) return;
   const sel = selection.value[sec.key] || {};
   const rowsToApply = [];
   for (const c of sec.actionable || []) {
+    if (isApplied(c) || !canChooseRow(c)) continue;
     const action = String(sel[c.rowMatchKey]?.action || 'skip');
     if (action === 'skip') continue;
     const units = rowUnits(sec, c);
@@ -618,76 +645,30 @@ const applySection = async (sec) => {
   applyingKey.value = sec.key;
   error.value = '';
   try {
-    await api.post(`/payroll/periods/${destId}/raw-audit-actions/apply`, {
+    const response = await api.post(`/payroll/periods/${destId}/raw-audit-actions/apply`, {
       sourcePayrollPeriodId: sec.sourcePeriodId,
       rows: rowsToApply
     });
-    sec.appliedCount = rowsToApply.length;
-    emit('applied', { destinationPeriodId: destId, count: rowsToApply.length, section: sec.key });
-    await reloadSection(sec);
-  } catch (e) {
-    const msg = e?.response?.data?.error?.message || e?.message || '';
-    if (e?.response?.status === 409 && /H0031|H0032|H2014|H2032|90853/.test(String(msg))) {
-      const ok = window.confirm(
-        'Carryover is blocked by H0031/H0032/H2014/H2032/90853 processing. Apply anyway (skip processing gate)?'
-      );
-      if (ok) {
-        await api.post(
-          `/payroll/periods/${destId}/raw-audit-actions/apply`,
-          { sourcePayrollPeriodId: sec.sourcePeriodId, rows: rowsToApply },
-          { params: { skipProcessingGate: 'true' } }
-        );
-        sec.appliedCount = rowsToApply.length;
-        emit('applied', { destinationPeriodId: destId, count: rowsToApply.length, section: sec.key });
-        await reloadSection(sec);
-      } else {
-        error.value = msg;
-      }
-    } else {
-      error.value = msg || 'Failed to add to current period';
+    appliedKeys.value = await loadAppliedRows();
+    const positiveRows = rowsToApply.filter(row => row.actionType === 'add');
+    if (positiveRows.some(row => !appliedKeys.value.has(catchupAppliedKey(row)))) {
+      throw new Error('The selected notes were submitted, but their saved catch-up entries could not be verified. Refresh before continuing.');
     }
-  } finally {
-    applying.value = false;
-    applyingKey.value = '';
-  }
-};
-
-/**
- * Same as PayrollView applyStillNoNoteToPeriod → PUT prior-unpaid.
- * Aggregates session-level persistent no-notes by userId + serviceCode.
- */
-const applyPersistentNoNotes = async (sec) => {
-  const destId = props.destinationPeriodId;
-  if (!destId || !sec?.sourcePeriodId) return;
-  const byUserCode = new Map();
-  for (const f of sec.persistentNoNotes || []) {
-    const userId = Number(f.userId || 0);
-    const serviceCode = String(f.serviceCode || '').trim();
-    const units = Number(f.compareNoNoteUnits || 0);
-    if (!userId || !serviceCode || !(units > 1e-9)) continue;
-    const k = `${userId}:${serviceCode.toUpperCase()}`;
-    if (!byUserCode.has(k)) byUserCode.set(k, { userId, serviceCode, stillUnpaidUnits: 0 });
-    const t = byUserCode.get(k);
-    t.stillUnpaidUnits = Number((t.stillUnpaidUnits + units).toFixed(2));
-  }
-  const rows = Array.from(byUserCode.values());
-  if (!rows.length) {
-    error.value = 'No matched providers to add for persistent no-notes (check provider matching on those import rows).';
-    return;
-  }
-
-  applying.value = true;
-  applyingKey.value = `${sec.key}-nonote`;
-  error.value = '';
-  try {
-    await api.put(`/payroll/periods/${destId}/prior-unpaid`, {
-      sourcePayrollPeriodId: sec.sourcePeriodId,
-      rows
-    });
-    sec.noNoteAppliedCount = rows.length;
-    emit('applied', { destinationPeriodId: destId, count: rows.length, section: `${sec.key}-nonote` });
+    sec.appliedCount = Number(response.data?.carryoverAppliedCount || 0) + Number(response.data?.reductionCreatedCount || 0);
+    const warnings = response.data?.warnings || [];
+    if (warnings.some(warning => warning.code === 'zero_reduction_amount')) {
+      error.value = warnings.filter(warning => warning.code === 'zero_reduction_amount').map(warning => warning.message).join(' ');
+    }
+    initSelectionForSection(sec);
+    emit('applied', { destinationPeriodId: destId, count: sec.appliedCount, section: sec.key });
   } catch (e) {
-    error.value = e?.response?.data?.error?.message || e?.message || 'Failed to add still no-note';
+    const message = e?.response?.data?.error?.message || e?.message || 'Failed to add to current period';
+    error.value = message;
+    const pendingProcessing = e?.response?.data?.pendingProcessing;
+    if (e?.response?.status === 409 && pendingProcessing) {
+      const code = String(pendingProcessing.sample?.[0]?.service_code || '').toUpperCase();
+      emit('blocked', { message, pendingProcessing, targetMode: code || null, sourcePeriodId: props.destinationPeriodId });
+    }
   } finally {
     applying.value = false;
     applyingKey.value = '';
@@ -711,7 +692,8 @@ const buildSection = async ({
       sourcePeriodId: null,
       twoRunMode,
       search: '',
-      missing: 'No period selected.',
+      missing: 'No earlier period is available.',
+      blockingMissing: false,
       actionable: [],
       persistentNoNotes: [],
       baselineLabel: '',
@@ -736,7 +718,8 @@ const buildSection = async ({
       sourcePeriodId: periodId,
       twoRunMode,
       search: '',
-      missing: need,
+      missing: compare ? need : `No Run ${compareSlot} report was uploaded for this period. There are no catch-up notes to compare.`,
+      blockingMissing: Boolean(compare && !baseline),
       actionable: [],
       persistentNoNotes: [],
       baselineLabel: importLabel(baseline),
@@ -750,9 +733,9 @@ const buildSection = async ({
     loadRawAudit(periodId, baseline.id, compare.id),
     loadImportRows(periodId, baseline.id)
   ]);
-  const changes = audit.changes || [];
+  const changes = pairCatchupCorrections(audit.changes || []);
   const compareRows = audit.compareRows || [];
-  const actionable = changes.filter((c) => canAddAsCarryover(c) || canAddAsReduction(c));
+  const actionable = changes.filter(c => canAddAsCarryover(c) || canAddAsReduction(c) || ['location_changed', 'service_code_changed', 'code_change', 'ambiguous_correction'].includes(String(c.changeType || '').toLowerCase()));
   const persistentNoNotes = buildPersistentNoNotes(baselineRows, compareRows);
 
   const sec = {
@@ -774,26 +757,14 @@ const buildSection = async ({
   return sec;
 };
 
-const reloadSection = async (sec) => {
-  const rebuilt = await buildSection({
-    key: sec.key,
-    title: sec.title,
-    periodId: sec.sourcePeriodId,
-    periodLabel: sec.periodLabel,
-    baselineSlot: sec.key === 'prior' ? 1 : 2,
-    compareSlot: sec.key === 'prior' ? 2 : 3,
-    twoRunMode: sec.twoRunMode
-  });
-  rebuilt.appliedCount = sec.appliedCount;
-  rebuilt.noNoteAppliedCount = sec.noNoteAppliedCount;
-  rebuilt.search = sec.search || '';
-  sections.value = sections.value.map((s) => (s.key === sec.key ? rebuilt : s));
-};
-
 const reloadAll = async () => {
+  const version = ++requestVersion;
   loading.value = true;
   error.value = '';
   try {
+    const savedKeys = await loadAppliedRows();
+    if (version !== requestVersion) return;
+    appliedKeys.value = savedKeys;
     const next = [];
     if (props.priorPeriodId) {
       next.push(await buildSection({
@@ -817,18 +788,34 @@ const reloadAll = async () => {
         twoRunMode: false
       }));
     }
+    if (version !== requestVersion) return;
     sections.value = next;
   } catch (e) {
+    if (version !== requestVersion) return;
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load comparisons';
     sections.value = [];
   } finally {
-    loading.value = false;
+    if (version === requestVersion) loading.value = false;
   }
 };
 
+const focusPending = async () => {
+  for (const sec of sections.value) {
+    const first = pendingRowsFor(sec)[0];
+    if (!first) continue;
+    sec.search = '';
+    await nextTick();
+    const element = document.getElementById(rowElementId(sec, first));
+    element?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+    element?.querySelector('input[type="checkbox"]')?.focus();
+    return;
+  }
+};
+defineExpose({ refresh: reloadAll, focusPending });
+
 watch(
   () => [props.priorPeriodId, props.twoAgoPeriodId, props.destinationPeriodId],
-  () => { reloadAll(); }
+  () => { selection.value = {}; appliedKeys.value = new Set(); reloadAll(); }
 );
 
 onMounted(() => {
@@ -848,6 +835,9 @@ onMounted(() => {
   padding: 12px 14px;
   background: var(--surface, #fff);
 }
+.ppc--embedded .ppc-card { border: 0; padding: 0; }
+.ppc-row--pending { background: #fffcf0; }
+.ppc-row--added { background: #f0fdf4; }
 .ppc-card-title { font-weight: 650; margin-bottom: 4px; }
 .ppc-section {
   border-radius: 8px;

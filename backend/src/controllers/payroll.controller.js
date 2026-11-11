@@ -54,6 +54,7 @@ import PayrollPeriodRun from '../models/PayrollPeriodRun.model.js';
 import PayrollPeriodRunRow from '../models/PayrollPeriodRunRow.model.js';
 import PayrollPeriodRunSnapshot from '../models/PayrollPeriodRunSnapshot.model.js';
 import PayrollImportRowAudit from '../models/PayrollImportRowAudit.model.js';
+import { annotateDraftReviews, draftReviewAllowedForImport } from '../services/payrollDraftReview.service.js';
 import PayrollRunDelta from '../models/PayrollRunDelta.model.js';
 import PayrollRateTemplate from '../models/PayrollRateTemplate.model.js';
 import PayrollRateTemplateRate from '../models/PayrollRateTemplateRate.model.js';
@@ -111,6 +112,7 @@ import { PAY_SYSTEM_BUCKETS } from '../services/payrollCodeClassification.js';
 import { loadUserPaySystemContext, applyPaySystemToBreakdown, classifyPayType } from '../services/paySystem.service.js';
 import {approvedPeriodSalaryOverride} from '../services/payrollSalaryOverridePolicy.js';
 import {separateHistoricalCarryovers} from '../services/payrollHistoricalCarryover.service.js';
+import PayrollReportEmail from '../services/payrollReportEmail.service.js';
 import {
   loadEventPayrollContext,
   resolveEventPayrollTreatment,
@@ -3656,14 +3658,17 @@ export const patchPayrollImportRow = async (req, res, next) => {
   try {
     const rowId = parseInt(req.params.rowId);
     const draftPayable = req.body?.draftPayable;
+    const draftReviewed = req.body?.draftReviewed;
     const unitCount = req.body?.unitCount;
     const processed = req.body?.processed;
     if (!rowId) return res.status(400).json({ error: { message: 'rowId is required' } });
     const wantsDraftPayable = !(draftPayable === undefined || draftPayable === null);
+    const wantsDraftReview = draftReviewed === true;
+    if (draftReviewed !== undefined && draftReviewed !== true) return res.status(400).json({ error: { message: 'draftReviewed must be true when confirming a draft decision' } });
     const wantsUnitCount = !(unitCount === undefined || unitCount === null);
     const wantsProcessed = !(processed === undefined || processed === null);
-    if (!wantsDraftPayable && !wantsUnitCount && !wantsProcessed) {
-      return res.status(400).json({ error: { message: 'Provide at least one of: draftPayable, unitCount, processed' } });
+    if (!wantsDraftPayable && !wantsDraftReview && !wantsUnitCount && !wantsProcessed) {
+      return res.status(400).json({ error: { message: 'Provide at least one of: draftPayable, draftReviewed, unitCount, processed' } });
     }
     const row = await PayrollImportRow.findById(rowId);
     if (!row) return res.status(404).json({ error: { message: 'Import row not found' } });
@@ -3677,37 +3682,41 @@ export const patchPayrollImportRow = async (req, res, next) => {
       isLocked &&
       (wantsUnitCount || wantsProcessed) &&
       String(req.query?.allowPostedProcessing || '').toLowerCase() === 'true';
-    if (isLocked && !allowPostedProcessing) {
+    let allowPostedDraftReview = false;
+    if (isLocked && (wantsDraftPayable || wantsDraftReview) && String(req.query?.allowPostedDraftReview || '').toLowerCase() === 'true') {
+      const payrollImport = await PayrollImport.findById(row.payroll_import_id);
+      if (draftReviewAllowedForImport({ period, payrollImport })) {
+        const periodImports = await PayrollImport.listForPeriod(period.id);
+        const importIndex = periodImports.findIndex(imp => Number(imp.id) === Number(payrollImport.id));
+        const baselineImport = importIndex > 0 ? periodImports[importIndex - 1] : null;
+        if (baselineImport) {
+          const [baselineRows, compareRows] = await Promise.all([
+            PayrollImportRow.listForImportId({ payrollPeriodId: period.id, payrollImportId: baselineImport.id }),
+            PayrollImportRow.listForImportId({ payrollPeriodId: period.id, payrollImportId: payrollImport.id })
+          ]);
+          const annotated = annotateRowsAlreadyPaidInBaseline({ baselineRows, compareRows });
+          const reviewedRow = annotated.find(candidate => Number(candidate.id) === Number(row.id));
+          allowPostedDraftReview = !!reviewedRow && Number(reviewedRow.already_paid_in_baseline || 0) !== 1;
+        }
+      }
+    }
+    if (isLocked && !allowPostedProcessing && !allowPostedDraftReview) {
       return res.status(409).json({ error: { message: 'Pay period is posted/finalized' } });
     }
 
     // Draft payable toggle (draft rows only)
-    if (wantsDraftPayable) {
-      if (isLocked) {
-        return res.status(409).json({ error: { message: 'Pay period is posted/finalized' } });
+    let draftChoiceChanged = false;
+    if (wantsDraftPayable || wantsDraftReview) {
+      if (isLocked && !allowPostedDraftReview) {
+        return res.status(409).json({ error: { message: 'Only new catch-up drafts uploaded after posting can be reviewed; previously paid sessions stay locked.' } });
       }
       if (String(row.note_status || '').toUpperCase() !== 'DRAFT') {
         return res.status(409).json({ error: { message: 'Only DRAFT rows can be toggled' } });
       }
-      const nextDraftPayable = !!draftPayable ? 1 : 0;
+      const nextDraftPayable = wantsDraftPayable ? (draftPayable ? 1 : 0) : (Number(row.draft_payable || 0) ? 1 : 0);
       const prevDraftPayable = Number(row?.draft_payable || 0) ? 1 : 0;
-      await PayrollImportRow.updateDraftPayable({ rowId, draftPayable: !!draftPayable });
-      if (prevDraftPayable !== nextDraftPayable) {
-        try {
-          await PayrollImportRowAudit.create({
-            payrollImportRowId: row.id,
-            payrollImportId: row.payroll_import_id,
-            payrollPeriodId: row.payroll_period_id,
-            agencyId: row.agency_id,
-            fieldChanged: 'draft_payable',
-            fromValue: String(prevDraftPayable),
-            toValue: String(nextDraftPayable),
-            changedByUserId: req.user.id
-          });
-        } catch (e) {
-          if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
-        }
-      }
+      draftChoiceChanged = prevDraftPayable !== nextDraftPayable;
+      await PayrollImportRowAudit.saveDraftDecision({ row, draftPayable: !!nextDraftPayable, changedByUserId: req.user.id, expectedPeriodStatus: st });
     }
 
     // Minutes + done processing for required rows
@@ -3773,6 +3782,11 @@ export const patchPayrollImportRow = async (req, res, next) => {
       }
     }
 
+    // Confirming the existing choice changes review evidence, not payroll amounts.
+    if ((wantsDraftPayable || wantsDraftReview) && !draftChoiceChanged && !wantsUnitCount && !wantsProcessed) {
+      return res.json({ ok: true, draftReviewed: true, draftPayable: Number(row.draft_payable || 0) ? 1 : 0 });
+    }
+
     // If payroll has already been run, recompute summaries so results stay visible and accurate.
     if (st === 'ran') {
       await recomputeSummariesFromStaging({
@@ -3786,14 +3800,13 @@ export const patchPayrollImportRow = async (req, res, next) => {
       return res.json({ ok: true, period: updated, summaries });
     }
 
-    // If the period is locked (posted/finalized), allow ONLY the H0031/H0032 processing workflow
-    // when explicitly requested. Do not change period status or delete summaries.
+    // Catch-up raw decisions never change the previously posted totals or status.
     if (isLocked) {
       const updated = await PayrollPeriod.findById(period.id);
       return res.json({
         ok: true,
         period: updated,
-        warning: 'Updated raw processing on a posted/finalized period; payroll totals/status were not recomputed.'
+        warning: 'Updated catch-up review on a posted/finalized period; payroll totals/status were not recomputed.'
       });
     }
 
@@ -9136,11 +9149,15 @@ export const listPayrollAgencyUsers = async (req, res, next) => {
     const activeField = hasIsActiveCol ? ', u.is_active' : '';
     const medcancelField = hasMedcancelScheduleCol ? ', u.medcancel_rate_schedule' : '';
     const includeInactive = String(req.query?.includeInactive || '').toLowerCase() === 'true' || String(req.query?.includeInactive || '') === '1';
-    const payrollEligibleFilter = includeInactive
-      ? EMPLOYEE_ROSTER_SQL
-      : ACTIVE_EMPLOYEE_SQL;
+    // New pay and adjustment selectors require current employment in this agency.
+    // Keep the broader roster available to existing historical payroll screens.
+    const activeEmployeesOnly = ['true', '1'].includes(String(req.query?.activeEmployeesOnly || '').toLowerCase());
+    const payrollEligibleFilter = activeEmployeesOnly
+      ? `${ACTIVE_EMPLOYEE_SQL} AND UPPER(COALESCE(u.status,'')) = 'ACTIVE_EMPLOYEE'`
+      : (includeInactive ? EMPLOYEE_ROSTER_SQL : ACTIVE_EMPLOYEE_SQL);
     const [rows] = await pool.execute(
-      `SELECT DISTINCT u.id, u.first_name, u.last_name, u.email, u.role${supField}${activeField}${medcancelField}
+      `SELECT DISTINCT u.id, u.first_name, u.last_name, u.email, u.role,
+         u.status, u.is_archived, ua.agency_id, COALESCE(ua.is_active,1) AS agency_is_active${supField}${activeField}${medcancelField}
        FROM users u
        JOIN user_agencies ua ON u.id = ua.user_id
        WHERE ua.agency_id = ?
@@ -11763,11 +11780,14 @@ export const listPayrollPeriodImports = async (req, res, next) => {
     if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
     const imports = await PayrollImport.listForPeriod(payrollPeriodId);
     const [rowCounts] = await pool.execute(
-      `SELECT payroll_import_id, COUNT(*) AS row_count FROM payroll_import_rows
+      `SELECT payroll_import_id, COUNT(*) AS row_count, MAX(id) AS row_revision,
+              BIT_XOR(CRC32(CONCAT_WS('|', id, COALESCE(note_status,''), COALESCE(draft_payable,0), COALESCE(unit_count,0), COALESCE(service_code,''), COALESCE(processed_at,'')))) AS content_revision
+       FROM payroll_import_rows
        WHERE payroll_period_id = ? GROUP BY payroll_import_id`,
       [payrollPeriodId]
     );
     const countByImport = new Map((rowCounts || []).map((r) => [Number(r.payroll_import_id), Number(r.row_count || 0)]));
+    const revisionByImport = new Map((rowCounts || []).map(r => [Number(r.payroll_import_id), `${Number(r.row_revision || 0)}:${String(r.content_revision || 0)}`]));
     const importsWithMeta = (imports || []).map((imp, idx) => {
       const seq = Number(imp.slot_number) || idx + 1;
       return {
@@ -11775,7 +11795,8 @@ export const listPayrollPeriodImports = async (req, res, next) => {
         import_sequence: seq,
         slot_number: seq,
         slot_label: `Run ${seq}`,
-        row_count: countByImport.get(Number(imp.id)) ?? 0
+        row_count: countByImport.get(Number(imp.id)) ?? 0,
+        row_revision: revisionByImport.get(Number(imp.id)) ?? 0
       };
     });
     res.json({ imports: importsWithMeta });
@@ -11816,6 +11837,7 @@ export const getPayrollPeriodRawAudit = async (req, res, next) => {
         import_sequence: seq,
         slot_number: seq,
         slot_label: `Run ${seq}`,
+        draft_review_allowed: draftReviewAllowedForImport({ period, payrollImport: imp }),
         import_label: `Run ${seq} • ${String(importedAt || '').slice(0, 19)}${uploader ? ` • ${uploader}` : ''}`
       };
     });
@@ -11879,6 +11901,10 @@ export const getPayrollPeriodRawAudit = async (req, res, next) => {
     const rows = comparingAgainstEarlierImport
       ? annotateRowsAlreadyPaidInBaseline({ baselineRows: baselineRowsRaw, compareRows: selectedRowsRaw })
       : selectedRowsRaw.map((r) => ({ ...mapRawRowForAudit(r), already_paid_in_baseline: 0 }));
+    const draftReviewAudits = effectiveSelectedImportId
+      ? await PayrollImportRowAudit.listDraftReviews({ payrollImportId: effectiveSelectedImportId, agencyId: period.agency_id })
+      : [];
+    const reviewedRows = annotateDraftReviews({ rows, audits: draftReviewAudits });
     const changes = computeRawRunDiffRows({ baselineRows: baselineRowsRaw, compareRows: selectedRowsRaw });
 
     const runByImportId = new Map(
@@ -11932,7 +11958,7 @@ export const getPayrollPeriodRawAudit = async (req, res, next) => {
       selectedRunNumber: selectedRun ? Number(selectedRun?.run_number || (selectedIdx + 1)) : null,
       baselineRunNumber: baselineRun ? Number(baselineRun?.run_number || 1) : null,
       isLatestRun: latestRunId && Number(latestRunId) === Number(selectedRunId),
-      rows,
+      rows: reviewedRows,
       changes,
       excludedOutOfPeriod,
       periodStart: ymdFromDbDate(period.period_start),
@@ -14367,6 +14393,55 @@ export const runPayrollPeriod = async (req, res, next) => {
   }
 };
 
+// Reuse the download endpoint's exact CSV contents for emailed reports.
+async function payrollReportAttachment(req) {
+  const headers = new Map();
+  let statusCode = 200;
+  let csv = null;
+  let exportError = null;
+  const capture = {
+    setHeader(name, value) { headers.set(String(name).toLowerCase(), String(value)); return this; },
+    status(code) { statusCode = code; return this; },
+    json(body) { exportError = new Error(body?.error?.message || 'Reconciliation export failed.'); return this; },
+    send(body) { csv = body; return this; }
+  };
+  await downloadPayrollExportCsv({ ...req, method: 'GET' }, capture, error => { exportError = error; });
+  if (exportError || statusCode >= 400 || typeof csv !== 'string') throw exportError || new Error('Reconciliation export failed.');
+  const filename = /filename="([^"]+)"/.exec(headers.get('content-disposition') || '')?.[1] || `payroll-reconciliation-${req.params.id}.csv`;
+  return { filename, csv };
+}
+
+export const getPayrollReportEmailStatus = async (req, res, next) => {
+  try {
+    const payrollPeriodId = parseInt(req.params.id, 10);
+    const period = await PayrollPeriod.findById(payrollPeriodId);
+    if (!period) return res.status(404).json({ error: { message: 'Pay period not found' } });
+    if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
+    res.json(await PayrollReportEmail.status({ agencyId: period.agency_id, payrollPeriodId }));
+  } catch (error) { next(error); }
+};
+
+export const sendPayrollReportEmail = async (req, res, next) => {
+  try {
+    const payrollPeriodId = parseInt(req.params.id, 10);
+    const period = await PayrollPeriod.findById(payrollPeriodId);
+    if (!period) return res.status(404).json({ error: { message: 'Pay period not found' } });
+    if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
+    if (Object.keys(req.body || {}).some(key => key !== 'idempotencyKey')) {
+      return res.status(400).json({ error: { message: 'Use the configured Payroll mailbox; report recipients cannot be overridden.' } });
+    }
+    const result = await PayrollReportEmail.deliver({
+      agencyId: period.agency_id, payrollPeriodId, actorUserId: req.user.id,
+      trigger: 'manual', idempotencyKey: req.body?.idempotencyKey,
+      buildAttachment: () => payrollReportAttachment(req)
+    });
+    res.json(result);
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: { message: error.message, code: error.code } });
+    next(error);
+  }
+};
+
 export const postPayrollPeriod = async (req, res, next) => {
   try {
     const payrollPeriodId = parseInt(req.params.id);
@@ -14391,25 +14466,19 @@ export const postPayrollPeriod = async (req, res, next) => {
       return res.status(409).json({ error: { message: 'No run results found. Please Run Payroll again before posting.' } });
     }
 
-    const { policy: sickLeavePolicy } = await getAgencyPtoPolicy({ agencyId: period.agency_id });
-    if (uniformSickLeavePolicyApplies({ policy: sickLeavePolicy, periodStart: period.period_start })) {
-      const summaries = await PayrollSummary.listForPeriod(payrollPeriodId);
-      const missing = [];
-      for (const summary of summaries) {
-        const review = await PayrollActualHoursReview.latest({ agencyId: period.agency_id, payrollPeriodId, userId: summary.user_id });
-        if (!review || review.summary_fingerprint !== payrollHoursSourceFingerprint(summary)) missing.push(Number(summary.user_id));
-      }
-      if (missing.length) return res.status(409).json({ error: { message: `Review actual work hours and the statutory sick-leave basis for ${missing.length} employee(s) in Preview Post before posting this period.` }, actualHoursReviewUserIds: missing });
-    }
+    // Work is recorded through services and approved time claims. A separate manual
+    // hours attestation is an optional correction record, not a posting prerequisite.
 
-    await pool.execute(
+    const [postResult] = await pool.execute(
       `UPDATE payroll_periods
        SET status = 'posted',
            posted_at = CURRENT_TIMESTAMP,
            posted_by_user_id = ?
-       WHERE id = ?`,
+       WHERE id = ? AND status = 'ran'`,
       [req.user.id, payrollPeriodId]
     );
+    // A concurrent post request may have won the transition already.
+    if (!Number(postResult?.affectedRows)) return res.json(await PayrollPeriod.findById(payrollPeriodId));
 
     // Best-effort: emit configured payroll note-aging alerts.
     try {
@@ -14539,8 +14608,19 @@ export const postPayrollPeriod = async (req, res, next) => {
     }
 
     const posted = await PayrollPeriod.findById(payrollPeriodId);
+    let reportEmail;
+    try {
+      reportEmail = await PayrollReportEmail.deliver({
+        agencyId: period.agency_id, payrollPeriodId, actorUserId: req.user.id,
+        trigger: 'post', buildAttachment: () => payrollReportAttachment(req)
+      });
+    } catch (error) {
+      // Posting succeeded even if mail configuration, migration or transport needs attention.
+      reportEmail = { status: 'failed', errorCode: error.code || 'PAYROLL_REPORT_EMAIL_FAILED' };
+    }
     res.json({
       ...posted,
+      reportEmail,
       ptoAccrual: ptoAccrual || { ok: true, skipped: 'not_run', accruedUsers: 0 }
     });
   } catch (e) {

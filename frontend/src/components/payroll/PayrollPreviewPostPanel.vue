@@ -2,10 +2,10 @@
   <div class="ppp">
     <div class="ppp-head">
       <div>
-        <div class="ppp-title">Preview Post</div>
+        <div v-if="!embedded" class="ppp-title">Preview Post</div>
         <div class="ppp-hint">
           Read-only provider view of what will go out on Post — totals, notes notices, and notifications.
-          Close this panel to stay in the wizard.
+          Continue opens the posting step after this preview loads.
         </div>
         <div v-if="periodLabel" class="ppp-period">Period: <strong>{{ periodLabel }}</strong></div>
       </div>
@@ -44,9 +44,10 @@
         </div>
         <div class="ppp-warn ppp-warn--red" v-if="priorStillUnpaid.totalUnits > 0">
           <div>
-            <strong>Still unpaid from the prior pay period:</strong>
+            <strong>Unpaid when the prior payroll was posted:</strong>
             {{ fmtNum(priorStillUnpaid.totalUnits) }} units
           </div>
+          <div class="ppp-muted">Historical total; includes prior notes added to this payroll above.</div>
           <div class="ppp-muted" v-if="priorStillUnpaid.periodStart">
             {{ priorStillUnpaid.periodStart }} → {{ priorStillUnpaid.periodEnd }}
           </div>
@@ -72,8 +73,12 @@
           </div>
         </div>
 
-        <div class="ppp-warn ppp-warn--amber" v-if="summary.sick_leave_summary?.actualHoursReviewRequired || summary.sick_leave_summary?.reconciliationRequired">Review actual work hours and processor earning-code mapping before payroll handoff. Sick leave hours are accrual equivalents, separate from actual hours and overtime. The ordinary-earnings amount controls; the displayed allocation rate is rounded.</div>
-        <PayrollActualHoursReview :key="`${props.periodId}-${summary.user_id}`" :period-id="props.periodId" :user-id="summary.user_id" @saved="reload" />
+
+        <details class="ppp-optional-review">
+          <summary>Optional hours correction</summary>
+          <p class="ppp-muted">Use this only when you need to record a separate verified work-time total or correct the leave-accrual basis. It is not required to post payroll.</p>
+        <PayrollActualHoursReview :key="`${props.periodId}-${summary.user_id}`" :period-id="props.periodId" :user-id="summary.user_id" @saved="onHoursSaved" />
+        </details>
 
         <div class="ppp-card" v-if="summary.breakdown?.__tier">
           <div class="ppp-card-title">Benefit Tier</div>
@@ -164,9 +169,13 @@ import PayrollActualHoursReview from './PayrollActualHoursReview.vue';
 
 const props = defineProps({
   periodId: { type: [Number, String], required: true },
-  periodLabel: { type: String, default: '' }
+  periodLabel: { type: String, default: '' },
+  embedded: { type: Boolean, default: false },
+  initialUserId: { type: [Number, String], default: null }
 });
 
+const emit = defineEmits(['readiness', 'changed']);
+const loaded = ref(false);
 const loading = ref(false);
 const error = ref('');
 const summaries = ref([]);
@@ -300,6 +309,8 @@ const reload = async () => {
       return s;
     });
     summaries.value = next;
+    if (props.initialUserId && next.some(s => Number(s.user_id) === Number(props.initialUserId))) userId.value = Number(props.initialUserId);
+    if (!next.some(s => Number(s.user_id) === Number(userId.value))) userId.value = null;
     if (!userId.value && next.length) {
       const sorted = [...next].sort((a, b) =>
         String(a?.last_name || '').localeCompare(String(b?.last_name || ''))
@@ -311,10 +322,16 @@ const reload = async () => {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load preview post';
     summaries.value = [];
   } finally {
-    loading.value = false;
+    loading.value = false; loaded.value = true;
   }
 };
 
+const onHoursSaved = async () => { await reload(); emit('changed'); };
+const readiness = computed(() => ({ loading: loading.value || !loaded.value, error: error.value, hasRunResults: summaries.value.length > 0, blockers: !summaries.value.length ? [{message: 'No calculated payroll results are available. Run Payroll before previewing.'}] : [], ready: loaded.value && !loading.value && !error.value && summaries.value.length > 0, pendingCount: 0 }));
+watch(readiness, state => emit('readiness', state), { immediate: true });
+const focusPending = () => { document.querySelector('.ppp-provider-row select')?.focus(); };
+defineExpose({ refresh: reload, focusPending });
+watch(() => props.initialUserId, id => { if (id) userId.value = Number(id); });
 watch(() => props.periodId, reload);
 watch(userId, loadNotifications);
 onMounted(reload);

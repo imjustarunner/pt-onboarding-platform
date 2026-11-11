@@ -37,14 +37,22 @@ it('attributes an authorized save to the authenticated reviewer and period organ
   expect(next).not.toHaveBeenCalled();
   expect(ActualReview.save).toHaveBeenCalledWith(expect.objectContaining({ agencyId: 6, payrollPeriodId: 10, userId: 7, actorUserId: 9 }));
 });
-it('blocks prospective uniform-accrual posting until actual hours match the run, before any posting side effects', async () => {
+it('does not require a second manual hours attestation to post a calculated payroll', async () => {
+  const stop = new Error('stop before posting side effects');
+  const execute = pool.execute.getMockImplementation();
+  pool.execute.mockImplementation(async (sql, ...args) => {
+    if (sql.includes("SET status = 'posted'")) throw stop;
+    return execute(sql, ...args);
+  });
   const res = response(), next = vi.fn(); await postPayrollPeriod(request(), res, next);
-  expect(next).not.toHaveBeenCalled(); expect(res.status).toHaveBeenCalledWith(409);
-  expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ actualHoursReviewUserIds: [7] }));
-  expect(pool.execute.mock.calls.some(([sql]) => sql.includes("SET status = 'posted'"))).toBe(false);
+  expect(ActualReview.latest).not.toHaveBeenCalled();
+  expect(pool.execute.mock.calls.some(([sql]) => sql.includes("SET status = 'posted'"))).toBe(true);
+  expect(res.status).not.toHaveBeenCalledWith(409);
+  expect(next).toHaveBeenCalledWith(stop);
 });
-it('rejects stale review fingerprints at the posting gate', async () => {
-  ActualReview.latest.mockResolvedValue({ id: 1, summary_fingerprint: 'older-run' });
+it('still requires Run Payroll before posting', async () => {
+  PayrollPeriod.findById.mockResolvedValue({ id: 10, agency_id: 6, status: 'staged' });
   const res = response(); await postPayrollPeriod(request(), res, vi.fn());
   expect(res.status).toHaveBeenCalledWith(409);
+  expect(pool.execute.mock.calls.some(([sql]) => sql.includes("SET status = 'posted'"))).toBe(false);
 });

@@ -3,6 +3,10 @@ import UserCommunication from '../models/UserCommunication.model.js';
 import {sendEmailFromIdentity} from './unifiedEmail/unifiedEmailSender.service.js';
 
 export async function communicationRecordAttachments(comm,meta,userId){
+  if(comm.template_type==='payroll_posted_reconciliation'){
+    const senderIdentityId=Number(meta.senderIdentityId||meta.sender_identity_id||0)||null;
+    return (await import('./payrollReportEmail.service.js')).default.retryAttachments({communication:comm,actorUserId:userId,senderIdentityId});
+  }
   if(comm.template_type!=='family_payment_receipt')return [];
   const senderIdentityId=Number(meta.senderIdentityId||meta.sender_identity_id||0)||null;
   return (await import('./familyLedger/receiptDeliveryRetry.js')).receiptRetryAttachments({communication:comm,actorUserId:userId,senderIdentityId});

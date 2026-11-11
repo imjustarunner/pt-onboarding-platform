@@ -1,6 +1,6 @@
 <template>
   <div class="pcp">
-    <div class="pcp-head">
+    <div v-if="!guided" class="pcp-head">
       <div>
         <div class="pcp-title">Pending Submissions</div>
         <div class="pcp-hint">
@@ -12,7 +12,7 @@
       <button type="button" class="btn btn-secondary btn-sm" :disabled="loading" @click="reload">Refresh</button>
     </div>
 
-    <div class="pcp-tabs">
+    <div v-if="!guided || totalPending" class="pcp-tabs">
       <button type="button" class="pcp-tab" :class="{ active: tab === 'time' }" @click="tab = 'time'">
         Time Claims <span v-if="timeClaims.length" class="pcp-count">{{ timeClaims.length }}</span>
       </button>
@@ -27,7 +27,12 @@
     <div v-if="error" class="pcp-error">{{ error }}</div>
     <div v-if="loading" class="pcp-muted">Loading pending submissions…</div>
 
-    <template v-else>
+    <PayrollWizardEmpty v-else-if="guided && !error && !totalPending" title="No pending claims" message="There are no submitted claims awaiting a decision for this pay period. Continue to Payroll Stage." />
+    <template v-else-if="!error">
+      <label v-if="guided && totalPending && !locked" class="pcp-defer">
+        <input v-model="deferred" type="checkbox" />
+        Leave these {{ totalPending }} pending claims for the next payroll. They will remain submitted.
+      </label>
       <!-- Time -->
       <div v-if="tab === 'time'" class="pcp-body">
         <div v-if="!timeClaims.length" class="pcp-muted">No pending time claims for this pay period.</div>
@@ -185,6 +190,7 @@ import EventTravelPayrollReview from './EventTravelPayrollReview.vue';
 import { supervisionActivityLabel } from '../../utils/payrollSubmissionReview';
 import MeetingClaimDetails from './MeetingClaimDetails.vue';
 import { computed, onMounted, ref, watch } from 'vue';
+import PayrollWizardEmpty from './PayrollWizardEmpty.vue';
 import api from '../../services/api';
 import IndirectTimeClaimDetailFields from './IndirectTimeClaimDetailFields.vue';
 import { logTimeActivitiesSummary } from '../../utils/logTimeClaimDetails';
@@ -195,10 +201,13 @@ const props = defineProps({
   periodLabel: { type: String, default: '' },
   periodStatus: { type: String, default: '' },
   /** Embedded in wizard — uses full-width layout tweaks from parent. */
-  embedded: { type: Boolean, default: false }
+  embedded: { type: Boolean, default: false },
+  guided: { type: Boolean, default: false }
 });
 
-defineEmits(['changed']);
+const emit = defineEmits(['changed', 'readiness']);
+const deferred = ref(false);
+const loaded = ref(false);
 
 const tab = ref('time');
 const loading = ref(false);
@@ -319,7 +328,7 @@ const reload = async () => {
     const actionableForPeriod = (r) => {
       if (!r) return false;
       const target = Number(r.target_payroll_period_id || 0);
-      if (target && target !== periodId) return false;
+      if (target) return target === periodId;
       const suggested = Number(r.suggested_payroll_period_id || 0);
       // Prefer this period’s suggestions, but also keep unassigned / rolled-forward leftovers.
       return !suggested || suggested === periodId;
@@ -327,10 +336,12 @@ const reload = async () => {
     timeClaims.value = (timeResp.data || []).filter((r) => !isEventTime(r) && actionableForPeriod(r));
     mileageClaims.value = (mileResp.data || []).filter(actionableForPeriod);
     reimbClaims.value = (reimbResp.data || []).filter(actionableForPeriod);
+    const visible = { time: timeClaims.value, mileage: mileageClaims.value, reimbursement: reimbClaims.value };
+    if (!visible[tab.value]?.length) tab.value = timeClaims.value.length ? 'time' : mileageClaims.value.length ? 'mileage' : 'reimbursement';
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load pending submissions';
   } finally {
-    loading.value = false;
+    loading.value = false; loaded.value = true;
   }
 };
 
@@ -338,8 +349,10 @@ const withBusy = async (id, fn) => {
   try {
     busyId.value = id;
     error.value = '';
+    deferred.value = false;
     await fn();
     await reload();
+    emit('changed');
   } catch (e) {
     const status = e?.response?.status || 0;
     const msg = e?.response?.data?.error?.message || e?.message || '';
@@ -420,7 +433,17 @@ const rejectReimb = (c) => {
   );
 };
 
+const claimSet = computed(() => [...timeClaims.value.map(c => `t${c.id}`), ...mileageClaims.value.map(c => `m${c.id}`), ...reimbClaims.value.map(c => `r${c.id}`)].sort().join(','));
+watch(claimSet, () => { deferred.value = false; });
+const readiness = computed(() => ({ loading: loading.value || !loaded.value, saving: !!busyId.value, error: error.value, pendingCount: totalPending.value, deferred: deferred.value, empty: loaded.value && !loading.value && !error.value && !totalPending.value, ready: loaded.value && !loading.value && !busyId.value && !error.value && (!totalPending.value || deferred.value || locked.value), blockers: totalPending.value && !deferred.value ? [{ message: `Review ${totalPending.value} pending claim(s), or explicitly leave them for the next payroll.` }] : [] }));
+watch(readiness, state => emit('readiness', state), { immediate: true });
+const focusPending = () => {
+  tab.value = timeClaims.value.length ? 'time' : mileageClaims.value.length ? 'mileage' : 'reimbursement';
+  document.querySelector('.pcp-table button')?.focus();
+};
+defineExpose({ refresh: reload, focusPending });
 watch(() => [props.agencyId, props.periodId], () => {
+  loaded.value = false; deferred.value = false;
   agencyUsers.value = [];
   reload();
 });
@@ -428,6 +451,7 @@ onMounted(reload);
 </script>
 
 <style scoped>
+.pcp-defer { display:flex; gap:10px; padding:12px; border:1px solid #c8d9e2; border-radius:8px; background:#f6fafc; align-items:flex-start; }
 .pcp {
   display: flex;
   flex-direction: column;

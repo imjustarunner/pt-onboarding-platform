@@ -1,9 +1,10 @@
 import {beforeEach,expect,it,vi} from 'vitest';
-const m=vi.hoisted(()=>({identity:vi.fn(),legacy:vi.fn(),attachments:vi.fn(),update:vi.fn()}));
+const m=vi.hoisted(()=>({identity:vi.fn(),legacy:vi.fn(),attachments:vi.fn(),payrollAttachments:vi.fn(),update:vi.fn()}));
 vi.mock('../email.service.js',()=>({default:{sendEmail:m.legacy}}));
 vi.mock('../unifiedEmail/unifiedEmailSender.service.js',()=>({sendEmailFromIdentity:m.identity}));
 vi.mock('../../models/UserCommunication.model.js',()=>({default:{updateDeliveryStatus:m.update}}));
 vi.mock('../familyLedger/receiptDeliveryRetry.js',()=>({receiptRetryAttachments:m.attachments}));
+vi.mock('../payrollReportEmail.service.js',()=>({default:{retryAttachments:m.payrollAttachments}}));
 import {sendCommunicationRecord,recordCommunicationSent,communicationRecordAttachments} from '../communicationRecordDelivery.service.js';
 import {validateOutboundEmailQuality} from '../outboundEmailQuality.service.js';
 const comm={id:100,agency_id:2,user_id:5,client_id:8,recipient_address:'payer@example.com',subject:'Receipt R-2-91',body:'<p>Your receipt is attached.</p>',template_type:'family_payment_receipt'};
@@ -18,3 +19,17 @@ it.each([{queued:true},{id:'x',pendingApproval:true},{}])('does not mark an unco
 it('preserves sender metadata and returns the approved record without treating a thread ID as delivery time',async()=>{m.update.mockResolvedValue({id:100,delivery_status:'sent'});expect(await recordCommunicationSent(comm,{senderIdentityId:7,replyTo:'billing@example.com'},{id:'gmail-91',threadId:'gmail-thread'},501,{approved:true})).toEqual({id:100,delivery_status:'sent'});expect(m.update).toHaveBeenCalledWith(100,'sent','gmail-91',null,null,expect.objectContaining({senderIdentityId:7,replyTo:'billing@example.com',approvedByUserId:501,threadId:'gmail-thread'}));});
 
 it('uses the rebuilt PDF in retry quality review and then sends that same attachment',async()=>{const attachments=await communicationRecordAttachments(comm,{senderIdentityId:7},501);expect(validateOutboundEmailQuality({subject:comm.subject,html:comm.body,templateType:comm.template_type,attachments}).ok).toBe(true);await sendCommunicationRecord(comm,{senderIdentityId:7},501,{attachments});expect(m.attachments).toHaveBeenCalledTimes(1);expect(m.identity.mock.calls[0][0].attachments).toBe(attachments);});
+
+it('restores the exact retained payroll CSV when a queued payroll report is approved',async()=>{
+ const payroll={...comm,agency_id:6,recipient_address:'payroll@agency.example',template_type:'payroll_posted_reconciliation'};
+ const attachments=[{filename:'payroll.csv',contentType:'text/csv; charset=utf-8',contentBase64:'U3ludGhldGljLENTVg=='}];
+ m.payrollAttachments.mockResolvedValue(attachments);
+ await sendCommunicationRecord(payroll,{senderIdentityId:41},501);
+ expect(m.payrollAttachments).toHaveBeenCalledWith({communication:payroll,actorUserId:501,senderIdentityId:41});
+ expect(m.identity).toHaveBeenCalledWith(expect.objectContaining({existingCommunicationId:100,senderIdentityId:41,attachments}));
+});
+it('never approves a bare payroll email if its retained CSV or payroll access is unavailable',async()=>{
+ m.payrollAttachments.mockRejectedValue(Object.assign(new Error('Synthetic payroll access denied'),{status:403}));
+ await expect(sendCommunicationRecord({...comm,template_type:'payroll_posted_reconciliation'},{senderIdentityId:41},501)).rejects.toMatchObject({status:403});
+ expect(m.identity).not.toHaveBeenCalled();expect(m.legacy).not.toHaveBeenCalled();
+});

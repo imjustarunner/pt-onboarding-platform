@@ -52,6 +52,8 @@ import {
   submitPayrollPeriod,
   runPayrollPeriod,
   postPayrollPeriod,
+  getPayrollReportEmailStatus,
+  sendPayrollReportEmail,
   unpostPayrollPeriod,
   previewPostPayrollPeriod,
   restagePayrollPeriod,
@@ -304,6 +306,8 @@ router.put('/periods/:id/prior-unpaid', putPayrollStagePriorUnpaid);
 router.post('/periods/:id/submit', submitPayrollPeriod);
 router.post('/periods/:id/run', runPayrollPeriod);
 router.post('/periods/:id/post', postPayrollPeriod);
+router.get('/periods/:id/report-email', getPayrollReportEmailStatus);
+router.post('/periods/:id/report-email', sendPayrollReportEmail);
 router.post('/periods/:id/unpost', unpostPayrollPeriod);
 router.get('/periods/:id/post/preview', previewPostPayrollPeriod);
 router.post('/periods/:id/restage', restagePayrollPeriod);

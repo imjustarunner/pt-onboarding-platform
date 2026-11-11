@@ -1,6 +1,6 @@
 <template>
-  <div class="rip-panel" :class="{ 'rip-panel--embedded': embedded }">
-    <div class="rip-header">
+  <div ref="panelElement" class="rip-panel" :class="{ 'rip-panel--embedded': embedded, 'rip-panel--guided': guided }">
+    <div v-if="!guided" class="rip-header">
       <div>
         <div class="rip-title">
           <span v-if="mode === 'draft_audit'">Raw Import (Draft Audit)</span>
@@ -30,36 +30,30 @@
         <div v-if="periodLabel" class="rip-period">Period: <strong>{{ periodLabel }}</strong></div>
       </div>
       <div v-if="!embedded" class="rip-header-actions">
-        <button type="button" class="btn btn-secondary btn-sm" :class="{ active: mode === 'draft_audit' }" @click="setMode('draft_audit')">Draft Audit</button>
-        <button type="button" class="btn btn-secondary btn-sm" :class="{ active: mode === 'missed_appts_paid_in_full' }" @click="setMode('missed_appts_paid_in_full')">Missed Fees</button>
-        <button type="button" class="btn btn-secondary btn-sm" :class="{ active: mode === 'process_h0031' }" @click="setMode('process_h0031')">H0031</button>
-        <button type="button" class="btn btn-secondary btn-sm" :class="{ active: mode === 'process_h0032' }" @click="setMode('process_h0032')">H0032</button>
-        <button type="button" class="btn btn-secondary btn-sm" :class="{ active: mode === 'process_h2014' }" @click="setMode('process_h2014')">H2014</button>
-        <button type="button" class="btn btn-secondary btn-sm" :class="{ active: mode === 'process_90853' }" @click="setMode('process_90853')">90853</button>
-        <button type="button" class="btn btn-secondary btn-sm" :class="{ active: mode === 'process_h2032' }" @click="setMode('process_h2032')">H2032</button>
+        <button v-for="tab in reviewModes" :key="tab.mode" type="button" class="btn btn-secondary btn-sm" :class="{ active: mode === tab.mode, 'rip-tab--attention': reviewState.counts[tab.mode] > 0 }" @click="setMode(tab.mode)">
+          {{ tab.label }} <span v-if="reviewState.counts[tab.mode] > 0" class="rip-tab-count">{{ reviewState.counts[tab.mode] }}</span>
+        </button>
         <button type="button" class="btn btn-secondary btn-sm" :class="{ active: mode === 'processed' }" @click="setMode('processed')">Processed</button>
         <button type="button" class="btn btn-secondary btn-sm" @click="$emit('close')">Close</button>
       </div>
     </div>
 
     <!-- Embedded tab row: mode switcher shown as full-width tabs when inside wizard -->
-    <div v-if="embedded" class="rip-tabs">
-      <button type="button" class="rip-tab" :class="{ active: mode === 'draft_audit' }" @click="setMode('draft_audit')">Draft Audit</button>
-      <button type="button" class="rip-tab" :class="{ active: mode === 'missed_appts_paid_in_full' }" @click="setMode('missed_appts_paid_in_full')">Missed Fees</button>
-      <button type="button" class="rip-tab" :class="{ active: mode === 'process_h0031' }" @click="setMode('process_h0031')">H0031</button>
-      <button type="button" class="rip-tab" :class="{ active: mode === 'process_h0032' }" @click="setMode('process_h0032')">H0032</button>
-      <button type="button" class="rip-tab" :class="{ active: mode === 'process_h2014' }" @click="setMode('process_h2014')">H2014</button>
-      <button type="button" class="rip-tab" :class="{ active: mode === 'process_90853' }" @click="setMode('process_90853')">90853</button>
-      <button type="button" class="rip-tab" :class="{ active: mode === 'process_h2032' }" @click="setMode('process_h2032')">H2032</button>
+    <div v-if="embedded && !guided" class="rip-tabs">
+      <button v-for="tab in reviewModes" :key="tab.mode" type="button" class="rip-tab" :class="{ active: mode === tab.mode, 'rip-tab--attention': reviewState.counts[tab.mode] > 0 }" @click="setMode(tab.mode)">
+        {{ tab.label }} <span v-if="reviewState.counts[tab.mode] > 0" class="rip-tab-count">{{ reviewState.counts[tab.mode] }}</span>
+      </button>
       <button type="button" class="rip-tab" :class="{ active: mode === 'processed' }" @click="setMode('processed')">Processed</button>
     </div>
 
-    <div v-if="error" class="rip-error">{{ error }}</div>
+    <div v-if="reviewState.error" class="rip-error" role="alert">{{ reviewState.error }} <button type="button" class="btn btn-secondary" :disabled="loading" @click="reload">Try again</button></div>
     <div v-if="loading" class="rip-muted">Loading…</div>
 
-    <template v-else>
+    <PayrollWizardEmpty v-else-if="guided && reviewState.empty && !error" :title="reviewState.emptyTitle" :message="reviewState.emptyMessage" />
+
+    <template v-else-if="!error">
       <div class="rip-controls">
-        <div class="field" v-if="mode !== 'missed_appts_paid_in_full'">
+        <div class="field" v-if="mode !== 'missed_appts_paid_in_full' && (!guided || imports.length > 1)">
           <label>Imported Snapshot</label>
           <select v-model="selectedImportId" @change="reload">
             <option v-for="imp in imports" :key="imp.id" :value="imp.id">{{ importLabel(imp) }}</option>
@@ -82,15 +76,21 @@
             <option v-if="catchUpMode && String(mode).startsWith('process_')" value="new_vs_run1">
               Not in Run 1 yet (incl. Done)
             </option>
-            <option v-if="mode === 'draft_audit'" value="unpaid_only">Unpaid notes only (no note + draft unpaid)</option>
+            <option v-if="mode === 'draft_audit' && guided" value="pending_review">Drafts needing a payment decision</option>
+            <option v-if="mode === 'draft_audit' && !guided" value="unpaid_only">Unpaid notes only (no note + draft unpaid)</option>
             <option v-if="mode === 'draft_audit'" value="draft_only">Draft only</option>
             <option value="all">Show all</option>
           </select>
         </div>
-        <div class="field">
+        <div v-if="!guided" class="field">
           <label>Status</label>
           <div class="rip-muted">{{ periodStatusLabel }}</div>
         </div>
+      </div>
+
+      <div v-if="guided && mode === 'draft_audit' && reviewState.pendingDraftCount" class="rip-review-summary" role="status">
+        <span>{{ reviewState.pendingDraftCount }} draft{{ reviewState.pendingDraftCount === 1 ? '' : 's' }} need a payment decision.</span>
+        <button type="button" class="btn btn-secondary" :disabled="locked || saving" @click="confirmPendingPayable">Confirm all remaining drafts payable</button>
       </div>
 
       <div v-if="mode === 'missed_appts_paid_in_full'" class="rip-table-wrap">
@@ -133,7 +133,7 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="r in visibleRows" :key="r.id" :class="{ unpaid: !isNotePayable(r) && String(mode).startsWith('process_') }">
+            <tr v-for="r in visibleRows" :key="r.id" :data-row-id="r.id" :data-pending="needsReview(r) || (String(mode).startsWith('process_') && !r.processed_at && !isAlreadyPaidInBaseline(r)) ? 'true' : undefined" :class="{ unpaid: !isNotePayable(r) && String(mode).startsWith('process_') }">
               <td>{{ r.provider_name || '—' }}</td>
               <td>{{ clientDisplay(r) }}</td>
               <td>{{ r.service_code || '—' }}</td>
@@ -157,8 +157,15 @@
                 <strong :class="payableLabelClass(r)">{{ payableLabel(r) }}</strong>
               </td>
               <td v-if="mode === 'draft_audit'">
+                <template v-if="guided && isDraftRow(r) && !isAlreadyPaidInBaseline(r)">
+                  <span v-if="draftWasReviewed(r)" class="rip-reviewed">Reviewed — {{ isNotePayable(r) ? 'payable' : 'keep unpaid' }}</span>
+                  <div v-else class="rip-review-actions">
+                    <button type="button" class="btn btn-secondary" :disabled="locked || saving" @click="toggleDraftPayable(r, true)">Payable</button>
+                    <button type="button" class="btn btn-secondary" :disabled="locked || saving" @click="toggleDraftPayable(r, false)">Keep unpaid</button>
+                  </div>
+                </template>
                 <select
-                  v-if="String(r.note_status || '').toUpperCase() === 'DRAFT'"
+                  v-else-if="String(r.note_status || '').toUpperCase() === 'DRAFT'"
                   :disabled="locked || rowFilter === 'all'"
                   :value="Number(r.draft_payable) ? 'payable' : 'not_payable'"
                   @change="toggleDraftPayable(r, $event.target.value === 'payable')"
@@ -235,14 +242,19 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
+import PayrollWizardEmpty from './PayrollWizardEmpty.vue';
+import { RAW_REVIEW_MODES, draftWasReviewed, isDraftRow, needsDraftReview, rawReviewState } from '../../utils/payrollRawReview';
 
 const props = defineProps({
   periodId: { type: [Number, String], required: true },
   periodLabel: { type: String, default: '' },
   periodStatus: { type: String, default: '' },
   initialMode: { type: String, default: 'draft_audit' },
+  initialImportId: { type: [Number, String], default: null },
+  /** The wizard owns the heading, navigation and single Continue action. */
+  guided: { type: Boolean, default: false },
   /** When true (embedded in wizard), hides the mode-switch & close buttons from the header */
   embedded: { type: Boolean, default: false },
   /**
@@ -252,23 +264,45 @@ const props = defineProps({
   catchUpMode: { type: Boolean, default: false }
 });
 
-defineEmits(['close', 'changed']);
+const emit = defineEmits(['close', 'changed', 'review-state', 'readiness']);
 
 const mode = ref(props.initialMode || 'draft_audit');
 const loading = ref(false);
+const loaded = ref(false);
 const error = ref('');
 const rows = ref([]);
 const missedRows = ref([]);
 const imports = ref([]);
-const selectedImportId = ref(null);
+const selectedImportId = ref(Number(props.initialImportId) || null);
 const excludedOutOfPeriod = ref(0);
 const periodBounds = ref({ start: '', end: '' });
 const search = ref('');
 const rowFilter = ref(props.catchUpMode && String(props.initialMode || '').startsWith('process_')
   ? 'catchup_focus'
-  : 'unpaid_only');
+  : (props.guided ? 'pending_review' : 'unpaid_only'));
 const rowLimit = ref(200);
 const saving = ref(false);
+const panelElement = ref(null);
+const reviewModes = RAW_REVIEW_MODES;
+let reloadSequence = 0;
+
+const reviewState = computed(() => {
+  const posted = ['posted', 'finalized'].includes(String(props.periodStatus || '').toLowerCase());
+  const selected = imports.value.find(imp => Number(imp.id) === Number(selectedImportId.value));
+  const permitted = selected?.draft_review_allowed === true || Number(selected?.draft_review_allowed || 0) === 1;
+  const blockedCatchup = loaded.value && posted && props.catchUpMode && !permitted && rows.value.some(needsDraftReview);
+  return {
+    periodId: Number(props.periodId),
+    importId: Number(selectedImportId.value) || null,
+    ...rawReviewState({ rows: rows.value, missedRows: missedRows.value, mode: mode.value, catchUpMode: props.catchUpMode, readOnlyHistorical: posted && !props.catchUpMode, loaded: loaded.value, loading: loading.value, saving: saving.value, error: error.value || (blockedCatchup ? 'This import is locked. Upload a new catch-up report after posting to review unpaid drafts.' : '') })
+  };
+});
+watch(reviewState, value => {
+  emit('review-state', value);
+  emit('readiness', value);
+}, { immediate: true });
+
+const needsReview = needsDraftReview;
 
 /** Already included in last cycle's Run 1 import — not the same as note FINALIZED/Payable. */
 const isAlreadyPaidInBaseline = (r) => Number(r?.already_paid_in_baseline || 0) === 1;
@@ -310,7 +344,14 @@ const periodStatusLabel = computed(() => {
 });
 
 /** Draft payable / non-process edits stay locked on posted periods. */
-const locked = computed(() => isPeriodPosted.value);
+const locked = computed(() => {
+  if (!isPeriodPosted.value) return false;
+  if (!props.catchUpMode) return true;
+  const selected = imports.value.find(imp => Number(imp.id) === Number(selectedImportId.value));
+  // The server authorizes edits only to a catch-up import uploaded after posting.
+  // Older backends do not advertise that permission and remain locked.
+  return selected?.draft_review_allowed !== true && Number(selected?.draft_review_allowed || 0) !== 1;
+});
 
 /** Note is payable (FINALIZED / draft payable) — NOT “already paid on a payroll run.” */
 const isNotePayable = (r) => {
@@ -379,7 +420,9 @@ const filteredRows = computed(() => {
   }
 
   if (mode.value === 'draft_audit') {
-    if (rowFilter.value === 'unpaid_only') list = list.filter((r) => !willBePaid(r));
+    if (props.guided) list = list.filter((r) => !isAlreadyPaidInBaseline(r));
+    if (rowFilter.value === 'pending_review') list = list.filter(needsReview);
+    else if (rowFilter.value === 'unpaid_only') list = list.filter((r) => !willBePaid(r));
     else if (rowFilter.value === 'draft_only') list = list.filter((r) => String(r.note_status || '').toUpperCase() === 'DRAFT');
   } else if (String(mode.value).startsWith('process_')) {
     const code = codeForMode(mode.value);
@@ -415,13 +458,13 @@ const visibleMissedRows = computed(() => (filteredMissedRows.value || []).slice(
 
 const setMode = (m) => {
   mode.value = m;
+  search.value = '';
   rowLimit.value = 200;
   if (props.catchUpMode && String(m).startsWith('process_')) {
     rowFilter.value = 'catchup_focus';
   } else if (m === 'draft_audit') {
-    rowFilter.value = 'unpaid_only';
+    rowFilter.value = props.guided ? 'pending_review' : 'unpaid_only';
   }
-  if (m === 'missed_appts_paid_in_full') reload();
 };
 
 watch(() => props.catchUpMode, (on) => {
@@ -430,61 +473,77 @@ watch(() => props.catchUpMode, (on) => {
 
 const reload = async () => {
   if (!props.periodId) return;
+  const sequence = ++reloadSequence;
+  const periodId = props.periodId;
+  const importId = selectedImportId.value;
   loading.value = true;
+  loaded.value = false;
   error.value = '';
   try {
-    if (mode.value === 'missed_appts_paid_in_full') {
-      const resp = await api.get(`/payroll/periods/${props.periodId}`);
-      missedRows.value = resp.data?.missedAppointmentsPaidInFull || [];
-      periodBounds.value = {
-        start: String(resp.data?.period?.period_start || '').slice(0, 10),
-        end: String(resp.data?.period?.period_end || '').slice(0, 10)
-      };
-      // Still load imports so switching tabs works without an empty snapshot list.
-      try {
-        const audit = await api.get(`/payroll/periods/${props.periodId}/raw-audit`);
-        imports.value = audit.data?.imports || [];
-        selectedImportId.value = Number(audit.data?.selectedImportId || 0)
-          || (imports.value[imports.value.length - 1]?.id ?? null);
-      } catch {
-        /* ignore — missed fees still show from period details */
-      }
-    } else {
-      const resp = await api.get(`/payroll/periods/${props.periodId}/raw-audit`, {
-        params: {
-          importId: selectedImportId.value || undefined
-        }
-      });
-      imports.value = resp.data?.imports || [];
-      selectedImportId.value = Number(resp.data?.selectedImportId || selectedImportId.value || 0) || (imports.value[imports.value.length - 1]?.id ?? null);
-      rows.value = resp.data?.rows || [];
-      excludedOutOfPeriod.value = Number(resp.data?.excludedOutOfPeriod || 0) || 0;
-      periodBounds.value = {
-        start: String(resp.data?.periodStart || resp.data?.period?.period_start || '').slice(0, 10),
-        end: String(resp.data?.periodEnd || resp.data?.period?.period_end || '').slice(0, 10)
-      };
-    }
+    // Load both datasets once. Switching directly from fees to a code must not
+    // leave an empty, stale raw dataset until the user clicks a second time.
+    const [audit, period] = await Promise.all([
+      api.get(`/payroll/periods/${periodId}/raw-audit`, { params: { importId: importId || undefined } }),
+      api.get(`/payroll/periods/${periodId}`)
+    ]);
+    if (sequence !== reloadSequence) return;
+    imports.value = audit.data?.imports || [];
+    selectedImportId.value = Number(audit.data?.selectedImportId || importId || 0) || (imports.value[imports.value.length - 1]?.id ?? null);
+    rows.value = audit.data?.rows || [];
+    missedRows.value = period.data?.missedAppointmentsPaidInFull || [];
+    excludedOutOfPeriod.value = Number(audit.data?.excludedOutOfPeriod || 0) || 0;
+    periodBounds.value = {
+      start: String(audit.data?.periodStart || audit.data?.period?.period_start || '').slice(0, 10),
+      end: String(audit.data?.periodEnd || audit.data?.period?.period_end || '').slice(0, 10)
+    };
+    loaded.value = true;
   } catch (e) {
+    if (sequence !== reloadSequence) return;
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load raw audit';
     rows.value = [];
     missedRows.value = [];
   } finally {
-    loading.value = false;
+    if (sequence === reloadSequence) loading.value = false;
   }
 };
 
+const saveDraftDecision = async (row, nextVal) => {
+  const query = isPeriodPosted.value && props.catchUpMode ? '?allowPostedDraftReview=true' : '';
+  await api.patch(`/payroll/import-rows/${row.id}${query}`, { draftPayable: !!nextVal, draftReviewed: true });
+  const idx = rows.value.findIndex((r) => Number(r.id) === Number(row.id));
+  if (idx >= 0) rows.value[idx] = { ...rows.value[idx], draft_payable: nextVal ? 1 : 0, draft_reviewed: true };
+};
+
 const toggleDraftPayable = async (row, nextVal) => {
-  if (!row?.id || locked.value || saving.value) return;
+  if (!row?.id || locked.value || saving.value || isAlreadyPaidInBaseline(row)) return;
   try {
     saving.value = true;
     error.value = '';
-    await api.patch(`/payroll/import-rows/${row.id}`, { draftPayable: !!nextVal });
-    const idx = rows.value.findIndex((r) => Number(r.id) === Number(row.id));
-    if (idx >= 0) rows.value[idx] = { ...rows.value[idx], draft_payable: nextVal ? 1 : 0 };
+    await saveDraftDecision(row, nextVal);
+    emit('changed', { periodId: Number(props.periodId), importId: selectedImportId.value, rowId: row.id, kind: 'draft_review' });
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to update draft payable';
   } finally {
     saving.value = false;
+  }
+};
+
+const confirmPendingPayable = async () => {
+  if (locked.value || saving.value) return;
+  const pending = rows.value.filter(needsReview);
+  let savedCount = 0;
+  saving.value = true;
+  error.value = '';
+  try {
+    for (const row of pending) {
+      await saveDraftDecision(row, true);
+      savedCount++;
+    }
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || e?.message || 'Some draft decisions could not be saved. Review the remaining drafts before continuing.';
+  } finally {
+    saving.value = false;
+    if (savedCount) emit('changed', { periodId: Number(props.periodId), importId: selectedImportId.value, kind: 'draft_review', savedCount });
   }
 };
 
@@ -503,6 +562,7 @@ const updateMinutes = async (row, nextValRaw) => {
     await api.patch(`/payroll/import-rows/${row.id}${postedProcessingQs()}`, { unitCount: nextMinutes });
     const idx = rows.value.findIndex((r) => Number(r.id) === Number(row.id));
     if (idx >= 0) rows.value[idx] = { ...rows.value[idx], unit_count: nextMinutes };
+    emit('changed', { periodId: Number(props.periodId), rowId: row.id, kind: 'minutes' });
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to update minutes';
   } finally {
@@ -524,6 +584,7 @@ const toggleProcessed = async (row, nextDone) => {
         processed_at: nextDone ? new Date().toISOString() : null
       };
     }
+    emit('changed', { periodId: Number(props.periodId), rowId: row.id, kind: 'processed' });
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to update processed';
   } finally {
@@ -531,17 +592,28 @@ const toggleProcessed = async (row, nextDone) => {
   }
 };
 
-watch(() => props.periodId, () => {
-  selectedImportId.value = null;
+watch(() => [props.periodId, props.initialImportId], () => {
+  selectedImportId.value = Number(props.initialImportId) || null;
+  search.value = '';
   reload();
 });
 
 watch(() => props.initialMode, (m) => {
-  if (m) {
-    mode.value = m;
-    if (m === 'missed_appts_paid_in_full') reload();
-  }
+  if (m) setMode(m);
 });
+
+const focusPending = async () => {
+  search.value = '';
+  rowLimit.value = 200;
+  if (mode.value === 'draft_audit') rowFilter.value = 'pending_review';
+  if (props.catchUpMode && String(mode.value).startsWith('process_')) rowFilter.value = 'catchup_focus';
+  await nextTick();
+  const row = panelElement.value?.querySelector('[data-pending="true"]');
+  row?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+  row?.querySelector('button:not(:disabled), input:not(:disabled), select:not(:disabled)')?.focus();
+};
+
+defineExpose({ refresh: reload, reload, getReviewState: () => reviewState.value, focusPending });
 
 onMounted(reload);
 </script>
@@ -553,6 +625,35 @@ onMounted(reload);
   gap: 12px;
   min-height: 320px;
 }
+.rip-panel--guided { min-height: 0; }
+.rip-panel--guided .rip-table-wrap { max-height: min(65vh, 720px); }
+.rip-review-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #fff8e8;
+  color: #7c4a03;
+}
+.rip-review-actions { display: flex; gap: 6px; }
+.rip-reviewed { color: #21704b; font-weight: 600; }
+.rip-tab-count {
+  display: inline-flex;
+  justify-content: center;
+  min-width: 20px;
+  margin-left: 4px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  color: #8a4b00;
+  background: #ffedbd;
+}
+.rip-tab--attention { animation: rip-attention 1.5s ease-in-out 3; }
+.rip-table tr[data-pending="true"]:focus-within td { background: #fff4d9; }
+@keyframes rip-attention { 50% { background: #fff2d3; } }
+@media (prefers-reduced-motion: reduce) { .rip-tab--attention { animation: none; } }
 .rip-header {
   display: flex;
   justify-content: space-between;

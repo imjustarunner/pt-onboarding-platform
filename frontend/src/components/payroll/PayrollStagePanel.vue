@@ -101,7 +101,7 @@
           </thead>
           <tbody>
             <tr v-for="l in lines" :key="l.id">
-              <td>{{ nameFor(l.user_id) }}</td>
+              <td>{{ nameFor(l.user_id, l) }}</td>
               <td class="psp-muted">{{ String(l.category || 'direct').toUpperCase() }}</td>
               <td>{{ l.label }}</td>
               <td class="right">{{ Number(l.credits_hours ?? 0).toFixed(2) }} h</td>
@@ -184,7 +184,7 @@
             <span class="psp-combo-arrow" aria-hidden="true">&#x25BE;</span>
           </div>
           <div v-if="adjDropOpen" class="psp-combo-drop">
-            <div v-if="!filteredAdjActive.length && !filteredAdjInactive.length" class="psp-combo-empty">
+            <div v-if="!filteredAdjActive.length" class="psp-combo-empty">
               No employees match "{{ adjSearch }}"
             </div>
             <template v-if="filteredAdjActive.length">
@@ -192,16 +192,6 @@
                 v-for="u in filteredAdjActive"
                 :key="u.id"
                 class="psp-combo-option"
-                :class="{ 'psp-combo-option--selected': Number(u.id) === Number(adjUserId) }"
-                @mousedown.prevent="selectAdjUser(u)"
-              >{{ u.first_name }} {{ u.last_name }}</div>
-            </template>
-            <template v-if="filteredAdjInactive.length">
-              <div class="psp-combo-group">Inactive / Archived</div>
-              <div
-                v-for="u in filteredAdjInactive"
-                :key="u.id"
-                class="psp-combo-option psp-combo-option--inactive"
                 :class="{ 'psp-combo-option--selected': Number(u.id) === Number(adjUserId) }"
                 @mousedown.prevent="selectAdjUser(u)"
               >{{ u.first_name }} {{ u.last_name }}</div>
@@ -246,23 +236,23 @@ const props = defineProps({
   periodStatus: { type: String, default: '' }
 });
 
-defineEmits(['changed']);
+const emit = defineEmits(['changed']);
 
 const tab = ref('manual');
 const error = ref('');
 const loadingUsers = ref(false);
 const users = ref([]);
 
-// Roles that are NOT payroll-eligible employees (guardians, clients, school staff, etc.)
-const NON_EMPLOYEE_ROLES = new Set(['guardian', 'client_guardian', 'client', 'school_staff', 'school_support', 'applicant']);
-const isEmployee = (u) => !NON_EMPLOYEE_ROLES.has(String(u?.role || '').toLowerCase());
-const isActiveUser = (u) => u?.is_active == null || Number(u.is_active) === 1 || u.is_active === true;
-
+const EMPLOYEE_ROLES = new Set(['super_admin', 'admin', 'assistant_admin', 'support', 'staff', 'provider', 'provider_plus', 'clinical_practice_assistant', 'supervisor', 'intern', 'intern_plus', 'facilitator', 'tutor', 'clinician']);
+const isActiveFlag = (value) => value == null || value === true || Number(value) === 1;
+const isTrueFlag = (value) => value === true || Number(value) === 1;
 const activeEmployees = computed(() =>
-  users.value.filter((u) => isEmployee(u) && isActiveUser(u))
-);
-const inactiveEmployees = computed(() =>
-  users.value.filter((u) => isEmployee(u) && !isActiveUser(u))
+  users.value.filter((u) => Number(u.agency_id) === Number(props.agencyId)
+    && String(u.status || '').toUpperCase() === 'ACTIVE_EMPLOYEE'
+    && EMPLOYEE_ROLES.has(String(u.role || '').toLowerCase())
+    && isActiveFlag(u.is_active) && isActiveFlag(u.agency_is_active)
+    && !isTrueFlag(u.is_archived) && !isTrueFlag(u.is_assistant_account)
+    && !isTrueFlag(u.is_demo) && !isTrueFlag(u.created_via_dev_fill))
 );
 
 // ── Provider Adjustments custom combobox ────────────────────────────────────
@@ -301,9 +291,6 @@ const fuzzyMatch = (query, u) => {
 const filteredAdjActive = computed(() =>
   activeEmployees.value.filter((u) => fuzzyMatch(adjSearch.value, u))
 );
-const filteredAdjInactive = computed(() =>
-  inactiveEmployees.value.filter((u) => fuzzyMatch(adjSearch.value, u))
-);
 
 const openAdjDrop = () => {
   adjSearch.value = '';
@@ -327,7 +314,7 @@ const selectAdjUser = (u) => {
   loadAdjustments();
 };
 const pickFirstAdjResult = () => {
-  const first = filteredAdjActive.value[0] || filteredAdjInactive.value[0];
+  const first = filteredAdjActive.value[0];
   if (first) selectAdjUser(first);
 };
 const handleAdjClickOutside = (e) => {
@@ -343,8 +330,10 @@ const locked = computed(() => {
   return st === 'posted' || st === 'finalized';
 });
 
-const nameFor = (id) => {
-  const u = users.value.find((x) => Number(x.id) === Number(id));
+const nameFor = (id, savedLine) => {
+  const u = (savedLine?.first_name || savedLine?.last_name) ? savedLine
+    : users.value.find((x) => Number(x.id) === Number(id));
+  if (!u?.first_name && !u?.last_name) return `#${id}`;
   return u ? `${u.last_name}, ${u.first_name}` : `#${id}`;
 };
 
@@ -369,7 +358,7 @@ const deletingId = ref(null);
 const isValidDraft = (r) => {
   const uid = Number(r?.userId || 0);
   const label = String(r?.label || '').trim();
-  if (!uid || !label) return false;
+  if (!uid || !label || !activeEmployees.value.some(u => Number(u.id) === uid)) return false;
   if (String(r.lineType) === 'pto') {
     const hrs = Number(r.creditsHours);
     return Number.isFinite(hrs) && Math.abs(hrs) > 1e-9;
@@ -386,17 +375,22 @@ const removeDraft = (idx) => {
   draftRows.value = rows.length ? rows : [emptyDraft()];
 };
 
+let linesLoadSequence = 0;
 const loadLines = async () => {
+  const sequence = ++linesLoadSequence;
   if (!props.periodId) return;
+  const periodId = Number(props.periodId);
   linesLoading.value = true;
   try {
-    const resp = await api.get(`/payroll/periods/${props.periodId}/manual-pay-lines`);
+    const resp = await api.get(`/payroll/periods/${periodId}/manual-pay-lines`);
+    if (sequence !== linesLoadSequence || periodId !== Number(props.periodId)) return;
     lines.value = resp.data || [];
   } catch (e) {
+    if (sequence !== linesLoadSequence) return;
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load manual lines';
     lines.value = [];
   } finally {
-    linesLoading.value = false;
+    if (sequence === linesLoadSequence) linesLoading.value = false;
   }
 };
 
@@ -423,6 +417,7 @@ const saveDrafts = async () => {
     }
     draftRows.value = kept.length ? kept : [emptyDraft()];
     await loadLines();
+    emit('changed');
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to save manual lines';
   } finally {
@@ -437,6 +432,7 @@ const deleteLine = async (line) => {
   try {
     await api.delete(`/payroll/periods/${props.periodId}/manual-pay-lines/${line.id}`);
     await loadLines();
+    emit('changed');
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to delete line';
   } finally {
@@ -460,6 +456,21 @@ const bulkInputLabel = computed(() => (Number(bulkRule.value?.pay_divisor ?? 60)
 const bulkInputType = computed(() => (Number(bulkRule.value?.pay_divisor ?? 60) === 60 ? 'minutes' : 'units'));
 
 const submitBulk = async () => {
+  const tokens = String(bulkAttendees.value || '').split(',').map(name => name.trim()).filter(Boolean);
+  if (!tokens.length || tokens.length % 2 !== 0) {
+    error.value = 'Enter each attendee as Last, First.';
+    return;
+  }
+  const ineligible = [];
+  for (let i = 0; i < tokens.length; i += 2) {
+    const matches = activeEmployees.value.filter(user => normalizeStr(user.last_name) === normalizeStr(tokens[i])
+      && normalizeStr(user.first_name) === normalizeStr(tokens[i + 1]));
+    if (matches.length !== 1) ineligible.push(`${tokens[i]}, ${tokens[i + 1]}`);
+  }
+  if (ineligible.length) {
+    error.value = `Choose an active employee of this agency for: ${ineligible.join('; ')}.`;
+    return;
+  }
   bulkSaving.value = true;
   error.value = '';
   try {
@@ -476,6 +487,7 @@ const submitBulk = async () => {
     bulkReason.value = '';
     tab.value = 'manual';
     await loadLines();
+    emit('changed');
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to submit bulk';
   } finally {
@@ -541,7 +553,7 @@ const loadAdjustments = async () => {
 };
 
 const saveAdjustments = async () => {
-  if (!adjUserId.value) return;
+  if (!adjUserId.value || !activeEmployees.value.some(user => Number(user.id) === Number(adjUserId.value))) return;
   adjSaving.value = true;
   error.value = '';
   try {
@@ -563,6 +575,7 @@ const saveAdjustments = async () => {
       ptoHours: Number(adj.value.ptoHours || 0),
       ptoRate: Number(adj.value.ptoRate || 0)
     });
+    emit('changed');
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to save adjustments';
   } finally {
@@ -570,19 +583,25 @@ const saveAdjustments = async () => {
   }
 };
 
+let usersLoadSequence = 0;
 const loadUsers = async () => {
+  const sequence = ++usersLoadSequence;
+  users.value = [];
   if (!props.agencyId) return;
+  const agencyId = Number(props.agencyId);
   loadingUsers.value = true;
   try {
-    const resp = await api.get('/payroll/agency-users', { params: { agencyId: props.agencyId, includeInactive: true } });
+    const resp = await api.get('/payroll/agency-users', { params: { agencyId, activeEmployeesOnly: true } });
+    if (sequence !== usersLoadSequence || agencyId !== Number(props.agencyId)) return;
     users.value = (resp.data || []).slice().sort((a, b) =>
       String(a.last_name || '').localeCompare(String(b.last_name || '')) ||
       String(a.first_name || '').localeCompare(String(b.first_name || ''))
     );
   } catch (e) {
+    if (sequence !== usersLoadSequence) return;
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load providers';
   } finally {
-    loadingUsers.value = false;
+    if (sequence === usersLoadSequence) loadingUsers.value = false;
   }
 };
 
@@ -607,10 +626,23 @@ const loadServiceCodes = async () => {
 const reloadAll = async () => {
   error.value = '';
   await Promise.all([loadUsers(), loadServiceCodes(), loadLines()]);
-  if (adjUserId.value) await loadAdjustments();
+  if (adjUserId.value && activeEmployees.value.some(user => Number(user.id) === Number(adjUserId.value))) {
+    await loadAdjustments();
+  } else {
+    adjUserId.value = null;
+    adj.value = emptyAdj();
+  }
 };
 
-watch(() => [props.agencyId, props.periodId], reloadAll);
+watch(() => [props.agencyId, props.periodId], () => {
+  // Unsaved choices and adjustments belong to the previous agency/period.
+  draftRows.value = [emptyDraft()];
+  lines.value = [];
+  adjUserId.value = null;
+  adj.value = emptyAdj();
+  adjDropOpen.value = false;
+  reloadAll();
+});
 onMounted(() => {
   reloadAll();
   document.addEventListener('mousedown', handleAdjClickOutside);
