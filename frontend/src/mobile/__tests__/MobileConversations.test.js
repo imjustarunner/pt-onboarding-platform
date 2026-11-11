@@ -1,9 +1,9 @@
 import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 import {mount,flushPromises,DOMWrapper} from '@vue/test-utils';
 import {createRouter,createWebHistory} from 'vue-router';
-const mocks=vi.hoisted(()=>({request:vi.fn(),get:vi.fn(),post:vi.fn(),quickGet:vi.fn(),quickPost:vi.fn()}));
+const mocks=vi.hoisted(()=>({request:vi.fn(),get:vi.fn(),post:vi.fn(),quickGet:vi.fn(),quickPost:vi.fn(),quickPatch:vi.fn()}));
 vi.mock('../transport.js',()=>({native:false,MobileDevice:{},quickApiBase:'/api/quick-view',mobileApi:{request:mocks.request,get:mocks.get,post:mocks.post},randomSecret:()=>'',pkceChallenge:vi.fn(),accountUrl:()=>'',mobileRequestError:e=>e.message}));
-vi.mock('axios',()=>({default:{get:mocks.quickGet,post:mocks.quickPost,patch:vi.fn(),interceptors:{response:{use:vi.fn(),eject:vi.fn()}}}}));
+vi.mock('axios',()=>({default:{get:mocks.quickGet,post:mocks.quickPost,patch:mocks.quickPatch,interceptors:{response:{use:vi.fn(),eject:vi.fn()}}}}));
 import MobileApp from '../MobileApp.vue';
 const profile={user:{id:1,firstName:'Test',email:'staff@example.invalid'},workspace:{id:10,name:'Test workspace'},agencies:[{id:10,name:'Test workspace'}],appLock:{method:'none',hasCode:false}};
 let wrapper,router;
@@ -11,7 +11,7 @@ beforeEach(async()=>{
   vi.resetAllMocks();history.replaceState({},'','/mobile');
   vi.stubGlobal('matchMedia',vi.fn(()=>({matches:false,addListener(){},removeListener(){},addEventListener(){},removeEventListener(){}})));
   mocks.request.mockImplementation(async({url})=>({data:url==='/session'?{workspace:profile.workspace,appLock:profile.appLock}:{sessionToken:'test-scoped-session',userId:1,agencyId:10,expiresAt:'2099-01-01',profile}}));
-  mocks.quickPost.mockResolvedValue({data:{ok:true}});
+  mocks.quickPost.mockResolvedValue({data:{ok:true}});mocks.quickPatch.mockResolvedValue({data:{ok:true}});
   mocks.quickGet.mockImplementation(async url=>({data:url.endsWith('/messages/preferences')?{preferences:{navigationMode:'pinned',pinnedNavigation:['mywork','tasks','home'],usage:{}}}:url.endsWith('/workspace-counts')?{mywork:15,tasks:257}:url.endsWith('/messages/inbox')?{items:[{key:'email:41',id:41,kind:'email',channel:'email',category:'email',title:'SYNTHETIC-EMAIL-41',subject:'SYNTHETIC-EMAIL-41',sender:'Synthetic Sender',preview:'Preview',at:'2026-11-05'}],mailboxEmail:'staff@example.invalid'}:url.endsWith('/conversations/41')?{conversation:{id:41,channel:'email',subject:'SYNTHETIC-EMAIL-41',inbox_from_email:'staff@example.invalid'},messages:[{id:100,from:{email:'sender@example.invalid'},to:[{email:'staff@example.invalid'}],body_text:'LONG-EMAIL-BODY\n'.repeat(100),direction:'inbound',send_status:'sent'}]}:{items:[],tasks:[],conversations:[]}}));
   router=createRouter({history:createWebHistory(),routes:[{path:'/:pathMatch(.*)*',component:{template:'<span />'}}]});await router.push('/mobile');
   wrapper=mount(MobileApp,{attachTo:document.body,global:{plugins:[router],stubs:{QuickViewMusicDock:true,QuickViewPresence:true}}});await flushPromises();
@@ -53,4 +53,14 @@ it('loads actionable navigation badges before opening My Work or Tasks',async()=
  const nav=()=>wrapper.findAll('.qv-tabs>button');
  expect(nav().find(b=>b.text().includes('Tasks')).get('.qv-nav-badge').text()).toBe('257');
  expect(nav().find(b=>b.text().includes('My Work')).get('.qv-nav-badge').text()).toBe('15');
+});
+
+
+async function taskScreen(){const base=mocks.quickGet.getMockImplementation();mocks.quickGet.mockImplementation(async(url,config)=>url.endsWith('/task-counts')?{data:{counts:{assigned:27,mine:7,lists:4,projects:2}}}:url.endsWith('/tasks')?{data:{tasks:[{id:7,title:'SYNTHETIC-TASK',status:'pending'}]}}:url.endsWith('/tasks/7')?{data:{task:{id:7,title:'SYNTHETIC-TASK',status:'pending',description:'Synthetic description',can_change_status:true},comments:[],availableLists:[]}}:base(url,config));await wrapper.findAll('.qv-tabs>button').find(b=>b.text().includes('Tasks')).trigger('click');await flushPromises();}
+it('shows all four task suite counts and previews before requiring completion confirmation',async()=>{await taskScreen();expect(wrapper.get('.qv-suite').text()).toContain('Assigned 27');expect(wrapper.get('.qv-suite').text()).toContain('My tasks 7');expect(wrapper.get('.qv-suite').text()).toContain('Shared lists 4');expect(wrapper.get('.qv-suite').text()).toContain('Projects 2');await wrapper.get('.mt-options').trigger('click');await flushPromises();expect(wrapper.get('[aria-label="Task preview"]').text()).toContain('Synthetic description');await wrapper.findAll('[aria-label="Task preview"] button').find(b=>b.text()==='Mark done').trigger('click');expect(mocks.quickPatch).not.toHaveBeenCalled();await wrapper.findAll('[aria-label="Confirm task completion"] button').find(b=>b.text()==='Mark done').trigger('click');await flushPromises();expect(mocks.quickPatch).toHaveBeenCalledWith('/api/quick-view/tasks/7/status',{status:'completed'},expect.any(Object));});
+it('opens task details while a slow directory request is still pending',async()=>{await taskScreen();const base=mocks.quickGet.getMockImplementation();let resolveDirectory;mocks.quickGet.mockImplementation((url,config)=>url.includes('/directory')?new Promise(resolve=>resolveDirectory=resolve):base(url,config));await wrapper.get('.mt-card').trigger('click');await flushPromises();expect(wrapper.get('[aria-label="Task details"]').text()).toContain('Synthetic description');resolveDirectory?.({data:{providers:[],schoolStaff:[]}});});
+it('edits a due date from the task preview and preserves the prompt on a rejected save',async()=>{await taskScreen();await wrapper.get('.mt-options').trigger('click');await flushPromises();await wrapper.findAll('[aria-label="Task preview"] button').find(b=>b.text()==='Change due date').trigger('click');await wrapper.get('input[type="datetime-local"]').setValue('2026-11-17T15:30');mocks.quickPatch.mockRejectedValueOnce({response:{data:{error:{message:'Access changed'}}}});await wrapper.findAll('[aria-label="Change task due date"] button').find(b=>b.text()==='Save due date').trigger('click');await flushPromises();expect(wrapper.get('[aria-label="Change task due date"] [role="alert"]').text()).toContain('Access changed');expect(mocks.quickPatch).toHaveBeenCalledWith('/api/quick-view/tasks/7',{dueDate:new Date('2026-11-17T15:30').toISOString()},expect.any(Object));});
+
+it('shows the weekday of the selected calendar date rather than only today',async()=>{
+ await router.push('/mobile/workspace?view=calendar');await flushPromises();await wrapper.get('[aria-label="Calendar date"]').setValue('2026-11-10');await flushPromises();expect(wrapper.get('.qv-selected-day').text()).toContain('Tuesday');expect(wrapper.get('.qv-selected-day').text()).toContain('November 10');
 });

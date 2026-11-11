@@ -10,7 +10,7 @@
         <span v-if="invite.lastSentAt"> · {{ es ? 'Último intento' : 'Last delivery attempt' }}: {{ dateText(invite.lastSentAt) }}</span>
         <span v-if="invite.completedAt"> · {{ es ? 'Aceptada' : 'Accepted' }}: {{ dateText(invite.completedAt) }}</span>
       </p>
-      <details v-if="invite.history?.length" class="invite-history" open>
+      <details v-if="invite.history?.length" class="invite-history">
         <summary>{{ es ? 'Invitaciones y recordatorios enviados' : 'Invitation and reminder history' }}</summary>
         <ol><li v-for="attempt in invite.history" :key="attempt.id">
           {{ attempt.kind === 'reminder' ? (es ? 'Recordatorio' : 'Reminder') : (es ? 'Invitación' : 'Invitation') }}

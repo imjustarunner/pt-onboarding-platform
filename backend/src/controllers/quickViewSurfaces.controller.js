@@ -1,3 +1,4 @@
+import {getTaskSuiteCounts} from '../services/mobile/taskCounts.service.js';
 import {mapDirectoryPerson} from '../services/mobile/directoryPerson.service.js';
 import {mobileAgencyIcon} from '../services/mobile/agencyBrand.service.js';
 /**
@@ -643,3 +644,5 @@ export const qvExecuteNoteAid = wrap(async (req, res, next) => {
   delete req.body.attachClient;
   return executeNoteAidTool(req, res, next);
 });
+
+export const getQuickTaskCounts=async(req,res,next)=>{try{res.set('Cache-Control','no-store').json({counts:await getTaskSuiteCounts(req)});}catch(error){if(error.status)return res.status(error.status).json({error:{message:error.message}});next(error);}};

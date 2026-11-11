@@ -48,7 +48,7 @@ import {
   qvCreateDirectThread,qvCreateGroupThread,
   qvFocusMusicCatalog,
   qvFocusMusicStream,
-  getQuickTaskDetail,
+  getQuickTaskCounts, getQuickTaskDetail,
   patchQuickTask,
   postQuickTaskComment,
   getQuickTaskLists,
@@ -98,6 +98,7 @@ router.get('/home', requireQuickViewSession, getQuickHome);
 router.use('/drafts', requireQuickViewSession, emailDraftRoutes);
 router.get('/tasks', requireQuickViewSession, getQuickTasks);
 router.post('/tasks', requireQuickViewSession, postQuickTask);
+router.get('/task-counts', requireQuickViewSession, getQuickTaskCounts);
 router.get('/tasks/:id', requireQuickViewSession, getQuickTaskDetail);
 router.patch('/tasks/:id', requireQuickViewSession, patchQuickTask);
 router.post('/tasks/:id/comments', requireQuickViewSession, postQuickTaskComment);

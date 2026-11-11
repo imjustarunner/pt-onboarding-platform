@@ -52,11 +52,11 @@ export async function deliverCoGuardianInvite({ inviteId, enrollmentChannel = nu
   return { ...delivery, deliveryStatus: state };
 }
 
-export async function listGuardianInvitations({ userId, agencyId, clientId = null }) {
+export async function listGuardianInvitations({ userId, agencyId, clientId = null, viewerEmails = [] }) {
   if (!Number.isSafeInteger(Number(agencyId)) || Number(agencyId) <= 0) fail(400, 'Select an agency.');
   const [rows] = await pool.execute(`SELECT i.id, i.invited_email AS email, i.status, i.created_at AS invitedAt, i.expires_at AS expiresAt,
       i.invited_by_user_id AS invitedByUserId, i.source,
-      i.accepted_at AS completedAt, (i.accepted_user_id IS NOT NULL) AS accountConnected,
+      i.accepted_user_id AS recipientUserId, i.accepted_at AS completedAt, (i.accepted_user_id IS NOT NULL) AS accountConnected,
       c.id AS clientId,c.agency_id AS clientAgencyId, c.guardian_portal_enabled AS portalEnabled, c.date_of_birth AS dateOfBirth,
       cg.access_enabled AS accessEnabled, cg.permissions_json AS permissions,
       d.created_at AS lastSentAt,
@@ -85,7 +85,8 @@ export async function listGuardianInvitations({ userId, agencyId, clientId = nul
       && Number(row.accessEnabled) === 1 && permissions && typeof permissions === 'object' && !Array.isArray(permissions)
       && !permissions.noView && !permissions.noViewOtherGuardian && !isDobAdultLocked(row.dateOfBirth);
   };
-  const visible = [...grouped.values()].filter(group => group.some(row=>canSee(row)&&(!clientId||Number(row.clientId)===Number(clientId)))).slice(0,30);
+  const ownEmails=new Set(viewerEmails.filter(Boolean).map(value=>String(value).trim().toLowerCase()));
+  const visible = [...grouped.values()].filter(group=>Number(group[0].recipientUserId)!==Number(userId) && !ownEmails.has(String(group[0].email || '').trim().toLowerCase())).filter(group => group.some(row=>canSee(row)&&(!clientId||Number(row.clientId)===Number(clientId)))).slice(0,30);
   const histories = new Map();
   if (visible.length) {
     const [attempts] = await pool.execute(`SELECT invite_id AS inviteId,id,delivery_kind AS kind,delivery_status AS status,created_at AS occurredAt

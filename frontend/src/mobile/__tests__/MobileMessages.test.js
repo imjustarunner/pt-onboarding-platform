@@ -196,3 +196,14 @@ it('shows group names without personal account labels or redundant destination e
 });
 
 it('maps an older needs-reply bookmark to Unread',async()=>{await start('/mobile/workspace?view=home&suite=direct&filter=needs');expect(wrapper.findAll('.mm-filters button').find(b=>b.attributes('aria-pressed')==='true').text()).toContain('Unread');expect(api.get).toHaveBeenCalledWith('/api/quick-view/messages/inbox',expect.objectContaining({params:expect.objectContaining({filter:'unread'})}));});
+
+it('offers bulk selection on hold/context actions and marks only selected conversations read',async()=>{
+ await start();await row('Jordan').trigger('contextmenu');await flushPromises();const menu=document.querySelector('[aria-label="Conversation actions"]');expect(menu).not.toBeNull();menu.querySelectorAll('button')[1].click();await flushPromises();expect(wrapper.get('[aria-label="Selected conversations"]').text()).toContain('1 selected');
+ await wrapper.findAll('.mm-bulk button').find(b=>b.text()==='Select all shown').trigger('click');expect(wrapper.get('.mm-bulk').text()).toContain('2 selected');
+ await wrapper.findAll('.mm-bulk button').find(b=>b.text()==='Read').trigger('click');await flushPromises();expect(api.patch).toHaveBeenCalledWith('/api/quick-view/messages/chat/10/state',{read:true},expect.any(Object));expect(api.patch).toHaveBeenCalledWith('/api/quick-view/messages/chat/11/state',{read:true},expect.any(Object));expect(wrapper.find('.mm-bulk').exists()).toBe(false);expect(wrapper.find('.mm-timeline').exists()).toBe(false);
+});
+it('keeps failed bulk items selected rather than reporting them as archived',async()=>{
+ await start();await row('Jordan').trigger('contextmenu');await flushPromises();document.querySelector('[aria-label="Conversation actions"]').querySelectorAll('button')[1].click();await flushPromises();await wrapper.findAll('.mm-bulk button').find(b=>b.text()==='Select all shown').trigger('click');api.patch.mockImplementation(async url=>{if(url.includes('/chat/10/'))throw new Error('offline');return{data:{ok:true}};});
+ await wrapper.findAll('.mm-bulk button').find(b=>b.text()==='Archive').trigger('click');await flushPromises();expect(wrapper.get('.mm-bulk').text()).toContain('1 selected');expect(wrapper.get('[role="alert"]').text()).toContain('1 conversation could not be updated');expect(wrapper.get('.mm-notice').text()).toContain('1 conversation archived');
+});
+it('clears bulk selection when the signed-in session changes',async()=>{await start();await row('Jordan').trigger('contextmenu');await flushPromises();document.querySelector('[aria-label="Conversation actions"]').querySelectorAll('button')[1].click();await flushPromises();await wrapper.setProps({sessionToken:'another-scoped-session'});expect(wrapper.find('.mm-bulk').exists()).toBe(false);});
