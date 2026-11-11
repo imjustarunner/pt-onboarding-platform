@@ -1,3 +1,4 @@
+import { assertCompanyEventConversationMember, pruneUserCompanyEventConversations } from '../services/companyEventConversation.service.js';
 import { familyMessageVisibilitySql, assertCanReadFamilySecureMessage, describeFamilySecureThread } from '../services/familySecureMessageAccess.service.js';
 import {listMobileAgencies} from '../services/mobile/agencyScope.service.js';
 import {requireMobileThreadMembership} from '../services/mobile/conversa.service.js';
@@ -342,6 +343,7 @@ async function assertAgencyOrOrgAccess(reqUser, agencyId, organizationId = null)
 
 export async function assertThreadAccess(reqUserId, threadId, {requireActiveAgency=false}={}) {
   await refreshClientSecureAccess(threadId, reqUserId);
+  if (await assertCompanyEventConversationMember({ threadId, userId: reqUserId })) return true;
   if(requireActiveAgency)return requireMobileThreadMembership(reqUserId,threadId);
   const [rows] = await pool.execute(
     'SELECT 1 FROM chat_thread_participants WHERE thread_id = ? AND user_id = ? LIMIT 1',
@@ -879,6 +881,7 @@ async function resolveActiveAgencyIdForOrg(orgId) {
 
 export const listMyThreads = async (req, res, next) => {
   try {
+    await pruneUserCompanyEventConversations(req.user.id);
     const { refreshSharedChildMemberships } = await import('../services/guardianSharedMessages.service.js');
     if(!mobileQaAgencyId(req))await refreshSharedChildMemberships(req.user.id);
     const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
@@ -964,7 +967,7 @@ export const listMyThreads = async (req, res, next) => {
          ORDER BY m.id DESC
          LIMIT 1
        )
-       WHERE t.agency_id IN (${placeholders})
+       WHERE (t.agency_id IN (${placeholders}) OR (t.thread_type='group' AND t.company_event_id IS NOT NULL AND t.message_channel='internal'))
          ${req.quickView && !req.quickView.mobileDeviceSessionId ? "AND t.message_channel = 'internal'" : ''}
          ${req.quickView?.mobileDeviceSessionId && req.user.role==='school_staff'?"AND t.message_channel='internal'":''}
          ${req.quickView?.mobileDeviceSessionId?`AND COALESCE(a.is_active,1)=1 AND COALESCE(a.is_archived,0)=0`:''}
@@ -975,7 +978,7 @@ export const listMyThreads = async (req, res, next) => {
 
     const visibleRows = [];
     for (const row of rows || []) {
-      try { if (row.client_id || row.personal_portal || row.thread_type === 'client_secure' || row.message_channel === 'secure') await refreshClientSecureAccess(row.thread_id, userId); visibleRows.push(row); }
+      try { if (row.thread_type === 'group' && row.company_event_id) await assertCompanyEventConversationMember({ threadId: row.thread_id, userId }); if (row.client_id || row.personal_portal || row.thread_type === 'client_secure' || row.message_channel === 'secure') await refreshClientSecureAccess(row.thread_id, userId); visibleRows.push(row); }
       catch (e) { if (![403, 404].includes(e.status)) throw e; }
     }
 
@@ -1071,7 +1074,7 @@ export const listMyThreads = async (req, res, next) => {
         const evId = Number(r.company_event_id || 0);
         label = (evId && eventLabelById.get(evId)) || 'Event chat';
       } else if (tType === 'group') {
-        label = 'Group chat';
+        label = r.channel_name || 'Group chat';
       }
       const isDirect = tType === 'direct' || tType === 'client_secure';
       if (tType === 'client_secure') label = r.personal_portal ? 'Personal portal' : 'Shared care';
@@ -1277,6 +1280,8 @@ export const createGroupThread = async (req, res, next) => {
     await assertUsersInAgency(agencyId, [me, ...others]);
 
     const threadId = await createGroupThreadInDb(agencyId, organizationId, [me, ...others]);
+    const groupName = String(req.body.name || '').trim().slice(0, 160);
+    if (groupName) await pool.execute('UPDATE chat_threads SET name=? WHERE id=?', [groupName, threadId]);
 
     // If the creator previously deleted/hid this thread (unlikely on create), ensure it is visible.
     try {
@@ -1523,7 +1528,7 @@ export const sendMessage = async (req, res, next) => {
       if (!okG) {
         return res.status(403).json({ error: { message: 'Access denied to this chat' } });
       }
-    } else if (t.thread_type !== 'client_secure') {
+    } else if (t.thread_type !== 'client_secure' && !await assertCompanyEventConversationMember({ threadId, userId: req.user.id })) {
       await assertAgencyOrOrgAccess(req.user, agencyId, t.organization_id || null);
     }
 
@@ -1776,6 +1781,7 @@ export const sendMessage = async (req, res, next) => {
  */
 export const listThreadsInbox = async (req, res, next) => {
   try {
+    await pruneUserCompanyEventConversations(req.user.id);
     const { refreshSharedChildMemberships } = await import('../services/guardianSharedMessages.service.js');
     if(!mobileQaAgencyId(req))await refreshSharedChildMemberships(req.user.id);
     if (!(await hasParentMessageColumn())) {
@@ -1899,6 +1905,7 @@ export const listThreadsInbox = async (req, res, next) => {
  */
 export const listMentionsInbox = async (req, res, next) => {
   try {
+    await pruneUserCompanyEventConversations(req.user.id);
     const { refreshSharedChildMemberships } = await import('../services/guardianSharedMessages.service.js');
     if(!mobileQaAgencyId(req))await refreshSharedChildMemberships(req.user.id);
     if (!(await hasChatMessageMentionsTable())) {
@@ -2301,7 +2308,7 @@ export const getThreadMeta = async (req, res, next) => {
     if (roleNorm2 === 'client_guardian' && sbThread) {
       const okG = await guardianCanPostSkillBuilderEventChat(req.user.id, evMeta);
       if (!okG) return res.status(403).json({ error: { message: 'Access denied' } });
-    } else if (t.thread_type !== 'client_secure') {
+    } else if (t.thread_type !== 'client_secure' && !await assertCompanyEventConversationMember({ threadId, userId: req.user.id })) {
       await assertAgencyOrOrgAccess(req.user, t.agency_id, t.organization_id || null);
     }
 
@@ -2350,6 +2357,7 @@ async function tableExists(name) {
 /** GET /api/chat/inbox/files */
 export const listFilesInbox = async (req, res, next) => {
   try {
+    await pruneUserCompanyEventConversations(req.user.id);
     const { refreshSharedChildMemberships } = await import('../services/guardianSharedMessages.service.js');
     if(!mobileQaAgencyId(req))await refreshSharedChildMemberships(req.user.id);
     if (!(await tableExists('chat_message_attachments'))) {
@@ -2411,6 +2419,7 @@ export const listFilesInbox = async (req, res, next) => {
 /** GET /api/chat/inbox/bookmarks */
 export const listBookmarksInbox = async (req, res, next) => {
   try {
+    await pruneUserCompanyEventConversations(req.user.id);
     const { refreshSharedChildMemberships } = await import('../services/guardianSharedMessages.service.js');
     if(!mobileQaAgencyId(req))await refreshSharedChildMemberships(req.user.id);
     if (!(await tableExists('chat_message_bookmarks'))) {
@@ -2500,6 +2509,7 @@ export const unbookmarkMessage = async (req, res, next) => {
 /** GET /api/chat/inbox/pins — pins across threads the user can access */
 export const listPinsInbox = async (req, res, next) => {
   try {
+    await pruneUserCompanyEventConversations(req.user.id);
     if (!(await tableExists('chat_thread_pins'))) {
       return res.json({ pins: [] });
     }

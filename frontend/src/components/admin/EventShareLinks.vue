@@ -22,8 +22,8 @@ const copied = ref('');
 const copyError = ref('');
 const absoluteUrl = (url) => new URL(url, window.location.origin).href;
 const links = computed(() => [
-  { label: 'Staff RSVP and check-in', url: props.event.staffPageUrl || '', hint: 'Share with staff. They sign in to express interest, see their assignment, and log event time.' },
-  { label: 'Public attendee page', url: props.event.publicPageUrl || (props.event.id ? `/company-events/${props.event.id}` : ''), hint: props.event.publicRegistrationEnabled ? 'Public registration is open. Share with attendees.' : 'Enable public registration in event settings before sharing with attendees.' }
+  { label: 'Private event page', url: props.event.staffPageUrl || '', hint: props.event.isWorkEvent ? 'Invited employees sign in to RSVP, see their assignment and record approved event time.' : 'Invited people sign in to RSVP, answer votes, follow updates and manage potluck contributions.' },
+  ...(props.event.publicRegistrationEnabled ? [{ label: 'Public attendee page', url: props.event.publicPageUrl || (props.event.id ? `/company-events/${props.event.id}` : ''), hint: 'Public registration is open. People outside the invite list can register as guests from this link.' }] : [])
 ]);
 async function copy(link) {
   copyError.value = '';

@@ -87,6 +87,7 @@ function buildOccurrenceEndFromYmd(sessionDateYmd, endWall, timezone, startAtUtc
 }
 
 function desiredOccurrencesFromEventRow(eventRow) {
+  if (!eventRow?.starts_at || !eventRow?.ends_at) return [];
   const startsAt = new Date(eventRow?.starts_at || 0);
   const endsAt = new Date(eventRow?.ends_at || 0);
   if (!Number.isFinite(startsAt.getTime()) || !Number.isFinite(endsAt.getTime())) return [];

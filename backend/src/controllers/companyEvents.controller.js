@@ -1,6 +1,12 @@
+import { syncCompanyEventConversation, canManageEventConversation } from '../services/companyEventConversation.service.js';
+import { linkedCompanyEventId, linkedCompanyEventPollAudience, validateLinkedCompanyEventPoll } from '../services/companyEventLinkedPolls.service.js';
+import { sendCompanyEventInvitationsForUsers, sendCompanyEventRemindersForUsers } from '../services/companyEventInvitations.service.js';
+import { normalizeCompanyEventReminderConfig } from '../utils/companyEventReminders.js';
+import { processCompanyEventInvitationReminders } from '../services/companyEventInvitationReminders.service.js';
 import { saveStaffPotluckContribution } from '../services/staffEventPotluck.service.js';
 import { duePollFollowup, withPollFollowupLock } from '../services/staffPollFollowups.service.js';
 import { pollDeliveryHistory } from '../utils/staffPollDeliveryHistory.js';
+import { listCompanyEventStaff, listEventManagedAgencies, assertEventAgencyScope, resolveCompanyEventAudienceUserIds, validateCompanyEventAudience, companyEventAgencyIds } from '../services/companyEventAudience.service.js';
 import { resolveEventVenueAddress } from '../services/companyEventVenue.service.js';
 import Notification from '../models/Notification.model.js';
 import { listActiveTeamMembers, teamMemberPhone, teamSmsEligibility } from '../services/conversaTeamRecipients.service.js';
@@ -330,19 +336,7 @@ function parseVotingConfig(raw) {
     closesAt: value.closesAt && Number.isFinite(new Date(value.closesAt).getTime()) ? new Date(value.closesAt).toISOString() : null };
 }
 
-function parseReminderConfig(raw) {
-  const value = raw && typeof raw === 'object' ? raw : {};
-  const enabled = !!value.enabled;
-  const offsetsHours = [...new Set((Array.isArray(value.offsetsHours) ? value.offsetsHours : [24, 2])
-    .map((n) => Number.parseInt(String(n), 10))
-    .filter((n) => Number.isFinite(n) && n > 0 && n <= 168)
-  )].sort((a, b) => b - a);
-  const channels = {
-    inApp: value.channels?.inApp !== false,
-    sms: !!value.channels?.sms
-  };
-  return { enabled, offsetsHours, channels, anchor: value.anchor === 'poll_close' ? 'poll_close' : 'event_start' };
-}
+function parseReminderConfig(raw) { return normalizeCompanyEventReminderConfig(raw); }
 
 function normalizeRoleAudience(list = []) {
   return [...new Set((Array.isArray(list) ? list : [])
@@ -630,7 +624,7 @@ async function setEventAudience(eventId, { userIds, groupIds, roleKeys }) {
   );
 }
 
-function parseEventPayload(body = {}) {
+export function parseEventPayload(body = {}) {
   const title = String(body.title || '').trim();
   const description = String(body.description || '').trim();
   const splashContent = String(body.splashContent || body.splash_content || '').trim();
@@ -638,8 +632,9 @@ function parseEventPayload(body = {}) {
   const timezone = String(body.timezone || 'UTC').trim() || 'UTC';
   const startsAtRaw = body.startsAt || body.starts_at;
   const endsAtRaw = body.endsAt || body.ends_at;
-  const startsAt = parseInstantWithTimezone(startsAtRaw, timezone);
-  const endsAt = parseInstantWithTimezone(endsAtRaw, timezone);
+  const dateToBeDecided = [true, 1, '1', 'true'].includes(body.dateToBeDecided);
+  const startsAt = dateToBeDecided ? null : parseInstantWithTimezone(startsAtRaw, timezone);
+  const endsAt = dateToBeDecided ? null : parseInstantWithTimezone(endsAtRaw, timezone);
   const recurrence = normalizeRecurrence(body.recurrence || body.recurrence_json || null);
   const audience = body.audience && typeof body.audience === 'object' ? body.audience : {};
   const isActive = body.isActive === undefined ? true : !!body.isActive;
@@ -885,11 +880,12 @@ function parseEventPayload(body = {}) {
   }
 
   if (!title) return { error: 'title is required' };
-  if (!Number.isFinite(startsAt.getTime()) || !Number.isFinite(endsAt.getTime())) {
+  if (dateToBeDecided && (eventType === 'skills_group' || isServiceProgramEventType(eventType) || isSchoolPortalEventType(eventType) || recurrence.frequency !== 'none' || registrationEligible)) return { error: 'A program, school, recurring or registration event needs a confirmed date and time' };
+  if (!dateToBeDecided && (!Number.isFinite(startsAt?.getTime()) || !Number.isFinite(endsAt?.getTime()))) {
     return { error: 'startsAt and endsAt are required and must be valid dates' };
   }
-  if (endsAt <= startsAt) return { error: 'endsAt must be after startsAt' };
-  if (rsvpDeadline && rsvpDeadline > endsAt) return { error: 'rsvpDeadline cannot be after event end' };
+  if (!dateToBeDecided && endsAt <= startsAt) return { error: 'endsAt must be after startsAt' };
+  if (rsvpDeadline && endsAt && rsvpDeadline > endsAt) return { error: 'rsvpDeadline cannot be after event end' };
   if (votingClosedAtRaw && !Number.isFinite(votingClosedAt?.getTime())) return { error: 'Invalid votingClosedAt value' };
 
   const rawOrg = body.organizationId ?? body.organization_id;
@@ -918,6 +914,7 @@ function parseEventPayload(body = {}) {
     eventType,
     startsAt,
     endsAt,
+    dateToBeDecided,
     timezone,
     recurrence,
     isActive,
@@ -1077,18 +1074,24 @@ async function listEventsVisibleToUser(userId, agencyIds = [], options = {}) {
             org.logo_url AS organization_logo_url
      FROM company_events ce
      LEFT JOIN agencies org ON org.id = ce.organization_id
-     WHERE ce.agency_id IN (${placeholders})
+     WHERE (ce.agency_id IN (${placeholders}) OR EXISTS (SELECT 1 FROM user_agencies invited_membership
+       WHERE invited_membership.user_id = ? AND COALESCE(invited_membership.is_active, 1) = 1
+         AND (JSON_CONTAINS(COALESCE(JSON_EXTRACT(ce.operations_json, '$.invitedAgencyIds'), JSON_ARRAY()), CAST(invited_membership.agency_id AS JSON))
+           OR EXISTS (SELECT 1 FROM company_events linked_parent WHERE linked_parent.id = CAST(JSON_UNQUOTE(JSON_EXTRACT(ce.voting_config_json, '$.linkedEventId')) AS UNSIGNED)
+             AND linked_parent.agency_id = ce.agency_id AND linked_parent.is_active = 1
+             AND (linked_parent.agency_id = invited_membership.agency_id OR JSON_CONTAINS(COALESCE(JSON_EXTRACT(linked_parent.operations_json, '$.invitedAgencyIds'), JSON_ARRAY()), CAST(invited_membership.agency_id AS JSON)))))))
        AND ce.is_active = 1
        ${skillsGroupExclusion}
        AND (
-         ce.ends_at >= DATE_SUB(NOW(), INTERVAL ${options.includePollHistory === true ? 90 : 1} DAY)
+         (ce.starts_at IS NULL AND ce.ends_at IS NULL AND JSON_EXTRACT(ce.operations_json, '$.dateToBeDecided') = TRUE)
+         OR ce.ends_at >= DATE_SUB(NOW(), INTERVAL ${options.includePollHistory === true ? 90 : 1} DAY)
          OR (JSON_EXTRACT(ce.voting_config_json, '$.enabled') = TRUE AND NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ce.voting_config_json, '$.closesAt')), 'null') >= ?)
          ${options.includePollHistory === true ? 'OR EXISTS(SELECT 1 FROM company_event_responses mine WHERE mine.company_event_id=ce.id AND mine.user_id=?)' : ''}
          OR JSON_EXTRACT(ce.recurrence_json, '$.frequency') IN ('weekly', 'monthly')
        )
      ORDER BY ce.starts_at ASC
      LIMIT 400`,
-    [userId,...agencyIds,new Date().toISOString(),...(options.includePollHistory===true?[userId]:[])]
+    [userId,...agencyIds,userId,new Date().toISOString(),...(options.includePollHistory===true?[userId]:[])]
   );
   if (!rows?.length) return [];
   const eventIds = rows.map((row) => Number(row.id));
@@ -1101,7 +1104,18 @@ async function listEventsVisibleToUser(userId, agencyIds = [], options = {}) {
   for (const agencyId of agencyIds) {
     if ((await listActiveTeamMembers(agencyId, pool, userId)).some(user => Number(user.id) === userId)) activeTeamAgencies.add(Number(agencyId));
   }
+  const crossAgencyInvitees = new Set();
+  const linkedPollInvitees = new Set();
+  for (const row of rows) {
+    if (linkedCompanyEventId(row)) {
+      if ((await linkedCompanyEventPollAudience({ poll: row, audience: audienceMap.get(Number(row.id)) })).userIds.includes(Number(userId))) linkedPollInvitees.add(Number(row.id));
+      continue;
+    }
+    if (!['team_poll','direct_notice'].includes(row.event_type) && !agencyIds.includes(Number(row.agency_id)) && (await resolveCompanyEventAudienceUserIds({ event: row })).includes(Number(userId))) crossAgencyInvitees.add(Number(row.id));
+  }
   return rows.filter((row) => {
+    if (linkedCompanyEventId(row)) return linkedPollInvitees.has(Number(row.id));
+    if (!agencyIds.includes(Number(row.agency_id))) return crossAgencyInvitees.has(Number(row.id));
     const vote = parseVotingConfig(parseJsonMaybe(row.voting_config_json));
     if ((vote.enabled || ['team_poll', 'direct_notice'].includes(row.event_type)) && !activeTeamAgencies.has(Number(row.agency_id))) return false;
     if (options.includeOwnedPolls && vote.enabled && Number(row.created_by_user_id) === userId) return true;
@@ -1273,6 +1287,16 @@ async function listEligibleSmsUsersForAgency(agencyId) {
 }
 
 async function resolveRecipientUserIds(agencyId, eventId, audience = null, { applyStaffScope = true } = {}) {
+  const scopedEvent = await loadEventByIdForAgency(eventId, agencyId);
+  if (scopedEvent && linkedCompanyEventId(scopedEvent)) return (await linkedCompanyEventPollAudience({ poll: scopedEvent, audience })).userIds;
+  if (scopedEvent && !['team_poll', 'direct_notice'].includes(String(scopedEvent.event_type || ''))
+      && !(audience?.roleKeys || []).some(key => BOOK_CLUB_EVENT_AUDIENCE_KEYS.includes(key))) {
+    const userIds = await resolveCompanyEventAudienceUserIds({ event: scopedEvent, audience });
+    if (!applyStaffScope || readEventOperations(scopedEvent).staffAudienceScope !== 'outreach_due') return userIds;
+    const mapped = mapEventRow(scopedEvent, null);
+    return (await listOutstandingOutreachCommitments({ agencyId, eventDate: mapped.nextOccurrenceStart || mapped.startsAt,
+      timezone: mapped.timezone, userIds })).map(item => Number(item.userId));
+  }
   const finish = async (ids) => {
     const activeStaff = new Set((await listEligibleSmsUsersForAgency(agencyId)).map(user => Number(user.id)));
     const scopedIds = ids.filter(id => activeStaff.has(Number(id)));
@@ -1722,8 +1746,7 @@ export const listCompanyEventsForAgency = async (req, res, next) => {
        WHERE agency_id = ?
          ${managesAgency ? '' : 'AND id IN (SELECT company_event_id FROM company_event_coordinators WHERE user_id = ?)'}
          ${req.query?.paymentStatus === 'outstanding' ? "AND JSON_EXTRACT(operations_json, '$.requiresPayment') = TRUE AND COALESCE(JSON_EXTRACT(operations_json, '$.paymentPaid'), FALSE) = FALSE" : ''}
-       ORDER BY starts_at DESC, id DESC
-       LIMIT 300`,
+       ORDER BY starts_at DESC, id DESC`,
       managesAgency ? [agencyId] : [agencyId, req.user.id]
     );
     if (pollLinkOptions) return res.json((rows || []).filter(isStaffPollLinkedEvent).map(row => ({
@@ -1883,40 +1906,50 @@ export const listCompanyEventAudienceOptions = async (req, res, next) => {
       return res.json({ users, groups: [], roles: [], smsSender: pollSenderStatus(settings) });
     }
     const agencyMeta = await getAgencySummaryById(agencyId);
+    const requestedAgencyIds = String(req.query?.agencyIds || '').split(',').filter(Boolean).map(Number);
+    if (requestedAgencyIds.some(id => !Number.isSafeInteger(id) || id <= 0)) return res.status(400).json({ error: { message: 'Choose valid invited agencies' } });
+    const scope = await assertEventAgencyScope({ actor: req.user, agencyId, invitedAgencyIds: requestedAgencyIds });
+    const agencies = await listEventManagedAgencies(req.user);
     let users = [];
     if (String(agencyMeta?.club_kind || '').toLowerCase() === 'book_club') {
       const tenant = await getTenantForBookClub(agencyId);
       users = await listTenantEligibleBookClubUsers(tenant?.id);
-    } else {
-      const [rows] = await pool.execute(
-        `SELECT DISTINCT u.id, u.first_name, u.last_name, u.email, u.role
-         FROM users u
-         INNER JOIN user_agencies ua ON ua.user_id = u.id
-         WHERE ua.agency_id = ? AND u.is_active = 1
-         ORDER BY u.first_name ASC, u.last_name ASC`,
-        [agencyId]
-      );
-      users = rows || [];
-    }
+    } else users = await listCompanyEventStaff(scope);
     const [groups] = await pool.execute(
-      `SELECT id, name
-       FROM skills_groups
-       WHERE agency_id = ?
-       ORDER BY name ASC`,
-      [agencyId]
+      `SELECT g.id, g.name, g.agency_id, a.name AS agency_name, g.end_date
+       FROM skills_groups g JOIN agencies a ON a.id = g.agency_id
+       WHERE g.agency_id IN (${scope.map(() => '?').join(',')}) AND COALESCE(g.is_active, 1) = 1
+         AND (g.end_date IS NULL OR g.end_date >= CURRENT_DATE())
+       ORDER BY g.name ASC`, scope
     );
+    const membersByGroup = new Map();
+    if (groups.length) {
+      const eligibleUsers = new Set(users.map(user => Number(user.id)));
+      const [members] = await pool.execute(`SELECT skills_group_id, provider_user_id FROM skills_group_providers
+        WHERE skills_group_id IN (${groups.map(() => '?').join(',')})`, groups.map(group => Number(group.id)));
+      for (const member of members) {
+        if (!eligibleUsers.has(Number(member.provider_user_id))) continue;
+        const id = Number(member.skills_group_id), selected = membersByGroup.get(id) || [];
+        if (!selected.includes(Number(member.provider_user_id))) selected.push(Number(member.provider_user_id));
+        membersByGroup.set(id, selected);
+      }
+    }
+    const settings = await getCompanyEventSmsSettingsForAgency(agencyId);
+    const senderStatus = pollSenderStatus(settings);
+    const formatUser = user => ({
+      id: Number(user.id), name: user.name || `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.email,
+      firstName: user.firstName || user.first_name || '', lastName: user.lastName || user.last_name || '',
+      email: user.email || null, role: user.role || null,
+      agencyIds: user.agencyIds || [agencyId], agencyNames: user.agencyNames || [agencyMeta?.name || '']
+    });
 
     res.json({
-      users: (users || []).map((user) => ({
-        id: Number(user.id),
-        name: user.name || `${String(user.first_name || '').trim()} ${String(user.last_name || '').trim()}`.trim() || user.email,
-        email: user.email || null,
-        role: user.role || null
-      })),
-      groups: (groups || []).map((group) => ({
-        id: Number(group.id),
-        name: String(group.name || '').trim()
-      })),
+      users: users.map(formatUser),
+      coordinatorUsers: users.filter(user => !user.agencyIds || user.agencyIds.includes(agencyId)).map(formatUser),
+      agencies,
+      smsReadiness: { ...senderStatus, message: senderStatus.ready ? `SMS ready · ${settings.fromNumber}` : senderStatus.label, campaignNumber: settings.campaignNumber || null },
+      groups: (groups || []).map(group => ({ id: Number(group.id), name: String(group.name || '').trim(), agencyId: Number(group.agency_id), agencyName: group.agency_name || null,
+        userIds: membersByGroup.get(Number(group.id)) || [], memberCount: (membersByGroup.get(Number(group.id)) || []).length })),
       roles: Object.keys(ROLE_AUDIENCE_CODES)
         .filter((key) => {
           if (!BOOK_CLUB_EVENT_AUDIENCE_KEYS.includes(key)) return true;
@@ -1936,8 +1969,9 @@ export const listCompanyEventAudienceOptions = async (req, res, next) => {
  * Insert company_events + audience. `parsed` must be a successful parseEventPayload result (no .error).
  * @returns {Promise<{ error: string } | { event: object, eventId: number }>}
  */
-async function validateTeamAudience(agencyId, parsed) {
+async function validateTeamAudience(agencyId, parsed, linked = null) {
   if (!['team_poll', 'direct_notice'].includes(parsed.eventType)) return;
+  if (linked) return;
   const { userIds = [], groupIds = [], roleKeys = [] } = parsed.audience;
   if (!userIds.length && !groupIds.length && !roleKeys.length) throw Object.assign(new Error('Select at least one active team member.'), { status: 400 });
   const eligible = new Set((await listActiveTeamMembers(agencyId)).map(user => Number(user.id)));
@@ -1949,32 +1983,31 @@ function isStaffPollLinkedEvent(row) {
     && !isSchoolPortalEventType(row.event_type) && !isServiceProgramEventType(row.event_type);
 }
 
-async function validatePollEventLink(agencyId, parsed, eventId = null) {
-  const linkedId = parsed.votingConfig.linkedEventId;
-  if (!linkedId) return;
-  const target = linkedId === Number(eventId) ? null : await loadEventByIdForAgency(linkedId, agencyId);
-  if (!parsed.votingConfig.enabled || !isStaffPollLinkedEvent(target)) {
-    throw Object.assign(new Error('Link this poll to another internal event in the same agency, or remove the link.'), { status: 400 });
-  }
+async function validatePollEventLink(agencyId, parsed, eventId = null, actor = null) {
+  return validateLinkedCompanyEventPoll({ agencyId, parsed, eventId, actor });
 }
 
 function staffEventDetails(row) {
   return { id: Number(row.id), agencyId: Number(row.agency_id), title: row.title, description: row.description || '',
     startsAt: row.starts_at, endsAt: row.ends_at, timezone: row.timezone || 'UTC',
+    staffPageUrl: row.staff_link_token ? mapEventOperations(row).staffPageUrl : null,
     locationName: row.event_location_name || '', locationAddress: row.event_location_address || row.public_location_address || '' };
 }
 
 async function visibleLinkedStaffEvent(row, userId) {
   if (!isStaffPollLinkedEvent(row) || !Number(row.is_active) || ['canceled', 'cancelled'].includes(row.school_event_status)) return null;
-  if (!await userIsInAudience({ userId, audience: await getAudienceForEvent(Number(row.id)) })) return null;
+  if (!(await listCompanyEventStaff(companyEventAgencyIds(row))).some(user => Number(user.id) === Number(userId) && ['ACTIVE','ACTIVE_EMPLOYEE'].includes(String(user.status || '').toUpperCase()) && !['school_staff','client_guardian','client'].includes(user.role))) return null;
+  if (!(await resolveCompanyEventAudienceUserIds({ event: row })).includes(Number(userId))) return null;
   return staffEventDetails(row);
 }
 
 async function createCompanyEventCore(req, agencyId, userId, parsed) {
   assertConversaTeamManager(req.user, parsed);
-  await validateTeamAudience(agencyId, parsed);
-  await validatePollEventLink(agencyId, parsed);
-  const operations = await validateEventOperations({ body: req.body || {}, actorUserId: userId, agencyId, canAssignCoordinators: userCanManageCompanyEvents(req) });
+  const linked = await validatePollEventLink(agencyId, parsed, null, req.user);
+  await validateTeamAudience(agencyId, parsed, linked);
+  const operations = await validateEventOperations({ body: { ...(req.body || {}), ...(linked ? { invitedAgencyIds: [] } : {}) }, existing: { event_type: parsed.eventType, organization_id: parsed.organizationId }, actorUserId: userId, agencyId, canAssignCoordinators: userCanManageCompanyEvents(req) });
+  if (linked) operations.invitedAgencyIds = linked.invitedAgencyIds;
+  if (isStaffPollLinkedEvent({ event_type: parsed.eventType }) && !parsed.audience.roleKeys.some(key => BOOK_CLUB_EVENT_AUDIENCE_KEYS.includes(key))) await validateCompanyEventAudience({ event: { agencyId, ...operations }, audience: parsed.audience, mandatoryUserIds: operations.mandatoryUserIds });
   let organizationIdForRow = null;
   if (parsed.organizationId) {
     const v = await validateAffiliatedOrganizationForEvent(agencyId, parsed.organizationId);
@@ -2080,6 +2113,7 @@ async function createCompanyEventCore(req, agencyId, userId, parsed) {
   const eventId = Number(insertResult.insertId);
   await saveEventOperations({ eventId, agencyId, actorUserId: userId, operations });
   await setEventAudience(eventId, parsed.audience);
+  if (parsed.isActive) await syncCompanyEventConversation({ eventId });
 
   const row = await loadEventByIdForAgency(eventId, agencyId);
   const event = mapEventRow(row || {}, req);
@@ -2224,7 +2258,7 @@ export async function persistCompanyEventUpdate(req, agencyId, eventId, body) {
     body = { ...body, votingConfig: { ...incomingVote, deliveryMode: existingVote.deliveryMode } };
   }
   // Older editors omit venue fields; retain the saved venue when those fields are absent.
-  const venueBody = { ...body };
+  const venueBody = { ...body, dateToBeDecided: body?.dateToBeDecided ?? readEventOperations(existing).dateToBeDecided };
   for (const [camel, snake] of [['eventLocationName', 'event_location_name'], ['eventLocationAddress', 'event_location_address']]) {
     if (venueBody[camel] === undefined && venueBody[snake] === undefined) venueBody[camel] = existing[snake] || (camel === 'eventLocationAddress' ? existing.public_location_address : null);
   }
@@ -2233,9 +2267,11 @@ export async function persistCompanyEventUpdate(req, agencyId, eventId, body) {
   // Keep replies to already-sent invitations valid when an editor omits the
   // old code. New invitations always display the short event topic number.
   if (!parsed.smsCode) parsed.smsCode = existing.sms_code || null;
-  await validateTeamAudience(agencyId, parsed);
-  await validatePollEventLink(agencyId, parsed, eventId);
-  const operations = await validateEventOperations({ body: body || {}, existing, actorUserId: userId, agencyId, canAssignCoordinators: userCanManageCompanyEvents(req) });
+  const linked = await validatePollEventLink(agencyId, parsed, eventId, req.user);
+  await validateTeamAudience(agencyId, parsed, linked);
+  const operations = await validateEventOperations({ body: { ...(body || {}), ...(linked ? { invitedAgencyIds: [] } : {}) }, existing, actorUserId: userId, agencyId, canAssignCoordinators: userCanManageCompanyEvents(req) });
+  if (linked) operations.invitedAgencyIds = linked.invitedAgencyIds;
+  if (isStaffPollLinkedEvent({ event_type: parsed.eventType }) && !parsed.audience.roleKeys.some(key => BOOK_CLUB_EVENT_AUDIENCE_KEYS.includes(key))) await validateCompanyEventAudience({ event: { agencyId, ...operations }, audience: parsed.audience, mandatoryUserIds: operations.mandatoryUserIds });
   const delegatedCoordinator = !userCanManageCompanyEvents(req) && await isEventCoordinator({ userId, agencyId, eventId });
   if (delegatedCoordinator && Number(parsed.skillBuilderDirectHours || 0) !== Number(existing.skill_builder_direct_hours || 0)) {
     return { error: { status: 403, message: 'Event coordinator access does not grant permission to change payroll hours' } };
@@ -2365,6 +2401,7 @@ export async function persistCompanyEventUpdate(req, agencyId, eventId, body) {
   }
   await saveEventOperations({ eventId, agencyId, actorUserId: userId, operations });
   await setEventAudience(eventId, parsed.audience);
+  if (parsed.isActive) await syncCompanyEventConversation({ eventId });
 
   try {
     await syncIntegratedSkillsGroupAfterCompanyEventSave(pool, agencyId, eventId);
@@ -2384,7 +2421,7 @@ export async function persistCompanyEventUpdate(req, agencyId, eventId, body) {
     };
   }
   try {
-    if (String(parsed.eventType || '').toLowerCase() !== 'skills_group') {
+    if (!parsed.dateToBeDecided && String(parsed.eventType || '').toLowerCase() !== 'skills_group') {
       await materializeSessionsForEvent(pool, { companyEventId: eventId });
     }
   } catch (matErr) {
@@ -2720,18 +2757,20 @@ export const listMyStaffPolls = async (req, res, next) => {
     for (const { row } of visible) {
       const event = mapEventRow(row, req, { myEndpoint: true });
       if (!event.votingConfig.enabled || isServiceProgramEventType(event.eventType)) continue;
-      const canManage = canManageConversaTeam(req.user) || Number(row.created_by_user_id) === Number(req.user.id);
+      const linkedScope = linkedCompanyEventId(row) ? await linkedCompanyEventPollAudience({ poll: row }) : null;
+      const canManage = linkedScope ? !!linkedScope.parent && await canManageEventConversation(linkedScope.parent, req.user)
+        : canManageConversaTeam(req.user) || Number(row.created_by_user_id) === Number(req.user.id);
       if (!canManage && !pollUsesInternal(event.votingConfig) && !row.participated && !await hasPollEmailInvitation(event.id, req.user.id)) continue;
       const closedAt = pollClosedAt(event);
       const responses = await reviewedPollResponses(event.id);
       const linkedId = event.votingConfig.linkedEventId || (isStaffPollLinkedEvent(row) ? event.id : null);
-      const linkedRow = linkedId ? visible.find(({ row: candidate }) => Number(candidate.id) === linkedId && Number(candidate.agency_id) === event.agencyId)?.row : null;
+      const linkedRow = linkedScope?.parent || (linkedId ? visible.find(({ row: candidate }) => Number(candidate.id) === linkedId && Number(candidate.agency_id) === event.agencyId)?.row : null);
       const linkedEvent = linkedId ? await visibleLinkedStaffEvent(linkedRow, Number(req.user.id)) : null;
       polls.push({ deliveryMode: event.votingConfig.deliveryMode, id: event.id, agencyId: event.agencyId, title: event.title, question: event.votingConfig.question || event.title,
         options: event.votingConfig.options, closedAt, closesAt: pollDeadline(event), scheduledClosing: !!event.votingConfig.closesAt, timezone: event.timezone,
         canManage, canVote: !closedAt && await userIsInAudience({ userId: Number(req.user.id), audience: await getAudienceForEvent(event.id) }) && (pollUsesInternal(event.votingConfig) || !!row.participated || await hasPollEmailInvitation(event.id, req.user.id)),
         shareResults:event.votingConfig.shareResults, resultsVisibility: event.votingConfig.resultsVisibility, allowOther:event.votingConfig.allowOther,
-        linkedEvent: linkedEvent ? { ...linkedEvent, available: true } : linkedId ? { available: false } : null,
+        linkedEventId: linkedId, linkedEvent: linkedEvent ? { ...linkedEvent, available: true } : linkedId ? { available: false } : null,
         myResponse: participantPollResponse(responses.find(r => Number(r.user_id) === Number(req.user.id)), event.votingConfig.options),
         results: canManage || sharedPollResultsAvailable(event.votingConfig, closedAt) ? summarizePollResponses(responses, event.votingConfig.options) : null,
         resultsText: await getPollResultPreference(event.id, req.user.id) });
@@ -2762,7 +2801,7 @@ export const getMyStaffEvent = async (req, res, next) => {
     const userId = Number(req.user.id), eventId = parsePositiveInt(req.params.eventId);
     const visible = await listEventsVisibleToUser(userId, agencyIds, { excludeSkillsGroupLinkedEvents: true, includePollHistory: true });
     const row = visible.find(item => Number(item.row.id) === eventId)?.row;
-    const member = row && (await listActiveTeamMembers(Number(row.agency_id), pool, userId)).some(user => Number(user.id) === userId);
+    const member = row && (await resolveCompanyEventAudienceUserIds({ event: row })).includes(userId);
     const event = member ? await visibleLinkedStaffEvent(row, userId) : null;
     if (!event) return res.status(404).json({ error: { message: 'Event details are not available for your account.' } });
     const [invitations] = await pool.execute('SELECT token FROM company_event_invitations WHERE company_event_id = ? AND user_id = ? LIMIT 1', [eventId,userId]);
@@ -2790,11 +2829,13 @@ export const updateCompanyEventPollPresentation = async (req, res, next) => {
     }
     const changes = Object.fromEntries(['shareResults', 'resultsVisibility', 'linkedEventId'].filter(key => body[key] !== undefined).map(key => [key, body[key]]));
     const votingConfig = parseVotingConfig({ ...original, ...changes });
-    await validatePollEventLink(agencyId, { eventType: row.event_type, votingConfig }, eventId);
+    const linked = await validatePollEventLink(agencyId, { eventType: row.event_type, votingConfig }, eventId, req.user);
     await pool.execute(`UPDATE company_events SET voting_config_json = JSON_SET(COALESCE(voting_config_json, JSON_OBJECT()),
       '$.shareResults', CAST(? AS JSON), '$.resultsVisibility', ?, '$.linkedEventId', CAST(? AS JSON)),
+      operations_json = CASE WHEN ? THEN JSON_SET(COALESCE(operations_json,JSON_OBJECT()),'$.invitedAgencyIds',CAST(? AS JSON)) ELSE operations_json END,
       updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND agency_id = ?`,
-      [JSON.stringify(votingConfig.shareResults), votingConfig.resultsVisibility, JSON.stringify(votingConfig.linkedEventId), Number(req.user.id), eventId, agencyId]);
+      [JSON.stringify(votingConfig.shareResults), votingConfig.resultsVisibility, JSON.stringify(votingConfig.linkedEventId), body.linkedEventId !== undefined ? 1 : 0,
+        JSON.stringify(linked?.invitedAgencyIds || []), Number(req.user.id), eventId, agencyId]);
     res.json({ votingConfig });
   } catch (error) { next(error); }
 };
@@ -2866,7 +2907,7 @@ async function sendClosedPollResults(row, req) {
   if (!event.votingConfig.enabled || !event.votingConfig.shareResults || isServiceProgramEventType(event.eventType)) return { sent: 0, skipped: 0, failed: 0 };
   const audience = await getAudienceForEvent(event.id);
   const ids = new Set(await resolveRecipientUserIds(Number(row.agency_id), event.id, audience));
-  const users = await listActiveTeamMembers(Number(row.agency_id));
+  const users = await pollUsersForEvent(row);
   const recipients = users.filter(u => ids.has(Number(u.id))).map(u => ({ id: u.id, phone: teamMemberPhone(u) }));
   const settings = await getCompanyEventSmsSettingsForAgency(Number(row.agency_id), { purpose: 'polling' });
   if (!settings.fromNumber) return { sent: 0, skipped: recipients.length, failed: 0, reason: 'sender_not_configured' };
@@ -2930,11 +2971,16 @@ async function loadPollDelivery(req, res) {
     }
     const audience = await getAudienceForEvent(eventId);
     const recipientIds = new Set(await resolveRecipientUserIds(agencyId, eventId, audience));
-    const users = (await listActiveTeamMembers(agencyId)).filter(user => recipientIds.has(Number(user.id)));
+    const users = (await pollUsersForEvent(row)).filter(user => recipientIds.has(Number(user.id)));
     if (!users.length) return reject(400, 'No active team recipients found.');
     return preparePollDelivery({ agencyId, eventId, event, users, smsOnlyRoute,
       unsentOnly: req.query?.unsentOnly === '1' || req.body?.unsentOnly === true,
       followup: req.query?.followup === '1' || req.body?.followup === true, occurrenceKey: req.body?.followup ? `manual:${req.body.requestId}` : null });
+}
+
+async function pollUsersForEvent(row) {
+  const linked = linkedCompanyEventId(row) ? await linkedCompanyEventPollAudience({ poll: row }) : null;
+  return linked ? linked.users : listActiveTeamMembers(Number(row.agency_id || row.agencyId));
 }
 
 async function preparePollDelivery({ agencyId, eventId, event, users, smsOnlyRoute = false, unsentOnly = false, followup = false, occurrenceKey = null, dueAt = null }) {
@@ -3561,101 +3607,7 @@ export const sendCompanyEventInvitations = async (req, res, next) => {
     const recipientIds = await resolveRecipientUserIds(agencyId, eventId, audience);
     if (!recipientIds.length) return res.status(400).json({ error: { message: 'No recipients found for this event audience' } });
 
-    const [agencyRows] = await pool.execute('SELECT id, name, portal_url FROM agencies WHERE id = ? LIMIT 1', [agencyId]);
-    const agency = agencyRows?.[0];
-    if (!agency) return res.status(404).json({ error: { message: 'Agency not found' } });
-
-    const usersPlaceholders = recipientIds.map(() => '?').join(', ');
-    const [userRows] = await pool.execute(
-      `SELECT id, first_name, last_name, email
-       FROM users
-       WHERE id IN (${usersPlaceholders})`,
-      recipientIds
-    );
-
-    const inviteRows = [];
-    for (const user of userRows || []) {
-      const token = makeInvitationToken();
-      await pool.execute(
-        `INSERT INTO company_event_invitations
-         (company_event_id, agency_id, user_id, token, created_by_user_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, NOW(), NOW())
-         ON DUPLICATE KEY UPDATE
-           token = VALUES(token),
-           updated_at = NOW(),
-           created_by_user_id = VALUES(created_by_user_id)`,
-        [eventId, agencyId, Number(user.id), token, actorUserId]
-      );
-      inviteRows.push({ user, token });
-    }
-
-    const template = await EmailTemplateService.getTemplateForAgency(agencyId, 'company_event_invitation');
-    const frontendBase = getFrontendBaseUrl();
-    const backendBase = `${req.protocol}://${req.get('host')}`;
-    let sentCount = 0;
-    let failedCount = 0;
-
-    for (const entry of inviteRows) {
-      const user = entry.user;
-      const token = entry.token;
-      const yesApiUrl = `${backendBase}/api/company-events/rsvp/${encodeURIComponent(token)}?r=yes`;
-      const noApiUrl = `${backendBase}/api/company-events/rsvp/${encodeURIComponent(token)}?r=no`;
-      const maybeApiUrl = `${backendBase}/api/company-events/rsvp/${encodeURIComponent(token)}?r=maybe`;
-      const fallbackRsvpUrl = `${frontendBase}/event-rsvp/${encodeURIComponent(token)}`;
-      const parameters = {
-        FIRST_NAME: String(user.first_name || '').trim(),
-        LAST_NAME: String(user.last_name || '').trim(),
-        AGENCY_NAME: String(agency.name || ''),
-        EVENT_TITLE: String(event.title || ''),
-        EVENT_TYPE_LABEL: String(event.eventType || 'Staff Event'),
-        EVENT_DATE: formatDateForTemplate(event.startsAt),
-        EVENT_TIME: `${formatTimeForTemplate(event.startsAt)} - ${formatTimeForTemplate(event.endsAt)}`.trim(),
-        EVENT_LOCATION_NAME: String(event.eventLocationName || event.title || ''),
-        EVENT_LOCATION_ADDRESS: String(event.eventLocationAddress || ''),
-        MENU_STAFF: Array.isArray(event.organizerProviding) ? event.organizerProviding.join(', ') : '',
-        MENU_FAMILY: String(event.familyProvisionNote || ''),
-        RSVP_DEADLINE: formatDateForTemplate(event.rsvpDeadline || event.startsAt),
-        RSVP_YES_URL: yesApiUrl,
-        RSVP_NO_URL: noApiUrl,
-        RSVP_MAYBE_URL: maybeApiUrl,
-        RSVP_LINK: fallbackRsvpUrl
-      };
-
-      let subject = `Invitation: ${event.title}`;
-      let body = `Hi ${parameters.FIRST_NAME}, please RSVP here: ${fallbackRsvpUrl}`;
-      if (template) {
-        try {
-          const rendered = EmailTemplateService.renderTemplate(template, parameters);
-          subject = rendered.subject || subject;
-          body = rendered.body || body;
-        } catch {
-          // Use fallback text if rendering fails.
-        }
-      }
-      try {
-        await sendNotificationEmail({
-          agencyId,
-          triggerKey: 'system_email_test',
-          to: String(user.email || '').trim(),
-          subject,
-          text: body,
-          generatedByUserId: actorUserId,
-          userId: Number(user.id),
-          templateType: 'company_event_invitation',
-          templateId: eventId,
-          source: 'manual'
-        });
-        await pool.execute(
-          'UPDATE company_event_invitations SET email_sent_at = NOW(), updated_at = NOW() WHERE token = ?',
-          [token]
-        );
-        sentCount += 1;
-      } catch (e) {
-        failedCount += 1;
-      }
-    }
-
-    res.json({ ok: true, recipients: inviteRows.length, sentCount, failedCount });
+    res.json(await sendCompanyEventInvitationsForUsers({ event: row, recipientIds, actorUserId, channels: req.body?.channels }));
   } catch (error) {
     next(error);
   }
@@ -3686,97 +3638,8 @@ export const sendCompanyEventReminders = async (req, res, next) => {
         error: { message: 'Staff RSVP reminders are disabled for program service events.' }
       });
     }
-    const event = mapEventRow(row, req);
-
-    const frontendBase = getFrontendBaseUrl();
-
-    // Build recipient query based on audience.
-    let inviteQuery;
-    let inviteParams;
-    if (audience === 'attending') {
-      // Responded yes or maybe.
-      inviteQuery = `SELECT i.user_id, i.token, i.response, u.first_name, u.last_name, u.email
-                     FROM company_event_invitations i
-                     JOIN users u ON u.id = i.user_id
-                     WHERE i.company_event_id = ? AND i.agency_id = ?
-                       AND i.response IN ('yes', 'maybe')`;
-      inviteParams = [eventId, agencyId];
-    } else if (audience === 'no_response') {
-      // Invited but response IS NULL or empty.
-      inviteQuery = `SELECT i.user_id, i.token, i.response, u.first_name, u.last_name, u.email
-                     FROM company_event_invitations i
-                     JOIN users u ON u.id = i.user_id
-                     WHERE i.company_event_id = ? AND i.agency_id = ?
-                       AND (i.response IS NULL OR i.response = '')`;
-      inviteParams = [eventId, agencyId];
-    } else {
-      // All invitees.
-      inviteQuery = `SELECT i.user_id, i.token, i.response, u.first_name, u.last_name, u.email
-                     FROM company_event_invitations i
-                     JOIN users u ON u.id = i.user_id
-                     WHERE i.company_event_id = ? AND i.agency_id = ?`;
-      inviteParams = [eventId, agencyId];
-    }
-
-    const [allInviteRows] = await pool.execute(inviteQuery, inviteParams);
-    const eligibleIds = new Set(await resolveRecipientUserIds(agencyId, eventId));
-    const inviteRows = (allInviteRows || []).filter(invite => eligibleIds.has(Number(invite.user_id)));
-    if (!inviteRows.length) return res.json({ ok: true, sent: 0, message: 'No recipients matched the criteria.' });
-
-    const template = await EmailTemplateService.getTemplateForAgency(agencyId, 'company_event_invitation');
-    const backendBase = `${req.protocol}://${req.get('host')}`;
-    let sentCount = 0;
-
-    for (const inv of inviteRows) {
-      const rsvpUrl = `${frontendBase}/event-rsvp/${encodeURIComponent(inv.token)}`;
-      const publicUrl = `${frontendBase}/company-events/${eventId}`;
-      const yesApiUrl = `${backendBase}/api/company-events/rsvp/${encodeURIComponent(inv.token)}?r=yes`;
-      const noApiUrl = `${backendBase}/api/company-events/rsvp/${encodeURIComponent(inv.token)}?r=no`;
-      const maybeApiUrl = `${backendBase}/api/company-events/rsvp/${encodeURIComponent(inv.token)}?r=maybe`;
-      const parameters = {
-        FIRST_NAME: String(inv.first_name || '').trim(),
-        LAST_NAME: String(inv.last_name || '').trim(),
-        AGENCY_NAME: '',
-        EVENT_TITLE: String(event.title || ''),
-        EVENT_TYPE_LABEL: String(event.eventType || 'Staff Event'),
-        EVENT_DATE: formatDateForTemplate(event.startsAt),
-        EVENT_TIME: `${formatTimeForTemplate(event.startsAt)} - ${formatTimeForTemplate(event.endsAt)}`.trim(),
-        EVENT_LOCATION_NAME: String(event.eventLocationName || ''),
-        EVENT_LOCATION_ADDRESS: String(event.eventLocationAddress || ''),
-        MENU_STAFF: Array.isArray(event.organizerProviding) ? event.organizerProviding.join(', ') : '',
-        MENU_FAMILY: String(event.familyProvisionNote || ''),
-        RSVP_DEADLINE: formatDateForTemplate(event.rsvpDeadline || event.startsAt),
-        RSVP_YES_URL: yesApiUrl,
-        RSVP_NO_URL: noApiUrl,
-        RSVP_MAYBE_URL: maybeApiUrl,
-        RSVP_LINK: rsvpUrl
-      };
-      let subject = `Reminder: ${event.title}`;
-      let body = `Hi ${parameters.FIRST_NAME}, this is a reminder about "${event.title}". View the event page: ${publicUrl}`;
-      if (template) {
-        try {
-          const rendered = EmailTemplateService.renderTemplate(template, parameters);
-          subject = `Reminder: ${rendered.subject || event.title}`;
-          body = rendered.body || body;
-        } catch { /* use fallback */ }
-      }
-      try {
-        await sendNotificationEmail({
-          agencyId,
-          triggerKey: 'system_email_test',
-          to: String(inv.email || '').trim(),
-          subject,
-          text: body,
-          generatedByUserId: actorUserId,
-          userId: Number(inv.user_id),
-          templateType: 'company_event_invitation',
-          templateId: eventId,
-          source: 'reminder'
-        });
-        sentCount += 1;
-      } catch { /* non-blocking */ }
-    }
-    res.json({ ok: true, sent: sentCount });
+    const recipientIds = await resolveRecipientUserIds(agencyId, eventId);
+    res.json(await sendCompanyEventRemindersForUsers({ event: row, recipientIds, actorUserId, audience, channels: req.body?.channels }));
   } catch (error) {
     next(error);
   }
@@ -3994,8 +3857,10 @@ export const listMyCompanyEventsCalendar = async (req, res, next) => {
               sch.logo_url AS school_logo_url
        FROM company_events ce
        LEFT JOIN agencies sch ON sch.id = ce.organization_id
-       WHERE ce.agency_id IN (${placeholders})
-         AND ce.is_active = 1
+       WHERE (ce.agency_id IN (${placeholders}) OR EXISTS (SELECT 1 FROM user_agencies invited_membership
+         WHERE invited_membership.user_id = ? AND COALESCE(invited_membership.is_active, 1) = 1
+           AND JSON_CONTAINS(COALESCE(JSON_EXTRACT(ce.operations_json, '$.invitedAgencyIds'), JSON_ARRAY()), CAST(invited_membership.agency_id AS JSON))))
+         AND ce.is_active = 1 AND ce.starts_at IS NOT NULL AND ce.ends_at IS NOT NULL
          AND ce.event_type NOT IN ('team_poll', 'direct_notice')
          AND COALESCE(ce.school_event_status, 'scheduled') NOT IN ('canceled', 'cancelled')
          AND NOT EXISTS (
@@ -4012,7 +3877,7 @@ export const listMyCompanyEventsCalendar = async (req, res, next) => {
          )
        ORDER BY ce.starts_at ASC
        LIMIT 400`,
-      [userId, userId, userId, ...agencyIds]
+      [userId, userId, userId, ...agencyIds, userId]
     );
 
     if (!rows?.length) return res.json([]);
@@ -4020,7 +3885,10 @@ export const listMyCompanyEventsCalendar = async (req, res, next) => {
     const userGroupIds = await getUserGroupIds(userId);
     const [userRows] = await pool.execute('SELECT role FROM users WHERE id = ? LIMIT 1', [userId]);
     const userRole = String(userRows?.[0]?.role || '').toLowerCase();
+    const crossAgencyIds = new Set();
+    for (const row of rows) if (!agencyIds.includes(Number(row.agency_id)) && (await resolveCompanyEventAudienceUserIds({ event: row })).includes(Number(userId))) crossAgencyIds.add(Number(row.id));
     const filteredRows = rows.filter((row) => {
+      if (!agencyIds.includes(Number(row.agency_id))) return crossAgencyIds.has(Number(row.id));
       if (['team_poll', 'direct_notice'].includes(String(row.event_type || '').toLowerCase())) return false;
       const audience = audienceMap.get(Number(row.id));
       const inAudience = !!Number(row.is_assigned_provider) || !audience || audience.userIds.includes(userId)
@@ -4216,7 +4084,7 @@ export const downloadCompanyEventIcsForMe = async (req, res, next) => {
     if (!row) return res.status(404).json({ error: { message: 'Company event not found' } });
     const event = mapEventRow(row, req, { myEndpoint: true });
     const ics = buildEventIcs(event);
-    if (!ics) return res.status(400).json({ error: { message: 'Could not generate calendar file' } });
+    if (!ics) return res.status(409).json({ error: { message: 'Choose the event date and time before adding it to a calendar' } });
     res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="company-event-${event.id}.ics"`);
     res.send(ics);
@@ -4237,7 +4105,7 @@ export const downloadCompanyEventIcsForAgency = async (req, res, next) => {
     if (!row) return res.status(404).json({ error: { message: 'Company event not found' } });
     const event = mapEventRow(row, req);
     const ics = buildEventIcs(event);
-    if (!ics) return res.status(400).json({ error: { message: 'Could not generate calendar file' } });
+    if (!ics) return res.status(409).json({ error: { message: 'Choose the event date and time before adding it to a calendar' } });
     res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="company-event-${event.id}.ics"`);
     res.send(ics);
@@ -4353,6 +4221,7 @@ export const deleteCompanyEventTemplate = async (req, res, next) => {
 };
 
 export const processCompanyEventResponseReminders = async () => {
+  await processCompanyEventInvitationReminders({ resolveRecipientIds: event => resolveRecipientUserIds(event.agency_id, event.id) });
   const [rows] = await pool.execute(`SELECT * FROM company_events WHERE is_active = 1 AND voting_closed_at IS NULL
     AND JSON_EXTRACT(voting_config_json, '$.enabled') = TRUE AND JSON_EXTRACT(reminder_config_json, '$.enabled') = TRUE ORDER BY starts_at ASC LIMIT 300`);
   for (const row of rows || []) {
@@ -4368,7 +4237,7 @@ export const processCompanyEventResponseReminders = async () => {
         const current = mapEventRow(fresh, null), stillDue = duePollFollowup(current);
         if (stillDue?.key !== due.key) return;
         const audience = await getAudienceForEvent(event.id), requested = new Set(await resolveRecipientUserIds(event.agencyId, event.id, audience));
-        const users = (await listActiveTeamMembers(event.agencyId)).filter(user => requested.has(Number(user.id)));
+        const users = (await pollUsersForEvent(fresh)).filter(user => requested.has(Number(user.id)));
         const plan = await preparePollDelivery({ agencyId: event.agencyId, eventId: event.id, event: current, users, followup: true, occurrenceKey: due.key, dueAt: due.at });
         plan.sendSms = plan.sendSms && current.reminderConfig.channels.sms;
         plan.sendInternal = plan.sendInternal && current.reminderConfig.channels.inApp;
@@ -4386,16 +4255,27 @@ export const handleCompanyEventInbound = async ({ from, to, body, smsTopicEventI
   try { sender = await getSmsSender(to); } catch { return null; }
   if (Number(sender.agency_id) !== agencyId || validateSmsRegistration(sender.registration).length
       || !sender.registration.purposes.includes('polling') || sender.registration.purposes.some(p => !['polling', 'workforce'].includes(p))) return null;
-  const user = await findAgencyUserByPhone(agencyId, from);
+  const activeEvents = await getActiveSmsVotingEvents(agencyId);
+  let user = await findAgencyUserByPhone(agencyId, from);
+  const matches = new Map(user ? [[Number(user.id),user]] : []);
+  for (const row of activeEvents) {
+    if (!linkedCompanyEventId(row) || smsTopicEventId && Number(row.id) !== Number(smsTopicEventId)) continue;
+    for (const candidate of (await linkedCompanyEventPollAudience({ poll: row })).users) {
+      if (teamMemberPhone(candidate) === MessageLog.normalizePhone(from)) matches.set(Number(candidate.id), candidate);
+    }
+  }
+  if (matches.size > 1) return {handled:true,agencyId,responseMessage:'This phone is shared by more than one invited account. Please sign in to cast your vote.'};
+  if (matches.size === 1) user = [...matches.values()][0];
   if (!user || teamMemberPhone(user) !== MessageLog.normalizePhone(from)) return null;
   if (!(await teamSmsEligibility(user, { agencyId, from: to })).eligible) return null;
-  const activeEvents = await getActiveSmsVotingEvents(agencyId);
   const eligibleEvents = [];
   for (const row of activeEvents) {
     if (smsTopicEventId && Number(row.id) !== Number(smsTopicEventId)) continue;
     if (await isCompanyEventSmsMuted(row.id, from)) continue;
     const audience = await getAudienceForEvent(row.id);
-    if (await userIsInAudience({ userId: Number(user.id), audience })) {
+    const allowed = linkedCompanyEventId(row) ? (await linkedCompanyEventPollAudience({ poll: row, audience })).userIds.includes(Number(user.id))
+      : await userIsInAudience({ userId: Number(user.id), audience });
+    if (allowed) {
       const event = mapEventRow(row, null);
       if (pollClosedAt(event)) continue;
       event.smsTopicCode = shortPollReplyCode(await getCompanyEventSmsTopic(event.id, agencyId));
@@ -4409,7 +4289,8 @@ export const handleCompanyEventInbound = async ({ from, to, body, smsTopicEventI
   const responseToken = selected.response;
 
   const audience = await getAudienceForEvent(targetEvent.id);
-  const allowed = await userIsInAudience({ userId: Number(user.id), audience });
+  const allowed = linkedCompanyEventId(targetEvent) ? (await linkedCompanyEventPollAudience({ poll: targetEvent, audience })).userIds.includes(Number(user.id))
+    : await userIsInAudience({ userId: Number(user.id), audience });
   if (!allowed) return null;
 
   const parsed = parseResponseInput(responseToken, targetEvent.votingConfig.options)||unmatchedPollReply(responseToken,targetEvent.votingConfig.allowOther);

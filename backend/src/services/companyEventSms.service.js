@@ -3,6 +3,7 @@ import { getSmsSender, isSmsSuppressed, prepareSmsDelivery, resolveRegisteredSms
 import { normalizeSmsPhone } from '../utils/smsThreadIdentity.js';
 import { readEventOperations } from '../utils/companyEventOperations.js';
 import { computeNextOccurrence } from './companyEvents.service.js';
+import { isCompanyEventInvitee } from './companyEventAudience.service.js';
 import { smsPolicyError, formatRegisteredSms } from '../utils/smsCompliancePolicy.js';
 import { assertCompanyEventSmsCampaign, buildCompanyEventSms, parseCompanyEventSmsCommand, selectCompanyEventSmsReply, normalizeCompanyEventDeliveryStatus } from '../utils/companyEventSms.js';
 
@@ -125,17 +126,18 @@ export async function handleCompanyEventTopicInbound({ from, to, body, messageId
   try { sender = await getSmsSender(to); } catch { return null; }
   const phone = normalizeSmsPhone(from);
   if (!phone) return null;
-  const [rows] = await db.execute(`SELECT d.*, t.code, e.title, e.is_active, e.starts_at, e.ends_at, e.recurrence_json, e.voting_closed_at
+  const [rows] = await db.execute(`SELECT d.*, t.code, e.title, e.is_active, e.starts_at, e.ends_at, e.recurrence_json, e.voting_closed_at,
+      e.operations_json, e.rsvp_deadline, e.event_type
     FROM company_event_sms_deliveries d
     JOIN company_event_sms_topics t ON t.company_event_id = d.company_event_id
     JOIN company_events e ON e.id = d.company_event_id AND e.agency_id = d.agency_id
     WHERE d.agency_id = ? AND d.phone = ? AND d.campaign_id = ?
       AND d.status IN ('sent', 'delivered')
-      ${command.type === 'mute' ? 'AND t.code = ?' : "AND d.dispatch_type IN ('recruitment', 'vote_invite') AND d.created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)"}
+      ${command.type === 'mute' ? 'AND t.code = ?' : "AND d.dispatch_type IN ('recruitment', 'vote_invite', 'rsvp_invitation') AND d.created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)"}
     ORDER BY d.created_at DESC, d.id DESC LIMIT 100`, [Number(sender.agency_id), phone, sender.campaign_id, ...(command.type === 'mute' ? [command.code] : [])]);
   const selected = selectCompanyEventSmsReply(rows, command);
   if (!selected) return null;
-  if (selected.ambiguous) return { handled: true, agencyId: Number(sender.agency_id), purpose: 'polling', responseMessage: `Which event? Reply Y followed by its code: ${selected.codes.join(', ')}. This records interest only; an organizer assigns staff.` };
+  if (selected.ambiguous) return { handled: true, agencyId: Number(sender.agency_id), purpose: rows.some(row => row.dispatch_type === 'rsvp_invitation') ? 'workforce' : 'polling', responseMessage: `Which event? Reply Yes, No or Maybe followed by its code: ${selected.codes.join(', ')}.` };
   if (command.type === 'mute') {
     await db.execute(`INSERT INTO company_event_sms_preferences (company_event_id, phone, provider_message_id) VALUES (?, ?, ?)
       ON DUPLICATE KEY UPDATE provider_message_id = VALUES(provider_message_id)`, [selected.company_event_id, phone, messageId || null]);
@@ -150,12 +152,45 @@ export async function handleCompanyEventTopicInbound({ from, to, body, messageId
   if (await isSmsSuppressed(sender, phone) || await isCompanyEventSmsMuted(selected.company_event_id, phone, db)) return { handled: true };
   const ended = selected.ends_at && new Date(selected.ends_at) < new Date()
     && !computeNextOccurrence({ startsAt: selected.starts_at, endsAt: selected.ends_at, recurrence: json(selected.recurrence_json) });
+  if (selected.dispatch_type === 'rsvp_invitation') {
+    if (Number(selected.is_active) === 0 || ended || selected.rsvp_deadline && new Date(selected.rsvp_deadline) < new Date()) {
+      return { handled: true, agencyId: Number(sender.agency_id), purpose: 'workforce', eventId: selected.company_event_id,
+        responseMessage: `RSVP for "${selected.title}" is closed. Please contact the organizer to make a change.` };
+    }
+    const userIds = new Set(rows.filter(row => Number(row.company_event_id) === Number(selected.company_event_id)).map(row => Number(row.user_id)));
+    if (!selected.user_id || userIds.size !== 1) return { handled: true, agencyId: Number(sender.agency_id), purpose: 'workforce',
+      responseMessage: 'This phone is shared by more than one invited account. Please use your personal RSVP link or sign in.' };
+    const event = { ...selected, id: selected.company_event_id };
+    if (!await isCompanyEventInvitee({ event, userId: Number(selected.user_id), db })) return { handled: true };
+    const [[member]] = await db.execute(`SELECT u.id FROM users u WHERE u.id = ? AND u.is_active = 1
+      AND COALESCE(u.is_archived,0) = 0 AND u.terminated_at IS NULL
+      AND (REGEXP_REPLACE(COALESCE(u.phone_number,''),'[^0-9]','') IN (?,?)
+        OR REGEXP_REPLACE(COALESCE(u.personal_phone,''),'[^0-9]','') IN (?,?)
+        OR REGEXP_REPLACE(COALESCE(u.work_phone,''),'[^0-9]','') IN (?,?)) LIMIT 1`,
+    [selected.user_id, phone.slice(1), phone.slice(-10), phone.slice(1), phone.slice(-10), phone.slice(1), phone.slice(-10)]);
+    if (!member) return { handled: true };
+    const response = { Y: 'yes', N: 'no', M: 'maybe' }[command.response];
+    if (!response) return { handled: true };
+    const [updated] = await db.execute(`UPDATE company_event_invitations SET response = ?, responded_at = UTC_TIMESTAMP(), updated_at = UTC_TIMESTAMP()
+      WHERE company_event_id = ? AND user_id = ?`, [response, selected.company_event_id, selected.user_id]);
+    if (!updated.affectedRows) return { handled: true };
+    await db.execute(`INSERT INTO company_event_responses
+      (company_event_id,user_id,response_key,response_label,response_body,source,from_number,received_at)
+      VALUES (?,?,?,?,?,'sms',?,UTC_TIMESTAMP()) ON DUPLICATE KEY UPDATE response_key=VALUES(response_key),
+      response_label=VALUES(response_label),response_body=VALUES(response_body),source='sms',from_number=VALUES(from_number),received_at=UTC_TIMESTAMP()`,
+    [selected.company_event_id, selected.user_id, response, { yes: 'Yes', no: 'No', maybe: 'Maybe' }[response], String(body).slice(0,2000), phone]);
+    await db.execute('UPDATE company_event_sms_deliveries SET response_key = ?, responded_at = UTC_TIMESTAMP() WHERE id = ?', [response, selected.id]);
+    return { handled: true, agencyId: Number(sender.agency_id), purpose: 'workforce', eventId: selected.company_event_id,
+      responseMessage: `Thanks! Your RSVP for "${selected.title}" is ${response}. You can reply again to update it.` };
+  }
   if (selected.voting_closed_at || Number(selected.is_active) === 0 || ended) {
     return { handled: true, agencyId: Number(sender.agency_id), purpose: selected.purpose, eventId: selected.company_event_id,
       responseMessage: `"${selected.title}" is no longer accepting event replies. Please contact the organizer if you need to make a change.` };
   }
   // Legacy poll option parsing owns actual polls. This handler owns recruitment interest only.
   if (selected.dispatch_type !== 'recruitment') return { handled: false, eventId: selected.company_event_id, response: command.response };
+  if (command.response === 'M') return { handled: true, agencyId: Number(sender.agency_id), purpose: selected.purpose,
+    responseMessage: 'For a staffing request, reply Yes to express interest or No if you are unavailable.' };
   if (!selected.user_id) return { handled: true };
   if (new Set(rows.filter(row => Number(row.company_event_id) === Number(selected.company_event_id)).map(row => Number(row.user_id))).size > 1) {
     return { handled: true, agencyId: Number(sender.agency_id), purpose: 'polling', responseMessage: 'This phone is shared by more than one staff account. Please sign in to record your event interest.' };

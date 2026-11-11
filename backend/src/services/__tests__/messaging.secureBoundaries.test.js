@@ -60,7 +60,7 @@ describe('secure record and authenticated activity', () => {
     expect(pool.execute.mock.calls[1][1][6]).not.toBe('127.0.0.1');
   });
   it('uses the persisted client record and rejects a different child', async () => {
-    pool.execute.mockResolvedValue([[{ client_id: 4 }]]);
+    pool.execute.mockImplementation(async sql => sql.includes('FROM family_shared_conversations') ? [[]] : [[{ client_id: 4 }]]);
     expect(await resolveSecureMessageClient({ agencyId: 2, threadId: 5, clientId: 4 })).toBe(4);
     await expect(resolveSecureMessageClient({ agencyId: 2, threadId: 5, clientId: 7 })).rejects.toMatchObject({ status: 400 });
   });

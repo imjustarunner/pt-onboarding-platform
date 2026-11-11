@@ -4,7 +4,7 @@ import PayrollTimeClaim from '../models/PayrollTimeClaim.model.js';
 import { utcDateToZonedYmd, toUtcIso } from '../utils/zonedWallTime.util.js';
 import { recordEventEmployeeClockIn, recordEventEmployeeClockOut } from './skillBuildersEventKioskPunch.service.js';
 import { isEventCoordinator } from './companyEventOperations.service.js';
-import { EVENT_STAFF_ROLES_SQL } from '../utils/companyEventOperations.js';
+import { readEventOperations, EVENT_STAFF_ROLES_SQL } from '../utils/companyEventOperations.js';
 
 const fail = (status, message) => { throw Object.assign(new Error(message), { status }); };
 const json = (raw) => { try { return typeof raw === 'string' ? JSON.parse(raw) : (raw || {}); } catch { return {}; } };
@@ -14,7 +14,7 @@ export async function loadEmployeeEvent({ eventId, userId, db = pool }) {
   const eid = Number(eventId), uid = Number(userId);
   if (!Number.isInteger(eid) || eid <= 0 || !Number.isInteger(uid) || uid <= 0) fail(400, 'Valid event and user IDs are required');
   const [rows] = await db.execute(
-    `SELECT e.id, e.agency_id, e.title, e.starts_at, e.ends_at, e.timezone, e.is_active, e.school_event_status, e.event_type, u.role AS user_role
+    `SELECT e.id, e.agency_id, e.title, e.starts_at, e.ends_at, e.timezone, e.is_active, e.school_event_status, e.event_type, e.operations_json, u.role AS user_role
      FROM company_events e
      JOIN user_agencies ua ON ua.agency_id = e.agency_id AND ua.user_id = ? AND COALESCE(ua.is_active, 1) = 1
      JOIN users u ON u.id = ua.user_id AND COALESCE(u.is_archived, 0) = 0 AND u.is_active = 1 AND u.terminated_at IS NULL
@@ -40,6 +40,7 @@ export async function employeeAssignedToEvent({ event, userId, date, anyDate = f
 }
 
 export async function isEmployeeEventDay({ event, date, db = pool }) {
+  if (!event.starts_at || !event.ends_at) return false;
   const [sessions] = await db.execute('SELECT session_date FROM company_event_session_dates WHERE company_event_id = ?', [event.id]);
   if (sessions.length) return sessions.some((s) => ymd(s.session_date) === date);
   const start = utcDateToZonedYmd(event.starts_at, event.timezone), end = utcDateToZonedYmd(event.ends_at, event.timezone);
@@ -50,7 +51,8 @@ export async function getEmployeeEventParticipation({ eventId, userId, db = pool
   const event = await loadEmployeeEvent({ eventId, userId, db });
   const date = utcDateToZonedYmd(now, event.timezone);
   const assigned = await employeeAssignedToEvent({ event, userId, date, db });
-  const canSubmitTravel = assigned || await employeeAssignedToEvent({ event, userId, anyDate: true, db });
+  const isWorkEvent = readEventOperations(event).isWorkEvent;
+  const canSubmitTravel = isWorkEvent && (assigned || await employeeAssignedToEvent({ event, userId, anyDate: true, db }));
   const [punches] = await db.execute(
     'SELECT id, punch_type, punched_at, session_id FROM skill_builders_event_kiosk_punches WHERE company_event_id = ? AND user_id = ? ORDER BY punched_at DESC, id DESC LIMIT 1', [event.id, userId]);
   const last = punches?.[0] || null;
@@ -59,8 +61,8 @@ export async function getEmployeeEventParticipation({ eventId, userId, db = pool
   const canManage = ['super_admin', 'admin', 'support', 'staff'].includes(String(event.user_role || '').toLowerCase())
     || await isEventCoordinator({ userId, agencyId: event.agency_id, eventId: event.id });
   const adminRate = event.event_type === 'school_outreach' ? await jacquelyneAdminRate({ agencyId: event.agency_id, userId, asOf: utcDateToZonedYmd(event.starts_at, event.timezone) }) : null;
-  return { adminTimeHourlyRate: adminRate, eventId: Number(event.id), agencyId: Number(event.agency_id), userId: Number(userId), assigned, canSubmitTravel, clockedIn, isEventDay, canManage,
-    canCheckIn: assigned && isEventDay && Number(event.is_active) === 1 && event.school_event_status !== 'canceled' && !clockedIn, canCheckOut: clockedIn,
+  return { adminTimeHourlyRate: adminRate, eventId: Number(event.id), agencyId: Number(event.agency_id), userId: Number(userId), isWorkEvent, assigned, canSubmitTravel, clockedIn, isEventDay, canManage,
+    canCheckIn: isWorkEvent && assigned && isEventDay && Number(event.is_active) === 1 && event.school_event_status !== 'canceled' && !clockedIn, canCheckOut: clockedIn,
     timezone: event.timezone || 'America/Denver', today: date,
     lastPunch: last ? { id: Number(last.id), type: last.punch_type, at: toUtcIso(last.punched_at), sessionId: last.session_id } : null,
     travelClaimDefaults: { categoryGroup: 'support_activity', serviceTypeKey: 'approved_travel', companyEventId: Number(event.id), eventWorkType: 'travel' } };
@@ -89,6 +91,7 @@ export async function recordEmployeeEventParticipation({ eventId, userId, action
     await db.execute('SELECT id FROM users WHERE id = ? FOR UPDATE', [userId]);
     await db.execute('SELECT id FROM company_events WHERE id = ? FOR UPDATE', [eventId]);
     const event = await loadEmployeeEvent({ eventId, userId, db });
+    if (action === 'check-in' && !readEventOperations(event).isWorkEvent) fail(403, 'Clock-in is only available for work events');
     if (idempotencyKey) {
       const [receipt] = await db.execute(`INSERT IGNORE INTO company_event_checkin_sms_receipts
         (provider_message_id, user_id, company_event_id, action) VALUES (?, ?, ?, ?)`, [idempotencyKey, userId, event.id, action]);

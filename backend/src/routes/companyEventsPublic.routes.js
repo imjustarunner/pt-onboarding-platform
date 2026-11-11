@@ -1,7 +1,9 @@
+import { listMyEventAnnouncements } from '../controllers/companyEventAnnouncements.controller.js';
+import { openCompanyEventConversation } from '../controllers/companyEventConversation.controller.js';
 import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
 import { publicIntakeLimiter } from '../middleware/rateLimiter.middleware.js';
-import { getCompanyEventStaffLink, respondToCompanyEventStaffLink } from '../controllers/companyEventStaffLink.controller.js';
+import { getCompanyEventStaffLink, respondToCompanyEventStaffLink, updateCompanyEventStaffPotluck } from '../controllers/companyEventStaffLink.controller.js';
 import { checkInCompanyEventGuest, checkOutCompanyEventGuest, getCompanyEventGuestAttendanceState } from '../controllers/companyEventGuestAttendance.controller.js';
 import {
   getCompanyEventRsvpByToken,
@@ -11,7 +13,10 @@ import {
 } from '../controllers/companyEvents.controller.js';
 
 const router = express.Router();
-router.get('/staff/:id/:token', publicIntakeLimiter, getCompanyEventStaffLink);
+router.get('/announcements/mine', authenticate, listMyEventAnnouncements);
+router.get('/staff/:id/:token', authenticate, getCompanyEventStaffLink);
+router.post('/staff/:id/:token/conversation', authenticate, openCompanyEventConversation);
+router.post('/staff/:id/:token/potluck', authenticate, updateCompanyEventStaffPotluck);
 router.post('/staff/:id/:token/respond', authenticate, respondToCompanyEventStaffLink);
 
 // Public event landing page — no auth required.

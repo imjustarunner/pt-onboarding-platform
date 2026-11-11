@@ -10,6 +10,7 @@
       </header>
 
       <div v-if="step === 'browse'" class="scm-body">
+        <button v-if="!contactOnly && ['all','internal','group'].includes(channel)" class="btn btn-secondary" type="button" @click="openGroupDirect">New group direct message</button>
         <div class="scm-search-wrap">
           <span class="scm-search-icon" aria-hidden="true">⌕</span>
           <input
@@ -238,6 +239,13 @@
         <p v-if="createGroupError" class="scm-error">{{ createGroupError }}</p>
       </div>
 
+      <div v-else-if="step === 'create-dm-group'" class="scm-body">
+        <button type="button" class="scm-back" @click="step='browse'">← Back</button><h4>Create a group direct message</h4><p class="scm-muted">Choose at least two other people. This private conversation appears in Direct Messages and Groups.</p>
+        <label class="scm-field"><span>Group name</span><input v-model.trim="newGroupName" maxlength="120" placeholder="e.g. Anniversary planning" /></label>
+        <label class="scm-field"><span>Search people</span><input v-model="groupDirectQuery" type="search" @input="searchGroupDirect" placeholder="Name or email" /></label>
+        <p class="scm-muted">{{ groupDirectIds.length }} people selected</p><label v-for="person in groupDirectPeople" :key="person.userId" class="scm-check"><input type="checkbox" :value="Number(person.userId)" v-model="groupDirectIds" /><span>{{ person.displayName }}<small class="scm-muted"> {{ meta(person) }}</small></span></label>
+        <p v-if="createGroupError" class="scm-error" role="alert">{{ createGroupError }}</p>
+      </div>
       <div v-else-if="step === 'external'" class="scm-body">
         <button type="button" class="scm-back" @click="step = 'browse'">← Back</button>
         <h4 class="scm-ext-title">
@@ -345,6 +353,7 @@
         >
           {{ savingExternal ? 'Saving…' : (channel === 'email' ? 'Save contact & continue' : 'Continue') }}
         </button>
+        <button v-else-if="step === 'create-dm-group'" type="button" class="btn btn-primary" :disabled="creatingGroup || !newGroupName || groupDirectIds.length < 2" @click="createGroupDirect">{{ creatingGroup ? 'Creating…' : 'Create group message' }}</button>
         <button
           v-else-if="step === 'create-group'"
           type="button"
@@ -400,6 +409,27 @@ function selectClient(client) { selectedClient.value = client; externalForm.valu
 function clearClient() { selectedClient.value = null; externalForm.value.clientId = ''; }
 
 const newGroupName = ref('');
+
+const groupDirectIds = ref([]), groupDirectPeople = ref([]), groupDirectQuery = ref('');
+let groupDirectRequest = 0;
+async function searchGroupDirect() {
+  const request = ++groupDirectRequest;
+  try {
+    const {data} = await api.get('/messages/hub/people',{params:{agencyId:props.agencyId,q:groupDirectQuery.value,browse:'staff',limit:80},skipGlobalLoading:true});
+    if(request!==groupDirectRequest)return;
+    groupDirectPeople.value = (data.results || []).filter(person => person.userId && isStaff(person) && !isClient(person) && !isGuardian(person) && person.isDemo !== true && person.is_demo !== true && !(person.kinds || []).includes('demo'));
+  }catch{if(request===groupDirectRequest)createGroupError.value='Could not load people. Try searching again.';}
+}
+function openGroupDirect(){step.value='create-dm-group';newGroupName.value='';groupDirectIds.value=[];groupDirectQuery.value='';createGroupError.value='';searchGroupDirect();}
+async function createGroupDirect(){
+  creatingGroup.value=true;createGroupError.value='';
+  try{
+    const {data}=await api.post('/chat/threads/group',{agencyId:Number(props.agencyId),userIds:groupDirectIds.value,name:newGroupName.value},{skipGlobalLoading:true});
+    emit('open-group',{kinds:['group'],displayName:newGroupName.value,groupId:Number(data.threadId),agencyId:Number(props.agencyId),personKey:`group:${data.threadId}@${props.agencyId}`});emit('close');
+  }catch(e){createGroupError.value=e?.response?.data?.error?.message || 'Could not create the group message.';}
+  finally{creatingGroup.value=false;}
+}
+
 const newGroupPrivate = ref(false);
 const creatingGroup = ref(false);
 const createGroupError = ref('');
@@ -880,7 +910,7 @@ watch(activeChip, async (id) => {
   }
 });
 
-onUnmounted(() => { clearTimeout(searchTimer); clearTimeout(clientTimer); ++directoryRequest; ++clientRequest; });
+onUnmounted(() => { ++groupDirectRequest; clearTimeout(searchTimer); clearTimeout(clientTimer); ++directoryRequest; ++clientRequest; });
 onMounted(async () => {
   if (props.contactOnly) { openExternal('email'); return; }
   await Promise.all([loadDirectory(), ...(props.channel === 'email' ? [] : [loadSmartGroups()])]);

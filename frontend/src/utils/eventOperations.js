@@ -9,7 +9,12 @@ export const eventOperationsDraft = (event = {}) => ({
   coordinatorUserIds: Array.isArray(event.coordinatorUserIds) ? [...event.coordinatorUserIds] : [],
   publicRegistrationEnabled: enabled(event.publicRegistrationEnabled),
   attendeeCheckInEnabled: enabled(event.attendeeCheckInEnabled),
-  attendeeSmsEnabled: enabled(event.attendeeSmsEnabled)
+  attendeeSmsEnabled: enabled(event.attendeeSmsEnabled),
+  invitedAgencyIds: Array.isArray(event.invitedAgencyIds) ? [...event.invitedAgencyIds].map(Number) : [],
+  mandatoryUserIds: Array.isArray(event.mandatoryUserIds) ? [...event.mandatoryUserIds].map(Number) : [],
+  isWorkEvent: enabled(event.isWorkEvent),
+  dateToBeDecided: enabled(event.dateToBeDecided),
+  dashboardAnnouncements: Array.isArray(event.dashboardAnnouncements) ? event.dashboardAnnouncements.map(item => ({ ...item })) : []
 });
 
 export const eventOperationsPayload = (draft) => ({

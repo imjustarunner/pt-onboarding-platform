@@ -67,3 +67,19 @@ it('opens the full group directory and preserves the selected channel', async ()
   await wrapper.findAll('button').find(b => b.text().includes('Denver')).trigger('click');
   expect(wrapper.emitted('open-group')[0][0]).toMatchObject({ groupId: 42, kinds: ['group', 'channel'] });
 });
+
+it('creates a named group direct message from multiple internal staff, with no channel or guardian candidates',async()=>{
+ const people=[{...alice,userId:10},{personKey:'user:11@2',userId:11,displayName:'Beth',kinds:['employee','staff'],email:'beth@example.com'},{personKey:'user:12@2',userId:12,displayName:'Guardian',kinds:['guardian','staff']},{personKey:'user:13@2',userId:13,displayName:'School colleague',kinds:['school_staff']},{personKey:'user:14@2',userId:14,displayName:'Demo fixture',kinds:['staff'],isDemo:true}];
+ api.get.mockImplementation(async url=>({data:url.endsWith('/people')?{results:people}:{sections:{}}}));
+ api.post.mockResolvedValue({data:{threadId:42}});
+ wrapper=mount(Modal,{props:{agencyId:2,channel:'internal'}});await flushPromises();
+ await wrapper.findAll('button').find(b=>b.text()==='New group direct message').trigger('click');await flushPromises();
+ expect(api.get).toHaveBeenCalledWith('/messages/hub/people',{params:{agencyId:2,q:'',browse:'staff',limit:80},skipGlobalLoading:true});
+ expect(wrapper.text()).toContain('Alice');expect(wrapper.text()).toContain('Beth');expect(wrapper.text()).not.toContain('Guardian');expect(wrapper.text()).not.toContain('School colleague');expect(wrapper.text()).not.toContain('Demo fixture');
+ await wrapper.find('input[placeholder="e.g. Anniversary planning"]').setValue('Anniversary planning');
+ await wrapper.findAll('input[type=checkbox]')[0].setValue(true);await wrapper.findAll('input[type=checkbox]')[1].setValue(true);
+ await wrapper.findAll('button').find(b=>b.text()==='Create group message').trigger('click');await flushPromises();
+ expect(api.post).toHaveBeenCalledWith('/chat/threads/group',{agencyId:2,userIds:[10,11],name:'Anniversary planning'},{skipGlobalLoading:true});
+ expect(api.post.mock.calls.some(([url])=>url.includes('/channel'))).toBe(false);
+ expect(wrapper.emitted('open-group')[0][0]).toMatchObject({kinds:['group'],groupId:42,displayName:'Anniversary planning'});
+});

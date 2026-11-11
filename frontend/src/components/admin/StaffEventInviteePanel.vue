@@ -1,5 +1,6 @@
 <template>
   <section class="invitee-panel">
+    <template v-if="view !== 'potluck'">
     <div class="invitee-header">
       <h4>Invitees & RSVP</h4>
       <div class="actions">
@@ -10,6 +11,7 @@
         <button
           class="btn btn-secondary btn-sm"
           type="button"
+          v-if="showSendActions"
           @click="sendReminders('attending')"
           :disabled="sendingReminders"
           title="Email all who RSVPd Yes or Maybe"
@@ -19,13 +21,14 @@
         <button
           class="btn btn-secondary btn-sm"
           type="button"
+          v-if="showSendActions"
           @click="sendReminders('no_response')"
           :disabled="sendingReminders"
           title="Email everyone who has not responded yet"
         >
           {{ sendingReminders ? 'Sending…' : '📧 Nudge Non-responders' }}
         </button>
-        <button class="btn btn-primary btn-sm" type="button" @click="sendInvites" :disabled="sendingInvites">
+        <button class="btn btn-primary btn-sm" v-if="showSendActions" type="button" @click="sendInvites" :disabled="sendingInvites">
           {{ sendingInvites ? 'Sending…' : 'Send Invitations' }}
         </button>
       </div>
@@ -104,6 +107,8 @@
       </table>
     </div>
 
+    </template>
+    <p v-if="error && view === 'potluck'" role="alert" class="error">{{ error }}</p>
     <div v-if="!potluckEnabled" class="need-list">
       <div class="table-title">Need List (Potluck)</div>
       <div class="muted">Enable <strong>Potluck style</strong> in the event setup above to add categorized needed items.</div>
@@ -198,7 +203,9 @@ import api from '../../services/api';
 const props = defineProps({
   agencyId: { type: Number, required: true },
   eventId: { type: Number, required: true },
-  potluckEnabled: { type: Boolean, default: false }
+  potluckEnabled: { type: Boolean, default: false },
+  showSendActions: { type: Boolean, default: true },
+  view: { type: String, default: 'all' }
 });
 
 const loading = ref(false);
@@ -270,7 +277,7 @@ const refresh = async () => {
   loading.value = true;
   error.value = '';
   try {
-    await Promise.all([loadResponses(), loadNeedList(), loadGuestRegistrations()]);
+    await Promise.all(props.view === 'potluck' ? [loadNeedList()] : [loadResponses(), loadNeedList(), loadGuestRegistrations()]);
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Failed to load invitee panel';
   } finally {
@@ -428,14 +435,14 @@ onMounted(refresh);
 .invitee-panel { border: 1px solid var(--border, #d9d9d9); border-radius: 10px; padding: 14px; margin-top: 14px; background: #fff; }
 .invitee-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .invitee-header h4 { margin: 0; }
-.actions { display: flex; gap: 8px; }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .summary-row { margin: 10px 0; display: flex; gap: 8px; flex-wrap: wrap; }
 .summary-chip { padding: 4px 8px; border-radius: 999px; background: #eef6ff; border: 1px solid #d5e8ff; font-size: 12px; }
 .response-list, .need-list { margin-top: 12px; }
 .table-title { font-weight: 700; margin-bottom: 8px; }
 .mini-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .mini-table th, .mini-table td { border-top: 1px solid #ebebeb; padding: 8px; text-align: left; vertical-align: top; }
-.need-create { display: grid; gap: 8px; grid-template-columns: 140px minmax(180px, 1fr) minmax(180px, 1fr) auto; margin-bottom: 10px; }
+.need-create { display: grid; gap: 8px; grid-template-columns: 1fr 1fr; margin-bottom: 10px; }
 .need-bulk-row { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
 .need-summary-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 10px; }
 .need-summary-chip { padding: 4px 8px; border-radius: 999px; border: 1px solid #d1d5db; background: #f8fafc; font-size: 12px; color: #334155; }

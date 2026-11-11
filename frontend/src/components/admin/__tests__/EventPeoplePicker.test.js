@@ -1,0 +1,8 @@
+import { describe, expect, it } from 'vitest';
+import { mount } from '@vue/test-utils';
+import EventPeoplePicker from '../EventPeoplePicker.vue';
+const users=[{id:1,name:'Aaron Zane',lastName:'Zane',email:'aaron@one.org',role:'provider',agencyNames:['One']},{id:2,name:'Beth Adams',lastName:'Adams',email:'beth@two.org',role:'admin',agencyNames:['Two']}];
+describe('searchable event people',()=>{
+ it('searches email, role and agency, with a useful last-name order',async()=>{const wrapper=mount(EventPeoplePicker,{props:{users,modelValue:[]}});await wrapper.find('select').setValue('last');expect(wrapper.findAll('.person-copy strong').map(p=>p.text())).toEqual(['Beth Adams','Aaron Zane']);await wrapper.find('input[type=search]').setValue('ONE.ORG');expect(wrapper.findAll('.person-copy strong').map(p=>p.text())).toEqual(['Aaron Zane']);await wrapper.find('input[type=search]').setValue('admin');expect(wrapper.findAll('.person-copy strong').map(p=>p.text())).toEqual(['Beth Adams']);await wrapper.find('input[type=search]').setValue('missing');expect(wrapper.text()).toContain('No matching people');wrapper.unmount();});
+ it('preserves selections outside a search and removes a deselected mandatory attendee',async()=>{const wrapper=mount(EventPeoplePicker,{props:{users,modelValue:[1,99],mandatory:true,mandatoryUserIds:[1]}});await wrapper.find('input[type=search]').setValue('Aaron');await wrapper.find('input[type=checkbox]').setValue(false);expect(wrapper.emitted('update:modelValue')[0][0]).toEqual([99]);expect(wrapper.emitted('update:mandatoryUserIds')[0][0]).toEqual([]);wrapper.unmount();});
+});

@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import pool from '../config/database.js';
 import { normalizeEventOperations, readEventOperations, EVENT_STAFF_ROLES_SQL } from '../utils/companyEventOperations.js';
+import { assertEventAgencyScope } from './companyEventAudience.service.js';
 
 export async function isEventCoordinator({ userId, agencyId, eventId = null }) {
   if (!Number(userId) || !Number(agencyId)) return false;
@@ -16,13 +17,19 @@ export async function isEventCoordinator({ userId, agencyId, eventId = null }) {
 export async function validateEventOperations({ body, existing = {}, actorUserId, agencyId, canAssignCoordinators = false }) {
   const previous = readEventOperations({ event_type: body.eventType || (body.category ? `school_${body.category}` : ''), ...existing });
   const next = normalizeEventOperations(body, previous, { actorUserId });
-  const internalFieldsChanged = ['requiresPayment', 'paymentAmount', 'paymentPaid', 'paymentNotes', 'publicRegistrationEnabled', 'attendeeSmsEnabled', 'attendeeCheckInEnabled', 'countsTowardOutreachCommitment', 'staffAudienceScope']
+  const internalFieldsChanged = ['requiresPayment', 'paymentAmount', 'paymentPaid', 'paymentNotes', 'publicRegistrationEnabled', 'attendeeSmsEnabled', 'attendeeCheckInEnabled', 'countsTowardOutreachCommitment', 'staffAudienceScope', 'invitedAgencyIds', 'mandatoryUserIds', 'isWorkEvent', 'dateToBeDecided', 'dashboardAnnouncements']
     .some(key => JSON.stringify(next[key]) !== JSON.stringify(previous[key]));
   if (internalFieldsChanged) {
     const [actors] = actorUserId ? await pool.execute(`SELECT u.id FROM users u WHERE u.id = ? AND u.is_active = 1
       AND COALESCE(u.is_archived, 0) = 0 AND u.terminated_at IS NULL AND u.role IN (${EVENT_STAFF_ROLES_SQL})
       AND (u.role = 'super_admin' OR EXISTS (SELECT 1 FROM user_agencies ua WHERE ua.user_id = u.id AND ua.agency_id = ? AND COALESCE(ua.is_active, 1) = 1)) LIMIT 1`, [actorUserId, agencyId]) : [[]];
     if (!actors.length) throw Object.assign(new Error('Only internal event staff can change payment, public registration, texting, or commitment settings'), { status: 403 });
+  }
+  const agencyScopeChanged = JSON.stringify(next.invitedAgencyIds) !== JSON.stringify(previous.invitedAgencyIds);
+  if (agencyScopeChanged || next.invitedAgencyIds.some(id => Number(id) !== Number(agencyId))) {
+    if (!canAssignCoordinators) throw Object.assign(new Error('Only agency event managers can change invited agencies'), { status: 403 });
+    const [actors] = actorUserId ? await pool.execute('SELECT id, role FROM users WHERE id = ? AND is_active = 1 AND COALESCE(is_archived, 0) = 0 AND terminated_at IS NULL LIMIT 1', [actorUserId]) : [[]];
+    await assertEventAgencyScope({ actor: actors[0], agencyId, invitedAgencyIds: next.invitedAgencyIds });
   }
   const changed = JSON.stringify([...previous.coordinatorUserIds].sort((a,b)=>a-b)) !== JSON.stringify(next.coordinatorUserIds);
   if (changed && !canAssignCoordinators) throw Object.assign(new Error('Only agency event managers can assign coordinators'), { status: 403 });

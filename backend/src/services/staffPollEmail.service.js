@@ -4,6 +4,7 @@ import { isActiveTeamMember } from './conversaTeamRecipients.service.js';
 import { buildPublicAppUrl } from '../utils/publicPortalUrl.js';
 import { emailActionButton } from '../utils/emailActionButton.js';
 import { sendNotificationEmail } from './unifiedEmail/unifiedEmailSender.service.js';
+import { readEventOperations } from '../utils/companyEventOperations.js';
 
 const email = value => String(value || '').trim().toLowerCase();
 const esc = value => String(value || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -36,6 +37,25 @@ export function buildStaffPollEmail({ event, agency, user, followup = false }) {
 }
 
 export async function sendStaffPollEmail({ event, agency, user, to, actorUserId, followup = false }) {
+  if (event.votingConfig?.linkedEventId) {
+    const { linkedCompanyEventPollAudience } = await import('./companyEventLinkedPolls.service.js');
+    const scope = await linkedCompanyEventPollAudience({ poll: event });
+    if (!scope?.parent || !scope.userIds.includes(Number(user.id))) {
+      return { skipped: true, reason: 'event_invitation_expired' };
+    }
+    const { companyEventEmailContext } = await import('./companyEventInvitations.service.js');
+    const { companyEventVoteEmail } = await import('../utils/companyEventInvitationEmail.js');
+    const { sendEmailFromIdentity } = await import('./unifiedEmail/unifiedEmailSender.service.js');
+    const context = await companyEventEmailContext(scope.parent);
+    const voteUrl = `${buildPublicAppUrl(agency, `staff-polls/${Number(event.id)}`)}?agencyId=${Number(agency.id)}`;
+    const detailsPath = scope.parent.staff_link_token ? `company-events/${scope.parent.id}/staff/${scope.parent.staff_link_token}` : `staff-events/${scope.parent.id}`;
+    const detailsUrl = buildPublicAppUrl(agency, detailsPath);
+    return sendEmailFromIdentity({ senderIdentityId: context.identity.id, to,
+      ...companyEventVoteEmail({ parentEvent: scope.parent, poll: event, user, agencies: context.agencies, voteUrl, detailsUrl, followup,
+        mandatory: (readEventOperations(scope.parent).mandatoryUserIds || []).includes(Number(user.id)) }),
+      generatedByUserId: actorUserId, userId: Number(user.id), templateType: followup ? 'staff_poll_followup' : 'staff_poll_invitation',
+      templateId: Number(event.id), source: 'manual', linkUrl: voteUrl });
+  }
   return sendNotificationEmail({ agencyId: Number(agency.id), triggerKey: 'system_email_test',
     to, ...buildStaffPollEmail({ event, agency, user, followup }), generatedByUserId: actorUserId,
     userId: Number(user.id), templateType: followup ? 'staff_poll_followup' : 'staff_poll_invitation', templateId: Number(event.id), source: 'manual' });

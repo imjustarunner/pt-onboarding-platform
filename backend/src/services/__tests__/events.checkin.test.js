@@ -13,7 +13,7 @@ import { defaultTreatmentForEventType } from '../eventPayrollRate.service.js';
 
 const registration = { brandId: 'B123', campaignId: 'C2', resellerId: 'R123', brandName: 'ITSCO', legalName: 'ITSCO, LLC', supportContact: 'support@itsco.health', website: 'https://www.itsco.health', privacyUrl: 'https://www.itsco.health/privacy', termsUrl: 'https://www.itsco.health/terms', evidenceUrl: 'https://www.itsco.health/proof', purposes: ['polling', 'workforce'], keywordOwner: 'application', approved: true, numberLinked: true };
 const sender = { agency_id: 2, campaign_id: 'C2', phone_number: '+13035550100', registration };
-const event = { id: 4, agency_id: 2, title: 'School fair', timezone: 'America/Denver', starts_at: '2026-10-24T16:00:00Z', ends_at: '2026-10-24T20:00:00Z', staff_link_token: 'a'.repeat(48) };
+const event = { id: 4, agency_id: 2, event_type: 'school_outreach', title: 'School fair', timezone: 'America/Denver', starts_at: '2026-10-24T16:00:00Z', ends_at: '2026-10-24T20:00:00Z', staff_link_token: 'a'.repeat(48) };
 const now = new Date('2026-10-24T15:30:00Z');
 const incoming = { from: '+13035550101', to: sender.phone_number, body: 'CHECKIN', messageId: 'inbound-1' };
 const delivery = { company_event_id: 4, code: 112, user_id: 7 };

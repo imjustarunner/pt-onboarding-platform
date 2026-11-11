@@ -49,10 +49,10 @@ export function parseCompanyEventSmsCommand(body) {
   if (parseSmsKeyword(body)) return null;
   const text = String(body || '').trim().toUpperCase();
   if (/^\d{3,18}$/.test(text)) return { type: 'mute', code: text };
-  const reversed = text.match(/^(\d{3,18})\s+(Y|YES|N|NO)$/);
-  const explicit = text.match(/^(Y|YES|N|NO)\s+(\d{3,18})$/) || (reversed && [reversed[0], reversed[2], reversed[1]]);
-  if (explicit) return { type: 'interest', code: explicit[2], response: explicit[1].startsWith('Y') ? 'Y' : 'N' };
-  if (/^(Y|YES|N|NO)$/.test(text)) return { type: 'interest', code: null, response: text.startsWith('Y') ? 'Y' : 'N' };
+  const reversed = text.match(/^(\d{3,18})\s*(Y|YES|N|NO|M|MAYBE)$/);
+  const explicit = text.match(/^(Y|YES|N|NO|M|MAYBE)\s*(\d{3,18})$/) || (reversed && [reversed[0], reversed[2], reversed[1]]);
+  if (explicit) return { type: 'interest', code: explicit[2], response: explicit[1][0] };
+  if (/^(Y|YES|N|NO|M|MAYBE)$/.test(text)) return { type: 'interest', code: null, response: text[0] };
   return null;
 }
 

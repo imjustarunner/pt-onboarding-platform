@@ -12,7 +12,7 @@
         <p class="muted">Hi {{ inviteeName }}, you are invited to:</p>
         <h2>{{ event.title }}</h2>
         <p class="details">
-          <strong>When:</strong> {{ formatDateTime(event.startsAt) }} - {{ formatDateTime(event.endsAt) }}<br />
+          <strong>When:</strong> {{ event.startsAt ? `${formatDateTime(event.startsAt)} – ${formatDateTime(event.endsAt)}` : 'Date and time to be decided' }}<br />
           <strong>Where:</strong> {{ event.locationName || '-' }}<br />
           <strong>Address:</strong> {{ event.locationAddress || '-' }}<br />
           <strong>Venue phone:</strong> {{ event.locationPhone || '-' }}<br />
@@ -32,6 +32,7 @@
         <p v-if="event.familyProvisionNote"><strong>Family details:</strong> {{ event.familyProvisionNote }}</p>
         <p v-if="event.organizerProviding?.length"><strong>Provided by host:</strong> {{ event.organizerProviding.join(', ') }}</p>
 
+        <div v-if="requestedResponse && !linkResponseConfirmed" class="response-note" role="status"><p>You selected <strong>{{ requestedResponse.toUpperCase() }}</strong> in your invitation. Confirm below to save your RSVP.</p><button type="button" class="btn btn-primary" :disabled="submitting" @click="confirmEmailResponse">Confirm {{ requestedResponse.toUpperCase() }}</button></div>
         <div class="response-row">
           <button class="btn btn-primary" type="button" @click="respond('yes')" :disabled="submitting">Yes</button>
           <button class="btn btn-secondary" type="button" @click="respond('maybe')" :disabled="submitting">Maybe</button>
@@ -94,6 +95,9 @@ const event = ref(null);
 const invitation = ref(null);
 const invitee = ref(null);
 const currentResponse = ref('');
+const linkResponseConfirmed = ref(false);
+const requestedResponse = computed(() => ['yes','no','maybe'].includes(String(route.query?.r || '').toLowerCase()) ? String(route.query.r).toLowerCase() : '');
+async function confirmEmailResponse() { await respond(requestedResponse.value); if(!error.value) linkResponseConfirmed.value=true; }
 const branding = ref({
   agencyName: '',
   logoUrl: '',
