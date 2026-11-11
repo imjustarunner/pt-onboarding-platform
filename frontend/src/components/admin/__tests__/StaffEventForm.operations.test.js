@@ -36,3 +36,20 @@ it('starts a linked company event with the poll invitees but no invented event d
  const wrapper=mount(StaffEventForm,{props:{agencyId:3,initialPoll:{title:'Team potluck',startsAt:'2026-11-01T18:00:00Z',endsAt:'2026-12-01T18:00:00Z',audience:{userIds:[4],roleKeys:['provider'],groupIds:[12]}}},global:{stubs:{RouterLink:true,StaffEventInviteePanel:true,EventTextCampaignPanel:true}}});wrappers.push(wrapper);await flushPromises();
  expect(wrapper.findAll('input').some(i=>i.element.value==='Team potluck')).toBe(true);expect(wrapper.findAll('input[type="datetime-local"]').every(i=>!i.element.value)).toBe(true);expect(api.post).not.toHaveBeenCalled();
 });
+
+
+it('leaves a new program preset work classification to the backend instead of overriding it as a social event', async () => {
+  api.get.mockImplementation(url => Promise.resolve({ data: url.endsWith('audience-options') ? {users: [], roles: []} : [] }));
+  api.post.mockResolvedValue({ data: { id: 90 } });
+  const wrapper = mount(StaffEventForm, { props: { agencyId: 3 }, global: { stubs: { RouterLink: true, StaffEventInviteePanel: true, EventTextCampaignPanel: true } } });
+  wrappers.push(wrapper); await flushPromises();
+  const preset = wrapper.findAll('select').find(select => select.find('option[value="program_orientation"]').exists());
+  await preset.setValue('program_orientation');
+  const dates = wrapper.findAll('input[type="datetime-local"]');
+  await dates[0].setValue('2027-01-05T10:00');
+  await dates[1].setValue('2027-01-05T12:00');
+  await wrapper.find('.save-row button').trigger('click'); await flushPromises();
+  const [, payload] = api.post.mock.calls.find(([url]) => url === '/agencies/3/company-events');
+  expect(payload.eventType).toBe('program_orientation');
+  expect(payload).not.toHaveProperty('isWorkEvent');
+});

@@ -26,3 +26,21 @@ describe('event payment tracking', () => {
     expect(eventOperationsDraft({ eventType: 'company_event' }).staffAudienceScope).toBe('audience');
   });
 });
+
+
+describe('event work classification', () => {
+  it.each(['program_orientation', 'program_workshop', 'guardian_program_class', 'school_event', 'company_event'])('omits an unset work flag for %s so the server can apply type and organization defaults', eventType => {
+    const draft = eventOperationsDraft({ eventType });
+    expect(draft.isWorkEvent).toBeNull();
+    expect(eventOperationsPayload(draft)).not.toHaveProperty('isWorkEvent');
+  });
+  it.each([true, false])('preserves the explicit work setting %s from a loaded event or user choice', isWorkEvent => {
+    const draft = eventOperationsDraft({ isWorkEvent });
+    expect(draft.isWorkEvent).toBe(isWorkEvent);
+    expect(eventOperationsPayload(draft)).toHaveProperty('isWorkEvent', isWorkEvent);
+  });
+  it('also omits an undefined or null work value rather than serializing a false override', () => {
+    expect(eventOperationsPayload({})).not.toHaveProperty('isWorkEvent');
+    expect(eventOperationsPayload({ isWorkEvent: null })).not.toHaveProperty('isWorkEvent');
+  });
+});

@@ -12,16 +12,21 @@ export const eventOperationsDraft = (event = {}) => ({
   attendeeSmsEnabled: enabled(event.attendeeSmsEnabled),
   invitedAgencyIds: Array.isArray(event.invitedAgencyIds) ? [...event.invitedAgencyIds].map(Number) : [],
   mandatoryUserIds: Array.isArray(event.mandatoryUserIds) ? [...event.mandatoryUserIds].map(Number) : [],
-  isWorkEvent: enabled(event.isWorkEvent),
+  // Leave the work classification to the server until this editor has an explicit value.
+  isWorkEvent: event.isWorkEvent == null ? null : enabled(event.isWorkEvent),
   dateToBeDecided: enabled(event.dateToBeDecided),
   dashboardAnnouncements: Array.isArray(event.dashboardAnnouncements) ? event.dashboardAnnouncements.map(item => ({ ...item })) : []
 });
 
-export const eventOperationsPayload = (draft) => ({
-  ...eventOperationsDraft(draft),
-  paymentAmount: draft.paymentAmount === '' || draft.paymentAmount == null ? null : Number(draft.paymentAmount),
-  paymentNotes: String(draft.paymentNotes || '').trim()
-});
+export const eventOperationsPayload = (draft) => {
+  const payload = {
+    ...eventOperationsDraft(draft),
+    paymentAmount: draft.paymentAmount === '' || draft.paymentAmount == null ? null : Number(draft.paymentAmount),
+    paymentNotes: String(draft.paymentNotes || '').trim()
+  };
+  if (draft.isWorkEvent == null) delete payload.isWorkEvent;
+  return payload;
+};
 
 export function eventPaymentError(draft) {
   if (!draft.requiresPayment || draft.paymentAmount === '' || draft.paymentAmount == null) return '';
