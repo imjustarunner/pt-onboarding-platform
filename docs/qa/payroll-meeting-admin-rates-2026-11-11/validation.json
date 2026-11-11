@@ -1,0 +1,52 @@
+{
+  "base": "67a3e5a79d919d2cfda5fb4535a43e392fd40ecd",
+  "tests": {
+    "backend": 147,
+    "frontend": 86,
+    "workTimeAndLeave": 17,
+    "total": 250
+  },
+  "browser": [
+    {
+      "screen": "payroll",
+      "label": "Individual Meeting rate",
+      "tooltip": "Individual Meeting rate: $28.00 per hour \u00d7 0.94 hours = $26.32 estimated pay.",
+      "bucket": "indirect",
+      "amount": 26.32
+    },
+    {
+      "screen": "manual-note-time",
+      "agencyId": 2,
+      "category": "supervision_note",
+      "serviceCode": "Admin Time",
+      "minutes": 30
+    },
+    {
+      "screen": "manual-note-time",
+      "agencyId": 6,
+      "category": "supervision_note",
+      "serviceCode": "Admin Time",
+      "minutes": 30
+    }
+  ],
+  "assignmentMigrationPreview": [
+    {
+      "agency_id": 2,
+      "eligibleSupervisors": 9,
+      "alreadyAssigned": 1,
+      "assignmentsToRepair": 8
+    },
+    {
+      "agency_id": 6,
+      "eligibleSupervisors": 4,
+      "alreadyAssigned": 0,
+      "assignmentsToRepair": 4
+    }
+  ],
+  "policy": {
+    "meetingLabel": "Use the actual selected pay category; keep the Indirect bucket and existing amounts.",
+    "supervisorNoteAccess": "Assign the standard manual activity to all active supervisors in ITSCO/NLU and ensure it on future Log Time visits.",
+    "supervisorNoteRate": "Half the dated signed supervision rate; preserve employee-specific Admin Time on legacy schedules, deriving half the legacy individual supervision rate when Admin Time is absent. Never fall back to support or ordinary indirect rates."
+  },
+  "verificationScope": "Browser submissions used synthetic fixtures. Production checks so far used read-only metadata transactions. No live claims were submitted, approved, or posted."
+}

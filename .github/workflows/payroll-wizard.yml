@@ -4,10 +4,15 @@ on:
     paths:
       - 'backend/src/**/payroll*'
       - 'backend/src/**/Payroll*'
+      - 'backend/src/**/supervisionNote*'
+      - 'backend/src/controllers/indirectTime.controller.js'
+      - 'backend/src/controllers/__tests__/supervisorNoteActivities.test.js'
       - 'backend/src/services/communicationRecordDelivery.service.js'
       - 'backend/src/services/__tests__/communicationRecordDelivery.test.js'
       - 'backend/vitest.payroll-wizard.config.js'
       - 'frontend/src/components/payroll/**'
+      - 'frontend/src/components/dashboard/HourlyIndirectTimeLog.vue'
+      - 'frontend/src/components/dashboard/__tests__/SupervisionNoteTime.test.js'
       - 'frontend/src/views/admin/Payroll*'
       - 'frontend/src/views/admin/__tests__/PayrollWizardFlow.test.js'
       - 'frontend/src/views/admin/__tests__/PayrollPendingSubmissions.test.js'
@@ -17,13 +22,17 @@ on:
       - 'frontend/src/utils/__tests__/payrollWizardFlow.test.js'
       - 'frontend/vitest.payroll-wizard.config.js'
       - 'database/migrations/*_payroll_report_email_deliveries.sql'
+      - 'database/migrations/*_supervisor_note_time_assignments.sql'
       - '.github/workflows/payroll-wizard.yml'
   push:
     branches: [main]
     paths:
       - 'backend/src/**/payroll*'
       - 'backend/src/**/Payroll*'
+      - 'backend/src/**/supervisionNote*'
+      - 'backend/src/controllers/indirectTime.controller.js'
       - 'frontend/src/components/payroll/**'
+      - 'frontend/src/components/dashboard/HourlyIndirectTimeLog.vue'
       - 'frontend/src/views/admin/Payroll*'
       - '.github/workflows/payroll-wizard.yml'
   workflow_dispatch:

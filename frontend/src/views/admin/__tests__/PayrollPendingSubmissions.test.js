@@ -63,6 +63,16 @@ it('approves without reloading every claims queue and lays out actions in one ro
   expect(mock.get.mock.calls.length).toBe(gets);
   expect(w.text()).toContain('No pending time claims.'); expect(w.text()).toContain('Approved Test Provider');
 });
+it('labels mentorship at its Individual Meeting rate without changing its pay or Indirect bucket', async () => {
+  times=[{...structuredClone(time),status:'submitted',claim_type:'meeting_training',credits_hours:null,applied_amount:null,target_payroll_period_id:null,
+    payload:{source:'meeting_compensation_auto',serviceCode:'Individual Meeting',meetingType:'Mentorship Meeting',totalMinutes:56.38},
+    payEstimate:{amount:26.31,hourlyRate:28,rateBucket:'indirect',rateLabel:'Individual Meeting rate',serviceCode:'Individual Meeting',indirectRate:22}}];
+  const w=await page('time');
+  expect(w.text()).toContain('$26.32');expect(w.text()).toContain('Individual Meeting rate');expect(w.text()).not.toContain('Support Activity rate');
+  expect(w.get('.ft-rate-hint').attributes('aria-label')).toContain('$28.00 per hour');
+  await button(w,'Approve').trigger('click');await flushPromises();
+  expect(mock.patch).toHaveBeenCalledWith('/payroll/time-claims/11',expect.objectContaining({bucket:'indirect',creditsHours:0.94}));
+});
 it('bulk approves selected claims in one request and retains a failed row with its reason', async () => {
   vi.spyOn(window,'confirm').mockReturnValueOnce(true);
   times = [11,12].map(id => ({ ...structuredClone(time), id, status:'submitted',target_payroll_period_id:null }));

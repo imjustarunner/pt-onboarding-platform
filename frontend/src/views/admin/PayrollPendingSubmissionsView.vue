@@ -913,7 +913,7 @@ import FundThredPayrollBrand from '../../components/payroll/FundThredPayrollBran
 import { useFundThredBranding } from '../../composables/useFundThredBranding';
 import { payrollPeriodChoices, scheduledPayrollPeriods, payrollPeriodLocked, payrollToday } from '../../utils/payrollPeriodChoices';
 import EventTravelPayrollReview from '../../components/payroll/EventTravelPayrollReview.vue';
-import { supervisionActivityLabel, mileageUsesTier, mileageBillableMiles, mileageEstimate, approvedTimeDraft } from '../../utils/payrollSubmissionReview';
+import { supervisionActivityLabel, mileageUsesTier, mileageBillableMiles, mileageEstimate, approvedTimeDraft, timeClaimRateLabel } from '../../utils/payrollSubmissionReview';
 import { formatClaimTime, automaticClaimLabel, hasMeetingClaimDetails } from '../../utils/payrollClaimDisplay';
 import MeetingClaimDetails from '../../components/payroll/MeetingClaimDetails.vue';
 import { computed, onMounted, reactive, ref, watch } from 'vue';
@@ -1473,24 +1473,7 @@ const timePayEstimateMoney = (c) => {
   return '—';
 };
 
-const timePayEstimateRateLabel = (c) => {
-  if (c.claim_type === 'missed_session_fee') return 'Collected fee share · no hours';
-  const t = String(c?.claim_type || '').toLowerCase();
-  const bucket = timeClaimApproveBucket(c);
-  if (t === 'tutoring_session') return c.payload?.part === 'indirect' ? 'Tutoring indirect rate' : 'Tutoring rate';
-  if (bucket === 'direct') return 'Direct rate';
-  if (bucket === 'other_1') return 'Other 1 rate';
-  if (t === 'meeting_training' || t === 'mentor_cpa_meeting') {
-    return 'Support Activity rate';
-  }
-  const group = String(c?.payload?.categoryGroup || '').trim().toLowerCase();
-  const code = String(c?.payEstimate?.serviceCode || c?.payload?.serviceCode || '').trim();
-  if (group === 'support_activity' || code === 'MEETING') return 'Support Activity rate';
-  const label = String(c?.payEstimate?.rateLabel || '').trim();
-  if (label && /meeting/i.test(label)) return 'Support Activity rate';
-  if (label) return label;
-  return 'Indirect rate';
-};
+const timePayEstimateRateLabel = c => timeClaimRateLabel(c, timeClaimApproveBucket(c));
 
 const statusLabel = (st) => {
   const s = String(st || 'submitted');
