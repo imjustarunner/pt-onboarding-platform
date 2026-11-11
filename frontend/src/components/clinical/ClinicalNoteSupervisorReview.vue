@@ -27,7 +27,7 @@
       <div ref="body" class="review-body">
         <p v-if="notice" class="review-notice" role="status">{{ notice }}</p>
         <NarrivaCompliancePanel v-if="narrivaReview || narrivaBusy || narrivaError" :review="narrivaReview" :busy="narrivaBusy" :error="narrivaError" read-only />
-        <button v-if="canSign && !narrivaBusy" type="button" class="narriva-run" @click="runNarrivaChecks">{{ narrivaReview ? 'Refresh Narriva checks' : 'Run Narriva checks for Quick Sign' }}</button>
+        <p class="muted">{{ narrivaReview ? "Saved submission review · supervisor approval does not rerun Narriva." : "No Narriva submission review is on file. Use ordinary supervisor review; Quick Sign is unavailable." }}</p>
         <ClinicalNoteVersionHistory :note-id="noteId" :agency-id="agencyId" :legacy-pending-service-details="note.pendingServiceDetails" :legacy-amendment="legacyPendingAmendment" prefer-pending @loaded="onVersionsLoaded" @changed="onVersionChanged" @editing="amendmentEditing = $event" />
         <section v-if="openRequests.length" class="request-history" aria-label="Supervisor requests">
           <article v-for="request in openRequests" :key="request.id"><strong>{{ actionLabel(request.action || request.requestType || request.request_type) }}</strong><p>{{ readableReviewMessage(request.message) }}</p><small>{{ timestamp(request.createdAt || request.created_at) }}</small></article>
@@ -120,8 +120,7 @@ const note = ref(null), review = ref(null), reviewProviderId = ref(null), loadin
 const activeInfo = ref(''), showFeedback = ref(false), feedbackAction = ref('changes_needed'), feedbackMessage = ref('');
 const materials = ref([]), materialsLoading = ref(false), materialsError = ref(''), materialsLoaded = ref(false);
 const body = ref(null);
-const { review:narrivaReview,busy:narrivaBusy,error:narrivaError,runReview:startNarrivaReview,invalidate:invalidateNarriva } = useNarrivaReview({agencyId:computed(() => props.agencyId),apiClient:api});
-async function runNarrivaChecks(){ if (!canSign.value || busy.value || hasPendingVersion.value) return; attested.value=false; await startNarrivaReview({noteId:Number(props.noteId)}); }
+const { review:narrivaReview,busy:narrivaBusy,error:narrivaError,observeReview:observeNarrivaReview,invalidate:invalidateNarriva } = useNarrivaReview({agencyId:computed(() => props.agencyId),apiClient:api});
 const versionSummary = ref(null), versionHistoryReady = ref(false), amendmentEditing = ref(false);
 function onVersionsLoaded(summary) { if (versionSummary.value && (versionSummary.value.effectiveRevisionId !== summary.effectiveRevisionId || versionSummary.value.pendingRevisionId !== summary.pendingRevisionId)) invalidateNarriva(); versionSummary.value = summary; versionHistoryReady.value = true; }
 const legacyPendingAmendment = computed(() => (note.value?.serviceDetailAmendments || []).filter(entry => !entry.approvedAt && !entry.supersededByAmendmentId).at(-1) || null);
@@ -206,8 +205,11 @@ async function load(attempt = 0) {
       throw new Error('The note details changed while opening this review, or the current review snapshot is unavailable. Reload before signing.');
     }
     note.value = { ...data.note, ...(result.data.reviewSnapshot || {}) }; review.value = result.data; reviewProviderId.value = provider;
-    if (data.note.narrivaReview?.id) narrivaReview.value=data.note.narrivaReview;
-    if (props.quickSignRequested) await startNarrivaReview({noteId:Number(props.noteId)});
+    if (data.note.narrivaReview?.id) void observeNarrivaReview(data.note.narrivaReview);
+    if (!narrivaReview.value) {
+      try { const saved=await api.get(`/narriva/notes/${props.noteId}/status`,{params:{agencyId:Number(props.agencyId)},skipGlobalLoading:true});if(g===generation)void observeNarrivaReview(saved.data.review || null); }
+      catch {if(g===generation)narrivaError.value='The saved submission review could not be loaded. Quick Sign is unavailable.';}
+    }
   } catch (e) { if (g === generation) error.value = errorMessage(e, 'Unable to load supervisor review.'); }
   finally { if (g === generation) loading.value = false; }
 }

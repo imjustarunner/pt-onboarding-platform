@@ -175,8 +175,8 @@ export async function assertNarrivaQuickSign({user,noteId,agencyId,reviewId,clin
  if(Number(review.noteId)!==Number(noteId) || !review.quickSignEligible)throw narrivaError(409,'Quick Sign requires five passed checks, at least 70% quality evidence on this exact note, and your current supervisor authority.');
  return review;
 }
-export async function latestNarrivaStatus(user,agencyId,noteId) {
- const [[row]]=await pool.execute('SELECT id FROM narriva_reviews WHERE agency_id=? AND clinical_note_id=? ORDER BY id DESC LIMIT 1',[agencyId,noteId]);
+export async function latestNarrivaStatus(user,agencyId,noteId,{actorUserId}={}) {
+ const [[row]]=await pool.execute(`SELECT id FROM narriva_reviews WHERE agency_id=? AND clinical_note_id=? ${actorUserId?'AND actor_user_id=?':''} ORDER BY id DESC LIMIT 1`,[agencyId,noteId,...(actorUserId?[actorUserId]:[])]);
  if(!row){await requireNarrivaAgency(user,agencyId);return null;}
  return readNarrivaReview(user,row.id,agencyId);
 }

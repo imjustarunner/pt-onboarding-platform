@@ -34,15 +34,34 @@ const visibleItems=computed(()=>agencyItems.value.filter(item=>currentTab.value=
 }));
 const activeFailures=computed(()=>failures.value.filter(item=>(agencyFilter.value==='all'||String(item.agencyId)===agencyFilter.value)&&(currentTab.value==='todo'||(currentTab.value==='cosign'?item.section==='cosign':item.section==='notes'))));
 function changeView(key,value){router.replace({path:route.path,query:{...route.query,[key]:value==='all'?undefined:value}});}
-let generation=0,lastLoaded=0;
+let generation=0,lastLoaded=0,pendingLoad=null;
+const completedSignatures=new Map();
+const completionKey=item=>`${item.agencyId}:${item.clinicalNoteId || item.clinical_note_id || item.noteId || ''}`;
+function applySignatures(rows){return rows.map(item=>{
+ const receipt=completedSignatures.get(completionKey(item)) || [...completedSignatures.values()].find(value=>value.kind==='author' && Number(value.agencyId)===Number(item.agencyId) && value.draftId && Number(value.draftId)===Number(item.draftId || item.draft_id));
+ if(!receipt || item.clinicalRevisionId)return item;
+ return {...item,queueKind:'note',status:'signed',narriva:{...item.narriva,quickSignEligible:false}};
+});}
+function recordSignature(receipt){
+ if(!receipt?.noteId || !receipt.agencyId)return;
+ completedSignatures.set(`${receipt.agencyId}:${receipt.noteId}`,receipt);
+ ++generation;loading.value=false;lastLoaded=0;items.value=applySignatures(items.value);
+ emit('counts',{mywork:failures.value.length?null:items.value.filter(item=>bucket(item)!=='signed').length});
+ void load();
+}
+async function nextCosign(){
+ if(!ready.value){if(pendingLoad){try{await pendingLoad;}catch{/* The list displays its own error. */}await Promise.resolve();}else await load();}
+ return visibleItems.value.find(item=>bucket(item)==='cosign' && !item.clinicalRevisionId) || null;
+}
+defineExpose({recordSignature,nextCosign});
 async function load(force=true){
  if(loading.value)return;if(!force && ready.value && Date.now()-lastLoaded<60000)return;const current=++generation,token=props.sessionToken;
  loading.value=true;error.value='';
  try{
-  const {data}=await axios.get(`${props.apiBase}/my-work`,{headers:{'X-Quick-View-Session':token},withCredentials:true});if(current!==generation || token!==props.sessionToken)return;lastLoaded=Date.now();
-  items.value=data.items || [];agencies.value=data.agencies || [];failures.value=data.failures || [];clinicalAvailable.value=data.clinicalAvailable!==false;ready.value=true;emit('counts',{mywork:failures.value.length?null:items.value.filter(item=>bucket(item)!=='signed').length});
+  pendingLoad=axios.get(`${props.apiBase}/my-work`,{headers:{'X-Quick-View-Session':token},withCredentials:true});const {data}=await pendingLoad;if(current!==generation || token!==props.sessionToken)return;lastLoaded=Date.now();
+  items.value=applySignatures(data.items || []);agencies.value=data.agencies || [];failures.value=data.failures || [];clinicalAvailable.value=data.clinicalAvailable!==false;ready.value=true;emit('counts',{mywork:failures.value.length?null:items.value.filter(item=>bucket(item)!=='signed').length});
  }catch(e){if(current!==generation || token!==props.sessionToken)return;if([401,403].includes(e.response?.status)){items.value=[];agencies.value=[];failures.value=[];ready.value=false;emit('counts',{mywork:null});}error.value=e.response?.status<500?e.response?.data?.error?.message || 'Your work is unavailable for this account.':'Your work could not be loaded. Try again.';}
- finally{if(current===generation)loading.value=false;}
+ finally{if(current===generation){loading.value=false;pendingLoad=null;}}
 }
 const agencyLogo=item=>{const value=item.agencyLogoUrl || '';return !value || /^https?:\/\//i.test(value)?value:`${props.apiBase.replace(/\/api\/quick-view$/,'')}/${value.replace(/^\/+/,'')}`;};
 const title=item=>item.maskedName || item.clientMaskedName || 'Client documentation';
@@ -56,7 +75,7 @@ function time(item){
 }
 const status=item=>item.clinicalRevisionId?'Amendment':item.queueKind==='cosign'?'Awaiting co-sign':({not_started:'To do',started:'Started',completed:'Ready to sign',signed:'Signed'}[item.status] || 'To do');
 const loadReviewInsights=({noteId,agencyId})=>axios.get(`${props.apiBase}/my-work/notes/${noteId}/review-insights`,{params:{agencyId},headers:{'X-Quick-View-Session':props.sessionToken},withCredentials:true});
-watch(()=>props.visible,value=>{if(value)void load(false);});watch(()=>props.sessionToken,()=>{generation++;loading.value=false;lastLoaded=0;items.value=[];agencies.value=[];failures.value=[];ready.value=false;if(props.visible)void load();});onMounted(()=>{if(props.visible)void load();});onBeforeUnmount(()=>{generation++;items.value=[];lastLoaded=0;});
+watch(()=>props.visible,value=>{if(value)void load(false);});watch(()=>props.sessionToken,()=>{generation++;loading.value=false;lastLoaded=0;completedSignatures.clear();items.value=[];agencies.value=[];failures.value=[];ready.value=false;if(props.visible)void load();});onMounted(()=>{if(props.visible)void load();});onBeforeUnmount(()=>{generation++;items.value=[];lastLoaded=0;});
 </script>
 <template>
  <section class="mobile-mywork">

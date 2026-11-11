@@ -115,3 +115,11 @@ describe('Live Chat is an adapter over encrypted website sessions', () => {
     expect(res.json).toHaveBeenLastCalledWith({ removedFromMyList: true, transcriptRetained: true });
   });
 });
+
+it('honors Open and Unread main-number text filters without broadening agency access',async()=>{
+ const getUnifiedConversations=vi.fn(async(_req,out)=>out.json({conversations:[{id:3,status:'open',is_unread:true},{id:4,status:'closed',is_unread:false}]}));
+ const db={execute:vi.fn(async sql=>sql.includes('FROM communication_conversations c')?[[{id:3},{id:4}]]:[[]])};
+ const run=createMobileSupportMessages({db,context:async()=>makeContext(),conversationAccess:async()=>{},handlers:{getUnifiedConversations}});req.mobileSupportOperation='feed';req.query={type:'sms',status:'unread'};
+ await run(req,res,next);expect(res.json.mock.calls.at(-1)[0].items.map(item=>item.id)).toEqual([3]);expect(getUnifiedConversations.mock.calls[0][0].query).toMatchObject({channel:'sms',filter:'unread',agencyId:'450'});
+ req.query={type:'sms',status:'open'};await run(req,res,next);expect(res.json.mock.calls.at(-1)[0].items.map(item=>item.id)).toEqual([3]);expect(getUnifiedConversations.mock.calls.at(-1)[0].query.status).toBe('open');
+});

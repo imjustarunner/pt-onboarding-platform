@@ -111,10 +111,10 @@
       <MobileLiveChat v-if="isMobile && toolsVisited.livechat" v-show="tab==='livechat'" :api-base="apiBase" :session-token="session" :chat-id="route.query.chatId" :visible="tab==='livechat' && !overlayOpen && !moreOpen"/>
       <MobileClients v-if="isMobile && clientsVisited" v-show="tab==='clients'" :visible="tab==='clients' && !overlayOpen && !moreOpen" :api-base="apiBase" :session-token="session" @open="openMobileClient" @open-main="emit('open-main',$event)" />
       <MobileCalendar ref="mobileCalendar" :show-intro="todayIntro" @intro-dismiss="dismissTodayIntro" @compose-email="openMobileEmailDraft" v-if="isMobile && calendarVisited" v-show="tab==='calendar'" :visible="tab==='calendar' && !overlayOpen && !moreOpen" :api-base="apiBase" :session-token="session" :user-id="sessionUserId" :agency-id="sessionAgencyId" @open="openMobileCalendarItem" @comments="openMobileSessionCommentDetails" @message="provider=>messageUser(provider.id || provider.providerId || provider,provider.name)" @open-full="emit('open-main',$event)" />
-      <MobileClinicalWorkspace v-if="isMobile && tab==='clinical'" :api-base="apiBase" :session-token="session" :user-id="sessionUserId" @signed="sendNotice='Note signed and saved to the chart.'" />
+      <MobileClinicalWorkspace v-if="isMobile && tab==='clinical'" :api-base="apiBase" :session-token="session" :user-id="sessionUserId" @signed="recordMobileSignature" @finished="finishMobileSignature" />
       <MobileClientSummary v-if="isMobile && tab==='client'" :api-base="apiBase" :session-token="session" :client-id="route.query.clientId" :agency-id="route.query.agencyId || sessionAgencyId" @open-main="emit('open-main',$event)" @back="returnInApp({view:'clients'})" @contact="openMobileClinicalContact" />
       <MobileClinicalSession v-if="isMobile && tab==='session'" :api-base="apiBase" :session-token="session" />
-      <MobileMyWork :user-id="sessionUserId" @controls-change="workControlsOpen=$event" v-if="isMobile && myWorkVisited" v-show="tab==='mywork'" :visible="tab==='mywork' && !overlayOpen && !moreOpen" :api-base="apiBase" :session-token="session" @draft="prepareWorkDraft" @tasks="navigateTo('tasks')" @counts="workspaceBadges={...workspaceBadges,...$event}"/>
+      <MobileMyWork ref="mobileMyWork" :user-id="sessionUserId" @controls-change="workControlsOpen=$event" v-if="isMobile && myWorkVisited" v-show="tab==='mywork'" :visible="tab==='mywork' && !overlayOpen && !moreOpen" :api-base="apiBase" :session-token="session" @draft="prepareWorkDraft" @tasks="navigateTo('tasks')" @counts="workspaceBadges={...workspaceBadges,...$event}"/>
       <div v-if="!isMobile && tab === 'home'" class="qv-pane conversa-surface">
         <div class="qv-messages-heading"><ConversaBrand compact /><span>YOUR CONVERSATIONS</span></div>
         <div class="qv-suite">
@@ -954,7 +954,7 @@ const allNavigation = [
   {id:'applicants',label:'People Operations',icon:Users,description:'Current and recent applicants.'}
 ];
 const workspacePreferences=ref(readMobileViewPreference(props.mobileSession?.userId,'navigation','settings',{swipeLeft:'archive',swipeRight:'read',navigationMode:'pinned',navigationSlots:4,pinnedNavigation:['calendar','mywork','tasks','home'],usage:{},lockedNavigation:'calendar'}));
-const toolAgencies=ref({}),toolsReady=ref(false),toolsVisited=ref({}),peopleVisited=ref(false),mobileCalendar=ref(null),workControlsOpen=ref(true);
+const toolAgencies=ref({}),toolsReady=ref(false),toolsVisited=ref({}),peopleVisited=ref(false),mobileCalendar=ref(null),mobileMyWork=ref(null),workControlsOpen=ref(true);
 const todayIntro=ref(!readMobileViewPreference(props.mobileSession?.userId,'calendar','introDismissed',false));
 function dismissTodayIntro(){todayIntro.value=false;writeMobileViewPreference(sessionUserId.value,'calendar','introDismissed',true);}
 async function loadTools(){try{const {data}=await axios.get(`${apiBase}/tools`,{headers:authHeaders(),withCredentials:true});toolAgencies.value=data.tools || {};toolsReady.value=true;}catch{toolAgencies.value={};}}
@@ -1012,10 +1012,22 @@ function openMobileSessionCommentDetails(item){
   calEvent.value=item;
 }
 async function openMobileConversation(item){msgSuite.value=String(route.query.suite || 'all');await openConversation(item);}
+function mobileWorkFilters(){return Object.fromEntries(['workTab','workAgency','workSearch','workSort'].filter(key=>route.query[key]).map(key=>[key,route.query[key]]));}
+let mobileSignatureUpdate=Promise.resolve();
+function recordMobileSignature(receipt){
+ mobileSignatureUpdate=(async()=>{myWorkVisited.value=true;await nextTick();mobileMyWork.value?.recordSignature(receipt);})();
+ return mobileSignatureUpdate;
+}
+async function finishMobileSignature(receipt){
+ if(tab.value!=='clinical' || String(route.query.noteId || '')!==String(receipt.noteId) && receipt.kind==='cosign')return;
+ const originalRoute=route.fullPath;await mobileSignatureUpdate;if(route.fullPath!==originalRoute)return;
+ if(receipt.openNext){const next=await mobileMyWork.value?.nextCosign();if(route.fullPath!==originalRoute)return;if(next)return prepareWorkDraft(next);}
+ await mobileNavigate({...mobileWorkFilters(),view:'mywork'},{replace:true});
+}
 async function prepareWorkDraft(item){
   // Pending amendments use the full version-review workflow, never the original note signer.
   if(item.clinicalRevisionId)return;
-  const query={view:'clinical'};
+  const query={...mobileWorkFilters(),view:'clinical'};
   for(const [key,value] of Object.entries({workId:item.id || item.serverId,clientId:item.clientId || item.client_id,clinicalSessionId:item.clinicalSessionId || item.clinical_session_id,officeEventId:item.officeEventId || item.office_event_id,draftId:item.draftId || item.draft_id,noteId:item.clinicalNoteId || item.clinical_note_id}))if(value)query[key]=String(value);
   if(item.quickSignRequested)query.quickSign='1';
   if(String(item.id || '').startsWith('cosign_'))delete query.workId;
