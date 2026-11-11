@@ -246,6 +246,7 @@ const defaultReminders = (existing = {}) => ({
 
 const emptyDraft = () => ({
   ...eventOperationsDraft(),
+  isWorkEvent: false,
   id: null,
   isActive: true,
   organizationId: 0,

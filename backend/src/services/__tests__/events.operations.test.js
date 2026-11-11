@@ -6,6 +6,14 @@ import { isEventCoordinator, validateEventOperations } from '../companyEventOper
 
 beforeEach(() => vi.clearAllMocks());
 describe('event fees and publication', () => {
+  it.each([
+    ['program', { eventType: 'program_orientation' }],
+    ['school', { category: 'outreach' }]
+  ])('retains inferred work settings for a new %s event when the legacy form omits the work flag', async (_kind, body) => {
+    const operations = await validateEventOperations({ body, agencyId: 2, actorUserId: 7 });
+    expect(operations.isWorkEvent).toBe(true);
+    expect(pool.execute).not.toHaveBeenCalled();
+  });
   it('retains work-event behavior for legacy programs while company gatherings default to social', () => {
     expect(mapEventOperations({ id: 1, event_type: 'company_event' }).isWorkEvent).toBe(false);
     expect(mapEventOperations({ id: 1, event_type: 'company_event', organization_id: 5 }).isWorkEvent).toBe(true);
