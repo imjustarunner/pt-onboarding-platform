@@ -1859,6 +1859,10 @@ export const reviewClinicalNote = async (req,res,next) => {
   }catch(error){next(error);}
 };
 
+async function reviewSubmittedNote(req,note){
+ try{await (await import('../services/narrivaSubmissionReview.service.js')).reviewNarrivaSubmission(req,note);}
+ catch{console.warn('[signClinicalNote] Submission review unavailable; signed note preserved.');}
+}
 export const signClinicalNote = async (req, res, next) => {
   let signingDb=null;
   try {
@@ -1888,6 +1892,7 @@ export const signClinicalNote = async (req, res, next) => {
       const retryMeta = typeof note.metadata_json === 'string' ? JSON.parse(note.metadata_json) : note.metadata_json;
       if (retryMeta?.source === H0002_SOURCE) await draftClaimAfterSignature(req, note);
       const terminationTodo = await completeNoteAidSigningWorkflow(note);
+      await reviewSubmittedNote(req,note);
       return res.json({ ok: true, noteId, signedAt: note.provider_signed_at, terminationTodo });
     }
     if (!req.body?.signingToken || req.body.signingToken!==clinicalNoteSnapshotHash(note,lockedSession || {})) throw Object.assign(new Error('This draft or its service context changed. Reload and review the current version before signing.'),{status:409});
@@ -2132,6 +2137,7 @@ export const signClinicalNote = async (req, res, next) => {
     const terminationTodo = await completeNoteAidSigningWorkflow({ ...note, provider_signed_at: signedAtIso, metadata_json: meta });
     if (!nonBillable) await draftClaimAfterSignature(req, note);
     try { const {onSignedNoteCopay}=await import('../services/familyLedger/copayAttendance.js'); await onSignedNoteCopay({agencyId:note.agency_id,noteId:note.id,providerUserId:req.user.id}); } catch { console.warn('[signClinicalNote] Copay attendance needs billing review'); }
+    await reviewSubmittedNote(req,persisted);
     return res.json({ ok: true, noteId, contentHash: hash, signedAt: persisted.provider_signed_at, revisionId: originalRevision.id, revisionContentHash: originalRevision.content_hash, queueSynchronizationPending: !queueSynchronized, terminationTodo });
   } catch (e) {
     if (signingDb) { await signingDb.rollback(); signingDb.release(); signingDb=null; }
@@ -2139,6 +2145,11 @@ export const signClinicalNote = async (req, res, next) => {
   } finally { if (signingDb) { try { await signingDb.rollback(); } finally { signingDb.release(); } } }
 };
 
+function supervisorSignatureReceipt(note){
+ const evidence=parseObject(note.metadata_json).supervisorCosign || {};
+ return {cosignedAt:note.supervisor_cosigned_at,cosignedByUserId:note.supervisor_cosigned_by_user_id,
+  signerLabel:evidence.signerLabel || null,statement:evidence.statement || null,contentHash:evidence.contentHash || null};
+}
 export const cosignClinicalNote = async (req, res, next) => {
   let cosignDb;
   try {
@@ -2182,12 +2193,12 @@ export const cosignClinicalNote = async (req, res, next) => {
       await cosignDb.commit();
       cosignDb.release(); cosignDb = null;
       if (!isNonBillableDocument(note)) await draftClaimAfterSignature(req, note);
-      return res.json({ok:true,noteId,cosignedAt:note.supervisor_cosigned_at,revisionId:originalRevision.id,isBillable:!isNonBillableDocument(note)});
+      return res.json({ok:true,noteId,cosignedAt:note.supervisor_cosigned_at,supervisorCosign:supervisorSignatureReceipt(note),revisionId:originalRevision.id,isBillable:!isNonBillableDocument(note)});
     }
     if (req.body.reviewSnapshotToken !== reviewSnapshotToken(note,reviewSession || {})) throw Object.assign(new Error('The review details changed. Open the current note before approval.'),{status:409});
     if (hasCurrentSupervisorCosign(note, documentationPolicy.supervisorUserId, current.hash)) {
       await cosignDb.commit();
-      return res.json({ ok:true,noteId,cosignedAt:note.supervisor_cosigned_at,isBillable:!isNonBillableDocument(note) });
+      return res.json({ ok:true,noteId,cosignedAt:note.supervisor_cosigned_at,supervisorCosign:supervisorSignatureReceipt(note),isBillable:!isNonBillableDocument(note) });
     }
     if (current.hash !== req.body.contentHash || req.body.reviewedAndApproved !== true) throw Object.assign(new Error('Read the current note and addenda and attest approval before cosigning.'),{status:409});
     if(req.body.quickSign===true)await (await import('../services/narrivaReview.service.js')).assertNarrivaQuickSign({user:req.user,noteId,agencyId:note.agency_id,reviewId:req.body.narrivaReviewId,clinicalDb:cosignDb});
@@ -2292,7 +2303,7 @@ export const cosignClinicalNote = async (req, res, next) => {
     queueCommittedClinicalSourceChange({ agencyId: note.agency_id, clientId: note.client_id, sourceKind: 'note', sourceId: noteId });
     const queueSynchronized = await synchronizeSupervisorQueue({...note,supervisor_cosigned_at:cosignedAtIso},queueMarker);
     if (!nonBillable) await draftClaimAfterSignature(req, persistedCosign);
-    return res.json({ ok: true, noteId, cosignedAt: cosignedAtIso, isBillable: !nonBillable, queueSynchronizationPending:!queueSynchronized });
+    return res.json({ ok: true, noteId, cosignedAt: cosignedAtIso, supervisorCosign:supervisorSignatureReceipt(persistedCosign), isBillable: !nonBillable, queueSynchronizationPending:!queueSynchronized });
   } catch (e) {
     if(cosignDb) { await cosignDb.rollback(); cosignDb.release(); cosignDb=null; }
     next(e);
