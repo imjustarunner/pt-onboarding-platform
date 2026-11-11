@@ -16,6 +16,10 @@ import {mobileThreadItem} from '../conversa.service.js';
 beforeEach(()=>{
  vi.clearAllMocks();mocks.attachments=true;mocks.rows=[];mocks.refresh.mockResolvedValue();mocks.decrypt.mockReturnValue('Decrypted internal update');
  mocks.execute.mockImplementation(async(sql)=>{
+  if(sql.startsWith('SELECT t.id FROM chat_threads t JOIN chat_thread_participants p'))return [mocks.rows.filter(row=>row.thread_type==='group' && row.company_event_id).map(row=>({id:row.thread_id}))];
+  if(sql.startsWith('SELECT e.* FROM chat_threads')){const group=mocks.rows.find(row=>row.thread_type==='group' && row.company_event_id);return [group?[{id:group.company_event_id,agency_id:group.agency_id,is_active:1,operations_json:{invitedAgencyIds:[20]}}]:[]];}
+  if(sql.includes('FROM users u JOIN user_agencies ua'))return [[{id:1,first_name:'Current',last_name:'User',role:'provider',is_active:1,is_archived:0,status:'ACTIVE_EMPLOYEE',agency_id:20,agency_name:'Invited agency'}]];
+  if(sql.includes('FROM company_event_audiences'))return [[{audience_type:'user',target_id:1}]];
   if(sql.includes('information_schema.tables'))return [mocks.attachments?[{1:1}]:[]];
   if(sql.includes('information_schema.columns'))return [sql.includes("column_name = 'body_ciphertext'") || sql.includes("column_name = 'slug'")?[{1:1}]:[]];
   if(sql.includes('SELECT t.id AS thread_id'))return [mocks.rows];
@@ -36,6 +40,14 @@ it('decrypts internal previews without returning encryption fields and never dec
 it('does not return ciphertext when decryption fails and tolerates unavailable attachment metadata',async()=>{
  mocks.attachments=false;mocks.rows=[{...base,last_message_attachment_count:0,preview_ciphertext:'PRIVATE CIPHER'}];mocks.decrypt.mockImplementation(()=>{throw new Error('Key unavailable');});
  const [thread]=await read();expect(mobileThreadItem(thread,1).preview).toBe('Message unavailable');const query=mocks.execute.mock.calls.find(([sql])=>sql.includes('SELECT t.id AS thread_id'))[0];expect(query).toContain('0 AS last_message_attachment_count');
+});
+it('keeps a named event conversation visible after checking a cross-agency invitee’s current membership',async()=>{
+ mocks.rows=[{...base,thread_type:'group',company_event_id:12,agency_id:10,channel_name:'Our second anniversary',last_message_body:'Choose a date together.'}];
+ const [thread]=await read();expect(mobileThreadItem(thread,1)).toMatchObject({title:'Our second anniversary',category:'groups',isGroupDirect:true,agencyId:10,preview:'Choose a date together.'});
+ const calls=mocks.execute.mock.calls,query=calls.find(([sql])=>sql.includes('SELECT t.id AS thread_id'))[0];
+ expect(query).toContain("OR (t.thread_type='group' AND t.company_event_id IS NOT NULL AND t.message_channel='internal')");
+ expect(calls.some(([sql])=>sql.startsWith('SELECT e.* FROM chat_threads'))).toBe(true);
+ expect(calls.some(([sql])=>/^\s*(INSERT|UPDATE|DELETE)\b/.test(sql))).toBe(false);
 });
 it('applies QA scope to attachment lookup and direct-thread reuse before returning IDs',async()=>{
  mocks.execute.mockImplementation(async sql=>sql.includes('information_schema')?[[{1:1}]]:[[]]);

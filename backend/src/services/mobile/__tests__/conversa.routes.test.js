@@ -27,6 +27,17 @@ it('does not let a legacy Quick View PIN session open the new mobile features',a
 it('archives only as the session user and checks current active agency access',async()=>{const req=request(),res=response();await patchMobileArchive(req,res,vi.fn());expect(mocks.access).toHaveBeenCalledWith(3,10,{requireActiveAgency:true});expect(mocks.archive).toHaveBeenCalledWith(3,'chat',10,true);});
 it('rechecks secure membership before returning names or file bytes',async()=>{mocks.access.mockRejectedValue(Object.assign(new Error('Access revoked'),{status:403}));const res=response();await getMobileChatContext(request(),res,vi.fn());expect(res.status).toHaveBeenCalledWith(403);expect(mocks.execute).not.toHaveBeenCalled();});
 it('does not put secure body text or full names in the combined inbox',async()=>{const res=response();await getMobileInbox(request(),res,vi.fn());const body=res.json.mock.calls[0][0];expect(body.items[0]).toMatchObject({category:'secure',title:'Pr••• Pe•••',preview:'Secure message · tap to unlock'});expect(JSON.stringify(body)).not.toContain('Private Person');expect(JSON.stringify(body)).not.toContain('SENSITIVE MESSAGE');expect(body.counts.all.unread).toBe(1);});
+it.each(['direct','groups','all'])('shows an invited named event group in %s without counting it twice in All',async suite=>{
+ mocks.threads.mockImplementation((req,res)=>res.json([
+  {thread_id:10,agency_id:20,thread_type:'group',message_channel:'internal',company_event_id:12,channel_name:'Our second anniversary',participants:[{id:5,first_name:'Avery'}],last_message:{id:50,body:'Choose a date together.',sender_user_id:5,created_at:'2026-11-06T10:00:00Z'},unread_count:1},
+  {thread_id:11,agency_id:20,thread_type:'channel',message_channel:'internal',channel_name:'Staff announcements',last_message:{id:51,body:'An announcement',sender_user_id:5,created_at:'2026-11-06T11:00:00Z'},unread_count:1}
+ ]));
+ const req=request(),res=response(),next=vi.fn();req.query={suite};await getMobileInbox(req,res,next);expect(next).not.toHaveBeenCalled();
+ const body=res.json.mock.calls[0][0];expect(body.items.find(item=>item.id===10)).toMatchObject({title:'Our second anniversary',isGroupDirect:true,category:'groups'});
+ expect(body.counts).toMatchObject({direct:{total:1,unread:1},groups:{total:1,unread:1},channels:{total:1,unread:1},all:{total:2,unread:2}});
+ if(suite==='direct'||suite==='groups')expect(body.items.map(item=>item.id)).toEqual([10]);
+ else expect(body.items.map(item=>item.id)).toEqual([11,10]);
+});
 it('excludes provisioned empty threads from rows and counts and orders conversations by real messages',async()=>{
  mocks.threads.mockImplementation((req,res)=>res.json([
   {thread_id:10,thread_type:'client_secure',message_channel:'secure',updated_at:'2026-11-07T15:00:00Z',last_message:null},
