@@ -5,6 +5,7 @@ export default defineConfig({ root: new URL('.', import.meta.url).pathname, plug
     'src/utils/__tests__/activityTracker.test.js',
     'src/utils/__tests__/sessionDeadline.test.js',
     'src/components/__tests__/StatusPromptModal.test.js',
+    'src/components/__tests__/AccountSecurityNotice.holds.test.js',
     'src/components/clients/__tests__/ClientOperationalStatus.test.js',
     'src/components/admin/clientChart/__tests__/ClientRecordsOverview.receipts.test.js',
     'src/views/__tests__/PublicIntake1110Recovery.test.js',

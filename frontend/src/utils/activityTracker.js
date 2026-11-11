@@ -116,6 +116,9 @@ export async function resumeSession(pin) {
   try {
     await changeSession('resume', pin);
     if (timeoutInFlight || !isTracking || phaseAt(state) !== 'active') return false;
+    // Reads rejected during timedown may have left a temporary unavailable
+    // notice. Refresh those reads only after the server has confirmed access.
+    window.dispatchEvent(new Event('pt:session-resumed'));
     try { await usePresenceSessionStore().clearAway(); } catch { /* access resumed; presence will refresh */ }
     await sendHeartbeats(true);
     return true;

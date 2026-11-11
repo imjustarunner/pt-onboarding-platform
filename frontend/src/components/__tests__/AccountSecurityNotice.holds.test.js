@@ -42,3 +42,10 @@ it('distinguishes blocked request volume from affected accounts and file-access 
  const visibility=vi.spyOn(document,'visibilityState','get').mockReturnValue('visible');
  mountNotice();await flushPromises();expect(wrapper.text()).toContain('346 unreviewed blocked requests affecting 3 accounts');expect(wrapper.text()).toContain('2 unidentified attempts');expect(wrapper.text()).toContain('1 file-access requests');visibility.mockRestore();
 });
+
+it('refreshes a timedown read failure after verified resume without clearing a real hold',async()=>{
+ mountNotice();await flushPromises();
+ mocks.get.mockRejectedValue({response:{status:423,data:{error:{code:'SESSION_LOCKED'}}}});window.dispatchEvent(new Event('account-security-changed'));await flushPromises();expect(wrapper.text()).toContain('could not be checked');
+ mocks.get.mockImplementation(async url=>({data:url.endsWith('/activity-protection')?{holds:[{kind:'client_file'}],unlimitedFileViews:true}:{verified:true}}));
+ window.dispatchEvent(new Event('pt:session-resumed'));await flushPromises();expect(wrapper.text()).not.toContain('could not be checked');expect(wrapper.text()).toContain('Download, export, and print access is paused');
+});

@@ -76,7 +76,8 @@ window.addEventListener('activity-protection-required',protectionBlocked);
 watch(() => auth.user?.id, () => { protectionRevision += 1; protectionRequired.value = false; protectionUnavailable.value = false; protectionHolds.value = []; requestMessage.value = ''; requestError.value = ''; showRequest.value = false; refresh(); }, { immediate: true });
 window.addEventListener('account-security-required', required);
 window.addEventListener('account-security-changed', refresh);
-onBeforeUnmount(() => { clearInterval(summaryTimer);window.removeEventListener('activity-protection-required',protectionBlocked); window.removeEventListener('account-security-required', required); window.removeEventListener('account-security-changed', refresh); });
+window.addEventListener('pt:session-resumed', refresh);
+onBeforeUnmount(() => { clearInterval(summaryTimer);window.removeEventListener('activity-protection-required',protectionBlocked); window.removeEventListener('account-security-required', required); window.removeEventListener('account-security-changed', refresh); window.removeEventListener('pt:session-resumed', refresh); });
 </script>
 <style scoped>
 .account-security-notice { padding: .7rem 1rem; border-bottom: 1px solid var(--border, #cbd5e1); background: var(--bg-secondary, #f1f5f9); color: var(--text-primary); font-size: .9rem; }

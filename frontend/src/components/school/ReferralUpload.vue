@@ -15,6 +15,7 @@
             <p class="muted">To start a different packet, select its file below.</p>
           </div>
           <div class="form-group">
+            <p v-if="uploadComplete" role="status">This draft already has its packet saved. The original file is kept for this draft; review and submit it below. To start another packet, close this dialog and reopen Upload Packet without choosing Resume.</p>
             <label for="file-input" class="file-label">
               <div
                 class="file-input-area"

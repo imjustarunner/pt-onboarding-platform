@@ -216,6 +216,14 @@ describe('shared activity tracking', () => {
     expect(useSessionLockStore().isLocked).toBe(false);
     expect(localStorage.getItem(sessionStorageKey(7, 'login-one'))).not.toContain('012345');
   });
+  it('announces verified resume for blocked status reads, and never does so on failure', async () => {
+    const resumed=vi.fn();window.addEventListener('pt:session-resumed',resumed);
+    try {
+      await startActivityTracking();await vi.advanceTimersByTimeAsync(30000);
+      mocks.post.mockRejectedValueOnce(new Error('offline'));expect(await resumeSession()).toBe(false);expect(resumed).not.toHaveBeenCalled();
+      expect(await resumeSession()).toBe(true);expect(resumed).toHaveBeenCalledTimes(1);
+    } finally {window.removeEventListener('pt:session-resumed',resumed);}
+  });
   it('ignores a delayed expiry response after another tab has renewed the session', async () => {
     const oldActivity = serverSession.lastActivityAt;
     await startActivityTracking(); await vi.advanceTimersByTimeAsync(30000);
