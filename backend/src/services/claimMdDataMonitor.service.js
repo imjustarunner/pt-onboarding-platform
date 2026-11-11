@@ -13,7 +13,7 @@ export async function recordDataGaps(agencyId, issues, db = pool) {
   const rows = [];
   for (const issue of issues) {
     const payerId = /^[A-Za-z0-9_-]{1,32}$/.test(String(issue.payerId || '')) ? String(issue.payerId) : '';
-    const key = contractHash([Number(agencyId), payerId, issue.endpoint, issue.path, issue.kind]);
+    const key = contractHash([Number(agencyId), payerId, issue.endpoint, issue.path, issue.kind, issue.revision || '']);
     const encrypted = encryptFamilyBilling({ path: issue.path }, `claimmd-data-gap:${key}`);
     rows.push([Number(agencyId), payerId, key, issue.endpoint, issue.kind, publicIssuePath(issue), encrypted]);
   }

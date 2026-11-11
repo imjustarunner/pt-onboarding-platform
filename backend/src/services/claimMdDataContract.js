@@ -70,11 +70,11 @@ export function parsePublishedState(text) {
 
 export function comparePublishedContract(current, baseline = publishedContract) {
   const issues = [];
-  if (current.sharedDefinitionsHash && current.sharedDefinitionsHash !== baseline.sharedDefinitionsHash) issues.push({endpoint:'documentation',path:'$definitions',kind:'published_schema_changed'});
+  if (current.sharedDefinitionsHash && current.sharedDefinitionsHash !== baseline.sharedDefinitionsHash) issues.push({endpoint:'documentation',path:'$definitions',kind:'published_schema_changed',revision:current.sharedDefinitionsHash});
   for (const endpoint of unintegratedDataEndpoints) if (current.endpoints[endpoint]) issues.push({ endpoint, path: '$endpoint', kind: 'available_endpoint_not_integrated' });
   for (const [endpoint, definition] of Object.entries(current.endpoints)) {
     if (!baseline.endpoints[endpoint]) issues.push({ endpoint, path: '$endpoint', kind: 'new_documented_endpoint' });
-    else if (definition.definitionHash && definition.definitionHash !== baseline.endpoints[endpoint].definitionHash) issues.push({endpoint,path:'$contract',kind:'documented_contract_changed'});
+    else if (definition.definitionHash && definition.definitionHash !== baseline.endpoints[endpoint].definitionHash) issues.push({endpoint,path:'$contract',kind:'documented_contract_changed',revision:definition.definitionHash});
     for (const [path, type] of Object.entries(definition.fields)) {
       const previous = baseline.endpoints[endpoint]?.fields[path];
       if (!previous) issues.push({ endpoint, path, kind: 'new_documented_field' });
@@ -115,7 +115,7 @@ export function inspectReturnedFields(endpoint, response, { maxNodes = 50000, ma
 export function publicIssuePath(issue) {
   // Unknown object keys can themselves contain identifiers. Only known public
   // schema names enter notifications; original paths are encrypted in storage.
-  return issue.path.startsWith('$') ? issue.path
+  return ['$endpoint','$inspection','$processing','$catalog','$contract','$definitions'].includes(issue.path) ? issue.path
     : Object.hasOwn(publishedContract.endpoints[issue.endpoint]?.fields || {}, issue.path) ? issue.path
       : `unrecognized-field-${contractHash(issue.path).slice(0, 12)}`;
 }

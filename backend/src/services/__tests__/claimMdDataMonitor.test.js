@@ -28,6 +28,7 @@ it('reports bounded inspections as incomplete instead of silently assuming no ga
 it('does not mail patient identifiers embedded in unknown object keys', async () => {
   const issue={endpoint:'eligdata',path:'elig.person_123456789',kind:'unrecognized_returned_field'};
   expect(publicIssuePath(issue)).toMatch(/^unrecognized-field-[0-9a-f]{12}$/);
+  expect(publicIssuePath({...issue,path:'$123456789'})).toMatch(/^unrecognized-field-[0-9a-f]{12}$/);
   const db={execute:vi.fn().mockResolvedValue([{affectedRows:1}])};
   await recordDataGaps(2,[{...issue,payerId:'00050'}],db);
   const [sql,params]=db.execute.mock.calls[0];
@@ -65,6 +66,16 @@ it('reports published but unintegrated read endpoints and new/removed schema fie
 it('respects the documented string-or-integer webhook identifier alternatives',()=>{
  expect(inspectReturnedFields('webhook',{acct_number:'123',events:{eventid:'456'}})).toEqual([]);
  expect(inspectReturnedFields('webhook',{acct_number:123,events:[{eventid:456}]})).toEqual([]);
+});
+
+it('creates a new finding for each later API contract change without repeating the same revision',async()=>{
+ const db={execute:vi.fn().mockResolvedValue([{affectedRows:1}])};
+ const first=structuredClone(publishedContract),second=structuredClone(publishedContract);
+ first.endpoints.eligdata.definitionHash='revision-one';second.endpoints.eligdata.definitionHash='revision-two';
+ const a=comparePublishedContract(first).find(i=>i.kind==='documented_contract_changed');
+ const b=comparePublishedContract(second).find(i=>i.kind==='documented_contract_changed');
+ await recordDataGaps(0,[a],db);await recordDataGaps(0,[a],db);await recordDataGaps(0,[b],db);
+ const keys=db.execute.mock.calls.map(c=>c[1][2]);expect(keys[0]).toBe(keys[1]);expect(keys[2]).not.toBe(keys[0]);
 });
 
 it('reads only the fixed public documentation host and does not execute scripts or send an AccountKey', async () => {
