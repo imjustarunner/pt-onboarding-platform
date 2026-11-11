@@ -151,6 +151,7 @@
           <div class="sidebar-section">
             <div class="section-header">CORE</div>
             <router-link :to="`/${slug}/admin-dashboard`" class="nav-item">Dashboard</router-link>
+            <router-link v-if="['admin', 'super_admin'].includes(roleLower)" :to="{ path: `${prefix}/admin/settings`, query: { category: 'auricwell', item: 'auricwell-management', agencyId: String(currentAgencyId) } }" class="nav-item">AuricWell</router-link>
           </div>
 
           <div class="sidebar-section">
@@ -1217,6 +1218,7 @@ const defaultQuickActionIds = computed(() => {
     'progress_dashboard',
     'manage_clients',
     'management_team',
+    'auricwell_management',
     ...(canAccessTeamBoardRole.value
       ? ['presence_team_board']
       : []),
@@ -1246,6 +1248,17 @@ const defaultQuickActionIds = computed(() => {
 const quickActionsCatalog = computed(() => {
   const p = prefix.value;
   const base = [
+    {
+      id: 'auricwell_management',
+      title: 'AuricWell',
+      description: 'Practice operations and EHR Transition plan',
+      to: { path: `${p}/admin/settings`, query: { category: 'auricwell', item: 'auricwell-management', agencyId: String(currentAgencyId.value || '') } },
+      emoji: '🌿',
+      iconKey: 'manage_clients',
+      category: 'Management',
+      roles: ['admin', 'super_admin'],
+      capabilities: ['canAccessPlatform']
+    },
     {
       id: 'client_exchange', title: 'Client Exchange', description: 'Coordinate referrals, matches and provider requests',
       to: `${p}/client-exchange`, emoji: '🤝', iconKey: 'manage_clients', category: 'Client support',

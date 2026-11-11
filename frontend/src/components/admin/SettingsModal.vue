@@ -418,6 +418,8 @@ import BillingManagement from './BillingManagement.vue';
 import AgencyPaymentSettings from './AgencyPaymentSettings.vue';
 import TenantFeaturesManagement from './TenantFeaturesManagement.vue';
 import IntegrationsManagement from './IntegrationsManagement.vue';
+import AuricWellManagement from './AuricWellManagement.vue';
+import AuricWellTransitionPlan from './AuricWellTransitionPlan.vue';
 
 const props = defineProps({
   embedded: { type: Boolean, default: false },
@@ -847,6 +849,14 @@ const allCategories = [
     ]
   },
   {
+    id: 'auricwell',
+    label: 'AURICWELL',
+    items: [
+      { id: 'auricwell-management', label: 'AuricWell operations', icon: '🌿', component: 'AuricWellManagement', roles: ['super_admin', 'admin'], excludeSupervisor: true, requiresAgency: true },
+      { id: 'auricwell-transition', label: 'EHR Transition', icon: '📋', component: 'AuricWellTransitionPlan', roles: ['super_admin', 'admin'], excludeSupervisor: true, requiresAgency: true }
+    ]
+  },
+  {
     id: 'theming',
     label: 'THEMING',
     items: [
@@ -1224,6 +1234,7 @@ const tenantHubSecondaryBlocks = computed(() => {
       items: mapItems(c.items, c.id)
     });
   };
+  pushWholeCategory('AuricWell', 'Practice operations and the EHR transition plan, using shared client records and schedules.', 'auricwell');
   pushWholeCategory('Look & brand', 'Colors, logos, templates, and shared creative assets.', 'theming');
   pushWholeCategory('AI tools', 'Note Workspace and related AI configuration.', 'ai');
 
@@ -1259,6 +1270,8 @@ const platformSettingsCardHubActive = computed(() => {
 });
 
 const HUB_CARD_DESC = computed(() => ({
+  'auricwell-management': 'A shared home for provider imports, clients, clinical records, schedules, billing, and practice settings.',
+  'auricwell-transition': 'Move a provider’s caseload using reviewed chart/contact/insurance paste, medical PDF volumes, weekly agenda import, and linked school appointments.',
   'booking-service-types':
     `Verticals this ${contextNoun.value} sells (counseling, tutoring, coaching, consulting), plus services, packages, and session notifications.`,
   'client-settings': `Programs, paths, and client catalog for this ${contextNoun.value}.`,
@@ -1534,6 +1547,8 @@ const componentMap = {
   AgencyPaymentSettings,
   TenantFeaturesManagement,
   IntegrationsManagement,
+  AuricWellManagement,
+  AuricWellTransitionPlan,
   IntakeLinksView,
   ChallengeManagement,
   AuditCenterSettingsLink,

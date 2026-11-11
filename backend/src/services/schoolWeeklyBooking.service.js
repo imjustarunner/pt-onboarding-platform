@@ -8,6 +8,7 @@ import TenantService from '../models/TenantService.model.js';
 import StaffServiceAssignment from '../models/StaffServiceAssignment.model.js';
 import AgencyMedicalServiceCode from '../models/AgencyMedicalServiceCode.model.js';
 import { clientSessionBookingAccess } from './clientSessionBookingRollout.service.js';
+import { readSchoolTransition, schoolAgendaLinkContext } from './schoolAppointmentTransition.service.js';
 
 const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 const providerRoles = ['provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant'];
@@ -101,6 +102,15 @@ export async function schoolWeeklyContext({ actor, schoolId, providerUserId, wee
   const agency = await Agency.findById(agencyId);
   const timeZone = String(agency?.timezone || school.timezone || 'America/Denver');
   const today = new Intl.DateTimeFormat('en-CA', { timeZone, year:'numeric',month:'2-digit',day:'2-digit' }).format(new Date());
+  let transition=null;
+  try { transition=await readSchoolTransition({agencyId,schoolId:sid,providerId:pid}); }
+  catch(error) { if(error.status!==503) throw error; }
   return { enabled: true, agencyId, schoolId:sid, providerUserId:pid, weekday, serviceLocationId:Number(location.id),
-    schoolName:school.name, timeZone, today, slots, services:eligible.map(({id,name,serviceCode}) => ({id,name,serviceCode})) };
+    schoolName:school.name, timeZone, today, transition, slots, services:eligible.map(({id,name,serviceCode}) => ({id,name,serviceCode})) };
+}
+
+export async function reviewSchoolWeeklyLink(context,body,slotId) {
+  if(!context.transition) return null;
+  return schoolAgendaLinkContext({agencyId:context.agencyId,schoolId:context.schoolId,providerId:context.providerUserId,
+    clientId:body.participants[0].clientId,date:body.startAt.slice(0,10),slotId});
 }

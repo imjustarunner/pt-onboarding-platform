@@ -22,6 +22,8 @@ import { deriveCredentialTierFromText } from '../utils/credentialNormalization.j
 import { getNoteAidToolById } from '../config/noteAidTools.js';
 import { callGeminiText } from '../services/geminiText.service.js';
 import { maybeEncryptNotePayload, maybeDecryptNotePayload } from '../services/clinicalNoteCrypto.service.js';
+import { historicalImportDetails, historicalSourceNarrative } from '../services/ehrHistoricalImport.service.js';
+import { withHistoricalImportLock } from '../services/ehrHistoricalImportLock.service.js';
 import { decryptIntakeSubmissionRows } from '../services/intakeResponsesEncryption.service.js';
 import { scrubIntakeTextForNoteWriter } from '../services/phiScrubber.service.js';
 import { collectClientPhiNames } from '../services/clientPhiNames.service.js';
@@ -1503,7 +1505,7 @@ function parseSections(text) {
  * Parse pasted intake text into a reviewable draft (sections preserved).
  * Body: { text, sections?, diagnosis?, serviceCode?, sessionContext? }
  */
-export const importClientIntakeNote = async (req, res, next) => {
+const importClientIntakeNoteUnlocked = async (req, res, next) => {
   try {
     const clientId = safeInt(req.params.id);
     if (!clientId) return res.status(400).json({ error: { message: 'Invalid client id' } });
@@ -1516,6 +1518,12 @@ export const importClientIntakeNote = async (req, res, next) => {
 
     const { parseIntakeSections, parseIntakeDiagnoses } = await import('../services/intakeImport.service.js');
     const rawText = String(req.body?.text || req.body?.intakeText || '').trim();
+    const historical = historicalImportDetails(req.body?.historicalImport, rawText);
+    if (historical) {
+      const { clientAccess } = await import('../services/safetyPlans/access.js');
+      const clinicalClient = await clientAccess(req.user, clientId, { write: !['admin', 'super_admin'].includes(req.user.role) });
+      if (Number(clinicalClient.agency_id) !== agencyId) return res.status(403).json({ error: { message: 'Client agency changed; review the chart before importing.' } });
+    }
     let sectionsInput = Array.isArray(req.body?.sections) ? req.body.sections : null;
     let parsedDiagnoses = [];
     if (!sectionsInput) {
@@ -1532,6 +1540,7 @@ export const importClientIntakeNote = async (req, res, next) => {
       body: String(sec.content || sec.body || '').trim(),
       order: Number(sec.order || index + 1)
     })).filter((s) => s.body);
+    if (historical) normalizedSections.unshift({ key: 'historical_import_provenance', label: 'Historical source attribution', body: historicalSourceNarrative(historical), order: 0 });
 
     const noteBody = normalizedSections
       .map((s) => `${s.label}\n${s.body}`)
@@ -1564,11 +1573,15 @@ export const importClientIntakeNote = async (req, res, next) => {
     const serviceCode = String(req.body?.serviceCode || '90791').trim().toUpperCase();
     const toolId = serviceCode === 'H0031' ? 'clinical_h0031_intake' : 'clinical_90791_intake_plan';
 
-    const status = diagnosis?.code ? 'ready' : 'diagnosis_pending';
+    const status = historical ? 'draft' : diagnosis?.code ? 'ready' : 'diagnosis_pending';
     const noteBodyEnc = maybeEncryptNotePayload(noteBody);
     const noteSectionsJsonEnc = maybeEncryptNotePayload(JSON.stringify(normalizedSections));
-    const sessionContextEnc = req.body?.sessionContext
-      ? maybeEncryptNotePayload(JSON.stringify(req.body.sessionContext))
+    const sessionContext = historical ? {
+      source: 'ehr_transition_import',
+      historicalImport: { ...historical, sourceText: rawText, importedByUserId: req.user.id, importedAt: new Date().toISOString() }
+    } : req.body?.sessionContext;
+    const sessionContextEnc = sessionContext
+      ? maybeEncryptNotePayload(JSON.stringify(sessionContext))
       : null;
 
     const suggestedDxJson = diagnosis
@@ -1583,6 +1596,14 @@ export const importClientIntakeNote = async (req, res, next) => {
       : null;
 
     const existing = await ClientIntakeNoteDraft.latestForClient({ clientId, agencyId });
+    if (historical && existing?.id && existing.status !== 'failed') {
+      let previousContext = {};
+      try { previousContext = JSON.parse(maybeDecryptNotePayload(existing.session_context_enc) || '{}'); } catch { /* Unrelated or unreadable source must not be replaced. */ }
+      if (previousContext.historicalImport?.fingerprint === historical.fingerprint) {
+        return res.status(200).json({ draft: formatDraftResponse(existing), reused: true, historicalImport: historical });
+      }
+      return res.status(409).json({ error: { code: 'EHR_INTAKE_REVIEW_REQUIRED', message: 'This client already has an intake. Review the existing intake in the chart; this import did not replace or reopen it.' } });
+    }
     let draft;
     if (existing?.id && existing.status !== 'failed') {
       if (existing.status === 'final') {
@@ -1642,6 +1663,19 @@ export const importClientIntakeNote = async (req, res, next) => {
   } catch (e) {
     next(e);
   }
+};
+
+export const importClientIntakeNote = async (req, res, next) => {
+  if (req.body?.historicalImport == null) return importClientIntakeNoteUnlocked(req, res, next);
+  try {
+    const clientId = safeInt(req.params.id);
+    if (!clientId) return res.status(400).json({ error: { message: 'Invalid client id' } });
+    const access = await ensureClientAccess({ userId:req.user.id, role:req.user.role, clientId });
+    if (!access.ok) return res.status(access.status).json({ error:{message:access.message} });
+    const agencyId = safeInt(access.client?.agency_id);
+    if (!agencyId) return res.status(400).json({ error:{message:'Client has no agency'} });
+    return await withHistoricalImportLock(agencyId, clientId, 'intake', () => importClientIntakeNoteUnlocked(req, res, next));
+  } catch (error) { next(error); }
 };
 
 /**

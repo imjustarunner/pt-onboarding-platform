@@ -3,6 +3,7 @@ import { schoolSoftScheduleCalendar } from './schoolSoftScheduleCalendar.service
 import { isValidTimeZone, wallMysqlToUtcMysql, utcDateToZonedYmd } from '../utils/zonedWallTime.util.js';
 import { previewError } from './auricwellPreviewPolicy.js';
 import { letterMatchSql } from '../utils/letterMatch.js';
+import { publicScheduleReasonCode } from './scheduleSummaryPrivacy.service.js';
 
 const PRACTICE_ROLES = new Set(['super_admin','superadmin','admin','support','clinical_practice_assistant']);
 function practiceFilter(value){if(value==null||value===''||value==='all')return null;const id=Number(value);if(!Number.isInteger(id)||id<1)throw previewError(400,'Choose a practice.');return id;}
@@ -100,7 +101,7 @@ export function createAuricwellAgenda({database=pool, school=schoolSoftScheduleC
         ORDER BY pse.id LIMIT 10001`,[...ids,agencyId,actor.id,...ids,...ids,range.end,range.start,range.windowEnd,range.windowStart,agencyId]);
       for(const e of boundedRows(events)) {
         if(e.client_id) booked.push({providerId:Number(e.provider_id),clientId:Number(e.client_id),date:utcDateToZonedYmd(new Date(iso(e.start_at)),timeZone)});
-        items.push(base({key:`event:${e.id}`,id:Number(e.id),providerId:ids.includes(Number(e.provider_id))?Number(e.provider_id):Number(String(e.viewer_ids||'').split(',')[0])||ids[0],kind:e.client_id||e.reason_code==='CLIENT_SESSION'?'appointment':'block',title:e.title||e.reason_code||e.kind||'Schedule block',clientName:e.full_name||e.initials||'',location:'',status:e.status||'scheduled',allDay:!!e.all_day,
+        items.push(base({key:`event:${e.id}`,id:Number(e.id),providerId:ids.includes(Number(e.provider_id))?Number(e.provider_id):Number(String(e.viewer_ids||'').split(',')[0])||ids[0],kind:e.client_id||e.reason_code==='CLIENT_SESSION'?'appointment':'block',title:e.title||publicScheduleReasonCode(e.reason_code)||e.kind||'Schedule block',clientName:e.full_name||e.initials||'',location:'',status:e.status||'scheduled',allDay:!!e.all_day,
         date:e.all_day?e.start_date:utcDateToZonedYmd(new Date(iso(e.start_at)),timeZone),startAt:e.all_day?null:iso(e.start_at),endAt:e.all_day?null:iso(e.end_at),eventKind:e.kind||'PERSONAL_EVENT'}));
       }
     }

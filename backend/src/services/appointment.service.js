@@ -428,13 +428,21 @@ export async function updateAppointment(appointmentId, patch = {}, options = {})
     return updateLockedAppointment(appointmentId, patch, options);
   });
 }
-async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId = null, settleOutcome = true, guardianCancellationClientId = null } = {}) {
+async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId = null, settleOutcome = true, guardianCancellationClientId = null, expectedScheduleFingerprint = null, expectedParticipantClientId = null } = {}) {
   const existing = await Appointment.findById(appointmentId);
   if (!existing) return null;
   const persistedSourceTimezone=Object.hasOwn(existing,'persistedSourceTimezone')?existing.persistedSourceTimezone:existing.sourceTimezone||null;
   const sourceZoneForEdit=existing.officeEventId&&['serviceCode','addonServiceCodes','providerUserId','startAt','endAt','timeZone','modality','serviceLocationId'].some(key=>patch[key]!==undefined)
     ?await savedOfficeBookingTimezone(existing.officeEventId,existing.agencyId):patch.timeZone||persistedSourceTimezone;
   const policySourceTimezone=existing.officeEventId?sourceZoneForEdit:persistedSourceTimezone;
+  if (expectedScheduleFingerprint) {
+    const { readAppointmentRecord } = await import('./appointmentRecord.service.js');
+    const reviewed = await readAppointmentRecord(existing.agencyId, appointmentId, pool);
+    if (reviewed.fingerprint !== expectedScheduleFingerprint) {
+      throw Object.assign(new Error('The appointment changed. Refresh the schedule before saving.'), { status: 409 });
+    }
+  }
+
   const {assertAppointmentOutcomePreserved}=await import('../utils/appointmentOutcomeGuard.js');
   assertAppointmentOutcomePreserved(existing,patch);
   if (patch.providerUserId != null && Number(patch.providerUserId) !== Number(existing.providerUserId)) {
@@ -571,8 +579,13 @@ async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId 
       && !moved && patch.providerUserId === undefined && patch.tenantServiceId === undefined && patch.participants === undefined;
     if (!cancellationOnly) assertPackageExpiration(ent?.pricingSnapshot,ent?.activatedAt,updatePatch.startAt||existing.startAt);
   }
-  await Appointment.update(appointmentId, updatePatch);
+  if (expectedScheduleFingerprint) {
+    await Appointment.update(appointmentId, updatePatch, { expectedSchedule: { ...existing, expectedParticipantClientId } });
+  } else {
+    await Appointment.update(appointmentId, updatePatch);
+  }
   if(reconcileHours&&policySourceTimezone&&policySourceTimezone!==persistedSourceTimezone)await pool.execute('UPDATE appointments SET source_timezone=? WHERE id=? AND agency_id=?',[policySourceTimezone,appointmentId,existing.agencyId]);
+
   if (patch.serviceCode !== undefined || patch.addonServiceCodes !== undefined) {
     await Appointment.setServiceCodes(appointmentId, {
       serviceCode: patch.serviceCode ?? existing.serviceCode,

@@ -333,6 +333,13 @@ export const saveTreatmentPlanToChart = async (req, res, next) => {
     }
     await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
 
+    if (req.body.historicalImport != null) {
+      const { importHistoricalPlan } = await import('../services/ehrHistoricalPlanImport.service.js');
+      const result = await importHistoricalPlan({ user: req.user, agencyId, clientId, input: req.body });
+      await logNoteAidChartEvent(req, { clientId, agencyId, action: 'treatment_plan_saved', metadata: { planId: result.plan?.id, historicalImport: true, reused: result.reused } });
+      return res.status(result.reused ? 200 : 201).json(result);
+    }
+
     const requestedStatus = String(req.body.status || 'active').trim().toLowerCase();
     const finalizeRequested = req.body.finalize === true || req.body.finalize === 1
       || requestedStatus === 'active' || requestedStatus === 'final';

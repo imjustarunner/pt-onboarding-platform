@@ -56,6 +56,18 @@ describe('additional contact save against the client identity schema', () => {
     db.exec("UPDATE client_guardians SET permissions_json='{}',access_enabled=0");
     expect(await Contact.listReminderRecipientsForClient(8)).toHaveLength(0);
   });
+  it('imports additional contact details without changing an existing reminder preference or sending notices', async () => {
+    const saved = await upsertClientAffiliatedContact({ ...input, email:'contact@example.test', emailRemindersEnabled:true, acknowledgeNotify:true });
+    mocks.guardian.mockClear(); mocks.email.mockClear();
+    const updated = await upsertClientAffiliatedContact({ ...input, existingContactId:saved.affiliation.agencyContactId, phone:'+13035550999', importOnly:true });
+    expect(updated.affiliation).toMatchObject({ emailRemindersEnabled:true, smsRemindersEnabled:false, contact:{phone:'+13035550999'} });
+    expect(mocks.guardian).not.toHaveBeenCalled(); expect(mocks.email).not.toHaveBeenCalled();
+  });
+  it('ignores reminder and invitation flags on an import-only contact save', async () => {
+    const saved=await upsertClientAffiliatedContact({ ...input, importOnly:true, emailRemindersEnabled:true, smsRemindersEnabled:true, acknowledgeNotify:true, recipientPermissionToInvite:true });
+    expect(saved.affiliation).toMatchObject({emailRemindersEnabled:false,smsRemindersEnabled:false,smsOptIn:false});
+    expect(saved.smsInvitationResult).toBeNull(); expect(mocks.guardian).not.toHaveBeenCalled(); expect(mocks.email).not.toHaveBeenCalled();
+  });
   it('saves a staff-entered phone-only contact and returns the saved row without sending a reminder', async () => {
     const saved = await upsertClientAffiliatedContact(input);
     expect(saved).toMatchObject({ clientInitials: 'AB', affiliation: { id: 1, client: { initials: 'AB', fullName: 'Alex Brown' }, contact: { fullName: 'Support Contact', phone: '+13035550100' }, emailRemindersEnabled: false, smsRemindersEnabled: false } });

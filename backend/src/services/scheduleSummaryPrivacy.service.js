@@ -28,6 +28,12 @@ export function normalizeScheduleRole(role) {
   return String(role || '').trim().toLowerCase();
 }
 
+/** Retry identities are stored with the event, but are never clinical/calendar reasons. */
+export function publicScheduleReasonCode(value) {
+  const code = String(value || '').trim().toUpperCase();
+  return code.startsWith('AW_AGENDA:') ? null : code || null;
+}
+
 export function canViewFullScheduleDetails(role) {
   return SCHEDULE_DETAIL_FULL_ROLES.has(normalizeScheduleRole(role));
 }

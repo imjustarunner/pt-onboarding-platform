@@ -192,6 +192,7 @@
               @move="moveSoftSlot"
             />
             <SchoolWeeklyBooking v-if="canSelfEditAvailability && !messagesOpen" :school-organization-id="schoolOrganizationId" :provider-user-id="providerUserId" :weekday="selectedWeekday" :revision="softSlots" />
+            <SchoolBookedSessions v-if="!messagesOpen" :school-organization-id="schoolOrganizationId" :provider-user-id="providerUserId" :revision="softSlots" />
             <div v-if="skillsMeetingsLoading" class="muted" style="margin-top: 10px;">Loading skills group meetings…</div>
             <div v-else-if="skillsMeetingsError" class="muted" style="margin-top: 10px;">{{ skillsMeetingsError }}</div>
             <div v-else-if="skillsMeetings.length" class="skills-meetings">
@@ -414,6 +415,7 @@ import api from '../../../services/api';
 import SchoolDayBar from './SchoolDayBar.vue';
 import SoftScheduleEditor from './SoftScheduleEditor.vue';
 import SchoolWeeklyBooking from './SchoolWeeklyBooking.vue';
+import SchoolBookedSessions from './SchoolBookedSessions.vue';
 import ClientListGrid from '../ClientListGrid.vue';
 import { useAuthStore } from '../../../store/auth';
 import { toUploadsUrl } from '../../../utils/uploadsUrl';

@@ -324,13 +324,13 @@ class Appointment {
     return this.findById(aid, { executor });
   }
 
-  static async update(id, patch = {}, { executor = pool, agencyId = null } = {}) {
+  static async update(id, patch = {}, { executor = pool, agencyId = null, expectedSchedule = null } = {}) {
     if (executor !== pool) {
       const existing = await this.findById(id, { executor, agencyId });
       if (!existing) return null;
       const next = { ...existing, ...patch };
       await assertAppointmentWindowAvailable(executor, next, Number(id));
-      return this.updateInAvailableWindow(id, patch, existing, { executor, agencyId });
+      return this.updateInAvailableWindow(id, patch, expectedSchedule || existing, { executor, agencyId });
     }
     const existing = await this.findById(id);
     if (!existing) return null;
@@ -339,8 +339,8 @@ class Appointment {
     const changed = Number(existing.providerUserId) !== Number(next.providerUserId)
       || instant(existing.startAt) !== instant(next.startAt) || instant(existing.endAt) !== instant(next.endAt)
       || (!appointmentOccupiesTime(existing.status) && appointmentOccupiesTime(next.status));
-    return changed ? withAppointmentWindow(pool, next, Number(id), () => this.updateInAvailableWindow(id, patch, existing))
-      : this.updateInAvailableWindow(id, patch);
+    return changed ? withAppointmentWindow(pool, next, Number(id), () => this.updateInAvailableWindow(id, patch, expectedSchedule || existing))
+      : this.updateInAvailableWindow(id, patch, expectedSchedule);
   }
 
   static async updateInAvailableWindow(id, patch = {}, expected = null, { executor = pool, agencyId = null } = {}) {
@@ -361,8 +361,15 @@ class Appointment {
       : null;
     const videoRoomMode = normalizeVideoRoomMode(next.videoRoomMode, existing.videoRoomMode || 'unique_session');
     const notificationMode = normalizeNotificationMode(next.notificationMode, existing.notificationMode || 'default');
+    // Compare the reviewed schedule in the UPDATE itself. This also rejects a
+    // writer that changed the row after the shared provider lock's read.
+    const participantCompare = expected?.expectedParticipantClientId ? ' AND (SELECT COUNT(*) FROM appointment_participants p WHERE p.appointment_id=appointments.id AND p.client_id IS NOT NULL)=1 AND EXISTS (SELECT 1 FROM appointment_participants p WHERE p.appointment_id=appointments.id AND p.client_id=?)' : '';
+    const compare = expected ? ' AND provider_user_id <=> ? AND start_at = ? AND end_at = ? AND status = ? AND clinical_session_id <=> ? AND provider_schedule_event_id <=> ? AND office_event_id <=> ? AND package_entitlement_id <=> ? AND service_location_id <=> ? AND tenant_service_id <=> ? AND modality <=> ?' + participantCompare : '';
+    const compareParams = expected ? [expected.providerUserId || null, expected.startAt, expected.endAt, expected.status,
+      expected.clinicalSessionId || null, expected.providerScheduleEventId || null, expected.officeEventId || null, expected.packageEntitlementId || null,
+      expected.serviceLocationId || null, expected.tenantServiceId || null, expected.modality || null,...(expected.expectedParticipantClientId?[expected.expectedParticipantClientId]:[])] : [];
     try {
-      await executor.execute(
+      const [result] = await executor.execute(
         `UPDATE appointments SET
            business_type = ?, tenant_service_id = ?, provider_user_id = ?,
            start_at = ?, end_at = ?, modality = ?, office_location_id = ?, room_id = ?, service_location_id = ?,
@@ -374,7 +381,7 @@ class Appointment {
            title = ?, notes = ?,
            others_present_names = ?, video_room_mode = ?, notification_mode = ?,
            updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP
-         WHERE id = ?`,
+         WHERE id = ?${compare}`,
         [
           next.businessType || null,
           next.tenantServiceId || null,
@@ -404,12 +411,13 @@ class Appointment {
           videoRoomMode,
           notificationMode,
           next.updatedByUserId || null,
-          Number(id)
+          Number(id), ...compareParams
         ]
       );
+      if (expected && result.affectedRows === 0) throw Object.assign(new Error('This appointment changed while you were editing. Refresh before saving.'), { status: 409 });
     } catch (e) {
       if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
-      await executor.execute(
+      const [result] = await executor.execute(
         `UPDATE appointments SET
            business_type = ?, tenant_service_id = ?, provider_user_id = ?,
            start_at = ?, end_at = ?, modality = ?, office_location_id = ?, room_id = ?, service_location_id = ?,
@@ -420,7 +428,7 @@ class Appointment {
            canceled_at = ?, canceled_by_user_id = ?,
            title = ?, notes = ?,
            updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP
-         WHERE id = ?`,
+         WHERE id = ?${compare}`,
         [
           next.businessType || null,
           next.tenantServiceId || null,
@@ -447,9 +455,10 @@ class Appointment {
           next.title || null,
           next.notes || null,
           next.updatedByUserId || null,
-          Number(id)
+          Number(id), ...compareParams
         ]
       );
+      if (expected && result.affectedRows === 0) throw Object.assign(new Error('This appointment changed while you were editing. Refresh before saving.'), { status: 409 });
     }
     return this.findById(id, { executor });
   }

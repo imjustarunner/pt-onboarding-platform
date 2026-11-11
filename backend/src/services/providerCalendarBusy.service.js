@@ -1,4 +1,5 @@
 import { wallMysqlToUtcMysql } from '../utils/zonedWallTime.util.js';
+import { publicScheduleReasonCode } from './scheduleSummaryPrivacy.service.js';
 
 const instant = value => value instanceof Date ? value : new Date(String(value).replace(' ', 'T').replace(/Z?$/, 'Z'));
 const mysql = value => instant(value).toISOString().slice(0, 19).replace('T', ' ');
@@ -25,7 +26,7 @@ export async function readProviderCalendarBusy(db, { providerId, startAt, endAt,
       end = instant(wallMysqlToUtcMysql(`${endDate} 00:00:00`, row.event_timezone || timeZone));
     } else { start = instant(row.start_at); end = instant(row.end_at); }
     return start < to && end > from && end > start ? [{ start, end, ...(includeKind ? {
-      id: row.id, kind: row.kind, reasonCode: row.reason_code, allDay: Number(row.all_day) === 1,
+      id: row.id, kind: row.kind, reasonCode: publicScheduleReasonCode(row.reason_code), allDay: Number(row.all_day) === 1,
       startDate: row.start_date ? ymd(row.start_date) : null, endDate: row.end_date ? ymd(row.end_date) : null
     } : {}) }] : [];
   });

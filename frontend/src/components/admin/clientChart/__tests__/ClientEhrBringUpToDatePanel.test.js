@@ -69,3 +69,21 @@ it('saves a plan without a finalized intake for review and allows new-client com
   expect(mocks.post.mock.calls.some(([url]) => url.endsWith('/note-aid-setup-complete'))).toBe(false);
   expect(wrapper.emitted('imported')).toHaveLength(1); wrapper.unmount();
 });
+
+it('retains historical source dates and authors as unsigned intake/plan drafts without finalization', async () => {
+  mocks.post.mockImplementation(async url => {
+    if(url.endsWith('/intake-note/import'))return {data:{draft:{id:5,status:'draft'}}};
+    if(url.endsWith('/treatment-plans/parse'))return {data:{parsed:{goals:[]}}};
+    return {data:{plan:{id:6,status:'draft'}}};
+  });
+  const wrapper=mount(Panel,{props:{open:true,clientId:12,agencyId:2,historicalImport:true,hideDemographics:true,sourceSystem:'Prior EHR',initialTexts:{intake:'Original intake',plan:'Original plan'}},global:{stubs:{NoteAidTreatmentPlanImportReview:true,Teleport:true}}});
+  const dates=wrapper.findAll('input[type=date]');await dates[0].setValue('2020-03-04');await dates[1].setValue('2021-05-06');
+  const authors=wrapper.findAll('.ehr-source-fields input:not([type=date])');await authors[0].setValue('Original Intake Author');await authors[1].setValue('Original Plan Author');
+  await wrapper.get('input[type=checkbox]').setValue(true);
+  await wrapper.findAll('button').find(b=>b.text()==='Save historical intake and plan for clinical review').trigger('click');await flushPromises();
+  expect(mocks.post).toHaveBeenCalledWith('/clients/12/intake-note/import',expect.objectContaining({historicalImport:expect.objectContaining({sourceSystem:'Prior EHR',sourceDate:'2020-03-04',sourceAuthor:'Original Intake Author',reviewed:true})}),expect.anything());
+  expect(mocks.post).toHaveBeenCalledWith('/medical-billing/treatment-plans',expect.objectContaining({status:'draft',finalize:false,effectiveDate:'2021-05-06',historicalImport:expect.objectContaining({sourceAuthor:'Original Plan Author',sourceText:'Original plan'})}),expect.anything());
+  expect(mocks.patch).not.toHaveBeenCalled();
+  expect(mocks.post.mock.calls.some(([url])=>url.endsWith('/finalize')||url.endsWith('/note-aid-setup-complete'))).toBe(false);
+  expect(wrapper.text()).toContain('clinical review remains pending');expect(wrapper.emitted('imported')).toHaveLength(1);wrapper.unmount();
+});

@@ -3,6 +3,14 @@ import { mount } from '@vue/test-utils';
 import SoftScheduleEditor from '../SoftScheduleEditor.vue';
 
 describe('SoftScheduleEditor', () => {
+  it('replaces linked rows visually while retaining them when another planning slot is saved',async()=>{
+    const wrapper=mount(SoftScheduleEditor,{props:{caseloadClients:[{id:1,initials:'AA'},{id:2,initials:'BB'}],slots:[
+      {id:10,client_id:1,start_time:'09:00:00',end_time:'10:00:00',note:'Booked',appointment_linked:true},
+      {id:11,client_id:2,start_time:null,end_time:null,note:'Untimed'}]}});
+    expect(wrapper.findAll('.row')).toHaveLength(1);expect(wrapper.text()).toContain('actual appointments');
+    await wrapper.find('input[type=text]').setValue('Room change');await wrapper.find('button.btn-primary').trigger('click');
+    expect(wrapper.emitted('save')[0][0]).toEqual([{id:10,client_id:1,start_time:'09:00',end_time:'10:00',note:'Booked'},{id:11,client_id:2,start_time:null,end_time:null,note:'Room change'}]);
+  });
   it('renders client labels based on clientLabelMode', async () => {
     const wrapper = mount(SoftScheduleEditor, {
       props: {
