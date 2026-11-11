@@ -131,7 +131,8 @@ async function resolveRecoveryContext({ userId, orgSlug }) {
 async function resolveRecoverySender(agencyId) {
   const identities = await EmailSenderIdentity.list({ agencyId, includePlatformDefaults: false, onlyActive: true });
   const identity = identities.find((i) => Number(i.agency_id) === Number(agencyId) &&
-    /^app@[^@]+$/i.test(String(i.from_email || '').trim()));
+    (/^app@[^@]+$/i.test(String(i.from_email || '').trim()) ||
+      (i.identity_key === 'prospect_demo_access' && String(i.from_email).toLowerCase() === 'portal@auricwell.com')));
   if (!identity) throw new Error('Configure an app@ sender identity for this tenant');
   const domain = identity.from_email.trim().split('@')[1].toLowerCase();
   return { identity, replyTo: `technology@${domain}` };
@@ -173,6 +174,8 @@ async function buildMessage({ user, agency, organization, orgSlug, token, loginE
     agency || { portal_url: orgSlug, slug: orgSlug },
     token
   );
+  const agencyFlags = typeof agency?.feature_flags === 'string' ? JSON.parse(agency.feature_flags) : agency?.feature_flags;
+  if (agencyFlags?.prospectDemo && agency?.slug && !familyAccount) resetLink = `https://auricwell.com/${encodeURIComponent(agency.slug)}/reset-password/${encodeURIComponent(token)}`;
   if(enrollment){const portal=intakeClientPortal(agency,{channel:enrollment.channel,school:!!enrollment.schoolOrganizationId});if(portal.clinical_portal)resetLink=clientPortalAppUrl(portal,`reset-password/${encodeURIComponent(token)}`);}
   if (['client_guardian','guardian','client'].includes(user?.role)) return familyRecoveryMessage({locale:enrollment?.locale,firstSet,resetLink,loginEmail,expiresInHours});
   const reminder = loginReminderLines(loginEmail);

@@ -148,6 +148,10 @@ export function createProspectDemoService({ database, hashPassword }) {
         provider_alias: plan.providerAlias, careers_alias: plan.careersAlias, research_json: JSON.stringify(research),
         source_agency_id: source.id, created_by_user_id: plan.actorUserId, seed_version: PROSPECT_SEED_VERSION });
       await db.execute("INSERT INTO agency_business_types(agency_id,business_type,is_enabled,sort_order) VALUES(?,'mental_health',1,0)",[agencyId]);
+      // Configure the existing AuricWell system mailbox for a later, explicitly
+      // requested invitation. Provisioning never generates a token or sends mail.
+      await db.execute(`INSERT INTO email_sender_identities(agency_id,identity_key,display_name,from_email,reply_to,is_active)
+        VALUES(?,'prospect_demo_access',?,'portal@auricwell.com','technology@auricwell.com',1)`,[agencyId,`AuricWell · ${plan.name}`]);
       const offices = [];
       for (const [i, location] of (research.locations || []).entries()) {
         const address = location.address || location;

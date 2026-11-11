@@ -276,3 +276,5 @@ CREATE TABLE client_service_enrollments(id BIGINT AUTO_INCREMENT PRIMARY KEY,cli
 CREATE TABLE clinical_note_drafts(id INT AUTO_INCREMENT PRIMARY KEY,agency_id INT,client_id INT,input_text TEXT);
 
 CREATE TABLE agency_business_types(id INT AUTO_INCREMENT PRIMARY KEY,agency_id INT,business_type VARCHAR(64),is_enabled TINYINT,sort_order INT);
+
+CREATE TABLE email_sender_identities(id INT AUTO_INCREMENT PRIMARY KEY,agency_id INT,identity_key VARCHAR(100),display_name VARCHAR(255),from_email VARCHAR(255),reply_to VARCHAR(255),is_active TINYINT);
