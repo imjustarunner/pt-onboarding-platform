@@ -18639,6 +18639,9 @@ const _createMyTimeClaimHandler = async (req, res, next) => {
       || (Array.isArray(payload.allocations) ? payload.allocations : []).some(a => (a.serviceTypeKey || a.typeKey) === 'approved_travel')) {
       return res.status(409).json({ error: { message: 'Use Submit → Event travel reimbursement to submit travel time and mileage together.' } });
     }
+    if (payload.source === 'cosign_review_activity' || payload.cosignActivityId) {
+      return res.status(403).json({ error: { message: 'Submit tracked note-signing time from its note-review record. Use Supervision Note Time for untracked work.' } });
+    }
     await assertNoManualSupervisionClaim(payload);
     if (payload.ffsExcess && (claimType !== 'indirect_time' || payload.eventWorkType || payload.source)) return res.status(400).json({error:{message:'Use a clinical FFS indirect-time request without an automated source.'}});
     const attestation = payload?.attestation === true || payload?.attestation === 1 || payload?.attestation === '1';
@@ -19119,6 +19122,10 @@ export const updateMyTimeClaim = async (req, res, next) => {
     const payloadIn = req.body?.payload && typeof req.body.payload === 'object'
       ? req.body.payload
       : {};
+    if ((payloadIn.source === 'cosign_review_activity' || payloadIn.cosignActivityId)
+      && claim.payload?.source !== 'cosign_review_activity') {
+      return res.status(403).json({ error: { message: 'Manual time cannot be converted to automatically tracked note-signing time.' } });
+    }
     if (claim.payload?.ffsExcess && (!payloadIn.ffsExcess || Number(payloadIn.ffsExcess.periodId)!==Number(claim.payload.ffsExcess.periodId))) return res.status(400).json({error:{message:'Keep this request in its original pay period and edit it using the clinical FFS calculator.'}});
     if (payloadIn.eventTravelReportId || payloadIn.eventTravelReport || payloadIn.source === 'event_travel_report') return res.status(409).json({ error: { message: 'Use the Event travel reimbursement form.' } });
     await assertNoManualSupervisionClaim(claim.payload);
@@ -19170,7 +19177,14 @@ export const updateMyTimeClaim = async (req, res, next) => {
       fromStatus: s
     });
 
-    const categoryGroup = String(payloadIn.categoryGroup || prevPayload.categoryGroup || 'indirect_service').trim();
+    const categoryGroup = String(payloadIn.categoryGroup || prevPayload.categoryGroup || 'indirect_service').trim().toLowerCase();
+    if ((categoryGroup === 'supervision_note' || prevPayload.source === 'cosign_review_activity') && !isAdminRole(req.user?.role)) {
+      const [users] = await pool.execute('SELECT has_supervisor_privileges, role FROM users WHERE id = ? LIMIT 1', [userId]);
+      const user = users?.[0] || {};
+      if (![true, 1, '1'].includes(user.has_supervisor_privileges) && String(user.role || '').toLowerCase() !== 'supervisor') {
+        return res.status(403).json({ error: { message: 'Supervision Note Time is for supervisors only' } });
+      }
+    }
     const serviceCode = serviceCodeForCategoryGroup(categoryGroup)
       || String(payloadIn.serviceCode || prevPayload.serviceCode || '').trim()
       || null;
