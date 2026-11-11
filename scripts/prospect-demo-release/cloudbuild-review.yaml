@@ -1,8 +1,8 @@
 steps:
   - name: gcr.io/cloud-builders/docker
-    args: ['build', '-f', 'scripts/prospect-demo-release/review-frontend.Dockerfile', '-t', 'us-west3-docker.pkg.dev/$PROJECT_ID/onboarding-frontend/onboarding-frontend:champions-review-20261111', '.']
+    args: ['build', '-f', 'scripts/prospect-demo-release/review-frontend.Dockerfile', '-t', 'us-west3-docker.pkg.dev/$PROJECT_ID/onboarding-frontend/onboarding-frontend:champions-review2-20261111', '.']
 images:
-  - us-west3-docker.pkg.dev/$PROJECT_ID/onboarding-frontend/onboarding-frontend:champions-review-20261111
+  - us-west3-docker.pkg.dev/$PROJECT_ID/onboarding-frontend/onboarding-frontend:champions-review2-20261111
 options:
   logging: CLOUD_LOGGING_ONLY
 serviceAccount: projects/ptonboard-dev/serviceAccounts/github-deployer@ptonboard-dev.iam.gserviceaccount.com
