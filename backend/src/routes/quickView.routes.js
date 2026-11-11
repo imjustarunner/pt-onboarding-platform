@@ -1,3 +1,5 @@
+import mobileSchedulingRoutes from './mobileScheduling.routes.js';
+import {getMobileClients,getMobileDirectoryClientSummary} from '../controllers/mobileClients.controller.js';
 import {getMobileWorkspaceCounts,postMobileKnownSender,getMobileInbox,getMobilePreferences,patchMobilePreferences,patchMobileArchive,getMobileChatContext,getMobileFile,patchMobileMessageState,postMobileViewed,getMobileMyWork,getMobileClientRecipients,postMobileClientContact,getMobileChannels} from '../controllers/mobileConversa.controller.js';
 import { getQuickPresence, postQuickAway, postQuickPresenceClear } from '../controllers/quickViewPresence.controller.js';
 import emailDraftRoutes from './emailDraft.routes.js';
@@ -135,6 +137,9 @@ router.get('/messages/channels',requireQuickViewSession,getMobileChannels);
 router.get('/messages/clients',requireQuickViewSession,apiLimiter,getMobileClientRecipients);
 router.post('/messages/clients/:clientId/contact/:action?',requireQuickViewSession,apiLimiter,postMobileClientContact);
 router.post('/messages/email/:id/known-sender',requireQuickViewSession,apiLimiter,postMobileKnownSender);
+router.use('/schedule',requireQuickViewSession,apiLimiter,mobileSchedulingRoutes);
+router.get('/clients',requireQuickViewSession,apiLimiter,getMobileClients);
+router.get('/clients/:clientId/summary',requireQuickViewSession,apiLimiter,getMobileDirectoryClientSummary);
 router.get('/messages/inbox', requireQuickViewSession, getMobileInbox);
 router.get('/messages/preferences', requireQuickViewSession, getMobilePreferences);
 router.patch('/messages/preferences', requireQuickViewSession, patchMobilePreferences);

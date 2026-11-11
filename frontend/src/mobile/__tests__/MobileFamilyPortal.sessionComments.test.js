@@ -43,3 +43,6 @@ it('mounts the shared first-send notice host for the family API fallback without
 it('retains the existing account-settings and sign-out events',async()=>{
  await start('');await wrapper.get('.family-device-tools button').trigger('pointerdown');await wrapper.get('.family-device-tools button').trigger('click');expect(wrapper.emitted('account')).toHaveLength(1);mocks.auth.logout();expect(wrapper.emitted('logout')).toHaveLength(1);expect(mocks.activity).toHaveBeenCalledWith('/activity',{},expect.objectContaining({headers:{'X-Quick-View-Session':familyDeviceContext().sessionToken}}));
 });
+it('clears a teleported private comment when the retained family workspace is privacy-covered',async()=>{
+ const body=await start();expect(body.text()).toContain('Fictional session update');await wrapper.setProps({privateVisible:false});await flushPromises();expect(body.text()).not.toContain('Fictional session update');expect(secureCommentState.selected).toBeNull();expect(wrapper.text()).toContain('Owned family portal');
+});

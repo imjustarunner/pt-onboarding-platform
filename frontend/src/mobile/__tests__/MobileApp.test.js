@@ -8,7 +8,7 @@ vi.mock('axios',()=>({default:{get:mocks.get,post:mocks.quickPost,interceptors:{
 vi.mock('../../services/api',()=>({default:{get:mocks.get,post:mocks.quickPost}}));
 import MobileApp from '../MobileApp.vue';
 const profile={user:{id:1,firstName:'Test',email:'test@example.invalid'},workspace:{id:10,name:'My workspace'},agencies:[{id:10,name:'My workspace'}]};
-async function app(path='/mobile'){const router=createRouter({history:createMemoryHistory(),routes:[{path:'/:pathMatch(.*)*',component:{template:'<span />'}}]});await router.push(path);return mount(MobileApp,{global:{plugins:[router],stubs:{AccountSecurityPanel:{template:'<div>Existing account verification</div>'},QuickView:{props:['mobileSession'],emits:['locked','account','open-workspace-item'],template:'<div data-testid="private-workspace"><button @click="$emit(\'locked\')">Test lock</button><button @click="$emit(\'account\')">My Account</button>Private inbox</div>'}}}});}
+async function app(path='/mobile'){const router=createRouter({history:createMemoryHistory(),routes:[{path:'/:pathMatch(.*)*',component:{template:'<span />'}}]});await router.push(path);return mount(MobileApp,{global:{plugins:[router],stubs:{AccountSecurityPanel:{template:'<div>Existing account verification</div>'},QuickView:{props:['mobileSession'],emits:['locked','account','open-workspace-item','refresh-session'],template:'<div data-testid="private-workspace"><button @click="$emit(\'locked\')">Test lock</button><button @click="$emit(\'account\')">My Account</button>Private inbox</div>'}}}});}
 beforeEach(()=>{vi.resetAllMocks();sessionStorage.clear();localStorage.clear();history.replaceState(null,'','/mobile');mocks.quickPost.mockResolvedValue({});mocks.get.mockResolvedValue({data:profile});mocks.request.mockResolvedValue({data:{signedIn:true,needsCode:false,workspace:profile.workspace}});});
 it('unlocks the scoped account and locks without signing the device out',async()=>{
   const wrapper=await app();await flushPromises();expect(wrapper.text()).toContain('Your account is still signed in');
@@ -98,4 +98,45 @@ it('keeps the exact secure-comment destination after normal family Unlock withou
  mocks.request.mockResolvedValue({data:{sessionToken:'short-lived',userId:1,agencyId:10,expiresAt:new Date(Date.now()+600000),profile:family}});
  await wrapper.find('input[type=password]').setValue('123456');await wrapper.find('form').trigger('submit');await flushPromises();
  expect(wrapper.vm.$route.path).toBe('/mobile/family/qa-family/guardian');expect(wrapper.vm.$route.query).toEqual({panel:'appointments',secureCommentAppointmentId:'101',secureCommentClientId:'10',childId:'10'});wrapper.unmount();
+});
+
+it('starts a fresh staff workspace in Today',async()=>{mocks.request.mockImplementation(async({url})=>({data:url==='/session'?{workspace:profile.workspace,appLock:{method:'none'}}:{sessionToken:'same-token',userId:1,agencyId:10,expiresAt:new Date(Date.now()+600000).toISOString(),profile:{...profile,appLock:{method:'none'}}}}));const w=await app();await flushPromises();expect(w.vm.$router.currentRoute.value.query.view).toBe('calendar');w.unmount();});
+it('keeps a no-extra-lock workspace mounted behind its background privacy cover',async()=>{mocks.request.mockImplementation(async({url})=>({data:url==='/session'?{workspace:profile.workspace,appLock:{method:'none'}}:url==='/activity'?{expiresAt:new Date(Date.now()+600000).toISOString()}:{sessionToken:'same-token',userId:1,agencyId:10,expiresAt:new Date(Date.now()+600000).toISOString(),profile:{...profile,appLock:{method:'none'}}}}));const w=await app();await flushPromises();const node=w.get('[data-testid=private-workspace]').element;const hidden=vi.spyOn(document,'hidden','get');hidden.mockReturnValue(true);document.dispatchEvent(new Event('visibilitychange'));await flushPromises();expect(w.classes()).toContain('privacy-hidden');expect(mocks.quickPost).not.toHaveBeenCalled();hidden.mockReturnValue(false);document.dispatchEvent(new Event('visibilitychange'));await flushPromises();expect(w.classes()).not.toContain('privacy-hidden');expect(w.get('[data-testid=private-workspace]').element).toBe(node);expect(mocks.request.mock.calls.filter(([r])=>r.url==='/resume')).toHaveLength(1);w.unmount();hidden.mockRestore();});
+
+it('does not uncover the workspace when a delayed foreground profile finishes after another background transition',async()=>{
+ mocks.request.mockImplementation(async({url})=>({data:url==='/session'?{workspace:profile.workspace,appLock:{method:'none'}}:url==='/activity'?{expiresAt:new Date(Date.now()+600000).toISOString()}:{sessionToken:'same-token',userId:1,agencyId:10,expiresAt:new Date(Date.now()+600000).toISOString(),profile:{...profile,appLock:{method:'none'}}}}));
+ const hidden=vi.spyOn(document,'hidden','get').mockReturnValue(false),w=await app();await flushPromises();
+ let finishProfile;mocks.get.mockImplementationOnce(()=>new Promise(resolve=>finishProfile=resolve));
+ hidden.mockReturnValue(true);document.dispatchEvent(new Event('visibilitychange'));await flushPromises();
+ hidden.mockReturnValue(false);document.dispatchEvent(new Event('visibilitychange'));await flushPromises();
+ hidden.mockReturnValue(true);document.dispatchEvent(new Event('visibilitychange'));await flushPromises();
+ finishProfile({data:profile});await flushPromises();
+ expect(w.classes()).toContain('privacy-hidden');expect(w.get('.mobile-privacy-cover').exists()).toBe(true);
+ hidden.mockReturnValue(false);document.dispatchEvent(new Event('visibilitychange'));await flushPromises();
+ expect(w.classes()).not.toContain('privacy-hidden');w.unmount();hidden.mockRestore();
+});
+
+it('keeps the privacy cover when an in-flight session renewal completes in the background',async()=>{
+ let resumeCount=0,finishRenew;
+ mocks.request.mockImplementation(async({url})=>{
+  if(url==='/session')return {data:{workspace:profile.workspace,appLock:{method:'none'}}};
+  if(url==='/resume' && ++resumeCount>1)return new Promise(resolve=>finishRenew=resolve);
+  return {data:{sessionToken:'same-token',userId:1,agencyId:10,expiresAt:new Date(Date.now()+600000).toISOString(),profile:{...profile,appLock:{method:'none'}}}};
+ });
+ const hidden=vi.spyOn(document,'hidden','get').mockReturnValue(false),w=await app();await flushPromises();
+ w.findComponent('[data-testid="private-workspace"]').vm.$emit('refresh-session');await flushPromises();
+ hidden.mockReturnValue(true);document.dispatchEvent(new Event('visibilitychange'));await flushPromises();
+ finishRenew({data:{sessionToken:'renewed-token',userId:1,agencyId:10,expiresAt:new Date(Date.now()+600000).toISOString(),profile:{...profile,appLock:{method:'none'}}}});await flushPromises();
+ expect(w.classes()).toContain('privacy-hidden');expect(w.get('.mobile-privacy-cover').exists()).toBe(true);
+ expect(w.findComponent('[data-testid="private-workspace"]').props('mobileSession').sessionToken).toBe('renewed-token');
+ w.unmount();hidden.mockRestore();
+});
+
+it('reveals an initially background-loaded workspace after its first foreground authorization check',async()=>{
+ mocks.request.mockImplementation(async({url})=>({data:url==='/session'?{workspace:profile.workspace,appLock:{method:'none'}}:url==='/activity'?{expiresAt:new Date(Date.now()+600000).toISOString()}:{sessionToken:'same-token',userId:1,agencyId:10,expiresAt:new Date(Date.now()+600000).toISOString(),profile:{...profile,appLock:{method:'none'}}}}));
+ const hidden=vi.spyOn(document,'hidden','get').mockReturnValue(true),w=await app();await flushPromises();
+ expect(w.classes()).toContain('privacy-hidden');
+ hidden.mockReturnValue(false);document.dispatchEvent(new Event('visibilitychange'));await flushPromises();
+ expect(mocks.get).toHaveBeenCalledWith('/profile',expect.anything());expect(w.classes()).not.toContain('privacy-hidden');
+ w.unmount();hidden.mockRestore();
 });

@@ -1,4 +1,4 @@
-const views=new Set(['home','calendar','tasks','mywork','noteaid','contacts','presence']);
+const views=new Set(['home','calendar','tasks','mywork','noteaid','contacts','presence','clients']);
 const id=value=>/^[1-9]\d*$/.test(String(value || ''))?String(value):undefined;
 /** Keep supported, authorized app destinations in this signed-in mobile workspace. */
 export function mobileLinkTarget(href,{workspaceLoginUrl,currentOrigin='https://auricwell.com'}={}) {

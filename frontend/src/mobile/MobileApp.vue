@@ -9,6 +9,7 @@ import {activateClinicalRecovery,clearClinicalRecovery} from './clinicalRecovery
 import {activateFamilyDevice,clearFamilyDevice} from './familyContext.js';
 const AccountSecurityPanel=defineAsyncComponent(()=>import('../components/AccountSecurityPanel.vue'));
 const MobileNotifications=defineAsyncComponent(()=>import('./MobileNotifications.vue'));
+const privacyHidden=ref(false);
 const notificationPanel=ref(false),notificationSettings=ref(false),notificationUnread=ref(0),notificationMounted=ref(false),mobilePreferences=ref({});
 watch(notificationPanel,open=>{if(open)notificationMounted.value=true;});
 const MobileFamilyPortal=defineAsyncComponent(()=>import('./MobileFamilyPortal.vue'));
@@ -20,7 +21,7 @@ const screen=ref('loading'),busy=ref(false),error=ref(''),username=ref(''),organ
 const access=ref(null),profile=ref(null),workspace=ref(null),accountOpen=ref(false),connectAccount=ref(null),connectVerification=ref(null),selectedAgency=ref('');
 const qv=ref(null),notificationStatus=ref(''),biometry=ref(false),accountLoading=ref(false);
 const appLock=ref({method:'none',hasCode:false}),lockChoice=ref('none'),newCode=ref(''),newCodeConfirm=ref(''),lockNotice=ref(''),privacyIntro=ref(false);
-let wasBackground=false;
+let wasBackground=false,resumeFlight=null,activityAt=0;let activityTimer;
 let generation=0,interceptor,deviceListener,pushListener,privacyListener,notificationTimer;
 const accountLink=computed(()=>accountUrl(profile.value?.workspace));
 const securityLink=computed(()=>accountUrl(profile.value?.workspace,'account-security'));
@@ -28,7 +29,25 @@ const preferencesLink=computed(()=>accountUrl(profile.value?.workspace,'preferen
 const connectQuery=()=>Object.fromEntries(new URLSearchParams(window.location.search));
 async function refreshNotificationCount(){const token=access.value?.sessionToken;if(!token||screen.value!=='workspace'||profile.value?.surface==='family')return;try{const data=await notificationRequest('GET','/notification-count');if(access.value?.sessionToken===token)notificationUnread.value=Number(data._total||0);}catch{/* The inbox retains its own retry control. */}}
 watch(()=>access.value?.sessionToken,()=>{notificationUnread.value=0;void refreshNotificationCount();});
-async function notificationRequest(method,path,data={}){try{return (await mobileApi.request({method,url:path,...(method==='GET'?{}:{data}),headers:{'X-Quick-View-Session':access.value?.sessionToken || ''}})).data;}catch(error){if([401,423].includes(error.response?.status))lock();throw error;}}
+async function notificationRequest(method,path,data={}){try{return (await mobileApi.request({method,url:path,...(method==='GET'?{}:{data}),headers:{'X-Quick-View-Session':access.value?.sessionToken || ''}})).data;}catch(error){if([401,423].includes(error.response?.status)){if(appLock.value.method==='none')void renewWorkspace();else lock();}throw error;}}
+function showNotifications(settings=false){return router.push({path:'/mobile/workspace',query:{...route.query,mobilePanel:settings?'notification-settings':'notifications'}});}
+function closeNotifications(){const query={...route.query};delete query.mobilePanel;void router.replace({path:'/mobile/workspace',query});void refreshNotificationCount();}
+watch(()=>route.query.mobilePanel,value=>{notificationPanel.value=value==='notifications'||value==='notification-settings';notificationSettings.value=value==='notification-settings';},{immediate:true});
+async function openMainWorkspace(target){
+ if(!access.value)return;
+ const agency=profile.value?.agencies?.find(item=>Number(item.id)===Number(target.agencyId || workspace.value?.id));
+ if(!agency || !['client','schedule'].includes(target.kind))return;
+ if(native){
+  // Capacitor's current external-window delegate forwards only the URL, not a POST body.
+  // Use ordinary main-app authentication rather than leaking a grant into that URL.
+  const path=target.kind==='client'&&Number.isSafeInteger(Number(target.clientId))&&Number(target.clientId)>0?`admin/clients/${Number(target.clientId)}`:target.kind==='schedule'?'my-schedule':null;
+  if(path)window.open(accountUrl(agency,path),'_blank','noopener,noreferrer');
+  return;
+ }
+ const form=document.createElement('form');form.method='POST';form.target='_blank';const origin=agency.loginUrl?new URL(agency.loginUrl).origin:apiOrigin;form.action=`${origin}/api/mobile/open-main`;form.style.display='none';
+ for(const [name,value] of Object.entries({sessionToken:access.value.sessionToken,kind:target.kind,agencyId:target.agencyId || workspace.value?.id,...(target.clientId?{clientId:target.clientId}:{})})){const input=document.createElement('input');input.type='hidden';input.name=name;input.value=String(value);form.appendChild(input);}
+ document.body.appendChild(form);form.submit();form.remove();
+}
 async function openNotificationEmail(item){
  if(item.type==='secure_session_comment' || item.related_entity_type==='secure_session_comment'){
   let metadata=item.audience_json;try{if(typeof metadata==='string')metadata=JSON.parse(metadata);}catch{return;}
@@ -42,8 +61,8 @@ async function openNotificationEmail(item){
  const id=Number(item.related_entity_id);if(!Number.isSafeInteger(id)||id<1)return;
  const type=item.related_entity_type,query=type==='communication_conversation'?{view:'home',conversationId:String(id)}:type==='chat_thread'?{view:'home',threadId:String(id),suite:'direct'}:type==='task'?{view:'tasks'}:type==='client'?{view:'client',clientId:String(id)}:null;
  if(!query)return;notificationPanel.value=false;
- if(type==='client' && Number(item.agency_id)!==Number(workspace.value?.id))await switchWorkspace(item.agency_id,query);
- else await router.push({path:'/mobile/workspace',query});
+ if(type==='client')query.agencyId=String(item.agency_id);
+ await router.push({path:'/mobile/workspace',query});
  await nextTick();if(type==='communication_conversation')qv.value?.openDeepLink();if(type==='task')qv.value?.openNotificationTask(id);
 }
 async function deviceRequest(method,path,data={}) {
@@ -51,7 +70,8 @@ async function deviceRequest(method,path,data={}) {
   return (await mobileApi.request({method,url:path,data,headers:access.value?{'X-Quick-View-Session':access.value.sessionToken}:{}})).data;
 }
 function applySession(result) {
-  notificationPanel.value=false;notificationMounted.value=false;mobilePreferences.value={};
+  // A background renewal must not uncover private content or the app snapshot.
+  privacyHidden.value=!native && document.hidden;if(privacyHidden.value)wasBackground=true;notificationPanel.value=!!route.query.mobilePanel;notificationSettings.value=route.query.mobilePanel==='notification-settings';notificationMounted.value=notificationPanel.value;mobilePreferences.value={};
   clearFamilyDevice();if(result.profile?.surface==='family')activateFamilyDevice({sessionToken:result.sessionToken,apiOrigin,onLocked:lock});
   activateClinicalRecovery(result.userId || result.profile?.user?.id,result.agencyId || result.profile?.workspace?.id);
   const notifications=profile.value?.user?.id===result.profile.user?.id?profile.value.notifications:null;
@@ -61,9 +81,9 @@ function applySession(result) {
 }
 async function normalizeWorkspaceRoute() {
   if(profile.value?.surface==='family'){const slug=profile.value.workspace?.portal_url || 'family';if(!route.path.startsWith('/mobile/family/'))await router.replace({path:`/mobile/family/${encodeURIComponent(slug)}/guardian`,query:familySessionCommentQuery(route.query)});return;}
-  if(route.path==='/mobile/workspace')return;
+  if(route.path==='/mobile/workspace'){if(!Object.keys(route.query).length)await router.replace({path:'/mobile/workspace',query:{view:'calendar'}});return;}
   const query={...route.query};
-  await router.replace({path:'/mobile/workspace',query:{view:'home'}});
+  await router.replace({path:'/mobile/workspace',query:{view:'calendar'}});
   if(query.conversationId || query.threadId || query.kind || query.secureSessionComments || query.secureCommentAppointmentId)await router.push({path:'/mobile/workspace',query:Object.fromEntries(Object.entries(query).filter(([key])=>['conversationId','threadId','parentId','messageId','secure','kind','id','suite','view','secureSessionComments','secureCommentAppointmentId','secureCommentClientId'].includes(key)))});
 }
 async function detectSession() {
@@ -169,14 +189,32 @@ async function afterOpen() {
   }else if(route.query.kind)await openNotification(location.pathname+location.search);
 }
 function lock() {
-  notificationPanel.value=false;
+  privacyHidden.value=false;notificationPanel.value=false;
   clearFamilyDevice();
   ++generation;
   const old=access.value;access.value=null;profile.value=null;accountOpen.value=false;passcode.value='';confirmCode.value='';newCode.value='';newCodeConfirm.value='';
   if(screen.value==='workspace')screen.value='locked';
   if(old)axios.post(`${quickApiBase}/session/logout`,{},{headers:{'X-Quick-View-Session':old.sessionToken},withCredentials:true}).catch(()=>{});
 }
-function background() {if(native)return;if(document.hidden){wasBackground=true;if(['workspace','locked','loading'].includes(screen.value))lock();}else if(wasBackground){wasBackground=false;if(appLock.value.method==='none' && screen.value==='locked')detectSession();}}
+async function renewWorkspace(){
+ if(resumeFlight)return resumeFlight;if(appLock.value.method!=='none'){lock();return;}
+ const current=generation;resumeFlight=(async()=>{try{const result=await deviceRequest('POST','/resume');if(current!==generation)return;applySession(result);await afterOpen();}catch(e){if(current!==generation)return;lock();error.value=mobileRequestError(e);await detectSession();}finally{resumeFlight=null;}})();return resumeFlight;
+}
+async function maintainWorkspace(force=false){
+ if(document.hidden || screen.value!=='workspace' || !access.value)return;
+ const remaining=new Date(access.value.expiresAt).getTime()-Date.now();
+ if(remaining<=0 && appLock.value.method==='none')return renewWorkspace();
+ if(!force && (appLock.value.method!=='none' || remaining>120000))return;
+ if(Date.now()-activityAt<30000 && !force)return;activityAt=Date.now();const token=access.value.sessionToken;
+ try{const data=await deviceRequest('POST','/activity');if(access.value?.sessionToken===token && data.expiresAt)access.value={...access.value,expiresAt:data.expiresAt};}
+ catch(e){if(access.value?.sessionToken!==token)return;if([401,423].includes(e.response?.status)){if(appLock.value.method==='none')await renewWorkspace();else lock();}}
+}
+function recordWorkspaceActivity(event){if(event.isTrusted && Date.now()-activityAt>=30000)void maintainWorkspace(true);}
+async function background() {
+ if(native)return;
+ if(document.hidden){wasBackground=true;if(screen.value==='workspace' && appLock.value.method==='none')privacyHidden.value=true;else if(['workspace','locked','loading'].includes(screen.value))lock();}
+ else if(wasBackground){wasBackground=false;if(appLock.value.method==='none'){if(access.value){const token=access.value.sessionToken;try{await mobileApi.get('/profile',{headers:{'X-Quick-View-Session':token}});if(access.value?.sessionToken===token && !document.hidden){privacyHidden.value=false;await maintainWorkspace(true);}}catch(e){if(access.value?.sessionToken===token)await renewWorkspace();}}else if(screen.value==='locked')await detectSession();}}
+}
 function restorePage(event){if(!event.persisted)return;if(location.pathname==='/mobile/connect' && connectQuery().clientId==='web'){location.replace('https://auricwell.com/mobile');return;}lock();detectSession();}
 function recoverSignIn(){lock();screen.value='signin';error.value='';}
 async function saveAppLock(){
@@ -270,9 +308,10 @@ async function openNotification(url) {
   }catch(e){error.value=mobileRequestError(e);}
 }
 onMounted(async()=>{
+  activityTimer=setInterval(()=>{void maintainWorkspace();},45000);document.addEventListener('pointerdown',recordWorkspaceActivity,{passive:true});document.addEventListener('keydown',recordWorkspaceActivity);
   notificationTimer=setInterval(()=>{if(!document.hidden)void refreshNotificationCount();},30000);
   document.addEventListener('visibilitychange',background);window.addEventListener('pageshow',restorePage);
-  interceptor=axios.interceptors.response.use(r=>r,e=>{const failed=e.config?.headers?.get?.('X-Quick-View-Session') || e.config?.headers?.['X-Quick-View-Session'];if(access.value && failed===access.value.sessionToken && [401,423].includes(e.response?.status))lock();return Promise.reject(e);});
+  interceptor=axios.interceptors.response.use(r=>r,e=>{const failed=e.config?.headers?.get?.('X-Quick-View-Session') || e.config?.headers?.['X-Quick-View-Session'];if(access.value && failed===access.value.sessionToken && [401,423].includes(e.response?.status)){if(appLock.value.method==='none')void renewWorkspace();else lock();}return Promise.reject(e);});
   if(native){
     try {biometry.value=(await MobileDevice.status()).biometrics;deviceListener=await MobileDevice.addListener('deviceLocked',lock);privacyListener=await MobileDevice.addListener('privacyReady',async()=>{if(appLock.value.method==='none' && screen.value==='locked' && !busy.value)await detectSession();await nextTick();await MobileDevice.reveal();});pushListener=await MobileDevice.addListener('notificationTapped',event=>openNotification(event.url));}catch{error.value='This native build needs the Auricwell device plugin.';}
   }
@@ -282,16 +321,17 @@ onMounted(async()=>{
   if(native){await nextTick();await MobileDevice.reveal();}
 });
 onUnmounted(()=>{
-  clearInterval(notificationTimer);lock();document.removeEventListener('visibilitychange',background);window.removeEventListener('pageshow',restorePage);axios.interceptors.response.eject(interceptor);deviceListener?.remove();pushListener?.remove();privacyListener?.remove();});
+  clearInterval(notificationTimer);clearInterval(activityTimer);document.removeEventListener('pointerdown',recordWorkspaceActivity);document.removeEventListener('keydown',recordWorkspaceActivity);lock();document.removeEventListener('visibilitychange',background);window.removeEventListener('pageshow',restorePage);axios.interceptors.response.eject(interceptor);deviceListener?.remove();pushListener?.remove();privacyListener?.remove();});
 </script>
 
 <template>
-  <div class="mobile-app">
+  <div class="mobile-app" :class="{'privacy-hidden':privacyHidden}">
+    <div v-if="privacyHidden" class="mobile-privacy-cover" role="status">AuricWell · Workspace protected</div>
     <template v-if="screen==='workspace' && access">
 
-      <MobileFamilyPortal v-if="profile?.surface==='family'" :key="access.sessionToken" :profile="profile" @logout="signOut" @account="showAccount"/>
-      <QuickView v-else :key="access.sessionToken" ref="qv" :mobile-session="access" :notification-unread="notificationUnread" :overlay-open="notificationPanel || accountOpen" @locked="lock" @account="showAccount" @notifications="notificationSettings=false;notificationPanel=true" @open-workspace-item="openWorkspaceItem" @preferences="mobilePreferences=$event" />
-      <MobileNotifications v-if="notificationMounted && profile?.surface!=='family'" v-show="notificationPanel" :visible="notificationPanel" :preferences="mobilePreferences" :key="access.sessionToken" :request="notificationRequest" :workspace-id="workspace?.id" :start-in-settings="notificationSettings" @close="notificationPanel=false;refreshNotificationCount()" @changed="refreshNotificationCount" @open="openNotificationEmail" />
+      <MobileFamilyPortal v-if="profile?.surface==='family'" :key="access.sessionToken" :profile="profile" :private-visible="!privacyHidden" @logout="signOut" @account="showAccount"/>
+      <QuickView v-else :key="access.sessionToken" ref="qv" :mobile-session="access" :notification-unread="notificationUnread" :privacy-hidden="privacyHidden" :overlay-open="notificationPanel || accountOpen || privacyHidden" @locked="lock" @refresh-session="renewWorkspace" @open-main="openMainWorkspace" @account="showAccount" @notifications="showNotifications(false)" @open-workspace-item="openWorkspaceItem" @preferences="mobilePreferences=$event" />
+      <MobileNotifications v-if="notificationMounted && profile?.surface!=='family'" v-show="notificationPanel" :visible="notificationPanel" :preferences="mobilePreferences" :key="access.sessionToken" :request="notificationRequest" :workspace-id="workspace?.id" :start-in-settings="notificationSettings" @close="closeNotifications" @settings-change="showNotifications($event)" @changed="refreshNotificationCount" @open="openNotificationEmail" />
       <p v-if="error && !accountOpen" class="workspace-error" role="alert">{{ error }} <button @click="error=''" aria-label="Dismiss workspace error">×</button></p>
       <div v-if="accountOpen" class="mobile-overlay" @keydown.esc="accountOpen=false">
         <section class="mobile-card account" role="dialog" aria-modal="true" aria-labelledby="account-title">
@@ -356,4 +396,8 @@ onUnmounted(()=>{
 <style>
 .workspace-error{position:fixed;top:calc(76px + env(safe-area-inset-top));left:12px;right:12px;z-index:90;margin:0;padding:12px 42px 12px 14px;background:#fff3f5;color:#a32c43;border:1px solid #f0cbd4;border-radius:10px;box-shadow:0 5px 20px #183b6b16;font-size:14px}.workspace-error button{position:absolute;right:8px;top:5px;border:0;background:transparent;color:inherit;font-size:26px;cursor:pointer}
 html,body,#app{margin:0;min-height:100%;font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#183154}*{box-sizing:border-box}.mobile-app{min-height:100dvh;background:#f3f6fc}.mobile-gate{min-height:100dvh;display:flex;flex-direction:column;align-items:center;padding:calc(30px + env(safe-area-inset-top)) 22px calc(24px + env(safe-area-inset-bottom));background:radial-gradient(ellipse at 90% 0,#e5edff,transparent 65%)}.mobile-gate header{align-self:flex-start;margin-bottom:60px}.mobile-card{width:min(100%,460px);background:white;border:1px solid #e0e8f5;border-radius:24px;padding:34px;box-shadow:0 20px 60px #2348780a}.mobile-card h1{font-size:30px;line-height:1.15;letter-spacing:-1px;margin:0 0 16px}.mobile-card h2{font-size:17px;display:flex;gap:8px;align-items:center;margin-top:28px}.mobile-card p{font-size:15px;line-height:1.65;color:#657891}.mobile-card label{display:block;font-size:14px;font-weight:600;margin:25px 0 18px}.mobile-card input,.mobile-card select{display:block;width:100%;font:inherit;padding:15px 16px;border:1px solid #cfdaec;border-radius:12px;margin-top:10px;background:#fafcff;color:#183154;min-height:50px}.mobile-card input[type=password]{letter-spacing:10px;text-align:center;font-size:22px}.mobile-card button,.mobile-card a{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:14px 18px;border:1px solid transparent;border-radius:12px;font:inherit;font-size:14px;font-weight:600;background:#285fe8;color:white;min-height:48px;text-decoration:none;cursor:pointer;margin-top:12px}.mobile-card button:disabled{opacity:.55;cursor:wait}.mobile-card .secondary,.mobile-card a{background:#f1f5fc;color:#254978;border-color:#e1e9f6}.mobile-card .text-button{background:transparent;color:#526a8d;font-weight:400}.mobile-card .small{font-size:12px;margin-top:23px}.mobile-card .error{color:#a32c43;background:#fff3f5;padding:12px;border-radius:10px}.mobile-card .eyebrow{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px}.gate-icon{display:inline-flex;padding:15px;border-radius:16px;background:#eff4ff;color:#3165da;margin-bottom:14px}.mobile-gate footer{font-size:12px;color:#7788a0;margin-top:30px;text-align:center}.mobile-account-button{position:fixed;right:20px;bottom:calc(84px + env(safe-area-inset-bottom));z-index:40;display:flex;gap:7px;align-items:center;padding:12px 16px;background:#fff;border:1px solid #d6e1f3;box-shadow:0 5px 20px #183b6b16;color:#254978;border-radius:30px;font:inherit;font-size:12px;cursor:pointer}.mobile-overlay{position:fixed;inset:0;background:#152b4d80;backdrop-filter:blur(10px);z-index:100;display:grid;place-items:center;padding:20px}.mobile-card.account{position:relative;max-height:calc(100dvh - 40px);overflow:auto}.mobile-card .close{position:absolute;right:14px;top:8px;background:transparent;color:#607796;width:35px;padding:0;min-height:35px;font-size:26px}.mobile-card .danger{color:#9c3345}:focus-visible{outline:3px solid #80acff;outline-offset:3px}@media(min-width:1000px){.mobile-account-button{bottom:24px}.mobile-gate header{margin-bottom:80px}}@media(max-width:500px){.mobile-card{padding:26px}.mobile-gate header{margin-bottom:40px}}
+</style>
+
+<style scoped>
+.mobile-app.privacy-hidden>:not(.mobile-privacy-cover){visibility:hidden;pointer-events:none}.mobile-privacy-cover{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;background:#f4f7fc;color:#203b60;font:16px system-ui}
 </style>

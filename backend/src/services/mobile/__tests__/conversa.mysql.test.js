@@ -3,6 +3,7 @@ import mysql from 'mysql2/promise';import {readFile} from 'node:fs/promises';
 vi.mock('../../../config/database.js',()=>({default:{execute:vi.fn()},onTableWrite:vi.fn()}));
 import {reserveSecureDelivery} from '../secureInvitation.service.js';
 import {createMobileConversaStore,mobileThreadItem,normalizeMobilePreferences,requireMobileThreadMembership} from '../conversa.service.js';
+import {mobileEmailSchoolIdentities} from '../emailSchoolIdentity.service.js';
 import {recordSchoolGroupEmail} from '../../schoolGroupEmailInbox.service.js';
 it('uses names rather than numeric thread IDs and separates group conversations from direct messages',()=>{
  const base={thread_id:8,thread_type:'direct',participants:[{id:2,first_name:'Ari',last_name:'Example'},{id:3,first_name:'Sam',last_name:'Example'}],last_message:{body:'Hello',sender_user_id:2}};
@@ -12,7 +13,7 @@ it('uses names rather than numeric thread IDs and separates group conversations 
 it('normalizes swipe and shortcut preferences without accepting unsupported destinations',()=>{
  expect(normalizeMobilePreferences({swipeLeft:'delete-everything',pinnedNavigation:['mywork','admin','mywork','home'],usage:{admin:100,home:4}})).toMatchObject({swipeLeft:'archive',swipeRight:'read',pinnedNavigation:['mywork','home'],usage:{home:4}});
 });
-it('keeps four ordered bottom shortcuts and validates slot counts',()=>{expect(normalizeMobilePreferences({navigationMode:'pinned',navigationSlots:4,pinnedNavigation:['home','notifications','tasks','mywork']})).toMatchObject({navigationSlots:4,pinnedNavigation:['home','notifications','tasks','mywork']});expect(normalizeMobilePreferences({navigationSlots:99})).toMatchObject({navigationSlots:'automatic'});});
+it('keeps four ordered bottom shortcuts and validates slot counts',()=>{expect(normalizeMobilePreferences({navigationMode:'pinned',navigationSlots:4,pinnedNavigation:['home','notifications','tasks','mywork']})).toMatchObject({navigationSlots:4,pinnedNavigation:['home','notifications','tasks','mywork']});expect(normalizeMobilePreferences({navigationSlots:99})).toMatchObject({navigationSlots:4});});
 it('shares fresh email authorization within one inbox request and rechecks on the next',async()=>{let reads=0;const db={execute:async()=>[[]]},store=createMobileConversaStore(db,{listAgencies:async()=>{reads++;return {agencies:[{id:2}]};}});expect(await store.emailInbox(1,{suite:'email'})).toEqual([[],[]]);expect(reads).toBe(1);await store.emailInbox(1,{suite:'all'});expect(reads).toBe(2);});
 describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('personal mobile inbox SQL',()=>{
  let admin,db,store;const name=`auricwell_conversa_test_${process.pid}`;
@@ -25,12 +26,12 @@ describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('personal mobile inbox SQL',
     CREATE TABLE chat_thread_reads(thread_id INT,user_id INT,last_read_message_id INT);CREATE TABLE chat_message_views(message_id INT,user_id INT);
     CREATE TABLE chat_message_deletes(message_id INT,user_id INT);CREATE TABLE chat_message_mentions(message_id INT,mentioned_user_id INT);
     CREATE TABLE chat_message_attachments(id INT PRIMARY KEY,message_id INT);
-    CREATE TABLE agencies(id INT PRIMARY KEY,is_active BOOLEAN DEFAULT 1,is_archived BOOLEAN DEFAULT 0);
+    CREATE TABLE agencies(id INT PRIMARY KEY,is_active BOOLEAN DEFAULT 1,is_archived BOOLEAN DEFAULT 0,name VARCHAR(120),logo_url VARCHAR(255),icon_id INT,organization_type VARCHAR(30));CREATE TABLE icons(id INT PRIMARY KEY,file_path VARCHAR(255));CREATE TABLE school_profiles(school_organization_id INT,itsco_email VARCHAR(320) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci);CREATE TABLE organization_affiliations(organization_id INT,agency_id INT,is_active BOOLEAN);
     CREATE TABLE users(id INT PRIMARY KEY,email VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,work_email VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci,personal_email VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci,role VARCHAR(40) DEFAULT 'provider');
     CREATE TABLE user_agencies(user_id INT,agency_id INT,is_active BOOLEAN DEFAULT 1);
     CREATE TABLE communication_inboxes(id INT PRIMARY KEY,agency_id INT DEFAULT 10,identity_key VARCHAR(60),kind VARCHAR(20),display_name VARCHAR(255),owner_user_id INT,from_email VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci);
     CREATE TABLE communication_conversations(id INT PRIMARY KEY,agency_id INT,inbox_id INT,owner_user_id INT,channel VARCHAR(20),subject VARCHAR(100),status ENUM('new','needs_reply','waiting_on_them','follow_up','resolved'),last_message_preview TEXT,last_message_at DATETIME,created_at DATETIME,archived_at DATETIME,is_spam BOOLEAN DEFAULT 0,support_ticket_id INT NULL,is_unknown_sender BOOLEAN DEFAULT 0,external_thread_id VARCHAR(80));
-    CREATE TABLE communication_messages(id INT PRIMARY KEY,author_user_id INT,conversation_id INT,direction VARCHAR(20),is_internal_note BOOLEAN DEFAULT 0,send_status VARCHAR(20),sent_at DATETIME,created_at DATETIME,from_json JSON);
+    CREATE TABLE communication_messages(id INT PRIMARY KEY,author_user_id INT,conversation_id INT,direction VARCHAR(20),is_internal_note BOOLEAN DEFAULT 0,send_status VARCHAR(20),sent_at DATETIME,created_at DATETIME,from_json JSON,to_json JSON,cc_json JSON,auto_reply_kind VARCHAR(60));
     CREATE TABLE communication_conversation_reads(conversation_id INT,user_id INT,forced_unread BOOLEAN DEFAULT 0,last_read_at DATETIME);
     CREATE TABLE communication_participants(id INT PRIMARY KEY,conversation_id INT,is_primary BOOLEAN,email VARCHAR(100),display_name VARCHAR(100));
     CREATE TABLE managed_workspace_groups(id INT PRIMARY KEY,agency_id INT DEFAULT 10,chat_thread_id INT,label VARCHAR(255),email VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci);CREATE TABLE email_sender_identities(id INT PRIMARY KEY,from_email VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci,is_active BOOLEAN DEFAULT 1);
@@ -42,7 +43,7 @@ describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('personal mobile inbox SQL',
  });
  afterAll(async()=>{await db?.end();if(admin){await admin.query(`DROP DATABASE IF EXISTS ${name}`);await admin.end();}});
  beforeEach(async()=>{
-  await db.query(`TRUNCATE support_tickets;TRUNCATE user_communication_contacts;TRUNCATE mobile_secure_deliveries;TRUNCATE chat_threads;TRUNCATE chat_thread_participants;TRUNCATE chat_messages;TRUNCATE chat_thread_reads;TRUNCATE chat_message_views;TRUNCATE chat_message_deletes;TRUNCATE chat_message_mentions;TRUNCATE chat_message_attachments;TRUNCATE mobile_message_archives;TRUNCATE mobile_workspace_preferences;TRUNCATE communication_conversations;TRUNCATE communication_messages;TRUNCATE communication_participants;TRUNCATE communication_conversation_reads;TRUNCATE users;TRUNCATE user_agencies;TRUNCATE agencies;TRUNCATE managed_workspace_groups;TRUNCATE email_sender_identities;TRUNCATE communication_inboxes;
+  await db.query(`TRUNCATE icons;TRUNCATE school_profiles;TRUNCATE organization_affiliations;TRUNCATE support_tickets;TRUNCATE user_communication_contacts;TRUNCATE mobile_secure_deliveries;TRUNCATE chat_threads;TRUNCATE chat_thread_participants;TRUNCATE chat_messages;TRUNCATE chat_thread_reads;TRUNCATE chat_message_views;TRUNCATE chat_message_deletes;TRUNCATE chat_message_mentions;TRUNCATE chat_message_attachments;TRUNCATE mobile_message_archives;TRUNCATE mobile_workspace_preferences;TRUNCATE communication_conversations;TRUNCATE communication_messages;TRUNCATE communication_participants;TRUNCATE communication_conversation_reads;TRUNCATE users;TRUNCATE user_agencies;TRUNCATE agencies;TRUNCATE managed_workspace_groups;TRUNCATE email_sender_identities;TRUNCATE communication_inboxes;
     INSERT INTO agencies(id) VALUES(10),(20);
     INSERT INTO users(id,email,work_email,personal_email) VALUES(1,'owner@example.invalid',NULL,NULL),(2,'staff@example.invalid',NULL,'personal@example.invalid');
     INSERT INTO user_agencies VALUES(1,10,1),(2,10,1);
@@ -64,6 +65,21 @@ describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('personal mobile inbox SQL',
   const grouped=createMobileConversaStore(db,{listAgencies:async()=>({agencies:[{id:10}]}),groupAccess:async()=>true});
   expect((await grouped.emails(1,{suite:'groups'}))).toHaveLength(4);expect((await grouped.emails(1,{suite:'groups',filter:'unread'})).map(i=>i.id)).toEqual([1]);expect((await grouped.emails(1,{suite:'groups'}))[0]).toMatchObject({groupName:'Support',destinationAccount:'support@example.invalid'});expect((await grouped.emailCounts(1)).find(c=>c.category==='groups').unread).toBe(1);
   await db.execute('UPDATE support_tickets SET claimed_by_user_id=2 WHERE id=1');expect(await grouped.emails(1,{suite:'groups',filter:'unread'})).toHaveLength(0);
+ });
+ it('uses the exact school recipient logo with mixed collations, not a school named in the subject',async()=>{
+  await mail(1);
+  await db.query("INSERT INTO agencies(id,name,organization_type,logo_url,icon_id) VALUES(77,'Bradley','school','fallback.png',8);INSERT INTO icons VALUES(8,'schools/bradley-icon.png');INSERT INTO school_profiles VALUES(77,'Bradley@Example.invalid');INSERT INTO organization_affiliations VALUES(77,10,1)");
+  await db.execute("UPDATE communication_messages SET auto_reply_kind='school_group_notification',to_json=JSON_ARRAY(JSON_OBJECT('email','bradley@example.invalid')) WHERE conversation_id=1");
+  const candidates=[{id:1,latest_kind:'school_group_notification'}];
+  const identities=await mobileEmailSchoolIdentities(candidates,{db});
+  expect(identities.get(1)).toMatchObject({schoolId:77,schoolName:'Bradley',avatar:expect.stringContaining('bradley-icon.png')});
+  await db.execute("UPDATE communication_messages SET to_json=JSON_ARRAY(),cc_json=JSON_ARRAY(JSON_OBJECT('email',' BRADLEY@example.invalid ')) WHERE conversation_id=1");
+  expect((await mobileEmailSchoolIdentities(candidates,{db})).get(1)?.schoolId).toBe(77);
+  await db.execute('UPDATE communication_conversations SET agency_id=20 WHERE id=1');
+  expect((await mobileEmailSchoolIdentities(candidates,{db})).size).toBe(0);
+  await db.execute('UPDATE communication_conversations SET agency_id=10 WHERE id=1');
+  await db.execute('UPDATE organization_affiliations SET is_active=0');
+  expect((await mobileEmailSchoolIdentities(candidates,{db})).size).toBe(0);
  });
  it('keeps non-ticket school notifications unread per user in both Groups and All',async()=>{
   await db.query("INSERT INTO communication_inboxes(id,agency_id,kind,identity_key,display_name,from_email) VALUES(5,10,'shared','schools','Schools','schools@example.invalid')");
@@ -179,3 +195,5 @@ describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('personal mobile inbox SQL',
  });
 
 });
+
+it('keeps navigation fixed even when an older device submits usage ordering',()=>{expect(normalizeMobilePreferences({navigationMode:'automatic',usage:{home:100000},pinnedNavigation:['mywork','home']})).toMatchObject({navigationMode:'pinned',lockedNavigation:'calendar',pinnedNavigation:['mywork','home'],navigationSlots:4});});

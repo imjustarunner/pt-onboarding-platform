@@ -25,6 +25,7 @@ import { createChunkLoadRecovery, installChunkLoadRecovery } from './utils/chunk
 import api from './services/api.js';
 import { verifyStartupSession } from './utils/startupSession.js';
 import { isDemoWindowSession } from './utils/demoWindowSession.js';
+import { prepareMobileMainHandoff, completeMobileMainHandoff } from './utils/mobileMainHandoff.js';
 
 /** Bump when shell assets change materially (forces one reload so users pick up new schedule UI). */
 const APP_SHELL_VERSION = '2026-09-25-plot-twist-brand-settings';
@@ -46,6 +47,7 @@ async function bootstrap() {
       return;
     }
   }
+  const mobileMainHandoff = prepareMobileMainHandoff();
   if (isStandalonePwa()) {
     document.documentElement.classList.add('is-standalone-pwa');
     document.documentElement.setAttribute('data-display-mode', 'standalone');
@@ -59,7 +61,18 @@ async function bootstrap() {
 
   app.use(pinia);
   const authStore = useAuthStore(pinia);
-  await verifyStartupSession({
+  if (mobileMainHandoff) {
+    try {
+      await completeMobileMainHandoff({
+        api, authStore, agencyStore: useAgencyStore(pinia), handoff: mobileMainHandoff,
+        startActivityTracking: async options => (await import('./utils/activityTracker.js')).startActivityTracking(options)
+      });
+    } catch {
+      // A marker cannot authorize cached identity. Normal sign-in, lock and MFA
+      // recovery stay in force when the new cookie cannot be verified.
+      authStore.clearAuth();
+    }
+  } else await verifyStartupSession({
     api, authStore,
     route: router.resolve(window.location.pathname + window.location.search + window.location.hash),
     demo: isDemoWindowSession()

@@ -1,5 +1,5 @@
 import {it,expect} from 'vitest';
-import {mobileQaScope,assertMobileQaInputs,enforceMobileQaBoundary,qaClinicalRouteAllowed} from '../qaScope.service.js';
+import {mobileQaScope,assertMobileQaInputs,enforceMobileQaBoundary,qaClinicalRouteAllowed,qaScheduleRouteAllowed} from '../qaScope.service.js';
 const user={id:1433,email:'qa.provider.auricwell@example.com',role:'provider',is_demo:1,is_active:1,is_archived:0,status:'ACTIVE_EMPLOYEE'};
 const agency={id:450,slug:'auricwell-qa-demo',feature_flags:{qaSandbox:{syntheticOnly:true}}};
 it('reuses only the approved identity and exact clinical synthetic tenant, excluding other memberships',()=>{
@@ -51,4 +51,18 @@ it('requires canonical resolved IDs for direct messaging parameters too',async()
 it('allowlists each supported clinical workflow explicitly by HTTP method',()=>{
  for(const[method,path]of [['GET','/clinical/context'],['GET','/clinical/clients/1/summary'],['GET','/clinical/assessments/client_document/1/view'],['GET','/clinical/assessments/session_material/1/view'],['GET','/clinical/service-reference/PRO_BONO_SERVICE'],['GET','/clinical/narriva/reviews/1'],['GET','/clinical/narriva/notes/1/status'],['GET','/clinical/sessions/1/service'],['GET','/clinical/notes/1'],['GET','/clinical/recording/session/1/narrative'],['GET','/clinical/recording/session/1/consent/2/pdf'],['POST','/clinical/assessments/1/scan'],['POST','/clinical/sessions/1/notes'],['POST','/clinical/notes/1/cosign'],['POST','/clinical/objectives/1/ratings'],['POST','/clinical/recording/session/1/audio'],['POST','/clinical/recording/session/1/consent/2/sign'],['PATCH','/clinical/drafts/1'],['PATCH','/clinical/narriva/reviews/1/findings'],['PATCH','/clinical/narriva/preferences']])expect(qaClinicalRouteAllowed(method,path)).toBe(true);
  expect(qaClinicalRouteAllowed('GET','/clinical/future-records')).toBe(false);
+});
+
+it('allowlists dedicated personal scheduling actions with canonical IDs and exact methods only',async()=>{
+ const req={quickView:{qaAgencyIds:[450],agencyId:450,mobileDeviceSessionId:2},query:{agencyId:450},body:{agencyId:450}};
+ for(const[method,path]of [['GET','/schedule/options'],['POST','/schedule/appointments'],['GET','/schedule/appointments/1'],['PATCH','/schedule/appointments/1'],['POST','/schedule/appointments/1/cancel']]){
+  expect(qaScheduleRouteAllowed(method,path)).toBe(true);
+  await expect(enforceMobileQaBoundary({...req,method,originalUrl:'/api/quick-view'+path})).resolves.toBeUndefined();
+ }
+ for(const id of ['0','01','1e0','1.0','+1','0x1','%31','1%2f2','9007199254740993'])for(const method of ['GET','POST','PATCH','DELETE'])expect(qaScheduleRouteAllowed(method,'/schedule/appointments/'+id)).toBe(false);
+ for(const[method,path]of [['PATCH','/schedule/options'],['GET','/schedule/appointments'],['DELETE','/schedule/appointments/1'],['GET','/schedule/appointments/1/cancel'],['POST','/schedule/appointments/1/settle'],['POST','/schedule/proxy']]){
+  expect(qaScheduleRouteAllowed(method,path)).toBe(false);
+  await expect(enforceMobileQaBoundary({...req,method,originalUrl:'/api/quick-view'+path})).rejects.toMatchObject({status:403});
+ }
+ await expect(enforceMobileQaBoundary({...req,method:'POST',body:{agencyId:456},originalUrl:'/api/quick-view/schedule/appointments'})).rejects.toMatchObject({status:403});
 });

@@ -39,17 +39,18 @@ const matches=(item,filter)=>filter==='unread'?item.unread:filter==='needs'?item
 export const getMobileInbox=mobile(async(req,res)=>{
   const userId=req.quickView.userId,includeArchived=req.query.includeArchived==='1',cursor=parseCursor(req.query.cursor);
   const suite=String(req.query.suite || 'all'),filter=String(req.query.filter || 'all');
-  const qaAgencyId=mobileQaAgencyId(req);
+  const qaAgencyId=mobileQaAgencyId(req),countsOnly=req.query.countsOnly==='1';
   const [rawThreads,[emails,emailCounts],archives]=await Promise.all([
-    invoke(qvListChatThreads,req,{agencyId:qaAgencyId || 'all'}),mobileConversaStore.emailInbox(userId,{includeArchived,beforeAt:cursor?.at,beforeKey:cursor?.key,suite,filter,agencyId:qaAgencyId}),mobileConversaStore.archives(userId)
+    invoke(qvListChatThreads,req,{agencyId:qaAgencyId || 'all'}),(countsOnly?mobileConversaStore.emailCounts(userId,includeArchived,qaAgencyId).then(counts=>[[],counts]):mobileConversaStore.emailInbox(userId,{includeArchived,beforeAt:cursor?.at,beforeKey:cursor?.key,suite,filter,agencyId:qaAgencyId})),mobileConversaStore.archives(userId)
   ]);
   let chats=(Array.isArray(rawThreads)?rawThreads:rawThreads.threads || []).filter(thread=>(!qaAgencyId||Number(thread.agency_id)===qaAgencyId)&&hasMobileThreadActivity(thread)).map(thread=>({...mobileThreadItem(thread,userId),archived:archives.has(`chat:${thread.thread_id}`)}));
   if(!includeArchived)chats=chats.filter(item=>!item.archived);
-  const counts=await mobileConversaStore.extraCounts(userId,chats.filter(item=>!item.secure).map(item=>item.id));
+  const counts=countsOnly?{}:await mobileConversaStore.extraCounts(userId,chats.filter(item=>!item.secure).map(item=>item.id));
   for(const category of ['direct','groups','channels','secure'])counts[category]=countsFor(chats.filter(i=>i.category===category));
   for(const category of ['email','sms','unknown'])counts[category]={total:0,unread:0,needs:0,sent:0};
   for(const row of emailCounts){const key=row.unknown && row.category!=='groups'?'unknown':row.category;for(const field of ['total','unread','needs','sent'])counts[key][field]+=(row[field]||0);}
   counts.all=['direct','groups','channels','secure','email','sms','unknown'].map(key=>counts[key]).reduce((sum,c)=>({total:sum.total+c.total,unread:sum.unread+c.unread,needs:sum.needs+c.needs,sent:sum.sent+(c.sent||0)}),{total:0,unread:0,needs:0,sent:0});
+  if(countsOnly)return res.json({counts});
   // Unknown mail remains in its own folder, while All really includes every source.
   let availableChannels=[];
   if(['all','channels'].includes(suite)&&!qaAgencyId){

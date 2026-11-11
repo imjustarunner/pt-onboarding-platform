@@ -18,8 +18,8 @@
 
     <nav v-if="session" class="qv-tabs" aria-label="Primary navigation">
       <span class="qv-nav-caption">WORKSPACE</span>
-      <button v-for="item in primaryNavigation" :key="item.id" type="button" :class="{ on: activeDestination === item.id }" :aria-current="activeDestination === item.id ? 'page' : undefined" :aria-expanded="item.id === 'more' ? moreOpen : undefined" :aria-controls="item.id === 'more' ? 'qv-more-tools' : undefined" @click="navigateTo(item.id)">
-        <component :is="item.icon" :size="21" :stroke-width="1.8" aria-hidden="true" /><span>{{ item.label }}</span><span v-if="isMobile && navigationBadge(item.id)" class="qv-nav-badge">{{ navigationBadge(item.id) }}</span>
+      <button v-for="item in primaryNavigation" :key="item.id" type="button" :class="{ on: activeDestination === item.id, 'qv-fixed-shortcut':isMobile && item.id===(workspacePreferences.lockedNavigation || 'calendar') }" :aria-current="activeDestination === item.id ? 'page' : undefined" :aria-expanded="item.id === 'more' ? moreOpen : undefined" :aria-controls="item.id === 'more' ? 'qv-more-tools' : undefined" @click="navigateTo(item.id)">
+        <component :is="item.icon" :size="21" :stroke-width="1.8" aria-hidden="true" /><span>{{ item.label }}</span><span v-if="isMobile && ['home','mywork','tasks'].includes(item.id) && navigationBadge(item.id)!==0" class="qv-nav-badge" :aria-label="navigationBadge(item.id)==null ? item.label+' count loading' : undefined">{{ navigationBadge(item.id) ?? '…' }}</span>
       </button>
       <div class="qv-nav-footer">
         <div class="qv-nav-note"><LockKeyhole :size="16" aria-hidden="true" /><span>Your workspace locks<br />when you're away.</span></div>
@@ -89,7 +89,7 @@
         <span class="qv-workspace-tag">QUICK VIEW</span>
       </div>
       <div v-if="sendNotice" class="qv-notice" role="status">{{ sendNotice }} <button v-if="undoSend" type="button" class="qv-btn ghost sm" @click="undoEmail">Undo send</button></div>
-      <div v-if="remainingSeconds<=120" class="qv-lock-warning" role="status"><Clock3 :size="18" aria-hidden="true" /><span>Quick View locks in {{ remainingSeconds }} seconds.</span><button class="qv-btn primary sm" :disabled="extendBusy" @click="extendSession">Keep me signed in</button></div>
+      <div v-if="remainingSeconds<=120 && (!isMobile || mobileSession.profile?.appLock?.method!=='none')" class="qv-lock-warning" role="status"><Clock3 :size="18" aria-hidden="true" /><span>Quick View locks in {{ remainingSeconds }} seconds.</span><button class="qv-btn primary sm" :disabled="extendBusy" @click="extendSession">Keep me signed in</button></div>
       <section id="qv-more-tools" v-show="moreOpen" class="qv-more-panel" role="region" aria-label="More tools">
         <div class="qv-tool-grid">
           <button v-for="item in secondaryNavigation" :key="item.id" type="button" class="qv-tool-card" :aria-label="item.label" @click="navigateTo(item.id)"><span class="qv-tool-icon"><component :is="item.icon" :size="23" aria-hidden="true" /></span><span><strong>{{ item.label }}</strong><small>{{ item.description }}</small></span><ChevronRight :size="18" aria-hidden="true" /></button>
@@ -99,14 +99,16 @@
       </section>
       <div v-show="!moreOpen" class="qv-content" :aria-busy="navigationBusy || undefined">
       <QuickViewPresence v-if="tab==='presence'" :http="presenceHttp" />
-      <SecureSessionCommentsHost v-if="isMobile" :user-id="sessionUserId" :enabled="!!session" :scope-key="commentScopeGeneration" schedule-path="/mobile/workspace" :schedule-query="{view:'calendar'}" />
-      <FamilySharingNoticeHost v-if="isMobile" :user-id="sessionUserId" :enabled="!!session" :scope-key="commentScopeGeneration" />
+      <SecureSessionCommentsHost v-if="isMobile" :user-id="sessionUserId" :enabled="!!session && !privacyHidden" :scope-key="commentScopeGeneration" schedule-path="/mobile/workspace" :schedule-query="{view:'calendar'}" />
+      <FamilySharingNoticeHost v-if="isMobile" :user-id="sessionUserId" :enabled="!!session && !privacyHidden" :scope-key="commentScopeGeneration" />
       <MobileMessages v-if="isMobile" v-show="tab==='home' || tab==='chat'" ref="mobileMessages" :api-base="apiBase" :session-token="session" :user-id="sessionUserId" :visible="!overlayOpen && !moreOpen && (tab==='home' || tab==='chat')" :preferences="workspacePreferences" @open-email="openMobileConversation" @access-denied="clearCachedEmailAccess" @compose-email="openMobileEmailDraft" @counts="mobileCounts=$event" @settings="showMobileSettings=true"/>
       <MobilePreferences v-if="isMobile && showMobileSettings" :api-base="apiBase" :session-token="session" :preferences="workspacePreferences" @close="showMobileSettings=false" @saved="workspacePreferences=$event"/>
+      <MobileClients v-if="isMobile && clientsVisited" v-show="tab==='clients'" :visible="tab==='clients' && !overlayOpen && !moreOpen" :api-base="apiBase" :session-token="session" @open="openMobileClient" @open-main="emit('open-main',$event)" />
+      <MobileCalendar v-if="isMobile && calendarVisited" v-show="tab==='calendar'" :visible="tab==='calendar' && !overlayOpen && !moreOpen" :api-base="apiBase" :session-token="session" :user-id="sessionUserId" :agency-id="sessionAgencyId" @open="openMobileCalendarItem" @comments="openMobileSessionCommentDetails" @message="provider=>messageUser(provider.id || provider.providerId || provider,provider.name)" @open-full="emit('open-main',$event)" />
       <MobileClinicalWorkspace v-if="isMobile && tab==='clinical'" :api-base="apiBase" :session-token="session" :user-id="sessionUserId" @signed="sendNotice='Note signed and saved to the chart.'" />
-      <MobileClientSummary v-if="isMobile && tab==='client'" :api-base="apiBase" :session-token="session" :client-id="route.query.clientId" @back="returnInApp({view:'mywork'})" @contact="openMobileClinicalContact" />
+      <MobileClientSummary v-if="isMobile && tab==='client'" :api-base="apiBase" :session-token="session" :client-id="route.query.clientId" :agency-id="route.query.agencyId || sessionAgencyId" @open-main="emit('open-main',$event)" @back="returnInApp({view:'clients'})" @contact="openMobileClinicalContact" />
       <MobileClinicalSession v-if="isMobile && tab==='session'" :api-base="apiBase" :session-token="session" />
-      <MobileMyWork v-if="isMobile && tab==='mywork'" :api-base="apiBase" :session-token="session" @draft="prepareWorkDraft" @tasks="navigateTo('tasks')" @counts="workspaceBadges={...workspaceBadges,...$event}"/>
+      <MobileMyWork v-if="isMobile && myWorkVisited" v-show="tab==='mywork'" :visible="tab==='mywork' && !overlayOpen && !moreOpen" :api-base="apiBase" :session-token="session" @draft="prepareWorkDraft" @tasks="navigateTo('tasks')" @counts="workspaceBadges={...workspaceBadges,...$event}"/>
       <div v-if="!isMobile && tab === 'home'" class="qv-pane conversa-surface">
         <div class="qv-messages-heading"><ConversaBrand compact /><span>YOUR CONVERSATIONS</span></div>
         <div class="qv-suite">
@@ -505,7 +507,7 @@
         </div>
       </div>
 
-      <div v-else-if="tab === 'calendar'" class="qv-pane">
+      <div v-else-if="!isMobile && tab === 'calendar'" class="qv-pane">
         <div class="qv-day-nav">
           <button type="button" class="qv-btn ghost" @click="shiftDay(-1)">‹</button>
           <button type="button" class="qv-btn ghost" @click="day = localDay(); loadCalendar()">Today</button>
@@ -824,6 +826,8 @@ import MobileMessages from '../mobile/MobileMessages.vue';
 import QuickTaskExtras from '../components/quickView/QuickTaskExtras.vue';
 import MobilePreferences from '../mobile/MobilePreferences.vue';
 import MobileMyWork from '../mobile/MobileMyWork.vue';
+import MobileClients from '../mobile/MobileClients.vue';
+import MobileCalendar from '../mobile/MobileCalendar.vue';
 import MobileTaskRow from '../mobile/MobileTaskRow.vue';
 import MobileClinicalWorkspace from '../mobile/MobileClinicalWorkspace.vue';
 import MobileClientSummary from '../mobile/MobileClientSummary.vue';
@@ -852,8 +856,8 @@ import { encodeEmailFiles } from '../utils/communicationAttachments';
 import QuickViewMusicDock from '../components/quickView/QuickViewMusicDock.vue';
 import { buildDisplaySections, extractSections, formatFullNoteCopy } from '../utils/noteAidUiHelpers.js';
 
-const props=defineProps({ mobileSession:Object,notificationUnread:{type:Number,default:0},overlayOpen:Boolean });
-const emit=defineEmits(['locked','account','notifications','open-workspace-item','preferences']);
+const props=defineProps({ mobileSession:Object,notificationUnread:{type:Number,default:0},overlayOpen:Boolean,privacyHidden:Boolean });
+const emit=defineEmits(['locked','account','notifications','open-workspace-item','preferences','refresh-session','open-main']);
 const isMobile=computed(()=>!!props.mobileSession);
 
 const BOOKMARK_KEY = 'plottwist.quickViewBookmark';
@@ -903,6 +907,7 @@ const sessionUserId = ref(null);
 const expiresAt = ref(null);
 const clockNow=ref(Date.now());
 const lockCountdown=computed(()=>Number.isFinite(remainingSeconds.value)?`${Math.floor(remainingSeconds.value/60)}:${String(remainingSeconds.value%60).padStart(2,'0')}`:'—');
+watch(()=>props.mobileSession?.expiresAt,value=>{if(isMobile.value && value)expiresAt.value=value;});
 const remainingSeconds=computed(()=>Math.max(0,Math.ceil((new Date(expiresAt.value).getTime()-clockNow.value)/1000)));
 let deadlineTimer,lastActivitySent=0,activityPending=false;
 const agencyName = ref('');
@@ -928,11 +933,14 @@ const allNavigation = [
   { id:'noteaid',label:'Note Workspace',icon:NotebookPen,description:'Prepare your documentation.' },
   { id:'presence',label:'Presence',icon:Radio,description:'See who’s available and set your status.' },
   { id:'contacts',label:'Contacts',icon:Users,description:'Find and message your team.' },
-  { id:'notifications',label:'Notifications',icon:Bell,description:'Updates across your agencies.' }
+  { id:'notifications',label:'Notifications',icon:Bell,description:'Updates across your agencies.' },
+  { id:'clients',label:'My Clients',icon:Users,description:'Your clients across affiliated agencies.' }
 ];
-const workspacePreferences=ref({swipeLeft:'archive',swipeRight:'read',navigationMode:'automatic',pinnedNavigation:['calendar','home','tasks'],usage:{}});
+const workspacePreferences=ref({swipeLeft:'archive',swipeRight:'read',navigationMode:'pinned',navigationSlots:4,pinnedNavigation:['calendar','mywork','tasks','home'],usage:{},lockedNavigation:'calendar'});
 const viewportWidth=ref(window.innerWidth),showMobileSettings=ref(false),mobileMessages=ref(null),mobileCounts=ref({});
-const mobileUnreadCount=computed(()=>mobileCounts.value.all?.unread || 0);
+const messageBadge=ref(null),myWorkVisited=ref(false),calendarVisited=ref(false),clientsVisited=ref(false);let messageBadgeRequest=0,lastMessageBadgeRefresh=0;
+watch(tab,value=>{if(value==='mywork')myWorkVisited.value=true;if(value==='calendar')calendarVisited.value=true;if(value==='clients')clientsVisited.value=true;},{immediate:true});
+const mobileUnreadCount=computed(()=>mobileCounts.value.all?.unread ?? messageBadge.value);
 const workspaceBadges=ref({mywork:null,tasks:null});let badgeRequest=0,lastBadgeRefresh=0;
 const navigationBadge=id=>id==='home'?mobileUnreadCount.value:workspaceBadges.value[id];
 async function loadWorkspaceBadges(force=false){
@@ -941,22 +949,43 @@ async function loadWorkspaceBadges(force=false){
  try{const {data}=await axios.get(`${apiBase}/workspace-counts`,{headers:authHeaders(),withCredentials:true});if(request===badgeRequest && token===session.value)workspaceBadges.value={mywork:data.mywork??null,tasks:data.tasks??null};}
  catch{if(request===badgeRequest && token===session.value)workspaceBadges.value={mywork:null,tasks:null};}
 }
-function refreshVisibleBadges(){if(!document.hidden)loadWorkspaceBadges();}
+async function loadMessageBadge(force=false){
+ if(!isMobile.value || !session.value || document.hidden || (!force && Date.now()-lastMessageBadgeRefresh<30000))return;
+ const current=++messageBadgeRequest,token=session.value;lastMessageBadgeRefresh=Date.now();
+ try{const {data}=await axios.get(`${apiBase}/messages/inbox`,{headers:authHeaders(),withCredentials:true,params:{countsOnly:'1',suite:'all',filter:'all',includeArchived:'0'}});if(current!==messageBadgeRequest || token!==session.value)return;const count=data.counts?.all?.unread;if(typeof count==='number'){messageBadge.value=count;mobileCounts.value={...mobileCounts.value,all:{...mobileCounts.value.all,unread:count}};}}
+ catch{/* Retain the last known badge, or its loading indicator, instead of showing a false zero. */}
+}
+function refreshVisibleBadges(){if(!document.hidden){loadWorkspaceBadges();loadMessageBadge();}}
 let preferenceTimer;
 const primaryNavigation=computed(()=>{
   if(!isMobile.value)return [...allNavigation.slice(0,3),{id:'more',label:'More',icon:Ellipsis}];
   const requested=Number(workspacePreferences.value.navigationSlots);
-  const slots=[2,3,4].includes(requested)?requested:viewportWidth.value>=430?4:viewportWidth.value>=350?3:2;
-  const ids=workspacePreferences.value.navigationMode==='pinned'?workspacePreferences.value.pinnedNavigation:[...allNavigation].sort((a,b)=>(workspacePreferences.value.usage?.[b.id] || 0)-(workspacePreferences.value.usage?.[a.id] || 0)).map(item=>item.id);
-  return [...ids.slice(0,slots).map(id=>allNavigation.find(item=>item.id===id)).filter(Boolean),{id:'more',label:'More',icon:ChevronDown}];
+  const slots=[2,3,4].includes(requested)?requested:4;
+  const ids=workspacePreferences.value.pinnedNavigation || ['calendar','mywork','tasks','home'];
+  const fixed=workspacePreferences.value.lockedNavigation || 'calendar';const ordered=fixed==='none'?ids:[fixed,...ids.filter(id=>id!==fixed)];
+  return [...ordered.slice(0,slots).map(id=>allNavigation.find(item=>item.id===id)).filter(Boolean),{id:'more',label:'More',icon:ChevronDown}];
 });
-const secondaryNavigation=computed(()=>allNavigation.filter(item=>isMobile.value || item.id!=='notifications'));
+const secondaryNavigation=computed(()=>allNavigation.filter(item=>isMobile.value || !['notifications','clients'].includes(item.id)));
 watch(workspacePreferences,value=>{if(isMobile.value)emit('preferences',value);},{deep:true,immediate:true});
 function resizeMobile(){viewportWidth.value=window.innerWidth;}
 async function loadWorkspacePreferences(){try{const {data}=await axios.get(`${apiBase}/messages/preferences`,{headers:authHeaders(),withCredentials:true});workspacePreferences.value=data.preferences || workspacePreferences.value;}catch{/* Defaults remain usable if preferences are temporarily unavailable. */}}
-function countNavigation(destination){if(!isMobile.value)return;workspacePreferences.value={...workspacePreferences.value,usage:{...workspacePreferences.value.usage,[destination]:(workspacePreferences.value.usage?.[destination] || 0)+1}};clearTimeout(preferenceTimer);preferenceTimer=setTimeout(()=>{if(session.value)axios.patch(`${apiBase}/messages/preferences`,{usage:workspacePreferences.value.usage},{headers:authHeaders(),withCredentials:true}).catch(()=>{});},1200);}
+// Shortcut order changes only when the user saves their preferences.
+function countNavigation(){}
 function handleMobileLink(event){if(!isMobile.value || event.defaultPrevented || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)return;const anchor=event.target.closest?.('a[href]');if(!anchor || anchor.classList.contains('qv-workspace-link') || anchor.classList.contains('qv-gate-link') || anchor.hasAttribute('download'))return;const target=mobileLinkTarget(anchor.href,{workspaceLoginUrl:loginUrl.value,currentOrigin:window.location.origin});if(target){event.preventDefault();router.push(target);}}
 function openMobilePreferences(){showMobileSettings.value=true;}
+async function openMobileClient({clientId,agencyId}){await mobileNavigate({view:'client',clientId:String(clientId),agencyId:String(agencyId)});}
+function openMobileCalendarItem(item){
+  if(item.hasClient && (item.clinicalSessionId || item.officeEventId))return prepareWorkDraft({...item,id:null});
+  if(item.client_id || item.clientId)return openMobileClient({clientId:item.client_id || item.clientId,agencyId:item.agency_id || item.agencyId || sessionAgencyId.value});
+  openCalEvent(item);
+}
+function openMobileSessionCommentDetails(item){
+  if(!(Number(item.appointmentId)>0))return;
+  if(item.agencyId && Number(item.agencyId)!==Number(sessionAgencyId.value)){
+    emit('open-workspace-item',{agencyId:Number(item.agencyId),query:{view:'calendar',secureCommentAppointmentId:String(item.appointmentId),...(item.clientId?{secureCommentClientId:String(item.clientId)}:{})}});return;
+  }
+  calEvent.value=item;
+}
 async function openMobileConversation(item){msgSuite.value=String(route.query.suite || 'all');await openConversation(item);}
 async function prepareWorkDraft(item){
   // Pending amendments use the full version-review workflow, never the original note signer.
@@ -990,6 +1019,7 @@ const currentHeading = computed(() => {
     chat: { title: 'Team conversation', description: 'Direct messages and team discussions.' },
     calendar: { title: 'Your day, in view.', description: 'Appointments, meetings, and where you need to be.' },
     mywork:{title:'My Work',description:''},
+    clients:{title:'My Clients',description:'Your clients across affiliated agencies.'},
     tasks: { title: 'Tasks', description: 'Your tasks, shared lists, and next steps.' },
     noteaid: { title: 'Note Workspace', description: 'A focused space for your documentation.' },
     presence: { title: 'Team presence', description: 'Find the right moment to connect.' },
@@ -1007,9 +1037,9 @@ async function navigateTo(destination,{fromRoute=false}={}) {
   navigationBusy.value = true;
   try {
     if (destination === 'home') {if(isMobile.value)tab.value='home';else await switchMsgSuite(msgSuite.value);}
-    else if (destination === 'calendar') { if (showOffice.value) { tab.value = 'calendar'; await loadOffice(); } else await loadCalendar(); }
+    else if (destination === 'calendar') { if(isMobile.value){tab.value='calendar';return;} if (showOffice.value) { tab.value = 'calendar'; await loadOffice(); } else await loadCalendar(); }
     else if (destination === 'tasks') await loadTasks(taskView.value);
-    else if (['mywork','clinical','client','session'].includes(destination) && isMobile.value)tab.value=destination;
+    else if (['mywork','clinical','client','clients','session'].includes(destination) && isMobile.value)tab.value=destination;
     else if (destination === 'noteaid') await switchNoteAid();
     else if (destination === 'contacts') await loadContacts();
     else if (destination === 'presence') tab.value = 'presence';
@@ -1333,7 +1363,7 @@ const isDelivery = computed(() =>
 const sessionOnly = computed(() => route.meta?.quickViewSessionOnly === true);
 
 async function resumeSession() {
-  if(isMobile.value){session.value=props.mobileSession.sessionToken;expiresAt.value=props.mobileSession.expiresAt;sessionUserId.value=props.mobileSession.userId;sessionAgencyId.value=props.mobileSession.agencyId;agencyName.value=props.mobileSession.profile?.workspace?.name || '';loginUrl.value=props.mobileSession.profile?.workspace?.loginUrl || '';loading.value=false;startHeartbeat();await loadWorkspacePreferences();void loadWorkspaceBadges();await openDeepLink();if(route.query.view && route.query.view!=='home')await navigateTo(String(route.query.view),{fromRoute:true});return;}
+  if(isMobile.value){session.value=props.mobileSession.sessionToken;expiresAt.value=props.mobileSession.expiresAt;sessionUserId.value=props.mobileSession.userId;sessionAgencyId.value=props.mobileSession.agencyId;agencyName.value=props.mobileSession.profile?.workspace?.name || '';loginUrl.value=props.mobileSession.profile?.workspace?.loginUrl || '';loading.value=false;startHeartbeat();await loadWorkspacePreferences();void loadWorkspaceBadges();void loadMessageBadge();await openDeepLink();if(route.query.view && route.query.view!=='home')await navigateTo(String(route.query.view),{fromRoute:true});return;}
   loading.value = true;
   error.value = '';
   try {
@@ -1503,21 +1533,22 @@ async function unlock() {
 
 function checkDeadline(){
   clockNow.value=Date.now();
-  if(session.value && expiresAt.value && remainingSeconds.value<=0){clearSession();if(isMobile.value)return;error.value='Quick View timed out. Use your saved six-digit code to reopen it.';if(!tokenInfo.value)window.location.replace(`/qv?${new URLSearchParams(quickViewDeepLink(route.query))}`);}
+  if(session.value && expiresAt.value && remainingSeconds.value<=0){if(isMobile.value && props.mobileSession.profile?.appLock?.method==='none'){emit('refresh-session');return;}clearSession();if(isMobile.value)return;error.value='Quick View timed out. Use your saved six-digit code to reopen it.';if(!tokenInfo.value)window.location.replace(`/qv?${new URLSearchParams(quickViewDeepLink(route.query))}`);}
 }
 async function recordActivity(event){
   if(!event.isTrusted || document.hidden)return;
   checkDeadline();
+  if(isMobile.value && props.mobileSession.profile?.appLock?.method==='none' && remainingSeconds.value<=0)return;
   if(!session.value || activityPending || Date.now()-lastActivitySent<30000)return;
   const activeSession=session.value;activityPending=true;lastActivitySent=Date.now();
   try{const {data}=await axios.post(`${apiBase}/session/heartbeat`,{activity:true},{headers:authHeaders(),withCredentials:true});if(session.value===activeSession)expiresAt.value=data.expiresAt;}
-  catch(e){if(session.value===activeSession && e.response?.status===401){clearSession();error.value='Quick View timed out. Reopen it with your code.';}}
+  catch(e){if(session.value===activeSession && e.response?.status===401){if(isMobile.value && props.mobileSession.profile?.appLock?.method==='none'){emit('refresh-session');return;}clearSession();error.value='Quick View timed out. Reopen it with your code.';}}
   finally{activityPending=false;}
 }
 function startHeartbeat() {
   stopHeartbeat();
   deadlineTimer=setInterval(checkDeadline,1000);
-  refreshTimer = setInterval(() => {refreshMessages();void loadWorkspaceBadges();}, 15000);
+  refreshTimer = setInterval(() => {refreshMessages();void loadWorkspaceBadges();void loadMessageBadge();}, 15000);
   heartbeatTimer = setInterval(async () => {
     const activeSession=session.value;
     try {
@@ -1528,7 +1559,7 @@ function startHeartbeat() {
       );
       if(session.value===activeSession)expiresAt.value = data.expiresAt;
     } catch(e) {
-      if(session.value===activeSession && e.response?.status===401){clearSession();error.value='Quick View timed out. Reopen it with your code.';}
+      if(session.value===activeSession && e.response?.status===401){if(isMobile.value && props.mobileSession.profile?.appLock?.method==='none'){emit('refresh-session');return;}clearSession();error.value='Quick View timed out. Reopen it with your code.';}
     }
   }, 60000);
 }
@@ -2633,7 +2664,7 @@ function clearSession({notify=true}={}) {
   chatMessages.value = []; chatList.value = []; inboxItems.value = []; activeChatId.value = null;
   replyText.value = ''; replyAttachments.value = []; chatReply.value = ''; chatAttachments.value = [];
   composeToEmail.value = ''; composeSubject.value = ''; composeText.value = ''; composeAttachments.value = [];
-  badgeRequest++;lastBadgeRefresh=0;workspaceBadges.value={mywork:null,tasks:null};
+  badgeRequest++;lastBadgeRefresh=0;messageBadgeRequest++;lastMessageBadgeRefresh=0;messageBadge.value=null;mobileCounts.value={};myWorkVisited.value=false;calendarVisited.value=false;clientsVisited.value=false;workspaceBadges.value={mywork:null,tasks:null};
   taskCountRequest++;taskCounts.value={assigned:null,mine:null,lists:null,projects:null};closeTaskDetail();closeTaskAction();
   tasks.value = []; dayItems.value = []; undoSend.value = null; sendNotice.value = ''; showCompose.value = false;
   taskDetail.value = null; calEvent.value = null; showNewTask.value = false; showNewContact.value = false;
@@ -3064,7 +3095,7 @@ button.qv-row:hover { background: #f8faff; }
 <style scoped>.qv-task-count{font-size:11px;font-variant-numeric:tabular-nums;margin-left:4px}.qv-selected-day{font-size:13px;color:#466384;margin:0;padding:0 16px 12px}.qv-task-due{display:grid;gap:9px;font-size:14px}.qv-task-due input{font:inherit;font-size:16px;min-width:0;max-width:100%;box-sizing:border-box;padding:12px;border:1px solid #cbd9ed;border-radius:9px}.qv-task-action-buttons{display:flex;gap:8px;flex-wrap:wrap;margin-top:18px}.qv-task-action>p{white-space:pre-wrap;overflow-wrap:anywhere}.qv-task-action button{min-height:44px}</style>
 
 <style scoped>
-.qv-top-actions>.qv-icon-button{position:relative}.qv-notification-dot{position:absolute;top:6px;right:6px;width:8px;height:8px;border-radius:50%;background:#2860df;box-shadow:0 0 0 3px #eef3ff;animation:qv-pulse 2s ease-out infinite}.qv-countdown{font-size:9px;line-height:1.2;white-space:nowrap;color:#526b90}.qv-mobile .qv-extend{display:grid;grid-template-columns:auto auto;gap:2px 5px;min-width:68px}.qv-countdown{grid-column:1/-1}.qv-mobile .qv-tabs>button{min-width:0;flex:1}.qv-mobile .qv-tabs>button>span:not(.qv-nav-badge){font-size:10px;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}@keyframes qv-pulse{0%,100%{box-shadow:0 0 0 3px #eef3ff}50%{box-shadow:0 0 0 6px #2860df20}}@media(prefers-reduced-motion:reduce){.qv-notification-dot{animation:none}}
+.qv-mobile .qv-tabs>button.qv-fixed-shortcut{border-right:1px solid #cdd8ea;border-radius:10px 0 0 10px;margin-right:3px}.qv-top-actions>.qv-icon-button{position:relative}.qv-notification-dot{position:absolute;top:6px;right:6px;width:8px;height:8px;border-radius:50%;background:#2860df;box-shadow:0 0 0 3px #eef3ff;animation:qv-pulse 2s ease-out infinite}.qv-countdown{font-size:9px;line-height:1.2;white-space:nowrap;color:#526b90}.qv-mobile .qv-extend{display:grid;grid-template-columns:auto auto;gap:2px 5px;min-width:68px}.qv-countdown{grid-column:1/-1}.qv-mobile .qv-tabs>button{min-width:0;flex:1}.qv-mobile .qv-tabs>button>span:not(.qv-nav-badge){font-size:10px;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}@keyframes qv-pulse{0%,100%{box-shadow:0 0 0 3px #eef3ff}50%{box-shadow:0 0 0 6px #2860df20}}@media(prefers-reduced-motion:reduce){.qv-notification-dot{animation:none}}
 </style>
 
 <style scoped>.qv-cal-block-wrap{display:flex;align-items:center;gap:6px}.qv-cal-block-wrap>.qv-cal-block{flex:1;min-width:0}</style>
