@@ -7,7 +7,7 @@ import {schoolWeekdayCompletion,schoolWeekdayEmail,schoolWeekdaySmsDue,schoolWee
 const weekdays=['Monday','Tuesday','Wednesday','Thursday','Friday'];
 const now=new Date('2026-11-11T17:00:00Z');
 const config={agency_id:2,owner_user_id:507,owner_email:'rachel@itsco.health',owner_name:'Rachel',sender_identity_id:6,from_email:'notifications@itsco.health',identity_key:'notifications',agency_name:'ITSCO',slug:'itsco',sms_delay_hours:24};
-let context,rows,sendEmail,sendSms,createCommunication,service,held,readContext;
+let context,rows,sendEmail,sendSms,createCommunication,service,held,readContext,notificationGate;
 beforeEach(()=>{
  context={eligible:true,needsResponse:true,requestedAt:'2026-11-06T12:00:00Z',days:weekdays.map((day,i)=>({day,status:i===0?'assigned':'available',answered:false}))};
  rows=[];held=false;sendEmail=vi.fn(async()=>({id:'accepted'}));sendSms=vi.fn(async()=>({sid:'text-accepted'}));createCommunication=vi.fn(async()=>({id:500}));
@@ -36,7 +36,8 @@ beforeEach(()=>{
   else throw new Error('Unexpected test query');return [{affectedRows:1}];
  })};
  readContext=vi.fn(async()=>structuredClone(context));
- service=createSchoolWeekdayFollowups({database,readContext,emailTransport:sendEmail,smsTransport:sendSms,createCommunication});
+ notificationGate=vi.fn(async()=>({sms:true}));
+ service=createSchoolWeekdayFollowups({database,readContext,emailTransport:sendEmail,smsTransport:sendSms,createCommunication,notificationGate});
 });
 describe('school weekday follow-ups',()=>{
  it('counts assignments and explicit true/false answers, never unsaved green defaults',()=>{
@@ -82,6 +83,11 @@ describe('school weekday follow-ups',()=>{
   let release;sendEmail.mockImplementationOnce(()=>new Promise(resolve=>{release=resolve;}));
   const first=service.process({now});while(!release)await new Promise(resolve=>setTimeout(resolve,0));
   expect(await service.process({now})).toMatchObject({busy:true});release({id:'accepted'});await first;expect(sendEmail).toHaveBeenCalledTimes(1);
+ });
+ it('respects the existing staff away and notification gate before texting',async()=>{
+  await service.process({now});notificationGate.mockResolvedValueOnce({sms:false});
+  await service.process({now:new Date('2026-11-12T17:10:00Z')});
+  expect(sendSms).not.toHaveBeenCalled();expect(rows[0].sms_status).toBe('suppressed');
  });
  it('supports a read-only recipient preview without queuing jobs or sending',async()=>{
   expect((await service.process({now,dryRun:true})).results).toEqual([{providerId:7,agencyId:2,to:'avery@itsco.health',cc:'rachel@itsco.health'}]);

@@ -5,7 +5,7 @@ import { schoolWeekdayCompletion, schoolWeekdayProgress, schoolWeekdayEmail, sch
 const mysql = value => new Date(value).toISOString().replace('T',' ').slice(0,23);
 const validEmail = value => /^[^\s<>@,;]+@[^\s<>@,;]+\.[^\s<>@,;]+$/.test(String(value || ''));
 
-export function createSchoolWeekdayFollowups({ database = pool, readContext = readSchoolWeekdays, emailTransport, smsTransport, createCommunication } = {}) {
+export function createSchoolWeekdayFollowups({ database = pool, readContext = readSchoolWeekdays, emailTransport, smsTransport, createCommunication, notificationGate } = {}) {
   async function settings(agencyId = null) {
     const [rows] = await database.execute(`SELECT s.*,COALESCE(NULLIF(u.work_email,''),u.email) AS owner_email,u.first_name AS owner_name,
       i.from_email,i.identity_key,a.name AS agency_name,a.slug,a.portal_url,a.custom_domain,a.feature_flags
@@ -62,7 +62,7 @@ export function createSchoolWeekdayFollowups({ database = pool, readContext = re
       const create = createCommunication || (async input => (await import('../models/UserCommunication.model.js')).default.create(input));
       const communication = await create({agencyId:config.agency_id,userId:person.id,templateType:`school_weekday_${kind}`,templateId:row.id,
         subject:content.subject,body:content.text,recipientAddress:to,deliveryStatus:'pending',generatedByUserId:config.owner_user_id,
-        metadata:{schoolWeekdayFollowupId:row.id,kind,cc:config.owner_email,replyTo:config.owner_email}});
+        metadata:{schoolWeekdayFollowupId:row.id,kind,senderIdentityId:config.sender_identity_id,fromEmail:config.from_email,source:'auto',cc:config.owner_email,replyTo:config.owner_email}});
       communicationId = communication.id;
       await database.execute(`UPDATE school_weekday_followups SET ${column}_communication_id=? WHERE id=?`,[communicationId,row.id]);
       const send = emailTransport || (await import('./unifiedEmail/unifiedEmailSender.service.js')).sendEmailFromIdentity;
@@ -92,6 +92,12 @@ export function createSchoolWeekdayFollowups({ database = pool, readContext = re
       if (!context.needsResponse || schoolWeekdayCompletion(context).complete) {
         await database.execute("UPDATE school_weekday_followups SET sms_status='cancelled' WHERE id=?",[row.id]);
         return {status:'cancelled'};
+      }
+      const gate=notificationGate || (input=>(import('./notificationGatekeeper.service.js').then(module=>module.default.decideChannels(input))));
+      const decision=await gate({userId:person.id,context:{severity:'info'}});
+      if(!decision?.sms) {
+        await database.execute("UPDATE school_weekday_followups SET sms_status=?,sms_reason=? WHERE id=?",['suppressed','gatekeeper_sms_false',row.id]);
+        return {status:'suppressed',reason:'gatekeeper_sms_false'};
       }
       const {resolveRegisteredSmsSender} = await import('./smsCompliance.service.js');
       const from = await resolveRegisteredSmsSender({agencyId:config.agency_id,purpose:'workforce',requiredPurpose:'polling'});
