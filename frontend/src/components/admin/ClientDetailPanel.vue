@@ -613,7 +613,7 @@
                   <div class="ov-row-value">
                     <template v-if="editingOverview">
                       <div class="address-grid">
-                        <input v-model="overviewForm.address_street" class="inline-input" placeholder="Street address" style="grid-column: 1 / -1;" />
+                        <input v-address-autocomplete="{ model: overviewForm, fields: { street: 'address_street', city: 'address_city', state: 'address_state', postalCode: 'address_zip' }, locale: 'en', scopeKey: client.id }" autocomplete="street-address" v-model="overviewForm.address_street" class="inline-input" placeholder="Street address" style="grid-column: 1 / -1;" />
                         <input v-model="overviewForm.address_apt" class="inline-input" placeholder="Apt / unit (optional)" />
                         <input v-model="overviewForm.address_city" class="inline-input" placeholder="City" />
                         <input v-model="overviewForm.address_state" class="inline-input" placeholder="State" />

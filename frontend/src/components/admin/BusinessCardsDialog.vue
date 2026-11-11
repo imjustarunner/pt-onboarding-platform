@@ -43,7 +43,7 @@
           <label>Public website<input v-model="organization.website" maxlength="100" /></label>
           <label>Office phone<input v-model="organization.phone" maxlength="50" /></label>
           <label>Default extension<input v-model="organization.extension" maxlength="12" /></label>
-          <label>Office address<textarea v-model="organization.address" rows="3" maxlength="160" /></label>
+          <label>Office address<textarea v-address-autocomplete="{ format: 'full', locale: 'en', model: organization, scopeKey: agencyId }" autocomplete="street-address" v-model="organization.address" rows="3" maxlength="160" /></label>
           <label>QR destination<input v-model="organization.qrUrl" :placeholder="organization.website || 'https://your-website.org'" maxlength="300" /></label><label>Back caption<input v-model="organization.backCaption" maxlength="80" /></label></fieldset>
           <details><summary>Printer alignment</summary><p>Offsets in inches. Positive values move right / down. Print at 100% on Letter paper. <template v-if="format === '35702'">Bleed extends colors beyond the cut edges.</template></p>
             <label>Horizontal offset<input v-model.number="printSettings.offsetX" type="number" min="-0.125" max="0.125" step="0.005" /></label>

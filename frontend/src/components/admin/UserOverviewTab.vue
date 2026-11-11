@@ -258,7 +258,7 @@
                   <label class="ov-eg-row"><span class="ov-fl">Personal Email</span><input v-model="personalDraft.personalEmail" class="ov-input" type="email"/></label>
                   <label class="ov-eg-row"><span class="ov-fl">Phone Number</span><input v-model="personalDraft.phoneNumber" class="ov-input" type="tel"/></label>
                   <label class="ov-eg-row"><span class="ov-fl">Personal Phone</span><input v-model="personalDraft.personalPhone" class="ov-input" type="tel"/></label>
-                  <label class="ov-eg-row"><span class="ov-fl">Street Address</span><input v-model="personalDraft.homeStreetAddress" class="ov-input" type="text"/></label>
+                  <label class="ov-eg-row"><span class="ov-fl">Street Address</span><input v-address-autocomplete="{ model: personalDraft, fields: { street: 'homeStreetAddress', city: 'homeCity', state: 'homeState', postalCode: 'homePostalCode' }, locale: 'en', scopeKey: userId }" autocomplete="street-address" v-model="personalDraft.homeStreetAddress" class="ov-input" type="text"/></label>
                   <label class="ov-eg-row"><span class="ov-fl">City</span><input v-model="personalDraft.homeCity" class="ov-input" type="text"/></label>
                   <label class="ov-eg-row"><span class="ov-fl">State</span><input v-model="personalDraft.homeState" class="ov-input" type="text" maxlength="2"/></label>
                   <label class="ov-eg-row"><span class="ov-fl">Postal Code</span><input v-model="personalDraft.homePostalCode" class="ov-input" type="text"/></label>

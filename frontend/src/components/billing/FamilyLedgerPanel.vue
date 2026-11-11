@@ -19,7 +19,7 @@ const route=useRoute();
 import { useFamilyLocale } from '../../composables/useFamilyLocale';
 const { ft, locale: familyLocale } = useFamilyLocale();
 import GuardianPaymentPreference from '../guardian/GuardianPaymentPreference.vue';
-import { computed,ref,watch } from 'vue';import { loadStripe } from '@stripe/stripe-js';import {usePortalCareApi} from '../../composables/usePortalCareApi';const api=usePortalCareApi();
+import { computed,ref,watch } from 'vue';import { loadStripe } from '@stripe/stripe-js/pure';import {usePortalCareApi} from '../../composables/usePortalCareApi';const api=usePortalCareApi();
 const props=defineProps({readOnly:Boolean,agencyId:[String,Number],clientId:[String,Number]});
 const balances=ref([]),tasks=ref([]),receipts=ref([]),splits=ref([]),peers=ref({}),loading=ref(false),busy=ref(false),error=ref(''),message=ref(''),selected=ref(null),amount=ref(''),planVersion=ref(''),planAuto=ref({}),planSignatures=ref({}),splitPayer=ref(null),myPercent=ref(50),splitSignature=ref(''),responseSignature=ref('');let seq=0,requestKey='';
 const receiptSearch=ref(''),receiptRange=ref('all');

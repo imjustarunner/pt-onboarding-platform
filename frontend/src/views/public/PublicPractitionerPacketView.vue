@@ -77,7 +77,7 @@
             <input v-model="cardholderName" type="text" autocomplete="cc-name" placeholder="Name on card" />
           </label>
           <div class="lbl">Card details
-            <div ref="cardMountEl" class="stripe-el" />
+            <StripeCardEntry ref="cardEntry" :publishable-key="stripeConfig.publishableKey" :connected-account-id="stripeConfig.connectedAccountId" :client-secret="clientSecret" :email="authStore.user?.email || account.email" :name="cardholderName" :context-key="`${selectedId || ''}:${authStore.user?.id || 'public'}`" :disabled="selecting" @error="stripeElementError=$event" />
           </div>
           <p v-if="stripeElementError" class="err">{{ stripeElementError }}</p>
         </div>
@@ -170,7 +170,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { loadStripe } from '@stripe/stripe-js';
+import StripeCardEntry from '../../components/billing/StripeCardEntry.vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import PasswordStrengthMeter from '../../components/PasswordStrengthMeter.vue';
@@ -206,14 +206,11 @@ const paymentIntentId = ref(null);
 const stripeEnabled = ref(false);
 const cardholderName = ref('');
 const stripeElementError = ref('');
-const cardMountEl = ref(null);
+const cardEntry = ref(null);
 
 const wizardStep = ref('package');
 const account = ref({ email: '', firstName: '', lastName: '', password: '', confirm: '' });
 
-let stripeInstance = null;
-let stripeElements = null;
-let stripeCardElement = null;
 
 const selectedPkg = computed(() => packages.value.find((p) => p.id === selectedId.value) || null);
 const paymentDone = computed(() => !!packet.value.selectedPackageId);
@@ -337,42 +334,12 @@ function intakeUrl(link) {
   return `${base}${sep}returnTo=${encodeURIComponent(returnTo)}`;
 }
 
-function destroyCard() {
-  if (stripeCardElement) {
-    try { stripeCardElement.destroy(); } catch { /* ignore */ }
-    stripeCardElement = null;
-  }
-  stripeElements = null;
-}
+function destroyCard(){cardEntry.value?.clear();}
+async function mountCard(){await nextTick();await cardEntry.value?.ensureReady();}
 
-async function mountCard() {
-  destroyCard();
-  if (!stripeEnabled.value || !clientSecret.value || !stripeConfig.value.publishableKey) return;
-  stripeInstance = await loadStripe(stripeConfig.value.publishableKey, {
-    stripeAccount: stripeConfig.value.connectedAccountId
-  });
-  if (!stripeInstance) return;
-  stripeElements = stripeInstance.elements();
-  await nextTick();
-  const mount = cardMountEl.value;
-  if (!mount) return;
-  stripeCardElement = stripeElements.create('card', {
-    style: {
-      base: {
-        fontFamily: 'system-ui, sans-serif',
-        fontSize: '15px',
-        color: '#1e293b',
-        '::placeholder': { color: '#94a3b8' }
-      }
-    }
-  });
-  stripeCardElement.mount(mount);
-  stripeCardElement.on('change', (e) => {
-    stripeElementError.value = e.error ? e.error.message : '';
-  });
-}
-
+let checkoutRequest=0;
 async function prepareCheckout() {
+  const request=++checkoutRequest;
   if (paymentDone.value) {
     checkoutReady.value = true;
     return;
@@ -389,6 +356,7 @@ async function prepareCheckout() {
       { packageId: selectedId.value, paymentMode: paymentMode.value },
       { skipAuthRedirect: true }
     );
+    if(request!==checkoutRequest)return;
     stripeEnabled.value = !!res.data?.stripeEnabled;
     amountDue.value = Number(res.data?.amountCents || 0);
     clientSecret.value = res.data?.clientSecret || null;
@@ -403,6 +371,7 @@ async function prepareCheckout() {
     checkoutReady.value = true;
     if (stripeEnabled.value && clientSecret.value) await mountCard();
   } catch (e) {
+    if(request!==checkoutRequest)return;
     selectError.value = e.response?.data?.error?.message || e.message || 'Could not start checkout.';
     checkoutReady.value = false;
   }
@@ -457,16 +426,11 @@ async function confirmPayment() {
   try {
     let piId = paymentIntentId.value || null;
     if (stripeEnabled.value && clientSecret.value && amountDue.value > 0) {
-      if (!stripeInstance || !stripeCardElement) {
+      if (!cardEntry.value) {
         selectError.value = 'Payment form is not ready. Please refresh and try again.';
         return;
       }
-      const { error: stripeErr, paymentIntent } = await stripeInstance.confirmCardPayment(clientSecret.value, {
-        payment_method: {
-          card: stripeCardElement,
-          billing_details: { name: cardholderName.value.trim() }
-        }
-      });
+      const {error:stripeErr,paymentIntent}=await cardEntry.value.confirmPayment();
       if (stripeErr) {
         selectError.value = stripeErr.message || 'Payment failed.';
         return;
@@ -551,6 +515,7 @@ async function createAccount() {
   }
 }
 
+watch(()=>[authStore.user?.id,authStore.user?.email,account.value.email,token.value],()=>{checkoutRequest++;cardholderName.value='';clientSecret.value=null;checkoutReady.value=false;destroyCard();if(wizardStep.value==='payment')void prepareCheckout();});
 onMounted(load);
 onBeforeUnmount(destroyCard);
 </script>

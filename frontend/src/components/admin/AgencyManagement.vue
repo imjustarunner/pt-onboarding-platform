@@ -1966,7 +1966,7 @@
 
           <div class="form-group" data-setting-field="street-address">
             <label>Street Address</label>
-            <input v-model="agencyForm.streetAddress" type="text" placeholder="123 Main St" />
+            <input v-address-autocomplete="{ model: agencyForm, fields: { street: 'streetAddress', city: 'city', state: 'state', postalCode: 'postalCode' }, locale: 'en', scopeKey: editingAgency?.id || 'new-agency' }" autocomplete="street-address" v-model="agencyForm.streetAddress" type="text" placeholder="123 Main St" />
           </div>
           <div class="form-group">
             <label>City</label>
@@ -2406,7 +2406,7 @@
                         <input v-model="getOfficeLocationEdit(l.id).timezoneCustom" type="text" placeholder="e.g., America/New_York" />
                       </div>
                     </td>
-                    <td><input v-model="getOfficeLocationEdit(l.id).streetAddress" type="text" /></td>
+                    <td><input v-address-autocomplete="{ model: getOfficeLocationEdit(l.id), fields: { street: 'streetAddress', city: 'city', state: 'state', postalCode: 'postalCode' }, locale: 'en', scopeKey: l.id }" autocomplete="street-address" v-model="getOfficeLocationEdit(l.id).streetAddress" type="text" /></td>
                     <td><input v-model="getOfficeLocationEdit(l.id).city" type="text" /></td>
                     <td><input v-model="getOfficeLocationEdit(l.id).state" type="text" /></td>
                     <td><input v-model="getOfficeLocationEdit(l.id).postalCode" type="text" /></td>

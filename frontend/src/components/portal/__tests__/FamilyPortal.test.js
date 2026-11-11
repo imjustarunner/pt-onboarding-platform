@@ -7,7 +7,7 @@ import Ledger from '../../billing/FamilyLedgerPanel.vue';
 import { portalTheme } from '../../../utils/familyPortalTheme';
 import api from '../../../services/api';
 vi.mock('../../../services/api', () => ({ default: { get: vi.fn(), post: vi.fn() } }));
-vi.mock('@stripe/stripe-js', () => ({ loadStripe: vi.fn() }));
+vi.mock('@stripe/stripe-js/pure', () => ({ loadStripe: vi.fn() }));
 beforeEach(() => vi.clearAllMocks());
 const response = name => ({ data: { hasActivePlan: true, plan: {title:name,status:'active'}, goals: [{id:1,goalIndex:1,goalText:'Build coping skills',objectives:[{id:2,objectiveIndex:1,objectiveText:'Practice skills',scaleCurrent:4,scaleTarget:8,scaleDirection:'increase'}]}], ratings:[] } });
 describe('tenant family portal', () => {

@@ -88,6 +88,7 @@ test('previously drafted fixture notices cannot be queued or sent', async () => 
 test('automatic copay and installment scans quietly skip fixture payers', async () => {
   mock.method(pool, 'execute', async sql => {
     if (sql.includes('FROM family_receivable_allocations a JOIN')) return [[{ id: 1, payer_user_id: 10, due: 2500 }]];
+    if (sql === 'SELECT timezone FROM agencies WHERE id=?') return [[{ timezone: 'America/Denver' }]];
     assert.equal(sql, 'SELECT email,role,is_demo FROM users WHERE id=?');
     return [[fixture]];
   });

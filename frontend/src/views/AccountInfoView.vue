@@ -734,7 +734,7 @@
           <div class="fields-grid" style="margin-top: 12px;">
             <div class="field-item">
               <label>Street</label>
-              <input v-model="homeAddressForm.street" :disabled="!editingHomeAddress" type="text" placeholder="123 Main St" />
+              <input v-address-autocomplete="{ model: homeAddressForm, fields: { street: 'street', city: 'city', state: 'state', postalCode: 'postalCode' }, locale: 'en', scopeKey: userId }" autocomplete="street-address" v-model="homeAddressForm.street" :disabled="!editingHomeAddress" type="text" placeholder="123 Main St" />
             </div>
             <div class="field-item">
               <label>Apt / Unit</label>

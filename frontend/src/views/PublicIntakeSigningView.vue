@@ -1028,7 +1028,7 @@
               </label>
               <div v-if="field.helperText" class="helper-text">{{ txField(field, 'helperText') }}</div>
               <div v-if="field.description" class="helper-text muted">{{ tx(field.description) }}</div>
-              <input
+              <input v-address-autocomplete="addressFieldBinding(field, visibleGuardianFields, intakeResponses.guardian, { locale: intakeLocale, publicKey, scopeKey: 'guardian' })"
                 v-if="field.type !== 'textarea' && field.type !== 'checkbox' && field.type !== 'select' && field.type !== 'radio' && field.type !== 'date'"
                 :type="field.type || 'text'"
                 v-model="intakeResponses.guardian[field.key]"
@@ -1082,7 +1082,7 @@
               </label>
               <div v-if="field.helperText" class="helper-text">{{ txField(field, 'helperText') }}</div>
               <div v-if="field.description" class="helper-text muted">{{ tx(field.description) }}</div>
-              <input
+              <input v-address-autocomplete="addressFieldBinding(field, visibleSubmissionFields, intakeResponses.submission, { locale: intakeLocale, publicKey, scopeKey: 'submission' })"
                 v-if="field.type !== 'textarea' && field.type !== 'checkbox' && field.type !== 'select' && field.type !== 'radio' && field.type !== 'date'"
                 :type="field.type || 'text'"
                 v-model="intakeResponses.submission[field.key]"
@@ -1264,7 +1264,7 @@
                 </label>
                 <div v-if="field.helperText" class="helper-text">{{ txField(field, 'helperText') }}</div>
                 <div v-if="field.description" class="helper-text muted">{{ tx(field.description) }}</div>
-                <input
+                <input v-address-autocomplete="addressFieldBinding(field, visibleClientFields(idx), intakeResponses.clients[idx], { locale: intakeLocale, publicKey, scopeKey: `client:${idx}` })"
                   v-if="field.type !== 'textarea' && field.type !== 'checkbox' && field.type !== 'select' && field.type !== 'radio' && field.type !== 'date'"
                   :type="field.type || 'text'"
                   v-model="intakeResponses.clients[idx][field.key]"
@@ -1352,7 +1352,7 @@
                 <span v-if="field.required" class="required-indicator">*</span>
               </label>
               <div v-if="field.helperText" class="helper-text">{{ txField(field, 'helperText') }}</div>
-              <input
+              <input v-address-autocomplete="addressFieldBinding(field, visibleQuestionFields, questionValues, { locale: intakeLocale, publicKey, scopeKey: 'questions' })"
                 v-if="field.type !== 'textarea' && field.type !== 'checkbox' && field.type !== 'select' && field.type !== 'radio' && field.type !== 'date'"
                 v-model="questionValues[field.key]"
                 type="text"
@@ -1827,6 +1827,7 @@
             :public-key="publicKey"
             :submission-id="submissionId"
             :cost-display="paymentCostDisplay"
+            :insurance-info="intakeResponses.submission.insuranceInfo || {}" :billing-email="guardianEmail" :payment-only="isPaymentOnlyEnrollmentChannel" :collection-allowed="!shouldSkipPaymentCollectionStep()"
             @update:model-value="(v) => { intakeResponses.submission.paymentInfo = v; }"
             @card-saved="onPaymentCardSaved"
             @skip-acknowledged="onPaymentSkipAcknowledged"
@@ -2253,7 +2254,7 @@
                     @click="applySameAsMeToDemographics"
                   >{{ t('sameAsMe') }}</button>
                 </label>
-                <input type="text" v-model="demographicsData.addressStreet" placeholder="123 Main St" />
+                <input v-address-autocomplete="{ model: demographicsData, fields: { street: 'addressStreet', city: 'addressCity', state: 'addressState', postalCode: 'addressZip' }, locale: intakeLocale, publicKey, scopeKey: currentFlowIndex }" type="text" v-model="demographicsData.addressStreet" placeholder="123 Main St" />
               </div>
               <div class="form-group">
                 <label>{{ tx('Apt / Unit (optional)') }}</label>
@@ -2309,6 +2310,7 @@
                 </div>
                 <IntakeQuestionField
                   :field="row.field"
+                  :address-autocomplete="addressFieldBinding(row.field, visibleQuestionFields, questionValues, { locale: intakeLocale, publicKey, scopeKey: currentFlowIndex })"
                   :model-value="questionValues[row.field.key]"
                   :label="txField(row.field)"
                   :help="txField(row.field, 'helperText')"
@@ -3166,6 +3168,8 @@
 </template>
 
 <script setup>
+import { addressFieldBinding } from '../utils/addressFieldBinding.js';
+import { fillAddressGroupFromZip } from '../utils/addressZipAutofill.js';
 import { compactIntakeProgress, restoreIntakeProgressSnapshot } from '../utils/intakeProgressPayload.js';
 import EnrollmentContactOptions from '../components/public-intake/EnrollmentContactOptions.vue';
 import EnrollmentTerminationDialog from '../components/public-intake/EnrollmentTerminationDialog.vue';
@@ -5309,12 +5313,13 @@ function toggleSexPlus(key) {
 const demographicsErrors = reactive({ dob: false });
 
 const autofillDemographicsLocation = async () => {
-  const zip = String(demographicsData.value.addressZip || '').replace(/\D/g, '').slice(0, 5);
+  const bag = demographicsData.value, flowIndex = currentFlowIndex.value;
+  const raw = String(bag.addressZip || ''), zip = raw.replace(/\D/g, '').slice(0, 5);
   if (zip.length !== 5) return;
   const found = await lookupUsZipCityState(zip);
-  if (!found) return;
-  if (!demographicsData.value.addressCity) demographicsData.value.addressCity = found.city || '';
-  if (!demographicsData.value.addressState) demographicsData.value.addressState = found.state || '';
+  if (!found || !addressViewActive || bag !== demographicsData.value || flowIndex !== currentFlowIndex.value || String(bag.addressZip || '') !== raw) return;
+  if (!bag.addressCity) bag.addressCity = found.city || '';
+  if (!bag.addressState) bag.addressState = found.state || '';
 };
 
 // Clinical questions step state
@@ -8594,6 +8599,8 @@ const saveServerProgress = async ({ required = false } = {}) => {
   }
 };
 
+provide('prepareIntakePayment',()=>saveServerProgress({required:true}));
+
 const queueServerProgressSave = () => {
   if (!sessionToken.value) return;
   if (serverProgressTimer) clearTimeout(serverProgressTimer);
@@ -9435,100 +9442,22 @@ const formatAnswerValue = (val) => {
   return str;
 };
 
-const guardianLocationKeys = computed(() => {
-  const fields = guardianFields.value || [];
-  const matches = (pattern) =>
-    fields
-      .filter((f) => matchesToken(f, pattern))
-      .map((f) => f.key)
-      .filter(Boolean);
-  return {
-    city: matches(/\bcity\b/),
-    state: matches(/\bstate\b|\bprovince\b/),
-    zip: matches(/\bzip\b|\bpostal\b/)
-  };
-});
-
-const clientLocationKeys = computed(() => {
-  const fields = clientFields.value || [];
-  const matches = (pattern) =>
-    fields
-      .filter((f) => matchesToken(f, pattern))
-      .map((f) => f.key)
-      .filter(Boolean);
-  return {
-    city: matches(/\bcity\b/),
-    state: matches(/\bstate\b|\bprovince\b/),
-    zip: matches(/\bzip\b|\bpostal\b/)
-  };
-});
-
-const zipLookupCache = reactive({});
-
-const maybeAutofillGuardianLocation = async (field) => {
-  const zipKeys = guardianLocationKeys.value.zip || [];
-  if (!field?.key || (!zipKeys.includes(field.key) && !/zip|postal/.test(normalizeKey(field.key)))) return;
-  const raw = intakeResponses.guardian?.[field.key];
-  const zip = String(raw || '').replace(/\D/g, '').slice(0, 5);
-  if (zip.length !== 5) return;
-  if (zipLookupCache.guardian === zip) return;
-  zipLookupCache.guardian = zip;
-
-  const found = await lookupUsZipCityState(zip);
-  if (!found) return;
-  const setIfEmpty = (key, value) => {
-    if (!key || !value) return;
-    const current = intakeResponses.guardian?.[key];
-    if (!String(current || '').trim()) {
-      intakeResponses.guardian[key] = value;
-    }
-  };
-  (guardianLocationKeys.value.city || []).forEach((key) => setIfEmpty(key, found.city));
-  (guardianLocationKeys.value.state || []).forEach((key) => setIfEmpty(key, found.state));
+let addressViewActive = true;
+onBeforeUnmount(() => { addressViewActive = false; });
+const maybeAutofillGuardianLocation = field => {
+  const bag = intakeResponses.guardian;
+  return fillAddressGroupFromZip({ field, fields: guardianFields.value, model: bag, lookup: lookupUsZipCityState,
+    isCurrent: () => addressViewActive && bag === intakeResponses.guardian });
 };
-
-const maybeAutofillLocation = async (idx, field) => {
-  const zipKeys = clientLocationKeys.value.zip || [];
-  if (!field?.key || (!zipKeys.includes(field.key) && !/zip|postal/.test(normalizeKey(field.key)))) return;
-  const raw = intakeResponses.clients?.[idx]?.[field.key];
-  const zip = String(raw || '').replace(/\D/g, '').slice(0, 5);
-  if (zip.length !== 5) return;
-  if (zipLookupCache[`${idx}`] === zip) return;
-  zipLookupCache[`${idx}`] = zip;
-
-  const found = await lookupUsZipCityState(zip);
-  if (!found) return;
-  const setIfEmpty = (key, value) => {
-    if (!key || !value) return;
-    const current = intakeResponses.clients?.[idx]?.[key];
-    if (!String(current || '').trim()) {
-      intakeResponses.clients[idx][key] = value;
-    }
-  };
-  (clientLocationKeys.value.city || []).forEach((key) => setIfEmpty(key, found.city));
-  (clientLocationKeys.value.state || []).forEach((key) => setIfEmpty(key, found.state));
+const maybeAutofillLocation = (idx, field) => {
+  const bag = intakeResponses.clients[idx];
+  return fillAddressGroupFromZip({ field, fields: clientFields.value, model: bag, lookup: lookupUsZipCityState,
+    isCurrent: () => addressViewActive && bag === intakeResponses.clients[idx] });
 };
-
-const maybeAutofillQuestionLocation = async (field) => {
-  if (!field?.key || !/zip|postal/i.test(normalizeKey(field.key))) return;
-  const bag = questionValues.value;
-  const raw = bag?.[field.key];
-  const zip = String(raw || '').replace(/\D/g, '').slice(0, 5);
-  if (zip.length !== 5) return;
-  const cacheKey = `q_${field.key}`;
-  if (zipLookupCache[cacheKey] === zip) return;
-  zipLookupCache[cacheKey] = zip;
-  const found = await lookupUsZipCityState(zip);
-  if (!found) return;
-  (visibleQuestionFields.value || []).forEach((f) => {
-    if (!f?.key || f.key === field.key) return;
-    const k = normalizeKey(f.key);
-    const cur = String(bag?.[f.key] || '').trim();
-    if (!cur) {
-      if (/city|town/.test(k)) bag[f.key] = found.city;
-      else if (/state|province/.test(k)) bag[f.key] = found.state;
-    }
-  });
+const maybeAutofillQuestionLocation = field => {
+  const bag = questionValues.value, flowIndex = currentFlowIndex.value;
+  return fillAddressGroupFromZip({ field, fields: visibleQuestionFields.value, model: bag, lookup: lookupUsZipCityState,
+    isCurrent: () => addressViewActive && bag === questionValues.value && flowIndex === currentFlowIndex.value });
 };
 
 const onInterviewFieldUpdate = (field, value) => {

@@ -397,7 +397,7 @@
             <template v-if="editing">
               <input v-model="v.contactPhone" class="tisi-inline tisi-inline--on-dark" type="text" placeholder="Phone" />
               <input v-model="v.contactEmail" class="tisi-inline tisi-inline--on-dark" type="text" placeholder="Email" />
-              <input v-model="v.contactAddress" class="tisi-inline tisi-inline--on-dark" type="text" placeholder="Address" />
+              <input v-address-autocomplete="{ format: 'full', locale: 'en', model: v }" autocomplete="street-address" v-model="v.contactAddress" class="tisi-inline tisi-inline--on-dark" type="text" placeholder="Address" />
             </template>
           </div>
 

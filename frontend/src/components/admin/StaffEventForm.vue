@@ -196,7 +196,7 @@
         </div>
         <div>
           <label class="lbl" for="staff-event-venue-address">Venue address</label>
-          <input id="staff-event-venue-address" v-model.trim="draft.eventLocationAddress" :required="!!draft.eventLocationName" class="input" placeholder="Full street address, city, state, ZIP" />
+          <input v-address-autocomplete="{ format: 'full', locale: 'en', model: draft, scopeKey: selectedEventId }" autocomplete="street-address" id="staff-event-venue-address" v-model.trim="draft.eventLocationAddress" :required="!!draft.eventLocationName" class="input" placeholder="Full street address, city, state, ZIP" />
           <p class="hint">Required when a venue is selected. Used for event directions and travel distances.</p>
         </div>
       </div>

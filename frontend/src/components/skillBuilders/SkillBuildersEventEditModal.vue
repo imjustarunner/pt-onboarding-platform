@@ -165,7 +165,7 @@
               </div>
               <div class="form-group">
                 <label class="sb-ce-lbl" for="sb-ce-venue-address">Venue address</label>
-                <input id="sb-ce-venue-address" v-model.trim="draft.eventLocationAddress" class="input" maxlength="500" placeholder="Full street address, city, state, ZIP" />
+                <input v-address-autocomplete="{ format: 'full', locale: 'en', model: draft }" autocomplete="street-address" id="sb-ce-venue-address" v-model.trim="draft.eventLocationAddress" class="input" maxlength="500" placeholder="Full street address, city, state, ZIP" />
                 <small class="form-help">Used for event directions and travel reimbursement distances.</small>
               </div>
               <div class="form-group">
@@ -942,7 +942,7 @@
               </div>
               <div v-if="draft.inPersonPublic" class="form-group">
                 <label class="sb-ce-lbl">Venue address</label>
-                <textarea
+                <textarea v-address-autocomplete="{ format: 'full', locale: 'en', model: draft }" autocomplete="street-address"
                   v-model.trim="draft.eventLocationAddress"
                   class="input"
                   rows="2"

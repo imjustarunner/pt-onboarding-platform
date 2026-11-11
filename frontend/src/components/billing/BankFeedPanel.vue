@@ -29,7 +29,7 @@
 
 <script setup>
 import { ref, watch, onBeforeUnmount } from 'vue';
-import { loadStripe } from '@stripe/stripe-js';
+import { loadStripe } from '@stripe/stripe-js/pure';
 import api from '../../services/api';
 const props = defineProps({ agencyId: { type: Number, required: true }, agencyName: { type: String, required: true } });
 const data = ref(null), error = ref(''), notice = ref(''), busy = ref(false), ownerAuthorized = ref(false), selectedId = ref(null), disconnectId = ref(null), after = ref(0), eraId = ref(''), eraPage = ref(1);

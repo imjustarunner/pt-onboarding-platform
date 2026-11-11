@@ -18,6 +18,8 @@ export function personalBillingRouteAllowed(method,path,clientId){
  return method==='POST'&&/^\/api\/family-billing\/(allocations\/\d+\/pay|plans\/\d+\/(accept|cancel)|balances\/\d+\/split|splits\/\d+\/respond)$/.test(path);
 }
 export function dependentRouteAllowed(method,path,clientId){
+ // Public address assistance has no client-record scope; normal personal-login checks remain in force.
+ if(method==='POST' && /^\/api\/address-lookup\/(suggest|select)$/.test(path))return true;
  // The handler independently requires an isolated demo account and exact email recipient.
  if(method==='GET' && /^\/api\/communications\/qa-email-inbox(?:\/\d+)?$/.test(path))return true;
  if(path.startsWith('/api/dependent-portal/'))return !/\/(manage|staff)\//.test(path);

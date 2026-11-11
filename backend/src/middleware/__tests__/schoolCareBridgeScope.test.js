@@ -24,6 +24,11 @@ describe('SchoolCareBridge tenant scope',()=>{
   }
   expect(schoolCareBridgeApiAllowed('POST','/api/school-contact-plan-unrelated',20)).toBe(false);
  });
+ it('allows only POST address actions inside the school workspace while preserving resource authentication',()=>{
+  for(const path of ['/api/address-lookup/suggest','/api/address-lookup/select','/api/address-lookup/context/suggest','/api/address-lookup/context/select','/api/address-lookup/intake/active-key/suggest','/api/address-lookup/intake/active-key/select'])expect(schoolCareBridgeApiAllowed('POST',path,20)).toBe(true);
+  for(const path of ['/api/address-lookup/admin','/api/address-lookup/intake/key/export','/api/address-lookup/suggest/extra'])expect(schoolCareBridgeApiAllowed('POST',path,20)).toBe(false);
+  expect(schoolCareBridgeApiAllowed('GET','/api/address-lookup/suggest',20)).toBe(false);
+ });
  it('allows Schools & Programs assigned-school lookups inside the school workspace',()=>{
   expect(schoolCareBridgeApiAllowed('GET','/api/payroll/me/assigned-schools',20)).toBe(true);
   expect(schoolCareBridgeApiAllowed('POST','/api/payroll/run',20)).toBe(false);

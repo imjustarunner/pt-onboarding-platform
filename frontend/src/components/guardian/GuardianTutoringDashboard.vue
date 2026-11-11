@@ -175,7 +175,7 @@
         <PackagePriceChoice :agency-id="selectedPackage?.agencyId" :client-id="clientId" :pkg="selectedPackage" @change="choosePackagePrice"/>
         <div v-if="checkoutReady && stripeEnabled && amountDue > 0" class="gtd-pay">
           <label>Cardholder name<input v-model="cardholderName" type="text" /></label>
-          <div ref="cardMountEl" class="gtd-card-mount" />
+          <StripeCardEntry ref="cardEntry" :publishable-key="publishableKey" :connected-account-id="connectedAccountId" :client-secret="clientSecret" :email="authStore.user?.email" :name="cardholderName" :context-key="`${clientId}:${authStore.user?.id || ''}:${selectedPackageId || ''}`" :disabled="buying" @error="stripeElementError=$event" />
           <p v-if="stripeElementError" class="gtd-error">{{ stripeElementError }}</p>
         </div>
 
@@ -199,7 +199,8 @@ import PackagePriceChoice from '../learning/PackagePriceChoice.vue';
 import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import TutorOfficeStatus from './TutorOfficeStatus.vue';
-import { loadStripe } from '@stripe/stripe-js';
+import StripeCardEntry from '../billing/StripeCardEntry.vue';
+import {useAuthStore} from '../../store/auth';
 import * as los from '@/services/tutoringLearningOs';
 import * as unifiedPackages from '@/services/unifiedPackages';
 
@@ -213,6 +214,7 @@ const props = defineProps({
 });
 
 const router = useRouter();
+const authStore=useAuthStore();
 const loading = ref(false);
 const savingId = ref(null);
 const error = ref('');
@@ -254,12 +256,9 @@ const publishableKey = ref(null);
 const connectedAccountId = ref(null);
 const cardholderName = ref('');
 const stripeElementError = ref('');
-const cardMountEl = ref(null);
+const cardEntry = ref(null);
 
 let checkoutVersion=0;
-let stripeInstance = null;
-let stripeElements = null;
-let stripeCardElement = null;
 
 const formatMoney = unifiedPackages.formatMoney;
 
@@ -340,40 +339,8 @@ function joinSession(s) {
   if (url) router.push(url);
 }
 
-function destroyCard() {
-  if (stripeCardElement) {
-    try { stripeCardElement.destroy(); } catch { /* ignore */ }
-    stripeCardElement = null;
-  }
-  stripeElements = null;
-}
-
-async function mountCard() {
-  destroyCard();
-  if (!stripeEnabled.value || !clientSecret.value || !publishableKey.value) return;
-  stripeInstance = await loadStripe(publishableKey.value, {
-    stripeAccount: connectedAccountId.value || undefined
-  });
-  if (!stripeInstance) return;
-  stripeElements = stripeInstance.elements();
-  await nextTick();
-  const mount = cardMountEl.value;
-  if (!mount) return;
-  stripeCardElement = stripeElements.create('card', {
-    style: {
-      base: {
-        fontFamily: 'system-ui, sans-serif',
-        fontSize: '15px',
-        color: '#1e293b',
-        '::placeholder': { color: '#94a3b8' }
-      }
-    }
-  });
-  stripeCardElement.mount(mount);
-  stripeCardElement.on('change', (e) => {
-    stripeElementError.value = e.error ? e.error.message : '';
-  });
-}
+function destroyCard(){cardEntry.value?.clear();}
+async function mountCard(){await nextTick();await cardEntry.value?.ensureReady();}
 
 async function loadPackages() {
   if (!props.clientId) return;
@@ -406,8 +373,8 @@ async function openBuyDrawer() {
     });
     catalog.value = data?.packages || [];
     if (catalog.value[0]) {
+      // The selected-package watcher starts checkout once.
       selectedPackageId.value = catalog.value[0].id;
-      await prepareCheckout();
     }
   } catch (e) {
     buyError.value = e.response?.data?.error?.message || e.message || 'Could not load packages';
@@ -472,13 +439,9 @@ async function purchaseSelected() {
       }
     }
     if (stripeEnabled.value && clientSecret.value && amountDue.value > 0) {
-      if (!stripeInstance || !stripeCardElement) await mountCard();
-      const { error: stripeErr, paymentIntent } = await stripeInstance.confirmCardPayment(clientSecret.value, {
-        payment_method: {
-          card: stripeCardElement,
-          billing_details: { name: cardholderName.value || undefined }
-        }
-      });
+      if(!cardEntry.value)await mountCard();
+      if(!cardEntry.value)throw new Error('Payment form is not ready.');
+      const {error:stripeErr,paymentIntent}=await cardEntry.value.confirmPayment();
       if (stripeErr) {
         buyError.value = stripeErr.message || 'Payment failed';
         return;
@@ -528,7 +491,7 @@ async function completePractice(id) {
   }
 }
 
-watch(() => props.clientId, load);
+watch(()=>[props.clientId,authStore.user?.id,authStore.user?.email],()=>{closeBuyDrawer();cardholderName.value='';selectedPackageId.value=null;clientSecret.value=null;void load();});
 watch(selectedPackageId, async (id, prev) => {
   if (buyOpen.value && id && id !== prev) {
     await prepareCheckout();

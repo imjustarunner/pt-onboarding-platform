@@ -25,7 +25,7 @@
         </label>
       </fieldset>
       <label>Confirmed mailing address for this responsible payer
-        <textarea v-model="mailingAddress" maxlength="1000" rows="4" :disabled="busy" required />
+        <textarea v-address-autocomplete="{ format: 'full', locale: 'en', scopeKey: String(agencyId) + ':' + String(groupId) }" autocomplete="street-address" v-model="mailingAddress" maxlength="1000" rows="4" :disabled="busy" required />
       </label>
       <p>{{ money(selectedTotal) }} selected. The handoff includes contact details, service references, payments, refunds, and recorded notices.</p>
       <button :disabled="busy || !selectedIds.length || !agreementId || !mailingAddress.trim()">Transfer to management company</button>

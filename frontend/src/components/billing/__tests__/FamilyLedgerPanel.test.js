@@ -3,11 +3,11 @@ import {mount,flushPromises} from '@vue/test-utils';
 import FamilyLedgerPanel from '../FamilyLedgerPanel.vue';
 import ClientBillingReadiness from '../ClientBillingReadiness.vue';
 import api from '../../../services/api';
-import {loadStripe} from '@stripe/stripe-js';
+import {loadStripe} from '@stripe/stripe-js/pure';
 import { ref } from 'vue';
 import { familyLocaleKey, familyTranslator } from '../../../composables/useFamilyLocale';
 vi.mock('../../../services/api',()=>({default:{get:vi.fn(),post:vi.fn()}}));
-vi.mock('@stripe/stripe-js',()=>({loadStripe:vi.fn()}));
+vi.mock('@stripe/stripe-js/pure',()=>({loadStripe:vi.fn()}));
 const button=(w,text)=>w.findAll('button').find(b=>b.text().includes(text));
 let balances;
 beforeEach(()=>{

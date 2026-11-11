@@ -16,13 +16,13 @@ export const revokeBillingRecurring = run(async (req, res) => { await revokeRecu
 export const saveBillingInsurance = run(async (req, res) => { const id = await saveFamilyInsurance({ ...req.body, ...context(req) }); res.json({ success: true, profileId: id }); });
 export const createPortalCardSetup = run(async (req, res) => {
   const c = context(req), summary = await getFamilyBillingSummary(c.userId, c.agencyId);
-  if (!summary.clients.some(row => row.canManageBilling)) throw billingError(403, 'Accept financial responsibility for a linked client first');
+  if (!summary.clients.some(row => row.canManageBilling && !row.medicaid)) throw billingError(403, 'Accept financial responsibility for an eligible non-Medicaid client first');
   const setup = await createFamilyCardSetup({ ...c, connectedAccountId: summary.stripe.connectedAccountId });
   res.json({ ...setup, terms: summary.terms, termsVersion: summary.termsVersion });
 });
 export const completePortalCardSetup = run(async (req, res) => {
   const c = context(req), summary = await getFamilyBillingSummary(c.userId, c.agencyId);
-  if (!summary.clients.some(row => row.canManageBilling)) throw billingError(403, 'Responsible payer access is required');
+  if (!summary.clients.some(row => row.canManageBilling && !row.medicaid)) throw billingError(403, 'Responsible payer access for an eligible non-Medicaid client is required');
   const card = await completeFamilyCardSetup({ ...c, setupIntentId: req.body?.setupIntentId, consent: req.body?.consent });
   res.json({ card });
 });

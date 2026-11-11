@@ -326,6 +326,18 @@ async function listProviderPreview(agencyId, { limit = 6 } = {}) {
   }
 }
 
+// Address assistance uses the same active organization and enabled service list
+// as the public join form, without loading people, answers or full intake links.
+export async function getAdaptiveAddressEditContext(agencySlugOrId, serviceType) {
+  const requested = String(serviceType || '').trim().toLowerCase();
+  if (!INTAKE_SERVICE_TYPES.has(requested)) return null;
+  const agencyRow = await loadAgencyRow(agencySlugOrId);
+  if (!agencyRow) return null;
+  const services = await listIntakeServices(agencyRow);
+  if (!services.some(service => service.serviceType === requested)) return null;
+  return { agencyId: Number(agencyRow.id), serviceType: requested };
+}
+
 export async function getAdaptiveIntakeConfig(agencySlugOrId, req, options = {}) {
   const agencyRow = await loadAgencyRow(agencySlugOrId);
   if (!agencyRow) return null;

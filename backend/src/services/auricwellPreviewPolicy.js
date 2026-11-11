@@ -36,6 +36,8 @@ export function qaPreviewRouteAllowed(method, path, user, agencyId) {
   if (agency && Number(agency[1]) !== agencyId) return false;
   const preferences = path.match(/^\/users\/(\d+)\/preferences$/);
   if (preferences && Number(preferences[1]) !== Number(user.id)) return false;
+  // Address suggestions are a scoped read utility, never clinical writes.
+  if (method === 'POST' && /^\/address-lookup\/(suggest|select)$/.test(path)) return true;
   // Keep the real role downstream. Support does not acquire clinical write access.
   if (user.role === 'support' && method !== 'GET') return false;
   return previewRouteAllowed(method,path);
@@ -53,6 +55,7 @@ export function constrainPreviewInput(input, agencyId) {
   }
 }
 export function previewRouteAllowed(method, path) {
+  if (method === 'POST' && /^\/address-lookup\/(suggest|select)$/.test(path)) return true;
   if (method === 'GET') return [
     /^\/(?:auricwell-preview\/portal|portal-admin)\/clients\/[1-9][0-9]*\/accounts(?:\/[1-9][0-9]*\/(?:read|activity))?$/,
     /^\/auricwell-preview(?:\/context|\/providers|\/workspace-scope|\/agenda|\/directory|\/my-clients|\/tasks|\/notifications|\/toasts(?:\/active)?)?$/,

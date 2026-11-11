@@ -115,7 +115,7 @@
                     <option value="Other">Other</option>
                   </select>
                 </label>
-                <label>Mailing street <input v-model="contact.addressStreet" type="text" /></label>
+                <label>Mailing street <input v-address-autocomplete="{ model: contact, fields: { street: 'addressStreet', city: 'addressCity', state: 'addressState', postalCode: 'addressZip' }, locale: 'en', publicContext: { kind: 'client-renewal', token }, scopeKey: token }" autocomplete="street-address" v-model="contact.addressStreet" type="text" /></label>
                 <label>Apt / unit <input v-model="contact.addressApt" type="text" /></label>
                 <div class="cr-form__row">
                   <label>City <input v-model="contact.addressCity" type="text" /></label>

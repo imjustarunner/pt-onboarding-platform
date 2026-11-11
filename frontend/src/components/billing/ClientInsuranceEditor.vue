@@ -20,8 +20,8 @@
         </article>
       </section>
       <h5>Client identity</h5><button type="button" class="btn btn-secondary" @click="useDemographics">Fill missing fields from Demographics</button><div class="identity-fields"><label v-for="field in patientFields" :key="field.key">{{ field.label }}<input v-model="draft.patient[field.key]" :type="field.type || 'text'" maxlength="255" /></label></div>
-      <h5>Primary coverage</h5><InsurancePolicyFields v-model="draft.primary" :patient="draft.patient" :require-complete="false" />
-      <label><input v-model="hasSecondary" type="checkbox" /> Secondary coverage</label><InsurancePolicyFields v-if="hasSecondary" v-model="draft.secondary" :patient="draft.patient" :require-complete="false" />
+      <h5>Primary coverage</h5><InsurancePolicyFields :scope-key="`client:${clientId}:primary`" v-model="draft.primary" :patient="draft.patient" :require-complete="false" />
+      <label><input v-model="hasSecondary" type="checkbox" /> Secondary coverage</label><InsurancePolicyFields :scope-key="`client:${clientId}:secondary`" v-if="hasSecondary" v-model="draft.secondary" :patient="draft.patient" :require-complete="false" />
       <section v-if="canSeeBilling && eligibilityFindings.length" aria-label="Information returned by insurers">
         <h5>Information returned by insurers</h5>
         <p>Missing policy fields are filled when the returned identity matches. Reported other insurance stays here until its coverage and billing order are resolved. An insurer listed here is not automatically a secondary payer.</p>

@@ -311,7 +311,7 @@
                                 type="text"
                                 placeholder="Location label"
                               />
-                              <input
+                              <input v-address-autocomplete="{ format: 'full', locale: 'en', model: sessionEditDraft[s.id], scopeKey: s.id }" autocomplete="street-address"
                                 v-model.trim="sessionEditDraft[s.id].locationAddress"
                                 class="input"
                                 type="text"

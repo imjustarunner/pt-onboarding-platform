@@ -295,7 +295,7 @@
           <label class="pmp-inline">CTA note <input v-model="landingForm.ctaNote" type="text" /></label>
           <label class="pmp-inline">Phone <input v-model="landingForm.contactPhone" type="text" /></label>
           <label class="pmp-inline">Email <input v-model="landingForm.contactEmail" type="text" /></label>
-          <label class="pmp-inline full">Address <input v-model="landingForm.contactAddress" type="text" /></label>
+          <label class="pmp-inline full">Address <input v-address-autocomplete="{ format: 'full', locale: 'en', model: landingForm }" autocomplete="street-address" v-model="landingForm.contactAddress" type="text" /></label>
         </div>
         <div v-for="(s, i) in landingForm.socialLinks" :key="`soc-${i}`" class="pmp-row-grid">
           <input v-model="s.label" type="text" placeholder="Label" />

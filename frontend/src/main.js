@@ -1,3 +1,5 @@
+import { vAddressAutocomplete } from './directives/addressAutocomplete.js';
+import './styles/addressAutocomplete.css';
 import { schoolCareBridgeBrowserBrand } from './composables/useSchoolCareBridgeBranding';
 import { fundthredBrowserBrand } from './composables/useFundThredBranding';
 import { PLATFORM_BRAND } from './config/platformBrand.js';
@@ -52,6 +54,7 @@ async function bootstrap() {
   }
 
   const app = createApp(App);
+  app.directive('address-autocomplete', vAddressAutocomplete);
   const pinia = createPinia();
 
   app.use(pinia);

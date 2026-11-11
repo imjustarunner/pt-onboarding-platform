@@ -10,7 +10,7 @@
           <label>Legal company name<input v-model="profile.officialName" maxlength="255" /></label>
           <label>Website<input v-model="profile.websiteUrl" type="url" maxlength="512" placeholder="https://" /></label>
           <label>Business phone<input v-model="profile.phoneNumber" type="tel" maxlength="50" /></label>
-          <label>Street address<input v-model="profile.streetAddress" maxlength="255" autocomplete="street-address" /></label>
+          <label>Street address<input v-address-autocomplete="{ model: profile, fields: { street: 'streetAddress', city: 'city', state: 'state', postalCode: 'postalCode' }, locale: 'en', scopeKey: agencyId }" v-model="profile.streetAddress" maxlength="255" autocomplete="street-address" /></label>
           <label>City<input v-model="profile.city" maxlength="100" autocomplete="address-level2" /></label>
           <label>State<input v-model="profile.state" maxlength="100" autocomplete="address-level1" /></label>
           <label>ZIP / postal code<input v-model="profile.postalCode" maxlength="20" autocomplete="postal-code" /></label>

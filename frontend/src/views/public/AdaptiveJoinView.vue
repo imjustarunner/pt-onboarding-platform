@@ -372,7 +372,7 @@
           <p v-if="form.whoFor === 'couple' || form.whoFor === 'family'" class="ai-page-lead"> {{ tx("Primary household / contact address") }} </p>
           <div class="ai-join-grid">
             <div class="ai-span-12">
-              <DigitalFormField v-model="form.address.street" label="Street address" required />
+              <DigitalFormField v-model="form.address.street" :address-autocomplete="joinAddressAutocomplete(form.address, 'primary')" label="Street address" required />
             </div>
             <div class="ai-span-5">
               <DigitalFormField v-model="form.address.apt" label="Apartment, suite, or unit" optional-badge />
@@ -391,7 +391,7 @@
             <h3 class="ai-join-section-title" style="margin-top:1rem;"> {{ tx("Partner address") }} </h3>
             <div class="ai-join-grid">
               <div class="ai-span-12">
-                <DigitalFormField v-model="form.partner.address.street" label="Street address" required />
+                <DigitalFormField v-model="form.partner.address.street" :address-autocomplete="joinAddressAutocomplete(form.partner.address, 'partner')" label="Street address" required />
               </div>
               <div class="ai-span-5">
                 <DigitalFormField v-model="form.partner.address.apt" label="Apartment, suite, or unit" optional-badge />
@@ -669,7 +669,7 @@ import { i18n, setPublicLocale } from '../../i18n.js';
 import { translateJoinEnrollment, JOIN_ENROLLMENT_ES } from '../../utils/joinEnrollmentCopy.js';
 import LearningEnrollmentQuestions from '../../components/learning/LearningEnrollmentQuestions.vue';
 import {publicWebsitePath} from '../../utils/publicWebsitePath';
-import { computed, nextTick, onMounted, provide, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, provide, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import OtherGuardianIntakeFields from '../../components/public-intake/OtherGuardianIntakeFields.vue';
 import api from '../../services/api';
@@ -732,6 +732,15 @@ const learningForm = ref({version:1,packageId:String(route.query.packageId||''),
 const resolvedServiceType = computed(() =>
   serviceType.value || String(config.value?.activeService?.serviceType || '').trim().toLowerCase()
 );
+function joinAddressAutocomplete(address, person) {
+  return {
+    model: address,
+    fields: { street: 'street', city: 'city', state: 'state', postalCode: 'zip' },
+    locale: locale.value,
+    publicContext: { kind: 'adaptive-join', token: agencySlug.value, serviceType: resolvedServiceType.value },
+    scopeKey: `${agencySlug.value}:${resolvedServiceType.value}:${person}`
+  };
+}
 
 const loading = ref(true);
 const loadError = ref('');
@@ -1617,11 +1626,16 @@ function clearAdditionalDependent() {
   form.additionalDependent.notes = '';
 }
 
+let addressViewActive = true;
+onBeforeUnmount(() => { addressViewActive = false; });
 watch(() => form.address.zip, async (zip) => {
+  const source = form.address, scope = `${agencySlug.value}:${resolvedServiceType.value}`;
   const found = await lookupUsZipCityState(zip);
-  if (!found) return;
-  form.address.city = found.city || form.address.city;
-  form.address.state = found.state || form.address.state;
+  if (!found || !addressViewActive || source !== form.address || zip !== form.address.zip || scope !== `${agencySlug.value}:${resolvedServiceType.value}`) return;
+  // A broad ZIP result must not overwrite a selected street's locality or a
+  // manually reviewed value while its request was in flight.
+  if (!source.city) source.city = found.city || '';
+  if (!source.state) source.state = found.state || '';
 });
 
 const DEV_FILL_PEOPLE = [
