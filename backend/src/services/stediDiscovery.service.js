@@ -6,7 +6,7 @@ import { listClaimMdBillingProfiles } from './claimMdBillingProfile.service.js';
 import { queueInsuranceVerificationSafely } from './insuranceVerificationTask.service.js';
 import { policyIsMedicaid } from '../utils/insurancePaymentPolicy.js';
 import { assertLiveClearinghouseAgency } from './syntheticClearinghouseGuard.service.js';
-import { STEDI_AGENCIES, STEDI_MONTHLY_LIMIT, discoveryMonth, discoveryPatient, discoveryFingerprint, validateDiscoveryConfirmation, stediDiscoveryPayload, discoveryCandidate, discoveryNpiValid } from './stediDiscoveryPolicy.js';
+import { STEDI_AGENCIES, discoveryMonth, discoveryPatient, discoveryFingerprint, validateDiscoveryConfirmation, stediDiscoveryPayload, discoveryCandidate, discoveryNpiValid } from './stediDiscoveryPolicy.js';
 
 const context = row => `stedi-discovery:${row.agency_id}:${row.client_id}`;
 export function stediDiscoveryConfigured(agencyId) {
@@ -30,10 +30,10 @@ export async function discoveryWorkspace(scope, deps = {}) {
   const enabled = stediDiscoveryConfigured(scope.agencyId);
   const offices = enabled ? await (deps.offices || listClaimMdBillingProfiles)(scope.agencyId) : [];
   return { enabled, patient, fingerprint: discoveryFingerprint(patient), offices: offices.map(o => ({ id:o.id, name:o.name, available:discoveryNpiValid(o.practice_npi) })),
-    monthlyLimit:STEDI_MONTHLY_LIMIT, usedThisMonth:Number(budget?.reserved_count || 0), estimatedPriceCents:150, priceCheckedOn:'2026-11-10', searches:rows.map(decodeDiscovery) };
+    usedThisMonth:Number(budget?.reserved_count || 0), estimatedPriceCents:150, priceCheckedOn:'2026-11-10', searches:rows.map(decodeDiscovery) };
 }
 
-/** One shared budget lock serializes reservations across all three agencies.
+/** A shared usage lock serializes reservations across all three agencies.
  * Reserve durably before any network request; a crash is never retried as POST. */
 export async function reserveDiscovery(input, deps = {}) {
   if (!STEDI_AGENCIES.includes(Number(input.agencyId))) throw billingError(403,'Insurance discovery is unavailable for this agency');
@@ -41,25 +41,24 @@ export async function reserveDiscovery(input, deps = {}) {
   try {
     await db.beginTransaction();
     const month = discoveryMonth();
-    await db.execute('INSERT IGNORE INTO stedi_discovery_budget (month_key) VALUES (?)',[month]);
-    const [[budget]] = await db.execute('SELECT reserved_count FROM stedi_discovery_budget WHERE month_key=? FOR UPDATE',[month]);
+    await db.execute('INSERT INTO stedi_discovery_budget (month_key) VALUES (?) ON DUPLICATE KEY UPDATE reserved_count=reserved_count',[month]);
+    await db.execute('SELECT reserved_count FROM stedi_discovery_budget WHERE month_key=? FOR UPDATE',[month]);
     const [[client]] = await db.execute('SELECT id FROM clients WHERE id=? AND agency_id=? FOR UPDATE',[input.clientId,input.agencyId]);
     if (!client) throw billingError(404,'Client not found in this agency');
     const patient = await (deps.patientFor || patientFor)(input,db);
     validateDiscoveryConfirmation(input,patient);
     const [[duplicate]] = await db.execute(`SELECT * FROM stedi_insurance_discoveries WHERE agency_id=? AND client_id=? AND
-      (request_key=? OR (identity_fingerprint=? AND service_date=? AND created_at>UTC_TIMESTAMP()-INTERVAL 30 DAY)) ORDER BY id DESC LIMIT 1`,[input.agencyId,input.clientId,input.requestKey,input.fingerprint,input.serviceDate]);
+      (request_key=? OR (?=0 AND identity_fingerprint=? AND service_date=? AND created_at>UTC_TIMESTAMP()-INTERVAL 30 DAY)) ORDER BY id DESC LIMIT 1`,[input.agencyId,input.clientId,input.requestKey,input.freshSearch===true?1:0,input.fingerprint,input.serviceDate]);
     if (duplicate) { await db.commit(); return {row:duplicate,reused:true}; }
     const [[recent]] = await db.execute(`SELECT id FROM stedi_insurance_discoveries WHERE agency_id=? AND client_id=? AND
-      (created_at>UTC_TIMESTAMP()-INTERVAL 24 HOUR OR status IN ('sending','pending','unknown') OR review_required=1) LIMIT 1`,[input.agencyId,input.clientId]);
-    if (recent) throw billingError(409,'A recent or unresolved search already exists. Review it before starting another search. New searches are limited to one per client in 24 hours.');
-    if (Number(budget.reserved_count) >= STEDI_MONTHLY_LIMIT) throw billingError(409,'The shared limit of 25 Stedi searches this month has been reached.');
+      (status IN ('sending','pending','unknown') OR review_required=1) LIMIT 1`,[input.agencyId,input.clientId]);
+    if (recent) throw billingError(409,'An unresolved search already exists. Retrieve its results or reconcile the attempt before paying for another search.');
     const offices = await (deps.offices || listClaimMdBillingProfiles)(input.agencyId);
     const office = offices.find(o => Number(o.id) === Number(input.billingOfficeId));
     if (!office) throw billingError(409,'Choose a billing office belonging to this agency');
     const payload = stediDiscoveryPayload(patient,office.practice_npi,input.serviceDate);
     const row = { agency_id:input.agencyId, client_id:input.clientId, status:'sending', service_date:input.serviceDate };
-    const request = {patient,payload,reason:input.reason,missingAddressReason:input.missingAddressReason || '',confirmedAt:new Date().toISOString(),nameConfirmed:true,birthdateConfirmed:true,addressConfirmed:true,costConfirmed:true,billingOfficeId:office.id};
+    const request = {patient,payload,reason:input.reason,freshSearch:input.freshSearch===true,repeatReason:input.freshSearch===true?input.repeatReason.trim():'',missingAddressReason:input.missingAddressReason || '',confirmedAt:new Date().toISOString(),nameConfirmed:true,birthdateConfirmed:true,addressConfirmed:true,costConfirmed:true,billingOfficeId:office.id};
     const encrypted = encryptFamilyBilling(request,context(row));
     const [insert] = await db.execute(`INSERT INTO stedi_insurance_discoveries (agency_id,client_id,actor_user_id,request_key,identity_fingerprint,service_date,month_key,status,request_encrypted)
       VALUES (?,?,?,?,?,?,?,'sending',?)`,[input.agencyId,input.clientId,input.actorUserId,input.requestKey,input.fingerprint,input.serviceDate,month,encrypted]);

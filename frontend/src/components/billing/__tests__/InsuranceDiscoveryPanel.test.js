@@ -4,11 +4,11 @@ import InsuranceDiscoveryPanel from '../InsuranceDiscoveryPanel.vue';
 import api from '../../../services/api';
 vi.mock('../../../services/api',()=>({default:{get:vi.fn(),post:vi.fn()}}));
 const patient={firstName:'Synthetic',lastName:'Person',dateOfBirth:'2000-01-01',addressLine1:'1 Test Street',city:'Testville',state:'CO',postalCode:'80000'};
-const data=()=>({enabled:true,patient,fingerprint:'saved-fingerprint',offices:[{id:7,name:'Synthetic office',available:true}],usedThisMonth:0,monthlyLimit:25,estimatedPriceCents:150,searches:[]});
+const data=()=>({enabled:true,patient,fingerprint:'saved-fingerprint',offices:[{id:7,name:'Synthetic office',available:true}],usedThisMonth:0,estimatedPriceCents:150,searches:[]});
 beforeEach(()=>{vi.clearAllMocks();api.get.mockResolvedValue({data:data()});api.post.mockResolvedValue({data:{status:'pending'}});});
 const mountPanel=()=>mount(InsuranceDiscoveryPanel,{props:{agencyId:2,clientId:9,serviceDate:'2026-11-10',currentPatient:{...patient}}});
 async function open(){const w=mountPanel();await w.find('button').trigger('click');await flushPromises();return w;}
-async function confirm(w){for(const input of w.findAll('form input[type=checkbox]'))await input.setValue(true);await w.find('form select').setValue('unknown_insurance');}
+async function confirm(w){for(const input of w.findAll('form input[type=checkbox]').filter(i=>!i.element.parentElement.textContent.includes('fresh paid search')))await input.setValue(true);await w.find('form select').setValue('unknown_insurance');}
 it('never searches on mount or viewing history and requires every confirmation',async()=>{
  const w=mountPanel();expect(api.get).not.toHaveBeenCalled();expect(api.post).not.toHaveBeenCalled();await w.find('button').trigger('click');await flushPromises();
  const button=w.find('button[type=submit]');expect(button.element.disabled).toBe(true);await confirm(w);expect(button.element.disabled).toBe(false);
@@ -24,8 +24,8 @@ it('invalidates confirmation after identity edits and discards late responses af
  const w=await open();await confirm(w);await w.setProps({currentPatient:{...patient,firstName:'Corrected'}});expect(w.find('button[type=submit]').element.disabled).toBe(true);expect(w.text()).toContain('Client details changed');
  let resolve;api.get.mockImplementationOnce(()=>new Promise(r=>resolve=r));await w.find('button').trigger('click');await w.setProps({clientId:10});resolve({data:data()});await flushPromises();expect(w.find('form').exists()).toBe(false);w.unmount();
 });
-it('disables searches at the shared cap and explains a missing connection',async()=>{
- api.get.mockResolvedValue({data:{...data(),usedThisMonth:25}});const w=await open();await confirm(w);expect(w.find('button[type=submit]').element.disabled).toBe(true);w.unmount();
+it('shows monthly usage without a hard cap and explains a missing connection',async()=>{
+ api.get.mockResolvedValue({data:{...data(),usedThisMonth:200}});const w=await open();await confirm(w);expect(w.find('button[type=submit]').element.disabled).toBe(false);expect(w.text()).toContain('200 searches requested');w.unmount();
  api.get.mockResolvedValue({data:{...data(),enabled:false}});const offline=await open();expect(offline.find('form').exists()).toBe(false);expect(offline.text()).toContain('awaiting account setup');offline.unmount();
 });
 it('retrieves pending results without POST and does not describe zero matches as uninsured',async()=>{

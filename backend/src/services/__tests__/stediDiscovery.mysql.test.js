@@ -10,7 +10,7 @@ vi.mock('../syntheticClearinghouseGuard.service.js',()=>({assertLiveClearinghous
 vi.mock('../familyBillingPolicy.service.js',()=>({auditBilling:vi.fn(),billingError:(status,message)=>Object.assign(new Error(message),{status})}));
 import {reserveDiscovery} from '../stediDiscovery.service.js';
 import {discoveryFingerprint} from '../stediDiscoveryPolicy.js';
-it.skipIf(process.env.BILLING_FOLLOWUP_MYSQL_TEST!=='1')('serializes concurrent duplicate searches and the combined 25-search budget in real MySQL',async()=>{
+it.skipIf(process.env.BILLING_FOLLOWUP_MYSQL_TEST!=='1')('serializes duplicate searches and accurately counts concurrent requests without a hard cap in real MySQL',async()=>{
  const config={host:'127.0.0.1',port:33316,user:'root',password:'synthetic-root-only',timezone:'+00:00',multipleStatements:true};
  const admin=await mysql.createConnection(config),schema=`stedi_test_${randomUUID().replaceAll('-','')}`;let db;
  vi.stubEnv('FAMILY_BILLING_ENCRYPTION_KEY_BASE64',Buffer.alloc(32,9).toString('base64'));
@@ -26,9 +26,11 @@ it.skipIf(process.env.BILLING_FOLLOWUP_MYSQL_TEST!=='1')('serializes concurrent 
   expect(duplicates.filter(r=>r.reused)).toHaveLength(1);expect(duplicates[0].row.id).toBe(duplicates[1].row.id);
   for(let i=2;i<=31;i++)await db.execute('INSERT INTO clients VALUES (?,?)',[i,[2,6,377][i%3]]);
   const attempts=await Promise.allSettled(Array.from({length:30},(_,j)=>reserveDiscovery(make(j+2,[2,6,377][(j+2)%3]),deps)));
-  expect(attempts.filter(r=>r.status==='fulfilled')).toHaveLength(24);
-  expect(attempts.filter(r=>r.status==='rejected').every(r=>r.reason.status===409)).toBe(true);
-  const [[budget]]=await db.query('SELECT SUM(reserved_count) AS n FROM stedi_discovery_budget');expect(Number(budget.n)).toBe(25);
-  const [[rows]]=await db.query('SELECT COUNT(*) AS n FROM stedi_insurance_discoveries');expect(Number(rows.n)).toBe(25);
+  expect(attempts.filter(r=>r.status==='rejected').map(r=>({code:r.reason.code,message:r.reason.message}))).toEqual([]);
+  expect(attempts.filter(r=>r.status==='fulfilled')).toHaveLength(30);
+  await db.query("UPDATE stedi_insurance_discoveries SET status='complete' WHERE client_id=1");
+  const repeat=await reserveDiscovery({...make(1),freshSearch:true,repeatReason:'Client confirmed a coverage change'},deps);expect(repeat.reused).toBe(false);
+  const [[budget]]=await db.query('SELECT SUM(reserved_count) AS n FROM stedi_discovery_budget');expect(Number(budget.n)).toBe(32);
+  const [[rows]]=await db.query('SELECT COUNT(*) AS n FROM stedi_insurance_discoveries');expect(Number(rows.n)).toBe(32);
  }finally{if(db)await db.end();await admin.query(`DROP DATABASE IF EXISTS ${schema}`);await admin.end();}
 },30000);

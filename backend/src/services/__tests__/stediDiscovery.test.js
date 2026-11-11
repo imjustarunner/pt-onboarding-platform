@@ -14,6 +14,8 @@ const row=()=>({id:1,agency_id:2,client_id:9,status:'sending',request_encrypted:
 beforeEach(()=>vi.stubEnv('FAMILY_BILLING_ENCRYPTION_KEY_BASE64',Buffer.alloc(32,9).toString('base64')));
 it('requires each confirmation, valid dates, a reason, saved identity and address state',()=>{
  expect(()=>validateDiscoveryConfirmation(input(),patient)).not.toThrow();
+ expect(()=>validateDiscoveryConfirmation({...input(),freshSearch:true},patient)).toThrow('fresh paid search');
+ expect(()=>validateDiscoveryConfirmation({...input(),freshSearch:true,repeatReason:'Corrected details from client'},patient)).not.toThrow();
  for(const key of ['nameConfirmed','birthdateConfirmed','addressConfirmed','costConfirmed'])expect(()=>validateDiscoveryConfirmation({...input(),[key]:false},patient)).toThrow('Confirm');
  for(const change of [{reason:'routine'},{fingerprint:'stale'},{serviceDate:'2026-02-30'},{requestKey:'short'}])expect(()=>validateDiscoveryConfirmation({...input(),...change},patient)).toThrow();
  for(const change of [{dateOfBirth:'2000-02-30'},{firstName:''},{state:''}])expect(()=>validateDiscoveryConfirmation(input(),{...patient,...change})).toThrow();
@@ -58,10 +60,11 @@ it('reserves before sending, encrypts demographics, and records the acting user'
  expect(decryptFamilyBilling(args.at(-1),'stedi-discovery:2:9').patient).toEqual(patient);
  expect(()=>decryptFamilyBilling(args.at(-1),'stedi-discovery:6:9')).toThrow();
 });
-it('reuses recent identical requests even at the cap and blocks new searches at cap or cooldown',async()=>{
+it('reuses recent identical requests without a monthly cap and blocks unresolved attempts',async()=>{
  const db=fakeDb({used:25,duplicate:row()});expect((await reserveDiscovery(input(),depsFor(db))).reused).toBe(true);
  expect(db.execute.mock.calls.some(([q])=>q.includes('reserved_count=reserved_count+1'))).toBe(false);
- for(const options of [{used:25},{recent:{id:1}}]){const db=fakeDb(options);await expect(reserveDiscovery(input(),depsFor(db))).rejects.toMatchObject({status:409});expect(db.rollback).toHaveBeenCalledOnce();}
+ const highUsage=fakeDb({used:200});expect((await reserveDiscovery(input(),depsFor(highUsage))).reused).toBe(false);
+ for(const options of [{recent:{id:1}}]){const db=fakeDb(options);await expect(reserveDiscovery(input(),depsFor(db))).rejects.toMatchObject({status:409});expect(db.rollback).toHaveBeenCalledOnce();}
 });
 it('does not spend a search when confirmations are missing or the billing office belongs elsewhere',async()=>{
  for(const request of [{...input(),birthdateConfirmed:false},{...input(),billingOfficeId:999}]){const db=fakeDb();await expect(reserveDiscovery(request,depsFor(db))).rejects.toThrow();expect(db.execute.mock.calls.some(([q])=>q.startsWith('INSERT INTO stedi_insurance'))).toBe(false);}

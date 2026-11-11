@@ -27,16 +27,17 @@ sends only saved confirmed demographics; no SSN is sent. Assistant accounts do
 not have access to this identity-bearing workflow.
 
 Cost controls
-25 new requests per Denver calendar month across all three agencies combined.
-A transactional shared database reservation prevents concurrent overspending.
-One new search per client per 24 hours; identical demographics and service date
-reuse a result for 30 days. Pending/uncertain/unreviewed requests prevent new
-requests for that client. Failed/uncertain attempts conservatively retain their
-budget reservation. These limits apply to searches through this app, not direct
-Stedi portal usage. Staff cannot override them from the browser.
+No hard monthly cap and no 24-hour restriction, per the user's revised request.
+Each paid search requires staff confirmations and a reason. The shared monthly
+usage counter covers all three agencies. Identical demographics and service dates
+reuse recent results by default. Staff can explicitly request a fresh paid search
+with an additional explanation. Pending, uncertain or unreviewed attempts must
+be reconciled before another search; this prevents duplicate charges, not daily
+work. An idempotent request key prevents double-clicks from causing paid repeats.
 Published rate checked 2026-11-10: $1.50 per discovery check for the first 100,
-no monthly minimum; applicable payer-added fees can be additional. The app's
-25-request ceiling is not a contractual dollar guarantee or account balance.
+no monthly minimum; applicable payer-added fees can be additional. Account billing
+and balance are controlled in Stedi. Direct portal searches are not in this app's
+usage count.
 
 Results and billing
 Every response field is encrypted and available in the billing profile. Coverage
@@ -70,8 +71,8 @@ https://www.stedi.com/pricing
 
 Validation
 Unit and UI tests cover identity confirmations, stale changes, private tenant
-scope, assistant exclusion, duplicate requests, limit enforcement, uncertain
+scope, assistant exclusion, duplicate requests, explicit repeat-search confirmation, uncertain
 outcomes, encrypted persistence, result polling and claim-readiness holds.
 The billing CI workflow runs a real MySQL concurrency test: duplicate races
-consume one reservation and requests across three agencies cannot exceed 25.
+consume one reservation while deliberate searches are not limited by a hard cap.
 No patient data or live Stedi transaction is used in tests.

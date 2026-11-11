@@ -1,7 +1,6 @@
 import crypto from 'node:crypto';
 
 export const STEDI_AGENCIES = [2, 6, 377];
-export const STEDI_MONTHLY_LIMIT = 25;
 export const discoveryReasons = ['unknown_insurance', 'missing_member_id', 'eligibility_failed', 'other_coverage_denial'];
 const fail = message => Object.assign(new Error(message), { status: 409 });
 const text = value => String(value || '').trim();
@@ -33,6 +32,7 @@ export function validateDiscoveryConfirmation(input, patient, now = new Date()) 
   if (!/^[a-zA-Z0-9_-]{16,80}$/.test(String(input.requestKey || ''))) throw fail('Reopen Find insurance to start a new confirmed request.');
   if (input.fingerprint !== discoveryFingerprint(patient)) throw fail('The saved identity changed. Reopen Find insurance and confirm the current details.');
   if (input.nameConfirmed !== true || input.birthdateConfirmed !== true || input.addressConfirmed !== true || input.costConfirmed !== true) throw fail('Confirm name spelling, birthdate, address and the search charge.');
+  if (input.freshSearch === true && (typeof input.repeatReason !== 'string' || input.repeatReason.trim().length < 10 || input.repeatReason.length > 500)) throw fail('Explain why a fresh paid search is needed instead of the saved result.');
   if (!discoveryReasons.includes(input.reason)) throw fail('Choose why an insurance search is needed.');
   const completeAddress = patient.addressLine1 && patient.city && patient.state && patient.postalCode;
   if (!completeAddress && text(input.missingAddressReason).length < 10) throw fail('Complete the address or explain why only a partial address is available.');

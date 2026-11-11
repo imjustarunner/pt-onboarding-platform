@@ -393,7 +393,7 @@ jobs:
         run: node node_modules/vitest/vitest.mjs run src/components/admin/__tests__/ClaimMdWorkspace.test.js
       - name: Claim and documentation verification
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.claimmd.config.js
-      - name: Gated Stedi discovery and concurrent shared search budget
+      - name: Gated Stedi discovery and concurrent duplicate prevention
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.stedi.config.js
       - name: Insurance discovery confirmations and private billing profile
         run: node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.stedi.config.js
