@@ -12,7 +12,7 @@ async function panel(props = {}) { const w = mount(Panel, { props: { agencyId: 2
 async function past(w) { w.get('details').element.open = true; await w.get('details').trigger('toggle'); await w.findAll('.poll-tabs button')[1].trigger('click'); }
 it('discovers active polls before opening, expands automatically, and advertises the next deadline with Conversa branding', async () => {
   const w = await panel();
-  expect(api.get).toHaveBeenCalledWith('/me/staff-polls', { params: { agencyId: 2 } });
+  expect(api.get).toHaveBeenCalledWith('/me/staff-polls', { params: { agencyId: 2 }, skipGlobalLoading: true });
   expect(w.get('details').element.open).toBe(true); expect(w.get('details').classes()).toContain('needs-vote');
   expect(w.get('img').attributes('alt')).toBe('Conversa'); expect(w.text()).toContain('1 needs your vote');
   expect(w.text()).toContain('Next deadline'); expect(w.get('time').attributes('datetime')).toBe(poll.closesAt);
@@ -137,7 +137,7 @@ it('records an app view only when the expanded poll is actually visible',async()
  let intersect;vi.stubGlobal('IntersectionObserver',class{constructor(callback){intersect=callback}observe(){}unobserve(){}disconnect(){}});
  const w=await panel();expect(api.post).not.toHaveBeenCalled();
  const rect=vi.spyOn(w.get('.poll-card-header').element,'getBoundingClientRect').mockReturnValue({top:20,bottom:70,height:50});
- intersect();await flushPromises();expect(api.post).toHaveBeenCalledWith('/me/staff-polls/12/viewed',{}, {params:{agencyId:2}});
+ intersect();await flushPromises();expect(api.post).toHaveBeenCalledWith('/me/staff-polls/12/viewed',{}, {params:{agencyId:2},skipGlobalLoading:true});
  w.get('details').element.open=false;await w.get('details').trigger('toggle');api.post.mockClear();intersect();await flushPromises();expect(api.post).not.toHaveBeenCalled();
  rect.mockRestore();vi.unstubAllGlobals();
 });

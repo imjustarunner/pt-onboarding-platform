@@ -60,7 +60,7 @@ const goBack = () => {
 </script>
 
 <style scoped>
-.scope-label { font-size: .78rem; text-transform:uppercase; letter-spacing:.1em; color:var(--link-color); font-weight:700; margin-bottom:8px; }
+.scope-label { font-size: .78rem; text-transform:uppercase; letter-spacing:.1em; color:var(--text-secondary); font-weight:700; margin-bottom:8px; }
 .page-actions { display:flex; flex-wrap:wrap; gap:10px; }
 
 .settings-page {

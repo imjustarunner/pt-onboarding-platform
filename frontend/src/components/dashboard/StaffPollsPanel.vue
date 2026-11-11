@@ -57,7 +57,7 @@ const panelId = `staff-polls-${getCurrentInstance().uid}`;
 const polls = ref([]), opened = ref(!!props.pollId), loading = ref(false), busy = ref(null), error = ref(''), notice = ref('');
 const showHistory = ref(false), choices = ref({}), otherReplies = ref({}), changing = ref({}), now = ref(Date.now());
 const closingTimes = ref({});
-let context = 0, request = 0, timer, viewObserver;
+let context = 0, request = 0, pendingRequest = 0, timer, viewObserver;
 const pollHeaders = new Map(), viewedRecently = new Map();
 function trackPollHeader(element, poll) {
   const prior = pollHeaders.get(poll.id);
@@ -72,7 +72,7 @@ function recordVisiblePolls() {
     const rect = element.getBoundingClientRect();
     if (rect.height <= 0 || rect.bottom <= 0 || rect.top >= window.innerHeight || Date.now() - (viewedRecently.get(id) || 0) < 60000) continue;
     const scope = context; viewedRecently.set(id, Date.now());
-    api.post(`/me/staff-polls/${id}/viewed`, {}, { params: params(poll) }).catch(() => { if (scope === context) viewedRecently.delete(id); });
+    api.post(`/me/staff-polls/${id}/viewed`, {}, { params: params(poll), skipGlobalLoading: true }).catch(() => { if (scope === context) viewedRecently.delete(id); });
   }
 }
 watch(opened, async () => { await nextTick(); recordVisiblePolls(); });
@@ -100,16 +100,16 @@ function localInput(value) { const date = new Date(value); return Number.isFinit
 const selectedAnswer = poll => choices.value[poll.id] === '__other' ? String(otherReplies.value[poll.id] || '').trim() : String(choices.value[poll.id] || '');
 function startChange(poll) { changing.value[poll.id] = true; const key = poll.myResponse.key || poll.myResponse.original; choices.value[poll.id] = poll.options.some(o => o.key === key) ? key : poll.allowOther ? '__other' : ''; otherReplies.value[poll.id] = poll.myResponse.original; }
 async function load(quiet = false) {
-  const id = ++request, scope = context; if (!quiet) loading.value = true;
+  const id = ++request, scope = context; pendingRequest = id; if (!quiet) loading.value = true;
   try {
-    const { data } = await api.get('/me/staff-polls', { params: params() });
+    const { data } = await api.get('/me/staff-polls', { params: params(), skipGlobalLoading: true });
     if (scope !== context || id !== request) return;
     const previous = new Set(activePolls.value.map(p => p.id));
     polls.value = Array.isArray(data) ? data : []; now.value = Date.now(); error.value = '';
     if (props.pollId || activePolls.value.some(p => !previous.has(p.id))) opened.value = true;
     await nextTick(); if (scope === context) recordVisiblePolls();
   } catch (e) { if (scope === context && id === request) { error.value = e.response?.data?.error?.message || 'Unable to load staff polls.'; if (!polls.value.length) opened.value = true; } }
-  finally { if (scope === context && id === request) loading.value = false; }
+  finally { if (scope === context && id === request) loading.value = false; if (id === pendingRequest) pendingRequest = 0; }
 }
 async function vote(poll) {
   const key = selectedAnswer(poll); if (!key || busy.value || isClosed(poll)) return;
@@ -127,7 +127,7 @@ async function setPreference(poll, event) {
   catch (e) { if (scope === context) { event.target.checked = poll.resultsText; error.value = e.response?.data?.error?.message || 'Unable to save your preference.'; } }
   finally { if (scope === context) busy.value = null; }
 }
-function refresh() { now.value = Date.now(); if (!busy.value && !loading.value && document.visibilityState !== 'hidden') load(true); }
+function refresh() { now.value = Date.now(); if (!busy.value && !pendingRequest && document.visibilityState !== 'hidden') load(true); }
 async function scheduleClosing(poll) {
   const value = closingTimes.value[poll.id] ?? localInput(poll.closesAt), date = new Date(value);
   if (!Number.isFinite(date.getTime()) || date.getTime() <= Date.now()) { error.value = 'Choose a future closing date and time.'; return; }

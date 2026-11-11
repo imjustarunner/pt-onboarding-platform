@@ -69,14 +69,10 @@
             <div class="tenant-picker-shell-title">
               {{ contextNounTitle }} context
             </div>
-            <input
-              v-model="tenantPickerSearch"
-              type="search"
-              class="tenant-picker-search"
-              placeholder="Search organizations…"
-              aria-label="Search organizations"
-            />
-            <div v-if="agencyStore.currentAgency" class="tenant-picker-active-pill">
+            <button v-if="agencyStore.currentAgency" type="button" class="tenant-picker-active-pill"
+              :aria-expanded="showTenantPickerChoices" :aria-controls="tenantPickerId"
+              :aria-label="`${agencyStore.currentAgency.name}: ${showTenantPickerChoices ? 'collapse' : 'change'} organization`"
+              @click="toggleTenantPicker">
               <div
                 class="tenant-picker-active-logo"
                 :style="tenantLogoUrl(agencyStore.currentAgency) ? undefined : tenantAvatarWrapStyle(agencyStore.currentAgency)"
@@ -95,7 +91,9 @@
                 <span class="tenant-picker-active-name">{{ agencyStore.currentAgency.name }}</span>
                 <span class="tenant-picker-active-meta muted">{{ agencyStore.currentAgency.slug }}</span>
               </div>
-            </div>
+              <span class="tenant-picker-action">{{ showTenantPickerChoices ? 'Collapse' : 'Change' }}</span>
+              <svg class="tenant-picker-chevron" :class="{ 'is-expanded': showTenantPickerChoices }" viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="m5 7.5 5 5 5-5" stroke-linecap="round" stroke-linejoin="round" /></svg>
+            </button>
             <p v-else-if="isSuperAdmin && agencyStore.platformMode" class="tenant-picker-hint muted">
               Platform settings apply across organizations. Select an organization below for its own settings and payments.
             </p>
@@ -127,6 +125,9 @@
               Platform-wide defaults
             </button>
           </div>
+          <div v-if="showTenantPickerChoices" :id="tenantPickerId" class="tenant-picker-choices">
+            <label class="tenant-picker-search-label" :for="`${tenantPickerId}-search`">Find an organization</label>
+            <input :id="`${tenantPickerId}-search`" ref="tenantPickerSearchRef" v-model="tenantPickerSearch" type="search" class="tenant-picker-search" placeholder="Search organizations…" aria-label="Search organizations" />
           <div class="tenant-logo-scroller" role="group" aria-label="Settings organization">
             <button
               v-if="isSuperAdmin"
@@ -164,6 +165,7 @@
               </div>
               <span class="tenant-chip-label">{{ a.name }}</span>
             </button>
+          </div>
           </div>
         </div>
 
@@ -344,7 +346,8 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch, nextTick, useId } from 'vue';
+import '../../styles/settingsReadability.css';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import { useBrandingStore } from '../../store/branding';
@@ -476,6 +479,16 @@ const prepareSettingsNavigation = async () => (await settingsContentRef.value?.b
 const selectedItem = ref(null);
 const selectedAgencyId = ref(agencyStore.currentAgency?.id ? String(agencyStore.currentAgency.id) : '');
 const tenantPickerSearch = ref('');
+const tenantPickerExpanded = ref(false);
+const tenantPickerSearchRef = ref(null);
+const tenantPickerId = `settings-organizations-${useId()}`;
+const showTenantPickerChoices = computed(() => !agencyStore.currentAgency || tenantPickerExpanded.value);
+const toggleTenantPicker = async () => {
+  tenantPickerExpanded.value = !tenantPickerExpanded.value;
+  if (tenantPickerExpanded.value) { await nextTick(); tenantPickerSearchRef.value?.focus(); }
+};
+watch(() => agencyStore.currentAgency?.id, () => { tenantPickerExpanded.value = false; tenantPickerSearch.value = ''; });
+
 const settingsSearchQuery = ref('');
 const settingsSearchOpen = ref(false);
 const settingsSearchHighlight = ref(0);
@@ -1926,6 +1939,8 @@ const navigateToTenantWorkspaceAfterPick = () => {
 const selectTenantFromPicker = async (a) => {
   if (!a?.id) return;
   if (!(await prepareSettingsNavigation())) return;
+  tenantPickerExpanded.value = false;
+  tenantPickerSearch.value = '';
   if (isSuperAdmin.value && !props.disableRouteSync) {
     return navigateToSettingsLocation({ org: a, category: 'platform', item: 'tenant-ws-home' });
   }
@@ -2933,6 +2948,11 @@ const prefetchSettingsSidebarIcons = async () => {
 }
 
 .tenant-picker-active-pill {
+  font: inherit;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  max-width: 100%;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -2941,6 +2961,17 @@ const prefetchSettingsSidebarIcons = async () => {
   border: 1px solid var(--border);
   background: var(--bg-card);
 }
+
+.tenant-picker-active-pill:hover { border-color: var(--link-color); }
+.tenant-picker-active-pill:focus-visible { outline: 3px solid var(--link-color); outline-offset: 3px; }
+.tenant-picker-action { margin-left: 10px; font-size: 12px; color: var(--text-secondary); }
+.tenant-picker-chevron { flex-shrink: 0; transition: transform .15s ease; }
+.tenant-picker-chevron.is-expanded { transform: rotate(180deg); }
+.tenant-picker-choices { margin-top: 14px; }
+.tenant-picker-search-label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 6px; color: var(--text-secondary); }
+.tenant-picker-choices .tenant-picker-search { width: min(100%, 360px); max-width: 360px; margin-bottom: 12px; background: var(--bg-card); color: var(--text-primary); }
+@media (max-width: 600px) { .tenant-picker-active-pill { flex: 1 1 100%; } .tenant-picker-active-text { flex: 1; } .tenant-picker-action { margin-left: auto; } }
+@media (prefers-reduced-motion: reduce) { .tenant-picker-chevron { transition: none; } }
 
 .tenant-picker-active-logo {
   width: 36px;
@@ -3035,10 +3066,10 @@ const prefetchSettingsSidebarIcons = async () => {
   justify-content: center;
   min-height: 40px;
   padding: 8px 14px !important;
-  border: 1px solid color-mix(in srgb, var(--primary) 35%, var(--bg-card) 65%);
+  border: 1px solid var(--border);
   border-radius: 10px;
-  background: color-mix(in srgb, var(--primary) 6%, var(--bg-card) 94%);
-  color: var(--primary) !important;
+  background: var(--bg-card);
+  color: var(--text-primary) !important;
   font-size: 15px;
   font-weight: 700;
   line-height: 1.2;
