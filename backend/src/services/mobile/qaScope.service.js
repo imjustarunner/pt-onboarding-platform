@@ -65,7 +65,7 @@ export function qaClinicalRouteAllowed(method,path,body={}) {
 // forwarding. They recheck the device, approved tenant, own provider, authorized
 // clients and canonical appointment binding before invoking normal source rules.
 export function qaScheduleRouteAllowed(method,path) {
- if(method==='GET'&&path==='/schedule/options')return true;
+ if(method==='GET'&&['/schedule/actions','/schedule/options'].includes(path))return true;
  if(method==='POST'&&path==='/schedule/appointments')return true;
  const match=path.match(/^\/schedule\/appointments\/([1-9][0-9]*)(\/cancel)?$/);
  if(!match||!Number.isSafeInteger(Number(match[1])))return false;
