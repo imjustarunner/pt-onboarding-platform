@@ -1,6 +1,7 @@
 import {it,expect,vi} from 'vitest';
 import mysql from 'mysql2/promise';
 import {randomUUID} from 'node:crypto';
+import {readFileSync} from 'node:fs';
 vi.mock('../../config/database.js',()=>({default:{},onTableWrite:vi.fn()}));
 import {encryptFamilyBilling,decryptFamilyBilling} from '../familyBillingEncryption.service.js';
 import {readClientInsurance,writeClientInsurance} from '../clientInsurance.service.js';
@@ -21,6 +22,7 @@ it.skipIf(!process.env.BILLING_TEST_MYSQL_SOCKET&&process.env.BILLING_FOLLOWUP_M
  const token=async()=>coverageReviewToken({...input,insurance:await readClientInsurance(10,2,db),...await listCoverageEvidence(input,db)});
  try {
   await db.query(`CREATE DATABASE ${schema}`);await db.query(`USE ${schema}`);
+  for(const sql of readFileSync(new URL('../../../../database/migrations/1790_stedi_insurance_discovery.sql',import.meta.url),'utf8').replace(/^--.*$/gm,'').split(';').filter(s=>s.trim()))await db.query(sql);
   await db.query('CREATE TABLE agencies(id INT PRIMARY KEY,feature_flags JSON,organization_type VARCHAR(30))');
   await db.query('CREATE TABLE insurance_types(id INT,agency_id INT,label VARCHAR(50))');
   await db.query('CREATE TABLE clients(id INT PRIMARY KEY,agency_id INT,organization_id INT,client_type VARCHAR(30),provider_id INT,insurance_type_id INT,primary_insurer_name VARCHAR(80),billing_insurance_payload LONGTEXT,insurance_member_id VARCHAR(80),insurance_group_number VARCHAR(80),insurance_subscriber_name VARCHAR(80),full_name VARCHAR(255),date_of_birth DATE,gender VARCHAR(20),address_street VARCHAR(255),address_apt VARCHAR(50),address_city VARCHAR(100),address_state VARCHAR(50),address_zip VARCHAR(20))');

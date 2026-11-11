@@ -3,6 +3,14 @@ on:
   push:
     branches: [main]
     paths:
+      - 'backend/src/services/stedi*'
+      - 'backend/src/controllers/stedi*'
+      - 'backend/src/**/__tests__/stedi*'
+      - 'backend/vitest.stedi.config.js'
+      - 'frontend/src/components/billing/InsuranceDiscoveryPanel.vue'
+      - 'frontend/src/components/billing/__tests__/InsuranceDiscoveryPanel.test.js'
+      - 'frontend/vitest.stedi.config.js'
+      - 'database/migrations/1790_stedi_insurance_discovery.sql'
       - 'backend/src/services/familyLedger/**'
       - 'backend/src/services/clinicalNote*.js'
       - 'backend/src/services/clinicalClaimVersionReconciliation.service.js'
@@ -143,6 +151,14 @@ on:
       - '.github/workflows/billing-followup.yml'
   pull_request:
     paths:
+      - 'backend/src/services/stedi*'
+      - 'backend/src/controllers/stedi*'
+      - 'backend/src/**/__tests__/stedi*'
+      - 'backend/vitest.stedi.config.js'
+      - 'frontend/src/components/billing/InsuranceDiscoveryPanel.vue'
+      - 'frontend/src/components/billing/__tests__/InsuranceDiscoveryPanel.test.js'
+      - 'frontend/vitest.stedi.config.js'
+      - 'database/migrations/1790_stedi_insurance_discovery.sql'
       - 'backend/vitest.billing-workflow.config.js'
       - 'backend/src/services/billingWorkItems.service.js'
       - 'backend/src/services/claimResubmission.service.js'
@@ -377,6 +393,10 @@ jobs:
         run: node node_modules/vitest/vitest.mjs run src/components/admin/__tests__/ClaimMdWorkspace.test.js
       - name: Claim and documentation verification
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.claimmd.config.js
+      - name: Gated Stedi discovery and concurrent shared search budget
+        run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.stedi.config.js
+      - name: Insurance discovery confirmations and private billing profile
+        run: node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.stedi.config.js
       - name: Immutable clinical versions, exact signatures and audit in MySQL
         env:
           CLINICAL_NOTE_VERSION_MYSQL_TEST: '1'

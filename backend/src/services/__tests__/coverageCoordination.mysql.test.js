@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 
 test('coverage evidence and secondary responsibility remain tenant scoped and preserve paid balances', {skip:process.env.FAMILY_BILLING_MYSQL_TEST!=='1'}, async t=>{
  for(const prefix of ['DB','CLINICAL_DB'])for(const [key,value] of Object.entries({HOST:'127.0.0.1',PORT:'33316',NAME:'family_billing_test',USER:'family_billing_test'}))assert.equal(process.env[`${prefix}_${key}`],value);
@@ -17,6 +18,7 @@ test('coverage evidence and secondary responsibility remain tenant scoped and pr
  const primary={payerId:'PRIMARY',memberId:'SYNTHETIC-P',insurerName:'Synthetic primary',subscriberFirstName:'Test',subscriberLastName:'Person',subscriberDob:'2000-01-01',relationshipToSubscriber:'self'};
  const secondary={...primary,payerId:'SECOND',memberId:'SYNTHETIC-S',insurerName:'Synthetic secondary'};
  try{
+  for(const sql of readFileSync(new URL('../../../../database/migrations/1790_stedi_insurance_discovery.sql',import.meta.url),'utf8').replace(/^--.*$/gm,'').split(';').filter(s=>s.trim()))await pool.query(sql);
   await acceptPayer({...c,userId:10,consent:{accepted:true,version:BILLING_TERMS_VERSION,signatureName:'Synthetic payer'}});
   await setBillingRule({...c,kind:'single',shares:[{payerUserId:10,basisPoints:10000}],reason:'Synthetic responsibility agreement'});
   await writeClientInsurance({...c,primary});

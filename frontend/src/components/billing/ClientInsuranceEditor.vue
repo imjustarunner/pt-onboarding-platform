@@ -39,6 +39,7 @@
       <label v-if="canSeeBilling && !assignmentReview"><input v-model="verified" type="checkbox" /> I reviewed this client’s identity and subscriber details against the policy and verified coverage for claim preparation.</label>
       <div><button class="btn btn-primary" :disabled="busy">{{ busy ? 'Saving…' : 'Save insurance information' }}</button> <button class="btn btn-secondary" type="button" @click="opened=false;draft=null">Close private details</button></div>
     </form>
+    <InsuranceDiscoveryPanel v-if="opened && canSeeBilling && !assignmentReview && [2,6,377].includes(Number(agencyId))" :client-id="clientId" :agency-id="agencyId" :service-date="serviceDate" :current-patient="draft?.patient" @use-policy="useDiscoveredPolicy" @saved="emit('saved')" />
     <ClientCoverageVerification v-if="opened && canSeeBilling && !assignmentReview && showRelatedReviews" :client-id="clientId" :agency-id="agencyId" :service-date="serviceDate" @saved="load();emit('saved')" />
     <ClientDocumentationReadiness v-if="opened && canSeeBilling && !assignmentReview && showRelatedReviews" :client-id="clientId" :agency-id="agencyId" :service-date="serviceDate" @saved="emit('saved')" />
   </section>
@@ -53,6 +54,7 @@ import api from '../../services/api';
 import InsurancePolicyFields from './InsurancePolicyFields.vue';
 import ClientCoverageVerification from './ClientCoverageVerification.vue';
 import ClientDocumentationReadiness from './ClientDocumentationReadiness.vue';
+import InsuranceDiscoveryPanel from './InsuranceDiscoveryPanel.vue';
 import PayerResponseFields from './PayerResponseFields.vue';
 const props=defineProps({clientId:[String,Number],agencyId:[String,Number],accountSupport:Boolean,assignmentReview:Boolean,startOpen:Boolean,showRelatedReviews:{type:Boolean,default:true},serviceDate:String});
 const emit=defineEmits(['saved']);
@@ -66,6 +68,14 @@ const evidenceSlots=policy=>Object.entries(policy.cardEvidence || {}).filter(([,
 function useDemographics(){if(!draft.value)return;for(const [key,value] of Object.entries(demographics.value))if(!draft.value.patient[key] && value)draft.value.patient[key]=value;verified.value=false;}
 function useSubmittedPolicy(position){const policy=coverageChoices.value.find(p=>p.key===selectedSources.value[position]);draft.value.coverageSources ||= {};if(!policy){delete draft.value.coverageSources[position];if(position==='primary')draft.value.profileId=null;verified.value=false;return;}draft.value[position]={...policy.coverage};draft.value.coverageSources[position]={profileId:policy.profileId,slot:policy.slot};if(position==='primary')draft.value.profileId=policy.profileId;else hasSecondary.value=true;verified.value=false;}
 function swapCoverage(){[draft.value.primary,draft.value.secondary]=[draft.value.secondary,draft.value.primary];draft.value.coverageSources ||= {};[draft.value.coverageSources.primary,draft.value.coverageSources.secondary]=[draft.value.coverageSources.secondary,draft.value.coverageSources.primary];[selectedSources.value.primary,selectedSources.value.secondary]=[selectedSources.value.secondary,selectedSources.value.primary];draft.value.profileId=draft.value.coverageSources.primary?.profileId || null;verified.value=false;}
+function useDiscoveredPolicy({policy,slot}){
+ if(!draft.value || !['primary','secondary'].includes(slot))return;
+ const current=draft.value[slot] || {};
+ if(current.memberId || current.payerId || current.insurerName){error.value='This position already contains coverage. Reconcile the existing policy before copying another policy into it.';return;}
+ draft.value[slot]={...policy,payerId:'',eligibilityPayerId:''};
+ if(slot==='secondary')hasSecondary.value=true;
+ verified.value=false;error.value='';notice.value='Match copied into the insurance form. Confirm its Claim.MD payer ID, subscriber details and coverage dates, then save. Complete payer-order review before billing.';
+}
 // A loaded attestation survives an unchanged save. Any edit requires a fresh confirmation.
 const canonical = value => value && typeof value==='object' ? Object.fromEntries(Object.keys(value).sort().filter(key=>value[key]!=='' && value[key]!=null).map(key=>[key,canonical(value[key])])) : value;
 watch(()=>JSON.stringify(canonical({draft:draft.value,hasSecondary:hasSecondary.value})),()=>{verified.value=false;},{flush:'sync'});

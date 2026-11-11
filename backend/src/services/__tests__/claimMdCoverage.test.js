@@ -73,7 +73,7 @@ describe('client-scoped eligibility and other coverage',()=>{
  it('flags TPL in a saved Colorado response without another inquiry or rewriting its evidence',async()=>{
   const saved={eligibilityPayerId:'SKCO0',summary:{status:'active_reported',identityMatches:true,otherCoverageReported:false},result:{elig:{benefit:{benefit_code:'30',benefit_coverage_code:'U',entity_name:'Synthetic TPL carrier'}}}};
   const encrypted=encryptFamilyBilling(saved,'coverage:2:4');
-  const db={execute:vi.fn().mockResolvedValueOnce([[{id:10,evidence_encrypted:encrypted}]]).mockResolvedValueOnce([[]]).mockResolvedValueOnce([[{latest_check_id:10}]]).mockResolvedValueOnce([[]])};
+  const db={execute:vi.fn().mockResolvedValueOnce([[{id:10,evidence_encrypted:encrypted}]]).mockResolvedValueOnce([[]]).mockResolvedValueOnce([[{latest_check_id:10}]]).mockResolvedValueOnce([[]]).mockResolvedValueOnce([[{pending:0,updated_at:null}]])};
   const evidence=await listCoverageEvidence({agencyId:2,clientId:4,serviceDate:'2026-11-10'},db);
   expect(evidence.checks[0]).toMatchObject({evidence:{summary:{identityMatches:true,otherCoverageReported:true}}});
   expect(evidence.checks[0].evidence_encrypted).toBeUndefined();
@@ -90,6 +90,7 @@ describe('client-scoped eligibility and other coverage',()=>{
  it('holds missing, stale, changed, unresolved and newly completed evidence',()=>{
   const info=insurance(),review={status:'verified',insurance_fingerprint:coverageFingerprint(info),through_check_id:8,created_at:'2026-09-24T12:00:00Z'},base={insurance:info,review,latestCheckId:8,now:new Date('2026-09-25T12:00:00Z')};
   expect(coverageReviewBlockers(base)).toEqual([]);
+  expect(coverageReviewBlockers({...base,discoveryPending:1})[0]).toContain('insurance discovery');
   for(const change of [{review:null},{review:{...review,status:'unresolved'}},{latestCheckId:9},{review:{...review,has_new_evidence:1}},{now:new Date('2026-10-10')},{insurance:{...info,patient:{...info.patient,firstName:'Changed'}}}])expect(coverageReviewBlockers({...base,...change}).length).toBeGreaterThan(0);
  });
  it.each([1,2,6,377])('passes agency %i to eligibility and saves encrypted evidence without exposing credentials',async(agencyId)=>{

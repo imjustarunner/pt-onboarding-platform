@@ -15,6 +15,7 @@ import { getEft, saveEft, getEftHistory } from '../controllers/payerEft.controll
 import { listTreatmentFrequencies, addTreatmentFrequency, suggestObjectiveInterventions } from '../controllers/treatmentPlanOptions.controller.js';
 import { getTreatmentPlanRenewalPolicy, saveTreatmentPlanRenewalPolicy } from '../controllers/medicalBilling.controller.js';
 import { getClientInsurance, saveClientInsurance } from '../controllers/clientInsurance.controller.js';
+import { getDiscoveryWorkspace, createDiscovery, getDiscoveryResults, saveDiscoveryReview, reconcileDiscovery } from '../controllers/stediDiscovery.controller.js';
 import { getCoverageEvidence, checkClientCoverage, reviewClientCoverage } from '../controllers/coverageVerification.controller.js';
 import { getDocumentationReadiness, reviewDocumentationReadiness } from '../controllers/clientDocumentationReadiness.controller.js';
 import { createSecondaryClaim, prepareClaimResubmission } from '../controllers/claimMdWorkflow.controller.js';
@@ -161,6 +162,11 @@ router.get('/payer-eft', ...masterGate, requireMedicalBillingFinancialAccess, ge
 router.post('/payer-eft', ...masterGate, requireMedicalBillingFinancialAccess, saveEft);
 router.get('/payer-eft/:id/history', ...masterGate, requireMedicalBillingFinancialAccess, getEftHistory);
 router.get('/clients/:clientId/insurance', ...masterGate, requireMedicalBillingFinancialAccess, getClientInsurance);
+router.get('/clients/:clientId/insurance-discovery', ...masterGate, requireMedicalBillingFinancialAccess, getDiscoveryWorkspace);
+router.post('/clients/:clientId/insurance-discovery', ...masterGate, requireMedicalBillingFinancialAccess, createDiscovery);
+router.get('/clients/:clientId/insurance-discovery/:id', ...masterGate, requireMedicalBillingFinancialAccess, getDiscoveryResults);
+router.post('/clients/:clientId/insurance-discovery/:id/review', ...masterGate, requireMedicalBillingFinancialAccess, saveDiscoveryReview);
+router.post('/clients/:clientId/insurance-discovery/:id/reconcile', ...masterGate, requireMedicalBillingFinancialAccess, reconcileDiscovery);
 router.get('/clients/:clientId/documentation-readiness', ...masterGate, requireMedicalBillingFinancialAccess, getDocumentationReadiness);
 router.post('/clients/:clientId/documentation-readiness', ...masterGate, requireMedicalBillingFinancialAccess, reviewDocumentationReadiness);
 router.put('/clients/:clientId/insurance', ...masterGate, requireMedicalBillingFinancialAccess, saveClientInsurance);

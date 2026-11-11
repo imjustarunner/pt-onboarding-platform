@@ -1,0 +1,77 @@
+Stedi insurance discovery — gated staff lookup
+
+Scope: ITSCO (2), Next Level Up (6), Inner Strength (377).
+This optional integration does not move claims, ERAs, or existing eligibility
+automation away from Claim.MD. No background or roster-wide discovery runs.
+
+Activation
+- Create a healthcare clearinghouse account in Stedi; documentation-only accounts
+  do not provide the required API access. Complete Stedi's production onboarding.
+- Store the production API key as a server secret named STEDI_API_KEY. Never put
+  the key in the browser, source control, billing profile, or chat.
+- Set STEDI_DISCOVERY_ENABLED=true only after account setup is complete and the
+  account is authorized to serve these three agencies. Default is disabled.
+- The deployment workflow preserves existing Cloud Run secret references and
+  updates rather than replaces environment variables. Secret setup is separate
+  from this code release. No live searches are needed to deploy the disabled UI.
+- Requests use the selected agency-owned billing office's group NPI. Stedi
+  recommends DISCOVERY transaction enrollment for broader payer participation;
+  support is not universal, and enrollment is not started by this application.
+
+Staff workflow
+Open the client's private insurance editor, save corrected identity details,
+and choose Find insurance / view previous searches. Staff confirms spelling of
+legal first/last name, birthdate, address, purpose, service date and paid charge.
+State is required. Incomplete street/city/ZIP requires an explanation. The form
+sends only saved confirmed demographics; no SSN is sent. Assistant accounts do
+not have access to this identity-bearing workflow.
+
+Cost controls
+25 new requests per Denver calendar month across all three agencies combined.
+A transactional shared database reservation prevents concurrent overspending.
+One new search per client per 24 hours; identical demographics and service date
+reuse a result for 30 days. Pending/uncertain/unreviewed requests prevent new
+requests for that client. Failed/uncertain attempts conservatively retain their
+budget reservation. These limits apply to searches through this app, not direct
+Stedi portal usage. Staff cannot override them from the browser.
+Published rate checked 2026-11-10: $1.50 per discovery check for the first 100,
+no monthly minimum; applicable payer-added fees can be additional. The app's
+25-request ceiling is not a contractual dollar guarantee or account balance.
+
+Results and billing
+Every response field is encrypted and available in the billing profile. Coverage
+matches need patient identity and service-date checks. Matched policies can be
+copied into an empty insurance form position; existing policies are preserved.
+Stedi payer IDs are never copied into Claim.MD routing fields. Staff verifies
+the agency's Claim.MD directory route, saves the policy, and records a decision
+for every match, including additional insurers in the full response.
+Pending/uncertain discovery and unreviewed matches block claim readiness and
+client collection. Newly returned or reviewed evidence invalidates an earlier
+coverage review. Existing Medicaid-first and payer-order safeguards still apply.
+Discovery does not establish primary/secondary order, specific mental health
+benefits, payment, or lack of other coverage when no match is returned.
+
+Recovery
+The paid POST is durably reserved before transmission and never automatically
+retried. Results pending with a discovery ID are retrieved with GET. A timeout,
+unexpected response, process interruption or storage failure needs reconciliation
+in Stedi rather than another paid POST. Staff can record that portal reconciliation
+after three minutes for interrupted transmissions, with a reference and coverage
+attestation. It does not itself verify coverage or release payer-order checks.
+Full request/response/review evidence is encrypted with tenant/client-bound AAD;
+request and review audit events record the authenticated staff member. HTTP
+credentials, patient values and raw transport errors are not logged.
+
+Official references
+https://www.stedi.com/docs/healthcare/insurance-discovery
+https://www.stedi.com/docs/healthcare/api-reference/post-insurance-discovery
+https://www.stedi.com/docs/healthcare/api-reference/get-insurance-discovery-results
+https://www.stedi.com/pricing
+
+Validation
+Unit and UI tests cover identity confirmations, stale changes, private tenant
+scope, assistant exclusion, duplicate requests, limit enforcement, uncertain
+outcomes, encrypted persistence, result polling and claim-readiness holds.
+The billing CI workflow runs a real MySQL concurrency test: duplicate races
+consume one reservation and requests across three agencies cannot exceed 25.
+No patient data or live Stedi transaction is used in tests.
