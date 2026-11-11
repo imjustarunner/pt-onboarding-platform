@@ -46,3 +46,15 @@ Live activation does not accept a sales proposal, activate billing, enable SSO, 
 - Frontend production build and browser checks of both public pages, account access, Directory and Users.
 
 `proposal.md` and `proposal.html` are reviewable commercial drafts based on the canonical rate cards. Proposed provider-page inclusion is explicit; supervision eligibility remains unconfirmed.
+
+## Review publication state
+
+Customer email is held at the user's request. The owner address is `drew@counselingchampions.com`; no reset token or invitation has been generated. The working tenant is agency 460, with 15 providers, 39 isolated synthetic clients, 45 sample availability blocks, 39 appointments and three example jobs.
+
+Automatic approval review rejected moving all production backend traffic beyond review-only approval. Production traffic remains unchanged. Use the no-traffic `champions-review` tagged revisions. The review frontend proxies only GET/HEAD API requests to the staged backend; mutations (including mail sends) are denied. The implementation PR remains a draft until publication is explicitly approved. Do not merge it as an indirect way to bypass the production-traffic rejection.
+
+Provider review: https://champions-review---onboarding-frontend-65v3jdyqba-wm.a.run.app/championsproviders
+
+Careers review: https://champions-review---onboarding-frontend-65v3jdyqba-wm.a.run.app/championscareers
+
+The requested vanity URLs are reserved by the demo instance and become available when the app release is approved and promoted. Administrator screenshots and the printable pricing proposal are retained in `deliverables/champions-demo-20261111` in the main workspace.
