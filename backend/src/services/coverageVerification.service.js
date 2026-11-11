@@ -104,7 +104,9 @@ export async function listCoverageEvidence({agencyId,clientId,serviceDate},db=po
  const [[review]]=await db.execute('SELECT r.*,EXISTS(SELECT 1 FROM client_coverage_checks c WHERE c.agency_id=r.agency_id AND c.client_id=r.client_id AND (c.id>r.through_check_id OR c.completed_at>r.created_at)) AS has_new_evidence FROM client_coverage_reviews r WHERE agency_id=? AND client_id=? AND service_date=? ORDER BY id DESC LIMIT 1',[agencyId,clientId,date]);
  const [[latest]]=await db.execute("SELECT COALESCE(MAX(id),0) AS latest_check_id,DATE_FORMAT(MAX(completed_at),'%Y-%m-%dT%H:%i:%s.%f') AS latest_evidence_at FROM client_coverage_checks WHERE agency_id=? AND client_id=?",[agencyId,clientId]);
  const [[latestReview]]=await db.execute('SELECT id,status,service_date,created_at FROM client_coverage_reviews WHERE agency_id=? AND client_id=? ORDER BY id DESC LIMIT 1',[agencyId,clientId]);
- const [[discovery]]=await db.execute("SELECT COALESCE(SUM(review_required=1 OR status IN ('sending','pending','unknown')),0) AS pending,MAX(updated_at) AS updated_at FROM stedi_insurance_discoveries WHERE agency_id=? AND client_id=?",[agencyId,clientId]);
+ // Clean COB results add no coverage and need no new human sign-off. Other
+ // Stedi outcomes, including reconciled findings, remain new coverage evidence.
+ const [[discovery]]=await db.execute("SELECT COALESCE(SUM(review_required=1 OR status IN ('sending','pending','unknown')),0) AS pending,MAX(CASE WHEN status<>'clear' THEN updated_at END) AS updated_at FROM stedi_insurance_discoveries WHERE agency_id=? AND client_id=?",[agencyId,clientId]);
  const discoveryPending=Number(discovery?.pending || 0);
  if(review && discovery?.updated_at && new Date(discovery.updated_at)>new Date(review.created_at))review.has_new_evidence=1;
  const latestEvidenceAt=discovery?.updated_at && (!latest.latest_evidence_at || new Date(discovery.updated_at)>new Date(latest.latest_evidence_at)) ? new Date(discovery.updated_at).toISOString() : latest.latest_evidence_at||null;
@@ -166,7 +168,7 @@ export async function saveCoverageReview(input,deps={}) {
   if(!insurance?.primary?.memberId)throw billingError(409,'Save this client’s insurance first');
   const currentEvidence=await (deps.listEvidence||listCoverageEvidence)({...input,serviceDate:date},db);
   const {checks,latestCheckId}=currentEvidence;
-  if(input.status==='verified' && currentEvidence.discoveryPending)throw billingError(409,'Resolve pending insurance discovery and review every returned match before confirming coverage.');
+  if(input.status==='verified' && currentEvidence.discoveryPending)throw billingError(409,'Resolve pending insurance discovery or COB checks and review every returned match before confirming coverage.');
   if(input.assignmentReview===true||input.reviewToken!=null) {
    const token=coverageReviewToken({...input,...currentEvidence,serviceDate:date,insurance});
    if(typeof input.reviewToken!=='string'||input.reviewToken!==token)throw Object.assign(billingError(409,'Insurance or verification evidence changed. Refresh the saved coverage and check it again before marking verified'),{code:'COVERAGE_REVIEW_STALE'});
@@ -187,7 +189,7 @@ export async function saveCoverageReview(input,deps={}) {
  }catch(e){await db.rollback();throw e;}finally{db.release();}
 }
 export function coverageReviewBlockers({insurance,review,latestReview=null,checks=[],latestCheckId=checks[0]?.id||0,discoveryPending=0,now=new Date()}) {
- if(discoveryPending)return ['Resolve pending insurance discovery and every returned coverage match in the billing profile'];
+ if(discoveryPending)return ['Resolve pending insurance discovery or COB checks and every returned coverage match in the billing profile'];
  if(policyIsMedicaid(insurance?.primary)&&insurance?.secondary)return ['Medicaid cannot be billed first while another policy is recorded. Resolve payer order'];
  if(latestReview?.status==='unresolved'&&Number(latestReview.id)>Number(review?.id||0))return ['Resolve the latest other-coverage investigation before submission'];
  if(!review||review.status!=='verified')return ['Verify insurance and coordination of benefits for this date of service'];
@@ -199,8 +201,8 @@ export function coverageReviewBlockers({insurance,review,latestReview=null,check
 }
 export async function assertCoverageCollectionSafe(agencyId,clientId,db=pool) {
  const [[discovery]]=await db.execute("SELECT id FROM stedi_insurance_discoveries WHERE agency_id=? AND client_id=? AND (review_required=1 OR status IN ('sending','pending','unknown')) LIMIT 1",[agencyId,clientId]);
- if(discovery)throw billingError(409,'Resolve pending insurance discovery and returned coverage before collecting from the client');
+ if(discovery)throw billingError(409,'Resolve pending insurance discovery or COB checks and returned coverage before collecting from the client');
  const [[latest]]=await db.execute('SELECT COALESCE(MAX(id),0) AS latest_check_id FROM client_coverage_checks WHERE agency_id=? AND client_id=?',[agencyId,clientId]);
- const [[review]]=await db.execute('SELECT r.status,r.through_check_id,(EXISTS(SELECT 1 FROM client_coverage_checks c WHERE c.agency_id=r.agency_id AND c.client_id=r.client_id AND (c.id>r.through_check_id OR c.completed_at>r.created_at)) OR EXISTS(SELECT 1 FROM stedi_insurance_discoveries d WHERE d.agency_id=r.agency_id AND d.client_id=r.client_id AND d.updated_at>r.created_at)) AS has_new_evidence FROM client_coverage_reviews r WHERE agency_id=? AND client_id=? ORDER BY id DESC LIMIT 1',[agencyId,clientId]);
+ const [[review]]=await db.execute("SELECT r.status,r.through_check_id,(EXISTS(SELECT 1 FROM client_coverage_checks c WHERE c.agency_id=r.agency_id AND c.client_id=r.client_id AND (c.id>r.through_check_id OR c.completed_at>r.created_at)) OR EXISTS(SELECT 1 FROM stedi_insurance_discoveries d WHERE d.agency_id=r.agency_id AND d.client_id=r.client_id AND d.status<>'clear' AND d.updated_at>r.created_at)) AS has_new_evidence FROM client_coverage_reviews r WHERE agency_id=? AND client_id=? ORDER BY id DESC LIMIT 1",[agencyId,clientId]);
  if((review&&(review.status!=='verified'||Number(review.has_new_evidence)))||Number(latest.latest_check_id)>Number(review?.through_check_id||0))throw billingError(409,'Resolve new eligibility or other-coverage findings before collecting from the client');
 }

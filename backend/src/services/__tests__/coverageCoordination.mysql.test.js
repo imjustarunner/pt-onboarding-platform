@@ -19,6 +19,7 @@ test('coverage evidence and secondary responsibility remain tenant scoped and pr
  const secondary={...primary,payerId:'SECOND',memberId:'SYNTHETIC-S',insurerName:'Synthetic secondary'};
  try{
   for(const sql of readFileSync(new URL('../../../../database/migrations/1790_stedi_insurance_discovery.sql',import.meta.url),'utf8').replace(/^--.*$/gm,'').split(';').filter(s=>s.trim()))await pool.query(sql);
+  for(const sql of readFileSync(new URL('../../../../database/migrations/1791_stedi_coordination_of_benefits.sql',import.meta.url),'utf8').replace(/^--.*$/gm,'').split(';').filter(s=>s.trim()))await pool.query(sql);
   await acceptPayer({...c,userId:10,consent:{accepted:true,version:BILLING_TERMS_VERSION,signatureName:'Synthetic payer'}});
   await setBillingRule({...c,kind:'single',shares:[{payerUserId:10,basisPoints:10000}],reason:'Synthetic responsibility agreement'});
   await writeClientInsurance({...c,primary});
@@ -49,11 +50,21 @@ test('coverage evidence and secondary responsibility remain tenant scoped and pr
    const evidence=await listCoverageEvidence({...c,serviceDate});assert.equal(evidence.review.status,'verified');assert.equal(Number(evidence.review.has_new_evidence),0);
    assert.equal(evidence.checks[0].evidence.result.elig.eligid,'SYNTHETIC-RESPONSE');await assertCoverageCollectionSafe(1,102);
    assert.equal((await listCoverageEvidence({agencyId:2,clientId:102,serviceDate})).checks.length,0);
+   await pool.execute(`INSERT INTO stedi_insurance_discoveries(request_kind,agency_id,client_id,actor_user_id,request_key,identity_fingerprint,service_date,month_key,status,request_encrypted,review_required) VALUES('cob',1,102,99,'synthetic-cob-clear',?,'2026-09-20','2026-09','clear','synthetic-no-phi',0)`,['c'.repeat(64)]);
+   const unchanged=await listCoverageEvidence({...c,serviceDate});assert.equal(unchanged.discoveryPending,0);assert.equal(Number(unchanged.review.has_new_evidence),0);await assertCoverageCollectionSafe(1,102);
    await pool.execute('UPDATE client_coverage_checks SET completed_at=DATE_ADD(CURRENT_TIMESTAMP(6),INTERVAL 1 SECOND) WHERE id=?',[check.id]);
    assert.equal(Number((await listCoverageEvidence({...c,serviceDate})).review.has_new_evidence),1);
    await assert.rejects(assertCoverageCollectionSafe(1,102),/new eligibility/);
    await saveCoverageReview({...c,serviceDate:'2026-09-21',status:'unresolved',source:'payer_portal',reference:'Investigating additional coverage reported by client'});
    const unresolved=await listCoverageEvidence({...c,serviceDate});assert.ok(coverageReviewBlockers({insurance:{primary,secondary},...unresolved}).some(x=>x.includes('latest other-coverage')));
+  });
+  await t.test('unresolved COB blocks coverage verification, claim readiness and collections in its own tenant',async()=>{
+   await pool.execute(`INSERT INTO stedi_insurance_discoveries(request_kind,agency_id,client_id,actor_user_id,request_key,identity_fingerprint,service_date,month_key,status,request_encrypted,review_required) VALUES('cob',1,102,99,'synthetic-cob-hold',?,'2026-09-20','2026-09','unknown','synthetic-no-phi',1)`,['f'.repeat(64)]);
+   const evidence=await listCoverageEvidence({...c,serviceDate:'2026-09-20'});assert.equal(evidence.discoveryPending,1);
+   assert.ok(coverageReviewBlockers({insurance:{primary,secondary},...evidence})[0].includes('COB'));
+   await assert.rejects(saveCoverageReview({...c,serviceDate:'2026-09-20',status:'verified',source:'payer_portal',reference:'Cannot bypass unresolved COB',primaryChecked:true,secondaryChecked:true,otherCoverageChecked:true,orderConfirmed:true}),/COB/);
+   await assert.rejects(assertCoverageCollectionSafe(1,102),/COB/);
+   assert.equal((await listCoverageEvidence({agencyId:2,clientId:102,serviceDate:'2026-09-20'})).discoveryPending,0);
   });
  }finally{await pool.end();await clinical.end();}
 });

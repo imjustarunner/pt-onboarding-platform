@@ -16,7 +16,7 @@
         <label v-if="freshSearch">Why is another search needed?<textarea v-model="repeatReason" minlength="10" maxlength="500" required /></label>
         <label>Billing office<select v-model="officeId" required><option value="">Choose an office</option><option v-for="office in workspace.offices" :key="office.id" :value="office.id" :disabled="!office.available">{{ office.name }}{{ office.available ? '' : ' — NPI needs setup' }}</option></select></label>
         <label>Date of service<input v-model="date" type="date" required /></label>
-        <p>{{ workspace.usedThisMonth }} searches requested this month across all three agencies. Listed price: ${{ (workspace.estimatedPriceCents / 100).toFixed(2) }} per new search, plus any applicable payer fees.</p>
+        <p>{{ workspace.usedThisMonth }} Stedi checks requested this month across all three agencies, including discovery and COB. Discovery listed price: ${{ (workspace.estimatedPriceCents / 100).toFixed(2) }} per new search, plus any applicable payer fees.</p>
         <label><input v-model="confirmations.cost" type="checkbox" /> I understand this search uses our paid Stedi allowance.</label>
         <p v-if="identityEdited">Client details changed. Save them, then reopen Find insurance.</p>
         <button type="submit" class="btn btn-primary" :disabled="!canSearch">{{ busy ? 'Searching…' : 'Confirm and find insurance' }}</button>

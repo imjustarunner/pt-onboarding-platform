@@ -25,7 +25,7 @@ it('invalidates confirmation after identity edits and discards late responses af
  let resolve;api.get.mockImplementationOnce(()=>new Promise(r=>resolve=r));await w.find('button').trigger('click');await w.setProps({clientId:10});resolve({data:data()});await flushPromises();expect(w.find('form').exists()).toBe(false);w.unmount();
 });
 it('shows monthly usage without a hard cap and explains a missing connection',async()=>{
- api.get.mockResolvedValue({data:{...data(),usedThisMonth:200}});const w=await open();await confirm(w);expect(w.find('button[type=submit]').element.disabled).toBe(false);expect(w.text()).toContain('200 searches requested');w.unmount();
+ api.get.mockResolvedValue({data:{...data(),usedThisMonth:200}});const w=await open();await confirm(w);expect(w.find('button[type=submit]').element.disabled).toBe(false);expect(w.text()).toContain('200 Stedi checks requested');w.unmount();
  api.get.mockResolvedValue({data:{...data(),enabled:false}});const offline=await open();expect(offline.find('form').exists()).toBe(false);expect(offline.text()).toContain('awaiting account setup');offline.unmount();
 });
 it('retrieves pending results without POST and does not describe zero matches as uninsured',async()=>{
