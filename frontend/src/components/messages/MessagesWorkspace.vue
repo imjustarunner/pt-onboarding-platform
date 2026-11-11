@@ -3546,7 +3546,9 @@ watch(
         }
       }
 
-      const q = { ...newVal.query };
+      // Keep a legacy /messages?threadId= link in Team chat after consuming
+      // its selection. Otherwise the parent switches back to the email inbox.
+      const q = { ...newVal.query, ...(layout.value === 'page' ? { view: 'workspace', tab: mainTab.value } : {}) };
       delete q.threadId;
       router.replace({ path: newVal.path, query: q }).catch(() => {});
       return;
