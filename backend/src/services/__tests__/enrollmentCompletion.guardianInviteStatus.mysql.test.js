@@ -38,6 +38,11 @@ describe.skipIf(!socket)('isolated guardian invitation status SQL',()=>{
   await expect(assertInvitationOwner({invite,userId:9,agencyId:2,db:m.pool})).rejects.toHaveProperty('status',404);
   expect(invite.invited_by_user_id).toBe(501);
  });
+ it('hides the received invitation from its accepted recipient while retaining other-guardian progress',async()=>{
+  await m.pool.query("INSERT INTO client_guardians VALUES(5,10,1,'{}');UPDATE co_guardian_invites SET status='accepted',accepted_user_id=10 WHERE id=18");
+  expect(await listGuardianInvitations({userId:10,agencyId:2})).toEqual([]);
+  expect((await listGuardianInvitations({userId:9,agencyId:2}))[0]).toMatchObject({status:'accepted',accountConnected:1});
+ });
  it('shows accepted and account-connected status while keeping the original inviter’s controls separate',async()=>{
   await m.pool.query("UPDATE co_guardian_invites SET status='accepted',accepted_at='2026-10-03',accepted_user_id=10 WHERE id=18");
   expect((await listGuardianInvitations({userId:9,agencyId:2}))[0]).toMatchObject({status:'accepted',accountConnected:1,canManage:false});

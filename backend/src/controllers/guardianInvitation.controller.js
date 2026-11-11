@@ -3,7 +3,7 @@ export async function list(req, res, next) {
   try {
     const clientId=req.query.clientId==null?null:Number(req.query.clientId);
     if(clientId!==null&&(!Number.isSafeInteger(clientId)||clientId<1))return res.status(400).json({error:{message:'Invalid client'}});
-    res.set('Cache-Control','no-store');res.json({ invitations: await listGuardianInvitations({ userId:req.user.id, agencyId:Number(req.query.agencyId),clientId }) });
+    res.set('Cache-Control','no-store');res.json({ invitations: await listGuardianInvitations({ userId:req.user.id, agencyId:Number(req.query.agencyId),clientId,viewerEmails:[req.user.email,req.user.work_email,req.user.personal_email] }) });
   }
   catch (error) { next(error); }
 }

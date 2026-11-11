@@ -150,3 +150,11 @@ it.each(['sent','delivered','pending','sending','unknown'])('never permits paren
  await expect(resendGuardianInvitation({userId:8,agencyId:4,inviteId:3,email:'different@example.test'})).rejects.toMatchObject({status:409});
  expect(m.email).not.toHaveBeenCalled();expect(db.execute.mock.calls.some(([sql])=>sql.includes('SET invited_email='))).toBe(false);
 });
+
+it('does not show a received invitation as another-guardian tracking on the recipient account',async()=>{
+ m.execute.mockResolvedValue([[{...statusRow,status:'accepted',recipientUserId:8,accountConnected:1}]]);
+ expect(await listGuardianInvitations({userId:8,agencyId:4})).toEqual([]);
+ m.execute.mockResolvedValue([[statusRow]]);
+ expect(await listGuardianInvitations({userId:8,agencyId:4,viewerEmails:[' OTHER@EXAMPLE.TEST ']})).toEqual([]);
+ expect((await listGuardianInvitations({userId:9,agencyId:4,viewerEmails:['inviter@example.test']}))[0]).toMatchObject({id:18,email:'o•••@•••'});
+});

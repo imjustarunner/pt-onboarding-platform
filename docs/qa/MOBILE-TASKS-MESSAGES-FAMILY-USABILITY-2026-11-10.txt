@@ -1,0 +1,27 @@
+AURICWELL — TASKS, MESSAGE SELECTION, AND FAMILY PHONE LAYOUT
+
+Use a fresh tab on the same frontend/API build (ready=true). Test desktop and phone separately. A phone-width Chrome result is not a physical iPhone Safari or TestFlight result. Use synthetic accounts and tasks only. Do not complete real work, send invitations/messages to real families, sign clinical records, or alter guardian permissions to force a pass. Record role, build, viewport/device, expected/actual, IDs, error text, and PASS/FAIL/BLOCKED/NOT_RUN.
+
+1. TASK COUNTS AND OPENING
+Sign in with an authorized staff account. Tasks shows Assigned, My tasks, Shared lists, Projects with counts. Assigned/My tasks count open visible tasks before pagination; Shared lists/Projects count accessible containers, excluding archived projects. An unavailable total is a dash, not a false zero. Compare against authorized data, including >200 tasks; a private task/list/project must not leak through counts. Check a second account/agency and revoked membership.
+Tap a task: its title/loading state appears immediately. Slow the directory request and confirm the task detail opens independently. Closing during load must not reopen it when an old response arrives.
+
+2. TASK TOUCH ACTIONS
+Hold a task for the preview; verify title, authorized description, status, due date, and Open task. Locked descriptions remain private. Scrolling vertically must not open a preview or write a change. The preview button works without a hold.
+Swipe left: confirmation appears; Cancel writes nothing. Confirm Mark done on a synthetic task, then verify status and both suite/nav counts refresh. Managed/unauthorized completion stays blocked. Force a rejected save and verify error/retry without false success.
+Swipe right: choose a local due date/time, save, reopen and verify the stored instant. Blank clears a deadline. Cancel writes nothing. Test failed save recovery. Repeat from a shared-list/project task. Ordinary taps still open full detail with existing controls.
+
+3. CALENDAR AND NOTE WIDTH
+Choose tomorrow and an older date; selected date shows its weekday, month, day and year. Check Denver and another timezone without changing a stored date. Test agenda/day and office views.
+Open the same synthetic note from schedule and My Work at 320/390/430px and desktop. Swipe horizontally: no empty off-screen canvas; all inputs, service-info action, mode buttons and long location/service labels stay within the viewport. Test Manual, Narriva and Smart Notes, keyboard open, portrait/landscape, and normal browser zoom. Preserve drafts; no clinical signature is required.
+
+4. MESSAGE BULK SELECTION
+In Email or Direct, hold a conversation (or use its options) and choose Select multiple. Check the first item is selected. Tap another, toggle one off, and inspect the selected count. Read updates only selected conversations. Repeat with Archive and confirm archived items follow the existing archive filter. Select all shown applies only to loaded selectable conversation rows, not unseen history.
+Force one request to fail: successful rows update, the failed rows stay selected for retry, and the error names the partial outcome. No unrelated item is opened or changed. Cancel exits selection. Changing category/filter/session clears selection and must not continue writes into another scope. Existing unknown-sender Create known contact and ordinary single-message swipe actions remain usable. Drafts/file snippets/channel join suggestions are not bulk-archived as conversations.
+
+5. FAMILY PORTAL ON PHONE AND DESKTOP
+Use primary and secondary synthetic guardians. With one agency, no agency picker; with one child/profile too, show its identity without a redundant picker. Multiple agencies/children retain their legitimate choices and guardian-specific access.
+The secondary guardian's received/accepted invitation must not appear as an invitation-management card. Their OWN pending enrollment/forms remain actionable. An authorized inviter can still view the OTHER guardian's status and existing management controls; restricted guardians do not gain those controls. History is collapsed initially. No invitations are sent merely by opening the portal.
+On phone, agency/child/provider context scrolls away while the compact brand/menu header remains. Open Menu after scrolling: it starts at the viewport top, fills the available height, scrolls independently, and blocks background scrolling. Close/Escape returns focus; Tab stays inside the open menu. Verify safe areas, portrait/landscape, language selector, child switching, and that forms remain reachable. Desktop retains its sidebar and usable context.
+
+Record physical iPhone Safari and newly signed TestFlight separately; web deployment alone is not a native build upload or device pass.

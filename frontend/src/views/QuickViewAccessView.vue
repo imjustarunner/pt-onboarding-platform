@@ -269,17 +269,18 @@
 
       <div v-else-if="tab === 'tasks'" class="qv-pane">
         <div class="qv-suite">
-          <button type="button" :class="{ on: taskSuite === 'assigned' }" @click="loadTasks('assigned')">Assigned</button>
-          <button type="button" :class="{ on: taskSuite === 'mine' }" @click="loadTasks('mine')">My tasks</button>
-          <button type="button" :class="{ on: taskSuite === 'lists' }" @click="loadSharedLists">Shared lists</button>
-          <button type="button" :class="{ on: taskSuite === 'projects' }" @click="loadProjects">Projects</button>
+          <button type="button" :class="{ on: taskSuite === 'assigned' }" @click="loadTasks('assigned')">Assigned <span class="qv-task-count">{{ taskCounts.assigned ?? '—' }}</span></button>
+          <button type="button" :class="{ on: taskSuite === 'mine' }" @click="loadTasks('mine')">My tasks <span class="qv-task-count">{{ taskCounts.mine ?? '—' }}</span></button>
+          <button type="button" :class="{ on: taskSuite === 'lists' }" @click="loadSharedLists">Shared lists <span class="qv-task-count">{{ taskCounts.lists ?? '—' }}</span></button>
+          <button type="button" :class="{ on: taskSuite === 'projects' }" @click="loadProjects">Projects <span class="qv-task-count">{{ taskCounts.projects ?? '—' }}</span></button>
         </div>
         <div v-if="taskSuite === 'assigned' || taskSuite === 'mine'" class="qv-toolbar">
           <div class="qv-pad muted" style="padding:8px 0;margin:0;">Tap a task for details</div>
           <button type="button" class="qv-btn primary sm" @click="showNewTask = true">Add</button>
         </div>
         <template v-if="taskSuite === 'assigned' || taskSuite === 'mine'">
-          <button
+          <MobileTaskRow v-if="isMobile" v-for="t in tasks" :key="`mobile:${t.id}`" :task="t" :due-label="t.due_at ? formatTime(t.due_at) : ''" @open="openTaskDetail" @preview="t=>openTaskAction(t,'preview')" @complete="t=>openTaskAction(t,'complete')" @due="t=>openTaskAction(t,'due')" />
+          <button v-else
             v-for="t in tasks"
             :key="t.id"
             type="button"
@@ -353,7 +354,8 @@
             </button>
           </div>
           <h3 class="qv-section-title" style="font-size:0.95rem;">Tasks</h3>
-          <button
+          <MobileTaskRow v-if="isMobile" v-for="t in suiteTasks" :key="`mobile:${t.id}`" :task="t" :due-label="t.due_at ? formatTime(t.due_at) : ''" @open="openTaskDetail" @preview="t=>openTaskAction(t,'preview')" @complete="t=>openTaskAction(t,'complete')" @due="t=>openTaskAction(t,'due')" />
+          <button v-else
             v-for="t in suiteTasks"
             :key="t.id"
             type="button"
@@ -505,12 +507,13 @@
         <div class="qv-day-nav">
           <button type="button" class="qv-btn ghost" @click="shiftDay(-1)">‹</button>
           <button type="button" class="qv-btn ghost" @click="day = localDay(); loadCalendar()">Today</button>
-          <input v-model="day" type="date" class="qv-date" @change="loadCalendar" />
+          <input v-model="day" type="date" class="qv-date" aria-label="Calendar date" @change="loadCalendar" />
           <button type="button" class="qv-btn ghost" @click="shiftDay(1)">›</button>
           <button type="button" class="qv-btn ghost" :class="{ on: showOffice }" @click="toggleOffice">
             {{ showOffice ? 'My day' : 'Office' }}
           </button>
         </div>
+        <p class="qv-selected-day" aria-live="polite">{{ selectedCalendarDayLabel }}</p>
         <div v-if="isMobile && !showOffice" class="qv-calendar-modes"><button type="button" :aria-pressed="calendarMode==='agenda'" @click="calendarMode='agenda'">Agenda</button><button type="button" :aria-pressed="calendarMode==='day'" @click="calendarMode='day'">Day</button></div>
         <div v-if="isMobile && !showOffice && calendarMode==='day'" class="qv-day-grid" aria-label="Day schedule"><div v-for="hour in calendarHours" :key="hour" class="qv-hour-row"><time class="qv-hour-label">{{ hour===0?'12 AM':hour<12?`${hour} AM`:hour===12?'12 PM':`${hour-12} PM` }}</time><div class="qv-hour-lane"><button v-for="item in itemsAtHour(hour)" :key="item.id" type="button" class="qv-cal-block" @click="openCalEvent(item)"><strong>{{ calendarTitle(item) }}</strong><small>{{ item.allDay?'All day':`${formatClock(item.startAt)}–${formatClock(item.endAt)}` }}</small></button></div></div></div>
         <template v-if="!showOffice && (!isMobile || calendarMode==='agenda')">
@@ -682,9 +685,21 @@
       </form>
     </div>
 
-    <div v-if="session && taskDetail" class="qv-modal" role="dialog" aria-modal="true" aria-label="Task details" @click.self="taskDetail = null" @keydown.esc.stop="taskDetail = null">
+    <div v-if="session && taskOpening" class="qv-modal" role="dialog" aria-modal="true" aria-label="Opening task" @click.self="closeTaskDetail" @keydown.esc.stop="closeTaskDetail"><section class="qv-sheet"><button class="qv-btn ghost" @click="closeTaskDetail">Close</button><h3>{{ taskOpening.title }}</h3><p role="status">Loading task details…</p></section></div>
+    <div v-if="session && taskAction" class="qv-modal" role="dialog" aria-modal="true" :aria-label="taskAction.mode==='preview'?'Task preview':taskAction.mode==='complete'?'Confirm task completion':'Change task due date'" @click.self="!taskActionBusy && closeTaskAction()" @keydown.esc.stop="!taskActionBusy && closeTaskAction()"><section class="qv-sheet qv-task-action">
+     <button class="qv-btn ghost" :disabled="taskActionBusy" @click="closeTaskAction">Cancel</button><h3>{{ taskAction.task.title }}</h3><p class="qv-detail-meta">{{ taskAction.task.status }} · {{ taskAction.task.due_at ? formatTime(taskAction.task.due_at) : 'No due date' }}</p>
+     <p v-if="taskAction.loading" role="status">Loading task preview…</p><p v-if="taskAction.error" role="alert">{{ taskAction.error }}</p>
+     <template v-if="taskAction.detail">
+      <p v-if="taskAction.mode==='preview'">{{ taskAction.task.description_locked ? 'Description is protected — open the full app to view.' : taskAction.task.description || 'No description has been added.' }}</p>
+      <p v-if="taskAction.mode==='complete'">Mark this task as done?</p>
+      <label v-if="taskAction.mode==='due'" class="qv-task-due">Due date (your local time)<input v-model="taskDueValue" type="datetime-local"/><small>Leave blank to remove the due date.</small></label>
+      <p v-if="taskAction.mode==='complete' && (taskAction.task.completion_managed || taskAction.task.can_change_status===false)">Complete this task through its linked workflow or ask the assignee.</p>
+      <div class="qv-task-action-buttons"><template v-if="taskAction.mode==='preview'"><button class="qv-btn primary" @click="openTaskDetail(taskAction.task);closeTaskAction()">Open task</button><button class="qv-btn ghost" @click="taskAction.mode='due'">Change due date</button><button v-if="!isDone(taskAction.task) && !taskAction.task.completion_managed && taskAction.task.can_change_status!==false" class="qv-btn ghost" @click="taskAction.mode='complete'">Mark done</button></template><button v-else class="qv-btn primary" :disabled="taskActionBusy || (taskAction.mode==='complete' && (taskAction.task.completion_managed || taskAction.task.can_change_status===false))" @click="saveTaskAction">{{ taskActionBusy?'Saving…':taskAction.mode==='complete'?'Mark done':'Save due date' }}</button></div>
+     </template>
+    </section></div>
+    <div v-if="session && taskDetail" class="qv-modal" role="dialog" aria-modal="true" aria-label="Task details" @click.self="closeTaskDetail" @keydown.esc.stop="closeTaskDetail">
       <div class="qv-sheet qv-task-detail">
-        <button type="button" class="qv-btn ghost sm" @click="taskDetail = null">Close</button>
+        <button type="button" class="qv-btn ghost sm" @click="closeTaskDetail">Close</button>
         <h3>{{ taskDetail.task.title }}</h3>
         <p class="qv-detail-meta">
           {{ taskDetail.task.status }}
@@ -805,6 +820,7 @@ import MobileMessages from '../mobile/MobileMessages.vue';
 import QuickTaskExtras from '../components/quickView/QuickTaskExtras.vue';
 import MobilePreferences from '../mobile/MobilePreferences.vue';
 import MobileMyWork from '../mobile/MobileMyWork.vue';
+import MobileTaskRow from '../mobile/MobileTaskRow.vue';
 import MobileClinicalWorkspace from '../mobile/MobileClinicalWorkspace.vue';
 import MobileClientSummary from '../mobile/MobileClientSummary.vue';
 import MobileClinicalSession from '../mobile/MobileClinicalSession.vue';
@@ -1026,6 +1042,8 @@ const chatBusy = ref(false);
 const tasks = ref([]);
 const taskView = ref('assigned');
 const taskSuite = ref('assigned');
+const taskCounts=ref({assigned:null,mine:null,lists:null,projects:null});let taskCountRequest=0;
+async function loadTaskCounts(){if(!session.value)return;const request=++taskCountRequest,token=session.value;try{const {data}=await axios.get(`${apiBase}/task-counts`,{headers:authHeaders(),withCredentials:true});if(request===taskCountRequest && token===session.value)taskCounts.value=data.counts || {assigned:null,mine:null,lists:null,projects:null};}catch{if(request===taskCountRequest && token===session.value)taskCounts.value={assigned:null,mine:null,lists:null,projects:null};}}
 const taskLists = ref([]);
 const taskProjects = ref([]);
 const suiteTasks = ref([]);
@@ -1033,7 +1051,8 @@ const suiteDetailTitle = ref('');
 const suiteMembers = ref([]);
 const suiteLists = ref([]);
 const suiteStats = ref(null);
-const taskDetail = ref(null);
+const taskDetail = ref(null),taskOpening=ref(null),taskAction=ref(null),taskDueValue=ref(''),taskActionBusy=ref(false);let taskActionRequest=0;
+const suiteDetailId=ref(null);
 const taskAssigneeOptions=computed(()=>[...new Map([...directoryProviders.value,...directorySchool.value].filter(person=>!person.agencyId || Number(person.agencyId)===Number(sessionAgencyId.value)).map(person=>[Number(person.id),person])).values()]);
 const fullTaskUrl=computed(()=>{if(!loginUrl.value || !taskDetail.value)return '';try{const target=new URL(loginUrl.value,window.location.origin);target.pathname=target.pathname.replace(/\/(?:login|dashboard)\/?$/,'')+'/tasks';target.search='';return target.href;}catch{return '';}});
 async function reloadTaskDetail(){if(!taskDetail.value)return;await openTaskDetail(taskDetail.value.task);await loadTasks(taskView.value);}
@@ -1073,6 +1092,7 @@ const canRunNoteAid = computed(() =>
 );
 const localDay = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const day = ref(localDay());
+const selectedCalendarDayLabel=computed(()=>/^\d{4}-\d{2}-\d{2}$/.test(day.value)?new Date(day.value+'T12:00:00').toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric',year:'numeric'}):'Choose a date');
 const calendarLoading = ref(false);
 const calendarTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Denver';
 const dayItems = ref([]);
@@ -1113,7 +1133,7 @@ const newContactEmail = ref('');
 const newContactPhone = ref('');
 const contactBusy = ref(false);
 const mailboxEmail = ref('');
-const modalOpen = computed(() => !!session.value && !!(showCompose.value || showNewTask.value || showNewContact.value || taskDetail.value || calEvent.value || showMobileReply.value));
+const modalOpen = computed(() => !!session.value && !!(taskOpening.value || taskAction.value || showCompose.value || showNewTask.value || showNewContact.value || taskDetail.value || calEvent.value || showMobileReply.value));
 let modalReturnFocus = null;
 
 function trapDialogFocus(event) {
@@ -1792,7 +1812,7 @@ async function loadOlderEmail() {
 async function loadTasks(view = 'assigned') {
   taskView.value = view;
   taskSuite.value = view;
-  tab.value = 'tasks';
+  tab.value = 'tasks';void loadTaskCounts();
   const { data } = await axios.get(`${apiBase}/tasks`, {
     headers: authHeaders(),
     withCredentials: true,
@@ -1805,7 +1825,7 @@ function switchTasks() { loadTasks(taskView.value); }
 
 async function loadSharedLists() {
   tab.value = 'tasks';
-  taskSuite.value = 'lists';
+  taskSuite.value = 'lists';void loadTaskCounts();
   const { data } = await axios.get(`${apiBase}/task-lists`, {
     headers: authHeaders(),
     withCredentials: true
@@ -1815,7 +1835,7 @@ async function loadSharedLists() {
 
 async function loadProjects() {
   tab.value = 'tasks';
-  taskSuite.value = 'projects';
+  taskSuite.value = 'projects';void loadTaskCounts();
   const { data } = await axios.get(`${apiBase}/task-projects`, {
     headers: authHeaders(),
     withCredentials: true
@@ -1824,6 +1844,7 @@ async function loadProjects() {
 }
 
 async function openSharedList(l) {
+  suiteDetailId.value=l.id;
   suiteDetailTitle.value = l.name;
   taskSuite.value = 'listDetail';
   suiteMembers.value = [];
@@ -1838,6 +1859,7 @@ async function openSharedList(l) {
 }
 
 async function openProject(p) {
+  suiteDetailId.value=p.id;
   suiteDetailTitle.value = p.name;
   taskSuite.value = 'projectDetail';
   suiteMembers.value = [];
@@ -1853,24 +1875,42 @@ async function openProject(p) {
   suiteStats.value = data.stats || null;
 }
 
+function closeTaskDetail(){++taskDetailRequest;taskOpening.value=null;taskDetail.value=null;}
+function closeTaskAction(){++taskActionRequest;taskAction.value=null;taskActionBusy.value=false;}
+function localTaskDue(value){if(!value)return '';const date=new Date(value);if(!Number.isFinite(date.getTime()))return '';return new Date(date.getTime()-date.getTimezoneOffset()*60000).toISOString().slice(0,16);}
+async function openTaskAction(task,mode='preview'){
+ const request=++taskActionRequest,token=session.value;taskAction.value={task,mode,loading:true,error:'',detail:null};taskDueValue.value=localTaskDue(task.due_at);
+ try{const {data}=await axios.get(`${apiBase}/tasks/${task.id}`,{headers:authHeaders(),withCredentials:true});if(request!==taskActionRequest || token!==session.value)return;taskAction.value={task:data.task,mode,loading:false,error:'',detail:data};taskDueValue.value=localTaskDue(data.task.due_at);}
+ catch(e){if(request===taskActionRequest && token===session.value)taskAction.value={task,mode,loading:false,error:e.response?.data?.error?.message || 'Could not load this task. Try again.',detail:null};}
+}
+async function refreshTaskSuite(){const kind=taskSuite.value,id=suiteDetailId.value,title=suiteDetailTitle.value;if(kind==='listDetail')await openSharedList({id,name:title});else if(kind==='projectDetail')await openProject({id,name:title});else if(kind==='lists')await loadSharedLists();else if(kind==='projects')await loadProjects();else await loadTasks(taskView.value);void loadTaskCounts();void loadWorkspaceBadges(true);}
+async function saveTaskAction(){
+ const action=taskAction.value;if(!action?.detail || taskActionBusy.value)return;
+ if(action.mode==='due' && taskDueValue.value && !Number.isFinite(new Date(taskDueValue.value).getTime())){action.error='Choose a valid due date.';return;}
+ const token=session.value;taskActionBusy.value=true;action.error='';
+ try{await axios.patch(`${apiBase}/tasks/${action.task.id}${action.mode==='complete'?'/status':''}`,action.mode==='complete'?{status:'completed'}:{dueDate:taskDueValue.value?new Date(taskDueValue.value).toISOString():null},{headers:authHeaders(),withCredentials:true});if(token!==session.value)return;closeTaskAction();await refreshTaskSuite();}
+ catch(e){if(token===session.value && taskAction.value===action)action.error=e.response?.data?.error?.message || 'The change could not be saved. Try again.';}
+ finally{if(token===session.value)taskActionBusy.value=false;}
+}
 async function openTaskDetail(t) {
   if (!session.value) return;
   const request = ++taskDetailRequest;
   const activeSession = session.value;
   try {
-    await loadDirectory('providers', { activate: false }).catch(() => {});
-    if (request !== taskDetailRequest || session.value !== activeSession) return;
-    const { data } = await axios.get(`${apiBase}/tasks/${t.id}`, {
+    taskOpening.value=t;taskDetail.value=null;
+    const detailRequest=axios.get(`${apiBase}/tasks/${t.id}`, {
       headers: authHeaders(),
       withCredentials: true
     });
+    void loadDirectory('providers', { activate: false }).catch(() => {});
+    const {data}=await detailRequest;
     if (request !== taskDetailRequest || session.value !== activeSession) return;
-    taskDetail.value = data;
+    taskDetail.value = data;taskOpening.value=null;
     taskComment.value = '';
     taskAssignId.value = data.task?.assigned_to_user_id || null;
     taskListPickId.value = data.task?.task_list_id || null;
   } catch (e) {
-    if (request === taskDetailRequest && session.value === activeSession) error.value = e?.response?.data?.error?.message || 'Could not open task';
+    if (request === taskDetailRequest && session.value === activeSession){taskOpening.value=null;error.value = e?.response?.data?.error?.message || 'Could not open task';}
   }
 }
 
@@ -2571,6 +2611,7 @@ function clearSession({notify=true}={}) {
   replyText.value = ''; replyAttachments.value = []; chatReply.value = ''; chatAttachments.value = [];
   composeToEmail.value = ''; composeSubject.value = ''; composeText.value = ''; composeAttachments.value = [];
   badgeRequest++;lastBadgeRefresh=0;workspaceBadges.value={mywork:null,tasks:null};
+  taskCountRequest++;taskCounts.value={assigned:null,mine:null,lists:null,projects:null};closeTaskDetail();closeTaskAction();
   tasks.value = []; dayItems.value = []; undoSend.value = null; sendNotice.value = ''; showCompose.value = false;
   taskDetail.value = null; calEvent.value = null; showNewTask.value = false; showNewContact.value = false;
   newTaskTitle.value = ''; newTaskDue.value = ''; taskComment.value = '';
@@ -2992,3 +3033,9 @@ button.qv-row:hover { background: #f8faff; }
 </style>
 
 <style scoped>.qv-contact-row .meta strong{white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere;line-height:1.45}.qv-contact-row>.qv-btn{flex-shrink:0}.qv-contact-row .qv-extension{margin-left:4px}</style>
+
+<style scoped>
+.qv-mobile,.qv-mobile .qv-workspace,.qv-mobile .qv-content{box-sizing:border-box;width:100%;max-width:100%;min-width:0}.qv-mobile .qv-workspace{overflow-x:hidden}.qv-mobile .qv-content>*{min-width:0;max-width:100%;box-sizing:border-box}
+</style>
+
+<style scoped>.qv-task-count{font-size:11px;font-variant-numeric:tabular-nums;margin-left:4px}.qv-selected-day{font-size:13px;color:#466384;margin:0;padding:0 16px 12px}.qv-task-due{display:grid;gap:9px;font-size:14px}.qv-task-due input{font:inherit;font-size:16px;min-width:0;max-width:100%;box-sizing:border-box;padding:12px;border:1px solid #cbd9ed;border-radius:9px}.qv-task-action-buttons{display:flex;gap:8px;flex-wrap:wrap;margin-top:18px}.qv-task-action>p{white-space:pre-wrap;overflow-wrap:anywhere}.qv-task-action button{min-height:44px}</style>

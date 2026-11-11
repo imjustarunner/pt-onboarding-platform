@@ -109,7 +109,7 @@ async function changeSuite(value){rememberTabs();rememberListScroll();await go({
 async function changeFilter(value){rememberTabs();rememberListScroll();await go({view:'home',suite:suite.value,filter:value,archived:includeArchived.value?'1':undefined});}
 function rememberListScroll(){const pane=document.getElementById('qv-workspace');if(pane)scrollPositions.set(`${suite.value}:${filter.value}`,pane.scrollTop);}
 async function loadInbox({older=false,quiet=false}={}) {
-  if(pendingRead.size)return;
+  if(pendingRead.size || bulkBusy.value)return;
   const scope=`${suite.value}:${filter.value}:${includeArchived.value}`;
   if(scope!==inboxScope){inboxScope=scope;items.value=[];cursor.value=null;inboxReady.value=false;}
   const request=++inboxRequest;if(!quiet)loading.value=true;error.value='';
@@ -124,6 +124,7 @@ async function loadInbox({older=false,quiet=false}={}) {
 }
 async function openItem(item){
   if(Date.now()<suppressClickUntil)return;
+  if(selectionMode.value){toggleSelected(item);return;}
   rememberListScroll();
   if(item.kind==='chat-draft'){await go({...route.query,filter:'all',threadId:String(item.threadId),parentId:item.parentId?String(item.parentId):undefined,secure:item.secure?'1':undefined});return;}
   if(item.kind==='draft'){emit('compose-email',{draftId:item.id,agencyId:item.agencyId});return;}
@@ -168,13 +169,27 @@ async function markRead(item,read=true){
   finally{pendingRead.delete(item.key);if(!threadId.value)await loadInbox({quiet:true});if(failure)error.value=failure;}
 
 }
+let bulkRequest=0;
+const selectionMode=ref(false),selectedRows=ref(new Map()),rowMenu=ref(null),bulkBusy=ref(false);
+const selectable=item=>['email','sms','chat'].includes(item.kind) && !item.join;
+const shownSelectable=computed(()=>items.value.filter(selectable));
+function toggleSelected(item){if(!selectable(item)||bulkBusy.value)return;const next=new Map(selectedRows.value);if(next.has(item.key))next.delete(item.key);else next.set(item.key,item);selectedRows.value=next;}
+function beginSelection(item){rowMenu.value=null;selectionMode.value=true;selectedRows.value=new Map();suppressClickUntil=0;toggleSelected(item);}
+function clearSelection(){if(bulkBusy.value)return;selectionMode.value=false;selectedRows.value=new Map();rowMenu.value=null;}
+function showRowMenu(item){if(!selectable(item))return;cancelHold();cancelSwipe();suppressClickUntil=Date.now()+700;rowMenu.value=item;}
+async function applyBulk(action){
+ if(bulkBusy.value||!selectedRows.value.size)return;bulkBusy.value=true;rowMenu.value=null;error.value='';++inboxRequest;loading.value=false;const batch=++bulkRequest,token=props.sessionToken,scope=inboxScope,rows=[...selectedRows.value.values()];let succeeded=0;const failed=new Map();
+ for(const item of rows){if(token!==props.sessionToken || scope!==inboxScope)break;try{await axios.patch(`${props.apiBase}/messages/${item.kind}/${item.id}/${action==='archive'?'archive':'state'}`,action==='archive'?{archived:true}:{read:true},config());succeeded++;}catch{failed.set(item.key,item);}}
+ if(batch!==bulkRequest)return;bulkBusy.value=false;if(token!==props.sessionToken || scope!==inboxScope)return;selectedRows.value=failed;selectionMode.value=failed.size>0;notice.value=`${succeeded} conversation${succeeded===1?'':'s'} ${action==='archive'?'archived':'marked as read'}.`;await loadInbox({quiet:true});if(failed.size)error.value=`${failed.size} conversation${failed.size===1?' could':'s could'} not be updated. They remain selected; try again.${error.value?' '+error.value:''}`;
+}
+watch([suite,filter,includeArchived,()=>props.sessionToken],()=>{++bulkRequest;bulkBusy.value=false;selectionMode.value=false;selectedRows.value=new Map();rowMenu.value=null;});
 const knownSender=ref(null),savingKnown=ref(false);let holdTimer=null;
 watch(knownSender,async value=>{if(value){await nextTick();document.querySelector('[aria-label="Create known contact"] button')?.focus({preventScroll:true});}});
 function cancelHold(){clearTimeout(holdTimer);holdTimer=null;}
 function showKnownSender(item){if(item.kind!=='email' || !item.unknown)return;cancelHold();suppressClickUntil=Date.now()+600;knownSender.value=item;drag=null;dragOffset.value={key:null,x:0};}
 async function saveKnownSender(){const item=knownSender.value;if(!item || savingKnown.value)return;savingKnown.value=true;try{await axios.post(`${props.apiBase}/messages/email/${item.id}/known-sender`,{},config());knownSender.value=null;notice.value='Contact saved. Emails from this sender now appear in your inbox.';await loadInbox({quiet:true});}catch(e){error.value=e.response?.data?.error?.message || 'The contact could not be saved.';}finally{savingKnown.value=false;}}
 function cancelSwipe(){cancelHold();drag=null;dragOffset.value={key:null,x:0};}
-function startSwipe(item,event){if(event.pointerType==='mouse' && event.button!==0)return;cancelHold();if(item.kind==='email'&&item.unknown)holdTimer=setTimeout(()=>showKnownSender(item),550);drag={key:item.key,x:event.clientX,y:event.clientY,target:event.currentTarget,pointerId:event.pointerId};}
+function startSwipe(item,event){if(event.pointerType==='mouse' && event.button!==0)return;cancelHold();if(selectionMode.value)return;if(selectable(item))holdTimer=setTimeout(()=>showRowMenu(item),550);drag={key:item.key,x:event.clientX,y:event.clientY,target:event.currentTarget,pointerId:event.pointerId};}
 function moveSwipe(event){
   if(!drag)return;const x=event.clientX-drag.x,y=event.clientY-drag.y;if(Math.abs(x)>8||Math.abs(y)>8)cancelHold();
   if(Math.abs(y)>Math.abs(x) && Math.abs(y)>12){drag=null;dragOffset.value={key:null,x:0};return;}
@@ -269,6 +284,7 @@ onUnmounted(()=>{cancelHold();clearTimeout(noticeTimer);clearTimeout(recipientSe
   </section></div></Teleport>
     <div v-if="error" class="mm-error" role="alert">{{ error }} <button @click="threadId?loadChat():loadInbox()">Try again</button></div>
     <div v-if="notice" class="mm-notice" role="status">{{ notice }} <button v-if="undoItem" @click="archive(undoItem,false)">Undo</button></div>
+    <Teleport to="body"><div v-if="rowMenu" class="mm-selection-overlay" role="dialog" aria-modal="true" aria-label="Conversation actions" @click.self="rowMenu=null" @keydown.esc.stop="rowMenu=null"><section><button @click="rowMenu=null">Close</button><h3>{{ rowMenu.secure ? 'Secure conversation' : rowMenu.title }}</h3><button @click="beginSelection(rowMenu)">Select multiple</button><button v-if="rowMenu.kind==='email' && rowMenu.unknown" @click="showKnownSender(rowMenu);rowMenu=null">Create known contact</button><button @click="const item=rowMenu;rowMenu=null;suppressClickUntil=0;openItem(item)">Open conversation</button></section></div></Teleport>
     <template v-if="!threadId">
       <header class="mm-heading"><ConversaBrand compact/><time>{{ date }}</time></header>
       <nav ref="categoryNav" @scroll.passive="rememberTabs" class="mm-categories" aria-label="Message categories"><button v-for="[id,label,Icon] in categories" :key="id" :aria-pressed="suite===id" @click="changeSuite(id)"><component :is="Icon" :size="15"/>{{ label }}<span class="mm-count" :aria-label="`${counts[id]?.unread || 0} unread conversations`">{{ counts[id]?.unread ?? '—' }}</span></button></nav>
@@ -283,16 +299,17 @@ onUnmounted(()=>{cancelHold();clearTimeout(noticeTimer);clearTimeout(recipientSe
       <label v-if="suite==='channels'" class="mm-folder">Search channels<input v-model="channelQuery" type="search" placeholder="Channel name"/></label>
       <div v-if="includeArchived" class="mm-included">Showing active and archived conversations</div>
       <div v-if="suite==='email' || suite==='unknown'" class="mm-folder"><button :aria-pressed="suite==='unknown'" @click="changeSuite(suite==='unknown'?'email':'unknown')">Unknown senders <span>{{ inboxReady ? counts.unknown?.total || 0 : '—' }}</span></button><button @click="emit('settings')">Swipe settings</button></div>
+      <div v-if="selectionMode" class="mm-bulk" role="toolbar" aria-label="Selected conversations"><strong>{{ selectedRows.size }} selected</strong><button :disabled="bulkBusy || !selectedRows.size" @click="applyBulk('read')">Read</button><button :disabled="bulkBusy || !selectedRows.size" @click="applyBulk('archive')">Archive</button><button :disabled="bulkBusy" @click="selectedRows=new Map(shownSelectable.map(item=>[item.key,item]))">Select all shown</button><button :disabled="bulkBusy" @click="clearSelection">Cancel</button><span v-if="bulkBusy" role="status">Updating…</span></div>
       <p v-if="loading && !items.length" class="mm-empty" role="status">Loading your conversations…</p>
       <article v-for="item in items.filter(item=>suite!=='channels' || item.title.toLowerCase().includes(channelQuery.toLowerCase()))" :key="item.key" class="mm-card" :class="{unread:item.unread,secure:item.secure,archived:item.archived,files:item.kind==='files'}">
         <div class="mm-swipe" :class="[`action-${swipeAction(item)}`,{'swipe-left':dragOffset.key===item.key && dragOffset.x<0}]"><span class="mm-swipe-label">{{ swipeLabel(item) }}</span>
-          <button class="mm-row" :style="{transform:`translateX(${dragOffset.key===item.key?dragOffset.x:0}px)`}" @pointerdown="startSwipe(item,$event)" @pointermove="moveSwipe" @pointerup="finishSwipe(item)" @pointercancel="cancelSwipe" @contextmenu.prevent="showKnownSender(item)" @click="openItem(item)">
-            <MobileIdentityAvatar :photo="imageUrl(item.avatar)" :agency-icon="imageUrl(item.agencyLogoUrl)" :name="item.title" :private-identity="item.secure"/>
+          <button class="mm-row" :aria-pressed="selectionMode && selectable(item) ? selectedRows.has(item.key) : undefined" :disabled="bulkBusy" :style="{transform:`translateX(${dragOffset.key===item.key?dragOffset.x:0}px)`}" @pointerdown="startSwipe(item,$event)" @pointermove="moveSwipe" @pointerup="finishSwipe(item)" @pointercancel="cancelSwipe" @contextmenu.prevent="showRowMenu(item)" @click="openItem(item)">
+            <span v-if="selectionMode && selectable(item)" class="mm-select-check" role="checkbox" :aria-checked="selectedRows.has(item.key)" :aria-label="`Select ${item.title}`">{{ selectedRows.has(item.key) ? '✓' : '' }}</span><MobileIdentityAvatar v-else :photo="imageUrl(item.avatar)" :agency-icon="imageUrl(item.agencyLogoUrl)" :name="item.title" :private-identity="item.secure"/>
             <span class="mm-meta"><span class="mm-row-top"><strong>{{ item.category==='groups' && item.groupName ? item.groupName : ['chat','threads','mentions','sms'].includes(item.kind)?item.title:(item.sender || item.title) }}</strong><time>{{ time(item.at) }}</time></span><strong v-if="item.kind==='email' || item.kind==='files' || ['draft','chat-draft'].includes(item.kind)" class="mm-subject">{{ item.title }}</strong><span class="mm-preview"><template v-if="item.kind==='chat' && item.sender && item.sender!==item.title && !item.secure">{{ item.sender }}: </template>{{ previewText(item) }}</span><span class="mm-category-label">{{ item.category==='groups' ? 'Groups' : item.category }}<template v-if="item.destinationAccount && item.category!=='groups'"> · To {{ item.destinationAccount }}</template><template v-if="item.agencyName"> · {{ item.agencyName }}</template><template v-if="item.reply_count"> · {{ item.reply_count }} replies</template><template v-if="item.kind==='files'"> · {{ fileSize(item) }}</template><template v-if="item.archived"> · Archived</template></span></span>
             <span v-if="item.unread" class="mm-unread" :aria-label="`${item.unreadCount || 1} unread`">{{ item.unreadCount || 1 }}</span>
           </button>
         </div>
-        <div class="mm-row-tools"><template v-if="item.kind==='files'"><button @click="viewFile(item)">View</button><button @click="openItem(item)">Open message</button></template><button v-else-if="['draft','chat-draft'].includes(item.kind)" @click="openItem(item)">Open draft</button><span v-else-if="item.join" class="mm-join-label">Join</span><details v-else><summary :aria-label="`Actions for ${item.title}`"><MoreHorizontal :size="18"/></summary><div><button v-if="item.kind==='email' && item.unknown" @click="showKnownSender(item)">Create known contact</button><button @click="openItem(item)">Open conversation</button><button @click="archive(item)">{{ item.archived?'Restore':'Archive' }}</button><button @click="markRead(item,item.unread)">{{ item.unread?'Mark read':'Mark unread' }}</button></div></details></div>
+        <div class="mm-row-tools"><template v-if="item.kind==='files'"><button @click="viewFile(item)">View</button><button @click="openItem(item)">Open message</button></template><button v-else-if="['draft','chat-draft'].includes(item.kind)" @click="openItem(item)">Open draft</button><span v-else-if="item.join" class="mm-join-label">Join</span><details v-else><summary :aria-label="`Actions for ${item.title}`"><MoreHorizontal :size="18"/></summary><div><button v-if="selectable(item)" @click="beginSelection(item)">Select multiple</button><button v-if="item.kind==='email' && item.unknown" @click="showKnownSender(item)">Create known contact</button><button @click="openItem(item)">Open conversation</button><button @click="archive(item)">{{ item.archived?'Restore':'Archive' }}</button><button @click="markRead(item,item.unread)">{{ item.unread?'Mark read':'Mark unread' }}</button></div></details></div>
       </article>
       <p v-if="!loading && inboxReady && !inboxFailed && !items.length" class="mm-empty">{{ filter==='unread'?'You’re caught up.':'No conversations in this view.' }}</p>
       <button v-if="cursor" class="mm-load" :disabled="loading" @click="loadInbox({older:true})">{{ loading?'Loading…':'Load more' }}</button>
@@ -332,3 +349,5 @@ onUnmounted(()=>{cancelHold();clearTimeout(noticeTimer);clearTimeout(recipientSe
 <style scoped>
 .mm-categories{overflow-anchor:none;scroll-behavior:auto}.mm-categories button{flex-shrink:0}.mm-count{min-width:3ch;text-align:center;font-variant-numeric:tabular-nums}.mm-filters{overflow-x:auto;min-width:0;flex:1;scrollbar-width:none;overscroll-behavior-x:contain}.mm-filters button{flex-shrink:0;white-space:nowrap}.mm-filters button span{display:inline-block;min-width:2ch;font-variant-numeric:tabular-nums}.mm-toolbar>.mm-icon{flex-shrink:0}.mm-recipient-sheet :is(input,textarea,select),.mm-composer textarea,.mm-folder input{font-size:16px!important}.mm-recipient-overlay{overflow:hidden}.mm-recipient-sheet{overscroll-behavior:contain}.mm-notice{position:fixed;top:max(80px,env(safe-area-inset-top));left:16px;right:16px;z-index:1100;border-radius:10px;box-shadow:0 4px 18px #16305020}
 </style>
+
+<style scoped>.mm-select-check{width:32px;height:32px;flex-shrink:0;align-self:center;display:grid;place-items:center;border:2px solid #7c98ca;border-radius:7px;color:#245bde;font-weight:750}.mm-select-check[aria-checked=true]{background:#eaf1ff;border-color:#245bde}.mm-bulk{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:10px 12px;background:#edf3ff;position:sticky;top:0;z-index:5;border-bottom:1px solid #cfddf3}.mm-bulk strong{font-size:12px;margin-right:5px}.mm-bulk button{border:1px solid #c7d7ed;background:#fff;border-radius:8px;min-height:40px;padding:7px 10px;font:inherit;font-size:12px;color:#2052a3}.mm-bulk button:disabled{opacity:.5}.mm-selection-overlay{position:fixed;inset:0;z-index:3000;background:#19345080;display:flex;align-items:flex-end;justify-content:center;padding:16px;box-sizing:border-box}.mm-selection-overlay>section{padding:18px;background:white;border-radius:16px;max-width:500px;width:100%;color:#193655}.mm-selection-overlay h3{font-size:16px;overflow-wrap:anywhere}.mm-selection-overlay button{display:block;width:100%;font:inherit;font-size:16px;padding:13px;margin-top:7px;border:1px solid #c8d9ef;background:#f4f7fc;color:#2051a3;border-radius:9px}</style>

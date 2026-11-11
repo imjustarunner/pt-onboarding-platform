@@ -110,3 +110,8 @@ it('loads authorized record widgets when selecting a completed profile in a mixe
  expect(w.findComponent({name:'GuardianIntakeDocuments'}).props('clientId')).toBe(5);
  w.unmount();
 });
+
+it('does not require agency or profile selection for a single-agency single-child family',async()=>{
+ api.get.mockImplementation(async url=>({data:url==='/guardian-portal/overview'?{children:[people[0]],programs:[agencies[0]]}:url==='/dependent-portal/status'?{personalPortal:false}:{events:[],items:[],documents:[],grants:[],subjects:[],plans:[]}}));
+ const {w}=await setup();expect(w.findAllComponents({name:'PortalContextPicker'})).toHaveLength(0);expect(w.get('.family-current-profile').text()).toContain('Riley');w.unmount();
+});

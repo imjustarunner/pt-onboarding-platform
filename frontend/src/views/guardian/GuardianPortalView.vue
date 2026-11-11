@@ -6,8 +6,9 @@
         <select :value="familyLocale" @change="setFamilyLocale($event.target.value)"><option value="en">English</option><option value="es">Español</option></select>
       </label>
       <div v-if="allFamilyProfiles.length" class="family-context">
-        <PortalContextPicker :label="ft('Agency')" :model-value="currentAgencyId" :groups="agencyPickerGroups" @update:model-value="chooseAgency" />
-        <PortalContextPicker class="family-profile-picker" :label="ft('Viewing')" :model-value="`${currentAgencyId}:${selectedChildId}`" :groups="profilePickerGroups" :placeholder="ft('Choose a profile')" :hint="ft('All family profiles, grouped by agency. Choosing a profile also switches the agency.')" @select="option => chooseFamilyProfile(option.clientId, null, option.agencyId)" />
+        <PortalContextPicker v-if="familyAgencies.length > 1" :label="ft('Agency')" :model-value="currentAgencyId" :groups="agencyPickerGroups" @update:model-value="chooseAgency" />
+        <PortalContextPicker v-if="allFamilyProfiles.length > 1 || familyAgencies.length > 1" class="family-profile-picker" :label="ft('Viewing')" :model-value="`${currentAgencyId}:${selectedChildId}`" :groups="profilePickerGroups" :placeholder="ft('Choose a profile')" :hint="ft('All family profiles, grouped by agency. Choosing a profile also switches the agency.')" @select="option => chooseFamilyProfile(option.clientId, null, option.agencyId)" />
+        <div v-if="allFamilyProfiles.length===1 && familyAgencies.length<=1" class="single-profile family-current-profile"><small>{{ ft('Viewing') }}</small><strong>{{ profileLabel(selectedChild) }}</strong></div>
         <PortalContextPicker v-if="selectedServices.length > 1" :label="ft('Service & provider')" :model-value="selectedService?.id" :groups="servicePickerGroups" @update:model-value="chooseService" />
         <div v-else-if="selectedService" class="single-profile"><small>{{ ft("Service & provider") }}</small><strong>{{ft(selectedService.label)}} · {{selectedService.provider_name || ft("Provider being assigned")}}</strong></div>
         <button class="more-family" type="button" @click="navigatePortal('family')">{{ ft(familyHomeLabel) }} <span>{{ allFamilyProfiles.length }}</span></button>

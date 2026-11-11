@@ -41,7 +41,7 @@ jobs:
         run: node ../frontend/node_modules/vitest/vitest.mjs run --config vitest.mobile.config.js
       - name: Verify mobile sign-in, locking and Quick View integration
         working-directory: frontend
-        run: node node_modules/vitest/vitest.mjs run src/mobile/__tests__ src/components/quickView/__tests__ src/components/guardian/__tests__ src/views/guardian/__tests__ src/components/__tests__/AccountSecurityPanel.test.js src/services/__tests__ src/views/__tests__/QuickViewLauncher.test.js src/components/messages/__tests__/EmailAudioAttachment.test.js src/components/messages/__tests__/EmailComposer*.test.js
+        run: node node_modules/vitest/vitest.mjs run src/mobile/__tests__ src/components/portal/__tests__ src/components/quickView/__tests__ src/components/guardian/__tests__ src/views/guardian/__tests__ src/components/__tests__/AccountSecurityPanel.test.js src/services/__tests__ src/views/__tests__/QuickViewLauncher.test.js src/components/messages/__tests__/EmailAudioAttachment.test.js src/components/messages/__tests__/EmailComposer*.test.js
       - name: Verify Auricwell sign-in returns and report navigation
         working-directory: frontend
         run: node node_modules/vitest/vitest.mjs run --config vitest.auricwell-signin.config.js
