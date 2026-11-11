@@ -57,10 +57,15 @@ export async function completePaperPacketTask({ clientId, state }, db = pool) {
     || ![state.guardian1Id, state.guardian2Id].filter(Boolean)
       .every(id => ['sent', 'delivered', 'redirected'].includes(state.invitations?.[id]?.status))) return false;
   // A task completion never grants consent or makes the client clinically ready.
-  await db.execute(`UPDATE tasks t JOIN referral_packet_upload_drafts d ON CAST(d.id AS CHAR)=t.source_ref_id
+  await db.execute(`UPDATE tasks t JOIN referral_packet_upload_drafts d
+    ON t.source_ref_id=CAST(d.id AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci
+    JOIN clients c ON c.id=d.created_client_id AND c.agency_id=d.agency_id
+    JOIN client_phi_documents p ON p.id=d.phi_document_id AND p.client_id=c.id
+      AND p.agency_id=c.agency_id AND p.school_organization_id=d.organization_id AND p.removed_at IS NULL
     SET t.status='completed',t.completed_at=NOW(),t.updated_at=NOW()
     WHERE t.source_ref_type='paper_packet_processing' AND t.assigned_to_agency_id=d.agency_id
-      AND d.created_client_id=? AND d.phi_document_id=? AND t.status<>'completed'`, [clientId, state.documentId]);
+      AND d.created_client_id=? AND d.phi_document_id=? AND d.status='submitted'
+      AND t.status NOT IN ('completed','overridden')`, [clientId, state.documentId]);
   return true;
 }
 
@@ -69,8 +74,10 @@ export async function listPaperPacketTasks({clientId, agencyId}, db = pool) {
   const [rows] = await db.execute(`SELECT t.id,t.title,t.status,t.created_at,t.updated_at,
     d.id AS draft_id,d.phi_document_id AS document_id,p.original_name AS packet_filename
     FROM tasks t JOIN referral_packet_upload_drafts d
-      ON t.source_ref_type='paper_packet_processing' AND t.source_ref_id=CAST(d.id AS CHAR)
+      ON t.source_ref_type='paper_packet_processing'
+      AND t.source_ref_id=CAST(d.id AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci
       AND t.assigned_to_agency_id=d.agency_id
+    JOIN clients c ON c.id=d.created_client_id AND c.agency_id=d.agency_id
     LEFT JOIN client_phi_documents p ON p.id=d.phi_document_id AND p.client_id=d.created_client_id AND p.agency_id=d.agency_id AND p.school_organization_id=d.organization_id AND p.removed_at IS NULL
     WHERE d.created_client_id=? AND d.agency_id=? AND d.status='submitted'
       AND COALESCE(t.is_private,0)=0

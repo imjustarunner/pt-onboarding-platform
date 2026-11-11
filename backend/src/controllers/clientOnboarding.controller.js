@@ -24,8 +24,14 @@ const paperProcessingHandler = action => async (req, res, next) => {
     const actorId = Number(req.user.id);
     if (action === 'list') {
       const documents=await ClientPhiDocument.findSchoolPaperPacketsForClient(clientId);
-      const tasks=await listPaperPacketTasks({clientId,agencyId:access.client.agency_id});
-      return res.set('Cache-Control','no-store').json({tasks,documents:documents.filter(doc=>!doc.removed_at && Number(doc.client_id)===clientId && Number(doc.agency_id)===Number(access.client.agency_id)).map(doc=>({id:doc.id,original_name:doc.original_name,mime_type:doc.mime_type,scan_status:doc.scan_status,uploaded_at:doc.uploaded_at,created_at:doc.created_at}))});
+      let tasks=[],tasksUnavailable=false;
+      try { tasks=await listPaperPacketTasks({clientId,agencyId:access.client.agency_id}); }
+      catch (error) {
+        // A task lookup must not hide the already-authorized packet documents.
+        tasksUnavailable=true;
+        console.error('[paperPacket] task lookup unavailable', {clientId,code:error.code||null});
+      }
+      return res.set('Cache-Control','no-store').json({tasks,tasksUnavailable,documents:documents.filter(doc=>!doc.removed_at && Number(doc.client_id)===clientId && Number(doc.agency_id)===Number(access.client.agency_id)).map(doc=>({id:doc.id,original_name:doc.original_name,mime_type:doc.mime_type,scan_status:doc.scan_status,uploaded_at:doc.uploaded_at,created_at:doc.created_at}))});
     }
     if (action === 'read') return res.set('Cache-Control','no-store').json(await paperProcessingContext(clientId));
     if (action === 'check') {

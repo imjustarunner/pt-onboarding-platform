@@ -13,6 +13,7 @@ import User from '../../models/User.model.js';
 import {paperProcessingContext,paperProcessingSourceDocument,completePaperProcessing} from '../../services/paperPacketProcessing.service.js';
 import {listPaperPacketDocuments,getPaperProcessing,postPaperProcessing,viewPaperProcessingDocument} from '../clientOnboarding.controller.js';
 import {viewPhiDocument} from '../phiDocuments.controller.js';
+import {listPaperPacketTasks} from '../../services/paperPacketTask.service.js';
 let res,next;
 beforeEach(()=>{vi.resetAllMocks();Client.findById.mockResolvedValue({id:4,agency_id:2,organization_id:3});User.getAgencies.mockResolvedValue([{id:2}]);res={status:vi.fn().mockReturnThis(),json:vi.fn().mockReturnThis(),set:vi.fn().mockReturnThis()};next=vi.fn();});
 const request=role=>({params:{id:'4'},user:{id:8,role},body:{signaturesConfirmed:true,staffRoiConfirmed:true}});
@@ -39,8 +40,16 @@ it('lists scoped pending and clean paper metadata without exposing storage paths
   {id:10,client_id:5,agency_id:2},{id:11,client_id:4,agency_id:3},{id:12,client_id:4,agency_id:2,removed_at:'2026-11-08'}
  ]);
  await listPaperPacketDocuments(request('support'),res,next);
- expect(res.json).toHaveBeenCalledWith({tasks:[],documents:[expect.objectContaining({id:9,scan_status:'pending'})]});
+ expect(res.json).toHaveBeenCalledWith({tasks:[],tasksUnavailable:false,documents:[expect.objectContaining({id:9,scan_status:'pending'})]});
  expect(JSON.stringify(res.json.mock.calls)).not.toMatch(/storage_path|secret/);
  User.getAgencies.mockResolvedValue([{id:9}]);ClientPhiDocument.findSchoolPaperPacketsForClient.mockClear();
  await listPaperPacketDocuments(request('support'),res,next);expect(res.status).toHaveBeenCalledWith(403);expect(ClientPhiDocument.findSchoolPaperPacketsForClient).not.toHaveBeenCalled();
+});
+
+it('keeps authorized packet documents available and reports the task lookup failure separately',async()=>{
+ vi.spyOn(console,'error').mockImplementation(()=>{});
+ ClientPhiDocument.findSchoolPaperPacketsForClient.mockResolvedValue([{id:9,client_id:4,agency_id:2,original_name:'QA.pdf',scan_status:'clean'}]);
+ listPaperPacketTasks.mockRejectedValue(Object.assign(new Error('SQL lookup failed'),{code:'ER_CANT_AGGREGATE_2COLLATIONS'}));
+ await listPaperPacketDocuments(request('support'),res,next);
+ expect(res.json).toHaveBeenCalledWith({tasks:[],tasksUnavailable:true,documents:[expect.objectContaining({id:9,scan_status:'clean'})]});expect(next).not.toHaveBeenCalled();
 });

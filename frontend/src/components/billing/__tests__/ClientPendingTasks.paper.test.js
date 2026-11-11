@@ -17,3 +17,8 @@ it('ignores a late prior-child task response after switching children',async()=>
  const w=mount(Panel,{props:{clientId:55,agencyId:450,paperEnabled:true,billingEnabled:false,clinicalNotes:[]}});await w.setProps({clientId:56});await flushPromises();
  finish({data:{tasks:[{id:90,packet_filename:'Wrong sibling packet.pdf'}]}});await flushPromises();expect(w.text()).not.toContain('Wrong sibling');w.unmount();
 });
+it('reports an unavailable task list without claiming no tasks exist',async()=>{
+ api.get.mockResolvedValue({data:{tasks:[],tasksUnavailable:true,documents:[{id:30}]}});
+ const w=mount(Panel,{props:{clientId:55,agencyId:450,paperEnabled:true,billingEnabled:false,clinicalNotes:[]}});await flushPromises();
+ expect(w.get('[role=alert]').text()).toContain('saved packet documents remain available');expect(w.text()).not.toContain('No pending tasks are available');w.unmount();
+});
