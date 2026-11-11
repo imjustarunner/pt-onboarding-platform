@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { flushPromises, mount, DOMWrapper } from '@vue/test-utils';
 import { createRouter, createMemoryHistory } from 'vue-router';
+import {computed,defineComponent,ref} from 'vue';
+import workspaceSource from '../../../AppWorkspace.vue?raw';
+import {clinicalWorkspaceActive,registerClinicalWorkspace} from '../../../composables/useClinicalWorkspace';
+import {isSecureCommunicationRouteExcluded} from '../../../utils/secureCommunicationRoute';
 import Dialog from '../SecureSessionCommentDialog.vue';
 import Host from '../SecureSessionCommentsHost.vue';
 import History from '../SecureSessionCommentHistory.vue';
@@ -30,6 +34,20 @@ beforeEach(() => {
   api.get.mockImplementation(async url => ({ data: url === '/secure-family-sharing-notice' ? { version: '2026-11-11', acknowledged: true } : thread() })); api.post.mockResolvedValue({ data: {} });
 });
 afterEach(() => { wrapper?.unmount(); wrapper = null; closeSecureSessionComment(); document.body.innerHTML = ''; vi.restoreAllMocks(); });
+
+it('keeps the actual workspace comment/notice guards mounted when a guardian clinical frame becomes immersive',async()=>{
+ const commentGuard=workspaceSource.match(/<SecureSessionCommentsHost v-if="([^"]+)"/)[1],noticeGuard=workspaceSource.match(/<FamilySharingNoticeHost v-if="([^"]+)"/)[1];
+ const Shell=defineComponent({components:{Host,FamilySharingNoticeHost},setup(){const immersive=ref(false);registerClinicalWorkspace(immersive);const route=computed(()=>router.currentRoute.value);const excluded=computed(()=>isSecureCommunicationRouteExcluded(route.value));return{immersive,route,secureCommunicationRouteExcluded:excluded,isImmersiveJoinRoute:computed(()=>clinicalWorkspaceActive.value||excluded.value),isAuthenticated:true,isLoginEntry:false,isPublicOfficeRoute:false,user:{id:1728,role:'client_guardian'},canUseSessionComments};},template:`<button data-test="clinical-frame" @click="immersive=true">Open clinical frame</button><Host v-if="${commentGuard}" :user-id="user.id" family :scope-key="450"/><FamilySharingNoticeHost v-if="${noticeGuard}" :user-id="user.id" :scope-key="450"/>`});
+ api.get.mockImplementation(async url=>({data:url.endsWith('/today')?{appointments:[],showSplash:false}:thread()}));await render(Shell);await router.replace('/qa/guardian?secureCommentAppointmentId=12&secureCommentClientId=4');await flushPromises();expect(wrapper.text()).toContain('Private update');const uid=wrapper.findComponent(Host).vm.$.uid;
+ await wrapper.find('[data-test="clinical-frame"]').trigger('click');await flushPromises();expect(clinicalWorkspaceActive.value).toBe(true);expect(wrapper.findComponent(Host).vm.$.uid).toBe(uid);expect(wrapper.findComponent(FamilySharingNoticeHost).exists()).toBe(true);expect(wrapper.text()).toContain('Private update');
+ await router.replace('/qa/join/supervision/44');await flushPromises();expect(wrapper.findComponent(Host).exists()).toBe(false);expect(wrapper.findComponent(FamilySharingNoticeHost).exists()).toBe(false);expect(wrapper.text()).not.toContain('Private update');expect(secureCommentState.selected).toBeNull();
+});
+it.each([
+ {name:'AdaptiveJoinHub',path:'/join'}, {name:'AdaptiveJoinService',path:'/join/1'}, {name:'OrganizationAdaptiveJoinAlt',path:'/qa/join'}, {name:'OrganizationAdaptiveJoinService',path:'/qa/join/1'},
+ {path:'/schoolcarebridge/roster'}, {path:'/quick-view/token'}, {path:'/qa/join/team-meeting/44'}, {path:'/qa/join/supervision/44'}, {path:'/qa/view',meta:{publicQuickView:true}}, {path:'/qa/view',meta:{publicMarketingHub:true}}, {path:'/qa/view',meta:{publicPageDesignPreview:true}}
+])('retains the actual public/join route exclusion for %j',route=>expect(isSecureCommunicationRouteExcluded(route)).toBe(true));
+it.each(['/qa/guardian','/my-portal','/qa/my-schedule','/qa/appointments','/qa/note-aid'])('permits authenticated clinical communication hosts on %s',path=>expect(isSecureCommunicationRouteExcluded({path})).toBe(false));
+it.each(['CounselingSession','CounselingJoin','CounselingInvite','OrganizationCounselingSession','OrganizationCounselingJoin','OrganizationCounselingInvite','JoinSupervision','OrganizationJoinSupervision','JoinTeamMeeting','OrganizationJoinTeamMeeting','JoinMyRoom','PersonalMeetingInvitation','InterviewRsvp','PrivateVirtualOffice','OrganizationPrivateVirtualOffice'])('keeps other-session comments out of the verified %s call surface',name=>expect(isSecureCommunicationRouteExcluded({name,path:'/verified-call-alias'})).toBe(true));
 
 it('opens an authorized thread and acknowledges only the comments explicitly displayed', async () => {
   await render(Dialog, { appointmentId: 12, clientId: 4 });

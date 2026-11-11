@@ -1,8 +1,8 @@
 <template>
   <BrandingProvider>
     <AccountSecurityNotice v-if="isAuthenticated" />
-    <FamilySharingNoticeHost v-if="isAuthenticated && user?.id && !isLoginEntry && !isImmersiveJoinRoute && !isPublicOfficeRoute" :user-id="user.id" :scope-key="secureCommentsScopeGeneration" :enabled="!sessionLockStore.isLocked && !sessionLockStore.warningActive" />
-    <SecureSessionCommentsHost v-if="isAuthenticated && canUseSessionComments(user?.role) && user?.id && !isLoginEntry && !isImmersiveJoinRoute && !isPublicOfficeRoute && !route.meta?.publicMarketingHub && !route.meta?.fundthred" :user-id="user.id" :family="isFamilyPortalAccount" :scope-key="secureCommentsScopeGeneration" :enabled="!sessionLockStore.isLocked && !sessionLockStore.warningActive" />
+    <FamilySharingNoticeHost v-if="isAuthenticated && user?.id && !isLoginEntry && !secureCommunicationRouteExcluded && !isPublicOfficeRoute" :user-id="user.id" :scope-key="secureCommentsScopeGeneration" :enabled="!sessionLockStore.isLocked && !sessionLockStore.warningActive" />
+    <SecureSessionCommentsHost v-if="isAuthenticated && canUseSessionComments(user?.role) && user?.id && !isLoginEntry && !secureCommunicationRouteExcluded && !isPublicOfficeRoute && !route.meta?.publicMarketingHub && !route.meta?.fundthred" :user-id="user.id" :family="isFamilyPortalAccount" :scope-key="secureCommentsScopeGeneration" :enabled="!sessionLockStore.isLocked && !sessionLockStore.warningActive" />
     <InsuranceVerificationGate v-if="isAuthenticated && !sessionLockStore.isLocked && !sessionLockStore.warningActive" />
     <OfficeArrivalSplash v-if="isAuthenticated && !isFamilyPortalAccount && user?.id && !isLoginEntry && !sessionLockStore.isLocked && !sessionLockStore.warningActive && !isPublicOfficeRoute && !route.meta?.publicMarketingHub && !route.meta?.fundthred" :key="user.id" />
     <BillingFollowupSplash v-if="!route.meta?.auricwellPreview && canSeeMedicalBilling && isAuthenticated && user?.id && !isLoginEntry && !sessionLockStore.isLocked && !sessionLockStore.warningActive && !isPublicOfficeRoute && !route.meta?.publicMarketingHub && !route.meta?.fundthred" :key="`billing-followup-${user.id}`" />
@@ -2295,6 +2295,7 @@ import { canAccessTicketDesk } from './utils/ticketAccess.js';
 import WorkspaceNavigation from './components/WorkspaceNavigation.vue';
 import { CONVERSA_ICON_URL } from './constants/conversa';
 import { clinicalWorkspaceActive } from './composables/useClinicalWorkspace';
+import { isSecureCommunicationRouteExcluded } from './utils/secureCommunicationRoute';
 import SchoolCareBridgeBrand from './components/schoolcarebridge/SchoolCareBridgeBrand.vue';
 import AppearanceSelect from './components/AppearanceSelect.vue';
 import { PLATFORM_BRAND } from './config/platformBrand.js';
@@ -4087,6 +4088,7 @@ const hideGlobalNavForSchoolStaff = computed(() => {
 });
 
 /** Team-meeting / supervision join rooms + Quick View — hide app chrome that squeezes mobile layout. */
+const secureCommunicationRouteExcluded = computed(() => isSecureCommunicationRouteExcluded(route));
 const isImmersiveJoinRoute = computed(() => {
   if (clinicalWorkspaceActive.value) return true;
   if (['AdaptiveJoinHub','AdaptiveJoinService','OrganizationAdaptiveJoinAlt','OrganizationAdaptiveJoinService'].includes(route.name)) return true;
