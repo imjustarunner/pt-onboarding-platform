@@ -84,6 +84,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
+import { notifyCompanyEventRsvpChanged } from '../../utils/companyEventRsvpEvents';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 
 const route = useRoute();
@@ -229,6 +230,7 @@ const respond = async (response) => {
       { skipAuthRedirect: true }
     );
     currentResponse.value = response;
+    notifyCompanyEventRsvpChanged({eventId:event.value?.id,agencyId:event.value?.agencyId,response});
     storeRsvpLocally(response);
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Unable to save RSVP';

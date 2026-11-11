@@ -25,12 +25,23 @@ Live operations completed:
 - ITSCO's approved Campaign 2 sender was already ready; no texting settings changed.
 
 Verification:
-- 212 focused backend event, linked-vote, invitation, announcement and authorization tests passed.
+- 228 focused backend event, linked-vote, invitation, announcement and authorization tests passed.
 - 1,313 existing SMS carrier/topic/vote and messaging tests passed (39 external/database integration cases skipped). Two older fixture mocks were corrected to model the current family-message access checks; production access rules were unchanged.
-- 66 frontend workflow, picker, private page, email RSVP confirmation, polls, group message and announcement tests passed.
+- 181 frontend workflow, picker, private page, email RSVP confirmation, polls, group message and announcement tests passed.
+- 1,302 scheduling tests passed (89 integration cases skipped), plus 170 calendar/subscription tests and 290 mobile tests.
 - Potluck concurrency/rollback/claim ownership regressions.
-- Production application Vite build passed: 6,902 transformed modules. Existing chunk-size warnings only. Independent marketing bundles were outside this app-only validation.
+- Production application Vite build passed: 6,907 transformed modules. Existing chunk-size warnings only. Independent marketing bundles were outside this app-only validation.
 - Actual Vue components checked in an installed browser at desktop and 390px phone width; no JavaScript errors or horizontal phone overflow. Screenshots show illustrative event data, not a newly created live anniversary event.
 
 Storage:
 Existing dependencies were reused. The isolated sparse checkout contains only task source and review artifacts. Reproducible app build and temporary public fallback were removed after validation; approximately 64 GiB was free afterward. Main workspace's unrelated edits were preserved.
+
+Dashboard and calendar behavior:
+- My Dashboard's Events card now has searchable Invited events and Declined events views. Unanswered, Yes and Maybe invitations remain in the main view; No moves to Declined without losing access to event details or the ability to change the response.
+- Inline Yes/Maybe/No actions and private event links preserve the existing supervision, program and school staffing lists. Undated company invitations are visible while people help decide the date.
+- Calendar/schedule inclusion follows Yes or Maybe for ordinary company invitations; No and unanswered invitations stay out of those calendars. Existing school and program staffing rules are retained.
+- RSVP changes refresh the dashboard and calendars in the same tab and across app tabs; returning focus refreshes server state after a text or external response. The invitation endpoint owns current RSVP state, so a slower calendar refresh cannot restore an earlier response.
+- Combined frontend verification: 181 tests passed across 25 files, covering the dashboard, main schedule grid, invitation controls and existing layouts/loading.
+- Dashboard screenshots dashboard-invitations.png and dashboard-declined-events.png show the actual Vue invitation component using illustrative data; no live RSVP was recorded. Temporary browser/preview processes and source files were removed afterward.
+
+Calendar details: Yes/Maybe company invitations use read-only schedule projections with distinct identifiers; they do not create appointments, staffing assignments or payroll records. Other-provider views show generic Busy blocks without event titles, private links, RSVP state or canonical event IDs. Program, school and affiliated club rules remain intact. Calendar cards and main-grid event details support changing RSVP. Declining releases potluck claims through the existing transactional claim service.

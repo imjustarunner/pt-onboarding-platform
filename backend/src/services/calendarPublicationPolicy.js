@@ -33,6 +33,7 @@ export function renderCalendar(name,events) {
     lines.push('BEGIN:VEVENT',`UID:${digest(event.key)}@calendar.plottwisthq.com`,`DTSTAMP:${stamp(event.updatedAt || new Date())}`,`SUMMARY:${escapeText(event.title)}`,'CLASS:PRIVATE');
     if(event.startDate && event.endDate) lines.push(`DTSTART;VALUE=DATE:${event.startDate.replace(/-/g,'')}`,`DTEND;VALUE=DATE:${event.endDate.replace(/-/g,'')}`);
     else lines.push(`DTSTART:${stamp(event.start)}`,`DTEND:${stamp(event.end)}`);
+    if(event.calendarStatus)lines.push(`STATUS:${event.calendarStatus==='tentative'?'TENTATIVE':'CONFIRMED'}`);
     if(event.location)lines.push(`LOCATION:${escapeText(event.location)}`);
     if(event.url && /^https:\/\//.test(event.url))lines.push(`URL:${event.url.replace(/[\r\n]/g,'')}`,`DESCRIPTION:${escapeText(`Join: ${event.url}`)}`);
     lines.push('END:VEVENT');
@@ -40,7 +41,7 @@ export function renderCalendar(name,events) {
   lines.push('END:VCALENDAR');return lines.map(fold).join('\r\n')+'\r\n';
 }
 export function googleEventBody(event) {
-  return {summary:event.title,description:event.url?`Join: ${event.url}`:'',location:event.location || '',
+  return {summary:event.title,...(event.calendarStatus?{status:event.calendarStatus==='tentative'?'tentative':'confirmed'}:{}),description:event.url?`Join: ${event.url}`:'',location:event.location || '',
     reminders:{useDefault:false,overrides:[]},
     start:event.startDate?{date:event.startDate}:{dateTime:new Date(event.start).toISOString()},
     end:event.endDate?{date:event.endDate}:{dateTime:new Date(event.end).toISOString()},

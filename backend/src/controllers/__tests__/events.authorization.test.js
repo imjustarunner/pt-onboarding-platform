@@ -3,9 +3,11 @@ vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn() }, onTa
 vi.mock('../../services/vonage.service.js', () => ({ default: {} }));
 vi.mock('../../utils/userAgencyAffiliationAccess.js', () => ({ userHasAgencyOrAffiliatedOrgAccessForRequest: vi.fn(async () => true) }));
 vi.mock('../../models/Agency.model.js', () => ({ default: { findById: vi.fn(async () => ({ id: 2, organization_type: 'agency' })) } }));
+vi.mock('../../services/staffEventPotluck.service.js', () => ({ saveStaffPotluckContribution: vi.fn() }));
 import pool from '../../config/database.js';
 import { exportCompanyEventsDirectoryRosterPdf, listCompanyEventAudienceOptions, sendCompanyEventDirectMessage } from '../companyEvents.controller.js';
 import { getCompanyEventStaffLink, respondToCompanyEventStaffLink } from '../companyEventStaffLink.controller.js';
+import { saveStaffPotluckContribution } from '../../services/staffEventPotluck.service.js';
 const response = () => ({ status: vi.fn().mockReturnThis(), json: vi.fn(), set: vi.fn() });
 const staff = (id, agencyId = 2) => ({ id, first_name: `Person ${id}`, last_name: 'Staff', role: 'provider', agency_id: agencyId, agency_name: `Agency ${agencyId}` });
 function privateEventFixture({ event = {}, members = [staff(7)], audience = [] } = {}) {
@@ -22,7 +24,7 @@ function privateEventFixture({ event = {}, members = [staff(7)], audience = [] }
   });
   return record;
 }
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => { vi.clearAllMocks(); saveStaffPotluckContribution.mockReset().mockResolvedValue(); });
 it('a coordinator cannot use a query parameter to export unrelated event rosters', async () => {
   const req = { params: { id: '2' }, query: { eventId: '12' }, user: { id: 7, role: 'provider' } };
   pool.execute.mockResolvedValue([[{ id: 1 }]]);
@@ -85,6 +87,28 @@ it('keeps undated social RSVPs open after an associated poll closes and updates 
   ]);
   expect(queries.find(([sql]) => sql.includes('INSERT INTO company_event_responses'))[1]).toEqual([12, 7, 'maybe', 'Maybe', 'maybe']);
   expect(queries.some(([sql]) => sql.includes('payroll') || sql.includes('punches'))).toBe(false);
+});
+
+it.each(['no','maybe'])('releases the invited person’s potluck claim before saving a private-page %s RSVP', async responseValue => {
+  privateEventFixture({event:{potluck_enabled:1}});const res=response(),next=vi.fn();
+  await respondToCompanyEventStaffLink({params:{id:'12',token:'a'.repeat(48)},user:{id:7,role:'provider'},body:{response:responseValue}},res,next);
+  expect(next).not.toHaveBeenCalled();expect(saveStaffPotluckContribution).toHaveBeenCalledWith({eventId:12,agencyId:2,userId:7,itemId:null,customItemName:''});
+  const responseWrite=pool.execute.mock.calls.findIndex(([sql])=>sql.includes('INSERT INTO company_event_responses'));
+  expect(saveStaffPotluckContribution.mock.invocationCallOrder[0]).toBeLessThan(pool.execute.mock.invocationCallOrder[responseWrite]);
+  expect(res.json).toHaveBeenCalledWith(expect.objectContaining({response:responseValue,assigned:false}));
+});
+
+it('checks current invitation before releasing a potluck claim on the private page',async()=>{
+  privateEventFixture({event:{potluck_enabled:1},members:[staff(99)],audience:[{audience_type:'user',target_id:7}]});const res=response(),next=vi.fn();
+  await respondToCompanyEventStaffLink({params:{id:'12',token:'a'.repeat(48)},user:{id:99,role:'provider'},body:{response:'no'}},res,next);
+  expect(next).not.toHaveBeenCalled();expect(res.status).toHaveBeenCalledWith(403);expect(saveStaffPotluckContribution).not.toHaveBeenCalled();
+  expect(pool.execute.mock.calls.some(([sql])=>/^\s*(INSERT|UPDATE|DELETE)\b/.test(sql))).toBe(false);
+});
+
+it('keeps an attending person’s existing potluck choice when their private-page RSVP stays Yes',async()=>{
+  privateEventFixture({event:{potluck_enabled:1}});const res=response(),next=vi.fn();
+  await respondToCompanyEventStaffLink({params:{id:'12',token:'a'.repeat(48)},user:{id:7,role:'provider'},body:{response:'yes'}},res,next);
+  expect(next).not.toHaveBeenCalled();expect(saveStaffPotluckContribution).not.toHaveBeenCalled();expect(res.json).toHaveBeenCalledWith(expect.objectContaining({response:'yes'}));
 });
 
 for (const scenario of [

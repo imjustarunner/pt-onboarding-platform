@@ -64,3 +64,21 @@ it('keeps travel reimbursement entry in Submit rather than the event calendar', 
   expect(wrapper.findAll('button').some(b => b.text() === 'Log travel time')).toBe(false);
   expect(wrapper.find('.event-travel-panel').exists()).toBe(false);
 });
+
+it('shows a saved RSVP with direct change controls and private event details on the calendar card',async()=>{
+  const rows=events();Object.assign(rows[0],{isInvitedCompanyEvent:true,myRsvp:'yes',canRsvp:true,staffPageUrl:'/company-events/1/staff/private'});
+  api.get.mockResolvedValueOnce({data:rows});await open();
+  const card=wrapper.findAll('article').find(item=>item.text().includes('Company celebration'));expect(card.text()).toContain('Your RSVP: Yes');expect(card.get('a').attributes('href')).toBe('/company-events/1/staff/private');
+  const refreshed=structuredClone(rows);refreshed[0].myRsvp='maybe';api.get.mockResolvedValueOnce({data:refreshed});api.post.mockResolvedValueOnce({data:{response:'maybe'}});
+  await card.findAll('button').find(button=>button.text()==='Maybe').trigger('click');await flushPromises();
+  expect(api.post).toHaveBeenCalledWith('/me/company-events/1/respond',{response:'maybe',agencyId:2},{params:{agencyId:2}});expect(wrapper.text()).toContain('Your RSVP: Maybe');expect(wrapper.text()).toContain('RSVP saved: Maybe.');
+  expect(wrapper.emitted('changed')).toHaveLength(1);
+});
+
+it('removes a declined company event after refreshing while leaving school staffing actions intact',async()=>{
+  const rows=events();Object.assign(rows[0],{isInvitedCompanyEvent:true,myRsvp:'maybe',canRsvp:true});api.get.mockResolvedValueOnce({data:rows});await open();
+  const card=wrapper.findAll('article').find(item=>item.text().includes('Company celebration'));api.get.mockResolvedValueOnce({data:rows.filter(item=>item.id!==1)});api.post.mockResolvedValueOnce({data:{response:'no'}});
+  await card.findAll('button').find(button=>button.text()==='No').trigger('click');await flushPromises();
+  expect(wrapper.text()).not.toContain('Company celebration');expect(wrapper.text()).toContain('RSVP saved: No.');expect(wrapper.text()).toContain('Outreach opportunity');
+  expect(wrapper.findAll('button').some(button=>button.text()==='Request shift')).toBe(true);
+});

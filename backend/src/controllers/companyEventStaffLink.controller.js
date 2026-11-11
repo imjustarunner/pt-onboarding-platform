@@ -52,6 +52,9 @@ export async function respondToCompanyEventStaffLink(req, res, next) {
     const response = String(req.body?.response || '').toLowerCase();
     const labels = { yes: 'Yes', no: 'No', maybe: 'Maybe' };
     if (!labels[response]) return res.status(400).json({ error: { message: 'Choose yes, no, or maybe' } });
+    if (event.potluck_enabled && response !== 'yes') await saveStaffPotluckContribution({
+      eventId: Number(event.id), agencyId: Number(event.agency_id), userId: Number(req.user.id), itemId: null, customItemName: ''
+    });
     const notes = String(req.body?.notes || '').trim().slice(0, 2000);
     await pool.execute(`INSERT INTO company_event_responses
       (company_event_id,user_id,response_key,response_label,response_body,source,received_at)

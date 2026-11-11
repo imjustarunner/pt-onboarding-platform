@@ -23,6 +23,7 @@
             <button v-if="selectedMonth" type="button" class="btn btn-secondary btn-sm" @click="selectedMonth = ''">All dates</button>
           </div>
           <p class="muted sub calendar-help">All upcoming also includes calendar dates at your schools. Days off and other calendar-only dates cannot be requested as shifts.</p>
+          <p v-if="rsvpNotice" class="rsvp-notice" role="status">{{ rsvpNotice }}</p>
           <div v-if="loading" class="muted">Loading events…</div>
           <div v-else-if="error" class="error">{{ error }}</div>
           <div v-else-if="!sortedEvents.length" class="muted">No upcoming events match these filters.</div>
@@ -44,6 +45,7 @@
               <div v-else-if="event.eventType === 'school_outreach'" class="card-meta">Outreach</div>
               <div class="card-meta">{{ formatRange(companyEventDisplayWindow(event).startsAt, companyEventDisplayWindow(event).endsAt) }}</div>
               <div v-if="event.description" class="card-desc">{{ event.description }}</div>
+              <CompanyEventRsvpControls v-if="event.isInvitedCompanyEvent" :event="event" @changed="onRsvpSaved" />
               <div class="card-actions">
                 <a
                   v-if="flierHref(event)"
@@ -79,7 +81,9 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, onBeforeUnmount, ref } from 'vue';
+import CompanyEventRsvpControls from '../events/CompanyEventRsvpControls.vue';
+import { onCompanyEventRsvpChanged } from '../../utils/companyEventRsvpEvents.js';
 import api from '../../services/api';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import {
@@ -101,6 +105,8 @@ const events = ref([]);
 const requestingKey = ref('');
 const viewFilter = ref('relevant');
 const selectedMonth = ref('');
+const rsvpNotice = ref('');
+const onRsvpSaved = change => { rsvpNotice.value=`RSVP saved: ${{yes:'Yes',maybe:'Maybe',no:'No'}[change.response] || change.response}.`; emit('changed'); };
 
 const matchesMonth = (start, end) => {
   if (!selectedMonth.value) return true;
@@ -192,7 +198,9 @@ const requestShift = async (event, sess) => {
   }
 };
 
-onMounted(load);
+let unsubscribeRsvp;
+onMounted(() => { load(); unsubscribeRsvp=onCompanyEventRsvpChanged(() => { void load(); }); });
+onBeforeUnmount(() => { unsubscribeRsvp?.(); });
 </script>
 
 <style scoped>
@@ -299,4 +307,5 @@ onMounted(load);
 .error {
   color: #b91c1c;
 }
+.rsvp-notice { background:#ecf5ed; color:#315e4c; border-radius:8px; padding:10px 12px; font-size:13px; }
 </style>

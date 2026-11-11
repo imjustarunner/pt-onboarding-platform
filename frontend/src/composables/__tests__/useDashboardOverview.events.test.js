@@ -33,3 +33,17 @@ it('does not show the voting window of a team poll as a live event', async () =>
  scope=effectScope();const state=scope.run(()=>useDashboardOverview({userId:7,agencyId:2,companyEvents:[poll,actual],includeSubmissionUpdates:false}));await flushPromises();
  expect(state.upcomingEvents.value.map(event=>event.title)).toEqual(['Actual dinner']);expect(state.featuredEvent.value.isLive).toBe(false);
 });
+
+it('retains undated and declined invitations separately from existing school staffing and never overwrites a No with stale calendar data',async()=>{
+ vi.useFakeTimers();vi.setSystemTime(new Date('2030-10-09T12:00:00Z'));
+ const base={agencyId:2,eventType:'company_event',isInvitedCompanyEvent:true,startsAt:'2030-10-10T14:00:00Z',endsAt:'2030-10-10T18:00:00Z',canRsvp:true};
+ const declined={...base,id:10,title:'Declined invitation',myRsvp:'no',staffPageUrl:'/company-events/10/staff/private'};
+ const planned={...base,id:11,title:'Date planning',myRsvp:null,dateToBeDecided:true,startsAt:null,endsAt:null};
+ const going={...base,id:12,title:'Going invitation',myRsvp:'yes'};
+ const outreach={...base,id:13,title:'Available outreach',eventType:'school_outreach',isInvitedCompanyEvent:false,canRequestOutreachShift:true,sessions:[{sessionDateId:20,startsAt:base.startsAt,endsAt:base.endsAt,requiredProviders:1,approvedProvidersCount:0}]};
+ api.get.mockImplementation(async url=>({data:url==='/me/company-events/calendar'?[{...declined,myRsvp:'yes'},going,outreach]:[]}));
+ scope=effectScope();const state=scope.run(()=>useDashboardOverview({userId:7,agencyId:2,companyEvents:[declined,planned,going],includeSubmissionUpdates:false}));await flushPromises();
+ expect(state.invitedCompanyEvents.value.map(e=>e.title)).toEqual(['Declined invitation','Date planning','Going invitation']);
+ expect(state.invitedCompanyEvents.value.find(e=>e.id===10)).toMatchObject({myRsvp:'no',staffPageUrl:'/company-events/10/staff/private'});
+ expect(state.upcomingEvents.value.map(e=>e.title)).toEqual(['Available outreach']);
+});

@@ -59,16 +59,16 @@ it('loads requestable events and the provider’s pending request for the calend
   expect(sql).toContain('ce.ends_at >= NOW()');
   expect(sql).not.toContain('OR ce.event_type IN');
   expect(sql).toContain("NOT IN ('canceled', 'cancelled')");
-  expect(params).toEqual([7, 7, 7, 2]);
+  expect(params).toEqual([7, 7, 7, 2, 7]);
   expect(pool.execute.mock.calls.find(([query]) => query.includes('FROM company_event_session_provider_requests'))[1])
     .toEqual([10, 7]);
 });
 
-it('respects user, role, and group audiences while keeping the provider’s assigned events', async () => {
+it('preserves program user, role, and group audiences while keeping the provider’s assigned program events', async () => {
   const execute = pool.execute.getMockImplementation();
   pool.execute.mockImplementation(async (sql, params) => {
     if (sql.includes('FROM company_events ce')) return [[1, 2, 3, 4, 5, 6].map((id) => ({
-      id, agency_id: 2, title: `Event ${id}`, event_type: 'company_event',
+      id, agency_id: 2, title: `Event ${id}`, event_type: 'program_event',
       starts_at: '2030-10-09T14:00:00Z', ends_at: '2030-10-09T18:00:00Z',
       is_assigned_provider: id === 6 ? 1 : 0
     }))];
@@ -119,15 +119,17 @@ it('returns an empty calendar when there are no events', async () => {
   await listMyCompanyEventsCalendar(request, res, next);
   expect(next).not.toHaveBeenCalled();
   expect(res.json).toHaveBeenCalledWith([]);
-  expect(pool.execute).toHaveBeenCalledTimes(1);
+  expect(pool.execute).toHaveBeenCalledTimes(2);
 });
 
-it('does not query events when the provider has no scoped agencies', async () => {
+it('still checks current company invitations without querying legacy schools when no agency context is selected', async () => {
   resolveScopedAgencyIdsForMyDashboard.mockResolvedValue([]);
   const res = response();
   const next = vi.fn();
   await listMyCompanyEventsCalendar(request, res, next);
   expect(next).not.toHaveBeenCalled();
   expect(res.json).toHaveBeenCalledWith([]);
-  expect(pool.execute).not.toHaveBeenCalled();
+  expect(pool.execute).toHaveBeenCalledTimes(1);
+  expect(pool.execute.mock.calls[0][0]).toContain('member.user_id=?');
+  expect(pool.execute.mock.calls[0][0]).not.toContain('provider_school_assignments');
 });

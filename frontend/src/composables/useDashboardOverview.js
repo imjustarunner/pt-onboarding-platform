@@ -108,7 +108,12 @@ export function useDashboardOverview(opts = {}) {
     const fromParent = resolve(opts.companyEvents);
     const list = Array.isArray(fromParent) ? fromParent : localCompanyEvents.value;
     const merged = new Map((Array.isArray(list) ? list : []).map((event) => [Number(event.id), event]));
-    for (const [id, event] of calendarEventsById.value) merged.set(id, event);
+    for (const [id, event] of calendarEventsById.value) {
+      const invitation = merged.get(id);
+      // The invitation list owns RSVP state; calendar enrichment may still be
+      // settling after a response was changed in another event view.
+      merged.set(id, { ...(invitation || {}), ...event, ...(invitation?.isInvitedCompanyEvent ? invitation : {}) });
+    }
     return [...merged.values()].filter((event) => shouldShowOnProviderDashboardEvents(event));
   });
 
@@ -296,6 +301,8 @@ export function useDashboardOverview(opts = {}) {
     };
   });
 
+  const invitedCompanyEvents = computed(() => effectiveCompanyEvents.value.filter(event => event.isInvitedCompanyEvent === true));
+
   const upcomingEvents = computed(() => {
     const now = Date.now();
     const fromPrompts = (effectiveSupervisionPrompts.value || []).map((p) => {
@@ -316,7 +323,7 @@ export function useDashboardOverview(opts = {}) {
       };
     });
 
-    const fromCompany = (effectiveCompanyEvents.value || []).filter(e => !['team_poll', 'direct_notice'].includes(String(e.eventType || e.event_type || '').toLowerCase())).map((e) => {
+    const fromCompany = (effectiveCompanyEvents.value || []).filter(e => e.isInvitedCompanyEvent !== true && !['team_poll', 'direct_notice'].includes(String(e.eventType || e.event_type || '').toLowerCase())).map((e) => {
       const enriched = calendarEventsById.value.get(Number(e.id)) || e;
       const window = companyEventDisplayWindow(enriched);
       const startMs = parseAt(window.startsAt);
@@ -507,7 +514,7 @@ export function useDashboardOverview(opts = {}) {
         ]);
         apply(() => {
           localCompanyEvents.value = list(events).slice().sort((a, b) =>
-            new Date(a.nextOccurrenceStart || a.startsAt || 0) - new Date(b.nextOccurrenceStart || b.startsAt || 0)).slice(0, 20);
+            new Date(a.nextOccurrenceStart || a.startsAt || 0) - new Date(b.nextOccurrenceStart || b.startsAt || 0));
           calendarEventsById.value = new Map(list(calendar).filter(row => Number(row.id)).map(row => [Number(row.id), row]));
         });
       }
@@ -551,6 +558,7 @@ export function useDashboardOverview(opts = {}) {
     payPeriod,
     paycheckCompare,
     upcomingEvents,
+    invitedCompanyEvents,
     featuredEvent,
     recentActivityItems,
     unreadCount,

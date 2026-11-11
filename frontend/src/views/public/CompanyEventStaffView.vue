@@ -65,6 +65,7 @@
 <script setup>
 import { computed, nextTick, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { notifyCompanyEventRsvpChanged } from '../../utils/companyEventRsvpEvents';
 import StaffPollsPanel from '../../components/dashboard/StaffPollsPanel.vue';
 import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
@@ -104,7 +105,7 @@ async function loadParticipation() {
 }
 async function respond(value) {
   busy.value = true; error.value = ''; notice.value = '';
-  try { await api.post(`${staffEndpoint()}/respond`, { response: value }); response.value = value; notice.value = 'Thank you! Your RSVP was saved.'; if(event.value?.isWorkEvent) await loadParticipation(); }
+  try { await api.post(`${staffEndpoint()}/respond`, { response: value }); response.value = value; notifyCompanyEventRsvpChanged({eventId:eventId.value,agencyId:event.value?.agencyId,response:value}); notice.value = 'Thank you! Your RSVP was saved.'; if(event.value?.isWorkEvent) await loadParticipation(); }
   catch (e) { error.value = e?.response?.data?.error?.message || 'Could not save your response.'; }
   finally { busy.value = false; }
 }

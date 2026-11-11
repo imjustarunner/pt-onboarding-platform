@@ -5332,6 +5332,10 @@
                   </div>
                 </div>
 
+                <CompanyEventRsvpControls
+                  v-if="item.isInvitedCompanyEvent && !isViewingOtherUserSchedule"
+                  :event="{ ...item, id: item.companyEventId }"
+                />
                 <div
                   v-if="item.eventKind === 'COMPANY_EVENT_BOOKING'"
                   class="stack-details-company-event"
@@ -6015,6 +6019,7 @@ import { formatScheduleClock } from '../../utils/scheduleClock.js';
 import SchoolAvailabilityIcon from '../availability/SchoolAvailabilityIcon.vue';
 import SchoolWeekdayEditor from '../availability/SchoolWeekdayEditor.vue';
 import ProviderDayNoteDialog from './ProviderDayNoteDialog.vue';
+import CompanyEventRsvpControls from '../events/CompanyEventRsvpControls.vue';
 import OfferedTimeDialog from './OfferedTimeDialog.vue';
 const offeredTime = ref(null);
 const onOfferReleased = async () => { offeredTime.value = null; invalidateScheduleSummaryCacheForUser(props.userId); await load({ forceRefresh: true }); };
@@ -12193,6 +12198,7 @@ const buildCellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout 
       isCancelled: isScheduleEventCancelled(ev),
       isMissed: isScheduleEventMissed(ev),
       ...scheduleAppointmentContext(ev),
+      ...scheduleEventStackExtras(ev),
       description: String(ev?.description || ''),
       clientName: String(ev?.clientName || ''),
       timeZone: String(ev?.timeZone || ev?.sourceTimezone || ''),
@@ -25587,6 +25593,13 @@ const onAppointmentPointerUp = (e) => {
 
 const dispatchCellBlockAction = (block, dayName, hour, minute = 0) => {
   const kind = String(block?.kind || '');
+  if (kind === 'sevt' && (block?.eventKind === 'COMPANY_EVENT_INVITATION' || Number(block?.eventId) < 0)) {
+    const event = (summary.value?.scheduleEvents || []).find(row => Number(row.id) === Number(block.eventId)
+      && String(row.kind || '').toUpperCase() === String(block.eventKind || '').toUpperCase());
+    if (event) openStackDetailsModal({ title: String(event.title || 'Company event'),
+      items: [{...buildScheduleStackItemFromEvent(event),canEdit:false,canReschedule:false}], dayName, hour, minute, forceLegacy:true });
+    return;
+  }
   if (kind === 'school-soft') { selectedSchoolSoftBlock.value = block; return; }
   if (block?.eventKind === 'PRIVATE_REPLACEMENT_OFFER') {
     const ev = (summary.value?.scheduleEvents || []).find(e => Number(e.id) === Number(block.eventId) && e.kind === block.eventKind);
@@ -26960,6 +26973,7 @@ const SCHEDULE_EVENT_KIND_LABELS = {
   SKILL_BUILDERS_PROGRAM: 'Skill Builders program',
   COMPANY_EVENT_BOOKING: 'Program event',
   COMPANY_EVENT_OPEN: 'Open event',
+  COMPANY_EVENT_INVITATION: 'Company event',
   TEAM_MEETING: 'Team meeting',
   HUDDLE: 'Huddle',
   PERSONAL_EVENT: 'Personal',
@@ -27012,6 +27026,12 @@ const formatSessionProviderName = (p) => {
 
 const scheduleEventStackExtras = (ev) => {
   const kind = String(ev?.kind || '').trim().toUpperCase();
+  if (kind === 'COMPANY_EVENT_INVITATION') return {
+    companyEventId: Number(ev?.companyEventId || 0) || null,
+    isInvitedCompanyEvent: ev?.isInvitedCompanyEvent === true,
+    myRsvp: ev?.myRsvp || null, canRsvp: ev?.canRsvp === true,
+    mandatory: ev?.mandatory === true, staffPageUrl: ev?.staffPageUrl || null
+  };
   if (kind !== 'COMPANY_EVENT_BOOKING' && kind !== 'COMPANY_EVENT_OPEN') return {};
   return {
     companyEventId: Number(ev?.companyEventId || 0) || null,
@@ -27179,6 +27199,10 @@ const buildScheduleEventDetailText = (ev) => {
     lines.push('Organization: All / none (not tied to one organization)');
   }
   lines.push(`Type: ${scheduleKindLabel(kind, ev)}`);
+  if (kind === 'COMPANY_EVENT_INVITATION' && ev?.isInvitedCompanyEvent) {
+    lines.push(`Your RSVP: ${{yes:'Yes',maybe:'Maybe',no:'No'}[ev.myRsvp] || 'Not yet answered'}`);
+    lines.push(ev.mandatory ? 'Required attendance' : 'Optional invitation');
+  }
   const when = ev?.allDay
     ? `All day (${String(ev?.startDate || '').slice(0, 10)} – ${String(ev?.endDate || '').slice(0, 10)})`
     : formatRangeFromRaw(ev?.startAt, ev?.endAt, ['TEAM_MEETING', 'HUDDLE'].includes(kind));

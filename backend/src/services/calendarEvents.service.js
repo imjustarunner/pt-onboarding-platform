@@ -1,3 +1,4 @@
+import { acceptedCompanyEventCalendar } from './companyEventPersonalAgenda.service.js';
 import pool from '../config/database.js';
 import UserWorkSchedule from '../models/UserWorkSchedule.model.js';
 import { zonedWallTimeToUtc } from '../utils/zonedWallTime.util.js';
@@ -42,6 +43,9 @@ export async function workCalendarEvents(userId,agencyId,from,to,{summaryOnly=fa
     AND s.end_at>? AND s.start_at<?`,[agencyId,userId,userId,userId,userId,start,end]);
   output.push(...await Promise.all(supervision.map(async s=>({key:`work:${agencyId}:supervision:${s.id}`,title:'Supervision',start:s.start_at,end:s.end_at,updatedAt:s.updated_at,
     url:!summaryOnly && ['VIRTUAL','VIDEO','TELEHEALTH'].includes(String(s.modality).toUpperCase())?(await personalMeetingInvitation(s,userId)).url:null}))));
+  const companyEvents=await acceptedCompanyEventCalendar({userId,agencyId,from:start,to:end});
+  output.push(...companyEvents.map(event=>({key:event.projectionKey,title:summaryOnly?'Company event':event.title,start:event.startAt,end:event.endAt,
+    calendarStatus:event.calendarStatus,updatedAt:event.updatedAt,...(!summaryOnly?{url:event.staffPageUrl,location:event.locationLabel}:{} )})));
   const schedule=await UserWorkSchedule.getForUser(userId,{agencyId});
   if(schedule.isActive && !summaryOnly){
     const date=new Date(`${localDay(start,schedule.timezone)}T12:00:00Z`);

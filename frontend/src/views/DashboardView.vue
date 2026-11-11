@@ -1415,6 +1415,7 @@ import { canBrowseTeamSchedules, directoryScheduleOptions } from '../utils/teamS
 import { libraryQuickLinks, flattenExpandedRail } from '../utils/dashboardLibraryLinks.js';
 import CompanyEventsCalendarModal from '../components/schedule/CompanyEventsCalendarModal.vue';
 import { shouldShowOnProviderDashboardEvents } from '../utils/companyEventStaffing';
+import { onCompanyEventRsvpChanged } from '../utils/companyEventRsvpEvents';
 import PersonSearchSelect from '../components/schedule/PersonSearchSelect.vue';
 import ScheduleMultiUserOverlayGrid from '../components/schedule/ScheduleMultiUserOverlayGrid.vue';
 import ProviderScheduleList from '../components/schedule/ProviderScheduleList.vue';
@@ -2079,6 +2080,8 @@ const dashboardBannerError = ref('');
 const dashboardBanner = ref(null); // { type, message, agencyId, names } | null
 const scheduledBannerItems = ref([]);
 const companyEvents = ref([]);
+let companyEventsRequest=0, unsubscribeCompanyEventRsvp;
+const refreshCompanyEventInvitations=()=>{ if(document.visibilityState !== 'hidden') void loadMyCompanyEvents(); };
 let teamPollRefreshTimer;
 function refreshPendingTeamEvents() {
   if (document.visibilityState !== 'hidden' && companyEvents.value.some(event => event.votingConfig?.enabled && !event.myResponse)) void loadMyCompanyEvents();
@@ -5000,12 +5003,14 @@ const loadMyChallenges = async () => {
 };
 
 const loadMyCompanyEvents = async () => {
+  const request=++companyEventsRequest;
   if (props.previewMode || !isOnboardingComplete.value) {
     companyEvents.value = [];
     return;
   }
   try {
     const resp = await api.get('/me/company-events', { skipGlobalLoading: true });
+    if(request !== companyEventsRequest)return;
     const rows = Array.isArray(resp.data) ? resp.data : [];
     const sorted = rows
       .filter((e) => shouldShowOnProviderDashboardEvents(e))
@@ -5014,11 +5019,10 @@ const loadMyCompanyEvents = async () => {
         const aTime = new Date(a?.nextOccurrenceStart || a?.startsAt || 0).getTime();
         const bTime = new Date(b?.nextOccurrenceStart || b?.startsAt || 0).getTime();
         return aTime - bTime;
-      })
-      .slice(0, 20);
+      });
     companyEvents.value = sorted;
   } catch {
-    companyEvents.value = [];
+    if(request === companyEventsRequest)companyEvents.value = [];
   }
 };
 
@@ -5156,6 +5160,8 @@ onMounted(async () => {
   document.addEventListener('fullscreenchange', updateScheduleFullscreenState);
   document.addEventListener('visibilitychange', handleSkillBuilderBiweeklyVisibility);
   window.addEventListener('focus', refreshPendingTeamEvents);
+  window.addEventListener('focus', refreshCompanyEventInvitations);
+  unsubscribeCompanyEventRsvp=onCompanyEventRsvpChanged(refreshCompanyEventInvitations);
   teamPollRefreshTimer = setInterval(refreshPendingTeamEvents, 15000);
   supervisionPromptTimer = setInterval(() => {
     loadSupervisionPrompts();
@@ -5283,6 +5289,9 @@ onUnmounted(() => {
   document.removeEventListener('fullscreenchange', updateScheduleFullscreenState);
   document.removeEventListener('visibilitychange', handleSkillBuilderBiweeklyVisibility);
   window.removeEventListener('focus', refreshPendingTeamEvents);
+  window.removeEventListener('focus', refreshCompanyEventInvitations);
+  unsubscribeCompanyEventRsvp?.();
+  companyEventsRequest++;
   clearInterval(teamPollRefreshTimer);
   if (supervisionPromptTimer) clearInterval(supervisionPromptTimer);
 });

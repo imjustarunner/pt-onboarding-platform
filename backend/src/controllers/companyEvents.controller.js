@@ -1,3 +1,4 @@
+import { isCompanyGathering, normalizeCompanyEventRsvp, personalCompanyEventMetadata, loadCompanyEventRsvpMap, companyGatheringSql, listCurrentCompanyGatherings } from '../services/companyEventPersonalAgenda.service.js';
 import { syncCompanyEventConversation, canManageEventConversation } from '../services/companyEventConversation.service.js';
 import { linkedCompanyEventId, linkedCompanyEventPollAudience, validateLinkedCompanyEventPoll } from '../services/companyEventLinkedPolls.service.js';
 import { sendCompanyEventInvitationsForUsers, sendCompanyEventRemindersForUsers } from '../services/companyEventInvitations.service.js';
@@ -1057,7 +1058,7 @@ async function userIsInAudience({ userId, audience }) {
 
 async function listEventsVisibleToUser(userId, agencyIds = [], options = {}) {
   const excludeSkillsGroupLinkedEvents = options.excludeSkillsGroupLinkedEvents === true;
-  if (!userId || !agencyIds.length) return [];
+  if (!userId) return [];
   const placeholders = agencyIds.map(() => '?').join(', ');
   const skillsGroupExclusion = excludeSkillsGroupLinkedEvents
     ? `AND NOT EXISTS (
@@ -1066,21 +1067,22 @@ async function listEventsVisibleToUser(userId, agencyIds = [], options = {}) {
            AND sg.agency_id = ce.agency_id
        )`
     : '';
-  const [rows] = await pool.execute(
-    `SELECT ce.*,
+  const [legacyRows] = agencyIds.length ? await pool.execute(
+    `SELECT ce.*, host.organization_type AS host_organization_type, host.club_kind AS host_club_kind,
             EXISTS(SELECT 1 FROM company_event_responses mine WHERE mine.company_event_id=ce.id AND mine.user_id=?) AS participated,
             org.name AS organization_name,
             org.organization_type AS organization_type,
             org.logo_url AS organization_logo_url
-     FROM company_events ce
+     FROM company_events ce JOIN agencies host ON host.id=ce.agency_id
      LEFT JOIN agencies org ON org.id = ce.organization_id
      WHERE (ce.agency_id IN (${placeholders}) OR EXISTS (SELECT 1 FROM user_agencies invited_membership
        WHERE invited_membership.user_id = ? AND COALESCE(invited_membership.is_active, 1) = 1
          AND (JSON_CONTAINS(COALESCE(JSON_EXTRACT(ce.operations_json, '$.invitedAgencyIds'), JSON_ARRAY()), CAST(invited_membership.agency_id AS JSON))
+           OR (${companyGatheringSql('ce')} AND ce.agency_id=invited_membership.agency_id)
            OR EXISTS (SELECT 1 FROM company_events linked_parent WHERE linked_parent.id = CAST(JSON_UNQUOTE(JSON_EXTRACT(ce.voting_config_json, '$.linkedEventId')) AS UNSIGNED)
              AND linked_parent.agency_id = ce.agency_id AND linked_parent.is_active = 1
              AND (linked_parent.agency_id = invited_membership.agency_id OR JSON_CONTAINS(COALESCE(JSON_EXTRACT(linked_parent.operations_json, '$.invitedAgencyIds'), JSON_ARRAY()), CAST(invited_membership.agency_id AS JSON)))))))
-       AND ce.is_active = 1
+       AND ce.is_active = 1 AND NOT ${companyGatheringSql('ce')}
        ${skillsGroupExclusion}
        AND (
          (ce.starts_at IS NULL AND ce.ends_at IS NULL AND JSON_EXTRACT(ce.operations_json, '$.dateToBeDecided') = TRUE)
@@ -1089,11 +1091,13 @@ async function listEventsVisibleToUser(userId, agencyIds = [], options = {}) {
          ${options.includePollHistory === true ? 'OR EXISTS(SELECT 1 FROM company_event_responses mine WHERE mine.company_event_id=ce.id AND mine.user_id=?)' : ''}
          OR JSON_EXTRACT(ce.recurrence_json, '$.frequency') IN ('weekly', 'monthly')
        )
-     ORDER BY ce.starts_at ASC
+     ORDER BY CASE WHEN ${companyGatheringSql('ce')} THEN 0 ELSE 1 END, ce.starts_at ASC
      LIMIT 400`,
     [userId,...agencyIds,userId,new Date().toISOString(),...(options.includePollHistory===true?[userId]:[])]
-  );
-  if (!rows?.length) return [];
+  ) : [[]];
+  const personalRows = await listCurrentCompanyGatherings({ userId });
+  const rows = [...new Map([...legacyRows, ...personalRows].map(row => [Number(row.id), row])).values()];
+  if (!rows.length) return [];
   const eventIds = rows.map((row) => Number(row.id));
   const audienceMap = await fetchAudienceMap(eventIds);
   const userGroupIds = await getUserGroupIds(userId);
@@ -1105,8 +1109,13 @@ async function listEventsVisibleToUser(userId, agencyIds = [], options = {}) {
     if ((await listActiveTeamMembers(agencyId, pool, userId)).some(user => Number(user.id) === userId)) activeTeamAgencies.add(Number(agencyId));
   }
   const crossAgencyInvitees = new Set();
+  const ordinaryInvitees = new Set();
   const linkedPollInvitees = new Set();
   for (const row of rows) {
+    if (isCompanyGathering(row)) {
+      if ((await resolveCompanyEventAudienceUserIds({ event: row, audience: audienceMap.get(Number(row.id)) })).includes(Number(userId))) ordinaryInvitees.add(Number(row.id));
+      continue;
+    }
     if (linkedCompanyEventId(row)) {
       if ((await linkedCompanyEventPollAudience({ poll: row, audience: audienceMap.get(Number(row.id)) })).userIds.includes(Number(userId))) linkedPollInvitees.add(Number(row.id));
       continue;
@@ -1114,6 +1123,7 @@ async function listEventsVisibleToUser(userId, agencyIds = [], options = {}) {
     if (!['team_poll','direct_notice'].includes(row.event_type) && !agencyIds.includes(Number(row.agency_id)) && (await resolveCompanyEventAudienceUserIds({ event: row })).includes(Number(userId))) crossAgencyInvitees.add(Number(row.id));
   }
   return rows.filter((row) => {
+    if (isCompanyGathering(row)) return ordinaryInvitees.has(Number(row.id));
     if (linkedCompanyEventId(row)) return linkedPollInvitees.has(Number(row.id));
     if (!agencyIds.includes(Number(row.agency_id))) return crossAgencyInvitees.has(Number(row.id));
     const vote = parseVotingConfig(parseJsonMaybe(row.voting_config_json));
@@ -1201,6 +1211,7 @@ async function resolveInvitationByToken(token) {
             u.last_name AS user_last_name,
             u.email AS user_email,
             a.name AS agency_name,
+            a.organization_type AS event_host_organization_type, a.club_kind AS event_host_club_kind,
             a.logo_url AS agency_logo_url,
             a.color_palette AS agency_color_palette,
             a.theme_settings AS agency_theme_settings,
@@ -1226,7 +1237,8 @@ async function resolveInvitationByToken(token) {
 }
 
 function isOrdinaryCompanyInvitation(invitation) {
-  return !Number(invitation.event_organization_id) && isStaffPollLinkedEvent({ event_type: invitation.event_type });
+  return isCompanyGathering({ event_type: invitation.event_type, organization_id: invitation.event_organization_id,
+    host_organization_type: invitation.event_host_organization_type, host_club_kind: invitation.event_host_club_kind });
 }
 
 async function upsertInvitationResponse({ invitationId, response, registrationPayload = null }) {
@@ -2822,7 +2834,8 @@ export const getMyStaffEvent = async (req, res, next) => {
     const event = member ? await visibleLinkedStaffEvent(row, userId) : null;
     if (!event) return res.status(404).json({ error: { message: 'Event details are not available for your account.' } });
     const [invitations] = await pool.execute('SELECT token FROM company_event_invitations WHERE company_event_id = ? AND user_id = ? LIMIT 1', [eventId,userId]);
-    res.json({ ...event, potluckEnabled: !!row.potluck_enabled,
+    const rsvps = await loadCompanyEventRsvpMap({ eventIds: [eventId], userId });
+    res.json({ ...event, ...personalCompanyEventMetadata(row, rsvps.get(eventId), userId), potluckEnabled: !!row.potluck_enabled,
       organizerProviding: parseJsonMaybe(row.organizer_providing_json) || [],
       needList: row.potluck_enabled ? participantNeedList(await listNeedListItems(eventId, Number(row.agency_id)), userId) : [],
       rsvpUrl: invitations[0]?.token ? `/event-rsvp/${encodeURIComponent(invitations[0].token)}` : null });
@@ -3827,10 +3840,13 @@ export const listMyCompanyEvents = async (req, res, next) => {
       audience
     }));
     const responseMap = await fetchResponseMap(events.map((event) => event.id), userId);
-    res.json(events.map((event) => ({
-      ...event,
-      myResponse: responseMap.get(`${event.id}:${userId}`) || null
-    })));
+    const rawById = new Map(visible.map(({ row }) => [Number(row.id), row]));
+    const rsvps = await loadCompanyEventRsvpMap({ eventIds: events.filter(isCompanyGathering).map(event => event.id), userId });
+    res.json(events.map((event) => {
+      const metadata = personalCompanyEventMetadata(rawById.get(Number(event.id)), rsvps.get(Number(event.id)), userId);
+      return { ...event, ...metadata,
+        myResponse: responseMap.get(`${event.id}:${userId}`) || (metadata.myRsvp ? { responseKey: metadata.myRsvp, responseLabel: metadata.myRsvp } : null) };
+    }));
   } catch (error) {
     next(error);
   }
@@ -3841,11 +3857,11 @@ export const listMyCompanyEventsCalendar = async (req, res, next) => {
     const userId = parsePositiveInt(req.user?.id);
     if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
     const agencyIds = await resolveScopedAgencyIdsForMyDashboard(req);
-    if (!agencyIds.length) return res.json([]);
+
 
     const placeholders = agencyIds.map(() => '?').join(', ');
-    const [rows] = await pool.execute(
-      `SELECT ce.*,
+    const [legacyRows] = agencyIds.length ? await pool.execute(
+      `SELECT ce.*, host.organization_type AS host_organization_type, host.club_kind AS host_club_kind,
               (EXISTS (
                 SELECT 1 FROM provider_school_assignments psa
                 WHERE psa.school_organization_id = ce.organization_id
@@ -3863,12 +3879,12 @@ export const listMyCompanyEventsCalendar = async (req, res, next) => {
               sch.portal_url AS school_portal_url,
               sch.slug AS school_slug,
               sch.logo_url AS school_logo_url
-       FROM company_events ce
+       FROM company_events ce JOIN agencies host ON host.id=ce.agency_id
        LEFT JOIN agencies sch ON sch.id = ce.organization_id
        WHERE (ce.agency_id IN (${placeholders}) OR EXISTS (SELECT 1 FROM user_agencies invited_membership
          WHERE invited_membership.user_id = ? AND COALESCE(invited_membership.is_active, 1) = 1
-           AND JSON_CONTAINS(COALESCE(JSON_EXTRACT(ce.operations_json, '$.invitedAgencyIds'), JSON_ARRAY()), CAST(invited_membership.agency_id AS JSON))))
-         AND ce.is_active = 1 AND ce.starts_at IS NOT NULL AND ce.ends_at IS NOT NULL
+           AND (JSON_CONTAINS(COALESCE(JSON_EXTRACT(ce.operations_json, '$.invitedAgencyIds'), JSON_ARRAY()), CAST(invited_membership.agency_id AS JSON)) OR (${companyGatheringSql('ce')} AND ce.agency_id=invited_membership.agency_id))))
+         AND ce.is_active = 1 AND NOT ${companyGatheringSql('ce')} AND ce.starts_at IS NOT NULL AND ce.ends_at IS NOT NULL
          AND ce.event_type NOT IN ('team_poll', 'direct_notice')
          AND COALESCE(ce.school_event_status, 'scheduled') NOT IN ('canceled', 'cancelled')
          AND NOT EXISTS (
@@ -3883,19 +3899,28 @@ export const listMyCompanyEventsCalendar = async (req, res, next) => {
              WHERE upcoming.company_event_id = ce.id AND upcoming.ends_at >= NOW()
            )
          )
-       ORDER BY ce.starts_at ASC
+       ORDER BY CASE WHEN ${companyGatheringSql('ce')} THEN 0 ELSE 1 END, ce.starts_at ASC
        LIMIT 400`,
       [userId, userId, userId, ...agencyIds, userId]
-    );
-
-    if (!rows?.length) return res.json([]);
+    ) : [[]];
+    const personalRows = await listCurrentCompanyGatherings({ userId });
+    const rows = [...new Map([...legacyRows, ...personalRows].map(row => [Number(row.id), row])).values()];
+    if (!rows.length) return res.json([]);
     const audienceMap = await fetchAudienceMap(rows.map((row) => Number(row.id)));
     const userGroupIds = await getUserGroupIds(userId);
     const [userRows] = await pool.execute('SELECT role FROM users WHERE id = ? LIMIT 1', [userId]);
     const userRole = String(userRows?.[0]?.role || '').toLowerCase();
+    const rsvps = await loadCompanyEventRsvpMap({ eventIds: rows.filter(isCompanyGathering).map(row => row.id), userId });
+    const acceptedOrdinary = new Set();
     const crossAgencyIds = new Set();
-    for (const row of rows) if (!agencyIds.includes(Number(row.agency_id)) && (await resolveCompanyEventAudienceUserIds({ event: row })).includes(Number(userId))) crossAgencyIds.add(Number(row.id));
+    for (const row of rows) {
+      if (isCompanyGathering(row)) {
+        if (row.starts_at && row.ends_at && !readEventOperations(row).dateToBeDecided && ['yes','maybe'].includes(rsvps.get(Number(row.id)))
+          && (await resolveCompanyEventAudienceUserIds({ event: row, audience: audienceMap.get(Number(row.id)) })).includes(Number(userId))) acceptedOrdinary.add(Number(row.id));
+      } else if (!agencyIds.includes(Number(row.agency_id)) && (await resolveCompanyEventAudienceUserIds({ event: row })).includes(Number(userId))) crossAgencyIds.add(Number(row.id));
+    }
     const filteredRows = rows.filter((row) => {
+      if (isCompanyGathering(row)) return acceptedOrdinary.has(Number(row.id));
       if (!agencyIds.includes(Number(row.agency_id))) return crossAgencyIds.has(Number(row.id));
       if (['team_poll', 'direct_notice'].includes(String(row.event_type || '').toLowerCase())) return false;
       const audience = audienceMap.get(Number(row.id));
@@ -4006,6 +4031,8 @@ export const listMyCompanyEventsCalendar = async (req, res, next) => {
       });
       return {
         ...base,
+        ...personalCompanyEventMetadata(row, rsvps.get(eid), userId),
+        ...(isCompanyGathering(row) ? { myResponse: { responseKey: rsvps.get(eid), responseLabel: rsvps.get(eid) }, calendarStatus: rsvps.get(eid) === 'maybe' ? 'tentative' : 'confirmed' } : {}),
         isSchoolPortalEvent: isSchoolEvent,
         calendarOnly,
         schoolName: row.school_name ? String(row.school_name).trim() : null,
@@ -4055,6 +4082,21 @@ export const respondToMyCompanyEvent = async (req, res, next) => {
     if (!target) return res.status(404).json({ error: { message: 'Company event not found' } });
 
     const event = mapEventRow(target.row, req, { myEndpoint: true });
+    if (isCompanyGathering(target.row) && (target.row.rsvp_mode !== 'custom_vote' || req.body?.response !== undefined)) {
+      const response = normalizeCompanyEventRsvp(req.body?.response ?? req.body?.responseKey);
+      if (!response) return res.status(400).json({ error: { message: 'Choose Yes, No, or Maybe' } });
+      if (!personalCompanyEventMetadata(target.row, response, userId).canRsvp) return res.status(409).json({ error: { message: 'RSVP for this event is closed. Contact the organizer to make a change.' } });
+      if (target.row.potluck_enabled && response !== 'yes') await saveStaffPotluckContribution({ eventId, agencyId: event.agencyId, userId, itemId: null, customItemName: '' });
+      const responseLabel = { yes: 'Yes', no: 'No', maybe: 'Maybe' }[response];
+      await pool.execute(`INSERT INTO company_event_responses
+        (company_event_id,user_id,response_key,response_label,response_body,source,received_at)
+        VALUES (?,?,?,?,?,'in_app',NOW()) ON DUPLICATE KEY UPDATE response_key=VALUES(response_key),
+        response_label=VALUES(response_label),response_body=VALUES(response_body),source='in_app',received_at=NOW()`,
+      [eventId,userId,response,responseLabel,String(req.body?.notes || response).slice(0,2000)]);
+      await pool.execute('UPDATE company_event_invitations SET response=?,responded_at=NOW() WHERE company_event_id=? AND user_id=?', [response,eventId,userId]);
+      await dismissPollNotification(eventId,userId);
+      return res.json({ ok: true, response, myRsvp: response, responseKey: response, responseLabel });
+    }
     if (!event.votingConfig.enabled) {
       return res.status(400).json({ error: { message: 'RSVP/Voting is not enabled for this event' } });
     }
