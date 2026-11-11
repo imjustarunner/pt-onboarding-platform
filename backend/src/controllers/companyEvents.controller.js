@@ -1174,6 +1174,10 @@ async function resolveInvitationByToken(token) {
     `SELECT i.*,
             ce.id AS event_id,
             ce.agency_id AS event_agency_id,
+            ce.is_active AS event_is_active,
+            ce.organization_id AS event_organization_id,
+            ce.operations_json AS event_operations_json,
+            ce.school_event_status AS event_school_status,
             ce.title AS event_title,
             ce.event_type AS event_type,
             ce.starts_at AS event_starts_at,
@@ -1209,7 +1213,20 @@ async function resolveInvitationByToken(token) {
      LIMIT 1`,
     [t]
   );
-  return rows?.[0] || null;
+  const invitation = rows?.[0] || null;
+  if (invitation && isOrdinaryCompanyInvitation(invitation)) {
+    const event = { id: Number(invitation.event_id), agency_id: Number(invitation.event_agency_id),
+      event_type: invitation.event_type, organization_id: invitation.event_organization_id,
+      operations_json: invitation.event_operations_json, is_active: invitation.event_is_active,
+      school_event_status: invitation.event_school_status };
+    if (!Number(event.is_active) || ['canceled','cancelled'].includes(event.school_event_status)
+      || !(await resolveCompanyEventAudienceUserIds({ event })).includes(Number(invitation.user_id))) return null;
+  }
+  return invitation;
+}
+
+function isOrdinaryCompanyInvitation(invitation) {
+  return !Number(invitation.event_organization_id) && isStaffPollLinkedEvent({ event_type: invitation.event_type });
 }
 
 async function upsertInvitationResponse({ invitationId, response, registrationPayload = null }) {
@@ -3684,23 +3701,7 @@ export const getCompanyEventRsvpByToken = async (req, res, next) => {
 
     const queryResponse = String(req.query?.r || '').trim().toLowerCase();
     if (['yes', 'no', 'maybe'].includes(queryResponse)) {
-      await upsertInvitationResponse({ invitationId: invitation.id, response: queryResponse });
-      const option = resolveRsvpOption(
-        { votingConfig: { options: DEFAULT_RSVP_OPTIONS } },
-        queryResponse
-      );
-      await pool.execute(
-        `INSERT INTO company_event_responses
-         (company_event_id, user_id, response_key, response_label, response_body, source, received_at)
-         VALUES (?, ?, ?, ?, ?, 'in_app', NOW())
-         ON DUPLICATE KEY UPDATE
-           response_key = VALUES(response_key),
-           response_label = VALUES(response_label),
-           response_body = VALUES(response_body),
-           source = VALUES(source),
-           received_at = VALUES(received_at)`,
-        [Number(invitation.company_event_id), Number(invitation.user_id), option?.key || queryResponse, option?.label || queryResponse, queryResponse]
-      );
+      // Email scanners follow links. Only the explicit confirmation POST records an RSVP.
       const frontendBase = getFrontendBaseUrl();
       res.redirect(`${frontendBase}/event-rsvp/${encodeURIComponent(token)}?r=${encodeURIComponent(queryResponse)}`);
       return;
@@ -3768,20 +3769,27 @@ export const postCompanyEventRsvpByToken = async (req, res, next) => {
     }
     const invitation = await resolveInvitationByToken(token);
     if (!invitation) return res.status(404).json({ error: { message: 'Invitation not found' } });
+    const ordinaryCompanyEvent = isOrdinaryCompanyInvitation(invitation);
+    if (ordinaryCompanyEvent && ((invitation.event_rsvp_deadline && new Date(invitation.event_rsvp_deadline).getTime() <= Date.now())
+      || (invitation.event_ends_at && new Date(invitation.event_ends_at).getTime() <= Date.now()))) {
+      return res.status(409).json({ error: { message: 'RSVP for this event is closed. Contact the organizer to make a change.' } });
+    }
 
     const existing = String(invitation.response || '').toLowerCase();
-    if ((existing === 'yes' || existing === 'maybe') && response === 'no') {
+    if (!ordinaryCompanyEvent && (existing === 'yes' || existing === 'maybe') && response === 'no') {
       return res.status(409).json({ error: { message: 'Cannot change confirmed RSVP to no from this flow' } });
     }
 
-    if (invitation.event_potluck_enabled && req.body?.registration && Object.hasOwn(req.body.registration, 'needListItemId')) {
+    if (invitation.event_potluck_enabled && ((req.body?.registration && Object.hasOwn(req.body.registration, 'needListItemId'))
+      || ordinaryCompanyEvent && response !== 'yes')) {
       await saveStaffPotluckContribution({ eventId: Number(invitation.company_event_id), agencyId: Number(invitation.event_agency_id), userId: Number(invitation.user_id),
-        itemId: response === 'yes' ? req.body.registration.needListItemId : null, customItemName: req.body.registration.needListCustomItemName });
+        itemId: response === 'yes' ? req.body.registration.needListItemId : null, customItemName: response === 'yes' ? req.body.registration.needListCustomItemName : '' });
     }
     const option = resolveRsvpOption(
       { votingConfig: { options: DEFAULT_RSVP_OPTIONS } },
       response
     );
+    const responseKey = ordinaryCompanyEvent ? response : option?.key || response;
     await upsertInvitationResponse({
       invitationId: invitation.id,
       response,
@@ -3797,9 +3805,9 @@ export const postCompanyEventRsvpByToken = async (req, res, next) => {
          response_body = VALUES(response_body),
          source = VALUES(source),
          received_at = VALUES(received_at)`,
-      [Number(invitation.company_event_id), Number(invitation.user_id), option?.key || response, option?.label || response, response]
+      [Number(invitation.company_event_id), Number(invitation.user_id), responseKey, option?.label || response, response]
     );
-    res.json({ ok: true, response, responseKey: option?.key || response, responseLabel: option?.label || response });
+    res.json({ ok: true, response, responseKey, responseLabel: option?.label || response });
   } catch (error) {
     next(error);
   }

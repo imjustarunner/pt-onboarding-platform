@@ -25,7 +25,7 @@ Live operations completed:
 - ITSCO's approved Campaign 2 sender was already ready; no texting settings changed.
 
 Verification:
-- 191 focused backend event, linked-vote, invitation, announcement and authorization tests passed.
+- 212 focused backend event, linked-vote, invitation, announcement and authorization tests passed.
 - 1,313 existing SMS carrier/topic/vote and messaging tests passed (39 external/database integration cases skipped). Two older fixture mocks were corrected to model the current family-message access checks; production access rules were unchanged.
 - 66 frontend workflow, picker, private page, email RSVP confirmation, polls, group message and announcement tests passed.
 - Potluck concurrency/rollback/claim ownership regressions.
