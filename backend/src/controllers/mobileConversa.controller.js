@@ -47,8 +47,8 @@ export const getMobileInbox=mobile(async(req,res)=>{
   if(!includeArchived)chats=chats.filter(item=>!item.archived);
   const counts=countsOnly?{}:await mobileConversaStore.extraCounts(userId,chats.filter(item=>!item.secure).map(item=>item.id));
   for(const category of ['direct','groups','channels','secure'])counts[category]=countsFor(chats.filter(i=>i.category===category));
-  for(const category of ['email','sms','unknown'])counts[category]={total:0,unread:0,needs:0,sent:0};
-  for(const row of emailCounts){const key=row.unknown && row.category!=='groups'?'unknown':row.category;for(const field of ['total','unread','needs','sent'])counts[key][field]+=(row[field]||0);}
+  for(const category of ['email','sms','unknown','spam'])counts[category]={total:0,unread:0,needs:0,sent:0};
+  for(const row of emailCounts){const key=row.category==='spam'?'spam':row.unknown && row.category!=='groups'?'unknown':row.category;for(const field of ['total','unread','needs','sent'])counts[key][field]+=(row[field]||0);}
   counts.all=['direct','groups','channels','secure','email','sms','unknown'].map(key=>counts[key]).reduce((sum,c)=>({total:sum.total+c.total,unread:sum.unread+c.unread,needs:sum.needs+c.needs,sent:sum.sent+(c.sent||0)}),{total:0,unread:0,needs:0,sent:0});
   if(countsOnly)return res.json({counts});
   // Unknown mail remains in its own folder, while All really includes every source.
@@ -63,7 +63,7 @@ export const getMobileInbox=mobile(async(req,res)=>{
     availableChannels=(data.channels || []).filter(channel=>!chats.some(item=>item.id===Number(channel.thread_id || channel.id)) && (includeArchived || !archives.has(`chat:${channel.thread_id || channel.id}`))).map(channel=>({...mobileThreadItem({...channel,thread_id:channel.thread_id || channel.id,thread_type:'channel',channel_name:channel.name || channel.channel_name},userId),at:channel.updated_at || channel.created_at || null,preview:channel.description || 'Open this channel',join:!(channel.is_member===true || Number(channel.is_member)===1 || channel.isMember===true)}));
     counts.channels.total+=availableChannels.length;counts.all.total+=availableChannels.length;
   }
-  let items=[...emails,...chats,...availableChannels].filter(item=>suite==='all' || suite==='unknown'?suite==='all' || item.unknown:item.category===suite && !item.unknown).filter(i=>matches(i,filter));
+  let items=[...emails,...chats,...availableChannels].filter(item=>suite==='all'?item.category!=='spam':suite==='unknown'?item.unknown:item.category===suite && !item.unknown).filter(i=>matches(i,filter));
   if(['threads','mentions','files'].includes(suite)){
     const body=await invoke(suite==='threads'?qvListThreadsInbox:suite==='mentions'?qvListMentions:qvListFiles,req,{agencyId:'all',beforeAt:cursor?.at,beforeId:cursor?Number(cursor.key.split(':')[1]):undefined,limit:'100'});
     const byThread=new Map(chats.map(i=>[i.id,i]));
@@ -203,4 +203,21 @@ export const postMobileKnownSender=mobile(async(req,res)=>{
  const contact=await Contact.upsertSafe({agencyId:conversation.agency_id,ownerUserId:req.quickView.userId,email:sender.email,displayName:sender.display_name || null,source:'mark_known'});
  if(contact?.trust_status==='blocked')throw fail(409,'This sender is blocked. Review the blocked-contact setting before making them known.');
  res.json({ok:true,contact:{id:contact.id,email:contact.email,displayName:contact.display_name}});
+});
+
+// A personal sender preference: never block an address for an entire agency,
+// change a shared ticket, or classify mail from its subject/body.
+export const postMobileSpam=mobile(async(req,res)=>{
+ const id=Number(req.params.id),userId=Number(req.quickView.userId);
+ if(!Number.isSafeInteger(id)||id<=0 || req.body?.confirmed!==true)throw fail(400,'Confirm the email sender to mark as spam.');
+ const conversation=assertMobileQaConversation(req,await requireConversationAccess({id:userId,role:'provider',mobileDevice:true},id));
+ if(conversation.channel!=='email' || !Number(conversation.is_unknown_sender))throw fail(409,'Only an unknown email sender can be marked as spam here.');
+ const [[sender]]=await pool.execute('SELECT email,display_name FROM communication_participants WHERE conversation_id=? ORDER BY is_primary DESC,id LIMIT 1',[id]);
+ if(!sender?.email)throw fail(422,'This email has no sender address.');
+ const [[internal]]=await pool.execute(`SELECT id FROM users WHERE CONVERT(LOWER(TRIM(?)) USING utf8mb4) COLLATE utf8mb4_unicode_ci IN(CONVERT(LOWER(TRIM(email)) USING utf8mb4) COLLATE utf8mb4_unicode_ci,CONVERT(LOWER(TRIM(work_email)) USING utf8mb4) COLLATE utf8mb4_unicode_ci,CONVERT(LOWER(TRIM(personal_email)) USING utf8mb4) COLLATE utf8mb4_unicode_ci) LIMIT 1`,[sender.email]);
+ const {default:Contact}=await import('../models/UserCommunicationContact.model.js');
+ const existing=await Contact.findByEmail({agencyId:conversation.agency_id,ownerUserId:userId,email:sender.email});
+ if(internal || existing?.trust_status==='safe')throw fail(409,'This sender is known. Review their contact settings instead.');
+ await Contact.block({agencyId:conversation.agency_id,ownerUserId:userId,email:sender.email,displayName:sender.display_name,reason:'Marked as spam by the recipient',blockedByUserId:userId});
+ res.json({ok:true});
 });

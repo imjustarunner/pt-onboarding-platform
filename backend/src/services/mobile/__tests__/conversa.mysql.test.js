@@ -3,7 +3,7 @@ import mysql from 'mysql2/promise';import {readFile} from 'node:fs/promises';
 vi.mock('../../../config/database.js',()=>({default:{execute:vi.fn()},onTableWrite:vi.fn()}));
 import {reserveSecureDelivery} from '../secureInvitation.service.js';
 import {createMobileConversaStore,mobileThreadItem,normalizeMobilePreferences,requireMobileThreadMembership} from '../conversa.service.js';
-import {mobileEmailSchoolIdentities} from '../emailSchoolIdentity.service.js';
+import {mobileEmailSchoolIdentities,mobileEmailPersonIdentities} from '../emailSchoolIdentity.service.js';
 import {recordSchoolGroupEmail} from '../../schoolGroupEmailInbox.service.js';
 it('uses names rather than numeric thread IDs and separates group conversations from direct messages',()=>{
  const base={thread_id:8,thread_type:'direct',participants:[{id:2,first_name:'Ari',last_name:'Example'},{id:3,first_name:'Sam',last_name:'Example'}],last_message:{body:'Hello',sender_user_id:2}};
@@ -27,7 +27,7 @@ describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('personal mobile inbox SQL',
     CREATE TABLE chat_message_deletes(message_id INT,user_id INT);CREATE TABLE chat_message_mentions(message_id INT,mentioned_user_id INT);
     CREATE TABLE chat_message_attachments(id INT PRIMARY KEY,message_id INT);
     CREATE TABLE agencies(id INT PRIMARY KEY,is_active BOOLEAN DEFAULT 1,is_archived BOOLEAN DEFAULT 0,name VARCHAR(120),logo_url VARCHAR(255),icon_id INT,organization_type VARCHAR(30));CREATE TABLE icons(id INT PRIMARY KEY,file_path VARCHAR(255));CREATE TABLE school_profiles(school_organization_id INT,itsco_email VARCHAR(320) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci);CREATE TABLE organization_affiliations(organization_id INT,agency_id INT,is_active BOOLEAN);
-    CREATE TABLE users(id INT PRIMARY KEY,email VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,work_email VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci,personal_email VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci,role VARCHAR(40) DEFAULT 'provider');
+    CREATE TABLE users(id INT PRIMARY KEY,email VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,work_email VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci,personal_email VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci,role VARCHAR(40) DEFAULT 'provider',profile_photo_path VARCHAR(255));
     CREATE TABLE user_agencies(user_id INT,agency_id INT,is_active BOOLEAN DEFAULT 1);
     CREATE TABLE communication_inboxes(id INT PRIMARY KEY,agency_id INT DEFAULT 10,identity_key VARCHAR(60),kind VARCHAR(20),display_name VARCHAR(255),owner_user_id INT,from_email VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci);
     CREATE TABLE communication_conversations(id INT PRIMARY KEY,agency_id INT,inbox_id INT,owner_user_id INT,channel VARCHAR(20),subject VARCHAR(100),status ENUM('new','needs_reply','waiting_on_them','follow_up','resolved'),last_message_preview TEXT,last_message_at DATETIME,created_at DATETIME,archived_at DATETIME,is_spam BOOLEAN DEFAULT 0,support_ticket_id INT NULL,is_unknown_sender BOOLEAN DEFAULT 0,external_thread_id VARCHAR(80));
@@ -54,6 +54,13 @@ describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('personal mobile inbox SQL',
   await db.execute(`INSERT INTO communication_messages(id,conversation_id,direction,send_status,sent_at,created_at,from_json)VALUES(?,?,'inbound','sent','2026-11-06 12:00:00','2026-11-06 12:00:00',?)`,[id,id,JSON.stringify({name:'Fixture sender',email})]);
   await db.execute('INSERT INTO communication_participants(id,conversation_id,is_primary,email,display_name)VALUES(?,?,1,?,?)',[id,id,email,'Fixture sender']);
  }
+ it('keeps explicit recipient spam separate from All and other recipients, including future mail',async()=>{
+  await mail(1,{unknown:true});await mail(2,{unknown:true});await db.query("INSERT INTO user_communication_contacts VALUES(1,1,10,'OUTSIDE@example.invalid','blocked')");
+  expect(await store.emails(1,{suite:'all'})).toHaveLength(0);expect(await store.emails(1,{suite:'unknown'})).toHaveLength(0);expect(await store.emails(1,{suite:'spam'})).toHaveLength(2);expect((await store.emailCounts(1)).find(row=>row.category==='spam').total).toBe(2);
+  await mail(3,{owner:2,inbox:2,unknown:true});expect(await store.emails(2,{suite:'spam'})).toHaveLength(0);expect(await store.emails(2,{suite:'unknown'})).toHaveLength(1);
+  await mail(4,{unknown:true});expect(await store.emails(1,{suite:'spam'})).toHaveLength(3);
+ });
+ it('shows trusted canonical spam even when archived, without making it active mail',async()=>{await mail(1);await db.query('UPDATE communication_conversations SET is_spam=1,archived_at=NOW() WHERE id=1');expect(await store.emails(1,{suite:'all'})).toHaveLength(0);expect(await store.emails(1,{suite:'spam'})).toHaveLength(1);});
  it('makes all mail from a saved safe address known for its owner only',async()=>{
   await mail(1,{unknown:true});await mail(2,{unknown:true});
   await db.query("INSERT INTO user_communication_contacts VALUES(1,2,10,'outside@example.invalid','safe')");expect(await store.emails(1,{suite:'unknown'})).toHaveLength(2);
@@ -81,6 +88,8 @@ describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('personal mobile inbox SQL',
   await db.execute('UPDATE organization_affiliations SET is_active=0');
   expect((await mobileEmailSchoolIdentities(candidates,{db})).size).toBe(0);
  });
+ it('resolves a school sender alias without notification metadata and respects deactivation',async()=>{await mail(1,{email:'Rudy@example.invalid'});await db.query("INSERT INTO agencies(id,name,organization_type,logo_url) VALUES(78,'Rudy','school','schools/rudy.png');INSERT INTO school_profiles VALUES(78,'rudy@example.invalid');INSERT INTO organization_affiliations VALUES(78,10,1)");expect((await store.emails(1))[0]).toMatchObject({schoolId:78,schoolName:'Rudy',avatar:expect.stringContaining('rudy.png')});await db.query('UPDATE agencies SET is_active=0 WHERE id=78');expect((await store.emails(1))[0].schoolId).toBeUndefined();});
+ it('uses a real provider face with an active agency membership and exact sender alias',async()=>{await mail(1,{email:'work@example.invalid'});await db.query("UPDATE users SET work_email='WORK@example.invalid',profile_photo_path='people/staff.png' WHERE id=2");expect((await store.emails(1))[0]).toMatchObject({staffId:2,avatar:expect.stringContaining('staff.png')});await db.query('UPDATE user_agencies SET is_active=0 WHERE user_id=2');expect((await store.emails(1))[0].staffId).toBeUndefined();});
  it('keeps non-ticket school notifications unread per user in both Groups and All',async()=>{
   await db.query("INSERT INTO communication_inboxes(id,agency_id,kind,identity_key,display_name,from_email) VALUES(5,10,'shared','schools','Schools','schools@example.invalid')");
   const database={execute:async(sql,args)=>{

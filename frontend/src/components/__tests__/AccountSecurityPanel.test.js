@@ -87,3 +87,11 @@ describe('personal security screen', () => {
 });
 
 it('leaves mobile enrollment in place while the existing verification screen is embedded',async()=>{state={...state,required:false,verified:true};const wrapper=await open({showWorkspaceReturn:false});expect(wrapper.text()).not.toContain('Return to your workspace');wrapper.unmount();});
+
+it('recovers the existing account code through primary cookie authentication and the expected identity',async()=>{
+ const previous=location.pathname+location.search;history.replaceState({},'','/account-security?mobileCodeRecovery=1&expectedUserId=10');state={...state,required:false,verified:true,guardianAccount:true};
+ api.get.mockImplementation(async url=>({data:url==='/account-security'?state:url==='/quick-view/me/status'?{userId:10,requiresPassword:true,hasPasscode:true}:{items:[],hasMore:false}}));api.post.mockResolvedValue({data:{passcode:'654321'}});
+ const wrapper=await open();expect(api.get).toHaveBeenCalledWith('/quick-view/me/status',expect.objectContaining({cookieAuthOnly:true,skipAuthRedirect:true}));
+ const privacy=wrapper.getComponent({name:'QuickViewPrivacyPanel'});expect(privacy.props()).toMatchObject({expectedUserId:10,passcodeOnly:true});await privacy.findAll('button').find(b=>b.text()==='Reset 6-digit passcode').trigger('click');await privacy.get('input[type=password]').setValue('synthetic-password');await privacy.findAll('button').find(b=>b.text()==='Confirm').trigger('click');await flushPromises();
+ expect(api.post).toHaveBeenCalledWith('/quick-view/me/reset-passcode',{expectedUserId:10,password:'synthetic-password'},expect.objectContaining({cookieAuthOnly:true,skipAuthRedirect:true}));expect(privacy.get('.pin').text()).toBe('654321');wrapper.unmount();history.replaceState({},'',previous);
+});

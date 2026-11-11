@@ -15,7 +15,7 @@ let deps,service;
 beforeEach(()=>{deps={db:{execute:vi.fn().mockResolvedValue([[qa,{id:456,name:'Other QA',slug:'scb-qa-company'}]])},findUser:vi.fn().mockResolvedValue(user),assertStaff:vi.fn(),assertProduct:vi.fn()};service=createMobileSessionService(deps);});
 it('primary account setup and profile expose only the currently granted synthetic workspace',async()=>{const actor=await service.actor(user.id);expect(actor.qaAgencyIds).toEqual([450]);expect(service.publicProfile(actor).agencies.map(a=>a.id)).toEqual([450]);await expect(service.actor(user.id,456)).rejects.toMatchObject({code:'MOBILE_WORKSPACE_UNAVAILABLE'});});
 it('rechecks the grant on each device access and revokes the durable and short sessions when the grant disappears',async()=>{
- let allowed=true;const device={id:2,user_id:1433,agency_id:450,last_used_at:new Date(),account_fingerprint:accountFingerprint(user)};
+ let allowed=true;const device={id:2,user_id:1433,agency_id:450,last_used_at:new Date(),enrolled_at:new Date(),account_fingerprint:accountFingerprint(user)};
  deps.db.execute.mockImplementation(async sql=>sql.startsWith('SELECT * FROM mobile_device_sessions')?[[device]]:sql.includes('FROM user_agencies')?[[{...qa,feature_flags:allowed?qa.feature_flags:{}}]]:[{affectedRows:1}]);
  expect((await service.access(2,1433,450)).qaAgencyIds).toEqual([450]);allowed=false;
  await expect(service.access(2,1433,450)).rejects.toMatchObject({code:'MOBILE_ACCOUNT_UNAVAILABLE'});

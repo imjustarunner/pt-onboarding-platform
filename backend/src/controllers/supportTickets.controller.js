@@ -1197,6 +1197,19 @@ export const listSupportTicketsQueue = async (req, res, next) => {
 
     await applyTopicAudienceVisibility({ req, where, params, topicFilter });
 
+    // Service-desk date filters apply before the queue limit, so an older date
+    // range searches the stored history rather than filtering only recent rows.
+    const dateFrom = String(req.query?.dateFrom || '');
+    const dateTo = String(req.query?.dateTo || '');
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateFrom)) {
+      where.push('COALESCE(t.updated_at,t.created_at) >= ?');
+      params.push(`${dateFrom} 00:00:00`);
+    }
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateTo)) {
+      where.push('COALESCE(t.updated_at,t.created_at) < DATE_ADD(?,INTERVAL 1 DAY)');
+      params.push(`${dateTo} 00:00:00`);
+    }
+
     if (schoolOrganizationId) {
       const access = await ensureOrgAccess(req, schoolOrganizationId);
       if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });

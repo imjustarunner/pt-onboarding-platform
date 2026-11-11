@@ -18,8 +18,8 @@
 
     <nav v-if="session" class="qv-tabs" aria-label="Primary navigation">
       <span class="qv-nav-caption">WORKSPACE</span>
-      <button v-for="item in primaryNavigation" :key="item.id" type="button" :class="{ on: activeDestination === item.id, 'qv-fixed-shortcut':isMobile && item.id===(workspacePreferences.lockedNavigation || 'calendar') }" :aria-current="activeDestination === item.id ? 'page' : undefined" :aria-expanded="item.id === 'more' ? moreOpen : undefined" :aria-controls="item.id === 'more' ? 'qv-more-tools' : undefined" @click="navigateTo(item.id)">
-        <component :is="item.icon" :size="21" :stroke-width="1.8" aria-hidden="true" /><span>{{ item.label }}</span><span v-if="isMobile && ['home','mywork','tasks'].includes(item.id) && navigationBadge(item.id)!==0" class="qv-nav-badge" :aria-label="navigationBadge(item.id)==null ? item.label+' count loading' : undefined">{{ navigationBadge(item.id) ?? '…' }}</span>
+      <button v-for="item in primaryNavigation" :key="item.id" :aria-label="item.label" :disabled="['exchange','support','livechat','applicants'].includes(item.id) && !toolsReady" type="button" :class="{ on: activeDestination === item.id, 'qv-fixed-shortcut':isMobile && item.id===(workspacePreferences.lockedNavigation || 'calendar') }" :aria-current="activeDestination === item.id ? 'page' : undefined" :aria-expanded="item.id === 'more' ? moreOpen : undefined" :aria-controls="item.id === 'more' ? 'qv-more-tools' : undefined" @click="navigateTo(item.id)">
+        <component :is="item.icon" :size="21" :stroke-width="1.8" aria-hidden="true" /><span>{{ item.label }}</span><span v-if="isMobile && ['home','mywork','tasks','more'].includes(item.id) && navigationBadge(item.id)!==0" class="qv-nav-badge" :aria-label="navigationBadge(item.id)==null ? item.label+' count loading' : undefined">{{ navigationBadge(item.id) ?? '…' }}</span>
       </button>
       <div class="qv-nav-footer">
         <div class="qv-nav-note"><LockKeyhole :size="16" aria-hidden="true" /><span>Your workspace locks<br />when you're away.</span></div>
@@ -84,7 +84,7 @@
     </section>
 
     <template v-if="session">
-      <div v-if="!isMobile || !['home','thread','chat','clinical','client','session'].includes(tab)" class="qv-page-heading" :class="{'qv-work-heading':isMobile && tab==='mywork'}">
+      <div v-if="!isMobile || !['home','thread','chat','clinical','client','session'].includes(tab) && (moreOpen || tab!=='calendar' || todayIntro) && (moreOpen || tab!=='mywork' || workControlsOpen)" class="qv-page-heading" :class="{'qv-work-heading':isMobile && tab==='mywork'}">
         <div><p class="qv-eyebrow">{{ workspaceDate }}</p><h1>{{ currentHeading.title }}</h1><p class="qv-page-description">{{ currentHeading.description }}</p></div>
         <span class="qv-workspace-tag">QUICK VIEW</span>
       </div>
@@ -102,13 +102,18 @@
       <SecureSessionCommentsHost v-if="isMobile" :user-id="sessionUserId" :enabled="!!session && !privacyHidden" :scope-key="commentScopeGeneration" schedule-path="/mobile/workspace" :schedule-query="{view:'calendar'}" />
       <FamilySharingNoticeHost v-if="isMobile" :user-id="sessionUserId" :enabled="!!session && !privacyHidden" :scope-key="commentScopeGeneration" />
       <MobileMessages v-if="isMobile" v-show="tab==='home' || tab==='chat'" ref="mobileMessages" :api-base="apiBase" :session-token="session" :user-id="sessionUserId" :visible="!overlayOpen && !moreOpen && (tab==='home' || tab==='chat')" :preferences="workspacePreferences" @open-email="openMobileConversation" @access-denied="clearCachedEmailAccess" @compose-email="openMobileEmailDraft" @counts="mobileCounts=$event" @settings="showMobileSettings=true"/>
-      <MobilePreferences v-if="isMobile && showMobileSettings" :api-base="apiBase" :session-token="session" :preferences="workspacePreferences" @close="showMobileSettings=false" @saved="workspacePreferences=$event"/>
+      <MobilePreferences v-if="isMobile && showMobileSettings" :api-base="apiBase" :session-token="session" :preferences="workspacePreferences" :available-destinations="permittedNavigation.map(item=>item.id)" @close="showMobileSettings=false" @saved="workspacePreferences=$event"/>
+      <MobilePeople v-if="isMobile && peopleVisited" v-show="tab==='contacts'" :api-base="apiBase" :session-token="session" :user-id="sessionUserId" :agency-id="sessionAgencyId" :visible="tab==='contacts' && !overlayOpen && !moreOpen" @message="person=>messageUser(person.id,person.name,person.agencyId)" @compose-email="openMobileEmailDraft" @add-contact="showNewContact=true"/>
+      <MobileApplicants v-if="isMobile && toolsVisited.applicants" v-show="tab==='applicants'" :api-base="apiBase" :session-token="session" :agencies="toolAgencies.applicants || []" :candidate-id="route.query.candidateId" :initial-agency-id="route.query.agencyId" @open-full="emit('open-main',$event)" :visible="tab==='applicants' && !overlayOpen && !moreOpen" @compose-email="openMobileEmailDraft"/>
+      <MobileClientExchange :user-id="sessionUserId" v-if="isMobile && toolsVisited.exchange" v-show="tab==='exchange'" :api-base="apiBase" :session-token="session" :agencies="toolAgencies.exchange || []" :visible="tab==='exchange' && !overlayOpen && !moreOpen" :listing-id="route.query.listingId" :agency-id="route.query.agencyId"/>
+      <MobileSupportMessages v-if="isMobile && toolsVisited.support" v-show="tab==='support'" :api-base="apiBase" :session-token="session" :visible="tab==='support' && !overlayOpen && !moreOpen"/>
+      <MobileLiveChat v-if="isMobile && toolsVisited.livechat" v-show="tab==='livechat'" :api-base="apiBase" :session-token="session" :chat-id="route.query.chatId" :visible="tab==='livechat' && !overlayOpen && !moreOpen"/>
       <MobileClients v-if="isMobile && clientsVisited" v-show="tab==='clients'" :visible="tab==='clients' && !overlayOpen && !moreOpen" :api-base="apiBase" :session-token="session" @open="openMobileClient" @open-main="emit('open-main',$event)" />
-      <MobileCalendar v-if="isMobile && calendarVisited" v-show="tab==='calendar'" :visible="tab==='calendar' && !overlayOpen && !moreOpen" :api-base="apiBase" :session-token="session" :user-id="sessionUserId" :agency-id="sessionAgencyId" @open="openMobileCalendarItem" @comments="openMobileSessionCommentDetails" @message="provider=>messageUser(provider.id || provider.providerId || provider,provider.name)" @open-full="emit('open-main',$event)" />
+      <MobileCalendar ref="mobileCalendar" :show-intro="todayIntro" @intro-dismiss="dismissTodayIntro" @compose-email="openMobileEmailDraft" v-if="isMobile && calendarVisited" v-show="tab==='calendar'" :visible="tab==='calendar' && !overlayOpen && !moreOpen" :api-base="apiBase" :session-token="session" :user-id="sessionUserId" :agency-id="sessionAgencyId" @open="openMobileCalendarItem" @comments="openMobileSessionCommentDetails" @message="provider=>messageUser(provider.id || provider.providerId || provider,provider.name)" @open-full="emit('open-main',$event)" />
       <MobileClinicalWorkspace v-if="isMobile && tab==='clinical'" :api-base="apiBase" :session-token="session" :user-id="sessionUserId" @signed="sendNotice='Note signed and saved to the chart.'" />
       <MobileClientSummary v-if="isMobile && tab==='client'" :api-base="apiBase" :session-token="session" :client-id="route.query.clientId" :agency-id="route.query.agencyId || sessionAgencyId" @open-main="emit('open-main',$event)" @back="returnInApp({view:'clients'})" @contact="openMobileClinicalContact" />
       <MobileClinicalSession v-if="isMobile && tab==='session'" :api-base="apiBase" :session-token="session" />
-      <MobileMyWork v-if="isMobile && myWorkVisited" v-show="tab==='mywork'" :visible="tab==='mywork' && !overlayOpen && !moreOpen" :api-base="apiBase" :session-token="session" @draft="prepareWorkDraft" @tasks="navigateTo('tasks')" @counts="workspaceBadges={...workspaceBadges,...$event}"/>
+      <MobileMyWork :user-id="sessionUserId" @controls-change="workControlsOpen=$event" v-if="isMobile && myWorkVisited" v-show="tab==='mywork'" :visible="tab==='mywork' && !overlayOpen && !moreOpen" :api-base="apiBase" :session-token="session" @draft="prepareWorkDraft" @tasks="navigateTo('tasks')" @counts="workspaceBadges={...workspaceBadges,...$event}"/>
       <div v-if="!isMobile && tab === 'home'" class="qv-pane conversa-surface">
         <div class="qv-messages-heading"><ConversaBrand compact /><span>YOUR CONVERSATIONS</span></div>
         <div class="qv-suite">
@@ -583,7 +588,7 @@
         </template>
       </div>
 
-      <div v-else-if="tab === 'contacts'" class="qv-pane">
+      <div v-else-if="!isMobile && tab === 'contacts'" class="qv-pane">
         <div class="qv-suite">
           <button type="button" :class="{ on: contactSuite === 'providers' }" @click="loadDirectory('providers')">Providers</button>
           <button type="button" :class="{ on: contactSuite === 'school' }" @click="loadDirectory('school')">School staff</button>
@@ -827,6 +832,12 @@ import QuickTaskExtras from '../components/quickView/QuickTaskExtras.vue';
 import MobilePreferences from '../mobile/MobilePreferences.vue';
 import MobileMyWork from '../mobile/MobileMyWork.vue';
 import MobileClients from '../mobile/MobileClients.vue';
+import MobilePeople from '../mobile/MobilePeople.vue';
+import MobileApplicants from '../mobile/MobileApplicants.vue';
+import MobileClientExchange from '../mobile/MobileClientExchange.vue';
+import MobileSupportMessages from '../mobile/components/MobileSupportMessages.vue';
+import MobileLiveChat from '../mobile/components/MobileLiveChat.vue';
+import {readMobileViewPreference,writeMobileViewPreference} from '../mobile/mobileViewPreferences.js';
 import MobileCalendar from '../mobile/MobileCalendar.vue';
 import MobileTaskRow from '../mobile/MobileTaskRow.vue';
 import MobileClinicalWorkspace from '../mobile/MobileClinicalWorkspace.vue';
@@ -934,15 +945,26 @@ const allNavigation = [
   { id:'presence',label:'Presence',icon:Radio,description:'See who’s available and set your status.' },
   { id:'contacts',label:'Contacts',icon:Users,description:'Find and message your team.' },
   { id:'notifications',label:'Notifications',icon:Bell,description:'Updates across your agencies.' },
-  { id:'clients',label:'My Clients',icon:Users,description:'Your clients across affiliated agencies.' }
+  { id:'clients',label:'My Clients',icon:Users,description:'Clients assigned to your care.' },
+  {id:'exchange',label:'Client Exchange',icon:Users,description:'Review matches and request clients.'},
+  {id:'support',label:'Support Messages',icon:MessageSquare,description:'Tickets, main-number texts and communication history.'},
+  {id:'livechat',label:'Live Chat',icon:MessageSquare,description:'Go online to help website visitors.'},
+  {id:'applicants',label:'People Operations',icon:Users,description:'Current and recent applicants.'}
 ];
-const workspacePreferences=ref({swipeLeft:'archive',swipeRight:'read',navigationMode:'pinned',navigationSlots:4,pinnedNavigation:['calendar','mywork','tasks','home'],usage:{},lockedNavigation:'calendar'});
+const workspacePreferences=ref(readMobileViewPreference(props.mobileSession?.userId,'navigation','settings',{swipeLeft:'archive',swipeRight:'read',navigationMode:'pinned',navigationSlots:4,pinnedNavigation:['calendar','mywork','tasks','home'],usage:{},lockedNavigation:'calendar'}));
+const toolAgencies=ref({}),toolsReady=ref(false),toolsVisited=ref({}),peopleVisited=ref(false),mobileCalendar=ref(null),workControlsOpen=ref(true);
+const todayIntro=ref(!readMobileViewPreference(props.mobileSession?.userId,'calendar','introDismissed',false));
+function dismissTodayIntro(){todayIntro.value=false;writeMobileViewPreference(sessionUserId.value,'calendar','introDismissed',true);}
+async function loadTools(){try{const {data}=await axios.get(`${apiBase}/tools`,{headers:authHeaders(),withCredentials:true});toolAgencies.value=data.tools || {};toolsReady.value=true;}catch{toolAgencies.value={};}}
+const permittedNavigation=computed(()=>allNavigation.filter(item=>!['exchange','support','livechat','applicants'].includes(item.id)||!toolsReady.value||toolAgencies.value[item.id]?.length));
 const viewportWidth=ref(window.innerWidth),showMobileSettings=ref(false),mobileMessages=ref(null),mobileCounts=ref({});
 const messageBadge=ref(null),myWorkVisited=ref(false),calendarVisited=ref(false),clientsVisited=ref(false);let messageBadgeRequest=0,lastMessageBadgeRefresh=0;
-watch(tab,value=>{if(value==='mywork')myWorkVisited.value=true;if(value==='calendar')calendarVisited.value=true;if(value==='clients')clientsVisited.value=true;},{immediate:true});
+watch(tab,(value,previous)=>{if(previous==='calendar' && value!=='calendar')dismissTodayIntro();if(value==='contacts')peopleVisited.value=true;if(['exchange','support','livechat','applicants'].includes(value))toolsVisited.value={...toolsVisited.value,[value]:true};if(value==='mywork')myWorkVisited.value=true;if(value==='calendar')calendarVisited.value=true;if(value==='clients')clientsVisited.value=true;},{immediate:true});
+watch(moreOpen,value=>{if(value && tab.value==='calendar')dismissTodayIntro();});
 const mobileUnreadCount=computed(()=>mobileCounts.value.all?.unread ?? messageBadge.value);
 const workspaceBadges=ref({mywork:null,tasks:null});let badgeRequest=0,lastBadgeRefresh=0;
-const navigationBadge=id=>id==='home'?mobileUnreadCount.value:workspaceBadges.value[id];
+const navigationBadge=id=>id==='more'?moreBadge.value:id==='home'?mobileUnreadCount.value:workspaceBadges.value[id];
+const moreBadge=computed(()=>{const shown=new Set(primaryNavigation.value.map(item=>item.id));return ['home','mywork','tasks','notifications'].filter(id=>!shown.has(id)).reduce((sum,id)=>sum+Number(id==='home'?mobileUnreadCount.value||0:id==='notifications'?props.notificationUnread||0:workspaceBadges.value[id]||0),0);});
 async function loadWorkspaceBadges(force=false){
  if(!isMobile.value || !session.value || (!force && Date.now()-lastBadgeRefresh<60000))return;
  const request=++badgeRequest,token=session.value;lastBadgeRefresh=Date.now();
@@ -961,12 +983,12 @@ const primaryNavigation=computed(()=>{
   if(!isMobile.value)return [...allNavigation.slice(0,3),{id:'more',label:'More',icon:Ellipsis}];
   const requested=Number(workspacePreferences.value.navigationSlots);
   const slots=[2,3,4].includes(requested)?requested:4;
-  const ids=workspacePreferences.value.pinnedNavigation || ['calendar','mywork','tasks','home'];
+  const ids=(workspacePreferences.value.pinnedNavigation || ['calendar','mywork','tasks','home']).filter(id=>permittedNavigation.value.some(item=>item.id===id));
   const fixed=workspacePreferences.value.lockedNavigation || 'calendar';const ordered=fixed==='none'?ids:[fixed,...ids.filter(id=>id!==fixed)];
-  return [...ordered.slice(0,slots).map(id=>allNavigation.find(item=>item.id===id)).filter(Boolean),{id:'more',label:'More',icon:ChevronDown}];
+  return [...ordered.slice(0,slots).map(id=>permittedNavigation.value.find(item=>item.id===id)).filter(Boolean),{id:'more',label:'More',icon:ChevronDown}];
 });
-const secondaryNavigation=computed(()=>allNavigation.filter(item=>isMobile.value || !['notifications','clients'].includes(item.id)));
-watch(workspacePreferences,value=>{if(isMobile.value)emit('preferences',value);},{deep:true,immediate:true});
+const secondaryNavigation=computed(()=>permittedNavigation.value.filter(item=>(toolsReady.value || !['exchange','support','livechat','applicants'].includes(item.id)) && (isMobile.value || !['notifications','clients'].includes(item.id))));
+watch(workspacePreferences,value=>{if(isMobile.value){emit('preferences',value);writeMobileViewPreference(sessionUserId.value||props.mobileSession?.userId,'navigation','settings',value);}},{deep:true,immediate:true});
 function resizeMobile(){viewportWidth.value=window.innerWidth;}
 async function loadWorkspacePreferences(){try{const {data}=await axios.get(`${apiBase}/messages/preferences`,{headers:authHeaders(),withCredentials:true});workspacePreferences.value=data.preferences || workspacePreferences.value;}catch{/* Defaults remain usable if preferences are temporarily unavailable. */}}
 // Shortcut order changes only when the user saves their preferences.
@@ -1019,6 +1041,7 @@ const currentHeading = computed(() => {
     chat: { title: 'Team conversation', description: 'Direct messages and team discussions.' },
     calendar: { title: 'Your day, in view.', description: 'Appointments, meetings, and where you need to be.' },
     mywork:{title:'My Work',description:''},
+    exchange:{title:'Client Exchange',description:''},support:{title:'Support Messages',description:''},livechat:{title:'Live Chat',description:''},applicants:{title:'People Operations',description:''},
     clients:{title:'My Clients',description:'Your clients across affiliated agencies.'},
     tasks: { title: 'Tasks', description: 'Your tasks, shared lists, and next steps.' },
     noteaid: { title: 'Note Workspace', description: 'A focused space for your documentation.' },
@@ -1029,6 +1052,7 @@ const currentHeading = computed(() => {
 
 async function navigateTo(destination,{fromRoute=false}={}) {
   if(destination==='notifications' && isMobile.value){moreOpen.value=false;countNavigation(destination);emit('notifications');return;}
+  if(isMobile.value && destination==='calendar' && tab.value==='calendar' && !fromRoute){mobileCalendar.value?.resetToday();moreOpen.value=false;return;}
   if(isMobile.value && destination==='noteaid')destination='mywork';
   if (destination === 'more') { moreOpen.value = !moreOpen.value; return; }
   if(isMobile.value && !fromRoute){countNavigation(destination);const query=destination==='home'?{view:'home',...(route.query.suite?{suite:route.query.suite}:{}),...(route.query.filter?{filter:route.query.filter}:{}),...(route.query.archived?{archived:route.query.archived}:{})}:{view:destination};if(router.resolve({path:'/mobile/workspace',query}).fullPath!==route.fullPath){moreOpen.value=false;await mobileNavigate(query);return;}}
@@ -1039,9 +1063,9 @@ async function navigateTo(destination,{fromRoute=false}={}) {
     if (destination === 'home') {if(isMobile.value)tab.value='home';else await switchMsgSuite(msgSuite.value);}
     else if (destination === 'calendar') { if(isMobile.value){tab.value='calendar';return;} if (showOffice.value) { tab.value = 'calendar'; await loadOffice(); } else await loadCalendar(); }
     else if (destination === 'tasks') await loadTasks(taskView.value);
-    else if (['mywork','clinical','client','clients','session'].includes(destination) && isMobile.value)tab.value=destination;
+    else if (['mywork','clinical','client','clients','session','exchange','support','livechat','applicants'].includes(destination) && isMobile.value)tab.value=destination;
     else if (destination === 'noteaid') await switchNoteAid();
-    else if (destination === 'contacts') await loadContacts();
+    else if (destination === 'contacts'){if(isMobile.value)tab.value='contacts';else await loadContacts();}
     else if (destination === 'presence') tab.value = 'presence';
   } catch (e) {
     error.value = e?.response?.data?.error?.message || `Could not load ${destination === 'tasks' ? 'your tasks' : 'this view'}. Try again.`;
@@ -1363,7 +1387,7 @@ const isDelivery = computed(() =>
 const sessionOnly = computed(() => route.meta?.quickViewSessionOnly === true);
 
 async function resumeSession() {
-  if(isMobile.value){session.value=props.mobileSession.sessionToken;expiresAt.value=props.mobileSession.expiresAt;sessionUserId.value=props.mobileSession.userId;sessionAgencyId.value=props.mobileSession.agencyId;agencyName.value=props.mobileSession.profile?.workspace?.name || '';loginUrl.value=props.mobileSession.profile?.workspace?.loginUrl || '';loading.value=false;startHeartbeat();await loadWorkspacePreferences();void loadWorkspaceBadges();void loadMessageBadge();await openDeepLink();if(route.query.view && route.query.view!=='home')await navigateTo(String(route.query.view),{fromRoute:true});return;}
+  if(isMobile.value){session.value=props.mobileSession.sessionToken;expiresAt.value=props.mobileSession.expiresAt;sessionUserId.value=props.mobileSession.userId;sessionAgencyId.value=props.mobileSession.agencyId;agencyName.value=props.mobileSession.profile?.workspace?.name || '';loginUrl.value=props.mobileSession.profile?.workspace?.loginUrl || '';loading.value=false;startHeartbeat();await loadWorkspacePreferences();void loadTools();void loadWorkspaceBadges();void loadMessageBadge();await openDeepLink();if(route.query.view && route.query.view!=='home')await navigateTo(String(route.query.view),{fromRoute:true});return;}
   loading.value = true;
   error.value = '';
   try {

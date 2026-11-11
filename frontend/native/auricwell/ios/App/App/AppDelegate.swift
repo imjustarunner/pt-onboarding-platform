@@ -50,7 +50,7 @@ class AuricwellDevice: CAPPlugin, CAPBridgedPlugin, ASWebAuthenticationPresentat
             guard let http = response as? HTTPURLResponse, let bytes = bytes, var result = (try? JSONSerialization.jsonObject(with: bytes)) as? [String: Any] else { call.reject("Invalid server response."); return }
             guard (200..<300).contains(http.statusCode) else {
                 let failure = result["error"] as? [String: Any], code = (result["error"] as? [String: Any])?["code"] as? String ?? "MOBILE_REQUEST_FAILED"
-                if ["MOBILE_SIGN_IN_REQUIRED", "MOBILE_ACCOUNT_CHANGED", "ACCOUNT_DISABLED", "ACCOUNT_UNAVAILABLE"].contains(code) { SecItemDelete(self.keychainQuery as CFDictionary) }
+                if ["MOBILE_SIGN_IN_REQUIRED", "MOBILE_ACCOUNT_CHANGED", "ACCOUNT_DISABLED", "ACCOUNT_UNAVAILABLE", "MOBILE_WORKSPACE_UNAVAILABLE", "MOBILE_FAMILY_UNAVAILABLE", "HIRE_ACTIVATION_REQUIRED", "PRODUCT_SESSION_MISMATCH"].contains(code) { SecItemDelete(self.keychainQuery as CFDictionary) }
                 call.reject(failure?["message"] as? String ?? "Could not open your workspace.", code); return
             }
             if exchange {
@@ -63,7 +63,7 @@ class AuricwellDevice: CAPPlugin, CAPBridgedPlugin, ASWebAuthenticationPresentat
     }
     @objc func request(_ call: CAPPluginCall) {
         let path = call.getString("path") ?? "", method = call.getString("method") ?? "GET"
-        guard (path == "/session" && method == "GET") || (["/code", "/unlock", "/logout", "/resume", "/app-lock"].contains(path) && method == "POST") else { call.reject("Unsupported request"); return }
+        guard (path == "/session" && method == "GET") || (["/code", "/unlock", "/logout", "/resume", "/app-lock", "/activity"].contains(path) && method == "POST") else { call.reject("Unsupported request"); return }
         var data = call.getObject("data") ?? [:]; data.removeValue(forKey: "biometric")
         send(call, path: path, method: method, data: data, sessionToken: call.getString("sessionToken"))
     }
@@ -80,7 +80,7 @@ class AuricwellDevice: CAPPlugin, CAPBridgedPlugin, ASWebAuthenticationPresentat
     }
     @objc func configureBiometrics(_ call: CAPPluginCall) {
         let context = LAContext()
-        context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: "Enable optional biometric app lock for Auricwell") { accepted, _ in
+        context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: "Enable biometric app lock for Auricwell") { accepted, _ in
             guard accepted else { call.reject("Biometric app lock was not enabled.", "MOBILE_BIOMETRIC_CANCELLED"); return }
             self.send(call, path: "/app-lock", method: "POST", data: ["method": "biometric", "biometric": true], sessionToken: call.getString("sessionToken"))
         }

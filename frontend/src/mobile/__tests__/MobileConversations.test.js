@@ -7,7 +7,7 @@ vi.mock('axios',()=>({default:{get:mocks.quickGet,post:mocks.quickPost,patch:moc
 vi.mock('../../services/api',()=>({default:{get:mocks.quickGet,post:mocks.quickPost,patch:mocks.quickPatch}}));
 import MobileApp from '../MobileApp.vue';
 import MobileNotifications from '../MobileNotifications.vue';
-const profile={user:{id:1,firstName:'Test',email:'staff@example.invalid'},workspace:{id:10,name:'Test workspace'},agencies:[{id:10,name:'Test workspace'}],appLock:{method:'none',hasCode:false}};
+const profile={user:{id:1,firstName:'Test',email:'staff@example.invalid'},workspace:{id:10,name:'Test workspace'},agencies:[{id:10,name:'Test workspace'}],appLock:{method:'code',hasCode:true}};
 let wrapper,router;
 beforeEach(async()=>{
   vi.resetAllMocks();history.replaceState({},'','/mobile');
@@ -17,6 +17,7 @@ beforeEach(async()=>{
   mocks.quickGet.mockImplementation(async (url,config)=>({data:url.endsWith('/messages/inbox') && config?.params?.countsOnly==='1'?{counts:{all:{unread:312}}}:url.endsWith('/messages/preferences')?{preferences:{navigationMode:'pinned',pinnedNavigation:['mywork','tasks','home'],usage:{}}}:url.endsWith('/workspace-counts')?{mywork:15,tasks:257}:url.endsWith('/messages/inbox')?{items:[{key:'email:41',id:41,kind:'email',channel:'email',category:'email',title:'SYNTHETIC-EMAIL-41',subject:'SYNTHETIC-EMAIL-41',sender:'Synthetic Sender',preview:'Preview',at:'2026-11-05'}],mailboxEmail:'staff@example.invalid'}:url.endsWith('/conversations/41')?{conversation:{id:41,channel:'email',subject:'SYNTHETIC-EMAIL-41',inbox_from_email:'staff@example.invalid'},messages:[{id:100,from:{email:'sender@example.invalid'},to:[{email:'staff@example.invalid'}],body_text:'LONG-EMAIL-BODY\n'.repeat(100),direction:'inbound',send_status:'sent'}]}:{items:[],tasks:[],conversations:[]}}));
   router=createRouter({history:createWebHistory(),routes:[{path:'/:pathMatch(.*)*',component:{template:'<span />'}}]});await router.push('/mobile/workspace?view=home');
   wrapper=mount(MobileApp,{attachTo:document.body,global:{plugins:[router],stubs:{QuickViewMusicDock:true,QuickViewPresence:true}}});await flushPromises();
+  await wrapper.get('.mobile-gate input[type=password]').setValue('123456');await wrapper.get('.mobile-gate form').trigger('submit');await flushPromises();
 });
 afterEach(async()=>{wrapper?.unmount();router?.options.history.destroy();await new Promise(resolve=>setTimeout(resolve,35));document.body.innerHTML='';vi.restoreAllMocks();vi.unstubAllGlobals();});
 const email=()=>wrapper.findAll('button').find(button=>button.text().includes('SYNTHETIC-EMAIL-41'));
@@ -64,7 +65,7 @@ it('opens task details while a slow directory request is still pending',async()=
 it('edits a due date from the task preview and preserves the prompt on a rejected save',async()=>{await taskScreen();await wrapper.get('.mt-options').trigger('click');await flushPromises();await wrapper.findAll('[aria-label="Task preview"] button').find(b=>b.text()==='Change due date').trigger('click');await wrapper.get('input[type="datetime-local"]').setValue('2026-11-17T15:30');mocks.quickPatch.mockRejectedValueOnce({response:{data:{error:{message:'Access changed'}}}});await wrapper.findAll('[aria-label="Change task due date"] button').find(b=>b.text()==='Save due date').trigger('click');await flushPromises();expect(wrapper.get('[aria-label="Change task due date"] [role="alert"]').text()).toContain('Access changed');expect(mocks.quickPatch).toHaveBeenCalledWith('/api/quick-view/tasks/7',{dueDate:new Date('2026-11-17T15:30').toISOString()},expect.any(Object));});
 
 it('shows the weekday of the selected calendar date rather than only today',async()=>{
- await router.push('/mobile/workspace?view=calendar');await flushPromises();await wrapper.get('[aria-label="Calendar date"]').setValue('2026-11-10');await flushPromises();expect(wrapper.get('.day-heading').text()).toContain('Tuesday');expect(wrapper.get('.day-heading').text()).toContain('November 10');
+ await router.push('/mobile/workspace?view=calendar');await flushPromises();await wrapper.get('[aria-label="Calendar date"]').setValue('2026-11-10');await flushPromises();expect(wrapper.get('.calendar-heading').text()).toContain('Tuesday');expect(wrapper.get('.calendar-heading').text()).toContain('November 10');
 });
 
 it('reopens a recent email without waiting for a second detail request',async()=>{await email().trigger('click');await flushPromises();const details=()=>mocks.quickGet.mock.calls.filter(([url])=>url.endsWith('/conversations/41')).length;expect(details()).toBe(1);await historyBack();await email().trigger('click');await flushPromises();expect(details()).toBe(1);expect(wrapper.find('.email-reader').exists()).toBe(true);});

@@ -142,13 +142,14 @@ export const getQuickDirectory = async (req, res, next) => {
     const qaAgencyId=mobileQaAgencyId(req);
     if(qaAgencyId){
       const [rows]=await pool.execute(`SELECT u.* FROM users u JOIN user_agencies ua ON ua.user_id=u.id WHERE ua.agency_id=? AND COALESCE(ua.is_active,1)=1 AND u.is_demo=1 AND u.is_active=1 AND COALESCE(u.is_archived,0)=0 AND u.id<>?`,[qaAgencyId,userId]);
-      return res.json({ok:true,agencyId:qaAgencyId,providers:rows.filter(isQaPreviewIdentity).map(row=>mapDirectoryPerson(row,'providers')),schoolStaff:[]});
+      const [[agency]]=await pool.execute('SELECT id,name,slug,phone_number FROM agencies WHERE id=?',[qaAgencyId]);
+      return res.json({ok:true,agencyId:qaAgencyId,providers:rows.filter(isQaPreviewIdentity).map(row=>mapDirectoryPerson(row,'providers',agency||{})),schoolStaff:[]});
     }
 
     if(req.quickView.mobileDeviceSessionId && req.query.agencyId==='all'){
       const user=await User.findById(userId,{raw:true});
       const {agencies}=await listMobileAgencies(user);
-      const result={ok:true,agencyId:null,agencies:agencies.map(a=>({id:Number(a.id),name:a.name})),providers:[],schoolStaff:[]};
+      const result={ok:true,agencyId:null,agencies:agencies.map(a=>({id:Number(a.id),name:a.name,logoUrl:mobileAgencyIcon(a)})),providers:[],schoolStaff:[]};
       for(const agency of agencies){
         const scoped=Object.assign(Object.create(req),{quickView:{...req.quickView,agencyId:Number(agency.id)},query:{...req.query,agencyId:String(agency.id)}});
         let body;await getQuickDirectory(scoped,{json(value){body=value;return this;}},error=>{throw error;});
@@ -157,7 +158,7 @@ export const getQuickDirectory = async (req, res, next) => {
       return res.json(result);
     }
 
-    const [[directoryAgency]] = await pool.execute('SELECT id,name,slug,phone_number FROM agencies WHERE id=?',[agencyId]);
+    const [[directoryAgency]] = await pool.execute('SELECT id,name,slug,phone_number,logo_path FROM agencies WHERE id=?',[agencyId]);
     const [providerRows] = await pool.execute(
       `SELECT u.id, u.first_name, u.last_name, u.preferred_name, u.email, u.work_email,
               u.work_phone, u.work_phone_extension, u.profile_photo_path, u.role, u.credential, u.title,

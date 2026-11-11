@@ -7,9 +7,10 @@ vi.mock('../transport.js',()=>({native:false,apiOrigin:'',MobileDevice:{},quickA
 vi.mock('axios',()=>({default:{get:mocks.get,post:mocks.quickPost,interceptors:{response:{use:vi.fn(),eject:vi.fn()}}}}));
 vi.mock('../../services/api',()=>({default:{get:mocks.get,post:mocks.quickPost}}));
 import MobileApp from '../MobileApp.vue';
+async function openWorkspace(wrapper){await flushPromises();await wrapper.get('input[type=password]').setValue('123456');await wrapper.get('form').trigger('submit');await flushPromises();}
 const profile={user:{id:1,firstName:'Test',email:'test@example.invalid'},workspace:{id:10,name:'My workspace'},agencies:[{id:10,name:'My workspace'}]};
 async function app(path='/mobile'){const router=createRouter({history:createMemoryHistory(),routes:[{path:'/:pathMatch(.*)*',component:{template:'<span />'}}]});await router.push(path);return mount(MobileApp,{global:{plugins:[router],stubs:{AccountSecurityPanel:{template:'<div>Existing account verification</div>'},QuickView:{props:['mobileSession'],emits:['locked','account','open-workspace-item','refresh-session'],template:'<div data-testid="private-workspace"><button @click="$emit(\'locked\')">Test lock</button><button @click="$emit(\'account\')">My Account</button>Private inbox</div>'}}}});}
-beforeEach(()=>{vi.resetAllMocks();sessionStorage.clear();localStorage.clear();history.replaceState(null,'','/mobile');mocks.quickPost.mockResolvedValue({});mocks.get.mockResolvedValue({data:profile});mocks.request.mockResolvedValue({data:{signedIn:true,needsCode:false,workspace:profile.workspace}});});
+beforeEach(()=>{vi.restoreAllMocks();vi.resetAllMocks();sessionStorage.clear();localStorage.clear();history.replaceState(null,'','/mobile');mocks.quickPost.mockResolvedValue({});mocks.get.mockResolvedValue({data:profile});mocks.request.mockResolvedValue({data:{signedIn:true,needsCode:false,workspace:profile.workspace}});});
 it('unlocks the scoped account and locks without signing the device out',async()=>{
   const wrapper=await app();await flushPromises();expect(wrapper.text()).toContain('Your account is still signed in');
   mocks.request.mockResolvedValue({data:{sessionToken:'short-lived',userId:1,agencyId:10,expiresAt:new Date(Date.now()+600000),profile}});
@@ -33,28 +34,16 @@ it('rejects a mismatched sign-in state and reopens the existing device instead o
   const wrapper=await app();await flushPromises();expect(wrapper.text()).toContain('Welcome back');expect(wrapper.text()).not.toContain('Confirm code');expect(mocks.post).not.toHaveBeenCalled();wrapper.unmount();
 });
 
-it('resumes a retained sign-in with no mandatory code when app lock is off',async()=>{
-  mocks.request.mockImplementation(async({url})=>({data:url==='/session'?{signedIn:true,workspace:profile.workspace,appLock:{method:'none',hasCode:false}}:{sessionToken:'open-session',profile:{...profile,appLock:{method:'none',hasCode:false}}}}));
-  const wrapper=await app();await flushPromises();expect(wrapper.text()).toContain('Private inbox');expect(wrapper.find('input[type=password]').exists()).toBe(false);
-  expect(mocks.request).toHaveBeenCalledWith(expect.objectContaining({url:'/resume'}));wrapper.unmount();
-});
-it('offers app lock as an optional account setting after primary sign-in',async()=>{
-  history.replaceState(null,'','/mobile/callback?code=verified-code&state=expected');
-  sessionStorage.setItem('auricwell.mobile.pending',JSON.stringify({state:'expected',verifier:'private',callback:'https://auricwell.com/mobile/callback',clientId:'web',createdAt:Date.now()}));
-  mocks.post.mockResolvedValue({data:{sessionToken:'fresh-primary-session',newDevice:true,profile:{...profile,appLock:{method:'none',hasCode:false}}}});
-  const wrapper=await app();await flushPromises();expect(wrapper.text()).toContain('App lock · optional');expect(wrapper.text()).toContain('Not now');
-  expect(wrapper.findAll('input[type=password]')).toHaveLength(0);
-  await wrapper.findAll('button').find(b=>b.text().includes('Not now')).trigger('click');expect(wrapper.text()).toContain('Private inbox');wrapper.unmount();
+it('requires account-code unlock even for an existing device that previously opted out',async()=>{
+ mocks.request.mockResolvedValue({data:{signedIn:true,workspace:profile.workspace,appLock:{method:'none',hasCode:false}}});const wrapper=await app();await flushPromises();expect(wrapper.text()).not.toContain('Private inbox');expect(wrapper.get('input[type=password]').exists()).toBe(true);expect(mocks.request.mock.calls.some(([request])=>request.url==='/resume')).toBe(false);wrapper.unmount();
 });
 
-it('does not let a late account response reset a chosen code option',async()=>{
-  mocks.request.mockImplementation(async({url})=>({data:url==='/session'?{signedIn:true,workspace:profile.workspace,appLock:{method:'none',hasCode:false}}:{sessionToken:'open-session',profile:{...profile,appLock:{method:'none',hasCode:false}}}}));
-  const wrapper=await app();await flushPromises();let finishProfile;
-  mocks.get.mockImplementation(()=>new Promise(resolve=>finishProfile=resolve));
-  await wrapper.findAll('button').find(button=>button.text()==='My Account').trigger('click');
-  await wrapper.find('#mobile-app-lock').setValue('code');
-  finishProfile({data:{...profile,appLock:{method:'none',hasCode:false}}});await flushPromises();
-  expect(wrapper.find('#mobile-app-lock').element.value).toBe('code');expect(wrapper.findAll('input[type=password]')).toHaveLength(2);wrapper.unmount();
+it('requires app lock after primary sign-in and reuses the account code instead of creating a device PIN',async()=>{
+ history.replaceState(null,'','/mobile/callback?code=verified-code&state=expected');sessionStorage.setItem('auricwell.mobile.pending',JSON.stringify({state:'expected',verifier:'private',callback:'https://auricwell.com/mobile/callback',clientId:'web',createdAt:Date.now()}));mocks.post.mockResolvedValue({data:{sessionToken:'fresh-primary-session',newDevice:true,profile:{...profile,appLock:{method:'none',hasCode:false}}}});const wrapper=await app();await flushPromises();expect(wrapper.text()).toContain('App lock · required');expect(wrapper.text()).not.toContain('Not now');expect(wrapper.text()).toContain('Existing account Quick View code');expect(wrapper.find('option[value=none]').exists()).toBe(false);expect(wrapper.findAll('input[type=password]')).toHaveLength(1);expect(wrapper.text()).not.toContain('New six-digit code');wrapper.unmount();
+});
+
+it('does not let a late account response erase an entered account-code confirmation',async()=>{
+ mocks.request.mockImplementation(async({url})=>({data:url==='/session'?{signedIn:true,workspace:profile.workspace,appLock:{method:'code',hasCode:true}}:{sessionToken:'open-session',profile:{...profile,appLock:{method:'code',hasCode:true}}}}));const wrapper=await app();await openWorkspace(wrapper);let finishProfile;mocks.get.mockImplementation(()=>new Promise(resolve=>finishProfile=resolve));await wrapper.findAll('button').find(button=>button.text()==='My Account').trigger('click');await wrapper.get('.account input[type=password]').setValue('654321');finishProfile({data:{...profile,appLock:{method:'code',hasCode:true}}});await flushPromises();expect(wrapper.get('.account input[type=password]').element.value).toBe('654321');expect(wrapper.findAll('input[type=password]')).toHaveLength(1);wrapper.unmount();
 });
 
 it('restores a cached page using the existing device rather than a new enrollment',async()=>{
@@ -66,7 +55,7 @@ it('restores a cached page using the existing device rather than a new enrollmen
 
 it('switches the device workspace before opening another agency’s note',async()=>{
  mocks.request.mockImplementation(async({url})=>({data:url==='/session'?{signedIn:true,workspace:profile.workspace,appLock:{method:'none',hasCode:false}}:url==='/workspace'?{sessionToken:'agency-20',agencyId:20,userId:1,profile:{...profile,workspace:{id:20,name:'School'},appLock:{method:'none',hasCode:false}}}:{sessionToken:'agency-10',agencyId:10,userId:1,profile:{...profile,appLock:{method:'none',hasCode:false}}}}));
- const wrapper=await app();await flushPromises();const router=wrapper.vm.$router;await router.replace('/mobile/workspace?view=mywork&workTab=started&workAgency=20');
+ const wrapper=await app();await openWorkspace(wrapper);const router=wrapper.vm.$router;await router.replace('/mobile/workspace?view=mywork&workTab=started&workAgency=20');
  wrapper.findComponent('[data-testid="private-workspace"]').vm.$emit('open-workspace-item',{agencyId:20,query:{view:'clinical',workId:'work_20',clientId:'120'}});await flushPromises();
  expect(mocks.request).toHaveBeenCalledWith(expect.objectContaining({url:'/workspace',data:{agencyId:20},headers:{'X-Quick-View-Session':'agency-10'}}));
  expect(router.currentRoute.value.query).toMatchObject({view:'clinical',workId:'work_20'});expect(wrapper.findComponent('[data-testid="private-workspace"]').props('mobileSession').agencyId).toBe(20);
@@ -74,7 +63,7 @@ it('switches the device workspace before opening another agency’s note',async(
 });
 it('shows a failed workspace switch without opening an unauthorized note',async()=>{
  mocks.request.mockImplementation(async({url})=>{if(url==='/workspace')throw {response:{status:403,data:{error:{message:'Workspace access changed'}}}};return {data:url==='/session'?{signedIn:true,workspace:profile.workspace,appLock:{method:'none',hasCode:false}}:{sessionToken:'agency-10',profile:{...profile,appLock:{method:'none',hasCode:false}}}};});
- const wrapper=await app();await flushPromises();wrapper.findComponent('[data-testid="private-workspace"]').vm.$emit('open-workspace-item',{agencyId:20,query:{view:'clinical',noteId:'90'}});await flushPromises();expect(wrapper.get('[role="alert"]').text()).toContain('Workspace access changed');expect(wrapper.vm.$route.query.noteId).toBeUndefined();expect(wrapper.findComponent('[data-testid="private-workspace"]').props('mobileSession').sessionToken).toBe('agency-10');wrapper.unmount();
+ const wrapper=await app();await openWorkspace(wrapper);wrapper.findComponent('[data-testid="private-workspace"]').vm.$emit('open-workspace-item',{agencyId:20,query:{view:'clinical',noteId:'90'}});await flushPromises();expect(wrapper.get('[role="alert"]').text()).toContain('Workspace access changed');expect(wrapper.vm.$route.query.noteId).toBeUndefined();expect(wrapper.findComponent('[data-testid="private-workspace"]').props('mobileSession').sessionToken).toBe('agency-10');wrapper.unmount();
 });
 it('offers retry and an explicit account change when connect refuses a retained primary account',async()=>{
  history.replaceState(null,'','/mobile/connect?clientId=web&challenge='+('a'.repeat(43))+'&state='+('b'.repeat(43))+'&loginPath=%2Fitsco%2Flogin');
@@ -100,43 +89,24 @@ it('keeps the exact secure-comment destination after normal family Unlock withou
  expect(wrapper.vm.$route.path).toBe('/mobile/family/qa-family/guardian');expect(wrapper.vm.$route.query).toEqual({panel:'appointments',secureCommentAppointmentId:'101',secureCommentClientId:'10',childId:'10'});wrapper.unmount();
 });
 
-it('starts a fresh staff workspace in Today',async()=>{mocks.request.mockImplementation(async({url})=>({data:url==='/session'?{workspace:profile.workspace,appLock:{method:'none'}}:{sessionToken:'same-token',userId:1,agencyId:10,expiresAt:new Date(Date.now()+600000).toISOString(),profile:{...profile,appLock:{method:'none'}}}}));const w=await app();await flushPromises();expect(w.vm.$router.currentRoute.value.query.view).toBe('calendar');w.unmount();});
-it('keeps a no-extra-lock workspace mounted behind its background privacy cover',async()=>{mocks.request.mockImplementation(async({url})=>({data:url==='/session'?{workspace:profile.workspace,appLock:{method:'none'}}:url==='/activity'?{expiresAt:new Date(Date.now()+600000).toISOString()}:{sessionToken:'same-token',userId:1,agencyId:10,expiresAt:new Date(Date.now()+600000).toISOString(),profile:{...profile,appLock:{method:'none'}}}}));const w=await app();await flushPromises();const node=w.get('[data-testid=private-workspace]').element;const hidden=vi.spyOn(document,'hidden','get');hidden.mockReturnValue(true);document.dispatchEvent(new Event('visibilitychange'));await flushPromises();expect(w.classes()).toContain('privacy-hidden');expect(mocks.quickPost).not.toHaveBeenCalled();hidden.mockReturnValue(false);document.dispatchEvent(new Event('visibilitychange'));await flushPromises();expect(w.classes()).not.toContain('privacy-hidden');expect(w.get('[data-testid=private-workspace]').element).toBe(node);expect(mocks.request.mock.calls.filter(([r])=>r.url==='/resume')).toHaveLength(1);w.unmount();hidden.mockRestore();});
-
-it('does not uncover the workspace when a delayed foreground profile finishes after another background transition',async()=>{
- mocks.request.mockImplementation(async({url})=>({data:url==='/session'?{workspace:profile.workspace,appLock:{method:'none'}}:url==='/activity'?{expiresAt:new Date(Date.now()+600000).toISOString()}:{sessionToken:'same-token',userId:1,agencyId:10,expiresAt:new Date(Date.now()+600000).toISOString(),profile:{...profile,appLock:{method:'none'}}}}));
- const hidden=vi.spyOn(document,'hidden','get').mockReturnValue(false),w=await app();await flushPromises();
- let finishProfile;mocks.get.mockImplementationOnce(()=>new Promise(resolve=>finishProfile=resolve));
- hidden.mockReturnValue(true);document.dispatchEvent(new Event('visibilitychange'));await flushPromises();
- hidden.mockReturnValue(false);document.dispatchEvent(new Event('visibilitychange'));await flushPromises();
- hidden.mockReturnValue(true);document.dispatchEvent(new Event('visibilitychange'));await flushPromises();
- finishProfile({data:profile});await flushPromises();
- expect(w.classes()).toContain('privacy-hidden');expect(w.get('.mobile-privacy-cover').exists()).toBe(true);
- hidden.mockReturnValue(false);document.dispatchEvent(new Event('visibilitychange'));await flushPromises();
- expect(w.classes()).not.toContain('privacy-hidden');w.unmount();hidden.mockRestore();
+it('starts a fresh staff workspace in Today',async()=>{mocks.request.mockImplementation(async({url})=>({data:url==='/session'?{workspace:profile.workspace,appLock:{method:'none'}}:{sessionToken:'same-token',userId:1,agencyId:10,expiresAt:new Date(Date.now()+600000).toISOString(),profile:{...profile,appLock:{method:'none'}}}}));const w=await app();await openWorkspace(w);expect(w.vm.$router.currentRoute.value.query.view).toBe('calendar');w.unmount();});
+it('immediately unmounts the private workspace when leaving and never resumes without unlock',async()=>{
+ mocks.request.mockImplementation(async({url})=>({data:url==='/session'?{workspace:profile.workspace,appLock:{method:'code'}}:{sessionToken:'same-token',profile:{...profile,appLock:{method:'code'}}}}));const hidden=vi.spyOn(document,'hidden','get').mockReturnValue(false),w=await app();await openWorkspace(w);hidden.mockReturnValue(true);document.dispatchEvent(new Event('visibilitychange'));await flushPromises();expect(w.find('[data-testid=private-workspace]').exists()).toBe(false);expect(mocks.quickPost).toHaveBeenCalledWith('/api/quick-view/session/logout',{},expect.anything());hidden.mockReturnValue(false);document.dispatchEvent(new Event('visibilitychange'));await flushPromises();expect(w.text()).toContain('Welcome back');expect(w.find('[data-testid=private-workspace]').exists()).toBe(false);expect(mocks.request.mock.calls.some(([r])=>r.url==='/resume')).toBe(false);w.unmount();hidden.mockRestore();
 });
 
-it('keeps the privacy cover when an in-flight session renewal completes in the background',async()=>{
- let resumeCount=0,finishRenew;
- mocks.request.mockImplementation(async({url})=>{
-  if(url==='/session')return {data:{workspace:profile.workspace,appLock:{method:'none'}}};
-  if(url==='/resume' && ++resumeCount>1)return new Promise(resolve=>finishRenew=resolve);
-  return {data:{sessionToken:'same-token',userId:1,agencyId:10,expiresAt:new Date(Date.now()+600000).toISOString(),profile:{...profile,appLock:{method:'none'}}}};
- });
- const hidden=vi.spyOn(document,'hidden','get').mockReturnValue(false),w=await app();await flushPromises();
- w.findComponent('[data-testid="private-workspace"]').vm.$emit('refresh-session');await flushPromises();
- hidden.mockReturnValue(true);document.dispatchEvent(new Event('visibilitychange'));await flushPromises();
- finishRenew({data:{sessionToken:'renewed-token',userId:1,agencyId:10,expiresAt:new Date(Date.now()+600000).toISOString(),profile:{...profile,appLock:{method:'none'}}}});await flushPromises();
- expect(w.classes()).toContain('privacy-hidden');expect(w.get('.mobile-privacy-cover').exists()).toBe(true);
- expect(w.findComponent('[data-testid="private-workspace"]').props('mobileSession').sessionToken).toBe('renewed-token');
- w.unmount();hidden.mockRestore();
+it('does not uncover the workspace when a delayed foreground status completes after another background transition',async()=>{
+ mocks.request.mockImplementation(async({url})=>({data:url==='/session'?{workspace:profile.workspace,appLock:{method:'code'}}:{sessionToken:'same-token',profile:{...profile,appLock:{method:'code'}}}}));const hidden=vi.spyOn(document,'hidden','get').mockReturnValue(false),w=await app();await openWorkspace(w);hidden.mockReturnValue(true);document.dispatchEvent(new Event('visibilitychange'));await flushPromises();let finishStatus;mocks.request.mockImplementationOnce(()=>new Promise(resolve=>finishStatus=resolve));hidden.mockReturnValue(false);document.dispatchEvent(new Event('visibilitychange'));await flushPromises();hidden.mockReturnValue(true);document.dispatchEvent(new Event('visibilitychange'));await flushPromises();finishStatus({data:{workspace:profile.workspace,appLock:{method:'code'}}});await flushPromises();expect(w.find('[data-testid=private-workspace]').exists()).toBe(false);hidden.mockReturnValue(false);document.dispatchEvent(new Event('visibilitychange'));await flushPromises();expect(w.find('[data-testid=private-workspace]').exists()).toBe(false);w.unmount();hidden.mockRestore();
 });
 
-it('reveals an initially background-loaded workspace after its first foreground authorization check',async()=>{
- mocks.request.mockImplementation(async({url})=>({data:url==='/session'?{workspace:profile.workspace,appLock:{method:'none'}}:url==='/activity'?{expiresAt:new Date(Date.now()+600000).toISOString()}:{sessionToken:'same-token',userId:1,agencyId:10,expiresAt:new Date(Date.now()+600000).toISOString(),profile:{...profile,appLock:{method:'none'}}}}));
- const hidden=vi.spyOn(document,'hidden','get').mockReturnValue(true),w=await app();await flushPromises();
- expect(w.classes()).toContain('privacy-hidden');
- hidden.mockReturnValue(false);document.dispatchEvent(new Event('visibilitychange'));await flushPromises();
- expect(mocks.get).toHaveBeenCalledWith('/profile',expect.anything());expect(w.classes()).not.toContain('privacy-hidden');
- w.unmount();hidden.mockRestore();
+it('discards an in-flight unlock when the app closes before it completes',async()=>{
+ const hidden=vi.spyOn(document,'hidden','get').mockReturnValue(false),w=await app();await flushPromises();let finishUnlock;mocks.request.mockImplementationOnce(()=>new Promise(resolve=>finishUnlock=resolve));await w.get('input[type=password]').setValue('123456');await w.get('form').trigger('submit');hidden.mockReturnValue(true);document.dispatchEvent(new Event('visibilitychange'));await flushPromises();finishUnlock({data:{sessionToken:'late-token',profile}});await flushPromises();expect(w.find('[data-testid=private-workspace]').exists()).toBe(false);expect(w.text()).toContain('Welcome back');w.unmount();hidden.mockRestore();
 });
+
+it('requires explicit unlock when the app is initially loaded in the background',async()=>{
+ mocks.request.mockImplementation(async()=>({data:{workspace:profile.workspace,appLock:{method:'none'}}}));const hidden=vi.spyOn(document,'hidden','get').mockReturnValue(true),w=await app();await flushPromises();expect(w.find('[data-testid=private-workspace]').exists()).toBe(false);hidden.mockReturnValue(false);document.dispatchEvent(new Event('visibilitychange'));await flushPromises();expect(w.text()).toContain('Welcome back');expect(w.find('[data-testid=private-workspace]').exists()).toBe(false);expect(mocks.request.mock.calls.some(([r])=>r.url==='/resume')).toBe(false);w.unmount();hidden.mockRestore();
+});
+
+it('shows a newly assigned random account code once before revealing the first workspace',async()=>{
+ history.replaceState(null,'','/mobile/callback?code=verified-code&state=expected');sessionStorage.setItem('auricwell.mobile.pending',JSON.stringify({state:'expected',verifier:'private',callback:'https://auricwell.com/mobile/callback',clientId:'web',createdAt:Date.now()}));mocks.post.mockResolvedValue({data:{sessionToken:'fresh',newDevice:true,initialAccountCode:'081527',profile:{...profile,appLock:{method:'code',usesAccountCode:true}}}});const w=await app();await flushPromises();expect(w.get('output').text()).toBe('081527');expect(w.find('[data-testid=private-workspace]').exists()).toBe(false);await w.findAll('button').find(b=>b.text().includes('I saved my code')).trigger('click');await flushPromises();expect(w.text()).toContain('Private inbox');expect(w.text()).not.toContain('081527');expect(localStorage.length).toBe(0);w.unmount();
+});
+it('locks when pagehide occurs even if the browser has not emitted visibilitychange',async()=>{mocks.request.mockImplementation(async({url})=>({data:url==='/session'?{workspace:profile.workspace,appLock:{method:'code'}}:{sessionToken:'active',profile}}));const w=await app();await openWorkspace(w);window.dispatchEvent(new Event('pagehide'));await flushPromises();expect(w.find('[data-testid=private-workspace]').exists()).toBe(false);expect(w.text()).toContain('Welcome back');w.unmount();});

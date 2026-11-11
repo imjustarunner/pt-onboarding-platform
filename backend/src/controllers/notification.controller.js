@@ -8,6 +8,7 @@ import AgencyNotificationTriggerSetting from '../models/AgencyNotificationTrigge
 import NotificationDispatcherService from '../services/notificationDispatcher.service.js';
 import ProgramReminderService from '../services/programReminder.service.js';
 import pool from '../config/database.js';
+import { hiringNotificationAgencyIds, hiringNotificationVisible } from '../services/notificationHiringAccess.service.js';
 import { accessProfileSchemaReady, agencyIdsWithPermission } from '../services/agencyAccessProfiles.service.js';
 import NotificationTypePreference from '../models/NotificationTypePreference.model.js';
 import AgencyNotificationPreferences from '../models/AgencyNotificationPreferences.model.js';
@@ -171,6 +172,7 @@ function filterNotificationsForViewer(notifications, viewerUserId, viewerRole, o
   }
 
   return (notifications || [])
+    .filter(n => hiringNotificationVisible(n, opts.hiringAgencyIds))
     .filter((n) => !(hiddenNotificationTypes instanceof Set && hiddenNotificationTypes.has(String(n?.type || ''))))
     .filter((n) => {
       const key = IN_APP_CATEGORY_BY_TYPE[String(n?.type || '').toLowerCase()];
@@ -431,7 +433,8 @@ export const getNotifications = async (req, res, next) => {
     const hasMedicalRecordsReleaseAccess = !!(fullUser?.has_medical_records_release_access === 1 || fullUser?.has_medical_records_release_access === true);
     const notificationCategories = await getViewerNotificationCategories(userId);
     const hiddenNotificationTypes = await getViewerHiddenNotificationTypes(userId, userRole);
-    const filterOpts = { hasMedicalRecordsReleaseAccess, medicalRecordsAgencyIds:await medicalRecordsAgencyIds(userId), notificationCategories, hiddenNotificationTypes };
+    const filterOpts = { hasMedicalRecordsReleaseAccess, medicalRecordsAgencyIds:await medicalRecordsAgencyIds(userId), notificationCategories, hiddenNotificationTypes,
+      hiringAgencyIds: await hiringNotificationAgencyIds(fullUser) };
 
     // Guardian portal: limit notifications to a small family-facing set.
     if (isGuardianRole(userRole)) {
@@ -763,7 +766,8 @@ export const getNotificationCounts = async (req, res, next) => {
     const hasMedicalRecordsReleaseAccess = !!(fullUser?.has_medical_records_release_access === 1 || fullUser?.has_medical_records_release_access === true);
     const notificationCategories = await getViewerNotificationCategories(userId);
     const hiddenNotificationTypes = await getViewerHiddenNotificationTypes(userId, userRole);
-    const filterOpts = { hasMedicalRecordsReleaseAccess, medicalRecordsAgencyIds:await medicalRecordsAgencyIds(userId), notificationCategories, hiddenNotificationTypes };
+    const filterOpts = { hasMedicalRecordsReleaseAccess, medicalRecordsAgencyIds:await medicalRecordsAgencyIds(userId), notificationCategories, hiddenNotificationTypes,
+      hiringAgencyIds: await hiringNotificationAgencyIds(fullUser) };
 
     // Guardian counts: only count the guardian-allowed subset across the agencies
     // where the guardian has linked clients.
@@ -1403,6 +1407,10 @@ async function getFeedAccess(req, requestedAgencyId = null, requestedScope = 'in
 function buildFeedWhere({ req, access, visibilityPolicy, applyFilters = true, includeAfterId = false }) {
   const params = [];
   const clauses = ['n.is_resolved = FALSE'];
+  const hiringIds = [...(req._feedHiringAgencyIds || [])];
+  clauses.push(hiringIds.length ? `(n.type <> 'new_job_application_submitted' OR n.agency_id IN (${hiringIds.map(() => '?').join(',')}))`
+    : "n.type <> 'new_job_application_submitted'");
+  params.push(...hiringIds);
   if (access.agencyIds.length) {
     clauses.push(`n.agency_id IN (${access.agencyIds.map(() => '?').join(',')})`);
     params.push(...access.agencyIds);
@@ -1633,9 +1641,11 @@ async function queryNotificationFeed(req, { forcePageSize = null, includeAfterId
   const scope = String(req.query.scope || 'inbox').toLowerCase();
   const access = await getFeedAccess(req, requestedAgencyId, scope);
   const fullUser = await User.findById(access.uid);
+  req._feedHiringAgencyIds = await hiringNotificationAgencyIds(fullUser, access.agencyIds);
   req._feedHasMedicalAccess = !!(fullUser?.has_medical_records_release_access === 1 || fullUser?.has_medical_records_release_access === true);
   req._feedMedicalAgencyIds = await medicalRecordsAgencyIds(access.uid);
-  const preferenceContext = await loadNotificationPreferenceContext({ userId: access.uid, userRole: access.role });
+  const preferenceContext = await loadNotificationPreferenceContext({ userId: access.uid, userRole: access.role,
+    user: fullUser, hiringAccess: req._feedHiringAgencyIds === null || req._feedHiringAgencyIds.size > 0 });
   const agencyPolicies = await AgencyNotificationPreferences.listByAgencyIds(access.agencyIds);
   const contextByAgency = new Map(agencyPolicies.map((policy) => [
     Number(policy.agencyId),
@@ -1972,6 +1982,8 @@ export const applyRecommendedNotificationPreferences = async (req, res, next) =>
 
 async function verifyNotificationViewerAccess(req, notification) {
   if (!notification) return false;
+  if (notification.type === 'new_job_application_submitted' && !hiringNotificationVisible(notification,
+    await hiringNotificationAgencyIds(await User.findById(req.user.id), [Number(notification.agency_id)]))) return false;
   if (MESSAGE_PRIVATE_TYPES.has(String(notification.type || '')) && Number(notification.user_id) !== Number(req.user.id)) return false;
   if (req.user.role === 'super_admin') return true;
   const agencies = await User.getAgencies(req.user.id);

@@ -26,6 +26,7 @@ const TYPES_BY_CATEGORY = {
   ],
   tasks_messaging: [
     'secure_session_comment',
+    'website_chat_waiting',
     'task_overdue', 'inbound_client_message', 'support_safety_net_alert', 'client_note',
     'credentialing_reminder', 'credentialing_email',
     'chat_message', 'task_comment_mention', 'escalation_mention', 'support_ticket_created',
@@ -103,6 +104,7 @@ const TYPES_BY_CATEGORY = {
 };
 
 const LABEL_OVERRIDES = {
+  website_chat_waiting: 'Live Chat visitor waiting',
   secure_session_comment: 'AuricWell secure session comments',
   claimmd_data_gap: 'Payer data needs Technology review',
   school_closure_notice: 'School closure reminders',
@@ -385,6 +387,7 @@ export function notificationRoleProfile(role) {
 
 export function isNotificationRecommendedForRole(type, role) {
   const normalizedType = String(type || '').trim();
+  if (normalizedType === 'website_chat_waiting') return ['admin','support','super_admin'].includes(String(role || '').toLowerCase());
   if (normalizedType === 'secure_session_comment') return ['provider','provider_plus','intern','intern_plus','clinician','therapist','supervisor','clinical_practice_assistant','admin','super_admin','client','client_guardian'].includes(String(role || '').toLowerCase());
   if (normalizedType === 'emergency_broadcast' || normalizedType === 'credential_expired_blocking') return true;
   const profile = notificationRoleProfile(role);
@@ -400,6 +403,7 @@ export function isNotificationRecommendedForRole(type, role) {
 
 export function isNotificationEssentialForRole(type, role) {
   const normalizedType = String(type || '').trim();
+  if (normalizedType === 'website_chat_waiting') return isNotificationRecommendedForRole(type, role);
   if (normalizedType === 'secure_session_comment') return isNotificationRecommendedForRole(type, role);
   if (normalizedType === 'emergency_broadcast' || normalizedType === 'credential_expired_blocking') return true;
   const profile = notificationRoleProfile(role);
@@ -416,6 +420,11 @@ export function isNotificationEssentialForRole(type, role) {
 
 /** Per-type default overrides (toast on + 5 min for presence return alerts). */
 const DEFAULT_OVERRIDES_BY_TYPE = {
+  website_chat_waiting: { toast: true, push: true },
+  new_job_application_submitted: { push: true },
+  client_exchange_match: { push: true },
+  client_exchange_assigned: { push: true },
+  client_exchange_shared: { push: true },
   kiosk_checkin: { toast: true, sound: true },
   presence_user_returned: {
     toast: true,
@@ -487,6 +496,8 @@ const EMAIL_CAPABLE = new Set([
   'support_ticket_forwarded_to_provider','voicemail_received','chat_message'
 ]);
 const PUSH_CAPABLE = new Set([
+  'website_chat_waiting',
+  'client_exchange_match', 'client_exchange_assigned', 'client_exchange_shared', 'new_job_application_submitted',
   'school_group_email_received',
   ...SMS_CAPABLE, 'school_weekday_availability_requested',
   'new_packet_uploaded', 'hiring_task_assigned', 'task_comment_mention',
@@ -514,7 +525,7 @@ for (const [category, types] of Object.entries(TYPES_BY_CATEGORY)) {
       category,
       categoryLabel: CATEGORY_DEFINITIONS[category].label,
       categoryDescription: CATEGORY_DEFINITIONS[category].description,
-      icon: CATEGORY_DEFINITIONS[category].icon,
+      icon: type === 'website_chat_waiting' ? '💬' : CATEGORY_DEFINITIONS[category].icon,
       color: CATEGORY_DEFINITIONS[category].color,
       legacyCategoryKey: LEGACY_CATEGORY_BY_TYPE[type] || null,
       required,
@@ -533,7 +544,7 @@ for (const [category, types] of Object.entries(TYPES_BY_CATEGORY)) {
         toast: defaultOverrides.toast ?? required,
         sound: defaultOverrides.sound ?? required,
         digest: false,
-        push: required && PUSH_CAPABLE.has(type),
+        push: (defaultOverrides.push ?? required) && PUSH_CAPABLE.has(type),
         email: required || type === 'kiosk_checkin' || type === 'secure_session_comment',
         sms: required && SMS_CAPABLE.has(type),
         toastDurationMode:

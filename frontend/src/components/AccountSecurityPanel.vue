@@ -7,6 +7,7 @@
     <p v-if="loading">Loading your account security…</p>
     <ActivityProtectionPanel v-if="!state?.guardianAccount" />
     <template v-if="state">
+      <section v-if="accountCodeUserId" class="security-card" aria-label="Reset your account Quick View code"><h2>Account Quick View code</h2><p>Reset the six-digit code for this account after confirming your primary sign-in. Save the new randomly assigned code; your old code stops working on every device.</p><QuickViewPrivacyPanel :expected-user-id="accountCodeUserId" passcode-only /></section>
       <SignInPasswordSetup /><PasskeysPanel @changed="load" />
       <section class="security-card">
         <h2>{{ state.method === 'email' ? 'Email verification' : 'Two-step verification' }}</h2>
@@ -118,12 +119,14 @@
 import SignInPasswordSetup from './SignInPasswordSetup.vue';
 import PasskeysPanel from './PasskeysPanel.vue';
 import ActivityProtectionPanel from './ActivityProtectionPanel.vue';
+import QuickViewPrivacyPanel from './account/QuickViewPrivacyPanel.vue';
 import { computed, onMounted, onBeforeUnmount, ref } from 'vue';
 import QRCode from 'qrcode';
 import api from '../services/api';
 import { evidenceLabel, transferDescription } from '../utils/evidenceTransfer';
 defineProps({showWorkspaceReturn:{type:Boolean,default:true}});
 const state = ref(null), loading = ref(false), busy = ref(false), error = ref(''), message = ref('');
+const accountCodeUserId=computed(()=>{const query=new URLSearchParams(window.location.search),id=Number(query.get('expectedUserId'));return query.get('mobileCodeRecovery')==='1' && Number.isSafeInteger(id) && id>0?id:null;});
 const emailCode = ref(''), emailSent = ref(false), emailPassword = ref(''), emailDisablePassword = ref(''), confirmDisableEmail = ref(false);
 const authenticatorEnabled = computed(() => state.value?.authenticatorEnabled ?? state.value?.enabled);
 async function sendEmailCode() { await run(async () => { await api.post('/account-security/email/send', state.value.emailEnrollmentAvailable ? { enrollEmail: true, password: emailPassword.value } : {}, options); emailPassword.value = ''; emailCode.value = ''; emailSent.value = true; }); }

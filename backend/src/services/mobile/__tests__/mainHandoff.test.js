@@ -16,6 +16,7 @@ function setup(options={}){
   agencies:async()=>({agencies:options.agencies||[agency],qaAgencyIds:options.qaAgencyIds??null}),
   getActor:async()=>({role:'provider',...options.actor}),
   clientContext:async(request,clientId,agencyId)=>{calls.push(['client',request.quickView,clientId,agencyId]);return {client:{id:clientId},actor:{role:'provider'},agency:{id:agencyId},fullProfileUrl:'https://app.itsco.health/admin/clients/55',...options.client};},
+  candidateInAgency:async(id,agencyId)=>{calls.push(['candidate',id,agencyId]);return options.candidateAvailable!==false;},
   sign:async(...args)=>{calls.push(['sign',...args]);return 'main-cookie-secret';},
   buildUrl:options.buildUrl||((a,path)=>`https://app.itsco.health/${path}`),
   trustedOrigins:mobileMainTrustedOrigins('https://platform.example.invalid'),now:()=>NOW,newSessionId:()=> 'fresh-session',
@@ -88,3 +89,6 @@ test('native local origin is accepted only for an authorized iOS device',async()
 test('unexpected failures return a generic private error without raw database or credential text',async()=>{
  const f=await run({accessError:new Error(`private ${TOKEN}`)});assert.equal(f.res.statusCode,500);assert.equal(JSON.stringify(f.res.body).includes(TOKEN),false);assert.equal(f.res.headers.Pragma,'no-cache');
 });
+
+test('applicant handoff requires current hiring capability and a candidate in the selected agency',async()=>{const target=request({kind:'applicants',clientId:undefined,candidateId:'44'});const valid=await run({actor:{role:'provider',has_hiring_access:true}},target);assert.equal(valid.res.location,'/admin/hiring/people/44/packages?mobileHandoff=1&mobileHandoffAgency=2');assert.deepEqual(valid.calls.find(call=>call[0]==='candidate'),['candidate',44,2]);for(const options of [{actor:{role:'provider',has_hiring_access:false}},{actor:{role:'provider',has_hiring_access:true},candidateAvailable:false}]){const denied=await run(options,request({kind:'applicants',clientId:undefined,candidateId:'44'}));assert.equal(denied.res.statusCode,403);assert.equal(denied.calls.some(call=>call[0]==='sign'),false);}});
+test('multiagency applicant handoff checks the target grant rather than the enrolled workspace',async()=>{const f=await run({agencies:[agency,{id:3,name:'Other'}],actor:{role:'provider',has_hiring_access:true}},request({kind:'applicants',agencyId:'3',clientId:undefined,candidateId:'44'}));assert.deepEqual(f.calls.find(call=>call[0]==='candidate'),['candidate',44,3]);assert.equal(f.calls.find(call=>call[0]==='sign')[1].agencyId,3);});
