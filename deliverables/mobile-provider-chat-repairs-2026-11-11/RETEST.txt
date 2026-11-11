@@ -1,0 +1,14 @@
+TARGETED RETEST — USE SYNTHETIC QA ACCOUNTS
+
+Start a fresh /mobile tab after frontend /version.json and /api/app-version match with ready=true. Do not paste access codes or device/session tokens into reports. Preserve existing records.
+
+1. Exchange: use an active agency-provider account. Verify profile modality, accepting-new-client and insurance facts match saved agency-specific data, independently of open slots. A super admin with a tenant provider role must be recognized; an admin/support account without provider authority must remain blocked. Verify matched first, eligible next, blocked with reasons. Request using only a synthetic eligible listing; no authority bypass or automatic clinical assignment.
+2. Headings: Exchange, Support Messages, Live Chat and People Operations each show one section title.
+3. Applicant: open an authorized synthetic applicant with an uploaded résumé. View in mobile, close back to the applicant and return to the list. Wrong agency/candidate/document must remain inaccessible. No-file applicants should say no uploaded résumé rather than inventing one.
+4. Today: before 7 AM use an early scheduled test item; after 7 AM verify current hour and time line. With no early item, opening before 7 uses 7 AM. Browse older hours and ensure the next hour does not pull the view away. Tap Today to resume following. Test both phone and desktop widths.
+5. Chat: enable notifications on the actual testing device and explicitly Go online. Keep a synthetic website visitor active on a second device. Background/close the staff app; a new visitor or message must still produce the permitted device alert. Reopen into the same chat and reply. Verify explicit Go offline stops alerts even if another foreground tab keeps polling.
+6. Visitor departure: close/end the visitor session, wait past heartbeat expiry, and test an expired fixture. These must leave the active queue, remain in history and reject claims/replies. A delayed native push queued before departure must be suppressed. A returning valid visitor can resume according to the existing visitor session rules.
+7. Revoke/disconnect the mobile device or make the synthetic staff account inactive; no new background delivery/advertised availability. Do not alter real staff accounts for this test. Normal 30-day primary login renewal still applies.
+8. Support detail: rendered content should contain the message, not raw CSS. Existing support replies, status changes and SMS actions remain inside mobile. Record any individual action that unexpectedly opens the full workspace; explicit full-tool links remain allowed.
+
+A passing server/browser test is not proof of Apple or Web Push delivery on a physical phone. Record device OS, installed web/native version, notification permission and exact outcomes separately. Do not message real families or public visitors as a test.

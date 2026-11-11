@@ -94,7 +94,7 @@ describe('Live Chat is an adapter over encrypted website sessions', () => {
       if (sql.includes('SELECT 1 FROM public_website_chat_staff')) return [online ? [{ 1: 1 }] : []];
       return [[]];
     }) };
-    const chat = { authorize: vi.fn(async () => ({ logoUrl: '/synthetic.png' })), staffHeartbeat: vi.fn(), staffSend: vi.fn(async () => ({ messages: [] })),
+    const chat = { staffAvailability:vi.fn(async()=>({available:online,backgroundReady:online})), authorize: vi.fn(async () => ({ logoUrl: '/synthetic.png' })), staffHeartbeat: vi.fn(), staffSend: vi.fn(async () => ({ messages: [] })),
       staffRead: vi.fn(async () => ({ messages: [{ id: 19 }] })), close: vi.fn(), queue: vi.fn(async () => []) };
     return { db, chat, context: async () => makeContext(), presence: async (_req, out) => out.json({ ok: true }) };
   }

@@ -39,16 +39,16 @@ export function createMobileLiveChat({ db = pool, context = mobileSupportContext
             && (!hiddenAt.has(row.id) || Number(row.lastMessageId || 0) > hiddenAt.get(row.id));
         }).map(row => ({ ...row, agencyId: Number(sites.find(s => s.slug === row.siteSlug).agencyId) }));
         res.set('Cache-Control', 'private, no-store');
-        return res.json({ sessions: rows, sites, agencies: supportAgencies(ctx) });
+        return res.json({ sessions: rows, sites, agencies: supportAgencies(ctx),...await chat.staffAvailability(ctx.user) });
       }
       if (operation === 'availability') {
-        const available = req.body?.available === true;
+        let available = req.body?.available === true;
         if (available) {
           const agencyId = supportId(req.body.agencyId) || Number(sites[0].agencyId), entry = ctx.require(agencyId);
           requireSupportResult(await invokeSupportHandler(presence, req, { user: entry.user,
             body: { agencyId, lastActivityAt: new Date().toISOString(), sessionPhase: 'active' } }));
         }
-        await chat.staffHeartbeat(ctx.user, available);
+        const renewed=await chat.staffHeartbeat(ctx.user, available,{mobileDeviceSessionId:req.quickView.mobileDeviceSessionId,refreshOnly:req.body?.refreshOnly===true});if(available&&req.body?.refreshOnly===true)available=renewed===true;
         if (!available) {
           // Clear only this employee's ephemeral presence and claim. Transcripts stay intact.
           await db.execute('UPDATE public_website_chat_participants SET viewing_at=NULL,typing_at=NULL WHERE user_id=?', [ctx.user.id]);
@@ -62,7 +62,7 @@ export function createMobileLiveChat({ db = pool, context = mobileSupportContext
       if (operation === 'presence') { await chat.staffPresence(ctx.user, id, { viewing: req.body?.viewing !== false, typing: req.body?.typing === true }); return res.json({ ok: true }); }
       if (operation === 'send') {
         // Sending requires this explicit online state, not merely a signed-in browser.
-        const [[online]] = await db.execute('SELECT 1 FROM public_website_chat_staff WHERE user_id=? AND last_seen_at>UTC_TIMESTAMP()-INTERVAL 75 SECOND', [ctx.user.id]);
+        const online = (await chat.staffAvailability(ctx.user)).available;
         if (!online) throw supportFailure(409, 'Go online before replying in Live Chat.');
         return res.json(await chat.staffSend(ctx.user, id, { body: String(req.body?.body || ''), clientMessageId: req.body?.clientMessageId }));
       }

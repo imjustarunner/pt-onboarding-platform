@@ -5,6 +5,8 @@ import { readAgencyAccess } from './agencyAccessProfiles.service.js';
 import { isNotificationChannelEnabled } from './notificationPreferences.service.js';
 import { applyAgencyAccess } from '../utils/agencyAccessPolicy.js';
 
+import {availableChatStaffSql} from '../utils/websiteChatAvailability.js';
+
 const roles = ['admin', 'support', 'super_admin'];
 
 /** No visitor message, visitor token, address, or transcript is put in a notification. */
@@ -19,9 +21,10 @@ export function createWebsiteChatNotifications({ db = pool, access = readAgencyA
     const [[session]] = await db.execute(`SELECT c.id,s.support_agency_id AS agency_id FROM public_website_chat_sessions c
       JOIN public_website_support_sites s ON s.slug=c.site_slug WHERE c.id=? AND s.chat_enabled=1 AND s.coming_soon=0`, [sessionId]);
     if (!session) return;
+    const [[visitor]]=await db.execute('SELECT id FROM public_website_chat_sessions WHERE id=? AND visitor_left_at IS NULL AND visitor_ended_at IS NULL AND expires_at>UTC_TIMESTAMP() AND last_seen_at>UTC_TIMESTAMP()-INTERVAL 40 SECOND',[sessionId]);if(!visitor)return;
     const [staff] = await db.execute(`SELECT DISTINCT u.id FROM public_website_chat_staff cs JOIN users u ON u.id=cs.user_id
       JOIN user_presence p ON p.user_id=u.id LEFT JOIN user_presence_status ps ON ps.user_id=u.id
-      WHERE cs.last_seen_at>UTC_TIMESTAMP()-INTERVAL 75 SECOND AND p.last_heartbeat_at>UTC_TIMESTAMP()-INTERVAL 90 SECOND
+      WHERE ${availableChatStaffSql('cs','p')}
       AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0 AND COALESCE(u.is_demo,0)=0 AND COALESCE(u.is_assistant_account,0)=0
       AND UPPER(u.status) IN ('ACTIVE','ACTIVE_EMPLOYEE') AND COALESCE(ps.status,'in_available') IN ('in_available','in_available_for_phone')`);
     for (const user of staff) {
@@ -40,11 +43,12 @@ export function createWebsiteChatNotifications({ db = pool, access = readAgencyA
       if (claim.affectedRows !== 1) continue;
       try {
         // Do not notify an employee after they have gone offline or lost access.
-        const [[online]] = await db.execute(`SELECT 1 FROM public_website_chat_staff WHERE user_id=? AND last_seen_at>UTC_TIMESTAMP()-INTERVAL 75 SECOND`, [event.user_id]);
+        const [[online]] = await db.execute(`SELECT 1 FROM public_website_chat_staff cs JOIN users u ON u.id=cs.user_id JOIN user_presence p ON p.user_id=u.id LEFT JOIN user_presence_status ps ON ps.user_id=u.id WHERE cs.user_id=? AND ${availableChatStaffSql('cs','p')} AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0 AND COALESCE(u.is_demo,0)=0 AND COALESCE(u.is_assistant_account,0)=0 AND UPPER(u.status) IN ('ACTIVE','ACTIVE_EMPLOYEE') AND COALESCE(ps.status,'in_available') IN ('in_available','in_available_for_phone')`, [event.user_id]);
         if (!online || !await permitted(event.user_id, event.agency_id)) {
           await db.execute('UPDATE public_website_chat_notification_events SET completed_at=UTC_TIMESTAMP(),last_error=? WHERE id=?', ['offline_or_access_changed', event.id]);
           continue;
         }
+        const [[visitor]]=await db.execute('SELECT id FROM public_website_chat_sessions WHERE id=? AND visitor_left_at IS NULL AND visitor_ended_at IS NULL AND expires_at>UTC_TIMESTAMP() AND last_seen_at>UTC_TIMESTAMP()-INTERVAL 40 SECOND',[event.session_id]);if(!visitor){await db.execute('UPDATE public_website_chat_notification_events SET completed_at=UTC_TIMESTAMP(),last_error=? WHERE id=?',['visitor_unavailable',event.id]);continue;}
         // Recover a notification that was created before an interrupted worker committed its ID.
         const [[prior]] = await db.execute(`SELECT * FROM notifications WHERE user_id=? AND type='website_chat_waiting'
           AND JSON_UNQUOTE(JSON_EXTRACT(audience_json,'$.websiteChatEventId'))=? ORDER BY id LIMIT 1`, [event.user_id, String(event.id)]);

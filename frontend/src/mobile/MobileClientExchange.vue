@@ -6,7 +6,8 @@ import ExchangeMatchStatus from '../components/clientExchange/ExchangeMatchStatu
 import {exchangeRequestNeedsPlan,exchangeRequestPlanValid,exchangePersonalFitSummary} from '../navigation/clientExchangePolicy.js';
 const props=defineProps({apiBase:String,sessionToken:String,userId:[Number,String],agencies:{type:Array,default:()=>[]},visible:{type:Boolean,default:true},listingId:[Number,String],agencyId:[Number,String]});
 const agency=ref('all'),mode=ref('open'),search=ref(''),items=ref([]),requests=ref([]),detail=ref(null),message=ref(''),warnings=ref([]),loading=ref(false),opening=ref(false),sending=ref(false),error=ref(''),notice=ref('');
-const busy=computed(()=>loading.value||opening.value||sending.value),filtered=computed(()=>items.value.filter(row=>!search.value||JSON.stringify([row.clientInitials,row.serviceType,row.agencyName,row.presentingProblems,row.message]).toLowerCase().includes(search.value.toLowerCase())));
+const busy=computed(()=>loading.value||opening.value||sending.value),filtered=computed(()=>items.value.filter(row=>!search.value||JSON.stringify([row.clientInitials,row.serviceType,row.agencyName,row.presentingProblems,row.message]).toLowerCase().includes(search.value.toLowerCase())).sort((a,b)=>fitRank(a)-fitRank(b)));
+function fitRank(row){return {matched:0,eligible:1,blocked:2}[exchangePersonalFitSummary(row.viewerFit).state]??3;}
 const warningsAcknowledged=computed(()=>(detail.value?.viewerFit?.adjustments||[]).every(warning=>warning.fingerprint&&warnings.value.includes(warning.fingerprint)));
 const fitSummary=row=>exchangePersonalFitSummary(row.viewerFit);
 const requestAvailable=computed(()=>detail.value?.viewerFit?.canRequest===true&&(!detail.value.isDemo||detail.value.demoRequestAllowed)&&['open','requested'].includes(detail.value.status)&&!requests.value.some(row=>row.status==='pending'&&Number(row.requestingProviderUserId)===Number(props.userId)));

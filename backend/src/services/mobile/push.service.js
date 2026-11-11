@@ -14,6 +14,8 @@ import { getUserCapabilities } from '../../utils/capabilities.js';
 import { isNotificationChannelEnabled } from '../notificationPreferences.service.js';
 import { isDemoExchangeListing } from '../clientExchangeDemo.service.js';
 
+import {availableChatStaffSql} from '../../utils/websiteChatAvailability.js';
+
 const EVENT_NOTIFICATION_TYPES = ['website_chat_waiting','client_exchange_match','client_exchange_assigned','client_exchange_shared','new_job_application_submitted'];
 
 export function pushConfiguration() {
@@ -101,7 +103,10 @@ export function createMobilePushWorker({db=pool, sessions=mobileSessions, conver
       const actor=applyAgencyAccess(context.user,grant);
       if(row.type==='website_chat_waiting') {
         if(!['admin','support','super_admin'].includes(actor.role))return null;
-        if(forDelivery){const [[online]]=await db.execute('SELECT 1 FROM public_website_chat_staff WHERE user_id=? AND last_seen_at>UTC_TIMESTAMP()-INTERVAL 75 SECOND',[uid]);if(!online)return null;}
+        if(forDelivery){const [[online]]=await db.execute(`SELECT 1 FROM public_website_chat_staff c JOIN user_presence p ON p.user_id=c.user_id LEFT JOIN user_presence_status ps ON ps.user_id=c.user_id WHERE c.user_id=? AND ${availableChatStaffSql('c','p')} AND COALESCE(ps.status,'in_available') IN ('in_available','in_available_for_phone')`,[uid]);if(!online)return null;
+          const [[visitor]]=await db.execute(`SELECT c.id FROM public_website_chat_sessions c JOIN public_website_support_sites s ON s.slug=c.site_slug
+            JOIN notifications n ON n.id=? AND n.agency_id=s.support_agency_id WHERE c.id=JSON_UNQUOTE(JSON_EXTRACT(n.audience_json,'$.websiteChatSessionId'))
+            AND c.visitor_left_at IS NULL AND c.visitor_ended_at IS NULL AND c.expires_at>UTC_TIMESTAMP() AND c.last_seen_at>UTC_TIMESTAMP()-INTERVAL 40 SECOND`,[id]);if(!visitor)return null;}
       } else if(row.type==='new_job_application_submitted') {
         if(getUserCapabilities(actor).canManageHiring!==true)return null;
       } else if(await demoListing({listingId:row.related_entity_id,agencyId:row.agency_id}))return null;

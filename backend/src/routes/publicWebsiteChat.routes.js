@@ -21,9 +21,9 @@ publicRouter.post('/:slug/sessions/:id/referral',handle(req=>websiteChat.visitor
 const staffRouter=express.Router();
 staffRouter.use(authenticate);
 staffRouter.use(rateLimit({windowMs:60000,max:150,standardHeaders:true,legacyHeaders:false,keyGenerator:req=>`website-chat-staff:${req.user?.id||req.ip}`}));
-staffRouter.post('/presence',handle(req=>websiteChat.staffHeartbeat(req.user,req.body.available===true)));
+staffRouter.post('/presence',handle(async req=>{await websiteChat.staffHeartbeat(req.user,req.body.available===true,{refreshOnly:req.body.refreshOnly===true});return websiteChat.staffAvailability(req.user);}));
 staffRouter.get('/team',handle(async req=>({team:await websiteChat.team(req.user)})));
-staffRouter.get('/sessions',handle(async req=>({sessions:await websiteChat.queue(req.user)})));
+staffRouter.get('/sessions',handle(async req=>({sessions:await websiteChat.queue(req.user),...await websiteChat.staffAvailability(req.user)})));
 staffRouter.get('/sessions/:id',handle(req=>websiteChat.staffRead(req.user,req.params.id)));
 staffRouter.post('/sessions/:id/messages',handle(req=>websiteChat.staffSend(req.user,req.params.id,req.body)));
 staffRouter.post('/sessions/:id/close',handle(req=>websiteChat.close(req.user,req.params.id)));

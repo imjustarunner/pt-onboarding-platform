@@ -5,12 +5,12 @@ import WebsiteChatMessage from '../../components/public/WebsiteChatMessage.vue';
 const props = defineProps({ apiBase: { type: String, required: true }, sessionToken: { type: String, required: true }, visible: { type: Boolean, default: true }, chatId: { type: String, default: '' } });
 const emit = defineEmits(['count']);
 const sessions = ref([]), sites = ref([]), agencies = ref([]), site = ref(''), agency = ref(''), search = ref(''), showEnded = ref(false);
-const online = ref(false), changing = ref(false), loading = ref(false), opened = ref(''), detail = ref(null), busy = ref(false), error = ref(''), notice = ref(''), body = ref(''), thread = ref(null);
+const backgroundReady=ref(false);const online = ref(false), changing = ref(false), loading = ref(false), opened = ref(''), detail = ref(null), busy = ref(false), error = ref(''), notice = ref(''), body = ref(''), thread = ref(null);
 const drafts = new Map(), seen = new Map(); let timer, fetching = false, queueRevision = 0, detailRevision = 0, heartbeatAt = 0;
 const config = () => ({ headers: { 'X-Quick-View-Session': props.sessionToken } });
 const url = path => `${props.apiBase}/staff-tools/live-chat${path}`;
-const unread = row => !row.endedAt && !row.expired && (Number(row.lastVisitorMessageId || 0) > Math.max(Number(row.lastStaffMessageId || 0), seen.get(row.id) || 0) || !row.initiatedAt && !seen.has(row.id));
-const visibleSessions = computed(() => sessions.value.filter(row => (showEnded.value || !row.endedAt && !row.expired)
+const unread = row => !row.endedAt && !row.expired && !row.visitorLeft && (Number(row.lastVisitorMessageId || 0) > Math.max(Number(row.lastStaffMessageId || 0), seen.get(row.id) || 0) || !row.initiatedAt && !seen.has(row.id));
+const visibleSessions = computed(() => sessions.value.filter(row => (showEnded.value || !row.endedAt && !row.expired && !row.visitorLeft)
   && (!search.value.trim() || `${row.name} ${row.pagePath}`.toLowerCase().includes(search.value.trim().toLowerCase()))));
 const time = value => value ? new Date(value).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
 const canSend = computed(() => online.value && detail.value?.canReply === true && !busy.value);
@@ -20,7 +20,7 @@ async function load() {
   try {
     const { data } = await axios.get(url(''), { ...config(), params: { site: site.value || undefined, agencyId: agency.value || undefined } });
     if (current !== queueRevision) return;
-    sessions.value = data.sessions || []; sites.value = data.sites || []; agencies.value = data.agencies || [];
+    online.value=data.available===true;backgroundReady.value=data.backgroundReady===true;sessions.value = data.sessions || []; sites.value = data.sites || []; agencies.value = data.agencies || [];
     emit('count', sessions.value.filter(unread).length);
   } catch (e) { if (current === queueRevision) error.value = e.response?.data?.error?.message || 'Live Chat could not be loaded.'; }
   finally { fetching = false; if (current === queueRevision) loading.value = false; }
@@ -75,13 +75,13 @@ function insert(text) { body.value = `${body.value.trim()}${body.value.trim()?'\
 async function tick() {
   if (document.hidden) return;
   if (online.value && Date.now() - heartbeatAt > 20000) {
-    try { await axios.post(url('/availability'), { available: true, agencyId: agency.value || undefined }, config()); heartbeatAt = Date.now(); }
+    try { const {data}=await axios.post(url('/availability'), { available: true, refreshOnly:true, agencyId: agency.value || undefined }, config());online.value=data.available===true;heartbeatAt = Date.now(); }
     catch { online.value = false; error.value = 'Live Chat went offline. Reconnect before replying.'; }
   }
   if (props.visible) { await load(); if (opened.value) { await read(opened.value, true); await presence(true, body.value.trim().length > 0); } }
 }
 function visibility() {
-  if (document.hidden && online.value) { presence(false); availability(false); }
+  if (document.hidden && online.value) { presence(false); }
   else if (!document.hidden && props.visible) load();
 }
 watch([site, agency], load);
@@ -89,7 +89,7 @@ watch(() => props.visible, value => { if (value) { load(); if (opened.value) rea
 watch(() => props.chatId, id => { if (id && id !== opened.value) open(id); }, { immediate: true });
 watch(() => props.sessionToken, () => { online.value = false; ++queueRevision; ++detailRevision; sessions.value = []; detail.value = null; opened.value = ''; body.value = ''; drafts.clear(); seen.clear(); if (props.visible) load(); });
 onMounted(() => { timer = setInterval(tick, 8000); document.addEventListener('visibilitychange', visibility); });
-onBeforeUnmount(() => { clearInterval(timer); document.removeEventListener('visibilitychange', visibility); ++queueRevision; ++detailRevision; presence(false); if (online.value) axios.post(url('/availability'), { available: false }, config()).catch(() => {}); });
+onBeforeUnmount(() => { clearInterval(timer); document.removeEventListener('visibilitychange', visibility); ++queueRevision; ++detailRevision; presence(false); });
 defineExpose({ goOffline: () => availability(false) });
 </script>
 
@@ -98,8 +98,8 @@ defineExpose({ goOffline: () => availability(false) });
     <header class="lc-header"><div><h1>Live Chat</h1><span class="lc-status" :class="{online}"><i aria-hidden="true"></i>{{ online?'Online':'Offline' }}</span></div><button :disabled="changing" :class="{primary:!online}" @click="availability(!online)">{{ changing?'Updating…':online?'Go offline':'Go online' }}</button></header>
     <p v-if="error" class="lc-error" role="alert">{{ error }}</p><p v-if="notice" class="lc-notice" role="status">{{ notice }} <button aria-label="Dismiss notice" @click="notice=''">×</button></p>
     <template v-if="!opened">
-      <div class="lc-filters"><label>Agency<select v-model="agency"><option value="">All agencies</option><option v-for="a in agencies" :key="a.id" :value="String(a.id)">{{ a.name }}</option></select></label><label>Website<select v-model="site"><option value="">All websites</option><option v-for="s in sites" :key="s.slug" :value="s.slug">{{ s.name }}</option></select></label><label class="lc-search">Search<input v-model="search" type="search" placeholder="Website or page"></label></div>
-      <div class="lc-tools"><label><input v-model="showEnded" type="checkbox"> Include ended chats</label><button :disabled="loading" @click="load">↻ Refresh</button></div>
+      <p v-if="online && !backgroundReady" class="lc-meta">Keep the app open or enable device notifications to receive chats while the app is closed.</p><div class="lc-filters"><label>Agency<select v-model="agency"><option value="">All agencies</option><option v-for="a in agencies" :key="a.id" :value="String(a.id)">{{ a.name }}</option></select></label><label>Website<select v-model="site"><option value="">All websites</option><option v-for="s in sites" :key="s.slug" :value="s.slug">{{ s.name }}</option></select></label><label class="lc-search">Search<input v-model="search" type="search" placeholder="Website or page"></label></div>
+      <div class="lc-tools"><label><input v-model="showEnded" type="checkbox"> Include ended or away chats</label><button :disabled="loading" @click="load">↻ Refresh</button></div>
       <p v-if="loading && !sessions.length" role="status">Loading chats…</p><p v-else-if="!visibleSessions.length">No chats in this view.</p>
       <button v-for="row in visibleSessions" :key="row.id" class="lc-row" :class="{'lc-unread':unread(row)}" @click="open(row)"><img v-if="row.logoUrl" :src="row.logoUrl" alt=""><span><strong>{{ row.name }}</strong><small>{{ row.pagePath || '/' }} · {{ time(row.createdAt) }}</small><small>{{ row.expired?'Expired':row.endedAt?'Visitor ended chat':row.visitorLeft?'Visitor away':row.claimedBy?'Claimed':'Waiting for support' }}</small></span><b v-if="unread(row)" aria-label="Unread">●</b><span aria-hidden="true">›</span></button>
     </template>
@@ -108,9 +108,9 @@ defineExpose({ goOffline: () => availability(false) });
       <h2>{{ detail?.site?.name || 'Visitor conversation' }}</h2><p v-if="!detail && !error" role="status">Opening chat…</p>
       <template v-if="detail">
         <p v-if="detail.ended || detail.expired" class="lc-meta">{{ detail.ended?'The visitor ended this chat.':'This chat has expired.' }} Its transcript is preserved.</p>
-        <div class="lc-toolbar"><button :disabled="busy || !online || detail.ended || detail.expired || detail.claimedBy && !detail.claimedByMe" @click="action('claim',{release:detail.claimedByMe})">{{ detail.claimedByMe?'Release claim':detail.claimedBy?'Claimed by teammate':'Claim chat' }}</button><button :disabled="busy" @click="action('close')">Close chat</button></div>
+        <div class="lc-toolbar"><button :disabled="busy || !online || detail.ended || detail.expired || !detail.claimedByMe && !detail.visitorAvailable || detail.claimedBy && !detail.claimedByMe" @click="action('claim',{release:detail.claimedByMe})">{{ detail.claimedByMe?'Release claim':detail.claimedBy?'Claimed by teammate':'Claim chat' }}</button><button :disabled="busy" @click="action('close')">Close chat</button></div>
         <div ref="thread" class="lc-thread" role="log" aria-label="Chat transcript"><div v-for="message in detail.messages" :key="message.id" class="lc-message" :class="message.sender"><small>{{ message.sender==='visitor'?'Visitor':message.sender==='system'?'Chat update':`Support ${message.memberNumber || ''}` }} · {{ time(message.createdAt) }}</small><WebsiteChatMessage :body="message.body" /></div></div>
-        <p v-if="detail.visitorTyping" class="lc-meta" role="status">Visitor is typing…</p>
+        <p v-if="!detail.visitorAvailable" class="lc-meta">Visitor is away. The transcript is available; replies resume when the visitor returns.</p><p v-if="detail.visitorTyping" class="lc-meta" role="status">Visitor is typing…</p>
         <form v-if="!detail.ended && !detail.expired" class="lc-compose" @submit.prevent="send">
           <label>Quick response<select :disabled="!canSend" value="" @change="insert($event.target.value);$event.target.value=''"><option value="">Choose a response</option><option v-for="item in detail.quickReplies" :key="item.label" :value="item.body">{{ item.label }}</option></select></label>
           <label>Share a page<select :disabled="!canSend" value="" @change="insert($event.target.value);$event.target.value=''"><option value="">Choose a page</option><option v-for="item in detail.pageLinks" :key="item.url" :value="item.url">{{ item.label }}</option></select></label>

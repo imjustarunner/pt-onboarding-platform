@@ -17,7 +17,7 @@
     <nav v-if="opened.length" class="webchat-quick" aria-label="Open chats"><button v-for="id in opened" :key="id" @click="select(rows.find(s=>s.id===id))">{{rows.find(s=>s.id===id)?.name}} · {{id.slice(0,6)}} {{isUnread(rows.find(s=>s.id===id))?'●':''}}</button></nav>
     <template v-if="selected"><div class="webchat-selected"><strong>{{selected.name}} · Visitor {{selected.id.slice(0,6)}}</strong><button @click="closeChat">Close chat</button></div>
      <p class="webchat-desk-note">{{details.expired?'Session expired. History is preserved.':details.ended?'Visitor ended this chat.':details.claimedByMe?'You are responsible for this chat.':details.claimedBy?'Another support member is responsible for this chat.':'Available to the support team.'}}</p>
-     <button v-if="!details.expired&&!details.ended&&(!details.claimedBy||details.claimedByMe)" @click="claim">{{details.claimedByMe?'Release claim':'Claim chat'}}</button>
+     <button v-if="!details.expired&&!details.ended&&(!details.visitorLeft||details.claimedByMe)&&(!details.claimedBy||details.claimedByMe)" @click="claim">{{details.claimedByMe?'Release claim':'Claim chat'}}</button>
      <div class="webchat-desk-note"><span v-for="v in activeViewers" :key="v.userId">{{v.name}} (Support team member {{v.memberNumber}}) · {{v.typing?'typing…':'viewing'}}<br/></span><span v-if="details.visitorTyping">Visitor is typing…</span></div>
      <p v-for="(referral,i) in (details.referrals||[]).filter(r=>r.clickedAt||r.ticketId)" :key="i" class="webchat-desk-note">{{referral.ticketId?`Live Chat inquiry submitted: ticket #${referral.ticketId}`:'Visitor opened the support ticket invitation.'}}</p>
      <div ref="thread" class="webchat-staff-thread" role="log" aria-live="polite"><article v-for="m in messages" :key="m.id" :class="{staff:m.sender==='staff'}"><small>{{m.sender==='staff'?`Support team member ${m.memberNumber||1}`:m.sender==='system'?'Live Chat':'Visitor'}}</small><p><WebsiteChatMessage :body="m.body"/></p></article></div>
@@ -37,7 +37,7 @@ import {computed,ref,watch,onMounted,onUnmounted,nextTick} from 'vue';
 import api from '../../services/api';
 import {useAuthStore} from '../../store/auth';
 import {useMovableChatPanel} from '../../composables/useMovableChatPanel';
-const rows=ref([]),selected=ref(null),messages=ref([]),quickReplies=ref([]),draft=ref(''),error=ref(''),available=ref(true),expanded=ref(false),sending=ref(false),thread=ref();
+const rows=ref([]),selected=ref(null),messages=ref([]),quickReplies=ref([]),draft=ref(''),error=ref(''),available=ref(false),expanded=ref(false),sending=ref(false),thread=ref();
 const details=ref({}),team=ref([]),tab=ref('chats'),topic=ref(''),confirmFlag=ref(false),opened=ref([]),seen=ref({}),drafts=new Map(),emojis=['😊','👍','❤️','🙏','👋','🎉','😕'];
 const auth=useAuthStore(),desk=ref();
 const stateKey=`website-chat-desk:${auth.user?.id||'staff'}`;
@@ -52,12 +52,12 @@ function saveState(){try{sessionStorage.setItem(stateKey,JSON.stringify({expande
 function markSeen(id,data){const latest=(data.messages||[]).filter(m=>m.sender==='visitor').at(-1)?.id||0;seen.value[id]=Math.max(Number(seen.value[id]||0),Number(latest));saveState();}
 watch(expanded,saveState);
 const opts={skipGlobalLoading:true};
-const isUnread=s=>!s?.endedAt&&!s?.expired&&Number(s?.lastVisitorMessageId||0)>Math.max(Number(s?.lastStaffMessageId||0),Number(seen.value[s?.id]||0));
+const isUnread=s=>!s?.endedAt&&!s?.expired&&!s?.visitorLeft&&Number(s?.lastVisitorMessageId||0)>Math.max(Number(s?.lastStaffMessageId||0),Number(seen.value[s?.id]||0));
 const waitingCount=computed(()=>rows.value.filter(isUnread).length);
 const activeViewers=computed(()=>(details.value.viewers||[]).filter(v=>v.viewing));
-async function setAvailable(){try{localStorage.setItem('website-chat-staff-available',String(available.value));await api.post('/website-chat/presence',{available:available.value},opts);}catch{error.value='Live Chat availability could not be updated.';}}
+async function setAvailable(){try{const {data}=await api.post('/website-chat/presence',{available:available.value},opts);if(alive)available.value=data.available===true;}catch{error.value='Live Chat availability could not be updated.';}}
 async function presence(id,viewing=true){if(rows.value.find(s=>s.id===id)?.expired)return;await api.post(`/website-chat/sessions/${id}/presence`,{viewing,typing:viewing&&!!(id===selected.value?.id?draft.value:drafts.get(id)||'').trim()},opts);}
-async function poll(){if(busy)return;busy=true;try{if(available.value)await api.post('/website-chat/presence',{available:true},opts);const {data}=await api.get('/website-chat/sessions',opts);if(!alive)return;rows.value=data.sessions||[];
+async function poll(){if(busy)return;busy=true;try{if(available.value)await api.post('/website-chat/presence',{available:true,refreshOnly:true},opts);const {data}=await api.get('/website-chat/sessions',opts);if(!alive)return;rows.value=data.sessions||[];available.value=data.available===true;
  if(!initialized){initialized=true;if(!restored&&available.value&&rows.value.length)expanded.value=true;}
  opened.value=opened.value.filter(id=>rows.value.some(s=>s.id===id));
  for(const id of opened.value)await presence(id);
@@ -78,8 +78,8 @@ async function insertReferral(){const version=selection;try{const {data}=await a
 async function loadTeam(){const {data}=await api.get('/website-chat/team',opts);team.value=data.team||[];}
 async function showTeam(){tab.value='team';try{await loadTeam();}catch{error.value='Could not load team availability.';}}
 watch(draft,()=>{clearTimeout(typingTimer);const id=selected.value?.id;if(id)typingTimer=setTimeout(()=>presence(id).catch(()=>{}),400);});
-onMounted(()=>{try{const saved=JSON.parse(sessionStorage.getItem(stateKey));if(saved&&typeof saved.expanded==='boolean'){restored=true;expanded.value=saved.expanded;seen.value=saved.seen&&typeof saved.seen==='object'?saved.seen:{};}}catch{}try{available.value=localStorage.getItem('website-chat-staff-available')!=='false';}catch{}setAvailable();poll();timer=setInterval(poll,8000);});
-onUnmounted(()=>{alive=false;selection++;clearInterval(timer);clearTimeout(typingTimer);for(const id of opened.value)api.post(`/website-chat/sessions/${id}/close`,{},opts).catch(()=>{});api.post('/website-chat/presence',{available:false},opts).catch(()=>{});});
+onMounted(()=>{try{const saved=JSON.parse(sessionStorage.getItem(stateKey));if(saved&&typeof saved.expanded==='boolean'){restored=true;expanded.value=saved.expanded;seen.value=saved.seen&&typeof saved.seen==='object'?saved.seen:{};}}catch{}poll();timer=setInterval(poll,8000);});
+onUnmounted(()=>{alive=false;selection++;clearInterval(timer);clearTimeout(typingTimer);for(const id of opened.value)api.post(`/website-chat/sessions/${id}/presence`,{viewing:false,typing:false},opts).catch(()=>{});});
 </script>
 <style scoped>
 .webchat-desk{position:fixed;right:18px;bottom:150px;z-index:1200;color:#233238;font:14px/1.45 system-ui,sans-serif}.webchat-desk button{font:inherit;cursor:pointer;border:1px solid #bccdc8;background:#fff;color:#23473d;border-radius:7px;padding:7px 10px}.webchat-desk .webchat-desk-toggle{background:#173e36;color:white;box-shadow:0 3px 14px #0003}.webchat-desk-toggle span{background:#b3293d;border-radius:20px;padding:2px 7px}.webchat-desk-panel{margin-top:8px;background:#fff;border:1px solid #b8cbc5;border-radius:12px;width:410px;max-width:calc(100vw - 24px);max-height:75vh;overflow:auto;box-shadow:0 8px 40px #0003}.webchat-desk-panel>header{padding:12px;display:flex;align-items:center;justify-content:space-between;gap:6px;background:#f0f5f3}.webchat-desk-panel header label{font-size:12px}.webchat-desk-note{padding:0 12px;font-size:12px}.webchat-visitors{max-height:180px;overflow:auto}.visitor-toast{display:flex;margin:8px;border:1px solid #d5e1dd;border-radius:8px}.visitor-toast.selected{background:#e4eeea}.visitor-toast button:first-child{display:flex;align-items:center;gap:8px;flex:1;text-align:left;border:0;background:transparent}.visitor-toast img{width:34px;height:30px;object-fit:contain}.visitor-toast small{display:block;font-size:11px}.visitor-toast b{font-size:10px;color:#a31e36}.webchat-selected{padding:10px;display:flex;justify-content:space-between;gap:8px;font-size:12px}.webchat-staff-thread{max-height:240px;overflow:auto;padding:10px}.webchat-staff-thread article{background:#f3f3f3;margin-bottom:7px;padding:8px 12px;border-radius:8px}.webchat-staff-thread article.staff{background:#e4f1e9;margin-left:20px}.webchat-staff-thread p{white-space:pre-wrap;overflow-wrap:anywhere;margin:4px 0}.webchat-quick{display:flex;flex-wrap:wrap;gap:5px;padding:10px}.webchat-quick button{font-size:12px}.webchat-desk form{display:grid;gap:8px;padding:12px}.webchat-desk textarea{font:inherit;border:1px solid #9db7ad;border-radius:7px;padding:8px;color:#233238;background:white}.webchat-desk form>button{background:#175b49;color:white}

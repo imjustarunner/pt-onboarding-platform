@@ -16,6 +16,7 @@ const chatId = '11111111-2222-4333-8444-555555555555';
 describe('durable online Live Chat notifications', () => {
   it('queues only available staff with fresh agency support access and includes no transcript or visitor secret', async () => {
     const db = { execute: vi.fn(async sql => {
+      if (sql.startsWith('SELECT id FROM public_website_chat_sessions')) return [[{id:chatId}]];
       if (sql.startsWith('SELECT c.id')) return [[{ id: chatId, agency_id: 450 }]];
       if (sql.startsWith('SELECT DISTINCT')) return [[{ id: 7 }, { id: 8 }]];
       return [[]];
@@ -30,6 +31,7 @@ describe('durable online Live Chat notifications', () => {
     const event = { id: 10, user_id: 7, agency_id: 450, session_id: chatId };
     const prior = { id: 60, user_id: 7, agency_id: 450, type: 'website_chat_waiting' };
     const db = { execute: vi.fn(async sql => {
+      if (sql.startsWith('SELECT id FROM public_website_chat_sessions')) return [[{id:chatId}]];
       if (sql.startsWith('SELECT * FROM public_website_chat_notification_events')) return [[event]];
       if (sql.startsWith('UPDATE public_website_chat_notification_events SET locked_until')) return [{ affectedRows: 1 }];
       if (sql.startsWith('SELECT 1 FROM public_website_chat_staff')) return [[{}]];
@@ -57,7 +59,7 @@ describe('native notification scope and new-event cursor', () => {
   beforeEach(() => {
     row = { id: 60, user_id: 7, agency_id: 450, type: 'website_chat_waiting' };
     context = { surface: 'staff', user: { id: 7, role: 'support' }, device: { id: 4, user_id: 7, agency_id: 450 }, agencies: [{ id: 450 }] };
-    db = { execute: vi.fn(async sql => sql.startsWith('SELECT n.*') ? [[row]] : sql.startsWith('SELECT 1 FROM public_website_chat_staff') ? [[{}]] : [[]]) };
+    db = { execute: vi.fn(async sql => sql.startsWith('SELECT n.*') ? [[row]] : sql.startsWith('SELECT 1 FROM public_website_chat_staff') ? [[{}]] : sql.startsWith('SELECT c.id FROM public_website_chat_sessions') ? [[{id:chatId}]] : [[]]) };
     deps = { db, sessions: { access: async () => context }, agencyAccess: async () => ({ role: 'support', permissions: { has_hiring_access: true } }), channelEnabled: async () => true, demoListing: async () => false };
   });
   it('checks personal ownership in SQL, current role and online state before allowing a Live Chat push', async () => {
@@ -74,6 +76,11 @@ describe('native notification scope and new-event cursor', () => {
     expect(enabled).toHaveBeenLastCalledWith(expect.objectContaining({ channel: 'inApp' }));
     deps.agencyAccess = async () => null;
     expect(await createMobilePushWorker(deps).permitted(context.device, 'notification', 60, context, { forDelivery: false })).toBeNull();
+  });
+  it('drops delayed chat push when the visitor departed after the notification was queued',async()=>{
+    db.execute.mockImplementation(async sql=>sql.startsWith('SELECT n.*')?[[row]]:sql.startsWith('SELECT 1 FROM public_website_chat_staff')?[[{}]]:[[]]);
+    expect(await createMobilePushWorker(deps).permitted(context.device,'notification',60)).toBeNull();
+    expect(await createMobilePushWorker(deps).permitted(context.device,'notification',60,context,{forDelivery:false})).toBe(60);
   });
   it('rejects family, removed agency, disabled preferences, or lost hiring permission', async () => {
     context.surface = 'family'; expect(await createMobilePushWorker(deps).permitted(context.device, 'notification', 60)).toBeNull(); context.surface = 'staff';
@@ -92,3 +99,5 @@ describe('native notification scope and new-event cursor', () => {
     expect(payload.url).toBe('/mobile/workspace?kind=notification&id=60'); expect(JSON.stringify(payload)).not.toMatch(/PRIVATE|SECRET/);
   });
 });
+
+it('does not enqueue a waiting-chat alert for a visitor who has already left',async()=>{const db={execute:vi.fn(async sql=>sql.startsWith('SELECT c.id')?[[{id:chatId,agency_id:450}]]:[[]])};await createWebsiteChatNotifications({db,access:vi.fn()}).enqueue({sessionId:chatId,eventKey:'started'});expect(db.execute.mock.calls.some(([sql])=>sql.startsWith('INSERT'))).toBe(false);});
