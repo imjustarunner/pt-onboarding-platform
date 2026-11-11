@@ -182,13 +182,13 @@ describe('supervisor note review', () => {
 
   it('reloads once when note metadata changes between note fetch and authoritative review', async () => {
     let notes = 0;
-    api.get.mockImplementation(async url => ({ data: url.includes('document-reviews') ? { ...review(), reviewSnapshotToken: 'new-metadata' } : { note: { ...note(), reviewSnapshotToken: ++notes === 1 ? 'old-metadata' : 'new-metadata' } } }));
+    api.get.mockImplementation(async url => ({ data: url.endsWith('/status') ? {review:null} : url.includes('document-reviews') ? { ...review(), reviewSnapshotToken: 'new-metadata' } : { note: { ...note(), reviewSnapshotToken: ++notes === 1 ? 'old-metadata' : 'new-metadata' } } }));
     const w = mounted(); await flushPromises();
     expect(notes).toBe(2); expect(w.find('[data-testid="supervisor-attestation"]').exists()).toBe(true); expect(w.find('[role="alert"]').exists()).toBe(false); w.unmount();
   });
 
   it('blocks review after repeated metadata mismatches instead of signing an inconsistent snapshot', async () => {
-    api.get.mockImplementation(async url => ({ data: url.includes('document-reviews') ? { ...review(), reviewSnapshotToken: 'new-metadata' } : { note: note() } }));
+    api.get.mockImplementation(async url => ({ data: url.endsWith('/status') ? {review:null} : url.includes('document-reviews') ? { ...review(), reviewSnapshotToken: 'new-metadata' } : { note: note() } }));
     const w = mounted(); await flushPromises();
     expect(api.get.mock.calls.filter(([url]) => url.includes('document-reviews'))).toHaveLength(2);
     expect(w.find('[role="alert"]').text()).toContain('details changed while opening');
@@ -217,4 +217,9 @@ describe('stable supervisor interaction and pending amendment revisions',()=>{
   expect(byText(w,'Service amendment')).toBeUndefined();
   expect(w.find('.amendment-form').exists()).toBe(false);w.unmount();
  });
+});
+
+it('loads the author submission results without running a supervisor review, even when Quick Sign was requested',async()=>{
+ const originalGet=api.get.getMockImplementation();api.get.mockImplementation(async (url,config)=>url.endsWith('/status')?{data:{review:{id:29,status:'bypassed',quickSignEligible:false,checks:[{id:'risk_safety',status:'bypassed',findings:[{id:'risk',message:'Saved author finding',bypassed:true,bypassReason:'Author review reason'}]}]}}}:originalGet(url,config));
+ const w=mount(ClinicalNoteSupervisorReview,{props:{noteId:71,agencyId:2,quickSignRequested:true},global:{stubs:{CosignReviewTimer:true,ClinicalNoteVersionHistory:versionStub}}});await flushPromises();expect(api.post).not.toHaveBeenCalled();expect(w.text()).toContain('Saved author finding');expect(w.text()).toContain('Author review reason');expect(w.find('.narriva-run').exists()).toBe(false);expect(w.find('[data-testid="quick-sign"]').exists()).toBe(false);w.unmount();
 });

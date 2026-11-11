@@ -70,14 +70,14 @@ export function createMobileSupportMessages({ db = pool, context = mobileSupport
           if (['all', 'sms'].includes(filters.kind)) {
             try {
               const result = await call(main.getUnifiedConversations, req, entry, { query: { agencyId: String(agencyId),
-                channel: 'sms', filter: 'all', q: filters.q, dateFrom: filters.dateFrom, dateTo: filters.dateTo, limit: '500' } });
+                channel: 'sms', filter: filters.status==='unread'?'unread':'all', status:filters.status && filters.status!=='unread'?filters.status:undefined, q: filters.q, dateFrom: filters.dateFrom, dateTo: filters.dateTo, limit: '500' } });
               const ids = await mainSmsIds(agencyId);
               for (const c of result.conversations || []) if (ids.has(Number(c.id))) {
                 // The canonical folder can be broader than this tool; recheck each shared thread.
                 try { await conversationAccess(entry.user, c.id); } catch { continue; }
                 items.push({ key: `sms:${c.id}`, kind: 'sms', id: Number(c.id), agencyId,
                   title: c.subject || 'Main-number text', preview: plain(c.last_message_preview).slice(0, 180),
-                  status: c.status || '', at: c.last_message_at || c.updated_at, source: 'Main-number SMS' });
+                  status: c.status || 'open', unread:c.is_unread===true || Number(c.is_unread)===1, at: c.last_message_at || c.updated_at, source: 'Main-number SMS' });
               }
             } catch (error) { errors.push({ type: 'sms', message: error.message }); }
           }
@@ -106,7 +106,7 @@ export function createMobileSupportMessages({ db = pool, context = mobileSupport
         const until = filters.dateTo && new Date(`${filters.dateTo}T23:59:59.999`).getTime();
         const items = results.flatMap(r => r.items).filter(item => {
           const time = new Date(item.at).getTime();
-          return (!from || time >= from) && (!until || time <= until) && (!filters.status || item.status === filters.status);
+          return (!from || time >= from) && (!until || time <= until) && (!filters.status || filters.status==='unread' && item.kind==='sms' && item.unread || item.status === filters.status);
         }).sort((a, b) => new Date(b.at) - new Date(a.at));
         res.set('Cache-Control', 'private, no-store');
         return res.json({ agencies: all, items: items.slice(0, filters.limit), hasMore: items.length > filters.limit,

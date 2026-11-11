@@ -2,5 +2,6 @@ export default { root: new URL('.', import.meta.url).pathname, resolve: { alias:
   'src/services/__tests__/clinicalNoteReviewInsights.test.js',
   'src/controllers/__tests__/clinicalNoteReviewInsights.mobile.test.js',
   'src/services/mobile/__tests__/qaScope.test.js',
-  'src/services/__tests__/narrivaReview.integration.test.js'
+  'src/services/__tests__/narrivaReview.integration.test.js',
+  'src/services/__tests__/narrivaSubmissionReview.test.js'
 ], fileParallelism: false, testTimeout: 15000 } };
