@@ -20,6 +20,8 @@ const shared=`root /usr/share/nginx/html;
  location ^~ /api/ { return 404; }
  location ^~ /uploads/ { return 404; }
  location ^~ /_public-sites/ { return 404; }
+ location ^~ /auricwell/session-comments/ { add_header Cache-Control "no-cache" always; add_header X-Content-Type-Options "nosniff" always; try_files $uri =404; }
+ location ^~ /auricwell/provider-training/ { add_header Cache-Control "no-cache" always; add_header X-Content-Type-Options "nosniff" always; try_files $uri =404; }
  location ~ \\.conf$ { return 404; }
  location ~* \\.(js|mjs|css|png|jpg|jpeg|svg|webp|ico|woff2?|json|webmanifest)$ { try_files $uri =404; }
  location = /robots.txt { default_type text/plain; return 200 "User-agent: *\\nAllow: /\\nDisallow: /app\\nDisallow: /login\\nDisallow: /family\\nDisallow: /api/\\n"; }`;

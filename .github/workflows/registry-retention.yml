@@ -1,0 +1,59 @@
+name: Registry image retention
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/registry_retention.py'
+      - 'scripts/test_registry_retention.py'
+      - '.github/workflows/registry-retention.yml'
+  pull_request:
+    paths:
+      - 'scripts/registry_retention.py'
+      - 'scripts/test_registry_retention.py'
+      - '.github/workflows/registry-retention.yml'
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: registry-image-retention
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Protect active references and rollback history
+        run: python3 -m unittest discover -s scripts -p test_registry_retention.py
+
+  refresh-protection:
+    if: github.event_name != 'pull_request'
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+      - uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+      - name: Refresh production, preview, job and rollback protection
+        env:
+          PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+        run: >-
+          python3 scripts/registry_retention.py --sync-only
+          --project "$PROJECT_ID" --region us-west3
+          --report-dir "$RUNNER_TEMP/registry-retention"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: registry-retention-report
+          path: ${{ runner.temp }}/registry-retention
+          retention-days: 7
