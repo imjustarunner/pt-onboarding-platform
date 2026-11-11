@@ -3,14 +3,16 @@ import { AURICWELL_MARK_URL } from '../../constants/auricwellBrand.js';
 import { CONVERSA_ASSET_REVISION } from '../../constants/conversa.js';
 import { conversaFeature } from '../../conversa/website/feature.mjs';
 import { homeStory, productStory } from './story.mjs';
+import { transitionStory } from './transition.mjs';
 import { faqSection } from './compare.mjs';
 import { featureNavigation, managementShortcuts, managementSection, integrationsSection, partnersSection } from './ecosystem.mjs';
 // Public content is rendered at build time. No clinical stores, cookies or API calls.
 export const pages = {
-  '': ['Less repeat work. More time for care.', 'Connect your therapy practice with in-app texting, individual guardian accounts, Narriva documentation and note checks, scheduling and supervision in AuricWell.'],
-  product: ['The work of care, connected.', 'Explore in-app SMS, multiple guardian accounts, Narriva Note Workspace, compliance checks, Quick Sign and treatment progress for therapy practices in AuricWell.'],
+  '': ['Less repeat work. More time for care.', 'Connect your therapy practice with Narriva notes, Stedi insurance discovery and coordination of benefits, Claim.MD billing, texting, scheduling and supervision in AuricWell.'],
+  product: ['The work of care, connected.', 'Explore Narriva Note Workspace, Stedi discovery and overlapping-coverage checks, Claim.MD eligibility automation, scheduling and connected billing in AuricWell.'],
   security: ['Trust starts with clear boundaries.', 'Learn how the AuricWell preview scopes practice records, identifies administrators and separates public information from clinical work.'],
   about: ['Built around the work you do.', 'AuricWell is a focused EHR experience for therapy practices, starting with Colorado therapy workflows.'],
+  transition: ['Your next EHR. A team to get you there.', 'Switch to AuricWell with a support-led transition plan: secure export handoff, records review, billing connections, training and an agreed cutover.'],
   partners: ['Care takes good partners.', 'Meet the confirmed AuricWell partner practices, programs and organizations, with websites and provider links.'],
   contact: ['Let’s talk about your practice.', 'Discuss AuricWell, your therapy practice and what you need from an EHR.']
 };
@@ -43,7 +45,7 @@ export function renderWebsite(section = '', { base = '', email = '', origin = 'h
  const url = (path = '') => `${base}/${path}`.replace(/\/$/, '') || '/';
  const link = (path, label, cls = 'button') => `<a class="${cls}" href="${url(path)}">${label}${icon('arrow')}</a>`;
  const hero = (eyebrow, title, text, visual = '', actions = true) => `<section class="hero ${visual?'split':''}"><div class="hero-copy"><p class="eyebrow">${eyebrow}</p><h1>${title}</h1><p class="lead">${text}</p>${actions?`<div class="actions">${link('contact','Talk with us')}${link('demo','Try the working demo','button secondary')}</div>`:''}</div>${visual}</section>`;
- const navItems = [['','Home'],['product','Features'],['partners','Partners'],['security','Security'],['about','About'],['contact','Contact']];
+ const navItems = [['','Home'],['product','Features'],['partners','Partners'],['transition','Switch to AuricWell'],['security','Security'],['about','About'],['contact','Contact']];
  const footerNav = navItems.map(([p,label])=>`<a href="${url(p)}" ${section===p?'aria-current="page"':''}>${label}</a>`).join('');
  const nav = navItems.map(([p,label]) => p === 'product' ? `<details class="feature-menu" data-feature-menu><summary${section==='product'?' aria-current="page"':''}>Features <span aria-hidden="true">⌄</span></summary><div class="feature-menu-panel"><a class="all-features" href="${url('product')}">Explore all features →</a>${featureNavigation.map(([anchor,title])=>`<a href="${url(`product#${anchor}`)}">${title}</a>`).join('')}</div></details>` : `<a href="${url(p)}" ${section===p?'aria-current="page"':''}>${label}</a>`).join('');
  const serviceBar = managementShortcuts(url);
@@ -51,6 +53,7 @@ export function renderWebsite(section = '', { base = '', email = '', origin = 'h
  let content = '';
  if (section === '') content = homeStory({hero,feature,link,pill,preview,availability});
  if (section === 'product') content = productStory({hero,feature,link,preview});
+ if (section === 'transition') content = transitionStory({hero,link});
  if (['','product'].includes(section)) {
    const demoSection = `<section class="section tinted" id="working-demo"><div class="section-heading"><div><p class="eyebrow">TAKE A LOOK AROUND</p><h2>A fictional practice.<br> The actual workspace.</h2></div><p>Try the same calendar, charts, provider directory, Note Workspace and billing components used in our app. Explore at your own pace—no account needed.</p></div><div data-actual-example="workspace"><p><a href="${url('demo')}">Open the working AuricWell demo →</a></p></div></section>`;
    const heroEnd = content.indexOf('</section>') + '</section>'.length;

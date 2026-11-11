@@ -9,6 +9,9 @@
   <ProviderShowcase v-else-if="kind === 'providers'" />
   <ScheduleShowcase v-else-if="kind === 'schedule'" />
   <KioskShowcase v-else-if="kind === 'kiosk'" />
+  <InsuranceShowcase v-else-if="kind === 'insurance-discovery'" scenario="discovery" />
+  <InsuranceShowcase v-else-if="kind === 'insurance-overlap'" scenario="overlap" />
+  <InsuranceShowcase v-else-if="kind === 'insurance-verification'" scenario="verification" />
   <div v-else class="actual-example">
     <div class="actual-example-label"><strong>The app’s treatment-objective ratings</strong><span>Actual component · synthetic data · changes are not saved</span></div>
       <p class="actual-example-hint">Use the real Start / Previous session / This session / Goal controls. Switch between clinician and client ratings, or mark an objective deferred.</p>
@@ -28,6 +31,7 @@ import WorkspaceShowcase from './WorkspaceShowcase.vue';
 import ProviderShowcase from './ProviderShowcase.vue';
 import ScheduleShowcase from './ScheduleShowcase.vue';
 import KioskShowcase from './KioskShowcase.vue';
+import InsuranceShowcase from './InsuranceShowcase.vue';
 import NoteAidObjectiveRatings from '../../components/clinical/NoteAidObjectiveRatings.vue';
 defineProps({kind: String});
 const ratings = ref([]), resetKey = ref(0);

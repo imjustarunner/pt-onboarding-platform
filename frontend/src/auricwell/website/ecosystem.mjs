@@ -18,10 +18,14 @@ export const featureNavigation = Object.freeze([
   ['documentation', 'Narriva Note Workspace'], ['narriva-compliance', 'Narriva Compliance & Quick Sign'],
   ['narriva-review', 'Note summaries & treatment progress'], ['progress', 'Rated treatment plans'],
   ['supervision', 'Supervision & co-sign review'], ['billing', 'Billing & claims'],
+  ['insurance-discovery', 'Stedi insurance discovery'], ['coverage-coordination', 'Overlapping coverage & COB'],
+  ['automatic-verification', 'Claim.MD & automatic verification'],
   ['virtual-office', 'Private virtual offices'], ['plans', 'Plans & availability']
 ]);
 
 export const serviceInquiries = Object.freeze({
+  transition: { title: 'Plan your move to AuricWell', message: 'I would like help transitioning my practice to AuricWell. Please contact me to discuss our current EHR, supported exports, billing setup, training and a transition plan.' },
+  insurance: { title: 'Connect your insurance workflow', message: 'I would like to discuss Stedi insurance discovery, overlapping-coverage checks and Claim.MD eligibility automation for my practice. Please contact me about setup and next steps.' },
   billing: { title: 'Let’s talk billing', message: 'I would like help with billing for my practice. Please contact me about services and next steps.' },
   credentialing: { title: 'Let’s talk credentialing', message: 'I would like help with credentialing for my practice. Please contact me about services and next steps.' },
   'people-operations': { title: 'Let’s talk people operations', message: 'I would like help with people operations for my organization. Please contact me about services and next steps.' }
@@ -48,11 +52,13 @@ export function managementSection() {
 
 export function integrationsSection() {
   const integrations = [
+    ['Stedi', '', 'Insurance discovery & coordination of benefits', 'Find possible coverage from confirmed demographics and investigate overlapping policies within the configured insurance workflow.', 'https://www.stedi.com'],
+    ['Claim.MD', '', 'Eligibility, claims & payer connections', 'Connect payer setup, supported eligibility automation, complete response evidence, claim responses and remittances in the billing workflow.', 'https://www.claim.md'],
     ['Plot Twist Co.', '/assets/ptco/logo-flat.webp', 'Management services', 'Practice operations connect with billing, credentialing and people operations support from the team behind AuricWell.', 'https://plottwistco.com'],
     ['Plotline', '/assets/plotline/website/brand/logos/plotline-primary-transparent.webp', 'People operations', 'Connected staff workflows bring hiring, onboarding, documents, training and evaluations into the wider platform.', 'https://plotlinepo.com'],
     ['SchoolCareBridge', '/assets/schoolcarebridge/wordmark.svg', 'School & agency coordination', 'Connected enrollment and agency coordination support organizations working across school and clinical care settings.', 'https://schoolcarebridge.org']
   ];
-  return `<section class="section tinted" id="integrations"><div class="section-heading"><div><p class="eyebrow">INTEGRATIONS & CONNECTED SERVICES</p><h2>A practice connected<br> to the bigger picture.</h2></div><p>AuricWell works within the Plot Twist Co. platform, connecting clinical work with the teams and services around it.</p></div><div class="ecosystem-grid">${integrations.map(([name,logo,kind,description,href])=>`<article class="ecosystem-card"><div class="ecosystem-logo"><img src="${logo}" alt="${name}" loading="lazy" width="240" height="90"></div><span class="quiet-tag">Integrated platform</span><h3>${name}</h3><p class="ecosystem-kind">${kind}</p><p>${description}</p><a class="text-link" href="${href}" target="_blank" rel="noopener">Explore ${name} ↗</a></article>`).join('')}</div><p class="feature-note">Connections and service access depend on your organization’s configuration, permissions and agreements. Each product retains its own purpose and workspace.</p></section>`;
+  return `<section class="section tinted" id="integrations"><div class="section-heading"><div><p class="eyebrow">INTEGRATIONS & CONNECTED SERVICES</p><h2>A practice connected<br> to the bigger picture.</h2></div><p>AuricWell works within the Plot Twist Co. platform, connecting clinical work with the teams and services around it.</p></div><div class="ecosystem-grid">${integrations.map(([name,logo,kind,description,href])=>`<article class="ecosystem-card"><div class="ecosystem-logo">${logo?`<img src="${logo}" alt="${name}" loading="lazy" width="240" height="90">`:`<span class="integration-wordmark">${name}</span>`}</div><span class="quiet-tag">Integrated platform</span><h3>${name}</h3><p class="ecosystem-kind">${kind}</p><p>${description}</p><a class="text-link" href="${href}" target="_blank" rel="noopener">Explore ${name} ↗</a></article>`).join('')}</div><p class="feature-note">Connections and service access depend on your organization’s configuration, permissions and agreements. Each product retains its own purpose and workspace.</p></section>`;
 }
 
 export function partnersSection({ hero, link }) {
