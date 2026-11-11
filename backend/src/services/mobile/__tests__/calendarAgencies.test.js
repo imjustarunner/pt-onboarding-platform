@@ -1,0 +1,10 @@
+import {beforeEach,expect,it,vi} from 'vitest';
+vi.mock('../../../config/database.js',()=>({default:{execute:vi.fn()}}));
+vi.mock('../../../config/clinicalDatabase.js',()=>({default:{execute:vi.fn()}}));
+vi.mock('../../mobileClinicalPrivacy.service.js',()=>({authorizedMobileClientCards:vi.fn()}));
+import pool from '../../../config/database.js';
+import clinicalPool from '../../../config/clinicalDatabase.js';
+import {authorizedMobileClientCards} from '../../mobileClinicalPrivacy.service.js';
+import {enrichMobileClinicalCalendar} from '../../mobileClinicalCalendar.service.js';
+beforeEach(()=>{vi.resetAllMocks();pool.execute.mockImplementation(async(_sql,params)=>[[{id:params[0]===2?60:70,client_id:params[0]===2?12:13,provider_schedule_event_id:params[0]===2?6:7,start_at:'2026-11-11 18:00:00',end_at:'2026-11-11 19:00:00',source_timezone:'America/Los_Angeles',service_code:'90837'}]]);clinicalPool.execute.mockResolvedValue([[]]);authorizedMobileClientCards.mockImplementation(async(_user,agencyId)=>new Map([[agencyId===2?12:13,{id:agencyId===2?12:13,maskedName:agencyId===2?'One* Cli*':'Two* Cli*',age:12}]]));});
+it('enriches each agency without deleting the previous agency’s authorized session or assigning a wrong client',async()=>{const base={user:{id:7},windowStart:new Date(),windowEnd:new Date(),events:[{id:6,agency_id:2,client_id:12},{id:7,agency_id:3,client_id:13}]};let items=[{id:'pse-6',eventId:6,agencyId:2,hasClient:true},{id:'pse-7',eventId:7,agencyId:3,hasClient:true}];for(const agencyId of [2,3])items=await enrichMobileClinicalCalendar({...base,agencyId,items});expect(items).toHaveLength(2);expect(items.map(item=>[item.agencyId,item.clientId,item.clientMaskedName])).toEqual([[2,12,'One* Cli*'],[3,13,'Two* Cli*']]);expect(items.every(item=>item.sourceTimezone==='America/Los_Angeles')).toBe(true);expect(pool.execute.mock.calls.map(([,params])=>params.slice(0,2))).toEqual([[2,7],[3,7]]);});

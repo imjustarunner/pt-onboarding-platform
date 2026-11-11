@@ -36,6 +36,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import config from './config/config.js';
 import requestLoggingMiddleware from './middleware/requestLogging.middleware.js';
+import {openMobileMainApp} from './services/mobile/mainHandoff.service.js';
 import securityEvidenceMiddleware from './middleware/securityEvidence.middleware.js';
 import { requireSecurityReadiness } from './services/securityEvidence.service.js';
 import securityEvidenceRoutes from './routes/securityEvidence.routes.js';
@@ -452,6 +453,9 @@ app.use('/api/vonage', vonageRoutes);
 app.use('/api/my-room', providerMyRoomRoutes);
 // Scheduled Narriva processing uses its own secret, before catch-all staff JWT authentication.
 app.use('/api/billing', narrivaReportWorkerRoutes);
+
+// Private unlocked mobile grant stays in the POST body and is scrubbed before logging.
+app.post('/api/mobile/open-main', openMobileMainApp);
 
 // Request logging middleware with body sanitization
 // Must be after body parsing middleware (express.json, express.urlencoded)

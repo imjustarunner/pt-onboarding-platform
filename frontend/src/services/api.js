@@ -21,6 +21,7 @@ import {
 import { isSchoolPortalShellActive } from '../utils/schoolPortalShell.js';
 import { isPublicAuthFormActive } from '../utils/publicAuthForm.js';
 import { requestAgencyId } from '../utils/requestAgencyContext.js';
+import { mobileMainCookieSessionOnly } from '../utils/mobileMainHandoff.js';
 
 const api = axios.create({
   baseURL: (typeof window !== 'undefined' && (isProductApiHost(window.location.hostname) || isSchoolCareBridgeHost(window.location.hostname) || (window.location.hostname.replace(/^www\./,'') === 'mh4kidz.org' && isSchoolCareBridgePath(window.location.pathname)))) ? '/api' : getApiBaseUrl(),
@@ -252,7 +253,7 @@ api.interceptors.request.use(
         (typeof config.headers?.get === 'function'
           ? config.headers.get('Authorization') || config.headers.get('authorization')
           : null);
-      if (!existingAuth && !config.cookieAuthOnly) {
+      if (!existingAuth && !config.cookieAuthOnly && !mobileMainCookieSessionOnly()) {
         const demoToken = sessionStorage.getItem('__pt_demo_window_token__');
         const storedToken = demoToken || localStorage.getItem('authToken');
         if (storedToken) {
