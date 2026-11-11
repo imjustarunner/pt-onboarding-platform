@@ -9,24 +9,36 @@ export async function sharedChildParticipants(clientId, agencyId, db = pool) {
 
 // Compatibility for guardian portal callers: one secure conversation per client.
 export async function ensureSharedChildThread({ clientId, agencyId, userId, serviceId }) {
-  const conversation = await ensureClientSecureConversation({ clientId, agencyId,serviceId, actorUserId: userId });
+  const { familySharedConversations } = await import('./familySharedConversations.service.js');
+  const conversation = await familySharedConversations.open({clientId,agencyId,serviceId,userId});
   return { ...conversation, shared: true };
 }
 
 export async function assertSharedChildThreadAccess(userId, threadId) {
+ const {familySharedConversations}=await import('./familySharedConversations.service.js');
+ const shared=await familySharedConversations.requireAccess(userId,threadId);
+ if(shared)return shared;
   const {assertDependentThreadAccess}=await import('./dependentPortalMessages.service.js');
   const personal=await assertDependentThreadAccess(userId,threadId);if(personal)return personal;
   const [[thread]] = await pool.execute('SELECT client_id, agency_id,service_enrollment_id FROM chat_threads WHERE id = ?', [threadId]);
   if (!thread?.client_id) return null;
-  await ensureClientSecureConversation({ clientId: thread.client_id, agencyId: thread.agency_id,serviceId:thread.service_enrollment_id, actorUserId: userId });
+  const {refreshClientSecureAccess}=await import('./clientSecureConversation.service.js');
+  await refreshClientSecureAccess(threadId,userId);
   return thread;
 }
 
-export async function assertSharedGuardianSend(userId, threadId) {
-  if (await assertSharedChildThreadAccess(userId, threadId)) return;
+export async function assertSharedGuardianSend(userId, threadId, {expectedRecipientUserIds}={}) {
+  const {familySharedConversations,assertReviewedFamilyRecipients}=await import('./familySharedConversations.service.js');
+  const shared=await familySharedConversations.requireAccess(userId,threadId,{forSend:true});
+  if(shared){
+    assertReviewedFamilyRecipients({shared,userId,expectedRecipientUserIds});
+    const {requireSharedFamilyAck}=await import('./sharedFamilyNotice.service.js');
+    await requireSharedFamilyAck({userId,agencyId:shared.agencyId});
+    return shared;
+  }
   const [[family]] = await pool.execute(`SELECT p.user_id FROM chat_thread_participants p JOIN users u ON u.id = p.user_id
     WHERE p.thread_id = ? AND LOWER(u.role) IN ('client', 'client_guardian') LIMIT 1`, [threadId]);
-  if (family) throw Object.assign(new Error('Use the client’s shared secure conversation for client or guardian messages.'), { status: 409 });
+  if (family) throw Object.assign(new Error('This earlier conversation is read-only. Open the client’s shared family conversation and review its current recipients before sending.'), { status: 409,code:'FAMILY_SHARED_THREAD_REQUIRED' });
 }
 
 export async function refreshSharedChildMemberships(userId) {

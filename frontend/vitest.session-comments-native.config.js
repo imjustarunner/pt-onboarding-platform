@@ -1,0 +1,3 @@
+import {defineConfig} from 'vitest/config';
+import vue from '@vitejs/plugin-vue';
+export default defineConfig({plugins:[vue()],resolve:{alias:{'@':new URL('./src',import.meta.url).pathname}},test:{environment:'jsdom',include:['src/mobile/__tests__/sessionCommentTransport.test.js','src/mobile/__tests__/mobileLinks.test.js','src/mobile/__tests__/MobileMessages.test.js','src/mobile/__tests__/MobileApp.test.js','src/components/quickView/__tests__/QuickView.navigation.test.js','src/components/quickView/__tests__/QuickView.messaging.test.js','src/components/quickView/__tests__/QuickView.presence.test.js']}});

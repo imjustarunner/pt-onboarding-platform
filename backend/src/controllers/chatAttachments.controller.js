@@ -1,3 +1,4 @@
+import { canReadFamilySecureMessage } from '../services/familySecureMessageAccess.service.js';
 import { refreshClientSecureAccess } from '../services/clientSecureConversation.service.js';
 import { recordSecureMessageEvent } from '../services/secureMessageBoundary.service.js';
 import { saveSecureChatAttachment, readSecureChatAttachment } from '../services/secureChatAttachment.service.js';
@@ -72,7 +73,7 @@ export async function downloadSecureChatAttachment(req, res, next) {
     try {
       await refreshClientSecureAccess(attachment.thread_id, req.user.id);
       const [members] = await pool.execute('SELECT 1 FROM chat_thread_participants WHERE thread_id = ? AND user_id = ?', [attachment.thread_id, req.user.id]);
-      allowed = members.length > 0;
+      allowed = members.length > 0 && await canReadFamilySecureMessage({userId:req.user.id,messageId:attachment.message_id,threadId:attachment.thread_id});
     } catch (e) { if (![403, 404].includes(e.status)) throw e; }
     if (!allowed && attachment.client_id && !['client', 'client_guardian', 'school_staff'].includes(req.user.role)) {
       const access = await resolveClientRecordAccess({ userId: req.user.id, role: req.user.role, clientId: attachment.client_id });

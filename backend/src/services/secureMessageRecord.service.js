@@ -1,6 +1,12 @@
 import pool from '../config/database.js';
 
 export async function resolveSecureMessageClient({ agencyId, threadId, clientId = null }) {
+  const {familySharedConversations}=await import('./familySharedConversations.service.js');
+  const shared=await familySharedConversations.find(threadId);
+  if(shared){
+    if(Number(shared.agency_id)!==Number(agencyId)||(clientId&&Number(shared.client_id)!==Number(clientId)))throw Object.assign(new Error('This shared message belongs to another client or practice.'),{status:403});
+    return Number(shared.client_id);
+  }
   const [threads] = await pool.execute("SELECT t.client_id,d.client_id AS personal_client_id FROM chat_threads t LEFT JOIN dependent_portal_threads d ON d.thread_id=t.id WHERE t.id = ? AND t.agency_id = ? AND t.message_channel = 'secure'", [threadId, agencyId]);
   const recordedClient = threads[0]?.personal_client_id || threads[0]?.client_id;
   if (recordedClient) {

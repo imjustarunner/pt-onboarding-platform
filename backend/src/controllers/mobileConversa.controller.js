@@ -1,3 +1,4 @@
+import { describeFamilySecureThread, familyMessageVisibilitySql } from '../services/familySecureMessageAccess.service.js';
 import {mobileAgencyIcon} from '../services/mobile/agencyBrand.service.js';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
@@ -107,6 +108,8 @@ export const getMobileChatContext=mobile(async(req,res)=>{
   await assertMobileQaThread(req,id);
   await assertThreadAccess(req.quickView.userId,id,{requireActiveAgency:true});
   const [[thread]]=await pool.execute(`SELECT t.id,t.name,t.agency_id,t.thread_type,t.message_channel,r.last_read_message_id,a.name AS agency_name,a.slug AS agency_slug,a.logo_path AS agency_logo_path FROM chat_threads t JOIN agencies a ON a.id=t.agency_id LEFT JOIN chat_thread_reads r ON r.thread_id=t.id AND r.user_id=? WHERE t.id=?`,[req.quickView.userId,id]);
+  const family=await describeFamilySecureThread(req.quickView.userId,id);
+  if(family)return res.json({...thread,...family,title:family.readOnly?'Previous secure conversation':'Shared secure messages',agencyLogoUrl:mobileAgencyIcon({name:thread.agency_name,slug:thread.agency_slug,logo_path:thread.agency_logo_path})});
   const [participants]=await pool.execute(`SELECT u.id,u.first_name,u.last_name,u.work_email,u.email,u.profile_photo_path FROM chat_thread_participants p JOIN users u ON u.id=p.user_id WHERE p.thread_id=?`,[id]);
   const others=participants.filter(p=>Number(p.id)!==Number(req.quickView.userId));
   res.json({...thread,agencyLogoUrl:mobileAgencyIcon({name:thread.agency_name,slug:thread.agency_slug,logo_path:thread.agency_logo_path}),title:thread.name || others.map(p=>[p.first_name,p.last_name].filter(Boolean).join(' ')).join(', ') || 'Conversation',participants:participants.map(p=>({...p,profile_photo_url:publicUploadsUrlFromStoredPath(p.profile_photo_path)}))});
@@ -144,7 +147,7 @@ export const postMobileViewed=mobile(async(req,res)=>{
   if(!Number.isSafeInteger(threadId)||threadId<=0 || !Array.isArray(ids)||ids.length>200 || !ids.length || ids.some(id=>!Number.isSafeInteger(id)||id<=0))throw fail(400,'Valid message IDs are required.');
   await assertMobileQaThread(req,threadId);
   await assertThreadAccess(req.quickView.userId,threadId,{requireActiveAgency:true});
-  await pool.execute(`INSERT IGNORE INTO chat_message_views(message_id,user_id) SELECT m.id,? FROM chat_messages m WHERE m.thread_id=? AND m.id IN(${ids.map(()=>'?').join(',')}) AND m.sender_user_id<>? AND NOT EXISTS(SELECT 1 FROM chat_message_deletes d WHERE d.message_id=m.id AND d.user_id=?)`,[req.quickView.userId,threadId,...ids,req.quickView.userId,req.quickView.userId]);
+  await pool.execute(`INSERT IGNORE INTO chat_message_views(message_id,user_id) SELECT m.id,? FROM chat_messages m WHERE m.thread_id=? AND ${familyMessageVisibilitySql(req.quickView.userId)} AND m.id IN(${ids.map(()=>'?').join(',')}) AND m.sender_user_id<>? AND NOT EXISTS(SELECT 1 FROM chat_message_deletes d WHERE d.message_id=m.id AND d.user_id=?)`,[req.quickView.userId,threadId,...ids,req.quickView.userId,req.quickView.userId]);
   res.json({ok:true});
 });
 

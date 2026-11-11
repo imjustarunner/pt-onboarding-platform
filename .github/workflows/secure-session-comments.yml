@@ -1,0 +1,65 @@
+name: Secure session comments and family sharing
+on:
+  pull_request:
+    paths: ['backend/**','frontend/**','database/migrations/1792*','database/migrations/1793*','database/migrations/1794*','scripts/provider-training/**','.github/workflows/secure-session-comments.yml']
+  push:
+    branches: [main]
+    paths: ['backend/**','frontend/**','database/migrations/1792*','database/migrations/1793*','database/migrations/1794*','scripts/provider-training/**','.github/workflows/secure-session-comments.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  secure-family-comments:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0.44
+        env:
+          MYSQL_ALLOW_EMPTY_PASSWORD: 'yes'
+          MYSQL_ROOT_HOST: '%'
+        ports: ['33316:3306']
+        options: >-
+          --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=12
+    env:
+      TZ: America/Denver
+      SKIP_DB_CONNECT: '1'
+      SKIP_CLINICAL_DB_CONNECT: '1'
+      DB_HOST: 127.0.0.1
+      DB_PORT: '1'
+      DB_NAME: never_production
+      DB_USER: isolated_tests_only
+      DB_PASSWORD: unused
+      RECOVERY_TEST_MYSQL_HOST: 127.0.0.1
+      RECOVERY_TEST_MYSQL_PORT: '33316'
+      MOBILE_MYSQL_TEST: '1'
+      MOBILE_MYSQL_PORT: '33316'
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+      - name: Install without duplicate build artifacts
+        run: |
+          npm ci --prefix backend --ignore-scripts
+          npm ci --prefix frontend --ignore-scripts
+          npm rebuild bcrypt --prefix backend --no-audit --no-fund
+      - name: Encrypted comments, outbox and actual MySQL audience and revision checks
+        run: |
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.session-comments.config.js
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.session-comments-native.config.js
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.family-message-history.config.js
+      - name: Connected mobile and existing message regressions
+        run: |
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.mobile.config.js
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.family-email.config.js
+      - name: Provider, family, history, native and training interfaces
+        working-directory: frontend
+        run: |
+          node node_modules/vitest/vitest.mjs run --config vitest.session-comments.config.js
+          node node_modules/vitest/vitest.mjs run --config vitest.session-comments-native.config.js
+          node node_modules/vitest/vitest.mjs run --config vitest.provider-transition.config.js

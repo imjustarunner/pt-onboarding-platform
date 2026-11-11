@@ -449,6 +449,7 @@
             </template>
 
             <template v-else-if="['messages','family_messages'].includes(activePanel)">
+              <SecureSessionCommentHistory v-if="!isSuperadminPreview" :client-id="activePanel === 'family_messages' ? null : selectedChildId" family />
               <GuardianMessagesPanel v-if="!isSuperadminPreview" :key="activePanel === 'family_messages' ? 'all' : selectedChildId" :client-id="activePanel === 'family_messages' ? null : selectedChildId" :initial-thread-id="route.query.familyThreadId" />
               <div v-else class="hint">Guardian messaging is hidden in platform preview.</div>
             </template>
@@ -688,6 +689,7 @@ import GuardianPlanProgressPanel from '../../components/guardian/GuardianPlanPro
 import GuardianSkillBuildersEventView from './GuardianSkillBuildersEventView.vue';
 import GuardianSessionBookingDrawer from '../../components/guardian/GuardianSessionBookingDrawer.vue';
 import ClientNotificationHistory from '../../components/conversa/ClientNotificationHistory.vue';
+import SecureSessionCommentHistory from '../../components/session-comments/SecureSessionCommentHistory.vue';
 import GuardianMessagesPanel from '../../components/guardian/GuardianMessagesPanel.vue';
 import GuardianTutoringDashboard from '../../components/guardian/GuardianTutoringDashboard.vue';
 import ClientAffiliatedContactsPanel from '../../components/client/ClientAffiliatedContactsPanel.vue';

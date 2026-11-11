@@ -1,6 +1,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import api from '@/services/api';
+import SecureFamilyAudience from '../session-comments/SecureFamilyAudience.vue';
 import UserAvatar from '@/components/common/UserAvatar.vue';
 import { toUploadsUrl } from '@/utils/uploadsUrl.js';
 
@@ -13,6 +14,7 @@ const props = defineProps({
 
 const emit = defineEmits(['messages-updated', 'message-sent']);
 
+const sharedAudience = ref(null);
 const messages = ref([]);
 const loading = ref(false);
 const error = ref('');
@@ -136,10 +138,13 @@ function removeStaged(idx) {
 async function send() {
   const body = composerText.value.trim();
   if (!body && stagedAttachments.value.length === 0) return;
+  if (sending.value || !await sharedAudience.value?.prepareSend()) return;
+  const thread = props.threadId;
   sending.value = true;
   error.value = '';
   try {
     const payload = { body };
+    if (sharedAudience.value?.shared) payload.expectedRecipientUserIds = [...sharedAudience.value.recipientUserIds];
     if (stagedAttachments.value.length) {
       payload.attachments = stagedAttachments.value.map((a) => ({
         filePath: a.filePath,
@@ -149,7 +154,8 @@ async function send() {
         byteSize: a.byteSize
       }));
     }
-    const { data } = await api.post(`/chat/threads/${props.threadId}/messages`, payload);
+    const { data } = await api.post(`/chat/threads/${thread}/messages`, payload);
+    if (String(thread) !== String(props.threadId)) return;
     if (data && data.id) {
       messages.value.push(data);
       emit('message-sent', data);
@@ -160,6 +166,7 @@ async function send() {
       markRead();
     }
   } catch (e) {
+    if (['FAMILY_SHARED_AUDIENCE_REVIEW_REQUIRED','FAMILY_SHARED_AUDIENCE_CHANGED'].includes(e.response?.data?.error?.code)) await sharedAudience.value?.refreshAfterAudienceChange();
     error.value = e?.response?.data?.error?.message || 'Failed to send';
   } finally {
     sending.value = false;
@@ -355,7 +362,9 @@ defineExpose({ refresh: loadMessages });
 
     <div v-if="error" class="thread-error">{{ error }}</div>
 
-    <div class="composer">
+    <SecureFamilyAudience ref="sharedAudience" :thread-id="threadId" :me-id="meId" :scope-key="threadId" />
+    <label v-if="sharedAudience?.readOnly && composerText">Your unsent draft (not sent)<textarea :value="composerText" readonly /></label>
+    <div v-if="!sharedAudience?.readOnly" class="composer">
       <div v-if="stagedAttachments.length" class="staged-row">
         <div v-for="(s, i) in stagedAttachments" :key="i" class="staged-chip">
           <img v-if="s.kind === 'image' || s.kind === 'gif'" :src="s._localPreview || toUploadsUrl(s.filePath)" />
@@ -376,7 +385,7 @@ defineExpose({ refresh: loadMessages });
         <button
           type="button"
           class="composer-send"
-          :disabled="sending || (!composerText.trim() && !stagedAttachments.length)"
+          :disabled="sending || !sharedAudience?.canSend || (!composerText.trim() && !stagedAttachments.length)"
           @click="send"
         >
           {{ sending ? 'Sending…' : 'Send' }}

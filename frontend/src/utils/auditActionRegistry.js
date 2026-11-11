@@ -12,6 +12,7 @@ export const AUDIT_ACTION_REGISTRY = {
   staff_verbal_reminder_confirmation: { label: 'Verbal-consent text confirmation', category: 'Client Access' },
   view_reminder_text_consent: { label: 'Viewed appointment-text consent', category: 'Client Access' },
   // Authentication & Sessions
+  family_communication_notice_acknowledged: { label: 'Acknowledged shared family communication notice', category: 'Communications' },
   login: { label: 'User logged in', category: 'Authentication' },
   logout: { label: 'User logged out', category: 'Authentication' },
   timeout: { label: 'Session timed out', category: 'Authentication' },

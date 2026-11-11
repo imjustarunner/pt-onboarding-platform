@@ -46,6 +46,7 @@
       @sent="loadSmsAudit"
     />
     <template v-if="agencyRecord">
+    <SecureSessionCommentHistory v-if="canUseSessionComments(viewerRole)" :client-id="clientId" :family="familyViewer" />
     <ClientSecureMessageRecords :client-id="clientId" />
     <SchoolAbsenceRecords :client-id="clientId" />
     <ClientNotificationHistory :client-id="clientId" />
@@ -370,6 +371,8 @@
 <script setup>
 import SchoolAbsenceRecords from '../schedule/SchoolAbsenceRecords.vue';
 import GuardianContactCard from './GuardianContactCard.vue';
+import SecureSessionCommentHistory from '../session-comments/SecureSessionCommentHistory.vue';
+import { canUseSessionComments } from '../session-comments/sessionComments';
 import ClientSecureMessageRecords from '../conversa/ClientSecureMessageRecords.vue';
 import ClientNotificationHistory from '../conversa/ClientNotificationHistory.vue';
 import ConversaBrand from '../../components/conversa/ConversaBrand.vue';

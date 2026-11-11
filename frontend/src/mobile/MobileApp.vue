@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import axios from 'axios';
 import { LockKeyhole, UserRound, Fingerprint, Bell, ArrowRight, LogOut } from '@lucide/vue';
 import AuricWellBrand from '../components/auricwell/AuricWellBrand.vue';
+import {mobileLinkTarget} from './mobileLinks.js';
 import {activateClinicalRecovery,clearClinicalRecovery} from './clinicalRecovery.js';
 import {activateFamilyDevice,clearFamilyDevice} from './familyContext.js';
 const AccountSecurityPanel=defineAsyncComponent(()=>import('../components/AccountSecurityPanel.vue'));
@@ -29,6 +30,15 @@ async function refreshNotificationCount(){const token=access.value?.sessionToken
 watch(()=>access.value?.sessionToken,()=>{notificationUnread.value=0;void refreshNotificationCount();});
 async function notificationRequest(method,path,data={}){try{return (await mobileApi.request({method,url:path,...(method==='GET'?{}:{data}),headers:{'X-Quick-View-Session':access.value?.sessionToken || ''}})).data;}catch(error){if([401,423].includes(error.response?.status))lock();throw error;}}
 async function openNotificationEmail(item){
+ if(item.type==='secure_session_comment' || item.related_entity_type==='secure_session_comment'){
+  let metadata=item.audience_json;try{if(typeof metadata==='string')metadata=JSON.parse(metadata);}catch{return;}
+  const target=mobileLinkTarget(metadata?.actionUrl || '',{workspaceLoginUrl:profile.value?.workspace?.loginUrl});
+  if(!target || target.query.view!=='calendar')return;
+  notificationPanel.value=false;
+  if(Number(item.agency_id)!==Number(workspace.value?.id))await switchWorkspace(item.agency_id,target.query);
+  else await router.push(target);
+  return;
+ }
  const id=Number(item.related_entity_id);if(!Number.isSafeInteger(id)||id<1)return;
  const type=item.related_entity_type,query=type==='communication_conversation'?{view:'home',conversationId:String(id)}:type==='chat_thread'?{view:'home',threadId:String(id),suite:'direct'}:type==='task'?{view:'tasks'}:type==='client'?{view:'client',clientId:String(id)}:null;
  if(!query)return;notificationPanel.value=false;
@@ -54,7 +64,7 @@ async function normalizeWorkspaceRoute() {
   if(route.path==='/mobile/workspace')return;
   const query={...route.query};
   await router.replace({path:'/mobile/workspace',query:{view:'home'}});
-  if(query.conversationId || query.threadId || query.kind)await router.push({path:'/mobile/workspace',query:Object.fromEntries(Object.entries(query).filter(([key])=>['conversationId','threadId','parentId','messageId','secure','kind','id','suite','view'].includes(key)))});
+  if(query.conversationId || query.threadId || query.kind || query.secureSessionComments || query.secureCommentAppointmentId)await router.push({path:'/mobile/workspace',query:Object.fromEntries(Object.entries(query).filter(([key])=>['conversationId','threadId','parentId','messageId','secure','kind','id','suite','view','secureSessionComments','secureCommentAppointmentId','secureCommentClientId'].includes(key)))});
 }
 async function detectSession() {
   const current=++generation;screen.value='loading';error.value='';

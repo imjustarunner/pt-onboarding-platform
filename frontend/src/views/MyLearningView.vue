@@ -22,6 +22,7 @@
         <section class="assigned-learning"><h3 class="section-label">Your assigned training</h3><TrainingFocusTab :key="agencyId" :search="searchQuery" /></section>
       </template>
       <OnboardingChecklistView v-if="activeTab === 'onboarding'" />
+      <ProviderTransitionLearning v-if="activeTab === 'on-demand'" :search="searchQuery" :initially-open="route.query.guide === 'provider-transition'" />
       <DocumentLearningCatalog :key="activeTab" :hide-empty="activeTab === 'assigned'" :search="searchQuery" :mode="activeTab" @progress="guideProgress = $event" @catalog="guideCourses = $event" />
       <template v-if="activeTab === 'assigned'">
         <section v-if="suggestions.length" class="on-demand-preview" aria-label="Explore on-demand training">
@@ -49,6 +50,7 @@ import LearningLibraryHeader from '../components/library/LearningLibraryHeader.v
 import OnboardingChecklistView from './OnboardingChecklistView.vue';
 import TrainingFocusTab from '../components/dashboard/TrainingFocusTab.vue';
 import DocumentLearningCatalog from '../components/training/DocumentLearningCatalog.vue';
+import ProviderTransitionLearning from '../components/training/ProviderTransitionLearning.vue';
 import { computed, onMounted, ref, watch, onBeforeUnmount } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../services/api';

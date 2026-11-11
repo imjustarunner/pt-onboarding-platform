@@ -99,6 +99,8 @@
       </section>
       <div v-show="!moreOpen" class="qv-content" :aria-busy="navigationBusy || undefined">
       <QuickViewPresence v-if="tab==='presence'" :http="presenceHttp" />
+      <SecureSessionCommentsHost v-if="isMobile" :user-id="sessionUserId" :enabled="!!session" :scope-key="commentScopeGeneration" schedule-path="/mobile/workspace" :schedule-query="{view:'calendar'}" />
+      <FamilySharingNoticeHost v-if="isMobile" :user-id="sessionUserId" :enabled="!!session" :scope-key="commentScopeGeneration" />
       <MobileMessages v-if="isMobile" v-show="tab==='home' || tab==='chat'" ref="mobileMessages" :api-base="apiBase" :session-token="session" :user-id="sessionUserId" :visible="!overlayOpen && !moreOpen && (tab==='home' || tab==='chat')" :preferences="workspacePreferences" @open-email="openMobileConversation" @access-denied="clearCachedEmailAccess" @compose-email="openMobileEmailDraft" @counts="mobileCounts=$event" @settings="showMobileSettings=true"/>
       <MobilePreferences v-if="isMobile && showMobileSettings" :api-base="apiBase" :session-token="session" :preferences="workspacePreferences" @close="showMobileSettings=false" @saved="workspacePreferences=$event"/>
       <MobileClinicalWorkspace v-if="isMobile && tab==='clinical'" :api-base="apiBase" :session-token="session" :user-id="sessionUserId" @signed="sendNotice='Note signed and saved to the chart.'" />
@@ -515,12 +517,13 @@
         </div>
         <p class="qv-selected-day" aria-live="polite">{{ selectedCalendarDayLabel }}</p>
         <div v-if="isMobile && !showOffice" class="qv-calendar-modes"><button type="button" :aria-pressed="calendarMode==='agenda'" @click="calendarMode='agenda'">Agenda</button><button type="button" :aria-pressed="calendarMode==='day'" @click="calendarMode='day'">Day</button></div>
-        <div v-if="isMobile && !showOffice && calendarMode==='day'" class="qv-day-grid" aria-label="Day schedule"><div v-for="hour in calendarHours" :key="hour" class="qv-hour-row"><time class="qv-hour-label">{{ hour===0?'12 AM':hour<12?`${hour} AM`:hour===12?'12 PM':`${hour-12} PM` }}</time><div class="qv-hour-lane"><button v-for="item in itemsAtHour(hour)" :key="item.id" type="button" class="qv-cal-block" @click="openCalEvent(item)"><strong>{{ calendarTitle(item) }}</strong><small>{{ item.allDay?'All day':`${formatClock(item.startAt)}–${formatClock(item.endAt)}` }}</small></button></div></div></div>
+        <div v-if="isMobile && !showOffice && calendarMode==='day'" class="qv-day-grid" aria-label="Day schedule"><div v-for="hour in calendarHours" :key="hour" class="qv-hour-row"><time class="qv-hour-label">{{ hour===0?'12 AM':hour<12?`${hour} AM`:hour===12?'12 PM':`${hour-12} PM` }}</time><div class="qv-hour-lane"><div v-for="item in itemsAtHour(hour)" :key="item.id" class="qv-cal-block-wrap"><button type="button" class="qv-cal-block" @click="openCalEvent(item)"><strong>{{ calendarTitle(item) }}</strong><small>{{ item.allDay?'All day':`${formatClock(item.startAt)}–${formatClock(item.endAt)}` }}</small></button><SecureSessionCommentButton v-if="item.appointmentId" :appointment-id="item.appointmentId" :client-id="item.clientId" icon-only /></div></div></div></div>
         <template v-if="!showOffice && (!isMobile || calendarMode==='agenda')">
           <p class="qv-pad muted">Times shown in {{ calendarTimeZone }}.</p>
           <p v-if="calendarLoading" class="qv-pad muted" role="status">Loading your schedule…</p>
           <div v-for="item in dayItems" :key="item.id" class="qv-agenda-item" role="button" tabindex="0" @click="openCalEvent(item)" @keydown.enter.self="openCalEvent(item)" @keydown.space.self.prevent="openCalEvent(item)">
             <div><strong>{{ item.title }}</strong><p>{{ item.allDay ? 'All day' : `${formatClock(item.startAt)}–${formatClock(item.endAt)}` }}<template v-if="item.location"> · {{ item.location }}</template></p><small v-if="item.status === 'CANCELLED'">Cancelled</small></div>
+            <SecureSessionCommentButton v-if="isMobile && item.appointmentId" :appointment-id="item.appointmentId" :client-id="item.clientId" icon-only @click.stop @keydown.stop />
             <a v-if="item.canJoin" class="qv-btn primary sm" :href="joinHref(item)" target="_blank" rel="noopener noreferrer" @click.stop="extendForMeeting(item)">Join meeting ↗</a>
           </div>
           <div v-if="!calendarLoading && !error && !dayItems.length" class="qv-pad muted">Nothing scheduled this day.</div>
@@ -770,6 +773,7 @@
       <div class="qv-sheet">
         <button type="button" class="qv-btn ghost sm" @click="calEvent = null">Close</button>
         <h3>{{ calendarTitle(calEvent) }}</h3>
+        <SecureSessionCommentButton v-if="isMobile && calEvent.appointmentId" :appointment-id="calEvent.appointmentId" :client-id="calEvent.clientId" />
         <p class="qv-detail-meta">{{ calEvent.kind }} · {{ formatClock(calEvent.startAt) }} – {{ formatClock(calEvent.endAt) }}</p>
         <template v-if="String(calEvent.kind || '').toUpperCase() === 'OFFICE'">
           <p class="qv-detail-meta"><strong>Office:</strong> {{ calEvent.officeName || calEvent.location || '—' }}</p>
@@ -832,6 +836,10 @@ import ConversaBrand from '../components/conversa/ConversaBrand.vue';
 import { privateSpeechRecognition } from '../utils/privateSpeechRecognition.js';
 import { quickViewDeepLink } from '../utils/quickViewDeepLink';
 import QuickViewPresence from '../components/quickView/QuickViewPresence.vue';
+import SecureSessionCommentsHost from '../components/session-comments/SecureSessionCommentsHost.vue';
+import SecureSessionCommentButton from '../components/session-comments/SecureSessionCommentButton.vue';
+import FamilySharingNoticeHost from '../components/session-comments/FamilySharingNoticeHost.vue';
+import { createMobileCommentTransport } from '../mobile/sessionCommentTransport.js';
 import { provide, defineAsyncComponent, computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import axios from 'axios';
@@ -864,6 +872,7 @@ async function keepEmailUnread(){
 
 const apiBase = Capacitor.isNativePlatform() ? 'https://auricwell.com/api/quick-view' : '/api/quick-view';
 provide('emailAttachmentTransport',({conversationId,file})=>axios.get(`${apiBase}/conversations/${conversationId}/attachments/${file.id}`,{headers:authHeaders(),withCredentials:true,responseType:'blob'}));
+provide('secureSessionCommentsApi',createMobileCommentTransport({base:apiBase,http:axios,headers:authHeaders}));
 const presenceHttp={get:path=>axios.get(apiBase+path,{headers:authHeaders(),withCredentials:true}),post:(path,body)=>axios.post(apiBase+path,body,{headers:authHeaders(),withCredentials:true})};
 const quickPreview = ref(null);
 const showMobileReply=ref(false),showReplyCopies=ref(false);
@@ -1114,6 +1123,8 @@ const directoryProviders = ref([]);
 const directorySchool = ref([]);
 const dmBusyId = ref(null);
 const sessionAgencyId = ref(null);
+const commentScopeGeneration=ref(0);
+watch(()=>[session.value,sessionUserId.value,sessionAgencyId.value],()=>{commentScopeGeneration.value++;},{flush:'sync'});
 const homeScreenTip = ref(false);
 let heartbeatTimer = null;
 let refreshTimer = null;
@@ -3055,3 +3066,5 @@ button.qv-row:hover { background: #f8faff; }
 <style scoped>
 .qv-top-actions>.qv-icon-button{position:relative}.qv-notification-dot{position:absolute;top:6px;right:6px;width:8px;height:8px;border-radius:50%;background:#2860df;box-shadow:0 0 0 3px #eef3ff;animation:qv-pulse 2s ease-out infinite}.qv-countdown{font-size:9px;line-height:1.2;white-space:nowrap;color:#526b90}.qv-mobile .qv-extend{display:grid;grid-template-columns:auto auto;gap:2px 5px;min-width:68px}.qv-countdown{grid-column:1/-1}.qv-mobile .qv-tabs>button{min-width:0;flex:1}.qv-mobile .qv-tabs>button>span:not(.qv-nav-badge){font-size:10px;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}@keyframes qv-pulse{0%,100%{box-shadow:0 0 0 3px #eef3ff}50%{box-shadow:0 0 0 6px #2860df20}}@media(prefers-reduced-motion:reduce){.qv-notification-dot{animation:none}}
 </style>
+
+<style scoped>.qv-cal-block-wrap{display:flex;align-items:center;gap:6px}.qv-cal-block-wrap>.qv-cal-block{flex:1;min-width:0}</style>

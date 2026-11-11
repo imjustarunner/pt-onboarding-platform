@@ -1,5 +1,5 @@
 import {beforeEach,it,expect,vi} from 'vitest';
-const m=vi.hoisted(()=>({execute:vi.fn(),settings:vi.fn(),context:vi.fn(),send:vi.fn(),user:vi.fn(),setup:vi.fn(),event:vi.fn(),agency:vi.fn()}));
+const m=vi.hoisted(()=>({execute:vi.fn(),settings:vi.fn(),context:vi.fn(),send:vi.fn(),user:vi.fn(),setup:vi.fn(),event:vi.fn(),agency:vi.fn(),sharedAccess:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute}}));
 vi.mock('../emailSettings.service.js',()=>({getAgencyEmailSettings:m.settings}));
 vi.mock('../clientPortalEmail.service.js',()=>({clientEmailContext:m.context,sendClientPortalEmail:m.send}));
@@ -7,13 +7,18 @@ vi.mock('../unifiedEmail/unifiedEmailSender.service.js',()=>({sendEmailFromIdent
 vi.mock('../../models/User.model.js',()=>({default:{findById:m.user,generatePasswordlessToken:m.setup}}));
 vi.mock('../../models/Agency.model.js',()=>({default:{findById:m.agency}}));
 vi.mock('../secureMessageBoundary.service.js',()=>({recordSecureMessageEvent:m.event}));
+vi.mock('../familySharedConversations.service.js',()=>({familySharedConversations:{requireAccess:m.sharedAccess}}));
 import {sendSecureMessageNotification,buildSecureClaimRedirect,resolveClientContextForMessageNotify,sendLearningClientMessageEmail} from '../secureMessageNotify.service.js';
 const input={agencyId:2,senderUserId:1001,recipientUserId:1411,recipientEmail:'guardian@example.com',clientId:2240,chatThreadId:44,messageId:77};
 beforeEach(()=>{
- vi.resetAllMocks();m.agency.mockResolvedValue({id:2,name:'ITSCO',slug:'itsco'});m.settings.mockResolvedValue({secureClientMessageEmailEnabled:true});
+ vi.resetAllMocks();m.sharedAccess.mockResolvedValue(null);m.agency.mockResolvedValue({id:2,name:'ITSCO',slug:'itsco'});m.settings.mockResolvedValue({secureClientMessageEmailEnabled:true});
  m.execute.mockImplementation(async sql=>sql.includes('SELECT id, LOWER')?[[{id:2240,client_type:'clinical'}]]:[{insertId:12,affectedRows:1}]);
  m.context.mockResolvedValue({clinical:true,domain:'itsco.health',brand:{replyTo:'support@itsco.health'},url:path=>'https://auricwell.com/itsco/'+path});
  m.user.mockResolvedValue({id:1411,role:'client_guardian',first_name:'Demo',password_hash:'set'});m.send.mockResolvedValue({id:'gmail-id',communicationId:8});
+});
+it('does not send a queued shared-message alert to a recipient whose current access was removed',async()=>{
+ m.sharedAccess.mockRejectedValue(Object.assign(new Error('revoked'),{status:403}));
+ expect(await sendSecureMessageNotification(input)).toMatchObject({sent:false,reason:'shared_recipient_access_changed'});expect(m.send).not.toHaveBeenCalled();expect(m.execute).not.toHaveBeenCalled();
 });
 it('sends a content-free Conversa alert within AuricWell through the standard portal sender',async()=>{
  const result=await sendSecureMessageNotification(input);expect(result.sent).toBe(true);

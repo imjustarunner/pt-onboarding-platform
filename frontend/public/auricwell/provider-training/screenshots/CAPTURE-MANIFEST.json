@@ -1,0 +1,51 @@
+{
+  "capturedAt": "2026-11-11T12:17:34.985Z",
+  "agencyId": 450,
+  "role": "Provider \u00b7 Avery QA 1433",
+  "syntheticOnly": true,
+  "source": "Actual authenticated application",
+  "screenshots": [
+    {
+      "name": "schedule",
+      "title": "My Schedule",
+      "route": "/auricwell-qa-demo/my-schedule",
+      "file": "schedule.png",
+      "finalPath": "/auricwell-qa-demo/my-schedule",
+      "agencyContext": {
+        "id": 450,
+        "name": "ITSCOLLC"
+      },
+      "browser": "Chrome desktop",
+      "viewport": "1440\u00d71000"
+    },
+    {
+      "name": "messages",
+      "title": "Secure communications",
+      "route": "/auricwell-qa-demo/messages",
+      "file": "messages.png",
+      "finalPath": "/auricwell-qa-demo/messages",
+      "agencyContext": {
+        "id": 450,
+        "name": "ITSCOLLC"
+      },
+      "browser": "Chrome desktop",
+      "viewport": "1440\u00d71000"
+    }
+  ],
+  "identity": {
+    "status": 200,
+    "id": 1433,
+    "role": "provider"
+  },
+  "frontendVersion": {
+    "schemaVersion": 1,
+    "buildId": "912a48c05e0b9fd4d16325cdb50f54121146cf8c",
+    "requiredBackendBuildId": "912a48c05e0b9fd4d16325cdb50f54121146cf8c"
+  },
+  "apiVersion": {
+    "buildId": "912a48c05e0b9fd4d16325cdb50f54121146cf8c",
+    "revision": "onboarding-backend-g43014470447a1",
+    "ready": true
+  },
+  "discarded": "Dashboard briefing and account/learning loading captures discarded; use separately labeled actual-component local previews."
+}

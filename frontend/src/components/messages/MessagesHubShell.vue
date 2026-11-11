@@ -420,6 +420,7 @@
 
         <section class="msg-hub-thread-col" aria-label="Conversation">
           <SecureMessageBanner v-if="selected && sendMethod === 'secure'" :thread-id="chatThreadId" :shared="!!clientMessaging || !!selectedClientId || (selected.kinds || []).some(k => ['guardian', 'client'].includes(k))" />
+          <SecureFamilyAudience v-if="selected && familySecureCompose" ref="secureFamilyAudience" required :agency-id="selected.agencyId || agencyId" :client-id="clientMessaging?.clientId || selectedClientId || selected.clientId" :person-key="selected.personKey" :me-id="authStore.user?.id" :scope-key="`${selected.personKey}:${sendMethod}`" />
           <template v-if="selected">
             <header class="msg-hub-thread-head">
               <button
@@ -1608,6 +1609,7 @@ import QaRecipientEmailInbox from './QaRecipientEmailInbox.vue';
 import EmailDeliveryChoice from './EmailDeliveryChoice.vue';
 import ConversaBrand from '../../components/conversa/ConversaBrand.vue';
 import SecureMessageBanner from '../conversa/SecureMessageBanner.vue';
+import SecureFamilyAudience from '../session-comments/SecureFamilyAudience.vue';
 import ConversaIcon from '../../components/conversa/ConversaIcon.vue';
 import ConversaBadge from '../../components/conversa/ConversaBadge.vue';
 import ConversaMailbox from '../conversa/ConversaMailbox.vue';
@@ -2264,6 +2266,8 @@ const newTabHint = computed(() => {
 });
 
 const clientMessaging = computed(() => selected.value?.clientMessaging || null);
+const secureFamilyAudience = ref(null);
+const familySecureCompose = computed(() => sendMethod.value === 'secure' && (!!clientMessaging.value || !!selectedClientId.value || (selected.value?.kinds || []).some(k => ['guardian','client'].includes(k))));
 
 const talkingToLabel = computed(() => {
   const ctx = clientMessaging.value;
@@ -2458,7 +2462,7 @@ async function onTalkingToChange() {
 function needsGuardianSendConfirm() {
   const ctx = clientMessaging.value;
   if (!ctx) return false;
-  if (sendMethod.value !== 'secure' && sendMethod.value !== 'email') return false;
+  if (sendMethod.value !== 'email') return false;
   const portalCount = (ctx.portalGuardians || []).length;
   return portalCount > 1 || !!ctx.clientHasPortal;
 }
@@ -3378,6 +3382,7 @@ const composerPlaceholder = computed(() => {
 });
 
 const canSendCompose = computed(() => {
+  if (familySecureCompose.value && !secureFamilyAudience.value?.canSend) return false;
   if (sendMethod.value === 'internal' || sendMethod.value === 'secure') {
     return !!(composeBody.value.trim() || chatStagedAttachments.value.length);
   }
@@ -4855,6 +4860,7 @@ async function send({ deliveryChoice = null } = {}) {
     sendError.value = 'Missing agency for this conversation';
     return;
   }
+  if (familySecureCompose.value) { const context = selected.value?.personKey; if (!await secureFamilyAudience.value?.prepareSend() || context !== selected.value?.personKey) return; }
   if (!activeMethod.value?.available) {
     sendError.value = activeMethod.value?.reason || 'That method is not available';
     return;
@@ -4869,8 +4875,8 @@ async function send({ deliveryChoice = null } = {}) {
   }
   await executeSend({
     deliveryChoice,
-    sendToAllPortalGuardians: !!sendConfirmPending.value?.sendToAll,
-    includeClient: !!(includeClientOnSend.value || sendConfirmPending.value?.includeClient)
+    sendToAllPortalGuardians: sendMethod.value === 'email' && !!sendConfirmPending.value?.sendToAll,
+    includeClient: sendMethod.value === 'email' && !!(includeClientOnSend.value || sendConfirmPending.value?.includeClient)
   });
   if (!availabilityPrompt.value) sendConfirmPending.value = null;
   sendConfirmOpen.value = false;
@@ -5034,6 +5040,7 @@ async function executeSend({ deliveryChoice = null, sendToAllPortalGuardians = f
       } else {
         payload.undoDelaySeconds = Number(undoDelaySeconds.value) || 20;
       }
+      if (familySecureCompose.value) payload.expectedRecipientUserIds = [...(secureFamilyAudience.value?.recipientUserIds || [])];
       const { data } = await api.post('/messages/hub/send', payload, { skipGlobalLoading: true });
       if (data?.error?.message) {
         throw Object.assign(new Error(data.error.message), { response: { data } });
@@ -5178,6 +5185,7 @@ async function executeSend({ deliveryChoice = null, sendToAllPortalGuardians = f
       ];
     }
   } catch (e) {
+    if (['FAMILY_SHARED_AUDIENCE_REVIEW_REQUIRED','FAMILY_SHARED_AUDIENCE_CHANGED'].includes(e.response?.data?.error?.code)) await secureFamilyAudience.value?.refreshAfterAudienceChange();
     if (e?.response?.data?.error?.code === 'RECIPIENT_AVAILABILITY_CHOICE_REQUIRED') { availabilityPrompt.value=e.response.data.error.availability; return; }
     sendError.value = e?.response?.data?.error?.message || e?.message || 'Send failed';
   } finally {

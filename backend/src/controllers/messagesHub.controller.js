@@ -380,7 +380,7 @@ export const getMessagesHubAliases = async (req, res, next) => {
     const aliases = await listHubMessageAliases({ agencyId, userId: req.user.id });
     res.json({ aliases });
   } catch (e) {
-    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message, ...(String(e.code || "").startsWith("FAMILY_") ? { code:e.code, ...(e.code === "FAMILY_SHARING_ACK_REQUIRED" ? {agencyId:e.agencyId,version:e.version} : {}) } : {}) } });
     next(e);
   }
 };
@@ -397,7 +397,7 @@ export const getMessagesHubSendAgencies = async (req, res, next) => {
     });
     res.json({ agencies });
   } catch (e) {
-    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message, ...(String(e.code || "").startsWith("FAMILY_") ? { code:e.code, ...(e.code === "FAMILY_SHARING_ACK_REQUIRED" ? {agencyId:e.agencyId,version:e.version} : {}) } : {}) } });
     next(e);
   }
 };
@@ -416,7 +416,7 @@ export const getMessagesHubSignaturePreview = async (req, res, next) => {
     });
     res.json({ ok: true, ...(preview || { eligible: false, enabled: false, html: null }) });
   } catch (e) {
-    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message, ...(String(e.code || "").startsWith("FAMILY_") ? { code:e.code, ...(e.code === "FAMILY_SHARING_ACK_REQUIRED" ? {agencyId:e.agencyId,version:e.version} : {}) } : {}) } });
     next(e);
   }
 };
@@ -445,7 +445,7 @@ export const postMessagesHubReact = async (req, res, next) => {
     });
     res.json(out);
   } catch (e) {
-    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message, ...(String(e.code || "").startsWith("FAMILY_") ? { code:e.code, ...(e.code === "FAMILY_SHARING_ACK_REQUIRED" ? {agencyId:e.agencyId,version:e.version} : {}) } : {}) } });
     next(e);
   }
 };
@@ -479,10 +479,11 @@ export const postMessagesHubEnsureThread = async (req, res, next) => {
     const shared = clientId ? await ensureClientSecureConversation({ clientId, actorUserId: req.user.id, agencyId }) : null;
     if (shared && !shared.audienceUserIds.includes(Number(person.userId))) return res.status(403).json({ error: { message: 'Recipient does not have access to this client conversation' } });
     const threadId = shared?.threadId || await ensureHubChatThread({ agencyId, userId: req.user.id, otherUserId: person.userId, messageChannel: method });
-    return res.json({ ok: true, threadId, person });
+    return res.json({ ok: true, threadId, person,
+      ...(shared?{shared:true,participants:shared.participants,sharingPolicy:'all_eligible_family',clientId:shared.clientId,agencyId:shared.agencyId}: {}) });
   } catch (e) {
     if (e?.status) {
-      return res.status(e.status).json({ error: { message: e.message } });
+      return res.status(e.status).json({ error: { message: e.message, ...(String(e.code || "").startsWith("FAMILY_") ? { code:e.code, ...(e.code === "FAMILY_SHARING_ACK_REQUIRED" ? {agencyId:e.agencyId,version:e.version} : {}) } : {}) } });
     }
     next(e);
   }
@@ -667,6 +668,10 @@ export const postMessagesHubSend = async (req, res, next) => {
         chatThreadId = (!req.body?.newTopic && await findExistingTopicThread({ userId: req.user.id, otherUserId: person.userId, topicId: req.body?.topicId, legacyRootMessageId: req.body?.legacyRootMessageId })) || await ensureHubChatThread({ agencyId, userId: req.user.id, otherUserId: person.userId, messageChannel: method });
       }
       await assertChatChannel(chatThreadId, method);
+      if(method==='secure'){
+        const {assertSharedGuardianSend}=await import('../services/guardianSharedMessages.service.js');
+        await assertSharedGuardianSend(req.user.id,chatThreadId,{expectedRecipientUserIds:req.body?.expectedRecipientUserIds});
+      }
       if (method === 'secure' || req.body?.topicId || req.body?.newTopic || req.body?.legacyRootMessageId) {
         chatTopicId = await resolveChatTopic({ threadId: chatThreadId, userId: req.user.id,
           topicId: req.body?.newTopic ? null : req.body?.topicId,
@@ -717,6 +722,7 @@ export const postMessagesHubSend = async (req, res, next) => {
           subject: subject || null,
           payload: {
             clientId: req.body?.clientId || person.clientId || null, topicId: chatTopicId, threadId: chatThreadId, smsThreadKey: req.body?.smsThreadKey || null,
+            expectedRecipientUserIds:req.body?.expectedRecipientUserIds || null,
             numberId: req.body?.numberId || null,
             startNewConversation: method === 'sms' && !req.body?.smsThreadKey,
             attachments: attachments.length ? attachments : null,
@@ -824,7 +830,7 @@ export const postMessagesHubSend = async (req, res, next) => {
     return sendChatMessage(req, res, next);
   } catch (e) {
     if (e?.status) {
-      return res.status(e.status).json({ error: { message: e.message } });
+      return res.status(e.status).json({ error: { message: e.message, ...(String(e.code || "").startsWith("FAMILY_") ? { code:e.code, ...(e.code === "FAMILY_SHARING_ACK_REQUIRED" ? {agencyId:e.agencyId,version:e.version} : {}) } : {}) } });
     }
     next(e);
   }
@@ -927,7 +933,7 @@ export const postMessagesHubExternalContact = async (req, res, next) => {
     res.status(out.created ? 201 : 200).json(out);
   } catch (e) {
     if (e?.status) {
-      return res.status(e.status).json({ error: { message: e.message } });
+      return res.status(e.status).json({ error: { message: e.message, ...(String(e.code || "").startsWith("FAMILY_") ? { code:e.code, ...(e.code === "FAMILY_SHARING_ACK_REQUIRED" ? {agencyId:e.agencyId,version:e.version} : {}) } : {}) } });
     }
     next(e);
   }
@@ -953,7 +959,7 @@ export const postMessagesHubPortalInvite = async (req, res, next) => {
     res.json(out);
   } catch (e) {
     if (e?.status) {
-      return res.status(e.status).json({ error: { message: e.message } });
+      return res.status(e.status).json({ error: { message: e.message, ...(String(e.code || "").startsWith("FAMILY_") ? { code:e.code, ...(e.code === "FAMILY_SHARING_ACK_REQUIRED" ? {agencyId:e.agencyId,version:e.version} : {}) } : {}) } });
     }
     next(e);
   }
@@ -1179,7 +1185,7 @@ export const postMessagesHubQueuedUndo = async (req, res, next) => {
     }
     return res.status(400).json({ error: { message: 'Unknown queued item id' } });
   } catch (e) {
-    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message, ...(String(e.code || "").startsWith("FAMILY_") ? { code:e.code, ...(e.code === "FAMILY_SHARING_ACK_REQUIRED" ? {agencyId:e.agencyId,version:e.version} : {}) } : {}) } });
     next(e);
   }
 };
@@ -1267,7 +1273,14 @@ export async function processHubMessageQueue({ limit = 40 } = {}) {
         }
         if (!person.userId) throw new Error('Recipient has no user account');
         const sharedClientId = row.channel === 'secure' ? await resolveClientForSecureRecipients({ agencyId: row.agency_id, actorUserId: row.user_id, recipientUserId: person.userId, clientId: payload.clientId || person.clientId }) : null;
-        const shared = row.channel === 'secure' && sharedClientId ? await ensureClientSecureConversation({ clientId: sharedClientId, actorUserId: row.user_id, agencyId: row.agency_id }) : null;
+        let shared = null;
+        if(row.channel==='secure' && sharedClientId){
+          const {familySharedConversations}=await import('../services/familySharedConversations.service.js');
+          if(!payload.threadId)throw Object.assign(new Error('Review this queued family communication and its recipients before sending.'),{status:409,code:'FAMILY_SHARED_THREAD_REQUIRED'});
+          shared=await familySharedConversations.requireAccess(row.user_id,Number(payload.threadId),{forSend:true});
+          if(!shared||Number(shared.clientId)!==Number(sharedClientId)||Number(shared.agencyId)!==Number(row.agency_id))throw Object.assign(new Error('The queued family conversation no longer matches its reviewed audience.'),{status:409,code:'FAMILY_SHARED_AUDIENCE_CHANGED'});
+          shared={...shared,threadId:Number(payload.threadId)};
+        }
         if (shared && !shared.audienceUserIds.includes(Number(person.userId))) throw new Error('Recipient no longer has access to this client conversation');
         const threadId = shared?.threadId || await findExistingTopicThread({ userId: row.user_id, otherUserId: person.userId, topicId: payload.topicId, threadId: payload.threadId }) || await ensureHubChatThread({
           agencyId: row.agency_id,
@@ -1281,7 +1294,7 @@ export async function processHubMessageQueue({ limit = 40 } = {}) {
         await runWithMockRes(sendChatMessage, {
           user,
           params: { threadId: String(threadId) },
-          body: { method: row.channel, clientId: payload.clientId || person.clientId || null, body: row.body || '', attachments: chatAttachments, subject: row.subject || null, topicId: payload.topicId || null }
+          body: { method: row.channel, clientId: payload.clientId || person.clientId || null, body: row.body || '', attachments: chatAttachments, subject: row.subject || null, topicId: payload.topicId || null,expectedRecipientUserIds:payload.expectedRecipientUserIds || null }
         });
       } else {
         throw new Error(`Unsupported queue channel: ${row.channel}`);

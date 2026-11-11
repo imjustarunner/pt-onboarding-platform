@@ -1,3 +1,4 @@
+import { familyMessageVisibilitySql } from '../services/familySecureMessageAccess.service.js';
 import { refreshClientSecureAccess } from '../services/clientSecureConversation.service.js';
 import pool from '../config/database.js';
 import express from 'express';
@@ -106,7 +107,7 @@ router.get('/threads/:threadId/secure-events', async (req, res, next) => {
     const [events] = await pool.execute(
       `SELECT e.id, e.event_type, e.message_id, e.created_at, CONCAT_WS(' ', u.first_name, u.last_name) AS actor_name
        FROM secure_message_events e LEFT JOIN users u ON u.id = e.actor_user_id
-       WHERE e.thread_id = ? ORDER BY e.id DESC LIMIT 100`, [threadId]);
+       WHERE e.thread_id = ? AND ((e.message_id IS NULL AND EXISTS(SELECT 1 FROM chat_thread_participants original_member WHERE original_member.thread_id=e.thread_id AND original_member.user_id=${Number(req.user.id)} AND original_member.created_at<=e.created_at)) OR EXISTS(SELECT 1 FROM chat_messages m WHERE m.id=e.message_id AND ${familyMessageVisibilitySql(req.user.id)})) ORDER BY e.id DESC LIMIT 100`, [threadId]);
     res.set('Cache-Control', 'no-store');
     res.json({ events });
   } catch (e) { next(e); }

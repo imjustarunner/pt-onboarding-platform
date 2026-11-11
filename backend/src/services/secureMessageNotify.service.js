@@ -213,6 +213,11 @@ export async function sendSecureMessageNotification({
   messageId = null,
   messageSource = 'chat'
 }) {
+  if(chatThreadId){
+    const {familySharedConversations}=await import('./familySharedConversations.service.js');
+    try{await familySharedConversations.requireAccess(recipientUserId,chatThreadId);}
+    catch(error){if([403,404,409].includes(error.status))return {sent:false,reason:'shared_recipient_access_changed',deliveryStatus:'skipped'};throw error;}
+  }
   const settings = await getAgencyEmailSettings(agencyId);
   if (!settings.secureClientMessageEmailEnabled) {
     return { sent: false, reason: 'disabled',deliveryStatus:'disabled' };
