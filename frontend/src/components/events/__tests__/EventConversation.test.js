@@ -23,8 +23,10 @@ it('opens the event-named group on the event page and sends through that same th
   await w.get('.composer-send').trigger('click'); await flushPromises();
   expect(api.post).toHaveBeenCalledWith('/chat/threads/42/messages', { body: 'Looking forward to it' });
   expect(w.text()).toContain('Looking forward to it');
+  await w.get('textarea').setValue('An unfinished follow-up');
   await w.get('.ee-section-header button').trigger('click');
   await w.get('.ee-section-header button').trigger('click'); await flushPromises();
+  expect(w.get('textarea').element.value).toBe('An unfinished follow-up');
   expect(api.post.mock.calls.filter(([url]) => url.endsWith('/conversation'))).toHaveLength(1);
 });
 it('shows a useful error in place and allows retry without navigating to an empty inbox', async () => {
