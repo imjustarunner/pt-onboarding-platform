@@ -2,6 +2,16 @@ import { buildPublicAppUrl } from './publicPortalUrl.js';
 import { emailActionButton } from './emailActionButton.js';
 
 const esc = value => String(value || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+export function schoolWeekdayEmailRecipient(person,senderEmail) {
+  const email=value=>String(value||'').trim().toLowerCase();
+  const valid=value=>/^[^\s<>@,;]+@[^\s<>@,;]+\.[^\s<>@,;]+$/.test(value);
+  const primary=email(person.email),work=email(person.work_email),personal=email(person.personal_email);
+  // The agency-domain login is authoritative when a legacy work_email still
+  // contains the provider's old personal address. Never edit their account here.
+  if(valid(primary)&&primary.split('@')[1]===email(senderEmail).split('@')[1])return primary;
+  if(valid(work)&&work!==personal)return work;
+  return valid(primary)&&primary!==personal?primary:null;
+}
 export function schoolWeekdayCompletion(context) {
   const accounted = (context.days || []).filter(day => day.status === 'assigned' || day.answered === true).length;
   return { accounted, complete: context.eligible === true && context.days?.length === 5 && accounted === 5 };

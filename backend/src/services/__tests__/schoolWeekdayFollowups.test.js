@@ -7,11 +7,11 @@ import {schoolWeekdayCompletion,schoolWeekdayEmail,schoolWeekdaySmsDue,schoolWee
 const weekdays=['Monday','Tuesday','Wednesday','Thursday','Friday'];
 const now=new Date('2026-11-11T17:00:00Z');
 const config={agency_id:2,owner_user_id:507,owner_email:'rachel@itsco.health',owner_name:'Rachel',sender_identity_id:6,from_email:'notifications@itsco.health',identity_key:'notifications',agency_name:'ITSCO',slug:'itsco',sms_delay_hours:24};
-let context,rows,sendEmail,sendSms,createCommunication,service,held,readContext,notificationGate;
+let context,rows,sendEmail,sendSms,createCommunication,service,held,readContext,notificationGate,person;
 beforeEach(()=>{
  context={eligible:true,needsResponse:true,requestedAt:'2026-11-06T12:00:00Z',days:weekdays.map((day,i)=>({day,status:i===0?'assigned':'available',answered:false}))};
  rows=[];held=false;sendEmail=vi.fn(async()=>({id:'accepted'}));sendSms=vi.fn(async()=>({sid:'text-accepted'}));createCommunication=vi.fn(async()=>({id:500}));
- const person={id:7,first_name:'Avery',last_name:'Example',work_email:'avery@itsco.health',email:'avery@itsco.health',personal_phone:'+17195550101'};
+ person={id:7,first_name:'Avery',last_name:'Example',work_email:'avery@itsco.health',email:'avery@itsco.health',personal_phone:'+17195550101'};
  const database={getConnection:async()=>({release(){},execute:async sql=>{if(sql.includes('GET_LOCK')){if(held)return [[{acquired:0}]];held=true;return [[{acquired:1}]];}held=false;return [[{released:1}]];}}),execute:vi.fn(async(sql,args=[])=>{
   if(sql.includes('FROM school_weekday_followup_settings'))return [[config]];
   if(sql.includes('SELECT DISTINCT u.id'))return [[person]];
@@ -56,6 +56,11 @@ describe('school weekday follow-ups',()=>{
  it('holds ambiguous email failures for review and never blindly sends again',async()=>{
   sendEmail.mockRejectedValueOnce(new Error('Transport outcome unknown'));await service.process({now});await service.process({now});
   expect(sendEmail).toHaveBeenCalledTimes(1);expect(rows[0].invitation_status).toBe('review');expect(sendSms).not.toHaveBeenCalled();
+ });
+ it('uses the current agency-domain account instead of a stale personal address in work_email',async()=>{
+  person.work_email='old-personal@example.invalid';person.personal_email=person.work_email;
+  await service.process({now});expect(sendEmail).toHaveBeenCalledWith(expect.objectContaining({to:'avery@itsco.health'}));
+  expect(person.work_email).toBe('old-personal@example.invalid');
  });
  it('sends a short thank-you once after all five days are accounted for, stopping the pending text',async()=>{
   await service.process({now});context.needsResponse=false;context.days.forEach(day=>day.answered=true);context.completedAt='2026-11-11T17:05:00Z';
