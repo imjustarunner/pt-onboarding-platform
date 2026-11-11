@@ -14,6 +14,8 @@ export async function listMobileFamilyAgencies(user,{db=pool}={}){
 // guardian, consent, billing and document authorization. No staff API is exposed.
 export function mobileFamilyRouteAllowed(method,path,userId){
  const route=String(path).split('?')[0].replace(/\/$/,'');
+ // Address-only assistance reads no staff, client or billing data. Existing family authentication still applies.
+ if(method==='POST' && /^\/api\/address-lookup\/(suggest|select)$/.test(route))return true;
  if(/^\/api\/(guardian-portal|guardian-billing|family-billing|dependent-portal)(?:\/|$)/.test(route))return true;
  if(method==='GET' && /^\/api\/(?:learning-progress\/students\/\d+|learning-recommendations\/students\/\d+|tutoring-learning-os\/clients\/\d+)(?:\/|$)/.test(route))return true;
  if(method==='GET' && /^\/api\/(?:agencies\/(?:slug\/[^/]+|portal\/[^/]+\/theme|\d+\/(?:branding|public))|icons\/[^/]+|platform-branding|dependent-portal\/status)$/.test(route))return true;

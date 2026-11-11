@@ -99,7 +99,7 @@
             </label>
             <label class="field">
               <span class="lbl">Venue address</span>
-              <input v-model.trim="form.eventLocationAddress" aria-label="Venue address" class="input" maxlength="500" placeholder="Full street address, city, state, ZIP" />
+              <input v-address-autocomplete="{ format: 'full', locale: 'en', model: form, publicContext: reinitToken ? { kind: 'school-reinit', token: reinitToken } : undefined, scopeKey: reinitToken || editEvent?.id || schoolOrganizationId }" autocomplete="street-address" v-model.trim="form.eventLocationAddress" aria-label="Venue address" class="input" maxlength="500" placeholder="Full street address, city, state, ZIP" />
               <span class="hint">Used for event directions and travel reimbursement distances. Enter the actual event location, including when it differs from the school.</span>
             </label>
           </template>

@@ -123,7 +123,7 @@
         </div>
         <div class="form-group">
           <label class="lbl" for="company-event-address">Venue address</label>
-          <input id="company-event-address" v-model.trim="draft.eventLocationAddress" class="input" :required="!!draft.eventLocationName || draft.inPersonPublic" placeholder="Full street address, city, state, ZIP" />
+          <input v-address-autocomplete="{ format: 'full', locale: 'en', model: draft, scopeKey: draft.id }" autocomplete="street-address" id="company-event-address" v-model.trim="draft.eventLocationAddress" class="input" :required="!!draft.eventLocationName || draft.inPersonPublic" placeholder="Full street address, city, state, ZIP" />
           <small class="hint">Required for a venue. Used for directions and event travel distances.</small>
         </div>
       </div>

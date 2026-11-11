@@ -426,7 +426,7 @@
                 <div class="label">Card</div>
                 <div class="stripe-card-shell">
                   <div v-if="stripeLoading" class="muted" style="margin: 0;">Loading Stripe form…</div>
-                  <div ref="stripeMountRef" class="stripe-card-mount"></div>
+                  <StripeCardEntry v-if="stripeEntryConfig.publishableKey && stripeClientSecret" ref="stripeCardEntry" :publishable-key="stripeEntryConfig.publishableKey" :connected-account-id="stripeEntryConfig.connectedAccountId" :client-secret="stripeClientSecret" :email="billingEmail || authStore.user?.email" :name="stripeCardholderName" :context-key="`${currentAgencyId}:${authStore.user?.id || ''}`" :disabled="addingPaymentMethod" @error="stripeElementError=$event" />
                 </div>
                 <div v-if="stripeElementError" class="error">{{ stripeElementError }}</div>
               </div>
@@ -747,7 +747,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { loadStripe } from '@stripe/stripe-js';
+import StripeCardEntry from '../billing/StripeCardEntry.vue';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
@@ -993,13 +993,9 @@ const paymentMethodDraft = ref({
   isDefault: true
 });
 const stripeCardholderName = ref('');
-const stripeMountRef = ref(null);
+const stripeCardEntry=ref(null),stripeEntryConfig=ref({}),stripeClientSecret=ref(null);
 const stripeElementError = ref('');
 const stripeLoading = ref(false);
-let stripeInstance = null;
-let stripeElements = null;
-let stripeCardElement = null;
-let stripeClientSecret = null;
 
 const linkedSchools = ref([]);
 const availableSchools = ref([]);
@@ -1449,55 +1445,21 @@ const resetPaymentMethodDraft = () => {
   };
 };
 
-const destroyStripeCardElement = () => {
-  if (stripeCardElement) {
-    stripeCardElement.destroy();
-    stripeCardElement = null;
-  }
-  stripeElements = null;
-  stripeInstance = null;
-  stripeClientSecret = null;
-};
-
-const loadStripePaymentSetup = async () => {
-  stripeElementError.value = '';
-  destroyStripeCardElement();
-  if (!currentAgencyId.value || !usingStripeForSubscription.value) return;
-  if (subscriptionProviderStatus.value?.provider !== 'STRIPE') return;
-  stripeLoading.value = true;
-  try {
-    const res = await api.get(`/billing/${currentAgencyId.value}/payment-methods/setup`);
-    const publishableKey = res.data?.publishableKey;
-    const connectedAccountId = res.data?.connectedAccountId || null;
-    stripeClientSecret = res.data?.clientSecret || null;
-    if (!publishableKey || !stripeClientSecret) {
-      throw new Error(`Stripe setup is incomplete for this ${contextNoun}.`);
-    }
-    stripeInstance = connectedAccountId
-      ? await loadStripe(publishableKey, { stripeAccount: connectedAccountId })
-      : await loadStripe(publishableKey);
-    if (!stripeInstance) throw new Error('Stripe could not be initialized.');
-    await nextTick();
-    if (!stripeMountRef.value) throw new Error('Stripe card container is missing.');
-    stripeElements = stripeInstance.elements();
-    stripeCardElement = stripeElements.create('card', {
-      style: {
-        base: {
-          color: '#111827',
-          fontSize: '16px',
-          '::placeholder': { color: '#9ca3af' }
-        }
-      }
-    });
-    stripeCardElement.mount(stripeMountRef.value);
-    stripeCardElement.on('change', (event) => {
-      stripeElementError.value = event?.error?.message || '';
-    });
-  } catch (e) {
-    stripeElementError.value = e?.response?.data?.error?.message || e?.message || 'Failed to initialize Stripe billing card setup.';
-  } finally {
-    stripeLoading.value = false;
-  }
+const destroyStripeCardElement=()=>{stripeCardEntry.value?.clear();stripeEntryConfig.value={};stripeClientSecret.value=null;};
+let stripeEntryRequest=0;
+const loadStripePaymentSetup=async()=>{
+ const request=++stripeEntryRequest,agencyId=currentAgencyId.value;
+ stripeElementError.value='';destroyStripeCardElement();
+ if(!agencyId||!usingStripeForSubscription.value||subscriptionProviderStatus.value?.provider!=='STRIPE')return;
+ stripeLoading.value=true;
+ try{
+  const {data}=await api.get(`/billing/${agencyId}/payment-methods/setup`);
+  if(request!==stripeEntryRequest||agencyId!==currentAgencyId.value)return;
+  if(!data?.publishableKey||!data?.clientSecret)throw new Error(`Stripe setup is incomplete for this ${contextNoun}.`);
+  stripeEntryConfig.value={publishableKey:data.publishableKey,connectedAccountId:data.connectedAccountId||undefined};stripeClientSecret.value=data.clientSecret;
+  await nextTick();await stripeCardEntry.value?.ensureReady();
+ }catch(e){if(request===stripeEntryRequest)stripeElementError.value=e?.response?.data?.error?.message||e?.message||'Failed to initialize Stripe billing card setup.';}
+ finally{if(request===stripeEntryRequest)stripeLoading.value=false;}
 };
 
 const addPaymentMethod = async () => {
@@ -1506,18 +1468,13 @@ const addPaymentMethod = async () => {
   addingPaymentMethod.value = true;
   try {
     if (usingStripeForSubscription.value) {
-      if (!stripeInstance || !stripeCardElement || !stripeClientSecret) {
+      if (!stripeCardEntry.value || !stripeClientSecret.value) {
         throw new Error('Stripe billing form is not ready yet.');
       }
       if (!stripeCardholderName.value.trim()) {
         throw new Error('Cardholder name is required.');
       }
-      const { error, setupIntent } = await stripeInstance.confirmCardSetup(stripeClientSecret, {
-        payment_method: {
-          card: stripeCardElement,
-          billing_details: { name: stripeCardholderName.value.trim() }
-        }
-      });
+      const {error,setupIntent}=await stripeCardEntry.value.confirmSetup();
       if (error) throw new Error(error.message || 'Stripe card could not be saved.');
       await api.post(`/billing/${currentAgencyId.value}/payment-methods`, {
         stripePaymentMethodId: setupIntent?.payment_method || null,
@@ -1846,6 +1803,8 @@ watch(currentAgencyId, async (newId, oldId) => {
   ]);
   await loadStripePaymentSetup();
 });
+
+watch(()=>[currentAgencyId.value,authStore.user?.id,authStore.user?.email],()=>{stripeCardholderName.value='';stripeEntryRequest++;destroyStripeCardElement();});
 
 watch([subscriptionPaymentProvider, currentAgencyId, canUseLiveBilling], async () => {
   await loadStripePaymentSetup();

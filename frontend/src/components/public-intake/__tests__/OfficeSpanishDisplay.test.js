@@ -43,7 +43,7 @@ it('translates provider chooser controls and retains selection values', async ()
 });
 it('explains unavailable secure payment in Spanish without requesting setup or a charge', async () => {
   get.mockResolvedValue({ data: {} });
-  const { wrapper } = mountEs(SecureCardSetup, { publicKey: 'office-demo', submissionId: 1 });
+  const { wrapper } = mountEs(SecureCardSetup, { publicKey: 'office-demo', submissionId: 1, insuranceInfo:{isSelfPay:true} });
   await flushPromises();
   expect(wrapper.text()).toContain('El registro de tarjetas aún no está disponible');
   expect(wrapper.text()).toContain('Reintentar la configuración segura de tarjeta');

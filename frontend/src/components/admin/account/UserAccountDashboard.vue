@@ -301,7 +301,7 @@
                 <div class="acct-field"><span class="acct-field-label">Postal Code</span><span class="acct-field-value">{{ form.homePostalCode || '—' }}</span></div>
               </template>
               <template v-else>
-                <div class="acct-field acct-field--edit acct-field--full"><label>Street</label><input v-model="form.homeStreetAddress" type="text" /></div>
+                <div class="acct-field acct-field--edit acct-field--full"><label>Street</label><input v-address-autocomplete="{ model: form, fields: { street: 'homeStreetAddress', city: 'homeCity', state: 'homeState', postalCode: 'homePostalCode' }, locale: 'en', scopeKey: userId }" autocomplete="street-address" v-model="form.homeStreetAddress" type="text" /></div>
                 <div class="acct-field acct-field--edit"><label>Apt / Unit</label><input v-model="form.homeAddressLine2" type="text" /></div>
                 <div class="acct-field acct-field--edit"><label>City</label><input v-model="form.homeCity" type="text" /></div>
                 <div class="acct-field acct-field--edit"><label>State</label><input v-model="form.homeState" type="text" /></div>

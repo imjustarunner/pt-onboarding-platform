@@ -1,3 +1,4 @@
+import {qaStripeCollectionState} from './qaStripePaymentGuard.service.js';
 import pool from '../config/database.js';
 import GuardianPaymentCard, { paymentCardSummary } from '../models/GuardianPaymentCard.model.js';
 import GuardianInsuranceProfile from '../models/GuardianInsuranceProfile.model.js';
@@ -44,8 +45,9 @@ export async function getFamilyBillingSummary(userId, agencyId) {
   }
   if (canManage) await auditBilling({ agencyId, userId, action: 'view_own_billing' });
   const [merchant] = await pool.execute('SELECT stripe_connect_account_id, stripe_connect_status FROM agency_billing_accounts WHERE agency_id = ?', [agencyId]);
-  const connectedAccountId = merchant[0]?.stripe_connect_status === 'active' ? merchant[0].stripe_connect_account_id : null;
-  return { clients: items, cards, profiles: visibleProfiles, terms: BILLING_TERMS, termsVersion: BILLING_TERMS_VERSION, stripe: { enabled: !!connectedAccountId && !!getStripePublishableKey(), connectedAccountId, publishableKey: getStripePublishableKey() } };
+  const paymentState=await qaStripeCollectionState(agencyId);
+  const connectedAccountId = paymentState.allowed && merchant[0]?.stripe_connect_status === 'active' ? merchant[0].stripe_connect_account_id : null;
+  return { clients: items, cards, profiles: visibleProfiles, terms: BILLING_TERMS, termsVersion: BILLING_TERMS_VERSION, stripe: { enabled: !!connectedAccountId && !!getStripePublishableKey(), connectedAccountId, publishableKey:paymentState.allowed?getStripePublishableKey():null,testModeRequired:paymentState.testModeRequired,mode:paymentState.mode } };
 }
 export async function acceptPayer({ userId, agencyId, clientId, consent, ip, userAgent }) {
   const db = await pool.getConnection();

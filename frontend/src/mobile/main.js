@@ -1,4 +1,6 @@
 import { createApp } from 'vue';
+import {vAddressAutocomplete} from '../directives/addressAutocomplete.js';
+import '../styles/addressAutocomplete.css';
 import { createRouter, createWebHistory, createMemoryHistory } from 'vue-router';
 import {registerMobileRouter} from './routerBridge.js';
 import {createPinia} from 'pinia';
@@ -20,4 +22,4 @@ router.beforeEach(to=>{
  if(/\/guardian(?:\/|$)/.test(to.path) || to.path==='/my-portal')return {path:'/mobile/family'+to.path,query:to.query,hash:to.hash,replace:true};
  return {path:router.currentRoute.value.path,query:{...router.currentRoute.value.query,panel:to.path==='/my-records'?'documents':'family'},replace:true};
 });
-createApp(MobileApp).use(createPinia()).use(router).mount('#app');
+createApp(MobileApp).directive('address-autocomplete',vAddressAutocomplete).use(createPinia()).use(router).mount('#app');

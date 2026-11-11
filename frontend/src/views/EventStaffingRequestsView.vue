@@ -178,7 +178,7 @@
               </label>
               <label class="esr-field">
                 <span class="esr-label">Address</span>
-                <input v-model="editForm.locationAddress" class="esr-input" type="text" placeholder="Street address" />
+                <input v-address-autocomplete="{ format: 'full', locale: 'en', model: editForm, scopeKey: selectedEventId }" autocomplete="street-address" v-model="editForm.locationAddress" class="esr-input" type="text" placeholder="Street address" />
               </label>
               <label class="esr-field esr-field--full">
                 <span class="esr-label">Description</span>

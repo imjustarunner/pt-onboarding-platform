@@ -6,7 +6,7 @@ vi.mock('../../../store/agency',()=>({useAgencyStore:()=>state.agency}));
 vi.mock('../../../store/auth',()=>({useAuthStore:()=>({user:{id:4001,role:'provider'}})}));
 vi.mock('vue-router',()=>({useRoute:()=>state.route,useRouter:()=>({push:vi.fn()})}));
 vi.mock('../../../services/api',()=>({default:{get:vi.fn(),post:vi.fn(),put:vi.fn(),defaults:{baseURL:'/api'}}}));
-vi.mock('@stripe/stripe-js',()=>({loadStripe:vi.fn(async()=>null)}));
+vi.mock('@stripe/stripe-js/pure',()=>({loadStripe:vi.fn(async()=>null)}));
 vi.mock('../AgencyStripeConnectSection.vue',()=>({default:{template:'<div />'}}));
 import api from '../../../services/api';
 import BillingManagement from '../BillingManagement.vue';

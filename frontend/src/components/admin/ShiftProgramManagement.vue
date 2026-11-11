@@ -90,7 +90,7 @@
             </div>
             <div class="field">
               <label>Address</label>
-              <input v-model="siteForm.address" type="text" placeholder="Optional" class="input" />
+              <input v-address-autocomplete="{ format: 'full', locale: 'en', model: siteForm, scopeKey: selectedProgramId }" autocomplete="street-address" v-model="siteForm.address" type="text" placeholder="Optional" class="input" />
             </div>
             <div class="field">
               <label>Office Location (Kiosk)</label>

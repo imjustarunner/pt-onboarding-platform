@@ -147,7 +147,7 @@
           <div class="field-row" style="grid-template-columns: 1fr 1fr; margin-top: 10px;">
             <div class="field">
               <label>Street</label>
-              <input v-model="mileageForm.homeStreetAddress" type="text" placeholder="123 Main St" />
+              <input v-address-autocomplete="{ model: mileageForm, fields: { street: 'homeStreetAddress', city: 'homeCity', state: 'homeState', postalCode: 'homePostalCode' }, locale: 'en', scopeKey: userId }" autocomplete="street-address" v-model="mileageForm.homeStreetAddress" type="text" placeholder="123 Main St" />
             </div>
             <div class="field">
               <label>City</label>
@@ -281,11 +281,11 @@
       <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr;">
         <div class="field">
           <label>Start location (optional)</label>
-          <input v-model="mileageForm.startLocation" type="text" placeholder="Address or description…" />
+          <input v-address-autocomplete="{ format: 'full', locale: 'en', model: mileageForm, scopeKey: String(userId) + ':start' }" autocomplete="street-address" v-model="mileageForm.startLocation" type="text" placeholder="Address or description…" />
         </div>
         <div class="field">
           <label>End location (optional)</label>
-          <input v-model="mileageForm.endLocation" type="text" placeholder="Address or description…" />
+          <input v-address-autocomplete="{ format: 'full', locale: 'en', model: mileageForm, scopeKey: String(userId) + ':end' }" autocomplete="street-address" v-model="mileageForm.endLocation" type="text" placeholder="Address or description…" />
         </div>
       </div>
 

@@ -2,6 +2,7 @@ import { draftFamilyVoiceEvent } from '../services/familyVoiceDraft.service.js';
 import { createGooglePublication } from '../services/calendarPublication.service.js';
 import { familyCalendarView } from '../services/familyCalendarView.service.js';
 import express from 'express';
+import { addressAutocompleteHandlers } from '../controllers/addressAutocomplete.controller.js';
 import { familyFocusMusicCatalog, familyFocusMusicStream } from '../controllers/familyFocusMusic.controller.js';
 import { sendFamilyPocketEmail } from '../services/familyPocketDelivery.service.js';
 import { getFamilyPocket, addFamilyPocketItems } from '../services/familyEmail.service.js';
@@ -71,6 +72,10 @@ router.post('/logout', wrap(async (req, res) => {
   res.clearCookie('fcc_session', { ...familyCookieOptions, maxAge: undefined }).json({ ok: true });
 }));
 router.use(requireFamilySession);
+// Family cookies stay inside /api/family; these utilities read no household records.
+const familyAddressLimiter = rateLimit({windowMs:15*60*1000,max:100,standardHeaders:true,legacyHeaders:false,keyGenerator:req=>`family-address:${req.family.agencyId}:${req.family.userId}`,message:{error:{code:'ADDRESS_LOOKUP_LIMIT',message:'Enter the address manually or try suggestions later.'}}});
+router.post('/address-lookup/suggest', familyAddressLimiter, addressAutocompleteHandlers.familySuggest);
+router.post('/address-lookup/select', familyAddressLimiter, addressAutocompleteHandlers.familySelect);
 const voiceDraftLimiter = rateLimit({ windowMs:60*60*1000, max:30, keyGenerator:req=>String(req.family.userId), standardHeaders:true, legacyHeaders:false, message:{error:{message:'You’ve reached 30 voice drafts this hour. You can still add an event using the form.'}} });
 router.post('/households/:id/voice/event-draft', voiceDraftLimiter, wrap(async(req,res)=>res.json(await draftFamilyVoiceEvent(req.family,req.params.id,req.body))));
 router.get('/focus-music/catalog', wrap(familyFocusMusicCatalog));

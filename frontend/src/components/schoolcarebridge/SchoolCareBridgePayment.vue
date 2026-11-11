@@ -1,7 +1,7 @@
 <template><section class="scb-payment"><h3>Pay invoice SCB-{{invoice.id}}</h3><p>{{money(invoice.totalCents)}} · {{invoice.kind==='platform_usage'?'Payable to Plot Twist Co':'Payable to MH4Kidz'}}</p><p v-if="error" role="alert">{{error}}</p><p v-if="loading" role="status">Preparing payment…</p><div ref="paymentHost"></div><button v-if="ready" :disabled="busy" class="scb-button" @click="pay">{{busy?'Processing…':`Pay ${money(invoice.totalCents)}`}}</button><button :disabled="busy" class="scb-button scb-outline" @click="$emit('close')">Close</button><p v-if="notice" role="status">{{notice}}</p></section></template>
 <script setup>
 import {onMounted,onBeforeUnmount,ref} from 'vue';
-import {loadStripe} from '@stripe/stripe-js';
+import {loadStripe} from '@stripe/stripe-js/pure';
 import api from '../../services/api';
 const props=defineProps({invoice:{type:Object,required:true}}),emit=defineEmits(['paid','close']);
 const paymentHost=ref(null),loading=ref(true),error=ref(''),notice=ref(''),busy=ref(false),ready=ref(false);let stripe,elements,paymentElement;

@@ -38,6 +38,7 @@
     <template v-else>
       <DigitalFormField
         :id="inputId"
+        :address-autocomplete="addressAutocomplete"
         :model-value="scalarValue"
         :type="resolvedInputType"
         :label="labelWithOptional"
@@ -87,6 +88,7 @@ const props = defineProps({
   showOptional: { type: Boolean, default: false },
   preserveOriginalCopy: { type: Boolean, default: false },
   error: { type: Boolean, default: false },
+  addressAutocomplete: { type: Object, default: null },
   namePrefix: { type: String, default: 'q_' }
 });
 const emit = defineEmits(['update:modelValue', 'blur', 'deny-all']);

@@ -1,3 +1,4 @@
+import addressAutocompleteRoutes from './routes/addressAutocomplete.routes.js';
 import meetingDialInWebhookRoutes from './routes/meetingDialInWebhook.routes.js';
 import { attachMeetingDialInAudio } from './services/meetingDialInTranscription.service.js';
 import { publicRouter as publicMeetingReservationRoutes, staffRouter as meetingReservationRoutes } from './routes/meetingReservations.routes.js';
@@ -1032,6 +1033,8 @@ app.use('/api/family', familyRoutes);
 app.use('/api/calendar-sharing', calendarSharingRoutes);
 app.use('/api/meeting-invitations', meetingInvitationsRoutes);
 
+// Public intake lookup is validated by its active form key before catch-all auth routers.
+app.use('/api/address-lookup', addressAutocompleteRoutes);
 app.use('/api', userCommunicationRoutes);
 app.use('/api', userAdminDocsRoutes);
 app.use('/api/users', userPreferencesRoutes);

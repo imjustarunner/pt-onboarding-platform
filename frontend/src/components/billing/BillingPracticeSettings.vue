@@ -35,7 +35,7 @@
               <input v-model="office.claimFacilityName" maxlength="35" :placeholder="office.practiceName" :disabled="!office.owned || saving" />
               <small>CCHA claims send this name, the billing NPI, and this office’s street, city, state, and ZIP as the service facility. Leave blank to use the practice name. Maximum 35 characters.</small>
             </label>
-            <label>Street <input v-model="office.streetAddress" :disabled="!office.owned || saving" /></label>
+            <label>Street <input v-address-autocomplete="{ model: office, fields: { street: 'streetAddress', city: 'city', state: 'state', postalCode: 'postalCode' }, locale: 'en', scopeKey: office.id }" autocomplete="street-address" v-model="office.streetAddress" :disabled="!office.owned || saving" /></label>
             <label>City <input v-model="office.city" :disabled="!office.owned || saving" /></label>
             <label>State <input v-model="office.state" :disabled="!office.owned || saving" /></label>
             <label>Postal code <input v-model="office.postalCode" :disabled="!office.owned || saving" /><small>Use the enrolled office ZIP, including ZIP+4 when available.</small></label>

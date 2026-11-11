@@ -37,6 +37,7 @@
         </p>
         <div v-else class="child-details-grid">
           <IntakeQuestionField v-for="field in visibleAddressFields(index)" :key="field.key" :field="field" :name-prefix="`child_${index}_`"
+            :address-autocomplete="childAddressBinding(field, index)"
             :model-value="answers[index]?.[field.key] ?? ''" :label="field.label" :required="!!field.required" :error="!!errors[index]?.[field.key]"
             @update:model-value="$emit('answer', index, field.key, $event)" />
         </div>
@@ -46,6 +47,7 @@
 </template>
 
 <script setup>
+import { addressFieldBinding } from '../../utils/addressFieldBinding.js';
 import { computed } from 'vue';
 import IntakeQuestionField from '../digital-form/IntakeQuestionField.vue';
 import BirthDateInput from './BirthDateInput.vue';
@@ -78,6 +80,7 @@ const addressFields = computed(() => props.fields.filter(f => childDetailKind(f)
 const personalFields = computed(() => props.fields.filter(f => !childDetailKind(f).startsWith('address_')).map(fieldForEntry));
 const visiblePersonalFields = index => personalFields.value.filter(f => matchesShowIf(f.showIf, props.answers[index] || {}));
 const visibleAddressFields = index => addressFields.value.filter(f => matchesShowIf(f.showIf, props.answers[index] || {}));
+const childAddressBinding = (field, index) => addressFieldBinding(field, addressFields.value, props.answers[index], { locale: props.locale, scopeKey: `child:${index}` });
 const addressSummary = computed(() => addressFields.value.map(f => props.answers[0]?.[f.key]).filter(Boolean).join(', '));
 const update = (index, key, value) => {
   if (props.identityReadonly && ['firstName', 'lastName', 'dateOfBirth'].includes(key)) return;

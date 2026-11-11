@@ -1,0 +1,3 @@
+export default {root:new URL('.',import.meta.url).pathname,resolve:{alias:{vitest:new URL('../frontend/node_modules/vitest/dist/index.js',import.meta.url).pathname}},test:{environment:'node',restoreMocks:true,include:[
+'src/middleware/__tests__/addressLookupLogging.test.js','src/services/__tests__/addressAutocomplete.test.js','src/services/__tests__/addressLookupScopes.test.js','src/services/__tests__/dependentPortalPolicy.test.js','src/services/__tests__/auricwellPreviewPolicy.test.js','src/services/__tests__/addressEditContext.test.js','src/services/__tests__/adaptiveAddressEditContext.test.js','src/controllers/__tests__/addressAutocomplete.test.js','src/routes/__tests__/addressAutocomplete.test.js','src/middleware/__tests__/schoolCareBridgeScope.test.js'
+]}};

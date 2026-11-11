@@ -1,10 +1,10 @@
 <template>
-  <section class="secure-card">
+  <section v-if="collectionAllowed" class="secure-card">
     <p>{{ tx("Card details go directly to Stripe. Your selected clients and other guardians cannot view your card.") }}</p>
     <p v-if="loading" role="status">{{ tx("Preparing secure card form…") }}</p>
     <template v-else-if="ready && !saved">
       <label>{{ tx("Cardholder name") }} <input v-model="name" autocomplete="cc-name" maxlength="255" /></label>
-      <div ref="cardHost" class="card-host" />
+      <StripeCardEntry ref="cardEntry" :publishable-key="config.publishableKey" :connected-account-id="config.connectedAccountId" :client-secret="clientSecret" :email="billingEmail" :name="name" :context-key="identityKey" :enabled="collectionAllowed" :disabled="busy" :locale="intakeLocale" @change="complete=$event.complete; error=$event.error?.message || ''" @error="error=$event" />
       <details open><summary>{{ tx("Card storage and billing authorization") }}</summary><p>{{ tx(terms) }}</p></details>
       <label class="check"><input v-model="accepted" type="checkbox" /> {{ tx("I have read and accept this authorization to store my card.") }}</label>
       <p>{{ tx("Saving a card does not enable recurring charges. You authorize recurring billing separately for each client in Billing.") }}</p>
@@ -16,54 +16,81 @@
   </section>
 </template>
 <script setup>
-import { ref, nextTick, onMounted, onBeforeUnmount, inject } from 'vue';
-import { loadStripe } from '@stripe/stripe-js';
+import { computed, getCurrentInstance, ref, onBeforeUnmount, inject, watch } from 'vue';
+import {useAuthStore} from '../../store/auth';
+import StripeCardEntry from './StripeCardEntry.vue';
+import {hasMedicaidCoverage} from '../../utils/insurancePaymentPolicy.js';
+import {enrollmentCoverageFingerprint} from '../../utils/enrollmentCoverage.js';
 import api from '../../services/api';
 import { useIntakeStepTx } from '../../composables/useIntakeStepTx.js';
 const { tx, txFmt, intakeLocale } = useIntakeStepTx();
-const props = defineProps({ agencyId: [String, Number], publicKey: String, submissionId: [String, Number] });
+const props = defineProps({ agencyId: [String, Number], publicKey: String, submissionId: [String, Number], ownerKey:[String,Number], email:String, insuranceInfo:{type:Object,default:null}, paymentOnly:Boolean, collectionAllowed:{type:Boolean,default:true} });
 const emit = defineEmits(['saved', 'unavailable']);
 const intakeSession = inject('intakeSessionToken', ref(''));
-const cardHost = ref(null), loading = ref(true), ready = ref(false), busy = ref(false), error = ref(''), name = ref(''), accepted = ref(false), complete = ref(false), saved = ref(''), terms = ref('');
-let stripe, card, clientSecret, termsVersion, disposed = false;
+const cardEntry = ref(null), loading = ref(true), ready = ref(false), busy = ref(false), error = ref(''), name = ref(''), accepted = ref(false), complete = ref(false), saved = ref(''), terms = ref('');
+const pinia=getCurrentInstance()?.proxy?.$pinia;
+const authStore=pinia?useAuthStore(pinia):null;
+const identity=inject('intakePaymentIdentity',ref(null));
+const prepareIntakePayment=inject('prepareIntakePayment',null);
+const sourceEligible=ref(true);
+const config=ref({}),clientSecret=ref(''),billingEmail=ref('');
+const identityKey=computed(()=>`${props.publicKey||''}:${props.submissionId||''}:${props.agencyId||''}:${authStore?.user?.id||props.ownerKey||''}:${props.email||identity.value?.email||''}:${enrollmentCoverageFingerprint(props.insuranceInfo||{})}`);
+const externalAllowed=computed(()=>props.collectionAllowed && (!props.publicKey || props.insuranceInfo!==null) && !hasMedicaidCoverage(props.insuranceInfo) && (identity.value?.collectionAllowed !== false) && (props.publicKey||!authStore||!!authStore.user?.id));
+const collectionAllowed=computed(()=>externalAllowed.value && sourceEligible.value);
+let termsVersion,disposed=false,requestGeneration=0;
 const intake = () => !!props.publicKey;
 const requestOptions = () => intake() ? { headers: { 'x-intake-session': intakeSession.value } } : {};
+const coverageReview=()=>({coverageReviewed:true,coverageFingerprint:enrollmentCoverageFingerprint(props.insuranceInfo||{})});
 async function initialize() {
-  loading.value = true; ready.value = false; error.value = '';
+  const generation=++requestGeneration;
+  loading.value = true; ready.value = false; error.value = '';name.value='';billingEmail.value='';terms.value='';busy.value=false;complete.value=false;saved.value='';accepted.value=false;config.value={};clientSecret.value='';
+  if(!collectionAllowed.value){loading.value=false;return;}
   try {
-    const cfg = intake() ? (await api.get(`/public-intake/${props.publicKey}/stripe-config`)).data : (await api.get('/guardian-billing/overview', { params: { agencyId: props.agencyId } })).data.stripe;
+    if(intake()&&prepareIntakePayment)await prepareIntakePayment();
+    if(disposed||generation!==requestGeneration||!collectionAllowed.value)return;
+    let cfg;
+    if(intake())cfg=(await api.get(`/public-intake/${props.publicKey}/stripe-config`)).data;
+    else{
+      const overview=(await api.get('/guardian-billing/overview',{params:{agencyId:props.agencyId}})).data;
+      if(disposed||generation!==requestGeneration)return;
+      if(Array.isArray(overview.clients)&&!overview.clients.some(client=>client.canManageBilling&&!client.medicaid)){sourceEligible.value=false;return;}
+      cfg=overview.stripe;
+    }
+    if(disposed||generation!==requestGeneration||!collectionAllowed.value)return;
+    if(cfg?.testModeRequired && cfg?.mode!=='test')throw new Error('Secure card collection for this QA organization requires an isolated test-mode payment configuration.');
     if (!cfg?.publishableKey || !cfg?.connectedAccountId) { emit('unavailable'); throw new Error('Card collection is not available for this organization yet. Please contact the office about payment arrangements.'); }
-    const setup = await api.post(intake() ? `/public-intake/${props.publicKey}/${props.submissionId}/stripe-setup-intent` : '/guardian-billing/card-setup', intake() ? {} : { agencyId: props.agencyId }, requestOptions());
-    clientSecret = setup.data.clientSecret; terms.value = setup.data.terms; termsVersion = setup.data.termsVersion;
-    stripe = await loadStripe(cfg.publishableKey, { stripeAccount: setup.data.connectedAccountId });
-    if (disposed) return;
-    ready.value = true; loading.value = false;
-    await nextTick();
-    card?.destroy();
-    card = stripe.elements({ locale: intakeLocale.value === 'es' ? 'es' : 'en' }).create('card', { hidePostalCode: false });
-    card.mount(cardHost.value);
-    card.on('change', event => { complete.value = event.complete; error.value = event.error?.message || ''; });
-  } catch (e) { ready.value = false; error.value = e.response?.data?.error?.message || e.message || 'Secure card setup failed'; }
-  finally { loading.value = false; }
+    const setup = await api.post(intake() ? `/public-intake/${props.publicKey}/${props.submissionId}/stripe-setup-intent` : '/guardian-billing/card-setup', intake() ? coverageReview() : { agencyId: props.agencyId }, requestOptions());
+    if(disposed||generation!==requestGeneration||!collectionAllowed.value)return;
+    clientSecret.value=setup.data.clientSecret;terms.value=setup.data.terms;termsVersion=setup.data.termsVersion;
+    billingEmail.value=String(setup.data.billingEmail || props.email || identity.value?.email || '').trim();
+    config.value={publishableKey:cfg.publishableKey,connectedAccountId:setup.data.connectedAccountId};
+    ready.value=true;
+  } catch (e) { if(disposed||generation!==requestGeneration)return;ready.value = false; error.value = e.response?.data?.error?.message || e.message || 'Secure card setup failed'; }
+  finally { if(generation===requestGeneration&&!disposed)loading.value = false; }
 }
 async function save() {
   if (busy.value || !accepted.value || !name.value.trim() || !complete.value) return;
   busy.value = true; error.value = '';
+  const generation=requestGeneration;
   try {
-    const result = await stripe.confirmCardSetup(clientSecret, { payment_method: { card, billing_details: { name: name.value.trim() } } });
-    if (disposed) return;
+    if(intake()&&prepareIntakePayment)await prepareIntakePayment();
+    if(disposed||generation!==requestGeneration||!collectionAllowed.value)return;
+    const result = await cardEntry.value.confirmSetup();
+    if (disposed || generation!==requestGeneration || !collectionAllowed.value) return;
     if (result.error) throw new Error(result.error.message);
-    const payload = { agencyId: props.agencyId, setupIntentId: result.setupIntent.id, consent: { accepted: true, version: termsVersion, signatureName: name.value.trim() } };
+    const payload = { ...(intake()?coverageReview():{}), agencyId: props.agencyId, setupIntentId: result.setupIntent.id, consent: { accepted: true, version: termsVersion, signatureName: name.value.trim() } };
+    if(intake()&&prepareIntakePayment)await prepareIntakePayment();
+    if(disposed||generation!==requestGeneration||!collectionAllowed.value)return;
     const response = await api.post(intake() ? `/public-intake/${props.publicKey}/${props.submissionId}/payment-card` : '/guardian-billing/card-setup/complete', payload, requestOptions());
-    if (disposed) return;
+    if (disposed || generation!==requestGeneration || !collectionAllowed.value) return;
     const value = response.data.card || { id: response.data.cardId, card_brand: response.data.brand, card_last4: response.data.last4 };
     saved.value = { brand: value.card_brand, last4: value.card_last4 };
     emit('saved', value);
-  } catch (e) { error.value = e.response?.data?.error?.message || e.message || 'Card could not be saved'; }
-  finally { busy.value = false; }
+  } catch (e) { if(disposed||generation!==requestGeneration)return;error.value = e.response?.data?.error?.message || e.message || 'Card could not be saved'; }
+  finally { if(generation===requestGeneration&&!disposed)busy.value = false; }
 }
-onMounted(initialize);
-onBeforeUnmount(() => { disposed = true; card?.destroy(); });
+watch([identityKey,externalAllowed],()=>{sourceEligible.value=true;void initialize();},{immediate:true});
+onBeforeUnmount(() => { disposed = true; requestGeneration++; });
 </script>
 <style scoped>
 .secure-card { display:grid; gap:14px; max-width:700px; } label { display:grid; gap:6px; } input:not([type=checkbox]) { padding:10px; border:1px solid var(--app-line, #94a3b8); border-radius:6px; } .check { display:flex; align-items:flex-start; gap:10px; } .card-host { padding:16px; border:1px solid var(--app-line, #94a3b8); border-radius:8px; min-height:52px; background:var(--bg-card); } p { margin:0; line-height:1.5; } details { padding:12px; background:var(--bg-muted); border-radius:8px; } details p { padding-top:10px; } .error { color:var(--app-text-red, #b91c1c); }

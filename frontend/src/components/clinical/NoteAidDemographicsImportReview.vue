@@ -22,7 +22,7 @@
       <template v-if="model">
         <label class="na-label">Legal name<input v-model="model.fullName" class="na-input" /></label>
         <label class="na-label">Date of birth<input v-model="model.dateOfBirth" type="date" class="na-input" /></label>
-        <label class="na-label">Street<input v-model="model.addressStreet" class="na-input" /></label>
+        <label class="na-label">Street<input v-address-autocomplete="{ model: model, fields: { street: 'addressStreet', city: 'addressCity', state: 'addressState', postalCode: 'addressZip' }, locale: 'en', scopeKey: clientId }" autocomplete="street-address" v-model="model.addressStreet" class="na-input" /></label>
         <div class="row3">
           <label class="na-label">City<input v-model="model.addressCity" class="na-input" /></label>
           <label class="na-label">State<input v-model="model.addressState" class="na-input" /></label>

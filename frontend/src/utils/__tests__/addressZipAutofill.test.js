@@ -1,0 +1,10 @@
+import {describe,expect,it,vi} from 'vitest';
+import {fillAddressGroupFromZip} from '../addressZipAutofill.js';
+const fields=['parent1_address','parent1_city','parent1_state','parent1_zip','parent2_address','parent2_city','parent2_state','parent2_zip','parent1_apt'].map(key=>({key}));
+const pending=()=>{let resolve;const promise=new Promise(r=>{resolve=r});return {promise,resolve};};
+describe('same-group ZIP fallback',()=>{
+ it('fills only the exact parent address group and preserves apartment/manual city',async()=>{const model={parent1_zip:'20500',parent1_city:'Reviewed city',parent1_state:'',parent1_apt:'Unit8',parent2_zip:'80203',parent2_city:'',parent2_state:''},lookup=vi.fn().mockResolvedValue({city:'Washington',state:'DC'});await fillAddressGroupFromZip({field:fields[3],fields,model,lookup});expect(model).toEqual({parent1_zip:'20500',parent1_city:'Reviewed city',parent1_state:'DC',parent1_apt:'Unit8',parent2_zip:'80203',parent2_city:'',parent2_state:''});expect(lookup).toHaveBeenCalledWith('20500');});
+ it('discards a stale ZIP response after typed changes',async()=>{const lookup=pending(),model={parent1_zip:'20500'},promise=fillAddressGroupFromZip({field:fields[3],fields,model,lookup:()=>lookup.promise});model.parent1_zip='80203';lookup.resolve({city:'Washington',state:'DC'});await promise;expect(model).toEqual({parent1_zip:'80203'});});
+ it('discards a stale response after child/page context changes',async()=>{const lookup=pending(),model={parent1_zip:'20500'},isCurrent=vi.fn().mockReturnValue(true),promise=fillAddressGroupFromZip({field:fields[3],fields,model,lookup:()=>lookup.promise,isCurrent});isCurrent.mockReturnValue(false);lookup.resolve({city:'Washington',state:'DC'});await promise;expect(model).toEqual({parent1_zip:'20500'});});
+ it('leaves ambiguous/unmapped address parts manual without lookup',async()=>{const lookup=vi.fn();await fillAddressGroupFromZip({field:{key:'some_postal'},fields,model:{some_postal:'20500'},lookup});await fillAddressGroupFromZip({field:fields[3],fields,model:{parent1_zip:'12'},lookup});expect(lookup).not.toHaveBeenCalled();});
+});

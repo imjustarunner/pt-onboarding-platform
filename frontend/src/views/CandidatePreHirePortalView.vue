@@ -45,7 +45,7 @@
                 <div class="bg-form-grid">
                   <label>Legal name <input v-model="bgForm.legalName" type="text" required autocomplete="name" /></label>
                   <label>Date of birth <input v-model="bgForm.dateOfBirth" type="date" required /></label>
-                  <label class="bg-span">Current address <input v-model="bgForm.currentAddress" type="text" required autocomplete="street-address" /></label>
+                  <label class="bg-span">Current address <input v-address-autocomplete="{ format: 'full', locale: 'en', model: bgForm, publicContext: { kind: 'prehire', token }, scopeKey: token }" v-model="bgForm.currentAddress" type="text" required autocomplete="street-address" /></label>
                   <label class="bg-span">Previous addresses (optional) <textarea v-model="bgForm.previousAddresses" rows="2" /></label>
                   <label class="bg-span">Other names / aliases (optional) <input v-model="bgForm.aliases" type="text" /></label>
                   <label>Social Security number

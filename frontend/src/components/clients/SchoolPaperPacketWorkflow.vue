@@ -21,7 +21,7 @@
               <div class="paper-fields"><label>Client first name<input v-model="demographics.firstName" required maxlength="255" /></label><label>Client last name<input v-model="demographics.lastName" required maxlength="255" /></label>
               <label>Date of birth<input v-model="demographics.dateOfBirth" required type="date" /></label><label>Sex<select v-model="demographics.gender"><option value="">Select</option><option>Male</option><option>Female</option><option>Other</option><option>Prefer not to say</option></select></label>
               <label>Grade<input v-model="demographics.grade" maxlength="40" /></label><label>Preferred language<input v-model="demographics.preferred_language" maxlength="100" /></label>
-              <label v-for="field in addressFields" :key="field.key">{{ field.label }}<input v-model="demographics[field.key]" maxlength="255" /></label></div>
+              <label v-for="field in addressFields" :key="field.key">{{ field.label }}<input v-if="field.key === 'address_street'" v-address-autocomplete="{ model: demographics, fields: { street: 'address_street', city: 'address_city', state: 'address_state', postalCode: 'address_zip' }, locale: 'en', scopeKey: clientId }" v-model="demographics[field.key]" autocomplete="street-address" maxlength="255" /><input v-else v-model="demographics[field.key]" maxlength="255" /></label></div>
             </template>
             <template v-else-if="stage === 1 || stage === 2">
               <p>Use this parent’s own email for their portal invitation.</p>

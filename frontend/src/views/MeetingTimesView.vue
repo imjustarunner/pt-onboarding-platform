@@ -15,7 +15,7 @@
         <div class="fields"><label>Title<input v-model.trim="form.title" required maxlength="180" placeholder="Quarterly employee evaluation" /></label><label>Meeting type<select v-model="form.type"><option value="general">Meeting</option><option value="evaluation">Employee evaluation</option></select></label></div>
         <p>This offer schedules a meeting with you. For a clinical client appointment, use the client scheduling flow.</p>
         <div class="fields"><label>Time zone<input v-model.trim="form.timeZone" required placeholder="America/Denver" /></label><label>Format<select v-model="form.modality"><option value="VIRTUAL">Virtual</option><option value="IN_PERSON">In person</option><option value="BOTH">Let the invitee choose</option></select></label></div>
-        <label v-if="form.modality !== 'VIRTUAL'">Confirmed location<input v-model.trim="form.location" required maxlength="500" placeholder="Office, room and address" /></label>
+        <label v-if="form.modality !== 'VIRTUAL'">Confirmed location<input v-address-autocomplete="{ format: 'full', locale: 'en', model: form }" autocomplete="street-address" v-model.trim="form.location" required maxlength="500" placeholder="Office, room and address" /></label>
         <p v-if="form.modality !== 'VIRTUAL'">Arrange or request your office through My Schedule before offering that location. This offer reserves your calendar time; it does not reserve an office.</p>
         <label v-if="form.modality !== 'IN_PERSON'">Video meeting link<input v-model.trim="form.meetingUrl" type="url" required placeholder="https://meet.google.com/..." maxlength="1024" /></label>
         <fieldset><legend>Dates and time windows</legend><div v-for="(w,index) in form.windows" :key="index" class="window fields">

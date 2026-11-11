@@ -1,3 +1,5 @@
+import {assertQaStripeTestMode} from './qaStripePaymentGuard.service.js';
+import User from '../models/User.model.js';
 import pool from '../config/database.js';
 import StripePaymentsService from './stripePayments.service.js';
 import GuardianPaymentCard, { paymentCardSummary } from '../models/GuardianPaymentCard.model.js';
@@ -7,13 +9,15 @@ import { requireLiveGuardianBilling } from './guardianTestAccess.service.js';
 
 export async function createFamilyCardSetup({ agencyId, userId, submissionId = null, email, name, connectedAccountId }) {
   await requireLiveGuardianBilling(userId);
+  await assertQaStripeTestMode(agencyId);
   assertFamilyBillingEncryption();
   if (!connectedAccountId) throw billingError(503, 'Secure card collection is not configured for this organization');
+  const billingEmail = String(email || (await User.findById(userId))?.email || '').trim();
   // Public intake never obtains the existing account's customer or saved cards.
-  const customer = await StripePaymentsService.ensureAppCustomer({ customerKey: submissionId ? `intake_${agencyId}_${submissionId}` : `guardian_${userId}_agency_${agencyId}`, email, name, connectedAccountId, metadata: { agency_id: String(agencyId) } });
+  const customer = await StripePaymentsService.ensureAppCustomer({ customerKey: submissionId ? `intake_${agencyId}_${submissionId}_guardian_${userId}` : `guardian_${userId}_agency_${agencyId}`, email:billingEmail, name, connectedAccountId, metadata: { agency_id: String(agencyId) } });
   const intent = await StripePaymentsService.createSetupIntent({ customerId: customer.id, connectedAccountId });
   await pool.execute(`INSERT INTO guardian_card_setups (setup_intent_id, agency_id, guardian_user_id, intake_submission_id, stripe_account_id, private_payload) VALUES (?, ?, ?, ?, ?, ?)`, [intent.id, agencyId, userId, submissionId, connectedAccountId, encryptFamilyBilling({customerId:customer.id}, `card-setup:${agencyId}:${userId}:${submissionId || 0}`)]);
-  return { clientSecret: intent.client_secret, connectedAccountId };
+  return { clientSecret: intent.client_secret, connectedAccountId, billingEmail };
 }
 export function validateSetupOwnership({ setup, userId, agencyId, submissionId, intent, method }) {
   if (!setup || Number(setup.guardian_user_id) !== Number(userId) || Number(setup.agency_id) !== Number(agencyId) || Number(setup.intake_submission_id || 0) !== Number(submissionId || 0)) throw billingError(403, 'Card setup is not authorized for this account');
@@ -22,6 +26,7 @@ export function validateSetupOwnership({ setup, userId, agencyId, submissionId, 
 }
 export async function completeFamilyCardSetup({ agencyId, userId, submissionId = null, setupIntentId, consent, ip, userAgent }) {
   await requireLiveGuardianBilling(userId);
+  await assertQaStripeTestMode(agencyId);
   if (!/^seti_[A-Za-z0-9]+$/.test(String(setupIntentId || ''))) throw billingError(400, 'A confirmed Stripe SetupIntent is required');
   const db = await pool.getConnection();
   try {

@@ -2238,7 +2238,7 @@
                 </div>
                 <div class="form-group" style="grid-column: 1 / -1;">
                   <label>Street Address</label>
-                  <input v-model="previewSimple.addressStreet" type="text" placeholder="123 Main St" />
+                  <input v-address-autocomplete="{ model: previewSimple, fields: { street: 'addressStreet', city: 'addressCity', state: 'addressState', postalCode: 'addressZip' }, locale: 'en', scopeKey: previewSimple }" autocomplete="street-address" v-model="previewSimple.addressStreet" type="text" placeholder="123 Main St" />
                 </div>
                 <div class="form-group">
                   <label>Apt / Unit (optional)</label>

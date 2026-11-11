@@ -2,7 +2,7 @@
   <div class="policy-fields">
     <label>{{ tx('Client’s relationship to subscriber') }}<select :value="modelValue.relationshipToSubscriber || ''" :required="requireComplete" @change="update('relationshipToSubscriber', $event.target.value)"><option value="">{{ tx('Select') }}</option><option value="self">{{ tx('Self') }}</option><option value="child">{{ tx('Child') }}</option><option value="spouse">{{ tx('Spouse') }}</option><option value="other">{{ tx('Other') }}</option></select></label>
     <p v-if="selfPatient" class="self-subscriber">{{ tx('Subscriber is the client. Name, birth date, sex and address use the client identity above; no duplicate entry is needed.') }}</p>
-    <label v-for="field in visibleFields" :key="field.key">{{ tx(field.label) }}<input :value="modelValue[field.key] || ''" :type="field.type || 'text'" :required="requireComplete && !!field.required" maxlength="255" @input="update(field.key, $event.target.value)" /></label>
+    <label v-for="field in visibleFields" :key="field.key">{{ tx(field.label) }}<input v-address-autocomplete="field.key === 'subscriberAddressLine1' ? { locale: intakeLocale, scopeKey: `${scopeKey}:${modelValue.id || ''}:${modelValue.insurerName || ''}`, onSelect: fillAddress } : null" :value="modelValue[field.key] || ''" :type="field.type || 'text'" :required="requireComplete && !!field.required" maxlength="255" @input="update(field.key, $event.target.value)" /></label>
 
     <p v-if="/health\s*first\s*colorado|colorado\s+(access|medicaid)/i.test(modelValue.insurerName || '')" class="self-subscriber">{{ tx('Health First Colorado member IDs start with a letter, followed by six digits. Check the first character: O is a letter; 0 is zero.') }}</p>
     <label v-if="!selfPatient">{{ tx('Subscriber sex on policy') }}<select :value="modelValue.subscriberSex || ''" @change="update('subscriberSex',$event.target.value)"><option value="">{{ tx('Select') }}</option><option>M</option><option>F</option><option>U</option></select></label>
@@ -12,8 +12,8 @@
 <script setup>
 import {computed,watch} from 'vue';
 import { useIntakeStepTx } from '../../composables/useIntakeStepTx.js';
-const { tx } = useIntakeStepTx();
-const props = defineProps({ modelValue: { type:Object, default:()=>({}) }, patient:{type:Object,default:null}, requireComplete:{type:Boolean,default:true} });
+const { tx, intakeLocale } = useIntakeStepTx();
+const props = defineProps({ modelValue: { type:Object, default:()=>({}) }, patient:{type:Object,default:null}, requireComplete:{type:Boolean,default:true}, scopeKey:{type:[String,Number],default:''} });
 const selfPatient=computed(()=>props.patient && props.modelValue.relationshipToSubscriber==='self');
 const emit = defineEmits(['update:modelValue']);
 const fields = [{key:'insurerName',label:'Insurance carrier',required:true},{key:'payerId',label:'Electronic payer ID (if known)'},{key:'eligibilityPayerId',label:'Eligibility payer ID (if different)'},{key:'memberId',label:'Member ID',required:true},{key:'groupNumber',label:'Group number'},{key:'patientSuffix',label:'Patient/member suffix'},{key:'subscriberFirstName',label:'Subscriber legal first name',required:true},{key:'subscriberLastName',label:'Subscriber legal last name',required:true},{key:'subscriberDob',label:'Subscriber date of birth',type:'date'},{key:'subscriberAddressLine1',label:'Subscriber address'},{key:'subscriberAddressLine2',label:'Apartment / suite'},{key:'subscriberCity',label:'City'},{key:'subscriberState',label:'State'},{key:'subscriberPostalCode',label:'ZIP code'},{key:'planType',label:'Plan type'},{key:'effectiveDate',label:'Coverage effective date',type:'date'},{key:'terminationDate',label:'Coverage end date (if applicable)',type:'date'},{key:'claimsPhone',label:'Claims phone'}];
@@ -23,6 +23,7 @@ function withSubscriber(policy) {
   const p=props.patient;
   return {...policy,subscriberFirstName:p.firstName || '',subscriberLastName:p.lastName || '',subscriberDob:p.dateOfBirth || '',subscriberSex:p.sex || '',subscriberAddressLine1:p.addressLine1 || '',subscriberAddressLine2:p.addressLine2 || '',subscriberCity:p.city || '',subscriberState:p.state || '',subscriberPostalCode:p.postalCode || ''};
 }
+function fillAddress(address) { emit('update:modelValue', withSubscriber({ ...props.modelValue, subscriberAddressLine1: address.street, subscriberCity: address.city || '', subscriberState: address.state || '', subscriberPostalCode: address.postalCode || '' })); }
 function update(key,value) { emit('update:modelValue',withSubscriber({...props.modelValue,[key]:value})); }
 watch(()=>[props.patient,props.modelValue.relationshipToSubscriber],()=>{
   if(!selfPatient.value)return;const next=withSubscriber(props.modelValue);

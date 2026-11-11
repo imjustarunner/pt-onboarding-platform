@@ -15,7 +15,7 @@
           <p v-if="client.medicaid" class="status">Medicaid coverage: a payment method is not required.</p>
           <p v-else-if="client.paymentSetupRequested" role="status">Billing requested payment setup. In order to prevent interruption of services, please add a payment method below. Contact Billing if you need help or wish to discuss an arrangement.</p>
           <button v-if="!client.medicaid && section === 'authorization' && (client.canManageBilling || client.canAcceptResponsibility)" type="button" @click="openAuthorization(client,'responsibility')">Review and sign payment authorization</button>
-          <template v-else-if="client.canManageBilling">
+          <template v-else-if="client.canManageBilling && !client.medicaid">
             <p v-if="!client.medicaid" class="status">{{ client.paymentCardId ? 'Your payment method is assigned' : 'Payment method required before paid services' }}</p>
             <label>Your card for this client<select v-model="cardSelections[client.clientId]"><option value="">Select a saved card</option><option v-for="card in data.cards" :key="card.id" :value="card.id" :disabled="card.verificationRequired">{{ card.card_brand }} •••• {{ card.card_last4 }}{{ card.verificationRequired ? ' — add again to verify' : '' }}</option></select></label>
             <button class="btn btn-secondary" type="button" :disabled="busy || !cardSelections[client.clientId]" @click="assign(client)">Apply card to this client</button>
@@ -35,13 +35,13 @@
         <div class="actions"><button class="btn btn-primary" :disabled="busy || !accepted">Sign authorization</button><button class="btn btn-secondary" type="button" :disabled="busy" @click="authorization = null">Cancel</button></div>
       </form>
       <template v-if="manageableClients.length || insurableClients.length">
-        <section v-if="manageableClients.length && section !== 'authorization'" class="billing-card wallet-section">
+        <section v-if="paymentEligibleClients.length && section !== 'authorization'" class="billing-card wallet-section">
           <div class="section-head"><h4>Your saved cards</h4><button v-if="data.stripe.enabled" class="btn btn-secondary" type="button" @click="showCard = !showCard">{{ showCard ? 'Close card form' : 'Add a card' }}</button></div>
           <p v-if="!data.stripe.enabled">Online card setup is not available yet because this agency has not completed its payment connection. Your financial authorization is saved separately.</p>
           <p v-if="!data.cards.length">No payment method on file.</p>
           <div v-for="card in data.cards" :key="card.id" class="saved-row"><span>{{ card.card_brand }} •••• {{ card.card_last4 }} · {{ expired(card) ? 'Expired' : 'Expires' }} {{ card.card_exp_month }}/{{ card.card_exp_year }}</span><button class="btn btn-secondary" type="button" :disabled="busy" @click="removingCard = card">Remove</button></div>
           <div v-if="removingCard" class="notice"><p>Remove your card ending in {{ removingCard.card_last4 }}? This also revokes its recurring authorizations for your clients at this agency.</p><button class="btn btn-secondary" :disabled="busy" @click="removeCard">Remove card</button> <button class="btn btn-secondary" @click="removingCard = null">Keep card</button></div>
-          <SecureCardSetup v-if="showCard" :key="agencyId" :agency-id="agencyId" @saved="cardSaved" />
+          <SecureCardSetup v-if="showCard && paymentEligibleClients.length" :key="`${agencyId}:${guardianUserId || ''}:${clientId || ''}`" :agency-id="agencyId" :owner-key="guardianUserId" :collection-allowed="paymentEligibleClients.length > 0" @saved="cardSaved" />
         </section>
         <section v-if="insurableClients.length && section === 'all'" class="billing-card insurance-section">
           <div class="section-head"><h4>Your insurance policies</h4><button class="btn btn-secondary" type="button" @click="editInsurance()">Add insurance</button></div>
@@ -61,9 +61,9 @@
           <h4>Insurance coverage</h4>
           <label>Policy scope<select v-model="insuranceDraft.coverageScope"><option value="client">One client</option><option value="account_holder">Account holder and covered dependents</option></select></label>
           <fieldset><legend>Clients covered by this policy</legend><label v-for="client in insurableClients" :key="client.clientId" class="check"><input v-model="insuranceDraft.clientIds" type="checkbox" :value="Number(client.clientId)" /> {{ client.clientName }}</label></fieldset>
-          <InsuranceCardReader :key="`primary:${draftVersion}`" :agency-id="agencyId" :client-id="insuranceDraft.clientIds[0]" :disabled="busy" @fields="applyCardFields('primary',$event)" @files="cardFiles.primary=$event"/><h5>Your policy</h5><p>The office determines whether this is primary or secondary coverage for each client.</p><InsurancePolicyFields v-model="insuranceDraft.primary" />
+          <InsuranceCardReader :key="`primary:${draftVersion}`" :agency-id="agencyId" :client-id="insuranceDraft.clientIds[0]" :disabled="busy" @fields="applyCardFields('primary',$event)" @files="cardFiles.primary=$event"/><h5>Your policy</h5><p>The office determines whether this is primary or secondary coverage for each client.</p><InsurancePolicyFields :scope-key="`${insuranceDraft.clientIds.join(',')}:${draftVersion}:primary`" v-model="insuranceDraft.primary" />
           <label class="check"><input v-model="hasSecondary" type="checkbox" /> Add another policy you hold</label>
-          <template v-if="hasSecondary"><InsuranceCardReader :key="`secondary:${draftVersion}`" :agency-id="agencyId" :client-id="insuranceDraft.clientIds[0]" :disabled="busy" @fields="applyCardFields('secondary',$event)" @files="cardFiles.secondary=$event"/><h5>Additional policy</h5><InsurancePolicyFields v-model="insuranceDraft.secondary" /></template>
+          <template v-if="hasSecondary"><InsuranceCardReader :key="`secondary:${draftVersion}`" :agency-id="agencyId" :client-id="insuranceDraft.clientIds[0]" :disabled="busy" @fields="applyCardFields('secondary',$event)" @files="cardFiles.secondary=$event"/><h5>Additional policy</h5><InsurancePolicyFields :scope-key="`${insuranceDraft.clientIds.join(',')}:${draftVersion}:secondary`" v-model="insuranceDraft.secondary" /></template>
           <label class="check"><input v-model="coverageConfirmed" type="checkbox" required /> I confirm that the selected clients are covered. I have checked the subscriber and member details; I understand the office must verify benefits.</label>
           <div class="actions"><button class="btn btn-primary" :disabled="busy || !coverageConfirmed">Save coverage</button><button class="btn btn-secondary" type="button" @click="insuranceDraft = null">Cancel</button></div>
         </form>
@@ -85,6 +85,7 @@ const data = ref(null), loading = ref(false), error = ref(''), notice = ref(''),
 const scopedClients = computed(() => (data.value?.clients || []).filter(c => !props.clientId || Number(c.clientId) === Number(props.clientId)));
 const scopedProfiles = computed(() => (data.value?.profiles || []).filter(p => !props.clientId || p.clientIds?.some(id => Number(id) === Number(props.clientId))));
 const manageableClients = computed(() => scopedClients.value.filter(c => c.canManageBilling));
+const paymentEligibleClients=computed(()=>manageableClients.value.filter(c=>!c.medicaid));
 const insurableClients = computed(() => scopedClients.value.filter(c => c.insuranceApplicable !== false && (c.canManageInsurance ?? c.canManageBilling)));
 const expired = card => Number(card.card_exp_year) < new Date().getFullYear() || (Number(card.card_exp_year) === new Date().getFullYear() && Number(card.card_exp_month) < new Date().getMonth() + 1);
 const money = cents => new Intl.NumberFormat(undefined,{style:'currency',currency:'USD'}).format(Number(cents || 0)/100);

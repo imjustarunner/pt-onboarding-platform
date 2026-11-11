@@ -115,5 +115,10 @@ export function sanitizeRequestBody(body) {
 }
 
 export function redactPrivateBillingUrl(value) {
+  const url = String(value || '');
+  if (/\/(?:family\/)?address-lookup(?:\/|[?#]|$)/.test(url)) {
+    const path = url.split(/[?#]/)[0].replace(/(\/address-lookup\/intake\/)[^/?#]+/g, '$1[REDACTED]');
+    return path + (/[?#]/.test(url) ? '?[REDACTED]' : '');
+  }
   return String(value||'').replace(/(\/calendar-sharing\/feed\/)[^/?#]+/g,'$1[REDACTED]').replace(/(\/family-billing\/task-link\/|\/billing\/complete\/)[^/?#]+/g,'$1[REDACTED]');
 }

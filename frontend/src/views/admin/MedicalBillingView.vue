@@ -226,7 +226,7 @@
             <option :value="0">School / service site (optional)</option>
             <option v-for="s in affiliatedSchools" :key="s.id" :value="s.id">{{ s.name }}</option>
           </select>
-          <input v-model="locForm.streetAddress" class="mb-input mb-input--wide" placeholder="Street (optional)" />
+          <input v-address-autocomplete="{ model: locForm, fields: { street: 'streetAddress', city: 'city', state: 'state', postalCode: 'postalCode' }, locale: 'en', scopeKey: billingAgencyId }" autocomplete="street-address" v-model="locForm.streetAddress" class="mb-input mb-input--wide" placeholder="Street (optional)" />
           <input v-model="locForm.city" class="mb-input" placeholder="City" />
           <input v-model="locForm.state" class="mb-input" placeholder="State" />
           <input v-model="locForm.postalCode" class="mb-input" placeholder="ZIP" />

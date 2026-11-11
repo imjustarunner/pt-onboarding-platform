@@ -58,7 +58,7 @@
 
         <label class="rdm-field">
           <span class="rdm-label">Address</span>
-          <input v-model="form.address" type="text" maxlength="400" placeholder="123 Main St, City, ST ZIP" />
+          <input v-address-autocomplete="{ format: 'full', locale: 'en', model: form, scopeKey: entry?.id }" autocomplete="street-address" v-model="form.address" type="text" maxlength="400" placeholder="123 Main St, City, ST ZIP" />
         </label>
 
         <fieldset class="rdm-field"><legend>Services offered</legend>

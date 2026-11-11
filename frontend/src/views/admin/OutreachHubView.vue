@@ -146,7 +146,7 @@
           </label>
           <label class="ohub-field">
             <span>Address</span>
-            <input v-model="newLocationForm.address" type="text" maxlength="255" placeholder="Street, city, state, ZIP" />
+            <input v-address-autocomplete="{ format: 'full', locale: 'en', model: newLocationForm }" autocomplete="street-address" v-model="newLocationForm.address" type="text" maxlength="255" placeholder="Street, city, state, ZIP" />
           </label>
           <label class="ohub-field">
             <span>Group / district (optional)</span>
@@ -619,7 +619,7 @@
             </label>
             <label class="ohub-field">
               <span>Address</span>
-              <input
+              <input v-address-autocomplete="{ format: 'full', locale: 'en', model: schoolDetailsForm }" autocomplete="street-address"
                 v-model="schoolDetailsForm.address"
                 type="text"
                 maxlength="255"

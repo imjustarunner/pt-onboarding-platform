@@ -1196,7 +1196,7 @@
         <div class="field-row" style="grid-template-columns: 1fr 1fr; margin-top: 10px;">
           <div class="field">
             <label>Street</label>
-            <input v-model="mileageForm.homeStreetAddress" type="text" placeholder="123 Main St" />
+            <input v-address-autocomplete="{ model: mileageForm, fields: { street: 'homeStreetAddress', city: 'homeCity', state: 'homeState', postalCode: 'homePostalCode' }, locale: 'en', scopeKey: userId }" autocomplete="street-address" v-model="mileageForm.homeStreetAddress" type="text" placeholder="123 Main St" />
           </div>
           <div class="field">
             <label>City</label>

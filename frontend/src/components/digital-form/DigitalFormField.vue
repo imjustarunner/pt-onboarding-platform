@@ -71,6 +71,7 @@
 
     <input
       v-else-if="type === 'text' || type === 'number'"
+      v-address-autocomplete="type === 'text' ? addressAutocomplete : null"
       :id="inputId"
       class="df-input"
       :type="type === 'text' ? 'text' : type"
@@ -166,6 +167,7 @@ const props = defineProps({
   id: { type: String, default: '' },
   /** true = popular domains, or pass custom list like ['@gmail.com'] */
   emailDomainHints: { type: [Boolean, Array], default: false },
+  addressAutocomplete: { type: Object, default: null },
   size: { type: String, default: '' }
 });
 const emit = defineEmits(['update:modelValue', 'blur']);

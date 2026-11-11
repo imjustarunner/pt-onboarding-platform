@@ -1,3 +1,6 @@
+import {assertQaStripeTestMode,qaStripeCollectionState} from '../services/qaStripePaymentGuard.service.js';
+import { readClientInsurance } from '../services/clientInsurance.service.js';
+import { assertIntakeCardCollectionAllowed } from '../utils/intakeCardCollectionPolicy.js';
 import { validateIntakePacketEditions } from '../utils/intakePacketEditions.js';
 import { enrollmentSignerIdentity } from '../utils/enrollmentSignerIdentity.js';
 import { isSchoolRoiDocument } from '../utils/schoolRoiDocument.js';
@@ -12838,7 +12841,12 @@ const ensureEarlyGuardianForPayment = async (submission, link, agencyId) => {
   const email=String(guardian.email || data.signerInfo?.email || submission.signer_email || '').trim().toLowerCase();
   if(!email)return {guardianUserId:null};
   await validateQaIntakeGuardian({agencyId,email});
-  let user=submission.guardian_user_id ? await User.findById(submission.guardian_user_id) : await User.findByEmail(email);
+  let user=submission.guardian_user_id ? await User.findById(submission.guardian_user_id) : null;
+  if(user && String(user.email||'').trim().toLowerCase()!==email){
+    if(String(submission.status)==='submitted')throw Object.assign(new Error('Use the account that completed this enrollment for payment setup.'),{status:403});
+    user=null;
+  }
+  if(!user)user=await User.findByEmail(email);
   const firstName=String(guardian.firstName || submission.signer_name || 'Guardian').trim().split(/\s+/)[0];
   const lastName=String(guardian.lastName || '').trim();
   if(!user){
@@ -12848,7 +12856,7 @@ const ensureEarlyGuardianForPayment = async (submission, link, agencyId) => {
   if(!user?.id || String(user.role).toLowerCase()!=='client_guardian') throw Object.assign(new Error('Use your guardian account to continue payment setup'),{status:403});
   // A public email match may bind this submission's new card, but never edits
   // the existing user's identity, password, agency access, or family links.
-  if(!submission.guardian_user_id)await IntakeSubmission.updateById(submission.id,{guardian_user_id:user.id});
+  if(Number(submission.guardian_user_id||0)!==Number(user.id))await IntakeSubmission.updateById(submission.id,{guardian_user_id:user.id});
   return {guardianUserId:user.id,guardianEmail:email,guardianName:[firstName,lastName].filter(Boolean).join(' ')};
 };
 
@@ -12933,6 +12941,24 @@ export const listPublicIntakePackages = async (req, res, next) => {
  * can initialize Stripe.js scoped to the agency's own Stripe account.
  * Safe to expose — publishable keys and account IDs are client-side values.
  */
+async function assertIntakeCardContext(req,link,submission,agencyId){
+  let onFileInsurance=null;
+  const clientIds=new Set();
+  if(submission.co_guardian_invite_id){
+    const binding=await CoGuardianInvite.resolveCoGuardianResumeBinding(submission,submission.session_token,{agencyId,publicKey:String(req.params.publicKey||'')});
+    for(const client of binding?.clients||[])clientIds.add(Number(client.id));
+  }
+  // Saved server bindings only: never accept client IDs or policy flags supplied by a caller.
+  if(submission.client_id)clientIds.add(Number(submission.client_id));
+  for(const row of await IntakeSubmissionClient.listBySubmissionId(submission.id))if(row.client_id)clientIds.add(Number(row.client_id));
+  if(clientIds.size){
+    onFileInsurance=await Promise.all([...clientIds].map(id=>readClientInsurance(id,agencyId)));
+  }
+  const coverage=assertIntakeCardCollectionAllowed({link,submission,onFileInsurance,reviewed:req.body?.coverageReviewed,fingerprint:req.body?.coverageFingerprint});
+  await assertQaStripeTestMode(agencyId);
+  return coverage;
+}
+
 export const getStripeConfig = async (req, res, next) => {
   try {
     const publicKey = String(req.params.publicKey || '').trim();
@@ -12953,12 +12979,15 @@ export const getStripeConfig = async (req, res, next) => {
       if (!agencyId) agencyId = Number(link.organization_id || 0) || null;
     }
 
+    const paymentState=await qaStripeCollectionState(agencyId);
+    if(!paymentState.allowed)return res.json({stripeEnabled:false,publishableKey:null,connectedAccountId:null,testModeRequired:true,mode:paymentState.mode});
     const connectedAccountId = agencyId ? await getAgencyStripeConnectAccountId(agencyId) : null;
 
     res.json({
       stripeEnabled: !!connectedAccountId,
       publishableKey,
-      connectedAccountId
+      connectedAccountId,
+      testModeRequired:paymentState.testModeRequired,mode:paymentState.mode
     });
   } catch (error) {
     next(error);
@@ -12985,6 +13014,7 @@ export const createStripeSetupIntent = async (req, res, next) => {
     }
 
     const agencyId = await resolveAgencyIdForLink(link);
+    await assertIntakeCardContext(req,link,submission,agencyId);
 
     // Auto-provision the guardian if the final submit hasn't happened yet so
     // the payment step isn't a dead end for first-time families.
@@ -13037,6 +13067,7 @@ export const saveGuardianPaymentCard = async (req, res, next) => {
     }
 
     const agencyId = await resolveAgencyIdForLink(link);
+    await assertIntakeCardContext(req,link,submission,agencyId);
     if (!agencyId) {
       return res.status(400).json({ error: { message: 'No agency associated with this intake link' } });
     }

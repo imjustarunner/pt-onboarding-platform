@@ -63,6 +63,6 @@ export async function validateIntakeBilling({ link, submission, intakeData, agen
   if (clinicalEnrollment && payment.skipAcknowledged === true && ['later', 'na'].includes(payment.paymentChoice)) return;
   const [merchant] = await pool.execute("SELECT stripe_connect_account_id FROM agency_billing_accounts WHERE agency_id = ? AND stripe_connect_status = 'active'",[agencyId]);
   if (!merchant[0]?.stripe_connect_account_id) return; // Collection not activated yet.
-  const [cards] = await pool.execute(`SELECT c.id FROM guardian_payment_cards c JOIN guardian_card_setups setup ON setup.payment_card_id = c.id WHERE c.intake_submission_id = ? AND c.agency_id = ? AND c.is_active = 1 AND c.private_payload IS NOT NULL AND setup.stripe_account_id = ?`, [submission.id,agencyId,merchant[0].stripe_connect_account_id]);
+  const [cards] = await pool.execute(`SELECT c.id FROM guardian_payment_cards c JOIN guardian_card_setups setup ON setup.payment_card_id = c.id WHERE c.intake_submission_id = ? AND c.agency_id = ? AND c.guardian_user_id = ? AND setup.guardian_user_id = c.guardian_user_id AND c.is_active = 1 AND c.private_payload IS NOT NULL AND setup.stripe_account_id = ?`, [submission.id,agencyId,submission.guardian_user_id || 0,merchant[0].stripe_connect_account_id]);
   if (!cards.length) throw billingError(409,'Save a payment method through the secure card form before completing this enrollment, or contact the office for an approved payment arrangement.');
 }

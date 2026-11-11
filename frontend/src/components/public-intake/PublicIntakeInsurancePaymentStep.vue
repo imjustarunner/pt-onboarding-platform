@@ -165,6 +165,7 @@
             :public-key="publicKey"
             :submission-id="submissionId"
             :cost-display="paymentCostDisplay"
+            :insurance-info="insuranceInfo" :payment-only="paymentOnly" :collection-allowed="showPaymentSection"
             @update:model-value="onPaymentUpdate"
             @card-saved="onCardSaved"
             @skip-acknowledged="onPaymentSkip"

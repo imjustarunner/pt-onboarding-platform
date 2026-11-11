@@ -80,7 +80,7 @@
           <div v-if="stripeLoading" class="gsb-loading">Loading payment form…</div>
           <div v-else-if="stripeError" class="gsb-error">{{ stripeError }}</div>
           <div v-else>
-            <div id="gsb-card-element" class="gsb-stripe-element" />
+            <StripeCardEntry ref="cardEntry" :publishable-key="stripePublishableKey" :email="authStore.user?.email" :name="[authStore.user?.first_name,authStore.user?.last_name].filter(Boolean).join(' ')" :context-key="`${agencySlug}:${authStore.user?.id || ''}:${providerId}`" :disabled="submitting" @error="cardError=$event" />
             <div v-if="cardError" class="gsb-error" style="margin-top: 6px;">{{ cardError }}</div>
           </div>
         </div>
@@ -154,7 +154,8 @@
 
 <script setup>
 import { ref, computed, watch, nextTick } from 'vue';
-import { loadStripe } from '@stripe/stripe-js';
+import StripeCardEntry from '../billing/StripeCardEntry.vue';
+import {useAuthStore} from '../../store/auth';
 import api from '../../services/api';
 
 const props = defineProps({
@@ -174,6 +175,9 @@ const emit = defineEmits(['close', 'submitted']);
 // ── state ───────────────────────────────────────────────────────────────
 const stepIndex = ref(0);
 const sessionCount = ref(props.minSessionPackage || 1);
+const authStore=useAuthStore();
+const stripePublishableKey=import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || '';
+const cardEntry=ref(null);
 const selectedSlot = ref(null);
 const notes = ref('');
 const submitting = ref(false);
@@ -194,8 +198,6 @@ const weekLabel = computed(() => {
 const stripeLoading = ref(false);
 const stripeError = ref('');
 const cardError = ref('');
-let stripeInstance = null;
-let cardElement = null;
 
 // ── computed ─────────────────────────────────────────────────────────────
 const minPkg = computed(() => Math.max(1, props.minSessionPackage || 1));
@@ -270,25 +272,7 @@ async function loadSlots() {
   }
 }
 
-async function mountStripe() {
-  if (!import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY) return;
-  stripeLoading.value = true;
-  stripeError.value = '';
-  try {
-    stripeInstance = await loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
-    await nextTick();
-    const elements = stripeInstance.elements();
-    cardElement = elements.create('card', {
-      style: { base: { fontSize: '15px', color: '#1a1a2e', '::placeholder': { color: '#999' } } }
-    });
-    cardElement.mount('#gsb-card-element');
-    cardElement.on('change', (e) => { cardError.value = e.error?.message || ''; });
-  } catch (e) {
-    stripeError.value = 'Could not load payment form.';
-  } finally {
-    stripeLoading.value = false;
-  }
-}
+async function mountStripe(){stripeLoading.value=false;await nextTick();await cardEntry.value?.ensureReady();}
 
 // ── lifecycle ─────────────────────────────────────────────────────────────
 watch(() => props.open, (v) => {
@@ -324,11 +308,9 @@ async function submit() {
   submitError.value = '';
   try {
     let paymentToken = null;
-    if (props.paymentPolicy === 'PREPAY' && cardElement && stripeInstance) {
-      const { paymentMethod, error } = await stripeInstance.createPaymentMethod({
-        type: 'card',
-        card: cardElement
-      });
+    if(props.paymentPolicy==='PREPAY'){
+      if(!cardEntry.value)throw new Error('Payment form is not ready.');
+      const {paymentMethod,error}=await cardEntry.value.createPaymentMethod();
       if (error) {
         cardError.value = error.message;
         submitting.value = false;

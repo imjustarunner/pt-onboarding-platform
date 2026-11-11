@@ -7,6 +7,7 @@ export { isSchoolCareBridgeOnly };
 // membership or ROI. Resource controllers remain the final access authority.
 export function schoolCareBridgeApiAllowed(method,path,userId) {
   if(/^\/api\/(schoolcarebridge|school-portal|school-contact-plan|school-overview|clients|client-notes|referrals|referral-packet-drafts|phi-documents|public-intake|school-reinit|messages|chat|chats|communications|notifications|document-signing|documents|user-documents|document-acknowledgments|support-tickets|compliance-corner|account-security|presence|auth)(\/|$)/.test(path))return true;
+  if(method==='POST' && /^\/api\/address-lookup\/(?:(?:intake\/[^/]+|context)\/)?(?:suggest|select)$/.test(path))return true;
   // Assigned school portals power the provider Schools & Programs card inside the SCB workspace.
   if(method==='GET' && /^\/api\/payroll\/me\/assigned-schools$/.test(path))return true;
   if(method==='GET' && /^\/api\/(agencies|organizations|users|providers|branding|platform-branding|app-version|icons|portal|tasks|user-preferences|client-settings|supervisor-assignments|public)(\/|$)/.test(path))return true;

@@ -1,4 +1,6 @@
 import { createApp } from 'vue';
+import {vAddressAutocomplete} from '../directives/addressAutocomplete.js';
+import '../styles/addressAutocomplete.css';
 import { createPinia } from 'pinia';
 import { createRouter, createWebHistory } from 'vue-router';
 import { i18n } from '../i18n';
@@ -45,5 +47,5 @@ api.interceptors.response.use(r => r, error => {
   if ([401, 423].includes(error.response?.status)) window.dispatchEvent(new CustomEvent('auricwell-session-ended',{detail:{status:error.response.status}}));
   return Promise.reject(error);
 });
-const app = createApp(App).use(createPinia()).use(router).use(i18n);
+const app = createApp(App).directive('address-autocomplete',vAddressAutocomplete).use(createPinia()).use(router).use(i18n);
 router.isReady().then(() => app.mount('#app'));

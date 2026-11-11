@@ -4,7 +4,7 @@ import PaymentTask from '../PaymentTask.vue';
 import Ledger from '../FamilyLedgerPanel.vue';
 import api from '../../../services/api';
 vi.mock('../../../services/api',()=>({default:{get:vi.fn(),post:vi.fn()}}));
-vi.mock('@stripe/stripe-js',()=>({loadStripe:vi.fn()}));
+vi.mock('@stripe/stripe-js/pure',()=>({loadStripe:vi.fn()}));
 const button=(w,t)=>w.findAll('button').find(b=>b.text().includes(t));
 const task=()=>({id:1,agencyId:1,agency:{name:'Synthetic agency',slug:'fixture'},title:'Verify payment and authorization',status:'pending',clientIds:[101],requireCard:true,expiresAt:'2027-01-01',waiver:{terms:'Standard billing terms',additionalTerms:'Agency migration terms',version:'fixture-v1'}});
 const overview={clients:[{clientId:101,clientName:'Client One'}],cards:[{id:11,card_brand:'Visa',card_last4:'4242'}]};

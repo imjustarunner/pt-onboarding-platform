@@ -632,7 +632,7 @@
                   </p>
                   <label class="account-field account-field--block account-field--inner">
                     Street address
-                    <input
+                    <input v-address-autocomplete="{ model: accountForm, fields: { street: 'homeStreetAddress', city: 'homeCity', state: 'homeState', postalCode: 'homePostalCode' }, locale: 'en', scopeKey: userId }"
                       v-model="accountForm.homeStreetAddress"
                       type="text"
                       autocomplete="street-address"

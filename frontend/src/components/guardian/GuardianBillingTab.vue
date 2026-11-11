@@ -32,7 +32,7 @@
 <script setup>
 import { ref, watch } from 'vue';
 import api from '../../services/api';
-import { loadStripe } from '@stripe/stripe-js';
+import { loadStripe } from '@stripe/stripe-js/pure';
 const props = defineProps({agencyId:[Number,String],clientId:[Number,String]});
 const loading=ref(false),error=ref(''),notice=ref(''),access=ref(false),payerNames=ref(''),ledger=ref([]),paying=ref(null);
 const credits=ref(null),creditHistory=ref([]),subscriptions=ref([]),accountError=ref(''),updatingSubscription=ref(null);

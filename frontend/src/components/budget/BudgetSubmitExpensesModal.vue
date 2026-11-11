@@ -52,7 +52,7 @@
               <div class="field full-width" v-for="(dest, di) in row.mileageDestinations" :key="di">
                 <label>Destination {{ di + 1 }}</label>
                 <div class="dest-row">
-                  <input v-model="row.mileageDestinations[di]" type="text" placeholder="Address" />
+                  <input v-address-autocomplete="{ format: 'full', locale: 'en', model: row, scopeKey: di }" autocomplete="street-address" v-model="row.mileageDestinations[di]" type="text" placeholder="Address" />
                   <button type="button" class="btn btn-danger btn-sm" @click="removeMileageDest(row, di)">Remove</button>
                 </div>
               </div>

@@ -138,7 +138,7 @@
         <label>{{ tx("Client’s relationship to subscriber") }}<select v-model="local.primary.relationshipToSubscriber" @change="push"><option value="">{{ tx("Select") }}</option><option value="self">{{ tx("Self (client is the subscriber)") }}</option><option value="child">{{ tx("Child") }}</option><option value="spouse">{{ tx("Spouse") }}</option><option value="other">{{ tx("Other") }}</option></select></label>
         <label>{{ tx("Subscriber date of birth") }}<BirthDateInput v-model="local.primary.subscriberDob" @blur="push" /></label>
         <label>{{ tx("Subscriber sex on policy") }}<select v-model="local.primary.subscriberSex" @change="push"><option value="">{{ tx("Select") }}</option><option>M</option><option>F</option><option>U</option></select></label>
-        <label v-for="field in [{key:'subscriberFirstName',label:'Subscriber legal first name'},{key:'subscriberLastName',label:'Subscriber legal last name'},{key:'subscriberAddressLine1',label:'Subscriber address'},{key:'subscriberCity',label:'City'},{key:'subscriberState',label:'State'},{key:'subscriberPostalCode',label:'ZIP code'},{key:'payerId',label:'Electronic payer ID (if known)'},{key:'planType',label:'Plan type (if known)'}]" :key="field.key">{{ tx(field.label) }}<input v-model="local.primary[field.key]" maxlength="255" @input="push" /></label>
+        <label v-for="field in [{key:'subscriberFirstName',label:'Subscriber legal first name'},{key:'subscriberLastName',label:'Subscriber legal last name'},{key:'subscriberAddressLine1',label:'Subscriber address'},{key:'subscriberCity',label:'City'},{key:'subscriberState',label:'State'},{key:'subscriberPostalCode',label:'ZIP code'},{key:'payerId',label:'Electronic payer ID (if known)'},{key:'planType',label:'Plan type (if known)'}]" :key="field.key">{{ tx(field.label) }}<input v-address-autocomplete="field.key === 'subscriberAddressLine1' ? { locale: intakeLocale, model: local.primary, fields: { street: 'subscriberAddressLine1', city: 'subscriberCity', state: 'subscriberState', postalCode: 'subscriberPostalCode' }, publicKey: props.publicKey, scopeKey: `${props.submissionId}:primary` } : null" v-model="local.primary[field.key]" maxlength="255" @input="push" /></label>
       </div>
       <!-- Insurance card photos -->
       <div
@@ -288,7 +288,7 @@
         <label>{{ tx("Client’s relationship to subscriber") }}<select v-model="local.secondary.relationshipToSubscriber" @change="push"><option value="">{{ tx("Select") }}</option><option value="self">{{ tx("Self (client is the subscriber)") }}</option><option value="child">{{ tx("Child") }}</option><option value="spouse">{{ tx("Spouse") }}</option><option value="other">{{ tx("Other") }}</option></select></label>
         <label>{{ tx("Subscriber date of birth") }}<BirthDateInput v-model="local.secondary.subscriberDob" @blur="push" /></label>
         <label>{{ tx("Subscriber sex on policy") }}<select v-model="local.secondary.subscriberSex" @change="push"><option value="">{{ tx("Select") }}</option><option>M</option><option>F</option><option>U</option></select></label>
-        <label v-for="field in [{key:'subscriberFirstName',label:'Subscriber legal first name'},{key:'subscriberLastName',label:'Subscriber legal last name'},{key:'subscriberAddressLine1',label:'Subscriber address'},{key:'subscriberCity',label:'City'},{key:'subscriberState',label:'State'},{key:'subscriberPostalCode',label:'ZIP code'},{key:'payerId',label:'Electronic payer ID (if known)'},{key:'planType',label:'Plan type (if known)'}]" :key="field.key">{{ tx(field.label) }}<input v-model="local.secondary[field.key]" maxlength="255" @input="push" /></label>
+        <label v-for="field in [{key:'subscriberFirstName',label:'Subscriber legal first name'},{key:'subscriberLastName',label:'Subscriber legal last name'},{key:'subscriberAddressLine1',label:'Subscriber address'},{key:'subscriberCity',label:'City'},{key:'subscriberState',label:'State'},{key:'subscriberPostalCode',label:'ZIP code'},{key:'payerId',label:'Electronic payer ID (if known)'},{key:'planType',label:'Plan type (if known)'}]" :key="field.key">{{ tx(field.label) }}<input v-address-autocomplete="field.key === 'subscriberAddressLine1' ? { locale: intakeLocale, model: local.secondary, fields: { street: 'subscriberAddressLine1', city: 'subscriberCity', state: 'subscriberState', postalCode: 'subscriberPostalCode' }, publicKey: props.publicKey, scopeKey: `${props.submissionId}:secondary` } : null" v-model="local.secondary[field.key]" maxlength="255" @input="push" /></label>
       </div>
       <div v-if="!secondaryIsMedicaid" class="pi-ins-photos">
         <div class="pi-ins-photo-slot">
@@ -363,7 +363,7 @@
         <label class="checkbox-row"><input :checked="!!separatePolicies[index]" type="checkbox" @change="toggleSeparatePolicy(index,$event.target.checked)" /> {{ clientDisplayNames[index] }} {{ tx("has a different policy") }}</label>
         <div v-if="separatePolicies[index]" class="pi-ins-claim-details">
           <h4>{{ tx("Policy for") }} {{ clientDisplayNames[index] }}</h4>
-          <InsurancePolicyFields v-model="separatePolicies[index].primary" @update:model-value="push" />
+          <InsurancePolicyFields :scope-key="`${props.publicKey}:${props.submissionId}:child:${index}:primary`" v-model="separatePolicies[index].primary" @update:model-value="push" />
           <label v-for="slot in (policyIsMedicaid(separatePolicies[index].primary) ? [] : ['primary_front','primary_back'])" :key="slot">{{ tx(slot === 'primary_front' ? 'Card front' : 'Card back') }}<input type="file" accept="image/png,image/jpeg,application/pdf" :disabled="coverageUploadBusy" @change="uploadSeparateCard(index,slot,$event)" /><span v-if="separatePolicies[index][`${slot}_url`]">{{ tx("Uploaded securely") }}</span></label>
         </div>
       </div>
@@ -516,7 +516,7 @@ import api from '../../services/api.js';
 import InsurancePolicyFields from '../billing/InsurancePolicyFields.vue';
 import BirthDateInput from './BirthDateInput.vue';
 
-const { tx, txFmt } = useIntakeStepTx();
+const { tx, txFmt, intakeLocale } = useIntakeStepTx();
 const intakeSessionToken = inject('intakeSessionToken', ref(''));
 
 const DEFAULT_SECONDARY_INSURANCE_NOTICE =

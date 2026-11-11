@@ -8,6 +8,23 @@ import { OFFICE_SCREEN_ES } from './officeClinicalSpanish.js';
  */
 
 export const STRUCTURED_INTAKE_STEP_ES = {
+  "Payment method choice": "Opción de método de pago",
+  "Enter a card": "Ingresar una tarjeta",
+  "Use Link (optional)": "Usar Link (opcional)",
+  "Payment account email": "Correo de la cuenta de pago",
+  "Click the Link button in the secure form to use your Link account. Stripe may ask you to enter or verify your email and a code after you choose Link. You can enter a card instead.": "Haga clic en el botón Link del formulario seguro para usar su cuenta de Link. Después de elegir Link, Stripe puede pedirle que ingrese o verifique su correo y un código. También puede ingresar una tarjeta.",
+  "Link is optional. Choosing it does not connect a bank account or authorize recurring charges. Availability and account verification are handled by Stripe.": "Link es opcional. Elegirlo no conecta una cuenta bancaria ni autoriza cargos recurrentes. Stripe gestiona la disponibilidad y la verificación de la cuenta.",
+  "Loading secure payment details…": "Cargando los datos de pago seguros…",
+  "The secure payment form could not load.": "No se pudo cargar el formulario de pago seguro.",
+  "The secure payment form is not ready.": "El formulario de pago seguro aún no está listo.",
+  "Payment details changed. Review them before continuing.": "Los datos de pago cambiaron. Revíselos antes de continuar.",
+  "Review insurance coverage before opening payment setup.": "Revise la cobertura del seguro antes de abrir la configuración de pago.",
+  "A payment card is not requested for Medicaid coverage. Return to insurance review.": "No se solicita una tarjeta de pago para la cobertura de Medicaid. Regrese a la revisión del seguro.",
+  "Existing coverage needs review before requesting a payment card.": "Debe revisar la cobertura existente antes de solicitar una tarjeta de pago.",
+  "Enter and review primary and any secondary coverage before payment setup.": "Ingrese y revise la cobertura principal y cualquier cobertura secundaria antes de configurar el pago.",
+  "Coverage changed. Confirm primary and any secondary coverage again before opening payment setup.": "La cobertura cambió. Vuelva a confirmar la cobertura principal y cualquier cobertura secundaria antes de abrir la configuración de pago.",
+  "Secure card collection for this QA organization requires an isolated test-mode payment configuration.": "La recopilación segura de tarjetas para esta organización de prueba requiere una configuración de pago aislada en modo de prueba.",
+
   'Private answers': 'Respuestas privadas',
   'Please complete this page alone when possible. These answers stay private to clinical review and are not shown on shared review screens.': 'Complete esta página a solas cuando sea posible. Estas respuestas son privadas para la revisión clínica y no se muestran en las pantallas de revisión compartida.',
   'Client': 'Cliente',

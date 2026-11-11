@@ -34,7 +34,7 @@
           <template v-if="selectedUser">
             <label class="check"><input v-model="grantEnabled" type="checkbox" /> Permit this account to use monthly accountability</label>
             <label>Recipient email<input v-model="settings.recipient" type="email" required /></label>
-            <label>Approved home office address<input v-model="settings.officeAddress" maxlength="300" required /></label>
+            <label>Approved home office address<input v-address-autocomplete="{ format: 'full', locale: 'en', model: settings, scopeKey: selectedUser }" autocomplete="street-address" v-model="settings.officeAddress" maxlength="300" required /></label>
             <label>Plan parameters / document wording<textarea v-model="settings.policy" rows="5" maxlength="6000" required placeholder="Enter the approved plan parameters and reimbursement instructions." /></label>
             <label>Mileage reimbursement rate ($ per mile)<input v-model.number="settings.mileageRate" type="number" min="0" max="10" step="0.0001" required /></label>
             <p>Set the business allocation for each category for this person and company. Only the allocated portion is requested. Percentages retain full precision.</p><button v-if="missingHousingCategories.length" type="button" class="btn btn-secondary" @click="addHousingCategories">Add property tax / homeowners insurance lines</button>

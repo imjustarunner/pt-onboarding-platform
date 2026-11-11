@@ -392,7 +392,7 @@
                   :class="{ 'so-field-missing': showSchoolInfoValidation && isSchoolInfoFieldBlank('schoolAddress') }"
                 >
                   School address
-                  <input v-model.trim="schoolForm.schoolAddress" />
+                  <input v-address-autocomplete="{ format: 'full', locale: 'en', model: schoolForm, publicContext: { kind: 'school-onboarding', token }, scopeKey: token }" autocomplete="street-address" v-model.trim="schoolForm.schoolAddress" />
                 </label>
                 <label :class="{ 'so-field-missing': showSchoolInfoValidation && isSchoolInfoFieldBlank('academicYear') }">
                   Academic year

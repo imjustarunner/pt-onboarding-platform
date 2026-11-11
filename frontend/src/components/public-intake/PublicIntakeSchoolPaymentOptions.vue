@@ -12,7 +12,7 @@
       <button type="button" class="btn btn-secondary" :aria-pressed="choice === 'later'" @click="choose('later')">{{ tx('Add card later') }}</button>
     </div>
     <p v-if="!loading && !available">{{ tx('Card collection is unavailable right now. You can continue enrollment and arrange payment with the office later.') }}</p>
-    <PublicIntakePaymentStep v-if="available && choice === 'add_card'" :public-key="publicKey" :submission-id="submissionId" :model-value="modelValue" :step-config="{ paymentRequired: false }" @update:model-value="$emit('update:modelValue', { ...$event, paymentChoice: 'add_card' })" @card-saved="$emit('card-saved', $event)" @skip-acknowledged="choose('later')" />
+    <PublicIntakePaymentStep v-if="available && choice === 'add_card'" :public-key="publicKey" :submission-id="submissionId" :model-value="modelValue" :insurance-info="insuranceInfo" :collection-allowed="eligible" :step-config="{ paymentRequired: false }" @update:model-value="$emit('update:modelValue', { ...$event, paymentChoice: 'add_card' })" @card-saved="$emit('card-saved', $event)" @skip-acknowledged="choose('later')" />
     <p v-if="choice === 'later'">{{ tx('No card will be saved now. Add one in your portal before paid services begin, or contact the office about payment arrangements.') }}</p>
   </section>
 </template>
