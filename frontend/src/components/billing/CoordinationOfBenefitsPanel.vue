@@ -1,6 +1,6 @@
 <template>
   <section class="cob-panel" aria-label="Coordination of benefits">
-    <button type="button" class="btn btn-secondary" :disabled="busy" @click="open">Check overlapping coverage / view COB history</button>
+    <BillingLookupAction kind="cob" :disabled="busy" @open="open">Check overlapping coverage / view COB history</BillingLookupAction>
     <p v-if="error" role="alert">{{ error }}</p><p v-if="notice" role="status">{{ notice }}</p>
     <div v-if="workspace">
       <p>Use a known policy to investigate other coverage and billing order. Results may omit coverage; a negative result does not establish that this is the only insurance.</p>
@@ -63,6 +63,7 @@
   </section>
 </template>
 <script setup>
+import BillingLookupAction from './BillingLookupAction.vue';
 import {ref,computed,watch,onBeforeUnmount} from 'vue';
 import api from '../../services/api';
 const props=defineProps({clientId:[String,Number],agencyId:[String,Number],serviceDate:String,currentInsurance:Object});
