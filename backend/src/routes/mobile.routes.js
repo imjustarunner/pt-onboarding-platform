@@ -72,6 +72,7 @@ router.post('/workspace',handle(async(req,res)=>res.json(await mobileSessions.sw
 router.post('/notifications',handle(async(req,res)=>res.json(await registerMobilePush(await unlocked(req),req.body || {}))));
 const notificationHandler=async(req,res,next)=>{const {createMobileNotificationHandler}=await import('../services/mobile/notifications.service.js');return createMobileNotificationHandler({unlock:unlocked})(req,res,next);};
 router.get('/notification-feed',handle(notificationHandler));
+router.get('/notification-count',handle(notificationHandler));
 router.patch('/notification-feed/:id',handle(notificationHandler));
 router.get('/notification-settings',handle(notificationHandler));
 router.patch('/notification-settings/:type',handle(notificationHandler));

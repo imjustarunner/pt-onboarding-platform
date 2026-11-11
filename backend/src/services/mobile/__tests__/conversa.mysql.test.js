@@ -12,6 +12,8 @@ it('uses names rather than numeric thread IDs and separates group conversations 
 it('normalizes swipe and shortcut preferences without accepting unsupported destinations',()=>{
  expect(normalizeMobilePreferences({swipeLeft:'delete-everything',pinnedNavigation:['mywork','admin','mywork','home'],usage:{admin:100,home:4}})).toMatchObject({swipeLeft:'archive',swipeRight:'read',pinnedNavigation:['mywork','home'],usage:{home:4}});
 });
+it('keeps four ordered bottom shortcuts and validates slot counts',()=>{expect(normalizeMobilePreferences({navigationMode:'pinned',navigationSlots:4,pinnedNavigation:['home','notifications','tasks','mywork']})).toMatchObject({navigationSlots:4,pinnedNavigation:['home','notifications','tasks','mywork']});expect(normalizeMobilePreferences({navigationSlots:99})).toMatchObject({navigationSlots:'automatic'});});
+it('shares fresh email authorization within one inbox request and rechecks on the next',async()=>{let reads=0;const db={execute:async()=>[[]]},store=createMobileConversaStore(db,{listAgencies:async()=>{reads++;return {agencies:[{id:2}]};}});expect(await store.emailInbox(1,{suite:'email'})).toEqual([[],[]]);expect(reads).toBe(1);await store.emailInbox(1,{suite:'all'});expect(reads).toBe(2);});
 describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('personal mobile inbox SQL',()=>{
  let admin,db,store;const name=`auricwell_conversa_test_${process.pid}`;
  beforeAll(async()=>{

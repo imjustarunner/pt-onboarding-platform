@@ -8,7 +8,8 @@ import {activateClinicalRecovery,clearClinicalRecovery} from './clinicalRecovery
 import {activateFamilyDevice,clearFamilyDevice} from './familyContext.js';
 const AccountSecurityPanel=defineAsyncComponent(()=>import('../components/AccountSecurityPanel.vue'));
 const MobileNotifications=defineAsyncComponent(()=>import('./MobileNotifications.vue'));
-const notificationPanel=ref(false),notificationSettings=ref(false),notificationUnread=ref(0);
+const notificationPanel=ref(false),notificationSettings=ref(false),notificationUnread=ref(0),notificationMounted=ref(false),mobilePreferences=ref({});
+watch(notificationPanel,open=>{if(open)notificationMounted.value=true;});
 const MobileFamilyPortal=defineAsyncComponent(()=>import('./MobileFamilyPortal.vue'));
 import QuickView from '../views/QuickViewAccessView.vue';
 import { MobileDevice, native, apiOrigin, mobileApi, quickApiBase, randomSecret, pkceChallenge, accountUrl, mobileRequestError } from './transport.js';
@@ -24,16 +25,23 @@ const accountLink=computed(()=>accountUrl(profile.value?.workspace));
 const securityLink=computed(()=>accountUrl(profile.value?.workspace,'account-security'));
 const preferencesLink=computed(()=>accountUrl(profile.value?.workspace,'preferences'));
 const connectQuery=()=>Object.fromEntries(new URLSearchParams(window.location.search));
-async function refreshNotificationCount(){const token=access.value?.sessionToken;if(!token||screen.value!=='workspace'||profile.value?.surface==='family')return;try{const data=await notificationRequest('GET','/notification-feed?status=unread&page=1');if(access.value?.sessionToken===token)notificationUnread.value=Number(data.unreadCount||0);}catch{/* The inbox retains its own retry control. */}}
+async function refreshNotificationCount(){const token=access.value?.sessionToken;if(!token||screen.value!=='workspace'||profile.value?.surface==='family')return;try{const data=await notificationRequest('GET','/notification-count');if(access.value?.sessionToken===token)notificationUnread.value=Number(data._total||0);}catch{/* The inbox retains its own retry control. */}}
 watch(()=>access.value?.sessionToken,()=>{notificationUnread.value=0;void refreshNotificationCount();});
 async function notificationRequest(method,path,data={}){try{return (await mobileApi.request({method,url:path,...(method==='GET'?{}:{data}),headers:{'X-Quick-View-Session':access.value?.sessionToken || ''}})).data;}catch(error){if([401,423].includes(error.response?.status))lock();throw error;}}
-async function openNotificationEmail(item){notificationPanel.value=false;await router.push({path:'/mobile/workspace',query:{view:'home',conversationId:String(item.related_entity_id)}});await nextTick();qv.value?.openDeepLink();}
+async function openNotificationEmail(item){
+ const id=Number(item.related_entity_id);if(!Number.isSafeInteger(id)||id<1)return;
+ const type=item.related_entity_type,query=type==='communication_conversation'?{view:'home',conversationId:String(id)}:type==='chat_thread'?{view:'home',threadId:String(id),suite:'direct'}:type==='task'?{view:'tasks'}:type==='client'?{view:'client',clientId:String(id)}:null;
+ if(!query)return;notificationPanel.value=false;
+ if(type==='client' && Number(item.agency_id)!==Number(workspace.value?.id))await switchWorkspace(item.agency_id,query);
+ else await router.push({path:'/mobile/workspace',query});
+ await nextTick();if(type==='communication_conversation')qv.value?.openDeepLink();if(type==='task')qv.value?.openNotificationTask(id);
+}
 async function deviceRequest(method,path,data={}) {
   if(native)return MobileDevice.request({method,path,data,sessionToken:access.value?.sessionToken || ''});
   return (await mobileApi.request({method,url:path,data,headers:access.value?{'X-Quick-View-Session':access.value.sessionToken}:{}})).data;
 }
 function applySession(result) {
-  notificationPanel.value=false;
+  notificationPanel.value=false;notificationMounted.value=false;mobilePreferences.value={};
   clearFamilyDevice();if(result.profile?.surface==='family')activateFamilyDevice({sessionToken:result.sessionToken,apiOrigin,onLocked:lock});
   activateClinicalRecovery(result.userId || result.profile?.user?.id,result.agencyId || result.profile?.workspace?.id);
   const notifications=profile.value?.user?.id===result.profile.user?.id?profile.value.notifications:null;
@@ -272,8 +280,8 @@ onUnmounted(()=>{
     <template v-if="screen==='workspace' && access">
 
       <MobileFamilyPortal v-if="profile?.surface==='family'" :key="access.sessionToken" :profile="profile" @logout="signOut" @account="showAccount"/>
-      <QuickView v-else :key="access.sessionToken" ref="qv" :mobile-session="access" :notification-unread="notificationUnread" @locked="lock" @account="showAccount" @notifications="notificationSettings=false;notificationPanel=true" @open-workspace-item="openWorkspaceItem" />
-      <MobileNotifications v-if="notificationPanel && profile?.surface!=='family'" :key="access.sessionToken" :request="notificationRequest" :workspace-id="workspace?.id" :start-in-settings="notificationSettings" @close="notificationPanel=false;refreshNotificationCount()" @changed="refreshNotificationCount" @open="openNotificationEmail" />
+      <QuickView v-else :key="access.sessionToken" ref="qv" :mobile-session="access" :notification-unread="notificationUnread" :overlay-open="notificationPanel || accountOpen" @locked="lock" @account="showAccount" @notifications="notificationSettings=false;notificationPanel=true" @open-workspace-item="openWorkspaceItem" @preferences="mobilePreferences=$event" />
+      <MobileNotifications v-if="notificationMounted && profile?.surface!=='family'" v-show="notificationPanel" :visible="notificationPanel" :preferences="mobilePreferences" :key="access.sessionToken" :request="notificationRequest" :workspace-id="workspace?.id" :start-in-settings="notificationSettings" @close="notificationPanel=false;refreshNotificationCount()" @changed="refreshNotificationCount" @open="openNotificationEmail" />
       <p v-if="error && !accountOpen" class="workspace-error" role="alert">{{ error }} <button @click="error=''" aria-label="Dismiss workspace error">×</button></p>
       <div v-if="accountOpen" class="mobile-overlay" @keydown.esc="accountOpen=false">
         <section class="mobile-card account" role="dialog" aria-modal="true" aria-labelledby="account-title">

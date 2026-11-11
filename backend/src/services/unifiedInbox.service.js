@@ -229,11 +229,13 @@ export async function getConversationDetail(conversationId, { userId, markRead =
     const [[latest]] = await pool.execute('SELECT MAX(id) AS id FROM support_ticket_messages WHERE ticket_id=? AND COALESCE(is_deleted,0)=0', [conv.support_ticket_id]);
     ticketThreadRevision = Number(latest?.id || 0);
   }
-  let messages = await CommunicationConversation.listMessages(conversationId);
-  const hydrated = await hydrateChannelMessages(conv);
-  if (hydrated) messages = hydrated;
-  const context = await buildConversationContext(conv).catch((e) => { console.warn('[email-reader] context unavailable:', e?.code || 'context_failed'); return null; });
-  const [managedGroups]=await pool.execute('SELECT * FROM managed_workspace_groups WHERE agency_id=?',[conv.agency_id]);
+  const [storedMessages,hydrated,context,[managedGroups]]=await Promise.all([
+    CommunicationConversation.listMessages(conversationId),
+    hydrateChannelMessages(conv),
+    buildConversationContext(conv).catch(e=>{console.warn('[email-reader] context unavailable:',e?.code || 'context_failed');return null;}),
+    pool.execute('SELECT * FROM managed_workspace_groups WHERE agency_id=?',[conv.agency_id])
+  ]);
+  const messages=hydrated || storedMessages;
   conv = withGroupEmailMetadata(conv, userId, managedGroups);
   if (markRead && userId && !conv.is_ticketed_group) {
     await CommunicationConversation.markRead(conversationId, userId);

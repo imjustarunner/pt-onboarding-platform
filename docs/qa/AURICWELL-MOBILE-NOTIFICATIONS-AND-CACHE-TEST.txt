@@ -1,0 +1,32 @@
+AURICWELL MOBILE — NOTIFICATIONS, READ STATE, AND NAVIGATION
+November 11, 2026
+
+Start in a fresh tab at https://auricwell.com/mobile after /version.json and /api/app-version match and ready=true. Record the build, browser/device, role, time, expected/actual result and plain-text error. Use controlled synthetic staff accounts and notifications only. Do not copy session tokens or private message bodies into reports. Do not send messages, alter real notifications, or change clinical records to prepare a fixture.
+
+Run desktop-width /mobile and phone-width /mobile. Actual iPhone Safari and the installed iOS app require separate results: a Chrome phone viewport is not an iPhone or TestFlight pass. No signed native build is implied by a deployed web repair.
+
+1. EMAIL READ STATE / REOPENING
+Use a synthetic unread email. Open it while the read-state PATCH is deliberately delayed in browser interception. Return using Back and the in-app Back button: its unread row and unread badge contribution must disappear immediately, without waiting for the server. Resolve the PATCH; the row stays absent from Unread and remains available under All.
+Repeat with a rejected PATCH: display the error and restore the prior state. A 401/403 must clear inaccessible content rather than restore it. Do not remove access for a real account.
+Reopen the same recent email under All. Its content should display from session memory without another blocking detail fetch. Revisit recent inbox filters; cached rows stay visible while normal refresh continues. Explicit Refresh must still fetch current data. Switch account/device session and lock/sign out: prior cached content must not carry across. Cache is bounded, memory-only, and expires after one minute. Initial uncached loads and refreshed server responses still require the network.
+For direct messages, cached nonsecure text can display immediately while a fresh server access check runs. A denied check must clear it. Secure messages retain their unlock behavior and are excluded from that detail cache. These checks do not justify disabling authorization.
+
+2. NOTIFICATIONS ACROSS AGENCIES
+Use a synthetic staff member genuinely affiliated with at least two agencies and with personal notification fixtures in each. Open Notifications from the bell, More, and a saved bottom shortcut. Default is Unread, All agencies. Verify the second agency's authorized notifications are included; switching workspace must not silently reduce All agencies to one.
+Test agency, Unread/All active/Read/Snoozed/Deleted, search, Newest/Oldest/Priority, pagination, and Refresh. Count and feed must use the same viewer/permission rules. No unrelated managed/team feed, other viewer's private alerts, or unauthorized agency is exposed. Turning off a notification type still follows the existing settings and does not delete an email in Conversa. Family accounts keep their existing family notification surface.
+Rows should show a compact title, short preview, agency, timestamp and unread dot. Tap or hold opens the full message with no clipped detail. When a supported linked email/message/task/client exists, Open must navigate through normal permission checks. An unsupported link still permits reading the full notification. Escape/Close, keyboard focus, phone scrolling and long content must work.
+
+3. NOTIFICATION SWIPES / DELETE / SNOOZE
+Use Mobile preferences to configure swipe left and right. The same read/unread/none choices apply to notifications; Archive maps to Delete/Restore. Default left swipe reveals a distinct red Delete action; right reveals Read. Cancelled/vertical gestures must not update state or open an accidental detail.
+Delete a synthetic notification: remove it immediately, show Undo, and restore it with Undo. It is a viewer dismissal, not deletion of the source task, email, clinical event, or other viewers' notifications. Inspect Deleted and Restore. A failed save restores the previous row and shows the error.
+Open details and Snooze 1 hour; also test a chosen future local time, invalid/past time, and End snooze. Snoozed items leave the active view and remain accessible under Snoozed. Do not change the underlying task due date. Undo/toast must expire after approximately five seconds rather than remain permanently. Managed follow-up restrictions remain enforced by the server.
+
+4. HEADER AND BOTTOM SHORTCUTS
+With many unread notifications, the bell shows a pulsing dot, not a large number above +10 min. Reduced-motion preference stops the pulse. The extension control shows Lock M:SS when a lock is configured, or Refresh M:SS with no lock. Countdown updates and extension uses the existing session policy.
+In Mobile preferences choose 2 + More, 3 + More, and 4 + More. Select and reorder tools, including Notifications. Save/reopen and confirm the account preference persists. Test automatic frequent-use mode too. More always contains every available tool. At 320, 390, and 430 CSS-pixel widths, five bottom buttons must not cause horizontal overflow. Current route, lock, draft preservation, badges and account access still work.
+
+5. APP EMAIL READING VIEW
+Open a synthetic app-template email with substantive text/action links and the normal signature/social/brand/confidentiality footer. Reading view preserves substantive content and action links and collapses the footer into Email signature and footer. Open that disclosure and switch to Original layout: original sanitized content remains accessible. Small social icons must retain bounded dimensions, not stretch to full screen. General external emails and their substantive warnings are not discarded. External image blocking, sanitization and unsafe-link restrictions stay in place. Outbound email templates and stored original messages are unchanged.
+
+REPORT
+Mark each case PASS/FAIL/BLOCKED/NOT_RUN from observed results, not deployment alone. Include request durations for first open, recent reopen, and explicit refresh, without secret headers/bodies. Record physical-device/Safari/native limitations explicitly. Do not claim a signed iOS/TestFlight build or real notification delivery from mocked browser checks.
