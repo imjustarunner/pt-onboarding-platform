@@ -5,7 +5,7 @@ export default defineConfig({
   publicDir: false,
   plugins: [vue()],
   test: { environment: 'jsdom', include: [
-    'src/components/dashboard/__tests__/StaffPollsPanel.test.js',
+    'src/components/dashboard/__tests__/StaffPollsPanel*.test.js',
     'src/components/conversa/__tests__/ConversaTeamCommunications.test.js',
     'src/components/admin/__tests__/StaffPollResultsReview.test.js',
     'src/views/__tests__/StaffEventView.test.js',
