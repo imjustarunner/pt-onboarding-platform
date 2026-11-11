@@ -29,6 +29,14 @@ beforeEach(()=>{
  m.db.mockImplementation(async sql=>sql.includes('GET_LOCK')?[[{acquired:1}]]:[[]]);m.send.mockResolvedValue({ok:true});
 });
 describe('supervision multiple reminder delivery',()=>{
+ it('still reminds an upcoming session after a participant closed its schedule window',async()=>{
+  session.status='COMPLETED_PENDING_FINALIZE';
+  await runJoinReminderTick({now:new Date('2026-10-05T17:55:00Z')});
+  expect(m.send.mock.calls.map(([p])=>p.user.id)).toEqual([7,8]);
+  const [sql]=m.execute.mock.calls.find(([sql])=>sql.includes('FROM supervision_sessions ss'));
+  expect(sql).toContain("ss.status IN ('SCHEDULED','IN_PROGRESS','COMPLETED_PENDING_FINALIZE')");
+  expect(sql).toContain('ss.live_ended_at IS NULL');expect(sql).toContain('ss.finalized_at IS NULL');
+ });
  it('sends separate tier schedules, includes cohosts, and respects optional opt-out',async()=>{
   session.session_type='group';session.co_facilitator_user_id=9;
   session.meeting_settings_json=JSON.stringify({reminders:[5],attendanceReminders:{mandatory:[60],optional:[30]}});

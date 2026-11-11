@@ -110,7 +110,9 @@ export async function prepareSupervisionEmail({session,user,joinUrl,kind='invita
  userId:user.id,source:'auto',templateType:kind==='invitation'?'meeting_invited':'meeting_join_reminder'};
 }
 export async function sendSupervisionEmail({session,user,joinUrl,kind='invitation'}) {
- if(Number(session.notify_participants??1)===0||!['SCHEDULED',...(session.kind==='HUDDLE'?['ACTIVE']:[])].includes(session.status)||parseUtcDate(session.end_at)<=new Date())return {skipped:true};
+ // A preview or a closed schedule window does not end the scheduled meeting.
+ const statuses=session.kind==='HUDDLE'?['SCHEDULED','ACTIVE']:['SCHEDULED','IN_PROGRESS','COMPLETED_PENDING_FINALIZE'];
+ if(Number(session.notify_participants??1)===0||!statuses.includes(session.status)||session.live_ended_at||session.finalized_at||parseUtcDate(session.end_at)<=new Date())return {skipped:true};
  const table=session.kind==='HUDDLE'?'huddle_email_deliveries':'supervision_email_deliveries';
  const db=await pool.getConnection();const lock=`${table}:${session.id}:${user.id}:${kind}`;let acquired=false;
  try {
@@ -130,7 +132,7 @@ export async function sendSupervisionEmail({session,user,joinUrl,kind='invitatio
 }
 // One day ahead gives optional invitees and presenters time to respond/prepare.
 export async function sendSupervisionDayAheadReminders(now=new Date()) {
- const [sessions]=await pool.execute(`SELECT * FROM supervision_sessions WHERE status='SCHEDULED' AND notify_participants=1 AND start_at>? AND start_at<=DATE_ADD(?,INTERVAL 7 DAY)`,[now,now]);
+ const [sessions]=await pool.execute(`SELECT * FROM supervision_sessions WHERE status IN ('SCHEDULED','IN_PROGRESS','COMPLETED_PENDING_FINALIZE') AND live_ended_at IS NULL AND finalized_at IS NULL AND notify_participants=1 AND start_at>? AND start_at<=DATE_ADD(?,INTERVAL 7 DAY)`,[now,now]);
  for(const session of sessions){
   if (session.enrollment_mode === 'signup_only') {
    if (signupInvitationDue(session,now)) {
