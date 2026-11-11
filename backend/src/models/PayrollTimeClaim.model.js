@@ -136,7 +136,7 @@ class PayrollTimeClaim {
     }
 
     const [rows] = await pool.execute(
-      `SELECT c.*,
+      `SELECT c.*, travel.reviewed_at AS event_travel_reviewed_at,
               provider.first_name AS provider_first_name, provider.last_name AS provider_last_name,
               p.period_start AS approved_period_start,
               p.period_end AS approved_period_end,
@@ -151,6 +151,7 @@ class PayrollTimeClaim {
        LEFT JOIN users sb ON sb.id = c.submitted_by_user_id
        LEFT JOIN payroll_periods p ON p.id = c.target_payroll_period_id AND p.agency_id = c.agency_id
        LEFT JOIN users approver ON approver.id = c.approved_by_user_id
+       LEFT JOIN company_event_travel_reports travel ON travel.id = c.event_travel_report_id AND travel.agency_id = c.agency_id
        WHERE ${conds.join(' AND ')}
        ORDER BY c.status ASC, c.claim_date DESC, c.id DESC
        LIMIT ${lim} OFFSET ${off}`,
@@ -179,11 +180,11 @@ class PayrollTimeClaim {
              rejection_reason = NULL,
              rejected_by_user_id = NULL,
              rejected_at = NULL
-         WHERE id = ? ${requireSubmitted ? "AND status='submitted'" : ''} ${eventTravelReviewedAt ? `AND EXISTS (
+         WHERE id = ? ${requireSubmitted ? "AND status='submitted' AND EXISTS (SELECT 1 FROM payroll_periods p WHERE p.id = ? AND p.agency_id = payroll_time_claims.agency_id AND LOWER(p.status) NOT IN ('posted','finalized') AND p.posted_at IS NULL AND p.finalized_at IS NULL)" : ''} ${eventTravelReviewedAt ? `AND EXISTS (
            SELECT 1 FROM company_event_travel_reports r WHERE r.id = payroll_time_claims.event_travel_report_id
            AND r.reviewed_at IS NOT NULL AND JSON_UNQUOTE(JSON_EXTRACT(r.report_json, '$.reviewedAt')) = ?)` : ''}
          LIMIT 1`,
-        [targetPayrollPeriodId, b, safeHrs, appliedAmount, approverUserId, id, ...(eventTravelReviewedAt ? [eventTravelReviewedAt] : [])]
+        [targetPayrollPeriodId, b, safeHrs, appliedAmount, approverUserId, id, ...(requireSubmitted ? [targetPayrollPeriodId] : []), ...(eventTravelReviewedAt ? [eventTravelReviewedAt] : [])]
       );
       if (requireSubmitted && !result.affectedRows) throw Object.assign(new Error('Submission changed before approval.'),{status:409,code:'PAYROLL_SOURCE_CHANGED'});
       if (eventTravelReviewedAt && !result.affectedRows) throw Object.assign(new Error('The travel report changed. Refresh and review it before approval.'), { status: 409 });
@@ -217,22 +218,23 @@ class PayrollTimeClaim {
     return PayrollTimeClaim.findById(id);
   }
 
-  static async reject({ id, rejectorUserId, rejectionReason }) {
-    await pool.execute(
+  static async reject({ id, rejectorUserId, rejectionReason, requireSubmitted = false }) {
+    const [result] = await pool.execute(
       `UPDATE payroll_time_claims
        SET status = 'rejected',
            rejection_reason = ?,
            rejected_by_user_id = ?,
            rejected_at = NOW()
-       WHERE id = ?
+       WHERE id = ? ${requireSubmitted ? "AND status='submitted'" : ''}
        LIMIT 1`,
       [rejectionReason || null, rejectorUserId, id]
     );
+    if (requireSubmitted && !result.affectedRows) throw Object.assign(new Error('Submission changed before this decision.'), { status: 409, code: 'PAYROLL_SOURCE_CHANGED' });
     return PayrollTimeClaim.findById(id);
   }
 
-  static async returnForChanges({ id, actorUserId, note }) {
-    await pool.execute(
+  static async returnForChanges({ id, actorUserId, note, requireSubmitted = false }) {
+    const [result] = await pool.execute(
       `UPDATE payroll_time_claims
        SET status = 'deferred',
            rejection_reason = ?,
@@ -242,10 +244,11 @@ class PayrollTimeClaim {
            applied_amount = NULL,
            approved_by_user_id = NULL,
            approved_at = NULL
-       WHERE id = ?
+       WHERE id = ? ${requireSubmitted ? "AND status='submitted'" : ''}
        LIMIT 1`,
       [String(note || '').trim().slice(0, 255) || null, actorUserId || null, id]
     );
+    if (requireSubmitted && !result.affectedRows) throw Object.assign(new Error('Submission changed before this decision.'), { status: 409, code: 'PAYROLL_SOURCE_CHANGED' });
     return PayrollTimeClaim.findById(id);
   }
 

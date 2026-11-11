@@ -7,7 +7,8 @@ import PayrollMileageClaim from '../../models/PayrollMileageClaim.model.js';
 let db;
 beforeEach(() => {
   db = new DatabaseSync(':memory:');
-  db.exec(`CREATE TABLE users (id INTEGER, first_name TEXT, last_name TEXT, email TEXT);
+  db.exec(`CREATE TABLE company_event_travel_reports (id INTEGER, agency_id INTEGER, reviewed_at TEXT);
+    CREATE TABLE users (id INTEGER, first_name TEXT, last_name TEXT, email TEXT);
     CREATE TABLE payroll_periods (id INTEGER, agency_id INTEGER, period_start TEXT, period_end TEXT, status TEXT,
       posted_at TEXT, finalized_at TEXT, posted_by_user_id INTEGER, finalized_by_user_id INTEGER);
     INSERT INTO users VALUES (1, 'Payroll', 'Reviewer', 'reviewer@example.test');
@@ -15,7 +16,7 @@ beforeEach(() => {
       (8, 2, '2026-10-10', '2026-10-23', 'ran'), (9, 3, '2026-10-10', '2026-10-23', 'staged');`);
   for (const table of ['payroll_time_claims', 'payroll_mileage_claims']) {
     db.exec(`CREATE TABLE ${table} (id INTEGER, agency_id INTEGER, user_id INTEGER, status TEXT, claim_type TEXT,
-      claim_date TEXT, drive_date TEXT, payload_json TEXT, submitted_by_user_id INTEGER,
+      claim_date TEXT, drive_date TEXT, payload_json TEXT, submitted_by_user_id INTEGER, event_travel_report_id INTEGER,
       approved_by_user_id INTEGER, target_payroll_period_id INTEGER, suggested_payroll_period_id INTEGER);
       INSERT INTO ${table} (id, agency_id, user_id, status, claim_type, claim_date, drive_date, approved_by_user_id, target_payroll_period_id)
       VALUES (1, 2, 7, 'approved', 'indirect_time', '2026-10-16', '2026-10-16', 1, 8),

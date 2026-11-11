@@ -1,0 +1,56 @@
+{
+  "base": "52c37b91c3cd4b1140d0467521543b6eaa98dc6e",
+  "automatedTests": {
+    "frontend": 76,
+    "backend": 90,
+    "workTimeAndLeave": 17,
+    "total": 183
+  },
+  "browser": [
+    {
+      "screen": "pending",
+      "claims": 25,
+      "saved": 24,
+      "blocked": 1,
+      "batchRequests": 1,
+      "queueReloadsAfterDecisions": 0,
+      "layout": {
+        "display": "inline-flex",
+        "wrap": "nowrap",
+        "tops": [
+          676,
+          676,
+          676
+        ]
+      },
+      "errors": [],
+      "externalRequestsBlocked": []
+    },
+    {
+      "screen": "wizard",
+      "claims": 25,
+      "saved": 24,
+      "blocked": 1,
+      "batchRequests": 1,
+      "queueReloadsAfterDecisions": 0,
+      "layout": {
+        "display": "inline-flex",
+        "wrap": "nowrap",
+        "tops": [
+          205,
+          205,
+          205
+        ]
+      },
+      "errors": [],
+      "externalRequestsBlocked": []
+    }
+  ],
+  "performanceEvidence": {
+    "claimsInRateSharingTest": 100,
+    "sharedReadsPerWorkerAndDate": 1,
+    "queueReloadsAfterConfirmedDecisions": 0,
+    "bulkRecalculationsPerAffectedPeriod": 1
+  },
+  "scope": "Synthetic browser records and isolated test databases only. Production approval latency was not benchmarked. No live payroll decisions, posting, or email were performed."
+}

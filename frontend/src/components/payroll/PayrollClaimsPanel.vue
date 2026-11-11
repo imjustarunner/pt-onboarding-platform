@@ -25,6 +25,7 @@
     </div>
 
     <div v-if="error" class="pcp-error">{{ error }}</div>
+    <div v-if="claimNotice" role="status" class="pcp-notice">{{ claimNotice }}</div>
     <div v-if="loading" class="pcp-muted">Loading pending submissions…</div>
 
     <PayrollWizardEmpty v-else-if="guided && !error && !totalPending" title="No pending claims" message="There are no submitted claims awaiting a decision for this pay period. Continue to Payroll Stage." />
@@ -35,12 +36,17 @@
       </label>
       <!-- Time -->
       <div v-if="tab === 'time'" class="pcp-body">
+        <div v-if="timeClaims.length" class="pcp-bulk-actions">
+          <span>{{ selectedRows('time').length }} selected</span>
+          <button class="btn btn-primary btn-sm" :disabled="claimsBusy || locked || !selectedRows('time').length" @click="bulkClaims('time', 'approve')">Approve selected</button>
+          <button class="btn btn-secondary btn-sm" :disabled="claimsBusy || locked || !selectedRows('time').length" @click="bulkClaims('time', 'return')">Send back selected</button>
+        </div>
         <div v-if="!timeClaims.length" class="pcp-muted">No pending time claims for this pay period.</div>
         <div v-else class="pcp-table-wrap">
           <table class="pcp-table">
             <thead>
               <tr>
-                <th>Provider</th>
+                <th><input type="checkbox" :checked="allSelected('time')" :disabled="claimsBusy || locked" aria-label="Select all time claims" @change="review.toggleAll('time', timeClaims, $event.target.checked)" /></th><th>Provider</th>
                 <th>Date</th>
                 <th>Type</th>
                 <th class="right">Hours</th>
@@ -49,19 +55,20 @@
             </thead>
             <tbody>
               <tr v-for="c in timeClaims" :key="c.id">
-                <td>{{ providerName(c) }}</td>
+                <td><input type="checkbox" v-model="selectedClaims" :value="claimKey('time', c)" :disabled="claimsBusy || locked" :aria-label="`Select time claim ${c.id} for ${providerName(c)}`" /></td><td>{{ providerName(c) }}<div v-if="claimErrors[claimKey('time',c)]" class="pcp-error" role="alert">{{ claimErrors[claimKey('time',c)] }}</div></td>
                 <td>{{ fmtDate(c.claim_date) }}</td>
                 <td>
-                  <div>{{ timeTypeLabel(c) }}</div>
+                  <div>{{ timeTypeLabel(c) }}</div><button v-if="c.approvalBlocker?.type === 'event_travel'" class="btn btn-secondary btn-sm" @click="openTimeClaimView(c)">Review travel report</button>
                   <div v-if="logTimeSummary(c)" class="pcp-muted" style="margin-top: 4px; max-width: 240px;">{{ logTimeSummary(c) }}</div>
                 </td>
                 <td class="right">{{ fmtHours(c) }}</td>
-                <td class="right">
-                  <button type="button" class="btn btn-secondary btn-sm" :disabled="busyId === c.id" @click="openTimeClaimView(c)">View</button>
-                  <button type="button" class="btn btn-primary btn-sm" :disabled="busyId === c.id || locked" @click="approveTime(c)">
-                    {{ busyId === c.id ? '…' : 'Approve' }}
+                <td class="right pcp-actions-cell"><div class="pcp-row-actions">
+                  <button type="button" class="btn btn-secondary btn-sm" :disabled="claimsBusy" @click="openTimeClaimView(c)">View</button>
+                  <button type="button" class="btn btn-primary btn-sm" :disabled="claimsBusy || locked" @click="approveTime(c)">
+                    {{ claimsBusy ? '…' : 'Approve' }}
                   </button>
-                  <button type="button" class="btn btn-secondary btn-sm" :disabled="busyId === c.id || locked" @click="returnTime(c)">Send back…</button>
+                  <button type="button" class="btn btn-secondary btn-sm" :disabled="claimsBusy || locked" @click="returnTime(c)">Send back…</button>
+</div>
                 </td>
               </tr>
             </tbody>
@@ -71,12 +78,17 @@
 
       <!-- Mileage -->
       <div v-else-if="tab === 'mileage'" class="pcp-body">
+        <div v-if="mileageClaims.length" class="pcp-bulk-actions">
+          <span>{{ selectedRows('mileage').length }} selected</span>
+          <button class="btn btn-primary btn-sm" :disabled="claimsBusy || locked || !selectedRows('mileage').length" @click="bulkClaims('mileage', 'approve')">Approve selected</button>
+          <button class="btn btn-secondary btn-sm" :disabled="claimsBusy || locked || !selectedRows('mileage').length" @click="bulkClaims('mileage', 'reject')">Reject selected</button>
+        </div>
         <div v-if="!mileageClaims.length" class="pcp-muted">No pending mileage submissions for this pay period.</div>
         <div v-else class="pcp-table-wrap">
           <table class="pcp-table">
             <thead>
               <tr>
-                <th>Provider</th>
+                <th><input type="checkbox" :checked="allSelected('mileage')" :disabled="claimsBusy || locked" aria-label="Select all mileage claims" @change="review.toggleAll('mileage', mileageClaims, $event.target.checked)" /></th><th>Provider</th>
                 <th>Date</th>
                 <th class="right">Miles</th>
                 <th class="right">Actions</th>
@@ -84,14 +96,15 @@
             </thead>
             <tbody>
               <tr v-for="c in mileageClaims" :key="c.id">
-                <td>{{ providerName(c) }}</td>
+                <td><input type="checkbox" v-model="selectedClaims" :value="claimKey('mileage', c)" :disabled="claimsBusy || locked" :aria-label="`Select mileage claim ${c.id} for ${providerName(c)}`" /></td><td>{{ providerName(c) }}<div v-if="claimErrors[claimKey('mileage',c)]" class="pcp-error" role="alert">{{ claimErrors[claimKey('mileage',c)] }}</div></td>
                 <td>{{ fmtDate(c.drive_date || c.claim_date || c.trip_date) }}<details v-if="c.event_travel_report_id"><summary>Review event travel</summary><EventTravelPayrollReview :report-id="c.event_travel_report_id" @reviewed="reload" /></details></td>
                 <td class="right">{{ Number(c.miles || c.total_miles || 0).toFixed(1) }}</td>
-                <td class="right">
-                  <button type="button" class="btn btn-primary btn-sm" :disabled="busyId === c.id || locked" @click="approveMileage(c)">
-                    {{ busyId === c.id ? '…' : 'Approve' }}
+                <td class="right pcp-actions-cell"><div class="pcp-row-actions">
+                  <button type="button" class="btn btn-primary btn-sm" :disabled="claimsBusy || locked" @click="approveMileage(c)">
+                    {{ claimsBusy ? '…' : 'Approve' }}
                   </button>
-                  <button type="button" class="btn btn-secondary btn-sm" :disabled="busyId === c.id || locked" @click="rejectMileage(c)">Reject</button>
+                  <button type="button" class="btn btn-secondary btn-sm" :disabled="claimsBusy || locked" @click="rejectMileage(c)">Reject</button>
+</div>
                 </td>
               </tr>
             </tbody>
@@ -101,12 +114,17 @@
 
       <!-- Reimbursement -->
       <div v-else-if="tab === 'reimbursement'" class="pcp-body">
+        <div v-if="reimbClaims.length" class="pcp-bulk-actions">
+          <span>{{ selectedRows('reimb').length }} selected</span>
+          <button class="btn btn-primary btn-sm" :disabled="claimsBusy || locked || !selectedRows('reimb').length" @click="bulkClaims('reimb', 'approve')">Approve selected</button>
+          <button class="btn btn-secondary btn-sm" :disabled="claimsBusy || locked || !selectedRows('reimb').length" @click="bulkClaims('reimb', 'reject')">Reject selected</button>
+        </div>
         <div v-if="!reimbClaims.length" class="pcp-muted">No pending reimbursements for this pay period.</div>
         <div v-else class="pcp-table-wrap">
           <table class="pcp-table">
             <thead>
               <tr>
-                <th>Provider</th>
+                <th><input type="checkbox" :checked="allSelected('reimb')" :disabled="claimsBusy || locked" aria-label="Select all reimb claims" @change="review.toggleAll('reimb', reimbClaims, $event.target.checked)" /></th><th>Provider</th>
                 <th>Date</th>
                 <th>Description</th>
                 <th class="right">Amount</th>
@@ -115,15 +133,16 @@
             </thead>
             <tbody>
               <tr v-for="c in reimbClaims" :key="c.id">
-                <td>{{ providerName(c) }}</td>
+                <td><input type="checkbox" v-model="selectedClaims" :value="claimKey('reimb', c)" :disabled="claimsBusy || locked" :aria-label="`Select reimb claim ${c.id} for ${providerName(c)}`" /></td><td>{{ providerName(c) }}<div v-if="claimErrors[claimKey('reimb',c)]" class="pcp-error" role="alert">{{ claimErrors[claimKey('reimb',c)] }}</div></td>
                 <td>{{ fmtDate(c.claim_date) }}</td>
                 <td>{{ c.description || c.notes || '—' }}</td>
                 <td class="right">${{ Number(c.amount || 0).toFixed(2) }}</td>
-                <td class="right">
-                  <button type="button" class="btn btn-primary btn-sm" :disabled="busyId === c.id || locked" @click="approveReimb(c)">
-                    {{ busyId === c.id ? '…' : 'Approve' }}
+                <td class="right pcp-actions-cell"><div class="pcp-row-actions">
+                  <button type="button" class="btn btn-primary btn-sm" :disabled="claimsBusy || locked" @click="approveReimb(c)">
+                    {{ claimsBusy ? '…' : 'Approve' }}
                   </button>
-                  <button type="button" class="btn btn-secondary btn-sm" :disabled="busyId === c.id || locked" @click="rejectReimb(c)">Reject</button>
+                  <button type="button" class="btn btn-secondary btn-sm" :disabled="claimsBusy || locked" @click="rejectReimb(c)">Reject</button>
+</div>
                 </td>
               </tr>
             </tbody>
@@ -150,6 +169,8 @@
           </div>
           <button type="button" class="btn btn-secondary btn-sm" @click="closeTimeClaimView">Close</button>
         </div>
+        <div v-if="timeDetailLoading" role="status" class="pcp-muted">Loading claim details…</div>
+        <div v-if="timeDetailError" role="alert" class="pcp-error">{{ timeDetailError }}</div>
         <MeetingClaimDetails v-if="reviewedTimeClaim?.payload?.source === 'meeting_compensation_auto'" :claim="reviewedTimeClaim" :employee-name="providerName(reviewedTimeClaim)" :period-label="periodLabel" />
           <div v-else-if="reviewedTimeClaim" class="pcp-modal-body">
           <div class="pcp-detail-grid">
@@ -186,6 +207,7 @@
 </template>
 
 <script setup>
+import { usePayrollClaimReview, claimKey } from '../../composables/usePayrollClaimReview';
 import EventTravelPayrollReview from './EventTravelPayrollReview.vue';
 import { supervisionActivityLabel } from '../../utils/payrollSubmissionReview';
 import MeetingClaimDetails from './MeetingClaimDetails.vue';
@@ -212,23 +234,36 @@ const loaded = ref(false);
 const tab = ref('time');
 const loading = ref(false);
 const error = ref('');
-const busyId = ref(null);
 const timeClaimViewOpen = ref(false);
 const reviewedTimeClaim = ref(null);
-
-const openTimeClaimView = (c) => {
-  reviewedTimeClaim.value = c;
-  timeClaimViewOpen.value = true;
-};
-const closeTimeClaimView = () => {
-  timeClaimViewOpen.value = false;
-  reviewedTimeClaim.value = null;
-};
 
 const timeClaims = ref([]);
 const mileageClaims = ref([]);
 const reimbClaims = ref([]);
 const agencyUsers = ref([]);
+const review = usePayrollClaimReview({ agencyId: () => props.agencyId,
+  queues: { time: timeClaims, mileage: mileageClaims, reimb: reimbClaims },
+  onChanged: () => emit('changed'),
+  onReview: (kind, claim) => { if (kind === 'time') openTimeClaimView(claim); }
+});
+const { selected: selectedClaims, errors: claimErrors, busy: claimsBusy, notice: claimNotice } = review;
+const pendingRows = kind => ({ time: timeClaims.value, mileage: mileageClaims.value, reimb: reimbClaims.value }[kind] || []);
+const selectedRows = kind => pendingRows(kind).filter(c => selectedClaims.value.includes(claimKey(kind,c)));
+const allSelected = kind => !!pendingRows(kind).length && selectedRows(kind).length === pendingRows(kind).length;
+const timeDetailError = ref('');
+const timeDetailLoading = ref(false);
+const openTimeClaimView = async c => {
+  reviewedTimeClaim.value = c; timeClaimViewOpen.value = true;
+  timeDetailError.value = ''; timeDetailLoading.value = true;
+  const agency = props.agencyId;
+  try {
+    const { data } = await api.get(`/payroll/time-claims/${c.id}`);
+    if (props.agencyId === agency && timeClaimViewOpen.value && Number(reviewedTimeClaim.value?.id) === Number(c.id) && Number(data?.claim?.id) === Number(c.id)) reviewedTimeClaim.value = { ...c, ...data.claim };
+  } catch (e) {
+    if (props.agencyId === agency && Number(reviewedTimeClaim.value?.id) === Number(c.id)) timeDetailError.value = e?.response?.data?.error?.message || e.message;
+  } finally { if (Number(reviewedTimeClaim.value?.id) === Number(c.id)) timeDetailLoading.value = false; }
+};
+const closeTimeClaimView = () => { timeClaimViewOpen.value = false; reviewedTimeClaim.value = null; };
 
 const locked = computed(() => {
   const st = String(props.periodStatus || '').toLowerCase();
@@ -305,6 +340,8 @@ const isEventTime = (r) => {
 
 const reload = async () => {
   if (!props.agencyId || !props.periodId) return;
+  const scope = `${props.agencyId}:${props.periodId}`;
+  const since = review.revision.value;
   loading.value = true;
   error.value = '';
   try {
@@ -324,6 +361,7 @@ const reload = async () => {
       api.get('/payroll/reimbursement-claims', { params: claimParams }),
       usersPromise
     ]);
+    if (scope !== `${props.agencyId}:${props.periodId}`) return;
     if (!agencyUsers.value.length) agencyUsers.value = usersResp.data || [];
     const actionableForPeriod = (r) => {
       if (!r) return false;
@@ -333,9 +371,9 @@ const reload = async () => {
       // Prefer this period’s suggestions, but also keep unassigned / rolled-forward leftovers.
       return !suggested || suggested === periodId;
     };
-    timeClaims.value = (timeResp.data || []).filter((r) => !isEventTime(r) && actionableForPeriod(r));
-    mileageClaims.value = (mileResp.data || []).filter(actionableForPeriod);
-    reimbClaims.value = (reimbResp.data || []).filter(actionableForPeriod);
+    timeClaims.value = review.reconcile('time', timeResp.data || [], since).filter((r) => !isEventTime(r) && actionableForPeriod(r));
+    mileageClaims.value = review.reconcile('mileage', mileResp.data || [], since).filter(actionableForPeriod);
+    reimbClaims.value = review.reconcile('reimb', reimbResp.data || [], since).filter(actionableForPeriod);
     const visible = { time: timeClaims.value, mileage: mileageClaims.value, reimbursement: reimbClaims.value };
     if (!visible[tab.value]?.length) tab.value = timeClaims.value.length ? 'time' : mileageClaims.value.length ? 'mileage' : 'reimbursement';
   } catch (e) {
@@ -345,97 +383,39 @@ const reload = async () => {
   }
 };
 
-const withBusy = async (id, fn) => {
-  try {
-    busyId.value = id;
-    error.value = '';
-    deferred.value = false;
-    await fn();
-    await reload();
-    emit('changed');
-  } catch (e) {
-    const status = e?.response?.status || 0;
-    const msg = e?.response?.data?.error?.message || e?.message || '';
-    const looksLikeDeadline =
-      String(msg).toLowerCase().includes('deadline') ||
-      String(msg).toLowerCase().includes('submitted after') ||
-      String(msg).toLowerCase().includes('cannot be added to an earlier pay period');
-    if (status === 409 && looksLikeDeadline) {
-      const ok = window.confirm('This was submitted after the cutoff.\n\nApprove anyway with an admin override?');
-      if (ok) {
-        try {
-          await fn(true);
-          await reload();
-          return;
-        } catch (e2) {
-          error.value = e2?.response?.data?.error?.message || e2?.message || 'Action failed';
-          return;
-        }
-      }
-    }
-    error.value = msg || 'Action failed';
-  } finally {
-    busyId.value = null;
-  }
+const approvalBody = (kind, c) => ({ targetPayrollPeriodId: Number(props.periodId),
+  ...(kind === 'time' ? { bucket: timeClaimApproveBucket(c), ...(claimHoursValue(c) > 0 ? { creditsHours: claimHoursValue(c) } : {}) } : {}) });
+const decide = (kind,c,body) => { deferred.value = false; return review.decide(kind,c,body); };
+const approveTime = c => decide('time',c,{ action:'approve', ...approvalBody('time',c) });
+const returnTime = c => {
+  const note = window.prompt('Send back note (required):', '');
+  if (note?.trim()) return decide('time',c,{ action:'return',note:note.trim() });
 };
-
-const approveTime = (c) =>
-  withBusy(c.id, (override) => {
-    const hours = claimHoursValue(c);
-    return api.patch(`/payroll/time-claims/${c.id}`, {
-      action: 'approve',
-      targetPayrollPeriodId: Number(props.periodId),
-      bucket: timeClaimApproveBucket(c),
-      ...(hours > 0 ? { creditsHours: hours } : {}),
-      ...(override ? { overrideDeadline: true } : {})
-    });
-  });
-
-const returnTime = (c) => {
-  const note = window.prompt('Send back note (required):', '') || '';
-  if (!String(note).trim()) return;
-  return withBusy(c.id, () =>
-    api.patch(`/payroll/time-claims/${c.id}`, { action: 'return', note: String(note).trim() })
-  );
+const approveMileage = c => decide('mileage',c,{ action:'approve', ...approvalBody('mileage',c) });
+const rejectMileage = c => {
+  const reason = window.prompt('Rejection reason (required):', '');
+  if (reason?.trim()) return decide('mileage',c,{ action:'reject',rejectionReason:reason.trim() });
 };
-
-const approveMileage = (c) =>
-  withBusy(c.id, (override) =>
-    api.patch(`/payroll/mileage-claims/${c.id}`, {
-      action: 'approve',
-      targetPayrollPeriodId: Number(props.periodId),
-      ...(override ? { overrideDeadline: true } : {})
-    })
-  );
-
-const rejectMileage = (c) => {
-  const reason = window.prompt('Rejection reason (optional):', '') ?? null;
-  if (reason === null) return;
-  return withBusy(c.id, () =>
-    api.patch(`/payroll/mileage-claims/${c.id}`, { action: 'reject', rejectionReason: String(reason).trim() })
-  );
+const approveReimb = c => decide('reimb',c,{ action:'approve', ...approvalBody('reimb',c) });
+const rejectReimb = c => {
+  const reason = window.prompt('Rejection reason (required):', '');
+  if (reason?.trim()) return decide('reimb',c,{ action:'reject',rejectionReason:reason.trim() });
 };
-
-const approveReimb = (c) =>
-  withBusy(c.id, (override) =>
-    api.patch(`/payroll/reimbursement-claims/${c.id}`, {
-      action: 'approve',
-      targetPayrollPeriodId: Number(props.periodId),
-      ...(override ? { overrideDeadline: true } : {})
-    })
-  );
-
-const rejectReimb = (c) => {
-  const reason = window.prompt('Rejection reason (optional):', '') ?? null;
-  if (reason === null) return;
-  return withBusy(c.id, () =>
-    api.patch(`/payroll/reimbursement-claims/${c.id}`, { action: 'reject', rejectionReason: String(reason).trim() })
-  );
+const bulkClaims = async (kind, action) => {
+  const rows = selectedRows(kind);
+  if (!rows.length || locked.value) return;
+  let note = '';
+  if (action !== 'approve') {
+    note = window.prompt('Reason (required for each selected claim):', '');
+    if (!note?.trim()) return;
+  } else if (!window.confirm(`Approve ${rows.length} selected claims into ${props.periodLabel || 'this pay period'}?`)) return;
+  deferred.value = false;
+  await review.bulk(rows.map(claim => ({ kind, claim, ...(action === 'approve' ? approvalBody(kind,claim) : { note:note.trim(), rejectionReason:note.trim() }) })), action);
 };
 
 const claimSet = computed(() => [...timeClaims.value.map(c => `t${c.id}`), ...mileageClaims.value.map(c => `m${c.id}`), ...reimbClaims.value.map(c => `r${c.id}`)].sort().join(','));
 watch(claimSet, () => { deferred.value = false; });
-const readiness = computed(() => ({ loading: loading.value || !loaded.value, saving: !!busyId.value, error: error.value, pendingCount: totalPending.value, deferred: deferred.value, empty: loaded.value && !loading.value && !error.value && !totalPending.value, ready: loaded.value && !loading.value && !busyId.value && !error.value && (!totalPending.value || deferred.value || locked.value), blockers: totalPending.value && !deferred.value ? [{ message: `Review ${totalPending.value} pending claim(s), or explicitly leave them for the next payroll.` }] : [] }));
+const readiness = computed(() => ({ loading: loading.value || !loaded.value, saving: claimsBusy.value, error: error.value, pendingCount: totalPending.value, deferred: deferred.value, empty: loaded.value && !loading.value && !error.value && !totalPending.value, ready: loaded.value && !loading.value && !claimsBusy.value && !error.value && (!totalPending.value || deferred.value || locked.value), blockers: totalPending.value && !deferred.value ? [{ message: `Review ${totalPending.value} pending claim(s), or explicitly leave them for the next payroll.` }] : [] }));
 watch(readiness, state => emit('readiness', state), { immediate: true });
 const focusPending = () => {
   tab.value = timeClaims.value.length ? 'time' : mileageClaims.value.length ? 'mileage' : 'reimbursement';
@@ -443,6 +423,7 @@ const focusPending = () => {
 };
 defineExpose({ refresh: reload, focusPending });
 watch(() => [props.agencyId, props.periodId], () => {
+  review.reset(); closeTimeClaimView();
   loaded.value = false; deferred.value = false;
   agencyUsers.value = [];
   reload();
@@ -451,6 +432,10 @@ onMounted(reload);
 </script>
 
 <style scoped>
+.pcp-bulk-actions { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin:12px 0; }
+.pcp-row-actions { display:inline-flex; gap:6px; align-items:center; flex-wrap:nowrap; white-space:nowrap; }
+.pcp-actions-cell { min-width:260px; }
+.pcp-notice { margin:10px 0; }
 .pcp-defer { display:flex; gap:10px; padding:12px; border:1px solid #c8d9e2; border-radius:8px; background:#f6fafc; align-items:flex-start; }
 .pcp {
   display: flex;

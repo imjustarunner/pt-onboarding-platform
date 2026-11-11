@@ -156,8 +156,8 @@ class PayrollReimbursementClaim {
     return rows || [];
   }
 
-  static async approve({ id, approverUserId, targetPayrollPeriodId, appliedAmount }) {
-    await pool.execute(
+  static async approve({ id, approverUserId, targetPayrollPeriodId, appliedAmount, requireSubmitted = false }) {
+    const [result] = await pool.execute(
       `UPDATE payroll_reimbursement_claims
        SET status = 'approved',
            target_payroll_period_id = ?,
@@ -167,29 +167,31 @@ class PayrollReimbursementClaim {
            rejection_reason = NULL,
            rejected_by_user_id = NULL,
            rejected_at = NULL
-       WHERE id = ?
+       WHERE id = ? ${requireSubmitted ? "AND status='submitted' AND EXISTS (SELECT 1 FROM payroll_periods p WHERE p.id=? AND p.agency_id=payroll_reimbursement_claims.agency_id AND LOWER(p.status) NOT IN ('posted','finalized') AND p.posted_at IS NULL AND p.finalized_at IS NULL)" : ''}
        LIMIT 1`,
-      [targetPayrollPeriodId, appliedAmount, approverUserId, id]
+      [targetPayrollPeriodId, appliedAmount, approverUserId, id, ...(requireSubmitted ? [targetPayrollPeriodId] : [])]
     );
+    if (requireSubmitted && !result.affectedRows) throw Object.assign(new Error('Submission or target period changed before approval.'), {status:409,code:'PAYROLL_SOURCE_CHANGED'});
     return PayrollReimbursementClaim.findById(id);
   }
 
-  static async reject({ id, rejectorUserId, rejectionReason }) {
-    await pool.execute(
+  static async reject({ id, rejectorUserId, rejectionReason, requireSubmitted = false }) {
+    const [result] = await pool.execute(
       `UPDATE payroll_reimbursement_claims
        SET status = 'rejected',
            rejection_reason = ?,
            rejected_by_user_id = ?,
            rejected_at = NOW()
-       WHERE id = ?
+       WHERE id = ? ${requireSubmitted ? "AND status='submitted'" : ''}
        LIMIT 1`,
       [rejectionReason || null, rejectorUserId, id]
     );
+    if (requireSubmitted && !result.affectedRows) throw Object.assign(new Error('Submission changed before this decision.'), { status: 409, code: 'PAYROLL_SOURCE_CHANGED' });
     return PayrollReimbursementClaim.findById(id);
   }
 
-  static async returnForChanges({ id, actorUserId, note }) {
-    await pool.execute(
+  static async returnForChanges({ id, actorUserId, note, requireSubmitted = false }) {
+    const [result] = await pool.execute(
       `UPDATE payroll_reimbursement_claims
        SET status = 'deferred',
            rejection_reason = ?,
@@ -199,10 +201,11 @@ class PayrollReimbursementClaim {
            applied_amount = NULL,
            approved_by_user_id = NULL,
            approved_at = NULL
-       WHERE id = ?
+       WHERE id = ? ${requireSubmitted ? "AND status='submitted'" : ''}
        LIMIT 1`,
       [String(note || '').trim().slice(0, 255) || null, actorUserId || null, id]
     );
+    if (requireSubmitted && !result.affectedRows) throw Object.assign(new Error('Submission changed before this decision.'), { status: 409, code: 'PAYROLL_SOURCE_CHANGED' });
     return PayrollReimbursementClaim.findById(id);
   }
 

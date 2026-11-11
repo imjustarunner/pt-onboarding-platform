@@ -1,3 +1,4 @@
+import { createClaimReviewContext, claimReviewRead, claimReviewDay, mapClaimReviews, compactTimeClaim } from '../services/payrollClaimReview.service.js';
 import { scopedPayrollCommand } from '../services/assistantPayrollCommand.service.js';
 import { humanRosterSql } from '../utils/workplacePeople.js';
 import { extractBillingProfileFields } from '../services/billingClientProfileEnrichment.service.js';
@@ -18228,6 +18229,7 @@ export const patchReimbursementClaim = async (req, res, next) => {
       }
 
       const updated = await PayrollReimbursementClaim.approve({
+        ...(req[CLAIM_BATCH_CONTEXT] ? { requireSubmitted: true } : {}),
         id,
         approverUserId: req.user.id,
         targetPayrollPeriodId,
@@ -18239,7 +18241,7 @@ export const patchReimbursementClaim = async (req, res, next) => {
         const period = await PayrollPeriod.findById(targetPayrollPeriodId);
         const st = String(period?.status || '').toLowerCase();
         if (period && st === 'ran') {
-          await recomputeSummariesFromStaging({
+          await refreshClaimSummaries(req, {
             payrollPeriodId: targetPayrollPeriodId,
             agencyId: period.agency_id,
             periodStart: period.period_start,
@@ -18254,7 +18256,7 @@ export const patchReimbursementClaim = async (req, res, next) => {
     if (action === 'reject') {
       const rejectionReason = body.rejectionReason ? String(body.rejectionReason).trim().slice(0, 255) : '';
       if (!rejectionReason) return res.status(400).json({ error: { message: 'rejectionReason is required' } });
-      const updated = await PayrollReimbursementClaim.reject({ id, rejectorUserId: req.user.id, rejectionReason });
+      const updated = await PayrollReimbursementClaim.reject({ ...(req[CLAIM_BATCH_CONTEXT] ? { requireSubmitted: true } : {}), id, rejectorUserId: req.user.id, rejectionReason });
       return res.json({ claim: updated });
     }
 
@@ -18265,7 +18267,7 @@ export const patchReimbursementClaim = async (req, res, next) => {
       }
       const note = body.note ? String(body.note).trim().slice(0, 255) : '';
       if (!note) return res.status(400).json({ error: { message: 'note is required' } });
-      const updated = await PayrollReimbursementClaim.returnForChanges({ id, actorUserId: req.user.id, note });
+      const updated = await PayrollReimbursementClaim.returnForChanges({ ...(req[CLAIM_BATCH_CONTEXT] ? { requireSubmitted: true } : {}), id, actorUserId: req.user.id, note });
 
       // If it was previously approved into a ran period, recompute so totals drop immediately.
       try {
@@ -18274,7 +18276,7 @@ export const patchReimbursementClaim = async (req, res, next) => {
           const period = await PayrollPeriod.findById(targetPayrollPeriodId);
           const st = String(period?.status || '').toLowerCase();
           if (period && st === 'ran') {
-            await recomputeSummariesFromStaging({
+            await refreshClaimSummaries(req, {
               payrollPeriodId: targetPayrollPeriodId,
               agencyId: period.agency_id,
               periodStart: period.period_start,
@@ -18304,7 +18306,7 @@ export const patchReimbursementClaim = async (req, res, next) => {
           const period = await PayrollPeriod.findById(targetPayrollPeriodId);
           const pst = String(period?.status || '').toLowerCase();
           if (period && pst === 'ran') {
-            await recomputeSummariesFromStaging({
+            await refreshClaimSummaries(req, {
               payrollPeriodId: targetPayrollPeriodId,
               agencyId: period.agency_id,
               periodStart: period.period_start,
@@ -18362,7 +18364,7 @@ export const patchReimbursementClaim = async (req, res, next) => {
           const fromPeriod = await PayrollPeriod.findById(fromPeriodId);
           const fromStatus = String(fromPeriod?.status || '').toLowerCase();
           if (fromPeriod && fromStatus === 'ran') {
-            await recomputeSummariesFromStaging({
+            await refreshClaimSummaries(req, {
               payrollPeriodId: fromPeriodId,
               agencyId: fromPeriod.agency_id,
               periodStart: fromPeriod.period_start,
@@ -18374,7 +18376,7 @@ export const patchReimbursementClaim = async (req, res, next) => {
       try {
         const toStatus2 = String(toPeriod?.status || '').toLowerCase();
         if (toPeriod && toStatus2 === 'ran') {
-          await recomputeSummariesFromStaging({
+          await refreshClaimSummaries(req, {
             payrollPeriodId: targetPayrollPeriodId,
             agencyId: toPeriod.agency_id,
             periodStart: toPeriod.period_start,
@@ -18572,7 +18574,7 @@ async function maybeHydrateTimeClaimTranscript(claim, hostEmailCache = new Map()
   });
 }
 
-async function hydrateTimeClaimListTranscripts(rows) {
+async function hydrateTimeClaimListTranscripts(rows, { hydrateTranscripts = true } = {}) {
   const claims = Array.isArray(rows) ? rows : [];
   if (!claims.length) return claims;
   const hostEmailCache = new Map();
@@ -18591,7 +18593,7 @@ async function hydrateTimeClaimListTranscripts(rows) {
       out.push(next);
       continue;
     }
-    const canAttempt = isTimeClaimMeetingType(next?.claim_type)
+    const canAttempt = hydrateTranscripts && isTimeClaimMeetingType(next?.claim_type)
       && !String(next?.payload?.transcriptText || '').trim()
       && !String(next?.payload?.transcriptUrl || '').trim()
       && (String(next?.payload?.googleMeetLink || '').trim() || String(next?.payload?.googleEventId || '').trim());
@@ -19326,6 +19328,76 @@ export const getTimeClaimMeetingAttendance = async (req, res, next) => {
   } catch (e) { next(e); }
 };
 
+const CLAIM_BATCH_CONTEXT = Symbol('payrollClaimBatch');
+async function refreshClaimSummaries(req, input) {
+  const batch = req[CLAIM_BATCH_CONTEXT];
+  if (batch) { batch.periods.set(Number(input.payrollPeriodId), input); return; }
+  return recomputeSummariesFromStaging(input);
+}
+
+export const batchPayrollClaims = async (req, res, next) => {
+  try {
+    const agencyId = await requirePayrollAccess(req, res, req.body?.agencyId);
+    if (!agencyId) return;
+    if (scopedPayrollCommand(req)) return res.status(403).json({ error: { message: 'Batch decisions require a payroll reviewer.' } });
+    const action = String(req.body?.action || '').toLowerCase();
+    const items = req.body?.items;
+    if (!['approve', 'return', 'reject'].includes(action) || !Array.isArray(items) || !items.length || items.length > 100) {
+      return res.status(400).json({ error: { message: 'Select 1–100 claims and a supported decision.' } });
+    }
+    const models = { time: PayrollTimeClaim, mileage: PayrollMileageClaim, reimbursement: PayrollReimbursementClaim };
+    const keys = new Set();
+    for (const item of items) {
+      if (!item || typeof item !== 'object' || !Object.hasOwn(models, item.kind)) {
+        return res.status(400).json({ error: { message: 'Each selected claim must have a valid type and ID.' } });
+      }
+      const key = `${item.kind}:${Number(item.id)}`;
+      if (!models[item.kind] || !Number.isSafeInteger(Number(item.id)) || Number(item.id) <= 0 || keys.has(key)) {
+        return res.status(400).json({ error: { message: 'Each selected claim must have a unique valid type and ID.' } });
+      }
+      keys.add(key);
+    }
+    const context = { periods: new Map(), rates: createClaimReviewContext() };
+    const results = await mapClaimReviews(items, async item => {
+      try {
+        const claim = await models[item.kind].findById(Number(item.id));
+        if (!claim || Number(claim.agency_id) !== Number(agencyId)) return { kind: item.kind, id: Number(item.id), ok: false, status: 404, error: { message: 'Claim not found in the selected agency.' } };
+        if (claim.status !== 'submitted') return { kind: item.kind, id: Number(item.id), ok: false, status: 409, error: { message: `This claim is already ${claim.status}. Refresh to see its current details.` }, currentClaim: compactTimeClaim(claim) };
+        const child = Object.assign(Object.create(req), { params: { ...req.params, id: String(item.id) }, body: { ...item, action } });
+        child[CLAIM_BATCH_CONTEXT] = context;
+        let payload = null, status = 200;
+        const reply = { status(code) { status = code; return this; }, json(value) { payload = value; return this; } };
+        const handler = item.kind === 'time' ? patchTimeClaim : item.kind === 'mileage' ? patchMileageClaim : patchReimbursementClaim;
+        await handler(child, reply, error => { throw error; });
+        if (status >= 400 || !payload?.claim) return { kind: item.kind, id: Number(item.id), ok: false, status: status >= 400 ? status : 500, error: payload?.error || { message: 'The server did not confirm this decision.' }, reviewRequired: payload?.reviewRequired || null };
+        return { kind: item.kind, id: Number(item.id), ok: true, status, claim: compactTimeClaim(payload.claim) };
+      } catch (error) {
+        return { kind: item.kind, id: Number(item.id), ok: false, status: error.status || error.statusCode || 500, error: { message: error.message || 'Decision failed.', ...(error.code ? { code: error.code } : {}) } };
+      }
+    });
+    const warnings = [];
+    for (const input of context.periods.values()) {
+      try { await recomputeSummariesFromStaging(input); }
+      catch {
+        // Saved claim decisions remain visible. A stale calculated payroll cannot be posted.
+        await pool.execute("UPDATE payroll_periods SET status='staged',ran_at=NULL,ran_by_user_id=NULL WHERE id=? AND agency_id=? AND status='ran'", [input.payrollPeriodId, agencyId]);
+        warnings.push({ payrollPeriodId: input.payrollPeriodId, message: 'Claim decisions were saved. Run Payroll again before posting this period.' });
+      }
+    }
+    res.json({ results, succeeded: results.filter(r => r.ok).length, failed: results.filter(r => !r.ok).length, warnings });
+  } catch (error) { next(error); }
+};
+
+export const getTimeClaim = async (req, res, next) => {
+  try {
+    const claim = await PayrollTimeClaim.findById(Number(req.params.id));
+    if (!claim) return res.status(404).json({ error: { message: 'Time claim not found' } });
+    if (!(await requirePayrollAccess(req, res, claim.agency_id))) return;
+    const [detail] = await hydrateTimeClaimListTranscripts([claim]);
+    res.json({ claim: detail });
+  } catch (error) { next(error); }
+};
+
 export const listTimeClaims = async (req, res, next) => {
   try {
     const agencyId = await requirePayrollAccess(req, res, req.query.agencyId);
@@ -19347,7 +19419,7 @@ export const listTimeClaims = async (req, res, next) => {
       targetPayrollPeriodId,
       userId
     });
-    const hydrated = await hydrateTimeClaimListTranscripts(rows || []);
+    const hydrated = await hydrateTimeClaimListTranscripts(rows || [], { hydrateTranscripts: false });
     // Skill builder kiosk event time is reviewed in Event time (Pending), not Time Claims.
     const filtered = (hydrated || []).filter(
       (r) => String(r?.claim_type || '').toLowerCase() !== 'skill_builder_event'
@@ -19367,16 +19439,16 @@ export const listTimeClaims = async (req, res, next) => {
       };
     } catch { /* keep defaults */ }
 
-    const withEstimates = [];
-    for (const row of filtered) {
+    const rateContext = createClaimReviewContext();
+    const withEstimates = await mapClaimReviews(filtered, async row => {
       try {
         // eslint-disable-next-line no-await-in-loop
-        const rateCard = await PayrollRateCard.findForUser(agencyId, row.user_id);
+        const rateCard = await rateContext.read(`card:${row.user_id}`, () => PayrollRateCard.findForUser(agencyId, row.user_id));
         // eslint-disable-next-line no-await-in-loop
         const legacyIndirectRate = await resolveLegacyIndirectHourlyRate({
           agencyId,
           userId: Number(row.user_id),
-          rateCard
+          rateCard, rateContext
         });
         const rateCardForPay = rateCard
           ? { ...rateCard, indirect_rate: legacyIndirectRate }
@@ -19384,8 +19456,8 @@ export const listTimeClaims = async (req, res, next) => {
         const bucketHint = String(row?.payload?.bucket || row?.bucket || 'indirect').toLowerCase();
         // eslint-disable-next-line no-await-in-loop
         const estimateDetails = {};
-        const amount = await computeDefaultAppliedAmountForTimeClaim({
-          claim: row, estimateDetails,
+        const amount = ['approved','paid'].includes(row.status) && row.applied_amount != null ? Number(row.applied_amount) : await computeDefaultAppliedAmountForTimeClaim({
+          claim: row, estimateDetails, rateContext,
           rateCard: rateCardForPay,
           approveBucket: bucketHint,
           approveCreditsHours: row?.credits_hours ?? null
@@ -19409,13 +19481,13 @@ export const listTimeClaims = async (req, res, next) => {
           rateLabel = `${otherTitles.title1} rate`;
         }
         if (payload.source === 'meeting_compensation_auto') {
-          const override = await getMeetingClaimRateOverride(row);
+          const override = await rateContext.read(`meeting:${row.id}`, () => getMeetingClaimRateOverride(row));
           rateLabel = MEETING_RATE_TYPES[override?.rate_type] || rateLabel;
         }
         const extraRates = [];
         try {
           // eslint-disable-next-line no-await-in-loop
-          const perCodeRates = await PayrollRate.listForUser(agencyId, Number(row.user_id));
+          const perCodeRates = await rateContext.read(`codes:${row.user_id}`, () => PayrollRate.listForUser(agencyId, Number(row.user_id)));
           const seenCodes = new Set();
           for (const rr of perCodeRates || []) {
             const sc = String(rr.service_code || '').trim().toUpperCase();
@@ -19434,11 +19506,11 @@ export const listTimeClaims = async (req, res, next) => {
         } catch { /* ignore */ }
         try {
           // eslint-disable-next-line no-await-in-loop
-          const payCtx = await loadUserPaySystemContext({
+          const payCtx = await rateContext.read(`pay:${row.user_id}:${claimReviewDay(row.claim_date)}`, () => loadUserPaySystemContext({
             agencyId,
             userId: Number(row.user_id),
             periodEnd: new Date(row.claim_date)
-          });
+          }));
           const rp = payCtx?.rateProfile;
           const reduced = !!payCtx?.status?.useReducedRates;
           if (payCtx?.enabled && rp) {
@@ -19462,11 +19534,11 @@ export const listTimeClaims = async (req, res, next) => {
         if (typeId > 0 && row.user_id) {
           try {
             // eslint-disable-next-line no-await-in-loop
-            const override = await PayrollUserIndirectServiceAssignment.findRateOverride({
+            const override = await rateContext.read(`duty:${row.user_id}:${typeId}`, () => PayrollUserIndirectServiceAssignment.findRateOverride({
               agencyId,
               userId: Number(row.user_id),
               serviceTypeId: typeId
-            });
+            }));
             if (Number.isFinite(override) && override > 0) {
               const typeLabel = String(payload?.allocations?.[0]?.serviceTypeLabel || payload?.categoryLabel || 'Outreach').trim()
                 || 'Outreach';
@@ -19481,7 +19553,7 @@ export const listTimeClaims = async (req, res, next) => {
             }
           } catch { /* ignore */ }
         }
-        withEstimates.push({
+        return compactTimeClaim({
           ...row,
           payEstimate: {
             amount: Number.isFinite(amount) ? amount : (row.applied_amount != null ? Number(row.applied_amount) : null),
@@ -19500,9 +19572,9 @@ export const listTimeClaims = async (req, res, next) => {
           }
         });
       } catch {
-        withEstimates.push(row);
+        return compactTimeClaim(row);
       }
-    }
+    });
 
     res.json(withEstimates);
   } catch (e) {
@@ -19621,13 +19693,14 @@ export const patchHolidayBonusClaim = async (req, res, next) => {
   }
 };
 
-async function resolveLegacyIndirectHourlyRate({ agencyId, userId, rateCard }) {
+async function resolveLegacyIndirectHourlyRate({ agencyId, userId, rateCard, rateContext = null }) {
+  return claimReviewRead(rateContext, `legacy:${agencyId}:${userId}`, async () => {
   const cardRate = Number(rateCard?.indirect_rate || 0) || 0;
   try {
     const PayrollCompensationLevel = (await import('../models/PayrollCompensationLevel.model.js')).default;
     const PayrollPaySystemRate = (await import('../models/PayrollPaySystemRate.model.js')).default;
     const assignment = await PayrollCompensationLevel.getForUser(agencyId, userId);
-    const agencyPaySystemOn = await PayrollPaySystemRate.isAgencyEnabled(agencyId);
+    const agencyPaySystemOn = await claimReviewRead(rateContext, `agency-pay:${agencyId}`, () => PayrollPaySystemRate.isAgencyEnabled(agencyId));
     const userOnPaySystem = assignment && Number(assignment.pay_system_enabled || 0) === 1;
     // Legacy stack: compensation-table indirect until agency + user are on the new pay system.
     if (!agencyPaySystemOn || !userOnPaySystem) {
@@ -19636,9 +19709,10 @@ async function resolveLegacyIndirectHourlyRate({ agencyId, userId, rateCard }) {
     }
   } catch { /* fall through */ }
   return cardRate;
+  });
 }
 
-export async function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard, approveBucket = null, approveCreditsHours = null, estimateDetails = null }) {
+export async function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard, approveBucket = null, approveCreditsHours = null, estimateDetails = null, rateContext = null }) {
   const hourlyPay = (hours, rate) => {
     if (estimateDetails) estimateDetails.hourlyRate = Number(rate);
     return Math.round(hours * rate * 100) / 100;
@@ -19650,7 +19724,7 @@ export async function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard,
   const indirectRate = await resolveLegacyIndirectHourlyRate({
     agencyId: Number(claim?.agency_id || 0),
     userId: Number(claim?.user_id || 0),
-    rateCard
+    rateCard, rateContext
   });
 
   if (type === 'skill_builder_event') {
@@ -19715,7 +19789,7 @@ export async function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard,
       approveBucket || claim?.bucket || payload?.bucket || 'indirect'
     );
     if (['provider_update', 'event_travel_report'].includes(payload.source) && payload.categoryGroup === 'support_activity') {
-      const ctx = await loadUserPaySystemContext({agencyId:Number(claim.agency_id),userId:Number(claim.user_id),periodEnd:new Date(claim.claim_date)});
+      const ctx = await claimReviewRead(rateContext, `pay:${claim.user_id}:${claimReviewDay(claim.claim_date)}`, () => loadUserPaySystemContext({agencyId:Number(claim.agency_id),userId:Number(claim.user_id),periodEnd:new Date(claim.claim_date)}));
       if (ctx?.enabled) {
         const reduced = payload.source === 'event_travel_report' ? ctx.status?.useReducedRates : ctx.status?.inProbation;
         const rate=Number(reduced ? (ctx.rateProfile?.supportActivityRateProbation ?? ctx.rateProfile?.supportActivityRate) : ctx.rateProfile?.supportActivityRate);
@@ -19724,7 +19798,7 @@ export async function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard,
         return hourlyPay(hrs, rate);
       }
       const PayrollRate=(await import('../models/PayrollRate.model.js')).default;
-      const best=await PayrollRate.findBestRate({agencyId:Number(claim.agency_id),userId:Number(claim.user_id),serviceCode:'MEETING',asOf:claim.claim_date});
+      const best=await claimReviewRead(rateContext, `best:${claim.user_id}:MEETING:${claimReviewDay(claim.claim_date)}`, () => PayrollRate.findBestRate({agencyId:Number(claim.agency_id),userId:Number(claim.user_id),serviceCode:'MEETING',asOf:claim.claim_date}));
       const rate=Number(best?.rate_amount ?? best?.rate);
       return rate > 0 ? hourlyPay(hrs, rate) : null;
     }
@@ -19732,7 +19806,7 @@ export async function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard,
 
     if (type==='indirect_time' && payload.ffsExcess?.allowanceNeedsReview) return null;
     if(type==='indirect_time' && ['indirect_service','support_activity'].includes(payload.categoryGroup)) {
-      const ctx=await loadUserPaySystemContext({agencyId:Number(claim.agency_id),userId:Number(claim.user_id),periodEnd:new Date(claim.claim_date)});
+      const ctx=await claimReviewRead(rateContext, `pay:${claim.user_id}:${claimReviewDay(claim.claim_date)}`, () => loadUserPaySystemContext({agencyId:Number(claim.agency_id),userId:Number(claim.user_id),periodEnd:new Date(claim.claim_date)}));
       if(ctx?.enabled) {
         const key=payload.categoryGroup==='support_activity'?'supportActivityRate':'indirectRate';
         const rate=Number(ctx.status?.useReducedRates ? ctx.rateProfile?.[key+'Probation'] ?? ctx.rateProfile?.[key] : ctx.rateProfile?.[key]);
@@ -19752,11 +19826,11 @@ export async function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard,
       if (typeId > 0 && claim?.agency_id && claim?.user_id) {
         try {
           const PayrollUserIndirectServiceAssignment = (await import('../models/PayrollUserIndirectServiceAssignment.model.js')).default;
-          const override = await PayrollUserIndirectServiceAssignment.findRateOverride({
+          const override = await claimReviewRead(rateContext, `duty:${claim.user_id}:${typeId}`, () => PayrollUserIndirectServiceAssignment.findRateOverride({
             agencyId: Number(claim.agency_id),
             userId: Number(claim.user_id),
             serviceTypeId: typeId
-          });
+          }));
           if (Number.isFinite(override) && override > 0) {
             return hourlyPay(hrs, override);
           }
@@ -19794,17 +19868,17 @@ export async function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard,
       }
     }
     if (serviceCode && claim?.agency_id && claim?.user_id) {
-      const ctx=await loadUserPaySystemContext({agencyId:Number(claim.agency_id),userId:Number(claim.user_id),periodEnd:new Date(claim.claim_date)});
+      const ctx=await claimReviewRead(rateContext, `pay:${claim.user_id}:${claimReviewDay(claim.claim_date)}`, () => loadUserPaySystemContext({agencyId:Number(claim.agency_id),userId:Number(claim.user_id),periodEnd:new Date(claim.claim_date)}));
       const assignedRate=ctx?.enabled?roleCompensationRate(ctx.rateProfile?.roleCompensation,serviceCode,payload):null;
       if(assignedRate>0)return hourlyPay(hrs, assignedRate);
       try {
         const PayrollRate = (await import('../models/PayrollRate.model.js')).default;
-        const best = await PayrollRate.findBestRate({
+        const best = await claimReviewRead(rateContext, `best:${claim.user_id}:${serviceCode}:${claimReviewDay(claim.claim_date)}`, () => PayrollRate.findBestRate({
           agencyId: Number(claim.agency_id),
           userId: Number(claim.user_id),
           serviceCode,
           asOf: claim.claim_date || null
-        });
+        }));
         const codeRate = Number(best?.rate_amount ?? best?.rate ?? 0);
         if (codeRate > 0) return hourlyPay(hrs, codeRate);
       } catch { /* fall through to rate-card */ }
@@ -19885,11 +19959,16 @@ export const patchTimeClaim = async (req, res, next) => {
       if (Number(body.creditsHours || body.credits_hours || 0) !== 0) return res.status(400).json({ error: { message: 'A fee share has no service hours. Record actual work and required waiting separately.' } });
       const updated = await approveMissedFeeClaim({ agencyId: claim.agency_id, claimId: id, targetPayrollPeriodId: Number(body.targetPayrollPeriodId), actorUserId: req.user.id, expectedAmount: body.appliedAmount ?? claim.payload?.amount });
       const period = await PayrollPeriod.findById(updated.target_payroll_period_id);
-      if (period?.status === 'ran') await recomputeSummariesFromStaging({ payrollPeriodId: period.id, agencyId: period.agency_id, periodStart: period.period_start, periodEnd: period.period_end });
+      if (period?.status === 'ran') await refreshClaimSummaries(req, { payrollPeriodId: period.id, agencyId: period.agency_id, periodStart: period.period_start, periodEnd: period.period_end });
       return res.json({ claim: updated });
     }
     if (action === 'approve') {
-      const eventTravelReviewedAt = await assertEventTravelReviewed(claim);
+      let eventTravelReviewedAt;
+      try { eventTravelReviewedAt = await assertEventTravelReviewed(claim); }
+      catch (error) {
+        if (error.status === 409 && claim.event_travel_report_id) return res.status(409).json({ error: { message: error.message, code: 'EVENT_TRAVEL_REVIEW_REQUIRED' }, reviewRequired: { type: 'event_travel', reportId: Number(claim.event_travel_report_id) } });
+        throw error;
+      }
       if (claim.event_travel_report_id && body.appliedAmount != null && body.appliedAmount !== '') return res.status(400).json({ error: { message: 'Event travel uses the assigned Support Activity rate. Update the compensation rate before approving if it is incorrect.' } });
       if (eventTravelReviewedAt && claim.payload?.eventTravelReport?.reviewedAt !== eventTravelReviewedAt) return res.status(409).json({ error: { message: 'The travel report changed. Refresh before approving.' } });
       if (await isUnpaidInternActivity(claim)) return res.status(409).json({ error: { message: 'This is unpaid intern indirect time. Attendance stays in meeting history; reject or withdraw the payroll claim.' } });
@@ -19985,10 +20064,10 @@ export const patchTimeClaim = async (req, res, next) => {
       let computedDefaultAmount = null;
       if (!Number.isFinite(override) && !Number.isFinite(payloadAmountRaw)) {
         try {
-          const rateCard = await PayrollRateCard.findForUser(claim.agency_id, claim.user_id);
+          const rateCard = await claimReviewRead(req[CLAIM_BATCH_CONTEXT]?.rates, `card:${claim.user_id}`, () => PayrollRateCard.findForUser(claim.agency_id, claim.user_id));
           computedDefaultAmount = await computeDefaultAppliedAmountForTimeClaim({
             claim,
-            rateCard,
+            rateCard, rateContext: req[CLAIM_BATCH_CONTEXT]?.rates,
             // For event-time, pay = the bucket being approved × its hours × the rate-card rate.
             approveBucket: bucket,
             approveCreditsHours: creditsHoursRaw
@@ -20008,6 +20087,7 @@ export const patchTimeClaim = async (req, res, next) => {
       const updated = await PayrollTimeClaim.approve({
         ...(scopedPayrollCommand(req)?{db:scopedPayrollCommand(req).db,requireSubmitted:true}:{}),
         eventTravelReviewedAt,
+        ...(req[CLAIM_BATCH_CONTEXT] ? { requireSubmitted: true } : {}),
         id,
         approverUserId: req.user.id,
         targetPayrollPeriodId,
@@ -20049,7 +20129,7 @@ export const patchTimeClaim = async (req, res, next) => {
         const period = await PayrollPeriod.findById(targetPayrollPeriodId);
         const st = String(period?.status || '').toLowerCase();
         if (period && st === 'ran') {
-          await recomputeSummariesFromStaging({
+          await refreshClaimSummaries(req, {
             payrollPeriodId: targetPayrollPeriodId,
             agencyId: period.agency_id,
             periodStart: period.period_start,
@@ -20064,7 +20144,7 @@ export const patchTimeClaim = async (req, res, next) => {
     if (action === 'reject') {
       const rejectionReason = body.rejectionReason ? String(body.rejectionReason).trim().slice(0, 255) : '';
       if (!rejectionReason) return res.status(400).json({ error: { message: 'rejectionReason is required' } });
-      const updated = await PayrollTimeClaim.reject({ id, rejectorUserId: req.user.id, rejectionReason });
+      const updated = await PayrollTimeClaim.reject({ ...(req[CLAIM_BATCH_CONTEXT] ? { requireSubmitted: true } : {}), id, rejectorUserId: req.user.id, rejectionReason });
       return res.json({ claim: updated });
     }
 
@@ -20075,14 +20155,14 @@ export const patchTimeClaim = async (req, res, next) => {
       }
       const note = body.note ? String(body.note).trim().slice(0, 255) : '';
       if (!note) return res.status(400).json({ error: { message: 'note is required' } });
-      const updated = await PayrollTimeClaim.returnForChanges({ id, actorUserId: req.user.id, note });
+      const updated = await PayrollTimeClaim.returnForChanges({ ...(req[CLAIM_BATCH_CONTEXT] ? { requireSubmitted: true } : {}), id, actorUserId: req.user.id, note });
       try {
         const targetPayrollPeriodId = claim.target_payroll_period_id;
         if (targetPayrollPeriodId) {
           const period = await PayrollPeriod.findById(targetPayrollPeriodId);
           const st = String(period?.status || '').toLowerCase();
           if (period && st === 'ran') {
-            await recomputeSummariesFromStaging({
+            await refreshClaimSummaries(req, {
               payrollPeriodId: targetPayrollPeriodId,
               agencyId: period.agency_id,
               periodStart: period.period_start,
@@ -20111,7 +20191,7 @@ export const patchTimeClaim = async (req, res, next) => {
           const period = await PayrollPeriod.findById(targetPayrollPeriodId);
           const pst = String(period?.status || '').toLowerCase();
           if (period && pst === 'ran') {
-            await recomputeSummariesFromStaging({
+            await refreshClaimSummaries(req, {
               payrollPeriodId: targetPayrollPeriodId,
               agencyId: period.agency_id,
               periodStart: period.period_start,
@@ -20168,7 +20248,7 @@ export const patchTimeClaim = async (req, res, next) => {
           const fromPeriod = await PayrollPeriod.findById(fromPeriodId);
           const fromStatus = String(fromPeriod?.status || '').toLowerCase();
           if (fromPeriod && fromStatus === 'ran') {
-            await recomputeSummariesFromStaging({
+            await refreshClaimSummaries(req, {
               payrollPeriodId: fromPeriodId,
               agencyId: fromPeriod.agency_id,
               periodStart: fromPeriod.period_start,
@@ -20180,7 +20260,7 @@ export const patchTimeClaim = async (req, res, next) => {
       try {
         const toStatus2 = String(toPeriod?.status || '').toLowerCase();
         if (toPeriod && toStatus2 === 'ran') {
-          await recomputeSummariesFromStaging({
+          await refreshClaimSummaries(req, {
             payrollPeriodId: targetPayrollPeriodId,
             agencyId: toPeriod.agency_id,
             periodStart: toPeriod.period_start,
@@ -20299,7 +20379,7 @@ export const patchTimeClaim = async (req, res, next) => {
           const period = await PayrollPeriod.findById(targetPayrollPeriodId);
           const pst = String(period?.status || '').toLowerCase();
           if (period && pst === 'ran') {
-            await recomputeSummariesFromStaging({
+            await refreshClaimSummaries(req, {
               payrollPeriodId: targetPayrollPeriodId,
               agencyId: period.agency_id,
               periodStart: period.period_start,
@@ -21788,7 +21868,7 @@ export const patchMileageClaim = async (req, res, next) => {
           const period = await PayrollPeriod.findById(targetPayrollPeriodId);
           const pst = String(period?.status || '').toLowerCase();
           if (period && pst === 'ran') {
-            await recomputeSummariesFromStaging({
+            await refreshClaimSummaries(req, {
               payrollPeriodId: targetPayrollPeriodId,
               agencyId: period.agency_id,
               periodStart: period.period_start,
@@ -21861,7 +21941,7 @@ export const patchMileageClaim = async (req, res, next) => {
           const fromPeriod = await PayrollPeriod.findById(fromPeriodId);
           const fromStatus = String(fromPeriod?.status || '').toLowerCase();
           if (fromPeriod && fromStatus === 'ran') {
-            await recomputeSummariesFromStaging({
+            await refreshClaimSummaries(req, {
               payrollPeriodId: fromPeriodId,
               agencyId: fromPeriod.agency_id,
               periodStart: fromPeriod.period_start,
@@ -21873,7 +21953,7 @@ export const patchMileageClaim = async (req, res, next) => {
       try {
         const toStatus2 = String(toPeriod?.status || '').toLowerCase();
         if (toPeriod && toStatus2 === 'ran') {
-          await recomputeSummariesFromStaging({
+          await refreshClaimSummaries(req, {
             payrollPeriodId: targetPayrollPeriodId,
             agencyId: toPeriod.agency_id,
             periodStart: toPeriod.period_start,
@@ -21956,6 +22036,7 @@ export const patchMileageClaim = async (req, res, next) => {
       const appliedAmount = Math.round((billableMiles * ratePerMile) * 100) / 100;
 
       const updated = await PayrollMileageClaim.approve({
+        ...(req[CLAIM_BATCH_CONTEXT] ? { requireSubmitted: true } : {}),
         ...(scopedPayrollCommand(req)?{db:scopedPayrollCommand(req).db,requireSubmitted:true}:{}),
         eventTravelReviewedAt,
         id,
@@ -21972,7 +22053,7 @@ export const patchMileageClaim = async (req, res, next) => {
         const period = await PayrollPeriod.findById(targetPayrollPeriodId);
         const st = String(period?.status || '').toLowerCase();
         if (period && st === 'ran') {
-          await recomputeSummariesFromStaging({
+          await refreshClaimSummaries(req, {
             payrollPeriodId: targetPayrollPeriodId,
             agencyId: period.agency_id,
             periodStart: period.period_start,
@@ -21995,7 +22076,7 @@ export const patchMileageClaim = async (req, res, next) => {
       if (!rejectionReason) {
         return res.status(400).json({ error: { message: 'rejectionReason is required' } });
       }
-      const updated = await PayrollMileageClaim.reject({ id, rejectorUserId: req.user.id, rejectionReason });
+      const updated = await PayrollMileageClaim.reject({ ...(req[CLAIM_BATCH_CONTEXT] ? { requireSubmitted: true } : {}), id, rejectorUserId: req.user.id, rejectionReason });
       try {
         const actor = await User.findById(req.user.id);
         const actorName = actor ? `${actor.first_name || ''} ${actor.last_name || ''}`.trim() : '';
@@ -22021,7 +22102,7 @@ export const patchMileageClaim = async (req, res, next) => {
       }
       const note = body.note ? String(body.note).trim().slice(0, 255) : '';
       if (!note) return res.status(400).json({ error: { message: 'note is required' } });
-      const updated = await PayrollMileageClaim.returnForChanges({ id, actorUserId: req.user.id, note });
+      const updated = await PayrollMileageClaim.returnForChanges({ ...(req[CLAIM_BATCH_CONTEXT] ? { requireSubmitted: true } : {}), id, actorUserId: req.user.id, note });
       try {
         const actor = await User.findById(req.user.id);
         const actorName = actor ? `${actor.first_name || ''} ${actor.last_name || ''}`.trim() : '';
@@ -22039,7 +22120,7 @@ export const patchMileageClaim = async (req, res, next) => {
           const period = await PayrollPeriod.findById(targetPayrollPeriodId);
           const st = String(period?.status || '').toLowerCase();
           if (period && st === 'ran') {
-            await recomputeSummariesFromStaging({
+            await refreshClaimSummaries(req, {
               payrollPeriodId: targetPayrollPeriodId,
               agencyId: period.agency_id,
               periodStart: period.period_start,

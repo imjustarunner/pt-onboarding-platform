@@ -239,11 +239,11 @@ class PayrollMileageClaim {
              rejection_reason = NULL,
              rejected_by_user_id = NULL,
              rejected_at = NULL
-         WHERE id = ? ${requireSubmitted ? "AND status='submitted'" : ''} ${eventTravelReviewedAt ? `AND EXISTS (
+         WHERE id = ? ${requireSubmitted ? "AND status='submitted' AND EXISTS (SELECT 1 FROM payroll_periods p WHERE p.id = ? AND p.agency_id = payroll_mileage_claims.agency_id AND LOWER(p.status) NOT IN ('posted','finalized') AND p.posted_at IS NULL AND p.finalized_at IS NULL)" : ''} ${eventTravelReviewedAt ? `AND EXISTS (
            SELECT 1 FROM company_event_travel_reports r WHERE r.id = payroll_mileage_claims.event_travel_report_id
            AND r.reviewed_at IS NOT NULL AND JSON_UNQUOTE(JSON_EXTRACT(r.report_json, '$.reviewedAt')) = ?)` : ''}
          LIMIT 1`,
-        [targetPayrollPeriodId, tierLevel, ratePerMile, appliedAmount, approverUserId, id, ...(eventTravelReviewedAt ? [eventTravelReviewedAt] : [])]
+        [targetPayrollPeriodId, tierLevel, ratePerMile, appliedAmount, approverUserId, id, ...(requireSubmitted ? [targetPayrollPeriodId] : []), ...(eventTravelReviewedAt ? [eventTravelReviewedAt] : [])]
       );
       if (requireSubmitted && !result.affectedRows) throw Object.assign(new Error('Submission changed before approval.'),{status:409,code:'PAYROLL_SOURCE_CHANGED'});
       if (eventTravelReviewedAt && !result.affectedRows) throw Object.assign(new Error('The travel report changed. Refresh and review it before approval.'), { status: 409 });
@@ -254,17 +254,18 @@ class PayrollMileageClaim {
       : persist(db);
   }
 
-  static async reject({ id, rejectorUserId, rejectionReason }) {
-    await pool.execute(
+  static async reject({ id, rejectorUserId, rejectionReason, requireSubmitted = false }) {
+    const [result] = await pool.execute(
       `UPDATE payroll_mileage_claims
        SET status = 'rejected',
            rejection_reason = ?,
            rejected_by_user_id = ?,
            rejected_at = NOW()
-       WHERE id = ?
+       WHERE id = ? ${requireSubmitted ? "AND status='submitted'" : ''}
        LIMIT 1`,
       [rejectionReason || null, rejectorUserId, id]
     );
+    if (requireSubmitted && !result.affectedRows) throw Object.assign(new Error('Submission changed before this decision.'), { status: 409, code: 'PAYROLL_SOURCE_CHANGED' });
     return PayrollMileageClaim.findById(id);
   }
 
@@ -280,8 +281,8 @@ class PayrollMileageClaim {
   }
 
   // "Returned" == needs changes. We reuse the existing 'deferred' status to avoid schema changes.
-  static async returnForChanges({ id, actorUserId, note }) {
-    await pool.execute(
+  static async returnForChanges({ id, actorUserId, note, requireSubmitted = false }) {
+    const [result] = await pool.execute(
       `UPDATE payroll_mileage_claims
        SET status = 'deferred',
            rejection_reason = ?,
@@ -293,10 +294,11 @@ class PayrollMileageClaim {
            applied_amount = NULL,
            approved_by_user_id = NULL,
            approved_at = NULL
-       WHERE id = ?
+       WHERE id = ? ${requireSubmitted ? "AND status='submitted'" : ''}
        LIMIT 1`,
       [String(note || '').trim().slice(0, 255) || null, actorUserId || null, id]
     );
+    if (requireSubmitted && !result.affectedRows) throw Object.assign(new Error('Submission changed before this decision.'), { status: 409, code: 'PAYROLL_SOURCE_CHANGED' });
     return PayrollMileageClaim.findById(id);
   }
 

@@ -155,6 +155,8 @@ import {
   ,updateMyTimeClaim
   ,listTimeClaims
   ,patchTimeClaim
+  ,getTimeClaim
+  ,batchPayrollClaims
   ,listEventTimeSubmissions
   ,patchEventTimeSubmission
   ,listMyEventTime
@@ -462,7 +464,9 @@ router.patch('/company-card-expenses/:id', patchCompanyCardExpense);
 router.get('/expenses', listExpenses);
 router.get('/expenses/export.csv', downloadExpensesCsv);
 router.post('/expenses/:type/:id/drive', uploadExpenseReceiptToDrive);
+router.post('/claims/batch', batchPayrollClaims);
 router.get('/time-claims', listTimeClaims);
+router.get('/time-claims/:id', getTimeClaim);
 router.get('/time-claims/:id/meeting-attendance', getTimeClaimMeetingAttendance);
 router.get('/event-time-submissions', listEventTimeSubmissions);
 router.patch('/event-time-submissions/:punchInId', patchEventTimeSubmission);
