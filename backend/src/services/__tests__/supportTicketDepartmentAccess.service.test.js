@@ -15,6 +15,7 @@ function fixture({ agencyId = 2, payroll = true, active = true } = {}) {
   return { calls, db: { async execute(sql, params = []) {
     calls.push({ sql, params });
     assert.equal((sql.match(/\?/g) || []).length, params.length);
+    if (sql.includes('FROM information_schema.TABLES')) return [[{ count: 0 }]];
     if (sql.includes('FROM email_sender_identities')) return [params.length ? identities.filter(i => i.agency_id === params[0]) : identities];
     if (sql.includes('FROM users u JOIN user_agencies')) return [[{ id: 5, role: 'provider', status: 'ACTIVE_EMPLOYEE', is_active: 1,
       membership_active: active && Number(params[1]) === agencyId ? 1 : 0, has_payroll_access: payroll ? 1 : 0 }]];

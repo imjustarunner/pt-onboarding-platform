@@ -1,0 +1,45 @@
+name: NoteWorthy payroll onboarding and inbox
+on:
+  pull_request:
+    paths:
+      - 'backend/src/**/noteworthy*'
+      - 'backend/src/**/payroll*'
+      - 'backend/src/services/communicationAttachments.service.js'
+      - 'backend/src/services/supportTicketEmailPolicy.js'
+      - 'backend/src/services/unifiedEmail/inboundEmailAgent.service.js'
+      - 'backend/src/services/organizationAgreements.js'
+      - 'backend/src/server.js'
+      - 'frontend/src/**/Noteworthy*'
+      - 'frontend/src/**/noteworthy*'
+      - 'frontend/src/router/index.js'
+      - 'frontend/src/utils/fundthred.js'
+      - 'database/migrations/*noteworthy*'
+      - '.github/workflows/noteworthy-payroll.yml'
+  workflow_dispatch:
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    env:
+      SKIP_DB_CONNECT: '1'
+      NODE_OPTIONS: '--experimental-sqlite'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+      - run: npm ci --prefix backend
+      - run: npm ci --prefix frontend --ignore-scripts
+      - name: Practice isolation, dated compensation and account verification
+        run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.noteworthy.config.js
+      - name: Original payroll receipt, tickets and attachment access
+        run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.payroll-mail.config.js
+      - name: Guided public demo and sample statements
+        run: node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.noteworthy-marketing.config.js
+      - name: Signup, private portals and standalone URLs
+        run: node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.noteworthy-onboarding-ui.config.js
+      - name: Host routing, safe login returns and shared requests
+        run: node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.noteworthy-routing.config.js

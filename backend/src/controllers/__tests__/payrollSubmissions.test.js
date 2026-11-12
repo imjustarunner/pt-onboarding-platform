@@ -12,7 +12,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   m.execute.mockImplementation(async (sql) => {
     if (sql.startsWith('SELECT id, organization_type')) return [[{ id: 9, organization_type: 'program' }]];
-    if (sql.includes('SELECT has_payroll_access')) return [[{ has_payroll_access: 1 }]];
+    if (sql.includes('SELECT ua.has_payroll_access')) return [[{ has_payroll_access: 1 }]];
     return [[]];
   });
   m.parent.mockResolvedValue(2);

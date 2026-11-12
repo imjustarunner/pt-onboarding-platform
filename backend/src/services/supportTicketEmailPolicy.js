@@ -11,6 +11,16 @@ export function isSupportEmailResponderRole(role) {
   return ['admin', 'super_admin', 'support', 'staff', 'clinical_practice_assistant'].includes(emailKey(role));
 }
 
+// Payroll can initiate work by emailing its own department. Being a shared
+// sender does not make that new request a reply to a ticket that does not exist.
+export function isDepartmentalStaffCopy({ identity, departmentResponder = false, replying = false,
+  sharedSender = false, recipients = [], schoolSender = false }) {
+  const department = groupKeyForIdentity(identity);
+  const addressedDepartment = department && parseEmailList(recipients).includes(emailKey(identity.from_email));
+  if (department === 'payroll' && addressedDepartment && !replying) return false;
+  return (department ? departmentResponder && replying : false) || sharedSender || schoolSender;
+}
+
 export function chooseCanonicalSupportTicket(rows = []) {
   return [...rows].sort((a, b) => {
     const mapped = (row) => Number(row.canonical_ticket_id) === Number(row.id);

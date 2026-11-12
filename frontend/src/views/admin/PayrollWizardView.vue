@@ -601,6 +601,7 @@ import PayrollCompliancePanel from '../../components/payroll/PayrollCompliancePa
 
 const route = useRoute();
 const router = useRouter();
+const props = defineProps({ workspaceBase: { type: String, default: '' }, wizardBase: { type: String, default: '' } });
 const agencyStore = useAgencyStore();
 const organizationStore = useOrganizationStore();
 
@@ -1420,12 +1421,13 @@ const importUploadedLabel = (imp) => {
 };
 
 const payrollBasePath = () => {
+  if (props.workspaceBase) return props.workspaceBase;
   const slug = String(route.params?.organizationSlug || agencyStore.currentAgency?.slug || '').trim();
   return slug ? `/${slug}/admin/payroll` : '/admin/payroll';
 };
 
 const wizardPath = (periodId) => {
-  const base = `${payrollBasePath()}/wizard`;
+  const base = props.wizardBase || `${payrollBasePath()}/wizard`;
   return periodId ? `${base}/${periodId}` : base;
 };
 

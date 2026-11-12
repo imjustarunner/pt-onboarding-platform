@@ -1,9 +1,9 @@
 <template>
   <main class="agreement-workspace">
-    <header class="archive-heading"><div><p class="eyebrow">Organization files</p><h1>Business agreements</h1><p>Prepare an agreement, collect authorized signatures, and retain its exact signed copy with your organization.</p></div><router-link :to="route.params?.organizationSlug ? `/${route.params.organizationSlug}/admin/agencies` : '/admin/agencies'">Organization settings →</router-link></header>
+    <header class="archive-heading"><div><p class="eyebrow">Organization files</p><h1>Business agreements</h1><p>Prepare an agreement, collect authorized signatures, and retain its exact signed copy with your organization.</p></div><router-link v-if="!embedded" :to="route.params?.organizationSlug ? `/${route.params.organizationSlug}/admin/agencies` : '/admin/agencies'">Organization settings →</router-link></header>
     <div class="agreement-callout"><strong>Legal entities sign; product names identify services.</strong> SchoolCareBridge is a program of MH4Kidz. AuricWell and Plotline are product names. Confirm the actual contracting parties, service scope, and any applicable HIPAA roles before approval. This workspace does not decide which agreements your organization requires.</div>
     <p v-if="error" class="agreement-error" role="alert">{{error}}</p><p v-if="message" class="agreement-success" role="status">{{message}}</p>
-    <label class="organization-picker">Organization<select v-model="agencyId" :disabled="busy" @change="loadArchive"><option value="">Choose an organization</option><option v-for="org in organizations" :key="org.id" :value="String(org.id)">{{org.name}}</option></select></label>
+    <label v-if="!embedded" class="organization-picker">Organization<select v-model="agencyId" :disabled="busy" @change="loadArchive"><option value="">Choose an organization</option><option v-for="org in organizations" :key="org.id" :value="String(org.id)">{{org.name}}</option></select></label>
     <p v-if="!organizations.length && !busy">No organizations are available for your active administrator account.</p>
     <div v-if="agencyId && actor" class="archive-layout">
       <aside class="archive-list"><h2>{{organization.name}}</h2><p class="muted">Agreements and uploaded originals stay in this organization's archive. They are never patient records or hiring tasks.</p><label>Agreement type<select v-model="newType"><option value="baa">Business Associate Agreement</option><option value="management_agreement">Management services agreement</option></select></label><button :disabled="busy" @click="createDraft">+ Prepare draft</button>
@@ -43,7 +43,8 @@ import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 const route=useRoute(),router=useRouter();
-const organizations=ref([]),agencyId=ref(String(route.query.agencyId || '')),organization=ref({}),actor=ref(null),signers=ref([]),documents=ref([]),selected=ref(null),draft=ref(null),originalDraft=ref(''),busy=ref(false),error=ref(''),message=ref(''),legalApproved=ref(false),signatureName=ref(''),signatureConsent=ref(false),uploadTitle=ref(''),uploadFile=ref(null),uploadInput=ref(null),originalOpened=ref(false),events=ref([]);
+const props=defineProps({embedded:{type:Boolean,default:false},initialAgencyId:{type:[String,Number],default:''}});
+const organizations=ref([]),agencyId=ref(String(props.initialAgencyId || route.query.agencyId || '')),organization=ref({}),actor=ref(null),signers=ref([]),documents=ref([]),selected=ref(null),draft=ref(null),originalDraft=ref(''),busy=ref(false),error=ref(''),message=ref(''),legalApproved=ref(false),signatureName=ref(''),signatureConsent=ref(false),uploadTitle=ref(''),uploadFile=ref(null),uploadInput=ref(null),originalOpened=ref(false),events=ref([]);
 const newType=ref('baa');
 const isManagement=computed(()=>selected.value?.data.type==='management_agreement');
 const missingDetails=computed(()=>{const result=[];for(const side of ['practice','operator'])for(const key of ['legalName','address','noticeContact',...(!isManagement.value?['hipaaRole']:[])])if(!draft.value?.parties?.[side]?.[key]?.trim())result.push(`${side==='practice'?'Organization':'PlotTwistCo'} ${({legalName:'legal name',address:'address',noticeContact:'notice contact',hipaaRole:'HIPAA role'})[key]}`);return result;});

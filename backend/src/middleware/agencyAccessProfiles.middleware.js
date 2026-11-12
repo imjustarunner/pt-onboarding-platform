@@ -30,6 +30,16 @@ export async function scopeAgencyRequest(req) {
   if (!req.user?.id || req.user.demoMode || req.assistantIdentity) return;
   const user = await User.findById(req.user.id, { raw: true });
   if (!isStaffAccount(user) || !await accessProfileSchemaReady()) return;
+  // NoteWorthy uses explicit owner/employee mappings at each endpoint. An
+  // employee's stable payroll identity can differ from their existing login.
+  // Ignore ambient UI agency selection here; it must neither deny their own
+  // statements nor confer that agency's administrative/clinical permissions.
+  if(req.baseUrl==='/api/noteworthy' && user.role!=='super_admin') {
+    const permissions=Object.fromEntries(AGENCY_ACCESS_FIELDS.map(f=>[f.key,false]));
+    req.user={...req.user,role:'provider',effectiveRole:'provider',platformRole:user.role,
+      agencyId:null,scopedAgencyId:null,agencyScopeResolved:true,...permissions,agencyAccess:{role:'provider',permissions}};
+    return;
+  }
   let agencyId = Number(req.params?.agencyId || req.body?.agencyId || req.query?.agencyId
     || (/\/agencies$/.test(req.baseUrl || '') ? req.params?.id : null) || req.headers?.['x-agency-id'] || req.user.agencyId);
   req.user.platformRole = user.role;

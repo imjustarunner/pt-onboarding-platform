@@ -13,8 +13,8 @@ const request = (query = {}) => ({ method: 'GET', query: { agencyId: '6', active
 beforeEach(() => {
   vi.clearAllMocks();
   db = new DatabaseSync(':memory:');
-  db.exec(`CREATE TABLE agencies(id INTEGER, organization_type TEXT);
-    INSERT INTO agencies VALUES (6,'agency'),(2,'agency');
+  db.exec(`CREATE TABLE agencies(id INTEGER, organization_type TEXT,is_active INTEGER DEFAULT 1,is_archived INTEGER DEFAULT 0);
+    INSERT INTO agencies(id,organization_type) VALUES (6,'agency'),(2,'agency');
     CREATE TABLE users(id INTEGER,first_name TEXT,last_name TEXT,email TEXT,role TEXT,status TEXT,is_active INTEGER,is_archived INTEGER,
       is_assistant_account INTEGER DEFAULT 0,is_demo INTEGER DEFAULT 0,created_via_dev_fill INTEGER DEFAULT 0,has_supervisor_privileges INTEGER,medcancel_rate_schedule TEXT);
     CREATE TABLE user_agencies(user_id INTEGER,agency_id INTEGER,is_active INTEGER,has_payroll_access INTEGER DEFAULT 0);

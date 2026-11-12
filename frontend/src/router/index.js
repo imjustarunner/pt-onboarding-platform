@@ -379,6 +379,14 @@ const routes = [
   ...(window.location.hostname === 'auricwell.com' ? [{path:'/app/:pathMatch(.*)*', name:'AuricWellAppEntry', beforeEnter: to => {window.location.assign(to.fullPath); return false;}, component: {template:'<p>Opening AuricWell…</p>'}}] : []),
   { path: '/family-website', name: 'FamilyWebsite', component: () => import('../views/public/FamilyWebsite.vue'), meta: { publicMarketingHub: true, hideNav: true, familyWebsite: true } },
   { path: '/plotline/app', name: 'PlotlineEntry', component: () => import('../views/PlotlineEntryView.vue'), meta: { plotlineEntry: true, hideNav: true } },
+  { path: '/fundthred/noteworthy', name: 'NoteworthyWebsite', component: () => import('../views/public/NoteworthyPayrollWebsite.vue'), meta: { publicMarketingHub: true, hideNav: true, fundthred: true } },
+  { path: '/fundthred/noteworthy/demo', name: 'NoteworthyDemo', component: () => import('../views/public/NoteworthyPayrollDemo.vue'), meta: { publicMarketingHub: true, hideNav: true, fundthred: true } },
+  { path: '/fundthred/noteworthy/start', name: 'NoteworthyStart', component: () => import('../views/public/NoteworthyStartView.vue'), meta: { hideNav: true, fundthred: true, noteworthyEntry: true } },
+  { path: '/fundthred/noteworthy/verify', name: 'NoteworthyVerify', component: () => import('../views/public/NoteworthyStartView.vue'), meta: { hideNav: true, fundthred: true, noteworthyEntry: true } },
+  { path: '/fundthred/noteworthy/accept-invite', name: 'NoteworthyInvite', component: () => import('../views/public/NoteworthyStartView.vue'), meta: { hideNav: true, fundthred: true, noteworthyEntry: true } },
+  { path: '/fundthred/noteworthy/app/:agencyId?/payroll/:periodId?', name: 'NoteworthyPayroll', component: () => import('../views/NoteworthyWorkspaceView.vue'), meta: { requiresAuth: true, hideNav: true, fundthred: true, noteworthyEntry: true } },
+  { path: '/fundthred/noteworthy/app/:agencyId/agreements', name: 'NoteworthyAgreements', component: () => import('../views/NoteworthyWorkspaceView.vue'), meta: { requiresAuth: true, hideNav: true, fundthred: true, noteworthyEntry: true } },
+  { path: '/fundthred/noteworthy/app/:agencyId?', name: 'NoteworthyWorkspace', component: () => import('../views/NoteworthyWorkspaceView.vue'), meta: { requiresAuth: true, hideNav: true, fundthred: true, noteworthyEntry: true } },
   { path: '/fundthred/:section(product|solutions|services|pricing|resources|start)?', name: 'FundThredWebsite', component: () => import('../views/public/FundThredWebsite.vue'), meta: { publicMarketingHub: true, hideNav: true, fundthred: true, publicMarketingTitle: 'FundThred | Finance operations' } },
   { path: '/fundthred/app/collections', name: 'FundThredCollections', component: () => import('../views/FundThredCollectionsView.vue'), meta: { requiresAuth: true, hideNav: true, fundthred: true } },
   { path: '/fundthred/app', name: 'FundThredEntry', component: () => import('../views/FundThredEntryView.vue'), meta: { hideNav: true, fundthred: true, fundthredEntry: true } },
@@ -5315,6 +5323,17 @@ router.beforeEach(async (to, from, next) => {
     }
     next(); return;
   }
+  if (to.meta.noteworthyEntry) {
+    await tryBootstrapAuthFromCookie();
+    if (to.meta.requiresAuth && !authStore.isAuthenticated) {
+      next({ ...fundthredLoginLocation(to.fullPath), replace: true }); return;
+    }
+    if (authStore.isAuthenticated && authStore.user?.requiresPasswordChange === true) {
+      next({ path: '/change-password', query: { redirect: to.meta.requiresAuth ? to.fullPath : '/fundthred/noteworthy/app' }, replace: true }); return;
+    }
+    // Tenant and owner/employee authorization is checked by the workspace APIs.
+    next(); return;
+  }
   if (to.meta.fundthredEntry) {
     await tryBootstrapAuthFromCookie();
     if (authStore.isAuthenticated && authStore.user?.requiresPasswordChange === true) {
@@ -6319,7 +6338,7 @@ router.beforeEach(async (to, from, next) => {
     }
     const returnTo = auricwellLoginDestination(to.query.redirect);
     if (returnTo) { window.location.assign(returnTo); next(false); return; }
-    if (isFundthredLogin(to)) { next({ path: '/fundthred/app', replace: true }); return; }
+    if (isFundthredLogin(to)) { next({ path: fundthredLoginLocation(to.query.redirect).query.redirect, replace: true }); return; }
     if (isPlotlineHost(window.location.hostname) && to.name === 'Login') { next({ path: '/plotline/app', replace: true }); return; }
     if (window.location.hostname === 'auricwell.com' && to.name === 'Login') { window.location.assign('/app'); next(false); return; }
     // Redirect to appropriate dashboard based on user role
