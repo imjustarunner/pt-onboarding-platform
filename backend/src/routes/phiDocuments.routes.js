@@ -1,3 +1,4 @@
+import {listSchoolChartAttachments,viewSchoolChartAttachment} from '../controllers/schoolChartAttachment.controller.js';
 import { fileShareRecipients,setFileShare } from '../services/guardianFileShares.service.js';
 import express from 'express';
 import { excludeSupportClinicalContent, excludeFamilyClinicalWorkspace } from '../middleware/supportContentAccess.middleware.js';
@@ -25,6 +26,8 @@ const router = express.Router();
 // provider, and administrators can open that file without the rest of the chart.
 router.get('/clients/:clientId/enrollment-receipts', authenticate, listEnrollmentReceipts);
 router.get('/enrollment-receipts/:docId/view', authenticate, viewEnrollmentReceipt);
+router.get('/clients/:clientId/school-attachments',authenticate,listSchoolChartAttachments);
+router.get('/school-attachments/:docId/view',authenticate,viewSchoolChartAttachment);
 // These are completed PHI records and medical attachments. Blank-document and
 // questionnaire dispatch use their existing operational routes.
 router.use(authenticate, excludeSupportClinicalContent, excludeFamilyClinicalWorkspace);

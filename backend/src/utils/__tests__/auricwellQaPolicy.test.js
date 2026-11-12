@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { allowQaExchangeRecipient, allowQaSmsDelivery } from '../auricwellQaPolicy.js';
+import { allowQaExchangeRecipient, allowQaSmsDelivery, nonDemoOrSyntheticQaMembershipSql } from '../auricwellQaPolicy.js';
 const agency = {slug:'auricwell-qa-demo',feature_flags:{qaSandbox:{syntheticOnly:true,exchangeProviderUserId:1433}}};
 const provider = {id:1433,is_demo:1,email:'qa.provider.auricwell@example.com'};
 test('QA SMS admits approved purposes only to authorized test phones',()=>{
@@ -44,3 +44,5 @@ test('an explicit roster permits only its synthetic providers, up to ten',()=>{
   for(const exchangeProviders of [[],null,[...roster, {id:1600,email:'qa.provider.extra@example.com'}],[roster[0],roster[0]],[{id:1500,email:'real@clinic.test'}]])
     assert.equal(allowQaExchangeRecipient({...qa,feature_flags:{qaSandbox:{syntheticOnly:true,exchangeProviders}}},{...roster[0],is_demo:1,role:'provider'}),false);
 });
+
+test('synthetic staff SQL permits only internal identifiers',()=>{assert.throws(()=>nonDemoOrSyntheticQaMembershipSql('u;DROP TABLE users'),TypeError);assert.throws(()=>nonDemoOrSyntheticQaMembershipSql('u','ua OR true'),TypeError);});

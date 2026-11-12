@@ -83,3 +83,20 @@ test('max without overflow is not claimable', () => {
   assert.equal(r.claimable, false);
   assert.match(r.reason || '', /exceeds maximum/i);
 });
+
+for (const [minutes,units] of [[30,2],[38,3],[53,4],[60,4],[67,4]]) {
+  test(`H0004 ${minutes} minutes retains ${units} units despite legacy15-minute seed`,()=>{
+    const result=resolveSessionBilling({minutes,serviceCode:'H0004',unitCalcMode:'MEDICAID_8_MINUTE_LADDER',unitMinutes:15,minMinutes:8,maxMinutes:15,maxUnitsPerSession:4});
+    assert.equal(result.claimable,true);assert.equal(result.units,units);assert.equal(result.maxMinutes,null);assert.equal(result.requiresReview,undefined);
+  });
+}
+for(const minutes of [68,90])test(`H0004 ${minutes} minutes is flagged with actual units instead of capped or substituted`,()=>{
+ const result=resolveSessionBilling({minutes,serviceCode:'H0004',unitCalcMode:'MEDICAID_8_MINUTE_LADDER',unitMinutes:15,minMinutes:8,maxUnitsPerSession:4});
+ assert.equal(result.claimable,false);assert.equal(result.requiresReview,true);assert.equal(result.reviewCode,'H0004_DURATION_OVER_LIMIT');assert.equal(result.units,Math.floor((minutes-8)/15)+1);assert.equal(result.effectiveServiceCode,'H0004');assert.equal(result.overflowApplied,false);
+});
+test('an explicit nonlegacy H0004 maximum and other codes keep their configured duration gates',()=>{
+ const h=resolveSessionBilling({minutes:60,serviceCode:'H0004',unitCalcMode:'MEDICAID_8_MINUTE_LADDER',minMinutes:8,maxMinutes:45,maxUnitsPerSession:4});assert.equal(h.claimable,false);assert.match(h.reason,/maximum45|maximum 45/);
+ const other=resolveSessionBilling({minutes:30,serviceCode:'H2014',unitCalcMode:'MEDICAID_8_MINUTE_LADDER',minMinutes:8,maxMinutes:15});assert.equal(other.claimable,false);assert.equal(other.maxMinutes,15);
+});
+
+test('H0004 billing review never overrides an explicit higher minimum',()=>{const result=resolveSessionBilling({minutes:90,serviceCode:'H0004',unitCalcMode:'MEDICAID_8_MINUTE_LADDER',unitMinutes:15,minMinutes:100,maxUnitsPerSession:4});assert.equal(result.claimable,false);assert.equal(result.requiresReview,undefined);assert.match(result.reason,/below minimum100|below minimum 100/);});

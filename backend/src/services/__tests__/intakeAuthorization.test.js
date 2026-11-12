@@ -82,3 +82,17 @@ it('validates every identifying child even when questionnaire response rows are 
  expect(pool.execute).not.toHaveBeenCalled();
  }finally{vi.unstubAllEnvs();}
 });
+
+it('uses server-approved existing coverage without validating stale shared policy fields as a new sibling policy',async()=>{
+ const data={agencyId:450,submission:{id:303},insuranceOnFileApproved:true,link:{scope_type:'school',intake_steps:[{type:'insurance_info'}]},intakeData:{clients:[{id:201},{id:202}],responses:{submission:{insuranceInfo:{useInsuranceOnFile:true,primary:{insurerName:'Medicaid',isMedicaid:true},authorizationAgreed:false,medicaidByClient:[]}}}}};
+ await expect(validateIntakeBilling(data)).resolves.toBeUndefined();expect(pool.execute).not.toHaveBeenCalled();
+});
+it('does not permit a browser-supplied on-file marker when the invited server binding did not approve all children',async()=>{
+ const data=input({useInsuranceOnFile:true,authorizationAgreed:true,authorizationSignature:'QA Parent'});
+ await expect(validateIntakeBilling(data)).rejects.toMatchObject({status:400,message:'The care team must verify the insurance on file before this section can be skipped.'});expect(pool.execute).not.toHaveBeenCalled();
+});
+
+it('rejects a string on-file marker even with a valid bound invitation instead of bypassing policy validation',async()=>{
+ const data=input({useInsuranceOnFile:'true',isSelfPay:false,primary:{insurerName:'Medicaid'}});data.insuranceOnFileApproved=true;
+ await expect(validateIntakeBilling(data)).rejects.toMatchObject({status:400});expect(pool.execute).not.toHaveBeenCalled();
+});

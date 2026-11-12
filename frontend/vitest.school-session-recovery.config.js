@@ -1,0 +1,2 @@
+import vue from '@vitejs/plugin-vue';
+export default {plugins:[vue({template:{transformAssetUrls:false}})],resolve:{alias:{'@':new URL('./src',import.meta.url).pathname}},test:{environment:'jsdom',include:['src/views/school/__tests__/SchoolCareBridgeSessionRecovery.test.js','src/views/school/__tests__/SchoolCareBridgeAgencyWorkspace.test.js','src/utils/__tests__/activityTracker.test.js','src/store/__tests__/sessionLock.test.js','src/components/__tests__/SessionLockScreen.test.js']}};

@@ -129,8 +129,8 @@ async function snapshotSample(row) {
 function localAuditEvidence(source) {
  const evidence={},put=(id,value,detail)=>{if(typeof value==='boolean')evidence[id]={status:value?'passed':'failed',evidence:detail};};
  // These facts were verified internally. A model never sees identity, claim or PDF data.
- put('procedure.duration',source.service.durationAllowed,'Compared documented duration with the configured service rule.');
- put('duration.allowed',source.service.durationAllowed,'Compared documented duration with the configured service rule.');
+ put('procedure.duration',source.service.billingDurationAllowed ?? source.service.durationAllowed,'Compared documented duration with the configured service rule.');
+ put('duration.allowed',source.service.billingDurationAllowed ?? source.service.durationAllowed,'Compared documented duration with the configured service rule.');
  put('duration.documented',source.encounter.durationMinutes>0&&source.encounter.timesValid,'Saved encounter times and duration were checked.');
  put('place.permitted',source.service.modalityAllowed,'Configured service and place-of-service rules were checked.');
  // Current credential eligibility alone cannot establish historical credentials at the service date.

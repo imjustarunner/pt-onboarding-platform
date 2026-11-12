@@ -100,7 +100,8 @@
           </label>
           <label class="upload-label">
             Document type
-            <input
+            <select v-if="String(authStore.user?.role||'').toLowerCase()==='school_staff'" v-model="uploadType" class="upload-input"><option value="">Other school document — Support review</option><option value="full_paper_enrollment">Full paper enrollment — Support processing</option></select>
+            <input v-else
               v-model="uploadType"
               type="text"
               class="upload-input"
@@ -758,16 +759,19 @@ const uploadFiles = async (fileList) => {
   try {
     uploading.value = true;
     error.value = '';
+    let followupPending=false;
     for (const [index, file] of files.entries()) {
       const form = new FormData();
       form.append('file', file);
       if (uploadTitle.value && files.length === 1 && index === 0) form.append('documentTitle', uploadTitle.value);
       if (uploadType.value) form.append('documentType', uploadType.value);
-      await api.post(`/phi-documents/clients/${props.clientId}/upload`, form, {
+      const response=await api.post(`/phi-documents/clients/${props.clientId}/upload`, form, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
+      if(response.data?.operationalFollowupPending)followupPending=true;
     }
     await reload();
+    if(followupPending)error.value='The file was saved, but Support follow-up is pending. Do not upload it again; refresh or contact Support.';
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to upload document';
   } finally {

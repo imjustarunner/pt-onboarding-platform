@@ -6,7 +6,9 @@
 
 let runtimeConfig = null;
 
-export function setLoginRecoveryRecaptchaConfig({ siteKey, useEnterprise } = {}) {
+export function setLoginRecoveryRecaptchaConfig({ siteKey, useEnterprise, disabled = false } = {}) {
+  if (disabled === true) { runtimeConfig = { disabled: true }; return; }
+  runtimeConfig = null;
   const key = String(siteKey || '').trim();
   if (!key) return;
   runtimeConfig = {
@@ -16,6 +18,7 @@ export function setLoginRecoveryRecaptchaConfig({ siteKey, useEnterprise } = {})
 }
 
 function getConfig() {
+  if (runtimeConfig?.disabled === true) return { siteKey: '', useEnterprise: false };
   const siteKey = runtimeConfig?.siteKey
     || String(import.meta.env.VITE_RECAPTCHA_SITE_KEY || '').trim();
   const useEnterprise = runtimeConfig?.useEnterprise ?? (

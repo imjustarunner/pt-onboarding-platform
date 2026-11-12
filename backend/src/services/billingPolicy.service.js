@@ -1,3 +1,4 @@
+import { normalizeH0004DurationLimit } from './serviceCodeUnits.service.js';
 import { isServiceCodeDeniedForTier } from '../utils/clinicalServiceCodeEligibility.js';
 import crypto from 'crypto';
 import pool from '../config/database.js';
@@ -755,7 +756,7 @@ export async function resolvePolicyRuleForServiceCode({ agencyId, serviceCode, c
       serviceCode: code,
       serviceDescription: rule.service_description || null,
       minMinutes: eligibility.minMinutesOverride || (toInt(rule.min_minutes, 0) || null),
-      maxMinutes: toInt(rule.max_minutes, 0) || null,
+      maxMinutes: normalizeH0004DurationLimit({serviceCode:code,unitCalcMode:rule.unit_calc_mode,maxMinutes:rule.max_minutes,unitMinutes:rule.unit_minutes}),
       unitMinutes: toInt(rule.unit_minutes, 0) || null,
       unitCalcMode: String(rule.unit_calc_mode || 'NONE').toUpperCase(),
       maxUnitsPerDay: toInt(rule.max_units_per_day, 0) || null,

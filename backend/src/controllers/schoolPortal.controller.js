@@ -1,5 +1,8 @@
+import {schoolPaperProcessingNotificationFeed} from '../services/schoolPaperProcessingNotificationFeed.service.js';
 import { paperPacketReviewPending, paperPacketReviewPendingSql } from '../utils/paperPacketReviewPending.js';
 import { schoolIntakeNotificationFeed } from '../services/schoolIntakeNotificationFeed.service.js';
+import { clientChangeIsNoop } from '../utils/clientChangeValue.js';
+import { consolidateSchoolEnrollmentNotifications } from '../services/schoolNotificationPresentation.service.js';
 import { attachParentContactCounts } from '../services/parentContactCounts.service.js';
 import { visibleSchoolRosterClients } from '../services/clientTerminationRoster.service.js';
 import { createSchoolPortalEmailHandlers } from './schoolPortalEmail.controller.js';
@@ -5832,6 +5835,7 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
           const actor = [String(r.actor_first_name || '').trim(), String(r.actor_last_name || '').trim()].filter(Boolean).join(' ').trim();
           const clientLabel = String(r.identifier_code || r.initials || '—');
           const field = String(r.field_changed || '').trim();
+          if (clientChangeIsNoop(field, r.from_value, r.to_value)) continue;
 
           if (field === 'compliance_checklist' && allowChecklist) {
             const fromObj = parseMaybe(r.from_value) || {};
@@ -5945,6 +5949,7 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
 
           events.push({
             id: `client_event:${r.id}`,
+            _initialEnrollmentDetail: !r.from_value && ['agency_id', 'organization_id', 'initials', 'submission_date', 'document_status', 'source', 'client_type'].includes(field),
             kind: 'client_event',
             created_at: r.changed_at,
             title,
@@ -6283,6 +6288,7 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
           return {
             id: `client_created:${r.id}`,
             kind: 'client_created',
+            _digitalEnrollmentCreated: isLinkedPacket,
             created_at: r.created_at,
             title,
             message: msg,
@@ -6485,6 +6491,9 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
       }
     }
 
+    let paperPacketProcessed=[];
+    if(allowDocsLinks&&canQueryScopedClients){try{paperPacketProcessed=await schoolPaperProcessingNotificationFeed({schoolOrganizationId:orgId,clientIds:hasScopedRole?scopedClientIds:null});}catch(error){console.error('[school portal] paper completion metadata unavailable',{schoolOrganizationId:orgId,code:error?.code||'unknown'});}}
+
     const all = [
       ...announcements,
       ...events,
@@ -6496,6 +6505,7 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
       ...ticketActivity,
       ...clientCreated,
       ...intakePacketSubmitted,
+      ...paperPacketProcessed,
       ...providerSlots,
       ...docsLinks,
       ...providerDayAdded
@@ -6505,7 +6515,7 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
     // duplicate feed rows for the same logical notification id.
     const deduped = [];
     const seenFeedIds = new Set();
-    for (const item of all) {
+    for (const item of consolidateSchoolEnrollmentNotifications(all)) {
       const key = String(item?.id || '');
       if (!key || seenFeedIds.has(key)) continue;
       seenFeedIds.add(key);

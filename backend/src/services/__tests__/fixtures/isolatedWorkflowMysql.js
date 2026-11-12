@@ -7,8 +7,8 @@ export const recoveryMysqlEnabled = !!process.env.RECOVERY_TEST_MYSQL_HOST;
 export async function isolatedWorkflowMysql(prefix) {
   const host = process.env.RECOVERY_TEST_MYSQL_HOST;
   const port = Number(process.env.RECOVERY_TEST_MYSQL_PORT);
-  if (host !== '127.0.0.1' || ![33319, 33316].includes(port)) {
-    throw new Error('Explicit isolated loopback MySQL on port33319 or33316 is required.');
+  if (host !== '127.0.0.1' || ![33319, 33316, 33320].includes(port)) {
+    throw new Error('Explicit isolated loopback MySQL on port33319,33316 or33320 is required.');
   }
   if (!/^[a-z_]+$/.test(prefix)) throw new Error('Unsafe fixture prefix.');
   const schema = `${prefix}_${process.pid}_${crypto.randomBytes(5).toString('hex')}`;

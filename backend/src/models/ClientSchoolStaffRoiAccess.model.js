@@ -222,14 +222,14 @@ class ClientSchoolStaffRoiAccess {
     }));
   }
 
-  static async listSchoolStaffRosterForClient({ clientId, schoolOrganizationId, roiExpiresAt = null }) {
+  static async listSchoolStaffRosterForClient({ clientId, schoolOrganizationId, roiExpiresAt = null, db = pool }) {
     const cid = Number(clientId || 0);
     const sid = Number(schoolOrganizationId || 0);
     if (!cid || !sid) return [];
 
     let rows = [];
     try {
-      const [result] = await pool.execute(
+      const [result] = await db.execute(
         `SELECT
            u.id AS school_staff_user_id,
            u.first_name,
@@ -283,7 +283,7 @@ class ClientSchoolStaffRoiAccess {
       rows = Array.isArray(result) ? result : [];
     } catch (e) {
       if (!isSchoolContactsSchedulerFilterError(e)) throw e;
-      const [result] = await pool.execute(
+      const [result] = await db.execute(
         `SELECT
            u.id AS school_staff_user_id,
            u.first_name,
@@ -334,7 +334,7 @@ class ClientSchoolStaffRoiAccess {
       rows = Array.isArray(result) ? result : [];
     }
 
-    const consent = await loadGuardianRoiConsent({ clientId: cid, schoolOrganizationId: sid });
+    const consent = await loadGuardianRoiConsent({ clientId: cid, schoolOrganizationId: sid, db });
     return (rows || []).map((row) => {
       row.guardian_consent = consent.find(item => item.schoolStaffUserId === Number(row.school_staff_user_id));
       const effectiveState = getEffectiveSchoolStaffRoiState(row, roiExpiresAt, { schoolStaffInOrg: true });

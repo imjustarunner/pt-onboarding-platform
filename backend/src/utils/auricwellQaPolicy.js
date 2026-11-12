@@ -48,3 +48,17 @@ export function allowQaExchangeRecipient(agency, user) {
   return ['provider','provider_plus','supervisor','intern','intern_plus'].includes(String(user?.role || '').toLowerCase())
     && roster.some(entry => Number(entry.id) === Number(user?.id) && String(entry.email).toLowerCase() === email);
 }
+
+
+// SQL companion to isAuricwellQaAgency for staff queries that already join an
+// active membership. Only database-verified QA450 may include synthetic staff;
+// a request flag or a matching display name never enables the exception.
+export function nonDemoOrSyntheticQaMembershipSql(userAlias='u',membershipAlias='ua') {
+  if(!/^[A-Za-z_][A-Za-z0-9_]*$/.test(userAlias)||!/^[A-Za-z_][A-Za-z0-9_]*$/.test(membershipAlias))throw new TypeError('Invalid internal SQL alias');
+  const flags="IF(JSON_VALID(qa_supervision.feature_flags),qa_supervision.feature_flags,JSON_OBJECT())";
+  return `(COALESCE(${userAlias}.is_demo,0)=0 OR EXISTS(SELECT 1 FROM agencies qa_supervision
+    WHERE qa_supervision.id=${membershipAlias}.agency_id AND qa_supervision.id=450
+      AND qa_supervision.slug='${AURICWELL_QA_SLUG}' AND qa_supervision.is_active=1 AND COALESCE(qa_supervision.is_archived,0)=0
+      AND JSON_TYPE(JSON_EXTRACT(${flags},'$.qaSandbox.syntheticOnly'))='BOOLEAN'
+      AND JSON_UNQUOTE(JSON_EXTRACT(${flags},'$.qaSandbox.syntheticOnly'))='true'))`;
+}

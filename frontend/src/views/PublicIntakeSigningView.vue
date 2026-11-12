@@ -1759,7 +1759,7 @@
             <label><input v-model="addCoGuardianInsurance" type="checkbox" /> {{ tx('Add my own additional or secondary insurance for review') }}</label>
           </div>
           <PublicIntakeInsurancePaymentStep
-            v-if="isOfficeInDepthIntake || isPaymentOnlyEnrollmentChannel"
+            v-if="!useCoGuardianInsuranceOnFile && (isOfficeInDepthIntake || isPaymentOnlyEnrollmentChannel)"
             ref="insurancePaymentStepRef"
             :hide-heading="true"
             :insurance-info="intakeResponses.submission.insuranceInfo || {}"
@@ -1790,7 +1790,7 @@
             @skip-acknowledged="onPaymentSkipAcknowledged"
           />
           <PublicIntakeInsuranceStep
-            v-else
+            v-else-if="!useCoGuardianInsuranceOnFile"
             ref="insuranceStepRef"
             :model-value="intakeResponses.submission.insuranceInfo || {}"
             :step-config="currentFlowStep"
@@ -1810,7 +1810,7 @@
             @medicaid-change="(isMedicaid) => { if (intakeResponses.submission.insuranceInfo) intakeResponses.submission.insuranceInfo.primaryIsMedicaid = isMedicaid; }"
           />
           <PublicIntakeSchoolPaymentOptions
-            v-if="link?.scope_type === 'school' && !isOfficeInDepthIntake && !isPaymentOnlyEnrollmentChannel && (intakeResponses.submission.insuranceInfo?.isSelfPay || intakeResponses.submission.insuranceInfo?.primary?.insurerName) && !shouldSkipPaymentCollectionStep()"
+            v-if="!useCoGuardianInsuranceOnFile && coGuardianPaymentCollectionAvailable && link?.scope_type === 'school' && !isOfficeInDepthIntake && !isPaymentOnlyEnrollmentChannel && (intakeResponses.submission.insuranceInfo?.isSelfPay || intakeResponses.submission.insuranceInfo?.primary?.insurerName) && !shouldSkipPaymentCollectionStep()"
             :public-key="publicKey"
             :submission-id="submissionId"
             :insurance-info="intakeResponses.submission.insuranceInfo || {}"
@@ -6292,7 +6292,11 @@ const isPaymentOnlyEnrollmentChannel = computed(() => {
 /** null = unknown, true = empty catalog (skip step), false = has packages */
 const officePackageCatalogEmpty = ref(null);
 
+// A bound guardian descriptor can suppress payment without disclosing the
+// other guardian's stored policy. Keep this before flowSteps to avoid a TDZ.
+const coGuardianPaymentCollectionAvailable = ref(true);
 const shouldSkipPaymentCollectionStep = () => {
+  if (!coGuardianPaymentCollectionAvailable.value) return true;
   if (link.value?.master_channel === 'tutoring' && hasBridgeLearning()) return true;
   const insInfo = intakeResponses.submission?.insuranceInfo;
   if (shouldSuppressInsurancePayment(insInfo, link.value?.master_channel)) return true;
@@ -7633,10 +7637,15 @@ const isCoGuardianInvitee = computed(() => resumedCoGuardianInvite.value || Bool
 const coGuardianInviteError = ref('');
 const coGuardianDependents = ref([]);
 const excludedCoGuardianChildren = ref([]);
-const coGuardianPaymentCollectionAvailable = ref(true);
 const coGuardianInsuranceOnFile = computed(() => isCoGuardianInvitee.value && coGuardianDependents.value.length > 0 && coGuardianDependents.value.every(dep => dep.insuranceOnFile));
 const addCoGuardianInsurance = ref(false);
 const useCoGuardianInsuranceOnFile = computed(() => coGuardianInsuranceOnFile.value && !addCoGuardianInsurance.value);
+watch(addCoGuardianInsurance, (add) => {
+  if (!isCoGuardianInvitee.value || !coGuardianInsuranceOnFile.value || isRestoringDraft.value) return;
+  intakeResponses.submission.insuranceInfo = {
+    ...(intakeResponses.submission.insuranceInfo || {}), useInsuranceOnFile: !add
+  };
+}, { flush: 'sync' });
 const officeCopyEmail = ref('');
 const officeEmailSending = ref(false);
 const officeEmailStatus = ref('');
@@ -8499,6 +8508,7 @@ const buildDraftSnapshot = () => ({
   otherGuardian: snapshotOtherGuardian(otherGuardian),
   maxReachedProgressIndex: Number(maxReachedProgressIndex.value || 0),
   intakeForSelf: intakeForSelf.value,
+  coGuardianAdditionalInsurance: addCoGuardianInsurance.value,
   serviceSubject: serviceSubject.value,
   organizationId: organizationId.value || null,
   guardian: {
@@ -8744,6 +8754,8 @@ const applyDraftSnapshot = (parsed) => {
           && Number(savedSubmission.requested_profile_provider_id) === Number(entry.requested_profile_provider_id)
           && savedSubmission.preferred_service_format === entry.preferred_service_format);
       intakeResponses.submission = { ...savedSubmission, ...(!sameEntry ? entry : {}) };
+      addCoGuardianInsurance.value = parsed.coGuardianAdditionalInsurance === true
+        || savedSubmission.insuranceInfo?.useInsuranceOnFile === false;
       if (entry.requested_profile_provider_id && !sameEntry) {
         delete intakeResponses.submission.requested_opening_preference;
         delete intakeResponses.submission.providerSelection;
@@ -11803,10 +11815,21 @@ function clearInsuranceErrorsOnEdit(insBag) {
 const completeInsuranceStep = async () => {
   const step = currentFlowStep.value;
   if (!step || step.type !== 'insurance_info') return;
+  if (useCoGuardianInsuranceOnFile.value) {
+    // The invitation supplies only server-confirmed availability, never the
+    // other guardian's private policy or a shared sibling member identifier.
+    intakeResponses.submission.insuranceInfo = { useInsuranceOnFile: true, isSelfPay: false };
+    stepError.value = '';
+    clearInsuranceErrors();
+    void nextFlowStep();
+    return;
+  }
   if (!intakeResponses.submission.insuranceInfo || typeof intakeResponses.submission.insuranceInfo !== 'object') {
     intakeResponses.submission.insuranceInfo = {};
   }
   const entryInfo = intakeResponses.submission.insuranceInfo;
+  // Returning to new policy entry must not carry a previous on-file shortcut.
+  if (entryInfo.useInsuranceOnFile === true) entryInfo.useInsuranceOnFile = false;
   if (isSelfPayCoverage(entryInfo) && !hasMedicaidCoverage(entryInfo)) {
     Object.assign(entryInfo, coverageWithChoice(entryInfo, true));
   }

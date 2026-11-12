@@ -117,6 +117,12 @@ export async function readTicketAttachmentBuffer(row) {
     const {decryptGuardianScreenshot}=await import('../guardianPortalScreenshotEncryption.service.js');
     return decryptGuardianScreenshot(buffer,{ticketId:row.ticket_id});
   }
+  if(String(row.file_path).endsWith('.ticket.enc')){
+    const {decryptSupportAttachment}=await import('../supportTicketUploads.service.js');
+    const [[ticket]]=await pool.execute('SELECT agency_id FROM support_tickets WHERE id=?',[row.ticket_id]);
+    if(!ticket)throw new Error('Ticket not found.');
+    return decryptSupportAttachment(buffer,{ticketId:row.ticket_id,agencyId:ticket.agency_id});
+  }
   return buffer;
 }
 

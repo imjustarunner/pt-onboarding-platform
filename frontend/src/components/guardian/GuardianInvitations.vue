@@ -14,9 +14,10 @@
         <summary>{{ es ? 'Invitaciones y recordatorios enviados' : 'Invitation and reminder history' }}</summary>
         <ol><li v-for="attempt in invite.history" :key="attempt.id">
           {{ attempt.kind === 'reminder' ? (es ? 'Recordatorio' : 'Reminder') : (es ? 'Invitación' : 'Invitation') }}
-          · {{ deliveryLabel(attempt.status) }} · {{ dateText(attempt.occurredAt) }}
+          · {{ deliveryLabel(attempt.status) }} · {{ dateText(attempt.occurredAt) }}<template v-if="attempt.failureKind"> · {{ failureLabel(attempt.failureKind) }}</template>
         </li></ol>
       </details>
+      <p v-if="isFailed(invite)" class="invite-failure-reason">{{ es ? 'Motivo registrado' : 'Recorded reason' }}: {{ failureLabel(invite.failureKind) }}</p>
       <p v-if="invite.nextReminderAt && invite.status === 'pending'">{{ es ? 'Próximo recordatorio si aún no termina' : 'Next reminder if enrollment is still incomplete' }}: {{ dateText(invite.nextReminderAt) }}</p>
       <div v-if="invite.canManage && isFailed(invite) && invite.status !== 'accepted'" class="invite-actions">
         <label :for="`guardian-email-${invite.id}`">{{ es ? 'Correo del otro tutor' : 'Other guardian’s email' }}
@@ -38,6 +39,10 @@ const es = computed(() => props.language === 'es');
 const invitations = ref([]), error = ref(''), busy = ref(null);
 const isFailed = invite => ['failed','bounced','undelivered','not_sent'].includes(invite.deliveryStatus);
 function deliveryLabel(status) { return ({sent:es.value?'Enviada':'Sent',delivered:es.value?'Entregada':'Delivered',failed:es.value?'No enviada':'Failed',bounced:es.value?'Rechazada':'Bounced',pending:es.value?'Pendiente':'Pending',sending:es.value?'Enviando':'Sending'})[status] || status; }
+function failureLabel(kind) {
+  const labels={send_failed:es.value?'No se pudo enviar el correo.':'The email could not be sent.',bounced:es.value?'El servidor del destinatario rechazó el correo.':'The recipient’s server rejected delivery.',undelivered:es.value?'No se pudo entregar el correo.':'The email was not delivered.'};
+  return labels[kind] || (es.value?'Sin detalles registrados; el equipo de apoyo puede revisar el historial.':'No detail recorded; Support can review delivery history.');
+}
 function dateText(value) { return portalDateTime(value, {locale:es.value ? 'es-US' : 'en-US'}); }
 
 function statusText(invite) {
@@ -65,7 +70,7 @@ async function resend(invite) {
   try {
     const { data } = await api.post(`/guardian-portal/invitations/${invite.id}/resend`, { agencyId: props.agencyId, email: invite.email });
     invite.deliveryStatus = data.deliveryStatus;
-    invite.status = 'pending'; invite.lastSentAt = new Date().toISOString(); invite.expiresAt = new Date(Date.now() + 21 * 86400000).toISOString();
+    invite.status = 'pending';
     invite.notice = data.deliveryStatus === 'sent' ? (es.value ? 'Se envió una nueva invitación. El enlace anterior ya no funciona.' : 'A new invitation was sent. The previous link no longer works.') : statusText(invite);
     const refreshed=await api.get('/guardian-portal/invitations',{params:{agencyId:props.agencyId,...(props.clientId?{clientId:props.clientId}:{})},skipGlobalLoading:true});
     const updated=refreshed.data.invitations?.find(i=>i.id===invite.id);if(updated)Object.assign(invite,updated);

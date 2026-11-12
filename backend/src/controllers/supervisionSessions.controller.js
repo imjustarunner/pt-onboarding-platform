@@ -1,3 +1,4 @@
+import { nonDemoOrSyntheticQaMembershipSql } from '../utils/auricwellQaPolicy.js';
 import { requiredDialInSupervisors, supervisionDialInRequired } from '../services/meetingDialInPolicy.js';
 import { dialInConfigured } from '../services/meetingDialInPolicy.js';
 import {reserveSupervisionJoin,supervisionJoinOccupancy} from '../services/supervisionJoinCapacity.service.js';
@@ -857,7 +858,7 @@ async function attachSupervisionParticipantDetails(providers) {
 }
 
 const ACTIVE_SUPERVISION_USER_SQL = `
-  AND COALESCE(u.is_demo,0)=0
+  AND ${nonDemoOrSyntheticQaMembershipSql('u','ua')}
   AND (u.is_active IS NULL OR u.is_active = TRUE)
   AND (u.is_archived IS NULL OR u.is_archived = FALSE)
   AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED', 'PROSPECTIVE'))
@@ -3664,7 +3665,7 @@ export const createSupervisionSession = async (req, res, next) => {
     const invited = [...new Set([supervisorUserId, coFacilitatorUserId, ...(isSignupOnly ? [] : [superviseeUserId, ...allExtraAttendees])].filter(Boolean))];
     const [eligible] = await pool.execute(`SELECT DISTINCT u.id FROM users u JOIN user_agencies ua ON ua.user_id=u.id
       WHERE u.id IN (${invited.map(() => '?').join(',')}) AND ua.agency_id IN (${audienceAgencyIds.map(() => '?').join(',')})
-        AND ${workplacePersonSql('u')} AND ua.is_active=1 AND COALESCE(u.is_demo,0)=0 AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0
+        AND ${workplacePersonSql('u')} AND ua.is_active=1 AND ${nonDemoOrSyntheticQaMembershipSql('u','ua')} AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0
         AND UPPER(COALESCE(u.status,'')) NOT IN ('ARCHIVED','INACTIVE','INACTIVE_EMPLOYEE','TERMINATED','DELETED','PROSPECTIVE')`, [...invited, ...audienceAgencyIds]);
     if (invited.some(id => !eligible.some(u => Number(u.id) === Number(id)))) {
       return res.status(400).json({ error: { message: 'An invitee is no longer active in your selected agencies. Refresh the participant list.' } });

@@ -1,11 +1,12 @@
 import {beforeEach,expect,it,vi} from 'vitest';
 const m=vi.hoisted(()=>({attached:false,submitted:false,task:vi.fn(),patch:vi.fn(),createClient:vi.fn(),findDraft:vi.fn(),clientPatch:vi.fn()}));
 vi.mock('../../services/referralPacketMatch.service.js',()=>({authorizeReferralPacket:vi.fn(),referralPacketMatch:vi.fn(async()=>({}))}));
+vi.mock('../../services/paperProcessingSource.service.js',()=>({replacePaperProcessingSource:vi.fn(async({clientId,documentId,draftId,actorId})=>m.clientPatch(clientId,{onboarding_docs_json:JSON.stringify({paperPacketSource:{documentId,draftId}})},actorId))}));
 vi.mock('../../services/paperPacketTask.service.js',()=>({ensurePaperPacketTask:m.task}));
 vi.mock('../../models/Agency.model.js',()=>({default:{findBySlug:vi.fn(async()=>({id:451,organization_type:'school'})),findById:vi.fn(async()=>({id:450,timezone:'America/Denver'}))}}));
-vi.mock('../../config/database.js',()=>({default:{execute:vi.fn(async()=>[[{role:'school_staff'}]])}}));
+vi.mock('../../config/database.js',()=>({default:{execute:vi.fn(async()=>[[{role:'school_staff'}]]),getConnection:vi.fn(async()=>({execute:vi.fn(async()=>[[{acquired:1}]]),release:vi.fn()}))}}));
 vi.mock('../../utils/referralPacketUploader.js',()=>({referralPacketUploaderLabel:vi.fn(async()=> 'Synthetic uploader')}));
-vi.mock('../../models/Client.model.js',()=>({default:{create:m.createClient,update:m.clientPatch}}));
+vi.mock('../../models/Client.model.js',()=>({default:{create:m.createClient,update:m.clientPatch,findById:vi.fn(async()=>({id:55,organization_id:451,agency_id:450,initials:'SynStu'}))}}));
 vi.mock('../../models/ClientNotes.model.js',()=>({default:{create:vi.fn()}}));
 vi.mock('../../models/ClientStatusHistory.model.js',()=>({default:{create:vi.fn()}}));
 vi.mock('../../services/storage.service.js',()=>({default:{}}));
@@ -33,7 +34,7 @@ beforeEach(()=>{vi.clearAllMocks();m.attached=false;m.submitted=false;draft={id:
 });
 it('creates the Support task only after saving the matched client and attaching its private source',async()=>{
  await submitReferralPacketDraft(req,res,next);expect(next).not.toHaveBeenCalled();expect(m.task).toHaveBeenCalledOnce();
- expect(m.clientPatch).toHaveBeenCalledWith(55,expect.objectContaining({onboarding_docs_json:expect.stringContaining('"paperPacketSource":{"documentId":30,"draftId":20}')}));
+ expect(m.clientPatch).toHaveBeenCalledWith(55,expect.objectContaining({onboarding_docs_json:expect.stringContaining('"paperPacketSource":{"documentId":30,"draftId":20}')}),40);
  expect(res.json).toHaveBeenCalledWith(expect.objectContaining({clientId:55,taskId:90,taskNeedsReview:false}));
 });
 it('keeps a successfully saved client and reports task follow-up if task creation fails',async()=>{

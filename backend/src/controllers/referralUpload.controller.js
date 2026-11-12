@@ -1,3 +1,4 @@
+import {replacePaperProcessingSource} from '../services/paperProcessingSource.service.js';
 import { referralSubmissionDate } from '../utils/referralSubmissionDate.js';
 import { authorizeReferralPacket, referralPacketMatch } from '../services/referralPacketMatch.service.js';
 import { ensurePaperPacketTask } from '../services/paperPacketTask.service.js';
@@ -426,24 +427,7 @@ export const submitReferralPacketDraft = async (req, res, next) => {
     });
 
     }
-    if (!attachingExisting) {
-      const docs = typeof client.onboarding_docs_json === 'string' ? JSON.parse(client.onboarding_docs_json || '{}') : (client.onboarding_docs_json || {});
-      await Client.update(client.id, { onboarding_docs_json: JSON.stringify({ ...docs, paperPacketSource: { documentId: draft.phi_document_id, draftId: draft.id } }) });
-    }
-    if (attachingExisting) {
-      const docs = typeof client.onboarding_docs_json === 'string' ? JSON.parse(client.onboarding_docs_json || '{}') : (client.onboarding_docs_json || {});
-      const previous = docs.paperProcessing || {};
-      const paperProcessing = { ...previous, documentId: draft.phi_document_id,
-        completedSteps: (previous.completedSteps || []).filter(key => !['demographics','consents'].includes(key)),
-        invitations: previous.invitations || {}, processedAt: null, processedByUserId: null,
-        consentReview: null, signatureSourceDocumentId: null, packetEvaluationId: null,
-        previousPackets: [...(previous.previousPackets || []), ...(previous.documentId ? [{
-          documentId: previous.documentId, processedAt: previous.processedAt || null,
-          packetEvaluationId: previous.packetEvaluationId || null, consentReview: previous.consentReview || null,
-          invitations: previous.invitations || {}
-        }] : [])] };
-      await Client.update(client.id, { onboarding_docs_json: JSON.stringify({ ...docs, paperPacketSource: { documentId: draft.phi_document_id, draftId: draft.id }, paperProcessing }) });
-    }
+    await replacePaperProcessingSource({clientId:client.id,agencyId,schoolId:organization.id,documentId:draft.phi_document_id,draftId:draft.id,actorId:req.user?.id||uploaderId});
 
     if (draft.phi_document_id) {
       await ReferralPacketDraft.updateById(draft.id, {

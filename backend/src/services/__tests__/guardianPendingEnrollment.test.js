@@ -4,10 +4,11 @@ vi.mock('../../config/database.js', () => ({ default: {} }));
 vi.mock('../../config/config.js', () => ({ default: { jwt: { secret: 'unit-test-secret' } } }));
 import { listOwnPendingEnrollments, openOwnPendingEnrollment, resolvePortalEnrollmentCapability } from '../guardianPendingEnrollment.service.js';
 const scope = { userId: 9, agencyId: 450, inviteId: 28 };
-let rows, db;
+let rows, db, drafts;
 beforeEach(() => {
-  rows = [6, 7].map(id => ({ id: 28, agency_id: 450, client_agency_id: 450, client_type: 'school', status: 'pending', expires_at: '2099-01-01T00:00:00Z', client_id: id, full_name: `Child ${id}`, guardian_portal_enabled: 1, access_enabled: 1, date_of_birth: '2020-01-01', permissions_json: '{}' }));
-  db = { execute: vi.fn(async sql => sql.startsWith('SELECT *') ? [[rows[0]]] : [rows]) };
+  drafts = [];
+  rows = [6, 7].map(id => ({ id: 28, invited_email:'owner@example.test', public_key:'own-form', agency_id: 450, client_agency_id: 450, client_type: 'school', status: 'pending', expires_at: '2099-01-01T00:00:00Z', client_id: id, full_name: `Child ${id}`, guardian_portal_enabled: 1, access_enabled: 1, date_of_birth: '2020-01-01', permissions_json: '{}' }));
+  db = { execute: vi.fn(async sql => sql.includes('FROM intake_submissions') ? [drafts] : sql.startsWith('SELECT *') ? [[rows[0]]] : [rows]) };
 });
 it('lists both children without returning private enrollment answers or the emailed token', async () => {
   const result = await listOwnPendingEnrollments(scope, db);
@@ -39,4 +40,32 @@ it('opens only the exact isolated invitation without granting access to the othe
  rows.forEach(row=>row.permissions_json={isolatedIntake:true,coGuardianInviteRestricted:true,coGuardianInviteId:28,noView:true,noViewOtherGuardian:true,canViewDocs:false,canSignDocs:false});
  expect((await listOwnPendingEnrollments(scope,db))[0].children).toHaveLength(2);expect((await openOwnPendingEnrollment(scope,db)).token).toMatch(/^portal\./);
  rows[1].permissions_json.coGuardianInviteId=29;expect(await listOwnPendingEnrollments(scope,db)).toEqual([]);
+});
+
+it('resumes only this authenticated guardian’s saved enrollment bound to this exact invitation',async()=>{
+ drafts=[{id:100,co_guardian_invite_id:28,public_key:'own-form',guardian_user_id:9,status:'consented',session_token:'same-owned-return-session',draft_expires_at:'2099-01-01',retention_expires_at:'2099-01-01',intake_data:{guardian:{email:'owner@example.test'},responses:{clients:[{ownAnswer:'private own answer'}]}}}];
+ const before=structuredClone(drafts);expect((await openOwnPendingEnrollment(scope,db)).sessionToken).toBe('same-owned-return-session');expect(drafts).toEqual(before);
+ expect(db.execute.mock.calls.every(([sql])=>sql.trim().startsWith('SELECT'))).toBe(true);
+});
+it.each([
+ {guardian_user_id:10}, {co_guardian_invite_id:29}, {public_key:'other-form'}, {status:'submitted'},
+ {draft_expires_at:'2020-01-01'}, {session_token:null},
+ {guardian_user_id:null,intake_data:{guardian:{email:'other-parent@example.test'}}}
+])('does not expose or renew a different owner/form, completed, expired or revoked session: %j',async change=>{
+ drafts=[{id:100,co_guardian_invite_id:28,public_key:'own-form',guardian_user_id:9,status:'consented',session_token:'do-not-return',draft_expires_at:'2099-01-01',retention_expires_at:'2099-01-01',intake_data:{guardian:{email:'owner@example.test'}},...change}];
+ expect((await openOwnPendingEnrollment(scope,db)).sessionToken).toBeNull();expect(db.execute.mock.calls.every(([sql])=>sql.trim().startsWith('SELECT'))).toBe(true);
+});
+it('can restore a pre-activation saved session only when its invited email matches the current authenticated invitation owner',async()=>{
+ drafts=[{id:100,co_guardian_invite_id:28,public_key:'own-form',guardian_user_id:null,status:'consented',session_token:'own-before-account-activation',draft_expires_at:'2099-01-01',intake_data:{progressSnapshot:{guardian:{email:'owner@example.test'}}}}];
+ expect((await openOwnPendingEnrollment(scope,db)).sessionToken).toBe('own-before-account-activation');
+});
+
+it('restores encrypted pre-activation answers only for the exact invited owner',async()=>{
+ vi.stubEnv('INTAKE_RESPONSES_ENCRYPTION_KEY_BASE64',Buffer.alloc(32,7).toString('base64'));
+ try{
+  const {encryptIntakePayload}=await import('../intakeResponsesEncryption.service.js');
+  const encrypted=encryptIntakePayload({intakeData:{guardian:{email:'owner@example.test'},responses:{clients:[{ownAnswer:'second-parent-only'}]}}});
+  drafts=[{id:101,co_guardian_invite_id:28,public_key:'own-form',guardian_user_id:null,status:'consented',session_token:'encrypted-owned-draft',draft_expires_at:'2099-01-01',intake_data:null,payload_encrypted:encrypted.ciphertext,payload_iv_b64:encrypted.ivB64,payload_auth_tag_b64:encrypted.authTagB64,payload_key_id:encrypted.keyId}];
+  expect((await openOwnPendingEnrollment(scope,db)).sessionToken).toBe('encrypted-owned-draft');
+ }finally{vi.unstubAllEnvs();}
 });

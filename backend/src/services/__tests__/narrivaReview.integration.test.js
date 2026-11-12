@@ -14,7 +14,7 @@ vi.mock('../noteAidChartAudit.service.js',()=>({logNoteAidChartEvent:m.audit}));
 vi.mock('../narrivaAccess.service.js',async importOriginal=>{const actual=await importOriginal();return {...actual,requireNarrivaAgency:m.requireAgency};});
 import {createNarrivaReview,readNarrivaReview,resolveNarrivaFinding,assertNarrivaQuickSign,narrivaModelPayload} from '../narrivaReview.service.js';
 import {assertNarrivaRiskBeforeSignature} from '../narrivaRiskAssessment.service.js';
-import {narrivaSourceHash,NARRIVA_QUALITY_CRITERIA} from '../narrivaReviewPolicy.service.js';
+import {narrivaSourceHash,NARRIVA_QUALITY_CRITERIA,NARRIVA_RULES_VERSION} from '../narrivaReviewPolicy.service.js';
 let rows,source,facts,features,riskRequired,referenceVersion,requiredReferenceComplete,supportCoverageComplete;
 const clinician={id:7,role:'provider'},supervisor={id:9,role:'supervisor'};
 const req=(user=supervisor,extra={})=>({user,body:{agencyId:2,noteId:25,...extra},params:{}});
@@ -75,7 +75,7 @@ describe('grounded quality score and independent mandatory gates',()=>{
  });
  it('returns a server-computed score with criteria, excluded points and an explanation',async()=>{
   const result=await completedReview();
-  expect(result).toMatchObject({status:'passed',rulesVersion:'2026-11-06.2',scoring:{score:100,threshold:70,earned:95,possible:95,passed:true,mandatoryPassed:true,qualityPassed:true}});
+  expect(result).toMatchObject({status:'passed',rulesVersion:NARRIVA_RULES_VERSION,scoring:{score:100,threshold:70,earned:95,possible:95,passed:true,mandatoryPassed:true,qualityPassed:true}});
   expect(result.scoring.criteria).toHaveLength(7);
   expect(result.scoring.criteria.find(c=>c.id==='assessment_integration')).toMatchObject({status:'not_applicable',earned:0,possible:0});
   expect(result.scoring.disclaimer).toContain('not a guarantee');
@@ -150,4 +150,12 @@ describe('persisted risk cannot be removed through optional branding metadata',(
  it('requires a risk assessment even after writerMode and narrivaContext are stripped',async()=>{riskRequired=true;await expect(assertNarrivaRiskBeforeSignature({id:25,agency_id:2,clinical_session_id:20,metadata_json:{}})).rejects.toMatchObject({status:409,code:'NARRIVA_RISK_ASSESSMENT_REQUIRED'});});
  it('does not accept UI reviewed=false or arbitrary fields as a completed assessment',async()=>{riskRequired=true;await expect(assertNarrivaRiskBeforeSignature({id:25,agency_id:2,clinical_session_id:20,metadata_json:{narrivaContext:{riskAssessmentCompleted:true},structuredChart:{riskAssessment:{reviewed:false,foo:0}}}})).rejects.toMatchObject({status:409});});
  it('accepts the actual completed editor assessment and explicit clinician confirmation',async()=>{riskRequired=true;await expect(assertNarrivaRiskBeforeSignature({id:25,agency_id:2,clinical_session_id:20,metadata_json:{narrivaContext:{riskAssessmentCompleted:true},structuredChart:{riskAssessment:{patientDeniesAll:true}}}})).resolves.toBeUndefined();});
+});
+
+describe('H0004 billing review and clinical signing separation',()=>{
+ it('persists a visible advisory without making it a clinical signature blocker',async()=>{
+  source.service={code:'H0004',allowed:true,durationAllowed:true,billingDurationAllowed:false,billingUnits:5,modalityAllowed:true,billingReview:{code:'H0004_DURATION_OVER_LIMIT',reason:'Actual68-minute H0004 requires billing review before any claim.',units:5,requiresReview:true,blocksClaims:true}};
+  const review=await completedReview();expect(review.status).toBe('passed');expect(review.checks[1].findings).toEqual([]);expect(review.checks[1].advisories).toContainEqual(expect.objectContaining({category:'billing_review',blocksClaims:true,units:5}));
+  await expect(assertNarrivaQuickSign({user:supervisor,noteId:25,agencyId:2,reviewId:review.id})).resolves.toBeTruthy();
+ });
 });

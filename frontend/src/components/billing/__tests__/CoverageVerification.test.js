@@ -30,3 +30,11 @@ it('keeps verification on the claim service date, displays the saved review, and
  await w.find('form').trigger('submit');await flushPromises();expect(api.post).toHaveBeenCalledWith('/medical-billing/clients/2/coverage/review',expect.objectContaining({serviceDate:'2026-11-02'}));expect(w.emitted('saved')).toHaveLength(1);
  await w.setProps({serviceDate:'2026-11-01',clientId:3});await flushPromises();expect(w.find('input[type="date"]').element.value).toBe('2026-11-01');w.unmount();
 });
+
+it('uses an explicitly fictional review source only with the current server capability',async()=>{
+ api.get.mockImplementation(async url=>({data:url.endsWith('billing-offices')?{items:[]}:{checks:[],blockers:[],syntheticQaReviewAvailable:true}}));api.post.mockResolvedValue({data:{syntheticOnly:true}});
+ const w=mount(Coverage,{props:{agencyId:450,clientId:22,serviceDate:'2026-11-12'}});await flushPromises();expect(w.findAll('form select')[1].element.value).toBe('synthetic_qa');expect(w.text()).toContain('Fictional QA review—no payer contact');await w.get('textarea').setValue('Owner-authorized fictional-only coverage review.');await w.get('form').trigger('submit');await flushPromises();expect(api.post).toHaveBeenCalledWith('/medical-billing/clients/22/coverage/review',expect.objectContaining({source:'synthetic_qa'}));expect(w.text()).toContain('No real payer contact');w.unmount();
+});
+it('cannot forge a fictional review in a normal coverage form without the server capability',async()=>{
+ api.get.mockImplementation(async url=>({data:url.endsWith('billing-offices')?{items:[]}:{checks:[],blockers:[]}}));const w=mount(Coverage,{props:{agencyId:450,clientId:22}});await flushPromises();expect(w.find('option[value=synthetic_qa]').exists()).toBe(false);w.vm.$.setupState.draft.source='synthetic_qa';await w.get('form').trigger('submit');await flushPromises();expect(api.post).not.toHaveBeenCalled();expect(w.text()).toContain('unavailable for this client');w.unmount();
+});

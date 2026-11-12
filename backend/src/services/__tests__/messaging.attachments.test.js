@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn() } }));
 vi.mock('../storage.service.js', () => ({ default: { getGCSBucket: vi.fn() } }));
 import pool from '../../config/database.js';
+import {encryptSupportAttachment} from '../supportTicketUploads.service.js';
 import StorageService from '../storage.service.js';
 import { collectEmailAttachmentParts, prepareInboundAttachments, loadOutboundAttachments, readCommunicationAttachment, persistOutboundAttachments } from '../communicationAttachments.service.js';
 beforeEach(() => vi.resetAllMocks());
@@ -47,3 +48,6 @@ describe('durable email attachments', () => {
     expect(pool.execute).not.toHaveBeenCalled();
   });
 });
+
+it('reads a recorded encrypted ticket file through its exact mirrored agency/ticket identity',async()=>{vi.stubEnv('CLIENT_CHAT_ENCRYPTION_KEY_BASE64',Buffer.alloc(32,6).toString('base64'));try{const path='private-ticket-attachments/450/553/'+ 'a'.repeat(64)+'.ticket.enc',bytes=Buffer.from('%PDF-synthetic');pool.execute.mockImplementation(async sql=>sql.startsWith('SELECT a.*')?[[{id:7,ticket_id:553,file_path:path}]]:[[{agency_id:450}]]);StorageService.getGCSBucket.mockResolvedValue({file:()=>({exists:async()=>[true],download:async()=>[encryptSupportAttachment(bytes,{ticketId:553,agencyId:450})]})});expect(await readCommunicationAttachment({storage_key:path})).toEqual(bytes);expect(pool.execute).toHaveBeenCalledWith(expect.stringContaining('a.ticket_id=? AND t.agency_id=? AND a.file_path=?'),[553,450,path]);}finally{vi.unstubAllEnvs();}});
+it('rejects an unrecorded private ticket path without opening storage',async()=>{pool.execute.mockResolvedValue([[]]);await expect(readCommunicationAttachment({storage_key:'private-ticket-attachments/999/553/'+'b'.repeat(64)+'.ticket.enc'})).rejects.toThrow('unavailable');expect(StorageService.getGCSBucket).not.toHaveBeenCalled();});

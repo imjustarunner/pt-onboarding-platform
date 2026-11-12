@@ -15,7 +15,7 @@
       <p v-else class="muted small">Office staff is still configuring school ROI permissions.</p>
     </template>
 
-    <template v-else-if="stepDone && !editing">
+    <template v-else-if="stepDone && !editing && !deferChanges">
       <ClientOnboardingRoiExpiryEditor
         :client-id="clientId"
         :roi-expires-at="localRoiExpiresAt || roiExpiresAt"
@@ -38,7 +38,8 @@
     </template>
 
     <template v-else>
-      <p v-if="visionNeedsReview" class="roi-inline-notice roi-inline-notice--warn">
+      <p v-if="deferChanges" class="roi-inline-notice">Staff selections below are pending. They are saved only with this packet’s reviewed version, signatures and DENY choices. The paper signed date determines its expiry.</p>
+      <p v-else-if="visionNeedsReview" class="roi-inline-notice roi-inline-notice--warn">
         Packet Vision needs review — confirm version/signatures/DENY, then set staff access and save.
       </p>
       <p v-else-if="visionApplied" class="roi-inline-notice roi-inline-notice--ok">
@@ -48,6 +49,7 @@
         Paper packet uploaded — set each staff member’s access to match the signed form, then save.
       </p>
       <ClientOnboardingRoiExpiryEditor
+        v-if="!deferChanges"
         :client-id="clientId"
         :roi-expires-at="localRoiExpiresAt || roiExpiresAt"
         :readonly="readonly"
@@ -114,7 +116,8 @@
               </tbody>
             </table>
           </div>
-          <div class="roi-inline-actions">
+          <p v-if="deferChanges" class="muted small">{{ dirtyCount }} pending change{{ dirtyCount === 1 ? '' : 's' }}. Use Save and continue in the packet processor after reviewing the source.</p>
+          <div v-else class="roi-inline-actions">
             <button
               type="button"
               class="btn btn-primary btn-sm"
@@ -169,6 +172,7 @@ const props = defineProps({
   clientId: { type: [Number, String], required: true },
   stepDone: { type: Boolean, default: false },
   reviewOnly: { type: Boolean, default: false },
+  deferChanges: { type: Boolean, default: false },
   readonly: { type: Boolean, default: false },
   roiExpiresAt: { type: String, default: null }
 });
@@ -310,7 +314,8 @@ function onDraftChange() {
 async function saveAllDirty() {
   if (saving.value || loading.value || (error.value && !rows.value.length)) return false;
   const clientId = Number(props.clientId || 0);
-  if (!clientId) return;
+  if (!clientId) return false;
+  if(props.deferChanges)return rows.value.length>0&&!error.value;
   const dirtyRows = (rows.value || []).filter((r) => isDirty(r));
   if (!dirtyRows.length) return true;
 
@@ -349,7 +354,8 @@ async function saveAllDirty() {
   return !error.value;
 }
 
-defineExpose({ saveAllDirty });
+function getPendingChanges(){return (rows.value||[]).filter(row=>isDirty(row)).map(row=>({schoolStaffUserId:Number(row.school_staff_user_id),nextState:normalizeState(draftStates.value[row.school_staff_user_id])}));}
+defineExpose({saveAllDirty,getPendingChanges,reload:load});
 
 function onRoiExpirySaved(payload) {
   localRoiExpiresAt.value = payload?.client?.roi_expires_at || localRoiExpiresAt.value;
@@ -357,6 +363,7 @@ function onRoiExpirySaved(payload) {
 }
 
 async function markComplete() {
+  if(props.deferChanges)return false;
   const clientId = Number(props.clientId || 0);
   if (!clientId || saving.value) return;
 

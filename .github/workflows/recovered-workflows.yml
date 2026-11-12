@@ -70,6 +70,19 @@ jobs:
           NODE_ENV=test node --test backend/src/services/__tests__/completedIntakeRecord.service.test.js backend/src/services/__tests__/guardianSchoolRoi.service.test.js
       - name: Scoped People Operations and hiring source receipts
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.hire.config.js
+      - name: Final retest repairs, private ticket files and message artwork
+        run: |
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.final1111b.config.js
+          node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.final1111b.config.js
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.ticket-followup.config.js
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.ticket-mysql.config.js
+          node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.ticket-attachment.config.js
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.coverage-synthetic.config.js
+          NARRIVA_MYSQL_TEST=1 NARRIVA_MYSQL_PORT=33316 node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.clinical-service-change.config.js
+          node --test backend/src/services/__tests__/serviceCodeUnits.service.test.js backend/src/utils/__tests__/auricwellQaPolicy.test.js
+      - name: School session recovery preserves the open workspace
+        working-directory: frontend
+        run: node node_modules/vitest/vitest.mjs run --config vitest.school-session-recovery.config.js
       - name: Scoped address suggestions and form isolation
         run: |
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.address-autocomplete.config.js

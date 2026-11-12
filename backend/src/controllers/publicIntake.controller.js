@@ -155,7 +155,7 @@ import { notifyNewPacketUploaded, notifyCompanyEventRegistrationSubmitted, notif
 import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
 import { sendEmailFromIdentity, logSkippedOrFailedEmail } from '../services/unifiedEmail/unifiedEmailSender.service.js';
 import { logAuditEvent } from '../services/auditEvent.service.js';
-import { resolveIssuedRoiConsentSigner } from '../services/issuedRoiGuardian.service.js';
+import { portalGuardianForIssuedRoi, resolveIssuedRoiConsentSigner } from '../services/issuedRoiGuardian.service.js';
 import { resolveDevFillContext } from '../services/devFill.service.js';
 import {
   buildJobDescriptionAttachmentForEmail,

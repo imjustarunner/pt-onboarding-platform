@@ -268,6 +268,7 @@ import { formatAuditTimestamp } from '../../../utils/formatDate';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import api from '../../../services/api';
+import {isPaperPacketClient} from '../../../utils/paperPacketClient.js';
 import { operationalClientDocuments } from '../../../utils/operationalClientDocuments.js';
 import { enrollmentReceiptCards } from '../../../utils/enrollmentReceiptCards.js';
 import '../../../styles/client-hub.css';
@@ -552,7 +553,7 @@ async function load() {
   const failures = [];
   try {
     const jobs = [
-      props.operationalOnly ? operationalClientDocuments(api,clientId,{school:props.client?.client_type==='school'}).then(items=>{artifacts.value=items;artifactAccess.value='receipts';}).catch(e=>{artifacts.value=[];artifactAccess.value='unavailable';failures.push(e);}) : api.get(`/phi-documents/clients/${clientId}/chart-artifacts`, { skipGlobalLoading: true })
+      props.operationalOnly ? operationalClientDocuments(api,clientId,{school:props.client?.client_type==='school'||isPaperPacketClient(props.client)}).then(items=>{artifacts.value=items;artifactAccess.value='receipts';}).catch(e=>{artifacts.value=[];artifactAccess.value='unavailable';failures.push(e);}) : api.get(`/phi-documents/clients/${clientId}/chart-artifacts`, { skipGlobalLoading: true })
         .then((r) => { artifacts.value = Array.isArray(r.data?.artifacts) ? r.data.artifacts : []; artifactAccess.value = 'full'; })
         .catch(async (e) => {
           if (e?.response?.status === 403) {

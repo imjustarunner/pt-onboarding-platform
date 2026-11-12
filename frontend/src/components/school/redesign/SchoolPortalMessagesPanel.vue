@@ -73,7 +73,7 @@
         <template v-else>
           <div class="spm__pane-header">
             <div class="spm__pane-title">
-              <span>{{ selectedLabel }}</span>
+              <span>{{ selectedLabel }}<template v-if="selectedType === 'ticket'"> · Ticket #{{ Number(selectedKey?.replace('ticket-', '')) }}</template></span>
               <span v-if="selectedRoleTag" class="spm__role-tag">{{ selectedRoleTag }}</span>
             </div>
             <button
@@ -119,7 +119,8 @@
             </div>
           </div>
 
-          <div class="spm__composer" v-if="!messagesLoading">
+          <div class="spm__composer" v-if="!messagesLoading && !messagesError">
+            <TicketAttachmentComposer ref="replyAttachments" v-if="selectedType === 'ticket'" :key="selectedKey" :ticket-id="Number(selectedKey?.replace('ticket-', ''))" :disabled="sending" />
             <textarea
               v-model="draft"
               class="spm__composer-input"
@@ -217,20 +218,22 @@
               Send a question or request to our team. We'll reply as soon as we can. For urgent matters, call us directly.
             </p>
             <label class="spm__label">Topic</label>
-            <select v-model="newTicketTopic" class="spm__select">
+            <select v-model="newTicketTopic" class="spm__select" :disabled="creatingTicket || !!createdTicketId">
               <option v-for="t in schoolTicketTopics" :key="t.id" :value="t.id">{{ t.label }}</option>
             </select>
             <label class="spm__label">Subject <span class="spm__opt">(optional)</span></label>
-            <input v-model="newTicketSubject" class="spm__input" type="text" placeholder="e.g., Scheduling question" />
+            <input v-model="newTicketSubject" :disabled="creatingTicket || !!createdTicketId" class="spm__input" type="text" placeholder="e.g., Scheduling question" />
             <label class="spm__label">Message</label>
-            <textarea v-model="newTicketBody" class="spm__textarea" rows="4" placeholder="What do you need help with?" />
+            <textarea v-model="newTicketBody" :disabled="creatingTicket || !!createdTicketId" class="spm__textarea" rows="4" placeholder="What do you need help with?" />
+            <TicketAttachmentComposer ref="newTicketAttachments" :context-key="schoolOrganizationId" :disabled="creatingTicket" />
+            <p v-if="createdTicketId">Ticket #{{ createdTicketId }} is saved. Retry only its attachment.</p>
             <button
               class="spm-btn spm-btn--primary spm-btn--full"
               type="button"
               @click="createTicket"
               :disabled="creatingTicket || !newTicketBody.trim()"
             >
-              {{ creatingTicket ? 'Sending…' : 'Send to admin' }}
+              {{ creatingTicket ? 'Sending…' : createdTicketId ? 'Retry file upload' : 'Send to admin' }}
             </button>
           </div>
         </div>
@@ -241,9 +244,10 @@
 </template>
 
 <script setup>
+import TicketAttachmentComposer from '../../tickets/TicketAttachmentComposer.vue';
 import ConversaBrand from '../../../components/conversa/ConversaBrand.vue';
 import ConversaIcon from '../../../components/conversa/ConversaIcon.vue';
-import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue';
 import SchoolPortalEmailPanel from './SchoolPortalEmailPanel.vue';
 const activeChannel = ref('messages');
 const emailUnread = ref(0);
@@ -273,6 +277,9 @@ const chatMessages = ref([]);
 const ticketData = ref(null);
 const draft = ref('');
 const sending = ref(false);
+let disposed=false,threadListGeneration=0,ticketListGeneration=0,allGeneration=0,messageGeneration=0,staffGeneration=0;
+const schoolContext=()=>Number(props.schoolOrganizationId);
+const replyAttachments=ref(null);
 const startingChat = ref(false);
 const messagesEl = ref(null);
 const showNewChat = ref(false);
@@ -280,6 +287,7 @@ const newChatType = ref('provider');
 const newTicketSubject = ref('');
 const newTicketBody = ref('');
 const newTicketTopic = ref('general');
+const newTicketAttachments=ref(null),createdTicketId=ref(null);
 const schoolTicketTopics = GUARDIAN_TICKET_TOPICS;
 const creatingTicket = ref(false);
 const staff = ref([]);
@@ -406,35 +414,25 @@ const displayMessages = computed(() => {
 
 // ── Data loaders ───────────────────────────────────────────────
 const loadThreads = async () => {
-  try {
-    const resp = await api.get('/chat/threads', { skipGlobalLoading: true });
-    threads.value = resp.data || [];
-  } catch { threads.value = []; }
+  const generation=++threadListGeneration,school=schoolContext(),current=()=>!disposed&&generation===threadListGeneration&&school===schoolContext();
+  try {const resp=await api.get('/chat/threads',{skipGlobalLoading:true});if(current())threads.value=resp.data||[];}
+  catch {if(current())threads.value=[];}
 };
-
 const loadTickets = async () => {
-  try {
-    const resp = await api.get('/support-tickets/mine');
-    tickets.value = (resp.data || []).filter(
-      (t) => Number(t.school_organization_id) === Number(props.schoolOrganizationId)
-    );
-  } catch { tickets.value = []; }
+  const generation=++ticketListGeneration,school=schoolContext(),current=()=>!disposed&&generation===ticketListGeneration&&school===schoolContext();
+  try {const resp=await api.get('/support-tickets/mine');if(current())tickets.value=(resp.data||[]).filter(t=>Number(t.school_organization_id)===school);}
+  catch {if(current())tickets.value=[];}
 };
-
 const loadStaff = async () => {
-  if (!props.schoolOrganizationId) return;
-  try {
-    staffLoading.value = true;
-    const r = await api.get(`/school-portal/${props.schoolOrganizationId}/school-staff`);
-    staff.value = (r.data || []).filter((s) => Number(s.id) !== Number(meId.value));
-  } catch { staff.value = []; }
-  finally { staffLoading.value = false; }
+  const school=schoolContext();if(!school)return;
+  const generation=++staffGeneration,current=()=>!disposed&&generation===staffGeneration&&school===schoolContext();
+  try {staffLoading.value=true;const r=await api.get(`/school-portal/${school}/school-staff`);if(current())staff.value=(r.data||[]).filter(s=>Number(s.id)!==Number(meId.value));}
+  catch {if(current())staff.value=[];}finally{if(current())staffLoading.value=false;}
 };
-
 const loadAll = async () => {
-  loading.value = true;
-  await Promise.all([loadThreads(), loadTickets()]);
-  loading.value = false;
+  const generation=++allGeneration,school=schoolContext();loading.value=true;
+  await Promise.all([loadThreads(),loadTickets()]);
+  if(!disposed&&generation===allGeneration&&school===schoolContext())loading.value=false;
 };
 
 // ── Message loading ────────────────────────────────────────────
@@ -442,10 +440,12 @@ const loadChatMessages = async () => {
   if (!selectedKey.value?.startsWith('chat-')) return;
   const threadId = parseInt(selectedKey.value.replace('chat-', ''), 10);
   if (!threadId) return;
+  const generation=++messageGeneration,key=selectedKey.value,school=schoolContext(),current=()=>!disposed&&generation===messageGeneration&&key===selectedKey.value&&school===schoolContext();
   try {
     messagesLoading.value = true;
     messagesError.value = '';
     const resp = await api.get(`/chat/threads/${threadId}/messages`, { params: { limit: 200 } });
+    if(!current())return;
     chatMessages.value = resp.data || [];
     const last = chatMessages.value[chatMessages.value.length - 1];
     if (last?.id) {
@@ -454,23 +454,25 @@ const loadChatMessages = async () => {
     }
     await scrollToBottom();
   } catch (e) {
-    messagesError.value = e.response?.data?.error?.message || 'Failed to load messages.';
-  } finally { messagesLoading.value = false; }
+    if(current())messagesError.value = e.response?.data?.error?.message || 'Failed to load messages.';
+  } finally {if(current())messagesLoading.value = false;}
 };
 
 const loadTicketMessages = async () => {
   if (!selectedKey.value?.startsWith('ticket-')) return;
   const ticketId = parseInt(selectedKey.value.replace('ticket-', ''), 10);
   if (!ticketId) return;
+  const generation=++messageGeneration,key=selectedKey.value,school=schoolContext(),current=()=>!disposed&&generation===messageGeneration&&key===selectedKey.value&&school===schoolContext();
   try {
     messagesLoading.value = true;
     messagesError.value = '';
     const resp = await api.get(`/support-tickets/${ticketId}/messages`);
+    if(!current())return;
     ticketData.value = resp.data || { ticket: null, messages: [] };
     await scrollToBottom();
   } catch (e) {
-    messagesError.value = e.response?.data?.error?.message || 'Failed to load messages.';
-  } finally { messagesLoading.value = false; }
+    if(current())messagesError.value = e.response?.data?.error?.message || 'Failed to load messages.';
+  } finally { if(current())messagesLoading.value = false; }
 };
 
 const selectItem = async (item) => {
@@ -543,10 +545,14 @@ const send = async () => {
   } else if (selectedType.value === 'ticket') {
     const ticketId = parseInt(selectedKey.value.replace('ticket-', ''), 10);
     if (!ticketId) return;
+    const key=selectedKey.value;
     try {
       sending.value = true;
-      draft.value = '';
+      if(replyAttachments.value?.hasFile?.() && !(await replyAttachments.value.uploadPending(ticketId)))return;
+      if(key!==selectedKey.value)return;
       await api.post(`/support-tickets/${ticketId}/messages`, { body });
+      if(key!==selectedKey.value)return;
+      if(draft.value.trim()===body)draft.value='';
       await loadTicketMessages();
       await loadTickets();
     } catch (e) {
@@ -568,6 +574,7 @@ const closeNewChat = () => {
   newTicketSubject.value = '';
   newTicketBody.value = '';
   newTicketTopic.value = 'general';
+  createdTicketId.value=null;newTicketAttachments.value?.reset();
 };
 
 const startChatWithProvider = async (p) => {
@@ -618,22 +625,20 @@ const startChatWithStaff = async (s) => {
 };
 
 const createTicket = async () => {
+  if(creatingTicket.value)return;const schoolId=Number(props.schoolOrganizationId);
   const body = newTicketBody.value.trim();
   if (!body) return;
   try {
     creatingTicket.value = true;
-    const resp = await api.post('/support-tickets', {
+    if(!createdTicketId.value){const resp = await api.post('/support-tickets', {
       schoolOrganizationId: props.schoolOrganizationId,
       topic: newTicketTopic.value || 'general',
       subject: newTicketSubject.value.trim() || null,
       question: body
-    });
-    closeNewChat();
-    await loadTickets();
-    const created = resp.data;
-    if (created?.id) {
-      await selectItem({ key: `ticket-${created.id}`, type: 'ticket', ticket_id: created.id });
-    }
+    });if(Number(props.schoolOrganizationId)!==schoolId)return;createdTicketId.value=resp.data?.id;if(!createdTicketId.value)throw new Error('The question was saved without a usable ticket reference. Refresh conversations before trying again.');}
+    if(!(await newTicketAttachments.value?.uploadPending(createdTicketId.value))){newChatError.value='Your ticket is saved, but its file was not added. Retry only the file upload.';return;}
+    const id=createdTicketId.value;closeNewChat();
+    await loadTickets();await selectItem({key:`ticket-${id}`,type:'ticket',ticket_id:id});
   } catch (e) {
     newChatError.value = e.response?.data?.error?.message || 'Failed to send. Please try again.';
   } finally { creatingTicket.value = false; }
@@ -669,12 +674,16 @@ function formatTime(d) {
 // ── Watchers ───────────────────────────────────────────────────
 watch([totalUnread, emailUnread], ([messages, emails]) => emit('unread-update', messages + emails), { immediate: true });
 
+onBeforeUnmount(()=>{disposed=true;threadListGeneration++;ticketListGeneration++;allGeneration++;messageGeneration++;staffGeneration++;});
 onMounted(() => loadAll());
 
 watch(
   () => props.schoolOrganizationId,
   (newId, oldId) => {
     if (Number(newId) !== Number(oldId)) {
+      threadListGeneration++;ticketListGeneration++;allGeneration++;messageGeneration++;staffGeneration++;
+      threads.value=[];tickets.value=[];staff.value=[];draft.value='';chatMessages.value=[];ticketData.value=null;messagesError.value='';messagesLoading.value=false;
+      closeNewChat();
       selectedKey.value = null;
       selectedType.value = null;
     }

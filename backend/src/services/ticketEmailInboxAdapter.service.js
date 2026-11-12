@@ -118,7 +118,9 @@ export async function syncEmailTicketsToInbox({ agencyId, ticketId = null, limit
         } else {
           mirror = { id: await CommunicationConversation.addMessage(data) };
         }
-        for (const attachment of attachments.filter((a) => Number(a.support_ticket_message_id || seedMessageId) === Number(m.id))) {
+        // Browser uploads belong to the ticket, not an earlier inbound email.
+        // Only an explicit message binding may mirror that new encrypted file.
+        for (const attachment of attachments.filter((a) => (!String(a.file_path||'').endsWith('.ticket.enc') || a.support_ticket_message_id) && Number(a.support_ticket_message_id || seedMessageId) === Number(m.id))) {
           const [[present]] = await db.execute('SELECT id FROM communication_attachments WHERE message_id=? AND storage_key=? LIMIT 1', [mirror.id, attachment.file_path]);
           if (!present) await CommunicationConversation.addAttachment(mirror.id, { filename: attachment.file_name,
             contentType: attachment.mime_type, sizeBytes: attachment.file_size, storageKey: attachment.file_path });

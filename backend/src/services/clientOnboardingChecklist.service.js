@@ -6,6 +6,7 @@
  */
 import pool from '../config/database.js';
 import Client from '../models/Client.model.js';
+import { clientChangeValue } from '../utils/clientChangeValue.js';
 import { getClientStatusIdByKey } from '../utils/clientStatusCatalog.js';
 import { isPaperPacketClient } from '../utils/paperPacketClient.js';
 import { createClientOnboardingTaskForProvider } from './clientOnboardingTask.service.js';
@@ -463,7 +464,7 @@ export async function getClientOnboardingChecklist(clientId) {
       client_status_label: client.client_status_label || null,
       client_status_key: statusKey || null,
       provider_id: providerUserId || (client.provider_id ? Number(client.provider_id) : null),
-      roi_expires_at: client.roi_expires_at ? String(client.roi_expires_at).slice(0, 10) : null
+      roi_expires_at: clientChangeValue('roi_expires_at', client.roi_expires_at)
     },
     provider_name: providerName
   };
@@ -504,7 +505,7 @@ export async function updateOnboardingRoiExpiration({ clientId, roiExpiresAt, ac
 /**
  * Mark the multi-doc paper-packet signature as received (all checklist keys except ROI).
  */
-export async function markPaperPacketSignatureReceived({ clientId, actorUserId = null, packetVersionLabel = null }) {
+export async function markPaperPacketSignatureReceived({ clientId, actorUserId = null, packetVersionLabel = null, packetLocale = 'en', paperRoiSignedDate = null }) {
   const cid = Number(clientId || 0);
   if (!cid) throw new Error('clientId required');
   const client = await Client.findById(cid, { includeSensitive: true });
@@ -528,7 +529,7 @@ export async function markPaperPacketSignatureReceived({ clientId, actorUserId =
         clientId: cid,
         schoolOrganizationId: Number(client.organization_id),
         packetVersionLabel: label,
-        locale: 'en',
+        locale: packetLocale === 'es' ? 'es' : 'en',
         confirmedByUserId: actorUserId
       });
     } catch (err) {
@@ -536,16 +537,11 @@ export async function markPaperPacketSignatureReceived({ clientId, actorUserId =
     }
   }
 
-  // Auto-set ROI expiry to confirmed_at + 36 months if not already set.
-  if (!client.roi_expires_at) {
-    try {
-      const exp = new Date();
-      exp.setMonth(exp.getMonth() + 36);
-      const ymd = exp.toISOString().slice(0, 10);
-      await Client.update(cid, { roi_expires_at: ymd }, actorUserId);
-    } catch (err) {
-      console.warn('[onboarding] auto-set roi_expires_at failed:', err?.message || err);
-    }
+  // The paper signature day, not this review's clock time, starts its term.
+  // Unknown paper dates remain pending for explicit review; do not invent today.
+  if (!client.roi_expires_at && /^\d{4}-\d{2}-\d{2}$/.test(String(paperRoiSignedDate||''))) {
+    const {paperPacketRoiExpiresAtYmd}=await import('../utils/paperPacketRoiExpiry.js');
+    await Client.update(cid,{roi_expires_at:paperPacketRoiExpiresAtYmd(paperRoiSignedDate)},actorUserId);
   }
 
   return getClientOnboardingChecklist(cid);

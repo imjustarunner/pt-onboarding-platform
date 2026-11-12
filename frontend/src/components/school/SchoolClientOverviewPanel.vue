@@ -114,7 +114,7 @@
       </div>
       <div class="sco-card">
         <div class="sco-k">ROI expires</div>
-        <div class="sco-v">{{ formatDate(client.roi_expires_at) }}</div>
+        <div class="sco-v">{{ portalCalendarDate(client.roi_expires_at) }}</div>
       </div>
       <div class="sco-card">
         <div class="sco-k">Submitted</div>
@@ -173,7 +173,7 @@
                 <td>
                   <span :title="s.status_hover || staffRoiHover(s.effective_access_state)">{{ s.status_label }}</span>
                 </td>
-                <td class="mono">{{ formatDateShort(s.roi_expires_at) }}</td>
+                <td class="mono">{{ portalCalendarDate(s.roi_expires_at) }}</td>
               </tr>
             </tbody>
           </table>
@@ -376,20 +376,8 @@ const activatePane = (pane) => {
   activePane.value = pane;
 };
 
-function formatDate(value) {
-  if (!value) return '—';
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return String(value).slice(0, 10);
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-}
 function formatDateOnly(d) {
   return d ? String(d).slice(0, 10) : '—';
-}
-function formatDateShort(d) {
-  if (!d) return '—';
-  const parsed = new Date(d);
-  if (Number.isNaN(parsed.getTime())) return String(d).slice(0, 10);
-  return parsed.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
 }
 function formatDateTime(d) {
   return portalDateTime(d);

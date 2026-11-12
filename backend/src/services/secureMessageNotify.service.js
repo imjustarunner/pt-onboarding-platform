@@ -291,6 +291,7 @@ export async function sendSecureMessageNotification({
       'You have a secure message in Messages by Conversa. Open the link below to sign in and read it securely. Message content is not included in this email.',
     history: [],
     appUrl: claimUrl,
+    secureMessageAction: true,
     footerNote:
       'Replies to this email go to an unmonitored address (noreply) and will not be read — please use the secure link to view and reply in the portal. Personal email addresses are never shared.'
   });

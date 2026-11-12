@@ -27,7 +27,7 @@ export function clinicalServiceChangeSummary(session) {
   const modality=['in_person','phone','video'].includes(explicit)?explicit:remote?'':Number(session?.is_telehealth)===0||['11','03','12'].includes(String(session?.place_of_service))?'in_person':'';
   return {id:Number(session.id),clinicalSessionId:Number(session.id),agencyId:Number(session.agency_id),clientId:Number(session.client_id),serviceCode:code(session.service_code),durationMinutes:duration>0?duration:null,modality,
     locationLabel:session.location_label || meta.sessionContext?.locationLabel || '',serviceLocationId:Number(session.service_location_id)||null,
-    billingOfficeLocationId:Number(session.billing_office_location_id)||null,placeOfService:String(session.place_of_service || ''),pendingServiceChange:!!meta.serviceCodeChangePending};
+    billingOfficeLocationId:Number(session.billing_office_location_id)||null,placeOfService:String(session.place_of_service || ''),pendingServiceChange:!!meta.serviceCodeChangePending,durationReview:meta.serviceDurationReview || null};
 }
 function dependencies(overrides) {
   return {mainDb:pool,clinicalDb:clinicalPool,requireAgency:requireNarrivaAgency,requireClient:requireNarrivaClient,readEligibility:readStaffCareEligibility,resolveCatalog:resolveAgencySchedulingCatalog,
@@ -100,10 +100,10 @@ async function eligibleTarget(main,session,user,input,d) {
   const min=Math.max(Number(medical.min_minutes)||0,Number(selected.minDurationMinutes)||0)||null;
   const limits=[medical.max_minutes,selected.maxDurationMinutes].map(Number).filter(n=>n>0);
   const billing=resolveSessionBilling({minutes:current.durationMinutes,serviceCode:input.serviceCode,unitCalcMode:medical.unit_calc_mode,unitMinutes:medical.unit_minutes,minMinutes:min,maxMinutes:limits.length?Math.min(...limits):null,maxUnitsPerSession:medical.max_units_per_session,ladderBandsJson:medical.ladder_bands_json,overflowServiceCode:medical.overflow_service_code,overflowAtMinutes:medical.overflow_at_minutes});
-  if(!billing.claimable||billing.overflowApplied||billing.effectiveServiceCode!==input.serviceCode)throw failure(billing.reason||'This duration requires a different service or billing review. No code has been substituted.',409,'SERVICE_DURATION_REVIEW_REQUIRED');
+  if((!billing.claimable&&!billing.requiresReview)||billing.overflowApplied||billing.effectiveServiceCode!==input.serviceCode)throw failure(billing.reason||'This duration requires a different service or billing review. No code has been substituted.',409,'SERVICE_DURATION_REVIEW_REQUIRED');
   const allowed=array(medical.allowed_place_of_service_json);
   if(allowed.length&&(!session.place_of_service||!allowed.map(String).includes(String(session.place_of_service))))throw failure('The encounter location does not meet the selected service policy.');
-  return current;
+  return {...current,billingUnits:billing.claimable?billing.units:null,durationReview:billing.requiresReview?{requiresReview:true,code:billing.reviewCode,reason:billing.reason,actualMinutes:current.durationMinutes,units:billing.units,serviceCode:input.serviceCode}:null};
 }
 async function lockMainSources(main,session,input,{resume=false}={}) {
   let appointment=null,office=null;
@@ -178,7 +178,7 @@ export async function changeClinicalSessionService(user,rawInput,overrides={}) {
     if(!operation&&code(session.service_code)!==input.expectedOldServiceCode)throw failure('The original service changed. Reload the encounter before confirming.');
     if(operation&&![operation.from,operation.to].includes(code(session.service_code)))throw failure('The pending encounter changed and needs manual review.',409,'CLINICAL_SERVICE_CHANGE_PENDING');
     await editableNotes(clinical,session,user);
-    await eligibleTarget(main,session,user,input,d);
+    const target=await eligibleTarget(main,session,user,input,d);
     const sources=await lockMainSources(main,session,input,{resume:!!operation});
     if(!operation){
       operation={operationId:d.uuid(),from:input.expectedOldServiceCode,to:input.serviceCode,actorUserId:Number(user.id),reasonHash,reasonCiphertext:d.encrypt(input.justification),requestedAt:d.now()};newOperation=true;
@@ -198,11 +198,15 @@ export async function changeClinicalSessionService(user,rawInput,overrides={}) {
     const notes=await editableNotes(clinical,session,user);
     for(const note of notes){const noteMeta={...parse(note.metadata_json),serviceCode:input.serviceCode};if(noteMeta.sessionContext)noteMeta.sessionContext={...noteMeta.sessionContext,serviceCode:input.serviceCode};await clinical.execute('UPDATE clinical_notes SET note_payload=?,metadata_json=?,updated_at=CURRENT_TIMESTAMP WHERE id=?',[updatePayload(note.note_payload,input.serviceCode,d),JSON.stringify(noteMeta),note.id]);}
     delete meta.serviceCodeChangePending;
+    if(target.durationReview)meta.serviceDurationReview=target.durationReview;else delete meta.serviceDurationReview;
     if(meta.serviceCode)meta.serviceCode=input.serviceCode;
     if(meta.sessionContext)meta.sessionContext={...meta.sessionContext,serviceCode:input.serviceCode};
     if(meta.narrivaContext)meta.narrivaContext={...meta.narrivaContext,serviceCode:input.serviceCode};
     meta.serviceCodeChanges=[...array(meta.serviceCodeChanges),{...operation,completedAt:d.now()}];
-    await clinical.execute('UPDATE clinical_sessions SET service_code=?,metadata_json=?,updated_at=CURRENT_TIMESTAMP WHERE id=?',[input.serviceCode,JSON.stringify(meta),session.id]);
+    const durationHold=target.durationReview?`H0004_DURATION_REVIEW: ${target.durationReview.reason}`:null;
+    await clinical.execute(`UPDATE clinical_sessions SET service_code=?,effective_service_code=?,billed_units=?,metadata_json=?,
+      claim_blocked_reason=CASE WHEN claim_blocked_reason IS NULL OR claim_blocked_reason='' OR claim_blocked_reason LIKE 'H0004_DURATION_REVIEW:%' THEN ? ELSE claim_blocked_reason END,
+      updated_at=CURRENT_TIMESTAMP WHERE id=?`,[input.serviceCode,input.serviceCode,target.billingUnits,JSON.stringify(meta),durationHold,session.id]);
     await clinical.commit();clinicalOpen=false;
     await main.commit();mainOpen=false;
     const summary=clinicalServiceChangeSummary({...session,service_code:input.serviceCode,metadata_json:meta});

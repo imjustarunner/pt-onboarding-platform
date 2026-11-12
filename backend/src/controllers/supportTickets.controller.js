@@ -1,3 +1,5 @@
+import { logAuditEvent } from '../services/auditEvent.service.js';
+import {persistSupportTicketAttachment} from '../services/supportTicketUploads.service.js';
 import { ticketAttachmentType } from '../utils/ticketAttachmentType.js';
 import { canAccessCredentialing, appendCredentialingTicketVisibility } from '../services/credentialingAccess.service.js';
 import { ticketDepartmentKeys, canWorkDepartmentTicket, appendDepartmentTicketVisibility } from '../services/supportTicketDepartmentAccess.service.js';
@@ -244,6 +246,7 @@ async function applyTopicAudienceVisibility({ req, where, params, topicFilter = 
 /** Specialized topics: admin always; others need matching responsibility flag (or be creator/claimant). */
 async function actorCanAccessTicketTopic(req, ticket) {
   if (String(ticket?.topic || '').toLowerCase() === 'credentialing') return canAccessCredentialing(req.user, ticket.agency_id);
+  if (req.user?.role === 'school_staff' && Number(ticket?.created_by_user_id) === Number(req.user.id) && Number(ticket?.school_organization_id)) return true;
   if ((await ticketDepartmentKeys(ticket)).length) return canWorkDepartmentTicket({ ticket, userId: req.user.id });
   const role = String(req.user?.role || '').toLowerCase();
   if (
@@ -544,6 +547,16 @@ async function listSchoolStaffRecipients({ schoolOrganizationId }) {
     [sid]
   );
   return rows || [];
+}
+
+/** Own school contact tickets notify their creator; client collaboration keeps its established audience. */
+export async function schoolTicketReplyRecipients(ticket) {
+  if(ticket.client_id)return listSchoolStaffRecipients({schoolOrganizationId:ticket.school_organization_id});
+  const schoolId=Number(ticket.school_organization_id),creatorId=Number(ticket.created_by_user_id);
+  if(!schoolId||!creatorId||Number(await resolveActiveAgencyIdForOrg(schoolId))!==Number(ticket.agency_id))return [];
+  const creator=await User.findById(creatorId),memberships=await User.getAgencies(creatorId);
+  if(!creator||String(creator.role||'').toLowerCase()!=='school_staff'||creator.is_archived||String(creator.status||'').toUpperCase()==='ARCHIVED'||creator.is_active===0||!(memberships||[]).some(row=>Number(row.id)===schoolId))return [];
+  return [creator];
 }
 
 async function listAgencySupportRecipients({ agencyId, topic = 'general' }) {
@@ -1006,7 +1019,8 @@ export const listMySupportTickets = async (req, res, next) => {
        ORDER BY t.created_at DESC`,
       [req.user.id]
     );
-    res.json((rows || []).map((t) => enrichTicketForClient(t)));
+    const visible=[];for(const ticket of rows||[]){if(req.user?.role==='school_staff'){try{await authorizeSupportTicketConversation(req,ticket);}catch(error){if([403,404].includes(error.status))continue;throw error;}}visible.push(enrichTicketForClient(ticket));}
+    res.json(visible);
   } catch (e) {
     next(e);
   }
@@ -2273,20 +2287,27 @@ export const listClientSupportTickets = async (req, res, next) => {
   }
 };
 
-export const listSupportTicketMessages = async (req, res, next) => {
-  try {
-    const ticketId = parseInt(req.params.id, 10);
-    if (!ticketId) return res.status(400).json({ error: { message: 'Invalid ticket id' } });
-
-    const [rows] = await pool.execute(`SELECT * FROM support_tickets WHERE id = ? LIMIT 1`, [ticketId]);
-    const ticket = rows?.[0] || null;
-    if (!ticket) return res.status(404).json({ error: { message: 'Ticket not found' } });
-
-    const role = String(req.user?.role || '').toLowerCase();
+/** Exact ticket conversation audience, shared by public messages and private files. */
+export async function authorizeSupportTicketConversation(req,ticket) {
+  const role = String(req.user?.role || '').toLowerCase();
+  if(role==='school_staff'){
+    // One request may list many own tickets from the same school. Cache only
+    // authenticated membership/school facts; ticket audience is checked per row.
+    req.supportTicketMemberships ||= User.getAgencies(req.user.id);
+    req.supportTicketSchoolAgencies ||= new Map();
+    const schoolId=Number(ticket.school_organization_id);
+    if(!req.supportTicketSchoolAgencies.has(schoolId))req.supportTicketSchoolAgencies.set(schoolId,resolveActiveAgencyIdForOrg(schoolId));
+    const memberships=await req.supportTicketMemberships,agencyId=await req.supportTicketSchoolAgencies.get(schoolId);
+    if(!schoolId||!(memberships||[]).some(row=>Number(row.id)===schoolId)||!agencyId||Number(agencyId)!==Number(ticket.agency_id))throw Object.assign(new Error('This support ticket is outside your school.'),{status:403});
+    if(Number(ticket.created_by_user_id)===Number(req.user.id)){
+      if(!(await actorCanAccessTicketTopic(req,ticket)))throw Object.assign(new Error('This ticket is routed to a different audience'),{status:403});
+      return {role,restrictToOwnTicket:true};
+    }
+  }
     const isTicketCreatorEarly = Number(ticket?.created_by_user_id || 0) === Number(req.user?.id || 0);
     if (!(role === 'client_guardian' && isTicketCreatorEarly)) {
       const access = await ensureTicketScopeAccess(req, ticket);
-      if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+      if (!access.ok) throw Object.assign(new Error(access.message),{status:access.status});
     }
 
     const schedulerOwnOnly = role === 'school_staff'
@@ -2308,10 +2329,10 @@ export const listSupportTicketMessages = async (req, res, next) => {
       ) === 'limited';
     const restrictToOwnTicket = limitedStaffOwnTicketOnly || schedulerOwnOnly;
     if (restrictToOwnTicket && Number(ticket?.created_by_user_id || 0) !== Number(req.user?.id || 0)) {
-      return res.status(403).json({ error: { message: 'Limited ticket access only allows your own tickets' } });
+      throw Object.assign(new Error('Limited ticket access only allows your own tickets'),{status:403});
     }
     const isTicketCreator = Number(ticket?.created_by_user_id || 0) === Number(req.user?.id || 0);
-    let canView = isAgencyAdminUser(req) || role === 'super_admin' || (role === 'client_guardian' && isTicketCreator) || await canWorkDepartmentTicket({ ticket, userId: req.user.id });
+    let canView = (role === 'school_staff' && isTicketCreator && Number(ticket.school_organization_id)>0) || isAgencyAdminUser(req) || role === 'super_admin' || (role === 'client_guardian' && isTicketCreator) || await canWorkDepartmentTicket({ ticket, userId: req.user.id });
     if (!canView && role === 'school_staff' && ticket.client_id) {
       canView = await ClientSchoolStaffRoiAccess.schoolStaffHasActiveRoiAccess({
         clientId: ticket.client_id,
@@ -2334,10 +2355,25 @@ export const listSupportTicketMessages = async (req, res, next) => {
             orgId: ticket.school_organization_id
           })));
     }
-    if (!canView) return res.status(403).json({ error: { message: 'Access denied' } });
+    if (!canView) throw Object.assign(new Error('Access denied to this support ticket.'),{status:403});
     if (!(await actorCanAccessTicketTopic(req, ticket))) {
-      return res.status(403).json({ error: { message: 'This ticket is routed to a different audience' } });
+      throw Object.assign(new Error('This ticket is routed to a different audience'),{status:403});
     }
+
+
+  return {role,restrictToOwnTicket};
+}
+
+export const listSupportTicketMessages = async (req, res, next) => {
+  try {
+    const ticketId = parseInt(req.params.id, 10);
+    if (!ticketId) return res.status(400).json({ error: { message: 'Invalid ticket id' } });
+
+    const [rows] = await pool.execute(`SELECT * FROM support_tickets WHERE id = ? LIMIT 1`, [ticketId]);
+    const ticket = rows?.[0] || null;
+    if (!ticket) return res.status(404).json({ error: { message: 'Ticket not found' } });
+
+    const {role,restrictToOwnTicket} = await authorizeSupportTicketConversation(req,ticket);
 
     if (String(ticket.created_by_source_key || '').toLowerCase() === 'prehire_portal_chat') {
       try {
@@ -2356,8 +2392,7 @@ export const listSupportTicketMessages = async (req, res, next) => {
     const hasInternal = await hasSupportTicketMessageInternalColumn();
     const hideInternal = role === 'school_staff' || role === 'client_guardian';
     const messageParams = [ticketId];
-    const ownMessageClause = restrictToOwnTicket ? ' AND m.author_user_id = ?' : '';
-    if (restrictToOwnTicket) messageParams.push(req.user.id);
+    const ownMessageClause = ''; // Own-ticket scope was checked above; include public replies from Support.
     const internalClause = hideInternal && hasInternal ? ' AND COALESCE(m.is_internal, 0) = 0' : '';
     const [mRows] = await pool.execute(
       `SELECT m.*,
@@ -2380,7 +2415,7 @@ export const listSupportTicketMessages = async (req, res, next) => {
       return decrypted;
     });
 
-    const attachments = await listTicketAttachments(ticketId).catch(() => []);
+    const attachments = await visibleTicketAttachments(req,ticket);
     const staffEmail = !hideInternal && String(ticket.source_channel || '').toLowerCase() === 'email';
     const emailDeliveries = staffEmail ? await listTicketEmailDeliveryMetadata(ticketId) : [];
     const deliveryByMessage = new Map(emailDeliveries.map((d) => [Number(d.ticket_message_id), d]));
@@ -2455,6 +2490,8 @@ export const createSupportTicketMessage = async (req, res, next) => {
       }
     }
 
+    await authorizeSupportTicketConversation(req,ticket);
+
     if (!(await hasSupportTicketMessagesTable())) {
       return res.status(409).json({ error: { message: 'Ticket messages are not enabled (missing migration)' } });
     }
@@ -2481,7 +2518,7 @@ export const createSupportTicketMessage = async (req, res, next) => {
       if ((limitedStaffOwnTicketOnly || schedulerOwnOnly) && Number(ticket?.created_by_user_id || 0) !== Number(req.user?.id || 0)) {
         return res.status(403).json({ error: { message: 'Limited ticket access only allows replying to your own tickets' } });
       }
-      let canPost = isAgencyAdminUser(req) || role === 'super_admin' || await canWorkDepartmentTicket({ ticket, userId: req.user.id });
+      let canPost = (role === 'school_staff' && isTicketCreator) || isAgencyAdminUser(req) || role === 'super_admin' || await canWorkDepartmentTicket({ ticket, userId: req.user.id });
       if (!canPost && role === 'school_staff') {
         canPost = await ClientSchoolStaffRoiAccess.schoolStaffHasActiveRoiAccess({
           clientId: ticket.client_id,
@@ -2607,7 +2644,7 @@ export const createSupportTicketMessage = async (req, res, next) => {
       const categoryKey = 'school_portal_client_messages';
       const recipients = role === 'school_staff'
         ? await listAgencySupportRecipients({ agencyId, topic: ticket.topic || 'general' })
-        : await listSchoolStaffRecipients({ schoolOrganizationId: ticket.school_organization_id });
+        : await schoolTicketReplyRecipients(ticket);
 
       for (const r of recipients) {
         if (Number(r.id) === Number(req.user?.id)) continue;
@@ -4302,9 +4339,8 @@ export const listSupportTicketAttachments = async (req, res, next) => {
   try {
     const ticketId = parseInt(req.params.id, 10);
     if (!ticketId) return res.status(400).json({ error: { message: 'Invalid ticket id' } });
-    const loaded = await loadTicketForActionAccess(req, ticketId);
-    if (!loaded.ok) return res.status(loaded.status).json({ error: { message: loaded.message } });
-    const attachments = await listTicketAttachments(ticketId);
+    const ticket=await loadTicketConversation(req,ticketId);
+    const attachments = await visibleTicketAttachments(req,ticket);
     res.json({ attachments });
   } catch (e) {
     next(e);
@@ -4318,12 +4354,12 @@ export const downloadSupportTicketAttachment = async (req, res, next) => {
     if (!ticketId || !attachmentId) {
       return res.status(400).json({ error: { message: 'Invalid ticket or attachment id' } });
     }
-    const loaded = await loadTicketForActionAccess(req, ticketId);
-    if (!loaded.ok) return res.status(loaded.status).json({ error: { message: loaded.message } });
-
+    const ticket=await loadTicketConversation(req,ticketId);
     const row = await getTicketAttachmentRow(ticketId, attachmentId);
+    if(row && !(await ticketAttachmentIsVisible(req,ticket,row))) return res.status(404).json({error:{message:'Attachment not found'}});
     if (!row) return res.status(404).json({ error: { message: 'Attachment not found' } });
     const buffer = await readTicketAttachmentBuffer(row);
+    await logAuditEvent(req,{actionType:'support_ticket_attachment_viewed',agencyId:ticket.agency_id,targetType:'support_ticket',targetId:ticket.id,metadata:{attachmentId:Number(row.id)}});
     const preview = ticketAttachmentType(buffer, row.file_name);
     res.setHeader('Cache-Control', 'private, no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -4335,3 +4371,24 @@ export const downloadSupportTicketAttachment = async (req, res, next) => {
     next(e);
   }
 };
+
+export async function loadTicketConversation(req,ticketId){
+ if(!Number.isSafeInteger(Number(ticketId))||Number(ticketId)<=0)throw Object.assign(new Error('Invalid ticket id'),{status:400});
+ const [[ticket]]=await pool.execute('SELECT * FROM support_tickets WHERE id = ? LIMIT 1',[Number(ticketId)]);
+ if(!ticket)throw Object.assign(new Error('Ticket not found'),{status:404});
+ await authorizeSupportTicketConversation(req,ticket);return ticket;
+}
+async function ticketAttachmentIsVisible(req,ticket,row){
+ if(!row.support_ticket_message_id)return true;
+ const [[message]]=await pool.execute('SELECT ticket_id,is_internal,is_deleted FROM support_ticket_messages WHERE id=? AND ticket_id=? LIMIT 1',[row.support_ticket_message_id,ticket.id]);
+ return !!message && Number(message.is_deleted||0)!==1 && (!['school_staff','client_guardian'].includes(String(req.user.role||'').toLowerCase())||Number(message.is_internal||0)!==1);
+}
+async function visibleTicketAttachments(req,ticket){
+ const rows=await listTicketAttachments(ticket.id),result=[];for(const row of rows)if(await ticketAttachmentIsVisible(req,ticket,row)){const {file_path,...publicRow}=row;result.push(publicRow);}return result;
+}
+export async function authorizeTicketAttachmentUpload(req,res,next){
+ try{if(!['super_admin','admin','support','staff','clinical_practice_assistant','school_staff','provider','provider_plus'].includes(req.user?.role))throw Object.assign(new Error('Use your own school or staff account to attach a file.'),{status:403});req.supportAttachmentTicket=await loadTicketConversation(req,req.params.id);next();}catch(error){next(error);}
+}
+export async function uploadSupportTicketAttachment(req,res,next){
+ try{const ticket=await loadTicketConversation(req,req.params.id);const attachment=await persistSupportTicketAttachment({req,ticket,file:req.file});return res.status(201).json({attachment});}catch(error){next(error);}
+}

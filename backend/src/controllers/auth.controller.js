@@ -51,6 +51,7 @@ import { getPlatformAgencyId } from './summitStats.controller.js';
 import pool from '../config/database.js';
 import ChallengeParticipantProfile from '../models/ChallengeParticipantProfile.model.js';
 import { verifyRecaptchaV3 } from '../services/captcha.service.js';
+import { skipSyntheticQaRecoveryCaptcha } from '../services/syntheticQaCaptcha.service.js';
 import { SUPPORT_TICKET_SOURCE_KEYS, normalizeSupportTicketSourceKey } from '../constants/supportTicketSources.js';
 import { SUMMIT_STATS_TEAM_CHALLENGE_NAME } from '../constants/summitStatsBranding.js';
 import { isSstcInviteOnlyMemberSignup } from '../utils/sstcInviteOnly.js';
@@ -2704,6 +2705,10 @@ const isLocalDevRecoveryRequest = (req) => {
 };
 
 const verifyRecoveryCaptcha = async ({ req, expectedAction }) => {
+  if (await skipSyntheticQaRecoveryCaptcha({
+    identifier: req.body?.email || req.body?.contactEmail || req.body?.username,
+    organizationSlug: req.body?.organizationSlug || req.body?.orgSlug
+  })) return { ok: true, reason: 'synthetic_qa' };
   const captchaToken = String(req.body?.captchaToken || '').trim();
   // Public login / local often have no recaptcha UI. Never block password recovery on a missing token.
   if (!captchaToken || !isRecaptchaConfigured()) {
@@ -3052,13 +3057,19 @@ const notifyCurrentEmployeeRescue = async ({
 export const getRecoveryStatus = async (req, res, next) => {
   try {
     const sendingMode = await EmailService.getSendingMode().catch(() => 'unknown');
-    const captchaConfigured = isRecaptchaConfigured();
+    const syntheticQa = await skipSyntheticQaRecoveryCaptcha({
+      identifier: req.body?.identifier,
+      organizationSlug: req.body?.organizationSlug
+    });
+    const captchaConfigured = !syntheticQa && isRecaptchaConfigured();
+    res.set?.('Cache-Control', 'no-store');
     res.json({
       ok: true,
       emailConfigured: EmailService.isConfigured(),
       sendingMode,
       recaptcha: {
         configured: captchaConfigured,
+        skipForSyntheticQa: syntheticQa,
         siteKey: captchaConfigured ? (config.recaptcha?.siteKey || null) : null,
         useEnterprise: !!(config.recaptcha?.enterpriseApiKey || config.recaptcha?.enterpriseProjectId),
         // Optional enrichment only — missing tokens must not block Forgot Password.

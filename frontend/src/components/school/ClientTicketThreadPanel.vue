@@ -87,7 +87,7 @@
       </div>
     </div>
 
-    <div class="composer">
+    <div v-if="!error && !loadingTickets && !loadingThread" class="composer">
       <div class="composer-top">
         <strong>Send message</strong>
         <span v-if="ticket && isClosed" class="muted">Posting will reopen the ticket.</span>
@@ -108,6 +108,7 @@
         ref="composerEl"
         data-tour="school-client-modal-ticket-composer"
       />
+      <TicketAttachmentComposer ref="replyAttachments" v-if="ticket?.id && !error" :key="`${schoolOrganizationId}:${client.id}:${ticket.id}`" :ticket-id="ticket.id" :disabled="sending" />
       <div class="composer-actions">
         <button class="btn btn-primary" type="button" @click="send" :disabled="sending || !draft.trim()">
           {{ sending ? 'Sending…' : (creatingNewTicket ? 'Submit new ticket' : 'Send message') }}
@@ -119,8 +120,9 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue';
 import api from '../../services/api';
+import TicketAttachmentComposer from '../tickets/TicketAttachmentComposer.vue';
 import SupportTicketThreadMessage from './SupportTicketThreadMessage.vue';
 import { useAuthStore } from '../../store/auth';
 
@@ -143,6 +145,7 @@ const messages = ref([]);
 
 const draft = ref('');
 const sending = ref(false);
+const replyAttachments=ref(null);
 const sendError = ref('');
 
 const showFullThread = ref(false);
@@ -151,6 +154,8 @@ const composerEl = ref(null);
 
 const replyTo = ref(null); // { id, authorLabel }
 const creatingNewTicket = ref(false);
+let disposed=false,listGeneration=0,messageGeneration=0;
+const contextKey=()=>`${Number(props.schoolOrganizationId)}:${Number(props.client?.id)}`;
 
 const isClosed = computed(() => String(ticket.value?.status || '').toLowerCase() === 'closed');
 const isAnsweredOrClosed = computed(() => {
@@ -248,6 +253,7 @@ const clearReplyTo = () => {
 };
 
 const beginNewTicket = () => {
+  messageGeneration++;loadingThread.value=false;draft.value='';
   creatingNewTicket.value = true;
   selectedTicketId.value = null;
   ticket.value = null;
@@ -271,6 +277,8 @@ const cancelNewTicket = () => {
 
 const loadTickets = async () => {
   if (!props.client?.id) return;
+  const generation=++listGeneration,key=contextKey();
+  const current=()=>!disposed&&generation===listGeneration&&key===contextKey();
   loadingTickets.value = true;
   error.value = '';
   try {
@@ -280,6 +288,7 @@ const loadTickets = async () => {
         clientId: Number(props.client.id)
       }
     });
+    if(!current())return;
     const list = Array.isArray(r.data?.tickets) ? r.data.tickets : [];
     tickets.value = list;
 
@@ -299,23 +308,28 @@ const loadTickets = async () => {
       await selectTicket(desired);
     }
   } catch (e) {
+    if(!current())return;
     error.value = e.response?.data?.error?.message || 'Failed to load tickets';
     tickets.value = [];
     selectedTicketId.value = null;
     ticket.value = null;
     messages.value = [];
   } finally {
-    loadingTickets.value = false;
+    if(current())loadingTickets.value = false;
   }
 };
 
 const loadMessagesForTicket = async (ticketId) => {
   const id = Number(ticketId);
   if (!id) return;
+  const generation=++messageGeneration,key=contextKey();
+  const current=()=>!disposed&&generation===messageGeneration&&key===contextKey()&&Number(selectedTicketId.value)===id;
   loadingThread.value = true;
   error.value = '';
   try {
     const r = await api.get(`/support-tickets/${id}/messages`);
+    if(!current())return;
+    const loaded=r.data?.ticket;if(loaded && ((loaded.client_id!=null&&Number(loaded.client_id)!==Number(props.client.id))||(loaded.school_organization_id!=null&&Number(loaded.school_organization_id)!==Number(props.schoolOrganizationId))))throw new Error('This ticket belongs to another client or school.');
     ticket.value = r.data?.ticket || ticket.value;
     messages.value = Array.isArray(r.data?.messages) ? r.data.messages : [];
     await nextTick();
@@ -326,19 +340,22 @@ const loadMessagesForTicket = async (ticketId) => {
       // ignore
     }
     // "Read" = "viewed": mark the client thread as viewed after we have loaded the thread.
-    await markThreadViewed();
+    if(current())await markThreadViewed();
   } catch (e) {
+    if(!current())return;
     error.value = e.response?.data?.error?.message || 'Failed to load messages';
     messages.value = [];
   } finally {
-    loadingThread.value = false;
+    if(current())loadingThread.value = false;
   }
 };
 
 const selectTicket = async (id) => {
   const nextId = Number(id);
   if (!nextId) return;
+  const key=contextKey();
   selectedTicketId.value = nextId;
+  draft.value='';
   creatingNewTicket.value = false;
   showFullThread.value = false;
   replyTo.value = null;
@@ -348,6 +365,7 @@ const selectTicket = async (id) => {
   const listCopy = (tickets.value || []).find((t) => Number(t?.id) === nextId) || null;
   if (listCopy) ticket.value = listCopy;
   await loadMessagesForTicket(nextId);
+  if(disposed||key!==contextKey()||Number(selectedTicketId.value)!==nextId)return;
 
   // Keep the list copy in sync with server-returned ticket fields.
   try {
@@ -387,7 +405,9 @@ const deleteMessage = async (node) => {
 };
 
 const send = async () => {
-  if (!props.client?.id) return;
+  if (!props.client?.id || sending.value || error.value || loadingTickets.value || loadingThread.value) return;
+  const key=contextKey(),targetTicketId=Number(ticket.value?.id),parentId=replyTo.value?.id||null;
+  const current=()=>!disposed&&key===contextKey();
   const body = String(draft.value || '').trim();
   if (!body) return;
   sending.value = true;
@@ -400,25 +420,28 @@ const send = async () => {
         subject: 'Client message',
         question: body
       });
+      if(!current())return;
       const createdTicket = created.data || null;
       // Refresh list and select the new ticket.
       await loadTickets();
+      if(!current())return;
       if (createdTicket?.id) {
         await selectTicket(createdTicket.id);
       } else {
         // best-effort: show something even if API returned minimal shape
         ticket.value = createdTicket;
       }
+      if(!current())return;
       draft.value = '';
       replyTo.value = null;
       creatingNewTicket.value = false;
       return;
     }
 
-    const r = await api.post(`/support-tickets/${ticket.value.id}/messages`, {
-      body,
-      parentMessageId: replyTo.value?.id || null
-    });
+    if(replyAttachments.value?.hasFile?.() && !(await replyAttachments.value.uploadPending(targetTicketId)))return;
+    if(!current()||Number(selectedTicketId.value)!==targetTicketId)return;
+    const r = await api.post(`/support-tickets/${targetTicketId}/messages`, {body,parentMessageId:parentId});
+    if(!current()||Number(selectedTicketId.value)!==targetTicketId)return;
     // Endpoint returns updated thread payload
     ticket.value = r.data?.ticket || ticket.value;
     messages.value = Array.isArray(r.data?.messages) ? r.data.messages : messages.value;
@@ -434,15 +457,16 @@ const send = async () => {
       // ignore
     }
   } catch (e) {
-    sendError.value = e.response?.data?.error?.message || 'Failed to send message';
+    if(current())sendError.value = e.response?.data?.error?.message || 'Failed to send message';
   } finally {
     sending.value = false;
   }
 };
 
 watch(
-  () => props.client?.id,
+  () => [props.client?.id,props.schoolOrganizationId],
   async () => {
+    listGeneration++;messageGeneration++;loadingTickets.value=false;loadingThread.value=false;error.value='';sendError.value='';
     showFullThread.value = false;
     selectedTicketId.value = null;
     replyTo.value = null;
@@ -455,6 +479,7 @@ watch(
   }
 );
 
+onBeforeUnmount(()=>{disposed=true;listGeneration++;messageGeneration++;});
 onMounted(loadTickets);
 </script>
 

@@ -239,6 +239,8 @@ router.get('/verify-club-manager-email', verifyClubManagerEmail);
 
 // Public recovery endpoints (do not require authentication)
 router.get('/recovery-status', recoveryLimiter, getRecoveryStatus);
+// Account/tenant hints stay out of URL/access logs; the existing limiter remains.
+router.post('/recovery-status', recoveryLimiter, getRecoveryStatus);
 router.post('/request-password-reset', recoveryLimiter, [
   body('email').isEmail().normalizeEmail(),
   body('organizationSlug').optional().isString().trim(),

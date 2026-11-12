@@ -1,3 +1,4 @@
+import {nonDemoOrSyntheticQaMembershipSql} from '../../utils/auricwellQaPolicy.js';
 import {afterAll,beforeAll,beforeEach,describe,it,expect,vi} from 'vitest';
 import {readFileSync} from 'node:fs';
 import mysql from 'mysql2/promise';
@@ -26,7 +27,7 @@ suite('explicit clinical service correction across MySQL data planes',()=>{
   admin=await mysql.createConnection(settings);await admin.query('CREATE DATABASE IF NOT EXISTS narriva_service_change_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
   db=mysql.createPool({...settings,database:'narriva_service_change_test',connectionLimit:6});
   await db.query(`DROP TABLE IF EXISTS clinical_sessions,clinical_notes,clinical_claims,appointments,appointment_participants,office_events,office_locations,office_location_agencies,clinical_note_drafts,note_aid_work_queue_items,agency_medical_service_codes,scheduling_service_codes,credential_service_code_eligibility;
-   CREATE TABLE clinical_sessions(id INT PRIMARY KEY,agency_id INT,client_id INT,provider_user_id INT,appointment_id INT,office_event_id INT,billing_encounter_id INT,service_code VARCHAR(32),duration_minutes INT,is_telehealth TINYINT,place_of_service VARCHAR(8),encounter_status VARCHAR(32),metadata_json JSON,scheduled_start_at DATETIME,scheduled_end_at DATETIME,source_timezone VARCHAR(80),updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP);
+   CREATE TABLE clinical_sessions(id INT PRIMARY KEY,agency_id INT,client_id INT,provider_user_id INT,appointment_id INT,office_event_id INT,billing_encounter_id INT,service_code VARCHAR(32),duration_minutes INT,is_telehealth TINYINT,place_of_service VARCHAR(8),encounter_status VARCHAR(32),metadata_json JSON,scheduled_start_at DATETIME,scheduled_end_at DATETIME,source_timezone VARCHAR(80),effective_service_code VARCHAR(32),billed_units INT,claim_blocked_reason VARCHAR(500),updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP);
    CREATE TABLE clinical_notes(id INT PRIMARY KEY,clinical_session_id INT,created_by_user_id INT,provider_signed_at DATETIME,supervisor_cosigned_at DATETIME,content_review_source VARCHAR(80),is_legal_hold TINYINT DEFAULT 0,note_payload LONGTEXT,metadata_json JSON,updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP);
    CREATE TABLE clinical_claims(id INT PRIMARY KEY,clinical_session_id INT,is_deleted TINYINT DEFAULT 0);
    CREATE TABLE appointments(id INT PRIMARY KEY,agency_id INT,provider_user_id INT,clinical_session_id INT,office_event_id INT,service_code VARCHAR(32),addon_service_codes_json JSON,status VARCHAR(32),package_entitlement_id INT,product_origin VARCHAR(80),updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP);
@@ -43,7 +44,7 @@ suite('explicit clinical service correction across MySQL data planes',()=>{
  afterAll(async()=>{if(priorKey===undefined)delete process.env.CLIENT_CHAT_ENCRYPTION_KEY_BASE64;else process.env.CLIENT_CHAT_ENCRYPTION_KEY_BASE64=priorKey;if(db)await db.end();if(admin)await admin.end();});
  beforeEach(async()=>{
   await db.query(`DELETE FROM clinical_sessions;DELETE FROM clinical_notes;DELETE FROM clinical_claims;DELETE FROM appointments;DELETE FROM appointment_participants;DELETE FROM office_events;DELETE FROM office_locations;DELETE FROM office_location_agencies;DELETE FROM clinical_note_drafts;DELETE FROM note_aid_work_queue_items;DELETE FROM agency_medical_service_codes;DELETE FROM scheduling_service_codes;DELETE FROM credential_service_code_eligibility;
-   INSERT INTO clinical_sessions VALUES(10,1,20,7,30,40,NULL,'H0004',60,0,'11','completed','{"sessionContext":{"serviceCode":"H0004"}}','2026-11-06 15:00:00','2026-11-06 16:00:00','America/Denver',CURRENT_TIMESTAMP);
+   INSERT INTO clinical_sessions VALUES(10,1,20,7,30,40,NULL,'H0004',60,0,'11','completed','{"sessionContext":{"serviceCode":"H0004"}}','2026-11-06 15:00:00','2026-11-06 16:00:00','America/Denver','H0004',4,NULL,CURRENT_TIMESTAMP);
    INSERT INTO appointments(id,agency_id,provider_user_id,clinical_session_id,office_event_id,service_code,addon_service_codes_json,status,product_origin) VALUES(30,1,7,10,40,'H0004','["90785","99051"]','completed','full_suite');
    INSERT INTO appointment_participants VALUES(30,20);INSERT INTO office_locations VALUES(50,1,'America/Denver');INSERT INTO office_events VALUES(40,50,20,7,NULL,'H0004','{"serviceCode":"H0004","unchanged":true}');
    INSERT INTO agency_medical_service_codes(agency_id,service_code,is_active,is_addon,unit_calc_mode,unit_minutes,min_minutes,max_minutes,max_units_per_session) VALUES(1,'H2011',1,0,'MEDICAID_8_MINUTE_LADDER',15,8,247,16);
@@ -113,6 +114,30 @@ suite('explicit clinical service correction across MySQL data planes',()=>{
  });
  it('fails before any journal or source mutation when encryption is unavailable',async()=>{
   const key=process.env.CLIENT_CHAT_ENCRYPTION_KEY_BASE64;delete process.env.CLIENT_CHAT_ENCRYPTION_KEY_BASE64;try{await expect(changeClinicalSessionService(actor,input,d)).rejects.toThrow('encryption key');expect((await state()).session.metadata_json.serviceCodeChangePending).toBeUndefined();expect(d.setServiceCodes).not.toHaveBeenCalled();}finally{process.env.CLIENT_CHAT_ENCRYPTION_KEY_BASE64=key;}
+ });
+ it.each([[30,2],[38,3],[53,4],[60,4],[67,4],[68,5]])('confirms H0004 at%s minutes and preserves content, with review above the four-unit band',async(minutes,units)=>{
+  await db.query(`UPDATE clinical_sessions SET service_code='90837',duration_minutes=${minutes};UPDATE appointments SET service_code='90837';UPDATE office_events SET service_code='90837';
+    INSERT INTO agency_medical_service_codes(agency_id,service_code,is_active,is_addon,unit_calc_mode,unit_minutes,min_minutes,max_minutes,max_units_per_session,ladder_bands_json) VALUES(1,'H0004',1,0,'MEDICAID_8_MINUTE_LADDER',15,8,NULL,4,'[{"units":1,"minMinutes":8,"maxMinutes":22},{"units":2,"minMinutes":23,"maxMinutes":37},{"units":3,"minMinutes":38,"maxMinutes":52},{"units":4,"minMinutes":53,"maxMinutes":67}]')`);
+  d.resolveCatalog.mockResolvedValue({eligibleServiceCodes:[{code:'H0004',minDurationMinutes:8,maxDurationMinutes:15}]});
+  const result=await changeClinicalSessionService(actor,{...input,expectedOldServiceCode:'90837',serviceCode:'H0004',durationMinutes:minutes,justification:'Confirm actual synthetic H0004 service.'},d);
+  expect(result.serviceCode).toBe('H0004');const saved=await state();expect(saved.session.service_code).toBe('H0004');expect(saved.appointment.service_code).toBe('H0004');expect(saved.office.service_code).toBe('H0004');
+  const [[draft]]=await db.execute('SELECT * FROM clinical_note_drafts WHERE id=60');expect(draft.service_code).toBe('H0004');expect(maybeDecryptNotePayload(draft.output_json)).toContain('Preserve authored session content.');
+  expect(saved.session.effective_service_code).toBe('H0004');expect(saved.session.billed_units).toBe(minutes>=68?null:units);if(minutes>=68){expect(saved.session.claim_blocked_reason).toMatch(/^H0004_DURATION_REVIEW:/);expect(result.durationReview).toMatchObject({requiresReview:true,units,actualMinutes:minutes,code:'H0004_DURATION_OVER_LIMIT'});expect(saved.session.metadata_json.serviceDurationReview.units).toBe(units);}else expect(result.durationReview).toBeNull();
+ });
+ it('preserves an unrelated no-claim funding hold during an explicit valid service correction',async()=>{
+  await db.execute("UPDATE clinical_sessions SET claim_blocked_reason='SELF_PAY_ONLY: Claims disabled'");await changeClinicalSessionService(actor,input,d);expect((await state()).session.claim_blocked_reason).toBe('SELF_PAY_ONLY: Claims disabled');
+ });
+ it.each([
+  ['verified QA',1,450,'auricwell-qa-demo',{qaSandbox:{syntheticOnly:true}},0,1],
+  ['missing flag',1,450,'auricwell-qa-demo',{},0,0],
+  ['string flag',1,450,'auricwell-qa-demo',{qaSandbox:{syntheticOnly:'true'}},0,0],
+  ['wrong slug',1,450,'other',{qaSandbox:{syntheticOnly:true}},0,0],
+  ['wrong membership',1,2,'auricwell-qa-demo',{qaSandbox:{syntheticOnly:true}},0,0],
+  ['archived QA',1,450,'auricwell-qa-demo',{qaSandbox:{syntheticOnly:true}},1,0],
+  ['ordinary active staff',0,2,'other',{},0,1]
+ ])('checks synthetic supervision membership against actual SQL: %s',async(_label,demo,agencyId,slug,flags,archived,allowed)=>{
+  const [[row]]=await db.execute(`WITH agencies AS(SELECT 450 AS id,? AS slug,CAST(? AS JSON) AS feature_flags,1 AS is_active,? AS is_archived)
+    SELECT ${nonDemoOrSyntheticQaMembershipSql()} AS allowed FROM(SELECT ? AS is_demo)u CROSS JOIN(SELECT ? AS agency_id)ua`,[slug,JSON.stringify(flags),archived,demo,agencyId]);expect(Number(row.allowed)).toBe(allowed);
  });
  it('applies release migration 1774 twice with the required review and preference columns and indexes',async()=>{
   const migration=readFileSync(new URL('../../../../database/migrations/1774_narriva_reviews_and_preferences.sql',import.meta.url),'utf8');await db.query(migration);await db.query(migration);

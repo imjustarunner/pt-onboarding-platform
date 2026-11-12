@@ -3,7 +3,7 @@
     <section class="invite-dialog" role="dialog" aria-modal="true" aria-labelledby="portal-invite-title">
       <h2 id="portal-invite-title">Invite clients to their portal</h2>
       <p>{{ clientIds.length }} selected clients. Each authorized account receives one invitation per portal, including accounts shared by siblings.</p>
-      <p>Invitations ask recipients to set up their account and complete notification preferences. Text enrollment remains their choice.</p>
+      <p>Select the specific account(s) you intend to invite. Invitations ask recipients to set up their account and complete notification preferences. Text enrollment remains their choice.</p>
       <p v-if="loading" role="status">Checking recipients…</p>
       <p v-if="error" role="alert">{{ error }}</p>
       <ul class="invite-recipients">
@@ -44,7 +44,7 @@ async function load() {
   loading.value = true; error.value = '';
   try {
     const { data } = await api.post('/clients/portal-invites/preview', { clientIds: props.clientIds });
-    recipients.value = data.recipients; skipped.value = data.skipped; selected.value = data.recipients.map(r => r.key);
+    recipients.value = data.recipients; skipped.value = data.skipped; selected.value = [];
   } catch (e) { error.value = e.response?.data?.error?.message || 'Recipients could not be loaded.'; }
   finally { loading.value = false; }
 }

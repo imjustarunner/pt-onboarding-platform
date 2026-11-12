@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { requiresCaptchaForLink } from '../intakeCaptchaPolicy.js';
 
-const qa = { id: 450, slug: 'auricwell-qa-demo', name: 'AuricWell QA Demo',
+const qa = { id: 450, is_active: 1, slug: 'auricwell-qa-demo', name: 'AuricWell QA Demo',
   feature_flags: { qaSandbox: { syntheticOnly: true } } };
 const required = { RECAPTCHA_REQUIRED_FOR_ALL: 'true' };
 

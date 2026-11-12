@@ -19,7 +19,7 @@
     <ClientDocumentsGallery
       :key="clientId"
       :operational-only="!canOpenClinicalDocuments"
-      :school="client?.client_type === 'school'"
+      :school="client?.client_type === 'school' || isPaperPacketClient(client)"
       :paper-packet="isPaperPacketClient(client)"
       ref="galleryRef"
       :client-id="clientId"

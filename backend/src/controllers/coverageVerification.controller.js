@@ -5,7 +5,7 @@ import { positiveId } from '../services/familyBillingPolicy.service.js';
 import { readClientInsurance } from '../services/clientInsurance.service.js';
 import { getClaimMdBillingProfile } from '../services/claimMdBillingProfile.service.js';
 import { resolveClaimMdConnection } from '../services/claimMdConnection.service.js';
-import { listCoverageEvidence,runCoverageCheck,saveCoverageReview,coverageReviewBlockers,coverageReviewToken,assignmentInsuranceSummary,assignmentCoverageIssues } from '../services/coverageVerification.service.js';
+import { listCoverageEvidence,runCoverageCheck,saveCoverageReview,coverageReviewBlockers,coverageReviewToken,assignmentInsuranceSummary,assignmentCoverageIssues,syntheticQaCoverageReviewAvailable } from '../services/coverageVerification.service.js';
 import { clientCoverageAdmission } from '../services/clientCoverageAdmission.service.js';
 async function scope(req){
  const agencyId=positiveId(req.body?.agencyId||req.query.agencyId),clientId=positiveId(req.params.clientId);
@@ -17,7 +17,7 @@ async function scope(req){
 export async function getCoverageEvidence(req,res,next){try{
  const s=await scope(req),serviceDate=req.query.serviceDate,insurance=await readClientInsurance(s.clientId,s.agencyId),evidence=await listCoverageEvidence({...s,serviceDate});
  const missingAssignmentFields=assignmentCoverageIssues(insurance,serviceDate);
- res.set('Cache-Control','no-store').json({...evidence,blockers:coverageReviewBlockers({insurance,...evidence}),insuranceSummary:assignmentInsuranceSummary(insurance),
+ res.set('Cache-Control','no-store').json({...evidence,syntheticQaReviewAvailable:await syntheticQaCoverageReviewAvailable(s),blockers:coverageReviewBlockers({insurance,...evidence}),insuranceSummary:assignmentInsuranceSummary(insurance),
   reviewToken:coverageReviewToken({...s,...evidence,serviceDate,insurance}),readyForAssignmentReview:!missingAssignmentFields.length,missingAssignmentFields,
   ...(req.query.forAssignment==='true'||req.query.forAssignment===true?{admission:await clientCoverageAdmission(s.clientId)}:{})});
 }catch(e){next(e);}}

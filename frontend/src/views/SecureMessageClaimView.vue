@@ -7,7 +7,7 @@
       <p v-else-if="error" class="err" role="alert">{{ error }}</p>
       <template v-else>
         <p>Your message is ready to open securely.</p>
-        <a v-if="redirectUrl" class="secure-continue" :href="redirectUrl">Continue to secure message</a>
+        <a v-if="redirectUrl" class="secure-continue" :href="redirectUrl" aria-label="Read secure message"><img :src="SECURE_MESSAGE_BUTTON_PATH" alt="Read secure message" /></a>
         <p class="secure-note">The message itself is only shown after your access is verified.</p>
       </template>
     </div>
@@ -21,6 +21,7 @@ import { useAuthStore } from '../store/auth';
 import { onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import axios from 'axios';
+import { SECURE_MESSAGE_BUTTON_PATH } from '../navigation/secureMessageBrand';
 
 const route = useRoute();
 const authStore = useAuthStore();
@@ -46,6 +47,8 @@ onMounted(async () => {
 .smc { min-height: 80vh; display: grid; place-items: center; padding: 24px; background: var(--conversa-wash); }
 .pad { padding: 32px; width: 100%; max-width: 520px; box-sizing: border-box; border: 1px solid var(--conversa-border); border-radius: 20px; background: var(--conversa-surface); box-shadow: 0 16px 48px #0f2d6b10; }
 .err { color: var(--conversa-rose); }
-.secure-continue { display: block; padding: 13px 18px; margin-top: 24px; text-align: center; border-radius: 9px; color: white; background: #0f2d6b; font-weight: 600; text-decoration: none; }
+.secure-continue { display: block; margin-top: 24px; text-decoration: none; border-radius: 999px; }
+.secure-continue img { display: block; width: 100%; height: auto; border: 0; }
+.secure-continue:focus-visible { outline: 3px solid #d4a017; outline-offset: 4px; }
 .secure-note { font-size: 12px; line-height: 1.6; color: var(--conversa-muted); }
 </style>

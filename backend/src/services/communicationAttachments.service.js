@@ -74,6 +74,12 @@ export async function readCommunicationAttachment(row) {
     const { readTicketAttachmentBuffer } = await import('./unifiedEmail/ticketInboundAttachments.service.js');
     return readTicketAttachmentBuffer(attachment);
   }
+  const privateTicketPath=key.match(/^private-ticket-attachments\/(\d+)\/(\d+)\/[a-f0-9]{64}\.ticket\.enc$/);
+  if(privateTicketPath){
+    const [[attachment]]=await pool.execute('SELECT a.* FROM support_ticket_attachments a JOIN support_tickets t ON t.id=a.ticket_id WHERE a.ticket_id=? AND t.agency_id=? AND a.file_path=? LIMIT 1',[Number(privateTicketPath[2]),Number(privateTicketPath[1]),key]);
+    if(!attachment)throw new Error('Attachment storage is unavailable');
+    const {readTicketAttachmentBuffer}=await import('./unifiedEmail/ticketInboundAttachments.service.js');return readTicketAttachmentBuffer(attachment);
+  }
   // Compatibility for mail queued by old revisions. Never accept arbitrary paths.
   if (/^scheduled-email\/\d+\/[^/\\]+$/.test(key)) {
     const fs = await import('node:fs/promises');

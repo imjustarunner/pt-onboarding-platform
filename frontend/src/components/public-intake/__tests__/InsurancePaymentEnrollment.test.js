@@ -47,6 +47,21 @@ describe('insurance enrollment', () => {
     expect(w.text()).not.toContain('Your payment arrangement');
     w.unmount();
   });
+  it('protects server-bound Medicaid from additional commercial choices across payment, arrangement and summary',async()=>{
+    const commercial={payerChoice:'insurance',primary:{insurerName:'Commercial'},hasSecondary:false};
+    const w=mountForm({insuranceInfo:commercial,paymentCollectionAvailable:false,selectedPackage:{name:'Care package',priceCents:120000}});
+    await w.findAll('button').find(b=>b.text().includes('Confirm primary')).trigger('click');
+    expect(w.vm.showPaymentSection).toBe(false);
+    for(const copy of ['Your payment arrangement','Payment Summary','Save your card securely','Add Card','$1,200','Card details are collected by Stripe','set up payment for services'])expect(w.text()).not.toContain(copy);
+    expect(w.text()).toContain('Our office will review your insurance and confirm benefits.');
+    expect(w.find('[data-card-form]').exists()).toBe(false);
+    await w.setProps({insuranceInfo:{...commercial,primary:{insurerName:'Another commercial'}}});
+    await w.findAll('button').find(b=>b.text().includes('Confirm primary')).trigger('click');
+    expect(w.text()).not.toContain('Your payment arrangement');expect(w.text()).not.toContain('Payment Summary');
+    await w.setProps({paymentCollectionAvailable:true});
+    expect(w.text()).toContain('Your payment arrangement');expect(w.text()).toContain('Payment Summary');
+    w.unmount();
+  });
   it('suppresses payment when secondary plan type explicitly declares Medicaid despite a false legacy flag', () => {
     const w = mountForm({ insuranceInfo: { payerChoice: 'insurance', primary: { insurerName: 'Commercial' }, secondary: { insurerName: 'Regional plan', planType: 'Medicaid', isMedicaid: false } } });
     expect(w.find('[data-card-form]').exists()).toBe(false);

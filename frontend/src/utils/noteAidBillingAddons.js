@@ -4,6 +4,7 @@
  */
 
 // Explicit saved instant + source timezone; no browser-time fallback.
+import { h0004UnitSummary } from '../navigation/h0004Units.js';
 import { evaluate99051Schedule, isProBonoFunding } from './clinicalAfterHoursPolicy.js';
 
 export const ADDON_CODES = {
@@ -135,7 +136,9 @@ export function resolveNoteAidBillingCodes({
   const warnings = [];
   let isExtendedEncounter = false;
   let switchedFrom = null;
+  let billingReviewRequired = false;
 
+  if(code==='H0004'){const h4=h0004UnitSummary(durationMinutes);primaryUnits=h4.units;billingReviewRequired=h4.requiresReview;if(h4.reason)warnings.push(h4.reason);}
   if (code === '90839') {
     const crisis = resolveCrisis90839Billing({ durationMinutes });
     code = crisis.primaryCode;
@@ -201,6 +204,7 @@ export function resolveNoteAidBillingCodes({
   return {
     primaryCode: code,
     primaryUnits,
+    billingReviewRequired,
     addons: [...byCode.entries()].map(([c, u]) => ({ code: c, units: u })),
     warnings,
     isExtendedEncounter,

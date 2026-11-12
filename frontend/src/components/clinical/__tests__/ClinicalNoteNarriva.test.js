@@ -96,3 +96,7 @@ it('observes an in-progress submission review through read-only polling and stop
  vi.useFakeTimers();const api={get:vi.fn(async()=>({data:{review:passed()}})),post:vi.fn()};const scope=effectScope();const state=scope.run(()=>useNarrivaReview({agencyId:ref(2),apiClient:api,pollMs:20}));
  const done=state.observeReview({id:24,status:'running',checks:[]});expect(state.busy.value).toBe(true);await vi.advanceTimersByTimeAsync(20);await done;expect(state.review.value.status).toBe('passed');expect(state.busy.value).toBe(false);expect(api.post).not.toHaveBeenCalled();expect(api.get).toHaveBeenCalledWith('/narriva/reviews/24',expect.objectContaining({params:{agencyId:2}}));scope.stop();
 });
+
+it('shows the H0004 billing advisory alongside passed clinical checks without implying payment approval',()=>{
+ const review=passed();review.checks[1].advisories=[{id:'service_code:billing_duration_review',category:'billing_review',blocksClaims:true,message:'Actual68-minute H0004 requires billing review before any claim.'}];const w=mount(NarrivaCompliancePanel,{props:{review}});expect(w.get('[aria-label="Billing review notices"]').text()).toContain('Actual68-minute');expect(w.text()).toContain('Clinical signing does not approve a claim or payment.');expect(w.find('[alt="Narriva Quick Sign Approved"]').exists()).toBe(true);expect(w.find('[aria-label="Billing review notices"] button').exists()).toBe(false);w.unmount();
+});

@@ -10,6 +10,8 @@ it('previews before sending, continues after a failure and prevents repeat sends
     .mockRejectedValueOnce(new Error('Network unavailable')).mockResolvedValueOnce({ data: { status: 'sent' } });
   const w = mount(Dialog, { props: { clientIds: [1, 2, 3] } }); await flushPromises();
   expect(api.post).toHaveBeenCalledTimes(1); expect(w.text()).toContain('C3: Add a contact');
+  expect(w.findAll('input').every(i=>!i.element.checked)).toBe(true);
+  for (const input of w.findAll('input')) await input.setValue(true);
   await w.findAll('button').find(b => b.text() === 'Send 2 invitations').trigger('click'); await flushPromises();
   expect(api.post).toHaveBeenCalledTimes(3); expect(w.text()).toContain('1 invitations sent.'); expect(w.text()).toContain('Delivery could not be confirmed');
   expect(w.findAll('button').find(b => b.text() === 'Send 0 invitations').attributes('disabled')).toBeDefined(); w.unmount();
@@ -17,6 +19,6 @@ it('previews before sending, continues after a failure and prevents repeat sends
 it('honors recipient exclusions', async () => {
   api.post.mockResolvedValueOnce({ data: { recipients: [recipient('2:10', 1), recipient('2:11', 2)], skipped: [] } }).mockResolvedValue({ data: {} });
   const w = mount(Dialog, { props: { clientIds: [1, 2] } }); await flushPromises();
-  await w.find('input').setValue(false); await w.findAll('button').find(b => b.text() === 'Send 1 invitations').trigger('click'); await flushPromises();
+  await w.findAll('input')[1].setValue(true); await w.findAll('button').find(b => b.text() === 'Send 1 invitations').trigger('click'); await flushPromises();
   expect(api.post).toHaveBeenLastCalledWith('/clients/portal-invites/send', { clientIds: [2], recipientKey: '2:11' }); w.unmount();
 });

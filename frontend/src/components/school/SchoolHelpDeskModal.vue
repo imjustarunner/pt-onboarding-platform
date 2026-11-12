@@ -11,20 +11,22 @@
           <div class="composer">
             <label>
               Topic
-              <select v-model="topic" class="input">
+              <select v-model="topic" class="input" :disabled="submitting || !!createdTicketId">
                 <option v-for="t in schoolTicketTopics" :key="t.id" :value="t.id">{{ t.label }}</option>
               </select>
             </label>
             <label>
               Subject (optional)
-              <input v-model="subject" type="text" class="input" placeholder="e.g., Scheduling question" />
+              <input v-model="subject" :disabled="submitting || !!createdTicketId" type="text" class="input" placeholder="e.g., Scheduling question" />
             </label>
             <label>
               Question
-              <textarea v-model="question" rows="4" class="textarea" placeholder="What do you need help with?" />
+              <textarea v-model="question" :disabled="submitting || !!createdTicketId" rows="4" class="textarea" placeholder="What do you need help with?" />
             </label>
+            <TicketAttachmentComposer ref="attachmentComposer" :context-key="schoolOrganizationId" :disabled="submitting" />
+            <p v-if="createdTicketId">Ticket #{{ createdTicketId }} is already saved. Retry only its file; do not resend the question.</p>
             <button class="btn btn-primary" @click="submit" :disabled="submitting || !question.trim()">
-              {{ submitting ? 'Sending…' : 'Send' }}
+              {{ submitting ? 'Sending…' : createdTicketId ? 'Retry file upload' : 'Send' }}
             </button>
             <div v-if="error" class="error">{{ error }}</div>
           </div>
@@ -63,7 +65,8 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue';
+import { onMounted, ref, watch } from 'vue';
+import TicketAttachmentComposer from '../tickets/TicketAttachmentComposer.vue';
 import api from '../../services/api';
 import { GUARDIAN_TICKET_TOPICS } from '../../utils/ticketTopics';
 
@@ -76,6 +79,7 @@ const tickets = ref([]);
 const loading = ref(false);
 const submitting = ref(false);
 const error = ref('');
+const attachmentComposer=ref(null),createdTicketId=ref(null);
 
 const schoolTicketTopics = GUARDIAN_TICKET_TOPICS;
 const topic = ref('general');
@@ -96,15 +100,18 @@ const load = async () => {
 };
 
 const submit = async () => {
+  if(submitting.value)return;const schoolId=Number(props.schoolOrganizationId);
   try {
     submitting.value = true;
     error.value = '';
-    await api.post('/support-tickets', {
+    if(!createdTicketId.value){const created=await api.post('/support-tickets', {
       schoolOrganizationId: props.schoolOrganizationId,
       topic: topic.value || 'general',
       subject: subject.value.trim() || null,
       question: question.value.trim()
-    });
+    });if(Number(props.schoolOrganizationId)!==schoolId)return;createdTicketId.value=created.data?.id;if(!createdTicketId.value)throw new Error('The ticket was saved without a usable reference. Refresh your questions before trying again.');}
+    if(!(await attachmentComposer.value?.uploadPending(createdTicketId.value))){error.value='Your question is saved, but its file was not added. Retry the file upload for this ticket.';return;}
+    createdTicketId.value=null;attachmentComposer.value?.reset();
     topic.value = 'general';
     subject.value = '';
     question.value = '';
@@ -124,6 +131,7 @@ const formatStatus = (s) => {
   return 'Open';
 };
 
+watch(()=>props.schoolOrganizationId,()=>{createdTicketId.value=null;topic.value='general';subject.value='';question.value='';});
 onMounted(load);
 </script>
 

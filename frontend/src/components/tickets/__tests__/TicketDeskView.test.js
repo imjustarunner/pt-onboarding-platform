@@ -234,3 +234,10 @@ describe('Support email composer safeguards', () => {
     expect(wrapper.find('.composer-textarea').element.value).toBe('Second ticket work');
   });
 });
+
+it('offers private files on the exact external reply ticket and hides the control for an internal note',async()=>{
+ await render({embedded:true,initialTicketId:101,agencyId:2,syncRoute:false});
+ expect(wrapper.findComponent({name:'TicketAttachmentComposer'}).props('ticketId')).toBe(101);
+ await button('Internal note').trigger('click');
+ expect(wrapper.find('ticket-attachment-composer-stub').exists()).toBe(false);
+});

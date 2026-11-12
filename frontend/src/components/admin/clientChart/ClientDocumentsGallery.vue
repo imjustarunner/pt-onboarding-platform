@@ -175,7 +175,7 @@ async function loadArtifacts() {
   error.value = '';
   try {
     if (props.operationalOnly) {
-      artifacts.value=await operationalClientDocuments(api,id,{school:props.school});signedPackets.value=[];
+      artifacts.value=await operationalClientDocuments(api,id,{school:props.school||props.paperPacket});signedPackets.value=[];
       return;
     }
     const resp = await api.get(`/phi-documents/clients/${id}/chart-artifacts`, { skipGlobalLoading: true });
@@ -309,7 +309,7 @@ async function openViewKey(viewKey) {
   opening.value = true;
   try {
     const resp = await api.get(
-      key.startsWith('paper-') ? `/clients/${clientId}/paper-packet-processing/documents/${Number(key.slice(6))}/view` : key.startsWith('signed-roi-') ? `/clients/${clientId}/school-roi-documents/${Number(key.slice(11))}/view` : `/phi-documents/clients/${clientId}/chart-artifacts/${encodeURIComponent(key)}/view`,
+      key.startsWith('school-file-') ? `/phi-documents/school-attachments/${Number(key.slice(12))}/view` : key.startsWith('paper-') ? `/clients/${clientId}/paper-packet-processing/documents/${Number(key.slice(6))}/view` : key.startsWith('signed-roi-') ? `/clients/${clientId}/school-roi-documents/${Number(key.slice(11))}/view` : `/phi-documents/clients/${clientId}/chart-artifacts/${encodeURIComponent(key)}/view`,
       {
         responseType: 'blob',
         skipGlobalLoading: true,

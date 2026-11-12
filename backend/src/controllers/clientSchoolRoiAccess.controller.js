@@ -1,3 +1,4 @@
+import {paperStaffGrantNeedsProcessing} from '../utils/paperStaffGrantReview.js';
 import { clientEnrollmentPacketReview } from '../services/clientEnrollmentPacketReview.service.js';
 import { canReceiveGuardianConsentRequest } from '../services/schoolRoiGuardianConsent.service.js';
 import pool from '../config/database.js';
@@ -569,6 +570,10 @@ export const updateClientSchoolRoiAccess = async (req, res, next) => {
     const schoolOrganizationId = Number(client.organization_id || 0);
     if (!schoolOrganizationId) {
       return res.status(400).json({ error: { message: 'Client does not have a school affiliation yet' } });
+    }
+
+    if(nextState!=='packet'&&paperStaffGrantNeedsProcessing(client)){
+      return res.status(409).json({error:{message:'Review this uploaded packet in Process paper packet before applying staff permissions. Its signatures, version and staff choices must be confirmed together.'}});
     }
 
     const schoolStaffUser = await User.findById(schoolStaffUserId);

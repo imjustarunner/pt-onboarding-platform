@@ -1,3 +1,4 @@
+import { h0004UnitSummary } from '../../../frontend/src/navigation/h0004Units.js';
 /**
  * Medical service-code unit calculation: single-unit, Medicaid 8-minute ladder,
  * custom bands, min/max gates, and overflow code auto-switch.
@@ -68,6 +69,15 @@ export function parseLadderBands(raw) {
  *   maxMinutes: number|null
  * }}
  */
+// The legacy Colorado seed stored H0004's 15-minute unit length as
+// the encounter maximum. An 8-minute ladder must span its configured units;
+// this narrow correction does not waive a different explicit duration limit.
+export function normalizeH0004DurationLimit({serviceCode,unitCalcMode,maxMinutes,unitMinutes}={}) {
+  const max=toInt(maxMinutes,null),unit=toInt(unitMinutes,15)||15;
+  return normalizeCode(serviceCode)==='H0004' && String(unitCalcMode||'').toUpperCase()==='MEDICAID_8_MINUTE_LADDER'
+    && max===15 && unit===15 ? null : max;
+}
+
 export function resolveSessionBilling({
   minutes,
   serviceCode,
@@ -84,7 +94,7 @@ export function resolveSessionBilling({
   const requested = normalizeCode(serviceCode);
   const mode = String(unitCalcMode || 'SINGLE').toUpperCase();
   const min = toInt(minMinutes, null);
-  const max = toInt(maxMinutes, null);
+  const max = normalizeH0004DurationLimit({serviceCode:requested,unitCalcMode:mode,maxMinutes,unitMinutes});
   const overflowCode = normalizeCode(overflowServiceCode);
   const overflowAt = toInt(overflowAtMinutes, null) ?? (max != null ? max + 1 : null);
 
@@ -105,6 +115,15 @@ export function resolveSessionBilling({
   }
   if (m <= 0) {
     return { ...base, reason: 'Session duration must be greater than zero' };
+  }
+
+  // Preserve actual time/units above the H0004 four-unit band. This is
+  // reviewable documentation, not an automatic claim or a silent four-unit cap.
+  const h0004Bands=parseLadderBands(ladderBandsJson);
+  const h0004Cap=toInt(maxUnitsPerSession,null) || h0004Bands?.at(-1)?.units || 4;
+  const h0004Summary=h0004UnitSummary(m,{maxUnits:h0004Cap}),h0004Upper=h0004Summary.maximumBandMinutes;
+  if(requested==='H0004' && mode==='MEDICAID_8_MINUTE_LADDER' && (toInt(unitMinutes,15)||15)===15 && (min==null||m>=min) && (max==null||max>=h0004Upper) && m>h0004Upper) {
+    return {...base,units:h0004Summary.units,requiresReview:true,reviewCode:'H0004_DURATION_OVER_LIMIT',reason:h0004Summary.reason};
   }
 
   // Overflow: duration at/above threshold → switch code (caller may re-resolve with overflow rule)

@@ -1,0 +1,127 @@
+name: Guardian enrollment and insurance boundaries
+
+on:
+  push:
+    branches: [main]
+    paths: ['backend/**', 'frontend/**', 'database/migrations/1812_verified_demo_captcha_config.sql', '.github/workflows/final1111b-guardian.yml']
+  pull_request:
+    paths: ['backend/**', 'frontend/**', 'database/migrations/1812_verified_demo_captcha_config.sql', '.github/workflows/final1111b-guardian.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  guardian-enrollment:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      mysql:
+        image: mysql:8.0.44
+        env:
+          MYSQL_ALLOW_EMPTY_PASSWORD: 'yes'
+        ports: ['33316:3306']
+        options: >-
+          --health-cmd="mysqladmin ping --silent"
+          --health-interval=10s --health-timeout=5s --health-retries=12
+    env:
+      TZ: America/Denver
+      NODE_ENV: test
+      SKIP_DB_CONNECT: '1'
+      SKIP_CLINICAL_DB_CONNECT: '1'
+      DB_HOST: 127.0.0.1
+      DB_PORT: '1'
+      DB_USER: guardian_tests_never_prod
+      DB_PASSWORD: unused
+      DB_NAME: never_production
+      GUARDIAN_INVITE_TEST_MYSQL_HOST: 127.0.0.1
+      GUARDIAN_INVITE_TEST_MYSQL_PORT: '33316'
+      REQUIRE_GUARDIAN_INVITE_MYSQL: '1'
+      QA_CAPTCHA_MYSQL_HOST: 127.0.0.1
+      QA_CAPTCHA_MYSQL_PORT: '33316'
+      REQUIRE_QA_CAPTCHA_MYSQL: '1'
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+      - name: Install test dependencies without building sites
+        run: |
+          npm ci --prefix backend --ignore-scripts
+          npm ci --prefix frontend --ignore-scripts
+      - name: Prepare native password dependency for guardian service imports
+        working-directory: backend
+        run: npm rebuild bcrypt --no-fund --no-audit
+      - name: Configure exact backend guardian regression suite
+        run: |
+          node --input-type=module <<'NODE'
+          import {writeFileSync} from 'node:fs';
+          import {join} from 'node:path';
+          const root=process.cwd();
+          const test={environment:'node',restoreMocks:true,include:[
+            'src/services/__tests__/enrollmentCompletion.guardianInvites.test.js',
+            'src/services/__tests__/guardianPendingEnrollment.test.js',
+            'src/services/__tests__/coGuardianResume.test.js',
+            'src/services/__tests__/intakeAuthorization.test.js',
+            'src/services/__tests__/portalViewAs.test.js',
+            'src/services/__tests__/enrollmentCompletion.guardianInviteStatus.mysql.test.js'
+          ]};
+          writeFileSync(join(process.env.RUNNER_TEMP,'guardian-enrollment.vitest.mjs'),
+            `export default ${JSON.stringify({root:join(root,'backend'),resolve:{alias:{vitest:join(root,'frontend/node_modules/vitest/dist/index.js')}},test})};\n`);
+          NODE
+      - name: Guardian ownership, insurance on file and real SQL delivery controls
+        run: |
+          node frontend/node_modules/vitest/vitest.mjs run --config "$RUNNER_TEMP/guardian-enrollment.vitest.mjs" --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/guardian-backend-results.json"
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import {readFileSync} from 'node:fs';
+          import {join} from 'node:path';
+          const result=JSON.parse(readFileSync(join(process.env.RUNNER_TEMP,'guardian-backend-results.json'),'utf8'));
+          const sql=result.testResults.find(row=>row.name.endsWith('/enrollmentCompletion.guardianInviteStatus.mysql.test.js'));
+          assert(sql,'Real SQL guardian integration result is missing.');
+          assert.equal(sql.assertionResults.length,5,'All five real SQL cases must execute.');
+          assert(sql.assertionResults.every(row=>row.status==='passed'),'SQL cases must pass; skipped/pending/todo cases cannot satisfy CI.');
+          assert.equal(result.numPendingTests,0,'The exact guardian suite cannot contain skipped tests.');
+          assert.equal(result.numTodoTests||0,0,'The exact guardian suite cannot contain todo tests.');
+          NODE
+      - name: Verified synthetic CAPTCHA policy and exact marker migration
+        run: |
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.qa-captcha.config.js --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/qa-captcha-results.json"
+          node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.qa-captcha.config.js
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import {readFileSync} from 'node:fs';
+          import {join} from 'node:path';
+          const result=JSON.parse(readFileSync(join(process.env.RUNNER_TEMP,'qa-captcha-results.json'),'utf8'));
+          const sql=result.testResults.find(row=>row.name.endsWith('/syntheticQaCaptcha.mysql.test.js'));
+          assert(sql,'Real SQL CAPTCHA/migration result is missing.');
+          assert.equal(sql.assertionResults.length,4,'All four real SQL CAPTCHA/migration cases must execute.');
+          assert(sql.assertionResults.every(row=>row.status==='passed'),'Skipped or pending SQL cases cannot satisfy CI.');
+          assert.equal(result.numPendingTests,0);
+          assert.equal(result.numTodoTests||0,0);
+          NODE
+      - name: On-file enrollment, draft resume and independent portal statuses
+        working-directory: frontend
+        run: >-
+          node node_modules/vitest/vitest.mjs run --config vite.config.js
+          src/views/__tests__/PublicIntakeCoGuardianInsurance.test.js
+          src/views/__tests__/PublicIntakeGuardianResume.test.js
+          src/views/__tests__/PublicIntakeInsuranceContinue.test.js
+          src/components/public-intake/__tests__/InsurancePaymentEnrollment.test.js
+          src/components/clients/__tests__/ClientPortalOverview.test.js
+          src/components/clients/__tests__/ClientPortalInviteDialog.test.js
+          src/components/guardian/__tests__/GuardianInvitations.test.js
+      - name: Retain exact backend test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: guardian-enrollment-results
+          path: |
+            ${{ runner.temp }}/guardian-backend-results.json
+            ${{ runner.temp }}/qa-captcha-results.json
+          if-no-files-found: warn
