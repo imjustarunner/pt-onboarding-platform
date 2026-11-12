@@ -241,3 +241,14 @@ it('offers private files on the exact external reply ticket and hides the contro
  await button('Internal note').trigger('click');
  expect(wrapper.find('ticket-attachment-composer-stub').exists()).toBe(false);
 });
+
+it('shows website email senders, assignment provenance and truthful delivery receipts',async()=>{
+ const website={...emailTicket,source_channel:'public_web'};
+ const original=mocks.api.get.getMockImplementation();
+ mocks.api.get.mockImplementation(async(url,options)=>url==='/support-tickets/101/messages'?{data:{ticket:website,messages:[],senderOptions:[...emailOptions,{id:81,fromEmail:'support@innerstrengthin.com',agencyName:'Inner Strength',teamDisplayName:'Inner Strength',staffDisplayName:'Michael · Inner Strength'}],lastMessageId:0,
+ assignmentHistory:[{id:1,kind:'assigned',actorName:'Hannah Inyart',at:'2026-11-10T12:00:00Z'}],emailReceipts:[{id:8,direction:'outbound',from_email:'support@itsco.health',send_status:'sent',to:['visitor@example.org'],has_preview:true,communication_id:6479}]}}:original(url,options));
+ await render({embedded:true,initialTicketId:101,agencyId:2,syncRoute:false});
+ expect(wrapper.get('[aria-label="Email address"]').text()).toContain('support@innerstrengthin.com');
+ expect(wrapper.get('[aria-label="Assignment history"]').text()).toContain('Assigned by Hannah Inyart');
+ const receipts=wrapper.get('[aria-label="Email delivery and sent copies"]');expect(receipts.text()).toContain('Sent to mail provider');expect(receipts.text()).toContain('Delivery confirmation: Not recorded');expect(receipts.text()).toContain('View sent email');
+});

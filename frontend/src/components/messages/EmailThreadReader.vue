@@ -4,9 +4,14 @@
       <h2>{{ conversation?.subject || '(No subject)' }}</h2>
       <p v-if="conversation?.is_group_email || conversation?.is_ticketed_group" class="addresses">Groups – {{ conversation.inbox_display_name || conversation.inbox_from_email || 'Group mailbox' }}<template v-if="conversation.inbox_from_email"> · Account: {{ conversation.inbox_from_email }}</template><template v-if="conversation.ticket_status"> · Ticket: {{ conversation.ticket_status }}</template></p>
       <button v-if="mobile || messages.some(hasAppEmailChrome)" type="button" class="reading-mode" :aria-pressed="compactLayout" @click="compactLayout=!compactLayout">{{ compactLayout?'Reading view':'Original layout' }}</button>
+      <div v-if="forwardContext && !isReadOnly" class="actions" aria-label="Reply to forwarded inquiry">
+        <button v-if="forwardContext.originalSenderEmail" type="button" @click="$emit('compose',{mode:'reply',to:forwardContext.originalSenderEmail,cc:'',forwardRecipient:true})">Reply to original sender</button>
+        <button type="button" @click="$emit('compose',{mode:'reply',to:forwardContext.forwardedByEmail,cc:'',forwardRecipient:true})">Reply to forwarder</button>
+        <button v-if="forwardContext.originalSenderEmail" type="button" @click="$emit('compose',{mode:'reply',to:forwardContext.originalSenderEmail,cc:forwardContext.forwardedByEmail,forwardRecipient:true})">Reply to both</button>
+      </div>
       <div class="actions">
-        <button v-if="!isReadOnly" type="button" @click="$emit('compose','reply')">Reply</button>
-        <button v-if="!isReadOnly" type="button" @click="$emit('compose','reply_all')">Reply all</button>
+        <button v-if="!isReadOnly && !forwardContext" type="button" @click="$emit('compose','reply')">Reply</button>
+        <button v-if="!isReadOnly && !forwardContext" type="button" @click="$emit('compose','reply_all')">Reply all</button>
         <button v-if="!isReadOnly" type="button" @click="$emit('compose','forward')">Forward</button>
         <button v-if="!isReadOnly" type="button" @click="$emit('unread')">Keep unread</button>
         <button v-if="canFile" type="button" @click="$emit('file')">File with client(s)</button>
@@ -26,7 +31,8 @@
         <summary>
         <div class="sender"><span v-if="mobile" class="email-avatar"><img v-if="message.direction==='outbound' && currentUserPhoto" :src="photoUrl(currentUserPhoto)" alt=""/><span v-else>{{ (message.from?.name || message.from?.email || '?').split(/\s+/).slice(0,2).map(word=>word[0]).join('').toUpperCase() }}</span></span><ConversaSender :name="message.from?.name || (message.direction === 'outbound' ? 'You' : '')" :address="message.from?.email || ''" :organization="message.sending_organization || message.from?.organization || null" :logo="message.from?.logo_url || ''" /><time>{{ formatDate(message.sent_at || message.created_at) }}</time></div>
         </summary>
-        <p class="addresses" v-if="message.to?.length">To: {{ addresses(message.to) }}<template v-if="message.cc?.length"> · Cc: {{ addresses(message.cc) }}</template></p>
+        <p v-if="message.auto_reply_kind==='support_ticket_forward'" class="addresses">Private forward delivered inside My messages.</p>
+        <p class="addresses" v-else-if="message.to?.length">To: {{ addresses(message.to) }}<template v-if="message.cc?.length"> · Cc: {{ addresses(message.cc) }}</template></p>
         <p v-if="emailDeliveryLabel(message)" role="status">{{ emailDeliveryLabel(message) }}</p>
         <button v-if="rendered[message.id]?.hasBlockedImages" type="button" class="load-images" @click="showImages[message.id]=true">Show external images</button>
         <div class="body" :class="{ 'plain-body': !message.body_html }" v-html="rendered[message.id]?.html || '(Empty message)'" />
@@ -47,6 +53,7 @@ import ConversaIcon from '../../components/conversa/ConversaIcon.vue';
 import { computed, ref, watch } from 'vue';
 import { renderEmailContent, emailDeliveryLabel, hasAppEmailChrome } from '../../utils/emailPresentation';
 const props = defineProps({ conversation:Object,messages:{type:Array,default:()=>[]},hasOlder:Boolean,loadingOlder:Boolean,readOnly:Boolean,canPrint:Boolean,canFile:Boolean,mobile:Boolean,currentUserPhoto:String });
+const forwardContext=computed(()=>props.messages.find(message=>message.auto_reply_kind==='support_ticket_forward')?.from || null);
 const isReadOnly = computed(() => props.readOnly || !!props.conversation?.support_ticket_id);
 defineEmits(['compose','unread','older','attachment','like','print','file']);
 const expansion=ref({}),showImages=ref({}),compactLayout=ref(true);

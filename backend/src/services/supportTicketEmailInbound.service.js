@@ -33,10 +33,10 @@ async function findThread({ agencyId, threadId, messageId, inReplyTo, references
     // author. A verified backfill may recover that mail only into its fixed,
     // unambiguous target; live intake still uses participant matching below.
     const [[target]] = await db.execute(`SELECT * FROM support_tickets WHERE id=? AND agency_id=?
-      AND source_channel='email' AND BINARY source_email_thread_id=BINARY ? FOR UPDATE`, [targetTicketId, agencyId, threadId]);
+      AND source_channel IN ('email','public_web') AND BINARY source_email_thread_id=BINARY ? FOR UPDATE`, [targetTicketId, agencyId, threadId]);
     if (!target) return null;
     const [scopes] = await db.execute(`SELECT school_organization_id,client_id,topic FROM support_tickets
-      WHERE agency_id=? AND source_channel='email' AND BINARY source_email_thread_id=BINARY ? LIMIT 501`, [agencyId, threadId]);
+      WHERE agency_id=? AND source_channel IN ('email','public_web') AND BINARY source_email_thread_id=BINARY ? LIMIT 501`, [agencyId, threadId]);
     const scopeKey = (t) => JSON.stringify([Number(t.school_organization_id) || null, Number(t.client_id) || null, t.topic ?? null]);
     if (!scopes.length || scopes.length > 500 || scopes.some((scope) => scopeKey(scope) !== scopeKey(target))) {
       throw supportEmailError('The historical Gmail thread has more than one ticket scope.', 409, 'SUPPORT_HISTORY_SCOPE_AMBIGUOUS');
@@ -58,7 +58,7 @@ async function findThread({ agencyId, threadId, messageId, inReplyTo, references
   if (credentialingCaseEmailId) {
     params.push(credentialingCaseEmailId);
   }
-  const [candidates] = await db.execute(`SELECT t.* FROM support_tickets t WHERE t.agency_id=? AND t.source_channel='email'
+  const [candidates] = await db.execute(`SELECT t.* FROM support_tickets t WHERE t.agency_id=? AND t.source_channel IN ('email','public_web')
     AND (${conditions.join(' OR ')}) ${credentialingCaseEmailId ? 'AND EXISTS (SELECT 1 FROM credentialing_email_tickets cet WHERE cet.ticket_id=t.id AND cet.case_email_id=?)' : ''} ORDER BY (t.claimed_by_user_id IS NOT NULL) DESC,t.id DESC LIMIT 20 FOR UPDATE`, params);
   const parentIds = replyMessageIds(inReplyTo, referencesHeader).slice(0, 30);
   let exactParentTicketId = null;

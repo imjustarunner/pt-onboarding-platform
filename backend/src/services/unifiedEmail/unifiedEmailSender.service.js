@@ -224,7 +224,8 @@ export async function finalizeOutboundContent({
   templateType = null,
   clientId = null,
   schoolOrganizationId = null,
-  portalEmailBrand = null
+  portalEmailBrand = null,
+  previewOnly = false
 }) {
   const schoolCommunication = await isSchoolCommunication({ templateType, clientId, userId, agencyId: agencyId || identity?.agency_id, schoolOrganizationId });
   ({ text, html } = compactSchoolCareBridgeEmail({ text, html, templateType, schoolCommunication }));
@@ -232,7 +233,7 @@ export async function finalizeOutboundContent({
   let misdirectedReportUrl = null;
   try {
     const { createMisdirectedEmailReportLink } = await import('../misdirectedEmailReport.service.js');
-    misdirectedReportUrl = await createMisdirectedEmailReportLink({
+    if(!previewOnly)misdirectedReportUrl = await createMisdirectedEmailReportLink({
       agencyId: aid,
       senderUserId: generatedByUserId || userId || null,
       toEmail: to

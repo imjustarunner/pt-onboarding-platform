@@ -1705,12 +1705,14 @@ const openNewDrafts = ref([]);
 const personNewDrafts = computed(() => openNewDrafts.value.filter(d => selected.value?.email && [Number(selected.value.agencyId), Number(agencyId.value)].includes(Number(d.agencyId)) && String(d.to || '').split(/[,;]/).some(address => address.trim().toLowerCase() === selected.value.email.toLowerCase())));
 function selectInboxChannel(channel){inboxChannel.value=channel;selectNav('inbox',isConversationMode.value && (!['drafts','needs_attention'].includes(navId.value) || ['all','email'].includes(channel)) ? navId.value : 'inbox');}
 function composeEmail(mode='new') {
+  const preset=typeof mode==='object'?mode:null;
+  if(preset)mode=preset.mode||'reply';
   if (mode === 'new') return openNewConversation('email');
   const supportTicketId = conversationPreview.value?.conversation?.support_ticket_id || selectedConversation.value?.support_ticket_id;
   if (supportTicketId) return openPreviewTicket();
-  const conversationId=selectedConversation.value?.conversationId || selectedConversation.value?.id || emailSubjectThreads.value.find(t=>t.key===activeEmailThreadKey.value)?.conversationId;
+  const conversationId=conversationPreview.value?.conversation?.id || selectedConversation.value?.conversationId || selectedConversation.value?.id || emailSubjectThreads.value.find(t=>t.key===activeEmailThreadKey.value)?.conversationId;
   if(mode !== 'new' && !conversationId){error.value='Open an email conversation first.';return;}
-  openEmailComposer(router,{mode,agencyId:agencyId.value,conversationId:mode==='new'?undefined:conversationId,to:mode==='new'?selected.value?.email:undefined});
+  openEmailComposer(router,{mode,agencyId:agencyId.value,conversationId:mode==='new'?undefined:conversationId,to:preset?.to ?? (mode==='new'?selected.value?.email:undefined),...(preset?{cc:preset.cc,forwardRecipient:preset.forwardRecipient}: {})});
 }
 async function refreshMail({ quiet = false } = {}) {
   if (refreshing.value || loadingList.value || sessionBlocked.value || !agencyId.value) return;

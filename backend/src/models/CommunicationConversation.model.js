@@ -13,7 +13,7 @@ async function hydrateTicketMessageBodies(messages) {
     const canonical = byId.get(Number(m.support_ticket_message_id));
     if (!canonical || Number(canonical.is_deleted)) return { ...m, body_text: '', body_html: null, send_status: 'cancelled' };
     return { ...m, body_text: canonical.body, body_html: null,
-      is_internal_note: !!canonical.is_internal || m.is_internal_note };
+      is_internal_note: m.auto_reply_kind==='support_ticket_forward' ? false : !!canonical.is_internal || m.is_internal_note };
   });
 }
 

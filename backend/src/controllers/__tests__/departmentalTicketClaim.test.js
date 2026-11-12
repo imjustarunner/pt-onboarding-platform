@@ -1,5 +1,6 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn() } }));
+vi.mock('../../services/ticketAssignment.service.js',()=>({listEligibleTicketAssignees:vi.fn(),recordTicketAssignment:vi.fn(),ticketAssignmentHistory:vi.fn(),setTicketAssignment:vi.fn(async()=>{throw Object.assign(Error('ownership changed'),{status:409});})}));
 vi.mock('../../models/User.model.js', () => ({ default: { getAgencies: vi.fn() } }));
 vi.mock('../../models/Agency.model.js', () => ({ default: { findById: vi.fn() } }));
 vi.mock('../../services/departmentalGroupAccess.service.js', async importOriginal => ({
@@ -28,15 +29,9 @@ beforeEach(() => {
   pool.execute.mockImplementation(async sql => sql.startsWith('UPDATE support_tickets') ? [{ affectedRows }] : [[ticket]]);
 });
 
-it('allows a payroll provider to claim an agency-only ticket with an atomic ownership update', async () => {
-  const res = response(), next = vi.fn();
-  await claimSupportTicket(request(), res, next);
-  expect(next).not.toHaveBeenCalled();
-  expect(res.status).not.toHaveBeenCalled();
-  const update = pool.execute.mock.calls.find(([sql]) => sql.startsWith('UPDATE support_tickets'));
-  expect(update[0]).toContain('WHERE id = ? AND claimed_by_user_id IS NULL');
-  expect(update[1]).toEqual([5, 101]);
-  expect(res.json).toHaveBeenCalledWith(ticket);
+it('does not give providers ownership even when they have a departmental grant',async()=>{
+ const res=response();await claimSupportTicket(request(),res,vi.fn());expect(res.status).toHaveBeenCalledWith(403);
+ expect(pool.execute.mock.calls.some(([sql])=>sql.startsWith('UPDATE support_tickets'))).toBe(false);
 });
 
 it.each(['billing', 'general'])('does not let payroll permission claim unrelated %s tickets', async topic => {
@@ -51,6 +46,6 @@ it.each(['billing', 'general'])('does not let payroll permission claim unrelated
 it('returns a conflict when another claim wins the atomic update', async () => {
   affectedRows = 0;
   const res = response();
-  await claimSupportTicket(request(), res, vi.fn());
-  expect(res.status).toHaveBeenCalledWith(409);
+  const next=vi.fn();await claimSupportTicket({...request(),user:{id:5,role:'support'}}, res, next);
+  expect(next).toHaveBeenCalledWith(expect.objectContaining({status:409}));
 });

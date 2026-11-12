@@ -28,3 +28,10 @@ it('uses a compact phone reading layout without changing the source email or los
  const wrapper=mount(Reader,{props:{conversation:{id:5},messages:[message],mobile:true,currentUserPhoto:'photos/me.png'}});
  expect(wrapper.get('.body').html()).not.toContain('width: 600px');expect(wrapper.findAll('.body a')).toHaveLength(2);expect(wrapper.get('.body a').element.style.display).toBe('block');expect(message.body_html).toBe(html);expect(wrapper.find('.email-avatar img').exists()).toBe(true);wrapper.unmount();
 });
+it('offers independent replies to the original sender, forwarder, or both for a private handoff',async()=>{
+ const w=mount(Reader,{props:{conversation:{id:101},messages:[{id:1,auto_reply_kind:'support_ticket_forward',body_text:'A private introduction',from:{email:'sam@agency.test',forwardedByEmail:'sam@agency.test',originalSenderEmail:'visitor@example.org'}}]}});
+ const actions=w.get('[aria-label="Reply to forwarded inquiry"]');
+ await actions.findAll('button')[0].trigger('click');await actions.findAll('button')[1].trigger('click');await actions.findAll('button')[2].trigger('click');
+ expect(w.emitted('compose')).toEqual([[{mode:'reply',to:'visitor@example.org',cc:'',forwardRecipient:true}],[{mode:'reply',to:'sam@agency.test',cc:'',forwardRecipient:true}],[{mode:'reply',to:'visitor@example.org',cc:'sam@agency.test',forwardRecipient:true}]]);
+ expect(w.text()).toContain('Private forward delivered inside My messages.');w.unmount();
+});

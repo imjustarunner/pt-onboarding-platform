@@ -41,6 +41,7 @@ function claimFixture({ claimedBy = null, affectedRows = 1, deny = false } = {})
     async rollback() { calls.push('rollback'); }, release() { calls.push('release'); },
     async execute(sql, values) {
       calls.push({ sql, values });
+      if(sql.startsWith('SELECT role FROM users'))return [[{role:'support'}]];
       if (sql.startsWith('SELECT')) return [[{ ...payroll, id: 22, agency_id: 2, support_ticket_id: 11, status: 'open', claimed_by_user_id: claimedBy }]];
       return [{ affectedRows }];
     }

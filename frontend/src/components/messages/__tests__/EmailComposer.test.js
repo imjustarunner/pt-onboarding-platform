@@ -168,3 +168,8 @@ it('preserves both client selections when opened from a guardian account and sho
  expect(wrapper.text()).toContain('Replies to messages@itsco.health');
  expect(mock.api.mock.calls.some(([r])=>r.url.endsWith('/send'))).toBe(false);
 });
+it('uses the chosen forward recipients without automatically quoting the private introduction',async()=>{
+ wrapper.unmount();mock.route.query={mode:'reply',conversationId:'101',to:'visitor@example.org',cc:'sam@agency.test',forwardRecipient:true};
+ wrapper=shallowMount(Composer);await flushPromises();state=wrapper.vm.$.setupState;
+ expect(state.draft.to).toBe('visitor@example.org');expect(state.draft.cc).toBe('sam@agency.test');expect(state.draft.quotedText).toBe('');expect(state.draft.quotedHtml).toBe('');
+});

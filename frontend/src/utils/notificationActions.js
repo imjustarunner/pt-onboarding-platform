@@ -11,6 +11,7 @@ export function notificationDestination(notification, { organizationSlug = null,
   }
 
   const entityId = Number(n.related_entity_id || 0);
+  if(n.type==='support_ticket_forwarded_to_provider'&&entityType==='communication_conversation'&&entityId)return {path:`${base}/messages`,query:{conversationId:String(entityId),agencyId:String(n.agency_id)}};
   if (n.type === 'school_weekday_availability_requested') return `${base}/my-schedule?schoolAvailability=1&agencyId=${Number(n.agency_id)}`;
   if(n.type === 'payment_setup_required' && entityId) return {path:`${base}/guardian`,query:{panel:'payment_methods',clientId:String(entityId)}};
   if (entityType === 'meeting_reservation_invitation' && entityId) return `${base}/meeting-times?invitation=${entityId}&agencyId=${Number(n.agency_id)}`;

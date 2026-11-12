@@ -1,3 +1,4 @@
+import { recordTicketAssignment } from './ticketAssignment.service.js';
 import { randomUUID } from 'node:crypto';
 import pool from '../config/database.js';
 import { groupKeyForIdentity, canAccessDepartmentalGroup } from './departmentalGroupAccess.service.js';
@@ -7,32 +8,46 @@ import { chooseCanonicalSupportTicket, classifySupportEmailResult, emailHash, em
   supportReplyHeaders } from './supportTicketEmailPolicy.js';
 
 async function senderOptions({ ticket, actorUserId }, db) {
-  const [identities] = await db.execute(`SELECT e.*, i.owner_user_id
+  let [identities] = await db.execute(`SELECT e.*, i.owner_user_id
     FROM email_sender_identities e LEFT JOIN communication_inboxes i ON i.sender_identity_id=e.id
     WHERE e.agency_id=? AND e.is_active=1`, [ticket.agency_id]);
   const [schools] = await db.execute('SELECT itsco_email FROM school_profiles WHERE school_organization_id=?', [ticket.school_organization_id]);
-  const [[actor]] = await db.execute(`SELECT u.id,u.first_name,u.last_name,u.work_email,a.name AS agency_name
+  const [[actor]] = await db.execute(`SELECT u.id,u.first_name,u.last_name,u.work_email,u.role,a.name AS agency_name
     FROM users u JOIN agencies a ON a.id=? WHERE u.id=?`, [ticket.agency_id, actorUserId]);
   if (!actor) throw supportEmailError('Staff sender not found.', 403);
+  // Administrators may deliberately use another agency they administer. Requesters
+  // and ordinary providers never gain a sender grant from the ticket itself.
+  if (['admin','super_admin'].includes(actor.role) && (!ticket.topic || ticket.topic==='general')) {
+    const [other] = await db.execute(`SELECT e.*,i.owner_user_id,a.name AS sender_agency_name
+      FROM email_sender_identities e JOIN agencies a ON a.id=e.agency_id
+      LEFT JOIN communication_inboxes i ON i.sender_identity_id=e.id
+      WHERE e.is_active=1 AND a.is_active=1 AND e.agency_id<>?
+        AND (i.owner_user_id=? OR e.identity_key='support')
+        AND EXISTS (SELECT 1 FROM user_agencies grant_row WHERE grant_row.user_id=?
+          AND grant_row.agency_id=e.agency_id AND grant_row.is_active=1 AND (?='super_admin' OR COALESCE(grant_row.agency_role,?) IN ('admin','super_admin')))` ,
+      [ticket.agency_id,actorUserId,actorUserId,actor.role,actor.role]);
+    identities=[...identities,...other];
+  }
   const staffName = [actor.first_name, actor.last_name].filter(Boolean).join(' ').trim();
   const agencyName = String(actor.agency_name || '').replace(/[\r\n<>]/g, ' ').trim();
   const seen = new Set();
   const departments = await ticketDepartmentKeys(ticket, db);
   const permitted = [];
-  const ownWork = identity => Number(ticket.agency_id)===2 && Number(identity.owner_user_id)===Number(actorUserId)
-    && emailKey(identity.from_email)===emailKey(actor.work_email) && emailKey(identity.from_email).endsWith('@itsco.health');
+  const ownWork = identity => Number(identity.owner_user_id)===Number(actorUserId) && Number(identity.agency_id)!==Number(ticket.agency_id)
+    || Number(identity.owner_user_id)===Number(actorUserId) && emailKey(identity.from_email)===emailKey(actor.work_email);
   for (const identity of identities) {
-    if(ownWork(identity)){permitted.push(identity);continue;}
+    if(ownWork(identity)||identity.sender_agency_name){permitted.push(identity);continue;}
     const key = groupKeyForIdentity(identity);
     if (departments.length && (!key || !departments.includes(key))) continue;
     if (key && !await canAccessDepartmentalGroup({ agencyId: ticket.agency_id, userId: actorUserId, groupKey: key, db })) continue;
     permitted.push(identity);
   }
-  const options = permitted.filter((i) => ownWork(i) || isManagedSupportIdentity(i, { agencyId: ticket.agency_id, topic: ticket.topic,
+  const receivingGroup = identities.find(i=>Number(i.agency_id)===Number(ticket.agency_id)&&i.identity_key===(ticket.source_channel==='public_web'?'support':'schools')) || identities.find(i=>Number(i.agency_id)===Number(ticket.agency_id)&&['support','schools','schoolreply'].includes(i.identity_key));
+  const options = permitted.filter((i) => ownWork(i) || i.sender_agency_name || isManagedSupportIdentity(i, { agencyId: ticket.agency_id, topic: ticket.topic,
     schoolAddresses: schools.map((s) => s.itsco_email) })).filter((i) => !seen.has(i.id) && seen.add(i.id)).map((i) => ({
-    id: Number(i.id), identityKey: i.identity_key, fromEmail: emailKey(i.from_email), senderKind:ownWork(i)?'staff':'group',
-    teamDisplayName: String(i.display_name || agencyName || 'School support').replace(/[\r\n<>]/g, ' ').trim(),
-    staffDisplayName: [staffName, agencyName].filter(Boolean).join(' · ').replace(/[\r\n<>]/g, ' ').trim()
+    id: Number(i.id), agencyId:Number(i.agency_id), agencyName:i.sender_agency_name || agencyName, replyToEmail:Number(i.agency_id)!==Number(ticket.agency_id)?receivingGroup?.from_email:null, identityKey: i.identity_key, fromEmail: emailKey(i.from_email), senderKind:ownWork(i)?'staff':'group',
+    teamDisplayName: String(i.display_name || i.sender_agency_name || agencyName || 'School support').replace(/[\r\n<>]/g, ' ').trim(),
+    staffDisplayName: [staffName, i.sender_agency_name || agencyName].filter(Boolean).join(' · ').replace(/[\r\n<>]/g, ' ').trim()
   }));
   return options.some(o=>o.senderKind==='group')?options:options.filter(o=>o.senderKind!=='staff');
 }
@@ -53,15 +68,15 @@ export async function resolveSupportTicketEmailThread(ticket, db = pool) {
     if (linked) return { canonicalTicketId: Number(ticket.id), originalTicketId: Number(ticket.id) };
   }
 
-  if (ticket?.source_channel !== 'email' || !ticket.source_email_thread_id || !ticket.agency_id) return { canonicalTicketId: Number(ticket?.id) || null };
+  if (!['email','public_web'].includes(ticket?.source_channel) || !ticket.source_email_thread_id || !ticket.agency_id) return { canonicalTicketId: Number(ticket?.id) || null };
   const [rows] = await db.execute(`SELECT t.id,t.claimed_by_user_id,s.canonical_ticket_id,
       (SELECT MIN(e.id) FROM support_ticket_email_messages e WHERE e.ticket_id=t.id) AS first_email_id FROM support_tickets t
     LEFT JOIN support_ticket_email_thread_sync s ON s.agency_id=t.agency_id
       AND BINARY s.gmail_thread_id=BINARY t.source_email_thread_id
-    WHERE t.source_channel='email' AND t.agency_id=? AND t.source_email_thread_id=?
+    WHERE t.source_channel IN ('email','public_web') AND t.agency_id=? AND t.source_email_thread_id=?
       AND t.school_organization_id <=> ? AND t.client_id <=> ? AND t.topic <=> ?`,
   [ticket.agency_id, ticket.source_email_thread_id, ticket.school_organization_id || null, ticket.client_id || null, ticket.topic || null]);
-  return { canonicalTicketId: Number(chooseCanonicalSupportTicket(rows)?.id || ticket.id), originalTicketId: Number(ticket.id) };
+  return { canonicalTicketId: Number(chooseCanonicalSupportTicket(rows)?.id || ticket.id), originalTicketId: Number(ticket.id),threadTicketIds:[...new Set([Number(ticket.id),...rows.map(row=>Number(row.id))])] };
 }
 
 export async function preserveSupportTicketEmailCanonical(ticket, db = pool) {
@@ -103,7 +118,7 @@ export async function sendSupportTicketEmailReply(input, dependencies = {}) {
   try {
     await db.beginTransaction();
     [[ticket]] = await db.execute('SELECT * FROM support_tickets WHERE id=? FOR UPDATE', [ticketId]);
-    if (!ticket || ticket.source_channel !== 'email') throw supportEmailError('Email ticket not found.', 404);
+    if (!ticket || !['email','public_web'].includes(ticket.source_channel) || ticket.created_by_source_key==='office_kiosk_support') throw supportEmailError('Email ticket not found.', 404);
     const [[credentialingCase]] = await db.execute('SELECT id FROM credentialing_email_tickets WHERE ticket_id=?', [ticketId]);
     if (credentialingCase) throw supportEmailError('This credentialing address is receive-only. Outbound replies are unavailable.', 403, 'CREDENTIALING_RECEIVE_ONLY');
     const canonical = await resolveSupportTicketEmailThread(ticket, db);
@@ -118,6 +133,7 @@ export async function sendSupportTicketEmailReply(input, dependencies = {}) {
     if ((await ticketDepartmentKeys(ticket, db)).length && !await canWorkDepartmentTicket({ ticket, userId: actorUserId, db })) {
       throw supportEmailError('You do not have permission to reply from this agency group.', 403, 'DEPARTMENTAL_GROUP_ACCESS_REQUIRED');
     }
+    if(!['admin','support','super_admin'].includes(actor.role))throw supportEmailError('Only Support, Admin and Superadmin can own and reply to support tickets.',403,'SUPPORT_EMAIL_OWNER_ROLE_REQUIRED');
     if (ticket.claimed_by_user_id && Number(ticket.claimed_by_user_id) !== Number(actorUserId)) {
       throw supportEmailError('This ticket is claimed by another staff member. Reassign it before replying.');
     }
@@ -141,15 +157,16 @@ export async function sendSupportTicketEmailReply(input, dependencies = {}) {
         draftSnapshotId, sourceMessageId, threadRevision: revision });
       const options = await senderOptions({ ticket, actorUserId }, db);
       const selected = senderIdentityId ? options.find((o) => o.id === Number(senderIdentityId))
-        : options.find((o) => ['schoolreply', 'school_reply', 'schools'].includes(o.identityKey)) || options[0];
+        : options.find((o) => ticket.source_channel==='public_web'?o.identityKey==='support':['schoolreply','school_reply','schools'].includes(o.identityKey)) || options[0];
       if (!selected) throw supportEmailError('No approved shared sender is available for this ticket.', 400, 'SUPPORT_EMAIL_SENDER_REQUIRED');
       if(selected.senderKind==='staff'&&senderMode!=='staff')throw supportEmailError('Choose Self for your work address, or select a group address for the group signature.',400);
       const sharedReply = options.find(o=>o.senderKind!=='staff'&&o.identityKey==='schools') || options.find(o=>o.senderKind!=='staff'&&o.identityKey==='support') || options.find(o=>o.senderKind!=='staff');
-      replyToEmail=selected.senderKind==='staff'?sharedReply?.fromEmail:selected.fromEmail;
+      replyToEmail=selected.replyToEmail || (selected.senderKind==='staff'?sharedReply?.fromEmail:selected.fromEmail);
       if(!replyToEmail)throw supportEmailError('A receiving group address is required to keep replies in the ticket.',400);
       const metadata = await listTicketEmailDeliveryMetadata(ticketId, db);
       await preserveSupportTicketEmailCanonical(ticket, db);
       headers = supportReplyHeaders(ticket, metadata);
+      if(ticket.source_channel==='public_web'&&!headers.subject.includes(`[#${ticket.id}]`))headers.subject+=` [#${ticket.id}]`;
       const latestReceived = [...metadata].reverse().find((m) => m.direction === 'inbound');
       const to = emailKey(latestReceived?.from_email || ticket.source_email_from);
       if (!/^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(to)) throw supportEmailError('The original sender does not have a valid reply address.', 400);
@@ -172,6 +189,7 @@ export async function sendSupportTicketEmailReply(input, dependencies = {}) {
       [ticketId, created.insertId, ticket.agency_id, selected.id, selected.fromEmail, name, JSON.stringify([to]),
         headers.subject, internetId, emailHash(internetId), headers.inReplyTo, headers.references, headers.threadId,
         requestKey, snapshot?.id || snapshot?.draftSnapshotId || null]);
+      if(!ticket.claimed_by_user_id)await recordTicketAssignment({ticketId,agencyId:ticket.agency_id,actorUserId,assigneeUserId:actorUserId,kind:'claimed',reason:'Replying to ticket'},db);
       await db.execute('UPDATE support_tickets SET claimed_by_user_id=?,claimed_at=COALESCE(claimed_at,CURRENT_TIMESTAMP),updated_at=CURRENT_TIMESTAMP WHERE id=?', [actorUserId, ticketId]);
       delivery = { id: saved.insertId, ticket_message_id: created.insertId, sender_identity_id: selected.id,
         from_email: selected.fromEmail, from_name: name, to_json: [to], internet_message_id: internetId, send_status: 'sending' };

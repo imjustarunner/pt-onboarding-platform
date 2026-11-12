@@ -1,3 +1,7 @@
+import {listAgencyForwardProviders,forwardTicketToProviderInboxes,ticketForwardHistory} from '../services/ticketForwarding.service.js';
+import { supportsTicketEmailReply } from '../services/supportTicketEmailPolicy.js';
+import { listTicketEmailReceipts, ticketEmailPreview, previewTicketReply } from '../services/ticketEmailReceipts.service.js';
+import { listEligibleTicketAssignees, ticketAssignmentHistory, setTicketAssignment } from '../services/ticketAssignment.service.js';
 import { logAuditEvent } from '../services/auditEvent.service.js';
 import {persistSupportTicketAttachment} from '../services/supportTicketUploads.service.js';
 import { ticketAttachmentType } from '../utils/ticketAttachmentType.js';
@@ -323,6 +327,7 @@ function enrichTicketForClient(ticket) {
   return {
     ...decrypted,
     display_status: ticketDisplayStatus(decrypted),
+    closed_reason: decrypted.status==='closed' && /^Closed and forwarded by /.test(decrypted.answer||'') ? 'forwarded' : null,
     priority: decrypted.priority || 'medium',
     draft_sources: parseDraftSourcesFromTicket(decrypted)
   };
@@ -600,7 +605,7 @@ const isAgencyAdminUser = (req) => {
 
 const isTicketQueueCollaboratorRole = (role) => {
   const r = String(role || '').toLowerCase().trim();
-  return r === 'school_staff' || r === 'admin' || r === 'super_admin' || r === 'support' || r === 'staff' || r === 'clinical_practice_assistant' || r === 'provider_plus';
+  return r === 'admin' || r === 'super_admin' || r === 'support';
 };
 
 const normalizeEmail = (value) => {
@@ -2416,22 +2421,25 @@ export const listSupportTicketMessages = async (req, res, next) => {
     });
 
     const attachments = await visibleTicketAttachments(req,ticket);
-    const staffEmail = !hideInternal && String(ticket.source_channel || '').toLowerCase() === 'email';
+    const staffEmail = !hideInternal && supportsTicketEmailReply(ticket);
     const emailDeliveries = staffEmail ? await listTicketEmailDeliveryMetadata(ticketId) : [];
     const deliveryByMessage = new Map(emailDeliveries.map((d) => [Number(d.ticket_message_id), d]));
     const emailThread = staffEmail ? await resolveSupportTicketEmailThread(ticket) : null;
     const senderOptions = staffEmail ? await listSupportTicketSenderOptions({ ticket, actorUserId: req.user.id }) : [];
-    if (staffEmail && emailThread?.canonicalTicketId && Number(emailThread.canonicalTicketId) !== ticketId) {
-      const [threadRows] = await pool.execute(`SELECT m.*, u.first_name AS author_first_name, u.last_name AS author_last_name
-        FROM support_ticket_messages m JOIN support_ticket_email_messages e ON e.ticket_message_id = m.id
-        LEFT JOIN users u ON u.id = m.author_user_id
-        WHERE m.ticket_id = ? AND COALESCE(m.is_deleted, 0) = 0 AND COALESCE(m.is_internal, 0) = 0
-        ORDER BY m.created_at ASC, m.id ASC`, [emailThread.canonicalTicketId]);
-      const threadDeliveries = await listTicketEmailDeliveryMetadata(emailThread.canonicalTicketId);
-      for (const delivery of threadDeliveries) deliveryByMessage.set(Number(delivery.ticket_message_id), delivery);
-      const existingIds = new Set(normalized.map((m) => Number(m.id)));
-      normalized = [...normalized, ...threadRows.filter((m) => !existingIds.has(Number(m.id))).map(decryptTicketMessageRow)]
-        .sort((a, b) => new Date(a.created_at) - new Date(b.created_at) || Number(a.id) - Number(b.id));
+    if(staffEmail && (emailThread?.threadTicketIds?.length>1 || emailThread?.canonicalTicketId && Number(emailThread.canonicalTicketId)!==ticketId)) {
+      const ids=[...new Set([...(emailThread.threadTicketIds||[]),Number(emailThread.canonicalTicketId)])].filter(id=>id>0&&id!==ticketId);
+      const [related]=await pool.execute(`SELECT * FROM support_tickets WHERE id IN (${ids.map(()=>'?').join(',')}) AND agency_id=?`,[...ids,ticket.agency_id]);
+      for(const other of related){
+        try{await authorizeSupportTicketConversation(req,other);}catch(error){if([403,404].includes(error.status))continue;throw error;}
+        const [threadRows]=await pool.execute(`SELECT m.*,u.first_name AS author_first_name,u.last_name AS author_last_name
+          FROM support_ticket_messages m JOIN support_ticket_email_messages e ON e.ticket_message_id=m.id
+          LEFT JOIN users u ON u.id=m.author_user_id WHERE m.ticket_id=? AND COALESCE(m.is_deleted,0)=0 AND COALESCE(m.is_internal,0)=0
+          ORDER BY m.created_at,m.id`,[other.id]);
+        for(const delivery of await listTicketEmailDeliveryMetadata(other.id))deliveryByMessage.set(Number(delivery.ticket_message_id),delivery);
+        const existingIds=new Set(normalized.map(m=>Number(m.id)));
+        normalized.push(...threadRows.filter(m=>!existingIds.has(Number(m.id))).map(decryptTicketMessageRow));
+      }
+      normalized.sort((a,b)=>new Date(a.created_at)-new Date(b.created_at)||Number(a.id)-Number(b.id));
     }
     const metadata = parseMetadataJson(ticket.ai_draft_metadata_json);
 
@@ -2440,6 +2448,9 @@ export const listSupportTicketMessages = async (req, res, next) => {
       messages: normalized.map((m) => ({ ...m, email_delivery: deliveryByMessage.get(Number(m.id)) || null })),
       emailReply: res.locals.emailReply || res.locals.websiteEmailReply || null,
       senderOptions,
+      forwardHistory: hideInternal ? [] : await ticketForwardHistory(ticket),
+      emailReceipts: staffEmail ? await listTicketEmailReceipts(ticket) : [],
+      assignmentHistory: hideInternal ? [] : await ticketAssignmentHistory(ticket),
       canonicalTicketId: emailThread?.canonicalTicketId || null,
       lastMessageId: Math.max(0, ...list.filter((m) => !m.is_deleted).map((m) => Number(m.id))),
       draftSnapshotId: metadata?.draftSnapshotId || null,
@@ -2565,7 +2576,7 @@ export const createSupportTicketMessage = async (req, res, next) => {
       }
     }
 
-    if (String(ticket.source_channel || '').toLowerCase() === 'email' && !wantInternal && (isAgencyAdminUser(req) || await canWorkDepartmentTicket({ ticket, userId: req.user.id }))) {
+    if (supportsTicketEmailReply(ticket) && !wantInternal && (isAgencyAdminUser(req) || await canWorkDepartmentTicket({ ticket, userId: req.user.id }))) {
       res.locals.emailReply = await sendSupportTicketEmailReply({
         ticketId, actorUserId: req.user.id, actorRole: role, body, parentMessageId: parentId,
         senderIdentityId: req.body?.senderIdentityId, senderMode: req.body?.senderMode || 'staff',
@@ -3135,7 +3146,7 @@ export const markSupportTicketDraftSent = async (req, res, next) => {
 
 export const answerSupportTicket = async (req, res, next) => {
   try {
-    if (!isAgencyAdminUser(req)) {
+    if (!['admin','support','super_admin'].includes(String(req.user?.role||'').toLowerCase())) {
       return res.status(403).json({ error: { message: 'Only admin/support can answer support tickets' } });
     }
 
@@ -3165,7 +3176,7 @@ export const answerSupportTicket = async (req, res, next) => {
     if (!(await actorCanAccessTicketTopic(req, ticket))) {
       return res.status(403).json({ error: { message: 'This ticket is routed to a different audience' } });
     }
-    if (String(ticket.source_channel || '').toLowerCase() === 'email') {
+    if (supportsTicketEmailReply(ticket)) {
       const emailReply = await sendSupportTicketEmailReply({
         ticketId, actorUserId: req.user.id, actorRole: req.user.role, body: answer,
         senderIdentityId: req.body?.senderIdentityId, senderMode: req.body?.senderMode || 'staff',
@@ -3184,26 +3195,7 @@ export const answerSupportTicket = async (req, res, next) => {
       return res.status(409).json({ error: { message: 'Ticket is already claimed by another team member' } });
     }
 
-    if (!claimedBy) {
-      try {
-        const [claimResult] = await pool.execute(
-          `UPDATE support_tickets
-           SET claimed_by_user_id = ?, claimed_at = COALESCE(claimed_at, CURRENT_TIMESTAMP)
-           WHERE id = ? AND claimed_by_user_id IS NULL`,
-          [req.user.id, ticketId]
-        );
-        if ((claimResult?.affectedRows || 0) === 0) {
-          // Someone else claimed in between; re-check
-          const [r2] = await pool.execute(`SELECT claimed_by_user_id FROM support_tickets WHERE id = ?`, [ticketId]);
-          const nowClaimed = r2?.[0]?.claimed_by_user_id ? Number(r2[0].claimed_by_user_id) : null;
-          if (nowClaimed && nowClaimed !== Number(req.user.id)) {
-            return res.status(409).json({ error: { message: 'Ticket was just claimed by another team member' } });
-          }
-        }
-      } catch {
-        // Best-effort; continue
-      }
-    }
+    if (!claimedBy) await setTicketAssignment({ticketId,agencyId:ticket.agency_id,actorUserId:req.user.id,assigneeUserId:req.user.id,kind:'claimed'});
 
     const hasCloseOnRead = await hasSupportTicketsCloseOnReadColumn();
     const hasEnc = await hasSupportTicketEncryptionColumns();
@@ -3415,7 +3407,7 @@ export const answerSupportTicket = async (req, res, next) => {
 export const claimSupportTicket = async (req, res, next) => {
   try {
     const role = String(req.user?.role || '').toLowerCase();
-    const canClaim = role === 'school_staff' || isAgencyAdminUser(req) || role === 'super_admin' || await actorCanUseDepartmentTickets(req);
+    const canClaim = ['admin','super_admin','support'].includes(role);
     if (!canClaim) {
       return res.status(403).json({ error: { message: 'Only staff/admin/support can claim support tickets' } });
     }
@@ -3436,6 +3428,9 @@ export const claimSupportTicket = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'This ticket is routed to a different audience' } });
     }
 
+    const canonical=await resolveSupportTicketEmailThread(ticket);
+    if(canonical.canonicalTicketId!==Number(ticket.id))return res.status(409).json({error:{message:`Open ticket #${canonical.canonicalTicketId} to manage this conversation`},canonicalTicketId:canonical.canonicalTicketId});
+
     const claimedBy = ticket.claimed_by_user_id ? Number(ticket.claimed_by_user_id) : null;
     if (claimedBy && claimedBy !== Number(req.user.id)) {
       return res.status(409).json({ error: { message: 'Ticket is already claimed by another team member' } });
@@ -3445,16 +3440,7 @@ export const claimSupportTicket = async (req, res, next) => {
       return res.json(out?.[0] || null);
     }
 
-    const [result] = await pool.execute(
-      `UPDATE support_tickets
-       SET claimed_by_user_id = ?, claimed_at = CURRENT_TIMESTAMP
-       WHERE id = ? AND claimed_by_user_id IS NULL`,
-      [req.user.id, ticketId]
-    );
-
-    if ((result?.affectedRows || 0) === 0) {
-      return res.status(409).json({ error: { message: 'Ticket was just claimed by another team member' } });
-    }
+    await setTicketAssignment({ticketId,agencyId:ticket.agency_id,actorUserId:req.user.id,assigneeUserId:req.user.id,kind:'claimed'});
 
     const [out] = await pool.execute(`SELECT * FROM support_tickets WHERE id = ?`, [ticketId]);
     res.json(out?.[0] || null);
@@ -3495,13 +3481,7 @@ export const unclaimSupportTicket = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Only the current claimant can unclaim this ticket' } });
     }
 
-    await pool.execute(
-      `UPDATE support_tickets
-       SET claimed_by_user_id = NULL,
-           claimed_at = NULL
-       WHERE id = ?`,
-      [ticketId]
-    );
+    await setTicketAssignment({ticketId,agencyId:ticket.agency_id,actorUserId:req.user.id,previousUserId:claimedBy,kind:'unassigned'});
 
     const [out] = await pool.execute(`SELECT * FROM support_tickets WHERE id = ?`, [ticketId]);
     res.json(out?.[0] || null);
@@ -3537,69 +3517,7 @@ export const listSupportTicketAssignees = async (req, res, next) => {
       }
     }
 
-    let rows = [];
-    try {
-      const [queryRows] = await pool.execute(
-        `SELECT u.id, u.first_name, u.last_name, u.role,
-                MAX(CASE WHEN ua.agency_id = ? THEN COALESCE(ua.has_billing_access, 0) ELSE 0 END) AS has_billing_access,
-                MAX(CASE WHEN ua.agency_id = ? THEN COALESCE(ua.has_payroll_access, 0) ELSE 0 END) AS has_payroll_access,
-                MAX(CASE WHEN ua.agency_id = ? THEN COALESCE(ua.can_manage_credentialing, 0) ELSE 0 END) AS can_manage_credentialing
-         FROM users u
-         JOIN user_agencies ua ON ua.user_id = u.id
-         WHERE (
-           (ua.agency_id = ? AND (LOWER(COALESCE(u.role, '')) IN ('admin','support','staff','super_admin','clinical_practice_assistant','provider_plus') OR COALESCE(ua.has_billing_access,0)=1 OR COALESCE(ua.has_payroll_access,0)=1 OR COALESCE(ua.can_manage_credentialing,0)=1))
-           OR
-           (
-             LOWER(COALESCE(u.role, '')) = 'school_staff'
-             AND ua.agency_id IN (
-               SELECT oa.organization_id
-               FROM organization_affiliations oa
-               WHERE oa.agency_id = ? AND oa.is_active = TRUE
-               UNION
-               SELECT s.school_organization_id
-               FROM agency_schools s
-               WHERE s.agency_id = ? AND s.is_active = TRUE
-             )
-           )
-         )
-         AND (u.is_archived = FALSE OR u.is_archived IS NULL)
-         AND UPPER(COALESCE(u.status, '')) <> 'ARCHIVED'
-         GROUP BY u.id, u.first_name, u.last_name, u.role
-         ORDER BY u.last_name ASC, u.first_name ASC`,
-        [targetAgencyId, targetAgencyId, targetAgencyId, targetAgencyId, targetAgencyId, targetAgencyId]
-      );
-      rows = queryRows || [];
-    } catch (e) {
-      const msg = String(e?.message || '');
-      const missing =
-        msg.includes("doesn't exist") ||
-        msg.includes('ER_NO_SUCH_TABLE') ||
-        msg.includes('Unknown column') ||
-        msg.includes('ER_BAD_FIELD_ERROR');
-      if (!missing) throw e;
-      const [fallbackRows] = await pool.execute(
-        `SELECT DISTINCT u.id, u.first_name, u.last_name, u.role
-         FROM users u
-         JOIN user_agencies ua ON ua.user_id = u.id
-         WHERE (
-           (ua.agency_id = ? AND LOWER(COALESCE(u.role, '')) IN ('admin','support','staff','super_admin','clinical_practice_assistant','provider_plus'))
-           OR
-           (
-             LOWER(COALESCE(u.role, '')) = 'school_staff'
-             AND ua.agency_id IN (
-               SELECT oa.organization_id
-               FROM organization_affiliations oa
-               WHERE oa.agency_id = ? AND oa.is_active = TRUE
-             )
-           )
-         )
-         AND (u.is_archived = FALSE OR u.is_archived IS NULL)
-         AND UPPER(COALESCE(u.status, '')) <> 'ARCHIVED'
-         ORDER BY u.last_name ASC, u.first_name ASC`,
-        [targetAgencyId, targetAgencyId]
-      );
-      rows = fallbackRows || [];
-    }
+    const rows = await listEligibleTicketAssignees(targetAgencyId);
 
     res.json({
       users: (rows || []).map((u) => ({
@@ -3631,25 +3549,18 @@ export const assignSupportTicket = async (req, res, next) => {
     const access = await ensureTicketScopeAccess(req, ticket);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
-    const [aRows] = await pool.execute(
-      `SELECT id, first_name, last_name, email, work_email, role, is_archived, status
-       FROM users
-       WHERE id = ?
-       LIMIT 1`,
-      [assigneeId]
-    );
-    const assignee = aRows?.[0] || null;
-    if (!assignee) return res.status(404).json({ error: { message: 'Assignee not found' } });
-    if (assignee.is_archived === 1 || String(assignee.status || '').toUpperCase() === 'ARCHIVED') {
-      return res.status(409).json({ error: { message: 'Assignee is archived' } });
-    }
+    const canonical=await resolveSupportTicketEmailThread(ticket);
+    if(canonical.canonicalTicketId!==Number(ticket.id))return res.status(409).json({error:{message:`Open ticket #${canonical.canonicalTicketId} to manage this conversation`},canonicalTicketId:canonical.canonicalTicketId});
+
+    const assignee = (await listEligibleTicketAssignees(ticket.agency_id)).find(user => Number(user.id) === Number(assigneeId));
+    if (!assignee) return res.status(400).json({error:{message:'Choose an active ticket team member in this agency. School staff and providers without ticket duties cannot be assigned.'}});
 
     const assigneeDepartmentAccess = await canWorkDepartmentTicket({ ticket, userId: assignee.id });
     if ((await ticketDepartmentKeys(ticket)).length && !assigneeDepartmentAccess) {
       return res.status(400).json({ error: { message: 'Assignee does not have permission for this agency group' } });
     }
     if (!isTicketQueueCollaboratorRole(assignee.role) && !assigneeDepartmentAccess) {
-      return res.status(400).json({ error: { message: 'Assignee must be a ticket collaborator (school staff, admin, support, staff, CPA, or provider plus)' } });
+      return res.status(400).json({ error: { message: 'Assignee must have ticket responsibilities' } });
     }
 
     const assigneeCanAccess = await userCanAccessTicketOrgScope({
@@ -3668,13 +3579,7 @@ export const assignSupportTicket = async (req, res, next) => {
       return res.json(out?.[0] || null);
     }
 
-    await pool.execute(
-      `UPDATE support_tickets
-       SET claimed_by_user_id = ?, claimed_at = CURRENT_TIMESTAMP
-       WHERE id = ?`,
-      [assigneeId, ticketId]
-    );
-
+    await setTicketAssignment({ticketId,agencyId:ticket.agency_id,actorUserId:req.user.id,assigneeUserId:assigneeId,previousUserId:currentlyAssignedUserId});
     await createSupportTicketAssignmentNotification({
       ticket,
       assigneeUser: assignee,
@@ -3779,199 +3684,27 @@ async function listProvidersAssignedToClientInSchool({ clientId, schoolOrganizat
   });
 }
 
-export const listClientAssignedProvidersForSupportTicket = async (req, res, next) => {
-  try {
-    if (!isAgencyAdminUser(req) && req.user?.role !== 'super_admin') {
-      return res.status(403).json({ error: { message: 'Access denied' } });
-    }
-    const ticketId = parseInt(req.params.id, 10);
-    if (!ticketId) return res.status(400).json({ error: { message: 'Invalid ticket id' } });
-
-    const [rows] = await pool.execute(`SELECT * FROM support_tickets WHERE id = ? LIMIT 1`, [ticketId]);
-    const ticket = rows?.[0] || null;
-    if (!ticket) return res.status(404).json({ error: { message: 'Ticket not found' } });
-    if (!ticket.client_id) {
-      return res.status(400).json({ error: { message: 'Ticket has no linked client' } });
-    }
-
-    const access = await ensureTicketScopeAccess(req, ticket);
-    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
-
-    const providers = await listProvidersAssignedToClientInSchool({
-      clientId: ticket.client_id,
-      schoolOrganizationId: ticket.school_organization_id
-    });
-    res.json({ providers });
-  } catch (e) {
-    next(e);
-  }
+async function providersEligibleForForward(ticket){
+ return ticket.client_id ? listProvidersAssignedToClientInSchool({clientId:ticket.client_id,schoolOrganizationId:ticket.school_organization_id}) : listAgencyForwardProviders(ticket.agency_id);
+}
+export const listClientAssignedProvidersForSupportTicket=async(req,res,next)=>{
+ try{
+  if(!['admin','super_admin','support'].includes(req.user?.role))return res.status(403).json({error:{message:'Only the support team can forward tickets'}});
+  const [[ticket]]=await pool.execute('SELECT * FROM support_tickets WHERE id=?',[Number(req.params.id)]);
+  if(!ticket)return res.status(404).json({error:{message:'Ticket not found'}});
+  await authorizeSupportTicketConversation(req,ticket);
+  res.json({providers:await providersEligibleForForward(ticket)});
+ }catch(error){next(error);}
 };
-
-export const forwardSupportTicketToProviders = async (req, res, next) => {
-  try {
-    if (!isAgencyAdminUser(req) && req.user?.role !== 'super_admin') {
-      return res.status(403).json({ error: { message: 'Only admin/support/staff can forward tickets' } });
-    }
-
-    const ticketId = parseInt(req.params.id, 10);
-    if (!ticketId) return res.status(400).json({ error: { message: 'Invalid ticket id' } });
-
-    const rawIds = req.body?.providerUserIds ?? req.body?.provider_user_ids;
-    const ids = Array.isArray(rawIds) ? rawIds : [];
-    const providerUserIds = [...new Set(ids.map((x) => parseInt(x, 10)).filter((n) => Number.isFinite(n) && n > 0))];
-    const adminNote = String(req.body?.message || '').trim();
-    const customCloseAnswer = String(req.body?.closeAnswer || '').trim();
-
-    if (!providerUserIds.length) {
-      return res.status(400).json({ error: { message: 'Select at least one provider' } });
-    }
-
-    const [rows] = await pool.execute(`SELECT * FROM support_tickets WHERE id = ? LIMIT 1`, [ticketId]);
-    const ticket = rows?.[0] || null;
-    if (!ticket) return res.status(404).json({ error: { message: 'Ticket not found' } });
-    if (!ticket.client_id) {
-      return res.status(400).json({ error: { message: 'Forwarding is only available for client-linked tickets' } });
-    }
-
-    const access = await ensureTicketScopeAccess(req, ticket);
-    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
-
-    const claimedBy = ticket.claimed_by_user_id ? Number(ticket.claimed_by_user_id) : null;
-    if (claimedBy && claimedBy !== Number(req.user.id)) {
-      return res.status(409).json({ error: { message: 'Ticket is already claimed by another team member' } });
-    }
-
-    if (!claimedBy) {
-      try {
-        const [claimResult] = await pool.execute(
-          `UPDATE support_tickets
-           SET claimed_by_user_id = ?, claimed_at = COALESCE(claimed_at, CURRENT_TIMESTAMP)
-           WHERE id = ? AND claimed_by_user_id IS NULL`,
-          [req.user.id, ticketId]
-        );
-        if ((claimResult?.affectedRows || 0) === 0) {
-          const [r2] = await pool.execute(`SELECT claimed_by_user_id FROM support_tickets WHERE id = ?`, [ticketId]);
-          const nowClaimed = r2?.[0]?.claimed_by_user_id ? Number(r2[0].claimed_by_user_id) : null;
-          if (nowClaimed && nowClaimed !== Number(req.user.id)) {
-            return res.status(409).json({ error: { message: 'Ticket was just claimed by another team member' } });
-          }
-        }
-      } catch {
-        // best-effort
-      }
-    }
-
-    if (!(await hasSupportTicketMessagesTable())) {
-      return res.status(409).json({ error: { message: 'Ticket messages are not enabled' } });
-    }
-
-    for (const pid of providerUserIds) {
-      const ok = await providerAssignedToClientInOrg({
-        providerUserId: pid,
-        clientId: ticket.client_id,
-        orgId: ticket.school_organization_id
-      });
-      if (!ok) {
-        return res.status(400).json({
-          error: { message: `User #${pid} is not an assigned provider for this client at this school` }
-        });
-      }
-    }
-
-    const [latestRows] = await pool.execute(
-      `SELECT id FROM support_tickets
-       WHERE school_organization_id = ? AND client_id = ?
-       ORDER BY created_at DESC, id DESC
-       LIMIT 1`,
-      [ticket.school_organization_id, ticket.client_id]
-    );
-    const targetTicketId = latestRows?.[0]?.id ? Number(latestRows[0].id) : ticketId;
-
-    const providerNames = [];
-    for (const pid of providerUserIds) {
-      const u = await User.findById(pid);
-      const nm = [u?.first_name, u?.last_name].filter(Boolean).join(' ').trim();
-      providerNames.push(nm || u?.email || `User #${pid}`);
-    }
-
-    const subjectLine = ticket.subject ? String(ticket.subject).trim() : '';
-    const q = String(ticket.question || '').trim();
-    const forwardParts = ['📩 Support forwarded this school ticket to you as a client message.', ''];
-    if (adminNote) forwardParts.push(`Note from support:\n${adminNote}`, '');
-    forwardParts.push(
-      `Original ticket #${ticketId}${subjectLine ? `: ${subjectLine}` : ''}`,
-      '',
-      '---',
-      q || '(No question text)'
-    );
-    const forwardBody = forwardParts.join('\n');
-
-    await pool.execute(
-      `INSERT INTO support_ticket_messages (ticket_id, parent_message_id, author_user_id, author_role, body)
-       VALUES (?, NULL, ?, ?, ?)`,
-      [targetTicketId, req.user.id, String(req.user?.role || ''), forwardBody]
-    );
-
-    const defaultClose = `Forwarded to provider(s): ${providerNames.join(', ')}. They can read and reply under this student’s Messages (ticketed) in the school portal.`;
-    const closeAnswer = customCloseAnswer || defaultClose;
-
-    const hasCloseOnRead = await hasSupportTicketsCloseOnReadColumn();
-    if (hasCloseOnRead) {
-      await pool.execute(
-        `UPDATE support_tickets
-         SET answer = ?, status = 'closed', answered_by_user_id = ?, answered_at = CURRENT_TIMESTAMP, close_on_read = 0
-         WHERE id = ?`,
-        [closeAnswer, req.user.id, ticketId]
-      );
-    } else {
-      await pool.execute(
-        `UPDATE support_tickets
-         SET answer = ?, status = 'closed', answered_by_user_id = ?, answered_at = CURRENT_TIMESTAMP
-         WHERE id = ?`,
-        [closeAnswer, req.user.id, ticketId]
-      );
-    }
-
-    try {
-      const summary = await maybeGenerateGeminiSummary({ question: ticket?.question || '', answer: closeAnswer });
-      if (summary) {
-        await pool.execute(`UPDATE support_tickets SET ai_summary = ? WHERE id = ?`, [summary, ticketId]);
-      }
-    } catch {
-      // ignore
-    }
-
-    const agencyIdNum = ticket.agency_id
-      ? Number(ticket.agency_id)
-      : await resolveActiveAgencyIdForOrg(ticket.school_organization_id);
-
-    for (const pid of providerUserIds) {
-      try {
-        await Notification.create({
-          type: 'support_ticket_forwarded_to_provider',
-          severity: 'info',
-          title: 'Client message from support',
-          message: `Support forwarded ticket #${ticketId} for you to address in the school portal (student Messages).`,
-          userId: pid,
-          agencyId: agencyIdNum || null,
-          relatedEntityType: 'client',
-          relatedEntityId: ticket.client_id,
-          actorUserId: req.user.id
-        });
-      } catch {
-        // best-effort
-      }
-    }
-
-    const [out] = await pool.execute(`SELECT * FROM support_tickets WHERE id = ?`, [ticketId]);
-    res.json({
-      ticket: out?.[0] || null,
-      targetTicketId,
-      forwardedToProviderIds: providerUserIds
-    });
-  } catch (e) {
-    next(e);
-  }
+export const forwardSupportTicketToProviders=async(req,res,next)=>{
+ try{
+  if(!['admin','super_admin','support'].includes(req.user?.role))return res.status(403).json({error:{message:'Only Support, Admin and Superadmin can forward tickets'}});
+  const [[ticket]]=await pool.execute('SELECT * FROM support_tickets WHERE id=?',[Number(req.params.id)]);
+  if(!ticket)return res.status(404).json({error:{message:'Ticket not found'}});
+  await authorizeSupportTicketConversation(req,ticket);
+  const canonical=await resolveSupportTicketEmailThread(ticket);if(canonical.canonicalTicketId!==Number(ticket.id))return res.status(409).json({error:{message:`Open ticket #${canonical.canonicalTicketId} to forward this conversation`}});
+  res.json(await forwardTicketToProviderInboxes({ticketId:ticket.id,actorUserId:req.user.id,providerUserIds:req.body?.providerUserIds,note:req.body?.message,requestId:req.body?.clientRequestId},{providerCandidates:providersEligibleForForward}));
+ }catch(error){next(error);}
 };
 
 async function loadTicketForActionAccess(req, ticketId) {
@@ -4391,4 +4124,26 @@ export async function authorizeTicketAttachmentUpload(req,res,next){
 }
 export async function uploadSupportTicketAttachment(req,res,next){
  try{const ticket=await loadTicketConversation(req,req.params.id);const attachment=await persistSupportTicketAttachment({req,ticket,file:req.file});return res.status(201).json({attachment});}catch(error){next(error);}
+}
+
+export async function getSupportTicketEmailPreview(req,res,next){
+ try{
+  const [[ticket]]=await pool.execute('SELECT * FROM support_tickets WHERE id=?',[Number(req.params.id)]);
+  if(!ticket)return res.status(404).json({error:{message:'Ticket not found'}});
+  await authorizeSupportTicketConversation(req,ticket);
+  if(['school_staff','client_guardian'].includes(req.user.role))return res.status(403).json({error:{message:'Email receipts are available to the ticket team'}});
+  const id=Number(req.params.communicationId);if(!Number.isSafeInteger(id)||id<1)return res.status(400).json({error:{message:'Invalid email receipt'}});
+  res.json(await ticketEmailPreview(ticket,id));
+ }catch(error){next(error);}
+}
+
+export async function previewSupportTicketReply(req,res,next){
+ try{
+  const [[ticket]]=await pool.execute('SELECT * FROM support_tickets WHERE id=?',[Number(req.params.id)]);
+  if(!ticket)return res.status(404).json({error:{message:'Ticket not found'}});
+  await authorizeSupportTicketConversation(req,ticket);
+  if(['school_staff','client_guardian'].includes(req.user.role))return res.status(403).json({error:{message:'Only the ticket team can preview replies'}});
+  if(!supportsTicketEmailReply(ticket))return res.status(400).json({error:{message:'This ticket does not have an email recipient'}});
+  res.json(await previewTicketReply({ticket,actorUserId:req.user.id,senderIdentityId:req.body?.senderIdentityId,senderMode:req.body?.senderMode,body:req.body?.body}));
+ }catch(error){next(error);}
 }

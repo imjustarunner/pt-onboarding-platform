@@ -447,3 +447,8 @@ describe('reading layout and unread navigation', () => {
     expect(wrapper.text()).not.toContain('You’re caught up');
   });
 });
+it('opens the provider composer with the explicitly chosen forwarding reply recipients',()=>{
+ state.conversationPreview={conversation:{id:101,channel:'email'},messages:[]};
+ state.composeEmail({mode:'reply',to:'visitor@example.org',cc:'sam@agency.test',forwardRecipient:true});
+ expect(openEmailComposer).toHaveBeenCalledWith(expect.anything(),expect.objectContaining({conversationId:101,to:'visitor@example.org',cc:'sam@agency.test',forwardRecipient:true}));
+});

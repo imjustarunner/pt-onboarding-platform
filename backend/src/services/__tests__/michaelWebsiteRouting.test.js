@@ -7,7 +7,7 @@ describe('Michael consulting inquiry ownership', () => {
   await routePublicWebsiteTicket({agency:{id:442,slug:'michael'},ticketId:123,category:'other'},db);
   expect(db.execute.mock.calls[0][0]).toContain('ua.agency_id=a.id');
   expect(db.execute.mock.calls[0][0]).toContain('a.account_owner_user_id');
-  expect(db.execute.mock.calls[1][0]).toContain('COALESCE(claimed_by_user_id,?)');
+  expect(db.execute.mock.calls[1][0]).toContain('claimed_by_user_id IS NULL');
   expect(db.execute.mock.calls[1][1]).toEqual([501,123,442]);
  });
  it('does not claim an inquiry if no unambiguous active owner exists',async()=>{

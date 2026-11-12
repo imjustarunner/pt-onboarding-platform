@@ -235,8 +235,9 @@
                 <span class="status-pill" :class="`st-${selected.display_status || selected.status}`">
                   {{ statusLabel(selected) }}
                 </span>
+                <span v-if="forwardHistory.length" class="claimed-chip">{{ selected.status==='closed' ? 'Closed · Forwarded' : 'Previously forwarded' }}</span>
                 <span v-if="assigneeName(selected)" class="claimed-chip">
-                  Claimed: {{ assigneeName(selected) }}
+                  Assigned to: {{ assigneeName(selected) }}
                 </span>
               </div>
             </div>
@@ -377,6 +378,22 @@
                     <ConversationEmailBody v-if="m.email_delivery && !m.is_internal && !m.is_deleted" :message="{ body_text: m.body }" />
                     <div v-else class="bubble-body">{{ m.body || '(deleted)' }}</div>
                   </div>
+                  <section v-if="emailReceipts.length" class="ticket-email-receipts" aria-label="Email delivery and sent copies">
+                    <h4>Email delivery &amp; sent copies</h4>
+                    <details v-for="receipt in emailReceipts" :key="receipt.id" class="ticket-email-receipt">
+                      <summary>{{ receipt.direction === 'inbound' ? 'Received email' : 'Sent email' }} · {{ receiptStatus(receipt) }} · {{ formatDateTime(receipt.sent_at || receipt.created_at) }}</summary>
+                      <p><strong>From:</strong> {{ receipt.from_name }} &lt;{{ receipt.from_email }}&gt;</p>
+                      <p><strong>To:</strong> {{ receipt.to?.join(', ') }}</p>
+                      <p v-if="receipt.cc?.length"><strong>Cc:</strong> {{ Array.isArray(receipt.cc) ? receipt.cc.join(', ') : receipt.cc }}</p>
+                      <p v-if="receipt.replyTo"><strong>Reply-to:</strong> {{ receipt.replyTo }}</p>
+                      <p v-if="receipt.error_message" class="error">{{ receipt.error_message }}</p>
+                      <p v-if="receipt.direction === 'outbound'" class="muted">Delivery confirmation: {{ receipt.delivered_at ? formatDateTime(receipt.delivered_at) : 'Not recorded' }}. Open signal: {{ receipt.opened_at ? formatDateTime(receipt.opened_at) : 'Not recorded' }}.</p>
+                      <p v-if="receipt.direction === 'outbound'" class="muted">Sent means the mail provider accepted the email. Open signals can be affected by email privacy features.</p>
+                      <button v-if="receipt.has_preview" type="button" class="btn btn-secondary btn-xs" @click="previewReceipt(receipt)">View sent email</button>
+                      <p v-if="receiptErrors[receipt.id]" class="error">{{ receiptErrors[receipt.id] }}</p>
+                      <div v-if="receiptPreviews[receipt.id]" class="sent-email-preview" v-html="receiptPreviews[receipt.id]" />
+                    </details>
+                  </section>
                   <TicketAttachmentFiling
                     v-if="ticketAttachments.length"
                     :key="selected.id"
@@ -839,7 +856,7 @@
                 <div v-if="isEmailTicket && canSelectSharedSender && composerMode !== 'internal'" class="email-sender-controls">
                   <label>Reply from
                     <select v-model="senderIdentityId" aria-label="Email address">
-                      <option v-for="option in senderOptions" :key="option.id" :value="option.id">{{ option.fromEmail }}{{ option.senderKind === 'staff' ? ' (my work address)' : '' }}</option>
+                      <optgroup v-for="agency in senderAgencies" :key="agency" :label="agency"><option v-for="option in senderOptions.filter(row=>(row.agencyName || 'Current agency')===agency)" :key="option.id" :value="option.id">{{ option.fromEmail }}{{ option.senderKind === 'staff' ? ' (my work address)' : '' }}</option></optgroup>
                     </select>
                   </label>
                   <label>Name and signature
@@ -849,8 +866,11 @@
                     </select>
                   </label>
                   <p v-if="selectedSender">{{ senderMode === 'staff' ? selectedSender.staffDisplayName : selectedSender.teamDisplayName }} &lt;{{ selectedSender.fromEmail }}&gt;</p>
+                  <p v-if="selectedSender?.replyToEmail" class="muted">Replies return to {{ selectedSender.replyToEmail }} so the conversation stays in this ticket.</p>
                   <p v-if="selectedSender" class="muted">{{ senderMode === 'staff' ? 'Uses your staff signature, including when sending from a shared address.' : 'Uses the selected group’s signature.' }}</p>
                   <p v-else class="error">No shared sender is configured for this conversation.</p>
+                  <button type="button" class="btn btn-secondary btn-sm" :disabled="previewBusy || !draft.trim() || !selectedSender" @click="previewReply">{{ previewBusy ? 'Preparing preview…' : 'Preview email & signature' }}</button>
+                  <details v-if="replyPreview" open class="reply-email-preview"><summary>Preview · {{ replyPreview.fromName }} &lt;{{ replyPreview.fromEmail }}&gt;</summary><div class="sent-email-preview" v-html="replyPreview.html" /></details>
                 </div>
                 <div v-if="draftIsStale && composerMode !== 'internal'" class="email-delivery-notice">
                   This draft was prepared before the latest conversation activity. Review the messages above.
@@ -1000,6 +1020,10 @@
               <div class="meta-block">
                 <label>Assigned to</label>
                 <div>{{ assigneeName(selected) || 'Unassigned' }}</div>
+                <div class="ticket-assignment-history" aria-label="Assignment history">
+                  <p v-for="event in assignmentHistory" :key="event.id">{{ event.kind === 'routed' ? 'Automatically routed' : event.kind === 'claimed' ? 'Claimed' : event.kind === 'unassigned' ? 'Returned to queue' : 'Assigned' }} by {{ event.actorName }} · {{ formatDateTime(event.at) }}<span v-if="event.reason"> · {{ event.reason }}</span></p>
+                  <p v-if="selected.claimed_by_user_id && !assignmentHistory.length" class="muted">This earlier assignment has no recorded assigning person.</p>
+                </div>
                 <div v-if="canAssignOthers" class="assign-row">
                   <select v-model="assignToId" :disabled="busy || assigning">
                     <option value="">Reassign…</option>
@@ -1039,8 +1063,10 @@
                 <div>{{ formatDateTime(selected.updated_at) }}</div>
               </div>
 
-              <div v-if="canForward && selected.client_id" class="meta-block forward-block">
-                <label>Forward to providers</label>
+              <div v-if="forwardHistory.length" class="meta-block"><label>Forwarded</label><p v-for="entry in forwardHistory" :key="entry.id">{{ entry.forwardedBy }} → {{ entry.forwardedTo?.map(person=>person.providerName).join(', ') }} · {{ formatDateTime(entry.created_at) }}</p></div>
+              <div v-if="canForward && selected.status !== 'closed'" class="meta-block forward-block">
+                <label>Forward to provider &amp; close</label>
+                <p class="muted">Creates a private message in the provider’s My messages inbox. The provider can reply to the original sender, you, or both.</p>
                 <button
                   type="button"
                   class="btn btn-secondary btn-xs"
@@ -1050,8 +1076,9 @@
                   {{ forwardProvidersLoading ? 'Loading…' : showForward ? 'Hide providers' : 'Load providers' }}
                 </button>
                 <div v-if="showForward" class="forward-list">
-                  <div v-if="!forwardProviders.length" class="muted">No assigned providers found.</div>
-                  <label v-for="p in forwardProviders" :key="p.id" class="forward-pill">
+                  <div v-if="!forwardProviders.length" class="muted">No eligible providers found.</div>
+                  <input v-if="forwardProviders.length > 10" v-model="forwardSearch" aria-label="Find a provider to forward to" placeholder="Find provider…" />
+                  <label v-for="p in filteredForwardProviders" :key="p.id" class="forward-pill">
                     <input v-model="forwardSelectedIds" type="checkbox" :value="Number(p.id)" />
                     <span>{{ formatAssignee(p) }}</span>
                   </label>
@@ -1060,7 +1087,7 @@
                     v-model="forwardNote"
                     rows="2"
                     class="forward-note"
-                    placeholder="Optional note for provider…"
+                    placeholder="Add a forward message: Hi Michael, here is a message that came through for you…"
                   />
                   <button
                     v-if="forwardProviders.length"
@@ -1092,6 +1119,7 @@
 </template>
 
 <script setup>
+import { renderEmailContent } from '../../utils/emailPresentation';
 import ConversationEmailBody from '../messages/ConversationEmailBody.vue';
 import TicketAttachmentComposer from './TicketAttachmentComposer.vue';
 import { openPrivateAttachment } from '../../utils/openPrivateAttachment.js';
@@ -1137,7 +1165,7 @@ const role = computed(() => String(authStore.user?.role || '').toLowerCase());
 const isSchoolStaff = computed(() => role.value === 'school_staff');
 const isSuperAdmin = computed(() => role.value === 'super_admin');
 const canClaim = computed(() =>
-  role.value === 'school_staff' || canAccessTicketDesk(authStore.user, selected.value?.agency_id || agencyStore.currentAgency?.id)
+  ['admin','support','super_admin'].includes(role.value)
 );
 const canClose = computed(() =>
   canAccessTicketDesk(authStore.user, selected.value?.agency_id || agencyStore.currentAgency?.id)
@@ -1153,13 +1181,13 @@ const canAnswer = computed(() =>
 );
 const canSelectSharedSender = computed(() => canAccessTicketDesk(authStore.user, selected.value?.agency_id || props.agencyId || agencyStore.currentAgency?.id));
 const isEmailTicket = computed(() =>
-  String(selected.value?.source_channel || '').toLowerCase() === 'email'
+  (selected.value?.source_channel==='email'||selected.value?.source_channel==='public_web'&&!!selected.value?.source_email_from) && selected.value?.created_by_source_key !== 'office_kiosk_support'
 );
 const canAssignOthers = computed(() =>
-  ['school_staff', 'staff', 'admin', 'support', 'super_admin', 'clinical_practice_assistant', 'provider_plus'].includes(role.value)
+  ['admin', 'support', 'super_admin'].includes(role.value)
 );
 const canForward = computed(() =>
-  ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'staff'].includes(role.value)
+  ['admin', 'support', 'super_admin'].includes(role.value)
 );
 
 const tickets = ref([]);
@@ -1177,6 +1205,33 @@ const draft = ref('');
 const composerMode = ref('reply');
 const composerDrafts = ref({ reply: '', internal: '', answer: '' });
 const senderOptions = ref([]);
+const senderAgencies = computed(()=>[...new Set(senderOptions.value.map(option=>option.agencyName||'Current agency'))].sort());
+const assignmentHistory = ref([]);
+const emailReceipts = ref([]);
+const receiptPreviews = ref({});
+const receiptErrors = ref({});
+const replyPreview = ref(null);
+const previewBusy = ref(false);
+async function previewReply(){
+ if(previewBusy.value)return;previewBusy.value=true;replyPreview.value=null;
+ try{const ticketId=selected.value.id;const {data}=await api.post(`/support-tickets/${ticketId}/email-preview`,{body:draft.value,senderIdentityId:senderIdentityId.value,senderMode:senderMode.value},{skipGlobalLoading:true});
+  if(selected.value?.id===ticketId)replyPreview.value={...data,html:renderEmailContent(data,{collapseQuotes:false}).html};
+ }catch(error){actionError.value=error?.response?.data?.error?.message||'Could not preview this reply';}finally{previewBusy.value=false;}
+}
+function receiptStatus(receipt){
+ if(receipt.error_code==='external_delivery_delayed')return 'Sent · recipient delivery delayed';
+ if(receipt.opened_at)return 'Open signal recorded';
+ if(receipt.delivered_at||receipt.delivery_status==='delivered')return 'Delivered';
+ return ({sent:'Sent to mail provider',received:'Received',failed:'Failed',queued:'Queued',sending:'Confirming send'})[receipt.send_status]||receipt.send_status;
+}
+async function previewReceipt(receipt){
+ const ticketId=selected.value?.id;
+ try{
+  const {data}=await api.get(`/support-tickets/${ticketId}/email-receipts/${receipt.communication_id}/preview`,{skipGlobalLoading:true});
+  if(Number(selected.value?.id)!==Number(ticketId))return;
+  receiptPreviews.value={...receiptPreviews.value,[receipt.id]:renderEmailContent(data,{collapseQuotes:false,loadExternalImages:false}).html};
+ }catch{receiptErrors.value={...receiptErrors.value,[receipt.id]:'Could not load the saved email. Try again.'};}
+}
 const senderIdentityId = ref(null);
 const senderMode = ref('staff');
 const selectedSender = computed(() => senderOptions.value.find((x) => Number(x.id) === Number(senderIdentityId.value)));
@@ -1474,9 +1529,13 @@ const proposedActionCount = computed(
 const oneTimePasswords = ref({});
 const showForward = ref(false);
 const forwardProviders = ref([]);
+const forwardSearch = ref('');
+const filteredForwardProviders = computed(()=>forwardProviders.value.filter(person=>`${person.first_name||''} ${person.last_name||''}`.toLowerCase().includes(forwardSearch.value.toLowerCase())));
 const forwardProvidersLoading = ref(false);
 const forwardSelectedIds = ref([]);
 const forwardNote = ref('');
+const forwardAttempt = ref(null);
+const forwardHistory = ref([]);
 const forwarding = ref(false);
 
 const isPlatformTheme = computed(
@@ -1623,6 +1682,7 @@ const composerTextRows = computed(() => {
 });
 
 function statusLabel(t) {
+  if(t?.closed_reason==='forwarded')return 'Closed · Forwarded';
   const d = t?.display_status || t?.status || '';
   const map = { open: 'Open', in_progress: 'In Progress', waiting: 'Waiting', answered: 'Waiting', closed: 'Closed' };
   return map[d] || d;
@@ -1912,13 +1972,16 @@ async function loadMessages(ticketId, { quiet = false } = {}) {
     ticketAttachments.value = Array.isArray(r.data?.attachments) ? r.data.attachments : [];
     if (r.data?.ticket) selected.value = { ...selected.value, ...r.data.ticket };
     senderOptions.value = r.data?.senderOptions || [];
+    assignmentHistory.value = r.data?.assignmentHistory || [];
+    emailReceipts.value = r.data?.emailReceipts || [];
+    forwardHistory.value = r.data?.forwardHistory || [];
     if (!senderModeInitialized) {
       const departmentalKeys = ['payroll', 'billing', 'credentialing', 'support', 'admin', 'technology', 'compliance', 'medical_records'];
       senderMode.value = senderOptions.value.some(option => departmentalKeys.includes(option.identityKey)) ? 'team' : 'staff';
       senderModeInitialized = true;
     }
     if (!senderOptions.value.some((x) => Number(x.id) === Number(senderIdentityId.value))) {
-      senderIdentityId.value = (senderOptions.value.find((x) => x.identityKey === 'schools') || senderOptions.value[0])?.id || null;
+      senderIdentityId.value = (senderOptions.value.find((x) => x.identityKey === (selected.value?.source_channel === 'public_web' ? 'support' : 'schools')) || senderOptions.value[0])?.id || null;
     }
     if (selected.value) Object.assign(selected.value, { ai_draft_snapshot_id: r.data?.draftSnapshotId || null, ai_draft_thread_revision: r.data?.draftThreadRevision ?? null });
     const revision = Number(r.data?.lastMessageId || 0);
@@ -1982,7 +2045,9 @@ function clearDraftForTicket(id) {
     saveDraftForTicket(id, '');
   }
 }
+watch(senderIdentityId,()=>{if(selectedSender.value?.senderKind==='staff')senderMode.value='staff';});
 watch([draft, senderIdentityId, senderMode], () => {
+  replyPreview.value=null;
   if (!restoringDraft && selectedId.value) saveDraftForTicket(selectedId.value, draft.value);
 }, { flush: 'sync' });
 
@@ -2025,7 +2090,7 @@ function selectTicket(t) {
   detailTab.value = 'conversation';
   restoreDraftForTicket(t.id);
   messages.value = [];
-  senderOptions.value = [];
+  senderOptions.value = []; assignmentHistory.value = []; emailReceipts.value = []; receiptPreviews.value = {}; receiptErrors.value = {}; replyPreview.value = null; forwardHistory.value=[]; forwardAttempt.value=null;
   lastMessageId.value = 0;
   emailNotice.value = '';
   canonicalTicketId.value = null;
@@ -2691,6 +2756,9 @@ async function loadForwardProviders() {
       skipGlobalLoading: true
     });
     forwardProviders.value = Array.isArray(r.data?.providers) ? r.data.providers : [];
+    const requestedId=Number(String(selected.value?.question||'').match(/Requested provider:[^\n]*\(ID (\d+)\)/)?.[1]);
+    if(!forwardSelectedIds.value.length&&forwardProviders.value.some(person=>Number(person.id)===requestedId))forwardSelectedIds.value=[requestedId];
+    forwardSearch.value='';
     showForward.value = true;
   } catch (e) {
     actionError.value = e?.response?.data?.error?.message || e?.message || 'Failed to load providers';
@@ -2709,13 +2777,16 @@ async function submitForward() {
   forwarding.value = true;
   actionError.value = '';
   try {
+    const fingerprint=JSON.stringify([selected.value.id,forwardSelectedIds.value,forwardNote.value]);
+    if(forwardAttempt.value?.fingerprint!==fingerprint)forwardAttempt.value={fingerprint,id:globalThis.crypto.randomUUID()};
     await api.post(`/support-tickets/${selected.value.id}/forward-to-providers`, {
+      clientRequestId:forwardAttempt.value.id,
       providerUserIds: forwardSelectedIds.value.map((id) => Number(id)),
       message: forwardNote.value.trim() || undefined
     });
     showForward.value = false;
     forwardSelectedIds.value = [];
-    forwardNote.value = '';
+    forwardNote.value = '';forwardAttempt.value=null;
     await loadAll();
     if (selected.value?.id) await loadMessages(selected.value.id);
   } catch (e) {
@@ -2835,6 +2906,12 @@ defineExpose({ loadAll, clearSelection });
 </script>
 
 <style scoped>
+.ticket-email-receipts { margin: 16px 0; padding: 12px; border: 1px solid #dbe5ee; border-radius: 10px; }
+.ticket-email-receipt { padding: 8px 0; }
+.ticket-email-receipt summary { cursor: pointer; font-weight: 600; }
+.sent-email-preview { padding: 12px; background: white; border: 1px solid #ddd; overflow-wrap: anywhere; }
+.sent-email-preview :deep(img) { max-width: 100%; }
+.ticket-assignment-history { font-size: 12px; }
 .ticket-desk.ticket-desk--embedded { height: 100%; min-height: 0; max-height: none; gap: 0; }
 .ticket-desk--embedded .desk-body { grid-template-columns: 1fr; border: 0; border-radius: 0; }
 .ticket-desk--embedded .detail-pane { width: 100%; }

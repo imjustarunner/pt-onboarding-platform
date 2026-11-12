@@ -90,3 +90,5 @@ export function classifyTicketHistoryMessage(message, email = null) {
   // Legacy rows have no evidence of delivery. Do not manufacture a sent email.
   return { direction: 'outbound', isInternalNote: false, sendStatus: 'unverified' };
 }
+
+export function supportsTicketEmailReply(ticket){return ticket?.created_by_source_key!=='office_kiosk_support' && (ticket?.source_channel==='email'||ticket?.source_channel==='public_web'&&/^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(ticket.source_email_from||''));}

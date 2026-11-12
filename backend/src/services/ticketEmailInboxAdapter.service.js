@@ -15,6 +15,7 @@ export function resolveTicketInbox(ticket, inboxes) {
   });
   if (department) return department;
   if (ticket.topic === 'credentialing') return null;
+  if(ticket.source_channel==='public_web')return inboxes.find(i=>i.identity_key==='support')||null;
   return inboxes.find((i) => recipients.has(String(i.from_email || '').toLowerCase()))
     || inboxes.find((i) => /schoolreply|school_reply|schools@/i.test(`${i.identity_key} ${i.from_email}`))
     || inboxes.find((i) => /support@/i.test(i.from_email || '')) || null;
@@ -45,7 +46,7 @@ export async function syncEmailTicketsToInbox({ agencyId, ticketId = null, limit
   await CommunicationInbox.ensureFromSenderIdentities(agencyId);
   const [tickets] = await pool.execute(`SELECT t.*, s.name AS school_name
     FROM support_tickets t LEFT JOIN agencies s ON s.id=t.school_organization_id
-    WHERE t.source_channel='email' AND t.agency_id=? ${ticketId ? 'AND t.id=?' : ''}
+    WHERE (t.source_channel='email' OR (t.source_channel='public_web' AND t.source_email_from IS NOT NULL AND COALESCE(t.created_by_source_key,'')<>'office_kiosk_support')) AND t.agency_id=? ${ticketId ? 'AND t.id=?' : ''}
     ORDER BY t.updated_at DESC LIMIT ${Math.min(Number(limit) || 100, 300)}`,
   ticketId ? [agencyId, ticketId] : [agencyId]);
   const inboxes = await CommunicationInbox.listForAgency({ agencyId });
