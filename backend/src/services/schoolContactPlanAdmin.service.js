@@ -1,6 +1,6 @@
 import pool from '../config/database.js';
 import {DEFAULT_SCHOOL_CONTACT_TEMPLATE} from './schoolContactPlan.service.js';
-import {isSchoolContactAgencyEnabled,isSchoolContactProviderEnabled} from './schoolContactRollout.js';
+import {isSchoolContactAgencyEnabled,isSchoolContactProviderEnabled,SCHOOL_CONTACT_CARE_ROLES} from './schoolContactRollout.js';
 const fail = (message,status=403) => Object.assign(new Error(message),{status});
 async function adminContext({agencyId,userId}) {
   const [[agency]]=await pool.execute('SELECT id,name,slug,is_active,is_archived,feature_flags FROM agencies WHERE id=?',[Number(agencyId)]);
@@ -19,9 +19,14 @@ export async function listSchoolContactPlanProviders(input) {
     (SELECT COUNT(*) FROM school_contact_workflows w WHERE w.agency_id=ua.agency_id AND w.provider_user_id=u.id AND w.status='intake_followup_required') AS intake_followup_required
     FROM users u JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=? AND ua.is_active=1
     LEFT JOIN school_provider_contact_plans p ON p.agency_id=ua.agency_id AND p.provider_user_id=u.id
-    WHERE u.is_active=1 AND COALESCE(u.is_archived,0)=0
-      AND EXISTS(SELECT 1 FROM provider_school_assignments a JOIN organization_affiliations oa ON oa.organization_id=a.school_organization_id AND oa.agency_id=ua.agency_id AND oa.is_active=1
-        WHERE a.provider_user_id=u.id AND a.is_active=1) ORDER BY u.last_name,u.first_name`,[agency.id]);
+    WHERE u.is_active=1 AND COALESCE(u.is_archived,0)=0 AND u.terminated_at IS NULL AND (ua.agency_id=450 OR COALESCE(u.is_demo,0)=0)
+      AND (u.role IN (${SCHOOL_CONTACT_CARE_ROLES.map(role=>`'${role}'`).join(',')}) OR COALESCE(u.has_provider_access,0)=1)
+      AND (EXISTS(SELECT 1 FROM provider_school_assignments a JOIN organization_affiliations oa ON oa.organization_id=a.school_organization_id AND oa.agency_id=ua.agency_id AND oa.is_active=1
+        JOIN agencies school ON school.id=a.school_organization_id AND school.organization_type='school' AND school.is_active=1 AND COALESCE(school.is_archived,0)=0
+        WHERE a.provider_user_id=u.id AND a.is_active=1)
+      OR EXISTS(SELECT 1 FROM client_provider_assignments c JOIN organization_affiliations oa ON oa.organization_id=c.organization_id AND oa.agency_id=ua.agency_id AND oa.is_active=1
+        JOIN agencies school ON school.id=c.organization_id AND school.organization_type='school' AND school.is_active=1 AND COALESCE(school.is_archived,0)=0
+        WHERE c.provider_user_id=u.id AND c.is_active=1)) ORDER BY u.last_name,u.first_name`,[agency.id]);
   const flags=typeof agency.feature_flags==='string'?JSON.parse(agency.feature_flags):agency.feature_flags || {};
   return rows.filter(r=>isSchoolContactProviderEnabled(agency,r.id)).map(r=>({...r,status:r.status || 'unconfigured',required:!!r.required_by_admin || flags.schoolContactPlanRequired===true || (flags.schoolContactPlanRequiredProviderIds || []).map(Number).includes(Number(r.id))}));
 }

@@ -41,7 +41,7 @@ describe.skipIf(!process.env.HUB_SCOPE_MYSQL_SOCKET && !process.env.FAMILY_WELCO
     m.execute = (...args) => db.execute(...args); m.getConnection = () => db.getConnection();
     for (const sql of [
       'CREATE TABLE agencies(id INT PRIMARY KEY,name VARCHAR(120),slug VARCHAR(100),feature_flags JSON,organization_type VARCHAR(32),is_active BOOLEAN DEFAULT TRUE,is_archived BOOLEAN DEFAULT FALSE)',
-      'CREATE TABLE users(id INT PRIMARY KEY,first_name VARCHAR(80),last_name VARCHAR(80),role VARCHAR(40),email VARCHAR(160),personal_email VARCHAR(160),personal_phone VARCHAR(40),phone_number VARCHAR(40),work_phone VARCHAR(40),is_active BOOLEAN DEFAULT TRUE,is_archived BOOLEAN DEFAULT FALSE,terminated_at DATETIME NULL)',
+      'CREATE TABLE users(id INT PRIMARY KEY,first_name VARCHAR(80),last_name VARCHAR(80),role VARCHAR(40),has_provider_access BOOLEAN DEFAULT FALSE,is_demo BOOLEAN DEFAULT FALSE,email VARCHAR(160),personal_email VARCHAR(160),personal_phone VARCHAR(40),phone_number VARCHAR(40),work_phone VARCHAR(40),is_active BOOLEAN DEFAULT TRUE,is_archived BOOLEAN DEFAULT FALSE,terminated_at DATETIME NULL)',
       'CREATE TABLE user_agencies(agency_id INT,user_id INT,is_active BOOLEAN DEFAULT TRUE)',
       'CREATE TABLE organization_affiliations(agency_id INT,organization_id INT,is_active BOOLEAN DEFAULT TRUE)',
       "CREATE TABLE clients(id INT PRIMARY KEY,agency_id INT,initials VARCHAR(20),status VARCHAR(30) DEFAULT 'ACTIVE',client_status_id INT,service_day VARCHAR(20),session_sms_opt_in BOOLEAN DEFAULT FALSE,first_service_at DATETIME,parents_contacted_at DATETIME,parents_contacted_successful BOOLEAN,checklist_updated_at DATETIME,checklist_updated_by_user_id INT)",
@@ -179,6 +179,7 @@ describe.skipIf(!process.env.HUB_SCOPE_MYSQL_SOCKET && !process.env.FAMILY_WELCO
     await db.execute("INSERT INTO users(id,first_name,last_name,role,email) VALUES(1438,'Outside','Cohort','provider','outside@synthetic.test')");
     await db.execute("INSERT INTO agencies(id,name,slug,organization_type) VALUES(452,'Live pilot school','live-pilot-school','school')");
     await db.execute('INSERT INTO organization_affiliations(agency_id,organization_id) VALUES(2,452)');
+    await db.execute('INSERT INTO user_agencies(agency_id,user_id) VALUES(2,1433),(2,1438)');
     await db.execute("INSERT INTO school_provider_contact_plans(agency_id,provider_user_id,status,template,decided_at,welcome_seen_at) VALUES(2,1433,'enabled','Saved live wording',DATE_SUB(UTC_TIMESTAMP(),INTERVAL 1 MINUTE),NULL),(2,1438,'enabled','Other provider wording',DATE_SUB(UTC_TIMESTAMP(),INTERVAL 1 MINUTE),UTC_TIMESTAMP())");
     await db.execute("INSERT INTO clients(id,agency_id,initials) VALUES(201,2,'NEWLIVE'),(202,2,'OLDLIVE'),(203,2,'OUTSIDE')");
     await db.execute("INSERT INTO client_provider_assignments(id,client_id,organization_id,provider_user_id,service_day,created_at,updated_at) VALUES(201,201,452,1433,'Monday',UTC_TIMESTAMP(),UTC_TIMESTAMP()),(202,202,452,1433,'Tuesday',DATE_SUB(UTC_TIMESTAMP(),INTERVAL 2 DAY),UTC_TIMESTAMP()),(203,203,452,1438,'Friday',UTC_TIMESTAMP(),UTC_TIMESTAMP())");
@@ -188,6 +189,14 @@ describe.skipIf(!process.env.HUB_SCOPE_MYSQL_SOCKET && !process.env.FAMILY_WELCO
     await queueSchoolContactAssignments();await queueSchoolContactAssignments();
     const [queued]=await db.execute('SELECT client_id,provider_user_id FROM school_contact_workflows WHERE agency_id=2');
     expect(queued).toEqual([{client_id:201,provider_user_id:1433}]);
+    await db.execute("INSERT INTO clients(id,agency_id,initials) VALUES(204,2,'BEFOREEXPANSION')");
+    await db.execute("INSERT INTO client_provider_assignments(id,client_id,organization_id,provider_user_id,service_day,created_at,updated_at) VALUES(204,204,452,1438,'Friday',DATE_SUB(UTC_TIMESTAMP(),INTERVAL 20 SECOND),UTC_TIMESTAMP())");
+    const [[clock]]=await db.execute("SELECT DATE_FORMAT(DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 10 SECOND),'%Y-%m-%dT%H:%i:%s.%fZ') AS expanded_at");
+    await db.execute("UPDATE agencies SET feature_flags=JSON_OBJECT('schoolContactPlanPilot',JSON_OBJECT('enabled',true,'audience','assigned_school_providers','expandedAt',?)) WHERE id=2",[clock.expanded_at]);
+    await queueSchoolContactAssignments();
+    const [expanded]=await db.execute('SELECT client_id FROM school_contact_workflows WHERE agency_id=2 ORDER BY client_id');
+    expect(expanded).toEqual([{client_id:201},{client_id:203}]);
+
     await db.execute("UPDATE agencies SET feature_flags=JSON_OBJECT() WHERE id=2");
   });
 

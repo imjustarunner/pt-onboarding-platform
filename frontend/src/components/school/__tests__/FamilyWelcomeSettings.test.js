@@ -133,3 +133,16 @@ it('requires a new live pilot provider to explicitly choose On or Off before ack
   expect(api.put).toHaveBeenCalledWith('/school-contact-plan',expect.objectContaining({status:'declined'}),expect.anything());
   expect(wrapper.text()).toContain('is off.');
 });
+
+it('shows assigned school days clearly and passes the selected school to the PDF preview',async()=>{
+ await mountWith({schools:[{id:451,name:'Cedar Grove',serviceDayLabel:'Tuesday'},{id:452,name:'Pine',serviceDayLabel:'Thursday'}]});
+ expect(wrapper.get('.fw-preview-body').text()).toContain('Tuesday');expect(wrapper.get('.fw-preview-body').text()).not.toContain('Example day');
+ await wrapper.get('.fw-preview select').setValue(452);
+ expect(wrapper.get('.fw-preview-body').text()).toContain('Thursday');expect(wrapper.findComponent({name:'FamilyWelcomePdfButton'}).props('schoolId')).toBe(452);
+});
+
+it('explains missing messaging setup before a provider can choose On',async()=>{
+ await mountWith({demoOnly:false,rolloutPhase:'assigned_school_providers',canEnable:false,setupNotice:'Your messaging email needs support setup.'});
+ expect(wrapper.get('input[value="enabled"]').element.disabled).toBe(true);expect(wrapper.get('input[value="declined"]').element.disabled).toBe(false);
+ expect(wrapper.text()).toContain('messaging email needs support setup');
+});

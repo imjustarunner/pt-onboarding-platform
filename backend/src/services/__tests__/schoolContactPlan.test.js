@@ -6,7 +6,7 @@ vi.mock('../familyWelcomeAssets.service.js', () => ({ providerProfileUrl: (_agen
 vi.mock('../tenantMessageMailboxes.service.js', () => ({ resolveMessagesSendMailbox: m.mailbox }));
 vi.mock('../unifiedEmail/unifiedEmailSender.service.js', () => ({ sendEmailFromIdentity: m.send }));
 vi.mock('../../models/CommunicationConversation.model.js', () => ({ default: { create: m.create, addMessage: m.add, updateMessage: m.updateMessage, update: m.update, upsertLink: m.link, upsertParticipant: m.participant, findById: m.find } }));
-import { DEFAULT_SCHOOL_CONTACT_TEMPLATE as template, getSchoolContactPlan, saveSchoolContactPlan, sendSchoolContactEmail, sendSchoolContactExample, isSchoolContactDemoAgency, renderSchoolContactTemplate, validateSchoolContactTemplate, schoolContactRouting } from '../schoolContactPlan.service.js';
+import { DEFAULT_SCHOOL_CONTACT_TEMPLATE as template, getSchoolContactPlan, saveSchoolContactPlan, sendSchoolContactEmail, sendSchoolContactExample, buildFamilyWelcomePdfPreview, isSchoolContactDemoAgency, renderSchoolContactTemplate, validateSchoolContactTemplate, schoolContactRouting } from '../schoolContactPlan.service.js';
 import {schoolContactWorkMailboxAvailable} from '../schoolContactReplyRouting.service.js';
 const agency = { id: 450, name: 'ITSCOLLC', slug: 'auricwell-qa-demo', is_active: 1, is_archived: 0, feature_flags: { googleSsoEnabled: true } };
 const provider = { id: 1433, first_name: 'Avery', last_name: 'Demo', role: 'provider', email: 'avery@example.com', work_mailbox_email: 'qaproviderauricwell@itsco.health', personal_email: 'private@example.com', sso_password_override: 0, login_is_group_email: 0 };
@@ -60,14 +60,14 @@ it('returns a rendered preview, persisted choices and actual SSO mailbox copy ad
   const state = await getSchoolContactPlan(input);
   expect(state).toMatchObject({ eligible: true, demoOnly: true, status: 'unconfigured', smsAfterDays: 2, emailAfterDays: 4, staleAfterHours: 48,
     routing: { isSso: true, providerEmail: 'qaproviderauricwell@itsco.health', replyTo: 'qaproviderauricwell@itsco.health' } });
-  expect(state.preview.body).toContain('Avery Demo'); expect(state.preview.body).toContain('Example Middle School');
+  expect(state.preview.body).toContain('Avery Demo'); expect(state.preview.body).toContain('Cedar Grove K-8');
 });
 it('constrains editable text and renders no arbitrary placeholders or HTML', () => {
   expect(validateSchoolContactTemplate(template)).toBe(template);
   expect(() => validateSchoolContactTemplate(template.replace('{{school_name}}', 'School'))).toThrow('school_name');
   expect(() => validateSchoolContactTemplate(`${template}\n{{secret}}`)).toThrow('supported');
   expect(() => validateSchoolContactTemplate(`${template}<script>alert(1)</script>`)).toThrow('plain text');
-  expect(renderSchoolContactTemplate(template, { parent_name: 'Alex', provider_name: 'Avery', school_name: 'Cedar', service_day: 'Monday' })).toContain('Hello Alex,');
+  expect(renderSchoolContactTemplate(template, { parent_name: 'Alex', provider_name: 'Avery', school_name: 'Cedar', service_day: 'Monday' })).toContain('Hi Alex,');
 });
 it('persists decline and preserves the opt-in cutoff when editing an enabled plan', async () => {
   await saveSchoolContactPlan(input, { status: 'declined' });
@@ -210,3 +210,23 @@ it('enables only an explicitly selected live ITSCO provider and addresses their 
   await expect(saveSchoolContactPlan({agencyId:2,userId:1433},{status:'enabled',providerUserId:9999})).rejects.toMatchObject({status:403});
   expect(m.execute.mock.calls.some(([sql])=>sql.startsWith('INSERT'))).toBe(false);
 });
+
+it('uses assigned school days in the preview and sent example without changing the actual assignment',async()=>{
+ const original=m.execute.getMockImplementation();m.execute.mockImplementation(async(sql,args)=>sql.startsWith('SELECT school_organization_id,day_of_week')?[[{school_organization_id:451,day_of_week:'Tuesday'}]]:original(sql,args));
+ const p=await getSchoolContactPlan(input);expect(p.schools[0]).toMatchObject({serviceDays:['Tuesday'],serviceDayLabel:'Tuesday'});expect(p.preview.body).toContain('Tuesday');expect(p.preview.body).not.toContain('Example Day');
+ await sendSchoolContactExample(input,{template,schoolId:451,includePdf:false});expect(m.send.mock.calls[0][0].text).toContain('Tuesday');
+ await expect(buildFamilyWelcomePdfPreview(input,999)).rejects.toMatchObject({status:403});
+ expect(m.execute.mock.calls.some(([sql])=>sql.startsWith('UPDATE provider_school_assignments'))).toBe(false);
+});
+
+it('checks messaging setup before opting in while retaining the provider ability to choose Off',async()=>{
+ const original=m.execute.getMockImplementation();m.execute.mockImplementation(async(sql,args)=>sql.startsWith('SELECT u.id')?[[{...provider,work_mailbox_email:null}]]:original(sql,args));
+ expect(await getSchoolContactPlan(input)).toMatchObject({canEnable:false,setupNotice:expect.stringContaining('support setup')});
+ await expect(saveSchoolContactPlan(input,{status:'enabled'})).rejects.toMatchObject({status:409});
+ expect(m.execute.mock.calls.some(([sql])=>sql.startsWith('INSERT'))).toBe(false);
+ await saveSchoolContactPlan(input,{status:'declined'});
+ expect(m.execute).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO school_provider_contact_plans'),expect.arrayContaining(['declined']));
+});
+
+import {displaySchoolContactDay,preferredSchoolContactTemplate} from '../schoolContactTemplates.js';
+it('keeps custom wording and uses a clear pending label when the assignment day is unknown',()=>{const authored=template+'\nMy own words.';expect(preferredSchoolContactTemplate(authored)).toBe(authored);expect(displaySchoolContactDay('Unknown')).toBe('to be confirmed');expect(displaySchoolContactDay('Example day')).toBe('to be confirmed');expect(displaySchoolContactDay('Tuesday')).toBe('Tuesday');});

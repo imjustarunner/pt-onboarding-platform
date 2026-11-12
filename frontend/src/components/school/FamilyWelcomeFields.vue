@@ -4,7 +4,7 @@
     <div class="field-buttons" role="group" aria-label="Insert automatic details">
       <button v-for="field in fields" :key="field.token" type="button" @mousedown.prevent @click="$emit('insert', field.token)">{{ field.label }}</button>
     </div>
-    <small>The preview uses an example parent and day. Sent messages use the assigned provider, family, school and service day.</small>
+    <small>The preview uses a sample parent. Your name and school fill in automatically. Real messages use each child’s assigned counseling day; you do not need to change these details by hand.</small>
   </div>
 </template>
 <script setup>

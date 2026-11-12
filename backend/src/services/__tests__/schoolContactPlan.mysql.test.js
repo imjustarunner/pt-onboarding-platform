@@ -23,11 +23,11 @@ describe.skipIf(!process.env.HUB_SCOPE_MYSQL_SOCKET && !process.env.FAMILY_WELCO
     db.execute = (...args) => connection.execute(...args);
     for (const sql of [
       `CREATE TABLE agencies (id INT PRIMARY KEY,name VARCHAR(120),slug VARCHAR(120),is_active BOOLEAN DEFAULT TRUE,is_archived BOOLEAN DEFAULT FALSE,feature_flags JSON,organization_type VARCHAR(32))`,
-      `CREATE TABLE users (id INT PRIMARY KEY,first_name VARCHAR(80),last_name VARCHAR(80),role VARCHAR(40),has_provider_access BOOLEAN DEFAULT FALSE,email VARCHAR(160),work_email VARCHAR(160),personal_email VARCHAR(160),sso_password_override BOOLEAN DEFAULT FALSE,login_is_group_email BOOLEAN DEFAULT FALSE,is_active BOOLEAN DEFAULT TRUE,is_archived BOOLEAN DEFAULT FALSE)`,
+      `CREATE TABLE users (id INT PRIMARY KEY,first_name VARCHAR(80),last_name VARCHAR(80),role VARCHAR(40),has_provider_access BOOLEAN DEFAULT FALSE,is_demo BOOLEAN DEFAULT FALSE,email VARCHAR(160),work_email VARCHAR(160),personal_email VARCHAR(160),sso_password_override BOOLEAN DEFAULT FALSE,login_is_group_email BOOLEAN DEFAULT FALSE,is_active BOOLEAN DEFAULT TRUE,is_archived BOOLEAN DEFAULT FALSE,terminated_at DATETIME NULL)`,
       `CREATE TABLE user_agencies (agency_id INT,user_id INT,is_active BOOLEAN DEFAULT TRUE)`,
       `CREATE TABLE organization_affiliations (agency_id INT,organization_id INT,is_active BOOLEAN DEFAULT TRUE)`,
       `CREATE TABLE communication_inboxes (id INT PRIMARY KEY,agency_id INT,sender_identity_id INT,owner_user_id INT,kind VARCHAR(32),from_email VARCHAR(160),is_active BOOLEAN DEFAULT TRUE)`,
-      `CREATE TABLE provider_school_assignments (school_organization_id INT,provider_user_id INT,is_active BOOLEAN DEFAULT TRUE)`,
+      `CREATE TABLE provider_school_assignments (school_organization_id INT,provider_user_id INT,day_of_week VARCHAR(20),is_active BOOLEAN DEFAULT TRUE)`,
       `CREATE TABLE client_provider_assignments (client_id INT,provider_user_id INT,organization_id INT,is_active BOOLEAN DEFAULT TRUE)`,
       `CREATE TABLE email_sender_identities (id INT PRIMARY KEY,agency_id INT,from_email VARCHAR(160),identity_key VARCHAR(48),is_active BOOLEAN DEFAULT TRUE)`
     ]) await connection.query(sql);
@@ -92,6 +92,8 @@ describe.skipIf(!process.env.HUB_SCOPE_MYSQL_SOCKET && !process.env.FAMILY_WELCO
     await connection.execute("INSERT INTO agencies(id,name,slug,feature_flags,organization_type) VALUES(452,'Pine School','qa-pine',JSON_OBJECT(),'school')");
     await connection.execute('INSERT INTO organization_affiliations(agency_id,organization_id) VALUES(450,452)');
     await connection.execute('INSERT INTO provider_school_assignments(school_organization_id,provider_user_id) VALUES(452,1438)');
+    await connection.execute("INSERT INTO email_sender_identities(id,agency_id,from_email,identity_key) VALUES(43,450,'qasecond@itsco.health','personal_1438')");
+    await connection.execute("INSERT INTO communication_inboxes(id,agency_id,sender_identity_id,owner_user_id,kind,from_email) VALUES(20,450,43,1438,'personal','qasecond@itsco.health')");
     const first=await getSchoolContactPlan({agencyId:450,userId:1433});
     await saveSchoolContactPlan({agencyId:450,userId:1433},{status:'enabled',template:DEFAULT_SCHOOL_CONTACT_TEMPLATE+'\nAvery preferred wording.'});
     await saveSchoolContactPlan({agencyId:450,userId:1438},{status:'enabled',template:DEFAULT_SCHOOL_CONTACT_TEMPLATE+'\nCameron preferred wording.'});
@@ -117,6 +119,25 @@ describe.skipIf(!process.env.HUB_SCOPE_MYSQL_SOCKET && !process.env.FAMILY_WELCO
     expect(await getSchoolContactPlan({agencyId:450,userId:1433})).toMatchObject({status:'enabled'});
     await expect(saveSchoolContactPlan({agencyId:2,userId:1438},{status:'enabled'})).rejects.toMatchObject({status:403});
     const [[count]]=await connection.execute('SELECT COUNT(*) n FROM school_provider_contact_plans WHERE agency_id=2');expect(count.n).toBe(1);
+  });
+
+  it('expands availability only to active school care providers while retaining their own setup choice',async()=>{
+    await connection.execute('INSERT INTO user_agencies(agency_id,user_id) VALUES(2,1438)');
+    await connection.execute('INSERT INTO provider_school_assignments(school_organization_id,provider_user_id) VALUES(453,1438)');
+    expect(await getSchoolContactPlan({agencyId:2,userId:1438})).toMatchObject({eligible:false});
+    await connection.execute("UPDATE agencies SET feature_flags=JSON_OBJECT('schoolContactPlanPilot',JSON_OBJECT('enabled',true,'audience','assigned_school_providers')) WHERE id=2");
+    expect(await getSchoolContactPlan({agencyId:2,userId:1438})).toMatchObject({eligible:true,status:'unconfigured',welcomeSeen:false,rolloutPhase:'assigned_school_providers'});
+    await connection.execute("INSERT INTO users(id,first_name,last_name,role,email,terminated_at) VALUES(1441,'School','Staff','school_staff','staff@synthetic.test',NULL),(1442,'Unassigned','Provider','provider','unassigned@synthetic.test',NULL),(1443,'Former','Provider','provider','former@synthetic.test',UTC_TIMESTAMP())");
+    await connection.execute('INSERT INTO user_agencies(agency_id,user_id) VALUES(2,1441),(2,1442),(2,1443)');
+    await connection.execute('INSERT INTO provider_school_assignments(school_organization_id,provider_user_id) VALUES(453,1441),(453,1443)');
+    await connection.execute("INSERT INTO users(id,first_name,last_name,role,email,is_demo) VALUES(1444,'Synthetic','Provider','provider','demo@synthetic.test',1)");
+    await connection.execute('INSERT INTO user_agencies(agency_id,user_id) VALUES(2,1444)');
+    await connection.execute('INSERT INTO provider_school_assignments(school_organization_id,provider_user_id) VALUES(453,1444)');
+    for(const id of [1441,1442,1443,1444])expect(await getSchoolContactPlan({agencyId:2,userId:id})).toMatchObject({eligible:false});
+    await connection.execute('INSERT INTO user_agencies(agency_id,user_id) VALUES(450,1444)');
+    await connection.execute('INSERT INTO provider_school_assignments(school_organization_id,provider_user_id) VALUES(451,1444)');
+    expect(await getSchoolContactPlan({agencyId:450,userId:1444})).toMatchObject({eligible:true,demoOnly:true});
+    expect(await saveSchoolContactPlan({agencyId:2,userId:1438},{status:'declined'})).toMatchObject({status:'declined',welcomeSeen:true});
   });
 
 });
