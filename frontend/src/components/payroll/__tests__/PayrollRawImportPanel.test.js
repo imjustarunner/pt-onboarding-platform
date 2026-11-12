@@ -28,7 +28,7 @@ it('opens the requested import directly and saves an explicit payable decision b
   api.get.mockImplementation(url => Promise.resolve(url.endsWith('/raw-audit') ? audit([draft(1)]) : { data: {} }));
   const wrapper = mountPanel({ initialImportId: 15 });
   await flushPromises();
-  expect(api.get).toHaveBeenCalledWith('/payroll/periods/11/raw-audit', { params: { importId: 15 } });
+  expect(api.get).toHaveBeenCalledWith('/payroll/periods/11/raw-audit', { skipGlobalLoading:true, params: { importId: 15 } });
   expect(wrapper.find('.rip-header').exists()).toBe(false);
   expect(wrapper.find('.rip-tabs').exists()).toBe(false);
   expect(latest(wrapper)).toMatchObject({ ready: false, pendingCount: 1 });
@@ -157,4 +157,20 @@ it('allows payroll to revisit saved catch-up decisions and keep a reviewed draft
  const w=mountPanel();await flushPromises();await w.findAll('button').find(b=>b.text()==='Review saved draft decisions').trigger('click');
  await w.get('input[aria-label="Select all matching drafts"]').setValue(true);await w.findAll('button').find(b=>b.text()==='Keep selected unpaid').trigger('click');await flushPromises();
  expect(api.patch).toHaveBeenCalledWith('/payroll/import-rows/1',{draftPayable:false,draftReviewed:true});w.unmount();
+});
+
+const processRow=(id,provider,date,extra={})=>draft(id,{provider_name:provider,service_date:date,service_code:'H0031',requires_processing:1,unit_count:60,note_status:'FINALIZED',...extra});
+it('groups providers and independently reverses dates without changing the provider order',async()=>{
+ api.get.mockImplementation(url=>Promise.resolve(url.endsWith('/raw-audit')?audit([processRow(1,'Zoe','2026-10-30'),processRow(2,'Aaron','2026-11-05'),processRow(3,'Aaron','2026-10-28')]):{data:{}}));
+ const w=mountPanel({initialMode:'process_h0031'});await flushPromises();const ids=()=>w.findAll('[data-row-id]').map(r=>r.attributes('data-row-id'));expect(ids()).toEqual(['2','3','1']);await w.findAll('button').find(b=>b.text()==='DOS ↓').trigger('click');expect(ids()).toEqual(['3','2','1']);await w.findAll('button').find(b=>b.text()==='Provider Name ↑').trigger('click');expect(ids()).toEqual(['1','3','2']);w.unmount();
+});
+it('keeps the table present during a slow row save and updates Done only after server acknowledgement',async()=>{
+ api.get.mockImplementation(url=>Promise.resolve(url.endsWith('/raw-audit')?audit([processRow(1,'Employee','2026-11-05')]):{data:{}}));let finish;api.patch.mockImplementation(()=>new Promise(resolve=>{finish=resolve}));const w=mountPanel({initialMode:'process_h0031'});await flushPromises();const reads=api.get.mock.calls.length;await w.findAll('button').find(b=>b.text()==='Mark done').trigger('click');await flushPromises();expect(w.text()).toContain('Saving…');expect(w.find('[data-row-id="1"]').exists()).toBe(true);expect(latest(w).ready).toBe(false);expect(api.get).toHaveBeenCalledTimes(reads);
+ expect(api.patch).toHaveBeenCalledWith('/payroll/import-rows/1',{processed:true,deferPayrollRecompute:true},{skipGlobalLoading:true});finish({data:{ok:true,row:{id:1,unit_count:60,processed_at:'2026-11-11T20:00:00Z'}}});await flushPromises();expect(w.text()).toContain('Marked done.');expect(latest(w).ready).toBe(true);expect(api.get).toHaveBeenCalledTimes(reads);w.unmount();
+});
+it('queues Done behind a pending minutes edit and avoids a duplicate unit save for an unchanged value',async()=>{
+ api.get.mockImplementation(url=>Promise.resolve(url.endsWith('/raw-audit')?audit([processRow(1,'Employee','2026-11-05')]):{data:{}}));let finish;api.patch.mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve})).mockResolvedValue({data:{ok:true}});const w=mountPanel({initialMode:'process_h0031',guided:false});await flushPromises();const input=w.get('input.rip-num');await input.setValue(23);await w.findAll('button').find(b=>b.text()==='Mark done').trigger('click');await flushPromises();expect(api.patch).toHaveBeenCalledTimes(1);expect(api.patch.mock.calls[0][1]).toMatchObject({unitCount:23});expect(w.get('input.rip-num').element.value).toBe('23');finish({data:{ok:true,row:{id:1,unit_count:23,processed_at:null}}});await flushPromises();expect(api.patch).toHaveBeenCalledTimes(2);expect(api.patch.mock.calls[1][1]).toMatchObject({processed:true});await w.get('input.rip-num').setValue(23);expect(api.patch).toHaveBeenCalledTimes(2);w.unmount();
+});
+it('keeps a failed units edit unresolved, cancels its queued Done, and allows a targeted retry',async()=>{
+ api.get.mockImplementation(url=>Promise.resolve(url.endsWith('/raw-audit')?audit([processRow(1,'Employee','2026-11-05')]):{data:{}}));let fail;api.patch.mockImplementationOnce(()=>new Promise((_resolve,reject)=>{fail=reject}));const w=mountPanel({initialMode:'process_h0031'});await flushPromises();await w.get('input.rip-num').setValue(23);await w.findAll('button').find(b=>b.text()==='Mark done').trigger('click');fail(new Error('Minutes were not saved'));await flushPromises();expect(api.patch).toHaveBeenCalledTimes(1);expect(latest(w).ready).toBe(false);expect(w.text()).toContain('Not saved');api.patch.mockResolvedValue({data:{ok:true,row:{id:1,unit_count:23,processed_at:null}}});await w.findAll('button').find(b=>b.text()==='Retry save').trigger('click');await flushPromises();expect(api.patch.mock.calls[1][1]).toMatchObject({unitCount:23});expect(latest(w).pendingCount).toBe(1);w.unmount();
 });

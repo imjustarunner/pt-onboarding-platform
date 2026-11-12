@@ -2,6 +2,8 @@ export default {root:new URL('.',import.meta.url).pathname,resolve:{alias:{strea
  'src/controllers/__tests__/payrollDraftReview.test.js',
  'src/services/__tests__/payrollCorrectionReview.test.js',
  'src/services/__tests__/payrollProBono.test.js',
+ 'src/services/__tests__/payrollImportRowEdit.test.js',
+ 'src/controllers/__tests__/payrollImportRowAccess.test.js',
  'src/controllers/__tests__/payrollCorrectionReviewAccess.test.js',
  'src/services/__tests__/mileageBenefitTier.test.js',
  'src/services/__tests__/annualMileage.test.js',

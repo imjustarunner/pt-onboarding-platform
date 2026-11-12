@@ -16,6 +16,12 @@ on:
       - 'backend/src/services/communicationRecordDelivery.service.js'
       - 'backend/src/services/__tests__/communicationRecordDelivery.test.js'
       - 'backend/vitest.payroll-wizard.config.js'
+      - 'frontend/vitest.payroll-row-api.config.js'
+      - 'frontend/src/services/__tests__/sharedReads.test.js'
+      - 'frontend/src/services/__tests__/api.*.test.js'
+      - 'frontend/src/services/sharedReads.js'
+      - 'frontend/src/services/api.js'
+      - 'frontend/src/AppWorkspace.vue'
       - 'frontend/src/components/payroll/**'
       - 'frontend/src/components/dashboard/HourlyIndirectTimeLog.vue'
       - 'frontend/src/components/dashboard/PayStubDetailModal.vue'
@@ -45,6 +51,12 @@ on:
       - 'backend/src/**/mileageBenefitTier*'
       - 'backend/src/**/annualMileage*'
       - 'backend/src/controllers/indirectTime.controller.js'
+      - 'frontend/vitest.payroll-row-api.config.js'
+      - 'frontend/src/services/__tests__/sharedReads.test.js'
+      - 'frontend/src/services/__tests__/api.*.test.js'
+      - 'frontend/src/services/sharedReads.js'
+      - 'frontend/src/services/api.js'
+      - 'frontend/src/AppWorkspace.vue'
       - 'frontend/src/components/payroll/**'
       - 'frontend/src/components/dashboard/HourlyIndirectTimeLog.vue'
       - 'frontend/src/components/dashboard/PayStubDetailModal.vue'
@@ -79,5 +91,7 @@ jobs:
         run: node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.payroll-wizard.config.js
       - name: Payroll access, draft decisions and attached report delivery
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.payroll-wizard.config.js
+      - name: Shared reads, API scoping and authentication behavior
+        run: node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.payroll-row-api.config.js
       - name: Preserved work-time records and leave calculations
         run: node --test backend/src/utils/__tests__/payrollActualHoursReview.test.js backend/src/utils/__tests__/payrollSickLeaveHours.test.js

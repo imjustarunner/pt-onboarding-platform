@@ -1257,9 +1257,26 @@ const synchronizeReviewProgress = () => {
   wizardState.value = { ...(wizardState.value || {}), flowVersion: 2, flowFingerprint: flowFingerprint.value, completed: {} };
   stepIdx.value = 0;
 };
-const onPayrollInputsChanged = async () => {
+const importMutationSequences = new Map();
+const onPayrollInputsChanged = async (change) => {
   const key = currentStep.value?.key;
   invalidateFromStep(key);
+  if(change?.saved?.period && change?.saved?.import && Number(change.periodId)===Number(rawPanelPeriodId.value)) {
+    const saved=change.saved,version=Number(saved.import.mutationSequence || 0),importId=Number(saved.import.id);
+    if(version >= (importMutationSequences.get(importId) ?? -1)) {
+      importMutationSequences.set(importId,version);
+      existingImports.value=Object.fromEntries(Object.entries(existingImports.value).map(([slot,imp])=>[slot,Number(imp?.id)===importId?{...imp,...saved.import}:imp]));
+      if(Number(saved.period.id)===Number(selectedPeriodId.value)) {
+        selectedPeriod.value={...selectedPeriod.value,...saved.period};
+        periods.value=periods.value.map(p=>Number(p.id)===Number(saved.period.id)?{...p,...saved.period}:p);
+        if(saved.payrollInvalidated)summaries.value=[];
+      }
+      rawPanelPeriodStatus.value=saved.period.status;
+      wizardState.value={...(wizardState.value || {}),flowFingerprint:flowFingerprint.value};
+      void saveProgress();
+    }
+    return;
+  }
   await Promise.all([loadPeriodDetails(), loadExistingImports()]);
   wizardState.value = { ...(wizardState.value || {}), flowFingerprint: flowFingerprint.value };
 };
@@ -2089,7 +2106,7 @@ const loadPeriodDetails = async () => {
     return;
   }
   try {
-    const resp = await api.get(`/payroll/periods/${id}`);
+    const resp = await api.get(`/payroll/periods/${id}`, {params:{view:'wizard'},skipGlobalLoading:true});
     if (version !== detailsRequestVersion || Number(id) !== Number(selectedPeriodId.value) || Number(contextAgency) !== Number(agencyId.value)) return;
     selectedPeriod.value = resp.data?.period || periods.value.find((p) => p.id === selectedPeriodId.value) || null;
     summaries.value = resp.data?.summaries || [];

@@ -1,3 +1,4 @@
+import { savePayrollImportProcessing } from '../services/payrollImportRowEdit.service.js';
 import { buildPayrollCorrectionReview, postPayrollCorrectionReduction, postPayrollCorrectionAdditionalPay, resolvePayrollCorrection } from '../services/payrollCorrectionReview.service.js';
 import { loadMileageBenefitTiers, resolveMileageBenefitTier } from '../services/mileageBenefitTier.service.js';
 import { isClinicalSupervisorForAgency } from '../services/clinicalSupervisorEligibility.service.js';
@@ -3621,6 +3622,11 @@ export const getPayrollPeriod = async (req, res, next) => {
     const period = await PayrollPeriod.findById(id);
     if (!period) return res.status(404).json({ error: { message: 'Pay period not found' } });
     if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
+    if(req.query?.view==='raw-review') {
+      const missedAppointmentsPaidInFull=await PayrollImportMissedAppointment.listAggregatedForPeriod({payrollPeriodId:id,agencyId:period.agency_id}).catch(e=>{if(e?.code!=='ER_NO_SUCH_TABLE')throw e;return [];});
+      return res.json({period,missedAppointmentsPaidInFull});
+    }
+    if(req.query?.view==='wizard') return res.json({period,summaries:await PayrollSummary.listForPeriod(id)});
     // Fetch rows, summaries, missed appointments, and pending claim counts in parallel.
     const [rows, summaries, missedAppointmentsPaidInFull, pendingCounts] = await Promise.all([
       PayrollImportRow.listForPeriod(id),
@@ -3708,6 +3714,10 @@ export const patchPayrollImportRow = async (req, res, next) => {
     }
     if (isLocked && !allowPostedProcessing && !allowPostedDraftReview) {
       return res.status(409).json({ error: { message: 'Pay period is posted/finalized' } });
+    }
+
+    if(req.body?.deferPayrollRecompute===true && !wantsDraftPayable && !wantsDraftReview && (wantsUnitCount || wantsProcessed)) {
+      return res.json(await savePayrollImportProcessing({rowId,periodId:period.id,agencyId:period.agency_id,actorUserId:req.user.id,unitCount,processed,allowPostedProcessing}));
     }
 
     // Draft payable toggle (draft rows only)
