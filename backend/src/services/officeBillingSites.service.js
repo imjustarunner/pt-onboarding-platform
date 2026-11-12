@@ -124,7 +124,8 @@ export function filterServiceLocationsForProvider(locations = [], officeIds = []
     if (!allowed.size) return true;
     const billOffice = Number(l.billing_office_location_id || l.billingOfficeLocationId || 0);
     if (!billOffice) return true;
-    return allowed.has(billOffice);
+    const physicalOffice = Number(l.physical_office_location_id || l.physicalOfficeLocationId || 0);
+    return allowed.has(billOffice) || allowed.has(physicalOffice);
   });
 }
 

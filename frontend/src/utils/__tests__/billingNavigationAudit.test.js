@@ -1,6 +1,11 @@
 import {it,expect} from 'vitest';
 import {formatEncounterDate,noteActionLabel,formatPlaceOfService} from '../clientEncounterUtils.js';
 import {appointmentOfficeId,officesForAgency,defaultAppointmentServiceLocation} from '../appointmentOfficeSelection.js';
+it('matches a tenant billing identity to the reserved shared physical office', () => {
+  const locations = [{ id: 44, placeOfService: '11', billingOfficeLocationId: 8, physicalOfficeLocationId: 1 }];
+  expect(defaultAppointmentServiceLocation(locations, 'IN_PERSON', 1)?.id).toBe(44);
+  expect(defaultAppointmentServiceLocation(locations, 'IN_PERSON', 2)).toBeNull();
+});
 import {dayScheduleEntries} from '../providerDaySchedule.js';
 it('preserves date-only October 1 and labels a planned note accurately',()=>{expect(formatEncounterDate('2026-10-01')).toBe(new Date(2026,9,1,12).toLocaleDateString());expect(formatEncounterDate('2026-10-01T00:00:00.000Z')).toBe(new Date(2026,9,1,12).toLocaleDateString());expect(noteActionLabel({note_status:'planned'})).toBe('Prepare note');expect(formatPlaceOfService('10')).toContain('Telehealth');});
 it('uses the editor office rather than the toolbar scope and isolates agency options',()=>{expect(appointmentOfficeId(8,3)).toBe(8);expect(appointmentOfficeId(0,-1)).toBe(0);expect(officesForAgency([{id:1,agencyIds:[377]},{id:2,agency_id:4},{id:3}],377).map(x=>x.id)).toEqual([1]);});
