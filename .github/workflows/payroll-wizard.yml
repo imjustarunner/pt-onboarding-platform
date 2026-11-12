@@ -5,6 +5,9 @@ on:
       - 'backend/src/**/payroll*'
       - 'backend/src/**/Payroll*'
       - 'backend/src/**/supervisionNote*'
+      - 'backend/src/**/clinicalSupervisorEligibility*'
+      - 'backend/src/**/mileageBenefitTier*'
+      - 'backend/src/**/annualMileage*'
       - 'backend/src/controllers/indirectTime.controller.js'
       - 'backend/src/controllers/__tests__/supervisorNoteActivities.test.js'
       - 'backend/src/services/communicationRecordDelivery.service.js'
@@ -23,6 +26,7 @@ on:
       - 'frontend/vitest.payroll-wizard.config.js'
       - 'database/migrations/*_payroll_report_email_deliveries.sql'
       - 'database/migrations/*_supervisor_note_time_assignments.sql'
+      - 'database/migrations/*_clinical_supervisor_note_time.sql'
       - '.github/workflows/payroll-wizard.yml'
   push:
     branches: [main]
@@ -30,6 +34,9 @@ on:
       - 'backend/src/**/payroll*'
       - 'backend/src/**/Payroll*'
       - 'backend/src/**/supervisionNote*'
+      - 'backend/src/**/clinicalSupervisorEligibility*'
+      - 'backend/src/**/mileageBenefitTier*'
+      - 'backend/src/**/annualMileage*'
       - 'backend/src/controllers/indirectTime.controller.js'
       - 'frontend/src/components/payroll/**'
       - 'frontend/src/components/dashboard/HourlyIndirectTimeLog.vue'
