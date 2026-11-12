@@ -137,6 +137,9 @@ server.listen(PORT, HOST, () => {
       console.log('[startup:security] Checking required security storage and configuration');
       const { requireSecurityReadiness } = await import('./services/securityEvidence.service.js');
       await requireSecurityReadiness();
+      const {requireNoteworthyTrialSchema}=await import('./services/noteworthyReleaseReadiness.service.js');
+      await requireNoteworthyTrialSchema();
+      console.log('[startup:noteworthy] Trial, encrypted inquiry and durable deletion schema verified');
     })
     .then(async () => {
       const {ensurePrivateLibraryContent}=await import('./services/privateLibraryContent.service.js');

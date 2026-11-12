@@ -8,7 +8,7 @@ let server,payroll,readiness;
 beforeEach(async()=>{
   payroll={signup:vi.fn().mockResolvedValue({verificationRequired:true}),verify:vi.fn().mockResolvedValue({passwordRequired:true,verified:false}),workspace:vi.fn().mockResolvedValue({practices:[{agencyId:1,role:'owner'},{agencyId:2,role:'employee'}]}),owner:vi.fn().mockResolvedValue({}),paystubs:vi.fn().mockResolvedValue({paystubs:[]}),updateRoster:vi.fn().mockResolvedValue({saved:true})};
   readiness={activation:vi.fn().mockResolvedValue({canImport:false})};
-  const app=express();app.use('/api/noteworthy',createNoteworthyRouter({payroll,dataReadiness:readiness,auth:(req,_res,next)=>{req.user={id:7};next();},optionalAuth:(_req,_res,next)=>next()}));
+  const app=express();app.use('/api/noteworthy',createNoteworthyRouter({payroll,dataReadiness:readiness,trial:{assertReadable:async()=>{},assertWritable:async()=>{}},auth:(req,_res,next)=>{req.user={id:7};next();},optionalAuth:(_req,_res,next)=>next()}));
   app.use((error,_req,res,_next)=>res.status(500).json({error:{message:error.message}}));
   server=await new Promise((resolve,reject)=>{const instance=app.listen(0,'127.0.0.1',()=>resolve(instance));instance.on('error',reject);});
 });

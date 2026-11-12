@@ -90,8 +90,12 @@ export function createNoteworthyPayrollService({db=pool,send=defaultSend,hashPas
     const r=await rows(`INSERT INTO agencies(name,slug,organization_type,is_active,feature_flags)
       VALUES(?,?,'agency',1,?)`,[practiceName,slug,JSON.stringify({noteworthyPayrollOnly:true})],conn);
     const agencyId=r.insertId;
-    await rows('INSERT INTO noteworthy_practices(agency_id,owner_user_id,plan_intent) VALUES(?,?,?)',[agencyId,userId,plan],conn);
+    await rows('INSERT INTO noteworthy_practices(agency_id,owner_user_id,plan_intent,trial_policy_version) VALUES(?,?,?,1)',[agencyId,userId,plan],conn);
     await rows('INSERT INTO user_agencies(user_id,agency_id,is_active,has_payroll_access) VALUES(?,?,1,1)',[userId,agencyId],conn);
+    const [identity]=await rows('SELECT email FROM users WHERE id=?',[userId],conn);
+    const emailHash=crypto.createHash('sha256').update(String(identity.email).trim().toLowerCase()).digest('hex');
+    await rows('UPDATE noteworthy_contact_threads SET agency_id=?,owner_user_id=? WHERE agency_id IS NULL AND email_hash=?',[agencyId,userId,emailHash],conn);
+    await rows('UPDATE support_tickets SET agency_id=?,school_organization_id=?,created_by_user_id=? WHERE id IN (SELECT support_ticket_id FROM noteworthy_contact_threads WHERE agency_id=? AND owner_user_id=?)',[agencyId,agencyId,userId,agencyId,userId],conn);
     return {agencyId,name:practiceName,slug,role:'owner',plan};
   }
   async function verify(token,password=null) {
