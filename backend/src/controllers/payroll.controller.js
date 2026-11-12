@@ -1,3 +1,5 @@
+import { loadMileageBenefitTiers, resolveMileageBenefitTier } from '../services/mileageBenefitTier.service.js';
+import { isClinicalSupervisorForAgency } from '../services/clinicalSupervisorEligibility.service.js';
 import { createClaimReviewContext, claimReviewRead, claimReviewDay, mapClaimReviews, compactTimeClaim } from '../services/payrollClaimReview.service.js';
 import { isSupervisionNoteClaim, supervisionNoteHourlyRate } from '../services/supervisionNotePay.service.js';
 import { scopedPayrollCommand } from '../services/assistantPayrollCommand.service.js';
@@ -16586,7 +16588,7 @@ export const listMyMileageClaims = async (req, res, next) => {
     const rows = await PayrollMileageClaim.listForUser({ agencyId, userId, status });
     const normalized = (rows || []).map((c) => {
       const computed = computeEligibleMilesForClaim(c);
-      if (computed !== null && !(Number(c.eligible_miles) > 0)) {
+      if (computed !== null && c.eligible_miles == null) {
         return { ...c, eligible_miles: computed };
       }
       return c;
@@ -16654,7 +16656,10 @@ export const listMileageClaims = async (req, res, next) => {
       targetPayrollPeriodId,
       userId
     });
-    const normalized = (rows || []).map((c) => {
+    const tiers = await loadMileageBenefitTiers({ agencyId, userIds: (rows || []).map(c => c.user_id) });
+    const normalized = (rows || []).map((row) => {
+      const current = tiers.get(Number(row.user_id));
+      const c = { ...row, current_tier_level: current?.tierLevel ?? null, current_tier_period_end: current?.periodEnd ?? null };
       const computed = computeEligibleMilesForClaim(c);
       if (computed !== null && !(Number(c.eligible_miles) > 0)) {
         return { ...c, eligible_miles: computed };
@@ -18747,11 +18752,6 @@ const _createMyTimeClaimHandler = async (req, res, next) => {
       const isHourly = hw.is_hourly_worker === 1
         || hw.is_hourly_worker === true
         || hw.is_hourly_worker === '1';
-      const isSupervisorUser = hw.has_supervisor_privileges === 1
-        || hw.has_supervisor_privileges === true
-        || hw.has_supervisor_privileges === '1'
-        || String(hw.role || '').toLowerCase() === 'supervisor';
-
       const requestedCategory = String(payload?.categoryGroup || '').trim().toLowerCase();
       let categoryGroup = ['indirect_service', 'support_activity', 'supervision_note', 'admin_duties'].includes(requestedCategory)
         ? requestedCategory
@@ -18788,9 +18788,9 @@ const _createMyTimeClaimHandler = async (req, res, next) => {
           error: { message: 'Indirect Service Time is for hourly employees only. Use Support Activity Time instead.' }
         });
       }
-      if (categoryGroup === 'supervision_note' && !isSupervisorUser && !isAdminRole(req.user?.role)) {
+      if (categoryGroup === 'supervision_note' && !(await isClinicalSupervisorForAgency({ agencyId, userId }))) {
         return res.status(403).json({
-          error: { message: 'Supervision Note Time is for supervisors only' }
+          error: { message: 'Supervision Note Time is for clinical supervisors in this agency only' }
         });
       }
 
@@ -19178,12 +19178,9 @@ export const updateMyTimeClaim = async (req, res, next) => {
     });
 
     const categoryGroup = String(payloadIn.categoryGroup || prevPayload.categoryGroup || 'indirect_service').trim().toLowerCase();
-    if ((categoryGroup === 'supervision_note' || prevPayload.source === 'cosign_review_activity') && !isAdminRole(req.user?.role)) {
-      const [users] = await pool.execute('SELECT has_supervisor_privileges, role FROM users WHERE id = ? LIMIT 1', [userId]);
-      const user = users?.[0] || {};
-      if (![true, 1, '1'].includes(user.has_supervisor_privileges) && String(user.role || '').toLowerCase() !== 'supervisor') {
-        return res.status(403).json({ error: { message: 'Supervision Note Time is for supervisors only' } });
-      }
+    if ((categoryGroup === 'supervision_note' || prevPayload.source === 'cosign_review_activity')
+      && !(await isClinicalSupervisorForAgency({ agencyId: claim.agency_id, userId }))) {
+      return res.status(403).json({ error: { message: 'Supervision Note Time is for clinical supervisors in this agency only' } });
     }
     const serviceCode = serviceCodeForCategoryGroup(categoryGroup)
       || String(payloadIn.serviceCode || prevPayload.serviceCode || '').trim()
@@ -21859,6 +21856,33 @@ export const patchPtoRequest = async (req, res, next) => {
   }
 };
 
+async function priceMileageForPayroll(claim, body, targetPeriod) {
+  const claimType = String(claim.claim_type || '').toLowerCase();
+  const settings = await getAgencyMileageSettingsPayload(claim.agency_id);
+  const usesTier = !claim.event_travel_report_id && (claimType === 'school_travel' || settings.standardMileageUsesTierRates);
+  let tierLevel = null;
+  let ratePerMile;
+  if (usesTier) {
+    const tiers = await loadMileageBenefitTiers({ agencyId: claim.agency_id, userIds: [claim.user_id], periodEnd: targetPeriod.period_end });
+    tierLevel = resolveMileageBenefitTier(tiers.get(Number(claim.user_id)), body.tierLevel);
+    const rates = await AgencyMileageRate.listForAgency(claim.agency_id);
+    const rate = rates.find(r => Number(r.tier_level) === tierLevel);
+    ratePerMile = rate?.rate_per_mile == null ? NaN : Number(rate.rate_per_mile);
+  } else {
+    ratePerMile = Number(settings.standardMileageRatePerMile || 0);
+  }
+  if (!Number.isFinite(ratePerMile) || ratePerMile < 0 || (!usesTier && ratePerMile === 0 && !(claim.event_travel_report_id && Number(claim.miles) === 0))) {
+    throw Object.assign(new Error(usesTier ? `Mileage rate not configured for Tier ${tierLevel}` : 'Other Mileage rate is not configured for this agency'), { status:409 });
+  }
+  const computed = computeEligibleMilesForClaim(claim);
+  const eligibleMiles = body.eligibleMiles != null ? Number(body.eligibleMiles)
+    : claim.eligible_miles != null && Number.isFinite(Number(claim.eligible_miles))
+      ? Number(claim.eligible_miles) : computed ?? Number(claim.miles || 0);
+  const billableMiles = claimType === 'school_travel' ? Math.max(0, eligibleMiles)
+    : Math.max(0, eligibleMiles) * ([1,true].includes(claim.round_trip) ? 2 : 1);
+  return { tierLevel, ratePerMile, appliedAmount: Math.round(billableMiles * ratePerMile * 100) / 100 };
+}
+
 export const patchMileageClaim = async (req, res, next) => {
   try {
     const id = parseInt(req.params.id, 10);
@@ -21882,8 +21906,7 @@ export const patchMileageClaim = async (req, res, next) => {
       const targetPayrollPeriodId = Number(claim.target_payroll_period_id || 0);
       if (targetPayrollPeriodId) {
         const period = await PayrollPeriod.findById(targetPayrollPeriodId);
-        const pst = String(period?.status || '').toLowerCase();
-        if (pst === 'posted' || pst === 'finalized') {
+        if (!period || isEffectivelyPostedOrFinalized(period)) {
           return res.status(409).json({ error: { message: 'Cannot unapprove a claim that is in a posted/finalized pay period' } });
         }
       }
@@ -21909,19 +21932,19 @@ export const patchMileageClaim = async (req, res, next) => {
       return res.json({ claim: updated });
     }
 
-    if (action === 'move') {
+    if (action === 'move' || action === 'update') {
       // Move an approved claim to a different target pay period.
       const st = String(claim.status || '').toLowerCase();
       if (st !== 'approved') {
         return res.status(409).json({ error: { message: 'Only approved claims can be moved' } });
       }
-      const targetPayrollPeriodId = Number(body.targetPayrollPeriodId || 0);
+      const targetPayrollPeriodId = Number(body.targetPayrollPeriodId || claim.target_payroll_period_id || 0);
       if (!Number.isFinite(targetPayrollPeriodId) || targetPayrollPeriodId <= 0) {
         return res.status(400).json({ error: { message: 'targetPayrollPeriodId is required' } });
       }
 
       const fromPeriodId = Number(claim.target_payroll_period_id || 0);
-      if (fromPeriodId === targetPayrollPeriodId) {
+      if (action === 'move' && fromPeriodId === targetPayrollPeriodId) {
         return res.json({ claim });
       }
 
@@ -21949,19 +21972,29 @@ export const patchMileageClaim = async (req, res, next) => {
       });
       if (!ok.ok) return;
 
-      const toStatus = String(toPeriod.status || '').toLowerCase();
-      if (toStatus === 'posted' || toStatus === 'finalized') {
+      if (isEffectivelyPostedOrFinalized(toPeriod)) {
         return res.status(409).json({ error: { message: 'Target pay period is posted/finalized' } });
       }
       if (fromPeriodId) {
         const fromPeriod = await PayrollPeriod.findById(fromPeriodId);
-        const fromStatus = String(fromPeriod?.status || '').toLowerCase();
-        if (fromStatus === 'posted' || fromStatus === 'finalized') {
+        if (!fromPeriod || isEffectivelyPostedOrFinalized(fromPeriod)) {
           return res.status(409).json({ error: { message: 'Cannot move a claim out of a posted/finalized pay period' } });
         }
       }
 
-      const updated = await PayrollMileageClaim.moveTargetPeriod({ id, targetPayrollPeriodId });
+      if (claim.event_travel_report_id && action === 'update') {
+        return res.status(409).json({ error: { message: 'Edit event mileage through its travel report review, or move its pay period.' } });
+      }
+      const eligibleMiles = body.eligibleMiles == null ? claim.eligible_miles : Number(body.eligibleMiles);
+      if (body.eligibleMiles != null && (body.eligibleMiles === '' || !Number.isFinite(eligibleMiles) || eligibleMiles < 0)) {
+        return res.status(400).json({ error: { message: 'Enter valid non-negative eligible miles.' } });
+      }
+      const editedClaim = { ...claim, eligible_miles: eligibleMiles };
+      const pricing = claim.event_travel_report_id
+        ? { tierLevel: claim.tier_level, ratePerMile: claim.rate_per_mile, appliedAmount: claim.applied_amount }
+        : await priceMileageForPayroll(editedClaim, body, toPeriod);
+      const updated = await PayrollMileageClaim.updateApproved({ id, expectedPeriodId: fromPeriodId,
+        expectedAmount: claim.applied_amount, targetPayrollPeriodId, eligibleMiles, ...pricing });
 
       // If payroll has already been run for either period, recompute so totals follow the claim.
       try {
@@ -21999,11 +22032,6 @@ export const patchMileageClaim = async (req, res, next) => {
       if (!Number.isFinite(targetPayrollPeriodId) || targetPayrollPeriodId <= 0) {
         return res.status(400).json({ error: { message: 'targetPayrollPeriodId is required' } });
       }
-      const claimType = String(claim.claim_type || '').toLowerCase();
-      const mileageSettings = await getAgencyMileageSettingsPayload(claim.agency_id);
-      const usesTierRate = !claim.event_travel_report_id && (claimType === 'school_travel' || mileageSettings.standardMileageUsesTierRates);
-      const tierLevel = usesTierRate ? Number(body.tierLevel || claim.tier_level || 0) : null;
-
       const targetPeriod = await PayrollPeriod.findById(targetPayrollPeriodId);
       if (!targetPeriod) return res.status(404).json({ error: { message: 'Target pay period not found' } });
       if (Number(targetPeriod.agency_id) !== Number(claim.agency_id)) {
@@ -22030,41 +22058,10 @@ export const patchMileageClaim = async (req, res, next) => {
       });
       if (!ok.ok) return;
 
-      if (usesTierRate && ![1, 2, 3].includes(tierLevel)) {
-        return res.status(400).json({ error: { message: 'tierLevel must be 1, 2, or 3' } });
-      }
-
-      let ratePerMile = 0;
-      if (usesTierRate) {
-        const rates = await AgencyMileageRate.listForAgency(claim.agency_id);
-        const rateRow = (rates || []).find((r) => Number(r.tier_level) === tierLevel) || null;
-        ratePerMile = Number(rateRow?.rate_per_mile || 0);
-      } else {
-        ratePerMile = Number(mileageSettings.standardMileageRatePerMile || 0);
-      }
-      if ((!Number.isFinite(ratePerMile) || ratePerMile <= 0) && !(claim.event_travel_report_id && Number(claim.miles) === 0)) {
-        return res.status(409).json({
-          error: {
-            message: usesTierRate
-              ? `Mileage rate not configured for Tier ${tierLevel}`
-              : claim.event_travel_report_id ? 'Configure the flat Event / Other Mileage rate before approving this reimbursement' : 'Other Mileage rate is not configured for this agency'
-          }
-        });
-      }
-
-      const computedEligible = computeEligibleMilesForClaim(claim);
-      const eligibleMiles =
-        (Number.isFinite(Number(claim.eligible_miles)) && Number(claim.eligible_miles) > 0)
-          ? Number(claim.eligible_miles)
-          : (computedEligible !== null ? computedEligible : Number(claim.miles || 0));
-      const billableMiles =
-        claimType === 'school_travel'
-          ? Math.max(0, eligibleMiles)
-          : ((claim.round_trip === 1 || claim.round_trip === true) ? (Math.max(0, eligibleMiles) * 2) : Math.max(0, eligibleMiles));
-      const appliedAmount = Math.round((billableMiles * ratePerMile) * 100) / 100;
+      const { tierLevel, ratePerMile, appliedAmount } = await priceMileageForPayroll(claim, body, targetPeriod);
 
       const updated = await PayrollMileageClaim.approve({
-        ...(req[CLAIM_BATCH_CONTEXT] ? { requireSubmitted: true } : {}),
+        requireSubmitted: true,
         ...(scopedPayrollCommand(req)?{db:scopedPayrollCommand(req).db,requireSubmitted:true}:{}),
         eventTravelReviewedAt,
         id,

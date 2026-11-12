@@ -23,6 +23,8 @@ export function summarizeAnnualMileage(row, limitDollars) {
     submittedCount: Number(row.submitted_count || 0), submittedMiles: amount('submitted_miles'),
     schoolClaimCount: Number(row.school_claim_count || 0), schoolMiles: amount('school_miles'),
     paidDollars, approvedDollars, committedDollars,
+    postedPeriodCount: Number(row.posted_period_count || 0),
+    firstPostedPeriodEnd: row.first_posted_period_end || null, lastPostedPeriodEnd: row.last_posted_period_end || null,
     remainingDollars: limitDollars == null ? null : Math.max(0, Math.round((limitDollars - paidDollars) * 100) / 100),
     overLimitDollars: limitDollars == null ? null : Math.max(0, Math.round((committedDollars - limitDollars) * 100) / 100),
     status: limitDollars == null ? 'unconfigured' : paidDollars >= limitDollars ? 'reached'
@@ -51,6 +53,7 @@ export async function getAnnualMileageReport({ agencyId, agency, year }) {
   // payroll total once, including manual adjustments, rather than adding it to
   // the claims that already comprise that total. This is not bank settlement.
   const [payroll] = await pool.execute(`SELECT s.user_id, CONCAT_WS(' ',u.first_name,u.last_name) AS name,
+    COUNT(DISTINCT p.id) AS posted_period_count, MIN(p.period_end) AS first_posted_period_end, MAX(p.period_end) AS last_posted_period_end,
     SUM(COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(s.breakdown,'$.__adjustments.mileageAmount')) AS DECIMAL(14,2)),0)) AS paid_dollars
     FROM payroll_summaries s JOIN payroll_periods p ON p.id=s.payroll_period_id AND p.agency_id=s.agency_id
     JOIN users u ON u.id=s.user_id

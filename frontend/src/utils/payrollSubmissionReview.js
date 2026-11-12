@@ -28,7 +28,7 @@ export function mileageUsesTier(claim, settings = {}) {
 
 export function mileageBillableMiles(claim) {
   if (claim?.claim_type === 'school_travel') return Math.max(0, Number(claim.eligible_miles ?? claim.miles ?? 0));
-  return Math.max(0, Number(claim?.miles || 0)) * (Number(claim?.round_trip) === 1 ? 2 : 1);
+  return Math.max(0, Number(claim?.eligible_miles ?? claim?.miles ?? 0)) * (Number(claim?.round_trip) === 1 ? 2 : 1);
 }
 
 export function mileageEstimate(claim, { rates = [], settings = {} } = {}, tier = claim?.tier_level) {
@@ -36,7 +36,7 @@ export function mileageEstimate(claim, { rates = [], settings = {} } = {}, tier 
   const rate = mileageUsesTier(claim, settings)
     ? rates.find((r) => Number(r.tierLevel) === Number(tier))?.ratePerMile
     : settings.standardMileageRatePerMile;
-  return Number(rate) > 0 ? Math.round(mileageBillableMiles(claim) * Number(rate) * 100) / 100 : null;
+  return rate != null && Number.isFinite(Number(rate)) && Number(rate) >= 0 ? Math.round(mileageBillableMiles(claim) * Number(rate) * 100) / 100 : null;
 }
 
 export function approvedTimeDraft(claim) {

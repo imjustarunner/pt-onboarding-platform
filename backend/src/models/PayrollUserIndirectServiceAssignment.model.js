@@ -90,7 +90,7 @@ class PayrollUserIndirectServiceAssignment {
     return out;
   }
 
-  /** Standard manual note-review access follows the supervisor role in each active agency. */
+  /** Standard manual note-review access follows clinical supervision assignments in each active agency. */
   static async ensureSupervisorNoteAssignment({ agencyId, userId }) {
     await pool.execute(
       `INSERT INTO payroll_user_indirect_service_assignments (agency_id, user_id, service_type_id, is_enabled)
@@ -100,7 +100,7 @@ class PayrollUserIndirectServiceAssignment {
        JOIN users u ON u.id = ua.user_id
        WHERE t.agency_id = ? AND u.id = ?
          AND t.type_key = 'supervision_note_time' AND t.pay_bucket = 'supervision_note' AND t.is_active = 1
-         AND (u.has_supervisor_privileges = 1 OR LOWER(u.role) = 'supervisor')
+         AND EXISTS (SELECT 1 FROM supervisor_assignments sa WHERE sa.supervisor_id = u.id AND sa.agency_id = t.agency_id AND sa.supervisor_type = 'clinical')
          AND u.status = 'ACTIVE_EMPLOYEE' AND COALESCE(u.is_active, 1) = 1 AND COALESCE(u.is_archived, 0) = 0
          AND COALESCE(ua.is_active, 1) = 1
        ON DUPLICATE KEY UPDATE is_enabled = 1`,
