@@ -1,7 +1,7 @@
 import {beforeEach,expect,it,vi} from 'vitest';
 const db=vi.hoisted(()=>({execute:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:db,onTableWrite:vi.fn()}));
-import {computeLineAmount,applyPaySystemToBreakdown,classifyPayType} from '../paySystem.service.js';
+import {computeLineAmount,applyPaySystemToBreakdown,classifyPayType,assertUnpaidProBonoBreakdown} from '../paySystem.service.js';
 import PayrollRate from '../../models/PayrollRate.model.js';
 import TemplateRates from '../../models/PayrollRateTemplateRate.model.js';
 import Levels from '../../models/PayrollCompensationLevel.model.js';
@@ -39,4 +39,10 @@ it('does not allow an agency rule to make Pro Bono a paid flat add-on',async()=>
  await Rule.upsert({agencyId:2,serviceCode:'PRO-BONO SERVICE',paySystemBucket:'flat',flatRateAmount:100,countsForTier:1,creditValue:1});
  const params=db.execute.mock.calls.find(([sql])=>sql.includes('INSERT INTO payroll_service_code_rules'))[1];
  expect(params.slice(0,2)).toEqual([0,'skip']);expect(params[8]).toBe(0);expect(params[9]).toBe(0);
+});
+
+it('requires a new run before posting a stale Pro Bono payment while preserving separate correction lines',()=>{
+ expect(()=>assertUnpaidProBonoBreakdown({'PRO-BONO SERVICE':{amount:44}})).toThrow(/Run Payroll again/);
+ expect(()=>assertUnpaidProBonoBreakdown({'PRO_BONO_SERVICE__dated_0':{displayServiceCode:'PRO_BONO_SERVICE',amount:0,hcodeGrossAmount:3}})).toThrow(/Pro Bono/);
+ expect(()=>assertUnpaidProBonoBreakdown({'PRO-BONO SERVICE':{amount:0},'MANUAL REDUCTION':{amount:-17.83},H0004:{amount:21}})).not.toThrow();
 });

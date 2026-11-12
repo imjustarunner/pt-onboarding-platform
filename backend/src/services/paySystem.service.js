@@ -217,6 +217,16 @@ export function resolveUserPaySystemStatus({
 /**
  * Compute pay for a single service-code line under the new pay system.
  */
+export function assertUnpaidProBonoBreakdown(breakdown) {
+  const saved=typeof breakdown==='string'?JSON.parse(breakdown):breakdown || {};
+  for(const [key,line] of Object.entries(saved)) {
+    if(key.startsWith('__') || !line || typeof line!=='object' || !isProBonoServiceCode(canonicalServiceCode(key,line))) continue;
+    if(['amount','hcodeGrossAmount','autoIndirectAmount','embeddedIndirectAmount'].some(field=>Math.abs(Number(line[field] || 0))>.001)) {
+      throw Object.assign(new Error('This run contains outdated Pro Bono pay. Run Payroll again to apply the $0 Pro Bono policy before posting.'),{status:409,code:'PAYROLL_PRO_BONO_RERUN_REQUIRED'});
+    }
+  }
+}
+
 export function computeLineAmount({ rateProfile, status, serviceCode, quantity, rule = null }) {
   const code = String(serviceCode || '').trim().toUpperCase();
   // Agency overrides, clinical rates, and automatic allowances cannot pay Pro Bono.

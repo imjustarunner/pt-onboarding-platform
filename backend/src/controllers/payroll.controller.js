@@ -115,7 +115,7 @@ import {
 import { syncHolidayBonusClaimsForPeriod } from '../services/payrollHolidayBonus.service.js';
 import TrainingFocusPayrollService from '../services/trainingFocusPayroll.service.js';
 import { PAY_SYSTEM_BUCKETS } from '../services/payrollCodeClassification.js';
-import { loadUserPaySystemContext, applyPaySystemToBreakdown, classifyPayType } from '../services/paySystem.service.js';
+import { loadUserPaySystemContext, applyPaySystemToBreakdown, classifyPayType, assertUnpaidProBonoBreakdown } from '../services/paySystem.service.js';
 import {approvedPeriodSalaryOverride} from '../services/payrollSalaryOverridePolicy.js';
 import {separateHistoricalCarryovers} from '../services/payrollHistoricalCarryover.service.js';
 import PayrollReportEmail from '../services/payrollReportEmail.service.js';
@@ -14513,6 +14513,9 @@ export const postPayrollPeriod = async (req, res, next) => {
     if (cnt <= 0) {
       return res.status(409).json({ error: { message: 'No run results found. Please Run Payroll again before posting.' } });
     }
+
+    const [runSnapshots] = await pool.execute('SELECT breakdown FROM payroll_summaries WHERE payroll_period_id=? AND agency_id=?', [payrollPeriodId, period.agency_id]);
+    for(const snapshot of runSnapshots) assertUnpaidProBonoBreakdown(snapshot.breakdown);
 
     // Work is recorded through services and approved time claims. A separate manual
     // hours attestation is an optional correction record, not a posting prerequisite.
