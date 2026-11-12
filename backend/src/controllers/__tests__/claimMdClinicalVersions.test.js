@@ -152,3 +152,9 @@ describe('clinical version HTTP authorization and signatures', () => {
     expect(next).not.toHaveBeenCalled(); expect(m.edit).toHaveBeenCalledWith(expect.objectContaining({ actorUserId: 7, revisionId: 12, expectedContentHash: hash })); expect(res.json.mock.calls[0][0].revision.id).toBe(13);
   });
 });
+
+
+it('records request evidence from the authenticated request instead of accepting supplied signature evidence',async()=>{
+ const req=request({id:7,role:'provider'},{attested:true,expectedContentHash:hash,requestEvidence:{ipAddress:'forged'}});req.ip='192.0.2.7';req.headers={'user-agent':'Synthetic mobile reviewer'};
+ const next=vi.fn();await signClinicalNoteVersion(req,response(),next);expect(next).not.toHaveBeenCalled();expect(m.sign).toHaveBeenCalledWith(expect.objectContaining({actorUserId:7,requestEvidence:{ipAddress:'192.0.2.7',ipAddressSource:'trusted_proxy_request',userAgent:'Synthetic mobile reviewer'}}));
+});

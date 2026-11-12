@@ -190,7 +190,7 @@ test('immutable clinical revisions enforce exact signatures, durable audit and b
       await sign(revision, 9, 'supervisor_sign');
     });
     await t.test('initial live signing snapshots the exact locked note and evidence in the same transaction', async () => {
-      await pool.execute("INSERT INTO clinical_notes(id,clinical_session_id,agency_id,client_id,title,note_payload,metadata_json,created_by_user_id,note_type,is_billable) VALUES(8,7,1,3,'New note','Live content',?,5,'PROGRESS',1)", [JSON.stringify(metadata)]);
+      await pool.execute("INSERT INTO clinical_notes(id,clinical_session_id,agency_id,client_id,title,note_payload,metadata_json,created_by_user_id,note_type,is_billable) VALUES(8,7,1,3,'New note','Live content',?,5,'PROGRESS',1)", [JSON.stringify({...metadata,attestation:{accurateAndComplete:true,signerLabel:'Synthetic author',ipAddress:'192.0.2.10',userAgent:'Synthetic signature QA'}})]);
       const db = await pool.getConnection();
       try {
         await db.beginTransaction();
@@ -205,6 +205,10 @@ test('immutable clinical revisions enforce exact signatures, durable audit and b
       const state = await service.getRevisionSummary({ noteId: 8, agencyId: 1 }, pool);
       assert.equal(state.effectiveRevision.provenance.kind, 'live_signature');
       assert.equal(state.effectiveRevision.signatures[0].action, 'initial_author_sign');
+      assert.equal(state.effectiveRevision.signatures[0].attestation.ipAddress, '192.0.2.10');
+      const [[evidenceAudit]]=await pool.execute("SELECT event_json FROM clinical_note_revision_audit WHERE clinical_note_id=8 AND event_type='initial_author_sign'");
+      const evidence=typeof evidenceAudit.event_json==='string'?JSON.parse(evidenceAudit.event_json):evidenceAudit.event_json;
+      assert.equal(evidence.userAgent,'Synthetic signature QA');
       const [[count]] = await pool.execute('SELECT COUNT(*) n FROM clinical_note_revision_audit WHERE clinical_note_id=8');
       assert.equal(Number(count.n), 2);
     });

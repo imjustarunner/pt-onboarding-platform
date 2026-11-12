@@ -136,7 +136,7 @@ describe('H0002 preparation, signature and billing controls', () => {
     const {source}=await screeningReviewContext({sessionId:400,user:{id:8}});
     const result=await writeScreeningDetermination({sessionId:400,user:{id:8},input:{...validReview,...encounter,sourceHash:source.sourceHash,presentingProblem:'Reported concerns',placeOfService:'03',locationConfirmed:true}});
     const update=mocks.clinical.execute.mock.calls.find(([sql])=>sql.startsWith('UPDATE clinical_sessions'));
-    expect(update[0]).toContain("'$.locationLabel'");expect(update[0]).not.toContain('location_label');expect(update[1]).toEqual(['2026-10-19 16:00:00','2026-10-19 16:10:00',10,'03',0,'School',400,2]);expect(result.note_payload).toContain('POS 03');
+    expect(update[0]).toContain("'$.locationLabel'");expect(update[0]).not.toContain('location_label');expect(update[1]).toEqual(['2026-10-19 16:00:00','2026-10-19 16:10:00',10,'03',0,'School',400,2]);expect(result.note_payload).toContain('POS 03');expect(result.note_payload).toContain('Service time: 10:00 AM–10:10 AM America/Denver');expect(result.note_payload).not.toMatch(/Digital questionnaire submitted: \d{4}-\d\d-\d\dT/);
   });
   it('rejects paper transcription without a source document belonging to the same client and agency',async()=>{
     const session={id:400,agency_id:2,client_id:300,provider_user_id:8,metadata_json:{source:'h0002_digital_screening',screeningTaskId:100}};
