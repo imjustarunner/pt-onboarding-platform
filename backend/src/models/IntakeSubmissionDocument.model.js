@@ -69,10 +69,15 @@ class IntakeSubmissionDocument {
     return rows || [];
   }
 
-  static async listUnassigned({ agencyId = null, limit = 100, offset = 0, excludeMedicalRecords = false } = {}) {
-    let sql = `SELECT isd.*, dt.name AS document_template_name, il.title AS intake_link_title,
+  static async countUnassigned(options = {}) {
+    return this.listUnassigned({ ...options, countOnly: true });
+  }
+
+  static async listUnassigned({ agencyId = null, limit = 100, offset = 0, excludeMedicalRecords = false, countOnly = false } = {}) {
+    const projection = countOnly ? 'COUNT(*) AS count' : `isd.*, dt.name AS document_template_name, il.title AS intake_link_title,
        il.requires_assignment, il.form_type AS intake_link_form_type, s.signer_name, s.signer_email, s.submitted_at, s.id AS intake_submission_id,
-       s.payload_encrypted, s.payload_iv_b64, s.payload_auth_tag_b64, s.payload_key_id
+       s.payload_encrypted, s.payload_iv_b64, s.payload_auth_tag_b64, s.payload_key_id`;
+    let sql = `SELECT ${projection}
        FROM intake_submission_documents isd
        JOIN document_templates dt ON dt.id = isd.document_template_id
        JOIN intake_submissions s ON s.id = isd.intake_submission_id
@@ -92,10 +97,14 @@ class IntakeSubmissionDocument {
     if (excludeMedicalRecords) {
       sql += ` AND (il.form_type IS NULL OR il.form_type != 'medical_records_request')`;
     }
-    const lim = Math.min(100, Math.max(1, Number(limit) || 100));
-    const off = Math.max(0, Number(offset) || 0);
-    sql += ` ORDER BY isd.signed_at DESC, isd.id DESC LIMIT ${lim} OFFSET ${off}`;
+    if (!countOnly) {
+      const lim = Math.min(100, Math.max(1, Number(limit) || 100));
+      const off = Math.max(0, Number(offset) || 0);
+      sql += ` ORDER BY isd.signed_at DESC, isd.id DESC LIMIT ${lim} OFFSET ${off}`;
+    }
     const [rows] = await pool.execute(sql, values);
+    // Dashboard badges need only the total, never decrypted intake payloads.
+    if (countOnly) return Number(rows?.[0]?.count || 0);
     decryptIntakeSubmissionRows(rows);
     return rows;
   }

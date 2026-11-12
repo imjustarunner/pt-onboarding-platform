@@ -50,4 +50,44 @@ it('opens the schedule and clears loading while background badges and derived co
   expect(wrapper.find('.loading-chip').exists()).toBe(false);
   expect(mocks.notifications).toHaveBeenCalledOnce();
   expect(mocks.counts).toHaveBeenCalledOnce();
+  expect(api.get).toHaveBeenCalledWith('/unassigned-documents', expect.objectContaining({
+    params: { agencyId: 2, summary: '1' }
+  }));
+});
+
+it('shows the schedule while the communications summary and secondary panels are still pending', async () => {
+  let finishSummary, finishModules;
+  const summary = new Promise(resolve => { finishSummary = resolve; });
+  const modules = new Promise(resolve => { finishModules = resolve; });
+  const sessions = [{ id: 42, title: 'Morning appointment' }];
+  mocks.notifications.mockResolvedValue();
+  mocks.counts.mockResolvedValue();
+  api.get.mockImplementation(url => {
+    if (url === '/communications/center-summary') return summary;
+    if (url === '/modules') return modules;
+    return Promise.resolve({ data: url === '/dashboard/schedule-snapshot' ? { sessions } : {} });
+  });
+  wrapper = shallowMount(TenantAdminDashboard, {
+    global: { plugins: [createPinia()], stubs: { RouterLink: true } }
+  });
+  try {
+    await flushPromises();
+    const cards = wrapper.findComponent({ name: 'OpsSummaryCards' });
+    expect(cards.props('scheduleSlots')).toEqual(sessions);
+    expect(cards.props('scheduleLoading')).toBe(false);
+    expect(api.get.mock.calls.filter(([url]) => url === '/dashboard/schedule-snapshot')).toHaveLength(1);
+    expect(api.get).toHaveBeenCalledWith('/dashboard/schedule-snapshot', expect.objectContaining({
+      timeout: 8000, skipGlobalLoading: true
+    }));
+
+    finishSummary({ data: {} });
+    await flushPromises();
+    expect(api.get.mock.calls.some(([url]) => url === '/modules')).toBe(true);
+    expect(cards.props('scheduleSlots')).toEqual(sessions);
+    expect(cards.props('scheduleLoading')).toBe(false);
+  } finally {
+    finishSummary({ data: {} });
+    finishModules({ data: [] });
+    await flushPromises();
+  }
 });

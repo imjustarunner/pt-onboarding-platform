@@ -21,6 +21,28 @@ beforeEach(() => {
 });
 
 describe('dashboard icon branding', () => {
+  it('shares overlapping startup branding reads while allowing a newer forced refresh to win', async () => {
+    const finishes = [];
+    api.get.mockImplementation(() => new Promise(resolve => finishes.push(resolve)));
+    const branding = useBrandingStore();
+    const first = branding.fetchPlatformBranding();
+    const second = branding.fetchPlatformBranding();
+    await flushPromises();
+    expect(api.get).toHaveBeenCalledTimes(1);
+    const refreshed = branding.fetchPlatformBranding(true);
+    await flushPromises();
+    expect(api.get).toHaveBeenCalledTimes(2);
+    finishes[1]({ data: { id: 2 } });
+    await refreshed;
+    finishes[0]({ data: { id: 1 } });
+    await Promise.all([first, second]);
+    expect(branding.platformBranding.id).toBe(2);
+    api.get.mockResolvedValue({ data: { id: 3 } });
+    await branding.fetchPlatformBranding();
+    expect(api.get).toHaveBeenCalledTimes(3);
+    expect(branding.platformBranding.id).toBe(3);
+  });
+
   it('bounds the fast sign-in handoff when an image server does not respond', async () => {
     vi.useFakeTimers();
     try {
@@ -114,6 +136,7 @@ describe('dashboard icon branding', () => {
     preloadImages.mockReturnValue(new Promise(resolve => { finishImages = resolve; }));
     api.get.mockImplementation(url => url === '/platform-branding'
       ? Promise.resolve({ data: {
+        organization_logo_path: 'logos/platform.png',
         manage_agencies_icon_id: 101, manage_agencies_icon_path: 'icons/agencies.png',
         manage_users_icon_id: 102
       } })
@@ -121,15 +144,30 @@ describe('dashboard icon branding', () => {
     const branding = useBrandingStore();
     await branding.fetchPlatformBranding();
 
-    expect(api.get.mock.calls.map(([url]) => url)).toEqual(['/platform-branding', '/icons/102']);
+    expect(api.get.mock.calls.map(([url]) => url)).toEqual(['/platform-branding']);
     expect(branding.iconUrlById(101)).toContain('/icons/agencies.png');
-    expect(preloadImages).toHaveBeenCalled();
+    expect(preloadImages).toHaveBeenCalledWith(expect.arrayContaining(['/logos/platform.png']), expect.any(Object));
+    expect(preloadImages.mock.calls[0][0].some(url => url.includes('/icons/'))).toBe(false);
     expect(isLoading.value).toBe(false);
 
+    // An icon is resolved only when a rendered component asks to display it.
+    expect(branding.iconUrlById(102)).toBeNull();
+    expect(api.get.mock.calls.map(([url]) => url)).toEqual(['/platform-branding', '/icons/102']);
     finishIcon({ data: { file_path: 'icons/users.png' } });
     finishImages({ loaded: 1 });
     await flushPromises();
     expect(branding.iconUrlById(102)).toContain('/icons/users.png');
+  });
+
+  it('does not fetch unused platform artwork when startup branding arrives', async () => {
+    const unusedIcons = Object.fromEntries(Array.from({ length: 80 }, (_, i) => [`unused_${i}_icon_id`, i + 100]));
+    api.get.mockResolvedValue({ data: unusedIcons });
+    const branding = useBrandingStore();
+    await branding.fetchPlatformBranding();
+    await flushPromises();
+    expect(api.get.mock.calls.map(([url]) => url)).toEqual(['/platform-branding']);
+    await branding.setPlatformBrandingFromResponse(unusedIcons);
+    expect(api.get).toHaveBeenCalledTimes(1);
   });
 
   it('bounds concurrent icon requests across callers and drains the queue after a failure', async () => {
