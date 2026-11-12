@@ -22,4 +22,5 @@ it.each([2,6])('allows manual supervision note submission at Admin Time while re
  await wrapper.findAll('button').find(b=>b.classes().includes('itl-submit')).trigger('click');await flushPromises();
  expect(m.post).toHaveBeenCalledWith('/payroll/me/time-claims',expect.objectContaining({agencyId,payload:expect.objectContaining({categoryGroup:'supervision_note',serviceCode:'Admin Time',totalMinutes:30,allocations:[expect.objectContaining({serviceTypeKey:'supervision_note_time',payBucket:'supervision_note'})]})}));
 });
-it('hides the supervisor-only activity column from non-supervisors',async()=>{m.user.has_supervisor_privileges=0;await open();expect(wrapper.find('.itl-dual-col--supervision').exists()).toBe(false);});
+it('hides note time for general supervisors without a clinical duty in this agency',async()=>{m.get.mockImplementation(async url=>({data:url.endsWith('/indirect-service-types')?{types:[]}:url.endsWith('/time-claims')?[]:{session:null}}));await open();expect(wrapper.find('.itl-dual-col--supervision').exists()).toBe(false);});
+it('shows the clinical duty even when the generic supervisor flag is absent',async()=>{m.user.has_supervisor_privileges=0;await open();expect(wrapper.find('.itl-dual-col--supervision').exists()).toBe(true);});

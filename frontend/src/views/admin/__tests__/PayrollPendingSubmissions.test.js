@@ -207,7 +207,34 @@ it('shows yearly posted and committed allowance using each claim’s year', asyn
   rows.push({ ...mileage, id: 12, drive_date: '2025-12-20' });
   annualReports[2025] = { year: 2025, limitDollars: 2000, people: [{ userId: 7, paidDollars: 1900, approvedDollars: 150, committedDollars: 2050, overLimitDollars: 50 }] };
   const w = await page();
-  expect(w.text()).toContain('2026 · $500.00 posted'); expect(w.text()).toContain('$1400.00 uncommitted');
-  expect(w.text()).toContain('2025 · $1900.00 posted'); expect(w.text()).toContain('$50.00 over maximum');
+  expect(w.text()).toContain('2026 year to date · $500.00 posted'); expect(w.text()).toContain('$1400.00 uncommitted');
+  expect(w.text()).toContain('2025 year to date · $1900.00 posted'); expect(w.text()).toContain('$50.00 over maximum');
   expect(w.findAll('progress')).toHaveLength(2);
+});
+
+it('seeds current benefit Tier 2 instead of the missing or stale claim tier',async()=>{
+ rows[0].tier_level=null;rows[0].current_tier_level=2;rows[0].current_tier_period_end='2026-10-09';
+ const w=await page();expect(w.get('select[aria-label="Mileage tier for Test Provider"]').element.value).toBe('2');
+ expect(w.text()).toContain('Benefit tier from');
+ await button(w,'Approve').trigger('click');await flushPromises();expect(mock.patch).toHaveBeenCalledWith('/payroll/mileage-claims/10',expect.objectContaining({tierLevel:2}));
+});
+it('does not default a completely unknown tier to Tier 1',async()=>{
+ rows[0].tier_level=null;const w=await page();expect(w.get('select[aria-label="Mileage tier for Test Provider"]').element.value).toBe('0');
+});
+it('edits approved mileage and lets payroll choose a different open period or unapprove',async()=>{
+ rows[0].status='approved';rows[0].target_payroll_period_id=8;rows[0].applied_amount=2.94;
+ periodRows.push({...period,id:9,period_start:'2026-10-24',period_end:'2026-11-06'});
+ const w=await page();await w.get('input[aria-label="Approved eligible miles for Test Provider"]').setValue('10');
+ await button(w,'Save').trigger('click');await flushPromises();expect(mock.patch).toHaveBeenCalledWith('/payroll/mileage-claims/10',{action:'update',eligibleMiles:10,tierLevel:2});
+ await w.get('select[aria-label="Approved mileage pay period for Test Provider"]').setValue('9');await flushPromises();expect(mock.patch).toHaveBeenCalledWith('/payroll/mileage-claims/10',{action:'move',targetPayrollPeriodId:9});
+ await button(w,'Unapprove').trigger('click');await flushPromises();expect(mock.patch).toHaveBeenCalledWith('/payroll/mileage-claims/10',{action:'unapprove'});
+});
+
+it('keeps other-mileage estimates consistent with payroll after editing eligible miles',()=>{
+ const claim={claim_type:'standard',miles:10,eligible_miles:4,round_trip:1};
+ expect(mileageBillableMiles(claim)).toBe(8);
+ expect(mileageEstimate(claim,{settings:{standardMileageRatePerMile:.7}})).toBe(5.6);
+});
+it('shows a configured Tier 1 zero rate as zero pay rather than an unknown estimate',()=>{
+ expect(mileageEstimate(mileage,{rates:[{tierLevel:1,ratePerMile:0}]},1)).toBe(0);
 });
