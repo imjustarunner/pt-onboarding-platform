@@ -1,4 +1,6 @@
 import mobileHiringRoutes from './mobileHiring.routes.js';
+import {mobileLearningWorkspace} from '../services/mobile/learningWorkspace.service.js';
+import {mobileChildcareWorkspace} from '../services/mobile/childcareWorkspace.service.js';
 import mobileStaffToolsRoutes from './mobileStaffTools.routes.js';
 import mobileExchangeRoutes from './mobileExchange.routes.js';
 import {getMobileTools} from '../services/mobile/toolAccess.service.js';
@@ -135,6 +137,22 @@ router.get('/directory', requireQuickViewSession, getQuickDirectory);
 
 // Mobile-only surfaces require a primary device sign-in in addition to this scoped session.
 router.get('/workspace-counts', requireQuickViewSession, getMobileWorkspaceCounts);
+const learningOperation=operation=>(req,res,next)=>{req.mobileLearningOperation=operation;return mobileLearningWorkspace(req,res,next);};
+router.get('/tutoring-workspace/context',requireQuickViewSession,learningOperation('context'));
+router.get('/tutoring-workspace/profile',requireQuickViewSession,learningOperation('profile'));
+router.put('/tutoring-workspace/profile',requireQuickViewSession,learningOperation('save'));
+router.get('/tutoring-workspace/students',requireQuickViewSession,learningOperation('students'));
+router.get('/tutoring-learning-os/clients/:clientId/overview',requireQuickViewSession,learningOperation('overview'));
+const childcareOperation=operation=>(req,res,next)=>{req.mobileChildcareOperation=operation;return mobileChildcareWorkspace(req,res,next);};
+router.get('/childcare/context',requireQuickViewSession,childcareOperation('context'));
+router.get('/childcare/staff',requireQuickViewSession,childcareOperation('staff'));
+router.get('/childcare/staff/:userId/rates',requireQuickViewSession,childcareOperation('rates'));
+router.get('/childcare/shifts',requireQuickViewSession,childcareOperation('list'));
+router.post('/childcare/shifts',requireQuickViewSession,childcareOperation('create'));
+router.get('/childcare/shifts/:shiftId',requireQuickViewSession,childcareOperation('detail'));
+router.patch('/childcare/shifts/:shiftId',requireQuickViewSession,childcareOperation('update'));
+router.get('/childcare/shifts/:shiftId/pay-preview',requireQuickViewSession,childcareOperation('pay'));
+for(const action of ['clock-in','clock-out','attendance'])router.post(`/childcare/shifts/:shiftId/${action}`,requireQuickViewSession,childcareOperation(action));
 router.get('/my-work', requireQuickViewSession, getMobileMyWork);
 router.get('/my-work/notes/:noteId/review-insights', requireQuickViewSession, apiLimiter, getMobileNoteReviewInsights);
 router.use('/clinical',requireQuickViewSession,mobileClinicalRoutes);

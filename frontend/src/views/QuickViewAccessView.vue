@@ -114,7 +114,10 @@
       <MobileClinicalWorkspace v-if="isMobile && tab==='clinical'" :api-base="apiBase" :session-token="session" :user-id="sessionUserId" @signed="recordMobileSignature" @finished="finishMobileSignature" />
       <MobileClientSummary v-if="isMobile && tab==='client'" :api-base="apiBase" :session-token="session" :client-id="route.query.clientId" :agency-id="route.query.agencyId || sessionAgencyId" @open-main="emit('open-main',$event)" @back="returnInApp({view:'clients'})" @contact="openMobileClinicalContact" />
       <MobileClinicalSession v-if="isMobile && tab==='session'" :api-base="apiBase" :session-token="session" />
-      <MobileMyWork ref="mobileMyWork" :user-id="sessionUserId" @controls-change="workControlsOpen=$event" v-if="isMobile && myWorkVisited" v-show="tab==='mywork'" :visible="tab==='mywork' && !overlayOpen && !moreOpen" :api-base="apiBase" :session-token="session" @draft="prepareWorkDraft" @tasks="navigateTo('tasks')" @counts="workspaceBadges={...workspaceBadges,...$event}"/>
+      <TutoringStudentsView v-if="isMobile && tab==='students'" :agency-id="sessionAgencyId" :http="learningHttp" schedule-path="/mobile/workspace?view=calendar" />
+      <TutoringProfileView v-if="isMobile && tab==='tutoring-profile'" :agency-id="sessionAgencyId" :http="learningHttp" />
+      <ChildcareShiftsView v-if="isMobile && tab==='childcare'" :agency-id="sessionAgencyId" :user-id="sessionUserId" :http="learningHttp" :shift-id="route.query.shiftId" />
+      <MobileMyWork ref="mobileMyWork" :user-id="sessionUserId" @controls-change="workControlsOpen=$event" v-if="isMobile && myWorkVisited && !serviceWorkspace.learningOnly" v-show="tab==='mywork'" :visible="tab==='mywork' && !overlayOpen && !moreOpen" :api-base="apiBase" :session-token="session" @draft="prepareWorkDraft" @tasks="navigateTo('tasks')" @counts="workspaceBadges={...workspaceBadges,...$event}"/>
       <div v-if="!isMobile && tab === 'home'" class="qv-pane conversa-surface">
         <div class="qv-messages-heading"><ConversaBrand compact /><span>YOUR CONVERSATIONS</span></div>
         <div class="qv-suite">
@@ -827,6 +830,9 @@
 import {backInMobile,trackMobileNavigation} from '../mobile/mobileNavigation.js';
 import {mobileLinkTarget} from '../mobile/mobileLinks.js';
 const EmailComposerView=defineAsyncComponent(()=>import('./EmailComposerView.vue'));
+const TutoringStudentsView=defineAsyncComponent(()=>import('./tutoring/TutoringStudentsView.vue'));
+const TutoringProfileView=defineAsyncComponent(()=>import('./tutoring/TutoringProfileView.vue'));
+const ChildcareShiftsView=defineAsyncComponent(()=>import('./ChildcareShiftsView.vue'));
 import MobileIdentityAvatar from '../mobile/MobileIdentityAvatar.vue';
 import MobileMessages from '../mobile/MobileMessages.vue';
 import QuickTaskExtras from '../components/quickView/QuickTaskExtras.vue';
@@ -958,7 +964,26 @@ const toolAgencies=ref({}),toolsReady=ref(false),toolsVisited=ref({}),peopleVisi
 const todayIntro=ref(!readMobileViewPreference(props.mobileSession?.userId,'calendar','introDismissed',false));
 function dismissTodayIntro(){todayIntro.value=false;writeMobileViewPreference(sessionUserId.value,'calendar','introDismissed',true);}
 async function loadTools(){try{const {data}=await axios.get(`${apiBase}/tools`,{headers:authHeaders(),withCredentials:true});toolAgencies.value=data.tools || {};toolsReady.value=true;}catch{toolAgencies.value={};}}
-const permittedNavigation=computed(()=>allNavigation.filter(item=>!['exchange','support','livechat','applicants'].includes(item.id)||!toolsReady.value||toolAgencies.value[item.id]?.length));
+const serviceWorkspace=ref({});
+const learningHttp={
+ get:(path,config={})=>axios.get(`${apiBase}${path}`,{...config,headers:{...config.headers,...authHeaders()},withCredentials:true}),
+ post:(path,data,config={})=>axios.post(`${apiBase}${path}`,data,{...config,headers:{...config.headers,...authHeaders()},withCredentials:true}),
+ put:(path,data,config={})=>axios.put(`${apiBase}${path}`,data,{...config,headers:{...config.headers,...authHeaders()},withCredentials:true}),
+ patch:(path,data,config={})=>axios.patch(`${apiBase}${path}`,data,{...config,headers:{...config.headers,...authHeaders()},withCredentials:true})
+};
+async function loadServiceWorkspace(){
+ const token=session.value;
+ const [learning,care]=await Promise.allSettled([learningHttp.get('/tutoring-workspace/context',{params:{agencyId:sessionAgencyId.value}}),learningHttp.get('/childcare/context',{params:{agencyId:sessionAgencyId.value}})]);
+ if(session.value!==token)return;
+ const tutor=learning.status==='fulfilled'?learning.value.data:{};
+ const childcare=care.status==='fulfilled'?care.value.data:{};
+ serviceWorkspace.value={...tutor,canChildcare:childcare.enabled===true&&(childcare.canWork===true||childcare.canManage===true),learningOnly:tutor.learningOnly===true||(!tutor.canClinical&&childcare.canWork===true&&!childcare.canManage)};
+}
+const permittedNavigation=computed(()=>[
+ ...allNavigation.filter(item=>(!serviceWorkspace.value.learningOnly||!['mywork','noteaid','clients','exchange'].includes(item.id))&&(!['exchange','support','livechat','applicants'].includes(item.id)||!toolsReady.value||toolAgencies.value[item.id]?.length)),
+ ...(serviceWorkspace.value.canTutor?[{id:'students',label:'My students',icon:Users,description:'Assigned students and learning plans.'},{id:'tutoring-profile',label:'Tutoring profile',icon:Users,description:'Subjects, grades and your public introduction.'}]:[]),
+ ...(serviceWorkspace.value.canChildcare?[{id:'childcare',label:'Childcare',icon:CalendarDays,description:'Shifts, child attendance and clocking.'}]:[])
+]);
 const viewportWidth=ref(window.innerWidth),showMobileSettings=ref(false),mobileMessages=ref(null),mobileCounts=ref({});
 const messageBadge=ref(null),myWorkVisited=ref(false),calendarVisited=ref(false),clientsVisited=ref(false);let messageBadgeRequest=0,lastMessageBadgeRefresh=0;
 watch(tab,(value,previous)=>{if(previous==='calendar' && value!=='calendar')dismissTodayIntro();if(value==='contacts')peopleVisited.value=true;if(['exchange','support','livechat','applicants'].includes(value))toolsVisited.value={...toolsVisited.value,[value]:true};if(value==='mywork')myWorkVisited.value=true;if(value==='calendar')calendarVisited.value=true;if(value==='clients')clientsVisited.value=true;},{immediate:true});
@@ -1055,6 +1080,7 @@ const currentHeading = computed(() => {
     thread: { title: 'Conversation', description: 'Keep the conversation moving.' },
     chat: { title: 'Team conversation', description: 'Direct messages and team discussions.' },
     calendar: { title: 'Your day, in view.', description: 'Appointments, meetings, and where you need to be.' },
+    students:{title:'My students',description:'Your assigned tutoring learners.'},'tutoring-profile':{title:'Tutoring profile',description:''},childcare:{title:'Childcare',description:'Your shifts, attendance and time.'},
     mywork:{title:'My Work',description:''},
     exchange:{title:'Client Exchange',description:''},support:{title:'Support Messages',description:''},livechat:{title:'Live Chat',description:''},applicants:{title:'People Operations',description:''},
     clients:{title:'My Clients',description:'Your clients across affiliated agencies.'},
@@ -1066,6 +1092,7 @@ const currentHeading = computed(() => {
 });
 
 async function navigateTo(destination,{fromRoute=false}={}) {
+  if(isMobile.value && serviceWorkspace.value.learningOnly && ['mywork','noteaid','clinical','client','clients','session','exchange'].includes(destination))destination=serviceWorkspace.value.canTutor?'students':'calendar';
   if(destination==='notifications' && isMobile.value){moreOpen.value=false;countNavigation(destination);emit('notifications');return;}
   if(isMobile.value && destination==='calendar' && tab.value==='calendar' && !fromRoute){mobileCalendar.value?.resetToday();moreOpen.value=false;return;}
   if(isMobile.value && destination==='noteaid')destination='mywork';
@@ -1078,7 +1105,7 @@ async function navigateTo(destination,{fromRoute=false}={}) {
     if (destination === 'home') {if(isMobile.value)tab.value='home';else await switchMsgSuite(msgSuite.value);}
     else if (destination === 'calendar') { if(isMobile.value){tab.value='calendar';return;} if (showOffice.value) { tab.value = 'calendar'; await loadOffice(); } else await loadCalendar(); }
     else if (destination === 'tasks') await loadTasks(taskView.value);
-    else if (['mywork','clinical','client','clients','session','exchange','support','livechat','applicants'].includes(destination) && isMobile.value)tab.value=destination;
+    else if (['students','tutoring-profile','childcare','mywork','clinical','client','clients','session','exchange','support','livechat','applicants'].includes(destination) && isMobile.value)tab.value=destination;
     else if (destination === 'noteaid') await switchNoteAid();
     else if (destination === 'contacts'){if(isMobile.value)tab.value='contacts';else await loadContacts();}
     else if (destination === 'presence') tab.value = 'presence';
@@ -1402,7 +1429,7 @@ const isDelivery = computed(() =>
 const sessionOnly = computed(() => route.meta?.quickViewSessionOnly === true);
 
 async function resumeSession() {
-  if(isMobile.value){session.value=props.mobileSession.sessionToken;expiresAt.value=props.mobileSession.expiresAt;sessionUserId.value=props.mobileSession.userId;sessionAgencyId.value=props.mobileSession.agencyId;agencyName.value=props.mobileSession.profile?.workspace?.name || '';loginUrl.value=props.mobileSession.profile?.workspace?.loginUrl || '';loading.value=false;startHeartbeat();await loadWorkspacePreferences();void loadTools();void loadWorkspaceBadges();void loadMessageBadge();await openDeepLink();if(route.query.view && route.query.view!=='home')await navigateTo(String(route.query.view),{fromRoute:true});return;}
+  if(isMobile.value){session.value=props.mobileSession.sessionToken;expiresAt.value=props.mobileSession.expiresAt;sessionUserId.value=props.mobileSession.userId;sessionAgencyId.value=props.mobileSession.agencyId;agencyName.value=props.mobileSession.profile?.workspace?.name || '';loginUrl.value=props.mobileSession.profile?.workspace?.loginUrl || '';loading.value=false;startHeartbeat();await loadWorkspacePreferences();await loadServiceWorkspace();void loadTools();void loadWorkspaceBadges();void loadMessageBadge();await openDeepLink();if(route.query.view && route.query.view!=='home')await navigateTo(String(route.query.view),{fromRoute:true});return;}
   loading.value = true;
   error.value = '';
   try {

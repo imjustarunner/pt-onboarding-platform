@@ -1,4 +1,4 @@
-import {isNluCompensationProfile,NLU_COMPENSATION_POLICY_VERSION,nluTutoringRate} from './nluCompensationPolicy.js';
+import {isNluCompensationProfile,NLU_COMPENSATION_POLICY_VERSION,nluTutoringRate,nluChildcareRate,normalizeChildcareRatesByBand} from './nluCompensationPolicy.js';
 import {nluCategoryDefinitionsHtml,WAGE_FLOOR_HTML} from './providerRolesNovember2026.js';
 import {programScheduleTerms} from './programServiceRates.js';
 import {inferNluContractCategory} from './contractServiceRoles.js';
@@ -32,8 +32,9 @@ export function nluEmploymentCategoryTerms({row,tokens={},legal}) {
  add('Indirect work','per actual hour',profile.indirectRate);
  add('Support activities','per actual hour',profile.supportActivityRate);
  if(roles.includes('tutoring')) {
-  const tutoringLevel=Number(tokens.TUTORING_LEVEL||level);
-  const approved=tokens.TUTORING_HOURLY_RATE==null?null:Number(tokens.TUTORING_HOURLY_RATE);
+  const tutoringLevel=Number(tokens.TUTORING_LEVEL??details.tutoring?.payLevel??level);
+  const rawApproved=tokens.TUTORING_HOURLY_RATE??details.tutoring?.hourlyRate;
+  const approved=rawApproved==null||rawApproved===''?null:Number(rawApproved);
   const virtual=nluTutoringRate({category,level:tutoringLevel,format:'virtual',individualHourlyRate:approved});
   const inPerson=nluTutoringRate({category,level:tutoringLevel,format:'in_person',individualHourlyRate:approved});
   const virtualProbation=category>=3?Math.round(virtual*85)/100:virtual;
@@ -46,10 +47,12 @@ export function nluEmploymentCategoryTerms({row,tokens={},legal}) {
  const childcareLevel=tokens.CHILDCARE_LEVEL??details.childcare?.payLevel;
  const childcareRate=tokens.CHILDCARE_HOURLY_RATE??details.childcare?.hourlyRate;
  if(roles.includes('childcare')&&childcareLevel!=null)schedule.childcareLevel=Number(childcareLevel);
+ if(roles.includes('childcare'))schedule.childcareRatesByBand=normalizeChildcareRatesByBand(details.childcare?.ratesByBand);
  if(roles.includes('childcare')&&childcareRate!=null&&childcareRate!=='') {
   if(!(Number(childcareRate)>0))throw error('Confirm the individual childcare hourly rate.');
   schedule.childcareRate=Number(childcareRate);
  }
+ if(roles.includes('childcare'))for(const children of [1,2,3,4])add(`Childcare — ${children} child${children===1?'':'ren'} per active caregiver`,'per actual hour',nluChildcareRate({category,level:schedule.childcareLevel,children,caregivers:1,individualHourlyRate:schedule.childcareRate,ratesByBand:schedule.childcareRatesByBand}).rate);
  if(roles.includes('psychological_testing')) {
   add('Authorized testing administration/scoring','per actual hour',profile.hcodeRate,profile.hcodeRateProbation);
   add('Separately authorized testing evaluation','per actual hour',profile.creditRate);

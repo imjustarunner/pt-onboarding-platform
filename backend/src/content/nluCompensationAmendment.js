@@ -33,7 +33,7 @@ export function renderNluAmendment(data) {
  if(s.homeworkHelpRate!=null)row('Homework Help','per actual approved hour',s.homeworkHelpRate);
  let childcare='';
  if(s.childcareLevel) {
-  const rates=[1,2,3,4].map(children=>nluChildcareRate({category:s.category,level:s.childcareLevel,children,caregivers:1,individualHourlyRate:s.childcareRate??s.childcareHourlyRate}).rate);
+  const rates=[1,2,3,4].map(children=>nluChildcareRate({category:s.category,level:s.childcareLevel,children,caregivers:1,individualHourlyRate:s.childcareRate??s.childcareHourlyRate,ratesByBand:s.childcareRatesByBand}).rate);
   childcare=`<h3>Childcare placement · Level ${esc(s.childcareLevel)}</h3><p>Hourly child bands: ${rates.map((rate,i)=>`${i+1} child${i?'ren':''}: ${dollars(rate)}`).join('; ')}. Shared groups use children ÷ active caregivers rounded up for the compensation band. More than four children per active caregiver requires immediate staffing review. Required preparation, cleanup and zero-child on-duty availability use the approved one-child base unless another assignment/rate was established in advance. No automatic indirect allowance is added to childcare. Ratios do not establish lawful program staffing.</p>`;
  }
  let tutoring='';

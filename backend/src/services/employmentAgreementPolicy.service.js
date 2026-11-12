@@ -61,7 +61,7 @@ export function agreementRateProfile(profile, agreement) {
     // Clear matrix markers when reading a signed legacy schedule.
     nluCompensationPolicyVersion:s.nluCompensationPolicyVersion || null,
     nluCompensationEffectiveOn:s.nluCompensationPolicyVersion ? agreement.effectiveOn : null,
-    childcareLevel:s.childcareLevel ?? null,childcareRate:s.childcareRate ?? s.childcareHourlyRate ?? null,
+    childcareLevel:s.childcareLevel ?? null,childcareRate:s.childcareRate ?? s.childcareHourlyRate ?? null,childcareRatesByBand:s.childcareRatesByBand ?? null,
     tutoringLevel:s.tutoringLevel ?? null,tutoringCategory:s.tutoringCategory ?? null,
     tutoringRates:s.tutoringRates ?? null,testingAuthorized:s.testingAuthorized===true,
     tutoringVirtualRate:s.tutoringVirtualRate??null,tutoringInPersonRate:s.tutoringInPersonRate??null,tutoringHourlyRate:s.tutoringHourlyRate??null,

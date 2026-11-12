@@ -309,6 +309,7 @@ import learningContentGenerationRoutes from './routes/learningContentGeneration.
 import learningRecommendationsRoutes from './routes/learningRecommendations.routes.js';
 import learningClassSessionsRoutes from './routes/learningClassSessions.routes.js';
 import tutoringLearningOsRoutes from './routes/tutoringLearningOs.routes.js';
+import tutoringWorkspaceRoutes from './routes/tutoringWorkspace.routes.js';
 import clubStoreRoutes from './routes/clubStore.routes.js';
 import summitStatsRoutes from './routes/summitStats.routes.js';
 import userSafetyRoutes from './routes/userSafety.routes.js';
@@ -341,6 +342,7 @@ import companyEventClientsRoutes from './routes/companyEventClients.routes.js';
 import companyEventStaffingRoutes from './routes/companyEventStaffing.routes.js';
 import companyEventsPublicRoutes from './routes/companyEventsPublic.routes.js';
 import companyEventParticipationRoutes from './routes/companyEventParticipation.routes.js';
+import childcareRoutes from './routes/childcare.routes.js';
 import surveyRoutes from './routes/survey.routes.js';
 import { employeeRouter as facilitatorAvailabilityEmployeeRoutes, adminRouter as facilitatorAvailabilityAdminRoutes } from './routes/facilitatorAvailability.routes.js';
 import stripeWebhookRoutes from './routes/stripeWebhook.routes.js';
@@ -931,6 +933,7 @@ app.use('/api/safety-plans', safetyPlansRoutes);
 app.use('/api/email', communicationTrackingRoutes);
 app.use('/api/company-events', companyEventsPublicRoutes);
 app.use('/api/me/company-events', companyEventParticipationRoutes);
+app.use('/api/childcare', childcareRoutes);
 
 // Club manager email verification (public, no auth) - mount before auth to avoid any auth middleware
 app.get('/api/auth/verify-club-manager-email', verifyClubManagerEmail);
@@ -1108,6 +1111,7 @@ app.use('/api/learning-content', learningContentGenerationRoutes);
 app.use('/api/learning-recommendations', learningRecommendationsRoutes);
 app.use('/api/learning-class-sessions', learningClassSessionsRoutes);
 app.use('/api/tutoring-learning-os', tutoringLearningOsRoutes);
+app.use('/api/tutoring-workspace', tutoringWorkspaceRoutes);
 app.use('/api/club-store', clubStoreRoutes);
 app.use('/api/summit-stats', summitStatsRoutes);
 app.use('/api/user-safety', userSafetyRoutes);
@@ -2329,6 +2333,8 @@ if (!isBootstrap) {
     try {
       const { processCompanyEventCheckinReminders } = await import('./services/companyEventCheckinReminder.service.js');
       await processCompanyEventCheckinReminders();
+      const {processChildcareReminders}=await import('./services/childcareReminder.service.js');
+      await processChildcareReminders();
     } catch (error) { console.error('Event check-in reminders failed:', error.code || error.message); }
   };
   scheduleEventCheckinReminders();

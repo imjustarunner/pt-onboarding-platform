@@ -118,7 +118,7 @@
     ]
   },
   "proposedTutor": {
-    "liveUserId": null,
+    "liveUserId": 1496,
     "firstName": "Finley",
     "lastName": "QA NLU Tutor-1101",
     "email": "qa.nlu.tutor@example.com",

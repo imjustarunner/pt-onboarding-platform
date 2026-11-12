@@ -14,9 +14,15 @@
         <img src="/assets/fundthred/wordmark.svg" alt="FundThred" width="170" />
         <h3>New compensation · {{ data.submission.startsOn || 'Date awaiting confirmation' }}</h3>
         <p>{{ data.submission.effective ? 'Active compensation schedule. These rates apply from the date shown.' : data.submission.executed ? 'Signed terms. Payroll activation and service dates determine when these rates apply.' : 'Planned terms. Payroll approval and activation are pending.' }}</p>
-        <div class="rate-pair"><article v-if="data.submission.schedule.clinicalCreditEligible !== false"><h4>Clinical Session Rate</h4><strong>{{ fmtMoney(data.submission.schedule.creditRate) }} / credit</strong><p>Minimum-workload rate: {{ fmtMoney(data.submission.schedule.creditRateProbation) }} / credit, when applicable.</p></article><article><h4>Direct Care Rate</h4><strong>{{ fmtMoney(data.submission.schedule.hcodeRate) }} / direct hour</strong><p>Minimum-workload rate: {{ fmtMoney(data.submission.schedule.hcodeRateProbation) }} / hour, when applicable.</p></article></div>
+        <div v-if="!isNluSchedule || data.submission.schedule.clinicalEligible === true" class="rate-pair"><article v-if="data.submission.schedule.clinicalCreditEligible !== false"><h4>Clinical Session Rate</h4><strong>{{ fmtMoney(data.submission.schedule.creditRate) }} / credit</strong><p>Minimum-workload rate: {{ fmtMoney(data.submission.schedule.creditRateProbation) }} / credit, when applicable.</p></article><article><h4>Direct Care Rate</h4><strong>{{ fmtMoney(data.submission.schedule.hcodeRate) }} / direct hour</strong><p>Minimum-workload rate: {{ fmtMoney(data.submission.schedule.hcodeRateProbation) }} / hour, when applicable.</p></article></div>
         <p>Indirect: {{ fmtMoney(data.submission.schedule.indirectRate) }}/hour · Support activities: {{ fmtMoney(data.submission.schedule.supportRate) }}/hour.</p>
-        <p>{{ data.submission.indirectMinutesPerHour }} minutes of indirect pay are included per Direct Care hour. Submit only work above that allowance. Credits measure compensation, not actual hours.</p>
+        <template v-if="isNluSchedule">
+          <p>NLU category {{schedule.category}} · Overall pay level {{schedule.level}}.</p>
+          <section v-if="schedule.childcareLevel" class="service-pay" data-testid="my-childcare-rates"><h4>Childcare · Level {{schedule.childcareLevel}}</h4><p>{{data.submission.effective ? 'Current effective hourly bands' : 'Written individual hourly terms; activation is pending'}}. Attendance is divided by active caregivers and rounded up. Childcare has no automatic indirect allowance.</p><table><thead><tr><th>Children per caregiver</th><th>Hourly rate</th><th>Source</th></tr></thead><tbody><tr v-for="row in childcareRows" :key="row.band"><th>{{row.band}} {{row.band===1?'child':'children'}}</th><td>{{serviceMoney(row.rate)}}</td><td>{{row.individual?'Individual override':data.submission.effective&&ownChildcareRates?.ratesByBand?'Approved category / level':'Confirm approved default'}}</td></tr></tbody></table><p v-if="ownChildcareRates?.reviewRequired" role="status">{{ownChildcareRates.reasons?.join(' ')||'The effective childcare rate requires payroll review.'}}</p></section>
+          <section v-if="schedule.tutoringLevel" class="service-pay" data-testid="my-tutoring-rates"><h4>Tutoring · Level {{schedule.tutoringLevel}}</h4><p>Virtual: {{serviceMoney(schedule.tutoringVirtualRate ?? schedule.tutoringHourlyRate)}} / hour · In person: {{serviceMoney(schedule.tutoringInPersonRate ?? schedule.tutoringHourlyRate)}} / hour.</p><p>Approved tutoring includes ten indirect minutes per direct hour, prorated. Submit additional actual work through the normal time flow.</p></section>
+          <p v-if="schedule.homeworkHelpRate!=null">Homework Help: {{serviceMoney(schedule.homeworkHelpRate)}} / actual approved hour.</p>
+        </template>
+        <p v-else>{{ data.submission.indirectMinutesPerHour }} minutes of indirect pay are included per Direct Care hour. Submit only work above that allowance. Credits measure compensation, not actual hours.</p>
       </section>
       <section v-for="group in codeGroups" :key="group.id" class="rate-transition"><h3>{{ group.label }} · approved code mappings</h3><div class="code-grid"><article v-for="code in group.codes" :key="code.code"><strong>{{ code.code }}</strong><p>{{ code.quantityLabel }}</p></article></div></section>
       <p>These code mappings reflect Payroll’s saved settings. Refer to the <a :href="handbookUrl">workplace handbook</a> for service eligibility and policy.</p>
@@ -93,6 +99,7 @@
 <script setup>
 import FundThredPayrollBrand from '../payroll/FundThredPayrollBrand.vue';
 import SupplementalTime from '../payroll/SupplementalTime.vue';
+import {childcareMoney as serviceMoney,CHILDCARE_BANDS} from '../../utils/childcarePresentation.js';
 import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
@@ -115,8 +122,11 @@ const agencyId = computed(() => {
 const handbookUrl = computed(() => `/${agencyStore.currentAgency?.slug || agencyStore.currentAgency?.portal_url || 'itsco'}/workplace-handbook`);
 const loading = ref(false);
 const error = ref('');
-const data = ref(null);
-const codeGroups=computed(()=>[{id:'clinical_session',label:'Clinical Session Rate'},{id:'direct_care',label:'Hourly / H-code Rate'},{id:'indirect',label:'Indirect Rate'},{id:'support_activity',label:'Support Activity Rate'},{id:'flat',label:'Flat add-ons'}].map(g=>({...g,codes:(data.value?.codeGuide||[]).filter(c=>c.group===g.id&&!c.restricted)})).filter(g=>g.codes.length));
+const data = ref(null),ownChildcareRates=ref(null);
+const schedule=computed(()=>data.value?.submission?.schedule||{});
+const isNluSchedule=computed(()=>!!schedule.value.nluCompensationPolicyVersion);
+const childcareRows=computed(()=>CHILDCARE_BANDS.map(band=>({band,rate:(data.value?.submission?.effective?ownChildcareRates.value?.ratesByBand?.[band]:null)??schedule.value.childcareRatesByBand?.[band]??schedule.value.childcareRate??schedule.value.childcareHourlyRate??null,individual:schedule.value.childcareRatesByBand?.[band]!=null||schedule.value.childcareRate!=null||schedule.value.childcareHourlyRate!=null})));
+const codeGroups=computed(()=>[{id:'clinical_session',label:'Clinical Session Rate'},{id:'direct_care',label:'Hourly / H-code Rate'},{id:'indirect',label:'Indirect Rate'},{id:'support_activity',label:'Support Activity Rate'},{id:'flat',label:'Flat add-ons'}].map(g=>({...g,codes:(data.value?.codeGuide||[]).filter(c=>c.group===g.id&&!c.restricted)})).filter(g=>g.codes.length&&(!isNluSchedule.value||schedule.value.clinicalEligible===true||!['clinical_session','direct_care'].includes(g.id))));
 const priorEndDate=computed(()=>{const start=data.value?.submission?.startsOn;if(!start)return '';const d=new Date(start+'T12:00:00Z');d.setUTCDate(d.getUTCDate()-1);return d.toISOString().slice(0,10);});
 
 const otherRateTitles = ref({ title1: 'Other 1', title2: 'Other 2', title3: 'Other 3' });
@@ -196,44 +206,31 @@ const healthBenefits = computed(() => {
   };
 });
 
+let loadGeneration=0;
 const load = async () => {
-  if (!agencyId.value) return;
+  const requestedAgencyId=agencyId.value,userId=authStore.user?.id,current=++loadGeneration;
+  data.value=null;ownChildcareRates.value=null;benefitsEnrollment.value=null;currentTierLevel.value=0;
+  if (!requestedAgencyId) return;
   try {
-    loading.value = true;
-    error.value = '';
-    const resp = await api.get('/payroll/me/compensation', { params: { agencyId: agencyId.value } });
-    data.value = resp.data || null;
-    try {
-      const tr = await api.get('/payroll/other-rate-titles', { params: { agencyId: agencyId.value, userId: authStore.user?.id || null } });
-      otherRateTitles.value = {
-        title1: tr.data?.title1 || 'Other 1',
-        title2: tr.data?.title2 || 'Other 2',
-        title3: tr.data?.title3 || 'Other 3'
-      };
-    } catch {
-      otherRateTitles.value = { title1: 'Other 1', title2: 'Other 2', title3: 'Other 3' };
-    }
-    try {
-      const me = await api.get('/users/me', { skipGlobalLoading: true });
-      benefitsEnrollment.value = me.data?.benefitsEnrollment ?? me.data?.benefits_enrollment_json ?? null;
-    } catch {
-      benefitsEnrollment.value = null;
-    }
-    try {
-      const tierResp = await api.get('/payroll/me/current-tier', {
-        params: { agencyId: agencyId.value },
-        skipGlobalLoading: true
-      });
-      const t = tierResp.data?.tier || null;
-      currentTierLevel.value = Number(t?.tierLevel ?? t?.tier_level ?? 0) || 0;
-    } catch {
-      currentTierLevel.value = 0;
-    }
-  } catch (e) {
-    error.value = e.response?.data?.error?.message || e.message || 'Failed to load compensation';
-  } finally {
-    loading.value = false;
-  }
+    loading.value=true;error.value='';
+    const resp=await api.get('/payroll/me/compensation',{params:{agencyId:requestedAgencyId}});
+    if(current!==loadGeneration||agencyId.value!==requestedAgencyId||authStore.user?.id!==userId)return;
+    data.value=resp.data||null;
+    const [titles,me,tier,childcare]=await Promise.allSettled([
+      api.get('/payroll/other-rate-titles',{params:{agencyId:requestedAgencyId,userId:userId||null}}),
+      api.get('/users/me',{skipGlobalLoading:true}),
+      api.get('/payroll/me/current-tier',{params:{agencyId:requestedAgencyId},skipGlobalLoading:true}),
+      isNluSchedule.value&&schedule.value.childcareLevel&&userId?api.get(`/childcare/staff/${userId}/rates`,{params:{agencyId:requestedAgencyId},skipGlobalLoading:true}):Promise.resolve(null)
+    ]);
+    if(current!==loadGeneration||agencyId.value!==requestedAgencyId||authStore.user?.id!==userId)return;
+    const tr=titles.status==='fulfilled'?titles.value.data:{};
+    otherRateTitles.value={title1:tr?.title1||'Other 1',title2:tr?.title2||'Other 2',title3:tr?.title3||'Other 3'};
+    benefitsEnrollment.value=me.status==='fulfilled'?(me.value.data?.benefitsEnrollment??me.value.data?.benefits_enrollment_json??null):null;
+    const t=tier.status==='fulfilled'?tier.value.data?.tier:null;
+    currentTierLevel.value=Number(t?.tierLevel??t?.tier_level??0)||0;
+    ownChildcareRates.value=childcare.status==='fulfilled'?childcare.value?.data||null:null;
+  } catch(e) {if(current===loadGeneration)error.value=e.response?.data?.error?.message||e.message||'Failed to load compensation';}
+  finally {if(current===loadGeneration)loading.value=false;}
 };
 
 watch(agencyId, async () => {
@@ -244,7 +241,7 @@ onMounted(load);
 </script>
 
 <style scoped>
-.rate-transition { border:1px solid #d5e4e8;border-radius:18px;padding:22px;margin:16px 0;background:#f7fbfa;color:#0d203d; }
+.service-pay table{border-collapse:collapse;width:100%;margin:12px 0}.service-pay th,.service-pay td{padding:9px;text-align:left;border-bottom:1px solid #cbdce5}.service-pay{margin:20px 0}.rate-transition { border:1px solid #d5e4e8;border-radius:18px;padding:22px;margin:16px 0;background:#f7fbfa;color:#0d203d; }
 .rate-pair,.code-grid { display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr));gap:14px; }.code-grid article,.rate-pair article { padding:16px;border:1px solid #dce6eb;border-radius:12px;background:white; }.rate-pair strong { font-size:22px; }.rate-transition p { line-height:1.6; }.rate-transition h3,.rate-transition h4 { color:#0d203d; }
 
 .subtitle { margin: 6px 0 0; color: var(--text-secondary); }

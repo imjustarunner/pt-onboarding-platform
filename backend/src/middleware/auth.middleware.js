@@ -20,14 +20,25 @@ import { enforceSchoolCareBridgeScope } from './schoolCareBridgeScope.middleware
 import { recordAccountSession } from '../services/personalSessionHistory.service.js';
 import { assistantBoundary } from './assistantBoundary.middleware.js';
 import { isIndependentPracticeOwner } from '../utils/independentPracticeOwner.js';
+import {assertNonclinicalWorkspaceBoundary} from './nonclinicalWorkspace.middleware.js';
 
 const PROVIDER_LIKE_ROLES_MIDDLEWARE = new Set([
   'provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant'
 ]);
 
+// Explicit management routes can live beside anonymous public reads. This
+// server-only marker prevents the public-path shortcut from skipping their auth.
+const protectedPublicRequest = Symbol('protected-public-request');
+export const authenticateRequired = (req, res, next) => {
+  req[protectedPublicRequest] = true;
+  return authenticate(req, res, next);
+};
+
 const finishAuthentication = async (req,res,next) => {
   try { await scopeAgencyRequest(req); }
   catch (error) { return next(error); }
+  try { await assertNonclinicalWorkspaceBoundary(req); }
+  catch(error){if(error.status)return res.status(error.status).json({error:{code:error.code,message:error.message}});return next(error);}
   return runWithAgencyAccess(req.user?.scopedAgencyId, () => assistantBoundary(req,res,error => error ? next(error) : requireUnexpiredGuardianTestAccess(req,res,error => error ? next(error) : enforceDependentPortalScope(req,res,error => error ? next(error) : enforceSchoolCareBridgeScope(req,res,error => error ? next(error) : enforceAccountSecurity(req,res,next))))), {userId:req.user?.id,access:req.user?.agencyAccess});
 };
 
@@ -125,7 +136,7 @@ export const authenticate = async (req, res, next) => {
       res.set('Cache-Control','no-store');return finishAuthentication(req,res,next);
     }
 
-    if (requestPath.startsWith('/api/public/')) {
+    if (requestPath.startsWith('/api/public/') && !req[protectedPublicRequest]) {
       // Join landing save is mounted under /api/public but must authenticate.
       const isJoinLandingWrite = req.method === 'PATCH'
         && /\/api\/public\/adaptive-intake\/[^/]+\/landing\/?$/.test(requestPath);

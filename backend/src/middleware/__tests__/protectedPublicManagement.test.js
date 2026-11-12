@@ -1,0 +1,10 @@
+import {expect,it,vi} from 'vitest';
+vi.mock('../../config/database.js',()=>({default:{},onTableWrite:vi.fn()}));
+vi.mock('../../config/config.js',()=>({default:{jwt:{secret:'synthetic'}}}));
+vi.mock('../../models/User.model.js',()=>({default:{}}));
+vi.mock('../../models/Agency.model.js',()=>({default:{}}));
+vi.mock('../nonclinicalWorkspace.middleware.js',()=>({assertNonclinicalWorkspaceBoundary:vi.fn()}));
+import {authenticate,authenticateRequired} from '../auth.middleware.js';
+const response=()=>({status:vi.fn().mockReturnThis(),json:vi.fn(),set:vi.fn()});
+it('retains anonymous public reads but requires a session for explicitly protected management',async()=>{const req=()=>({method:'GET',originalUrl:'/api/public/agency-services/nlu-qa-demo/enrollment',headers:{},cookies:{},get:()=>undefined});const next=vi.fn(),publicRes=response();await authenticate(req(),publicRes,next);expect(next).toHaveBeenCalledOnce();const managementRes=response(),managedNext=vi.fn();await authenticateRequired(req(),managementRes,managedNext);expect(managementRes.status).toHaveBeenCalledWith(401);expect(managedNext).not.toHaveBeenCalled();});
+it('does not accept a caller-supplied public authentication bypass',async()=>{const res=response(),next=vi.fn();await authenticateRequired({method:'PUT',originalUrl:'/api/public/agency-services/nlu-qa-demo/tutoring-profiles/1496',headers:{},cookies:{},body:{requiresSessionAuthentication:false},get:()=>undefined},res,next);expect(res.status).toHaveBeenCalledWith(401);expect(next).not.toHaveBeenCalled();});

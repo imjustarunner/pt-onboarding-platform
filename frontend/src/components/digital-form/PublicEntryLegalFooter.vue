@@ -6,14 +6,14 @@
 <script setup>
 import { computed } from 'vue';
 import { legalProfileForContext, tenantLegalProfiles, canonicalLegalSlug } from '../../content/tenantLegalProfiles.js';
-const props = defineProps({ language: { type: String, default: 'en' }, organizationSlug: { type: String, default: '' } });
+const props = defineProps({ language: { type: String, default: 'en' }, organizationSlug: { type: String, default: '' }, serviceType: { type: String, default: '' } });
 const profile = computed(() => legalProfileForContext({host: typeof window === 'undefined' ? '' : window.location.hostname, organizationSlug: props.organizationSlug}));
-const origin = computed(() => profile.value ? `${profile.value.origin}/${profile.value.slug}` : props.organizationSlug ? `https://plottwisthq.com/${encodeURIComponent(canonicalLegalSlug(props.organizationSlug))}` : `${tenantLegalProfiles.ptco.origin}/ptco`);
+const origin = computed(() => profile.value ? `${profile.value.origin}/${profile.value.slug}` : props.organizationSlug ? `/${encodeURIComponent(canonicalLegalSlug(props.organizationSlug))}` : `${tenantLegalProfiles.ptco.origin}/ptco`);
 const spanish = computed(() => props.language.toLowerCase().startsWith('es'));
 const links = computed(() => [
   { path: 'terms', label: spanish.value ? 'Términos y condiciones' : 'Terms & Conditions' },
   { path: 'privacypolicy', label: spanish.value ? 'Política de privacidad' : 'Privacy Policy' },
-  { path: 'platformhipaa', label: profile.value?.kind === 'healthcare' ? (spanish.value ? 'Aviso de privacidad HIPAA (inglés)' : 'HIPAA Privacy Notice') : (spanish.value ? 'Información de salud y privacidad (inglés)' : 'Health Information & Privacy') }
+  ... (props.serviceType === 'tutoring' ? [] : [{ path: 'platformhipaa', label: profile.value?.kind === 'healthcare' ? (spanish.value ? 'Aviso de privacidad HIPAA (inglés)' : 'HIPAA Privacy Notice') : (spanish.value ? 'Información de salud y privacidad (inglés)' : 'Health Information & Privacy') }])
 ]);
 </script>
 <style scoped>

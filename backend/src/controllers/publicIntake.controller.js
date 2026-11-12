@@ -1,3 +1,5 @@
+import { validateTutoringIntakeSubmission } from '../services/learningIntakeSteps.js';
+import { isTutoringIntake, isValidEnrollmentEmail } from '../../../frontend/src/navigation/tutoringEnrollmentPolicy.js';
 import {assertQaStripeTestMode,qaStripeCollectionState} from '../services/qaStripePaymentGuard.service.js';
 import { readClientInsurance } from '../services/clientInsurance.service.js';
 import { assertIntakeCardCollectionAllowed } from '../utils/intakeCardCollectionPolicy.js';
@@ -7133,6 +7135,10 @@ export const createPublicConsent = async (req, res, next) => {
     const retentionPolicy = await resolveRetentionPolicy(link);
     const retentionExpiresAt = buildRetentionExpiresAt({ policy: retentionPolicy, submittedAt: now });
 
+    if (isTutoringIntake(link)) {
+      const emails = [req.body?.signerEmail, req.body?.guardian?.email, req.body?.intakeData?.guardian?.email].filter(value => value != null && String(value).trim());
+      if (!emails.length || emails.some(email => !isValidEnrollmentEmail(email))) throw Object.assign(new Error('Enter a valid guardian email address.'), { status: 400 });
+    }
     const intakeData = req.body?.intakeData ? { ...req.body.intakeData } : null;
     if (intakeData) delete intakeData.guardianSubmission;
     validateIntakeMatchingPreferences(intakeData);
@@ -8136,6 +8142,7 @@ export const finalizePublicIntake = async (req, res, next) => {
     }
     stripIneligibleProviderPreference(link,intakeData);
     await validateSubmittedProviderPreferences(link,intakeData);
+    validateTutoringIntakeSubmission(link, intakeData, req.body?.guardian?.email || intakeData?.guardian?.email || submission?.signer_email);
     await prepareLearningPacket(intakeData,link);
     // Inject the link-bound company_event_id as a synthetic registration
     // selection BEFORE we hash + persist intakeData. This way the saved
@@ -10788,6 +10795,7 @@ export const submitPublicIntake = async (req, res, next) => {
     }
     stripIneligibleProviderPreference(link,intakeData);
     await validateSubmittedProviderPreferences(link,intakeData);
+    validateTutoringIntakeSubmission(link, intakeData, req.body?.guardian?.email || intakeData?.guardian?.email || submission?.signer_email);
     await prepareLearningPacket(intakeData,link);
     // Mirror the school-roi flow: inject the link-bound company_event_id
     // as a synthetic registration selection so downstream ticket PDF +

@@ -69,6 +69,7 @@ async function loadEventForAgency(eventId, agencyId) {
      LIMIT 1`,
     [eventId, agencyId]
   );
+  if(rows?.[0]?.event_type==='childcare')throw Object.assign(new Error('Manage childcare assignments in the Childcare scheduler.'),{status:409});
   return rows?.[0] || null;
 }
 

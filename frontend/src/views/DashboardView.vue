@@ -979,11 +979,12 @@
 
           <div v-if="!previewMode && isOnboardingComplete && !isSchoolStaff && activeTab === 'clients'" class="my-panel">
             <ProviderYearUpdateDashboard
-              v-if="swapClientsTabForFallUpdate"
+              v-if="swapClientsTabForFallUpdate && !serviceWorkspace(authStore.user,currentAgency).learningOnly"
               embedded
               initial-section="clients"
               :agency-id="currentAgencyId"
             />
+            <TutoringStudentsView v-else-if="serviceWorkspace(authStore.user,currentAgency).learningOnly" :agency-id="currentAgencyId" />
             <ProviderClientsTab
               v-else
               :initial-section="String(route.query.clients || route.query.clientsSection || 'all')"
@@ -1389,6 +1390,8 @@ import SchoolClosureDashboardNotice from '../components/notifications/SchoolClos
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../store/auth';
 import { useAgencyStore } from '../store/agency';
+import { serviceWorkspace } from '../utils/nluWorkspace.js';
+import TutoringStudentsView from './tutoring/TutoringStudentsView.vue';
 import { useUserPreferencesStore } from '../store/userPreferences';
 import { useBrandingStore } from '../store/branding';
 import { canAccessSchoolPortalsSurfaces } from '../utils/schoolPortalsAccess.js';
@@ -1820,8 +1823,8 @@ const agencyFlags = computed(() => parseFeatureFlags(agencyStore.currentAgency?.
 const portalVariant = computed(() => String(agencyFlags.value?.portalVariant || 'healthcare_provider'));
 const providerSurfacesEnabled = computed(
   () =>
-    portalVariant.value !== 'employee' ||
-    isTruthyFlag(agencyFlags.value?.submitEnabledForEmployeePortal)
+    !serviceWorkspace(authStore.user,agencyStore.currentAgency).learningOnly && (portalVariant.value !== 'employee' ||
+    isTruthyFlag(agencyFlags.value?.submitEnabledForEmployeePortal))
 );
 const inSchoolEnabled = computed(() => agencyFlags.value?.inSchoolSubmissionsEnabled !== false);
 const medcancelEnabledForAgency = computed(() => inSchoolEnabled.value && agencyFlags.value?.medcancelEnabled !== false);
@@ -1884,7 +1887,7 @@ const overviewFlags = computed(() => {
     isSupervisor: isSup,
     showSchedule: !school && !club,
     showPayroll: !school && !club && !isLimitedAccessNonProvider,
-    showNotes: !school && !club && !isLimitedAccessNonProvider && (isProviderLike || isTrueAdmin),
+    showNotes: !serviceWorkspace(u,agencyStore.currentAgency).learningOnly && !school && !club && !isLimitedAccessNonProvider && (isProviderLike || isTrueAdmin),
     showClaims: !school && !club && !isLimitedAccessNonProvider && providerSurfacesEnabled.value,
     showSupervision: !club && isSup,
     showMySupervision: !club && !isSup && hasClinicalSupervision.value,
@@ -2498,6 +2501,20 @@ const personalCalendarAgencyIds = computed(() => {
 const currentAgencyId = computed(() => {
   return currentAgency.value?.id || null;
 });
+let serviceContextGeneration=0;
+watch([currentAgencyId,()=>authStore.user?.id],async([agencyId,userId])=>{
+  const current=++serviceContextGeneration;
+  if(authStore.user)authStore.user.workspaceServiceContext=null;
+  if(!agencyId||!userId||props.previewMode||['client','client_guardian','guardian','school_staff'].includes(authStore.user.role))return;
+  const [tutoring,childcare]=await Promise.allSettled([
+    api.get('/tutoring-workspace/context',{params:{agencyId},skipGlobalLoading:true}),
+    api.get('/childcare/context',{params:{agencyId},skipGlobalLoading:true})
+  ]);
+  if(current!==serviceContextGeneration||!authStore.user||Number(authStore.user.id)!==Number(userId))return;
+  const learning=tutoring.status==='fulfilled'?tutoring.value.data:{};
+  const care=childcare.status==='fulfilled'?childcare.value.data:{};
+  authStore.user.workspaceServiceContext={...learning,agencyId,canChildcare:care.enabled===true&&(care.canWork===true||care.canManage===true),learningOnly:learning.learningOnly===true||(!learning.canClinical&&care.canWork===true&&!care.canManage)};
+},{immediate:true});
 
 /** Clinical/parent agency when the brand org is a school/program; else current org. Used for schedule API + directory matching. */
 const announcementAgencyId = computed(() => {
@@ -3601,7 +3618,7 @@ const isAgencyDashboardContext = computed(() => {
   ).toLowerCase();
   return currentType === 'agency';
 });
-const canAccessToolsAids = computed(() => dashboardCanAccessToolsAids(authStore.user));
+const canAccessToolsAids = computed(() => !serviceWorkspace(authStore.user,agencyStore.currentAgency).learningOnly && dashboardCanAccessToolsAids(authStore.user));
 
 const programPortalRailIconUrl = (org) => programPortalIconUrl(org, brandingStore);
 const providerPortalCards = computed(() => buildAssignedPortalCards(agencyStore.userAgencies, programPortalRailIconUrl));
@@ -3746,7 +3763,8 @@ const dashboardCards = computed(() => buildDashboardCards({
   shiftProgramsEnabledForAgency: shiftProgramsEnabledForAgency.value,
   canAccessToolsAids: canAccessToolsAids.value,
   hasClinicalSupervision: hasClinicalSupervision.value,
-  noteWorkspaceLabel: noteWorkspaceLabel.value
+  noteWorkspaceLabel: noteWorkspaceLabel.value,
+  agency: currentAgency.value || {}
 }));
 
 const defaultRailCards = computed(() => sortDashboardCards(dashboardCards.value));

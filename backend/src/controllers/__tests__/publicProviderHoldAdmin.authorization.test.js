@@ -1,0 +1,12 @@
+import {beforeEach,it,expect,vi} from 'vitest';
+const m=vi.hoisted(()=>({execute:vi.fn(),memberships:vi.fn(),access:vi.fn()}));
+vi.mock('../../config/database.js',()=>({default:{execute:m.execute}}));
+vi.mock('../../models/User.model.js',()=>({default:{getAgencies:m.memberships}}));
+vi.mock('../../services/agencyAccessProfiles.service.js',()=>({readAgencyAccess:m.access}));
+vi.mock('../../services/publicProviderHold.service.js',()=>({createPublicProviderHoldService:vi.fn()}));
+import {requireHoldManager} from '../publicProviderHoldAdmin.controller.js';
+const response=()=>({status:vi.fn().mockReturnThis(),json:vi.fn()});
+beforeEach(()=>{vi.clearAllMocks();m.execute.mockResolvedValue([[{id:453}]]);m.memberships.mockResolvedValue([{id:453}]);m.access.mockResolvedValue({role:'admin',permissions:{}});});
+it('requires the role in the target agency rather than accepting an administrator from another agency',async()=>{m.access.mockResolvedValue({role:'provider',permissions:{has_provider_access:true}});const req={user:{id:7,role:'admin',scopedAgencyId:450},params:{agencySlug:'nlu-qa-demo'},body:{}},res=response(),next=vi.fn();await requireHoldManager(req,res,next);expect(m.access).toHaveBeenCalledWith(7,453);expect(res.status).toHaveBeenCalledWith(403);expect(next).not.toHaveBeenCalled();});
+it('accepts the authorized target-agency editor and verifies the target provider membership',async()=>{const req={user:{id:7,role:'provider',scopedAgencyId:450},params:{agencySlug:'nlu-qa-demo',userId:'1496'},body:{}},next=vi.fn();await requireHoldManager(req,response(),next);expect(next).toHaveBeenCalledWith();expect(req.user.role).toBe('admin');expect(req.user.scopedAgencyId).toBe(453);expect(req.holdAgencyId).toBe(453);expect(m.memberships).toHaveBeenCalledWith(1496);});
+it('rejects missing target membership before reading its administrative profile',async()=>{m.memberships.mockResolvedValue([]);const res=response(),next=vi.fn();await requireHoldManager({user:{id:7,role:'admin'},params:{agencySlug:'nlu-qa-demo'},body:{}},res,next);expect(res.status).toHaveBeenCalledWith(403);expect(m.access).not.toHaveBeenCalled();expect(next).not.toHaveBeenCalled();});

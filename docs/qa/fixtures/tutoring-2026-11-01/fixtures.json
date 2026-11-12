@@ -9,12 +9,12 @@
   "sourceAgencyReadOnly": 6,
   "setupAdminId": 1435,
   "supportUserId": 1434,
-  "liveTutorId": null,
+  "liveTutorId": 1496,
   "guardian": {
     "firstName": "Morgan",
     "lastName": "QA NLU-1101",
     "email": "qa.nlu.parent@example.com",
-    "liveUserId": null
+    "liveUserId": 1759
   },
   "coGuardian": {
     "firstName": "Rene",
@@ -31,7 +31,8 @@
       "grade": "5",
       "subject": "Math",
       "focus": "Add fractions with unlike denominators",
-      "liveClientId": null
+      "liveClientId": 2545,
+      "liveEnrollmentSubmissionId": 1569
     },
     {
       "key": "B",
@@ -41,7 +42,8 @@
       "grade": "3",
       "subject": "Reading",
       "focus": "Main idea and supporting details",
-      "liveClientId": null
+      "liveClientId": 2547,
+      "liveEnrollmentSubmissionId": 1571
     }
   ],
   "caps": {
@@ -68,13 +70,12 @@
     "auditRowId": 77611
   },
   "notCreated": [
-    "tutor",
-    "guardians",
-    "students",
     "appointments",
     "learning plans",
     "signatures",
     "payment methods",
     "live email receipts"
-  ]
+  ],
+  "retainedStateVerifiedOn": "2026-11-12",
+  "guardianSetupStatus": "PENDING_SETUP at diagnosis; recover existing receipt before retesting"
 }

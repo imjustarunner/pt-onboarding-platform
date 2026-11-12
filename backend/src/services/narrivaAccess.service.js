@@ -6,6 +6,7 @@ import { listClientAgencyMembershipIds } from '../utils/noteAidClientAgency.js';
 import { CLINICAL_SIGNER_ROLES } from './clinicalNoteSigningToken.service.js';
 import {readAgencyAccess} from './agencyAccessProfiles.service.js';
 import {applyAgencyAccess} from '../utils/agencyAccessPolicy.js';
+import {assertNonclinicalWorkspaceBoundary} from '../middleware/nonclinicalWorkspace.middleware.js';
 
 export const narrivaError = (status,message,code='NARRIVA_ACCESS') => Object.assign(new Error(message),{status,code});
 export const positiveId = value => Number.isSafeInteger(Number(value)) && Number(value)>0 ? Number(value) : null;
@@ -22,6 +23,7 @@ export async function requireNarrivaAgency(user,agencyId) {
  // Callers retain this same actor; never let a stale token/global role broaden
  // downstream client, note, recording, or signature authorization.
  Object.assign(user,scoped,{scopedAgencyId:Number(agencyId)});
+ await assertNonclinicalWorkspaceBoundary({user,originalUrl:'/api/narriva',query:{agencyId},headers:{}});
  await ClinicalEligibilityService.ensureAgencyAccess({reqUser:user,agencyId});
  await ClinicalEligibilityService.assertAgencyHasClinicalOrg(agencyId);
  // readAgencyAccess also validates explicitly granted platform/legacy access.

@@ -12,3 +12,12 @@ describe('public form policy ownership', () => {
     wrapper.unmount();
   });
 });
+it('keeps retained NLU QA policies on Next Level Up even from a shared application host',()=>{
+ const wrapper=mount(Footer,{props:{organizationSlug:'nlu-qa-demo',serviceType:'tutoring'}});
+ expect(wrapper.findAll('a').map(a=>a.attributes('href'))).toEqual(['https://nextleveluplcc.com/nlu/terms','https://nextleveluplcc.com/nlu/privacypolicy']);
+ expect(wrapper.text()).not.toContain('HIPAA');wrapper.unmount();
+});
+it('keeps an unknown tenant’s legal route local instead of inventing a PlotTwist site',()=>{
+ const wrapper=mount(Footer,{props:{organizationSlug:'sample-agency'}});
+ expect(wrapper.findAll('a').every(a=>a.attributes('href').startsWith('/sample-agency/'))).toBe(true);wrapper.unmount();
+});

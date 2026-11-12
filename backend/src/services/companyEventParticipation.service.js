@@ -91,6 +91,7 @@ export async function recordEmployeeEventParticipation({ eventId, userId, action
     await db.execute('SELECT id FROM users WHERE id = ? FOR UPDATE', [userId]);
     await db.execute('SELECT id FROM company_events WHERE id = ? FOR UPDATE', [eventId]);
     const event = await loadEmployeeEvent({ eventId, userId, db });
+    if (event.event_type === 'childcare') fail(409, 'Use the Childcare shift in the app to confirm the child count and record work time.');
     if (action === 'check-in' && !readEventOperations(event).isWorkEvent) fail(403, 'Clock-in is only available for work events');
     if (idempotencyKey) {
       const [receipt] = await db.execute(`INSERT IGNORE INTO company_event_checkin_sms_receipts

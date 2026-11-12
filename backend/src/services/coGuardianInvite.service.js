@@ -372,6 +372,9 @@ export async function maybeCreateFromIntakeGuardian({
   invitedByUserId = null,
   enrollmentChannel = null
 } = {}) {
+  // Tutoring asks only whether portal access may be needed. The authenticated
+  // parent sends each guardian invitation later; intake never enrolls them.
+  if (String(enrollmentChannel || '').toLowerCase() === 'tutoring') return null;
   const guardian = intakeData?.guardian && typeof intakeData.guardian === 'object'
     ? intakeData.guardian
     : {};

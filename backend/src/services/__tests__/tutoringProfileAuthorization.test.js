@@ -1,0 +1,11 @@
+import {beforeEach,it,expect,vi} from 'vitest';
+vi.mock('../../config/database.js',()=>({default:{}}));
+vi.mock('../providerServiceOfferings.service.js',()=>({readProviderServices:vi.fn()}));
+import {assertManagedTutoringProfileTarget} from '../tutoringProfileAuthorization.service.js';
+const admin={id:1435,role:'admin'};
+let db,services;
+beforeEach(()=>{db={execute:vi.fn(async()=>[[{id:1496,is_active:1,is_archived:0,status:'ACTIVE_EMPLOYEE',membership_active:1}]])};services=vi.fn(async()=>({careEligibility:{canProvideCare:true},services:[{serviceType:'tutoring',offered:true}]}));});
+it('requires exact target membership even for an authorized agency manager',async()=>{db.execute.mockResolvedValue([[]]);await expect(assertManagedTutoringProfileTarget(admin,453,1496,{db,services})).rejects.toMatchObject({status:404});expect(services).not.toHaveBeenCalled();expect(db.execute).toHaveBeenCalledWith(expect.stringContaining('ua.agency_id=?'),[453,1496]);});
+it.each([{status:'ONBOARDING'},{is_active:0},{is_archived:1},{membership_active:0}])('rejects an inactive or pending target %j',async patch=>{db.execute.mockResolvedValue([[{id:1496,is_active:1,is_archived:0,status:'ACTIVE_EMPLOYEE',membership_active:1,...patch}]]);await expect(assertManagedTutoringProfileTarget(admin,453,1496,{db,services})).rejects.toMatchObject({status:expect.any(Number)});expect(services).not.toHaveBeenCalled();});
+it('does not turn clinical-only service permissions into tutoring eligibility',async()=>{services.mockResolvedValue({careEligibility:{canProvideCare:true},services:[{serviceType:'counseling',offered:true},{serviceType:'tutoring',offered:false}]});await expect(assertManagedTutoringProfileTarget(admin,453,1496,{db,services})).rejects.toMatchObject({status:403});});
+it('allows the active assigned tutoring target without granting the target an administrator role',async()=>{await expect(assertManagedTutoringProfileTarget(admin,453,1496,{db,services})).resolves.toMatchObject({id:1496});expect(services).toHaveBeenCalledWith(1496,453,db);await expect(assertManagedTutoringProfileTarget({id:1496,role:'provider'},453,1496,{db,services})).rejects.toMatchObject({status:403});});

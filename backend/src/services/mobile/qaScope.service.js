@@ -1,13 +1,18 @@
 import {isQaPreviewIdentity,assertPreviewActor} from '../auricwellPreviewPolicy.js';
 import {isAuricwellQaAgency} from '../../utils/auricwellQaPolicy.js';
 import {failure} from './policy.js';
+import {allowNluQaTutor,isNluTutoringQaAgency} from '../../utils/nluTutoringQaPolicy.js';
 
 /** Reuse the established clinical QA grant; a demo flag alone grants nothing. */
 export function mobileQaScope(user, memberships) {
  if([undefined,null,false,0,'0'].includes(user?.is_demo))return {agencies:memberships,qaAgencyIds:null};
- const agencies=isQaPreviewIdentity(user)?memberships.filter(isAuricwellQaAgency):[];
+ const nluIdentity=(Number(user?.id)===1496&&user.email==='qa.nlu.tutor@example.com'&&user.role==='provider')
+   || (user?.role==='staff'&&['qa.nlu.childcare.a@example.com','qa.nlu.childcare.b@example.com'].includes(user.email));
+ const nlu=nluIdentity && Number(user.is_demo)===1 && Number(user.is_active)===1 && Number(user.is_archived||0)!==1 && ['ACTIVE','ACTIVE_EMPLOYEE'].includes(user.status)
+   ? memberships.filter(agency=>isNluTutoringQaAgency(agency)&&(user.role==='staff'||allowNluQaTutor(agency,user))) : [];
+ const agencies=nlu.length?nlu:isQaPreviewIdentity(user)?memberships.filter(isAuricwellQaAgency):[];
  if(!agencies.length)throw failure(403,'MOBILE_ACCOUNT_UNAVAILABLE','This test account does not have an approved synthetic mobile workspace.');
- assertPreviewActor(user,{}, {qaAgencyId:Number(agencies[0].id)});
+ if(!nlu.length)assertPreviewActor(user,{}, {qaAgencyId:Number(agencies[0].id)});
  return {agencies,qaAgencyIds:agencies.map(a=>Number(a.id))};
 }
 
@@ -80,6 +85,21 @@ export async function enforceMobileQaBoundary(req) {
  for(const[key,value]of Object.entries(req.params||{}))if(/(?:^id$|Id$|_id$)/.test(key)&&(!/^[1-9][0-9]*$/.test(String(value))||!Number.isSafeInteger(Number(value))))throw failure(403,'MOBILE_QA_SURFACE_UNAVAILABLE','Use the canonical record link in the synthetic mobile workspace.');
  const path=String(req.originalUrl||req.path||'').split('?')[0].replace(/^\/api\/quick-view/,'').replace(/\/$/,'');
  const method=String(req.method).toUpperCase();
+ if(ids.every(id=>[453,454].includes(Number(id)))) {
+  const learning=(method==='GET'&&/^\/tutoring-workspace\/(context|profile|students)$/.test(path))
+    ||(method==='PUT'&&path==='/tutoring-workspace/profile')
+    ||(method==='GET'&&/^\/tutoring-learning-os\/clients\/[1-9][0-9]*\/overview$/.test(path));
+  const childcare=(method==='GET'&&/^\/childcare\/(context|staff|shifts(?:\/[1-9][0-9]*)?|shifts\/[1-9][0-9]*\/pay-preview)$/.test(path))
+    ||(method==='GET'&&/^\/childcare\/staff\/[1-9][0-9]*\/rates$/.test(path))
+    ||(method==='POST'&&/^\/childcare\/shifts(?:\/[1-9][0-9]*\/(clock-in|clock-out|attendance))?$/.test(path))
+    ||(method==='PATCH'&&/^\/childcare\/shifts\/[1-9][0-9]*(?:\/attendance)?$/.test(path));
+  const ordinary=method==='GET'&&['/calendar/day','/tasks','/tools','/workspace-counts'].includes(path);
+  if(!learning&&!childcare&&!ordinary&&!qaScheduleRouteAllowed(method,path)){
+   const {qaConversaRouteAllowed}=await import('./qaConversaScope.service.js');
+   if(!qaConversaRouteAllowed(method,path))throw failure(403,'MOBILE_QA_SURFACE_UNAVAILABLE','Use the NLU learning or childcare workspace. Clinical and other agency actions are unavailable.');
+  }
+  return;
+ }
  let allowed=method==='GET'&&['/my-work','/calendar/day','/tasks','/clients'].includes(path);
  if(method==='GET'&&/^\/applicants(?:\/[1-9][0-9]*(?:\/resumes\/[1-9][0-9]*)?)?$/.test(path))allowed=true;
  if(method==='GET'&&path==='/tools')allowed=true;

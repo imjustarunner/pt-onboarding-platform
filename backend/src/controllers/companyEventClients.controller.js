@@ -200,6 +200,7 @@ async function loadEventForAgency(eventId, agencyId) {
      LIMIT 1`,
     [eventId, agencyId]
   );
+  if(rows?.[0]?.event_type==='childcare')throw Object.assign(new Error('Childcare records aggregate attendance in its own scheduler; use that shift instead of a clinical client roster.'),{status:409});
   return rows?.[0] || null;
 }
 

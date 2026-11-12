@@ -258,7 +258,7 @@
       </div>
 
       <div v-if="listingsLoading" style="color: var(--text-secondary); font-size: 13px;">Loading…</div>
-      <div v-else-if="listingsError" style="color: #dc3545; font-size: 13px;">{{ listingsError }}</div>
+      <div v-else-if="listingsError" role="alert" style="color: #dc3545; font-size: 13px;">{{ listingsError }} <button type="button" class="btn btn-secondary btn-sm" @click="loadListings">Try again</button></div>
       <div v-else-if="(targetAgency?.slug || '').trim() === ''" style="color: var(--text-secondary); font-size: 13px;">No linked agency found — cannot manage listings.</div>
       <div v-else>
         <div class="fields-grid" style="margin-bottom: 16px;">
@@ -1362,7 +1362,7 @@ const listingsSaving = ref(false);
 const enrollments = ref({ counseling: false, tutoring: false, evaluation: false });
 
 // tutoring profile form
-const tutoringForm = ref({
+const emptyTutoringForm = () => ({
   learning: {programs:['tutoring'],educationLevel:'',rateOverrides:[]},
   subjectAreas: [],
   gradeLevels: [],
@@ -1373,6 +1373,7 @@ const tutoringForm = ref({
   minSessionPackage: 1,
   paymentPolicy: 'POST_SESSION'
 });
+const tutoringForm=ref(emptyTutoringForm());
 const tutoringSaving = ref(false);
 const tutoringSaveSuccess = ref('');
 const showComfortModal = ref(false);
@@ -1385,17 +1386,22 @@ function onComfortSaved() {
 }
 const tutoringSaveError = ref('');
 
+let listingsRequest=0;
 async function loadListings() {
+  const request=++listingsRequest,requestedUserId=Number(props.userId);
   const slug = targetAgency.value?.slug;
   if (!slug) return;
   listingsLoading.value = true;
+  tutoringForm.value=emptyTutoringForm();tutoringSaveSuccess.value='';tutoringSaveError.value='';tutoringSaving.value=false;
+  enrollments.value={counseling:false,tutoring:false,evaluation:false};
   listingsError.value = '';
   try {
     const [cRes, tRes, eRes] = await Promise.all([
-      api.get(`/public/agency-services/${encodeURIComponent(slug)}/enrollment?serviceType=counseling`, { skipAuthRedirect: true }).catch(() => null),
-      api.get(`/public/agency-services/${encodeURIComponent(slug)}/enrollment?serviceType=tutoring`, { skipAuthRedirect: true }).catch(() => null),
-      api.get(`/public/agency-services/${encodeURIComponent(slug)}/enrollment?serviceType=evaluation`, { skipAuthRedirect: true }).catch(() => null)
+      api.get(`/public/agency-services/${encodeURIComponent(slug)}/enrollment?serviceType=counseling`, { skipAuthRedirect: true }),
+      api.get(`/public/agency-services/${encodeURIComponent(slug)}/enrollment?serviceType=tutoring`, { skipAuthRedirect: true }),
+      api.get(`/public/agency-services/${encodeURIComponent(slug)}/enrollment?serviceType=evaluation`, { skipAuthRedirect: true })
     ]);
+    if(request!==listingsRequest||slug!==targetAgency.value?.slug||requestedUserId!==Number(props.userId))return;
     const cEnrollments = cRes?.data?.enrollments || [];
     const tEnrollments = tRes?.data?.enrollments || [];
     const eEnrollments = eRes?.data?.enrollments || [];
@@ -1406,7 +1412,8 @@ async function loadListings() {
 
     // Load tutoring profile if enrolled
     if (enrollments.value.tutoring) {
-      const profileRes = await api.get(`/public/agency-services/${encodeURIComponent(slug)}/tutoring-profiles/${props.userId}`, { skipAuthRedirect: true }).catch(() => null);
+      const profileRes = await api.get(`/public/agency-services/${encodeURIComponent(slug)}/tutoring-profiles/${props.userId}`, { skipAuthRedirect: true });
+      if(request!==listingsRequest||slug!==targetAgency.value?.slug||requestedUserId!==Number(props.userId))return;
       const p = profileRes?.data?.profile;
       if (p) {
         tutoringForm.value.learning = p.learning || {programs:['tutoring'],educationLevel:'',rateOverrides:[]};
@@ -1421,9 +1428,9 @@ async function loadListings() {
       }
     }
   } catch (e) {
-    listingsError.value = e.response?.data?.error?.message || 'Failed to load listing settings';
+    if(request===listingsRequest)listingsError.value = e.response?.data?.error?.message || 'Listing access could not be verified. Ask an authorized administrator to review your permissions for this agency, then try again.';
   } finally {
-    listingsLoading.value = false;
+    if(request===listingsRequest)listingsLoading.value = false;
   }
 }
 
@@ -1489,8 +1496,8 @@ async function saveTutoringProfile() {
 }
 
 // Load listings after user agencies are loaded
-watch(targetAgency, (agency) => {
-  if (agency?.slug) loadListings();
+watch(()=>[targetAgency.value?.slug,props.userId], ([slug]) => {
+  if (slug) loadListings();
 });
 </script>
 

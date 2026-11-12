@@ -1,3 +1,4 @@
+import { nluTutoringQaMailDomain } from '../utils/nluTutoringQaPolicy.js';
 import { ensurePortalGroupSender } from './portalGroupSender.service.js';
 import Agency from '../models/Agency.model.js';
 import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
@@ -10,9 +11,27 @@ export async function sendEnrollmentPortalEmail({ agencyId, schoolOrganizationId
   const agency = await Agency.findById(agencyId);
   const domain = await inferAgencyMailDomain(agencyId);
   if (!agency || !domain) throw new Error('An agency and its support mail domain are required for portal email.');
-  const brand = enrollmentMailBrand({ agency, domain, school: schoolEnrollment || !!schoolOrganizationId, channel: enrollmentChannel });
-  // The shared Group and its send-as alias keep their canonical name.
-  await ensurePortalGroupSender({ address: brand.fromEmail, displayName: brand.displayName });
+  let brand = enrollmentMailBrand({ agency, domain, school: schoolEnrollment || !!schoolOrganizationId, channel: enrollmentChannel });
+  // Synthetic QA reuses an already configured NLU sender. It must never create
+  // a Workspace Group or alter live Group memberships merely to run a test.
+  let qaSenderSource = null;
+  if (nluTutoringQaMailDomain(agency)) {
+    for (const [key, expectedFrom] of [['enrollment_portal', 'portal@nextleveluplcc.com'], ['notifications', 'notifications@nextleveluplcc.com']]) {
+      const candidate = await EmailSenderIdentity.findByAgencyAndIdentityKey(6, key);
+      if (!candidate?.id || Number(candidate.agency_id) !== 6 || Number(candidate.is_active) !== 1
+        || String(candidate.from_email || '').trim().toLowerCase() !== expectedFrom) continue;
+      const replyTo = candidate.reply_to || (key === 'enrollment_portal' ? brand.replyTo : candidate.from_email);
+      if (!/^[^@\s]+@nextleveluplcc\.com$/i.test(String(replyTo))) continue;
+      qaSenderSource = { agencyId: 6, identityId: candidate.id, identityKey: key };
+      brand = { ...brand, fromEmail: candidate.from_email, replyTo,
+        displayName: candidate.display_name || brand.displayName };
+      break;
+    }
+    if (!qaSenderSource) {
+      throw Object.assign(new Error('Configure an active existing NLU portal or notifications sender before sending QA enrollment email. Sender verification is still required.'), { code: 'NLU_QA_PORTAL_SENDER_NOT_READY', status: 503 });
+    }
+    // sendEmailFromIdentity still verifies the actual Gmail/relay sender.
+  } else await ensurePortalGroupSender({ address: brand.fromEmail, displayName: brand.displayName });
   const sharedPortal = brand.fromEmail === 'portal@auricwell.com';
   // School enrollment receipts keep the verified AuricWell address but sign as the Schools Team.
   const schoolSender = schoolsTeamSender && sharedPortal && !!(schoolEnrollment || schoolOrganizationId);
@@ -39,5 +58,5 @@ export async function sendEnrollmentPortalEmail({ agencyId, schoolOrganizationId
   // A test-inbox redirect is still a real send when the transport returned an
   // ID. This describes transmission, not arrival in the recipient's inbox.
   const sent = !!result?.id && !queued && !result.skipped && !result.blocked;
-  return { ...result, sent, queued, fromEmail: brand.fromEmail, replyTo: brand.replyTo, deliveryStatus: sent ? 'sent' : queued ? 'pending' : 'not_sent' };
+  return { ...result, ...(qaSenderSource ? { qaSenderSource } : {}), sent, queued, fromEmail: brand.fromEmail, replyTo: brand.replyTo, deliveryStatus: sent ? 'sent' : queued ? 'pending' : 'not_sent' };
 }

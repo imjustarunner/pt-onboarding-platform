@@ -5,6 +5,7 @@ import sanitizeHtml from 'sanitize-html';
 import {amendmentIssues, renderAmendment} from '../content/itscoOctober2026Drafts.js';
 import {SERVICE_CREDIT_POLICY_VERSION, conditionalLevelBonus, defaultHcodeIndirectMinutes} from '../utils/serviceCreditPolicy.js';
 import {isNluAmendment} from '../content/nluCompensationAmendment.js';
+import {normalizeChildcareRatesByBand} from '../content/nluCompensationPolicy.js';
 
 export const DRAFT_KIND = 'provider_update_compensation';
 export function cleanDraftHtml(value) {
@@ -27,7 +28,7 @@ export async function getCompensationDraft(agencyId,id,db=pool) {
  const data=parse(rows[0].token_values_json);
  return {id:rows[0].id,data,html:rows[0].rendered_html,issues:amendmentIssues(data)};
 }
-export function editCompensationDraft(existing,patch,userId) {
+export function editCompensationDraft(existing,patch,userId,{now=new Date()}={}) {
  const result=structuredClone(existing);
  for(const key of ['category','level','creditRate','hcodeRate','indirectRate','supportRate','ptoRate','creditRateProbation','hcodeRateProbation','indirectRateProbation','supportRateProbation',...(isNluAmendment(result)?['childcareLevel','tutoringLevel','childcareHourlyRate','tutoringHourlyRate','homeworkHelpRate','testingEvaluationRate']:[])]) {
   if(!Object.hasOwn(patch.schedule || {},key))continue;
@@ -43,12 +44,19 @@ export function editCompensationDraft(existing,patch,userId) {
  if(patch.additionalTerms!==undefined)result.additionalTerms=String(patch.additionalTerms).slice(0,6000);
  if(patch.commonClausesHtml!==undefined)result.commonClausesHtml=cleanDraftHtml(patch.commonClausesHtml).slice(0,100000);
  if(isNluAmendment(result)) {
+  if(patch.schedule && Object.hasOwn(patch.schedule,'childcareRatesByBand'))result.schedule.childcareRatesByBand=normalizeChildcareRatesByBand(patch.schedule.childcareRatesByBand);
   if(patch.effectiveDate!==undefined) {
    if(!/^\d{4}-\d{2}-\d{2}$/.test(String(patch.effectiveDate)))throw Object.assign(new Error('Invalid prospective date.'),{status:400});
    result.effectiveDate=patch.effectiveDate;
   }
   if(patch.schedule?.testingAuthorized!==undefined)result.schedule.testingAuthorized=patch.schedule.testingAuthorized===true;
   if(patch.schedule?.testingAuthorizationReference!==undefined)result.schedule.testingAuthorizationReference=String(patch.schedule.testingAuthorizationReference).slice(0,2000);
+  const childcareChanged=['childcareLevel','childcareHourlyRate','childcareRatesByBand'].some(key=>JSON.stringify(result.schedule[key]??null)!==JSON.stringify(existing.schedule?.[key]??null));
+  if(childcareChanged) {
+   const today=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Denver',year:'numeric',month:'2-digit',day:'2-digit'}).format(now);
+   const effective=String(result.effectiveDate||'');
+   if(!/^\d{4}-\d{2}-\d{2}$/.test(effective)||!Number.isFinite(Date.parse(`${effective}T12:00:00Z`))||new Date(`${effective}T12:00:00Z`).toISOString().slice(0,10)!==effective||effective<today)throw Object.assign(new Error('Choose a prospective effective date for the changed childcare rate schedule. Preserve previously authorized and earned pay.'),{status:400});
+  }
  }
  result.editedByUserId=userId;result.editedAt=new Date().toISOString();
  if(result.compensationPolicyVersion===SERVICE_CREDIT_POLICY_VERSION){

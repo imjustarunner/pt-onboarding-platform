@@ -25,7 +25,7 @@ const groups = computed(() => [
   {title:props.service==='tutoring'?'Grades':'Approaches',values:props.provider.tutoringProfile?.gradeLevels||[...(props.provider.modalities||[]),...(props.provider.interventions||[])]},
   {title:'Insurance accepted',values:props.profile.insurancesAccepted||[]},
   {title:'Provider gender',values:props.profile.details?.gender?[props.profile.details.gender]:[]}
-].map((group,index) => {
+].filter(group => props.service !== 'tutoring' || group.title !== 'Insurance accepted').map((group,index) => {
   if(index>3||props.service==='tutoring')return group;
   const focus=publishedFocus(['specialties','ageGroups','populations','modalities'][index],props.profile.details?.clinicalFocus,group.values);
   return {...group,values:focus.top,more:focus.more,reviewed:focus.reviewed};

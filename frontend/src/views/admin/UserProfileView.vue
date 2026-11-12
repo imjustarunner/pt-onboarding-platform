@@ -243,6 +243,7 @@
         />
 
         <div v-if="activeTab === 'account'" class="tab-panel">
+          <ChildcareAssignmentPanel v-if="user && !isViewingGuardian && canEditUser && profileOverviewAgencyId" :user-id="Number(userId)" :agency-id="Number(profileOverviewAgencyId)" />
           <section v-if="canPrintProfileCards" id="profile-business-cards" class="card" style="padding:18px;margin-bottom:18px">
             <h3>Business cards</h3><p>Print this person’s cards with their affiliated agency’s branding.</p>
             <StaffBusinessCardsButton :user-id="userId" :agency-id="profileOverviewAgencyId" />
@@ -2777,6 +2778,7 @@ import UserCommunicationsTab from '../../components/admin/UserCommunicationsTab.
 import UserAdminDocsTab from '../../components/admin/UserAdminDocsTab.vue';
 import UserActivityLogTab from '../../components/admin/UserActivityLogTab.vue';
 import UserPayrollTab from '../../components/admin/UserPayrollTab.vue';
+import ChildcareAssignmentPanel from '../../components/admin/ChildcareAssignmentPanel.vue';
 import UserDepartmentTab from '../../components/admin/UserDepartmentTab.vue';
 import AdminUserEvaluationsPanel from '../../components/evaluations/AdminUserEvaluationsPanel.vue';
 import UserSupervisionTab from '../../components/admin/UserSupervisionTab.vue';

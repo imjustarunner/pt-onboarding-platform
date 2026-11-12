@@ -414,13 +414,10 @@ class AgencyChannelIntakeMaster {
     const aid = Number(agencyId || link.organization_id || 0);
     if (!aid) return link;
     const { flattenIntakeFields } = await import('../data/counselingIntakeSelfEn.js');
-    const { mergeCounselingOfficeEnIntoSteps } = await import('../data/counselingIntakeDependentEn.js');
     const master = await this.getOrCreateForAgency(aid, { channel: 'tutoring', languageCode: link.language_code || 'en' });
     if (!master) return link;
     const lang = normalizeLang(link.language_code || 'en');
-    const intakeSteps = learningIntakeSteps(lang === 'en'
-      ? mergeCounselingOfficeEnIntoSteps(master.intake_steps || [], { paymentOnly: true })
-      : (master.intake_steps || []));
+    const intakeSteps = learningIntakeSteps(master.intake_steps || [], { locale: lang });
     const intakeFields = flattenIntakeFields(intakeSteps);
     return {
       ...link,

@@ -15,7 +15,7 @@ import {
   listContractBuilderCandidates
 } from '../services/contractGenerator.service.js';
 import { contractCompensationLevels } from '../services/contractCompensation.service.js';
-import { categoriesForAgencySlug } from '../services/compensationCategories.service.js';
+import { categoriesForAgencySlug,compensationAgencyPolicy } from '../services/compensationCategories.service.js';
 import { itscoAgreementBuilder } from '../services/itscoAgreementBuilder.service.js';
 import { getAgencyBuilderDefaults, inferCompensationFromCredential, formatLicenseTypeDisplay } from '../services/contractMerge.service.js';
 
@@ -29,12 +29,13 @@ export const getContractLibrary = async (req, res, next) => {
   try {
     const agencyId = parseAgencyId(req);
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
-    const [templates, clauses, configs, compensationLevels, agencyDefaults] = await Promise.all([
+    const [templates, clauses, configs, compensationLevels, agencyDefaults, compensationPolicy] = await Promise.all([
       listTemplates(agencyId),
       listClauses(agencyId),
       listConfigs(agencyId),
       contractCompensationLevels(agencyId),
-      getAgencyBuilderDefaults(agencyId)
+      getAgencyBuilderDefaults(agencyId),
+      compensationAgencyPolicy(agencyId)
     ]);
     res.json({
       starter: {version:EMPLOYMENT_STARTER_VERSION,reviewNotes:starterReviewNotes},
@@ -42,7 +43,8 @@ export const getContractLibrary = async (req, res, next) => {
       clauses,
       configs,
       compensationLevels: compensationLevels.filter((r) => r.label || r.direct_rate != null || r.indirect_rate != null || r.ffs_rate != null),
-      compensationCategories: categoriesForAgencySlug(agencyDefaults.agency?.slug),
+      compensationCategories: compensationPolicy.categories,
+      serviceCompensation: compensationPolicy.serviceCompensation,
       agency: agencyDefaults.agency,
       serviceFocusOptions: agencyDefaults.serviceFocusOptions,
       contractTenant: agencyDefaults.contractTenant,

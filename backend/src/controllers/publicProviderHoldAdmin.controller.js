@@ -1,15 +1,23 @@
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import { createPublicProviderHoldService } from '../services/publicProviderHold.service.js';
+import {readAgencyAccess} from '../services/agencyAccessProfiles.service.js';
+import {applyAgencyAccess} from '../utils/agencyAccessPolicy.js';
 
 // Staff can resolve holds even after public discovery has been disabled.
 export async function requireHoldManager(req,res,next) {
   try {
-    if(!['super_admin','admin','support','staff'].includes(req.user?.role)) return res.status(403).json({error:{message:'Staff access required'}});
-    const [rows]=await pool.execute(`SELECT id FROM agencies WHERE (slug=? OR portal_url=?) AND LOWER(organization_type) IN ('agency','clubwebapp','life_coach','consultant') LIMIT 1`,[req.params.agencySlug,req.params.agencySlug]);
+    if(!req.user?.id) return res.status(403).json({error:{message:'Staff access required'}});
+    const [rows]=await pool.execute(`SELECT id FROM agencies WHERE (slug=? OR portal_url=?) AND LOWER(organization_type) IN ('agency','learning','clubwebapp','life_coach','consultant') LIMIT 1`,[req.params.agencySlug,req.params.agencySlug]);
     const agencyId=Number(rows[0]?.id);
     if(!agencyId) return res.status(404).json({error:{message:'Organization not found'}});
     if(req.user.role !== 'super_admin' && !(await User.getAgencies(req.user.id)).some(a=>Number(a.id)===agencyId)) return res.status(403).json({error:{message:'Access denied for this agency'}});
+    if(req.user.role!=='super_admin'){
+      const access=await readAgencyAccess(req.user.id,agencyId);
+      if(!access)return res.status(403).json({error:{message:'Access denied for this agency'}});
+      req.user={...applyAgencyAccess(req.user,access),scopedAgencyId:agencyId,agencyId};
+    }
+    if(!['super_admin','admin','support','staff'].includes(req.user.role))return res.status(403).json({error:{message:'Staff access required for this agency'}});
     const targetId=Number(req.params.userId || req.body?.userId || 0);
     if(targetId && !(await User.getAgencies(targetId)).some(a=>Number(a.id)===agencyId)) return res.status(404).json({error:{message:'Provider not found in this agency'}});
     req.holdAgencyId=agencyId; next();

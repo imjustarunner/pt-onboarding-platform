@@ -52,10 +52,10 @@ it.each(['later', 'na'])('honors the offered clinical %s choice with an active p
   await expect(validateIntakeBilling(data)).resolves.toBeUndefined();
   expect(pool.execute).not.toHaveBeenCalled();
 });
-it('does not use clinical deferral to bypass a required nonclinical payment', async () => {
+it('does not use clinical deferral to bypass a required coaching payment', async () => {
   pool.execute.mockResolvedValueOnce([[{ stripe_connect_account_id: 'acct_synthetic' }]]).mockResolvedValueOnce([[]]);
   const data = input({ authorizationAgreed: true, authorizationSignature: 'QA Parent' });
-  data.link.master_channel = 'tutoring'; data.link.intake_steps[0].paymentOnly = true;
+  data.link.master_channel = 'coaching'; data.link.intake_steps[0].paymentOnly = true;
   data.intakeData.responses.submission.paymentInfo.paymentChoice = 'later';
   await expect(validateIntakeBilling(data)).rejects.toMatchObject({ status: 409 });
 });
@@ -95,4 +95,16 @@ it('does not permit a browser-supplied on-file marker when the invited server bi
 it('rejects a string on-file marker even with a valid bound invitation instead of bypassing policy validation',async()=>{
  const data=input({useInsuranceOnFile:'true',isSelfPay:false,primary:{insurerName:'Medicaid'}});data.insuranceOnFileApproved=true;
  await expect(validateIntakeBilling(data)).rejects.toMatchObject({status:400});expect(pool.execute).not.toHaveBeenCalled();
+});
+
+it.each(['later', 'na'])('allows tutoring %s without a card or merchant query while retaining agreement', async choice => {
+  const data = input({authorizationAgreed:true,authorizationSignature:'QA Parent'});
+  data.link.master_channel='tutoring'; data.link.intake_steps[0].paymentOnly=true;
+  data.intakeData.responses.submission.paymentInfo.paymentChoice=choice;
+  await expect(validateIntakeBilling(data)).resolves.toBeUndefined(); expect(pool.execute).not.toHaveBeenCalled();
+});
+it('allows the selected tutoring office discussion without treating it as charge consent', async()=>{
+  const data=input({authorizationAgreed:true,authorizationSignature:'QA Parent'});data.link.master_channel='tutoring';data.link.intake_steps[0].paymentOnly=true;
+  data.intakeData.responses.submission.paymentInfo={arrangement:'discuss'};
+  await expect(validateIntakeBilling(data)).resolves.toBeUndefined();expect(pool.execute).not.toHaveBeenCalled();
 });

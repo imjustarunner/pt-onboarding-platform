@@ -270,7 +270,7 @@
     <footer v-if="scenicSidebarUrl && !enrollmentLayout && !embedded && resolvedTrustItems.length" class="df-entry-trust" aria-label="Information and support">
       <span v-for="item in resolvedTrustItems" :key="item.label"><PublicEntryIcon :name="item.icon" />{{ item.label }}</span>
     </footer>
-    <PublicEntryLegalFooter v-if="(scenicSidebarUrl || enrollmentLayout) && !embedded" :language="language" :organization-slug="branding?.legalOrganizationSlug || branding?.slug || branding?.portalUrl || ''" />
+    <PublicEntryLegalFooter v-if="(scenicSidebarUrl || enrollmentLayout) && !embedded" :language="language" :service-type="serviceType" :organization-slug="branding?.legalOrganizationSlug || branding?.slug || branding?.portalUrl || ''" />
   </div>
 </template>
 
@@ -290,6 +290,7 @@ import '../../styles/enrollment-layout.css';
 import { publicEntryBackground } from '../../utils/tenantBrandAssets';
 
 const props = defineProps({
+  serviceType: { type: String, default: '' },
   enrollmentLayout: { type: Boolean, default: false },
   branding: { type: Object, default: null },
   billingLayout: { type: Boolean, default: false },

@@ -25,16 +25,32 @@ const placement = (category,level) => {
 };
 export const isNluCompensationProfile = profile => profile?.nluCompensationPolicyVersion === NLU_COMPENSATION_POLICY_VERSION;
 
-export function nluChildcareRate({category,level,children=1,caregivers=1,minimumHourlyRate=0,individualHourlyRate=null}) {
+export function normalizeChildcareRatesByBand(value) {
+  if (value == null) return null;
+  if (typeof value !== 'object' || Array.isArray(value)) throw error('Childcare overrides must identify the one, two, three and four-child hourly rates.');
+  const result = {};
+  for (const key of Object.keys(value)) {
+    if (!['1','2','3','4'].includes(key)) throw error('Choose a childcare compensation band from one through four.');
+    if (value[key] == null || value[key] === '') continue;
+    const rate = Number(value[key]);
+    if (!Number.isFinite(rate) || rate <= 0 || rate > 100000) throw error('Each childcare override must be a positive hourly amount.');
+    result[key] = rate;
+  }
+  return Object.keys(result).length ? result : null;
+}
+
+export function nluChildcareRate({category,level,children=1,caregivers=1,minimumHourlyRate=0,individualHourlyRate=null,ratesByBand=null}) {
   placement(category,level);
   if (!Number.isSafeInteger(Number(children)) || Number(children)<0 || !Number.isSafeInteger(Number(caregivers)) || Number(caregivers)<1) throw error('Record actual child attendance and active assigned caregivers.');
   // Zero-child required preparation, cleanup and on-duty availability use the base rate.
   const band=Math.max(1,Math.ceil(Number(children)/Number(caregivers)));
   if (band>4) throw error('More than four children per caregiver requires immediate staffing review; do not extrapolate a pay band.','CHILDCARE_STAFFING_REVIEW_REQUIRED');
   const base=(Number(category)===1?NLU_FOUNDATIONAL_RATES:NLU_BACHELOR_CHILDCARE_RATES)[Number(level)-1];
-  const agreed=individualHourlyRate==null?base+childAdditions[band-1]:Number(individualHourlyRate);
+  const overrides=normalizeChildcareRatesByBand(ratesByBand);
+  const selected=overrides?.[band];
+  const agreed=selected??(individualHourlyRate==null?base+childAdditions[band-1]:Number(individualHourlyRate));
   if (!Number.isFinite(agreed)||agreed<=0||!Number.isFinite(Number(minimumHourlyRate))||Number(minimumHourlyRate)<0) throw error('Confirm the individual childcare rate and applicable wage floor.');
-  return {rate:Math.max(agreed,Number(minimumHourlyRate)),baseRate:base,childrenPerCaregiver:band,autoIndirectMinutesPerHour:0};
+  return {rate:Math.max(agreed,Number(minimumHourlyRate)),baseRate:base,childrenPerCaregiver:band,autoIndirectMinutesPerHour:0,rateSource:selected!=null?'individual_band_override':individualHourlyRate!=null?'legacy_individual_flat_override':'category_level',agreedRate:agreed};
 }
 
 export function nluTutoringRate({category,level,format='virtual',individualHourlyRate=null}) {
@@ -79,7 +95,7 @@ export function computeNluServicePay({profile,status={},serviceCode,actualMinute
   if(service==='childcare') {
     if(profile.childcareLevel==null)throw error('Record the separately approved childcare pay level.');
     if(serviceContext.children==null||serviceContext.caregivers==null)throw error('Record actual child attendance and active assigned caregivers.');
-    rate=nluChildcareRate({category:profile.category,level:profile.childcareLevel,children:serviceContext.children,caregivers:serviceContext.caregivers,minimumHourlyRate:serviceContext.minimumHourlyRate,individualHourlyRate:profile.childcareRate}).rate;
+    rate=nluChildcareRate({category:profile.category,level:profile.childcareLevel,children:serviceContext.children,caregivers:serviceContext.caregivers,minimumHourlyRate:serviceContext.minimumHourlyRate,individualHourlyRate:profile.childcareRate,ratesByBand:profile.childcareRatesByBand}).rate;
   } else if(service==='tutoring') {
     if(profile.tutoringLevel==null)throw error('Record the separately approved tutoring pay level.');
     const rawFormat=serviceContext.format || (/IN PERSON/.test(code)?'in_person':/VIRTUAL/.test(code)?'virtual':null);

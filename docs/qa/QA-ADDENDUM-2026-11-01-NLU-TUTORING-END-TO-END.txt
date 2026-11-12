@@ -1,6 +1,13 @@
 ADDITIONAL QA PLAN — NOVEMBER 1, 2026
 NLU tutoring: enrollment to learning, family portal, completion and billing
 
+CURRENT RETEST HANDOFF — NOVEMBER 12, 2026
+Use NLU-TUTORING-AND-CHILDCARE-RETEST-2026-11-12.txt and its self-contained bot
+upload. Finley1496, Morgan1759, Parker2545/submission1569 and Quinn2547/
+submission1571 now exist and must be reused. The new handoff supersedes old
+creation assumptions and permits NLU workspaces inside the shared app. Preserve
+the original47 cases and every unresolved observed failure below.
+
 Append to the prior plans; preserve their open findings. This assignment covers
 THE tutoring flow, including its parent experience. Tutoring uses NLU/tenant
 branding and URLs, not an AuricWell enrollment, EHR or clinical parent portal.

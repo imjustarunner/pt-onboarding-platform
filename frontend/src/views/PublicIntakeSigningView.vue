@@ -3,6 +3,7 @@
     class="public-intake ai-shell-host"
     :class="{ 'public-intake--office-start': isOfficeInDepthIntake && step === 0.5, 'public-intake--compact-start': isOfficeInDepthIntake && step === 0.5 && !officeStart.editingStartLayout.value }"
     :branding="formBranding"
+    :service-type="isTutoringEnrollment ? 'tutoring' : ''"
     :enrollment-layout="(loading || isOfficeInDepthIntake || isSchoolScopedIntake || ['intake', 'smart_registration', 'smart_school_roi'].includes(formTypeKey)) && !isJobApplication && !officeStart.editingStartLayout.value"
     :billing-layout="step === 2 && currentFlowStep?.type === 'insurance_info' && (isOfficeInDepthIntake || isPaymentOnlyEnrollmentChannel)"
     :program-title-override="shellProgramTitle"
@@ -508,7 +509,7 @@
               <input id="guardianLastName" v-model="guardianLastName" type="text" autocomplete="section-enrollment-contact family-name" :class="{ 'input-error': !!consentErrors.guardianLastName }" />
             </div>
             <div class="form-group form-group--phone">
-              <label for="guardianPhone">{{ t('yourPhone') }} <span class="required-indicator">*</span></label>
+              <label for="guardianPhone">{{ t('yourPhone') }} <span v-if="!isTutoringEnrollment" class="required-indicator">*</span><span v-else> ({{ tx('optional') }})</span></label>
               <input
                 id="guardianPhone"
                 :value="guardianPhone"
@@ -670,6 +671,14 @@
               <div v-if="isCoGuardianInvitee" class="intake-start-custody">
                 <strong>{{ t('coGuardianIsolatedTitle') }}</strong>
                 <p>{{ t('coGuardianIsolatedLead') }}</p>
+              </div>
+              <div v-else-if="isTutoringEnrollment" class="intake-start-custody tutoring-guardian-access">
+                <label>{{ tx('Are there any other guardians who need their own portal access?') }}
+                  <select v-model="intakeResponses.submission.other_guardian_portal_requested">
+                    <option value="">{{ tx('Select an option') }}</option><option value="yes">{{ tx('Yes') }}</option><option value="no">{{ tx('No') }}</option>
+                  </select>
+                </label>
+                <p>{{ tx('You can invite each guardian from your parent portal after your account is ready. No invitation is sent from this form.') }}</p>
               </div>
               <OtherGuardianIntakeFields
                 v-else-if="!serviceSubject || serviceSubject === 'dependent'"
@@ -965,7 +974,7 @@
                   ? 'Applicant phone'
                   : ((intakeForSelf || isMedicalRecordsRequest) ? t('yourPhone') : t('guardianPhone'))
               }}
-              <span class="required-indicator">*</span>
+              <span v-if="!isTutoringEnrollment" class="required-indicator">*</span><span v-else> ({{ tx('optional') }})</span>
             </label>
             <input
               id="guardianPhone"
@@ -992,8 +1001,16 @@
             <input v-model="guardianRelationship" type="text" :placeholder="t('relationshipPlaceholder')" />
           </div>
         </div>
+        <div v-if="isTutoringEnrollment && intakeForSelf === false && !isCoGuardianInvitee" class="intake-start-custody tutoring-guardian-access">
+                <label>{{ tx('Are there any other guardians who need their own portal access?') }}
+                  <select v-model="intakeResponses.submission.other_guardian_portal_requested">
+                    <option value="">{{ tx('Select an option') }}</option><option value="yes">{{ tx('Yes') }}</option><option value="no">{{ tx('No') }}</option>
+                  </select>
+                </label>
+                <p>{{ tx('You can invite each guardian from your parent portal after your account is ready. No invitation is sent from this form.') }}</p>
+              </div>
         <OtherGuardianIntakeFields
-          v-if="!isOfficeInDepthIntake && !isMedicalRecordsRequest && !isJobApplication && !isClientBound && intakeForSelf === false && !isCoGuardianInvitee"
+          v-if="!isTutoringEnrollment && !isOfficeInDepthIntake && !isMedicalRecordsRequest && !isJobApplication && !isClientBound && intakeForSelf === false && !isCoGuardianInvitee"
           class="intake-start-custody"
           :class="{ 'intake-start-custody--school': isSchoolScopedIntake, 'required-missing-glow': stepError && !otherGuardianContactOk() }"
           :model="otherGuardian"
@@ -3249,7 +3266,8 @@ import IntakeProviderRequest from '../components/office/IntakeProviderRequest.vu
 import { useOfficeIntakeStartEditor } from '../composables/useOfficeIntakeStartEditor.js';
 import OtherGuardianIntakeFields from '../components/public-intake/OtherGuardianIntakeFields.vue';
 import { lookupUsZipCityState } from '../utils/usZipAutofill.js';
-import { formatUsPhoneInput, isValidUsPhone } from '../utils/contactInput.js';
+import { formatUsPhoneInput, isValidUsPhone, isValidEmailAddress } from '../utils/contactInput.js';
+import { isTutoringIntake, tutoringIntakeSteps } from '../navigation/tutoringEnrollmentPolicy.js';
 import {
   JOIN_BOOT_THEME_URL,
   restoreJoinWelcomeCopy,
@@ -4251,6 +4269,7 @@ const authStore = useAuthStore();
 // Keep link initialized before any computed/translation helpers that read link.value.
 // Prevents TDZ crashes in production minified bundles.
 const link = ref(null);
+const isTutoringEnrollment = computed(() => isTutoringIntake(link.value));
 // Must be declared before dfProgressSteps / shellCoverMode — watch(dfProgressIndex)
 // reads those computeds during setup and TDZ-crashes the whole packet (white screen).
 const isJobApplication = computed(() => String(link.value?.form_type || '').toLowerCase() === 'job_application');
@@ -4390,6 +4409,7 @@ const intakeSteps = computed(() => {
       return nextFields.length === fields.length ? step : { ...step, fields: nextFields };
     });
   }
+  if (isTutoringEnrollment.value) steps = tutoringIntakeSteps(steps, { locale: intakeLocale.value });
   if(String(link.value?.master_channel||'').toLowerCase()==='tutoring'&&!steps.some(s=>s.id==='learning-enrollment')){
     steps=[{id:'learning-enrollment',type:'questions',label:'Learning goals & program',repeatPerClient:true,fields:[]},...steps];
   }
@@ -5077,7 +5097,7 @@ const communications = reactive({
 });
 
 const showMatchingPreferences=computed(()=>!isSchoolScopedIntake.value&&!usesSchoolChildDetails.value&&!isOfficeInDepthIntake.value&&!isJobApplication.value&&!isMedicalRecordsRequest.value&&!isClientBound.value&&(usesSchoolChildDetails.value||['counseling','coaching'].includes(String(link.value?.master_channel||''))||isOfficeInDepthIntake.value&&link.value?.master_channel!=='tutoring'));
-const allowsFullProviderChoice=computed(()=>isOfficeInDepthIntake.value&&!/quick|short|interest|registration|request/.test(String(link.value?.form_type||'').toLowerCase()));
+const allowsFullProviderChoice=computed(()=>(isOfficeInDepthIntake.value||isTutoringEnrollment.value)&&!/quick|short|interest|registration|request/.test(String(link.value?.form_type||'').toLowerCase()));
 const officeProviders = ref([]);
 const officeProvidersLoading=ref(false),officeProvidersLoaded=ref(false),providerSelectionNotice=ref('');
 const officeProvidersError=ref('');
@@ -5683,7 +5703,7 @@ const isSchoolScopedIntake = computed(() => {
 const guardianPortalInvitationDeferred = computed(() => link.value?.guardian_portal_invitation_deferred === true);
 
 const isOfficeInDepthIntake = computed(() => {
-  if (isSchoolScopedIntake.value) return false;
+  if (isSchoolScopedIntake.value || isTutoringEnrollment.value) return false;
   return linkLooksLikeOfficeIntake(link.value);
 });
 
@@ -5816,6 +5836,11 @@ async function loadOfficeJoinChrome() {
 }
 
 const officeStartTrustItems = computed(() => {
+  if (isTutoringEnrollment.value) return [
+    { icon: 'shield', label: tx('Academic tutoring'), detail: tx('Learning support with a tutor, separate from clinical care.') },
+    { icon: 'check', label: tx('No card required to request tutoring'), detail: tx('Appointments and payment arrangements are confirmed separately.') },
+    { icon: 'lock', label: tx('Save and return'), detail: tx('Use your private return link to resume your enrollment.') }
+  ];
   if (isCoachingIntake.value) return [
     { icon: 'shield', label: 'Your coaching, your choice', detail: 'Review the coaching agreement and privacy terms before signing.' },
     { icon: 'check', label: 'No purchase required', detail: 'Enrollment does not authorize payment or confirm an appointment.' }
@@ -5893,7 +5918,7 @@ const splashContactEmail = computed(() => {
 });
 
 const skipBrandingIntro = computed(() => {
-  if (isSchoolScopedIntake.value) return false;
+  if (isSchoolScopedIntake.value || isTutoringEnrollment.value) return false;
   return linkLooksLikeOfficeIntake(link.value);
 });
 
@@ -7576,6 +7601,7 @@ async function saveOfficePdfEmailTemplate() {
   }
 }
 function otherGuardianFieldBag() {
+  if (isTutoringEnrollment.value) return { other_guardian_portal_requested: intakeResponses.submission.other_guardian_portal_requested || '', other_guardian_send_intake_link: 'no' };
   if (isOfficeInDepthIntake.value && ['couple', 'family'].includes(serviceSubject.value)) return {};
   const rights = String(otherGuardian.hasLegalRights || '').trim().toLowerCase();
   const needsOther = rights === 'yes' || rights === 'shared';
@@ -7597,13 +7623,13 @@ function otherGuardianFieldBag() {
   };
 }
 function otherGuardianContactOk() {
-  if (serviceSubject.value === 'representative') return true;
+  if (isTutoringEnrollment.value || serviceSubject.value === 'representative') return true;
   if (isOfficeInDepthIntake.value && ['couple', 'family'].includes(serviceSubject.value)) return true;
   if (intakeForSelf.value !== false || isCoGuardianInvitee.value) return true;
   const rights = String(otherGuardian.hasLegalRights || '').trim().toLowerCase();
   if (!rights) return false;
   if (rights !== 'yes' && rights !== 'shared') return true;
-  const emailOk = String(otherGuardian.email || '').includes('@');
+  const emailOk = isValidEmailAddress(otherGuardian.email);
   const phoneOk = String(otherGuardian.phone || '').replace(/\D/g, '').length >= 7;
   const filesOk = otherGuardian.courtDocumentsUploaded || (Array.isArray(otherGuardian.courtFiles) && otherGuardian.courtFiles.length > 0);
   return emailOk || phoneOk || filesOk;
@@ -8103,8 +8129,8 @@ async function continueWhoFor() {
   }
   consentErrors.guardianFirstName = guardianFirstName.value.trim() ? '' : t('required');
   consentErrors.guardianLastName = guardianLastName.value.trim() ? '' : t('required');
-  consentErrors.guardianEmail = guardianEmail.value.trim() ? '' : t('required');
-  consentErrors.guardianPhone = !guardianPhone.value.trim() ? t('required') : isValidUsPhone(guardianPhone.value) ? '' : tx('Please enter a real 10-digit phone number.');
+  consentErrors.guardianEmail = !guardianEmail.value.trim() ? t('required') : isValidEmailAddress(guardianEmail.value) ? '' : tx('Please enter a valid email address.');
+  consentErrors.guardianPhone = !guardianPhone.value.trim() ? (isTutoringEnrollment.value ? '' : t('required')) : isValidUsPhone(guardianPhone.value) ? '' : tx('Please enter a real 10-digit phone number.');
   consentErrors.guardianRelationship = (() => {
     const subject = serviceSubject.value
       || (intakeForSelf.value === true ? 'self' : intakeForSelf.value === false ? 'dependent' : '');
@@ -8176,7 +8202,7 @@ async function continueWhoFor() {
       if (choice === 'agreed') {
         const firstName = String(guardianFirstName.value || '').trim();
         const email = String(guardianEmail.value || '').trim();
-        if (!firstName || !email || !email.includes('@')) {
+        if (!firstName || !email || !isValidEmailAddress(email)) {
           reminderConsentError.value = t('reminderConsentAgreeNeedsContact');
           whoForError.value = t('reminderConsentAgreeNeedsContact');
           consentLoading.value = false;
@@ -10889,9 +10915,9 @@ const submitConsent = async () => {
     stepError.value = '';
   } else {
   consentErrors.guardianFirstName = guardianFirstName.value.trim() ? '' : t('required');
-  consentErrors.guardianEmail = guardianEmail.value.trim() ? '' : t('required');
+  consentErrors.guardianEmail = !guardianEmail.value.trim() ? t('required') : isValidEmailAddress(guardianEmail.value) ? '' : tx('Please enter a valid email address.');
   consentErrors.guardianLastName = !guardianLastName.value.trim() ? t('required') : '';
-  consentErrors.guardianPhone = !guardianPhone.value.trim() ? t('required') : isValidUsPhone(guardianPhone.value) ? '' : tx('Please enter a real 10-digit phone number.');
+  consentErrors.guardianPhone = !guardianPhone.value.trim() ? (isTutoringEnrollment.value ? '' : t('required')) : isValidUsPhone(guardianPhone.value) ? '' : tx('Please enter a real 10-digit phone number.');
   const clientFirst = intakeForSelf.value ? guardianFirstName.value : clients.value?.[0]?.firstName;
   const clientLast = intakeForSelf.value ? guardianLastName.value : clients.value?.[0]?.lastName;
   const clientNamesLater = step.value === WHO_FOR_STEP && intakeForSelf.value === false && !isOfficeInDepthIntake.value;
@@ -13378,7 +13404,7 @@ function enrollmentParticipantIsAdult(person) {
 }
 
 const enrollmentUsesAdultClientWording = computed(() => {
-  if (serviceSubject.value === 'representative') return true;
+  if (isTutoringEnrollment.value || serviceSubject.value === 'representative') return true;
   if (['couple', 'family', 'self'].includes(serviceSubject.value)) return false;
   const idx = Number.isInteger(currentFlowStep.value?.clientIndex)
     ? currentFlowStep.value.clientIndex
@@ -13520,7 +13546,7 @@ const applyRegistrationAccountState = (exists) => {
 
 const lookupRegistrationAccount = async (emailRaw) => {
   const email = String(emailRaw || '').trim().toLowerCase();
-  if (!usesRegistrationFeatures.value || !email || !email.includes('@')) {
+  if (!usesRegistrationFeatures.value || !email || !isValidEmailAddress(email)) {
     registrationAccountLookupChecked.value = false;
     registrationAccountExists.value = false;
     return;
@@ -13560,7 +13586,7 @@ watch(guardianEmail, (val) => {
   if (!usesRegistrationFeatures.value) return;
   if (registrationLookupTimer) clearTimeout(registrationLookupTimer);
   const email = String(val || '').trim();
-  if (!email || !email.includes('@')) {
+  if (!email || !isValidEmailAddress(email)) {
     registrationAccountLookupChecked.value = false;
     registrationAccountExists.value = false;
     return;
@@ -13576,7 +13602,7 @@ watch(usesRegistrationFeatures, (val) => {
   if (!val) return;
   applyRegistrationAccountState(false);
   const email = String(guardianEmail.value || '').trim();
-  if (email && email.includes('@')) lookupRegistrationAccount(email);
+  if (email && isValidEmailAddress(email)) lookupRegistrationAccount(email);
 });
 watch(
   () => clients.value?.[0]?.firstName,
@@ -14342,7 +14368,7 @@ async function submitEnrollmentReminderConsent(consentStatus) {
   if (status === 'agreed') {
     const firstName = String(reminderFirstName.value || guardianFirstName.value || '').trim();
     const email = String(reminderEmail.value || guardianEmail.value || '').trim();
-    if (!firstName || !email || !email.includes('@')) {
+    if (!firstName || !email || !isValidEmailAddress(email)) {
       reminderConsentError.value = t('reminderConsentAgreeNeedsContact');
       return;
     }

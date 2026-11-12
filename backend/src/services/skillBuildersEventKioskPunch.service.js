@@ -382,6 +382,9 @@ export async function recordSkillBuilderEventClockIn(poolConn, params) {
     return { error: { status: 400, message: 'agencyId, eventId, and userId are required' } };
   }
 
+  const [[childcareEvent]]=await poolConn.execute('SELECT event_type FROM company_events WHERE id=? AND agency_id=?',[eid,aid]);
+  if(childcareEvent?.event_type==='childcare')return {error:{status:409,message:'Use the Childcare shift to record time and confirm actual attendance.'}};
+
   const sid = parsePositiveInt(sessionId);
   if (sid) {
     const [sr] = await poolConn.execute(
@@ -515,6 +518,7 @@ export async function recordSkillBuilderEventClockOut(poolConn, params) {
   );
   const eventPayroll = await loadEventPayrollContext({ agencyId, eventId, db: poolConn }).catch(() => null);
   const eventType = String(eventPayroll?.eventType || evRows?.[0]?.event_type || '').toLowerCase();
+  if(eventType==='childcare')return {error:{status:409,message:'Use the Childcare shift to clock out and preserve the correct pay calculation.'}};
   const schoolPortalEvent = eventType.startsWith('school_') || source === 'school_events_kiosk';
   const useSplit = eventPayroll ? !!eventPayroll.useDirectIndirectSplit : !schoolPortalEvent;
   const remainderSlot = eventPayroll?.rateSlot || 'indirect';
@@ -673,6 +677,7 @@ export async function recordAdminManualEmployeeEventTime(poolConn, params) {
     [eventId, agencyId]
   );
   const eventType = String(evRows?.[0]?.event_type || '').toLowerCase();
+  if(eventType==='childcare')return {error:{status:409,message:'Review childcare work in its own shift. Generic event time cannot replace childcare attendance or pay.'}};
   const tz = String(evRows?.[0]?.timezone || '').trim();
   if (tz) eventTimezone = tz;
 

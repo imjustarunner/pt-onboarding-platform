@@ -1,3 +1,4 @@
+import { nluTutoringQaMailDomain } from '../utils/nluTutoringQaPolicy.js';
 /**
  * Tenant shared message mailboxes: messages@{domain} and securemessage@{domain}.
  */
@@ -19,11 +20,13 @@ export const TENANT_MESSAGE_DOMAINS = [
 export async function inferAgencyMailDomain(agencyId) {
   try {
     const [rows] = await pool.execute(
-      `SELECT id,slug,is_active,organization_type,feature_flags FROM agencies WHERE id = ? LIMIT 1`,
+      `SELECT id,slug,is_active,is_archived,organization_type,feature_flags FROM agencies WHERE id = ? LIMIT 1`,
       [agencyId]
     );
     const managed = rows?.[0] && managedDomain(rows[0]);
     if (managed) return managed;
+    const qaDomain = nluTutoringQaMailDomain(rows?.[0]);
+    if (qaDomain) return qaDomain;
     const flags =
       typeof rows?.[0]?.feature_flags === 'string'
         ? JSON.parse(rows[0].feature_flags || '{}')

@@ -1169,6 +1169,7 @@ async function assertEventAccess({ req, agencyId, eventId }) {
   }
 
   if (!ev) return { error: { status: 404, message: 'Event not found' } };
+  if(ev.event_type==='childcare')return {error:{status:409,message:'Use the Childcare scheduler for this shift and its staffing.'}};
 
   const billingAgencyId = Number(ev.agency_id);
   if (!Number.isFinite(billingAgencyId) || billingAgencyId <= 0) {

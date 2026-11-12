@@ -1,4 +1,5 @@
 import { isBachelorsCredentialText } from '../utils/credentialNormalization.js';
+import { normalizeChildcareRatesByBand } from './nluCompensationPolicy.js';
 
 export const CONTRACT_SERVICE_ROLE_VERSION = 'service-role-clauses-2026-11-12';
 const duty = (id, title, body, description) => ({
@@ -53,6 +54,7 @@ export function normalizeContractServiceRoleDetails(value = {}) {
       if(!Number.isFinite(rate)||rate<=0||rate>100000)throw Object.assign(new Error('Confirm a positive individual service hourly rate.'),{status:400});
       details[role.id].hourlyRate=rate;
     }
+    if (role.id === 'childcare' && value.childcare.ratesByBand != null) details.childcare.ratesByBand=normalizeChildcareRatesByBand(value.childcare.ratesByBand);
   }
   return details;
 }

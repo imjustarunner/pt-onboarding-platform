@@ -202,6 +202,7 @@
               <span class="muted" v-if="l.meta && (l.meta.hours || l.meta.rate)">
                 • {{ fmtNum(l.meta.hours ?? 0) }} hrs @ {{ fmtMoney(l.meta.rate ?? 0) }}
               </span>
+              <span class="muted" v-if="l.meta?.childcareShiftId"> · {{ l.meta.children }} children / {{ l.meta.caregivers }} active caregivers · band {{ l.meta.band }}<template v-if="l.meta.rateSource === 'individual_band_override'"> · Individual band rate</template></span>
               <span class="muted" v-if="l.taxable === false"> • non-taxable</span>
               <span class="muted" v-else> • taxable</span>
             </div>

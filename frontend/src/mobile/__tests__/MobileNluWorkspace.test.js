@@ -1,0 +1,11 @@
+import {afterEach,beforeEach,expect,it,vi} from 'vitest';
+import {shallowMount,flushPromises} from '@vue/test-utils';
+import {createMemoryHistory,createRouter} from 'vue-router';
+import QuickView from '../../views/QuickViewAccessView.vue';
+vi.mock('axios',()=>({default:{get:vi.fn(),post:vi.fn(),put:vi.fn(),patch:vi.fn()}}));
+vi.mock('../../services/api',()=>({default:{get:vi.fn(),post:vi.fn(),patch:vi.fn()}}));
+import axios from 'axios';
+let wrapper,router;
+beforeEach(()=>{localStorage.clear();sessionStorage.clear();vi.clearAllMocks();axios.get.mockImplementation(async url=>({data:url.endsWith('/tutoring-workspace/context')?{canTutor:true,learningOnly:true}:url.endsWith('/childcare/context')?{enabled:true,canWork:true}:url.endsWith('/tools')?{tools:{}}:{}}));});
+afterEach(()=>{wrapper?.unmount();router?.options.history.destroy();});
+it('shows tutoring and childcare in one shared mobile workspace and replaces a retained clinical deep link',async()=>{router=createRouter({history:createMemoryHistory(),routes:[{path:'/:pathMatch(.*)*',component:{template:'<span />'}}]});await router.push('/mobile/workspace?view=mywork');wrapper=shallowMount(QuickView,{props:{mobileSession:{sessionToken:'synthetic',userId:1496,agencyId:453,expiresAt:'2099-01-01T00:00:00Z',profile:{workspace:{name:'NLU QA'}}}},global:{plugins:[router]}});await flushPromises();await wrapper.find('[aria-controls=qv-more-tools]').trigger('click');await flushPromises();const tools=wrapper.get('#qv-more-tools');expect(tools.text()).toContain('My students');expect(tools.text()).toContain('Tutoring profile');expect(tools.text()).toContain('Childcare');expect(tools.text()).not.toContain('Note Workspace');expect(tools.text()).not.toContain('My Work');expect(wrapper.find('mobile-my-work-stub').exists()).toBe(false);expect(wrapper.find('tutoring-students-view-stub').exists()).toBe(true);expect(axios.get).toHaveBeenCalledWith('/api/quick-view/tutoring-workspace/context',expect.objectContaining({headers:{'X-Quick-View-Session':'synthetic'},params:{agencyId:453}}));});

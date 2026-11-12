@@ -1,0 +1,70 @@
+NLU TUTORING / CHILDCARE IMPLEMENTATION — NOVEMBER 12, 2026
+State: source implemented and tested; publication/deployment and live QA are separate.
+
+Implemented
+- Academic-only tutoring intake composition, optional request-stage demographics,
+  meaningful email validation, no-card payment discussion and later guardian invite.
+- Protected profile management authentication; exact-self descriptive profile and
+  exact-agency authorized pricing management; assigned Students routes and NLU nav.
+- Service-scoped clinical denials and existing shared-app/mobile family isolation.
+- NLU legal/finder presentation, preserving current CAPTCHA/resume protections.
+- Agency-scoped childcare grants, own/manager scheduling, co-caregivers, aggregate
+  attendance history, actual punches, secure-link start/end reminders and role union.
+- Four independent approved employee band overrides through agreements, effective
+  payroll snapshots, own compensation views, claims and paystub segment metadata.
+- Concurrency/idempotency, schedule/attendance correction history, generic event
+  bypass protection, own-pay isolation and preservation of finalized earnings.
+- Additive migration1814 creates six childcare tables; seeds no users or pay terms.
+
+Validation
+- Final combined frontend suite:240 passed in26 files.
+- Final combined backend suite:196 passed in23 files; optional SQL test skipped
+  only in the ordinary no-database run.
+- Optional real MySQL persistence integration separately PASSED: exact migration,
+  synthetic shift,180 actual simulated test minutes, band3 employee override,
+  repeated clock-out creates one claim, manager pay-setting correction updates only
+  draft pay. Test created/dropped a uniquely named isolated schema. Base definitions
+  only were copied, no application rows. Existing appointment conflict, effective
+  agreement selection and agency role resolver are scoped fixtures in this SQL
+  check; their actual authorization/date behavior is covered by focused tests.
+- Production Vite build PASSED with8GiB Node heap after restoring tracked public
+  assets to the sparse checkout. Initial attempts stopped on omitted sparse assets
+  and the default4GiB heap limit. Later small UI corrections compiled in Vite/Chrome.
+- Desktop1366 and mobile390 Chrome engineering fixture previews: explicit planned
+  count, all four own rates, clock-action transition, no page errors or horizontal
+  document overflow. These screenshots are labeled synthetic API fixtures, not live.
+- Additional existing event regressions:231 passed. Scheduling:1303 passed,89 skipped.
+- Broader program-payroll run:255 assertions passed; six suites could not import
+  baseline ignored/generated provider guide JSON files. No fullsuite pass claimed.
+  Temporary copied baseline inputs were removed; user originals were preserved.
+- Changed JS syntax, git diff whitespace, source attachment checksums and complete
+  self-contained20/47/26-case bot packet checked.
+
+Read-only live diagnosis
+- Frontend/backendad22ebbdd56d59cb56f2f6b9ea8486482e823f77 matched; API ready=true.
+- Submission1569/Parker2545 and1571/Quinn2547 both bind Morgan1759. No duplicate
+  guardian was found. Morgan is PENDING_SETUP, active, without a saved password.
+- Communications6347/6349 failed with missing agency support-mail domain before
+  acceptance; no external ID/sent/delivered time. Both saved noAutomaticEmail=false;
+  optional emailPreference=no is separate from essential receipt/setup delivery.
+- Finley1496 is active provider, sees_clients=1. No tutoring profile row exists and
+  discovery enrollment453/tutoring is inactive. Admin setup remains required.
+- SourceNLU6 has active notifications identity52 and PeopleOps38; no portal sender.
+  QA fallback reuses the existing notifications From/Reply-To after existing sender
+  verification, without provisioning any Google Group/mailbox or changing agency6.
+- Controlled inbox read remains BLOCKED: current Workspace credentials return
+  unauthorized_client. No actual inbox receipt or successful live delivery claimed.
+- No live application records, roles, signatures, payroll or mail were changed in
+  this implementation phase. No live tests are marked PASS from file generation.
+
+Release / live retest
+Publish reviewed source, apply migration1814 through the normal migration path,
+verify matching deployed build IDs, finish supported admin-only QA setup, inspect
+original failed deliveries before one recovery, then run the uploaded bot brief.
+No new tutoring clients/providers; retained IDs and prior findings are preserved.
+Actual inbox/SMS/media and elapsed-time cases stay BLOCKED/NOT RUN until observed.
+
+Existing policy issue retained for owner review
+The current foundational childcare table increases Level4 while narrative text
+says the standard childcare cap is Level3. This implementation preserves existing
+rate arrays/individual approved agreements; it does not silently change earned pay.

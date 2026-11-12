@@ -832,7 +832,11 @@ function buildAppEntries() {
 
 /** Full unfiltered catalog (account sections + app areas). */
 export function getQuickNavCatalog() {
-  return [...buildAccountEntries(), ...buildAppEntries()];
+  return [...buildAccountEntries(), ...buildAppEntries(),
+    {id:'tutoring-students',label:'My students',description:'Your assigned tutoring students and learning plans.',group:'workspace',kind:'path',path:'/students',requiresService:'canTutor',keywords:['students','tutoring','learning']},
+    {id:'tutoring-profile',label:'Tutoring profile',description:'Subjects, grades and public introduction.',group:'workspace',kind:'path',path:'/tutoring-profile',requiresService:'canTutor',keywords:['tutor profile','subjects','grades']},
+    {id:'childcare-shifts',label:'Childcare',description:'Your childcare shifts, attendance and clocking.',group:'workspace',kind:'path',path:'/childcare',requiresService:'canChildcare',keywords:['childcare','clock in','children','shifts']}
+  ];
 }
 
 function normalizeRole(role) {
@@ -874,6 +878,7 @@ export function buildQuickNavContext(opts = {}) {
     user,
     role,
     capabilities: caps,
+    serviceWorkspace: opts.serviceWorkspace || user?.workspaceServiceContext || {},
     isClubContext,
     isSchoolStaff,
     isOnboardingComplete: opts.isOnboardingComplete !== false,
@@ -897,6 +902,8 @@ export function buildQuickNavContext(opts = {}) {
 }
 
 function entryVisible(entry, ctx) {
+  if(entry.requiresService && ctx?.serviceWorkspace?.[entry.requiresService]!==true)return false;
+  if (ctx?.serviceWorkspace?.learningOnly && (['clients','supervision'].includes(entry.group) || /note-aid|clinical-note-generator/.test(entry.path || '') || ['documentation-hub','note-workspace','clients-caseload'].includes(entry.id))) return false;
   if (!ctx?.isOnboardingComplete && entry.kind === 'path') return false;
   if (ctx?.isSchoolStaff && entry.group !== 'workspace') return false;
 

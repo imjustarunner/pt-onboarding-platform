@@ -32,6 +32,7 @@ export async function processCompanyEventCheckinReminders({ now = new Date(), db
       AND COALESCE(sd.ends_at, e.ends_at) > DATE_SUB(?, INTERVAL 24 HOUR)`, [now, now]);
   const results = [];
   for (const event of events) {
+    if (event.event_type === 'childcare') continue; // Childcare collects its actual attendance through the scoped app flow.
     if (!readEventOperations(event).isWorkEvent || !event.starts_at || !event.ends_at) continue;
     event.timezone = event.occurrence_timezone || event.timezone;
     const reminderType = eventAttendanceReminderType(event, now);

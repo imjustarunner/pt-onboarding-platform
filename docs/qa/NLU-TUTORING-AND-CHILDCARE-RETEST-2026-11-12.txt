@@ -1,0 +1,161 @@
+NLU TUTORING REPAIRS AND CHILDCARE — NOVEMBER 12, 2026
+This is an assignment, not a completed live QA report. Preserve earlier failures.
+
+DELIVERY AND SCOPE
+Use the existing shared app and family portal. NLU organization/service branding
+belongs inside this app; a separate NLU store app is deferred. A shared AuricWell
+or ITSCO app origin is permitted when membership routes the person to their NLU
+workspace. This supersedes older wording that rejected a shared sign-in origin.
+Clinical content and permissions must not follow a tutoring or childcare role.
+
+Live testing remains limited to NLU QA agency453 / nlu-qa-demo and its affiliated
+learning program454 / nlu-qa-learning. Agency6 supplied reusable NLU configuration;
+do not edit its staff, students, signed agreements, schedules or earned payroll.
+Use the controlled testing@itsco.health inbox and existing vault. Logical example
+emails remain distinct identities; never replace them all with the physical inbox.
+
+RETAINED IDENTITIES — REUSE; DO NOT RE-ENROLL
+Finley1496: qa.nlu.tutor@example.com. Existing password is in the vault.
+Morgan1759: qa.nlu.parent@example.com. One retained guardian for both children.
+Parker2545: enrollment1569, intake link355, submitted November12 07:16:35 MST.
+Quinn2547: enrollment1571, same intake link355, submitted November12 08:06:37 MST.
+These times were read as raw UTC database timestamps and converted to Denver.
+Rene: qa.nlu.coparent@example.com. Search before inviting; no live ID is assumed.
+Admin1435 completes admin-only setup; Jordan1434 may review allowed audit metadata.
+Do not grant bots admin, clinical, payroll approval or another person's signatures.
+
+Engineering diagnosis found communications6347/6349 failed before provider
+acceptance: "An agency and its support mail domain are required for portal email."
+Neither had an external message ID, sent time or delivered time. Both signed
+choices have noAutomaticEmail=false; optional emailPreference=no does not block
+an essential receipt. Morgan was PENDING_SETUP with no password at diagnosis.
+This is a cause diagnosis, not proof the repaired mail arrived. Recheck current
+records and inbox before one deliberate authorized recovery. No blanket resend.
+
+SETUP BEFORE HANDING THE RUN TO THE BOT
+1. Deploy the reviewed repair and additive childcare migration; record both build
+   IDs, migration state, actual date/time and America/Denver offset. A local test
+   pass is not a deployed browser pass. Source and deployed build must match.
+2. Recount actual QA clients/providers/staff across retained clinical/Plotline/NLU
+   fixtures. Do not use the old23-client observation as today's count. Create no
+   new tutoring students/providers for this run; reuse the IDs above. Preserve
+   earlier30-client/10-provider-role limits and all existing signed records.
+3. Through ordinary admin controls finish Finley's descriptive profile, Math and
+   Reading, grades5 and3, virtual/in-person availability, discovery and approved
+   QA office. Use retained L4 customer-price catalog inputs ($50/$55 hourly;
+   four-visit10%-discount quotes $180/$198). Customer prices are separate from
+   Finley's compensation category and individually approved service placement.
+   Do not invent a license, private office grant, merchant or verified mailbox.
+4. Verify QA mail-domain resolution and existing NLU sender readiness. QA sender
+   repair may reuse a verified existing sender; no real mailbox or Group should
+   be provisioned by this run. Open each real receipt/setup link in its own lane.
+5. For childcare search qa.nlu.childcare.a@example.com and
+   qa.nlu.childcare.b@example.com. Reuse exact synthetic matches, or create at most
+   two Staff/nonclinical employees through normal hiring/setup. Labels: Casey QA
+   NLU Childcare-1112 and Devon QA NLU Childcare-1112. Add memberships453/454 only.
+   Complete supported activation and synthetic approved compensation terms;
+   account password alone must not activate employment or a childcare grant.
+6. Use the account's Childcare service assignment panel. A has childcare plus
+   own-shift scheduling. B has childcare; assign co-caregiver work as an authorized
+   scheduler. Explicit schedule-management permission is independent of pay/role
+   administration. Record actual IDs, effective dates and actor/audit rows.
+7. Configure each QA worker's approved childcare level and four amounts. Suggested
+   synthetic test schedules: A {1:21,2:26,3:30,4:33}; B {1:25,2:31,3:36,4:40} in
+   dollars/hour. Set the actual approved work-location wage floor/jurisdiction;
+   do not guess it or copy a number from a historical policy. QA schedules start
+   no earlier than actual approval. Live NLU's prospective November21 terms and
+   existing individual agreements remain intact. Store credentials in vault only.
+8. Confirm shared mobile access for exact QA identities, own-family binding and
+   clinical denials. SMS requires an approved controlled workforce recipient and
+   existing consent/transport readiness. Missing infrastructure remains BLOCKED.
+
+FIRST RETEST — THE20 REPORTED FINDINGS
+Reconcile NR01–NR20 against the embedded original findings and original TU/TE
+references. Do not erase the earlier result when a retest passes.
+- Required blank and malformed email: show field-specific error before advancing;
+  API must also reject invalid values. Normal valid answers survive errors.
+- Tutoring request: phone, guardian DOB, emergency phone, sex/gender and street
+  address do not block submission. If supplied, optional values validate normally.
+- Pure tutoring has tutoring terms/privacy, no counseling consent, HIPAA consent,
+  mental-health disclosure or PSC-17. Clinical/Bridge service branches retain
+  their own requirements. A copied description is not a new clinical clearance.
+- The other-guardian question asks about later portal access and sends no invite
+  from intake. Morgan subsequently invites Rene through the parent portal; each
+  uses their own current link, access and acknowledgement.
+- Save/resume: type into an unsigned retained draft, wait for Saved, reload and
+  close/reopen the delivered return link. Test failed save/retry, stale/expired
+  token and another family's isolation. Do not replace a signed packet.
+- Discuss payment remains selected after reload and can submit without Add Card,
+  Stripe setup or charge. Payment readiness for a later paid service is separate.
+- Receipts: inspect communications6347/6349 and physical testing inbox; one safe
+  recovery only if still failed/unsent. A Sent label is not inbox receipt. Check
+  actual From/Reply-To and NLU setup destination. Respect signed safety choices.
+- Finley finder: Math/5/virtual and Reading/3/in-person return the exact active
+  tutor, approved price, real available times and assigned office. No insurance
+  filter/card details on tutoring. No live NLU tutors leak into QA discovery.
+- Students renders assigned retained learning students, with loading/empty/error/
+  denied states. Old /clients links redirect correctly. Profile saves descriptive
+  fields without a403; rates/credential/agency changes remain staff-controlled.
+- Tutor nav offers learning work and own time/pay, withholding clinical note/HR
+  management actions. Test direct routes and APIs, not only hidden menus. Verify
+  NLU legal destinations on NLU and shared app origins.
+- Save normal availability edits; inspect the actual source of any429. Do not
+  remove global protections merely to manufacture a pass.
+
+RESUME THE ORIGINAL47 TUTORING CASES
+The embedded TU00–TU46 checklist remains the complete tutoring journey. Setup
+steps now reuse the live IDs above. Resume scheduling, exact appointment/session
+links, evaluations, learning plans, materials, sessions, homework, reports, parent
+access, messages, billing and audit. Reconcile retained subject/assignment state
+before changing it. Actual media exchange, genuine reminder due times and receipt
+are required for those cases. Do not backdate attendance or make same-day attempts
+look like historical trends. Payment tests use a verified isolated test merchant;
+otherwise preserve the blocker and continue reachable non-payment cases.
+
+CHILDCARE LIVE RUN — CC00–CC25
+Use counts only; do not create child/client records or enter child names.
+- Schedule a future Thursday16:00–19:00 America/Denver example. Verify saved UTC
+  instants and displayed zone after reload. For a prompt live test, also create
+  a short separate future QA shift and let real time elapse. A three-hour unit
+  simulation is engineering evidence, not a three-hour attended live shift.
+- A can create only their own shift. An authorized childcare scheduler can add B
+  as co-caregiver. An ordinary tutor, family account, pending hire or unrelated
+  agency cannot assign childcare. Removing a grant blocks new work/scheduling.
+- Planned count stays on the occurrence. App/text asks "Were the scheduled X
+  children present?" using that exact planned number. Choose Yes or record the
+  actual count, including zero. Changes during work create timestamped history.
+- Text at scheduled start/end opens the exact signed-in shift. It does not itself
+  clock anyone. No-child names, private notes or pay amounts belong in the text.
+  Canceled shifts, revoked recipients and completed punches suppress reminders.
+  Inspect due/send/receipt times and transport ID; no changing reminder clocks.
+- Clock in/out in app/shared mobile. Missing or disputed count does not discard
+  actual work time; the pay result stays reviewable. Retried taps/network responses
+  create one punch and one draft pay claim. Never infer actual time from schedule.
+- Five children/two active caregivers means band3 for each employee, at that
+  employee's own approved rate. Suggested A/B rates mean $30/$36 per actual hour
+  before applicable adjustments. Do not split a combined dollar pool or use an
+  unclocked scheduled caregiver in the denominator. Different groups stay separate.
+- Exercise late arrival, early departure and a child-count change. Verify interval
+  boundaries, minutes, active caregivers, band, rate/schedule and amount. Zero-child
+  required preparation uses band1; more than4 per caregiver requires staffing/pay
+  review without deleting punches or extending the table automatically.
+- An authorized manager resolves a missing/disputed count with a reason and exact
+  verified effective time within recorded work. Preserve original observations.
+  Finalized pay is immutable; subsequent changes use a separate correction review.
+- Verify all four employee overrides persist through reload, effective agreement,
+  own rate view, payroll preview and paystub line metadata. One person's rate must
+  never appear in another caregiver's own-pay view. Payroll remains isolated QA
+  preview; no real approval/export/payment or historical rate rewrite.
+
+EVIDENCE AND HANDOFF
+For every case: PASS / FAIL / BLOCKED / NOT RUN; actor, agency, object IDs,
+frontend/API build, America/Denver time+offset, expected/actual, audit row and fresh
+screenshot. Email/SMS rows also record logical/physical recipient, actual From/
+Reply-To, due/send/inbox times and provider ID. Keep passwords/raw token URLs out.
+No filesystem is required by the bot: maintain tables in the conversation and
+return downloadable CSV if supported, otherwise completed CSV in messages.
+
+Report20 repair retests, the original47 tutoring cases,26 childcare cases,
+per-recipient delivery and action-to-audit ledgers. Separate engineering checks
+from deployed/live observations. Keep all retained people, shifts, unsigned
+pending work and evidence for owner review; do not delete/reset fixtures.

@@ -1,0 +1,12 @@
+import {beforeEach,expect,it,vi} from 'vitest';
+import {mount,flushPromises} from '@vue/test-utils';
+vi.mock('../../../store/agency.js',()=>({useAgencyStore:()=>({currentAgency:{id:453}})}));
+vi.mock('vue-router',()=>({useRoute:()=>({params:{organizationSlug:'nlu-qa-demo'}})}));
+vi.mock('../../../services/api.js',()=>({default:{}}));
+import Profile from '../TutoringProfileView.vue';
+import Students from '../TutoringStudentsView.vue';
+let http;
+const profile={subjectAreas:['Math'],gradeLevels:['5'],bio:'Original',acceptingNewStudents:true,learningLevel:'L4',hourlyRates:{virtual:5000,'in-person':5500}};
+beforeEach(()=>{http={get:vi.fn(async()=>({data:{profile:{...profile}}})),put:vi.fn(async()=>({data:{profile:{...profile}}}))};});
+it('shows assigned customer rates as read-only and preserves entered profile text after a failed save',async()=>{const wrapper=mount(Profile,{props:{http}});await flushPromises();expect(wrapper.text()).toContain('$50.00');expect(wrapper.text()).toContain('$55.00');await wrapper.find('textarea').setValue('My new public introduction');http.put.mockRejectedValueOnce({response:{data:{error:{message:'Save unavailable'}}}});await wrapper.find('form').trigger('submit');await flushPromises();expect(wrapper.find('textarea').element.value).toBe('My new public introduction');expect(wrapper.text()).toContain('Save unavailable');expect(http.put.mock.calls[0][1]).toEqual({agencyId:453,subjectAreas:['Math'],gradeLevels:['5'],bio:'My new public introduction',acceptingNewStudents:true});wrapper.unmount();});
+it('renders an actionable student-list error rather than a blank page and retries successfully',async()=>{http.get.mockRejectedValueOnce({response:{data:{error:{message:'Students unavailable'}}}});const wrapper=mount(Students,{props:{http},global:{stubs:{RouterLink:{template:'<a><slot/></a>'}}}});await flushPromises();expect(wrapper.get('[role=alert]').text()).toContain('Students unavailable');http.get.mockResolvedValue({data:{students:[]}});await wrapper.get('[role=alert] button').trigger('click');await flushPromises();expect(wrapper.text()).toContain('No students are assigned');expect(http.get).toHaveBeenLastCalledWith('/tutoring-workspace/students',{params:{agencyId:453}});wrapper.unmount();});

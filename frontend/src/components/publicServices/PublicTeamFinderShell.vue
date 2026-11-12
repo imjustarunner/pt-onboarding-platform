@@ -75,7 +75,7 @@
     <div class="tf-shell">
       <aside class="tf-rail">
         <fieldset class="tf-avail"><legend>Start your search</legend><button class="tf-avail-btn" :class="{active:searchMode==='needs'}" @click="searchMode='needs'">Find the right fit</button><button class="tf-avail-btn" :class="{active:searchMode==='availability'}" @click="searchMode='availability';sortBy='soonest'">Find the earliest time</button></fieldset>
-        <label class="tf-field"><span>Insurance</span><select v-model="insurance"><option value="">All published insurance</option><option v-for="value in insuranceOptions" :key="value">{{value}}</option></select></label>
+        <label v-if="serviceType !== 'tutoring'" class="tf-field"><span>Insurance</span><select v-model="insurance"><option value="">All published insurance</option><option v-for="value in insuranceOptions" :key="value">{{value}}</option></select></label>
 
         <PublicOfficeLocations v-if="filters.programType==='IN_PERSON'" :offices="locations" :model-value="location" required @update:model-value="chooseOffice"/>
         <label v-if="languages.length" class="tf-field"><span>Language</span><select v-model="language"><option value="">All languages</option><option v-for="value in languages" :key="value">{{value}}</option></select></label>
@@ -176,6 +176,7 @@
             v-for="(provider, idx) in displayedProviders"
             :key="provider.id || provider.providerId"
             :provider="provider"
+            :service-type="serviceType"
 
 
             @book="goBook"
@@ -310,7 +311,7 @@ const displayedProviders = computed(() => {
     if(!matchFor(p).eligible)return false;
     if (filters.value.programType==='IN_PERSON' && location.value && !(p.officeLocations||[]).some(o=>String(o.id)===location.value)) return false;
     if (language.value && !(p.profile?.details?.languages||[]).includes(language.value)) return false;
-    if (insurance.value && !(p.profile?.insurancesAccepted || []).includes(insurance.value)) return false;
+    if (props.serviceType !== 'tutoring' && insurance.value && !(p.profile?.insurancesAccepted || []).includes(insurance.value)) return false;
     if (searchMode.value === 'availability' && timeOfDay.value && !(p.availability?.slots||[]).some(s => {const hour = new Date(s.startAt).getHours();return timeOfDay.value==='morning'?hour<12:timeOfDay.value==='afternoon'?hour>=12&&hour<17:hour>=17;})) return false;
     const next = new Date(p.availability?.nextAvailableAt).getTime();
     if (searchMode.value === 'availability' && !(next > Date.now())) return false;

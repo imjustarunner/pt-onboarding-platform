@@ -62,6 +62,14 @@ async function fail(db, row, activity, { overridable = false, plannedOut = false
 }
 export async function assertAppointmentWindowAvailable(db, row, appointmentId = null) {
   if (!row.providerUserId || !appointmentOccupiesTime(row.status)) return;
+  let childcare=[];
+  try {
+    [childcare]=await db.execute(`SELECT s.id FROM childcare_shifts s JOIN company_events e ON e.id=s.company_event_id
+      JOIN company_event_provider_assignments assignment ON assignment.company_event_id=e.id
+      WHERE assignment.provider_user_id=? AND s.status<>'canceled' AND e.is_active=1
+        AND e.starts_at<? AND e.ends_at>? AND s.id<>? LIMIT 1`,[row.providerUserId,row.endAt,row.startAt,row.excludeChildcareShiftId||0]);
+  } catch(error) {if(error.code!=='ER_NO_SUCH_TABLE')throw error;}
+  if(childcare.length)throw await fail(db,row,'an assigned childcare shift');
   const offered = await readPrivateReplacementSlots(db, row.providerUserId);
   let ownsOffer = false;
   if (row.replacementOfferId) {

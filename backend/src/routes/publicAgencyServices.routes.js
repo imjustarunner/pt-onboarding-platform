@@ -1,4 +1,4 @@
-import { authenticate } from '../middleware/auth.middleware.js';
+import { authenticateRequired as authenticate } from '../middleware/auth.middleware.js';
 import { requireHoldManager, listPendingHolds, resolvePendingHold, checkPublicHold, listProviderWaitlist } from '../controllers/publicProviderHoldAdmin.controller.js';
 import { publicAgencySupportTicketLimiter } from '../middleware/rateLimiter.middleware.js';
 import rateLimit from 'express-rate-limit';

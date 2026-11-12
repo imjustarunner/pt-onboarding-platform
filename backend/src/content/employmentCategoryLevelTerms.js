@@ -14,7 +14,7 @@ const positive = value => Number.isFinite(Number(value)) && Number(value)>0;
 export function employmentCategoryLevelTerms({row,tokens={},agencyName='the Practice',agencySlug=''}) {
  const p=row?.paySystem;
  if(!p)throw Object.assign(new Error('Configure the selected category and level in the current pay system before generating this clinical agreement.'),{status:400});
- const nluTerms=handbookTenant({slug:agencySlug||tokens.AGENCY_SLUG})==='nlu'?nluEmploymentCategoryTerms({row,tokens,legal:employmentStarterClauses().find(c=>c.clause_key==='STARTER_V1_LEGAL').body_html}):null;
+ const nluTerms=nluEmploymentCategoryTerms({row,tokens,legal:employmentStarterClauses().find(c=>c.clause_key==='STARTER_V1_LEGAL').body_html});
  if(nluTerms)return nluTerms;
  const clinical=!['facilitator','tutor','homework help','homework assistant'].includes(String(tokens.ROLE_LABEL).toLowerCase()) && !isProgramServiceRole(tokens.ROLE_LABEL,tokens.JOB_TITLE,tokens.ROLE_TYPE);
  const required=['hcodeRate','hcodeRateProbation','indirectRate','supportActivityRate',...(clinical?['creditRate','creditRateProbation']:[])];

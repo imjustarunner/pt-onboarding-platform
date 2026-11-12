@@ -1,4 +1,5 @@
 import Agency from '../models/Agency.model.js';
+import {assertManagedTutoringProfileTarget} from '../services/tutoringProfileAuthorization.service.js';
 import {isNluTutoringQaAgency,allowNluQaTutor} from '../utils/nluTutoringQaPolicy.js';
 import { isAuricwellQaAgency, allowQaExchangeRecipient } from '../utils/auricwellQaPolicy.js';
 import { readPublicSnapshot } from '../services/publicReadSnapshot.service.js';
@@ -2010,8 +2011,9 @@ export const upsertTutoringProfile = async (req, res, next) => {
   try {
     const agency = await requireAgencyBySlug(res, req.params.agencySlug);
     if (!agency) return;
-    const userId = parseIntSafe(req.params.userId);
-    if (!userId) return res.status(400).json({ error: { message: 'Invalid userId' } });
+    const userId = Number(req.params.userId);
+    if (!Number.isSafeInteger(userId)||userId<=0) return res.status(400).json({ error: { message: 'Invalid userId' } });
+    await assertManagedTutoringProfileTarget(req.user,Number(agency.id),userId);
 
     const existingProfile = req.body?.learning === undefined ? await getTutoringProfile(userId, agency.id) : null;
     const learning = normalizeLearningProfile(req.body?.learning ?? existingProfile?.learning ?? {});

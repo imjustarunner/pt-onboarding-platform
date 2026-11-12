@@ -1,8 +1,9 @@
 SYNTHETIC NLU TUTORING QA ONLY - no real student or clinical record.
 
 RUN PLAN: ../../QA-ADDENDUM-2026-11-01-NLU-TUTORING-END-TO-END.txt
-This packet prepares APP-based testing. Configuration453/454 exists; students,
-tutor, family accounts and sessions have NOT been created by this generator.
+This packet prepares APP-based testing. Configuration453/454 exists. The
+November12 retest handoff records retained Finley1496, Morgan1759, Parker2545
+and Quinn2547; reuse them. This generator creates files, not live accounts.
 Use existing vault accounts and the controlled testing inbox. All IDs created
 by the app go in the run ledger. No passwords or raw token links go here.
 

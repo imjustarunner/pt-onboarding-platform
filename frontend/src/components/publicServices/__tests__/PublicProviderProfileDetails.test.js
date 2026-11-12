@@ -16,8 +16,8 @@ describe('shared public provider details',()=>{
   expect(specialties.findAll(':scope > .profile-tags span').map(item=>item.text())).toEqual(['Anxiety']);expect(specialties.text()).not.toContain('Depression');expect(specialties.find('summary').text()).toBe('Other areas open to discussing fit');expect(specialties.find('details').text()).toContain('not claims of specialized training');w.unmount();
  });
  it('preserves tutoring subjects and grades without substituting clinical focus',()=>{
-  const w=mount(Details,{props:{provider:{...provider,tutoringProfile:{subjectAreas:['Math'],gradeLevels:['Grade 6']}},service:'tutoring',profile:{details:{clinicalFocus:{reviewed:true,top:{specialties:['Anxiety']}}}}}});
-  expect(section(w,'Subjects').text()).toContain('Math');expect(section(w,'Grades').text()).toContain('Grade 6');expect(section(w,'Subjects').text()).not.toContain('Anxiety');w.unmount();
+  const w=mount(Details,{props:{provider:{...provider,tutoringProfile:{subjectAreas:['Math'],gradeLevels:['Grade 6']}},service:'tutoring',profile:{insurancesAccepted:['Clinical insurer'],details:{clinicalFocus:{reviewed:true,top:{specialties:['Anxiety']}}}}}});
+  expect(section(w,'Subjects').text()).toContain('Math');expect(section(w,'Grades').text()).toContain('Grade 6');expect(section(w,'Subjects').text()).not.toContain('Anxiety');expect(w.text()).not.toContain('Insurance accepted');expect(w.text()).not.toContain('Clinical insurer');w.unmount();
  });
  it('keeps unpublished placeholders on real profiles and hides them only for a complete fictional example',()=>{
   const w=mount(Details,{props:{provider:{displayName:'Example'}}});expect(w.text()).toContain('has not published a biography yet');expect(w.findAll('.profile-facets section')).toHaveLength(6);expect(w.find('.profile-practice').exists()).toBe(false);w.unmount();

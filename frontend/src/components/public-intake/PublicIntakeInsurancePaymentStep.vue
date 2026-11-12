@@ -97,7 +97,7 @@
 
       <section v-if="paymentEligible" class="pi-ip-section">
         <h3>{{ tx('Your payment arrangement') }}</h3>
-        <p>{{ tx('Tell us what you propose for copays or other patient responsibility. This is a request for review, not permission to charge your card.') }}</p>
+        <p>{{ tx(tutoringPayment ? 'Discuss tutoring payment arrangements with the office. Submitting this request does not require a card or authorize a charge.' : 'Tell us what you propose for copays or other patient responsibility. This is a request for review, not permission to charge your card.') }}</p>
         <label>{{ tx('I am willing to') }}
           <select :value="paymentInfo.arrangement || 'discuss'" @change="emit('update:paymentInfo', { ...paymentInfo, arrangement: $event.target.value })">
             <option value="discuss">{{ tx('Discuss payment with the office') }}</option>
@@ -113,7 +113,7 @@
       <section v-if="showPaymentSection" class="pi-ip-section">
         <h3 class="pi-ip-section-title">{{ tx('Payment Method') }}</h3>
         <p class="pi-ip-section-lead">
-          {{ tx('Save your card securely with Stripe. Payment information is required before paid services; contact the office if you need another arrangement.') }}
+          {{ tx(tutoringPayment ? 'Saving a card is optional when requesting tutoring. The office will confirm the payment arrangement separately.' : 'Save your card securely with Stripe. Payment information is required before paid services; contact the office if you need another arrangement.') }}
         </p>
 
         <div class="pi-ip-choice-row pi-ip-choice-row--3">
@@ -172,7 +172,7 @@
           />
         </div>
         <p v-else-if="paymentChoice === 'later'" class="pi-ip-hint">
-          {{ tx('Add a payment method in your portal before paid services begin.') }}
+          {{ tx(tutoringPayment ? 'No card is required to submit your tutoring request. The office will follow up about payment.' : 'Add a payment method in your portal before paid services begin.') }}
         </p>
         <p v-else-if="paymentChoice === 'na'" class="pi-ip-hint">
           {{ tx('No card will be saved now. Our office may contact you about payment arrangements.') }}
@@ -324,7 +324,14 @@ const authAgreed = ref(!!props.insuranceInfo?.authorizationAgreed);
 const authSignature = ref(props.insuranceInfo?.authorizationSignature || '');
 const authSignatureData = ref(props.insuranceInfo?.authorizationSignatureData || '');
 const authError = ref('');
-const paymentChoice = ref(props.paymentInfo?.paymentChoice || '');
+const tutoringPayment = computed(() => props.stepConfig?.enrollmentService === 'tutoring');
+const paymentChoice = ref(props.paymentInfo?.paymentChoice || (tutoringPayment.value ? 'later' : ''));
+watch(() => tutoringPayment.value, tutoring => {
+  if (tutoring && !props.paymentInfo?.paymentChoice) {
+    paymentChoice.value = 'later';
+    emit('update:paymentInfo', { ...props.paymentInfo, arrangement: props.paymentInfo?.arrangement || 'discuss', paymentChoice: 'later', skipAcknowledged: true, requiresPaymentFollowup: true, autoCharge: false });
+  }
+}, { immediate: true });
 
 const isSelfPay = computed(() => props.paymentOnly || isSelfPayCoverage(props.insuranceInfo));
 
@@ -365,7 +372,7 @@ function confirmCoverage() {
 }
 
 const allowsNoCardChoice = computed(() => (
-  !props.paymentOnly || props.stepConfig?.paymentRequired === false || props.insuranceOnFile
+  tutoringPayment.value || !props.paymentOnly || props.stepConfig?.paymentRequired === false || props.insuranceOnFile
 ));
 
 const showPaymentSection = computed(() => {

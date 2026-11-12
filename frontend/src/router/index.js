@@ -34,6 +34,7 @@ import { isSupervisor } from '../utils/helpers';
 import { hasProviderMobileAccess } from '../utils/providerMobileAccess';
 import { isLikelyMobileViewport, isStandalonePwa } from '../utils/pwa';
 import { getSchoolStaffWaiverStatus } from '../utils/schoolStaffWaiverGate';
+import {serviceWorkspace,isClinicalWorkspacePath} from '../utils/nluWorkspace.js';
 import {
   isSchoolOnboardingDemoActive,
   isSchoolOnboardingDemoRoute
@@ -1512,6 +1513,14 @@ const routes = [
     meta: { requiresGuest: false, flatDistrictSchedule: true, publicDistrictSchedule: true }
   },
   // Organization-specific routes (supports Agency, School, Program, Learning)
+  {path:'/:organizationSlug/students',name:'OrganizationTutoringStudents',component:()=>import('../views/tutoring/TutoringStudentsView.vue'),meta:{requiresAuth:true,organizationSlug:true}},
+  {path:'/:organizationSlug/clients',redirect:to=>({path:`/${to.params.organizationSlug}/students`,query:to.query}),meta:{requiresAuth:true,organizationSlug:true}},
+  {path:'/:organizationSlug/tutoring-profile',name:'OrganizationTutoringProfile',component:()=>import('../views/tutoring/TutoringProfileView.vue'),meta:{requiresAuth:true,organizationSlug:true}},
+  {path:'/:organizationSlug/childcare',name:'OrganizationChildcareShifts',component:()=>import('../views/ChildcareShiftsView.vue'),meta:{requiresAuth:true,organizationSlug:true}},
+  {path:'/students',name:'TutoringStudents',component:()=>import('../views/tutoring/TutoringStudentsView.vue'),meta:{requiresAuth:true}},
+  {path:'/clients',redirect:to=>({path:'/students',query:to.query}),meta:{requiresAuth:true}},
+  {path:'/tutoring-profile',name:'TutoringProfile',component:()=>import('../views/tutoring/TutoringProfileView.vue'),meta:{requiresAuth:true}},
+  {path:'/childcare',name:'ChildcareShifts',component:()=>import('../views/ChildcareShiftsView.vue'),meta:{requiresAuth:true}},
   // Root org path redirects directly to the branded login page — splash was removed.
   {
     path: '/:organizationSlug',
@@ -6318,6 +6327,8 @@ router.beforeEach(async (to, from, next) => {
       query: redirectPath && redirectPath !== '/' ? { redirect: redirectPath } : {},
       replace: true
     });
+  } else if (to.meta.requiresAuth && serviceWorkspace(authStore.user,agencyStore.currentAgency).learningOnly && isClinicalWorkspacePath(to.path)) {
+    next({path:to.params.organizationSlug?`/${to.params.organizationSlug}/students`:'/students',replace:true});
   } else if (to.meta.requiresBillingWorkspace && !canAccessBillingWorkspace(authStore.user)) {
     next({ path: getDashboardRoute(), replace: true });
   } else if (to.meta.requiresProviderMobileAccess) {

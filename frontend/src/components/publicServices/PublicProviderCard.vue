@@ -18,8 +18,8 @@
         <p v-if="provider.tutoringProfile" class="card-detail">{{provider.tutoringProfile.hourlyRateCents!=null?new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(provider.tutoringProfile.hourlyRateCents/100)+' / hour':provider.tutoringProfile.sessionRateLabel?provider.tutoringProfile.sessionRateLabel+' / session':'Contact us for pricing'}}</p><p v-if="provider.tutoringProfile?.gradeLevels?.length" class="card-detail">Grades: {{provider.tutoringProfile.gradeLevels.join(', ')}}</p><p v-if="provider.tutoringProfile?.acceptingNewStudents===false" class="card-detail">Not currently accepting new students. Ask about the waitlist.</p><div class="card-tags">
           <span v-for="tag in visibleTags" :key="tag" class="tag">{{ tag }}</span>
         </div>
-        <p v-if="provider.profile?.details?.clinicalFocus?.reviewed" class="card-detail">Highlighted areas · View profile for more</p><p v-if="visibleAges.length" class="card-detail">{{ visibleAges.join(' · ') }}</p>
-        <p v-if="provider.profile?.insurancesAccepted?.length" class="card-detail">{{ provider.profile.insurancesAccepted.join(' · ') }}</p>
+        <p v-if="serviceType !== 'tutoring' && provider.profile?.details?.clinicalFocus?.reviewed" class="card-detail">Highlighted areas · View profile for more</p><p v-if="visibleAges.length" class="card-detail">{{ visibleAges.join(' · ') }}</p>
+        <p v-if="serviceType !== 'tutoring' && provider.profile?.insurancesAccepted?.length" class="card-detail">{{ provider.profile.insurancesAccepted.join(' · ') }}</p>
 <div class="card-office-buttons"><button v-for="office in provider.officeLocations||[]" :key="office.id" type="button" class="btn-outline" @click="$emit('office-selected',String(office.id))">⌖ {{office.name}}</button></div>
         <div class="card-location-row">
           <span v-if="hasInPerson" class="loc-dot loc-dot--inperson" title="In-Person" />
@@ -84,6 +84,7 @@ import { publishedFocus } from '../../navigation/providerFocus.js';
 const photoFailed = ref(false);
 
 const props = defineProps({
+  serviceType: { type:String, default:'counseling' },
   provider: { type: Object, required: true },
   isBestMatch: { type: Boolean, default: false },
   isFastest: { type: Boolean, default: false },
@@ -93,7 +94,7 @@ const props = defineProps({
 
 const emit = defineEmits(['book', 'view-profile', 'view-availability', 'office-selected']);
 
-const visibleAges=computed(()=>publishedFocus('ageGroups',props.provider.profile?.details?.clinicalFocus,props.provider.ageGroups||[]).top);
+const visibleAges=computed(()=>props.serviceType === 'tutoring' ? [] : publishedFocus('ageGroups',props.provider.profile?.details?.clinicalFocus,props.provider.ageGroups||[]).top);
 const slots = computed(() => props.provider.availability?.slots || []);
 const hasSlots = computed(() => slots.value.length > 0);
 const hasInPerson = computed(() => slots.value.some((s) => s.programType === 'IN_PERSON'));
@@ -112,6 +113,7 @@ const titleLabel = computed(() => {
 });
 
 const visibleTags = computed(() => {
+  if (props.serviceType === 'tutoring') return props.provider.tutoringProfile?.subjectAreas || [];
   const focus=props.provider.profile?.details?.clinicalFocus;
   if(focus?.reviewed&&!props.provider.tutoringProfile)return publishedFocus('specialties',focus,props.provider.specialties||[]).top;
   const p = props.provider;

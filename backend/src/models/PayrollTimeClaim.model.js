@@ -160,7 +160,7 @@ class PayrollTimeClaim {
     return (rows || []).map((r) => this._normalize(r));
   }
 
-  static async approve({ id, approverUserId, targetPayrollPeriodId, appliedAmount, bucket = 'indirect', creditsHours = null, eventTravelReviewedAt = null, db = pool, requireSubmitted = false }) {
+  static async approve({ id, approverUserId, targetPayrollPeriodId, appliedAmount, bucket = 'indirect', creditsHours = null, eventTravelReviewedAt = null, childcareSnapshotHash = null, db = pool, requireSubmitted = false }) {
     const raw = String(bucket || 'indirect').trim().toLowerCase();
     const b = raw === 'direct'
       ? 'direct'
@@ -180,13 +180,14 @@ class PayrollTimeClaim {
              rejection_reason = NULL,
              rejected_by_user_id = NULL,
              rejected_at = NULL
-         WHERE id = ? ${requireSubmitted ? "AND status='submitted' AND EXISTS (SELECT 1 FROM payroll_periods p WHERE p.id = ? AND p.agency_id = payroll_time_claims.agency_id AND LOWER(p.status) NOT IN ('posted','finalized') AND p.posted_at IS NULL AND p.finalized_at IS NULL)" : ''} ${eventTravelReviewedAt ? `AND EXISTS (
+         WHERE id = ? ${childcareSnapshotHash ? "AND claim_type='childcare_shift' AND JSON_UNQUOTE(JSON_EXTRACT(payload_json,'$.childcareSnapshotHash'))=? AND JSON_EXTRACT(payload_json,'$.childcareSnapshot.reviewRequired')=FALSE" : ''} ${requireSubmitted ? "AND status='submitted' AND EXISTS (SELECT 1 FROM payroll_periods p WHERE p.id = ? AND p.agency_id = payroll_time_claims.agency_id AND LOWER(p.status) NOT IN ('posted','finalized') AND p.posted_at IS NULL AND p.finalized_at IS NULL)" : ''} ${eventTravelReviewedAt ? `AND EXISTS (
            SELECT 1 FROM company_event_travel_reports r WHERE r.id = payroll_time_claims.event_travel_report_id
            AND r.reviewed_at IS NOT NULL AND JSON_UNQUOTE(JSON_EXTRACT(r.report_json, '$.reviewedAt')) = ?)` : ''}
          LIMIT 1`,
-        [targetPayrollPeriodId, b, safeHrs, appliedAmount, approverUserId, id, ...(requireSubmitted ? [targetPayrollPeriodId] : []), ...(eventTravelReviewedAt ? [eventTravelReviewedAt] : [])]
+        [targetPayrollPeriodId, b, safeHrs, appliedAmount, approverUserId, id, ...(childcareSnapshotHash ? [childcareSnapshotHash] : []), ...(requireSubmitted ? [targetPayrollPeriodId] : []), ...(eventTravelReviewedAt ? [eventTravelReviewedAt] : [])]
       );
       if (requireSubmitted && !result.affectedRows) throw Object.assign(new Error('Submission changed before approval.'),{status:409,code:'PAYROLL_SOURCE_CHANGED'});
+      if (childcareSnapshotHash && !result.affectedRows) throw Object.assign(new Error('Childcare attendance or rates changed. Refresh the shift and review its current pay snapshot before approval.'),{status:409,code:'PAYROLL_SOURCE_CHANGED'});
       if (eventTravelReviewedAt && !result.affectedRows) throw Object.assign(new Error('The travel report changed. Refresh and review it before approval.'), { status: 409 });
       return PayrollTimeClaim.findById(id, db);
     };

@@ -9,9 +9,10 @@ test('invalid prices and duplicate rules are rejected',()=>{assert.throws(()=>va
 test('inquiry stores versioned observations without accepting arbitrary scores or package prices',()=>{const v=normalizeLearningInquiry({program:'bridge',grade:'3',reflectionVersion:'6-10',reflectionAnswers:{'6-10-1-1':3},packageSnapshot:{totalCents:1}});assert.equal(v.version,1);assert.equal(v.packageSnapshot,undefined);assert.throws(()=>normalizeLearningInquiry({program:'bridge',reflectionAnswers:{'parent-1-1':8}}));});
 
 import {learningIntakeSteps} from '../learningIntakeSteps.js';
-test('learning packet removes the counseling seed while retaining custom questions and agreements',()=>{
+test('academic tutoring removes clinical seeds and acknowledgements while retaining custom learning input',()=>{
  const steps=[{id:'counseling_self_about_you'},{id:'counseling_self_safety'},{id:'counseling_couple_questionnaires'},{id:'custom-questions'},{id:'office_package_selection'},{type:'packet_informed_group_consent'}];
- assert.deepEqual(learningIntakeSteps(steps),[steps[0],steps[3],steps[5]]);
+ const result=learningIntakeSteps(steps);
+ assert.deepEqual(result.map(step=>step.id),['custom-questions','tutoring_provider_preference','tutoring_services_agreement']);
  assert.equal(steps.length,6);
 });
 

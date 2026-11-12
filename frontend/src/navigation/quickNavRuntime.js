@@ -5,6 +5,7 @@ import { APP_PAGES } from './appPagesData.js';
 import { resolveHostImpliedPortalSlug } from '../utils/orgScopedPath.js';
 import { canAccessBillingWorkspace } from '../config/medicalBillingAccess.js';
 import { hasProviderMobileAccess } from '../utils/providerMobileAccess.js';
+import {serviceWorkspace,isClinicalWorkspacePath} from '../utils/nluWorkspace.js';
 import { canAccessSchoolPortalsSurfaces } from '../utils/schoolPortalsAccess.js';
 import { canAccessSkillBuildersSchoolProgramSurfaces } from '../utils/skillBuildersSchoolProgramAccess.js';
 import { routeRequiresSchoolPortalsFeature, routeRequiresProgramOverviewDashboard, routeRequiresSkillBuildersSchoolProgramFeature } from './routeFeatures.js';
@@ -33,6 +34,8 @@ export function quickNavRoleAllowed(role, required) {
 }
 
 export function canDiscoverQuickNavRoute(route, { user, agency = {}, platformBranding = {} } = {}) {
+  const workspace=serviceWorkspace(user,agency);
+  if(workspace.learningOnly && (isClinicalWorkspacePath(route.path || '') || route.query?.tab==='clients' || route.query?.tab==='supervision'))return false;
   if (!route?.matched?.length || route.matched.some(r => /:pathMatch|:catchAll/.test(r.path))) return false;
   const meta = route.meta || {};
   if (meta.requiresAuth && !user) return false;

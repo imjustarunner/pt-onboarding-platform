@@ -15,6 +15,7 @@ import { assertNoManualSupervisionClaim } from '../services/supervisionSubmissio
 import { resolveHourlySuperviseePay } from '../services/hourlySupervisionPay.service.js';
 import { validateFfsExcess, persistFfsExcessClaim } from '../services/ffsExcessTime.service.js';
 import { tutoringClaimAmount } from '../services/tutoringPayroll.service.js';
+import {childcareClaimAmount} from '../services/childcarePay.service.js';
 import { billedAmountFromReport, rateAtDate, billedPayForStagingRow } from '../services/payrollBilledPay.service.js';
 import { payrollAliasUsers, canMatchPayrollUser, archivedPayrollName } from '../services/payrollProviderMatching.service.js';
 import { isNoteworthyPractice,noteworthyMatchingUsers,ensureNoteworthyProvider } from '../services/noteworthyRoster.service.js';
@@ -1202,6 +1203,7 @@ async function inferManualPayCreditsHoursForUser({ agencyId, userId, category, c
 }
 
 function resolveTimeClaimHours(c) {
+  if(c?.claim_type==='childcare_shift'&&c?.payload?.childcareSnapshot)return {hrs:Number(c.payload.childcareSnapshot.totalMinutes)/60,bucket:'direct',claimType:'childcare_shift',payload:c.payload};
   const payloadBucket = String(c?.payload?.bucket || '').trim().toLowerCase();
   const bucket = normalizeTimeClaimBucket(c?.bucket || payloadBucket || 'indirect');
   const hrsFromCol =
@@ -6703,6 +6705,7 @@ export async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId,
       const stored = Number(c?.applied_amount || 0);
       const claimType = String(c?.claim_type || '').trim().toLowerCase();
       const payload = c?.payload || {};
+      if (claimType === 'childcare_shift') return childcareClaimAmount(c);
       const amountExplicit = payload.amountExplicit === true || payload.payRateAmountOverride === true;
       if (claimType === 'skill_builder_event') {
         if (amountExplicit && stored > 1e-9) return stored;
@@ -6970,7 +6973,10 @@ export async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId,
       const effectiveAmt = await effectiveTimeClaimAmount(c);
       if (Math.abs(effectiveAmt) > 1e-9) {
         let lineLabel;
-        if (claimType === 'skill_builder_event') {
+        if (claimType === 'childcare_shift') {
+          for(const segment of payload.childcareSnapshot.segments)pushLine({type:'time_claim',label:`Childcare — ${segment.band} child${segment.band===1?'':'ren'} per caregiver${segment.rateSource==='individual_band_override'?' · employee rate override':''}`,taxable:true,amount:segment.amount,bucket:'direct',meta:{hours:segment.minutes/60,creditsHours:segment.minutes/60,rate:segment.rate,childcareShiftId:payload.childcareShiftId,children:segment.children,caregivers:segment.caregivers,band:segment.band,rateSource:segment.rateSource,scheduleId:segment.scheduleId,startedAt:segment.startedAt,endedAt:segment.endedAt}});
+          continue;
+        } else if (claimType === 'skill_builder_event') {
           const payInfo = await resolveKioskEventClaimPay({
             claim: c,
             payload,
@@ -19143,6 +19149,7 @@ export const deleteMyTimeClaim = async (req, res, next) => {
     const claim = await PayrollTimeClaim.findById(id);
     if (!claim) return res.status(404).json({ error: { message: 'Time claim not found' } });
     if (Number(claim.user_id) !== Number(userId)) return res.status(403).json({ error: { message: 'Access denied' } });
+    if (claim.claim_type === 'childcare_shift') return res.status(409).json({error:{message:'Childcare time comes from recorded shift work and cannot be deleted or withdrawn. Ask the childcare manager to review its attendance and pay.'}});
     if (claim.claim_type === MISSED_FEE_CLAIM_TYPE) return res.status(409).json({ error: { message: 'Collected fee compensation follows the billing ledger and cannot be deleted or withdrawn. Ask payroll to review the linked fee.' } });
     if (claim.event_travel_report_id) return res.status(409).json({ error: { message: 'Edit the complete report in Submit → Event travel reimbursement so time and mileage stay together.' } });
 
@@ -19843,6 +19850,7 @@ export async function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard,
   };
   const type = String(claim?.claim_type || '').toLowerCase();
   if (type === 'tutoring_session') return tutoringClaimAmount(claim, approveCreditsHours);
+  if (type === 'childcare_shift') return childcareClaimAmount(claim, approveCreditsHours);
   const payload = claim?.payload || {};
   const directRate = Number(rateCard?.direct_rate || 0);
   const indirectRate = await resolveLegacyIndirectHourlyRate({
@@ -20092,6 +20100,10 @@ export const patchTimeClaim = async (req, res, next) => {
       return res.json({ claim: updated });
     }
     if (action === 'approve') {
+      if (claim.claim_type === 'childcare_shift') {
+        const expected=childcareClaimAmount(claim,body.creditsHours??body.credits_hours??null);
+        if(body.appliedAmount!=null&&body.appliedAmount!==''&&Math.abs(Number(body.appliedAmount)-expected)>.001)return res.status(409).json({error:{message:'Childcare pay uses the recorded staffing, actual time and effective employee band rates. Review its shift before changing payroll pay.'}});
+      }
       let eventTravelReviewedAt;
       try { eventTravelReviewedAt = await assertEventTravelReviewed(claim); }
       catch (error) {
@@ -20131,6 +20143,7 @@ export const patchTimeClaim = async (req, res, next) => {
       // Older UIs hard-coded bucket:'indirect', which would otherwise mis-post Other 1 claims.
       let bucket = normalizeTimeClaimBucket(bucketRaw);
       if (claimTypeKeyForBucket === 'tutoring_session') bucket = claim.payload?.part === 'indirect' ? 'indirect' : 'direct';
+      if (claimTypeKeyForBucket === 'childcare_shift') bucket = 'direct';
       if (
         claimTypeKeyForBucket === 'indirect_time'
         && payloadBucketHint === 'other_1'
@@ -20168,7 +20181,7 @@ export const patchTimeClaim = async (req, res, next) => {
       // Default hours from totalMinutes for meeting / hourly indirect logs when admin leaves blank.
       if (creditsHoursRaw === null) {
         const claimTypeKey = String(claim.claim_type || '').toLowerCase();
-        if (claimTypeKey === 'tutoring_session' || claimTypeKey === 'indirect_time' || claimTypeKey === 'meeting_training' || claimTypeKey === 'mentor_cpa_meeting') {
+        if (claimTypeKey === 'childcare_shift' || claimTypeKey === 'tutoring_session' || claimTypeKey === 'indirect_time' || claimTypeKey === 'meeting_training' || claimTypeKey === 'mentor_cpa_meeting') {
           const mins = Number(claim?.payload?.totalMinutes || 0);
           if (Number.isFinite(mins) && (mins > 0 || correction)) {
             creditsHoursRaw = Math.round((mins / 60) * 1000000) / 1000000;
@@ -20205,7 +20218,7 @@ export const patchTimeClaim = async (req, res, next) => {
           computedDefaultAmount = null;
         }
       }
-      if(!Number.isFinite(override)&&!Number.isFinite(payloadAmountRaw)&&!Number.isFinite(computedDefaultAmount)&&['indirect_time','tutoring_session'].includes(claim.claim_type)&&!isUnpaidMeetingClaim(claim))return res.status(409).json({error:{message:'Confirm this claim’s assigned rate and agreement before approving payment. No amount could be calculated.'}});
+      if(!Number.isFinite(override)&&!Number.isFinite(payloadAmountRaw)&&!Number.isFinite(computedDefaultAmount)&&['indirect_time','tutoring_session','childcare_shift'].includes(claim.claim_type)&&!isUnpaidMeetingClaim(claim))return res.status(409).json({error:{message:'Confirm this claim’s assigned rate and agreement before approving payment. No amount could be calculated.'}});
       const appliedAmount = isUnpaidMeetingClaim(claim) ? 0 : Number.isFinite(override)
         ? override
         : (Number.isFinite(payloadAmountRaw) ? payloadAmountRaw : (Number.isFinite(computedDefaultAmount) ? computedDefaultAmount : 0));
@@ -20216,6 +20229,7 @@ export const patchTimeClaim = async (req, res, next) => {
       const updated = await PayrollTimeClaim.approve({
         ...(scopedPayrollCommand(req)?{db:scopedPayrollCommand(req).db,requireSubmitted:true}:{}),
         eventTravelReviewedAt,
+        ...(claim.claim_type==='childcare_shift'?{childcareSnapshotHash:claim.payload.childcareSnapshotHash,requireSubmitted:true}:{}),
         ...(req[CLAIM_BATCH_CONTEXT] ? { requireSubmitted: true } : {}),
         id,
         approverUserId: req.user.id,
@@ -20226,7 +20240,7 @@ export const patchTimeClaim = async (req, res, next) => {
       });
 
       if(scopedPayrollCommand(req))return res.json({claim:updated});
-      if (!claim.event_travel_report_id) {
+      if (!claim.event_travel_report_id && claim.claim_type!=='childcare_shift') {
         // Keep payload in sync with admin hour/bucket overrides so recompute / display match pay.
         try {
           const prevPayload = (claim.payload && typeof claim.payload === 'object') ? claim.payload : {};
@@ -20402,6 +20416,7 @@ export const patchTimeClaim = async (req, res, next) => {
     }
 
     if (action === 'update' || action === 'updateapproved') {
+      if (claim.claim_type === 'childcare_shift') return res.status(409).json({error:{message:'Unapprove this childcare payroll entry and review its actual shift attendance and effective rate schedule. Recorded work and approved earnings are retained.'}});
       if (claim.event_travel_report_id) return res.status(409).json({ error: { message: 'Unapprove this report’s payroll entries and update the Event travel report review first.' } });
       const st = String(claim.status || '').toLowerCase();
       if (st !== 'approved') {

@@ -3,6 +3,7 @@ import { isBookClubAgency as isBookClubPortalOrg } from '../utils/bookClubAgency
 import { CONVERSA_ICON_URL } from '../constants/conversa.js';
 import { isSupervisor } from '../utils/helpers.js';
 import { isNoteAidEmployeeRole, isNoteAidEnabledForAgencyFlags, workspaceNoteAidPath } from '../config/noteAidAccess.js';
+import { serviceWorkspace, scopedWorkspacePath } from '../utils/nluWorkspace.js';
 
 export function dashboardOnboardingComplete(user, { isClubContext = false, status = user?.status || 'active' } = {}) {
   if (isClubContext) return true;
@@ -39,7 +40,7 @@ export function buildDashboardCards({
   isSchoolStaff = false, isBookClubContext = false, momentumListEnabled = false,
   portalsNestCard = null, clientActionItemCount = 0, swapClientsTabForFallUpdate = false,
   providerSurfacesEnabled = true, shiftProgramsEnabledForAgency = false,
-  canAccessToolsAids = false, hasClinicalSupervision = false, noteWorkspaceLabel = 'Note Workspace'
+  canAccessToolsAids = false, hasClinicalSupervision = false, noteWorkspaceLabel = 'Note Workspace', agency = {}
 } = {}) {
   const u = user;
   const role = String(u?.role || '').toLowerCase();
@@ -406,6 +407,16 @@ export function buildDashboardCards({
         || brandingStore.getDashboardCardIconUrl('documents', iconOrg),
       description: `Open ${noteWorkspaceLabel.toLowerCase()} and documentation tools.`
     });
+  }
+  const workspace = serviceWorkspace(user, agency);
+  if (workspace.canTutor) {
+    cards.push({id:'tutoring_profile',label:'Tutoring profile',kind:'link',to:scopedWorkspacePath(orgSlug,'/tutoring-profile'),badgeCount:0,description:'Edit your subjects, grades and public introduction.'});
+  }
+  if (workspace.canChildcare) cards.push({id:'childcare',label:'Childcare',kind:'link',to:scopedWorkspacePath(orgSlug,'/childcare'),badgeCount:0,description:'Schedule childcare, record attendance and clock your work.'});
+  if (workspace.learningOnly) {
+    const students=cards.find(card=>card.id==='clients');
+    if (students && workspace.canTutor) Object.assign(students,{label:'My students',kind:'link',to:scopedWorkspacePath(orgSlug,'/students'),description:'Your assigned tutoring students and learning plans.'});
+    return cards.filter(card=>!['documentation_hub','supervision','my_supervision','schools_programs'].includes(card.id) && (workspace.canTutor || card.id!=='clients'));
   }
   return cards;
 }

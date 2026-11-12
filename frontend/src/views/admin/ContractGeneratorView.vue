@@ -144,7 +144,7 @@
           <div v-if="selectionDriven && agreementVariant === 'student'" class="cg-sheet-row"><span class="cg-label">Starting training phase</span><select v-model="build.tokens.TRAINING_START_PHASE"><option value="practicum">Practicum → internship</option><option value="internship">Direct-entry internship</option></select><span class="cg-note">One agreement covers both phases. Practicum continues into internship unless either party gives written notice of non-continuation, subject to academic requirements and the practicum review.</span></div>
         </div>
 
-        <ContractExpectationsEditor :show-core-fields="false" v-model="individualExpectations" :individual-agreement-mode="contractTenant==='isi'" :service-role-options="contractServiceRoleOptions" :service-role-source="build.tokens.CONTRACT_SERVICE_ROLE_SOURCE" title="Individual expectations and compensated duties" description="Starts with this posting’s defaults. Changes here apply only to this person’s agreement." />
+        <ContractExpectationsEditor :show-core-fields="false" v-model="individualExpectations" :individual-agreement-mode="contractTenant==='isi'" :service-role-options="contractServiceRoleOptions" :service-role-source="build.tokens.CONTRACT_SERVICE_ROLE_SOURCE" :compensation-category="build.compensationCategory" :service-compensation="serviceCompensation" title="Individual expectations and compensated duties" description="Starts with this posting’s defaults. Changes here apply only to this person’s agreement." />
         <button v-if="postingDefaults" type="button" class="cg-btn" @click="individualExpectations = JSON.parse(JSON.stringify(postingDefaults))">Restore this posting’s defaults</button>
         <div class="cg-actions">
           <button type="button" class="cg-btn" :disabled="busy || !canBuild" @click="preview">Preview contract</button>
@@ -298,6 +298,7 @@ const credentialOptions = ref([]);
 const serviceFocusOptions = ref([]), schoolDaysEnabled = ref(false);
 const contractServiceRoleOptions = ref([]);
 const contractTenant = ref('');
+const serviceCompensation = ref(null);
 const agreementBuilder = ref(null), agreementVariant = ref('provider'), manualConfigMode = ref(false);
 const selectionDriven = computed(() => !!agreementBuilder.value && !manualConfigMode.value);
 function applyAgreementVariant() {
@@ -490,6 +491,7 @@ async function loadCandidateContext() {
     serviceFocusOptions.value = data.serviceFocusOptions || [];
     contractServiceRoleOptions.value = data.contractServiceRoleOptions || [];
     contractTenant.value = data.contractTenant || '';
+    serviceCompensation.value = data.serviceCompensation || null;
     schoolDaysEnabled.value = data.schoolDaysEnabled === true;
     if (data.jobDescClauses?.length) jobDescClauses.value = data.jobDescClauses;
     offices.value = data.offices || [];
@@ -544,6 +546,7 @@ async function loadLibrary() {
     serviceFocusOptions.value = data.serviceFocusOptions || [];
     contractServiceRoleOptions.value = data.contractServiceRoleOptions || [];
     contractTenant.value = data.contractTenant || '';
+    serviceCompensation.value = data.serviceCompensation || null;
     schoolDaysEnabled.value = data.schoolDaysEnabled === true;
     offices.value = data.offices || [];
     credentialOptions.value = [...(data.credentialOptions || []), { key: 'CUSTOM', label: 'Custom / other…' }];

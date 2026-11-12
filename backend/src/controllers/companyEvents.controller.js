@@ -2031,6 +2031,7 @@ async function visibleLinkedStaffEvent(row, userId) {
 }
 
 async function createCompanyEventCore(req, agencyId, userId, parsed) {
+  if(parsed.eventType==='childcare')return {error:'Create childcare in the Childcare scheduler so employee authorization, attendance and pay stay linked.',httpStatus:409};
   assertConversaTeamManager(req.user, parsed);
   const linked = await validatePollEventLink(agencyId, parsed, null, req.user);
   await validateTeamAudience(agencyId, parsed, linked);
@@ -2271,6 +2272,7 @@ export async function persistCompanyEventUpdate(req, agencyId, eventId, body) {
 
   const existing = await loadEventByIdForAgency(eventId, agencyId);
   if (!existing) return { error: { status: 404, message: 'Company event not found' } };
+  if(existing.event_type==='childcare'||body?.eventType==='childcare')return {error:{status:409,message:'Edit this shift in Childcare to preserve its attendance, assignments and pay.'}};
   if (Number(readEventOperations(existing).outreachTripId)) return { error: { status: 409, message: 'Edit this linked Outreach Event from its trip in Outreach Hub so the route, calendar and assignments stay together.' } };
 
   await assertEventCommunicationManager(req, existing, body || {});
@@ -2506,6 +2508,7 @@ export const deleteCompanyEvent = async (req, res, next) => {
     }
     const event = await loadEventByIdForAgency(eventId, agencyId);
     if (!event) return res.status(404).json({ error: { message: 'Company event not found' } });
+    if(event.event_type==='childcare')return res.status(409).json({error:{message:'Cancel this shift in Childcare. Recorded work and payroll history are retained.'}});
     if (Number(readEventOperations(event).outreachTripId)) return res.status(409).json({ error: { message: 'Cancel this Outreach Event from its trip in Outreach Hub. School notes and trip history will be preserved.' } });
     await assertEventCommunicationManager(req, event);
     const [result] = await pool.execute(
@@ -4778,6 +4781,7 @@ export const copyCompanyEventToTarget = async (req, res, next) => {
 
     const sourceRow = await loadEventByIdForAgency(sourceEventId, sourceAgencyId);
     if (!sourceRow) return res.status(404).json({ error: { message: 'Source event not found' } });
+    if(sourceRow.event_type==='childcare')return res.status(409).json({error:{message:'Create a new authorized childcare shift in its organization; recorded childcare staffing and pay are not copied.'}});
 
     const [[targetAgency]] = await pool.execute(
       `SELECT id FROM agencies WHERE id = ? AND (is_archived IS NULL OR is_archived = FALSE) LIMIT 1`,

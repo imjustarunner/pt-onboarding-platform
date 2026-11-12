@@ -6,25 +6,7 @@ export { digitsOnly };
  * Permissive email check — accepts modern TLDs (.health, .agency, etc.)
  * without relying on browser type=email or outdated regex lists.
  */
-export function isValidEmailAddress(value) {
-  const email = String(value || '').trim();
-  if (!email || email.length > 254) return false;
-  if (/\s/.test(email)) return false;
-
-  const at = email.indexOf('@');
-  if (at <= 0 || at !== email.lastIndexOf('@')) return false;
-
-  const local = email.slice(0, at);
-  const domain = email.slice(at + 1);
-  if (!local || !domain) return false;
-  if (domain.startsWith('.') || domain.endsWith('.') || domain.includes('..')) return false;
-  if (!domain.includes('.')) return false;
-
-  const tld = domain.slice(domain.lastIndexOf('.') + 1);
-  if (!/^[A-Za-z]{2,63}$/.test(tld)) return false;
-
-  return true;
-}
+export { isValidEnrollmentEmail as isValidEmailAddress } from '../navigation/tutoringEnrollmentPolicy.js';
 
 /** Accept the optional US country code without dropping any phone digits. */
 export function formatUsPhoneInput(raw) {
