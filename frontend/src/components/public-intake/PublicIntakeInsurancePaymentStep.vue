@@ -3,11 +3,11 @@
     <div class="pi-ip-main">
       <header class="pi-ip-header">
         <h2 v-if="!hideHeading" class="pi-ip-title">
-          {{ isMedicaid ? tx('Insurance Information') : paymentOnly ? tx('Payment Information') : tx('Insurance & Payment Information') }}
+          {{ paymentSuppressed ? tx('Insurance Information') : paymentOnly ? tx('Payment Information') : tx('Insurance & Payment Information') }}
         </h2>
         <p class="pi-ip-subtitle">
           {{
-            isMedicaid
+            paymentSuppressed
               ? tx('Our office will review your insurance and confirm benefits.')
               : paymentOnly
               ? tx('Set up payment for your selected package or services.')
@@ -20,7 +20,7 @@
         <strong>{{ tx('Why we collect this information') }}</strong>
         <p>
           {{
-            paymentOnly
+            paymentOnly && !paymentSuppressed
               ? tx('We use this information to process payments securely. You can save a card now or add one later in your portal.')
               : tx('We use this information to verify benefits and bill your insurance for eligible services. Our office will follow up if anything is missing.')
           }}
@@ -193,7 +193,7 @@
           <li v-if="!paymentOnly && !insuranceOnFile && payerChoice === 'insurance'">
             {{ tx('I authorize this organization to release information necessary to verify benefits and bill my insurance.') }}
           </li>
-          <li v-if="!isMedicaid">{{ tx('I understand the office will explain any patient responsibility and applicable payment terms before collecting payment.') }}</li>
+          <li v-if="!paymentSuppressed">{{ tx('I understand the office will explain any patient responsibility and applicable payment terms before collecting payment.') }}</li>
           <li>{{ tx('I understand the office may follow up for missing information.') }}</li>
         </ul>
 
@@ -228,7 +228,7 @@
     </div>
 
     <aside v-if="showSidebar" class="pi-ip-sidebar">
-      <div v-if="selectedPackage && !isMedicaid" class="pi-ip-side-card">
+      <div v-if="selectedPackage && !paymentSuppressed" class="pi-ip-side-card">
         <div class="pi-ip-side-kicker">{{ tx('Selected Package') }}</div>
         <strong class="pi-ip-side-name">{{ selectedPackage.name }}</strong>
         <div v-if="selectedPackage.sessionCount" class="pi-ip-side-meta">
@@ -259,13 +259,13 @@
         <ul class="pi-ip-side-list">
           <li v-if="!paymentOnly && !insuranceOnFile">{{ tx('Our office will review your insurance and confirm benefits.') }}</li>
           <li>{{ tx('We will contact you if we need more information.') }}</li>
-          <li v-if="!isMedicaid">{{ tx("You'll receive a benefits or payment summary as applicable.") }}</li>
+          <li v-if="!paymentSuppressed">{{ tx("You'll receive a benefits or payment summary as applicable.") }}</li>
         </ul>
       </div>
 
       <div class="pi-ip-side-card pi-ip-side-card--secure">
         <strong>{{ tx('Secure & private') }}</strong>
-        <p>{{ isMedicaid ? tx('Your insurance information is encrypted and available only through authorized access.') : tx('Card details are collected by Stripe. Insurance details are available to authorized billing staff and your own payer account.') }}</p>
+        <p>{{ paymentSuppressed ? tx('Your insurance information is encrypted and available only through authorized access.') : tx('Card details are collected by Stripe. Insurance details are available to authorized billing staff and your own payer account.') }}</p>
       </div>
     </aside>
   </div>
@@ -338,6 +338,9 @@ const payerChoice = computed(() => {
 const isMedicaid = computed(() => {
   return !props.paymentOnly && hasMedicaidCoverage(props.insuranceInfo);
 });
+// The bound descriptor may protect Medicaid already on file without exposing
+// that policy in this guardian's new/additional insurance fields.
+const paymentSuppressed = computed(() => !props.paymentCollectionAvailable || isMedicaid.value);
 
 const coverageReviewError = ref('');
 const reviewedCoverage = ref(null);
@@ -346,7 +349,7 @@ const coverageReviewed = computed(() => reviewedCoverage.value === coverageFinge
 // An edit needs a new review even if the user later restores the old value.
 watch(coverageFingerprint, () => { reviewedCoverage.value = null; }, { flush: 'sync' });
 const paymentEligible = computed(() => {
-  if (isMedicaid.value) return false;
+  if (paymentSuppressed.value) return false;
   if (props.paymentOnly || isSelfPay.value) return true;
   return payerChoice.value === 'insurance' && coverageReviewed.value;
 });

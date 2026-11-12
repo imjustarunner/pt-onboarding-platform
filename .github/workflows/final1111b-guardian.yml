@@ -93,6 +93,7 @@ jobs:
           src/views/__tests__/PublicIntakeCoGuardianInsurance.test.js
           src/views/__tests__/PublicIntakeGuardianResume.test.js
           src/views/__tests__/PublicIntakeInsuranceContinue.test.js
+          src/components/public-intake/__tests__/InsurancePaymentEnrollment.test.js
           src/components/clients/__tests__/ClientPortalOverview.test.js
           src/components/clients/__tests__/ClientPortalInviteDialog.test.js
           src/components/guardian/__tests__/GuardianInvitations.test.js

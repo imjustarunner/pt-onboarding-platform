@@ -6292,7 +6292,11 @@ const isPaymentOnlyEnrollmentChannel = computed(() => {
 /** null = unknown, true = empty catalog (skip step), false = has packages */
 const officePackageCatalogEmpty = ref(null);
 
+// A bound guardian descriptor can suppress payment without disclosing the
+// other guardian's stored policy. Keep this before flowSteps to avoid a TDZ.
+const coGuardianPaymentCollectionAvailable = ref(true);
 const shouldSkipPaymentCollectionStep = () => {
+  if (!coGuardianPaymentCollectionAvailable.value) return true;
   if (link.value?.master_channel === 'tutoring' && hasBridgeLearning()) return true;
   const insInfo = intakeResponses.submission?.insuranceInfo;
   if (shouldSuppressInsurancePayment(insInfo, link.value?.master_channel)) return true;
@@ -7633,7 +7637,6 @@ const isCoGuardianInvitee = computed(() => resumedCoGuardianInvite.value || Bool
 const coGuardianInviteError = ref('');
 const coGuardianDependents = ref([]);
 const excludedCoGuardianChildren = ref([]);
-const coGuardianPaymentCollectionAvailable = ref(true);
 const coGuardianInsuranceOnFile = computed(() => isCoGuardianInvitee.value && coGuardianDependents.value.length > 0 && coGuardianDependents.value.every(dep => dep.insuranceOnFile));
 const addCoGuardianInsurance = ref(false);
 const useCoGuardianInsuranceOnFile = computed(() => coGuardianInsuranceOnFile.value && !addCoGuardianInsurance.value);
