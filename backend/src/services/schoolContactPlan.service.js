@@ -5,10 +5,10 @@ import { resolveMessagesSendMailbox } from './tenantMessageMailboxes.service.js'
 import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service.js';
 import { managedDomain } from './managedWorkspaceGroupPolicy.js';
 
-import { SCHOOL_CONTACT_DEMO_AGENCY_ID, SCHOOL_CONTACT_TEST_INBOX, SCHOOL_CONTACT_AGENCY_IDS, isSchoolContactDemoAgency, isSchoolContactProviderEnabled, schoolContactDelivery } from './schoolContactRollout.js';
+import { SCHOOL_CONTACT_DEMO_AGENCY_ID, SCHOOL_CONTACT_TEST_INBOX, SCHOOL_CONTACT_AGENCY_IDS, SCHOOL_CONTACT_CARE_ROLES, isSchoolContactDemoAgency, isSchoolContactProviderEnabled, isAssignedSchoolRollout, schoolContactDelivery } from './schoolContactRollout.js';
 export { SCHOOL_CONTACT_DEMO_AGENCY_ID, SCHOOL_CONTACT_TEST_INBOX, isSchoolContactDemoAgency } from './schoolContactRollout.js';
 export { DEFAULT_SCHOOL_CONTACT_TEMPLATE } from './schoolContactTemplates.js';
-import { DEFAULT_SCHOOL_CONTACT_TEMPLATE, DEFAULT_SECOND_CONTACT_TEMPLATE, DEFAULT_FINAL_CONTACT_TEMPLATE, DEFAULT_CONTACT_SMS_TEMPLATE, SCHOOL_CONTACT_SUBJECTS,preferredSchoolContactTemplate } from './schoolContactTemplates.js';
+import { DEFAULT_SCHOOL_CONTACT_TEMPLATE, DEFAULT_SECOND_CONTACT_TEMPLATE, DEFAULT_FINAL_CONTACT_TEMPLATE, DEFAULT_CONTACT_SMS_TEMPLATE, SCHOOL_CONTACT_SUBJECTS,preferredSchoolContactTemplate,displaySchoolContactDay } from './schoolContactTemplates.js';
 import { buildProviderIntroductionPdf, introductionPdfAttachment, providerProfileUrl } from './familyWelcomeAssets.service.js';
 export const FAMILY_WELCOME_NAME = 'Family Welcome & Follow-Up';
 const TOKENS = ['parent_name', 'provider_name', 'school_name', 'service_day'];
@@ -75,8 +75,8 @@ export async function getContactPlanContext({ agencyId, userId, requireEligible 
       (SELECT i.from_email FROM communication_inboxes i JOIN email_sender_identities esi ON esi.id=i.sender_identity_id AND esi.agency_id=i.agency_id AND esi.is_active=1 AND esi.identity_key=CONCAT('personal_',u.id) AND LOWER(esi.from_email)=LOWER(i.from_email)
         WHERE i.agency_id=ua.agency_id AND i.owner_user_id=u.id AND i.kind='personal' AND i.is_active=1 ORDER BY i.id LIMIT 1) AS work_mailbox_email
     FROM users u JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=? AND ua.is_active=1
-    WHERE u.id=? AND COALESCE(u.is_archived,0)=0 AND COALESCE(u.is_active,1)=1`, [aid, uid]);
-  const careRole = ['provider', 'provider_plus', 'intern', 'intern_plus', 'supervisor', 'clinical_practice_assistant'].includes(provider?.role) || flag(provider?.has_provider_access);
+    WHERE u.id=? AND COALESCE(u.is_archived,0)=0 AND COALESCE(u.is_active,1)=1 AND u.terminated_at IS NULL AND (ua.agency_id=450 OR COALESCE(u.is_demo,0)=0)`, [aid, uid]);
+  const careRole = SCHOOL_CONTACT_CARE_ROLES.includes(provider?.role) || flag(provider?.has_provider_access);
   if (!provider || !careRole) {
     if (requireEligible) throw fail('This contact plan is available to assigned school providers.', 403);
     return { eligible: false, agency };
@@ -93,25 +93,39 @@ export async function getContactPlanContext({ agencyId, userId, requireEligible 
   return { eligible: schools.length > 0, agency, provider, schools, agencyId: aid, userId: uid, mandatory };
 }
 
+const WEEKDAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+async function loadPreviewSchoolDays(ctx) {
+  const [rows] = await pool.execute(`SELECT school_organization_id,day_of_week FROM provider_school_assignments
+    WHERE provider_user_id=? AND is_active=1 AND school_organization_id IN (${ctx.schools.map(()=>'?').join(',')})`, [ctx.userId,...ctx.schools.map(s=>s.id)]);
+  ctx.schools = ctx.schools.map(s => {
+    const assigned = (Array.isArray(rows) ? rows : []).filter(r=>Number(r.school_organization_id)===Number(s.id)).map(r=>String(r.day_of_week || ''));
+    const serviceDays = WEEKDAYS.filter(day=>assigned.includes(day));
+    const serviceDayLabel = serviceDays.length > 1 ? serviceDays.slice(0,-1).join(', ')+' and '+serviceDays.at(-1) : serviceDays[0] || 'to be confirmed';
+    return {...s,serviceDays,serviceDayLabel};
+  });
+}
+
 function planDto(ctx, plan = {}, from) {
   const template = preferredSchoolContactTemplate(plan.template);
   const providerName = [ctx.provider.first_name, ctx.provider.last_name].filter(Boolean).join(' ') || 'Provider name';
   const profileUrl = providerProfileUrl(ctx.agency, ctx.provider);
-  return { eligible: ctx.eligible, agencyId: ctx.agencyId, demoOnly: isSchoolContactDemoAgency(ctx.agency), rolloutPhase: isSchoolContactDemoAgency(ctx.agency) ? 'qa' : 'phase_1', mandatory: ctx.mandatory || flag(plan.required_by_admin), status: plan.status || 'unconfigured',
-    featureName: FAMILY_WELCOME_NAME, includePdf: plan.include_pdf === undefined || plan.include_pdf === null ? true : flag(plan.include_pdf),
-    welcomeSeen: !!plan.welcome_seen_at, profileUrl, agencyName: ctx.agency.name, previewValues: { profile_link: profileUrl, agency_name: ctx.agency.name },
+  const routing = schoolContactRouting(ctx.provider, from, ctx.agency);
+  return { eligible: ctx.eligible, agencyId: ctx.agencyId, demoOnly: isSchoolContactDemoAgency(ctx.agency), rolloutPhase: isSchoolContactDemoAgency(ctx.agency) ? 'qa' : isAssignedSchoolRollout(ctx.agency) ? 'assigned_school_providers' : 'phase_1', mandatory: ctx.mandatory || flag(plan.required_by_admin), status: plan.status || 'unconfigured',
+    featureName: FAMILY_WELCOME_NAME, agencySlug: ctx.agency.slug, includePdf: plan.include_pdf === undefined || plan.include_pdf === null ? true : flag(plan.include_pdf),
+    welcomeSeen: !!plan.welcome_seen_at, canEnable: !!routing.providerEmail, setupNotice: routing.providerEmail ? null : 'Your messaging email needs support setup before you turn this on. You can still review your messages and save Off.', profileUrl, agencyName: ctx.agency.name, previewValues: { profile_link: profileUrl, agency_name: ctx.agency.name },
     recommendedTemplates:{template:DEFAULT_SCHOOL_CONTACT_TEMPLATE,secondTemplate:DEFAULT_SECOND_CONTACT_TEMPLATE,finalTemplate:DEFAULT_FINAL_CONTACT_TEMPLATE,smsTemplate:DEFAULT_CONTACT_SMS_TEMPLATE},
     template, secondTemplate:plan.second_template || DEFAULT_SECOND_CONTACT_TEMPLATE, finalTemplate:plan.final_template || DEFAULT_FINAL_CONTACT_TEMPLATE, smsTemplate:plan.sms_template || DEFAULT_CONTACT_SMS_TEMPLATE,
     smsAfterDays:2, emailAfterDays:4, staleAfterHours:48, providerNoticeAfterDays:6, reminderEveryHours:48,
-    routing: schoolContactRouting(ctx.provider, from, ctx.agency), schools: ctx.schools, providerName,
+    routing, schools: ctx.schools, providerName,
     subjects: SCHOOL_CONTACT_SUBJECTS,
-    preview: { subject: SCHOOL_CONTACT_SUBJECTS.initial_email, body: renderSchoolContactTemplate(template, { parent_name: 'Parent name', provider_name: providerName, school_name: 'Example Middle School', service_day: 'Example Day', profile_link: profileUrl }) },
+    preview: { subject: SCHOOL_CONTACT_SUBJECTS.initial_email, body: renderSchoolContactTemplate(template, { parent_name: 'Parent name', provider_name: providerName, school_name: ctx.schools[0]?.name || 'Your assigned school', service_day: ctx.schools[0]?.serviceDayLabel || 'to be confirmed', profile_link: profileUrl }) },
     testDestination: isSchoolContactDemoAgency(ctx.agency) ? SCHOOL_CONTACT_TEST_INBOX : schoolContactRouting(ctx.provider, from, ctx.agency).providerEmail };
 }
 
 export async function getSchoolContactPlan(input) {
   const ctx = await getContactPlanContext({ ...input, requireEligible: false });
   if (!ctx.eligible) return { eligible: false, demoOnly: true };
+  await loadPreviewSchoolDays(ctx);
   const [[plan]] = await pool.execute('SELECT * FROM school_provider_contact_plans WHERE agency_id=? AND provider_user_id=?', [ctx.agencyId, ctx.userId]);
   const [[identity]] = await pool.execute("SELECT from_email FROM email_sender_identities WHERE agency_id=? AND identity_key IN ('messages','messages_at_tenant') AND is_active=1 LIMIT 1", [ctx.agencyId]);
   return planDto(ctx, plan, identity?.from_email || 'messages@itsco.health');
@@ -122,6 +136,7 @@ export async function saveSchoolContactPlan(input, body = {}) {
   const [[existing]] = await pool.execute('SELECT * FROM school_provider_contact_plans WHERE agency_id=? AND provider_user_id=?', [ctx.agencyId, ctx.userId]);
   const status = body.status ?? existing?.status ?? 'unconfigured';
   if (!['declined', 'enabled'].includes(status)) throw fail('Choose whether to enable help with initial contact.');
+  if (status === 'enabled' && !schoolContactRouting(ctx.provider,undefined,ctx.agency).providerEmail) throw fail('Your messaging email needs support setup before you turn Family Welcome on.',409);
   if ((ctx.mandatory || flag(existing?.required_by_admin)) && status !== 'enabled') throw fail('Your organization requires an initial contact plan.', 409);
   const template = validateSchoolContactTemplate(body.template ?? existing?.template);
   const second = validateSchoolContactTemplate(body.secondTemplate ?? existing?.second_template ?? DEFAULT_SECOND_CONTACT_TEMPLATE);
@@ -145,13 +160,15 @@ export async function saveSchoolContactPlan(input, body = {}) {
 
 export async function buildFamilyWelcomePdfPreview(input, schoolId = null) {
   const ctx = await getContactPlanContext(input);
-  const school = ctx.schools.find(s => Number(s.id) === Number(schoolId)) || ctx.schools[0];
+  const school = schoolId == null ? ctx.schools[0] : ctx.schools.find(s => Number(s.id) === Number(schoolId));
+  if (!school) throw fail('Choose one of your assigned schools for the PDF.',403);
   return buildProviderIntroductionPdf({ agencyId: ctx.agencyId, providerUserId: ctx.userId, schoolId: school.id });
 }
 
 export async function sendSchoolContactEmail({ agencyId, providerUserId, clientId = null, schoolId = null, to, parentName, schoolName, serviceDay,
   template = DEFAULT_SCHOOL_CONTACT_TEMPLATE, subject = SCHOOL_CONTACT_SUBJECTS.initial_email, body, example = false, conversationId = null, workflowId = null, stepKey = null, includePdf = null } = {}) {
   const ctx = await getContactPlanContext({ agencyId, userId: providerUserId });
+  if (example) await loadPreviewSchoolDays(ctx);
   const exampleSchool = example ? (schoolId == null ? ctx.schools[0] : ctx.schools.find(s => Number(s.id) === Number(schoolId))) : null;
   if (example && !exampleSchool) throw fail('Choose one of your assigned schools for the example.', 403);
   const mailbox = await resolveMessagesSendMailbox(ctx.agencyId);
@@ -172,7 +189,7 @@ export async function sendSchoolContactEmail({ agencyId, providerUserId, clientI
   const profileUrl = providerProfileUrl(ctx.agency, ctx.provider);
   const text = body === undefined ? renderSchoolContactTemplate(template, {
     parent_name: parentName || 'Parent name', provider_name: [ctx.provider.first_name, ctx.provider.last_name].filter(Boolean).join(' ') || 'Provider name',
-    school_name: example ? exampleSchool.name : ctx.schools.find(s => Number(s.id) === Number(schoolId))?.name || schoolName || 'School', service_day: serviceDay || 'a day we will confirm together', profile_link: profileUrl
+    school_name: example ? exampleSchool.name : ctx.schools.find(s => Number(s.id) === Number(schoolId))?.name || schoolName || 'School', service_day: example ? exampleSchool.serviceDayLabel : displaySchoolContactDay(serviceDay), profile_link: profileUrl
   }) : String(body).trim();
   let attachments = null;
   if ((stepKey === 'initial_email' || (example && !stepKey)) && ctx.schools.length) {

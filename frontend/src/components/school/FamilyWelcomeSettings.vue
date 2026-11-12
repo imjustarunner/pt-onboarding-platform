@@ -17,16 +17,18 @@
     </p>
 
     <template v-else>
-      <p v-if="plan.rolloutPhase === 'phase_1'" class="hint">ITSCO first phase: review your wording, choose On or Off, and Save Family Welcome to record your choice. Automatic outreach begins only for new school assignments after you turn it on. Return here anytime to edit it.</p>
+      <p v-if="plan.demoOnly === false" class="hint">Your Family Welcome setup: review your wording, choose On or Off, and Save Family Welcome to record your choice. Automatic outreach begins only for new school assignments after you turn it on. Return here anytime to edit it.</p>
+      <p v-if="plan.canEnable === false" role="alert" class="fw-error">{{ plan.setupNotice }}</p>
       <fieldset class="fw-choice">
         <legend>Send my welcome and follow-ups</legend>
-        <label><input v-model="status" type="radio" value="enabled" :disabled="busy" /> <span><strong>On.</strong> When a new school client is assigned to me, send my welcome email, then follow up until we connect.</span></label>
+        <label><input v-model="status" type="radio" value="enabled" :disabled="busy || plan.canEnable === false" /> <span><strong>On.</strong> When a new school client is assigned to me, send my welcome email, then follow up until we connect.</span></label>
         <label><input v-model="status" type="radio" value="declined" :disabled="busy || plan.mandatory" /> <span><strong>Off.</strong> Support sends an introduction email when I am assigned, and I am copied.</span></label>
         <p v-if="plan.mandatory" class="hint">Your organization requires this to stay on.</p>
       </fieldset>
 
       <div class="fw-messages">
-        <h3>Your messages</h3>
+        <h3>Personalize your messages</h3>
+        <p class="hint">Edit the wording below, check the preview, then Save Family Welcome. You can return here anytime through My Account → Account Info → Family Welcome &amp; Follow-Up.</p>
         <p class="hint">Each message uses the family’s name, your name, the school, and the school day. The text goes out only with the family’s permission to text; otherwise the 48-hour email goes instead. A family reply stops the follow-ups.</p>
         <article v-for="message in FAMILY_WELCOME_MESSAGES" :key="message.field" class="fw-message">
           <button type="button" class="fw-message-toggle" :aria-expanded="openField === message.field" @click="openField = openField === message.field ? '' : message.field">
@@ -41,6 +43,7 @@
             <p v-if="validateFamilyWelcomeTemplate(draft[message.field], message.sms)" class="fw-error">{{ validateFamilyWelcomeTemplate(draft[message.field], message.sms) }}</p>
             <div class="fw-preview" :aria-label="`${message.label} preview`">
               <label v-if="plan.schools?.length > 1">Preview school <select v-model="previewSchoolId"><option v-for="school in plan.schools" :key="school.id" :value="school.id">{{ school.name }}</option></select></label>
+              <p class="hint"><strong>Sample email</strong> · The parent name is a sample. The school day comes from your school assignment; the sent message uses the child’s scheduled day.</p>
               <p class="fw-preview-subject">{{ message.subject }}</p>
               <p class="fw-preview-body">{{ render(draft[message.field]) }}</p>
             </div>
@@ -55,7 +58,8 @@
       <div class="fw-options">
         <h3>Welcome email extras</h3>
         <label class="fw-check"><input v-model="includePdf" type="checkbox" :disabled="busy" /> Attach my introduction PDF to the welcome email</label>
-        <FamilyWelcomePdfButton :agency-id="plan.agencyId" />
+        <p class="hint">Your introduction PDF uses the selected preview school and your own profile.</p>
+        <FamilyWelcomePdfButton :agency-id="plan.agencyId" :school-id="previewSchoolId" />
         <label class="fw-check fw-soon"><input type="checkbox" disabled /> Add my available hours for booking <span class="fw-pill">Coming soon</span></label>
       </div>
 
@@ -99,7 +103,7 @@ function apply(data) {
   plan.value = data;
   if (!data?.eligible) return;
   if (!data.schools?.some(s => Number(s.id) === Number(previewSchoolId.value))) previewSchoolId.value = data.schools?.[0]?.id ?? null;
-  status.value = data.rolloutPhase === 'phase_1' && data.status === 'unconfigured' ? '' : data.status === 'enabled' ? 'enabled' : 'declined';
+  status.value = data.demoOnly === false && data.status === 'unconfigured' ? '' : data.status === 'enabled' ? 'enabled' : 'declined';
   includePdf.value = data.includePdf !== false;
   for (const key of Object.keys(draft)) draft[key] = data[key] || data.recommendedTemplates?.[key] || '';
 }
@@ -123,7 +127,7 @@ async function load() {
 function render(text) {
   return renderFamilyWelcome(text, {
     parent_name: 'Parent name', provider_name: plan.value?.providerName || props.providerName || 'Provider name',
-    school_name: plan.value?.schools?.find(s => Number(s.id) === Number(previewSchoolId.value))?.name || 'Example school', service_day: 'Example day', ...plan.value?.previewValues
+    school_name: plan.value?.schools?.find(s => Number(s.id) === Number(previewSchoolId.value))?.name || 'Example school', service_day: plan.value?.schools?.find(s => Number(s.id) === Number(previewSchoolId.value))?.serviceDayLabel || 'to be confirmed', ...plan.value?.previewValues
   });
 }
 async function insertField(field, token) {
@@ -201,7 +205,7 @@ defineExpose({ save, draft, status, includePdf, profilePrompt });
 .fw-add-link{border:1px solid #9cc9e4;background:#eaf6fd;color:#075c91;border-radius:8px;padding:6px 10px;font:inherit;font-size:12px;font-weight:600;cursor:pointer}
 .fw-preview{border:1px solid #e5edeb;border-radius:10px;background:#fcfdfc;padding:10px 12px;margin-top:10px}
 .fw-preview-subject{margin:0 0 6px;font-weight:600;font-size:12px}
-.fw-preview-body{margin:0;white-space:pre-wrap;font-size:12px;line-height:1.7;color:#425c60}
+.fw-preview-body{overflow-wrap:anywhere;margin:0;white-space:pre-wrap;font-size:12px;line-height:1.7;color:#425c60}
 .fw-row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin-top:10px}
 .fw-save{justify-content:flex-end}
 .fw-options{display:grid;gap:10px;justify-items:start}

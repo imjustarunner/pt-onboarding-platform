@@ -10,7 +10,7 @@ My name is {{provider_name}}, and I was recently assigned to your child at {{sch
 The next steps are for me to work with you to identify a time to touch base, schedule an intake, and establish the goals and direction of therapy. Please send me some days and times you may be available to meet virtually before I begin working with your child.
 
 If you have any questions, please do not hesitate to reach out by hitting "reply".`;
-export const DEFAULT_SCHOOL_CONTACT_TEMPLATE = `Hello {{parent_name}},
+const PREVIOUS_WELCOME_TEMPLATE = `Hello {{parent_name}},
 
 My name is {{provider_name}}, and I'm excited to introduce myself as your child's assigned counselor at {{school_name}}. I'm looking forward to working with your child, with {{service_day}} being our anticipated day for counseling sessions.
 
@@ -26,6 +26,21 @@ I look forward to connecting with you!
 
 Best regards,
 {{provider_name}}`;
+export const DEFAULT_SCHOOL_CONTACT_TEMPLATE = `Hi {{parent_name}},
+
+I'm {{provider_name}}, and I'll be supporting your child at {{school_name}}. I'm looking forward to getting to know your family and working together to help your child feel supported.
+
+Our planned school counseling day is {{service_day}}. Before we get started, I'd love to meet with you briefly by video to hear about your child, answer your questions, and talk about what you'd like counseling to help with.
+
+Would you reply with a few days and times that work for you? We'll find a time together.
+
+You can get to know me here: {{profile_link}}
+
+Questions are always welcome. You can reach me by replying to this email.
+
+Warmly,
+{{provider_name}}`;
+
 export const PROFILE_LINK_TOKEN = '{{profile_link}}';
 export const DEFAULT_SECOND_CONTACT_TEMPLATE = `Hello {{parent_name}},
 
@@ -66,8 +81,13 @@ Best regards,
 {{provider_name}}`;
 export const DEFAULT_CONTACT_SMS_TEMPLATE = `Hi {{parent_name}}! This is {{provider_name}} with {{agency_name}}. I wanted to follow up on an email I recently sent about scheduling a brief introductory meeting. When you have a moment, please reply to my email with a convenient day and time. Thank you! I look forward to connecting with you.`;
 
-export const preferredSchoolContactTemplate = value => !value || String(value).trim() === LEGACY_INTRO ? DEFAULT_SCHOOL_CONTACT_TEMPLATE : value;
+export const preferredSchoolContactTemplate = value => !value || [LEGACY_INTRO,PREVIOUS_WELCOME_TEMPLATE].includes(String(value).trim()) ? DEFAULT_SCHOOL_CONTACT_TEMPLATE : value;
 
 export function schoolContactAttemptCount(steps = []) {
   return steps.filter(s => ['initial_email','second_contact','final_contact'].includes(s.step_key) && s.status === 'sent').length;
+}
+
+export function displaySchoolContactDay(value) {
+  const day=String(value || '').trim();
+  return !day || /^(unknown|unassigned|example day|tbd|varies|null|undefined)$/i.test(day) ? 'to be confirmed' : day;
 }

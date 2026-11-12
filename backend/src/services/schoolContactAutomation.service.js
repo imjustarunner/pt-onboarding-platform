@@ -6,7 +6,7 @@ import { resolveRegisteredSmsSender } from './smsCompliance.service.js';
 import VonageService from './vonage.service.js';
 import MessageLog from '../models/MessageLog.model.js';
 import Notification from '../models/Notification.model.js';
-import { DEFAULT_SECOND_CONTACT_TEMPLATE, DEFAULT_FINAL_CONTACT_TEMPLATE, DEFAULT_CONTACT_SMS_TEMPLATE, SCHOOL_CONTACT_SUBJECTS,preferredSchoolContactTemplate } from './schoolContactTemplates.js';
+import { DEFAULT_SECOND_CONTACT_TEMPLATE, DEFAULT_FINAL_CONTACT_TEMPLATE, DEFAULT_CONTACT_SMS_TEMPLATE, SCHOOL_CONTACT_SUBJECTS,preferredSchoolContactTemplate,displaySchoolContactDay } from './schoolContactTemplates.js';
 import { renderSchoolContactTemplate } from './schoolContactPlan.service.js';
 import { sendSchoolContactProviderNotice } from './schoolContactProviderNotice.service.js';
 import ClientNotes from '../models/ClientNotes.model.js';
@@ -59,7 +59,9 @@ export async function queueSchoolContactAssignments(db = pool, { clientId = null
       JOIN agencies s ON s.id=a.organization_id AND s.organization_type='school' AND s.is_active=1 AND COALESCE(s.is_archived,0)=0
       JOIN organization_affiliations oa ON oa.organization_id=s.id AND oa.agency_id=p.agency_id AND oa.is_active=1
       WHERE p.agency_id IN (?,?) AND ${schoolContactScopeSql()} AND a.is_active=1 AND c.status<>'ARCHIVED'
-        AND a.created_at>=p.decided_at ${clientId ? 'AND c.id=?' : ''}
+        AND a.created_at>=p.decided_at
+        AND (COALESCE(JSON_UNQUOTE(JSON_EXTRACT(pilot.feature_flags,'$.schoolContactPlanPilot.audience')),'')<>'assigned_school_providers'
+          OR a.created_at>=CAST(REPLACE(LEFT(JSON_UNQUOTE(JSON_EXTRACT(pilot.feature_flags,'$.schoolContactPlanPilot.expandedAt')),23),'T',' ') AS DATETIME(3))) ${clientId ? 'AND c.id=?' : ''}
       GROUP BY p.agency_id,c.id,a.organization_id,a.provider_user_id,p.decided_at`, [...SCHOOL_CONTACT_AGENCY_IDS, ...(clientId ? [Number(clientId)] : [])]);
     return Number(result.affectedRows || 0);
   } catch (e) {
@@ -154,7 +156,7 @@ async function sendFollowupSms(workflow, ctx, guardian) {
   if (!to) return { skipped: true, reason: 'No permitted family text destination is configured.' };
   const resolved = await resolveOutboundNumber({ userId: workflow.provider_user_id, clientId: workflow.client_id });
   if (!resolved?.number || Number(resolved.number.agency_id) !== Number(workflow.agency_id)) return { skipped: true, reason: 'An active clinical text sender is required.' };
-  const values={parent_name:guardian.first_name || 'there',provider_name:[ctx.provider.first_name,ctx.provider.last_name].filter(Boolean).join(' '),agency_name:ctx.agency.name,school_name:workflow.school_name,service_day:workflow.service_day || 'a day we will confirm together'};
+  const values={parent_name:guardian.first_name || 'there',provider_name:[ctx.provider.first_name,ctx.provider.last_name].filter(Boolean).join(' '),agency_name:ctx.agency.name,school_name:workflow.school_name,service_day:displaySchoolContactDay(workflow.service_day)};
   const body=String(workflow.sms_template || DEFAULT_CONTACT_SMS_TEMPLATE).replace(/{{(\w+)}}/g,(_,key)=>values[key] || '');
   const metadata = { schoolContactWorkflowId: workflow.id, schoolContactStep: 'second_contact', automated: true, startsParentContactConversation: true };
   const log = await MessageLog.createOutbound({ agencyId: workflow.agency_id, userId: workflow.provider_user_id, assignedUserId: workflow.provider_user_id,
@@ -275,7 +277,7 @@ async function processWorkflow(workflow, now) {
   }
   const guardian = await guardianFor(workflow);
   if (!guardian?.email) { await pool.execute("UPDATE school_contact_workflows SET status='blocked',last_error='Link an authorized guardian with an email address to begin.' WHERE id=?", [workflow.id]); return; }
-  const values={parent_name:[guardian.first_name,guardian.last_name].filter(Boolean).join(' ') || 'Parent',provider_name:[ctx.provider.first_name,ctx.provider.last_name].filter(Boolean).join(' '),school_name:workflow.school_name,service_day:workflow.service_day || 'a day we will confirm together'};
+  const values={parent_name:[guardian.first_name,guardian.last_name].filter(Boolean).join(' ') || 'Parent',provider_name:[ctx.provider.first_name,ctx.provider.last_name].filter(Boolean).join(' '),school_name:workflow.school_name,service_day:displaySchoolContactDay(workflow.service_day)};
   const sendEmail=()=>sendSchoolContactEmail({agencyId:workflow.agency_id,providerUserId:workflow.provider_user_id,clientId:workflow.client_id,schoolId:workflow.school_id,
     to:guardian.email,parentName:values.parent_name,schoolName:values.school_name,serviceDay:values.service_day,
     template:action==='initial_email'?preferredSchoolContactTemplate(workflow.template):action==='second_contact'?(workflow.second_template || DEFAULT_SECOND_CONTACT_TEMPLATE):(workflow.final_template || DEFAULT_FINAL_CONTACT_TEMPLATE),

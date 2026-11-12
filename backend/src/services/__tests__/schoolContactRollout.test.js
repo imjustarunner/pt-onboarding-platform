@@ -13,3 +13,10 @@ it('keeps every QA destination sandboxed but preserves scoped live destinations 
   expect(schoolContactDelivery(2,recipients)).toEqual(recipients);
   expect(()=>schoolContactDelivery(3,recipients)).toThrow('unavailable');
 });
+
+it('supports an assigned-school audience only for the explicitly enabled ITSCO tenant',()=>{
+ const expanded={...live,feature_flags:{schoolContactPlanPilot:{enabled:true,audience:'assigned_school_providers'}}};
+ expect(isSchoolContactProviderEnabled(expanded,1433)).toBe(true);
+ expect(isSchoolContactAgencyEnabled({...expanded,id:3})).toBe(false);
+ expect(isSchoolContactAgencyEnabled({...expanded,slug:'other'})).toBe(false);
+});

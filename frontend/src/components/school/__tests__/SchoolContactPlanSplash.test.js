@@ -50,12 +50,8 @@ it('walks through example emails, the PDF, and where to find the settings', asyn
     await click(tab);
     const selected = dialog().querySelector('[role="tab"][aria-selected="true"]');
     expect(selected.textContent).toContain(tab);
-    const image = dialog().querySelector('.fw-shot img');
-    expect(image.getAttribute('src')).toBe(`/family-welcome/${filename}`);
-    expect(image.getAttribute('alt').toLowerCase()).toContain(tab.toLowerCase());
-    image.dispatchEvent(new Event('load')); await flushPromises();
-    expect(image.style.display).not.toBe('none');
-    expect(dialog().querySelector('.fw-mail-body, .fw-bubble')).toBeNull();
+    expect(dialog().querySelector('.fw-mail-body, .fw-bubble').textContent).toContain('Alex Provider');
+    expect(dialog().querySelector('.fw-shot img')).toBeNull();
   }
   await click('Next');
   const pdfImage = dialog().querySelector('.fw-shot img');
@@ -85,17 +81,13 @@ it('keeps personalized previews usable when screenshots are missing and resets t
   await open(); await click('Next');
   expect(dialog().querySelector('.fw-mail-body').textContent).toContain('Alex Provider');
   expect(dialog().textContent).toContain('School introduction.pdf');
-  const welcome = dialog().querySelector('.fw-shot img');
-  welcome.dispatchEvent(new Event('error')); await flushPromises();
-  expect(welcome.style.display).toBe('none');
-  expect(dialog().querySelector('.fw-mail-body').textContent).toContain('Alex Provider');
-  welcome.dispatchEvent(new Event('load')); await flushPromises();
+  expect(dialog().querySelector('.fw-shot img')).toBeNull();
   await click('Final email at 96 hours');
-  expect(dialog().querySelector('.fw-shot img').style.display).toBe('none');
   expect(dialog().querySelector('.fw-mail-body').textContent).toContain('Final contact');
   await click('Follow-up text at 48 hours');
   expect(dialog().querySelector('.fw-bubble').textContent).toContain('Alex Provider');
   await click('Next');
+  dialog().querySelector('.fw-shot img').dispatchEvent(new Event('error'));await flushPromises();
   expect(dialog().querySelector('.fw-pdf-card').textContent).toContain('School introduction.pdf');
   expect(findButton('View my PDF').disabled).toBe(false);
   await click('Next');
@@ -131,6 +123,13 @@ it('opts in directly when the welcome email already has the profile link', async
   await open({ template: linked });
   await lastSlide(); await click('Yes, turn on Family Welcome');
   expect(api.put).toHaveBeenCalledWith('/school-contact-plan', expect.objectContaining({ status: 'enabled', includePdf: true, template: linked }), expect.anything());
+  expect(dialog()).not.toBeNull();
+  expect(dialog().querySelector('textarea').value).toBe(linked);
+  expect(dialog().textContent).toContain('You can personalize your messages');
+  expect(findButton('Save Family Welcome')).toBeTruthy();
+  const editor=dialog().querySelector('textarea');editor.value=linked+'\nMy own friendly words.';editor.dispatchEvent(new Event('input',{bubbles:true}));await flushPromises();
+  await click('Save Family Welcome');
+  expect(api.put).toHaveBeenLastCalledWith('/school-contact-plan',expect.objectContaining({template:linked+'\nMy own friendly words.'}),expect.anything());
   expect(dialog()).toBeNull();
 });
 

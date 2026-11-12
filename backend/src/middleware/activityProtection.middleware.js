@@ -8,6 +8,11 @@ export function fileOperation(req){
  // payroll document endpoints must not inherit a blanket payroll exemption.
  if (['GET','HEAD'].includes(req.method) && /^\/api\/payroll\/periods\/\d+\/export\.csv\/?$/.test(path)) return false;
  if (req.method==='POST' && /^\/api\/payroll\/periods\/\d+\/adp\/export\/?$/.test(path)) return false;
+ // This authenticated endpoint builds the provider's own introduction from
+ // public profile/school details; it contains no client record. Its controller
+ // still verifies the provider and assigned school. Do not spend client-file
+ // download allowances or inherit an unrelated client-file review hold.
+ if (['GET','HEAD'].includes(req.method) && /^\/api\/school-contact-plan\/pdf-preview\/?$/.test(path)) return false;
  if (req.method==='POST' && /\/print-upload$/.test(path)) return false;
  if (/\/printable-packet\/(availability|template(?:\/.*)?|org-version-history)$/.test(path)) return false;
  return /(?:^|[/.-])(download|exports?|pdf|csv|zip|print|printable-packet|completion-package)(?:[./-]|$)/i.test(path)
