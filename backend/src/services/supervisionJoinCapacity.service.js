@@ -1,3 +1,4 @@
+import { isSupervisionFacilitator } from '../utils/supervisionFacilitators.js';
 import pool from '../config/database.js';
 import {canJoinSupervision} from './meetingJoinPolicy.service.js';
 
@@ -13,6 +14,8 @@ export async function supervisionJoinOccupancy(sessionId,db=pool) {
    AND p.last_seen_at>=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 45 SECOND)
    AND (p.join_identity IN (CONCAT('user-',s.supervisor_user_id),CONCAT('dial-',s.supervisor_user_id),
      CONCAT('user-',s.co_facilitator_user_id),CONCAT('dial-',s.co_facilitator_user_id))
+    OR EXISTS(SELECT 1 FROM supervision_session_attendees f WHERE f.session_id=s.id AND f.participant_role='co_facilitator'
+      AND p.join_identity IN (CONCAT('user-',f.user_id),CONCAT('dial-',f.user_id)))
     OR EXISTS(SELECT 1 FROM meeting_calendar_guests g WHERE g.meeting_type='supervision'
       AND g.meeting_id=p.session_id AND BINARY p.join_identity=BINARY CONCAT('calendar-guest-',g.id)
       AND g.status='admitted' AND g.expires_at>UTC_TIMESTAMP())
@@ -61,7 +64,7 @@ export async function reserveSupervisionJoin({sessionId,userId,joinIdentity,disp
   const row=await currentSession(sid,db);
   if(!await canJoinSupervision(row,uid,matchesOpenAudience))throw fail('Current supervision invitation is required.',403);
   if(expectedRole!==null){
-   const host=[row.supervisor_user_id,row.co_facilitator_user_id].some(id=>Number(id)===uid);
+   const host=isSupervisionFacilitator(row,uid);
    const [presenters]=host?[[]]:await db.execute('SELECT 1 FROM supervision_session_presenters WHERE session_id=? AND user_id=? LIMIT 1',[sid,uid]);
    const role=host?'supervisor':presenters.length?'presenter':'supervisee';
    if(role!==expectedRole)throw fail('Your meeting role changed. Please refresh and join again.');
@@ -85,7 +88,7 @@ export async function reserveSupervisionCalendarGuest({sessionId,guestId,credent
     AND meeting_id=? AND expires_at>UTC_TIMESTAMP()`,[gid,sid]);
   if(!guest||guest.status==='left')throw fail('Request admission again.',403);
   if(host>0){
-   if(![row.supervisor_user_id,row.co_facilitator_user_id].some(id=>Number(id)===host)||!await canJoinSupervision(row,host))throw fail('Host access required.',403);
+   if(!isSupervisionFacilitator(row,host)||!await canJoinSupervision(row,host))throw fail('Host access required.',403);
    if(guest.status!=='waiting')throw fail('Guest is no longer waiting.',409);
   }else if(guest.credential_hash!==credentialHash)throw fail('Request admission again.',403);
   const identity=`calendar-guest-${gid}`;

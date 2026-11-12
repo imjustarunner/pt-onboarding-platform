@@ -1,3 +1,4 @@
+import { isSupervisionFacilitator } from '../utils/supervisionFacilitators.js';
 import { queueMeetingRecordNotice } from './meetingRecordNotifications.service.js';
 import pool from '../config/database.js';
 import SupervisionSession from '../models/SupervisionSession.model.js';
@@ -32,7 +33,7 @@ export async function supervisionRecordAccess(sessionId, actor) {
     && await hasActiveMeetingMembership(session.agency_id, actor.id);
   const participant = await canJoinSupervision(session, actor.id);
   if (!admin && !participant) fail('Access denied.', 403);
-  const canManage = admin || (participant && [session.supervisor_user_id, session.co_facilitator_user_id].some(id => Number(id) === Number(actor.id)));
+  const canManage = admin || (participant && isSupervisionFacilitator(session, actor.id));
   return { session, canManage };
 }
 

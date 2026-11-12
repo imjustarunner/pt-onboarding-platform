@@ -2,13 +2,13 @@ import { isSupervisionCandidate, isSupervisionPayEligibleHours, normalizeSupervi
 import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
 import { isStudentIntern } from '../utils/studentIntern.js';
 import { normalizeMeetingSettings, parseMeetingSettings } from './meetingSettingsPolicy.js';
+import { isSupervisionFacilitator } from '../utils/supervisionFacilitators.js';
 
 // Presenters are mandatory on their assigned date. Classification describes
 // the invitation policy; it does not calculate or authorize a payroll payment.
 export function supervisionAttendance(session, person = {}) {
   if (session.kind === 'HUDDLE') return null;
-  const host = [session.supervisor_user_id, session.co_facilitator_user_id]
-    .some(id => Number(id) > 0 && Number(id) === Number(person.id ?? person.user_id));
+  const host = isSupervisionFacilitator(session, person.id ?? person.user_id);
   const required = host || session.session_type === 'individual' || Boolean(person.isPresenter) || Boolean(Number(person.is_required));
   const hourly = Number(person.is_hourly_worker) === 1;
   if (!hourly && isStudentIntern(person)) return {

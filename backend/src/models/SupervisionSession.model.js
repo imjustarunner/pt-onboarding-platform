@@ -1,6 +1,7 @@
 import { utcToZonedMysqlWall } from '../utils/officeEventDateTime.util.js';
 import { withMeetingWindow } from '../services/meetingWindowConflict.service.js';
 import {expireEmptyMeeting} from '../services/meetingExpiry.service.js';
+import { supervisionFacilitatorIds, supervisionCoFacilitatorIds } from '../utils/supervisionFacilitators.js';
 import pool from '../config/database.js';
 import { assertMeetingBookingWindow } from '../utils/recurringWindow.js';
 import { generateJoinToken } from '../utils/joinToken.js';
@@ -872,12 +873,15 @@ class SupervisionSession {
   }
 
   static async updateById(id, patch) {
-    if(patch.startAt===undefined && patch.endAt===undefined && patch.coFacilitatorUserId===undefined) return this.updateWithReviewTimeChecked(id,patch);
+    if(patch.startAt===undefined && patch.endAt===undefined && patch.supervisorUserId===undefined && patch.coFacilitatorUserId===undefined && patch.coFacilitatorUserIds===undefined) return this.updateWithReviewTimeChecked(id,patch);
     const row=await this.findById(id);
     if(!row)return null;
     if (patch.startAt !== undefined) assertMeetingBookingWindow({ startAt: patch.startAt, eventTimezone: row.event_timezone });
     const [attendees]=await pool.execute('SELECT user_id FROM supervision_session_attendees WHERE session_id = ? UNION SELECT user_id FROM supervision_session_presenters WHERE session_id = ?',[id,id]);
-    const ids=[row.supervisor_user_id,row.co_facilitator_user_id,patch.coFacilitatorUserId,row.supervisee_user_id,...attendees.map(a=>a.user_id)];
+    const timingChanged = patch.startAt !== undefined || patch.endAt !== undefined;
+    const ids=[patch.supervisorUserId ?? row.supervisor_user_id,
+      ...(patch.coFacilitatorUserIds ?? (patch.coFacilitatorUserId !== undefined ? [patch.coFacilitatorUserId] : supervisionCoFacilitatorIds(row))),
+      ...(timingChanged ? [row.supervisee_user_id,...attendees.map(a=>a.user_id)] : [])];
     return withMeetingWindow({ userIds: ids, startAt: patch.startAt ?? row.start_at,
       endAt: patch.endAt ?? row.end_at, timeZone: row.event_timezone, excludeSupervisionId: id },
       () => this.updateWithReviewTimeChecked(id,patch));
@@ -889,7 +893,9 @@ class SupervisionSession {
     inviteScope,
     inviteAudienceAllSupervised,
     inviteAudienceGroupSupport,
+    supervisorUserId,
     coFacilitatorUserId,
+    coFacilitatorUserIds,
     modality,
     locationText,
     notes,
@@ -926,7 +932,16 @@ class SupervisionSession {
       updates.push('invite_audience_group_support = ?');
       values.push(inviteAudienceGroupSupport ? 1 : 0);
     }
-    if (coFacilitatorUserId !== undefined) {
+    if (supervisorUserId !== undefined) {
+      updates.push('supervisor_user_id = ?');
+      values.push(Number(supervisorUserId));
+    }
+    if (coFacilitatorUserIds !== undefined) {
+      updates.push("meeting_settings_json = JSON_SET(COALESCE(meeting_settings_json, JSON_OBJECT()), '$.coFacilitatorUserIds', CAST(? AS JSON))");
+      values.push(JSON.stringify(coFacilitatorUserIds));
+      updates.push('co_facilitator_user_id = ?');
+      values.push(coFacilitatorUserIds[0] || null);
+    } else if (coFacilitatorUserId !== undefined) {
       updates.push('co_facilitator_user_id = ?');
       values.push(Number(coFacilitatorUserId || 0) > 0 ? Number(coFacilitatorUserId) : null);
     }
@@ -949,12 +964,30 @@ class SupervisionSession {
 
     if (!updates.length) return this.findById(sid);
 
-    await pool.execute(
-      `UPDATE supervision_sessions
-       SET ${updates.join(', ')}
-       WHERE id = ?`,
-      [...values, sid]
-    );
+    const facilitatorEdit = supervisorUserId !== undefined || coFacilitatorUserIds !== undefined;
+    const db = facilitatorEdit ? await pool.getConnection() : pool;
+    try {
+      if (facilitatorEdit) await db.beginTransaction();
+      await db.execute(`UPDATE supervision_sessions SET ${updates.join(', ')} WHERE id = ?`, [...values, sid]);
+      if (facilitatorEdit) {
+        const [[session]] = await db.execute('SELECT supervisor_user_id,co_facilitator_user_id,meeting_settings_json FROM supervision_sessions WHERE id=?', [sid]);
+        const ids = supervisionFacilitatorIds(session);
+        await db.execute(`UPDATE supervision_session_attendees SET participant_role='supervisee',is_required=0
+          WHERE session_id=? AND participant_role IN ('supervisor','co_facilitator')
+            AND user_id NOT IN (${ids.map(() => '?').join(',')})`, [sid, ...ids]);
+        for (const userId of ids) {
+          await db.execute(`INSERT INTO supervision_session_attendees (session_id,user_id,participant_role,is_required,status)
+            VALUES (?,?,?,1,'INVITED') ON DUPLICATE KEY UPDATE participant_role=VALUES(participant_role),is_required=1`,
+          [sid, userId, userId === Number(session.supervisor_user_id) ? 'supervisor' : 'co_facilitator']);
+        }
+        await db.commit();
+      }
+    } catch (error) {
+      if (facilitatorEdit) await db.rollback();
+      throw error;
+    } finally {
+      if (facilitatorEdit) db.release();
+    }
     if (timingChanged) {
       // Rescheduling interrupts the existing finalization flow.
       await pool.execute(

@@ -1,3 +1,4 @@
+import { isSupervisionFacilitator } from '../utils/supervisionFacilitators.js';
 // Call only after authorizing access to the event. An agency role does not grant
 // access to a meeting in another organization by itself.
 export function canViewDeclinedMeetingParticipants(event, actor, people = []) {
@@ -5,7 +6,7 @@ export function canViewDeclinedMeetingParticipants(event, actor, people = []) {
   if (!userId) return false;
   const person = people.find(p => Number(p.id ?? p.userId ?? p.user_id) === userId);
   return ['admin', 'super_admin', 'superadmin', 'support'].includes(String(actor?.role || '').toLowerCase())
-    || [event.provider_id, event.supervisor_user_id, event.co_facilitator_user_id].some(id => Number(id) > 0 && Number(id) === userId)
+    || (Number(event.provider_id) === userId || isSupervisionFacilitator(event, userId))
     || Number(person?.is_cohost) === 1;
 }
 

@@ -21,6 +21,8 @@ import { cancelMeetingOccurrences } from '../services/recurringScheduleCancellat
 import { meetingSummaryStatus } from '../services/meetingSummaryJobs.service.js';
 import { setMeetingTranscription } from './meetingTranscription.controller.js';
 import { requirePersonalSupervisionInvitation, canJoinSupervision, hasActiveMeetingMembership, hasActiveSupervisionMembership, activeMeetingAgencyIds, roomUnavailable } from '../services/meetingJoinPolicy.service.js';
+import { isSupervisionFacilitator, supervisionFacilitatorIds, supervisionCoFacilitatorIds } from '../utils/supervisionFacilitators.js';
+import { resolveSupervisionFacilitatorEdit } from '../services/supervisionFacilitatorEdit.service.js';
 import { tenantMeetingBase } from '../utils/tenantMeetingUrl.js';
 import { queueMeetingInvitations, sendMeetingScheduleChange } from '../services/meetingInvitations.service.js';
 import { normalizeMeetingSettings, parseMeetingSettings } from '../services/meetingSettingsPolicy.js';
@@ -293,10 +295,7 @@ async function getActiveSupervisionPresenceUserIds(sessionId) {
  */
 async function buildWaitingRoomHostStatus(row) {
   const sid = Number(row?.id || 0);
-  const hostIds = [
-    Number(row?.supervisor_user_id || 0),
-    Number(row?.co_facilitator_user_id || 0)
-  ].filter((n) => n > 0);
+  const hostIds = supervisionFacilitatorIds(row);
   const hostRoleLabel = 'Supervisor';
   if (!sid || !hostIds.length) {
     return {
@@ -737,7 +736,7 @@ async function assertCanManageGroupSupervision(req, res, { sessionType, existing
 
   const role = String(req.user?.role || '').toLowerCase();
   if (req.auricwellSupervision?.canManage && Number(req.auricwellSupervision.agencyId) === Number(req.supervisionAgencyId)) return true;
-  if (existingSession && [existingSession.supervisor_user_id, existingSession.co_facilitator_user_id].map(Number).includes(actorId)
+  if (existingSession && isSupervisionFacilitator(existingSession, actorId)
       && await hasActiveSupervisionMembership(existingSession, actorId)) return true;
   if (['admin', 'super_admin', 'support', 'clinical_practice_assistant'].includes(role)) {
     return true;
@@ -923,7 +922,7 @@ async function canFacilitateSupervisionRow(req, row) {
   if (!actorId || !row) return false;
   if (!await hasActiveSupervisionMembership(row, actorId)) return false;
   if (actorId === Number(row.supervisor_user_id || 0)) return true;
-  if (actorId === Number(row.co_facilitator_user_id || 0)) return true;
+  if (isSupervisionFacilitator(row, actorId)) return true;
   const sid = Number(row.id || 0);
   if (sid) {
     try {
@@ -972,7 +971,7 @@ async function canScheduleSession(req, { agencyId, supervisorUserId, superviseeU
   if (sid && actorId) {
     try {
       const sessionRow = await SupervisionSession.findById(sid);
-      if (actorId === Number(sessionRow?.co_facilitator_user_id || 0)) {
+      if (isSupervisionFacilitator(sessionRow, actorId)) {
         const actorAgencies = await User.getAgencies(actorId);
         return (actorAgencies || []).some((a) => Number(a?.id) === aId);
       }
@@ -2300,7 +2299,7 @@ export const getSupervisionLiveAttendance = async (req, res, next) => {
         email,
         role: att.participant_role || att.participantRole || '',
         isHost: uid === Number(row.supervisor_user_id || 0)
-          || uid === Number(row.co_facilitator_user_id || 0),
+          || isSupervisionFacilitator(row, uid),
         isRequired: att.is_required == null ? true : !!Number(att.is_required),
         totalSeconds: 0,
         segmentCount: 0
@@ -2316,7 +2315,7 @@ export const getSupervisionLiveAttendance = async (req, res, next) => {
         email: '',
         role: '',
         isHost: uid === Number(row.supervisor_user_id || 0)
-          || uid === Number(row.co_facilitator_user_id || 0),
+          || isSupervisionFacilitator(row, uid),
         isRequired: true
       };
       existing.totalSeconds = Number(r.total_seconds || 0);
@@ -2463,7 +2462,7 @@ export const getSupervisionVideoToken = async (req, res, next) => {
     const roomParam = String(req.query?.room || '').trim().toLowerCase();
     const tokenRole = SupervisionSession.classifyJoinTokenRole(row, ref);
     const isSupervisor = actorUserId === Number(row.supervisor_user_id)
-      || actorUserId === Number(row.co_facilitator_user_id || 0);
+      || isSupervisionFacilitator(row, actorUserId);
     // Host join link may only be used by the facilitator; others get a clear error (no guest fallthrough).
     if (tokenRole === 'host' && !isSupervisor) {
       return res.status(403).json({
@@ -2657,7 +2656,7 @@ export const getLobbyParticipants = async (req, res, next) => {
     if (!actorUserId) return res.status(401).json({ error: { message: 'Not authenticated' } });
 
     const isSupervisor = actorUserId === Number(row.supervisor_user_id)
-      || actorUserId === Number(row.co_facilitator_user_id || 0);
+      || isSupervisionFacilitator(row, actorUserId);
     if (!isSupervisor) {
       return res.status(403).json({ error: { message: 'Only the supervisor can view lobby participants' } });
     }
@@ -2717,7 +2716,7 @@ export const admitToMainRoom = async (req, res, next) => {
     if (!actorUserId) return res.status(401).json({ error: { message: 'Not authenticated' } });
 
     const isSupervisor = actorUserId === Number(row.supervisor_user_id)
-      || actorUserId === Number(row.co_facilitator_user_id || 0);
+      || isSupervisionFacilitator(row, actorUserId);
     if (!isSupervisor) {
       return res.status(403).json({ error: { message: 'Only the supervisor can admit participants' } });
     }
@@ -2742,7 +2741,7 @@ export const admitToMainRoom = async (req, res, next) => {
       const isParticipant =
         userIdNum === Number(row.supervisee_user_id)
         || userIdNum === Number(row.supervisor_user_id)
-        || userIdNum === Number(row.co_facilitator_user_id || 0)
+        || isSupervisionFacilitator(row, userIdNum)
         || !!(attendeeRows?.length)
         || !!(presenterRows?.length)
         || await userMatchesSupervisionOpenAudience({ sessionRow: row, userId: userIdNum });
@@ -2788,7 +2787,7 @@ export const setSupervisionWaitingRoomLive = async (req, res, next) => {
     const actorUserId = Number(req.user?.id || 0);
     if (!actorUserId) return res.status(401).json({ error: { message: 'Not authenticated' } });
     const isSupervisor = actorUserId === Number(row.supervisor_user_id)
-      || actorUserId === Number(row.co_facilitator_user_id || 0);
+      || isSupervisionFacilitator(row, actorUserId);
     if (!isSupervisor) {
       return res.status(403).json({ error: { message: 'Only the host can change the waiting room' } });
     }
@@ -2912,7 +2911,7 @@ export const getAdmissionStatus = async (req, res, next) => {
     if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
 
     const isSupervisor = actorUserId === Number(row.supervisor_user_id)
-      || actorUserId === Number(row.co_facilitator_user_id || 0);
+      || isSupervisionFacilitator(row, actorUserId);
     if (isSupervisor) {
       return res.json({
         admitted: true,
@@ -3566,6 +3565,9 @@ export const createSupervisionSessionValidators = [
 ];
 
 export const patchSupervisionSessionValidators = [
+  body('supervisorUserId').optional().isInt({ min: 1 }),
+  body('coFacilitatorUserIds').optional().isArray({ max: 10 }),
+  body('coFacilitatorUserIds.*').optional().isInt({ min: 1 }),
   body('startAt').optional(),
   body('endAt').optional(),
   body('sessionType').optional().isIn(['individual', 'triadic', 'group']).withMessage('sessionType must be individual, triadic, or group'),
@@ -3995,13 +3997,14 @@ export const patchSupervisionSession = async (req, res, next) => {
     if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
 
     const actorId = Number(req.user?.id || 0);
-    const isFacilitator = [row.supervisor_user_id, row.co_facilitator_user_id].map(Number).includes(actorId);
+    const isFacilitator = isSupervisionFacilitator(row, actorId);
     const isAgencyManager = ['super_admin', 'admin', 'support', 'clinical_practice_assistant'].includes(String(req.user?.role || '').toLowerCase())
       && await hasActiveMeetingMembership(row.agency_id, actorId);
     if (row.session_type === 'group' && !isFacilitator && !isAgencyManager) {
       return res.status(403).json({ error: { message: 'Only a host, cohost, or agency administrator can change this group session.' } });
     }
 
+    const facilitatorPatch = await resolveSupervisionFacilitatorEdit(row, req.body || {});
     const supervisionTimeZone = String(req.body?.timeZone || row.event_timezone || DEFAULT_SCHEDULE_TZ).trim() || DEFAULT_SCHEDULE_TZ;
     // Wall clock input uses the event zone; explicit instants keep their offset.
     // Preserve the stored UTC value when the other endpoint alone is edited.
@@ -4013,7 +4016,7 @@ export const patchSupervisionSession = async (req, res, next) => {
     if (wantsTimeChange) {
       const actorId = Number(req.user?.id || 0);
       const role = String(req.user?.role || '').toLowerCase();
-      const isSupervisorHost = actorId > 0 && [row.supervisor_user_id, row.co_facilitator_user_id].map(Number).includes(actorId);
+      const isSupervisorHost = actorId > 0 && isSupervisionFacilitator(row, actorId);
       const privileged = ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus'].includes(role);
       if (!isSupervisorHost && !privileged) {
         return res.status(403).json({
@@ -4124,7 +4127,7 @@ export const patchSupervisionSession = async (req, res, next) => {
       if (!occId) continue;
       // eslint-disable-next-line no-await-in-loop
       const rowUpdated = await SupervisionSession.updateById(occId, {
-
+        ...facilitatorPatch,
         ...(occId === id || scope === 'future' ? {
           sessionType,
           inviteScope,
@@ -4226,6 +4229,15 @@ export const patchSupervisionSession = async (req, res, next) => {
 
     const out = await SupervisionSession.findById(id);
     let notificationDelivery = null;
+    if (facilitatorPatch.supervisorUserId !== undefined && (
+      Number(row.supervisor_user_id) !== facilitatorPatch.supervisorUserId
+      || JSON.stringify(supervisionCoFacilitatorIds(row)) !== JSON.stringify(facilitatorPatch.coFacilitatorUserIds)
+    )) {
+      await recordSupervisionScheduleAction(pool, { sessionId: id, actorUserId: actorId, kind: 'updated',
+        reason: changeReason || 'Facilitators updated', details: { scope,
+          before: { supervisorUserId: row.supervisor_user_id, coFacilitatorUserIds: supervisionCoFacilitatorIds(row) },
+          after: facilitatorPatch } });
+    }
     const publicDetailsChanged = (modality !== undefined && String(modality || '') !== String(row.modality || ''))
       || (locationText !== undefined && String(locationText || '') !== String(row.location_text || ''));
     if (scheduleChanged) await recordSupervisionScheduleAction(pool,{sessionId:id,actorUserId:actorId,kind:'updated',reason:changeReason,details:{scope,before:previousSchedule,after:{startAt:nextStart,endAt:nextEnd,modality:out.modality,frequency:out.recurrence_frequency}}});
@@ -4249,7 +4261,7 @@ export const getSupervisionScheduleActions = async (req,res,next) => {
     const id=Number(req.params.id),row=await SupervisionSession.findById(id);
     if(!row)return res.status(404).json({error:{message:'Session not found'}});
     const allowed=await canScheduleSession(req,{agencyId:row.agency_id,supervisorUserId:row.supervisor_user_id,superviseeUserId:row.supervisee_user_id,sessionId:id});
-    const host=[row.supervisor_user_id,row.co_facilitator_user_id].map(Number).includes(Number(req.user?.id));
+    const host=isSupervisionFacilitator(row, req.user?.id);
     const admin=['super_admin','admin','support','clinical_practice_assistant'].includes(String(req.user?.role || '').toLowerCase());
     if(!allowed || (!host && !admin))return res.status(403).json({error:{message:'Only the supervisor or authorized staff can view delivery history.'}});
     const [actions]=await pool.execute(`SELECT a.*,CONCAT_WS(' ',COALESCE(NULLIF(u.preferred_name,''),u.first_name),u.last_name) actor_name
@@ -4757,7 +4769,7 @@ export const setSupervisionAttendeeRequired = async (req, res, next) => {
     const actorUserId = Number(req.user?.id || 0);
     const role = String(req.user?.role || '').toLowerCase();
     const isFacilitator = actorUserId === Number(row.supervisor_user_id || 0)
-      || actorUserId === Number(row.co_facilitator_user_id || 0);
+      || isSupervisionFacilitator(row, actorUserId);
     const isPrivileged = isAdminLikeRole(role) || ['support', 'staff', 'clinical_practice_assistant'].includes(role);
     if (!isFacilitator && !isPrivileged) {
       return res.status(403).json({ error: { message: 'Only the facilitator or authorized staff can change attendee status.' } });

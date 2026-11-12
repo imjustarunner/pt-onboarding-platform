@@ -1,3 +1,4 @@
+import { isSupervisionFacilitator } from '../utils/supervisionFacilitators.js';
 import {interviewCalendarEventId} from '../utils/interviewCalendarLink.js';
 import crypto from 'node:crypto';
 import pool from '../config/database.js';
@@ -37,7 +38,7 @@ export async function calendarMeeting(type,ref,{host=false}={}){
 }
 export async function assertCalendarHost(type,row,userId){
  if(!await hasActiveMeetingMembership(row.agency_id,userId))throw fail(403,'Host access required.');
- if(type==='supervision'&&[row.supervisor_user_id,row.co_facilitator_user_id].some(x=>Number(x)===Number(userId)))return;
+ if(type==='supervision'&&isSupervisionFacilitator(row, userId))return;
  if(type==='team-meeting'){
   if(Number(row.provider_id)===Number(userId))return;
   const [rows]=await pool.execute('SELECT 1 FROM meeting_participant_preferences WHERE event_id=? AND user_id=? AND is_cohost=1',[row.id,userId]);if(rows.length)return;

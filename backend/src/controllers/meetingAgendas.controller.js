@@ -1,3 +1,4 @@
+import { isSupervisionFacilitator } from '../utils/supervisionFacilitators.js';
 import { isTrainingProctor } from '../services/scheduledTraining.service.js';
 import { enableMeetingContentSettings } from '../services/meetingContentSettings.service.js';
 /**
@@ -33,7 +34,7 @@ async function canFacilitateSupervisionSession(userId, session) {
   const uid = Number(userId || 0);
   if (!uid || !session) return false;
   if (uid === Number(session.supervisor_user_id || 0)) return true;
-  if (uid === Number(session.co_facilitator_user_id || 0)) return true;
+  if (isSupervisionFacilitator(session, uid)) return true;
   if (await isSupervisionPresenter(session.id, uid)) return true;
   const user = await User.findById(uid);
   const role = String(user?.role || '').toLowerCase();
@@ -50,7 +51,7 @@ async function canHostSupervisionAgenda(userId, session) {
   const uid = Number(userId || 0);
   if (!uid || !session) return false;
   if (uid === Number(session.supervisor_user_id || 0)) return true;
-  if (uid === Number(session.co_facilitator_user_id || 0)) return true;
+  if (isSupervisionFacilitator(session, uid)) return true;
   const user = await User.findById(uid);
   const role = String(user?.role || '').toLowerCase();
   const adminRoles = ['super_admin', 'admin', 'support', 'clinical_practice_assistant'];
@@ -135,7 +136,7 @@ async function canEditMeetingAgenda(userId, meetingType, meetingId) {
     if (!mid || !uid) return false;
     const [rows] = await pool.execute(
       `SELECT ss.id, ss.agency_id, ss.supervisor_user_id, ss.co_facilitator_user_id,
-              ss.supervisee_user_id, ss.session_type
+              ss.supervisee_user_id, ss.session_type, ss.meeting_settings_json
        FROM supervision_sessions ss
        WHERE ss.id = ? AND ss.status != 'CANCELLED'
        LIMIT 1`,

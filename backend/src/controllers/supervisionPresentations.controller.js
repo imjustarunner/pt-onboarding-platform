@@ -1,3 +1,4 @@
+import { isSupervisionFacilitator } from '../utils/supervisionFacilitators.js';
 import { canJoinSupervision, hasActiveMeetingMembership } from '../services/meetingJoinPolicy.service.js';
 import multer from 'multer';
 import pool from '../config/database.js';
@@ -82,7 +83,7 @@ async function canControlLiveState(req, sessionRow) {
     ? await SupervisionCasePresentation.findById(state.active_presentation_id) : null;
   const targetId = Number(req.body?.activePresentationId || 0);
   if (req.body?.handoff === true) {
-    const isHost = [sessionRow.supervisor_user_id, sessionRow.co_facilitator_user_id].map(Number).includes(uid);
+    const isHost = isSupervisionFacilitator(sessionRow, uid);
     const target = targetId ? await SupervisionCasePresentation.findById(targetId) : null;
     if (!target || Number(target.session_id) !== Number(sessionRow.id)) return false;
     if (!isHost && Number(active?.presenter_user_id) !== uid && Number(target.presenter_user_id) !== uid) return false;

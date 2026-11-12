@@ -1,3 +1,4 @@
+import { isSupervisionFacilitator } from '../utils/supervisionFacilitators.js';
 import pool from '../config/database.js';
 import { canJoinSupervision, canJoinTeamMeeting } from './meetingJoinPolicy.service.js';
 import { parseMeetingSettings } from './meetingSettingsPolicy.js';
@@ -18,7 +19,7 @@ export async function dialInContext(type, id, userId, { joining = false, db = po
   const [[user]] = await db.execute('SELECT id,email,work_email,first_name,last_name,preferred_name,personal_phone,work_phone,phone_number FROM users WHERE id=?', [userId]);
   if (!user) throw dialInError('Participant account is unavailable.',403);
   let isHost = type === 'supervision'
-    ? [meeting.supervisor_user_id, meeting.co_facilitator_user_id].some(id => Number(id) === Number(userId))
+    ? isSupervisionFacilitator(meeting, userId)
     : Number(meeting.provider_id) === Number(userId);
   if (!isHost && type === 'team-meeting') {
     const [cohosts] = await db.execute('SELECT 1 FROM meeting_participant_preferences WHERE event_id=? AND user_id=? AND is_cohost=1', [id, userId]);
