@@ -21,7 +21,7 @@ import AgencySchool from '../../models/AgencySchool.model.js';
 import { verifyRecaptchaV3 } from '../../services/captcha.service.js';
 import { createPublicIntakeSession } from '../publicIntake.controller.js';
 
-const qa = { id: 450, slug: 'auricwell-qa-demo', feature_flags: { qaSandbox: { syntheticOnly: true } } };
+const qa = { id: 450, is_active: 1, slug: 'auricwell-qa-demo', feature_flags: { qaSandbox: { syntheticOnly: true } } };
 let req, res, next;
 beforeEach(() => {
   vi.resetAllMocks();

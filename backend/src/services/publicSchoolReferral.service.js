@@ -10,6 +10,7 @@ import {
   requestBaseUrl
 } from './publicFormBranding.service.js';
 import { verifyRecaptchaV3 } from './captcha.service.js';
+import { isSyntheticQaCaptchaAgency } from '../utils/syntheticQaCaptchaPolicy.js';
 import {
   SUPPORT_TICKET_SOURCE_KEYS,
   normalizeSupportTicketSourceKey
@@ -234,7 +235,8 @@ export async function listPublicReferralDirectory(agencySlug, req = null) {
   };
 }
 
-async function verifyOptionalCaptcha(captchaToken) {
+async function verifyOptionalCaptcha(captchaToken, agency) {
+  if (isSyntheticQaCaptchaAgency(agency)) return { ok: true, syntheticQa: true };
   const token = String(captchaToken || '').trim();
   // Captcha is optional for this public form; rate limit + honeypot are primary guards.
   if (!token) return { ok: true, skipped: true };
@@ -298,7 +300,7 @@ export async function createPublicSchoolReferralSupportTicket(agencySlug, payloa
     throw err;
   }
 
-  const captcha = await verifyOptionalCaptcha(payload.captchaToken || payload.recaptchaToken);
+  const captcha = await verifyOptionalCaptcha(payload.captchaToken || payload.recaptchaToken, agency);
   if (!captcha.ok) {
     const err = new Error('Please complete the human verification and try again');
     err.status = 400;

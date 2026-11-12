@@ -1,10 +1,10 @@
-import { isAuricwellQaAgency } from './auricwellQaPolicy.js';
+import { isSyntheticQaCaptchaAgency } from './syntheticQaCaptchaPolicy.js';
 
 // Both the public form configuration and session creation use this policy.
 // The agency must be resolved from the stored intake link/affiliation, never
 // from a caller-supplied agency ID or a browser testing flag.
 export function requiresCaptchaForLink(organization, agency, env = process.env) {
-  if (isAuricwellQaAgency(agency)) return false;
+  if (isSyntheticQaCaptchaAgency(agency)) return false;
 
   if (String(env.RECAPTCHA_REQUIRED_FOR_ALL || '').toLowerCase() === 'true') return true;
   const names = env.RECAPTCHA_REQUIRED_ORG_NAMES;

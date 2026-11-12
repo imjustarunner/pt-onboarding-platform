@@ -782,10 +782,9 @@ import {
 } from '../utils/schoolStaffPortal.js';
 import { buildFancyQrDataUrl } from '../utils/fancyQr.js';
 import {
-  getLoginRecoveryCaptchaToken,
-  isLoginRecoveryRecaptchaConfigured,
-  setLoginRecoveryRecaptchaConfig
+  getLoginRecoveryCaptchaToken
 } from '../utils/loginRecoveryRecaptcha.js';
+import { createLoginRecoveryCaptchaScope } from '../utils/loginRecoveryCaptchaScope.js';
 
 // Removed hardcoded credentials for security
 const router = useRouter();
@@ -2515,25 +2514,21 @@ const showGuardianTempPasswordHelp = () => {
 };
 
 const recoveryRecaptchaRequired = ref(false);
-let recoveryRecaptchaBootstrapped = false;
+const recoveryCaptchaScope = createLoginRecoveryCaptchaScope(async params => {
+  const resp = await api.post('/auth/recovery-status', params, { skipGlobalLoading: true, skipAuthRedirect: true });
+  return resp?.data?.recaptcha;
+});
+watch([loginSlug, username, forgotPasswordEmail, recoverContactEmail], () => {
+  recoveryCaptchaScope.invalidate();
+  recoveryRecaptchaRequired.value = false;
+}, { flush: 'sync' });
+onUnmounted(() => recoveryCaptchaScope.dispose());
 
-const bootstrapRecoveryRecaptcha = async () => {
-  if (recoveryRecaptchaBootstrapped && isLoginRecoveryRecaptchaConfigured()) return;
-  try {
-    const resp = await api.get('/auth/recovery-status', { skipGlobalLoading: true, skipAuthRedirect: true });
-    const rc = resp?.data?.recaptcha;
-    recoveryRecaptchaRequired.value = !!rc?.required;
-    if (rc?.siteKey) {
-      setLoginRecoveryRecaptchaConfig({
-        siteKey: rc.siteKey,
-        useEnterprise: rc.useEnterprise === true
-      });
-    }
-  } catch {
-    recoveryRecaptchaRequired.value = false;
-  } finally {
-    recoveryRecaptchaBootstrapped = true;
-  }
+const bootstrapRecoveryRecaptcha = async identifier => {
+  const result = await recoveryCaptchaScope.load({ organizationSlug: loginSlug.value || '', identifier });
+  if (!result.current) return false;
+  recoveryRecaptchaRequired.value = result.required;
+  return true;
 };
 
 const submitGuardianTempPasswordHelp = async () => {
@@ -2541,7 +2536,7 @@ const submitGuardianTempPasswordHelp = async () => {
   recoveryError.value = '';
   recoverySuccess.value = '';
   try {
-    await bootstrapRecoveryRecaptcha();
+    if (!await bootstrapRecoveryRecaptcha(forgotPasswordEmail.value || username.value)) return;
     const captchaToken = await getLoginRecoveryCaptchaToken('login_password_reset');
     if (recoveryRecaptchaRequired.value && !captchaToken) {
       recoveryError.value = 'Security verification did not complete. Please refresh and try again.';
@@ -2638,7 +2633,7 @@ const submitForgotUsername = async () => {
   recoverySuccess.value = '';
   recoveryDebug.value = null;
   try {
-    await bootstrapRecoveryRecaptcha();
+    if (!await bootstrapRecoveryRecaptcha(recoverContactEmail.value || username.value)) return;
     const captchaToken = await getLoginRecoveryCaptchaToken('login_recover_username');
     if (recoveryRecaptchaRequired.value && !captchaToken) {
       recoveryError.value = 'Security verification did not complete. Please refresh and try again.';
