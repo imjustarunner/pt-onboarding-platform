@@ -1,3 +1,4 @@
+import { savePayrollDraftDecisions } from '../controllers/payroll.controller.js';
 import { getPayrollCorrectionReview, postPayrollCorrectionReview, postPayrollCorrectionAddition, savePayrollCorrectionResolution, listPayrollCorrectionResolutions } from '../controllers/payroll.controller.js';
 import { getPayrollEventTravelReport, reviewPayrollEventTravelReport } from '../controllers/payroll.controller.js';
 import { getMyFfsExcessOptions } from '../controllers/ffsExcessTime.controller.js';
@@ -284,6 +285,7 @@ router.get('/periods/:id/runs-side-by-side', getPayrollPeriodRunsSideBySide);
 router.get('/periods/:id/imports', listPayrollPeriodImports);
 router.delete('/periods/:periodId/imports/:importId', deletePayrollImport);
 router.post('/periods/:periodId/imports/:importId/replace', ...replacePayrollImport);
+router.post('/periods/:id/draft-decisions', authenticate, savePayrollDraftDecisions);
 router.patch('/import-rows/:rowId', patchPayrollImportRow);
 router.get('/import-rows/:rowId/audit-notes', listPayrollImportRowNotes);
 router.post('/import-rows/:rowId/audit-notes', createPayrollImportRowNote);

@@ -46,3 +46,12 @@ it('requires a new run before posting a stale Pro Bono payment while preserving 
  expect(()=>assertUnpaidProBonoBreakdown({'PRO_BONO_SERVICE__dated_0':{displayServiceCode:'PRO_BONO_SERVICE',amount:0,hcodeGrossAmount:3}})).toThrow(/Pro Bono/);
  expect(()=>assertUnpaidProBonoBreakdown({'PRO-BONO SERVICE':{amount:0},'MANUAL REDUCTION':{amount:-17.83},H0004:{amount:21}})).not.toThrow();
 });
+
+it('keeps an explicit employee-specific unpaid code at zero across old and new schedule dates without suppressing submitted indirect pay',()=>{
+ const rateProfile={...profile,unpaidServiceCodes:['H0002','H0023']};
+ const breakdown={H0002:{units:40,finalizedUnits:40,oldDoneNotesUnits:40,amount:900,rateAmount:32,category:'direct',explicitUnpaid:true},H0023:{units:40,finalizedUnits:40,amount:900,category:'direct',explicitUnpaid:true},'INDIRECT TIME':{units:60,finalizedUnits:60,category:'indirect',payDivisor:60,creditValue:1/60},__adjustments:{timeClaimsAmount:25}};
+ const result=applyPaySystemToBreakdown({breakdown,rateProfile,status:{},datedUnitsByCode:new Map()});
+ expect(breakdown.H0002).toMatchObject({units:40,amount:0,rateAmount:0,hours:0,autoIndirectAmount:0,rateSource:'explicit_unpaid_code'});expect(breakdown.H0023.amount).toBe(0);expect(breakdown['INDIRECT TIME'].amount).toBeGreaterThan(0);expect(breakdown.__adjustments.timeClaimsAmount).toBe(25);expect(result.bonuses.totalBonusAmount).toBe(0);
+ expect(computeLineAmount({rateProfile,status:{},serviceCode:'H0002',quantity:40})).toMatchObject({amount:0,autoIndirectAmount:0,payType:'skip'});
+ expect(computeLineAmount({rateProfile:profile,status:{},serviceCode:'H0002',quantity:40})).not.toMatchObject({payType:'skip'});
+});

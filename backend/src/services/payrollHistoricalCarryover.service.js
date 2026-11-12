@@ -7,7 +7,7 @@ const review=message=>{throw Object.assign(new Error(message),{code:'AMENDMENT_P
 // Preserve their explicitly saved legacy rates; never substitute the new matrix.
 export function separateHistoricalCarryovers({breakdown,stagingRows,ratesByCode,rateCard=null,historicalSummaries=[],boundary}) {
   for(const [code,row] of Object.entries({...breakdown})) {
-    if(!row || typeof row!=='object' || code.startsWith('__') || row.supervisionTrackingOnly || isProBonoServiceCode(row.displayServiceCode || code))continue;
+    if(!row || typeof row!=='object' || code.startsWith('__') || row.supervisionTrackingOnly || row.explicitUnpaid || isProBonoServiceCode(row.displayServiceCode || code))continue;
     if(['percent_billed','percent_collected'].includes(row.payMethod))continue;
     const carryUnits=Number(row.oldDoneNotesUnits||0);if(!(carryUnits>0))continue;
     const staged=stagingRows.find(r=>String(r.serviceCode).toUpperCase()===code.toUpperCase());

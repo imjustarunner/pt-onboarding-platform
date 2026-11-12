@@ -50,8 +50,8 @@
             class="pw-phase"
             :class="{
               active: currentPhaseIdx === i,
-              done: currentPhaseIdx > i,
-              upcoming: currentPhaseIdx < i
+              done: phase.stepKeys.every(reviewCompleted),
+              upcoming: currentPhaseIdx < i && !phase.stepKeys.every(reviewCompleted)
             }"
             :title="`Go to ${phase.title}`"
             @click="goToPhase(i)"
@@ -82,8 +82,8 @@
               class="pw-substep"
               :class="{
                 active: s.globalIdx === stepIdx,
-                done: s.globalIdx < stepIdx,
-                upcoming: s.globalIdx > stepIdx,
+                done: reviewCompleted(s.key),
+                upcoming: s.globalIdx > stepIdx && !reviewCompleted(s.key),
                 attention: reviewStates[s.key]?.pendingCount > 0
               }"
               @click="goToStep(s.globalIdx)"
@@ -414,6 +414,7 @@
               <template v-else>
                 <div v-if="currentStep?.key === 'post' && isPeriodPosted" class="pw-posted" role="status">✓ Posted — payroll is visible to providers.</div>
                 <div v-else-if="currentStep?.key === 'run' && canSeeRunResults" class="pw-posted" role="status">✓ Payroll calculated. Continue to review the results.</div>
+                <PayrollSupervisionConflicts v-if="currentStep?.key === 'run'" :key="selectedPeriodId" :period-id="selectedPeriodId" @readiness="supervisionReadiness=$event" @changed="onSupervisionChanged" />
                 <ul class="pw-checklist">
                   <li v-for="(item, idx) in (currentStep?.checklist || [])" :key="idx">{{ item }}</li>
                 </ul>
@@ -582,6 +583,7 @@ import { useFundThredBranding } from '../../composables/useFundThredBranding';
 import { payrollPeriodChoices } from '../../utils/payrollPeriodChoices';
 useFundThredBranding('Payroll | FundThred');
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import PayrollSupervisionConflicts from '../../components/payroll/PayrollSupervisionConflicts.vue';
 import PayrollReportEmail from '../../components/payroll/PayrollReportEmail.vue';
 import PayrollWizardEmpty from '../../components/payroll/PayrollWizardEmpty.vue';
 import { payrollRawStepModes, payrollWizardBlocker, payrollReviewBlocker } from '../../utils/payrollWizardFlow';
@@ -661,6 +663,8 @@ const rawPanelMode = ref('draft_audit');
 const rawPanelCatchUp = ref(null);
 const showClaimsPanel = ref(false);
 const showStagePanel = ref(false);
+const supervisionReadiness=ref(null);
+const onSupervisionChanged=async()=>{invalidateFromStep('run');await loadPeriodDetails();await saveProgress();};
 const showTodosPanel = ref(false);
 const showProcessPanel = ref(false);
 const showPreviewPanel = ref(false);
@@ -1151,7 +1155,7 @@ const goToStep = async (idx) => {
   if (!Number.isFinite(idx) || idx < 0 || idx >= steps.value.length || transitioning.value) return;
   if (idx === stepIdx.value) return;
   if (idx > stepIdx.value) {
-    if (!canContinue.value) { focusCurrentBlocker(); return; }
+    if (!canContinue.value && !reviewCompleted(currentStep.value.key)) { focusCurrentBlocker(); return; }
     // A phase shortcut cannot skip reviews that have never passed their data checks.
     const firstUnchecked = steps.value.findIndex((s, i) => i > stepIdx.value && i < idx && !reviewCompleted(s.key));
     if (firstUnchecked >= 0) idx = firstUnchecked;
@@ -1161,7 +1165,7 @@ const goToStep = async (idx) => {
   }
   transitioning.value = true;
   try {
-    if (idx > stepIdx.value) await markStepComplete(currentStep.value.key);
+    if (idx > stepIdx.value && !reviewCompleted(currentStep.value.key)) await markStepComplete(currentStep.value.key);
     actionMessage.value = ''; actionError.value = false;
     stepIdx.value = idx;
     await nextTick();
@@ -1222,7 +1226,7 @@ const continueBlocker = computed(() => {
   if (key === 'upload_reports') return loadingExistingImports.value ? 'Checking uploaded reports…' : !existingImports.value.current ? 'Upload the current payroll report before continuing.' : Object.values(uploadFiles.value).some(Boolean) ? 'Upload or clear the selected files before continuing.' : '';
   if (missingPriorReport.value) return loadingExistingImports.value ? 'Checking catch-up reports…' : '';
   if (payrollRawStepModes[key] || ['batch_catchup', 'claims'].includes(key)) return payrollReviewBlocker(currentReview.value);
-  if (key === 'run') return canSeeRunResults.value ? '' : 'Run Payroll to calculate this period before continuing.';
+  if (key === 'run') return supervisionReadiness.value && !supervisionReadiness.value.ready ? payrollReviewBlocker(supervisionReadiness.value,'Resolve supervision conflicts before calculating payroll.') : canSeeRunResults.value ? '' : 'Run Payroll to calculate this period before continuing.';
   if (key === 'preview') return canSeeRunResults.value ? payrollReviewBlocker(currentReview.value) : 'Run Payroll before opening Preview Post.';
   if (key === 'post') return isPeriodPosted.value ? '' : !postPrerequisitesReady.value ? 'The payroll inputs changed or a review is unfinished. Complete the required reviews before posting.' : 'Post Payroll successfully before finishing.';
   if (key === 'stage') return payrollReviewBlocker(reviewStates.value.stage);
@@ -1247,7 +1251,7 @@ const invalidateFromStep = key => {
 };
 const onStepReadiness = (key, state) => {
   reviewStates.value = { ...reviewStates.value, [key]: state };
-  if (!state.loading && !state.saving && state.ready === false) invalidateFromStep(key);
+  if (!state.loading && !state.saving && !state.error && Number(state.pendingCount)>0) invalidateFromStep(key);
 };
 const firstUnreviewedPrerequisite = computed(() => steps.value.findIndex(s => s.key !== 'compliance' && !['post'].includes(s.key) && !reviewCompleted(s.key)));
 const postPrerequisitesReady = computed(() => isPeriodPosted.value || firstUnreviewedPrerequisite.value < 0);
@@ -1260,7 +1264,7 @@ const synchronizeReviewProgress = () => {
 const importMutationSequences = new Map();
 const onPayrollInputsChanged = async (change) => {
   const key = currentStep.value?.key;
-  invalidateFromStep(key);
+  if(change?.kind!=='draft_review' || change?.saved?.draftChoicesChanged!==false)invalidateFromStep(key);
   if(change?.saved?.period && change?.saved?.import && Number(change.periodId)===Number(rawPanelPeriodId.value)) {
     const saved=change.saved,version=Number(saved.import.mutationSequence || 0),importId=Number(saved.import.id);
     if(version >= (importMutationSequences.get(importId) ?? -1)) {
@@ -1431,6 +1435,7 @@ const goBackToPayroll = async () => {
 };
 
 const actionDisabled = (action) => {
+  if(action.runPayroll && supervisionReadiness.value && !supervisionReadiness.value.ready)return true;
   if (action?.useTwoAgo) {
     return !(twoAgoPeriod.value?.id || wizardState.value?.twoAgoPeriodId);
   }

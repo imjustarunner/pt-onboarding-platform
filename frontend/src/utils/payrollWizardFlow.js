@@ -9,6 +9,7 @@ export function payrollHoursReviewUsers(summaries = []) {
 }
 export function payrollWizardBlocker(data = {}) {
   if (data.actualHoursReviewUserIds?.length) return { step: 'preview', userId: Number(data.actualHoursReviewUserIds[0]) };
+  if (data.unresolvedSupervisionConflicts) return {step:'run',tool:'supervision-conflicts'};
   if (data.pendingTodos) return { step: 'stage', tool: 'todos' };
   if (data.pendingTime || data.pendingMileage || data.pendingReimbursement || data.allowPendingClaims) return { step: 'claims' };
   if (data.pendingProcessing) {

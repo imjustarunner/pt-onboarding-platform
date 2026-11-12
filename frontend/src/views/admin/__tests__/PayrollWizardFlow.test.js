@@ -60,7 +60,7 @@ afterEach(() => { wrappers.forEach(wrapper => wrapper.unmount()); vi.restoreAllM
 async function page(step = 'upload_reports') {
   mock.initialStep = step;
   const wrapper = mount(Wizard, { global: { stubs: { FundThredPayrollBrand: true, PayrollRawImportPanel: Raw, PayrollProcessChangesPanel: Process,
-    PayrollClaimsPanel: Claims, PayrollPreviewPostPanel: Preview, PayrollStagePanel: true, PayrollTodosPanel: true, PayrollCompliancePanel: true } } });
+    PayrollClaimsPanel: Claims, PayrollPreviewPostPanel: Preview, PayrollStagePanel: true, PayrollTodosPanel: true, PayrollCompliancePanel: true, PayrollSupervisionConflicts: true } } });
   wrappers.push(wrapper); await flushPromises(); return wrapper;
 }
 const nextButton = wrapper => wrapper.get('.pw-continue');
@@ -219,4 +219,10 @@ it('keeps nested code processing mounted and adopts confirmed row edits without 
  raw.vm.$emit('changed',{periodId:12,kind:'minutes',saved:{period:{...period,status:'staged'},row:{id:4,unit_count:23},payrollInvalidated:true,import:{id:imports[12][0].id,row_revision:'changed:1',row_count:10,mutationSequence:99}}});await flushPromises();expect(mock.get).toHaveBeenCalledTimes(reads);expect(w.findComponent(Raw).element).toBe(element);expect(w.findComponent(Raw).props('initialMode')).toBe('process_h0031');
  const saves=mock.put.mock.calls.filter(([url])=>url.endsWith('/wizard-progress'));expect(saves.at(-1)[1].state.flowFingerprint).toContain('changed:1');
  raw.vm.$emit('changed',{periodId:12,kind:'minutes',saved:{period:{...period,status:'staged'},import:{id:imports[12][0].id,row_revision:'older:1',mutationSequence:98}}});await flushPromises();expect(mock.put.mock.calls.filter(([url])=>url.endsWith('/wizard-progress')).at(-1)[1].state.flowFingerprint).toContain('changed:1');w.unmount();
+});
+
+it('keeps green completed phases and lets payroll jump back to Run after revisiting a completed audit',async()=>{
+ const w=await page('run');const done=()=>w.findAll('.pw-phase.done').length;
+ expect(done()).toBe(4);await w.findAll('.pw-phase')[2].trigger('click');await flushPromises();expect(w.get('.pw-step-title').text()).toContain('Draft Audit');expect(done()).toBe(4);
+ await w.findAll('.pw-phase').at(-1).trigger('click');await flushPromises();expect(w.get('.pw-step-title').text()).toBe('Run Payroll');expect(done()).toBe(4);
 });

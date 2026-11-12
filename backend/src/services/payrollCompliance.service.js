@@ -1,3 +1,4 @@
+import complianceDelivery from './payrollComplianceDelivery.service.js';
 /**
  * Payroll Compliance digest: late notes + psychotherapy session limits.
  * Used by the payroll wizard Compliance step.
@@ -586,6 +587,9 @@ export async function buildComplianceDigest({ agencyId, payrollPeriodId, include
   }
 
   providers.sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  const deliveries=await complianceDelivery.list({agencyId,payrollPeriodId});
+  for(const provider of providers)provider.emailDelivery=deliveries.get(Number(provider.userId)) || {status:'not_sent'};
+
 
   return {
     unlocked: true,
@@ -769,7 +773,7 @@ export async function sendComplianceEmail({
     .filter(Boolean)
     .filter((e) => e.toLowerCase() !== String(preview.provider.email).toLowerCase());
 
-  // Auditable send marker (allows intentional re-sends; unique key includes timestamp bucket)
+  // Retain the notification audit marker; the delivery reservation prevents repeat sends.
   const stamp = new Date().toISOString().slice(0, 16);
   await NotificationEvent.tryCreate({
     agencyId: Number(agencyId),
@@ -778,7 +782,7 @@ export async function sendComplianceEmail({
     recipientUserId: Number(userId)
   }).catch(() => {});
 
-  const result = await sendEmailFromIdentity({
+  const delivery = await complianceDelivery.deliver({agencyId,payrollPeriodId,userId,actorUserId:generatedByUserId,send:()=>sendEmailFromIdentity({
     senderIdentityId: identity.id,
     to: preview.provider.email,
     cc: cc.length ? cc : null,
@@ -789,11 +793,11 @@ export async function sendComplianceEmail({
     generatedByUserId,
     userId: Number(userId),
     templateType: 'compliance_digest'
-  });
+  })});
 
   return {
     ok: true,
-    result,
+    delivery,
     to: preview.provider.email,
     cc,
     subject: preview.subject
