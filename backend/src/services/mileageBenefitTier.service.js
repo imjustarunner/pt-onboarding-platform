@@ -5,6 +5,7 @@ import pool from '../config/database.js';
 export async function loadMileageBenefitTiers({ agencyId, userIds, periodEnd = '9999-12-31', db = pool }) {
   const ids = [...new Set(userIds.map(Number).filter(id => Number.isInteger(id) && id > 0))];
   if (!ids.length) return new Map();
+  const cutoff = periodEnd instanceof Date ? periodEnd.toISOString().slice(0,10) : String(periodEnd).slice(0,10);
   const [rows] = await db.execute(`SELECT s.user_id, p.period_end,
       JSON_EXTRACT(s.breakdown, '$.__tier.tierLevel') AS tier_level
     FROM payroll_summaries s JOIN payroll_periods p ON p.id=s.payroll_period_id AND p.agency_id=s.agency_id
@@ -15,9 +16,9 @@ export async function loadMileageBenefitTiers({ agencyId, userIds, periodEnd = '
         WHERE newer.agency_id=s.agency_id AND newer.user_id=s.user_id
           AND np.status IN ('posted','finalized') AND np.period_end<=?
           AND (np.period_end>p.period_end OR (np.period_end=p.period_end AND np.id>p.id)))`,
-  [Number(agencyId), ...ids, String(periodEnd).slice(0,10), String(periodEnd).slice(0,10)]);
+  [Number(agencyId), ...ids, cutoff, cutoff]);
   return new Map(rows.map(row => [Number(row.user_id), {
-    tierLevel: row.tier_level == null ? null : Number(row.tier_level), periodEnd: row.period_end
+    tierLevel: row.tier_level == null ? null : Number(row.tier_level), periodEnd: row.period_end instanceof Date ? row.period_end.toISOString().slice(0,10) : String(row.period_end).slice(0,10)
   }]));
 }
 

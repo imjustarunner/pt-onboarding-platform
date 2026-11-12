@@ -14,6 +14,7 @@ it('uses each employee’s latest posted agency benefit, including grace, with a
  expect(tiers.get(7)).toEqual({tierLevel:2,periodEnd:'2026-10-23'});
  expect(tiers.get(8).tierLevel).toBe(3);
  expect((await loadMileageBenefitTiers({agencyId:2,userIds:[7],periodEnd:'2026-10-10',db:{execute}})).get(7).tierLevel).toBe(1);
+ expect((await loadMileageBenefitTiers({agencyId:2,userIds:[7],periodEnd:new Date('2026-10-10T00:00:00Z'),db:{execute}})).get(7).tierLevel).toBe(1);
  }finally{db.close();}
 });
 it('defaults to the recorded entitlement and rejects stale Tier 1 rather than underpaying a Tier 2 employee',()=>{
@@ -22,4 +23,11 @@ it('defaults to the recorded entitlement and rejects stale Tier 1 rather than un
  expect(()=>resolveMileageBenefitTier({tierLevel:0},1)).toThrow('eligible mileage benefit');
  expect(()=>resolveMileageBenefitTier(null,null)).toThrow('No posted benefit tier');
  expect(resolveMileageBenefitTier(null,3)).toBe(3);
+});
+
+it('normalizes dates returned as JavaScript Date objects by the production driver',async()=>{
+ const execute=vi.fn().mockResolvedValue([[{user_id:7,tier_level:2,period_end:new Date('2026-10-23T00:00:00Z')}]]);
+ const tiers=await loadMileageBenefitTiers({agencyId:2,userIds:[7],periodEnd:new Date('2026-11-06T00:00:00Z'),db:{execute}});
+ expect(execute.mock.calls[0][1]).toEqual([2,7,'2026-11-06','2026-11-06']);
+ expect(tiers.get(7)).toEqual({tierLevel:2,periodEnd:'2026-10-23'});
 });
