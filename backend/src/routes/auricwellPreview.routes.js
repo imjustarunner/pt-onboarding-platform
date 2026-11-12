@@ -15,10 +15,12 @@ import { listToasts, saveToast, deleteToast } from '../services/toastAnnouncemen
 const router = express.Router();
 router.use(authenticate, requireActiveStatus, requirePreviewAdmin);
 router.use('/portal',auricwellPortalRoutes);
-const practice = a => ({ id: a.id, name: a.name, slug: a.slug, organization_type: a.organization_type, feature_flags: a.feature_flags });
+const practice = a => ({ id: a.id, name: a.name, slug: a.slug, organization_type: a.organization_type, feature_flags: a.feature_flags, logo_url: a.logo_url, color_palette: a.color_palette });
 router.get('/', async (req, res, next) => {
   try {
-    const [rows] = req.auricwellQaAgencyId
+    const [rows] = req.auricwellProspectAgencyIds
+      ? await pool.execute(`SELECT id,name,slug,organization_type FROM agencies WHERE id IN (${req.auricwellProspectAgencyIds.map(()=>'?').join(',')}) AND is_active=1`,req.auricwellProspectAgencyIds)
+      : req.auricwellQaAgencyId
       ? await pool.execute("SELECT id,name,slug,organization_type FROM agencies WHERE id=? AND slug=? AND is_active=1",[req.auricwellQaAgencyId,AURICWELL_QA_SLUG])
       : await pool.execute("SELECT id,name,slug,organization_type FROM agencies WHERE is_active=1 AND COALESCE(organization_type,'agency') IN ('agency','clinical') ORDER BY name");
     res.json({ actor: req.previewActor, practices: rows.map(practice) });
@@ -30,7 +32,9 @@ router.get('/context', async (req, res, next) => {
     assertQaPreviewPractice(req,agency);
     if (!agency?.is_active || !['agency', 'clinical'].includes(agency.organization_type || 'agency')) throw previewError(404, 'Practice unavailable.');
     await logAuditEvent(req, { actionType: 'auricwell_preview_open', agencyId: agency.id, metadata: { actorUserId: req.user.id, product: 'auricwell_preview' } });
-    res.json({ actor: req.previewActor, practice: practice(agency), preview: true, qaWorkspace: !!req.auricwellQaAgencyId });
+    const flags = typeof agency.feature_flags === 'string' ? JSON.parse(agency.feature_flags) : agency.feature_flags;
+    const prospect = flags?.prospectDemo ? {status:flags.prospectDemo.status,slug:agency.slug} : null;
+    res.json({ actor: req.previewActor, practice: practice(agency), preview: true, qaWorkspace: !!req.auricwellQaAgencyId, prospectDemo: prospect });
   } catch (error) { next(error); }
 });
 // The preview boundary resolves and validates the active practice before these handlers.
@@ -79,7 +83,7 @@ router.get('/providers', async (req, res, next) => {
     if (!agencyId) throw previewError(400, 'Select a practice first.');
     const [providers] = await pool.execute(`SELECT u.id,u.first_name,u.last_name,u.credential,u.is_active,u.status
       FROM users u JOIN user_agencies ua ON ua.user_id=u.id
-      WHERE ua.agency_id=? AND u.role IN ('provider','provider_plus','intern','intern_plus','supervisor') ORDER BY u.last_name,u.first_name`, [agencyId]);
+      WHERE ua.agency_id=? AND (u.role IN ('provider','provider_plus','intern','intern_plus','supervisor') OR (u.has_provider_access=1 AND COALESCE(u.sees_clients,1)=1)) ORDER BY u.last_name,u.first_name`, [agencyId]);
     res.json({ providers });
   } catch (error) { next(error); }
 });

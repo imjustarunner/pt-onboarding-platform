@@ -18,13 +18,16 @@ export function isQaPreviewIdentity(user) {
   return Number(user?.is_demo) === 1 && Object.hasOwn(roles,String(user?.email||'').toLowerCase())
     && roles[String(user.email).toLowerCase()] === user.role;
 }
-export function assertPreviewActor(user, claims = {}, { qaAgencyId = null } = {}) {
+export function assertPreviewActor(user, claims = {}, { qaAgencyId = null, prospectAgencyIds = [] } = {}) {
   const qaAccess = isQaPreviewIdentity(user) && Number.isSafeInteger(qaAgencyId) && qaAgencyId > 0;
-  if ((user?.role !== 'super_admin' && !qaAccess) || claims.demoMode || claims.testAccountSwitch || !user?.id || !user.is_active || user.is_archived || ['ARCHIVED', 'INACTIVE_EMPLOYEE','TERMINATED_PENDING'].includes(user.status)) {
+  const prospectAccess = ['admin','support','provider'].includes(user?.role) && prospectAgencyIds.some(id => Number.isSafeInteger(id) && id > 0);
+  if ((user?.role !== 'super_admin' && !qaAccess && !prospectAccess) || claims.demoMode || claims.testAccountSwitch || !user?.id || !user.is_active || user.is_archived || ['ARCHIVED', 'INACTIVE_EMPLOYEE','TERMINATED_PENDING'].includes(user.status)) {
     throw previewError(403, 'This account does not have access to this AuricWell workspace.');
   }
 }
 export function assertQaPreviewPractice(req, agency) {
+  if (req.auricwellProspectAgencyIds && !req.auricwellProspectAgencyIds.includes(Number(agency?.id)))
+    throw previewError(404, 'Practice unavailable.');
   if (req.auricwellQaAgencyId && (agency?.slug !== AURICWELL_QA_SLUG || Number(agency.id) !== req.auricwellQaAgencyId))
     throw previewError(404, 'Practice unavailable.');
 }
@@ -62,6 +65,7 @@ export function previewRouteAllowed(method, path) {
   if(method==='PATCH' && /^\/secure-session-comments\/appointments\/\d+\/comments\/\d+$/.test(path))return true;
   if (method === 'POST' && /^\/address-lookup\/(suggest|select)$/.test(path)) return true;
   if (method === 'GET') return [
+    /^\/prospect-demos\/[1-9][0-9]*$/,
     /^\/(?:auricwell-preview\/portal|portal-admin)\/clients\/[1-9][0-9]*\/accounts(?:\/[1-9][0-9]*\/(?:read|activity))?$/,
     /^\/auricwell-preview(?:\/context|\/providers|\/workspace-scope|\/agenda|\/directory|\/my-clients|\/tasks|\/notifications|\/toasts(?:\/active)?)?$/,
     /^\/auricwell-preview\/my-clients\/[1-9][0-9]*\/preview$/,
@@ -93,6 +97,9 @@ export function previewRouteAllowed(method, path) {
     ['POST', /^\/narriva\/(?:test-review|reviews)$/],
     ['PATCH', /^\/narriva\/(?:preferences|reviews\/[1-9][0-9]*\/findings)$/],
     ['POST', /^\/narriva\/compliance-reports\/runs(?:\/[a-f0-9-]{36}\/retry)?$/i],
+    ['PATCH', /^\/prospect-demos\/[1-9][0-9]*\/employees\/[1-9][0-9]*$/],
+    ['POST', /^\/prospect-demos\/[1-9][0-9]*\/(?:clear|activate)$/],
+    ['POST', /^\/users\/[1-9][0-9]*\/send-reset-password-link$/],
     ['POST', /^\/clients\/merge(?:\/preview)?$/],
     ['POST', /^\/clinical-notes\/(?:drafts|audit|generate|interactive-complexity)$/],
     ['POST', /^\/clinical-notes\/contact-documentation\/(?:email|secure)\/[1-9][0-9]*$/],

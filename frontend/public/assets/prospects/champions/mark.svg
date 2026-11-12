@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96" fill="none" role="img" aria-labelledby="title description">
+  <!-- Original proposed demo branding. Not official Champions Counseling artwork. -->
+  <title id="title">Champions Counseling proposed mark</title>
+  <desc id="description">Two ascending arches in navy and blue with a warm gold rising sun.</desc>
+  <path d="M17 74V47C17 30.431 30.431 17 47 17" stroke="#18324c" stroke-width="8" stroke-linecap="round"/>
+  <path d="M39 74V54C39 40.193 50.193 29 64 29H79V74" stroke="#5ea2e7" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M17 79H79" stroke="#18324c" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="66" cy="14" r="6" fill="#cfab68"/>
+</svg>

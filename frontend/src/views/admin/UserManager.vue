@@ -1,5 +1,6 @@
 <template>
   <div class="container">
+    <ProspectDemoPanel :agency-id="agencyStore.currentAgency?.id" />
     <div v-if="dormantFilterActive" class="dormant-filter-banner">
       Showing dormant members — those who have not logged in within the last 30 days.
       <button class="dormant-filter-clear" @click="dormantFilterActive = false">✕ Clear filter</button>
@@ -230,6 +231,7 @@
               <option value="PREHIRE_REVIEW">Ready for Review</option>
               <option value="ONBOARDING">Onboarding</option>
               <option value="ACTIVE_EMPLOYEE">Active</option>
+              <option value="DEMO">Demo</option>
               <option value="TERMINATED_PENDING">Terminated (Grace Period)</option>
               <option value="INACTIVE_EMPLOYEE">Inactive (offboarded)</option>
               <option value="ARCHIVED">Archived</option>
@@ -1770,6 +1772,7 @@
 </template>
 
 <script setup>
+import ProspectDemoPanel from '../../components/admin/ProspectDemoPanel.vue';
 import BusinessCardsDialog from '../../components/admin/BusinessCardsDialog.vue';
 import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -1943,7 +1946,9 @@ const rosterProfileBase = computed(() => {
   return slug ? `/${slug}/admin/users` : '/admin/users';
 });
 // Default to Active Employee per admin workflow.
-const statusSort = ref('ACTIVE_EMPLOYEE');
+const isProspectDemoAgency = computed(() => { const raw=agencyStore.currentAgency?.feature_flags; let flags=raw; if(typeof raw==='string'){try{flags=JSON.parse(raw);}catch{return false;}} return flags?.prospectDemo?.status==='DEMO'; });
+const statusSort = ref(isProspectDemoAgency.value ? 'DEMO' : 'ACTIVE_EMPLOYEE');
+watch(isProspectDemoAgency, value => { if(value && statusSort.value==='ACTIVE_EMPLOYEE') statusSort.value='DEMO'; });
 const agencySort = ref('');
 const showBusinessCards = ref(false);
 watch([agencySort, () => route.fullPath], closeUmQuickView);
@@ -2039,7 +2044,7 @@ const resetUserFilters = () => {
   agencySort.value = '';
   organizationSort.value = '';
   roleSort.value = '';
-  statusSort.value = isSscSstcTenant.value ? '' : 'ACTIVE_EMPLOYEE';
+  statusSort.value = isSscSstcTenant.value ? '' : isProspectDemoAgency.value ? 'DEMO' : 'ACTIVE_EMPLOYEE';
   userTypeFilter.value = '';
   organizationSearch.value = '';
   directoryPersona.value = 'employees';

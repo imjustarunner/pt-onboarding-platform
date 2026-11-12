@@ -31,6 +31,7 @@ export function getStatusLabel(status) {
     'PREHIRE_REVIEW': 'Ready for Review',
     'ONBOARDING': 'Onboarding',
     'ACTIVE_EMPLOYEE': 'Active',
+    'DEMO': 'Demo',
     'TERMINATED_PENDING': 'Terminated (Grace Period)',
     'INACTIVE_EMPLOYEE': 'Inactive (offboarded)',
     'ARCHIVED': 'Archived',
@@ -63,6 +64,8 @@ export function getStatusBadgeClass(status, isActive) {
     case 'PREHIRE_REVIEW':
       return 'badge-primary';
     case 'ONBOARDING':
+      return 'badge-info';
+    case 'DEMO':
       return 'badge-info';
     case 'ACTIVE_EMPLOYEE':
       return 'badge-success';

@@ -15,6 +15,7 @@
       <AnnouncementToasts v-if="!demoContext" :storage-key="`auricwell:${actor.id}:agency:${context.practice.id}`" :load-items="loadOfficeToasts" />
       <div v-if="demoContext" class="aw-identity" role="status"><strong>Interactive demo · Fictional practice</strong><span>Explore the actual EHR screens. Nothing is saved, signed, submitted or sent.</span><button type="button" data-analytics-id="demo-reset" @click="resetDemo">Reset demo</button></div>
       <div v-else-if="context.qaWorkspace" class="aw-identity" role="status"><strong>QA workspace · {{ actorName }} · {{ actor.role }}</strong><span>Fictional clients in {{ context.practice.name }}. Changes are saved for testing.</span></div>
+      <div v-else-if="context.prospectDemo" class="aw-identity" role="status"><strong>{{ context.prospectDemo.status === 'DEMO' ? 'Demo workspace' : 'Practice workspace' }} · {{ context.practice.name }}</strong><span>{{ context.prospectDemo.status === 'DEMO' ? 'Your website-listed team with fictional clients, availability and example jobs. Changes are saved in this organization.' : 'Your organization’s workspace.' }}</span><RouterLink v-if="['admin','super_admin'].includes(actor.role)" :to="`/${slug}/directory`">Directory &amp; demo controls</RouterLink></div>
       <div v-else class="aw-identity" role="status"><strong>Superadmin preview · {{ actorName }}</strong><span>Real {{ context.practice.name }} records. Changes are live and attributed to you.</span><a :href="appBase">Switch practice</a></div>
       </template>
         <slot v-if="demoContext && section === 'tasks' && $slots.tasks" name="tasks" />
@@ -36,6 +37,7 @@
         <slot v-else-if="section === 'appointments' && $slots.appointments" name="appointments" />
         <Clients v-else-if="section==='clients'" :agency="context.practice" :actor="actor" :slug="slug" />
         <ScheduleWorkspace v-else-if="section==='appointments'" :agency="context.practice" :actor="actor" />
+        <Directory v-else-if="section==='directory'" :agency="context.practice" :slug="slug" />
         <Records v-else-if="section==='providers'" :key="`${context.practice.id}:${section}`" :section="section" :agency="context.practice" :slug="slug" />
         <section v-else class="aw-welcome"><h1>Page unavailable</h1><RouterLink :to="`/${slug}`">Return to practice</RouterLink></section>
     </WorkspaceShell>
@@ -54,6 +56,7 @@ import { useRoute } from 'vue-router';
 import { useAgencyStore } from '../store/agency';
 import { useAuthStore } from '../store/auth';
 import Records from './Records.vue';
+import Directory from './Directory.vue';
 import Clients from './Clients.vue';
 import ScheduleWorkspace from './ScheduleWorkspace.vue';
 import Portal from './Portal.vue';
@@ -82,11 +85,11 @@ const slug = computed(() => String(route.params.organizationSlug || ''));
 const section = computed(() => route.params.section === 'my-schedule' ? 'appointments' : String(route.params.section || 'overview'));
 const actorName = computed(() => [actor.value?.first_name, actor.value?.last_name].filter(Boolean).join(' ') || actor.value?.email || 'Your account');
 const isLogin = computed(() => route.name === 'login');
-const loginUrl = computed(() => `${slug.value===QA_SLUG?`/${QA_SLUG}`:''}/login?redirect=${encodeURIComponent(isLogin.value ? appBase : window.location.pathname + window.location.search + window.location.hash)}`);
+const loginUrl = computed(() => `${slug.value?`/${encodeURIComponent(slug.value)}`:''}/login?redirect=${encodeURIComponent(isLogin.value ? appBase : window.location.pathname + window.location.search + window.location.hash)}`);
 const canDocument=computed(()=>!context.value?.qaWorkspace||qaSections(actor.value?.role).includes('documentation'));
 const canManageCompliance=computed(()=>!props.demoContext && !context.value?.qaWorkspace && canManageComplianceReports(actor.value));
 const qaSectionAllowed = computed(()=>qaSections(actor.value?.role).includes(section.value));
-const navigation = computed(() => [{key:'overview',label:'Overview',icon:'dashboard'},{key:'appointments',label:'My Schedule',icon:'sessions'},{key:'clients',label:'Clients',icon:'people'},...(!props.demoContext?[{key:'portal',label:'Portal',icon:'documents'}]:[]),{key:'documentation',label:'Notes & Documentation',icon:'documents'},{key:'billing',label:'Billing',icon:'billing'},{key:'providers',label:'Providers',icon:'providers'},{key:'reports',label:'Reports',icon:'plan'}, ...(canManageCompliance.value ? [{key:'compliance',label:'Compliance',icon:'shield'}] : []), ...(props.demoContext ? [{key:'tasks',label:'Tasks & To-do',icon:'tasks'}] : []), ...(!props.demoContext ? [{key:'settings',label:'Settings',icon:'settings'}] : []), ...(!props.demoContext ? [{key:'announcements',label:'Announcements',icon:'notifications'}] : [])].filter(item=>!context.value?.qaWorkspace||qaSections(actor.value?.role).includes(item.key)));
+const navigation = computed(() => [{key:'overview',label:'Overview',icon:'dashboard'},{key:'appointments',label:'My Schedule',icon:'sessions'},{key:'clients',label:'Clients',icon:'people'},...(!props.demoContext?[{key:'portal',label:'Portal',icon:'documents'}]:[]),{key:'documentation',label:'Notes & Documentation',icon:'documents'},{key:'billing',label:'Billing',icon:'billing'},{key:'providers',label:'Providers',icon:'providers'}, ...(!props.demoContext && ['admin','super_admin','support'].includes(actor.value?.role) ? [{key:'directory',label:'Directory',icon:'people'}] : []),{key:'reports',label:'Reports',icon:'plan'}, ...(canManageCompliance.value ? [{key:'compliance',label:'Compliance',icon:'shield'}] : []), ...(props.demoContext ? [{key:'tasks',label:'Tasks & To-do',icon:'tasks'}] : []), ...(!props.demoContext ? [{key:'settings',label:'Settings',icon:'settings'}] : []), ...(!props.demoContext ? [{key:'announcements',label:'Announcements',icon:'notifications'}] : [])].filter(item=>!context.value?.qaWorkspace||qaSections(actor.value?.role).includes(item.key)));
 const notificationItems=ref([]),unread=ref(null),notificationsLoading=ref(false),notificationsError=ref('');
 let notificationRequestId=0;
 async function loadNotifications(){

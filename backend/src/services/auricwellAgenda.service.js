@@ -43,7 +43,7 @@ export function createAuricwellAgenda({database=pool, school=schoolSoftScheduleC
     if (!Number.isInteger(Number(agencyId)) || Number(agencyId)<1 || !Number(actor?.id)) throw previewError(400,'Select a practice first.');
     const [providers] = await database.execute(`SELECT DISTINCT u.id,u.first_name,u.last_name,u.credential,u.is_active,u.status
       FROM users u JOIN user_agencies ua ON ua.user_id=u.id WHERE ua.agency_id=?
-      AND u.role IN ('provider','provider_plus','intern','intern_plus','supervisor') ORDER BY u.last_name,u.first_name`,[agencyId]);
+      AND (u.role IN ('provider','provider_plus','intern','intern_plus','supervisor') OR (u.has_provider_access=1 AND COALESCE(u.sees_clients,1)=1)) ORDER BY u.last_name,u.first_name`,[agencyId]);
     const [assignments] = await database.execute(`SELECT DISTINCT sa.supervisee_id FROM supervisor_assignments sa
       JOIN user_agencies ua ON ua.user_id=sa.supervisee_id AND ua.agency_id=sa.agency_id
       WHERE sa.agency_id=? AND sa.supervisor_id=?`,[agencyId,actor.id]);

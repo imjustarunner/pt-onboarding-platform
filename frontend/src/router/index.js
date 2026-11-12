@@ -402,6 +402,8 @@ const routes = [
   { path: '/p/schoolcarebridge/:section?', redirect: to => ({ path: '/schoolcarebridge' + (to.params.section ? '/' + to.params.section : ''), query: to.query, hash: to.hash }) },
 
   { path: '/latinx/:section?', name: 'LatinxProviderDirectory', component: () => import('../views/public/ProviderDirectoryView.vue'), meta: { requiresGuest: false, publicMarketingHub: true, hideNav: true, publicMarketingTitle: 'Latinx Therapist Project CO | Provider Directory' } },
+  { path: '/prospect-demo/:surface(providers|careers)/:alias', name: 'ProspectPublicPage', component: () => import('../views/public/ProspectPublicPage.vue'), meta: { requiresGuest: false, publicMarketingHub: true, hideNav: true } },
+  { path: '/:alias([a-z0-9-]+providers)', name: 'ProspectProviderAlias', component: () => import('../views/public/ProspectPublicPage.vue'), meta: { requiresGuest: false, publicMarketingHub: true, hideNav: true } },
   { path: '/provider-directory/:directorySlug/:section?', name: 'PublicProviderDirectory', component: () => import('../views/public/ProviderDirectoryView.vue'), meta: { requiresGuest: false, publicMarketingHub: true, hideNav: true, publicMarketingTitle: 'Provider Directory' } },
   { path: '/:organizationSlug/email-compose', name: 'OrganizationEmailComposer', component: () => import('../views/EmailComposerView.vue'), meta: { requiresAuth: true, hideNav: true, organizationSlug: true } },
   { path: '/email-compose', name: 'EmailComposer', component: () => import('../views/EmailComposerView.vue'), meta: { requiresAuth: true, hideNav: true } },
