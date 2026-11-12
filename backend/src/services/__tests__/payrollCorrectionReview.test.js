@@ -110,3 +110,7 @@ it('does not reverse a removed code in full when a replacement service is presen
 it('still permits review of a real removal when another unchanged service exists that day',async()=>{
  db.exec("INSERT INTO payroll_import_rows SELECT 3,agency_id,payroll_period_id,101,user_id,provider_name,patient_first_name,service_date,service_code,note_status,draft_payable,unit_count,'other-service' FROM payroll_import_rows WHERE id=2");const r=await buildPayrollCorrectionReview({...args,compareRowId:null,db:conn});expect(r).toMatchObject({reductionAmount:30,canPostReduction:true});
 });
+
+it('does not turn an unrecognized replacement code into a zero-pay reversal',async()=>{
+ db.exec("UPDATE payroll_import_rows SET service_code='UNCONFIGURED-CODE' WHERE id=2");await expect(review()).rejects.toMatchObject({status:409,message:expect.stringContaining('configured payroll rule')});expect(db.prepare('SELECT COUNT(*) n FROM payroll_manual_pay_lines').get().n).toBe(0);
+});

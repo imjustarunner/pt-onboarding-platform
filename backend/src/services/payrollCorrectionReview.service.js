@@ -93,6 +93,7 @@ export async function buildPayrollCorrectionReview({destinationPeriodId,agencyId
         const [rules]=await db.execute('SELECT * FROM payroll_service_code_rules WHERE agency_id=? AND UPPER(service_code)=?',[Number(agencyId),code(after.service_code)]);
         const newSaved=Object.entries(breakdown).find(([key,v])=>!key.startsWith('__')&&v&&typeof v==='object'&&code(v.displayServiceCode || key)===code(after.service_code))?.[1];
         const rule=newSaved?{...(rules[0] || {}),pay_divisor:newSaved.payDivisor,credit_value:newSaved.creditValue,category:newSaved.category,pay_rate_unit:newSaved.rateUnit}:rules[0] || payrollDefaultsForCode(code(after.service_code));
+        if(!rule) fail('The replacement service has no configured payroll rule. Review its pay setup before posting a correction.');
         const quoted=computeLineAmount({rateProfile:oldLine.agreementRateProfile,status:{...oldLine.rateEraStatus,asOfDate:day(after.service_date)},serviceCode:code(after.service_code),quantity:Number(after.unit_count),rule});
         corrected={baseAmount:money(quoted.amount),autoIndirectAmount:money(quoted.autoIndirectAmount),total:money(Number(quoted.amount)+Number(quoted.autoIndirectAmount)),credits:Number(quoted.hourEquivalent || 0),rate:quoted.rate,rateUnit:quoted.rateLabel,category:quoted.payType};
       } else blockers.push('A dated compensation snapshot is unavailable for the replacement code. Review the corrected amount in Payroll Stage.');
