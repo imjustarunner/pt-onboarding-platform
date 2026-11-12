@@ -31,3 +31,25 @@ describe('public support CAPTCHA uses the actual stored demo route',()=>{
   await expect(createPublicAgencySupportTicket('nlu',{...payload,agencyId:453,skipCaptcha:true},{headers:{}})).rejects.toMatchObject({code:'missing_token'});expect(pool.execute).not.toHaveBeenCalled();
  });
 });
+
+it.each([453,6,null])('hydrates a RAW learning model row through the actual stored parent, never a second raw model lookup (%s)',async parentId=>{
+ const child={...qa,id:454,slug:'nlu-qa-learning',portal_url:'nlu-qa-learning',organization_type:'learning',feature_flags:{qaSandbox:{syntheticOnly:true,program:'tutoring'}}};
+ delete child.affiliated_agency_id;
+ Agency.findByPortalUrl.mockResolvedValue(child);Agency.findById.mockResolvedValue(child);
+ pool.execute.mockImplementation(async sql=>{
+  if(sql.includes('AS captcha_parent_id'))return [[{...child,captcha_parent_id:parentId,captcha_parent_slug:parentId===453?'nlu-qa-demo':'nlu',captcha_parent_flags:parentId===453?{qaSandbox:{syntheticOnly:true,program:'tutoring'}}:{},captcha_parent_active:1,captcha_parent_archived:0,captcha_parent_type:'agency'}]];
+  throw new Error('STOP_AFTER_CAPTCHA');
+ });
+ const cfg=await getPublicAgencySupportConfig(child.slug);
+ expect(cfg.recaptchaRequired).toBe(parentId!==453);expect(!!cfg.recaptchaSiteKey).toBe(parentId!==453);
+ expect(Agency.findById).not.toHaveBeenCalled();
+ expect(pool.execute).toHaveBeenCalledWith(expect.stringContaining('COUNT(DISTINCT oa.agency_id)'),[454]);
+ if(parentId===453){await expect(createPublicAgencySupportTicket(child.slug,payload,{headers:{}})).rejects.toThrow('STOP_AFTER_CAPTCHA');expect(verifyRecaptchaV3).not.toHaveBeenCalled();}
+ else await expect(createPublicAgencySupportTicket(child.slug,payload,{headers:{}})).rejects.toMatchObject({code:'missing_token'});
+});
+
+it('fails closed when stored child-parent hydration cannot be read, even if a raw model claims the right parent',async()=>{
+ const child={...qa,id:454,slug:'nlu-qa-learning',portal_url:'nlu-qa-learning',affiliated_agency_id:453,feature_flags:{qaSandbox:{syntheticOnly:true,program:'tutoring'}}};
+ Agency.findByPortalUrl.mockResolvedValue(child);pool.execute.mockRejectedValue(new Error('lookup unavailable'));
+ const cfg=await getPublicAgencySupportConfig(child.slug);expect(cfg.recaptchaRequired).toBe(true);expect(cfg.recaptchaSiteKey).toBe('ordinary-key');
+});

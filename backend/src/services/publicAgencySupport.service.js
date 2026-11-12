@@ -13,6 +13,7 @@ import Notification from '../models/Notification.model.js';
 import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
 import { verifyRecaptchaV3 } from './captcha.service.js';
 import { isSyntheticQaPublicCaptchaContext } from '../utils/syntheticQaCaptchaPolicy.js';
+import { hydrateSyntheticQaCaptchaAgency } from './syntheticQaCaptcha.service.js';
 import { prepareEncryptedTicketText } from '../utils/supportTicketCrypto.js';
 import { SUPPORT_TICKET_SOURCE_KEYS, normalizeSupportTicketSourceKey } from '../constants/supportTicketSources.js';
 import { getClientIpAddress } from '../utils/ipAddress.util.js';
@@ -153,14 +154,11 @@ async function resolveAgency(slugOrId) {
   const slug = String(slugOrId || '').trim();
   if (!slug) return null;
   if (isAuricwellWebsite(slug)) return Agency.findById(AURICWELL_SUPPORT_AGENCY_ID);
-  if (/^\d+$/.test(slug)) return Agency.findById(Number(slug));
+  if (/^\d+$/.test(slug)) return hydrateSyntheticQaCaptchaAgency(await Agency.findById(Number(slug)));
   const direct = (await Agency.findByPortalUrl(slug)) || (await Agency.findBySlug(slug));
-  // Portal lookup may omit the child affiliation; require its canonical stored
-  // parent before applying the synthetic CAPTCHA policy.
-  if (direct && [451,452,454].includes(Number(direct.id))) return Agency.findById(direct.id);
-  if (direct) return direct;
+  if (direct) return hydrateSyntheticQaCaptchaAgency(direct);
   const site = await getPublicWebsiteIdentity(slug);
-  return site ? Agency.findById(site.support_agency_id) : null;
+  return site ? hydrateSyntheticQaCaptchaAgency(await Agency.findById(site.support_agency_id)) : null;
 }
 
 export function canEditPublicAgencySupport(user) {
@@ -380,7 +378,7 @@ export async function updatePublicAgencySupportSettings(agencySlug, payload = {}
     themeSettings: nextTheme
   });
 
-  const updated = await Agency.findById(agency.id);
+  const updated = await hydrateSyntheticQaCaptchaAgency(await Agency.findById(agency.id));
   let identityEmail = '';
   try {
     const identity = await EmailSenderIdentity.findByAgencyAndIdentityKey(agency.id, 'support');
