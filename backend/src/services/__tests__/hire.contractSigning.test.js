@@ -7,7 +7,12 @@ vi.mock('../../models/UserSpecificDocument.model.js', () => ({ default: { findBy
 import DocumentSigningService from '../documentSigning.service.js';
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.execute.mockResolvedValue([[{ id: 1, reference_id: 9, metadata: { contractGeneration: true } }]]);
+  mocks.execute.mockImplementation(async sql => {
+    // This fixture is a legacy contract, not a newly issued compensation draft.
+    // Match the guard's SQL filter instead of returning a task as a generation.
+    if (sql.includes('FROM contract_generations') && sql.includes("'employee_compensation_ui'")) return [[]];
+    return [[{ id: 1, reference_id: 9, metadata: { contractGeneration: true } }]];
+  });
 });
 describe('contract signing guard', () => {
   it('rejects formatting-split placeholders before recording a signature', async () => {
