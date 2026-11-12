@@ -18,6 +18,7 @@ beforeEach(() => {
 });
 const render = () => mount(App, { global: { stubs: {
   RouterView: { template: '<form aria-label="Sign in"><input name="username" /></form>' },
+  PublicWebsiteShell: { template: '<section aria-label="Public website"><slot /></section>' },
   AssistantAppShell: { template: '<aside>Assistant workspace<slot /></aside>' }
 } } });
 
@@ -93,4 +94,15 @@ it.each(['PublicIntakeSigning', 'PublicIntakeSigningShort'])('keeps %s independe
   state.route.name = 'OrganizationDashboard'; await flushPromises();
   expect(state.workspaceMounted).toHaveBeenCalledTimes(1);
   wrapper.unmount();
+});
+
+it.each([false,true])('renders public marketing pages without loading employee tools (signed in: %s)',async signedIn=>{
+ state.auth.isAuthenticated=signedIn;state.auth.user=signedIn?{id:42,role:'provider'}:null;
+ state.route.name='ItscoPublicWebsite';state.route.meta={publicMarketingHub:true};
+ const wrapper=render();await flushPromises();
+ expect(wrapper.find('[aria-label="Public website"]').exists()).toBe(true);
+ expect(state.workspaceMounted).not.toHaveBeenCalled();
+ expect(wrapper.text()).not.toContain('Opening your workspace');
+ state.route.name='OrganizationDashboard';state.route.meta={};await flushPromises();
+ expect(state.workspaceMounted).toHaveBeenCalledTimes(1);wrapper.unmount();
 });

@@ -1,5 +1,6 @@
 <template>
   <AssistantAppShell v-if="assistantSurface"><router-view /></AssistantAppShell>
+  <PublicWebsiteShell v-else-if="route.meta?.publicMarketingHub"><router-view /></PublicWebsiteShell>
   <router-view v-else-if="publicLoginSurface" />
   <AppWorkspace v-else />
 </template>
@@ -9,6 +10,7 @@ import { computed, defineAsyncComponent, h } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from './store/auth';
 import AssistantAppShell from './components/assistants/AssistantAppShell.vue';
+import PublicWebsiteShell from './components/public/PublicWebsiteShell.vue';
 
 // The ordinary workspace owns employee widgets and polling. Never mount it for
 // an assistant, including during a direct navigation to a forbidden staff URL.
