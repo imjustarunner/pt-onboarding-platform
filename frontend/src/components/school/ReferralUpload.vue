@@ -922,12 +922,16 @@ const handleLogin = async () => {
 
 let latestDraftGeneration = 0;
 const loadLatestDraft = async () => {
+  // A chart upload is already bound to one child. Generic school drafts may be
+  // for another family and must never be offered here.
+  if (props.existingClientId && !props.initialDraft?.id) return;
   if (!isAuthenticated.value || hasAttemptedDraftResume.value || uploadComplete.value) return;
   hasAttemptedDraftResume.value = true;
   const generation = ++latestDraftGeneration;
   const schoolSlug = uploadOrganizationSlug.value;
   try {
     if (props.initialDraft?.id) {
+      if(props.existingClientId && Number(props.initialDraft.clientId)!==Number(props.existingClientId))return;
       resumableDraft.value = props.initialDraft;
       await resumeDraft();
       return;
@@ -948,6 +952,7 @@ const loadLatestDraft = async () => {
 
 const resumeDraft = async () => {
   const draft = resumableDraft.value;
+  if (props.existingClientId && Number(draft?.clientId)!==Number(props.existingClientId))return;
   if (!draft || uploading.value || uploadComplete.value || selectedFile.value || selectedImages.value.length || firstName.value || lastName.value) return;
   draftId.value = Number(draft.id);
   phiDocumentId.value = draft.phiDocumentId ? Number(draft.phiDocumentId) : null;

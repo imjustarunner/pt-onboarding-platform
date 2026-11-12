@@ -9,11 +9,24 @@ vi.mock('../../models/Agency.model.js',()=>({default:{}}));
 vi.mock('../../models/User.model.js',()=>({default:{}}));
 import {listGuardianInvitations,assertInvitationOwner} from '../coGuardianDelivery.service.js';
 const socket=process.env.EVIDENCE_TEST_SOCKET;
-describe.skipIf(!socket)('isolated guardian invitation status SQL',()=>{
+const host=process.env.GUARDIAN_INVITE_TEST_MYSQL_HOST;
+const port=Number(process.env.GUARDIAN_INVITE_TEST_MYSQL_PORT);
+const enabled=Boolean(socket||host||port);
+if(process.env.REQUIRE_GUARDIAN_INVITE_MYSQL==='1'&&!enabled)throw new Error('Guardian invitation MySQL integration must be explicitly configured.');
+const connection=()=>{
+ if(socket){
+  if(!/^\/private\/tmp\/pt-[A-Za-z0-9_-]+(?:\/mysql)?\.sock$/.test(socket))throw new Error('Use only an explicitly named private disposable MySQL socket.');
+  return {socketPath:socket,user:'root',multipleStatements:true};
+ }
+ if(host!=='127.0.0.1'||![33316,33320].includes(port))throw new Error('Explicit isolated guardian test MySQL on loopback port33316 or33320 is required.');
+ return {host,port,user:'root',password:'',timezone:'Z',multipleStatements:true};
+};
+describe.skipIf(!enabled)('isolated guardian invitation status SQL',()=>{
  let admin;const database=`guardian_invite_status_${crypto.randomBytes(5).toString('hex')}`;
  beforeAll(async()=>{
-  admin=await mysql.createConnection({socketPath:socket,user:'root',multipleStatements:true});await admin.query(`CREATE DATABASE ${database}`);
-  m.pool=mysql.createPool({socketPath:socket,user:'root',database,multipleStatements:true});
+  const options=connection();
+  admin=await mysql.createConnection(options);await admin.query(`CREATE DATABASE ${database}`);
+  m.pool=mysql.createPool({...options,database});
   await m.pool.query(`CREATE TABLE clients(id INT PRIMARY KEY,agency_id INT,guardian_portal_enabled TINYINT,date_of_birth DATE);
    CREATE TABLE client_guardians(client_id INT,guardian_user_id INT,access_enabled TINYINT,permissions_json TEXT);
    CREATE TABLE co_guardian_invites(id INT PRIMARY KEY,agency_id INT,invited_by_user_id INT,invited_email VARCHAR(255),status VARCHAR(32),source VARCHAR(32),created_at DATETIME,expires_at DATETIME,accepted_at DATETIME,accepted_user_id INT);
@@ -47,7 +60,9 @@ describe.skipIf(!socket)('isolated guardian invitation status SQL',()=>{
   await m.pool.query("UPDATE co_guardian_invites SET status='accepted',accepted_at='2026-10-03',accepted_user_id=10 WHERE id=18");
   expect((await listGuardianInvitations({userId:9,agencyId:2}))[0]).toMatchObject({status:'accepted',accountConnected:1,canManage:false});
   await m.pool.query("UPDATE co_guardian_invites SET status='pending',invited_by_user_id=9 WHERE id=18");
-  expect((await listGuardianInvitations({userId:9,agencyId:2}))[0]).toMatchObject({email:'other@example.test',canManage:true});
+  expect((await listGuardianInvitations({userId:9,agencyId:2}))[0]).toMatchObject({email:'other@example.test',canManage:false});
+  await m.pool.query("INSERT INTO co_guardian_invite_deliveries(id,invite_id,created_at,delivery_status,failure_kind) VALUES(23,18,'2026-10-03','failed','send_failed')");
+  expect((await listGuardianInvitations({userId:9,agencyId:2}))[0]).toMatchObject({email:'other@example.test',canManage:true,history:expect.arrayContaining([expect.objectContaining({id:23,status:'failed',failureKind:'send_failed'})])});
  });
  it('does not reveal invitation status to another guardian or agency',async()=>{
   expect(await listGuardianInvitations({userId:10,agencyId:2})).toEqual([]);

@@ -186,9 +186,11 @@ router.post('/pending-enrollments/:inviteId/open', requireActiveStatus, async (r
     const { openOwnPendingEnrollment } = await import('../services/guardianPendingEnrollment.service.js');
     const { invitePublicUrl } = await import('../services/coGuardianInvite.service.js');
     const { default: Agency } = await import('../models/Agency.model.js');
-    const { token, invite } = await openOwnPendingEnrollment({ userId: req.user.id, agencyId: Number(req.body.agencyId), inviteId: Number(req.params.inviteId) });
+    const { token, invite, sessionToken } = await openOwnPendingEnrollment({ userId: req.user.id, agencyId: Number(req.body.agencyId), inviteId: Number(req.params.inviteId) });
     const agency = await Agency.findById(invite.agency_id);
-    res.set('Cache-Control', 'no-store').json({ url: invitePublicUrl({ agency, token, publicKey: invite.public_key, serviceType: 'counseling' }) });
+    const url = new URL(invitePublicUrl({ agency, token, publicKey: invite.public_key, serviceType: 'counseling' }));
+    if (sessionToken) url.searchParams.set('session', sessionToken);
+    res.set('Cache-Control', 'no-store').json({ url: url.toString(), resumed: Boolean(sessionToken) });
   } catch (error) { next(error); }
 });
 router.get('/family-documents', async (req, res, next) => {

@@ -194,7 +194,7 @@
             :client-id="client.id"
             :client="client"
             :can-edit="canEditAccount"
-            :can-process-paper="canEditPaperwork && effectiveClientType === 'school'"
+            :can-process-paper="paperProcessingAvailable"
             :can-view-medical-record="canViewMedicalRecord"
             :glance-items="overviewGlanceItems"
             :status-label="isClientArchived ? 'Archived' : displayStatusLabel"
@@ -233,7 +233,7 @@
           </p>
           <ClientOperationalStatus v-if="roleNorm === 'support' && clientChartClientId" :client-id="clientChartClientId" />
           <ClientReminderTextConsent v-if="['support','admin','super_admin'].includes(roleNorm) && clientChartClientId" :key="clientChartClientId" :client-id="Number(clientChartClientId)" />
-          <ClientPendingTasks v-if="clientChartClientId && !route.meta?.auricwellPreview" :agency-id="clientAgencyId" :client-id="clientChartClientId" :billing-enabled="canViewClientBillingImport" :paper-enabled="canEditPaperwork && effectiveClientType === 'school'" :agency-slug="route.params.organizationSlug" :clinical-notes="canViewMedicalRecord ? clientTaskEncounters : []" @open-note="goChartSub('medical-record')" />
+          <ClientPendingTasks v-if="clientChartClientId && !route.meta?.auricwellPreview" :agency-id="clientAgencyId" :client-id="clientChartClientId" :billing-enabled="canViewClientBillingImport" :paper-enabled="paperProcessingAvailable" :agency-slug="route.params.organizationSlug" :clinical-notes="canViewMedicalRecord ? clientTaskEncounters : []" @open-note="goChartSub('medical-record')" />
         </div>
 
         <div
@@ -252,7 +252,7 @@
               && !['provider', 'provider_plus'].includes(roleNorm)"
             :can-manage-school-roi="canManageSchoolRoi"
             :operational-only="!canViewMedicalRecord"
-            :can-process-paper="canEditPaperwork && effectiveClientType === 'school'"
+            :can-process-paper="paperProcessingAvailable"
             :packages-enabled="practitionerPackagesEnabledForClient"
             :phi-banner="['admin', 'super_admin', 'support', 'staff'].includes(roleNorm)"
             :unsigned-notes-count="unsignedNotesCount"
@@ -2917,6 +2917,7 @@ import api from '../../services/api';
 import { openEnrollmentReceipt, openOperationalDocument } from '../../utils/openEnrollmentReceipt.js';
 import { canAccessMedicalBilling, canAccessClientAccountSupport } from '../../config/medicalBillingAccess';
 import ClientPendingTasks from '../billing/ClientPendingTasks.vue';
+import {isPaperPacketClient} from '../../utils/paperPacketClient.js';
 import ClientInsuranceEditor from '../billing/ClientInsuranceEditor.vue';
 import ClientCareCoverageSummary from '../billing/ClientCareCoverageSummary.vue';
 import ClientPaymentFollowup from '../billing/ClientPaymentFollowup.vue';
@@ -3223,10 +3224,10 @@ const chartReceiptFallbackUrl = ref('');
 async function openChartDocument(viewKey) {
   const key = String(viewKey || '').trim();
   // Support cannot open the Documents tab, so receipts open directly from Records.
-  if (key.startsWith('receipt-') || /^signed-roi-\d+$/.test(key) || /^paper-\d+$/.test(key)) {
+  if (key.startsWith('school-file-') || key.startsWith('receipt-') || /^signed-roi-\d+$/.test(key) || /^paper-\d+$/.test(key)) {
     chartReceiptError.value = '';
     chartReceiptFallbackUrl.value = '';
-    const result = key.startsWith('receipt-') ? await openEnrollmentReceipt(key.slice(8))
+    const result = key.startsWith('school-file-') ? await openOperationalDocument(`/phi-documents/school-attachments/${Number(key.slice(12))}/view`) : key.startsWith('receipt-') ? await openEnrollmentReceipt(key.slice(8))
       : await openOperationalDocument(key.startsWith('signed-roi-')
         ? `/clients/${Number(props.client?.id)}/school-roi-documents/${Number(key.slice(11))}/view`
         : `/clients/${Number(props.client?.id)}/paper-packet-processing/documents/${Number(key.slice(6))}/view`);
@@ -3749,7 +3750,7 @@ const openFullClientRecord = () => {
   });
 };
 
-async function openDocumentUpload(){if(canEditPaperwork.value && effectiveClientType.value==='school'){openClientActions('upload');return;}goChartSub('phi');await nextTick();documentsTabRef.value?.openUpload?.();}
+async function openDocumentUpload(){if(paperProcessingAvailable.value){openClientActions('upload');return;}goChartSub('phi');await nextTick();documentsTabRef.value?.openUpload?.();}
 const organizationSlugForLinks = computed(() => String(route.params?.organizationSlug || '').trim());
 
 const addAgencyAffiliationId = ref('');
@@ -4832,6 +4833,8 @@ const canEditPaperwork = computed(() => {
   const r = String(authStore.user?.role || '').toLowerCase();
   return ['super_admin', 'admin', 'support', 'staff'].includes(r) && hasAgencyAccess.value;
 });
+
+const paperProcessingAvailable=computed(()=>canEditPaperwork.value&&(effectiveClientType.value==='school'||isPaperPacketClient(props.client)));
 
 const clientPaperwork = useClientPaperwork(
   computed(() => props.client),

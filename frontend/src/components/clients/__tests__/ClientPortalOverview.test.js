@@ -23,3 +23,8 @@ it('distinguishes a pending enrollment from access and displays the durable invi
  expect(w.text()).toContain('Own enrollment and signatures pending');expect(w.text()).toContain('Invitation #28 · Invitation sent');
  expect(w.findAll('button').find(b=>b.text()==='View as Parent Two').attributes('disabled')).toBeUndefined();w.unmount();
 });
+it('does not present an enabled relationship as completed password setup',async()=>{
+ api.get.mockResolvedValue({data:{accounts:[{...accounts[0],passwordSetupStatus:'setup_required'},{...accounts[1],passwordSetupStatus:'temporary_password_expired'}]}});
+ const w=mount(Overview,{props,global});await flushPromises();expect(w.text()).toContain('Relationship access enabled');expect(w.text()).toContain('Password setup required');expect(w.text()).toContain('Temporary password expired');
+ expect(w.findAll('button').find(b=>b.text()==='View as Parent One').attributes('disabled')).toBeUndefined();w.unmount();
+});

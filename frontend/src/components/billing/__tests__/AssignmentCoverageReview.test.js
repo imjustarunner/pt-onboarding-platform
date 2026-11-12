@@ -87,3 +87,10 @@ it('discards late reads and does not retain another client’s policy or attesta
   expect(w.text()).toContain('New client policy'); expect(w.text()).not.toContain('DEMO QA Child');
   expect(w.get('input[type=checkbox]').element.checked).toBe(false); w.unmount();
 });
+
+it('offers and defaults to an explicitly fictional review only with the server capability',async()=>{
+ const w=await setup({...response(),syntheticQaReviewAvailable:true});expect(w.get('select').element.value).toBe('synthetic_qa');expect(w.text()).toContain('Fictional QA review—no payer contact');expect(w.text()).toContain('not an attestation of real eligibility');await w.get('textarea').setValue('Fictional policies reviewed for owner-authorized QA only; no payer contact.');await w.get('input[type=checkbox]').setValue(true);await w.get('form').trigger('submit');await flushPromises();expect(api.post.mock.calls[0][1]).toMatchObject({source:'synthetic_qa',assignmentReview:true,reviewToken:'coverage-snapshot-1'});w.unmount();
+});
+it('does not offer fictional verification without the server capability and rejects a forged local selection',async()=>{
+ const w=await setup();expect(w.find('option[value=synthetic_qa]').exists()).toBe(false);w.vm.$.setupState.source='synthetic_qa';await w.get('textarea').setValue('Fictional-only text cannot grant the server capability.');await w.get('input[type=checkbox]').setValue(true);await w.get('form').trigger('submit');expect(api.post).not.toHaveBeenCalled();w.unmount();
+});

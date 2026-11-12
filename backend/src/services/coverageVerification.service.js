@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { isAuricwellQaAgency } from '../utils/auricwellQaPolicy.js';
 import pool from '../config/database.js';
 import { readClientInsurance } from './clientInsurance.service.js';
 import { encryptFamilyBilling, decryptFamilyBilling, assertFamilyBillingEncryption } from './familyBillingEncryption.service.js';
@@ -151,8 +152,14 @@ export async function runCoverageCheck({agencyId,clientId,slot,serviceDate,reque
   return checked;
  }catch(e){await db.execute("UPDATE client_coverage_checks SET status='error',completed_at=CURRENT_TIMESTAMP(6) WHERE id=? AND agency_id=? AND client_id=?",[id,agencyId,clientId]);await (deps.queueFollowUp||queueInsuranceVerificationSafely)({agencyId,clientId,actorUserId,coverageCheckId:id,reason:'eligibility_error'},db);throw billingError(502,'Eligibility could not be confirmed. Review payer enrollment or use the payer portal; coverage remains unverified');}
 }
-export function validateCoverageReview(input,insurance) {
- if(!['verified','unresolved','inactive'].includes(input.status)||!['payer_portal','claimmd','payer_phone'].includes(input.source)||typeof input.reference!=='string'||input.reference.trim().length<5||input.reference.length>2000)throw billingError(400,'Record the coverage outcome, verification source and dated evidence/reference');
+export async function syntheticQaCoverageReviewAvailable({agencyId,clientId},db=pool) {
+ const [[row]]=await db.execute(`SELECT a.id,a.slug,a.feature_flags,a.is_active,a.is_archived,c.is_demo AS client_is_demo
+   FROM clients c JOIN agencies a ON a.id=c.agency_id WHERE c.id=? AND c.agency_id=?`,[clientId,agencyId]);
+ return Number(row?.client_is_demo)===1&&isAuricwellQaAgency(row)&&Number(row?.is_active)===1&&!Number(row?.is_archived);
+}
+export function validateCoverageReview(input,insurance,{syntheticQaVerified=false}={}) {
+ const permittedSource=['payer_portal','claimmd','payer_phone'].includes(input.source)||(input.source==='synthetic_qa'&&syntheticQaVerified);
+ if(!['verified','unresolved','inactive'].includes(input.status)||!permittedSource||typeof input.reference!=='string'||input.reference.trim().length<5||input.reference.length>2000)throw billingError(400,'Record the coverage outcome, verification source and dated evidence/reference');
  if(input.status==='verified') {
   if(input.primaryChecked!==true||(insurance?.secondary&&input.secondaryChecked!==true)||input.otherCoverageChecked!==true||input.orderConfirmed!==true)throw billingError(409,'Verify each recorded policy, check for other coverage and confirm payer order');
   if(hasMedicaidCoverage(insurance)&&input.medicaidTplChecked!==true)throw billingError(409,'Review Colorado Medicaid Other Insurance/TPL records and resolve any discrepancies first');
@@ -164,7 +171,12 @@ export async function saveCoverageReview(input,deps={}) {
  try{
   await db.beginTransaction();const [[client]]=await db.execute('SELECT id FROM clients WHERE id=? AND agency_id=? FOR UPDATE',[input.clientId,input.agencyId]);
   if(!client)throw billingError(404,'Client not found in this agency');
-  const insurance=await (deps.readInsurance||readClientInsurance)(input.clientId,input.agencyId,db);validateCoverageReview(input,insurance);
+  let syntheticQaVerified=false;
+  if(input.source==='synthetic_qa') {
+   syntheticQaVerified=await syntheticQaCoverageReviewAvailable(input,db);
+   if(!syntheticQaVerified)throw billingError(403,'Fictional coverage review is available only for Demo clients in the verified synthetic QA agency');
+  }
+  const insurance=await (deps.readInsurance||readClientInsurance)(input.clientId,input.agencyId,db);validateCoverageReview(input,insurance,{syntheticQaVerified});
   if(!insurance?.primary?.memberId)throw billingError(409,'Save this client’s insurance first');
   const currentEvidence=await (deps.listEvidence||listCoverageEvidence)({...input,serviceDate:date},db);
   const {checks,latestCheckId}=currentEvidence;
@@ -182,10 +194,10 @@ export async function saveCoverageReview(input,deps={}) {
    const check=checks.find(c=>c.policy_slot===slot);
    if(!check||check.status!=='returned'||check.insurance_fingerprint!==coverageFingerprint(insurance)||check.evidence?.summary?.status!=='active_reported'||check.evidence?.summary?.identityMatches===false)throw billingError(409,'Check each current policy and reconcile the returned identity, or document payer-portal/phone verification');
   }
-  const evidence={source:input.source,reference:input.reference.trim(),primaryChecked:input.primaryChecked===true,secondaryChecked:input.secondaryChecked===true,otherCoverageChecked:input.otherCoverageChecked===true,orderConfirmed:input.orderConfirmed===true,medicaidTplChecked:input.medicaidTplChecked===true,...(input.assignmentReview===true?{reviewPurpose:'provider_assignment',reviewToken:input.reviewToken}:{})};
+  const evidence={source:input.source,...(syntheticQaVerified?{syntheticOnly:true,notPayerVerification:true}:{}),reference:input.reference.trim(),primaryChecked:input.primaryChecked===true,secondaryChecked:input.secondaryChecked===true,otherCoverageChecked:input.otherCoverageChecked===true,orderConfirmed:input.orderConfirmed===true,medicaidTplChecked:input.medicaidTplChecked===true,...(input.assignmentReview===true?{reviewPurpose:'provider_assignment',reviewToken:input.reviewToken}:{})};
   const [row]=await db.execute('INSERT INTO client_coverage_reviews (agency_id,client_id,service_date,insurance_fingerprint,status,through_check_id,evidence_encrypted,created_by_user_id) VALUES (?,?,?,?,?,?,?,?)',[input.agencyId,input.clientId,date,coverageFingerprint(insurance),input.status,latestCheckId,encryptFamilyBilling(evidence,context(input.agencyId,input.clientId)),input.actorUserId]);
   await auditBilling({agencyId:input.agencyId,clientId:input.clientId,userId:input.actorUserId,action:'insurance_coordination_reviewed',objectId:row.insertId},db);
-  await db.commit();return {id:row.insertId,status:input.status};
+  await db.commit();return {id:row.insertId,status:input.status,...(syntheticQaVerified?{syntheticOnly:true,notPayerVerification:true}:{})};
  }catch(e){await db.rollback();throw e;}finally{db.release();}
 }
 export function coverageReviewBlockers({insurance,review,latestReview=null,checks=[],latestCheckId=checks[0]?.id||0,discoveryPending=0,now=new Date()}) {

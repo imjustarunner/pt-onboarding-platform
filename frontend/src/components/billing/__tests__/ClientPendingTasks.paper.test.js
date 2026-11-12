@@ -22,3 +22,5 @@ it('reports an unavailable task list without claiming no tasks exist',async()=>{
  const w=mount(Panel,{props:{clientId:55,agencyId:450,paperEnabled:true,billingEnabled:false,clinicalNotes:[]}});await flushPromises();
  expect(w.get('[role=alert]').text()).toContain('saved packet documents remain available');expect(w.text()).not.toContain('No pending tasks are available');w.unmount();
 });
+
+it('reports an actual paper403 as an access boundary rather than falsely claiming no tasks',async()=>{api.get.mockRejectedValue({response:{status:403}});const w=mount(Panel,{props:{clientId:55,agencyId:450,paperEnabled:true,billingEnabled:false,clinicalNotes:[]}});await flushPromises();expect(w.get('[role=alert]').text()).toContain('current access');expect(w.text()).not.toContain('No pending tasks are available');w.unmount();});

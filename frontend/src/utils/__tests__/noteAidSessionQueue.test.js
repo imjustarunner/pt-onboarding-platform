@@ -1,3 +1,5 @@
+import {hasAuthoredDraftPayload,hasAuthoredStructuredChart} from '../noteDraftContent.js';
+import {defaultMentalStatusExam,defaultRiskAssessment} from '../noteAidSessionQueue.js';
 import { describe, expect, it } from 'vitest';
 import {
   participantsLikelyIncludeOthers,
@@ -45,4 +47,14 @@ describe('defaultDurationMinutesForServiceCode', () => {
     expect(defaultDurationMinutesForServiceCode('90837')).toBe(60);
     expect(defaultDurationMinutesForServiceCode('H2014')).toBe(60);
   });
+});
+
+
+describe('structured-only draft authorship',()=>{
+ const blank=()=>({clientId:202,medications:defaultMedicationsBlock(),mentalStatusExam:defaultMentalStatusExam(),riskAssessment:defaultRiskAssessment(),diagnoses:[{code:'F41.1'}]});
+ it('does not save default templates or existing chart diagnoses as new authorship',()=>expect(hasAuthoredStructuredChart(blank())).toBe(false));
+ it('retains medication comments without unrelated narrative',()=>{const chart=blank();chart.medications.commentsHtml='<p>Synthetic comments.</p>';expect(hasAuthoredDraftPayload({clientId:202,outputJson:{meta:{structuredChart:chart},sections:{}}})).toBe(true);});
+ it('ignores empty rich text and blank medication rows',()=>{const chart=blank();chart.medications.commentsHtml='<p><br>&nbsp;</p>';chart.medications.items=[{id:'new-row',name:'',dosage:'',frequency:''}];expect(hasAuthoredStructuredChart(chart)).toBe(false);});
+ it.each(['none','mse','risk'])('retains an explicit %s assessment decision',kind=>{const chart=blank();if(kind==='none')chart.medications.noneCurrently=true;else if(kind==='mse')chart.mentalStatusExam.allNotAssessed=true;else chart.riskAssessment.patientDeniesAll=true;expect(hasAuthoredStructuredChart(chart)).toBe(true);});
+ it('excludes stale other-child assessment content',()=>{const chart=blank();chart.medications.commentsHtml='Other child';expect(hasAuthoredDraftPayload({clientId:303,outputJson:{meta:{structuredChart:chart}}})).toBe(false);});
 });

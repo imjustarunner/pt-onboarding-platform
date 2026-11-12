@@ -10,6 +10,7 @@ import { decodeInsuranceProfile } from '../models/GuardianInsuranceProfile.model
 import { auditBilling } from '../services/familyBillingPolicy.service.js';
 import Client from '../models/Client.model.js';
 import ClientStatusHistory from '../models/ClientStatusHistory.model.js';
+import { clientChangeIsNoop, clientChangeValue } from '../utils/clientChangeValue.js';
 import ClientNotes from '../models/ClientNotes.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import ClientGuardianIntakeProfile from '../models/ClientGuardianIntakeProfile.model.js';
@@ -3482,6 +3483,7 @@ export const updateClient = async (req, res, next) => {
     // For other fields, log here
     const changedFields = Object.keys(req.body).filter(key => 
       ['organization_id', 'agency_id', 'initials', 'submission_date', 'document_status', 'source', 'client_type'].includes(key)
+      && !clientChangeIsNoop(key, currentClient[key], updatedClient[key])
     );
 
     for (const field of changedFields) {
@@ -3489,8 +3491,8 @@ export const updateClient = async (req, res, next) => {
         client_id: id,
         changed_by_user_id: userId,
         field_changed: field,
-        from_value: currentClient[field]?.toString() || null,
-        to_value: req.body[field]?.toString() || null,
+        from_value: clientChangeValue(field, currentClient[field]),
+        to_value: clientChangeValue(field, updatedClient[field]),
         note: `Updated ${field}`
       });
     }

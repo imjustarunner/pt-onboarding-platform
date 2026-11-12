@@ -1,11 +1,17 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn() }, onTableWrite: vi.fn() }));
-vi.mock('../../models/IntakeLink.model.js', () => ({ default: { findByPublicKey: vi.fn() } }));
+vi.mock('../../models/IntakeLink.model.js', () => ({ default: { findByPublicKey: vi.fn(), findById: vi.fn() } }));
 vi.mock('../../models/IntakeSubmission.model.js', () => ({ default: { findBySessionToken: vi.fn(), updateById: vi.fn(), create: vi.fn() } }));
+vi.mock('../../models/ClientSchoolRoiSigningLink.model.js', () => ({ default: { findByPublicKey: vi.fn(), markStarted: vi.fn() } }));
+vi.mock('../../models/Client.model.js', () => ({ default: { findById: vi.fn() } }));
+vi.mock('../../services/issuedRoiGuardian.service.js', () => ({ portalGuardianForIssuedRoi: vi.fn(), resolveIssuedRoiConsentSigner: vi.fn() }));
 vi.mock('../../services/clientRenewal.service.js', () => ({ findRenewalByPacketPublicKey: vi.fn(), findRenewalByDisclosurePublicKey: vi.fn() }));
 import IntakeLink from '../../models/IntakeLink.model.js';
 import pool from '../../config/database.js';
 import IntakeSubmission from '../../models/IntakeSubmission.model.js';
+import ClientSchoolRoiSigningLink from '../../models/ClientSchoolRoiSigningLink.model.js';
+import Client from '../../models/Client.model.js';
+import { portalGuardianForIssuedRoi } from '../../services/issuedRoiGuardian.service.js';
 import { createPublicConsent } from '../publicIntake.controller.js';
 let req, res, next, submission;
 beforeEach(() => {
@@ -49,4 +55,20 @@ it('returns a completed session without creating or changing records', async () 
   expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ alreadyCompleted: true }));
   expect(IntakeSubmission.create).not.toHaveBeenCalled();
   expect(IntakeSubmission.updateById).not.toHaveBeenCalled();
+});
+
+it('starts an issued school release through the actual controller and binds the signed-in guardian', async () => {
+  IntakeLink.findByPublicKey.mockResolvedValue(null);
+  IntakeLink.findById.mockResolvedValue({ id: 20, is_active: 1, form_type: 'smart_school_roi', scope_type: 'agency', organization_id: 450 });
+  ClientSchoolRoiSigningLink.findByPublicKey.mockResolvedValue({ id: 8, intake_link_id: 20, client_id: 928 });
+  Client.findById.mockResolvedValue({ id: 928, agency_id: 450 });
+  portalGuardianForIssuedRoi.mockResolvedValue(77);
+
+  await createPublicConsent(req, res, next);
+
+  expect(next).not.toHaveBeenCalled();
+  expect(portalGuardianForIssuedRoi).toHaveBeenCalledWith(req, 928);
+  expect(IntakeSubmission.updateById).toHaveBeenCalledWith(10, expect.objectContaining({ status: 'consented', client_id: 928, guardian_user_id: 77 }));
+  expect(ClientSchoolRoiSigningLink.markStarted).toHaveBeenCalledWith({ id: 8, intakeSubmissionId: 10 });
+  expect(res.status).toHaveBeenCalledWith(201);
 });

@@ -64,3 +64,6 @@ it('submits the selected assigned school and locks it after upload',async()=>{
  await w.get('select').setValue('second');w.vm.selectedFile=new File(['%PDF-synthetic'],'test.pdf',{type:'application/pdf'});await w.vm.handleUpload();await flushPromises();
  expect(api.post.mock.calls.at(-1)[0]).toBe('/organizations/second/upload-referral');expect(w.get('select').attributes('disabled')).toBeDefined();expect(w.vm.pdfPreviewUrl).toBe('');w.unmount();
 });
+
+it('never requests or offers another family’s generic draft from an existing chart',async()=>{api.get.mockResolvedValue({data:{draft:{id:206,firstName:'Other',lastName:'Child'}}});const w=mount(Upload,{props:{organizationSlug:'qa-school',existingClientId:2438}});await flushPromises();expect(api.get.mock.calls.some(([url])=>url.endsWith('/latest-draft'))).toBe(false);expect(w.text()).not.toContain('Resume this packet');expect(w.vm.draftId).toBeNull();w.unmount();});
+it('rejects an explicitly supplied resume whose bound child differs from the chart',async()=>{const w=mount(Upload,{props:{organizationSlug:'qa-school',existingClientId:2438,initialDraft:{id:206,clientId:2456,firstName:'Other',lastName:'Child'}}});await flushPromises();expect(w.vm.draftId).toBeNull();expect(w.text()).not.toContain('Resume this packet');w.unmount();});

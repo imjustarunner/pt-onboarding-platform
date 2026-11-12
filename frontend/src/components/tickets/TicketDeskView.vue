@@ -907,6 +907,7 @@
                   class="promote-library-title"
                   placeholder="Library template title (optional)"
                 />
+                <TicketAttachmentComposer ref="replyAttachments" v-if="selected?.id && composerMode !== 'internal'" :key="selected.id" :ticket-id="selected.id" :disabled="sending || messagesLoading" :show-files="false" @uploaded="loadMessages(selected.id)" />
                 <div v-if="actionError" class="error">{{ actionError }}</div>
                 <div class="composer-actions">
                   <button
@@ -1089,6 +1090,7 @@
 </template>
 
 <script setup>
+import TicketAttachmentComposer from './TicketAttachmentComposer.vue';
 import { openPrivateAttachment } from '../../utils/openPrivateAttachment.js';
 import { canAccessTicketDesk } from '../../utils/ticketAccess.js';
 import ConversaBrand from '../../components/conversa/ConversaBrand.vue';
@@ -1227,6 +1229,7 @@ function setReplyDraft(text) {
   draft.value = text;
 }
 const sending = ref(false);
+const replyAttachments=ref(null);
 const busy = ref(false);
 const searchInput = ref('');
 const priorityFilter = ref('');
@@ -2342,6 +2345,7 @@ async function sendMessage() {
   sending.value = true;
   actionError.value = ''; emailNotice.value = '';
   try {
+    if(replyAttachments.value?.hasFile?.() && !(await replyAttachments.value.uploadPending(ticketId))){actionError.value='Your reply is saved. Add the file successfully before sending.';return;}
     const replyResult = await api.post(`/support-tickets/${ticketId}/messages`, request);
     const receipt = replyResult.data?.emailReply;
     const current = Number(selectedId.value) === Number(ticketId);

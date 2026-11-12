@@ -3,7 +3,7 @@
     <header><div><h3>Pending tasks{{ clientName ? ` · ${clientName}` : '' }}</h3><p>Enrollment, documentation and billing follow-up for this client.</p></div><button :disabled="loading" @click="load()">Refresh tasks</button></header>
     <p v-if="loading" role="status">Loading pending tasks…</p><p v-if="error" role="alert">{{error}}</p><p v-if="notice" role="status">{{notice}}</p>
     <ul>
-      <li v-for="task in paperTasks" :key="`paper-${task.id}`"><div><strong>Process paper packet enrollment</strong><small>Support queue · Record #{{ clientId }} · {{task.packet_filename || 'Paper packet'}} · Document #{{task.document_id}} · {{dateTime(task.created_at)}} · {{task.status}}</small></div><button @click="openPaperTask(task)">Open packet task →</button></li>
+      <li v-for="task in paperTasks" :key="`paper-${task.id}`"><div><strong>Process paper packet enrollment</strong><small>Support queue · Task #{{ task.id }} · Record #{{ clientId }} · {{task.packet_filename || 'Paper packet'}} · Document #{{task.document_id}} · {{dateTime(task.created_at)}} · {{task.status}}</small></div><button @click="openPaperTask(task)">Open packet task →</button></li>
       <li v-for="note in pendingNotes" :key="`note-${note.record_key || note.id}`"><div><strong>{{ note.note_status === 'none' || !note.note_status ? 'Complete session note' : 'Review and sign note' }}</strong><small>Clinical team · {{date(note.service_date)}} · {{note.note_status || 'Not started'}}</small></div><button @click="openNote(note)">Open note →</button></li>
       <template v-for="task in tasks" :key="task.profileId">
         <li><div><strong>{{task.state==='help'?'Help with insurance card upload':task.state==='review'?'Review uploaded insurance cards':'Optional insurance card upload'}}</strong><small>{{task.state==='review'?'Billing team':'Client / guardian'}} · {{task.ownerName}} · {{task.state==='missing'?`${task.missingSlots.length} optional card side(s) not uploaded`:'Office follow-up needed'}}</small></div><button @click="cardsOpen=!cardsOpen">{{cardsOpen?'Hide':'View'}} card task</button></li>
@@ -37,6 +37,7 @@ async function load(append=false){const current=++version;loading.value=true;err
   ]);if(current!==version)return;
   const [billing,clinical,paper]=results;
   if(paper.status==='fulfilled'&&paper.value){paperTasks.value=paper.value.data.tasks||[];if(paper.value.data.tasksUnavailable)error.value='Paper-processing tasks could not load. The saved packet documents remain available; refresh tasks to try again.';}
+  if(paper.status==='rejected')error.value='Paper-processing tasks are unavailable with the current access. Wait for the chart to finish loading, then refresh tasks.';
   if(billing.status==='fulfilled'&&billing.value){tasks.value=append?[...tasks.value,...billing.value.data.rows]:billing.value.data.rows;more.value=billing.value.data.nextAfter;}
   if(clinical.status==='fulfilled'&&clinical.value)notes.value=clinical.value.data.encounters||[];
   if(results.some(r=>r.status==='rejected'&&r.reason.response?.status!==403))error.value='Some tasks could not load. Refresh to try again.';

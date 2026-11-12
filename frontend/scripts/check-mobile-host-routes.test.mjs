@@ -26,6 +26,7 @@ test('central and public-domain nginx serve mobile routes and exact AuricWell fi
     await writeFile(legalConfig,'');
     const staticFiles=[
       {path:'/auricwell/session-comments/secure-session-button.png',type:'image/png',signature:Buffer.from([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a])},
+      {path:'/auricwell/session-comments/read-secure-message-button.png',type:'image/png',signature:Buffer.from([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a])},
       {path:'/auricwell/provider-training/PROVIDER-FIELD-GUIDE.pdf',type:'application/pdf',signature:Buffer.from('%PDF-')},
       {path:'/auricwell/provider-training/PROVIDER-TRANSITION-TRAINING.pptx',type:'application/vnd.openxmlformats-officedocument.presentationml.presentation',signature:Buffer.from([0x50,0x4b,0x03,0x04])}
     ];

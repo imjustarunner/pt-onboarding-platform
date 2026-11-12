@@ -89,11 +89,11 @@ export async function listGuardianInvitations({ userId, agencyId, clientId = nul
   const visible = [...grouped.values()].filter(group=>Number(group[0].recipientUserId)!==Number(userId) && !ownEmails.has(String(group[0].email || '').trim().toLowerCase())).filter(group => group.some(row=>canSee(row)&&(!clientId||Number(row.clientId)===Number(clientId)))).slice(0,30);
   const histories = new Map();
   if (visible.length) {
-    const [attempts] = await pool.execute(`SELECT invite_id AS inviteId,id,delivery_kind AS kind,delivery_status AS status,created_at AS occurredAt
+    const [attempts] = await pool.execute(`SELECT invite_id AS inviteId,id,delivery_kind AS kind,delivery_status AS status,failure_kind AS failureKind,created_at AS occurredAt
       FROM co_guardian_invite_deliveries WHERE invite_id IN (${visible.map(()=>'?').join(',')}) ORDER BY id DESC`, visible.map(group=>group[0].id));
     for (const attempt of attempts) {
       if (!histories.has(attempt.inviteId)) histories.set(attempt.inviteId,[]);
-      histories.get(attempt.inviteId).push({id:attempt.id,kind:attempt.kind,status:attempt.status,occurredAt:attempt.occurredAt});
+      histories.get(attempt.inviteId).push({id:attempt.id,kind:attempt.kind,status:attempt.status,...(attempt.failureKind ? {failureKind:attempt.failureKind} : {}),occurredAt:attempt.occurredAt});
     }
   }
   return visible.map(group => {

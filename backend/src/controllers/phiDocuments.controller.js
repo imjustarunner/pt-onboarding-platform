@@ -1,3 +1,4 @@
+import {handleSchoolChartAttachment} from '../services/schoolChartAttachment.service.js';
 import { hasScreeningDocumentRead } from '../services/h0002DocumentAccess.service.js';
 import Client from '../models/Client.model.js';
 import { withMedicalArchiveUpload } from '../services/medicalArchiveUpload.service.js';
@@ -265,9 +266,9 @@ export const uploadClientPhiDocument = [
 
       if(['provider','provider_plus','intern','intern_plus','supervisor','facilitator','qbha'].includes(String(req.user.role||'')))await clinicalClientAccess(req.user,clientId,{write:true});
       const documentTitle = req.body?.documentTitle ? String(req.body.documentTitle).trim().slice(0, 255) : req.body?.documentType==='full_paper_enrollment'?'Full paper enrollment':null;
-      const documentType = req.body?.documentType ? String(req.body.documentType).trim().slice(0, 80) : null;
+      const documentType = req.body?.documentType ? String(req.body.documentType).trim().slice(0, 80) : isSchoolStaff?'school_staff_attachment':null;
       return await withMedicalArchiveUpload({ agencyId: client.agency_id, clientId, documentTitle, documentType, file: req.file }, async (archiveDescriptor, existingDocument) => {
-        if (existingDocument) return res.status(200).json({ document: existingDocument, reused: true });
+        if (existingDocument) {let followup=null;try{followup=await handleSchoolChartAttachment({client,document:existingDocument,user:req.user});}catch{followup={operationalFollowupPending:true};}return res.status(200).json({ document: existingDocument, reused: true,...followup });}
         const sanitizedFilename = StorageService.sanitizeFilename(req.file.originalname);
         const timestamp = Date.now();
         const randomId = Math.random().toString(36).substring(7);
@@ -330,7 +331,8 @@ export const uploadClientPhiDocument = [
           // ignore
         }
 
-        res.status(201).json({ document: phiDoc });
+        let followup=null;try{followup=await handleSchoolChartAttachment({client,document:phiDoc,user:req.user});}catch{followup={operationalFollowupPending:true};}
+        res.status(201).json({ document: phiDoc,...followup });
       });
     } catch (e) {
       next(e);

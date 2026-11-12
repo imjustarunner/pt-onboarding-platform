@@ -1,3 +1,5 @@
+import {receiveClientDocument} from '../middleware/clientDocumentUpload.middleware.js';
+import {authorizeTicketAttachmentUpload,uploadSupportTicketAttachment} from '../controllers/supportTickets.controller.js';
 import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
 import { requireAgencyAccess } from '../middleware/agencyAccess.middleware.js';
@@ -113,6 +115,7 @@ router.post('/:id/response-plan/build', requireAgencyAccess, buildSupportTicketR
 router.post('/:id/response-plan/dismiss', requireAgencyAccess, dismissSupportTicketResponsePlan);
 router.get('/:id/client-search', requireAgencyAccess, searchSupportTicketClients);
 router.post('/:id/link-client', requireAgencyAccess, linkSupportTicketClient);
+router.post('/:id/attachments',authorizeTicketAttachmentUpload,receiveClientDocument,uploadSupportTicketAttachment);
 router.get('/:id/attachments', requireAgencyAccess, listSupportTicketAttachments);
 router.get('/:id/attachments/:attachmentId/download', requireAgencyAccess, downloadSupportTicketAttachment);
 router.post('/:id/attachments/:attachmentId/add-to-client', requireAgencyAccess, addTicketAttachmentToClient);

@@ -40,6 +40,8 @@ import config from '../config/config.js';
  * // because the middleware ensures sensitive fields are never in req.sanitizedBody.
  */
 export const requestLoggingMiddleware = (req, res, next) => {
+  if (/^(?:\/api)?\/support-tickets(?:\/|$)/.test(req.path)) { req.sanitizedBody='[PRIVATE SUPPORT TICKET]'; return next(); }
+  if (/^(?:\/api)?\/clients\/\d+\/paper-packet-processing(?:\/|$)/.test(req.path)) { req.sanitizedBody='[PRIVATE PAPER PACKET REVIEW]'; return next(); }
   if (/\/(?:secure-session-comments|secure-family-sharing-notice)(?:\/|$)/.test(req.path)) { req.sanitizedBody = '[PRIVATE SECURE FAMILY COMMUNICATION]'; return next(); }
   if(/^\/(?:api\/)?(?:chat|chats|messages|guardian-portal\/(?:messages|emails)|dependent-portal\/messages|quick-view\/messages)(?:\/|$)/.test(req.path)) {req.sanitizedBody='[PRIVATE MESSAGING REQUEST]';return next();}
   // Typed addresses and form/context capabilities must never enter request-body logs.

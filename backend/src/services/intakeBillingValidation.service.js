@@ -9,7 +9,12 @@ export async function validateIntakeBilling({ link, submission, intakeData, agen
   const data = typeof intakeData === 'string' ? JSON.parse(intakeData) : (intakeData || {});
   const bag = data.responses?.submission || data.submission || data;
   const info = bag.insuranceInfo;
-  if (info?.useInsuranceOnFile && !insuranceOnFileApproved) throw billingError(400, 'The care team must verify the insurance on file before this section can be skipped.');
+  if (info?.useInsuranceOnFile && (!insuranceOnFileApproved || info.useInsuranceOnFile !== true)) throw billingError(400, 'The care team must verify the insurance on file before this section can be skipped.');
+  // Only the server-bound invitation may approve this path for every child.
+  // Nothing new is being declared or billed: clientInsurance intentionally
+  // returns no replacement policy for useInsuranceOnFile. Do not feed stale
+  // draft fields through new-policy/member validation or request a new card.
+  if (info?.useInsuranceOnFile === true && insuranceOnFileApproved) return;
   // Deferring card collection never waives the authorization shown on the
   // insurance step. Validate before merchant/Medicaid/self-pay early returns.
   if (steps.some(step => step.type === 'insurance_info') && !(insuranceOnFileApproved && info?.useInsuranceOnFile)) {

@@ -1,5 +1,6 @@
 import { escapePortalHtml as e, portalMessageHtml } from './portalEmailBranding.service.js';
 import { conversaEmailBlock, conversaEmailNote } from './conversaEmail.service.js';
+import { secureMessageActionHtml } from './secureMessageAction.service.js';
 
 export function clientEmailLabel(client = {}) {
   const parts = String(client.full_name || client.name || '').replace(/\s*[—–-]\s*(?:DEMO|FICTIONAL).*$/i, '').trim().split(/\s+/).filter(Boolean);
@@ -65,5 +66,5 @@ export function buildSecureMessageEmail({agencyName,clinical=true,url,forDepende
   const sender=senderName?`${senderName} at ${agencyName} sent you a secure message. `:'';
   const note='Your message stays inside your secure portal. This email does not include its contents. Please reply in the portal.';
   return {subject,text:`${sender}${intro}\n\nRead secure message:\n${url}\n\n${note}${clinical ? `\n\n${conversaEmailNote}` : ''}`,
-    html:`<h2>You have a secure message</h2><p>${e(sender+intro)}</p>${portalActionHtml('Read secure message',url)}<p>${e(note)}</p>${clinical ? conversaEmailBlock() : ''}`};
+    html:`<h2>You have a secure message</h2><p>${e(sender+intro)}</p>${secureMessageActionHtml(url)}<p>${e(note)}</p>${clinical ? conversaEmailBlock() : ''}`};
 }

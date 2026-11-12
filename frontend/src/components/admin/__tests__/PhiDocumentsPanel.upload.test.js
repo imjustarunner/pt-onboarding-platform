@@ -25,3 +25,4 @@ it('rejects an oversized selection before uploading any of its files', async () 
   await select([small, large]);
   expect(api.post).not.toHaveBeenCalled(); expect(wrapper.text()).toContain('No files were uploaded.');
 });
+it('keeps a saved file visible as a follow-up problem instead of encouraging a duplicate upload',async()=>{api.post.mockResolvedValue({data:{document:{id:4364},operationalFollowupPending:true}});await select([new File(['synthetic'],'school-file.pdf',{type:'application/pdf'})]);expect(api.post).toHaveBeenCalledOnce();expect(wrapper.text()).toContain('The file was saved, but Support follow-up is pending');expect(wrapper.text()).toContain('Do not upload it again');});

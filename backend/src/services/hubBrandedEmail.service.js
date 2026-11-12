@@ -1,4 +1,5 @@
 import { EMAIL_RESPONSIVE_STYLES } from '../utils/emailResponsiveLayout.js';
+import { secureMessageActionHtml } from './secureMessageAction.service.js';
 /**
  * Email HTML helpers for Messages Hub.
  * Outbound hub Email uses a content fragment (no outer card) so tenant chrome
@@ -312,7 +313,7 @@ export function buildBrandedMessageEmailHtml(opts = {}) {
           <div style="color:#64748b;font-size:12px;margin-bottom:8px;">Sent through ${agencyName}</div>
           ${
             appUrl
-              ? `<p style="margin:0 0 18px;"><a href="${appUrl}" style="color:${primary};font-weight:700;">Open in Messages</a></p>`
+              ? (opts.secureMessageAction === true ? secureMessageActionHtml(opts.appUrl) : `<p style="margin:0 0 18px;"><a href="${appUrl}" style="color:${primary};font-weight:700;">Open in Messages</a></p>`)
               : ''
           }
           ${

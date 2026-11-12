@@ -35,6 +35,14 @@ beforeEach(() => {
 });
 afterEach(() => { stopActivityTracking(); vi.useRealTimers(); });
 describe('shared activity tracking', () => {
+  it('shows a school-staff warning at the server15-minute idle deadline and resumes without a reload',async()=>{
+    mocks.auth.user.role='school_staff';policy={idleBeforeTimedownSeconds:900,timedownSeconds:600,useLockScreen:false};
+    serverSession={phase:'active',lastActivityAt:Date.now(),activityVersion:Date.now(),lockAt:Date.now()+900000,expiresAt:Date.now()+1500000,serverNow:Date.now()};
+    await startActivityTracking({bootstrap:{...serverData(),userId:7,sessionId:'login-one'}});
+    await vi.advanceTimersByTimeAsync(899000);expect(useSessionLockStore().warningActive).toBe(false);
+    await vi.advanceTimersByTimeAsync(1000);expect(useSessionLockStore().warningActive).toBe(true);expect(useSessionLockStore().warningSecondsLeft).toBe(600);
+    const resumed=vi.fn();window.addEventListener('pt:session-resumed',resumed);try{expect(await resumeSession()).toBe(true);expect(useSessionLockStore().warningActive).toBe(false);expect(resumed).toHaveBeenCalledOnce();expect(mocks.logout).not.toHaveBeenCalled();}finally{window.removeEventListener('pt:session-resumed',resumed);}
+  });
   it('maintains the family session heartbeat without publishing staff presence', async () => {
     mocks.auth.user.role = 'client_guardian';
     await startActivityTracking({ bootstrap: { ...serverData(), userId: 7, sessionId: 'login-one' } });

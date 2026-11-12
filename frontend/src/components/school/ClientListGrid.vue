@@ -670,7 +670,7 @@
           <div class="roi-summary-grid">
             <div class="roi-summary-card">
               <div class="roi-summary-label">ROI expiration date</div>
-              <div class="roi-summary-value">{{ formatDate(roiStatusData.roiExpiresAt) }}</div>
+              <div class="roi-summary-value">{{ portalCalendarDate(roiStatusData.roiExpiresAt) }}</div>
             </div>
             <div class="roi-summary-card">
               <div class="roi-summary-label">Portal state</div>
@@ -1674,7 +1674,7 @@ const roiStatusLabel = (client) => {
 const roiStatusDateHint = (client) => {
   const raw = String(client?.roi_expires_at || '').trim();
   if (!raw) return 'No expiration date set';
-  return `Expires ${formatDate(raw)}`;
+  return `Expires ${portalCalendarDate(raw)}`;
 };
 
 const loadRoiStatus = async (clientId) => {

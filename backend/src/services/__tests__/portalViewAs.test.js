@@ -26,3 +26,17 @@ it('keeps access available while showing the separate invitation response and du
  const query=db.execute.mock.calls.find(([sql])=>sql.includes('FROM client_guardians'));
  expect(query[0]).toContain('ic.client_id=cg.client_id AND ci.agency_id=?');expect(query[1]).toEqual([2,2,2,2,7]);
 });
+
+it.each([
+ [{hasEstablishedPassword:0,hasTemporaryPassword:0,hasPasswordSetupLink:0},'setup_required'],
+ [{hasEstablishedPassword:0,hasTemporaryPassword:1,temporaryPasswordExpiresAt:'2099-01-01'},'temporary_password'],
+ [{hasEstablishedPassword:0,hasTemporaryPassword:1,temporaryPasswordExpiresAt:'2020-01-01'},'temporary_password_expired'],
+ [{hasEstablishedPassword:0,hasPasswordSetupLink:1,passwordSetupLinkExpiresAt:'2099-01-01'},'setup_link_pending'],
+ [{hasEstablishedPassword:1,hasTemporaryPassword:0},'password_set'],
+ [{hasEstablishedPassword:'1',hasTemporaryPassword:'0'},'password_set'],
+ [{hasEstablishedPassword:0,hasTemporaryPassword:1,temporaryPasswordExpiresAt:null},'unknown']
+])('keeps relationship preview access separate from password setup: %j',async(flags,status)=>{
+ db.execute.mockImplementation(async sql=>sql.includes('FROM clients WHERE')?[[{id:7,agency_id:2}]]:[[{id:10,role:'client_guardian',access_enabled:1,is_active:1,...flags}]]);
+ const {accounts}=await service.accounts(context);expect(accounts[0]).toMatchObject({available:true,passwordSetupStatus:status});
+ expect(Object.keys(accounts[0]).some(k=>/hash|token/i.test(k))).toBe(false);
+});

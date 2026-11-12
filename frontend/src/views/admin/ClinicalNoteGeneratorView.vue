@@ -365,6 +365,7 @@
         </div>
 
         <section v-if="!signedNoteViewerId && !chartNoteReadOnly && !isClientChartAid && (narrivaServicePending || narrivaServiceLoading || narrivaServiceError || sessionOfficeEventId && !sessionClinicalSessionId)" class="narriva-encounter-confirmation narriva-service-confirm"><p v-if="narrivaServiceLoading" role="status">Verifying the scheduled service…</p><p v-if="narrivaServiceError" role="alert">{{ narrivaServiceError }}</p><button v-if="narrivaServiceError || !sessionClinicalSessionId" type="button" class="na-btn-outline" @click="verifyNarrivaEncounter">Verify encounter service</button><template v-if="narrivaServicePending"><h3>{{ narrivaPendingConfirmation ? 'Finish pending service change' : 'Confirm service-code change' }}</h3><p v-if="narrivaPendingConfirmation">The prior confirmation is pending. Review its preserved service and reason, then explicitly retry it.</p><p v-else-if="narrivaServiceSnapshot.pendingServiceChange">A service change is pending. Its author must finish it before this note can proceed.</p><p>The scheduled encounter still uses {{ narrivaServiceSnapshot.serviceCode || 'its original service' }}. Narriva does not change the billed service automatically.</p><label>Reason / crisis justification<textarea v-model="narrivaServiceReason" :readonly="!!narrivaPendingConfirmation || narrivaServiceSnapshot.pendingServiceChange" class="na-textarea" rows="3" minlength="5" maxlength="4000" /></label><button type="button" class="na-btn-outline" :disabled="narrivaServiceSaving || narrivaServiceSnapshot.pendingServiceChange && !narrivaPendingConfirmation || narrivaServiceReason.trim().length<5" @click="confirmNarrivaService">{{ narrivaServiceSaving?'Checking eligibility…':narrivaPendingConfirmation?'Retry confirmation':'Confirm service change' }}</button></template></section>
+        <p v-if="narrivaServiceSnapshot?.durationReview?.requiresReview" class="narriva-encounter-confirmation narriva-duration-review" role="status">{{ narrivaServiceSnapshot.durationReview.reason }}</p>
         <section v-if="isProBonoFundingCode(actualServiceCode)" class="narriva-encounter-confirmation narriva-underlying-service"><label for="narriva-underlying-service">Clinical service provided</label><div class="narriva-underlying-service__control"><select id="narriva-underlying-service" v-model="narrivaUnderlyingServiceCode" class="na-select" :disabled="chartNoteReadOnly || !!signedNoteViewerId"><option value="">Choose the clinical service provided</option><option v-if="narrivaUnderlyingServiceCode && !narrivaUnderlyingOptions.some(item => item.code === narrivaUnderlyingServiceCode)" :value="narrivaUnderlyingServiceCode" disabled>{{ narrivaUnderlyingServiceCode }} · Eligibility needs review</option><option v-for="item in narrivaUnderlyingOptions" :key="item.code" :value="item.code">{{ serviceCodeOptionLabel(item.code) }}</option></select><ServiceInformation presentation="button" :service-code="narrivaUnderlyingServiceCode" :agency-id="noteAidAgencyId || currentAgencyId" /></div><p>Pro Bono remains the funding arrangement. This identifies the clinical service for documentation review and does not change the scheduled or charged code.</p><p v-if="!narrivaUnderlyingServiceCode">Choose the clinical service to verify this note against its handbook requirements. Until then, the note remains unverified.</p></section>
         <ServiceInformation v-if="actualServiceCode" :service-code="actualServiceCode" :agency-id="noteAidAgencyId || currentAgencyId" />
         <section v-if="!signedNoteViewerId && !chartNoteReadOnly" class="narriva-encounter-confirmation" aria-label="Encounter consent and delivery">
@@ -1615,6 +1616,7 @@ import {
   workQueueSessionKey as queueItemSessionKey,
   sortWorkQueueItems
 } from '../../utils/noteAidDocumentationStatus.js';
+import { hasAuthoredDraftPayload, hasAuthoredStructuredChart } from '../../utils/noteDraftContent.js';
 import {
   consumeNoteAidWorkQueueStash,
   scrubLegacyWorkQueueSessionStash,
@@ -5227,7 +5229,7 @@ function draftSavePayload() {
       Number(bookingContext.value?.clinicalSessionId || sessionClinicalSessionId.value || 0) || null
   };
   // Persist session context (location, duration, times) into draft output_json.meta.
-  if (targetDraftId || outputObj.value || rawInput.trim()) {
+  if (targetDraftId || outputObj.value || rawInput.trim() || hasAuthoredStructuredChart(draftStructuredChart())) {
     payload.outputJson = {
       ...(outputObj.value && typeof outputObj.value === 'object' ? outputObj.value : {}),
       meta: {
@@ -5302,7 +5304,7 @@ const autosave = async () => {
 
   // Create only after the clinician writes or dictates — client/initials/DOS
   // from a work-queue click must not spawn a new empty draft each time.
-  const hasNoteBody = !!String(payload.inputText || '').trim() || Object.values(payload.outputJson?.sections || {}).some(value => String(value || '').trim() && !/^Write this section…?$/.test(String(value).trim()));
+  const hasNoteBody = hasAuthoredDraftPayload(payload);
   if (!targetDraftId && !hasNoteBody) return;
   if (seq !== workQueueActivateSeq) return;
 

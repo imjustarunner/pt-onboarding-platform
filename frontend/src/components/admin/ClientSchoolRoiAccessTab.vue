@@ -16,17 +16,17 @@
         <div class="summary-v">{{ schoolName }}</div>
       </div>
       <div class="summary-card">
-        <div class="summary-k">ROI date on file</div>
+        <div class="summary-k">ROI expires</div>
         <div class="summary-v">{{ roiExpiryLabel }}</div>
         <div class="roi-date-editor">
-          <input v-model="roiExpiryDraft" type="date" class="inline-date-input" />
+          <input v-model="roiExpiryDraft" type="date" class="inline-date-input" aria-label="ROI expiration date" />
           <button
             type="button"
             class="btn btn-secondary btn-sm"
             :disabled="roiDateSaving || !roiDateDirty || !roiExpiryDraft"
             @click="saveRoiDate"
           >
-            {{ roiDateSaving ? 'Saving…' : 'Save date' }}
+            {{ roiDateSaving ? 'Saving…' : 'Save expiration' }}
           </button>
         </div>
         <div class="hint">

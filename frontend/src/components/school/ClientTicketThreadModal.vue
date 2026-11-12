@@ -91,7 +91,7 @@
         </div>
       </div>
 
-      <div class="composer">
+      <div v-if="!loading && !error" class="composer">
         <div class="composer-top">
           <strong>Send message</strong>
           <span v-if="ticket && isClosed" class="muted">Posting will reopen the ticket.</span>
@@ -107,7 +107,8 @@
           placeholder="Type your message…"
           ref="composerEl"
         />
-        <div class="composer-actions">
+        <TicketAttachmentComposer ref="replyAttachments" v-if="ticket?.id && !error" :key="`${schoolOrganizationId}:${client.id}:${ticket.id}`" :ticket-id="ticket.id" :disabled="sending" />
+      <div class="composer-actions">
           <button class="btn btn-primary" type="button" @click="send" :disabled="sending || !draft.trim()">
             {{ sending ? 'Sending…' : 'Send message' }}
           </button>
@@ -120,8 +121,9 @@
 
 <script setup>
 import ParentContactAttempts from '../clients/ParentContactAttempts.vue';
-import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue';
 import api from '../../services/api';
+import TicketAttachmentComposer from '../tickets/TicketAttachmentComposer.vue';
 import SupportTicketThreadMessage from './SupportTicketThreadMessage.vue';
 import { useAuthStore } from '../../store/auth';
 import { formatSchoolPortalClientLabel } from '../../utils/schoolPortalClientLabel.js';
@@ -147,6 +149,7 @@ const messages = ref([]);
 
 const draft = ref('');
 const sending = ref(false);
+const replyAttachments=ref(null);
 const sendError = ref('');
 
 const showFullThread = ref(false);
@@ -158,6 +161,8 @@ const highlightMessageId = ref(null);
 const checklist = ref(null);
 const checklistAudit = ref('');
 
+let disposed=false,loadGeneration=0;
+const contextKey=()=>`${Number(props.schoolOrganizationId)}:${Number(props.client?.id)}:${props.ticketId||''}`;
 const replyTo = ref(null); // { id, authorLabel }
 
 const clientLabel = computed(() => formatSchoolPortalClientLabel(props.client, props.clientLabelMode));
@@ -282,12 +287,15 @@ const scrollToMessage = async (messageId) => {
 
 const load = async () => {
   if (!props.client?.id) return;
+  const generation=++loadGeneration,key=contextKey(),clientId=Number(props.client.id),schoolId=Number(props.schoolOrganizationId),ticketId=props.ticketId;
+  const current=()=>!disposed&&generation===loadGeneration&&key===contextKey();
   loading.value = true;
   error.value = '';
   try {
     // Compliance checklist (read-only for school staff/admin view)
     try {
-      const c = (await api.get(`/clients/${props.client.id}`)).data || {};
+      const c = (await api.get(`/clients/${clientId}`)).data || {};
+      if(!current())return;
       checklist.value = {
         parent_contact_attempt_count: c.parent_contact_attempt_count ?? null,
         parents_contacted_at: c.parents_contacted_at || null,
@@ -302,24 +310,29 @@ const load = async () => {
       const when = c.checklist_updated_at ? new Date(c.checklist_updated_at).toLocaleString() : null;
       checklistAudit.value = who && when ? `Last updated by ${who} on ${when}` : (when ? `Last updated on ${when}` : '');
     } catch {
+      if(!current())return;
       checklist.value = null;
       checklistAudit.value = '';
     }
 
-    if (props.ticketId) {
-      const r = await api.get(`/support-tickets/${props.ticketId}/messages`);
+    if(!current())return;
+    if (ticketId) {
+      const r = await api.get(`/support-tickets/${ticketId}/messages`);
+      if(!current())return;
       ticket.value = r.data?.ticket || null;
       messages.value = Array.isArray(r.data?.messages) ? r.data.messages : [];
     } else {
       const r = await api.get('/support-tickets/client-thread', {
         params: {
-          schoolOrganizationId: Number(props.schoolOrganizationId),
-          clientId: Number(props.client.id)
+          schoolOrganizationId: schoolId,
+          clientId
         }
       });
+      if(!current())return;
       ticket.value = r.data?.ticket || null;
       messages.value = Array.isArray(r.data?.messages) ? r.data.messages : [];
     }
+    if(ticket.value && ((ticket.value.client_id!=null&&Number(ticket.value.client_id)!==clientId)||(ticket.value.school_organization_id!=null&&Number(ticket.value.school_organization_id)!==schoolId)))throw new Error('Ticket does not match this client or school.');
     // Default: expand everything for now (nested collapses are opt-in)
     expanded.value = {};
     for (const m of messages.value || []) {
@@ -332,11 +345,12 @@ const load = async () => {
       scrollToBottom();
     }
   } catch (e) {
+    if(!current())return;
     error.value = e.response?.data?.error?.message || 'Failed to load messages';
     ticket.value = null;
     messages.value = [];
   } finally {
-    loading.value = false;
+    if(current())loading.value = false;
   }
 };
 
@@ -359,7 +373,8 @@ const scrollToBottom = () => {
 };
 
 const send = async () => {
-  if (!props.client?.id) return;
+  if (!props.client?.id || sending.value || loading.value || error.value) return;
+  const key=contextKey(),targetTicketId=Number(ticket.value?.id),parentId=replyTo.value?.id||null,current=()=>!disposed&&key===contextKey();
   const body = String(draft.value || '').trim();
   if (!body) return;
   sending.value = true;
@@ -373,6 +388,7 @@ const send = async () => {
         subject: 'Client message',
         question: body
       });
+      if(!current())return;
       ticket.value = created.data || null;
       draft.value = '';
       replyTo.value = null;
@@ -380,39 +396,24 @@ const send = async () => {
       return;
     }
 
-    await api.post(`/support-tickets/${ticket.value.id}/messages`, {
-      body,
-      parentMessageId: replyTo.value?.id || null
-    });
+    if(replyAttachments.value?.hasFile?.() && !(await replyAttachments.value.uploadPending(targetTicketId)))return;
+    if(!current()||Number(ticket.value?.id)!==targetTicketId)return;
+    await api.post(`/support-tickets/${targetTicketId}/messages`, {body,parentMessageId:parentId});
+    if(!current())return;
     draft.value = '';
     replyTo.value = null;
     await load();
   } catch (e) {
-    sendError.value = e.response?.data?.error?.message || 'Failed to send message';
+    if(current())sendError.value = e.response?.data?.error?.message || 'Failed to send message';
   } finally {
     sending.value = false;
   }
 };
 
-watch(
-  () => props.client?.id,
-  async () => {
-    showFullThread.value = false;
-    checklist.value = null;
-    checklistAudit.value = '';
-    highlightMessageId.value = null;
-    await load();
-  }
-);
-
-watch(
-  () => [props.ticketId, props.initialMessageId],
-  async () => {
-    highlightMessageId.value = null;
-    await load();
-  }
-);
-
+watch(()=>[props.client?.id,props.schoolOrganizationId,props.ticketId,props.initialMessageId],async()=>{
+ loadGeneration++;showFullThread.value=false;checklist.value=null;checklistAudit.value='';highlightMessageId.value=null;ticket.value=null;messages.value=[];draft.value='';replyTo.value=null;sendError.value='';error.value='';await load();
+});
+onBeforeUnmount(()=>{disposed=true;loadGeneration++;});
 onMounted(load);
 </script>
 

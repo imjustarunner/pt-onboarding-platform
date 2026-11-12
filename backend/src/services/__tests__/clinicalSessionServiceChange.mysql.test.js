@@ -1,3 +1,4 @@
+import {nonDemoOrSyntheticQaMembershipSql} from '../../utils/auricwellQaPolicy.js';
 import {afterAll,beforeAll,beforeEach,describe,it,expect,vi} from 'vitest';
 import {readFileSync} from 'node:fs';
 import mysql from 'mysql2/promise';
@@ -113,6 +114,27 @@ suite('explicit clinical service correction across MySQL data planes',()=>{
  });
  it('fails before any journal or source mutation when encryption is unavailable',async()=>{
   const key=process.env.CLIENT_CHAT_ENCRYPTION_KEY_BASE64;delete process.env.CLIENT_CHAT_ENCRYPTION_KEY_BASE64;try{await expect(changeClinicalSessionService(actor,input,d)).rejects.toThrow('encryption key');expect((await state()).session.metadata_json.serviceCodeChangePending).toBeUndefined();expect(d.setServiceCodes).not.toHaveBeenCalled();}finally{process.env.CLIENT_CHAT_ENCRYPTION_KEY_BASE64=key;}
+ });
+ it.each([[30,2],[38,3],[53,4],[60,4],[67,4],[68,5]])('confirms H0004 at%s minutes and preserves content, with review above the four-unit band',async(minutes,units)=>{
+  await db.query(`UPDATE clinical_sessions SET service_code='90837',duration_minutes=${minutes};UPDATE appointments SET service_code='90837';UPDATE office_events SET service_code='90837';
+    INSERT INTO agency_medical_service_codes(agency_id,service_code,is_active,is_addon,unit_calc_mode,unit_minutes,min_minutes,max_minutes,max_units_per_session,ladder_bands_json) VALUES(1,'H0004',1,0,'MEDICAID_8_MINUTE_LADDER',15,8,NULL,4,'[{"units":1,"minMinutes":8,"maxMinutes":22},{"units":2,"minMinutes":23,"maxMinutes":37},{"units":3,"minMinutes":38,"maxMinutes":52},{"units":4,"minMinutes":53,"maxMinutes":67}]')`);
+  d.resolveCatalog.mockResolvedValue({eligibleServiceCodes:[{code:'H0004',minDurationMinutes:8,maxDurationMinutes:15}]});
+  const result=await changeClinicalSessionService(actor,{...input,expectedOldServiceCode:'90837',serviceCode:'H0004',durationMinutes:minutes,justification:'Confirm actual synthetic H0004 service.'},d);
+  expect(result.serviceCode).toBe('H0004');const saved=await state();expect(saved.session.service_code).toBe('H0004');expect(saved.appointment.service_code).toBe('H0004');expect(saved.office.service_code).toBe('H0004');
+  const [[draft]]=await db.execute('SELECT * FROM clinical_note_drafts WHERE id=60');expect(draft.service_code).toBe('H0004');expect(maybeDecryptNotePayload(draft.output_json)).toContain('Preserve authored session content.');
+  if(minutes>=68){expect(result.durationReview).toMatchObject({requiresReview:true,units,actualMinutes:minutes,code:'H0004_DURATION_OVER_LIMIT'});expect(saved.session.metadata_json.serviceDurationReview.units).toBe(units);}else expect(result.durationReview).toBeNull();
+ });
+ it.each([
+  ['verified QA',1,450,'auricwell-qa-demo',{qaSandbox:{syntheticOnly:true}},0,1],
+  ['missing flag',1,450,'auricwell-qa-demo',{},0,0],
+  ['string flag',1,450,'auricwell-qa-demo',{qaSandbox:{syntheticOnly:'true'}},0,0],
+  ['wrong slug',1,450,'other',{qaSandbox:{syntheticOnly:true}},0,0],
+  ['wrong membership',1,2,'auricwell-qa-demo',{qaSandbox:{syntheticOnly:true}},0,0],
+  ['archived QA',1,450,'auricwell-qa-demo',{qaSandbox:{syntheticOnly:true}},1,0],
+  ['ordinary active staff',0,2,'other',{},0,1]
+ ])('checks synthetic supervision membership against actual SQL: %s',async(_label,demo,agencyId,slug,flags,archived,allowed)=>{
+  const [[row]]=await db.execute(`WITH agencies AS(SELECT 450 AS id,? AS slug,CAST(? AS JSON) AS feature_flags,1 AS is_active,? AS is_archived)
+    SELECT ${nonDemoOrSyntheticQaMembershipSql()} AS allowed FROM(SELECT ? AS is_demo)u CROSS JOIN(SELECT ? AS agency_id)ua`,[slug,JSON.stringify(flags),archived,demo,agencyId]);expect(Number(row.allowed)).toBe(allowed);
  });
  it('applies release migration 1774 twice with the required review and preference columns and indexes',async()=>{
   const migration=readFileSync(new URL('../../../../database/migrations/1774_narriva_reviews_and_preferences.sql',import.meta.url),'utf8');await db.query(migration);await db.query(migration);
