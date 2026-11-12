@@ -183,3 +183,7 @@ it('shows the same rounded whole-minute value that is submitted and saved',async
 it('discards failed local minute drafts on an explicit fresh read',async()=>{
  api.get.mockImplementation(url=>Promise.resolve(url.endsWith('/raw-audit')?audit([processRow(1,'Employee','2026-11-05')]):{data:{}}));api.patch.mockRejectedValue(new Error('Save failed'));const w=mountPanel({initialMode:'process_h0031',guided:false});await flushPromises();await w.get('input.rip-num').setValue('23');await flushPromises();expect(w.get('input.rip-num').element.value).toBe('23');expect(latest(w).error).toBe('Save failed');await w.vm.refresh();await flushPromises();expect(w.get('input.rip-num').element.value).toBe('60');expect(latest(w).error).toBe('');w.unmount();
 });
+
+it('does not let a normalized no-op draft mask the canonical units returned by a later save',async()=>{
+ api.get.mockImplementation(url=>Promise.resolve(url.endsWith('/raw-audit')?audit([processRow(1,'Employee','2026-11-05')]):{data:{}}));const w=mountPanel({initialMode:'process_h0031',guided:false});await flushPromises();await w.get('input.rip-num').setValue('60.2');expect(api.patch).not.toHaveBeenCalled();expect(w.get('input.rip-num').element.value).toBe('60');api.patch.mockResolvedValue({data:{ok:true,row:{id:1,unit_count:23,processed_at:'2026-11-11T20:00:00Z'}}});await w.findAll('button').find(b=>b.text()==='Mark done').trigger('click');await flushPromises();expect(w.get('input.rip-num').element.value).toBe('23');w.unmount();
+});
