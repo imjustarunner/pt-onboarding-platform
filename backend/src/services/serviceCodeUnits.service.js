@@ -122,7 +122,7 @@ export function resolveSessionBilling({
   const h0004Bands=parseLadderBands(ladderBandsJson);
   const h0004Cap=toInt(maxUnitsPerSession,null) || h0004Bands?.at(-1)?.units || 4;
   const h0004Summary=h0004UnitSummary(m,{maxUnits:h0004Cap}),h0004Upper=h0004Summary.maximumBandMinutes;
-  if(requested==='H0004' && mode==='MEDICAID_8_MINUTE_LADDER' && (toInt(unitMinutes,15)||15)===15 && (max==null||max>=h0004Upper) && m>h0004Upper) {
+  if(requested==='H0004' && mode==='MEDICAID_8_MINUTE_LADDER' && (toInt(unitMinutes,15)||15)===15 && (min==null||m>=min) && (max==null||max>=h0004Upper) && m>h0004Upper) {
     return {...base,units:h0004Summary.units,requiresReview:true,reviewCode:'H0004_DURATION_OVER_LIMIT',reason:h0004Summary.reason};
   }
 
