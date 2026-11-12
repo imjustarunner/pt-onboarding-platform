@@ -1,5 +1,7 @@
 import pool from '../config/database.js';
-import { CATEGORY_IDS, LEVEL_IDS } from './PayrollCompensationLevel.model.js';
+import { LEVEL_IDS } from './PayrollCompensationLevel.model.js';
+
+import {compensationAgencyPolicy} from '../services/compensationCategories.service.js';
 
 const DEFAULT_TIER_BONUS = Object.freeze({ 1: 0, 2: 2, 3: 4 });
 const DEFAULT_SPANISH_BONUS = Object.freeze({ 1: 0, 2: 1, 3: 2 });
@@ -73,14 +75,17 @@ const PayrollPaySystemRate = {
     );
     const byKey = new Map((rows || []).map((r) => [`${r.category}:${r.level}`, r]));
     const result = [];
-    for (const cat of CATEGORY_IDS) {
+    const policy=await compensationAgencyPolicy(agencyId);
+    for (const cat of Object.keys(policy.categories).map(Number)) {
       for (const lvl of LEVEL_IDS) {
         const existing = byKey.get(`${cat}:${lvl}`);
         result.push(existing
-          ? rowToProfile(existing)
+          ? {...rowToProfile(existing),nluCompensationPolicyVersion:policy.nluCompensationPolicyVersion,nluCompensationEffectiveOn:policy.nluCompensationEffectiveOn}
           : {
               id: null,
               agencyId,
+              nluCompensationPolicyVersion:policy.nluCompensationPolicyVersion,
+              nluCompensationEffectiveOn:policy.nluCompensationEffectiveOn,
               category: cat,
               level: lvl,
               creditRate: null,
@@ -108,7 +113,10 @@ const PayrollPaySystemRate = {
        LIMIT 1`,
       [agencyId, category, level]
     );
-    return rowToProfile(rows?.[0] || null);
+    const profile=rowToProfile(rows?.[0] || null);
+    if(!profile)return null;
+    const policy=await compensationAgencyPolicy(agencyId);
+    return {...profile,nluCompensationPolicyVersion:policy.nluCompensationPolicyVersion,nluCompensationEffectiveOn:policy.nluCompensationEffectiveOn};
   },
 
   async upsert(agencyId, category, level, fields = {}) {

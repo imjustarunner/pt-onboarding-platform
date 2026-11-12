@@ -1,10 +1,10 @@
+import {futureHireEnrollment, FUTURE_HIRE_PAY_AGENCIES} from '../services/futureHirePay.service.js';
 import {recordAdditionChange} from '../services/conditionalAdditionPolicy.service.js';
+import {compensationAgencyPolicy} from '../services/compensationCategories.service.js';
 import pool from '../config/database.js';
 import { isPayrollCodeVisible } from '../services/payrollCodeClassification.js';
 import PayrollPaySystemRate from '../models/PayrollPaySystemRate.model.js';
 import PayrollCompensationLevel, {
-  COMPENSATION_CATEGORIES,
-  CATEGORY_IDS,
   LEVEL_IDS
 } from '../models/PayrollCompensationLevel.model.js';
 import PayrollServiceCodeRule from '../models/PayrollServiceCodeRule.model.js';
@@ -99,7 +99,10 @@ function normalizeEstimateLines(rawLines, eventTypes = [], rulesByCode = new Map
     return {
       kind: 'service',
       serviceCode: String(l.serviceCode || l.code || '').trim().toUpperCase(),
-      quantity: l.quantity ?? l.units ?? 0
+      quantity: l.quantity ?? l.units ?? 0,
+      actualMinutes:l.actualMinutes ?? null,
+      serviceContext:{children:l.serviceContext?.children,caregivers:l.serviceContext?.caregivers,
+        format:l.serviceContext?.format,minimumHourlyRate:l.serviceContext?.minimumHourlyRate,wageFloorJurisdiction:l.serviceContext?.wageFloorJurisdiction}
     };
   });
 }
@@ -113,10 +116,13 @@ export const listPaySystemRates = async (req, res, next) => {
       PayrollPaySystemRate.listForAgency(agencyId),
       PayrollPaySystemRate.isAgencyEnabled(agencyId)
     ]);
+    const policy=await compensationAgencyPolicy(agencyId);
     res.json({
       rates,
       enabled,
-      categories: COMPENSATION_CATEGORIES
+      categories: policy.categories,
+      serviceCompensation:policy.serviceCompensation,
+      futureHiresEnabled:FUTURE_HIRE_PAY_AGENCIES.includes(policy.slug)
     });
   } catch (e) { next(e); }
 };
@@ -133,6 +139,7 @@ export const savePaySystemRates = async (req, res, next) => {
     if (!Array.isArray(rates)) {
       return res.status(400).json({ error: { message: 'rates array is required' } });
     }
+    const categoryIds=await PayrollCompensationLevel.getCategoryIds(agencyId);
     const tomorrow=new Date();tomorrow.setUTCDate(tomorrow.getUTCDate()+1);
     const defaultAdditionDate=tomorrow.toISOString().slice(0,10);
     const additionEffectiveOn=String(req.body.conditionalAdditionEffectiveOn||defaultAdditionDate);
@@ -140,7 +147,8 @@ export const savePaySystemRates = async (req, res, next) => {
     for (const row of rates) {
       const cat = parseInt(row.category, 10);
       const lvl = parseInt(row.level, 10);
-      if (!CATEGORY_IDS.includes(cat) || !LEVEL_IDS.includes(lvl)) continue;
+      if (!categoryIds.includes(cat) || !LEVEL_IDS.includes(lvl)) continue;
+      if(categoryIds.length===4&&cat===1&&['creditRate','creditRateProbation','hcodeRate','hcodeRateProbation','h2014Rate'].some(key=>row[key]!=null&&row[key]!==''&&Number(row[key])!==0))return res.status(400).json({error:{message:'NLU Category 1 has no clinical, Direct Care H-code or H2014 rate. Use its approved nonclinical service schedules.'}});
       for (const key of ['tutoringRate', 'h2014Rate']) if (row[key] != null && row[key] !== '' && (!Number.isFinite(Number(row[key])) || Number(row[key]) <= 0)) return res.status(400).json({error:{message:`${key} must be a positive hourly rate.`}});
       await PayrollPaySystemRate.upsert(agencyId, cat, lvl, {
         creditRate: row.creditRate,
@@ -203,7 +211,9 @@ export const listPaySystemAssignments = async (req, res, next) => {
       PayrollCompensationLevel.listPendingForAgency(agencyId),
       PayrollPaySystemRate.isAgencyEnabled(agencyId)
     ]);
-    res.json({ assignments, pending, enabled });
+    const [futureHireEnrollments]=await pool.execute(`SELECT e.user_id,e.effective_start,u.first_name,u.last_name
+      FROM payroll_future_hire_enrollments e JOIN users u ON u.id=e.user_id WHERE e.agency_id=?`,[agencyId]);
+    res.json({ assignments, pending, enabled, futureHireEnrollments });
   } catch (e) { next(e); }
 };
 
@@ -220,12 +230,13 @@ export const savePaySystemPending = async (req, res, next) => {
     if (!Array.isArray(changes) || !changes.length) {
       return res.status(400).json({ error: { message: 'changes array is required' } });
     }
+    const categoryIds=await PayrollCompensationLevel.getCategoryIds(agencyId);
     for (const row of changes) {
       const userId = parseInt(row.userId, 10);
       const cat = parseInt(row.category, 10);
       const levelRaw = row.level != null ? parseInt(row.level, 10) : null;
       const level = LEVEL_IDS.includes(levelRaw) ? levelRaw : null;
-      if (!userId || !CATEGORY_IDS.includes(cat)) continue;
+      if (!userId || !categoryIds.includes(cat)) continue;
       await PayrollCompensationLevel.upsertPending(agencyId, userId, {
         category: cat,
         level,
@@ -306,7 +317,7 @@ export const getPaySystemStatus = async (req, res, next) => {
     const agencyId = requireAgencyId(req, res);
     if (!agencyId) return;
     const enabled = await PayrollPaySystemRate.isAgencyEnabled(agencyId);
-    res.json({ enabled, categories: COMPENSATION_CATEGORIES });
+    res.json({ enabled, categories: await PayrollCompensationLevel.getCategories(agencyId) });
   } catch (e) { next(e); }
 };
 
@@ -380,6 +391,19 @@ export const getMyPaySystemRates = async (req, res, next) => {
     const agencyEnabled = await PayrollPaySystemRate.isAgencyEnabled(agencyId);
     const assignment = await PayrollCompensationLevel.getForUser(agencyId, userId);
 
+    const futureEnrollment = !assignment ? await futureHireEnrollment(agencyId,userId) : null;
+    if (futureEnrollment) {
+      const today=new Date().toISOString().slice(0,10);
+      try {
+        const context=await loadUserPaySystemContext({agencyId,userId,periodStart:today,periodEnd:today});
+        return res.json({...context,calculatorAvailable:context.enabled===true,automaticFutureHire:true});
+      } catch (error) {
+        if(error.code!=='AMENDMENT_PAYROLL_REVIEW_REQUIRED')throw error;
+        return res.json({enabled:false,userEnabled:true,agencyEnabled:true,automaticFutureHire:true,calculatorAvailable:false,
+          reason:'pay_terms_review_required',message:error.message});
+      }
+    }
+
     // Tier thresholds for calculator UI
     let thresholds = { tier1MinWeekly: 6, tier2MinWeekly: 13, tier3MinWeekly: 25 };
     try {
@@ -423,7 +447,7 @@ export const getMyPaySystemRates = async (req, res, next) => {
         rateProfile: null,
         thresholds,
         biweeklyThresholds,
-        categories: COMPENSATION_CATEGORIES,
+        categories: await PayrollCompensationLevel.getCategories(agencyId),
         calculatorAvailable: hasAnyRates,
         reason: 'no_assignment',
         ...catalog
@@ -467,7 +491,7 @@ export const getMyPaySystemRates = async (req, res, next) => {
       status,
       thresholds,
       biweeklyThresholds,
-      categories: COMPENSATION_CATEGORIES,
+      categories: await PayrollCompensationLevel.getCategories(agencyId),
       ...catalog
     });
   } catch (e) { next(e); }
@@ -606,7 +630,7 @@ export const estimatePaySystemScenario = async (req, res, next) => {
 
     const category = parseInt(req.body?.category, 10);
     const level = parseInt(req.body?.level, 10);
-    if (!CATEGORY_IDS.includes(category) || !LEVEL_IDS.includes(level)) {
+    if (!(await PayrollCompensationLevel.getCategoryIds(agencyId)).includes(category) || !LEVEL_IDS.includes(level)) {
       return res.status(400).json({ error: { message: 'category and level are required' } });
     }
 

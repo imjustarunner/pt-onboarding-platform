@@ -268,8 +268,8 @@ export const getRecentMessages = async (req, res, next) => {
           )
         )
       ORDER BY ml.created_at DESC
-      LIMIT ?`,
-      params.length > 0 ? [...params, safeUid, safeLimit] : [safeUid, safeLimit]
+      LIMIT ${safeLimit}`,
+      [...params, safeUid]
     );
     res.json(rows || []);
   } catch (e) {

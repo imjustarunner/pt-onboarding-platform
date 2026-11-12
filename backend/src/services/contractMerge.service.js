@@ -20,6 +20,10 @@ import { contractServiceFocusSettings, hasSchoolServiceFocus, SCHOOL_DAY_EXPECTA
 import { handbookTenant } from './handbookTenant.js';
 import { buildItscoAgreementPlan } from './itscoAgreementBuilder.service.js';
 import { CATEGORY_LEVEL_COMPENSATION_CLAUSE } from '../content/contractCategoryLevelCompensation.js';
+import { CONTRACT_SERVICE_ROLES, inferContractServiceRoles, inferNluContractCategory, contractServiceRolePlan, applyContractServiceRoleClauses } from '../content/contractServiceRoles.js';
+import { NLU_COMPENSATION_CATEGORIES } from '../content/nluCompensationPolicy.js';
+import { individualRoleCompensationTerms } from '../content/individualRoleCompensationTerms.js';
+import { employmentStarterClauses } from './employmentStarter.service.js';
 import { STUDENT_TRAINING_CLAUSES } from '../content/studentTrainingAgreement.js';
 import {
   classifyPayCategory,
@@ -178,8 +182,8 @@ export function formatLicenseTypeDisplay({ credential = '', credentialKey = null
 const inferRoleLabel = contractRoleLabel;
 
 function inferServiceFocus({ userServiceFocus = '', jobDescription = null } = {}) {
-  const fromUser = String(userServiceFocus || '').trim();
-  if (fromUser) return fromUser;
+  const postingDefaults = jobContractExpectations(jobDescription || {});
+  if (postingDefaults.serviceFocus) return postingDefaults.serviceFocus;
   let tags = [];
   try {
     tags = typeof jobDescription?.tags_json === 'string'
@@ -189,12 +193,15 @@ function inferServiceFocus({ userServiceFocus = '', jobDescription = null } = {}
     tags = [];
   }
   if (!Array.isArray(tags)) tags = [];
-  const serviceTag = tags.find((tag) => /school|office|community|based|counsel/i.test(String(tag || '')));
-  if (serviceTag) return String(serviceTag).trim();
+  const serviceTags = tags.filter((tag) => /school|office|community|based|counsel|tutor|child\s*care|day\s*care|psychological\s+test/i.test(String(tag || '')));
+  if (serviceTags.length) return serviceTags.map(String).join('; ');
   const title = String(jobDescription?.title || '').trim();
+  if (/child\s*care|day\s*care|caregiver/i.test(title)) return 'Childcare / Daycare';
+  if (/psychometr|psychological\s+test|testing\s+(?:technician|assistant|provider)/i.test(title)) return 'Psychological Testing';
+  if (/tutor|homework|academic\s+support/i.test(title)) return 'Academic Support & Tutoring';
   if (/school/i.test(title)) return 'School-Based Counseling';
   if (/office/i.test(title)) return 'Office-Based Counseling';
-  return '';
+  return String(userServiceFocus || '').trim();
 }
 
 export function inferCompensationFromCredential({
@@ -202,9 +209,13 @@ export function inferCompensationFromCredential({
   jobTitle = '',
   title = '',
   role = '',
-  isHourlyWorker = false
+  isHourlyWorker = false,
+  agencySlug = ''
 } = {}) {
-  const pay = classifyPayCategory({ credential, jobTitle, title, role, isHourlyWorker });
+  const legacyPay = classifyPayCategory({ credential, jobTitle, title, role, isHourlyWorker });
+  const nlu = handbookTenant({slug:agencySlug}) === 'nlu';
+  const category = nlu ? inferNluContractCategory({credential,jobTitle:jobTitle || title,role}) : legacyPay.category;
+  const pay = nlu ? {category,label:NLU_COMPENSATION_CATEGORIES[category]?.label || 'NLU placement requires review',reason:'Suggested NLU four-category placement from recorded qualifications; documented Practice approval is required'} : legacyPay;
   const license = determineLicenseStatus({ credential, jobTitle, title, role, isHourlyWorker });
   const credentialKey = extractLicenseTypeKey({ credential });
   return {
@@ -239,13 +250,13 @@ function resolveClauseKeys(rawKeys, jobDescClauseKey) {
   return keys.map((k) => (String(k).toUpperCase() === 'JOB_DESC_DYNAMIC' ? jdKey : k));
 }
 
-export async function loadContractBundle({ agencyId, configId, templateId, jobDescClauseKey, agreementVariant = null, tokens = {} }) {
+export async function loadContractBundle({ agencyId, configId, templateId, jobDescClauseKey, agreementVariant = null, tokens = {}, reviewInactiveConfig = false }) {
   const [cfgRows] = await pool.execute(
     `SELECT * FROM contract_configs WHERE id = ? AND agency_id = ? LIMIT 1`,
     [configId, agencyId]
   );
   const config = cfgRows?.[0] || null;
-  if (!config || !config.is_active) throw Object.assign(new Error('Contract config not found'), { status: 404 });
+  if (!config || (!config.is_active && !reviewInactiveConfig)) throw Object.assign(new Error('Contract config not found'), { status: 404 });
 
   const tplId = templateId || config.contract_template_id;
   let template = null;
@@ -313,6 +324,8 @@ export async function getAgencyBuilderDefaults(agencyId) {
   const offices = [...officesById.values()];
   return {
     ...await contractServiceFocusSettings(agency),
+    contractTenant:handbookTenant(agency),
+    contractServiceRoleOptions: handbookTenant(agency) ? CONTRACT_SERVICE_ROLES.map(({id,title,description,clause_key})=>({id,title,description,clauseKey:clause_key})) : [],
     agency: agency
       ? {
           id: agency.id,
@@ -411,7 +424,8 @@ export async function autofillTokensForCandidate({
     credential,
     jobTitle,
     title: user?.title,
-    role: user?.role
+    role: user?.role,
+    agencySlug: agency?.slug
   });
   const pay = await PayrollCompensationLevel.getForUser(agencyId, candidateUserId).catch(() => null);
 
@@ -450,6 +464,8 @@ export async function autofillTokensForCandidate({
   const compensationCategory = pay?.category != null
     ? String(pay.category)
     : (payInference.compensationCategory != null ? String(payInference.compensationCategory) : '3');
+
+  const serviceRoleDefaults = inferContractServiceRoles({job:jobDescriptionRow || {title:jobTitle},credential,serviceFocus});
 
   return {
     EMPLOYEE_FULL_NAME: fullName,
@@ -503,7 +519,10 @@ export async function autofillTokensForCandidate({
     ROLE_TYPE: roleType,
     ...expectationsToTokens(jobContractExpectations(jobDescriptionRow || {})),
     CONTRACT_EXPECTATIONS: jobContractExpectations(jobDescriptionRow || {}),
-    CONTRACT_POSTING_DEFAULTS: jobContractExpectations(jobDescriptionRow || {})
+    CONTRACT_POSTING_DEFAULTS: jobContractExpectations(jobDescriptionRow || {}),
+    CONTRACT_SERVICE_ROLES: serviceRoleDefaults.roles,
+    CONTRACT_SERVICE_ROLE_SOURCE: serviceRoleDefaults.source,
+    ...(handbookTenant(agency)==='isi'?{INDIVIDUAL_COMPENSATION_BASIS:jobContractExpectations(jobDescriptionRow||{}).individualCompensationBasis??'approved_individual_agreement'}:{})
   };
 }
 
@@ -515,7 +534,8 @@ export async function renderContractHtml({
   compensationCategory,
   compensationLevel,
   jobDescClauseKey,
-  includeAssignedOffice = false
+  includeAssignedOffice = false,
+  reviewInactiveConfig = false
 }) {
   const mergedInput = normalizeTokens(tokens);
   const jdKey = jobDescClauseKey || mergedInput.JOB_DESC_CLAUSE_KEY || 'JOB_DESC_LPC';
@@ -527,6 +547,7 @@ export async function renderContractHtml({
     templateId,
     jobDescClauseKey: jdKey,
     agreementVariant,
+    reviewInactiveConfig,
     tokens: mergedInput
   });
   const mergedTokens = {
@@ -555,18 +576,41 @@ export async function renderContractHtml({
   const category = compensationCategory || Number(mergedTokens.COMPENSATION_CATEGORY) || 3;
   const level = compensationLevel || Number(mergedTokens.COMPENSATION_LEVEL) || 1;
   const agency = await Agency.findById(agencyId) || {id:agencyId};
-  const clinicalRole = ['provider','facilitator','student'].includes(String(mergedTokens.ROLE_LABEL).toLowerCase()) || (['nlu','isi'].includes(handbookTenant(agency)) && isProgramServiceRole(mergedTokens.ROLE_LABEL,mergedTokens.JOB_TITLE,mergedTokens.ROLE_TYPE));
-  const currentLevels = config.pay_mode !== 'none' && clinicalRole ? await contractCompensationLevels(agencyId) : [];
+  const roleInput = {
+    selected: mergedTokens.CONTRACT_SERVICE_ROLES,
+    details: mergedTokens.CONTRACT_SERVICE_ROLE_DETAILS || mergedTokens.CONTRACT_EXPECTATIONS?.serviceRoleDetails,
+    inferred: inferContractServiceRoles({job:{title:mergedTokens.JOB_TITLE,role_type:mergedTokens.ROLE_TYPE},credential:mergedTokens.CREDENTIAL,serviceFocus:mergedTokens.SERVICE_FOCUS}).roles,
+    enabled: !!handbookTenant(agency) && config.pay_mode !== 'none' && !/amendment|addendum|acknowledg/i.test(config.slug || '')
+  };
+  let rolePlan = contractServiceRolePlan(roleInput);
+  if (rolePlan.roles.length) {
+    const keys=rolePlan.clauses.map(clause=>clause.clause_key);
+    const [libraryClauses]=await pool.execute(`SELECT clause_key,title,body_html,is_active FROM contract_clauses WHERE agency_id=? AND clause_key IN (${keys.map(()=>'?').join(',')})`,[agencyId,...keys]);
+    rolePlan=contractServiceRolePlan({...roleInput,libraryClauses});
+  }
+  mergedTokens.CONTRACT_SERVICE_ROLES = rolePlan.roles;
+  if(handbookTenant(agency)!=='isi'){
+    for(const field of ['INDIVIDUAL_COMPENSATION_BASIS','PRIOR_COMPENSATION_AGREEMENT_REFERENCE']){
+      delete mergedTokens[field];
+      delete mergedTokens[field.replaceAll('_','')];
+    }
+  }
+  const individualRequested=handbookTenant(agency)==='isi' && roleInput.enabled && mergedTokens.INDIVIDUAL_COMPENSATION_BASIS==='approved_individual_agreement';
+  const individualTerms=individualRequested?individualRoleCompensationTerms({tokens:mergedTokens,agencyName:agency.name,legal:employmentStarterClauses().find(clause=>clause.clause_key==='STARTER_V1_LEGAL').body_html}):null;
+  const clinicalRole = ['provider','facilitator','student'].includes(String(mergedTokens.ROLE_LABEL).toLowerCase()) || (['nlu','isi'].includes(handbookTenant(agency)) && isProgramServiceRole(mergedTokens.ROLE_LABEL,mergedTokens.JOB_TITLE,mergedTokens.ROLE_TYPE)) || (handbookTenant(agency)==='nlu' && rolePlan.roles.length>0);
+  const currentLevels = config.pay_mode !== 'none' && clinicalRole && !individualTerms ? await contractCompensationLevels(agencyId) : [];
   const currentRow = currentLevels.find(r=>Number(r.category)===Number(category)&&Number(r.level)===Number(level));
   const categoryLevel = config.pay_mode !== 'none' && clinicalRole && (!!currentRow?.paySystem || /itsco|next ?level ?up|inner ?strength/i.test(`${agency.name||''} ${agency.slug||agency.portal_url||''}`));
-  const terms = categoryLevel ? employmentCategoryLevelTerms({row:currentRow,tokens:mergedTokens,agencyName:agency.name,agencySlug:agency.slug}) : null;
+  const terms = individualTerms || (categoryLevel ? employmentCategoryLevelTerms({row:currentRow,tokens:mergedTokens,agencyName:agency.name,agencySlug:agency.slug}) : null);
   const payClauses = terms ? applyEmploymentPayTerms(originalClauses,terms) : originalClauses;
-  const clauses = handbookTenant(agency) ? applyEmploymentHandbookCompensation(payClauses) : payClauses;
-  const compensation = terms ? {row:currentRow,rates:[]} : await selectedContractCompensation(agencyId, category, level, config.pay_mode);
+  const handbookClauses = handbookTenant(agency) ? applyEmploymentHandbookCompensation(payClauses,{tenant:handbookTenant(agency)}) : payClauses;
+  const replaceFallbackClinicalDuties = rolePlan.roles.length > 0 && !rolePlan.roles.some(role => ['bachelors_counseling','psychotherapy'].includes(role));
+  const clauses = applyContractServiceRoleClauses(handbookClauses,rolePlan,{replaceFallbackClinicalDuties});
+  const compensation = terms ? {row:currentRow || {category,level,direct_rate:null,indirect_rate:null},rates:[]} : await selectedContractCompensation(agencyId, category, level, config.pay_mode);
   if(terms) { mergedTokens.COMPENSATION_POLICY_VERSION=terms.version; mergedTokens.COMPENSATION_SCHEDULE=terms.schedule; }
 
-  mergedTokens.COMPENSATION_CATEGORY = String(category);
-  mergedTokens.COMPENSATION_LEVEL = String(level);
+  mergedTokens.COMPENSATION_CATEGORY = individualTerms?'':String(category);
+  mergedTokens.COMPENSATION_LEVEL = individualTerms?'':String(level);
   if (config.pay_mode !== 'none') {
     mergedTokens.DIRECT_RATE = compensation.row.direct_rate == null ? '' : `$${Number(compensation.row.direct_rate).toFixed(2)}`;
     mergedTokens.INDIRECT_RATE = compensation.row.indirect_rate == null ? '' : `$${Number(compensation.row.indirect_rate).toFixed(2)}`;
@@ -606,10 +650,13 @@ export async function renderContractHtml({
 
   const missingFields = missingContractFields(visibleClauses.map(c => c.body_html).join('\n'), mergedTokens)
     .filter(key => schoolDaysRequired || key.replaceAll('_', '') !== 'MINDAYSPERWEEK');
+  missingFields.push(...rolePlan.missingFields);
   if (requiredWeeklyHours == null && visibleClauses.some(c => findContractPlaceholders(c.body_html).some(key => key.replaceAll('_', '') === 'MINHOURS'))) {
     missingFields.push('MIN_HOURS');
   }
-  const clauseManifest = clauses.map(c => ({key:c.clause_key,title:c.title || c.clause_key,included:selectedClauses.includes(c),reason:c.policyReason || (selectedClauses.includes(c)?'Selected by contract configuration':String(c.clause_key).toUpperCase()==='SUP_COMP'?'Supervision compensation is not assigned':'Clinical supervision is not selected'),policyVersion:c.policyVersion}));
+  const roleKeys = new Set(rolePlan.manifest.map(role=>role.key));
+  const clauseManifest = [...clauses.filter(c=>!roleKeys.has(c.clause_key)).map(c => ({key:c.clause_key,title:c.title || c.clause_key,included:selectedClauses.includes(c),reason:c.policyReason || (selectedClauses.includes(c)?'Selected by contract configuration':String(c.clause_key).toUpperCase()==='SUP_COMP'?'Supervision compensation is not assigned':'Clinical supervision is not selected'),policyVersion:c.policyVersion})),...rolePlan.manifest];
+  if (replaceFallbackClinicalDuties && handbookClauses.some(c=>c.clause_key==='JOB_DESC_LPC')) clauseManifest.push({key:'JOB_DESC_LPC',title:'Generic psychotherapy job duties',included:false,reason:'Replaced by the selected nonclinical or testing service-role duties'});
   const bodyParts = visibleClauses.map((c) => {
     let body = replaceTokens(c.body_html, mergedTokens)
       // Imported Markdown occasionally leaves a single emphasis marker after a quoted role.
@@ -630,6 +677,7 @@ export async function renderContractHtml({
 
   const expectations = {...mergedTokens.CONTRACT_EXPECTATIONS, ...expectationsFromTokens(mergedTokens)};
   let dutyRates = compensation.rates;
+  if(individualTerms && (expectations.additionalDuties||[]).some(duty=>duty.payBasis!=='custom'))throw Object.assign(new Error('For individual-agreement compensation, choose an individually agreed rate for each additional duty; shared category and service-code rates are not used.'),{status:400});
   if ((expectations.additionalDuties || []).some(d=>d.payBasis==='service_code') && !dutyRates.length) {
     dutyRates = (await selectedContractCompensation(agencyId, category, level, 'ffs')).rates;
   }
@@ -697,7 +745,8 @@ ${letterheadFooter || ''}
     unresolvedTokens: [...new Set([...missingFields, ...findUnresolvedTokens(html.replace(/\{\{\s*INSERT_PAY_TABLE\s*\}\}/gi, ''))])],
     config,
     template,
-    clauseManifest
+    clauseManifest,
+    readOnlyReview: !!reviewInactiveConfig
   };
 }
 

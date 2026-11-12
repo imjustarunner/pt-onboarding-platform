@@ -27,3 +27,17 @@ test('new agreement fee terms replace recognized old compensation clauses withou
   assert.doesNotMatch(added.body_html, /(?:20|30|40)%/);
   assert.deepEqual(applyEmploymentHandbookCompensation(result), result);
 });
+
+test('NLU contracts use the new four-category policy without changing other agencies',()=>{
+  const clauses=[{clause_key:'SIG_BLOCK',body_html:'<p>Signature</p>'}];
+  const nlu=applyEmploymentHandbookCompensation(clauses,{tenant:'nlu'}).find(c=>c.clause_key===EMPLOYMENT_HANDBOOK_COMPENSATION_KEY).body_html;
+  assert.match(nlu,/Category 1 — Foundational Provider/);
+  assert.match(nlu,/Category 4 — Licensed and Advanced Provider/);
+  assert.match(nlu,/limited circumstances/i);
+  assert.match(nlu,/does not establish degree equivalency/);
+  for(const tenant of ['itsco','isi']){
+    const text=applyEmploymentHandbookCompensation(clauses,{tenant}).find(c=>c.clause_key===EMPLOYMENT_HANDBOOK_COMPENSATION_KEY).body_html;
+    assert.match(text,/Category 3 · Licensed/);
+    assert.doesNotMatch(text,/Category 4/);
+  }
+});

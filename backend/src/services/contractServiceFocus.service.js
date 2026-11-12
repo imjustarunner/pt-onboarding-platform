@@ -1,4 +1,4 @@
-import { CONTRACT_SERVICE_FOCUS_OPTIONS } from '../content/contractServiceFocusOptions.js';
+import { SERVICE_FOCUS_CATEGORIES } from '../content/contractServiceFocusOptions.js';
 import pool from '../config/database.js';
 import { handbookTenant } from './handbookTenant.js';
 
@@ -20,7 +20,8 @@ export function serviceFocusOptionsFromSections(sections) {
 
 export async function contractServiceFocusSettings(agency) {
   const tenant = handbookTenant(agency);
-  if (!tenant) return { serviceFocusOptions: [], schoolDaysEnabled: false };
+  const serviceFocusOptions = [...SERVICE_FOCUS_CATEGORIES];
+  if (!tenant) return { serviceFocusOptions, schoolDaysEnabled: false };
   // Read only the published version; opening a contract must never create a handbook draft.
   let sections;
   try {
@@ -33,8 +34,15 @@ export async function contractServiceFocusSettings(agency) {
   } catch (error) {
     if (error.code !== 'ER_NO_SUCH_TABLE') throw error;
   }
-  if (!sections?.length) return { serviceFocusOptions: CONTRACT_SERVICE_FOCUS_OPTIONS[tenant] || [], schoolDaysEnabled: tenant === 'itsco' };
-  return { serviceFocusOptions: serviceFocusOptionsFromSections(sections), schoolDaysEnabled: tenant === 'itsco' };
+  const key = value => value.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const seen = new Set(serviceFocusOptions.map(key));
+  for (const option of serviceFocusOptionsFromSections(sections)) {
+    if (!seen.has(key(option))) {
+      serviceFocusOptions.push(option);
+      seen.add(key(option));
+    }
+  }
+  return { serviceFocusOptions, schoolDaysEnabled: tenant === 'itsco' };
 }
 
 export function hasSchoolServiceFocus(value) {

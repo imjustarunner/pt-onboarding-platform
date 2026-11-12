@@ -118,7 +118,7 @@ describe('drafts, publication and change records', () => {
     await create();
     expect(await publishedReference(12, 'provider-guide')).toBeNull();
     const workspace = await referenceWorkspace(12, 'provider-guide');
-    expect(workspace.draft.sections).toHaveLength(82); expect(workspace.source.sections).toHaveLength(82);
+    expect(workspace.draft.sections).toHaveLength(84); expect(workspace.source.sections).toHaveLength(84);
     await publish();
     expect((await publishedReference(12, 'provider-guide')).version).toMatchObject({ version_number: 1, is_draft: 0 });
     expect(conn.execute.mock.calls.some(([sql]) => sql.includes('FOR UPDATE'))).toBe(true);

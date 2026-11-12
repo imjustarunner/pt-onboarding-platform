@@ -10,21 +10,29 @@
       <button v-if="rows.length > 1" type="button" :aria-label="`Remove service focus ${index + 1}`" @click="remove(index)">Remove</button>
     </div>
     <button v-if="options.length > rows.length" type="button" :disabled="rows.some(value => !value)" @click="rows.push('')">Add another service focus</button>
-    <small>Choose the applicable service focuses from the workplace handbook.</small>
-    <small v-if="!options.length">No service-focus examples are available in this agency’s handbook.</small>
+    <small>Choose each applicable service focus. You can select more than one category.</small>
   </fieldset>
 </template>
 
 <script setup>
-import { ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
+import { SERVICE_FOCUS_CATEGORIES } from '../../constants/serviceFocusCategories.js';
 const props = defineProps({ modelValue: { type: String, default: '' }, options: { type: Array, default: () => [] } });
 const emit = defineEmits(['update:modelValue']);
 const rows = ref(['']);
 const key = value => value.toLowerCase().replace(/[^a-z0-9]/g, '');
+const options = computed(() => {
+  const seen = new Set();
+  return [...SERVICE_FOCUS_CATEGORIES, ...props.options].filter(option => {
+    if (!option || seen.has(key(option))) return false;
+    seen.add(key(option));
+    return true;
+  });
+});
 watch(() => [props.modelValue, props.options], () => {
   const values = props.modelValue.split(/\s*[;,]\s*/).filter(Boolean);
-  rows.value = values.length ? values.map(value => props.options.find(option => key(option) === key(value)
-    || (['schoolbased', 'officebased'].includes(key(value)) && key(option) === `${key(value)}counseling`)) || value) : [''];
+  rows.value = values.length ? [...new Set(values.map(value => options.value.find(option => key(option) === key(value)
+    || (['schoolbased', 'officebased'].includes(key(value)) && key(option) === `${key(value)}counseling`)) || value))] : [''];
 }, { immediate: true });
 function save() { emit('update:modelValue', [...new Set(rows.value.filter(Boolean))].join('; ')); }
 function choose(index, value) { rows.value[index] = value; save(); }

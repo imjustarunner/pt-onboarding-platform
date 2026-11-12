@@ -177,11 +177,11 @@ const props = defineProps({
   agencyId: { type: Number, default: null }
 });
 
-const CATEGORIES = [
+const CATEGORIES = ref([
   { id: 1, label: 'Unlicensed', description: 'Unlicensed — Bachelors, Interns, QBHA, Peer & Unlicensed Masters' },
   { id: 2, label: 'Pre-licensed', description: 'Pre-licensed Masters Level' },
   { id: 3, label: 'Licensed', description: 'Licensed Professionals' }
-];
+]);
 
 const loading = ref(false);
 const saving = ref(false);
@@ -195,7 +195,7 @@ const codeFilter = ref('');
 
 const makeDraft = () => {
   const d = {};
-  for (const cat of [1, 2, 3]) {
+  for (const cat of CATEGORIES.value.map(c=>c.id)) {
     d[cat] = {};
     for (let lvl = 1; lvl <= 5; lvl++) {
       d[cat][lvl] = { label: '', directRate: null, indirectRate: null, ffsRate: null, hasFfs: false };
@@ -207,7 +207,7 @@ const draft = ref(makeDraft());
 
 const makeEmptyEdits = () => {
   const e = {};
-  for (const cat of [1, 2, 3]) {
+  for (const cat of CATEGORIES.value.map(c=>c.id)) {
     for (let lvl = 1; lvl <= 5; lvl++) e[`${cat}:${lvl}`] = {};
   }
   return e;
@@ -241,7 +241,7 @@ const applyLevels = (levels, labels, rates) => {
     }
   }
   draft.value = next;
-  if (labels) categoryLabels.value = { 1: labels[1] || '', 2: labels[2] || '', 3: labels[3] || '' };
+  if (labels) categoryLabels.value=Object.fromEntries(CATEGORIES.value.map(c=>[c.id,labels[c.id]||'']));
 
   const edits = makeEmptyEdits();
   for (const [key, arr] of Object.entries(rates || {})) {
@@ -283,6 +283,7 @@ const loadData = async () => {
 
     if (levelsRes.status === 'fulfilled') {
       const d = levelsRes.value?.data || {};
+      if(d.categories)CATEGORIES.value=Object.entries(d.categories).map(([id,c])=>({id:Number(id),...c}));
       applyLevels(d.levels || [], d.categoryLabels || {}, d.levelRates || {});
     } else {
       error.value = levelsRes.reason?.response?.data?.error?.message || 'Failed to load compensation levels';
@@ -310,7 +311,7 @@ const saveAll = async () => {
   try {
     const levels = [];
     const levelRates = {};
-    for (const cat of [1, 2, 3]) {
+    for (const cat of CATEGORIES.value.map(c=>c.id)) {
       for (let lvl = 1; lvl <= 5; lvl++) {
         const d = draft.value[cat][lvl];
         levels.push({

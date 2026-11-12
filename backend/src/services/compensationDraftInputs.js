@@ -1,4 +1,5 @@
 import {conditionalLevelBonus,defaultHcodeIndirectMinutes} from '../utils/serviceCreditPolicy.js';
+import {isNluAmendment} from '../content/nluCompensationAmendment.js';
 /** Fill missing draft inputs from saved records only. Never infer a level from a credential or rate. */
 export function fillSavedCompensationInputs(existing,{assignment,rates=[],levels=[],ptoRate,agreementDate}={}) {
  const data=structuredClone(existing);const s=data.schedule ||= {};data.employee ||= {};
@@ -12,7 +13,7 @@ export function fillSavedCompensationInputs(existing,{assignment,rates=[],levels
  if(assignment){s.spanishDifferentialEligible=!!Number(assignment.spanish_bonus_eligible);s.denverDifferentialEligible=!!Number(assignment.location_bonus_eligible);}
  const json=v=>typeof v==='string'?JSON.parse(v):v;
  if(rate){s.spanishDifferentialRates=json(rate.spanish_bonus_json)||{};s.denverDifferentialRates=json(rate.location_bonus_json)||{};}
- s.autoIndirectMinutes=[1,2,3].includes(Number(s.category))?defaultHcodeIndirectMinutes(s.category):null;
+ s.autoIndirectMinutes=isNluAmendment(data)?(Number(s.category)>1?10:0):([1,2,3].includes(Number(s.category))?defaultHcodeIndirectMinutes(s.category):null);
  s.tier3LevelBonus=Number((rate?json(rate.tier_bonus_json)?.[3]:undefined) ?? s.tier3LevelBonus ?? conditionalLevelBonus(s.level));
  return data;
 }

@@ -21,6 +21,7 @@ import { applyStoredDarkMode } from './utils/darkMode';
 import { isStandalonePwa } from './utils/pwa';
 import { tenantFaviconUrl } from './utils/tenantBrandAssets';
 import { i18n } from './i18n';
+import { startStartupBranding } from './utils/startupBranding.js';
 import { createChunkLoadRecovery, installChunkLoadRecovery } from './utils/chunkLoadRecovery.js';
 import api from './services/api.js';
 import { verifyStartupSession } from './utils/startupSession.js';
@@ -84,58 +85,7 @@ async function bootstrap() {
   const brandingStore = useBrandingStore(pinia);
   const agencyStore = useAgencyStore(pinia);
 
-  const path = window.location.pathname.replace(/\/+$/, '') || '/';
-  const isLogin = path === '/login';
-
-  // Best-effort: initialize portal theme based on host (subdomain or custom domain).
-  // Run in background; do NOT block app mount. Slow resolve/theme (e.g. 30s) caused white screen.
-  // App renders with platform defaults; theme applies when ready.
-  const portalThemeInit = brandingStore.initializePortalTheme();
-  const PORTAL_THEME_TIMEOUT_MS = 6000;
-  await Promise.race([
-    portalThemeInit,
-    new Promise((r) => setTimeout(r, PORTAL_THEME_TIMEOUT_MS))
-  ]).catch(() => {});
-
-  // Flat /login on a dedicated app host (e.g. app.itsco.health) depends on GET /agencies/resolve.
-  // The short race above must not decide "platform login" before resolve finishes — that cleared host
-  // cache and forced PlotTwist default branding on timeout redirects.
-  if (isLogin && !brandingStore.portalHostPortalUrl) {
-    try {
-      await Promise.race([
-        portalThemeInit,
-        new Promise((r) => setTimeout(r, 12000))
-      ]);
-    } catch {
-      /* ignore */
-    }
-  }
-
-  // Fallback for slug-based login (e.g. /itsco/login or /itsco/rudy/login): when host-based resolve
-  // fails, preload theme from the portal segment so branding shows correctly.
-  const nestedLoginMatch = path.match(/^\/[a-z0-9-]+\/([a-z0-9-]+)\/login$/i);
-  const flatLoginMatch = path.match(/^\/([a-z0-9-]+)\/login$/i);
-  const slugForTheme =
-    nestedLoginMatch?.[1]?.toLowerCase() || (!nestedLoginMatch && flatLoginMatch?.[1]?.toLowerCase()) || '';
-  if (slugForTheme && !brandingStore.portalHostPortalUrl && !brandingStore.portalAgency) {
-    brandingStore.fetchAgencyTheme(slugForTheme).catch(() => {});
-  }
-
-  const isPlatformLogin = isLogin && !brandingStore.portalHostPortalUrl;
-
-  if (isLogin) {
-    // Always clear org selection on login screens to avoid stale state.
-    agencyStore.setCurrentAgency(null);
-  }
-  if (isPlatformLogin) {
-    // Drop stale org CSS variables only. Do NOT clearPortalHostOverride here — it wipes
-    // __pt_portal_host__:* cache and breaks custom-domain /login (e.g. app.itsco.health) branding.
-    brandingStore.clearPortalTheme();
-  }
-
-  // Always fetch platform branding early so /login renders correctly immediately.
-  // On /login we force refresh to pick up latest logo/colors.
-  await brandingStore.fetchPlatformBranding(isPlatformLogin);
+  startStartupBranding(brandingStore, agencyStore, window.location.pathname);
 
   // Keep the browser tab title aligned with the active portal/client.
   // - For custom domains (app.<client-domain>) we resolve portalHostPortalUrl and fetch portal theme.

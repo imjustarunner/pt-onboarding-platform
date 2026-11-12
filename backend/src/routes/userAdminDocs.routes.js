@@ -20,7 +20,7 @@ import {
 
 const router = express.Router();
 
-router.use(authenticate);
+// Authenticate only matched routes: this router is mounted at /api.
 
 const storage = multer.memoryStorage();
 const upload = multer({
@@ -41,22 +41,22 @@ const upload = multer({
   }
 });
 
-router.get('/users/:userId/admin-docs', listUserAdminDocs);
-router.post('/users/:userId/admin-docs', createUserAdminDocNote);
-router.post('/users/:userId/admin-docs/upload', upload.single('file'), createUserAdminDocUpload);
-router.get('/users/:userId/admin-docs/:docId/view', viewUserAdminDoc);
-router.delete('/users/:userId/admin-docs/:docId', deleteUserAdminDoc);
-router.post('/users/:userId/admin-docs/:docId/restore', restoreUserAdminDoc);
-router.post('/users/:userId/admin-docs/:docId/legal-hold', setUserAdminDocLegalHold);
-router.post('/users/:userId/admin-docs/:docId/legal-hold/release', releaseUserAdminDocLegalHold);
+router.get('/users/:userId/admin-docs', authenticate, listUserAdminDocs);
+router.post('/users/:userId/admin-docs', authenticate, createUserAdminDocNote);
+router.post('/users/:userId/admin-docs/upload', authenticate, upload.single('file'), createUserAdminDocUpload);
+router.get('/users/:userId/admin-docs/:docId/view', authenticate, viewUserAdminDoc);
+router.delete('/users/:userId/admin-docs/:docId', authenticate, deleteUserAdminDoc);
+router.post('/users/:userId/admin-docs/:docId/restore', authenticate, restoreUserAdminDoc);
+router.post('/users/:userId/admin-docs/:docId/legal-hold', authenticate, setUserAdminDocLegalHold);
+router.post('/users/:userId/admin-docs/:docId/legal-hold/release', authenticate, releaseUserAdminDocLegalHold);
 
-router.post('/users/:userId/admin-docs/access-requests', createAdminDocAccessRequest);
-router.get('/users/:userId/admin-docs/access-requests', listAdminDocAccessRequests);
-router.post('/users/:userId/admin-docs/access-requests/:requestId/approve', approveAdminDocAccessRequest);
-router.post('/users/:userId/admin-docs/access-requests/:requestId/deny', denyAdminDocAccessRequest);
+router.post('/users/:userId/admin-docs/access-requests', authenticate, createAdminDocAccessRequest);
+router.get('/users/:userId/admin-docs/access-requests', authenticate, listAdminDocAccessRequests);
+router.post('/users/:userId/admin-docs/access-requests/:requestId/approve', authenticate, approveAdminDocAccessRequest);
+router.post('/users/:userId/admin-docs/access-requests/:requestId/deny', authenticate, denyAdminDocAccessRequest);
 
-router.get('/users/:userId/admin-docs/access-grants', listAdminDocAccessGrants);
-router.post('/users/:userId/admin-docs/access-grants/:grantId/revoke', revokeAdminDocAccessGrant);
+router.get('/users/:userId/admin-docs/access-grants', authenticate, listAdminDocAccessGrants);
+router.post('/users/:userId/admin-docs/access-grants/:grantId/revoke', authenticate, revokeAdminDocAccessGrant);
 
 export default router;
 

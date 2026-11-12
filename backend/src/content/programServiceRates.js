@@ -42,7 +42,8 @@ export function programScheduleTerms({ tenant, category, level, effectiveOn = nu
 }
 
 export function programProbationApplies(profile, status = {}) {
-  if (profile?.programRatesVersion !== PROGRAM_RATE_VERSION || !isProgramRateTenant(profile.programTenant) || Number(profile.category) === 1 || status.waiveProbation || status.inProbation === false) return false;
+  const programCategory=profile?.nluCompensationPolicyVersion&&profile.programTenant==='nlu'?Number(profile.category)-1:Number(profile?.category);
+  if (profile?.programRatesVersion !== PROGRAM_RATE_VERSION || !isProgramRateTenant(profile.programTenant) || programCategory <= 1 || status.waiveProbation || status.inProbation === false) return false;
   if (Number.isFinite(Number(status.tenureDays)) && status.tenureDays != null) return Number(status.tenureDays) >= 0 && Number(status.tenureDays) < PROGRAM_PROBATION_DAYS;
   if (status.probationStart && status.asOfDate) {
     const days = (Date.parse(`${String(status.asOfDate).slice(0,10)}T12:00:00Z`) - Date.parse(`${String(status.probationStart).slice(0,10)}T12:00:00Z`)) / 86400000;

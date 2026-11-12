@@ -85,11 +85,10 @@
       </nav>
     </header>
 
-    <div v-if="error" class="cc-banner-err">{{ error }}</div>
-    <div v-if="loading && !hasLoadedOnce" class="cc-loading">Loading communications…</div>
+    <div v-if="error" class="cc-banner-err" role="alert">{{ error }} <button type="button" class="btn btn-secondary btn-sm" @click="load">Retry</button></div>
+    <div v-if="loading && !hasLoadedOnce" class="cc-loading" role="status">Updating message counts…</div>
 
-    <template v-if="!loading || hasLoadedOnce">
-      <!-- ========== HOME (unified inbox) ========== -->
+      <!-- The inbox can load while independent summary counts are pending. -->
       <section v-show="activeMode === 'home'" class="cc-mode cc-mode--inbox">
         <UnifiedInboxShell :agency-id="agencyStore.currentAgency?.id" />
       </section>
@@ -234,7 +233,6 @@
         :prefix="prefix"
         @go-home="setMode('home')"
       />
-    </template>
   </div>
 </template>
 
@@ -249,6 +247,7 @@ import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { getStartupData } from '../../services/startupRequests';
 import { useAuthStore } from '../../store/auth';
+import { useSessionLockStore } from '../../store/sessionLock';
 import { useAgencyStore } from '../../store/agency';
 import MessagesHubShell from '../../components/messages/MessagesHubShell.vue';
 import CommunicationsCenterAutomation from '../../components/communications/CommunicationsCenterAutomation.vue';
@@ -546,6 +545,10 @@ watch(
 );
 
 watch(() => agencyStore.currentAgency?.id, () => load());
+const sessionLock = useSessionLockStore();
+watch(() => sessionLock.isLocked || sessionLock.warningActive, (locked, wasLocked) => {
+  if (wasLocked && !locked) load();
+});
 
 onMounted(() => {
   activeMode.value = modeFromQuery(route.query?.mode);

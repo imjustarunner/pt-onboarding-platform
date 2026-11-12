@@ -1,3 +1,4 @@
+import {futureHireEnrollment, futureHirePayContext} from './futureHirePay.service.js';
 import PayrollRate from '../models/PayrollRate.model.js';
 import { classifyPayType } from './payrollCodeClassification.js';
 export { classifyPayType } from './payrollCodeClassification.js';
@@ -18,6 +19,7 @@ import PayrollPaySystemRate from '../models/PayrollPaySystemRate.model.js';
 import PayrollCompensationLevel from '../models/PayrollCompensationLevel.model.js';
 import { payrollDefaultsForCode } from './payrollServiceCodeDefaults.js';
 import { programRateForProfile, programServiceForCode, programProbationApplies } from '../content/programServiceRates.js';
+import {computeNluServicePay,isNluCompensationProfile,nluCompensationService} from '../content/nluCompensationPolicy.js';
 
 const PROBATION_DAYS = 90;
 
@@ -228,7 +230,7 @@ export function assertUnpaidProBonoBreakdown(breakdown) {
   }
 }
 
-export function computeLineAmount({ rateProfile, status, serviceCode, quantity, rule = null }) {
+export function computeLineAmount({ rateProfile, status, serviceCode, quantity, rule = null, actualMinutes = null, serviceContext = {} }) {
   const code = String(serviceCode || '').trim().toUpperCase();
   const explicitlyUnpaid=(rateProfile?.unpaidServiceCodes || []).includes(code);
   // Agency overrides, clinical rates, and automatic allowances cannot pay Pro Bono.
@@ -241,6 +243,25 @@ export function computeLineAmount({ rateProfile, status, serviceCode, quantity, 
     hcodeDirectAmount: 0, hcodeGrossAmount: 0, totalWithAutoIndirect: 0,
     hcodeFallbackToCredit: false, fixedSupplementalRate: false, splitNote: null
   };
+  const nlu=computeNluServicePay({profile:rateProfile,status,serviceCode:code,actualMinutes,serviceContext});
+  if(nlu) {
+    const administration=nlu.service==='testing_administration'||nlu.service==='tutoring';
+    return {
+      serviceCode:code,payType:administration?'hcode':'credit',units:Number(quantity)||0,
+      payDivisor:1,creditValue:0,payHours:nlu.hours,hourEquivalent:nlu.hours,
+      quantityLabel:`${Number(actualMinutes)} actual work minutes`,rate:nlu.rate,
+      rateLabel:`nlu_${nlu.service}_hourly_rate`,programService:nlu.service,
+      programRateLabel:({childcare:'Childcare',tutoring:'Tutoring',homework_help:'Homework Help',testing_administration:'Testing administration / clinical telephone',testing_evaluation:'Testing evaluation'})[nlu.service],
+      fixedSupplementalRate:true,programProbationApplied:nlu.programProbationApplied,
+      amount:round2(nlu.amount),autoIndirectHours:nlu.autoIndirectHours,
+      autoIndirectAmount:round2(nlu.autoIndirectAmount),autoIndirectRate:nlu.indirectRate,
+      hcodeDirectAmount:round2(nlu.amount),hcodeGrossAmount:round2(nlu.amount+nlu.autoIndirectAmount),
+      totalWithAutoIndirect:round2(nlu.amount+nlu.autoIndirectAmount),hcodeFallbackToCredit:false,
+      splitNote:null,leaveAdminRatio:0,compensationPolicyVersion:rateProfile.compensationPolicyVersion,
+      nluCompensationPolicyVersion:rateProfile.nluCompensationPolicyVersion,
+      minimumHourlyRate:nlu.minimumHourlyRate,wageFloorJurisdiction:nlu.wageFloorJurisdiction
+    };
+  }
   let payType = classifyPayType(code, rule || payrollDefaultsForCode(code));
   const supplementalEffective = !rateProfile?.supplementalRatesEffectiveOn || String(status?.asOfDate || new Date().toISOString()).slice(0,10) >= String(rateProfile.supplementalRatesEffectiveOn).slice(0,10);
   const tutoring = supplementalEffective && (String(rule?.category || payrollDefaultsForCode(code)?.category || '').toLowerCase() === 'tutoring' || /^TUTORING(?: |$)/.test(code)) && rateProfile?.tutoringRate != null;
@@ -558,6 +579,8 @@ export function estimatePay({ rateProfile, status, lines = [], rulesByCode = new
         status,
         serviceCode: code,
         quantity: line.quantity ?? line.units ?? 0,
+        actualMinutes:line.actualMinutes,
+        serviceContext:line.serviceContext,
         rule
       });
       if (result.payType === 'skip') continue;
@@ -632,11 +655,21 @@ export async function loadUserPaySystemContext({
   displayTierLevel = null
 }) {
   const agencyEnabled = await PayrollPaySystemRate.isAgencyEnabled(agencyId);
-  if (!agencyEnabled) {
+  let enrollment = !agencyEnabled ? await futureHireEnrollment(agencyId,userId) : null;
+  if (!agencyEnabled && !enrollment) return {enabled:false,agencyEnabled:false,userEnabled:false};
+  let assignment = await PayrollCompensationLevel.getForUser(agencyId, userId);
+  if (agencyEnabled && !assignment) enrollment = await futureHireEnrollment(agencyId,userId);
+  if (assignment) enrollment = null; // Explicit payroll decisions retain priority.
+  let future = null;
+  if (enrollment) {
+    future = await futureHirePayContext({agencyId,userId,periodStart,periodEnd,enrollment});
+    if (future.notYetEffective) return future;
+    assignment = future.assignment;
+  }
+  if (!agencyEnabled && !future) {
     return { enabled: false, agencyEnabled: false, userEnabled: false };
   }
 
-  const assignment = await PayrollCompensationLevel.getForUser(agencyId, userId);
   const userEnabled = Number(assignment?.pay_system_enabled || 0) === 1;
   if (!userEnabled) {
     return {
@@ -664,9 +697,10 @@ export async function loadUserPaySystemContext({
     };
   }
 
-  if (!assignment?.category || !assignment?.level) throw Object.assign(new Error(`Payroll setup is incomplete for employee ${userId}: a category and level are required.`), {code:'AMENDMENT_PAYROLL_REVIEW_REQUIRED'});
+  if (!future?.individual && (!assignment?.category || !assignment?.level)) throw Object.assign(new Error(`Payroll setup is incomplete for employee ${userId}: a category and level are required.`), {code:'AMENDMENT_PAYROLL_REVIEW_REQUIRED'});
 
-  let rateProfile = await PayrollPaySystemRate.get(agencyId, assignment.category, assignment.level);
+  // Future hires use their reviewed individual snapshot; never create a shared ISI matrix.
+  let rateProfile = future ? {agencyId, tierBonus:{1:0,2:0,3:0},spanishBonus:{1:0,2:0,3:0},locationBonus:{1:0,2:0,3:0}} : await PayrollPaySystemRate.get(agencyId, assignment.category, assignment.level);
   if (!rateProfile) {
     throw Object.assign(new Error(`The assigned payroll rate profile is missing for employee ${userId}.`), {code:'AMENDMENT_PAYROLL_REVIEW_REQUIRED'});
   }
@@ -694,16 +728,19 @@ export async function loadUserPaySystemContext({
 
   const legacyAssignment = {...assignment};
   let agreement;
-  try { agreement = await effectiveCompensationAgreement({agencyId,userId,asOfDate:periodEnd}); }
+  try { agreement = future?.agreement || await effectiveCompensationAgreement({agencyId,userId,asOfDate:periodEnd}); }
   catch(error) { error.code='AMENDMENT_PAYROLL_REVIEW_REQUIRED'; throw error; }
   if (!agreement) throw Object.assign(new Error(`Employee ${userId} needs an executed compensation agreement before new payroll rates can be applied. A draft does not activate pay.`), {code:'AMENDMENT_PAYROLL_REVIEW_REQUIRED'});
-  if (Number(agreement.data.schedule?.category) !== Number(assignment.category) || Number(agreement.data.schedule?.level) !== Number(assignment.level)) {
+  if (!future?.individual && (Number(agreement.data.schedule?.category) !== Number(assignment.category) || Number(agreement.data.schedule?.level) !== Number(assignment.level))) {
     throw Object.assign(new Error(`Employee ${userId}'s signed agreement does not match their assigned category and level. Review the assignment before running payroll.`), {code:'AMENDMENT_PAYROLL_REVIEW_REQUIRED'});
   }
   if (agreement) {
     assignment.compensation_agreement_effective_on = agreement.effectiveOn;
     assignment.compensation_policy_version = agreement.data.compensationPolicyVersion;
     rateProfile = agreementRateProfile(rateProfile,agreement);
+    if (future?.individual) {
+      for (const key of ['tierBonusFfs','tierBonusHcode','spanishBonus','locationBonus']) rateProfile[key]=agreement.data.schedule[key];
+    }
     if(rateProfile.conditionalAdditionMode===HANDBOOK_ADDITION_MODE)rateProfile.conditionalAdditionHistory=await loadAdditionHistory({agencyId,category:rateProfile.category,level:rateProfile.level});
     if(agreement.data.schedule?.probationWaived){assignment.waive_probation=1;assignment.probation_ended_on=null;}
 
@@ -874,7 +911,8 @@ function splitAgreementDatedLines(breakdown, {status,rateProfile,datedUnitsByCod
   for (const [key,row] of Object.entries({...breakdown})) {
     if (!row || typeof row!=='object' || key.startsWith('__') || key==='AUTO INDIRECT' || row.supervisionTrackingOnly || ['percent_collected','percent_billed','historical_fixed'].includes(row.payMethod)) continue;
     const code=canonicalServiceCode(key,row), units=Number(row.finalizedUnits??row.units??0);
-    if (!(units>0) || classifyPayType(code,row)==='skip') continue;
+    const nluActualTime=isNluCompensationProfile(rateProfile)&&!!nluCompensationService(code);
+    if (!(units>0) || (classifyPayType(code,row)==='skip'&&!nluActualTime)) continue;
     const dates=datedUnitsByCode?.get(code) || [];
     if(dates.some(item=>!Number.isFinite(Number(item.units??item.payable_units)) || Number(item.units??item.payable_units)<0))throw Object.assign(new Error(`Invalid dated units for ${code}; reconcile the import before applying the amendment.`),{code:'AMENDMENT_PAYROLL_REVIEW_REQUIRED'});
     const total=dates.reduce((n,d)=>n+Math.max(0,Number(d.units??d.payable_units??0)),0);
@@ -884,6 +922,7 @@ function splitAgreementDatedLines(breakdown, {status,rateProfile,datedUnitsByCod
     }
     if (Math.abs(total-units)>0.000001) throw Object.assign(new Error(`Dated units for ${code} do not match payable units. Reconcile carryovers and overrides before applying the amendment.`),{code:'AMENDMENT_PAYROLL_REVIEW_REQUIRED'});
     const groups=new Map();
+    let totalActualMinutes=0;
     for(const item of dates) {
       const rawDate=item.serviceDate||item.service_date;
       const date=rawDate instanceof Date?rawDate.toISOString().slice(0,10):String(rawDate||'').slice(0,10);
@@ -893,14 +932,23 @@ function splitAgreementDatedLines(breakdown, {status,rateProfile,datedUnitsByCod
       if (prior && !status.agreementPriorRateProfile) throw Object.assign(new Error(`Work dated ${date} for ${code} precedes the new pay terms. Review its historical rate separately; the current category/level matrix cannot price earlier work.`),{code:'AMENDMENT_PAYROLL_REVIEW_REQUIRED'});
       const lineStatus=resolveUserPaySystemStatus({...args,assignment:prior?status.agreementLegacyAssignment:args.assignment,asOfDate:date});
       const datedProfile=prior?status.agreementPriorRateProfile:profileWithDatedAddition(rateProfile,date);
-      const groupKey=`${prior?'prior':'amendment'}-${lineStatus.useReducedRates?'reduced':'regular'}-${programProbationApplies(datedProfile,lineStatus)?'program-probation':'program-regular'}-${datedProfile.conditionalAdditionPolicyId||''}-${date >= (datedProfile.supplementalRatesEffectiveOn || '') ? 'supplemental' : 'legacy'}`;
-      const group=groups.get(groupKey)||{units:0,status:lineStatus,profile:datedProfile};
-      group.units+=Number(item.units??item.payable_units??0);groups.set(groupKey,group);
+      let actualMinutes=null,serviceContext=null;
+      if(nluActualTime){
+        actualMinutes=item.actualMinutes??item.actual_work_minutes??(dates.length===1?(row.actualMinutes??row.actual_work_minutes):null);
+        serviceContext=item.serviceContext??(dates.length===1?row.serviceContext:null);
+        if(actualMinutes==null||!Number.isFinite(Number(actualMinutes))||Number(actualMinutes)<0||!serviceContext||typeof serviceContext!=='object')throw Object.assign(new Error(`Actual work minutes and service context are required for each dated ${code} record; billing units cannot allocate aggregate work time.`),{code:'AMENDMENT_PAYROLL_REVIEW_REQUIRED'});
+        actualMinutes=Number(actualMinutes);totalActualMinutes+=actualMinutes;
+      }
+      const groupKey=`${prior?'prior':'amendment'}-${lineStatus.useReducedRates?'reduced':'regular'}-${programProbationApplies(datedProfile,lineStatus)?'program-probation':'program-regular'}-${datedProfile.conditionalAdditionPolicyId||''}-${date >= (datedProfile.supplementalRatesEffectiveOn || '') ? 'supplemental' : 'legacy'}${nluActualTime?'-'+date+'-'+JSON.stringify(serviceContext):''}`;
+      const group=groups.get(groupKey)||{units:0,status:lineStatus,profile:datedProfile,actualMinutes:0,serviceContext};
+      group.units+=Number(item.units??item.payable_units??0);if(nluActualTime)group.actualMinutes+=actualMinutes;groups.set(groupKey,group);
     }
+    const aggregateMinutes=row.actualMinutes??row.actual_work_minutes;
+    if(nluActualTime&&aggregateMinutes!=null&&(!Number.isFinite(Number(aggregateMinutes))||Math.abs(totalActualMinutes-Number(aggregateMinutes))>0.000001))throw Object.assign(new Error(`Dated actual work minutes for ${code} do not match the aggregate time; reconcile the work records before calculating pay.`),{code:'AMENDMENT_PAYROLL_REVIEW_REQUIRED'});
     delete breakdown[key];
     let first=true;
     for(const [groupKey,group] of groups) {
-      breakdown[first?key:`${key}__${groupKey}`]=scaleBreakdownRow(row,group.units,{displayServiceCode:code,rateEraStatus:group.status,agreementRateProfile:group.profile}); first=false;
+      breakdown[first?key:`${key}__${groupKey}`]=scaleBreakdownRow(row,group.units,{displayServiceCode:code,rateEraStatus:group.status,agreementRateProfile:group.profile,...(nluActualTime?{actualMinutes:group.actualMinutes,serviceContext:group.serviceContext}:{})}); first=false;
     }
   }
 }
@@ -952,6 +1000,7 @@ export function applyPaySystemToBreakdown({
     if(Number(shiftDirectHours)>0 || Number(shiftIndirectHours)>0)throw Object.assign(new Error('Shift hours require a dated rate review during the compensation transition; aggregate hours cannot establish which pay terms apply.'),{code:'AMENDMENT_PAYROLL_REVIEW_REQUIRED'});
     splitAgreementDatedLines(breakdown, {status,rateProfile,datedUnitsByCode});
   } else if (status?.rateChangeDate && datedUnitsByCode && status.preCutoffStatus && status.postCutoffStatus) {
+    if(isNluCompensationProfile(rateProfile)&&Object.entries(breakdown||{}).some(([code,row])=>row&&nluCompensationService(canonicalServiceCode(code,row))))throw Object.assign(new Error('NLU actual-time services require dated work records and an agreement boundary before splitting rates; do not allocate work minutes from billing units.'),{code:'AMENDMENT_PAYROLL_REVIEW_REQUIRED'});
     splitBreakdownByCutoff(breakdown, {
       cutoff: status.rateChangeDate,
       preStatus: status.preCutoffStatus,
@@ -1001,6 +1050,8 @@ export function applyPaySystemToBreakdown({
       status: lineStatus,
       serviceCode,
       quantity: units,
+      actualMinutes:row.actualMinutes ?? row.actual_work_minutes,
+      serviceContext:row.serviceContext || {},
       rule
     });
     if (result.payType === 'skip') continue;

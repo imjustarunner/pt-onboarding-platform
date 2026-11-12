@@ -76,7 +76,7 @@
             </select>
             <span class="cg-note">Clause chain (hourly, FFS, intern, addendum…)</span>
           </div>
-          <div class="cg-sheet-row">
+          <div v-if="!usesIndividualAgreement" class="cg-sheet-row">
             <span class="cg-label">3 · Pay level</span>
             <select v-model="build.compensationLevelKey" @change="applyCompensationLevel">
               <option value="">— select —</option>
@@ -85,11 +85,13 @@
                 :key="`${lvl.category}-${lvl.level}`"
                 :value="`${lvl.category}:${lvl.level}`"
               >
-                Cat {{ lvl.category }} / Lvl {{ lvl.level }} — {{ lvl.label || 'Unlabeled' }}
+                Category {{ lvl.category }}{{ compensationCategories[lvl.category]?.label ? ` · ${compensationCategories[lvl.category].label}` : '' }} / Level {{ lvl.level }} — {{ lvl.label || 'Review placement' }}
               </option>
             </select>
             <span class="cg-note">Pulls direct/indirect rates from payroll compensation table</span>
           </div>
+          <div v-if="contractTenant==='nlu' && Number(build.compensationCategory)>=3" class="cg-sheet-row"><span class="cg-label">Placement exception approval</span><input v-model="build.tokens.NLU_CATEGORY_PLACEMENT_EXCEPTION_REFERENCE" placeholder="Written approval reference and date, when an exception is needed" /><span class="cg-note">For an exceptional non-master’s Category 3 or approved unlicensed/advanced Category 4 placement, identify the documented basis, role, oversight and effective date.</span></div>
+          <div v-if="usesIndividualAgreement" class="cg-sheet-row cg-sheet-row--readonly"><span class="cg-label">Compensation source</span><span class="cg-readonly">Approved individual agreement / written offer</span><span class="cg-note">Complete this person’s agreement reference and each selected role’s actual compensation below. Shared category/level rates are not applied.</span></div>
           <div v-if="!selectionDriven" class="cg-sheet-row">
             <span class="cg-label">4 · Job description clause</span>
             <select v-model="build.jobDescClauseKey">
@@ -128,10 +130,10 @@
           <div class="cg-sheet-row"><span class="cg-label">License type</span><input v-model="build.tokens.LICENSE_TYPE" /><span class="cg-note">Credential label + degree</span></div>
           <div class="cg-sheet-row"><span class="cg-label">Licensure deadline</span><input v-model="build.tokens.LICENSURE_DEADLINE" /><span class="cg-note">For contingency configs</span></div>
           <div class="cg-sheet-row"><span class="cg-label">Licensing board</span><input v-model="build.tokens.LICENSING_BOARD" /><span class="cg-note" /></div>
-          <template v-if="selectedPayProfile">
+          <template v-if="selectedPayProfile && !usesIndividualAgreement">
             <div v-for="rate in selectedPayRows" :key="rate.label" class="cg-sheet-row cg-sheet-row--readonly"><span class="cg-label">{{rate.label}}</span><span class="cg-readonly">{{formatRate(rate.amount)}}</span><span class="cg-note">{{rate.unit}}</span></div>
           </template>
-          <template v-else>
+          <template v-else-if="!usesIndividualAgreement">
             <div class="cg-sheet-row"><span class="cg-label">Legacy direct rate</span><input v-model="build.tokens.DIRECT_RATE" readonly /><span class="cg-note">Current category/level configuration takes precedence</span></div>
             <div class="cg-sheet-row"><span class="cg-label">Legacy indirect rate</span><input v-model="build.tokens.INDIRECT_RATE" readonly /><span class="cg-note">Confirm current pay configuration</span></div>
           </template>
@@ -142,7 +144,7 @@
           <div v-if="selectionDriven && agreementVariant === 'student'" class="cg-sheet-row"><span class="cg-label">Starting training phase</span><select v-model="build.tokens.TRAINING_START_PHASE"><option value="practicum">Practicum → internship</option><option value="internship">Direct-entry internship</option></select><span class="cg-note">One agreement covers both phases. Practicum continues into internship unless either party gives written notice of non-continuation, subject to academic requirements and the practicum review.</span></div>
         </div>
 
-        <ContractExpectationsEditor :show-core-fields="false" v-model="individualExpectations" title="Individual expectations and compensated duties" description="Starts with this posting’s defaults. Changes here apply only to this person’s agreement." />
+        <ContractExpectationsEditor :show-core-fields="false" v-model="individualExpectations" :individual-agreement-mode="contractTenant==='isi'" :service-role-options="contractServiceRoleOptions" :service-role-source="build.tokens.CONTRACT_SERVICE_ROLE_SOURCE" title="Individual expectations and compensated duties" description="Starts with this posting’s defaults. Changes here apply only to this person’s agreement." />
         <button v-if="postingDefaults" type="button" class="cg-btn" @click="individualExpectations = JSON.parse(JSON.stringify(postingDefaults))">Restore this posting’s defaults</button>
         <div class="cg-actions">
           <button type="button" class="cg-btn" :disabled="busy || !canBuild" @click="preview">Preview contract</button>
@@ -279,6 +281,7 @@ const templates = ref([]);
 const clauses = ref([]);
 const configs = ref([]);
 const compensationLevels = ref([]);
+const compensationCategories = ref({});
 const jobDescClauses = ref([]);
 const contractCandidates = ref([]);
 const offices = ref([]);
@@ -293,6 +296,8 @@ const officeGroups = computed(() => {
 });
 const credentialOptions = ref([]);
 const serviceFocusOptions = ref([]), schoolDaysEnabled = ref(false);
+const contractServiceRoleOptions = ref([]);
+const contractTenant = ref('');
 const agreementBuilder = ref(null), agreementVariant = ref('provider'), manualConfigMode = ref(false);
 const selectionDriven = computed(() => !!agreementBuilder.value && !manualConfigMode.value);
 function applyAgreementVariant() {
@@ -336,6 +341,10 @@ const build = ref({
     INTERNSHIP_END_DATE: '',
     UNIVERSITY_NAME: '',
     TRAINING_START_PHASE: 'internship',
+    CONTRACT_SERVICE_ROLE_SOURCE: '',
+    INDIVIDUAL_COMPENSATION_BASIS: '',
+    PRIOR_COMPENSATION_AGREEMENT_REFERENCE: '',
+    NLU_CATEGORY_PLACEMENT_EXCEPTION_REFERENCE: '',
     ASSIGNED_OFFICE_NAME: '',
     ASSIGNED_OFFICE_ADDRESS: '',
     ASSIGNED_OFFICE_SOURCE: '',
@@ -349,6 +358,7 @@ const clauseDraft = ref({ title: '', bodyHtml: '' });
 const previewHtml = ref('');
 const postingDefaults = ref(null);
 const individualExpectations = ref({});
+const usesIndividualAgreement = computed(()=>contractTenant.value==='isi' && individualExpectations.value.individualCompensationBasis==='approved_individual_agreement');
 const clauseManifest = ref([]);
 const previewHash = ref('');
 const wizardMsg = ref('');
@@ -476,7 +486,10 @@ async function loadCandidateContext() {
     };
     const { data } = await api.get(`/contracts/candidates/${build.value.candidateUserId}/wizard-context`, { params });
     compensationLevels.value = data.compensationLevels || compensationLevels.value;
+    compensationCategories.value = data.compensationCategories || {};
     serviceFocusOptions.value = data.serviceFocusOptions || [];
+    contractServiceRoleOptions.value = data.contractServiceRoleOptions || [];
+    contractTenant.value = data.contractTenant || '';
     schoolDaysEnabled.value = data.schoolDaysEnabled === true;
     if (data.jobDescClauses?.length) jobDescClauses.value = data.jobDescClauses;
     offices.value = data.offices || [];
@@ -490,8 +503,8 @@ async function loadCandidateContext() {
     build.value.officeLocationId = data.suggested?.officeLocationId || '';
     build.value.compensationLevelKey = `${build.value.compensationCategory}:${build.value.compensationLevel}`;
     applyTokensToBuild(data.tokens || {});
-    postingDefaults.value = data.tokens?.CONTRACT_POSTING_DEFAULTS || {};
-    individualExpectations.value = {...postingDefaults.value,roleLabel:data.tokens?.ROLE_LABEL,serviceFocus:data.tokens?.SERVICE_FOCUS,supervisorName:data.tokens?.SUPERVISOR_NAME,directHours:data.tokens?.MIN_HOURS,schedule:data.tokens?.SCHEDULE,expectedHours:data.tokens?.EXPECTED_HOURS,daysPerWeek:data.tokens?.MIN_DAYS_PER_WEEK};
+    postingDefaults.value = {...data.tokens?.CONTRACT_POSTING_DEFAULTS,individualCompensationBasis:data.tokens?.INDIVIDUAL_COMPENSATION_BASIS || (contractTenant.value==='isi'?'approved_individual_agreement':''),priorAgreementReference:data.tokens?.PRIOR_COMPENSATION_AGREEMENT_REFERENCE || '',serviceRoles:data.tokens?.CONTRACT_SERVICE_ROLES || [],serviceRoleDetails:data.tokens?.CONTRACT_SERVICE_ROLE_DETAILS || data.tokens?.CONTRACT_POSTING_DEFAULTS?.serviceRoleDetails || {}};
+    individualExpectations.value = {...postingDefaults.value,serviceRoles:data.tokens?.CONTRACT_SERVICE_ROLES || [],serviceRoleDetails:data.tokens?.CONTRACT_SERVICE_ROLE_DETAILS || postingDefaults.value.serviceRoleDetails || {},roleLabel:data.tokens?.ROLE_LABEL,serviceFocus:data.tokens?.SERVICE_FOCUS,supervisorName:data.tokens?.SUPERVISOR_NAME,directHours:data.tokens?.MIN_HOURS,schedule:data.tokens?.SCHEDULE,expectedHours:data.tokens?.EXPECTED_HOURS,daysPerWeek:data.tokens?.MIN_DAYS_PER_WEEK};
     applyAgencyDefaults(data.agency);
     agreementBuilder.value = data.agreementBuilder || null;
     if (agreementBuilder.value) {
@@ -527,7 +540,10 @@ async function loadLibrary() {
     agreementBuilder.value = data.agreementBuilder || null;
     if (selectionDriven.value) applyAgreementVariant();
     compensationLevels.value = data.compensationLevels || [];
+    compensationCategories.value = data.compensationCategories || {};
     serviceFocusOptions.value = data.serviceFocusOptions || [];
+    contractServiceRoleOptions.value = data.contractServiceRoleOptions || [];
+    contractTenant.value = data.contractTenant || '';
     schoolDaysEnabled.value = data.schoolDaysEnabled === true;
     offices.value = data.offices || [];
     credentialOptions.value = [...(data.credentialOptions || []), { key: 'CUSTOM', label: 'Custom / other…' }];
@@ -559,6 +575,10 @@ function buildPayload() {
     tokens: {
       ...build.value.tokens,
       CONTRACT_EXPECTATIONS: individualExpectations.value,
+      CONTRACT_SERVICE_ROLES: individualExpectations.value.serviceRoles || [],
+      CONTRACT_SERVICE_ROLE_DETAILS: individualExpectations.value.serviceRoleDetails || {},
+      INDIVIDUAL_COMPENSATION_BASIS: contractTenant.value==='isi'?(individualExpectations.value.individualCompensationBasis || ''):'',
+      PRIOR_COMPENSATION_AGREEMENT_REFERENCE: contractTenant.value==='isi'?(individualExpectations.value.priorAgreementReference || ''):'',
       ...Object.fromEntries(Object.entries({ROLE_LABEL:individualExpectations.value.roleLabel,SERVICE_FOCUS:individualExpectations.value.serviceFocus,MIN_HOURS:individualExpectations.value.directHours,EXPECTED_HOURS:individualExpectations.value.expectedHours,MIN_DAYS_PER_WEEK:individualExpectations.value.daysPerWeek,SCHEDULE:individualExpectations.value.schedule,SUPERVISOR_NAME:individualExpectations.value.supervisorName,INCLUDE_SUPERVISION:individualExpectations.value.includeSupervision===undefined?undefined:individualExpectations.value.includeSupervision?'1':'0'}).filter(([,v])=>v!==undefined)),
       ROLE_LABEL: build.value.tokens.ROLE_LABEL, SERVICE_FOCUS: build.value.tokens.SERVICE_FOCUS, MIN_HOURS: build.value.tokens.MIN_HOURS,
       AGREEMENT_SELECTION_DRIVEN: selectionDriven.value ? '1' : '0',

@@ -2,16 +2,15 @@ import { humanRosterSql } from '../utils/workplacePeople.js';
 import pool from '../config/database.js';
 import { isProBonoServiceCode } from '../utils/clinicalFundingPolicy.js';
 
-export const COMPENSATION_CATEGORIES = Object.freeze({
-  1: { label: 'Unlicensed', description: 'Unlicensed — Bachelors, Interns, QBHA, Peer & Unlicensed Masters' },
-  2: { label: 'Pre-licensed', description: 'Pre-licensed Masters Level' },
-  3: { label: 'Licensed', description: 'Licensed Professionals' }
-});
+import {LEGACY_COMPENSATION_CATEGORIES, categoriesForAgency, categoryIdsForAgency} from '../services/compensationCategories.service.js';
+export const COMPENSATION_CATEGORIES = LEGACY_COMPENSATION_CATEGORIES;
 
 export const CATEGORY_IDS = [1, 2, 3];
 export const LEVEL_IDS = [1, 2, 3, 4, 5];
 
 const PayrollCompensationLevel = {
+  getCategories: categoriesForAgency,
+  getCategoryIds: categoryIdsForAgency,
   /** Return all 15 level rows for an agency, filling in nulls for unconfigured slots */
   async listForAgency(agencyId) {
     const [rows] = await pool.execute(
@@ -20,7 +19,7 @@ const PayrollCompensationLevel = {
     );
     const byKey = new Map(rows.map((r) => [`${r.category}:${r.level}`, r]));
     const result = [];
-    for (const cat of CATEGORY_IDS) {
+    for (const cat of await categoryIdsForAgency(agencyId)) {
       for (const lvl of LEVEL_IDS) {
         const existing = byKey.get(`${cat}:${lvl}`);
         result.push(existing || {
@@ -338,7 +337,7 @@ const PayrollCompensationLevel = {
       `SELECT category, name FROM payroll_compensation_category_labels WHERE agency_id = ?`,
       [agencyId]
     );
-    const labels = { 1: '', 2: '', 3: '' };
+    const labels = Object.fromEntries((await categoryIdsForAgency(agencyId)).map(id=>[id,'']));
     for (const r of rows) labels[r.category] = r.name || '';
     return labels;
   },

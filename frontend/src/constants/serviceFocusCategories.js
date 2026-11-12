@@ -11,5 +11,7 @@ export const SERVICE_FOCUS_CATEGORIES = [
   'Skill Development Coordination',
   'Clinical Supervision and Counseling',
   'Program Leadership',
-  'Training and Precepting Support'
+  'Training and Precepting Support',
+  'Childcare / Daycare',
+  'Psychological Testing'
 ];

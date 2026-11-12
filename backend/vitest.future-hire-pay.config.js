@@ -1,0 +1,2 @@
+import {fileURLToPath} from 'node:url';
+export default {root:fileURLToPath(new URL('.',import.meta.url)),resolve:{alias:{vitest:fileURLToPath(new URL('../frontend/node_modules/vitest/dist/index.js',import.meta.url))}},test:{environment:'node',include:['src/services/__tests__/futureHirePay.test.js','src/services/__tests__/payrollActivation.test.js','src/services/__tests__/payrollTransition.test.js','src/services/__tests__/payrollSubmissionContext.test.js'],restoreMocks:true}};

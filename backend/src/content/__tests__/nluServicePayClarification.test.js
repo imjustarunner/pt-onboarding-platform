@@ -7,7 +7,7 @@ describe('NLU staff handbook service pay classification', () => {
     const book = getHandbookSource({ slug: 'nlu' }, { employeeTemplates: [] });
     const comparison = book.sections.find(s => s.slug === 'service-code-compensation-and-authorizations').body_html;
     expect(comparison).toContain('H2014 within NLU’s authorized Therapy + Tutoring program');
-    expect(comparison).toContain('10 paid minutes per direct-hour equivalent for Categories 1, 2 and 3');
+    expect(comparison).toContain('10 paid minutes per direct-hour equivalent for Categories 2, 3 and 4');
     expect(comparison).toContain('One unit adds 2.5 minutes; four units add 10 minutes');
     expect(comparison).toContain('No separate automatic 10-minute Direct Care allowance');
     expect(comparison).toContain('99414 and 99416 when mapped to supervision/indirect work');

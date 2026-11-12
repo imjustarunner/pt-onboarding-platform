@@ -4,6 +4,7 @@ import pool from '../config/database.js';
 import sanitizeHtml from 'sanitize-html';
 import {amendmentIssues, renderAmendment} from '../content/itscoOctober2026Drafts.js';
 import {SERVICE_CREDIT_POLICY_VERSION, conditionalLevelBonus, defaultHcodeIndirectMinutes} from '../utils/serviceCreditPolicy.js';
+import {isNluAmendment} from '../content/nluCompensationAmendment.js';
 
 export const DRAFT_KIND = 'provider_update_compensation';
 export function cleanDraftHtml(value) {
@@ -28,12 +29,12 @@ export async function getCompensationDraft(agencyId,id,db=pool) {
 }
 export function editCompensationDraft(existing,patch,userId) {
  const result=structuredClone(existing);
- for(const key of ['category','level','creditRate','hcodeRate','indirectRate','supportRate','ptoRate','creditRateProbation','hcodeRateProbation','indirectRateProbation','supportRateProbation']) {
+ for(const key of ['category','level','creditRate','hcodeRate','indirectRate','supportRate','ptoRate','creditRateProbation','hcodeRateProbation','indirectRateProbation','supportRateProbation',...(isNluAmendment(result)?['childcareLevel','tutoringLevel','childcareHourlyRate','tutoringHourlyRate','homeworkHelpRate','testingEvaluationRate']:[])]) {
   if(!Object.hasOwn(patch.schedule || {},key))continue;
   const raw=patch.schedule[key];
   const v=raw===''||raw==null?null:Number(raw);
   if(v!==null&&(!Number.isFinite(v)||v<0||v>100000))throw Object.assign(new Error(`Invalid ${key}.`),{status:400});
-  if(key==='category'&&v!==null&&![1,2,3].includes(v))throw Object.assign(new Error('Invalid category.'),{status:400});
+  if(key==='category'&&v!==null&&!(isNluAmendment(result)?[1,2,3,4]:[1,2,3]).includes(v))throw Object.assign(new Error('Invalid category.'),{status:400});
   if(key==='level'&&v!==null&&![1,2,3,4,5].includes(v))throw Object.assign(new Error('Invalid level.'),{status:400});
   result.schedule[key]=v;
  }
@@ -41,10 +42,18 @@ export function editCompensationDraft(existing,patch,userId) {
  if(patch.originalAgreementDate!==undefined)result.employee.originalAgreementDate=String(patch.originalAgreementDate).slice(0,300);
  if(patch.additionalTerms!==undefined)result.additionalTerms=String(patch.additionalTerms).slice(0,6000);
  if(patch.commonClausesHtml!==undefined)result.commonClausesHtml=cleanDraftHtml(patch.commonClausesHtml).slice(0,100000);
+ if(isNluAmendment(result)) {
+  if(patch.effectiveDate!==undefined) {
+   if(!/^\d{4}-\d{2}-\d{2}$/.test(String(patch.effectiveDate)))throw Object.assign(new Error('Invalid prospective date.'),{status:400});
+   result.effectiveDate=patch.effectiveDate;
+  }
+  if(patch.schedule?.testingAuthorized!==undefined)result.schedule.testingAuthorized=patch.schedule.testingAuthorized===true;
+  if(patch.schedule?.testingAuthorizationReference!==undefined)result.schedule.testingAuthorizationReference=String(patch.schedule.testingAuthorizationReference).slice(0,2000);
+ }
  result.editedByUserId=userId;result.editedAt=new Date().toISOString();
  if(result.compensationPolicyVersion===SERVICE_CREDIT_POLICY_VERSION){
   if(result.conditionalAdditionMode!==HANDBOOK_ADDITION_MODE)result.schedule.tier3LevelBonus=conditionalLevelBonus(result.schedule.level);
-  result.schedule.autoIndirectMinutes=defaultHcodeIndirectMinutes(result.schedule.category);
+  result.schedule.autoIndirectMinutes=isNluAmendment(result)?(Number(result.schedule.category)>1?10:0):defaultHcodeIndirectMinutes(result.schedule.category);
  }
  return result;
 }

@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import {isNluCompensationProfile} from '../content/nluCompensationPolicy.js';
 const day=value=>value instanceof Date?value.toISOString().slice(0,10):String(value||'').slice(0,10);
 export const HANDBOOK_ADDITION_MODE='dated_handbook';
 export function additionForDate(history,date) {
@@ -14,7 +15,8 @@ export async function loadAdditionHistory({agencyId,category,level},db=pool) {
  const [rows]=await db.execute('SELECT * FROM payroll_conditional_addition_policies WHERE agency_id=? AND category=? AND level=? ORDER BY effective_on,id',[agencyId,category,level]);return rows;
 }
 export function additionsFromRate(profile) {
- return {clinical:Number((profile.tierBonusFfs||profile.tierBonus)?.[3]??0),hcode:Number(profile.tierBonusHcode?.[3]??(Number(profile.category)===1?profile.tierBonus?.[3]??0:0))};
+ if(isNluCompensationProfile(profile)&&Number(profile.category)===1)return {clinical:0,hcode:0};
+ return {clinical:Number((profile.tierBonusFfs||profile.tierBonus)?.[3]??0),hcode:Number(profile.tierBonusHcode?.[3]??(Number(profile.category)===(isNluCompensationProfile(profile)?2:1)?profile.tierBonus?.[3]??0:0))};
 }
 export async function recordAdditionChange({agencyId,profile,effectiveOn,actorId},db=pool) {
  const history=await loadAdditionHistory({agencyId,category:profile.category,level:profile.level},db);

@@ -21,6 +21,10 @@ function setup({ existing = [], failGeneration = false } = {}) {
   });
 }
 describe('contract assignment consistency', () => {
+  it('does not forward the internal inactive-review capability from an assignment preview request',async()=>{
+    await previewCandidateContract({...request,reviewInactiveConfig:true});
+    expect(mocks.preview.mock.calls[0][0]).not.toHaveProperty('reviewInactiveConfig');
+  });
   it('uses an edited training institution instead of a stale university alias', async () => {
     await previewCandidateContract({ ...request, tokens: { UNIVERSITY_NAME: 'Current University', UNIVERSITY: 'Old University' } });
     expect(mocks.preview.mock.calls[0][0].tokens).toMatchObject({ UNIVERSITY_NAME: 'Current University', UNIVERSITY: 'Current University' });

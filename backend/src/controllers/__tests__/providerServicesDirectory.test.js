@@ -40,6 +40,15 @@ beforeEach(()=>{
  });
 });
 describe('public multi-service directories',()=>{
+ it('refreshes availability without reloading profile rates, insurance or office cards',async()=>{
+  Availability.computeWeekAvailability.mockResolvedValue({inPersonSlots:[],virtualSlots:[{startAt:'2035-01-02T17:00:00Z',endAt:'2035-01-02T18:00:00Z'}]});
+  const res=response(),next=vi.fn();
+  await listCounselors({...request(),query:{view:'availability',programType:'VIRTUAL',weekStart:'2035-01-01'}},res,next);
+  expect(next).not.toHaveBeenCalled();
+  expect(res.json.mock.calls[0][0].providers[0].availability.nextAvailableAt).toBe('2035-01-02T17:00:00Z');
+  expect(Profile.getForProvider).toHaveBeenCalledTimes(1);
+  expect(pool.execute.mock.calls.some(([sql])=>sql.includes('FROM office_standing_assignments s'))).toBe(false);
+ });
  it('loads profile details without scanning sixteen weeks of appointments',async()=>{
   const original=pool.execute.getMockImplementation();pool.execute.mockImplementation(async(sql,...args)=>sql.includes('FROM users\n')?[[{id:9,first_name:'Example',last_name:'Provider',provider_accepting_new_clients:1}]]:original(sql,...args));
   const res=response(),next=vi.fn();await getProviderDetail({params:{agencySlug:'test',providerId:'9'},query:{view:'profile',serviceType:'counseling'}},res,next);

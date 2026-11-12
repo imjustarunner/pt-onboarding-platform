@@ -7,12 +7,15 @@ import {TRAINING_LEAVE_CLAUSE, SCHOOL_SUPPORT_CLAUSE, SCHOOL_MILEAGE_CLAUSE, HEA
 import {ANNUAL_INDIRECT_COMMITMENT, INDIRECT_WORK_ADMINISTRATION, LEVEL_REVIEW_PROCESS, LEVEL_CHANGE_PROCESS, LEVEL_EXPECTATIONS_TITLE} from './compensationLevelExpectations.js';
 import {employmentStarterClauses} from '../services/employmentStarter.service.js';
 import { programScheduleTerms, isProgramServiceRole } from './programServiceRates.js';
+import {nluEmploymentCategoryTerms} from './nluEmploymentCategoryTerms.js';
 export const EMPLOYMENT_PAY_VERSION = 'category-level-employment-2026-10-29-program';
 const escape = s => String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const positive = value => Number.isFinite(Number(value)) && Number(value)>0;
 export function employmentCategoryLevelTerms({row,tokens={},agencyName='the Practice',agencySlug=''}) {
  const p=row?.paySystem;
  if(!p)throw Object.assign(new Error('Configure the selected category and level in the current pay system before generating this clinical agreement.'),{status:400});
+ const nluTerms=handbookTenant({slug:agencySlug||tokens.AGENCY_SLUG})==='nlu'?nluEmploymentCategoryTerms({row,tokens,legal:employmentStarterClauses().find(c=>c.clause_key==='STARTER_V1_LEGAL').body_html}):null;
+ if(nluTerms)return nluTerms;
  const clinical=!['facilitator','tutor','homework help','homework assistant'].includes(String(tokens.ROLE_LABEL).toLowerCase()) && !isProgramServiceRole(tokens.ROLE_LABEL,tokens.JOB_TITLE,tokens.ROLE_TYPE);
  const required=['hcodeRate','hcodeRateProbation','indirectRate','supportActivityRate',...(clinical?['creditRate','creditRateProbation']:[])];
  for(const key of required)if(!positive(p[key]))throw Object.assign(new Error(`Category ${row.category}, Level ${row.level}: confirm ${key} in the current compensation settings.`),{status:400});

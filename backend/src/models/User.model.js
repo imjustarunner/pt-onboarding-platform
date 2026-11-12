@@ -3223,9 +3223,13 @@ class User {
       userId, actorUserId, agencyId: audit.agencyId, actorType: audit.actorType,
       source: audit.source || 'user_status_change',
       reason: audit.reason || `Account status set to ${status}.`,
-      mutate: async (conn) => (await conn.execute(
-        `UPDATE users SET ${updates.join(', ')} WHERE id = ?`, values
-      ))[0]
+      mutate: async (conn, before) => {
+        if (completedHire) {
+          const { enrollCompletedFutureHire } = await import('../services/futureHirePay.service.js');
+          await enrollCompletedFutureHire({ db: conn, userId, before, actorUserId });
+        }
+        return (await conn.execute(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`, values))[0];
+      }
     });
     return this.findById(userId);
   }

@@ -1,4 +1,5 @@
 import { isBachelorsCredentialText } from './credentialNormalization.js';
+import { normalizeContractServiceRoles, normalizeContractServiceRoleDetails } from '../content/contractServiceRoles.js';
 const text = (v, max = 2000) => String(v ?? '').trim().slice(0, max);
 export function contractRoleLabel({jobTitle='',roleType='',role='',credential=''}={}) {
   const roles = `${roleType} ${role}`.toLowerCase();
@@ -13,6 +14,13 @@ export function sanitizeContractExpectations(raw={}) {
   const out={};
   for (const k of ['roleLabel','serviceFocus','schedule','supervisorName','expectedHours','directHours','daysPerWeek']) if (raw[k] !== undefined) out[k]=text(raw[k], k==='schedule'?1000:250);
   if (raw.includeSupervision !== undefined) out.includeSupervision=raw.includeSupervision===true || raw.includeSupervision==='1';
+  if (raw.serviceRoles !== undefined) out.serviceRoles=normalizeContractServiceRoles(raw.serviceRoles, {strict:true});
+  if (raw.serviceRoleDetails !== undefined) out.serviceRoleDetails=normalizeContractServiceRoleDetails(raw.serviceRoleDetails);
+  if (raw.individualCompensationBasis !== undefined) {
+    if(!['','approved_individual_agreement'].includes(raw.individualCompensationBasis))throw Object.assign(new Error('Choose a valid individual compensation basis.'),{status:400});
+    out.individualCompensationBasis=raw.individualCompensationBasis;
+  }
+  if (raw.priorAgreementReference !== undefined) out.priorAgreementReference=text(raw.priorAgreementReference,1200);
   if (raw.additionalDuties !== undefined) out.additionalDuties=(Array.isArray(raw.additionalDuties)?raw.additionalDuties:[]).slice(0,30).map(d=>({description:text(d.description),payBasis:['direct','indirect','support','hcode','service_code','custom'].includes(d.payBasis)?d.payBasis:'',serviceCode:text(d.serviceCode,30),customRate:text(d.customRate,20),rateUnit:['per_hour','per_unit','per_service'].includes(d.rateUnit)?d.rateUnit:'per_hour'}));
   return out;
 }
@@ -26,10 +34,14 @@ export function expectationsToTokens(raw) {
   const keys={roleLabel:'ROLE_LABEL',serviceFocus:'SERVICE_FOCUS',schedule:'SCHEDULE',supervisorName:'SUPERVISOR_NAME',expectedHours:'EXPECTED_HOURS',directHours:'MIN_HOURS',daysPerWeek:'MIN_DAYS_PER_WEEK'};
   for(const [k,t] of Object.entries(keys))if(e[k]!==undefined)tokens[t]=e[k];
   if(e.includeSupervision!==undefined)tokens.INCLUDE_SUPERVISION=e.includeSupervision?'1':'0';
+  if(e.serviceRoles!==undefined)tokens.CONTRACT_SERVICE_ROLES=e.serviceRoles;
+  if(e.serviceRoleDetails!==undefined)tokens.CONTRACT_SERVICE_ROLE_DETAILS=e.serviceRoleDetails;
+  if(e.individualCompensationBasis!==undefined)tokens.INDIVIDUAL_COMPENSATION_BASIS=e.individualCompensationBasis;
+  if(e.priorAgreementReference!==undefined)tokens.PRIOR_COMPENSATION_AGREEMENT_REFERENCE=e.priorAgreementReference;
   return tokens;
 }
 export function expectationsFromTokens(t={}) {
- return sanitizeContractExpectations({roleLabel:t.ROLE_LABEL,serviceFocus:t.SERVICE_FOCUS,schedule:t.SCHEDULE,supervisorName:t.SUPERVISOR_NAME,expectedHours:t.EXPECTED_HOURS,directHours:t.MIN_HOURS,daysPerWeek:t.MIN_DAYS_PER_WEEK,...(t.INCLUDE_SUPERVISION!==undefined?{includeSupervision:String(t.INCLUDE_SUPERVISION)==='1'}:{}),additionalDuties:t.CONTRACT_EXPECTATIONS?.additionalDuties||[]});
+ return sanitizeContractExpectations({roleLabel:t.ROLE_LABEL,serviceFocus:t.SERVICE_FOCUS,schedule:t.SCHEDULE,supervisorName:t.SUPERVISOR_NAME,expectedHours:t.EXPECTED_HOURS,directHours:t.MIN_HOURS,daysPerWeek:t.MIN_DAYS_PER_WEEK,...(t.INDIVIDUAL_COMPENSATION_BASIS!==undefined?{individualCompensationBasis:t.INDIVIDUAL_COMPENSATION_BASIS}:{}),...(t.PRIOR_COMPENSATION_AGREEMENT_REFERENCE!==undefined?{priorAgreementReference:t.PRIOR_COMPENSATION_AGREEMENT_REFERENCE}:{}),...(t.CONTRACT_SERVICE_ROLES!==undefined?{serviceRoles:t.CONTRACT_SERVICE_ROLES}:{}),...(t.CONTRACT_SERVICE_ROLE_DETAILS!==undefined?{serviceRoleDetails:t.CONTRACT_SERVICE_ROLE_DETAILS}:{}),...(t.INCLUDE_SUPERVISION!==undefined?{includeSupervision:String(t.INCLUDE_SUPERVISION)==='1'}:{}),additionalDuties:t.CONTRACT_EXPECTATIONS?.additionalDuties||[]});
 }
 const escape = value => String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export function renderAdditionalExpectations(raw, row={}, serviceRates=[]) {

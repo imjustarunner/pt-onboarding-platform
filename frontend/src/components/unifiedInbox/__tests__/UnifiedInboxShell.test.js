@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushPromises, shallowMount } from '@vue/test-utils';
+import { createPinia, setActivePinia } from 'pinia';
+import { useSessionLockStore } from '../../../store/sessionLock';
 import Shell from '../UnifiedInboxShell.vue';
 import api from '../../../services/api';
 vi.mock('../../../services/api', () => ({ default: { post: vi.fn(), get: vi.fn(), patch: vi.fn() } }));
@@ -9,6 +11,7 @@ const navigation=vi.hoisted(()=>({params:{},query:{}}));
 vi.mock('vue-router', () => ({ useRoute: () => navigation, useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }));
 let wrapper;
 beforeEach(() => {
+  setActivePinia(createPinia());
   vi.clearAllMocks();
   navigation.query={};
   api.get.mockResolvedValue({ data: {} });
@@ -18,6 +21,21 @@ beforeEach(() => {
 afterEach(() => { wrapper?.unmount(); vi.useRealTimers(); });
 const render = async () => { wrapper = shallowMount(Shell, { props: { agencyId: 2 } }); await flushPromises(); };
 describe('conversation switching', () => {
+  it('loads existing conversations while mailbox provisioning is still pending', async () => {
+    api.post.mockImplementation(() => new Promise(() => {}));
+    api.get.mockImplementation(async url => ({ data: url === '/communications/conversations' ? { conversations: [{ id: 9 }] } : {} }));
+    await render();
+    expect(wrapper.findComponent({ name: 'UnifiedConversationList' }).props('conversations')).toEqual([{ id: 9 }]);
+    expect(wrapper.findComponent({ name: 'UnifiedConversationList' }).props('loading')).toBe(false);
+  });
+  it('retries the inbox after a verified unlock without resending a message', async () => {
+    await render(); const lock = useSessionLockStore();
+    lock.lock(); await flushPromises(); api.get.mockClear(); api.post.mockClear();
+    window.dispatchEvent(new Event('focus')); await flushPromises(); expect(api.get).not.toHaveBeenCalled();
+    lock.unlock(); await flushPromises();
+    expect(api.get).toHaveBeenCalledWith('/communications/conversations', expect.any(Object));
+    expect(api.post.mock.calls.every(([url]) => url === '/communications/inboxes/personal/ensure')).toBe(true);
+  });
   it('ignores sidebar and attention responses from the previous agency', async () => {
     let oldInboxes, oldAttention;
     api.get.mockImplementation((url, config) => {

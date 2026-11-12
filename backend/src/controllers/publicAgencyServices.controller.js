@@ -595,10 +595,10 @@ async function getCounselingSpecialties(userId, agencyId) {
   };
 }
 
-async function resolveProviderProfileSummary({ agencyId, providerUserId, serviceType = 'counseling' }) {
+async function resolveProviderProfileSummary({ agencyId, providerUserId, serviceType = 'counseling', profile: loadedProfile, agencySettings: loadedSettings }) {
   const counselingRate = await getPublicCounselingHourlyRate({ agencyId, providerUserId, serviceType });
-  const profile = await ProviderPublicProfile.getForProvider({ providerUserId, agencyId });
-  const agencySettings = await ProviderPublicProfile.getAgencySettings({ agencyId });
+  const profile = loadedProfile === undefined ? await ProviderPublicProfile.getForProvider({ providerUserId, agencyId }) : loadedProfile;
+  const agencySettings = loadedSettings === undefined ? await ProviderPublicProfile.getAgencySettings({ agencyId }) : loadedSettings;
   const effectiveRateCents = counselingRate ?? profile?.selfPayRateCents ?? agencySettings?.defaultSelfPayRateCents ?? null;
   const effectiveRateNote = counselingRate != null ? 'Per hour · cash / self-pay' : String(profile?.selfPayRateNote || agencySettings?.defaultSelfPayRateNote || '').trim() || null;
   let acceptedInsurances = [];
@@ -809,17 +809,25 @@ export const listCounselors = async (req, res, next) => {
     const filterAgeGroup = String(req.query.ageGroup || '').trim().toLowerCase();
     const queryAgeBucket = detectAgeBucketFromText(searchQ);
     const normalizedQueryAge = queryAgeBucket ? normalizeAgeFilterValue(queryAgeBucket) : '';
+    // The website already has profile cards. Its two availability refreshes only
+    // consume IDs and openings; avoid re-reading insurance, rates and clinical
+    // answers for every provider. Filtered finder requests retain full metadata.
+    const availabilityOnly = req.query.view === 'availability'
+      && !searchQ && !filterSpecialty && !filterModality && !filterAgeGroup;
 
     const agencySettings = await ProviderPublicProfile.getAgencySettings({ agencyId: agency.id });
     const serviceTypeRow = (await getAgencyServiceTypes(agency.id)).find((st) => st.service_type === serviceType);
 
     const providerRows = await listEnrolledProviders(agency.id, serviceType, {includeDirectory:true});
-    const officeLocations = await listPublicProviderOffices(agency.id,providerRows.map(p=>p.id));
+    const officeLocations = availabilityOnly ? new Map() : await listPublicProviderOffices(agency.id,providerRows.map(p=>p.id));
 
     const providers = await runWithConcurrency(providerRows, 6, async (row) => {
       const directoryOnly = req.query.view === 'directory';
-      const heldSlots = directoryOnly ? [] : await getHeldSlotStartsForProvider(agency.id, Number(row.id));
-      const summary = directoryOnly ? { thisWeek: { virtualSlots: [], inPersonSlots: [] }, nextAvailableAt: null, bookedThroughYmd: null } : await computeProviderWindowSummary({
+      const profileData = await ProviderPublicProfile.getForProvider({ providerUserId: Number(row.id), agencyId:agency.id }) || {};
+      profileData.acceptingNewClientsOverride = profileData.agencyAvailability ? profileData.acceptingNewClientsOverride : Boolean(row.provider_accepting_new_clients ?? profileData.acceptingNewClientsOverride ?? true);
+      const skipAvailability = directoryOnly || (availabilityOnly && !publicFormatEnabled(profileData,programType,bookingMode));
+      const heldSlots = skipAvailability ? [] : await getHeldSlotStartsForProvider(agency.id, Number(row.id));
+      const summary = skipAvailability ? { thisWeek: { virtualSlots: [], inPersonSlots: [] }, nextAvailableAt: null, bookedThroughYmd: null, checkedAt: directoryOnly ? null : new Date().toISOString() } : await computeProviderWindowSummary({
         lookaheadWeeks: req.query.view === 'availability' ? 3 : 16,
         directorySnapshot:req.query.view === 'availability',
         timePreferences:{day:String(req.query.day||''),timeFrom:String(req.query.timeFrom||''),timeTo:String(req.query.timeTo||'')},
@@ -831,9 +839,7 @@ export const listCounselors = async (req, res, next) => {
         programType,
         heldSlots, officeId:Number(req.query.officeId)||null
       });
-      const profileData = await ProviderPublicProfile.getForProvider({ providerUserId: Number(row.id), agencyId:agency.id }) || {};
-      profileData.acceptingNewClientsOverride = profileData.agencyAvailability ? profileData.acceptingNewClientsOverride : Boolean(row.provider_accepting_new_clients ?? profileData.acceptingNewClientsOverride ?? true);
-      const profile = await resolveProviderProfileSummary({ agencyId: agency.id, providerUserId: Number(row.id) });
+      const profile = availabilityOnly ? {} : await resolveProviderProfileSummary({ agencyId: agency.id, providerUserId: Number(row.id), serviceType, profile: profileData, agencySettings });
       if(!publicFormatEnabled(profileData,programType,bookingMode))summary.nextAvailableAt=null;
       const slotSet = normalizeSlots({
         result: summary.thisWeek,
@@ -842,7 +848,9 @@ export const listCounselors = async (req, res, next) => {
       });
       const filteredThisWeek = programType === 'VIRTUAL' ? slotSet.virtual : slotSet.inPerson;
 
-      const { specialties, modalities, ageGroups, focus } = await getCounselingSpecialties(Number(row.id), agency.id);
+      const { specialties, modalities, ageGroups, focus } = availabilityOnly
+        ? { specialties: [], modalities: [], ageGroups: [], focus: [] }
+        : await getCounselingSpecialties(Number(row.id), agency.id);
 
       // Apply client-side filters
       const displayName = `${row.first_name || ''} ${row.last_name || ''}`.trim();

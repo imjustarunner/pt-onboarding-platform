@@ -2,6 +2,7 @@ import PayrollCompensationLevel from '../models/PayrollCompensationLevel.model.j
 import PayrollPaySystemRate from '../models/PayrollPaySystemRate.model.js';
 import PayrollServiceCodeRule from '../models/PayrollServiceCodeRule.model.js';
 import { classifyPayType, computeLineAmount } from './paySystem.service.js';
+import {categoryIdsForAgency} from './compensationCategories.service.js';
 
 export async function contractCompensationLevels(agencyId, { includeServiceRates = false } = {}) {
   const [levels, profiles, serviceRates] = await Promise.all([PayrollCompensationLevel.listForAgency(agencyId), PayrollPaySystemRate.listForAgency(agencyId), PayrollCompensationLevel.getLevelRatesForAgency(agencyId)]);
@@ -52,8 +53,8 @@ export function contractServiceRates(row, rules) {
 }
 
 export async function selectedContractCompensation(agencyId, category, level, payMode) {
-  if (![1,2,3].includes(Number(category)) || ![1,2,3,4,5].includes(Number(level))) throw Object.assign(new Error('Choose a valid pay category and level.'), { status: 400 });
   if (payMode === 'none') return { row: { category, level }, rates: [] };
+  if (!(await categoryIdsForAgency(agencyId)).includes(Number(category)) || ![1,2,3,4,5].includes(Number(level))) throw Object.assign(new Error('Choose a valid pay category and level.'), { status: 400 });
   const levels = await contractCompensationLevels(agencyId);
   const row = levels.find(r => Number(r.category) === Number(category) && Number(r.level) === Number(level));
   // Preserve the agency's explicit per-service rates already supported on main.

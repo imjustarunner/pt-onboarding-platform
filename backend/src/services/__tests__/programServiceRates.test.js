@@ -57,12 +57,16 @@ describe('separate academic and H2014 program schedules',()=>{
     expect(signed).toMatchObject({effectiveOn:'2026-11-02',data:{compensationPolicyVersion:COMPENSATION_POLICY_VERSION,schedule:{tutoringRate:24,tutoringRateProbation:20.4}}});
     expect(agreementRateProfile(base,signed)).toMatchObject({programRatesEffectiveOn:'2026-11-02',tutoringRate:24});
   });
-  it('shows program rows in fifteen tables without a separate ISI pay-approval condition',()=>{
+  it('keeps ISI program rows and separates the new NLU service-specific schedules',()=>{
     for(const slug of ['nlu','tisi']) {
       const source=getHandbookSource({slug});
-      const rateSections=source.sections.filter(s=>/^compensation-rate-category-[123]$/.test(s.slug));
-      expect(rateSections).toHaveLength(3);
-      for(const section of rateSections) expect(section.body_html.match(/Homework Help<br \/><small>per direct-hour equivalent/g)).toHaveLength(5);
+      const rateSections=source.sections.filter(s=>/^compensation-rate-category-[1-4]$/.test(s.slug));
+      expect(rateSections).toHaveLength(slug==='nlu'?4:3);
+      if(slug==='tisi')for(const section of rateSections) expect(section.body_html.match(/Homework Help<br \/><small>per direct-hour equivalent/g)).toHaveLength(5);
+      else {
+        expect(source.sections.find(s=>s.slug==='nlu-tutoring-compensation').body_html).toContain('$33.00');
+        expect(source.sections.find(s=>s.slug==='compensation-rate-category-1').body_html).toContain('No clinical');
+      }
       expect(source.reviewUpdates.some(u=>u.subject==='Homework Help, Tutoring and Therapy + Tutoring rates')).toBe(true);
       if(slug==='tisi')expect(source.sections.find(s=>s.slug==='program-service-rate-schedules').body_html).toContain('Your selected compensation category and level determine the rates');
     }

@@ -19,31 +19,30 @@ import { removeFailedCommunications } from '../controllers/communicationFailureQ
 
 const router = express.Router();
 
-// All routes require authentication
-router.use(authenticate);
+// Authenticate only matched routes: this router is mounted at /api.
 
 // Get all communications for a user
-router.get('/users/:userId/communications', getUserCommunications);
+router.get('/users/:userId/communications', authenticate, getUserCommunications);
 
 // Get single communication
-router.get('/users/:userId/communications/:id', getCommunication);
+router.get('/users/:userId/communications/:id', authenticate, getCommunication);
 
 // Regenerate email from template
-router.post('/users/:userId/communications/:id/regenerate', regenerateEmail);
+router.post('/users/:userId/communications/:id/regenerate', authenticate, regenerateEmail);
 
 // Platform communications (pending/approval)
-router.get('/communications/pending-count', getPendingCommunicationsCount);
-router.get('/communications/categories', listCommunicationCategories);
-router.get('/communications/pending', listPendingCommunications);
-router.post('/communications/resolve-quality-bulk', resolveCommunicationsQualityBulk);
-router.post('/communications/remove-failed', removeFailedCommunications);
-router.get('/communications/:id/detail', getCommunicationDetail);
+router.get('/communications/pending-count', authenticate, getPendingCommunicationsCount);
+router.get('/communications/categories', authenticate, listCommunicationCategories);
+router.get('/communications/pending', authenticate, listPendingCommunications);
+router.post('/communications/resolve-quality-bulk', authenticate, resolveCommunicationsQualityBulk);
+router.post('/communications/remove-failed', authenticate, removeFailedCommunications);
+router.get('/communications/:id/detail', authenticate, getCommunicationDetail);
 // This router mounts before the unified inbox. Static paths such as /prefs
 // must reach their own handlers instead of being mistaken for a draft ID.
-router.patch('/communications/:id(\\d+)', updateCommunicationDraft);
-router.post('/communications/:id/approve', approveCommunication);
-router.post('/communications/:id/cancel', cancelCommunication);
-router.post('/communications/:id/resolve-quality', resolveCommunicationQuality);
-router.post('/communications/:id/retry-send', retryCommunicationSend);
+router.patch('/communications/:id(\\d+)', authenticate, updateCommunicationDraft);
+router.post('/communications/:id/approve', authenticate, approveCommunication);
+router.post('/communications/:id/cancel', authenticate, cancelCommunication);
+router.post('/communications/:id/resolve-quality', authenticate, resolveCommunicationQuality);
+router.post('/communications/:id/retry-send', authenticate, retryCommunicationSend);
 
 export default router;

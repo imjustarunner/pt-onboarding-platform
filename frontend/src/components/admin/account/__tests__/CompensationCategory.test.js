@@ -14,3 +14,13 @@ it('loads object category labels, seeds category/level, and saves the edited ass
   await w.findAll('button').find(b=>b.text().includes('Save Assignment')).trigger('click'); await flushPromises();
   expect(api.post).toHaveBeenCalledWith('/payroll/users/42/compensation-level', {agencyId:2,category:3,level:2,bypass:false,applyRates:false}); w.unmount();
 });
+
+it('shows NLU four-category labels from the API and retains its Category 4 selection',async()=>{
+  const categories={1:{label:'Foundational Provider'},2:{label:'Bachelor’s-Level and Approved Unlicensed Provider'},3:{label:'Master’s-Level and Pre-Licensed Provider'},4:{label:'Licensed and Advanced Provider'}};
+  const api={get:vi.fn(async url=>({data:url.includes('/users/532/compensation-level')?{assignment:{category:4,level:3,bypass:0},categories}:url==='/payroll/compensation-levels'?{levels:[],categoryLabels:{},categories}:[]})),post:vi.fn(async(_url,body)=>({data:{assignment:body}}))};
+  const w=shallowMount(Dashboard,{global:{provide:{[USER_ACCOUNT_CONTEXT_KEY]:{api,userId:ref(532),agencyId:ref(6),user:ref({id:532,role:'provider'}),accountForm:ref({role:'provider'}),canEditUser:ref(true)}},stubs:{AccountDashboardCard:{template:'<section><slot /></section>'}}}});
+  await flushPromises();
+  const select=w.findAll('.comp-select')[0];expect(select.findAll('option')).toHaveLength(5);expect(select.element.value).toBe('4');expect(select.text()).toContain('Licensed and Advanced Provider');
+  await w.findAll('button').find(b=>b.text().includes('Save Assignment')).trigger('click');await flushPromises();
+  expect(api.post).toHaveBeenCalledWith('/payroll/users/532/compensation-level',{agencyId:6,category:4,level:3,bypass:false,applyRates:false});w.unmount();
+});

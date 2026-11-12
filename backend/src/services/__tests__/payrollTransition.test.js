@@ -8,7 +8,7 @@ import {loadUserPaySystemContext,applyPaySystemToBreakdown} from '../paySystem.s
 const profile={category:2,level:2,creditRate:44,hcodeRate:32,indirectRate:22,supportActivityRate:18,autoIndirectMinutesPerHour:10};
 const schedule={...profile,supportRate:18,creditRateProbation:38,hcodeRateProbation:25,probationWaived:true,autoIndirectMinutes:10};
 const input={agencyId:2,userId:7,periodStart:'2026-10-10',periodEnd:'2026-10-23',benefitTierLevel:1};
-beforeEach(()=>{vi.clearAllMocks();m.enabled.mockResolvedValue(true);m.assignment.mockResolvedValue({category:2,level:2,pay_system_enabled:1,pay_system_effective_start:'2026-10-10',waive_probation:1});m.profile.mockResolvedValue({...profile});m.agreement.mockResolvedValue({id:1,effectiveOn:'2026-10-10',data:{compensationPolicyVersion:'itsco-2026-10-service-credit-v3',schedule}});m.execute.mockResolvedValue([[{original_start:'2024-01-01'}]]);});
+beforeEach(()=>{vi.clearAllMocks();m.enabled.mockResolvedValue(true);m.assignment.mockResolvedValue({category:2,level:2,pay_system_enabled:1,pay_system_effective_start:'2026-10-10',waive_probation:1});m.profile.mockResolvedValue({...profile});m.agreement.mockResolvedValue({id:1,effectiveOn:'2026-10-10',data:{compensationPolicyVersion:'itsco-2026-10-service-credit-v3',schedule}});m.execute.mockImplementation(async sql=>sql.includes('payroll_future_hire_enrollments')?[[]]:[[{original_start:'2024-01-01'}]]);});
 it('keeps the payroll processed October 12 on old terms for September 26–October 9',async()=>{m.agreement.mockResolvedValue(null);expect(await loadUserPaySystemContext({...input,periodStart:'2026-09-26',periodEnd:'2026-10-09'})).toMatchObject({enabled:false,notYetEffective:true});expect(m.profile).not.toHaveBeenCalled();expect(m.agreement).not.toHaveBeenCalled();});
 it('does not activate anyone while the agency is off',async()=>{m.enabled.mockResolvedValue(false);expect(await loadUserPaySystemContext(input)).toMatchObject({enabled:false});expect(m.assignment).not.toHaveBeenCalled();});
 it('recomputes downloaded old-rate amounts using signed new terms for new service dates',async()=>{const context=await loadUserPaySystemContext(input);const breakdown={'90837':{units:2,finalizedUnits:2,amount:100,rateAmount:50,category:'direct'}};const totals=applyPaySystemToBreakdown({breakdown,...context,datedUnitsByCode:new Map([['90837',[{serviceDate:'2026-10-10',units:2}]]])});expect(totals.servicePay).toBe(88);expect(breakdown['90837'].rateAmount).toBe(44);});
@@ -22,3 +22,18 @@ it('rejects unmatched carryovers rather than scaling dated units',async()=>{cons
 it('requires a dated review for aggregate shift hours',async()=>{const context=await loadUserPaySystemContext(input);expect(()=>applyPaySystemToBreakdown({breakdown:{},...context,shiftDirectHours:2})).toThrow('dated rate review');});
 it.each(['2026-02-30','not-a-date'])('rejects invalid service date %s',async date=>{const context=await loadUserPaySystemContext(input);expect(()=>applyPaySystemToBreakdown({breakdown:{'90837':{units:1}},...context,datedUnitsByCode:new Map([['90837',[{serviceDate:date,units:1}]]])})).toThrow('valid service date');});
 it('does not require completed new-rate setup to process the earlier period',async()=>{m.assignment.mockResolvedValue({pay_system_enabled:1,pay_system_effective_start:'2026-10-10'});expect(await loadUserPaySystemContext({...input,periodStart:'2026-09-26',periodEnd:'2026-10-09'})).toMatchObject({enabled:false,notYetEffective:true});expect(m.agreement).not.toHaveBeenCalled();});
+
+it('automatically uses reviewed new-hire terms even while the legacy agency rollout stays off',async()=>{
+ m.enabled.mockResolvedValue(false);m.assignment.mockResolvedValue(null);
+ m.execute.mockImplementation(async sql=>{
+  if(sql.includes('payroll_future_hire_enrollments'))return [[{agency_id:2,user_id:7,effective_start:'2026-10-10'}]];
+  if(sql==='SELECT slug FROM agencies WHERE id=?')return [[{slug:'itsco'}]];
+  if(sql.includes('payroll_salary_positions'))return [[]];
+  return [[{original_start:'2026-10-10'}]];
+ });
+ const context=await loadUserPaySystemContext(input);
+ expect(context).toMatchObject({enabled:true,assignment:{automatic_future_hire:true},rateProfile:{creditRate:44}});
+ expect(m.profile).not.toHaveBeenCalled();
+ m.agreement.mockResolvedValue(null);
+ await expect(loadUserPaySystemContext(input)).rejects.toThrow('executed or individually authorized');
+});

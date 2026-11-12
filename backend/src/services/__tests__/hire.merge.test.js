@@ -19,7 +19,7 @@ describe('contract merge validation', () => {
     db.execute.mockResolvedValueOnce([[{ is_active: 1, pay_mode: 'none', clause_keys_json: ['ROLE', 'SIG_BLOCK'] }]])
       .mockResolvedValueOnce([[{ clause_key: 'ROLE', body_html: '<p>Tutoring appointment.</p>' }, { clause_key: 'SIG_BLOCK', body_html: '<p>Electronic acceptance.</p>' }]]);
     const result = await renderContractHtml({ agencyId: 1, configId: 1, tokens: { ROLE_LABEL: 'Employee', JOB_TITLE: 'Tutor' } });
-    expect(result.html).toContain('Category 3 · Licensed &amp; Advanced Professionals');
+    expect(result.html.includes(slug === 'nlu' ? 'Category 4 — Licensed and Advanced Provider' : 'Category 3 · Licensed &amp; Advanced Professionals')).toBe(true);
     expect(result.html).toContain('Workplace Handbook policy communicated');
     expect(result.html).toContain('actual work and required waiting time is separate');
     expect(result.html.indexOf('Missed-session fee compensation')).toBeLessThan(result.html.indexOf('class="contract-signatures"'));

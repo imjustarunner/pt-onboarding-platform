@@ -1,4 +1,4 @@
-import PayrollCompensationLevel, { COMPENSATION_CATEGORIES, CATEGORY_IDS, LEVEL_IDS } from '../models/PayrollCompensationLevel.model.js';
+import PayrollCompensationLevel, { LEVEL_IDS } from '../models/PayrollCompensationLevel.model.js';
 import PayrollRateCard from '../models/PayrollRateCard.model.js';
 import PayrollRate from '../models/PayrollRate.model.js';
 
@@ -26,7 +26,7 @@ export const listCompensationLevels = async (req, res, next) => {
       levels: levelsR.status === 'fulfilled' ? levelsR.value : [],
       categoryLabels: labelsR.status === 'fulfilled' ? labelsR.value : { 1: '', 2: '', 3: '' },
       levelRates: ratesR.status === 'fulfilled' ? ratesR.value : {},
-      categories: COMPENSATION_CATEGORIES
+      categories: await PayrollCompensationLevel.getCategories(agencyId)
     });
   } catch (e) { next(e); }
 };
@@ -39,13 +39,14 @@ export const saveCompensationLevels = async (req, res, next) => {
   try {
     const agencyId = requireAgencyId(req, res);
     if (!agencyId) return;
+    const categoryIds=await PayrollCompensationLevel.getCategoryIds(agencyId);
     const { levels, categoryLabels, levelRates } = req.body;
     if (!Array.isArray(levels)) return res.status(400).json({ error: { message: 'levels array is required' } });
 
     for (const row of levels) {
       const cat = parseInt(row.category, 10);
       const lvl = parseInt(row.level, 10);
-      if (!CATEGORY_IDS.includes(cat) || !LEVEL_IDS.includes(lvl)) continue;
+      if (!categoryIds.includes(cat) || !LEVEL_IDS.includes(lvl)) continue;
       await PayrollCompensationLevel.upsert(agencyId, cat, lvl, {
         label: row.label ?? null,
         directRate: row.directRate ?? null,
@@ -56,7 +57,7 @@ export const saveCompensationLevels = async (req, res, next) => {
     }
 
     if (categoryLabels && typeof categoryLabels === 'object') {
-      for (const cat of CATEGORY_IDS) {
+      for (const cat of categoryIds) {
         if (categoryLabels[cat] !== undefined) {
           await PayrollCompensationLevel.saveCategoryLabel(agencyId, cat, categoryLabels[cat]);
         }
@@ -65,7 +66,7 @@ export const saveCompensationLevels = async (req, res, next) => {
 
     // Per-code (FFS) rates per level, keyed "cat:level"
     if (levelRates && typeof levelRates === 'object') {
-      for (const cat of CATEGORY_IDS) {
+      for (const cat of categoryIds) {
         for (const lvl of LEVEL_IDS) {
           const key = `${cat}:${lvl}`;
           if (Array.isArray(levelRates[key])) {
@@ -95,7 +96,7 @@ export const getUserCompensationLevel = async (req, res, next) => {
     if (!agencyId) return;
     const userId = parseInt(req.params.userId, 10);
     const row = await PayrollCompensationLevel.getForUser(agencyId, userId);
-    res.json({ assignment: row || null, categories: COMPENSATION_CATEGORIES });
+    res.json({ assignment: row || null, categories: await PayrollCompensationLevel.getCategories(agencyId) });
   } catch (e) { next(e); }
 };
 
@@ -116,7 +117,8 @@ export const assignUserCompensationLevel = async (req, res, next) => {
     const applyRates = !bypass && !!req.body.applyRates;
 
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
-    if (!CATEGORY_IDS.includes(category)) return res.status(400).json({ error: { message: 'Invalid category (must be 1-3)' } });
+    const categoryIds=await PayrollCompensationLevel.getCategoryIds(agencyId);
+    if (!categoryIds.includes(category)) return res.status(400).json({ error: { message: `Invalid category (choose ${categoryIds.join(', ')})` } });
 
     const body = req.body || {};
     const payFlags = {

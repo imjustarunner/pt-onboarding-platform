@@ -68,10 +68,10 @@ describe('NLU handbook reconciliation', () => {
   it('has valid navigation and exact ready policy destinations without foreign update IDs', () => {
     validateHandbookSections(source.sections);
     for (const s of source.sections) for (const [, target] of s.body_html.matchAll(/href="#handbook-([^"]+)"/g)) assert.ok(section(target), `${s.slug} → ${target}`);
-    assert.equal(source.reviewUpdates.length, 35);
-    assert.ok(source.reviewUpdates.every(update => update.period_label === 'October 2026'));
+    assert.ok(source.reviewUpdates.some(update => update.period_label === 'October 2026'));
+    assert.ok(source.reviewUpdates.some(update => update.period_label === 'November 2026' && update.handbook_section_slug === 'nlu-provider-categories'));
     for (const update of source.reviewUpdates) {
-      assert.match(update.id, /^nlu-source-/);
+      assert.match(update.id, /^nlu-(?:source-|provider-roles-)/);
       for (const target of update.policy_section_slugs) assert.equal(section(target)?.content_status, 'ready', target);
       assert.doesNotMatch(update.changed_content.replace('ITSCO retains its separate policy.', ''), /Skill Builders|ITSCO|school-assigned/i);
     }

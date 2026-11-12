@@ -5,6 +5,7 @@ import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
+import { useSessionLockStore } from '../../store/sessionLock';
 import UnifiedInboxSidebar from './UnifiedInboxSidebar.vue';
 import UnifiedConversationList from './UnifiedConversationList.vue';
 import UnifiedConversationThread from './UnifiedConversationThread.vue';
@@ -19,6 +20,7 @@ const props = defineProps({
 
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
+const sessionLock = useSessionLockStore();
 const route = useRoute();
 const router = useRouter();
 
@@ -123,8 +125,9 @@ async function loadInboxes() {
 
 async function refreshAll() {
   try {
-    await ensurePersonalMailbox();
-    await Promise.all([loadAttention(), loadInboxes(), loadConversations(), loadPrefs()]);
+    // Existing mail can load while the optional compose mailbox is provisioned.
+    // A slow provisioning request must not leave the conversation list waiting.
+    await Promise.all([ensurePersonalMailbox(), loadAttention(), loadInboxes(), loadConversations(), loadPrefs()]);
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Could not refresh inbox';
   }
@@ -376,7 +379,7 @@ watch(()=>route.query.conversationId,openRouteConversation);
 let mailboxPoll = null;
 let pollBusy = false;
 async function refreshSharedState() {
-  if (document.hidden || pollBusy) return;
+  if (document.hidden || pollBusy || sessionLock.isLocked || sessionLock.warningActive) return;
   pollBusy = true;
   try {
     const id = selectedId.value;
@@ -389,6 +392,9 @@ async function refreshSharedState() {
     await Promise.allSettled(requests);
   } finally { pollBusy = false; }
 }
+watch(() => sessionLock.isLocked || sessionLock.warningActive, (locked, wasLocked) => {
+  if (wasLocked && !locked) refreshAll();
+});
 onMounted(() => {
   refreshAll();
   openRouteConversation(route.query.conversationId);
@@ -493,7 +499,7 @@ defineExpose({ refreshAll });
       </div>
     </div>
 
-    <div v-if="error" class="uc-error">{{ error }}</div>
+    <div v-if="error" class="uc-error" role="alert">{{ error }} <button type="button" class="btn btn-secondary btn-sm" @click="refreshAll">Retry</button></div>
 
     <div class="uc-mobile-toolbar">
       <button v-if="selectedId" type="button" class="btn btn-secondary btn-sm" @click="openConversation(null)">← Back to inbox</button>

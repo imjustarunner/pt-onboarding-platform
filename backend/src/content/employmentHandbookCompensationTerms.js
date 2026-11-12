@@ -1,5 +1,6 @@
 import { ADVANCED_CATEGORY_LABEL, ADVANCED_CATEGORY_DESCRIPTION, ADVANCED_CATEGORY_PLACEMENT } from './advancedCompensationCategory.js';
 import { BONUS_TAX_CLAUSE } from './bonusTaxPolicy.js';
+import { nluCategoryDefinitionsHtml } from './providerRolesNovember2026.js';
 
 export const EMPLOYMENT_HANDBOOK_COMPENSATION_VERSION = 'handbook-category-and-missed-fee-2026-10-29';
 export const EMPLOYMENT_HANDBOOK_COMPENSATION_KEY = 'HANDBOOK_CATEGORY_AND_MISSED_SESSION_PAY';
@@ -18,7 +19,7 @@ export const EMPLOYMENT_MISSED_SESSION_COMPENSATION_HTML = `<h3>Missed-session f
 <p>Pay for actual work and required waiting time is separate from the fee share and remains payable regardless of whether a client fee is collected. Record all compensable time. Applicable minimum-wage, overtime and other wage requirements continue to apply; a fee share does not replace required wages or authorize duplicate payment for the same work.</p>`;
 
 /** Applied only when generating a new contract; stored agreements are untouched. */
-export function applyEmploymentHandbookCompensation(clauses) {
+export function applyEmploymentHandbookCompensation(clauses, { tenant } = {}) {
   const result = clauses.filter(clause => String(clause.clause_key || '').toUpperCase() !== EMPLOYMENT_HANDBOOK_COMPENSATION_KEY).map(clause => {
     const key = String(clause.clause_key || '').toUpperCase();
     if (/^(?:NO_SHOW_COMP(?:ENSATION)?|MISSED_SESSION_(?:PAY|COMPENSATION)|LATE_CANCEL(?:LATION)?_(?:PAY|COMPENSATION))(?:_[A-Z0-9]+)*$/.test(key)) {
@@ -29,7 +30,7 @@ export function applyEmploymentHandbookCompensation(clauses) {
   const policy = {
     clause_key: EMPLOYMENT_HANDBOOK_COMPENSATION_KEY,
     title: 'Compensation categories and missed-session fees',
-    body_html: `<h2>Compensation categories and missed-session fees</h2>${EMPLOYMENT_CATEGORY_DEFINITIONS_HTML}${EMPLOYMENT_MISSED_SESSION_COMPENSATION_HTML}<h3>Bonus amounts and withholding</h3><p>${BONUS_TAX_CLAUSE}</p>`,
+    body_html: `<h2>Compensation categories and missed-session fees</h2>${tenant==='nlu'?nluCategoryDefinitionsHtml():EMPLOYMENT_CATEGORY_DEFINITIONS_HTML}${EMPLOYMENT_MISSED_SESSION_COMPENSATION_HTML}<h3>Bonus amounts and withholding</h3><p>${BONUS_TAX_CLAUSE}</p>`,
     policyVersion: EMPLOYMENT_HANDBOOK_COMPENSATION_VERSION,
     policyReason: 'Current category definitions and handbook-based missed-session compensation for new agreements'
   };

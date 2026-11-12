@@ -1,3 +1,4 @@
+import {categoryIdsForAgency} from './compensationCategories.service.js';
 import pool from '../config/database.js';
 import { effectiveCompensationAgreement } from './employmentAgreementPolicy.service.js';
 
@@ -41,7 +42,7 @@ export async function activatePayrollAssignments(agencyId, {
       const old=oldById.get(userId);
       if(Number(old?.pay_system_enabled) && day(old.pay_system_effective_start)!==row.start)throw review(`Employee ${userId} is already enrolled. Keep their original activation date to protect earlier payroll.`);
       if(Number(old?.pay_system_enabled) && (Number(old.category)!==Number(row.category)||Number(old.level)!==Number(row.level)))throw review(`Employee ${userId} is already enrolled. A level change needs a dated rate review; it cannot overwrite historical terms.`);
-      if(![1,2,3].includes(Number(row.category))||![1,2,3,4,5].includes(Number(row.level)))throw review(`Employee ${userId} needs a valid category and level.`);
+      if(!(await categoryIdsForAgency(agencyId,db)).includes(Number(row.category))||![1,2,3,4,5].includes(Number(row.level)))throw review(`Employee ${userId} needs a valid category and level.`);
       const [[rate]]=await db.execute('SELECT id FROM payroll_pay_system_rates WHERE agency_id=? AND category=? AND level=?',[agencyId,row.category,row.level]);
       if(!rate)throw review(`Employee ${userId}'s rate profile has not been configured.`);
       const agreement=await effectiveCompensationAgreement({agencyId,userId,asOfDate:day(period.period_end)},db);

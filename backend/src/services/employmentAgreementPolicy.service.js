@@ -1,6 +1,7 @@
 import pool from '../config/database.js';
 import {authorizedCompensationSchedules} from './payrollCompensationAuthorization.service.js';
 import {SERVICE_CREDIT_POLICY_VERSION, isServiceCreditPolicy, defaultHcodeIndirectMinutes, directCareIndirectMinutes, conditionalLevelBonus} from '../utils/serviceCreditPolicy.js';
+import {isNluCompensationProfile,NLU_COMPENSATION_POLICY_VERSION} from '../content/nluCompensationPolicy.js';
 
 export const COMPENSATION_POLICY_VERSION = SERVICE_CREDIT_POLICY_VERSION;
 const parse = value => { try { return typeof value === 'string' ? JSON.parse(value) : (value || {}); } catch { return {}; } };
@@ -14,7 +15,7 @@ export function executedAgreement(row) {
   const savedData = parse(row.token_values_json), audit = parse(row.audit_trail), metadata = parse(row.metadata);
   // New employment schedules use merge tokens; retain the signed snapshot and
   // normalize only this explicitly supported generation for payroll readers.
-  const data = savedData.COMPENSATION_POLICY_VERSION === 'category-level-employment-2026-10-29-program'
+  const data = ['category-level-employment-2026-10-29-program',NLU_COMPENSATION_POLICY_VERSION].includes(savedData.COMPENSATION_POLICY_VERSION)
     ? {...savedData, employmentPayVersion:savedData.COMPENSATION_POLICY_VERSION, compensationPolicyVersion:COMPENSATION_POLICY_VERSION, schedule:parse(savedData.COMPENSATION_SCHEDULE)}
     : savedData;
   if (!row.signed_pdf_path || !audit.adminCountersign?.signedAt) return null;
@@ -53,9 +54,21 @@ export function agreementRateProfile(profile, agreement) {
   const s = agreement.data.schedule;
   const bonus = Number(s.tier3LevelBonus ?? conditionalLevelBonus(s.level));
   const tierTerms = agreement.data.compensationPolicyVersion === COMPENSATION_POLICY_VERSION
-    ? {tierBonusFfs:{1:0,2:0,3:bonus},tierBonusHcode:{1:0,2:0,3:Number(s.category)===1?bonus:0}}
+    ? {tierBonusFfs:{1:0,2:0,3:isNluCompensationProfile(s)&&Number(s.category)===1?0:bonus},tierBonusHcode:{1:0,2:0,3:Number(s.category)===(isNluCompensationProfile(s)?2:1)?bonus:0}}
     : {};
   return {...profile, ...tierTerms,
+    // Only an executed/authorized new schedule adopts NLU's new category meaning.
+    // Clear matrix markers when reading a signed legacy schedule.
+    nluCompensationPolicyVersion:s.nluCompensationPolicyVersion || null,
+    nluCompensationEffectiveOn:s.nluCompensationPolicyVersion ? agreement.effectiveOn : null,
+    childcareLevel:s.childcareLevel ?? null,childcareRate:s.childcareRate ?? s.childcareHourlyRate ?? null,
+    tutoringLevel:s.tutoringLevel ?? null,tutoringCategory:s.tutoringCategory ?? null,
+    tutoringRates:s.tutoringRates ?? null,testingAuthorized:s.testingAuthorized===true,
+    tutoringVirtualRate:s.tutoringVirtualRate??null,tutoringInPersonRate:s.tutoringInPersonRate??null,tutoringHourlyRate:s.tutoringHourlyRate??null,
+    testingAdministrationRate:s.testingAdministrationRate ?? null,
+    testingAdministrationRateProbation:s.testingAdministrationRateProbation ?? null,
+    testingEvaluationRate:s.testingEvaluationRate ?? null,
+    testingEvaluationRateProbation:s.testingEvaluationRateProbation ?? null,
     programRatesVersion:s.programRatesVersion || null, programTenant:s.programTenant || null,
     programRatesEffectiveOn:s.programRatesVersion ? [agreement.effectiveOn,s.programRatesEffectiveOn || agreement.effectiveOn].sort().at(-1) : null,
     homeworkHelpRate:s.homeworkHelpRate ?? null, homeworkHelpRateProbation:s.homeworkHelpRateProbation ?? null,

@@ -295,15 +295,18 @@ export async function getCandidateWizardContext({
   const payInference = inferCompensationFromCredential({
     credential: credentialOverride || tokens.CREDENTIAL,
     jobTitle: tokens.JOB_TITLE,
-    role: tokens.ROLE_TYPE
+    role: tokens.ROLE_TYPE,
+    agencySlug: agencyDefaults.agency?.slug
   });
 
   return {
     templates,
     configs,
     compensationLevels: compensationLevels.filter((r) => r.serviceRates?.length || r.label || r.direct_rate != null || r.indirect_rate != null || r.ffs_rate != null),
-    compensationCategories: COMPENSATION_CATEGORIES,
+    compensationCategories: typeof PayrollCompensationLevel.getCategories === 'function' ? await PayrollCompensationLevel.getCategories(agencyId) : COMPENSATION_CATEGORIES,
     serviceFocusOptions: agencyDefaults.serviceFocusOptions,
+    contractTenant: agencyDefaults.contractTenant,
+    contractServiceRoleOptions: agencyDefaults.contractServiceRoleOptions,
     schoolDaysEnabled: agencyDefaults.schoolDaysEnabled,
     agreementBuilder: itscoAgreementBuilder({ agency: agencyDefaults.agency, configs, tokens }),
     jobDescClauses,

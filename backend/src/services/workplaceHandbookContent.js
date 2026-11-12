@@ -17,6 +17,7 @@ import { applyNluH2014ProgramClarification, applyNluH2014ReviewClarification } f
 import { applySessionCompensationAmendment } from '../content/sessionCompensationAmendment.js';
 import { applyProgramRateHandbookAmendment } from '../content/programRateHandbookAmendment.js';
 import { applyAdpSickLeaveReportingHandbook } from '../content/adpSickLeaveReportingHandbook.js';
+import { applyProviderRolesNovemberPolicy } from '../content/providerRolesNovember2026.js';
 
 const itsco = JSON.parse(readFileSync(new URL('../content/handbooks/itsco.json', import.meta.url), 'utf8'));
 const itscoUpdateDrafts = JSON.parse(readFileSync(new URL('../content/handbooks/itsco-draft-updates.json', import.meta.url), 'utf8'));
@@ -78,6 +79,7 @@ export function getHandbookSource(agency, { employeeTemplates } = {}) {
   applyDirectCareIndirectCorrection(source);
   applyNluServicePayClarification(source, tenant);
   applyNarrivaServiceHandbookAmendment(source);
+  const rolePolicy = applyProviderRolesNovemberPolicy(source, payrollReportingUpdates, tenant);
   source.revision = createHash('sha256').update(JSON.stringify(source)).digest('hex');
   source.sections = source.sections.map((s, index) => ({
     slug: s.slug, parent_slug: s.parentSlug, title: s.title, source_page: s.sourcePage,
@@ -86,8 +88,8 @@ export function getHandbookSource(agency, { employeeTemplates } = {}) {
   validateHandbookSections(source.sections);
   // These are review material only. Never put draft policies into a published
   // section or its metadata merely because their source snapshot is available.
-  source.reviewUpdates = applyNluH2014ReviewClarification(payrollReportingUpdates, tenant).map(update => ({ ...update, changed_content: correctDirectCareIndirectText(update.changed_content) }));
-  source.reviewUpdatesCapturedAt = '2026-10-29';
+  source.reviewUpdates = tenant === 'nlu' ? rolePolicy.updates : applyNluH2014ReviewClarification(rolePolicy.updates, tenant).map(update => ({ ...update, changed_content: correctDirectCareIndirectText(update.changed_content) }));
+  source.reviewUpdatesCapturedAt = '2026-11-12';
   return source;
 }
 

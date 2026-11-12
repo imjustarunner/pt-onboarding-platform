@@ -15,6 +15,7 @@ import {
   listContractBuilderCandidates
 } from '../services/contractGenerator.service.js';
 import { contractCompensationLevels } from '../services/contractCompensation.service.js';
+import { categoriesForAgencySlug } from '../services/compensationCategories.service.js';
 import { itscoAgreementBuilder } from '../services/itscoAgreementBuilder.service.js';
 import { getAgencyBuilderDefaults, inferCompensationFromCredential, formatLicenseTypeDisplay } from '../services/contractMerge.service.js';
 
@@ -41,8 +42,11 @@ export const getContractLibrary = async (req, res, next) => {
       clauses,
       configs,
       compensationLevels: compensationLevels.filter((r) => r.label || r.direct_rate != null || r.indirect_rate != null || r.ffs_rate != null),
+      compensationCategories: categoriesForAgencySlug(agencyDefaults.agency?.slug),
       agency: agencyDefaults.agency,
       serviceFocusOptions: agencyDefaults.serviceFocusOptions,
+      contractTenant: agencyDefaults.contractTenant,
+      contractServiceRoleOptions: agencyDefaults.contractServiceRoleOptions,
       schoolDaysEnabled: agencyDefaults.schoolDaysEnabled,
       agreementBuilder: itscoAgreementBuilder({ agency: agencyDefaults.agency, configs }),
       offices: agencyDefaults.offices,
@@ -71,7 +75,8 @@ export const inferContractCompensation = async (req, res, next) => {
     const jobTitle = String(req.query.jobTitle || req.body?.jobTitle || '').trim();
     const role = String(req.query.role || req.body?.role || '').trim();
     const degree = String(req.query.degree || req.body?.degree || '').trim();
-    const inference = inferCompensationFromCredential({ credential, jobTitle, role });
+    const agencyDefaults = await getAgencyBuilderDefaults(agencyId);
+    const inference = inferCompensationFromCredential({ credential, jobTitle, role,agencySlug:agencyDefaults.agency?.slug });
     res.json({
       ...inference,
       licenseType: formatLicenseTypeDisplay({

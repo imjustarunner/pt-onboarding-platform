@@ -6,6 +6,7 @@ import {amendmentBenefitReferences,addHealthInsuranceClause,HEALTH_INSURANCE_SEC
 import {HCODE_HANDBOOK_REFERENCE,HCODE_HANDBOOK_HTML} from './hcodeCompensationPolicy.js';
 import {roleCompensationTerms,SUPERVISOR_COMPENSATION_HANDBOOK} from './roleCompensationTerms.js';
 import {categoryRateSchedule,personalRateTable,payTypeDescriptions,categoryDescriptions,conditionalLevelBonus,personalPayTypeDescriptions,SICK_LEAVE_RATE_POLICY,ACTIVITY_CLASSIFICATION_POLICY,CONDITIONAL_ADDITION_POLICY} from './compensationSchedulePresentation.js';
+import {isNluAmendment,nluAmendmentIssues,renderNluAmendment} from './nluCompensationAmendment.js';
 import {addLevelExpectationsToClauses, levelExpectationsHandbookSection} from './compensationLevelExpectations.js';
 /** October editorial drafts. These functions never activate payroll or send notices. */
 export const SEED_KEY = 'itsco-october-2026-compensation-v1';
@@ -26,6 +27,7 @@ export const sources = [
 ];
 
 export function amendmentIssues(data) {
+ if(isNluAmendment(data))return nluAmendmentIssues(data);
  const s = data.schedule || {}, issues = [];
  if(data.employee?.employmentType==='salaried' && data.compensationBasis!=='service_credit')return ['Review and approve the salary-specific amendment before issue; existing salary terms remain in effect.'];
  if (![1,2,3].includes(Number(s.category))) issues.push('Choose the employee’s approved compensation category.');
@@ -81,6 +83,7 @@ export function personalizeAmendmentClauses(html, s) {
   .replace('Tier 3 bonus eligibility continues to follow the disclosed session-count rules.',Number(s.tier3LevelBonus)>0?'Tier 3 addition eligibility follows the current dated handbook policy.':'');
 }
 export function renderAmendment(data) {
+ if(isNluAmendment(data))return renderNluAmendment(data);
  data={...data,commonClausesHtml:data.commonClausesHtml?renamePayRateLabels(data.commonClausesHtml):data.commonClausesHtml};
  if(data.employee?.employmentType==='salaried' && data.compensationBasis!=='service_credit')return `<h1>ITSCO, LLC</h1><h2>Salary amendment review · October 2026</h2><p><strong>Private draft — not issued or signed.</strong></p><p>Employee: <strong>${escapeHtml(data.employee.name)}</strong></p><p>Your existing salary arrangement remains in effect. You are not being assigned a fee-for-service category or a per-credit rate through this draft.</p>${data.salary?.salary_per_pay_period?`<p>Current recorded salary: <strong>${money(data.salary.salary_per_pay_period)} per pay period</strong>. This is the saved salary record, not a new salary award.</p>`:''}<p>Any proposed change to salary, additional paid duties, or leave terms must be specified in a salary-specific amendment before it is released for signature. This draft does not replace the existing salary agreement.</p>`;
 

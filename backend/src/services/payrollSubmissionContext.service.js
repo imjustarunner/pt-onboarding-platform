@@ -1,3 +1,4 @@
+import {futureHireEnrollment, futureHirePayContext} from './futureHirePay.service.js';
 import pool from '../config/database.js';
 import { isJacquelyneTimeUser } from '../utils/jacquelyneTimePolicy.js';
 import { jacquelyneAdminRate } from './jacquelyneTime.service.js';
@@ -10,12 +11,19 @@ import {classifyPayType,isPayrollCodeVisible} from './payrollCodeClassification.
 import {day} from './recurringPayroll.service.js';
 const parse=v=>{try{return typeof v==='string'?JSON.parse(v):v||{};}catch{return {};}};
 export async function submissionContext({agencyId,userId,asOf=day(new Date())}) {
- const [assignment,adminRate,agreement,agencyEnabled]=await Promise.all([
+ let [assignment,adminRate,agreement,agencyEnabled]=await Promise.all([
   PayrollCompensationLevel.getForUser(agencyId,userId),
   PayrollRate.findBestRate({agencyId,userId,serviceCode:'Admin Time',asOf}),
   effectiveCompensationAgreement({agencyId,userId,asOfDate:asOf}),
   PayrollPaySystemRate.isAgencyEnabled(agencyId)
  ]);
+ if (!assignment) {
+  const enrollment=await futureHireEnrollment(agencyId,userId);
+  if (enrollment) {
+   const future=await futureHirePayContext({agencyId,userId,periodStart:asOf,periodEnd:asOf,enrollment});
+   if (!future.notYetEffective) {assignment=future.assignment;agreement=future.agreement;agencyEnabled=true;}
+  }
+ }
  const [[draft]]=await pool.execute("SELECT token_values_json FROM contract_generations WHERE agency_id=? AND candidate_user_id=? AND JSON_UNQUOTE(JSON_EXTRACT(token_values_json,'$.draftKind'))='provider_update_compensation' ORDER BY id DESC LIMIT 1",[agencyId,userId]);
  const data=agreement?.data||parse(draft?.token_values_json),schedule=data.schedule||null;
  const role=data.roleCompensation?.cpa||data.roleCompensation?.mentor;

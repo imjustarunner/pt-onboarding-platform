@@ -25,6 +25,11 @@
     <div v-if="transitionMsg" class="save-success">{{ transitionMsg }}</div>
     <div v-if="goMsg" class="save-success">{{ goMsg }}</div>
 
+    <div v-if="futureHiresEnabled" class="ps-transition ps-transition--on">
+      <div><strong>New hires enroll automatically</strong><p class="ps-transition-sub">First-time hires completing onboarding join the new pay system. Current employee enrollment stays unchanged. Payroll still requires approved pay terms and authorization; Inner Strength uses each person’s individual agreement.</p>
+      <p v-if="futureHireEnrollments.length" class="ps-transition-sub">{{ futureHireEnrollments.length }} new hire(s) enrolled. Review each person’s approved pay terms before running payroll.</p></div>
+    </div>
+
     <!-- Agency flag -->
     <div class="ps-transition" :class="{ 'ps-transition--on': enabled }">
       <div>
@@ -89,6 +94,16 @@
     <div v-if="loading" class="ps-loading">Loading…</div>
 
     <template v-else>
+      <section v-if="nluServiceSchedules" class="ps-category">
+        <h3>NLU service-specific schedules</h3>
+        <p class="muted">Effective {{ nluServiceSchedules.effectiveOn }} after the required individual agreement. Childcare and tutoring use separately approved service levels. Individual overrides and applicable wage floors still apply.</p>
+        <div class="ps-table-wrap"><table class="ps-table">
+          <thead><tr><th>Pay level</th><th>Category 1 childcare base</th><th>Category 2–4 childcare base</th><th>Category 1 tutoring</th><th>Category 2 tutoring · virtual</th><th>Category 2 tutoring · in person</th></tr></thead>
+          <tbody><tr v-for="level in 5" :key="level"><td>{{ level }}</td><td>${{ nluServiceSchedules.childcare.category1[level-1] }}</td><td>${{ nluServiceSchedules.childcare.category2AndAbove[level-1] }}</td><td>${{ nluServiceSchedules.tutoring.category1[level-1] }}</td><td>${{ nluServiceSchedules.tutoring.category2Virtual[level-1] }}</td><td>${{ nluServiceSchedules.tutoring.category2InPerson[level-1] }}</td></tr></tbody>
+        </table></div>
+        <p class="muted">Childcare additions: +$4/hour for a second child, +$2 for a third, +$2 for a fourth; divide actual shared children by active assigned caregivers and round up for the compensation band. Review staffing above four children per caregiver. No automatic childcare indirect allowance. Categories 3–4 tutoring requires its own approved placement.</p>
+        <p class="muted">Authorized testing administration/scoring and clinical telephone assessment use actual time at the applicable Direct Care hourly rate plus the indirect allowance. Authorized evaluation uses actual time at the separately approved evaluation hourly rate with no automatic indirect allowance. Billing units never substitute for actual work minutes.</p>
+      </section>
       <!-- Rate matrix -->
       <div class="ps-categories">
         <div v-for="cat in CATEGORIES" :key="cat.id" class="ps-category">
@@ -120,29 +135,29 @@
                   <td class="col-rate">
                     <div class="ps-rate-input">
                       <span class="ps-prefix">$</span>
-                      <input v-model.number="draft[cat.id][lvl].creditRate" type="number" min="0" step="0.01" class="ps-input" placeholder="0.00" />
+                      <input v-model.number="draft[cat.id][lvl].creditRate" :disabled="CATEGORIES.length === 4 && cat.id === 1" type="number" min="0" step="0.01" class="ps-input" placeholder="0.00" />
                     </div>
                   </td>
                   <td class="col-rate">
                     <div class="ps-rate-input">
                       <span class="ps-prefix">$</span>
-                      <input v-model.number="draft[cat.id][lvl].creditRateProbation" type="number" min="0" step="0.01" class="ps-input" placeholder="0.00" />
+                      <input v-model.number="draft[cat.id][lvl].creditRateProbation" :disabled="CATEGORIES.length === 4 && cat.id === 1" type="number" min="0" step="0.01" class="ps-input" placeholder="0.00" />
                     </div>
                   </td>
                   <td class="col-rate">
                     <div class="ps-rate-input">
                       <span class="ps-prefix">$</span>
-                      <input v-model.number="draft[cat.id][lvl].hcodeRate" type="number" min="0" step="0.01" class="ps-input" placeholder="0.00" />
+                      <input v-model.number="draft[cat.id][lvl].hcodeRate" :disabled="CATEGORIES.length === 4 && cat.id === 1" type="number" min="0" step="0.01" class="ps-input" placeholder="0.00" />
                     </div>
                   </td>
                   <td class="col-rate">
                     <div class="ps-rate-input">
                       <span class="ps-prefix">$</span>
-                      <input v-model.number="draft[cat.id][lvl].hcodeRateProbation" type="number" min="0" step="0.01" class="ps-input" placeholder="0.00" />
+                      <input v-model.number="draft[cat.id][lvl].hcodeRateProbation" :disabled="CATEGORIES.length === 4 && cat.id === 1" type="number" min="0" step="0.01" class="ps-input" placeholder="0.00" />
                     </div>
                   </td>
                   <td v-if="hasTutoringRates"><input v-model.number="draft[cat.id][lvl].tutoringRate" type="number" min="0.01" step="0.01" class="ps-input" aria-label="Tutoring hourly rate" /></td>
-                  <td v-if="hasTutoringRates"><input v-model.number="draft[cat.id][lvl].h2014Rate" type="number" min="0.01" step="0.01" class="ps-input" placeholder="Use Direct Care Rate" aria-label="H2014 hourly override" /></td>
+                  <td v-if="hasTutoringRates"><input v-model.number="draft[cat.id][lvl].h2014Rate" :disabled="CATEGORIES.length === 4 && cat.id === 1" type="number" min="0.01" step="0.01" class="ps-input" placeholder="Use Direct Care Rate" aria-label="H2014 hourly override" /></td>
                   <td class="col-rate">
                     <div class="ps-rate-input">
                       <span class="ps-prefix">$</span>
@@ -283,11 +298,11 @@ const props = defineProps({
   agencyId: { type: Number, default: null }
 });
 
-const CATEGORIES = [
+const CATEGORIES = ref([
   { id: 1, label: 'Unlicensed', description: 'Unlicensed — Bachelors, Interns, QBHA, Peer & Unlicensed Masters' },
   { id: 2, label: 'Pre-licensed', description: 'Pre-licensed Masters Level — H pay plus 10 min auto-indirect per H hour' },
   { id: 3, label: 'Licensed', description: 'Licensed Professionals — H pay plus 10 min auto-indirect per H hour' }
-];
+]);
 
 const loading = ref(false);
 const saving = ref(false);
@@ -299,6 +314,9 @@ const saveSuccess = ref(false);
 const transitionMsg = ref('');
 const goMsg = ref('');
 const enabled = ref(false);
+const futureHiresEnabled = ref(false);
+const futureHireEnrollments = ref([]);
+const nluServiceSchedules = ref(null);
 const goEffectiveStart = ref('');
 const goWaiveProbation = ref(false);
 const rosterFilter = ref('');
@@ -320,7 +338,7 @@ const emptyLevel = () => ({
 
 const makeDraft = () => {
   const d = {};
-  for (const cat of [1, 2, 3]) {
+  for (const cat of CATEGORIES.value.map(c=>c.id)) {
     d[cat] = {};
     for (let lvl = 1; lvl <= 5; lvl++) d[cat][lvl] = emptyLevel();
   }
@@ -441,8 +459,12 @@ const loadAll = async () => {
       }).catch(() => ({ data: { assignments: [], pending: [], enabled: false } }))
     ]);
     if (seq !== reqSeq) return;
+    if(ratesRes?.data?.categories)CATEGORIES.value=Object.entries(ratesRes.data.categories).map(([id,c])=>({id:Number(id),...c}));
+    nluServiceSchedules.value=ratesRes?.data?.serviceCompensation||null;
     applyRates(ratesRes?.data?.rates || []);
     enabled.value = !!(ratesRes?.data?.enabled ?? assignRes?.data?.enabled);
+    futureHiresEnabled.value = ratesRes?.data?.futureHiresEnabled === true;
+    futureHireEnrollments.value = assignRes?.data?.futureHireEnrollments || [];
     buildRoster(assignRes?.data?.assignments || [], assignRes?.data?.pending || []);
   } catch (e) {
     if (seq === reqSeq) {
@@ -463,7 +485,7 @@ const saveAll = async () => {
   saveSuccess.value = false;
   try {
     const rates = [];
-    for (const cat of [1, 2, 3]) {
+    for (const cat of CATEGORIES.value.map(c=>c.id)) {
       for (let lvl = 1; lvl <= 5; lvl++) {
         const d = draft.value[cat][lvl];
         rates.push({
