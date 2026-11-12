@@ -10,7 +10,7 @@
     </header>
 
     <div v-if="loading" class="muted">Loading candidate…</div>
-    <div v-else-if="error" class="error">{{ error }}</div>
+    <div v-else-if="error" class="error" role="alert">{{ error }} <button type="button" @click="load">Retry loading setup</button></div>
     <template v-else>
       <nav class="sph-steps" aria-label="Pre-hire setup"><button v-for="(label, i) in setupSteps" :key="label" type="button" :aria-current="setupStep === i ? 'step' : undefined" @click="setupStep = i"><span>{{ i + 1 }}</span>{{ label }}</button></nav>
       <p class="muted">Step {{ setupStep + 1 }} of {{ setupSteps.length }} · {{ setupSteps[setupStep] }}</p>
@@ -410,7 +410,7 @@ const load = async () => {
       api.get('/hiring/settings', { params: { agencyId: agencyId.value } }).catch(() => ({ data: {} })),
       api.get('/hiring/signer-roles', { params: { agencyId: agencyId.value } }).catch(() => ({ data: [] })),
       api.get('/users', { params: { agencyId: agencyId.value, staffOnly: true } }).catch(() => ({ data: [] })),
-      api.get(`/contracts/candidates/${userId.value}/wizard-context`, { params: { agencyId: agencyId.value } }).catch(() => ({ data: {} })),
+      api.get(`/contracts/candidates/${userId.value}/wizard-context`, { params: { agencyId: agencyId.value } }),
       api.get('/onboarding-packages', { params: { agencyId: agencyId.value } }),
       api.get('/document-templates', { params: { agencyId: agencyId.value, limit: 1000 } })
     ]);

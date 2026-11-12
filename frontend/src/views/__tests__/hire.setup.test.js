@@ -28,6 +28,43 @@ beforeEach(() => {
 afterEach(() => wrapper?.unmount());
 const button = text => wrapper.findAll('button').find(b => b.text().includes(text));
 describe('hire setup wizards', () => {
+  it('shows a failed contract setup request and retries without restoring or saving empty defaults', async () => {
+    const defaultGet = http.get.getMockImplementation();
+    const message = 'Contract settings are temporarily unavailable.';
+    let unavailable = true;
+    http.get.mockImplementation(async url => {
+      if (url.includes('wizard-context') && unavailable) throw { response: { data: { error: { message } } } };
+      return defaultGet(url);
+    });
+    wrapper = mount(StartPreHire, { global: { stubs: { RouterLink: true } } }); await flushPromises();
+    expect(wrapper.get('[role="alert"]').text()).toContain(message);
+    expect(wrapper.text()).not.toContain('place-of-business address is missing');
+    expect(http.get.mock.calls.some(([url]) => url.endsWith('prehire-draft'))).toBe(false);
+    expect(http.put).not.toHaveBeenCalled();
+    unavailable = false;
+    await button('Retry loading setup').trigger('click'); await flushPromises();
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false);
+    expect(wrapper.findAll('label').find(l => l.text() === 'Employer address').get('input').element.value).toBe(officeDefaults.agency.address);
+  });
+  it('loads the agency address while displaying compensation review requirements', async () => {
+    const defaultGet = http.get.getMockImplementation();
+    const review = 'Review the actual service date and prior individual terms before applying the new NLU service schedule.';
+    http.get.mockImplementation(async url => {
+      const response = await defaultGet(url);
+      if (url.includes('wizard-context')) {
+        response.data.configs[0].pay_mode = 'ffs';
+        response.data.compensationLevels = [{ category: 2, level: 1, direct_rate: 26, indirect_rate: 20, serviceRatesError: review }];
+      }
+      return response;
+    });
+    wrapper = mount(StartPreHire, { global: { stubs: { RouterLink: true } } }); await flushPromises();
+    await wrapper.findAll('label').find(l => l.text().startsWith('Pay category')).get('select').setValue('2');
+    await wrapper.findAll('label').find(l => l.text().startsWith('Pay level')).get('select').setValue('1');
+    expect(wrapper.text()).toContain(review);
+    expect(wrapper.text()).not.toContain('place-of-business address is missing');
+    expect(wrapper.findAll('label').find(l => l.text() === 'Employer address').get('input').element.value).toBe(officeDefaults.agency.address);
+  });
+
   it('uses the person’s saved onboarding collection and steps when preparing promotion', async () => {
     const original = http.get.getMockImplementation();
     http.get.mockImplementation(async url => url.endsWith('hire-packages') ? { data: { phases: { onboarding: { packageId: 9, workflow: { resources: [{ id: 'orientation', phase: 'onboarding', title: 'Personal orientation', kind: 'link', url: 'https://example.org/orientation' }], excludedResourceIds: ['w4'] } } } } } : original(url));

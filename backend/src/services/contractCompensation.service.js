@@ -20,7 +20,13 @@ export async function contractCompensationLevels(agencyId, { includeServiceRates
       ffs_rate: (profile ? profile.creditRate : row.ffs_rate) ?? null };
     if (includeServiceRates) {
       try { result.serviceRates = profile ? contractServiceRates(result, rules) : result.legacyServiceRates.map(rate => ({ code: rate.serviceCode, rate: `$${Number(rate.rateAmount).toFixed(2)}`, unit: rate.rateUnit === 'per_hour' ? 'per hour' : 'per unit' })); }
-      catch (error) { if (error.status !== 400) throw error; result.serviceRatesError = error.message; }
+      catch (error) {
+        // This is an optional rate illustration, not a payroll calculation or
+        // contract approval. Policy review can require actual work details that
+        // do not exist yet; keep the wizard usable and show the review message.
+        if (![400, 409].includes(error.status)) throw error;
+        result.serviceRatesError = error.message;
+      }
     }
     return result;
   });
