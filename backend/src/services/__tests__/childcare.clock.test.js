@@ -1,4 +1,5 @@
 import {describe,it,expect,vi,beforeEach} from 'vitest';
+import {createHash} from 'node:crypto';
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn(),getConnection:vi.fn()}}));
 vi.mock('../agencyAccessProfiles.service.js',()=>({readAgencyAccess:vi.fn(async(_uid,_aid,db)=>({role:db.scopedRole||'provider'}))}));
 vi.mock('../employmentAgreementPolicy.service.js',()=>({
@@ -6,7 +7,7 @@ vi.mock('../employmentAgreementPolicy.service.js',()=>({
  agreementRateProfile:vi.fn((_,agreement)=>agreement.data.schedule)
 }));
 import pool from '../../config/database.js';
-import {recordChildcareAction} from '../childcare.service.js';
+import {recordChildcareAction,previewChildcarePay} from '../childcare.service.js';
 import {childcareClaimAmount} from '../childcarePay.service.js';
 
 function memoryShift({role='provider'}={}) {
@@ -31,6 +32,7 @@ function memoryShift({role='provider'}={}) {
   if(sql.startsWith('UPDATE childcare_shifts SET attendance_review_required=0')){state.shift.attendance_review_required=0;return [{affectedRows:1}];}
   if(sql.startsWith('INSERT INTO skill_builders_event_kiosk_punches')){state.punches.push({id:++nextId,user_id:p[1],punch_type:sql.includes("'clock_in'")?'clock_in':'clock_out',punched_at:p[2]});return [{insertId:nextId}];}
   if(sql.startsWith('SELECT s.*,c.status claim_status'))return [state.snapshot?[{...state.snapshot,claim_status:state.claim?.status}]:[]];
+  if(sql.startsWith('SELECT s.payroll_time_claim_id,s.snapshot_hash'))return [state.snapshot?[{...state.snapshot,claim_status:state.claim?.status}]:[]];
   if(sql.startsWith('INSERT INTO childcare_pay_snapshots')){state.snapshot={snapshot_json:p[2],snapshot_hash:p[3],payroll_time_claim_id:p[4]};return [{affectedRows:1}];}
   if(sql.startsWith('INSERT INTO payroll_time_claims')){state.claim={id:++nextId,status:p[3],claim_type:'childcare_shift',payload:JSON.parse(p[5]),credits_hours:p[6]};return [{insertId:nextId}];}
   if(sql.startsWith('UPDATE payroll_time_claims SET payload_json')){state.claim.payload=JSON.parse(p[0]);state.claim.status=p[1];state.claim.credits_hours=p[2];return [{affectedRows:1}];}
@@ -44,6 +46,17 @@ function memoryShift({role='provider'}={}) {
 }
 beforeEach(()=>vi.clearAllMocks());
 describe('childcare real punch to reviewable payroll claim',()=>{
+ it.each(['approved','paid'])('shows a verified historic %s snapshot in employee pay preview without a false correction',async status=>{
+  const {state,db}=memoryShift();pool.getConnection.mockResolvedValue(db);
+  await recordChildcareAction({shiftId:8,userId:7,action:'clock-in',actualChildren:3,now:new Date('2026-11-19T23:00:00Z')});
+  await recordChildcareAction({shiftId:8,userId:7,action:'clock-out',actualChildren:3,now:new Date('2026-11-20T02:00:00Z')});
+  state.claim.status=status;
+  const original=JSON.parse(state.snapshot.snapshot_json),legacyHash=createHash('sha256').update(JSON.stringify(original)).digest('hex');
+  const stored=Object.fromEntries(Object.entries(original).reverse().map(([key,value])=>[key,key==='segments'?value.map(segment=>Object.fromEntries(Object.entries(segment).reverse())):value]));
+  state.snapshot.snapshot_json=JSON.stringify(stored);state.snapshot.snapshot_hash=legacyHash;
+  expect(await previewChildcarePay({shiftId:8,userId:7},db)).toMatchObject({totalAmount:105,reviewRequired:false,correctionReviewRequired:false,claimStatus:status});
+  expect(state.snapshot.snapshot_hash).toBe(legacyHash);expect(state.claim.status).toBe(status);
+ });
  it('records one actual shift and one linked claim; app retries never duplicate pay',async()=>{
   const {state,db}=memoryShift();pool.getConnection.mockResolvedValue(db);
   await recordChildcareAction({shiftId:8,userId:7,action:'clock-in',confirmPlannedCount:true,idempotencyKey:'clock-in-unique',now:new Date('2026-11-19T23:00:00Z')});

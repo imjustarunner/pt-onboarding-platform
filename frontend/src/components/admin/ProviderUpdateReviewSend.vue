@@ -89,6 +89,7 @@ async function copyUpdateLink(row){
  }
 }
 const pushId=ref(''),push=ref(null),people=ref([]),personId=ref(''),recipients=ref([]),search=ref(''),busy=ref(false),error=ref(''),notice=ref(''),previewUrl=ref(''),amendment=ref(null),needsAmendment=ref(false),approved=ref(false);
+const qaWorkflowAllowed=person=>person.qa_workflow_allowed===true&&Number(person.qa_workflow_agency_id)===Number(props.agencyId);
 const availablePushes=computed(()=>props.pushes.filter(p=>!String(p.title).startsWith('[PREVIEW]')));
 const person=computed(()=>people.value.find(p=>Number(p.provider_user_id)===Number(personId.value)));
 const name=computed(()=>person.value?`${person.value.first_name} ${person.value.last_name}`.trim():'');
@@ -97,7 +98,7 @@ const reviewOpen=ref(false),reviews=ref({}),refreshing=ref(false),refreshedAt=re
 let refreshTimer,alive=true,reviewTrigger=null;
 const rows=computed(()=>{
  const byId=new Map(people.value.map(p=>[Number(p.provider_user_id),{...p,eligible:true,recipient:null}]));
- for(const r of recipients.value){if(Number(r.is_demo_snapshot))continue;const id=Number(r.provider_user_id);if(byId.has(id))byId.set(id,{...byId.get(id),recipient:r});}
+ for(const r of recipients.value){const id=Number(r.provider_user_id);if(Number(r.is_demo_snapshot)&&!byId.get(id)?.qa_workflow_allowed)continue;if(byId.has(id))byId.set(id,{...byId.get(id),recipient:r});}
  const sent=row=>['pending','sent','delivered'].includes(row.recipient?.last_delivery_status)?1:0;
  return [...byId.values()].sort((a,b)=>sent(a)-sent(b)||`${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`));
 });
@@ -111,7 +112,7 @@ async function refreshProgress(){if(!push.value||refreshing.value)return;const i
  const [{data},staff]=await Promise.all([api.get(`/provider-update/pushes/${id}`,{params:{agencyId:props.agencyId},skipGlobalLoading:true}),api.get('/provider-update/eligible-providers',{params:{agencyId:props.agencyId},skipGlobalLoading:true})]);
  if(!alive||Number(pushId.value)!==id)return;
  if(JSON.stringify([push.value.section_config_json,push.value.amendment_plan_json])!==JSON.stringify([data.push.section_config_json,data.push.amendment_plan_json])){reviews.value={};approved.value=false;previewUrl.value='';amendment.value=null;reviewOpen.value=false;}
- people.value=(staff.data.providers||[]).filter(p=>!Number(p.is_demo));
+ people.value=(staff.data.providers||[]).filter(p=>!Number(p.is_demo)||qaWorkflowAllowed(p));
  push.value=data.push;recipients.value=data.recipients||[];refreshedAt.value=new Date();
  }catch(e){if(alive&&Number(pushId.value)===id)refreshError.value='Could not refresh progress. The last recorded values remain visible.';}finally{refreshing.value=false;}}
 function rememberReview(){if(!personId.value)return;reviews.value={...reviews.value,[personId.value]:{previewUrl:previewUrl.value,amendment:amendment.value,needsAmendment:needsAmendment.value,approved:approved.value&&ready.value}};}
@@ -127,7 +128,7 @@ function resetReview(){previewUrl.value='';amendment.value=null;approved.value=f
 async function loadPush(){manualCopy.value=null;resetReview();reviews.value={};reviewOpen.value=false;push.value=null;recipients.value=[];refreshedAt.value=null;personId.value='';if(!pushId.value)return;busy.value=true;
  try{const {data}=await api.get(`/provider-update/pushes/${pushId.value}`,{params:{agencyId:props.agencyId}});push.value=data.push;recipients.value=data.recipients||[];refreshedAt.value=new Date();}
  catch(e){error.value=e.response?.data?.error?.message||'Could not load update.';}finally{busy.value=false;}}
-async function initialize(){busy.value=true;try{const {data}=await api.get('/provider-update/eligible-providers',{params:{agencyId:props.agencyId}});people.value=(data.providers||[]).filter(p=>!Number(p.is_demo)).sort((a,b)=>`${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`));}catch(e){error.value=e.response?.data?.error?.message||'Could not load people.';}finally{busy.value=false;}}
+async function initialize(){busy.value=true;try{const {data}=await api.get('/provider-update/eligible-providers',{params:{agencyId:props.agencyId}});people.value=(data.providers||[]).filter(p=>!Number(p.is_demo)||qaWorkflowAllowed(p)).sort((a,b)=>`${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`));}catch(e){error.value=e.response?.data?.error?.message||'Could not load people.';}finally{busy.value=false;}}
 function chooseDefault(){if(!pushId.value&&availablePushes.value.length){pushId.value=(availablePushes.value.find(p=>p.status!=='closed')||availablePushes.value[0]).id;void loadPush();}}
 watch(availablePushes,chooseDefault);onMounted(()=>{void initialize();chooseDefault();refreshTimer=setInterval(()=>{if(!document.hidden&&!busy.value)void refreshProgress();},30000);});
 onBeforeUnmount(()=>{alive=false;clearInterval(refreshTimer);});

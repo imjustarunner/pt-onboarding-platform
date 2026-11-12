@@ -4,6 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import multer from 'multer';
 import StorageService from '../services/storage.service.js';
+import {assertGenericCompensationDocumentWritable} from '../services/issuedCompensationDocument.service.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -69,6 +70,10 @@ export const createUserSpecificDocument = async (req, res, next) => {
         return res.status(403).json({ error: { message: 'You can only assign documents to your assigned supervisees' } });
       }
     }
+
+    // An issued compensation task already has its immutable generated source.
+    // A second generic document must not replace the source selected by task ID.
+    await assertGenericCompensationDocumentWritable({taskId: parseInt(taskId, 10)});
 
     // Determine type
     let filePath = null;
@@ -223,6 +228,8 @@ export const updateUserSpecificDocument = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
 
+    await assertGenericCompensationDocumentWritable({documentId: document.id, taskId: document.task_id});
+
     const updateData = {};
 
     if (req.body.name !== undefined) updateData.name = req.body.name;
@@ -296,6 +303,8 @@ export const deleteUserSpecificDocument = async (req, res, next) => {
     if (req.user.role !== 'super_admin' && req.user.role !== 'admin') {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
+
+    await assertGenericCompensationDocumentWritable({documentId: document.id, taskId: document.task_id});
 
     if (document.file_path) {
       try {

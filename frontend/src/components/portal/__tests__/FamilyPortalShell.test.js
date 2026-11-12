@@ -4,6 +4,11 @@ import Shell from '../FamilyPortalShell.vue';
 let w;const originalWidth=window.innerWidth;
 afterEach(()=>{w?.unmount();document.body.innerHTML='';Object.defineProperty(window,'innerWidth',{value:originalWidth,configurable:true});vi.restoreAllMocks();});
 it('keeps agency/profile context outside the sticky brand bar',()=>{w=mount(Shell,{props:{brandName:'AuricWell'},slots:{context:'<div>Agency and profile controls</div>'}});expect(w.get('.portal-context').text()).toContain('Agency and profile controls');expect(w.get('.portal-sticky-header').text()).not.toContain('Agency and profile controls');});
+it('uses learning support copy for tutoring and restores care copy when switching context',async()=>{
+ w=mount(Shell,{props:{brandName:'Next Level Up',learning:true}});
+ expect(w.text()).toContain('Questions about tutoring, learning, or your account?');expect(w.text()).not.toContain('Questions about your care');
+ await w.setProps({learning:false});expect(w.text()).toContain('Questions about your care, services, or account?');
+});
 it('opens the phone menu at document level, traps focus, and restores scrolling on close',async()=>{
  Object.defineProperty(window,'innerWidth',{value:390,configurable:true});document.body.style.overflow='auto';
  w=mount(Shell,{attachTo:document.body,props:{brandName:'AuricWell',navigation:[{key:'family',label:'My family'},{key:'messages',label:'Messages'}]}});

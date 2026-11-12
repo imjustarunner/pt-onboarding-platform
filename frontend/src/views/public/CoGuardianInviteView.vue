@@ -4,20 +4,22 @@
     <div v-else-if="loadError" class="cgi-card cgi-error">{{ loadError }}</div>
     <div v-else-if="accepted" class="cgi-card">
       <h1>You're connected</h1>
-      <p>You are linked as a guardian for {{ dependentNames }}. You will not see the other parent’s answers.</p>
+      <p v-if="learningPortal">Your learning portal access for {{ dependentNames }} is connected. Private documents, plans and ratings are shared separately. Other parents’ private information remains private.</p>
+      <p v-else>You are linked as a guardian for {{ dependentNames }}. You will not see the other parent’s answers.</p>
       <section v-if="portalAccess" class="cgi-portal">
         <h2>Your login</h2>
-        <p>Username is your email. You can keep it or change it later in the portal.</p>
+        <p>{{ learningPortal ? 'Sign in with your own email address.' : 'Username is your email. You can keep it or change it later in the portal.' }}</p>
         <p><strong>Email:</strong> {{ portalAccess.email }}</p>
-        <p v-if="portalAccess.password"><strong>Password:</strong> <code>{{ portalAccess.password }}</code></p>
+        <p v-if="learningPortal && !portalAccess.existingAccount" role="status">{{ portalAccess.setupEmailSent ? 'Check your email for your password setup link.' : 'Your access is saved. Your password setup email needs delivery review; contact your learning team before requesting another invitation.' }}</p>
+        <p v-else-if="!learningPortal && portalAccess.password"><strong>Password:</strong> <code>{{ portalAccess.password }}</code></p>
         <p v-else>Use the password you already have for this email.</p>
         <a class="df-btn df-btn-primary" :href="portalAccess.portalPath">Sign in</a>
-        <button type="button" class="df-btn df-btn-secondary" :disabled="loginEmailing" @click="emailLoginDetails">
+        <button v-if="!learningPortal" type="button" class="df-btn df-btn-secondary" :disabled="loginEmailing" @click="emailLoginDetails">
           {{ loginEmailing ? 'Sending…' : 'Email these login details' }}
         </button>
         <p v-if="loginEmailStatus">{{ loginEmailStatus }}</p>
       </section>
-      <p>Complete the same kind of intake the other parent completed — your answers stay separate.</p>
+      <p v-if="!learningPortal">Complete the same kind of intake the other parent completed — your answers stay separate.</p>
       <p v-if="quickHref">
         <a class="cgi-link" :href="quickHref">Fill out the quick interest form</a>
       </p>
@@ -27,8 +29,9 @@
     </div>
     <div v-else class="cgi-card">
       <p class="cgi-kicker">{{ invite.agency?.name }}</p>
-      <h1>Complete your guardian information</h1>
-      <p>
+      <h1>{{ learningPortal ? 'Accept your learning portal invitation' : 'Complete your guardian information' }}</h1>
+      <p v-if="learningPortal">A parent or guardian invited you to the learning portal for {{ dependentNames }}. Accept with your own email address. Private documents and learning plans require separate sharing.</p>
+      <p v-else>
         Another parent or guardian invited you because you have legal rights for
         {{ dependentNames }}. You will only see this limited information — not what they already submitted.
       </p>
@@ -38,13 +41,13 @@
       <div class="cgi-fields">
         <label>First name<input v-model="contact.firstName" /></label>
         <label>Last name<input v-model="contact.lastName" /></label>
-        <label>Email / username<input v-model="contact.email" type="email" /></label>
-        <label>Phone<input v-model="contact.phone" type="tel" /></label>
-        <label>Relationship<input v-model="contact.relationship" placeholder="Parent, legal guardian…" /></label>
+        <label>Email / username<input v-model="contact.email" type="email" :readonly="learningPortal" /></label>
+        <label v-if="!learningPortal">Phone<input v-model="contact.phone" type="tel" /></label>
+        <label v-if="!learningPortal">Relationship<input v-model="contact.relationship" placeholder="Parent, legal guardian…" /></label>
       </div>
       <p v-if="saveError" class="cgi-error">{{ saveError }}</p>
       <button type="button" class="df-btn df-btn-primary" :disabled="saving" @click="accept">
-        {{ saving ? 'Saving…' : 'Connect me and continue' }}
+        {{ saving ? 'Saving…' : learningPortal ? 'Accept learning portal invitation' : 'Connect me and continue' }}
       </button>
     </div>
   </div>
@@ -75,15 +78,18 @@ const contact = reactive({
 });
 
 const token = computed(() => String(route.params.token || '').trim());
+const learningPortal = computed(() => invite.value.source === 'learning_portal' || invite.value.learningPortal === true);
 const dependentNames = computed(() =>
   (invite.value.dependents || []).map((d) => d.firstName).filter(Boolean).join(', ') || 'the connected dependent(s)'
 );
 const fullIntakeHref = computed(() => {
+  if (learningPortal.value) return '';
   const key = publicKey.value;
   if (!key) return '';
   return `/intake/${encodeURIComponent(key)}?coGuardian=${encodeURIComponent(token.value)}`;
 });
 const quickHref = computed(() => {
+  if (learningPortal.value) return '';
   const slug = String(invite.value?.agency?.slug || route.params.agencySlug || route.params.organizationSlug || '').trim();
   if (!slug) return '';
   const svc = String(route.params.serviceType || 'counseling').trim() || 'counseling';
@@ -122,6 +128,7 @@ async function accept() {
 }
 
 async function emailLoginDetails() {
+  if (learningPortal.value) return;
   loginEmailStatus.value = '';
   loginEmailing.value = true;
   try {

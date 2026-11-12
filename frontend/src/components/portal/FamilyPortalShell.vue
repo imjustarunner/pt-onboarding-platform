@@ -25,7 +25,7 @@
         </nav>
         <div class="portal-support">
           <div class="portal-support-art" aria-hidden="true"><PortalIcon name="support" /></div>
-          <h2>{{ ft("We’re here for you.") }}</h2><p>{{ ft("Questions about your care, services, or account? Your team can help.") }}</p>
+          <h2>{{ ft("We’re here for you.") }}</h2><p>{{ ft(learning ? "Questions about tutoring, learning, or your account? Your team can help." : "Questions about your care, services, or account? Your team can help.") }}</p>
           <button type="button" @click="navigate(supportKey)">{{ ft("Contact your team") }} <PortalIcon name="arrow" /></button>
         </div>
       </div>
@@ -47,7 +47,7 @@ const { ft, locale: familyLocale } = useFamilyLocale();
 import { computed, ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue';
 import PortalIcon from './PortalIcon.vue';
 import { portalTheme } from '../../utils/familyPortalTheme';
-const props = defineProps({ agencyName: String, agencyLogo: String, brandName: String, brandSubtitle: String, logoUrl: String, logoIsSymbol: Boolean, primaryColor: String, title: String, subtitle: String, eyebrow: String, userName: String, navigation: { type: Array, default: () => [] }, active: String, supportKey: { type: String, default: 'messages' }, accountKey: { type: String, default: 'account' } });
+const props = defineProps({ agencyName: String, agencyLogo: String, brandName: String, brandSubtitle: String, logoUrl: String, logoIsSymbol: Boolean, learning: Boolean, primaryColor: String, title: String, subtitle: String, eyebrow: String, userName: String, navigation: { type: Array, default: () => [] }, active: String, supportKey: { type: String, default: 'messages' }, accountKey: { type: String, default: 'account' } });
 const emit = defineEmits(['navigate']);
 const menuOpen = ref(false), logoFailed = ref(false),isPhone=ref(typeof window!=='undefined' && window.innerWidth<=760),menuTrigger=ref(null),menuPanel=ref(null);
 let previousOverflow=null;

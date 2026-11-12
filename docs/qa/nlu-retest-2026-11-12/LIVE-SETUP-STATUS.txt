@@ -1,208 +1,169 @@
 NLU RETEST — CURRENT ENGINEERING AND LIVE SETUP STATUS
 November 12, 2026; America/Denver, MST, UTC-07:00
-Evidence cutoff: 2026-11-12 14:43:36.114 MST / 21:43:36.114 UTC
+Evidence cutoff: November12 15:56:10 MST / 22:56:10 UTC (unless a later row says so)
 
-READ THIS BEFORE THE RUN PLAN AND OLDER FIXTURE INPUTS
-This is a dated engineering handoff and limited live verification, not a complete
-tutoring, mobile, email, payroll or childcare QA pass. Earlier failures remain open
-until their exact case is freshly verified. The blank repair, tutoring, email and
-childcare case ledgers remain NOT RUN; do not populate them from setup alone.
+READ THIS BEFORE THE RUN PLAN AND OLDER NULL-ID FIXTURE INPUTS
+This records limited live verification and setup. It is not a completed 47-case
+tutoring run, full childcare/new-hire/mobile/media run, inbox delivery pass or
+payroll authorization. Preserve all earlier failures until their exact retest.
+Blank repair/TU/email/childcare ledgers stay NOT RUN; record actual new results
+separately. Inventory attachments; wait for START NLU RETEST before app writes.
+Never recreate a person or resend a message because an older input says unseeded.
+No passwords, raw portal/setup tokens or bearer links belong in this brief.
 
-Use these already-retained IDs when an older input still has null IDs, says no
-tutoring profile exists, says discovery is inactive, or says people are unseeded.
-Do not recreate people or repeat setup/email just because an old input says to.
-This status updates setup facts; it grants no additional role or authorization.
-Inventory the attachments and wait for START NLU RETEST before new app actions.
+DEPLOYMENT
+- Owner-approved main394b5ef54582ca1a551a9b15ce7669afd56961fd deployed and additive
+  migration1814_childcare_shifts_and_pay_snapshots ran through the normal runner.
+  Six schema statements; no people, permissions or approved pay were seeded.
+- Owner-approved follow-up62aecf5109ced102da67e1a5ceffb59ee4878575 published November12
+  15:01:37 MST. Matching ready frontend/backend verified15:14:33.862 MST; all13
+  triggered CI workflows passed, including backend/frontend deployment.
+- Latest limited browser checks used matching frontend/backend388b2200ce266c7f480cf326b5c6243161f774dc,
+  a verified current-main descendant containing62. Concurrent main changes were
+  inbox-only. Do not confuse a subsequent build with missing NLU deployment.
+- Further source completion is UNDER VALIDATION, NOT DEPLOYED: normal employee
+  compensation draft creation/release/signature integrity, canonical persisted
+  payroll snapshot hashes, exact QA employee-update/mobile links, learning-only
+  parent payments wording and authenticated learning co-guardian invitation.
+  Verify its eventual actual deployed commit before testing those repairs.
+- A local unit/SQL/browser-fixture pass is engineering evidence only. It does not
+  approve live pay or substitute for a person's attestation or inbox receipt.
 
-RELEASE AND ENGINEERING STATE
-- Approved main commit 394b5ef54582ca1a551a9b15ce7669afd56961fd is deployed.
-  Finley's live browser read matching frontend buildId/requiredBackendBuildId and
-  backend buildId; backend revision onboarding-backend-g43305385860a1, ready=true.
-  This was observed during the 14:20:52.998–14:21:19.465 MST browser verification.
-- Migration 1814_childcare_shifts_and_pay_snapshots actually ran successfully:
-  six statements, normal migration runner, not a dry run. Its retained runner log
-  has no wall-clock timestamp; do not invent an exact migration application time.
-  The migration creates schema, not childcare hires, shifts or approved pay terms.
-- A separate source follow-up is pending publication/deployment on branch
-  codex/nlu-qa-contract-context-20261112. Do not claim it is already live. It covers
-  remaining NLU contract/email context, QA mailbox boundaries, explicit building
-  creation agency, missing-price presentation, NLU learning legal/footer context
-  and CI fixture updates. Confirm the eventual deployed build before retesting.
-  It also adds an explicit synthetic app-only hire mode for exact QA453/454;
-  this is source only. Neither QA organization's mode/domain has been changed.
-  Account reservation is not onboarding submission, staff activation, a real
-  mailbox, a signed compensation agreement or a childcare permission grant.
-- Follow-up focused workspace checks passed: 152 frontend tests in 15 files;
-  88 backend tests in 10 files. Separate repaired event/billing Node checks passed
-  33 tests. These overlap broader runs and are not additive full-system totals.
-  They are engineering evidence, not inbox receipt or performed tutoring sessions.
+RECOUNT AND RETAINED PEOPLE
+- Actual reconciliation14:25:47.960–14:26:14.921 MST counted109 retained clients:
+  agency450107 (10 PENDING_REVIEW,6 ACTIVE,91 PACKET), agency4532 PACKET.
+  Other scoped agencies added none. Seven unique provider-role identities remain.
+- The older23-client/4-provider baseline is stale. Existing30-client cap was
+  already exceeded before this setup. ZERO new clients or provider identities
+  were created. New-client creation stays BLOCKED; preserve retained records.
+- Two Staff identities were added through ordinary scoped setup, not SQL:
+  Casey1771 READY synthetic employee, and Devon1772 PROSPECTIVE new hire.
+  Neither is a new provider/client. Do not turn Casey into an onboarding pass.
+- QA agency453 nlu-qa-demo and program454 nlu-qa-learning only. Real NLU6 and
+  clinical QA450/451/452 stay unchanged. Setup actor1435; audit metadata Jordan1434.
 
-ACTUAL RECOUNT — CREATION LIMIT BLOCKER
-- Read-only reconciliation at 14:25:47.960 MST and breakdown at 14:26:14.921 MST
-  counted 109 retained clients across QA scopes 450/451/452/453/454, including
-  pending/inactive records. Agency450 has 107: 10 PENDING_REVIEW, 6 ACTIVE,
-  91 PACKET. Agency453 has 2 PACKET clients. Other scoped agencies added none.
-- There are 7 unique provider-role identities, including pending/inactive users.
-  The earlier 23-client / 4-provider baseline is stale. The existing 30-client
-  cap is already exceeded before this setup phase. This phase created ZERO
-  clients and ZERO provider identities; it did not delete or reset older data.
-- New-client creation is BLOCKED pending owner review of the existing count.
-  Continue independent tests using Parker2545 and Quinn2547 only. Do not delete,
-  change statuses, exclude packet clients or manufacture headroom to meet the cap.
-  Recount before any separately authorized future account/client creation.
+PERSONAS / ACTUAL STATUS
+- Finley1496, qa.nlu.tutor@example.com: retained active tutoring Provider enum,
+  no clinical clearance. Math/Reading, grades3/5, synthetic L4/master customer
+  pricing inputs; POST_SESSION. Own retained vault credentials unchanged.
+- Morgan1759, qa.nlu.parent@example.com: one guardian for Parker2545/submission1569
+  and Quinn2547/submission1571. Own ordinary recovery/password setup completed
+  15:20:31.928 MST. No forced password or duplicate guardian was created.
+- Morgan normal login and loaded family portal15:40:25.722 MST on388 returned both
+  exact children with learning client type; all observed guardian API reads200,
+  no console/page errors. Earlier screenshots taken during loading did not prove
+  a missing child. The loaded portal still had inherited Insurance/care wording;
+  its further source repair is not yet deployed or freshly passed live.
+- Rene qa.nlu.coparent@example.com has NO new invite/account in this handoff.
+  Source inspection found no authenticated first-invite control. The new narrow
+  learning portal control must deploy before this case. Search retained identity
+  first; invite only the selected eligible child, then Rene accepts separately.
+- Casey1771: READY fixture via ordinary Current employee, no candidate journey.
+  Work/app login qa.nlu.childcare.a@example.com; private recovery personal identity
+  qa.nlu.casey.personal@example.com. Staff ACTIVE_EMPLOYEE, demo1, memberships453/454.
+  Own password setup15:24:20.324 MST. No Google mailbox/Group was created. This
+  fixture does not show that an actual new hire completed background/onboarding.
+- Devon1772: manual synthetic QA candidate, job36, Staff PROSPECTIVE, app_only
+  journey; personal qa.nlu.childcare.b@example.com. Proposed future distinct work
+  identity qa.nlu.devon.work@example.com is NOT yet active or a real mailbox.
+  Childcare grant attempt returned409 while pending. Required SSN/driver-license
+  authorization is a blocker: no fake identifiers, API blank bypass or activation.
 
-RETAINED IDENTITIES AND SERVICE SCOPE
-- NLU QA agency453: nlu-qa-demo. Learning program454: nlu-qa-learning.
-  Keep real NLU6 and clinical QA450/451/452 unchanged.
-- Setup administrator1435 performed the setup actions below. The browser runner
-  does not need that account: use the established vault and ordinary staff/tutor
-  entry paths. No password, raw token or bearer URL belongs in this packet.
-- Finley1496, qa.nlu.tutor@example.com, is the retained tutoring provider in453/454.
-  Its existing credentials were used; no new provider account was created.
-- Morgan1759, qa.nlu.parent@example.com, is the one retained primary guardian for
-  Parker2545 (submission1569) and Quinn2547 (submission1571). The earlier database
-  diagnosis found PENDING_SETUP, active, and no saved password. No successful
-  Morgan setup, parent sign-in or password save has since been verified here.
-- Rene's reserved co-guardian persona is qa.nlu.coparent@example.com. This handoff
-  records no new Rene account or completed invitation. Use Morgan's permitted
-  normal invite path only after Morgan's own account is ready; check for retained
-  records first. Never rename a clinical guardian or use testing@ as the identity.
-- No new childcare hires, grants, signed compensation agreements, shifts or
-  clock punches were created in this setup. Finley canChildcare=false is expected
-  until separately authorized childcare service assignment, not a failed tutor
-  login. A provider/pay category alone does not grant childcare or clinical work.
+SCOPED ADMIN CONFIGURATION — ACTOR1435
+- Exact QA453/454 flags preserve existing settings and now use hireAccountMode
+  app_only, workspaceEmailDomain example.com, childcareEnabled true. Account
+  reservation is separate from signed terms, onboarding, activation and access.
+- Explicit childcare grants: Finley1496 and Casey1771 enabled/selfSchedule true,
+  manageSchedule false in453. Activity94296/94297. No clinical/payroll admin grant.
+- Job36 QA-NLU1112-CHILDCARE — SYNTHETIC QA / NO REAL VACANCY is active but its
+  normal visibility schedule is ended. It is not an advertised real vacancy.
+- QA document template203 is a synthetic signature acknowledgement, documentStage
+  null. QA pre-hire package4 contains it; onboarding package5 exists. Only QA job36
+  references these packages; all-jobs defaults and other jobs remain unchanged.
+- QA-owned People Operations sender1148 reuses validated PO@nextleveluplcc.com
+  From/Reply-To with EMPTY inbound addresses. Only agency453 pre_hire_admin_review_access
+  selects it; normal channels/approval/recipients preserved. No new mail was sent
+  merely to inspect sender configuration and no source6 mailbox route was seized.
+- QA handbook document5 has NO published version/source. Do not satisfy the
+  required handbook using a minimal practice acknowledgement. Orientation module
+  source is available but not yet an assigned/completed app module. Devon stays
+  pending; packages alone are not a completed or released hire packet.
+- No live approved compensation agreements, payroll approval/export or payment.
+  The new normal draft-create UI/API must deploy before admin prepares each
+  person's prospective synthetic agreement and each persona signs separately.
+  Work-location minimum/jurisdiction remains unset; never guess it to obtain pay.
 
-FINLEY PROFILE AND STUDENT SETUP — ACTOR1435
-- 14:06:55.923–14:07:09.300 MST: ordinary supported management routes enabled
-  offered tutoring and tutoring discovery in453, then saved the tutoring profile.
-  Subjects Math/Reading, grades3/5, learning program tutoring, synthetic pricing
-  level L4/master, no rate overrides, POST_SESSION. No clinical qualification was
-  invented or granted. L4 is a pricing input, not verified educational evidence.
-- Finley's later authenticated profile GET showed Math/Reading, grades3/5,
-  learningLevel L4, customer hourly fees 5000 cents virtual / 5500 cents in person.
-  These are family prices, not an approved employee payroll agreement.
-- 14:10:15.372 MST: Parker2545 received tutoring service enrollment1038 with
-  Finley1496. 14:10:17.897 MST: Quinn2547 received tutoring service enrollment1039.
-  No new client was created. Both actions expected client_service_enrollment_saved
-  audit events; the setup ledger has actual auditRowId=null. Reconcile, do not
-  fill in an invented audit ID or treat the chart render as the missing event.
+FINLEY PROFILE, FINDER AND FINITE AVAILABILITY
+- Actor1435 enabled discovery/profile and assigned retained learning services:
+  Parker2545 enrollment1038 at14:10:15.372 MST, Quinn2547 enrollment1039 at14:10:17.897.
+  Expected audit events remain unreconciled; do not invent row IDs.
+- QA physical office12, room18, type25. Tuesday November17 10:00–12:00 MST
+  availability events24471/24472 and standing assignments1330/1331. No student
+  booking/clinical event/billing context. Virtual opening217: November16 10:15–12:15
+  MST (17:15–19:15 UTC). These are finite future availability, not performed visits.
+  If past when testing, add new ordinary future hours, retaining this history.
+- Anonymous finder desktop1366 and390px check14:43:35.257–14:43:36.114 MST on732c6e336
+  returned exact Finley for Math/5/virtual and Reading/3/in-person, $50/$55 perhour,
+  four-visit quotes $180/$198 and actual Nov16/17 openings. No Insurance filter,
+  page error or horizontal overflow. Finder reads are not booking/session proof.
+- Fresh Finley388 login15:48:26.288 MST: old /clients redirected /students; both
+  Parker and Quinn displayed15:48:33.549. Own Public introduction Save tutoring
+  profile then reload PASSED15:48:42.960. Math/Reading, grades3/5 and staff-managed
+  prices persisted.390px fully loaded editable profile had no document overflow.
+- Exact clinical context, medical-billing notes and clinical documentation queue
+  reads each403 at15:48:43.714–15:48:44.786. No broader security certification.
+  Footer was not a semantic footer element in that profile probe; inspect actual
+  rendered NLU legal links, do not treat an empty footer query as a pass.
 
-FINITE AVAILABILITY — ACTOR1435; NOT BOOKED TUTORING
-- 14:19:11.921 MST: synthetic QA physical office12 created for agency453.
-  Its timezone is America/Denver. 14:19:19.170 MST: tutoring room18 created;
-  actual Tutoring Room type25. No real office's membership or schedule was reused.
-- 14:19:21.182 MST: finite room assignment for Finley1496 on Tuesday November17,
-  2026, 10:00–12:00 MST (17:00–19:00 UTC). Temporary standing assignments1330/1331
-  correspond to office events24471/24472. These are ASSIGNED_AVAILABLE reservations
-  with no client, clinical session, billing context or booked provider. They are
-  not appointments, attendance, completed work or billable tutoring.
-- 14:20:09.469 / 14:20:11.825 MST: in-person opening publication saved for events
-  24471/24472. The legacy API uses an 'intake' label for new-client availability;
-  this is not a clinical 90791 intake or permission to enable clinical care.
-- 14:19:23.233 MST: one-time virtual opening saved, row217, Monday November16,
-  2026, 10:15–12:15 MST (17:15–19:15 UTC), available to new/current clients.
-  The subsequent GET reported America/Denver. Earlier empty-hours/New_York
-  output is superseded by this later saved row and Denver office setup.
-- These are finite future windows. Inspect before booking; if they are past at
-  the next run, create an ordinary new future window without backdating, changing
-  clocks or claiming that the old opening was a performed session. Preserve the
-  old IDs/history. Public finder matching, exact slots and booking remain to test.
+CASEY SHORT ACTUAL CHILDCARE WORK — BUILD388
+- Browser390px, own normal login. The neutral welcome briefing sends the user
+  to Dashboard; finish it, then return to Childcare. Early automation selectors
+  stopped before writes. Never repeat creation because those attempts timed out.
+- ONE retained childcare shift1, title QA-NLU1112 — Casey clock/count check.
+  Scheduled15:55–16:05 MST, planned3, synthetic operational note, no child names.
+- Actual server punches563/564: clock in15:54:29 MST, clock out15:56:07 MST.
+  These are98 actual seconds, NOT the scheduled ten minutes or a three-hour pass.
+- During work actual count changed3→4; planned count stayed3 after reload.
+  Count history split the real intervals at15:54:31 MST. Explicit question still
+  said Were the scheduled 3 children present? Completed status and no active punch.
+- Own preview: band3 for2 seconds, band4 for96 seconds, one caregiver. Claim844
+  deferred, totalAmount null, reviewRequired true. Actual time was preserved while
+  work-location minimum/jurisdiction and effective approved pay terms are missing.
+  This passes that specific review boundary, not paid rates/paystub readiness.
+- Clock-out audit94405; final own-pay preview audit94410. Other action audit IDs
+  are in actual response ledgers.390px saved-shift screenshot had no horizontal
+  document overflow. Pay table scrolls within its container. Do not clock in again
+  or edit this completed evidence merely to reproduce an already recorded check.
 
-LIMITED LIVE BROWSER CHECK — ACTOR1496, BUILD394b5ef54
-- 14:20:56.778 MST: PASS for the specific retained Finley login path: NLU QA login
-  -> Verify username -> Sign In. This does not certify every host/SSO/mobile path.
-- 14:20:57.200 MST: GET tutoring-workspace/context?agencyId=453 returned200,
-  canTutor=true, canClinical=false, learningOnly=true, canChildcare=false.
-- 14:20:57.779 MST: own tutoring profile GET returned200 with the saved fields.
-  14:20:58.811 MST: Students GET returned200.
-- 14:21:07.217 MST: desktop1366 /nlu-qa-demo/students rendered both Parker and
-  Quinn. /nlu-qa-demo/tutoring-profile was reached at14:21:19.464 MST. Profile
-  saving, live public matching and all keyboard/empty/error variants were not
-  verified by these screenshots alone. No browser page errors were captured.
-- The exact clinical denial reads returned403 NONCLINICAL_WORKSPACE:
-  14:20:59.168 MST /clinical-notes/context?agencyId=453;
-  14:21:02.269 MST /medical-billing/notes?agencyId=453;
-  14:21:03.681 MST /clinical-data/documentation-queue?agencyId=453.
-  These specific denied reads passed; no broader clinical-access certification.
-- The390px profile screenshot caught a Loading overlay. A recorded false
-  horizontal-overflow flag does not prove a usable narrow screen. Keep complete
-  narrow/mobile interaction verification NOT RUN. No real native app, mobile
-  primary sign-in, device media or two-party video exchange passed in this check.
-- The live desktop footer still showed HIPAA/AuricWell content. Preserve that
-  defect. The NLU learning footer/legal fix exists only in pending follow-up
-  source; retest the actual deployed screen and links after publication.
+EMAIL / INBOX — ONE RECOVERY ALREADY REQUESTED
+- Original communications6347 Parker packetcompletion and6349 Quinn enrollment
+  confirmation remain FAILED, no external providerID/sent/delivered time; cause
+  missing agency/support-domain resolution. Preserve original receipt failures.
+- Actor1435 requested ONE recovery6463 at14:20:12.964 MST; recorded Sent14:20:16,
+  external ID1a1d1a1f40a1f07d, logical Morgan@example, physical testing redirect.
+  Activity94143: From Notifications@nextleveluplcc.com, Reply-To PO@nextleveluplcc.com.
+- Existing controlled inbox access remains BLOCKED unauthorized_client. No actual
+  received full headers/time or delivery PASS. Do not resend6463/6347/6349 while
+  receipt is uncertain. Sent/provider acceptance is not proof of inbox receipt.
+- Morgan consumed the existing normal setup link as an authorized QA fixture;
+  link-result/password success is separate from physical inbox evidence. Never
+  reuse a consumed token or expose it in this packet. No new recovery is needed.
+- Live SMS and workforce recipient readiness are unverified/BLOCKED. There is no
+  approved phone in this test; no childcare SMS receipt or consent pass is claimed.
 
-MORGAN EMAIL — ONE RECOVERY ALREADY REQUESTED; DO NOT RESEND
-- Original communications6347 (Parker2545, intake_packet_completion) and6349
-  (Quinn2547, enrollment_submission_confirmation) remain FAILED, with no provider
-  ID, sent time or delivered time. Recorded cause: 'An agency and its support mail
-  domain are required for portal email.' Preserve both original failure findings.
-- Actor1435 requested ONE normal recovery for existing Morgan1759 at14:20:12.964
-  MST. Communication6463, password_reset, subsequently recorded Sent at14:20:16 MST
-  (21:20:16 UTC), external message ID1a1d1a1f40a1f07d. Logical recipient remains
-  qa.nlu.parent@example.com; saved QA redirect metadata selects testing@itsco.health.
-  The response reported emailSent=true; it did not prove inbox receipt.
-- Controlled inbox inspection is BLOCKED: existing Gmail/Workspace credentials
-  return unauthorized_client. There is no verified inbox receipt, actual complete
-  recipient header or successful setup-link result. Do not report TE01 PASS.
-  Do not resend6463,6347 or6349 to obtain evidence while receipt is uncertain.
-- The recovery expires November14,2026 at14:20:10.753 MST if still unused.
-  Recover it from the controlled inbox/vault when access is repaired. If later
-  expired, record that fact and obtain the normal supported recovery path then;
-  do not guess a token, force a password or use another guardian's session.
-- A recovered password email is a distinct workflow from original enrollment
-  receipt. Even eventual recovery receipt will not retroactively pass6347/6349.
-
-AUDIT AND EVIDENCE LIMITS
-- A read-only public finder check at14:27:42.873 MST returned only Finley1496
-  for Math/5/virtual and Reading/3/in-person, customer rates5000/5500 cents and
-  package totals18000/19800 cents. Both returned two real published openings,
-  matching office12/room18 and the exact UTC instants above. This verifies the
-  public responses, not a completed booking, price collection or session.
-  Evidence: LIVE-FINDER-READS.json. At that point only public responses were checked.
-  Follow-on anonymous browser verification at14:43:35.257–14:43:36.114 MST used
-  build732c6e3361cd1b5a7a90016ad7655278aa3be7db on both frontend/backend. The
-  Math/5/virtual desktop1366 and Reading/3/in-person390 filters displayed Finley,
-  $50/$55 per hour and November16/17 openings. No Insurance filter, horizontal
-  document overflow or page errors were observed. Screenshots:
-  LIVE-FINDER-VIRTUAL-1366.png and LIVE-FINDER-IN_PERSON-390.png; record
-  LIVE-FINDER-BROWSER.json. These are finder reads, not bookings or sessions.
-- Read-only reconciliation found zero matching administrator audit rows and
-  only five activity rows in its selected window. Located activity IDs:
-  94143 password_reset_link_sent (Morgan1759, performedBy1435, communication6463),
-  94145 Finley login,94146 admin_page_view,94147 dashboard_view,94149 timeout.
-  These are activity records, not substitutes for every expected action audit.
-  Row94143 retained From Notifications@nextleveluplcc.com and Reply-To
-  PO@nextleveluplcc.com. These are workflow metadata, not received inbox headers.
-- Missing service/profile/office/publication and denied-access events remain
-  missing/unreconciled unless the runner actually locates their exact audit rows.
-  Retain expected/actual rows, distinguish unavailable sources from empty results,
-  and inspect exact links under each actor's own authorization.
-- Engineering evidence directory: deliverables/nlu-tutoring-childcare-2026-11-12.
-  This packet embeds the necessary facts; the bot need not access that folder.
-  Source evidence: FINLEY-LIVE-SETUP.json,STUDENT-SERVICE-SETUP.json,
-  FINLEY-OFFICE-AVAILABILITY.json,LIVE-TUTORING-SETUP-FINAL.json,
-  LIVE-FINLEY-BROWSER.json,LIVE-RECONCILIATION.json,QA-RECOUNT-BREAKDOWN.json,
-  MIGRATION-1814.txt. Screenshots: LIVE-FINLEY-STUDENTS-1366.png,
-  LIVE-FINLEY-PROFILE-1366.png,LIVE-FINLEY-PROFILE-390.png.
-
-NEXT RUN — WHAT STILL NEEDS ACTUAL EVIDENCE
-- Verify the published follow-up build and corrected NLU footer/legal context.
-  Check public Math/grade5/virtual and Reading/grade3/in-person matching, actual
-  finite openings, assigned office, price presentation and exact appointment link.
-- Restore controlled inbox access, inspect the already-sent recovery once, then
-  finish Morgan's own setup/parent portal and eligible co-guardian path. Do not
-  create another Morgan, Parker or Quinn. Keep original email defects open.
-- Finish true narrow/mobile usability, shared-app service navigation, recovery,
-  profile save/reload and exact agency/access negatives. One desktop login is not
-  native/mobile readiness; a Loading overlay is not an interaction pass.
-- Learning plan, materials, session attendance, real media, homework/progress,
-  package/billing and full audit cases remain to run. Payments require the
-  established isolated test merchant. No live charges or approved payroll.
-- Childcare still needs separately authorized synthetic staff setup, explicit
-  service grants, approved four-band overrides, scheduled aggregate counts,
-  co-caregiver actual punches/rate intervals and own paystub verification. No
-  childcare end-to-end pass exists. SMS stays BLOCKED wherever the actual approved
-  recipient, campaign/BAA/activation or transport/inbox evidence is unavailable.
-- Keep real elapsed-time cases pending until due. Retain all existing records,
-  signed evidence, failed communications and unresolved findings for the owner.
+REMAINING LIVE WORK / RECORD RETENTION
+- Deploy and retest further completion source; admin-only agreement setup before
+  employee bot handoff. Finish legitimate handbook/training prerequisites without
+  fake identifiers, signature substitution or lowering readiness gates.
+- Still to perform: Rene invite/accept, all20 finding retests, full original47
+  tutoring journey, booked in-person/virtual sessions/two-party real media,
+  home practice/progress/billing sandbox, managed co-caregiver live intervals,
+  four-band signed individual terms and isolated live preview reconciliation.
+- Actual isolated MySQL engineering test uses only new uniquely named schemas and
+  synthetic signed-record fixtures: real draft/save/release/effective agreement,
+  punches/count ratio, stored hash verification, claim approval/recompute and own
+  paystub reader. It does not represent a person's real signature or live payroll.
+- Keep all new records, pending jobs/hire/reminders and failed communications.
+  Reconcile action-to-audit ledger, missing events, exact scoped links and receipt
+  rows under each actor's own permissions. Missing/unavailable audits stay defects.
+  Store credentials solely in the existing vault; no secrets in screenshots/CSV.

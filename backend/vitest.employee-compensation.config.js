@@ -1,0 +1,1 @@
+export default {root:new URL('.',import.meta.url).pathname,test:{environment:'node',include:['src/services/__tests__/compensationDraft*.test.js','src/controllers/__tests__/compensationDraft.test.js','src/controllers/__tests__/userSpecificDocument.compensation.test.js','src/services/__tests__/nluCompensationPolicy.test.js'],restoreMocks:true}};

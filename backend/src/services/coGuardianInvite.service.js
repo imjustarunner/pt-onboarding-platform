@@ -470,6 +470,7 @@ export function assertActiveCoGuardianInvite(row, { agencyId, publicKey } = {}) 
 
 export async function resolveCoGuardianIntakeBinding(token, scope = {}) {
   const row = assertActiveCoGuardianInvite(await loadInviteByToken(token), scope);
+  if (row.source === 'learning_portal') throw Object.assign(new Error('Accept this learning portal invitation from its own delivered link. It does not create another enrollment.'), {status:403,statusCode:403});
   const clients = await loadInviteClients(row.id);
   return {
     invite: row,
@@ -603,6 +604,19 @@ export async function getPublicCoGuardianInvite(token) {
 export async function presentCoGuardianInvite(row) {
   const agency = await Agency.findById(row.agency_id);
   const clients = await loadInviteClients(row.id);
+  if (row.source === 'learning_portal') {
+    if (clients.length !== 1) throw Object.assign(new Error('This invitation needs an organization access review.'), {status:409,statusCode:409});
+    const {requireLearningGuardianInvitationAuthority} = await import('./learningGuardianInvitations.service.js');
+    await requireLearningGuardianInvitationAuthority({userId:row.invited_by_user_id,clientId:clients[0].id,agencyId:row.agency_id});
+    if(row.status==='accepted'){
+      const link=await ClientGuardian.getLink({clientId:clients[0].id,guardianUserId:row.accepted_user_id});
+      if(Number(link?.access_enabled)!==1||ClientGuardian.isNoView(link?.permissions_json))throw Object.assign(new Error('This guardian access has changed. Ask the organization to review it.'),{status:403,statusCode:403});
+    }
+    return {status:row.status,source:row.source,publicKey:null,paymentCollectionAvailable:false,
+      agency:{id:agency.id,name:String(agency.official_name||agency.name||'').trim(),slug:String(agency.portal_url||agency.slug||'').trim()},
+      contact:{firstName:row.invited_first_name||'',lastName:row.invited_last_name||'',email:row.invited_email,relationship:'Parent/guardian'},
+      dependents:clients.map(c=>({id:c.id,firstName:firstNameOnly(c.full_name)})),expiresAt:row.expires_at};
+  }
   const { readClientInsurance } = await import('./clientInsurance.service.js');
   const { hasMedicaidCoverage } = await import('../utils/insurancePaymentPolicy.js');
   let paymentCollectionAvailable = true;
@@ -652,6 +666,10 @@ export async function acceptCoGuardianInvite({ token, resume = null, contact = {
   }
 
   assertActiveCoGuardianInvite(row);
+  if (row.source === 'learning_portal') {
+    const {acceptLearningGuardianInvitation} = await import('./learningGuardianInvitations.service.js');
+    return acceptLearningGuardianInvitation({row,contact,token});
+  }
   if (row.public_key && !enrollmentCompleted) {
     throw Object.assign(new Error('Complete and sign your enrollment packet before activating guardian access.'), {status:409,statusCode:409});
   }

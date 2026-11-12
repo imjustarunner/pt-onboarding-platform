@@ -167,7 +167,8 @@ export async function listEligibleProviders(agencyId, { includeDemoTesters = tru
     }
   }
 
-  return (await resolveProviderUpdateRecipients(agencyId,[...byId.values()])).sort((a, b) =>
+  return (await resolveProviderUpdateRecipients(agencyId,[...byId.values()]))
+    .filter(person=>![453,454].includes(Number(agencyId))||!Number(person.is_demo)||person.qa_workflow_allowed===true).sort((a, b) =>
     String(a.last_name || '').localeCompare(String(b.last_name || '')) ||
     String(a.first_name || '').localeCompare(String(b.first_name || ''))
   );

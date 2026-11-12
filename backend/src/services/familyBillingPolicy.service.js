@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import pool from '../config/database.js';
 import { encryptFamilyBilling } from './familyBillingEncryption.service.js';
 import {parseSupportJson} from './clientSupportPolicy.service.js';
+import {guardianLearningAccessOnly} from '../utils/guardianServiceRestrictions.js';
 
 export const BILLING_TERMS_VERSION = 'family-billing-2026-10-21-v2';
 export const BILLING_TERMS = 'I accept financial responsibility for the clients I select. I authorize this organization to keep my payment method with Stripe and to charge my selected card for the amounts I approve. If I separately enable recurring billing for a client, I authorize charges for that client’s scheduled services and patient balances at the rates and payment schedule disclosed by the organization. A verified copay may be charged on the same day after the scheduled session ends and the provider confirms that the session occurred or signs the completed session note. A canceled or unconfirmed session does not authorize an automatic copay. Charges must stay within my selected per-charge limit and the disclosed service terms. Insurance coverage and patient responsibility must be verified first; Medicaid-protected care is excluded. Payment activity and receipts are recorded in Billing. This authorization does not permit charges for another client or use of another guardian’s card. I can revoke recurring authorization in Billing before a future charge; revocation does not cancel amounts already owed. Saving a card or signing a payment setup form alone does not enable recurring charges.';
@@ -13,6 +14,7 @@ export function positiveId(value) {
   return n;
 }
 export function linkAllowsBillingView(link) {
+  if(guardianLearningAccessOnly(link))return false;
   let p;
   try { p = typeof link?.permissions_json === 'string' ? JSON.parse(link.permissions_json) : (link?.permissions_json || {}); } catch { return false; }
   if (link?.independence_status === 'active' && link.relationship_type !== 'self') return parseSupportJson(link.support_scopes).includes('billing');
@@ -25,6 +27,7 @@ export function linkAllowsBilling(link) {
   return linkAllowsBillingView(link) && (link.relationship_type !== 'self'||adultSelf||link.independence_status==='active');
 }
 export function linkAllowsInsurance(link) {
+  if(guardianLearningAccessOnly(link))return false;
   if(link?.independence_status==='active'&&link.relationship_type!=='self')return parseSupportJson(link.support_scopes).includes('insurance');
   return linkAllowsBilling(link);
 }

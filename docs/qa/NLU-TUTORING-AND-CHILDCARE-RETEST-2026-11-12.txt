@@ -64,6 +64,10 @@ SETUP BEFORE HANDING THE RUN TO THE BOT
    NLU account modes/domains remain unchanged. No ordinary bot admin access is
    needed. An unset mode, unsatisfied package or unsigned agreement is a blocker;
    do not substitute the current-employee shortcut for this new-hire journey.
+   Current setup now retains Casey1771 as a separately labeled READY employee
+   fixture and Devon1772 as the actual prospective new-hire lane. See the dated
+   status before entering anything. Casey is not evidence that onboarding passed.
+   Do not attach a candidate journey or replace Casey's saved work/recovery email.
 6. Use the account's Childcare service assignment panel. A has childcare plus
    own-shift scheduling. B has childcare; assign co-caregiver work as an authorized
    scheduler. Explicit schedule-management permission is independent of pay/role

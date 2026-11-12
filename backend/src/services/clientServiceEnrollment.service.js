@@ -1,6 +1,7 @@
 import pool from '../config/database.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import { requireClinicalScope } from './guardianClinicalAccess.service.js';
+import {guardianServiceRestrictions,guardianServiceAllowed} from '../utils/guardianServiceRestrictions.js';
 const fail=(status,message)=>Object.assign(new Error(message),{status});
 export const SERVICE_KINDS=['counseling','tutoring','coaching','consultation'];
 export function serviceMatchesAppointment(service, appointment) {
@@ -8,6 +9,11 @@ export function serviceMatchesAppointment(service, appointment) {
   if(service.provider_user_id&&Number(service.provider_user_id)!==Number(appointment.providerUserId||appointment.provider_user_id))return false;
   const kind=appointment.businessType||appointment.business_type;
   return service.service_kind==='tutoring'?['learning','tutoring'].includes(kind):service.service_kind==='counseling'?(!kind||['mental_health','healthcare'].includes(kind)):kind===service.service_kind;
+}
+export function guardianContextAllowsAppointment(client,appointment){
+ if(client.service)return serviceMatchesAppointment(client.service,appointment);
+ if(client.authorizedServices)return client.authorizedServices.some(service=>serviceMatchesAppointment(service,appointment));
+ return true;
 }
 export async function clientAgencyMembership(clientId,agencyId,db=pool){
  const [[row]]=await db.execute(`SELECT c.id FROM clients c WHERE c.id=? AND (c.agency_id=? OR EXISTS
@@ -28,21 +34,25 @@ export async function guardianCareContexts(client, userId,db=pool){
  COALESCE(NULLIF(a.logo_url,''),CONCAT('/api/',NULLIF(TRIM(LEADING '/' FROM a.logo_path),''))) AS agency_logo_url
  FROM agencies a JOIN clients c ON c.id=? WHERE a.is_active=1 AND (a.id=c.agency_id OR EXISTS
  (SELECT 1 FROM client_agency_assignments ca WHERE ca.client_id=c.id AND ca.agency_id=a.id AND ca.is_active=1))`,[client.client_id]);
- const services=await listClientServices(client.client_id,null,db);
- return agencies.map(a=>({...a,services:services.filter(e=>Number(e.agency_id)===Number(a.agency_id)&&e.is_active)}));
+ const restriction=guardianServiceRestrictions(client);
+ const services=(await listClientServices(client.client_id,null,db)).filter(service=>guardianServiceAllowed(client,service));
+ return agencies.map(a=>({...a,services:services.filter(e=>Number(e.agency_id)===Number(a.agency_id)&&e.is_active)})).filter(context=>!restriction||context.services.length>0);
 }
 export async function guardianServiceContext({userId,clientId,agencyId,serviceId,scope='session_frequency'}){
  const rows=await ClientGuardian.listClientsForGuardian({guardianUserId:userId});
  const client=rows.find(c=>Number(c.client_id)===Number(clientId)&&!ClientGuardian.isNoView(c.permissions_json));
  if(!client)throw fail(403,'This profile is not available to your account.');
  const aid=Number(agencyId||client.agency_id);
+ const restriction=guardianServiceRestrictions(client);
+ if(restriction&&!restriction.agencyIds.includes(aid))throw fail(403,'This agency is not included in your learning portal access.');
  if(!await clientAgencyMembership(clientId,aid))throw fail(403,'This profile is not enrolled with the selected agency.');
- const services=await listClientServices(clientId,aid);
+ const services=(await listClientServices(clientId,aid)).filter(service=>guardianServiceAllowed(client,service));
  const service=serviceId?services.find(e=>Number(e.id)===Number(serviceId)&&e.is_active):null;
  if(serviceId&&!service)throw fail(403,'This service is no longer available for this profile.');
- const clinical=service?service.service_kind==='counseling':services.some(e=>e.is_active&&e.service_kind==='counseling')||['clinical','mental_health','school'].includes(client.client_type);
+ if(restriction&&!services.some(service=>service.is_active))throw fail(403,'No authorized learning service is currently active for this profile.');
+ const clinical=service?service.service_kind==='counseling':services.some(e=>e.is_active&&e.service_kind==='counseling')||(!restriction&&['clinical','mental_health','school'].includes(client.client_type));
  if(clinical&&scope)await requireClinicalScope({userId,clientId,agencyId:aid,scope});
- return {...client,agency_id:aid,client_type:service?.service_kind==='tutoring'?'learning':service?.service_kind==='counseling'?'clinical':client.client_type,service};
+ return {...client,agency_id:aid,client_type:service?.service_kind==='tutoring'||(restriction&&restriction.kinds.every(kind=>kind==='tutoring'))?'learning':service?.service_kind==='counseling'?'clinical':client.client_type,service,...(restriction?{authorizedServices:services.filter(service=>service.is_active)}:{})};
 }
 export async function saveClientService({clientId,agencyId,input,userId},db=pool){
  if(!await clientAgencyMembership(clientId,agencyId,db))throw fail(400,'Link this client to the agency before adding its service.');

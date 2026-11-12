@@ -9,6 +9,7 @@ import { ensureClientSecureConversation } from '../services/clientSecureConversa
 import {familyAccount,updateFamilyAccount} from '../services/familyPortalAccount.service.js';
 import {readGuardianContactSharing,saveGuardianContactSharing} from '../services/guardianContactSharing.service.js';
 import * as guardianInvitations from '../controllers/guardianInvitation.controller.js';
+import * as learningGuardianInvitations from '../controllers/learningGuardianInvitation.controller.js';
 import * as guardianDemographics from '../controllers/guardianDemographics.controller.js';
 import * as notificationSetup from '../controllers/guardianNotificationSetup.controller.js';
 import { listClientNotificationHistory } from '../controllers/clientNotificationHistory.controller.js';
@@ -132,6 +133,8 @@ router.get('/clients/:clientId/notification-history', listClientNotificationHist
 router.get('/clients/:clientId/notification-setup', notificationSetup.getSetup);
 router.post('/clients/:clientId/notification-setup/sms-consent', notificationSetup.beginConsent);
 router.get('/clients', listMyGuardianClients);
+router.get('/clients/:clientId/guardian-invitations',requireActiveStatus,learningGuardianInvitations.list);
+router.post('/clients/:clientId/guardian-invitations',requireActiveStatus,rateLimit({windowMs:60*60*1000,max:10}),learningGuardianInvitations.create);
 router.get('/clients/:clientId/contact-sharing',requireActiveStatus,async(req,res,next)=>{try{
   if(req.guardianPreviewMode)return res.status(403).json({error:{message:'Preview cannot access contact preferences'}});
   res.set('Cache-Control','no-store').json(await readGuardianContactSharing(Number(req.params.clientId),req.user.id));

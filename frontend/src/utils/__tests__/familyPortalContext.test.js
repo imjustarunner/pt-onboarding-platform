@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { resolveFamilyPortalOrganization, familyPortalDashboardPath, familyPortalClients, familyProfileHasRecordAccess } from '../familyPortalContext';
+import { resolveFamilyPortalOrganization, familyPortalDashboardPath, familyPortalClients, familyProfileHasRecordAccess, familyProfilesLearningOnly } from '../familyPortalContext';
 const school = { id: 2, slug: 'school', organization_type: 'school' };
 const tenant = { id: 1, slug: 'itsco', organization_type: 'agency' };
 const tutoring = { id: 3, portal_url: 'tutoring', organization_type: 'learning' };
@@ -27,4 +27,11 @@ it('uses server relationship restrictions when deciding whether records may be p
  expect(familyProfileHasRecordAccess({client_id:1,no_view:true})).toBe(false);
  expect(familyProfileHasRecordAccess({client_id:1,guardian_portal_locked:true})).toBe(false);
  expect(familyProfileHasRecordAccess({client_id:1,no_view:false,guardian_portal_locked:false})).toBe(true);
+});
+it('uses learning-only presentation only when every authorized service context is learning',()=>{
+ expect(familyProfilesLearningOnly([{client_type:'learning'},{client_type:'tutoring'}])).toBe(true);
+ expect(familyProfilesLearningOnly([{client_type:'learning',services:[{service_kind:'tutoring'},{service_kind:'counseling'}]}])).toBe(false);
+ expect(familyProfilesLearningOnly([{client_type:'learning',care_contexts:[{services:[{service_kind:'tutoring'}]},{services:[{service_kind:'counseling'}]}]}])).toBe(false);
+ expect(familyProfilesLearningOnly([{client_type:'clinical'},{client_type:'learning'}])).toBe(false);
+ expect(familyProfilesLearningOnly([{}])).toBe(false);expect(familyProfilesLearningOnly([])).toBe(false);
 });

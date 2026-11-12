@@ -1,3 +1,66 @@
+CURRENT COMPLETION — NOVEMBER12,2026 (America/Denver,MST,UTC-07)
+Owner-approved62aecf510 published and deployed; all13 triggered CI workflows green.
+Current-main388b2200c preserved the concurrent inbox changes. The completion source
+on codex/nlu-live-workflow-completion-20261112 is separately reviewed and not yet
+published. No additional migration beyond already-applied1814 is required.
+
+Completion scope
+- Normal active employee compensation draft creation/options, initial-vs-amendment
+  review, agency-owned update/countersigner/date, preserved all executed/authorized
+  history and unaffected services, optimistic editing/release and audit.
+- Actual signing/countersigning rechecks the original active identity/membership,
+  exact task/document/HTML; generic APIs cannot replace/delete issued evidence.
+- Exact saved QA employee-update recipients/tasks remain scoped to453/454/source6;
+  personal/work identity, preview, lifecycle and physical testing inbox guards stay.
+- Mobile Students/Profile/Childcare links retain only safe exact shift IDs and
+  reject foreign tenant/unsafe origin/query injection; primary auth unchanged.
+- Pure tutoring parent Payments/support/team wording and insurance suppression;
+  clinical and dual-service coverage retains its context and own-card behavior.
+- Authenticated learning guardian invitation, explicit authority, minor/learning
+  eligibility, per-child links only after exact-token acceptance, one-send retry
+  handling and no existing-account takeover. Durable agency/tutoring scope covers
+  later clinical enrollment, billing/insurance, plans/docs, appointments and
+  canonical/legacy message audiences. No invitation has been sent live yet.
+- Persisted childcare snapshot hash v2 uses canonical object ordering while
+  preserving ordered intervals. Original v1 hashes remain verifiable without
+  changing finalized amounts; incompatible evidence stays reviewable.
+
+Validation (overlapping suites; do not add these as unique system totals)
+- Final frontend release:384pass/35files, no unhandled errors. An initial lazy
+  child import outlived a shallow navigation test environment; that test now
+  isolates the child, whose actual functionality is tested separately.
+- Parent frontend:146pass/19files. Parent backend:186pass/10intentionalSQLskips.
+- Final backend release:577pass/4optionalSQLskips. A prior concurrent-build run
+  exceeded a5-second dynamic-controller import timeout; quiet full rerun passed.
+- Real isolated signed MySQL payroll/paystub:3pass. Unique schema definitions
+  only, exact1814, real draft/save/release/effective reader, actual source punch,
+  attendance/ratio/hash/claim approval/recompute/summary/own-pay reader. Overrides,
+  old/current/future dates, original tutoring27/20min terms, persisted segment
+  labels/rates/amounts and zero childcare indirect/ADP export verified. Worker1
+  synthetic180min=86; worker2 60min=31. Legacy approved amount/hash retained and
+  own preview did not falsely flag correction. Owned schema dropped successfully.
+  This test uses synthetic signed-record metadata and fixed synthetic clocks,
+  not real signatures, elapsed browser work, live payroll approval or payment.
+  Only exact test actor access/scheduling conflict are fixtures; payroll paths real.
+- Production frontend build and all site/public/office/product packaging passed;
+  core Vite1m22s. Shared dependencies reused, one successful complete build.
+- Independent compensation/signing/hash and guardian invitation/security reviews
+  resolved history, document integrity, MySQL key order, alias/collision, current
+  authority read, durable service scopes and messaging issues; final review clear.
+- CI recovered-workflows now runs both NLU release and parent-context suites.
+
+Actual limited live evidence is in LIVE-SETUP-STATUS.txt and the root deliverable
+LIVE-SMOKE-EVIDENCE.csv/JSON/screenshots. That evidence uses deployed388, not this
+unpublished completion. Finley save/Students/denials, Morgan two children, Casey
+98actual seconds/count change/review boundary do not pass the full bot checklist.
+Inbox unauthorized_client, no approved SMS recipient/receipt, missing published
+QA handbook/training and pending Devon identifier requirement remain blockers.
+No live payroll approved/exported, payment collected or legal hire certified.
+
+HISTORICAL VALIDATION — PRESERVED BELOW
+The older source/deployment wording below describes its original evidence cutoff;
+current release/setup facts above and LIVE-SETUP-STATUS.txt supersede that wording.
+
 NLU TUTORING / CHILDCARE IMPLEMENTATION — NOVEMBER 12, 2026
 Phase A below records pre-publication source validation and its historical baseline.
 Approved394b5ef54 and migration1814 subsequently deployed successfully. The current

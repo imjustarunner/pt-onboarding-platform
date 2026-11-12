@@ -83,3 +83,15 @@ it('requires a real final submission before allowing the task to be checked off'
   db.execute.mockResolvedValue([[]]);
   await expect(assertProviderUpdateTaskStatus(100, 'completed', db)).resolves.toBeUndefined();
 });
+const qaTask={provider_user_id:1496,agency_id:453,slug:'nlu-qa-demo',is_demo_snapshot:1,account_email:'qa.nlu.tutor@example.com',account_work_email:'qa.nlu.tutor@example.com',account_role:'provider',account_is_demo:1,account_is_active:1,account_is_archived:0,account_status:'ACTIVE_EMPLOYEE',qa_active_membership:1,qa_agency_active:1,qa_agency_archived:0,qa_feature_flags:{qaSandbox:{syntheticOnly:true,program:'tutoring',sourceAgencyId:6}}};
+it('creates the ordinary managed task for an exact active QA recipient without clearing demo markers',async()=>{
+ recipients[0]={...recipients[0],...qaTask};
+ expect((await service.syncUser(1496))[0]).toMatchObject({recipientId:73,agencyId:453});
+ expect(tasks).toHaveLength(1);expect(recipients[0].is_demo_snapshot).toBe(1);expect(recipients[0].account_is_demo).toBe(1);
+ const sql=connection.execute.mock.calls.find(([sql])=>sql.includes('AS eligible'))[0];
+ expect(sql).toContain("LEFT(r.token,8)<>'preview_'");expect(sql).toContain('ua.agency_id=r.agency_id');
+});
+it.each([{agency_id:6,slug:'nlu'},{account_work_email:'unknown@example.com'},{account_is_active:0},{account_status:'PROSPECTIVE'},{qa_active_membership:0},{qa_agency_active:0},{qa_feature_flags:{qaSandbox:{syntheticOnly:true,program:'tutoring',sourceAgencyId:450}}},{eligible:0}])('keeps disabled, foreign, unsaved and otherwise ineligible QA updates out of managed tasks: %j',async patch=>{
+ recipients[0]={...recipients[0],...qaTask,...patch};
+ expect(await service.syncUser(1496)).toEqual([]);expect(tasks).toHaveLength(0);
+});

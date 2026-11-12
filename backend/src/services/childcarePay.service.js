@@ -7,7 +7,30 @@ const money=value=>Math.round((Number(value)+Number.EPSILON)*100)/100;
 export const childcareStoredIso=value=>typeof value==='string'&&/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(value)?new Date(`${value.replace(' ','T')}Z`).toISOString():toUtcIso(value);
 const instant=value=>new Date(childcareStoredIso(value)).getTime();
 const fail=message=>Object.assign(new Error(message),{status:409,code:'CHILDCARE_PAY_REVIEW_REQUIRED'});
-export const childcareSnapshotHash=value=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
+const canonical=value=>Array.isArray(value)?value.map(canonical):value&&typeof value==='object'?Object.fromEntries(Object.keys(value).sort().map(key=>[key,canonical(value[key])])):value;
+const hashJson=value=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
+// MySQL JSON storage normalizes object key order. Arrays still describe ordered
+// work intervals and must never be sorted while verifying a payroll snapshot.
+export const childcareSnapshotHash=value=>hashJson(canonical(value));
+const legacyRootKeys=['shiftId','userId','segments','totalMinutes','totalAmount','reviewRequired','reasons'];
+const legacySegmentKeys=['startedAt','endedAt','minutes','children','caregivers','punchInId','punchOutId','band','rate','amount','agreedRate','rateSource','scheduleId','wageFloorJurisdiction','reviewReason'];
+function legacyOrderedSnapshot(value){
+ if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).some(key=>!legacyRootKeys.includes(key))||!Array.isArray(value.segments))return null;
+ const segments=[];
+ for(const segment of value.segments){
+  if(!segment||typeof segment!=='object'||Array.isArray(segment)||Object.keys(segment).some(key=>!legacySegmentKeys.includes(key)))return null;
+  segments.push(Object.fromEntries(legacySegmentKeys.filter(key=>Object.hasOwn(segment,key)).map(key=>[key,segment[key]])));
+ }
+ return Object.fromEntries(legacyRootKeys.filter(key=>Object.hasOwn(value,key)).map(key=>[key,key==='segments'?segments:value[key]]));
+}
+export function childcareSnapshotHashMatches(snapshot,expected,version=null){
+ const format=version==null?1:Number(version);
+ if(format===2)return childcareSnapshotHash(snapshot)===expected;
+ if(format!==1)return false;
+ if(childcareSnapshotHash(snapshot)===expected)return true;
+ const legacy=legacyOrderedSnapshot(snapshot);
+ return !!legacy&&hashJson(legacy)===expected;
+}
 
 export async function childcareRateSchedule({agencyId,userId,asOfDate,db}) {
   const agreement=await effectiveCompensationAgreement({agencyId,userId,asOfDate},db);
@@ -81,7 +104,7 @@ export async function calculateChildcarePay({shift,userId,punches,attendance,res
 
 export function childcareClaimAmount(claim,approvedHours=null) {
   const payload=claim?.payload||{},snapshot=payload.childcareSnapshot;
-  if(!snapshot||snapshot.reviewRequired||snapshot.totalAmount==null||payload.childcareSnapshotHash!==childcareSnapshotHash(snapshot))throw fail('Review the childcare attendance, staffing and rate snapshot before approving pay.');
+  if(!snapshot||snapshot.reviewRequired||snapshot.totalAmount==null||!childcareSnapshotHashMatches(snapshot,payload.childcareSnapshotHash,payload.childcareSnapshotHashVersion))throw fail('Review the childcare attendance, staffing and rate snapshot before approving pay.');
   if(approvedHours!=null&&Math.abs(Number(approvedHours)-snapshot.totalMinutes/60)>.005001)throw fail('Correct actual childcare time in its shift before changing payroll hours.');
   return snapshot.totalAmount;
 }

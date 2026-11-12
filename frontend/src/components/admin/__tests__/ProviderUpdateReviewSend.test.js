@@ -54,3 +54,23 @@ it('never offers a read-only preview as a personal update link',async()=>{
  m.recipients=[{provider_user_id:465,token:'preview_abc',publicUrl:'https://example.test/itsco/provider-update/preview_abc'}];
  const w=await render();expect(w.find('.row-copy').exists()).toBe(false);w.unmount();
 });
+it('includes only server-approved QA workflow employees and retains their real demo progress without auto-sending',async()=>{
+ const original=m.get.getMockImplementation();m.get.mockImplementation(async path=>path.includes('eligible-providers')?{data:{providers:[
+  {provider_user_id:1496,first_name:'Finley',last_name:'QA',is_demo:1,qa_workflow_allowed:true,qa_workflow_agency_id:453,work_email:'qa.nlu.tutor@example.com'},
+  {provider_user_id:1771,first_name:'Casey',last_name:'QA',is_demo:1,qa_workflow_allowed:true,qa_workflow_agency_id:453,work_email:'qa.nlu.childcare.a@example.com'},
+  {provider_user_id:1772,first_name:'Devon',last_name:'QA',is_demo:1,qa_workflow_allowed:false},
+  {provider_user_id:9999,first_name:'Other',last_name:'Demo',is_demo:1},
+  {provider_user_id:1497,first_name:'Foreign',last_name:'Scope',is_demo:1,qa_workflow_allowed:true,qa_workflow_agency_id:450}
+ ]}}:original(path));
+ m.recipients=[{provider_user_id:1496,is_demo_snapshot:1,status:'in_progress',active_seconds:90,last_delivery_status:'sent'}];
+ const w=mount(Review,{props:{agencyId:453,pushes:[push]},global:{stubs:{ProviderUpdateTrainingEditor:true}}});await flushPromises();
+ expect(w.get('[data-person-id="1496"]').text()).toContain('qa.nlu.tutor@example.com');expect(w.get('[data-person-id="1496"]').text()).toContain('1m 30s');
+ expect(w.get('[data-person-id="1771"]').text()).toContain('qa.nlu.childcare.a@example.com');expect(w.find('[data-person-id="1772"]').exists()).toBe(false);expect(w.find('[data-person-id="9999"]').exists()).toBe(false);expect(w.find('[data-person-id="1497"]').exists()).toBe(false);
+ expect(m.post).not.toHaveBeenCalled();w.unmount();
+});
+it('removes QA staff from the selectable roster after their current allowance is revoked',async()=>{
+ const original=m.get.getMockImplementation();let allowed=true;
+ m.get.mockImplementation(async path=>path.includes('eligible-providers')?{data:{providers:[{provider_user_id:1496,first_name:'Finley',last_name:'QA',is_demo:1,qa_workflow_allowed:allowed,qa_workflow_agency_id:453,work_email:'qa.nlu.tutor@example.com'}]}}:original(path));
+ const w=mount(Review,{props:{agencyId:453,pushes:[push]},global:{stubs:{ProviderUpdateTrainingEditor:true}}});await flushPromises();expect(w.find('[data-person-id="1496"]').exists()).toBe(true);
+ allowed=false;await w.findAll('button').find(button=>button.text()==='Refresh progress').trigger('click');await flushPromises();expect(w.find('[data-person-id="1496"]').exists()).toBe(false);expect(m.post).not.toHaveBeenCalled();w.unmount();
+});

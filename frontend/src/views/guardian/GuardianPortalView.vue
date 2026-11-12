@@ -1,6 +1,6 @@
 <template>
   <ClinicalWorkspaceFrame :enabled="clinicalGuardianContext" mode="clinical" :immersive="clinicalGuardianContext" hide-header>
-  <FamilyPortalShell :logo-is-symbol="clinicalGuardianContext" :brand-name="clinicalGuardianContext ? 'AuricWell' : careAgencyName || 'Your portal'" :brand-subtitle="`${ft(portalAccountLabel)}${clinicalGuardianContext ? ' · Beta' : ''}`" :logo-url="clinicalGuardianContext ? AURICWELL_MARK_URL : careAgencyLogo" :agency-name="clinicalGuardianContext ? careAgencyName : ''" :agency-logo="clinicalGuardianContext ? careAgencyLogo : ''" :primary-color="clinicalGuardianContext ? '#2467a7' : brandingStore.primaryColor" :title="ft(portalTitle)" :subtitle="ft(portalSubtitle)" :user-name="userName" :navigation="portalNavigation" :active="activePanel" @navigate="navigatePortal">
+  <FamilyPortalShell :learning="learningOnlyPortalContext" :logo-is-symbol="clinicalGuardianContext" :brand-name="clinicalGuardianContext ? 'AuricWell' : careAgencyName || 'Your portal'" :brand-subtitle="`${ft(portalAccountLabel)}${clinicalGuardianContext ? ' · Beta' : ''}`" :logo-url="clinicalGuardianContext ? AURICWELL_MARK_URL : careAgencyLogo" :agency-name="clinicalGuardianContext ? careAgencyName : ''" :agency-logo="clinicalGuardianContext ? careAgencyLogo : ''" :primary-color="clinicalGuardianContext ? '#2467a7' : brandingStore.primaryColor" :title="ft(portalTitle)" :subtitle="ft(portalSubtitle)" :user-name="userName" :navigation="portalNavigation" :active="activePanel" @navigate="navigatePortal">
     <template #context>
       <label class="family-language">{{ familyLocale === 'es' ? 'Idioma' : 'Language' }}
         <select :value="familyLocale" @change="setFamilyLocale($event.target.value)"><option value="en">English</option><option value="es">Español</option></select>
@@ -140,6 +140,7 @@
               <div v-else-if="selectedChild" class="child-panel-content">
                 <p v-if="selectedChild.no_view" role="status">{{ pendingEnrollmentState.pending ? 'Your children are linked. Complete your own enrollment above to continue. The other guardian’s private answers remain hidden.' : 'Your children are linked, but detailed records are not available under your current access. Contact your care team if this needs review.' }}</p>
                 <GuardianClientDetails v-if="!isSuperadminPreview && !selectedChild.guardian_portal_locked && !selectedChild.no_view" :client-id="Number(selectedChildId)" />
+                <GuardianLearningInvitations v-if="!isSuperadminPreview && standardsLearningVisible && selectedChildRecordAccess" :key="`learning-invites:${selectedChildAgencyId}:${selectedChildId}`" :client-id="selectedChildId" :agency-id="selectedChildAgencyId" :client-name="selectedFirstName" />
                 <GuardianCareAccess v-if="!isSuperadminPreview && !selectedChild.guardian_portal_locked" :client-id="selectedChildId" :client-name="selectedFirstName" :user-id="authStore.user?.id" @messages="navigatePortal('messages')" />
                 <div v-if="selectedChild.guardian_portal_locked" class="locked-banner">
                   This client is 18 or older. Guardian-managed waivers, intake documents, and related guardian actions are
@@ -503,13 +504,13 @@
             <template v-else-if="activePanel === 'payment_methods'">
               <div v-if="isSuperadminPreview" class="guardian-preview-surface">
                 <p class="hint" style="margin: 0;">
-                  Saved cards (processor tokens) and insurance profiles from enrollment appear here for guardians. Preview does
-                  not query payment or coverage records.
+                  {{ learningOnlySelectedProfile ? 'Saved payment methods appear here for authorized payers. Preview does not query payment records.' : 'Saved cards (processor tokens) and insurance profiles from enrollment appear here for guardians. Preview does not query payment or coverage records.' }}
                 </p>
               </div>
-              <p v-else-if="selectedChild?.no_view" role="status">Your children are linked. Insurance and billing information is not available under your current access. Complete your own enrollment above, or contact your care team.</p>
+              <p v-else-if="selectedChild?.no_view" role="status">{{ learningOnlySelectedProfile ? 'Your children are linked. Payment information is not available under your current access. Complete your own enrollment above, or contact your learning team.' : 'Your children are linked. Insurance and billing information is not available under your current access. Complete your own enrollment above, or contact your care team.' }}</p>
               <GuardianPaymentInsuranceTab
                 v-else
+                :learning-only="learningOnlySelectedProfile"
                 :agency-id="selectedChildAgencyId"
                 :guardian-user-id="authStore.user?.id"
                 :client-id="selectedChildId"
@@ -641,7 +642,7 @@ import GuardianProgressRecords from '../../components/guardian/GuardianProgressR
 import FamilyDashboard from '../../components/guardian/FamilyDashboard.vue';
 import GuardianEnrollmentStart from '../../components/guardian/GuardianEnrollmentStart.vue';
 import FamilyPayments from '../../components/guardian/FamilyPayments.vue';
-import { resolveFamilyPortalOrganization, familyPortalClients, familyCareAgencies, familyProfileHasRecordAccess } from '../../utils/familyPortalContext.js';
+import { resolveFamilyPortalOrganization, familyPortalClients, familyCareAgencies, familyProfileHasRecordAccess, familyProfilesLearningOnly } from '../../utils/familyPortalContext.js';
 import { AURICWELL_MARK_URL } from '../../constants/auricwellBrand';
 import GuardianSchoolCareBridge from '../../components/guardian/GuardianSchoolCareBridge.vue';
 import GuardianSchoolReleaseForm from '../../components/guardian/GuardianSchoolReleaseForm.vue';
@@ -666,6 +667,7 @@ import GuardianIntakeDocuments from '../../components/guardian/GuardianIntakeDoc
 import GuardianPendingEnrollment from '../../components/guardian/GuardianPendingEnrollment.vue';
 import FamilyPendingDocuments from '../../components/guardian/FamilyPendingDocuments.vue';
 import GuardianClientDetails from '../../components/guardian/GuardianClientDetails.vue';
+import GuardianLearningInvitations from '../../components/guardian/GuardianLearningInvitations.vue';
 import GuardianCareAccess from '../../components/guardian/GuardianCareAccess.vue';
 import GuardianAppointmentsPanel from '../../components/guardian/GuardianAppointmentsPanel.vue';
 import GuardianProgramSelector from '../../components/GuardianProgramSelector.vue';
@@ -857,6 +859,8 @@ const selectedSchool = computed(() => schoolAffiliations.value.find(s => Number(
 const schoolWorkspaceLabel = computed(() => selectedSchool.value ? `${selectedSchool.value.name}${selectedSchool.value.status === 'former' ? ' · Former school' : ''}` : '');
 const careAgencyName = computed(() => selectedChild.value?.agency_name || tenantAgencyName.value || currentAgencyName.value);
 const clinicalGuardianContext = computed(() => !!selectedChild.value && !standardsLearningVisible.value && (isClinicalClient(selectedChild.value) || hasSchoolAffiliations.value || (!selectedChild.value.client_type && ['agency','clinical'].includes(selectedChild.value.organization_type))));
+const learningOnlySelectedProfile = computed(() => familyProfilesLearningOnly(selectedChild.value ? [selectedChild.value] : allFamilyProfiles.value));
+const learningOnlyPortalContext = computed(() => ['family','family_billing','family_messages','account','assistance','enroll'].includes(activePanel.value) ? familyProfilesLearningOnly(allFamilyProfiles.value) : learningOnlySelectedProfile.value);
 const guardianWorkspaceMode = ref('clinical');
 const schoolWorkspaceActive = computed(() => activePanel.value === 'schoolcarebridge');
 function openAuricWellPanel(panel) { navigatePortal(panel); }
@@ -1025,8 +1029,8 @@ const dashboardTabs = computed(() => {
 
     {
       key: 'payment_methods',
-      label: 'Payment & insurance',
-      meta: pm('Cards and coverage', 'Cards & coverage (live data)')
+      label: learningOnlySelectedProfile.value ? 'Payments' : 'Payment & insurance',
+      meta: learningOnlySelectedProfile.value ? pm('Saved payment methods', 'Payment methods (live data)') : pm('Cards and coverage', 'Cards & coverage (live data)')
     },
     { key: 'notifications', label: 'Notification setup', meta: pm('Reminders and text enrollment', 'Notification setup') },
     { key: 'account', label: 'Settings', meta: pm('Profile and security', 'Profile and security shell') }
@@ -1039,7 +1043,7 @@ let portalGrantRequest = 0;
 const portalPlanAllowed = computed(() => !isSuperadminPreview.value && !!selectedChildId.value && (standardsLearningVisible.value || selectedChild.value?.relationship_type === 'self' || portalGrants.value.some(g => Number(g.clientId) === Number(selectedChildId.value) && Number(g.guardianUserId) === Number(authStore.user?.id) && g.scopes?.includes('treatment_plan'))));
 const portalNavigation = computed(() => {
   const icons = {overview:'dashboard',tutoring:'dashboard',registrations:'sessions',documents:'tasks',child:'child',dependents:'child',billing:'billing',payment_methods:'shield',account:'account',messages:'messages',notifications:'tasks',notification_history:'messages'};
-  const labels = {overview:'Dashboard',documents:'Tasks & documents',billing:'Invoices & receipts',payment_methods:'Insurance & payments',child:selectedChild.value ? `${childDisplayName(selectedChild.value).split(' — ')[0]} · ${familyLocale.value === 'es' ? 'información' : 'information'}` : 'Client information'};
+  const labels = {overview:'Dashboard',documents:'Tasks & documents',billing:'Invoices & receipts',payment_methods:learningOnlySelectedProfile.value?'Payments':'Insurance & payments',child:selectedChild.value ? `${childDisplayName(selectedChild.value).split(' — ')[0]} · ${familyLocale.value === 'es' ? 'información' : 'information'}` : 'Client information'};
   const items = dashboardTabs.value.filter(t => !(standardsLearningVisible.value && t.key === 'overview')).map(t => ({...t,label:labels[t.key] || t.label,icon:icons[t.key]}));
   if(!isSuperadminPreview.value && selectedChildId.value && items.some(item=>item.key==='documents'))items.push({key:'updates',label:'Selected updates',icon:'tasks'});
   items.push({key:'checkins',label:'Check-ins & trends',icon:'plan'},{key:'evaluations',label:'Evaluations',icon:'documents'});
@@ -1056,7 +1060,7 @@ const portalNavigation = computed(() => {
   return ordered.map(i=>({...i,label:ft(i.label),group:i.key==='signout'?ft('Account'):accountKeys.includes(i.key)?ft('Family & account'):`${ft('Viewing')} ${selectedFirstName.value}`}));
 });
 const portalTitle = computed(() => activePanel.value === 'onboarding' ? 'Welcome to your new portal' : activePanel.value === 'family' ? familyHomeLabel.value : ['overview','tutoring'].includes(activePanel.value) ? `${familyLocale.value === 'es' ? 'Bienvenido' : 'Welcome'}${(authStore.user?.first_name || authStore.user?.firstName) ? ', ' + (authStore.user.first_name || authStore.user.firstName) : ''}!` : portalNavigation.value.find(t => t.key === activePanel.value)?.label || 'Your portal');
-const portalSubtitle = computed(() => ['overview','tutoring'].includes(activePanel.value) ? (familyLocale.value === 'es' ? `El proceso de ${standardsLearningVisible.value ? 'aprendizaje' : 'atención'} de ${selectedFirstName.value}, sus citas y próximos pasos.` : `${selectedFirstName.value}’s ${standardsLearningVisible.value ? 'learning' : 'care'} journey, appointments, and next steps.`) : ({schoolcarebridge:'Your school, service day, provider, and release of information.',billing:'Your assigned balances, payment plans, and downloadable receipts.',payment_methods:'Manage your private insurance coverage and payment methods.',plan:'Review the goals and progress shared with your account.',documents:'Complete forms, review documents, and stay up to date.',messages:'A shared conversation with authorized guardians and your care team.'}[activePanel.value] || 'Manage the information shared with your account.'));
+const portalSubtitle = computed(() => ['overview','tutoring'].includes(activePanel.value) ? (familyLocale.value === 'es' ? `El proceso de ${standardsLearningVisible.value ? 'aprendizaje' : 'atención'} de ${selectedFirstName.value}, sus citas y próximos pasos.` : `${selectedFirstName.value}’s ${standardsLearningVisible.value ? 'learning' : 'care'} journey, appointments, and next steps.`) : ({schoolcarebridge:'Your school, service day, provider, and release of information.',billing:'Your assigned balances, payment plans, and downloadable receipts.',payment_methods:learningOnlySelectedProfile.value?'Manage your saved payment methods.':'Manage your private insurance coverage and payment methods.',plan:'Review the goals and progress shared with your account.',documents:'Complete forms, review documents, and stay up to date.',messages:learningOnlySelectedProfile.value?'A shared conversation with authorized guardians and your learning team.':'A shared conversation with authorized guardians and your care team.'}[activePanel.value] || 'Manage the information shared with your account.'));
 function navigatePortal(key) {
   if (key === 'signout') { authStore.logout(); return; }
   if (key === 'dependents') key = 'family';

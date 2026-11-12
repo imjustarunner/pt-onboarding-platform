@@ -1,6 +1,6 @@
 <template>
   <div class="family-billing">
-    <header><h3>{{ section === 'authorization' ? 'Payment authorization' : section === 'payment' ? 'Payment method' : 'Insurance & payment methods' }}</h3><p>Each client has a responsible payer. Your cards and insurance records remain private to your account, including when another guardian also pays.</p></header>
+    <header><h3>{{ section === 'authorization' ? 'Payment authorization' : section === 'payment' ? 'Payment method' : learningOnly ? 'Payment methods' : 'Insurance & payment methods' }}</h3><p>{{ learningOnly ? 'Your saved payment methods remain private to your account, including when another guardian also pays.' : 'Each client has a responsible payer. Your cards and insurance records remain private to your account, including when another guardian also pays.' }}</p></header>
     <p v-if="loading" role="status">Loading billing…</p>
     <p v-if="error" role="alert" class="error">{{ error }}</p>
     <p v-if="notice" role="status" class="notice">{{ notice }}</p>
@@ -11,8 +11,8 @@
         <article v-for="client in scopedClients" :key="client.clientId" class="billing-card">
           <h4>{{ client.clientName }}</h4>
           <p><strong>Responsible payer:</strong> {{ client.responsiblePayers.map(p => p.name).join(', ') || 'Not yet designated' }}</p>
-          <p v-if="client.insuranceOnFile && client.insuranceApplicable !== false">Coverage is recorded for this client. Review the policies you hold below; policies held by another guardian remain private.</p>
-          <p v-if="client.medicaid" class="status">Medicaid coverage: a payment method is not required.</p>
+          <p v-if="!learningOnly && client.insuranceOnFile && client.insuranceApplicable !== false">Coverage is recorded for this client. Review the policies you hold below; policies held by another guardian remain private.</p>
+          <p v-if="!learningOnly && client.medicaid" class="status">Medicaid coverage: a payment method is not required.</p>
           <p v-else-if="client.paymentSetupRequested" role="status">Billing requested payment setup. In order to prevent interruption of services, please add a payment method below. Contact Billing if you need help or wish to discuss an arrangement.</p>
           <button v-if="!client.medicaid && section === 'authorization' && (client.canManageBilling || client.canAcceptResponsibility)" type="button" @click="openAuthorization(client,'responsibility')">Review and sign payment authorization</button>
           <template v-else-if="client.canManageBilling && !client.medicaid">
@@ -57,7 +57,7 @@
             <button class="btn btn-secondary" type="button" @click="editInsurance(profile)">Review coverage / apply to clients</button>
           </article>
         </section>
-        <form v-if="insuranceDraft" ref="insuranceForm" class="billing-card" @submit.prevent="saveInsurance">
+        <form v-if="!learningOnly && insuranceDraft" ref="insuranceForm" class="billing-card" @submit.prevent="saveInsurance">
           <h4>Insurance coverage</h4>
           <label>Policy scope<select v-model="insuranceDraft.coverageScope"><option value="client">One client</option><option value="account_holder">Account holder and covered dependents</option></select></label>
           <fieldset><legend>Clients covered by this policy</legend><label v-for="client in insurableClients" :key="client.clientId" class="check"><input v-model="insuranceDraft.clientIds" type="checkbox" :value="Number(client.clientId)" /> {{ client.clientName }}</label></fieldset>
@@ -80,13 +80,13 @@ import SecureCardSetup from '../billing/SecureCardSetup.vue';
 import InsurancePolicyFields from '../billing/InsurancePolicyFields.vue';
 const insuranceRevision = ref(0),draftVersion=ref(0),cardFiles=ref({primary:{},secondary:{}});
 function applyCardFields(slot,fields){if(!insuranceDraft.value)return;for(const [key,value] of Object.entries(fields))if(value&&!insuranceDraft.value[slot][key])insuranceDraft.value[slot][key]=value;coverageConfirmed.value=false;}
-const props = defineProps({ agencyId:[Number,String], guardianUserId:[Number,String], clientId:[Number,String], section:{type:String,default:'all'} });
+const props = defineProps({ agencyId:[Number,String], guardianUserId:[Number,String], clientId:[Number,String], learningOnly:Boolean, section:{type:String,default:'all'} });
 const data = ref(null), loading = ref(false), error = ref(''), notice = ref(''), busy = ref(false), showCard = ref(false), removingCard = ref(null), authorization = ref(null), signature = ref(''), accepted = ref(false), limitDollars = ref(''), cardSelections = ref({}), insuranceDraft = ref(null), hasSecondary = ref(false), coverageConfirmed = ref(false);
 const scopedClients = computed(() => (data.value?.clients || []).filter(c => !props.clientId || Number(c.clientId) === Number(props.clientId)));
 const scopedProfiles = computed(() => (data.value?.profiles || []).filter(p => !props.clientId || p.clientIds?.some(id => Number(id) === Number(props.clientId))));
 const manageableClients = computed(() => scopedClients.value.filter(c => c.canManageBilling));
 const paymentEligibleClients=computed(()=>manageableClients.value.filter(c=>!c.medicaid));
-const insurableClients = computed(() => scopedClients.value.filter(c => c.insuranceApplicable !== false && (c.canManageInsurance ?? c.canManageBilling)));
+const insurableClients = computed(() => props.learningOnly ? [] : scopedClients.value.filter(c => c.insuranceApplicable !== false && (c.canManageInsurance ?? c.canManageBilling)));
 const expired = card => Number(card.card_exp_year) < new Date().getFullYear() || (Number(card.card_exp_year) === new Date().getFullYear() && Number(card.card_exp_month) < new Date().getMonth() + 1);
 const money = cents => new Intl.NumberFormat(undefined,{style:'currency',currency:'USD'}).format(Number(cents || 0)/100);
 let generation = 0;
@@ -126,7 +126,7 @@ async function saveInsurance() {
   if(current!==generation)return;insuranceDraft.value=null;cardFiles.value={primary:{},secondary:{}};insuranceRevision.value++;notice.value='Your coverage and selected card images were saved for billing review.';await load();
  }catch(e){if(current===generation)error.value=e.response?.data?.error?.message||e.message||'Coverage could not be saved. Please try again.';}finally{busy.value=false;}
 }
-watch(()=>[props.agencyId,props.guardianUserId,props.clientId,props.section],()=>{showCard.value=false;authorization.value=null;insuranceDraft.value=null;removingCard.value=null;notice.value='';void load();},{immediate:true});
+watch(()=>[props.agencyId,props.guardianUserId,props.clientId,props.section,props.learningOnly],()=>{showCard.value=false;authorization.value=null;insuranceDraft.value=null;removingCard.value=null;notice.value='';void load();},{immediate:true});
 </script>
 <style scoped>
 .family-billing{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.family-billing>header,.family-billing>.client-grid,.family-billing>p,.family-billing>form{grid-column:1/-1}.family-billing>header p{font-size:14px;color:#566b84;margin-top:6px}.family-billing .section-head h4{font-size:18px;color:#1d3554}.family-billing .saved-row{background:var(--portal-tint,#f2f6fb);padding:18px;border:1px solid #e0e8f3}.family-billing .policy-summary{border-color:#dfe8f1;padding:20px}.family-billing .policy-summary h5{color:var(--portal-accent,#2459ad);font-size:20px}.family-billing .billing-card{box-shadow:0 3px 14px #193e7310}.family-billing input,.family-billing select{font:inherit}.family-billing :deep(.btn-primary){background:var(--portal-accent,#2459ad);color:var(--portal-on-accent,#fff)}

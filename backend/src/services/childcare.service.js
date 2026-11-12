@@ -1,7 +1,7 @@
 import pool from '../config/database.js';
 import {STAFF_ROLES} from '../utils/staffEligibility.js';
 import {isNluChildcareAgency} from './compensationCategories.service.js';
-import {calculateChildcarePay,childcareRateSchedule,childcareSnapshotHash,childcareWorkIntervals,childcareStoredIso} from './childcarePay.service.js';
+import {calculateChildcarePay,childcareRateSchedule,childcareSnapshotHash,childcareSnapshotHashMatches,childcareWorkIntervals,childcareStoredIso} from './childcarePay.service.js';
 import {toUtcIso,utcDateToZonedYmd,dateToMysqlUtcDateTime} from '../utils/zonedWallTime.util.js';
 import {assertAppointmentWindowAvailable} from './appointmentConflict.service.js';
 import {readAgencyAccess} from './agencyAccessProfiles.service.js';
@@ -230,10 +230,11 @@ async function refreshChildcarePay(shift,db) {
     const snapshot=await calculateChildcarePay({shift,userId,punches,attendance,db}),hash=childcareSnapshotHash(snapshot);
     const [[saved]]=await db.execute('SELECT s.*,c.status claim_status FROM childcare_pay_snapshots s LEFT JOIN payroll_time_claims c ON c.id=s.payroll_time_claim_id WHERE s.shift_id=? AND s.user_id=? FOR UPDATE',[shift.id,userId]);
     if(saved&&['approved','paid'].includes(saved.claim_status)) {
-      if(saved.snapshot_hash!==hash)await audit(db,{agencyId:shift.agency_id,userId,action:'childcare_pay_correction_required',metadata:{shiftId:shift.id,claimId:saved.payroll_time_claim_id,reason:'Attendance or compensation changed after approval. Preserve approved earnings and review a separate correction.'}});
+      const stored=parse(saved.snapshot_json);
+      if(!childcareSnapshotHashMatches(stored,saved.snapshot_hash)||childcareSnapshotHash(stored)!==hash)await audit(db,{agencyId:shift.agency_id,userId,action:'childcare_pay_correction_required',metadata:{shiftId:shift.id,claimId:saved.payroll_time_claim_id,reason:'Attendance or compensation changed after approval. Preserve approved earnings and review a separate correction.'}});
       continue;
     }
-    const payload={source:'childcare_shift',companyEventId:Number(shift.company_event_id),childcareShiftId:Number(shift.id),childcareSnapshot:snapshot,childcareSnapshotHash:hash,totalMinutes:snapshot.totalMinutes,bucket:'direct',categoryLabel:'Childcare',rateReviewRequired:snapshot.reviewRequired,clockInAt:snapshot.segments[0]?.startedAt||null,clockOutAt:snapshot.segments.at(-1)?.endedAt||null};
+    const payload={source:'childcare_shift',companyEventId:Number(shift.company_event_id),childcareShiftId:Number(shift.id),childcareSnapshot:snapshot,childcareSnapshotHash:hash,childcareSnapshotHashVersion:2,totalMinutes:snapshot.totalMinutes,bucket:'direct',categoryLabel:'Childcare',rateReviewRequired:snapshot.reviewRequired,clockInAt:snapshot.segments[0]?.startedAt||null,clockOutAt:snapshot.segments.at(-1)?.endedAt||null};
     let claimId=saved?.payroll_time_claim_id||null;
     if(snapshot.totalMinutes>0) {
       if(claimId)await db.execute("UPDATE payroll_time_claims SET payload_json=?,status=?,credits_hours=?,bucket='direct' WHERE id=? AND status IN ('submitted','deferred','rejected')",[jsonParams(payload),snapshot.reviewRequired?'deferred':'submitted',snapshot.totalMinutes/60,claimId]);
@@ -307,6 +308,7 @@ export async function previewChildcarePay({shiftId,userId,targetUserId},db=pool)
   const sources=await shiftSources(shift,db),snapshot=await calculateChildcarePay({shift,userId:target,...sources,db});
   const [[saved]]=await db.execute('SELECT s.payroll_time_claim_id,s.snapshot_hash,s.snapshot_json,c.status claim_status FROM childcare_pay_snapshots s LEFT JOIN payroll_time_claims c ON c.id=s.payroll_time_claim_id WHERE s.shift_id=? AND s.user_id=?',[shift.id,target]);
   const auditRowId=await audit(db,{agencyId:shift.agency_id,userId,action:'childcare_pay_viewed',metadata:{shiftId:shift.id,targetUserId:target}});
-  const correctionReviewRequired=saved&&['approved','paid'].includes(saved.claim_status)&&saved.snapshot_hash!==childcareSnapshotHash(snapshot);
+  const stored= saved ? parse(saved.snapshot_json) : null;
+  const correctionReviewRequired=saved&&['approved','paid'].includes(saved.claim_status)&&(!childcareSnapshotHashMatches(stored,saved.snapshot_hash)||childcareSnapshotHash(stored)!==childcareSnapshotHash(snapshot));
   return {...snapshot,...(correctionReviewRequired?{reviewRequired:true,totalAmount:null,estimatedUnapprovedAmount:snapshot.totalAmount,approvedAmount:parse(saved.snapshot_json).totalAmount,correctionReviewRequired:true,reasons:[...snapshot.reasons,'This shift changed after payroll approval. Retain the approved amount and review a separate correction.']}:{correctionReviewRequired:false}),claimId:saved?.payroll_time_claim_id||null,claimStatus:saved?.claim_status||null,auditRowId};
 }

@@ -1,6 +1,6 @@
 import {beforeEach,expect,it,vi} from 'vitest';
-const {execute}=vi.hoisted(()=>({execute:vi.fn()}));
-vi.mock('../../config/database.js',()=>({default:{execute}}));
+const {execute,connection}=vi.hoisted(()=>{const execute=vi.fn();return {execute,connection:{execute,beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn()}};});
+vi.mock('../../config/database.js',()=>({default:{execute,getConnection:vi.fn(async()=>connection)}}));
 import {editCompensationDraft,getCompensationDraft,listCompensationDrafts,saveCompensationDraft} from '../compensationDraft.service.js';
 const draft=()=>({draftKind:'provider_update_compensation',seedKey:'seed',employee:{userId:9,name:'Test Provider'},schedule:{category:2,level:2,creditRate:44,indirectRate:22,autoIndirectMinutes:10},leaveChoice:'sick',source:{rateProfile:{credit_rate:44}}});
 beforeEach(()=>vi.clearAllMocks());
@@ -10,4 +10,10 @@ it('keeps blank rates missing instead of creating an invented rate',()=>{expect(
 it('strips executable markup but retains editable tables and links',()=>{const d=editCompensationDraft(draft(),{commonClausesHtml:'<script>alert(1)</script><p onclick="bad()">Safe</p><a href="javascript:bad()">x</a><table><tr><td>44</td></tr></table><a href="https://example.com">Terms</a>'},5);expect(d.commonClausesHtml).not.toMatch(/script|onclick|javascript/);expect(d.commonClausesHtml).toContain('<td>44</td>');expect(d.commonClausesHtml).toContain('https://example.com');});
 it('scopes reads to agency and unsigned draft records',async()=>{execute.mockResolvedValue([[]]);await expect(getCompensationDraft(2,8)).rejects.toMatchObject({status:404});const [sql,params]=execute.mock.calls[0];expect(sql).toContain('agency_id=?');expect(sql).toContain('task_id IS NULL AND user_specific_document_id IS NULL');expect(params).toEqual([8,2,'provider_update_compensation']);});
 it('never returns complete salary snapshots in the listing',async()=>{execute.mockResolvedValue([[{id:7,candidate_user_id:9,token_values_json:JSON.stringify(draft())}]]);const [row]=await listCompensationDrafts(2);expect(row.name).toBe('Test Provider');expect(row.source).toBeUndefined();expect(row.schedule).toBeUndefined();});
-it('refuses to update a draft that was assigned between read and save',async()=>{execute.mockResolvedValueOnce([[{id:8,token_values_json:draft(),rendered_html:''}]]).mockResolvedValueOnce([{affectedRows:0}]);await expect(saveCompensationDraft(2,8,{schedule:{creditRate:45}},5)).rejects.toMatchObject({status:404});expect(execute.mock.calls[1][0]).toContain('task_id IS NULL AND user_specific_document_id IS NULL');expect(execute.mock.calls[1][1].slice(-3)).toEqual([8,2,'provider_update_compensation']);});
+it('refuses to update a draft that was assigned between read and save',async()=>{
+ execute.mockImplementation(async sql=>sql.startsWith('SELECT candidate_user_id')?[[{candidate_user_id:9}]]:sql.includes('GET_LOCK')?[[{acquired:1}]]:sql.startsWith('SELECT id,token_values_json')?[[{id:8,token_values_json:draft(),rendered_html:''}]]:sql.startsWith('UPDATE')?[{affectedRows:0}]:[[]]);
+ await expect(saveCompensationDraft(2,8,{schedule:{creditRate:45}},5)).rejects.toMatchObject({status:404});
+ const update=execute.mock.calls.find(([sql])=>sql.startsWith('UPDATE'));
+ expect(update[0]).toContain('task_id IS NULL AND user_specific_document_id IS NULL');expect(update[1].slice(-3)).toEqual([8,2,'provider_update_compensation']);
+ expect(connection.rollback).toHaveBeenCalled();
+});

@@ -2,14 +2,14 @@ import {isQaPreviewIdentity,assertPreviewActor} from '../auricwellPreviewPolicy.
 import {isAuricwellQaAgency} from '../../utils/auricwellQaPolicy.js';
 import {failure} from './policy.js';
 import {allowNluQaTutor,isNluTutoringQaAgency} from '../../utils/nluTutoringQaPolicy.js';
+import {nluQaWorkflowEmployee} from '../../utils/nluWorkforceQaPolicy.js';
 
 /** Reuse the established clinical QA grant; a demo flag alone grants nothing. */
 export function mobileQaScope(user, memberships) {
  if([undefined,null,false,0,'0'].includes(user?.is_demo))return {agencies:memberships,qaAgencyIds:null};
- const nluIdentity=(Number(user?.id)===1496&&user.email==='qa.nlu.tutor@example.com'&&user.role==='provider')
-   || (user?.role==='staff'&&['qa.nlu.childcare.a@example.com','qa.nlu.childcare.b@example.com'].includes(user.email));
- const nlu=nluIdentity && Number(user.is_demo)===1 && Number(user.is_active)===1 && Number(user.is_archived||0)!==1 && ['ACTIVE','ACTIVE_EMPLOYEE'].includes(user.status)
-   ? memberships.filter(agency=>isNluTutoringQaAgency(agency)&&(user.role==='staff'||allowNluQaTutor(agency,user))) : [];
+ const retainedTutor=Number(user?.id)===1496&&user.email==='qa.nlu.tutor@example.com'&&user.role==='provider';
+ const nlu=Number(user.is_demo)===1&&Number(user.is_active)===1&&Number(user.is_archived||0)!==1&&['ACTIVE','ACTIVE_EMPLOYEE'].includes(user.status)
+   ? memberships.filter(agency=>(retainedTutor&&isNluTutoringQaAgency(agency)&&allowNluQaTutor(agency,user))||nluQaWorkflowEmployee(user,agency)) : [];
  const agencies=nlu.length?nlu:isQaPreviewIdentity(user)?memberships.filter(isAuricwellQaAgency):[];
  if(!agencies.length)throw failure(403,'MOBILE_ACCOUNT_UNAVAILABLE','This test account does not have an approved synthetic mobile workspace.');
  if(!nlu.length)assertPreviewActor(user,{}, {qaAgencyId:Number(agencies[0].id)});

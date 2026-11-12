@@ -1,5 +1,6 @@
 import pool from '../config/database.js';
 import { buildPublicAppUrl } from '../utils/publicPortalUrl.js';
+import {nluQaWorkflowEmployee} from '../utils/nluWorkforceQaPolicy.js';
 
 const SOURCE = 'provider_update';
 const description = 'Your Provider Update is still unfinished. Open your personal update link, complete the remaining sections, then select Submit from the overview. This task closes automatically after your update is submitted.';
@@ -9,11 +10,15 @@ const fail = message => Object.assign(new Error(message), { status: 409 });
 // work for previews, withdrawn staff, completed updates, or inactive memberships.
 const recipientQuery = `SELECT r.*,p.title AS push_title,p.created_by_user_id,
   a.name AS agency_name,a.portal_url,a.slug,
+  a.feature_flags AS qa_feature_flags,a.is_active AS qa_agency_active,a.is_archived AS qa_agency_archived,
+  u.email AS account_email,u.work_email AS account_work_email,u.personal_email AS account_personal_email,
+  u.role AS account_role,u.is_demo AS account_is_demo,u.is_active AS account_is_active,u.is_archived AS account_is_archived,u.status AS account_status,
+  EXISTS(SELECT 1 FROM user_agencies qa_ua WHERE qa_ua.user_id=u.id AND qa_ua.agency_id=r.agency_id AND qa_ua.is_active=1) AS qa_active_membership,
   (r.status IN ('not_started','in_progress') AND r.finalized_at IS NULL AND r.locked_at IS NULL
    AND p.status='sent' AND p.title NOT LIKE '[PREVIEW]%'
    AND (r.expires_at IS NULL OR r.expires_at>UTC_TIMESTAMP())
-   AND LEFT(r.token,8)<>'preview_' AND COALESCE(r.is_demo_snapshot,0)=0
-   AND COALESCE(u.is_demo,0)=0 AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0
+   AND LEFT(r.token,8)<>'preview_'
+   AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0
    AND UPPER(u.status)='ACTIVE_EMPLOYEE' AND a.is_active=1 AND COALESCE(a.is_archived,0)=0
    AND EXISTS(SELECT 1 FROM user_agencies ua WHERE ua.user_id=u.id AND ua.agency_id=r.agency_id AND COALESCE(ua.is_active,1)=1)) AS eligible
   FROM provider_update_recipients r
@@ -36,6 +41,11 @@ export function createProviderUpdateTasks({ db = pool } = {}) {
       const [recipients] = await connection.execute(`${recipientQuery} WHERE r.provider_user_id=? ORDER BY r.id FOR UPDATE`, [userId]);
       const reminders = [];
       for (const recipient of recipients) {
+        if(Number(recipient.is_demo_snapshot)||Number(recipient.account_is_demo)){
+          const user={id:recipient.provider_user_id,email:recipient.account_email,work_email:recipient.account_work_email,personal_email:recipient.account_personal_email,role:recipient.account_role,is_demo:recipient.account_is_demo,is_active:recipient.account_is_active,is_archived:recipient.account_is_archived,status:recipient.account_status};
+          const agency={id:recipient.agency_id,slug:recipient.slug,feature_flags:recipient.qa_feature_flags,is_active:recipient.qa_agency_active,is_archived:recipient.qa_agency_archived};
+          recipient.eligible=Number(recipient.eligible)&&Number(recipient.qa_active_membership)===1&&nluQaWorkflowEmployee(user,agency)?1:0;
+        }
         const [tasks] = await connection.execute('SELECT id,status FROM tasks WHERE source_ref_type=? AND source_ref_id=? FOR UPDATE', [SOURCE, String(recipient.id)]);
         const status = providerUpdateTaskStatus(recipient);
         const link = buildPublicAppUrl(recipient, `/provider-update/${encodeURIComponent(recipient.token)}`);

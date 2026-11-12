@@ -11,6 +11,7 @@ import {
   sendMessage as sendChatMessage
 } from './chat.controller.js';
 import { isChatEncryptionConfigured } from '../services/chatEncryption.service.js';
+import {guardianServiceRestrictions} from '../utils/guardianServiceRestrictions.js';
 
 async function resolveAssignedProvider(clientId, organizationId) {
   const cid = Number(clientId);
@@ -306,6 +307,7 @@ export const openGuardianClientThread = async (req, res, next) => {
     if (!clientId) return res.status(400).json({ error: { message: 'clientId is required' } });
     const client = req.query.agencyId||req.body?.agencyId||req.query.serviceId||req.body?.serviceId ? await guardianServiceContext({userId:req.user.id,clientId,agencyId:req.query.agencyId||req.body?.agencyId,serviceId:req.query.serviceId||req.body?.serviceId,scope:'clinical_messages'}) : await assertGuardianClientAccess(req.user.id, clientId);
     if (!client) return res.status(403).json({ error: { message: 'Access denied to this child' } });
+    if(!client.service&&guardianServiceRestrictions(client))return res.status(403).json({error:{message:'Choose this student’s authorized tutoring service before opening messages.'}});
 
     const provider = client.service ? (client.service.provider_user_id ? {id:client.service.provider_user_id,first_name:client.service.provider_name,last_name:''} : null) : await resolveAssignedProvider(clientId, client.organization_id);
     if (!provider?.id) {

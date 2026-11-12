@@ -3,6 +3,7 @@ import { guardianContactRows, sharedGuardianContact } from './guardianContactSha
 import {clientAgencyMembership,listClientServices} from './clientServiceEnrollment.service.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import { clinicalAccess } from './guardianClinicalAccess.service.js';
+import {guardianServiceAllowed} from '../utils/guardianServiceRestrictions.js';
 
 // A family account can have several children. Never guess between their records.
 export async function resolveClientForSecureRecipients({ agencyId, actorUserId, recipientUserId, clientId = null }) {
@@ -38,6 +39,7 @@ export async function clientSecureAudience(clientId, db = pool, context = {}) {
     const permissions = ClientGuardian.parsePermissions(link.permissions_json);
     if (permissions?.dependentSelfAccess) continue; // Personal conversations never inherit family history.
     if (!client.guardian_portal_enabled || ClientGuardian.isNoView(permissions) || permissions?.canMessage === false) continue;
+    if (!guardianServiceAllowed({...link,agency_id:owningAgency},service||{agency_id:agencyId})) continue;
     if (['clinical', 'mental_health', 'school'].includes(String(client.client_type).toLowerCase())) {
       const access = await clinicalAccess({ agencyId: client.agency_id, clientId, userId: link.guardian_user_id }, db);
       if (!access.scopes.includes('clinical_messages')) continue;

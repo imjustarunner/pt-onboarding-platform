@@ -2,12 +2,13 @@ import pool from '../config/database.js';
 import { billingError,positiveId } from './familyBillingPolicy.service.js';
 import { encryptFamilyBilling } from './familyBillingEncryption.service.js';
 import { parseJson,dateOnly,today,transaction } from './familyLedger/policy.js';
+import {guardianLearningAccessOnly} from '../utils/guardianServiceRestrictions.js';
 export const CLINICAL_SCOPES=['treatment_plan','approve_goals','session_frequency','safety_plan','clinical_documents','clinical_messages'];
 export function ageOn(dob,asOf=today()){if(!dob)return null;const date=dateOnly(dob);return Number(asOf.slice(0,4))-Number(date.slice(0,4))-(asOf.slice(5)<date.slice(5)?1:0);}
 export function effectiveClinicalAccess({grant,link,dob,asOf=today()}){
   const denied={level:'payer_only',scopes:[],reviewRequired:true};
   const permissions=parseJson(link?.permissions_json,{});
-  if(!link||Number(link.access_enabled)!==1||permissions.noView||permissions.noViewOtherGuardian)return denied;
+  if(!link||Number(link.access_enabled)!==1||permissions.noView||permissions.noViewOtherGuardian||guardianLearningAccessOnly(link))return denied;
   if(link.relationship_type==='self')return {level:'self',scopes:[...CLINICAL_SCOPES],reviewRequired:false};
   if(!grant||grant.revoked_at||!grant.medical_rights_verified||!dob)return denied;
   const age=ageOn(dob,asOf);if(age===null||age<0)return denied;
@@ -24,6 +25,7 @@ export function effectiveClinicalAccess({grant,link,dob,asOf=today()}){
 export async function clinicalAccess({agencyId,clientId,userId},db=pool){
   const [rows]=await db.execute('SELECT cg.*,c.date_of_birth,c.agency_id FROM client_guardians cg JOIN clients c ON c.id=cg.client_id WHERE cg.client_id=? AND cg.guardian_user_id=? AND (c.agency_id=? OR EXISTS (SELECT 1 FROM client_agency_assignments ca WHERE ca.client_id=c.id AND ca.agency_id=? AND ca.is_active=1))',[clientId,userId,agencyId,agencyId]);
   const [grants]=await db.execute('SELECT * FROM guardian_clinical_grants WHERE agency_id=? AND client_id=? AND guardian_user_id=?',[agencyId,clientId,userId]);
+  if(guardianLearningAccessOnly(rows[0]))return {level:'payer_only',scopes:[],reviewRequired:true};
   if(rows[0]?.relationship_type==='self'&&parseJson(rows[0].permissions_json,{}).dependentSelfAccess){
     const {dependentClinicalScopes}=await import('./dependentPortalPolicy.service.js');
     const permissions=parseJson(rows[0].permissions_json,{});

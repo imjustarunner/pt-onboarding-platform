@@ -115,3 +115,22 @@ it('does not require agency or profile selection for a single-agency single-chil
  api.get.mockImplementation(async url=>({data:url==='/guardian-portal/overview'?{children:[people[0]],programs:[agencies[0]]}:url==='/dependent-portal/status'?{personalPortal:false}:{events:[],items:[],documents:[],grants:[],subjects:[],plans:[]}}));
  const {w}=await setup();expect(w.findAllComponents({name:'PortalContextPicker'})).toHaveLength(0);expect(w.get('.family-current-profile').text()).toContain('Riley');w.unmount();
 });
+it('uses learning payment navigation and mounts the scoped parent invitation on the selected child information page',async()=>{
+ const learning={...people[1],services:[{id:21,service_kind:'tutoring',label:'Tutoring'}]};
+ api.get.mockImplementation(async url=>({data:url==='/guardian-portal/overview'?{children:[learning],programs:[agencies[1]]}:{events:[],items:[],documents:[],grants:[],subjects:[],plans:[]}}));
+ const{w}=await setup('/nlu/guardian');const shell=w.findComponent(Shell);
+ expect(shell.props('navigation').find(n=>n.key==='payment_methods').label).toBe('Payments');expect(shell.props('learning')).toBe(true);
+ shell.vm.$emit('navigate','payment_methods');await flushPromises();
+ expect(shell.props('subtitle')).toBe('Manage your saved payment methods.');
+ expect(w.findComponent({name:'GuardianPaymentInsuranceTab'}).props('learningOnly')).toBe(true);
+ shell.vm.$emit('navigate','child');await flushPromises();
+ expect(w.findComponent({name:'GuardianLearningInvitations'}).props()).toMatchObject({clientId:2,agencyId:6,clientName:'Jordan'});w.unmount();
+});
+it('keeps insurance access for a dual-service profile even when tutoring is selected',async()=>{
+ const dual={...people[1],services:[{id:21,service_kind:'tutoring',label:'Tutoring'},{id:22,service_kind:'counseling',label:'Counseling'}]};
+ api.get.mockImplementation(async url=>({data:url==='/guardian-portal/overview'?{children:[dual],programs:[agencies[1]]}:{events:[],items:[],documents:[],grants:[],subjects:[],plans:[]}}));
+ const{w}=await setup('/nlu/guardian');const shell=w.findComponent(Shell);
+ expect(shell.props('navigation').find(n=>n.key==='payment_methods').label).toBe('Insurance & payments');
+ shell.vm.$emit('navigate','payment_methods');await flushPromises();
+ expect(w.findComponent({name:'GuardianPaymentInsuranceTab'}).props('learningOnly')).toBe(false);w.unmount();
+});

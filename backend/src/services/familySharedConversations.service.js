@@ -5,6 +5,7 @@ import { clientAgencyMembership, listClientServices } from './clientServiceEnrol
 import { guardianContactRows, sharedGuardianContact } from './guardianContactSharing.service.js';
 import { recordSecureMessageEvent } from './secureMessageBoundary.service.js';
 import { utcMysqlToIso } from '../utils/zonedWallTime.util.js';
+import {guardianServiceAllowed} from '../utils/guardianServiceRestrictions.js';
 
 export const FAMILY_CONVERSATION_POLICY_VERSION = '2026-11-11';
 const FAMILY = new Set(['client','client_guardian']);
@@ -32,7 +33,7 @@ export function createFamilySharedConversations(overrides={}) {
   async function currentAudience({clientId,agencyId,serviceId=0,providerUserId=0,allowUnavailableProvider=false,requireClinical=false},db=d.db) {
     const cid=uid(clientId),aid=uid(agencyId);
     if(!await d.membership(cid,aid,db))throw fail(404,'This client is not enrolled with this practice.');
-    const [[client]]=await db.execute(`SELECT c.id,c.provider_id,c.client_type,c.guardian_portal_enabled FROM clients c
+    const [[client]]=await db.execute(`SELECT c.id,c.agency_id,c.provider_id,c.client_type,c.guardian_portal_enabled FROM clients c
       JOIN agencies a ON a.id=? AND a.is_active=1 AND COALESCE(a.is_archived,0)=0 WHERE c.id=?`,[aid,cid]);
     if(!client)throw fail(404,'This client is not available.');
     const allServices=await d.services(cid,aid,db);
@@ -57,6 +58,7 @@ export function createFamilySharedConversations(overrides={}) {
     for(const member of links) {
       const p=parse(member.permissions_json)||{};
       if(!active(member)||!FAMILY.has(member.role)||p.noView||p.noViewOtherGuardian||p.coGuardianInviteRestricted||p.canMessage===false)continue;
+      if(!guardianServiceAllowed({...member,agency_id:client.agency_id},service||{agency_id:aid}))continue;
       if(member.relationship_type!=='self'&&!client.guardian_portal_enabled)continue;
       if(clinical&&!(await d.clinical({agencyId:aid,clientId:cid,userId:member.id},db)).scopes.includes('clinical_messages'))continue;
       family.push(member);

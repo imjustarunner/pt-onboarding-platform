@@ -1,4 +1,5 @@
 import { documentSignerAccess, requireAssignedDocumentSigner, requireCurrentSignatureRequest, requireValidPrimarySignature } from '../utils/documentSignerAccess.js';
+import { requireEmployeeCompensationSignatureAccess } from '../services/employeeCompensationSigning.service.js';
 import { isEmploymentContract, addContractSignatureFields, signContractField } from '../utils/contractSignatureFields.js';
 import Task from '../models/Task.model.js';
 import DocumentTemplate from '../models/DocumentTemplate.model.js';
@@ -437,6 +438,7 @@ export const giveConsent = async (req, res, next) => {
     console.log(`giveConsent: Task found, reference_id: ${task.reference_id}`);
 
     requireAssignedDocumentSigner(task, req.user);
+    await requireEmployeeCompensationSignatureAccess(task, req.user);
 
     // Check if already signed and finalized (has a PDF path)
     const existingSigned = await SignedDocument.findByTask(taskId);
@@ -672,6 +674,7 @@ export const recordIntent = async (req, res, next) => {
     }
 
     requireAssignedDocumentSigner(task, req.user);
+    await requireEmployeeCompensationSignatureAccess(task, req.user);
     const signedDoc = await SignedDocument.findByTask(taskId);
     if (!signedDoc) {
       return res.status(400).json({ error: { message: 'Consent must be given first' } });
@@ -713,6 +716,7 @@ export const signDocument = async (req, res, next) => {
     }
 
     requireAssignedDocumentSigner(task, req.user);
+    await requireEmployeeCompensationSignatureAccess(task, req.user);
     const signedDoc = await SignedDocument.findByTask(taskId);
     if (!signedDoc) {
       console.error(`signDocument: Signed document not found for task ${taskId}`);
@@ -1139,6 +1143,7 @@ export const counterSignDocument = async (req, res, next) => {
     }
 
     requireValidPrimarySignature(originalTask, signedDoc, req.user);
+    await requireEmployeeCompensationSignatureAccess(originalTask, req.user, {countersign:true});
     const existingAudit = signedDoc.audit_trail || {};
     if (existingAudit.adminCountersign?.signedAt) {
       return res.status(400).json({ error: { message: 'Document already countersigned' } });

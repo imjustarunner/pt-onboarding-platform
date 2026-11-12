@@ -12,6 +12,12 @@ it('fails closed for demo lookalikes, altered roles and removed or malformed syn
  for(const record of [{...agency,feature_flags:{}},{...agency,feature_flags:'invalid'},{...agency,id:456},{...agency,slug:'live'}])expect(()=>mobileQaScope(user,[record])).toThrow();
 });
 it('preserves ordinary staff membership behavior',()=>{const agencies=[agency,{id:456}];expect(mobileQaScope({...user,is_demo:0},agencies)).toEqual({agencies,qaAgencyIds:null});});
+it('retains Devon’s exact primary-account mobile access after normal work identity setup, while prospective and other people stay denied',()=>{
+ const nlu={id:453,slug:'nlu-qa-demo',is_active:1,is_archived:0,feature_flags:{qaSandbox:{syntheticOnly:true,program:'tutoring',sourceAgencyId:6}}};
+ const devon={id:1772,role:'staff',email:'qa.nlu.devon.work@example.com',work_email:'qa.nlu.devon.work@example.com',personal_email:'qa.nlu.childcare.b@example.com',is_demo:1,is_active:1,is_archived:0,status:'ACTIVE_EMPLOYEE'};
+ expect(mobileQaScope(devon,[nlu,{...nlu,id:6,slug:'nlu'}]).qaAgencyIds).toEqual([453]);
+ for(const patch of [{status:'PROSPECTIVE'},{work_email:null},{id:9999},{personal_email:'other@example.com'}])expect(()=>mobileQaScope({...devon,...patch},[nlu])).toThrow();
+});
 it('allows only canonical read-only note insight cards in the approved synthetic agency',async()=>{
  const req={quickView:{qaAgencyIds:[450],agencyId:450,mobileDeviceSessionId:2},method:'GET',query:{agencyId:450},params:{noteId:'12'}};
  for(const path of ['/my-work/notes/12/review-insights','/clinical/notes/12/review-insights'])await expect(enforceMobileQaBoundary({...req,originalUrl:'/api/quick-view'+path})).resolves.toBeUndefined();

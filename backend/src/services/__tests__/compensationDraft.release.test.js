@@ -6,6 +6,8 @@ const draft=()=>({draftKind:'provider_update_compensation',pushId:2,countersigne
 let row,preview;
 beforeEach(()=>{vi.clearAllMocks();preview=false;row={id:14,candidate_user_id:9,rendered_html:'<p><strong>Editable draft — not issued or signed.</strong></p><p>Reviewed terms</p>',token_values_json:draft()};
  m.execute.mockImplementation(async(sql)=>{
+  if(sql.includes('GET_LOCK'))return [[{acquired:1}]];
+  if(sql.includes('RELEASE_LOCK'))return [[{released:1}]];
   if(sql.includes('FROM contract_generations'))return [[row]];
   if(sql.includes('FROM provider_update_pushes'))return [[{id:2}]];
   if(sql.includes('FROM provider_update_recipients'))return [preview?[{id:1}]:[]];
@@ -19,7 +21,7 @@ it.each(['missing rate','stale preview','preview push','already assigned'])('rol
  await expect(releaseCompensationDraft(2,14,{expectedHtml,pushId:2},5)).rejects.toThrow();expect(m.rollback).toHaveBeenCalledOnce();expect(m.commit).not.toHaveBeenCalled();expect(m.execute.mock.calls.some(([sql])=>sql.includes('INSERT'))).toBe(false);expect(m.release).toHaveBeenCalledOnce();
 });
 it('atomically links the reviewed employee document and Haley’s countersign task without payroll or messages',async()=>{
- const result=await releaseCompensationDraft(2,14,{expectedHtml:row.rendered_html,pushId:2},5);expect(result).toEqual({taskId:200,countersignerUserId:3,messagesSent:0});expect(m.commit).toHaveBeenCalledOnce();
+ const result=await releaseCompensationDraft(2,14,{expectedHtml:row.rendered_html,pushId:2},5);expect(result).toMatchObject({taskId:200,countersignerUserId:3,messagesSent:0,auditRowId:200});expect(m.commit).toHaveBeenCalledOnce();
  const calls=m.execute.mock.calls;expect(calls[0][1]).toEqual([14,2]);const document=calls.find(([sql])=>sql.includes('INSERT INTO user_specific_documents'));expect(document[1][3]).toBe('<p>Reviewed terms</p>');
  const employee=calls.find(([sql])=>sql.includes('INSERT INTO tasks')&&!sql.includes('countersign_signer_user_id'));expect(JSON.parse(employee[1].at(-1))).toMatchObject({requiredCountersignerUserId:3,pushId:2,generationId:14});
  const counter=calls.find(([sql])=>sql.includes('INSERT INTO tasks')&&sql.includes('countersign_signer_user_id'));expect(counter[1][2]).toBe(3);expect(counter[1][5]).toBe(200);expect(calls.some(([sql])=>/payroll|email|sms/i.test(sql))).toBe(false);

@@ -24,6 +24,8 @@ router.put('/pushes/:pushId/reminders', authenticate, reminderSettings);
 router.post('/me/save-for-later', authenticate, review.saveForLater);
 router.post('/training-media', authenticate, trainingMediaUpload.single('file'), uploadTrainingMedia);
 router.get('/compensation-drafts', authenticate, compensationDrafts.list);
+router.get('/compensation-drafts/options', authenticate, compensationDrafts.options);
+router.post('/compensation-drafts', authenticate, compensationDrafts.create);
 router.get('/compensation-drafts/:draftId', authenticate, compensationDrafts.get);
 router.put('/compensation-drafts/:draftId', authenticate, compensationDrafts.save);
 router.post('/compensation-drafts/:draftId/release', authenticate, compensationDrafts.release);

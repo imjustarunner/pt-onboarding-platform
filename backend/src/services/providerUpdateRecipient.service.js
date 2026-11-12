@@ -1,4 +1,7 @@
 import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
+import pool from '../config/database.js';
+import {nluQaWorkflowEmployee,nluQaWorkIdentity} from '../utils/nluWorkforceQaPolicy.js';
+import {QA_EMAIL_INBOX} from '../utils/qaEmailPolicy.js';
 const normalize = value => String(value || '').trim().toLowerCase();
 const valid = value => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 
@@ -12,5 +15,15 @@ export function providerUpdateWorkEmail(user, identities, agencyId) {
 }
 export async function resolveProviderUpdateRecipients(agencyId, users) {
  const identities = await EmailSenderIdentity.list({agencyId:Number(agencyId),includePlatformDefaults:false,onlyActive:true});
- return users.map(user => ({...user,work_email:providerUpdateWorkEmail(user, identities, agencyId)}));
+ const qa=new Map();
+ const ids=[...new Set(users.map(user=>Number(user.provider_user_id||user.id)).filter(id=>[1496,1771,1772].includes(id)))];
+ if([453,454].includes(Number(agencyId))&&ids.length){
+  const[rows]=await pool.execute(`SELECT u.id,u.email,u.work_email,u.personal_email,u.role,u.is_demo,u.is_active,u.is_archived,u.status,
+    a.id AS qa_agency_id,a.slug,a.feature_flags,a.is_active AS qa_agency_active,a.is_archived AS qa_agency_archived
+    FROM users u JOIN user_agencies ua ON ua.user_id=u.id AND ua.is_active=1
+    JOIN agencies a ON a.id=ua.agency_id AND a.is_active=1 AND COALESCE(a.is_archived,0)=0
+    WHERE a.id=? AND u.id IN (${ids.map(()=>'?').join(',')})`,[Number(agencyId),...ids]);
+  for(const row of rows){const agency={id:row.qa_agency_id,slug:row.slug,feature_flags:row.feature_flags,is_active:row.qa_agency_active,is_archived:row.qa_agency_archived};if(Number(row.qa_agency_id)===Number(agencyId)&&nluQaWorkflowEmployee(row,agency))qa.set(Number(row.id),nluQaWorkIdentity(row));}
+ }
+ return users.map(user=>{const userId=Number(user.provider_user_id||user.id),address=qa.get(userId),restricted=[453,454].includes(Number(agencyId))&&(Number(user.is_demo)||[1496,1771,1772].includes(userId));const result={...user,work_email:address||(restricted?null:providerUpdateWorkEmail(user,identities,agencyId)),qa_workflow_allowed:!!address};delete result.qa_workflow_agency_id;delete result.qa_physical_to;if(address)Object.assign(result,{qa_workflow_agency_id:Number(agencyId),qa_physical_to:QA_EMAIL_INBOX});return result;});
 }

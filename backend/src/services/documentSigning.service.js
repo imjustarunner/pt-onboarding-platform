@@ -1483,6 +1483,8 @@ ${originalStyles}
       throw err;
     }
     const task = taskRows[0];
+    const {requireEmployeeCompensationSignatureAccess} = await import('./employeeCompensationSigning.service.js');
+    await requireEmployeeCompensationSignatureAccess(task, {id:userId}, {db:pool});
     if (!task.reference_id) {
       const err = new Error('Task has no document template');
       err.statusCode = 400;

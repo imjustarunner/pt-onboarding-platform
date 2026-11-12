@@ -65,3 +65,17 @@ export function auricWellAccountDestination({hostname,role,organizations,request
 export function familyProfileHasRecordAccess(profile) {
   return !!profile && !profile.no_view && !profile.guardian_portal_locked;
 }
+
+// Inspect all authorized service contexts before choosing learning-only copy.
+// A selected tutoring service must not hide a dual-service family's coverage.
+export function familyProfilesLearningOnly(profiles) {
+ const list=Array.isArray(profiles)?profiles:[];
+ return list.length>0&&list.every(profile=>{
+  const contexts=profile.care_contexts?.length?profile.care_contexts:[profile];
+  return contexts.every(context=>{
+   const kinds=context.services?.length?context.services.map(service=>service.service_kind)
+    :[context.client_type||profile.client_type||context.organization_type||profile.organization_type];
+   return kinds.length>0&&kinds.every(kind=>['learning','tutoring'].includes(String(kind||'').toLowerCase()));
+  });
+ });
+}

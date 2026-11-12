@@ -1,4 +1,6 @@
 import intake from './vitest.nlu-intake-repair.config.js';
 import workspace from './vitest.nlu-workspace.config.js';
 import childcare from './vitest.childcare.config.js';
-export default { ...intake, test: { ...intake.test, restoreMocks: true, include: [...new Set([...intake.test.include, ...workspace.test.include, ...childcare.test.include, 'src/services/__tests__/hire.appOnlyAccount.test.js'])] } };
+import compensation from './vitest.employee-compensation.config.js';
+import signing from './vitest.countersign-tasks.config.js';
+export default { ...intake, test: { ...intake.test, restoreMocks: true, include: [...new Set([...intake.test.include, ...workspace.test.include, ...childcare.test.include, ...compensation.test.include, ...signing.test.include, 'src/services/__tests__/hire.appOnlyAccount.test.js'])] } };

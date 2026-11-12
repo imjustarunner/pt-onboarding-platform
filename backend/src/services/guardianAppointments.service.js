@@ -2,7 +2,8 @@ import { guardianAppointmentJoin } from './guardianVirtualJoin.js';
 import PhoneNumber from '../models/PhoneNumber.model.js';
 import { resolveAppointmentServiceSetting } from './appointmentServiceSetting.service.js';
 import pool from '../config/database.js';
-import {guardianServiceContext,serviceMatchesAppointment} from './clientServiceEnrollment.service.js';
+import {guardianServiceContext,serviceMatchesAppointment,guardianContextAllowsAppointment} from './clientServiceEnrollment.service.js';
+import {guardianServiceRestrictions} from '../utils/guardianServiceRestrictions.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import { ageOn } from './guardianClinicalAccess.service.js';
 import Appointment from '../models/Appointment.model.js';
@@ -21,6 +22,7 @@ export async function authorizedClient(userId, clientId, requiredClinicalScope =
   const clients = await ClientGuardian.listClientsForGuardian({ guardianUserId: userId, requiredClinicalScope });
   const client = clients.find(c => Number(c.client_id) === Number(clientId) && !ClientGuardian.isNoView(c.permissions_json));
   if (!client) throw fail('Appointment access is not authorized for this child. Contact the care team.', 403);
+  if(guardianServiceRestrictions(client))return guardianServiceContext({userId,clientId,scope:requiredClinicalScope,agencyId:client.agency_id});
   return client;
 }
 // Appointment logistics have their own relationship permission. Treatment-plan
@@ -44,6 +46,7 @@ export async function authorizedAppointmentClient(userId, clientId, careContext 
 export async function requireGuardianCancellation({ userId, clientId, appointment }) {
   const client = await authorizedAppointmentClient(userId, clientId,{agencyId:appointment.agencyId});
   if (Number(client.agency_id) !== Number(appointment.agencyId)) throw fail('Appointment not found.', 404);
+  if(!guardianContextAllowsAppointment(client,appointment))throw fail('This appointment is outside your learning portal access.',403);
   const participants = await Appointment.listParticipants(appointment.id);
   const clientIds = [...new Set(participants.map(p => Number(p.clientId)).filter(Boolean))];
   if (clientIds.length !== 1 || clientIds[0] !== Number(clientId)) throw fail('Contact your care team to leave a shared/group appointment.', 403);
@@ -145,6 +148,7 @@ export async function listGuardianAppointments({ userId, clientId, agencyId, ser
   const commentAccess = await clinicalAccess({ userId, clientId, agencyId: client.agency_id });
   const params=[clientId,client.agency_id];
   let serviceFilter='';
+  if(client.authorizedServices?.every(service=>service.service_kind==='tutoring')&&!client.service)serviceFilter+=" AND a.business_type IN ('learning','tutoring')";
   if(client.service){
     if(client.service.provider_user_id){serviceFilter+=' AND a.provider_user_id=?';params.push(client.service.provider_user_id);}
     if(client.service.service_kind==='tutoring')serviceFilter+=" AND a.business_type IN ('learning','tutoring')";
@@ -158,7 +162,7 @@ export async function listGuardianAppointments({ userId, clientId, agencyId, ser
     AND a.status IN ('scheduled','confirmed','client_confirmed') ORDER BY a.start_at ASC,a.id ASC LIMIT 6`, params);
   const [history] = await pool.execute(`${selection} AND (a.start_at<UTC_TIMESTAMP() OR a.status IN ('canceled_by_provider','canceled_by_client','canceled_by_guardian','canceled_by_organization','late_canceled','rescheduled'))
     AND a.start_at>=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 1 YEAR) ORDER BY a.start_at DESC,a.id DESC LIMIT 100`, params);
-  const rows = [...upcoming, ...history].filter(a=>!client.service||serviceMatchesAppointment(client.service,a));
+  const rows = [...upcoming, ...history].filter(a=>guardianContextAllowsAppointment(client,a));
   const [offers] = await pool.execute('SELECT appointment_id FROM appointment_replacement_offers WHERE client_id=? AND agency_id=?', [clientId, client.agency_id]);
   const offerIds = new Set(offers.map(o => Number(o.appointment_id)));
   for (const row of rows) {
@@ -184,9 +188,10 @@ export async function requestGuardianAppointmentChange({ userId, clientId, appoi
   const db = await pool.getConnection();
   try {
     await db.beginTransaction();
-    const [[appointment]] = await db.execute('SELECT id,status,start_at,provider_user_id FROM appointments WHERE id=? AND agency_id=? FOR UPDATE', [appointmentId, client.agency_id]);
+    const [[appointment]] = await db.execute('SELECT id,status,start_at,provider_user_id,agency_id,business_type FROM appointments WHERE id=? AND agency_id=? FOR UPDATE', [appointmentId, client.agency_id]);
     const [[participant]] = await db.execute('SELECT id FROM appointment_participants WHERE appointment_id=? AND client_id=?', [appointmentId, clientId]);
     if (!appointment || !participant) throw fail('Appointment not found.', 404);
+    if(!guardianContextAllowsAppointment(client,appointment))throw fail('This appointment is outside your learning portal access.',403);
     if (!appointment.provider_user_id) throw fail('The care team must assign a provider before a change can be requested.', 409);
     if (!['scheduled', 'confirmed', 'client_confirmed'].includes(appointment.status)) throw fail('This appointment can no longer receive a change request.', 409);
     const [[pending]] = await db.execute("SELECT id FROM guardian_appointment_requests WHERE appointment_id=? AND client_id=? AND status='pending'", [appointmentId, clientId]);

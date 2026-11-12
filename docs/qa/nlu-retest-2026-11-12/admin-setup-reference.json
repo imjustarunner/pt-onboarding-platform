@@ -1,0 +1,404 @@
+{
+  "purpose": "Proposed synthetic NLU QA setup inputs and ordinary API recipe; not an import, provisioner, live-record manifest or completed test report.",
+  "preparedOn": "2026-11-12",
+  "timezone": "America/Denver",
+  "executionReady": false,
+  "scope": {
+    "agencyId": 453,
+    "agencySlug": "nlu-qa-demo",
+    "learningProgramId": 454,
+    "setupActorId": 1435,
+    "sourceAgencyIdReadOnly": 6,
+    "physicalQaInbox": "testing@itsco.health",
+    "appOnlyConfiguration": {
+      "hireAccountMode": "app_only",
+      "workspaceEmailDomain": "example.com"
+    },
+    "configurationNote": "Verify the approved deployed build first. Merge these exact QA-only flag values through normal agency settings, preserving existing flags. They reserve app identities, not Google mailboxes or Groups. Source NLU6 and clinical QA450/451/452 remain unchanged."
+  },
+  "creationGuards": [
+    "Recount existing QA clients/providers/staff and search exact fixture emails and QA markers before creation. This recipe creates zero clients and zero provider-role identities.",
+    "Reuse exact retained synthetic records at their present stages; never recreate, reset or overwrite signed work.",
+    "Replace null live IDs only in the actual run ledger after app creation; nulls are not valid POST substitutions.",
+    "All request bodies below are review references. Resolve links, IDs, revisions and dates through current app responses before submitting.",
+    "No real or plausible fake SSN, tax/bank information, license, identity document, paid background check, payroll approval/export or external account provisioning.",
+    "Do not use this complete setup reference as a candidate or employee document. Candidate-facing source text is identified separately below.",
+    "Passwords and raw personal portal links belong only in the established QA vault. No secret value belongs in this reference or ordinary report.",
+    "Job-specific and person-specific package changes must not overwrite all-jobs defaults. Read effective packages and preserve every required existing step.",
+    "Casey is a separately labeled ready employee fixture, not evidence that new-hire onboarding passed. Devon remains in the ordinary new-hire journey and stops at the real-identifier requirement."
+  ],
+  "personas": {
+    "casey": {
+      "firstName": "Casey",
+      "lastName": "QA NLU Childcare-1112",
+      "personalEmail": "qa.nlu.childcare.a@example.com",
+      "proposedWorkIdentity": "qa.nlu.casey.work@example.com",
+      "role": "staff",
+      "memberships": [
+        453,
+        454
+      ],
+      "liveUserId": null,
+      "journeyClassification": "READY synthetic employee fixture for functional childcare checks; NOT a new-hire or onboarding pass.",
+      "setupNote": "If separately created through the normal current-employee control, retain the correct ready-fixture classification. Do not submit a hiring application or create a hiring journey to manufacture new-hire evidence. Preserve distinct personal/recovery and work identities through normal profile controls. Own password setup, signed compensation readiness and childcare service grants remain separate actions."
+    },
+    "devon": {
+      "firstName": "Devon",
+      "lastName": "QA NLU Childcare-1112",
+      "personalEmail": "qa.nlu.childcare.b@example.com",
+      "proposedWorkIdentity": "qa.nlu.devon.work@example.com",
+      "role": "staff",
+      "memberships": [
+        453,
+        454
+      ],
+      "liveUserId": null,
+      "liveHiringProfileId": null,
+      "journeyClassification": "Ordinary new hire; expected BLOCKED at the built-in required SSN/driver-license authorization form.",
+      "createCandidateRequest": {
+        "method": "POST",
+        "path": "/api/hiring/candidates",
+        "body": {
+          "agencyId": 453,
+          "firstName": "Devon",
+          "lastName": "QA NLU Childcare-1112",
+          "personalEmail": "qa.nlu.childcare.b@example.com",
+          "role": "staff",
+          "source": "Manual synthetic NLU QA",
+          "stage": "applied",
+          "appliedRole": "QA-NLU1112-CHILDCARE - SYNTHETIC QA",
+          "jobDescriptionId": null
+        },
+        "mustResolveBeforeSend": [
+          "jobDescriptionId"
+        ]
+      }
+    }
+  },
+  "job": {
+    "liveJobDescriptionId": null,
+    "marker": "QA-NLU1112-CHILDCARE",
+    "createRequest": {
+      "method": "POST",
+      "path": "/api/hiring/job-descriptions?agencyId=453",
+      "body": {
+        "agencyId": 453,
+        "title": "QA-NLU1112-CHILDCARE - Childcare staff - SYNTHETIC QA / NO REAL VACANCY",
+        "descriptionText": "SYNTHETIC NLU QA ONLY. This internal setup role is not a real vacancy or employment offer. The fictional staff member practices reviewing a scheduled child count, clocking their own actual QA work time, recording the observed count and working with an assigned co-caregiver. Use counts only; do not enter child names or create client records. Report missing information and disputed counts through the app. Compensation comes from the separately reviewed, signed QA service terms; this description does not itself approve pay, employee access or childcare permissions.",
+        "scheduleText": "Synthetic future QA shifts only. A Thursday 16:00-19:00 America/Denver example is scheduling input, not attendance or worked time.",
+        "roleType": "staff",
+        "credentialMode": "none",
+        "isFeatured": false,
+        "tagsJson": [
+          "SYNTHETIC QA",
+          "QA-NLU1112-CHILDCARE",
+          "NO REAL VACANCY"
+        ],
+        "publishAt": null,
+        "unpublishAt": null,
+        "prehireConfigJson": {
+          "prehirePackageId": null,
+          "onboardingPackageId": null,
+          "onboardingTraining": {
+            "moduleIds": [],
+            "trackIds": []
+          },
+          "workflow": {
+            "resources": []
+          }
+        }
+      },
+      "mustResolveBeforeSend": [
+        "Visibility: null publishAt is NOT an unpublished guarantee. Use the normal job visibility/scheduling control and confirm the QA job is not publicly open before creating it.",
+        "If the API requires an active scheduled job for candidate selection, choose a real future publishAt through the normal control, record it, and close only this QA job after candidate binding so it cannot open later unintentionally.",
+        "Resolve the new QA package IDs and any assigned training IDs before attaching them. Missing training remains missing; do not present a source JSON as a completed module."
+      ]
+    },
+    "scopeNote": "Do not publish a real recruitment campaign or add this job to a partner careers directory. Manual candidate creation is not a public-application pass."
+  },
+  "packages": {
+    "prehire": {
+      "livePackageId": null,
+      "createRequest": {
+        "method": "POST",
+        "path": "/api/onboarding-packages",
+        "body": {
+          "name": "QA-NLU1112-PREHIRE",
+          "description": "Synthetic NLU childcare pre-hire collection. Retains all ordinary required workflow gates; not a completed employment record.",
+          "agencyId": 453,
+          "packageType": "pre_hire",
+          "isActive": true
+        }
+      },
+      "attachAcknowledgementRequest": {
+        "method": "POST",
+        "path": "/api/onboarding-packages/{prehirePackageId}/documents",
+        "body": {
+          "documentTemplateId": null,
+          "actionType": "signature",
+          "orderIndex": 0
+        },
+        "mustResolveBeforeSend": [
+          "prehirePackageId",
+          "documentTemplateId"
+        ]
+      }
+    },
+    "onboarding": {
+      "livePackageId": null,
+      "createRequest": {
+        "method": "POST",
+        "path": "/api/onboarding-packages",
+        "body": {
+          "name": "QA-NLU1112-ONBOARDING",
+          "description": "Synthetic NLU childcare onboarding collection. Required handbook, assigned learning, user setup, communication choices and account readiness remain required.",
+          "agencyId": 453,
+          "packageType": "onboarding",
+          "isActive": true
+        }
+      },
+      "liveOrientationModuleId": null,
+      "attachModuleRequest": {
+        "method": "POST",
+        "path": "/api/onboarding-packages/{onboardingPackageId}/modules",
+        "body": {
+          "moduleId": null,
+          "orderIndex": 0
+        },
+        "mustResolveBeforeSend": [
+          "onboardingPackageId",
+          "moduleId"
+        ]
+      }
+    },
+    "effectiveReview": {
+      "method": "GET",
+      "path": "/api/hiring/candidates/{devonUserId}/hire-packages?agencyId=453",
+      "note": "Inspect effective job/shared/person precedence. For a permitted person-specific update use PUT to /hire-packages/{phase}, retaining the returned revision and other resources. Never alter a completed resource or remove a required step to get a pass."
+    }
+  },
+  "qaSignerAcknowledgement": {
+    "liveDocumentTemplateId": null,
+    "createRequest": {
+      "method": "POST",
+      "path": "/api/document-templates",
+      "body": {
+        "name": "QA-NLU1112 - Synthetic childcare practice acknowledgement",
+        "description": "Required QA-persona signature for this assigned practice document only. Not a real employment, background, identity or credential certificate.",
+        "agencyId": 453,
+        "languageCode": "en",
+        "layoutType": "standard",
+        "documentType": "acknowledgment",
+        "documentActionType": "signature",
+        "documentStage": null,
+        "isRequired": true,
+        "htmlContent": "<h1>SYNTHETIC NLU QA ONLY</h1><p>This is a fictional practice acknowledgement, not a real employment offer, background check, identity document or training credential.</p><p>I will use my own assigned QA persona and review the document and its current revision before choosing my own signature. I will not copy another person's signature or mark an incomplete requirement finished.</p><p>I will review the planned child count, record actual observed counts and clock only my own actual QA work. The app's required review remains in place when information is missing or disputed. No child names or real family information belong in this exercise.</p><p>Creating a password does not activate an employee account. Childcare work and scheduling also require the separate authorized service assignment and approved compensation terms.</p><p>This acknowledgement applies only to the displayed synthetic practice document.</p>",
+        "fieldDefinitions": [
+          {
+            "id": "qa_scope_read",
+            "type": "checkbox",
+            "label": "I reviewed this synthetic QA acknowledgement.",
+            "required": true
+          }
+        ]
+      }
+    },
+    "review": "Open the normal template preview and confirm its checkbox and signer placement render correctly. Leave documentStage null and attach only to the new QA collection; pre_hire-staged templates are selected automatically by the general Mark Hired UI. Do not run sync-prehire-pool. A data definition is not evidence of a successful preview or signature.",
+    "signing": "The assigned fictional employee signs through their own portal or authenticated document task. Any configured staff countersigner uses their own assigned countersign task in a separate session. Do not prefill signatureData in setup data or treat an admin click as someone else's signature."
+  },
+  "orientationSource": {
+    "status": "INPUT ONLY; module not created or completed",
+    "title": "QA-NLU1112 - Counts, clocking and role boundaries",
+    "body": [
+      "SYNTHETIC NLU QA ONLY. No real child, employment or payroll record is represented.",
+      "Review the planned child count on the exact shift. When asked whether the planned number was present, confirm truthfully or enter the actual observed number. Keep a correction reviewable instead of changing history.",
+      "Clock in and out only for your own actual QA work. Scheduled time is not proof that work occurred. A scheduled co-caregiver who has not clocked in is not an active caregiver.",
+      "Use only your own permissions, documents and pay information. Ask the authorized manager to review a disputed count or missing pay readiness.",
+      "A saved password does not activate employment. Finish the actual required onboarding and wait for the separate staff review. This practice module does not replace required company training."
+    ],
+    "questions": [
+      {
+        "question": "Five children were scheduled, but four were observed. What should you record?",
+        "options": [
+          "The scheduled five automatically",
+          "The actual four through the count control",
+          "A coworker's last count"
+        ],
+        "correctIndex": 1
+      },
+      {
+        "question": "Does setting your app password activate employment?",
+        "options": [
+          "Yes",
+          "No; required onboarding and separate staff activation still apply"
+        ],
+        "correctIndex": 1
+      },
+      {
+        "question": "Which work time should you clock?",
+        "options": [
+          "Your own actual QA work",
+          "Every scheduled minute automatically",
+          "A co-caregiver's time"
+        ],
+        "correctIndex": 0
+      }
+    ],
+    "reflectionPrompt": "Describe how you would report a difference between the scheduled and actual count.",
+    "runnerNote": "Create through the normal module editor and keep normal reading, quiz, retry and time rules. The correctIndex values are zero-based internal setup keys, not a learner worksheet."
+  },
+  "handbook": {
+    "livePublishedVersionId": null,
+    "liveDraftVersionId": null,
+    "rule": "The normal onboarding handbook acknowledgement requires an actual published agency handbook version. A standalone practice PDF or this reference does not satisfy it.",
+    "readRequests": [
+      {
+        "method": "GET",
+        "path": "/api/provider-update/handbook/published?agencyId=453"
+      },
+      {
+        "method": "GET",
+        "path": "/api/provider-update/handbook/workspace?agencyId=453"
+      }
+    ],
+    "existingPublishedEdition": "Reuse a suitable retained published QA453 version. Preserve its ID, signatures and history; do not publish another version just for inspection.",
+    "stageIfNecessary": {
+      "method": "POST",
+      "path": "/api/provider-update/handbook/source/stage",
+      "body": {
+        "agencyId": 453,
+        "sourceRevision": null,
+        "expectedPublishedVersionId": null
+      },
+      "mustResolveBeforeSend": [
+        "sourceRevision from the current workspace response",
+        "expectedPublishedVersionId from the current workspace response, including an actual null if none"
+      ]
+    },
+    "proposedAdditionalQaSection": {
+      "method": "POST",
+      "path": "/api/provider-update/handbook/sections",
+      "body": {
+        "agencyId": 453,
+        "expectedVersionId": null,
+        "slug": "qa-nlu1112-practice-scope",
+        "title": "Synthetic NLU childcare practice scope",
+        "sortOrder": 900,
+        "bodyHtml": "<h2>SYNTHETIC NLU QA ONLY</h2><p>This additional section describes fictional count, clocking and access exercises. It does not replace the employer's required policies or certify real employment, background clearance or training.</p><p>Use counts instead of child names. Record actual observations and your own actual work. Review an uncertain count with the authorized manager and preserve its history.</p><p>Only an authorized staff reviewer activates employee access. Childcare work and scheduling require separate service permissions and approved compensation terms.</p>"
+      },
+      "mustResolveBeforeSend": [
+        "expectedVersionId from the actual draft response"
+      ],
+      "note": "Add only to a permitted QA draft. Do not replace required company sections with this short practice text."
+    },
+    "publishOnlyAfterActualReview": {
+      "method": "POST",
+      "path": "/api/provider-update/handbook/publish",
+      "body": {
+        "agencyId": 453,
+        "versionId": null,
+        "changelog": "Reviewed synthetic NLU QA practice edition; no change to live NLU6."
+      },
+      "mustResolveBeforeSend": [
+        "versionId of the actually reviewed QA draft",
+        "all returned requiredCompanySections/content/source readiness must pass"
+      ],
+      "note": "Review the actual displayed QA draft and retain the normal publication checks. If required policies, source revision or an existing signed edition cannot be preserved, stop and report BLOCKED."
+    },
+    "viewerLink": "Use the actual supported handbook viewer result in the new QA job/person workflow. Do not invent a URL, point the job at this JSON, or expose a private source document publicly."
+  },
+  "ordinaryNewHireGates": {
+    "devonCurrentExpectedBlocker": "The ordinary candidate background form visibly requires Social Security number and driver's license. Do not enter real or plausible fake identifiers, post blanks to bypass required UI, staff-override completion, or pretend a check was performed. Retain Devon's pending state and report this branch BLOCKED.",
+    "laterSequenceOnlyWhenLegitimatelyReady": [
+      "Review the generated contract with the pay agent's exact childcare payload and preview hash before /api/hiring/candidates/{id}/send-prehire?agencyId=453.",
+      "Each fictional persona uses its own private /api/prehire-portal/{token} session, ordinary acknowledgement/signature controls and its own username choices. No /account/provision call is used for app_only.",
+      "POST /api/prehire-portal/{token}/complete submits completed pre-hire. Required incomplete work must remain blocked.",
+      "POST /api/users/{id}/promote-to-onboarding with agencyId453 and the actual QA onboarding package requires PREHIRE_REVIEW and completed normal prerequisites.",
+      "Complete the actual published handbook, assigned module, user setup and communication choices using normal controls. No unapproved phone/SMS or made-up elapsed time.",
+      "POST /api/prehire-portal/{token}/account/set-password prepares the app password only after required onboarding readiness; store it in the vault. It does not activate access.",
+      "Candidate /complete submits onboarding; the authorized reviewer /api/users/{id}/mark-complete performs separate activation. Confirm denied pending login and own-only permissions.",
+      "Childcare service assignment, scheduling permission and effective signed compensation schedule remain separate from account activation. No payroll approval or export."
+    ]
+  },
+  "peopleOperationsEmail": {
+    "knownSourceIdentityReadOnly": {
+      "agencyId": 6,
+      "identityId": 38,
+      "fromEmail": "PO@nextleveluplcc.com"
+    },
+    "liveQaSenderIdentityId": null,
+    "createOnlyIfMissingAfterInspection": {
+      "method": "POST",
+      "path": "/api/email-senders",
+      "body": {
+        "agencyId": 453,
+        "identityKey": "people_operations",
+        "displayName": "NLU QA People Operations",
+        "fromEmail": "PO@nextleveluplcc.com",
+        "replyTo": "PO@nextleveluplcc.com",
+        "inboundAddresses": [],
+        "isActive": true
+      }
+    },
+    "trigger": "pre_hire_admin_review_access",
+    "readTrigger": {
+      "method": "GET",
+      "path": "/api/agencies/453/notification-triggers"
+    },
+    "scopedSenderOverride": {
+      "method": "PUT",
+      "path": "/api/agencies/453/notification-triggers/pre_hire_admin_review_access",
+      "body": {
+        "senderIdentityId": null
+      },
+      "mustResolveBeforeSend": [
+        "QA-owned people_operations identity ID",
+        "read/retain enabled, channels, recipients, requireApproval and subjectOverride from the current agency override"
+      ]
+    },
+    "note": "Pre-hire and onboarding invitations use this existing People Operations trigger. Reuse the verified NLU address through a QA-owned identity; never reference source6 ID38 as the QA sender, change a global trigger default, claim an inbound route or provision a Group/mailbox. Sender verification and ordinary approval/recipient guards remain enforced. Actual testing inbox receipt is required for a delivery pass."
+  },
+  "results": {
+    "allSetupActions": "NOT RUN",
+    "newHireJourney": "NOT RUN; expected identifier requirement BLOCKED when reached",
+    "readyFixtureFunctionalChildcare": "NOT RUN; not a substitute for the blocked new-hire lane",
+    "liveIdsAndEvidence": "Record only actual app-created IDs, build, actor, America/Denver time with offset, audit event and observed evidence in the run ledger. This file's proposed inputs do not prove any action occurred."
+  },
+  "sourceReferences": [
+    "backend/src/controllers/hiring.controller.js:createCandidate/createJobDescription/sendPreHire/candidateHirePackages",
+    "backend/src/controllers/onboardingPackage.controller.js:createPackage",
+    "backend/src/controllers/documentTemplate.controller.js:createTemplate",
+    "backend/src/services/hirePacketPreparation.service.js:prepareHirePacket",
+    "backend/src/services/hirePortalWorkflow.service.js:buildPortalWorkflow",
+    "frontend/src/views/CandidatePreHirePortalView.vue:required background SSN and driversLicense fields",
+    "backend/src/controllers/workplaceHandbook.controller.js:getWorkspace/stageSource/saveSection/publish",
+    "backend/src/services/workplaceHandbookWorkflow.service.js:publishHandbookVersion",
+    "backend/src/services/prehireInviteEmail.service.js:sendPrehirePortalInviteEmail",
+    "backend/src/controllers/agencyNotificationTriggers.controller.js:updateAgencyNotificationTrigger"
+  ],
+  "observedLiveSetup": {
+    "cutoff": "2026-11-12T22:56:10-00:00",
+    "build": "388b2200ce266c7f480cf326b5c6243161f774dc",
+    "casey": {
+      "id": 1771,
+      "classification": "READY synthetic employee; not new-hire pass",
+      "workEmail": "qa.nlu.childcare.a@example.com",
+      "personalEmail": "qa.nlu.casey.personal@example.com"
+    },
+    "devon": {
+      "id": 1772,
+      "classification": "PROSPECTIVE; required identifier blocker",
+      "jobId": 36
+    },
+    "prehirePackageId": 4,
+    "onboardingPackageId": 5,
+    "qaDocumentTemplateId": 203,
+    "peopleOperationsSenderId": 1148,
+    "handbookDocumentId": 5,
+    "handbookPublishedVersionId": null,
+    "compensationAgreementsIssued": false,
+    "newClients": 0,
+    "newProviders": 0,
+    "note": "Source completion still pending publication. See LIVE-SETUP-STATUS.txt and actual action ledgers; do not rerun create requests or turn setup into completed hiring/receipt evidence."
+  }
+}

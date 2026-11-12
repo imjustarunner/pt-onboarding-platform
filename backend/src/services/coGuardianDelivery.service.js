@@ -151,6 +151,7 @@ async function rotateAndSendInvitation({ userId, agencyId, inviteId, email, staf
     await db.beginTransaction();
     const [rows] = await db.execute('SELECT * FROM co_guardian_invites WHERE id=? FOR UPDATE', [inviteId]);
     const invite = rows[0];
+    if (invite?.source === 'learning_portal') fail(409, 'Learning portal invitations cannot be redirected or resent from enrollment controls. Ask the organization to review the saved delivery result.');
     let clients;
     if (staffReminder || automaticReminder) {
       if (!invite || Number(invite.agency_id) !== Number(agencyId)) fail(404, 'Invitation not found.');

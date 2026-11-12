@@ -1,6 +1,7 @@
 import {describe,it,expect,vi} from 'vitest';
+import {createHash} from 'node:crypto';
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()}}));
-import {calculateChildcarePay,childcareWorkIntervals,childcareSnapshotHash,childcareClaimAmount} from '../childcarePay.service.js';
+import {calculateChildcarePay,childcareWorkIntervals,childcareSnapshotHash,childcareSnapshotHashMatches,childcareClaimAmount} from '../childcarePay.service.js';
 import {normalizeChildcareRatesByBand,nluChildcareRate,NLU_COMPENSATION_POLICY_VERSION} from '../../content/nluCompensationPolicy.js';
 import {normalizeContractServiceRoleDetails} from '../../content/contractServiceRoles.js';
 import {agreementRateProfile} from '../employmentAgreementPolicy.service.js';
@@ -81,6 +82,21 @@ describe('childcare actual time, shared staffing and employee overrides',()=>{
   expect(childcareClaimAmount(claim,.5)).toBe(17.5);
   expect(()=>childcareClaimAmount(claim,3)).toThrow('actual childcare time');
   expect(()=>childcareClaimAmount({...claim,payload:{...claim.payload,childcareSnapshot:{...snapshot,totalAmount:900}}})).toThrow('snapshot');
+ });
+ it('survives JSON storage object-key normalization while preserving ordered work intervals',async()=>{
+  const snapshot=await calculate({punches:[punch(1,'in',20),punch(1,'out',22)],attendance:[attendance(3,20),attendance(2,21,0,2)]});
+  const reverse=value=>Array.isArray(value)?value.map(reverse):value&&typeof value==='object'?Object.fromEntries(Object.entries(value).reverse().map(([key,item])=>[key,reverse(item)])):value;
+  const stored=JSON.parse(JSON.stringify(reverse(snapshot))),hash=childcareSnapshotHash(snapshot);
+  expect(childcareSnapshotHash(stored)).toBe(hash);expect(childcareClaimAmount({payload:{childcareSnapshot:stored,childcareSnapshotHash:hash,childcareSnapshotHashVersion:2}})).toBe(66);
+  expect(childcareSnapshotHash({...stored,segments:[...stored.segments].reverse()})).not.toBe(hash);
+ });
+ it('verifies historic unversioned hashes in their original schema order without recomputing approved amounts',async()=>{
+  const snapshot=await calculate({}),legacyHash=createHash('sha256').update(JSON.stringify(snapshot)).digest('hex');
+  const stored=Object.fromEntries(Object.entries(snapshot).reverse().map(([key,value])=>[key,key==='segments'?value.map(segment=>Object.fromEntries(Object.entries(segment).reverse())):value]));
+  expect(JSON.stringify(stored)).not.toBe(JSON.stringify(snapshot));expect(childcareSnapshotHashMatches(stored,legacyHash)).toBe(true);
+  expect(childcareClaimAmount({status:'paid',payload:{childcareSnapshot:stored,childcareSnapshotHash:legacyHash}})).toBe(17.5);
+  expect(()=>childcareClaimAmount({payload:{childcareSnapshot:{...stored,totalAmount:999},childcareSnapshotHash:legacyHash}})).toThrow('snapshot');
+  expect(childcareSnapshotHashMatches(stored,legacyHash,2)).toBe(false);expect(childcareSnapshotHashMatches(stored,legacyHash,99)).toBe(false);
  });
  it('flags unmatched/overlapping punches instead of paying twice',()=>{
   const result=childcareWorkIntervals([punch(1,'in',20),punch(1,'in',21),punch(1,'out',22)]);

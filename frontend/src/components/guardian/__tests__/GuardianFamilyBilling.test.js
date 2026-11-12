@@ -10,6 +10,16 @@ const base=()=>({clients:[{clientId:10,clientName:'Child One',responsiblePayers:
 const button=(w,text)=>w.findAll('button').find(b=>b.text().includes(text));
 beforeEach(()=>{vi.clearAllMocks();});
 describe('private family billing',()=>{
+ it('hides insurance for a pure learning context while preserving owned saved-card assignment',async()=>{
+  const value=base();value.clients[0]={...value.clients[0],canManageBilling:true,canManageInsurance:true,insuranceApplicable:true,insuranceOnFile:true};value.cards=[{id:7,card_brand:'Visa',card_last4:'4242'}];
+  api.get.mockResolvedValue({data:value});api.post.mockResolvedValue({data:{success:true}});
+  const w=mount(FamilyBilling,{props:{agencyId:453,guardianUserId:2,clientId:10,learningOnly:true}});await flushPromises();
+  expect(w.text()).toContain('Payment methods');expect(w.text()).toContain('Your saved cards');expect(w.text()).not.toMatch(/insurance|Coverage is recorded|Medicaid/);
+  expect(w.findComponent({name:'InsuranceCardTasks'}).exists()).toBe(false);
+  await w.get('.client-grid select').setValue('7');await button(w,'Apply card to this client').trigger('click');await flushPromises();
+  expect(api.post).toHaveBeenCalledWith('/guardian-billing/clients/10/payment-method',{agencyId:453,cardId:7,recurring:false});
+  await w.setProps({learningOnly:false});await flushPromises();expect(w.text()).toContain('Your insurance policies');w.unmount();
+ });
  it('lets an authorized second parent add insurance without accepting payment responsibility',async()=>{
   const value=base();value.clients[0].canManageInsurance=true;value.clients[0].insuranceOnFile=true;api.get.mockResolvedValue({data:value});
   const w=mount(FamilyBilling,{props:{agencyId:1,guardianUserId:2}});await flushPromises();

@@ -5,6 +5,7 @@ export default {
   'src/services/__tests__/providerAmendmentCompletion.test.js',
   'src/services/__tests__/documentCountersignTasks.test.js',
   'src/services/__tests__/documentTaskEnrichment.test.js',
+  'src/services/__tests__/employeeCompensationSigning.test.js',
   'src/controllers/__tests__/documentSignerAccess.test.js',
   'src/controllers/__tests__/providerUpdateAmendmentReview.test.js'
  ]}

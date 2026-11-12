@@ -4,6 +4,9 @@ import {createMemoryHistory,createRouter} from 'vue-router';
 import QuickView from '../../views/QuickViewAccessView.vue';
 vi.mock('axios',()=>({default:{get:vi.fn(),post:vi.fn(),put:vi.fn(),patch:vi.fn()}}));
 vi.mock('../../services/api',()=>({default:{get:vi.fn(),post:vi.fn(),patch:vi.fn()}}));
+// This suite verifies workspace navigation. The child view's real behavior is
+// covered separately; its lazy Pinia import must not outlive this environment.
+vi.mock('../../views/tutoring/TutoringStudentsView.vue',()=>({default:{name:'TutoringStudentsView',template:'<div />'}}));
 import axios from 'axios';
 let wrapper,router;
 beforeEach(()=>{localStorage.clear();sessionStorage.clear();vi.clearAllMocks();axios.get.mockImplementation(async url=>({data:url.endsWith('/tutoring-workspace/context')?{canTutor:true,learningOnly:true}:url.endsWith('/childcare/context')?{enabled:true,canWork:true}:url.endsWith('/tools')?{tools:{}}:{}}));});

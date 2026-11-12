@@ -35,6 +35,11 @@ async function signedAgreements(userId, agencyId = null, db = pool) {
     ORDER BY g.id DESC`, agencyId ? [userId,agencyId] : [userId]);
   return rows.map(executedAgreement).filter(Boolean);
 }
+// Administrative review must see executed legacy and future-dated agreements,
+// including schedules that are deliberately ineligible for today's payroll.
+export async function executedEmploymentAgreements({agencyId,userId},db=pool) {
+  return signedAgreements(userId,agencyId,db);
+}
 export async function latestEmploymentAgreementDate(userId, db = pool) {
   const agreements = await signedAgreements(userId, null, db);
   return agreements.map(a=>a.agreementDate).sort().at(-1) || null;
