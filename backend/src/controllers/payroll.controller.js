@@ -120,7 +120,7 @@ import TrainingFocusPayrollService from '../services/trainingFocusPayroll.servic
 import { PAY_SYSTEM_BUCKETS } from '../services/payrollCodeClassification.js';
 import { loadUserPaySystemContext, applyPaySystemToBreakdown, classifyPayType, assertUnpaidProBonoBreakdown } from '../services/paySystem.service.js';
 import {approvedPeriodSalaryOverride} from '../services/payrollSalaryOverridePolicy.js';
-import {separateHistoricalCarryovers} from '../services/payrollHistoricalCarryover.service.js';
+import {hydrateCarryoverDates,separateHistoricalCarryovers} from '../services/payrollHistoricalCarryover.service.js';
 import PayrollReportEmail from '../services/payrollReportEmail.service.js';
 import {
   loadEventPayrollContext,
@@ -6025,6 +6025,7 @@ export async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId,
   periodEnd=ymdFromDbDate(recomputePeriod.period_end);
   await materializeRecurring({agencyId,payrollPeriodId});
   const rows = await getEffectiveStagingAggregates(payrollPeriodId, { agencyId, periodStart, periodEnd });
+  await hydrateCarryoverDates({stagingRows:rows,agencyId});
   // Percent-of-client-paid pay policy (agency default + feature flag). Best-effort:
   // if it can't load, fall back to disabled so fixed-rate payroll is unaffected.
   let percentagePayPolicy = { enabled: false, policy: { defaultPercent: 0 } };
@@ -7260,7 +7261,7 @@ export async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId,
             WHERE s.agency_id=? AND s.user_id=? AND p.status IN ('posted','finalized') AND p.period_end<? ORDER BY p.period_end DESC`,
             [agencyId,userId,payCtx.status.agreementBoundary]);
         }
-        separateHistoricalCarryovers({breakdown,stagingRows:userRows,ratesByCode,rateCard,historicalSummaries,boundary:payCtx.status.agreementBoundary});
+        separateHistoricalCarryovers({breakdown,stagingRows:userRows,ratesByCode,rateCard,historicalSummaries,boundary:payCtx.status.agreementBoundary,datedUnitsByCode:datedForUser});
         const meta = applyPaySystemToBreakdown({
           breakdown,
           rateProfile: payCtx.rateProfile,

@@ -1,0 +1,7 @@
+import {it,expect,vi} from 'vitest';
+vi.mock('../../config/database.js',()=>({default:{}}));
+import {hydrateCarryoverDates} from '../payrollHistoricalCarryover.service.js';
+it('recovers the latest import quantity only when agency scope, employee, code, date and fingerprint match',async()=>{
+ const rows=[{userId:7,serviceCode:'90837',carryoverMeta:{rawAuditRows:[{rowMatchKey:'match',serviceDate:'2026-10-22'}]}},{userId:8,serviceCode:'90837',carryoverMeta:{rawAuditRows:[{rowMatchKey:'match',serviceDate:'2026-10-22'}]}}];const db={execute:vi.fn(async()=>[[{id:5,user_id:7,service_code:'90837',service_date:'2026-10-22',unit_count:1,row_fingerprint:'match'},{id:4,user_id:7,service_code:'90837',service_date:'2026-10-22',unit_count:9,row_fingerprint:'match'}]])};await hydrateCarryoverDates({stagingRows:rows,agencyId:2},db);expect(rows[0].carryoverDatedUnits[0]).toMatchObject({units:1,serviceDate:'2026-10-22'});expect(rows[1].carryoverDatedUnits[0].units).toBeUndefined();expect(db.execute).toHaveBeenCalledWith(expect.stringContaining('WHERE agency_id=?'),[2,'match']);
+});
+it('retains saved reviewed quantities instead of replacing them with a later import edit',async()=>{const rows=[{userId:7,serviceCode:'H0031',carryoverMeta:{rawAuditRows:[{rowMatchKey:'match',serviceDate:'2026-10-22',unitCount:23}]}}];const db={execute:vi.fn()};await hydrateCarryoverDates({stagingRows:rows,agencyId:2},db);expect(rows[0].carryoverDatedUnits[0].units).toBe(23);expect(db.execute).not.toHaveBeenCalled();});

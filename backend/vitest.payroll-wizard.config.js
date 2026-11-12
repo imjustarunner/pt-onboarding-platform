@@ -7,6 +7,7 @@ export default {root:new URL('.',import.meta.url).pathname,resolve:{alias:{strea
  'src/services/__tests__/payrollComplianceDelivery.test.js',
  'src/services/__tests__/payrollSupervisionResolution.test.js',
  'src/services/__tests__/compensationCarryover.test.js',
+ 'src/services/__tests__/payrollCarryoverDates.test.js',
  'src/services/__tests__/payrollTransition.test.js',
  'src/controllers/__tests__/payrollImportRowAccess.test.js',
  'src/controllers/__tests__/payrollCorrectionReviewAccess.test.js',

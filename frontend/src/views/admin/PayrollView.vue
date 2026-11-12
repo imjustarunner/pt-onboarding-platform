@@ -12142,6 +12142,7 @@ const rawAddToCurrentPeriodCarryoverMeta = (c, units) => {
       providerName: c?.provider_name || null,
       patientFirstName: c?.patient_first_name || null,
       serviceDate: c?.service_date || null,
+      unitCount: safeUnits,
       fromStatus: c?.from_status || null,
       toStatus: c?.to_status || null,
       fromLocation: c?.metadata_json?.fromLocation || null,
