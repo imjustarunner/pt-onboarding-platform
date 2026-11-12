@@ -67,7 +67,11 @@ def main():
     guarded_ledger(RETEST/'childcare-cases.csv',blank_csv(childcare))
     intro = '''NLU RETEST AND CHILDCARE - COMPLETE BOT BRIEF
 INTERNAL QA INSTRUCTIONS AND PRIVATE TUTOR KEY; DO NOT UPLOAD INTO THE APP.
-Upload this TXT or its PDF reading copy, plus math-worksheet.pdf and reading-worksheet.pdf.
+Upload this TXT or its PDF reading copy, plus math-worksheet.pdf,
+reading-worksheet.pdf and upload-negative.txt. The latter is a harmless negative
+upload input only where TXT is unsupported; never use this private brief or a
+tutor key for an upload-negative test. If TXT is allowed, record that fact and
+do not claim it tested an invalid file type.
 All referenced data-entry inputs and case tables are embedded below. No folder,
 ZIP extraction, repository, SQL, cloud console or direct API writes are required.
 First inventory received attachments. Wait for START NLU RETEST before app writes.
@@ -99,7 +103,8 @@ already-requested recovery email. Preserve the blank case ledgers and old failur
     (OUT/'NLU-RETEST-AND-CHILDCARE-BOT-BRIEF.pdf').write_bytes(module.make_pdf('NLU retest and childcare - complete bot brief',[reading]))
     for name in ['math-worksheet.pdf','reading-worksheet.pdf']:
         shutil.copyfile(SOURCE/name,OUT/name)
-    (OUT/'UPLOAD-THIS.txt').write_text('Upload ONE brief (TXT is canonical; PDF is the reading copy), plus math-worksheet.pdf and reading-worksheet.pdf. No other source files are required. After attachment inventory and engineering setup/deployment readiness, send START NLU RETEST.\n')
+    shutil.copyfile(RETEST/'upload-negative.txt',OUT/'upload-negative.txt')
+    (OUT/'UPLOAD-THIS.txt').write_text('Upload ONE brief (TXT is canonical; PDF is the reading copy), plus math-worksheet.pdf, reading-worksheet.pdf and upload-negative.txt. No other source files are required. The harmless TXT is only an unsupported-upload test input where TXT is disallowed. After attachment inventory and engineering setup/deployment readiness, send START NLU RETEST.\n')
     print(f'Prepared {OUT}: 20 repair cases, 47 retained tutoring cases, 26 childcare cases; live results remain NOT RUN.')
 
 if __name__ == '__main__': main()

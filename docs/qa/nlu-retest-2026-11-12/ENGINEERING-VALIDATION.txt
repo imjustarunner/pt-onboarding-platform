@@ -1,5 +1,16 @@
 NLU TUTORING / CHILDCARE IMPLEMENTATION — NOVEMBER 12, 2026
-State: source implemented and tested; publication/deployment and live QA are separate.
+Phase A below records pre-publication source validation and its historical baseline.
+Approved394b5ef54 and migration1814 subsequently deployed successfully. The current
+live setup/verification and remaining blockers are in embedded LIVE-SETUP-STATUS.txt.
+Source follow-up701f7769a includes current-main4aedadec5 and is awaiting publication.
+Its merged frontend checks passed323 tests; backend311 passed/one optional SQL skip;
+full hiring773 passed/14 intentional skips; repaired Node CI fixtures33 passed.
+These suites overlap and do not certify the full live tutoring/childcare journey.
+Follow-up core Vite production build passed in1m28s; FundThred and AuricWell
+packaging also passed. The initial full command stopped only because this sparse
+checkout omitted frontend/plotline-site/vite.config.mjs. Restoring that tracked
+source allowed the remaining Plotline/public/office/product packaging steps to
+complete without rebuilding the app. No dependency copy or new migration needed.
 
 Implemented
 - Academic-only tutoring intake composition, optional request-stage demographics,

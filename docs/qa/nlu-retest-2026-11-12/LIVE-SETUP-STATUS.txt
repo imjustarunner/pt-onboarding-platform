@@ -1,6 +1,6 @@
 NLU RETEST — CURRENT ENGINEERING AND LIVE SETUP STATUS
 November 12, 2026; America/Denver, MST, UTC-07:00
-Evidence cutoff: 2026-11-12 14:26:14.921 MST / 21:26:14.921 UTC
+Evidence cutoff: 2026-11-12 14:43:36.114 MST / 21:43:36.114 UTC
 
 READ THIS BEFORE THE RUN PLAN AND OLDER FIXTURE INPUTS
 This is a dated engineering handoff and limited live verification, not a complete
@@ -159,12 +159,21 @@ AUDIT AND EVIDENCE LIMITS
   package totals18000/19800 cents. Both returned two real published openings,
   matching office12/room18 and the exact UTC instants above. This verifies the
   public responses, not a completed booking, price collection or session.
-  Evidence: LIVE-FINDER-READS.json. A filtered browser screenshot remains pending.
+  Evidence: LIVE-FINDER-READS.json. At that point only public responses were checked.
+  Follow-on anonymous browser verification at14:43:35.257–14:43:36.114 MST used
+  build732c6e3361cd1b5a7a90016ad7655278aa3be7db on both frontend/backend. The
+  Math/5/virtual desktop1366 and Reading/3/in-person390 filters displayed Finley,
+  $50/$55 per hour and November16/17 openings. No Insurance filter, horizontal
+  document overflow or page errors were observed. Screenshots:
+  LIVE-FINDER-VIRTUAL-1366.png and LIVE-FINDER-IN_PERSON-390.png; record
+  LIVE-FINDER-BROWSER.json. These are finder reads, not bookings or sessions.
 - Read-only reconciliation found zero matching administrator audit rows and
   only five activity rows in its selected window. Located activity IDs:
   94143 password_reset_link_sent (Morgan1759, performedBy1435, communication6463),
   94145 Finley login,94146 admin_page_view,94147 dashboard_view,94149 timeout.
   These are activity records, not substitutes for every expected action audit.
+  Row94143 retained From Notifications@nextleveluplcc.com and Reply-To
+  PO@nextleveluplcc.com. These are workflow metadata, not received inbox headers.
 - Missing service/profile/office/publication and denied-access events remain
   missing/unreconciled unless the runner actually locates their exact audit rows.
   Retain expected/actual rows, distinguish unavailable sources from empty results,
