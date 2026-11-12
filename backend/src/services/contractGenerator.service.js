@@ -1,6 +1,7 @@
+import { compensationAgencyPolicy } from './compensationCategories.service.js';
 import { contractCompensationLevels } from './contractCompensation.service.js';
 import { jobOfficeOptions } from '../utils/contractPresentation.js';
-import { itscoAgreementBuilder } from './itscoAgreementBuilder.service.js';
+import { contractAgreementBuilder } from './contractAgreementBuilder.service.js';
 /**
  * Contract CRUD + generate/assign for pre-hire candidates.
  */
@@ -271,7 +272,7 @@ export async function getCandidateWizardContext({
   credentialOverride = null,
   officeLocationId = null
 }) {
-  const [templates, configs, compensationLevels, agencyDefaults, tokens] = await Promise.all([
+  const [templates, configs, compensationLevels, agencyDefaults, tokens, compensationPolicy] = await Promise.all([
     listTemplates(agencyId),
     listConfigs(agencyId),
     contractCompensationLevels(agencyId, { includeServiceRates: true }),
@@ -281,7 +282,8 @@ export async function getCandidateWizardContext({
       candidateUserId,
       credentialOverride,
       officeLocationId
-    })
+    }),
+    compensationAgencyPolicy(agencyId)
   ]);
 
   const jobDescClauses = (await listClauses(agencyId))
@@ -304,11 +306,12 @@ export async function getCandidateWizardContext({
     configs,
     compensationLevels: compensationLevels.filter((r) => r.serviceRates?.length || r.label || r.direct_rate != null || r.indirect_rate != null || r.ffs_rate != null),
     compensationCategories: typeof PayrollCompensationLevel.getCategories === 'function' ? await PayrollCompensationLevel.getCategories(agencyId) : COMPENSATION_CATEGORIES,
+    serviceCompensation: compensationPolicy.serviceCompensation,
     serviceFocusOptions: agencyDefaults.serviceFocusOptions,
     contractTenant: agencyDefaults.contractTenant,
     contractServiceRoleOptions: agencyDefaults.contractServiceRoleOptions,
     schoolDaysEnabled: agencyDefaults.schoolDaysEnabled,
-    agreementBuilder: itscoAgreementBuilder({ agency: agencyDefaults.agency, configs, tokens }),
+    agreementBuilder: contractAgreementBuilder({ agency: agencyDefaults.agency, configs, tokens }),
     jobDescClauses,
     agency: agencyDefaults.agency,
     offices: jobOfficeOptions(agencyDefaults.offices, { city: tokens.JOB_CITY, state: tokens.JOB_STATE }).offices,
@@ -338,7 +341,8 @@ export async function previewCandidateContract({
   compensationLevel,
   jobDescClauseKey,
   credentialOverride = null,
-  officeLocationId = null
+  officeLocationId = null,
+  reviewInactiveConfig = false
 }) {
   const autofill = await autofillTokensForCandidate({
     agencyId,
@@ -364,10 +368,11 @@ export async function previewCandidateContract({
     compensationCategory: compensationCategory || Number(merged.COMPENSATION_CATEGORY),
     compensationLevel: compensationLevel || Number(merged.COMPENSATION_LEVEL),
     jobDescClauseKey: jobDescClauseKey || merged.JOB_DESC_CLAUSE_KEY,
-    includeAssignedOffice: true
+    includeAssignedOffice: true,
+    reviewInactiveConfig
   });
   const previewHash = createHash('sha256').update(JSON.stringify([agencyId, candidateUserId, configId, rendered.html])).digest('hex');
-  return { ...rendered, tokens: rendered.tokens || merged, previewHash };
+  return { ...rendered, requiresActivation: Number(rendered.config?.is_active) !== 1, tokens: rendered.tokens || merged, previewHash };
 }
 
 export async function generateAndAssignCandidateContract({

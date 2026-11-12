@@ -65,7 +65,7 @@
           <div v-if="selectionDriven" class="cg-sheet-row">
             <span class="cg-label">2 · Agreement role</span>
             <select v-model="agreementVariant" @change="applyAgreementVariant"><option v-for="option in agreementBuilder.options" :key="option.value" :value="option.value">{{ option.label }}</option></select>
-            <span class="cg-note">Standard terms and duties follow these selections. Category/level compensation applies to providers, facilitators, practicum students, and interns.</span>
+            <span class="cg-note">{{ agreementBuilder.description || 'Standard terms and duties follow these selections. Category/level compensation applies to providers, facilitators, practicum students, and interns.' }}</span>
           </div>
           <details v-if="agreementBuilder"><summary>Other documents and amendments</summary><label><input v-model="manualConfigMode" type="checkbox" />Use an existing document preset</label></details>
           <div v-if="!selectionDriven" class="cg-sheet-row">
@@ -146,9 +146,10 @@
 
         <ContractExpectationsEditor :show-core-fields="false" v-model="individualExpectations" :individual-agreement-mode="contractTenant==='isi'" :service-role-options="contractServiceRoleOptions" :service-role-source="build.tokens.CONTRACT_SERVICE_ROLE_SOURCE" :compensation-category="build.compensationCategory" :service-compensation="serviceCompensation" title="Individual expectations and compensated duties" description="Starts with this posting’s defaults. Changes here apply only to this person’s agreement." />
         <button v-if="postingDefaults" type="button" class="cg-btn" @click="individualExpectations = JSON.parse(JSON.stringify(postingDefaults))">Restore this posting’s defaults</button>
+        <p v-if="requiresActivation" class="cg-note">Draft agreement: preview for review. Full terms must be approved and this configuration activated before issuing.</p>
         <div class="cg-actions">
           <button type="button" class="cg-btn" :disabled="busy || !canBuild" @click="preview">Preview contract</button>
-          <button type="button" class="cg-btn primary" :disabled="busy || !canBuild" @click="generate">Generate &amp; assign for e-sign</button>
+          <button type="button" class="cg-btn primary" :disabled="busy || !canBuild || requiresActivation" @click="generate">Generate &amp; assign for e-sign</button>
         </div>
         <p v-if="wizardMsg" class="cg-ok">{{ wizardMsg }}</p>
 
@@ -353,6 +354,7 @@ const build = ref({
   }
 });
 
+const requiresActivation = computed(() => { const config = configs.value.find(c => Number(c.id) === Number(build.value.configId)); return !!config && Number(config.is_active) !== 1; });
 const canBuild = computed(() => Boolean(build.value.candidateUserId && build.value.configId));
 const editingClauseId = ref(null);
 const clauseDraft = ref({ title: '', bodyHtml: '' });
@@ -623,7 +625,7 @@ async function preview() {
     if (data.unresolvedTokens?.length) {
       wizardMsg.value = `Preview ready. Unresolved tokens: ${data.unresolvedTokens.join(', ')}`;
     } else {
-      wizardMsg.value = 'Preview ready.';
+      wizardMsg.value = data.requiresActivation ? 'Draft preview ready. Full terms must be approved and the configuration activated before issuing.' : 'Preview ready.';
     }
   } catch (e) {
     wizardErr.value = e?.response?.data?.error?.message || e.message;

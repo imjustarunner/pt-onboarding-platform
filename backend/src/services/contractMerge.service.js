@@ -256,7 +256,8 @@ export async function loadContractBundle({ agencyId, configId, templateId, jobDe
     [configId, agencyId]
   );
   const config = cfgRows?.[0] || null;
-  if (!config || (!config.is_active && !reviewInactiveConfig)) throw Object.assign(new Error('Contract config not found'), { status: 404 });
+  if (!config) throw Object.assign(new Error('Contract config not found'), { status: 404 });
+  if (Number(config.is_active) !== 1 && !reviewInactiveConfig) throw Object.assign(new Error('This employment agreement is a draft. Its full terms must be approved and the configuration activated before issuing contracts. You can preview it for review.'), { status: 409 });
 
   const tplId = templateId || config.contract_template_id;
   let template = null;

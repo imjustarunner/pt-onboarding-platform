@@ -1,5 +1,5 @@
 import pool from '../config/database.js';
-const fields = ['contract', 'contractOverrides', 'agreementVariant', 'contractConfigId', 'officeLocationId', 'includeSupervisor', 'signerAssignments', 'adhocSignerUserId', 'prehirePackageId', 'packetTemplateId', 'portalWorkflow', 'jobDocs', 'extraFiles', 'setupStep'];
+const fields = ['contract', 'contractOverrides', 'individualExpectations', 'agreementVariant', 'contractConfigId', 'officeLocationId', 'includeSupervisor', 'signerAssignments', 'adhocSignerUserId', 'prehirePackageId', 'packetTemplateId', 'portalWorkflow', 'jobDocs', 'extraFiles', 'setupStep'];
 export function sanitizePrehireDraft(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw Object.assign(new Error('A pre-hire draft is required.'), { status: 400 });
   const draft = Object.fromEntries(fields.filter(key => Object.hasOwn(value, key)).map(key => [key, value[key]]));
