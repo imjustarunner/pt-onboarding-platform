@@ -653,7 +653,6 @@ import {
   categoryGroupLabel,
   serviceCodeForCategoryGroup
 } from '../../utils/hourlyDualRateContract.js';
-import { isSupervisor } from '../../utils/helpers';
 import {
   activityCodeForTypeKey,
   enrichAllocationWithActivityCode,
@@ -713,14 +712,13 @@ const isHourlyUser = computed(() => {
   const raw = u.isHourlyWorker ?? u.is_hourly_worker;
   return raw === true || raw === 1 || raw === '1';
 });
-const isSupervisorUser = computed(() => isSupervisor(submitUser.value));
 const showIndirectColumn = computed(() => {
   if (isHourlyUser.value) return true;
   return (serviceTypes.value || []).some(
     (t) => normalizePayBucket(t.payBucket || t.pay_bucket) === 'indirect' && !isExcludedIndirectType(t)
   );
 });
-const showSupervisionColumn = computed(() => isSupervisorUser.value);
+const showSupervisionColumn = computed(() => (serviceTypes.value || []).some(t => normalizePayBucket(t.payBucket || t.pay_bucket) === 'supervision_note'));
 const showThreeColumns = computed(() => Number(showIndirectColumn.value) + Number(showSupervisionColumn.value) + Number(showAdminColumn.value) + 1 >= 3);
 
 const indirectServiceTypes = computed(() =>

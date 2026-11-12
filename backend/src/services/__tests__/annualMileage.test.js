@@ -19,14 +19,14 @@ it('does not count pending miles as paid dollars or double count approved and pa
 });
 it('scopes report to tenant and trip year and excludes rejected claims', async () => {
   mocks.execute.mockResolvedValueOnce([[{ user_id: 4, name: 'Example', approved_dollars: 50 }]])
-    .mockResolvedValueOnce([[{ user_id: 4, name: 'Example', paid_dollars: 250 }, { user_id: 5, name: 'Manual only', paid_dollars: 2000 }]]);
+    .mockResolvedValueOnce([[{ user_id: 4, name: 'Example', paid_dollars: 250, posted_period_count:22,first_posted_period_end:'2026-01-02',last_posted_period_end:'2026-10-23' }, { user_id: 5, name: 'Manual only', paid_dollars: 2000 }]]);
   const report = await getAnnualMileageReport({ agencyId: 2, agency: { slug: 'itsco' }, year: 2026 });
   const [sql, params] = mocks.execute.mock.calls[0];
   expect(params).toEqual([2, '2026-01-01', '2027-01-01']);
   expect(sql).toContain("c.status IN ('submitted', 'approved', 'paid')");
   expect(sql).toContain('c.agency_id = ?');
   expect(report).toMatchObject({ limitDollars: 2000, trackingOnly: true, basis: 'payroll_period_end', claimBasis: 'drive_date' });
-  expect(report.people[0]).toMatchObject({ paidDollars: 250, committedDollars: 300 });
+  expect(report.people[0]).toMatchObject({ paidDollars: 250, committedDollars: 300,postedPeriodCount:22,firstPostedPeriodEnd:'2026-01-02',lastPostedPeriodEnd:'2026-10-23' });
   expect(report.people[1]).toMatchObject({ paidDollars: 2000, status: 'reached' });
   expect(mocks.execute.mock.calls[1][0]).toContain("$.__adjustments.mileageAmount");
   expect(sql).toContain("COALESCE(p.status,'draft') NOT IN ('posted','finalized')");

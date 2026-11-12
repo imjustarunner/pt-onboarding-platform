@@ -479,17 +479,21 @@
                 <td>{{ fmtDate(c.claim_date || c.drive_date || c.trip_date) }}</td>
                 <td>
                   <select v-if="mileageUsesTier(c, mileageRates.settings)" v-model.number="mileageTierById[c.id]" :disabled="(claimsBusy || busyId === `mileage-${c.id}`)" :aria-label="`Mileage tier for ${claimName(c)}`">
+                    <option :value="0" disabled>Choose verified tier</option>
                     <option v-for="tier in [1, 2, 3]" :key="tier" :value="tier">Tier {{ tier }}</option>
                   </select>
                   <span v-else>{{ fmtMoney(mileageRates.settings?.standardMileageRatePerMile) }} / mi</span>
+                  <div v-if="c.current_tier_period_end" class="hint">Benefit tier from {{ fmtDate(c.current_tier_period_end) }} payroll</div>
                 </td>
                 <td class="right">{{ mileageBillableMiles(c).toFixed(2) }}</td>
                 <td class="right">{{ fmtMoney(mileageEstimate(c, mileageRates, mileageTierById[c.id])) }}</td>
                 <td><div class="ft-mileage-usage">
                   <template v-if="annualMileageFor(c)">
-                    <strong>{{ mileageYear(c) }} · {{ fmtMoney(annualMileageFor(c).paidDollars) }} posted</strong>
+                    <strong>{{ mileageYear(c) }} year to date · {{ fmtMoney(annualMileageFor(c).paidDollars) }} posted</strong>
                     <template v-if="annualMileageReport(c).limitDollars != null">
                       <div>of {{ fmtMoney(annualMileageReport(c).limitDollars) }} annual maximum</div>
+                      <div class="hint">Jan 1–Dec 31 · all posted payroll in {{ mileageYear(c) }}</div>
+                      <div v-if="annualMileageFor(c).lastPostedPeriodEnd" class="hint">Through {{ fmtDate(annualMileageFor(c).lastPostedPeriodEnd) }} · {{ annualMileageFor(c).postedPeriodCount }} pay periods</div>
                       <progress :value="annualMileageFor(c).committedDollars" :max="annualMileageReport(c).limitDollars" :aria-label="`${claimName(c)} ${mileageYear(c)} mileage allowance committed`" />
                       <div>{{ fmtMoney(annualMileageFor(c).approvedDollars) }} approved, unposted</div>
                       <div>{{ fmtMoney(Math.max(0, annualMileageReport(c).limitDollars - annualMileageFor(c).committedDollars)) }} uncommitted</div>
@@ -576,15 +580,22 @@
       </div>
 
       <section v-if="tab === 'mileage'" class="card pps-panel" style="margin-top: 20px;">
-        <div class="pps-panel-head"><div><h2>Approved Mileage Claims</h2><p class="hint">Approved for payroll. Claims remain here until their pay period is posted.</p></div></div>
+        <div class="pps-panel-head"><div><h2>Approved Mileage Claims</h2><p class="hint">Edit eligible miles, the benefit tier, or the pay period until payroll is posted. School rates follow the selected tier.</p></div></div>
         <div v-if="!approvedMileageClaims.length" class="muted">No approved mileage claims in unposted pay periods.</div>
         <div v-else class="table-wrap"><table class="table">
-          <thead><tr><th>Provider</th><th>Date</th><th>Rate / Tier</th><th class="right">Miles</th><th class="right">Est.</th><th>Approved by</th><th>Post to</th></tr></thead>
+          <thead><tr><th>Provider</th><th>Date</th><th>Rate / Tier</th><th class="right">Eligible miles</th><th class="right">Approved pay</th><th>Approved by</th><th>Post to</th><th>Actions</th></tr></thead>
           <tbody><tr v-for="c in approvedMileageClaims" :key="c.id">
             <td>{{ claimName(c) }}</td><td>{{ fmtDate(c.drive_date) }}</td>
-            <td><span :class="['pps-tier', `pps-tier-${c.tier_level}`]">{{ mileageTierLabel(c) }}</span></td>
-            <td class="right">{{ mileageBillableMiles(c).toFixed(2) }}</td><td class="right">{{ fmtMoney(c.applied_amount) }}</td>
-            <td>{{ approvedByLabel(c) }}</td><td>{{ approvedPeriodLabel(c) }}</td>
+            <td><select v-if="mileageUsesTier(c, mileageRates.settings)" v-model.number="approvedMileageEdits[c.id].tierLevel" :aria-label="`Approved mileage tier for ${claimName(c)}`" :disabled="!!busyId || claimsBusy" @change="approvedMileageEdits[c.id].dirty = true">
+              <option v-for="tier in [1,2,3]" :key="tier" :value="tier">Tier {{ tier }}</option>
+            </select><span v-else>{{ mileageTierLabel(c) }}</span></td>
+            <td><input v-model="approvedMileageEdits[c.id].eligibleMiles" type="number" min="0" step="0.01" style="width: 90px" :aria-label="`Approved eligible miles for ${claimName(c)}`" :disabled="!!busyId || claimsBusy || !!c.event_travel_report_id" @input="approvedMileageEdits[c.id].dirty = true" /></td>
+            <td class="right">{{ fmtMoney(c.applied_amount) }}</td><td>{{ approvedByLabel(c) }}</td>
+            <td><select :value="c.target_payroll_period_id" :disabled="!!busyId || claimsBusy" :aria-label="`Approved mileage pay period for ${claimName(c)}`" @change="moveApprovedMileage(c, $event)">
+              <option v-for="p in periodsForSelect" :key="p.id" :value="p.id" :disabled="isPeriodLocked(p)">{{ periodRangeLabel(p) }}{{ isPeriodLocked(p) ? ' (locked)' : '' }}</option>
+            </select></td>
+            <td><div class="pps-row-actions"><button class="btn btn-primary btn-sm" :disabled="!!busyId || claimsBusy || !approvedMileageEdits[c.id].dirty || !!c.event_travel_report_id" @click="saveApprovedMileage(c)">Save</button>
+              <button class="btn btn-secondary btn-sm" :disabled="!!busyId || claimsBusy" @click="unapproveMileage(c)">Unapprove</button></div></td>
           </tr></tbody>
         </table></div>
       </section>
@@ -974,6 +985,7 @@ const review = usePayrollClaimReview({
     const destination = kind === 'time' ? approvedTimeClaims : kind === 'mileage' ? approvedMileageClaims : null;
     if (destination) destination.value = [claim, ...destination.value.filter(c => Number(c.id) !== Number(claim.id))];
     if (kind === 'time') approvedTimeEdits[claim.id] = approvedTimeDraft(claim);
+    if (kind === 'mileage') approvedMileageEdits[claim.id] = approvedMileageDraft(claim);
   },
   onChanged: kinds => { if (kinds.includes('mileage')) void loadAnnualMileage(agencyId.value); },
   onReview: (kind, claim) => kind === 'time' ? openTimeClaimView(claim) : kind === 'mileage' ? openMileageClaimView(claim) : undefined
@@ -1016,6 +1028,7 @@ const bulkClaims = async (kind, action) => {
 };
 const mileageRates = ref({ rates: [], settings: {} });
 const mileageTierById = reactive({});
+const approvedMileageEdits = reactive({});
 const claimTargetByKey = reactive({});
 const timeHoursOverrideById = reactive({});
 const timeBucketById = reactive({});
@@ -1690,7 +1703,10 @@ const loadClaims = async () => {
   seedClaimTargets('reimb', reimbClaims.value);
   void loadAnnualMileage(requestedAgencyId);
   if (agencyId.value !== requestedAgencyId) return;
-  for (const c of mileageClaims.value) mileageTierById[c.id] ??= Number(c.tier_level || 1);
+  for (const c of mileageClaims.value) mileageTierById[c.id] = Number(c.current_tier_level ?? c.tier_level ?? 0);
+  for (const c of approvedMileageClaims.value) {
+    if (!approvedMileageEdits[c.id]?.dirty) approvedMileageEdits[c.id] = approvedMileageDraft(c);
+  }
   for (const c of approvedTimeClaims.value) {
     if (!approvedTimeEdits[c.id]?.dirty) approvedTimeEdits[c.id] = approvedTimeDraft(c);
   }
@@ -1742,6 +1758,30 @@ const approvedPeriodLabel = (c) => c.approved_period_start
   ? `${fmtDate(c.approved_period_start)} → ${fmtDate(c.approved_period_end)}` : periodLabelForId(c.target_payroll_period_id);
 const approvedByLabel = (c) => [c.approved_by_first_name, c.approved_by_last_name].filter(Boolean).join(' ')
   || nameForUserId(c.approved_by_user_id);
+const approvedMileageDraft = c => ({ tierLevel: Number(c.tier_level || c.current_tier_level || 0),
+  eligibleMiles: String(c.eligible_miles ?? c.miles ?? 0), dirty: false });
+const saveApprovedMileage = c => {
+  const edit = approvedMileageEdits[c.id];
+  const miles = Number(edit.eligibleMiles);
+  if (edit.eligibleMiles === '' || !Number.isFinite(miles) || miles < 0) {
+    actionError.value = 'Enter valid non-negative eligible miles.'; return;
+  }
+  return withBusy(`mileage-${c.id}`, () => api.patch(`/payroll/mileage-claims/${c.id}`, {
+    action: 'update', eligibleMiles: miles,
+    ...(mileageUsesTier(c, mileageRates.value.settings) ? { tierLevel: edit.tierLevel } : {})
+  }), async () => { edit.dirty = false; await loadClaims(); });
+};
+const unapproveMileage = c => withBusy(`mileage-${c.id}`,
+  () => api.patch(`/payroll/mileage-claims/${c.id}`, { action: 'unapprove' }), loadClaims);
+const moveApprovedMileage = (c, event) => {
+  const targetPayrollPeriodId = Number(event.target.value);
+  event.target.value = c.target_payroll_period_id;
+  if (!isValidOpenPeriod(targetPayrollPeriodId)) return;
+  return withBusy(`mileage-${c.id}`, (override = {}) => api.patch(`/payroll/mileage-claims/${c.id}`, {
+    action: 'move', targetPayrollPeriodId, ...override
+  }), loadClaims);
+};
+
 const recalculateApprovedTime = (c) => {
   const edit = approvedTimeEdits[c.id];
   edit.amount = Math.round(Number(edit.hours) * Number(edit.rateAmount) * 100) / 100;
@@ -2282,7 +2322,7 @@ watch(agencyId, async (id, prev) => {
   approvedTimeClaims.value = [];
   approvedMileageClaims.value = [];
   eventTimeSubmissions.value = [];
-  for (const map of [claimTargetByKey, ptoTargetById, timeBucketById, timeHoursOverrideById, approvedTimeEdits, mileageTierById, eventTimeTargetPeriodByPunchId]) {
+  for (const map of [claimTargetByKey, ptoTargetById, timeBucketById, timeHoursOverrideById, approvedTimeEdits, approvedMileageEdits, mileageTierById, eventTimeTargetPeriodByPunchId]) {
     for (const key of Object.keys(map)) delete map[key];
   }
   if (id) await reloadAll();

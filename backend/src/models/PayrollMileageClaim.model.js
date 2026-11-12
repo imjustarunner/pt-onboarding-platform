@@ -239,7 +239,7 @@ class PayrollMileageClaim {
              rejection_reason = NULL,
              rejected_by_user_id = NULL,
              rejected_at = NULL
-         WHERE id = ? ${requireSubmitted ? "AND status='submitted' AND EXISTS (SELECT 1 FROM payroll_periods p WHERE p.id = ? AND p.agency_id = payroll_mileage_claims.agency_id AND LOWER(p.status) NOT IN ('posted','finalized') AND p.posted_at IS NULL AND p.finalized_at IS NULL)" : ''} ${eventTravelReviewedAt ? `AND EXISTS (
+         WHERE id = ? ${requireSubmitted ? "AND status='submitted' AND EXISTS (SELECT 1 FROM payroll_periods p WHERE p.id = ? AND p.agency_id = payroll_mileage_claims.agency_id AND LOWER(p.status) NOT IN ('posted','finalized') AND p.posted_at IS NULL AND p.finalized_at IS NULL AND p.posted_by_user_id IS NULL AND p.finalized_by_user_id IS NULL)" : ''} ${eventTravelReviewedAt ? `AND EXISTS (
            SELECT 1 FROM company_event_travel_reports r WHERE r.id = payroll_mileage_claims.event_travel_report_id
            AND r.reviewed_at IS NOT NULL AND JSON_UNQUOTE(JSON_EXTRACT(r.report_json, '$.reviewedAt')) = ?)` : ''}
          LIMIT 1`,
@@ -302,35 +302,32 @@ class PayrollMileageClaim {
     return PayrollMileageClaim.findById(id);
   }
 
-  static async unapprove({ id }) {
-    await pool.execute(
-      `UPDATE payroll_mileage_claims
-       SET status = 'submitted',
-           target_payroll_period_id = NULL,
-           tier_level = NULL,
-           rate_per_mile = NULL,
-           applied_amount = NULL,
-           approved_by_user_id = NULL,
-           approved_at = NULL,
-           rejection_reason = NULL,
-           rejected_by_user_id = NULL,
-           rejected_at = NULL
-       WHERE id = ?
-       LIMIT 1`,
-      [id]
-    );
-    return PayrollMileageClaim.findById(id);
+  static async updateApproved({ id, expectedPeriodId, expectedAmount, targetPayrollPeriodId,
+    eligibleMiles, tierLevel, ratePerMile, appliedAmount }) {
+    const [result] = await pool.execute(`UPDATE payroll_mileage_claims c
+      JOIN payroll_periods source ON source.id=c.target_payroll_period_id AND source.agency_id=c.agency_id
+      JOIN payroll_periods target ON target.id=? AND target.agency_id=c.agency_id
+      SET c.target_payroll_period_id=?, c.eligible_miles=?, c.tier_level=?, c.rate_per_mile=?, c.applied_amount=?
+      WHERE c.id=? AND c.status='approved' AND c.target_payroll_period_id=? AND c.applied_amount <=> ?
+        AND LOWER(source.status) NOT IN ('posted','finalized') AND source.posted_at IS NULL AND source.finalized_at IS NULL
+        AND source.posted_by_user_id IS NULL AND source.finalized_by_user_id IS NULL
+        AND LOWER(target.status) NOT IN ('posted','finalized') AND target.posted_at IS NULL AND target.finalized_at IS NULL
+        AND target.posted_by_user_id IS NULL AND target.finalized_by_user_id IS NULL`,
+    [targetPayrollPeriodId,targetPayrollPeriodId,eligibleMiles,tierLevel,ratePerMile,appliedAmount,id,expectedPeriodId,expectedAmount]);
+    if (!result.affectedRows) throw Object.assign(new Error('The mileage claim or pay period changed. Refresh before editing.'), {status:409});
+    return this.findById(id);
   }
 
-  static async moveTargetPeriod({ id, targetPayrollPeriodId }) {
-    await pool.execute(
-      `UPDATE payroll_mileage_claims
-       SET target_payroll_period_id = ?
-       WHERE id = ?
-       LIMIT 1`,
-      [targetPayrollPeriodId, id]
-    );
-    return PayrollMileageClaim.findById(id);
+  static async unapprove({ id }) {
+    const [result] = await pool.execute(`UPDATE payroll_mileage_claims c
+      JOIN payroll_periods p ON p.id=c.target_payroll_period_id AND p.agency_id=c.agency_id
+      SET c.status='submitted', c.target_payroll_period_id=NULL, c.tier_level=NULL, c.rate_per_mile=NULL,
+        c.applied_amount=NULL, c.approved_by_user_id=NULL, c.approved_at=NULL,
+        c.rejection_reason=NULL, c.rejected_by_user_id=NULL, c.rejected_at=NULL
+      WHERE c.id=? AND c.status='approved' AND LOWER(p.status) NOT IN ('posted','finalized')
+        AND p.posted_at IS NULL AND p.finalized_at IS NULL AND p.posted_by_user_id IS NULL AND p.finalized_by_user_id IS NULL`, [id]);
+    if (!result.affectedRows) throw Object.assign(new Error('The mileage claim or pay period changed. Refresh before unapproving.'), {status:409});
+    return this.findById(id);
   }
 
   static async sumApprovedForPeriodUser({ payrollPeriodId, agencyId, userId }) {

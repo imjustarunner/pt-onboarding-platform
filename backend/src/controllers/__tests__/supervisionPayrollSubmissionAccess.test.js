@@ -36,11 +36,11 @@ it('does not let a non-supervisor convert an existing claim to supervisor note t
  m.execute.mockResolvedValue([[{has_supervisor_privileges:0,role:'provider'}]]);
  const response=res(),next=vi.fn();
  await updateMyTimeClaim({user:{id:20,role:'provider'},params:{id:1},body:{editReason:'Correct the activity',payload:{categoryGroup:'SUPERVISION_NOTE',attestation:true,totalMinutes:30,allocations:[{serviceTypeLabel:'Supervision notes',minutes:30}]}}},response,next);
- expect(next).not.toHaveBeenCalled();expect(response.status).toHaveBeenCalledWith(403);expect(response.json).toHaveBeenCalledWith({error:{message:'Supervision Note Time is for supervisors only'}});
+ expect(next).not.toHaveBeenCalled();expect(response.status).toHaveBeenCalledWith(403);expect(response.json).toHaveBeenCalledWith({error:{message:'Supervision Note Time is for clinical supervisors in this agency only'}});
  expect(m.execute.mock.calls.every(([sql])=>sql.startsWith('SELECT'))).toBe(true);
 });
 it('allows supervisors past the note-edit permission check without weakening the remaining validation',async()=>{
- const stop=new Error('Stop before persistence');m.execute.mockImplementation(async sql=>{if(sql.includes('SELECT has_supervisor_privileges'))return[[{has_supervisor_privileges:1,role:'provider'}]];throw stop;});
+ const stop=new Error('Stop before persistence');m.execute.mockImplementation(async sql=>{if(sql.includes('SELECT 1 AS eligible'))return[[{eligible:1}]];throw stop;});
  const response=res(),next=vi.fn();
  await updateMyTimeClaim({user:{id:20,role:'provider'},params:{id:1},body:{editReason:'Correct the activity',payload:{categoryGroup:'supervision_note',attestation:true,totalMinutes:30,allocations:[{serviceTypeLabel:'Supervision notes',minutes:30}]}}},response,next);
  expect(response.status).not.toHaveBeenCalledWith(403);expect(next).toHaveBeenCalledWith(stop);

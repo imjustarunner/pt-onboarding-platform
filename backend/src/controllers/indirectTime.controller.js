@@ -1,3 +1,4 @@
+import { isClinicalSupervisorForAgency } from '../services/clinicalSupervisorEligibility.service.js';
 import pool from '../config/database.js';
 import { isJacquelyneTimeUser } from '../utils/jacquelyneTimePolicy.js';
 import { listJacquelyneHuddles, jacquelyneAdminRate } from '../services/jacquelyneTime.service.js';
@@ -35,7 +36,7 @@ async function assertAgencyMembership(req, res, agencyId) {
   return true;
 }
 
-async function loadLogTimeCapabilities(userId) {
+async function loadLogTimeCapabilities(userId, agencyId) {
   const [rows] = await pool.execute(
     `SELECT is_hourly_worker, hourly_dual_rate_enabled, has_supervisor_privileges, role
      FROM users WHERE id = ? LIMIT 1`,
@@ -43,11 +44,7 @@ async function loadLogTimeCapabilities(userId) {
   );
   const u = rows?.[0] || {};
   const isHourly = u.is_hourly_worker === 1 || u.is_hourly_worker === true || u.is_hourly_worker === '1';
-  const isSupervisor =
-    u.has_supervisor_privileges === 1
-    || u.has_supervisor_privileges === true
-    || u.has_supervisor_privileges === '1'
-    || String(u.role || '').toLowerCase() === 'supervisor';
+  const isSupervisor = await isClinicalSupervisorForAgency({ agencyId, userId });
   return { isHourly, isSupervisor, userRow: u };
 }
 
@@ -79,18 +76,19 @@ export const listMyIndirectServiceTypes = async (req, res, next) => {
   try {
     const agencyId = await resolveAgencyId(req);
     if (!(await assertAgencyMembership(req, res, agencyId))) return;
-    const caps = await loadLogTimeCapabilities(req.user.id);
+    const caps = await loadLogTimeCapabilities(req.user.id, agencyId);
     caps.allowIndirectService = isJacquelyneTimeUser(agencyId, req.user.id);
     const types = await PayrollUserIndirectServiceAssignment.listMergedTypesForUser({
       agencyId,
       userId: req.user.id,
       activeOnly: true,
-      // Manual note-review access is standard for supervisors until tracked
+      // Manual note-review access is standard for clinical supervisors until tracked
       // note-signing claims replace manual submission. Other duties stay restricted.
       ensureSupervisorNote: caps.isSupervisor
     });
     // Meeting attendance creates these claims; retain the type for historical reporting only.
-    const manualTypes = types.filter(t => String(t.typeKey || t.type_key || '').trim().toLowerCase() !== 'supervisors_meeting');
+    const manualTypes = types.filter(t => String(t.typeKey || t.type_key || '').trim().toLowerCase() !== 'supervisors_meeting'
+      && (normalizePayBucket(t.payBucket || t.pay_bucket) !== 'supervision_note' || caps.isSupervisor));
     const filtered = isAdminRole(req.user?.role)
       ? manualTypes
       : filterServiceTypesForUser(manualTypes, caps);
@@ -303,7 +301,7 @@ export const getUsersAssignedToType = async (req, res, next) => {
          FROM users u
          JOIN user_agencies ua ON ua.user_id = u.id
          WHERE ua.agency_id = ?
-           AND ${supCondition}
+           AND ${bucketIsSupervision ? `EXISTS (SELECT 1 FROM supervisor_assignments sa WHERE sa.supervisor_id=u.id AND sa.agency_id=ua.agency_id AND sa.supervisor_type='clinical')` : supCondition}
            AND (u.is_archived = FALSE OR u.is_archived IS NULL)
          ORDER BY u.last_name ASC, u.first_name ASC`,
         [agencyId]
