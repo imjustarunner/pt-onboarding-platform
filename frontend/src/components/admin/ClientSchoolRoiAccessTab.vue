@@ -51,18 +51,25 @@
 
     <div v-if="guardianEmails.some(g => g.enrollment_status === 'pending' || g.enrollment_status === 'expired')" class="warning-card"><strong>Guardian enrollment follow-up</strong><p v-for="guardian in guardianEmails.filter(g => ['pending','expired'].includes(g.enrollment_status))" :key="guardian.guardian_user_id">{{ [guardian.first_name,guardian.last_name].filter(Boolean).join(' ') || guardian.email }}: {{ guardian.enrollment_status === 'expired' ? 'enrollment invitation expired' : 'own enrollment and signatures pending' }}.</p><p>Signed permissions remain in effect while another guardian responds. An explicit denial from either guardian limits clinical sharing.</p></div>
 
-    <div v-if="paperPacketVisionApplied" class="success-card paper-packet-vision-notice">
+    <section v-if="paperPacketReviewRequired" class="warning-card paper-packet-review" aria-label="Paper packet review required">
+      <strong>Review the uploaded paper packet before granting staff access.</strong>
+      <p>The upload is on file, but its signatures, version and staff choices must be confirmed together. Open the packet review below; a signed page or an OCR match alone does not complete this review.</p>
+      <button v-if="!paperWorkflowOpen" type="button" class="btn btn-primary" @click="paperWorkflowOpen = true">Process paper packet</button>
+      <SchoolPaperPacketWorkflow v-else :key="client.id" :client-id="client.id" @close="paperWorkflowOpen = false" @processed="onPaperProcessed" />
+    </section>
+
+    <div v-if="paperPacketVisionApplied && !paperPacketReviewRequired" class="success-card paper-packet-vision-notice">
       <strong>Packet Vision matched {{ paperPacketVisionLabel }}.</strong>
       Disclosure confirmed from this version; school staff ROI was auto-applied (DENY left inactive).
     </div>
 
-    <div v-if="paperPacketVisionNeedsReview" class="warning-card paper-packet-staff-notice">
+    <div v-if="paperPacketVisionNeedsReview && !paperPacketReviewRequired" class="warning-card paper-packet-staff-notice">
       <strong>Packet Vision needs review.</strong>
       {{ paperPacketVisionReviewSummary }}
       Set staff ROI below to match the signed packet, then clear pending when done.
     </div>
 
-    <div v-else-if="paperPacketStaffRoiPending" class="warning-card paper-packet-staff-notice">
+    <div v-else-if="paperPacketStaffRoiPending && !paperPacketReviewRequired" class="warning-card paper-packet-staff-notice">
       <strong>Paper packet uploaded.</strong>
       Set each school staff member’s ROI access below to match the signed paper packet (who may receive coordination vs. documents).
       Schedulers use scheduling-only portal access until configured here.
@@ -298,7 +305,8 @@
                 v-for="opt in roiSelectOptions"
                 :key="`bulk-${opt.value}`"
                 :value="opt.value"
-                :title="opt.hover"
+                :title="paperPacketReviewRequired && !['none', 'packet'].includes(opt.value) ? 'Complete the paper packet review first' : opt.hover"
+                      :disabled="paperPacketReviewRequired && !['none', 'packet'].includes(opt.value)"
               >
                 {{ opt.label }}
               </option>
@@ -370,7 +378,8 @@
                       v-for="opt in roiSelectOptions"
                       :key="opt.value"
                       :value="opt.value"
-                      :title="opt.hover"
+                      :title="paperPacketReviewRequired && !['none', 'packet'].includes(opt.value) ? 'Complete the paper packet review first' : opt.hover"
+                      :disabled="paperPacketReviewRequired && !['none', 'packet'].includes(opt.value)"
                     >
                       {{ opt.label }}
                     </option>
@@ -395,7 +404,8 @@
 
 <script setup>
 import { formatAuditTimestamp } from '../../utils/formatDate.js';
-import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, defineAsyncComponent, onBeforeUnmount, ref, watch } from 'vue';
+const SchoolPaperPacketWorkflow = defineAsyncComponent(() => import('../clients/SchoolPaperPacketWorkflow.vue'));
 import api from '../../services/api';
 import { buildPublicIntakeShortUrl, buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 import {
@@ -422,6 +432,8 @@ const roiExpiresAt = ref(null);
 const enrollmentPacketReview = ref(null);
 const roiExpired = ref(false);
 const paperPacketStaffRoiPending = ref(false);
+const paperPacketReviewRequired = ref(false), paperWorkflowOpen = ref(false);
+async function onPaperProcessed() { paperWorkflowOpen.value = false; bulkError.value = ''; await load(); emit('updated', { keepOpen: true }); }
 const paperPacketVision = ref(null);
 const schoolName = ref('');
 
@@ -678,6 +690,7 @@ async function viewSignedRoi(doc) {
 }
 
 let loadVersion = 0;
+watch(() => props.client?.id, () => { paperWorkflowOpen.value = false; paperPacketReviewRequired.value = false; });
 const load = async () => {
   const version = ++loadVersion;
   completedDocuments.value = [];
@@ -708,6 +721,7 @@ const load = async () => {
     enrollmentPacketReview.value = null;
     roiExpired.value = false;
     paperPacketStaffRoiPending.value = false;
+    paperPacketReviewRequired.value = false; paperWorkflowOpen.value = false;
     paperPacketVision.value = null;
     return;
   }
@@ -735,6 +749,7 @@ const load = async () => {
     roiExpiryDraft.value = normalizeDateInputValue(payload.roi_expires_at || null);
     roiExpired.value = payload.roi_expired !== false;
     paperPacketStaffRoiPending.value = payload.paper_packet_staff_roi_pending === true;
+    paperPacketReviewRequired.value = payload.paper_packet_review_required === true;
     paperPacketVision.value = payload.paper_packet_vision || null;
     schoolName.value = payload.school_name || props.client?.organization_name || '—';
     draftStates.value = rows.value.reduce((acc, row) => {
@@ -823,6 +838,7 @@ const saveRow = async (row) => {
     await api.put(`/clients/${clientId}/school-roi-access/${schoolStaffUserId}`, { nextState });
     emit('updated', { keepOpen: true });
   } catch (err) {
+    if (err.response?.data?.error?.code === 'PAPER_PACKET_REVIEW_REQUIRED') paperPacketReviewRequired.value = true;
     error.value = err.response?.data?.error?.message || 'Failed to update school ROI access';
   } finally {
     savingUserId.value = null;
@@ -849,6 +865,7 @@ const saveAllDirty = async () => {
       const nextState = normalizeState(draftStates.value[uid]);
       await api.put(`/clients/${clientId}/school-roi-access/${uid}`, { nextState });
     } catch (err) {
+      if (err.response?.data?.error?.code === 'PAPER_PACKET_REVIEW_REQUIRED') paperPacketReviewRequired.value = true;
       errors.push(`${displayName(row)}: ${err.response?.data?.error?.message || err.message}`);
     }
   }

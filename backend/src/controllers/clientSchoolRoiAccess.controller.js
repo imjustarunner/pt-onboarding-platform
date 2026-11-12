@@ -514,6 +514,7 @@ export const listClientSchoolRoiAccess = async (req, res, next) => {
       default_guardian_email: guardianEmails.find((guardian) => guardian.access_enabled)?.email || guardianEmails[0]?.email || null,
       roi_expires_at: client.roi_expires_at || null,
       roi_expired: isRoiExpired(client.roi_expires_at),
+      paper_packet_review_required: paperStaffGrantNeedsProcessing(client),
       paper_packet_staff_roi_pending: client.paper_packet_staff_roi_pending === 1
         || client.paper_packet_staff_roi_pending === true,
       paper_packet_vision: paperPacketVision
@@ -573,7 +574,7 @@ export const updateClientSchoolRoiAccess = async (req, res, next) => {
     }
 
     if(nextState!=='packet'&&paperStaffGrantNeedsProcessing(client)){
-      return res.status(409).json({error:{message:'Review this uploaded packet in Process paper packet before applying staff permissions. Its signatures, version and staff choices must be confirmed together.'}});
+      return res.status(409).json({error:{code:'PAPER_PACKET_REVIEW_REQUIRED',action:'process_paper_packet',message:'Review this uploaded packet in Process paper packet before applying staff permissions. Its signatures, version and staff choices must be confirmed together.'}});
     }
 
     const schoolStaffUser = await User.findById(schoolStaffUserId);

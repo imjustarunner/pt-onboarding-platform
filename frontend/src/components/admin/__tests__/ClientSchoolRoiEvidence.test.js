@@ -31,3 +31,21 @@ it('retains initial signing for a client with no signed ROI', async () => {
   api.get.mockResolvedValue({ data: payload(4, false) });wrapper = mount(View, { props: { client: { id: 4 } } });await flushPromises();
   expect(wrapper.text()).toContain('Start Signing Session');expect(wrapper.text()).not.toContain('View signed ROI');
 });
+
+it('opens source-bound paper review instead of offering staff grants that the server will reject', async () => {
+  const staff=[{school_staff_user_id:9,first_name:'School',last_name:'Staff',access_level:'packet',effective_access_state:'packet'}];
+  api.get.mockResolvedValue({data:{...payload(4,false),staff,paper_packet_review_required:true,paper_packet_staff_roi_pending:true,paper_packet_vision:{status:'applied'}}});
+  wrapper=mount(View,{props:{client:{id:4}},global:{stubs:{SchoolPaperPacketWorkflow:{props:['clientId'],template:'<button class="finish-review" @click="$emit(\'processed\')">Review fixture</button>'}}}});await flushPromises();
+  expect(wrapper.text()).toContain('Review the uploaded paper packet before granting staff access');
+  expect(wrapper.text()).not.toContain('school staff ROI was auto-applied');
+  const staffSelect=wrapper.get('tbody select');
+  expect(staffSelect.get('option[value="roi"]').element.disabled).toBe(true);
+  expect(staffSelect.get('option[value="packet"]').element.disabled).toBe(false);
+  await wrapper.findAll('button').find(b=>b.text()==='Process paper packet').trigger('click');await flushPromises();
+  expect(wrapper.findComponent({name:'SchoolPaperPacketWorkflow'}).exists() || wrapper.find('.finish-review').exists()).toBe(true);
+  expect(api.put).not.toHaveBeenCalled();expect(api.post).not.toHaveBeenCalled();
+  api.get.mockResolvedValue({data:{...payload(4),staff,paper_packet_review_required:false}});
+  await wrapper.get('.finish-review').trigger('click');await flushPromises();
+  expect(wrapper.find('.paper-packet-review').exists()).toBe(false);
+  expect(wrapper.get('tbody select option[value="roi"]').element.disabled).toBe(false);
+});
