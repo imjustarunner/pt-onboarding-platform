@@ -18,12 +18,15 @@ vi.mock('../../../components/legal/ServiceUseNotice.vue',()=>({default:{template
 let wrapper;
 beforeEach(()=>{vi.clearAllMocks();localStorage.clear();setActivePinia(createPinia());m.auth=reactive({isAuthenticated:true,user:{id:1465,role:'school_staff'},clearAuth:vi.fn()});m.agency=reactive({userAgencies:[{id:451,organization_type:'school'}]});m.route=reactive({name:'SchoolCareBridgeSchool',path:'/schoolcarebridge/app/cedar-grove-qa',params:{organizationSlug:'cedar-grove-qa'},query:{clientId:'2535',tab:'records'}});m.get.mockImplementation(async url=>({data:url.includes('/schools/')?{school:{id:451,name:'Fictional Cedar Grove'}}:{}}));});
 afterEach(()=>wrapper?.unmount());
-const render=async()=>{wrapper=mount(SchoolCareBridgeEntryView,{global:{stubs:{RouterLink:{template:'<a><slot /></a>'}}}});await flushPromises();};
+const settleWorkspace=async()=>{await flushPromises();await vi.dynamicImportSettled();await flushPromises();};
+// The dashboard is a lazy component; a single promise flush can precede its
+// first module transform on a busy CI worker.
+const render=async()=>{wrapper=mount(SchoolCareBridgeEntryView,{global:{stubs:{RouterLink:{template:'<a><slot /></a>'}}}});await settleWorkspace();};
 it('recovers the exact school after a blocked load only on verified session resume',async()=>{
  m.get.mockImplementation(async url=>{if(url.includes('/access/'))throw{response:{status:423,data:{error:{code:'SESSION_LOCKED',message:'Unlock your session to continue.'}}}};return{data:{school:{id:451,name:'Fictional Cedar Grove'}}};});
  await render();expect(wrapper.text()).toContain('Your session is paused');expect(wrapper.text()).not.toContain('Opening your portal');expect(m.auth.clearAuth).not.toHaveBeenCalled();expect(wrapper.find('[data-school-workspace]').exists()).toBe(false);
  m.get.mockImplementation(async url=>({data:url.includes('/schools/')?{school:{id:451,name:'Fictional Cedar Grove'}}:{}}));
- window.dispatchEvent(new Event('pt:session-resumed'));await flushPromises();expect(wrapper.find('[data-school-workspace]').exists()).toBe(true);expect(m.route.query).toEqual({clientId:'2535',tab:'records'});expect(m.get).toHaveBeenCalledWith('/schoolcarebridge/access/cedar-grove-qa',expect.objectContaining({skipAuthRedirect:true,timeout:15000}));
+ window.dispatchEvent(new Event('pt:session-resumed'));await settleWorkspace();expect(wrapper.find('[data-school-workspace]').exists()).toBe(true);expect(m.route.query).toEqual({clientId:'2535',tab:'records'});expect(m.get).toHaveBeenCalledWith('/schoolcarebridge/access/cedar-grove-qa',expect.objectContaining({skipAuthRedirect:true,timeout:15000}));
 });
 it('covers an already open school on a server lock and does not re-read protected data before resume',async()=>{
  await render();expect(wrapper.find('[data-school-workspace]').exists()).toBe(true);m.get.mockClear();window.dispatchEvent(new CustomEvent('pt:session-security',{detail:{error:{code:'SESSION_LOCKED'}}}));await flushPromises();expect(wrapper.text()).toContain('Your session is paused');expect(wrapper.find('[data-school-workspace]').isVisible()).toBe(false);expect(m.get).not.toHaveBeenCalled();
