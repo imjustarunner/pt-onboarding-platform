@@ -1,3 +1,4 @@
+import PayrollRate from '../models/PayrollRate.model.js';
 import { classifyPayType } from './payrollCodeClassification.js';
 export { classifyPayType } from './payrollCodeClassification.js';
 import {roleCompensationRate} from './roleCompensationRate.js';
@@ -229,12 +230,13 @@ export function assertUnpaidProBonoBreakdown(breakdown) {
 
 export function computeLineAmount({ rateProfile, status, serviceCode, quantity, rule = null }) {
   const code = String(serviceCode || '').trim().toUpperCase();
+  const explicitlyUnpaid=(rateProfile?.unpaidServiceCodes || []).includes(code);
   // Agency overrides, clinical rates, and automatic allowances cannot pay Pro Bono.
-  if (isProBonoServiceCode(code)) return {
+  if (isProBonoServiceCode(code) || explicitlyUnpaid) return {
     serviceCode: code, payType: 'skip', units: Number(quantity) || 0,
     payDivisor: 1, creditValue: 0, payHours: 0, hourEquivalent: 0,
-    quantityLabel: `${Number(quantity) || 0} unpaid Pro Bono service(s)`,
-    rate: 0, rateLabel: 'pro_bono_unpaid', amount: 0,
+    quantityLabel: `${Number(quantity) || 0} unpaid service(s)`,
+    rate: 0, rateLabel: explicitlyUnpaid?'explicit_unpaid_code':'pro_bono_unpaid', amount: 0,
     autoIndirectHours: 0, autoIndirectAmount: 0, autoIndirectRate: 0,
     hcodeDirectAmount: 0, hcodeGrossAmount: 0, totalWithAutoIndirect: 0,
     hcodeFallbackToCredit: false, fixedSupplementalRate: false, splitNote: null
@@ -620,6 +622,7 @@ export function estimatePay({ rateProfile, status, lines = [], rulesByCode = new
  * Load everything needed to pay a user under the new system.
  */
 export async function loadUserPaySystemContext({
+  perCodeRates = null,
   agencyId,
   userId,
   periodStart = null,
@@ -725,6 +728,9 @@ export async function loadUserPaySystemContext({
     status.agreementLegacyAssignment = legacyAssignment;
     status.agreementStatusArgs = statusArgs;
   }
+
+  const userRates=perCodeRates || await PayrollRate.listForUser(agencyId,userId);
+  rateProfile={...rateProfile,unpaidServiceCodes:(userRates || []).filter(r=>Number(r.pay_system_excluded)===1).map(r=>String(r.service_code || '').trim().toUpperCase())};
 
   return {
     enabled: true,
@@ -913,8 +919,8 @@ export function applyPaySystemToBreakdown({
 }) {
   // Clear legacy/imported values before historical/percentage-pay bypasses.
   for (const [key, row] of Object.entries(breakdown || {})) {
-    if (!row || typeof row !== 'object' || key.startsWith('__') || !isProBonoServiceCode(canonicalServiceCode(key, row))) continue;
-    Object.assign(row, {amount: 0, rateAmount: 0, rateSource: 'pro_bono_unpaid', payMethod: 'fixed_rate', payPercent: null,
+    if (!row || typeof row !== 'object' || key.startsWith('__') || (!isProBonoServiceCode(canonicalServiceCode(key, row)) && !row.explicitUnpaid && !(rateProfile?.unpaidServiceCodes || []).includes(canonicalServiceCode(key,row)))) continue;
+    Object.assign(row, {amount: 0, rateAmount: 0, rateSource: isProBonoServiceCode(canonicalServiceCode(key,row))?'pro_bono_unpaid':'explicit_unpaid_code', explicitUnpaid:!isProBonoServiceCode(canonicalServiceCode(key,row)), payMethod: 'fixed_rate', payPercent: null,
       hours: 0, creditsHours: 0, payHours: 0, hourEquivalent: 0, creditValue: 0,
       hcodeGrossAmount: 0, directAmount: 0, embeddedIndirectAmount: 0, paySystemSplitNote: null,
       autoIndirectHours: 0, autoIndirectAmount: 0, paySystemBucket: 'skip', payType: 'skip'});

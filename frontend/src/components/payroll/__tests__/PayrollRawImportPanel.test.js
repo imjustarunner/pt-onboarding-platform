@@ -1,10 +1,13 @@
+import {createPinia,setActivePinia} from 'pinia';
 // @vitest-environment jsdom
 import { beforeEach, expect, it, vi } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 import Panel from '../PayrollRawImportPanel.vue';
 import { rawReviewState } from '../../../utils/payrollRawReview';
 
-const api = vi.hoisted(() => ({ get: vi.fn(), patch: vi.fn() }));
+const auth=vi.hoisted(()=>({user:null}));
+vi.mock('../../../store/auth',()=>({useAuthStore:()=>auth}));
+const api = vi.hoisted(() => ({ get: vi.fn(), patch: vi.fn(), post: vi.fn() }));
 vi.mock('../../../services/api', () => ({ default: api }));
 const draft = (id, extra = {}) => ({ id, provider_name: 'Test Employee', note_status: 'DRAFT', draft_payable: 1, service_code: 'H0004', service_date: '2026-10-21', unit_count: 4, ...extra });
 const audit = (rows, extra = {}) => ({ data: { imports: [{ id: 15, slot_number: 2, draft_review_allowed: true }], selectedImportId: 15, rows, ...extra } });
@@ -12,9 +15,10 @@ const mountPanel = (props = {}) => mount(Panel, { props: { periodId: 11, guided:
 const latest = wrapper => wrapper.emitted('review-state').at(-1)[0];
 
 beforeEach(() => {
-  vi.clearAllMocks();
+  vi.resetAllMocks();setActivePinia(createPinia());auth.user=null;
   api.get.mockImplementation(url => Promise.resolve(url.endsWith('/raw-audit') ? audit([]) : { data: { missedAppointmentsPaidInFull: [] } }));
   api.patch.mockResolvedValue({ data: { ok: true } });
+  api.post.mockImplementation(async(_url,body)=>({data:{ok:true,rows:body.decisions.map(r=>({id:r.id,draft_payable:body.draftPayable?1:0,draft_reviewed:true}))}}));
 });
 
 it('counts only unreviewed drafts, excluding no-notes, reviewed decisions and previously paid sessions', () => {
@@ -138,25 +142,25 @@ it('selects matching drafts, lets payroll exclude an exception, and saves opposi
  await w.findAll('button').find(b=>b.text()==='Select all matching drafts').trigger('click');
  await w.get('input[aria-label="Select draft 2 for Test Employee"]').setValue(false);
  await w.findAll('button').find(b=>b.text()==='Mark selected payable').trigger('click');await flushPromises();
- expect(api.patch.mock.calls.map(([url])=>url)).toEqual(['/payroll/import-rows/1','/payroll/import-rows/3']);
+ expect(api.post).toHaveBeenCalledTimes(1);expect(api.post.mock.calls[0][1].decisions.map(r=>r.id)).toEqual([1,3]);
  expect(latest(w).pendingCount).toBe(1);
  await w.get('input[aria-label="Select draft 2 for Test Employee"]').setValue(true);
  await w.findAll('button').find(b=>b.text()==='Keep selected unpaid').trigger('click');await flushPromises();
- expect(api.patch).toHaveBeenLastCalledWith('/payroll/import-rows/2',{draftPayable:false,draftReviewed:true});expect(latest(w).ready).toBe(true);w.unmount();
+ expect(api.post.mock.calls.at(-1)[1]).toMatchObject({draftPayable:false,decisions:[{id:2,expectedDraftPayable:1}]});expect(latest(w).ready).toBe(true);w.unmount();
 });
-it('selects only matching eligible drafts and preserves failed and unselected rows after a partial save',async()=>{
- api.get.mockImplementation(url=>Promise.resolve(url.endsWith('/raw-audit')?audit([draft(1),draft(2),draft(3,{provider_name:'Another Provider'}),draft(4,{already_paid_in_baseline:1})]):{data:{}}));
- const w=mountPanel();await flushPromises();await w.get('input[type=text]').setValue('Test Employee');
- await w.get('input[aria-label="Select all matching drafts"]').setValue(true);
- api.patch.mockResolvedValueOnce({data:{ok:true}}).mockRejectedValueOnce(new Error('Save failed'));
+it('keeps the entire selection when an atomic batch fails and retries it once',async()=>{
+ api.get.mockImplementation(url=>Promise.resolve(url.endsWith('/raw-audit')?audit([draft(1),draft(2),draft(3,{provider_name:'Another Provider'})]):{data:{}}));
+ const w=mountPanel();await flushPromises();await w.get('input[type=text]').setValue('Test Employee');await w.get('input[aria-label="Select all matching drafts"]').setValue(true);
+ api.post.mockRejectedValueOnce(new Error('Save failed'));
  await w.findAll('button').find(b=>b.text()==='Mark selected payable').trigger('click');await flushPromises();
- expect(api.patch).toHaveBeenCalledTimes(2);expect(w.get('[role=alert]').text()).toContain('1 of 2 decisions saved');expect(latest(w).pendingCount).toBe(2);expect(w.get('input[aria-label="Select draft 2 for Test Employee"]').element.checked).toBe(true);await w.findAll('button').find(b=>b.text()==='Mark selected payable').trigger('click');await flushPromises();expect(latest(w).pendingCount).toBe(1);w.unmount();
+ expect(api.post).toHaveBeenCalledTimes(1);expect(w.get('[role=alert]').text()).toContain('Save failed');expect(latest(w).pendingCount).toBe(3);expect(w.get('input[aria-label="Select draft 2 for Test Employee"]').element.checked).toBe(true);
+ await w.findAll('button').find(b=>b.text()==='Mark selected payable').trigger('click');await flushPromises();expect(latest(w).pendingCount).toBe(1);w.unmount();
 });
 it('allows payroll to revisit saved catch-up decisions and keep a reviewed draft unpaid',async()=>{
  api.get.mockImplementation(url=>Promise.resolve(url.endsWith('/raw-audit')?audit([draft(1,{draft_reviewed:true,draft_payable:1})]):{data:{}}));
  const w=mountPanel();await flushPromises();await w.findAll('button').find(b=>b.text()==='Review saved draft decisions').trigger('click');
  await w.get('input[aria-label="Select all matching drafts"]').setValue(true);await w.findAll('button').find(b=>b.text()==='Keep selected unpaid').trigger('click');await flushPromises();
- expect(api.patch).toHaveBeenCalledWith('/payroll/import-rows/1',{draftPayable:false,draftReviewed:true});w.unmount();
+ expect(api.post.mock.calls.at(-1)[1]).toMatchObject({draftPayable:false,decisions:[{id:1,expectedDraftPayable:1}]});w.unmount();
 });
 
 const processRow=(id,provider,date,extra={})=>draft(id,{provider_name:provider,service_date:date,service_code:'H0031',requires_processing:1,unit_count:60,note_status:'FINALIZED',...extra});
@@ -186,4 +190,18 @@ it('discards failed local minute drafts on an explicit fresh read',async()=>{
 
 it('does not let a normalized no-op draft mask the canonical units returned by a later save',async()=>{
  api.get.mockImplementation(url=>Promise.resolve(url.endsWith('/raw-audit')?audit([processRow(1,'Employee','2026-11-05')]):{data:{}}));const w=mountPanel({initialMode:'process_h0031',guided:false});await flushPromises();await w.get('input.rip-num').setValue('60.2');expect(api.patch).not.toHaveBeenCalled();expect(w.get('input.rip-num').element.value).toBe('60');api.patch.mockResolvedValue({data:{ok:true,row:{id:1,unit_count:23,processed_at:'2026-11-11T20:00:00Z'}}});await w.findAll('button').find(b=>b.text()==='Mark done').trigger('click');await flushPromises();expect(w.get('input.rip-num').element.value).toBe('23');w.unmount();
+});
+
+it('saves 299 drafts in one request and removes a deselected clinical supervisor from a prior selection',async()=>{
+ const drafts=Array.from({length:299},(_,i)=>draft(i+1,{supervisors:[{id:i===0?10:20,name:i===0?'Excluded Supervisor':'Included Supervisor'}]}));
+ api.get.mockImplementation(url=>Promise.resolve(url.endsWith('/raw-audit')?audit(drafts):{data:{}}));const w=mountPanel();await flushPromises();
+ await w.findAll('button').find(b=>b.text()==='Select all matching drafts').trigger('click');
+ await w.get('input[aria-label="Include Excluded Supervisor"]').setValue(false);
+ await w.findAll('button').find(b=>b.text()==='Mark selected payable').trigger('click');await flushPromises();
+ expect(api.post).toHaveBeenCalledTimes(1);expect(api.post.mock.calls[0][1].decisions).toHaveLength(298);expect(api.post.mock.calls[0][1].decisions.some(r=>r.id===1)).toBe(false);expect(api.patch).not.toHaveBeenCalled();expect(latest(w).pendingCount).toBe(1);
+ await w.get('input[aria-label="Include Excluded Supervisor"]').setValue(true);await w.get('input[aria-label="Select all matching drafts"]').setValue(true);await w.findAll('button').find(b=>b.text()==='Keep selected unpaid').trigger('click');await flushPromises();expect(latest(w).ready).toBe(true);w.unmount();
+});
+
+it('asks Katie before reopening completed decisions and leaves the audit completed if she cancels',async()=>{
+ auth.user={first_name:'Katie',last_name:"O'Connell"};api.get.mockImplementation(url=>Promise.resolve(url.endsWith('/raw-audit')?audit([draft(1,{draft_reviewed:true})]):{data:{}}));const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);const w=mountPanel();await flushPromises();await w.findAll('button').find(b=>b.text()==='Review saved draft decisions').trigger('click');expect(confirm).toHaveBeenCalledWith('Katie, are you absolutely certain you have to review this? Trust the process. There are other things to focus on today!');expect(w.find('.test-empty').exists()).toBe(true);expect(latest(w).ready).toBe(true);confirm.mockReturnValue(true);await w.findAll('button').find(b=>b.text()==='Review saved draft decisions').trigger('click');expect(w.find('[data-row-id="1"]').exists()).toBe(true);expect(api.post).not.toHaveBeenCalled();confirm.mockRestore();w.unmount();
 });

@@ -23,7 +23,7 @@
         <button
           type="button"
           class="btn btn-primary"
-          :disabled="loading || sendingAll || !providersWithContent.length"
+          :disabled="loading || sendingAll || !!sendingUserId || !providersWithContent.length"
           @click="sendAll"
         >
           {{ sendingAll ? 'Sending…' : 'Send all with remaining items' }}
@@ -75,10 +75,10 @@
             <button
               type="button"
               class="btn btn-primary btn-sm"
-              :disabled="sendingUserId === p.userId || !providerHasSendable(p)"
+              :disabled="sendingAll || !!sendingUserId || !providerHasSendable(p)"
               @click="sendOne(p)"
             >
-              {{ sendingUserId === p.userId ? 'Sending…' : 'Send email' }}
+              {{ sendingUserId === p.userId ? 'Sending…' : deliveryLabel(p) }}
             </button>
           </div>
         </header>
@@ -280,7 +280,11 @@ const filteredProviders = computed(() => {
   });
 });
 
+function deliveryLabel(p) {
+  return ({sent:'Sent email',sending:'Sending…',pending_approval:'Awaiting approval',delivery_unknown:'Delivery unconfirmed',blocked:'Email blocked',redirected:'Email redirected'})[p.emailDelivery?.status] || 'Send email';
+}
 function providerHasSendable(p) {
+  if(p.emailDelivery?.status && p.emailDelivery.status!=='not_sent')return false;
   if (showLateNotes.value) {
     for (const g of p.lateNotesByPeriod || []) {
       for (const r of g.rows || []) {
@@ -350,8 +354,10 @@ async function sendOne(p) {
   sendingUserId.value = p.userId;
   error.value = '';
   try {
-    await api.post(`/payroll/periods/${props.periodId}/compliance-send`, payloadFor(p));
+    const {data}=await api.post(`/payroll/periods/${props.periodId}/compliance-send`, payloadFor(p));
+    p.emailDelivery=data.delivery || {status:'delivery_unknown'};
   } catch (e) {
+    p.emailDelivery={status:'delivery_unknown'};
     error.value = e?.response?.data?.error?.message || e?.message || 'Send failed';
   } finally {
     sendingUserId.value = null;
@@ -362,12 +368,18 @@ async function sendAll() {
   sendingAll.value = true;
   error.value = '';
   try {
-    await api.post(`/payroll/periods/${props.periodId}/compliance-send-all`, {
+    const {data}=await api.post(`/payroll/periods/${props.periodId}/compliance-send-all`, {
       exclusionsByUser: exclusions.value,
       includeHistory: includeHistory.value,
       includeLateNotes: showLateNotes.value,
       includeSessionLimits: showSessionLimits.value
     });
+    for(const result of data.results || []) {
+      const p=providers.value.find(p=>Number(p.userId)===Number(result.userId));
+      if(p && result.delivery)p.emailDelivery=result.delivery;
+    }
+    const failures=(data.results || []).filter(r=>!r.ok && !r.skipped);
+    if(failures.length)error.value=`${failures.length} email(s) could not be confirmed. Refresh to check their status.`;
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Send all failed';
   } finally {

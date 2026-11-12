@@ -1,3 +1,5 @@
+import { saveSupervisionResolution } from '../services/payrollSupervisionResolution.service.js';
+import { savePayrollDraftBatch } from '../services/payrollDraftBatch.service.js';
 import { savePayrollImportProcessing } from '../services/payrollImportRowEdit.service.js';
 import { buildPayrollCorrectionReview, postPayrollCorrectionReduction, postPayrollCorrectionAdditionalPay, resolvePayrollCorrection } from '../services/payrollCorrectionReview.service.js';
 import { loadMileageBenefitTiers, resolveMileageBenefitTier } from '../services/mileageBenefitTier.service.js';
@@ -3666,6 +3668,15 @@ export const getPayrollPeriod = async (req, res, next) => {
   }
 };
 
+export const savePayrollDraftDecisions = async (req,res,next) => {
+  try {
+    const period=await PayrollPeriod.findById(Number(req.params.id));
+    if(!period)return res.status(404).json({error:{message:'Pay period not found'}});
+    if(!(await requirePayrollAccess(req,res,period.agency_id)))return;
+    res.json(await savePayrollDraftBatch({periodId:period.id,agencyId:period.agency_id,importId:Number(req.body?.importId),actorUserId:req.user.id,decisions:req.body?.decisions,draftPayable:req.body?.draftPayable,allowPostedDraftReview:req.body?.allowPostedDraftReview===true,annotateBaseline:annotateRowsAlreadyPaidInBaseline}));
+  }catch(error){if(error.status)return res.status(error.status).json({error:{message:error.message}});next(error);}
+};
+
 export const patchPayrollImportRow = async (req, res, next) => {
   try {
     const rowId = parseInt(req.params.rowId);
@@ -4467,6 +4478,9 @@ export const getPayrollReportSupervisionConflicts = async (req, res, next) => {
        JOIN supervision_sessions ss ON ss.id = ssar.session_id
        WHERE ss.agency_id = ?
          AND ssar.user_id IS NOT NULL
+         AND COALESCE(ssar.total_seconds,0)>0
+         AND COALESCE(UPPER(ss.status),'')<>'CANCELLED'
+         AND NOT (ss.supervisor_time_claim_id IS NOT NULL AND ssar.user_id=ss.supervisor_user_id)
          AND ss.start_at >= ?
          AND ss.start_at < DATE_ADD(?, INTERVAL 1 DAY)
          ${providerIds.length ? ` AND ssar.user_id IN (${providerIds.map(() => '?').join(',')})` : ''}
@@ -4585,32 +4599,9 @@ export const putPayrollSupervisionConflictResolution = async (req, res, next) =>
       return res.status(400).json({ error: { message: 'resolution must be use_app_attendance, use_legacy_import, ignore, or clear' } });
     }
 
-    if (resolution === 'clear') {
-      await pool.execute(
-        `DELETE FROM payroll_supervision_conflict_resolutions
-         WHERE payroll_period_id = ?
-           AND agency_id = ?
-           AND user_id = ?
-           AND service_date = ?`,
-        [payrollPeriodId, period.agency_id, userId, serviceDate]
-      );
-      return res.json({ ok: true, cleared: true });
-    }
-
-    await pool.execute(
-      `INSERT INTO payroll_supervision_conflict_resolutions
-         (payroll_period_id, agency_id, user_id, service_date, resolution, note, resolved_by_user_id, resolved_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
-       ON DUPLICATE KEY UPDATE
-         resolution = VALUES(resolution),
-         note = VALUES(note),
-         resolved_by_user_id = VALUES(resolved_by_user_id),
-         resolved_at = NOW()`,
-      [payrollPeriodId, period.agency_id, userId, serviceDate, resolution, note, req.user.id]
-    );
-
-    res.json({ ok: true });
+    res.json(await saveSupervisionResolution({periodId:payrollPeriodId,agencyId:period.agency_id,userId,serviceDate,resolution,note,actorUserId:req.user.id}));
   } catch (e) {
+    if(e.status)return res.status(e.status).json({error:{message:e.message}});
     if (e?.code === 'ER_NO_SUCH_TABLE') {
       return res.status(409).json({ error: { message: 'Conflict resolution table not found. Run DB migrations first.' } });
     }
@@ -5506,6 +5497,7 @@ export async function buildResolvedSupervisionUnitsByUserCode({
        SUM(COALESCE(pir.unit_count, 0)) AS units_total
      FROM payroll_import_rows pir
      WHERE pir.payroll_period_id = ?
+       AND pir.payroll_import_id=(SELECT pi.id FROM payroll_imports pi WHERE pi.payroll_period_id=pir.payroll_period_id AND pi.agency_id=pir.agency_id ORDER BY COALESCE(pi.slot_number,1) DESC,pi.created_at DESC,pi.id DESC LIMIT 1)
        AND pir.agency_id = ?
        AND pir.user_id IS NOT NULL
        AND UPPER(TRIM(pir.service_code)) IN (${supervisionCodes.map(() => '?').join(',')})
@@ -6382,9 +6374,11 @@ export async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId,
       // SALARY is paid only via the Salary card (payroll_salary_positions), not per-code rates.
       // Skip SALARY from session pay so the compensation-table SALARY cell is never used.
       if (codeKey === 'SALARY') continue;
+      const perCode = bestPerCodeRate(codeKey);
+      const explicitUnpaid=Number(perCode?.pay_system_excluded)===1;
       const rule = ruleByCode.get(codeKey) || null;
       const defaults = payrollDefaultsForCode(codeKey);
-      const isFlatAddon = classifyPayType(codeKey, rule) === 'flat';
+      const isFlatAddon = !explicitUnpaid && classifyPayType(codeKey, rule) === 'flat';
       if (isFlatAddon && (!Number.isSafeInteger(finalizedUnits) || finalizedUnits < 0)) throw new Error(`Review ${codeKey}: add-ons require whole eligible occurrences.`);
       const flatRateAmount = isFlatAddon ? Number(rule?.flat_rate_amount) : null;
       if (isFlatAddon && (rule?.flat_rate_amount == null || !Number.isFinite(flatRateAmount) || flatRateAmount < 0)) throw new Error(`Set a valid flat payment for ${codeKey} in Payroll settings.`);
@@ -6410,12 +6404,12 @@ export async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId,
       const d = Number.isFinite(payDivisor) ? Number(payDivisor) : 1;
       const safeDivisor = (!Number.isFinite(d) || d <= 0) ? 1 : d;
       const isProBono = isProBonoServiceCode(codeKey);
-      const safeCreditValue = (isFlatAddon || isProBono) ? 0 : (Number.isFinite(creditValue) ? creditValue : 0);
+      const safeCreditValue = (isFlatAddon || isProBono || explicitUnpaid) ? 0 : (Number.isFinite(creditValue) ? creditValue : 0);
 
       // Credits/Hours: minute-based rows use unit_count minutes and credit_value = 1/60.
       // Pay-hours: unit_count / pay_divisor (e.g. minutes / 60).
       const creditsHours = (finalizedUnits * safeCreditValue);
-      const payHours = (isFlatAddon || isProBono) ? 0 : (finalizedUnits / safeDivisor);
+      const payHours = (isFlatAddon || isProBono || explicitUnpaid) ? 0 : (finalizedUnits / safeDivisor);
 
       // 99414/99416: prelicensed tracking codes don't feed PTO (MEETING pays) but still display hours.
       const uidNum = Number(userId);
@@ -6453,7 +6447,6 @@ export async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId,
 
       let rateAmount = 0;
       let rateSource = 'none';
-      const perCode = bestPerCodeRate(codeKey);
       // Per-code rate unit is now driven by agency service-code rules (not per-user).
       // Backward compatible: if agency column doesn't exist yet, fall back to the stored per-code rate_unit.
       const rulePayUnitRaw = String(rule?.pay_rate_unit || '').trim().toLowerCase();
@@ -6467,8 +6460,8 @@ export async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId,
       if (isSupervisionMeetingCode(codeKey)) {
         perCodePayUnit = 'per_hour';
       }
-      if (isProBono) {
-        rateSource = 'pro_bono_unpaid'; rateAmount = 0;
+      if (isProBono || explicitUnpaid) {
+        rateSource = isProBono?'pro_bono_unpaid':'explicit_unpaid_code'; rateAmount = 0;
       } else if (isFlatAddon) {
         rateSource = 'agency_flat_addon';
         rateAmount = flatRateAmount;
@@ -6503,13 +6496,13 @@ export async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId,
         userPercentPayEnabled: rateCard?.percent_pay_enabled
       });
 
-      if (isFlatAddon || isProBono) { pctPay.usesPercentPay = false; pctPay.basis = null; }
+      if (isFlatAddon || isProBono || explicitUnpaid) { pctPay.usesPercentPay = false; pctPay.basis = null; }
       const billedPay = pctPay.basis === 'billed'
         ? await billedPayForStagingRow({ row, payrollPeriodId, agencyId, rates: ratesByCode.get(codeKey) || [] }) : null;
 
       // Always compute wage math on pay-hours for non-flat categories.
       const computeLineAmount = ({ units, payHours }) => {
-        if (isProBono) return 0;
+        if (isProBono || explicitUnpaid) return 0;
         if (isFlatAddon) return units * flatRateAmount;
         const isPrelicensedSupervisee = supervisionPrelicensedUserIds.has(Number(userId));
         // Prelicensed 99414/99416 tracking codes never pay (MEETING is the payable path).
@@ -6603,6 +6596,7 @@ export async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId,
         ...((isSupervisionTrackingRow || (['requirement_tracking','requirement_tracking_only'].includes(row.supervisionSource) && lineAmount===0))
           ? { supervisionTrackingHours: creditsHours, supervisionTrackingOnly: true } : {}),
         payHours,
+        ...(explicitUnpaid?{explicitUnpaid:true,paySystemBucket:'skip',unpaidReason:perCode.pay_system_exclusion_reason}:{}),
         rateSource
       };
     }
@@ -7237,6 +7231,7 @@ export async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId,
     // add auto-indirect for H-codes, and apply tier/Spanish bonuses.
     try {
       const payCtx = await loadUserPaySystemContext({
+        perCodeRates:userPerCodeRates,
         agencyId,
         userId,
         periodStart,
@@ -11925,6 +11920,13 @@ export const getPayrollPeriodRawAudit = async (req, res, next) => {
       ? await PayrollImportRowAudit.listDraftReviews({ payrollImportId: effectiveSelectedImportId, agencyId: period.agency_id })
       : [];
     const reviewedRows = annotateDraftReviews({ rows, audits: draftReviewAudits });
+    const [supervisorRows] = await pool.execute(`SELECT sa.supervisee_id,sa.supervisor_id,u.first_name,u.last_name
+      FROM supervisor_assignments sa JOIN users u ON u.id=sa.supervisor_id
+      WHERE sa.agency_id=? AND sa.supervisor_type='clinical'`,[period.agency_id]);
+    const supervisorsByUser=new Map();
+    for(const s of supervisorRows){const id=Number(s.supervisee_id);if(!supervisorsByUser.has(id))supervisorsByUser.set(id,[]);supervisorsByUser.get(id).push({id:Number(s.supervisor_id),name:`${s.first_name || ''} ${s.last_name || ''}`.trim()});}
+    for(const row of reviewedRows)row.supervisors=supervisorsByUser.get(Number(row.user_id)) || [];
+
     const changes = computeRawRunDiffRows({ baselineRows: baselineRowsRaw, compareRows: selectedRowsRaw });
 
     const runByImportId = new Map(
@@ -14157,6 +14159,9 @@ export const runPayrollPeriod = async (req, res, next) => {
              FROM supervision_session_attendance_rollups ssar
              JOIN supervision_sessions ss ON ss.id = ssar.session_id
              WHERE ss.agency_id = ?
+               AND COALESCE(ssar.total_seconds,0)>0
+               AND COALESCE(UPPER(ss.status),'')<>'CANCELLED'
+               AND NOT (ss.supervisor_time_claim_id IS NOT NULL AND ssar.user_id=ss.supervisor_user_id)
                AND ss.start_at >= ?
                AND ss.start_at < DATE_ADD(?, INTERVAL 1 DAY)
              GROUP BY ssar.user_id, DATE(ss.start_at)
@@ -14169,6 +14174,7 @@ export const runPayrollPeriod = async (req, res, next) => {
             AND r.user_id = pir.user_id
             AND r.service_date = DATE(pir.service_date)
            WHERE pir.payroll_period_id = ?
+             AND pir.payroll_import_id=(SELECT pi.id FROM payroll_imports pi WHERE pi.payroll_period_id=pir.payroll_period_id AND pi.agency_id=pir.agency_id ORDER BY COALESCE(pi.slot_number,1) DESC,pi.created_at DESC,pi.id DESC LIMIT 1)
              AND pir.agency_id = ?
              AND pir.user_id IS NOT NULL
              AND UPPER(TRIM(pir.service_code)) IN ('99414','99415','99416')
@@ -14191,6 +14197,9 @@ export const runPayrollPeriod = async (req, res, next) => {
              FROM supervision_session_attendance_rollups ssar
              JOIN supervision_sessions ss ON ss.id = ssar.session_id
              WHERE ss.agency_id = ?
+               AND COALESCE(ssar.total_seconds,0)>0
+               AND COALESCE(UPPER(ss.status),'')<>'CANCELLED'
+               AND NOT (ss.supervisor_time_claim_id IS NOT NULL AND ssar.user_id=ss.supervisor_user_id)
                AND ss.start_at >= ?
                AND ss.start_at < DATE_ADD(?, INTERVAL 1 DAY)
              GROUP BY ssar.user_id, DATE(ss.start_at)
@@ -14203,6 +14212,7 @@ export const runPayrollPeriod = async (req, res, next) => {
             AND r.user_id = pir.user_id
             AND r.service_date = DATE(pir.service_date)
            WHERE pir.payroll_period_id = ?
+             AND pir.payroll_import_id=(SELECT pi.id FROM payroll_imports pi WHERE pi.payroll_period_id=pir.payroll_period_id AND pi.agency_id=pir.agency_id ORDER BY COALESCE(pi.slot_number,1) DESC,pi.created_at DESC,pi.id DESC LIMIT 1)
              AND pir.agency_id = ?
              AND pir.user_id IS NOT NULL
              AND UPPER(TRIM(pir.service_code)) IN ('99414','99415','99416')

@@ -90,3 +90,14 @@ it('deselects all reminders for one provider, including hidden categories, witho
   expect(api.post.mock.calls.map(([url]) => url)).toEqual(['/payroll/periods/912/compliance-unlock-check']);
   wrapper.unmount();
 });
+
+it('shows Sent email after confirmed delivery, disables a second send and retains the status after reload',async()=>{
+ const provider={userId:1,name:'Test Provider',lateNotesByPeriod:[{rows:[{id:11,label:'Outstanding note'}]}],sessionLimits:[],emailDelivery:{status:'not_sent'}};
+ api.get.mockImplementation(async()=>({data:{unlocked:true,providers:[structuredClone(provider)]}}));api.post.mockImplementation(async url=>url.endsWith('/compliance-send')?{data:{delivery:{status:'sent',sentAt:'2026-11-12'}}}:{data:{unlocked:true}});
+ const w=mount(Compliance,{props:{agencyId:6,periodId:912}});await flushPromises();await button(w,'Send email').trigger('click');await flushPromises();expect(button(w,'Sent email').element.disabled).toBe(true);expect(api.post.mock.calls.filter(([url])=>url.endsWith('/compliance-send'))).toHaveLength(1);
+ provider.emailDelivery={status:'sent'};await w.vm.reload();await flushPromises();expect(button(w,'Sent email').element.disabled).toBe(true);w.unmount();
+});
+it('labels pending approval honestly and does not offer another send',async()=>{
+ api.get.mockResolvedValue({data:{unlocked:true,providers:[{userId:1,name:'Test Provider',lateNotesByPeriod:[{rows:[{id:11,label:'Note'}]}],sessionLimits:[],emailDelivery:{status:'pending_approval'}}]}});
+ const w=mount(Compliance,{props:{agencyId:6,periodId:912}});await flushPromises();expect(button(w,'Awaiting approval').element.disabled).toBe(true);expect(w.findAll('button').some(b=>b.text()==='Sent email')).toBe(false);w.unmount();
+});

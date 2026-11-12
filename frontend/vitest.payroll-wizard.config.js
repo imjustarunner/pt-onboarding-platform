@@ -10,6 +10,7 @@ export default defineConfig({ root: new URL('.', import.meta.url).pathname, plug
   'src/components/payroll/__tests__/PayrollProcessChangesPanel.test.js',
   'src/components/payroll/__tests__/PayrollRawImportPanel.test.js',
   'src/components/payroll/__tests__/PayrollStageCompliance.test.js',
+  'src/components/payroll/__tests__/PayrollSupervisionConflicts.test.js',
   'src/components/payroll/__tests__/PayrollWizardPanels.test.js',
   'src/services/__tests__/sharedReads.test.js',
   'src/utils/__tests__/payrollWizardFlow.test.js'

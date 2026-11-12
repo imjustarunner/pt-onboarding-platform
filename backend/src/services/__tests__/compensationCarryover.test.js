@@ -44,3 +44,7 @@ it('never turns unpaid supervision tracking into credit pay',()=>{
  const meta=applyPaySystemToBreakdown({breakdown,rateProfile:profile,status,datedUnitsByCode:new Map()});
  expect(breakdown['99414'].amount).toBe(0);expect(meta.servicePay).toBe(0);
 });
+
+it('does not ask for historical rates on explicitly unpaid tracking codes',()=>{
+ const args=inputs();args.breakdown={H0002:{units:40,oldDoneNotesUnits:40,explicitUnpaid:true,amount:0}};args.stagingRows=[];args.ratesByCode.clear();expect(()=>separateHistoricalCarryovers(args)).not.toThrow();expect(args.breakdown.H0002.amount).toBe(0);
+});

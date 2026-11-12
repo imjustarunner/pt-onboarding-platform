@@ -39,6 +39,7 @@ test('preview tolerates an unauthenticatable snapshot identity without losing ou
     { ...base, id: 602 }
   ]);
   t.mock.method(pool, 'execute', async (sql) => {
+    if (sql.includes('FROM payroll_compliance_deliveries')) return [[]];
     if (sql.includes('payroll_compliance_unlocked_at')) return [[{ payroll_compliance_unlocked_at: '2026-08-15' }]];
     if (sql.includes('FROM payroll_periods pp')) return [[period]];
     if (sql.includes('FROM payroll_period_runs r')) return [[{ id: 91 }]];
@@ -103,6 +104,7 @@ test('digest includes current and older missing notes with normalized dates and 
     ];
   });
   t.mock.method(pool, 'execute', async (sql, params) => {
+    if (sql.includes('FROM payroll_compliance_deliveries')) return [[]];
     if (sql.includes('payroll_compliance_unlocked_at')) return [[{ payroll_compliance_unlocked_at: '2026-08-15' }]];
     if (sql.includes('FROM payroll_period_runs r')) return [[]];
     if (sql.includes('FROM payroll_periods pp')) {
