@@ -16,6 +16,12 @@ it('keeps an explicit linked-ticket ID after its thread reference is removed',()
   const plan=noteworthyDeletionPlan(schema,17,{linkedTicketIds:[42]});
   expect(plan.order.map(p=>p.table.name)).toEqual(['noteworthy_contact_threads','support_tickets']);expect(plan.scopes.get('support_tickets').params).toEqual([17,42]);expect(plan.scopes.get('support_tickets').render('t')).not.toContain('FROM noteworthy_contact_threads');
 });
+it('includes legacy message filing and ticket read markers even without declared foreign keys',()=>{
+  const schema={tables:[table('communication_conversations',['id','agency_id']),table('communication_messages',['id','conversation_id']),table('communication_filing_checks',['message_id']),table('support_ticket_thread_reads',['school_organization_id','user_id'])],references:[]};
+  const plan=noteworthyDeletionPlan(schema,17);
+  expect(plan.order.map(p=>p.table.name).indexOf('communication_filing_checks')).toBeLessThan(plan.order.map(p=>p.table.name).indexOf('communication_messages'));
+  expect(plan.scopes.get('support_ticket_thread_reads').params).toEqual([17]);
+});
 it('fails closed on circular dependencies rather than disabling foreign-key protection',()=>{
   const schema={tables:[table('a',['id','agency_id']),table('b',['id','agency_id'])],references:[{child:'a',parent:'b',columns:['id'],parentColumns:['id']},{child:'b',parent:'a',columns:['id'],parentColumns:['id']}]};
   expect(()=>noteworthyDeletionPlan(schema,1)).toThrow('circular');

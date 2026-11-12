@@ -38,12 +38,14 @@ export function noteworthyDeletionPlan({tables,references},agencyId,{draftAgreem
     if(table.name.startsWith('support_ticket_')&&column.name==='ticket_id')parent='support_tickets';
     if(table.name.startsWith('communication_')&&column.name==='conversation_id')parent='communication_conversations';
     if(table.name==='communication_attachments'&&column.name==='message_id')parent='communication_messages';
+    if(table.name==='communication_filing_checks'&&column.name==='message_id')parent='communication_messages';
     if(parent&&byName.has(parent)&&!refs.some(r=>r.child===table.name&&r.columns.includes(column.name)))refs.push({child:table.name,parent,columns:[column.name],parentColumns:['id']});
   }
   const scopes=new Map();
   for(const table of tables){
     if(retained.has(table.name))continue;
     const agencyColumns=new Set(table.columns.filter(c=>c.name==='agency_id').map(c=>c.name));
+    if(table.name==='support_ticket_thread_reads'&&table.columns.some(c=>c.name==='school_organization_id'))agencyColumns.add('school_organization_id');
     for(const r of refs)if(r.child===table.name&&r.parent==='agencies'&&r.columns.length===1)agencyColumns.add(r.columns[0]);
     if(legal(table.name)){
       if(!draftAgreementIds.length)continue;
