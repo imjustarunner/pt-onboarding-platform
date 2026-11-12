@@ -617,6 +617,7 @@ const updateMinutes = (row,value) => {
   const next=Math.round(Number(value));
   if(!Number.isFinite(next) || next<=0){rowErrors.value={...rowErrors.value,[Number(row.id)]:'Enter a positive number of minutes before marking this row done.'};return;}
   if(next===Number(row.unit_count)){rowErrors.value={...rowErrors.value,[Number(row.id)]:''};failedChanges.delete(Number(row.id));return;}
+  minuteDrafts.value={...minuteDrafts.value,[Number(row.id)]:String(next)};
   queueProcessingSave(row,{unitCount:next});
 };
 const retryRow=row=>{const changes=failedChanges.get(Number(row.id));if(changes)queueProcessingSave(row,changes);};
