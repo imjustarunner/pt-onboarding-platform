@@ -27,7 +27,7 @@ function harness(overrides = {}) {
     }
   };
   const review = { getDeliveryReviewEvidence: async () => ({ composedBody: 'Original composed body', threadRevision: '11', sourceMessageId: '11' }), captureSentReview: async (input) => { state.snapshots.push(input); } };
-  return { row, state, dependencies: { database: db, review, syncInbox: async () => { state.synced += 1; } } };
+  return { row, state, dependencies: { database: db, review, notifySchoolReply: async () => {}, syncInbox: async () => { state.synced += 1; } } };
 }
 
 it('requires actual provider proof and rejects test redirects or pending approvals', () => {

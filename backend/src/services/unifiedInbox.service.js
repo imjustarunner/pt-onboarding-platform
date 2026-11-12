@@ -178,10 +178,31 @@ export async function listInboxes({ agencyId, userId, includeShared = true }) {
           routing: 'app_group_alias'
         },
     { id: 'assigned', kind: 'virtual', display_name: 'All Assigned to Me', from_email: null, identity_key: 'assigned' },
+    ...(shared.some(r => groupKeyForIdentity(r) === 'schools') ? [{ id: 'school_groups', kind: 'virtual', display_name: 'School groups', identity_key: 'school_groups' }] : []),
     ...(shared.some(r=>groupEmailIdentity(r,groupScope.managedGroups)) ? [{ id: 'group_email', kind: 'virtual', display_name: 'Group Email',
       identity_key: 'group_email', is_group_email: true, is_ticketed_group: true, ticketing_access: true }] : []),
     ...shared.map(mapped)
   ];
+}
+
+const inboxReconciliations = new Map();
+function requestInboxReconciliation(agencyId, channel) {
+  const key = Number(agencyId), previous = inboxReconciliations.get(key);
+  if (previous?.running || Date.now() - (previous?.finishedAt || 0) < 60000) return;
+  const state = { running: true, finishedAt: 0 };
+  inboxReconciliations.set(key, state);
+  void (async () => {
+    try {
+      await syncEmailTicketsToInbox({ agencyId: key, limit: 20 });
+      if (['all', 'sms', 'call', 'voicemail'].includes(String(channel || 'all'))) {
+        await syncSmsAndCallsToInbox({ agencyId: key, limit: 20 });
+      }
+    } catch (error) { console.warn('[unifiedInbox] background reconciliation:', error?.code || 'sync_failed'); }
+    finally {
+      state.running = false; state.finishedAt = Date.now();
+      for (const [id, entry] of inboxReconciliations) if (!entry.running && Date.now() - entry.finishedAt > 300000) inboxReconciliations.delete(id);
+    }
+  })();
 }
 
 export async function listConversations(opts) {
@@ -191,17 +212,9 @@ export async function listConversations(opts) {
   } catch (e) {
     console.warn('[unifiedInbox] wakeExpiredSnoozes:', e?.message || e);
   }
-  if (syncTickets && agencyId) {
-    await syncEmailTicketsToInbox({ agencyId, limit: 80 }).catch((e) => {
-      console.warn('[unifiedInbox] ticket sync failed:', e?.message || e);
-    });
-    const ch = String(channel || 'all');
-    if (ch === 'all' || ch === 'sms' || ch === 'call' || ch === 'voicemail') {
-      await syncSmsAndCallsToInbox({ agencyId, limit: 50 }).catch((e) => {
-        console.warn('[unifiedInbox] sms/call sync failed:', e?.message || e);
-      });
-    }
-  }
+  // Intake/reply handlers mirror their own changed ticket. Browsing must not
+  // serialize every reader behind an agency-wide reconciliation.
+  if (syncTickets && agencyId) requestInboxReconciliation(agencyId, channel);
   const scope = await loadGroupEmailInboxScope({ agencyId, userId });
   const rows = await CommunicationConversation.list({ ...opts, ...scope });
   return rows.map((row) => withGroupEmailMetadata(row, userId, scope.managedGroups));
@@ -237,7 +250,7 @@ export async function getConversationDetail(conversationId, { userId, markRead =
   ]);
   const messages=hydrated || storedMessages;
   conv = withGroupEmailMetadata(conv, userId, managedGroups);
-  if (markRead && userId && !conv.is_ticketed_group) {
+  if (markRead && userId) {
     await CommunicationConversation.markRead(conversationId, userId);
   }
   return { conversation: conv, messages, context, ticketThreadRevision, nextBeforeId: messages.length === 200 ? Math.min(...messages.map(m => Number(m.id))) : null };

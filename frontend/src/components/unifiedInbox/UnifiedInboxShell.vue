@@ -11,6 +11,7 @@ import UnifiedConversationList from './UnifiedConversationList.vue';
 import UnifiedConversationThread from './UnifiedConversationThread.vue';
 import UnifiedContextPanel from './UnifiedContextPanel.vue';
 import UnifiedComposeModal from './UnifiedComposeModal.vue';
+import { readUnifiedInboxCache, writeUnifiedInboxCache, clearUnifiedInboxCache } from '../../utils/unifiedInboxCache';
 import { isTicketedGroup } from '../../utils/groupEmailPresentation';
 import TicketDetailModal from '../tickets/TicketDetailModal.vue';
 
@@ -65,6 +66,30 @@ const mobileFiltersOpen = ref(false);
 const prefs = ref({ personalEmailNotify: false, digestHours: 48, lastInboxDigestAt: null });
 
 let draftTimer = null;
+const cacheKey = () => `${authStore.user?.id || ''}:${resolvedAgencyId.value || ''}`;
+const viewLists = new Map();
+let displayedListKey = null;
+let activeListRequest = null;
+let disposed = false;
+function saveSnapshot() {
+  if (!authStore.user?.id || !resolvedAgencyId.value) return;
+  writeUnifiedInboxCache(cacheKey(), { selectedInboxId: selectedInboxId.value, channel: channel.value,
+    listFilter: listFilter.value, searchQ: searchQ.value, searchFrom: searchFrom.value,
+    searchHasAttachment: searchHasAttachment.value, searchDateFrom: searchDateFrom.value, searchDateTo: searchDateTo.value,
+    inboxes: inboxes.value, attention: attention.value, conversations: conversations.value,
+    selectedId: selectedId.value, detail: detail.value, displayedListKey, lists: [...viewLists] });
+}
+function restoreSnapshot() {
+  const saved = readUnifiedInboxCache(cacheKey());
+  if (!saved) return;
+  selectedInboxId.value = saved.selectedInboxId; channel.value = saved.channel; listFilter.value = saved.listFilter;
+  searchQ.value = saved.searchQ; searchFrom.value = saved.searchFrom;
+  searchHasAttachment.value = saved.searchHasAttachment; searchDateFrom.value = saved.searchDateFrom; searchDateTo.value = saved.searchDateTo;
+  inboxes.value = saved.inboxes; attention.value = saved.attention; conversations.value = saved.conversations;
+  selectedId.value = saved.selectedId; detail.value = saved.detail; displayedListKey = saved.displayedListKey;
+  for (const [key, rows] of saved.lists || []) viewLists.set(key, rows);
+}
+restoreSnapshot();
 
 async function ensurePersonalMailbox() {
   if (!resolvedAgencyId.value) return;
@@ -136,41 +161,48 @@ async function refreshAll() {
 let listRequestId = 0;
 let detailRequestId = 0;
 async function loadConversations() {
+  if (!resolvedAgencyId.value || disposed) return;
+  const params = {
+    agencyId: resolvedAgencyId.value, filter: listFilter.value,
+    channel: channel.value === 'all' ? undefined : channel.value,
+    q: searchQ.value || undefined, fromEmail: searchFrom.value || undefined,
+    hasAttachment: searchHasAttachment.value === '' ? undefined : searchHasAttachment.value,
+    dateFrom: searchDateFrom.value || undefined, dateTo: searchDateTo.value || undefined,
+    ...(selectedInboxId.value != null ? { inboxId: selectedInboxId.value } : {})
+  };
+  const key = JSON.stringify(params);
+  if (activeListRequest?.key === key) return activeListRequest.promise;
+  activeListRequest?.controller.abort();
   const requestId = ++listRequestId;
-  if (!resolvedAgencyId.value) return;
+  const controller = new AbortController();
+  if (displayedListKey !== key) {
+    conversations.value = viewLists.get(key) || [];
+    displayedListKey = key;
+  }
   loading.value = true;
   error.value = '';
-  try {
-    const params = {
-      agencyId: resolvedAgencyId.value,
-      filter: listFilter.value,
-      channel: channel.value === 'all' ? undefined : channel.value,
-      q: searchQ.value || undefined,
-      fromEmail: searchFrom.value || undefined,
-      hasAttachment: searchHasAttachment.value === '' ? undefined : searchHasAttachment.value,
-      dateFrom: searchDateFrom.value || undefined,
-      dateTo: searchDateTo.value || undefined
-    };
-    if (selectedInboxId.value === 'assigned') {
-      params.inboxId = 'assigned';
-    } else if (selectedInboxId.value === 'my_inbox') {
-      const personal = inboxes.value.find((i) => i.kind === 'personal' && i.id != null);
-      if (personal?.id) params.inboxId = personal.id;
-    } else if (selectedInboxId.value != null) {
-      params.inboxId = selectedInboxId.value;
+  const request = { key, controller };
+  activeListRequest = request;
+  request.promise = (async () => {
+    try {
+      const { data } = await api.get('/communications/conversations', {
+        params, signal: controller.signal, timeout: 20000, skipGlobalLoading: true
+      });
+      if (requestId !== listRequestId || disposed) return;
+      conversations.value = data?.conversations || [];
+      viewLists.delete(key); viewLists.set(key, conversations.value);
+      while (viewLists.size > 12) viewLists.delete(viewLists.keys().next().value);
+    } catch (e) {
+      if (requestId !== listRequestId || disposed || controller.signal.aborted) return;
+      if ([401,403].includes(e?.response?.status)) {
+        conversations.value = []; detail.value = null; viewLists.clear(); clearUnifiedInboxCache();
+      }
+      error.value = e?.response?.data?.error?.message || 'Could not update conversations. Your last loaded messages are still available.';
+    } finally {
+      if (requestId === listRequestId && !disposed) { loading.value = false; activeListRequest = null; }
     }
-    const { data } = await api.get('/communications/conversations', {
-      params,
-      skipGlobalLoading: true
-    });
-    if (requestId !== listRequestId) return;
-    conversations.value = data?.conversations || [];
-  } catch (e) {
-    if (requestId !== listRequestId) return;
-    error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load conversations';
-  } finally {
-    if (requestId === listRequestId) loading.value = false;
-  }
+  })();
+  return request.promise;
 }
 
 async function openConversation(id) {
@@ -182,8 +214,8 @@ async function openConversation(id) {
   }
   selectedId.value = id;
   mobileFiltersOpen.value = false;
-  detail.value = null;
-  detailLoading.value = true;
+  if (Number(detail.value?.conversation?.id) !== Number(id)) detail.value = null;
+  detailLoading.value = !detail.value;
   try {
     const { data } = await api.get(`/communications/conversations/${id}`, {
       params: { agencyId: resolvedAgencyId.value },
@@ -192,7 +224,8 @@ async function openConversation(id) {
     if (requestId !== detailRequestId) return;
     detail.value = data;
     const row = conversations.value.find((c) => c.id === id);
-    if (row && !(isTicketedGroup(data.conversation) && !data.conversation.ticket_claimed_by_user_id)) row.is_unread = false;
+    if (row) row.is_unread = false;
+    void loadAttention().catch(() => {});
   } catch (e) {
     if (requestId !== detailRequestId) return;
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to open conversation';
@@ -223,11 +256,13 @@ async function claimTicket() {
 function selectInbox(id) {
   selectedInboxId.value = id;
   listFilter.value = 'all';
-  if (id === 'group_email' || isTicketedGroup(inboxes.value.find(box => String(box.id) === String(id)))) channel.value = 'all';
+  channel.value = 'all';
+  selectedId.value = null; detail.value = null; detailRequestId += 1;
 }
 
 function openTickets() {
-  router.push({ path: `${orgPrefix.value}/tickets`, query: { agencyId: String(resolvedAgencyId.value) } }).catch(() => {});
+  selectedInboxId.value = null; channel.value = 'all'; listFilter.value = 'tickets';
+  selectedId.value = null; detail.value = null; detailRequestId += 1;
 }
 
 async function patchConversation(patch) {
@@ -347,7 +382,9 @@ watch(
   }
 );
 
-watch(resolvedAgencyId, () => {
+watch([resolvedAgencyId, () => authStore.user?.id], () => {
+  clearUnifiedInboxCache(); viewLists.clear(); displayedListKey = null;
+  activeListRequest?.controller.abort(); activeListRequest = null;
   detailRequestId += 1;
   listRequestId += 1;
   selectedId.value = null;
@@ -356,6 +393,7 @@ watch(resolvedAgencyId, () => {
   activeTicketId.value = null;
   conversations.value = [];
   inboxes.value = [];
+  attention.value = {};
   refreshAll();
 });
 
@@ -378,15 +416,17 @@ function openRouteConversation(value) {
 watch(()=>route.query.conversationId,openRouteConversation);
 let mailboxPoll = null;
 let pollBusy = false;
+let lastRefreshAt = 0;
 async function refreshSharedState() {
-  if (document.hidden || pollBusy || sessionLock.isLocked || sessionLock.warningActive) return;
+  if (document.hidden || disposed || pollBusy || sessionLock.isLocked || sessionLock.warningActive || Date.now() - lastRefreshAt < 5000) return;
+  lastRefreshAt = Date.now();
   pollBusy = true;
   try {
     const id = selectedId.value;
     const detailRequest = detailRequestId;
     const requests = [loadConversations(), loadAttention()];
     if (id && isTicketedGroup(detail.value?.conversation)) requests.push(
-      api.get(`/communications/conversations/${id}`, { params: { agencyId: resolvedAgencyId.value }, skipGlobalLoading: true })
+      api.get(`/communications/conversations/${id}`, { params: { agencyId: resolvedAgencyId.value, markRead: 0 }, timeout: 20000, skipGlobalLoading: true })
         .then(({ data }) => { if (detailRequest === detailRequestId && selectedId.value === id) detail.value = data; })
     );
     await Promise.allSettled(requests);
@@ -397,11 +437,14 @@ watch(() => sessionLock.isLocked || sessionLock.warningActive, (locked, wasLocke
 });
 onMounted(() => {
   refreshAll();
-  openRouteConversation(route.query.conversationId);
+  openRouteConversation(route.query.conversationId || selectedId.value);
   mailboxPoll = setInterval(refreshSharedState, 30000);
   window.addEventListener('focus', refreshSharedState);
 });
 onUnmounted(() => {
+  saveSnapshot();
+  disposed = true; listRequestId += 1; detailRequestId += 1; attentionRequestId += 1; inboxRequestId += 1;
+  activeListRequest?.controller.abort();
   clearTimeout(draftTimer);
   clearTimeout(searchDebounce);
   clearInterval(mailboxPoll);
@@ -527,6 +570,7 @@ defineExpose({ refreshAll });
         :loading="loading"
         :selected-id="selectedId"
         :filter="listFilter"
+        :unread-counts="attention.unreadViews"
         @update:filter="listFilter = $event"
         @select="openConversation"
       />

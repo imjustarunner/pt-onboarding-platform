@@ -139,7 +139,7 @@ export async function getUnifiedConversations(req, res, next) {
     const hubScope = req.query.hubScope === '1' || req.query.hubScope === 'true';
     const rawInbox = req.query.inboxId;
     let inboxId =
-      rawInbox != null && rawInbox !== '' && rawInbox !== 'null' && rawInbox !== 'assigned' && rawInbox !== 'my_inbox' && rawInbox !== 'group_email'
+      rawInbox != null && rawInbox !== '' && rawInbox !== 'null' && rawInbox !== 'assigned' && rawInbox !== 'my_inbox' && rawInbox !== 'group_email' && rawInbox !== 'school_groups'
         ? parseInt(String(rawInbox), 10)
         : null;
     let ownerUserId = null;
@@ -207,6 +207,7 @@ export async function getUnifiedConversations(req, res, next) {
       isAdminViewer: adminViewer && !hubScope,
       scopeToUserId,
       groupOnly: rawInbox === 'group_email',
+      schoolGroupsOnly: rawInbox === 'school_groups',
       unknownOnly: filter === 'unknown' || req.query.unknown === '1',
       includeHeld: req.query.includeHeld === '1' && adminViewer && !hubScope
     });

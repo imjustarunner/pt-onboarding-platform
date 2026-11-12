@@ -23,6 +23,9 @@ const departments = {
 
 export function groupEmailPresentation(mailbox) {
   const key = String(mailbox?.group_key || '').toLowerCase();
+  const identity = String(mailbox?.identity_key || mailbox?.inbox_identity_key || '').toLowerCase();
+  if (identity === 'school_groups' || ['schoolreply','school_reply'].includes(identity)) return { ...departments.schools, label: 'School groups', icon: 'UsersRound' };
+  if (identity === 'schools') return { ...departments.schools, label: 'Schools@' };
   return departments[key] || { label: mailbox?.group_name || mailbox?.inbox_display_name || mailbox?.display_name || 'Group Email', icon: 'Mail', ink: '#526174', shade: '#edf1f5' };
 }
 

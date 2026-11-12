@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushPromises, shallowMount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import { useSessionLockStore } from '../../../store/sessionLock';
+import { clearUnifiedInboxCache } from '../../../utils/unifiedInboxCache';
 import Shell from '../UnifiedInboxShell.vue';
 import api from '../../../services/api';
 vi.mock('../../../services/api', () => ({ default: { post: vi.fn(), get: vi.fn(), patch: vi.fn() } }));
@@ -13,6 +14,7 @@ let wrapper;
 beforeEach(() => {
   setActivePinia(createPinia());
   vi.clearAllMocks();
+  clearUnifiedInboxCache();
   navigation.query={};
   api.get.mockResolvedValue({ data: {} });
   api.post.mockResolvedValue({ data: {} });
@@ -53,7 +55,7 @@ describe('conversation switching', () => {
     expect(sidebar.props('inboxes')[0].id).toBe(300);
     expect(sidebar.props('attention').needsAttention).toBe(3);
   });
-  it('keeps an unclaimed group ticket unread on preview and refreshes the queues after claiming', async () => {
+  it('marks the observer read independently and refreshes the queues after claiming', async () => {
     const conversation = { id: 9, channel: 'email', is_ticketed_group: true, support_ticket_id: 7, is_unread: true, ticket_claimed_by_user_id: null };
     api.get.mockImplementation(async (url) => ({ data: url === '/communications/conversations'
       ? { conversations: [{ ...conversation }] }
@@ -61,7 +63,7 @@ describe('conversation switching', () => {
     await render();
     wrapper.findComponent({ name: 'UnifiedConversationList' }).vm.$emit('select', 9);
     await flushPromises();
-    expect(wrapper.findComponent({ name: 'UnifiedConversationList' }).props('conversations')[0].is_unread).toBe(true);
+    expect(wrapper.findComponent({ name: 'UnifiedConversationList' }).props('conversations')[0].is_unread).toBe(false);
     conversation.ticket_claimed_by_user_id = 5;
     wrapper.findComponent({ name: 'UnifiedConversationThread' }).vm.$emit('claim-ticket');
     await flushPromises();
@@ -100,4 +102,45 @@ it('opens the received group email from a notification link without creating a t
  expect(api.get.mock.calls.some(([url])=>url==='/communications/conversations/42')).toBe(true);
  expect(wrapper.findComponent({name:'UnifiedConversationThread'}).props('detail').conversation.id).toBe(42);
  expect(api.post.mock.calls.some(([url])=>url.includes('/claim'))).toBe(false);
+});
+
+it('keeps messages visible during background refresh and coalesces focus while a request is running', async () => {
+  api.get.mockImplementation(async url => ({data: url === '/communications/conversations' ? {conversations:[{id:9,subject:'Kept'}]} : {}}));
+  await render();
+  let finish;
+  api.get.mockImplementation(url => url === '/communications/conversations' ? new Promise(resolve => {finish=resolve;}) : Promise.resolve({data:{}}));
+  api.get.mockClear();
+  window.dispatchEvent(new Event('focus')); await flushPromises();
+  window.dispatchEvent(new Event('focus')); await flushPromises();
+  const list=wrapper.findComponent({name:'UnifiedConversationList'});
+  expect(list.props('conversations')).toEqual([{id:9,subject:'Kept'}]);
+  expect(api.get.mock.calls.filter(([url])=>url==='/communications/conversations')).toHaveLength(1);
+  finish({data:{conversations:[{id:9,subject:'Updated'}]}});await flushPromises();
+  expect(list.props('conversations')[0].subject).toBe('Updated');
+});
+it('restores the last folder and messages immediately when returning to the workspace', async () => {
+  api.get.mockImplementation(async url=>({data:url==='/communications/conversations'?{conversations:[{id:9}]}:{}}));
+  await render();
+  wrapper.findComponent({name:'UnifiedInboxSidebar'}).vm.$emit('update:selectedInboxId',12);await flushPromises();
+  wrapper.unmount();
+  api.get.mockImplementation(()=>new Promise(()=>{}));
+  await render();
+  expect(wrapper.findComponent({name:'UnifiedInboxSidebar'}).props('selectedInboxId')).toBe(12);
+  expect(wrapper.findComponent({name:'UnifiedConversationList'}).props('conversations')).toEqual([{id:9}]);
+});
+it('shows open tickets within the same conversation list', async()=>{
+  await render();api.get.mockClear();
+  wrapper.findComponent({name:'UnifiedInboxSidebar'}).vm.$emit('open-tickets');await flushPromises();
+  expect(api.get).toHaveBeenCalledWith('/communications/conversations',expect.objectContaining({params:expect.objectContaining({filter:'tickets'})}));
+});
+it('does not let a delayed folder response replace the newly selected folder', async()=>{
+  await render();const pending=[];
+  api.get.mockImplementation((url,config)=>url==='/communications/conversations'?new Promise(resolve=>pending.push({resolve,config})):Promise.resolve({data:{}}));
+  const side=wrapper.findComponent({name:'UnifiedInboxSidebar'});
+  side.vm.$emit('update:selectedInboxId',12);await flushPromises();
+  side.vm.$emit('update:selectedInboxId',4);await flushPromises();
+  expect(pending[0].config.signal.aborted).toBe(true);
+  pending[1].resolve({data:{conversations:[{id:40}]}});await flushPromises();
+  pending[0].resolve({data:{conversations:[{id:12}]}});await flushPromises();
+  expect(wrapper.findComponent({name:'UnifiedConversationList'}).props('conversations')).toEqual([{id:40}]);
 });

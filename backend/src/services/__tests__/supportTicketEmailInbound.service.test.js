@@ -254,7 +254,7 @@ function fixture({ credentialingCaseId = null, staffCopy = false, initialReceipt
   } };
   const dependencies = { database: { getConnection: async () => db, execute: (...args) => db.execute(...args) },
     persistAttachments: async () => ({ complete: !attachmentFailure, incomplete: attachmentFailure }),
-    generateDraft: async (input) => generations.push(input), syncInbox: async () => {},
+    generateDraft: async (input) => generations.push(input), notifySchoolReply: async () => {}, syncInbox: async () => {},
     review: { captureExternalReplyReview: async (input) => { captures.push(input); if (reviewFailure) throw new Error('review temporarily unavailable'); } } };
   return { dependencies, statements, captures, generations, ticket };
 }

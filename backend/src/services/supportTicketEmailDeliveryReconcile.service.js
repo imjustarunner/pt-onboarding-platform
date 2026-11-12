@@ -113,6 +113,11 @@ export async function reconcileSupportTicketEmailDeliveries({ limit = 100 } = {}
       await db.rollback(); outcomes.push({ id: pendingRow.id, status: 'reconciliation_failed', reason: error.code || 'support_delivery_reconciliation_failed' });
     } finally { db.release(); }
     if (row) await syncInbox(row.ticket_id, row.agency_id).catch(() => {});
+    if (row && outcomes.at(-1)?.status === 'sent') {
+      const notify = dependencies.notifySchoolReply || (await import('./schoolTicketReplyNotifications.service.js')).notifySchoolTicketReply;
+      await notify({agencyId:row.agency_id,ticketId:row.ticket_id,ticketMessageId:row.ticket_message_id}, {database}).catch(error =>
+        console.warn('[support email] school reply notification pending:',error?.code || 'notification_failed'));
+    }
   }
   return outcomes;
 }

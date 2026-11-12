@@ -9,7 +9,7 @@ import ConversaSender from '../../components/conversa/ConversaSender.vue';
 import { computed, onUnmounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import { downloadAttachment, encodeEmailFiles } from '../../utils/communicationAttachments';
-import DOMPurify from 'dompurify';
+import ConversationEmailBody from '../messages/ConversationEmailBody.vue';
 import { emailReplyRecipients } from '../../utils/messageThreads';
 import DirectoryRecipientInput from './DirectoryRecipientInput.vue';
 import GroupEmailBadge from './GroupEmailBadge.vue';
@@ -485,7 +485,7 @@ watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
         <strong v-if="conv.support_ticket_id">Ticket #{{ conv.support_ticket_id }}</strong>
         <span v-if="conv.ticket_replied">Replied · waiting for a response</span>
         <span v-else-if="claimedBy">Claimed{{ conv.owner_first_name ? ` by ${conv.owner_first_name} ${conv.owner_last_name || ''}` : '' }} · managed in tickets</span>
-        <span v-else>Available to claim · unread until claimed</span>
+        <span v-else>Available to claim · reading does not take ownership</span>
         <span v-if="conv.ticket_status">{{ conv.ticket_status.replace(/_/g, ' ') }}</span>
       </div>
 
@@ -541,7 +541,7 @@ watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
             <span v-else-if="msg.direction === 'inbound'" class="uc-tag ext">External</span>
           </div>
           <p v-if="!msg.is_internal_note && msg.to?.length" class="uc-meta">To: {{ msg.to.map((a) => a.email || a).join(', ') }}<template v-if="msg.cc?.length"> · CC: {{ msg.cc.map((a) => a.email || a).join(', ') }}</template></p>
-          <div v-if="msg.body_html" class="uc-msg-body" v-html="DOMPurify.sanitize(msg.body_html)" />
+          <ConversationEmailBody v-if="conv.channel === 'email' && !msg.is_internal_note" class="uc-msg-body" :message="msg" />
           <div v-else class="uc-msg-body pre">{{ msg.body_text }}</div>
           <EmailAudioAttachment v-for="file in msg.attachments || []" :key="`audio-${file.id}`" :file="file" :conversation-id="conv?.id" />
           <ul v-if="msg.attachments?.length" class="uc-atts">
@@ -551,7 +551,7 @@ watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
       </div>
 
       <footer v-if="ticketManaged" class="uc-composer uc-ticket-actions">
-        <p>This message is read only. Claim the ticket to take ownership, then reply from {{ conv.inbox_from_email || inbox?.from_email || 'the group address' }} in tickets.</p>
+        <p>You can follow this conversation without taking ownership. The assigned ticket owner replies from {{ conv.inbox_from_email || inbox?.from_email || 'the group address' }}.</p>
         <button v-if="conv.can_claim_ticket && !claimedBy" type="button" class="uc-btn primary" :disabled="claimBusy" @click="emit('claim-ticket')">{{ claimBusy ? 'Claiming…' : 'Claim ticket' }}</button>
         <a v-if="conv.support_ticket_id" class="uc-btn primary" :href="ticketUrl" @click.prevent="emit('open-ticket', conv.support_ticket_id)">Open ticket #{{ conv.support_ticket_id }}</a>
         <p v-else>Ticket intake is pending. Refresh to check its status.</p>

@@ -352,7 +352,8 @@
                 <div v-else class="thread" ref="threadEl">
                   <div v-if="originalInquiry" class="bubble">
                     <div class="bubble-meta"><strong>{{ selected.source_email_from || 'Original inquiry' }}</strong><span>{{ formatDateTime(selected.created_at) }}</span></div>
-                    <div class="bubble-body">{{ originalInquiry }}</div>
+                    <ConversationEmailBody v-if="selected.source_channel === 'email'" :message="{ body_text: originalInquiry }" />
+                    <div v-else class="bubble-body">{{ originalInquiry }}</div>
                   </div>
                   <div
                     v-for="m in messages"
@@ -373,7 +374,8 @@
                       <span v-if="m.email_delivery.from_name">&lt;{{ m.email_delivery.from_email }}&gt;</span>
                       <strong>{{ deliveryLabel(m.email_delivery) }}</strong>
                     </div>
-                    <div class="bubble-body">{{ m.body || '(deleted)' }}</div>
+                    <ConversationEmailBody v-if="m.email_delivery && !m.is_internal && !m.is_deleted" :message="{ body_text: m.body }" />
+                    <div v-else class="bubble-body">{{ m.body || '(deleted)' }}</div>
                   </div>
                   <TicketAttachmentFiling
                     v-if="ticketAttachments.length"
@@ -1090,6 +1092,7 @@
 </template>
 
 <script setup>
+import ConversationEmailBody from '../messages/ConversationEmailBody.vue';
 import TicketAttachmentComposer from './TicketAttachmentComposer.vue';
 import { openPrivateAttachment } from '../../utils/openPrivateAttachment.js';
 import { canAccessTicketDesk } from '../../utils/ticketAccess.js';

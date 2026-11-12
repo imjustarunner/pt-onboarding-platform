@@ -257,6 +257,11 @@ export async function sendSupportTicketEmailReply(input, dependencies = {}) {
       error_message=? WHERE id=?`, ['review_capture_pending', 'Delivery review capture is pending reconciliation.', delivery.id]);
   }
   await sync(ticketId, ticket.agency_id).catch((error) => console.warn('[support email] inbox mirror pending:', error?.code || 'sync_failed'));
+  if (status === 'sent') {
+    const notify = dependencies.notifySchoolReply || (await import('./schoolTicketReplyNotifications.service.js')).notifySchoolTicketReply;
+    await notify({agencyId:ticket.agency_id,ticketId,ticketMessageId:delivery.ticket_message_id}, {database}).catch(error =>
+      console.warn('[support email] school reply notification pending:',error?.code || 'notification_failed'));
+  }
   return resultFor({ ...delivery, send_status: status, communication_id: sent?.communicationId || null,
     error_code: reason || (reviewPending ? 'review_capture_pending' : null) });
 }

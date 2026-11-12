@@ -1,3 +1,4 @@
+import { clearUnifiedInboxCache } from '../utils/unifiedInboxCache';
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import api from '../services/api';
@@ -121,6 +122,7 @@ export const useAuthStore = defineStore('auth', () => {
       clearDemoWindowSession();
     }
     token.value = null;
+    clearUnifiedInboxCache();
     user.value = null;
     localStorage.removeItem('user');
     try {

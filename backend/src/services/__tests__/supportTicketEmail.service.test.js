@@ -43,7 +43,7 @@ function harness({ schoolAccess = true, workFrom = null, workOwner = 5, actorWor
   const database = { getConnection: async () => db, execute: (...args) => db.execute(...args) };
   const review = { resolveDraftSnapshotForSend: async () => ({ id: 6 }), captureSentReview: async (input) => captures.push(input) };
   return { statements, captures, sends, review,
-    dependencies: { database, review, syncInbox: async () => {}, sendEmail: async (input) => { sends.push(input); if (failure) throw failure; return result; } } };
+    dependencies: { database, review, notifySchoolReply: async () => {}, syncInbox: async () => {}, sendEmail: async (input) => { sends.push(input); if (failure) throw failure; return result; } } };
 }
 const input = { ticketId: 1, actorUserId: 5, body: 'Hello', clientRequestId: 'browser-request-1', expectedLastMessageId: 10 };
 

@@ -56,7 +56,7 @@ export async function recordSchoolGroupEmail(input, dependencies = {}) {
         VALUES (?,?,?)`, [input.agencyId,hash,member.id]);
       if (!claim.affectedRows) { await conn.rollback(); continue; }
       const title = schools.length===1 ? `${schools[0].name}: ${packetNotificationSubject(input.subject)?'packet received':'new school email'}`.slice(0,200) : 'School group email received';
-      const message = 'The school group notification email is available in Conversa → Groups → Schools.';
+      const message = 'The school group notification email is available in Conversa → Groups → School groups.';
       const [notification] = await conn.execute(`INSERT INTO notifications
         (type,severity,title,message,user_id,agency_id,related_entity_type,related_entity_id,actor_source,created_at)
         VALUES (?,'info',?,?,?,?, 'communication_conversation',?,'Schools',?)`,

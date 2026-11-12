@@ -82,7 +82,7 @@ test('list and badge queries share group privacy, unread, and canonical assignme
     let depth = 0;
     for (const c of withoutStrings) { if (c === '(') depth++; if (c === ')') depth--; assert.ok(depth >= 0, 'SQL parentheses remain balanced'); }
     assert.equal(depth, 0);
-    return sql.includes('COUNT(*)') ? [[{ n: 0 }]] : [[{ id: 22, inbox_id: 3, support_ticket_id: 11, group_ticket_unread: 1 }]];
+    return sql.includes('COUNT(*)') ? [[{ n: 0 }]] : [[{ id: 22, inbox_id: 3, support_ticket_id: 11, last_inbound_at: new Date(), last_read_at: null }]];
   };
   try {
     const options = { agencyId: 2, userId: 8, scopeToUserId: 8, groupInboxIds: [3,4], allowedGroupInboxIds: [3] };
@@ -93,7 +93,7 @@ test('list and badge queries share group privacy, unread, and canonical assignme
   } finally { pool.execute = original; }
 });
 
-test('every Groups mailbox filter removes claimed tickets while Assigned retains the claimant scope', async () => {
+test('group members can follow claimed tickets while Assigned retains the claimant scope', async () => {
   const original = pool.execute;
   let latestQuery;
   pool.execute = async (sql) => { latestQuery = sql; return [[]]; };
@@ -102,7 +102,7 @@ test('every Groups mailbox filter removes claimed tickets while Assigned retains
     for (const filter of ['all', 'unread', 'sent', 'waiting', 'drafts', 'draft']) {
       await CommunicationConversation.list({ ...options, filter });
       const where = latestQuery.slice(latestQuery.indexOf('WHERE c.archived_at'));
-      assert.match(where, /t.claimed_by_user_id IS NULL/, `${filter} must exclude tickets claimed by any member`);
+      assert.doesNotMatch(where, /t.claimed_by_user_id IS NULL/, `${filter} must preserve shared visibility after claiming`);
     }
     await CommunicationConversation.list({ ...options, groupOnly: false, filter: 'assigned' });
     const assignedWhere = latestQuery.slice(latestQuery.indexOf('WHERE c.archived_at'));
