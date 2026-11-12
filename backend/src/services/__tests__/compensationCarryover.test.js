@@ -37,7 +37,7 @@ it('preserves the historical hourly divisor for carried-over H-code minutes',()=
 });
 it('holds undated or mixed-era carryovers for review',()=>{
  const args=inputs();args.stagingRows[0].carryoverMeta.rawAuditRows=[];expect(()=>separateHistoricalCarryovers(args)).toThrow('dated carryover');
- args.stagingRows[0].carryoverMeta.rawAuditRows=[{serviceDate:'2026-10-12'}];expect(()=>separateHistoricalCarryovers(args)).toThrow('dated carryover');
+ args.stagingRows[0].carryoverMeta.rawAuditRows=[{serviceDate:'2026-10-12'}];expect(()=>separateHistoricalCarryovers(args)).toThrow('exact carried-over');
 });
 it('never turns unpaid supervision tracking into credit pay',()=>{
  const breakdown={'99414':{units:60,finalizedUnits:60,supervisionTrackingOnly:true,amount:0,category:'direct'}};
@@ -48,3 +48,16 @@ it('never turns unpaid supervision tracking into credit pay',()=>{
 it('does not ask for historical rates on explicitly unpaid tracking codes',()=>{
  const args=inputs();args.breakdown={H0002:{units:40,oldDoneNotesUnits:40,explicitUnpaid:true,amount:0}};args.stagingRows=[];args.ratesByCode.clear();expect(()=>separateHistoricalCarryovers(args)).not.toThrow();expect(args.breakdown.H0002.amount).toBe(0);
 });
+
+it('prices late sessions after the amendment using their actual service dates rather than demanding legacy rates',()=>{
+ const args=inputs();args.breakdown['90837'].oldDoneNotesUnits=1;args.stagingRows[0].carryoverDatedUnits=[{serviceDate:'2026-10-22',units:1}];args.ratesByCode.clear();const datedUnitsByCode=new Map([['90837',[{serviceDate:'2026-10-30',units:1}]]]);
+ separateHistoricalCarryovers({...args,datedUnitsByCode});expect(args.breakdown['90837__historical']).toBeUndefined();const result=applyPaySystemToBreakdown({breakdown:args.breakdown,rateProfile:profile,status,datedUnitsByCode});expect(result.servicePay).toBe(88);
+});
+it('splits mixed-era carryover quantities and includes newer carryover dates exactly once',()=>{
+ const args=inputs();args.breakdown['90837']={...args.breakdown['90837'],units:4,finalizedUnits:4,oldDoneNotesUnits:3,hours:4,creditsHours:4,payHours:4};args.stagingRows[0].carryoverDatedUnits=[{serviceDate:'2026-10-08',units:1},{serviceDate:'2026-10-22',units:2}];const datedUnitsByCode=new Map([['90837',[{serviceDate:'2026-10-30',units:1}]]]);
+ separateHistoricalCarryovers({...args,datedUnitsByCode});expect(args.breakdown['90837__historical']).toMatchObject({amount:47,units:1});expect(args.breakdown['90837']).toMatchObject({units:3,oldDoneNotesUnits:2});expect(datedUnitsByCode.get('90837').reduce((n,r)=>n+r.units,0)).toBe(3);const result=applyPaySystemToBreakdown({breakdown:args.breakdown,rateProfile:profile,status,datedUnitsByCode});expect(result.servicePay).toBe(179);
+});
+it('separates older quantities when historical service dates have different saved rates',()=>{
+ const args=inputs();args.breakdown['90837']={...args.breakdown['90837'],units:3,finalizedUnits:3,oldDoneNotesUnits:3};args.stagingRows[0].carryoverDatedUnits=[{serviceDate:'2026-10-05',units:1},{serviceDate:'2026-10-09',units:2}];args.ratesByCode=new Map([['90837',[{id:1,rate_amount:47,effective_end:'2026-10-06'},{id:2,rate_amount:50,effective_start:'2026-10-07'}]]]);separateHistoricalCarryovers(args);const prior=Object.values(args.breakdown).filter(r=>r.payMethod==='historical_fixed');expect(prior).toHaveLength(2);expect(prior.reduce((n,r)=>n+r.amount,0)).toBe(147);
+});
+it('blocks a quantity mismatch instead of scaling or inventing dated work',()=>{const args=inputs();args.stagingRows[0].carryoverDatedUnits=[{serviceDate:'2026-10-22',units:2}];expect(()=>separateHistoricalCarryovers(args)).toThrow('do not match');});

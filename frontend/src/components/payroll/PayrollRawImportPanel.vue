@@ -92,6 +92,14 @@
         </div>
       </div>
 
+      <details v-if="mode === 'draft_audit'" class="rip-providers">
+        <summary class="btn btn-secondary">Providers · {{ providerOptions.filter(p=>!excludedProviders.includes(p.id)).length }} of {{ providerOptions.length }} shown</summary>
+        <div class="rip-provider-options" role="group" aria-label="Providers shown in draft audit">
+          <button type="button" class="btn btn-secondary" :disabled="saving" @click="excludedProviders=[]">Show all providers</button>
+          <p>Uncheck a provider to hide their rows as you review. Hidden drafts still need a saved payment decision.</p>
+          <label v-for="provider in providerOptions" :key="provider.id"><input type="checkbox" :checked="!excludedProviders.includes(provider.id)" :disabled="saving" :aria-label="`Include provider ${provider.name}`" @change="setProviderIncluded(provider.id,$event.target.checked)" /> {{ provider.name }}</label>
+        </div>
+      </details>
       <details v-if="mode === 'draft_audit'" class="rip-supervisors">
         <summary>Clinical supervisors · {{ supervisorOptions.length - excludedSupervisors.length }} of {{ supervisorOptions.length }} included</summary>
         <p>Uncheck a supervisor to exclude their drafts from this view and bulk selection. Excluded drafts still need a payment decision.</p>
@@ -448,6 +456,15 @@ const codeForMode = (m) => {
   return null;
 };
 
+const excludedProviders=ref([]);
+const providerKey=row=>Number(row.user_id)>0?`user:${Number(row.user_id)}`:`name:${String(row.provider_name || '').trim().toLowerCase()}`;
+const providerOptions=computed(()=>[...new Map(rows.value.filter(r=>isDraftRow(r) && !isAlreadyPaidInBaseline(r)).map(r=>[providerKey(r),{id:providerKey(r),name:r.provider_name || 'Unmatched provider'}])).values()].sort((a,b)=>a.name.localeCompare(b.name)));
+const providerIncluded=row=>!excludedProviders.value.includes(providerKey(row));
+const setProviderIncluded=(id,included)=>{
+  excludedProviders.value=included?excludedProviders.value.filter(v=>v!==id):[...excludedProviders.value,id];
+  selectedDraftIds.value=selectedDraftIds.value.filter(id=>rows.value.some(r=>Number(r.id)===id && providerIncluded(r)));
+};
+watch(()=>[props.periodId,selectedImportId.value],()=>{excludedProviders.value=[];});
 const excludedSupervisors = ref([]);
 const supervisorsFor = row => row.supervisors?.length ? row.supervisors : [{id:0,name:'No clinical supervisor'}];
 const supervisorOptions = computed(() => [...new Map(rows.value.flatMap(supervisorsFor).map(s=>[Number(s.id),{...s,id:Number(s.id)}])).values()].sort((a,b)=>a.name.localeCompare(b.name)));
@@ -467,7 +484,7 @@ const filteredRows = computed(() => {
   }
 
   if (mode.value === 'draft_audit') {
-    list=list.filter(supervisorIncluded);
+    list=list.filter(r=>supervisorIncluded(r) && providerIncluded(r));
     if (props.guided) list = list.filter((r) => !isAlreadyPaidInBaseline(r));
     if (rowFilter.value === 'pending_review') list = list.filter(needsReview);
     else if (rowFilter.value === 'unpaid_only') list = list.filter((r) => !willBePaid(r));
@@ -492,7 +509,7 @@ const filteredRows = computed(() => {
 
 const canSelectDraft = r => isDraftRow(r) && !isAlreadyPaidInBaseline(r) && (showReviewedDrafts.value || needsReview(r));
 const selectableDraftRows = computed(() => filteredRows.value.filter(canSelectDraft));
-const selectedDraftRows = computed(() => rows.value.filter(r => canSelectDraft(r) && supervisorIncluded(r) && selectedDraftIds.value.includes(Number(r.id))));
+const selectedDraftRows = computed(() => rows.value.filter(r => canSelectDraft(r) && supervisorIncluded(r) && providerIncluded(r) && selectedDraftIds.value.includes(Number(r.id))));
 const allMatchingDraftsSelected = computed(() => selectableDraftRows.value.length > 0 && selectableDraftRows.value.every(r => selectedDraftIds.value.includes(Number(r.id))));
 const toggleMatchingDrafts = checked => {
   const ids = selectableDraftRows.value.map(r => Number(r.id));
@@ -674,7 +691,7 @@ watch(() => props.initialMode, (m) => {
 const focusPending = async () => {
   search.value = '';
   rowLimit.value = 200;
-  if (mode.value === 'draft_audit') { rowFilter.value = 'pending_review'; excludedSupervisors.value=[]; }
+  if (mode.value === 'draft_audit') { rowFilter.value = 'pending_review'; excludedSupervisors.value=[]; excludedProviders.value=[]; }
   if (props.catchUpMode && String(mode.value).startsWith('process_')) rowFilter.value = 'catchup_focus';
   await nextTick();
   const row = panelElement.value?.querySelector('[data-pending="true"]');
@@ -884,4 +901,9 @@ onMounted(reload);
 .rip-supervisors summary { cursor:pointer; font-weight:600; }
 .rip-supervisors label { display:inline-flex; gap:8px; margin:8px 18px 8px 0; }
 .rip-supervisors p { color:var(--text-secondary); }
+.rip-providers { position:relative; margin:10px 0; }
+.rip-providers summary { display:inline-flex; cursor:pointer; }
+.rip-provider-options { position:absolute; top:100%; left:0; z-index:20; width:min(420px,90vw); max-height:300px; overflow:auto; padding:14px; background:var(--bg-primary,#fff); border:1px solid #dbe4ec; border-radius:10px; box-shadow:0 8px 24px #1233; }
+.rip-provider-options label { display:flex; gap:10px; align-items:center; padding:8px 0; }
+.rip-provider-options p { font-size:13px; }
 </style>
