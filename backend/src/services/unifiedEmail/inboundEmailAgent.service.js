@@ -47,7 +47,7 @@ import {
   isPersonalMailboxIdentity
 } from '../personalMailbox.service.js';
 import { ingestSupportTicketEmail } from '../supportTicketEmailInbound.service.js';
-import { isManagedSupportIdentity, isSupportEmailResponderRole } from '../supportTicketEmailPolicy.js';
+import { isDepartmentalStaffCopy, isManagedSupportIdentity, isSupportEmailResponderRole } from '../supportTicketEmailPolicy.js';
 import { DEPARTMENTAL_GROUPS, groupKeyForIdentity, listUserDepartmentalGroupKeys } from '../departmentalGroupAccess.service.js';
 
 function headerMap(headers = []) {
@@ -1125,12 +1125,25 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
         const [[sharedSender]] = await pool.execute(`SELECT * FROM email_sender_identities
           WHERE agency_id=? AND LOWER(TRIM(from_email))=? AND is_active=1 LIMIT 1`, [agencyId, fromEmail]);
         const departmentKey = groupKeyForIdentity(identity);
+        if (departmentKey === 'payroll') {
+          const { default: payrollReportInbox } = await import('../payrollReportInbox.service.js');
+          const report = await payrollReportInbox.syncGmailReceipt({ agencyId, gmail, message: full.data });
+          if (report.handled) {
+            await gmail.users.messages.modify({ userId: 'me', id,
+              requestBody: { removeLabelIds: ['UNREAD'], addLabelIds: [processedLabelId, needsHumanLabelId] } });
+            results.inboxDeliveries++;
+            continue;
+          }
+        }
         const departmentResponder = departmentKey && staffSender?.id
           ? (await listUserDepartmentalGroupKeys({ agencyId, userId: staffSender.id })).includes(departmentKey) : false;
         const replying = !!(hdrs.get('in-reply-to') || hdrs.get('references'));
-        const staffCopy = (departmentKey ? departmentResponder && replying : isSupportEmailResponderRole(staffSender?.role)) || isManagedSupportIdentity(sharedSender, { agencyId,
-          schoolAddresses: schoolContext?.mailboxAddress ? [schoolContext.mailboxAddress] : [] }) || (schoolContext?.mailboxAddress
-          && String(schoolContext.mailboxAddress).toLowerCase() === fromEmail);
+        const sharedStaffSender = isManagedSupportIdentity(sharedSender, { agencyId,
+          schoolAddresses: schoolContext?.mailboxAddress ? [schoolContext.mailboxAddress] : [] });
+        const schoolSender = !!(schoolContext?.mailboxAddress && String(schoolContext.mailboxAddress).toLowerCase() === fromEmail);
+        const staffCopy = departmentKey ? isDepartmentalStaffCopy({ identity, departmentResponder, replying,
+          sharedSender: sharedStaffSender, schoolSender, recipients: [...routed.to, ...routed.cc] })
+          : isSupportEmailResponderRole(staffSender?.role) || sharedStaffSender || schoolSender;
         const saved = await ingestSupportTicketEmail({ agencyId,
           topic: DEPARTMENTAL_GROUPS[departmentKey]?.topic || 'general',
           schoolOrganizationId: schoolContext?.schoolOrganizationId || null,
@@ -1143,7 +1156,14 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
           receivedAt: new Date(Number(full.data?.internalDate) || Date.now()),
           staffCopy, staffUserId: staffCopy ? staffSender?.id || null : null,
           createdByUserId: !staffCopy ? staffSender?.id || null : null, generateDraft: !staffCopy, autoPacketIntake: !staffCopy });
-        if (saved.handled) results.draftedToTickets += staffCopy ? 0 : 1;
+        if (saved.handled) {
+          results.draftedToTickets += staffCopy ? 0 : 1;
+          if (departmentKey === 'payroll' && !staffCopy) {
+            const { notifyPayrollTicket } = await import('../payrollTicketNotifications.service.js');
+            await notifyPayrollTicket({ agencyId, ticketId: saved.ticketId, mailbox: identity.from_email,
+              actorUserId: staffSender?.id || null });
+          }
+        }
         else results.ignored += 1;
         await gmail.users.messages.modify({ userId: 'me', id,
           requestBody: { removeLabelIds: ['UNREAD'], addLabelIds: [processedLabelId,

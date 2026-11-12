@@ -1,4 +1,5 @@
 export const fundthredPages = {
+  noteworthy: { title: 'NoteWorthy Payroll by FundThred | Payroll built for therapy practices', description: 'Turn TherapyNotes billing reports into reviewed service pay, completed late notes, and clear employee statements. Explore the guided demo. Powered by Auricwell; keep your payroll processor.' },
   home: { title: 'FundThred | Follow the thread of every dollar', description: 'PlotTwistCo’s finance division. Connect payroll, practice billing support, reviewed collections, funding, budgets, and financial oversight.' },
   services: { title: 'FundThred services | Payroll, billing & collections', description: 'PlotTwistCo’s finance division: payroll operations, practice billing support, reviewed collections, budgets, and financial oversight.' },
   product: { title: 'The FundThred platform | Finance operations', description: 'Explore funding, budgeting, expense approvals, documents, and operational reporting with FundThred.' },

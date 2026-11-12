@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 vi.mock('../../config/database.js', () => ({ default: {} }));
 import { createPayrollReportEmail } from '../payrollReportEmail.service.js';
 
-let sqlite, service, db, send, buildAttachment;
+let sqlite, service, db, send, buildAttachment, syncInbox;
 const input = (changes = {}) => ({ agencyId: 6, payrollPeriodId: 912, actorUserId: 99, trigger: 'post', buildAttachment, ...changes });
 beforeEach(() => {
   vi.stubEnv('BILLING_ENCRYPTION_KEY_BASE64', Buffer.alloc(32, 7).toString('base64'));
@@ -33,7 +33,8 @@ beforeEach(() => {
   }) };
   send = vi.fn().mockResolvedValue({ id: 'gmail-message', internetMessageId: '<synthetic@agency.example>', communicationId: 7 });
   buildAttachment = vi.fn().mockResolvedValue({ filename: '2026-10-24-2026-11-06.csv', csv: 'Employee,Total Pay\nSynthetic Employee,504.00' });
-  service = createPayrollReportEmail({ db, send });
+  syncInbox = vi.fn().mockResolvedValue({ status: 'ready', ticketId: 70, conversationId: 80 });
+  service = createPayrollReportEmail({ db, send, syncInbox });
 });
 afterEach(() => { sqlite.close(); vi.unstubAllEnvs(); });
 
@@ -46,6 +47,14 @@ it('sends the exact reconciliation CSV once from and to the selected agency payr
   expect(Buffer.from(options.attachments[0].contentBase64, 'base64').toString('utf8')).toBe('Employee,Total Pay\nSynthetic Employee,504.00');
   expect(options.attachments[0].filename).toBe('2026-10-24-2026-11-06.csv');
   expect(await service.status(input())).toMatchObject({ status: 'sent', configured: true, mailbox: 'payroll@agency.example' });
+});
+
+it('restores a verified sent report to the app without resending when inbox sync needs a retry', async () => {
+  syncInbox.mockRejectedValueOnce(Object.assign(new Error('Temporary inbox failure'), { code: 'PAYROLL_INBOX_MIRROR_PENDING' }));
+  expect(await service.deliver(input())).toMatchObject({ status: 'sent', inbox: { status: 'pending' } });
+  expect(await service.status(input())).toMatchObject({ status: 'sent', inbox: { status: 'ready', ticketId: 70 } });
+  expect(send).toHaveBeenCalledTimes(1);
+  expect(syncInbox).toHaveBeenLastCalledWith({ deliveryId: 1 });
 });
 
 it('requires a posted period and a valid explicit resend key before creating an email attempt', async () => {

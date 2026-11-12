@@ -24,7 +24,17 @@ function displayDelivery(row) {
   };
 }
 
-export function createPayrollReportEmail({ db = pool, send = null, encrypt = encryptBillingSecret, decrypt = decryptBillingSecret } = {}) {
+export function createPayrollReportEmail({ db = pool, send = null, encrypt = encryptBillingSecret, decrypt = decryptBillingSecret, syncInbox = null } = {}) {
+  async function restoreInbox(row) {
+    if (row?.status !== 'sent') return null;
+    try {
+      return await (syncInbox || (await import('./payrollReportInbox.service.js')).default.syncDelivery)({ deliveryId: row.id });
+    } catch (error) {
+      // Transport succeeded. An inbox retry must never invite a duplicate email.
+      console.warn('[payroll report] inbox copy pending:', error.code || 'PAYROLL_INBOX_SYNC_PENDING');
+      return { status: 'pending', errorCode: error.code || 'PAYROLL_INBOX_SYNC_PENDING' };
+    }
+  }
   async function payrollMailbox(agencyId) {
     const [rows] = await db.execute(`SELECT i.from_email, i.sender_identity_id
       FROM communication_inboxes i
@@ -108,7 +118,8 @@ export function createPayrollReportEmail({ db = pool, send = null, encrypt = enc
     try {
       const [[row]] = await db.execute(`SELECT * FROM payroll_report_email_deliveries
         WHERE agency_id=? AND payroll_period_id=? ORDER BY id DESC LIMIT 1`, [agencyId, payrollPeriodId]);
-      return { ...displayDelivery(await refreshedDelivery(row)), configured: !!route, mailbox: row?.recipient_email || route?.from_email || null };
+      const current = await refreshedDelivery(row);
+      return { ...displayDelivery(current), inbox: await restoreInbox(current), configured: !!route, mailbox: row?.recipient_email || route?.from_email || null };
     } catch (error) {
       if (error.code === 'ER_NO_SUCH_TABLE') return { status: 'unavailable', configured: !!route, mailbox: route?.from_email || null, errorCode: 'PAYROLL_REPORT_EMAIL_UNAVAILABLE' };
       throw error;
@@ -158,7 +169,8 @@ export function createPayrollReportEmail({ db = pool, send = null, encrypt = enc
     if (!Number(claim.affectedRows)) {
       const [[existing]] = await db.execute(`SELECT * FROM payroll_report_email_deliveries
         WHERE agency_id=? AND payroll_period_id=? AND delivery_key=?`, [agencyId, payrollPeriodId, key]);
-      return { ...displayDelivery(await refreshedDelivery(existing)), reused: true };
+      const current = await refreshedDelivery(existing);
+      return { ...displayDelivery(current), inbox: await restoreInbox(current), reused: true };
     }
     const deliveryId = Number(claim.insertId);
     let transportStarted = false;
@@ -195,7 +207,8 @@ export function createPayrollReportEmail({ db = pool, send = null, encrypt = enc
       await db.execute(`UPDATE payroll_report_email_deliveries SET status=?,communication_id=?,message_id=?,error_code=?,
         sent_at=CASE WHEN ?='sent' THEN CURRENT_TIMESTAMP(3) ELSE NULL END WHERE id=?`,
       [deliveryStatus, result?.communicationId || null, result?.internetMessageId || result?.id || null, errorCode, deliveryStatus, deliveryId]);
-      return { id: deliveryId, status: deliveryStatus, mailbox: route.from_email, filename: attachment.filename, errorCode };
+      return { id: deliveryId, status: deliveryStatus, mailbox: route.from_email, filename: attachment.filename, errorCode,
+        inbox: await restoreInbox({ id: deliveryId, status: deliveryStatus }) };
     } catch (error) {
       const deliveryStatus = transportStarted ? 'delivery_unknown' : 'failed';
       const errorCode = transportStarted ? 'PAYROLL_REPORT_DELIVERY_UNCONFIRMED'

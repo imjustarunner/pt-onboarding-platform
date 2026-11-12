@@ -17,6 +17,11 @@ import { validateFfsExcess, persistFfsExcessClaim } from '../services/ffsExcessT
 import { tutoringClaimAmount } from '../services/tutoringPayroll.service.js';
 import { billedAmountFromReport, rateAtDate, billedPayForStagingRow } from '../services/payrollBilledPay.service.js';
 import { payrollAliasUsers, canMatchPayrollUser, archivedPayrollName } from '../services/payrollProviderMatching.service.js';
+import { isNoteworthyPractice,noteworthyMatchingUsers,ensureNoteworthyProvider } from '../services/noteworthyRoster.service.js';
+import noteworthyReadiness from '../services/noteworthyReadiness.service.js';
+import noteworthyImportReceipts from '../services/noteworthyImportReceipt.service.js';
+import { noteworthyDatedFixedPay } from '../services/noteworthyDatedPay.service.js';
+import { canManagePayrollForAgency } from '../services/payrollManagementAccess.service.js';
 import { isUnpaidInternActivity } from '../services/internMeetingPolicy.service.js';
 import {meetingClaimHourlyRate, getMeetingClaimRateOverride, MEETING_RATE_TYPES} from '../services/meetingClaimRate.service.js';
 import {validateSupplementalTime,submissionContext} from '../services/payrollSubmissionContext.service.js';
@@ -1632,7 +1637,7 @@ function computeEligibleMilesForClaim(claim) {
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 },
+  limits: { fileSize: 10 * 1024 * 1024, files:3,fields:20 },
   fileFilter: (req, file, cb) => {
     const name = file.originalname?.toLowerCase?.() || '';
     if (file.mimetype === 'text/csv' || name.endsWith('.csv')) return cb(null, true);
@@ -1716,17 +1721,6 @@ async function getAgencyMileageSettingsPayload(agencyId) {
   };
 }
 
-async function canManagePayrollForAgency({ userId, role, agencyId }) {
-  if (!agencyId) return false;
-  if (role === 'super_admin') return true;
-  const [rows] = await pool.execute(
-    'SELECT has_payroll_access FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1',
-    [userId, agencyId]
-  );
-  if (!rows || rows.length === 0) return false;
-  return rows[0].has_payroll_access === 1 || rows[0].has_payroll_access === true || rows[0].has_payroll_access === '1';
-}
-
 async function resolvePayrollAgencyId(agencyIdOrOrgId) {
   const id = agencyIdOrOrgId ? parseInt(agencyIdOrOrgId, 10) : null;
   if (!id) return null;
@@ -1796,6 +1790,13 @@ export async function requirePayrollAccess(req, res, agencyIdOrOrgId) {
   if (!ok) {
     res.status(403).json({ error: { message: 'Payroll access required' } });
     return null;
+  }
+
+  // Self-service payroll imports follow the same agreement/infrastructure gate
+  // across every existing wizard upload route, not just the marketing portal.
+  if ((req.file || req.files) && ['POST','PUT','PATCH'].includes(String(req.method || '').toUpperCase())) {
+    try { await noteworthyReadiness.assertImport(resolvedAgencyId); }
+    catch (error) { res.status(error.status || 409).json({error:{code:error.code,message:error.message},activation:error.activation});return null; }
   }
 
   // Best-effort audit: record payroll write actions so payroll activity is visible in Audit Center.
@@ -1928,6 +1929,7 @@ function resolveUserIdForProviderName(nameToIds, providerName) {
  * - Superadmins (they have platform-wide access and may appear in any agency's billing reports)
  */
 async function getAgencyUsersForPayrollMatching(agencyId) {
+  if (await isNoteworthyPractice(agencyId)) return noteworthyMatchingUsers(agencyId);
   const [rows] = await pool.execute(
     `SELECT DISTINCT u.id, u.first_name, u.last_name
      FROM users u
@@ -1965,6 +1967,8 @@ async function ensureUserForProviderName({ agencyId, providerName }) {
 
   const first = titleCaseWords(firstRaw);
   const last = titleCaseWords(lastRaw);
+
+  if (await isNoteworthyPractice(agencyId)) return ensureNoteworthyProvider({agencyId,providerName,firstName:first,lastName:last});
 
   // Try to find an existing user by name first (across agencies), then attach to this agency.
   const found = await User.findByName(first, last);
@@ -6025,6 +6029,7 @@ export async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId,
   periodEnd=ymdFromDbDate(recomputePeriod.period_end);
   await materializeRecurring({agencyId,payrollPeriodId});
   const rows = await getEffectiveStagingAggregates(payrollPeriodId, { agencyId, periodStart, periodEnd });
+  const noteworthyDatedRates=await isNoteworthyPractice(agencyId);
   await hydrateCarryoverDates({stagingRows:rows,agencyId});
   // Percent-of-client-paid pay policy (agency default + feature flag). Best-effort:
   // if it can't load, fall back to disabled so fixed-rate payroll is unaffected.
@@ -6536,7 +6541,9 @@ export async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId,
         return units * rateAmount;
       };
 
-      const lineAmount = computeLineAmount({ units: finalizedUnits, payHours });
+      const datedPay=noteworthyDatedRates && !isProBono && !explicitUnpaid && !isFlatAddon && !isSupervisionTrackingRow && !pctPay.usesPercentPay
+        ? noteworthyDatedFixedPay({row,currentEntries:datedUnitsByUserCode.get(`${Number(userId)}:${codeKey}`) || [],rates:ratesByCode.get(codeKey) || [],divisor:safeDivisor,rulePayUnit:rulePayUnitRaw?perCodePayUnit:null}) : null;
+      const lineAmount = datedPay?datedPay.amount:computeLineAmount({ units: finalizedUnits, payHours });
       if (userIsProviderPlus && codeKey === '99415' && finalizedUnits > 1e-9) {
         practiceSupportMeetingHours += creditsHours;
         practiceSupportMeetingAmount += lineAmount;
@@ -6557,6 +6564,7 @@ export async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId,
       // PTO accrual and ADP/credits export.  Flag with supervisionTrackingOnly so
       // downstream consumers can distinguish credits earned vs credits toward PTO.
       breakdown[code] = {
+        ...(datedPay?{datedRateLines:datedPay.lines}:{}),
         units: finalizedUnits,
         noNoteUnits,
         draftUnits,
@@ -6578,7 +6586,7 @@ export async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId,
         paySystemBucket: rule?.pay_system_bucket ?? null,
         flatRateAmount,
         durationMinutes: Number.isFinite(durationMinutes) ? durationMinutes : null,
-        rateAmount,
+        rateAmount:datedPay?datedPay.rateAmount:rateAmount,
         rateUnit: perCode ? perCodePayUnit : (rateSource === 'rate_card' ? 'per_hour' : 'per_unit'),
         payMethod: pctPay.usesPercentPay ? (pctPay.basis === 'billed' ? 'percent_billed' : pctPay.basis === 'collected' ? 'percent_collected' : 'percent_of_charge') : 'fixed_rate',
         payPercent: pctPay.usesPercentPay ? pctPay.percent : null,
@@ -6598,7 +6606,7 @@ export async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId,
           ? { supervisionTrackingHours: creditsHours, supervisionTrackingOnly: true } : {}),
         payHours,
         ...(explicitUnpaid?{explicitUnpaid:true,paySystemBucket:'skip',unpaidReason:perCode.pay_system_exclusion_reason}:{}),
-        rateSource
+        rateSource:datedPay?'dated_service_agreement':rateSource
       };
     }
 
@@ -7392,6 +7400,9 @@ async function insertPayrollRowsWithClientProfiles(rows, req) {
   }
   for (const group of groups.values()) {
     const first = group[0];
+    // A payroll subscription does not create clinical charts or import extra
+    // patient profile fields. Code/date/client matching remains in payroll.
+    if (await isNoteworthyPractice(first.agencyId)) continue;
     await enrichPayrollBillingImport({ agencyId: first.agencyId, payrollImportId: first.payrollImportId, rows: group, actorId: req.user.id });
   }
   return inserted;
@@ -7400,6 +7411,7 @@ async function insertPayrollRowsWithClientProfiles(rows, req) {
 export const importPayrollCsv = [
   upload.single('file'),
   async (req, res, next) => {
+    let noteworthyReceipt=null;
     try {
       if (!ensureBillingEncryptionOrRespond(res)) return;
       const payrollPeriodId = parseInt(req.params.id);
@@ -7435,6 +7447,8 @@ export const importPayrollCsv = [
       }
 
       // Build name->user map for users in agency (includes superadmins for provider matching)
+      noteworthyReceipt=await noteworthyImportReceipts.begin({agencyId,periodId:payrollPeriodId,buffer:req.file.buffer});
+      if(noteworthyReceipt?.reused)return res.json(noteworthyReceipt.response);
       const agencyUsers = await getAgencyUsersForPayrollMatching(agencyId);
 
       // H0032 per-user manual minutes toggle (Category 2).
@@ -7489,6 +7503,7 @@ export const importPayrollCsv = [
         originalFilename: req.file.originalname,
         uploadedByUserId: req.user.id
       });
+      await noteworthyImportReceipts.created(noteworthyReceipt,imp.id);
 
       // Ensure recurring To-Dos exist for this pay period (best-effort).
       try {
@@ -7570,6 +7585,7 @@ export const importPayrollCsv = [
       );
 
       const unmatched = rowsToInsert.filter((r) => !r.userId).slice(0, 50);
+      await noteworthyImportReceipts.complete(noteworthyReceipt);
       res.json({
         import: imp,
         inserted: rowsToInsert.length,
@@ -7578,6 +7594,7 @@ export const importPayrollCsv = [
         unmatchedProvidersSample: unmatched.map((u) => u.providerName)
       });
     } catch (e) {
+      await noteworthyImportReceipts.failed(noteworthyReceipt).catch(()=>{});
       next(e);
     }
   }
@@ -7586,6 +7603,7 @@ export const importPayrollCsv = [
 export const importPayrollAuto = [
   upload.single('file'),
   async (req, res, next) => {
+    let noteworthyReceipt=null;
     try {
       if (!ensureBillingEncryptionOrRespond(res)) return;
       const { agencyId } = req.body || {};
@@ -7661,6 +7679,8 @@ export const importPayrollAuto = [
       }
 
       // Build name->user map for users in agency (includes superadmins for provider matching)
+      noteworthyReceipt=await noteworthyImportReceipts.begin({agencyId:resolvedAgencyId,periodId:period.id,buffer:req.file.buffer});
+      if(noteworthyReceipt?.reused)return res.json({...noteworthyReceipt.response,period});
       const agencyUsers = await getAgencyUsersForPayrollMatching(resolvedAgencyId);
 
       // H0032 per-user manual minutes toggle (Category 2).
@@ -7714,6 +7734,7 @@ export const importPayrollAuto = [
         originalFilename: req.file.originalname,
         uploadedByUserId: req.user.id
       });
+      await noteworthyImportReceipts.created(noteworthyReceipt,imp.id);
 
       // Ensure recurring To-Dos exist for this pay period (best-effort).
       try {
@@ -7798,6 +7819,8 @@ export const importPayrollAuto = [
         .map((r) => r.providerName)
         .slice(0, 25);
 
+      await noteworthyImportReceipts.complete(noteworthyReceipt);
+
       res.json({
         period: await PayrollPeriod.findById(period.id),
         detected: {
@@ -7811,6 +7834,7 @@ export const importPayrollAuto = [
         stats: guess?.stats || null
       });
     } catch (e) {
+      await noteworthyImportReceipts.failed(noteworthyReceipt).catch(()=>{});
       next(e);
     }
   }
@@ -14064,6 +14088,8 @@ export const runPayrollPeriod = async (req, res, next) => {
     const period = await PayrollPeriod.findById(payrollPeriodId);
     if (!period) return res.status(404).json({ error: { message: 'Pay period not found' } });
     if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
+    try { await noteworthyReadiness.assertPayrollReady(period.agency_id,payrollPeriodId); }
+    catch(error) { return res.status(error.status || 409).json({error:{code:error.code,message:error.message},readiness:error.readiness}); }
 
     // For historical re-imports (e.g., re-running an old period purely to compare no-note/draft unpaid),
     // allow admins to bypass the H0031/H0032 processing gate.
@@ -14522,6 +14548,8 @@ export const postPayrollPeriod = async (req, res, next) => {
     if (st === 'posted' || st === 'finalized') {
       return res.json(await PayrollPeriod.findById(payrollPeriodId));
     }
+    try { await noteworthyReadiness.assertPayrollReady(period.agency_id,payrollPeriodId); }
+    catch(error) { return res.status(error.status || 409).json({error:{code:error.code,message:error.message},readiness:error.readiness}); }
     if (st !== 'ran') {
       return res.status(409).json({ error: { message: 'You must Run Payroll before posting' } });
     }

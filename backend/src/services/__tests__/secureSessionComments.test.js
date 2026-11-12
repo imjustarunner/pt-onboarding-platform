@@ -43,4 +43,12 @@ describe('local-day attention and end of last day session',()=>{
     expect(calculate({appointments:[spring],comments:[{id:2,appointment:spring}],now:new Date('2026-03-08T09:30:00Z')}).showSplash).toBe(true);
     expect(calculate({timeZone:'Asia/Kolkata'}).showSplash).toBe(false);expect(calculate({comments:[{...comments[0],isOwn:true}]}).showSplash).toBe(false);
   });
+  it('keeps a same-instant late-night fixture on today while an appointment an hour later belongs to tomorrow',()=>{
+    const now=new Date('2026-11-12T06:59:59Z'); // 23:59:59 in Denver, Nov 11.
+    const sameInstant={id:1,clientId:10,startAt:now.toISOString(),endAt:new Date(now.getTime()+3600000).toISOString(),status:'scheduled'};
+    const result=calculate({now,appointments:[sameInstant],comments:[{id:1,appointment:sameInstant}]});
+    expect(result).toMatchObject({dayKey:'2026-11-11',showSplash:true});expect(result.unread).toHaveLength(1);
+    const nextDay={...sameInstant,startAt:new Date(now.getTime()+3600000).toISOString()};
+    expect(calculate({now,appointments:[nextDay],comments:[{id:1,appointment:nextDay}]}).unread).toEqual([]);
+  });
 });

@@ -8,7 +8,8 @@ import { createSharedFamilyNotice } from '../sharedFamilyNotice.service.js';
 import { describeFamilySecureThread } from '../familySecureMessageAccess.service.js';
 
 describe.skipIf(!recoveryMysqlEnabled)('secure comments and immutable shared audiences — real isolated MySQL',()=>{
-  let fixture,db,comments,shared,notice;
+  let fixture,db,comments,shared,notice,testNow;
+  const clock=()=>new Date(testNow);
   const scopes=JSON.stringify(['clinical_messages']);
   beforeAll(async()=>{
     fixture=await isolatedWorkflowMysql('secure_session_comments');db=fixture.db;
@@ -42,7 +43,7 @@ describe.skipIf(!recoveryMysqlEnabled)('secure comments and immutable shared aud
     }
     vi.stubEnv('CLIENT_CHAT_ENCRYPTION_KEY_BASE64',Buffer.alloc(32,28).toString('base64'));
     vi.stubEnv('CLIENT_CHAT_ENCRYPTION_KEY_ID','qa-mysql-key');
-    comments=createSecureSessionComments({db});shared=createFamilySharedConversations({db});notice=createSharedFamilyNotice({db,audit:()=>{}});
+    comments=createSecureSessionComments({db,clock});shared=createFamilySharedConversations({db});notice=createSharedFamilyNotice({db,audit:()=>{}});
   },30000);
   beforeEach(async()=>{
     for(const table of ['secure_session_comments','secure_session_comment_revisions','secure_session_comment_recipients','secure_session_comment_deliveries','secure_session_comment_audit','secure_session_comment_attention','secure_family_communication_acknowledgments','family_shared_conversations','secure_message_events','chat_thread_participants','chat_threads','users','agencies','user_agencies','clients','client_guardians','guardian_clinical_grants','client_provider_assignments','client_service_enrollments','appointments','appointment_participants','user_preferences'])await db.query(`DELETE FROM ${table}`);
@@ -56,7 +57,12 @@ describe.skipIf(!recoveryMysqlEnabled)('secure comments and immutable shared aud
     await db.query('INSERT INTO client_provider_assignments(client_id,provider_user_id)VALUES(10,1),(11,1)');
     await db.query("INSERT INTO client_guardians(client_id,guardian_user_id,relationship_type,permissions_json)VALUES(10,2,'guardian','{}'),(10,3,'guardian','{}'),(11,7,'guardian','{}')");
     for(const [clientId,userId]of [[10,2],[10,3],[11,7]])await db.execute("INSERT INTO guardian_clinical_grants(agency_id,client_id,guardian_user_id,access_level,medical_rights_verified,consent_basis,scopes_json,review_due_date)VALUES(450,?,?,'full',1,'legal_representative',?,'2030-01-01')",[clientId,userId,scopes]);
-    await db.query("INSERT INTO appointments(id,agency_id,provider_user_id,start_at,end_at,status,source_timezone)VALUES(101,450,1,DATE_ADD(UTC_TIMESTAMP(),INTERVAL 1 HOUR),DATE_ADD(UTC_TIMESTAMP(),INTERVAL 2 HOUR),'scheduled','America/Denver')");
+    // Use one frozen, whole-second instant for both the appointment and service
+    // clock. Adding an hour to the real clock moves this fixture into tomorrow
+    // during Denver's last hour of the day; fractional DATETIME rounding could
+    // similarly cross midnight without truncation.
+    testNow=new Date(Math.floor(Date.now()/1000)*1000);
+    await db.execute("INSERT INTO appointments(id,agency_id,provider_user_id,start_at,end_at,status,source_timezone)VALUES(101,450,1,?,?,'scheduled','America/Denver')",[testNow,new Date(testNow.getTime()+60*60*1000)]);
     await db.query('INSERT INTO appointment_participants(appointment_id,client_id)VALUES(101,10),(101,11)');
   });
   afterAll(async()=>{vi.unstubAllEnvs();await fixture?.close();});
@@ -84,7 +90,7 @@ describe.skipIf(!recoveryMysqlEnabled)('secure comments and immutable shared aud
     expect((await comments.thread({user:{id:5},appointmentId:101,clientId:10})).comments).toEqual([]);
     expect((await comments.history({user:{id:2},clientId:10})).comments[0].body).toBeNull();
     const decrypt=vi.fn(()=>{throw new Error('A metadata operation must not decrypt');});
-    const metadata=createSecureSessionComments({db,decrypt});expect((await metadata.today({user:{id:2},includeBodies:false,auditView:false})).unreadCount).toBe(1);expect(decrypt).not.toHaveBeenCalled();
+    const metadata=createSecureSessionComments({db,decrypt,clock});expect((await metadata.today({user:{id:2},includeBodies:false,auditView:false})).unreadCount).toBe(1);expect(decrypt).not.toHaveBeenCalled();
     await db.query('UPDATE guardian_clinical_grants SET revoked_at=UTC_TIMESTAMP() WHERE guardian_user_id=2');await expect(comments.thread({user:{id:2},appointmentId:101,clientId:10})).rejects.toMatchObject({status:403});
     await expect(comments.thread({user:{id:4},appointmentId:101,clientId:10})).rejects.toMatchObject({status:403});
   });

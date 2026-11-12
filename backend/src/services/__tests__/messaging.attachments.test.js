@@ -27,6 +27,20 @@ describe('durable email attachments', () => {
   it('rejects arbitrary local paths', async () => {
     await expect(readCommunicationAttachment({ storage_key: '../../.env' })).rejects.toThrow('unavailable');
   });
+  it('downloads the recorded ticket attachment mirrored into a shared inbox without a second storage copy', async () => {
+    const path = 'uploads/ticket_attachments/ticket_70/gmail-verified-payroll.csv';
+    pool.execute.mockResolvedValue([[{ id: 9, ticket_id: 70, file_path: path }]]);
+    const file = vi.fn(() => ({ exists: async () => [true], download: async () => [Buffer.from('payroll-csv')] }));
+    StorageService.getGCSBucket.mockResolvedValue({ file });
+    expect((await readCommunicationAttachment({ storage_key: path })).toString()).toBe('payroll-csv');
+    expect(pool.execute).toHaveBeenCalledWith(expect.stringContaining('ticket_id=? AND file_path=?'), [70, path]);
+    expect(file).toHaveBeenCalledWith(path);
+  });
+  it('rejects unrecorded ticket storage paths', async () => {
+    pool.execute.mockResolvedValue([[]]);
+    await expect(readCommunicationAttachment({ storage_key: 'uploads/ticket_attachments/ticket_70/guessed.csv' })).rejects.toThrow('unavailable');
+    expect(StorageService.getGCSBucket).not.toHaveBeenCalled();
+  });
   it('validates the whole outgoing batch before writing any files', async () => {
     await expect(persistOutboundAttachments(1, [{ contentBase64: 'YQ==', filename: 'valid.txt' }, { contentBase64: '', filename: 'bad.txt' }])).rejects.toThrow('Invalid attachment');
     expect(StorageService.getGCSBucket).not.toHaveBeenCalled();

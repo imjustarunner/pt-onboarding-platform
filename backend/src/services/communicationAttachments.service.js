@@ -65,6 +65,15 @@ export async function readCommunicationAttachment(row) {
     const [buffer] = await bucket.file(key).download();
     return buffer;
   }
+  // The shared inbox mirrors ticket attachments without copying their bytes.
+  // Resolve only a recorded ticket artifact, through its existing secure reader.
+  const ticketPath = key.match(/^uploads\/ticket_attachments\/ticket_(\d+)\/[^/\\]+$/);
+  if (ticketPath) {
+    const [[attachment]] = await pool.execute('SELECT * FROM support_ticket_attachments WHERE ticket_id=? AND file_path=? LIMIT 1', [Number(ticketPath[1]), key]);
+    if (!attachment) throw new Error('Attachment storage is unavailable');
+    const { readTicketAttachmentBuffer } = await import('./unifiedEmail/ticketInboundAttachments.service.js');
+    return readTicketAttachmentBuffer(attachment);
+  }
   // Compatibility for mail queued by old revisions. Never accept arbitrary paths.
   if (/^scheduled-email\/\d+\/[^/\\]+$/.test(key)) {
     const fs = await import('node:fs/promises');

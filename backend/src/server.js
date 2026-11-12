@@ -181,6 +181,7 @@ import kudosRoutes from './routes/kudos.routes.js';
 import kioskRoutes from './routes/kiosk.routes.js';
 import emergencyBroadcastRoutes from './routes/emergencyBroadcast.routes.js';
 import payrollRoutes from './routes/payroll.routes.js';
+import noteworthyRoutes from './routes/noteworthy.routes.js';
 import accountabilityRoutes from './routes/accountability.routes.js';
 import companyCarRoutes from './routes/companyCar.routes.js';
 // Budget routes lazy-loaded to avoid startup lag from @google-cloud/vision
@@ -401,6 +402,8 @@ app.use(cors({
     'X-Calendar-Guest',
     'X-Counseling-Access',
     'X-Requested-With',
+    'X-Noteworthy-Request',
+    'X-Organization-Agreement',
     'X-Agency-Id',
     'X-Quick-View-Session',
     'X-Auricwell-Mobile',
@@ -438,6 +441,7 @@ app.use(clinicalVideoCallbackPaths, securityEvidenceMiddleware, clinicalVideoCal
 app.use('/api/notifyre', notifyreRoutes);
 app.use('/api/auricwell-sms', (await import('./routes/notifyreWebhook.routes.js')).default);
 app.use(['/api/communications/drafts', '/api/quick-view/drafts'], express.json({ limit: '36mb' }));
+app.use('/api/noteworthy', express.json({ limit: '128kb' }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
@@ -545,7 +549,7 @@ const uploadsHandler = async (req, res, next) => {
 
     // HIPAA hardening: block sensitive PHI/intake object prefixes from generic /uploads routing.
     // These files must be accessed via dedicated authenticated controllers with audit logging.
-    const sensitivePrefixes = ['private/training/', 'secure-messages/', 'phi-documents/', 'intake_signed/', 'intake_uploads/'];
+    const sensitivePrefixes = ['private/training/', 'secure-messages/', 'phi-documents/', 'intake_signed/', 'intake_uploads/', 'ticket_attachments/'];
     const unprefixedFilePath = filePath.replace(/^(?:uploads\/)+/, '');
     if (sensitivePrefixes.some((prefix) => unprefixedFilePath.startsWith(prefix))) {
       return res.status(403).json({ error: { message: 'Access denied for sensitive document path' } });
@@ -937,6 +941,7 @@ app.get('/api/summit-stats/clubs', listClubs);
 
 // API Routes
 app.use('/api/provider-directories', providerDirectoryRoutes);
+app.use('/api/noteworthy', noteworthyRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/modules', moduleRoutes);

@@ -1,5 +1,5 @@
 // Share only pending JSON reads; never cache a completed response or a mutation.
-export const isPayrollWorkspacePath=path=>/\/admin\/payroll(?:\/|$)/.test(String(path || ''));
+export const isPayrollWorkspacePath=path=>/\/admin\/payroll(?:\/|$)/.test(String(path || '')) || /^\/(?:fundthred\/)?noteworthy\/app(?:\/|$)/.test(String(path || ''));
 const sharedPath=path=>/\/(?:users\/\d+\/preferences|secure-session-comments\/today|family-billing\/insurance-cards\/review-queue|availability\/admin\/skill-builders\/options|communications\/center-summary|payroll\/me\/indirect-time-session)$/.test(path);
 export function sharedReadScope() {
   try {

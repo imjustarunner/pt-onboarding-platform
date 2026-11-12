@@ -8,6 +8,7 @@ import * as agreements from './auricwell/agreements.js';
 import { agreementHtml } from './organizationAgreementHtml.js';
 import { partnerAgreementSuggestion } from './organizationAgreementTemplates.js';
 import { isIndependentPracticeOwner } from '../utils/independentPracticeOwner.js';
+import { isNoteworthyPractice } from './noteworthyRoster.service.js';
 
 const adminRoles = ['admin', 'agency_admin'];
 const activeUser = "u.is_active=1 AND COALESCE(u.is_archived,0)=0 AND UPPER(u.status) IN ('ACTIVE','ACTIVE_EMPLOYEE')";
@@ -34,20 +35,39 @@ export async function scopeFor(userId, agencyId, db = pool) {
   const [[agency]] = await db.execute('SELECT id,name,slug FROM agencies WHERE id=? AND is_active=1 AND COALESCE(is_archived,0)=0', [agencyId]);
   if (!agency) throw fail(404, 'Organization unavailable.');
   const [[member]] = await db.execute('SELECT user_id FROM user_agencies WHERE agency_id=? AND user_id=? AND is_active=1', [agencyId, userId]);
-  const owner=user && member && !adminRoles.includes(user.role) && user.role!=='super_admin' ? await isIndependentPracticeOwner(userId,agencyId,db) : false;
+  let noteworthyOwner=false;
+  if(user && member && await isNoteworthyPractice(agencyId,db)) {
+    const [[record]]=await db.execute('SELECT agency_id FROM noteworthy_practices WHERE agency_id=? AND owner_user_id=?',[agencyId,userId]);
+    noteworthyOwner=!!record;
+  }
+  const owner=noteworthyOwner || (user && member && !adminRoles.includes(user.role) && user.role!=='super_admin' ? await isIndependentPracticeOwner(userId,agencyId,db) : false);
   const operator=!!user?.operator_admin;
   assertAdministrator(user, !!member,{owner,operator});
   return { agencyId: Number(agency.id), organization: agency, userId: Number(user.id), accountId: String(user.id), actorType: 'staff', permissions: ['agreements'], patientIds: [], profile: { operator: user.role === 'super_admin' || operator, name: [user.first_name,user.last_name].filter(Boolean).join(' ') } };
 }
 export async function organizations(userId, db = pool) {
   const [rows] = await db.execute(`SELECT DISTINCT a.id,a.name,a.slug FROM agencies a JOIN users u ON u.id=? WHERE a.is_active=1 AND COALESCE(a.is_archived,0)=0 AND ${activeUser} AND (u.role='super_admin' OR ${managedOperator()} OR (EXISTS (SELECT 1 FROM user_agencies m WHERE m.agency_id=a.id AND m.user_id=u.id AND m.is_active=1) AND (u.role IN ('admin','agency_admin') OR (a.account_owner_user_id=u.id AND a.organization_type IN ('life_coach','consultant'))))) ORDER BY a.name`, [userId]);
-  return rows;
+  // Keep the original business-administration policy and add only practices this
+  // payroll customer owns. Employees receive no organization agreement access.
+  let noteworthy=[];
+  try { [noteworthy]=await db.execute(`SELECT a.id,a.name,a.slug FROM noteworthy_practices n JOIN agencies a ON a.id=n.agency_id
+    JOIN user_agencies m ON m.agency_id=a.id AND m.user_id=n.owner_user_id JOIN users u ON u.id=n.owner_user_id
+    WHERE n.owner_user_id=? AND m.is_active=1 AND a.is_active=1 AND COALESCE(a.is_archived,0)=0 AND ${activeUser}`,[userId]); }
+  catch(error) {if(error.code!=='ER_NO_SUCH_TABLE')throw error;}
+  return Array.from(new Map([...rows,...noteworthy].map(row=>[row.id,row])).values()).sort((a,b)=>a.name.localeCompare(b.name));
 }
 export async function signerOptions(ctx, db = pool) {
   const [rows] = await db.execute(`SELECT u.id,u.role,CONCAT_WS(' ',u.first_name,u.last_name) name, (u.role='super_admin' OR ${managedOperator()}) operator_admin,
     (EXISTS(SELECT 1 FROM user_agencies m WHERE m.agency_id=a.id AND m.user_id=u.id AND m.is_active=1) AND (u.role IN ('super_admin','admin','agency_admin') OR (a.account_owner_user_id=u.id AND a.organization_type IN ('life_coach','consultant')))) organization_member
     FROM users u JOIN agencies a ON a.id=? WHERE ${activeUser} HAVING operator_admin=1 OR organization_member=1 ORDER BY name`, [ctx.agencyId]);
-  return rows.map(r => ({ id: String(r.id), name: r.name, operator: !!r.operator_admin, organization: !!r.organization_member }));
+  const result=rows.map(r => ({ id: String(r.id), name: r.name, operator: !!r.operator_admin, organization: !!r.organization_member }));
+  if(await isNoteworthyPractice(ctx.agencyId,db)) {
+    const [[owner]]=await db.execute(`SELECT u.id,CONCAT_WS(' ',u.first_name,u.last_name) name FROM noteworthy_practices n
+      JOIN users u ON u.id=n.owner_user_id JOIN user_agencies m ON m.user_id=u.id AND m.agency_id=n.agency_id
+      WHERE n.agency_id=? AND m.is_active=1 AND ${activeUser}`,[ctx.agencyId]);
+    if(owner && !result.some(s=>s.id===String(owner.id)))result.push({id:String(owner.id),name:owner.name,operator:false,organization:true});
+  }
+  return result;
 }
 async function transaction(work) {
   const db = await pool.getConnection();
