@@ -25,7 +25,6 @@ async function fillAccount(wrapper){
   await wrapper.get('input[autocomplete=given-name]').setValue('Alex');
   await wrapper.get('input[autocomplete=family-name]').setValue('Example');
   await wrapper.get('input[autocomplete=email]').setValue('alex@example.test');
-  await wrapper.get('input[autocomplete=new-password]').setValue('Only-a-fictional-passphrase!');
 }
 beforeEach(()=>{mocks.auth.isAuthenticated=false;mocks.auth.logout.mockReset();mocks.post.mockReset();});
 afterEach(()=>{for(const wrapper of wrappers.splice(0))wrapper.unmount();vi.restoreAllMocks();});
@@ -42,12 +41,21 @@ describe('public-domain NoteWorthy URLs',()=>{
 });
 
 describe('NoteWorthy account setup',()=>{
-  it('submits the selected approved plan and clears the password after a generic verification response',async()=>{
+  it('opens resend recovery when this email already has a pending request',async()=>{
+    mocks.post.mockRejectedValueOnce({response:{data:{error:{code:'VERIFICATION_PENDING',message:'Use Resend verification.'}}}}).mockResolvedValueOnce({data:{message:'Verification requested.'}});
+    const {wrapper}=await render();await fillAccount(wrapper);await wrapper.get('form').trigger('submit');await flushPromises();
+    const resend=wrapper.findAll('button').find(button=>button.text()==='Resend verification');
+    expect(resend).toBeDefined();await resend.trigger('click');await flushPromises();
+    expect(mocks.post).toHaveBeenLastCalledWith('/noteworthy/resend-verification',{email:'alex@example.test'},expect.any(Object));
+  });
+  it('requests email verification with the selected approved plan before collecting any account password',async()=>{
     mocks.post.mockResolvedValue({data:{message:'If the account can be created, check your email.'}});
     const {wrapper}=await render('/fundthred/noteworthy/start?plan=growth');
     expect(isPublicAuthFormActive()).toBe(true);
+    expect(wrapper.find('input[type=password]').exists()).toBe(false);
     await fillAccount(wrapper);await wrapper.get('form').trigger('submit');await flushPromises();
-    expect(mocks.post).toHaveBeenCalledWith('/noteworthy/signup',expect.objectContaining({practiceName:'Example Therapy',email:'alex@example.test',plan:'growth',password:'Only-a-fictional-passphrase!'}),expect.objectContaining({headers:{'X-Noteworthy-Request':'1'},skipGlobalLoading:true}));
+    expect(mocks.post).toHaveBeenCalledWith('/noteworthy/signup',{practiceName:'Example Therapy',firstName:'Alex',lastName:'Example',email:'alex@example.test',plan:'growth'},expect.objectContaining({headers:{'X-Noteworthy-Request':'1'},skipGlobalLoading:true}));
+    expect(mocks.post.mock.calls[0][1]).not.toHaveProperty('password');
     expect(wrapper.text()).toContain('Check your email.');
     expect(wrapper.find('input[type=password]').exists()).toBe(false);
     expect(wrapper.text()).not.toContain('Only-a-fictional-passphrase!');
@@ -97,7 +105,7 @@ describe('verification and provider invitation secrets',()=>{
     const {wrapper}=await render('/fundthred/noteworthy/verify#token=verification-secret');
     expect(history).toHaveBeenCalled();expect(String(history.mock.calls.at(-1)[2])).not.toContain('verification-secret');
     expect(storage).not.toHaveBeenCalled();expect(mocks.post).not.toHaveBeenCalled();
-    await wrapper.get('button.nw-submit').trigger('click');await flushPromises();
+    await wrapper.get('form').trigger('submit');await flushPromises();
     expect(mocks.post).toHaveBeenCalledWith('/noteworthy/verify',{token:'verification-secret'},expect.any(Object));
     expect(mocks.post.mock.calls[0][0]).not.toContain('secret');
     expect(wrapper.text()).toContain('Email verified.');
@@ -107,6 +115,37 @@ describe('verification and provider invitation secrets',()=>{
     const {wrapper}=await render('/fundthred/noteworthy/verify?token=do-not-use-query');
     expect(wrapper.find('button.nw-submit').exists()).toBe(false);expect(mocks.post).not.toHaveBeenCalled();
     expect(wrapper.findAll('a').some(link=>link.attributes('href')?.includes('redirect=/fundthred/noteworthy/app'))).toBe(true);
+  });
+  it('keeps a pending email token in memory until password setup succeeds and never stores the new password',async()=>{
+    const storage=vi.spyOn(Storage.prototype,'setItem');
+    mocks.post.mockResolvedValueOnce({data:{passwordRequired:true}})
+      .mockRejectedValueOnce({response:{data:{error:{code:'PASSWORD_POLICY',message:'Choose a stronger password.'}}}})
+      .mockResolvedValueOnce({data:{verified:true}});
+    const {wrapper}=await render('/fundthred/noteworthy/verify#token=pending-account-secret');
+    expect(wrapper.find('input[type=password]').exists()).toBe(false);
+    await wrapper.get('form').trigger('submit');await flushPromises();
+    expect(mocks.post).toHaveBeenNthCalledWith(1,'/noteworthy/verify',{token:'pending-account-secret'},expect.any(Object));
+    expect(wrapper.text()).not.toContain('Email verified.');
+    expect(wrapper.text()).toContain('Choose your password');
+    await wrapper.get('input[autocomplete=new-password]').setValue('A-fictional-verified-password!');
+    await wrapper.get('form').trigger('submit');await flushPromises();
+    expect(wrapper.get('[role=alert]').text()).toContain('Choose a stronger password.');
+    expect(wrapper.text()).not.toContain('Email verified.');
+    await wrapper.get('form').trigger('submit');await flushPromises();
+    expect(mocks.post).toHaveBeenNthCalledWith(3,'/noteworthy/verify',{token:'pending-account-secret',password:'A-fictional-verified-password!'},expect.any(Object));
+    expect(storage).not.toHaveBeenCalled();
+    expect(wrapper.text()).toContain('Email verified.');
+    expect(wrapper.find('input[type=password]').exists()).toBe(false);
+    expect(wrapper.html()).not.toContain('pending-account-secret');
+    expect(wrapper.html()).not.toContain('A-fictional-verified-password!');
+  });
+  it('signs out an unrelated principal after verification requires the invited account to sign in',async()=>{
+    mocks.auth.isAuthenticated=true;mocks.post.mockResolvedValue({data:{verified:true,signInRequired:true}});
+    const {wrapper}=await render('/fundthred/noteworthy/verify#token=account-verification');
+    await wrapper.get('form').trigger('submit');await flushPromises();
+    expect(mocks.auth.logout).toHaveBeenCalledTimes(1);
+    expect(wrapper.text()).toContain('Email verified.');
+    expect(wrapper.find('input[type=password]').exists()).toBe(false);
   });
   it('accepts a provider invitation with a new password without retaining the secret in visible markup or storage',async()=>{
     const storage=vi.spyOn(Storage.prototype,'setItem');mocks.post.mockResolvedValue({data:{accepted:true}});

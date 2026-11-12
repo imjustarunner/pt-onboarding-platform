@@ -6,7 +6,7 @@ vi.mock('../noteworthyReadiness.service.js',()=>({default:{}}));
 import {createNoteworthyRouter} from '../../routes/noteworthy.routes.js';
 let server,payroll,readiness;
 beforeEach(async()=>{
-  payroll={signup:vi.fn().mockResolvedValue({verificationRequired:true}),workspace:vi.fn().mockResolvedValue({practices:[{agencyId:1,role:'owner'},{agencyId:2,role:'employee'}]}),owner:vi.fn().mockResolvedValue({}),paystubs:vi.fn().mockResolvedValue({paystubs:[]}),updateRoster:vi.fn().mockResolvedValue({saved:true})};
+  payroll={signup:vi.fn().mockResolvedValue({verificationRequired:true}),verify:vi.fn().mockResolvedValue({passwordRequired:true,verified:false}),workspace:vi.fn().mockResolvedValue({practices:[{agencyId:1,role:'owner'},{agencyId:2,role:'employee'}]}),owner:vi.fn().mockResolvedValue({}),paystubs:vi.fn().mockResolvedValue({paystubs:[]}),updateRoster:vi.fn().mockResolvedValue({saved:true})};
   readiness={activation:vi.fn().mockResolvedValue({canImport:false})};
   const app=express();app.use('/api/noteworthy',createNoteworthyRouter({payroll,dataReadiness:readiness,auth:(req,_res,next)=>{req.user={id:7};next();},optionalAuth:(_req,_res,next)=>next()}));
   app.use((error,_req,res,_next)=>res.status(500).json({error:{message:error.message}}));
@@ -27,6 +27,14 @@ it('includes owner readiness only and disables caching of confidential workspace
   const result=await request('/workspace');expect(result.status).toBe(200);expect(result.headers.get('cache-control')).toBe('no-store');
   expect(readiness.activation).toHaveBeenCalledTimes(1);expect(readiness.activation).toHaveBeenCalledWith(1);
   expect(result.body.practices[1]).not.toHaveProperty('activation');
+});
+it('passes a recipient password only on the explicit token-verification request',async()=>{
+  const token='a'.repeat(64),headers={'X-Noteworthy-Request':'1'};
+  expect((await request('/verify',{method:'POST',headers,body:{token}})).body).toEqual({passwordRequired:true,verified:false});
+  expect(payroll.verify).toHaveBeenLastCalledWith(token,undefined);
+  const password='Recipient!ChosenPassword2026';
+  await request('/verify',{method:'POST',headers,body:{token,password}});
+  expect(payroll.verify).toHaveBeenLastCalledWith(token,password);
 });
 it('uses authenticated identity for the employee portal and rejects malformed record identifiers',async()=>{
   expect((await request('/practices/2/me/paystubs')).status).toBe(200);expect(payroll.paystubs).toHaveBeenCalledWith(7,2);

@@ -68,14 +68,13 @@ export function createNoteworthyPayrollService({db=pool,send=defaultSend,hashPas
   }
   async function signup(input) {
     const email=noteworthyEmail(input.email),practiceName=noteworthyText(input.practiceName,160,'your practice name'),firstName=noteworthyText(input.firstName,100,'your first name'),lastName=noteworthyText(input.lastName,100,'your last name'),plan=planIntent(input.plan);
-    if (Buffer.byteLength(String(input.password || ''))>72) throw fail(400,'INVALID_PASSWORD','Use a password of at most 72 bytes.');
-    const valid=await validatePassword(input.password,{accountId:email});
-    if (!valid.valid) throw fail(400,'INVALID_PASSWORD',valid.message);
     const [existing]=await rows('SELECT id FROM users WHERE LOWER(email)=? LIMIT 1',[email]);
     if (existing) throw fail(409,'ACCOUNT_EXISTS','An account already uses this email. Sign in to create your practice workspace.');
-    const token=newNoteworthyToken(),passwordHash=await hashPassword(input.password);
+    const token=newNoteworthyToken();
+    // Anyone can initiate an email request. Only its recipient may choose the
+    // account password after presenting the secret verification token.
     try { await rows(`INSERT INTO noteworthy_signups(email,practice_name,first_name,last_name,password_hash,token_hash,expires_at,plan_intent)
-      VALUES(?,?,?,?,?,?,?,?)`,[email,practiceName,firstName,lastName,passwordHash,noteworthyTokenHash(token),expires(),plan]); }
+      VALUES(?,?,?,?,?,?,?,?)`,[email,practiceName,firstName,lastName,'',noteworthyTokenHash(token),expires(),plan]); }
     catch(e) { if (e.code==='ER_DUP_ENTRY') throw fail(409,'VERIFICATION_PENDING','An account request already exists. Use Resend verification.'); throw e; }
     const delivery=await deliver(email,token,'verify');
     return {verificationRequired:true,verificationSent:!!delivery.sent,deliveryPending:!!delivery.pending,message:delivery.sent?'Check your email to verify your account.':'Your request was saved. Email delivery is not confirmed; use Resend verification to retry.'};
@@ -95,7 +94,7 @@ export function createNoteworthyPayrollService({db=pool,send=defaultSend,hashPas
     await rows('INSERT INTO user_agencies(user_id,agency_id,is_active,has_payroll_access) VALUES(?,?,1,1)',[userId,agencyId],conn);
     return {agencyId,name:practiceName,slug,role:'owner',plan};
   }
-  async function verify(token) {
+  async function verify(token,password=null) {
     if (!/^[a-f0-9]{64}$/.test(token || '')) throw fail(400,'INVALID_TOKEN','This verification link is invalid or expired.');
     return transaction(async conn=>{
       const [pending]=await rows('SELECT * FROM noteworthy_signups WHERE token_hash=? AND expires_at>UTC_TIMESTAMP() FOR UPDATE',[noteworthyTokenHash(token)],conn);
@@ -110,8 +109,13 @@ export function createNoteworthyPayrollService({db=pool,send=defaultSend,hashPas
       if(pending.verified_agency_id) throw fail(400,'INVALID_TOKEN','This verification link has expired or has already been used.');
       const [existing]=await rows('SELECT id FROM users WHERE LOWER(email)=? LIMIT 1',[pending.email],conn);
       if (existing) throw fail(409,'ACCOUNT_EXISTS','Sign in to your existing account to create your practice.');
+      if(password===null || password===undefined || password==='')return {passwordRequired:true,verified:false};
+      if(typeof password!=='string' || password.length<12 || Buffer.byteLength(password)>72)throw fail(400,'INVALID_PASSWORD','Choose a password of at least 12 characters and at most 72 UTF-8 bytes.');
+      const valid=await validatePassword(password,{accountId:pending.email});
+      if(!valid.valid)throw fail(400,'INVALID_PASSWORD',valid.message);
+      const passwordHash=await hashPassword(password);
       const created=await rows(`INSERT INTO users(email,username,personal_email,password_hash,first_name,last_name,role,status,is_active,email_verified_at,has_provider_access)
-        VALUES(?,?,?,?,?,?,'provider','ACTIVE_EMPLOYEE',1,UTC_TIMESTAMP(),0)`,[pending.email,pending.email,pending.email,pending.password_hash,pending.first_name,pending.last_name],conn);
+        VALUES(?,?,?,?,?,?,'provider','ACTIVE_EMPLOYEE',1,UTC_TIMESTAMP(),0)`,[pending.email,pending.email,pending.email,passwordHash,pending.first_name,pending.last_name],conn);
       const practice=await createPracticeIn(conn,created.insertId,pending.practice_name,pending.plan_intent);
       await rows("UPDATE noteworthy_signups SET verified_agency_id=?,password_hash='' WHERE id=?",[practice.agencyId,pending.id],conn);
       return {verified:true,signInRequired:true,practice};

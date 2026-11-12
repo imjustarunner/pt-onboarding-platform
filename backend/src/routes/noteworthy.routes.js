@@ -19,7 +19,7 @@ export function createNoteworthyRouter({payroll=service,dataReadiness=readiness,
     next(error);
   });
   router.post('/signup',signupLimiter,run(async(req,res)=>res.status(201).json(await payroll.signup(req.body))));
-  router.post('/verify',recoveryLimiter,run(async(req,res)=>res.json(await payroll.verify(req.body?.token))));
+  router.post('/verify',recoveryLimiter,run(async(req,res)=>res.json(await payroll.verify(req.body?.token,req.body?.password))));
   router.post('/resend-verification',recoveryLimiter,run(async(req,res)=>res.json(await payroll.resend(req.body?.email))));
   router.post('/accept-invite',recoveryLimiter,optionalAuth,run(async(req,res)=>res.json(await payroll.acceptInvite(req.body,req.user?.id))));
   router.use(auth);

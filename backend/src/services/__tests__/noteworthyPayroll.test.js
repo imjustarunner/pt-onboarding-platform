@@ -7,8 +7,9 @@ import { createNoteworthyReadiness } from '../noteworthyReadiness.service.js';
 import { createNoteworthyImportReceipts } from '../noteworthyImportReceipt.service.js';
 import { canManagePayrollForAgency } from '../payrollManagementAccess.service.js';
 
-let sql,db,service,send,readiness;
-const request=()=>({practiceName:'Synthetic Practice',firstName:'Synthetic',lastName:'Owner',email:'owner@example.test',password:'Synthetic!Password2026',role:'super_admin',plan:'growth'});
+let sql,db,service,send,readiness,hashPassword,validatePassword;
+const recipientPassword='Recipient!ChosenPassword2026';
+const request=()=>({practiceName:'Synthetic Practice',firstName:'Synthetic',lastName:'Owner',email:'owner@example.test',role:'super_admin',plan:'growth'});
 function makeDb() {
   const connection={
     async execute(query,args=[]) {
@@ -42,14 +43,15 @@ beforeEach(()=>{
     CREATE TABLE organization_agreement_records(id TEXT,agency_id INTEGER,kind TEXT,payload TEXT);
     CREATE TABLE noteworthy_import_receipts(id INTEGER PRIMARY KEY AUTOINCREMENT,agency_id INTEGER,payroll_period_id INTEGER,file_sha256 TEXT,status TEXT DEFAULT 'processing',payroll_import_id INTEGER,UNIQUE(agency_id,payroll_period_id,file_sha256));`);
   db=makeDb();send=vi.fn().mockResolvedValue({sent:true});
-  service=createNoteworthyPayrollService({db,send,hashPassword:async()=>'$hashed-synthetic-password',validatePassword:async()=>({valid:true})});
+  hashPassword=vi.fn(async()=>'$hashed-recipient-password');validatePassword=vi.fn(async()=>({valid:true}));
+  service=createNoteworthyPayrollService({db,send,hashPassword,validatePassword});
   readiness=createNoteworthyReadiness({db,openAgreement:JSON.parse});
 });
 afterEach(()=>{sql.close();vi.unstubAllEnvs();});
 async function onboard() {
   await service.signup(request());
   const token=send.mock.calls.at(-1)[0].text.match(/#token=([a-f0-9]{64})/)[1];
-  return service.verify(token);
+  return service.verify(token,recipientPassword);
 }
 async function employee(agencyId=1) {return ensureNoteworthyProvider({agencyId,providerName:'Therapist, Synthetic',firstName:'Synthetic',lastName:'Therapist'},db);}
 
@@ -58,14 +60,44 @@ it('stages a signup without tenant privileges, then verifies one-use email owner
   expect(sql.prepare('SELECT COUNT(*) n FROM users').get().n).toBe(0);
   expect(sql.prepare('SELECT COUNT(*) n FROM agencies').get().n).toBe(0);
   const saved=sql.prepare('SELECT * FROM noteworthy_signups').get();
-  expect(saved.password_hash).toBe('$hashed-synthetic-password');
+  expect(saved.password_hash).toBe('');expect(hashPassword).not.toHaveBeenCalled();expect(validatePassword).not.toHaveBeenCalled();
   const email=send.mock.calls[0][0];expect(email.text).toContain('https://fundthred.com/noteworthy/verify#token=');
   const token=email.text.match(/#token=([a-f0-9]{64})/)[1];expect(saved.token_hash).not.toBe(token);
-  expect(await service.verify(token)).toMatchObject({verified:true,signInRequired:true,practice:{agencyId:1,role:'owner',plan:'growth'}});
+  expect(await service.verify(token)).toEqual({passwordRequired:true,verified:false});
+  expect(sql.prepare('SELECT COUNT(*) n FROM users').get().n).toBe(0);
+  expect(sql.prepare('SELECT token_hash,expires_at FROM noteworthy_signups').get()).toEqual({token_hash:saved.token_hash,expires_at:saved.expires_at});
+  expect(await service.verify(token,recipientPassword)).toMatchObject({verified:true,signInRequired:true,practice:{agencyId:1,role:'owner',plan:'growth'}});
+  expect(hashPassword).toHaveBeenCalledWith(recipientPassword);expect(validatePassword).toHaveBeenCalledWith(recipientPassword,{accountId:request().email});
+  expect(sql.prepare('SELECT password_hash FROM users').get().password_hash).toBe('$hashed-recipient-password');
   expect(sql.prepare('SELECT role,has_provider_access FROM users').get()).toEqual({role:'provider',has_provider_access:0});
   expect(sql.prepare('SELECT has_payroll_access FROM user_agencies').get().has_payroll_access).toBe(1);
   expect(sql.prepare('SELECT password_hash FROM noteworthy_signups').get().password_hash).toBe('');
   await expect(service.verify(token)).rejects.toMatchObject({code:'INVALID_TOKEN'});
+});
+it('ignores an initiator password and a legacy staged hash even after resending verification',async()=>{
+  await service.signup({...request(),password:'Attacker!ChosenPassword2026'});
+  expect(sql.prepare('SELECT password_hash FROM noteworthy_signups').get().password_hash).toBe('');
+  const oldToken=send.mock.calls.at(-1)[0].text.match(/#token=([a-f0-9]{64})/)[1];
+  sql.exec("UPDATE noteworthy_signups SET password_hash='legacy-attacker-staged-hash'");
+  await service.resend(request().email);
+  const token=send.mock.calls.at(-1)[0].text.match(/#token=([a-f0-9]{64})/)[1];
+  await expect(service.verify(oldToken,recipientPassword)).rejects.toMatchObject({code:'INVALID_TOKEN'});
+  expect(await service.verify(token)).toEqual({passwordRequired:true,verified:false});
+  await expect(service.verify(token,'short')).rejects.toMatchObject({code:'INVALID_PASSWORD'});
+  expect(sql.prepare('SELECT verified_agency_id FROM noteworthy_signups').get().verified_agency_id).toBeNull();
+  expect(await service.verify(token,recipientPassword)).toMatchObject({verified:true});
+  expect(sql.prepare('SELECT password_hash FROM users').get().password_hash).toBe('$hashed-recipient-password');
+  expect(hashPassword).toHaveBeenCalledTimes(1);expect(hashPassword).toHaveBeenCalledWith(recipientPassword);
+});
+it('verifies an existing account email without changing its password or MFA, regardless of an extra password input',async()=>{
+  sql.exec("INSERT INTO users(id,email,password_hash,role,is_active) VALUES(40,'existing@example.test','existing-password-hash','provider',1);CREATE TABLE account_mfa(user_id INTEGER,secret_cipher TEXT,factor_version INTEGER);INSERT INTO account_mfa VALUES(40,'retained-mfa-secret',4)");
+  await service.requestAccountVerification(40);
+  const token=send.mock.calls.at(-1)[0].text.match(/#token=([a-f0-9]{64})/)[1];
+  expect(await service.verify(token,'an-ignored-password')).toEqual({verified:true,signInRequired:true});
+  expect(sql.prepare('SELECT password_hash,email_verified_at FROM users WHERE id=40').get()).toMatchObject({password_hash:'existing-password-hash',email_verified_at:expect.any(String)});
+  expect(sql.prepare('SELECT * FROM account_mfa WHERE user_id=40').get()).toEqual({user_id:40,secret_cipher:'retained-mfa-secret',factor_version:4});
+  expect(hashPassword).not.toHaveBeenCalled();expect(validatePassword).not.toHaveBeenCalled();
+  expect(sql.prepare('SELECT COUNT(*) n FROM noteworthy_practices').get().n).toBe(0);
 });
 it('does not report email delivered when transport failed and never leaks verification tokens in API results',async()=>{
   send.mockRejectedValue(new Error('Synthetic failed delivery'));
