@@ -46,7 +46,7 @@
       <button type="button" class="rip-tab" :class="{ active: mode === 'processed' }" @click="setMode('processed')">Processed</button>
     </div>
 
-    <div v-if="reviewState.error" class="rip-error" role="alert">{{ reviewState.error }} <button type="button" class="btn btn-secondary" :disabled="loading" @click="reload">Try again</button></div>
+    <div v-if="reviewState.error" class="rip-error" role="alert">{{ reviewState.error }} <button type="button" class="btn btn-secondary" :disabled="loading || anySaving" @click="reload">Try again</button></div>
     <div v-if="lastSaveMessage" role="status" class="rip-saved">{{ lastSaveMessage }}</div>
     <div v-if="loading" class="rip-muted">Loading…</div>
 
@@ -59,7 +59,7 @@
       <div class="rip-controls">
         <div class="field" v-if="mode !== 'missed_appts_paid_in_full' && (!guided || imports.length > 1)">
           <label>Imported Snapshot</label>
-          <select v-model="selectedImportId" @change="reload">
+          <select v-model="selectedImportId" :disabled="loading || anySaving" @change="reload">
             <option v-for="imp in imports" :key="imp.id" :value="imp.id">{{ importLabel(imp) }}</option>
           </select>
         </div>
@@ -504,6 +504,7 @@ watch(() => props.catchUpMode, (on) => {
 });
 
 const reload = async () => {
+  minuteDrafts.value={};rowErrors.value={};failedChanges.clear();lastSaveMessage.value='';
   selectedDraftIds.value = [];
   if (!props.periodId) return;
   const sequence = ++reloadSequence;
@@ -616,8 +617,8 @@ const queueProcessingSave = (row,changes) => {
 const updateMinutes = (row,value) => {
   const next=Math.round(Number(value));
   if(!Number.isFinite(next) || next<=0){rowErrors.value={...rowErrors.value,[Number(row.id)]:'Enter a positive number of minutes before marking this row done.'};return;}
-  if(next===Number(row.unit_count)){rowErrors.value={...rowErrors.value,[Number(row.id)]:''};failedChanges.delete(Number(row.id));return;}
   minuteDrafts.value={...minuteDrafts.value,[Number(row.id)]:String(next)};
+  if(next===Number(row.unit_count)){rowErrors.value={...rowErrors.value,[Number(row.id)]:''};failedChanges.delete(Number(row.id));return;}
   queueProcessingSave(row,{unitCount:next});
 };
 const retryRow=row=>{const changes=failedChanges.get(Number(row.id));if(changes)queueProcessingSave(row,changes);};
