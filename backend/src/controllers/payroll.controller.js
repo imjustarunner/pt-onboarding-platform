@@ -6374,9 +6374,11 @@ export async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId,
       // SALARY is paid only via the Salary card (payroll_salary_positions), not per-code rates.
       // Skip SALARY from session pay so the compensation-table SALARY cell is never used.
       if (codeKey === 'SALARY') continue;
+      const perCode = bestPerCodeRate(codeKey);
+      const explicitUnpaid=Number(perCode?.pay_system_excluded)===1;
       const rule = ruleByCode.get(codeKey) || null;
       const defaults = payrollDefaultsForCode(codeKey);
-      const isFlatAddon = classifyPayType(codeKey, rule) === 'flat';
+      const isFlatAddon = !explicitUnpaid && classifyPayType(codeKey, rule) === 'flat';
       if (isFlatAddon && (!Number.isSafeInteger(finalizedUnits) || finalizedUnits < 0)) throw new Error(`Review ${codeKey}: add-ons require whole eligible occurrences.`);
       const flatRateAmount = isFlatAddon ? Number(rule?.flat_rate_amount) : null;
       if (isFlatAddon && (rule?.flat_rate_amount == null || !Number.isFinite(flatRateAmount) || flatRateAmount < 0)) throw new Error(`Set a valid flat payment for ${codeKey} in Payroll settings.`);
@@ -6401,8 +6403,6 @@ export async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId,
 
       const d = Number.isFinite(payDivisor) ? Number(payDivisor) : 1;
       const safeDivisor = (!Number.isFinite(d) || d <= 0) ? 1 : d;
-      const perCode = bestPerCodeRate(codeKey);
-      const explicitUnpaid=Number(perCode?.pay_system_excluded)===1;
       const isProBono = isProBonoServiceCode(codeKey);
       const safeCreditValue = (isFlatAddon || isProBono || explicitUnpaid) ? 0 : (Number.isFinite(creditValue) ? creditValue : 0);
 
@@ -6496,13 +6496,13 @@ export async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId,
         userPercentPayEnabled: rateCard?.percent_pay_enabled
       });
 
-      if (isFlatAddon || isProBono) { pctPay.usesPercentPay = false; pctPay.basis = null; }
+      if (isFlatAddon || isProBono || explicitUnpaid) { pctPay.usesPercentPay = false; pctPay.basis = null; }
       const billedPay = pctPay.basis === 'billed'
         ? await billedPayForStagingRow({ row, payrollPeriodId, agencyId, rates: ratesByCode.get(codeKey) || [] }) : null;
 
       // Always compute wage math on pay-hours for non-flat categories.
       const computeLineAmount = ({ units, payHours }) => {
-        if (isProBono) return 0;
+        if (isProBono || explicitUnpaid) return 0;
         if (isFlatAddon) return units * flatRateAmount;
         const isPrelicensedSupervisee = supervisionPrelicensedUserIds.has(Number(userId));
         // Prelicensed 99414/99416 tracking codes never pay (MEETING is the payable path).

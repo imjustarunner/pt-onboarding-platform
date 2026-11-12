@@ -874,6 +874,7 @@ onMounted(reload);
   cursor: pointer;
 }
 .btn-sm { padding: 4px 8px; font-size: 12px; }
+.btn-primary { background:var(--primary,#087e79); color:#fff; }
 .btn-secondary:hover { background: #E8F5E9; }
 @media (max-width: 900px) {
   .rip-controls { grid-template-columns: 1fr 1fr; }
