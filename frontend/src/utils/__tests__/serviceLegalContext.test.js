@@ -20,6 +20,18 @@ describe('service-specific terms across tenant hosts',()=>{
   expect(context.links.map(x=>x.href)).toContain('https://auricwell.com/auricwell/terms');
   expect(context.links.map(x=>x.href)).toContain('https://nextleveluplcc.com/nlu/terms');
  });
+ it.each([
+  {host:'app.nextleveluplcc.com',path:'/nlu-qa-demo/tutoring-profile',role:'provider'},
+  {host:'app.itsco.health',organizationSlug:'nlu-qa-demo',path:'/nlu-qa-demo/students',role:'provider'},
+  {host:'auricwell.com',organizationSlug:'nlu',path:'/nlu/guardian',role:'client_guardian',serviceType:'tutoring'},
+  {host:'app.itsco.health',organizationSlug:'nlu-qa-learning',path:'/nlu-qa-learning/childcare',role:'staff'}
+ ])('uses NLU service notices without inherited clinical links for %j',input=>{
+  const context=serviceLegalContext(input);
+  expect(context.name).toBe('Next Level Up');expect(context.nonclinical).toBe(true);
+  expect(context.links.every(link=>link.href.startsWith('https://nextleveluplcc.com/nlu/'))).toBe(true);
+  expect(context.links.some(link=>/auricwell|platformhipaa/i.test(link.href))).toBe(false);
+  expect(context.notice).toContain('does not grant access to clinical records');
+ });
  it('publishes the education-record boundary and separates user notices from organization signatures',()=>{
   const docs=legalDocumentsForProfile(tenantLegalProfiles.schoolcarebridge);
   expect(JSON.stringify(docs.terms)).toContain('FERPA');

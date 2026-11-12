@@ -17,5 +17,11 @@ it('renders the shared public details with published fees and the existing avail
 });
 it('retains tutoring subjects, grades, rates and packages alongside the extracted detail sections',async()=>{
  route.query={serviceType:'tutoring'};api.get.mockResolvedValue({data:{provider:{...provider,tutoringProfile:{subjectAreas:['Math'],gradeLevels:['Grade 6'],hourlyRates:{VIRTUAL:7500},packages:[{id:3,name:'Learning package',components:[],totalCents:30000}]}},profile,agency:{id:2,name:'Example Practice'}}});const w=render();
- try{await flushPromises();expect(w.find('.public-provider-details').text()).toContain('Subjects');expect(w.find('.public-provider-details').text()).toContain('Math');expect(w.find('.public-provider-details').text()).toContain('Grade 6');expect(w.text()).toContain('Learning rates & packages');expect(w.text()).toContain('$75.00 / hour');expect(w.text()).toContain('Learning package');expect(w.text()).toContain('$300.00');}finally{w.unmount();}
+ try{await flushPromises();expect(w.find('.public-provider-details').text()).toContain('Subjects');expect(w.find('.public-provider-details').text()).toContain('Math');expect(w.find('.public-provider-details').text()).toContain('Grade 6');expect(w.text()).toContain('Learning rates & packages');expect(w.text()).toContain('$75.00 / hour');expect(w.text()).toContain('Learning package');expect(w.text()).toContain('$300.00');expect(w.text()).not.toContain('Self-pay');expect(w.text()).not.toContain('$100 / session');expect(w.text()).not.toContain('Published fee information.');}finally{w.unmount();}
+});
+it('uses the tutoring hourly prices and withholds a missing clinical fee presented as zero',async()=>{
+ route.query={serviceType:'tutoring'};
+ api.get.mockResolvedValue({data:{provider:{...provider,tutoringProfile:{hourlyRates:{virtual:5000,'in-person':5500}}},profile:{...profile,selfPayRateLabel:'$0.00'},agency:{id:453,name:'NLU QA'}}});
+ const w=render();
+ try{await flushPromises();expect(w.text()).toContain('$50.00 / hour');expect(w.text()).toContain('$55.00 / hour');expect(w.text()).not.toContain('Self-pay');expect(w.text()).not.toContain('$0.00');}finally{w.unmount();}
 });

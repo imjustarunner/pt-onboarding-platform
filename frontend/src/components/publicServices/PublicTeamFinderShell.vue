@@ -79,7 +79,7 @@
 
         <PublicOfficeLocations v-if="filters.programType==='IN_PERSON'" :offices="locations" :model-value="location" required @update:model-value="chooseOffice"/>
         <label v-if="languages.length" class="tf-field"><span>Language</span><select v-model="language"><option value="">All languages</option><option v-for="value in languages" :key="value">{{value}}</option></select></label>
-        <label v-if="serviceType==='tutoring'" class="tf-field"><span>Learning program</span><select v-model="filters.learningProgram" @change="load"><option value="tutoring">Tutoring</option><option value="academic-acceleration">Academic Acceleration</option><option value="bridge">Cognitive & Emotional Enrichment / Bridge</option></select></label><h2 class="tf-rail-title">Refine results</h2>
+        <label v-if="serviceType==='tutoring'" class="tf-field"><span>Learning program</span><select v-model="filters.learningProgram" aria-label="Learning program" @change="load"><option value="tutoring">Tutoring</option><option value="academic-acceleration">Academic Acceleration</option><option value="bridge">Cognitive & Emotional Enrichment / Bridge</option></select></label><h2 class="tf-rail-title">Refine results</h2>
 
         <label class="tf-field">
           <span>Search</span>
@@ -93,7 +93,7 @@
 
         <label class="tf-field">
           <span>Session type</span>
-          <select v-model="filters.programType" @change="load">
+          <select v-model="filters.programType" aria-label="Session type" @change="load">
             <option value="VIRTUAL">Virtual</option>
             <option value="IN_PERSON">In-person</option>
           </select>
@@ -102,7 +102,7 @@
         <ClientMatchingPreferences v-if="filterMode==='counseling'||serviceType==='coaching'" v-model="matchingPreferences" />
         <label v-if="filterMode === 'tutoring'" class="tf-field">
           <span>Subject</span>
-          <select v-model="filters.subject" @change="load">
+          <select v-model="filters.subject" aria-label="Subject" @change="load">
             <option value="">All subjects</option>
             <option v-for="s in subjectOptions" :key="s" :value="s">{{ s }}</option>
           </select>
@@ -110,7 +110,7 @@
 
         <label v-if="filterMode === 'tutoring'" class="tf-field">
           <span>Grade level</span>
-          <select v-model="filters.gradeLevel" @change="load">
+          <select v-model="filters.gradeLevel" aria-label="Grade level" @change="load">
             <option value="">All grades</option>
             <option v-for="g in gradeOptions" :key="g" :value="g">{{ g }}</option>
           </select>

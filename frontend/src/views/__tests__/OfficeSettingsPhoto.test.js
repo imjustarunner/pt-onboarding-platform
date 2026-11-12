@@ -10,6 +10,7 @@ vi.mock("../../store/auth", () => ({
     user: { id: 465, role: "clinical_practice_assistant" },
   }),
 }));
+vi.mock("../../store/agency", () => ({ useAgencyStore: () => ({ currentAgency: null }) }));
 vi.mock("../../services/api", () => ({
   default: { get: m.get, post: m.post, delete: m.remove },
 }));

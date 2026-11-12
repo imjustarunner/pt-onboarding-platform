@@ -94,8 +94,12 @@ test('kiosk payroll claims and updates use the supplied transaction connection',
 test('legacy kiosks acquire the same transaction lock without nested pool reads and roll back duplicate taps', async (t) => {
   t.mock.method(pool, 'execute', async () => { throw new Error('Nested pool acquisition'); });
   const actions = [];
-  const db = { beginTransaction: async () => actions.push('begin'), commit: async () => actions.push('commit'), rollback: async () => actions.push('rollback'), release: () => actions.push('release'), execute: async (sql) => {
+  const db = { beginTransaction: async () => actions.push('begin'), commit: async () => actions.push('commit'), rollback: async () => actions.push('rollback'), release: () => actions.push('release'), execute: async (sql, args) => {
     if (sql.includes('FOR UPDATE')) { actions.push('lock'); return [[{ id: 9 }]]; }
+    if (sql === 'SELECT event_type FROM company_events WHERE id=? AND agency_id=?') {
+      assert.deepEqual(args, [4, 2]);
+      return [[{ event_type: 'skill_builder' }]];
+    }
     if (sql.includes('FROM skills_group_providers')) return [[{ ok: 1 }]];
     if (sql.includes('SELECT id, punched_at, session_id')) return [[]];
     if (sql.includes('SELECT punch_type')) return [[{ punch_type: 'clock_in' }]];
@@ -103,6 +107,25 @@ test('legacy kiosks acquire the same transaction lock without nested pool reads 
   } };
   const result = await recordSkillBuilderEventClockIn({ getConnection: async () => db }, { agencyId: 2, eventId: 4, userId: 9 });
   assert.equal(result.error.status, 409);
+  assert.deepEqual(actions, ['begin', 'lock', 'rollback', 'release']);
+});
+
+test('legacy kiosk clock-in cannot bypass childcare attendance and rate confirmation', async (t) => {
+  t.mock.method(pool, 'execute', async () => { throw new Error('Nested pool acquisition'); });
+  const actions = [];
+  const db = {
+    beginTransaction: async () => actions.push('begin'), commit: async () => actions.push('commit'),
+    rollback: async () => actions.push('rollback'), release: () => actions.push('release'),
+    execute: async (sql, args) => {
+      if (sql.includes('FOR UPDATE')) { actions.push('lock'); return [[{ id: 9 }]]; }
+      assert.equal(sql, 'SELECT event_type FROM company_events WHERE id=? AND agency_id=?');
+      assert.deepEqual(args, [4, 2]);
+      return [[{ event_type: 'childcare' }]];
+    }
+  };
+  const result = await recordSkillBuilderEventClockIn({ getConnection: async () => db }, { agencyId: 2, eventId: 4, userId: 9 });
+  assert.equal(result.error.status, 409);
+  assert.match(result.error.message, /Childcare shift/);
   assert.deepEqual(actions, ['begin', 'lock', 'rollback', 'release']);
 });
 

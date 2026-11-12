@@ -91,6 +91,47 @@ async function ensureIdentity({ agencyId, identityKey, displayName, fromEmail, r
   });
 }
 
+const nluQaSenderError = (message, code) => Object.assign(new Error(message), { code, status: 503 });
+async function nluQaSenderContext(agencyId, domainOverride, code) {
+  if (![453, 454].includes(Number(agencyId))) return null;
+  const [[agency]] = await pool.execute(
+    'SELECT id,slug,is_active,is_archived,organization_type,feature_flags FROM agencies WHERE id = ? LIMIT 1', [agencyId]
+  );
+  const domain = nluTutoringQaMailDomain(agency);
+  if (!domain || (domainOverride && String(domainOverride).trim().toLowerCase() !== domain)) {
+    throw nluQaSenderError('The retained NLU tutoring QA mail configuration is not ready.', code);
+  }
+  return { agencyId: Number(agencyId), domain, code };
+}
+
+async function prepareNluQaSender(context, identityKey, localPart) {
+  const source = await EmailSenderIdentity.findByAgencyAndIdentityKey(6, identityKey);
+  const replyTo = source?.reply_to || source?.from_email;
+  if (!source?.id || Number(source.agency_id) !== 6 || Number(source.is_active) !== 1
+    || String(source.from_email || '').trim().toLowerCase() !== `${localPart}@${context.domain}`
+    || !/^[^@\s]+@nextleveluplcc\.com$/i.test(String(replyTo || ''))) {
+    throw nluQaSenderError(`Configure an active existing NLU ${identityKey} sender before sending QA email. Sender verification is still required.`, context.code);
+  }
+  const existing = await EmailSenderIdentity.findByAgencyAndIdentityKey(context.agencyId, identityKey, { includeInactive: true });
+  if (existing && (Number(existing.agency_id) !== context.agencyId || Number(existing.is_active) !== 1)) {
+    throw nluQaSenderError(`Review the disabled QA ${identityKey} sender before sending email.`, context.code);
+  }
+  return { source, existing, identityKey,
+    values: { displayName: source.display_name || 'Next Level Up Notifications', fromEmail: source.from_email, replyTo } };
+}
+
+async function reuseNluQaSender(context, { source, existing, identityKey, values }) {
+  let identity = existing;
+  if (!identity) identity = await EmailSenderIdentity.create({
+    agencyId: context.agencyId, identityKey, ...values, inboundAddresses: [], isActive: true
+  });
+  else if (identity.from_email !== values.fromEmail || identity.reply_to !== values.replyTo || identity.display_name !== values.displayName) {
+    // Updating headers does not replace inbound routes or touch live NLU rows.
+    identity = await EmailSenderIdentity.update(identity.id, values);
+  }
+  return { ...identity, qaSenderSource: { agencyId: 6, identityId: source.id, identityKey } };
+}
+
 async function ensureSharedInbox({ agencyId, identity, displayName, identityKey }) {
   if (!identity?.id) return null;
   await CommunicationInbox.ensureFromSenderIdentities?.(agencyId);
@@ -119,6 +160,21 @@ async function ensureSharedInbox({ agencyId, identity, displayName, identityKey 
  * Ensure messages@ + securemessage@ (+ noreply) identities and shared inboxes for an agency.
  */
 export async function ensureTenantMessageMailboxes(agencyId, domainOverride = null) {
+  const qa = await nluQaSenderContext(agencyId, domainOverride, 'NLU_QA_MESSAGE_SENDERS_NOT_READY');
+  if (qa) {
+    const plans = [];
+    for (const [key, localPart] of [['messages', 'messages'], ['secure_message', 'securemessage'], ['noreply', 'noreply'], ['notifications', 'notifications']]) {
+      plans.push(await prepareNluQaSender(qa, key, localPart));
+    }
+    // Check every required source first. Missing readiness never leaves a
+    // partially configured QA mailbox or takes a shared inbound address.
+    const identities = [];
+    for (const plan of plans) identities.push(await reuseNluQaSender(qa, plan));
+    const [messages, secure, noreply, notifications] = identities;
+    const messagesInbox = await ensureSharedInbox({ agencyId: qa.agencyId, identity: messages, displayName: 'Messages', identityKey: 'messages' });
+    const secureInbox = await ensureSharedInbox({ agencyId: qa.agencyId, identity: secure, displayName: 'Secure Messages', identityKey: 'secure_message' });
+    return { domain: qa.domain, messages, secure, noreply, notifications, messagesInbox, secureInbox };
+  }
   const domain = String(domainOverride || (await inferAgencyMailDomain(agencyId)) || '')
     .trim()
     .toLowerCase();
@@ -210,6 +266,13 @@ export async function resolveMessagesSendMailbox(agencyId) {
  * Ensure notifications@{domain} sender identity for an agency.
  */
 export async function ensureTenantNotificationsMailbox(agencyId, domainOverride = null) {
+  // The retained tutoring sandbox shares NLU's already configured sender. It
+  // must not claim that live mailbox's globally unique inbound route.
+  const qa = await nluQaSenderContext(agencyId, domainOverride, 'NLU_QA_NOTIFICATIONS_SENDER_NOT_READY');
+  if (qa) {
+    const notifications = await reuseNluQaSender(qa, await prepareNluQaSender(qa, 'notifications', 'notifications'));
+    return { domain: qa.domain, notifications };
+  }
   const domain = String(domainOverride || (await inferAgencyMailDomain(agencyId)) || '')
     .trim()
     .toLowerCase();
@@ -229,7 +292,10 @@ export async function ensureTenantNotificationsMailbox(agencyId, domainOverride 
 }
 
 export async function listMessageAliasesForAgency(agencyId, { userId = null } = {}) {
-  const mailboxes = await ensureTenantMessageMailboxes(agencyId).catch(() => null);
+  const mailboxes = await ensureTenantMessageMailboxes(agencyId).catch(error => {
+    if (error.code === 'NLU_QA_MESSAGE_SENDERS_NOT_READY') throw error;
+    return null;
+  });
   const shared = mailboxes
     ? [
         {
@@ -250,6 +316,7 @@ export async function listMessageAliasesForAgency(agencyId, { userId = null } = 
     : [];
 
   const out = [];
+  let personalAliasUnavailableReason = null;
   if (userId) {
     try {
       const { ensureStaffTenantSendAlias } = await import('./personalMailbox.service.js');
@@ -264,10 +331,12 @@ export async function listMessageAliasesForAgency(agencyId, { userId = null } = 
         });
       }
     } catch (e) {
+      if (e.code === 'NLU_QA_PERSONAL_ALIAS_UNAVAILABLE') personalAliasUnavailableReason = e.message;
       console.warn('[listMessageAliasesForAgency] personal:', e?.message || e);
     }
   }
   for (const a of shared) {
+    if (personalAliasUnavailableReason) a.personalAliasUnavailableReason = personalAliasUnavailableReason;
     if (!out.some((x) => String(x.email || '').toLowerCase() === String(a.email || '').toLowerCase())) {
       out.push(a);
     }

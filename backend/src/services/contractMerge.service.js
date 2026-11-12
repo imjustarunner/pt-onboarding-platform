@@ -210,10 +210,11 @@ export function inferCompensationFromCredential({
   title = '',
   role = '',
   isHourlyWorker = false,
-  agencySlug = ''
+  agencySlug = '',
+  agency = null
 } = {}) {
   const legacyPay = classifyPayCategory({ credential, jobTitle, title, role, isHourlyWorker });
-  const nlu = handbookTenant({slug:agencySlug}) === 'nlu';
+  const nlu = handbookTenant(agency||{slug:agencySlug}) === 'nlu';
   const category = nlu ? inferNluContractCategory({credential,jobTitle:jobTitle || title,role}) : legacyPay.category;
   const pay = nlu ? {category,label:NLU_COMPENSATION_CATEGORIES[category]?.label || 'NLU placement requires review',reason:'Suggested NLU four-category placement from recorded qualifications; documented Practice approval is required'} : legacyPay;
   const license = determineLicenseStatus({ credential, jobTitle, title, role, isHourlyWorker });
@@ -309,7 +310,7 @@ export async function loadContractBundle({ agencyId, configId, templateId, jobDe
 
 export async function getAgencyBuilderDefaults(agencyId) {
   const [agencyRows] = await pool.execute(
-    `SELECT id, slug, name, street_address, city, state, postal_code FROM agencies WHERE id = ? LIMIT 1`,
+    `SELECT id, slug, name, street_address, city, state, postal_code, feature_flags FROM agencies WHERE id = ? LIMIT 1`,
     [agencyId]
   );
   const agency = agencyRows?.[0] || null;
@@ -331,7 +332,10 @@ export async function getAgencyBuilderDefaults(agencyId) {
           id: agency.id,
           slug: agency.slug,
           name: agency.name,
-          address: formatAgencyAddress(agency)
+          address: formatAgencyAddress(agency),
+          // Only the synthetic policy identity is needed by downstream inference;
+          // unrelated organization flags remain outside the contract response.
+          feature_flags: {qaSandbox:parseJsonValue(agency.feature_flags)?.qaSandbox||null}
         }
       : null,
     offices: (offices || []).map((o) => ({
@@ -425,7 +429,8 @@ export async function autofillTokensForCandidate({
     jobTitle,
     title: user?.title,
     role: user?.role,
-    agencySlug: agency?.slug
+    agencySlug: agency?.slug,
+    agency
   });
   const pay = await PayrollCompensationLevel.getForUser(agencyId, candidateUserId).catch(() => null);
 

@@ -15,7 +15,7 @@
         <ProviderLanguageBadges :details="provider.profile?.details || provider.details"/>
         <p v-if="provider.profile?.publicBlurb" class="card-bio">{{ provider.profile.publicBlurb }}</p>
         <p v-if="provider.acceptingNewClients !== undefined" class="card-accepting">{{ provider.acceptingNewClients ? 'Accepting new clients' : 'Ask the team about availability' }}</p>
-        <p v-if="provider.tutoringProfile" class="card-detail">{{provider.tutoringProfile.hourlyRateCents!=null?new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(provider.tutoringProfile.hourlyRateCents/100)+' / hour':provider.tutoringProfile.sessionRateLabel?provider.tutoringProfile.sessionRateLabel+' / session':'Contact us for pricing'}}</p><p v-if="provider.tutoringProfile?.gradeLevels?.length" class="card-detail">Grades: {{provider.tutoringProfile.gradeLevels.join(', ')}}</p><p v-if="provider.tutoringProfile?.acceptingNewStudents===false" class="card-detail">Not currently accepting new students. Ask about the waitlist.</p><div class="card-tags">
+        <p v-if="provider.tutoringProfile" class="card-detail">{{ tutoringRateLabel }}</p><p v-if="provider.tutoringProfile?.gradeLevels?.length" class="card-detail">Grades: {{provider.tutoringProfile.gradeLevels.join(', ')}}</p><p v-if="provider.tutoringProfile?.acceptingNewStudents===false" class="card-detail">Not currently accepting new students. Ask about the waitlist.</p><div class="card-tags">
           <span v-for="tag in visibleTags" :key="tag" class="tag">{{ tag }}</span>
         </div>
         <p v-if="serviceType !== 'tutoring' && provider.profile?.details?.clinicalFocus?.reviewed" class="card-detail">Highlighted areas · View profile for more</p><p v-if="visibleAges.length" class="card-detail">{{ visibleAges.join(' · ') }}</p>
@@ -93,6 +93,16 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['book', 'view-profile', 'view-availability', 'office-selected']);
+
+const tutoringRateLabel = computed(() => {
+  const profile = props.provider.tutoringProfile || {};
+  for (const [value, unit] of [[profile.hourlyRateCents, 'hour'], [profile.sessionRateCents, 'session']]) {
+    if (value == null || value === '') continue;
+    const cents = Number(value);
+    if (Number.isFinite(cents) && cents >= 0) return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100) + ` / ${unit}`;
+  }
+  return 'Contact us for pricing';
+});
 
 const visibleAges=computed(()=>props.serviceType === 'tutoring' ? [] : publishedFocus('ageGroups',props.provider.profile?.details?.clinicalFocus,props.provider.ageGroups||[]).top);
 const slots = computed(() => props.provider.availability?.slots || []);

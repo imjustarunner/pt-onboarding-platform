@@ -78,7 +78,7 @@ export const inferContractCompensation = async (req, res, next) => {
     const role = String(req.query.role || req.body?.role || '').trim();
     const degree = String(req.query.degree || req.body?.degree || '').trim();
     const agencyDefaults = await getAgencyBuilderDefaults(agencyId);
-    const inference = inferCompensationFromCredential({ credential, jobTitle, role,agencySlug:agencyDefaults.agency?.slug });
+    const inference = inferCompensationFromCredential({ credential, jobTitle, role,agencySlug:agencyDefaults.agency?.slug,agency:agencyDefaults.agency });
     res.json({
       ...inference,
       licenseType: formatLicenseTypeDisplay({

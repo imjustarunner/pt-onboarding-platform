@@ -924,6 +924,9 @@
                 <p v-if="composeSenderAlias?.sendingUnavailable" role="alert">
                   This sender could not be verified. Please try again before sending.
                 </p>
+                <p v-if="composeSenderAlias?.personalAliasUnavailableReason" role="status">
+                  {{ composeSenderAlias.personalAliasUnavailableReason }}
+                </p>
                 <input
                   v-if="showCcField"
                   v-model="composeCc"

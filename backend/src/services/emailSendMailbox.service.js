@@ -4,6 +4,7 @@ import User from '../models/User.model.js';
 import { managedDomain } from './managedWorkspaceGroupPolicy.js';
 import { workspaceMailboxType } from './workspaceMailboxType.service.js';
 import { assertDepartmentalGroupAccess, groupKeyForIdentity } from './departmentalGroupAccess.service.js';
+import { nluTutoringQaMailDomain } from '../utils/nluTutoringQaPolicy.js';
 
 /** Keep conversation ownership separate from the address used on the wire. */
 export async function resolveEmailSendMailbox({ agencyId, userId, inbox }) {
@@ -32,6 +33,17 @@ export async function resolveEmailSendMailbox({ agencyId, userId, inbox }) {
   const personal = selected.kind === 'personal';
   const messages = ['messages', 'messages_at_tenant'].includes(identity.identity_key);
   const flags = typeof agency.feature_flags === 'string' ? JSON.parse(agency.feature_flags || '{}') : agency.feature_flags || {};
+  if (messages && nluTutoringQaMailDomain(agency)) {
+    // Synthetic staff do not acquire a real Workspace mailbox by opening
+    // Messages. Keep the already authorized QA inbox and guarded shared sender.
+    const { resolveMessagesSendMailbox } = await import('./tenantMessageMailboxes.service.js');
+    const sender = await resolveMessagesSendMailbox(agencyId);
+    if (Number(sender.identity?.agency_id) !== Number(agencyId) || Number(sender.identity?.id) !== Number(identity.id)
+      || Number(sender.identity?.is_active) !== 1 || !sender.identity?.qaSenderSource) {
+      throw Object.assign(new Error('The QA messages sender is unavailable.'), { status: 400 });
+    }
+    return { ...sender, inbox: selected, routing: 'shared_team' };
+  }
   if ((managedDomain(agency) || flags.googleSsoEnabled === true) && (personal || messages)) {
     // Even when messages@ was selected explicitly, use the actor's own mailbox
     // to choose routing. Never move their private conversation to a shared inbox.

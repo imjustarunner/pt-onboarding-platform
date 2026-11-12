@@ -11,8 +11,8 @@
       />
       <span v-if="platformOrgName" class="powered-by-name">{{ platformOrgName }}</span>
     </div>
-    <a v-if="includeLegal && !scopedFamilyLegal && !isSummitStatsChrome" href="/records-request" class="legal-link">Request my records</a>
-    <ServiceUseNotice v-if="includeLegal && scopedFamilyLegal" :organization-slug="brandingStore.activeRouteSlug" :role="auth.user?.role" />
+    <a v-if="includeLegal && !scopedFamilyLegal && !isSummitStatsChrome && !legalContext.nonclinical" href="/records-request" class="legal-link">Request my records</a>
+    <ServiceUseNotice v-if="includeLegal && scopedFamilyLegal" :organization-slug="brandingStore.activeRouteSlug" :role="auth.user?.role" :service-type="workspaceServiceType" />
     <div v-else-if="includeLegal && legalLinksToRender.length" class="legal-links">
       <span v-if="legalTitleToRender" class="legal-title">{{ legalTitleToRender }}</span>
       <span v-if="legalTitleToRender" class="legal-sep">|</span>
@@ -36,6 +36,8 @@ import { computed } from 'vue';
 import ServiceUseNotice from './legal/ServiceUseNotice.vue';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '../store/auth';
+import { useAgencyStore } from '../store/agency';
+import { serviceWorkspace } from '../utils/nluWorkspace.js';
 import { serviceLegalContext } from '../utils/serviceLegalContext.js';
 import { useBrandingStore } from '../store/branding';
 import { toUploadsUrl } from '../utils/uploadsUrl';
@@ -79,6 +81,9 @@ const props = defineProps({
 const brandingStore = useBrandingStore();
 const route = useRoute();
 const auth = useAuthStore();
+const agencyStore = useAgencyStore();
+const workspaceServiceType = computed(() => serviceWorkspace(auth.user, agencyStore.currentAgency || {}).learningOnly ? 'learning' : '');
+const legalContext = computed(() => serviceLegalContext({host:typeof window==='undefined'?'':window.location.hostname, path:route.path, role:auth.user?.role, organizationSlug:brandingStore.activeRouteSlug || brandingStore.portalHostPortalUrl || '', serviceType:workspaceServiceType.value}));
 const scopedFamilyLegal = computed(() => ['client','client_guardian'].includes(auth.user?.role) || /^(www\.)?auricwell\.com$/i.test(window.location.hostname));
 const showPoweredBy = computed(() => brandingStore.showPoweredBy);
 const isSummitStatsChrome = useSummitStatsChallengeChrome();
@@ -108,6 +113,7 @@ const parsedSscFooterLinks = computed(() =>
 );
 
 const defaultLegalLinks = computed(() => {
+  if(legalContext.value.nonclinical)return legalContext.value.links;
   const slug=brandingStore.activeRouteSlug || brandingStore.portalHostPortalUrl || '';
   const profile=legalProfileForContext({host:typeof window==='undefined'?'':window.location.hostname,organizationSlug:slug});
   if(profile)return tenantLegalLinks(profile).map(link=>({label:link.label,href:(profile.legalOrigin || profile.origin)+link.path}));
@@ -139,7 +145,7 @@ const legalLinksToRender = computed(() => {
     baseLinks = parsedSscFooterLinks.value;
   } else {
     baseLinks = defaultLegalLinks.value;
-    const context = serviceLegalContext({host:typeof window==='undefined'?'':window.location.hostname, path:route.path, role:auth.user?.role, organizationSlug:brandingStore.activeRouteSlug || brandingStore.portalHostPortalUrl || ''});
+    const context = legalContext.value;
     const seenHrefs = new Set(baseLinks.map(link=>link.href));
     baseLinks = [...baseLinks, ...context.links.filter(link=>!seenHrefs.has(link.href))];
   }

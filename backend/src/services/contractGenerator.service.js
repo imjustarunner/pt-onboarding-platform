@@ -296,7 +296,8 @@ export async function getCandidateWizardContext({
     credential: credentialOverride || tokens.CREDENTIAL,
     jobTitle: tokens.JOB_TITLE,
     role: tokens.ROLE_TYPE,
-    agencySlug: agencyDefaults.agency?.slug
+    agencySlug: agencyDefaults.agency?.slug,
+    agency: agencyDefaults.agency
   });
 
   return {

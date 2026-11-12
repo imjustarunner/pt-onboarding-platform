@@ -7,13 +7,7 @@
       </div>
 
       <KioskBuildingSelector />
-      <div v-if="!officeId" class="muted" data-tour="buildings-settings-empty">
-        Select a building above to manage settings.
-      </div>
-
-      <div v-else>
-        <div v-if="error" class="error-box">{{ error }}</div>
-        <OfficeKioskAccessSettings v-if="['admin','super_admin'].includes(authStore.user?.role)" :key="officeId" :office-id="officeId" />
+      <div v-if="error" class="error-box" role="alert">{{ error }}</div>
 
         <div v-if="canManageOfficeSettings" class="section">
           <div class="section-title">Add a new physical building</div>
@@ -27,14 +21,21 @@
               </option>
             </select>
             <input v-model="newOfficeTimezone" placeholder="Timezone (e.g. America/New_York)" />
-            <button class="btn btn-primary" @click="createOffice" :disabled="saving || loading || !newOfficeName.trim() || (isSuperAdmin && !newOfficeAgencyId)">
+            <button class="btn btn-primary" @click="createOffice" :disabled="saving || loading || !newOfficeName.trim() || !creationAgency">
               Add building
             </button>
           </div>
           <div class="hint">
-            For non-super-admin users, the building is created in your primary agency.
+            <template v-if="creationAgency">This building will belong to {{ creationAgency.name }}.</template>
+            <template v-else>Select an authorized agency before adding a building.</template>
           </div>
         </div>
+
+      <div v-if="!officeId" class="muted" data-tour="buildings-settings-empty">
+        Select a building above to manage settings.
+      </div>
+      <div v-else>
+        <OfficeKioskAccessSettings v-if="['admin','super_admin'].includes(authStore.user?.role)" :key="officeId" :office-id="officeId" />
 
         <div class="section" data-tour="buildings-settings-svg">
           <div class="section-title">Building Details</div>
@@ -391,6 +392,7 @@ import { useRoute, useRouter } from 'vue-router';
 import api from '../services/api';
 import { toUploadsUrl } from '../utils/uploadsUrl.js';
 import { useAuthStore } from '../store/auth';
+import { useAgencyStore } from '../store/agency';
 import OfficeRoomPhotoButton from '../components/schedule/OfficeRoomPhotoButton.vue';
 import OfficeKioskAccessSettings from '../components/kiosk/OfficeKioskAccessSettings.vue';
 import KioskBuildingSelector from '../components/kiosk/KioskBuildingSelector.vue';
@@ -415,6 +417,7 @@ function closeOfficeRoomPhotoGallery() {
   officeRoomPhotoGallery.value = { open: false, officeId: 0, roomId: 0, roomLabel: '' };
 }
 const authStore = useAuthStore();
+const agencyStore = useAgencyStore();
 const isSuperAdmin = computed(() => authStore.user?.role === 'super_admin');
 const canManageOfficeSettings = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
@@ -483,6 +486,15 @@ const agencyOrganizations = computed(() =>
     .filter((a) => String(a?.organization_type || 'agency').toLowerCase() === 'agency')
     .sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')))
 );
+const creationAgency = computed(() => {
+  const choices = agencyOrganizations.value;
+  if (isSuperAdmin.value) return choices.find(a => Number(a.id) === Number(newOfficeAgencyId.value)) || null;
+  const slug = String(route.params?.organizationSlug || '').trim().toLowerCase();
+  // A scoped route must resolve to its own authorized agency, even while the
+  // working-agency store is catching up after navigation. Never choose the first.
+  if (slug) return choices.find(a => [a.slug, a.portal_url, a.portalUrl].some(value => String(value || '').trim().toLowerCase() === slug)) || null;
+  return choices.find(a => Number(a.id) === Number(agencyStore.currentAgency?.id)) || null;
+});
 
 const questionnaires = ref([]);
 const modules = ref([]);
@@ -624,16 +636,24 @@ const saveOffice = async () => {
 };
 
 const createOffice = async () => {
+  if (saving.value) return;
+  const agencyId = Number(creationAgency.value?.id || 0);
+  if (!canManageOfficeSettings.value || !agencyId) {
+    error.value = 'Select an authorized agency before adding a building.';
+    return;
+  }
+  const sourceSlug = route.params?.organizationSlug;
   try {
     saving.value = true;
     error.value = '';
     const payload = {
+      agencyId,
       name: newOfficeName.value.trim(),
       timezone: newOfficeTimezone.value?.trim() || 'America/New_York',
       svgUrl: null
     };
-    if (isSuperAdmin.value && newOfficeAgencyId.value) payload.agencyId = Number(newOfficeAgencyId.value);
     const resp = await api.post('/offices', payload);
+    if (Number(creationAgency.value?.id) !== agencyId || route.params?.organizationSlug !== sourceSlug) return;
     const createdId = Number(resp?.data?.id || 0) || null;
     newOfficeName.value = '';
     if (createdId) {

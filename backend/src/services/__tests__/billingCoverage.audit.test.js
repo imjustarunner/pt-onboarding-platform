@@ -55,7 +55,19 @@ test('an explicitly entered Medicaid plan type reaches the saved client policy',
 });
 test('nonclinical enrollment still requires a verified card when collection is enabled', async () => {
   mock.method(pool, 'execute', async sql => sql.includes('agency_billing_accounts') ? [[{ stripe_connect_account_id: 'acct_test' }]] : [[]]);
-  await assert.rejects(validateIntakeBilling({ agencyId: 1, submission: { id: 2 }, link: { master_channel: 'tutoring', intake_steps: [{ type: 'insurance_info', paymentOnly: true }] }, intakeData: { insuranceInfo: { authorizationAgreed:true,authorizationSignature:'QA Parent',secondary: { isMedicaid: true } } } }), e => e.status === 409);
+  await assert.rejects(validateIntakeBilling({ agencyId: 1, submission: { id: 2 }, link: { master_channel: 'tutoring', intake_steps: [{ type: 'insurance_info', paymentOnly: true }] }, intakeData: { insuranceInfo: { authorizationAgreed:true,authorizationSignature:'QA Parent',secondary: { isMedicaid: true } }, paymentInfo: { arrangement: 'self_pay', paymentChoice: 'add_card' } } }), e => e.status === 409);
+});
+for (const paymentInfo of [
+  {},
+  { arrangement: 'discuss' },
+  { arrangement: 'self_pay', paymentChoice: 'later', skipAcknowledged: true }
+]) test(`tutoring ${paymentInfo.paymentChoice || paymentInfo.arrangement || 'default discuss'} enrollment does not require a new card`, async () => {
+  mock.method(pool, 'execute', async () => { throw new Error('Deferred tutoring payment must not query merchant or saved cards'); });
+  await validateIntakeBilling({
+    agencyId: 1, submission: { id: 2 },
+    link: { master_channel: 'tutoring', intake_steps: [{ type: 'payment_collection' }] },
+    intakeData: { paymentInfo }
+  });
 });
 for (const automatic of [false, true]) test(`Medicaid blocks ${automatic ? 'automatic' : 'payer-initiated'} ledger collection before a card or Stripe is accessed`, async () => {
   // The live-billing guard reads the payer identity before opening the ledger

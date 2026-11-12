@@ -4,7 +4,7 @@ import Availability from '../../services/providerAvailability.service.js';
 import * as Snapshots from '../../services/publicAvailabilitySnapshot.service.js';
 import * as PublicReads from '../../services/publicReadSnapshot.service.js';
 import {createSharedPublicSnapshotCache} from '../../services/sharedPublicSnapshotCache.js';
-import {listTutors,listCounselors,createBookingRequest,createProviderSlotHold,joinProviderWaitlist,getProviderScheduleSummary,getProviderDetail,getProviderSlots} from '../publicAgencyServices.controller.js';
+import {listTutors,listCounselors,createBookingRequest,createProviderSlotHold,joinProviderWaitlist,getProviderScheduleSummary,getProviderDetail,getProviderSlots,getTutoringProfileForUser} from '../publicAgencyServices.controller.js';
 import Profile from '../../models/ProviderPublicProfile.model.js';
 import {createPublicAgencySupportTicket} from '../../services/publicAgencySupport.service.js';
 import {readPublicProviderSchedule} from '../../services/publicProviderSchedule.service.js';
@@ -40,6 +40,14 @@ beforeEach(()=>{
  });
 });
 describe('public multi-service directories',()=>{
+ it.each([[null,null],[7500,'$75.00'],[0,'$0.00']])('keeps a missing tutoring fee distinct from an explicitly configured fee: %s',async(cents,label)=>{
+  const original=pool.execute.getMockImplementation();
+  pool.execute.mockImplementation(async(sql,...args)=>sql.includes('FROM provider_tutoring_profiles')?[[{session_rate_cents:cents}]]:original(sql,...args));
+  const res=response(),next=vi.fn();
+  await getTutoringProfileForUser({params:{agencySlug:'test',userId:'9'}},res,next);
+  expect(next).not.toHaveBeenCalled();
+  expect(res.json.mock.calls[0][0].profile).toMatchObject({sessionRateCents:cents,sessionRateLabel:label});
+ });
  it('refreshes availability without reloading profile rates, insurance or office cards',async()=>{
   Availability.computeWeekAvailability.mockResolvedValue({inPersonSlots:[],virtualSlots:[{startAt:'2035-01-02T17:00:00Z',endAt:'2035-01-02T18:00:00Z'}]});
   const res=response(),next=vi.fn();

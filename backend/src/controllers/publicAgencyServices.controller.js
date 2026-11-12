@@ -574,7 +574,7 @@ async function getTutoringProfile(userId, agencyId) {
     subjectAreas,
     gradeLevels,
     sessionRateCents: r.session_rate_cents ?? null,
-    sessionRateLabel: formatMoney(r.session_rate_cents),
+    sessionRateLabel: r.session_rate_cents == null ? null : formatMoney(r.session_rate_cents),
     sessionRateNote: r.session_rate_note || null,
     bio: r.bio || null,
     acceptingNewStudents: r.accepting_new_students === 1 || r.accepting_new_students === true,

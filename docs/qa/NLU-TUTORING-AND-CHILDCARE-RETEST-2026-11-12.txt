@@ -55,6 +55,15 @@ SETUP BEFORE HANDING THE RUN TO THE BOT
    NLU Childcare-1112 and Devon QA NLU Childcare-1112. Add memberships453/454 only.
    Complete supported activation and synthetic approved compensation terms;
    account password alone must not activate employment or a childcare grant.
+   Engineering must first verify the deployed app-only hiring path and explicitly
+   configure it ONLY for these exact synthetic QA organizations, preserving other
+   flags: hireAccountMode=app_only, workspaceEmailDomain=example.com. This reserves
+   distinct app usernames, not Google users, Groups or working mailboxes. Keep
+   personal/recovery identities separate (for example qa.nlu.casey.work@example.com
+   and qa.nlu.devon.work@example.com as proposed work identities). Existing live
+   NLU account modes/domains remain unchanged. No ordinary bot admin access is
+   needed. An unset mode, unsatisfied package or unsigned agreement is a blocker;
+   do not substitute the current-employee shortcut for this new-hire journey.
 6. Use the account's Childcare service assignment panel. A has childcare plus
    own-shift scheduling. B has childcare; assign co-caregiver work as an authorized
    scheduler. Explicit schedule-management permission is independent of pay/role
@@ -121,6 +130,12 @@ Use counts only; do not create child/client records or enter child names.
 - A can create only their own shift. An authorized childcare scheduler can add B
   as co-caregiver. An ordinary tutor, family account, pending hire or unrelated
   agency cannot assign childcare. Removing a grant blocks new work/scheduling.
+- Test pending app-only hires before and after password preparation, reset-token
+  rotation and an already-issued session. They remain outside the employee app
+  until actual onboarding submission and separate staff activation. Engineering
+  verifies legacy activation/status controls do not provide another route. An
+  app username reservation must never provision an external mailbox or take an
+  existing person's identity; wrong namespace and collision remain denied.
 - Planned count stays on the occurrence. App/text asks "Were the scheduled X
   children present?" using that exact planned number. Choose Yes or record the
   actual count, including zero. Changes during work create timestamped history.

@@ -9,6 +9,7 @@ import User from '../models/User.model.js';
 import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
 import CommunicationInbox from '../models/CommunicationInbox.model.js';
 import {syncPersonalMailboxDisplayName} from './personalMailboxDisplayName.service.js';
+import { nluTutoringQaMailDomain } from '../utils/nluTutoringQaPolicy.js';
 
 const ELIGIBLE_ROLES = new Set([
   'admin',
@@ -26,6 +27,36 @@ const ELIGIBLE_ROLES = new Set([
 
 export function isPersonalMailboxEligibleRole(role) {
   return ELIGIBLE_ROLES.has(String(role || '').toLowerCase());
+}
+
+// QA staff must not acquire a real NLU mailbox or claim its inbound address by
+// opening the composer. Reuse only an already owned QA alias, without writes.
+async function existingNluQaPersonalMailbox({ agencyId, userId, fromEmail = null }) {
+  if (![453, 454].includes(Number(agencyId))) return null;
+  const unavailable = () => Object.assign(new Error('A personal email alias is not configured for this QA account. Use the shared NLU messages sender.'), {
+    code: 'NLU_QA_PERSONAL_ALIAS_UNAVAILABLE', status: 409
+  });
+  const agency = await Agency.findById(agencyId);
+  if (!nluTutoringQaMailDomain(agency)) throw unavailable();
+  const memberships = await User.getAgencies(userId);
+  if (!memberships.some(row => Number(row.id) === Number(agencyId) && ![0, false, '0'].includes(row.is_active))) throw unavailable();
+  const identity = await EmailSenderIdentity.findByAgencyAndIdentityKey(agencyId, `personal_${userId}`, { includeInactive: true });
+  const inbox = await findPersonalInbox({ agencyId, userId });
+  const email = String(identity?.from_email || '').trim().toLowerCase();
+  if (!identity?.id || Number(identity.agency_id) !== Number(agencyId) || Number(identity.is_active) !== 1
+    || identity.identity_key !== `personal_${userId}` || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)
+    || !inbox?.id || Number(inbox.agency_id) !== Number(agencyId) || Number(inbox.owner_user_id) !== Number(userId)
+    || Number(inbox.sender_identity_id) !== Number(identity.id) || Number(inbox.is_active) !== 1
+    || String(inbox.from_email || '').trim().toLowerCase() !== email
+    || (fromEmail && String(fromEmail).trim().toLowerCase() !== email)) throw unavailable();
+  const [owners] = await pool.execute(`SELECT r.sender_identity_id,esi.agency_id FROM email_inbound_routes r
+    JOIN email_sender_identities esi ON esi.id=r.sender_identity_id
+    WHERE LOWER(r.email_address)=? AND r.is_active=1`, [email]);
+  const [foreign] = await pool.execute(`SELECT id FROM email_sender_identities
+    WHERE LOWER(from_email)=? AND is_active=1 AND (agency_id IS NULL OR agency_id<>?) LIMIT 1`, [email, agencyId]);
+  if (owners.length !== 1 || Number(owners[0].sender_identity_id) !== Number(identity.id)
+    || Number(owners[0].agency_id) !== Number(agencyId) || foreign.length) throw unavailable();
+  return { identity, inbox };
 }
 
 function parseFeatureFlags(raw) {
@@ -208,6 +239,10 @@ export async function ensureStaffTenantSendAlias({ agencyId, userId } = {}) {
     };
   }
 
+  const qa = await existingNluQaPersonalMailbox({ agencyId: aid, userId: uid });
+  if (qa) return { id: qa.identity.id, email: qa.identity.from_email,
+    displayName: qa.identity.display_name, kind: 'personal', inboxId: qa.inbox.id, identityKey: qa.identity.identity_key };
+
   const preferred = await resolvePreferredTenantFromEmail({ agencyId: aid, user });
   if (!preferred || !preferred.includes('@')) return null;
 
@@ -294,6 +329,9 @@ export async function ensurePersonalMailbox({ agencyId, userId, actorUserId = nu
   if (!isPersonalMailboxEligibleRole(user.role)) {
     throw new Error('This role is not eligible for an app mailbox');
   }
+
+  const qa = await existingNluQaPersonalMailbox({ agencyId: aid, userId: uid });
+  if (qa) return qa.inbox;
 
   // Prefer existing personal inbox
   const [existing] = await pool.execute(
@@ -399,6 +437,9 @@ export async function ensurePersonalMailboxForAddress({
   if (!isPersonalMailboxEligibleRole(role) && !prehireStatus) {
     throw new Error('This role is not eligible for an app mailbox');
   }
+
+  const qa = await existingNluQaPersonalMailbox({ agencyId: aid, userId: uid, fromEmail: email });
+  if (qa) return qa.inbox;
 
   const name =
     String(displayName || '').trim() ||

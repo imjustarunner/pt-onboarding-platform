@@ -5,6 +5,7 @@ import * as signing from '../../utils/multiChildIntake.js';
 import { assertInvitedEnrollmentChildren } from '../../services/coGuardianEnrollmentRoster.js';
 import { assertPortalEnrollmentIdentity } from '../../utils/portalEnrollmentBinding.js';
 import { submittedChildCount, submissionArtifactsComplete } from '../../services/enrollmentSubmissionRoster.service.js';
+import { validateTutoringIntakeSubmission } from '../../services/learningIntakeSteps.js';
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()},onTableWrite:vi.fn()}));
 import {assertActiveCoGuardianInvite,assertCoGuardianSubmissionBinding} from '../../services/coGuardianInvite.service.js';
 
@@ -20,7 +21,7 @@ const ordinaryPacketBoundary={
 };
 const extractedHandlerSource=(start,end)=>source.slice(start,end)
  .replaceAll("await import('../services/clientUpdate.service.js')",'clientUpdatePacketService');
-function setup({allowResume=false,bundles=[],failed=false,templates=[],signedDocs=[],bindingClients=[{id:5}],requiredSteps=[],firstGuardian=false,qaFailure=null}={}) {
+function setup({allowResume=false,bundles=[],failed=false,templates=[],signedDocs=[],bindingClients=[{id:5}],requiredSteps=[],firstGuardian=false,qaFailure=null,masterChannel='counseling'}={}) {
  bindingClients=bindingClients.map((c,i)=>({...c,full_name:`Child ${i} Example`,date_of_birth:'2015-01-01'}));
  const intakeData={clients:bindingClients.map(c=>({clientId:c.id,fullName:c.full_name,dateOfBirth:c.date_of_birth})),responses:{submission:{}}};
  if(bindingClients.length>1)intakeData.multiClientSignatureConsent={accepted:true,acceptedAt:new Date().toISOString(),clientCount:bindingClients.length};
@@ -32,10 +33,10 @@ function setup({allowResume=false,bundles=[],failed=false,templates=[],signedDoc
  const reachedAcceptance=new Error('reached verified account acceptance');
  const accept=vi.fn(async()=>{throw reachedAcceptance;});
  const update=vi.fn(async(_id,updates)=>({...submission,...updates}));
- const deps={enrollmentSignerIdentity,...ordinaryPacketBoundary,clientUpdatePacketService:ordinaryPacketBoundary,...signing,assertInvitedEnrollmentChildren,assertPortalEnrollmentIdentity,submittedChildCount,submissionArtifactsComplete,
+ const deps={enrollmentSignerIdentity,...ordinaryPacketBoundary,clientUpdatePacketService:ordinaryPacketBoundary,...signing,assertInvitedEnrollmentChildren,assertPortalEnrollmentIdentity,submittedChildCount,submissionArtifactsComplete,validateTutoringIntakeSubmission,
   restoreSubmissionRoster:async()=>{throw reachedAcceptance;},
   validationResult:()=>({isEmpty:()=>true}),
-  resolvePublicIntakeContext:async()=>({link:{id:8,is_active:true,scope_type:'agency',form_type:'intake',organization_id:2,create_client:1,create_guardian:1,intake_steps:requiredSteps}}),
+  resolvePublicIntakeContext:async()=>({link:{id:8,is_active:true,scope_type:'agency',form_type:'intake',organization_id:2,create_client:1,create_guardian:1,intake_steps:requiredSteps,master_channel:masterChannel}}),
   applyChannelMasterReadOnly:async link=>link,applySmartRoiPayloadFallback:()=>{},resolveAgencyIdForLink:async()=>2,
   CoGuardianInvite:{assertCoGuardianSubmissionBinding,resolveCoGuardianResumeBinding:async(_row,token)=>allowResume&&token===submission.session_token?{invite,clients:bindingClients,acceptedUserId:9}:null,resolveCoGuardianIntakeBinding:async()=>({invite:assertActiveCoGuardianInvite(invite,{agencyId:2,publicKey:'packet'}),clients:bindingClients,acceptedUserId:9}),acceptCoGuardianInvite:accept},
   matchesIntakeSession:(a,b)=>a===b,IntakeSubmission:{findById:async()=>submission,updateById:update,bindCoGuardianInvite:async()=>submission},
@@ -61,6 +62,17 @@ it('permits the still-active accepted token to retry when no packet was complete
  const state=setup();const result=await state.run();
  expect(result.error).toBe(state.reachedAcceptance);expect(result.body?.success).not.toBe(true);
  expect(state.accept).toHaveBeenCalledWith(expect.objectContaining({token:'accepted-token',enrollmentCompleted:true}));
+});
+it('keeps the clinical retry path independent of tutoring agreement acceptance',async()=>{
+ const state=setup({masterChannel:'counseling'});
+ expect(state.req.body.intakeData.responses.submission).toEqual({});
+ expect((await state.run()).error).toBe(state.reachedAcceptance);
+ expect(state.accept).toHaveBeenCalledOnce();
+});
+it('runs the real tutoring validator before retry persistence or account acceptance',async()=>{
+ const state=setup({masterChannel:'tutoring',requiredSteps:[{id:'tutoring_services_agreement',type:'custom',label:'Tutoring services agreement'}]});
+ expect((await state.run()).error).toMatchObject({status:400,message:'Please review and accept the tutoring services agreement.'});
+ expect(state.update).not.toHaveBeenCalled();expect(state.accept).not.toHaveBeenCalled();
 });
 it('rejects an ineligible QA identity before submitted status, client creation or portal acceptance',async()=>{
  const error=Object.assign(new Error('Use an isolated QA guardian'),{status:400});
