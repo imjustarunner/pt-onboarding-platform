@@ -86,6 +86,9 @@ describe.skipIf(!recoveryMysqlEnabled)('NoteWorthy erasure — actual isolated M
     await db.query('DELETE FROM noteworthy_deletion_jobs');
     await db.query("UPDATE noteworthy_practices SET deletion_requested_at=NULL,trial_started_at=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 31 DAY),trial_ends_at=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 1 DAY),retention_days=7 WHERE agency_id=1");
     await db.query("UPDATE noteworthy_practices SET trial_ends_at=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 1 DAY),commercial_activated_at=UTC_TIMESTAMP() WHERE agency_id=2");
+    await access.queue(1,'trial_expired');await access.queue(2,'trial_expired');
+    expect(await erase.tick()).toMatchObject([{skipped:true},{skipped:true}]);
+    const [[cancelled]]=await db.query('SELECT COUNT(*) n FROM noteworthy_deletion_jobs');expect(Number(cancelled.n)).toBe(0);
     expect(await erase.tick()).toEqual([]);
     await db.query("UPDATE noteworthy_practices SET retention_days=0,trial_policy_version=0 WHERE agency_id=1");
     expect(await erase.tick()).toEqual([]);

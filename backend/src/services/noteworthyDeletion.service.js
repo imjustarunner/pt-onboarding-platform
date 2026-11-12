@@ -107,7 +107,12 @@ export function createNoteworthyDeletion({db=pool,access=lifecycle,now=()=>new D
       if(!row||!job||job.status==='completed'){await conn.rollback();return {skipped:true};}
       await access.assertStandalone(agencyId,conn);
       const state=noteworthyTrialState(row,now());
-      if(!row.deletion_requested_at && state.state!=='deletion_due'){await conn.rollback();return {skipped:true};}
+      if(!row.deletion_requested_at && state.state!=='deletion_due'){
+        // A saved retention extension or confirmed plan cancels an unstarted
+        // expiry job. Do not leave skipped jobs starving the worker's queue.
+        await conn.execute('DELETE FROM noteworthy_deletion_jobs WHERE agency_id=?',[agencyId]);
+        await conn.commit();return {skipped:true};
+      }
       // Freeze writes before discovering/removing any record or object.
       await conn.execute('UPDATE noteworthy_practices SET deletion_requested_at=COALESCE(deletion_requested_at,UTC_TIMESTAMP()) WHERE agency_id=?',[agencyId]);
       await conn.execute("UPDATE noteworthy_deletion_jobs SET status='processing',attempts=attempts+1,error_code=NULL WHERE agency_id=?",[agencyId]);
