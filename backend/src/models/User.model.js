@@ -2923,6 +2923,8 @@ class User {
   }
 
   static async changePassword(userId, newPassword) {
+    const {assertAppHirePasswordEntry}=await import('../services/hireAppAccount.service.js');
+    await assertAppHirePasswordEntry(await this.findById(userId));
     await assertFullSuiteIdentity(userId);
     const bcrypt = (await import('bcrypt')).default;
     const passwordHash = await bcrypt.hash(newPassword, 10);
@@ -3110,8 +3112,14 @@ class User {
   static async updateStatus(userId, status, actorUserId = null, audit = {}) {
     let completedHire = false;
     let preserveTestExpiration = false;
+    let activationUser=null;
+    if(['ACTIVE','COMPLETED','ACTIVE_EMPLOYEE'].includes(String(status||'').toUpperCase())){
+      const {assertAppHireActivationReady}=await import('../services/hireAppAccount.service.js');
+      activationUser=await this.findById(userId);
+      if(await assertAppHireActivationReady(activationUser))status='ACTIVE_EMPLOYEE';
+    }
     if (status === 'ACTIVE_EMPLOYEE') {
-      const current = await this.findById(userId);
+      const current = activationUser||await this.findById(userId);
       const { isGuardianTestAccount } = await import('../services/guardianTestAccess.service.js');
       preserveTestExpiration = isGuardianTestAccount(current);
       if (['PREHIRE_OPEN', 'PREHIRE_REVIEW'].includes(current?.status)) {

@@ -9,6 +9,7 @@ import { isHirePortalOnly, requiresHireActivation, HIRE_ACTIVATION_MESSAGE } fro
 import jwt from 'jsonwebtoken';
 import { signFullSuiteToken } from '../services/productIdentity.service.js';
 import { assertCurrentAccountEnabled } from '../services/accountAccess.service.js';
+import {assertAppHireStaffAccess} from '../services/hireAppAccount.service.js';
 import crypto from 'crypto';
 import { signBrandSwitchMemory, readBrandSwitchMemory } from '../utils/brandSwitchLoginMemory.js';
 import { validationResult } from 'express-validator';
@@ -665,6 +666,7 @@ export const login = async (req, res, next) => {
 
     // Keep hires in their personal portal until staff activate employment,
     // including hires who have already prepared their password for final review.
+    await assertAppHireStaffAccess(user);
     if (requiresHireActivation(user)) {
       return res.status(403).json({ error: {
         code: 'HIRE_ACTIVATION_REQUIRED', message: HIRE_ACTIVATION_MESSAGE, usePortalLink: true

@@ -1,4 +1,5 @@
 import { PREHIRE_OVERRIDE_PREFIX,applyPrehireStepOverrides } from '../utils/hirePrehireStepOverrides.js';
+import {hireModeRequiresPortalPassword} from '../utils/hireAccountMode.js';
 import { schoolAvailabilityStep, validateSchoolServiceAvailability } from '../utils/schoolServiceAvailability.js';
 import { persistSchoolServiceAvailability } from './schoolServiceAvailability.service.js';
 import {normalizeFocusAgeValues} from '../utils/providerFacetNormalization.js';
@@ -242,7 +243,7 @@ export async function buildPortalWorkflow({ user, agencyId, tasks, prehireTasks,
     const saved = stored(resource.phase, resource.id);
     add(resource.phase, { ...resource, key: resource.id, complete: !!saved?.completedAt, submission: saved?.value || null });
   }
-  add('onboarding', { key: 'account', kind: 'account', title: 'Accounts & access', required: hireAccountMode === 'group_password', complete: [true, 1, '1'].includes(user.sso_password_override), instructions: 'Review all your assigned login details here. After activation, find them in My Dashboard → My Account → Accounts & access.' });
+  add('onboarding', { key: 'account', kind: 'account', title: 'Accounts & access', required: hireModeRequiresPortalPassword(hireAccountMode), complete: [true, 1, '1'].includes(user.sso_password_override)&&(hireAccountMode!=='app_only'||!!user.password_hash), instructions: 'Review all your assigned login details here. After activation, find them in My Dashboard → My Account → Accounts & access.' });
   for (const phase of ['pre_hire', 'onboarding']) {
     add(phase, { key: 'review', kind: 'review', title: 'Final review', required: false, complete: phase === 'pre_hire' ? prehireClosed : onboardingClosed });
   }

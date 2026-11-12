@@ -10,6 +10,7 @@ vi.mock('vue-router', () => ({ useRoute: () => ({ params: { token: 'fixture' }, 
 vi.mock('../../composables/useOnboardingActivity.js', () => ({ useOnboardingActivity: () => ({}) }));
 let state;
 beforeEach(() => {
+  vi.clearAllMocks();
   state = { candidate: { status: 'ONBOARDING', workEmail: 'staff@example.invalid', passwordFinalized: false, canFinalizeLogin: false }, agency: { name: 'Fixture' }, hireAccountMode: 'group_password', journey: {}, workflow: { supervisor: {} }, tasks: [] };
   api.get.mockImplementation(async url => ({ data: url.includes('suggestions') ? { suggestions: [] } : state }));
 });
@@ -38,4 +39,26 @@ it('keeps submitted onboarding read-only while staff activation is pending', asy
   expect(wrapper.text()).toContain('activate your account after onboarding review');
   expect(wrapper.find('input[autocomplete="new-password"]').exists()).toBe(false);
   wrapper.unmount();
+});
+it('offers the same final password step for explicit app-only hires without claiming activation',async()=>{
+  state.hireAccountMode='app_only';state.candidate.canFinalizeLogin=true;
+  const wrapper=await mountAccount();expect(wrapper.findAll('input[autocomplete="new-password"]')).toHaveLength(2);
+  expect(wrapper.text()).toContain('when People Operations activates');wrapper.unmount();
+});
+it.each(['app_only',null])('uses the normal reservation endpoint for non-group mode %s',async mode=>{
+  state.hireAccountMode=mode;state.candidate.status='PREHIRE_OPEN';state.candidate.workEmail=null;state.portalPhase='account_setup';
+  api.get.mockImplementation(async url=>({data:url.includes('suggestions')?{enabled:true,domain:'example.com',suggestions:[{email:'qa.nlu.casey.work@example.com'}]}:state}));
+  const wrapper=shallowMount(Portal,{global:{stubs:{HirePortalWorkspace:{template:'<div><slot name="work-email" /></div>'}}}});
+  await flushPromises();
+  expect(api.get.mock.calls.some(([url])=>url.includes('account/suggestions'))).toBe(true);
+  await wrapper.find('button.btn-primary').trigger('click');await flushPromises();
+  expect(api.post).toHaveBeenCalledWith('/prehire-portal/fixture/workflow/work-email',{email:'qa.nlu.casey.work@example.com'});
+  expect(api.post.mock.calls.some(([url])=>url.includes('account/provision'))).toBe(false);wrapper.unmount();
+});
+it('keeps group username provisioning on its existing external-account route',async()=>{
+  state.candidate.status='PREHIRE_OPEN';state.candidate.workEmail=null;state.portalPhase='account_setup';
+  api.get.mockImplementation(async url=>({data:url.includes('suggestions')?{enabled:true,domain:'itsco.health',suggestions:[{email:'staff@itsco.health'}]}:state}));
+  const wrapper=shallowMount(Portal,{global:{stubs:{HirePortalWorkspace:{template:'<div><slot name="work-email" /></div>'}}}});
+  await flushPromises();await wrapper.find('button.btn-primary').trigger('click');await flushPromises();
+  expect(api.post).toHaveBeenCalledWith('/prehire-portal/fixture/account/provision',{workEmail:'staff@itsco.health'});wrapper.unmount();
 });

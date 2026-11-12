@@ -29,3 +29,8 @@ it('does not reopen Group provisioning after onboarding was submitted',async()=>
  await provisionPortalAccount({portalUser:{id:8,status:'ONBOARDING'},body:{}},res,vi.fn());
  expect(res.status).toHaveBeenCalledWith(409);expect(m.provision).not.toHaveBeenCalled();
 });
+it('does not call Workspace provisioning for an app-only portal identity',async()=>{
+ m.execute.mockResolvedValue([[{id:453,slug:'nlu-qa-demo',feature_flags:{hireAccountMode:'app_only'}}]]);
+ const res=response();await provisionPortalAccount({portalUser:{id:8},body:{workEmail:'qa.nlu.casey.work@example.com'}},res,vi.fn());
+ expect(res.status).toHaveBeenCalledWith(400);expect(m.provision).not.toHaveBeenCalled();
+});

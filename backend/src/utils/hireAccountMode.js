@@ -3,3 +3,5 @@ export function hireAccountModeForUser(agency,user={}) {
  let flags=agency?.feature_flags || {};if(typeof flags==='string'){try{flags=JSON.parse(flags);}catch{flags={};}}
  return String(flags.hireAccountMode || '').trim().toLowerCase() || null;
 }
+
+export const hireModeRequiresPortalPassword = mode => ['group_password','app_only'].includes(mode);

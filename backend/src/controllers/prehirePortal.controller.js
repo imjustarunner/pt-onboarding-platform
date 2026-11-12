@@ -1,4 +1,4 @@
-import { hireAccountModeForUser } from '../utils/hireAccountMode.js';
+import { hireAccountModeForUser, hireModeRequiresPortalPassword } from '../utils/hireAccountMode.js';
 import { loadPortalPrehireExtras, resolveJobDescriptionIdForCandidate } from '../services/hirePortalExtras.service.js';
 import { onboardingPasswordReady } from '../utils/hirePortalWorkflow.js';
 import { applicantReferenceStatus } from '../models/HiringReferenceContact.model.js';
@@ -189,11 +189,11 @@ export const getPortal = async (req, res, next) => {
     const hireAccountMode = hireAccountModeForUser({feature_flags:featureFlags},user);
     // Choose the work username in pre-hire; set the password during onboarding account setup.
     const usernameChosen = Boolean(user.work_email && String(user.work_email).includes('@'));
-    const passwordFinalized = Boolean(
+    const passwordFinalized = Boolean((hireAccountMode!=='app_only'||user.password_hash)&&(
       user.sso_password_override === 1
       || user.sso_password_override === true
       || user.sso_password_override === '1'
-    );
+    ));
     const accountSetupComplete = usernameChosen;
 
     const allTasks = await journeyTasks(userId, user.status);
@@ -216,7 +216,7 @@ export const getPortal = async (req, res, next) => {
     if (status === 'PREHIRE_REVIEW') portalPhase = 'review';
     else if (status === 'ONBOARDING') {
       portalPhase = (
-        hireAccountMode === 'group_password'
+        hireModeRequiresPortalPassword(hireAccountMode)
         && usernameChosen
         && !passwordFinalized
         && requiredComplete
@@ -225,7 +225,7 @@ export const getPortal = async (req, res, next) => {
         ? 'finalize_login'
         : 'onboarding';
     } else if (status === 'PENDING_SETUP' || status === 'PREHIRE_OPEN') {
-      portalPhase = hireAccountMode === 'group_password' && !usernameChosen
+      portalPhase = hireModeRequiresPortalPassword(hireAccountMode) && !usernameChosen
         ? 'account_setup'
         : 'pre_hire';
     }
@@ -252,7 +252,7 @@ export const getPortal = async (req, res, next) => {
     })();
     const workflow = await buildPortalWorkflow({ user, agencyId: agencyRaw.id, tasks,
       prehireTasks: allTasks.filter((t) => t.phase === 'pre_hire'), extras, backgroundCheck, hireAccountMode, journey });
-    const canFinalizeLogin = hireAccountMode === 'group_password' && usernameChosen && !passwordFinalized && onboardingPasswordReady(user, workflow, journey);
+    const canFinalizeLogin = hireModeRequiresPortalPassword(hireAccountMode) && usernameChosen && !passwordFinalized && onboardingPasswordReady(user, workflow, journey);
     if (status === 'ONBOARDING') portalPhase = journey?.onboardingCompletedAt ? 'onboarding_review' : canFinalizeLogin ? 'finalize_login' : 'onboarding';
 
     const referenceStatus = agencyRaw?.id ? await applicantReferenceStatus(userId, agencyRaw.id) : [];
@@ -675,7 +675,7 @@ export const portalComplete = async (req, res, next) => {
     const state = await portalStateForUser(req.portalUser.id);
     if (state.candidate.status === 'ONBOARDING') {
       if (!state.journey?.onboardingCompletedAt && !state.progress.allDone) return res.status(400).json({ error: { code: 'TASKS_INCOMPLETE', message: 'Complete all required onboarding steps before submitting.' } });
-      if (state.hireAccountMode === 'group_password' && !state.candidate.passwordFinalized) {
+      if (hireModeRequiresPortalPassword(state.hireAccountMode) && !state.candidate.passwordFinalized) {
         return res.status(400).json({ error: { message: 'Set your password before submitting onboarding.' } });
       }
       const journey = await completeOnboarding(req.portalUser.id, requiredSubmissionKeys(state.workflow.steps.onboarding, !!state.candidate.workEmail));
@@ -1152,6 +1152,7 @@ export const provisionPortalAccount = async (req, res, next) => {
     if((await getJourney(user.id))?.onboardingCompletedAt)return res.status(409).json({error:{message:'Onboarding is submitted. Contact People Operations to correct the work username.'}});
     const agency = await loadPortalAgency(user.id);
     if (!agency) return res.status(400).json({ error: { message: 'No organization found.' } });
+    if(hireAccountModeForUser(agency,user)==='app_only')return res.status(400).json({error:{message:'Save this app username through the work-username form. No external account is provisioned.'}});
     const { provisionHireGroupUsername } = await import('../services/hireGroupAccount.service.js');
     // Provisioning validates the agency domain and current availability for both suggested and custom addresses.
     const result = await provisionHireGroupUsername({
@@ -1203,7 +1204,8 @@ export const setPortalAccountPassword = async (req, res, next) => {
       hasHireGroupPasswordFinalized,
       finalizeHireGroupPassword
     } = await import('../services/hireGroupAccount.service.js');
-    if (!isGroupPasswordHireMode(agency,user)) {
+    const mode=hireAccountModeForUser(agency,user);
+    if (!hireModeRequiresPortalPassword(mode)) {
       return res.status(400).json({ error: { message: 'Password finalization is not enabled for this organization.' } });
     }
     if (hasHireGroupPasswordFinalized(user) && user.password_hash) {
@@ -1220,7 +1222,9 @@ export const setPortalAccountPassword = async (req, res, next) => {
       });
     }
 
-    const result = await finalizeHireGroupPassword({ user, agency, password });
+    const result = mode==='app_only'
+      ? await (await import('../services/hireAppAccount.service.js')).finalizeAppHirePassword({user,agency,password})
+      : await finalizeHireGroupPassword({ user, agency, password });
 
     res.json({
       ok: true,

@@ -245,10 +245,10 @@
             >
               <div class="portal-tasks-head">
                 <div>
-                  <h2>Choose your work username</h2>
+                  <h2>{{ hireAccountMode === 'app_only' ? 'Choose your app username' : 'Choose your work username' }}</h2>
                   <p>
                     Pick an available address at @{{ accountDomain || 'your organization' }}.
-                    All email correspondence is managed entirely within the portal. Access the Communications tab in the portal to compose, send, and review your messages.
+                    {{ hireAccountMode === 'app_only' ? 'This is a synthetic app identity. It does not create an external email account. QA email is delivered to the controlled testing inbox.' : 'All email correspondence is managed entirely within the portal. Access the Communications tab in the portal to compose, send, and review your messages.' }}
                     You will set your password after completing the required onboarding steps — recovery always uses your personal email.
                   </p>
                 </div>
@@ -262,14 +262,14 @@
                   :disabled="provisioningAccount || !canProvisionAccount"
                   @click="provisionAccount"
                 >
-                  {{ provisioningAccount ? 'Creating…' : 'Save my username' }}
+                  {{ provisioningAccount ? 'Saving…' : 'Save my username' }}
                 </button>
                 <p v-if="accountError" class="cred-warn">{{ accountError }}</p>
               </div>
             </section>
 
 </template></template>
-        <template #account><div class="portal-link-card"><h3>Your account</h3><p><strong>Username:</strong> {{ candidate.workEmail || 'People Operations will confirm your login.' }}</p><p><strong>Supervisor:</strong> {{ portalData.workflow?.supervisor?.name || 'To be confirmed' }}</p><p v-if="candidate.passwordFinalized" class="cred-ok">Your password is set. People Operations will activate your account after onboarding review.</p><p v-else-if="hireAccountMode === 'group_password' && !candidate.canFinalizeLogin">Complete all required onboarding steps first. Password setup is the final step before submitting for review.</p><p v-else-if="hireAccountMode !== 'group_password'">Your organization manages login access. People Operations will provide your sign-in instructions.</p></div><template v-if="hireAccountMode === 'group_password' && candidate.canFinalizeLogin && !processClosed">            <section
+        <template #account><div class="portal-link-card"><h3>Your account</h3><p><strong>Username:</strong> {{ candidate.workEmail || 'People Operations will confirm your login.' }}</p><p><strong>Supervisor:</strong> {{ portalData.workflow?.supervisor?.name || 'To be confirmed' }}</p><p v-if="candidate.passwordFinalized" class="cred-ok">Your password is set. People Operations will activate your account after onboarding review.</p><p v-else-if="portalPasswordMode && !candidate.canFinalizeLogin">Complete all required onboarding steps first. Password setup is the final step before submitting for review.</p><p v-else-if="!portalPasswordMode">Your organization manages login access. People Operations will provide your sign-in instructions.</p></div><template v-if="portalPasswordMode && candidate.canFinalizeLogin && !processClosed">            <section
               class="portal-account-setup"
               aria-label="Prepare your employee password"
             >
@@ -652,6 +652,7 @@ const activity = useOnboardingActivity({ enabled: activityEnabled, token, http: 
 const progress = computed(() => portalData.value?.progress || { total: 0, completed: 0, allDone: false });
 const portalPhase = computed(() => portalData.value?.portalPhase || 'pre_hire');
 const hireAccountMode = computed(() => portalData.value?.hireAccountMode || null);
+const portalPasswordMode = computed(() => ['group_password','app_only'].includes(hireAccountMode.value));
 const credentialPacket = computed(() => portalData.value?.credentialPacket || null);
 const showCredentialPacket = computed(() => {
   const status = candidate.value.status;
@@ -993,9 +994,11 @@ const provisionAccount = async () => {
   try {
     const workEmail = accountForm.value.workEmail
       || `${accountForm.value.localPart}@${accountDomain.value}`;
-    await portalApi.post(`/prehire-portal/${token.value}/account/provision`, {
-      workEmail
-    });
+    if (hireAccountMode.value === 'group_password') {
+      await portalApi.post(`/prehire-portal/${token.value}/account/provision`, { workEmail });
+    } else {
+      await portalApi.post(`/prehire-portal/${token.value}/workflow/work-email`, { email: workEmail });
+    }
     await reloadPortal();
     activeSection.value = 'tasks';
   } catch (e) {
@@ -1562,7 +1565,7 @@ const loadPortal = async () => {
     if (!bgForm.value.legalName) {
       bgForm.value.legalName = `${res.data?.candidate?.firstName || ''} ${res.data?.candidate?.lastName || ''}`.trim();
     }
-    if (res.data?.portalPhase === 'account_setup' || res.data?.hireAccountMode === 'group_password') {
+    if (!res.data?.candidate?.workEmail || res.data?.hireAccountMode === 'group_password') {
       await loadAccountSuggestions();
     }
   } catch (e) {

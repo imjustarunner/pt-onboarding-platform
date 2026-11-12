@@ -10368,6 +10368,9 @@ export const markUserComplete = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'User not found' } });
     }
 
+    const {assertAppHireActivationReady}=await import('../services/hireAppAccount.service.js');
+    await assertAppHireActivationReady(user);
+
     if (['ONBOARDING','PENDING_SETUP'].includes(user.status) && isStaffCommunicationRole(user.role)) {
       for (const agency of await getStaffCommunicationAgencies(Number(id))) {
         const choices=await getStaffCommunicationChoices({userId:Number(id),agencyId:Number(agency.id)});
@@ -11003,6 +11006,9 @@ export const markUserActive = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'User not found' } });
     }
 
+    const {assertAppHireLegacyActivationRoute}=await import('../services/hireAppAccount.service.js');
+    await assertAppHireLegacyActivationRoute(currentUser);
+
     // Group-password hires finalize password on the portal after onboarding tasks.
     try {
       const [agRows] = await pool.execute(
@@ -11483,6 +11489,9 @@ export const movePendingToActive = async (req, res, next) => {
     if (!user) {
       return res.status(404).json({ error: { message: 'User not found' } });
     }
+
+    const {assertAppHireLegacyActivationRoute}=await import('../services/hireAppAccount.service.js');
+    await assertAppHireLegacyActivationRoute(user);
     
     if (user.status !== 'ready_for_review') {
       return res.status(400).json({ error: { message: 'User is not in ready_for_review status' } });

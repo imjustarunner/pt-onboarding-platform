@@ -18,6 +18,7 @@ import User from '../models/User.model.js';
 import GoogleWorkspaceDirectoryService from './googleWorkspaceDirectory.service.js';
 import { ensurePersonalMailboxForAddress } from './personalMailbox.service.js';
 import { ensureHireGroupSender } from './hireGroupEmail.service.js';
+import {suggestAppHireEmails,checkAppHireEmail} from './hireAppAccount.service.js';
 
 const parseJsonObject = (raw, fallback = {}) => {
   if (!raw) return fallback;
@@ -139,6 +140,7 @@ async function isAppEmailTaken(email, excludeUserId = null) {
  * Suggest available @domain addresses for a hire (app + Directory users/groups).
  */
 export async function suggestHireWorkEmails({ user, agency, limit = 8 } = {}) {
+  if(hireAccountModeForUser(agency,user)==='app_only')return suggestAppHireEmails({user,agency,limit});
   const flags = parseJsonObject(agency?.feature_flags, {});
   const domain =
     resolveWorkspaceDomain(flags.workspaceEmailDomain) ||
@@ -195,6 +197,7 @@ export async function suggestHireWorkEmails({ user, agency, limit = 8 } = {}) {
 }
 
 export async function checkHireWorkEmailAvailability({ email, userId = null, agency = null } = {}) {
+  if(hireAccountModeForUser(agency)==='app_only')return checkAppHireEmail({email,userId,agency});
   const normalized = normalizeEmail(email);
   const flags = parseJsonObject(agency?.feature_flags, {});
   const domain =

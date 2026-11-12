@@ -137,6 +137,8 @@ export async function resolveOrCreateJobApplicantUser({
     await markDemoApplicantIfNeeded(full.id, gEmail);
 
     const user = (await User.findById(full.id)) || full;
+    const {recordAppHireJourney}=await import('./hireAppAccount.service.js');
+    await recordAppHireJourney({user,agencyId});
     return {
       user,
       reused: true,
@@ -159,6 +161,8 @@ export async function resolveOrCreateJobApplicantUser({
     await User.assignToAgency(user.id, agencyId);
   }
   await markDemoApplicantIfNeeded(user.id, gEmail);
+  const {recordAppHireJourney}=await import('./hireAppAccount.service.js');
+  await recordAppHireJourney({user,agencyId,newApplicant:true});
   return {
     user,
     reused: false,

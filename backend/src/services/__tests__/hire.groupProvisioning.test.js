@@ -5,11 +5,17 @@ vi.mock('../../models/User.model.js', () => ({ default: { findByEmail: m.findEma
 vi.mock('../googleWorkspaceDirectory.service.js', () => ({ default: { isConfigured: () => true, isDirectoryEmailAvailable: m.available, createGroup: m.create, getGroup: m.group, addGroupMember: m.member, applyGroupAccessSettings: m.settings, setGroupMemberDeliverySettings: m.delivery } }));
 vi.mock('../personalMailbox.service.js', () => ({ ensurePersonalMailboxForAddress: m.inbox }));
 vi.mock('../hireGroupEmail.service.js', () => ({ ensureHireGroupSender: m.sender }));
-import { checkHireWorkEmailAvailability, provisionHireGroupUsername } from '../hireGroupAccount.service.js';
+import { checkHireWorkEmailAvailability, provisionHireGroupUsername, suggestHireWorkEmails } from '../hireGroupAccount.service.js';
 const user = { id: 9, email: 'personal@example.test', personal_email: 'personal@example.test', first_name: 'New', last_name: 'Hire' };
 const agency = { id: 2, feature_flags: { hireAccountMode: 'group_password', workspaceEmailDomain: 'tenant.test' } };
 const email = 'newh@tenant.test';
 beforeEach(() => { vi.resetAllMocks(); m.execute.mockResolvedValue([[]]); m.available.mockResolvedValue(true); m.create.mockResolvedValue({ id: 'group-1' }); m.group.mockResolvedValue({ id: 'group-1' }); m.inbox.mockResolvedValue({ id: 25 }); m.sender.mockResolvedValue({ emailSendingReady: true, senderVerification: 'accepted' }); });
+it('uses only app collision checks for explicitly configured synthetic app identities',async()=>{
+ const qa={id:453,slug:'nlu-qa-demo',is_active:1,feature_flags:{hireAccountMode:'app_only',workspaceEmailDomain:'example.com',qaSandbox:{syntheticOnly:true,program:'tutoring',sourceAgencyId:6}}};
+ expect(await checkHireWorkEmailAvailability({email:'qa.nlu.casey.work@example.com',userId:user.id,agency:qa})).toMatchObject({available:true,domain:'example.com'});
+ expect(await suggestHireWorkEmails({user,agency:qa,limit:1})).toMatchObject({appIdentityOnly:true,hireAccountMode:'app_only'});
+ for(const external of [m.available,m.create,m.group,m.inbox,m.sender,m.member,m.settings])expect(external).not.toHaveBeenCalled();
+});
 it('creates the group, app inbox and verified sender before reporting success', async () => {
  const result = await provisionHireGroupUsername({ user, agency, workEmail: email });
  expect(result).toMatchObject({ workEmail: email, personalInboxId: 25, emailSendingReady: true });
