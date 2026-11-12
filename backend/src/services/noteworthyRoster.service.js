@@ -29,7 +29,8 @@ export async function ensureNoteworthyProvider({ agencyId, providerName, firstNa
   const conn = await db.getConnection();
   try {
     await conn.beginTransaction();
-    await conn.execute('SELECT agency_id FROM noteworthy_practices WHERE agency_id=? FOR UPDATE', [agencyId]);
+    const [[practice]]=await conn.execute('SELECT agency_id,deletion_requested_at,deleted_at FROM noteworthy_practices WHERE agency_id=? FOR UPDATE', [agencyId]);
+    if(!practice || practice.deletion_requested_at || practice.deleted_at)throw Object.assign(new Error('This NoteWorthy workspace is unavailable or being deleted.'),{status:409,code:'WORKSPACE_DELETION_PENDING'});
     const [[existing]] = await conn.execute(`SELECT r.payroll_user_id,u.first_name,u.last_name FROM noteworthy_roster r
       JOIN users u ON u.id=r.payroll_user_id WHERE r.agency_id=? AND r.source_name_key=?`, [agencyId,key]);
     if (existing) {

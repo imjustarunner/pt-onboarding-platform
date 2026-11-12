@@ -59,6 +59,12 @@ async function onboard() {
 }
 async function employee(agencyId=1) {return ensureNoteworthyProvider({agencyId,providerName:'Therapist, Synthetic',firstName:'Synthetic',lastName:'Therapist'},db);}
 
+it('does not recreate imported employee identities after a wipe freezes the workspace',async()=>{
+  const {practice}=await onboard();
+  await db.execute('UPDATE noteworthy_practices SET deletion_requested_at=UTC_TIMESTAMP() WHERE agency_id=?',[practice.agencyId]);
+  await expect(employee(practice.agencyId)).rejects.toMatchObject({code:'WORKSPACE_DELETION_PENDING'});
+});
+
 it('stages a signup without tenant privileges, then verifies one-use email ownership using the existing auth identity',async()=>{
   expect(await service.signup(request())).toMatchObject({verificationRequired:true,verificationSent:true});
   expect(sql.prepare('SELECT COUNT(*) n FROM users').get().n).toBe(0);

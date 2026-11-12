@@ -76,7 +76,7 @@ describe.skipIf(!recoveryMysqlEnabled)('NoteWorthy erasure — actual isolated M
   });
   it('automatically removes an expired consented trial while honoring retention, paid plans, legacy and unaccepted policies',async()=>{
     await db.query('DELETE FROM noteworthy_deletion_jobs');
-    await db.query("UPDATE noteworthy_practices SET deletion_requested_at=NULL,trial_ends_at=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 1 DAY),retention_days=7 WHERE agency_id=1");
+    await db.query("UPDATE noteworthy_practices SET deletion_requested_at=NULL,trial_started_at=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 31 DAY),trial_ends_at=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 1 DAY),retention_days=7 WHERE agency_id=1");
     await db.query("UPDATE noteworthy_practices SET trial_ends_at=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 1 DAY),commercial_activated_at=UTC_TIMESTAMP() WHERE agency_id=2");
     expect(await erase.tick()).toEqual([]);
     await db.query("UPDATE noteworthy_practices SET retention_days=0,trial_policy_version=0 WHERE agency_id=1");
