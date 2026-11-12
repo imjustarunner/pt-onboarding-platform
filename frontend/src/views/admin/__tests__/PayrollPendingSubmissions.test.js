@@ -229,3 +229,12 @@ it('edits approved mileage and lets payroll choose a different open period or un
  await w.get('select[aria-label="Approved mileage pay period for Test Provider"]').setValue('9');await flushPromises();expect(mock.patch).toHaveBeenCalledWith('/payroll/mileage-claims/10',{action:'move',targetPayrollPeriodId:9});
  await button(w,'Unapprove').trigger('click');await flushPromises();expect(mock.patch).toHaveBeenCalledWith('/payroll/mileage-claims/10',{action:'unapprove'});
 });
+
+it('keeps other-mileage estimates consistent with payroll after editing eligible miles',()=>{
+ const claim={claim_type:'standard',miles:10,eligible_miles:4,round_trip:1};
+ expect(mileageBillableMiles(claim)).toBe(8);
+ expect(mileageEstimate(claim,{settings:{standardMileageRatePerMile:.7}})).toBe(5.6);
+});
+it('shows a configured Tier 1 zero rate as zero pay rather than an unknown estimate',()=>{
+ expect(mileageEstimate(mileage,{rates:[{tierLevel:1,ratePerMile:0}]},1)).toBe(0);
+});
