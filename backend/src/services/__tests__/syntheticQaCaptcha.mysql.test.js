@@ -2,7 +2,8 @@ import {beforeAll,afterAll,it,expect,vi} from 'vitest';
 vi.mock('../../config/database.js',()=>({default:{},onTableWrite:vi.fn()}));
 import mysql from 'mysql2/promise';
 import {readFileSync} from 'node:fs';
-import {skipSyntheticQaRecoveryCaptcha} from '../syntheticQaCaptcha.service.js';
+import {skipSyntheticQaRecoveryCaptcha,hydrateSyntheticQaCaptchaAgency} from '../syntheticQaCaptcha.service.js';
+import {isSyntheticQaPublicCaptchaContext} from '../../utils/syntheticQaCaptchaPolicy.js';
 let admin,db;
 const schema=`qa_captcha_${process.pid}_${Date.now()}`;
 beforeAll(async()=>{
@@ -32,6 +33,22 @@ it('executes the real minimal-identity query and active affiliation binding',asy
 it('real users, mixed memberships, unknown identities and wrong tenants retain CAPTCHA',async()=>{
  for(const identifier of ['real','mixed','unknown'])expect(await skipSyntheticQaRecoveryCaptcha({identifier,organizationSlug:'auricwell-qa-demo'},db)).toBe(false);
  expect(await skipSyntheticQaRecoveryCaptcha({identifier:'finley',organizationSlug:'nlu'},db)).toBe(false);
+});
+it('hydrates raw stored child rows using the unique verified parent and rejects live/ambiguous/inactive parents',async()=>{
+ const [[raw]]=await db.query('SELECT * FROM agencies WHERE id=454');expect(raw.affiliated_agency_id).toBeUndefined();
+ expect(isSyntheticQaPublicCaptchaContext(await hydrateSyntheticQaCaptchaAgency(raw,db),'nlu-qa-learning')).toBe(true);
+ await db.query('UPDATE organization_affiliations SET agency_id=6 WHERE organization_id=454');
+ expect(isSyntheticQaPublicCaptchaContext(await hydrateSyntheticQaCaptchaAgency({...raw,affiliated_agency_id:453},db),'nlu-qa-learning')).toBe(false);
+ await db.query('UPDATE organization_affiliations SET agency_id=453 WHERE organization_id=454');
+ await db.query('INSERT INTO organization_affiliations VALUES(454,6,1)');
+ expect(isSyntheticQaPublicCaptchaContext(await hydrateSyntheticQaCaptchaAgency(raw,db),'nlu-qa-learning')).toBe(false);
+ await db.query('DELETE FROM organization_affiliations WHERE organization_id=454 AND agency_id=6');
+ await db.query('UPDATE agencies SET is_active=0 WHERE id=453');
+ expect(isSyntheticQaPublicCaptchaContext(await hydrateSyntheticQaCaptchaAgency(raw,db),'nlu-qa-learning')).toBe(false);
+ await db.query('UPDATE agencies SET is_active=1,feature_flags=JSON_OBJECT() WHERE id=453');
+ expect(isSyntheticQaPublicCaptchaContext(await hydrateSyntheticQaCaptchaAgency(raw,db),'nlu-qa-learning')).toBe(false);
+ await db.execute('UPDATE agencies SET feature_flags=? WHERE id=453',[JSON.stringify({qaSandbox:{syntheticOnly:true,program:'tutoring'}})]);
+ expect(isSyntheticQaPublicCaptchaContext(await hydrateSyntheticQaCaptchaAgency(raw,db),'nlu-qa-learning')).toBe(true);
 });
 it('a child with ambiguous/live parent, marker removal or inactive tenant revokes immediately',async()=>{
  await db.query('INSERT INTO organization_affiliations VALUES(454,999,1)');

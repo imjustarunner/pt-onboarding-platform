@@ -100,7 +100,7 @@ jobs:
           const result=JSON.parse(readFileSync(join(process.env.RUNNER_TEMP,'qa-captcha-results.json'),'utf8'));
           const sql=result.testResults.find(row=>row.name.endsWith('/syntheticQaCaptcha.mysql.test.js'));
           assert(sql,'Real SQL CAPTCHA/migration result is missing.');
-          assert.equal(sql.assertionResults.length,4,'All four real SQL CAPTCHA/migration cases must execute.');
+          assert.equal(sql.assertionResults.length,5,'All five real SQL CAPTCHA/migration cases must execute.');
           assert(sql.assertionResults.every(row=>row.status==='passed'),'Skipped or pending SQL cases cannot satisfy CI.');
           assert.equal(result.numPendingTests,0);
           assert.equal(result.numTodoTests||0,0);

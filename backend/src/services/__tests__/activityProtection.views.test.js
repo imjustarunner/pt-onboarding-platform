@@ -44,6 +44,15 @@ describe('audited staff document viewing', () => {
     mocks.append.mockRejectedValue(new Error('Audit unavailable'));
     await expect(view(request())).rejects.toThrow('Audit unavailable');
   });
+  it('keeps an authorized Support school attachment inline view audited during a download hold', async () => {
+    await evidenceRequestContext.run(request('support', '/api/phi-documents/school-attachments/4364/view'), async () => {
+      await protectStorageResource('phi-documents/450/2449/encrypted-school-file.pdf');
+    });
+    expect(mocks.append).toHaveBeenCalledWith(expect.objectContaining({
+      role: 'support', action: 'file_view_requested', details: expect.objectContaining({ fileAccessIntent: 'view' })
+    }));
+    expect(mocks.getConnection).not.toHaveBeenCalled();
+  });
   it.each(['provider', 'school_staff', 'staff', 'agency_admin'])('preserves existing limits for %s', async role => {
     await expect(view(request(role))).rejects.toThrow('reservation boundary');
   });
@@ -56,11 +65,14 @@ describe('audited staff document viewing', () => {
     '/api/clients/1/pdf', '/api/clients/bundle.zip', '/uploads/intake_signed/a.pdf',
     '/api/phi-documents/1/view?download=true', '/api/phi-documents/1/view?attachment=1',
     '/api/account-security/print-intent', '/api/clients/4/school-roi-documents/9/view?download=true',
-    '/api/clients/4/paper-packet-processing/documents/9/view?attachment=1'
+    '/api/clients/4/paper-packet-processing/documents/9/view?attachment=1',
+    '/api/phi-documents/school-attachments/4364/view?download=true',
+    '/api/phi-documents/school-attachments/4364/view?attachment=1',
+    '/api/phi-documents/school-attachments/4364/download'
   ])('keeps download/print reservation controls on %s', async url => {
     await expect(view(request('admin', url))).rejects.toThrow('reservation boundary');
   });
-  it.each(['/api/clients/4/school-roi-documents/9/view', '/api/clients/4/paper-packet-processing/documents/9/view', '/api/phi-documents/12/view?theme=dark', '/api/phi-documents/enrollment-receipts/12/view', '/api/phi-documents/signed-school-packets/3', '/api/phi-documents/clients/1/chart-artifacts/clinical-summary/view'])('recognizes established view endpoint %s', url => {
+  it.each(['/api/clients/4/school-roi-documents/9/view', '/api/clients/4/paper-packet-processing/documents/9/view', '/api/phi-documents/12/view?theme=dark', '/api/phi-documents/school-attachments/4364/view', '/api/phi-documents/enrollment-receipts/12/view', '/api/phi-documents/signed-school-packets/3', '/api/phi-documents/clients/1/chart-artifacts/clinical-summary/view'])('recognizes established view endpoint %s', url => {
     expect(isClientFileView(request('admin', url))).toBe(true);
     expect(isClientFileView({ ...request('admin', url), method: 'POST' })).toBe(false);
     expect(responseEvidence(request('admin', url), { statusCode: 200 })).toMatchObject({ fileAccessIntent: 'view' });
