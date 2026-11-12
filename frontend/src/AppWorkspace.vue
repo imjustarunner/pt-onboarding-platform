@@ -17,7 +17,7 @@
     <router-view v-if="route.meta?.familyCommandCenter" />
     <div v-else class="preview-root" :data-preview-viewport="effectivePreviewViewport">
       <div id="app" :inert="!applicantInterviewMode && !isLoginEntry && (sessionLockStore.isLocked || sessionLockStore.warningActive)" :aria-hidden="!applicantInterviewMode && !isLoginEntry && (sessionLockStore.isLocked || sessionLockStore.warningActive) ? 'true' : undefined" :class="{ 'conversa-app': isAuthenticated, 'is-native': isNative, 'is-platform-hq': isPlatformHqShell, 'is-clinical-workspace': clinicalWorkspaceActive }">
-      <div v-if="pageLoading && !isPayrollRoute && !isScheduleRoute && !isClientProfileRoute && !applicantInterviewMode && !isLoginEntry && !isPublicOfficeRoute && !route.meta?.publicMarketingHub" class="agency-loading-overlay" aria-label="Loading">
+      <div v-if="pageLoading && !isPayrollRoute && !isScheduleRoute && !isClientProfileRoute && !isDashboardRoute && !applicantInterviewMode && !isLoginEntry && !isPublicOfficeRoute && !route.meta?.publicMarketingHub" class="agency-loading-overlay" aria-label="Loading">
         <div class="agency-loading-card">
           <div class="agency-loading-logo"><BrandingLogo :logoUrl="loaderLogoUrl" size="xlarge" class="loader-logo" /></div>
           <div class="agency-loading-text">{{ loadingText }}</div>
@@ -2686,6 +2686,12 @@ function routeLooksLikePublicIntake(r) {
 
 // Global loading overlay (tracks API calls + navigation + icon preloads).
 // Calendars show their own inline progress; unrelated requests must not cover them.
+// Dashboards keep their inline progress while independent panels load.
+const isDashboardRoute = computed(() => [
+  'Dashboard', 'OrganizationDashboard', 'AdminDashboard', 'OrganizationAdminDashboard',
+  'TenantAdminDashboard', 'OrganizationTenantAdminDashboard',
+  'OperationsDashboard', 'OrganizationOperationsDashboard', 'OrganizationClubManagerDashboard'
+].includes(route.name));
 const isClientProfileRoute = computed(() => /\/admin\/clients\/\d+(?:\/|$)/.test(String(route.path || '')));
 const isScheduleRoute = computed(() => {
   const path = String(route.path || '');
@@ -2695,7 +2701,7 @@ const isScheduleRoute = computed(() => {
     || (!route.query?.tab && !route.query?.my && userPreferencesStore.defaultLandingPage === 'schedule');
 });
 // Public intake and schedule pages must also avoid the initial overlay flash.
-const pageLoading = ref(!routeLooksLikePublicIntake(route) && !isScheduleRoute.value);
+const pageLoading = ref(!routeLooksLikePublicIntake(route) && !isScheduleRoute.value && !isDashboardRoute.value);
 const loadingText = getLoadingTextRef();
 let loadingStartedAt = 0;
 /** Only show overlay after continuous load — avoids flash storms from brief nav/API pulses. */
@@ -2860,7 +2866,7 @@ function suppressScheduleFullscreenLoader() {
 const isPayrollRoute=computed(()=>isPayrollWorkspacePath(route.path));
 function syncPageLoading(isOn) {
   try {
-    if (isPayrollRoute.value || isScheduleRoute.value || isClientProfileRoute.value) {
+    if (isPayrollRoute.value || isScheduleRoute.value || isClientProfileRoute.value || isDashboardRoute.value) {
       suppressScheduleFullscreenLoader();
       return;
     }
@@ -2884,7 +2890,7 @@ function syncPageLoading(isOn) {
       loaderShowTimer = window.setTimeout(() => {
         loaderShowTimer = null;
         try {
-          if (!globalLoading.value || isScheduleRoute.value) return;
+          if (!globalLoading.value || isScheduleRoute.value || isClientProfileRoute.value || isDashboardRoute.value) return;
           loadingStartedAt = Date.now();
           pageLoading.value = true;
         } catch {
@@ -2920,6 +2926,7 @@ watch(isPayrollRoute,()=>syncPageLoading(globalLoading.value),{flush:'sync'});
 // Re-evaluate even when a request stays pending across navigation or a tab change.
 watch(isScheduleRoute, () => syncPageLoading(globalLoading.value), { flush: 'sync' });
 watch(isClientProfileRoute, () => syncPageLoading(globalLoading.value), { flush: 'sync' });
+watch(isDashboardRoute, () => syncPageLoading(globalLoading.value), { flush: 'sync' });
 watch(isSchoolPortalShellActive, (active) => {
   if (active) suppressSchoolPortalFullscreenLoader();
 });

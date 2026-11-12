@@ -145,19 +145,19 @@ export const useBrandingStore = defineStore('branding', () => {
     }
   };
 
-  const prefetchBrandingIcons = (branding) => {
+  const cacheBrandingIconPaths = (branding) => {
     const paths = {};
-    const ids = [];
     for (const [field, id] of Object.entries(branding || {})) {
       if (!field.endsWith('_icon_id') || id === null || id === undefined || id === '') continue;
       const path = branding[field.replace(/_id$/, '_path')];
       if (path) paths[String(id)] = path;
-      ids.push(id);
     }
     // The branding response already joins most icon paths. Reuse them instead
     // of issuing an authenticated request for every configured icon.
     iconFilePathCache.value = { ...iconFilePathCache.value, ...paths };
-    return prefetchIconIds(ids);
+    // Resolve missing paths lazily through iconUrlById when a visible component
+    // needs them. Fetching every configured platform icon floods portal startup
+    // with artwork for settings and other pages the user has not opened.
   };
 
   // Portal agency (detected from subdomain)
@@ -280,7 +280,7 @@ export const useBrandingStore = defineStore('branding', () => {
   };
   
   // Fetch platform branding
-  const fetchPlatformBranding = async (forceRefresh = false) => {
+  const loadPlatformBranding = async (forceRefresh = false) => {
     const seq = ++platformBrandingFetchSeq.value;
     try {
       // Add cache-busting parameter if force refresh is requested
@@ -295,10 +295,10 @@ export const useBrandingStore = defineStore('branding', () => {
       // Warm decorative assets in the background without holding the page loader.
       try {
         const pb = platformBranding.value || {};
-        void prefetchBrandingIcons(pb);
+        cacheBrandingIconPaths(pb);
 
         const paths = Object.entries(pb)
-          .filter(([k, v]) => !!v && (k.endsWith('_icon_path') || k.endsWith('_logo_path') || k.endsWith('_icon_url') || k.endsWith('_logo_url')))
+          .filter(([k, v]) => !!v && (k.endsWith('_logo_path') || k.endsWith('_logo_url')))
           .map(([, v]) => toUploadsUrl(String(v)))
           .filter(Boolean);
         void preloadImages(paths, { concurrency: 2, timeoutMs: 8000 }).catch(() => {});
@@ -325,13 +325,25 @@ export const useBrandingStore = defineStore('branding', () => {
     }
   };
 
+  // App startup and BrandingProvider can ask together. Share the pending read,
+  // while an explicit refresh still starts a new request and wins by sequence.
+  let platformBrandingRequest = null;
+  const fetchPlatformBranding = (forceRefresh = false) => {
+    if (!forceRefresh && platformBrandingRequest) return platformBrandingRequest;
+    const request = loadPlatformBranding(forceRefresh).finally(() => {
+      if (platformBrandingRequest === request) platformBrandingRequest = null;
+    });
+    platformBrandingRequest = request;
+    return request;
+  };
+
   const setPlatformBrandingFromResponse = async (pb) => {
     // Treat direct-set as the newest state so older GETs can't overwrite it.
     platformBrandingFetchSeq.value++;
     platformBranding.value = pb || null;
     brandingVersion.value = Date.now();
     try {
-      await prefetchBrandingIcons(pb);
+      cacheBrandingIconPaths(pb);
     } catch {
       // ignore
     }

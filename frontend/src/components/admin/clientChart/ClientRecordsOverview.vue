@@ -8,7 +8,7 @@
       <div class="rco-head-actions">
         <button type="button" class="cdp-btn-soft" @click="$emit('upload')">Upload</button>
         <button v-if="!operationalOnly" type="button" class="cdp-btn-primary" @click="$emit('navigate', 'notes')">+ New note</button>
-        <button v-if="canProcessPaper" type="button" class="cdp-btn-soft" @click="$emit('client-actions')">Client actions / process paper packet</button>
+        <button v-if="canProcessPaper" type="button" class="cdp-btn-soft" @click="$emit('client-actions', 'process')">Process paper packet</button>
         <details class="rco-more">
           <summary aria-label="More">⋯</summary>
           <div class="rco-more__menu">

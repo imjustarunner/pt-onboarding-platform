@@ -1970,6 +1970,18 @@ const loadDashboard = async () => {
     return;
   }
 
+  // The schedule is useful immediately. Neither summary badges nor secondary
+  // panels should hold its request or its response behind their timeout.
+  scheduleLoading.value = true;
+  const schedulePromise = safeGet('/dashboard/schedule-snapshot', {
+    params: { agencyId, date: new Date().toISOString().split('T')[0] },
+    timeout: 8000
+  }, 8000).then((sched) => {
+    scheduleSlots.value = Array.isArray(sched?.sessions) ? sched.sessions : [];
+  }).finally(() => {
+    scheduleLoading.value = false;
+  });
+
   try {
     // Phase 1 — glance metrics only (fast path)
     const [center, personal, openCountRes, metrics, specs, escalationSummary] = await Promise.all([
@@ -1989,7 +2001,6 @@ const loadDashboard = async () => {
   }
 
   // Phase 2 — secondary panels (no blocking overlay)
-  scheduleLoading.value = true;
   try {
     const toMs = (raw) => {
       if (!raw) return 0;
@@ -2074,7 +2085,6 @@ const loadDashboard = async () => {
     const companyEventsPromise = safeGet(`/agencies/${agencyId}/company-events`, {}, 25000);
 
     const [
-      sched,
       unassigned,
       hiring,
       payrollPending,
@@ -2087,10 +2097,7 @@ const loadDashboard = async () => {
       officeRequestsRaw,
       onboardingRaw
     ] = await Promise.all([
-      safeGet('/dashboard/schedule-snapshot', {
-        params: { agencyId, date: new Date().toISOString().split('T')[0] }
-      }, 8000),
-      isSupport.value ? null : safeGet('/unassigned-documents', { params }, 8000),
+      isSupport.value ? null : safeGet('/unassigned-documents', { params: { ...params, summary: '1' } }, 8000),
       isSupport.value ? null : safeGet('/hiring/candidates', {
         params: { agencyId, status: 'PROSPECTIVE', stageFilter: 'active' }
       }, 8000),
@@ -2140,7 +2147,6 @@ const loadDashboard = async () => {
     }
 
     payrollSubmissions.value = Number(payrollPending?.totalCount || 0);
-    scheduleSlots.value = Array.isArray(sched?.sessions) ? sched.sessions : [];
 
     orgOverviewSummary.value = orgOverview?.counts
       ? orgOverview
@@ -2372,7 +2378,7 @@ const loadDashboard = async () => {
 
     void refreshDerivedGlanceCounts({ agencyId }).catch(() => {});
   } finally {
-    scheduleLoading.value = false;
+    await schedulePromise;
   }
 };
 

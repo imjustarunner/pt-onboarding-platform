@@ -27,6 +27,14 @@ export const listUnassignedDocuments = async (req, res, next) => {
     }
     const excludeMedicalRecords = !isSuperAdmin && !hasMedicalRecordsReleaseAccess;
 
+    if (req.query.summary === '1') {
+      const count = await IntakeSubmissionDocument.countUnassigned({
+        agencyId: Number.isFinite(agencyId) ? agencyId : null,
+        excludeMedicalRecords
+      });
+      return res.json({ count });
+    }
+
     const rows = await IntakeSubmissionDocument.listUnassigned({
       agencyId: Number.isFinite(agencyId) ? agencyId : null,
       limit,

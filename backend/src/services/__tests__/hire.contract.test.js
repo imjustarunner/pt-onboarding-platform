@@ -21,9 +21,14 @@ function setup({ existing = [], failGeneration = false } = {}) {
   });
 }
 describe('contract assignment consistency', () => {
-  it('does not forward the internal inactive-review capability from an assignment preview request',async()=>{
-    await previewCandidateContract({...request,reviewInactiveConfig:true});
-    expect(mocks.preview.mock.calls[0][0]).not.toHaveProperty('reviewInactiveConfig');
+  it('allows an explicit read-only draft preview but never forwards that capability to issuance',async()=>{
+    mocks.preview.mockResolvedValueOnce({html:'<p>Draft</p>',config:{is_active:0},unresolvedTokens:[]});
+    expect(await previewCandidateContract({...request,reviewInactiveConfig:true})).toMatchObject({requiresActivation:true});
+    expect(mocks.preview.mock.calls[0][0].reviewInactiveConfig).toBe(true);
+    mocks.preview.mockImplementation(async input=>{if(!input.reviewInactiveConfig)throw Object.assign(new Error('Approval required'),{status:409});return {html:'unsafe',unresolvedTokens:[]};});
+    await expect(generateAndAssignCandidateContract({...request,reviewInactiveConfig:true,tokens:{reviewInactiveConfig:true}})).rejects.toThrow('Approval required');
+    expect(mocks.preview.mock.calls[1][0].reviewInactiveConfig).toBe(false);
+    expect(mocks.getConnection).not.toHaveBeenCalled();
   });
   it('uses an edited training institution instead of a stale university alias', async () => {
     await previewCandidateContract({ ...request, tokens: { UNIVERSITY_NAME: 'Current University', UNIVERSITY: 'Old University' } });

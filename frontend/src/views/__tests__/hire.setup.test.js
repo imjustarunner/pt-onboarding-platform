@@ -28,6 +28,46 @@ beforeEach(() => {
 afterEach(() => wrapper?.unmount());
 const button = text => wrapper.findAll('button').find(b => b.text().includes(text));
 describe('hire setup wizards', () => {
+  it('restores an old NLU draft into one service-based agreement with four categories and visible role selections', async () => {
+    const defaultGet = http.get.getMockImplementation();
+    http.get.mockImplementation(async url => {
+      if (url.endsWith('prehire-draft')) return {data:{revision:2,draft:{agreementVariant:'',contractConfigId:33,contract:{compensationCategory:'2',compensationLevel:'3'},contractOverrides:{ROLE_LABEL:'Facilitator'},individualExpectations:{serviceRoles:['tutoring'],serviceRoleDetails:{tutoring:{payLevel:3}}}}}};
+      const response = await defaultGet(url);
+      if (url.includes('wizard-context')) Object.assign(response.data, {
+        contractTenant:'nlu',compensationCategories:{1:{label:'Foundational Provider'},2:{label:'Bachelor’s-Level and Approved Unlicensed Provider'},3:{label:'Master’s-Level and Pre-Licensed Provider'},4:{label:'Licensed and Advanced Provider'}},
+        configs:[{id:32,name:'Legacy Hourly',pay_mode:'hourly',is_active:0},{id:33,name:'Legacy Fee-for-service',pay_mode:'ffs',is_active:0}],
+        agreementBuilder:{suggestedVariant:'employment',compensationBasis:'category_service',description:'Pay follows the approved service schedule.',options:[{value:'employment',label:'Employment agreement',configId:32,roleLabel:'Facilitator'}]},
+        compensationLevels:[{category:2,level:3,paySystem:{creditRate:28,hcodeRate:26,indirectRate:20,autoIndirectMinutesPerHour:10}}],
+        tokens:{ROLE_LABEL:'Facilitator',CONTRACT_SERVICE_ROLES:['tutoring']}
+      });
+      return response;
+    });
+    wrapper = mount(StartPreHire, {global:{stubs:{RouterLink:true}}}); await flushPromises();
+    const category=wrapper.findAll('label').find(l=>l.text().startsWith('Pay category')).get('select');
+    expect(category.findAll('option')).toHaveLength(5);
+    expect(category.text()).toContain('4 — Licensed and Advanced Provider');
+    expect(wrapper.text()).not.toContain('Legacy Hourly');expect(wrapper.text()).not.toContain('Legacy Fee-for-service');
+    expect(wrapper.text()).toContain('H-code direct-care base: $26.00');expect(wrapper.text()).toContain('10 indirect minutes');
+    expect(wrapper.text()).toContain('Draft agreement — full employment terms still require approval');
+    expect(wrapper.findAll('label').find(l=>l.text().includes('Tutoring')&&l.find('input[type="checkbox"]').exists()).get('input').element.checked).toBe(true);
+    await button('Update contract preview').trigger('click'); await flushPromises();
+    expect(http.post.mock.calls.at(-1)[1]).toMatchObject({configId:32,tokens:{CONTRACT_SERVICE_ROLES:['tutoring'],CONTRACT_SERVICE_ROLE_DETAILS:{tutoring:{payLevel:3}}}});
+    expect(http.post.mock.calls.some(([url])=>url.includes('send-prehire'))).toBe(false);
+  });
+  it('uses individual service terms for Inner Strength without requiring a shared category or level', async () => {
+    const defaultGet=http.get.getMockImplementation();
+    http.get.mockImplementation(async url=>{
+      const response=await defaultGet(url);
+      if(url.includes('wizard-context'))Object.assign(response.data,{contractTenant:'isi',tokens:{INDIVIDUAL_COMPENSATION_BASIS:'approved_individual_agreement',CONTRACT_SERVICE_ROLES:['tutoring']},configs:[{id:34,is_active:0}],agreementBuilder:{suggestedVariant:'employment',compensationBasis:'individual_agreement',options:[{value:'employment',label:'Employment agreement',configId:34}]}});
+      return response;
+    });
+    wrapper=mount(StartPreHire,{global:{stubs:{RouterLink:true}}});await flushPromises();
+    expect(wrapper.findAll('label').some(l=>l.text().startsWith('Pay category'))).toBe(false);
+    expect(wrapper.text()).toContain('Approved agreement or written-offer reference');
+    await button('Update contract preview').trigger('click');await flushPromises();
+    expect(http.post.mock.calls.at(-1)[1].tokens).toMatchObject({COMPENSATION_CATEGORY:'',COMPENSATION_LEVEL:'',INDIVIDUAL_COMPENSATION_BASIS:'approved_individual_agreement'});
+  });
+
   it('shows a failed contract setup request and retries without restoring or saving empty defaults', async () => {
     const defaultGet = http.get.getMockImplementation();
     const message = 'Contract settings are temporarily unavailable.';

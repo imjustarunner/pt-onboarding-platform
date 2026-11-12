@@ -630,9 +630,9 @@
                 v-if="client.renewalFlags?.paperPacketRoiSetup || client.renewalFlags?.paperPacketVisionReview"
                 type="button"
                 class="btn btn-secondary btn-xs cm-renewal-btn"
-                @click.stop="openClientRoiSetup(client)"
+                @click.stop="openClientPaperProcessing(client)"
               >
-                {{ client.renewalFlags?.paperPacketVisionReview ? 'Review' : 'Set ROI' }}
+                Process paper packet
               </button>
               <button
                 v-else-if="client.renewalFlags?.needsClientRenewal"
@@ -1481,13 +1481,13 @@ function openClientRenewal(client) {
   renewalModalOpen.value = true;
 }
 
-function openClientRoiSetup(client) {
+function openClientPaperProcessing(client) {
   const id = Number(client?.id || 0);
   if (!id) return;
   closeClientPanel();
   const orgSlug = String(route.params?.organizationSlug || '').trim();
   const path = orgSlug ? `/${orgSlug}/admin/clients/${id}` : `/admin/clients/${id}`;
-  router.push({ path, query: { tab: 'school-roi' } });
+  router.push({ path, query: { tab: 'phi', packet: 'latest' } });
 }
 
 function closeClientRenewal() {

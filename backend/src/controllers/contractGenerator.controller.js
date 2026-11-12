@@ -16,7 +16,7 @@ import {
 } from '../services/contractGenerator.service.js';
 import { contractCompensationLevels } from '../services/contractCompensation.service.js';
 import { categoriesForAgencySlug,compensationAgencyPolicy } from '../services/compensationCategories.service.js';
-import { itscoAgreementBuilder } from '../services/itscoAgreementBuilder.service.js';
+import { contractAgreementBuilder } from '../services/contractAgreementBuilder.service.js';
 import { getAgencyBuilderDefaults, inferCompensationFromCredential, formatLicenseTypeDisplay } from '../services/contractMerge.service.js';
 
 function parseAgencyId(req) {
@@ -50,7 +50,7 @@ export const getContractLibrary = async (req, res, next) => {
       contractTenant: agencyDefaults.contractTenant,
       contractServiceRoleOptions: agencyDefaults.contractServiceRoleOptions,
       schoolDaysEnabled: agencyDefaults.schoolDaysEnabled,
-      agreementBuilder: itscoAgreementBuilder({ agency: agencyDefaults.agency, configs }),
+      agreementBuilder: contractAgreementBuilder({ agency: agencyDefaults.agency, configs }),
       offices: agencyDefaults.offices,
       credentialOptions: agencyDefaults.credentialOptions
     });
@@ -183,6 +183,7 @@ export const previewContractForCandidate = async (req, res, next) => {
       agencyId,
       candidateUserId,
       configId,
+      reviewInactiveConfig: true,
       templateId: req.body?.templateId ? parseInt(req.body.templateId, 10) : null,
       tokens: req.body?.tokens || {},
       compensationCategory: req.body?.compensationCategory,

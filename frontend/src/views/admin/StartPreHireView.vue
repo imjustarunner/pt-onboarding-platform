@@ -52,7 +52,8 @@
         </div>
         <template v-if="agreementBuilder">
           <label class="sph-config">Agreement role<select v-model="agreementVariant" @change="applyAgreementVariant"><option v-for="option in agreementBuilder.options" :key="option.value" :value="option.value">{{ option.label }}</option></select></label>
-          <p class="muted">One ongoing agreement uses the standard terms, selected service focuses, role duties, and category/level compensation. Practicum and internship use the student training agreement with the same category/level pay system. Changes to compensation do not automatically require a replacement agreement.</p>
+          <p v-if="agreementBuilder.description" class="muted">{{ agreementBuilder.description }}</p>
+          <p v-else class="muted">One ongoing agreement uses the standard terms, selected service focuses, role duties, and category/level compensation. Practicum and internship use the student training agreement with the same category/level pay system. Changes to compensation do not automatically require a replacement agreement.</p>
           <p v-if="!contractConfigId" class="sph-warn">The standard terms for this agreement role are not configured. Refresh or update the agreement library.</p>
         </template>
         <label v-else-if="contractConfigs.length" class="sph-config">
@@ -62,6 +63,7 @@
             <option v-for="c in contractConfigs" :key="c.id" :value="c.id">{{ c.name }}</option>
           </select>
         </label>
+        <p v-if="requiresActivation" class="sph-warn" role="status">Draft agreement — full employment terms still require approval. You can prepare and preview it; issuing an agreement or sending the invitation remains blocked until the configuration is activated.</p>
         <div class="sph-grid">
           <label>Start date <input v-model="contract.startDate" type="date" /></label>
           <label>Execution date <input v-model="contract.executionDate" type="date" /></label>
@@ -73,23 +75,28 @@
           <label v-if="includeSupervisor">Supervisor(s) <input v-model="contract.supervisor" type="text" /></label>
           <label v-if="!agreementBuilder || agreementVariant === 'provider'">License required by <input v-model="contract.licenseBy" type="date" /></label>
           <label>Min hours / week <input v-model="contract.minHours" type="number" min="0" step="any" /><span v-if="contract.minHours !== '' && Number.isFinite(Number(contract.minHours)) && Number(contract.minHours) >= 0" class="muted small">Required available-to-book time: {{ Math.ceil(Number(contract.minHours) * 1.25) }} hours / week. Expected to schedule: {{ Math.ceil(Number(contract.minHours) * 1.25) }} hours / week (25% more, rounded up, to account for no-shows and rescheduling).</span></label>
-          <label>Pay category
+          <label v-if="!usesIndividualAgreement">Pay category
             <select v-model="contract.compensationCategory">
               <option value="">Choose a category</option>
-              <option value="1">1 — Unlicensed</option>
-              <option value="2">2 — Pre-licensed</option>
-              <option value="3">3 — Licensed</option>
+              <option v-for="(category, id) in compensationCategories" :key="id" :value="String(id)">{{ id }} — {{ category.label }}</option>
             </select>
           </label>
         </div>
         <div class="sph-grid">
-          <label>Pay level<select v-model="contract.compensationLevel"><option value="">Choose a level</option><option v-for="level in 5" :key="level" :value="String(level)">Level {{ level }}{{ levelLabel(level) }}</option></select></label>
+          <label v-if="!usesIndividualAgreement">Pay level<select v-model="contract.compensationLevel"><option value="">Choose a level</option><option v-for="level in 5" :key="level" :value="String(level)">Level {{ level }}{{ levelLabel(level) }}</option></select></label>
           <label>Assigned office<select v-model="officeLocationId" @change="applyOffice"><option :value="null">Select an office</option><optgroup v-for="group in officeGroups" :key="group.city" :label="group.city"><option v-for="office in group.offices" :key="office.id" :value="office.id">{{ office.name }} — {{ office.address }}</option></optgroup></select></label>
         </div>
         <p v-if="officeSource" class="muted">{{ officeSource }}</p>
-        <p v-if="selectedCompensation">Category {{ contract.compensationCategory }}, Level {{ contract.compensationLevel }} · Direct: {{ money(selectedCompensation.direct_rate) }} / hour · Indirect: {{ money(selectedCompensation.indirect_rate) }} / hour · FFS base: {{ money(selectedCompensation.ffs_rate) }}</p>
-        <p v-else class="sph-warn">Choose a category and level to review compensation. Configure missing rates in contract/pay settings.</p>
-        <template v-if="agreementBuilder || contractConfigs.find(c => Number(c.id) === Number(contractConfigId))?.pay_mode === 'ffs'">
+        <template v-if="!usesIndividualAgreement">
+          <template v-if="selectedCompensation && categoryServicePay">
+            <p>Category {{ contract.compensationCategory }}, Level {{ contract.compensationLevel }} · Compensation follows the service performed and its approved schedule.</p>
+            <p v-if="selectedCompensation.paySystem" class="muted">Clinical session base: {{ money(selectedCompensation.paySystem.creditRate) }} · H-code direct-care base: {{ money(selectedCompensation.paySystem.hcodeRate) }} / hour · Indirect: {{ money(selectedCompensation.paySystem.indirectRate) }} / hour.</p>
+            <p v-if="selectedCompensation.paySystem" class="muted">Eligible H-code direct care adds {{ selectedCompensation.paySystem.autoIndirectMinutesPerHour }} indirect minutes per direct-care hour on top of the service pay. Review service eligibility and the applicable base or reduced rate; tutoring, childcare and testing follow their own approved terms below.</p>
+          </template>
+          <p v-else-if="selectedCompensation">Category {{ contract.compensationCategory }}, Level {{ contract.compensationLevel }} · Direct: {{ money(selectedCompensation.direct_rate) }} / hour · Indirect: {{ money(selectedCompensation.indirect_rate) }} / hour · FFS base: {{ money(selectedCompensation.ffs_rate) }}</p>
+          <p v-else class="sph-warn">Choose a category and level to review compensation. Configure missing rates in contract/pay settings.</p>
+        </template>
+        <template v-if="contractTenant !== 'nlu' && !usesIndividualAgreement && (agreementBuilder || contractConfigs.find(c => Number(c.id) === Number(contractConfigId))?.pay_mode === 'ffs')">
           <p v-if="selectedCompensation?.serviceRatesError" class="sph-warn">{{ selectedCompensation.serviceRatesError }}</p>
           <table v-else-if="selectedCompensation?.serviceRates?.length">
             <thead><tr><th>Service code</th><th>Base compensation</th><th v-if="selectedCompensation.serviceRates.some(rate => rate.reduced)">Probation / minimum-workload rate</th><th>Unit</th></tr></thead>
@@ -97,6 +104,8 @@
           </table>
         </template>
         <p v-if="inferredPayLabel" class="muted small">Inferred: {{ inferredPayLabel }}</p>
+        <ContractExpectationsEditor v-if="contractTenant" :show-core-fields="false" v-model="individualExpectations" :individual-agreement-mode="contractTenant==='isi'" :service-role-options="contractServiceRoleOptions" :service-role-source="wizardTokens.CONTRACT_SERVICE_ROLE_SOURCE" :compensation-category="contract.compensationCategory" :service-compensation="serviceCompensation" title="Assigned services and compensation" description="Review the job-based role selections and each service’s approved pay and authorization terms before preparing the agreement." />
+        <label v-if="contractTenant==='nlu' && Number(contract.compensationCategory)>=3">Placement exception approval<input v-model="contractOverrides.NLU_CATEGORY_PLACEMENT_EXCEPTION_REFERENCE" placeholder="Written approval reference, when required" /></label>
         <h3>Contract details</h3>
         <p class="muted">Employer name and address come from the agency profile. Job title and role label come from the job posting. Review these values and complete anything missing before previewing.</p>
         <div class="sph-grid">
@@ -229,6 +238,7 @@ import HirePackageContents from '../../components/hiring/HirePackageContents.vue
 import ContractServiceFocusSelect from '../../components/hiring/ContractServiceFocusSelect.vue';
 import JobDescriptionSections from '../../components/careers/JobDescriptionSections.vue';
 import HireWorkflowEditor from '../../components/admin/HireWorkflowEditor.vue';
+import ContractExpectationsEditor from '../../components/careers/ContractExpectationsEditor.vue';
 import { computed, onMounted, onBeforeUnmount, nextTick, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router';
 import api from '../../services/api';
@@ -264,11 +274,18 @@ const officeGroups = computed(() => {
   return [...groups].map(([city, offices]) => ({ city, offices }));
 });
 const serviceFocusOptions = ref([]), schoolDaysEnabled = ref(false);
+const compensationCategories = ref({1:{label:'Unlicensed'},2:{label:'Pre-licensed'},3:{label:'Licensed'}});
+const contractTenant = ref(''), contractServiceRoleOptions = ref([]), serviceCompensation = ref(null), individualExpectations = ref({});
+const usesIndividualAgreement = computed(() => contractTenant.value === 'isi' && individualExpectations.value.individualCompensationBasis === 'approved_individual_agreement');
+const categoryServicePay = computed(() => agreementBuilder.value?.compensationBasis === 'category_service');
+const requiresActivation = computed(() => { const config = contractConfigs.value.find(c => Number(c.id) === Number(contractConfigId.value)); return !!config && config.is_active != null && Number(config.is_active) !== 1; });
+const compensationChosen = computed(() => usesIndividualAgreement.value || Boolean(contract.compensationCategory && contract.compensationLevel));
 const agreementBuilder = ref(null), agreementVariant = ref('');
 function applyAgreementVariant() {
+  if (agreementBuilder.value && !agreementBuilder.value.options.some(option => option.value === agreementVariant.value)) agreementVariant.value = agreementBuilder.value.suggestedVariant;
   const option = agreementBuilder.value?.options.find(option => option.value === agreementVariant.value);
   contractConfigId.value = option?.configId || null;
-  if (option) contractOverrides.ROLE_LABEL = option.roleLabel;
+  if (option?.roleLabel && (!['nlu', 'isi'].includes(contractTenant.value) || !contractOverrides.ROLE_LABEL)) contractOverrides.ROLE_LABEL = option.roleLabel;
 }
 const selectedCompensation = computed(() => compensationLevels.value.find(r => Number(r.category) === Number(contract.compensationCategory) && Number(r.level) === Number(contract.compensationLevel)));
 const money = value => value == null ? 'Not configured' : new Intl.NumberFormat('en-US', { style:'currency', currency:'USD' }).format(value);
@@ -421,6 +438,15 @@ const load = async () => {
     signerAssignments.value = mapSignerRolesWithDefaults(roles, staffUsers.value);
     wizardTokens.value = wizardRes.data?.tokens || {};
     compensationLevels.value = wizardRes.data?.compensationLevels || [];
+    compensationCategories.value = wizardRes.data?.compensationCategories || compensationCategories.value;
+    contractTenant.value = wizardRes.data?.contractTenant || '';
+    contractServiceRoleOptions.value = wizardRes.data?.contractServiceRoleOptions || [];
+    serviceCompensation.value = wizardRes.data?.serviceCompensation || null;
+    individualExpectations.value = { ...wizardTokens.value.CONTRACT_POSTING_DEFAULTS,
+      serviceRoles: wizardTokens.value.CONTRACT_SERVICE_ROLES || [],
+      serviceRoleDetails: wizardTokens.value.CONTRACT_SERVICE_ROLE_DETAILS || wizardTokens.value.CONTRACT_POSTING_DEFAULTS?.serviceRoleDetails || {},
+      individualCompensationBasis: wizardTokens.value.INDIVIDUAL_COMPENSATION_BASIS || (contractTenant.value === 'isi' ? 'approved_individual_agreement' : ''),
+      priorAgreementReference: wizardTokens.value.PRIOR_COMPENSATION_AGREEMENT_REFERENCE || '' };
     serviceFocusOptions.value = wizardRes.data?.serviceFocusOptions || [];
     schoolDaysEnabled.value = wizardRes.data?.schoolDaysEnabled === true;
     offices.value = wizardRes.data?.offices || [];
@@ -588,7 +614,14 @@ const documentsPath = computed(() => orgPath(`/admin/documents?agencyId=${agency
 const assignedSupervisorName = computed(() => { const u = staffUsers.value.find(u => Number(u.id) === Number(portalWorkflow.value.supervisorUserId)); return u ? `${u.first_name} ${u.last_name}` : ''; });
 const contractTokens = computed(() => ({ ...wizardTokens.value, ...contractOverrides,
   AGREEMENT_SELECTION_DRIVEN: agreementBuilder.value ? '1' : '0', AGREEMENT_VARIANT: agreementVariant.value,
-  COMPENSATION_CATEGORY: contract.compensationCategory, COMPENSATION_LEVEL: contract.compensationLevel,
+  ...(contractTenant.value ? {
+    CONTRACT_EXPECTATIONS: individualExpectations.value,
+    CONTRACT_SERVICE_ROLES: individualExpectations.value.serviceRoles || [],
+    CONTRACT_SERVICE_ROLE_DETAILS: individualExpectations.value.serviceRoleDetails || {},
+    INDIVIDUAL_COMPENSATION_BASIS: contractTenant.value === 'isi' ? individualExpectations.value.individualCompensationBasis || '' : '',
+    PRIOR_COMPENSATION_AGREEMENT_REFERENCE: contractTenant.value === 'isi' ? individualExpectations.value.priorAgreementReference || '' : ''
+  } : {}),
+  COMPENSATION_CATEGORY: usesIndividualAgreement.value ? '' : contract.compensationCategory, COMPENSATION_LEVEL: usesIndividualAgreement.value ? '' : contract.compensationLevel,
   START_DATE: contract.startDate, EXECUTION_DATE: contract.executionDate, EXPIRATION_DATE: contract.expirationDate,
   CANDIDATE_NAME: candidateName.value, EMPLOYEE_FULL_NAME: candidateName.value,
   SUPERVISOR_NAME: includeSupervisor.value ? (assignedSupervisorName.value || contract.supervisor) : '', INCLUDE_SUPERVISION: includeSupervisor.value ? '1' : '0',
@@ -607,10 +640,11 @@ const previewMatches = computed(() => lastPreviewInput.value === JSON.stringify(
 const previewInput = computed(() => ({ compensationLevel: contract.compensationLevel, officeLocationId: officeLocationId.value, configId: contractConfigId.value, tokens: contractTokens.value, compensationCategory: contract.compensationCategory || inferredCategory.value, credential: contractOverrides.LICENSE_TYPE || detail.value?.profile?.credential || wizardTokens.value.CREDENTIAL }));
 watch(previewInput, () => { contractReviewed.value = false; }, { deep: true });
 const missingResources = computed(() => (portalWorkflow.value.resources || []).filter(r => !r.title?.trim() || (r.kind === 'document' ? !r.templateId : r.required !== false && !r.url)));
-const readyToSend = computed(() => !uploadingFiles.value && !draftSaveError.value && !missingResources.value.length && contract.compensationCategory && contract.compensationLevel && contractReviewed.value && previewMatches.value && contractPreview.value && !contractPreview.value.unresolvedTokens?.length && portalWorkflow.value.handbookUrl && (!prehirePackageId.value || Number(packageDetails.value?.id) === Number(prehirePackageId.value)));
+const readyToSend = computed(() => !uploadingFiles.value && !draftSaveError.value && !missingResources.value.length && !requiresActivation.value && compensationChosen.value && contractReviewed.value && previewMatches.value && contractPreview.value && !contractPreview.value.unresolvedTokens?.length && portalWorkflow.value.handbookUrl && (!prehirePackageId.value || Number(packageDetails.value?.id) === Number(prehirePackageId.value)));
 const chosenSignerNames = computed(() => [...signerAssignments.value.map(s => s.userId), adhocSignerUserId.value].filter(Boolean).map(id => { const u = staffUsers.value.find(u => String(u.id) === String(id)); return u ? `${u.first_name} ${u.last_name}` : ''; }).join(', '));
 async function previewContract() {
-  if (!contract.compensationCategory || !contract.compensationLevel) { previewError.value = 'Choose a pay category and level before previewing.'; return; }
+  if (!compensationChosen.value) { previewError.value = 'Choose a pay category and level before previewing.'; return; }
+  if (!contractConfigId.value) { previewError.value = 'The employment agreement terms are not configured. Refresh contract settings.'; return; }
   if (!officeLocationId.value || !offices.value.some(office => Number(office.id) === Number(officeLocationId.value))) { previewError.value = 'Select the assigned office before previewing.'; return; }
   if (!contractOverrides.COMPANY_ADDRESS) { previewError.value = 'Set the agency’s place-of-business address in agency settings, then refresh contract settings.'; return; }
   if (showSchoolDays.value && (!Number.isInteger(Number(contract.minDays)) || Number(contract.minDays) < 1 || Number(contract.minDays) > 7)) { previewError.value = 'Enter expected school days per week (1–7).'; return; }
@@ -624,6 +658,8 @@ async function refreshContractLibrary() {
   try {
     const { data } = await api.get(`/contracts/candidates/${userId.value}/wizard-context`, { params: { agencyId: agencyId.value } });
     contractConfigs.value = data.configs || []; compensationLevels.value = data.compensationLevels || []; offices.value = data.offices || [];
+    compensationCategories.value = data.compensationCategories || compensationCategories.value;
+    serviceCompensation.value = data.serviceCompensation || null;
     contractOverrides.COMPANY_ADDRESS = data.agency?.address || data.tokens?.COMPANY_ADDRESS || '';
     if (!offices.value.some(office => Number(office.id) === Number(officeLocationId.value))) officeLocationId.value = data.suggested?.officeLocationId || null;
     applyOffice();
@@ -645,7 +681,7 @@ watch(() => contractOverrides.LICENSE_TYPE, async credential => {
 });
 
 const draftRevision = ref(0), draftReady = ref(false), draftSaving = ref(false), draftSaveError = ref('');
-const draftState = computed(() => ({ contract: { ...contract }, contractOverrides: { ...contractOverrides }, agreementVariant: agreementVariant.value,
+const draftState = computed(() => ({ contract: { ...contract }, contractOverrides: { ...contractOverrides }, individualExpectations: individualExpectations.value, agreementVariant: agreementVariant.value,
   contractConfigId: contractConfigId.value, officeLocationId: officeLocationId.value, includeSupervisor: includeSupervisor.value,
   signerAssignments: signerAssignments.value, adhocSignerUserId: adhocSignerUserId.value,
   prehirePackageId: prehirePackageId.value, packetTemplateId: packetTemplateId.value,
@@ -662,6 +698,7 @@ async function restoreDraft() {
   if (d) {
     if (d.contract) Object.assign(contract, d.contract);
     if (d.contractOverrides) Object.assign(contractOverrides, d.contractOverrides);
+    if (d.individualExpectations) individualExpectations.value = d.individualExpectations;
     for (const [key, target] of Object.entries({ agreementVariant, contractConfigId, officeLocationId, includeSupervisor, signerAssignments, adhocSignerUserId, prehirePackageId, packetTemplateId, portalWorkflow, jobDocs, extraFiles, setupStep })) {
       if (d[key] !== undefined) target.value = d[key];
     }

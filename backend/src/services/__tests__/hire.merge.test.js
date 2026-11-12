@@ -13,6 +13,14 @@ import { buildJobDescClauseMarkdown } from '../jobDescriptionContractClause.serv
 import { ITSCO_CONTRACT_CLAUSES, mdToHtml } from '../../seeds/itscoContractClauseLibrary.js';
 beforeEach(() => vi.clearAllMocks());
 describe('contract merge validation', () => {
+  it('separates inactive draft review from contract issuance', async () => {
+    const config = { id: 32, is_active: 0, clause_keys_json: ['SIG_BLOCK'] };
+    db.execute.mockResolvedValueOnce([[config]]);
+    await expect(loadContractBundle({ agencyId: 6, configId: 32 })).rejects.toMatchObject({ status: 409, message: expect.stringContaining('full terms must be approved') });
+    db.execute.mockResolvedValueOnce([[config]]).mockResolvedValueOnce([[{ clause_key: 'SIG_BLOCK', body_html: '<p>Signature</p>', is_active: 1 }]]);
+    expect((await loadContractBundle({ agencyId: 6, configId: 32, reviewInactiveConfig: true })).config.is_active).toBe(0);
+  });
+
   it.each(['itsco', 'nlu', 'tisi'])('includes handbook fee compensation in every new %s agreement, including tutor roles', async slug => {
     const { default: Agency } = await import('../../models/Agency.model.js');
     Agency.findById.mockResolvedValueOnce({ id: 1, slug, name: 'Example Practice' });

@@ -8,6 +8,10 @@ describe('persisted pre-hire drafts',()=>{
   expect(sanitizePrehireDraft({contract:{minHours:6},contractReviewed:true,contractPreview:'html',invitationToken:'secret',extraFiles:[{id:1,name:'resume.pdf',title:'Resume',file:{bytes:'data'}}]})).toEqual({contract:{minHours:6},extraFiles:[{id:1,name:'resume.pdf',title:'Resume'}]});
   expect(()=>sanitizePrehireDraft({contractOverrides:{note:'x'.repeat(200001)}})).toThrow('too large');
  });
+ it('preserves reviewed service selections and terms without persisting issuing approval',()=>{
+  const individualExpectations={serviceRoles:['childcare'],serviceRoleDetails:{childcare:{payLevel:3,compensationTerms:'Approved individual terms'}}};
+  expect(sanitizePrehireDraft({individualExpectations,contractReviewed:true})).toEqual({individualExpectations});
+ });
  it('loads progress only for the agency and candidate requested',async()=>{
   db.execute.mockResolvedValue([[{draft_json:'{"contract":{"minHours":6}}',revision:3}]]);
   expect(await getPrehireDraft(2,8)).toMatchObject({draft:{contract:{minHours:6}},revision:3});
