@@ -18,6 +18,7 @@ beforeEach(() => {
   PayrollPeriod.findById.mockResolvedValue({ id: 42, agency_id: 7, status: 'ran', period_start: '2026-09-01', period_end: '2026-09-15' });
   PayrollSummary.listForPeriod.mockResolvedValue([{ user_id: 12, first_name: 'Example', last_name: 'Employee', total_amount: 120, direct_hours: 2, indirect_hours: 0 }]);
   pool.execute.mockImplementation(async sql => {
+    if (sql.includes('FROM noteworthy_practices')) return [[]];
     if (sql.includes('information_schema.COLUMNS') && sql.includes("TABLE_NAME = 'agencies'")) return [[]];
     if (sql.includes('FROM agencies WHERE id')) return [[{ id: 7, organization_type: 'agency' }]];
     if (sql.includes('FROM user_agencies')) return [[]];
