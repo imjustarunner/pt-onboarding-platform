@@ -4,8 +4,10 @@ import { authenticate,authenticateOptional } from '../middleware/auth.middleware
 import { signupLimiter,recoveryLimiter } from '../middleware/rateLimiter.middleware.js';
 import service from '../services/noteworthyPayroll.service.js';
 import readiness from '../services/noteworthyReadiness.service.js';
+import lifecycle from '../services/noteworthyLifecycle.service.js';
+import contact from '../services/noteworthyContact.service.js';
 
-export function createNoteworthyRouter({payroll=service,dataReadiness=readiness,auth=authenticate,optionalAuth=authenticateOptional}={}) {
+export function createNoteworthyRouter({payroll=service,dataReadiness=readiness,trial=lifecycle,messages=contact,auth=authenticate,optionalAuth=authenticateOptional}={}) {
   const router=express.Router();
   for(const param of ['agencyId','userId','periodId'])router.param(param,(req,res,next,value)=>/^[1-9]\d*$/.test(value) && Number.isSafeInteger(Number(value))?next():res.status(400).json({error:{code:'INVALID_IDENTIFIER',message:'Choose a valid payroll record.'}}));
   router.use(express.json({limit:'128kb'}));
@@ -15,10 +17,11 @@ export function createNoteworthyRouter({payroll=service,dataReadiness=readiness,
     next();
   });
   const run=fn=>(req,res,next)=>Promise.resolve(fn(req,res)).catch(error=>{
-    if(error.status && error.status<500)return res.status(error.status).json({error:{code:error.code,message:error.message},...(error.activation?{activation:error.activation}:{}),...(error.readiness?{readiness:error.readiness}:{})});
+    if(error.status && error.status<500)return res.status(error.status).json({error:{code:error.code,message:error.message},...(error.activation?{activation:error.activation}:{}),...(error.readiness?{readiness:error.readiness}:{}),...(error.trial?{trial:error.trial}:{})});
     next(error);
   });
   router.post('/signup',signupLimiter,run(async(req,res)=>res.status(201).json(await payroll.signup(req.body))));
+  router.post('/inquiries',rateLimit({windowMs:15*60000,limit:5,standardHeaders:true,legacyHeaders:false}),run(async(req,res)=>res.status(201).json(await messages.inquiry(req.body))));
   router.post('/verify',recoveryLimiter,run(async(req,res)=>res.json(await payroll.verify(req.body?.token,req.body?.password))));
   router.post('/resend-verification',recoveryLimiter,run(async(req,res)=>res.json(await payroll.resend(req.body?.email))));
   router.post('/accept-invite',recoveryLimiter,optionalAuth,run(async(req,res)=>res.json(await payroll.acceptInvite(req.body,req.user?.id))));
@@ -31,6 +34,26 @@ export function createNoteworthyRouter({payroll=service,dataReadiness=readiness,
     res.json(result);
   }));
   router.post('/practices',run(async(req,res)=>res.status(201).json(await payroll.createPractice(req.user.id,req.body))));
+  router.get('/operator/practices',run(async(req,res)=>res.json(await trial.list(req.user.id))));
+  router.get('/operator/practices/:agencyId/activation',run(async(req,res)=>{await trial.operator(req.user.id);res.json(await dataReadiness.activation(Number(req.params.agencyId)));}));
+  router.post('/operator/practices/:agencyId/activate',run(async(req,res)=>{await trial.operator(req.user.id);res.json(await dataReadiness.activate(req.user.id,Number(req.params.agencyId),req.body));}));
+  router.get('/operator/inquiries',run(async(req,res)=>res.json(await messages.operatorThreads(req.user.id))));
+  router.post('/operator/practices/:agencyId/continue',run(async(req,res)=>res.json(await trial.activateCommercial(req.user.id,Number(req.params.agencyId),req.body))));
+  router.get('/practices/:agencyId/lifecycle',run(async(req,res)=>res.json(await trial.status(req.user.id,Number(req.params.agencyId)))));
+  router.put('/practices/:agencyId/data-choices',run(async(req,res)=>res.json(await trial.policy(req.user.id,Number(req.params.agencyId),req.body))));
+  router.post('/practices/:agencyId/wipe',run(async(req,res)=>res.status(202).json(await trial.requestWipe(req.user.id,Number(req.params.agencyId),req.body))));
+  router.get('/practices/:agencyId/support',run(async(req,res)=>res.json(await messages.threads(req.user.id,Number(req.params.agencyId)))));
+  router.post('/practices/:agencyId/support',run(async(req,res)=>res.status(201).json(await messages.ownerMessage(req.user.id,Number(req.params.agencyId),req.body))));
+  router.post('/practices/:agencyId/continue',run(async(req,res)=>{const id=Number(req.params.agencyId);const saved=await messages.ownerMessage(req.user.id,id,{...req.body,category:'continue'});res.json({...await trial.requestContinue(req.user.id,id),messageReference:saved.id});}));
+  router.use('/practices/:agencyId',(req,res,next)=>{(async()=>{
+    // Privacy choices, support and approval routes above remain available while
+    // a trial is read-only. Employee statements and payroll setup respect wipe.
+    await trial.assertReadable(Number(req.params.agencyId));
+    if(!['GET','HEAD'].includes(req.method))await trial.assertWritable(Number(req.params.agencyId));
+  })().then(()=>next()).catch(error=>{
+    if(error.status)return res.status(error.status).json({error:{code:error.code,message:error.message},...(error.trial?{trial:error.trial}:{})});
+    next(error);
+  });});
   router.get('/practices/:agencyId/me/paystubs',run(async(req,res)=>res.json(await payroll.paystubs(req.user.id,Number(req.params.agencyId)))));
   router.post('/practices/:agencyId/activation',run(async(req,res)=>res.json(await dataReadiness.activate(req.user.id,Number(req.params.agencyId),req.body))));
   // Explicit route-level owner checks below keep injected/service tests and Express

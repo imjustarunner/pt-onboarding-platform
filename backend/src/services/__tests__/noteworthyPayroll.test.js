@@ -5,6 +5,7 @@ import { createNoteworthyPayrollService,noteworthyRates } from '../noteworthyPay
 import { ensureNoteworthyProvider,noteworthyMatchingUsers } from '../noteworthyRoster.service.js';
 import { createNoteworthyReadiness } from '../noteworthyReadiness.service.js';
 import { createNoteworthyImportReceipts } from '../noteworthyImportReceipt.service.js';
+import { createNoteworthyLifecycle } from '../noteworthyLifecycle.service.js';
 import { canManagePayrollForAgency } from '../payrollManagementAccess.service.js';
 
 let sql,db,service,send,readiness,hashPassword,validatePassword;
@@ -28,7 +29,10 @@ beforeEach(()=>{
   sql.exec(`CREATE TABLE users(id INTEGER PRIMARY KEY AUTOINCREMENT,email TEXT UNIQUE,username TEXT,personal_email TEXT,password_hash TEXT,first_name TEXT,last_name TEXT,role TEXT,status TEXT,is_active INTEGER DEFAULT 1,is_archived INTEGER DEFAULT 0,email_verified_at TEXT,is_roster_placeholder INTEGER DEFAULT 0,has_provider_access INTEGER);
     CREATE TABLE agencies(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT,slug TEXT,organization_type TEXT,is_active INTEGER,is_archived INTEGER DEFAULT 0,feature_flags TEXT);
     CREATE TABLE user_agencies(user_id INTEGER,agency_id INTEGER,is_active INTEGER,has_payroll_access INTEGER,UNIQUE(user_id,agency_id));
-    CREATE TABLE noteworthy_practices(agency_id INTEGER PRIMARY KEY,owner_user_id INTEGER,plan_intent TEXT,activation_enc TEXT,activated_at TEXT,activated_by_user_id INTEGER,activation_requested_at TEXT,activation_request_enc TEXT);
+    CREATE TABLE noteworthy_practices(agency_id INTEGER PRIMARY KEY,owner_user_id INTEGER,plan_intent TEXT,activation_enc TEXT,activated_at TEXT,activated_by_user_id INTEGER,activation_requested_at TEXT,activation_request_enc TEXT,trial_policy_version INTEGER DEFAULT 0,trial_policy_accepted_at TEXT,trial_started_at TEXT,trial_ends_at TEXT,retention_days INTEGER DEFAULT 0,continuation_requested_at TEXT,commercial_activated_at TEXT,commercial_evidence_enc TEXT,deletion_requested_at TEXT,deleted_at TEXT);
+    CREATE TABLE noteworthy_deletion_jobs(agency_id INTEGER PRIMARY KEY,status TEXT,attempts INTEGER,error_code TEXT,completed_at TEXT);
+    CREATE TABLE support_tickets(id INTEGER PRIMARY KEY,agency_id INTEGER,school_organization_id INTEGER,created_by_user_id INTEGER);
+    CREATE TABLE noteworthy_contact_threads(id TEXT,agency_id INTEGER,owner_user_id INTEGER,email_hash TEXT,support_ticket_id INTEGER);
     CREATE TABLE noteworthy_signups(id INTEGER PRIMARY KEY AUTOINCREMENT,email TEXT UNIQUE,practice_name TEXT,first_name TEXT,last_name TEXT,password_hash TEXT,token_hash TEXT UNIQUE,expires_at TEXT,verified_agency_id INTEGER,plan_intent TEXT);
     CREATE TABLE noteworthy_email_verifications(user_id INTEGER PRIMARY KEY,email TEXT,token_hash TEXT UNIQUE,expires_at TEXT);
     CREATE TABLE noteworthy_roster(agency_id INTEGER,payroll_user_id INTEGER,source_name_key TEXT,credential TEXT,contact_email TEXT,auth_user_id INTEGER,invited_at TEXT,accepted_at TEXT,UNIQUE(agency_id,payroll_user_id),UNIQUE(agency_id,source_name_key),UNIQUE(agency_id,auth_user_id));
@@ -51,7 +55,7 @@ afterEach(()=>{sql.close();vi.unstubAllEnvs();});
 async function onboard() {
   await service.signup(request());
   const token=send.mock.calls.at(-1)[0].text.match(/#token=([a-f0-9]{64})/)[1];
-  return service.verify(token,recipientPassword);
+  const result=await service.verify(token,recipientPassword);await createNoteworthyLifecycle({db}).policy(1,result.practice.agencyId,{retentionDays:0,acknowledged:true});return result;
 }
 async function employee(agencyId=1) {return ensureNoteworthyProvider({agencyId,providerName:'Therapist, Synthetic',firstName:'Synthetic',lastName:'Therapist'},db);}
 

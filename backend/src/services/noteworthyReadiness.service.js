@@ -2,6 +2,7 @@ import pool from '../config/database.js';
 import { encryptBillingSecret,decryptBillingSecret,isBillingEncryptionConfigured } from './billingEncryption.service.js';
 import { decryptFamilyBilling } from './familyBillingEncryption.service.js';
 import { isProBonoServiceCode } from '../utils/clinicalFundingPolicy.js';
+import { noteworthyTrialState } from './noteworthyLifecycle.service.js';
 
 const fail=(status,code,message,extra={})=>Object.assign(new Error(message),{status,code,...extra});
 const parse=value=>typeof value==='string'?JSON.parse(value):value;
@@ -9,7 +10,7 @@ const clean=(value,label,max=1000)=>{if(typeof value!=='string'||!value.trim()||
 export function createNoteworthyReadiness({db=pool,encrypt=encryptBillingSecret,decrypt=decryptBillingSecret,openAgreement=decryptFamilyBilling,now=()=>new Date()}={}) {
   async function activation(agencyId) {
     let practice;
-    try {[[practice]]=await db.execute('SELECT agency_id,activated_at,activated_by_user_id,activation_enc,activation_requested_at,activation_request_enc FROM noteworthy_practices WHERE agency_id=?',[agencyId]);}
+    try {[[practice]]=await db.execute('SELECT * FROM noteworthy_practices WHERE agency_id=?',[agencyId]);}
     catch(e){if(e.code==='ER_NO_SUCH_TABLE')return null;throw e;}
     if(!practice)return null;
     let evidence=null;
@@ -20,7 +21,8 @@ export function createNoteworthyReadiness({db=pool,encrypt=encryptBillingSecret,
     const active=!!practice.activated_at && evidence?.verified===true;
     let request=null;
     if(practice.activation_request_enc)try{request=parse(decrypt(parse(practice.activation_request_enc)));}catch{throw fail(503,'ACTIVATION_RECORD_UNAVAILABLE','The saved legal-identity request needs operator review.');}
-    return {canImport:active && isBillingEncryptionConfigured(),activatedAt:practice.activated_at || null,requestedAt:practice.activation_requested_at || null,legalIdentity:request?{legalName:request.legalName,legalAddress:request.legalAddress}:null,
+    const trial=noteworthyTrialState(practice,now());
+    return {canImport:active && isBillingEncryptionConfigured() && trial.canWrite,trial,activatedAt:practice.activated_at || null,requestedAt:practice.activation_requested_at || null,legalIdentity:request?{legalName:request.legalName,legalAddress:request.legalAddress}:null,
       requirements:active?[]:[{id:'agreements',label:'Executed payroll service agreement, order and BAA reviewed by FundThred'},{id:'identity',label:'Practice legal identity and authorized contact'},{id:'infrastructure',label:'Auricwell infrastructure and vendor readiness review'}]};
   }
   async function assertImport(agencyId) {
@@ -44,8 +46,10 @@ export function createNoteworthyReadiness({db=pool,encrypt=encryptBillingSecret,
     const conn=await db.getConnection();
     try {
       await conn.beginTransaction();
-      const [[practice]]=await conn.execute('SELECT agency_id FROM noteworthy_practices WHERE agency_id=? FOR UPDATE',[agencyId]);
+      const [[practice]]=await conn.execute('SELECT * FROM noteworthy_practices WHERE agency_id=? FOR UPDATE',[agencyId]);
       if(!practice)throw fail(404,'PRACTICE_NOT_FOUND','Payroll practice not found.');
+      if(practice.deletion_requested_at || practice.deleted_at)throw fail(409,'DELETION_ALREADY_REQUESTED','This workspace is being deleted.');
+      if(Number(practice.trial_policy_version)===1 && !practice.trial_policy_accepted_at)throw fail(409,'TRIAL_POLICY_REQUIRED','The practice owner must confirm the trial and data-retention choices before activation.');
       const [[record]]=await conn.execute("SELECT id,kind,payload FROM organization_agreement_records WHERE agency_id=? AND id=? AND kind IN ('agreement','agreement_upload') FOR UPDATE",[agencyId,evidence.baaId]);
       if(!record)throw fail(409,'EXECUTED_BAA_REQUIRED','Select this practice’s retained executed BAA in the organization agreement archive.');
       const baa=openAgreement(record.payload,`organization-agreement:${agencyId}:${record.kind}:${record.id}`);
@@ -54,7 +58,10 @@ export function createNoteworthyReadiness({db=pool,encrypt=encryptBillingSecret,
       if(!partyName || partyName.toLowerCase()!==evidence.legalName.toLowerCase())throw fail(409,'LEGAL_IDENTITY_MISMATCH','The practice legal name must match the retained executed BAA.');
       evidence.baaRevision=record.revision || null;
       const payload=JSON.stringify(encrypt(JSON.stringify(evidence)));
-      await conn.execute('UPDATE noteworthy_practices SET activation_enc=?,activated_at=UTC_TIMESTAMP(),activated_by_user_id=? WHERE agency_id=?',[payload,actorId,agencyId]);
+      const start=now(),end=new Date(start.getTime()+30*86400000);
+      await conn.execute(`UPDATE noteworthy_practices SET activation_enc=?,activated_at=UTC_TIMESTAMP(),activated_by_user_id=?,
+        trial_started_at=CASE WHEN trial_policy_version=1 THEN COALESCE(trial_started_at,?) ELSE trial_started_at END,
+        trial_ends_at=CASE WHEN trial_policy_version=1 THEN COALESCE(trial_ends_at,?) ELSE trial_ends_at END WHERE agency_id=?`,[payload,actorId,start,end,agencyId]);
       await conn.commit();
     }catch(e){await conn.rollback();throw e;}finally{conn.release();}
     return activation(agencyId);

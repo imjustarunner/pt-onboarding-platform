@@ -114,7 +114,7 @@ describe('NoteWorthy protected practice workspace',()=>{
   it('rejects a practice outside the authorized list without falling back to another practice',async()=>{
     const {wrapper}=await render('/fundthred/noteworthy/app/999');
     expect(wrapper.get('[role=alert]').text()).toContain('not available to your account');
-    expect(mocks.get.mock.calls.map(call=>call[0])).toEqual(['/noteworthy/workspace']);
+    expect(mocks.get.mock.calls.map(call=>call[0])).toEqual(['/noteworthy/workspace','/noteworthy/practices/999/lifecycle']);
     expect(mocks.setCurrentAgency).not.toHaveBeenCalled();
   });
   it('does not display late owner data after switching to a different employee practice',async()=>{
