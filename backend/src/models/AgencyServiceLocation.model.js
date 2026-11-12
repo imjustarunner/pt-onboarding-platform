@@ -5,6 +5,7 @@ class AgencyServiceLocation {
     const [rows] = await pool.execute(
       `SELECT l.*,
               o.name AS billing_office_name,
+              COALESCE(o.physical_office_location_id, o.id) AS physical_office_location_id,
               o.street_address AS billing_office_street,
               o.city AS billing_office_city,
               o.state AS billing_office_state,
@@ -30,6 +31,7 @@ class AgencyServiceLocation {
     const [rows] = await pool.execute(
       `SELECT l.*,
               o.name AS billing_office_name,
+              COALESCE(o.physical_office_location_id, o.id) AS physical_office_location_id,
               o.street_address AS billing_office_street,
               o.city AS billing_office_city,
               o.state AS billing_office_state,

@@ -18,9 +18,9 @@ import Preview from '../DefaultNotificationPreview.vue';
 import SupervisionBody from '../SupervisionBody.vue';
 
 const serviceLocations = [
-  { id: 51, name: 'Office', place_of_service: '11', location_kind: 'office_pos', billing_office_location_id: 8, billing_office_name: 'Main office', street_address: '123 Main St' },
-  { id: 52, name: 'Virtual', place_of_service: '10', billing_office_location_id: 8 },
-  { id: 53, name: "Client's home", place_of_service: '12', billing_office_location_id: 8 }
+  { id: 51, name: 'Office', place_of_service: '11', location_kind: 'office_pos', billing_office_location_id: 88, physical_office_location_id: 8, billing_office_name: 'Main office', street_address: '123 Main St' },
+  { id: 52, name: 'Virtual', place_of_service: '10', billing_office_location_id: 88, physical_office_location_id: 8 },
+  { id: 53, name: "Client's home", place_of_service: '12', billing_office_location_id: 88, physical_office_location_id: 8 }
 ];
 let wrapper;
 beforeEach(() => {

@@ -14762,11 +14762,15 @@ const editorServiceLocationOptions = computed(() => {
       const isOfficePos = String(loc.locationKind || '') === 'office_pos';
       const pos = !isOfficePos && loc.placeOfService ? `POS ${loc.placeOfService}` : '';
       const office = isOfficePos ? '' : (loc.schoolOrganizationId ? 'School site' : '');
-      const bits = [loc.name, isOfficePos ? loc.billingOfficeName : '', loc.address, office, pos].filter(Boolean);
+      const bits = [loc.name,
+        isOfficePos && loc.placeOfService === '11' ? loc.billingOfficeName : '',
+        !isOfficePos || loc.placeOfService === '11' ? loc.address : '',
+        office, pos].filter(Boolean);
       return {
         id: loc.id,
         label: bits.join(' · '),
         billingOfficeLocationId: loc.billingOfficeLocationId,
+        physicalOfficeLocationId: loc.physicalOfficeLocationId,
         placeOfService: loc.placeOfService,
         isSchool: Number(loc.schoolOrganizationId || 0) > 0 || loc.placeOfService === '03',
         schoolOrganizationId: Number(loc.schoolOrganizationId || 0) || 0,
@@ -16679,6 +16683,7 @@ const bookingServiceLocationOptions = computed(() => {
     placeOfService: String(row?.place_of_service || row?.placeOfService || '').trim(),
     billingOfficeName: String(row?.billing_office_name || row?.billingOfficeName || '').trim(),
     billingOfficeLocationId: Number(row?.billing_office_location_id || row?.billingOfficeLocationId || 0),
+    physicalOfficeLocationId: Number(row?.physical_office_location_id || row?.physicalOfficeLocationId || 0),
     address: [row?.street_address || row?.streetAddress, row?.city, row?.state, row?.postal_code || row?.postalCode].filter(Boolean).join(', '),
     locationKind: String(row?.location_kind || row?.locationKind || '').trim(),
     defaultModifiers: String(row?.default_modifiers || row?.defaultModifiers || '').trim(),
