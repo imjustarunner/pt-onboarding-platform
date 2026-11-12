@@ -1,3 +1,4 @@
+import {NLU_COMPENSATION_POLICY_VERSION} from '../content/nluCompensationPolicy.js';
 import pool from '../config/database.js';
 import {effectiveCompensationAgreement} from './employmentAgreementPolicy.service.js';
 
@@ -48,10 +49,13 @@ export async function futureHirePayContext({agencyId,userId,periodStart,periodEn
   const agreement=await effectiveCompensationAgreement({agencyId,userId,asOfDate:end},db);
   if (!agreement) throw review(`New hire ${userId} is enrolled, but an executed or individually authorized pay schedule is required before calculating payroll.`);
   const s=agreement.data?.schedule;
-  if (!s || ['creditRate','hcodeRate','indirectRate','supportRate','creditRateProbation','hcodeRateProbation'].some(key=>s[key]==null || !Number.isFinite(Number(s[key])) || Number(s[key])<0)) {
+  const [[agency]]=await db.execute('SELECT slug FROM agencies WHERE id=?',[agencyId]);
+  const nonclinical=agency?.slug==='nlu' && Number(s?.category)===1 && s?.nluCompensationPolicyVersion===NLU_COMPENSATION_POLICY_VERSION && s?.clinicalEligible===false;
+  const requiredRates=nonclinical ? ['indirectRate','supportRate'] : ['creditRate','hcodeRate','indirectRate','supportRate','creditRateProbation','hcodeRateProbation'];
+  if (!s || requiredRates.some(key=>s[key]==null || !Number.isFinite(Number(s[key])) || Number(s[key])<0) ||
+    (nonclinical && ['creditRate','hcodeRate','creditRateProbation','hcodeRateProbation'].some(key=>s[key]!=null && Number(s[key])!==0))) {
     throw review(`New hire ${userId} needs reviewed numeric pay terms, including any explicit zero rates. Individual written terms cannot be converted into assumed wages.`);
   }
-  const [[agency]]=await db.execute('SELECT slug FROM agencies WHERE id=?',[agencyId]);
   const individual=agency?.slug==='tisi';
   if (individual && (s.compensationBasis!=='approved_individual_agreement' || s.individualPaySystemApproved!==true ||
     ['autoIndirectMinutes','leaveAdminRatio'].some(key=>s[key]==null || !Number.isFinite(Number(s[key])) || Number(s[key])<0) ||

@@ -26,3 +26,11 @@ it('keeps NLU category four distinct from ITSCO category three',async()=>{m.agre
 it('blocks salary overlaps before pay is calculated',async()=>{salary=[{id:1}];await expect(futureHirePayContext(context,m)).rejects.toThrow('salary excluding service pay');});
 it('supports explicitly reviewed individual ISI rates without a shared matrix or invented category',async()=>{agencies=[{id:377,slug:'tisi'}];const schedule={...rates,category:null,level:null,compensationBasis:'approved_individual_agreement',individualPaySystemApproved:true,autoIndirectMinutes:0,leaveAdminRatio:0};for(const k of ['tierBonusFfs','tierBonusHcode','spanishBonus','locationBonus'])schedule[k]={1:0,2:0,3:0};m.agreement.mockResolvedValue({data:{schedule}});expect(await futureHirePayContext({...context,agencyId:377},m)).toMatchObject({individual:true,assignment:{category:null,level:null,pay_system_enabled:1}});expect(m.execute.mock.calls.some(([sql])=>sql.includes('payroll_pay_system_rates'))).toBe(false);delete schedule.individualPaySystemApproved;await expect(futureHirePayContext({...context,agencyId:377},m)).rejects.toThrow('payroll approval');});
 it('propagates enrollment write failures so the enclosing account transaction rolls back',async()=>{const priorImpl=m.execute.getMockImplementation();m.execute.mockImplementation((sql,args)=>sql.startsWith('INSERT')?Promise.reject(Error('write failed')):priorImpl(sql,args));await expect(enrollCompletedFutureHire({db:m,userId:9000,before:{status:'ONBOARDING'}})).rejects.toThrow('write failed');});
+
+it('accepts explicitly nonclinical NLU agreements with intentionally unset clinical rates',async()=>{
+ const schedule={...rates,category:1,nluCompensationPolicyVersion:'nlu-four-category-2026-11-21',clinicalEligible:false,creditRate:null,hcodeRate:null,creditRateProbation:null,hcodeRateProbation:null};
+ m.agreement.mockResolvedValue({data:{schedule}});
+ expect((await futureHirePayContext(context,m)).assignment.category).toBe(1);
+ schedule.creditRate=40;await expect(futureHirePayContext(context,m)).rejects.toThrow('reviewed numeric pay terms');
+ schedule.creditRate=null;delete schedule.nluCompensationPolicyVersion;await expect(futureHirePayContext(context,m)).rejects.toThrow('reviewed numeric pay terms');
+});
