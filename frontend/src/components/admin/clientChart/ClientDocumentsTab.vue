@@ -5,10 +5,13 @@
         <h3>Documents</h3>
         <p>The signed school packet, HIPAA, ROI, clinical summary, and intake answers for this client.</p>
       </div>
+      <button v-if="canProcessPaper" type="button" class="btn btn-primary" @click="$emit('client-actions', 'process')">Process paper packet</button>
       <button type="button" class="btn btn-secondary btn-sm" :disabled="refreshing" @click="refreshAll">
         {{ refreshing ? 'Refreshing…' : 'Refresh' }}
       </button>
     </div>
+
+    <p v-if="canProcessPaper" class="hint">Use Process paper packet to review the uploaded PDF, confirm its signatures and staff permissions, and finish enrollment. Viewing the PDF alone does not complete that review.</p>
 
     <div class="cc-docs-phi-banner">
       Documentation may contain PHI. Access is logged. Only open files when you have a legitimate need.
@@ -21,6 +24,9 @@
       :operational-only="!canOpenClinicalDocuments"
       :school="client?.client_type === 'school' || isPaperPacketClient(client)"
       :paper-packet="isPaperPacketClient(client)"
+      :can-process-paper="canProcessPaper"
+      :current-paper-document-id="currentPaperDocumentId"
+      @process-paper="$emit('client-actions', 'process')"
       ref="galleryRef"
       :client-id="clientId"
     />
@@ -85,6 +91,12 @@ const props = defineProps({
 
 const emit = defineEmits(['opened-view-key','client-actions']);
 
+const canProcessPaper = computed(() => props.canEditPaperwork && isPaperPacketClient(props.client));
+const currentPaperDocumentId = computed(() => {
+  let docs = props.client?.onboarding_docs_json || {};
+  if (typeof docs === 'string') { try { docs = JSON.parse(docs); } catch { return null; } }
+  return Number(docs?.paperPacketSource?.documentId || docs?.paperProcessing?.documentId) || null;
+});
 const authStore=useAuthStore();
 const canOpenClinicalDocuments=computed(()=>['admin','super_admin','provider','provider_plus','intern','intern_plus','supervisor','facilitator','qbha'].includes(authStore.user?.role));
 const portalDocumentsOpen=ref(false);
@@ -178,6 +190,11 @@ let openedPaperFor = null;
 async function openRequestedPaper() {
   if (!props.openPaperPacket || openedPaperFor === props.clientId) return;
   const id = props.clientId;
+  if (canProcessPaper.value) {
+    openedPaperFor = id;
+    emit('client-actions', 'process');
+    return;
+  }
   try {
     const {data} = await api.get(`/clients/${id}/paper-packet-documents`, {skipGlobalLoading:true});
     if (id !== props.clientId) return;
@@ -187,7 +204,7 @@ async function openRequestedPaper() {
     else emit('client-actions');
   } catch { /* The documents gallery displays the load error and allows retry. */ }
 }
-watch(() => [props.clientId, props.openPaperPacket], openRequestedPaper, {immediate:true});
+watch(() => [props.clientId, props.openPaperPacket, canProcessPaper.value], openRequestedPaper, {immediate:true});
 async function tryOpenPending() {
   const key = String(props.pendingViewKey || '').trim();
   if (!key) return;

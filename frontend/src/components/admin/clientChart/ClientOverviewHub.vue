@@ -128,7 +128,7 @@
           <button v-if="canEdit" type="button" class="cdp-btn-primary" @click="$emit('edit')">Edit client</button>
           <button type="button" class="cdp-btn-soft" @click="$emit('navigate', 'messages')">Send secure message</button>
           <button type="button" class="cdp-btn-soft" @click="$emit('upload')">Upload document</button>
-          <button v-if="canProcessPaper" type="button" class="cdp-btn-soft" @click="$emit('client-actions')">Client actions / process paper packet</button>
+          <button v-if="canProcessPaper" type="button" class="cdp-btn-soft" @click="$emit('client-actions', 'process')">Process paper packet</button>
         </div>
       </section>
       <section class="cc-side-card">

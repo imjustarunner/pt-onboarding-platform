@@ -35,6 +35,12 @@
         </div>
         <div class="cdg-card__actions">
           <button
+            v-if="canProcessPaper && currentPaperDocumentId && [`paper-${currentPaperDocumentId}`, `phi-${currentPaperDocumentId}`].includes(card.viewKey || card.id)"
+            type="button"
+            class="btn btn-primary btn-sm"
+            @click="$emit('process-paper')"
+          >Process paper packet</button>
+          <button
             v-if="card.viewKey"
             type="button"
             class="btn btn-primary btn-sm"
@@ -120,8 +126,11 @@ const props = defineProps({
   clientId: { type: [Number, String], required: true },
   operationalOnly: Boolean,
   school: Boolean,
-  paperPacket: Boolean
+  paperPacket: Boolean,
+  canProcessPaper: Boolean,
+  currentPaperDocumentId: { type: Number, default: null }
 });
+defineEmits(['process-paper']);
 
 const loading = ref(false);
 const opening = ref(false);

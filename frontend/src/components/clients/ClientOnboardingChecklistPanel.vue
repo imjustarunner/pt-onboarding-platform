@@ -295,7 +295,10 @@ const props = defineProps({
 });
 const emit = defineEmits(['close', 'updated', 'assign-day', 'fall-action']);
 const paperWorkflowOpen = ref(props.initialPaperAction === 'process');
-watch(() => props.initialPaperAction, action => { if (action === 'upload') paperUploadOpen.value = true; }, { immediate: true });
+watch(() => props.initialPaperAction, action => {
+  if (action === 'upload') paperUploadOpen.value = true;
+  if (action === 'process') paperWorkflowOpen.value = true;
+}, { immediate: true });
 
 const authStore = useAuthStore();
 const loading = ref(false);
