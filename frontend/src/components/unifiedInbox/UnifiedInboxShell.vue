@@ -16,7 +16,8 @@ import { isTicketedGroup } from '../../utils/groupEmailPresentation';
 import TicketDetailModal from '../tickets/TicketDetailModal.vue';
 
 const props = defineProps({
-  agencyId: { type: [Number, String], default: null }
+  agencyId: { type: [Number, String], default: null },
+  active: { type: Boolean, default: true }
 });
 
 const agencyStore = useAgencyStore();
@@ -418,7 +419,7 @@ let mailboxPoll = null;
 let pollBusy = false;
 let lastRefreshAt = 0;
 async function refreshSharedState() {
-  if (document.hidden || disposed || pollBusy || sessionLock.isLocked || sessionLock.warningActive || Date.now() - lastRefreshAt < 5000) return;
+  if (!props.active || document.hidden || disposed || pollBusy || sessionLock.isLocked || sessionLock.warningActive || Date.now() - lastRefreshAt < 5000) return;
   lastRefreshAt = Date.now();
   pollBusy = true;
   try {
@@ -432,6 +433,7 @@ async function refreshSharedState() {
     await Promise.allSettled(requests);
   } finally { pollBusy = false; }
 }
+watch(() => props.active, active => { if (active) refreshSharedState(); });
 watch(() => sessionLock.isLocked || sessionLock.warningActive, (locked, wasLocked) => {
   if (wasLocked && !locked) refreshAll();
 });
@@ -570,7 +572,6 @@ defineExpose({ refreshAll });
         :loading="loading"
         :selected-id="selectedId"
         :filter="listFilter"
-        :unread-counts="attention.unreadViews"
         @update:filter="listFilter = $event"
         @select="openConversation"
       />

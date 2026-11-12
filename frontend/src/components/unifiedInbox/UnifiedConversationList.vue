@@ -7,7 +7,6 @@ import { computed, ref } from 'vue';
 import GroupEmailBadge from './GroupEmailBadge.vue';
 import { isTicketedGroup, isGroupEmail } from '../../utils/groupEmailPresentation';
 const props = defineProps({
-  unreadCounts: { type: Object, default: () => ({}) },
   conversations: { type: Array, default: () => [] },
   loading: { type: Boolean, default: false },
   selectedId: { type: [Number, String, null], default: null },
@@ -83,7 +82,7 @@ function formatWhen(v) {
         :class="{ on: filter === t.id }"
         @click="emit('update:filter', t.id)"
       >
-        {{ t.label }} <span class="uc-tab-unread" :aria-label="`${unreadCounts[t.id] || 0} unread`">{{ unreadCounts[t.id] || 0 }}</span>
+        {{ t.label }}
       </button>
     </div>
 
@@ -141,7 +140,6 @@ function formatWhen(v) {
 
 <style scoped>
 .uc-list-updating { padding: 5px 12px; font-size: 12px; color: var(--conversa-muted); }
-.uc-tab-unread { font-size: 11px; margin-left: 3px; }
 .uc-copy-toggle { display:block; margin:5px 0; padding:2px 0; border:0; background:transparent; color:var(--conversa-blue); text-align:left; font:inherit; font-size:12px; cursor:pointer; }
 .uc-list {
   border-right: 1px solid var(--conversa-border);

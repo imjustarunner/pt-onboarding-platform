@@ -144,3 +144,10 @@ it('does not let a delayed folder response replace the newly selected folder', a
   pending[0].resolve({data:{conversations:[{id:12}]}});await flushPromises();
   expect(wrapper.findComponent({name:'UnifiedConversationList'}).props('conversations')).toEqual([{id:40}]);
 });
+
+it('does not poll the shared inbox when its tab is hidden',async()=>{
+ await render();await wrapper.setProps({active:false});api.get.mockClear();
+ window.dispatchEvent(new Event('focus'));await flushPromises();expect(api.get).not.toHaveBeenCalled();
+ await wrapper.setProps({active:true});await flushPromises();
+ expect(api.get).toHaveBeenCalledWith('/communications/conversations',expect.any(Object));
+});

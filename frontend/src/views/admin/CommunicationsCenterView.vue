@@ -90,11 +90,11 @@
 
       <!-- The inbox can load while independent summary counts are pending. -->
       <section v-show="activeMode === 'home'" class="cc-mode cc-mode--inbox">
-        <UnifiedInboxShell :agency-id="agencyStore.currentAgency?.id" />
+        <UnifiedInboxShell v-if="visitedModes.has('home')" :active="activeMode === 'home'" :agency-id="agencyStore.currentAgency?.id" />
       </section>
       <!-- ========== MESSAGES (same as My Dashboard) ========== -->
       <section v-show="activeMode === 'messages'" class="cc-mode cc-messages-host">
-        <MessagesHubShell />
+        <MessagesHubShell v-if="visitedModes.has('messages')" />
       </section>
 
       <section v-if="activeMode === 'team' && canManageTeam" class="cc-mode">
@@ -285,6 +285,9 @@ function modeFromQuery(raw) {
 }
 
 const activeMode = ref(modeFromQuery(route.query?.mode));
+// Load each inbox on first visit, then retain it while switching tabs.
+const visitedModes = ref(new Set([activeMode.value]));
+watch(activeMode, mode => { visitedModes.value = new Set([...visitedModes.value, mode]); });
 
 const slug = computed(() => String(route.params?.organizationSlug || '').trim());
 const prefix = computed(() => (slug.value ? `/${slug.value}` : ''));
