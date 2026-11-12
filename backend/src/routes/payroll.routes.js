@@ -1,4 +1,4 @@
-import { getPayrollCorrectionReview, postPayrollCorrectionReview, postPayrollCorrectionAddition } from '../controllers/payroll.controller.js';
+import { getPayrollCorrectionReview, postPayrollCorrectionReview, postPayrollCorrectionAddition, savePayrollCorrectionResolution, listPayrollCorrectionResolutions } from '../controllers/payroll.controller.js';
 import { getPayrollEventTravelReport, reviewPayrollEventTravelReport } from '../controllers/payroll.controller.js';
 import { getMyFfsExcessOptions } from '../controllers/ffsExcessTime.controller.js';
 import { getTimeClaimMeetingAttendance } from '../controllers/payroll.controller.js';
@@ -304,6 +304,8 @@ router.post('/periods/:id/runs/snapshot-from-file', snapshotPayrollPeriodRunFrom
 router.get('/periods/:id/carryover/preview', previewPayrollCarryover);
 router.post('/periods/:id/carryover/apply', applyPayrollCarryover);
 router.get('/periods/:id/correction-review', getPayrollCorrectionReview);
+router.get('/periods/:id/correction-resolutions', listPayrollCorrectionResolutions);
+router.post('/periods/:id/correction-review/resolve', savePayrollCorrectionResolution);
 router.post('/periods/:id/correction-review/reduction', postPayrollCorrectionReview);
 router.post('/periods/:id/correction-review/additional-pay', postPayrollCorrectionAddition);
 router.post('/periods/:id/raw-audit-actions/apply', applyPayrollRawAuditActions);

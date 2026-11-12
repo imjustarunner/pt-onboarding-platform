@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { isProBonoServiceCode } from '../utils/clinicalFundingPolicy.js';
 
 class PayrollServiceCodeRule {
   static async _hasPayRateUnitColumn() {
@@ -51,6 +52,10 @@ class PayrollServiceCodeRule {
     paySystemBucket = null,
     flatRateAmount = null
   }) {
+    if (isProBonoServiceCode(serviceCode)) {
+      paySystemBucket = 'skip'; flatRateAmount = 0; payMethod = 'fixed_rate'; payPercent = null;
+      countsForTier = 0; tierCreditMultiplier = 0; creditValue = 0;
+    }
     const hasPayRateUnit = await this._hasPayRateUnitColumn();
     const hasPayMethod = await this._hasPayMethodColumns();
     const pru = String(payRateUnit || 'per_unit').trim().toLowerCase();

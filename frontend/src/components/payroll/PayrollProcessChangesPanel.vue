@@ -23,7 +23,7 @@
       <button type="button" class="btn btn-secondary btn-sm" :disabled="loading || applying" @click="reloadAll">Retry review</button>
     </div>
     <div v-if="!loading && pendingCount" class="ppc-warn" role="status">
-      {{ pendingCount }} payable late note{{ pendingCount === 1 ? '' : 's' }} still need{{ pendingCount === 1 ? 's' : '' }} to be added before continuing.
+      {{ pendingCount }} payroll item{{ pendingCount === 1 ? '' : 's' }} still need{{ pendingCount === 1 ? 's' : '' }} attention. Add payable notes and resolve each correction before continuing.
     </div>
     <PayrollWizardEmpty
       v-if="embedded && !loading && !error && readiness.empty"
@@ -116,7 +116,8 @@
                     <td class="muted">{{ c.from_status || '—' }} → {{ c.to_status || '—' }}</td>
                     <td>{{ changeTypeLabel(c.changeType) }}</td>
                     <td>
-                      <span v-if="isApplied(c)" class="badge badge-ok">{{ isCorrection(c) ? 'Adjustment posted to current payroll' : 'Added to current payroll' }}</span>
+                      <button v-if="resolutionFor(c)" type="button" class="badge badge-ok" @click="reviewChange = { section: sec, change: c }" :title="`${resolutionFor(c).first_name || 'Account'} ${resolutionFor(c).last_name || ''} · ${resolutionFor(c).created_at} · ${resolutionFor(c).reason}`">{{ resolutionFor(c).resolution === 'waived' ? 'Correction waived' : 'Reviewed — no pay change' }} · {{ resolutionFor(c).first_name || `Account #${resolutionFor(c).reviewed_by_user_id}` }} {{ resolutionFor(c).last_name || '' }}</button>
+                      <span v-else-if="isApplied(c)" class="badge badge-ok">{{ isCorrection(c) ? 'Adjustment posted to current payroll' : 'Added to current payroll' }}</span>
                       <button v-else-if="isCorrection(c)" type="button" class="badge badge-review" @click="reviewChange = { section: sec, change: c }">{{ payableTypeBadge(c) }}</button>
                       <span v-else class="badge" :class="typeBadgeClass(c)">{{ payableTypeBadge(c) }}</span>
                     </td>
@@ -227,6 +228,8 @@ const visibleSections = computed(() => props.embedded
 const selection = ref({});
 const appliedKeys = ref(new Set());
 const reviewChange = ref(null);
+const resolutions = ref([]);
+const resolutionFor = c => resolutions.value.find(r => Number(r.source_payroll_period_id) === Number(c.sourcePayrollPeriodId) && Number(r.baseline_row_id) === Number(c.metadata_json?.baselineRowId));
 const isCorrection = c => ['service_code_changed','code_change','unit_change','ambiguous_correction','overpaid_deleted'].includes(String(c?.changeType || '').toLowerCase());
 const onReductionPosted = async () => { reviewChange.value = null; await reloadAll(); emit('applied'); };
 let requestVersion = 0;
@@ -278,7 +281,7 @@ const canChooseRow = c => canAddAsCarryover(c) || canAddAsReduction(c) || (
 const defaultAction = c => canAddAsCarryover(c) ? 'add' : 'skip';
 const keyForChange = c => catchupAppliedKey({ userId: c?.user_id, serviceCode: c?.to_service_code || c?.from_service_code, rowMatchKey: c?.rowMatchKey });
 const isApplied = c => appliedKeys.value.has(keyForChange(c));
-const isPending = c => canAddAsCarryover(c) && !isApplied(c);
+const isPending = c => (canAddAsCarryover(c) || isCorrection(c)) && !isApplied(c) && !resolutionFor(c);
 const pendingRowsFor = sec => (sec.actionable || []).filter(isPending);
 const pendingCount = computed(() => sections.value.reduce((total, sec) => total + pendingRowsFor(sec).length, 0));
 const rowElementId = (sec, c) => `catchup-${sec.key}-${encodeURIComponent(c.rowMatchKey || '')}`;
@@ -286,13 +289,13 @@ const readiness = computed(() => {
   const blockers = sections.value.flatMap(sec => pendingRowsFor(sec).map(c => ({
     section: sec.key, rowMatchKey: c.rowMatchKey, providerName: c.provider_name || '',
     serviceDate: ymd(c.service_date), serviceCode: c.to_service_code,
-    message: `${c.provider_name || 'Provider'} · ${ymd(c.service_date)} · ${c.to_service_code}: add this payable late note.`
+    message: `${c.provider_name || 'Provider'} · ${ymd(c.service_date)} · ${c.to_service_code || c.from_service_code}: ${isCorrection(c) ? 'review and resolve this payroll correction' : 'add this payable late note'}.`
   })));
   const missing = sections.value.find(sec => sec.blockingMissing)?.missing || '';
   const failure = error.value || missing;
   return { loading: loading.value || applying.value, error: failure, pendingCount: pendingCount.value,
     addedCount: sections.value.reduce((total, sec) => total + sec.actionable.filter(isApplied).length, 0),
-    summaryMessage: pendingCount.value ? `${pendingCount.value} payable late note${pendingCount.value === 1 ? '' : 's'} still need${pendingCount.value === 1 ? 's' : ''} to be added. Review the pending rows above.` : '',
+    summaryMessage: pendingCount.value ? `${pendingCount.value} payroll item${pendingCount.value === 1 ? '' : 's'} still need${pendingCount.value === 1 ? 's' : ''} attention. Add payable notes or resolve corrections above.` : '',
     ready: !loading.value && !applying.value && !failure && pendingCount.value === 0,
     empty: !loading.value && !failure && sections.value.every(sec => !sec.actionable.length), blockers };
 });
@@ -335,7 +338,8 @@ const loadImports = async (periodId) => {
 
 const loadAppliedRows = async () => {
   if (!props.destinationPeriodId) return new Set();
-  const response = await api.get(`/payroll/periods/${props.destinationPeriodId}/staging`);
+  const [response, decisions] = await Promise.all([api.get(`/payroll/periods/${props.destinationPeriodId}/staging`),api.get(`/payroll/periods/${props.destinationPeriodId}/correction-resolutions`)]);
+  resolutions.value = decisions.data?.resolutions || [];
   return appliedCatchupKeys(response.data);
 };
 
@@ -545,7 +549,7 @@ const filteredActionable = (sec) => {
       case 'sourceStatus': return c.to_status || c.from_status || '';
       case 'change': return changeTypeLabel(c.changeType);
       case 'units': return Number(rowUnits(sec,c));
-      default: return catchupPayrollRank(c,isApplied(c));
+      default: return catchupPayrollRank(c,isApplied(c) || !!resolutionFor(c));
     }
   };
   const collator = new Intl.Collator(undefined,{numeric:true,sensitivity:'base'});
@@ -757,7 +761,7 @@ const buildSection = async ({
     loadRawAudit(periodId, baseline.id, compare.id),
     loadImportRows(periodId, baseline.id)
   ]);
-  const changes = pairCatchupCorrections(audit.changes || []);
+  const changes = pairCatchupCorrections(audit.changes || []).map(c => ({...c,sourcePayrollPeriodId:periodId}));
   const compareRows = audit.compareRows || [];
   const actionable = changes.filter(c => canAddAsCarryover(c) || canAddAsReduction(c)
     || ['service_code_changed','code_change','ambiguous_correction'].includes(String(c.changeType || '').toLowerCase())

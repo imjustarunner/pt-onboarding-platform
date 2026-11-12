@@ -12,6 +12,7 @@ import {isServiceCreditPolicy, directCareIndirectMinutes} from '../utils/service
  */
 
 import pool from '../config/database.js';
+import { isProBonoServiceCode } from '../utils/clinicalFundingPolicy.js';
 import PayrollPaySystemRate from '../models/PayrollPaySystemRate.model.js';
 import PayrollCompensationLevel from '../models/PayrollCompensationLevel.model.js';
 import { payrollDefaultsForCode } from './payrollServiceCodeDefaults.js';
@@ -216,8 +217,28 @@ export function resolveUserPaySystemStatus({
 /**
  * Compute pay for a single service-code line under the new pay system.
  */
+export function assertUnpaidProBonoBreakdown(breakdown) {
+  const saved=typeof breakdown==='string'?JSON.parse(breakdown):breakdown || {};
+  for(const [key,line] of Object.entries(saved)) {
+    if(key.startsWith('__') || !line || typeof line!=='object' || !isProBonoServiceCode(canonicalServiceCode(key,line))) continue;
+    if(['amount','hcodeGrossAmount','autoIndirectAmount','embeddedIndirectAmount'].some(field=>Math.abs(Number(line[field] || 0))>.001)) {
+      throw Object.assign(new Error('This run contains outdated Pro Bono pay. Run Payroll again to apply the $0 Pro Bono policy before posting.'),{status:409,code:'PAYROLL_PRO_BONO_RERUN_REQUIRED'});
+    }
+  }
+}
+
 export function computeLineAmount({ rateProfile, status, serviceCode, quantity, rule = null }) {
   const code = String(serviceCode || '').trim().toUpperCase();
+  // Agency overrides, clinical rates, and automatic allowances cannot pay Pro Bono.
+  if (isProBonoServiceCode(code)) return {
+    serviceCode: code, payType: 'skip', units: Number(quantity) || 0,
+    payDivisor: 1, creditValue: 0, payHours: 0, hourEquivalent: 0,
+    quantityLabel: `${Number(quantity) || 0} unpaid Pro Bono service(s)`,
+    rate: 0, rateLabel: 'pro_bono_unpaid', amount: 0,
+    autoIndirectHours: 0, autoIndirectAmount: 0, autoIndirectRate: 0,
+    hcodeDirectAmount: 0, hcodeGrossAmount: 0, totalWithAutoIndirect: 0,
+    hcodeFallbackToCredit: false, fixedSupplementalRate: false, splitNote: null
+  };
   let payType = classifyPayType(code, rule || payrollDefaultsForCode(code));
   const supplementalEffective = !rateProfile?.supplementalRatesEffectiveOn || String(status?.asOfDate || new Date().toISOString()).slice(0,10) >= String(rateProfile.supplementalRatesEffectiveOn).slice(0,10);
   const tutoring = supplementalEffective && (String(rule?.category || payrollDefaultsForCode(code)?.category || '').toLowerCase() === 'tutoring' || /^TUTORING(?: |$)/.test(code)) && rateProfile?.tutoringRate != null;
@@ -890,6 +911,14 @@ export function applyPaySystemToBreakdown({
   shiftIndirectHours = 0,
   datedUnitsByCode = null
 }) {
+  // Clear legacy/imported values before historical/percentage-pay bypasses.
+  for (const [key, row] of Object.entries(breakdown || {})) {
+    if (!row || typeof row !== 'object' || key.startsWith('__') || !isProBonoServiceCode(canonicalServiceCode(key, row))) continue;
+    Object.assign(row, {amount: 0, rateAmount: 0, rateSource: 'pro_bono_unpaid', payMethod: 'fixed_rate', payPercent: null,
+      hours: 0, creditsHours: 0, payHours: 0, hourEquivalent: 0, creditValue: 0,
+      hcodeGrossAmount: 0, directAmount: 0, embeddedIndirectAmount: 0, paySystemSplitNote: null,
+      autoIndirectHours: 0, autoIndirectAmount: 0, paySystemBucket: 'skip', payType: 'skip'});
+  }
   const supplementalLines = {};
   if (!status?.agreementBoundary && rateProfile?.supplementalRatesEffectiveOn) {
     for (const [key, row] of Object.entries(breakdown || {})) {

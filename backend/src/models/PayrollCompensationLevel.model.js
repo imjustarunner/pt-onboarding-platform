@@ -1,5 +1,6 @@
 import { humanRosterSql } from '../utils/workplacePeople.js';
 import pool from '../config/database.js';
+import { isProBonoServiceCode } from '../utils/clinicalFundingPolicy.js';
 
 export const COMPENSATION_CATEGORIES = Object.freeze({
   1: { label: 'Unlicensed', description: 'Unlicensed — Bachelors, Interns, QBHA, Peer & Unlicensed Masters' },
@@ -364,7 +365,7 @@ const PayrollCompensationLevel = {
     for (const r of rows) {
       const key = `${r.category}:${r.level}`;
       if (!map[key]) map[key] = [];
-      map[key].push({ serviceCode: r.service_code, rateAmount: Number(r.rate_amount), rateUnit: r.rate_unit });
+      map[key].push({ serviceCode: r.service_code, rateAmount: isProBonoServiceCode(r.service_code) ? 0 : Number(r.rate_amount), rateUnit: r.rate_unit });
     }
     return map;
   },
@@ -382,7 +383,7 @@ const PayrollCompensationLevel = {
       await pool.execute(
         `INSERT INTO payroll_compensation_level_rates (agency_id, category, level, service_code, rate_amount, rate_unit)
          VALUES (?, ?, ?, ?, ?, ?)`,
-        [agencyId, category, level, code, Number(r.rateAmount || 0), r.rateUnit || 'per_unit']
+        [agencyId, category, level, code, isProBonoServiceCode(code) ? 0 : Number(r.rateAmount || 0), r.rateUnit || 'per_unit']
       );
     }
   },
@@ -396,7 +397,7 @@ const PayrollCompensationLevel = {
        ORDER BY service_code`,
       [agencyId, category, level]
     );
-    return rows.map((r) => ({ serviceCode: r.service_code, rateAmount: Number(r.rate_amount), rateUnit: r.rate_unit }));
+    return rows.map((r) => ({ serviceCode: r.service_code, rateAmount: isProBonoServiceCode(r.service_code) ? 0 : Number(r.rate_amount), rateUnit: r.rate_unit }));
   }
 };
 

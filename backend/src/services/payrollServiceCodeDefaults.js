@@ -65,7 +65,7 @@ export const PAYROLL_SERVICE_CODE_DEFAULTS = new Map(
     ['BONUS', { category: 'bonus', otherSlot: 1, durationMinutes: 0, payDivisor: 1, creditValue: 0 }],
     ['COMMISSION', { category: 'other_pay', otherSlot: 1, durationMinutes: 0, payDivisor: 1, creditValue: 0 }],
     ['MEETING', { category: 'meeting', otherSlot: 1, durationMinutes: 1, payDivisor: 60, creditValue: 0.01666666667 }],
-    ['PRO-BONO SERVICE', { category: 'direct', otherSlot: 1, durationMinutes: 60, payDivisor: 1, creditValue: 1 }],
+    ['PRO-BONO SERVICE', { category: 'direct', otherSlot: 1, durationMinutes: 60, payDivisor: 1, creditValue: 0, paySystemBucket: 'skip' }],
     ['REIMBURSEMENT', { category: 'reimbursement', otherSlot: 1, durationMinutes: 0, payDivisor: 1, creditValue: 0 }],
     ['INDIRECT HOURS', { category: 'indirect', otherSlot: 1, durationMinutes: 1, payDivisor: 60, creditValue: 0.01666666667 }],
     ['TUTORING VIRTUAL', { category: 'tutoring', otherSlot: 1, durationMinutes: 60, payDivisor: 1, creditValue: 1 }],

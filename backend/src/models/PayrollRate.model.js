@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { isProBonoServiceCode } from '../utils/clinicalFundingPolicy.js';
 
 class PayrollRate {
   static async _hasPayPercentColumn() {
@@ -45,6 +46,7 @@ class PayrollRate {
     effectiveStart = null,
     effectiveEnd = null
   }) {
+    if (isProBonoServiceCode(serviceCode)) { rateAmount = 0; payPercent = null; payMethod = 'fixed_rate'; }
     const pctRaw = payPercent === null || payPercent === undefined || payPercent === '' ? null : Number(payPercent);
     const pct = Number.isFinite(pctRaw) ? Math.max(0, Math.min(100, pctRaw)) : null;
     const hasPayPercent = await this._hasPayPercentColumn();
@@ -86,7 +88,7 @@ class PayrollRate {
        ORDER BY service_code ASC, effective_start DESC`,
       [agencyId, userId]
     );
-    return rows;
+    return rows.map(r => isProBonoServiceCode(r.service_code) ? {...r, rate_amount: 0, pay_percent: null, pay_method: 'fixed_rate'} : r);
   }
 
   static async findBestRate({ agencyId, userId, serviceCode, asOf = null }) {
@@ -111,7 +113,8 @@ class PayrollRate {
        LIMIT 1`,
       params
     );
-    return rows[0] || null;
+    const rate = rows[0] || null;
+    return rate && isProBonoServiceCode(serviceCode) ? {...rate, rate_amount: 0, pay_percent: null, pay_method: 'fixed_rate'} : rate;
   }
 }
 
