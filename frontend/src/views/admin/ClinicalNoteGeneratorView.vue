@@ -3729,7 +3729,7 @@ function applyBillingRulesForCurrentSession({ announce = false } = {}) {
       return true;
     })
   );
-  billingPrimaryUnits.value = resolved.primaryUnits || 1;
+  billingPrimaryUnits.value = Number.isFinite(resolved.primaryUnits) ? resolved.primaryUnits : 1;
   if (primary === '90839' && resolved.switchedFrom && resolved.primaryCode !== primary) {
     selectedServiceCode.value = resolved.primaryCode;
     otherServiceCode.value = '';
@@ -3738,7 +3738,7 @@ function applyBillingRulesForCurrentSession({ announce = false } = {}) {
     includeInteractiveComplexity.value = false;
   }
   const warnings = (resolved.warnings || []).filter(Boolean);
-  if (announce && warnings.length) {
+  if ((announce || resolved.billingReviewRequired) && warnings.length) {
     billingRulesBanner.value = warnings.join(' ');
     sessionCodeSwitchBanner.value = warnings[0] || sessionCodeSwitchBanner.value;
   } else if (!warnings.length) {
@@ -9125,6 +9125,7 @@ const loadDraftIntoWorkspace = async (d, options = {}) => {
     activeWorkQueueItemId.value = null;
   }
   applySessionTimingDefaults({ force: sessionDurationMinutes.value == null });
+  if(actualServiceCode.value==='H0004')applyBillingRulesForCurrentSession();
   } finally {
     await nextTick();
     endWorkspaceHydration();

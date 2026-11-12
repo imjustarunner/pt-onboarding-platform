@@ -3,6 +3,7 @@ import {deriveNarrivaCheck,emptyNarrivaChecks,bypassNarrivaFinding,narrivaSource
 import {narrivaLocalContext} from '../narrivaSource.service.js';
 import {containsNarrivaIdentifiers,requireNarrivaIdentifierCorrection} from '../narrivaInputPrivacy.service.js';
 import {completeNarrivaRiskAssessment} from '../narrivaRiskAssessment.service.js';
+import {resolveSessionBilling} from '../serviceCodeUnits.service.js';
 import {maskMobileClientName} from '../narrivaAccess.service.js';
 
 const good=()=>({facts:{currentRisk:false,riskUncertain:false,serviceDocumentationSupported:true,interventionsDocumented:true,medicalNecessityDocumented:true,engagementDocumented:true,responseDocumented:true,progressDocumented:true,goalsDocumented:true,followUpDocumented:true},encounter:{dateValid:true,timesValid:true,location:'Office',modality:'in_person',consentConfirmed:true,participants:'Client and Provider',clientPresent:true},clinical:{hasDiagnosis:true,hasJustification:true,hasPresentingProblem:true,riskAssessmentComplete:false},service:{allowed:true,durationAllowed:true,modalityAllowed:true,code:'H0004',crisisSuggestion:'H2011'}});
@@ -80,6 +81,17 @@ describe('Narriva local clinical facts and privacy boundary',()=>{
   input.serviceRule={is_active:1,unit_calc_mode:'NONE',min_minutes:0,max_minutes:999};
   return input;
  };
+ it.each([[30,2],[38,3],[53,4],[67,4],[68,5]])('keeps a%s-minute H0004 clinical note reviewable with%s actual units while preserving the billing hold',(minutes,units)=>{
+  const input=source();input.source.service_code='H0004';input.session={id:77,service_code:'H0004'};input.serviceRule={...input.serviceRule,max_minutes:15,max_units_per_session:4};input.meta.sessionContext.durationMinutes=minutes;input.meta.sessionContext.endTimeLocal=`${9+Math.floor(minutes/60)}`.padStart(2,'0')+':'+`${minutes%60}`.padStart(2,'0');
+  const local=narrivaLocalContext(input);expect(local.service).toMatchObject({code:'H0004',durationAllowed:true,billingDurationAllowed:minutes<68,billingUnits:units});
+  const reviewInput=good();reviewInput.service=local.service;const checks=emptyNarrivaChecks().map(check=>deriveNarrivaCheck(check.id,reviewInput));expect(narrivaOverall(checks)).toBe('passed');
+  if(minutes>=68){expect(checks[1].findings).toEqual([]);expect(checks[1].advisories).toEqual([expect.objectContaining({category:'billing_review',blocksClaims:true,units})]);expect(resolveSessionBilling({serviceCode:'H0004',minutes,unitCalcMode:'MEDICAID_8_MINUTE_LADDER',unitMinutes:15,minMinutes:8,maxUnitsPerSession:4})).toMatchObject({claimable:false,requiresReview:true,units});}
+ });
+ it('retains non-overridable invalid-duration findings outside the explicit H0004 review exception',()=>{
+  const input=source();input.source.service_code='H0004';input.session={id:77,service_code:'H0004'};input.serviceRule={...input.serviceRule,max_minutes:45,max_units_per_session:4};input.meta.sessionContext.durationMinutes=60;
+  const local=narrivaLocalContext(input),reviewInput=good();reviewInput.service=local.service;expect(local.service.durationAllowed).toBe(false);expect(local.service.billingReview).toBeNull();expect(deriveNarrivaCheck('service_code',reviewInput).findings).toContainEqual(expect.objectContaining({id:'service_code:duration',canBypass:false}));
+  input.serviceRule.max_minutes=null;input.meta.sessionContext.durationMinutes=7;expect(narrivaLocalContext(input).service.durationAllowed).toBe(false);
+ });
  it('permits base H2011 for a qualified bachelors provider using the real unit rules',()=>{
   const result=narrivaLocalContext(source());expect(result.service).toMatchObject({allowed:true,durationAllowed:true,modalityAllowed:true});expect(result.encounter.timesValid).toBe(true);
  });

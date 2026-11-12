@@ -1,3 +1,4 @@
+import { h0004UnitSummary } from '../../../frontend/src/navigation/h0004Units.js';
 /**
  * Medical service-code unit calculation: single-unit, Medicaid 8-minute ladder,
  * custom bands, min/max gates, and overflow code auto-switch.
@@ -120,10 +121,9 @@ export function resolveSessionBilling({
   // reviewable documentation, not an automatic claim or a silent four-unit cap.
   const h0004Bands=parseLadderBands(ladderBandsJson);
   const h0004Cap=toInt(maxUnitsPerSession,null) || h0004Bands?.at(-1)?.units || 4;
-  const h0004Upper=8+h0004Cap*15-1;
+  const h0004Summary=h0004UnitSummary(m,{maxUnits:h0004Cap}),h0004Upper=h0004Summary.maximumBandMinutes;
   if(requested==='H0004' && mode==='MEDICAID_8_MINUTE_LADDER' && (toInt(unitMinutes,15)||15)===15 && (max==null||max>=h0004Upper) && m>h0004Upper) {
-    return {...base,units:Math.floor((m-8)/15)+1,requiresReview:true,reviewCode:'H0004_DURATION_OVER_LIMIT',
-      reason:`H0004 duration ${m} min exceeds the ${h0004Cap}-unit band ending at ${h0004Upper} min. Retain actual time and review billing before submitting a claim.`};
+    return {...base,units:h0004Summary.units,requiresReview:true,reviewCode:'H0004_DURATION_OVER_LIMIT',reason:h0004Summary.reason};
   }
 
   // Overflow: duration at/above threshold → switch code (caller may re-resolve with overflow rule)

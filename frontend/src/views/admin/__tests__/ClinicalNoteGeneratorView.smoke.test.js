@@ -113,9 +113,9 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     state.chartMedications.commentsHtml='Synthetic QA structured-only persistence check.';
     vi.mocked(api.post).mockImplementation(async()=>({data:{draft:{id:66,updated_at:'2026-11-12T10:00:00Z'}}}));
     await state.saveDraftNow();const call=vi.mocked(api.post).mock.calls.find(([url])=>url==='/clinical-notes/drafts');expect(call).toBeTruthy();
-    const payload=JSON.parse(JSON.stringify(call[1]));expect(payload.serviceCode).toBe('H0004');expect(payload.outputJson.meta.structuredChart.medications.commentsHtml).toContain('structured-only');expect(payload.attendanceIntent).toBeUndefined();
+    const payload=JSON.parse(JSON.stringify(call[1]));expect(payload.serviceCode).toBe('H0004');expect(payload.outputJson.meta.billingPrimaryUnits).toBe(4);expect(payload.outputJson.meta.structuredChart.medications.commentsHtml).toContain('structured-only');expect(payload.attendanceIntent).toBeUndefined();
     await state.loadDraftIntoWorkspace({id:66,client_id:202,agency_id:7,service_code:'H0004',output_json:payload.outputJson,input_text:''});await flushPromises();
-    expect(state.actualServiceCode).toBe('H0004');expect(state.skipMentalStatusExam).toBe(true);expect(state.chartMedications.commentsHtml).toBe('Synthetic QA structured-only persistence check.');expect(state.inputText).toBe('');wrapper.unmount();
+    expect(state.actualServiceCode).toBe('H0004');expect(state.billingPrimaryUnits).toBe(4);expect(state.skipMentalStatusExam).toBe(true);expect(state.chartMedications.commentsHtml).toBe('Synthetic QA structured-only persistence check.');expect(state.inputText).toBe('');wrapper.unmount();
   });
 
   it('requires explicit confirmation before changing the linked encounter service',async()=>{

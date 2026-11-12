@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 
-export const NARRIVA_RULES_VERSION='2026-11-06.2';
+export const NARRIVA_RULES_VERSION='2026-11-12.1';
 export const NARRIVA_SCORE_THRESHOLD=70;
 export const NARRIVA_QUALITY_CRITERIA=[
  {id:'intervention_specificity',label:'Specific service actions and interventions',points:20,instruction:'Identifies the actual service action or intervention and how it was applied in this encounter; a generic service label alone is insufficient.'},
@@ -72,6 +72,7 @@ export function deriveNarrivaCheck(id,{facts,encounter,clinical,service},{standa
   const documentationCode=String(service.documentationCode || service.code || '').trim().toUpperCase();
   required(service.allowed,'qualification',service.reason || 'Review provider qualifications and the enabled service.',serviceAction,false);
   required(service.durationAllowed,'duration','The service and duration do not match an eligible billing rule. Review the service.',serviceAction,false);
+  if(documentationCode==='H0004'&&service.billingReview?.code==='H0004_DURATION_OVER_LIMIT')result.advisories=[{id:'service_code:billing_duration_review',message:service.billingReview.reason,category:'billing_review',blocksClaims:true,units:service.billingReview.units}];
   required(service.modalityAllowed!==false,'modality','This delivery method is not allowed for the selected service.',serviceAction,false);
   required(nonempty(encounter.participants),'participants','Select the participants who attended.','participants');
   if(facts.clientPresent===false && encounter.clientPresent===true)add('client_absent','The narrative describes the client as absent. Update participants or confirm your note is correct.','participants');

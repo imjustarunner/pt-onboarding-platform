@@ -40,6 +40,16 @@ beforeEach(()=>{
 afterEach(()=>{for(const wrapper of wrappers.splice(0))wrapper.unmount();vi.restoreAllMocks();});
 
 describe('NoteWorthy protected practice workspace',()=>{
+  it('opens a pending wipe on its receipt and never loads the old roster or payroll wizard',async()=>{
+    const trial={deletionRequestedAt:'2026-11-12T00:00:00Z',state:'deleting',canWrite:false,deletionJob:{status:'queued'}};
+    fixture.practices=[{...owner,activation:{canImport:false,trial}}];
+    mocks.get.mockImplementation(path=>path.endsWith('/lifecycle')?Promise.resolve(clone(trial)):respondGet(path));
+    const {wrapper}=await render('/fundthred/noteworthy/app/71/payroll/801');
+    expect(wrapper.text()).toContain('Your practice. Your data.');
+    expect(wrapper.find('payroll-wizard-view-stub').exists()).toBe(false);
+    expect(mocks.get.mock.calls.map(c=>c[0])).not.toContain('/noteworthy/practices/71/roster');
+    expect(wrapper.findAll('.nw-workspace-nav button').map(b=>b.text())).toEqual(['Trial & data','Message FundThred']);
+  });
   it('shows setup and legal activation requirements before any real report import',async()=>{
     const {wrapper}=await render();
     expect(wrapper.text()).toContain('Example Therapy');
@@ -114,7 +124,7 @@ describe('NoteWorthy protected practice workspace',()=>{
   it('rejects a practice outside the authorized list without falling back to another practice',async()=>{
     const {wrapper}=await render('/fundthred/noteworthy/app/999');
     expect(wrapper.get('[role=alert]').text()).toContain('not available to your account');
-    expect(mocks.get.mock.calls.map(call=>call[0])).toEqual(['/noteworthy/workspace']);
+    expect(mocks.get.mock.calls.map(call=>call[0])).toEqual(['/noteworthy/workspace','/noteworthy/practices/999/lifecycle']);
     expect(mocks.setCurrentAgency).not.toHaveBeenCalled();
   });
   it('does not display late owner data after switching to a different employee practice',async()=>{

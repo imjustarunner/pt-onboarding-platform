@@ -26,6 +26,7 @@
             <form v-if="openBypass === finding.id && finding.canBypass && !readOnly" @submit.prevent="bypass(finding)"><label>Reason for keeping this note<textarea v-model="reasons[finding.id]" rows="2" minlength="5" maxlength="2000" required :disabled="busy" /></label><small>This records your decision and removes Quick Sign eligibility.</small><button type="submit" :disabled="busy || (reasons[finding.id]?.trim().length || 0) < 5">Record decision</button></form>
           </template>
         </li></ul>
+        <ul v-if="check.advisories?.length" class="narriva-check__findings narriva-check__advisories" aria-label="Billing review notices"><li v-for="advisory in check.advisories" :key="advisory.id" role="status"><strong>Billing review required</strong><p>{{ advisory.message }}</p><p>Clinical signing does not approve a claim or payment.</p></li></ul>
         <slot v-if="check.id === 'risk_safety'" name="risk" :required="riskAssessmentRequired || review?.riskAssessmentRequired === true" />
       </li>
     </ol>

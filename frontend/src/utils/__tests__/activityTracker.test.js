@@ -111,7 +111,11 @@ describe('shared activity tracking', () => {
     expect(useSessionLockStore().isLocked).toBe(true);
     expect(useSessionLockStore().warningSecondsLeft).toBe(30);
     await vi.advanceTimersByTimeAsync(30000);
-    await vi.waitFor(() => expect(mocks.logout).toHaveBeenCalledTimes(1));
+    expect(useSessionLockStore().warningSecondsLeft).toBe(0);
+    // Timeout routing loads loginRedirect lazily. Wait for that module work,
+    // rather than racing its first transform against a fake-clock poll in CI.
+    await vi.dynamicImportSettled();
+    expect(mocks.logout).toHaveBeenCalledTimes(1);
     const requestCount = mocks.get.mock.calls.length;
     await vi.advanceTimersByTimeAsync(10000);
     expect(mocks.get).toHaveBeenCalledTimes(requestCount);

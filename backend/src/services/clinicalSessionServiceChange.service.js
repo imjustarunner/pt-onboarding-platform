@@ -103,7 +103,7 @@ async function eligibleTarget(main,session,user,input,d) {
   if((!billing.claimable&&!billing.requiresReview)||billing.overflowApplied||billing.effectiveServiceCode!==input.serviceCode)throw failure(billing.reason||'This duration requires a different service or billing review. No code has been substituted.',409,'SERVICE_DURATION_REVIEW_REQUIRED');
   const allowed=array(medical.allowed_place_of_service_json);
   if(allowed.length&&(!session.place_of_service||!allowed.map(String).includes(String(session.place_of_service))))throw failure('The encounter location does not meet the selected service policy.');
-  return {...current,durationReview:billing.requiresReview?{requiresReview:true,code:billing.reviewCode,reason:billing.reason,actualMinutes:current.durationMinutes,units:billing.units,serviceCode:input.serviceCode}:null};
+  return {...current,billingUnits:billing.claimable?billing.units:null,durationReview:billing.requiresReview?{requiresReview:true,code:billing.reviewCode,reason:billing.reason,actualMinutes:current.durationMinutes,units:billing.units,serviceCode:input.serviceCode}:null};
 }
 async function lockMainSources(main,session,input,{resume=false}={}) {
   let appointment=null,office=null;
@@ -203,7 +203,10 @@ export async function changeClinicalSessionService(user,rawInput,overrides={}) {
     if(meta.sessionContext)meta.sessionContext={...meta.sessionContext,serviceCode:input.serviceCode};
     if(meta.narrivaContext)meta.narrivaContext={...meta.narrivaContext,serviceCode:input.serviceCode};
     meta.serviceCodeChanges=[...array(meta.serviceCodeChanges),{...operation,completedAt:d.now()}];
-    await clinical.execute('UPDATE clinical_sessions SET service_code=?,metadata_json=?,updated_at=CURRENT_TIMESTAMP WHERE id=?',[input.serviceCode,JSON.stringify(meta),session.id]);
+    const durationHold=target.durationReview?`H0004_DURATION_REVIEW: ${target.durationReview.reason}`:null;
+    await clinical.execute(`UPDATE clinical_sessions SET service_code=?,effective_service_code=?,billed_units=?,metadata_json=?,
+      claim_blocked_reason=CASE WHEN claim_blocked_reason IS NULL OR claim_blocked_reason='' OR claim_blocked_reason LIKE 'H0004_DURATION_REVIEW:%' THEN ? ELSE claim_blocked_reason END,
+      updated_at=CURRENT_TIMESTAMP WHERE id=?`,[input.serviceCode,input.serviceCode,target.billingUnits,JSON.stringify(meta),durationHold,session.id]);
     await clinical.commit();clinicalOpen=false;
     await main.commit();mainOpen=false;
     const summary=clinicalServiceChangeSummary({...session,service_code:input.serviceCode,metadata_json:meta});

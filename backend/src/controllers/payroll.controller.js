@@ -18,6 +18,7 @@ import { tutoringClaimAmount } from '../services/tutoringPayroll.service.js';
 import { billedAmountFromReport, rateAtDate, billedPayForStagingRow } from '../services/payrollBilledPay.service.js';
 import { payrollAliasUsers, canMatchPayrollUser, archivedPayrollName } from '../services/payrollProviderMatching.service.js';
 import { isNoteworthyPractice,noteworthyMatchingUsers,ensureNoteworthyProvider } from '../services/noteworthyRoster.service.js';
+import noteworthyLifecycle from '../services/noteworthyLifecycle.service.js';
 import noteworthyReadiness from '../services/noteworthyReadiness.service.js';
 import noteworthyImportReceipts from '../services/noteworthyImportReceipt.service.js';
 import { noteworthyDatedFixedPay } from '../services/noteworthyDatedPay.service.js';
@@ -1790,6 +1791,13 @@ export async function requirePayrollAccess(req, res, agencyIdOrOrgId) {
   if (!ok) {
     res.status(403).json({ error: { message: 'Payroll access required' } });
     return null;
+  }
+
+  if(await isNoteworthyPractice(resolvedAgencyId)){
+    try{
+      await noteworthyLifecycle.assertReadable(resolvedAgencyId);
+      if(['POST','PUT','PATCH','DELETE'].includes(String(req.method || '').toUpperCase()))await noteworthyLifecycle.assertWritable(resolvedAgencyId);
+    }catch(error){res.status(error.status || 409).json({error:{code:error.code,message:error.message},trial:error.trial});return null;}
   }
 
   // Self-service payroll imports follow the same agreement/infrastructure gate

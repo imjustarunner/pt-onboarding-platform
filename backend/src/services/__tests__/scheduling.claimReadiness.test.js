@@ -68,6 +68,9 @@ describe('clinical claim readiness', () => {
     session.encounter_status = 'no_show';
     expect((await evaluate()).blockers).toContain('Appointment did not occur; insurance claims are blocked');
   });
+  it('keeps a clinically approved H0004 note out of claim transmission while duration review is unresolved',async()=>{
+    session.service_code='H0004';session.claim_blocked_reason='H0004_DURATION_REVIEW: Actual68 minutes requires billing review.';const result=await evaluate();expect(result.checks.noteSigned).toBe(true);expect(result.ready).toBe(false);expect(result.blockers).toContain(session.claim_blocked_reason);
+  });
   it('preserves a session billing block', async () => {
     session.claim_blocked_reason = 'Duration is below the minimum';
     expect((await evaluate()).blockers).toContain('Duration is below the minimum');

@@ -3205,3 +3205,15 @@ const clinicalAudioCleanupTick=async()=>{
 };
 setTimeout(clinicalAudioCleanupTick,60000).unref();
 setInterval(clinicalAudioCleanupTick,60000).unref();
+
+// NoteWorthy's owner-approved trial policy is enforced by durable jobs. Each
+// workspace uses a DB advisory lock across replicas; failures remain retryable.
+let noteworthyCleanupRunning=false;
+const noteworthyCleanupTick=async()=>{
+ if(noteworthyCleanupRunning)return;noteworthyCleanupRunning=true;
+ try{await (await import('./services/noteworthyDeletion.service.js')).default.tick();}
+ catch(error){console.warn('[noteworthy-retention] Cleanup needs retry',error?.code || 'cleanup_unavailable');}
+ finally{noteworthyCleanupRunning=false;}
+};
+setTimeout(noteworthyCleanupTick,45000).unref();
+setInterval(noteworthyCleanupTick,5*60*1000).unref();

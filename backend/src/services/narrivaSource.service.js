@@ -60,6 +60,7 @@ export function narrivaLocalContext({source,meta,session={},provider={},serviceR
  const billing=clinicalRule?resolveSessionBilling({minutes:duration,serviceCode:documentationCode || code,unitCalcMode:rule.unit_calc_mode || rule.unitCalcMode,
   unitMinutes:rule.unit_minutes || rule.unitMinutes,minMinutes:rule.min_minutes ?? rule.minMinutes,maxMinutes:rule.max_minutes ?? rule.maxMinutes,
   maxUnitsPerSession:rule.max_units_per_session || rule.maxUnitsPerSession,ladderBandsJson:rule.ladder_bands_json || rule.ladderBandsJson}):{claimable:false};
+ const h4BillingReview=(documentationCode || code)==='H0004'&&billing.requiresReview===true&&billing.reviewCode==='H0004_DURATION_OVER_LIMIT';
  const participantText=String(context.participantsDetail || meta.participants || context.participants || '');
  const participantLower=participantText.toLowerCase();
  const modality=String(narriva.modality || context.modality || meta.modality || session.modality || '').trim();
@@ -84,7 +85,7 @@ export function narrivaLocalContext({source,meta,session={},provider={},serviceR
    riskAssessmentComplete:narriva.riskAssessmentCompleted===true && completeNarrivaRiskAssessment(chart.riskAssessment),
    riskAssessmentDeniesAll:chart.riskAssessment?.patientDeniesAll===true,
    assessmentEvidencePresent:Array.isArray(narriva.assessmentDocumentIds) && narriva.assessmentDocumentIds.length>0},
-  service:{code,documentationCode,proBono,allowed,reason,modalityAllowed,durationAllowed:billing.claimable && (!billing.overflowApplied),
+  service:{code,documentationCode,proBono,allowed,reason,modalityAllowed,durationAllowed:(billing.claimable || h4BillingReview) && (!billing.overflowApplied),billingDurationAllowed:billing.claimable && !billing.overflowApplied,billingUnits:billing.units || 0,billingReview:h4BillingReview?{code:billing.reviewCode,reason:billing.reason,units:billing.units,requiresReview:true,blocksClaims:true}:null,
    crisisSuggestion:documentationCode==='H0004'?'H2011':documentationCode==='90837' && tier==='intern_plus'?'90839':null}
  };
 }

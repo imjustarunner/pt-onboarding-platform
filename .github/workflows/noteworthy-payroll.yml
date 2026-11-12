@@ -19,9 +19,23 @@ on:
 jobs:
   regression:
     runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ALLOW_EMPTY_PASSWORD: 'yes'
+        ports:
+          - 33319:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=30
     env:
       SKIP_DB_CONNECT: '1'
       NODE_OPTIONS: '--experimental-sqlite'
+      RECOVERY_TEST_MYSQL_HOST: '127.0.0.1'
+      RECOVERY_TEST_MYSQL_PORT: '33319'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

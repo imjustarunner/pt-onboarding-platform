@@ -131,3 +131,8 @@ describe('frontend/backend automatic after-hours policy parity',()=>{
     for(const funding of [{serviceCode:'90837'},{serviceCode:'PRO-BONO SERVICE'},{serviceCode:'PRO_BONO_SERVICE'},{serviceCode:'pro bono'},{serviceCode:'90837',metadata:{fundingDisposition:'pro_bono'}},{serviceCode:'90837',metadata:{billingDisposition:'pro_bono'}},{serviceCode:'90837',metadata:{billing_disposition:'pro_bono'}},{serviceCode:'90837',metadata:{contactBillingDisposition:'pro_bono'}},{serviceCode:'90837',metadata:{contactMeta:JSON.stringify({billing_disposition:'pro_bono'})}}]){expect(shouldSuggest99051('2026-11-10T00:00:00Z',{timeZone:'America/Denver',primaryCode:funding.serviceCode,metadata:funding.metadata})).toBe(!serverFunding(funding));}
   });
 });
+
+describe('H0004 canonical note preview units',()=>{
+ it.each([[30,2],[38,3],[53,4],[60,4],[67,4],[68,5]])('retains H0004 at%s actual minutes with%s units and review only above67',(minutes,units)=>{const result=resolveNoteAidBillingCodes({primaryCode:'H0004',durationMinutes:minutes});expect(result.primaryCode).toBe('H0004');expect(result.primaryUnits).toBe(units);expect(result.billingReviewRequired).toBe(minutes>=68);expect(result.switchedFrom).toBeNull();if(minutes>=68)expect(result.warnings.join(' ')).toContain('review billing before submitting a claim');});
+ it('does not invent one unit below the eight-minute minimum',()=>{expect(resolveNoteAidBillingCodes({primaryCode:'H0004',durationMinutes:7})).toMatchObject({primaryUnits:0,billingReviewRequired:false});});
+});

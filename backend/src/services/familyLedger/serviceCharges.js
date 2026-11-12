@@ -21,6 +21,8 @@ export async function signedServiceTerm({ agencyId, taskId, clientId, serviceCod
   return { term, payerUserId: Number(task.guardian_user_id) };
 }
 export function assertTermVisit(term, session) {
+  const billingHold=String(session.claim_blocked_reason || '');
+  if(billingHold.startsWith('H0004_DURATION_REVIEW:') || (String(session.effective_service_code || session.service_code).toUpperCase()==='H0004' && billingHold.includes('Retain actual time and review billing before submitting a claim.'))) throw billingError(409,'This H0004 visit requires billing review before a patient charge or payment.');
   const date = session.scheduled_start_at ? dateOnly(session.scheduled_start_at) : null;
   if (session.encounter_status !== 'completed' || !date || date > today()) throw billingError(409, 'Only a completed visit can create a service balance');
   if (date < term.effectiveFrom || date > term.effectiveThrough) throw billingError(409, 'This visit is outside the signed price dates');
@@ -31,7 +33,7 @@ export function assertTermVisit(term, session) {
 export async function listSignedServiceVisits(input) {
   const {term} = await signedServiceTerm(input);
   const args = [input.agencyId,input.clientId,term.effectiveFrom,term.effectiveThrough,term.serviceCode];
-  const [rows] = await clinicalPool.execute(`SELECT s.id,s.scheduled_start_at,s.encounter_status,s.service_code,s.effective_service_code,s.billed_units${term.paymentBasis==='copay'?',c.id AS claim_id':''}
+  const [rows] = await clinicalPool.execute(`SELECT s.id,s.scheduled_start_at,s.encounter_status,s.service_code,s.effective_service_code,s.billed_units,s.claim_blocked_reason${term.paymentBasis==='copay'?',c.id AS claim_id':''}
     FROM clinical_sessions s ${term.paymentBasis==='copay'?"JOIN clinical_claims c ON c.clinical_session_id=s.id AND c.agency_id=s.agency_id AND c.client_id=s.client_id AND c.is_deleted=0 AND c.claim_lifecycle<>'void' AND c.payer_sequence=1":''}
     WHERE s.agency_id=? AND s.client_id=? AND s.scheduled_start_at>=? AND s.scheduled_start_at<DATE_ADD(?,INTERVAL 1 DAY)
     AND COALESCE(NULLIF(s.effective_service_code,''),s.service_code)=? AND s.encounter_status='completed'
