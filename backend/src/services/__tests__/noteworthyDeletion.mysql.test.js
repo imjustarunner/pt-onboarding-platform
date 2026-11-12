@@ -25,7 +25,7 @@ describe.skipIf(!recoveryMysqlEnabled)('NoteWorthy erasure — actual isolated M
       'CREATE TABLE clients(id INT PRIMARY KEY,agency_id INT)',
       'CREATE TABLE support_tickets(id INT PRIMARY KEY,agency_id INT)',
       'CREATE TABLE support_ticket_messages(id INT PRIMARY KEY,ticket_id INT,body TEXT,is_internal TINYINT,FOREIGN KEY(ticket_id) REFERENCES support_tickets(id))',
-      'CREATE TABLE organization_agreement_records(id CHAR(36) PRIMARY KEY,agency_id INT,kind VARCHAR(30),payload TEXT)',
+      'CREATE TABLE organization_agreement_records(id CHAR(36) PRIMARY KEY,agency_id INT,kind VARCHAR(30),source_key VARCHAR(100),payload TEXT)',
       'CREATE TABLE organization_agreement_events(id INT PRIMARY KEY,agency_id INT,record_id CHAR(36),FOREIGN KEY(record_id) REFERENCES organization_agreement_records(id))'
     ])await db.query(sql);
     for(const name of ['1810_noteworthy_payroll_onboarding.sql','1811_noteworthy_trial_contact_and_deletion.sql']){
@@ -72,9 +72,15 @@ describe.skipIf(!recoveryMysqlEnabled)('NoteWorthy erasure — actual isolated M
     expect(await erase.runOne(1)).toMatchObject({completed:false,errorCode:'DELETION_SHARED_OBJECT_REVIEW'});expect(remove).not.toHaveBeenCalled();
   });
   it('deletes draft agreements while retaining required executed agreements and their evidence',async()=>{
-    await db.execute('INSERT INTO organization_agreement_records VALUES(?,?,?,?),(?,?,?,?)',['signed',1,'agreement',JSON.stringify({status:'completed'}),'draft',1,'agreement',JSON.stringify({status:'draft'})]);
+    await db.execute('INSERT INTO organization_agreement_records VALUES(?,?,?,?,?),(?,?,?,?,?),(?,?,?,?,?),(?,?,?,?,?),(?,?,?,?,?),(?,?,?,?,?)',[
+      'signed',1,'agreement',null,JSON.stringify({status:'completed'}),
+      'pdf',1,'agreement_pdf','signed',JSON.stringify({agreementId:'signed',base64:'c2lnbmVkLWV2aWRlbmNl'}),
+      'external',1,'agreement_upload',null,JSON.stringify({status:'verified_external'}),
+      'original',1,'agreement_original','external',JSON.stringify({uploadId:'external',base64:'b3JpZ2luYWwtZXZpZGVuY2U='}),
+      'partial',1,'agreement',null,JSON.stringify({status:'partially_signed',signatures:[{accountId:1}]}),
+      'draft',1,'agreement',null,JSON.stringify({status:'draft'})]);
     await db.query("INSERT INTO organization_agreement_events VALUES(1,1,'signed'),(2,1,'draft')");
-    expect(await erase.runOne(1)).toMatchObject({completed:true});const [rows]=await db.query('SELECT id FROM organization_agreement_records');expect(rows).toEqual([{id:'signed'}]);const [events]=await db.query('SELECT record_id FROM organization_agreement_events');expect(events).toEqual([{record_id:'signed'}]);
+    expect(await erase.runOne(1)).toMatchObject({completed:true});const [rows]=await db.query('SELECT id FROM organization_agreement_records ORDER BY id');expect(rows.map(r=>r.id)).toEqual(['external','original','partial','pdf','signed']);const [events]=await db.query('SELECT record_id FROM organization_agreement_events');expect(events).toEqual([{record_id:'signed'}]);
   });
   it('automatically removes an expired consented trial while honoring retention, paid plans, legacy and unaccepted policies',async()=>{
     await db.query('DELETE FROM noteworthy_deletion_jobs');

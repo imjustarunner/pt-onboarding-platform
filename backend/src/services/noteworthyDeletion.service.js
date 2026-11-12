@@ -85,9 +85,15 @@ export async function readNoteworthyDeletionSchema(conn) {
 export function createNoteworthyDeletion({db=pool,access=lifecycle,now=()=>new Date(),schema=readNoteworthyDeletionSchema,deleteObject=key=>StorageService.deleteObject(key),encrypt=encryptBillingSecret,decrypt=decryptBillingSecret,openAgreement=decryptFamilyBilling}={}) {
   async function draftAgreements(conn,agencyId,catalog){
     if(!catalog.tables.some(t=>t.name==='organization_agreement_records'))return [];
-    const [rows]=await conn.execute('SELECT id,kind,payload FROM organization_agreement_records WHERE agency_id=?',[agencyId]),drafts=[];
-    for(const r of rows){const value=openAgreement(r.payload,`organization-agreement:${agencyId}:${r.kind}:${r.id}`);if(!['completed','verified_external'].includes(value?.status))drafts.push(r.id);}
-    return drafts;
+    const [rows]=await conn.execute('SELECT id,kind,source_key,payload FROM organization_agreement_records WHERE agency_id=?',[agencyId]);
+    const records=rows.map(r=>({...r,data:openAgreement(r.payload,`organization-agreement:${agencyId}:${r.kind}:${r.id}`)}));
+    const keep=new Set(records.filter(r=>['completed','verified_external','partially_signed'].includes(r.data?.status)||r.data?.signatures?.length).map(r=>r.id));
+    // Executed PDFs and uploaded originals are separate encrypted records with
+    // no status of their own. Preserve their evidence and linked agreements.
+    let changed=true;
+    while(changed){changed=false;for(const r of records){const links=[r.source_key,r.data?.agreementId,r.data?.uploadId].filter(Boolean);
+      if(keep.has(r.id)||links.some(id=>keep.has(id)))for(const id of [r.id,...links])if(!keep.has(id)){keep.add(id);changed=true;}}}
+    return records.filter(r=>!keep.has(r.id)).map(r=>r.id);
   }
   async function runOne(agencyId) {
     const conn=await db.getConnection();let locked=false;
