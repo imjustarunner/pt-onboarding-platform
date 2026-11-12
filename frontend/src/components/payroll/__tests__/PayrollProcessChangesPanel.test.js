@@ -91,7 +91,7 @@ it('does not select location reviews or reductions with Select all', async () =>
   changes = [change(), change({ rowMatchKey: 'location', changeType: 'location_changed', from_status: 'DRAFT_PAID' }), change({ rowMatchKey: 'removed', changeType: 'overpaid_deleted', from_status: 'DRAFT_PAID', to_status: null, to_units: 0 })];
   const wrapper = mount(Panel, { props }); await flushPromises();
   await button(wrapper, 'Select none').trigger('click'); await button(wrapper, 'Select all').trigger('click');
-  expect(wrapper.findAll('input[type=checkbox]').map(node => node.element.checked)).toEqual([true, false, false]);
+  expect(wrapper.findAll('input[type=checkbox]').map(node => node.element.checked)).toEqual([true, false]);
   expect(readiness(wrapper).pendingCount).toBe(1); wrapper.unmount();
 });
 it('pairs a uniquely recoded paid session as a correction rather than a payable addition', () => {
@@ -105,4 +105,17 @@ it('leaves ambiguous paid corrections for review instead of automatically paying
 });
 it('reads only row-level persisted additions, not aggregate units as proof of an added session', () => {
   expect(appliedCatchupKeys({ matched: [{ userId: 7, serviceCode: 'H0004', carryover: { oldDoneNotesUnits: 4 } }] }).size).toBe(0);
+});
+it('sorts finalized ready notes first, then payable drafts, and supports ascending/descending column sorting',async()=>{
+ changes=[change({rowMatchKey:'draft',provider_name:'Aaron',to_status:'DRAFT_PAID'}),change({rowMatchKey:'finalized',provider_name:'Zoe',to_status:'FINALIZED'}),change({rowMatchKey:'correction',provider_name:'Bill',changeType:'code_change',from_status:'FINALIZED',from_service_code:'90837',to_status:'FINALIZED'})];
+ const w=mount(Panel,{props});await flushPromises();const names=()=>w.findAll('.ppc-table tbody tr').map(r=>r.findAll('td')[1]?.text());
+ expect(names()).toEqual(['Zoe','Aaron','Bill']);await button(w,'Provider').trigger('click');expect(names()).toEqual(['Aaron','Bill','Zoe']);await button(w,'Provider ↑').trigger('click');expect(names()).toEqual(['Zoe','Bill','Aaron']);
+ expect(readiness(w).summaryMessage).toContain('2 payable late notes');w.unmount();
+});
+it('omits location-only changes entirely from payroll work and its blockers',async()=>{
+ changes=[change({changeType:'location_changed',from_status:'FINALIZED',to_status:'FINALIZED'})];const w=mount(Panel,{props});await flushPromises();expect(w.text()).not.toContain('Review location');expect(w.find('.ppc-table').exists()).toBe(false);expect(readiness(w)).toMatchObject({ready:true,empty:true,pendingCount:0});w.unmount();
+});
+
+it('keeps a paid quantity correction visible when the location also changes',()=>{
+ const rows=pairCatchupCorrections([change({rowMatchKey:'old',changeType:'overpaid_deleted',from_status:'FINALIZED',to_status:null,from_service_code:'H0004',from_units:4}),change({rowMatchKey:'new',changeType:'added',from_status:null,to_status:'FINALIZED',to_units:8})]);expect(rows[0].changeType).toBe('unit_change');expect(catchupIsPayableAddition(rows[0])).toBe(false);
 });

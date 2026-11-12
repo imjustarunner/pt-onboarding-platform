@@ -509,7 +509,7 @@
         <div v-if="actionMessage" class="pw-action-msg" :class="{ error: actionError }" :role="actionError ? 'alert' : 'status'">{{ actionMessage }}</div>
         <div v-if="continueBlocker" class="pw-blocker" role="status">
           <span>{{ continueBlocker }}</span>
-          <button v-if="!stepIsLoading" type="button" class="btn btn-secondary btn-sm" @click="focusCurrentBlocker">Show what needs attention</button>
+          <button v-if="!stepIsLoading" type="button" class="btn btn-secondary btn-sm" @click="focusCurrentBlocker">{{ currentStep?.key === 'batch_catchup' ? 'Review pending late notes' : 'Show what needs attention' }}</button>
         </div>
         <div class="pw-footer-actions">
           <button type="button" class="btn btn-secondary" @click="goBackToPayroll">Cancel</button>

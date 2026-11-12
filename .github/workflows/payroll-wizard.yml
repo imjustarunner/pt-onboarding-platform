@@ -15,6 +15,9 @@ on:
       - 'backend/vitest.payroll-wizard.config.js'
       - 'frontend/src/components/payroll/**'
       - 'frontend/src/components/dashboard/HourlyIndirectTimeLog.vue'
+      - 'frontend/src/components/dashboard/PayStubDetailModal.vue'
+      - 'frontend/src/components/dashboard/PayrollPeriodBreakdown.vue'
+      - 'frontend/src/components/dashboard/MyPayrollTab.vue'
       - 'frontend/src/components/dashboard/__tests__/SupervisionNoteTime.test.js'
       - 'frontend/src/views/admin/Payroll*'
       - 'frontend/src/views/admin/__tests__/PayrollWizardFlow.test.js'
@@ -27,6 +30,7 @@ on:
       - 'database/migrations/*_payroll_report_email_deliveries.sql'
       - 'database/migrations/*_supervisor_note_time_assignments.sql'
       - 'database/migrations/*_clinical_supervisor_note_time.sql'
+      - 'database/migrations/*_payroll_overpayment_correction_key.sql'
       - '.github/workflows/payroll-wizard.yml'
   push:
     branches: [main]
@@ -40,6 +44,9 @@ on:
       - 'backend/src/controllers/indirectTime.controller.js'
       - 'frontend/src/components/payroll/**'
       - 'frontend/src/components/dashboard/HourlyIndirectTimeLog.vue'
+      - 'frontend/src/components/dashboard/PayStubDetailModal.vue'
+      - 'frontend/src/components/dashboard/PayrollPeriodBreakdown.vue'
+      - 'frontend/src/components/dashboard/MyPayrollTab.vue'
       - 'frontend/src/views/admin/Payroll*'
       - '.github/workflows/payroll-wizard.yml'
   workflow_dispatch:

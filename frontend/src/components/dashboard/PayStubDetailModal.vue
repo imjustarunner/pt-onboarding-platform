@@ -190,7 +190,7 @@
                 :key="`adj-${i}`"
                 class="psd-adj-row"
               >
-                <span><strong>{{ l.label }}:</strong> {{ fmtMoney(l.amount ?? 0) }}</span>
+                <PayrollAdjustmentDetails :label="`${l.label}: ${fmtMoney(l.amount ?? 0)}`" :details="l.meta?.details || []" />
                 <span class="psd-muted" v-if="l.meta?.hours || l.meta?.rate">
                   — {{ fmtNum(l.meta.hours ?? 0) }} hrs @ {{ fmtMoney(l.meta.rate ?? 0) }}
                 </span>
@@ -239,6 +239,7 @@
 </template>
 
 <script setup>
+import PayrollAdjustmentDetails from '../payroll/PayrollAdjustmentDetails.vue';
 import { computed } from 'vue';
 import {
   formatMoney,

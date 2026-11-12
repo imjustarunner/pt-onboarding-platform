@@ -103,7 +103,7 @@
             <tr v-for="l in lines" :key="l.id">
               <td>{{ nameFor(l.user_id, l) }}</td>
               <td class="psp-muted">{{ String(l.category || 'direct').toUpperCase() }}</td>
-              <td>{{ l.label }}</td>
+              <td><PayrollAdjustmentDetails :label="l.label" :details="lineDetails(l)" /></td>
               <td class="right">{{ Number(l.credits_hours ?? 0).toFixed(2) }} h</td>
               <td class="right">${{ Number(l.amount || 0).toFixed(2) }}</td>
               <td class="right">
@@ -226,6 +226,8 @@
 </template>
 
 <script setup>
+import PayrollAdjustmentDetails from './PayrollAdjustmentDetails.vue';
+const lineDetails = line => { let meta=line.metadata_json; if(typeof meta==='string'){try{meta=JSON.parse(meta);}catch{return [];}}return meta?.details || []; };
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import api from '../../services/api';
 

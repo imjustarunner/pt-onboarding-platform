@@ -23,5 +23,5 @@ export function payrollReviewBlocker(state, fallback = 'Complete the highlighted
   if (!state || state.loading || state.saving) return 'Checking this step…';
   if (state.error) return state.error;
   if (state.ready === true) return '';
-  return state.blockers?.[0]?.message || (state.pendingCount ? `${state.pendingCount} item(s) still need your attention.` : fallback);
+  return state.summaryMessage || state.blockers?.[0]?.message || (state.pendingCount ? `${state.pendingCount} item(s) still need your attention.` : fallback);
 }

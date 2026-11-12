@@ -317,14 +317,14 @@
 
               <div v-if="(expanded.breakdown.__adjustments.lines || []).length">
                 <div v-for="(l, i) in (expanded.breakdown.__adjustments.lines || [])" :key="`adj:${l.type}:${i}`" class="row">
-                  <strong>{{ l.label }}:</strong>
-                  {{ fmtMoney(l.amount ?? 0) }}
+                  <PayrollAdjustmentDetails v-if="['raw_audit_reduction','raw_audit_adjustment'].includes(l.meta?.kind)" :label="`${l.label}: ${fmtMoney(l.amount ?? 0)}`" :details="l.meta?.details || []" />
+                  <template v-else><strong>{{ l.label }}:</strong> {{ fmtMoney(l.amount ?? 0) }}</template>
                   <span class="muted" v-if="l.meta && (l.meta.hours || l.meta.rate)">
                     • {{ fmtNum(l.meta.hours ?? 0) }} hrs @ {{ fmtMoney(l.meta.rate ?? 0) }}
                   </span>
                   <span class="muted" v-if="l.taxable === false"> • non-taxable</span>
                   <span class="muted" v-else> • taxable</span>
-                  <details v-if="l.meta && Array.isArray(l.meta.details) && l.meta.details.length" style="margin-top: 6px; width: 100%;">
+                  <details v-if="l.meta && !['raw_audit_reduction','raw_audit_adjustment'].includes(l.meta.kind) && Array.isArray(l.meta.details) && l.meta.details.length" style="margin-top: 6px; width: 100%;">
                     <summary class="muted" style="cursor: pointer;">View details</summary>
                     <div class="muted" style="margin-top: 6px;">
                       <div v-for="(d, j) in l.meta.details" :key="`adj-detail:${i}:${j}`">{{ d.label }}: {{ d.value }}</div>
@@ -2474,6 +2474,7 @@
 </template>
 
 <script setup>
+import PayrollAdjustmentDetails from '../payroll/PayrollAdjustmentDetails.vue';
 const api = useSubmitApi();
 const submitContext = useSubmitContext();
 const submitUser = useSubmitUser();
