@@ -37,7 +37,9 @@ export function pairCatchupCorrections(changes) {
     const previous = removals[0];
     const oldCode = status(previous.from_service_code);
     const newCode = status(added.to_service_code);
-    added.changeType = oldCode === newCode ? 'location_changed' : 'service_code_changed';
+    added.changeType = oldCode === newCode
+      ? Number(previous.from_units) === Number(added.to_units) ? 'location_changed' : 'unit_change'
+      : 'service_code_changed';
     added.from_status = previous.from_status;
     added.from_units = previous.from_units;
     added.from_service_code = previous.from_service_code;
@@ -63,9 +65,17 @@ export function appliedCatchupKeys(staging) {
     if (typeof meta === 'string') {
       try { meta = JSON.parse(meta); } catch { meta = null; }
     }
-    if (meta?.kind !== 'raw_audit_reduction' || !meta.rowMatchKey) continue;
+    if (!['raw_audit_reduction','raw_audit_adjustment'].includes(meta?.kind) || !meta.rowMatchKey) continue;
     const code = meta.details?.find(detail => detail.label === 'Service code')?.value;
     keys.add(catchupAppliedKey({ userId: line.user_id, serviceCode: code, rowMatchKey: meta.rowMatchKey }));
   }
   return keys;
+}
+
+export function catchupPayrollRank(row, added = false) {
+  if (added) return 9;
+  if (catchupIsPayableAddition(row)) return status(row.to_status) === 'FINALIZED' ? 0 : 1;
+  if (['service_code_changed','code_change','unit_change'].includes(type(row))) return 2;
+  if (type(row) === 'overpaid_deleted') return 3;
+  return 4;
 }

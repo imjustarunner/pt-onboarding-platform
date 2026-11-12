@@ -83,14 +83,14 @@
                 <thead>
                   <tr>
                     <th style="width: 36px;"></th>
-                    <th>Provider</th>
-                    <th>Service</th>
-                    <th>Client</th>
-                    <th>DOS</th>
-                    <th>Source note status</th>
-                    <th>Change</th>
-                    <th>Payroll status</th>
-                    <th class="right">Units</th>
+                    <th :aria-sort="sortAria(sec, 'provider')"><button type="button" class="ppc-sort" @click="sortBy(sec, 'provider')">Provider<span aria-hidden="true">{{ sortMark(sec, 'provider') }}</span></button></th>
+                    <th :aria-sort="sortAria(sec, 'service')"><button type="button" class="ppc-sort" @click="sortBy(sec, 'service')">Service<span aria-hidden="true">{{ sortMark(sec, 'service') }}</span></button></th>
+                    <th :aria-sort="sortAria(sec, 'client')"><button type="button" class="ppc-sort" @click="sortBy(sec, 'client')">Client<span aria-hidden="true">{{ sortMark(sec, 'client') }}</span></button></th>
+                    <th :aria-sort="sortAria(sec, 'date')"><button type="button" class="ppc-sort" @click="sortBy(sec, 'date')">DOS<span aria-hidden="true">{{ sortMark(sec, 'date') }}</span></button></th>
+                    <th :aria-sort="sortAria(sec, 'sourceStatus')"><button type="button" class="ppc-sort" @click="sortBy(sec, 'sourceStatus')">Source note status<span aria-hidden="true">{{ sortMark(sec, 'sourceStatus') }}</span></button></th>
+                    <th :aria-sort="sortAria(sec, 'change')"><button type="button" class="ppc-sort" @click="sortBy(sec, 'change')">Change<span aria-hidden="true">{{ sortMark(sec, 'change') }}</span></button></th>
+                    <th :aria-sort="sortAria(sec, 'payrollStatus')"><button type="button" class="ppc-sort" @click="sortBy(sec, 'payrollStatus')">Payroll status<span aria-hidden="true">{{ sortMark(sec, 'payrollStatus') }}</span></button></th>
+                    <th :aria-sort="sortAria(sec, 'units')"><button type="button" class="ppc-sort" @click="sortBy(sec, 'units')">Units<span aria-hidden="true">{{ sortMark(sec, 'units') }}</span></button></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -104,7 +104,7 @@
                       <input
                         type="checkbox"
                         :checked="!isApplied(c) && rowAction(sec, c) !== 'skip'"
-                        :disabled="loading || applying || destPosted || isApplied(c) || !canChooseRow(c)"
+                        :disabled="loading || applying || destPosted || isApplied(c) || !canChooseRow(c) || isCorrection(c)"
                         :aria-label="`Select ${c.provider_name || 'provider'} ${ymd(c.service_date)} ${c.to_service_code || c.from_service_code}`"
                         @change="toggleRow(sec, c, $event.target.checked)"
                       />
@@ -116,14 +116,15 @@
                     <td class="muted">{{ c.from_status || '—' }} → {{ c.to_status || '—' }}</td>
                     <td>{{ changeTypeLabel(c.changeType) }}</td>
                     <td>
-                      <span v-if="isApplied(c)" class="badge badge-ok">Added to current payroll</span>
+                      <span v-if="isApplied(c)" class="badge badge-ok">{{ isCorrection(c) ? 'Adjustment posted to current payroll' : 'Added to current payroll' }}</span>
+                      <button v-else-if="isCorrection(c)" type="button" class="badge badge-review" @click="reviewChange = { section: sec, change: c }">{{ payableTypeBadge(c) }}</button>
                       <span v-else class="badge" :class="typeBadgeClass(c)">{{ payableTypeBadge(c) }}</span>
                     </td>
                     <td class="right">
                       <input
                         type="number"
                         :value="rowUnits(sec, c)"
-                        :disabled="loading || applying || destPosted || isApplied(c) || !canChooseRow(c)"
+                        :disabled="loading || applying || destPosted || isApplied(c) || !canChooseRow(c) || isCorrection(c)"
                         min="0"
                         step="0.01"
                         style="width: 80px; text-align: right;"
@@ -190,13 +191,15 @@
       No prior reports were uploaded. There are no catch-up notes to add.
     </div>
   </div>
+  <PayrollCorrectionReview v-if="reviewChange" :destination-period-id="destinationPeriodId" :source-period-id="reviewChange.section.sourcePeriodId" :baseline-row-id="reviewChange.change.metadata_json?.baselineRowId" :compare-row-id="reviewChange.change.metadata_json?.compareRowId" @close="reviewChange = null" @posted="onReductionPosted" />
 </template>
 
 <script setup>
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
+import PayrollCorrectionReview from './PayrollCorrectionReview.vue';
 import PayrollWizardEmpty from './PayrollWizardEmpty.vue';
-import { appliedCatchupKeys, catchupAppliedKey, catchupIsPayableAddition, pairCatchupCorrections } from '../../utils/payrollCatchupReview';
+import { appliedCatchupKeys, catchupAppliedKey, catchupIsPayableAddition, pairCatchupCorrections, catchupPayrollRank } from '../../utils/payrollCatchupReview';
 
 const props = defineProps({
   embedded: { type: Boolean, default: false },
@@ -223,6 +226,9 @@ const visibleSections = computed(() => props.embedded
 /** selection[secKey][rowMatchKey] = { action, units } */
 const selection = ref({});
 const appliedKeys = ref(new Set());
+const reviewChange = ref(null);
+const isCorrection = c => ['service_code_changed','code_change','unit_change','ambiguous_correction','overpaid_deleted'].includes(String(c?.changeType || '').toLowerCase());
+const onReductionPosted = async () => { reviewChange.value = null; await reloadAll(); emit('applied'); };
 let requestVersion = 0;
 
 const destPosted = computed(() => {
@@ -286,6 +292,7 @@ const readiness = computed(() => {
   const failure = error.value || missing;
   return { loading: loading.value || applying.value, error: failure, pendingCount: pendingCount.value,
     addedCount: sections.value.reduce((total, sec) => total + sec.actionable.filter(isApplied).length, 0),
+    summaryMessage: pendingCount.value ? `${pendingCount.value} payable late note${pendingCount.value === 1 ? '' : 's'} still need${pendingCount.value === 1 ? 's' : ''} to be added. Review the pending rows above.` : '',
     ready: !loading.value && !applying.value && !failure && pendingCount.value === 0,
     empty: !loading.value && !failure && sections.value.every(sec => !sec.actionable.length), blockers };
 });
@@ -293,11 +300,11 @@ watch(readiness, value => emit('readiness', value), { immediate: true, deep: tru
 
 const payableTypeBadge = (c) => {
   const changeType = String(c?.changeType || '').toLowerCase();
-  if (changeType === 'overpaid_deleted') return 'Reduction';
+  if (changeType === 'overpaid_deleted') return 'Review removal';
   if (changeType === 'location_changed') return 'Review location';
   if (changeType === 'service_code_changed' || changeType === 'code_change') return 'Review code';
+  if (changeType === 'unit_change') return 'Review units';
   if (changeType === 'ambiguous_correction') return 'Review correction';
-  if (changeType === 'added') return 'Ready to add';
   const to = String(c?.to_status || '').toUpperCase();
   if (to === 'DRAFT_PAID') return 'Ready to add · payable draft';
   return 'Ready to add · finalized';
@@ -517,9 +524,7 @@ const selectedCountFor = (sec) => {
 
 const filteredActionable = (sec) => {
   const q = String(sec.search || '').trim().toLowerCase();
-  const rows = sec.actionable || [];
-  if (!q) return rows;
-  return rows.filter((c) => {
+  const rows = (sec.actionable || []).filter(c => !q || (() => {
     const prov = String(c.provider_name || '').toLowerCase();
     const code = String(c.to_service_code || c.from_service_code || '').toLowerCase();
     const client = String(c.patient_first_name || '').toLowerCase();
@@ -530,8 +535,27 @@ const filteredActionable = (sec) => {
     const to = String(c.to_status || '').toLowerCase();
     return prov.includes(q) || code.includes(q) || client.includes(q) || date.includes(q)
       || change.includes(q) || type.includes(q) || from.includes(q) || to.includes(q);
-  });
+  })());
+  const value = c => {
+    switch (sec.sortKey || 'payrollStatus') {
+      case 'provider': return c.provider_name || '';
+      case 'service': return c.to_service_code || c.from_service_code || '';
+      case 'client': return c.patient_first_name || '';
+      case 'date': return ymd(c.service_date);
+      case 'sourceStatus': return c.to_status || c.from_status || '';
+      case 'change': return changeTypeLabel(c.changeType);
+      case 'units': return Number(rowUnits(sec,c));
+      default: return catchupPayrollRank(c,isApplied(c));
+    }
+  };
+  const collator = new Intl.Collator(undefined,{numeric:true,sensitivity:'base'});
+  return [...rows].sort((a,b) => ((typeof value(a) === 'number' ? value(a)-value(b) : collator.compare(value(a),value(b))) * (sec.sortDirection || 1))
+    || collator.compare(a.provider_name || '',b.provider_name || '') || ymd(a.service_date).localeCompare(ymd(b.service_date)) || String(a.rowMatchKey).localeCompare(String(b.rowMatchKey)));
 };
+const sortBy = (sec,key) => { sec.sortDirection = sec.sortKey === key ? -(sec.sortDirection || 1) : 1; sec.sortKey = key; };
+const sortAria = (sec,key) => (sec.sortKey || 'payrollStatus') === key ? (sec.sortDirection === -1 ? 'descending' : 'ascending') : 'none';
+const sortMark = (sec,key) => (sec.sortKey || 'payrollStatus') === key ? (sec.sortDirection === -1 ? ' ↓' : ' ↑') : '';
+
 
 const carryoverMeta = (c, units) => {
   const changeType = String(c?.changeType || '').trim().toLowerCase();
@@ -575,7 +599,7 @@ const applySection = async (sec) => {
   const sel = selection.value[sec.key] || {};
   const rowsToApply = [];
   for (const c of sec.actionable || []) {
-    if (isApplied(c) || !canChooseRow(c)) continue;
+    if (isApplied(c) || !canChooseRow(c) || isCorrection(c)) continue;
     const action = String(sel[c.rowMatchKey]?.action || 'skip');
     if (action === 'skip') continue;
     const units = rowUnits(sec, c);
@@ -735,7 +759,9 @@ const buildSection = async ({
   ]);
   const changes = pairCatchupCorrections(audit.changes || []);
   const compareRows = audit.compareRows || [];
-  const actionable = changes.filter(c => canAddAsCarryover(c) || canAddAsReduction(c) || ['location_changed', 'service_code_changed', 'code_change', 'ambiguous_correction'].includes(String(c.changeType || '').toLowerCase()));
+  const actionable = changes.filter(c => canAddAsCarryover(c) || canAddAsReduction(c)
+    || ['service_code_changed','code_change','ambiguous_correction'].includes(String(c.changeType || '').toLowerCase())
+    || (c.changeType === 'unit_change' && ['FINALIZED','DRAFT_PAID'].includes(String(c.from_status || '').toUpperCase())));
   const persistentNoNotes = buildPersistentNoNotes(baselineRows, compareRows);
 
   const sec = {
@@ -801,7 +827,8 @@ const reloadAll = async () => {
 
 const focusPending = async () => {
   for (const sec of sections.value) {
-    const first = pendingRowsFor(sec)[0];
+    sec.search = '';
+    const first = filteredActionable(sec).find(isPending);
     if (!first) continue;
     sec.search = '';
     await nextTick();
@@ -815,7 +842,7 @@ defineExpose({ refresh: reloadAll, focusPending });
 
 watch(
   () => [props.priorPeriodId, props.twoAgoPeriodId, props.destinationPeriodId],
-  () => { selection.value = {}; appliedKeys.value = new Set(); reloadAll(); }
+  () => { selection.value = {}; appliedKeys.value = new Set(); reviewChange.value = null; reloadAll(); }
 );
 
 onMounted(() => {
@@ -825,6 +852,8 @@ onMounted(() => {
 
 <style scoped>
 .ppc { display: flex; flex-direction: column; gap: 14px; }
+.ppc-sort { border: 0; background: transparent; color: inherit; font: inherit; font-weight: 700; padding: 6px 0; cursor: pointer; text-align: left; }
+.badge-review { cursor: pointer; border: 1px solid currentColor; }
 .ppc-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
 .ppc-title { font-weight: 700; font-size: 1.05rem; }
 .ppc-hint { color: var(--muted, #667085); font-size: 0.9rem; margin-top: 4px; line-height: 1.4; }

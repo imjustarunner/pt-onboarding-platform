@@ -243,7 +243,7 @@
               style="margin-top: 6px;"
             >
               <div v-for="(ml, j) in manualPayLines" :key="`${ml.id || j}`">
-                - {{ ml.label }}: {{ fmtMoney(ml.amount ?? 0) }}
+                <PayrollAdjustmentDetails :label="`${ml.label}: ${fmtMoney(ml.amount ?? 0)}`" :details="ml.metadataJson?.details || []" />
               </div>
             </div>
             <div class="row" v-if="showPtoRow">
@@ -262,6 +262,7 @@
 </template>
 
 <script setup>
+import PayrollAdjustmentDetails from '../payroll/PayrollAdjustmentDetails.vue';
 import { computed } from 'vue';
 import { isPayrollServiceCodeKey } from '../../utils/payrollBreakdownDisplay.js';
 

@@ -132,3 +132,29 @@ it('lets an already posted payroll be viewed without demanding new decisions on 
   expect(api.patch).not.toHaveBeenCalled();
   wrapper.unmount();
 });
+it('selects matching drafts, lets payroll exclude an exception, and saves opposite decisions in separate batches', async()=>{
+ api.get.mockImplementation(url=>Promise.resolve(url.endsWith('/raw-audit')?audit([draft(1),draft(2),draft(3)]):{data:{}}));
+ const w=mountPanel();await flushPromises();
+ await w.findAll('button').find(b=>b.text()==='Select all matching drafts').trigger('click');
+ await w.get('input[aria-label="Select draft 2 for Test Employee"]').setValue(false);
+ await w.findAll('button').find(b=>b.text()==='Mark selected payable').trigger('click');await flushPromises();
+ expect(api.patch.mock.calls.map(([url])=>url)).toEqual(['/payroll/import-rows/1','/payroll/import-rows/3']);
+ expect(latest(w).pendingCount).toBe(1);
+ await w.get('input[aria-label="Select draft 2 for Test Employee"]').setValue(true);
+ await w.findAll('button').find(b=>b.text()==='Keep selected unpaid').trigger('click');await flushPromises();
+ expect(api.patch).toHaveBeenLastCalledWith('/payroll/import-rows/2',{draftPayable:false,draftReviewed:true});expect(latest(w).ready).toBe(true);w.unmount();
+});
+it('selects only matching eligible drafts and preserves failed and unselected rows after a partial save',async()=>{
+ api.get.mockImplementation(url=>Promise.resolve(url.endsWith('/raw-audit')?audit([draft(1),draft(2),draft(3,{provider_name:'Another Provider'}),draft(4,{already_paid_in_baseline:1})]):{data:{}}));
+ const w=mountPanel();await flushPromises();await w.get('input[type=text]').setValue('Test Employee');
+ await w.get('input[aria-label="Select all matching drafts"]').setValue(true);
+ api.patch.mockResolvedValueOnce({data:{ok:true}}).mockRejectedValueOnce(new Error('Save failed'));
+ await w.findAll('button').find(b=>b.text()==='Mark selected payable').trigger('click');await flushPromises();
+ expect(api.patch).toHaveBeenCalledTimes(2);expect(w.get('[role=alert]').text()).toContain('1 of 2 decisions saved');expect(latest(w).pendingCount).toBe(2);expect(w.get('input[aria-label="Select draft 2 for Test Employee"]').element.checked).toBe(true);await w.findAll('button').find(b=>b.text()==='Mark selected payable').trigger('click');await flushPromises();expect(latest(w).pendingCount).toBe(1);w.unmount();
+});
+it('allows payroll to revisit saved catch-up decisions and keep a reviewed draft unpaid',async()=>{
+ api.get.mockImplementation(url=>Promise.resolve(url.endsWith('/raw-audit')?audit([draft(1,{draft_reviewed:true,draft_payable:1})]):{data:{}}));
+ const w=mountPanel();await flushPromises();await w.findAll('button').find(b=>b.text()==='Review saved draft decisions').trigger('click');
+ await w.get('input[aria-label="Select all matching drafts"]').setValue(true);await w.findAll('button').find(b=>b.text()==='Keep selected unpaid').trigger('click');await flushPromises();
+ expect(api.patch).toHaveBeenCalledWith('/payroll/import-rows/1',{draftPayable:false,draftReviewed:true});w.unmount();
+});

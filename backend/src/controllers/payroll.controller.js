@@ -1,3 +1,4 @@
+import { buildPayrollCorrectionReview, postPayrollCorrectionReduction, postPayrollCorrectionAdditionalPay } from '../services/payrollCorrectionReview.service.js';
 import { loadMileageBenefitTiers, resolveMileageBenefitTier } from '../services/mileageBenefitTier.service.js';
 import { isClinicalSupervisorForAgency } from '../services/clinicalSupervisorEligibility.service.js';
 import { createClaimReviewContext, claimReviewRead, claimReviewDay, mapClaimReviews, compactTimeClaim } from '../services/payrollClaimReview.service.js';
@@ -7034,7 +7035,7 @@ export async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId,
     for (const l of manualPayLines || []) {
       const amt = Number(l.amount || 0);
       const cat = String(l.category || 'direct').toLowerCase() === 'indirect' ? 'indirect' : 'direct';
-      const hrs = resolveManualPayCreditsHours({
+      const hrs = l?.metadataJson?.correctionKey ? null : resolveManualPayCreditsHours({
         category: cat,
         creditsHours: l?.creditsHours,
         amount: amt,
@@ -13525,6 +13526,44 @@ export const applyPayrollCarryover = async (req, res, next) => {
   } catch (e) {
     next(e);
   }
+};
+
+const correctionReviewRequest = async (req, res) => {
+  const destinationPeriodId = Number(req.params.id);
+  const input = req.method === 'POST' ? req.body : req.query;
+  const sourcePayrollPeriodId = Number(input?.sourcePayrollPeriodId);
+  const baselineRowId = Number(input?.baselineRowId);
+  const compareRowId = input?.compareRowId ? Number(input.compareRowId) : null;
+  if (![destinationPeriodId, sourcePayrollPeriodId, baselineRowId].every(n => Number.isInteger(n) && n > 0) || (compareRowId != null && (!Number.isInteger(compareRowId) || compareRowId <= 0))) {
+    res.status(400).json({ error: { message: 'A destination, source payroll, and original session row are required.' } }); return null;
+  }
+  const period = await PayrollPeriod.findById(destinationPeriodId);
+  if (!period) { res.status(404).json({ error: { message: 'Pay period not found' } }); return null; }
+  if (!(await requirePayrollAccess(req, res, period.agency_id))) return null;
+  return { agencyId: Number(period.agency_id), destinationPeriodId, sourcePayrollPeriodId, baselineRowId, compareRowId };
+};
+
+export const getPayrollCorrectionReview = async (req,res,next) => {
+  try {
+    const args = await correctionReviewRequest(req,res); if (!args) return;
+    res.set('Cache-Control','no-store').json(await buildPayrollCorrectionReview(args));
+  } catch(error) { next(error); }
+};
+
+export const postPayrollCorrectionReview = async (req,res,next) => {
+  try {
+    const args = await correctionReviewRequest(req,res); if (!args) return;
+    const result = await postPayrollCorrectionReduction({ ...args, reviewToken: req.body?.reviewToken, actorUserId: req.user.id });
+    res.json(result);
+  } catch(error) { next(error); }
+};
+
+export const postPayrollCorrectionAddition = async (req,res,next) => {
+  try {
+    const args = await correctionReviewRequest(req,res); if (!args) return;
+    const result = await postPayrollCorrectionAdditionalPay({ ...args, reviewToken: req.body?.reviewToken, actorUserId: req.user.id });
+    res.json(result);
+  } catch(error) { next(error); }
 };
 
 export const applyPayrollRawAuditActions = async (req, res, next) => {

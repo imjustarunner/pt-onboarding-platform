@@ -49,9 +49,12 @@
     <div v-if="reviewState.error" class="rip-error" role="alert">{{ reviewState.error }} <button type="button" class="btn btn-secondary" :disabled="loading" @click="reload">Try again</button></div>
     <div v-if="loading" class="rip-muted">Loading…</div>
 
-    <PayrollWizardEmpty v-else-if="guided && reviewState.empty && !error" :title="reviewState.emptyTitle" :message="reviewState.emptyMessage" />
+    <div v-else-if="guided && reviewState.empty && !error && !showReviewedDrafts">
+      <PayrollWizardEmpty :title="reviewState.emptyTitle" :message="reviewState.emptyMessage" />
+      <button v-if="mode === 'draft_audit' && rows.some(r => isDraftRow(r) && !isAlreadyPaidInBaseline(r)) && !locked" type="button" class="btn btn-secondary" @click="showReviewedDrafts = true; rowFilter = 'draft_only'">Review saved draft decisions</button>
+    </div>
 
-    <template v-else-if="!error">
+    <template v-else-if="loaded">
       <div class="rip-controls">
         <div class="field" v-if="mode !== 'missed_appts_paid_in_full' && (!guided || imports.length > 1)">
           <label>Imported Snapshot</label>
@@ -88,9 +91,15 @@
         </div>
       </div>
 
-      <div v-if="guided && mode === 'draft_audit' && reviewState.pendingDraftCount" class="rip-review-summary" role="status">
+      <div v-if="guided && mode === 'draft_audit' && (reviewState.pendingDraftCount || showReviewedDrafts)" class="rip-review-summary" role="status">
         <span>{{ reviewState.pendingDraftCount }} draft{{ reviewState.pendingDraftCount === 1 ? '' : 's' }} need a payment decision.</span>
-        <button type="button" class="btn btn-secondary" :disabled="locked || saving" @click="confirmPendingPayable">Confirm all remaining drafts payable</button>
+        <div class="rip-review-actions">
+          <button type="button" class="btn btn-secondary" :disabled="locked || saving || !selectableDraftRows.length" @click="selectMatchingDrafts">Select all matching drafts</button>
+          <button type="button" class="btn btn-secondary" :disabled="saving || !selectedDraftRows.length" @click="selectedDraftIds = []">Clear selection</button>
+          <span>{{ selectedDraftRows.length }} selected</span>
+          <button type="button" class="btn btn-primary" :disabled="locked || saving || !selectedDraftRows.length" @click="saveSelectedDrafts(true)">Mark selected payable</button>
+          <button type="button" class="btn btn-secondary" :disabled="locked || saving || !selectedDraftRows.length" @click="saveSelectedDrafts(false)">Keep selected unpaid</button>
+        </div>
       </div>
 
       <div v-if="mode === 'missed_appts_paid_in_full'" class="rip-table-wrap">
@@ -121,6 +130,7 @@
         <table class="rip-table">
           <thead>
             <tr>
+              <th v-if="guided && mode === 'draft_audit'" class="rip-select"><input type="checkbox" :checked="allMatchingDraftsSelected" :indeterminate="selectedDraftRows.length > 0 && !allMatchingDraftsSelected" :disabled="locked || saving || !selectableDraftRows.length" aria-label="Select all matching drafts" @change="toggleMatchingDrafts($event.target.checked)" /></th>
               <th>Provider Name</th>
               <th>Client</th>
               <th>Service Code</th>
@@ -134,6 +144,7 @@
           </thead>
           <tbody>
             <tr v-for="r in visibleRows" :key="r.id" :data-row-id="r.id" :data-pending="needsReview(r) || (String(mode).startsWith('process_') && !r.processed_at && !isAlreadyPaidInBaseline(r)) ? 'true' : undefined" :class="{ unpaid: !isNotePayable(r) && String(mode).startsWith('process_') }">
+              <td v-if="guided && mode === 'draft_audit'"><input v-if="canSelectDraft(r)" v-model="selectedDraftIds" type="checkbox" :value="Number(r.id)" :disabled="locked || saving" :aria-label="`Select draft ${r.id} for ${r.provider_name || 'provider'}`" /></td>
               <td>{{ r.provider_name || '—' }}</td>
               <td>{{ clientDisplay(r) }}</td>
               <td>{{ r.service_code || '—' }}</td>
@@ -159,7 +170,7 @@
               <td v-if="mode === 'draft_audit'">
                 <template v-if="guided && isDraftRow(r) && !isAlreadyPaidInBaseline(r)">
                   <span v-if="draftWasReviewed(r)" class="rip-reviewed">Reviewed — {{ isNotePayable(r) ? 'payable' : 'keep unpaid' }}</span>
-                  <div v-else class="rip-review-actions">
+                  <div class="rip-review-actions">
                     <button type="button" class="btn btn-secondary" :disabled="locked || saving" @click="toggleDraftPayable(r, true)">Payable</button>
                     <button type="button" class="btn btn-secondary" :disabled="locked || saving" @click="toggleDraftPayable(r, false)">Keep unpaid</button>
                   </div>
@@ -194,7 +205,7 @@
               </td>
             </tr>
             <tr v-if="!visibleRows.length">
-              <td :colspan="8" class="rip-muted">
+              <td :colspan="guided && mode === 'draft_audit' ? 9 : 8" class="rip-muted">
                 <template v-if="catchUpMode && hiddenAlreadyPaidCount > 0 && (rowFilter === 'catchup_focus' || rowFilter === 'new_vs_run1')">
                   Nothing left for catch-up — {{ hiddenAlreadyPaidCount }} session{{ hiddenAlreadyPaidCount === 1 ? '' : 's' }} already in Run 1 {{ hiddenAlreadyPaidCount === 1 ? 'is' : 'are' }} hidden.
                 </template>
@@ -273,6 +284,8 @@ const error = ref('');
 const rows = ref([]);
 const missedRows = ref([]);
 const imports = ref([]);
+const selectedDraftIds = ref([]);
+const showReviewedDrafts = ref(false);
 const selectedImportId = ref(Number(props.initialImportId) || null);
 const excludedOutOfPeriod = ref(0);
 const periodBounds = ref({ start: '', end: '' });
@@ -442,6 +455,16 @@ const filteredRows = computed(() => {
   return list;
 });
 
+const canSelectDraft = r => isDraftRow(r) && !isAlreadyPaidInBaseline(r) && (showReviewedDrafts.value || needsReview(r));
+const selectableDraftRows = computed(() => filteredRows.value.filter(canSelectDraft));
+const selectedDraftRows = computed(() => rows.value.filter(r => canSelectDraft(r) && selectedDraftIds.value.includes(Number(r.id))));
+const allMatchingDraftsSelected = computed(() => selectableDraftRows.value.length > 0 && selectableDraftRows.value.every(r => selectedDraftIds.value.includes(Number(r.id))));
+const toggleMatchingDrafts = checked => {
+  const ids = selectableDraftRows.value.map(r => Number(r.id));
+  selectedDraftIds.value = checked ? [...new Set([...selectedDraftIds.value, ...ids])] : selectedDraftIds.value.filter(id => !ids.includes(id));
+};
+const selectMatchingDrafts = () => toggleMatchingDrafts(true);
+
 const visibleRows = computed(() => (filteredRows.value || []).slice(0, rowLimit.value));
 
 const filteredMissedRows = computed(() => {
@@ -472,6 +495,7 @@ watch(() => props.catchUpMode, (on) => {
 });
 
 const reload = async () => {
+  selectedDraftIds.value = [];
   if (!props.periodId) return;
   const sequence = ++reloadSequence;
   const periodId = props.periodId;
@@ -528,19 +552,19 @@ const toggleDraftPayable = async (row, nextVal) => {
   }
 };
 
-const confirmPendingPayable = async () => {
+const saveSelectedDrafts = async payable => {
   if (locked.value || saving.value) return;
-  const pending = rows.value.filter(needsReview);
+  const selected = [...selectedDraftRows.value];
   let savedCount = 0;
-  saving.value = true;
-  error.value = '';
+  saving.value = true; error.value = '';
   try {
-    for (const row of pending) {
-      await saveDraftDecision(row, true);
+    for (const row of selected) {
+      await saveDraftDecision(row, payable);
+      selectedDraftIds.value = selectedDraftIds.value.filter(id => id !== Number(row.id));
       savedCount++;
     }
   } catch (e) {
-    error.value = e?.response?.data?.error?.message || e?.message || 'Some draft decisions could not be saved. Review the remaining drafts before continuing.';
+    error.value = `${savedCount} of ${selected.length} decisions saved. ${e?.response?.data?.error?.message || e?.message || 'Review the remaining selected drafts and try again.'}`;
   } finally {
     saving.value = false;
     if (savedCount) emit('changed', { periodId: Number(props.periodId), importId: selectedImportId.value, kind: 'draft_review', savedCount });
@@ -593,6 +617,8 @@ const toggleProcessed = async (row, nextDone) => {
 };
 
 watch(() => [props.periodId, props.initialImportId], () => {
+  selectedDraftIds.value = [];
+  showReviewedDrafts.value = false;
   selectedImportId.value = Number(props.initialImportId) || null;
   search.value = '';
   reload();
