@@ -4,6 +4,7 @@ vi.mock('../../config/database.js',()=>({default:{},onTableWrite:()=>{}}));
 import {isolatedWorkflowMysql,recoveryMysqlEnabled} from './fixtures/isolatedWorkflowMysql.js';
 import {createNoteworthyDeletion} from '../noteworthyDeletion.service.js';
 import {createNoteworthyLifecycle} from '../noteworthyLifecycle.service.js';
+import {requireNoteworthyTrialSchema} from '../noteworthyReleaseReadiness.service.js';
 
 describe.skipIf(!recoveryMysqlEnabled)('NoteWorthy erasure — actual isolated MySQL',()=>{
   let fixture,db,access,erase,remove;
@@ -30,6 +31,7 @@ describe.skipIf(!recoveryMysqlEnabled)('NoteWorthy erasure — actual isolated M
     for(const name of ['1810_noteworthy_payroll_onboarding.sql','1811_noteworthy_trial_contact_and_deletion.sql']){
       const source=await fs.readFile(new URL(`../../../../database/migrations/${name}`,import.meta.url),'utf8');for(const statement of source.replace(/^\s*--.*$/gm,'').split(';').map(s=>s.trim()).filter(Boolean))await db.query(statement);
     }
+    expect(await requireNoteworthyTrialSchema(db)).toMatchObject({ready:true});
     access=createNoteworthyLifecycle({db});
   },30000);
   beforeEach(async()=>{
