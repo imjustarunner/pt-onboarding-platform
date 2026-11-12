@@ -7,7 +7,7 @@ export async function listAgencyForwardProviders(agencyId,db=pool){
  const [rows]=await db.execute(`SELECT DISTINCT u.id,u.first_name,u.last_name,u.role FROM users u
   JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=? AND ua.is_active=1
   WHERE u.is_active=1 AND COALESCE(u.is_archived,0)=0 AND UPPER(COALESCE(u.status,'')) IN ('ACTIVE','ACTIVE_EMPLOYEE')
-   AND (u.role IN ('provider','provider_plus','intern','intern_plus','supervisor','facilitator') OR ua.has_provider_access=1 OR (u.role IN ('admin','super_admin') AND u.sees_clients=1))
+   AND (u.role IN ('provider','provider_plus','intern','intern_plus','supervisor','facilitator') OR u.has_provider_access=1 OR (u.role IN ('admin','super_admin') AND u.sees_clients=1))
    AND u.role NOT IN ('school_staff','client_guardian') ORDER BY u.last_name,u.first_name`,[agencyId]);return rows;
 }
 export async function ticketForwardHistory(ticket,db=pool){

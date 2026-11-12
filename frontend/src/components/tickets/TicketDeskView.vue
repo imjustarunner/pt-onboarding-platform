@@ -1219,7 +1219,7 @@ async function previewReply(){
  }catch(error){actionError.value=error?.response?.data?.error?.message||'Could not preview this reply';}finally{previewBusy.value=false;}
 }
 function receiptStatus(receipt){
- if(receipt.error_code==='external_delivery_delayed')return 'Sent · recipient delivery delayed';
+ if(receipt.error_code==='external_delivery_delayed')return 'Sent · delivery warning recorded';
  if(receipt.opened_at)return 'Open signal recorded';
  if(receipt.delivered_at||receipt.delivery_status==='delivered')return 'Delivered';
  return ({sent:'Sent to mail provider',received:'Received',failed:'Failed',queued:'Queued',sending:'Confirming send'})[receipt.send_status]||receipt.send_status;
