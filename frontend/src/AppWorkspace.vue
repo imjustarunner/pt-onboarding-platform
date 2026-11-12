@@ -17,7 +17,7 @@
     <router-view v-if="route.meta?.familyCommandCenter" />
     <div v-else class="preview-root" :data-preview-viewport="effectivePreviewViewport">
       <div id="app" :inert="!applicantInterviewMode && !isLoginEntry && (sessionLockStore.isLocked || sessionLockStore.warningActive)" :aria-hidden="!applicantInterviewMode && !isLoginEntry && (sessionLockStore.isLocked || sessionLockStore.warningActive) ? 'true' : undefined" :class="{ 'conversa-app': isAuthenticated, 'is-native': isNative, 'is-platform-hq': isPlatformHqShell, 'is-clinical-workspace': clinicalWorkspaceActive }">
-      <div v-if="pageLoading && !isScheduleRoute && !isClientProfileRoute && !applicantInterviewMode && !isLoginEntry && !isPublicOfficeRoute && !route.meta?.publicMarketingHub" class="agency-loading-overlay" aria-label="Loading">
+      <div v-if="pageLoading && !isPayrollRoute && !isScheduleRoute && !isClientProfileRoute && !applicantInterviewMode && !isLoginEntry && !isPublicOfficeRoute && !route.meta?.publicMarketingHub" class="agency-loading-overlay" aria-label="Loading">
         <div class="agency-loading-card">
           <div class="agency-loading-logo"><BrandingLogo :logoUrl="loaderLogoUrl" size="xlarge" class="loader-logo" /></div>
           <div class="agency-loading-text">{{ loadingText }}</div>
@@ -2427,6 +2427,7 @@ import {
 } from './utils/publicTranslateWidget.js';
 import { toUploadsUrl } from './utils/uploadsUrl';
 import { openTenantWorkspace, openPlatformWorkspace } from './services/workspaceNavigation';
+import {isPayrollWorkspacePath} from './services/sharedReads';
 import { begin as beginLoading, end as endLoading, isLoading as globalLoading, getLoadingTextRef } from './utils/pageLoader';
 import { isSchoolPortalShellActive } from './utils/schoolPortalShell.js';
 import { useSummitStatsChallengeChrome } from './composables/useSummitStatsChallengeChrome';
@@ -2856,9 +2857,10 @@ function suppressScheduleFullscreenLoader() {
   pageLoading.value = false;
 }
 
+const isPayrollRoute=computed(()=>isPayrollWorkspacePath(route.path));
 function syncPageLoading(isOn) {
   try {
-    if (isScheduleRoute.value || isClientProfileRoute.value) {
+    if (isPayrollRoute.value || isScheduleRoute.value || isClientProfileRoute.value) {
       suppressScheduleFullscreenLoader();
       return;
     }
@@ -2914,6 +2916,7 @@ function syncPageLoading(isOn) {
   }
 }
 watch(globalLoading, syncPageLoading);
+watch(isPayrollRoute,()=>syncPageLoading(globalLoading.value),{flush:'sync'});
 // Re-evaluate even when a request stays pending across navigation or a tab change.
 watch(isScheduleRoute, () => syncPageLoading(globalLoading.value), { flush: 'sync' });
 watch(isClientProfileRoute, () => syncPageLoading(globalLoading.value), { flush: 'sync' });

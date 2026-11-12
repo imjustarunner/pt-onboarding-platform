@@ -213,3 +213,10 @@ it('reloads the actual staged status after a claim edit and requires recalculati
   expect(action(wrapper, 'Run Payroll')).toBeDefined();
   expect(wrapper.findComponent(Preview).exists()).toBe(false);
 });
+
+it('keeps nested code processing mounted and adopts confirmed row edits without refetching the period or imports',async()=>{
+ mock.processState={ready:false,pendingCount:1};const w=await page('batch_catchup');w.findComponent(Process).vm.$emit('blocked',{message:'Process H0031.',targetMode:'H0031',sourcePeriodId:12});await flushPromises();const raw=w.findComponent(Raw),element=raw.element,reads=mock.get.mock.calls.length;
+ raw.vm.$emit('changed',{periodId:12,kind:'minutes',saved:{period:{...period,status:'staged'},row:{id:4,unit_count:23},payrollInvalidated:true,import:{id:imports[12][0].id,row_revision:'changed:1',row_count:10,mutationSequence:99}}});await flushPromises();expect(mock.get).toHaveBeenCalledTimes(reads);expect(w.findComponent(Raw).element).toBe(element);expect(w.findComponent(Raw).props('initialMode')).toBe('process_h0031');
+ const saves=mock.put.mock.calls.filter(([url])=>url.endsWith('/wizard-progress'));expect(saves.at(-1)[1].state.flowFingerprint).toContain('changed:1');
+ raw.vm.$emit('changed',{periodId:12,kind:'minutes',saved:{period:{...period,status:'staged'},import:{id:imports[12][0].id,row_revision:'older:1',mutationSequence:98}}});await flushPromises();expect(mock.put.mock.calls.filter(([url])=>url.endsWith('/wizard-progress')).at(-1)[1].state.flowFingerprint).toContain('changed:1');w.unmount();
+});

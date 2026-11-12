@@ -1,3 +1,4 @@
+import {createSharedReadAdapter,isPayrollWorkspacePath,sharedReadScope} from './sharedReads';
 import { dispatchFamilySharingNoticeRequired } from '../utils/familySharingNotice';
 import {familyDeviceContext} from '../mobile/familyContext.js';
 import { isFamilyWebsiteHost, isMichaelHost } from '../utils/productDomains';
@@ -229,7 +230,7 @@ api.interceptors.request.use(
         || /\/agencies\/\d+\/(users|departments)(\?|$)/.test(url)
         || url.includes('/supervision/providers')
         || /\/availability\//.test(url);
-      if (!config?.skipGlobalLoading && (isClientProfilePage || isSchoolPortalShellActive.value || isSchoolPortalApi || isOfficeKioskApi || isPublicIntakeApi || isBackgroundWidgetApi)) {
+      if (!config?.skipGlobalLoading && (isPayrollWorkspacePath(window.location.pathname) || isClientProfilePage || isSchoolPortalShellActive.value || isSchoolPortalApi || isOfficeKioskApi || isPublicIntakeApi || isBackgroundWidgetApi)) {
         config.skipGlobalLoading = true;
       }
       if (!config?.skipGlobalLoading) {
@@ -495,5 +496,10 @@ api.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
+if(api.defaults?.adapter && typeof axios.getAdapter==='function') {
+  const standardAdapter=api.defaults.adapter;
+  api.defaults.adapter=createSharedReadAdapter(config=>axios.getAdapter(standardAdapter)(config),config=>api.getUri(config),sharedReadScope);
+}
 
 export default api;

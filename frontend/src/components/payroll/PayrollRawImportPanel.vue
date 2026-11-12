@@ -47,6 +47,7 @@
     </div>
 
     <div v-if="reviewState.error" class="rip-error" role="alert">{{ reviewState.error }} <button type="button" class="btn btn-secondary" :disabled="loading" @click="reload">Try again</button></div>
+    <div v-if="lastSaveMessage" role="status" class="rip-saved">{{ lastSaveMessage }}</div>
     <div v-if="loading" class="rip-muted">Loading…</div>
 
     <div v-else-if="guided && reviewState.empty && !error && !showReviewedDrafts">
@@ -131,10 +132,10 @@
           <thead>
             <tr>
               <th v-if="guided && mode === 'draft_audit'" class="rip-select"><input type="checkbox" :checked="allMatchingDraftsSelected" :indeterminate="selectedDraftRows.length > 0 && !allMatchingDraftsSelected" :disabled="locked || saving || !selectableDraftRows.length" aria-label="Select all matching drafts" @change="toggleMatchingDrafts($event.target.checked)" /></th>
-              <th>Provider Name</th>
+              <th :aria-sort="providerDirection===1?'ascending':'descending'"><button type="button" class="rip-sort" @click="providerDirection *= -1">Provider Name {{ providerDirection===1?'↑':'↓' }}</button></th>
               <th>Client</th>
               <th>Service Code</th>
-              <th>DOS</th>
+              <th><button type="button" class="rip-sort" title="Sort service dates within each provider" @click="dateDirection *= -1">DOS {{ dateDirection===1?'↑':'↓' }}</button></th>
               <th class="right">Units</th>
               <th>Note Status</th>
               <th title="Payable = note is finalized/draft-payable. Paid in Run 1 = already included last cycle.">Payable?</th>
@@ -156,8 +157,9 @@
                     class="rip-num"
                     step="1"
                     min="1"
-                    :value="r.unit_count"
-                    :disabled="!canEditProcessing"
+                    :value="minuteDrafts[Number(r.id)] ?? r.unit_count"
+                    :disabled="!canEditProcessing || rowSaving(r)"
+                    @input="minuteDrafts[Number(r.id)] = $event.target.value"
                     @change="updateMinutes(r, $event.target.value)"
                   />
                 </template>
@@ -191,16 +193,17 @@
                   <span class="rip-muted">Already in Run 1</span>
                 </template>
                 <template v-else>
-                  <span class="rip-muted">{{ r.processed_at ? 'Done' : 'Not done' }}</span>
+                  <span class="rip-muted">{{ rowSaving(r) ? 'Saving…' : rowErrors[Number(r.id)] ? 'Not saved' : r.processed_at ? 'Done' : 'Not done' }}</span>
                   <button
                     type="button"
                     class="btn btn-secondary btn-sm"
                     style="margin-left: 8px;"
-                    :disabled="!canEditProcessing || Number(r.requires_processing) !== 1"
+                    :disabled="!canEditProcessing || Number(r.requires_processing) !== 1 || processingSaves[Number(r.id)]"
                     @click="toggleProcessed(r, !r.processed_at)"
                   >
                     {{ r.processed_at ? 'Undo' : 'Mark done' }}
                   </button>
+                  <button v-if="rowErrors[Number(r.id)] && failedChanges.has(Number(r.id))" type="button" class="btn btn-secondary btn-sm" :disabled="rowSaving(r)" @click="retryRow(r)">Retry save</button>
                 </template>
               </td>
             </tr>
@@ -295,6 +298,12 @@ const rowFilter = ref(props.catchUpMode && String(props.initialMode || '').start
   : (props.guided ? 'pending_review' : 'unpaid_only'));
 const rowLimit = ref(200);
 const saving = ref(false);
+const providerDirection=ref(1),dateDirection=ref(-1),rowSaves=ref({}),lastSaveMessage=ref('');
+const processingSaves=ref({}),rowErrors=ref({}),minuteDrafts=ref({});
+const failedChanges=new Map();
+const rowQueues=new Map();
+const rowSaving=row=>Number(rowSaves.value[Number(row.id)] || 0)>0;
+const anySaving=computed(()=>saving.value || Object.values(rowSaves.value).some(Boolean));
 const panelElement = ref(null);
 const reviewModes = RAW_REVIEW_MODES;
 let reloadSequence = 0;
@@ -307,7 +316,7 @@ const reviewState = computed(() => {
   return {
     periodId: Number(props.periodId),
     importId: Number(selectedImportId.value) || null,
-    ...rawReviewState({ rows: rows.value, missedRows: missedRows.value, mode: mode.value, catchUpMode: props.catchUpMode, readOnlyHistorical: posted && !props.catchUpMode, loaded: loaded.value, loading: loading.value, saving: saving.value, error: error.value || (blockedCatchup ? 'This import is locked. Upload a new catch-up report after posting to review unpaid drafts.' : '') })
+    ...rawReviewState({ rows: rows.value, missedRows: missedRows.value, mode: mode.value, catchUpMode: props.catchUpMode, readOnlyHistorical: posted && !props.catchUpMode, loaded: loaded.value, loading: loading.value, saving: anySaving.value, error: error.value || Object.values(rowErrors.value).find(Boolean) || (blockedCatchup ? 'This import is locked. Upload a new catch-up report after posting to review unpaid drafts.' : '') })
   };
 });
 watch(reviewState, value => {
@@ -451,7 +460,7 @@ const filteredRows = computed(() => {
     list = list.filter((r) => Number(r.requires_processing) === 1 && !!r.processed_at && willBePaid(r));
   }
 
-  list.sort((a, b) => String(b.service_date || '').localeCompare(String(a.service_date || '')));
+  list.sort((a,b)=>providerDirection.value*String(a.provider_name || '').localeCompare(String(b.provider_name || ''),undefined,{sensitivity:'base'}) || dateDirection.value*String(a.service_date || '').localeCompare(String(b.service_date || '')) || String(clientDisplay(a)).localeCompare(String(clientDisplay(b))) || Number(a.id)-Number(b.id));
   return list;
 });
 
@@ -507,8 +516,8 @@ const reload = async () => {
     // Load both datasets once. Switching directly from fees to a code must not
     // leave an empty, stale raw dataset until the user clicks a second time.
     const [audit, period] = await Promise.all([
-      api.get(`/payroll/periods/${periodId}/raw-audit`, { params: { importId: importId || undefined } }),
-      api.get(`/payroll/periods/${periodId}`)
+      api.get(`/payroll/periods/${periodId}/raw-audit`, { skipGlobalLoading:true, params: { importId: importId || undefined } }),
+      api.get(`/payroll/periods/${periodId}`,{params:{view:'raw-review'},skipGlobalLoading:true})
     ]);
     if (sequence !== reloadSequence) return;
     imports.value = audit.data?.imports || [];
@@ -575,45 +584,46 @@ const postedProcessingQs = () => (
   isPeriodPosted.value && canEditProcessing.value ? '?allowPostedProcessing=true' : ''
 );
 
-const updateMinutes = async (row, nextValRaw) => {
-  if (!row?.id || !canEditProcessing.value) return;
-  if (Number(row.requires_processing) !== 1) return;
-  const nextMinutes = Math.round(Number(nextValRaw));
-  if (!Number.isFinite(nextMinutes) || nextMinutes <= 0) return;
-  try {
-    saving.value = true;
-    error.value = '';
-    await api.patch(`/payroll/import-rows/${row.id}${postedProcessingQs()}`, { unitCount: nextMinutes });
-    const idx = rows.value.findIndex((r) => Number(r.id) === Number(row.id));
-    if (idx >= 0) rows.value[idx] = { ...rows.value[idx], unit_count: nextMinutes };
-    emit('changed', { periodId: Number(props.periodId), rowId: row.id, kind: 'minutes' });
-  } catch (e) {
-    error.value = e?.response?.data?.error?.message || e?.message || 'Failed to update minutes';
-  } finally {
-    saving.value = false;
-  }
+const queueProcessingSave = (row,changes) => {
+  if(!row?.id || !canEditProcessing.value || Number(row.requires_processing)!==1)return;
+  const id=Number(row.id),generation=reloadSequence,periodId=Number(props.periodId),importId=selectedImportId.value;
+  rowSaves.value={...rowSaves.value,[id]:(rowSaves.value[id] || 0)+1};
+  if(changes.processed!=null)processingSaves.value={...processingSaves.value,[id]:true};
+  rowErrors.value={...rowErrors.value,[id]:''};
+  error.value='';lastSaveMessage.value='';
+  let started=false;
+  const previous=rowQueues.get(id) || Promise.resolve();
+  const request=previous.then(async()=>{
+    if(generation!==reloadSequence)return;
+    started=true;
+    const {data}=await api.patch(`/payroll/import-rows/${id}${postedProcessingQs()}`,{...changes,deferPayrollRecompute:true},{skipGlobalLoading:true});
+    if(generation!==reloadSequence || periodId!==Number(props.periodId) || importId!==selectedImportId.value)return;
+    const index=rows.value.findIndex(r=>Number(r.id)===id);
+    if(index>=0)rows.value[index]={...rows.value[index],...(data.row || {}),...(data.row?{}:{...(changes.unitCount!=null?{unit_count:changes.unitCount}:{}),...(changes.processed!=null?{processed_at:changes.processed?new Date().toISOString():null}:{})})};
+    if(changes.unitCount!=null && Number(minuteDrafts.value[id])===Number(changes.unitCount)){const drafts={...minuteDrafts.value};delete drafts[id];minuteDrafts.value=drafts;}
+    failedChanges.delete(id);
+    lastSaveMessage.value=changes.processed!=null?(changes.processed?'Marked done.':'Marked not done.'):'Minutes saved.';
+    emit('changed',{periodId,rowId:id,kind:changes.processed!=null?'processed':'minutes',saved:data});
+  });
+  rowQueues.set(id,request);
+  request.catch(e=>{if(started && generation===reloadSequence){failedChanges.set(id,changes);rowErrors.value={...rowErrors.value,[id]:e?.response?.data?.error?.message || e?.message || 'This row was not saved. Review it and retry.'};}}).finally(()=>{
+    rowSaves.value={...rowSaves.value,[id]:Math.max(0,(rowSaves.value[id] || 1)-1)};
+    if(changes.processed!=null)processingSaves.value={...processingSaves.value,[id]:false};
+    if(rowQueues.get(id)===request)rowQueues.delete(id);
+  });
+  return request;
 };
-
-const toggleProcessed = async (row, nextDone) => {
-  if (!row?.id || !canEditProcessing.value) return;
-  if (Number(row.requires_processing) !== 1) return;
-  try {
-    saving.value = true;
-    error.value = '';
-    await api.patch(`/payroll/import-rows/${row.id}${postedProcessingQs()}`, { processed: !!nextDone });
-    const idx = rows.value.findIndex((r) => Number(r.id) === Number(row.id));
-    if (idx >= 0) {
-      rows.value[idx] = {
-        ...rows.value[idx],
-        processed_at: nextDone ? new Date().toISOString() : null
-      };
-    }
-    emit('changed', { periodId: Number(props.periodId), rowId: row.id, kind: 'processed' });
-  } catch (e) {
-    error.value = e?.response?.data?.error?.message || e?.message || 'Failed to update processed';
-  } finally {
-    saving.value = false;
-  }
+const updateMinutes = (row,value) => {
+  const next=Math.round(Number(value));
+  if(!Number.isFinite(next) || next<=0){rowErrors.value={...rowErrors.value,[Number(row.id)]:'Enter a positive number of minutes before marking this row done.'};return;}
+  if(next===Number(row.unit_count)){rowErrors.value={...rowErrors.value,[Number(row.id)]:''};failedChanges.delete(Number(row.id));return;}
+  queueProcessingSave(row,{unitCount:next});
+};
+const retryRow=row=>{const changes=failedChanges.get(Number(row.id));if(changes)queueProcessingSave(row,changes);};
+const toggleProcessed = (row,done) => {
+  if(rowErrors.value[Number(row.id)])return;
+  // A click immediately after editing minutes queues behind that save.
+  queueProcessingSave(row,{processed:!!done});
 };
 
 watch(() => [props.periodId, props.initialImportId], () => {
@@ -787,6 +797,7 @@ onMounted(reload);
 }
 .rip-table .right { text-align: right; }
 .rip-table tr.unpaid td { background: rgba(255, 193, 7, 0.12); }
+.rip-sort{border:0;background:none;padding:0;font:inherit;color:inherit;cursor:pointer}.rip-saved{color:#21704b;font-weight:600}
 .rip-num {
   width: 80px;
   padding: 4px 6px;
