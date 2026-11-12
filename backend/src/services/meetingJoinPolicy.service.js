@@ -1,3 +1,4 @@
+import { isSupervisionFacilitator } from '../utils/supervisionFacilitators.js';
 import pool from '../config/database.js';
 import { parseMeetingSettings } from './meetingSettingsPolicy.js';
 import { isAuricwellQaAgency, allowQaExchangeRecipient } from '../utils/auricwellQaPolicy.js';
@@ -60,8 +61,7 @@ export async function canJoinTeamMeeting(event, userId) {
 
 export async function canJoinSupervision(session, userId, matchesOpenAudience) {
   if (!await hasActiveSupervisionMembership(session, userId)) return false;
-  if ([session.supervisor_user_id, session.co_facilitator_user_id]
-    .some(id => Number(id) === Number(userId))) return true;
+  if (isSupervisionFacilitator(session, userId)) return true;
   const [attendees] = await pool.execute(
     'SELECT status FROM supervision_session_attendees WHERE session_id=? AND user_id=? LIMIT 1',
     [session.id, userId]

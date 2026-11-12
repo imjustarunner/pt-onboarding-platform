@@ -1,3 +1,4 @@
+import { supervisionFacilitatorIds } from '../utils/supervisionFacilitators.js';
 import pool from '../config/database.js';
 import { tenantMeetingBase } from '../utils/tenantMeetingUrl.js';
 import { joinUrlForSupervision, joinUrlForTeamMeeting } from '../utils/joinToken.js';
@@ -27,7 +28,7 @@ export async function activeMeetingPrompts(userId) {
       AND (p.end_at >= UTC_TIMESTAMP()
         OR EXISTS(SELECT 1 FROM provider_schedule_event_join_presence live WHERE live.event_id=p.id AND live.left_at IS NULL AND live.last_seen_at>=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 90 SECOND)))
     ORDER BY p.start_at DESC`,[`user-${uid}`,uid,uid,uid]);
-  const [supervision] = await pool.execute(`SELECT s.id,s.agency_id,'Supervision' AS title,s.start_at,s.end_at,s.supervisor_user_id,s.co_facilitator_user_id,s.waiting_room_enabled,
+  const [supervision] = await pool.execute(`SELECT s.id,s.agency_id,'Supervision' AS title,s.start_at,s.end_at,s.supervisor_user_id,s.co_facilitator_user_id,s.waiting_room_enabled,s.meeting_settings_json,
     COALESCE(s.participant_join_token,s.join_token) AS join_token,'supervision' AS meeting_type,
     EXISTS(SELECT 1 FROM supervision_session_join_presence mine WHERE mine.session_id=s.id AND mine.join_identity=?) AS previously_joined
     FROM supervision_sessions s JOIN agencies org ON org.id=s.agency_id AND org.is_active=1
@@ -63,7 +64,7 @@ export async function activeMeetingPrompts(userId) {
     if (!bases.has(row.agency_id)) bases.set(row.agency_id,tenantMeetingBase(row.agency_id));
     const base = await bases.get(row.agency_id);
     const live = presence.get(`${row.meeting_type}:${row.id}`) || [];
-    const hosts = [row.provider_id, row.supervisor_user_id, row.co_facilitator_user_id].filter(Boolean).map(id => `user-${id}`);
+    const hosts = [row.provider_id, ...supervisionFacilitatorIds(row)].filter(Boolean).map(id => `user-${id}`);
     const waitingCount = Number(row.waiting_room_enabled ?? 1) === 1
       ? live.filter(p => !Number(p.admitted) && !hosts.includes(p.join_identity)).length : 0;
     const latest = live.find(p => p.join_identity !== `user-${uid}`);

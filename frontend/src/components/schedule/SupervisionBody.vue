@@ -152,8 +152,16 @@
           </div>
 
           <div class="supb-row">
-            <label class="supb-label">Co-facilitator <span class="supb-optional">optional</span></label>
+            <label class="supb-label">{{ multipleCoFacilitators ? 'Co-facilitators' : 'Co-facilitator' }} <span class="supb-optional">optional</span></label>
+            <div v-if="multipleCoFacilitators" class="supb-scope-options" role="group" aria-label="Co-facilitators">
+              <label v-for="opt in coFacilitatorOptions" :key="`cofac-${opt.id}`" class="supb-check">
+                <input type="checkbox" :checked="coFacilitatorUserIds.includes(Number(opt.id))" :disabled="disabled"
+                  @change="emit('update:coFacilitatorUserIds', $event.target.checked ? [...coFacilitatorUserIds, Number(opt.id)] : coFacilitatorUserIds.filter(id => Number(id) !== Number(opt.id)))" />
+                {{ opt.label }}
+              </label>
+            </div>
             <select
+              v-else
               class="supb-select"
               :value="coFacilitatorUserId || 0"
               :disabled="disabled || !coFacilitatorOptions.length"
@@ -366,6 +374,8 @@ const props = defineProps({
   canBookGroup: { type: Boolean, default: false },
   facilitatorUserId: { type: Number, default: 0 },
   coFacilitatorUserId: { type: Number, default: 0 },
+  multipleCoFacilitators: { type: Boolean, default: false },
+  coFacilitatorUserIds: { type: Array, default: () => [] },
   facilitatorOptions: { type: Array, default: () => [] },
   inviteAudienceAllSupervised: { type: Boolean, default: false },
   inviteAudienceGroupSupport: { type: Boolean, default: false },
@@ -400,6 +410,7 @@ const emit = defineEmits([
   'update:signupInvitationEnabled',
   'update:facilitatorUserId',
   'update:coFacilitatorUserId',
+  'update:coFacilitatorUserIds',
   'update:inviteAudienceAllSupervised',
   'update:inviteAudienceGroupSupport',
   'update:presenterIds',

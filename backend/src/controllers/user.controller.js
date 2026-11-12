@@ -1,5 +1,6 @@
 import { acceptedCompanyEventCalendar, companyEventScheduleVisibility } from '../services/companyEventPersonalAgenda.service.js';
 import { meetingDialInEnabled, supervisionDialInRequired } from '../services/meetingDialInPolicy.js';
+import { supervisionCoFacilitatorIds } from '../utils/supervisionFacilitators.js';
 import { listProvidersForSupport } from '../services/supportProviderDirectory.service.js';
 import { getUserOnboardingChecklist } from '../services/userOnboardingChecklist.service.js';
 import { requireClientSessionBooking } from '../services/clientSessionBookingRollout.service.js';
@@ -4824,6 +4825,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
           superviseeUserId: Number(r.supervisee_user_id || 0) || null,
           supervisorUserId: Number(r.supervisor_user_id || 0) || null,
           coFacilitatorUserId: Number(r.co_facilitator_user_id || 0) || null,
+          coFacilitatorUserIds: supervisionCoFacilitatorIds(r),
           superviseeName: `${r.supervisee_first_name || ''} ${r.supervisee_last_name || ''}`.trim() || null,
           supervisorName: `${r.supervisor_first_name || ''} ${r.supervisor_last_name || ''}`.trim() || null,
           agencyId: Number(r.agency_id || agencyId || 0) || null,

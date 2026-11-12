@@ -1,3 +1,4 @@
+import { isSupervisionFacilitator } from '../utils/supervisionFacilitators.js';
 import multer from 'multer';
 import pool from '../config/database.js';
 import { supervisionSpeakerLabel } from '../utils/supervisionSpeakerLabels.js';
@@ -16,7 +17,7 @@ export async function meetingTranscriptionContext(req) {
   }
   const session=await SupervisionSession.findById(Number(req.params.id));
   if(!session||!await canJoinSupervision(session,req.user.id))fail('Access denied.');
-  const isHost=[Number(session.supervisor_user_id),Number(session.co_facilitator_user_id)].includes(Number(req.user.id));
+  const isHost=isSupervisionFacilitator(session, req.user.id);
   const inPerson=String(session.modality).toUpperCase()==='IN_PERSON';
   if(!inPerson){const[admitted]=await pool.execute('SELECT 1 FROM supervision_session_video_admissions WHERE session_id=? AND user_id=?',[session.id,req.user.id]);if(!admitted.length)fail('Join the main room before transcribing.');}
   if(['CANCELLED','MISSED','RESCHEDULED'].includes(String(session.status).toUpperCase()))fail('This session is unavailable.',410);

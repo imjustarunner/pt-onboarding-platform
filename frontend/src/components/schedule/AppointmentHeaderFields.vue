@@ -5,7 +5,7 @@
       <div class="ahf-field ahf-field--tenant">
         <span class="ahf-label">{{ bookSessionLayout ? 'Agency' : 'Provider · Agency' }}</span>
         <div class="ahf-tenant-row">
-          <img v-if="tenantIconUrl" class="ahf-tenant-logo" :src="tenantIconUrl" alt="" />
+          <ScheduleAgencyLogo v-if="agencyId || tenantIconUrl" :agency-id="agencyId" :icon-url="tenantIconUrl" :label="tenantLabel" class="ahf-tenant-logo" />
           <select
             v-if="tenantOptions.length > 1"
             class="ahf-input"
@@ -157,13 +157,14 @@
         <div v-if="showLocation" class="ahf-field ahf-field--full">
           <span class="ahf-label">{{ modality === 'TELEHEALTH' ? 'Office location / room (optional)' : 'Location' }}</span>
           <select
-            v-if="locationOptions.length"
+            v-if="locationOptions.length || bookSessionLayout"
             class="ahf-input"
+            aria-label="Service location"
             :value="serviceLocationId"
-            :disabled="disabled || !canEditLocation"
+            :disabled="disabled || !canEditLocation || locationOptionsLoading || !locationOptions.length"
             @change="emit('update:serviceLocationId', Number($event.target.value || 0))"
           >
-            <option :value="0">{{ modality === 'TELEHEALTH' ? 'No office location' : 'Select location…' }}</option>
+            <option :value="0">{{ locationOptionsLoading ? 'Loading locations…' : !locationOptions.length ? 'No configured locations available' : modality === 'TELEHEALTH' ? 'No office location' : 'Select location…' }}</option>
             <option
               v-for="loc in locationOptions"
               :key="`ahf-loc-${loc.id}`"
@@ -181,9 +182,14 @@
             :placeholder="modality === 'IN_PERSON' ? 'Address or place (e.g. park, school)' : 'Optional'"
             @change="emit('update:locationAddress', String($event.target.value || ''))"
           />
+          <p v-if="bookSessionLayout && locationOptionsError" class="ahf-hint" role="alert">{{ locationOptionsError }}</p>
+          <p v-else-if="bookSessionLayout && !locationOptionsLoading && !locationOptions.length" class="ahf-hint">
+            {{ modality === 'IN_PERSON' ? 'No in-person service locations are configured for this agency and provider. Add or enable a location in Billing settings.' : 'No office workspace is selected. Virtual sessions can be booked without an office.' }}
+          </p>
           <p v-if="adminCatalogLinks" class="ahf-admin-link-wrap">
             <a class="ahf-admin-link" :href="adminCatalogLinks.locations" target="_blank" rel="noopener">Update locations ↗</a>
           </p>
+          <p v-if="bookSessionLayout && roomId" class="ahf-hint">Office room: {{ roomLabel || `Room ${roomId}` }}</p>
         </div>
 
         <div v-if="showRoom && roomOptions.length" class="ahf-field ahf-field--full">
@@ -574,7 +580,8 @@
       <p v-if="notificationMode === 'default'" class="ahf-info-banner ahf-info-banner--ok" role="status">
         Uses organization default reminders. Clients and providers will be notified per your organization's settings. Client preferences override the default.
       </p>
-      <p v-else class="ahf-hint">
+      <DefaultNotificationPreview v-if="notificationMode === 'default'" :agency-id="agencyId" :date-ymd="dateYmd" :start-time="startTime" :timezone-label="timezoneLabel" />
+      <p v-if="notificationMode !== 'default'" class="ahf-hint">
         You can add an extra reminder for this session. Client opt-outs and channel preferences still apply. Texting is TBD — email and in-app are standard.
       </p>
     </section>
@@ -605,6 +612,8 @@
 import { officeRoomTitle } from '../../utils/officeRoomTitle.js';
 import ServiceInformation from '../notes/ServiceInformation.vue';
 import { computed, ref, watch } from 'vue';
+import ScheduleAgencyLogo from './ScheduleAgencyLogo.vue';
+import DefaultNotificationPreview from './DefaultNotificationPreview.vue';
 
 const roomPreferenceSearch = ref('');
 const moreServices = ref(false);
@@ -656,6 +665,8 @@ const props = defineProps({
   showLocation: { type: Boolean, default: true },
   locationAddress: { type: String, default: '' },
   locationOptions: { type: Array, default: () => [] },
+  locationOptionsLoading: { type: Boolean, default: false },
+  locationOptionsError: { type: String, default: '' },
   serviceLocationId: { type: Number, default: 0 },
   canEditLocation: { type: Boolean, default: true },
   showRoom: { type: Boolean, default: true },

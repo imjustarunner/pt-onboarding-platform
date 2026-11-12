@@ -2027,6 +2027,8 @@
           :show-location="editorShowLocation"
           :location-address="editorLocationAddress"
           :location-options="editorServiceLocationOptions"
+          :location-options-loading="bookingMetadataLoading"
+          :location-options-error="bookingMetadataError"
           :service-location-id="Number(editorServiceLocationId || bookingServiceLocationId || 0)"
           :show-room="editorShowRoom"
           :room-id="Number(editorRoomId || 0)"
@@ -2459,6 +2461,8 @@
               v-model:signup-invitation-enabled="supervisionSignupInvitationEnabled"
             v-model:facilitator-user-id="supervisionFacilitatorUserId"
             v-model:co-facilitator-user-id="supervisionCoFacilitatorUserId"
+            :multiple-co-facilitators="isSupervisionEditMode"
+            v-model:co-facilitator-user-ids="supervisionCoFacilitatorUserIds"
             v-model:invite-audience-all-supervised="supervisionInviteAudienceAllSupervised"
             v-model:invite-audience-group-support="supervisionInviteAudienceGroupSupport"
             v-model:presenter-ids="supervisionPresenterIds"
@@ -2872,11 +2876,10 @@
               <span class="nr-info-label">Agency</span>
               <div class="nr-tenant-stack">
                 <div class="nr-tenant-row">
-                  <img
-                    v-if="agencyIconUrlById(isScheduleEventEditMode ? scheduleEventEditForm.agencyId : (selectedActionAgencyId || effectiveAgencyId))"
+                  <ScheduleAgencyLogo
+                    :agency-id="Number(isScheduleEventEditMode ? scheduleEventEditForm.agencyId : (selectedActionAgencyId || effectiveAgencyId))"
                     class="nr-tenant-logo"
-                    :src="agencyIconUrlById(isScheduleEventEditMode ? scheduleEventEditForm.agencyId : (selectedActionAgencyId || effectiveAgencyId))"
-                    alt=""
+                    :icon-url="agencyIconUrlById(isScheduleEventEditMode ? scheduleEventEditForm.agencyId : (selectedActionAgencyId || effectiveAgencyId)) || ''"
                   />
                   <select
                     v-if="isScheduleEventEditMode"
@@ -5903,6 +5906,8 @@ import ClinicalWorkspaceFrame from '../clinicalWorkspace/ClinicalWorkspaceFrame.
 import { assignOverlapLanes, layoutScheduleDayBlocks, scheduleBlockPlacementKey } from '../../utils/scheduleOverlapLayout.js';
 import { virtualPublicationRanges, virtualAvailabilityCellSlice } from '../../utils/virtualAvailabilityGrid';
 import './schedule-new-request-modal.css';
+import ScheduleAgencyLogo from './ScheduleAgencyLogo.vue';
+import { supervisionCoFacilitatorIds, isSupervisionFacilitator } from '../../utils/supervisionFacilitators.js';
 import { computed, inject, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { scheduleHubContext } from './scheduleHubContext.js';
 import { normalizeClientNameDisplay, scheduleClientFace } from '../../utils/scheduleClientNames.js';
@@ -12960,6 +12965,9 @@ const bookingServiceCode = ref('');
 const bookingServiceLocationId = ref(0);
 const bookingUnitPreview = ref('');
 let bookingUnitPreviewTimer = null;
+onUnmounted(() => {
+  if (bookingUnitPreviewTimer) clearTimeout(bookingUnitPreviewTimer);
+});
 const bookingModality = ref('');
 /** When booking a virtual individual session with an office selected, optionally also submit an office request. */
 const sessionAlsoRequestOffice = ref(false);
@@ -14748,15 +14756,17 @@ const editorServiceLocationOptions = computed(() => {
   const allowed = allowedPosForSelectedServiceCode.value;
   const rows = bookingServiceLocationOptions.value || [];
   const base = rows
+    .filter((loc) => editorModality.value !== 'IN_PERSON' || !['02', '10'].includes(loc.placeOfService))
     .filter((loc) => !allowed || !loc.placeOfService || allowed.has(String(loc.placeOfService)))
     .map((loc) => {
       const isOfficePos = String(loc.locationKind || '') === 'office_pos';
       const pos = !isOfficePos && loc.placeOfService ? `POS ${loc.placeOfService}` : '';
       const office = isOfficePos ? '' : (loc.schoolOrganizationId ? 'School site' : '');
-      const bits = [loc.name, office, pos].filter(Boolean);
+      const bits = [loc.name, isOfficePos ? loc.billingOfficeName : '', loc.address, office, pos].filter(Boolean);
       return {
         id: loc.id,
         label: bits.join(' · '),
+        billingOfficeLocationId: loc.billingOfficeLocationId,
         placeOfService: loc.placeOfService,
         isSchool: Number(loc.schoolOrganizationId || 0) > 0 || loc.placeOfService === '03',
         schoolOrganizationId: Number(loc.schoolOrganizationId || 0) || 0,
@@ -16237,6 +16247,7 @@ function openAppointmentEditor({ mode = 'create', kind = '', id = 0, defaults = 
   editorClinicalContextKey.value = '';
   bookingServiceCode.value = String(defaults.serviceCode || '');
   editorLocationAddress.value = String(defaults.locationAddress || '');
+  if (defaults.officeLocationId != null) editorOfficeLocationId.value = Number(defaults.officeLocationId) || 0;
   editorRoomId.value = Number(defaults.roomId || 0) || 0;
   editorBookedUntil.value = String(defaults.bookedUntil || '');
   editorStatus.value = String(defaults.status || 'scheduled');
@@ -16280,6 +16291,8 @@ function openAppointmentEditor({ mode = 'create', kind = '', id = 0, defaults = 
   if (defaults.recurrence) {
     scheduleEventRecurrence.value = String(defaults.recurrence || 'ONCE').toUpperCase();
     officeBookingRecurrence.value = scheduleEventRecurrence.value;
+    scheduleEventRecurrenceEndMode.value = defaults.recurrenceUntilDate ? 'until' : 'indefinite';
+    editorRecurrenceUntilDate.value = String(defaults.recurrenceUntilDate || '').slice(0, 10);
   } else if (k === 'portal_intake' && mode === 'create') {
     scheduleEventRecurrence.value = 'WEEKLY';
     officeBookingRecurrence.value = 'WEEKLY';
@@ -16375,6 +16388,7 @@ async function loadEditorOfficeLocations() {
     }
     const locId = Number(editorOfficeLocationId.value || 0);
     if (locId > 0) await loadOfficeRooms(locId);
+    if (editorIsClinical.value && !isAppointmentEditMode.value) preferDefaultServiceLocation();
   } catch {
     editorOfficeLocations.value = [];
   } finally {
@@ -16665,6 +16679,7 @@ const bookingServiceLocationOptions = computed(() => {
     placeOfService: String(row?.place_of_service || row?.placeOfService || '').trim(),
     billingOfficeName: String(row?.billing_office_name || row?.billingOfficeName || '').trim(),
     billingOfficeLocationId: Number(row?.billing_office_location_id || row?.billingOfficeLocationId || 0),
+    address: [row?.street_address || row?.streetAddress, row?.city, row?.state, row?.postal_code || row?.postalCode].filter(Boolean).join(', '),
     locationKind: String(row?.location_kind || row?.locationKind || '').trim(),
     defaultModifiers: String(row?.default_modifiers || row?.defaultModifiers || '').trim(),
     schoolOrganizationId: Number(row?.school_organization_id || row?.schoolOrganizationId || 0) || 0
@@ -16778,11 +16793,11 @@ const normalizeBookingSelectionPayload = () => {
 };
 
 const preferDefaultServiceLocation = ({ force = false } = {}) => {
-  const locs = (editorServiceLocationOptions.value?.length
+  const locs = (editorIsClinical.value || editorServiceLocationOptions.value?.length
     ? editorServiceLocationOptions.value
     : bookingServiceLocationOptions.value) || [];
   const currentId = Number(editorServiceLocationId.value || bookingServiceLocationId.value || 0);
-  if (!force && currentId > 0 && (isAppointmentEditMode.value || locs.some(location => Number(location.id) === currentId))) return;
+  if (!force && currentId !== 0 && (isAppointmentEditMode.value || locs.some(location => Number(location.id) === currentId))) return;
   const modality = String(editorModality.value || bookingModality.value || '').toUpperCase();
   const hit=defaultAppointmentServiceLocation(locs,modality,appointmentOfficeId(editorOfficeLocationId.value,selectedOfficeLocationId.value));
   bookingServiceLocationId.value=Number(hit?.id || 0);
@@ -17445,6 +17460,7 @@ const supervisionParticipantsExpanded = ref(false);
 const supervisionGroupModeEnabled = ref(false);
 const supervisionFacilitatorUserId = ref(0);
 const supervisionCoFacilitatorUserId = ref(0);
+const supervisionCoFacilitatorUserIds = ref([]);
 const supervisionFacilitators = ref([]);
 const supervisionInviteAudienceAllSupervised = ref(false);
 const supervisionInviteAudienceGroupSupport = ref(false);
@@ -19454,6 +19470,7 @@ const openSlotActionModal = async ({
   supervisionGroupModeEnabled.value = false;
   supervisionFacilitatorUserId.value = 0;
   supervisionCoFacilitatorUserId.value = 0;
+  supervisionCoFacilitatorUserIds.value = [];
   supervisionFacilitators.value = [];
   supervisionInviteAudienceAllSupervised.value = false;
   supervisionInviteAudienceGroupSupport.value = false;
@@ -21395,7 +21412,12 @@ const onQuickActionSelect = (act) => {
   if (act?.disabledReason) return;
   recordSlotActionUsage(id);
   requestTypeChosenByUser.value = true;
-  if (id === 'individual_session' && !String(bookingModality.value || '').trim()) {
+  const officeSession = ['individual_session', 'group_session'].includes(id)
+    && modalIsOwnedAssignedSlot.value && Number(modalContext.value?.officeLocationId) > 0;
+  if (officeSession) {
+    bookingModality.value = 'IN_PERSON';
+    selectedOfficeRoomId.value = Number(modalContext.value.roomId || 0);
+  } else if (id === 'individual_session' && !String(bookingModality.value || '').trim()) {
     bookingModality.value = 'TELEHEALTH';
   }
   if (UNIFIED_EDITOR_KINDS.has(id)) {
@@ -21415,13 +21437,18 @@ const onQuickActionSelect = (act) => {
       kind: id,
       defaults: {
         modality: bookingModality.value || 'TELEHEALTH',
+        ...(officeSession ? {
+          officeLocationId: Number(modalContext.value.officeLocationId),
+          recurrenceUntilDate: bookingStripUntil.value
+        } : {}),
         roomId: Number(selectedOfficeRoomId.value || modalContext.value?.roomId || 0),
         attachOfficeRequest: attachOffice,
         openSlotEnabled: id === 'portal_intake' || id === 'attach_open_for_booking',
         availableForIntake: true,
         availableForSession: false,
         inPersonEnabled: id === 'attach_open_for_booking',
-        recurrence: (id === 'portal_intake' || id === 'attach_open_for_booking') ? 'WEEKLY' : undefined
+        recurrence: officeSession ? normalizeRecurrenceFrequency(bookingStripFrequency.value)
+          : (id === 'portal_intake' || id === 'attach_open_for_booking') ? 'WEEKLY' : undefined
       }
     });
     return;
@@ -22796,13 +22823,18 @@ const submitRequest = async () => {
       if (showClinicalBookingFields.value && bookingClassificationInvalidReason.value) {
         throw new Error(bookingClassificationInvalidReason.value);
       }
-      const roomId = viewMode.value === 'office_layout'
-        ? (Number(selectedOfficeRoomId.value || 0) || null)
-        : null;
+      const roomId = Number(editorRoomId.value || selectedOfficeRoomId.value || 0) || null;
       const recurrence = String(scheduleEventRecurrence.value || officeBookingRecurrence.value || 'ONCE');
       const recurringRecurrences = [...RECURRING_FREQUENCIES];
       const occurrenceCount = recurringRecurrences.includes(recurrence)
-        ? Math.min(104, Math.max(1, Number(scheduleEventOccurrenceCount.value || officeBookingOccurrenceCount.value) || 7))
+        ? Math.min(104, Math.max(1, expandRecurrenceDates({
+          startYmd: editorDateYmd.value,
+          frequency: recurrence,
+          endMode: editorRecurrenceEndMode.value,
+          occurrenceCount: editorRecurrenceOccurrenceCount.value,
+          untilDate: editorRecurrenceUntilDate.value,
+          weekdays: editorRecurrenceWeekdays.value
+        }).length))
         : null;
       const targets = sortedSelectedActionSlots().length ? sortedSelectedActionSlots() : [{
         dateYmd: addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dn)),
@@ -23463,7 +23495,7 @@ watch(requestType, (t) => {
       }
     }
   }
-  if (!['agency_meeting', 'huddle'].includes(String(t || ''))) {
+  if (!['agency_meeting', 'huddle', 'individual_session', 'group_session'].includes(String(t || ''))) {
     scheduleEventRecurrence.value = 'ONCE';
     scheduleEventRecurrenceEndMode.value = 'indefinite';
     scheduleEventOccurrenceCount.value = 7;
@@ -23492,6 +23524,7 @@ watch(supervisionGroupModeEnabled, (enabled) => {
     supervisionInviteAudienceAllSupervised.value = false;
     supervisionInviteAudienceGroupSupport.value = false;
     supervisionCoFacilitatorUserId.value = 0;
+    supervisionCoFacilitatorUserIds.value = [];
   }
   if (String(requestType.value || '') === 'supervision' && showRequestModal.value) {
     // Reload roster when toggling group mode — do NOT reload when merely picking 2 people.
@@ -23541,6 +23574,7 @@ watch(supervisionSignupOnlyEnabled, (enabled) => {
 });
 
 watch(supervisionFacilitatorUserId, () => {
+  supervisionCoFacilitatorUserIds.value = supervisionCoFacilitatorUserIds.value.filter(id => Number(id) !== Number(supervisionFacilitatorUserId.value));
   if (Number(supervisionCoFacilitatorUserId.value || 0) === Number(supervisionFacilitatorUserId.value || 0)) {
     supervisionCoFacilitatorUserId.value = 0;
   }
@@ -24241,7 +24275,7 @@ const isSelectedSupvSignupFacilitator = computed(() => {
   const actorId = Number(authStore.user?.id || 0);
   const s = selectedSupvSession.value;
   if (!actorId || !s) return false;
-  return actorId === Number(s.supervisorUserId || 0) || actorId === Number(s.coFacilitatorUserId || 0);
+  return isSupervisionFacilitator(s, actorId);
 });
 const canSignupSelectedSupvSession = computed(() => (
   isSelectedSupvSignupOffering.value
@@ -24351,7 +24385,7 @@ const canHostOrAdminManageSelectedSupv = computed(() => {
   if (admin || isAdminMode.value) return true;
   if (!me || !s) return false;
   if (me === Number(s.supervisorUserId || 0)) return true;
-  if (me === Number(s.coFacilitatorUserId || 0)) return true;
+  if (isSupervisionFacilitator(s, me)) return true;
   if (String(s.role || '') === 'supervisor') return true;
   return !!s.canEdit || !!s.canReschedule;
 });
@@ -24929,6 +24963,10 @@ const saveSupvSession = async ({ closeScheduleShell = false, scope = null, pastC
       endAt,
       timeZone: scheduleMeetingTimeZone(),
       notes: String(requestNotes.value || supvNotes.value || ''),
+      ...(supervisionGroupModeEnabled.value ? {
+        supervisorUserId: Number(supervisionFacilitatorUserId.value),
+        coFacilitatorUserIds: supervisionCoFacilitatorUserIds.value
+      } : {}),
       presenterUserIds,
       modality: editorSupervisionIsVirtual.value ? 'virtual' : 'in_person',
       waitingRoomEnabled: !!editorSupervisionWaitingRoomEnabled.value,
@@ -26000,6 +26038,12 @@ const scheduleEventEditClientOptions = computed(() => {
   return rows;
 });
 
+watch([editorServiceLocationOptions, editorOfficeLocationId], () => {
+  if (showRequestModal.value && editorIsClinical.value && !isAppointmentEditMode.value && !bookingMetadataLoading.value) {
+    preferDefaultServiceLocation();
+  }
+});
+
 const isEditableScheduleStackItem = (item) => {
   const kind = String(item?.eventKind || '').trim().toUpperCase();
   if (!EDITABLE_SCHEDULE_EVENT_KINDS.has(kind)) return false;
@@ -26606,7 +26650,7 @@ const openSupervisionEditInScheduleModal = (dayName, hour, preferredId = 0, skip
   const actorId = Number(authStore.user?.id || 0);
   if (!skipRsvp && actorId === Number(props.userId)
     && String(first.sessionType || '').toLowerCase() === 'group'
-    && ![Number(first.supervisorUserId), Number(first.coFacilitatorUserId)].includes(actorId)
+    && !isSupervisionFacilitator(first, actorId)
     && !isScheduleEventTerminal(first) && !first.liveEndedAt
     && (parseMaybeDate(first.endAt)?.getTime() > Date.now() || first.status === 'IN_PROGRESS')
     && (!isSignupSupervisionEvent(first) || first.viewerSignedUp || ['DECLINED', 'INVITED'].includes(first.viewerRsvpStatus))) {
@@ -26648,6 +26692,11 @@ const openSupervisionEditInScheduleModal = (dayName, hour, preferredId = 0, skip
 
   showRequestModal.value = true;
   supervisionGroupModeEnabled.value = String(first?.sessionType || '').trim().toLowerCase() === 'group';
+  supervisionFacilitatorUserId.value = Number(first.supervisorUserId || 0);
+  supervisionCoFacilitatorUserId.value = Number(first.coFacilitatorUserId || 0);
+  supervisionCoFacilitatorUserIds.value = supervisionCoFacilitatorIds(first);
+  supervisionInviteAudienceAllSupervised.value = !!first.inviteAudienceAllSupervised;
+  supervisionInviteAudienceGroupSupport.value = !!first.inviteAudienceGroupSupport;
   void loadSupvPresenters(selectedSupvSessionId.value);
   void loadSupvAttendees(selectedSupvSessionId.value).then(() => {
     if (showSupervisionParticipantsRoster.value) void loadSupvParticipantHoursRoster();
