@@ -1,7 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 vi.mock('../../config/database.js',()=>({default:{},onTableWrite:vi.fn()}));
-import { buildPayrollCorrectionReview,postPayrollCorrectionReduction,postPayrollCorrectionAdditionalPay,originalServicePay } from '../payrollCorrectionReview.service.js';
+import { buildPayrollCorrectionReview,postPayrollCorrectionReduction,postPayrollCorrectionAdditionalPay,originalServicePay,resolvePayrollCorrection } from '../payrollCorrectionReview.service.js';
 let db,conn;
 const profile={creditRate:30,hcodeRate:28,indirectRate:20,autoIndirectMinutesPerHour:0};
 const breakdown=()=>({'90837':{amount:30,finalizedUnits:1,rateAmount:30,rateUnit:'per_hour_equivalent',creditValue:1,payDivisor:1,hourEquivalent:1,category:'direct',payMethod:'fixed_rate',agreementRateProfile:profile,rateEraStatus:{useReducedRates:false,asOfDate:'2026-10-21'}},__paySystem:{paySystemBonusTotal:0}});
@@ -12,6 +12,7 @@ beforeEach(()=>{
  db=new DatabaseSync(':memory:');
  db.exec(`CREATE TABLE payroll_periods(id INTEGER PRIMARY KEY,agency_id INTEGER,period_start TEXT,period_end TEXT,status TEXT,posted_at TEXT,finalized_at TEXT,posted_by_user_id INTEGER,finalized_by_user_id INTEGER,ran_at TEXT,ran_by_user_id INTEGER);
  INSERT INTO payroll_periods VALUES(11,2,'2026-10-10','2026-10-23','posted','2026-10-27',NULL,501,NULL,NULL,NULL),(12,2,'2026-10-24','2026-11-06','raw_imported',NULL,NULL,NULL,NULL,NULL,NULL),(13,6,'2026-10-24','2026-11-06','staged',NULL,NULL,NULL,NULL,NULL,NULL),(14,2,'2026-11-07','2026-11-20','staged',NULL,NULL,NULL,NULL,NULL,NULL);
+ CREATE TABLE payroll_correction_resolutions(id INTEGER PRIMARY KEY AUTOINCREMENT,agency_id INTEGER,payroll_period_id INTEGER,user_id INTEGER,correction_key TEXT,source_payroll_period_id INTEGER,baseline_row_id INTEGER,compare_row_id INTEGER,resolution TEXT,reason TEXT,review_json TEXT,reviewed_by_user_id INTEGER,created_at TEXT DEFAULT CURRENT_TIMESTAMP,UNIQUE(agency_id,correction_key));
  CREATE TABLE payroll_imports(id INTEGER PRIMARY KEY,agency_id INTEGER,payroll_period_id INTEGER,slot_number INTEGER);
  INSERT INTO payroll_imports VALUES(101,2,11,1),(102,2,11,2);
  CREATE TABLE payroll_import_rows(id INTEGER PRIMARY KEY,agency_id INTEGER,payroll_period_id INTEGER,payroll_import_id INTEGER,user_id INTEGER,provider_name TEXT,patient_first_name TEXT,service_date TEXT,service_code TEXT,note_status TEXT,draft_payable INTEGER,unit_count REAL,row_fingerprint TEXT);
@@ -113,4 +114,36 @@ it('still permits review of a real removal when another unchanged service exists
 
 it('does not turn an unrecognized replacement code into a zero-pay reversal',async()=>{
  db.exec("UPDATE payroll_import_rows SET service_code='UNCONFIGURED-CODE' WHERE id=2");await expect(review()).rejects.toMatchObject({status:409,message:expect.stringContaining('configured payroll rule')});expect(db.prepare('SELECT COUNT(*) n FROM payroll_manual_pay_lines').get().n).toBe(0);
+});
+
+it('treats a change to Pro Bono as zero corrected pay and a full reversal, even without a dated rate profile',async()=>{
+ db.exec("UPDATE payroll_import_rows SET service_code='Pro-Bono Service',unit_count=1 WHERE id=2");
+ const b=breakdown();delete b['90837'].agreementRateProfile;db.prepare('UPDATE payroll_summaries SET breakdown=?').run(JSON.stringify(b));
+ const r=await review();expect(r).toMatchObject({adjustmentType:'reduction',adjustmentAmount:-30,canPostReduction:true,canPostAdditionalPay:false});
+ expect(r.corrected).toMatchObject({rate:0,total:0,credits:0,autoIndirectAmount:0,rateUnit:'pro_bono_unpaid'});
+});
+it('isolates an explicitly dated historical H0032 line from current H0032 pay',()=>{
+ const b={H0032:{finalizedUnits:10,amount:4.17,agreementRateProfile:{agreementEffectiveOn:'2026-10-10'}},H0032__historical:{displayServiceCode:'H0032',finalizedUnits:30,amount:12,rateAmount:24,rateUnit:'per_hour',payDivisor:60,payMethod:'historical_fixed',creditsHours:0.5,serviceDates:['2026-10-05','2026-10-08']}};
+ const row={service_code:'H0032',service_date:'2026-10-05',unit_count:10};
+ expect(originalServicePay({breakdown:b,row})).toMatchObject({baseAmount:4,total:4,autoIndirectAmount:0,rate:24});
+ expect(originalServicePay({breakdown:{...b,H0032__duplicate:{...b.H0032__historical}},row})).toBeNull();
+ b.H0032__historical.amount=20;expect(originalServicePay({breakdown:b,row})).toBeNull();
+});
+it.each([['reduction',3],['additional_pay',8]])('records an attested %s waiver without any pay line',async(direction,units)=>{
+ db.exec(`UPDATE payroll_import_rows SET unit_count=${units} WHERE id=2`);const r=await review();expect(r.adjustmentType).toBe(direction);
+ const result=await resolvePayrollCorrection({...args,reviewToken:r.reviewToken,actorUserId:501,resolution:'waived',reason:'Reviewed with employee; waived.',confirmed:true},async()=>conn);
+ expect(result.resolutionId).toBeTruthy();const record=db.prepare('SELECT * FROM payroll_correction_resolutions').get();expect(record).toMatchObject({reviewed_by_user_id:501,resolution:'waived',reason:'Reviewed with employee; waived.'});expect(JSON.parse(record.review_json).adjustmentType).toBe(direction);
+ expect(db.prepare('SELECT COUNT(*) n FROM payroll_manual_pay_lines').get().n).toBe(0);expect((await review()).existingResolution.id).toBe(result.resolutionId);
+ await expect(post(r.reviewToken)).rejects.toMatchObject({status:409});
+});
+it('requires attestation, a reason, and a current calculation before waiving',async()=>{
+ const r=await review(),base={...args,reviewToken:r.reviewToken,actorUserId:501,resolution:'waived',reason:'Reviewed.',confirmed:true};
+ await expect(resolvePayrollCorrection({...base,confirmed:false},async()=>conn)).rejects.toMatchObject({status:400});
+ await expect(resolvePayrollCorrection({...base,reason:''},async()=>conn)).rejects.toMatchObject({status:400});
+ db.exec('UPDATE payroll_import_rows SET unit_count=2 WHERE id=2');await expect(resolvePayrollCorrection(base,async()=>conn)).rejects.toMatchObject({status:409});expect(db.prepare('SELECT COUNT(*) n FROM payroll_correction_resolutions').get().n).toBe(0);
+});
+it('saves an explicit no-change review and does not use a waiver for it',async()=>{
+ db.exec("UPDATE payroll_import_rows SET service_code='90834',unit_count=1 WHERE id=2");
+ db.exec('INSERT INTO payroll_service_code_rules VALUES(2,\'90834\',1,1,\'direct\',\'credit\')');const r=await review();expect(r.adjustmentAmount).toBe(0);expect(r.canConfirmNoChange).toBe(true);
+ await resolvePayrollCorrection({...args,reviewToken:r.reviewToken,actorUserId:501,resolution:'no_change',confirmed:true},async()=>conn);expect(db.prepare('SELECT resolution FROM payroll_correction_resolutions').get().resolution).toBe('no_change');
 });

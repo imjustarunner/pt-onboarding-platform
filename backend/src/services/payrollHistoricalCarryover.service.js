@@ -1,3 +1,4 @@
+import {isProBonoServiceCode} from '../utils/clinicalFundingPolicy.js';
 import {rateAtDate} from './payrollBilledPay.service.js';
 const day=value=>value instanceof Date?value.toISOString().slice(0,10):String(value||'').slice(0,10);
 const review=message=>{throw Object.assign(new Error(message),{code:'AMENDMENT_PAYROLL_REVIEW_REQUIRED'});};
@@ -6,7 +7,7 @@ const review=message=>{throw Object.assign(new Error(message),{code:'AMENDMENT_P
 // Preserve their explicitly saved legacy rates; never substitute the new matrix.
 export function separateHistoricalCarryovers({breakdown,stagingRows,ratesByCode,rateCard=null,historicalSummaries=[],boundary}) {
   for(const [code,row] of Object.entries({...breakdown})) {
-    if(!row || typeof row!=='object' || code.startsWith('__') || row.supervisionTrackingOnly)continue;
+    if(!row || typeof row!=='object' || code.startsWith('__') || row.supervisionTrackingOnly || isProBonoServiceCode(row.displayServiceCode || code))continue;
     if(['percent_billed','percent_collected'].includes(row.payMethod))continue;
     const carryUnits=Number(row.oldDoneNotesUnits||0);if(!(carryUnits>0))continue;
     const staged=stagingRows.find(r=>String(r.serviceCode).toUpperCase()===code.toUpperCase());

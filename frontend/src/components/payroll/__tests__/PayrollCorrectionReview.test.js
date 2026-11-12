@@ -29,3 +29,17 @@ it('shows underpayment and posts additional pay through its own reviewed action'
 it('shows no pay change without offering either financial action',async()=>{
  api.get.mockResolvedValue({data:{...quote(),reductionAmount:0,additionalPayAmount:0,adjustmentAmount:0,adjustmentType:'none',canPostAdjustment:false,canPostReduction:false,blockers:['The service pay is unchanged. No pay adjustment is needed.']}});const w=mountReview();await flushPromises();expect(w.text()).toContain('No pay adjustment is needed');expect(w.findAll('button').some(b=>b.text().startsWith('Post '))).toBe(false);w.unmount();
 });
+
+it.each(['reduction','additional_pay'])('requires an attestation and reason before saving a %s waiver',async adjustmentType=>{
+ api.get.mockResolvedValue({data:{...quote(),adjustmentType,canWaive:true}});api.post.mockResolvedValue({data:{resolutionId:9}});
+ const w=mountReview();await flushPromises();await w.findAll('button').find(b=>b.text()===(adjustmentType==='reduction'?'Waive reduction':'Waive additional pay')).trigger('click');
+ expect(w.text()).toContain('Are you sure?');expect(w.text()).toContain('Your signed-in account will be identified');const confirm=w.findAll('button').find(b=>b.text()==='Confirm waiver');expect(confirm.element.disabled).toBe(true);
+ await w.get('textarea').setValue('Discussed and waived.');expect(confirm.element.disabled).toBe(true);await w.get('input[type=checkbox]').setValue(true);await flushPromises();const readyConfirm=w.findAll('button').find(b=>b.text()==='Confirm waiver');expect(readyConfirm.element.disabled).toBe(false);await readyConfirm.trigger('click');await flushPromises();
+ expect(api.post).toHaveBeenCalledWith('/payroll/periods/12/correction-review/resolve',expect.objectContaining({resolution:'waived',confirmed:true,reason:'Discussed and waived.',reviewToken:'signed-review'}));expect(w.emitted('posted')[0][0].resolutionId).toBe(9);w.unmount();
+});
+it('can cancel a waiver without recording any decision',async()=>{
+ api.get.mockResolvedValue({data:{...quote(),canWaive:true}});const w=mountReview();await flushPromises();await w.findAll('button').find(b=>b.text()==='Waive reduction').trigger('click');await w.findAll('button').find(b=>b.text()==='Cancel waiver').trigger('click');expect(w.find('textarea').exists()).toBe(false);expect(api.post).not.toHaveBeenCalled();w.unmount();
+});
+it('explains when payment inclusion is confirmed but the exact amount remains unresolved',async()=>{
+ api.get.mockResolvedValue({data:{...quote(),original:{...quote().original,paymentConfirmed:true,amountConfirmed:false,total:null},canPostAdjustment:false}});const w=mountReview();await flushPromises();expect(w.text()).toContain('Payment inclusion confirmed');w.unmount();
+});

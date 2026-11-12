@@ -2,6 +2,9 @@ name: Payroll wizard and report delivery
 on:
   pull_request:
     paths:
+      - 'backend/src/services/paySystem.service.js'
+      - 'backend/src/utils/clinicalFundingPolicy.js'
+      - 'database/migrations/*_payroll_pro_bono_and_correction_resolutions.sql'
       - 'backend/src/**/payroll*'
       - 'backend/src/**/Payroll*'
       - 'backend/src/**/supervisionNote*'

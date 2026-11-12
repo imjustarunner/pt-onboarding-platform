@@ -1,9 +1,10 @@
+import { isProBonoServiceCode } from '../utils/clinicalFundingPolicy.js';
 import { payrollDefaultsForCode } from './payrollServiceCodeDefaults.js';
 export const PAY_SYSTEM_BUCKETS = ['credit', 'hcode', 'indirect', 'support_activity', 'skip', 'flat'];
 export const isPayrollCodeVisible = r => Number(r?.show_in_rate_sheet ?? r?.showInRateSheet ?? 1) !== 0;
 export function classifyPayType(serviceCode, ruleOrDefaults = null) {
   const code = String(serviceCode || '').trim().toUpperCase();
-  if (!code) return 'skip';
+  if (!code || isProBonoServiceCode(code)) return 'skip';
 
   const configured = ruleOrDefaults?.pay_system_bucket ?? ruleOrDefaults?.paySystemBucket;
   if (PAY_SYSTEM_BUCKETS.includes(configured)) return configured;

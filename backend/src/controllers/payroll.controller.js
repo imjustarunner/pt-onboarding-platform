@@ -1,4 +1,4 @@
-import { buildPayrollCorrectionReview, postPayrollCorrectionReduction, postPayrollCorrectionAdditionalPay } from '../services/payrollCorrectionReview.service.js';
+import { buildPayrollCorrectionReview, postPayrollCorrectionReduction, postPayrollCorrectionAdditionalPay, resolvePayrollCorrection } from '../services/payrollCorrectionReview.service.js';
 import { loadMileageBenefitTiers, resolveMileageBenefitTier } from '../services/mileageBenefitTier.service.js';
 import { isClinicalSupervisorForAgency } from '../services/clinicalSupervisorEligibility.service.js';
 import { createClaimReviewContext, claimReviewRead, claimReviewDay, mapClaimReviews, compactTimeClaim } from '../services/payrollClaimReview.service.js';
@@ -94,6 +94,7 @@ import PayrollPtoRequest from '../models/PayrollPtoRequest.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
 import AdminAuditLog from '../models/AdminAuditLog.model.js';
 import pool from '../config/database.js';
+import { isProBonoServiceCode } from '../utils/clinicalFundingPolicy.js';
 import { validateJacquelyneTime, jacquelyneAdminRate, persistJacquelyneTimeClaim } from '../services/jacquelyneTime.service.js';
 import AdpPayrollService from '../services/adpPayroll.service.js';
 import { calculateSickLeaveHours, uniformSickLeavePolicyApplies } from '../utils/payrollSickLeaveHours.js';
@@ -745,7 +746,7 @@ async function computeRawAuditReductionDetails({
 }) {
   const codeKey = String(serviceCode || '').trim().toUpperCase();
   const qty = Number(units || 0);
-  if (!agencyId || !userId || !codeKey || !(qty > 1e-9)) {
+  if (!agencyId || !userId || !codeKey || isProBonoServiceCode(codeKey) || !(qty > 1e-9)) {
     return { amount: 0, category: 'direct', creditsHours: 0 };
   }
 
@@ -6398,12 +6399,13 @@ export async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId,
 
       const d = Number.isFinite(payDivisor) ? Number(payDivisor) : 1;
       const safeDivisor = (!Number.isFinite(d) || d <= 0) ? 1 : d;
-      const safeCreditValue = isFlatAddon ? 0 : (Number.isFinite(creditValue) ? creditValue : 0);
+      const isProBono = isProBonoServiceCode(codeKey);
+      const safeCreditValue = (isFlatAddon || isProBono) ? 0 : (Number.isFinite(creditValue) ? creditValue : 0);
 
       // Credits/Hours: minute-based rows use unit_count minutes and credit_value = 1/60.
       // Pay-hours: unit_count / pay_divisor (e.g. minutes / 60).
       const creditsHours = (finalizedUnits * safeCreditValue);
-      const payHours = isFlatAddon ? 0 : (finalizedUnits / safeDivisor);
+      const payHours = (isFlatAddon || isProBono) ? 0 : (finalizedUnits / safeDivisor);
 
       // 99414/99416: prelicensed tracking codes don't feed PTO (MEETING pays) but still display hours.
       const uidNum = Number(userId);
@@ -6455,7 +6457,9 @@ export async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId,
       if (isSupervisionMeetingCode(codeKey)) {
         perCodePayUnit = 'per_hour';
       }
-      if (isFlatAddon) {
+      if (isProBono) {
+        rateSource = 'pro_bono_unpaid'; rateAmount = 0;
+      } else if (isFlatAddon) {
         rateSource = 'agency_flat_addon';
         rateAmount = flatRateAmount;
         perCodePayUnit = 'per_unit';
@@ -6489,12 +6493,13 @@ export async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId,
         userPercentPayEnabled: rateCard?.percent_pay_enabled
       });
 
-      if (isFlatAddon) { pctPay.usesPercentPay = false; pctPay.basis = null; }
+      if (isFlatAddon || isProBono) { pctPay.usesPercentPay = false; pctPay.basis = null; }
       const billedPay = pctPay.basis === 'billed'
         ? await billedPayForStagingRow({ row, payrollPeriodId, agencyId, rates: ratesByCode.get(codeKey) || [] }) : null;
 
       // Always compute wage math on pay-hours for non-flat categories.
       const computeLineAmount = ({ units, payHours }) => {
+        if (isProBono) return 0;
         if (isFlatAddon) return units * flatRateAmount;
         const isPrelicensedSupervisee = supervisionPrelicensedUserIds.has(Number(userId));
         // Prelicensed 99414/99416 tracking codes never pay (MEETING is the payable path).
@@ -23711,4 +23716,21 @@ export const getSchoolSupportAccrualReview = async (req, res, next) => {
     res.set('Cache-Control', 'private, no-store');
     res.json(await buildSchoolSupportAccrualReview({ agencyId: period.agency_id, payrollPeriodId }));
   } catch (error) { next(error); }
+};
+
+
+export const savePayrollCorrectionResolution = async(req,res,next)=>{
+  try {
+    const args=await correctionReviewRequest(req,res);if(!args)return;
+    res.json(await resolvePayrollCorrection({...args,reviewToken:req.body?.reviewToken,actorUserId:req.user.id,resolution:req.body?.resolution,reason:req.body?.reason,confirmed:req.body?.confirmed}));
+  }catch(error){next(error);}
+};
+export const listPayrollCorrectionResolutions = async(req,res,next)=>{
+  try {
+    const period=await PayrollPeriod.findById(Number(req.params.id));
+    if(!period)return res.status(404).json({error:{message:'Pay period not found'}});
+    if(!(await requirePayrollAccess(req,res,period.agency_id)))return;
+    const [rows]=await pool.execute(`SELECT r.id,r.source_payroll_period_id,r.baseline_row_id,r.compare_row_id,r.resolution,r.reason,r.created_at,r.reviewed_by_user_id,u.first_name,u.last_name FROM payroll_correction_resolutions r LEFT JOIN users u ON u.id=r.reviewed_by_user_id WHERE r.agency_id=? AND r.payroll_period_id=?`,[Number(period.agency_id),Number(period.id)]);
+    res.set('Cache-Control','no-store').json({resolutions:rows});
+  }catch(error){next(error);}
 };

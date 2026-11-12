@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { isProBonoServiceCode } from '../utils/clinicalFundingPolicy.js';
 
 class PayrollRateTemplateRate {
   static async _hasVisibilityColumn() {
@@ -19,7 +20,7 @@ class PayrollRateTemplateRate {
        ORDER BY service_code ASC`,
       [templateId]
     );
-    return rows || [];
+    return (rows || []).map(r => isProBonoServiceCode(r.service_code) ? {...r, rate_amount: 0} : r);
   }
 
   static async replaceAllForTemplate({ templateId, agencyId, rates }) {
@@ -32,7 +33,7 @@ class PayrollRateTemplateRate {
       if (!code) continue;
       byCode.set(code, {
         serviceCode: code,
-        rateAmount: Number(r.rateAmount) || 0,
+        rateAmount: isProBonoServiceCode(code) ? 0 : Number(r.rateAmount) || 0,
         rateUnit: r.rateUnit || 'per_unit',
         showInRateSheet:
           r.showInRateSheet === undefined || r.showInRateSheet === null ? 1 : (r.showInRateSheet ? 1 : 0)
