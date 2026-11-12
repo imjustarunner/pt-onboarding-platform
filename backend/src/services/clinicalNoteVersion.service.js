@@ -164,7 +164,7 @@ export async function ensureOriginalRevision({ db, note, session = {}, actorUser
     signatureEvent ? actorUserId : null, authorUserId, id(responsibleSupervisorUserId || supervisorUserId), requiresSupervisorCosign ? 1 : 0,
     JSON.stringify(snapshot), JSON.stringify(provenance), contentHash]);
   const revision = { id: Number(result.insertId), clinical_note_id: note.id, agency_id: note.agency_id, content_hash: contentHash };
-  if (signatureEvent) await insertSignature(db, revision, authorUserId, 'initial_author_sign', { originalSignedAt: iso(note.provider_signed_at) });
+  if (signatureEvent) await insertSignature(db, revision, authorUserId, 'initial_author_sign', { ...originalRequestEvidence(note,'attestation'), originalSignedAt: iso(note.provider_signed_at) });
   await db.execute('INSERT INTO clinical_note_revision_heads(clinical_note_id,agency_id,original_revision_id,effective_revision_id) VALUES(?,?,?,?)', [note.id, note.agency_id, revision.id, revision.id]);
   return revisionRow(db, note.id, note.agency_id, revision.id);
 }
@@ -177,7 +177,12 @@ export async function appendOriginalSignature({ db, note, session = {}, actorUse
   if (id(actorUserId) !== id(note.supervisor_cosigned_by_user_id) || !note.supervisor_cosigned_at) throw fail(403, 'A persisted authorized supervisor signature is required.');
   const existing = (await signaturesFor(db, revision.id)).find(s => s.signature_action === action);
   if (existing) return existing.id;
-  return insertSignature(db, revision, id(actorUserId), action, { originalSignedAt: iso(note.supervisor_cosigned_at) });
+  return insertSignature(db, revision, id(actorUserId), action, { ...originalRequestEvidence(note,'supervisorCosign'), originalSignedAt: iso(note.supervisor_cosigned_at) });
+}
+
+function originalRequestEvidence(note,key){
+ const evidence=object(note.metadata_json)[key] || {};
+ return Object.fromEntries(['signerLabel','statement','ipAddress','ipAddressSource','userAgent'].filter(field=>evidence[field]!=null).map(field=>[field,evidence[field]]));
 }
 
 function signatureView(row) {
@@ -421,7 +426,8 @@ export async function signRevision(input, source = clinicalPool) {
     if (input.action === 'supervisor_sign' && (!supervisor || !revision.requires_supervisor_cosign)) throw fail(403, 'Only the responsible supervisor may sign this version.');
     if (input.action === 'supervisor_sign' && revision.origin !== 'supervisor' && !actions.has('author_sign')) throw fail(409, 'The original clinical author must review and sign before supervisor approval.');
     if (actions.has(input.action)) throw fail(409, 'This clinical signature has already been recorded.');
-    const signatureId = await insertSignature(db, revision, id(input.actorUserId), input.action, { origin: revision.origin, expectedContentHash: input.expectedContentHash });
+    const signatureId = await insertSignature(db, revision, id(input.actorUserId), input.action, { origin: revision.origin, expectedContentHash: input.expectedContentHash,
+      ipAddress:input.requestEvidence?.ipAddress || null,ipAddressSource:input.requestEvidence?.ipAddressSource || null,userAgent:input.requestEvidence?.userAgent || null });
     actions.add(input.action);
     const approved = revision.origin === 'supervisor'
       ? input.action === 'supervisor_sign'

@@ -1,3 +1,4 @@
+import {clinicalDisplayTimestamp,clinicalDisplayClock} from '../utils/clinicalDisplayTime.js';
 import { screeningRespondent, validateScreeningEncounter } from './h0002EncounterDetails.js';
 import { serviceDetailTimes } from './clinicalSupervisorReview.service.js';
 import crypto from 'node:crypto';
@@ -99,7 +100,7 @@ function draftText(source) {
   const proposed = proposedScreeningReview(source);
   return ['H0002 — Behavioral health screening to determine eligibility for admission to a treatment program',
     'DRAFT — clinician review and determination pending',
-    `Digital questionnaire submitted: ${source.submittedAt}. This is the source submission timestamp, not the date of professional review.`,
+    `Digital questionnaire submitted: ${clinicalDisplayTimestamp(source.submittedAt)}. This is the source submission timestamp, not the date of professional review.`,
     'Modality: asynchronous digital questionnaire and supplemental intake information; no live attendance or therapy duration asserted.',
     '', source.summary, '', `Proposed admission determination: ${SCREENING_OUTCOMES[source.suggestedOutcome]}.`,
     'This proposal requires the reviewing clinician’s assessment and confirmation. It does not admit, reject, or authorize treatment.',
@@ -204,9 +205,9 @@ export async function writeScreeningDetermination({ sessionId, user, input }) {
   const name = [provider.first_name, provider.last_name, provider.credential].filter(Boolean).join(' ');
   const payload = ['H0002 — Behavioral health screening to determine eligibility for admission to a treatment program',
     `Date of service / professional determination: ${dateOfService} (America/Denver)`,
-    `Digital questionnaire submitted: ${source.submittedAt} (source timestamp)`,
+    `Digital questionnaire submitted: ${clinicalDisplayTimestamp(source.submittedAt)} (source timestamp)`,
     `Participants: ${encounter.participants}; patient present: ${encounter.patientPresent?'Yes':'No'}.`,
-    `Service time: ${encounter.startTime}–${encounter.endTime} America/Denver; duration: ${encounter.durationMinutes} minutes (confirmed by clinician).`,
+    `Service time: ${clinicalDisplayClock(encounter.startTime)}–${clinicalDisplayClock(encounter.endTime)} America/Denver; duration: ${encounter.durationMinutes} minutes (confirmed by clinician).`,
     `Packet: ${input.paperTranscription ? 'paper transcription' : source.packetMethod}; client type: ${source.clientType}${source.schoolName ? `; school: ${source.schoolName}` : ''}.`, `Client service location: ${review.setting} (POS ${location.code}).`, '',
     reviewedSource.summary, '', 'Presenting problem', presentingProblem, '', 'Clinical assessment and evaluation', review.assessment, '', 'Admission determination', SCREENING_OUTCOMES[review.outcome],
     '', 'Treatment needs, available options and follow-up', review.followUp,

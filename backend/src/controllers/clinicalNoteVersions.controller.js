@@ -12,6 +12,7 @@ import { CLINICAL_SIGNER_ROLES } from '../services/clinicalNoteSigningToken.serv
 import { assertNarrivaRiskBeforeSignature } from '../services/narrivaRiskAssessment.service.js';
 import ClinicalSession from '../models/clinical/ClinicalSession.model.js';
 import { assertNoPendingClinicalServiceChange } from '../utils/clinicalServiceChangePolicy.js';
+import {clinicalSignatureEvidence} from '../utils/clinicalSignatureEvidence.js';
 import {
   getRevisionSummary, getRevision, proposeRevision, editRevision, signRevision
 } from '../services/clinicalNoteVersion.service.js';
@@ -221,7 +222,8 @@ async function attest(req, res, next, action, capability) {
         diagnoses:snapshot.metadataJson?.structuredChart?.diagnoses || snapshot.metadataJson?.structuredChart?.intakeDiagnoses});
     }
     if(action!=='author_acknowledge')await assertNarrivaRiskBeforeSignature({...context.note,metadata_json:revision.snapshot?.metadataJson || context.note.metadata_json});
-    const signedRevision = await signRevision({ ...context, revisionId, action, attested: true, expectedContentHash: req.body.expectedContentHash, expectedEntryManifestHash: req.body.expectedEntryManifestHash });
+    const signedRevision = await signRevision({ ...context, revisionId, action, attested: true, expectedContentHash: req.body.expectedContentHash, expectedEntryManifestHash: req.body.expectedEntryManifestHash,
+      requestEvidence:clinicalSignatureEvidence(req) });
     const finalSummary = await summaryResponse(context);
     if (action !== 'author_acknowledge' && Number(finalSummary.effectiveRevisionId) === Number(signedRevision.id) && !finalSummary.pendingRevisionId) {
       const { draftClaimAfterSignature } = await import('./medicalBilling.controller.js');

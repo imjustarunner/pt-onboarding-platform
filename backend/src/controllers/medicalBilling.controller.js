@@ -62,7 +62,8 @@ import { collectChartScope } from '../utils/noteAidClientAgency.js';
 import { getMedicalBillingFlags } from '../services/medicalBillingFlags.service.js';
 import { maybeEncryptNotePayload, maybeDecryptNotePayload } from '../services/clinicalNoteCrypto.service.js';
 import { encryptChatText, isChatEncryptionConfigured } from '../services/chatEncryption.service.js';
-import { getClientIpAddress } from '../utils/ipAddress.util.js';
+import {clinicalNoteSignatureView} from '../services/clinicalNoteSignatureView.service.js';
+import {clinicalSignatureEvidence} from '../utils/clinicalSignatureEvidence.js';
 import {
   uploadClaims,
   fetchEraList
@@ -128,9 +129,7 @@ function formatAttestationClock(iso) {
   try {
     const d = new Date(iso);
     if (!Number.isFinite(d.getTime())) return String(iso || '');
-    const date = d.toLocaleDateString('en-US', { timeZone: 'UTC', month: 'numeric', day: 'numeric', year: 'numeric' });
-    const time = d.toLocaleTimeString('en-US', { timeZone: 'UTC', hour: 'numeric', minute: '2-digit' });
-    return `${date} at ${time} UTC`;
+    return new Intl.DateTimeFormat('en-US',{timeZone:'America/Denver',month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit',hour12:true,timeZoneName:'short'}).format(d);
   } catch {
     return String(iso || '');
   }
@@ -1637,6 +1636,7 @@ export const getClinicalNoteById = async (req, res, next) => {
         officeEventId,
         standalone,
         providerSignedAt: note.provider_signed_at || null,
+        signatures: await clinicalNoteSignatureView(note,versions,providerSigner),
         providerReview: note.content_review_source === 'provider_review' ? (typeof note.content_review_json === 'string' ? JSON.parse(note.content_review_json) : note.content_review_json) : null,
         providerSignedByUserId: note.provider_signed_by_user_id || null,
         supervisorCosignedAt: note.supervisor_cosigned_at || null,
@@ -2034,8 +2034,7 @@ export const signClinicalNote = async (req, res, next) => {
       attestedByUserId: req.user.id,
       signerLabel,
       statement: attestationStatement,
-      ipAddress: getClientIpAddress(req),
-      userAgent: String(req.headers['user-agent'] || '').slice(0, 500) || null
+      ...clinicalSignatureEvidence(req)
     };
     const documentationPolicy = await resolveNoteDocumentationPolicy(note,pool,signingDb);
     const nonBillable = isNonBillableDocument(note);
@@ -2138,7 +2137,7 @@ export const signClinicalNote = async (req, res, next) => {
     if (!nonBillable) await draftClaimAfterSignature(req, note);
     try { const {onSignedNoteCopay}=await import('../services/familyLedger/copayAttendance.js'); await onSignedNoteCopay({agencyId:note.agency_id,noteId:note.id,providerUserId:req.user.id}); } catch { console.warn('[signClinicalNote] Copay attendance needs billing review'); }
     await reviewSubmittedNote(req,persisted);
-    return res.json({ ok: true, noteId, contentHash: hash, signedAt: persisted.provider_signed_at, revisionId: originalRevision.id, revisionContentHash: originalRevision.content_hash, queueSynchronizationPending: !queueSynchronized, terminationTodo });
+    return res.json({ ok: true, noteId, contentHash: hash, signedAt: persisted.provider_signed_at, providerSignature:{actorUserId:req.user.id,signerLabel:signerLabel || `Account ${req.user.id}`,signedAt:persisted.provider_signed_at,revisionId:originalRevision.id,contentHash:originalRevision.content_hash,evidence:{ipAddressRecorded:!!meta.attestation.ipAddress,userAgentRecorded:!!meta.attestation.userAgent}}, revisionId: originalRevision.id, revisionContentHash: originalRevision.content_hash, queueSynchronizationPending: !queueSynchronized, terminationTodo });
   } catch (e) {
     if (signingDb) { await signingDb.rollback(); signingDb.release(); signingDb=null; }
     next(e);
@@ -2148,7 +2147,8 @@ export const signClinicalNote = async (req, res, next) => {
 function supervisorSignatureReceipt(note){
  const evidence=parseObject(note.metadata_json).supervisorCosign || {};
  return {cosignedAt:note.supervisor_cosigned_at,cosignedByUserId:note.supervisor_cosigned_by_user_id,
-  signerLabel:evidence.signerLabel || null,statement:evidence.statement || null,contentHash:evidence.contentHash || null};
+  signerLabel:evidence.signerLabel || null,statement:evidence.statement || null,contentHash:evidence.contentHash || null,
+  evidence:{ipAddressRecorded:!!evidence.ipAddress,userAgentRecorded:!!evidence.userAgent}};
 }
 export const cosignClinicalNote = async (req, res, next) => {
   let cosignDb;
@@ -2220,14 +2220,14 @@ export const cosignClinicalNote = async (req, res, next) => {
     try {
       const pool = (await import('../config/database.js')).default;
       const [userRows] = await pool.execute(
-        `SELECT id, first_name, last_name, credentials, license_type, npi
+        `SELECT id, first_name, last_name, credential
          FROM users WHERE id = ? LIMIT 1`,
         [Number(req.user.id)]
       );
       const u = userRows?.[0];
       if (u) {
         const name = [u.first_name, u.last_name].filter(Boolean).join(' ').trim();
-        const creds = String(u.credentials || u.license_type || '').trim();
+        const creds = String(u.credential || '').trim();
         let licenseLine = '';
         try {
           const [infoRows] = await pool.execute(
@@ -2283,8 +2283,7 @@ export const cosignClinicalNote = async (req, res, next) => {
       cosignedByUserId: req.user.id,
       signerLabel,
       statement,
-      ipAddress: getClientIpAddress(req),
-      userAgent: String(req.headers['user-agent'] || '').slice(0, 500) || null
+      ...clinicalSignatureEvidence(req)
     };
 
     await cosignDb.execute(

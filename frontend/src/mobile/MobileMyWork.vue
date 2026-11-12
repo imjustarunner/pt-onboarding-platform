@@ -10,12 +10,11 @@ const route=useRoute(),router=useRouter();trackMobileNavigation(router);
 const props=defineProps({apiBase:String,sessionToken:String,visible:{type:Boolean,default:true},userId:[Number,String]});
 const emit=defineEmits(['draft','tasks','counts','controls-change']);
 const controlsOpen=ref(!readMobileViewPreference(props.userId,'mywork','compact',false));
-let scrollStart=0;
-function setControls(open){controlsOpen.value=open;writeMobileViewPreference(props.userId,'mywork','compact',!open);emit('controls-change',open);scrollStart=window.scrollY;}
-function onWorkScroll(){if(props.visible && controlsOpen.value && window.scrollY>scrollStart+35)setControls(false);}
-watch(()=>props.visible,value=>{if(value){scrollStart=window.scrollY;emit('controls-change',controlsOpen.value);}});
-onMounted(()=>{scrollStart=window.scrollY;window.addEventListener('scroll',onWorkScroll,{passive:true});emit('controls-change',controlsOpen.value);});
-onBeforeUnmount(()=>window.removeEventListener('scroll',onWorkScroll));
+const workList=ref(null);
+function setControls(open){controlsOpen.value=open;writeMobileViewPreference(props.userId,'mywork','compact',!open);emit('controls-change',open);}
+function onWorkScroll(){if(props.visible && controlsOpen.value && (workList.value?.scrollTop || 0)>35)setControls(false);}
+watch(()=>props.visible,value=>{if(value)emit('controls-change',controlsOpen.value);});
+onMounted(()=>emit('controls-change',controlsOpen.value));
 const items=ref([]),agencies=ref([]),failures=ref([]),loading=ref(false),error=ref(''),clinicalAvailable=ref(true),ready=ref(false);
 const tabs=[{id:'todo',label:'To Do'},{id:'unstarted',label:'Not started'},{id:'started',label:'Started'},{id:'cosign',label:'Co-sign'},{id:'signed',label:'Signed'}];
 const currentTab=computed(()=>tabs.some(tab=>tab.id===route.query.workTab)?route.query.workTab:'todo');
@@ -83,6 +82,7 @@ watch(()=>props.visible,value=>{if(value)void load(false);});watch(()=>props.ses
   <label class="agency-filter">Agency<select aria-label="Filter documentation by agency" :value="agencyFilter" @change="changeView('workAgency',$event.target.value)"><option value="all">All agencies</option><option v-for="agency in agencies" :key="agency.id" :value="String(agency.id)">{{ agency.name }}</option></select></label>
   <label class="agency-filter">Sort<select aria-label="Sort My Work" :value="sortOrder" @change="changeView('workSort',$event.target.value)"><option value="recent">Most recent</option><option value="oldest">Oldest first</option><option value="client">Client A–Z</option><option value="agency">Agency A–Z</option><option value="service">Service code</option><option value="status">Status</option></select></label>
   </div><nav class="work-tabs" aria-label="Documentation status"><button v-for="tab in tabs" :key="tab.id" :aria-pressed="currentTab===tab.id" @click="changeView('workTab',tab.id)">{{ tab.label }} <span v-if="tab.id!=='signed'">{{ ready && !failures.some(f=>(agencyFilter==='all'||String(f.agencyId)===agencyFilter)&&(tab.id==='todo'||(tab.id==='cosign'?f.section==='cosign':f.section==='notes')))?counts[tab.id]:'—' }}</span></button></nav>
+  <div ref="workList" class="work-list" role="region" aria-label="Documentation items" tabindex="0" @scroll.passive="onWorkScroll">
   <p v-if="loading && !ready" role="status">Loading your work…</p>
   <p v-if="error" role="alert">{{ error }} <button @click="load">Try again</button></p>
   <div v-if="activeFailures.length" class="work-errors" role="alert"><p v-for="failure in activeFailures" :key="`${failure.agencyId}:${failure.section}`">{{ failure.agencyName }}: {{ failure.message }}</p><button @click="load">Try again</button></div>
@@ -93,6 +93,7 @@ watch(()=>props.visible,value=>{if(value)void load(false);});watch(()=>props.ses
   </article>
   <p v-if="!loading && !error && ready && !activeFailures.length && !visibleItems.length">{{ clinicalAvailable?`No ${tabs.find(tab=>tab.id===currentTab).label.toLowerCase()} notes in this view.`:'Clinical documentation is not available for this account.' }}</p>
   <button class="task-link" @click="emit('tasks')">View my tasks <ChevronRight :size="15"/></button>
+  </div>
  </section>
 </template>
 <style scoped>
@@ -102,5 +103,5 @@ watch(()=>props.visible,value=>{if(value)void load(false);});watch(()=>props.ses
 <style scoped>.work-search{display:grid;gap:5px;font-size:12px;flex:1;margin-right:10px;min-width:0}.work-search input{font:inherit;font-size:16px;min-width:0;padding:9px;border:1px solid #d8e3f6;border-radius:8px}.mobile-mywork>header{gap:8px}</style>
 
 <style scoped>
-.work-toolbar{display:flex;justify-content:space-between;gap:10px;align-items:center}.work-toolbar button{display:flex;align-items:center;gap:6px;border:0;background:#f1f5fb;border-radius:8px;padding:9px;font-size:12px}.work-controls header>button{display:none}.work-controls header{display:flex}.work-tabs{position:sticky;top:var(--mobile-header-height,72px);z-index:5;background:white;padding:8px 0;margin:4px 0}.work-row{padding:12px 8px}.work-row--unstarted{background:rgba(54,130,186,.055)}.work-row--started{background:rgba(207,158,60,.075)}.work-row--cosign{background:rgba(111,95,177,.055)}.work-controls-toggle:focus-visible{outline:2px solid #245be8;outline-offset:2px}
+.mobile-mywork{display:flex;flex-direction:column;flex:1;min-height:0;overflow:hidden}.work-toolbar,.work-controls,.work-tabs{flex-shrink:0}.work-list{flex:1;min-height:0;overflow-y:auto;overscroll-behavior-y:contain}.work-toolbar{display:flex;justify-content:space-between;gap:10px;align-items:center}.work-toolbar button{display:flex;align-items:center;gap:6px;border:0;background:#f1f5fb;border-radius:8px;padding:9px;font-size:12px}.work-controls header>button{display:none}.work-controls header{display:flex}.work-tabs{background:white;padding:8px 0;margin:4px 0}.work-row{padding:12px 8px}.work-row--unstarted{background:rgba(54,130,186,.055)}.work-row--started{background:rgba(207,158,60,.075)}.work-row--cosign{background:rgba(111,95,177,.055)}.work-controls-toggle:focus-visible{outline:2px solid #245be8;outline-offset:2px}
 </style>
