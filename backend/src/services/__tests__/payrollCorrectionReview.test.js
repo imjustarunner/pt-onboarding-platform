@@ -102,3 +102,11 @@ it('also identifies underpayment when the code stays the same and quantity incre
 it('does not recoup an apparent service line suppressed by a salary override',async()=>{
  const b=breakdown();b.__adjustments={salaryAmount:2000,salaryIncludeServicePay:false,basePayIsSalaryOverride:true};db.prepare('UPDATE payroll_summaries SET breakdown=?').run(JSON.stringify(b));const r=await review();expect(r.canPostAdjustment).toBe(false);expect(r.original.total).toBeNull();expect(r.blockers.join(' ')).toContain('salary');
 });
+
+it('does not reverse a removed code in full when a replacement service is present',async()=>{
+ await expect(buildPayrollCorrectionReview({...args,compareRowId:null,db:conn})).rejects.toMatchObject({status:409,message:expect.stringContaining('replacement service')});
+});
+
+it('still permits review of a real removal when another unchanged service exists that day',async()=>{
+ db.exec("INSERT INTO payroll_import_rows SELECT 3,agency_id,payroll_period_id,101,user_id,provider_name,patient_first_name,service_date,service_code,note_status,draft_payable,unit_count,'other-service' FROM payroll_import_rows WHERE id=2");const r=await buildPayrollCorrectionReview({...args,compareRowId:null,db:conn});expect(r).toMatchObject({reductionAmount:30,canPostReduction:true});
+});

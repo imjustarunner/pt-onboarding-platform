@@ -53,7 +53,13 @@ export async function buildPayrollCorrectionReview({destinationPeriodId,agencyId
   if(!after) {
     if(!latestImport || Number(latestImport.slot_number)<=Number(before.slot_number)) fail('A later report is required to confirm removal.');
     const [latestRows]=await db.execute('SELECT * FROM payroll_import_rows WHERE agency_id=? AND payroll_import_id=? AND user_id=?',[Number(agencyId),Number(latestImport.id),Number(before.user_id)]);
-    if(latestRows.map(decode).some(r=>same(r,before))) fail('This session is still in the latest report. Refresh the comparison before treating it as removed.');
+    const currentRows=latestRows.map(decode);
+    if(currentRows.some(r=>same(r,before))) fail('This session is still in the latest report. Refresh the comparison before treating it as removed.');
+    const [previousRaw]=await db.execute('SELECT * FROM payroll_import_rows WHERE agency_id=? AND payroll_import_id=? AND user_id=?',[Number(agencyId),Number(before.payroll_import_id),Number(before.user_id)]);
+    const previousRows=previousRaw.map(decode);
+    const replacement=currentRows.some(r=>identity(r)===identity(before)&&payable(r)
+      && !previousRows.some(p=>same(p,r)&&payable(p)&&Number(p.unit_count)===Number(r.unit_count)));
+    if(replacement) fail('A possible replacement service exists for this session. Review the code change before posting a full reversal.');
   }
   const blockers=[];
   if(locked(destination)) blockers.push('This destination payroll is posted or finalized. Choose an open payroll.');
