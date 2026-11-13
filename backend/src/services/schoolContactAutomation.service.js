@@ -14,6 +14,7 @@ import ClinicalNote from '../models/clinical/ClinicalNote.model.js';
 import { resolveMessagesSendMailbox } from './tenantMessageMailboxes.service.js';
 import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service.js';
 import {requireQaContactScope} from './schoolContactQaScope.service.js';
+import { INITIAL_RETRY_DETAIL,initialRetryWorkflowSql,readSchoolContactInitialRetry,assertSchoolContactInitialRetryDelivery } from './schoolContactInitialRetry.service.js';
 
 const parse = value => { try { return typeof value === 'string' ? JSON.parse(value) : value || {}; } catch { return {}; } };
 const millis = value => value ? new Date(typeof value === 'string' && /^\d{4}-\d\d-\d\d \d\d:/.test(value) ? value.replace(' ','T')+'Z' : value).getTime() : 0;
@@ -112,8 +113,13 @@ async function runStep(workflow, key, send) {
       const [[message]] = key === 'initial_email' && existing.message_id ? await pool.execute('SELECT conversation_id FROM communication_messages WHERE id=?', [existing.message_id]) : [[null]];
       return { sent: existing.status === 'sent', skipped: existing.status === 'skipped', reason: existing.detail, messageId: existing.message_id, conversationId: message?.conversation_id, completedAt: existing.completed_at };
     }
-    await pool.execute("UPDATE school_contact_workflows SET status='needs_review',last_error='Delivery needs receipt reconciliation; no automatic duplicate was sent.' WHERE id=?", [workflow.id]);
-    return { needsReview: true };
+    const [retry] = key === 'initial_email' && existing?.status === 'pending' && existing.detail === INITIAL_RETRY_DETAIL
+      ? await pool.execute("UPDATE school_contact_workflow_steps SET status='sending',started_at=CURRENT_TIMESTAMP WHERE id=? AND workflow_id=? AND status='pending' AND detail=?",[existing.id,workflow.id,INITIAL_RETRY_DETAIL])
+      : [{affectedRows:0}];
+    if (!retry.affectedRows) {
+      await pool.execute("UPDATE school_contact_workflows SET status='needs_review',last_error='Delivery needs receipt reconciliation; no automatic duplicate was sent.' WHERE id=?", [workflow.id]);
+      return { needsReview: true };
+    }
   }
   try {
     const result = await send();
@@ -282,7 +288,7 @@ async function processWorkflow(workflow, now, qa = null) {
   const guardian = await guardianFor(workflow);
   if (!guardian?.email) { await pool.execute("UPDATE school_contact_workflows SET status='blocked',last_error='Link an authorized guardian with an email address to begin.' WHERE id=?", [workflow.id]); return; }
   if(qa&&!/^testing(?:\+[^@\s]+)?@itsco\.health$/i.test(guardian.email))throw Object.assign(new Error('Use a controlled testing alias for the QA family.'),{status:403});
-  const beforeDelivery=qa?async()=>{
+  const beforeDelivery=workflow.initial_retry_queued?async()=>assertSchoolContactInitialRetryDelivery({workflow,guardian}):qa?async()=>{
     const authority=await requireQaContactScope(qa.actorUserId,qa.scope);
     const current=await guardianFor(workflow),fresh=await observeReplies(workflow);
     const [[latestCare]]=await pool.execute(`SELECT EXISTS(SELECT 1 FROM client_intake_note_drafts WHERE agency_id=? AND client_id=? AND status='final' AND finalized_at IS NOT NULL) AS intake_completed,
@@ -319,6 +325,8 @@ async function processWorkflow(workflow, now, qa = null) {
 }
 
 const workflowSelect = `SELECT w.*,p.status AS plan_status,p.template,p.sms_after_days,p.email_after_days,p.stale_after_hours,p.second_template,p.final_template,p.sms_template,p.decided_at AS current_plan_decided_at,s.name AS school_name,
+      EXISTS(SELECT 1 FROM school_contact_workflow_steps retry_step WHERE retry_step.workflow_id=w.id AND retry_step.step_key='initial_email'
+        AND retry_step.status='pending' AND retry_step.detail='provider_retry:EMAIL_SENDER_UNVERIFIED') AS initial_retry_queued,
       c.session_sms_opt_in,c.first_service_at,COALESCE(a.service_day,c.service_day) AS service_day,
       EXISTS(SELECT 1 FROM client_provider_assignments active WHERE active.client_id=w.client_id AND active.organization_id=w.school_id AND active.provider_user_id=w.provider_user_id AND active.is_active=1) AS assignment_active,
       (c.status='ARCHIVED' OR LOWER(COALESCE(cs.status_key,'')) IN ('terminated','discharged','closed','dead','archived') OR LOWER(COALESCE(cs.label,'')) LIKE '%terminated%') AS client_terminal
@@ -373,7 +381,15 @@ export async function listSchoolContactWorkflows({ agencyId, providerUserId, cli
     const [steps]=await pool.execute(`SELECT st.id,st.workflow_id,st.step_key,st.status,st.completed_at,st.detail,st.channel,st.conversation_id
       FROM school_contact_workflow_steps st JOIN school_contact_workflows w ON w.id=st.workflow_id
       WHERE w.agency_id=? AND w.provider_user_id=? AND w.id IN (${rows.map(()=>'?').join(',')}) ORDER BY st.id`,[Number(agencyId),Number(providerUserId),...rows.map(r=>r.id)]);
-    for(const row of rows) row.steps=steps.filter(s=>Number(s.workflow_id)===Number(row.id));
+    for(const row of rows) {
+      row.steps=steps.filter(s=>Number(s.workflow_id)===Number(row.id));
+      row.canRetryInitial=false; row.retryInitialQueued=false;
+      if (row.status === 'needs_review' || row.status === 'queued') {
+        const [[source]]=await pool.execute(initialRetryWorkflowSql,[row.id,Number(agencyId),Number(providerUserId)]);
+        const retry=await readSchoolContactInitialRetry(pool,source);
+        row.canRetryInitial=retry.canRetryInitial; row.retryInitialQueued=retry.retryInitialQueued;
+      }
+    }
   }
   return rows;
 }

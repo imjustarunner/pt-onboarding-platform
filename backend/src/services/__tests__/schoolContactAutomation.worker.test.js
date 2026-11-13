@@ -1,5 +1,5 @@
 import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest';
-const m=vi.hoisted(()=>({execute:vi.fn(),connection:vi.fn(),context:vi.fn(),email:vi.fn(),notice:vi.fn(),number:vi.fn(),sms:vi.fn(),log:vi.fn(),sent:vi.fn(),failed:vi.fn(),intake:vi.fn()}));
+const m=vi.hoisted(()=>({execute:vi.fn(),connection:vi.fn(),context:vi.fn(),email:vi.fn(),notice:vi.fn(),number:vi.fn(),sms:vi.fn(),log:vi.fn(),sent:vi.fn(),failed:vi.fn(),intake:vi.fn(),retryGuard:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute,getConnection:m.connection}}));
 vi.mock('../schoolContactPlan.service.js',()=>({getContactPlanContext:m.context,sendSchoolContactEmail:m.email,SCHOOL_CONTACT_DEMO_AGENCY_ID:450,SCHOOL_CONTACT_TEST_INBOX:'testing@itsco.health',schoolContactRouting:provider=>({providerEmail:provider.email || 'provider@example.com'}),renderSchoolContactTemplate:vi.fn()}));
 vi.mock('../schoolContactProviderNotice.service.js',()=>({sendSchoolContactProviderNotice:m.notice}));
@@ -12,6 +12,7 @@ vi.mock('../../models/ClientNotes.model.js',()=>({default:{}}));
 vi.mock('../../models/clinical/ClinicalNote.model.js',()=>({default:{hasSignedIntakeForClient:m.intake}}));
 vi.mock('../tenantMessageMailboxes.service.js',()=>({resolveMessagesSendMailbox:vi.fn()}));
 vi.mock('../unifiedEmail/unifiedEmailSender.service.js',()=>({sendEmailFromIdentity:vi.fn()}));
+vi.mock('../schoolContactInitialRetry.service.js',()=>({INITIAL_RETRY_DETAIL:'provider_retry:EMAIL_SENDER_UNVERIFIED',initialRetryWorkflowSql:'unused in worker',readSchoolContactInitialRetry:vi.fn(),assertSchoolContactInitialRetryDelivery:m.retryGuard}));
 import {processSchoolContactAutomation} from '../schoolContactAutomation.service.js';
 
 const DAY=86400000,HOUR=3600000,start=new Date('2026-10-30T18:00:00Z'),decided='2026-10-01T12:00:00Z';
@@ -23,6 +24,7 @@ beforeEach(()=>{
  state={id:42,agency_id:450,client_id:2298,school_id:451,provider_user_id:1490,school_name:'Cedar Grove',service_day:'Tuesday',assignment_active:1,client_terminal:0,plan_decided_at:decided,current_plan_decided_at:decided,plan_status:'enabled',status:'waiting_parent',session_sms_opt_in:1,conversation_id:88,initial_sent_at:new Date(start.getTime()-2*DAY)};
  m.context.mockResolvedValue({agencyId:450,userId:1490,schools:[{id:451}],provider:{first_name:'Quality',last_name:'Tester'},agency:{name:'ITSCOLLC',feature_flags:{schoolContactPlanDemoSmsRecipients:{'client:2298':'+16189107000'}}}});
  m.intake.mockResolvedValue(false);
+ m.retryGuard.mockResolvedValue();
  m.email.mockResolvedValue({sent:true,messageId:901,conversationId:88});m.notice.mockResolvedValue({sent:true,messageId:902});
  m.number.mockResolvedValue({number:{id:9,agency_id:450,phone_number:'+17196775413'},ownerType:'agency'});m.sms.mockResolvedValue({sid:'carrier-42'});m.log.mockResolvedValue({id:77});m.sent.mockResolvedValue();m.failed.mockResolvedValue();
  m.connection.mockResolvedValue({execute:vi.fn().mockResolvedValue([[{claimed:1}]]),release:vi.fn()});
@@ -35,12 +37,16 @@ beforeEach(()=>{
   if(sql.startsWith('SELECT u.id,u.first_name'))return [[{id:1437,first_name:'Dana',last_name:'QA',email:'testing@itsco.health',phone:'+16189107000'}]];
   if(sql.startsWith('INSERT IGNORE INTO school_contact_workflow_steps')){if(steps.has(args[1]))return [{affectedRows:0}];steps.set(args[1],{status:'sending'});return [{affectedRows:1}];}
   if(sql.startsWith('SELECT * FROM school_contact_workflow_steps'))return [[steps.get(args[1])]];
+  if(sql.startsWith("UPDATE school_contact_workflow_steps SET status='sending'")){
+   const row=steps.get('initial_email');if(!row||row.status!=='pending'||row.detail!==args[2])return[{affectedRows:0}];row.status='sending';return[{affectedRows:1}];
+  }
   if(sql.startsWith('UPDATE school_contact_workflow_steps SET status=?')){steps.set(args[7],{status:args[0],message_id:args[1],detail:args[2],completed_at:args[3],channel:args[4],conversation_id:args[5]});return [{affectedRows:1}];}
   if(sql.startsWith("UPDATE school_contact_workflow_steps SET status='needs_review'")){steps.set(args[2],{status:'needs_review',detail:args[0]});return [{affectedRows:1}];}
   if(sql.includes("SET status='needs_review'")){state.status='needs_review';return [{affectedRows:1}];}
   if(sql.includes("SET status='cancelled'")){state.status='cancelled';return [{affectedRows:1}];}
   if(sql.includes('SET second_contact_at=?')){state.second_contact_at=args[0];return [{affectedRows:1}];}
   if(sql.includes('SET final_contact_at=?')){state.final_contact_at=args[0];return [{affectedRows:1}];}
+  if(sql.includes('SET initial_sent_at=?')){state.initial_sent_at=args[0];state.conversation_id=args[1];state.status='waiting_parent';return[{affectedRows:1}];}
   if(sql.includes('SET intake_arranged_at=COALESCE')){state.intake_arranged_at||=args[0];return [{affectedRows:1}];}
   if(sql.includes('SET provider_notified_at=COALESCE')){state.provider_notified_at||=args[0];state.last_intake_reminder_at=args[1];state.status='intake_followup_required';return [{affectedRows:1}];}
   if(sql.startsWith('UPDATE school_contact_workflows SET status=?')){state.status=args[0];return [{affectedRows:1}];}
@@ -51,6 +57,27 @@ beforeEach(()=>{
 afterEach(()=>vi.useRealTimers());
 
 describe('three-contact worker transport and durable receipts',()=>{
+ it('claims a provider-queued pretransport retry once, reuses its conversation and reruns delivery guards',async()=>{
+  state.initial_sent_at=null;state.status='queued';state.initial_retry_queued=1;
+  steps.set('initial_email',{id:7,status:'pending',detail:'provider_retry:EMAIL_SENDER_UNVERIFIED'});
+  m.email.mockImplementation(async input=>{await input.beforeDelivery();return{sent:true,messageId:903,conversationId:88};});
+  await tick(start);await tick(new Date(+start+1));
+  expect(m.email).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({stepKey:'initial_email',conversationId:88,beforeDelivery:expect.any(Function)}));
+  expect(m.retryGuard).toHaveBeenCalledTimes(2);expect(steps.get('initial_email')).toMatchObject({status:'sent',message_id:903});
+  expect(state.initial_sent_at).toEqual(start);expect(m.sms).not.toHaveBeenCalled();
+ });
+ it('leaves an interrupted sending retry for reconciliation rather than resending it',async()=>{
+  state.initial_sent_at=null;state.status='queued';state.initial_retry_queued=0;
+  steps.set('initial_email',{id:7,status:'sending',detail:'provider_retry:EMAIL_SENDER_UNVERIFIED'});
+  await tick(start);expect(m.email).not.toHaveBeenCalled();expect(state.status).toBe('needs_review');
+ });
+ it('does not deliver a queued welcome after the last-moment access or reply check fails',async()=>{
+  state.initial_sent_at=null;state.status='queued';state.initial_retry_queued=1;
+  steps.set('initial_email',{id:7,status:'pending',detail:'provider_retry:EMAIL_SENDER_UNVERIFIED'});
+  m.retryGuard.mockRejectedValue(Object.assign(new Error('Reply arrived'),{code:'school_contact_retry_stopped'}));
+  await tick(start);expect(m.email).not.toHaveBeenCalled();expect(state.status).toBe('needs_review');
+  expect(steps.get('initial_email').detail).toBe('school_contact_retry_stopped');
+ });
  it('uses the permitted family phone in the live ITSCO cohort without requiring a QA fixture',async()=>{
   state.agency_id=2;m.context.mockResolvedValue({agencyId:2,userId:1490,schools:[{id:451}],provider:{first_name:'Live',last_name:'Provider'},agency:{id:2,name:'ITSCO',feature_flags:{}}});
   m.number.mockResolvedValue({number:{id:9,agency_id:2,phone_number:'+17196775413'},ownerType:'agency'});

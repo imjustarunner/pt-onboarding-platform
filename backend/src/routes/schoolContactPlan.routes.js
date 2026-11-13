@@ -40,6 +40,17 @@ router.post('/workflows/:id/parent-replied', async (req, res, next) => {
     res.json(await markSchoolContactWorkflowReplied({ agencyId: ctx.agencyId, providerUserId: ctx.userId, workflowId }));
   } catch (error) { next(error); }
 });
+router.post('/workflows/:id/retry-initial', async (req, res, next) => {
+  try {
+    const { retrySchoolContactInitial } = await import('../services/schoolContactInitialRetry.service.js');
+    const workflowId = Number(req.params.id);
+    if (!Number.isSafeInteger(workflowId) || workflowId < 1) return res.status(400).json({ error: { message: 'Choose a valid contact workflow.' } });
+    const context = input(req);
+    const headerAgencyId = Number(req.headers['x-agency-id'] || 0);
+    if (headerAgencyId && Number(context.agencyId) !== headerAgencyId) return res.status(400).json({ error: { message: 'The current agency changed. Refresh this contact workflow.' } });
+    res.json(await retrySchoolContactInitial({ ...context,workflowId }));
+  } catch (error) { next(error); }
+});
 router.post('/example', rateLimit({ windowMs: 10 * 60 * 1000, max: 5, standardHeaders: true, legacyHeaders: false }),
   async (req, res, next) => { try { res.json(await sendSchoolContactExample(input(req), req.body)); } catch (error) { next(error); } });
 export default router;
