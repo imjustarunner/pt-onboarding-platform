@@ -1,3 +1,4 @@
+import { conversaEventBrowserBranding } from '../constants/conversa.js';
 import { websiteShareCards } from '../constants/websiteShareCards.js';
 import { productBrowserBranding } from './productDomains.js';
 import { isSchoolCareBridgeHost, isSchoolCareBridgePath } from './schoolCareBridge.js';
@@ -173,6 +174,12 @@ function guessTenantName(host) {
 }
 
 export function buildShareMeta({ host, path, proto = 'https' } = {}) {
+  const conversa = conversaEventBrowserBranding(path);
+  if (conversa) return { name: 'Conversa', title: conversa.title,
+    description: 'Event details, invitations, RSVP, and conversations with your team.',
+    image: `https://${normHost(host) || 'auricwell.com'}/assets/conversa/brand/conversa-mark-email.png`,
+    imagePath: '/assets/conversa/brand/conversa-mark-email.png' };
+
   if (/^\/join\/my-room\/[^/?#]+/.test(path || '')) {
     if (['auricwell.com','www.auricwell.com'].includes(normHost(host))) return { ...AURICWELL_OFFICE_META };
     const tenant = TENANTS[normHost(host)];

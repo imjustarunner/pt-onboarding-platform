@@ -1,3 +1,4 @@
+import { conversaEventBrowserBranding } from './constants/conversa.js';
 import { vAddressAutocomplete } from './directives/addressAutocomplete.js';
 import './styles/addressAutocomplete.css';
 import { schoolCareBridgeBrowserBrand } from './composables/useSchoolCareBridgeBranding';
@@ -90,8 +91,13 @@ async function bootstrap() {
   // Keep the browser tab title aligned with the active portal/client.
   // - For custom domains (app.<client-domain>) we resolve portalHostPortalUrl and fetch portal theme.
   // - For slug routes (/:organizationSlug/...) we can also infer the slug from the route.
+  const conversaBrowserBrand = () => conversaEventBrowserBranding(
+    router.currentRoute.value?.matched?.length ? router.currentRoute.value.path : window.location.pathname
+  );
   const setTitle = () => {
     try {
+      const conversa = conversaBrowserBrand();
+      if (conversa) { document.title = conversa.title; return; }
       if (fundthredBrowserBrand.value) { document.title = fundthredBrowserBrand.value.title; return; }
       if (schoolCareBridgeBrowserBrand.value) { document.title = schoolCareBridgeBrowserBrand.value.title; return; }
       const website = publicBrowserBranding(window.location.hostname, router.currentRoute.value?.path);
@@ -158,6 +164,8 @@ async function bootstrap() {
 
   const setBrandingChrome = () => {
     setTitle();
+    const conversa = conversaBrowserBrand();
+    if (conversa) { setFavicon(conversa.favicon); return; }
     // Prefer tenant printing-asset marks for browser tabs (e.g. NLU watermark).
     // Explicit route-slug tours (/:tenant/...) win over the hostname. Flat routes
     // on dedicated tenant hosts then fall back to the host portal/hostname.

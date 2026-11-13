@@ -71,6 +71,7 @@ const auricwellLocations=Object.keys(auricwellPages).map(section=>location(secti
 // Static SPA entry: crawlers do not execute Vue. No shared og:url/canonical:
 // each private office retains its requested URL, without identifiers in metadata.
 page('tenant-office','index',injectShareMetaIntoHtml(shell,buildShareMeta({host:'plottwisthq.com',path:'/join/my-room/office'})));
+const conversaShell=page('conversa-events','index',injectPublicFavicon(injectShareMetaIntoHtml(shell,buildShareMeta({host:'auricwell.com',path:'/conversa/events/'})),'auricwell.com','/conversa/events/'));
 const officeShell=page('auricwell-office','index',injectPublicFavicon(injectShareMetaIntoHtml(shell,AURICWELL_OFFICE_META),'auricwell.com'));
 const auricwellLegalLocations = legalRouteEntries(tenantLegalProfiles.auricwell).map(entry => {
  const canonical = `https://auricwell.com${entry.canonical}`;
@@ -79,7 +80,7 @@ const auricwellLegalLocations = legalRouteEntries(tenantLegalProfiles.auricwell)
    + `\n location = ${entry.path}/ { return 301 ${canonical}$is_args$args; }`;
 }).join('\n');
 server('auricwell.com',`${auricwellLocations}
- location ^~ /conversa/ { add_header Cache-Control "no-store" always; add_header X-Robots-Tag "noindex, nofollow" always; try_files /index.html =404; }
+ location ^~ /conversa/ { add_header Cache-Control "no-store" always; add_header X-Robots-Tag "noindex, nofollow" always; try_files ${conversaShell} =404; }
  location = /mobile { add_header Cache-Control "no-store" always; add_header X-Robots-Tag "noindex" always; try_files /mobile.html =404; }
  location ^~ /mobile/ { add_header Cache-Control "no-store" always; add_header X-Robots-Tag "noindex" always; try_files /mobile.html =404; }
  location = /mobile.html { add_header Cache-Control "no-store" always; add_header X-Robots-Tag "noindex" always; try_files $uri =404; }

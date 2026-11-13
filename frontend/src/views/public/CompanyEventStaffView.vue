@@ -1,6 +1,6 @@
 <template>
   <main class="event-experience staff-event-page">
-    <nav class="ee-nav" aria-label="Event navigation"><div class="ee-nav-inner"><a class="ee-nav-brand" href="/dashboard"><img :src="CONVERSA_LOGO_URL" alt="Conversa" width="140" height="36" /></a><div class="ee-nav-links"><a href="/dashboard"><House :size="18" aria-hidden="true" />Home</a><a href="#event-overview" aria-current="page"><CalendarDays :size="18" aria-hidden="true" />Events</a><a href="/messages?view=workspace&tab=dms"><Users :size="18" aria-hidden="true" />Groups</a><a href="/messages"><MessageSquare :size="18" aria-hidden="true" />Messages</a></div><span v-if="signedIn" class="ee-nav-person" :aria-label="userName">{{ initials(userName) }}</span></div></nav>
+    <nav class="ee-nav" aria-label="Event navigation"><div class="ee-nav-inner"><a class="ee-nav-brand" href="/dashboard"><img :src="CONVERSA_EVENT_LOGO_URL" alt="Conversa" width="140" height="36" /></a><div class="ee-nav-links"><a href="/dashboard"><House :size="18" aria-hidden="true" />Home</a><a href="#event-overview" aria-current="page"><CalendarDays :size="18" aria-hidden="true" />Events</a><a href="/messages?view=workspace&tab=dms"><Users :size="18" aria-hidden="true" />Groups</a><a href="/messages"><MessageSquare :size="18" aria-hidden="true" />Messages</a></div><span v-if="signedIn" class="ee-nav-person" :aria-label="userName">{{ initials(userName) }}</span></div></nav>
     <div class="ee-container">
       <div v-if="loading" class="ee-card ee-page-state" role="status">Loading your event…</div>
       <template v-else-if="!signedIn || (!event && invitationPreview)"><CompanyEventPublicView v-if="showGuestRegistration && eventId" :key="eventId" :event-id="eventId" /><template v-else-if="invitationPreview"><EventInvitationPreview :invitation="invitationPreview" :sign-in-url="signInUrl" :guest-registration-url="guestRegistrationUrl" :signed-in="signedIn" /><CompanyEventRsvpView v-if="personalInvitation" :key="personalInvitation" :invitation-token="personalInvitation" :expected-event-id="eventId" class="event-personal-rsvp" /></template><div v-else class="ee-card ee-page-state"><p class="ee-muted">Private event invitation</p><h1>You’re invited</h1><p>Sign in to view this event and join in.</p><a :href="signInUrl" class="ee-button ee-button-primary">Sign in to view event</a></div></template>
@@ -65,7 +65,7 @@ import EventInvitationPreview from '../../components/events/EventInvitationPrevi
 import CompanyEventRsvpView from './CompanyEventRsvpView.vue';
 import CompanyEventPublicView from './CompanyEventPublicView.vue';
 import EventConversation from '../../components/events/EventConversation.vue';
-import { CONVERSA_LOGO_URL } from '../../constants/conversa';
+import { CONVERSA_EVENT_LOGO_URL } from '../../constants/conversa';
 import '../../styles/eventExperience.css';
 import { useRoute } from 'vue-router';
 import { notifyCompanyEventRsvpChanged } from '../../utils/companyEventRsvpEvents';

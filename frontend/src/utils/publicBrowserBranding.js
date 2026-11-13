@@ -1,3 +1,4 @@
+import { conversaEventBrowserBranding } from '../constants/conversa.js';
 import { officeSiteForHost, isOfficePath, OFFICE_ICON, OFFICE_APP_NAME } from './officeSite.js';
 import { isSchoolCareBridgeHost, isSchoolCareBridgePath } from './schoolCareBridge.js';
 import { publicSupportSlugFromHost } from './publicDomainRouting.js';
@@ -19,6 +20,8 @@ export const PUBLIC_WEBSITE_TITLES = {
 
 /** Public website identity must not depend on the visitor's selected app agency. */
 export function publicBrowserBranding(host, path = '/') {
+  const conversa = conversaEventBrowserBranding(path);
+  if (conversa) return conversa;
   const product = productBrowserBranding(host);
   if (product) return product;
   if (isPlotlineHost(host)) return { slug: 'plotline', title: 'Plotline | People Operations', favicon: '/assets/plotline/icon.svg' };
@@ -41,8 +44,8 @@ export function legacyTisiPublicDestination(href) {
   return url.href;
 }
 
-export function injectPublicFavicon(html, host) {
-  const icon = publicBrowserBranding(host)?.favicon;
+export function injectPublicFavicon(html, host, path = '/') {
+  const icon = publicBrowserBranding(host, path)?.favicon;
   if (!icon) return html;
   return html.replace(/(<link\b[^>]*id="app-(?:favicon|apple-touch-icon)"[^>]*href=")[^"]*(")/g, `$1${icon}$2`);
 }
