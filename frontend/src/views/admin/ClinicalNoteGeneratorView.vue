@@ -1009,6 +1009,10 @@
           <p>Quick Sign is unavailable without a passing review of the current note.</p>
           <button type="button" class="na-btn-primary" disabled>Sign</button>
         </section>
+        <div v-if="!signedNoteViewerId && !chartNoteReadOnly && !isClientChartAid && effectiveClientId && !showNarrivaAssessmentEvidence && !narrivaAssessmentEvidence.length" class="na-assessment-entry">
+          <button type="button" class="na-btn-outline" data-testid="open-assessment-evidence" aria-controls="narriva-assessment-evidence" @click="openNarrivaAssessmentEvidence">Assessment evidence</button>
+          <p class="na-field-hint">Review and link this session’s assessment attachments here. Supporting medical records lists separate chart documents.</p>
+        </div>
         <NarrivaAssessmentEvidence v-if="!signedNoteViewerId && !chartNoteReadOnly && (showNarrivaAssessmentEvidence || narrivaAssessmentEvidence.length)" id="narriva-assessment-evidence" v-model="narrivaAssessmentEvidence" :agency-id="noteAidAgencyId || currentAgencyId" :client-id="effectiveClientId" :clinical-session-id="sessionClinicalSessionId" :draft-id="draftId" :api-client="api" />
 
         <section
@@ -3142,6 +3146,11 @@ function inheritScheduledLocation(scheduled) {
 }
 
 const narrivaAssessmentEvidence=ref([]),showNarrivaAssessmentEvidence=ref(false);
+function openNarrivaAssessmentEvidence() {
+  if (!effectiveClientId.value || signedNoteViewerId.value || chartNoteReadOnly.value || isClientChartAid.value) return;
+  showNarrivaAssessmentEvidence.value = true;
+  nextTick(() => document.getElementById('narriva-assessment-evidence')?.scrollIntoView?.({ block: 'start', behavior: 'smooth' }));
+}
 const narrivaUnderlyingServiceCode=ref('');
 const narrivaUnderlyingCode=computed(()=>isProBonoFundingCode(actualServiceCode.value)?narrivaUnderlyingServiceCode.value:'');
 const narrivaUnderlyingOptions=computed(()=>underlyingClinicalServiceOptions(Array.isArray(eligibleServiceCodes.value)?rawEligibleServiceCodes.value:[]));
@@ -3205,7 +3214,7 @@ function applyNarrivaRecording(append){inputText.value=append && String(inputTex
 function openNarrivaRisk() { narrivaRiskIncluded.value = true; nextTick(() => document.getElementById('narriva-assessment')?.scrollIntoView?.({block:'start',behavior:'smooth'})); }
 function onNarrivaFindingAction({checkId,finding}) {
   if(finding?.action==='clinical_service'){configExpanded.value=true;noteWizardStep.value=1;nextTick(()=>{const field=document.getElementById('narriva-underlying-service');field?.scrollIntoView?.({block:'center',behavior:'smooth'});field?.focus();});return;}
-  if(finding?.action==='assessment'){showNarrivaAssessmentEvidence.value=true;nextTick(()=>document.getElementById('narriva-assessment-evidence')?.scrollIntoView?.({block:'start',behavior:'smooth'}));return;}
+  if(finding?.action==='assessment'){openNarrivaAssessmentEvidence();return;}
   if (checkId === 'risk_safety') { openNarrivaRisk(); return; }
   configExpanded.value = true; noteWizardStep.value = 1;
   nextTick(() => document.querySelector(checkId === 'service_code' ? '.na-session-context' : '.na-input-panel')?.scrollIntoView?.({block:'start',behavior:'smooth'}));

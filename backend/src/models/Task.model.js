@@ -325,13 +325,19 @@ class Task {
     }
 
     if (filters.q) {
-      const needle = `%${String(filters.q).trim().slice(0, 120)}%`;
+      const text = String(filters.q).trim().slice(0, 120);
+      const needle = `%${text}%`;
+      const reference = /^#?[1-9]\d{0,14}$/.test(text) ? text.replace(/^#/, '') : null;
       q += ` AND (
         t.title LIKE ?
         OR t.description LIKE ?
         OR COALESCE(JSON_UNQUOTE(JSON_EXTRACT(t.metadata, '$.schoolName')), '') LIKE ?
+        ${reference ? `OR t.id = ? OR t.source_ref_id = ?
+        OR JSON_UNQUOTE(JSON_EXTRACT(t.metadata, '$.clientId')) = ?
+        OR JSON_UNQUOTE(JSON_EXTRACT(t.metadata, '$.documentId')) = ?` : ''}
       )`;
       p.push(needle, needle, needle);
+      if (reference) p.push(reference, reference, reference, reference);
     }
     if (filters.outreachSchoolId) {
       const osid = parseInt(filters.outreachSchoolId, 10);
@@ -1324,10 +1330,16 @@ class Task {
   }
 
   static _hubSearchSubtitle(task, fallback) {
-    const school = String(task?.school_tag || task?.metadata?.schoolName || '').trim();
+    const metadata = this.parseMetadata(task?.metadata) || {};
+    const school = String(task?.school_tag || metadata.schoolName || '').trim();
     const base = task?.task_list_name || task?.project_name || fallback || '';
-    if (school && base) return `${base} · ${school}`;
-    return school || base;
+    const references = [`Task #${task.id}`];
+    if (task.source_ref_type === 'paper_packet_processing') {
+      if (Number(metadata.clientId) > 0) references.push(`Client #${Number(metadata.clientId)}`);
+      if (Number(metadata.documentId) > 0) references.push(`Document #${Number(metadata.documentId)}`);
+      if (Number(task.source_ref_id) > 0) references.push(`Packet draft #${Number(task.source_ref_id)}`);
+    }
+    return [...references, base, school].filter(Boolean).join(' · ');
   }
 
   static parseMetadata(metadata) {

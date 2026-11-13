@@ -1,6 +1,6 @@
 import { expect, it, vi } from 'vitest';
 vi.mock('../../config/database.js', () => ({ default: {} }));
-vi.mock('../schoolRoiEmail.service.js', () => ({ sendSchoolRoiEmail: vi.fn(), schoolRoiDelivery: r => ({ sent: !!r?.id && !r?.pendingApproval }) }));
+vi.mock('../schoolRoiEmail.service.js', async () => ({ ...await import('../../utils/schoolRoiDelivery.js'), sendSchoolRoiEmail: vi.fn() }));
 vi.mock('../clientPortalEmail.service.js', () => ({ clientEmailContext: vi.fn() }));
 vi.mock('../clientPortalContext.service.js', () => ({ clientPortalInviteUrl: () => 'https://example.test/demo/login' }));
 import { requestSchoolRoiForGuardians } from '../schoolRoiGuardianRequests.service.js';
@@ -41,4 +41,18 @@ it('sends only to a selected authorized guardian and rejects a foreign or restri
  deps.sendEmail.mockClear();deps.issueLink.mockClear();
  for(const selected of [[99],[3],[2,99],[]]) await expect(requestSchoolRoiForGuardians({...deps,guardianUserIds:selected})).rejects.toMatchObject({status:selected.length?403:400});
  expect(deps.sendEmail).not.toHaveBeenCalled();expect(deps.issueLink).not.toHaveBeenCalled();
+});
+
+it('records accepted QA redirects once without claiming delivery to the family or marking failure', async () => {
+ const deps=fixture(); deps.sendEmail.mockResolvedValue({id:'accepted-message',redirected:true,communicationId:66});
+ const result=await requestSchoolRoiForGuardians({...deps,guardianUserIds:[2]});
+ expect(result.ok).toBe(true); expect(result.deliveries).toEqual([expect.objectContaining({guardianUserId:2,status:'redirected',sent:false,redirected:true,communicationId:66})]);
+ expect(deps.recordSent).toHaveBeenCalledExactlyOnceWith({id:2,toEmail:'guardian2@example.test'});
+ expect(deps.issueLink).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({recipientGuardianUserId:2}));
+});
+it('does not label accepted transport as failed if updating request history fails afterward', async () => {
+ const deps=fixture();deps.sendEmail.mockResolvedValue({id:'accepted',redirected:true,communicationId:66});deps.recordSent.mockRejectedValue(new Error('Database unavailable'));
+ const result=await requestSchoolRoiForGuardians({...deps,guardianUserIds:[2]});
+ expect(result.deliveries).toEqual([expect.objectContaining({status:'redirected',communicationId:66,historyRecorded:false,warning:expect.stringContaining('Check communication history')})]);
+ expect(deps.sendEmail).toHaveBeenCalledTimes(1);expect(result.deliveries[0].error).toBeUndefined();
 });

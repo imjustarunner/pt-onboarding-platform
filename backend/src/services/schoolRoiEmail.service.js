@@ -3,6 +3,7 @@ import { enrollmentMailBrand, renderPortalEmail } from './portalEmailBranding.se
 import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
 import { inferAgencyMailDomain } from './tenantMessageMailboxes.service.js';
 import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service.js';
+export { schoolRoiDelivery } from '../utils/schoolRoiDelivery.js';
 
 export async function sendSchoolRoiEmail({agencyId,...message}) {
   const domain = await inferAgencyMailDomain(agencyId);
@@ -20,9 +21,4 @@ export async function sendSchoolRoiEmail({agencyId,...message}) {
     text: `${message.text || ''}\n\n${attribution}`,
     html: renderPortalEmail({ brand, ...message })
   });
-}
-export function schoolRoiDelivery(result) {
-  if (result?.pendingApproval) return {sent:false,pending_approval:true,communication_id:result.communicationId || null};
-  if (result?.skipped || result?.blocked || result?.queued || result?.redirected || !result?.id) return {sent:false,error:result?.reason || 'send_failed',communication_id:result?.communicationId || null};
-  return {sent:true,redirected:!!result.redirected,communication_id:result.communicationId || null};
 }

@@ -60,6 +60,28 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     return { wrapper, state };
   }
 
+  it('opens session assessment evidence without needing an AI finding and preserves its saved typed selection', async () => {
+    const { wrapper, state } = await workspace();
+    state.selectedClientId = 22;
+    state.selectedClient = { id: 22, agency_id: 7 };
+    state.sessionClinicalSessionId = 318;
+    await nextTick();
+    expect(state.narrivaReview).toBeNull();
+    expect(wrapper.find('narriva-assessment-evidence-stub').exists()).toBe(false);
+    await wrapper.get('[data-testid="open-assessment-evidence"]').trigger('click');
+    const evidence = wrapper.findComponent({ name: 'NarrivaAssessmentEvidence' });
+    expect(evidence.exists()).toBe(true);
+    expect(evidence.props()).toMatchObject({ clientId: 22, clinicalSessionId: 318 });
+    evidence.vm.$emit('update:modelValue', [{ kind: 'session_material', id: 3 }]);
+    await nextTick();
+    expect(state.narrivaContext().assessmentEvidence).toEqual([{ kind: 'session_material', id: 3 }]);
+    state.signedNoteViewerId = 98;
+    await nextTick();
+    expect(wrapper.find('[data-testid="open-assessment-evidence"]').exists()).toBe(false);
+    expect(wrapper.findComponent({ name: 'NarrivaAssessmentEvidence' }).exists()).toBe(false);
+    wrapper.unmount();
+  });
+
   it('defaults to Manual, keeps source text across mode changes, and saves the chosen default per workspace', async () => {
     const { wrapper, state } = await workspace();
     expect(state.noteWriterMode).toBe('manual');

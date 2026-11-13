@@ -11,12 +11,20 @@ vi.mock('../../../services/api', () => ({ default: { get: vi.fn(), post: vi.fn()
 const props = () => ({ insuranceInfo: { primary: { insurerName: 'Commercial' }, secondary: { insurerName: 'Health First Colorado', isMedicaid: true }, clientCoverages: [{clientIndex:0,confirmed:true}] }, clientNames: ['Sample Client'], guardianName: 'Sample Parent' });
 const mountForm = overrides => mount(Combined, { props: { ...props(), ...overrides }, global: { stubs: { PublicIntakePaymentStep: { template: '<div data-card-form>Secure card form</div>' } } } });
 describe('insurance enrollment', () => {
+  it('retains secure-processor copy for the separate payment-only checkout', () => {
+    const w=mountForm({insuranceInfo:{},paymentOnly:true,paymentCollectionAvailable:true});
+    expect(w.text()).toContain('Card details are collected by Stripe');
+    expect(w.text()).toContain('Payment Method');w.unmount();
+  });
   it('never prompts for a card while coverage is being entered before secondary Medicaid is identified', async () => {
     const w = mountForm({ insuranceInfo: {}, paymentCollectionAvailable: true });
     const noPrompt = () => {
       expect(w.text()).not.toContain('Save your card securely');
       expect(w.text()).not.toContain('Your payment arrangement');
       expect(w.text()).not.toContain("I'll Add Card Later");
+      expect(w.text()).not.toContain('set up payment for services');
+      expect(w.text()).not.toContain('before collecting payment');
+      expect(w.text()).not.toContain('Card details are collected by Stripe');
     };
     noPrompt();
     await w.setProps({ insuranceInfo: { payerChoice: 'insurance', primary: { insurerName: 'Commercial' } } });

@@ -90,6 +90,7 @@
           </button>
           <div class="task-row__main">
             <span class="task-row__title" :class="{ done: task.status === 'completed' }">{{ task.title }}</span>
+            <span class="muted task-row__reference">Task #{{ task.id }}<template v-if="paperPacketReference(task)"> · {{ paperPacketReference(task) }}</template></span>
             <TaskClaimButton :task="task" @claimed="$emit('task-updated'); $emit('open', { ...task, ...$event, _justClaimed: true })" />
             <span v-if="showAssignee(task)" class="task-row__assignee-wrap">
               <UserAvatar
@@ -183,6 +184,11 @@
 </template>
 
 <script setup>
+function paperPacketReference(task){
+  if(task.source_ref_type!=='paper_packet_processing')return '';
+  let meta=task.metadata||{};if(typeof meta==='string'){try{meta=JSON.parse(meta);}catch{meta={};}}
+  return [Number(meta.clientId)>0?`Client #${Number(meta.clientId)}`:'',Number(meta.documentId)>0?`Document #${Number(meta.documentId)}`:''].filter(Boolean).join(' · ');
+}
 import { computed, reactive, ref, onBeforeUnmount, onMounted } from 'vue';
 import { formatDate } from '../../utils/formatDate';
 import { resolveTaskTypeMeta, taskTypeIconSvg } from '../../utils/taskTypeIcons';

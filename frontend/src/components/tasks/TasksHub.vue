@@ -13,12 +13,14 @@
           v-model="searchQ"
           type="search"
           class="search-input"
-          placeholder="Search tasks, lists, projects…"
+          placeholder="Search tasks, lists, client or document numbers…"
           @input="onSearchInput"
           @keydown.enter.prevent="applySearch"
           @keydown.escape="searchResults = []"
         />
         <kbd class="search-kbd">⌘ K</kbd>
+        <p v-if="searchError" class="search-feedback error" role="alert">{{ searchError }}</p>
+        <p v-else-if="searchCompletedQ && !searchResults.length" class="search-feedback muted" role="status">No matching tasks, lists or projects for “{{ searchCompletedQ }}”. Try the task, client or document number.</p>
         <ul v-if="searchResults.length" class="search-results">
           <li
             v-for="(r, idx) in searchResults"
@@ -1194,6 +1196,8 @@ const sharedListsOptions = ref([]);
 const agencyUsers = ref([]);
 const overviewProject = ref(null);
 const searchResults = ref([]);
+const searchError = ref(''),searchCompletedQ = ref('');
+let searchGeneration=0;
 let searchTimer = null;
 
 function loadHiddenAgencies() {
@@ -1795,12 +1799,16 @@ function toggleHiddenAgency(agencyIdVal, visible) {
 }
 
 function onSearchInput() {
+  searchGeneration++;searchResults.value=[];searchError.value='';searchCompletedQ.value='';
   if (searchTimer) clearTimeout(searchTimer);
   searchTimer = setTimeout(() => runSmartSearch(), 280);
 }
 
 async function runSmartSearch() {
+  const generation=++searchGeneration,actor=Number(authStore.user?.id),role=authStore.user?.role,tenant=effectiveTenantId.value,filter=teamFilters.tenantId,memberships=hideableAgencies.value.map(a=>a.id).join(',');
   const q = searchQ.value.trim();
+  const current=()=>generation===searchGeneration&&actor===Number(authStore.user?.id)&&role===authStore.user?.role&&tenant===effectiveTenantId.value&&filter===teamFilters.tenantId&&memberships===hideableAgencies.value.map(a=>a.id).join(',')&&q===searchQ.value.trim();
+  searchError.value='';searchCompletedQ.value='';
   if (q.length < 2) {
     searchResults.value = [];
     return;
@@ -1814,13 +1822,15 @@ async function runSmartSearch() {
       },
       skipGlobalLoading: true
     });
-    searchResults.value = Array.isArray(data) ? data : [];
+    if(!current())return;
+    searchResults.value = Array.isArray(data) ? data : [];searchCompletedQ.value=q;
   } catch {
-    searchResults.value = [];
+    if(current()){searchResults.value = [];searchError.value='Task search is unavailable. Your current list is unchanged; refresh or unlock your session and try again.';}
   }
 }
 
 function applySearch() {
+  if(searchTimer)clearTimeout(searchTimer);
   runSmartSearch();
 }
 
@@ -2815,6 +2825,7 @@ onMounted(async () => {
   }
 });
 onUnmounted(() => {
+  searchGeneration++;
   teamListRequest++;
   window.removeEventListener('focus', refreshNoteQueues);
   if (!embedded.value) {

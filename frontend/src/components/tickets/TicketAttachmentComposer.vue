@@ -36,7 +36,7 @@ async function download(file){
 }
 
 watch(()=>[props.contextKey,props.ticketId],()=>{reset();void load();},{immediate:true});
-onBeforeUnmount(()=>generation++);
+onBeforeUnmount(()=>{generation++;uploading.value=false;emit('busy',false);});
 defineExpose({uploadPending,reset,hasFile:()=>!!selectedFile.value});
 </script>
 <style scoped>.ticket-attachment-composer{padding:10px 0;display:grid;gap:6px}.ticket-attachment-composer label{display:grid;gap:6px}.ticket-attachment-composer p{margin:2px 0;font-size:13px}.attachment-help{color:var(--text-secondary)}.ticket-attachment-composer [role=alert]{color:#b91c1c}.ticket-attachment-composer li button{overflow-wrap:anywhere;text-align:left}</style>

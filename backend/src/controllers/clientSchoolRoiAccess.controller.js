@@ -8,7 +8,8 @@ import crypto from 'crypto';
 import Client from '../models/Client.model.js';
 import IntakeSubmissionDocument from '../models/IntakeSubmissionDocument.model.js';
 import StorageService from '../services/storage.service.js';
-import { isSchoolRoiDocument, schoolRoiAuditTrail } from '../utils/schoolRoiDocument.js';
+import { isSchoolRoiDocument } from '../utils/schoolRoiDocument.js';
+import { describeSignedSchoolRoiDocuments } from '../utils/schoolRoiEvidence.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import IntakeLink from '../models/IntakeLink.model.js';
@@ -495,6 +496,13 @@ export const listClientSchoolRoiAccess = async (req, res, next) => {
     const availableRoiLinks = selection.availableLinks;
     const issuedRoiLink = await ClientSchoolRoiSigningLink.findForClient({ clientId, schoolOrganizationId });
     const completedDocuments = await signedSchoolRoiDocuments(clientId);
+    const guardianRequests = await Promise.all(guardianEmails.map(async guardian => {
+      const request = await ClientSchoolRoiSigningLink.findForClient({ clientId, schoolOrganizationId,
+        recipientGuardianUserId: guardian.guardian_user_id });
+      return request ? { id: Number(request.id), guardian_user_id: guardian.guardian_user_id,
+        guardian_name: [guardian.first_name, guardian.last_name].filter(Boolean).join(' ') || guardian.email,
+        status: request.status, issued_at: request.issued_at || null, signed_at: request.signed_at || null } : null;
+    }));
 
     let paperPacketVision = null;
     try {
@@ -534,8 +542,8 @@ export const listClientSchoolRoiAccess = async (req, res, next) => {
       staff,
       school_roi_signing: {
         available_links: availableRoiLinks,
-        completed_documents: completedDocuments.map(doc => ({ id: Number(doc.id), signed_at: doc.signed_at,
-          submission_id: Number(doc.intake_submission_id), signer_name: schoolRoiAuditTrail(doc).signerName || null })),
+        completed_documents: describeSignedSchoolRoiDocuments(completedDocuments, schoolOrganizationId),
+        pending_guardian_requests: guardianRequests.filter(request => request && ['issued', 'pending', 'in_progress'].includes(request.status)),
         selected_intake_link_id: selection.selectedLink?.id ? Number(selection.selectedLink.id) : null,
         issued_link: serializeIssuedRoiSigningLink(issuedRoiLink, client)
       }

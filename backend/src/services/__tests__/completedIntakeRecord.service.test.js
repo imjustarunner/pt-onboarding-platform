@@ -2,6 +2,18 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildCompletedIntakeRecord } from '../completedIntakeRecord.service.js';
 
+test('receipt agreement timestamps use certificate local time while date-only answers and evidence stay unchanged', () => {
+ const intake={clients:[{fullName:'SAMPLE Child',dateOfBirth:'2016-04-22'}],responses:{submission:{
+  communicationPreferences:{signedAt:'2026-11-13T06:10:54.370Z',signerName:'SAMPLE Parent'},
+  insuranceInfo:{authorizationSignedAt:'2026-11-13T06:09:30.279Z',authorizationSignature:'SAMPLE Captured Signature'}
+ }}};
+ const before=JSON.stringify(intake),record=buildCompletedIntakeRecord({submission:{intake_data:intake}});
+ const rows=record.sections.flatMap(s=>s.rows||[]),choices=rows.find(r=>r.label==='Choices signed at'),auth=rows.find(r=>/Authorization Signed At$/i.test(r.label));
+ assert.match(choices.value,/November 12, 2026.*11:10 PM MST/);assert.match(auth.value,/November 12, 2026.*11:09 PM MST/);
+ assert.ok(JSON.stringify(rows).includes('2016-04-22'));assert.ok(rows.some(r=>r.value==='SAMPLE Captured Signature'));
+ assert.equal(JSON.stringify(intake),before);
+});
+
 test('receipt identity includes explicit middle names without changing the captured typed signature', () => {
   const intake = {
     guardian: { firstName: 'SAMPLE', middleName: 'María', lastName: 'Signer' },

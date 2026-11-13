@@ -81,5 +81,10 @@ describe('SchoolNotificationsPanel', () => {
     const lastCall = api.post.mock.calls[api.post.mock.calls.length - 1];
     expect(lastCall?.[0]).toBe('/school-portal/123/notifications/read');
   });
+  it('carries the processed packet document ID instead of opening a generic empty document list',async()=>{
+    const prior=api.get.getMockImplementation();api.get.mockImplementation(async url=>String(url)==='/school-portal/123/notifications/feed'?{data:[{id:'paper-processed:2553:4470',kind:'doc',client_id:2553,phi_document_id:4470,original_name:'Fictional packet.pdf',title:'Paper packet processed',created_at:'2026-01-09T00:00:00Z'}]}:prior(url));
+    const w=mount(SchoolNotificationsPanel,{props:{schoolOrganizationId:123},global:{plugins:[pinia]}});for(let i=0;i<8;i++){await Promise.resolve();await nextTick();}
+    await w.findAll('button').find(b=>b.text()==='Open packet / document').trigger('click');expect(w.emitted('open-client')).toEqual([[{clientId:2553,pane:'documents',documentId:4470,filename:'Fictional packet.pdf'}]]);w.unmount();
+  });
 });
 
