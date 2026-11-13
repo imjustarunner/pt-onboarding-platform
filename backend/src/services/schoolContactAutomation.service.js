@@ -297,13 +297,15 @@ async function processWorkflow(workflow, now, qa = null) {
     subject:SCHOOL_CONTACT_SUBJECTS[action],conversationId:workflow.conversation_id,workflowId:workflow.id,stepKey:action,beforeDelivery,
     qaAcceleration:qa?{elapsedHours:qa.elapsedHours,actorUserId:qa.actorUserId,actualTriggeredAt:qa.actualTriggeredAt}:null});
   const result=await runStep(workflow,action,async()=>{
-    if(action==='second_contact'){
+    if(beforeDelivery)await beforeDelivery();
+    // The accelerated endpoint admits only a text-declined fixture and must
+    // never dispatch a carrier call from an earlier cached preference value.
+    if(action==='second_contact' && !qa){
       const sms=await sendFollowupSms(workflow,ctx,guardian);
       if(sms.sent || sms.needsReview) return sms;
       // No opted-in, active clinical route: use the requested second email.
       // An ambiguous carrier send throws and never falls back to a duplicate.
     }
-    if(beforeDelivery)await beforeDelivery();
     const sent=await sendEmail();
     return qa?{...sent,reason:`Accelerated QA only: logical elapsed${qa.elapsedHours}h; triggered${qa.actualTriggeredAt}; actual delivery timestamps retained.`}:sent;
   });
