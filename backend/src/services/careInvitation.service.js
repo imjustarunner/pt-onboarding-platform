@@ -49,7 +49,7 @@ export async function createCareInvitation(input,actorUserId) {
    AND inherits_office_master=1 AND is_active=1 AND language_code='en' ORDER BY id LIMIT 1`,[data.agencyId]);
   if(!masters[0])throw fail('Configure the full office enrollment packet first.');
   const base=await IntakeLink.findById(masters[0].id);
-  const link=await IntakeLink.create({publicKey:'care-'+crypto.randomBytes(32).toString('hex'),title:`Care enrollment with ${provider.name}`,scopeType:'agency',formType:'intake',
+  const link=await IntakeLink.create({publicKey:'care-'+crypto.randomBytes(24).toString('hex'),title:`Care enrollment with ${provider.name}`,scopeType:'agency',formType:'intake',
    organizationId:data.agencyId,createClient:true,createGuardian:true,requiresAssignment:true,inheritsOfficeMaster:true,
    allowedDocumentTemplateIds:base.allowed_document_template_ids,intakeFields:base.intake_fields,intakeSteps:base.intake_steps,
    retentionPolicy:base.retention_policy_json,customMessages:base.custom_messages,createdByUserId:actorUserId});
