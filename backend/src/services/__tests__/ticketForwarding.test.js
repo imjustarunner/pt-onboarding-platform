@@ -26,6 +26,7 @@ test('forwards privately, preserves the support owner, records the handoff and c
   assert.match(body,/Hi Pat/);assert.match(body,/Original inquiry/);assert.match(body,/visitor@example.org/);
   assert.equal(f.events.some(sql=>typeof sql==='string'&&sql.startsWith('UPDATE support_tickets')&&sql.includes('claimed_by_user_id')),false);
   assert.equal(f.events.includes('commit'),true);
+  assert.equal(f.events.filter(sql=>typeof sql==='string'&&sql.startsWith('INSERT INTO communication_participants')).length,2);
   const retry=await forwardTicketToProviderInboxes(input,f.dependencies);assert.equal(retry.duplicate,true);assert.equal(f.conversations,1);assert.equal(f.notifications.length,1);
   await assert.rejects(forwardTicketToProviderInboxes({...input,note:'Different note'},f.dependencies),{status:409});
  }finally{if(key==null)delete process.env.CLIENT_CHAT_ENCRYPTION_KEY_BASE64;else process.env.CLIENT_CHAT_ENCRYPTION_KEY_BASE64=key;}

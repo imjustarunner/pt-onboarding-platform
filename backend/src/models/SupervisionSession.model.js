@@ -2,6 +2,7 @@ import { utcToZonedMysqlWall } from '../utils/officeEventDateTime.util.js';
 import { withMeetingWindow } from '../services/meetingWindowConflict.service.js';
 import {expireEmptyMeeting} from '../services/meetingExpiry.service.js';
 import { supervisionFacilitatorIds, supervisionCoFacilitatorIds } from '../utils/supervisionFacilitators.js';
+import { supervisionCalendarStaffSql } from '../utils/supervisionCalendarAudience.js';
 import pool from '../config/database.js';
 import { assertMeetingBookingWindow } from '../utils/recurringWindow.js';
 import { generateJoinToken } from '../utils/joinToken.js';
@@ -1111,6 +1112,9 @@ class SupervisionSession {
            ss.supervisor_user_id = ?
            OR ss.supervisee_user_id = ?
            OR ss.co_facilitator_user_id = ?
+           OR (ss.session_type='group' AND COALESCE(ss.enrollment_mode,'invited')<>'signup_only'
+             AND EXISTS (SELECT 1 FROM user_agencies member JOIN users viewer ON viewer.id=member.user_id
+               WHERE member.agency_id=ss.agency_id AND member.user_id=? AND ${supervisionCalendarStaffSql()}))
            OR EXISTS (
              SELECT 1
              FROM supervision_session_attendees ssa
@@ -1123,7 +1127,7 @@ class SupervisionSession {
          AND ss.calendar_deleted_at IS NULL
          AND COALESCE(ss.recurrence_horizon_held,0)=0
        ORDER BY ss.start_at ASC`,
-      [uId, uId, uId, ...agencyParams, uId, uId, uId, uId, windowEnd, windowStart]
+      [uId, uId, uId, ...agencyParams, uId, uId, uId, uId, uId, windowEnd, windowStart]
     );
     return rows || [];
   }

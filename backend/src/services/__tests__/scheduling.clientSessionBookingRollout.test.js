@@ -52,3 +52,15 @@ it('admits only explicitly allowlisted synthetic providers in the isolated QA pr
  agency={id:2,slug:'itsco',feature_flags:{}};
  expect((await sessionBookingProviders(2)).map(p=>p.id)).toEqual([7]);
 });
+
+it('opens the practice for new eligible providers, preserves explicit pauses and enforces care eligibility', async () => {
+ const practice={...policy,enabledForAllProviders:true,entries:[...policy.entries,{providerUserId:13,enabled:false}]};
+ expect(evaluateClientSessionBooking(practice,14).enabled).toBe(true);
+ expect(evaluateClientSessionBooking(practice,13).enabled).toBe(false);
+ expect(evaluateClientSessionBooking(practice,0).enabled).toBe(false);
+ m.execute.mockImplementation(async sql => sql.startsWith('SELECT feature_flags') ? [[{feature_flags:{clientSessionBookingRollout:practice}}]] : sql.startsWith('SELECT id,slug') ? [[{id:2}]] : sql.includes('FROM users u') ? [[{id:12}]] : [{affectedRows:1}]);
+ const saved=await saveClientSessionBookingRollout({agencyId:2,actorUserId:5,input:{...input,enabled:false}});
+ expect(saved.enabledForAllProviders).toBe(true); expect(evaluateClientSessionBooking(saved,14).enabled).toBe(true);
+ m.care.mockResolvedValue({canProvideCare:false,reason:'Sees clients is off'});
+ await expect(requireClientSessionBooking(2,14)).rejects.toThrow('Sees clients is off');
+});

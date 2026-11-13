@@ -3,7 +3,7 @@ import { openCompanyEventConversation } from '../controllers/companyEventConvers
 import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
 import { publicIntakeLimiter } from '../middleware/rateLimiter.middleware.js';
-import { getCompanyEventStaffLink, respondToCompanyEventStaffLink, updateCompanyEventStaffPotluck } from '../controllers/companyEventStaffLink.controller.js';
+import { getCompanyEventInvitationPreview, getCompanyEventStaffLink, respondToCompanyEventStaffLink, updateCompanyEventStaffPotluck } from '../controllers/companyEventStaffLink.controller.js';
 import { checkInCompanyEventGuest, checkOutCompanyEventGuest, getCompanyEventGuestAttendanceState } from '../controllers/companyEventGuestAttendance.controller.js';
 import {
   getCompanyEventRsvpByToken,
@@ -14,6 +14,7 @@ import {
 
 const router = express.Router();
 router.get('/announcements/mine', authenticate, listMyEventAnnouncements);
+router.get('/invitation/:id/:token', publicIntakeLimiter, getCompanyEventInvitationPreview);
 router.get('/staff/:id/:token', authenticate, getCompanyEventStaffLink);
 router.post('/staff/:id/:token/conversation', authenticate, openCompanyEventConversation);
 router.post('/staff/:id/:token/potluck', authenticate, updateCompanyEventStaffPotluck);

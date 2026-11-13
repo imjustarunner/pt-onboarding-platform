@@ -99,11 +99,11 @@ async function ensureSupervisionAttendeeForUser(sessionRow, sessionId, userId) {
   if (!sid || !uid) return null;
   let attendee = await SupervisionSession.findAttendeeBySessionUser(sid, uid);
   if (attendee) return attendee;
-  const role = Number(sessionRow?.supervisor_user_id || 0) === uid ? 'supervisor' : 'supervisee';
+  const role = Number(sessionRow?.supervisor_user_id || 0) === uid ? 'supervisor' : isSupervisionFacilitator(sessionRow, uid) ? 'co_facilitator' : 'supervisee';
   await SupervisionSession.upsertAttendees(sid, [{
     userId: uid,
     participantRole: role,
-    isRequired: true,
+    isRequired: isSupervisionFacilitator(sessionRow, uid) || sessionRow?.session_type !== 'group',
     isCompensableSnapshot: false,
     status: 'INVITED'
   }]);
@@ -1860,11 +1860,11 @@ export const markSupervisionMeetingLifecycle = async (req, res, next) => {
 
     let attendee = await SupervisionSession.findAttendeeBySessionUser(id, actorUserId);
     if (!attendee) {
-      const role = Number(row.supervisor_user_id) === actorUserId ? 'supervisor' : 'supervisee';
+      const role = Number(row.supervisor_user_id) === actorUserId ? 'supervisor' : isSupervisionFacilitator(row, actorUserId) ? 'co_facilitator' : 'supervisee';
       await SupervisionSession.upsertAttendees(id, [{
         userId: actorUserId,
         participantRole: role,
-        isRequired: true,
+        isRequired: isSupervisionFacilitator(row, actorUserId) || row.session_type !== 'group',
         isCompensableSnapshot: false,
         status: 'INVITED'
       }]);

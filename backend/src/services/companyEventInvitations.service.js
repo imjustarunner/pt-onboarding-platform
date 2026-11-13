@@ -6,23 +6,16 @@ import { companyEventInvitationEmail } from '../utils/companyEventInvitationEmai
 import { invitationResponse } from '../utils/companyEventReminders.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import { sendCompanyEventSms } from './companyEventSms.service.js';
+import { companyEventInvitationLinks, resolveCompanyEventInvitationLinks } from './companyEventLinks.service.js';
+import { companyEventWhen } from '../utils/companyEventInvitationEmail.js';
+export { companyEventInvitationLinks } from './companyEventLinks.service.js';
 
 const error = (code, message) => Object.assign(new Error(message), { code, status: 400 });
 const baseUrl = () => String(process.env.FRONTEND_URL || process.env.FRONTEND_BASE_URL || '').replace(/\/$/, '');
-export function companyEventInvitationLinks(event, token) {
-  const base = baseUrl();
-  if (!/^https?:\/\//i.test(base)) throw error('event_url_unconfigured', 'Configure the application URL before sending event invitations.');
-  const operations = readEventOperations(event);
-  const staffToken = event.staff_link_token || event.staffLinkToken;
-  const rsvpUrl = `${base}/event-rsvp/${encodeURIComponent(token)}`;
-  const privateUrl = staffToken ? `${base}/company-events/${Number(event.id)}/staff/${staffToken}` : rsvpUrl;
-  return { rsvpUrl, detailsUrl: privateUrl, smsUrl: operations.publicRegistrationEnabled ? `${base}/company-events/${Number(event.id)}` : privateUrl };
-}
-
 export async function companyEventEmailContext(event, db = pool) {
   const operations = readEventOperations(event), owner = Number(event.agency_id || event.agencyId);
   const ids = [...new Set([owner, ...(operations.invitedAgencyIds || [])].map(Number).filter(Boolean))];
-  const [agencyRows] = await db.execute(`SELECT id, name, slug, logo_url, logo_path, feature_flags FROM agencies WHERE id IN (${ids.map(() => '?').join(',')}) ORDER BY id`, ids);
+  const [agencyRows] = await db.execute(`SELECT id, name, slug, portal_url, custom_domain, logo_url, logo_path, feature_flags FROM agencies WHERE id IN (${ids.map(() => '?').join(',')}) ORDER BY id`, ids);
   const agencies = agencyRows.map(agency => {
     const raw = String(agency.logo_url || agency.logo_path || '').trim();
     const logoUrl = /^https?:\/\//i.test(raw) ? raw : raw.startsWith('/logos/') || raw.startsWith('/assets/')
@@ -50,7 +43,7 @@ export async function sendCompanyEventInvitationEmail({ event, invitation, user,
   const resolved = context || await companyEventEmailContext(event, db);
   const to = String(user.work_email || user.email || '').trim();
   if (!to) return { skipped: true, reason: 'event_email_missing' };
-  const links = companyEventInvitationLinks(event, invitation.token);
+  const links = companyEventInvitationLinks(event, invitation.token, resolved.agencies.find(agency => Number(agency.id) === Number(event.agency_id || event.agencyId)));
   const message = companyEventInvitationEmail({ event, user, agencies: resolved.agencies, ...links, kind,
     mandatory: (readEventOperations(event).mandatoryUserIds || []).includes(Number(user.id || invitation.user_id)) });
   return sendEmailFromIdentity({ senderIdentityId: resolved.identity.id, to, ...message, userId: Number(user.id || invitation.user_id),
@@ -88,9 +81,9 @@ export async function deliverCompanyEventInvitation({ event, invitation, actorUs
     if (!claim.affectedRows) continue;
     let status = 'held', reason = null;
     try {
-      const links = companyEventInvitationLinks(event, invitation.token);
+      const links = await resolveCompanyEventInvitationLinks(event, invitation.token, db);
       if (channel === 'inApp') {
-        const message = announcement?.content || (kind === 'attendance_reminder' ? `Your event is coming up: ${event.title}.` : `You have been invited to ${event.title}. Please RSVP Yes, No or Maybe.`);
+        const message = announcement?.content || `${kind === 'attendance_reminder' ? `Your event is coming up: ${event.title}.` : `You have been invited to ${event.title}. Please RSVP Yes, No or Maybe.`}${event.potluck_enabled || event.potluckEnabled ? ' Potluck: sign in to choose or update what you’re bringing.' : ''}`;
         await notify({ type: 'company_event_message', severity: 'info', title: announcement ? event.title : kind === 'rsvp_reminder' ? `Please RSVP: ${event.title}` : kind === 'attendance_reminder' ? `Coming up: ${event.title}` : `You’re invited: ${event.title}`,
           message, userId, agencyId, relatedEntityType: 'company_event', relatedEntityId: Number(event.id), actorUserId,
           actorSource: 'company_event_invitation', audienceJson: { navigationUrl: links.detailsUrl, eventId: Number(event.id),
@@ -105,9 +98,10 @@ export async function deliverCompanyEventInvitation({ event, invitation, actorUs
         if (!to) { status = 'skipped'; reason = 'event_phone_missing'; }
         else {
           const text = kind === 'attendance_reminder'
-            ? `Reminder: ${event.title} is coming up. Event details: ${links.smsUrl}`
-            : `You have been invited to ${event.title}. Please RSVP via text with Yes, No, Maybe. Event details: ${links.smsUrl}`;
-          const result = await sendSms({ eventId: event.id, agencyId, userId, to, event, body: text, purpose: 'workforce', audience: 'staff',
+            ? `Reminder: ${event.title} is coming up. ${companyEventWhen(event)}. Event details: ${links.smsUrl}${event.potluck_enabled || event.potluckEnabled ? ' Potluck: sign in on the event page to choose or update what you’re bringing.' : ''}`
+            : `You have been invited to ${event.title}.`;
+          const result = await sendSms({ eventId: event.id, agencyId, userId, to, event: {...event, invitationPageUrl: links.smsUrl}, body: text, purpose: 'workforce', audience: 'staff',
+            mode: kind === 'attendance_reminder' ? 'message' : 'rsvp_invitation',
             dispatchType: kind === 'attendance_reminder' ? 'attendance_reminder' : 'rsvp_invitation', batchId: `${kind}:${scheduleKey}` });
           status = result?.sid ? 'sent' : deliveryStatus(result);
         }

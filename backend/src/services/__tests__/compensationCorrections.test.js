@@ -22,9 +22,9 @@ it('uses the greater current direct base rate, never supervision, support or ind
 import PayrollPaySystemRate from '../../models/PayrollPaySystemRate.model.js';
 import pool from '../../config/database.js';
 it('defaults every new category and level to the uniform Spanish differential while honoring saved amounts',async()=>{
- pool.execute.mockResolvedValueOnce([[]]);
+ pool.execute.mockResolvedValueOnce([[]]).mockResolvedValueOnce([[{id:2,slug:'itsco'}]]);
  const defaults=await PayrollPaySystemRate.listForAgency(2);
  expect(defaults).toHaveLength(15);for(const row of defaults)expect(row.spanishBonus).toEqual({1:0,2:1,3:2});
- pool.execute.mockResolvedValueOnce([[{agency_id:2,category:1,level:5,spanish_bonus_json:{1:0,2:2,3:4}}]]);
+ pool.execute.mockResolvedValueOnce([[{agency_id:2,category:1,level:5,spanish_bonus_json:{1:0,2:2,3:4}}]]).mockResolvedValueOnce([[{id:2,slug:'itsco'}]]);
  expect((await PayrollPaySystemRate.get(2,1,5)).spanishBonus).toEqual({1:0,2:2,3:4});
 });

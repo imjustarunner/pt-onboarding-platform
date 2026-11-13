@@ -30,6 +30,32 @@ describe('event invitation SMS RSVP',()=>{
     expect(update[1]).toEqual(['maybe',7,5]);
     expect(pool.execute.mock.calls.some(([sql])=>/INSERT.*assignments|INSERT.*punches/.test(sql))).toBe(false);
   });
+  it('a bare invitation code explains how to RSVP without muting or changing the response',async()=>{
+    setup();const result=await handleCompanyEventTopicInbound({...input,body:'112'});
+    expect(result.responseMessage).toContain('Yes 112, No 112, or Maybe 112');
+    expect(result.responseMessage).toContain('have not changed');
+    expect(pool.execute.mock.calls.some(([sql])=>/^(INSERT|UPDATE|DELETE)/.test(sql))).toBe(false);
+  });
+  it('explicit MUTE still turns off only this event and never changes an RSVP',async()=>{
+    setup();const result=await handleCompanyEventTopicInbound({...input,body:'MUTE 112'});
+    expect(result).toMatchObject({handled:true,muted:true,eventId:7});
+    expect(pool.execute.mock.calls.filter(([sql])=>/^(INSERT|UPDATE|DELETE)/.test(sql)).map(([sql])=>sql)).toEqual([expect.stringContaining('INSERT INTO company_event_sms_preferences')]);
+  });
+  it.each(['Yes 112','Maybe 112'])('includes the agency event link and potluck next step after %s',async body=>{
+    setup({...delivery,potluck_enabled:1,staff_link_token:'a'.repeat(48)});
+    const original=pool.execute.getMockImplementation();
+    pool.execute.mockImplementation(async(sql,args)=>sql.startsWith('SELECT id,name,slug')?[[{id:2,slug:'itsco'}]]:original(sql,args));
+    const result=await handleCompanyEventTopicInbound({...input,body});
+    expect(result.responseMessage).toContain('sign in on the event page to choose or update');
+    expect(result.responseMessage).toContain('https://app.itsco.health/company-events/7/staff/');
+    expect(result.responseMessage).toContain('No 112');
+  });
+  it('still confirms a saved potluck RSVP when the branding lookup is temporarily unavailable',async()=>{
+    setup({...delivery,potluck_enabled:1});const original=pool.execute.getMockImplementation();
+    pool.execute.mockImplementation(async(sql,args)=>{if(sql.startsWith('SELECT id,name,slug'))throw Error('temporary lookup failure');return original(sql,args);});
+    const result=await handleCompanyEventTopicInbound({...input,body:'Yes 112'});
+    expect(result.responseMessage).toContain('is yes');expect(result.responseMessage).toContain('Potluck: sign in');
+  });
   it('keeps RSVP open when a linked legacy vote has closed',async()=>{
     setup({...delivery,voting_closed_at:'2020-01-01T00:00:00Z'});
     expect((await handleCompanyEventTopicInbound(input)).responseMessage).toContain('is maybe');

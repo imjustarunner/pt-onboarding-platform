@@ -22,6 +22,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
+import { dedupeSessionReminders } from '../../navigation/sessionReminderRules.js';
 
 const props = defineProps({
   agencyId: { type: Number, default: 0 },
@@ -53,10 +54,11 @@ const rules = computed(() => {
   const tenant = settings.value;
   if (!tenant) return [];
   const platform = tenant.platform || {};
-  const when = [props.dateYmd, props.startTime, props.timezoneLabel].filter(Boolean).join(' ') || 'the scheduled time';
+  const wall = new Date(`${props.dateYmd}T${props.startTime || '00:00'}:00Z`);
+  const when = Number.isNaN(+wall) ? 'the scheduled time' : `${new Intl.DateTimeFormat('en-US', { dateStyle: 'full', timeStyle: 'short', timeZone: 'UTC' }).format(wall)} ${props.timezoneLabel}`.trim();
   const prompt = 'Reply Y to confirm, N to cancel, R to request a reschedule.';
   const entries = [];
-  function add(rule, immediate = false, confirmation = false) {
+  function add(rule, { immediate = false, confirmation = false, ruleKey = 'tenant_standard', kind = 'standard_reminder' } = {}) {
     const channels = rule.channels || [rule.channel || 'email'];
     for (const channel of channels) {
       const platformMode = String(platform.channels?.[channel] || 'disabled').toLowerCase();
@@ -69,14 +71,17 @@ const rules = computed(() => {
       const message = rule.message || (confirmation
         ? `Please confirm your appointment "Appointment" on ${when}. ${prompt}`
         : `Reminder: Appointment on ${when}.${askConfirmation ? ` ${prompt}` : ''}`);
-      entries.push({ ...rule, channel, timing, message, channelLabel: ({ in_app: 'In-app', email: 'Email', sms: 'Text', phone: 'Phone' })[channel] || channel });
+      const offsetMinutes = immediate ? 0 : value * (unit === 'days' ? 1440 : unit === 'minutes' ? 1 : 60);
+      entries.push({ ...rule, kind, ruleKey, offsetMinutes, recipientRole: rule.recipient || 'client', sendImmediately: immediate,
+        requiresConfirmation: askConfirmation, isRequired: rule.required === true,
+        channel, timing, message, channelLabel: ({ in_app: 'In-app', email: 'Email', sms: 'Text', phone: 'Phone' })[channel] || channel });
     }
   }
-  for (const rule of platform.minRules || []) add(rule);
-  if (tenant.bookingConfirmation?.enabled) add(tenant.bookingConfirmation, true, true);
+  for (const rule of platform.minRules || []) add(rule, { ruleKey: `platform:${rule.label || 'minimum'}` });
+  if (tenant.bookingConfirmation?.enabled) add(tenant.bookingConfirmation, { immediate: true, confirmation: true, kind: 'confirmation', ruleKey: 'booking_confirmation' });
   if (tenant.standardReminder?.enabled !== false) add(tenant.standardReminder || {});
-  for (const rule of tenant.additionalReminders || []) if (rule.enabled !== false) add(rule);
-  return entries;
+  for (const rule of tenant.additionalReminders || []) if (rule.enabled !== false) add(rule, { kind: 'additional_reminder', ruleKey: String(rule.id || rule.label || rule.channel) });
+  return dedupeSessionReminders(entries);
 });
 </script>
 

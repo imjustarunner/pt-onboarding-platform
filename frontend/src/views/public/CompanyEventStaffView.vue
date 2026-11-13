@@ -3,7 +3,7 @@
     <nav class="ee-nav" aria-label="Event navigation"><div class="ee-nav-inner"><a class="ee-nav-brand" href="/dashboard"><img :src="CONVERSA_LOGO_URL" alt="Conversa" width="140" height="36" /></a><div class="ee-nav-links"><a href="/dashboard"><House :size="18" aria-hidden="true" />Home</a><a href="#event-overview" aria-current="page"><CalendarDays :size="18" aria-hidden="true" />Events</a><a href="/messages?view=workspace&tab=dms"><Users :size="18" aria-hidden="true" />Groups</a><a href="/messages"><MessageSquare :size="18" aria-hidden="true" />Messages</a></div><span v-if="signedIn" class="ee-nav-person" :aria-label="userName">{{ initials(userName) }}</span></div></nav>
     <div class="ee-container">
       <div v-if="loading" class="ee-card ee-page-state" role="status">Loading your event…</div>
-      <div v-else-if="!signedIn" class="ee-card ee-page-state"><p class="ee-muted">Private event invitation</p><h1>You’re invited</h1><p>Sign in to view the event, respond, vote and see the latest updates.</p><a :href="signInUrl" class="ee-button ee-button-primary">Sign in to view event</a></div>
+      <template v-else-if="!signedIn"><EventInvitationPreview v-if="invitationPreview" :invitation="invitationPreview" :sign-in-url="signInUrl" /><div v-else class="ee-card ee-page-state"><p class="ee-muted">Private event invitation</p><h1>You’re invited</h1><p>Sign in to view this event and join in.</p><a :href="signInUrl" class="ee-button ee-button-primary">Sign in to view event</a></div></template>
       <p v-if="error" role="alert" class="ee-error">{{ error }}</p>
       <template v-if="event">
         <EventPageHero :event="event" :branding="branding" :status="rsvpClosed ? 'RSVP closed' : event.startsAt ? 'Open RSVP' : 'Planning together'" />
@@ -61,11 +61,13 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { House, CalendarDays, Users, MessageSquare, ArrowUpRight, Check, CircleHelp, CircleX, X, Tag, MapPin, Map, UserRound, Clock3, CalendarPlus, CalendarClock, ChevronDown, ChartNoAxesColumnIncreasing, Utensils, ArrowRight, Bell } from '@lucide/vue';
 import EventPageHero from '../../components/events/EventPageHero.vue';
+import EventInvitationPreview from '../../components/events/EventInvitationPreview.vue';
 import EventConversation from '../../components/events/EventConversation.vue';
 import { CONVERSA_LOGO_URL } from '../../constants/conversa';
 import '../../styles/eventExperience.css';
 import { useRoute } from 'vue-router';
 import { notifyCompanyEventRsvpChanged } from '../../utils/companyEventRsvpEvents';
+import { companyEventInvitationRedirect } from '../../utils/companyEventInvitationHost';
 import StaffPollsPanel from '../../components/dashboard/StaffPollsPanel.vue';
 import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
@@ -76,6 +78,7 @@ const token = computed(() => String(route.params.token || ''));
 const signedIn = computed(() => !!authStore.isAuthenticated);
 const signInUrl = computed(() => `/login?redirect=${encodeURIComponent(route.fullPath)}`);
 const event = ref(null);
+const invitationPreview = ref(null);
 const branding = ref({});
 const canManage = ref(false);
 const showAttendees = ref(false), attendeeSearch = ref('');
@@ -179,10 +182,18 @@ async function savePotluck() {
 }
 async function loadPage() {
   const scope=++pageGeneration;
-  event.value=null;participation.value=null;response.value='';needList.value=[];notice.value='';error.value='';busy.value=false;loading.value=true;canManage.value=false;showAttendees.value=false;attendeeSearch.value='';
+  event.value=null;invitationPreview.value=null;participation.value=null;response.value='';needList.value=[];notice.value='';error.value='';busy.value=false;loading.value=true;canManage.value=false;showAttendees.value=false;attendeeSearch.value='';
   showCheckoutTime.value=route.query?.attendance === 'checkout-time';checkoutTime.value='';checkoutAttestation.value=false;
   try {
-    if(!signedIn.value)return;
+    if(!signedIn.value){
+      const {data}=await api.get(`/company-events/invitation/${eventId.value}/${encodeURIComponent(token.value)}`,{skipAuthRedirect:true,skipGlobalLoading:true});
+      if(scope === pageGeneration){
+        const redirect=companyEventInvitationRedirect(data?.canonicalUrl,window.location.href);
+        if(redirect){window.location.replace(redirect);return;}
+        invitationPreview.value=data;
+      }
+      return;
+    }
     await loadEvent(scope);
     if(scope !== pageGeneration)return;
     if(event.value?.isWorkEvent)await loadParticipation(scope);

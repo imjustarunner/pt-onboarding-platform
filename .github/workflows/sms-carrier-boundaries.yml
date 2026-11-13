@@ -39,6 +39,10 @@ jobs:
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.sms-carrier.config.js
       - name: Verify Conversa polls, shared results and internal event links
         run: node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.staff-polls.config.js
+      - name: Verify event invitation commands, anonymous details and RSVP totals
+        run: |
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.events.config.js
+          node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.company-events.config.js
       - name: Verify poll closing and vote-edit locking with MySQL
         env:
           STAFF_POLL_MYSQL_TEST: '1'

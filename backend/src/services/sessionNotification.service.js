@@ -11,6 +11,7 @@ import { latestIntakeCommunicationChoices, INTAKE_COMMUNICATION_VERSION } from '
  */
 
 import pool from '../config/database.js';
+import { dedupeSessionReminders } from '../../../frontend/src/navigation/sessionReminderRules.js';
 import { withSessionSchedulingLock } from './sessionSchedulingLock.service.js';
 import { dateToMysqlUtcDateTime, utcMysqlToIso } from '../utils/zonedWallTime.util.js';
 import Appointment from '../models/Appointment.model.js';
@@ -618,15 +619,7 @@ async function buildRecipientDeliveryPlan(appointmentId, recipientGuardianUserId
     }
   }
 
-  // Dedupe by kind+channel+offset
-  const seen = new Set();
-  const unique = [];
-  for (const d of deliveries) {
-    const key = `${d.kind}|${d.channel}|${d.offsetMinutes}|${d.ruleKey}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    unique.push(d);
-  }
+  const unique = dedupeSessionReminders(deliveries);
 
   return {
     appointment: appt,

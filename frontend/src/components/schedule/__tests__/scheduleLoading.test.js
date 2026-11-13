@@ -641,8 +641,11 @@ it('retains office identities through location projection and matches the reques
 });
 
 it('defaults a new one-hour session to eligible 90837 without changing a saved service',async()=>{
- const state=await mount();state.requestType='individual_session';state.showRequestModal=true;state.modalHour=13;state.modalEndHour=14;await flushPromises();state.bookingServiceCode='';
+ const state=await mount();
+ // The catalog is shared for a booking context, so provide its response before opening.
  const fallback=m.get.getMockImplementation();m.get.mockImplementation(async(url,...args)=>url==='/office-schedule/booking-metadata'?{data:{serviceCodes:[{code:'90832',defaultDurationMinutes:30},{code:'90837',defaultDurationMinutes:60}],serviceLocations:[]}}:fallback(url,...args));
+ state.requestType='individual_session';state.showRequestModal=true;state.modalHour=13;state.modalEndHour=14;await flushPromises();state.bookingServiceCode='';
  await state.loadBookingMetadataForProvider();expect(state.bookingServiceCode).toBe('90837');expect(state.editorEndTime).toBe('14:00');
+ expect(m.get.mock.calls.filter(([url])=>url==='/office-schedule/booking-metadata')).toHaveLength(1);
  state.editorAppointmentId=88;state.bookingServiceCode='90832';await state.loadBookingMetadataForProvider();expect(state.bookingServiceCode).toBe('90832');expect(state.editorEndTime).toBe('14:00');
 });

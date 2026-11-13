@@ -83,3 +83,14 @@ describe('isolated QA supervision membership',()=>{
   membership(qa);expect(await canJoinTeamMeeting({id:1,agency_id:450,provider_id:1439},1438)).toBe(false);
  });
 });
+
+it('lets active internal colleagues join regular group supervision without an explicit invitation',async()=>{
+ m.execute.mockImplementation(async sql=>sql.includes('FROM users u JOIN agencies')||sql.includes('FROM user_agencies member')?[[{allowed:1}]]:[[]]);
+ expect(await canJoinSupervision({id:1,agency_id:2,session_type:'group',enrollment_mode:'invited'},9)).toBe(true);
+ const query=m.execute.mock.calls.find(([sql])=>sql.includes('FROM user_agencies member'))[0];
+ expect(query).toContain('member.agency_id=?');expect(query).toContain("'client_guardian'");expect(query).toContain("'school_staff'");
+ m.execute.mockClear();
+ expect(await canJoinSupervision({id:1,agency_id:2,session_type:'individual'},9)).toBe(false);
+ expect(await canJoinSupervision({id:1,agency_id:2,session_type:'group',enrollment_mode:'signup_only'},9)).toBe(false);
+ expect(m.execute.mock.calls.some(([sql])=>sql.includes('FROM user_agencies member'))).toBe(false);
+});
