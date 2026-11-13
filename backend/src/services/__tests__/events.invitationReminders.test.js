@@ -74,6 +74,7 @@ describe('durable per-channel delivery',()=>{
   const fixture=()=>{
     const claims=new Set();let next=1;
     const db={execute:vi.fn(async(sql,args)=>{
+      if(sql.startsWith('SELECT id,name,slug'))return [[{id:2,name:'ITSCO',slug:'itsco'}]];
       if(sql.startsWith('SELECT i.response'))return [[{response:null}]];
       if(sql.startsWith('INSERT IGNORE INTO company_event_notification_deliveries')){const key=JSON.stringify(args);if(claims.has(key))return[{affectedRows:0}];claims.add(key);return[{affectedRows:1,insertId:next++}];}
       return [{affectedRows:1}];
@@ -86,7 +87,7 @@ describe('durable per-channel delivery',()=>{
     expect(deps.sendEmail).toHaveBeenCalledTimes(1);expect(deps.notify).toHaveBeenCalledTimes(1);
   });
   it('rechecks a response between channels and stops after RSVP',async()=>{
-    const deps=fixture();deps.notify.mockImplementation(async()=>{deps.db.execute.mockImplementation(async(sql)=>sql.startsWith('SELECT i.response')?[[{response:'yes'}]]:[{affectedRows:1}]);return{id:1};});
+    const deps=fixture();deps.notify.mockImplementation(async()=>{deps.db.execute.mockImplementation(async(sql)=>sql.startsWith('SELECT i.response')?[[{response:'yes'}]]:sql.startsWith('SELECT id,name,slug')?[[{id:2,slug:'itsco'}]]:[{affectedRows:1}]);return{id:1};});
     const results=await deliverCompanyEventInvitation({event,invitation,kind:'rsvp_reminder',channels:{email:true,inApp:true},...deps});
     expect(results).toHaveLength(1);expect(deps.sendEmail).not.toHaveBeenCalled();
   });
@@ -94,6 +95,16 @@ describe('durable per-channel delivery',()=>{
     const deps=fixture();deps.sendEmail.mockResolvedValue({pendingApproval:true,reason:'approval_required'});
     expect(await deliverCompanyEventInvitation({event,invitation,channels:{email:true},...deps})).toMatchObject([{status:'approval'}]);
     expect(deps.db.execute.mock.calls.some(([sql])=>sql.startsWith('UPDATE company_event_invitations'))).toBe(false);
+  });
+  it('uses the coded RSVP invitation format and agency details URL for the actual SMS dispatch',async()=>{
+    const deps=fixture();const result=await deliverCompanyEventInvitation({event:{...event,potluck_enabled:1},invitation:{...invitation,phone_number:'+13035550101'},channels:{sms:true},...deps});
+    expect(result).toMatchObject([{channel:'sms',status:'sent'}]);
+    expect(deps.sendSms).toHaveBeenCalledWith(expect.objectContaining({mode:'rsvp_invitation',dispatchType:'rsvp_invitation',
+      event:expect.objectContaining({invitationPageUrl:`https://app.itsco.health/company-events/7/staff/${event.staff_link_token}`})}));
+  });
+  it('adds a potluck sign-in next step to the in-app invitation',async()=>{
+    const deps=fixture();await deliverCompanyEventInvitation({event:{...event,potluck_enabled:1},invitation,channels:{inApp:true},...deps});
+    expect(deps.notify).toHaveBeenCalledWith(expect.objectContaining({message:expect.stringContaining('Potluck: sign in to choose or update')}));
   });
   it('never rotates an existing invitation token when send is retried',async()=>{
     const deps=fixture();const original=deps.db.execute.getMockImplementation();

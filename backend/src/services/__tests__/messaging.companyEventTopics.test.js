@@ -93,7 +93,7 @@ describe('event SMS command boundaries', () => {
   it('states interest needs approval and separates event mute from campaign STOP', () => {
     const text = buildCompanyEventSms({ event: { title: 'School fair', starts_at: '2026-10-24T18:00:00Z', ends_at: '2026-10-24T20:00:00Z', timezone: 'America/Denver' }, code: '112', brandName: 'ITSCO', mode: 'recruitment' });
     expect(text).toContain('October 24'); expect(text).toContain('organizer approval required');
-    expect(text).toContain('Reply 112 to turn off texts about this event'); expect(text).toContain("STOP to opt out of ITSCO's Employee Texting");
+    expect(text).toContain('Reply MUTE 112 to turn off texts about this event only'); expect(text).toContain("STOP to opt out of ITSCO's Employee Texting");
   });
 });
 
@@ -115,8 +115,8 @@ describe('event campaign isolation', () => {
 });
 
 describe('event inbound persistence', () => {
-  it('mutes only the referenced event and never changes campaign consent', async () => {
-    pool.execute.mockResolvedValueOnce([[delivery]]).mockResolvedValueOnce([{ affectedRows: 1 }]);
+  it.each(['polling','care','reminders'])('preserves the %s event-only mute and never changes campaign consent', async purpose => {
+    pool.execute.mockResolvedValueOnce([[{...delivery,purpose}]]).mockResolvedValueOnce([{ affectedRows: 1 }]);
     const reply = vi.fn().mockRejectedValue(new Error('Recipient already STOPped'));
     const result = await handleCompanyEventTopicInbound({ ...incoming, body: '112', sendReply: reply });
     expect(result).toMatchObject({ handled: true, muted: true, eventId: 4 });

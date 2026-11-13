@@ -1,4 +1,5 @@
 import { parseSmsKeyword, smsPolicyError, validateSmsRegistration } from './smsCompliancePolicy.js';
+import { companyEventWhen } from './companyEventInvitationEmail.js';
 
 export function shortPollReplyCode(value) {
   const code = String(value || '');
@@ -22,6 +23,14 @@ export function assertCompanyEventSmsCampaign(sender, audience = 'staff', purpos
 export function buildCompanyEventSms({ event, code, body, brandName, audience = 'staff', mode = 'message', purpose = 'workforce' }) {
   const title = String(event?.title || 'Event').trim();
   let text = String(body || '').trim();
+  if (mode === 'rsvp_invitation') {
+    const location = [event.event_location_name || event.eventLocationName, event.event_location_address || event.eventLocationAddress].filter(Boolean).join(' · ');
+    const description = String(event.description || '').trim().replace(/\s+/g, ' ').slice(0, 240);
+    text = [`You have been invited to ${title}.`, `${companyEventWhen(event)}.`, location, description,
+      `Please RSVP by replying Yes ${code}, No ${code}, or Maybe ${code}.`,
+      event.invitationPageUrl ? `Event details (no login needed): ${event.invitationPageUrl}` : '',
+      event.potluck_enabled || event.potluckEnabled ? 'Potluck: sign in on the event page to choose or update what you’re bringing.' : ''].filter(Boolean).join('\n');
+  }
   if (mode === 'recruitment') {
     let when = '';
     const start = new Date(event?.startsAt || event?.starts_at);
@@ -42,12 +51,15 @@ export function buildCompanyEventSms({ event, code, body, brandName, audience = 
     return `${text}\nReply ${shortPollReplyCode(code)} to turn off texts about this event. Reply NOPOLLS to stop poll texts only.`;
   }
   const program = audience === 'staff' ? `${brandName || 'Our organization'}'s Employee Texting` : `${brandName || 'Our organization'}'s Service Texting`;
-  return `${text}\nReply ${code} to turn off texts about this event. Reply STOP to opt out of ${program}. HELP for help. Msg & data rates may apply.`;
+  const mute = audience === 'staff' ? `Reply MUTE ${code} to turn off texts about this event only; this does not change your RSVP.` : `Reply ${code} to turn off texts about this event.`;
+  return `${text}\n${mute} Reply STOP to opt out of ${program}. HELP for help. Msg & data rates may apply.`;
 }
 
 export function parseCompanyEventSmsCommand(body) {
   if (parseSmsKeyword(body)) return null;
   const text = String(body || '').trim().toUpperCase();
+  const mute = text.match(/^MUTE\s+(\d{3,18})$/);
+  if (mute) return { type: 'mute', code: mute[1], explicit: true };
   if (/^\d{3,18}$/.test(text)) return { type: 'mute', code: text };
   const reversed = text.match(/^(\d{3,18})\s*(Y|YES|N|NO|M|MAYBE)$/);
   const explicit = text.match(/^(Y|YES|N|NO|M|MAYBE)\s*(\d{3,18})$/) || (reversed && [reversed[0], reversed[2], reversed[1]]);

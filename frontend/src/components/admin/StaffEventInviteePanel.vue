@@ -197,8 +197,9 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
+import { onCompanyEventRsvpChanged } from '../../utils/companyEventRsvpEvents';
 
 const props = defineProps({
   agencyId: { type: Number, required: true },
@@ -253,13 +254,17 @@ const formatDateTime = (value) => {
 };
 
 const loadResponses = async () => {
-  const resp = await api.get(`/agencies/${props.agencyId}/company-events/${props.eventId}/responses`);
+  const agencyId = props.agencyId, eventId = props.eventId;
+  const resp = await api.get(`/agencies/${agencyId}/company-events/${eventId}/responses`, {skipGlobalLoading:true});
+  if(agencyId !== props.agencyId || eventId !== props.eventId)return;
   summary.value = resp.data?.summary || [];
   responses.value = resp.data?.responses || [];
 };
 
 const loadNeedList = async () => {
-  const resp = await api.get(`/agencies/${props.agencyId}/company-events/${props.eventId}/need-list`);
+  const agencyId = props.agencyId, eventId = props.eventId;
+  const resp = await api.get(`/agencies/${agencyId}/company-events/${eventId}/need-list`, {skipGlobalLoading:true});
+  if(agencyId !== props.agencyId || eventId !== props.eventId)return;
   needItems.value = Array.isArray(resp.data) ? resp.data : [];
 };
 
@@ -428,7 +433,25 @@ watch(
   { immediate: true }
 );
 
-onMounted(refresh);
+let refreshTimer, stopRsvpUpdates;
+const refreshReplies = () => {
+  if(document.visibilityState === 'hidden' || loading.value || props.view === 'potluck')return;
+  // SMS replies arrive in another session. Keep totals and rows together without
+  // a global loading overlay or disturbing an organizer's unsaved need-list.
+  loadResponses().catch(() => {});
+};
+onMounted(() => {
+  refreshTimer = window.setInterval(refreshReplies, 30000);
+  window.addEventListener('focus', refreshReplies);
+  document.addEventListener('visibilitychange', refreshReplies);
+  stopRsvpUpdates = onCompanyEventRsvpChanged(detail => {if(Number(detail?.eventId) === props.eventId)refreshReplies();});
+});
+onBeforeUnmount(() => {
+  window.clearInterval(refreshTimer);
+  window.removeEventListener('focus', refreshReplies);
+  document.removeEventListener('visibilitychange', refreshReplies);
+  stopRsvpUpdates?.();
+});
 </script>
 
 <style scoped>

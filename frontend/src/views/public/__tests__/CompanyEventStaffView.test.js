@@ -78,12 +78,19 @@ describe('staff event participation', () => {
     expect(api.post).toHaveBeenLastCalledWith('/company-events/staff/8/share-token/potluck',{itemId:null,customItemName:'Watermelon and berries'});
   });
 
-  it('requires sign-in before allowing interest, check-in, or travel', async () => {
+  it('shows invitation details without sign-in while protecting interest, messages, check-in and travel', async () => {
     state.signedIn = false;
+    api.get.mockResolvedValue({data:{event:{id:8,title:'Team potluck',description:'An evening together',potluckEnabled:true},branding:{agencyName:'ITSCO'},agencies:[{name:'ITSCO'},{name:'Inner Strength'}]}});
     const wrapper = await render();
     expect(wrapper.get('a[href^="/login?redirect="]').exists()).toBe(true);
     expect(wrapper.findAll('button')).toHaveLength(0);
-    expect(api.get).not.toHaveBeenCalled();
+    expect(api.get).toHaveBeenCalledWith('/company-events/invitation/8/share-token',{skipAuthRedirect:true,skipGlobalLoading:true});
+    expect(wrapper.get('h1').text()).toBe('Team potluck');
+    expect(wrapper.text()).toContain('An evening together');
+    expect(wrapper.text()).toContain('ITSCO + Inner Strength');
+    expect(wrapper.text()).toContain('Sign in to choose what I’m bringing');
+    expect(wrapper.findComponent({name:'StaffPollsPanel'}).exists()).toBe(false);
+    expect(wrapper.findComponent({name:'EventConversation'}).exists()).toBe(false);
   });
   it('records interest without assigning staff or opening check-in', async () => {
     const wrapper = await render();
