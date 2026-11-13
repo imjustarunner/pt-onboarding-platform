@@ -11,6 +11,7 @@ vi.mock('../storage.service.js',()=>({default:{}}));
 vi.mock('../meetingRecipientIdentity.service.js',()=>({resolveMeetingRecipient:async()=>({email:'fixture@example.test'})}));
 vi.mock('../../utils/tenantMeetingUrl.js',()=>({tenantMeetingBase:async()=> 'https://app.example.test'}));
 vi.mock('../unifiedEmail/unifiedEmailSender.service.js',()=>({sendNotificationEmail:m.send}));
+vi.mock('../tenantMessageMailboxes.service.js',()=>({ensureTenantNoreplyMailbox:async agencyId=>({noreply:{id:40,agency_id:agencyId,is_active:1,from_email:'noreply@tenant.test'}})}));
 vi.mock('../officeApprovalWorkflow.service.js',()=>({findOfficeApproval:vi.fn()}));
 import {enqueueOfficeEmail,sendDueOfficeRequestEmails} from '../officeRequestEmails.service.js';
 const database='codex_office_request_emails';let admin;
@@ -34,6 +35,7 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('durable office email b
   await m.pool.query("UPDATE office_request_email_queue SET ready_at=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 1 MINUTE)");
   await Promise.all([sendDueOfficeRequestEmails(),sendDueOfficeRequestEmails()]);
   expect(m.send).toHaveBeenCalledOnce();expect(m.send.mock.calls[0][0].subject).toContain('5 requests');
+  expect(m.send).toHaveBeenCalledWith(expect.objectContaining({senderIdentityId:40,replyToOverride:'noreply@tenant.test'}));
   const [rows]=await m.pool.query('SELECT status,communication_id FROM office_request_email_queue');
   expect(rows).toHaveLength(5);expect(rows.every(r=>r.status==='sent' && Number(r.communication_id)===8)).toBe(true);
  });

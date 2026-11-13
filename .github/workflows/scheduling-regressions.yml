@@ -40,6 +40,8 @@ jobs:
         run: |
           npm ci --prefix backend
           npm ci --prefix frontend --ignore-scripts
+      - name: Unsolicited website and shared inbox outreach boundaries
+        run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.unsolicited-outreach.config.js --maxWorkers=2
       - name: Care invitation delivery, insurance gating, and guardian portal setup
         run: |
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.care-invitations.config.js
