@@ -42,6 +42,7 @@ vi.mock('../officeSlotSeries.service.js', () => ({
 import {
   approvalAssignmentConflict,
   approvalWindow,
+  officeApprovalExpired,
   listOfficeApprovals,
   findOfficeApproval,
   officeApprovalContext,
@@ -322,4 +323,39 @@ it('warns when two pending request sources overlap for the same provider', async
       })
     ])
   );
+});
+
+describe('current office approval work',()=>{
+ const now=new Date('2026-11-13T17:00:00Z');
+ it('hides ended one-time requests without denying or deleting their history',async()=>{
+  m.booking.mockResolvedValue([{...booking,id:900,recurrence:'ONCE',start_at:'2026-11-11 20:00:00',end_at:'2026-11-11 21:00:00'},{...booking,id:901,recurrence:'ONCE',start_at:'2026-11-26 20:00:00',end_at:'2026-11-26 21:00:00'}]);
+  const rows=await listOfficeApprovals(actor,{now});
+  expect(rows.some(row=>row.key==='booking:900')).toBe(false);expect(rows.some(row=>row.key==='booking:901')).toBe(true);
+  expect(m.execute.mock.calls.some(([sql])=>/^UPDATE|^DELETE/i.test(sql))).toBe(false);
+ });
+ it('keeps recurring requests with remaining dates and filters exhausted finite series',()=>{
+  const base={roomRequest:true,startDate:'2026-10-01',timezone:'America/Denver',slots:[{startHour:15,endHour:16}]};
+  expect(officeApprovalExpired({...base,recurrence:'BIWEEKLY',occurrenceCount:2},now)).toBe(true);
+  expect(officeApprovalExpired({...base,recurrence:'BIWEEKLY',occurrenceCount:6},now)).toBe(false);
+  expect(officeApprovalExpired({...base,recurrence:'WEEKLY',occurrenceCount:null},now)).toBe(false);
+  expect(officeApprovalExpired({...base,recurrence:'ONCE',roomRequest:false},now)).toBe(false);
+ });
+ it('uses the building timezone and the actual end of an overnight room window',()=>{
+  const request={roomRequest:true,startDate:'2026-11-12',recurrence:'ONCE',timezone:'America/Denver',slots:[{startHour:23,endHour:24}]};
+  expect(officeApprovalExpired(request,new Date('2026-11-13T06:59:59Z'))).toBe(false);
+  expect(officeApprovalExpired(request,new Date('2026-11-13T07:00:00Z'))).toBe(true);
+ });
+ it('recognizes a linked client appointment even when client_id is empty and preserves its agency',async()=>{
+  m.booking.mockResolvedValue([{...booking,client_id:null,room_number:10,booked_occurrence_count:6,session_context_json:JSON.stringify({appointmentId:264,agencyId:3})}]);
+  const row=(await listOfficeApprovals(actor,{now})).find(row=>row.source==='booking');
+  expect(row).toMatchObject({clientLinked:true,agencyId:3,roomLabel:'Office #10',occurrenceCount:6,sessionLabel:'Client session · room approval pending'});
+ });
+ it('places the requested room first and excludes alternatives when the provider did not allow them',async()=>{
+  const execute=m.execute.getMockImplementation();
+  m.execute.mockImplementation(async(sql,args)=>sql.includes('FROM office_rooms rm')?[[{roomId:1,officeId:1,officeName:'Windchime',room_number:1},{roomId:5,officeId:1,officeName:'Windchime',room_number:10}]]:execute(sql,args));
+  const review=await officeApprovalContext(actor,'intake:878',{now});
+  expect(review.rooms[0]).toMatchObject({roomId:5,requested:true,roomLabel:'Office #10'});
+  const strict=await officeApprovalContext(actor,'booking:37',{now});
+  expect(strict.rooms.map(room=>room.roomId)).toEqual([5]);
+ });
 });

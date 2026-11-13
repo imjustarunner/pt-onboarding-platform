@@ -25,7 +25,8 @@ const request = (key, name, source) => ({
   frequencyLabel: 'Every 2 weeks',
   timezone: 'America/Denver',
   slots: [{ startHour: 17, endHour: 19 }],
-  roomRequest: true
+  roomRequest: true,
+  openToAlternativeRoom: true
 });
 const requests = [
   request('intake:878', 'Randy', 'Availability request'),
@@ -93,6 +94,8 @@ it('shows recurrence conflicts, requires an available room and confirms the prec
   let button = w.findAll('button').find((b) => b.text() === 'Review approval');
   expect(button.attributes('disabled')).toBeDefined();
   await radios[1].setValue();
+  expect(button.attributes('disabled')).toBeDefined();
+  await w.get('.alternative-warning input').setValue(true);
   expect(button.attributes('disabled')).toBeUndefined();
   await button.trigger('click');
   expect(w.find('.confirmation').text()).toContain('#6');
@@ -104,7 +107,8 @@ it('shows recurrence conflicts, requires an available room and confirms the prec
   await flushPromises();
   expect(m.post).toHaveBeenCalledWith(
     '/office-schedule/approvals/intake%3A878/decision',
-    expect.objectContaining({ action: 'approve', roomId: 6 })
+    expect.objectContaining({ action: 'approve', roomId: 6, acknowledgeAlternativeRoom: true }),
+    expect.objectContaining({skipGlobalLoading:true})
   );
   w.unmount();
 });
@@ -145,7 +149,8 @@ it('requires acknowledgment of an existing provider reservation and supports dir
     .findAll('button')
     .find((b) => b.text() === 'Review approval');
   expect(approve.attributes('disabled')).toBeDefined();
-  await w.find('input[type=checkbox]').setValue(true);
+  await w.get('.alternative-warning input').setValue(true);
+  await w.findAll('input[type=checkbox]').find(input=>!input.element.closest('.alternative-warning')).setValue(true);
   expect(approve.attributes('disabled')).toBeUndefined();
   expect(w.find('.workspace').classes()).toContain('detail-open');
   await w.find('.back').trigger('click');
@@ -161,6 +166,22 @@ it('requires a typed denial reason and sends it with the decision from an embedd
  expect(confirm.attributes('disabled')).toBeDefined();
  await w.get('textarea').setValue('Requested times need to be changed; please contact the CPA.');
  expect(confirm.attributes('disabled')).toBeUndefined();await confirm.trigger('click');await flushPromises();
- expect(m.post).toHaveBeenCalledWith('/office-schedule/approvals/intake%3A878/decision',expect.objectContaining({action:'deny',approverComment:'Requested times need to be changed; please contact the CPA.'}));
+ expect(m.post).toHaveBeenCalledWith('/office-schedule/approvals/intake%3A878/decision',expect.objectContaining({action:'deny',approverComment:'Requested times need to be changed; please contact the CPA.'}),expect.objectContaining({skipGlobalLoading:true}));
  expect(w.emitted('decided')).toBeTruthy();w.unmount();
+});
+it('shows the requested room and attached session before compact alternative room choices',async()=>{
+ m.get.mockImplementation(async url=>({data:url.endsWith('/context')?{...context,request:{...requests[0],clientLinked:true},rooms:[{...context.rooms[1],requested:false},{...context.rooms[1],roomId:10,roomLabel:'Office #10',requested:true}]}:{requests}}));
+ const w=mountView();await flushPromises();await w.get('.request').trigger('click');await flushPromises();
+ expect(w.get('.request-facts').text()).toContain('Windchime · Office #10');expect(w.get('.request-facts').text()).toContain('Client session attached');
+ expect(w.findAll('.room')).toHaveLength(1);expect(w.get('.room').text()).toContain('Office #10');
+ await w.get('.alternatives-toggle').trigger('click');expect(w.findAll('.room')).toHaveLength(2);
+ expect(w.findAll('.room')[0].text()).toContain('Office #10');w.unmount();
+});
+it('removes a decided request immediately while the background queue refresh is slow',async()=>{
+ const w=mountView();await flushPromises();await w.get('.request').trigger('click');await flushPromises();
+ await w.findAll('button').find(button=>button.text()==='Deny request').trigger('click');await w.get('textarea').setValue('Please request future dates.');
+ m.get.mockImplementation(()=>new Promise(()=>{}));
+ await w.get('.confirmation .btn-danger').trigger('click');await flushPromises();
+ expect(w.findAll('.request').map(row=>row.text()).join(' ')).not.toContain('Randy');
+ expect(w.text()).toContain('Decision saved');expect(w.vm.$.setupState.saving).toBe(false);w.unmount();
 });

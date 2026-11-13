@@ -72,6 +72,10 @@ async function scope(actor) {
 }
 function normalize(source, row) {
   const intake = source === 'intake';
+  let sessionContext = row.session_context_json || {};
+  if (typeof sessionContext === 'string') { try { sessionContext = JSON.parse(sessionContext); } catch { sessionContext = {}; } }
+  const clientLinked = !!(Number(row.client_id) || Number(sessionContext?.clientId) || sessionContext?.clientIds?.length
+    || Number(sessionContext?.appointmentId) || sessionContext?.appointmentSeriesId);
   const timezone = row.office_timezone || 'America/Denver';
   const start = !intake ? utcToZonedMysqlWall(row.start_at, timezone) : null;
   const end = !intake ? utcToZonedMysqlWall(row.end_at, timezone) : null;
@@ -95,7 +99,7 @@ function normalize(source, row) {
   const occurrenceCount =
     recurrence === 'ONCE'
       ? 1
-      : recurrence === 'WEEKLY' && !row.client_id
+      : recurrence === 'WEEKLY' && !clientLinked
         ? null
         : Number(
             intake
@@ -113,7 +117,7 @@ function normalize(source, row) {
     key: `${source}:${row.id}`,
     source,
     id: Number(row.id),
-    agencyId: Number(row.agency_id) || null,
+    agencyId: Number(row.agency_id || sessionContext?.agencyId) || null,
     providerId: Number(
       row.provider_id || row.requested_provider_id || row.user_id
     ),
@@ -133,7 +137,7 @@ function normalize(source, row) {
     preferredOfficeIds: array(row.preferred_office_ids_json).map(Number),
     preferredRooms: array(row.preferred_rooms_json),
     roomId: Number(slots?.[0]?.roomId) || null,
-    roomLabel: row.room_label || row.room_name || '',
+    roomLabel: row.room_number != null ? `Office #${row.room_number}` : row.room_label || row.room_name || '',
     startDate: intake ? ymd(row.requested_start_date) : start?.slice(0, 10),
     timezone,
     slots,
@@ -146,13 +150,26 @@ function normalize(source, row) {
       intake ||
       source === 'legacy' ||
       ['PROVIDER_REQUEST', 'INTAKE_REQUEST'].includes(row.request_type),
-    clientLinked: !!row.client_id,
+    clientLinked,
+    sessionLabel: clientLinked ? 'Client session · room approval pending' : 'Office reservation only',
     openToAlternativeRoom:
-      intake || !!row.open_to_alternative_room || !row.room_id
+      intake || Number(row.open_to_alternative_room) === 1 || !row.room_id
   };
 }
 
-export async function listOfficeApprovals(actor) {
+// Expired pending room requests remain in the source history, but require no
+// denial and must not appear as actionable work or generate reviewer emails.
+export function officeApprovalExpired(request, now = new Date()) {
+  if (!request.roomRequest || !request.startDate || !request.slots?.length) return false;
+  if (request.recurrence !== 'ONCE' && request.occurrenceCount == null) return false;
+  const dates = generateOccurrenceDates({startDate:request.startDate,recurrence:request.recurrence,occurrenceCount:request.occurrenceCount,now});
+  const lastDate = dates.at(-1);
+  if (!lastDate) return false;
+  const endHour = Math.max(...request.slots.map(slot=>Number(slot.endHour)));
+  if (!Number.isFinite(endHour)) return false;
+  return mysqlDateTimeForDateHour(lastDate,endHour,request.timezone || 'America/Denver') <= toMysqlUtcDateTime(now);
+}
+export async function listOfficeApprovals(actor, { now = new Date() } = {}) {
   const ids = await scope(actor);
   if (!ids.length) return [];
   const [bookings, legacy, [intake]] = await Promise.all([
@@ -178,7 +195,7 @@ export async function listOfficeApprovals(actor) {
     ...bookings.map((r) => normalize('booking', r)),
     ...intake.map((r) => normalize('intake', r)),
     ...legacy.map((r) => normalize('legacy', r))
-  ].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  ].filter(request => !officeApprovalExpired(request, now)).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 }
 export async function findOfficeApproval(actor, key) {
   parseOfficeApprovalKey(key);
@@ -222,7 +239,7 @@ export function approvalWindow(request, timezone, now = new Date()) {
   );
   if (!remaining.length)
     throw fail(
-      'These requested dates have ended. Deny this request and ask for new dates; approving will not create a past booking.'
+      'These requested dates have ended. This request is no longer pending; submit a new request for future dates.'
     );
   if (
     request.recurrence === 'MONTHLY' &&
@@ -272,7 +289,8 @@ async function candidateRooms(actor, request) {
     requested:
       Number(r.roomId) === request.roomId ||
       request.preferredRooms.some((p) => Number(p.id) === Number(r.roomId))
-  }));
+  })).filter(room => request.openToAlternativeRoom || !request.roomId || Number(room.roomId) === Number(request.roomId))
+    .sort((a,b) => Number(b.requested)-Number(a.requested) || String(a.officeName).localeCompare(String(b.officeName)) || Number(a.room_number || 0)-Number(b.room_number || 0));
 }
 async function reviewRoom(request, room, now, inventory) {
   const timezone = room.timezone || 'America/Denver';
@@ -309,7 +327,7 @@ export async function officeApprovalContext(
   { roomId = null, selectedOnly = false, now = new Date() } = {}
 ) {
   parseOfficeApprovalKey(key);
-  const pending = await listOfficeApprovals(actor);
+  const pending = await listOfficeApprovals(actor, { now });
   const request = pending.find((row) => row.key === key);
   if (!request)
     throw fail(

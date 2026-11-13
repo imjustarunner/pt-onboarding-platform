@@ -1,3 +1,4 @@
+import { ensureTenantNoreplyMailbox } from './tenantMessageMailboxes.service.js';
 import { emailWorkerAccountSql, isQaEmailAgency } from '../utils/qaEmailPolicy.js';
 import pool from "../config/database.js";
 import User from "../models/User.model.js";
@@ -353,7 +354,13 @@ export async function sendDueOfficeRequestEmails() {
             group.kind === "review"
               ? "office_request_review"
               : "office_request_decision";
+          const { noreply } = await ensureTenantNoreplyMailbox(group.agency_id);
+          const replyTo = String(noreply?.from_email || '').trim();
+          if (!noreply?.id || Number(noreply.agency_id) !== Number(group.agency_id) || !Number(noreply.is_active)
+            || !/^(?:no[-_.]?reply|do[-_.]?not[-_.]?reply)@[^\s@]+$/i.test(replyTo)) throw new Error('An active agency no-reply sender is required for office notifications');
           const result = await sendNotificationEmail({
+            senderIdentityId: noreply.id,
+            replyToOverride: replyTo,
             agencyId: group.agency_id,
             triggerKey,
             templateType: triggerKey,
