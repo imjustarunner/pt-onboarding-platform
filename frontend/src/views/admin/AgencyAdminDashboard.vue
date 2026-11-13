@@ -87,6 +87,10 @@
     
     <!-- Shell paints immediately; stat numbers fill in (no full-page "Loading agency statistics…" gate). -->
     <div v-else class="dashboard-content" :class="{ 'dashboard-content--club': isSummitStatsContext }">
+      <ReferralTotalsButton
+        v-if="currentAgency?.id && !isSummitStatsContext && ['admin', 'super_admin', 'support'].includes(authStore.user?.role)"
+        :agency-id="currentAgency.id"
+      />
       <div class="dashboard-grid" :class="{ 'dashboard-grid--club': isSummitStatsContext }">
         <component 
           v-if="!isSummitStatsContext && ((user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'support') || (user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)))"
@@ -243,6 +247,7 @@ import ClubQuickActions from '../../components/club/ClubQuickActions.vue';
 import ClubAddMemberModal from '../../components/club/ClubAddMemberModal.vue';
 import ClubAddSeasonModal from '../../components/club/ClubAddSeasonModal.vue';
 import AgencySpecsPanel from '../../components/admin/AgencySpecsPanel.vue';
+import ReferralTotalsButton from '../../components/admin/ReferralTotalsButton.vue';
 import ClubSpecsPanel from '../../components/club/ClubSpecsPanel.vue';
 import SupervisionModal from '../../components/supervision/SupervisionModal.vue';
 import { isSummitPlatformRouteSlug } from '../../utils/summitPlatformSlugs.js';
