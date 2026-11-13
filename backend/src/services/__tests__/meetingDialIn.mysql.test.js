@@ -187,12 +187,11 @@ describe.skipIf(!enabled)('telephone meeting lifecycle with isolated MySQL', () 
     const [guest]=await m.db.execute("INSERT INTO meeting_calendar_guests(meeting_type,meeting_id,credential_hash,display_name,expires_at) VALUES('supervision',5,?,'External guest',DATE_ADD(UTC_TIMESTAMP(),INTERVAL 1 HOUR))",[credentialHash]);
     return {sessionId:5,guestId:guest.insertId,credentialHash};
   }
-  it('shares the last place between an admitted calendar guest and a concurrent phone call',async()=>{
+  it('keeps an individual guest place separate from a concurrent supervisee phone call',async()=>{
     await connectHost();const peer=await enter(8),guest=await calendarGuest();
     const results=await Promise.allSettled([reserveSupervisionCalendarGuest({...guest,hostUserId:7}),reconcileDialInCall(peer.id)]);
-    expect(results.filter(result=>result.status==='fulfilled')).toHaveLength(1);
-    expect(results.find(result=>result.status==='rejected').reason.message).toContain('full');
-    expect((await supervisionJoinOccupancy(5)).size).toBe(2);
+    expect(results.filter(result=>result.status==='fulfilled')).toHaveLength(2);
+    expect((await supervisionJoinOccupancy(5)).size).toBe(3);
   });
   it('rejects expired, left, wrong-credential and cross-session calendar guests before reserving',async()=>{
     const guest=await calendarGuest();

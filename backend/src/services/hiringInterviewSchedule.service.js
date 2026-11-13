@@ -1,7 +1,7 @@
 import { resolveMeetingRecipient } from './meetingRecipientIdentity.service.js';
 import { saveEventMeetingSettings } from './meetingSettings.service.js';
 import { queueMeetingInvitations } from './meetingInvitations.service.js';
-import { tenantMeetingBase } from '../utils/tenantMeetingUrl.js';
+import { tenantInterviewJoinUrl } from '../utils/tenantMeetingUrl.js';
 import { resolveInterviewSender, interviewDeliveryStatus } from './hiringInterviewSender.service.js';
 import { canAccessHiringInterview } from './hiringInterviewAccess.service.js';
 import pool from '../config/database.js';
@@ -13,7 +13,6 @@ import HiringInterviewArtifact from '../models/HiringInterviewArtifact.model.js'
 import HiringProfile from '../models/HiringProfile.model.js';
 import User from '../models/User.model.js';
 import GoogleCalendarService from './googleCalendar.service.js';
-import { joinUrlForTeamMeeting } from '../utils/joinToken.js';
 import {
   isValidTimeZone,
   utcDateToZonedParts,
@@ -359,8 +358,8 @@ export async function scheduleHiringInterview({
 
   const guestToken = saved.participant_join_token || saved.join_token || null;
   const hostToken = saved.host_join_token || guestToken;
-  const publicJoinUrl = joinUrlForTeamMeeting(await tenantMeetingBase(agency), guestToken);
-  const hostJoinUrl = joinUrlForTeamMeeting(await tenantMeetingBase(agency), hostToken);
+  const publicJoinUrl = await tenantInterviewJoinUrl(agency, guestToken);
+  const hostJoinUrl = await tenantInterviewJoinUrl(agency, hostToken);
 
   if (publicJoinUrl && googleEventId) {
     try {

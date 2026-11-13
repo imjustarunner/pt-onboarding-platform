@@ -24,6 +24,8 @@
       :activity-notice="activityNotice"
       :raised-hands-notice="raisedHandsNotice"
       :hide-controls="hideControls"
+      :hide-leave-control="hideLeaveControl"
+      :controls-target="controlsTarget"
       :allow-tile-focus="allowTileFocus"
       :show-layout-controls="showLayoutControls"
       :mute-others-mode="muteOthersMode"
@@ -101,6 +103,8 @@ const props = defineProps({
   activityNotice: { type: String, default: '' },
   raisedHandsNotice: { type: String, default: '' },
   hideControls: { type: Boolean, default: false },
+  hideLeaveControl: { type: Boolean, default: false },
+  controlsTarget: { type: String, default: '' },
   allowTileFocus: { type: Boolean, default: false },
   showLayoutControls: { type: Boolean, default: false },
   muteOthersMode: { type: String, default: 'host' },

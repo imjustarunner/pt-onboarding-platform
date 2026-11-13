@@ -26,15 +26,16 @@ async function render(kind = 'Supervision') {
   router = createRouter({ history: createMemoryHistory(), routes: [
     { path: '/join/supervision/:id', name: 'JoinSupervision', component: Meeting },
     { path: '/join/team-meeting/:id', name: 'JoinTeamMeeting', component: Meeting },
+    { path: '/interview/itsco/video/:id', name:'BrandedInterview',component:Meeting },
     { path: '/dashboard', component: { template: '<div>Dashboard</div>' } },
     { path: '/notes', component: { template: '<div>App notes</div>' } }
   ] });
-  const path = kind === 'Supervision' ? '/join/supervision/9?access=invitation' : '/join/team-meeting/9?access=invitation';
+  const path = kind === 'BrandedInterview' ? '/interview/itsco/video/9?access=invitation' : kind === 'Supervision' ? '/join/supervision/9?access=invitation' : '/join/team-meeting/9?access=invitation';
   await router.push(path); await router.isReady();
   wrapper = mount(MeetingRouteHost, { props: { canMinimize: true }, global: { plugins: [router] } });
   await flushPromises(); return path;
 }
-it.each(['Supervision', 'TeamMeeting'])('retains %s identity, timers and drafts through mini, app navigation and restoration', async kind => {
+it.each(['Supervision', 'TeamMeeting', 'BrandedInterview'])('retains %s identity, timers and drafts through mini, app navigation and restoration', async kind => {
   const path = await render(kind);
   const instance = wrapper.findComponent(Meeting).vm;
   await wrapper.get('input').setValue('Keep my notes');

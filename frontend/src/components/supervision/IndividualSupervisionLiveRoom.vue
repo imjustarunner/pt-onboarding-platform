@@ -13,6 +13,7 @@
         </div>
       </div>
       <div class="isl__header-right">
+        <SupervisionShareLink :session-id="supervisionSessionId" :can-invite-guest="isSupervisor && !isInLobby" />
         <span v-if="workspaceSaving" class="isl__save-pill">Saving…</span>
         <span v-else-if="workspaceError" class="isl__save-pill isl__save-pill--err" :title="workspaceError">Save issue</span>
         <div class="isl__menu-wrap">
@@ -350,6 +351,7 @@ import api, { isApiRateLimited } from '../../services/api';
 import BrandingLogo from '../BrandingLogo.vue';
 import SupervisionVideoRoom from './SupervisionVideoRoom.vue';
 import SupervisionVideoLobbyPanel from './SupervisionVideoLobbyPanel.vue';
+import SupervisionShareLink from './SupervisionShareLink.vue';
 import SupervisionWaitingRoomStage from './SupervisionWaitingRoomStage.vue';
 import SupervisionDiscussionSidebar from './SupervisionDiscussionSidebar.vue';
 import MeetingAttendancePanel from '../meetings/MeetingAttendancePanel.vue';

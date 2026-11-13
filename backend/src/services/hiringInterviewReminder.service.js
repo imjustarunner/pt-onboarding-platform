@@ -3,6 +3,7 @@ import HiringProfile from '../models/HiringProfile.model.js';
 import User from '../models/User.model.js';
 import { prepareHiringInterviewInviteEmail } from './hiringInterviewInviteEmail.service.js';
 import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service.js';
+import { tenantInterviewJoinUrl } from '../utils/tenantMeetingUrl.js';
 
 export async function sendHiringInterviewReminder(event, candidate) {
   const interview = await HiringInterview.findByScheduleEventId(event.id);
@@ -12,7 +13,7 @@ export async function sendHiringInterviewReminder(event, candidate) {
   const email = await prepareHiringInterviewInviteEmail({
     agencyId: event.agency_id, candidate, title: interview.display_title || event.title,
     startsAt: event.start_at, endsAt: event.end_at, timezone: event.event_timezone || interview.interview_timezone || 'America/Denver',
-    interviewId: interview.id, publicJoinUrl: interview.public_join_url,
+    interviewId: interview.id, publicJoinUrl: (interview.guest_join_token ? await tenantInterviewJoinUrl(interview.agency_id, interview.guest_join_token) : interview.public_join_url),
     interviewerRows: interviewers.filter(Boolean), jobDescriptionId: profile?.job_description_id, jobTitle: profile?.applied_role
   });
   if (email.skipped) return email;

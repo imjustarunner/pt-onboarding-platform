@@ -42,7 +42,7 @@ describe('interview scheduling delivery', () => {
     expect(m.event.mock.calls[0][0].ignoreScheduleHolds).toBe(false);
     expect(m.calendar.mock.calls[0][0]).toMatchObject({ subjectEmail: '11@tenant.org', sendUpdates: 'none', inviteGoogleGuests: false, attendeeDetails: [] });
     expect(m.append.mock.calls[0][0]).toMatchObject({ subjectEmail: '11@tenant.org', sendUpdates: 'all', attendeeDetails: expect.arrayContaining([expect.objectContaining({ email: '30@tenant.org' })]) });
-    expect(m.append.mock.calls[0][0].appendText).toContain('https://app.tenant.example/join/team-meeting/guest-only-token');
+    expect(m.append.mock.calls[0][0].appendText).toContain('https://plotlinepo.com/interview/tenant/video/guest-only-token');
     expect(JSON.stringify(m.calendar.mock.calls) + JSON.stringify(m.append.mock.calls)).not.toContain('secret-host-token');
     expect(m.interview.mock.calls[0][0].inviteSentAt).toBeNull();
     expect(result.delivery.sent).toBe(true);

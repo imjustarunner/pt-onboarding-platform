@@ -1,6 +1,7 @@
 import InterviewHubTemplate from '../models/InterviewHubTemplate.model.js';
 import HiringInterviewArtifact from '../models/HiringInterviewArtifact.model.js';
 import HiringInterview from '../models/HiringInterview.model.js';
+import { randomInt } from 'node:crypto';
 
 /** Fun openers — never "how are you". */
 export const DEFAULT_SALUTATIONS = [
@@ -54,10 +55,19 @@ export const DEFAULT_FLOW_SECTIONS = [
 export const DEFAULT_CANDIDATE_QUESTIONS_PROMPT =
   'Invite the candidate to ask anything about the role, team, schedule, growth path, or culture.';
 
-export function pickRandom(arr) {
-  const list = Array.isArray(arr) ? arr.filter((x) => x != null && String(x).trim() !== '') : [];
+const openerBags = new Map();
+export function pickRandom(arr, previous = null) {
+  const list = Array.isArray(arr) ? [...new Set(arr.map(x => String(x || '').trim()).filter(Boolean))] : [];
   if (!list.length) return null;
-  return list[Math.floor(Math.random() * list.length)];
+  const key = JSON.stringify(list);
+  const bag = openerBags.get(key);
+  let remaining = (bag?.remaining || []).filter(text => text !== previous);
+  if (!remaining.length) remaining = list.filter(text => text !== (previous || bag?.last));
+  if (!remaining.length) remaining = [...list];
+  const [text] = remaining.splice(randomInt(remaining.length), 1);
+  openerBags.set(key, { remaining, last: text });
+  if (openerBags.size > 128) openerBags.delete(openerBags.keys().next().value);
+  return text;
 }
 
 function normalizeQuestionList(raw) {
@@ -79,8 +89,14 @@ function normalizeQuestionList(raw) {
 
 function poolFromTemplate(template, field, fallback) {
   const raw = template?.[field];
-  if (Array.isArray(raw) && raw.length) return raw;
-  return fallback;
+  const values = Array.isArray(raw) ? [...new Set(raw.map(x => String(x || '').trim()).filter(Boolean))] : [];
+  return values.length > 1 ? values : [...new Set([...values, ...fallback])];
+}
+
+export function interviewTemplateWithOpeners(template) {
+  return { ...template,
+    salutation_pool_json: poolFromTemplate(template, 'salutation_pool_json', DEFAULT_SALUTATIONS),
+    icebreaker_pool_json: poolFromTemplate(template, 'icebreaker_pool_json', DEFAULT_ICEBREAKERS) };
 }
 
 export async function ensureDefaultTemplate(agencyId, userId = null) {
@@ -127,14 +143,16 @@ export function buildInterviewFlow({
   const candidatePrompt =
     template?.candidate_questions_prompt || DEFAULT_CANDIDATE_QUESTIONS_PROMPT;
 
-  const prevSalutation = previousFlow?.salutation || null;
-  const prevIcebreaker = previousFlow?.icebreaker || null;
+  const previousOpener = key => previousFlow?.sections?.find(section => section.key === key)?.item
+    || previousFlow?.sections?.find(section => section.key === key)?.questions?.[0]?.text || previousFlow?.[key] || null;
+  const prevSalutation = previousOpener('salutation');
+  const prevIcebreaker = previousOpener('icebreaker');
 
   const salutation = regenerateSalutation
-    ? pickRandom(salutationPool)
+    ? pickRandom(salutationPool, prevSalutation)
     : prevSalutation || pickRandom(salutationPool);
   const icebreaker = regenerateIcebreaker
-    ? pickRandom(icebreakerPool)
+    ? pickRandom(icebreakerPool, prevIcebreaker)
     : prevIcebreaker || pickRandom(icebreakerPool);
 
   const builtSections = sections.map((section) => {

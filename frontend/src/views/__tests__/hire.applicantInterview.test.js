@@ -5,19 +5,30 @@ vi.mock('../../composables/consentedAudioCapture.js', () => ({ createConsentedAu
 vi.mock('../../services/api', () => ({ default: m }));
 vi.mock('../../utils/activityTracker', () => ({ suspendInactivityTimeout: m.suspend, resumeInactivityTimeout: m.resume }));
 vi.mock('../../components/supervision/SupervisionVideoRoom.vue', () => ({ default: { name: 'SupervisionVideoRoom',
-  props: ['token','localRoleLabel','isHost','equalTilesWhenRemote','preserveVideoAspect','lobbyMode'], emits: ['connected','leave-request','disconnected','interview-guest-ended'], methods: { getTranscriptionStream: () => 'local microphone' }, template: '<div data-test="video"><slot name="branding" /></div>' } }));
-vi.mock('../../components/hiring/InterviewSharedChat.vue', () => ({ default: { name: 'InterviewSharedChat', props: ['endpoint'], template: '<div data-test="shared-chat">Chat with applicant</div>' } }));
+  props: ['token','localRoleLabel','isHost','equalTilesWhenRemote','preserveVideoAspect','lobbyMode'], emits: ['connected','leave-request','disconnected','interview-guest-ended'], methods: { getTranscriptionStream: () => 'local microphone', disconnect() { this.$emit('disconnected'); } }, template: '<div data-test="video" />' } }));
+vi.mock('../../components/hiring/InterviewSharedChat.vue', () => ({ default: { name: 'InterviewSharedChat', props: ['endpoint','heading','theme'], template: '<div data-test="shared-chat">{{ heading }}</div>' } }));
 import Applicant from '../teamMeeting/ApplicantInterviewView.vue';
 let wrapper;
 const creds = mode => ({ token: 'candidate-video', sessionId: 'interview-room', applicationId: 'project', roomMode: mode, displayName: 'Jamie Applicant',branding:{name:'Next Level Up',logoUrl:'/assets/nlu/logo.png',primaryColor:'#1F2A44'} });
 beforeEach(() => { vi.clearAllMocks(); vi.useFakeTimers(); m.get.mockResolvedValue({ data: creds('main') }); m.post.mockResolvedValue({ data: {} }); });
 afterEach(() => { wrapper?.unmount(); vi.useRealTimers(); });
-async function open() { wrapper = mount(Applicant, { props: { invitationToken: 'a'.repeat(32) } }); await flushPromises(); }
+async function open() { wrapper = mount(Applicant, { props: { invitationToken: 'a'.repeat(32) }, global:{stubs:{teleport:true}} }); await flushPromises(); }
 describe('minimal applicant interview', () => {
-  it('keeps agency branding, PlotLine attribution and a visible Leave meeting action with the video',async()=>{
-    await open();expect(wrapper.text()).toContain('Next Level Up');expect(wrapper.text()).toContain('Powered by PlotLine');expect(wrapper.get('img[alt="Next Level Up logo"]').attributes('src')).toBe('/assets/nlu/logo.png');
-    await wrapper.get('.interview-leave').trigger('click');await flushPromises();expect(wrapper.find('[data-test=video]').exists()).toBe(false);expect(wrapper.text()).toContain('Rejoin interview');
-    expect(m.post.mock.calls.some(([,body])=>body.action==='leave')).toBe(true);
+  it('disconnects immediately with one click while the final transcript upload is still pending',async()=>{
+    let finishFlush;
+    m.flush.mockImplementationOnce(()=>new Promise(resolve=>{finishFlush=resolve;}));
+    await open();wrapper.findComponent({name:'SupervisionVideoRoom'}).vm.$emit('connected');await flushPromises();
+    expect(wrapper.findAll('.leave-meeting')).toHaveLength(1);
+    await wrapper.get('.leave-meeting').trigger('click');await flushPromises();
+    expect(wrapper.find('[data-test=video]').exists()).toBe(false);
+    expect(wrapper.text()).toContain('Your camera and microphone are disconnected');
+    expect(wrapper.find('.leave-meeting').exists()).toBe(false);
+    finishFlush();await flushPromises();
+  });
+  it('labels the applicant chat for the team and shows a question panel before the first question',async()=>{
+    await open();
+    expect(wrapper.findComponent({name:'InterviewSharedChat'}).props()).toMatchObject({heading:'Chat with the team',theme:'sage'});
+    expect(wrapper.get('.applicant-question-panel').text()).toContain('Your interviewers will share questions here');
   });
   it('joins using only the invitation endpoint and shows square video plus shared chat', async () => {
     await open();
@@ -73,6 +84,12 @@ describe('minimal applicant interview', () => {
     expect(wrapper.text()).not.toContain('First question?'); expect(wrapper.text()).toContain('Next question?');
     m.get.mockImplementation(async url => ({ data: url.endsWith('/question') ? { question: { id: 6, text: '' } } : creds('main') }));
     await vi.advanceTimersByTimeAsync(2000); await flushPromises();
-    expect(wrapper.find('.interview-question').exists()).toBe(false);expect(wrapper.find('[data-test=video]').element).toBe(video);
+    expect(wrapper.find('.interview-question').text()).toContain('Your interviewers will share questions here');expect(wrapper.find('[data-test=video]').element).toBe(video);
   });
 });
+
+  it('keeps agency branding, PlotLine attribution and a visible Leave meeting action with the video',async()=>{
+    await open();expect(wrapper.text()).toContain('Next Level Up');expect(wrapper.text()).toMatch(/Powered by\s+Plotline/);expect(wrapper.get('img[alt="Next Level Up logo"]').attributes('src')).toBe('/assets/nlu/logo.png');
+    await wrapper.get('.interview-leave').trigger('click');await flushPromises();expect(wrapper.find('[data-test=video]').exists()).toBe(false);expect(wrapper.text()).toContain('Rejoin interview');
+    expect(m.post.mock.calls.some(([,body])=>body.action==='leave')).toBe(true);
+  });

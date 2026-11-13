@@ -7,11 +7,26 @@ vi.mock('../../utils/teamMeetingInvitationAccess',()=>({teamMeetingAccessFor:m.t
 vi.mock('../../utils/supervisionInvitationAccess',()=>({supervisionAccessFor:m.supervisionAccess}));
 vi.mock('../teamMeeting/JoinTeamMeetingView.vue',()=>({__esModule:true,default:{template:'<div>Identified meeting workspace</div>'}}));
 vi.mock('../supervision/JoinSupervisionView.vue',()=>({__esModule:true,default:{template:'<div>Identified supervision workspace</div>'}}));
-vi.mock('../teamMeeting/ApplicantInterviewView.vue',()=>({__esModule:true,default:{props:['invitationToken'],template:'<div>Applicant interview {{ invitationToken }}</div>'}}));
+vi.mock('../teamMeeting/ApplicantInterviewView.vue',()=>({__esModule:true,default:{props:['invitationToken'],template:'<div>Applicant interview {{ invitationToken }}<slot name="header-actions" /></div>'}}));
 import Entry from '../MeetingJoinEntry.vue';
 beforeEach(()=>{vi.clearAllMocks();m.route.query={};m.route.params={eventId:'s'.repeat(32)};m.teamAccess.mockReturnValue(null);m.supervisionAccess.mockReturnValue(null);m.get.mockImplementation(async url=>{if(url==='/users/me')throw {response:{status:401}};return {data:{title:'Team meeting',interview:false}};});});
 afterEach(()=>vi.useRealTimers());
 const mountEntry=()=>mount(Entry,{global:{stubs:{RouterLink:{name:'RouterLink',props:['to'],template:'<a><slot /></a>'},VideoSessionRoom:true}}});
+it('opens an explicit supervision guest invitation without inheriting a signed-in or cached identity',async()=>{
+ m.route.params={sessionId:'s'.repeat(32)};m.route.query={guest:'1'};
+ m.get.mockImplementation(async url=>({data:url==='/users/me'?{id:8}:{title:'Individual supervision',waitingRoomEnabled:true}}));
+ m.supervisionAccess.mockReturnValue({token:'cached-person'});
+ const w=mountEntry();await flushPromises();
+ expect(w.text()).toContain('Request to join as guest');
+ expect(m.get.mock.calls.map(([url])=>url)).toEqual([`/meeting-calendar/supervision/${'s'.repeat(32)}`]);
+ expect(m.supervisionAccess).not.toHaveBeenCalled();expect(m.setAuth).not.toHaveBeenCalled();w.unmount();
+});
+it('keeps a branded interview invitation on the applicant flow',async()=>{
+ m.route.params={interviewAgencySlug:'itsco',eventId:'s'.repeat(32)};
+ m.get.mockImplementation(async url=>({data:url.startsWith('/meeting-calendar/')?{title:'Interview',interview:true}:{isInterviewer:false}}));
+ const w=mountEntry();await vi.waitFor(()=>expect(w.text()).toContain('Applicant interview'));
+ expect(m.get.mock.calls.some(([url])=>url==='/users/me')).toBe(false);w.unmount();
+});
 it('keeps an unsigned calendar visitor a guest even with a cached personal invitation',async()=>{m.teamAccess.mockReturnValue({token:'previous-invite'});const w=mountEntry();await flushPromises();expect(w.text()).toContain('Request to join as guest');expect(m.teamAccess).not.toHaveBeenCalled();expect(m.setAuth).not.toHaveBeenCalled();w.unmount();});
 it('uses the signed-in account for a calendar link',async()=>{m.get.mockResolvedValue({data:{id:8,role:'provider'}});const w=mountEntry();await flushPromises();await flushPromises();expect(m.setAuth).toHaveBeenCalledWith(null,{id:8,role:'provider'},null);await vi.waitFor(()=>expect(w.text()).toContain('Identified meeting workspace'));w.unmount();});
 it('uses a scoped email grant without creating an app login',async()=>{m.route.params={eventId:'9'};m.teamAccess.mockReturnValue({token:'personal-scope'});const w=mountEntry();await flushPromises();await flushPromises();await vi.waitFor(()=>expect(w.text()).toContain('Identified meeting workspace'));expect(m.get).not.toHaveBeenCalled();expect(m.setAuth).not.toHaveBeenCalled();w.unmount();});

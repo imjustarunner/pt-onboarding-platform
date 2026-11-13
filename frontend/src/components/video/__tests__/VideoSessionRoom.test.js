@@ -186,9 +186,9 @@ describe('VideoSessionRoom connection lifecycle', () => {
     expect(wrapper.videoDOM.findAll('.vsr__tile--featured')).toHaveLength(1);
     expect(wrapper.videoDOM.find('.vsr__tile--featured').text()).toContain('candidate');
     expect(wrapper.videoDOM.findAll('.vsr__tile--remote.vsr__tile--pip')).toHaveLength(2);
-    expect(wrapper.videoDOM.find('.vsr__stage').attributes('style')).toContain('repeat(3, 120px)');
-    const thumbnailColumns = wrapper.videoDOM.findAll('.vsr__tile--pip').map(tile => Number(tile.element.style.gridColumn)).sort();
-    expect(thumbnailColumns).toEqual([2, 3, 4]);
+    expect(wrapper.videoDOM.find('.vsr__stage--side-left').exists()).toBe(true);
+    const thumbnailRows = wrapper.videoDOM.findAll('.vsr__tile--pip').map(tile => Number(tile.element.style.gridRow)).sort();
+    expect(thumbnailRows).toEqual([1, 2, 3]);
     expect(videoSdk.session.subscribe.mock.calls.every(call => call[2].fitMode === 'contain')).toBe(true);
     // Candidate keeps the same position when the camera is disabled or re-enabled.
     videoSdk.session._handlers.streamPropertyChanged({stream: {streamId:'candidate'}, changedProperty:'hasVideo', newValue:false});
@@ -211,6 +211,23 @@ describe('VideoSessionRoom connection lifecycle', () => {
       expect(videoSdk.session.disconnect).not.toHaveBeenCalled();
     }
     wrapper.unmount();
+  });
+
+  it('does not change subscriptions when the SDK repeats video state events', async () => {
+    const wrapper=mount(VideoSessionRoom,{props:{applicationId:'11111111-1111-4111-8111-111111111111',sessionId:'event-loop',token:'eyJ.test.token',focusCandidate:true,tileFocus:'remote',playJoinTone:false}});
+    await flushPromises();await vi.dynamicImportSettled();
+    const handlers={};
+    const sub={on:vi.fn((type,handler)=>{handlers[type]=handler;}),subscribeToAudio:vi.fn(),subscribeToVideo:vi.fn()};
+    videoSdk.session.subscribe=vi.fn((_stream,element)=>({...sub,element}));
+    videoSdk.session._handlers.streamCreated({stream:{streamId:'candidate',hasAudio:true,hasVideo:true,connection:{connectionId:'peer'}}});await flushPromises();
+    for(let i=0;i<500;i++){
+      handlers.videoEnabled({reason:'publishVideo'});
+      videoSdk.session._handlers.streamPropertyChanged({stream:{streamId:'candidate'},changedProperty:'hasVideo',newValue:true});
+    }
+    await flushPromises();
+    expect(sub.subscribeToAudio).not.toHaveBeenCalled();expect(sub.subscribeToVideo).not.toHaveBeenCalled();
+    expect(videoSdk.session.subscribe).toHaveBeenCalledTimes(1);expect(videoSdk.session.unsubscribe).not.toHaveBeenCalled();
+    expect(videoSdk.session.disconnect).not.toHaveBeenCalled();wrapper.unmount();
   });
 
   it('keeps publisher and subscriber targets mounted while the SDK is connecting', async () => {
@@ -396,6 +413,28 @@ describe('VideoSessionRoom connection lifecycle', () => {
     expect(wrapper.emitted('update:videoFullscreen').at(-1)).toEqual([false]);
     expect(wrapper.emitted('disconnected')).toBeUndefined();
     wrapper.unmount();
+  });
+
+  it('uses the interview shell’s single leave button in fullscreen',async()=>{
+    const wrapper=mount(VideoSessionRoom,{props:{autoConnect:false,videoFullscreen:true,hideLeaveControl:true}});
+    expect(wrapper.videoDOM.find('.vsr__fs-leave').exists()).toBe(false);
+    expect(wrapper.videoDOM.findAll('button').some(button=>button.text()==='Exit full screen')).toBe(true);
+    wrapper.unmount();
+  });
+
+  it('moves interview controls to the footer and back in fullscreen without reconnecting video',async()=>{
+    const footer=document.createElement('footer');footer.id='interview-footer-test';document.body.appendChild(footer);
+    const wrapper=mount(VideoSessionRoom,{props:{applicationId:'11111111-1111-4111-8111-111111111111',sessionId:'controls-layout',token:'eyJ.test.token',controlsTarget:'#interview-footer-test',hideLeaveControl:true,playJoinTone:false}});
+    await flushPromises();await vi.dynamicImportSettled();
+    const current=videoSdk.session;
+    expect(footer.querySelector('[aria-label="Session media controls"]')).not.toBeNull();
+    await wrapper.setProps({videoFullscreen:true});await flushPromises();
+    expect(footer.querySelector('[aria-label="Session media controls"]')).toBeNull();
+    expect(document.querySelector('.vsr--fullscreen [aria-label="Session media controls"]')).not.toBeNull();
+    await wrapper.setProps({videoFullscreen:false});await flushPromises();
+    expect(footer.querySelector('[aria-label="Session media controls"]')).not.toBeNull();
+    expect(videoSdk.session).toBe(current);expect(current.disconnect).not.toHaveBeenCalled();
+    wrapper.unmount();footer.remove();
   });
 
   it('hides sharing until permission arrives, then reveals it without remounting', async () => {
@@ -721,13 +760,18 @@ describe('meeting speaker playback recovery',()=>{
   const sub={on:vi.fn(),subscribeToAudio:vi.fn(),setAudioVolume:vi.fn(),isAudioBlocked:()=>false};
   videoSdk.session.subscribe=vi.fn((_stream,target)=>({...sub,element:target}));
   videoSdk.session._handlers.streamCreated({stream:{streamId:'peer',hasVideo:false,hasAudio:true,connection:{connectionId:'peer'}}});await flushPromises();
+  publisher.publishAudio.mockClear();publisher.publishVideo.mockClear();
   const hidden=vi.spyOn(document,'hidden','get').mockReturnValue(true);document.dispatchEvent(new Event('visibilitychange'));
   hidden.mockReturnValue(false);document.dispatchEvent(new Event('visibilitychange'));await flushPromises();
-  expect(sub.subscribeToAudio).toHaveBeenCalledWith(false);expect(sub.subscribeToAudio).toHaveBeenLastCalledWith(true);
-  expect(publisher.publishAudio).toHaveBeenLastCalledWith(false);expect(wrapper.vm.publishAudio).toBe(false);
+  expect(sub.subscribeToAudio).not.toHaveBeenCalled();
+  expect(publisher.publishAudio).not.toHaveBeenCalled();expect(publisher.publishVideo).not.toHaveBeenCalled();expect(wrapper.vm.publishAudio).toBe(false);
   expect(videoSdk.session.disconnect).not.toHaveBeenCalled();
   await wrapper.videoDOM.findAll('button').find(b=>b.text()==='Resume meeting sound').trigger('click');await flushPromises();
   expect(wrapper.videoDOM.text()).not.toContain('Back from another app?');expect(videoSdk.unblockAudio).toHaveBeenCalled();
+  for(let i=0;i<20;i++)window.dispatchEvent(new Event('focus'));
+  await flushPromises();expect(sub.subscribeToAudio).not.toHaveBeenCalled();
+  expect(publisher.publishAudio).not.toHaveBeenCalled();expect(publisher.publishVideo).not.toHaveBeenCalled();
+  expect(videoSdk.session.subscribe).toHaveBeenCalledTimes(1);expect(videoSdk.session.unsubscribe).not.toHaveBeenCalled();
   wrapper.unmount();hidden.mockRestore();
  });
  it('shows a recovery button when the browser blocks a subscriber and enables sound from a click',async()=>{
@@ -742,7 +786,7 @@ describe('meeting speaker playback recovery',()=>{
   videoSdk.unblockAudio.mockImplementation(async()=>{blocked=false;for(const h of handlers.audioUnblocked)h();});
   await wrapper.videoDOM.get('.vsr__audio-problem button').trigger('click');await flushPromises();
   expect(videoSdk.unblockAudio).toHaveBeenCalled();
-  expect(sub.subscribeToAudio).toHaveBeenCalledWith(true);expect(sub.setAudioVolume).toHaveBeenCalledWith(100);
+  expect(sub.subscribeToAudio).not.toHaveBeenCalled();expect(sub.setAudioVolume).toHaveBeenCalledWith(100);
   expect(wrapper.videoDOM.text()).not.toContain('Your browser has paused meeting sound.');
   blocked=true;for(const h of handlers.audioBlocked)h();await flushPromises();
   videoSdk.unblockAudio.mockRejectedValueOnce(new Error('Autoplay denied'));

@@ -11,7 +11,7 @@ export function teamMeetingAccessFor(eventId){
 }
 export function attachTeamMeetingAccess(config){
  if(config.skipTeamMeetingAccess)return config;
-  const pageRef = /\/join\/team-meeting\/([^/]+)\/?$/.exec(window.location.pathname)?.[1];
+  const pageRef = /\/(?:join\/team-meeting|interview\/[^/]+\/video)\/([^/]+)\/?$/.exec(window.location.pathname)?.[1];
   if (pageRef && !/^\d+$/.test(pageRef)) return config;
  const url = String(config.url || '');
  let id=/^\/team-meetings\/(?:join-info\/)?(\d+)(?:\/|$)/.exec(url)?.[1];
