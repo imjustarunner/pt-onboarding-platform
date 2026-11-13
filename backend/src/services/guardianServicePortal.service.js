@@ -1,7 +1,7 @@
 import pool from '../config/database.js';
 import {serviceMatchesAppointment,guardianCareContexts} from './clientServiceEnrollment.service.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
-const allowedRead=/^\/(?:service-access|session-history(?:\/download)?|appointments|services\/\d+\/return-request|intake-documents(?:\/[^/]+\/download-url)?|enrollment-copies\/[^/]+\/download|cancellations\/[^/]+(?:\/feedback)?)\/?$/;
+const allowedRead=/^\/(?:past-providers|reenrollment|service-access|session-history(?:\/download)?|appointments|services\/\d+\/return-request|intake-documents(?:\/[^/]+\/download-url)?|enrollment-copies\/[^/]+\/download|cancellations\/[^/]+(?:\/feedback)?)\/?$/;
 export function limitedServiceRouteAllowed(method,path){return method==='GET'&&allowedRead.test(path)||method==='POST'&&/^\/(?:cancellations\/[^/]+\/feedback|services\/\d+\/return-request)\/?$/.test(path);}
 const fail=(message,status=403)=>Object.assign(new Error(message),{status,code:'SERVICE_PORTAL_LIMITED'});
 export function limitedGlobalRouteAllowed(method,path){

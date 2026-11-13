@@ -6,6 +6,7 @@ import { listSharedFiles,sharedFile } from '../services/guardianFileShares.servi
 import { guardianCheckins } from '../services/guardianCheckins.service.js';
 import {servicePortalGate,globalServicePortalGate,guardianServiceAccess,guardianSessionHistory,sessionHistoryCsv} from '../services/guardianServicePortal.service.js';
 import {clientServiceReturnRequests} from '../services/clientServiceReturnRequest.service.js';
+import {clientReenrollment} from '../services/clientReenrollment.service.js';
 import { authorizedClient } from '../services/guardianAppointments.service.js';
 import { ensureClientSecureConversation } from '../services/clientSecureConversation.service.js';
 import {familyAccount,updateFamilyAccount} from '../services/familyPortalAccount.service.js';
@@ -97,6 +98,8 @@ router.use((req, res, next) => {
 
 router.use(globalServicePortalGate);
 router.use('/clients/:clientId',servicePortalGate);
+router.get('/clients/:clientId/reenrollment',async(req,res,next)=>{try{if(req.guardianPreviewMode)return res.sendStatus(403);res.set('Cache-Control','private, no-store').json(await clientReenrollment.list({...req.query,userId:req.user.id,clientId:Number(req.params.clientId)}));}catch(e){next(e);}});
+router.get('/clients/:clientId/past-providers',async(req,res,next)=>{try{if(req.guardianPreviewMode)return res.sendStatus(403);res.set('Cache-Control','private, no-store').json(await clientReenrollment.pastProviders({...req.query,userId:req.user.id,clientId:Number(req.params.clientId)}));}catch(e){next(e);}});
 const returnInput=req=>({...req.query,...req.body,userId:req.user.id,clientId:Number(req.params.clientId),serviceId:Number(req.params.serviceId)});
 router.get('/clients/:clientId/services/:serviceId/return-request',async(req,res,next)=>{try{if(req.guardianPreviewMode)return res.sendStatus(403);res.set('Cache-Control','private, no-store').json(await clientServiceReturnRequests.read(returnInput(req)));}catch(error){next(error);}});
 router.post('/clients/:clientId/services/:serviceId/return-request',rateLimit({windowMs:60*60*1000,max:10}),async(req,res,next)=>{try{if(req.guardianPreviewMode)return res.sendStatus(403);res.status(202).json(await clientServiceReturnRequests.submit(returnInput(req)));}catch(error){next(error);}});

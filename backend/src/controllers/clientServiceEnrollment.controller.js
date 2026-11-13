@@ -1,6 +1,7 @@
 import pool from '../config/database.js';
 import {listClientServices,saveClientService,clientAgencyMembership,updateClientServiceStatus} from '../services/clientServiceEnrollment.service.js';
 import {clientServiceReturnRequests} from '../services/clientServiceReturnRequest.service.js';
+import {clientReenrollment} from '../services/clientReenrollment.service.js';
 async function staff(req){
  const clientId=Number(req.params.id),agencyId=Number(req.query.agencyId||req.body?.agencyId);
  if(!Number.isSafeInteger(clientId)||!Number.isSafeInteger(agencyId)||clientId<1||agencyId<1)throw Object.assign(new Error('Choose a client and agency.'),{status:400});
@@ -17,3 +18,5 @@ export const status=async(req,res,next)=>{try{const c=await staff(req);const res
 export const archive=async(req,res,next)=>{try{const c=await staff(req);const result=await updateClientServiceStatus({...c,serviceId:Number(req.params.serviceId),input:{...req.body,status:'discontinued'}});if(c.providerUserId)result.services=result.services.filter(s=>Number(s.provider_user_id)===Number(c.providerUserId));res.json(result);}catch(e){next(e);}};
 export const returns=async(req,res,next)=>{try{const c=await staff(req);res.set('Cache-Control','no-store').json(await clientServiceReturnRequests.list({...c,serviceId:Number(req.params.serviceId)}));}catch(e){next(e);}};
 export const reviewReturn=async(req,res,next)=>{try{const c=await staff(req);await clientServiceReturnRequests.review({...c,serviceId:Number(req.params.serviceId),requestId:req.params.requestId,decision:req.body.decision,message:req.body.message});res.json(await clientServiceReturnRequests.list({...c,serviceId:Number(req.params.serviceId)}));}catch(e){next(e);}};
+export const reenrollmentOptions=async(req,res,next)=>{try{res.set('Cache-Control','no-store').json(await clientReenrollment.options(await staff(req)));}catch(e){next(e);}};
+export const sendReenrollment=async(req,res,next)=>{try{res.status(201).json(await clientReenrollment.send({...await staff(req),input:req.body}));}catch(e){next(e);}};

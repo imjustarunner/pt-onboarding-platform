@@ -173,7 +173,7 @@ export async function getCareInvitationOptions(req,res,next) {
 }
 export async function postCareInvitation(req,res,next) {
  try{const agencyId=safeInt(req.body.agencyId);const gate=await assertOfficeStaff(req,[agencyId]);if(!gate.ok)return res.status(gate.status).json({error:{message:gate.message}});
- const {createCareInvitation}=await import('../services/careInvitation.service.js');res.status(201).json(await createCareInvitation(req.body,req.user.id));}catch(e){next(e);}
+ const {createCareInvitation}=await import('../services/careInvitation.service.js');res.status(201).json(await createCareInvitation(req.body,req.user.id));}catch(e){if(e.code==='EXISTING_RECORD_REVIEW')return res.status(409).set('Cache-Control','no-store').json({error:{code:e.code,message:e.message,clients:e.clients}});next(e);}
 }
 export async function listCareInvitations(req,res,next) {
  try{const agencyId=safeInt(req.query.agencyId);const gate=await assertOfficeStaff(req,[agencyId]);if(!gate.ok)return res.status(gate.status).json({error:{message:gate.message}});

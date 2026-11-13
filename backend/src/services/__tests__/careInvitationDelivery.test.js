@@ -25,3 +25,9 @@ it('reports approval-held mail honestly without claiming it was sent',async()=>{
 it('leaves an uncertain transport outcome for review instead of retrying the send',async()=>{m.send.mockRejectedValue(Error('Connection lost'));await expect(createCareInvitation(input,9)).rejects.toThrow('Connection lost');expect(m.send).toHaveBeenCalledOnce();expect(m.execute).toHaveBeenCalledWith(expect.stringContaining("status='delivery_review'"),[8]);});
 
 it('fits the persisted intake link key width',async()=>{await createCareInvitation(input,9);const key=m.createLink.mock.calls[0][0].publicKey;expect(key.length).toBeLessThanOrEqual(64);expect(key.length).toBeGreaterThanOrEqual(40);});
+it('requires private staff review of an existing client before sending a new enrollment',async()=>{
+ const execute=m.execute.getMockImplementation();m.execute.mockImplementation((sql,...args)=>sql.includes('FROM client_guardians')?Promise.resolve([[{id:12,full_name:'Existing client'}]]):execute(sql,...args));
+ await expect(createCareInvitation(input,9)).rejects.toMatchObject({status:409,code:'EXISTING_RECORD_REVIEW',clients:[{id:12,name:'Existing client'}]});expect(m.createLink).not.toHaveBeenCalled();expect(m.send).not.toHaveBeenCalled();
+ await expect(createCareInvitation({...input,newSubjectConfirmed:true,reviewedClientIds:[99]},9)).rejects.toMatchObject({code:'EXISTING_RECORD_REVIEW'});
+ expect((await createCareInvitation({...input,newSubjectConfirmed:true,reviewedClientIds:[12]},9)).status).toBe('invited');
+});

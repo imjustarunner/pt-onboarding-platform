@@ -125,6 +125,9 @@ export async function updateClientServiceStatus({clientId,agencyId,serviceId,use
     if(future.some(a=>serviceMatchesAppointment(service,{...a,agencyId,providerUserId:service.provider_user_id})))throw fail(409,'Cancel or transfer the remaining future appointments before ending this service. Review their cancellation policies first.');
    }
    const [same]=await conn.execute('SELECT * FROM client_service_enrollments WHERE client_id=? AND agency_id=? AND provider_user_id=? AND service_kind=? FOR UPDATE',[clientId,agencyId,service.provider_user_id,service.service_kind]);
+   if(status==='active')await conn.execute(`INSERT IGNORE INTO client_service_provider_history (service_enrollment_id,client_id,agency_id,provider_user_id,label,service_status,closure_reason,client_end_reason,recorded_at,ended_at)
+    SELECT id,client_id,agency_id,provider_user_id,label,service_status,closure_reason,client_end_reason,created_at,COALESCE(ended_at,updated_at)
+    FROM client_service_enrollments WHERE client_id=? AND agency_id=? AND provider_user_id=? AND service_kind=? AND is_active=0`,[clientId,agencyId,service.provider_user_id,service.service_kind]);
    await conn.execute(`UPDATE client_service_enrollments SET service_status=?,is_active=?,ended_at=${status==='active'?'NULL':'COALESCE(ended_at,UTC_TIMESTAMP())'},updated_by_user_id=?,closure_reason=?,client_end_reason=?
     WHERE client_id=? AND agency_id=? AND provider_user_id=? AND service_kind=?`,[status,status==='active'?1:0,userId,closure,closure?SERVICE_CLOSURE_REASONS[closure]:null,clientId,agencyId,service.provider_user_id,service.service_kind]);
    if(status==='active')await conn.execute(`UPDATE client_service_return_requests r JOIN client_service_enrollments e ON e.id=r.service_enrollment_id

@@ -344,6 +344,7 @@ jobs:
           src/components/guardian/__tests__/GuardianServiceExitFeedback.test.js
           src/components/guardian/__tests__/EndedServicePortal.test.js
           src/components/guardian/__tests__/ServiceReturnRequest.test.js
+          src/components/guardian/__tests__/ReenrollmentFlow.test.js
           src/views/guardian/__tests__/DependentPortalView.test.js
           src/components/admin/__tests__/ClientServiceEnrollments.providers.test.js
           src/composables/__tests__/AppointmentChangeWizard.test.js

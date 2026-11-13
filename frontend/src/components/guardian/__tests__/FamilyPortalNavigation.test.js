@@ -140,7 +140,7 @@ it('retains an ended service in the picker and limits its portal without closing
  const{w}=await setup('/itsco/guardian?clientId=1&serviceId=11&panel=appointments');
  expect(w.findComponent({name:'EndedServicePortal'}).exists()).toBe(true);
  expect(w.findComponent(Shell).props('navigation').some(item=>['messages','notifications','onboarding','enroll'].includes(item.key))).toBe(false);
- const picker=w.findAllComponents({name:'PortalContextPicker'}).find(p=>p.props('label')==='Service & provider');
- expect(picker.props('groups')[0].options).toHaveLength(2);picker.vm.$emit('update:modelValue',12);await flushPromises();
+ const picker=w.findAllComponents({name:'PortalContextPicker'}).find(p=>p.props('label')==='Past provider');
+ expect(picker.props('groups').map(g=>g.label)).toEqual(['Current services & providers','Past providers']);expect(picker.props('groups').flatMap(g=>g.options)).toHaveLength(2);picker.vm.$emit('update:modelValue',12);await flushPromises();
  expect(w.findComponent({name:'EndedServicePortal'}).exists()).toBe(false);expect(w.findComponent(Shell).props('navigation').some(item=>item.key==='messages')).toBe(true);w.unmount();
 });

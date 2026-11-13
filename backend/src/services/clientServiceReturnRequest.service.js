@@ -40,7 +40,9 @@ export function createClientServiceReturnRequests(overrides={}){
    const row={id:input.requestId,agency_id:service.agency_id};
    await db.execute('INSERT INTO client_service_return_requests (id,client_id,agency_id,service_enrollment_id,provider_user_id,requester_user_id,note_encrypted) VALUES (?,?,?,?,?,?,?)',[row.id,input.clientId,row.agency_id,service.id,service.provider_user_id,input.userId,d.encrypt({note},context(row))]);
    await db.execute(`INSERT INTO notifications (type,severity,title,message,user_id,agency_id,related_entity_type,related_entity_id,actor_user_id,actor_source)
-    VALUES ('public_appointment_request_received','info','Client requested services review',?,?,?,'client',?,?,'guardian_portal')`,['A client or authorized guardian asked to be considered for services with you again. Review the request in Services & providers. The request does not reactivate services or book a session.',service.provider_user_id,service.agency_id,input.clientId,input.userId]);
+    SELECT DISTINCT 'public_appointment_request_received','info','Client requested services review',?,u.id,?,'client',?,?,'guardian_portal'
+    FROM users u JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=? AND ua.is_active=1
+    WHERE u.is_active=1 AND COALESCE(u.is_archived,0)=0 AND (u.id=? OR u.role IN ('admin','support','super_admin'))`,['A client or authorized guardian asked to return to services. Review their request in Services & providers and prepare a fresh re-enrollment package if appropriate. This request does not reactivate services or book a session.',service.agency_id,input.clientId,input.userId,service.agency_id,service.provider_user_id]);
    const [[saved]]=await db.execute('SELECT * FROM client_service_return_requests WHERE id=?',[row.id]);
    await db.commit();return {request:view(saved)};
   }catch(error){await db.rollback();throw error;}finally{db.release();}

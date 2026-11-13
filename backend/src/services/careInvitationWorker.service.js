@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import {clientReenrollment} from './clientReenrollment.service.js';
 import IntakeSubmission from '../models/IntakeSubmission.model.js';
 import IntakeSubmissionClient from '../models/IntakeSubmissionClient.model.js';
 import { submittedChildCount, submissionArtifactsComplete } from './enrollmentSubmissionRoster.service.js';
@@ -155,6 +156,7 @@ export async function processCareInvitation(invitation,db,deps={}) {
 }
 
 export async function runCareInvitations() {
+ try{await clientReenrollment.completeSubmitted();}catch(error){console.warn('[care-invitations] Re-enrollment completion needs review:',error.code||'completion_error');}
  const [rows]=await pool.execute("SELECT * FROM care_invitations WHERE status IN ('invited','pending','billing_review','booking_review','pending_delivery','delivery_review','sending') ORDER BY updated_at LIMIT 25");
  for(const invitation of rows) {
   const db=await pool.getConnection();let locked=false;

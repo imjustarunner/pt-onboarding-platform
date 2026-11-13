@@ -2,6 +2,7 @@
  <section class="ended-portal" aria-label="Limited service portal">
   <header class="service-status"><h2>{{ ft(access.statusLabel) }}</h2><p>{{ service?.label }}<template v-if="service?.provider_name"> · {{ service.provider_name }}</template></p><p v-if="access.endedAt">{{ ft('Ended') }}: {{ when(access.endedAt) }}</p><p>Your portal remains available for billing, receipts, session history, signed copies, and account support. New sessions and care requests are unavailable for this service. Your other active services are unchanged.</p></header>
   <p v-if="access.reason" class="status-reason">{{ access.reason }}</p>
+  <ReenrollmentPackages :client-id="clientId" :service-id="Number(service?.id)||undefined" />
   <ServiceReturnRequest v-if="Number(service?.provider_user_id)>0" :key="`return:${clientId}:${service.id}`" :client-id="clientId" :service-id="Number(service.id)" :provider-name="service.provider_name" />
   <GuardianServiceExitFeedback v-if="feedbackId&&!feedbackClosed" :client-id="clientId" :operation-id="feedbackId" @close="feedbackClosed=true" />
   <FamilyLedgerPanel v-if="panel==='billing'" :agency-id="agencyId" :client-id="clientId" :learning-only="learning" />
@@ -23,6 +24,7 @@ import FamilyAccountSettings from './FamilyAccountSettings.vue';
 import GuardianIntakeDocuments from './GuardianIntakeDocuments.vue';
 import GuardianServiceExitFeedback from './GuardianServiceExitFeedback.vue';
 import ServiceReturnRequest from './ServiceReturnRequest.vue';
+import ReenrollmentPackages from './ReenrollmentPackages.vue';
 const props=defineProps({clientId:{type:Number,required:true},agencyId:{type:Number,required:true},userId:Number,service:Object,access:{type:Object,required:true},panel:{type:String,default:'overview'},learning:Boolean,personalPortal:Boolean});
 const api=usePortalCareApi(),route=useRoute(),{ft,locale}=useFamilyLocale();
 const sessions=ref([]),total=ref(0),loading=ref(false),downloading=ref(false),error=ref(''),feedbackClosed=ref(false);let sequence=0;

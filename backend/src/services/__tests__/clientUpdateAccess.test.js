@@ -8,8 +8,16 @@ vi.mock('../assessmentDeliverable.service.js',()=>({assertClientCanViewOwnShared
 vi.mock('../familyNotificationChoices.service.js',()=>({familyNotificationDeliveryGate:m.gate}));
 vi.mock('../clientPortalEmail.service.js',()=>({clientEmailContext:async()=>({portal:{slug:'care',clinical_portal:true},url:path=>`https://auricwell.com/care/${path}`}),sendClientPortalEmail:m.send}));
 vi.mock('../clientPortalContext.service.js',()=>({clientPortalInviteUrl:()=> 'https://auricwell.com/care/login?redirect=%2Fcare%2Fguardian'}));
-import {createClientUpdate,sendClientUpdate,currentClientUpdateRecipient,guardianClientUpdate,confirmUpdateInformation,resolveClientUpdatePacketBinding,listUpdateCatalog,assertClientUpdateSubmissionContext} from '../clientUpdate.service.js';
+import {createClientUpdate,sendClientUpdate,sendReenrollmentUpdate,currentClientUpdateRecipient,guardianClientUpdate,confirmUpdateInformation,resolveClientUpdatePacketBinding,listUpdateCatalog,assertClientUpdateSubmissionContext} from '../clientUpdate.service.js';
 let request,client,contact;
+it('sends a dedicated re-enrollment invitation for an archived client without reopening care',async()=>{
+ vi.stubEnv('CLIENT_UPDATE_WORKFLOWS_ENABLED','');request.purpose='reenrollment';request.service_enrollment_id=3;client.status='ARCHIVED';
+ const result=await sendReenrollmentUpdate(7,{actorUserId:1,guardianEmail:contact.email});expect(result.deliveryStatus).toBe('sent');
+ expect(m.access).toHaveBeenCalledWith({user:{id:8,role:'client_guardian'},clientId:5,allowEndedServices:true});
+ const email=m.send.mock.calls[0][0];expect(email.templateType).toBe('care_reenrollment');expect(email.text).toContain('existing client file');expect(email.linkUrl).not.toContain('/intake/');expect(new URL(email.linkUrl).searchParams.get('redirect')).toContain('panel=past_providers');
+ expect(client.status).toBe('ARCHIVED');expect(m.upsert).not.toHaveBeenCalled();request.status='sent';
+ expect(await resolveClientUpdatePacketBinding({public_key:'packet',scope_type:'agency',organization_id:2,custom_messages:{clientUpdateRequestId:7}})).toMatchObject({attachClientId:5,guardianUserId:8,mergePatch:{}});
+});
 beforeEach(()=>{vi.resetAllMocks();vi.stubEnv('CLIENT_UPDATE_WORKFLOWS_ENABLED','true');
  request={id:7,agency_id:2,client_id:5,status:'draft',guardian_user_id:8,packet_public_key:'packet'};
  client={id:5,agency_id:2,organization_id:20,client_type:'clinical',status:'CURRENT',initials:'TEST'};

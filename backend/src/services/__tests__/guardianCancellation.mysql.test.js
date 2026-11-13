@@ -10,6 +10,7 @@ import {serviceNotificationBlocked} from '../clientServiceNotificationPolicy.ser
 import {updateClientServiceStatus} from '../clientServiceEnrollment.service.js';
 import {guardianSessionHistory} from '../guardianServicePortal.service.js';
 import {createClientServiceReturnRequests} from '../clientServiceReturnRequest.service.js';
+import {createClientReenrollment} from '../clientReenrollment.service.js';
 const enabled=!!process.env.CLINICAL_INTEGRATION_MYSQL_PORT;
 let admin,db,service,created=false;
 const name=`codex_guardian_cancellation_${process.pid}`;
@@ -22,10 +23,15 @@ beforeAll(async()=>{
  admin=await mysql.createConnection(settings);await admin.query(`CREATE DATABASE ${name}`);created=true;db=mysql.createPool({...settings,database:name,connectionLimit:6});
  for(const sql of [
   'CREATE TABLE clients (id INT PRIMARY KEY,agency_id INT,client_type VARCHAR(30),status VARCHAR(30),client_status_id INT)',
-  'CREATE TABLE users (id INT PRIMARY KEY,first_name VARCHAR(80),last_name VARCHAR(80))',
+  'CREATE TABLE users (id INT PRIMARY KEY,first_name VARCHAR(80),last_name VARCHAR(80),role VARCHAR(24) DEFAULT \'provider\',is_active BOOL DEFAULT 1,is_archived BOOL DEFAULT 0)',
+  'CREATE TABLE user_agencies (user_id INT,agency_id INT,is_active BOOL)',
+  'CREATE TABLE client_provider_assignments (client_id INT,organization_id INT,provider_user_id INT,is_active BOOL,created_at DATETIME)',
+  'CREATE TABLE organization_affiliations (organization_id INT,agency_id INT)',
   'CREATE TABLE agencies (id INT PRIMARY KEY,name VARCHAR(80))',
   'CREATE TABLE client_agency_assignments (client_id INT,agency_id INT,is_active BOOL)',
   'CREATE TABLE client_statuses (id INT PRIMARY KEY,status_key VARCHAR(30))',
+  'CREATE TABLE intake_links (id INT PRIMARY KEY,public_key VARCHAR(64))',
+  'CREATE TABLE intake_submissions (id INT PRIMARY KEY,intake_link_id INT,client_id INT,guardian_user_id INT,status VARCHAR(30))',
   'CREATE TABLE appointments (id INT PRIMARY KEY,agency_id INT,provider_user_id INT,business_type VARCHAR(30),source VARCHAR(100),start_at DATETIME,end_at DATETIME,status VARCHAR(40),provider_schedule_event_id INT,office_event_id INT,cancellation_fee_cents INT DEFAULT 0)',
   'CREATE TABLE appointment_participants (appointment_id INT,client_id INT)',
   'CREATE TABLE provider_schedule_events (id INT PRIMARY KEY,agency_id INT,provider_id INT,recurrence_series_id VARCHAR(80),recurrence_stopped BOOL DEFAULT 0)',
@@ -40,8 +46,11 @@ beforeAll(async()=>{
  await db.query(await readFile(new URL('../../../../database/migrations/1818_guardian_service_cancellations.sql',import.meta.url),'utf8'));
  for(const sql of (await readFile(new URL('../../../../database/migrations/1819_guardian_service_exit_feedback.sql',import.meta.url),'utf8')).split(';').filter(sql=>sql.trim()))await db.query(sql);
  for(const sql of (await readFile(new URL('../../../../database/migrations/1820_client_service_lifecycle.sql',import.meta.url),'utf8')).split(';').filter(sql=>sql.trim()))await db.query(sql);
+ for(const sql of (await readFile(new URL('../../../../database/migrations/1752_client_update_workflows.sql',import.meta.url),'utf8')).replace(/^--.*$/gm,'').split(';').filter(sql=>sql.trim()))await db.query(sql);
+ for(const sql of (await readFile(new URL('../../../../database/migrations/1821_client_reenrollment_packages.sql',import.meta.url),'utf8')).replace(/^--.*$/gm,'').split(';').filter(sql=>sql.trim()))await db.query(sql);
  await db.query("INSERT INTO clients VALUES (8,2,'clinical','CURRENT',1),(99,2,'clinical','CURRENT',1)");
- await db.query("INSERT INTO users VALUES (7,'Provider','One'),(99,'Provider','Two')");
+ await db.query("INSERT INTO users (id,first_name,last_name) VALUES (7,'Provider','One'),(99,'Provider','Two')");
+ await db.query('INSERT INTO user_agencies VALUES (7,2,1),(99,2,1)');
  await db.query("INSERT INTO agencies VALUES (2,'Agency One'),(3,'Agency Two')");
  await db.query("INSERT INTO client_statuses VALUES (1,'current')");await db.query('INSERT INTO client_agency_assignments VALUES (8,3,1)');
  for(let id=1;id<=26;id++){
@@ -118,6 +127,25 @@ it.skipIf(!enabled)('cancels all 26 through real migration-defined SQL while pre
  const publicService=closed.services.find(s=>Number(s.id)===Number(enrollment.id));
  expect(publicService).toMatchObject({service_status:'terminated',portal_status:'discontinued',portal_status_label:'Discontinued services',closure_reason:'discontinued_contact'});
  expect(publicService.client_end_reason).toContain('unable to re-establish contact');expect(publicService.client_end_reason).not.toContain('Private outreach');
+ const[[episode]]=await db.execute('SELECT COUNT(*) n FROM client_service_provider_history WHERE client_id=8 AND service_enrollment_id=?',[enrollment.id]);expect(episode.n).toBe(1);
+ const reenroll=createClientReenrollment({db,master:async()=>({intake_steps:[{type:'document',templateId:10,title:'Current agreement v3'}],intake_fields:[]}),contacts:async()=>[{guardian_user_id:9,email:'client@example.invalid'}],recipient:async()=>({recipient:{guardian_user_id:9,email:'client@example.invalid'}}),authorize:async()=>({agency_id:2,services:[publicService]}),send:async id=>{await db.execute("UPDATE client_update_requests SET status='sent',packet_public_key='reenroll-fixture' WHERE id=?",[id]);return {id,deliveryStatus:'sent'};}});
+ const packageInput={clientId:8,agencyId:2,userId:7,input:{serviceId:enrollment.id,recipientUserId:9,confirmed:true,requestKey:'55555555-5555-4555-8555-555555555555'}};
+ const sent=await reenroll.send(packageInput);expect(sent.deliveryStatus).toBe('sent');expect(await reenroll.send(packageInput)).toMatchObject({alreadyCreated:true});
+ const[[packageCount]]=await db.query("SELECT COUNT(*) n FROM client_update_requests WHERE purpose='reenrollment'");expect(packageCount.n).toBe(1);
+ expect((await reenroll.list({userId:9,clientId:8,agencyId:2})).packages[0]).toMatchObject({path:'/intake/reenroll-fixture',documents:[{id:10,title:'Current agreement v3'}]});
+ expect((await reenroll.list({userId:10,clientId:8,agencyId:2})).packages).toEqual([]);
+ await expect(reenroll.packetAccess({id:10},'reenroll-fixture')).rejects.toMatchObject({status:403});
+ expect(await reenroll.packetAccess({id:9},'reenroll-fixture')).toMatchObject({client_id:8,guardian_user_id:9});
+ const[[stillEnded]]=await db.execute('SELECT is_active FROM client_service_enrollments WHERE id=?',[enrollment.id]);expect(stillEnded.is_active).toBe(0);
+ await db.query("INSERT INTO client_provider_assignments VALUES (8,2,99,0,'2020-01-01'),(8,3,100,0,'2020-01-01')");
+ const past=await reenroll.pastProviders({userId:9,clientId:8,agencyId:2});expect(past.providers.some(p=>p.providerUserId===99)).toBe(true);expect(past.providers.some(p=>p.providerUserId===100)).toBe(false);
+ await db.query("INSERT INTO intake_links VALUES (900,'reenroll-fixture')");await db.query("INSERT INTO intake_submissions VALUES (900,900,8,9,'submitted')");
+ let ready=false;
+ const completion=createClientReenrollment({db,submissions:{findById:async()=>({combined_pdf_path:'private/current-packet.pdf',intake_data:{packetGeneration:{status:ready?'complete':'needs_review'}}})},submissionClients:{listBySubmissionId:async()=>[]}});
+ await completion.completeSubmitted();const[[waiting]]=await db.execute('SELECT status FROM client_update_requests WHERE id=?',[sent.id]);expect(waiting.status).toBe('sent');
+ ready=true;await completion.completeSubmitted();await completion.completeSubmitted();const[[done]]=await db.execute('SELECT status FROM client_update_requests WHERE id=?',[sent.id]);expect(done.status).toBe('completed');
+ const[[alert]]=await db.query("SELECT COUNT(*) n FROM notifications WHERE title='Re-enrollment package ready for review'");expect(alert.n).toBe(1);
+ const[[closedAfterPackage]]=await db.execute('SELECT is_active FROM client_service_enrollments WHERE id=?',[enrollment.id]);expect(closedAfterPackage.is_active).toBe(0);
  const[[canceledCount]]=await db.query("SELECT COUNT(*) AS n FROM appointments WHERE id<60 AND status='canceled_by_client'");expect(canceledCount.n).toBe(26);
  const history=await guardianSessionHistory({userId:9,clientId:8,agencyId:2,serviceId:enrollment.id},db,{authorize:async()=>({client_id:8,agency_id:2,service:enrollment})});
  expect(history).toHaveLength(26);expect(history.every(row=>row.status==='canceled_by_client')).toBe(true);expect(history.some(row=>row.providerName==='Provider Two')).toBe(false);

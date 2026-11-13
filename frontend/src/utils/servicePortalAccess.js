@@ -1,4 +1,4 @@
-export const LIMITED_SERVICE_PANELS=['overview','history','appointments','billing','payment_methods','documents','account','help','records','signout'];
+export const LIMITED_SERVICE_PANELS=['past_providers','overview','history','appointments','billing','payment_methods','documents','account','help','records','signout'];
 export function endedServiceAccess(profile,service){
  const terminal=['terminated','archived','dead'].includes(String(profile?.client_status_key||'').toLowerCase())||['ARCHIVED','TERMINATED'].includes(profile?.status);
  const selected=service?.portal_status||(service?.closure_reason==='discontinued_contact'?'discontinued':service?.service_status)||(service?.is_active!=null&&Number(service.is_active)!==1?'discontinued':profile?.portal_access?.status||'active');

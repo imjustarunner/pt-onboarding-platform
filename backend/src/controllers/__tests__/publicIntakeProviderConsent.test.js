@@ -7,9 +7,17 @@ vi.mock('../../services/officeIntakeProviders.service.js', () => ({ listOfficeIn
 import IntakeLink from '../../models/IntakeLink.model.js';
 import IntakeSubmission from '../../models/IntakeSubmission.model.js';
 import { listOfficeIntakeProviders } from '../../services/officeIntakeProviders.service.js';
-import { createPublicConsent } from '../publicIntake.controller.js';
+import { createPublicConsent,lookupPublicRegistrationAccount,matchPublicIntakeClient } from '../publicIntake.controller.js';
+import pool from '../../config/database.js';
 
 let req, res, next;
+it('never recognizes an existing account or client through public enrollment lookups',async()=>{
+ IntakeLink.findByPublicKey.mockResolvedValue({id:20,is_active:1,form_type:'intake',scope_type:'agency',intake_steps:[{type:'registration'}]});pool.execute.mockResolvedValue([[]]);
+ const r=()=>({status:vi.fn().mockReturnThis(),set:vi.fn().mockReturnThis(),json:vi.fn()});
+ for(const email of ['returning@example.invalid','new@example.invalid']){const response=r();await lookupPublicRegistrationAccount({params:{publicKey:'public'},query:{email}},response,next);expect(response.json).toHaveBeenCalledWith(expect.objectContaining({exists:false,accountState:'unverified',profile:null}));}
+ const response=r();await matchPublicIntakeClient({params:{publicKey:'public'},body:{clients:[{fullName:'Someone',dateOfBirth:'2000-01-01'}]}},response,next);expect(response.json).toHaveBeenCalledWith({registration_client_match:'new',registration_matched_client_id:null});
+ expect(pool.execute.mock.calls.some(([sql])=>/FROM users|FROM client_guardians|FROM clients WHERE/.test(sql))).toBe(false);
+});
 beforeEach(() => {
   vi.resetAllMocks();
   IntakeLink.findByPublicKey.mockResolvedValue({ id: 20, is_active: 1, agency_id: 2, form_type: 'intake', scope_type: 'agency', inherits_office_master: 1 });
