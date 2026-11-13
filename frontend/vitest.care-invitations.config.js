@@ -1,2 +1,2 @@
 import vue from '@vitejs/plugin-vue';
-export default {root:new URL('.',import.meta.url).pathname,plugins:[vue()],test:{environment:'jsdom',include:['src/components/admin/__tests__/SendCareInvitation.test.js'],restoreMocks:true}};
+export default {root:new URL('.',import.meta.url).pathname,plugins:[vue()],test:{environment:'jsdom',include:['src/components/admin/__tests__/SendCareInvitation.test.js','src/views/__tests__/PublicIntakeCaptchaLifecycle.test.js'],restoreMocks:true}};

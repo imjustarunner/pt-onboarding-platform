@@ -34,3 +34,15 @@ describe('public intake CAPTCHA policy', () => {
     expect(requiresCaptchaForLink(qa, qa, env)).toBe(false);
   });
 });
+
+it('exempts a care invitation resolved from the stored link, including globally protected practices',()=>{
+ const agency={id:377,name:'The Inner Strength Institute'};
+ const link={id:912,public_key:'care-opaque',care_invitation:{providerName:'Michael Mendez',modality:'IN_PERSON'}};
+ expect(requiresCaptchaForLink(agency,agency,required,link)).toBe(false);
+ expect(requiresCaptchaForLink(agency,agency,{RECAPTCHA_REQUIRED_ORG_NAMES:'Inner Strength'},link)).toBe(false);
+});
+it('does not exempt a care-looking URL or agency flag without the stored invitation marker',()=>{
+ const agency={id:377,name:'Inner Strength',skipCaptcha:true};
+ expect(requiresCaptchaForLink(agency,agency,required,{id:912,public_key:'care-forged'})).toBe(true);
+ expect(requiresCaptchaForLink(agency,agency,required,{id:912,skipCaptcha:true})).toBe(true);
+});

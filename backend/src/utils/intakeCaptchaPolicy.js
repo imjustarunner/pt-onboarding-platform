@@ -3,7 +3,10 @@ import { isSyntheticQaCaptchaAgency } from './syntheticQaCaptchaPolicy.js';
 // Both the public form configuration and session creation use this policy.
 // The agency must be resolved from the stored intake link/affiliation, never
 // from a caller-supplied agency ID or a browser testing flag.
-export function requiresCaptchaForLink(organization, agency, env = process.env) {
+export function requiresCaptchaForLink(organization, agency, env = process.env, link = null) {
+  // This marker is attached only after resolving a stored care_invitations row.
+  // The URL prefix and browser-supplied fields do not grant this exemption.
+  if (link?.care_invitation) return false;
   if (isSyntheticQaCaptchaAgency(agency)) return false;
 
   if (String(env.RECAPTCHA_REQUIRED_FOR_ALL || '').toLowerCase() === 'true') return true;

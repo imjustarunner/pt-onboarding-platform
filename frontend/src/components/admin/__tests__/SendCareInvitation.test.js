@@ -6,10 +6,24 @@ import SendCareInvitation from '../SendCareInvitation.vue';
 let wrapper;
 beforeEach(()=>{vi.clearAllMocks();HTMLDialogElement.prototype.showModal=vi.fn();HTMLDialogElement.prototype.close=vi.fn();m.get.mockImplementation(async url=>({data:url.endsWith('/options')?{providers:[{id:501,name:'Michael Mendez'}],offices:[{officeId:1,providerId:501,name:'Existing office',timezone:'America/Denver'}]}:{invitations:[]}}));m.post.mockResolvedValue({data:{status:'invited',url:'https://auricwell.com/intake/care-private'}});wrapper=mount(SendCareInvitation,{props:{agencies:[{id:377,name:'Inner Strength'}],initialAgencyId:377}});});
 async function open(){await wrapper.get('button').trigger('click');await flushPromises();await wrapper.findAll('select')[1].setValue('501');await wrapper.get('input[type=email]').setValue('parent@example.com');}
-it('sends an optional schedule in the office timezone rather than the browser timezone',async()=>{await open();await wrapper.findAll('select')[3].setValue('1');await wrapper.get('input[type=datetime-local]').setValue('2026-11-17T16:00');await wrapper.get('textarea').setValue('I will email you.');await wrapper.get('form').trigger('submit');await flushPromises();expect(m.post).toHaveBeenCalledWith('/office-clients/care-invitations',expect.objectContaining({agencyId:377,providerId:501,officeId:1,startAt:'2026-11-17T23:00:00.000Z',frequency:'BIWEEKLY',note:'I will email you.'}),expect.anything());expect(wrapper.text()).toContain('Invitation sent.');wrapper.unmount();});
+it('sends an optional schedule in the office timezone rather than the browser timezone',async()=>{await open();await wrapper.findAll('select')[3].setValue('1');await wrapper.get('input[type=datetime-local]').setValue('2026-11-17T16:00');await wrapper.get('textarea').setValue('I will email you.');await wrapper.get('input[name=noteFrom]').setValue('Support Team');await wrapper.get('form').trigger('submit');await flushPromises();expect(m.post).toHaveBeenCalledWith('/office-clients/care-invitations',expect.objectContaining({agencyId:377,providerId:501,officeId:1,startAt:'2026-11-17T23:00:00.000Z',frequency:'BIWEEKLY',note:'I will email you.',noteFrom:'Support Team'}),expect.anything());expect(wrapper.text()).toContain('Invitation sent.');wrapper.unmount();});
 it('supports virtual enrollment without a scheduled time or office',async()=>{await open();await wrapper.findAll('select')[2].setValue('VIRTUAL');await wrapper.get('form').trigger('submit');await flushPromises();expect(m.post).toHaveBeenCalledWith(expect.anything(),expect.objectContaining({modality:'VIRTUAL',officeId:null,startAt:null}),expect.anything());wrapper.unmount();});
 it('retains the same request identity after a timeout',async()=>{m.post.mockRejectedValueOnce(Error('Timeout'));await open();await wrapper.findAll('select')[2].setValue('VIRTUAL');await wrapper.get('form').trigger('submit');await flushPromises();await wrapper.get('form').trigger('submit');await flushPromises();expect(m.post.mock.calls[0][1].requestKey).toBe(m.post.mock.calls[1][1].requestKey);wrapper.unmount();});
 it('offers a private existing-file re-enrollment path and clears matches when the recipient changes',async()=>{
  m.post.mockRejectedValueOnce({response:{data:{error:{code:'EXISTING_RECORD_REVIEW',message:'Review the existing client record.',clients:[{id:12,name:'Existing client'}]}}}});
  await open();await wrapper.findAll('select')[2].setValue('VIRTUAL');await wrapper.get('form').trigger('submit');await flushPromises();expect(wrapper.text()).toContain('Existing client');expect(wrapper.text()).toContain('Send re-enrollment package');expect(wrapper.text()).toContain('private to staff');await wrapper.get('input[type=email]').setValue('different@example.com');expect(wrapper.text()).not.toContain('Existing client');wrapper.unmount();
+});
+
+it('requires attribution for a personal note and does not default it to the selected provider',async()=>{
+ await open();await wrapper.findAll('select')[2].setValue('VIRTUAL');
+ await wrapper.get('textarea').setValue('Thank you for speaking with me.');
+ const author=wrapper.get('input[name=noteFrom]');expect(author.element.value).toBe('');expect(author.attributes('required')).toBeDefined();
+ await wrapper.get('form').trigger('submit');await flushPromises();expect(m.post).not.toHaveBeenCalled();expect(wrapper.text()).toContain('who the personal note is from');
+ await author.setValue('Loriana');await wrapper.get('form').trigger('submit');await flushPromises();
+ expect(m.post).toHaveBeenCalledWith(expect.anything(),expect.objectContaining({noteFrom:'Loriana',note:'Thank you for speaking with me.'}),expect.anything());wrapper.unmount();
+});
+it('does not require or send attribution when the personal note is blank',async()=>{
+ await open();await wrapper.findAll('select')[2].setValue('VIRTUAL');expect(wrapper.find('input[name=noteFrom]').exists()).toBe(false);
+ await wrapper.get('form').trigger('submit');await flushPromises();
+ expect(m.post).toHaveBeenCalledWith(expect.anything(),expect.objectContaining({note:'',noteFrom:''}),expect.anything());wrapper.unmount();
 });

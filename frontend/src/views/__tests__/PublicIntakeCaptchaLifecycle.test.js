@@ -33,11 +33,12 @@ afterEach(() => {
   vi.restoreAllMocks(); setPublicLocale('en');
 });
 
-async function render({ language = 'en', captcha = false, publishedMaster = false, realShell = false } = {}) {
+async function render({ language = 'en', captcha = false, publishedMaster = false, realShell = false, careInvitation = false } = {}) {
   const agency = { id: 2, name: 'Example Agency', slug: 'test' };
   const data = {
     link: { id: 1, form_type: 'intake', scope_type: 'agency', organization_id: 2,
       inherits_office_master: 1, language_code: language, master_channel: 'counseling',
+      ...(careInvitation ? {care_invitation:{providerName:'Michael Mendez',modality:'IN_PERSON'}} : {}),
       has_spanish_master: publishedMaster, master_language_code: language,
       intake_fields: [], intake_steps: [{ id: 'questions', type: 'questions', label: 'Questions', fields: [{ key: 'notes', label: 'Notes', type: 'textarea' }] }] },
     agency, organization: { ...agency, organization_type: 'agency' }, templates: [],
@@ -168,4 +169,15 @@ it('translates an expired CAPTCHA error both ways without remounting the widget'
   await wrapper.vm.switchLinkedLanguage('en'); await flushPromises();
   expect(wrapper.get('.captcha-block .error').text()).toBe('Complete the verification to continue.');
   expect(renderWidget).toHaveBeenCalledTimes(1);
+});
+
+it('opens and starts a staff-issued care invitation without a CAPTCHA widget or token',async()=>{
+ await render({careInvitation:true});
+ expect(wrapper.find('.care-invitation-notice').text()).toContain('Michael Mendez');
+ expect(wrapper.vm.requiresCaptchaAtStart).toBe(false);expect(renderWidget).not.toHaveBeenCalled();
+ expect(wrapper.find('#recaptcha-widget-start').exists()).toBe(false);
+ post.mockResolvedValueOnce({data:{sessionToken:'synthetic-private-session',submissionId:901}});
+ expect(await wrapper.vm.createIntakeSession()).toBe(true);
+ expect(post).toHaveBeenCalledWith('/public-intake/office-captcha-test/session',expect.objectContaining({captchaToken:undefined}),expect.anything());
+ expect(wrapper.vm.sessionToken).toBe('synthetic-private-session');
 });
