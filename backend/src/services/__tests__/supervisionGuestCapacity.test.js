@@ -15,7 +15,7 @@ beforeEach(() => {
   });
 });
 it('admits one guest alongside the supervisor and supervisee', async () => {
-  expect(await reserveSupervisionCalendarGuest({ sessionId: 9, guestId: 4, hostUserId: 7 })).toMatchObject({ activeCount: 3, status: 'admitted' });
+  expect(await reserveSupervisionCalendarGuest({ sessionId: 9, guestId: 4, hostUserId: 7 })).toMatchObject({ activeCount: 3, maxParticipants: 3, status: 'admitted' });
 });
 it('keeps the supervisee’s place when the supervisor and a guest arrive first', async () => {
   m.occupants = ['user-7', 'calendar-guest-4'];

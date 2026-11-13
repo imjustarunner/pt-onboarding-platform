@@ -60,7 +60,7 @@ async function reservePlace(sid,identity,displayName,isGuest,row,db) {
    VALUES(?,?,?,?,UTC_TIMESTAMP(),UTC_TIMESTAMP(),NULL) ON DUPLICATE KEY UPDATE
    joined_at=IF(left_at IS NULL,joined_at,UTC_TIMESTAMP()),last_seen_at=UTC_TIMESTAMP(),left_at=NULL,
    display_name=COALESCE(VALUES(display_name),display_name)`,[sid,identity,displayName,isGuest?1:0]);
- return {alreadyPresent,activeCount:identities.size+(alreadyPresent?0:1),maxParticipants:limit,tokenExpiresAt:reservedAt+40};
+ return {alreadyPresent,activeCount:identities.size+(alreadyPresent?0:1),maxParticipants:individual?limit+1:limit,tokenExpiresAt:reservedAt+40};
 }
 
 export async function reserveSupervisionJoin({sessionId,userId,joinIdentity,displayName=null,matchesOpenAudience,expectedRole=null},database=pool) {

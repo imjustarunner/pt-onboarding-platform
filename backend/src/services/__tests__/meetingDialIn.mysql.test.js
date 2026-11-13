@@ -210,9 +210,13 @@ describe.skipIf(!enabled)('telephone meeting lifecycle with isolated MySQL', () 
     await reserveSupervisionCalendarGuest({...guest,hostUserId:7});
     await expect(reserveSupervisionCalendarGuest(guest)).resolves.toMatchObject({alreadyPresent:true,activeCount:2});
     expect([...(await supervisionJoinOccupancy(5))]).toContain(`calendar-guest-${guest.guestId}`);
-    await expect(reserveSupervisionJoin({sessionId:5,userId:8,joinIdentity:'user-8'})).rejects.toThrow('full');
+    await expect(reserveSupervisionJoin({sessionId:5,userId:8,joinIdentity:'user-8'})).resolves.toMatchObject({activeCount:3,maxParticipants:3});
+    const otherGuest=await calendarGuest();
+    await expect(reserveSupervisionCalendarGuest({...otherGuest,hostUserId:7})).rejects.toThrow('full');
     await reserveSupervisionCalendarGuest({...guest,leave:true});
-    await expect(reserveSupervisionJoin({sessionId:5,userId:8,joinIdentity:'user-8'})).resolves.toMatchObject({activeCount:2});
+    expect([...(await supervisionJoinOccupancy(5))]).not.toContain(`calendar-guest-${guest.guestId}`);
+    await expect(reserveSupervisionJoin({sessionId:5,userId:8,joinIdentity:'user-8'})).resolves.toMatchObject({alreadyPresent:true,activeCount:2});
+    await expect(reserveSupervisionCalendarGuest({...otherGuest,hostUserId:7})).resolves.toMatchObject({activeCount:3});
   });
   it('counts connecting carrier reservations after presence expires and releases them on leave',async()=>{
     await connectHost();await m.db.query("INSERT INTO supervision_session_attendees(session_id,user_id,status) VALUES(5,9,'INVITED')");
