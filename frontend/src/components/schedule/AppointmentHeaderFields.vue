@@ -580,10 +580,9 @@
       <p v-if="notificationMode === 'default'" class="ahf-info-banner ahf-info-banner--ok" role="status">
         Uses organization default reminders. Clients and providers will be notified per your organization's settings. Client preferences override the default.
       </p>
-      <DefaultNotificationPreview v-if="notificationMode === 'default'" :agency-id="agencyId" :date-ymd="dateYmd" :start-time="startTime" :timezone-label="timezoneLabel" />
-      <p v-if="notificationMode !== 'default'" class="ahf-hint">
-        Organization reminders still apply. Save the session, then open Notifications to add an extra reminder. Client preferences and consent apply to every channel.
-      </p>
+      <DefaultNotificationPreview :custom-reminders="notificationMode === 'customizable' ? customReminders : []" :agency-id="agencyId" :date-ymd="dateYmd" :start-time="startTime" :timezone-label="timezoneLabel" />
+      <SessionNotificationEditor v-if="notificationMode !== 'default'" :rules="customReminders" :agency-id="agencyId" :disabled="disabled"
+        :date-ymd="dateYmd" :start-time="startTime" :timezone-label="timezoneLabel" @update:rules="emit('update:customReminders', $event)" />
     </section>
 
     <!-- Section 5: Notes -->
@@ -592,6 +591,9 @@
         <span class="ahf-section-icon" aria-hidden="true">📝</span>
         <h4 class="ahf-section-title">Notes</h4>
       </header>
+      <details class="ahf-hint" data-testid="scheduling-notes-visibility"><summary>Who can see these notes?</summary>
+        <p>Saved with the appointment or office request for staff with scheduling access. Synced calendar details can include these notes, including for people who can view that calendar. The family appointment list does not display this field. Write treatment details in the session’s clinical note.</p>
+      </details>
       <div class="ahf-notes-wrap">
         <textarea
           class="ahf-input ahf-notes"
@@ -613,6 +615,7 @@ import { officeRoomTitle } from '../../utils/officeRoomTitle.js';
 import ServiceInformation from '../notes/ServiceInformation.vue';
 import { computed, ref, watch } from 'vue';
 import ScheduleAgencyLogo from './ScheduleAgencyLogo.vue';
+import SessionNotificationEditor from './SessionNotificationEditor.vue';
 import DefaultNotificationPreview from './DefaultNotificationPreview.vue';
 
 const roomPreferenceSearch = ref('');
@@ -721,6 +724,7 @@ const props = defineProps({
   videoRoomMode: { type: String, default: 'unique_session' },
   showNotifications: { type: Boolean, default: false },
   notificationMode: { type: String, default: 'default' },
+  customReminders: { type: Array, default: () => [] },
   showSchedulingNotes: { type: Boolean, default: false },
   schedulingNotes: { type: String, default: '' },
   showOthersPresent: { type: Boolean, default: false },
@@ -753,6 +757,7 @@ const emit = defineEmits([
   'update:recurrenceFrequency',
   'update:videoRoomMode',
   'update:notificationMode',
+  'update:customReminders',
   'update:schedulingNotes',
   'update:othersPresentNames',
   'request-office',

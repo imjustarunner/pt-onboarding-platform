@@ -1,3 +1,4 @@
+import { readAppointmentNotificationRules } from './appointmentNotificationCustomization.service.js';
 import { appointmentFamilyRecipients } from './appointmentFamilyRecipients.service.js';
 import { createHash } from 'node:crypto';
 import ClientGuardian from '../models/ClientGuardian.model.js';
@@ -619,6 +620,16 @@ async function buildRecipientDeliveryPlan(appointmentId, recipientGuardianUserId
     }
   }
 
+  if (appt.notificationMode === 'customizable' && prefs?.optionalRemindersEnabled !== false) {
+    for (const rule of await readAppointmentNotificationRules(appt.id, appt.agencyId)) {
+      if (!canUseChannel(rule.channel)) continue;
+      deliveries.push({ kind: 'standard_reminder', ruleKey: `appointment_custom:${rule.id}`,
+        channel: rule.channel, offsetMinutes: rule.offsetMinutes, recipientRole: 'client',
+        requiresConfirmation: rule.askConfirmation && prefs?.confirmationRequestsEnabled !== false,
+        isRequired: false, messageBody: rule.message || buildReminderMessage({ title: appt.title,
+          when: sessionReminderTime(appt), askConfirmation: rule.askConfirmation && prefs?.confirmationRequestsEnabled !== false }) });
+    }
+  }
   const unique = dedupeSessionReminders(deliveries);
 
   return {

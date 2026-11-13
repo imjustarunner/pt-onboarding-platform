@@ -1,6 +1,6 @@
 <template>
   <details class="notification-preview" @toggle="open = $event.target.open">
-    <summary>Preview default notifications</summary>
+    <summary>{{ customReminders.length ? 'Preview session notifications' : 'Preview default notifications' }}</summary>
     <p v-if="loading" role="status">Loading notification defaults…</p>
     <p v-else-if="error" role="alert">{{ error }} <button type="button" @click="load">Retry</button></p>
     <template v-else-if="settings">
@@ -26,6 +26,7 @@ import { dedupeSessionReminders } from '../../navigation/sessionReminderRules.js
 
 const props = defineProps({
   agencyId: { type: Number, default: 0 },
+  customReminders: { type: Array, default: () => [] },
   dateYmd: { type: String, default: '' },
   startTime: { type: String, default: '' },
   timezoneLabel: { type: String, default: '' }
@@ -81,6 +82,7 @@ const rules = computed(() => {
   if (tenant.bookingConfirmation?.enabled) add(tenant.bookingConfirmation, { immediate: true, confirmation: true, kind: 'confirmation', ruleKey: 'booking_confirmation' });
   if (tenant.standardReminder?.enabled !== false) add(tenant.standardReminder || {});
   for (const rule of tenant.additionalReminders || []) if (rule.enabled !== false) add(rule, { kind: 'additional_reminder', ruleKey: String(rule.id || rule.label || rule.channel) });
+  for (const rule of props.customReminders) add({ ...rule, offsetValue: rule.offsetMinutes, offsetUnit: 'minutes' }, { ruleKey: `appointment_custom:${rule.id}` });
   return dedupeSessionReminders(entries);
 });
 </script>

@@ -8,6 +8,7 @@ export default defineConfig({
     environment: 'jsdom',
     include: [
       'src/components/schedule/__tests__/officeSessionBookingFlow.test.js',
+      'src/components/schedule/__tests__/sessionNotificationEditor.test.js',
       'src/components/schedule/__tests__/supervisionScheduler.test.js',
       'src/components/schedule/__tests__/supervisionActionDialog.test.js',
       'src/components/schedule/__tests__/supervisionNotificationSettings.test.js',

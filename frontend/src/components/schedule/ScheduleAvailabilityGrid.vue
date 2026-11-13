@@ -2074,6 +2074,7 @@
           :video-room-mode="editorVideoRoomMode"
           :show-notifications="editorUseBookSessionLayout"
           :notification-mode="editorNotificationMode"
+          :custom-reminders="editorCustomReminders"
           :show-scheduling-notes="editorUseBookSessionLayout"
           :scheduling-notes="requestNotes"
           :show-others-present="editorShowOthersPresent"
@@ -2106,6 +2107,7 @@
           @update:recurrenceWeekdays="editorRecurrenceWeekdays = $event"
           @update:videoRoomMode="editorVideoRoomMode = $event"
           @update:notificationMode="editorNotificationMode = $event"
+          @update:customReminders="editorCustomReminders = $event"
           @update:schedulingNotes="requestNotes = $event"
           @update:othersPresentNames="editorOthersPresentNames = $event"
           @request-office="onEditorRequestOffice"
@@ -14278,6 +14280,7 @@ const editorSchoolOverlapNames=computed(() => {
 });
 const editorVideoRoomMode = ref('unique_session');
 const editorNotificationMode = ref('default');
+const editorCustomReminders = ref([]);
 watch(editorClinicalParticipantsMode, (mode) => {
   if (!editorIsClinical.value) return;
   // Attendance "others" is a names field — do not auto-expand Additional clients.
@@ -15972,6 +15975,7 @@ async function loadEditorReminders() {
     editorReminderLastSent.value = '';
     return;
   }
+  const notificationSnapshot = JSON.stringify([editorNotificationMode.value, editorCustomReminders.value]);
   editorRemindersLoading.value = true;
   editorRemindersError.value = '';
   editorShowReminders.value = true;
@@ -15986,6 +15990,11 @@ async function loadEditorReminders() {
       const appointment = appointmentRes?.data?.appointment;
       if (appointment) {
         editorHydratingAppointment.value=true;
+        const firstHydration = editorAppointmentBaseline.value?.id !== apptId;
+        if (firstHydration && JSON.stringify([editorNotificationMode.value, editorCustomReminders.value]) === notificationSnapshot) {
+          editorNotificationMode.value = appointment.notificationMode || 'default';
+          editorCustomReminders.value = Array.isArray(appointment.customReminders) ? appointment.customReminders.map(row => ({ ...row })) : [];
+        }
         const previous = editorAppointmentBaseline.value;
         const edited = previous?.id === apptId && (
           String(bookingServiceCode.value || '') !== previous.serviceCode
@@ -15995,7 +16004,7 @@ async function loadEditorReminders() {
         );
         if (editorStatus.value === editorStatusBaseline.value) editorStatus.value=String(appointment.status || 'scheduled');
         editorStatusBaseline.value=String(appointment.status || 'scheduled');
-        editorAppointmentBaseline.value={id:apptId,serviceCode:String(appointment.serviceCode || appointment.billing?.serviceCode || ''),tenantServiceId:Number(appointment.tenantServiceId || 0),serviceLocationId:Number(appointment.serviceLocationId || 0),modality:String(appointment.modality || '')};
+        editorAppointmentBaseline.value={id:apptId,serviceCode:String(appointment.serviceCode || appointment.billing?.serviceCode || ''),tenantServiceId:Number(appointment.tenantServiceId || 0),serviceLocationId:Number(appointment.serviceLocationId || 0),modality:String(appointment.modality || ''),notificationMode:appointment.notificationMode || 'default',customReminders:JSON.stringify(appointment.customReminders || [])};
         if (!edited) {
           if (appointment.modality) {editorModality.value=String(appointment.modality);bookingModality.value=String(appointment.modality);}
           if (appointment.serviceCode || appointment.billing?.serviceCode) bookingServiceCode.value=String(appointment.serviceCode || appointment.billing.serviceCode);
@@ -16276,6 +16285,7 @@ function openAppointmentEditor({ mode = 'create', kind = '', id = 0, defaults = 
   editorAppointmentBaseline.value=null;
   editorVideoRoomMode.value = String(defaults.videoRoomMode || 'unique_session');
   editorNotificationMode.value = String(defaults.notificationMode || 'default');
+  editorCustomReminders.value = Array.isArray(defaults.customReminders) ? defaults.customReminders.map(row => ({ ...row })) : [];
   editorOthersPresentNames.value = String(defaults.othersPresentNames || '');
   const modality = String(defaults.modality || '').trim().toUpperCase()
     || String(bookingModality.value || '').trim().toUpperCase()
@@ -16811,6 +16821,7 @@ const normalizeBookingSelectionPayload = () => {
     status: 'scheduled',
     videoRoomMode: String(editorVideoRoomMode.value || 'unique_session'),
     notificationMode: String(editorNotificationMode.value || 'default'),
+    customReminders: editorNotificationMode.value === 'customizable' ? editorCustomReminders.value : [],
     othersPresentNames: String(editorOthersPresentNames.value || '').trim() || null,
     notes: String(requestNotes.value || '').trim() || null
   };
@@ -22051,12 +22062,7 @@ const completePlatformVirtualSessionBooking = async ({
     addonNote
   ].filter(Boolean);
   const description = descriptionParts.join('\n\n');
-  const titleWithNotes = (() => {
-    const note = String(requestNotes.value || '').trim();
-    if (!note) return baseTitle;
-    const short = note.length > 40 ? `${note.slice(0, 37)}…` : note;
-    return `${baseTitle} · ${short}`;
-  })();
+  const titleWithNotes = baseTitle;
   const firstGuardianUserId = Array.from(virtualSessionSelectedGuardianKeySet.value.values())
     .map((key) => Number(String(key || '').split(':')[0] || 0))
     .find((n) => n > 0) || null;
@@ -22103,6 +22109,7 @@ const completePlatformVirtualSessionBooking = async ({
       status: 'scheduled',
       videoRoomMode: String(editorVideoRoomMode.value || 'unique_session'),
       notificationMode: String(editorNotificationMode.value || 'default'),
+      customReminders: editorNotificationMode.value === 'customizable' ? editorCustomReminders.value : [],
       othersPresentNames: String(editorOthersPresentNames.value || '').trim() || undefined
     });
     appointmentId = Number(apptRes?.data?.appointment?.id || apptRes?.data?.appointment?.appointment?.id || 0) || null;
@@ -26389,10 +26396,15 @@ const saveScheduleStackItem = async (item, { scope = null, pastConfirmed = false
         const next={serviceCode:String(bookingServiceCode.value || ''),tenantServiceId:Number(editorTenantServiceId.value || 0),serviceLocationId:Number(editorServiceLocationId.value || 0),modality:String(editorModality.value || '')};
         for(const key of Object.keys(next))if(next[key] && next[key]!==baseline[key])clinicalPatch[key]=next[key];
       }
+      if (baseline?.id === Number(editorAppointmentId.value) && (editorNotificationMode.value !== (baseline.notificationMode || 'default')
+          || JSON.stringify(editorCustomReminders.value) !== (baseline.customReminders || '[]'))) {
+        clinicalPatch.notificationMode = editorNotificationMode.value;
+        clinicalPatch.customReminders = editorNotificationMode.value === 'customizable' ? editorCustomReminders.value : [];
+      }
       if(Object.keys(clinicalPatch).length){
         await api.patch(`/appointments/${Number(editorAppointmentId.value)}`,clinicalPatch,{skipGlobalLoading:true});
         editorStatusBaseline.value=editorStatus.value;
-        if(baseline)editorAppointmentBaseline.value={...baseline,...clinicalPatch};
+        if(baseline)editorAppointmentBaseline.value={...baseline,...clinicalPatch,...(clinicalPatch.customReminders ? {customReminders:JSON.stringify(clinicalPatch.customReminders)} : {})};
       }
     }
     const patchResp = await api.patch(`/users/${uid}/schedule-events/${eid}`, patchBody, { skipGlobalLoading: true });

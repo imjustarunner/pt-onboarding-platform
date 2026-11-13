@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { splitSqlStatements, stripSqlLineComments } from '../../../../database/migrationSqlUtils.js';
 vi.mock('../../config/database.js', () => ({ default: {} }));
 import { ensureSchedulingCatalogEntry } from '../schedulingCatalogSync.service.js';
+import { readAppointmentNotificationRules, saveAppointmentNotificationRules } from '../appointmentNotificationCustomization.service.js';
 import { refreshClientSessionNotifications } from '../sessionPreferenceSchedule.service.js';
 describe.skipIf(!process.env.CLINICAL_INTEGRATION_MYSQL_PORT)('clinical integration against migration-defined MySQL tables', () => {
   let admin, db, created = false;
@@ -25,7 +26,8 @@ describe.skipIf(!process.env.CLINICAL_INTEGRATION_MYSQL_PORT)('clinical integrat
       ['982_appointment_reminders.sql', /^CREATE TABLE IF NOT EXISTS appointment_reminders /],
       ['983_session_notification_system.sql', /^ALTER TABLE appointment_reminders /],
       ['1702_appointment_guardian_recipients.sql', /^ALTER TABLE appointment_reminders /],
-      ['1723_contact_reminder_sms_consent.sql', /^ALTER TABLE appointment_reminders /]
+      ['1723_contact_reminder_sms_consent.sql', /^ALTER TABLE appointment_reminders /],
+      ['1816_appointment_notification_customizations.sql', /^CREATE TABLE IF NOT EXISTS appointment_notification_customizations /]
     ]) {
       const source = await readFile(new URL(`../../../../database/migrations/${file}`, import.meta.url), 'utf8');
       for (const sql of splitSqlStatements(stripSqlLineComments(source))) if (pattern.test(sql.replace(/\s+/g, ' ').trim())) await db.query(sql);
@@ -36,6 +38,7 @@ describe.skipIf(!process.env.CLINICAL_INTEGRATION_MYSQL_PORT)('clinical integrat
   });
   beforeEach(async () => {
     await db.query('DELETE FROM appointment_reminders');
+    await db.query('DELETE FROM appointment_notification_customizations');
     plan = { appointment: { id: 8, agencyId: 377, startAt: '2080-11-29 18:00:00' }, deliveries: [delivery] };
   });
   afterAll(async () => {
@@ -44,6 +47,16 @@ describe.skipIf(!process.env.CLINICAL_INTEGRATION_MYSQL_PORT)('clinical integrat
     if (admin) await admin.end();
   });
   const refresh = () => refreshClientSessionNotifications(377, 21, 10, { db, getPlan: async () => plan });
+  it('persists session-specific choices, keeps agency boundaries and supports returning to defaults', async () => {
+    const rules=[{id:'day-before',channel:'email',offsetMinutes:1440,message:'Please arrive early.',askConfirmation:true}];
+    await saveAppointmentNotificationRules(8,377,rules,501,db);
+    expect(await readAppointmentNotificationRules(8,377,db)).toEqual(rules);
+    expect(await readAppointmentNotificationRules(8,378,db)).toEqual([]);
+    await saveAppointmentNotificationRules(8,378,[{...rules[0],message:'Foreign change'}],507,db);
+    expect(await readAppointmentNotificationRules(8,377,db)).toEqual(rules);
+    await saveAppointmentNotificationRules(8,377,[],501,db);
+    expect(await readAppointmentNotificationRules(8,377,db)).toEqual([]);
+  });
   it('uses actual dictionary columns and preserves saved global restrictions on repeated sync', async () => {
     await ensureSchedulingCatalogEntry('90791', { db });
     expect((await db.query("SELECT code FROM scheduling_service_codes WHERE code='90791'"))[0]).toHaveLength(1);

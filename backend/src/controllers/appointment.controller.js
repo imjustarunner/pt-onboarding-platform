@@ -164,6 +164,7 @@ export const createAppointmentHandler = async (req, res, next) => {
           othersPresentNames: req.body?.othersPresentNames || req.body?.others_present_names || null,
           videoRoomMode: req.body?.videoRoomMode || req.body?.video_room_mode || 'unique_session',
           notificationMode: req.body?.notificationMode || req.body?.notification_mode || 'default',
+          customReminders: req.body?.customReminders || [],
           serviceCode: req.body?.serviceCode || req.body?.service_code || null,
           timeZone: req.body?.timeZone,
           serviceLocationId: req.body?.serviceLocationId || null,

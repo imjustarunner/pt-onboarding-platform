@@ -1,3 +1,4 @@
+import { normalizeCustomSessionReminders, readAppointmentNotificationRules, saveAppointmentNotificationRules, validateCustomReminderChannels } from './appointmentNotificationCustomization.service.js';
 import { recordQaAttendanceTerms, syncQaAppointmentBalance, requireQaOutcomeElapsed } from './qaAppointmentBilling.service.js';
 import { requireClientSessionBooking } from './clientSessionBookingRollout.service.js';
 import { withClientSchedulingLock } from './clientSchedulingGuard.service.js';
@@ -158,7 +159,7 @@ export async function getAppointmentBundle(appointmentId, { includeTimeline = tr
       communications = [];
     }
   }
-  return { ...appt, serviceSetting: await resolveAppointmentServiceSetting(appt), participants, billing, reminders, communications };
+  return { ...appt, customReminders: appt.notificationMode === 'customizable' ? await readAppointmentNotificationRules(appt.id, appt.agencyId) : [], serviceSetting: await resolveAppointmentServiceSetting(appt), participants, billing, reminders, communications };
 }
 
 export async function createAppointment(input) {
@@ -186,6 +187,7 @@ async function createLockedAppointment({
   othersPresentNames = null,
   videoRoomMode = 'unique_session',
   notificationMode = 'default',
+  customReminders = [],
   createdByUserId = null,
   participants = [],
   billing = null,
@@ -198,8 +200,11 @@ async function createLockedAppointment({
   resumeReplacementAppointmentId = null,
   deferScheduleNotice = false
 } = {}) {
+  customReminders = normalizeCustomSessionReminders(customReminders);
+  if (customReminders.length) notificationMode = 'customizable';
   const aid = Number(agencyId || 0);
   if (!aid) throw Object.assign(new Error('agencyId is required'), { status: 400 });
+  await validateCustomReminderChannels(aid, customReminders);
 
   if(officeEventId)timeZone=await savedOfficeBookingTimezone(officeEventId,aid);
   const start = toMysqlDateTime(startAt, timeZone);
@@ -402,6 +407,7 @@ async function createLockedAppointment({
     }
   }
 
+  if (customReminders.length) await saveAppointmentNotificationRules(appt.id, aid, customReminders, createdByUserId);
   await recordQaAttendanceTerms(appt, bookedAttendancePolicy, createdByUserId);
 
   // Replacement approval links its calendar occurrence before finalizing any
@@ -429,7 +435,12 @@ export async function updateAppointment(appointmentId, patch = {}, options = {})
   });
 }
 async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId = null, settleOutcome = true, guardianCancellationClientId = null, expectedScheduleFingerprint = null, expectedParticipantClientId = null } = {}) {
+  if (patch.customReminders !== undefined) patch.customReminders = normalizeCustomSessionReminders(patch.customReminders);
   const existing = await Appointment.findById(appointmentId);
+  if (existing && patch.customReminders !== undefined) {
+    if (patch.customReminders.length && patch.notificationMode !== 'default') patch.notificationMode = 'customizable';
+    await validateCustomReminderChannels(existing.agencyId, patch.customReminders);
+  }
   if (!existing) return null;
   const persistedSourceTimezone=Object.hasOwn(existing,'persistedSourceTimezone')?existing.persistedSourceTimezone:existing.sourceTimezone||null;
   const sourceZoneForEdit=existing.officeEventId&&['serviceCode','addonServiceCodes','providerUserId','startAt','endAt','timeZone','modality','serviceLocationId'].some(key=>patch[key]!==undefined)
@@ -584,6 +595,8 @@ async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId 
   } else {
     await Appointment.update(appointmentId, updatePatch);
   }
+  if (patch.customReminders !== undefined || patch.notificationMode === 'default') await saveAppointmentNotificationRules(appointmentId, existing.agencyId, patch.notificationMode === 'default' ? [] : patch.customReminders, actorUserId);
+  if (existing.officeEventId && (patch.customReminders !== undefined || patch.notificationMode !== undefined)) await pool.execute("UPDATE office_events SET session_context_json=JSON_SET(COALESCE(session_context_json,JSON_OBJECT()),'$.notificationMode',?,'$.customReminders',CAST(? AS JSON)) WHERE id=? AND client_id IN (SELECT client_id FROM appointment_participants WHERE appointment_id=?)", [patch.notificationMode || existing.notificationMode, JSON.stringify(patch.notificationMode === 'default' ? [] : patch.customReminders || await readAppointmentNotificationRules(appointmentId, existing.agencyId)), existing.officeEventId, appointmentId]);
   if(reconcileHours&&policySourceTimezone&&policySourceTimezone!==persistedSourceTimezone)await pool.execute('UPDATE appointments SET source_timezone=? WHERE id=? AND agency_id=?',[policySourceTimezone,appointmentId,existing.agencyId]);
 
   if (patch.serviceCode !== undefined || patch.addonServiceCodes !== undefined) {
@@ -622,6 +635,7 @@ async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId 
   if (moved || ['modality','roomId','serviceLocationId','providerUserId'].some(k => patch[k] !== undefined && String(patch[k]) !== String(existing[k]))) {
     await (await import('./appointmentScheduleNotice.service.js')).appointmentScheduleNotices.queue(appointmentId, { eventType: moved ? 'moved' : 'updated', before: existing, actorUserId });
   }
+  if (!moved && (patch.customReminders !== undefined || patch.notificationMode !== undefined)) await scheduleSessionNotifications(appointmentId, { replace: true });
   const bundle = await getAppointmentBundle(appointmentId);
   return settlement ? { ...bundle, settlement } : bundle;
 }
@@ -794,7 +808,8 @@ export async function upsertAppointmentForOfficeBook({
   clinicalSessionId = null,
   packageEntitlementId = null,
   strict = false,
-  preserveParticipants = false
+  preserveParticipants = false,
+  notificationMode, customReminders, notes
 } = {}) {
   let linkageLock;
   let linkageLockName;
@@ -833,7 +848,10 @@ export async function upsertAppointmentForOfficeBook({
         clinicalSessionId: clinicalSessionId || existing.clinicalSessionId,
         serviceCode: serviceCode || existing.serviceCode,
         participants: !preserveParticipants && participants.length ? participants : undefined,
-        source: 'office_book'
+        source: 'office_book',
+        ...(notificationMode !== undefined ? { notificationMode } : {}),
+        ...(customReminders !== undefined ? { customReminders } : {}),
+        ...(notes !== undefined ? { notes } : {})
       }, { actorUserId, settleOutcome: false });
     }
 
@@ -854,6 +872,7 @@ export async function upsertAppointmentForOfficeBook({
       ensureContext: false,
       source: 'office_book',
       title: title || (appointmentTypeCode ? String(appointmentTypeCode) : 'Session'),
+      notificationMode, customReminders, notes,
       createdByUserId: actorUserId,
       participants
     });

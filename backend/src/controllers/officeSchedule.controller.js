@@ -1,3 +1,6 @@
+import { schedulingResponseForUser } from '../services/schedulingBillingAccess.service.js';
+import { bookSessionInOwnedOffice } from '../services/ownedOfficeSession.service.js';
+import { normalizeCustomSessionReminders, validateCustomReminderChannels } from '../services/appointmentNotificationCustomization.service.js';
 import { runOfficeDecision } from './officeApprovalWorkflow.controller.js';
 import { bookingServiceDuration } from '../utils/bookingServiceDuration.js';
 import { requireClientSessionBooking } from '../services/clientSessionBookingRollout.service.js';
@@ -2693,10 +2696,22 @@ export const createOfficeBookingRequest = async (req, res, next) => {
       }
     }
 
+    const customReminders = normalizeCustomSessionReminders(req.body?.customReminders || []);
+    const notificationMode = customReminders.length ? 'customizable' : req.body?.notificationMode || 'default';
+    const ownedBooking = await bookSessionInOwnedOffice({ office: loc, roomId: room?.id || null,
+      providerId: requestedProviderId, actorUserId: req.user.id, agencyId: policyAgencyId, clientId,
+      startAt, endAt, recurrence: normalizedRecurrence, occurrenceCount: bookedOccurrenceCount || 1,
+      ...validatedSelection, serviceLocationId: rawSelection.serviceLocationId || null, notes,
+      tenantServiceId: Number(req.body?.tenantServiceId || 0) || null, packageEntitlementId: Number(req.body?.packageEntitlementId || 0) || null,
+      appointmentId: req.body?.appointmentId, appointmentSeriesId: req.body?.appointmentSeriesId,
+      notificationMode, customReminders });
+    if (ownedBooking) return res.status(201).json(await schedulingResponseForUser(req.user, policyAgencyId, ownedBooking));
+    await validateCustomReminderChannels(policyAgencyId, customReminders);
+
     // Every new room request uses the same allocator and pending hold. Legacy
     // same-day allocation used a separate room scan and bypassed duplicate holds.
     const created = await OfficeBookingRequest.create({
-      sessionContext: { appointmentId: Number(req.body?.appointmentId || 0) || null, appointmentSeriesId: req.body?.appointmentSeriesId || null, timestampsUtc: true, agencyId: policyAgencyId,
+      sessionContext: { appointmentId: Number(req.body?.appointmentId || 0) || null, appointmentSeriesId: req.body?.appointmentSeriesId || null, timestampsUtc: true, agencyId: policyAgencyId, notificationMode, customReminders, schedulingNotes: notes,
         tenantServiceId: Number(req.body?.tenantServiceId || 0) || null, packageEntitlementId: Number(req.body?.packageEntitlementId || 0) || null },
       requestType: 'PROVIDER_REQUEST',
       roomType: req.body?.roomType || 'counseling',

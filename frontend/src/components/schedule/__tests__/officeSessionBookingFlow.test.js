@@ -66,10 +66,13 @@ it('carries the reserved office, room, biweekly cadence and billing location int
   await nextTick();
   expect(s.bookingClassificationInvalidReason).toBe('');
   expect(s.normalizeBookingSelectionPayload()).toMatchObject({ agencyId: 2, clientId: 81, modality: 'IN_PERSON', serviceLocationId: 51 });
+  s.editorNotificationMode = 'customizable';
+  s.editorCustomReminders = [{id:'extra',channel:'email',offsetMinutes:60,message:'Arrive early',askConfirmation:true}];
   await s.submitRequest();
   expect(s.modalError).toBe('');
   expect(mocks.post).toHaveBeenCalledWith('/office-schedule/booking-requests', expect.objectContaining({
     agencyId: 2, clientId: 81, modality: 'IN_PERSON', serviceLocationId: 51,
+    notificationMode:'customizable',customReminders:[expect.objectContaining({id:'extra',offsetMinutes:60,message:'Arrive early'})],
     officeLocationId: 8, roomId: 10, recurrence: 'BIWEEKLY', bookedOccurrenceCount: 7,
     startAt: '2026-11-26T15:00:00', endAt: '2026-11-26T16:00:00'
   }));
