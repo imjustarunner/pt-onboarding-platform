@@ -1,8 +1,8 @@
 <template>
   <section class="booking-rollout" aria-labelledby="booking-rollout-title">
     <h2 id="booking-rollout-title">Client session booking · provider rollout</h2>
-    <p>Enable providers as each group transitions from TherapyNotes. Everyone starts with “Coming soon.” Select up to 10 people at a time; office requests, availability and supervision remain available.</p>
-    <p>Recommended: start with 5–10 providers, confirm their scheduling transition, and review their first week before enabling the next group.</p>
+    <p v-if="policy.enabledForAllProviders" role="status">Scheduling is open for all eligible providers in this practice, including new providers. Individual pauses below still apply.</p>
+    <p v-else>Enable providers as each group transitions from TherapyNotes. Select up to 10 people at a time; office requests, availability and supervision remain available.</p>
     <p v-if="error" role="alert">{{ error }}</p>
     <p v-if="notice" role="status">{{ notice }}</p>
     <div class="rollout-toolbar">
@@ -34,7 +34,7 @@ const props = defineProps({ agencyId: { type: Number, required: true } });
 const busy=ref(false), loaded=ref(false), error=ref(''), notice=ref(''), providers=ref([]), policy=ref({ revision:0, entries:[] });
 const selected=ref([]), search=ref(''), filter=ref('all'), action=ref('enable'), note=ref(''), reviewed=ref(false);
 let request=0;
-const enabled = id => policy.value.entries.some(entry => Number(entry.providerUserId)===id && entry.enabled===true);
+const enabled = id => { const entry=policy.value.entries.find(entry => Number(entry.providerUserId)===id); return entry ? entry.enabled===true : policy.value.enabledForAllProviders===true; };
 const enabledCount=computed(()=>providers.value.filter(provider=>enabled(provider.id)).length);
 const filteredProviders=computed(()=>providers.value.filter(provider=>provider.name.toLowerCase().includes(search.value.toLowerCase()) && (filter.value==='all' || (filter.value==='enabled')===enabled(provider.id))));
 async function load() {

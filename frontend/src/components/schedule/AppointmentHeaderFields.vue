@@ -582,7 +582,7 @@
       </p>
       <DefaultNotificationPreview v-if="notificationMode === 'default'" :agency-id="agencyId" :date-ymd="dateYmd" :start-time="startTime" :timezone-label="timezoneLabel" />
       <p v-if="notificationMode !== 'default'" class="ahf-hint">
-        You can add an extra reminder for this session. Client opt-outs and channel preferences still apply. Texting is TBD — email and in-app are standard.
+        Organization reminders still apply. Save the session, then open Notifications to add an extra reminder. Client preferences and consent apply to every channel.
       </p>
     </section>
 
