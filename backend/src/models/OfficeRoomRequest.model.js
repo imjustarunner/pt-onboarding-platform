@@ -44,6 +44,8 @@ class OfficeRoomRequest {
          ol.name AS location_name,
          ol.timezone AS office_timezone,
          rm.name AS room_name,
+         rm.room_number,
+         rm.label AS room_label,
          u.first_name AS user_first_name,
          u.last_name AS user_last_name,
          u.email AS user_email
@@ -66,6 +68,8 @@ class OfficeRoomRequest {
          ol.name AS location_name,
          ol.timezone AS office_timezone,
          rm.name AS room_name,
+         rm.room_number,
+         rm.label AS room_label,
          u.first_name AS user_first_name,
          u.last_name AS user_last_name,
          u.email AS user_email
@@ -101,6 +105,8 @@ class OfficeRoomRequest {
          ol.name AS location_name,
          ol.timezone AS office_timezone,
          rm.name AS room_name,
+         rm.room_number,
+         rm.label AS room_label,
          u.first_name AS user_first_name,
          u.last_name AS user_last_name,
          u.email AS user_email

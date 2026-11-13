@@ -2800,6 +2800,17 @@ if (shouldStartServerBackgroundJobs()) {
   void officeEmailTick();
   setInterval(officeEmailTick, 60000).unref();
 
+  let outreachRejectionInFlight = false;
+  const outreachRejectionTick = async () => {
+    if (outreachRejectionInFlight) return;
+    outreachRejectionInFlight = true;
+    try { await (await import('./services/unsolicitedOutreach.service.js')).sendQueuedOutreachRejections(); }
+    catch (error) { console.warn('[outreach notices] Worker unavailable', error.code || 'error'); }
+    finally { outreachRejectionInFlight = false; }
+  };
+  void outreachRejectionTick();
+  setInterval(outreachRejectionTick, 60000).unref();
+
   let meetingExpiryInFlight = false;
   const closeEmptyPastMeetings = async () => {
     if (meetingExpiryInFlight) return;

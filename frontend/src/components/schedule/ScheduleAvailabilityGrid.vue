@@ -34,15 +34,6 @@
     <div v-if="scheduleChangeNotice" class="hint" role="status" style="padding:12px;border:1px solid currentColor;border-radius:8px;margin-bottom:12px;">
       {{ scheduleChangeNotice }} <button type="button" class="btn btn-secondary btn-sm" @click="scheduleChangeNotice=''">Dismiss</button>
     </div>
-    <details v-if="!hideCalendarSubscription && Number(userId) === Number(authStore.user?.id) && effectiveAgencyIds.length" class="sched-subscription" data-tour="my-schedule-subscription" @toggle="subscriptionOpen = $event.target.open">
-      <summary>Add my schedule to a personal calendar</summary>
-      <template v-if="subscriptionOpen">
-        <div v-for="id in effectiveAgencyIds" :key="id">
-          <h3 v-if="effectiveAgencyIds.length > 1">{{ agencyLabel(id) }}</h3>
-          <CalendarSharing :agency-id="id" />
-        </div>
-      </template>
-    </details>
     <AppointmentWaiverReviewQueue :agency-ids="effectiveAgencyIds" @reviewed="onAppointmentWaiverReviewed" />
     <ScheduledTrainingEditor v-if="trainingEditorOpen && canScheduleTraining(authStore.user)" :agency-id="Number(effectiveAgencyId)" @close="trainingEditorOpen=false" @saved="refreshScheduleSummaryInBackground()" />
     <Teleport to="body"><div v-if="selectedTrainingEventId" class="training-detail-backdrop" @click.self="selectedTrainingEventId=null"><section class="training-detail-dialog" role="dialog" aria-modal="true" aria-label="Scheduled training" @keydown.esc="selectedTrainingEventId=null"><button type="button" class="btn btn-secondary" @click="selectedTrainingEventId=null">Close</button><router-link v-if="selectedTrainingInvited" :to="`/join/team-meeting/${selectedTrainingEventId}`" class="btn btn-primary">Open training</router-link><ScheduledTrainingPanel :event-id="selectedTrainingEventId" @state="selectedTrainingInvited=$event.invited" /></section></div></Teleport>
@@ -216,43 +207,7 @@
           </div>
         </div>
 
-        <div v-if="calendarSettingsOpen" class="sched-command__filters" role="group" aria-label="Calendar settings sections">
-          <button v-if="!hideOfficeAndCalendarIntegration" type="button" class="sched-command__filter"
-            :class="{ on: activeSettingsSection === 'people' }" :aria-expanded="activeSettingsSection === 'people'"
-            aria-controls="sched-settings-people" @click="toggleSettingsSection('people')">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-            People
-            <span aria-hidden="true">▾</span>
-          </button>
-          <button v-if="!hideOfficeAndCalendarIntegration" type="button" class="sched-command__filter"
-            :class="{ on: activeSettingsSection === 'office' }" :aria-expanded="activeSettingsSection === 'office'"
-            aria-controls="sched-settings-office" @click="toggleSettingsSection('office')">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/></svg>
-            Office
-            <span aria-hidden="true">▾</span>
-          </button>
-          <button v-if="!hideOfficeAndCalendarIntegration && googleCalendarEnabled" type="button" class="sched-command__filter"
-            :class="{ on: activeSettingsSection === 'feeds' }" :aria-expanded="activeSettingsSection === 'feeds'"
-            aria-controls="sched-settings-feeds" @click="toggleSettingsSection('feeds')">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
-            Feeds
-            <span aria-hidden="true">▾</span>
-          </button>
-          <button type="button" class="sched-command__filter"
-            :class="{ on: activeSettingsSection === 'layout' }" :aria-expanded="activeSettingsSection === 'layout'"
-            aria-controls="sched-settings-layout" @click="toggleSettingsSection('layout')">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
-            Layout
-            <span aria-hidden="true">▾</span>
-          </button>
-          <button type="button" class="sched-command__filter"
-            :class="{ on: activeSettingsSection === 'more' }" :aria-expanded="activeSettingsSection === 'more'"
-            aria-controls="sched-settings-more" @click="toggleSettingsSection('more')">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>
-            More
-            <span aria-hidden="true">▾</span>
-          </button>
-        </div>
+
       </div>
 
       <div v-else class="sched-chrome-top" data-tour="my-schedule-week-nav">
@@ -459,7 +414,7 @@
                 class="sched-select" aria-label="Schedule organization"
                 :value="scheduleOrgScopeValue"
                 :disabled="loading"
-                title="Choose one organization to show, or All. Use Shown chips to combine several."
+                title="Choose one organization to show, or All. Combine organizations in Settings → Calendars."
                 @change="onScheduleOrganizationChange($event)"
               >
                 <option :value="0">All organizations</option>
@@ -489,50 +444,44 @@
           :class="{ 'sr-only': compactPageChrome }"
         >
           <span class="sched-calendar-settings__title">Calendar settings</span>
-          <span class="sched-calendar-settings__hint muted">people · office · feeds · layout · more tools</span>
+          <span class="sched-calendar-settings__hint muted">Calendars, display, privacy, connections and tools</span>
           <span class="sched-calendar-settings__chev" aria-hidden="true">▾</span>
         </summary>
         <div class="sched-calendar-settings__body">
-          <div class="sched-display-preferences">
-            <label class="sched-client-names">
-              <span>Client names</span>
+          <div class="sched-settings-heading">
+            <strong>Schedule settings</strong>
+            <button type="button" class="sched-pill" aria-label="Close schedule settings" @click="calendarSettingsOpen = false">Close</button>
+          </div>
+          <div class="sched-settings-tabs" role="tablist" aria-label="Schedule settings" @keydown="onSettingsTabKeydown">
+            <button v-for="section in settingsSections" :key="section.id" :id="`sched-tab-${section.id}`" type="button"
+              role="tab" :aria-selected="activeSettingsSection === section.id" :aria-controls="`sched-settings-${section.id}`"
+              :tabindex="activeSettingsSection === section.id ? 0 : -1" :class="{ on: activeSettingsSection === section.id }"
+              @click="toggleSettingsSection(section.id)">{{ section.label }}</button>
+          </div>
+          <section id="sched-settings-privacy" v-show="activeSettingsSection === 'privacy'" role="tabpanel" aria-labelledby="sched-tab-privacy" class="sched-settings-section">
+            <h3>Client privacy</h3>
+            <p class="hint">Choose what appears on your calendar cards and hover text. Open a session to see its client details.</p>
+            <label class="sched-client-names"><span>Client names</span>
               <select v-model="clientNameDisplay" class="sched-select" data-testid="schedule-client-name-display" @change="saveClientNameDisplay">
-                <option value="hidden">Hide names</option>
-                <option value="initials">Initials only</option>
-                <option value="full">Full names</option>
+                <option value="hidden">Hide names</option><option value="initials">Initials only</option><option value="full">Full names</option>
               </select>
             </label>
-            <label class="sched-client-names"><span>Time format</span><select v-model="scheduleTimeFormat" class="sched-select" @change="saveClientNameDisplay"><option value="12h">12-hour · 8 AM</option><option value="24h">24-hour · 08:00</option></select></label>
-            <span class="sched-display-preferences__hint">On calendar cards and hover text. Open an appointment for client details.</span>
-          </div>
-              <div v-if="agencyFilterOptions.length > 1" class="sched-organization-options">
-                <div class="sched-calendars-label" style="margin-left: 8px;">Shown</div>
-                <div class="sched-calendars-actions">
-                  <button type="button" class="sched-chip" :class="{ on: scheduleOrgScopeAll }" :disabled="loading" title="Show events from every organization you belong to" @click="selectAllScheduleAgencies">All</button>
-                </div>
-                <button
-                  v-for="opt in agencyFilterOptions"
-                  :key="`org-chip-${opt.id}`"
-                  type="button"
-                  class="sched-chip"
-                  :class="{ on: activeScheduleAgencyIdSet.has(Number(opt.id)) }"
-                  :disabled="loading"
-                  @click="toggleScheduleAgencyFilter(Number(opt.id))"
-                  :title="activeScheduleAgencyIdSet.has(Number(opt.id)) ? `Hide ${opt.label} from this schedule` : `Show ${opt.label} on this schedule`"
-                  :style="activeScheduleAgencyIdSet.has(Number(opt.id)) ? { '--chipAccent': agencyBadgeColorById(opt.id) || undefined } : undefined"
-                >
-                  <span
-                    v-if="agencyBadgeColorById(opt.id)"
-                    class="sched-org-chip-dot"
-                    :style="{ background: agencyBadgeColorById(opt.id) }"
-                    aria-hidden="true"
-                  ></span>
-                  <img v-if="agencyIconUrlById(opt.id)" :src="agencyIconUrlById(opt.id)" alt="" class="sched-org-chip-icon">
-                  {{ opt.label }}
-                </button>
-              </div>
+          </section>
+          <section id="sched-settings-calendars" v-show="activeSettingsSection === 'calendars'" role="tabpanel" aria-labelledby="sched-tab-calendars" class="sched-settings-section">
+            <div class="sched-settings-section-heading"><h3>Shown organizations</h3>
+              <button type="button" class="sched-pill" :disabled="loading || scheduleOrgScopeAll" @click="selectAllScheduleAgencies">Show all</button>
+            </div>
+            <p class="hint">Select the organizations to include in this calendar.</p>
+            <div class="sched-organization-list">
+              <label v-for="opt in agencyFilterOptions" :key="`org-choice-${opt.id}`" class="sched-organization-choice">
+                <input type="checkbox" :checked="activeScheduleAgencyIdSet.has(Number(opt.id))" :disabled="loading" @change="toggleScheduleAgencyFilter(Number(opt.id))" />
+                <ScheduleAgencyLogo :agency-id="Number(opt.id)" :icon-url="agencyIconUrlById(opt.id) || ''" :label="opt.label" class="sched-org-chip-icon" />
+                <span>{{ opt.label }}</span>
+              </label>
+            </div>
+          </section>
       <div class="sched-tool-bar" data-tour="my-schedule-tool-groups">
-        <div v-if="!hideOfficeAndCalendarIntegration" id="sched-settings-people" v-show="!compactPageChrome || activeSettingsSection === 'people'" class="sched-tool-cluster" title="Ways to see other people’s calendars">
+        <div v-if="!hideOfficeAndCalendarIntegration" id="sched-settings-people" aria-labelledby="sched-tab-people" role="tabpanel" v-show="activeSettingsSection === 'people'" class="sched-tool-cluster" title="Ways to see other people’s calendars">
           <span class="sched-tool-cluster__label">People</span>
           <button
             type="button"
@@ -558,7 +507,7 @@
           <router-link v-if="Number(userId) === Number(authStore.user?.id)" class="sched-pill sched-pill-link" :to="scheduleOrgTo('/meeting-times')">Offer meeting times</router-link>
         </div>
 
-        <div v-if="!hideOfficeAndCalendarIntegration" id="sched-settings-office" v-show="!compactPageChrome || activeSettingsSection === 'office'" class="sched-tool-cluster" title="Filter your office rooms by building">
+        <div v-if="!hideOfficeAndCalendarIntegration" id="sched-settings-office" aria-labelledby="sched-tab-office" role="tabpanel" v-show="activeSettingsSection === 'office'" class="sched-tool-cluster" title="Filter your office rooms by building">
           <span class="sched-tool-cluster__label">Office</span>
         <button v-if="!hideOfficeAndCalendarIntegration" type="button" class="sched-pill"
           :class="{ on: showMyRooms }" role="switch" :aria-checked="String(showMyRooms)"
@@ -618,11 +567,11 @@
 
         <div
           v-if="!hideOfficeAndCalendarIntegration && googleCalendarEnabled"
-          id="sched-settings-feeds" v-show="!compactPageChrome || activeSettingsSection === 'feeds'"
+          id="sched-settings-feeds" aria-labelledby="sched-tab-feeds" role="tabpanel" v-show="activeSettingsSection === 'feeds'"
           class="sched-tool-cluster"
           title="Google Calendar for this SSO account."
         >
-          <span class="sched-tool-cluster__label">My calendars</span>
+          <h3>Google Calendar</h3><p v-if="rawSummary?.googleSyncPending" role="status" class="hint sched-settings-full-width">Updating Google Calendar… Your app schedule is ready.</p><p v-if="rawSummary?.googleOverlayRefreshError" class="hint sched-settings-full-width">{{ rawSummary.googleOverlayRefreshError }}</p><p class="hint sched-settings-full-width">Only events outside AuricWell appear as Google overlays. Open an app appointment for its Google Calendar link.</p>
           <button
             type="button"
             class="sched-pill"
@@ -673,8 +622,9 @@
           </button>
         </div>
 
-        <div id="sched-settings-layout" v-show="!compactPageChrome || activeSettingsSection === 'layout'" class="sched-tool-cluster" title="How the week grid is laid out">
-          <span class="sched-tool-cluster__label">Display</span>
+        <div id="sched-settings-layout" aria-labelledby="sched-tab-layout" role="tabpanel" v-show="activeSettingsSection === 'layout'" class="sched-tool-cluster" title="How the week grid is laid out">
+          <h3>Display</h3>
+          <label class="sched-client-names"><span>Time format</span><select v-model="scheduleTimeFormat" class="sched-select" aria-label="Time format" @change="saveClientNameDisplay"><option value="12h">12-hour · 8 AM</option><option value="24h">24-hour · 08:00</option></select></label>
           <label class="sched-inline compact"><span>Jump to date</span><input type="date" :value="weekJumpDateValue" :disabled="loading" data-tour="my-schedule-week-jump" @change="onWeekJumpDateChange" /></label>
           <button
             type="button"
@@ -773,11 +723,11 @@
         </button>
       </div>
 
-      <div id="sched-settings-more" v-show="!compactPageChrome || activeSettingsSection === 'more'" class="sched-more-tools sched-more-tools--flat" data-tour="my-schedule-more-tools">
+      <div id="sched-settings-more" aria-labelledby="sched-tab-more" role="tabpanel" v-show="activeSettingsSection === 'more'" class="sched-more-tools sched-more-tools--flat" data-tour="my-schedule-more-tools">
         <div class="sched-more-tools__heading">More tools</div>
         <div class="sched-more-tools__body">
           <div class="sched-tool-cluster sched-tool-cluster--wrap">
-            <span class="sched-tool-cluster__label">Programs & layout</span>
+            <span class="sched-tool-cluster__label">Schedule shortcuts</span>
             <button
               v-if="showCompanyEventsCalendarButton"
               type="button"
@@ -831,8 +781,9 @@
             </div>
           </details>
         </div>
-      </div>
+          <ScheduleCalendarMenu v-if="!hideCalendarSubscription && Number(userId) === Number(authStore.user?.id)" :agency-ids="effectiveAgencyIds" />
           <div ref="scheduleToolsTarget" class="sched-settings-tools-target" />
+      </div>
         </div>
       </details>
 
@@ -1768,7 +1719,7 @@
             <div class="nr-head-copy">
               <div id="nr-title" class="nr-title">{{ modalEditorTitle }}</div>
               <div class="nr-subtitle">{{ modalScheduleSubtitle }}</div>
-              <div v-if="editorAppointmentId" class="nr-subtitle">Appointment #{{ editorAppointmentId }}<span v-if="editorClinicalSessionId"> · Clinical session #{{ editorClinicalSessionId }}</span></div>
+
             </div>
           </div>
           <div class="nr-head-context" data-testid="schedule-modal-context">
@@ -1861,6 +1812,7 @@
             >
               Change appointment…
             </button>
+            <a v-if="editorGoogleCalendarUrl" :href="editorGoogleCalendarUrl" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm">View Google Calendar copy</a>
           </div>
 
           <div v-if="isSupervisionEditMode && selectedSupvSession?.recurrenceSeriesId" class="supervision-recurrence-badge" data-testid="supervision-recurrence-summary">
@@ -5194,7 +5146,7 @@
                   </span>
                   <span class="stack-details-label">{{ item.label }}</span>
                   <span v-if="item.subLabel" class="stack-details-sub">{{ item.subLabel }}</span>
-                  <span v-if="item.appointmentId" class="stack-details-sub">Appointment #{{ item.appointmentId }}<template v-if="item.clinicalSessionId"> · Clinical session #{{ item.clinicalSessionId }}</template></span>
+
                 </span>
                 <span class="stack-details-pick-cta">{{ item.googleEvent && !item.eventId ? 'Open' : 'Open in app' }} →</span>
               </button>
@@ -5202,7 +5154,7 @@
                 <div v-if="item.kindLabel" class="stack-details-kind">{{ item.kindLabel }}</div>
                 <div class="stack-details-label">{{ item.label }}</div>
                 <div v-if="item.subLabel" class="stack-details-sub">{{ item.subLabel }}</div>
-                <div v-if="item.appointmentId" class="stack-details-sub">Appointment #{{ item.appointmentId }}<template v-if="item.clinicalSessionId"> · Clinical session #{{ item.clinicalSessionId }}</template></div>
+
                 <div v-if="item.detailText && scheduleEventEditId !== Number(item.eventId || 0)" class="stack-details-detail">{{ item.detailText }}</div>
 
                 <div
@@ -5914,7 +5866,7 @@ import { officeRequestWindows } from '../../utils/officeRequestWindows.js';
 import ProviderEnrollmentWaitlist from '../provider/ProviderEnrollmentWaitlist.vue';
 import { getScheduleSummaryResponse } from '../../utils/scheduleSummaryRequests';
 import { prefetchNextScheduleWeek } from '../../utils/scheduleSummaryPrefetch.js';
-import CalendarSharing from '../CalendarSharing.vue';
+import ScheduleCalendarMenu from './ScheduleCalendarMenu.vue';
 import { virtualOfficeGuestUrl } from '../../utils/virtualOfficeLinks.js';
 import ScheduleColorSettings from './ScheduleColorSettings.vue';
 import { defaultScheduleColors, resolveScheduleColors, scheduleTypePalette, scheduleBlockColorKey, isExactHourAppointment } from '../../utils/scheduleAppearance.js';
@@ -6409,7 +6361,7 @@ const gridMinHour = computed(() => hours.value[0] ?? 7);
 const gridMaxHour = computed(() => (hours.value.at(-1) ?? 21) + 1);
 const selectedSchoolSoftBlock = ref(null);
 watch(() => props.userId, () => { selectedSchoolSoftBlock.value = null; });
-const schoolSoftBlocks = computed(() => schoolSoftScheduleBlocks(summary.value?.schoolSoftSessions || [], bookingTimezoneIana.value, scheduleTimeFormat.value).map(block => scheduleClientFace(block, clientNameDisplay.value)));
+const schoolSoftBlocks = computed(() => schoolSoftScheduleBlocks(summary.value?.schoolSoftSessions || [], bookingTimezoneIana.value, scheduleTimeFormat.value).map(block => scheduleClientFace(block, Number(props.userId) === Number(authStore.user?.id) ? clientNameDisplay.value : 'hidden')));
 const untimedSchoolBlocksForDay = day => {
   const date = addDaysYmd(summary.value?.weekStart || weekStart.value, dayIdxFromWeekStartMonday(day));
   return schoolSoftBlocks.value.filter(block => block.untimed && block.displayDate === date);
@@ -6487,7 +6439,7 @@ const allDayBlocksForDay = (day) => {
     }
   }
   blocks.push(...schoolClosureBlocks(summary.value?.schoolDayClosures, summary.value?.schoolAssignments, date));
-  return blocks.map(block => scheduleClientFace(block, clientNameDisplay.value));
+  return blocks.map(block => scheduleClientFace(block, Number(props.userId) === Number(authStore.user?.id) ? clientNameDisplay.value : 'hidden'));
 };
 const hasVisibleAllDayItems = computed(() => visibleDays.value.some(day => allDayBlocksForDay(day).length));
 const openAllDayBlock = (event, block, day) => {
@@ -6499,7 +6451,6 @@ const openAllDayBlock = (event, block, day) => {
 const loading = ref(false);
 const error = ref('');
 const rawSummary = ref(null);
-const subscriptionOpen = ref(false);
 const googleCalendarEnabled = computed(() => Number(rawSummary.value?.providerId) === Number(props.userId) && rawSummary.value?.googleCalendarEnabled === true);
 const familyPersonalMode = ref('busy');
 const familyScheduleDetails = ref({});
@@ -6511,8 +6462,11 @@ const familyScheduleEnabled = computed(() => {
 });
 const summary = computed({
   get: () => {
-    const raw = rawSummary.value ? filterSummaryByActiveAgencies(rawSummary.value) : null;
-    const data = raw ? {...raw, scheduleEvents:decorateSessionLocations(includeOfficeClientSessions(raw.scheduleEvents, raw.officeEvents), raw.schoolAssignments, raw.officeEvents, String(agencyStore.currentAgency?.timezone || 'America/Denver'))} : raw;
+    const raw = rawSummary.value;
+    // Resolve owned-room links before display filters: a room reserved under
+    // another agency still supplies the location of this provider's session.
+    const projected = raw ? {...raw, scheduleEvents:decorateSessionLocations(includeOfficeClientSessions(raw.scheduleEvents, raw.officeEvents), raw.schoolAssignments, raw.officeEvents, String(agencyStore.currentAgency?.timezone || 'America/Denver'))} : raw;
+    const data = projected ? filterSummaryByActiveAgencies(projected) : null;
     if (!data || !familyScheduleEnabled.value || Number(props.userId) !== Number(authStore.user?.id)) return data;
     return { ...data, scheduleEvents: familyScheduleProjection(data.scheduleEvents, familyPersonalMode.value, familyScheduleDetails.value) };
   },
@@ -6545,7 +6499,28 @@ const showPeerBusyOverlay = ref(false);
 const showAvailabilityEditor = ref(false);
 const showAvailHoursLegend = ref(false);
 const calendarSettingsOpen = ref(false);
-const activeSettingsSection = ref('layout');
+const activeSettingsSection = ref('calendars');
+const settingsSections = computed(() => [
+  { id: 'calendars', label: 'Calendars' },
+  ...(!props.hideOfficeAndCalendarIntegration ? [{ id: 'people', label: 'People' }, { id: 'office', label: 'Office' }] : []),
+  { id: 'layout', label: 'Display' },
+  { id: 'privacy', label: 'Privacy' },
+  ...(!props.hideOfficeAndCalendarIntegration && googleCalendarEnabled.value ? [{ id: 'feeds', label: 'Connections' }] : []),
+  { id: 'more', label: 'More' }
+]);
+watch(settingsSections, sections => {
+  if (!sections.some(section => section.id === activeSettingsSection.value)) activeSettingsSection.value = 'calendars';
+});
+function onSettingsTabKeydown(event) {
+  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+  event.preventDefault();
+  const sections = settingsSections.value;
+  const current = sections.findIndex(section => section.id === activeSettingsSection.value);
+  const index = event.key === 'Home' ? 0 : event.key === 'End' ? sections.length - 1
+    : (current + (event.key === 'ArrowRight' ? 1 : -1) + sections.length) % sections.length;
+  activeSettingsSection.value = sections[index].id;
+  nextTick(() => document.getElementById(`sched-tab-${sections[index].id}`)?.focus());
+}
 const hubTitleSwitchRef = ref(null);
 const hubViewMenuOpen = ref(false);
 const compactHubViews = computed(() =>
@@ -6574,7 +6549,7 @@ function toggleCalendarSettings() {
 }
 function toggleSettingsSection(id) {
   calendarSettingsOpen.value = true;
-  activeSettingsSection.value = activeSettingsSection.value === id ? '' : id;
+  activeSettingsSection.value = id;
 }
 function onCalendarSettingsToggle(ev) {
   // The compact toolbar controls each panel; native details only controls the legacy layout.
@@ -9947,6 +9922,35 @@ onUnmounted(() => {
   clearTimeout(nextWeekPrefetchTimer);
   clearTimeout(scheduleRetryTimer);
 });
+const tagPersonalSummary = data => {
+  const tagged = { ...data };
+  for (const field of ['scheduleEvents', 'officeEvents', 'supervisionSessions', 'schoolAssignments', 'officeRequests', 'schoolRequests', 'virtualWorkingHours']) {
+    tagged[field] = (data[field] || []).map(row => ({ ...row, _agencyId: Number(row.agencyId || 0) || null }));
+  }
+  return tagged;
+};
+let scheduleReadGeneration = 0;
+function refreshGoogleSummaryInBackground({ cacheKey, generation, uid, week, snapshot }) {
+  if (!snapshot?.googleCalendarEnabled || !snapshot.googleSyncPending || props.hideOfficeAndCalendarIntegration) return;
+  // The app calendar has already rendered. Google reconciliation must not hold its spinner.
+  const current = () => !scheduleDisposed && generation === scheduleReadGeneration && props.userId === uid && weekStart.value === week;
+  const params = { weekStart: week, weekStartsOn: effectiveWeekStartsOn.value, includeAllAgencies: 'true', skipOfficeMaterialize: 'true',
+    skipGoogleSync: 'false', includeGoogleBusy: googleBusyPreference.value ? 'true' : 'false', includeGoogleEvents: googleEventsPreference.value ? 'true' : 'false' };
+  setTimeout(async () => {
+    if (!current()) return;
+    try {
+      const { data } = await getScheduleSummaryResponse(`/users/${uid}/schedule-summary`, { params, timeout: 15000, skipGlobalLoading: true });
+      if (!current() || !data || rawSummary.value !== snapshot) return;
+      const tagged = tagPersonalSummary(data);
+      setScheduleSummary(cacheKey, tagged);
+      summary.value = tagged;
+    } catch {
+      if (current() && rawSummary.value === snapshot) {
+        summary.value = { ...snapshot, googleSyncPending: false, googleOverlayRefreshError: 'Google Calendar could not be refreshed. Your app schedule is ready; use Refresh to try Google again.' };
+      }
+    }
+  }, 0);
+}
 const load = async ({ forceRefresh = false } = {}) => {
   if (!props.userId || scheduleDisposed || (scheduleRetryPending.value && Date.now() < scheduleRetryDeadline)) return;
   if (!effectiveAgencyIds.value.length) {
@@ -9958,9 +9962,12 @@ const load = async ({ forceRefresh = false } = {}) => {
     }
   }
 
+  const generation = scheduleReadGeneration + 1;
+  const uid = props.userId;
+  const requestedWeek = weekStart.value;
   const ids = effectiveAgencyIds.value;
   const useAllAgencies = props.mode === 'self';
-  const cacheKey = `${props.userId}|${useAllAgencies ? 'all' : [...ids].sort((a, b) => a - b).join(',')}|${weekStart.value}|${effectiveWeekStartsOn.value}|${showGoogleBusy.value}|${showGoogleEvents.value}|${showExternalBusy.value}|${(selectedExternalCalendarIds.value || []).slice().sort((a, b) => a - b).join(',')}`;
+  const cacheKey = `${props.userId}|${useAllAgencies ? 'all' : [...ids].sort((a, b) => a - b).join(',')}|${weekStart.value}|${effectiveWeekStartsOn.value}|${googleBusyPreference.value}|${googleEventsPreference.value}|${showExternalBusy.value}|${(selectedExternalCalendarIds.value || []).slice().sort((a, b) => a - b).join(',')}`;
   // A forced read bypasses cache freshness, but retains this exact calendar as
   // a fallback if a background refresh is throttled or temporarily unavailable.
   const stalePack = getScheduleSummaryStale(cacheKey);
@@ -9970,7 +9977,11 @@ const load = async ({ forceRefresh = false } = {}) => {
     error.value = '';
     loading.value = false;
     tryOpenFocusScheduleEvent();
-    if (stalePack.fresh && !forceRefresh) return;
+    if (stalePack.fresh && !forceRefresh) {
+      scheduleReadGeneration = generation;
+      if (useAllAgencies) refreshGoogleSummaryInBackground({ cacheKey, generation, uid, week: requestedWeek, snapshot: rawSummary.value });
+      return;
+    }
   }
 
   // Coalesce concurrent identical fetches (save/close + watchers used to stack dozens).
@@ -9979,6 +9990,7 @@ const load = async ({ forceRefresh = false } = {}) => {
     return loadInFlight;
   }
 
+  scheduleReadGeneration = generation;
   const run = (async () => {
   try {
     if (forceRefresh || !stalePack?.data) loading.value = true;
@@ -9993,50 +10005,24 @@ const load = async ({ forceRefresh = false } = {}) => {
           includeAllAgencies: 'true',
           // Skip office materialization on personal grid — big win for first paint.
           skipOfficeMaterialize: viewMode.value === 'office_layout' ? 'false' : 'true',
-          includeGoogleBusy: props.hideOfficeAndCalendarIntegration ? 'false' : (showGoogleBusy.value ? 'true' : 'false'),
-          includeGoogleEvents: props.hideOfficeAndCalendarIntegration ? 'false' : (showGoogleEvents.value ? 'true' : 'false'),
+          skipGoogleSync: 'true',
+          includeGoogleBusy: 'false',
+          includeGoogleEvents: 'false',
           ...(props.hideOfficeAndCalendarIntegration ? {} : (showExternalBusy.value && selectedExternalCalendarIds.value.length
             ? { externalCalendarIds: selectedExternalCalendarIds.value.join(',') }
             : {}))
         },
         skipGlobalLoading: true
       }, { fresh: forceRefresh });
+      if (generation !== scheduleReadGeneration || uid !== props.userId || requestedWeek !== weekStart.value) return;
       const data = resp.data || null;
       if (data) {
-        const tagged = {
-          ...data,
-          scheduleEvents: (data.scheduleEvents || []).map((ev) => ({
-            ...ev,
-            _agencyId: Number(ev?.agencyId || 0) || null
-          })),
-          officeEvents: (data.officeEvents || []).map((ev) => ({
-            ...ev,
-            _agencyId: Number(ev?.agencyId || 0) || null
-          })),
-          supervisionSessions: (data.supervisionSessions || []).map((ev) => ({
-            ...ev,
-            _agencyId: Number(ev?.agencyId || 0) || null
-          })),
-          schoolAssignments: (data.schoolAssignments || []).map((ev) => ({
-            ...ev,
-            _agencyId: Number(ev?.agencyId || 0) || null
-          })),
-          officeRequests: (data.officeRequests || []).map((ev) => ({
-            ...ev,
-            _agencyId: Number(ev?.agencyId || 0) || null
-          })),
-          schoolRequests: (data.schoolRequests || []).map((ev) => ({
-            ...ev,
-            _agencyId: Number(ev?.agencyId || 0) || null
-          })),
-          virtualWorkingHours: (data.virtualWorkingHours || []).map((row) => ({
-            ...row,
-            _agencyId: Number(row?.agencyId || 0) || null
-          }))
-        };
+        const tagged = tagPersonalSummary(data);
         mergeDiscoveredScheduleAgencies(tagged.scheduleAgencyIds || []);
         setScheduleSummary(cacheKey, tagged);
         summary.value = tagged;
+        loading.value = false;
+        refreshGoogleSummaryInBackground({ cacheKey, generation, uid, week: requestedWeek, snapshot: rawSummary.value });
         // Warm only the adjacent personal week after the visible one has painted.
         // Reuse the normal cache and its write invalidation; never materialize other room weeks.
         if (resp.config?.params && viewMode.value !== 'office_layout') {
@@ -10264,6 +10250,7 @@ const load = async ({ forceRefresh = false } = {}) => {
       nextTick(() => showOfficeReminder());
     }
   } catch (e) {
+    if (generation !== scheduleReadGeneration || uid !== props.userId || requestedWeek !== weekStart.value) return;
     const status = Number(e?.response?.status || 0);
     const accessDenied = status === 401 || status === 403;
     if (accessDenied) invalidateScheduleSummaryCacheForUser(props.userId);
@@ -10283,7 +10270,7 @@ const load = async ({ forceRefresh = false } = {}) => {
       ? `${message} Showing the previously loaded schedule.`
       : message;
   } finally {
-    loading.value = false;
+    if (generation === scheduleReadGeneration) loading.value = false;
   }
   })();
 
@@ -10342,30 +10329,18 @@ watch(() => props.focusEventId, () => {
 
 // Defer + debounce load so startup/watcher bursts do not spam schedule-summary.
 let deferredLoadTimer = null;
-let deferredLoadIdleHandle = null;
 const clearDeferredLoad = () => {
   if (deferredLoadTimer) {
     clearTimeout(deferredLoadTimer);
     deferredLoadTimer = null;
-  }
-  if (deferredLoadIdleHandle && typeof cancelIdleCallback !== 'undefined') {
-    cancelIdleCallback(deferredLoadIdleHandle);
-    deferredLoadIdleHandle = null;
   }
 };
 const deferredLoad = () => {
   clearDeferredLoad();
   deferredLoadTimer = setTimeout(() => {
     deferredLoadTimer = null;
-    if (typeof requestIdleCallback !== 'undefined') {
-      deferredLoadIdleHandle = requestIdleCallback(() => {
-        deferredLoadIdleHandle = null;
-        void load();
-      }, { timeout: 120 });
-    } else {
-      void load();
-    }
-  }, 150);
+    void load();
+  }, 0);
 };
 watch(() => props.userId, deferredLoad, { immediate: true });
 watch(() => props.userId, () => { void loadAvailabilityHours(); }, { immediate: true });
@@ -10375,13 +10350,13 @@ watch(effectiveAgencyIds, () => {
   if (props.mode === 'self') return;
   deferredLoad();
 }, { deep: true });
-watch([showGoogleBusy, showGoogleEvents, showExternalBusy, selectedExternalCalendarIds], deferredLoad, { deep: true });
+watch([googleBusyPreference, googleEventsPreference, showExternalBusy, selectedExternalCalendarIds], deferredLoad, { deep: true });
 
 // Org chip toggles filter the already-loaded all-tenant payload (no refetch).
 watch(activeScheduleAgencyIds, () => {
   if (props.mode !== 'self') return;
   const cached = getScheduleSummary(
-    `${props.userId}|all|${weekStart.value}|${effectiveWeekStartsOn.value}|${showGoogleBusy.value}|${showGoogleEvents.value}|${showExternalBusy.value}|${(selectedExternalCalendarIds.value || []).slice().sort((a, b) => a - b).join(',')}`
+    `${props.userId}|all|${weekStart.value}|${effectiveWeekStartsOn.value}|${googleBusyPreference.value}|${googleEventsPreference.value}|${showExternalBusy.value}|${(selectedExternalCalendarIds.value || []).slice().sort((a, b) => a - b).join(',')}`
   );
   if (cached) summary.value = cached;
 }, { deep: true });
@@ -11912,7 +11887,7 @@ const cellBlockCache = new Map();
 const cellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout = false) => {
   const key = `${dayName}|${hour}|${minute}|${expanded}|${forLayout}`;
   if (!cellBlockCache.has(key)) {
-    cellBlockCache.set(key, computed(() => buildCellBlocks(dayName, hour, minute, expanded, forLayout).map(block => scheduleClientFace(block, clientNameDisplay.value, clockRangeLabel(block.startAt, block.endAt)))));
+    cellBlockCache.set(key, computed(() => buildCellBlocks(dayName, hour, minute, expanded, forLayout).map(block => scheduleClientFace(block, Number(props.userId) === Number(authStore.user?.id) ? clientNameDisplay.value : 'hidden', clockRangeLabel(block.startAt, block.endAt)))));
   }
   return cellBlockCache.get(key).value;
 };
@@ -15039,10 +15014,17 @@ const editorOfficeEventId = computed(() => Number(isScheduleEventEditMode.value
 const editorSessionServiceCode = computed(() => {
   return String(bookingServiceCode.value || scheduleEventEditForm.value?.serviceCode || '').trim();
 });
+const editorGoogleCalendarUrl = computed(() => {
+  if (!googleCalendarEnabled.value) return '';
+  const item = editingScheduleStackItem.value;
+  const row = findScheduleEventByIdAndKind(item?.eventId, item?.eventKind);
+  const value = row?.googleCalendarUrl || row?.htmlLink || selectedSupvSession.value?.googleCalendarUrl || '';
+  try { const url = new URL(value); return url.protocol === 'https:' && ['calendar.google.com', 'www.google.com'].includes(url.hostname) ? url.href : ''; } catch { return ''; }
+});
 const editorInfoClientName = computed(() => {
   const id = editorInfoClientId.value;
   if (!id) return '';
-  return scheduleEventClientDisplayName(id) || `Client #${id}`;
+  return scheduleEventClientDisplayName(id) || 'Client';
 });
 const editorInfoServiceLabel = computed(() => {
   const sid = Number(editorTenantServiceId.value || 0);
@@ -15218,7 +15200,7 @@ const editorParticipantSummary = computed(() => {
   const n = virtualSessionSelectedClientIdSet.value?.size || 0;
   if (n === 1) {
     const id = Array.from(virtualSessionSelectedClientIdSet.value.values())[0];
-    return scheduleEventClientDisplayName(id) || `Client #${id}`;
+    return scheduleEventClientDisplayName(id) || 'Client';
   }
   if (n > 1) return `${n} clients`;
   return '—';
@@ -25741,7 +25723,7 @@ const onAppointmentPointerUp = (e) => {
 
 const dispatchCellBlockAction = (block, dayName, hour, minute = 0) => {
   const kind = String(block?.kind || '');
-  if (kind === 'sevt' && (block?.eventKind === 'COMPANY_EVENT_INVITATION' || Number(block?.eventId) < 0)) {
+  if (kind === 'sevt' && (block?.eventKind === 'COMPANY_EVENT_INVITATION')) {
     const event = (summary.value?.scheduleEvents || []).find(row => Number(row.id) === Number(block.eventId)
       && String(row.kind || '').toUpperCase() === String(block.eventKind || '').toUpperCase());
     if (event) openStackDetailsModal({ title: String(event.title || 'Company event'),
@@ -25793,7 +25775,7 @@ const dispatchCellBlockAction = (block, dayName, hour, minute = 0) => {
     const bKind = String(block?.eventKind || '').trim().toUpperCase();
     const events = (summary.value?.scheduleEvents || []);
     let targetEvent = null;
-    if (bid > 0 && bKind) {
+    if (bid !== 0 && bKind) {
       targetEvent = events.find(
         (ev) => Number(ev?.id || 0) === bid && String(ev?.kind || '').trim().toUpperCase() === bKind
       );
@@ -26135,15 +26117,16 @@ function isClientSessionScheduleEvent(ev = null) {
 const scheduleEventClientDisplayName = (clientId) => {
   const id = Number(clientId || 0);
   if (!id) return '';
-  const row = (virtualSessionClients.value || []).find((c) => Number(c?.id || 0) === id);
-  return String(row?.displayName || row?.fullName || '').trim() || `Client #${id}`;
+  const row = (virtualSessionClients.value || []).find(c => Number(c?.id || 0) === id);
+  const event = (summary.value?.scheduleEvents || []).find(event => Number(event.clientId) === id && event.clientName);
+  return String(event?.clientName || row?.fullName || row?.displayName || '').trim() || 'Client';
 };
 
 const scheduleEventEditClientOptions = computed(() => {
   const rows = Array.isArray(virtualSessionClients.value) ? [...virtualSessionClients.value] : [];
   const selectedId = Number(scheduleEventEditForm.value.clientId || 0);
   if (selectedId > 0 && !rows.some((c) => Number(c?.id || 0) === selectedId)) {
-    rows.unshift({ id: selectedId, displayName: `Client #${selectedId}` });
+    rows.unshift({ id: selectedId, displayName: 'Client' });
   }
   return rows;
 });
@@ -26625,7 +26608,7 @@ const openAppointmentEditInScheduleModal = async ({
     return;
   }
 
-  const target = list.find((it) => focusId > 0 && Number(it?.eventId || 0) === focusId)
+  const target = list.find((it) => focusId !== 0 && Number(it?.eventId || 0) === focusId)
     || list.find((it) => isEditableScheduleStackItem(it))
     || list[0];
 
@@ -27291,7 +27274,7 @@ const buildScheduleStackItemFromEvent = (ev, overrides = {}) => {
   const baseKindLabel = scheduleKindLabel(targetKind, withClient);
   return {
     id: `sevt-${targetKind || 'evt'}-${String(ev?.id || ev?.googleEventId || Date.now())}`,
-    label: String(ev?.title || '').trim() || 'Schedule event',
+    label: clientId ? (Number(props.userId) === Number(authStore.user?.id) ? `Client session · ${ev.clientName || scheduleEventClientDisplayName(clientId)}` : 'Client session') : String(ev?.title || '').trim() || 'Schedule event',
     subLabel: ev?.allDay ? 'All day' : formatRangeFromRaw(ev?.startAt, ev?.endAt, ['TEAM_MEETING', 'HUDDLE'].includes(targetKind)),
     kindLabel: calendarSessionState(ev) ? `${baseKindLabel} · ${calendarSessionState(ev)}` : baseKindLabel,
     detailText: buildScheduleEventDetailText(ev),
@@ -27372,7 +27355,9 @@ const buildScheduleEventDetailText = (ev) => {
     : formatRangeFromRaw(ev?.startAt, ev?.endAt, ['TEAM_MEETING', 'HUDDLE'].includes(kind));
   if (when) lines.push(`When: ${when}`);
   const clientId = parseClientIdFromScheduleEvent(ev);
-  if (clientId) lines.push(`Client: ${scheduleEventClientDisplayName(clientId)}`);
+  if (clientId && Number(props.userId) === Number(authStore.user?.id)) lines.push(`Client: ${ev.clientName || scheduleEventClientDisplayName(clientId)}`);
+  const location = String(ev.locationLabel || '').trim();
+  if (location) lines.push(`Location: ${location}`);
   const desc = String(ev?.description || '').trim();
   if (desc) lines.push(`Notes:\n${desc}`);
   const rc = String(ev?.reasonCode || '').trim();
@@ -28188,7 +28173,25 @@ watch(()=>props.spanMode,value=>{
 .sched-calendar-settings__hint { font-weight: 500; font-size: 0.8rem; }
 .sched-calendar-settings__chev { margin-left: auto; opacity: 0.6; }
 .sched-calendar-settings[open] .sched-calendar-settings__chev { transform: rotate(180deg); }
-.sched-calendar-settings__body { padding: 0 10px 12px; }
+.sched-calendar-settings__body { padding: 16px; }
+.sched-settings-heading, .sched-settings-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.sched-settings-heading { margin-bottom: 12px; color: var(--sched-ink, #0f172a); }
+.sched-settings-tabs { display: flex; gap: 4px; overflow-x: auto; border-bottom: 1px solid #dbe5e3; margin-bottom: 18px; }
+.sched-settings-tabs button { border: 0; border-bottom: 3px solid transparent; padding: 10px 14px; background: transparent; color: #475569; font: inherit; font-size: 13px; font-weight: 600; white-space: nowrap; cursor: pointer; }
+.sched-settings-tabs button.on { border-bottom-color: #166534; color: #14532d; background: #f0fdf4; }
+.sched-settings-tabs button:focus-visible { outline: 2px solid #166534; outline-offset: -2px; }
+.sched-settings-section h3, .sched-tool-cluster h3 { margin: 0; font-size: 14px; }
+.sched-settings-section .hint { margin: 8px 0 16px; }
+.sched-settings-full-width { flex-basis: 100%; margin: 0 0 8px; }
+.sched-organization-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: 8px; max-height: 190px; overflow-y: auto; }
+.sched-organization-choice { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 13px; cursor: pointer; }
+.sched-organization-choice input { accent-color: #166534; }
+.sched-organization-choice .sched-org-chip-icon { width: 22px; height: 22px; flex: 0 0 22px; object-fit: contain; }
+.sched-calendar-settings .sched-tool-cluster { flex-wrap: wrap; border: 0; padding: 0; }
+.sched-calendar-settings .sched-tool-bar { padding: 0; }
+.sched-calendar-settings .sched-settings-tools-target { margin-top: 16px; }
+.sched-calendar-settings .sched-more-tools { margin: 0; }
+@media (max-width: 600px) { .sched-calendar-settings__body { padding: 12px; } .sched-settings-tabs button { padding: 10px; } }
 .sched-page-sub {
   margin: 4px 0 0;
   font-size: 14px;

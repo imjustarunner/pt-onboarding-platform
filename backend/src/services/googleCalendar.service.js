@@ -128,7 +128,7 @@ export class GoogleCalendarService {
           orderBy: 'startTime',
           maxResults: Math.min(250, maxItems - items.length),
           pageToken,
-          fields: 'items(id,summary,htmlLink,start,end),nextPageToken'
+          fields: 'items(id,summary,htmlLink,start,end,status,transparency,recurringEventId,extendedProperties),nextPageToken'
         });
         const nextItems = r?.data?.items || [];
         for (const ev of nextItems) {
@@ -138,6 +138,10 @@ export class GoogleCalendarService {
             id: ev?.id || null,
             summary: ev?.summary || null,
             htmlLink: ev?.htmlLink || null,
+            status: ev?.status || null,
+            transparency: ev?.transparency || null,
+            recurringEventId: ev?.recurringEventId || null,
+            extendedProperties: ev?.extendedProperties || null,
             startAt,
             endAt
           });

@@ -26,3 +26,10 @@ it('does not pick a group participant or reuse the provider event id as an offic
  expect((await Appointment.listIdsByProviderScheduleEventIds([83])).get(83)).toMatchObject({id:23,
    clientId:null,officeEventId:null,clinicalSessionId:null,serviceCode:null});
 });
+it('hydrates client names and canonical agency for an office-only appointment', async()=>{
+ db.execute.mockResolvedValue([[{id:24,provider_schedule_event_id:91,appointment_agency_id:3,client_id:42,client_name:'Jane Example',clinical_session_id:320,office_event_id:91,status:'scheduled',office_location_id:1,room_id:10}]]);
+ const metadata=(await Appointment.listOfficeCalendarMetadata([91])).get(91);
+ expect(metadata).toMatchObject({id:24,agencyId:3,clientId:42,clientName:'Jane Example',clinicalSessionId:320,officeEventId:91,officeLocationId:1,roomId:10});
+ expect(db.execute.mock.calls.at(-1)[0]).toContain('WHERE ap.office_event_id IN');
+ expect(db.execute.mock.calls.at(-1)[0]).toContain('c.agency_id=ap.agency_id');
+});

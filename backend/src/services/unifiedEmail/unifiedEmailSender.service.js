@@ -932,7 +932,7 @@ export async function sendNotificationEmail({
     replyTo,
     attachments
   });
-  const raw = base64UrlEncode((['client_ooo_auto_reply','vacation_auto_reply','unmonitored_mailbox_auto_reply'].includes(templateType) ? 'Auto-Submitted: auto-replied\r\nX-Auto-Response-Suppress: All\r\n' : '') + mime);
+  const raw = base64UrlEncode((['client_ooo_auto_reply','vacation_auto_reply','unmonitored_mailbox_auto_reply','unsolicited_outreach_rejection'].includes(templateType) ? 'Auto-Submitted: auto-replied\r\nX-Auto-Response-Suppress: All\r\n' : '') + mime);
 
   let result;
   try {
@@ -1452,7 +1452,7 @@ export async function sendEmailFromIdentity({
     references,
     attachments
   });
-  const raw = base64UrlEncode((['client_ooo_auto_reply','vacation_auto_reply','unmonitored_mailbox_auto_reply'].includes(templateType) ? 'Auto-Submitted: auto-replied\r\nX-Auto-Response-Suppress: All\r\n' : '') + mime);
+  const raw = base64UrlEncode((['client_ooo_auto_reply','vacation_auto_reply','unmonitored_mailbox_auto_reply','unsolicited_outreach_rejection'].includes(templateType) ? 'Auto-Submitted: auto-replied\r\nX-Auto-Response-Suppress: All\r\n' : '') + mime);
 
   const requestBody = threadId ? { raw, threadId } : { raw };
   let result;

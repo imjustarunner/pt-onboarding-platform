@@ -47,3 +47,13 @@ it('projects office client appointments even when room reservations are hidden',
  expect(officeCoveredBySession(office,rows)).toBe(true);expect(includeOfficeClientSessions(rows,[office])).toHaveLength(1);
  expect(includeOfficeClientSessions([],[{...office,clientId:null}])).toEqual([]);
 });
+
+it('combines a legacy session with the same provider’s exact room reservation across agencies', () => {
+  const office={id:9,providerId:7,assignedProviderId:7,roomId:10,buildingId:1,buildingName:'Windchime',roomNumber:10,agencyId:2,startAt:'2026-11-26T22:00:00Z',endAt:'2026-11-26T23:00:00Z'};
+  const session={id:11,appointmentId:119,clientId:42,providerId:7,roomId:10,officeLocationId:1,agencyId:3,modality:'IN_PERSON',startAt:office.startAt,endAt:office.endAt};
+  const [decorated]=decorateSessionLocations([session],[],[office]);
+  expect(decorated.locationLabel).toBe('Windchime · Office #10'); expect(decorated.officeEventId).toBe(9);
+  expect(officeCoveredBySession(office,[decorated])).toBe(true);
+  expect(officeCoveredBySession({...office,providerId:8,assignedProviderId:8},[session])).toBe(false);
+  expect(officeCoveredBySession({...office,roomId:11},[session])).toBe(false);
+});

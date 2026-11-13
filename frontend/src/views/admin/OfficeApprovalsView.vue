@@ -57,8 +57,9 @@
             :class="{ selected: selectedKey === r.key }"
             @click="select(r.key)"
           >
-            <strong>{{ r.providerName || 'Provider' }}</strong
-            ><span>{{ r.officeName || 'Office preferences included' }}</span>
+            <strong>{{ r.providerName || 'Provider' }}</strong>
+            <span>{{ [r.officeName, r.roomLabel].filter(Boolean).join(' · ') || 'Office preferences included' }}</span>
+            <span v-if="r.clientLinked" class="session-badge">Client session attached</span>
             <span>{{ date(r.startDate) }} · {{ hours(r) }}</span
             ><span class="frequency">{{ r.frequencyLabel }}</span>
             <small>{{ r.sourceLabel }} · #{{ r.id }}</small>
@@ -86,6 +87,12 @@
               {{ actionLabel(review.request) }} ·
               {{ review.request.sourceLabel }}
             </p>
+            <section class="request-facts" aria-label="Requested office and session">
+              <div><span class="fact-label">Requested office</span><strong>{{ requestedOfficeLabel }}</strong>
+                <small>{{ review.request.openToAlternativeRoom ? 'Other rooms may be considered' : 'Requested room only' }}</small></div>
+              <div><span class="fact-label">Booking purpose</span><strong :class="{ 'session-badge': review.request.clientLinked }">{{ review.request.clientLinked ? 'Client session attached' : 'Office reservation only' }}</strong>
+                <small>{{ review.request.clientLinked ? 'Approving provides the room for this session.' : 'No client session is attached to this request.' }}</small></div>
+            </section>
             <section class="summary">
               <strong>{{ review.request.frequencyLabel }}</strong>
               <span
@@ -125,7 +132,7 @@
                 </button>
               </section>
               <section>
-                <h3>Choose a room</h3>
+                <h3>{{ requestedRooms.length ? 'Requested room' : 'Choose a room' }}</h3>
                 <p class="muted">
                   Availability includes recurring dates, booked rooms and
                   standing reservations.
@@ -134,8 +141,9 @@
                   No eligible rooms were found. This request cannot be approved
                   here.
                 </p>
+                <div class="room-list" role="group" aria-label="Office choices">
                 <label
-                  v-for="room in review.rooms"
+                  v-for="room in visibleRooms"
                   :key="room.roomId"
                   class="room"
                   :class="{
@@ -149,13 +157,13 @@
                     :value="room.roomId"
                     :disabled="!room.available || saving"
                     name="office-room"
-                    @change="confirmAction = ''"
+                    @change="confirmAction = ''; alternativeAcknowledged = false"
                   />
                   <span
                     ><strong
                       >{{ room.officeName }} · {{ room.roomLabel }}</strong
                     ><small v-if="room.roomType">{{ room.roomType }}</small><small v-if="room.requested"
-                      >Requested / preferred room</small
+                      >Requested by provider</small
                     >
                     <span
                       :class="room.available ? 'available' : 'unavailable'"
@@ -167,8 +175,17 @@
                     >
                   </span>
                 </label>
+                </div>
+                <button v-if="alternativeRooms.length" class="alternatives-toggle" type="button" :aria-expanded="showAlternatives" @click="showAlternatives = !showAlternatives">
+                  {{ showAlternatives ? 'Hide other rooms' : `Choose a different room (${alternativeRooms.length})` }}
+                </button>
+                <div v-if="selectedAlternative" class="alternative-warning">
+                  <strong>This changes the requested office to {{ selectedRoom.officeName }} · {{ selectedRoom.roomLabel }}.</strong>
+                  <label class="ack"><input type="checkbox" v-model="alternativeAcknowledged" /> I reviewed this change from {{ requestedOfficeLabel }}.</label>
+                </div>
               </section>
-              <section v-if="selectedRoom?.window">
+              <details v-if="selectedRoom?.window" class="dates-checked">
+                <summary>Dates checked · {{ selectedRoom.window.checkedDates.length }} occurrence{{ selectedRoom.window.checkedDates.length === 1 ? '' : 's' }}</summary>
                 <h3>Dates checked</h3>
                 <p>{{ review.horizon }}</p>
                 <div class="dates">
@@ -178,7 +195,7 @@
                     >{{ date(d) }}</span
                   >
                 </div>
-              </section>
+              </details>
               <section v-if="review.warnings.length" class="warning">
                 <h3>Existing schedule to review</h3>
                 <p>
@@ -253,6 +270,8 @@
                 >Review in Building Master</router-link
               >
             </section>
+            <details class="decision-note" :open="confirmAction === 'deny'">
+              <summary>{{ confirmAction === 'deny' ? 'Reason for denial (required)' : 'Add a decision note (optional)' }}</summary>
             <label class="comment"
               >Decision note<textarea
                 v-model="comment"
@@ -261,6 +280,7 @@
                 :disabled="saving"
               />
             </label>
+            </details>
             <section
               v-if="confirmAction"
               class="confirmation"
@@ -360,9 +380,13 @@ const selectedKey = ref(''),
   comment = ref(''),
   acknowledged = ref(false),
   confirmAction = ref(''),
-  detailElement = ref(null);
+  detailElement = ref(null),
+  showAlternatives = ref(false),
+  alternativeAcknowledged = ref(false);
 const showConflicts = ref(route.query.tab === 'conflicts');
 let contextVersion = 0;
+let loadVersion = 0;
+const decidedKeys = new Set();
 const filtered = computed(() =>
   requests.value.filter((r) =>
     `${r.providerName} ${r.officeName} ${r.key}`
@@ -373,12 +397,23 @@ const filtered = computed(() =>
 const selectedRoom = computed(() =>
   review.value?.rooms.find((r) => Number(r.roomId) === Number(roomId.value))
 );
+const requestedRooms = computed(() => (review.value?.rooms || []).filter(room => room.requested));
+const alternativeRooms = computed(() => (review.value?.rooms || []).filter(room => !room.requested));
+const visibleRooms = computed(() => {
+  const primary = requestedRooms.value;
+  return !primary.length || showAlternatives.value ? [...primary, ...alternativeRooms.value] : primary;
+});
+const requestedOfficeLabel = computed(() => {
+  if (requestedRooms.value.length) return requestedRooms.value.map(room => [room.officeName,room.roomLabel].filter(Boolean).join(' · ')).join(', ');
+  return [review.value?.request.officeName,review.value?.request.roomLabel].filter(Boolean).join(' · ') || 'Any suitable room';
+});
+const selectedAlternative = computed(() => requestedRooms.value.length > 0 && selectedRoom.value && !selectedRoom.value.requested);
 const canApprove = computed(
   () =>
     !!review.value &&
     !contextLoading.value &&
     (review.value.special ||
-      (selectedRoom.value?.available &&
+      (selectedRoom.value?.available && (!selectedAlternative.value || alternativeAcknowledged.value) &&
         (!review.value.warnings.length || acknowledged.value)))
 );
 const specialReason = computed(() => {
@@ -433,20 +468,23 @@ const instant = (value, timeZone) =>
     dateStyle: 'medium',
     timeStyle: 'short'
   });
-async function load() {
+async function load({ background = false } = {}) {
+  const version = ++loadVersion;
   loading.value = true;
   error.value = '';
   try {
-    const { data } = await api.get('/office-schedule/approvals');
-    requests.value = data.requests || [];
+    const { data } = await api.get('/office-schedule/approvals', { skipGlobalLoading: true });
+    if (version !== loadVersion) return;
+    requests.value = (data.requests || []).filter(request => !decidedKeys.has(request.key));
     const key = props.requestKey || selectedKey.value || String(route.query.request || '');
     if (key && requests.value.some((r) => r.key === key)) await select(key);
     else if (selectedKey.value) clearSelection();
   } catch (e) {
-    error.value =
-      e.response?.data?.error?.message || 'Unable to load office requests.';
+    if (version !== loadVersion) return;
+    error.value = background ? 'The decision is saved. The queue could not refresh; use Refresh to retry.'
+      : e.response?.data?.error?.message || 'Unable to load office requests.';
   } finally {
-    loading.value = false;
+    if (version === loadVersion) loading.value = false;
   }
 }
 async function select(key) {
@@ -464,10 +502,12 @@ async function select(key) {
   detailElement.value?.focus({ preventScroll: true });
   try {
     const { data } = await api.get(
-      `/office-schedule/approvals/${encodeURIComponent(key)}/context`
+      `/office-schedule/approvals/${encodeURIComponent(key)}/context`, { skipGlobalLoading: true }
     );
     if (version !== contextVersion) return;
     review.value = data;
+    alternativeAcknowledged.value = false;
+    showAlternatives.value = !(data.rooms || []).some(room => room.requested && room.available);
     roomId.value =
       data.rooms.find((r) => r.available && r.requested)?.roomId || null;
   } catch (e) {
@@ -505,6 +545,7 @@ async function separateWindows() {
 }
 async function decide() {
   if (confirmAction.value === 'deny' && !comment.value.trim()) { error.value = 'Please explain the denial so the provider knows why.'; return; }
+  if (confirmAction.value === 'approve' && !canApprove.value) return;
   saving.value = true;
   error.value = '';
   const key = selectedKey.value;
@@ -516,15 +557,19 @@ async function decide() {
         roomId: roomId.value,
         approverComment: comment.value,
         reason: comment.value,
-        acknowledgeExistingReservations: acknowledged.value
-      }
+        acknowledgeExistingReservations: acknowledged.value,
+        acknowledgeAlternativeRoom: alternativeAcknowledged.value
+      }, { skipGlobalLoading: true }
     );
     notice.value =
       response.data?.warning ||
       'Decision saved. The office schedule and approval queue are updated.';
+    decidedKeys.add(key);
+    loadVersion++;
+    requests.value = requests.value.filter(request => request.key !== key);
     clearSelection();
-    await load();
     emit('decided');
+    void load({ background: true });
   } catch (e) {
     error.value =
       e.response?.data?.error?.message ||
@@ -543,9 +588,11 @@ watch(() => props.requestKey, key => { if (key) select(key); });
 .embedded .detail { padding: 0; border: 0; }
 
 .office-approvals {
-  max-width: 1500px;
-  margin: auto;
-  padding: 20px;
+  width: 100%;
+  box-sizing: border-box;
+  max-width: 1640px;
+  margin: 0 auto;
+  padding: 16px 24px;
   color: var(--text-primary, #233d35);
 }
 header,
@@ -609,8 +656,9 @@ a {
 }
 .workspace {
   display: grid;
-  grid-template-columns: minmax(250px, 320px) minmax(0, 1fr);
-  gap: 20px;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  align-items: start;
+  gap: 16px;
 }
 .queue,
 .detail {
@@ -621,22 +669,22 @@ a {
 }
 .queue {
   align-self: start;
-  max-height: 80vh;
+  max-height: min(760px, calc(100dvh - 230px));
   overflow: auto;
 }
 .request {
   display: flex;
   flex-direction: column;
   align-items: start;
-  gap: 7px;
+  gap: 4px;
   width: 100%;
   text-align: left;
-  padding: 14px;
+  padding: 10px 12px;
   border: 1px solid #dde6e0;
   border-radius: 12px;
   background: var(--bg-primary, #fff);
   color: inherit;
-  margin: 10px 0;
+  margin: 8px 0;
 }
 .request.selected {
   border: 2px solid #286e50;
@@ -656,16 +704,16 @@ a {
   gap: 8px;
 }
 .detail section {
-  margin: 20px 0;
+  margin: 14px 0;
 }
 .room {
   display: flex;
   gap: 12px;
   align-items: start;
-  padding: 14px;
+  padding: 9px 12px;
   border: 1px solid #dbe4df;
-  border-radius: 12px;
-  margin: 10px 0;
+  border-radius: 8px;
+  margin: 0;
 }
 .room input {
   width: 22px;
@@ -676,7 +724,7 @@ a {
 .room > span {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 2px;
   min-width: 0;
 }
 .room.chosen {
@@ -818,4 +866,24 @@ li {
     display: none;
   }
 }
+
+.request-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 12px 14px; background: #f3f7f5; border: 1px solid #dbe7df; border-radius: 10px; }
+.request-facts > div { display: flex; flex-direction: column; align-items: start; gap: 5px; }
+.fact-label { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; font-weight: 700; color: #52675c; }
+.request-facts small { font-size: 12px; color: #52675c; }
+.session-badge { font-size: 12px; font-weight: 650; background: #e8f0ff; color: #263f78; border-radius: 5px; padding: 3px 6px; }
+.room-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(270px, 100%), 1fr)); gap: 8px; max-height: 320px; overflow: auto; padding: 3px; }
+.room-list .room { margin: 0; }
+.room-list .room small, .room-list .room .available, .room-list .room .unavailable { font-size: 12px; }
+.alternatives-toggle { margin-top: 10px; padding: 6px 10px; background: #fff; color: #235b42; border: 1px solid #b5cdbd; border-radius: 8px; }
+.alternative-warning { padding: 12px; margin-top: 12px; background: #fff7e6; border: 1px solid #e5ca89; border-radius: 8px; font-size: 13px; }
+.alternative-warning .ack { margin-top: 8px; }
+.summary { flex-direction: row; flex-wrap: wrap; gap: 6px 16px; padding: 10px 14px; font-size: 14px; }
+.summary p { flex-basis: 100%; margin: 4px 0 0; }
+.detail h2 { margin-top: 0; }
+.detail h3 { font-size: 15px; margin-bottom: 6px; }
+.detail .muted { margin: 6px 0 10px; }
+.decision { position: sticky; bottom: 0; z-index: 1; border-top: 1px solid #dbe4df; }
+.dates-checked > summary, .decision-note > summary { font-size: 13px; font-weight: 600; min-height: 32px; padding: 6px 0; }
+@media (max-width: 760px) { .request-facts { grid-template-columns: 1fr; } .office-approvals { padding: 12px; } .room-list { grid-template-columns: 1fr; } }
 </style>

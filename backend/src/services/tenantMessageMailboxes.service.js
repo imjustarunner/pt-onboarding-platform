@@ -262,9 +262,19 @@ export async function resolveMessagesSendMailbox(agencyId) {
   };
 }
 
-/**
- * Ensure notifications@{domain} sender identity for an agency.
- */
+/** Ensure only the tenant's no-reply identity; preserve a disabled sender. */
+export async function ensureTenantNoreplyMailbox(agencyId) {
+  const qa = await nluQaSenderContext(agencyId, null, 'NLU_QA_NOREPLY_SENDER_NOT_READY');
+  if (qa) return { domain: qa.domain, noreply: await reuseNluQaSender(qa, await prepareNluQaSender(qa, 'noreply', 'noreply')) };
+  const domain = await inferAgencyMailDomain(agencyId);
+  if (!domain) throw new Error('Agency mail domain is not configured for no-reply office notifications');
+  const existing = await EmailSenderIdentity.findByAgencyAndIdentityKey(agencyId, 'noreply', { includeInactive: true });
+  if (existing && !Number(existing.is_active)) throw new Error('The agency no-reply sender is disabled');
+  const noreply = existing || await ensureIdentity({ agencyId, identityKey:'noreply', displayName:'Office scheduling', fromEmail:`noreply@${domain}`, replyTo:`noreply@${domain}` });
+  return { domain, noreply };
+}
+
+/** Ensure notifications@{domain} sender identity for an agency. */
 export async function ensureTenantNotificationsMailbox(agencyId, domainOverride = null) {
   // The retained tutoring sandbox shares NLU's already configured sender. It
   // must not claim that live mailbox's globally unique inbound route.

@@ -65,6 +65,10 @@ export async function runOfficeDecision(
                   'No room is available for the requested dates. Refresh and choose an available room.'
               }
             });
+        const requestedRoomIds = [Number(request.roomId), ...(request.preferredRooms || []).map(room => Number(room.id || room.roomId))].filter(id => id > 0);
+        if (requestedRoomIds.length && !requestedRoomIds.includes(Number(selected.roomId)) && req.body?.acknowledgeAlternativeRoom !== true) {
+          return res.status(409).json({error:{code:'OFFICE_ALTERNATIVE_ROOM',message:'This is a different room from the provider’s request. Confirm that change before approving.'}});
+        }
         if (
           review.warnings.length &&
           !req.body?.acknowledgeExistingReservations

@@ -1,3 +1,4 @@
+import { queueOfficeEventGoogleSync } from '../services/providerAssignmentGoogleSync.service.js';
 import { schedulingResponseForUser } from '../services/schedulingBillingAccess.service.js';
 import { bookSessionInOwnedOffice } from '../services/ownedOfficeSession.service.js';
 import { queueOwnedOfficeSession } from '../services/ownedOfficeSessionJobs.service.js';
@@ -2517,7 +2518,7 @@ const approveRequestImpl = async (req, res, next) => {
     const createdEvent = createdEvents?.[0] || null;
     if (createdEvent?.id) {
       try {
-        await GoogleCalendarService.upsertBookedOfficeEvent({ officeEventId: createdEvent.id });
+        await queueOfficeEventGoogleSync(createdEvent.id);
       } catch {
         // ignore
       }
@@ -3340,7 +3341,7 @@ const approveOfficeBookingRequestLocked = async (req, res, next) => {
     });
 
     try {
-      if (createdEvent?.id) await GoogleCalendarService.upsertBookedOfficeEvent({ officeEventId: createdEvent.id });
+      if (createdEvent?.id) await queueOfficeEventGoogleSync(createdEvent.id);
     } catch {
       // ignore
     }
