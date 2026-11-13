@@ -1,5 +1,7 @@
 import { isCompanyGathering, normalizeCompanyEventRsvp, personalCompanyEventMetadata, loadCompanyEventRsvpMap, companyGatheringSql, listCurrentCompanyGatherings } from '../services/companyEventPersonalAgenda.service.js';
 import { syncCompanyEventConversation, canManageEventConversation } from '../services/companyEventConversation.service.js';
+import { ensureCompanyEventPage } from '../services/companyEventPages.service.js';
+import { companyEventPageUrl } from '../utils/companyEventPage.js';
 import { linkedCompanyEventId, linkedCompanyEventPollAudience, validateLinkedCompanyEventPoll } from '../services/companyEventLinkedPolls.service.js';
 import { sendCompanyEventInvitationsForUsers, sendCompanyEventRemindersForUsers } from '../services/companyEventInvitations.service.js';
 import { normalizeCompanyEventReminderConfig } from '../utils/companyEventReminders.js';
@@ -2156,6 +2158,7 @@ async function createCompanyEventCore(req, agencyId, userId, parsed) {
   if (parsed.isActive) await syncCompanyEventConversation({ eventId });
 
   const row = await loadEventByIdForAgency(eventId, agencyId);
+  if (row && isCompanyGathering(row)) await ensureCompanyEventPage(row, await Agency.findById(agencyId));
   const event = mapEventRow(row || {}, req);
   return { event, eventId };
 }
@@ -3725,16 +3728,19 @@ export const getCompanyEventRsvpByToken = async (req, res, next) => {
     const invitation = await resolveInvitationByToken(token);
     if (!invitation) return res.status(404).json({ error: { message: 'Invitation not found' } });
 
+    const pageUrl = companyEventPageUrl({id:invitation.event_id,event_type:invitation.event_type,organization_id:invitation.event_organization_id,operations_json:invitation.event_operations_json,
+      host_organization_type:invitation.event_host_organization_type,host_club_kind:invitation.event_host_club_kind});
+    const canonicalUrl = pageUrl ? `${pageUrl}?invitation=${encodeURIComponent(token)}` : null;
     const queryResponse = String(req.query?.r || '').trim().toLowerCase();
     if (['yes', 'no', 'maybe'].includes(queryResponse)) {
       // Email scanners follow links. Only the explicit confirmation POST records an RSVP.
       const frontendBase = getFrontendBaseUrl();
-      res.redirect(`${frontendBase}/event-rsvp/${encodeURIComponent(token)}?r=${encodeURIComponent(queryResponse)}`);
+      res.redirect(canonicalUrl ? `${canonicalUrl}&r=${encodeURIComponent(queryResponse)}` : `${frontendBase}/event-rsvp/${encodeURIComponent(token)}?r=${encodeURIComponent(queryResponse)}`);
       return;
     }
 
     res.json({
-      token,
+      token, canonicalUrl,
       invitation: {
         id: Number(invitation.id),
         userId: Number(invitation.user_id),
@@ -4509,6 +4515,7 @@ export const getCompanyEventPublic = async (req, res, next) => {
 
     res.json({
       staff: req.companyEventStaffLink ? { requiresSignIn: true } : undefined,
+      canonicalUrl: companyEventPageUrl(row) ? `${companyEventPageUrl(row)}?register=1` : null,
       smsConsentDisclosure,
       publicRouting: {
         agencyPortalSlug: agencyPortalSlug || null,
@@ -4884,6 +4891,7 @@ export const copyCompanyEventToTarget = async (req, res, next) => {
     }
 
     const row = await loadEventByIdForAgency(newEventId, targetAgencyId);
+    if (row && isCompanyGathering(row)) await ensureCompanyEventPage(row, await Agency.findById(targetAgencyId));
     const event = row ? mapEventRow(row, req) : null;
     res.status(201).json({
       ok: true,

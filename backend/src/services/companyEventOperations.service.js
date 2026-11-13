@@ -46,7 +46,7 @@ export async function saveEventOperations({ eventId, agencyId, actorUserId, oper
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
-    const [result] = await conn.execute(`UPDATE company_events SET operations_json = ?,
+    const [result] = await conn.execute(`UPDATE company_events SET operations_json = JSON_MERGE_PATCH(COALESCE(operations_json,JSON_OBJECT()), ?),
       staff_link_token = COALESCE(staff_link_token, ?), updated_by_user_id = ? WHERE id = ? AND agency_id = ?`,
     [JSON.stringify(operations), crypto.randomBytes(24).toString('hex'), actorUserId || null, eventId, agencyId]);
     if (!result.affectedRows) throw Object.assign(new Error('Event not found'), { status: 404 });

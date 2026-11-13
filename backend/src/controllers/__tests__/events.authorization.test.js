@@ -40,6 +40,15 @@ it('shows actual attendee names and counts only for the current private audience
   expect(event.audienceLabel).toBe('2 invited people');
   expect(JSON.stringify(event.attendees)).not.toMatch(/email|response_body|99/);
 });
+it.each([7,99])('keeps the current invitee check on a readable event page for user %s',async userId=>{
+  privateEventFixture({event:{operations_json:{pageLink:{eventId:12,organizationSlug:'itsco',eventSlug:'anniversary-12'}}},members:[staff(7),staff(99)],audience:[{audience_type:'user',target_id:7}]});
+  const res=response(),next=vi.fn();
+  await getCompanyEventStaffLink({params:{organizationSlug:'itsco',eventSlug:'anniversary-12'},user:{id:userId,role:'provider'}},res,next);
+  expect(next).not.toHaveBeenCalled();
+  if(userId===7)expect(res.json).toHaveBeenCalledWith(expect.objectContaining({event:expect.objectContaining({id:12})}));
+  else expect(res.status).toHaveBeenCalledWith(403);
+  expect(pool.execute.mock.calls[0][1]).toEqual(['itsco','anniversary-12']);
+});
 it('a coordinator cannot use a query parameter to export unrelated event rosters', async () => {
   const req = { params: { id: '2' }, query: { eventId: '12' }, user: { id: 7, role: 'provider' } };
   pool.execute.mockResolvedValue([[{ id: 1 }]]);

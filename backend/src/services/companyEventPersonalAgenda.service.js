@@ -4,14 +4,9 @@ import { readEventOperations, mapEventOperations } from '../utils/companyEventOp
 import { resolveCompanyEventAudienceUserIds } from './companyEventAudience.service.js';
 import { parseJsonMaybe, computeNextOccurrence, normalizeRecurrence } from './companyEvents.service.js';
 import { utcMysqlToIso } from '../utils/zonedWallTime.util.js';
+import { isCompanyGathering } from '../utils/companyEventPage.js';
+export { isCompanyGathering } from '../utils/companyEventPage.js';
 
-export function isCompanyGathering(event = {}) {
-  const type = String(event.event_type || event.eventType || 'company_event').toLowerCase();
-  if (String(event.host_club_kind || '').toLowerCase() === 'book_club'
-    || event.host_organization_type && !['agency','company','life_coach','consultant'].includes(String(event.host_organization_type).toLowerCase())) return false;
-  return !Number(event.organization_id || event.organizationId) && !/^(school_|program_)/.test(type)
-    && !['team_poll', 'direct_notice', 'skills_group', 'guardian_program_class', 'skill_builders'].includes(type);
-}
 export const companyGatheringSql = (alias = 'ce') => `(${alias}.organization_id IS NULL
   AND COALESCE(${alias}.event_type,'company_event') NOT IN ('team_poll','direct_notice','skills_group','guardian_program_class','skill_builders')
   AND COALESCE(${alias}.event_type,'company_event') NOT LIKE 'school_%' AND COALESCE(${alias}.event_type,'company_event') NOT LIKE 'program_%'

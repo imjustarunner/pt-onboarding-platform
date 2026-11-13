@@ -19,6 +19,12 @@ const writes=()=>pool.execute.mock.calls.filter(([sql])=>/^\s*(INSERT|UPDATE|DEL
 async function invoke(method,{query={},body={response:'yes'}}={}){const res={status:vi.fn().mockReturnThis(),json:vi.fn().mockReturnThis(),redirect:vi.fn()},next=vi.fn();
   await method({params:{token:'private-token'},query,body},res,next);expect(next).not.toHaveBeenCalled();return res;}
 describe('personal invitation confirmation',()=>{
+  it('returns the stable company page and carries legacy email selections to that same page',async()=>{
+    invitation.event_operations_json.pageLink={eventId:7,organizationSlug:'itsco',eventSlug:'anniversary-7'};
+    const canonical='https://auricwell.com/conversa/events/itsco/anniversary-7?invitation=private-token';
+    expect((await invoke(getCompanyEventRsvpByToken)).json).toHaveBeenCalledWith(expect.objectContaining({canonicalUrl:canonical}));
+    expect((await invoke(getCompanyEventRsvpByToken,{query:{r:'yes'}})).redirect).toHaveBeenCalledWith(canonical+'&r=yes');expect(writes()).toEqual([]);
+  });
   it.each(['yes','no','maybe'])('a legacy GET ?r=%s only redirects for explicit confirmation and never changes an RSVP',async response=>{
     const before=structuredClone(invitation);const res=await invoke(getCompanyEventRsvpByToken,{query:{r:response}});
     expect(res.redirect).toHaveBeenCalledWith(`https://app.example.com/event-rsvp/private-token?r=${response}`);expect(writes()).toEqual([]);

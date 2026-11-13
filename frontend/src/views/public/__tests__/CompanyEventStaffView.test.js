@@ -23,8 +23,33 @@ beforeEach(() => {
 afterEach(() => { wrappers.splice(0).forEach(wrapper => wrapper.unmount()); vi.clearAllMocks(); vi.useRealTimers(); });
 
 describe('staff event participation', () => {
+  it('opens the readable public page without login or requests for private event data',async()=>{
+    state.signedIn=false;state.params=reactive({eventOrganization:'itsco',eventSlug:'potluck-8'});
+    api.get.mockResolvedValue({data:{event:{id:8,title:'Our potluck',potluckEnabled:true},branding:{agencyName:'ITSCO'},agencies:[{name:'ITSCO'}],organizationSlug:'itsco'}});
+    const wrapper=await render();expect(wrapper.get('h1').text()).toBe('Our potluck');
+    expect(api.get.mock.calls.map(([url])=>url)).toEqual(['/company-events/page/itsco/potluck-8']);
+    expect(wrapper.get('a.ee-button-primary').attributes('href')).toContain('/conversa/login/itsco?redirect=');
+    expect(wrapper.findComponent({name:'StaffPollsPanel'}).exists()).toBe(false);
+    expect(button(wrapper,'Message event group')).toBeUndefined();
+  });
+  it('adds authenticated features on that same readable event page',async()=>{
+    state.params=reactive({eventOrganization:'itsco',eventSlug:'potluck-8'});
+    api.get.mockImplementation(async url=>({data:url.endsWith('/staff')?{event:{id:8,agencyId:2,title:'Our potluck',isWorkEvent:false,response:'yes'},branding:{agencyName:'ITSCO'}}:{event:{id:8,title:'Our potluck'},branding:{agencyName:'ITSCO'},agencies:[{name:'ITSCO'}],organizationSlug:'itsco'}}));
+    const wrapper=await render();expect(button(wrapper,'Attending')).toBeDefined();
+    expect(wrapper.findComponent({name:'StaffPollsPanel'}).props('linkedEventId')).toBe(8);
+    await button(wrapper,'Maybe').trigger('click');await flushPromises();
+    expect(api.post).toHaveBeenCalledWith('/company-events/page/itsco/potluck-8/staff/respond',{response:'maybe'});
+    expect(button(wrapper,'Message event group')).toBeDefined();
+  });
+  it('still shows public details to a signed-in person outside the invitation list',async()=>{
+    state.params=reactive({eventOrganization:'itsco',eventSlug:'potluck-8'});
+    api.get.mockImplementation(async url=>{if(url.endsWith('/staff'))throw{response:{status:403,data:{error:{message:'This private page is available to event invitees and coordinators.'}}}};return{data:{event:{id:8,title:'Our potluck'},branding:{agencyName:'ITSCO'},agencies:[{name:'ITSCO'}],organizationSlug:'itsco'}};});
+    const wrapper=await render();expect(wrapper.get('h1').text()).toBe('Our potluck');
+    expect(button(wrapper,'Attending')).toBeUndefined();expect(button(wrapper,'Message event group')).toBeUndefined();
+    expect(wrapper.text()).toContain('Contact the organizer');
+  });
   it('clears the previous event and ignores its delayed load when navigating between invitations',async()=>{
-    let first;api.get.mockImplementation(url => url.includes('/staff/8/') ? new Promise(resolve => {first=resolve;}) : Promise.resolve({data:{event:{id:9,title:'Current event',isWorkEvent:false},branding:{agencyName:'ITSCO'}}}));
+    let first;api.get.mockImplementation(url => url.includes('/invitation/8/') ? new Promise(resolve => {first=resolve;}) : Promise.resolve({data:{event:{id:9,title:'Current event',isWorkEvent:false},branding:{agencyName:'ITSCO'}}}));
     const wrapper=mount(CompanyEventStaffView,{global:{stubs:{StaffPollsPanel:true}}});wrappers.push(wrapper);
     state.params.eventId='9';await flushPromises();
     expect(wrapper.get('h1').text()).toBe('Current event');

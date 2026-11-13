@@ -14,6 +14,11 @@ import {
 
 const router = express.Router();
 router.get('/announcements/mine', authenticate, listMyEventAnnouncements);
+router.get('/page/:organizationSlug/:eventSlug', publicIntakeLimiter, getCompanyEventInvitationPreview);
+router.get('/page/:organizationSlug/:eventSlug/staff', authenticate, getCompanyEventStaffLink);
+router.post('/page/:organizationSlug/:eventSlug/staff/respond', authenticate, respondToCompanyEventStaffLink);
+router.post('/page/:organizationSlug/:eventSlug/staff/potluck', authenticate, updateCompanyEventStaffPotluck);
+router.post('/page/:organizationSlug/:eventSlug/staff/conversation', authenticate, openCompanyEventConversation);
 router.get('/invitation/:id/:token', publicIntakeLimiter, getCompanyEventInvitationPreview);
 router.get('/staff/:id/:token', authenticate, getCompanyEventStaffLink);
 router.post('/staff/:id/:token/conversation', authenticate, openCompanyEventConversation);

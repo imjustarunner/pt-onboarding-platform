@@ -42,6 +42,7 @@ export function familyCareAgencies(profiles){
 // The AuricWell /app entry currently serves the administrator preview. Family
 // accounts use the same authorized portal for setup and subsequent sign-ins.
 export function auricWellAccountDestination({hostname,role,organizations,requestedSlug,redirectPath,auricwellEntry=false}) {
+  if (/^\/conversa\/events\/[a-z0-9-]+\/[a-z0-9-]+(?:[?#]|$)/.test(String(redirectPath || '')) && !String(redirectPath).includes('\\')) return null;
   const publicHost=/^(www\.)?auricwell\.com$/i.test(hostname || '');
   const appRedirect=auricwellLoginDestination(redirectPath,hostname);
   if (!publicHost && !appRedirect && !auricwellEntry) return null;

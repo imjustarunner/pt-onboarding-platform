@@ -81,14 +81,16 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, ref, watch, onBeforeUnmount } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import { notifyCompanyEventRsvpChanged } from '../../utils/companyEventRsvpEvents';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
+import { companyEventInvitationRedirect } from '../../utils/companyEventInvitationHost';
 
+const props = defineProps({invitationToken:{type:String,default:''},expectedEventId:{type:Number,default:0}});
 const route = useRoute();
-const token = computed(() => String(route.params.token || '').trim());
+const token = computed(() => String(props.invitationToken || route.params.token || '').trim());
 const loading = ref(false);
 const submitting = ref(false);
 const error = ref(''), notice = ref('');
@@ -188,14 +190,25 @@ const storeRsvpLocally = (response) => {
   } catch { /* ignore */ }
 };
 
+let loadGeneration=0;
 const load = async () => {
   if (!token.value) return;
+  const scope=++loadGeneration;
+  event.value=null;invitation.value=null;invitee.value=null;currentResponse.value='';submitting.value=false;
   loading.value = true;
   error.value = '';
   try {
     const resp = await api.get(`/company-events/rsvp/${encodeURIComponent(token.value)}`, {
       skipAuthRedirect: true
     });
+    if(scope !== loadGeneration)return;
+    if(props.expectedEventId && Number(resp.data?.event?.id) !== props.expectedEventId){
+      event.value=null;error.value='This invitation belongs to a different event. Please use its original invitation link.';return;
+    }
+    if(!props.invitationToken){
+      const redirect=companyEventInvitationRedirect(resp.data?.canonicalUrl,window.location.href);
+      if(redirect){window.location.replace(redirect);return;}
+    }
     event.value = resp.data?.event || null;
     invitation.value = resp.data?.invitation || null;
     invitee.value = resp.data?.invitee || null;
@@ -214,13 +227,14 @@ const load = async () => {
     const mine = event.value?.needList?.find(item => item.mine);
     if (event.value?.potluckEnabled) { registration.value.needListItemId = mine?.id || ''; registration.value.needListCustomItemName = mine?.isOpenRequest ? mine.itemName : ''; }
   } catch (e) {
-    error.value = e?.response?.data?.error?.message || 'Invitation could not be loaded';
+    if(scope === loadGeneration)error.value = e?.response?.data?.error?.message || 'Invitation could not be loaded';
   } finally {
-    loading.value = false;
+    if(scope === loadGeneration)loading.value = false;
   }
 };
 
 const respond = async (response) => {
+  const scope=loadGeneration;
   submitting.value = true;
   error.value = '';
   try {
@@ -229,17 +243,19 @@ const respond = async (response) => {
       { response },
       { skipAuthRedirect: true }
     );
+    if(scope !== loadGeneration)return;
     currentResponse.value = response;
     notifyCompanyEventRsvpChanged({eventId:event.value?.id,agencyId:event.value?.agencyId,response});
     storeRsvpLocally(response);
   } catch (e) {
-    error.value = e?.response?.data?.error?.message || 'Unable to save RSVP';
+    if(scope === loadGeneration)error.value = e?.response?.data?.error?.message || 'Unable to save RSVP';
   } finally {
     submitting.value = false;
   }
 };
 
 const submitRegistration = async () => {
+  const scope=loadGeneration,savingToken=token.value;
   submitting.value = true;
   error.value = ''; notice.value = '';
   try {
@@ -256,16 +272,18 @@ const submitRegistration = async () => {
       },
       { skipAuthRedirect: true }
     );
+    if(scope !== loadGeneration)return;
     await load();
-    if (!error.value) notice.value = event.value?.potluckEnabled ? 'Registration and potluck contribution saved.' : 'Registration saved.';
+    if (token.value === savingToken && !error.value) notice.value = event.value?.potluckEnabled ? 'Registration and potluck contribution saved.' : 'Registration saved.';
   } catch (e) {
-    error.value = e?.response?.data?.error?.message || 'Unable to submit registration';
+    if(scope === loadGeneration)error.value = e?.response?.data?.error?.message || 'Unable to submit registration';
   } finally {
     submitting.value = false;
   }
 };
 
-onMounted(load);
+watch(token,load,{immediate:true});
+onBeforeUnmount(()=>{loadGeneration++;});
 </script>
 
 <style scoped>
