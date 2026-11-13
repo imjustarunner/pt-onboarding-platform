@@ -76,6 +76,8 @@ it('carries the reserved office, room, biweekly cadence and billing location int
 });
 
 it('lets an admin edit the primary facilitator and add a cofacilitator while preserving the existing one', async () => {
+  // Keep this permission test before the session in both runner time zones.
+  vi.setSystemTime(new Date('2026-11-12T12:00:00Z'));
   mocks.user = { id: 507, role: 'admin' };
   const session = { id: 369, agencyId: 2, sessionType: 'group', supervisorUserId: 528, coFacilitatorUserId: 538, coFacilitatorUserIds: [538], startAt: '2026-11-13T01:00:00Z', endAt: '2026-11-13T02:00:00Z', modality: 'virtual', status: 'SCHEDULED' };
   const defaultGet = mocks.get.getMockImplementation();
