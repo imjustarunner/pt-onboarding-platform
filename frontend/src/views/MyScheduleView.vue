@@ -59,7 +59,7 @@
 
         <OfficeSchedulingTransition v-if="isSuperadmin && showOfficeTransition" />
         <OfficeAssignmentUsageReviews />
-        <ProviderCopayAttendance />
+        <ProviderCopayAttendance v-if="!learningOnly" />
         <TeamAvailabilityCalendar v-if="teamUserId && !canManageTeamSchedule" :user-id="teamUserId" :agency-id="Number(agencyStore.currentAgency?.id) || null" :name="teamUserName" :week-start-ymd="weekStartYmd || null" @update:weekStartYmd="onWeekStartUpdate" />
         <ScheduleAvailabilityGrid v-else :key="scheduleRevision"
           :user-id="Number(teamUserId || authStore.user.id)"
@@ -99,6 +99,7 @@ import OfficeSchedulingTransition from '../components/schedule/OfficeSchedulingT
 import OfficeAssignmentUsageReviews from '../components/schedule/OfficeAssignmentUsageReviews.vue';
 import ProviderCopayAttendance from '../components/provider/ProviderCopayAttendance.vue';
 import { SCHEDULE_VIEWS } from '../config/scheduleDisplayViews.js';
+import { serviceWorkspace } from '../utils/nluWorkspace.js';
 
 const canManageTeamSchedule = computed(() => ['admin','super_admin','superadmin','support','staff','scheduler','front_desk'].includes(String(authStore.user?.role || '').toLowerCase()));
 const teamUserId = ref(0), teamUserName = ref('Team member');
@@ -106,6 +107,7 @@ const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
+const learningOnly = computed(() => serviceWorkspace(authStore.user, agencyStore.currentAgency || {}).learningOnly);
 const cancelDayLinkClosed = ref(false), scheduleRevision = ref(0);
 const cancelDayLink = computed(() => authStore.user?.id ? dayCancellationLinkContext(route.query, authStore.user) : null);
 watch(() => route.query.cancelDay, () => { cancelDayLinkClosed.value = false; });

@@ -147,3 +147,19 @@ it('loads service permissions on a cold schedule entry and discards the clinical
  const nav=start({user:ref({...provider}),agency:ref({id:453,slug:'nlu-qa-demo'}),dashboardTo:ref('/nlu-qa-demo/dashboard')});
  await flushPromises();expect(labels(nav)).toContain('My students');expect(labels(nav)).not.toContain('My Clients');expect(labels(nav)).not.toContain('Note Workspace');
 });
+
+it('reloads service permissions when a concurrent user refresh replaces the same identity',async()=>{
+ const pending=[];
+ get.mockImplementation(url=>url==='/tutoring-workspace/context'
+   ?new Promise(resolve=>pending.push(resolve)):Promise.resolve({data:{}}));
+ const nav=start({user:ref({...provider}),agency:ref({id:453,slug:'nlu-qa-demo'}),dashboardTo:ref('/nlu-qa-demo/dashboard')});
+ await flushPromises();expect(pending).toHaveLength(1);
+ nav.user.value={...provider};
+ await flushPromises();expect(pending).toHaveLength(2);
+ pending[0]({data:{agencyId:453,canTutor:false,canClinical:true}});
+ pending[1]({data:{agencyId:453,canTutor:true,canClinical:false,learningOnly:true}});
+ await flushPromises();
+ expect(labels(nav)).toContain('My students');
+ expect(labels(nav)).toContain('Tutoring profile');
+ expect(labels(nav)).not.toContain('Note Workspace');
+});

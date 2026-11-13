@@ -57,7 +57,7 @@ export function useDashboardNavigation({ user, agency, organizations, brandingSt
   // Cold entry to Schedule/Profile still needs the selected tenant's service
   // context. Menu visibility never substitutes for server authorization.
   let workspaceGeneration=0;
-  watch([()=>unref(user)?.id,()=>unref(user)?.status,()=>unref(agency)?.id,()=>!!unref(enabled)],async()=>{
+  watch([()=>unref(user),()=>unref(user)?.status,()=>unref(agency)?.id,()=>!!unref(enabled)],async()=>{
     const run=++workspaceGeneration,person=unref(user),agencyId=Number(unref(agency)?.id);
     if(!person?.id||!agencyId||!unref(enabled)||['client','client_guardian','guardian','school_staff'].includes(person.role))return;
     if(Number(person.workspaceServiceContext?.agencyId)!==agencyId)person.workspaceServiceContext=null;

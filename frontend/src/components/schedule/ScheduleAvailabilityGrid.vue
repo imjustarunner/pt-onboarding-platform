@@ -156,7 +156,7 @@
               {{ clientSessionBookingEnabled ? 'Book session' : 'Book session · Coming soon' }}
             </button>
             <button
-              v-if="Number(effectiveAgencyId || 0) > 0"
+              v-if="Number(effectiveAgencyId || 0) > 0 && !tutoringWorkspaceOnly"
               type="button"
               class="sched-command__outline"
               title="Open Note Workspace"
@@ -318,7 +318,7 @@
             {{ clientSessionBookingEnabled ? 'Book session' : 'Book session · Coming soon' }}
           </button>
           <button
-            v-if="Number(effectiveAgencyId || 0) > 0"
+            v-if="Number(effectiveAgencyId || 0) > 0 && !tutoringWorkspaceOnly"
             class="sched-nav-btn"
             type="button"
             title="Open Note Workspace"
@@ -5396,8 +5396,8 @@
                   </div>
                 </div>
               </div>
-              <p v-if="item.therapyNoteAid" class="muted">External calendar entry. Viewing this does not start a session or create a claim. Use the linked app appointment for clinical documentation.</p>
-              <div v-if="item.therapyNoteAid && !isViewingOtherUserSchedule" class="stack-details-actions" style="margin-top: 8px;">
+              <p v-if="item.therapyNoteAid && !tutoringWorkspaceOnly" class="muted">External calendar entry. Viewing this does not start a session or create a claim. Use the linked app appointment for clinical documentation.</p>
+              <div v-if="item.therapyNoteAid && !tutoringWorkspaceOnly && !isViewingOtherUserSchedule" class="stack-details-actions" style="margin-top: 8px;">
                 <button type="button" class="btn btn-primary btn-sm" @click.stop="openTherapyNoteAid(item)">
                   Open Note Workspace
                 </button>
@@ -6176,6 +6176,7 @@ const onUnifiedBookingBooked = async () => {
 };
 
 const openScheduleNoteAid = () => {
+  if (tutoringWorkspaceOnly.value) return;
   navigateToNoteAid(router, {});
 };
 
@@ -21707,7 +21708,7 @@ const toProviderSessionRecordingPath = () => {
 };
 
 const openTherapyNoteAid = (item) => {
-  if (!item?.therapyNoteAid || isViewingOtherUserSchedule.value) return;
+  if (!item?.therapyNoteAid || tutoringWorkspaceOnly.value || isViewingOtherUserSchedule.value) return;
   const q = new URLSearchParams();
   if (item.therapyStartAt) q.set('therapyStartAt', String(item.therapyStartAt));
   if (item.therapyEndAt) q.set('therapyEndAt', String(item.therapyEndAt));
