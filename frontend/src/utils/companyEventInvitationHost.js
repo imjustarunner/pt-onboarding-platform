@@ -1,14 +1,14 @@
-const sharedHosts = new Set(['plottwisthq.com', 'www.plottwisthq.com', 'app.plottwistco.com']);
-
-/** Upgrade older shared-host invitation links using the server's canonical URL.
- * Preserve the exact event/token path; this never accepts a URL from query input. */
+/** A canonical URL comes only from the event endpoint, never query input. */
 export function companyEventInvitationRedirect(canonicalUrl, currentHref) {
   try {
     const current = new URL(currentHref), target = new URL(canonicalUrl);
-    if (!sharedHosts.has(current.hostname) || target.protocol !== 'https:' || target.username || target.password
-      || target.origin === current.origin || target.pathname !== current.pathname) return '';
-    target.search = current.search;
+    if (target.origin !== 'https://auricwell.com' || target.username || target.password
+      || !/^\/conversa\/events\/[a-z0-9-]+\/[a-z0-9-]+$/.test(target.pathname)) return '';
+    const search = new URLSearchParams(current.search);
+    for (const [key,value] of target.searchParams) search.set(key,value);
+    target.search = search.toString();
     target.hash = current.hash;
+    if (target.href === current.href) return '';
     return target.href;
   } catch { return ''; }
 }

@@ -4,6 +4,7 @@ import EventPageHero from '../components/events/EventPageHero.vue';
 import '../styles/eventExperience.css';
 import { useRoute } from 'vue-router';
 import api from '../services/api';
+import { companyEventInvitationRedirect } from '../utils/companyEventInvitationHost';
 import { CONVERSA_LOGO_URL } from '../constants/conversa';
 import CompanyEventRsvpControls from '../components/events/CompanyEventRsvpControls.vue';
 const route = useRoute();
@@ -11,7 +12,10 @@ const event = ref(null), loading = ref(false), error = ref('');
 let generation = 0;
 async function load() {
   const id = ++generation; event.value = null; loading.value = true; error.value = '';
-  try { const { data } = await api.get(`/me/company-events/${route.params.eventId}`, { params: { agencyId: Number(route.query.agencyId) || undefined } }); if (id === generation) event.value = data; }
+  try { const { data } = await api.get(`/me/company-events/${route.params.eventId}`, { params: { agencyId: Number(route.query.agencyId) || undefined } }); if (id === generation) {
+    const redirect=companyEventInvitationRedirect(data?.staffPageUrl,window.location.href);
+    if(redirect){window.location.replace(redirect);return;}event.value = data;
+  } }
   catch (e) { if (id === generation) error.value = e.response?.data?.error?.message || 'Event details are not available for your account.'; }
   finally { if (id === generation) loading.value = false; }
 }

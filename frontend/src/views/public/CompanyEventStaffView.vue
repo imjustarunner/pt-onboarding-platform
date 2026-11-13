@@ -3,7 +3,7 @@
     <nav class="ee-nav" aria-label="Event navigation"><div class="ee-nav-inner"><a class="ee-nav-brand" href="/dashboard"><img :src="CONVERSA_LOGO_URL" alt="Conversa" width="140" height="36" /></a><div class="ee-nav-links"><a href="/dashboard"><House :size="18" aria-hidden="true" />Home</a><a href="#event-overview" aria-current="page"><CalendarDays :size="18" aria-hidden="true" />Events</a><a href="/messages?view=workspace&tab=dms"><Users :size="18" aria-hidden="true" />Groups</a><a href="/messages"><MessageSquare :size="18" aria-hidden="true" />Messages</a></div><span v-if="signedIn" class="ee-nav-person" :aria-label="userName">{{ initials(userName) }}</span></div></nav>
     <div class="ee-container">
       <div v-if="loading" class="ee-card ee-page-state" role="status">Loading your event…</div>
-      <template v-else-if="!signedIn"><EventInvitationPreview v-if="invitationPreview" :invitation="invitationPreview" :sign-in-url="signInUrl" /><div v-else class="ee-card ee-page-state"><p class="ee-muted">Private event invitation</p><h1>You’re invited</h1><p>Sign in to view this event and join in.</p><a :href="signInUrl" class="ee-button ee-button-primary">Sign in to view event</a></div></template>
+      <template v-else-if="!signedIn || (!event && invitationPreview)"><CompanyEventPublicView v-if="showGuestRegistration && eventId" :key="eventId" :event-id="eventId" /><template v-else-if="invitationPreview"><EventInvitationPreview :invitation="invitationPreview" :sign-in-url="signInUrl" :guest-registration-url="guestRegistrationUrl" :signed-in="signedIn" /><CompanyEventRsvpView v-if="personalInvitation" :key="personalInvitation" :invitation-token="personalInvitation" :expected-event-id="eventId" class="event-personal-rsvp" /></template><div v-else class="ee-card ee-page-state"><p class="ee-muted">Private event invitation</p><h1>You’re invited</h1><p>Sign in to view this event and join in.</p><a :href="signInUrl" class="ee-button ee-button-primary">Sign in to view event</a></div></template>
       <p v-if="error" role="alert" class="ee-error">{{ error }}</p>
       <template v-if="event">
         <EventPageHero :event="event" :branding="branding" :status="rsvpClosed ? 'RSVP closed' : event.startsAt ? 'Open RSVP' : 'Planning together'" />
@@ -62,6 +62,8 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { House, CalendarDays, Users, MessageSquare, ArrowUpRight, Check, CircleHelp, CircleX, X, Tag, MapPin, Map, UserRound, Clock3, CalendarPlus, CalendarClock, ChevronDown, ChartNoAxesColumnIncreasing, Utensils, ArrowRight, Bell } from '@lucide/vue';
 import EventPageHero from '../../components/events/EventPageHero.vue';
 import EventInvitationPreview from '../../components/events/EventInvitationPreview.vue';
+import CompanyEventRsvpView from './CompanyEventRsvpView.vue';
+import CompanyEventPublicView from './CompanyEventPublicView.vue';
 import EventConversation from '../../components/events/EventConversation.vue';
 import { CONVERSA_LOGO_URL } from '../../constants/conversa';
 import '../../styles/eventExperience.css';
@@ -73,10 +75,17 @@ import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
 const route = useRoute();
 const authStore = useAuthStore();
-const eventId = computed(() => Number(route.params.eventId));
+const pageOrganization = computed(() => String(route.params.eventOrganization || ''));
+const pageSlug = computed(() => String(route.params.eventSlug || ''));
+const readablePage = computed(() => !!pageOrganization.value && !!pageSlug.value);
+const resolvedEventId = ref(0), signInOrganization = ref('');
+const eventId = computed(() => Number(route.params.eventId) || resolvedEventId.value);
 const token = computed(() => String(route.params.token || ''));
 const signedIn = computed(() => !!authStore.isAuthenticated);
-const signInUrl = computed(() => `/login?redirect=${encodeURIComponent(route.fullPath)}`);
+const signInUrl = computed(() => `${readablePage.value ? `/conversa/login/${encodeURIComponent(signInOrganization.value || pageOrganization.value)}` : '/login'}?redirect=${encodeURIComponent(route.fullPath)}`);
+const personalInvitation = computed(() => readablePage.value && !signedIn.value ? String(route.query?.invitation || '') : '');
+const showGuestRegistration = computed(() => readablePage.value && route.query?.register === '1' && invitationPreview.value?.event?.publicRegistrationEnabled);
+const guestRegistrationUrl = computed(() => readablePage.value && invitationPreview.value?.event?.publicRegistrationEnabled ? `${route.path || route.fullPath.split('?')[0]}?register=1` : '');
 const event = ref(null);
 const invitationPreview = ref(null);
 const branding = ref({});
@@ -94,7 +103,7 @@ const calendarReady = computed(() => [event.value?.startsAt,event.value?.endsAt]
 const googleCalendarUrl = computed(() => {
  if (!calendarReady.value) return '';
  const format = value => new Date(value).toISOString().replace(/[-:]/g,'').replace(/\.\d{3}/,'');
- const query = new URLSearchParams({action:'TEMPLATE',text:event.value.title,dates:format(event.value.startsAt)+'/'+format(event.value.endsAt),details:[event.value.description,window.location.href].filter(Boolean).join('\n\n'),location:[event.value.eventLocationName,event.value.eventLocationAddress].filter(Boolean).join(', '),ctz:event.value.timezone || 'America/Denver'});
+ const query = new URLSearchParams({action:'TEMPLATE',text:event.value.title,dates:format(event.value.startsAt)+'/'+format(event.value.endsAt),details:[event.value.description,window.location.href.split(/[?#]/)[0]].filter(Boolean).join('\n\n'),location:[event.value.eventLocationName,event.value.eventLocationAddress].filter(Boolean).join(', '),ctz:event.value.timezone || 'America/Denver'});
  return 'https://calendar.google.com/calendar/render?'+query;
 });
 const schedule = computed(() => {
@@ -124,7 +133,8 @@ const response = ref('');
 const needList = ref([]), contributionId = ref(''), contributionName = ref('');
 const formatDate = value => value ? new Intl.DateTimeFormat(undefined,{dateStyle:'medium',timeStyle:'short',timeZone:event.value?.timezone || 'America/Denver'}).format(new Date(value)) : '';
 let pageGeneration = 0;
-const staffEndpoint = () => `/company-events/staff/${eventId.value}/${encodeURIComponent(token.value)}`;
+const pageEndpoint = () => `/company-events/page/${encodeURIComponent(pageOrganization.value)}/${encodeURIComponent(pageSlug.value)}`;
+const staffEndpoint = () => readablePage.value ? `${pageEndpoint()}/staff` : `/company-events/staff/${eventId.value}/${encodeURIComponent(token.value)}`;
 async function loadParticipation(scope = pageGeneration) {
   const { data } = await api.get(`/me/company-events/${eventId.value}/participation`);
   if(scope !== pageGeneration)return;
@@ -169,7 +179,7 @@ async function submitCheckoutTime() {
 async function loadEvent(scope = pageGeneration) {
   const {data} = await api.get(staffEndpoint(), {skipAuthRedirect:true});
   if(scope !== pageGeneration)return;
-  event.value=data.event;branding.value=data.branding || {};canManage.value=!!data.canManage;needList.value=data.needList || [];response.value=data.event?.response || '';
+  resolvedEventId.value=Number(data.event?.id) || 0;event.value=data.event;branding.value=data.branding || {};canManage.value=!!data.canManage;needList.value=data.needList || [];response.value=data.event?.response || '';
   const mine=needList.value.find(item=>item.mine);contributionId.value=mine?.custom ? '__custom' : String(mine?.id || '');contributionName.value=mine?.custom ? mine.name : '';
 }
 async function savePotluck() {
@@ -182,17 +192,22 @@ async function savePotluck() {
 }
 async function loadPage() {
   const scope=++pageGeneration;
-  event.value=null;invitationPreview.value=null;participation.value=null;response.value='';needList.value=[];notice.value='';error.value='';busy.value=false;loading.value=true;canManage.value=false;showAttendees.value=false;attendeeSearch.value='';
+  event.value=null;invitationPreview.value=null;resolvedEventId.value=0;signInOrganization.value='';participation.value=null;response.value='';needList.value=[];notice.value='';error.value='';busy.value=false;loading.value=true;canManage.value=false;showAttendees.value=false;attendeeSearch.value='';
   showCheckoutTime.value=route.query?.attendance === 'checkout-time';checkoutTime.value='';checkoutAttestation.value=false;
   try {
-    if(!signedIn.value){
-      const {data}=await api.get(`/company-events/invitation/${eventId.value}/${encodeURIComponent(token.value)}`,{skipAuthRedirect:true,skipGlobalLoading:true});
-      if(scope === pageGeneration){
-        const redirect=companyEventInvitationRedirect(data?.canonicalUrl,window.location.href);
-        if(redirect){window.location.replace(redirect);return;}
-        invitationPreview.value=data;
-      }
-      return;
+    try {
+      const endpoint=readablePage.value ? pageEndpoint() : `/company-events/invitation/${eventId.value}/${encodeURIComponent(token.value)}`;
+      const {data}=await api.get(endpoint,{skipAuthRedirect:true,skipGlobalLoading:true});
+      if(scope !== pageGeneration)return;
+      const redirect=companyEventInvitationRedirect(data?.canonicalUrl,window.location.href);
+      if(redirect){window.location.replace(redirect);return;}
+      signInOrganization.value=data?.organizationSlug || pageOrganization.value;
+      resolvedEventId.value=Number(data?.event?.id) || 0;
+      invitationPreview.value=data;
+      if(!signedIn.value)return;
+    }catch(previewError){
+      if(readablePage.value || !signedIn.value)throw previewError;
+      // Program/work links retain their existing authenticated experience.
     }
     await loadEvent(scope);
     if(scope !== pageGeneration)return;
@@ -202,7 +217,7 @@ async function loadPage() {
   } catch(e){if(scope === pageGeneration)error.value=e?.response?.data?.error?.message || 'This event link is unavailable.';}
   finally{if(scope === pageGeneration)loading.value=false;}
 }
-watch(() => [eventId.value,token.value,signedIn.value,authStore.user?.id],loadPage,{immediate:true});
+watch(() => [route.params.eventId,pageOrganization.value,pageSlug.value,token.value,signedIn.value,authStore.user?.id],loadPage,{immediate:true});
 onBeforeUnmount(() => {pageGeneration++;});
 </script>
 <style scoped>

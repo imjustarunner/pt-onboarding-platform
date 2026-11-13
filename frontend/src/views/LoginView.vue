@@ -792,7 +792,8 @@ const route = useRoute();
 const leavePublicAuthForm = enterPublicAuthForm();
 onUnmounted(leavePublicAuthForm);
 const identifiedFamilySurface = ref('');
-const isAuricWellLogin = computed(() => /^(www\.)?auricwell\.com$/i.test(window.location.hostname) || route.query.workspace === 'auricwell' || !!auricwellLoginDestination(route.query.redirect) || identifiedFamilySurface.value === 'clinical');
+const isConversaLogin = computed(() => route.name === 'ConversaLogin' || String(route.query.redirect || '').startsWith('/conversa/events/'));
+const isAuricWellLogin = computed(() => !isConversaLogin.value && (/^(www\.)?auricwell\.com$/i.test(window.location.hostname) || route.query.workspace === 'auricwell' || !!auricwellLoginDestination(route.query.redirect) || identifiedFamilySurface.value === 'clinical'));
 const isFundThredLogin = computed(() => isFundthredLogin(route));
 useFundThredBranding('Sign in | FundThred', isFundThredLogin);
 const authStore = useAuthStore();
@@ -2102,7 +2103,7 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
       }
       await router.replace({
         path: targetLoginPath,
-        query: isFundThredLogin.value ? route.query : (auricwellLoginDestination(route.query.redirect) || route.query.workspace === 'auricwell' ? { ...(route.query.redirect ? {redirect:route.query.redirect} : {}), ...(route.query.workspace === 'auricwell' ? {workspace:'auricwell'} : {}) } : {})
+        query: isFundThredLogin.value || isConversaLogin.value ? route.query : (auricwellLoginDestination(route.query.redirect) || route.query.workspace === 'auricwell' ? { ...(route.query.redirect ? {redirect:route.query.redirect} : {}), ...(route.query.workspace === 'auricwell' ? {workspace:'auricwell'} : {}) } : {})
       });
       return;
     }
@@ -2144,7 +2145,7 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
           }
           await router.replace({
             path: normalizedTarget,
-            query: isFundThredLogin.value ? route.query : (auricwellLoginDestination(route.query.redirect) || route.query.workspace === 'auricwell' ? { ...(route.query.redirect ? {redirect:route.query.redirect} : {}), ...(route.query.workspace === 'auricwell' ? {workspace:'auricwell'} : {}) } : {})
+            query: isFundThredLogin.value || isConversaLogin.value ? route.query : (auricwellLoginDestination(route.query.redirect) || route.query.workspace === 'auricwell' ? { ...(route.query.redirect ? {redirect:route.query.redirect} : {}), ...(route.query.workspace === 'auricwell' ? {workspace:'auricwell'} : {}) } : {})
           });
           return;
         }

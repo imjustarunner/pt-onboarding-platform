@@ -1,5 +1,6 @@
 import { parseSmsKeyword, smsPolicyError, validateSmsRegistration } from './smsCompliancePolicy.js';
 import { companyEventWhen } from './companyEventInvitationEmail.js';
+import { companyEventPageUrl } from './companyEventPage.js';
 
 export function shortPollReplyCode(value) {
   const code = String(value || '');
@@ -43,7 +44,7 @@ export function buildCompanyEventSms({ event, code, body, brandName, audience = 
     }
     text = `Looking for help; ${when}${title}.${text ? ` ${text}` : ''} Reply Y to express interest (organizer approval required; this does not assign you). If replying about multiple events, reply Y ${code}.`;
     const base = String(process.env.FRONTEND_URL || process.env.FRONTEND_BASE_URL || '').replace(/\/$/, '');
-    const staffUrl = event?.staffPageUrl || (event?.staff_link_token && base ? `${base}/company-events/${Number(event.id)}/staff/${event.staff_link_token}` : null);
+    const staffUrl = companyEventPageUrl(event) || event?.staffPageUrl || (event?.staff_link_token && base ? `${base}/company-events/${Number(event.id)}/staff/${event.staff_link_token}` : null);
     if (staffUrl && /^https?:\/\//i.test(staffUrl)) text += ` Details, RSVP and check-in: ${staffUrl}`;
   }
   if (!text) throw smsPolicyError('sms_empty_body', 'An event message is required');

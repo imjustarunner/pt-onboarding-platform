@@ -6,7 +6,9 @@
       <p>Keep this link to see the event details as plans take shape. You can RSVP by replying to your invitation text.</p>
       <p v-if="invitation.event.potluckEnabled"><strong>It’s a potluck.</strong> Sign in to choose a requested item or tell the organizers what you’re bringing. You can update your contribution later.</p>
       <p v-else>Sign in to RSVP, vote, and join the event conversation.</p>
-      <a :href="signInUrl" class="ee-button ee-button-primary">{{ invitation.event.potluckEnabled ? 'Sign in to choose what I’m bringing' : 'Sign in to RSVP & join in' }}</a>
+      <a v-if="guestRegistrationUrl" :href="guestRegistrationUrl" class="ee-button">Register as a guest</a>
+      <p v-if="signedIn" class="ee-muted">Your account can view these details. Contact the organizer if you should have access to the invitation features.</p>
+      <a v-else :href="signInUrl" class="ee-button ee-button-primary">{{ invitation.event.potluckEnabled ? 'Sign in to choose what I’m bringing' : 'Sign in to RSVP & join in' }}</a>
     </section>
     <section class="ee-card invitation-facts">
       <h2>Event details</h2>
@@ -22,7 +24,7 @@
 
 <script setup>
 import EventPageHero from './EventPageHero.vue';
-defineProps({ invitation: { type: Object, required: true }, signInUrl: { type: String, required: true } });
+defineProps({ invitation: { type: Object, required: true }, signInUrl: { type: String, required: true }, guestRegistrationUrl: {type:String,default:''}, signedIn:{type:Boolean,default:false} });
 </script>
 
 <style scoped>

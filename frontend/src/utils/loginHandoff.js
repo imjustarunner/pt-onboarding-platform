@@ -1,6 +1,6 @@
 import { buildOrgLoginPath } from './orgLoginPath';
 
-export const isLoginEntryRoute = route => ['Login', 'OrganizationLogin', 'ParentOrganizationLogin'].includes(String(route?.name || ''));
+export const isLoginEntryRoute = route => ['Login', 'OrganizationLogin', 'ParentOrganizationLogin', 'ConversaLogin'].includes(String(route?.name || ''));
 
 // These pages validate their own credential; an existing account must not redirect them.
 export const isTokenAuthenticationRoute = route => ['ResetPassword', 'OrganizationResetPassword', 'PasswordlessTokenLogin', 'OrganizationPasswordlessTokenLogin', 'InitialSetup', 'NewAccount'].includes(String(route?.name || ''));

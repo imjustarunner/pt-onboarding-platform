@@ -3,15 +3,17 @@ import { readEventOperations } from '../utils/companyEventOperations.js';
 import { isCompanyEventInvitee, listCompanyEventInvitees } from '../services/companyEventAudience.service.js';
 import { canManageEventConversation } from '../services/companyEventConversation.service.js';
 import { saveStaffPotluckContribution } from '../services/staffEventPotluck.service.js';
-import { isCompanyGathering } from '../services/companyEventPersonalAgenda.service.js';
+import { isReadableCompanyGathering as isCompanyGathering } from '../utils/companyEventPage.js';
 import { companyEventInvitationLinks } from '../services/companyEventLinks.service.js';
+import { ensureCompanyEventPage, findCompanyEventPage } from '../services/companyEventPages.service.js';
 
 async function loadStaffLink(req) {
+  if (req.params.organizationSlug || req.params.eventSlug) return findCompanyEventPage(req.params);
   const id = Number(req.params.id);
   const token = String(req.params.token || '');
   if (!Number.isSafeInteger(id) || id <= 0 || !/^[a-f0-9]{48}$/.test(token)) return null;
   const [rows] = await pool.execute(`SELECT * FROM company_events WHERE id = ? AND staff_link_token = ?
-    AND is_active = 1 AND COALESCE(school_event_status, '') <> 'canceled' LIMIT 1`, [id, token]);
+    AND is_active = 1 AND COALESCE(school_event_status, '') NOT IN ('canceled','cancelled') LIMIT 1`, [id, token]);
   return rows[0] || null;
 }
 async function authorizedEvent(req, res) {
@@ -31,8 +33,10 @@ export async function getCompanyEventInvitationPreview(req, res, next) {
     if (!event || !isCompanyGathering(event)) return res.status(404).json({ error: { message: 'Event invitation not found' } });
     const operations = readEventOperations(event);
     const ids = [...new Set([Number(event.agency_id), ...operations.invitedAgencyIds.map(Number)])];
-    const [agencies] = await pool.execute(`SELECT id,name,slug,portal_url,custom_domain,logo_path,color_palette FROM agencies WHERE id IN (${ids.map(() => '?').join(',')}) AND is_active=1`, ids);
+    const [agencies] = await pool.execute(`SELECT id,name,slug,portal_url,custom_domain,logo_path,color_palette,organization_type,club_kind FROM agencies WHERE id IN (${ids.map(() => '?').join(',')}) AND is_active=1`, ids);
     const host = agencies.find(agency => Number(agency.id) === Number(event.agency_id));
+    if(!host || !isCompanyGathering({...event,host_organization_type:host.organization_type,host_club_kind:host.club_kind}))return res.status(404).json({error:{message:'Event invitation not found'}});
+    await ensureCompanyEventPage(event, host);
     const links = companyEventInvitationLinks(event, null, host);
     const providing = typeof event.organizer_providing_json === 'string' ? JSON.parse(event.organizer_providing_json || '[]') : event.organizer_providing_json || [];
     res.set?.('Cache-Control', 'no-store');
@@ -42,10 +46,11 @@ export async function getCompanyEventInvitationPreview(req, res, next) {
         startsAt: event.starts_at, endsAt: event.ends_at, timezone: event.timezone, dateToBeDecided: !event.starts_at,
         eventLocationName: event.event_location_name || '', eventLocationAddress: event.event_location_address || '',
         rsvpDeadline: event.rsvp_deadline, potluckEnabled: !!event.potluck_enabled, organizerProviding: providing,
+        publicRegistrationEnabled: operations.publicRegistrationEnabled,
         heroImageUrl: event.public_hero_image_url || '', publicHeroFocalPoint: event.public_hero_focal_point || 'center' },
       branding: { agencyName: agencies.map(agency => agency.name).filter(Boolean).join(' + '), logoUrl: host?.logo_path || '' },
       agencies: agencies.map(agency => ({ name: agency.name, logoUrl: agency.logo_path || '' })),
-      canonicalUrl: links.detailsUrl
+      canonicalUrl: links.detailsUrl, organizationSlug: host?.slug || host?.portal_url || ''
     });
   } catch (error) { next(error); }
 }

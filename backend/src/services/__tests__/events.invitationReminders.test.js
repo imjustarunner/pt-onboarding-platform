@@ -11,7 +11,7 @@ import { processCompanyEventInvitationReminders } from '../companyEventInvitatio
 const now = new Date('2026-11-11T18:00:00Z');
 const config = { enabled: true, offsetsHours: [168,24], channels: { email: true,inApp:true }, rsvp: { enabled:true,intervalHours:48,channels:{email:true,inApp:true} } };
 const event = { id:7,agency_id:2,title:'Second anniversary',starts_at:'2026-11-18T18:00:00Z',ends_at:'2026-11-18T20:00:00Z',
-  reminder_config_json:config,staff_link_token:'a'.repeat(48),operations_json:{} };
+  reminder_config_json:config,staff_link_token:'a'.repeat(48),operations_json:{pageLink:{eventId:7,organizationSlug:'itsco',eventSlug:'second-anniversary-7'}} };
 const invitation = { id:20,user_id:5,token:'private',created_at:'2026-11-07T18:00:00Z',response:null,email:'staff@example.com' };
 beforeEach(() => { vi.clearAllMocks(); process.env.FRONTEND_URL='https://app.example.com'; });
 
@@ -100,7 +100,7 @@ describe('durable per-channel delivery',()=>{
     const deps=fixture();const result=await deliverCompanyEventInvitation({event:{...event,potluck_enabled:1},invitation:{...invitation,phone_number:'+13035550101'},channels:{sms:true},...deps});
     expect(result).toMatchObject([{channel:'sms',status:'sent'}]);
     expect(deps.sendSms).toHaveBeenCalledWith(expect.objectContaining({mode:'rsvp_invitation',dispatchType:'rsvp_invitation',
-      event:expect.objectContaining({invitationPageUrl:`https://app.itsco.health/company-events/7/staff/${event.staff_link_token}`})}));
+      event:expect.objectContaining({invitationPageUrl:'https://auricwell.com/conversa/events/itsco/second-anniversary-7'})}));
   });
   it('adds a potluck sign-in next step to the in-app invitation',async()=>{
     const deps=fixture();await deliverCompanyEventInvitation({event:{...event,potluck_enabled:1},invitation,channels:{inApp:true},...deps});

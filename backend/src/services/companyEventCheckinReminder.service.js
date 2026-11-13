@@ -1,6 +1,8 @@
 import { readEventOperations } from '../utils/companyEventOperations.js';
 import { randomBytes } from 'node:crypto';
 import pool from '../config/database.js';
+import { isCompanyGathering } from '../utils/companyEventPage.js';
+import { resolveCompanyEventInvitationLinks } from './companyEventLinks.service.js';
 import { utcDateToZonedYmd, utcMysqlToIso, zonedDateHourToMysqlUtc, dateToMysqlUtcDateTime } from '../utils/zonedWallTime.util.js';
 import { EVENT_STAFF_ROLES_SQL } from '../utils/companyEventOperations.js';
 import { eventCheckinMessage, eventAttendanceReminderType } from '../utils/companyEventCheckin.js';
@@ -51,7 +53,7 @@ export async function processCompanyEventCheckinReminders({ now = new Date(), db
       event.staff_link_token = fresh[0]?.staff_link_token;
     }
     if (!event.staff_link_token) continue;
-    const url = `${base}/company-events/${event.id}/staff/${event.staff_link_token}#event-check-in`;
+    const url = `${isCompanyGathering(event) ? (await resolveCompanyEventInvitationLinks(event,null,db)).detailsUrl : `${base}/company-events/${event.id}/staff/${event.staff_link_token}`}#event-check-in`;
     const message = eventCheckinMessage(event, url, reminderType);
     const [users] = await db.execute(`SELECT DISTINCT u.id, u.email, u.work_email, u.personal_email, u.phone_number, u.personal_phone, u.work_phone
       FROM users u JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ? AND COALESCE(ua.is_active, 1) = 1

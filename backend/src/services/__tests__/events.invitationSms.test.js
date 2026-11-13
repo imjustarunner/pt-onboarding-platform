@@ -9,7 +9,7 @@ import { parseCompanyEventSmsCommand } from '../../utils/companyEventSms.js';
 import { handleCompanyEventTopicInbound } from '../companyEventSms.service.js';
 
 const sender={agency_id:2,phone_number:'+13035550100',campaign_id:'C2'};
-const delivery={id:20,user_id:5,agency_id:2,company_event_id:7,code:112,title:'Anniversary',is_active:1,starts_at:null,ends_at:null,operations_json:{},dispatch_type:'rsvp_invitation',purpose:'workforce'};
+const delivery={id:20,user_id:5,agency_id:2,company_event_id:7,code:112,title:'Anniversary',is_active:1,starts_at:null,ends_at:null,operations_json:{pageLink:{eventId:7,organizationSlug:'itsco',eventSlug:'anniversary-7'}},dispatch_type:'rsvp_invitation',purpose:'workforce'};
 const input={from:'+13035550101',to:sender.phone_number,body:'Maybe 112'};
 beforeEach(()=>{vi.resetAllMocks();getSmsSender.mockResolvedValue(sender);isSmsSuppressed.mockResolvedValue(false);isCompanyEventInvitee.mockResolvedValue(true);});
 const setup=(row=delivery)=>pool.execute.mockImplementation(async(sql)=>{
@@ -47,7 +47,7 @@ describe('event invitation SMS RSVP',()=>{
     pool.execute.mockImplementation(async(sql,args)=>sql.startsWith('SELECT id,name,slug')?[[{id:2,slug:'itsco'}]]:original(sql,args));
     const result=await handleCompanyEventTopicInbound({...input,body});
     expect(result.responseMessage).toContain('sign in on the event page to choose or update');
-    expect(result.responseMessage).toContain('https://app.itsco.health/company-events/7/staff/');
+    expect(result.responseMessage).toContain('https://auricwell.com/conversa/events/itsco/anniversary-7');
     expect(result.responseMessage).toContain('No 112');
   });
   it('still confirms a saved potluck RSVP when the branding lookup is temporarily unavailable',async()=>{

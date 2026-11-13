@@ -6,7 +6,7 @@ import { companyEventInvitationEmail } from '../utils/companyEventInvitationEmai
 import { invitationResponse } from '../utils/companyEventReminders.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import { sendCompanyEventSms } from './companyEventSms.service.js';
-import { companyEventInvitationLinks, resolveCompanyEventInvitationLinks } from './companyEventLinks.service.js';
+import { resolveCompanyEventInvitationLinks } from './companyEventLinks.service.js';
 import { companyEventWhen } from '../utils/companyEventInvitationEmail.js';
 export { companyEventInvitationLinks } from './companyEventLinks.service.js';
 
@@ -43,7 +43,7 @@ export async function sendCompanyEventInvitationEmail({ event, invitation, user,
   const resolved = context || await companyEventEmailContext(event, db);
   const to = String(user.work_email || user.email || '').trim();
   if (!to) return { skipped: true, reason: 'event_email_missing' };
-  const links = companyEventInvitationLinks(event, invitation.token, resolved.agencies.find(agency => Number(agency.id) === Number(event.agency_id || event.agencyId)));
+  const links = await resolveCompanyEventInvitationLinks(event, invitation.token, db);
   const message = companyEventInvitationEmail({ event, user, agencies: resolved.agencies, ...links, kind,
     mandatory: (readEventOperations(event).mandatoryUserIds || []).includes(Number(user.id || invitation.user_id)) });
   return sendEmailFromIdentity({ senderIdentityId: resolved.identity.id, to, ...message, userId: Number(user.id || invitation.user_id),
