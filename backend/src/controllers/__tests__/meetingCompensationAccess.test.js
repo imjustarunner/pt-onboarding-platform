@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from 'vitest';
-const m = vi.hoisted(() => ({ execute: vi.fn(), event: vi.fn(), member: vi.fn(), attendance: vi.fn(), summary: vi.fn(), save: vi.fn(), claim: vi.fn() }));
+const m = vi.hoisted(() => ({ execute: vi.fn(), event: vi.fn(), member: vi.fn(), attendance: vi.fn(), summary: vi.fn(), save: vi.fn(), claim: vi.fn(), participants: vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: { execute: m.execute }, onTableWrite: vi.fn() }));
 vi.mock('../../models/ProviderScheduleEvent.model.js', () => ({ default: { findById: m.event } }));
 vi.mock('../../models/User.model.js', () => ({ default: { getAgencies: async () => [{ id: 2 }] } }));
@@ -8,7 +8,8 @@ vi.mock('../../services/meetingJoinPolicy.service.js', () => ({ hasActiveMeeting
 vi.mock('../../services/meetingAttendanceSegments.service.js', () => ({ isAttendanceTrackingEnabledForEvent: () => true, rebuildAttendanceRollupsFromSegments: vi.fn(), listAttendanceSummary: m.attendance }));
 vi.mock('../../services/meetingClaimRate.service.js', () => ({ canManageMeetingCompensation: user => ['admin', 'super_admin', 'superadmin'].includes(user?.role), meetingClaimCompensation: m.summary, saveMeetingClaimRate: m.save, meetingClaimHourlyRate: vi.fn(), getMeetingClaimRateOverride: async () => null, MEETING_RATE_TYPES: {} }));
 vi.mock('../interviewHub.controller.js', () => ({ buildInterviewEndedGuestPayload: vi.fn() }));
-import { getTeamMeetingTimeClaims, patchTeamMeetingClaimRate } from '../teamMeetings.controller.js';
+vi.mock('../../services/meetingParticipants.service.js', () => ({ meetingParticipantRows: m.participants }));
+import { getTeamMeetingTimeClaims, patchTeamMeetingClaimRate, getMeetingParticipantPreferences } from '../teamMeetings.controller.js';
 import { getTimeClaimMeetingAttendance } from '../payroll.controller.js';
 const event = { id: 339, agency_id: 2, provider_id: 501, kind: 'TEAM_MEETING', meeting_subtype: 'admin' };
 const claim = { id: 611, agency_id: 2, user_id: 465, status: 'submitted', claim_type: 'meeting_training', payload: { source: 'meeting_compensation_auto', scheduleEventId: 339, totalMinutes: 30, serviceCode: 'MEETING' } };
@@ -72,4 +73,22 @@ it.each([{manual:71,seconds:3600,finalized:1,basis:'manual_attendance_correction
  m.execute.mockImplementation(async(sql,args)=>sql.includes('FROM supervision_sessions')?[[{id:66,supervisor_user_id:501,supervisee_user_id:465,session_type:'individual',modality:'virtual'}]]:sql.includes('FROM users u LEFT JOIN supervision_session_attendance_rollups')?[[{user_id:465,first_name:'Test',last_name:'Clinician',total_seconds:seconds,is_finalized:finalized,manual_correction_id:manual,joined_event_count:0,correction_requested_by:manual?'Test Clinician':null}]]:fallback(sql,args));
  const res=response(),next=vi.fn();await getTimeClaimMeetingAttendance(req('provider'),res,next);
  expect(next).not.toHaveBeenCalled();expect(res.json).toHaveBeenCalledWith(expect.objectContaining({evidence:expect.objectContaining({timeBasis:basis,requiresReview:review}),attendees:expect.arrayContaining([expect.objectContaining({joinedEventCount:0,manuallyCorrected:!!manual})])}));
+});
+
+it.each(['admin','super_admin','superadmin','provider','supervisor','support','clinical_practice_assistant'])('limits participant pay data for %s at the API boundary', async role => {
+  m.participants.mockImplementation(async (_event, options) => [{id:465,name:'Sample Attendee',rsvp:'accepted',...(options.includeCompensation ? {compensation:'Supervisor meeting · $32.50/hour'} : {})}]);
+  const request = req(role); request.user.id = 501;
+  const res=response(), next=vi.fn(); await getMeetingParticipantPreferences(request,res,next);
+  expect(next).not.toHaveBeenCalled();
+  const privileged=['admin','super_admin','superadmin'].includes(role);
+  expect(m.participants).toHaveBeenCalledWith(event,{includeCompensation:privileged});
+  expect(Object.hasOwn(res.json.mock.calls[0][0].participants[0],'compensation')).toBe(privileged);
+});
+it('uses the Supervisor meeting category before an attendance claim exists', async () => {
+  m.event.mockResolvedValue({...event,meeting_subtype:'supervisors_meeting'});
+  const execute=m.execute.getMockImplementation();
+  m.execute.mockImplementation(async (sql,args)=>sql.includes('FROM payroll_time_claims')?[[]]:sql.includes('SELECT id,role,credential')?[[{id:465,role:'provider',has_supervisor_privileges:1}]]:execute(sql,args));
+  const res=response(), next=vi.fn(); await getTeamMeetingTimeClaims(req('admin'),res,next);
+  expect(next).not.toHaveBeenCalled();
+  expect(res.json.mock.calls[0][0].rows.find(row=>row.userId===465).serviceCode).toBe('Supervisor meeting');
 });

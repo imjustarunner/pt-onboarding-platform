@@ -9,7 +9,7 @@
     <p v-if="loading" class="muted" role="status">Loading time claims…</p>
     <p v-else-if="!eligible" class="muted">Compensation is not enabled for this meeting.</p>
     <template v-else>
-      <p class="muted">Claims use recorded attendance. Non-salaried attendees of admin meetings default to their Support Activity rate.</p>
+      <p class="muted">Claims use recorded attendance and each attendee’s applicable meeting rate. Supervisor’s Meeting, Supervision, and Group Supervision are separate categories.</p>
       <p v-if="canManageCompensation" class="mtcp__private">Compensation amounts and rate controls in this meeting are visible only to admins and superadmins. Changes apply to this meeting claim only; payroll approval is still required.</p>
       <div v-if="rows.length" class="mtcp__list">
         <article v-for="r in rows" :key="r.userId" class="mtcp__person">
@@ -62,7 +62,7 @@ let requestId = 0;
 const money = value => value == null ? '—' : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(value));
 const formatMins = value => Number.isFinite(Number(value)) ? String(Math.round(Number(value) * 100) / 100) : '0';
 const humanize = value => String(value || '').replace(/_/g, ' ').replace(/^./, c => c.toUpperCase());
-const categoryLabel = code => ({ MEETING: 'Support Activity', 'Admin Time': 'Administrative time', INDIRECT: 'Indirect time' })[code] || humanize(code) || 'Support Activity';
+const categoryLabel = code => ({ MEETING: 'Support Activity', 'Supervisor meeting': 'Supervisor’s Meeting', 'Admin Time': 'Administrative time', INDIRECT: 'Indirect time' })[code] || humanize(code) || 'Support Activity';
 const statusLabel = row => row.unpaidIndirect ? 'Unpaid indirect hours' : row.status ? humanize(row.status) : row.attendanceMinutes >= 0.5 ? 'No claim' : 'No time recorded';
 const canEditClaim = row => ['submitted', 'deferred', 'rejected', 'withdrawn', 'needs_changes'].includes(String(row.status || '').toLowerCase());
 async function load() {

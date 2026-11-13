@@ -25,7 +25,7 @@ const initials = computed(() => name.value.split(/\s+/).slice(0, 2).map(word => 
 const src = computed(() => [...new Set([
   resolveMembershipLogoUrl(agency.value),
   props.iconUrl,
-  tenantFaviconUrl(agency.value.slug || agency.value.portal_url || agency.value.name)
+  ...[agency.value.slug, agency.value.portal_url, name.value].map(value => tenantFaviconUrl(value))
 ])].find(url => url && !failedUrls.value.includes(url)) || '');
 </script>
 

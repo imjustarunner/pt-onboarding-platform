@@ -74,7 +74,7 @@ it('shows a load error without throwing, and lets the provider retry successfull
 });
 
 it('keeps a cached calendar visible after a transient refresh failure', async () => {
-  setScheduleSummary('7|all|2026-10-12|monday|false|false|false|', summary);
+  setScheduleSummary('7|all|2026-10-12|monday|true|false|false|', summary);
   vi.setSystemTime(new Date(Date.now() + 120_000));
   m.failSchedule = true;
   const state = await mount();
@@ -279,7 +279,7 @@ it('keeps usable actions ahead of a preferred but unavailable school action, inc
   expect(state.slotActionPrefs.order[0]).toBe('school');
 });
 
-it('opens settings immediately and switches its optional sections without hiding common preferences', async () => {
+it('keeps settings in one connected panel and shows only the selected section', async () => {
   const state = await mount();
   await vi.advanceTimersByTimeAsync(500); await flushPromises();
   await wrapper.setProps({ compactPageChrome: true });
@@ -290,7 +290,7 @@ it('opens settings immediately and switches its optional sections without hiding
   for (const section of ['people', 'office', 'feeds', 'layout', 'more']) {
     const button = wrapper.find(`[aria-controls="sched-settings-${section}"]`);
     await button.trigger('click');
-    expect(button.attributes('aria-expanded')).toBe('true');
+    expect(button.attributes('aria-selected')).toBe('true');
     expect(settings.attributes('open')).toBeDefined();
     expect(wrapper.find(`#sched-settings-${section}`).element.style.display).not.toBe('none');
     for (const other of ['people', 'office', 'feeds', 'layout', 'more'].filter(id => id !== section)) {
@@ -299,7 +299,7 @@ it('opens settings immediately and switches its optional sections without hiding
   }
   await wrapper.find('[aria-controls="sched-settings-more"]').trigger('click');
   expect(settings.attributes('open')).toBeDefined();
-  expect(state.activeSettingsSection).toBe('');
+  expect(state.activeSettingsSection).toBe('more');
   expect(wrapper.find('[data-testid="schedule-client-name-display"]').exists()).toBe(true);
   expect(state.calendarSettingsOpen).toBe(true);
   // Nested disclosure toggle events must not collapse the toolbar itself.
@@ -648,4 +648,67 @@ it('defaults a new one-hour session to eligible 90837 without changing a saved s
  await state.loadBookingMetadataForProvider();expect(state.bookingServiceCode).toBe('90837');expect(state.editorEndTime).toBe('14:00');
  expect(m.get.mock.calls.filter(([url])=>url==='/office-schedule/booking-metadata')).toHaveLength(1);
  state.editorAppointmentId=88;state.bookingServiceCode='90832';await state.loadBookingMetadataForProvider();expect(state.bookingServiceCode).toBe('90832');expect(state.editorEndTime).toBe('14:00');
+});
+
+it('paints native sessions and releases loading while Google is still pending', async () => {
+  let finishGoogle;
+  const native = {...summary, googleCalendarEnabled:true, googleSyncPending:true,
+    scheduleEvents:[{id:11, kind:'PERSONAL_EVENT',clientId:42,clientName:'Jane Example',title:'Client session',agencyId:2,startAt:'2026-10-13T16:00:00Z',endAt:'2026-10-13T17:00:00Z'}]};
+  const original = m.get.getMockImplementation();
+  m.get.mockImplementation((url, config) => {
+    if (!url.includes('/schedule-summary')) return original(url,config);
+    if (config.params.skipGoogleSync === 'true') return Promise.resolve({data:native});
+    return new Promise(resolve => {finishGoogle = resolve;});
+  });
+  const state = await mount(); await vi.advanceTimersByTimeAsync(30); await flushPromises();
+  expect(state.loading).toBe(false); expect(state.summary.scheduleEvents[0].clientName).toBe('Jane Example'); expect(finishGoogle).toBeTypeOf('function');
+  expect(m.get).toHaveBeenCalledWith('/users/7/schedule-summary',expect.objectContaining({params:expect.objectContaining({skipGoogleSync:'true',includeGoogleEvents:'false',includeGoogleBusy:'false'})}));
+  finishGoogle({data:{...native,googleSyncPending:false,googleEvents:[{id:'external'}]}}); await flushPromises();
+  expect(state.summary.googleEvents[0].id).toBe('external'); expect(state.loading).toBe(false);
+});
+it('keeps Google enrichment off for password accounts even with a saved overlay preference', async () => {
+  const state = await mount(); state.googleEventsPreference=true; await vi.advanceTimersByTimeAsync(30); await flushPromises();
+  const calls = m.get.mock.calls.filter(([url])=>url.includes('/schedule-summary'));
+  expect(calls.every(([,config])=>config.params.skipGoogleSync==='true')).toBe(true);
+  expect(state.googleCalendarEnabled).toBe(false); expect(state.showGoogleEvents).toBe(false);
+});
+it('opens an office-only canonical client session in the app editor instead of the company-event viewer', async () => {
+  const state = await mount();
+  state.summary={...summary,scheduleAgencyIds:[2],officeEvents:[{id:32,appointmentId:264,clinicalSessionId:320,clientId:42,clientName:'Jane Example',agencyId:2,providerId:7,assignedProviderId:7,roomId:10,buildingId:1,buildingName:'Windchime',roomLabel:'Office #10',startAt:'2026-10-13T16:00:00Z',endAt:'2026-10-13T17:00:00Z',status:'BOOKED',slotState:'ASSIGNED_BOOKED',canEdit:true}]};
+  await flushPromises();
+  const block=state.buildCellBlocks('Tuesday',10,0).find(block=>block.kind==='sevt');
+  expect(block).toBeTruthy(); expect(block.eventId).toBe(-32);
+  state.dispatchCellBlockAction(block,'Tuesday',10,0); await flushPromises();
+  expect(state.showStackDetailsModal).toBe(false); expect(state.showRequestModal).toBe(true); expect(state.requestType).toBe('edit_schedule_event');
+  expect(state.editorAppointmentId).toBe(264);
+});
+it('does not replace a newly selected week with a late Google reconciliation response', async()=>{
+  let finishGoogle;
+  const original=m.get.getMockImplementation();
+  m.get.mockImplementation((url,config)=>{
+    if(!url.includes('/schedule-summary'))return original(url,config);
+    if(config.params.skipGoogleSync==='false')return new Promise(resolve=>{finishGoogle=resolve;});
+    return Promise.resolve({data:{...summary,weekStart:config.params.weekStart,googleCalendarEnabled:config.params.weekStart==='2026-10-12',googleSyncPending:true}});
+  });
+  const state=await mount();await vi.advanceTimersByTimeAsync(30);await flushPromises();
+  expect(finishGoogle).toBeTypeOf('function');
+  state.weekStart='2026-10-19';await state.load({forceRefresh:true});
+  finishGoogle({data:{...summary,googleCalendarEnabled:true,googleSyncPending:false,scheduleEvents:[{id:999,title:'Stale week'}]}});await flushPromises();
+  expect(state.summary.weekStart).toBe('2026-10-19');expect(state.summary.scheduleEvents).toEqual([]);
+});
+it('keeps the owned room location when a session agency differs from its room reservation agency', async()=>{
+ const state=await mount();
+ const startAt='2026-10-13T16:00:00Z',endAt='2026-10-13T17:00:00Z';
+ state.summary={...summary,scheduleAgencyIds:[2,3],scheduleEvents:[{id:11,kind:'PERSONAL_EVENT',clientId:42,appointmentId:264,agencyId:3,providerId:7,roomId:10,officeLocationId:1,modality:'IN_PERSON',startAt,endAt}],officeEvents:[{id:32,agencyId:2,assignedProviderId:7,roomId:10,buildingId:1,buildingName:'Windchime',roomNumber:10,startAt,endAt}]};
+ state.mergeDiscoveredScheduleAgencies([2,3]);await flushPromises();state.activeScheduleAgencyIds=[3];await flushPromises();
+ expect(state.summary.scheduleEvents).toHaveLength(1);expect(state.summary.scheduleEvents[0].locationLabel).toBe('Windchime · Office #10');
+ expect(state.summary.officeEvents).toHaveLength(0);
+});
+it('returns to Calendars when the viewed account has no Google connection', async()=>{
+ const state=await mount();state.summary={...summary,googleCalendarEnabled:true};
+ state.toggleSettingsSection('feeds');await flushPromises();
+ expect(state.activeSettingsSection).toBe('feeds');
+ state.summary={...summary,googleCalendarEnabled:false};await flushPromises();
+ expect(state.activeSettingsSection).toBe('calendars');
+ expect(wrapper.find('[aria-controls="sched-settings-feeds"]').exists()).toBe(false);
 });

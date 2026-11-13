@@ -181,21 +181,29 @@ class Appointment {
     return map;
   }
 
-  static async listIdsByProviderScheduleEventIds(pseIds = []) {
+  static async listOfficeCalendarMetadata(ids = []) {
+    return this.listIdsByProviderScheduleEventIds(ids, { linkColumn: 'office_event_id' });
+  }
+
+  static async listIdsByProviderScheduleEventIds(pseIds = [], { linkColumn = 'provider_schedule_event_id' } = {}) {
+    if (!['provider_schedule_event_id', 'office_event_id'].includes(linkColumn)) throw new Error('Invalid appointment calendar link');
     const ids = Array.from(new Set((pseIds || []).map((n) => Number(n)).filter((n) => n > 0)));
     if (!ids.length) return new Map();
     const placeholders = ids.map(() => '?').join(',');
     const [rows] = await pool.execute(
-      `SELECT ap.id, ap.provider_schedule_event_id, ap.status, ap.notes, ap.modality,
+      `SELECT ap.id, ap.agency_id AS appointment_agency_id, ap.${linkColumn} AS provider_schedule_event_id, ap.status, ap.notes, ap.modality,
               ap.clinical_session_id, ap.service_code, ap.tenant_service_id, ap.office_event_id, ap.source_timezone,
               (SELECT CASE WHEN COUNT(DISTINCT p.client_id)=1 THEN MIN(p.client_id) ELSE NULL END
                FROM appointment_participants p WHERE p.appointment_id=ap.id) AS client_id,
+              (SELECT COALESCE(NULLIF(c.full_name, ''), c.initials) FROM appointment_participants p
+               JOIN clients c ON c.id=p.client_id AND c.agency_id=ap.agency_id
+               WHERE p.appointment_id=ap.id ORDER BY p.client_id LIMIT 1) AS client_name,
               ap.office_location_id, ap.room_id, ap.service_location_id,
               sl.school_organization_id, COALESCE(s.name, sl.name) AS service_location_name
        FROM appointments ap
        LEFT JOIN agency_service_locations sl ON sl.id=ap.service_location_id AND sl.agency_id=ap.agency_id
        LEFT JOIN agencies s ON s.id=sl.school_organization_id
-       WHERE ap.provider_schedule_event_id IN (${placeholders})`,
+       WHERE ap.${linkColumn} IN (${placeholders})`,
       ids
     );
     const map = new Map();
@@ -204,6 +212,7 @@ class Appointment {
       if (pid) {
         map.set(pid, {
           id: Number(r.id),
+          agencyId: Number(r.appointment_agency_id || 0) || null,
           status: String(r.status || 'scheduled').toLowerCase(),
           notes: r.notes != null ? String(r.notes) : null,
           clinicalSessionId:Number(r.clinical_session_id || 0) || null,
@@ -211,6 +220,7 @@ class Appointment {
           tenantServiceId:Number(r.tenant_service_id || 0) || null,
           officeEventId:Number(r.office_event_id || 0) || null,
           clientId:Number(r.client_id || 0) || null,
+          clientName: Number(r.client_id || 0) ? r.client_name || null : null,
           sourceTimezone:r.source_timezone || 'America/Denver',
           persistedSourceTimezone:r.source_timezone||null,
           modality:r.modality || null, officeLocationId:Number(r.office_location_id || 0) || null,

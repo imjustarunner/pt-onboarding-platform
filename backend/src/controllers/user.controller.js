@@ -1,3 +1,4 @@
+import { projectScheduleGoogleOverlay } from '../services/scheduleGoogleOverlay.service.js';
 import { acceptedCompanyEventCalendar, companyEventScheduleVisibility } from '../services/companyEventPersonalAgenda.service.js';
 import { meetingDialInEnabled, supervisionDialInRequired } from '../services/meetingDialInPolicy.js';
 import { supervisionCoFacilitatorIds } from '../utils/supervisionFacilitators.js';
@@ -4147,8 +4148,9 @@ export const getUserScheduleSummary = async (req, res, next) => {
     const timeMaxIso = `${weekEnd}T00:00:00Z`;
 
     const googleCalendarEnabled = await usesGoogleSchedule(provider);
-    const includeGoogleEvents = googleCalendarEnabled && String(req.query.includeGoogleEvents || '').toLowerCase() === 'true';
-    const includeGoogleBusy = googleCalendarEnabled && !includeGoogleEvents && String(req.query.includeGoogleBusy || '').toLowerCase() === 'true';
+    const skipGoogleSync = ['true', '1'].includes(String(req.query.skipGoogleSync || '').toLowerCase());
+    const includeGoogleEvents = !skipGoogleSync && googleCalendarEnabled && String(req.query.includeGoogleEvents || '').toLowerCase() === 'true';
+    const includeGoogleBusy = !skipGoogleSync && googleCalendarEnabled && !includeGoogleEvents && String(req.query.includeGoogleBusy || '').toLowerCase() === 'true';
 
     // Ensure office_events are materialized for this week for buildings relevant to this provider (best-effort).
     // My Schedule personal grid can skip this — materialize only when office board needs it.
@@ -4394,6 +4396,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
            e.id,
            e.office_location_id,
            e.session_context_json,
+           e.google_provider_event_id,
            osa.booking_agency_id,
            e.standing_assignment_id,
            e.booking_plan_id,
@@ -4488,6 +4491,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
         buildingId: r.office_location_id,
         // Use the booking tenant, not the building owner or whichever tenant was fetched first.
         agencyId: officeBookingAgencyId(r),
+        googleEventId: googleCalendarEnabled ? r.google_provider_event_id || null : null,
         standingAssignmentId: Number(r.standing_assignment_id || 0) || null,
         bookingPlanId: Number(r.booking_plan_id || 0) || null,
         recurrenceGroupId: String(r.assignment_recurrence_group_id || '').trim() || null,
@@ -5714,23 +5718,6 @@ export const getUserScheduleSummary = async (req, res, next) => {
     let googleBusyError = null;
     let googleEvents = [];
     let googleEventsError = null;
-    if (includeGoogleBusy) {
-      try {
-        const providerEmail = String(provider?.email || '').trim().toLowerCase();
-        const r = await GoogleCalendarService.freeBusy({
-          subjectEmail: providerEmail,
-          timeMin: timeMinIso,
-          timeMax: timeMaxIso,
-          calendarId: 'primary'
-        });
-        if (r?.ok) googleBusy = r.busy || [];
-        else googleBusyError = r?.error || r?.reason || 'Google busy is not available';
-      } catch {
-        googleBusy = [];
-        googleBusyError = 'Google busy lookup failed';
-      }
-    }
-
     // Fetch Google events when the overlay is requested, OR when we have linked app rows
     // to reconcile (inbound sync: move/cancel in Google → update app DB).
     const scheduleGoogleEventIds = new Set(
@@ -5739,7 +5726,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
         .filter(Boolean)
     );
     const needsGoogleInboundSync = scheduleGoogleEventIds.size > 0 || supervisionGoogleEventIds.size > 0;
-    if (googleCalendarEnabled && (includeGoogleEvents || needsGoogleInboundSync)) {
+    if (!skipGoogleSync && googleCalendarEnabled && (includeGoogleEvents || includeGoogleBusy || needsGoogleInboundSync)) {
       try {
         const providerEmail = String(provider?.email || '').trim().toLowerCase();
         const r = await GoogleCalendarService.listEvents({
@@ -5747,7 +5734,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
           timeMin: timeMinIso,
           timeMax: timeMaxIso,
           calendarId: 'primary',
-          maxItems: 250
+          maxItems: 1500
         });
         if (r?.ok || needsGoogleInboundSync) {
           const listed = r?.ok ? (r.events || []) : [];
@@ -5791,33 +5778,27 @@ export const getUserScheduleSummary = async (req, res, next) => {
             }
           }
 
-          if (includeGoogleEvents && r?.ok) {
-            let events = isAdminOrSuperAdmin(req)
-              ? listed
-              : listed.map((event) => sanitizeGoogleEventForSchedule(event));
-            // Exclude Google events that already have first-class app rows.
-            if (supervisionGoogleEventIds.size || scheduleGoogleEventIds.size) {
-              events = events.filter((ev) => {
-                const id = String(ev?.id || '').trim();
-                if (!id) return true;
-                if (supervisionGoogleEventIds.has(id)) return false;
-                if (scheduleGoogleEventIds.has(id)) return false;
-                return true;
-              });
-            }
-            googleEvents = events;
+          if (r?.ok) {
+            const projection = projectScheduleGoogleOverlay({ events: listed, scheduleEvents, officeEvents, supervisionSessions });
+            scheduleEvents = projection.scheduleEvents;
+            officeEvents = projection.officeEvents;
+            supervisionSessions = projection.supervisionSessions;
+            if (includeGoogleEvents) googleEvents = isAdminOrSuperAdmin(req)
+              ? projection.events.map(({ extendedProperties, ...event }) => event)
+              : projection.events.map(event => sanitizeGoogleEventForSchedule(event));
+            if (includeGoogleBusy) googleBusy = projection.events.filter(event => event.transparency !== 'transparent')
+              .map(event => ({ startAt: event.startAt, endAt: event.endAt }));
           } else if (includeGoogleEvents && !r?.ok) {
             googleEventsError = r?.error || r?.reason || 'Google events are not available';
           }
-        } else if (includeGoogleEvents) {
+        } else if (includeGoogleEvents || includeGoogleBusy) {
           googleEventsError = r?.error || r?.reason || 'Google events are not available';
         }
       } catch {
-        if (includeGoogleEvents) {
-          googleEvents = [];
-          googleEventsError = 'Google events lookup failed';
-        }
+        if (includeGoogleEvents) { googleEvents = []; googleEventsError = 'Google events lookup failed'; }
+        if (includeGoogleBusy) { googleBusy = []; googleBusyError = 'Google busy lookup failed'; }
       }
+      if (includeGoogleBusy && googleEventsError) googleBusyError = googleEventsError;
     }
 
     let videoConfigured = false;
@@ -5894,13 +5875,18 @@ export const getUserScheduleSummary = async (req, res, next) => {
       const officeIds = (officeEvents || []).map((e) => Number(e?.id || 0)).filter((n) => n > 0);
       const pseIds = (scheduleEvents || []).map((e) => Number(e?.id || 0)).filter((n) => n > 0);
       const [officeApptMap, pseApptMap] = await Promise.all([
-        Appointment.listIdsByOfficeEventIds(officeIds),
+        Appointment.listOfficeCalendarMetadata(officeIds),
         Appointment.listIdsByProviderScheduleEventIds(pseIds)
       ]);
       if (officeApptMap.size) {
-        officeEvents = (officeEvents || []).map((e) => {
-          const aid = officeApptMap.get(Number(e?.id || 0));
-          return aid ? { ...e, appointmentId: aid } : e;
+        officeEvents = (officeEvents || []).map(e => {
+          const meta = officeApptMap.get(Number(e.id));
+          if (!meta) return e;
+          return { ...e, appointmentId: meta.id, appointmentAgencyId: meta.agencyId, clinicalSessionId: meta.clinicalSessionId,
+            clientId: meta.clientId, clientName: meta.clientName, modality: meta.modality,
+            serviceLocationId: meta.serviceLocationId, appointmentStatus: meta.status,
+            appointmentNotes: meta.notes, sourceTimezone: meta.sourceTimezone,
+            canEdit: isSelf || canViewFullScheduleDetails(req.user?.role) || isSupervisorOfTarget };
         });
       }
       if (pseApptMap.size) {
@@ -5918,7 +5904,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
               schoolName:meta.schoolName,locationLabel:meta.locationLabel,
               clinicalSessionId:meta.clinicalSessionId,serviceCode:meta.serviceCode,
               tenantServiceId:meta.tenantServiceId,officeEventId:meta.officeEventId,
-              clientId:meta.clientId,sourceTimezone:meta.sourceTimezone
+              clientId:meta.clientId,clientName:meta.clientName,sourceTimezone:meta.sourceTimezone
             }:{}),
             appointmentStatus: typeof meta === 'object'
               ? String(meta.status || 'scheduled').toLowerCase()
@@ -6072,6 +6058,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
       scheduleEvents,
       virtualWorkingHours,
       googleCalendarEnabled,
+      googleSyncPending: googleCalendarEnabled && skipGoogleSync,
       externalCalendarsAvailable: [],
       externalCalendars: [],
       externalBusy: [],

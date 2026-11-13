@@ -38,7 +38,7 @@
         <div>
           <div class="aip-k">Agency</div>
           <div class="aip-v aip-tenant">
-            <img v-if="tenantIconUrl" class="aip-tenant-logo" :src="tenantIconUrl" alt="" />
+            <ScheduleAgencyLogo class="aip-tenant-logo" :icon-url="tenantIconUrl" :label="tenantLabel" />
             <span>{{ tenantLabel || '—' }}</span>
           </div>
         </div>
@@ -239,6 +239,7 @@
 
 <script setup>
 import { computed, ref } from 'vue';
+import ScheduleAgencyLogo from './ScheduleAgencyLogo.vue';
 
 const props = defineProps({
   whenLabel: { type: String, default: '' },
