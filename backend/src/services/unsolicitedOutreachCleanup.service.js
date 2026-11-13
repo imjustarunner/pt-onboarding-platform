@@ -11,9 +11,10 @@ export async function cleanUpWebsiteSolicitations({agencyId,ticketId=null,apply=
   const database=dependencies.database||pool;
   const established=dependencies.established||isEstablishedOutreachSender;
   const register=dependencies.register||filterUnsolicitedOutreach;
+  const batchSize=Math.max(1,Math.min(1000,Math.floor(Number(limit))||200));
   const [rows]=await database.execute(`SELECT * FROM support_tickets WHERE agency_id=? AND source_channel='public_web'
     AND LOWER(COALESCE(status,''))<>'closed' AND source_email_from IS NOT NULL
-    ${tid?'AND id=?':''} ORDER BY id DESC LIMIT ?`,[aid,...(tid?[tid]:[]),Math.max(1,Math.min(1000,Math.floor(Number(limit))||200))]);
+    ${tid?'AND id=?':''} ORDER BY id DESC LIMIT ${batchSize}`,[aid,...(tid?[tid]:[])]);
   const matches=[];
   for (const row of rows) {
     if (!/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(String(row.source_email_from || '').trim())) continue;

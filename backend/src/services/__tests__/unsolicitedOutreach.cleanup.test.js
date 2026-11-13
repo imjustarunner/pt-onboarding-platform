@@ -15,7 +15,7 @@ beforeEach(()=>{
 it('defaults to a bounded agency-scoped read-only dry run and does not expose message text or sender',async()=>{
  const result=await main(['--agency-id','2','--ticket-id','646']);
  expect(result).toEqual({agencyId:2,dryRun:true,scanned:1,matches:[{ticketId:646,category:'seo',action:'would_close_and_block'}]});
- expect(pool.execute).toHaveBeenCalledWith(expect.stringContaining("source_channel='public_web'"),[2,646,200]);
+ expect(pool.execute).toHaveBeenCalledWith(expect.stringMatching(/source_channel='public_web'[\s\S]*LIMIT 200$/),[2,646]);
  expect(pool.getConnection).not.toHaveBeenCalled();expect(filterUnsolicitedOutreach).not.toHaveBeenCalled();
  expect(JSON.stringify(result)).not.toContain('sales@');expect(JSON.stringify(result)).not.toContain('SEO services');
 });

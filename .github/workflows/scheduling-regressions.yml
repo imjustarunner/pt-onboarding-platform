@@ -433,6 +433,8 @@ jobs:
           backend/src/services/__tests__/scheduling.supervisionScheduleActions.mysql.test.js
           backend/src/services/__tests__/scheduling.schoolSupport.mysql.test.js
           backend/src/services/__tests__/scheduling.schoolStatusTransitions.mysql.test.js
+      - name: Outreach rejection outbox and cleanup limits in MySQL
+        run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.unsolicited-outreach.config.js --maxWorkers=2
       - name: Work username reservation transactions
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.hire.config.js backend/src/services/__tests__/hire.username.mysql.test.js
       - name: Brief B paper processing and targeted retest
