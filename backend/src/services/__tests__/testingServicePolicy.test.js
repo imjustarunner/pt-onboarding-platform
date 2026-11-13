@@ -82,6 +82,8 @@ describe('component compensation rather than a blanket 9-code credit',()=>{
     const html=testingCodeReferenceHtml();for(const code of ['96130','96137','H0001','98968'])expect(html).toContain(code);
     expect(html).toContain('Routine reminder, scheduling or billing calls are indirect');
     const terms=testingCompensationSchedule(profile);expect(terms).toContain('$44.00/actual hour-equivalent');expect(terms).toContain('$32.00/actual hour');expect(terms).toContain('Medicaid-only');
+    expect(terms).toContain('Workplace Handbook Testing area');
+    for(const {code} of TESTING_SERVICE_CODES)expect(terms).not.toMatch(new RegExp('\\b'+code+'\\b'));
   });
   it.each(['itsco','nlu','tisi'])('resolves approved Testing contract terms and role scope for %s',agencySlug=>{
     const paySystem={...profile,supportActivityRate:18,...(agencySlug==='nlu'?{nluCompensationPolicyVersion:NLU_COMPENSATION_POLICY_VERSION}:{})};

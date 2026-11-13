@@ -136,6 +136,20 @@ the policy above. This is a versioned reference catalog; it does not activate
 operative payroll rules, rates, services, role assignments or payer billing.
 Activation remains governed by the deployment hold and prospective agreements.
 
+CONTRACT PRESENTATION — HANDBOOK REFERENCE
+New individual Testing terms state the duties, actual-time rates, allowance and
+approved supervision reference. They refer to the Workplace Handbook Testing
+area for code mappings, billing thresholds, examples and service qualifications.
+The builder's code guide is a preparation reference and is excluded from the
+generated agreement. Automatic Testing terms do not print procedure-code lists.
+New category/level previews use the descriptive therapeutic-skills service name
+for the combined program; the internal service identifier and pay data remain
+unchanged. Presentation version: handbook-service-reference-2026-11-13.
+Stored drafts, earlier generated snapshots and signed contracts are not rewritten.
+Legacy per-procedure agreements retain their existing generation path and require
+separate prospective review before conversion. No contracts are issued or deployed
+by this presentation correction.
+
 Seed preview from backend:
   SKIP_DB_CONNECT=1 node src/scripts/seedTestingReferences.js
     --env=/path/to/backend/.env --agencies=2,6,377,453,454

@@ -1,5 +1,6 @@
 import {TESTING_SERVICE_CODES,testingCompensationBasis} from '../content/testingServicePolicy.js';
 import {testingExampleSummary} from '../content/testingServiceExamples.js';
+import {CONTRACT_PRESENTATION_VERSION,handbookReferencedContractHtml} from '../content/contractHandbookReference.js';
 import { isProgramServiceRole } from '../content/programServiceRates.js';
 import {validateCredentials} from '../utils/credentialDisplay.js';
 import {employmentCategoryLevelTerms,applyEmploymentPayTerms} from '../content/employmentCategoryLevelTerms.js';
@@ -622,7 +623,7 @@ export async function renderContractHtml({
   const replaceFallbackClinicalDuties = rolePlan.roles.length > 0 && !rolePlan.roles.includes('psychotherapy');
   const clauses = applyContractServiceRoleClauses(handbookClauses,rolePlan,{replaceFallbackClinicalDuties});
   const compensation = terms ? {row:currentRow || {category,level,direct_rate:null,indirect_rate:null},rates:[]} : await selectedContractCompensation(agencyId, category, level, config.pay_mode);
-  if(terms) { mergedTokens.COMPENSATION_POLICY_VERSION=terms.version; mergedTokens.COMPENSATION_SCHEDULE=terms.schedule; }
+  if(terms) { mergedTokens.COMPENSATION_POLICY_VERSION=terms.version; mergedTokens.COMPENSATION_SCHEDULE=terms.schedule; mergedTokens.CONTRACT_PRESENTATION_VERSION=CONTRACT_PRESENTATION_VERSION; }
 
   mergedTokens.COMPENSATION_CATEGORY = individualTerms?'':String(category);
   mergedTokens.COMPENSATION_LEVEL = individualTerms?'':String(level);
@@ -645,7 +646,7 @@ export async function renderContractHtml({
   });
 
   const visibleClauses = selectedClauses.map(clause => ({
-    ...clause, body_html: withWeeklyHoursExpectations(clause.body_html)
+    ...clause, body_html: withWeeklyHoursExpectations(terms ? handbookReferencedContractHtml(clause.body_html) : clause.body_html)
   }));
   if (agreementPlan && String(mergedInput.MIN_HOURS ?? '').trim() && !visibleClauses.some(clause => findContractPlaceholders(clause.body_html).some(key => key.replaceAll('_', '') === 'MINHOURS'))) {
     visibleClauses.splice(3, 0, { body_html: withWeeklyHoursExpectations('<p>The {{ROLE_LABEL}} is expected to maintain at least {{MIN_HOURS}} direct service hours per week.</p>') });
