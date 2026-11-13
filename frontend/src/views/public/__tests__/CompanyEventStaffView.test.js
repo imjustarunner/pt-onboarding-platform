@@ -112,7 +112,10 @@ describe('staff event participation', () => {
     expect(api.get).toHaveBeenCalledWith('/company-events/invitation/8/share-token',{skipAuthRedirect:true,skipGlobalLoading:true});
     expect(wrapper.get('h1').text()).toBe('Team potluck');
     expect(wrapper.text()).toContain('An evening together');
-    expect(wrapper.text()).toContain('ITSCO + Inner Strength');
+    expect(wrapper.text()).toContain('Hosted by');
+    expect(wrapper.text()).toContain('ITSCO');
+    expect(wrapper.text()).toContain('Participating agencies');
+    expect(wrapper.text()).toContain('Inner Strength');
     expect(wrapper.text()).toContain('Sign in to choose what I’m bringing');
     expect(wrapper.findComponent({name:'StaffPollsPanel'}).exists()).toBe(false);
     expect(wrapper.findComponent({name:'EventConversation'}).exists()).toBe(false);
