@@ -44,12 +44,12 @@ export async function sendStaffPollEmail({ event, agency, user, to, actorUserId,
       return { skipped: true, reason: 'event_invitation_expired' };
     }
     const { companyEventEmailContext } = await import('./companyEventInvitations.service.js');
+    const { resolveCompanyEventInvitationLinks } = await import('./companyEventLinks.service.js');
     const { companyEventVoteEmail } = await import('../utils/companyEventInvitationEmail.js');
     const { sendEmailFromIdentity } = await import('./unifiedEmail/unifiedEmailSender.service.js');
     const context = await companyEventEmailContext(scope.parent);
-    const voteUrl = `${buildPublicAppUrl(agency, `staff-polls/${Number(event.id)}`)}?agencyId=${Number(agency.id)}`;
-    const detailsPath = scope.parent.staff_link_token ? `company-events/${scope.parent.id}/staff/${scope.parent.staff_link_token}` : `staff-events/${scope.parent.id}`;
-    const detailsUrl = buildPublicAppUrl(agency, detailsPath);
+    const { detailsUrl } = await resolveCompanyEventInvitationLinks(scope.parent, null);
+    const voteUrl = `${detailsUrl}#event-polls-title`;
     return sendEmailFromIdentity({ senderIdentityId: context.identity.id, to,
       ...companyEventVoteEmail({ parentEvent: scope.parent, poll: event, user, agencies: context.agencies, voteUrl, detailsUrl, followup,
         mandatory: (readEventOperations(scope.parent).mandatoryUserIds || []).includes(Number(user.id)) }),

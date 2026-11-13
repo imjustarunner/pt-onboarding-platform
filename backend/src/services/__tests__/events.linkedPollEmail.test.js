@@ -3,6 +3,7 @@ vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()},onTableWrite:
 vi.mock('../unifiedEmail/unifiedEmailSender.service.js',()=>({sendNotificationEmail:vi.fn(),sendEmailFromIdentity:vi.fn()}));
 vi.mock('../companyEventLinkedPolls.service.js',()=>({linkedCompanyEventPollAudience:vi.fn()}));
 vi.mock('../companyEventInvitations.service.js',()=>({companyEventEmailContext:vi.fn()}));
+vi.mock('../companyEventLinks.service.js',()=>({resolveCompanyEventInvitationLinks:vi.fn(async()=>({detailsUrl:'https://auricwell.com/conversa/events/itsco/anniversary-7'}))}));
 import {sendNotificationEmail,sendEmailFromIdentity} from '../unifiedEmail/unifiedEmailSender.service.js';
 import {linkedCompanyEventPollAudience} from '../companyEventLinkedPolls.service.js';
 import {companyEventEmailContext} from '../companyEventInvitations.service.js';
@@ -18,11 +19,11 @@ describe('event-linked modern vote mail',()=>{
     const args=sendEmailFromIdentity.mock.calls[0][0];expect(args).toMatchObject({senderIdentityId:42,to:input.to,templateType:'staff_poll_invitation',templateId:20,userId:5,subject:'Event vote: Anniversary'});
     expect(args.html).toContain('ITSCO + Next Level Up');expect(args.html).toContain('itsco.png');expect(args.html).toContain('nlu.png');
     expect(args.html).toContain('Date to be decided');expect(args.html).toContain('Choose a &lt;date&gt;');expect(args.html).toContain('Friday &lt;18th&gt;');
-    expect(args.html).toContain('/staff-polls/20?agencyId=2');expect(args.html).not.toContain('event-rsvp');expect(args.html).not.toContain('?r=yes');
+    expect(args.html).toContain('/conversa/events/itsco/anniversary-7#event-polls-title');expect(args.html).not.toContain('event-rsvp');expect(args.html).not.toContain('?r=yes');
     expect(args.html).toContain('Required attendance');expect(args.html).toContain('Your vote is separate from your event RSVP');
   });
   it('uses the same modern voting link and explicit subject for followups',async()=>{
-    await sendStaffPollEmail({...input,followup:true});expect(sendEmailFromIdentity).toHaveBeenCalledWith(expect.objectContaining({subject:'Reminder — event vote: Anniversary',templateType:'staff_poll_followup',linkUrl:'https://app.itsco.health/staff-polls/20?agencyId=2'}));
+    await sendStaffPollEmail({...input,followup:true});expect(sendEmailFromIdentity).toHaveBeenCalledWith(expect.objectContaining({subject:'Reminder — event vote: Anniversary',templateType:'staff_poll_followup',linkUrl:'https://auricwell.com/conversa/events/itsco/anniversary-7#event-polls-title'}));
   });
   it('does not email a formerly invited person after parent access changes',async()=>{
     linkedCompanyEventPollAudience.mockResolvedValue({parent,userIds:[]});expect(await sendStaffPollEmail(input)).toEqual({skipped:true,reason:'event_invitation_expired'});

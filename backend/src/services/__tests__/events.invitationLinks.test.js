@@ -3,20 +3,20 @@ vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn() } }));
 import { companyEventInvitationLinks, resolveCompanyEventInvitationLinks } from '../companyEventLinks.service.js';
 import { buildCompanyEventSms } from '../../utils/companyEventSms.js';
 const event = {id:353,agency_id:2,title:'Denver Holiday Potluck Party!',staff_link_token:'a'.repeat(48),potluck_enabled:1,starts_at:null,
-  description:'Celebrate the season together.',event_location_name:'Denver office',operations_json:{invitedAgencyIds:[3]}};
+  description:'Celebrate the season together.',event_location_name:'Denver office',operations_json:{invitedAgencyIds:[3],pageLink:{eventId:353,organizationSlug:'itsco',eventSlug:'denver-holiday-potluck-party-353'}}};
 afterEach(() => vi.unstubAllEnvs());
 describe('agency event invitation links and text', () => {
-  it('keeps a multi-agency event at its host agency while preserving the shared invitation token', async () => {
+  it('uses one central event page for multi-agency invitations and personal RSVP links', async () => {
     vi.stubEnv('FRONTEND_URL','https://plottwisthq.com');
-    const db={execute:vi.fn().mockResolvedValue([[{id:2,name:'ITSCO',slug:'itsco'}]])};
-    const links=await resolveCompanyEventInvitationLinks(event,'personal-token',db);
-    expect(links).toEqual({rsvpUrl:'https://app.itsco.health/event-rsvp/personal-token',detailsUrl:`https://app.itsco.health/company-events/353/staff/${event.staff_link_token}`,smsUrl:`https://app.itsco.health/company-events/353/staff/${event.staff_link_token}`});
-    expect(db.execute.mock.calls[0][1]).toEqual([2]);
+    const db={execute:vi.fn()};
+    const page='https://auricwell.com/conversa/events/itsco/denver-holiday-potluck-party-353';
+    expect(await resolveCompanyEventInvitationLinks(event,'personal-token',db)).toEqual({rsvpUrl:page+'?invitation=personal-token',detailsUrl:page,smsUrl:page});
+    expect(db.execute).not.toHaveBeenCalled();
   });
-  it('uses the configured agency app domain and keeps public registration an explicit choice', () => {
+  it('keeps agency hosts for program registration while company invitations share the central page', () => {
     const agency={slug:'example',custom_domain:'events.example.org'};
-    expect(companyEventInvitationLinks(event,'token',agency).smsUrl).toContain('https://events.example.org/company-events/353/staff/');
-    expect(companyEventInvitationLinks({...event,operations_json:{publicRegistrationEnabled:true}},'token',agency).smsUrl).toBe('https://events.example.org/company-events/353');
+    expect(companyEventInvitationLinks(event,'token',agency).smsUrl).toContain('https://auricwell.com/conversa/events/itsco/');
+    expect(companyEventInvitationLinks({...event,event_type:'program_workshop',operations_json:{publicRegistrationEnabled:true}},'token',agency).smsUrl).toBe('https://events.example.org/company-events/353');
   });
   it('puts usable RSVP commands, date status, venue, description and potluck steps in the initial invitation', () => {
     const text=buildCompanyEventSms({event:{...event,invitationPageUrl:'https://app.itsco.health/company-events/353'},code:128,brandName:'ITSCO',mode:'rsvp_invitation'});

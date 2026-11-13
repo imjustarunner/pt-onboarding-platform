@@ -9,6 +9,7 @@
         </p>
       </div>
       <div class="ocm-hub-header-actions">
+        <SendCareInvitation :agencies="accessibleAgencies" :initial-agency-id="Number(agencyId) || null" />
         <PostClientToExchangeButton />
         <nav class="ocm-hub-switcher" aria-label="Office tools">
           <template v-for="item in officeNavLinks" :key="item.key">
@@ -326,6 +327,7 @@
 </template>
 
 <script setup>
+import SendCareInvitation from '../../components/admin/SendCareInvitation.vue';
 import ProviderEnrollmentWaitlist from '../../components/provider/ProviderEnrollmentWaitlist.vue';
 import QuickPostClientToExchange from '../../components/clientExchange/QuickPostClientToExchange.vue';
 import PostClientToExchangeButton from '../../components/clientExchange/PostClientToExchangeButton.vue';

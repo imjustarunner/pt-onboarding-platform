@@ -36,6 +36,11 @@
     @contact-support="openSplashSupportModal"
     @select-step="jumpToProgressStep"
   >
+    <p v-if="link?.care_invitation" class="care-invitation-notice" role="status" style="padding:14px;border-left:3px solid #21646b;background:#eef6f5">
+      {{ link.care_invitation.providerName }} has invited you to complete enrollment.
+      Your invitation is connected to this provider for {{ link.care_invitation.modality === 'IN_PERSON' ? 'in-person' : 'virtual' }} care.
+      Assignment and any requested appointment will be confirmed after your signed paperwork and insurance verification are complete.
+    </p>
     <p v-if="progressSaveError" class="error" role="alert">{{ progressSaveError }} <button type="button" @click="saveServerProgress()">{{ tx('Try saving again') }}</button></p>
     <template #billing-actions>
       <button type="button" class="df-btn df-btn-secondary" @click="saveAndComeBackLater">{{ t('saveAndComeBackLater') }}</button>
@@ -4386,10 +4391,12 @@ function sanitizeOfficeIntakeSteps(steps = []) {
 }
 
 const intakeSteps = computed(() => {
-  const raw = Array.isArray(link.value?.intake_steps) ? link.value.intake_steps : [];
+  const rawSteps = Array.isArray(link.value?.intake_steps) ? link.value.intake_steps : [];
+  const raw = link.value?.care_invitation ? rawSteps.filter(s => s.type !== 'provider_match') : rawSteps;
   let steps = Number(link.value?.inherits_office_master || 0) === 1
     ? sanitizeOfficeIntakeSteps(raw)
     : raw;
+  if(link.value?.care_invitation)steps=steps.filter(s=>s.type!=='provider_match');
   if (isSchoolScopedIntake.value) {
     const pagedKeys = new Set(steps.flatMap(s => s.fields || []).map(f => f.key));
     const extraClientFields = (link.value?.intake_fields || []).filter(f =>

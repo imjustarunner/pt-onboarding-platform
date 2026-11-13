@@ -1,4 +1,5 @@
 import { STAFF_ROLES } from './staffEligibility.js';
+import { COMPANY_EVENT_ORIGIN, companyEventPageUrl, isReadableCompanyGathering } from './companyEventPage.js';
 
 export const EVENT_STAFF_ROLES = [...new Set([...STAFF_ROLES, 'intern_plus', 'club_manager'])];
 // Static roles owned by the application, never values supplied by a request.
@@ -75,11 +76,12 @@ export function normalizeEventOperations(body = {}, existing = {}, { actorUserId
 }
 export function mapEventOperations(row = {}) {
   const operations = readEventOperations(row);
-  const base = String(process.env.FRONTEND_URL || process.env.FRONTEND_BASE_URL || '').replace(/\/$/, '');
+  const company = isReadableCompanyGathering(row), pageUrl = companyEventPageUrl(row);
+  const base = company ? COMPANY_EVENT_ORIGIN : String(process.env.FRONTEND_URL || process.env.FRONTEND_BASE_URL || '').replace(/\/$/, '');
   return { ...operations,
     paymentOutstanding: !!operations.requiresPayment && !operations.paymentPaid,
-    publicPageUrl: `${base}/company-events/${Number(row.id)}`,
-    staffPageUrl: row.staff_link_token ? `${base}/company-events/${Number(row.id)}/staff/${row.staff_link_token}` : null
+    publicPageUrl: pageUrl ? `${pageUrl}?register=1` : `${base}/company-events/${Number(row.id)}`,
+    staffPageUrl: pageUrl || (row.staff_link_token ? `${base}/company-events/${Number(row.id)}/staff/${row.staff_link_token}` : null)
   };
 }
 export function assertEventRegistrationOpen(row, now = new Date()) {

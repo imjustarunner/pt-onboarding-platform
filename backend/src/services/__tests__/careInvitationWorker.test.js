@@ -1,0 +1,25 @@
+import {beforeEach,expect,it,vi} from 'vitest';
+const m=vi.hoisted(()=>({notify:vi.fn(),assign:vi.fn(),queue:vi.fn(),staff:vi.fn(),submission:vi.fn(),rows:vi.fn()}));
+vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()},onTableWrite:()=>()=>{}}));
+vi.mock('../careInvitation.service.js',()=>({notifyCareInvitation:m.notify}));
+vi.mock('../clientProviderAssignmentSync.service.js',()=>({ensureClientProviderAssignmentRow:m.assign}));
+vi.mock('../insuranceVerificationTask.service.js',()=>({queueInsuranceVerificationTask:m.queue,queueInsuranceVerificationSafely:vi.fn()}));
+vi.mock('../staffCareEligibility.service.js',()=>({requireStaffCareEligibility:m.staff}));
+vi.mock('../../models/IntakeSubmission.model.js',()=>({default:{findById:m.submission}}));
+vi.mock('../../models/IntakeSubmissionClient.model.js',()=>({default:{listBySubmissionId:m.rows}}));
+import {processCareInvitation} from '../careInvitationWorker.service.js';
+const invitation=()=>({id:8,agency_id:377,client_id:42,provider_user_id:501,created_by_user_id:9,intake_link_id:88,recipient_email:'parent@example.com',modality:'IN_PERSON'});
+function database({otherProvider=false,crossTenant=false}={}){return{beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),execute:vi.fn(async sql=>{
+ if(sql.includes('FROM intake_submissions'))return [[{id:90}]];
+ if(sql.includes('FROM client_provider_assignments'))return [[]];
+ if(sql.includes('FROM clients'))return [crossTenant?[]:[{id:42,provider_id:otherProvider?777:null,status:'PENDING'}]];
+ return [{affectedRows:1}];
+})};}
+beforeEach(()=>{vi.clearAllMocks();m.assign.mockResolvedValue({ok:true});m.queue.mockResolvedValue(11);m.submission.mockResolvedValue({id:90,guardian_user_id:99,client_id:42,signer_email:'parent@example.com',combined_pdf_path:'private/packet.pdf',intake_data:{clients:[{firstName:'Fictional'}]}});m.rows.mockResolvedValue([{client_id:42,bundle_pdf_path:'private/packet.pdf'}]);});
+it('creates billing follow-up without assignment, booking, or provider-ready notification when insurance is unresolved',async()=>{const db=database(),coverage=vi.fn(async()=>false),book=vi.fn();await processCareInvitation(invitation(),db,{coverage,book});expect(m.queue).toHaveBeenCalledWith(expect.objectContaining({agencyId:377,clientId:42}));expect(m.assign).not.toHaveBeenCalled();expect(book).not.toHaveBeenCalled();expect(m.notify).toHaveBeenCalledWith(expect.anything(),'billing_review',expect.anything(),{billing:true,support:true,provider:false},db);});
+it('releases the assignment and booking together after coverage verification, then notifies provider, support, and billing',async()=>{const db=database(),book=vi.fn(async()=>[10]);await processCareInvitation(invitation(),db,{coverage:async()=>true,book});expect(m.assign).toHaveBeenCalledWith(db,expect.objectContaining({providerUserId:501,organizationId:377,clientId:42}));expect(book).toHaveBeenCalledOnce();expect(m.notify).toHaveBeenCalledWith(expect.anything(),'ready',expect.stringContaining('signed enrollment complete; insurance verified'),{provider:true,billing:true,support:true},db);});
+it('does not claim successful scheduling after a conflict or partial series failure',async()=>{const db=database();await expect(processCareInvitation(invitation(),db,{coverage:async()=>true,book:async()=>{throw Error('Conflict');}})).rejects.toThrow('Conflict');expect(m.notify).toHaveBeenCalledWith(expect.anything(),'booking_review',expect.anything(),expect.anything(),db);expect(m.notify.mock.calls.some(c=>c[1]==='ready')).toBe(false);});
+it('preserves an existing different provider relationship',async()=>{await expect(processCareInvitation(invitation(),database({otherProvider:true}),{coverage:async()=>true,book:vi.fn()})).rejects.toThrow('different provider');expect(m.assign).not.toHaveBeenCalled();});
+it('binds exactly the submitted invitation recipient and enrolled tenant',async()=>{const value=invitation();value.client_id=null;m.submission.mockResolvedValueOnce({id:90,guardian_user_id:99,client_id:42,signer_email:'other@example.com',combined_pdf_path:'private/packet.pdf',intake_data:{clients:[{firstName:'Fictional'}]}});await expect(processCareInvitation(value,database(),{coverage:vi.fn()})).rejects.toThrow('differs from the invitation');expect(m.assign).not.toHaveBeenCalled();});
+it('rejects an enrolled chart outside the invitation practice',async()=>{const value=invitation();value.client_id=null;await expect(processCareInvitation(value,database({crossTenant:true}),{coverage:vi.fn()})).rejects.toThrow('outside this invitation');expect(m.assign).not.toHaveBeenCalled();});
+it('leaves incomplete signatures and packet generation waiting',async()=>{const value=invitation();value.client_id=null;m.submission.mockResolvedValueOnce({id:90,intake_data:{clients:[{firstName:'Fictional'}],packetGeneration:{status:'needs_review'}}});const coverage=vi.fn();await processCareInvitation(value,database(),{coverage});expect(coverage).not.toHaveBeenCalled();expect(m.assign).not.toHaveBeenCalled();});

@@ -1095,6 +1095,18 @@ const routes = [
     meta: { requiresGuest: false }
   },
   {
+    path: '/conversa/events/:eventOrganization/:eventSlug',
+    name: 'ConversaEvent',
+    component: () => import('../views/public/CompanyEventStaffView.vue'),
+    meta: { requiresGuest: false, hideNav: true }
+  },
+  {
+    path: '/conversa/login/:organizationSlug',
+    name: 'ConversaLogin',
+    component: () => import('../views/LoginView.vue'),
+    meta: { requiresGuest: true, organizationSlug: true, hideNav: true }
+  },
+  {
     path: '/company-events/:eventId/staff/:token',
     name: 'CompanyEventStaff',
     component: () => import('../views/public/CompanyEventStaffView.vue'),
@@ -6338,6 +6350,9 @@ router.beforeEach(async (to, from, next) => {
       next({ path: getDashboardRoute(), replace: true });
     }
   } else if (to.meta.requiresGuest && authStore.isAuthenticated && !isTokenAuthenticationRoute(to)) {
+    if (to.name === 'ConversaLogin' && /^\/conversa\/events\/[a-z0-9-]+\/[a-z0-9-]+(?:[?#]|$)/.test(String(to.query.redirect || '')) && !String(to.query.redirect).includes('\\')) {
+      next({path:to.query.redirect,replace:true});return;
+    }
     const auricwell = auricWellAccountDestination({
       hostname:window.location.hostname,role:authStore.user?.role,organizations:agencyStore.userAgencies?.length?agencyStore.userAgencies:authStore.user?.agencies,
       requestedSlug:to.params.organizationSlug || to.query.ssoOrg,redirectPath:to.query.redirect,auricwellEntry:to.query.workspace==='auricwell'

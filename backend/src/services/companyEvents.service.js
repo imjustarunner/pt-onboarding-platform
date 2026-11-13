@@ -128,7 +128,7 @@ export function makeGoogleCalendarUrl(event) {
   const params = new URLSearchParams();
   params.set('action', 'TEMPLATE');
   params.set('text', String(event?.title || 'Company event'));
-  const details = String(event?.description || event?.splashContent || '').trim();
+  const details = [String(event?.description || event?.splashContent || '').trim(), event?.staffPageUrl].filter(Boolean).join('\n\n');
   if (details) params.set('details', details);
   params.set('dates', `${formatGoogleDate(startsAt)}/${formatGoogleDate(occurrenceEnd)}`);
   const recurrenceRule = recurrenceToRRule(event?.recurrence, startsAt);
@@ -158,8 +158,9 @@ export function buildEventIcs(event) {
     `DTEND:${formatIcsDate(occurrenceEnd)}`,
     `SUMMARY:${escapeIcsText(event?.title || 'Company event')}`
   ];
-  const desc = String(event?.description || event?.splashContent || '').trim();
+  const desc = [String(event?.description || event?.splashContent || '').trim(), event?.staffPageUrl].filter(Boolean).join('\n\n');
   if (desc) lines.push(`DESCRIPTION:${escapeIcsText(desc)}`);
+  if (event?.staffPageUrl && /^https:\/\//.test(event.staffPageUrl)) lines.push(`URL:${escapeIcsText(event.staffPageUrl)}`);
   if (recurrenceRule) lines.push(recurrenceRule);
   lines.push('END:VEVENT', 'END:VCALENDAR');
   return `${lines.join('\r\n')}\r\n`;

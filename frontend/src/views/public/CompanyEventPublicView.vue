@@ -353,11 +353,13 @@ import api from '../../services/api';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 import { useAuthStore } from '../../store/auth';
+import { companyEventInvitationRedirect } from '../../utils/companyEventInvitationHost';
 
+const props = defineProps({eventId:{type:Number,default:0}});
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
-const eventId = computed(() => Number(route.params.eventId) || 0);
+const eventId = computed(() => Number(props.eventId || route.params.eventId) || 0);
 
 const loading = ref(true);
 const error = ref('');
@@ -711,6 +713,7 @@ const load = async () => {
   error.value = '';
   try {
     const resp = await api.get(`/company-events/public/${eventId.value}`, { skipAuthRedirect: true });
+    if(!props.eventId){const redirect=companyEventInvitationRedirect(resp.data?.canonicalUrl,window.location.href);if(redirect){window.location.replace(redirect);return;}}
     const pr = resp.data?.publicRouting;
     if (pr?.hasProgramLanding && pr?.programEventsPath) {
       await router.replace(pr.programEventsPath);

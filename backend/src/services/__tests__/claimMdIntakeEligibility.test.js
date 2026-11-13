@@ -59,3 +59,9 @@ describe('intake eligibility',()=>{
   await runIntakeEligibilityJobs(d);expect(d.check).toHaveBeenCalledTimes(calls);
  });
 });
+
+it('uses the invited service date for automatic eligibility instead of today',async()=>{
+ const d=deps();d.check.mockResolvedValue({summary:{status:'active_reported',identityMatches:true}});
+ await processIntakeEligibility({...job,care_start_at:new Date('2026-11-17T23:00:00Z'),care_time_zone:'America/Denver'},{reviewer_user_id:9},{officeId:6},d);
+ expect(d.check).toHaveBeenCalledWith(expect.objectContaining({serviceDate:'2026-11-17'}),d);
+});
