@@ -4859,7 +4859,8 @@
         </div>
         <div v-else-if="!showActionChooser && !isAppointmentEditMode && !intakeConfirmStep && requestType !== 'admin_assign' && requestType !== 'cancel_booking' && requestType !== 'slot_details'" class="nr-footer">
           <div v-if="modalError" class="error nr-footer__error" role="alert">{{ modalError }}</div>
-          <div v-if="showRequestSubmitBlockedBanner" class="nr-blocked-reason" style="flex: 1 1 100%; margin-bottom: 8px;">
+          <div v-if="submitting && officeBookingProgress" role="status" aria-live="polite" style="flex: 1 1 100%; margin-bottom: 8px;">{{ officeBookingProgress }}</div>
+          <div v-if="showRequestSubmitBlockedBanner && !submitting" class="nr-blocked-reason" style="flex: 1 1 100%; margin-bottom: 8px;">
             {{ requestSubmitBlockedReason }}
           </div>
           <button v-if="editorIsOpenSlot && editingOpenSlot?.virtualHoursId" type="button" class="btn nr-remove-availability" :disabled="submitting" @click="openAvailabilityRemoval">
@@ -5906,12 +5907,13 @@
 import ScheduledTrainingEditor from './ScheduledTrainingEditor.vue';
 import ClientAlertDialog from '../clients/ClientAlertDialog.vue';
 import ProviderUpdateSchoolSchedule from '../provider/ProviderUpdateSchoolSchedule.vue';
-import {decorateSessionLocations, officeCoveredBySession, virtualSchoolOverlap, scheduleEventSignature} from '../../utils/scheduleLocationProjection.js';
+import {decorateSessionLocations, includeOfficeClientSessions, officeCoveredBySession, virtualSchoolOverlap, scheduleEventSignature} from '../../utils/scheduleLocationProjection.js';
 import ScheduledTrainingPanel from '../meetings/ScheduledTrainingPanel.vue';
 import { canScheduleTraining } from '../../utils/scheduledTraining';
 import { officeRequestWindows } from '../../utils/officeRequestWindows.js';
 import ProviderEnrollmentWaitlist from '../provider/ProviderEnrollmentWaitlist.vue';
 import { getScheduleSummaryResponse } from '../../utils/scheduleSummaryRequests';
+import { prefetchNextScheduleWeek } from '../../utils/scheduleSummaryPrefetch.js';
 import CalendarSharing from '../CalendarSharing.vue';
 import { virtualOfficeGuestUrl } from '../../utils/virtualOfficeLinks.js';
 import ScheduleColorSettings from './ScheduleColorSettings.vue';
@@ -5952,6 +5954,7 @@ import {
   wallDatetimeLocalToSummaryIso
 } from '../../utils/scheduleEventInstants.js';
 import {appointmentOfficeId,officesForAgency,defaultAppointmentServiceLocation} from '../../utils/appointmentOfficeSelection.js';
+import { submitOfficeBooking } from '../../utils/ownedOfficeBooking.js';
 import { useScheduleFullscreen } from '../../composables/useScheduleFullscreen.js';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
@@ -6507,7 +6510,7 @@ const familyScheduleEnabled = computed(() => {
 const summary = computed({
   get: () => {
     const raw = rawSummary.value ? filterSummaryByActiveAgencies(rawSummary.value) : null;
-    const data = raw ? {...raw, scheduleEvents:decorateSessionLocations(raw.scheduleEvents, raw.schoolAssignments, raw.officeEvents, String(agencyStore.currentAgency?.timezone || 'America/Denver'))} : raw;
+    const data = raw ? {...raw, scheduleEvents:decorateSessionLocations(includeOfficeClientSessions(raw.scheduleEvents, raw.officeEvents), raw.schoolAssignments, raw.officeEvents, String(agencyStore.currentAgency?.timezone || 'America/Denver'))} : raw;
     if (!data || !familyScheduleEnabled.value || Number(props.userId) !== Number(authStore.user?.id)) return data;
     return { ...data, scheduleEvents: familyScheduleProjection(data.scheduleEvents, familyPersonalMode.value, familyScheduleDetails.value) };
   },
@@ -9915,6 +9918,7 @@ let scheduleRetryTimer = null;
 let scheduleRetryDeadline = 0;
 let scheduleRetryAttempts = 0;
 let scheduleDisposed = false;
+let nextWeekPrefetchTimer = null;
 function waitForScheduleRetry(deadline) {
   clearTimeout(scheduleRetryTimer);
   scheduleRetryDeadline = deadline;
@@ -9937,6 +9941,7 @@ function waitForScheduleRetry(deadline) {
 }
 onUnmounted(() => {
   scheduleDisposed = true;
+  clearTimeout(nextWeekPrefetchTimer);
   clearTimeout(scheduleRetryTimer);
 });
 const load = async ({ forceRefresh = false } = {}) => {
@@ -10029,6 +10034,16 @@ const load = async ({ forceRefresh = false } = {}) => {
         mergeDiscoveredScheduleAgencies(tagged.scheduleAgencyIds || []);
         setScheduleSummary(cacheKey, tagged);
         summary.value = tagged;
+        // Warm only the adjacent personal week after the visible one has painted.
+        // Reuse the normal cache and its write invalidation; never materialize other room weeks.
+        if (resp.config?.params && viewMode.value !== 'office_layout') {
+          clearTimeout(nextWeekPrefetchTimer);
+          const uid = props.userId;
+          nextWeekPrefetchTimer = setTimeout(() => {
+            void prefetchNextScheduleWeek(`/users/${uid}/schedule-summary`, resp.config, cacheKey,
+              () => !scheduleDisposed && props.userId === uid);
+          }, 800);
+        }
       } else {
         summary.value = null;
       }
@@ -12825,6 +12840,8 @@ const modalActionSource = ref('general'); // general | plus_or_blank | office_bl
 const requestNotes = ref('');
 const submitting = ref(false);
 const modalError = ref('');
+const officeBookingProgress = ref('');
+const postOfficeBooking = payload => submitOfficeBooking(api, payload, { onProgress: message => { officeBookingProgress.value = message; } });
 const SCHEDULE_EVENT_ACTIONS = new Set(['personal_event', 'schedule_hold', 'schedule_hold_all_day', 'indirect_services', 'agency_meeting', 'huddle']);
 const AGENCY_OPTIONAL_ACTIONS = new Set([
   'office',
@@ -22134,7 +22151,7 @@ const completePlatformVirtualSessionBooking = async ({
     const recurrence = String(officeBookingRecurrence.value || 'ONCE');
     await withdrawEditorPriorOfficeRequests();
     const series = editorOfficeSeriesParams();
-    const r = await api.post('/office-schedule/booking-requests', {
+    const r = await postOfficeBooking({
         roomType: requestedOfficeRoomType.value,
       agencyId,
       appointmentId: canonicalBooking.recurrenceSeriesId ? undefined : appointmentId,
@@ -22237,6 +22254,7 @@ const submitRequest = async () => {
 
   try {
     submitting.value = true;
+    officeBookingProgress.value = '';
     modalError.value = '';
     let createdScheduleEvents = [];
     let meetingAttendeeUserIds = [];
@@ -22927,7 +22945,7 @@ const submitRequest = async () => {
         const endAt = `${String(t.dateYmd).slice(0, 10)}T${pad2(Math.min(Number(t.hour || h) + (endH - h), 23))}:${pad2(endMinute)}:00`;
         const preferred = Number(editorPreferredRoomId.value || roomId || 0) || roomId;
         // eslint-disable-next-line no-await-in-loop
-        const r = await api.post('/office-schedule/booking-requests', {
+        const r = await postOfficeBooking({
         roomType: requestedOfficeRoomType.value,
           officeLocationId: officeId,
           roomId: preferred,
@@ -22943,6 +22961,11 @@ const submitRequest = async () => {
         const bookingReqId = Number(r?.data?.request?.id || 0);
         if (bookingReqId) editorLastOfficeBookingRequestId.value = bookingReqId;
         if (r?.data?.kind === 'auto_booked') {
+          ensureScheduleAgencyVisible(Number(r.data.agencyId || editorAgencyId.value || effectiveAgencyId.value));
+          const count = r.data.appointmentIds?.length || occurrenceCount || 1;
+          showBookingReceipt({ title: `${count} client session${count === 1 ? '' : 's'} scheduled`, when: formatBookingReceiptWhen({ dateYmd: String(t.dateYmd).slice(0,10), startHour: Number(t.hour || h), startMinute, endHour: endH, endMinute }) });
+          officeReminderToast.value = `${count} client session${count === 1 ? '' : 's'} scheduled.`;
+          setTimeout(() => { officeReminderToast.value = ''; }, 10000);
           // eslint-disable-next-line no-await-in-loop
           await loadSelectedOfficeGrid();
           refreshInBackground = true;
@@ -26129,13 +26152,13 @@ const isEditableScheduleStackItem = (item) => {
   const kind = String(item?.eventKind || '').trim().toUpperCase();
   if (!EDITABLE_SCHEDULE_EVENT_KINDS.has(kind)) return false;
   if (item?.canEdit === false) return false;
-  return Number(item?.eventId || 0) > 0;
+  return Number(item?.eventId || 0) > 0 || (Number(item?.eventId || 0) < 0 && Number(item?.appointmentId || 0) > 0);
 };
 
 /** Host (or admin-meeting invitee) may change time/date. */
 const canRescheduleScheduleStackItem = (item) => {
   if (!item || item?.isCancelled) return false;
-  if (Number(item?.eventId || 0) <= 0) return false;
+  if (Number(item?.eventId || 0) <= 0 && !Number(item?.appointmentId || 0)) return false;
   if (item?.canReschedule === true) return true;
   if (item?.canReschedule === false) return false;
   if (isEditableScheduleStackItem(item)) return true;

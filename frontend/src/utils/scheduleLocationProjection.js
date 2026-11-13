@@ -6,6 +6,19 @@ const agencyId = row => number(row?.agencyId, row?._agencyId);
 const range = row => [parseScheduleUtcInstant(row?.startAt), parseScheduleUtcInstant(row?.endAt)];
 const terminal = row => /^(?:CANCEL|VOID|RESCHEDUL|NO_SHOW|MISSED)/i.test(String(row?.appointmentStatus || row?.status || ''));
 export const isClientCalendarSession = row => !!number(row?.clientId, row?.appointmentId) || /Client\s*id:\s*\d+/i.test(String(row?.description || ''));
+// Client appointments remain appointments when the optional room-reservation layer is hidden.
+export function includeOfficeClientSessions(events = [], offices = []) {
+  const result = [...events], linked = new Set(events.map(row => number(row.appointmentId)).filter(Boolean));
+  for (const office of offices) {
+    const appointmentId = number(office.appointmentId);
+    if (!appointmentId || !number(office.clientId) || linked.has(appointmentId) || terminal(office)) continue;
+    result.push({ ...office, id: -number(office.id), officeEventId: number(office.id), appointmentId,
+      officeLocationId: number(office.buildingId, office.officeLocationId), kind: 'PERSONAL_EVENT', title: 'Client session',
+      appointmentStatus: String(office.statusOutcome || 'scheduled').toLowerCase(), isPrivate: false, allDay: false });
+    linked.add(appointmentId);
+  }
+  return result;
+}
 export function calendarRangesOverlap(a,b) {
   const [as,ae]=range(a),[bs,be]=range(b);
   return !!(as&&ae&&bs&&be&&as<be&&ae>bs);

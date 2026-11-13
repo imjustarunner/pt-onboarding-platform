@@ -34,19 +34,34 @@ async function reservationFor(db, input, occurrence) {
   return events.length === 1 ? events[0] : null;
 }
 
+export function ownedOfficeSessionBookingKey(input) {
+  return createHash('sha256').update(JSON.stringify([input.agencyId, input.providerId, input.clientId, input.roomId,
+    input.startAt, input.endAt, input.recurrence, input.occurrenceCount || 1])).digest('hex');
+}
+
+export async function findOwnedOfficeSessionReservation(input) {
+  if (!input.roomId || !input.clientId || input.appointmentId || input.appointmentSeriesId) return null;
+  const occurrences = ownedOfficeSessionOccurrences({ ...input, timeZone: input.office.timezone || 'America/Denver' });
+  const first = await reservationFor(pool, input, occurrences[0]);
+  return owned(first, input.providerId) ? first : null;
+}
+
 /** Scheduling a client uses the provider's room reservation; it does not request or reassign the room. */
 export async function bookSessionInOwnedOffice(input) {
   if (!input.roomId || !input.clientId || input.appointmentId || input.appointmentSeriesId) return null;
   const occurrences = ownedOfficeSessionOccurrences({ ...input, timeZone: input.office.timezone || 'America/Denver' });
-  const first = await reservationFor(pool, input, occurrences[0]);
-  if (!owned(first, input.providerId)) return null; // New/unassigned room requests keep their approval workflow.
+  if (!await findOwnedOfficeSessionReservation(input)) return null; // New/unassigned room requests keep their approval workflow.
+  const progress = async (phase, completed = 0) => input.onProgress?.({ phase, completed, total: occurrences.length });
   return withClientSchedulingLock([input.clientId], async () => {
     const timeZone = input.office.timezone || 'America/Denver';
     if (occurrences.some(row => !withinOfficeRecordWindow(row.date, timeZone))) throw fail('Choose session dates within the next year.');
     // Generate only missing reservation weeks, before taking the room writer's lock.
-    for (const occurrence of occurrences) {
+    await progress('preparing');
+    for (const [index, occurrence] of occurrences.entries()) {
       if (!await reservationFor(pool, input, occurrence)) await OfficeScheduleMaterializer.materializeWeek({
-        officeLocationId: input.office.id, weekStartRaw: occurrence.date, createdByUserId: input.actorUserId });
+        officeLocationId: input.office.id, weekStartRaw: occurrence.date, createdByUserId: input.actorUserId,
+        reservationWindow: { ...occurrence, roomId: input.roomId } });
+      await progress('preparing', index + 1);
     }
     const db = await pool.getConnection();
     const lockName = OfficeEvent.lockNameForSlot({ roomId: input.roomId });
@@ -61,9 +76,9 @@ export async function bookSessionInOwnedOffice(input) {
       const customReminders = normalizeCustomSessionReminders(input.customReminders || []);
       await validateCustomReminderChannels(input.agencyId, customReminders);
       await assertAppointmentClients(input.agencyId, [{ clientId: input.clientId }]);
-      const key = createHash('sha256').update(JSON.stringify([input.agencyId, input.providerId, input.clientId, input.roomId,
-        input.startAt, input.endAt, input.recurrence, input.occurrenceCount || 1])).digest('hex');
+      const key = ownedOfficeSessionBookingKey(input);
       bookingSource = `reserved_office_session:${key.slice(0, 32)}`;
+      await progress('checking');
       // Check every requested date before creating any appointment or modifying a reservation.
       for (const occurrence of occurrences) {
         const event = await reservationFor(db, input, occurrence);
@@ -81,6 +96,7 @@ export async function bookSessionInOwnedOffice(input) {
         await assertAppointmentWindowAvailable(db, { agencyId: input.agencyId, providerUserId: input.providerId,
           startAt: occurrence.startAt, endAt: occurrence.endAt, officeEventId: event.id, status: 'scheduled', sourceTimezone: timeZone }, appointment?.id || null);
         selected.push({ occurrence, event, context, appointment });
+        await progress('checking', selected.length);
       }
       if (input.packageEntitlementId) {
         const entitlement = await BookingPackage.findEntitlementById(input.packageEntitlementId, input.agencyId);
@@ -89,9 +105,14 @@ export async function bookSessionInOwnedOffice(input) {
           throw fail(`The selected package needs ${needed} available sessions for this booking.`);
         }
       }
+      await progress('saving');
       for (const row of selected) {
         const { event, occurrence } = row;
-        if (row.appointment && row.context.reservedSessionBookingComplete) { linked.push(row.appointment); continue; }
+        if (row.appointment && row.context.reservedSessionBookingComplete) {
+          linked.push(row.appointment);
+          if (input.refreshCompletedCalendars) await GoogleCalendarService.upsertBookedOfficeEvent({ officeEventId: event.id, sendUpdates: 'none' });
+          await progress('saving', linked.length); continue;
+        }
         const context = { ...row.context, agencyId: input.agencyId, clientId: input.clientId, bookingSource: 'reserved_office_session',
           reservedSessionBookingKey: key, schedulingNotes: input.notes || null, notificationMode: input.notificationMode || 'default', customReminders,
           tenantServiceId: input.tenantServiceId || null, packageEntitlementId: input.packageEntitlementId || null };
@@ -113,15 +134,18 @@ export async function bookSessionInOwnedOffice(input) {
           WHERE id=? AND (client_id IS NULL OR client_id=?)`,
         [input.clientId, input.providerId, input.serviceCode, input.modality, input.serviceLocationId || null, input.notes || null, JSON.stringify(context), event.id, input.clientId]);
         await ensureAppointmentClinicalLink(appointment.id, input.actorUserId);
+        await progress('saving', linked.length);
       }
       // An interrupted series is retryable; notices are released only after every session is linked.
-      for (const row of selected) {
-        if (row.context.reservedSessionBookingComplete) continue;
+      await progress('finishing');
+      for (const [index, row] of selected.entries()) {
+        if (row.context.reservedSessionBookingComplete) { await progress('finishing', index + 1); continue; }
         const appointment = linked.find(a => Number(a.officeEventId) === Number(row.event.id));
         await scheduleSessionNotifications(appointment.id, { replace: true });
         await appointmentScheduleNotices.queue(appointment.id, { eventType: 'created', actorUserId: input.actorUserId });
         try { await GoogleCalendarService.upsertBookedOfficeEvent({ officeEventId: row.event.id }); } catch { /* The saved app appointment remains authoritative. */ }
         await pool.execute("UPDATE office_events SET session_context_json=JSON_SET(session_context_json,'$.reservedSessionBookingComplete',TRUE) WHERE id=?", [row.event.id]);
+        await progress('finishing', index + 1);
       }
       OfficeScheduleMaterializer.invalidateOffice(input.office.id);
       return { ok: true, kind: 'auto_booked', officeEventId: selected[0].event.id,

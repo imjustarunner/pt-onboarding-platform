@@ -1,5 +1,5 @@
 import {describe,it,expect} from 'vitest';
-import {decorateSessionLocations,officeCoveredBySession,virtualSchoolOverlap,scheduleEventSignature} from '../scheduleLocationProjection.js';
+import {decorateSessionLocations,includeOfficeClientSessions,officeCoveredBySession,virtualSchoolOverlap,scheduleEventSignature} from '../scheduleLocationProjection.js';
 import {dayScheduleEntries} from '../providerDaySchedule.js';
 const school={assignmentId:7,schoolOrgId:451,agencyId:450,schoolName:'Cedar Grove',dayOfWeek:'Monday',startTime:'08:00',endTime:'15:00'};
 const session={id:80,appointmentId:20,agencyId:450,clientId:5,kind:'PERSONAL_EVENT',description:'Client id: 5\nSchool: Cedar Grove',title:'School session',startAt:'2026-10-26T14:30:00Z',endAt:'2026-10-26T15:15:00Z'};
@@ -38,4 +38,12 @@ describe('location-aware session display',()=>{
   const normalize=value=>new Date(value).toISOString();
   expect(scheduleEventSignature(session,normalize)).toBe(scheduleEventSignature({...session,startAt:'2026-10-26T14:30:00.000Z'},normalize));
  });
+});
+
+it('projects office client appointments even when room reservations are hidden',()=>{
+ const office={id:18510,appointmentId:264,clientId:81,agencyId:377,startAt:'2026-11-26T22:00:00Z',endAt:'2026-11-26T23:00:00Z',buildingId:1,roomId:10,status:'BOOKED'};
+ const rows=includeOfficeClientSessions([], [office,{...office,id:18511},{id:18512,roomId:10}]);
+ expect(rows).toHaveLength(1);expect(rows[0]).toMatchObject({appointmentId:264,officeEventId:18510,kind:'PERSONAL_EVENT',title:'Client session'});
+ expect(officeCoveredBySession(office,rows)).toBe(true);expect(includeOfficeClientSessions(rows,[office])).toHaveLength(1);
+ expect(includeOfficeClientSessions([],[{...office,clientId:null}])).toEqual([]);
 });

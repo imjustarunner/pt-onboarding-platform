@@ -1,5 +1,6 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 vi.mock('../../services/ownedOfficeSession.service.js',()=>({bookSessionInOwnedOffice:vi.fn(async()=>null)}));
+vi.mock('../../services/ownedOfficeSessionJobs.service.js',()=>({queueOwnedOfficeSession:vi.fn(async()=>null)}));
 const m=vi.hoisted(()=>({execute:vi.fn(),agencies:vi.fn(),officeAgencies:vi.fn(),office:vi.fn(),provider:vi.fn(),create:vi.fn(),selection:vi.fn(),rollout:vi.fn(),locations:vi.fn(),room:vi.fn(),access:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute},onTableWrite:()=>()=>{}}));
 vi.mock('../../models/User.model.js',()=>({default:{getAgencies:m.agencies,findById:m.provider}}));
@@ -14,6 +15,7 @@ vi.mock('../../services/clientSessionBookingRollout.service.js',()=>({requireCli
 vi.mock('../../services/sameDayServiceWarning.service.js',()=>({confirmSameDayServiceWarnings:async()=>true}));
 vi.mock('../../services/officeBillingSites.service.js',()=>({filterServiceLocationsForProvider:rows=>rows,listUserOfficeIds:async()=>[1],listUserSchoolIds:async()=>[]}));
 import { bookSessionInOwnedOffice } from '../../services/ownedOfficeSession.service.js';
+import { queueOwnedOfficeSession } from '../../services/ownedOfficeSessionJobs.service.js';
 import { createOfficeBookingRequest, getBookingLocations } from '../officeSchedule.controller.js';
 beforeEach(()=>{
  vi.clearAllMocks();m.execute.mockResolvedValue([[]]);m.room.mockResolvedValue({id:10,location_id:1});m.access.mockResolvedValue(true);
@@ -56,4 +58,11 @@ it('requires the booking actor to have scheduling access to the selected session
  const req={user:{id:507,role:'admin'},body:{requestedProviderId:501,agencyId:377,officeLocationId:1,roomId:10,clientId:81,startAt:'2026-11-26T15:00:00',endAt:'2026-11-26T16:00:00',appointmentTypeCode:'SESSION',modality:'IN_PERSON',serviceCode:'90837'}};
  const res=response(),next=vi.fn();await createOfficeBookingRequest(req,res,next);
  expect(next).not.toHaveBeenCalled();expect(res.status).toHaveBeenCalledWith(403);expect(bookSessionInOwnedOffice).not.toHaveBeenCalled();expect(m.create).not.toHaveBeenCalled();
+});
+it('returns a durable progress job promptly for the session form instead of waiting on the whole series',async()=>{
+ queueOwnedOfficeSession.mockResolvedValueOnce({kind:'booking_job',job:{id:'job-1',status:'queued',total:26}});
+ const req={user:{id:501,role:'super_admin'},body:{asyncOwnedSession:true,agencyId:377,officeLocationId:1,roomId:10,clientId:81,startAt:'2026-11-26T15:00:00',endAt:'2026-11-26T16:00:00',recurrence:'BIWEEKLY',bookedOccurrenceCount:26,appointmentTypeCode:'SESSION',modality:'IN_PERSON',serviceCode:'90837'}};
+ const res=response(),next=vi.fn();await createOfficeBookingRequest(req,res,next);
+ expect(next).not.toHaveBeenCalled();expect(res.status).toHaveBeenCalledWith(202);expect(res.json).toHaveBeenCalledWith(expect.objectContaining({kind:'booking_job'}));
+ expect(bookSessionInOwnedOffice).not.toHaveBeenCalled();expect(m.create).not.toHaveBeenCalled();
 });

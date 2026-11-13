@@ -46,3 +46,12 @@ it('keeps an eight-week-ahead client reservation booked without drafting a claim
  expect(pool.execute.mock.calls.some(([sql,args])=>sql.includes('UPDATE office_events SET client_id')&&args[0]===9)).toBe(true);
  expect(pool.execute.mock.calls.some(([sql])=>sql.includes('clinical_claims'))).toBe(false);
 });
+
+it('materializes only the selected room/hour and keeps its cache separate from the full week',async()=>{
+ Materializer.invalidateOffice(8);
+ Assignment.listByOffice.mockResolvedValue([assignment,{...assignment,id:2,room_id:9},{...assignment,id:3,hour:15},{...assignment,id:4,weekday:2}]);
+ const reservationWindow={date:'2026-10-05',roomId:2,startAt:'2026-10-05 20:00:00',endAt:'2026-10-05 21:00:00'};
+ await Materializer.materializeWeek({officeLocationId:8,weekStartRaw:'2026-10-05',reservationWindow,force:true});
+ expect(Event.upsertSlotState).toHaveBeenCalledTimes(1);expect(Event.upsertSlotState).toHaveBeenCalledWith(expect.objectContaining({roomId:2,startAt:reservationWindow.startAt}));
+ Event.upsertSlotState.mockClear();await Materializer.materializeWeek({officeLocationId:8,weekStartRaw:'2026-10-05'});expect(Event.upsertSlotState.mock.calls.length).toBeGreaterThan(1);
+});
