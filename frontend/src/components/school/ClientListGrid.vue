@@ -48,6 +48,7 @@
       <FictionalClientPreview v-if="fictionalDemo" :client="overviewClient" inline @close="closeOverview" />
       <SchoolClientOverviewPanel v-else
         :client="overviewClient"
+        :parent-agency-id="parentAgencyId"
         :can-edit-action="canOpenMoreInfo"
         :school-organization-id="Number(overviewClient?.organization_id || organizationId)"
         :school-name="overviewClient.organization_name || organizationName"

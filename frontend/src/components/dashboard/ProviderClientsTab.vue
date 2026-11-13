@@ -296,6 +296,7 @@
           v-if="selectedSchoolOrgId && schools.length && !schoolSelectionUnavailable"
           :organization-slug="organizationSlug"
           :organization-id="Number(selectedSchoolOrgId) || null"
+          :parent-agency-id="Number(agencyId) || null"
           :organization-name="selectedSchoolName"
           :clients-override="schoolClientsForGrid"
           :feedback-by-client="feedbackByClient"

@@ -6,7 +6,7 @@ import ProviderClientsTab from '../ProviderClientsTab.vue';
 vi.mock('../../../services/api.js', () => ({ default: { get: vi.fn(), post: vi.fn().mockResolvedValue({data:{summaries:[]}}) } }));
 vi.mock('../../../store/agency', () => ({ useAgencyStore: () => ({ currentAgency: {id:2}, userAgencies: [] }) }));
 vi.mock('../../../store/auth', () => ({ useAuthStore: () => ({ user: {id:1,role:'admin'} }) }));
-vi.mock('../../school/ClientListGrid.vue', () => ({ default: { name: 'ClientListGrid', props: ['organizationId', 'rosterProviderUserId'], template: '<div />' } }));
+vi.mock('../../school/ClientListGrid.vue', () => ({ default: { name: 'ClientListGrid', props: ['organizationId', 'rosterProviderUserId', 'parentAgencyId'], template: '<div />' } }));
 vi.mock('../../provider/ProviderEnrollmentWaitlist.vue', () => ({ default: { template: '<div />' } }));
 vi.mock('../../kiosk/ClientCheckinSubmissions.vue', () => ({ default: { template: '<div />' } }));
 vi.mock('../../clientExchange/PostClientToExchangeButton.vue', () => ({ default: { template: '<div />' } }));
@@ -44,7 +44,7 @@ it('shows counts for each school and drills into the selected provider roster',a
   expect(schoolTab.text()).toContain('2'); // Shared client counted once across both schools.
   await cards[1].trigger('click');await flushPromises();
   expect(router.currentRoute.value.query).toMatchObject({tab:'clients',clients:'school'});
-  expect(wrapper.findComponent({name:'ClientListGrid'}).props()).toMatchObject({organizationId:20,rosterProviderUserId:12});
+  expect(wrapper.findComponent({name:'ClientListGrid'}).props()).toMatchObject({organizationId:20,rosterProviderUserId:12,parentAgencyId:2});
   expect(api.get.mock.calls.filter(([url])=>url.includes('my-roster')).every(([,options])=>options.params.providerUserId===12)).toBe(true);
 });
 it('hides the school view when the provider has no school assignments or school clients',async()=>{
