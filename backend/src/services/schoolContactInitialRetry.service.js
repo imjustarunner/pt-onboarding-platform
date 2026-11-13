@@ -5,6 +5,7 @@ import ClinicalNote from '../models/clinical/ClinicalNote.model.js';
 // This error is raised by sender verification before the transport is invoked.
 // Other failures, including missing/unknown transport receipts, are not retryable.
 export const INITIAL_RETRY_DETAIL = 'provider_retry:EMAIL_SENDER_UNVERIFIED';
+const UNCONSUMED_RETRY_REVIEW = 'Delivery needs receipt reconciliation; no automatic duplicate was sent.';
 const failure = (message, status = 409) => Object.assign(new Error(message), { status });
 const parse = value => { try { return typeof value === 'string' ? JSON.parse(value) : value || {}; } catch { return {}; } };
 const time = value => value ? new Date(value).getTime() : 0;
@@ -70,8 +71,12 @@ export async function readSchoolContactInitialRetry(db, w) {
   if (w.status === 'queued' && ['pending','sending'].includes(step.status) && step.detail === INITIAL_RETRY_DETAIL) {
     return { canRetryInitial:false,retryInitialQueued:true,reason:null };
   }
-  if (w.status !== 'needs_review' || w.last_error !== 'EMAIL_SENDER_UNVERIFIED' || step.status !== 'needs_review'
-    || step.detail !== 'EMAIL_SENDER_UNVERIFIED' || step.completed_at || step.message_id) {
+  const failedInitial = w.status === 'needs_review' && w.last_error === 'EMAIL_SENDER_UNVERIFIED'
+    && step.status === 'needs_review' && step.detail === 'EMAIL_SENDER_UNVERIFIED';
+  const unconsumedRetry = w.status === 'needs_review' && w.last_error === UNCONSUMED_RETRY_REVIEW
+    && step.status === 'pending' && step.detail === INITIAL_RETRY_DETAIL
+    && Number(w.conversation_id) > 0 && Number(step.conversation_id) === Number(w.conversation_id);
+  if ((!failedInitial && !unconsumedRetry) || step.completed_at || step.message_id) {
     return no('Review the existing delivery history; this outcome cannot be retried automatically.');
   }
   const [messages] = await db.execute(`SELECT m.id,m.conversation_id,m.send_status,m.sent_at,m.to_json,
@@ -93,6 +98,29 @@ export async function readSchoolContactInitialRetry(db, w) {
   if (receipts.some(unsafeReceipt)) {
     return no('An accepted or uncertain delivery must be reconciled before another send.');
   }
+  let recoveryAudit = null;
+  if (unconsumedRetry) {
+    const [[audit]] = await db.execute(`SELECT id,metadata,created_at FROM user_activity_log
+      WHERE action_type='family_welcome_initial_retry_queued' AND user_id=? AND agency_id=?
+        AND JSON_UNQUOTE(JSON_EXTRACT(metadata,'$.workflowId'))=? ORDER BY id DESC LIMIT 1`,
+    [w.provider_user_id,w.agency_id,String(w.id)]);
+    const queued = parse(audit?.metadata);
+    const originalQueue = queued.previousError === 'EMAIL_SENDER_UNVERIFIED' && queued.previousStepStatus === 'needs_review';
+    const recoveredQueue = queued.previousError === UNCONSUMED_RETRY_REVIEW && queued.previousStepStatus === 'pending'
+      && Number.isSafeInteger(Number(queued.recoveredQueueAuditId)) && Number(queued.recoveredQueueAuditId) > 0
+      && Number(queued.recoveredQueueAuditId) < Number(audit?.id);
+    const ids = values => Array.isArray(values) && values.every(id => Number.isSafeInteger(Number(id)) && Number(id) > 0)
+      ? JSON.stringify(values.map(Number).sort((a,b) => a-b)) : null;
+    if (!audit || !(originalQueue || recoveredQueue) || !time(audit.created_at)
+      || Number(queued.workflowId) !== Number(w.id) || Number(queued.clientId) !== Number(w.client_id)
+      || Number(queued.schoolId) !== Number(w.school_id) || Number(queued.conversationId) !== conversationIds[0]
+      || Number(queued.failedMessageId) !== Number(messages.at(-1).id)
+      || ids(queued.failedReceiptIds) !== ids(receipts.map(r => r.id))
+      || (step.started_at && (!time(step.started_at) || time(step.started_at) > time(audit.created_at)))) {
+      return no('The pending retry needs its original queue and delivery history reviewed.');
+    }
+    recoveryAudit = audit;
+  }
   const guardian = await currentGuardian(db,w);
   const originalTo = parse(messages.at(-1).to_json);
   if (!guardian?.email || !Array.isArray(originalTo) || originalTo.length !== 1
@@ -101,7 +129,8 @@ export async function readSchoolContactInitialRetry(db, w) {
   }
   if (await careOrReplyStopped(db,w,conversationIds[0])) return no('A reply or intake has already stopped this introduction.');
   return { canRetryInitial:true,retryInitialQueued:false,reason:null,conversationId:conversationIds[0],messageId:Number(messages.at(-1).id),
-    receiptIds:receipts.map(r => Number(r.id)),stepId:Number(step.id) };
+    receiptIds:receipts.map(r => Number(r.id)),stepId:Number(step.id),stepStatus:step.status,
+    ...(recoveryAudit ? { recoveredQueueAuditId:Number(recoveryAudit.id),queueAuditCreatedAt:recoveryAudit.created_at } : {}) };
 }
 
 /** Queue, never send, under the same exact-workflow lock used by the worker. */
@@ -119,16 +148,29 @@ export async function retrySchoolContactInitial({ agencyId,userId,workflowId }) 
     if (state.retryInitialQueued) { await db.commit(); return { queued:true,alreadyQueued:true,workflowId:Number(w.id),status:'queued' }; }
     if (!state.canRetryInitial) throw failure(state.reason);
     const metadata = { workflowId:Number(w.id),clientId:Number(w.client_id),schoolId:Number(w.school_id),conversationId:state.conversationId,
-      failedMessageId:state.messageId,failedReceiptIds:state.receiptIds,previousError:w.last_error,previousStepStatus:'needs_review' };
+      failedMessageId:state.messageId,failedReceiptIds:state.receiptIds,previousError:w.last_error,previousStepStatus:state.stepStatus,
+      ...(state.recoveredQueueAuditId ? { recoveredQueueAuditId:state.recoveredQueueAuditId } : {}) };
     await db.execute(`INSERT INTO user_activity_log(action_type,user_id,agency_id,metadata) VALUES('family_welcome_initial_retry_queued',?,?,?)`,
       [ctx.userId,ctx.agencyId,JSON.stringify(metadata)]);
-    const [step] = await db.execute(`UPDATE school_contact_workflow_steps SET status='pending',detail=?,conversation_id=?
-      WHERE id=? AND workflow_id=? AND status='needs_review' AND detail='EMAIL_SENDER_UNVERIFIED' AND completed_at IS NULL AND message_id IS NULL`,
-    [INITIAL_RETRY_DETAIL,state.conversationId,state.stepId,w.id]);
+    let stepMatches = false;
+    if (state.recoveredQueueAuditId) {
+      // The earlier queue was never claimed. Lock and retain its exact marker;
+      // do not reset a sending step or manufacture new transport evidence.
+      const [[pending]] = await db.execute(`SELECT id FROM school_contact_workflow_steps
+        WHERE id=? AND workflow_id=? AND status='pending' AND detail=? AND conversation_id=?
+          AND completed_at IS NULL AND message_id IS NULL AND started_at<=? FOR UPDATE`,
+      [state.stepId,w.id,INITIAL_RETRY_DETAIL,state.conversationId,state.queueAuditCreatedAt]);
+      stepMatches = !!pending;
+    } else {
+      const [step] = await db.execute(`UPDATE school_contact_workflow_steps SET status='pending',detail=?,conversation_id=?
+        WHERE id=? AND workflow_id=? AND status='needs_review' AND detail='EMAIL_SENDER_UNVERIFIED' AND completed_at IS NULL AND message_id IS NULL`,
+      [INITIAL_RETRY_DETAIL,state.conversationId,state.stepId,w.id]);
+      stepMatches = step.affectedRows === 1;
+    }
     const [workflow] = await db.execute(`UPDATE school_contact_workflows SET status='queued',conversation_id=?,last_error=NULL
-      WHERE id=? AND agency_id=? AND provider_user_id=? AND status='needs_review' AND last_error='EMAIL_SENDER_UNVERIFIED' AND initial_sent_at IS NULL`,
-    [state.conversationId,w.id,ctx.agencyId,ctx.userId]);
-    if (step.affectedRows !== 1 || workflow.affectedRows !== 1) throw failure('The introduction changed. Refresh its delivery status.');
+      WHERE id=? AND agency_id=? AND provider_user_id=? AND status='needs_review' AND last_error=? AND initial_sent_at IS NULL`,
+    [state.conversationId,w.id,ctx.agencyId,ctx.userId,w.last_error]);
+    if (!stepMatches || workflow.affectedRows !== 1) throw failure('The introduction changed. Refresh its delivery status.');
     await db.commit();
     return { queued:true,alreadyQueued:false,workflowId:Number(w.id),status:'queued' };
   } catch (error) { try { await db.rollback(); } catch { /* preserve the original failure */ } throw error; }

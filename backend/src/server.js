@@ -1299,6 +1299,8 @@ app.use((req, res) => {
   res.status(404).json({ error: { message: 'Route not found' } });
 });
 
+import { shouldStartServerBackgroundJobs, canRunServerBackgroundTick } from './services/serverBackgroundJobsPolicy.js';
+
 // Export app for bootstrap.js (Cloud Run). When run directly (dev), listen here.
 let schoolScheduleTrainingRunning = false;
 const schoolScheduleTrainingTick = async () => {
@@ -1312,8 +1314,10 @@ const schoolScheduleTrainingTick = async () => {
     if (error.code !== 'ER_NO_SUCH_TABLE') console.warn('[school-schedule-training]', error.code || 'tick_failed');
   } finally { schoolScheduleTrainingRunning = false; }
 };
-setTimeout(schoolScheduleTrainingTick, 30_000).unref();
-setInterval(schoolScheduleTrainingTick, 5 * 60_000).unref();
+if (shouldStartServerBackgroundJobs()) {
+  setTimeout(schoolScheduleTrainingTick, 30_000).unref();
+  setInterval(schoolScheduleTrainingTick, 5 * 60_000).unref();
+}
 
 export { app };
 const PORT_RAW = process.env.PORT ?? config.port ?? 8080;
@@ -1328,6 +1332,8 @@ if (!isBootstrap) {
   attachMeetingDialInAudio(meetingHttpServer);
 }
 
+// Local API startup does not schedule shared-database maintenance or deliveries.
+if (shouldStartServerBackgroundJobs()) {
   // Run pending schema migrations on startup (safe/idempotent column additions)
   (async () => {
     try {
@@ -2576,6 +2582,7 @@ if (!isBootstrap) {
     if (schoolContactAutomationBusy) return;
     schoolContactAutomationBusy = true;
     try {
+      if (!await canRunServerBackgroundTick()) return;
       const {syncSchoolContactWorkReplies}=await import('./services/schoolContactReplyRouting.service.js');
       await syncSchoolContactWorkReplies();
       const { processSchoolContactAutomation } = await import('./services/schoolContactAutomation.service.js');
@@ -3234,3 +3241,5 @@ const careInvitationTick=async()=>{
 };
 setTimeout(careInvitationTick,45000).unref();
 setInterval(careInvitationTick,60000).unref();
+
+} // Managed background jobs; local API routes/listener remain available.

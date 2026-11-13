@@ -3,22 +3,39 @@ import { readFileSync } from 'node:fs';
 import { isolatedWorkflowMysql, recoveryMysqlEnabled } from './fixtures/isolatedWorkflowMysql.js';
 import { splitSqlStatements, stripSqlLineComments } from '../../../../database/migrationSqlUtils.js';
 
-const m = vi.hoisted(() => ({ db: null, contextAllowed: true, signedIntake: false }));
+const m = vi.hoisted(() => ({ db: null, contextAllowed: true, signedIntake: false, send: vi.fn(), deliveryGuardReads: 0 }));
 vi.mock('../../config/database.js', () => ({ default: {
-  execute: (...args) => m.db.execute(...args), getConnection: () => m.db.getConnection()
+  execute: (...args) => {
+    if (/SELECT metadata FROM user_activity_log WHERE action_type='family_welcome_initial_retry_queued'/.test(String(args[0]))) m.deliveryGuardReads++;
+    return m.db.execute(...args);
+  }, getConnection: () => m.db.getConnection()
 } }));
 vi.mock('../schoolContactPlan.service.js', () => ({
+  SCHOOL_CONTACT_DEMO_AGENCY_ID: 450,
+  sendSchoolContactEmail: (...args) => m.send(...args),
+  schoolContactRouting: () => ({ providerEmail: 'testing+provider@itsco.health' }),
+  renderSchoolContactTemplate: template => template,
   getContactPlanContext: async ({ agencyId, userId }) => {
     if (!m.contextAllowed || Number(agencyId) !== 450 || Number(userId) !== 1433)
       throw Object.assign(new Error('Current provider access required'), { status: 403 });
     return { agencyId: 450, userId: 1433, schools: [{ id: 451 }], provider: { id: 1433 }, agency: { id: 450 } };
   }
 }));
+vi.mock('../schoolContactProviderNotice.service.js', () => ({ sendSchoolContactProviderNotice: vi.fn() }));
+vi.mock('../communicationRouting.service.js', () => ({ resolveOutboundNumber: vi.fn() }));
+vi.mock('../smsCompliance.service.js', () => ({ resolveRegisteredSmsSender: vi.fn() }));
+vi.mock('../vonage.service.js', () => ({ default: { sendSms: vi.fn() } }));
+vi.mock('../../models/MessageLog.model.js', () => ({ default: { normalizePhone: value => value } }));
+vi.mock('../../models/Notification.model.js', () => ({ default: { coalesceOrCreate: vi.fn() } }));
+vi.mock('../../models/ClientNotes.model.js', () => ({ default: { create: vi.fn() } }));
+vi.mock('../tenantMessageMailboxes.service.js', () => ({ resolveMessagesSendMailbox: vi.fn() }));
+vi.mock('../unifiedEmail/unifiedEmailSender.service.js', () => ({ sendEmailFromIdentity: vi.fn() }));
 vi.mock('../../models/clinical/ClinicalNote.model.js', () => ({ default: {
   hasSignedIntakeForClient: async () => m.signedIntake
 } }));
 
 import { retrySchoolContactInitial, readSchoolContactInitialRetry, assertSchoolContactInitialRetryDelivery, initialRetryWorkflowSql } from '../schoolContactInitialRetry.service.js';
+import { processSchoolContactAutomation } from '../schoolContactAutomation.service.js';
 
 const request = changes => ({ agencyId: 450, userId: 1433, workflowId: 42, ...changes });
 describe.runIf(recoveryMysqlEnabled)('native SQL recovery of a conclusively unsent Family Welcome', () => {
@@ -26,14 +43,22 @@ describe.runIf(recoveryMysqlEnabled)('native SQL recovery of a conclusively unse
   const currentWorkflow = async () => (await db.execute(initialRetryWorkflowSql, [42, 450, 1433]))[0][0];
   const eligible = async () => readSchoolContactInitialRetry(db, await currentWorkflow());
   const guardian = { id: 8, email: 'testing+parent@itsco.health' };
+  const unconsumedQueueError = 'Delivery needs receipt reconciliation; no automatic duplicate was sent.';
+  const interruptedPendingQueue = async () => {
+    await retrySchoolContactInitial(request());
+    const [[audit]] = await db.query('SELECT * FROM user_activity_log ORDER BY id DESC LIMIT 1');
+    await db.execute('UPDATE school_contact_workflow_steps SET started_at=DATE_SUB(?,INTERVAL 1 SECOND) WHERE id=22', [audit.created_at]);
+    await db.execute("UPDATE school_contact_workflows SET status='needs_review',last_error=? WHERE id=42", [unconsumedQueueError]);
+    return audit;
+  };
   beforeAll(async () => {
     fixture = await isolatedWorkflowMysql('school_contact_retry'); db = fixture.db; m.db = db;
     for (const ddl of [
       'CREATE TABLE agencies(id INT PRIMARY KEY,name VARCHAR(120),slug VARCHAR(100),feature_flags JSON,organization_type VARCHAR(32),is_active BOOLEAN DEFAULT TRUE,is_archived BOOLEAN DEFAULT FALSE)',
-      "CREATE TABLE users(id INT PRIMARY KEY,first_name VARCHAR(80),last_name VARCHAR(80),role VARCHAR(40),email VARCHAR(160),personal_email VARCHAR(160),is_active BOOLEAN DEFAULT TRUE,is_archived BOOLEAN DEFAULT FALSE,terminated_at DATETIME NULL)",
+      "CREATE TABLE users(id INT PRIMARY KEY,first_name VARCHAR(80),last_name VARCHAR(80),role VARCHAR(40),email VARCHAR(160),personal_email VARCHAR(160),personal_phone VARCHAR(40),phone_number VARCHAR(40),work_phone VARCHAR(40),has_provider_access BOOLEAN DEFAULT FALSE,is_demo BOOLEAN DEFAULT TRUE,is_active BOOLEAN DEFAULT TRUE,is_archived BOOLEAN DEFAULT FALSE,terminated_at DATETIME NULL)",
       'CREATE TABLE user_agencies(agency_id INT,user_id INT,is_active BOOLEAN DEFAULT TRUE)',
       'CREATE TABLE organization_affiliations(agency_id INT,organization_id INT,is_active BOOLEAN DEFAULT TRUE)',
-      "CREATE TABLE clients(id INT PRIMARY KEY,agency_id INT,initials VARCHAR(20),status VARCHAR(30) DEFAULT 'ACTIVE',client_status_id INT,service_day VARCHAR(20),session_sms_opt_in BOOLEAN DEFAULT FALSE,first_service_at DATETIME)",
+      "CREATE TABLE clients(id INT PRIMARY KEY,agency_id INT,is_demo BOOLEAN DEFAULT TRUE,initials VARCHAR(20),status VARCHAR(30) DEFAULT 'ACTIVE',client_status_id INT,service_day VARCHAR(20),session_sms_opt_in BOOLEAN DEFAULT FALSE,first_service_at DATETIME)",
       'CREATE TABLE client_statuses(id INT PRIMARY KEY,status_key VARCHAR(40),label VARCHAR(80))',
       'CREATE TABLE client_provider_assignments(id INT PRIMARY KEY,client_id INT,organization_id INT,provider_user_id INT,service_day VARCHAR(20),is_active BOOLEAN DEFAULT TRUE,created_at DATETIME,updated_at DATETIME)',
       "CREATE TABLE client_guardians(client_id INT,guardian_user_id INT,relationship_type VARCHAR(20) DEFAULT 'guardian',access_enabled BOOLEAN DEFAULT TRUE,created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)",
@@ -44,6 +69,8 @@ describe.runIf(recoveryMysqlEnabled)('native SQL recovery of a conclusively unse
       'CREATE TABLE communication_links(conversation_id INT,entity_type VARCHAR(32),entity_id INT)',
       'CREATE TABLE communication_messages(id INT AUTO_INCREMENT PRIMARY KEY,conversation_id INT,author_user_id INT,channel VARCHAR(20),direction VARCHAR(20),send_status VARCHAR(30),internet_message_id VARCHAR(255),is_auto_reply BOOLEAN DEFAULT FALSE,is_internal_note BOOLEAN DEFAULT FALSE,from_json JSON,to_json JSON,sent_at DATETIME,created_at DATETIME)',
       'CREATE TABLE user_communications(id INT AUTO_INCREMENT PRIMARY KEY,agency_id INT,client_id INT,user_id INT,generated_by_user_id INT,template_type VARCHAR(100),channel VARCHAR(20),delivery_status VARCHAR(30),external_message_id VARCHAR(255),sent_at DATETIME,delivered_at DATETIME,generated_at DATETIME,error_message VARCHAR(500),metadata JSON)',
+      'CREATE TABLE message_logs(id INT PRIMARY KEY,agency_id INT,client_id INT,user_id INT,direction VARCHAR(20),delivery_status VARCHAR(30),sms_thread_key VARCHAR(255),metadata JSON,created_at DATETIME)',
+      'CREATE TABLE client_parent_contact_events(agency_id INT,client_id INT,author_user_id INT,source_type VARCHAR(30),source_id INT,successful BOOLEAN,direction VARCHAR(30),occurred_at DATETIME)',
       'CREATE TABLE user_activity_log(id INT AUTO_INCREMENT PRIMARY KEY,action_type VARCHAR(100),user_id INT,agency_id INT,metadata JSON,created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)'
     ]) await db.query(ddl);
     for (const name of ['1719_school_provider_contact_plans.sql', '1720_school_contact_automation.sql', '1722_school_contact_three_attempts.sql', '1759_family_welcome_follow_up.sql']) {
@@ -53,8 +80,8 @@ describe.runIf(recoveryMysqlEnabled)('native SQL recovery of a conclusively unse
   });
   afterAll(async () => { await fixture?.close(); });
   beforeEach(async () => {
-    m.contextAllowed = true; m.signedIntake = false;
-    for (const table of ['school_contact_workflow_steps', 'school_contact_workflows', 'school_provider_contact_plans', 'user_activity_log', 'user_communications', 'communication_messages', 'communication_links', 'communication_conversations', 'client_guardians', 'client_provider_assignments', 'client_intake_note_drafts', 'appointment_participants', 'appointments', 'clients', 'client_statuses', 'user_agencies', 'users', 'organization_affiliations', 'agencies']) await db.query(`DELETE FROM ${table}`);
+    m.contextAllowed = true; m.signedIntake = false; m.send.mockReset(); m.deliveryGuardReads = 0;
+    for (const table of ['school_contact_workflow_steps', 'school_contact_workflows', 'school_provider_contact_plans', 'user_activity_log', 'user_communications', 'message_logs', 'client_parent_contact_events', 'communication_messages', 'communication_links', 'communication_conversations', 'client_guardians', 'client_provider_assignments', 'client_intake_note_drafts', 'appointment_participants', 'appointments', 'clients', 'client_statuses', 'user_agencies', 'users', 'organization_affiliations', 'agencies']) await db.query(`DELETE FROM ${table}`);
     await db.query("INSERT INTO agencies(id,name,slug,organization_type) VALUES(450,'QA','auricwell-qa-demo','agency'),(451,'Cedar','qa-school','school')");
     await db.query("INSERT INTO users(id,first_name,last_name,role,email) VALUES(1433,'Avery','QA','provider','testing+provider@itsco.health'),(8,'Una','QA','client_guardian','testing+parent@itsco.health')");
     await db.query('INSERT INTO user_agencies VALUES(450,1433,1),(450,8,1)');
@@ -98,6 +125,151 @@ describe.runIf(recoveryMysqlEnabled)('native SQL recovery of a conclusively unse
     expect((await db.query('SELECT COUNT(*) AS n FROM user_activity_log'))[0][0].n).toBe(1);
     expect((await db.query('SELECT COUNT(*) AS n FROM school_contact_workflow_steps'))[0][0].n).toBe(1);
     expect((await db.query('SELECT COUNT(*) AS n FROM communication_messages'))[0][0].n).toBe(1);
+  });
+
+  it('recovers an audited queue untouched by transport, preserving its old start time and failed history', async () => {
+    const [messages] = await db.query('SELECT * FROM communication_messages');
+    const [receipts] = await db.query('SELECT * FROM user_communications');
+    const priorAudit = await interruptedPendingQueue();
+    const [[oldStep]] = await db.query('SELECT started_at FROM school_contact_workflow_steps WHERE id=22');
+    expect(await eligible()).toMatchObject({ canRetryInitial: true, retryInitialQueued: false, conversationId: 88 });
+    expect(await retrySchoolContactInitial(request())).toMatchObject({ queued: true, alreadyQueued: false, workflowId: 42 });
+    const [audits] = await db.query('SELECT * FROM user_activity_log ORDER BY id');
+    expect(audits).toHaveLength(2);
+    const metadata = typeof audits[1].metadata === 'string' ? JSON.parse(audits[1].metadata) : audits[1].metadata;
+    expect(metadata).toMatchObject({ recoveredQueueAuditId: priorAudit.id, previousStepStatus: 'pending', previousError: unconsumedQueueError,
+      workflowId: 42, clientId: 102, schoolId: 451, conversationId: 88, failedMessageId: 100, failedReceiptIds: [501] });
+    expect((await db.query('SELECT status,detail,started_at FROM school_contact_workflow_steps WHERE id=22'))[0][0]).toMatchObject({
+      status: 'pending', detail: 'provider_retry:EMAIL_SENDER_UNVERIFIED', started_at: oldStep.started_at
+    });
+    expect(await retrySchoolContactInitial(request())).toMatchObject({ queued: true, alreadyQueued: true });
+    expect((await db.query('SELECT COUNT(*) AS n FROM user_activity_log'))[0][0].n).toBe(2);
+    expect((await db.query('SELECT * FROM communication_messages'))[0]).toEqual(messages);
+    expect((await db.query('SELECT * FROM user_communications'))[0]).toEqual(receipts);
+  });
+
+  it('delivers a reconciled pending queue once through the real SQL worker and real delivery rechecks', async () => {
+    const [[failedMessage]] = await db.query('SELECT * FROM communication_messages WHERE id=100');
+    const [[failedReceipt]] = await db.query('SELECT * FROM user_communications WHERE id=501');
+    await interruptedPendingQueue();
+    await retrySchoolContactInitial(request());
+    let preparedMessageId;
+    m.send.mockImplementation(async input => {
+      expect(input).toMatchObject({ agencyId: 450, providerUserId: 1433, clientId: 102, schoolId: 451,
+        conversationId: 88, workflowId: 42, stepKey: 'initial_email', to: guardian.email, qaAcceleration: null });
+      expect(typeof input.beforeDelivery).toBe('function');
+      const [[claim]] = await db.query('SELECT status,detail FROM school_contact_workflow_steps WHERE id=22');
+      expect(claim).toEqual({ status: 'sending', detail: 'provider_retry:EMAIL_SENDER_UNVERIFIED' });
+      const [prepared] = await db.query("INSERT INTO communication_messages(conversation_id,author_user_id,channel,direction,send_status,from_json,to_json,created_at) VALUES(88,1433,'email','outbound','preparing',JSON_OBJECT('email','messages@itsco.health','schoolContactAutomation',JSON_OBJECT('workflowId',42,'stepKey','initial_email')),JSON_ARRAY(JSON_OBJECT('email','testing+parent@itsco.health')),UTC_TIMESTAMP())");
+      preparedMessageId = prepared.insertId;
+      // The worker already invoked this real retry guard before preparation.
+      // The transport boundary calls it again with the new preparing message present.
+      await input.beforeDelivery();
+      await db.query("INSERT INTO user_communications(id,agency_id,client_id,generated_by_user_id,template_type,channel,delivery_status,external_message_id,sent_at,metadata) VALUES(502,450,102,1433,'school_contact_plan','email','sent','synthetic-native-accepted',UTC_TIMESTAMP(),JSON_OBJECT('internetMessageIdOverride','<school-contact-42-initial_email@itsco.health>'))");
+      await db.execute("UPDATE communication_messages SET send_status='sent',sent_at=UTC_TIMESTAMP() WHERE id=?", [preparedMessageId]);
+      return { sent: true, messageId: preparedMessageId, conversationId: 88, channel: 'email' };
+    });
+    const scope = { agencyId: 450, clientId: 102, providerUserId: 1433, workflowId: 42 };
+    expect((await processSchoolContactAutomation({ scope })).processed).toBe(1);
+    expect(m.send).toHaveBeenCalledTimes(1);
+    expect(m.deliveryGuardReads).toBe(2);
+    const sent = await currentWorkflow();
+    expect(sent).toMatchObject({ status: 'waiting_parent', conversation_id: 88, last_error: null });
+    expect(sent.initial_sent_at).toBeInstanceOf(Date);
+    expect((await db.query('SELECT status,message_id,conversation_id FROM school_contact_workflow_steps WHERE id=22'))[0][0])
+      .toEqual({ status: 'sent', message_id: preparedMessageId, conversation_id: 88 });
+    await processSchoolContactAutomation({ scope });
+    expect(m.send).toHaveBeenCalledTimes(1);
+    expect(m.deliveryGuardReads).toBe(2);
+    expect((await db.query('SELECT COUNT(*) AS n FROM school_contact_workflow_steps WHERE workflow_id=42'))[0][0].n).toBe(1);
+    expect((await db.query('SELECT COUNT(*) AS n FROM communication_messages WHERE conversation_id=88'))[0][0].n).toBe(2);
+    expect((await db.query('SELECT * FROM communication_messages WHERE id=100'))[0][0]).toEqual(failedMessage);
+    expect((await db.query('SELECT * FROM user_communications WHERE id=501'))[0][0]).toEqual(failedReceipt);
+    expect((await db.query('SELECT COUNT(*) AS n FROM user_activity_log'))[0][0].n).toBe(2);
+  });
+
+  it('does not recover a pending marker without its original queue audit', async () => {
+    await interruptedPendingQueue(); await db.query('DELETE FROM user_activity_log');
+    expect((await eligible()).canRetryInitial).toBe(false);
+    await expect(retrySchoolContactInitial(request())).rejects.toMatchObject({ status: 409 });
+    expect((await currentWorkflow()).status).toBe('needs_review');
+  });
+
+  it('requires each prior audit binding to match the exact current failed attempt', async () => {
+    const prior = await interruptedPendingQueue();
+    const original = typeof prior.metadata === 'string' ? JSON.parse(prior.metadata) : prior.metadata;
+    for (const [key, value] of [['workflowId', 43], ['clientId', 999], ['schoolId', 452], ['conversationId', 89], ['failedMessageId', 101], ['failedReceiptIds', [502]]]) {
+      await db.execute('UPDATE user_activity_log SET metadata=? WHERE id=?', [JSON.stringify({ ...original, [key]: value }), prior.id]);
+      expect((await eligible()).canRetryInitial, key).toBe(false);
+      await expect(retrySchoolContactInitial(request()), key).rejects.toMatchObject({ status: 409 });
+    }
+    await db.execute('UPDATE user_activity_log SET metadata=? WHERE id=?', [JSON.stringify(original), prior.id]);
+    for (const [column, bad, correct] of [['user_id', 1439, 1433], ['agency_id', 2, 450], ['action_type', 'unrelated_action', 'family_welcome_initial_retry_queued']]) {
+      await db.execute(`UPDATE user_activity_log SET ${column}=? WHERE id=?`, [bad, prior.id]);
+      expect((await eligible()).canRetryInitial, column).toBe(false);
+      await expect(retrySchoolContactInitial(request()), column).rejects.toMatchObject({ status: 409 });
+      await db.execute(`UPDATE user_activity_log SET ${column}=? WHERE id=?`, [correct, prior.id]);
+    }
+    expect((await db.query('SELECT COUNT(*) AS n FROM user_activity_log'))[0][0].n).toBe(1);
+  });
+
+  it('keeps an already claimed sending marker in review', async () => {
+    await interruptedPendingQueue(); await db.query("UPDATE school_contact_workflow_steps SET status='sending' WHERE id=22");
+    expect((await eligible()).canRetryInitial).toBe(false);
+    await expect(retrySchoolContactInitial(request())).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('rejects a marker whose attempt started after its queue authorization', async () => {
+    const prior = await interruptedPendingQueue();
+    await db.execute('UPDATE school_contact_workflow_steps SET started_at=DATE_ADD(?,INTERVAL 1 SECOND) WHERE id=22', [prior.created_at]);
+    expect((await eligible()).canRetryInitial).toBe(false);
+    await expect(retrySchoolContactInitial(request())).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('does not requeue after any new prepared, failed or sent initial message', async () => {
+    await interruptedPendingQueue();
+    await db.query("INSERT INTO communication_messages(id,conversation_id,author_user_id,channel,direction,send_status,from_json,to_json,created_at) VALUES(101,88,1433,'email','outbound','preparing',JSON_OBJECT('schoolContactAutomation',JSON_OBJECT('workflowId',42,'stepKey','initial_email')),JSON_ARRAY(JSON_OBJECT('email','testing+parent@itsco.health')),UTC_TIMESTAMP())");
+    for (const status of ['preparing', 'failed', 'sent']) {
+      await db.execute('UPDATE communication_messages SET send_status=? WHERE id=101', [status]);
+      expect((await eligible()).canRetryInitial, status).toBe(false);
+      await expect(retrySchoolContactInitial(request()), status).rejects.toMatchObject({ status: 409 });
+    }
+    expect((await db.query('SELECT COUNT(*) AS n FROM user_activity_log'))[0][0].n).toBe(1);
+  });
+
+  it('does not recover when a new receipt makes the prior audit history incomplete or uncertain', async () => {
+    await interruptedPendingQueue();
+    await db.query("INSERT INTO user_communications(id,agency_id,client_id,generated_by_user_id,template_type,channel,delivery_status,metadata) VALUES(502,450,102,1433,'school_contact_plan','email','failed',JSON_OBJECT('internetMessageIdOverride','<school-contact-42-initial_email@itsco.health>'))");
+    for (const status of ['failed', 'pending', 'sent', 'unknown']) {
+      await db.execute('UPDATE user_communications SET delivery_status=? WHERE id=502', [status]);
+      expect((await eligible()).canRetryInitial, status).toBe(false);
+      await expect(retrySchoolContactInitial(request()), status).rejects.toMatchObject({ status: 409 });
+    }
+    expect((await db.query('SELECT COUNT(*) AS n FROM user_activity_log'))[0][0].n).toBe(1);
+  });
+
+  it.each([
+    ['recipient change', "UPDATE users SET personal_email='testing+changed@itsco.health' WHERE id=8"],
+    ['new reply', 'UPDATE school_contact_workflows SET external_reply_recorded_at=UTC_TIMESTAMP() WHERE id=42'],
+    ['assignment revocation', 'UPDATE client_provider_assignments SET is_active=0'],
+    ['disabled plan', "UPDATE school_provider_contact_plans SET status='declined'"]
+  ])('rechecks %s before recovering the old pending queue', async (_label, sql) => {
+    await interruptedPendingQueue(); await db.query(sql);
+    expect((await eligible()).canRetryInitial).toBe(false);
+    await expect(retrySchoolContactInitial(request())).rejects.toMatchObject({ status: 409 });
+    expect((await db.query('SELECT COUNT(*) AS n FROM user_activity_log'))[0][0].n).toBe(1);
+  });
+
+  it('rechecks normal provider authorization before recovering a pending marker', async () => {
+    await interruptedPendingQueue(); m.contextAllowed = false;
+    await expect(retrySchoolContactInitial(request())).rejects.toMatchObject({ status: 403 });
+    expect((await currentWorkflow()).status).toBe('needs_review');
+  });
+
+  it('does not expand recovery to another generic or unknown workflow error', async () => {
+    await interruptedPendingQueue(); await db.query("UPDATE school_contact_workflows SET last_error='Transport result unknown; inspect delivery' WHERE id=42");
+    expect((await eligible()).canRetryInitial).toBe(false);
+    await expect(retrySchoolContactInitial(request())).rejects.toMatchObject({ status: 409 });
   });
 
   it('rolls back both the queue and audit if the failed step no longer matches the compare-and-set', async () => {

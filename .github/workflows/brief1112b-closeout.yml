@@ -92,7 +92,7 @@ jobs:
             ['taskReferenceSearch.mysql.test.js', 7],
             ['schoolContactPlan.mysql.test.js', 7],
             ['schoolContactAutomation.mysql.test.js', 9],
-            ['schoolContactInitialRetry.mysql.test.js', 49]
+            ['schoolContactInitialRetry.mysql.test.js', 63]
           ];
           for (const [name, minimum] of required) {
             const result = results.find(row => row.name.endsWith(`/${name}`));
