@@ -1,8 +1,9 @@
 import { NLU_COMPENSATION_POLICY_VERSION, NLU_COMPENSATION_CATEGORIES, NLU_PAY_LEVELS, NLU_FOUNDATIONAL_RATES, NLU_BACHELOR_CHILDCARE_RATES, NLU_BACHELOR_TUTORING_VIRTUAL_RATES, NLU_BACHELOR_TUTORING_IN_PERSON_RATES } from './nluCompensationPolicy.js';
 
 import {testingCodeReferenceHtml} from './testingServicePolicy.js';
+import {testingReferenceSections,testingReferenceCatalog,testingDigestBody,TESTING_ROOT_SLUG,TESTING_SECTION_SLUGS} from './testingHandbookReference.js';
 
-export const PROVIDER_ROLES_RELEASE = 'provider-roles-2026-11-13-testing';
+export const PROVIDER_ROLES_RELEASE = 'provider-roles-2026-11-13-testing-examples';
 const supported = new Set(['itsco','nlu','isi']);
 const esc = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const p = text => `<p>${text}</p>`;
@@ -101,7 +102,7 @@ export function applyProviderRolesNovemberPolicy(source,updates=[],tenant) {
  const additions=[
   section('counseling-and-psychotherapy-role-expectations','Counseling support and psychotherapy: qualifications and expectations',COUNSELING_EXPECTATIONS_HTML),
   section('childcare-role-and-supervision','Childcare role, staffing and supervision',childcarePolicyHtml(tenant)),
-  section('psychological-testing-and-telephone-protocol','Psychological testing, supervision and telephone services',TESTING_PROTOCOL_HTML)
+  ...testingReferenceSections(TESTING_PROTOCOL_HTML)
  ];
  if(tenant==='isi') {
   const focus=source.sections.find(s=>s.slug==='service-focus-assignment');
@@ -116,7 +117,7 @@ export function applyProviderRolesNovemberPolicy(source,updates=[],tenant) {
    section('nlu-service-specific-pay-levels','Service-specific Pay Levels 1–5',table(['Pay level','Provider designation','Placement considerations'],NLU_PAY_LEVELS.map(l=>[l.level,l.label,l.description]))+p('Advancement is not automatic. All categories retain five levels. Document separate childcare/tutoring placement when needed; a clinical title or pay level does not automatically establish an advanced tutoring level.')),
    section('nlu-childcare-compensation','Childcare compensation',nluChildcarePayHtml()+WAGE_FLOOR_HTML),
    section('nlu-tutoring-compensation','Tutoring compensation and placement',nluTutoringPayHtml()+WAGE_FLOOR_HTML),
-   section('nlu-testing-compensation','Testing and clinical telephone compensation',nluTestingPayHtml()+WAGE_FLOOR_HTML));
+   section('nlu-testing-compensation','Testing and clinical telephone compensation',nluTestingPayHtml()+WAGE_FLOOR_HTML,TESTING_ROOT_SLUG));
   for(const category of [1,2,3,4])put(source,nluRateCategorySection(category));
   put(source,section('compensation-category-placement','Compensation category placement',nluCategoryDefinitionsHtml()));
   const program=source.sections.find(s=>s.slug==='nlu-tutoring-and-h2014-compensation');
@@ -127,10 +128,11 @@ export function applyProviderRolesNovemberPolicy(source,updates=[],tenant) {
   }
  }
  for(const value of additions)put(source,value);
+ source.testingReference=testingReferenceCatalog();
  const affected=new Set(additions.map(s=>s.slug));
  if(tenant==='nlu')for(const s of source.sections)if(/^compensation-rate-category-[1-4]$/.test(s.slug)||s.slug==='compensation-category-placement'||s.slug==='nlu-tutoring-and-h2014-compensation')affected.add(s.slug);
  // Only draft source-review entries are reconciled here; saved historical editions are untouched.
- const revised=updates.map(update=>{
+ const revised=updates.filter(update=>!(update.period_label==='November 2026'&&update.status==='draft'&&TESTING_SECTION_SLUGS.includes(update.handbook_section_slug))).map(update=>{
   const value={...update};
   if(tenant==='nlu') {
    value.changed_content=remapNluCategories(value.changed_content);
@@ -142,7 +144,8 @@ export function applyProviderRolesNovemberPolicy(source,updates=[],tenant) {
   if(destinations.some(slug=>affected.has(slug)))value.changed_content=destinations.map(slug=>source.sections.find(s=>s.slug===slug)).filter(Boolean).map(s=>`<h3>${s.title}</h3>${s.bodyHtml}`).join('');
   return value;
  });
- const digestSections=[...additions,...(tenant==='nlu'?[section('compensation-category-placement','Four-category pay schedules and prospective transition',source.sections.filter(s=>/^compensation-rate-category-[1-4]$/.test(s.slug)).map(s=>`<h3>${s.title}</h3>${s.bodyHtml}`).join(''))]:[])];
+ const testingUpdate=section(TESTING_ROOT_SLUG,'Testing — verified code examples, pay buckets and eligibility',testingDigestBody(source.sections));
+ const digestSections=[...additions.filter(s=>!TESTING_SECTION_SLUGS.includes(s.slug)),testingUpdate,...(tenant==='nlu'?[section('compensation-category-placement','Four-category pay schedules and prospective transition',source.sections.filter(s=>/^compensation-rate-category-[1-4]$/.test(s.slug)).map(s=>`<h3>${s.title}</h3>${s.bodyHtml}`).join(''))]:[])];
  for(const value of digestSections) {
   const update={id:`${tenant}-${PROVIDER_ROLES_RELEASE}-${value.slug}`,status:'draft',period_label:'November 2026',digest_title:'November 2026 Workplace Handbook Updates',subject:value.title,rationale:tenant==='nlu'?'Adopt the owner-supplied four-category NLU policy and service-specific schedules prospectively; preserve existing individual terms and distinguish service eligibility from compensation.':'Add separately reviewable childcare/testing duties and distinguish bachelor’s-level support from master’s-level psychotherapy while preserving this agency’s existing compensation categories and individual rates.',changed_content:value.bodyHtml,handbook_section_slug:value.slug,policy_section_slugs:[value.slug],related_section_slugs:[],link_origin:'source_review'};
   const index=revised.findIndex(row=>row.id===update.id);

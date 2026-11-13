@@ -1,4 +1,5 @@
 import {TESTING_SERVICE_CODES,testingCompensationBasis} from '../content/testingServicePolicy.js';
+import {testingExampleSummary} from '../content/testingServiceExamples.js';
 import { isProgramServiceRole } from '../content/programServiceRates.js';
 import {validateCredentials} from '../utils/credentialDisplay.js';
 import {employmentCategoryLevelTerms,applyEmploymentPayTerms} from '../content/employmentCategoryLevelTerms.js';
@@ -328,7 +329,7 @@ export async function getAgencyBuilderDefaults(agencyId) {
   return {
     ...await contractServiceFocusSettings(agency),
     contractTenant:handbookTenant(agency),
-    contractServiceRoleOptions: handbookTenant(agency) ? CONTRACT_SERVICE_ROLES.map(({id,title,description,clause_key})=>({id,title,description,clauseKey:clause_key,...(id==='psychological_testing'?{codeGuide:TESTING_SERVICE_CODES.map(row=>({code:row.code,name:row.name,payBucket:row.bucket==='credit'?'Clinical Session Rate':'Direct Care Rate',basis:testingCompensationBasis(row),testingOnly:!!row.requiredRole}))}:{})})) : [],
+    contractServiceRoleOptions: handbookTenant(agency) ? CONTRACT_SERVICE_ROLES.map(({id,title,description,clause_key})=>({id,title,description,clauseKey:clause_key,...(id==='psychological_testing'?{codeGuide:TESTING_SERVICE_CODES.map(row=>({code:row.code,name:row.name,payBucket:row.bucket==='credit'?'Clinical Session Rate':'Direct Care Rate',basis:testingCompensationBasis(row),testingOnly:!!row.requiredRole,example:testingExampleSummary(row.code)}))}:{})})) : [],
     agency: agency
       ? {
           id: agency.id,

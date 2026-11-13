@@ -120,3 +120,34 @@ Node test runner: SKIP_DB_CONNECT=1 node --experimental-test-module-mocks --test
   src/services/__tests__/claimMdWorkflow.test.mjs
 Run each command from its backend or frontend directory. Existing generated
 handbook/training content fixtures must be present for handbook regression tests.
+
+SOURCED EXAMPLES AND DRAFT SEED — NOVEMBER 13 FOLLOW-UP
+The Testing handbook area groups qualifications, timing, compensation buckets
+and source-backed component examples. Its canonical November draft entry links
+the same area. Named battery instruments come from APA's published teaching
+examples (2019 addendum), checked against the current APA 2026 guide and the
+October 2026 Colorado manual. The historical examples do not establish current
+Medicaid coverage, a staff member's competence, an age range or approved editions.
+No software brand has been presumed to qualify for automated code 96146.
+
+The full 16-code map is retained as metadata_json.testingReference in each
+editable draft. Clinical Session, Direct Care and indirect duty references use
+the policy above. This is a versioned reference catalog; it does not activate
+operative payroll rules, rates, services, role assignments or payer billing.
+Activation remains governed by the deployment hold and prospective agreements.
+
+Seed preview from backend:
+  SKIP_DB_CONNECT=1 node src/scripts/seedTestingReferences.js
+    --env=/path/to/backend/.env --agencies=2,6,377,453,454
+The preview is read-only. Review its exact changes and stateHash. An explicit
+apply additionally requires --apply --expected-state=HASH --actor=ACTOR_ID
+and --backup=/new/private/backup.json. The apply verifies the state again,
+requires an active accountable superadmin, saves a private exclusive backup,
+and modifies only editable handbook/November drafts and an audit entry.
+Published versions/updates, other sections, existing pay terms and permissions
+are preserved. Missing QA drafts receive the Testing reference area only.
+Repeat the read-only preview afterward: all write counts must be zero.
+
+Current source references:
+https://www.apaservices.org/practice/reimbursement/health-codes/testing/billing-coding.pdf
+https://www.molinahealthcare.com/marketplace/ca/en-us/Members/Members%20Resources/-/media/78550F84C2074EF2BED422EDE7D58007.ashx

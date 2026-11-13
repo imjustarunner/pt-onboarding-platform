@@ -37,6 +37,11 @@ describe('contract role clause selections',()=>{
     expect(wrapper.text()).toContain('Medicaid-only');expect(wrapper.text()).toContain('claim unit does not automatically earn a full clinical credit');
     expect(wrapper.findAll('textarea')).toHaveLength(2);wrapper.unmount();
   });
+  it('shows a sourced activity beside its code without treating a named instrument as authorization',()=>{
+    const wrapper=mount(Roles,{props:{modelValue:{serviceRoles:['psychological_testing']},options:[{id:'psychological_testing',title:'Testing',codeGuide:[{code:'96136',payBucket:'Direct Care Rate',basis:'Actual minutes ÷ 60',example:{activity:'QHP administration of two or more tests',notThis:'Not technician work',sourceTitle:'APA published clinical example',sourcePage:4,sourceUrl:'https://www.molinahealthcare.com/example.pdf#page=4'}}]}]}});
+    expect(wrapper.get('table').text()).toContain('QHP administration of two or more tests');
+    expect(wrapper.get('table a').attributes('href')).toBe('https://www.molinahealthcare.com/example.pdf#page=4');expect(wrapper.text()).toContain('Not technician work');wrapper.unmount();
+  });
   it('retains an explicit empty posting selection and offers a separate return to inference',async()=>{
     const wrapper=mount(Roles,{props:{modelValue:{serviceRoles:[],schedule:'Fridays'}}});
     expect(wrapper.findAll('input').every(input=>!input.element.checked)).toBe(true);
