@@ -157,7 +157,7 @@ import { notifyNewPacketUploaded, notifyCompanyEventRegistrationSubmitted, notif
 import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
 import { sendEmailFromIdentity, logSkippedOrFailedEmail } from '../services/unifiedEmail/unifiedEmailSender.service.js';
 import { logAuditEvent } from '../services/auditEvent.service.js';
-import { portalGuardianForIssuedRoi, resolveIssuedRoiConsentSigner } from '../services/issuedRoiGuardian.service.js';
+import { resolveIssuedRoiConsentSigner, assertIssuedRoiSessionBinding } from '../services/issuedRoiGuardian.service.js';
 import { resolveDevFillContext } from '../services/devFill.service.js';
 import {
   buildJobDescriptionAttachmentForEmail,
@@ -6674,6 +6674,32 @@ export const createPublicIntakeSession = async (req, res, next) => {
     if (!link.is_active && !issuedRoiLink) {
       return res.status(404).json({ error: { message: 'This link is no longer active. Please contact the school for a new link.' } });
     }
+    let issuedGuardianId = null;
+    if (issuedRoiLink?.id) {
+      if (String(issuedRoiLink.status || '').toLowerCase() === 'completed') {
+        return res.status(409).json({ error: { message: 'This school release is already completed. Request a new update to change it.' } });
+      }
+      issuedGuardianId = await resolveIssuedRoiConsentSigner({ req, issuedLink: issuedRoiLink, clientId: issuedRoiLink.client_id });
+      // Only an authenticated assigned recipient may retrieve a stored session
+      // token. Legacy unassigned public links continue to start a fresh session.
+      if (Number(issuedRoiLink.recipient_guardian_user_id) && issuedRoiLink.latest_intake_submission_id) {
+        const current = await IntakeSubmission.findById(issuedRoiLink.latest_intake_submission_id);
+        if (current && ['started', 'consented'].includes(String(current.status || '').toLowerCase()) && !isSubmissionExpired(current)) {
+          let reusable = false;
+          try {
+            assertIssuedRoiSessionBinding({ issuedLink: issuedRoiLink, submission: current, guardianUserId: issuedGuardianId, sessionToken: current.session_token });
+            reusable = true;
+          } catch (error) {
+            if (![403, 410].includes(error.status)) throw error;
+          }
+          if (reusable) {
+            return res.json({ sessionToken: current.session_token, submissionId: current.id,
+              expiresAt: current.retention_expires_at ? new Date(current.retention_expires_at).toISOString() : null,
+              expiresInHours: 24, reminderConsentRequired: false, resumed: true });
+          }
+        }
+      }
+    }
     await assertClientUpdateSubmissionContext(link,{coGuardianToken:req.body?.coGuardianToken});
     const coGuardianBinding = req.body?.coGuardianToken ? await CoGuardianInvite.resolveCoGuardianIntakeBinding(req.body.coGuardianToken, {
       agencyId: await resolveAgencyIdForLink(link), publicKey
@@ -6759,7 +6785,8 @@ export const createPublicIntakeSession = async (req, res, next) => {
       ipAddress,
       userAgent: req.get('user-agent'),
       retentionExpiresAt,
-      clientId: issuedRoiLink?.client_id || null
+      clientId: issuedRoiLink?.client_id || null,
+      guardianUserId: issuedGuardianId
     });
 
     if (draftExpiresAt && submission?.id) {
@@ -6770,10 +6797,14 @@ export const createPublicIntakeSession = async (req, res, next) => {
     }
 
     if (issuedRoiLink?.id) {
-      await ClientSchoolRoiSigningLink.markStarted({
+      const startedLink = await ClientSchoolRoiSigningLink.markStarted({
         id: issuedRoiLink.id,
         intakeSubmissionId: submission?.id || null
       });
+      if (!startedLink || String(startedLink.status || '').toLowerCase() === 'completed'
+        || Number(startedLink.latest_intake_submission_id) !== Number(submission?.id)) {
+        return res.status(409).json({ error: { message: 'This school release changed while opening. Reload its current status before continuing.' } });
+      }
       if (isSmartSchoolRoiForm(link)) {
         const { organization, agency } = await resolveIntakeOrgContext(link, { issuedRoiLink, boundClient });
         const roiContext = await buildSmartSchoolRoiContext({
@@ -6784,12 +6815,17 @@ export const createPublicIntakeSession = async (req, res, next) => {
           templates: await loadAllowedTemplates(link),
           issuedConfig: issuedRoiLink?.roi_context_json?.issuedConfig || issuedRoiLink?.roi_context_json || null
         });
-        await ClientSchoolRoiSigningLink.updatePayload({
+        const savedLink = await ClientSchoolRoiSigningLink.updatePayload({
           id: issuedRoiLink.id,
           intakeSubmissionId: submission?.id || null,
+          expectedActiveSubmissionId: submission?.id || null,
           roiContext,
           roiResponse: null
         });
+        if (!savedLink || String(savedLink.status || '').toLowerCase() === 'completed'
+          || Number(savedLink.latest_intake_submission_id) !== Number(submission?.id)) {
+          return res.status(409).json({ error: { message: 'This school release changed while opening. Reload its current status before continuing.' } });
+        }
       }
     }
 
@@ -6960,15 +6996,19 @@ export const deletePublicIntakeSession = async (req, res, next) => {
   }
 };
 
-const loadProgressSubmission = async (publicKey, sessionToken) => {
+const loadProgressSubmission = async (publicKey, sessionToken, req) => {
   const token = String(sessionToken || '').trim();
   if (!token) return { error: { status: 400, message: 'sessionToken is required' } };
-  const { link } = await resolvePublicIntakeContext(publicKey);
+  const { link, issuedRoiLink } = await resolvePublicIntakeContext(publicKey);
   if (!link) return { error: { status: 404, message: 'Intake link not found' } };
   const submission = await IntakeSubmission.findBySessionToken(token);
   if (!submission || submission.intake_link_id !== link.id) {
     return { error: { status: 404, message: 'Intake session not found' } };
   }
+  const issuedGuardianId = issuedRoiLink?.id
+    ? await resolveIssuedRoiConsentSigner({ req, issuedLink: issuedRoiLink, clientId: issuedRoiLink.client_id, submissionGuardianId: submission.guardian_user_id })
+    : null;
+  assertIssuedRoiSessionBinding({ issuedLink: issuedRoiLink, submission, guardianUserId: issuedGuardianId, sessionToken: token });
   await assertClientUpdateSubmissionContext(link,{coGuardianInviteId:submission.co_guardian_invite_id});
   if (isSubmissionExpired(submission)) {
     await deleteSubmissionData(submission.id);
@@ -6994,7 +7034,7 @@ export const savePublicIntakeProgress = async (req, res, next) => {
   try {
     const publicKey = String(req.params.publicKey || '').trim();
     const sessionToken = String(req.body?.sessionToken || '').trim();
-    const loaded = await loadProgressSubmission(publicKey, sessionToken);
+    const loaded = await loadProgressSubmission(publicKey, sessionToken, req);
     if (loaded.error) {
       return res.status(loaded.error.status).json({ error: { message: loaded.error.message } });
     }
@@ -7045,7 +7085,7 @@ export const getPublicIntakeProgress = async (req, res, next) => {
   try {
     const publicKey = String(req.params.publicKey || '').trim();
     const sessionToken = String(req.query?.sessionToken || '').trim();
-    const loaded = await loadProgressSubmission(publicKey, sessionToken);
+    const loaded = await loadProgressSubmission(publicKey, sessionToken, req);
     if (loaded.error) {
       return res.status(loaded.error.status).json({ error: { message: loaded.error.message } });
     }
@@ -7123,6 +7163,10 @@ export const createPublicConsent = async (req, res, next) => {
     if (Number(submission.intake_link_id) !== Number(link.id)) {
       return res.status(403).json({ error: { message: 'This session belongs to a different enrollment packet.' } });
     }
+    const issuedGuardianId = issuedRoiLink?.id
+      ? await resolveIssuedRoiConsentSigner({ req, issuedLink: issuedRoiLink, clientId: issuedRoiLink.client_id, submissionGuardianId: submission.guardian_user_id })
+      : null;
+    assertIssuedRoiSessionBinding({ issuedLink: issuedRoiLink, submission, guardianUserId: issuedGuardianId, sessionToken });
 
     await assertClientUpdateSubmissionContext(link,{coGuardianToken:req.body?.coGuardianToken});
     let coGuardianBinding = req.body?.coGuardianToken ? await CoGuardianInvite.resolveCoGuardianIntakeBinding(req.body.coGuardianToken, {
@@ -7156,9 +7200,7 @@ export const createPublicConsent = async (req, res, next) => {
       effectiveIntakeData = mergeIntakeSubmissionPatch(effectiveIntakeData, matchPatch);
     }
     const intakeDataHash = hashIntakeData(effectiveIntakeData);
-    const portalGuardianId = Number(issuedRoiLink?.client_id)
-      ? await portalGuardianForIssuedRoi(req, issuedRoiLink.client_id)
-      : null;
+    const portalGuardianId = issuedGuardianId;
     await assertClientUpdateSubmissionContext(link,{coGuardianToken:req.body?.coGuardianToken,coGuardianInviteId:submission.co_guardian_invite_id});
     assertPortalEnrollmentIdentity(submission, req.body, sessionToken);
     if (!req.body?.coGuardianToken && submission.co_guardian_invite_id) {
@@ -7932,6 +7974,11 @@ export const finalizePublicIntake = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Submission not found' } });
     }
     const coGuardianToken = String(req.body?.coGuardianToken || '').trim();
+    const issuedGuardianId = issuedRoiLink?.id
+      ? await resolveIssuedRoiConsentSigner({ req, issuedLink: issuedRoiLink, clientId: issuedRoiLink.client_id, submissionGuardianId: submission.guardian_user_id })
+      : null;
+    assertIssuedRoiSessionBinding({ issuedLink: issuedRoiLink, submission, guardianUserId: issuedGuardianId,
+      sessionToken: String(req.body?.sessionToken || req.headers?.['x-intake-session'] || '').trim() });
     await assertClientUpdateSubmissionContext(link,{coGuardianToken,coGuardianInviteId:submission.co_guardian_invite_id});
     assertPortalEnrollmentIdentity(submission, req.body, req.body?.sessionToken || req.headers?.['x-intake-session']);
     const coGuardianScope = { agencyId: (coGuardianToken || submission.co_guardian_invite_id) ? await resolveAgencyIdForLink(link) : null, publicKey };

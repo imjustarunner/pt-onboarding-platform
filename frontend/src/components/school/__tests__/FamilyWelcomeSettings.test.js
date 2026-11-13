@@ -44,7 +44,7 @@ it('asks for the profile link when it was removed and saves anyway on No thanks'
 });
 
 it('adds the profile link, edits the one text, and saves an opt-out without the PDF', async () => {
-  api.put.mockResolvedValue({ data: plan({ status: 'declined', includePdf: false }) });
+  api.put.mockImplementation(async(_url,body)=>({data:plan(body)}));
   await mountWith();
   await wrapper.find('#fw-template').setValue('{{parent_name}}, I am {{provider_name}} at {{school_name}} on {{service_day}}. I look forward to meeting your family soon.');
   await button('Add profile link').trigger('click'); await flushPromises();
@@ -145,4 +145,19 @@ it('explains missing messaging setup before a provider can choose On',async()=>{
  await mountWith({demoOnly:false,rolloutPhase:'assigned_school_providers',canEnable:false,setupNotice:'Your messaging email needs support setup.'});
  expect(wrapper.get('input[value="enabled"]').element.disabled).toBe(true);expect(wrapper.get('input[value="declined"]').element.disabled).toBe(false);
  expect(wrapper.text()).toContain('messaging email needs support setup');
+});
+it('makes an optional profile prompt visibly unsaved, then retains custom wording in server readback and a new load',async()=>{
+ let saved=plan({status:'enabled'});api.get.mockImplementation(async()=>({data:structuredClone(saved)}));
+ api.put.mockImplementation(async(_url,body)=>{saved={...saved,...body};return {data:structuredClone(saved)};});
+ wrapper=mount(Settings,{attachTo:document.body,props:{agencyId:450,userId:9}});await flushPromises();
+ const wording=template.replace('Learn more: {{profile_link}}','Please use my preferred reply address.');await wrapper.get('#fw-template').setValue(wording);
+ expect(wrapper.text()).toContain('Changes not saved yet');await button('Save Family Welcome').trigger('click');await flushPromises();
+ expect(api.put).not.toHaveBeenCalled();expect(wrapper.get('[role="alertdialog"]').text()).toContain('Not saved yet');expect(document.activeElement).toBe(wrapper.get('[role="alertdialog"]').element);
+ await button('No thanks, save anyway').trigger('click');await flushPromises();expect(wrapper.text()).toContain('Saved. Family Welcome');expect(wrapper.text()).not.toContain('Changes not saved yet');
+ wrapper.unmount();wrapper=mount(Settings,{props:{agencyId:450,userId:9}});await flushPromises();expect(wrapper.get('#fw-template').element.value).toBe(wording);
+});
+it('keeps the authored draft and reports an unconfirmed save if the server returns older wording',async()=>{
+ await mountWith({status:'enabled'});await wrapper.get('#fw-template').setValue(template+' My new wording.');
+ api.put.mockResolvedValue({data:plan({status:'enabled'})});await button('Save Family Welcome').trigger('click');await flushPromises();
+ expect(wrapper.get('#fw-template').element.value).toContain('My new wording.');expect(wrapper.text()).toContain('saved settings could not be confirmed');expect(wrapper.text()).not.toContain('Saved. Family Welcome');
 });

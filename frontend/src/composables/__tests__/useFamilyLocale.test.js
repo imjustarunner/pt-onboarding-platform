@@ -1,7 +1,7 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { computed, defineComponent, h, nextTick } from 'vue';
-import { provideFamilyLocale, useFamilyLocale } from '../useFamilyLocale';
+import { provideFamilyLocale, useFamilyLocale, familyTranslator } from '../useFamilyLocale';
 import FamilyDashboard from '../../components/guardian/FamilyDashboard.vue';
 
 vi.mock('../../services/api', () => ({ default: { get: vi.fn() } }));
@@ -16,6 +16,10 @@ const Host = defineComponent({
   }
 });
 beforeEach(() => { localStorage.clear(); document.documentElement.lang='en'; });
+it('translates the selected-updates navigation in the family language', () => {
+  expect(familyTranslator('es')('Selected updates')).toBe('Actualizaciones seleccionadas');
+  expect(familyTranslator('en')('Selected updates')).toBe('Selected updates');
+});
 it('uses the enrollment language for the actual family dashboard and dynamic amounts', async () => {
   localStorage.setItem('publicLocale', 'en');
   const w=mount(Host, {props:{userId:1450,enrollmentLocale:'es'}});

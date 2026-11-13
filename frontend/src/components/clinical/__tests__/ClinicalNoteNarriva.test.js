@@ -100,3 +100,20 @@ it('observes an in-progress submission review through read-only polling and stop
 it('shows the H0004 billing advisory alongside passed clinical checks without implying payment approval',()=>{
  const review=passed();review.checks[1].advisories=[{id:'service_code:billing_duration_review',category:'billing_review',blocksClaims:true,message:'Actual68-minute H0004 requires billing review before any claim.'}];const w=mount(NarrivaCompliancePanel,{props:{review}});expect(w.get('[aria-label="Billing review notices"]').text()).toContain('Actual68-minute');expect(w.text()).toContain('Clinical signing does not approve a claim or payment.');expect(w.find('[alt="Narriva Quick Sign Approved"]').exists()).toBe(true);expect(w.find('[aria-label="Billing review notices"] button').exists()).toBe(false);w.unmount();
 });
+it('preserves a saved review through a session lock and resumes its GET after normal Unlock without another POST',async()=>{
+ vi.useFakeTimers();localStorage.setItem('sessionId','same-login');
+ const locked={response:{status:423,data:{error:{code:'SESSION_LOCKED',message:'Unlock your session to continue.'}}}};
+ const api={post:vi.fn(async()=>({data:{review:{id:24,status:'running'}}})),get:vi.fn().mockRejectedValueOnce(locked).mockResolvedValue({data:{review:passed()}})};
+ const scope=effectScope();const state=scope.run(()=>useNarrivaReview({agencyId:ref(450),apiClient:api,pollMs:20}));
+ const first=state.runReview({draftId:348});await flushPromises();await vi.advanceTimersByTimeAsync(20);await first;
+ expect(state.review.value.id).toBe(24);expect(state.paused.value).toBe(true);expect(state.busy.value).toBe(false);expect(state.error.value).toContain('same review resumes');
+ window.dispatchEvent(new Event('pt:session-resumed'));await vi.advanceTimersByTimeAsync(20);await flushPromises();
+ expect(state.review.value.status).toBe('passed');expect(state.paused.value).toBe(false);expect(api.post).toHaveBeenCalledTimes(1);expect(api.get).toHaveBeenLastCalledWith('/narriva/reviews/24',expect.anything());scope.stop();localStorage.removeItem('sessionId');
+});
+it.each(['note','agency','login'])('does not resume an old locked review after its %s context changes',async change=>{
+ vi.useFakeTimers();localStorage.setItem('sessionId','old-login');const aid=ref(450);
+ const api={get:vi.fn().mockRejectedValue({response:{status:423,data:{error:{code:'SESSION_LOCKED'}}}}),post:vi.fn()};const scope=effectScope();const state=scope.run(()=>useNarrivaReview({agencyId:aid,apiClient:api,pollMs:20}));
+ const first=state.observeReview({id:24,status:'running'});await vi.advanceTimersByTimeAsync(20);await first;expect(state.paused.value).toBe(true);
+ if(change==='note')state.invalidate();else if(change==='agency')aid.value=451;else localStorage.setItem('sessionId','new-login');await flushPromises();
+ window.dispatchEvent(new Event('pt:session-resumed'));await vi.advanceTimersByTimeAsync(40);expect(api.get).toHaveBeenCalledTimes(1);expect(state.review.value).toBeNull();scope.stop();localStorage.removeItem('sessionId');
+});

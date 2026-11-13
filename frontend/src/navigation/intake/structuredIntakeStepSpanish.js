@@ -45,6 +45,32 @@ export const STRUCTURED_INTAKE_STEP_ES = {
   'Your electronic signature below includes this school notice and your communication choices, even when you choose No texts.': 'Su firma electrónica a continuación incluye este aviso escolar y sus opciones de comunicación, incluso si elige no recibir mensajes de texto.',
   'Please click "Apply my signature to this authorization" to sign the Insurance Authorization at the bottom of this step.': 'Haga clic en «Aplicar mi firma a esta autorización» para firmar la autorización del seguro al final de este paso.',
   'Please sign the Insurance Authorization acknowledgment at the bottom of this step before continuing.': 'Firme el reconocimiento de la autorización del seguro al final de este paso antes de continuar.',
+  'Please complete the authorization to continue.': 'Complete la autorización para continuar.',
+  'Coverage Scope': 'Ámbito de cobertura',
+  'Client Coverages': 'Cobertura por cliente',
+  'Confirmed': 'Confirmado',
+  'Subscriber First Name': 'Nombre del titular',
+  'Subscriber Middle Name': 'Segundo nombre del titular',
+  'Subscriber Last Name': 'Apellido del titular',
+  'Subscriber Sex': 'Sexo del titular',
+  'Relationship To Subscriber': 'Relación con el titular',
+  'Is Medicaid': 'Es Medicaid',
+  'Primary Is Medicaid': 'El seguro principal es Medicaid',
+  'Secondary Is Medicaid': 'El seguro secundario es Medicaid',
+  'No Primary Card Available': 'Tarjeta del seguro principal no disponible',
+  'No Secondary Card Available': 'Tarjeta del seguro secundario no disponible',
+  'Guarantor': 'Responsable del pago',
+  'Contact': 'Contacto',
+  'Authorization Agreed': 'Autorización aceptada',
+  'Authorization Signature': 'Firma de autorización',
+  'Authorization Signed At': 'Fecha y hora de la firma de autorización',
+  'Authorization Source Method': 'Método de firma de autorización',
+  'Payment Info': 'Información de pago',
+  'Payment Choice': 'Opción de pago',
+  'Skip Acknowledged': 'Pago aplazado reconocido',
+  'Account Holder': 'Titular de la cuenta',
+  'Typed Full Name': 'Nombre completo escrito',
+  'Preferred Time Zone': 'Zona horaria preferida',
   'Please agree to and sign the insurance and payment authorization before completing enrollment.': 'Acepte y firme la autorización de seguro y pago antes de completar la inscripción.',
   'Please confirm coverage for every listed client.': 'Confirme la cobertura de cada cliente indicado.',
   'By typing my name and continuing, I electronically sign these choices. If I request texts, I control the listed phone and am the recipient. I can decline texts and still receive services.': 'Al escribir mi nombre y continuar, firmo electrónicamente estas opciones. Si solicito mensajes de texto, controlo el teléfono indicado y soy la persona destinataria. Puedo rechazar los mensajes de texto y seguir recibiendo servicios.',
@@ -608,6 +634,8 @@ export function lookupStructuredIntakeTranslation(en, apiMap = {}) {
   if (!key) return key;
   const numberedClient = /^Client (\d+)$/i.exec(key.trim());
   if (numberedClient) return `Cliente ${numberedClient[1]}`;
+  const numberedCoverage = /^Client Coverages (\d+)$/i.exec(key.trim());
+  if (numberedCoverage) return `Cobertura del cliente ${numberedCoverage[1]}`;
   return CURATED_INTAKE_ES[key] || NORMALIZED_INTAKE_ES.get(normalizedCopyKey(key)) || translatedBrandedDisclosure(key) || apiMap[key] || key;
 }
 

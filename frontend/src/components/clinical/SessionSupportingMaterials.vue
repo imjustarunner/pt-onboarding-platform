@@ -20,7 +20,7 @@
             <small v-if="!material.available">These grants remain recorded while opening is blocked. You can remove access now.</small>
           </div>
           <button v-if="material.available" type="button" :disabled="busy" @click="beginSharing(material)">Share in client Documents…</button>
-          <button v-else type="button" :disabled="busy" @click="retryScan(material)">Retry private security scan</button>
+          <button v-else type="button" :disabled="busy" @click="material.scanQueued ? load() : retryScan(material)">{{ material.scanQueued ? 'Refresh scan status' : 'Retry private security scan' }}</button>
         </li>
       </ul>
       <p v-else-if="!loading">No supporting materials for this session yet.</p>

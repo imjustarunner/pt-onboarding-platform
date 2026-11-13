@@ -1,6 +1,7 @@
 import pool from '../config/database.js';
 import IntakeSubmission from '../models/IntakeSubmission.model.js';
 import Client from '../models/Client.model.js';
+import { sqlUnicodeEq } from '../utils/mysqlCollation.js';
 
 // Read attribution only from the invitation's own tenant/dependent and an
 // authenticated guardian or its recorded, completed enrollment request.
@@ -14,7 +15,7 @@ export async function requestingGuardianContext({ inviteId, agencyId, clientId }
     FROM co_guardian_invites i
     JOIN co_guardian_invite_clients ic ON ic.invite_id=i.id AND ic.client_id=?
     JOIN clients c ON c.id=ic.client_id AND c.agency_id=i.agency_id
-    LEFT JOIN intake_links l ON l.public_key=i.public_key
+    LEFT JOIN intake_links l ON ${sqlUnicodeEq('l.public_key', 'i.public_key')}
     LEFT JOIN users u ON u.id=i.invited_by_user_id
     LEFT JOIN client_guardians cg ON cg.client_id=c.id AND cg.guardian_user_id=u.id
     WHERE i.id=? AND i.agency_id=? LIMIT 1`, [clientId, inviteId, agencyId]);

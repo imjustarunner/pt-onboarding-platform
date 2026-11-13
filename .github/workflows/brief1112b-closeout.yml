@@ -1,0 +1,131 @@
+name: Brief 1112B connected workflow repairs
+
+on:
+  pull_request:
+    paths: ['backend/**', 'frontend/**', 'database/migrations/**', 'scripts/provision-private-packet-scanner.mjs', '.github/workflows/brief1112b-closeout.yml']
+  push:
+    branches: [main]
+    paths: ['backend/**', 'frontend/**', 'database/migrations/**', 'scripts/provision-private-packet-scanner.mjs', '.github/workflows/brief1112b-closeout.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  connected-closeout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      mysql:
+        image: mysql:8.0.44
+        env:
+          MYSQL_ALLOW_EMPTY_PASSWORD: 'yes'
+        ports: ['33326:3306']
+        options: >-
+          --health-cmd="mysqladmin ping --silent"
+          --health-interval=10s --health-timeout=5s --health-retries=12
+    env:
+      TZ: America/Denver
+      NODE_ENV: test
+      SKIP_DB_CONNECT: '1'
+      SKIP_DB_CONNECTION: '1'
+      SKIP_CLINICAL_DB_CONNECT: '1'
+      DB_HOST: 127.0.0.1
+      DB_PORT: '1'
+      DB_USER: isolated_tests_never_prod
+      DB_PASSWORD: unused
+      DB_NAME: never_production
+      RECOVERY_TEST_MYSQL_HOST: 127.0.0.1
+      RECOVERY_TEST_MYSQL_PORT: '33326'
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+      - name: Install existing test dependencies without building sites
+        run: |
+          npm ci --prefix backend --ignore-scripts
+          npm ci --prefix frontend --ignore-scripts
+      - name: Prepare the existing password binding
+        working-directory: backend
+        run: npm rebuild bcrypt --no-fund --no-audit
+      - name: Clinical scanner, host recovery and actual SQL leases
+        run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.brief1112b-clinical.config.js --maxWorkers=2 --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/brief1112b-clinical.json"
+      - name: Invitation origin, selected recipients and actual SQL retries
+        run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.guardian-delivery-repairs.config.js --maxWorkers=2 --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/brief1112b-invites.json"
+      - name: Issued ROI signer, progress and actual SQL active-session ownership
+        run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.issued-roi-session.config.js --maxWorkers=2 --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/brief1112b-roi.json"
+      - name: Exact QA outreach clock and unchanged ordinary worker behavior
+        run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.qa-contact-clock.config.js --maxWorkers=2 --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/brief1112b-clock.json"
+      - name: Require executed SQL cases, not skipped placeholders
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { readFileSync } from 'node:fs';
+          import { join } from 'node:path';
+          const reports = ['clinical', 'invites', 'roi', 'clock'].map(name => JSON.parse(readFileSync(join(process.env.RUNNER_TEMP, `brief1112b-${name}.json`), 'utf8')));
+          const results = reports.flatMap(report => report.testResults);
+          const required = [
+            ['meetingEndPermission.mysql.test.js', 13],
+            ['privateClinicalMaterialScan.mysql.test.js', 4],
+            ['payrollCategoryMigration.mysql.test.js', 3],
+            ['coGuardianRequestOrigin.mysql.test.js', 4],
+            ['coGuardianSelectedRetry.mysql.test.js', 16],
+            ['coGuardianReminders.mysql.test.js', 7],
+            ['ClientSchoolRoiSigningLink.activeSession.mysql.test.js', 4],
+            ['schoolContactQaClock.mysql.test.js', 19]
+          ];
+          for (const [name, minimum] of required) {
+            const result = results.find(row => row.name.endsWith(`/${name}`));
+            assert(result, `Missing actual SQL report: ${name}`);
+            assert(result.assertionResults.length >= minimum, `Missing SQL cases: ${name}`);
+            assert(result.assertionResults.every(row => row.status === 'passed'), `Unexecuted or failing SQL cases: ${name}`);
+          }
+          for (const report of reports) {
+            assert.equal(report.numPendingTests, 0);
+            assert.equal(report.numTodoTests || 0, 0);
+            assert.equal(report.numFailedTests, 0);
+          }
+          NODE
+      - name: Ticket ownership, encrypted file views and existing directory boundaries
+        run: |
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.ticket-followup.config.js --maxWorkers=2
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.brief1112b-directory.config.js --maxWorkers=2
+      - name: Receipt, disclosure and issued-link bindings
+        run: |
+          node --test backend/src/services/__tests__/completedIntakeRecord.service.test.js backend/src/services/__tests__/smartDisclosureParties.test.js backend/src/utils/__tests__/disclosureBusinessEntity.test.js backend/src/services/__tests__/issuedRoiGuardian.portal.test.js
+          node --check scripts/provision-private-packet-scanner.mjs
+      - name: Locale, scoped lists, provider choices and late sibling responses
+        run: |
+          node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.brief1112b-display.config.js --maxWorkers=2
+          node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.task-organization-scope.config.js --maxWorkers=2
+      - name: School threads, private files and exact client message entry
+        run: |
+          node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.ticket-attachment.config.js --maxWorkers=2
+          node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.brief1112b-entry-pollers.config.js --maxWorkers=2
+      - name: Guardian recipient snapshots and issued release sessions
+        working-directory: frontend
+        run: |
+          node node_modules/vitest/vitest.mjs run --config vitest.guardian-delivery-repairs.config.js --maxWorkers=2
+          node node_modules/vitest/vitest.mjs run src/components/guardian/__tests__/GuardianSchoolReleaseForm.test.js src/components/guardian/__tests__/GuardianSchoolReleaseNotice.test.js src/components/guardian/__tests__/GuardianSchoolCareBridge.test.js src/components/public/__tests__/SmartSchoolRoiFlow.test.js --maxWorkers=2
+      - name: Clinical workspace, Family Welcome readback and billing preview
+        working-directory: frontend
+        run: |
+          node node_modules/vitest/vitest.mjs run --config vitest.note-workspace.config.js --maxWorkers=2
+          node node_modules/vitest/vitest.mjs run --config vitest.school-contact-plan.config.js --maxWorkers=2
+          node node_modules/vitest/vitest.mjs run --config vitest.billing-unit-preview.config.js --maxWorkers=2
+          node node_modules/vitest/vitest.mjs run --config vitest.supervision-audio.config.js --maxWorkers=2
+          node node_modules/vitest/vitest.mjs run --config vitest.session-materials.config.js --maxWorkers=2
+          node node_modules/vitest/vitest.mjs run src/views/teamMeeting/__tests__/TeamMeetingLeave.test.js src/views/supervision/__tests__/SupervisionLeave.test.js src/components/supervision/__tests__/SupervisionLeaveControls.test.js src/components/meetings/__tests__/MeetingSessionExitPanel.test.js --maxWorkers=2
+      - name: Keep exact database test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: brief1112b-sql-results
+          path: ${{ runner.temp }}/brief1112b-*.json
+          retention-days: 14

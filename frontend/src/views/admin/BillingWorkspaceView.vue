@@ -24,6 +24,7 @@
 
         <ClientPendingTasks v-if="!route.meta?.auricwellPreview && scopedOrganization && Number(route.query.clientId)>0" :key="`client-tasks-${scopeId}-${route.query.clientId}`" :agency-id="scopedOrganization.id" :client-id="route.query.clientId" :agency-slug="scopedOrganization.slug" billing-enabled />
         <InsuranceCardTasks v-if="!route.query.clientId && !route.meta?.auricwellPreview && scopedOrganization && ['workspace','settings'].includes(section)" :key="`insurance-${scopeId}`" :agency-id="scopedOrganization.id" staff collapsed />
+        <BillingUnitPreview v-if="!route.meta?.auricwellPreview && scopedOrganization && ['workspace','settings'].includes(section)" :key="`units-${scopeId}`" :agency-id="scopedOrganization.id" />
         <template v-if="['workspace', 'claims', 'reports'].includes(section)">
           <section class="metric-grid" aria-label="Claim workload">
             <button class="metric" @click="filterQueue('all')"><span class="metric-symbol">▤</span><span><small>Active work items</small><strong>{{ totals?.active ?? '—' }}</strong><em>Across selected scope</em></span></button>
@@ -106,6 +107,7 @@
 
 <script setup>
 import InsuranceVerificationQueue from '../../components/billing/InsuranceVerificationQueue.vue';
+import BillingUnitPreview from '../../components/billing/BillingUnitPreview.vue';
 import BillingTransactionHistory from '../../components/billing/BillingTransactionHistory.vue';
 import ClaimResubmissionPanel from '../../components/billing/ClaimResubmissionPanel.vue';
 import ClaimWorkTable from '../../components/billing/ClaimWorkTable.vue';

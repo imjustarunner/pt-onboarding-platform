@@ -9,7 +9,7 @@
         <li v-for="choice in state.choices" :key="`${choice.kind}:${choice.id}`">
           <label><input type="checkbox" :checked="isSelected(choice)" :disabled="!choice.available || busy" @change="select(choice,$event.target.checked)" /><span><strong>{{ choice.title }}</strong><small>{{ choice.kind === 'session_material' ? 'This session’s material' : 'Client document' }}<span v-if="choice.createdAt"> · {{ displayDate(choice.createdAt) }}</span></small></span></label>
           <button v-if="choice.available" type="button" @click="view(choice)" :disabled="busy">View assessment</button>
-          <div v-else class="evidence-pending"><span>{{ choice.scanStatus === 'infected' ? 'Blocked by security scan' : 'Pending private security scan' }} · cannot count as evidence yet.</span><button v-if="choice.kind === 'session_material' && state.canUpload" type="button" @click="scan(choice)" :disabled="busy">Retry private security scan</button></div>
+          <div v-else class="evidence-pending"><span>{{ choice.scanStatus === 'infected' ? 'Blocked by security scan' : 'Pending private security scan' }} · cannot count as evidence yet.</span><button v-if="choice.kind === 'session_material' && state.canUpload" type="button" @click="choice.scanQueued ? load() : scan(choice)" :disabled="busy">{{ choice.scanQueued ? 'Refresh scan status' : 'Retry private security scan' }}</button></div>
         </li>
       </ul>
       <p v-else>No available assessment attachments for this client and session yet.</p>

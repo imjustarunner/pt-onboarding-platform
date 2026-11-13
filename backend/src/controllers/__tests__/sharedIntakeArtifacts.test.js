@@ -1,8 +1,11 @@
-import test from 'node:test';
+import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { buildSharedIntakeDocuments } from '../../services/sharedIntakeDocuments.service.js';
 import { assertPortalEnrollmentIdentity } from '../../utils/portalEnrollmentBinding.js';
+import { assertIssuedRoiSessionBinding } from '../../services/issuedRoiGuardian.service.js';
+import pool from '../../config/database.js';
+after(() => pool.end());
 
 // Exercise the real controller artifact functions with storage/DB/PDF boundaries
 // replaced, so no real patient records or external services are required.
@@ -103,6 +106,7 @@ test('finalize rejects missing shared-signature consent before updating the subm
   const deps = {
     ...signing,
     assertPortalEnrollmentIdentity,
+    assertIssuedRoiSessionBinding,
     // This fixture is ordinary school enrollment; client-update packet
     // authority has its own persisted-key and guardian-permission tests.
     isClientUpdatePacket: () => false,

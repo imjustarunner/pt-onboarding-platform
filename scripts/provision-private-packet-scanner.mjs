@@ -31,8 +31,9 @@ try {
  if(preparedImage && !preparedImage.startsWith(`${region}-docker.pkg.dev/${project}/private-packet-scanner/worker@sha256:`))throw Error('Prepared image must be an immutable digest in the dedicated scanner repository.');
  const image=preparedImage||`${region}-docker.pkg.dev/${project}/private-packet-scanner/worker:${serving}`;
  const resource=`projects/${project}/locations/${region}/jobs/${name}`;
+ const mainBackendConfigurationNeeded=container.env?.find(row=>row.name==='PRIVATE_PACKET_SCAN_JOB')?.value!==resource;
  if(!process.argv.includes('--apply')){
-  console.log(JSON.stringify({job:name,sourceRevision:serving,cpu:1,memory:'4Gi',timeoutSeconds:300,retries:0,schedule:null,publicEndpoint:false,mainBackendChanged:false,estimatedComputePerMinuteUSD:0.001872,apply:false}));
+  console.log(JSON.stringify({job:name,sourceRevision:serving,cpu:1,memory:'4Gi',timeoutSeconds:300,retries:0,schedule:null,publicEndpoint:false,mainBackendChanged:false,mainBackendConfigurationNeeded,estimatedComputePerMinuteUSD:0.001872,apply:false}));
  } else {
   dir=mkdtempSync(join(tmpdir(),'private-packet-scanner-'));mkdirSync(join(dir,'backend'));
   copyFileSync(resolve('backend/Dockerfile.packet-scanner'),join(dir,'Dockerfile'));
@@ -44,8 +45,11 @@ try {
   writeFileSync(join(dir,'job.json'),JSON.stringify(job),{mode:0o600});
   run(['run','jobs','replace',join(dir,'job.json'),`--region=${region}`]);
   run(['run','jobs','add-iam-policy-binding',name,`--region=${region}`,`--member=serviceAccount:${sa}`,'--role=roles/run.jobsExecutorWithOverrides']);
+  // Refreshing the worker image must not create/promote another backend
+  // revision when the existing job reference is already correct.
+  if(mainBackendConfigurationNeeded){
   const tag='packet-scan-config-check';
-  run(['run','services','update','onboarding-backend',`--region=${region}`,`--tag=${tag}`,`--update-env-vars=PRIVATE_PACKET_SCAN_JOB=${resource}`],'json(status.traffic)');
+  run(['run','services','update','onboarding-backend',`--region=${region}`,'--no-traffic',`--tag=${tag}`,`--update-env-vars=PRIVATE_PACKET_SCAN_JOB=${resource}`],'json(status.traffic)');
   const updated=run(['run','services','describe','onboarding-backend',`--region=${region}`],'json(status.traffic)');
   const candidate=updated.status?.traffic?.find(row=>row.tag===tag);
   if(!candidate?.url||!candidate.revisionName)throw Error('Scanner configuration preview is unavailable; traffic was not changed.');
@@ -58,6 +62,7 @@ try {
   }
   if(!healthy)throw Error('Scanner configuration health check failed; traffic was not changed.');
   run(['run','services','update-traffic','onboarding-backend',`--region=${region}`,`--to-revisions=${candidate.revisionName}=100`,`--remove-tags=${tag}`],'json(status.traffic)');
-  console.log(JSON.stringify({job:name,enabled:true,cpu:1,memory:'4Gi',mainBackendResourcesChanged:false,realPatientFilesRead:false}));
+  }
+  console.log(JSON.stringify({job:name,enabled:true,cpu:1,memory:'4Gi',sourceRevision:serving,mainBackendConfigurationChanged:mainBackendConfigurationNeeded,mainBackendResourcesChanged:false,realPatientFilesRead:false}));
  }
 } catch(e){console.error(e.message);process.exitCode=1;}finally{if(dir)rmSync(dir,{recursive:true,force:true});}

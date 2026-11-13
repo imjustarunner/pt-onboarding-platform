@@ -44,7 +44,8 @@ import {
   linkSupportTicketClient,
   searchSupportTicketClients,
   listSupportTicketAttachments,
-  downloadSupportTicketAttachment
+  downloadSupportTicketAttachment,
+  viewSupportTicketAttachment
 } from '../controllers/supportTickets.controller.js';
 
 const router = express.Router();
@@ -121,6 +122,7 @@ router.get('/:id/client-search', requireAgencyAccess, searchSupportTicketClients
 router.post('/:id/link-client', requireAgencyAccess, linkSupportTicketClient);
 router.post('/:id/attachments',authorizeTicketAttachmentUpload,receiveClientDocument,uploadSupportTicketAttachment);
 router.get('/:id/attachments', requireAgencyAccess, listSupportTicketAttachments);
+router.get('/:id/attachments/:attachmentId/view', requireAgencyAccess, viewSupportTicketAttachment);
 router.get('/:id/attachments/:attachmentId/download', requireAgencyAccess, downloadSupportTicketAttachment);
 router.post('/:id/attachments/:attachmentId/add-to-client', requireAgencyAccess, addTicketAttachmentToClient);
 

@@ -14,6 +14,7 @@ import StorageService from './storage.service.js';
 import DocumentEncryptionService from './documentEncryption.service.js';
 import {narrivaSourceHash} from './narrivaReviewPolicy.service.js';
 import {containsNarrivaIdentifiers} from './narrivaInputPrivacy.service.js';
+import {privateScanInProgress} from './privatePacketScanJob.service.js';
 const KINDS=new Set(['client_document','session_material']);
 const SUPPORTED_TYPES=new Set(['application/pdf','image/jpeg','image/png']);
 const MATERIAL_TYPE='session_supporting_material';
@@ -64,7 +65,7 @@ function safeTitle(doc,context){const raw=String(doc.document_title||doc.title||
 const key=ref=>`${ref.kind}:${ref.id}`;
 function manifest(kind,id,doc,linked=null){return {kind,id:Number(id),phiDocumentId:Number(doc.id),clinicalSessionId:linked?.clinical_session_id?Number(linked.clinical_session_id):null,
  version:narrivaSourceHash({storagePath:doc.storage_path,updatedAt:doc.updated_at,scanStatus:doc.scan_status,scannedAt:doc.scanned_at,encryptionKeyId:doc.encryption_key_id,encryptionIv:doc.encryption_iv,encryptionAuthTag:doc.encryption_auth_tag,linkedUpdatedAt:linked?.updated_at})};}
-const PHI_FIELDS='id,client_id,agency_id,document_title,document_type,mime_type,storage_path,updated_at,uploaded_at,scanned_at,scan_status,quarantine_path,removed_at,expires_at,is_encrypted,encryption_key_id,encryption_iv,encryption_auth_tag';
+const PHI_FIELDS='id,client_id,agency_id,document_title,document_type,mime_type,storage_path,updated_at,uploaded_at,scanned_at,scan_status,scan_result,quarantine_path,removed_at,expires_at,is_encrypted,encryption_key_id,encryption_iv,encryption_auth_tag';
 /** Metadata only. Assessment bytes are never read or sent to a writing model. */
 export async function loadNarrivaAssessmentEvidence(user,input,options={}) {
  const context=await authorizeNarrivaAssessmentContext(user,input,options),requested=normalizeNarrivaAssessmentSelection(input),byKey=new Map();
@@ -82,7 +83,7 @@ export async function loadNarrivaAssessmentEvidence(user,input,options={}) {
    const phiId=positiveId(metadata(row).phiDocumentId);if(!phiId)continue;
    const doc=await ClientPhiDocument.findById(phiId);
    if(!doc||doc.document_type!==MATERIAL_TYPE||Number(doc.client_id)!==context.clientId||Number(doc.agency_id)!==context.agencyId||!doc.is_encrypted||!SUPPORTED_TYPES.has(doc.mime_type)||doc.removed_at||(doc.expires_at&&new Date(doc.expires_at)<=new Date()))continue;
-   byKey.set(`session_material:${row.id}`,{choice:{kind:'session_material',id:Number(row.id),title:safeTitle({...doc,title:row.title},context),mimeType:doc.mime_type,createdAt:row.created_at,available:isCurrentClean(doc),scanStatus:doc.scan_status||'pending'},manifest:manifest('session_material',row.id,doc,row)});
+   byKey.set(`session_material:${row.id}`,{choice:{kind:'session_material',id:Number(row.id),title:safeTitle({...doc,title:row.title},context),mimeType:doc.mime_type,createdAt:row.created_at,available:isCurrentClean(doc),scanStatus:doc.scan_status||'pending',...(privateScanInProgress(doc)?{scanQueued:true}:{})},manifest:manifest('session_material',row.id,doc,row)});
   }
  }
  const verified=requested.map(r=>byKey.get(key(r))).filter(item=>item?.choice.available),verifiedKeys=new Set(verified.map(item=>key(item.choice)));

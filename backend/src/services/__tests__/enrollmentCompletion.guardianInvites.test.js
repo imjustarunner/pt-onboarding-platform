@@ -1,10 +1,13 @@
 import { it, expect, vi, beforeEach } from 'vitest';
-const m=vi.hoisted(()=>({execute:vi.fn(),getConnection:vi.fn(),email:vi.fn(),notify:vi.fn(),agency:vi.fn(),user:vi.fn(),ticket:vi.fn()}));
+const m=vi.hoisted(()=>({execute:vi.fn(),getConnection:vi.fn(),email:vi.fn(),notify:vi.fn(),agency:vi.fn(),user:vi.fn(),target:vi.fn(),ticket:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute,getConnection:m.getConnection}}));
 vi.mock('../coGuardianInvite.service.js',()=>({emailCoGuardianInvite:m.email,invitePublicUrl:()=> 'https://agency.test/intake/new-token',insertGuardianAccessTicket:m.ticket}));
+vi.mock('../clientRecordAccess.service.js',()=>({resolveClientRecordAccess:vi.fn(async()=>({ok:true}))}));
 vi.mock('../enrollmentPortalEmail.service.js',()=>({sendEnrollmentPortalEmail:m.notify}));
 vi.mock('../../models/Agency.model.js',()=>({default:{findById:m.agency}}));
-vi.mock('../../models/User.model.js',()=>({default:{findById:m.user}}));
+vi.mock('../../models/User.model.js',()=>({default:{findById:m.user,findByEmail:m.target}}));
+import {resolveClientRecordAccess} from '../clientRecordAccess.service.js';
+import {sendStaffSelectedGuardianRetry,previewStaffGuardianRetries,selectedGuardianRetrySnapshot,guardianDeliveryFailureCode} from '../coGuardianDelivery.service.js';
 import { assertInvitationOwner, inviteDeliveryState, deliverCoGuardianInvite, resendGuardianInvitation, notifyInvitationFailure, listGuardianInvitations } from '../coGuardianDelivery.service.js';
 import { parseGuardianDeliveryReport } from '../../utils/guardianDeliveryReport.js';
 const invite={id:3,agency_id:4,invited_by_user_id:8,status:'pending',source:'office',invited_email:'typo@example.test'};
@@ -18,6 +21,7 @@ it('persists an invitation failure when context or transport throws before retur
 });
 beforeEach(()=>{
  vi.clearAllMocks();
+ m.target.mockReset().mockResolvedValue(null);
  db={execute:vi.fn(async sql=>{
   if(sql.includes('GET_LOCK'))return [[{acquired:1}]];
   if(sql.includes('SELECT * FROM co_guardian_invites'))return [[invite]];
@@ -157,4 +161,87 @@ it('does not show a received invitation as another-guardian tracking on the reci
  m.execute.mockResolvedValue([[statusRow]]);
  expect(await listGuardianInvitations({userId:8,agencyId:4,viewerEmails:[' OTHER@EXAMPLE.TEST ']})).toEqual([]);
  expect((await listGuardianInvitations({userId:9,agencyId:4,viewerEmails:['inviter@example.test']}))[0]).toMatchObject({id:18,email:'o•••@•••'});
+});
+
+function selectedSetup({inviteChanges={},lastChanges={},clientChanges=[],actorChanges={},ownerChanges={}}={}){
+ const record={...invite,public_key:'synthetic-office',...inviteChanges};
+ const rows=clientChanges.length?clientChanges:clients;
+ const last={id:25,delivery_status:'failed',created_at:'2026-01-01',...lastChanges};
+ m.user.mockImplementation(async id=>id===501?{id:501,role:'support',is_active:1,...actorChanges}:{id:Number(id),role:'client_guardian',is_active:1,...ownerChanges});
+ resolveClientRecordAccess.mockResolvedValue({ok:true});
+ const original=db.execute.getMockImplementation();
+ db.execute.mockImplementation(async(sql,args)=>sql.includes('SELECT * FROM co_guardian_invites')?[[record]]:
+  sql.includes('FROM intake_links')?[[{id:20,is_active:1,create_guardian:1,scope_type:'agency',organization_id:4,master_channel:'counseling'}]]:
+  sql.includes('SELECT c.id')?[rows]:sql.includes('SELECT * FROM co_guardian_invite_deliveries')?[[last]]:original(sql,args));
+ return {record,last,rows,snapshot:selectedGuardianRetrySnapshot({invite:record,clients:rows,lastDelivery:last})};
+}
+it('retries only the selected recorded failed own invitation without broadening portal rights or changing its owner',async()=>{
+ const state=selectedSetup();
+ const result=await sendStaffSelectedGuardianRetry({actorUserId:501,agencyId:4,inviteId:3,clientIds:[5],snapshot:state.snapshot});
+ expect(result).toMatchObject({invitationId:3,deliveryStatus:'sent',deliveryAttemptId:13,communicationId:7});
+ expect(m.email).toHaveBeenCalledOnce();expect(m.email).toHaveBeenCalledWith(expect.objectContaining({to:invite.invited_email}));
+ expect(db.execute.mock.calls.some(([sql])=>/SET (?:cg.access_enabled|invited_by_user_id)|UPDATE users/.test(sql))).toBe(false);
+ const latest=db.execute.mock.calls.findIndex(([sql])=>sql.includes('SELECT * FROM co_guardian_invite_deliveries'));
+ const mutation=db.execute.mock.calls.findIndex(([sql])=>sql.includes('SET invited_email='));expect(mutation).toBeGreaterThan(latest);
+});
+it.each(['sent','delivered','pending','sending','unknown'])('does not retry selected own invitation whose latest outcome is %s',async status=>{
+ const state=selectedSetup({lastChanges:{delivery_status:status}});
+ await expect(sendStaffSelectedGuardianRetry({actorUserId:501,agencyId:4,inviteId:3,clientIds:[5],snapshot:state.snapshot})).rejects.toMatchObject({status:409,code:'PORTAL_INVITATION_PREVIEW_CHANGED'});
+ expect(m.email).not.toHaveBeenCalled();expect(db.execute.mock.calls.some(([sql])=>sql.includes('SET invited_email='))).toBe(false);
+});
+it.each([{inviteChanges:{invited_email:'changed@example.test'}},{lastChanges:{id:26}},{inviteChanges:{invited_by_user_id:9}}])('rejects stale recipient, original owner or delivery snapshot under the invitation lock %j',async changes=>{
+ const old=selectedSetup();const current=selectedSetup(changes);
+ await expect(sendStaffSelectedGuardianRetry({actorUserId:501,agencyId:4,inviteId:3,clientIds:[5],snapshot:old.snapshot})).rejects.toMatchObject({status:409,code:'PORTAL_INVITATION_PREVIEW_CHANGED'});
+ expect(current.snapshot).not.toBe(old.snapshot);expect(m.email).not.toHaveBeenCalled();
+});
+it.each([{actorChanges:{role:'client_guardian'}},{actorChanges:{is_active:0}},{ownerChanges:{is_active:0}},
+ {clientChanges:[{...clients[0],permissions_json:{noContact:true}}]},
+ {clientChanges:[{...clients[0],permissions_json:'{'}]},
+ {clientChanges:[{...clients[0],agency_id:99}]}])('checks current staff, requester and every child before a selected retry %j',async changes=>{
+ const state=selectedSetup(changes);
+ await expect(sendStaffSelectedGuardianRetry({actorUserId:501,agencyId:4,inviteId:3,clientIds:[5],snapshot:state.snapshot})).rejects.toHaveProperty('status');expect(m.email).not.toHaveBeenCalled();
+});
+it('requires access to all bound children and refuses a subset selection',async()=>{
+ const state=selectedSetup({clientChanges:[clients[0],{...clients[0],id:6}]});
+ await expect(sendStaffSelectedGuardianRetry({actorUserId:501,agencyId:4,inviteId:3,clientIds:[5],snapshot:state.snapshot})).rejects.toHaveProperty('status',409);
+ resolveClientRecordAccess.mockResolvedValue({ok:false});
+ await expect(sendStaffSelectedGuardianRetry({actorUserId:501,agencyId:4,inviteId:3,clientIds:[5,6],snapshot:state.snapshot})).rejects.toHaveProperty('status',403);
+ expect(m.email).not.toHaveBeenCalled();
+});
+it('offers failed own enrollment separately, suppresses generic duplicates, and leaves pending outcomes for history review',async()=>{
+ selectedSetup();const rows=[{...invite,public_key:'synthetic-office',client_id:5,client_agency_id:4,initials:'FCO',delivery_id:25,delivery_status:'failed'}];
+ m.execute.mockImplementation(async sql=>sql.includes('SELECT c.id')?[clients]:sql.includes('SELECT cg.client_id')?[[]]:[rows]);
+ const preview=await previewStaffGuardianRetries({actorUserId:501,agencyId:4,clientIds:[5]});
+ expect(preview.recipients[0]).toMatchObject({kind:'own_enrollment',invitationId:3,deliveryStatus:'failed',clients:[{clientId:5,label:'FCO'}]});
+ expect(preview.pendingEmails).toContain(invite.invited_email);expect(m.email).not.toHaveBeenCalled();
+ m.execute.mockResolvedValue([[{...rows[0],delivery_status:'sending'}]]);
+ expect(await previewStaffGuardianRetries({actorUserId:501,agencyId:4,clientIds:[5]})).toMatchObject({recipients:[],skipped:[{reason:expect.stringContaining('history')}]});
+});
+it('does not suppress ordinary portal setup for a legacy contact-only request',async()=>{
+ m.execute.mockResolvedValue([[{...invite,public_key:null,client_id:5,client_agency_id:4,delivery_id:25,delivery_status:'failed'}]]);
+ expect(await previewStaffGuardianRetries({actorUserId:501,agencyId:4,clientIds:[5]})).toEqual({recipients:[],pendingEmails:[],skipped:[]});
+ expect(m.email).not.toHaveBeenCalled();
+});
+it.each([{is_active:0},{status:'SUSPENDED'},{role:'staff'},{is_archived:1}])('refuses an existing target guardian account restriction %j',async changes=>{
+ const state=selectedSetup();const target={id:10,role:'client_guardian',status:'ACTIVE',is_active:1,...changes};
+ m.target.mockResolvedValue(target);const prior=m.user.getMockImplementation();m.user.mockImplementation(async id=>id===10?target:prior(id));
+ await expect(sendStaffSelectedGuardianRetry({actorUserId:501,agencyId:4,inviteId:3,clientIds:[5],snapshot:state.snapshot})).rejects.toHaveProperty('status',403);
+ expect(m.email).not.toHaveBeenCalled();
+});
+it.each([{access_enabled:0},{permissions_json:{noContact:true}},{permissions_json:{contactRestricted:true}},
+ {permissions_json:{revoked:true}},{permissions_json:'{'},{permissions_json:[]}])('refuses a target child relationship restriction before sending %j',async change=>{
+ const state=selectedSetup();const target={id:10,role:'client_guardian',status:'ACTIVE',is_active:1};m.target.mockResolvedValue(target);
+ const prior=m.user.getMockImplementation();m.user.mockImplementation(async id=>id===10?target:prior(id));
+ const query=db.execute.getMockImplementation();db.execute.mockImplementation(async(sql,args)=>sql.includes('SELECT client_id,access_enabled')?[[{client_id:5,access_enabled:1,permissions_json:{},...change}]]:query(sql,args));
+ await expect(sendStaffSelectedGuardianRetry({actorUserId:501,agencyId:4,inviteId:3,clientIds:[5],snapshot:state.snapshot})).rejects.toHaveProperty('status',403);
+ expect(m.email).not.toHaveBeenCalled();
+});
+it('records a safe pre-transport failure code without logging contact values, SQL or private answers',async()=>{
+ const warn=vi.spyOn(console,'warn').mockImplementation(()=>{});
+ m.email.mockRejectedValueOnce(Object.assign(new Error('SELECT private_answers from testing+private@example.com'),{code:'ER_CANT_AGGREGATE_2COLLATIONS'}));
+ const result=await deliverCoGuardianInvite({inviteId:3,agency:{id:4},to:invite.invited_email});
+ expect(result).toMatchObject({deliveryStatus:'failed',failureCode:'ER_CANT_AGGREGATE_2COLLATIONS'});
+ expect(warn).toHaveBeenCalledWith('[guardian-invite] Delivery failed before a receipt',{inviteId:3,agencyId:4,code:'ER_CANT_AGGREGATE_2COLLATIONS'});
+ expect(JSON.stringify(warn.mock.calls)).not.toContain('private');
+ expect(guardianDeliveryFailureCode({code:'unsafe@example.com'})).toBe('SEND_FAILED');warn.mockRestore();
 });

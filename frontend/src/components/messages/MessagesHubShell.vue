@@ -1448,7 +1448,8 @@
             </section>
             <section class="msg-hub-panel">
               <h3>Recent files</h3>
-              <div v-if="loadingContext" class="msg-hub-muted">Loading…</div>
+              <p v-if="linkedSecureClientContext" class="msg-hub-muted">Open the selected client’s Documents to review files.</p>
+              <div v-else-if="loadingContext" class="msg-hub-muted">Loading…</div>
               <ul v-else-if="recentFiles.length" class="msg-hub-side-list">
                 <li v-for="f in recentFiles" :key="f.id">
                   <button v-if="f.downloadPath" class="btn btn-link" @click="downloadHubAttachment($event, f)">{{ f.name }}</button>
@@ -1461,7 +1462,8 @@
             </section>
             <section class="msg-hub-panel">
               <h3>Recent activity</h3>
-              <div v-if="loadingContext" class="msg-hub-muted">Loading…</div>
+              <p v-if="linkedSecureClientContext" class="msg-hub-muted">Review activity from the selected client’s chart.</p>
+              <div v-else-if="loadingContext" class="msg-hub-muted">Loading…</div>
               <ul v-else-if="recentActivity.length" class="msg-hub-side-list">
                 <li v-for="a in recentActivity" :key="a.id">
                   <strong>{{ a.label }}</strong>
@@ -1956,7 +1958,7 @@ let smartReplyTimer = null;
 const queuedItems = ref([]);
 const loadingQueued = ref(false);
 
-const agencyId = computed(() => agencyStore.currentAgency?.id || null);
+const agencyId = computed(()=>route.query.secureClientId&&/^[1-9]\d*$/.test(String(route.query.agencyId||''))?Number(route.query.agencyId):agencyStore.currentAgency?.id||null);
 const { summary: emailWorkspace, draftByConversation } = useEmailWorkspace(agencyId);
 
 const inboxNavItems = [
@@ -4292,6 +4294,7 @@ async function loadPersonContext(personKey) {
   recentFiles.value = [];
   recentActivity.value = [];
   if (!personKey) return;
+  if(linkedSecureClientContext.value){loadingContext.value=false;return;}
   loadingContext.value = true;
   try {
     const aid = selected.value?.agencyId || agencyId.value;
@@ -4589,7 +4592,7 @@ async function pickPerson(person, opts = {}) {
   const talkingGuardian = ctx?.guardians?.find(
     (g) => Number(g.userId) === Number(talkingToUserId.value)
   );
-  if (pickedClient && talkingGuardian?.personKey && talkingGuardian.personKey !== selected.value?.personKey) {
+  if (pickedClient && !opts.keepClientContext && talkingGuardian?.personKey && talkingGuardian.personKey !== selected.value?.personKey) {
     await onTalkingToChange();
   }
   if (fromConversation) {
@@ -4628,6 +4631,7 @@ async function pickPerson(person, opts = {}) {
   await focusComposer();
 }
 
+const linkedSecureClientContext=computed(()=>sendMethod.value==='secure'&&Number(route.query.secureClientId)>0&&Number(selected.value?.clientId)===Number(route.query.secureClientId)&&Number(clientMessaging.value?.clientId)===Number(route.query.secureClientId));
 const historyLoading = ref(false);
 const exhaustedHistory = ref(new Set());
 const historyKey = computed(() => `${selected.value?.personKey}:${selectedClientId.value || ''}:${sendMethod.value}:${sendMethod.value === 'email' ? activeEmailThreadKey.value || 'all' : ''}`);
@@ -4672,7 +4676,7 @@ async function loadTimeline(personKey, { quiet = false } = {}) {
       skipGlobalLoading: true
     });
     if (requestId !== timelineRequestId || selected.value?.personKey !== personKey) return;
-    if (data?.person) {
+    if (data?.person && !linkedSecureClientContext.value) {
       const priorMessaging = selected.value?.clientMessaging;
       selected.value = {
         ...data.person,
@@ -5221,6 +5225,42 @@ watch(listSearch, () => {
   listSearchTimer = setTimeout(() => loadList(), 280);
 });
 
+let linkedSecureRequest=0;
+const linkedSecureScope=()=>JSON.stringify([route.query.secureClientId,route.query.agencyId,authStore.user?.id,authStore.user?.role,sessionBlocked.value]);
+function clearLinkedSecureComposer(){
+ timelineRequestId++;selected.value=null;selectedConversation.value=null;conversationPreview.value=null;timeline.value=[];recentFiles.value=[];recentActivity.value=[];composeBody.value='';composeSubject.value='';composeCc.value='';composeBcc.value='';composeAttachments.value=[];chatStagedAttachments.value=[];chatThreadId.value=null;sendError.value='';
+}
+async function openLinkedSecureClient(){
+ const request=++linkedSecureRequest,scope=linkedSecureScope(),raw=String(route.query.secureClientId||'');
+ if(!raw)return;
+ clearLinkedSecureComposer();error.value='';
+ const clientId=Number(raw),aid=Number(route.query.agencyId),current=()=>request===linkedSecureRequest&&scope===linkedSecureScope();
+ if(sessionBlocked.value)return;
+ if(!['super_admin','admin','support','staff','clinical_practice_assistant','provider','provider_plus','supervisor'].includes(String(authStore.user?.role||'').toLowerCase())){error.value='Secure client messaging is not available from this account.';return;}
+ if(!/^[1-9]\d*$/.test(raw)||!Number.isSafeInteger(clientId)||!Number.isSafeInteger(aid)||aid<1){error.value='Choose a client and agency to open the secure composer.';return;}
+ try{
+  const {data}=await api.get(`/messages/hub/people/${encodeURIComponent(`client:${clientId}@${aid}`)}`,{params:{agencyId:aid},skipGlobalLoading:true});
+  if(!current())return;
+  let person=data?.person;const context=person?.clientMessaging;
+  if(!person||Number(person.clientId)!==clientId||Number(person.agencyId)!==aid||(context&&Number(context.clientId)!==clientId))throw Error('This client is not available for secure messaging in this agency.');
+  if(!person.methods?.some(method=>method.id==='secure'&&method.available)){
+   const guardians=context?.guardians||[],preferred=guardians.find(g=>Number(g.userId)===Number(context?.talkingToUserId));
+   const guardian=[preferred,...guardians].find(g=>g?.personKey&&g.methods?.some(method=>method.id==='secure'&&method.available));
+   if(!guardian)throw Error(person.methods?.find(method=>method.id==='secure')?.reason||'No eligible secure recipient is available for this client. Review their linked portal contacts.');
+   const result=await api.get(`/messages/hub/people/${encodeURIComponent(guardian.personKey)}`,{params:{agencyId:aid},skipGlobalLoading:true});
+   if(!current())return;const resolved=result.data?.person;
+   if(!resolved||Number(resolved.userId)!==Number(guardian.userId)||Number(resolved.agencyId)!==aid||!resolved.methods?.some(method=>method.id==='secure'&&method.available))throw Error('This linked guardian is not available for secure messaging.');
+   person={...resolved,clientId,clientMessaging:context,relationshipMeta:guardian.relationshipTitle||'Linked guardian'};
+  }
+  if(!current())return;
+  inboxChannel.value='secure';await pickPerson(person,{method:'secure',keepClientContext:true});
+  if(!current())return;
+  if(Number(selectedClientId.value)!==clientId||Number(selected.value?.agencyId)!==aid||(clientMessaging.value&&Number(clientMessaging.value.clientId)!==clientId))throw Error('The selected secure recipient no longer matches this client.');
+  sendMethod.value='secure';startNewSubjectCompose();await focusComposer();
+ }catch(e){if(current()){clearLinkedSecureComposer();error.value=e.response?.data?.error?.message||e.message||'The secure composer could not be opened. Review this client’s messaging access.';}}
+}
+watch(()=>[route.query.secureClientId,route.query.agencyId,authStore.user?.id,authStore.user?.role,sessionBlocked.value],()=>openLinkedSecureClient());
+
 async function openLinkedConversation() {
   const id = Number(route.query.conversationId);
   if (!Number.isSafeInteger(id) || id <= 0) return;
@@ -5249,7 +5289,7 @@ onMounted(() => {
   window.addEventListener('online', refreshMailInBackground);
   window.addEventListener('message', onComposerMessage);
   window.addEventListener('email-workspace-changed', onWorkspaceChanged);
-  openLinkedConversation();
+  if(route.query.secureClientId)openLinkedSecureClient();else openLinkedConversation();
   document.addEventListener('click', onDocClickClosePickers);
   loadInboxCounts();
   loadGroupMemberships();
@@ -5262,6 +5302,7 @@ onMounted(() => {
   }, 4000);
 });
 onUnmounted(() => {
+  linkedSecureRequest++;
   window.removeEventListener('keydown', onReaderEscape);
   if (previousBodyOverflow !== null) document.body.style.overflow = previousBodyOverflow;
   clearInterval(mailPollTimer);

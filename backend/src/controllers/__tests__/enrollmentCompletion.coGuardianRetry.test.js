@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import * as signing from '../../utils/multiChildIntake.js';
 import { assertInvitedEnrollmentChildren } from '../../services/coGuardianEnrollmentRoster.js';
 import { assertPortalEnrollmentIdentity } from '../../utils/portalEnrollmentBinding.js';
+import { assertIssuedRoiSessionBinding } from '../../services/issuedRoiGuardian.service.js';
 import { submittedChildCount, submissionArtifactsComplete } from '../../services/enrollmentSubmissionRoster.service.js';
 import { validateTutoringIntakeSubmission } from '../../services/learningIntakeSteps.js';
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()},onTableWrite:vi.fn()}));
@@ -33,7 +34,7 @@ function setup({allowResume=false,bundles=[],failed=false,templates=[],signedDoc
  const reachedAcceptance=new Error('reached verified account acceptance');
  const accept=vi.fn(async()=>{throw reachedAcceptance;});
  const update=vi.fn(async(_id,updates)=>({...submission,...updates}));
- const deps={enrollmentSignerIdentity,...ordinaryPacketBoundary,clientUpdatePacketService:ordinaryPacketBoundary,...signing,assertInvitedEnrollmentChildren,assertPortalEnrollmentIdentity,submittedChildCount,submissionArtifactsComplete,validateTutoringIntakeSubmission,
+ const deps={enrollmentSignerIdentity,...ordinaryPacketBoundary,clientUpdatePacketService:ordinaryPacketBoundary,...signing,assertInvitedEnrollmentChildren,assertPortalEnrollmentIdentity,assertIssuedRoiSessionBinding,submittedChildCount,submissionArtifactsComplete,validateTutoringIntakeSubmission,
   restoreSubmissionRoster:async()=>{throw reachedAcceptance;},
   validationResult:()=>({isEmpty:()=>true}),
   resolvePublicIntakeContext:async()=>({link:{id:8,is_active:true,scope_type:'agency',form_type:'intake',organization_id:2,create_client:1,create_guardian:1,intake_steps:requiredSteps,master_channel:masterChannel}}),

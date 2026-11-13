@@ -1,5 +1,6 @@
 <template>
-  <aside v-if="visible.length && !inMeeting" class="active-meeting-toasts" aria-label="Meetings you can join" aria-live="polite">
+  <aside v-if="(visible.length || pollError) && !inMeeting && !sessionBlocked" class="active-meeting-toasts" aria-label="Meetings you can join" aria-live="polite">
+    <p v-if="pollError" role="alert" class="active-meeting-error">{{ pollError }} <button type="button" @click="refresh">Try again</button></p>
     <div v-for="meeting in visible" :key="`${meeting.key}:${meeting.latestJoin?.key || ''}`" class="active-meeting-toast" :class="{ 'active-meeting-toast--arrival': recentArrival(meeting) }">
       <div><strong>{{ meeting.title }}</strong><br><span v-if="recentArrival(meeting)">{{ meeting.latestJoin.displayName }} joined the meeting.</span>
         <span v-else>{{ meeting.isLive ? 'In progress' : 'Starting soon' }}</span>
@@ -16,10 +17,18 @@ import api from '../../services/api';
 import { navigateToJoinLink } from '../../utils/appJoinNavigation';
 import { hasLiveMeeting } from '../../utils/liveMeetingPresence';
 import { useActiveMeeting } from '../../composables/useActiveMeeting';
+import {useAuthStore} from '../../store/auth';
+import {useAgencyStore} from '../../store/agency';
+import {useSessionLockStore} from '../../store/sessionLock';
 const props = defineProps({ userId: { type: [Number,String], required: true } });
 const route = useRoute();
 const router = useRouter();
 const mini = useActiveMeeting();
+const auth=useAuthStore(),agency=useAgencyStore(),lock=useSessionLockStore();
+const sessionBlocked=computed(()=>lock.isLocked||lock.verificationFailed);
+const scopeKey=computed(()=>`${Number(auth.user?.id)||0}:${Number(props.userId)||0}:${Number(agency.currentAgency?.id)||0}`);
+const eligible=computed(()=>!!props.userId&&Number(props.userId)===Number(auth.user?.id)&&!sessionBlocked.value);
+const pollError=ref('');
 const prompts = ref([]);
 const storageKey=()=>`meeting-dismissals:${props.userId}`;
 function savedDismissals(){try{const value=JSON.parse(localStorage.getItem(storageKey())||'{}');return value&&typeof value==='object'&&!Array.isArray(value)?value:{};}catch{return {};}}
@@ -39,33 +48,36 @@ const visible = computed(() => prompts.value.filter(meeting => {
 }));
 let timer;
 let inFlight = false;
-let mounted = true;
+let mounted = true,generation=0;
 async function refresh() {
   now.value = Date.now();
   meetingElsewhere.value = hasLiveMeeting();
-  if (inFlight || !props.userId) return;
-  const uid = props.userId;
+  if (inFlight || !eligible.value || !mounted) return;
+  const key=scopeKey.value,request=generation,current=()=>mounted&&eligible.value&&key===scopeKey.value&&request===generation;
   inFlight = true;
   try {
     const { data } = await api.get('/meeting-invitations/active', { skipGlobalLoading: true, skipAuthRedirect: true });
-    if (mounted && uid === props.userId) prompts.value = Array.isArray(data?.prompts) ? data.prompts : [];
-  } catch { if (mounted) prompts.value = []; }
-  finally { inFlight = false; }
+    if(current()){prompts.value=Array.isArray(data?.prompts)?data.prompts:[];pollError.value='';}
+  }catch{if(current())pollError.value='Meeting invitations could not be checked. Your existing invitations have been kept.';}
+  finally{if(request===generation)inFlight=false;}
 }
 function dismiss(key) {
+  if(!eligible.value)return;
   const meeting = prompts.value.find(row => row.key === key);
   dismissed.value = Object.fromEntries(Object.entries({ ...dismissed.value,
     [key]: { until: Date.now() + 7 * 86400000, arrivalKey: meeting?.latestJoin?.key || null }
   }).filter(([, saved]) => (typeof saved === 'number' ? saved : saved?.until) > Date.now()));
   try { localStorage.setItem(storageKey(), JSON.stringify(dismissed.value)); } catch { /* storage optional */ }
 }
-function join(meeting) { navigateToJoinLink(router,meeting.joinUrl); }
-watch(() => props.userId, () => { prompts.value=[]; dismissed.value=savedDismissals(); void refresh(); });
+function join(meeting) { if(!eligible.value)return; navigateToJoinLink(router,meeting.joinUrl); }
+watch(()=>[scopeKey.value,sessionBlocked.value],()=>{generation++;inFlight=false;prompts.value=[];pollError.value='';dismissed.value=savedDismissals();if(eligible.value)void refresh();});
 watch(() => route.path, () => { if (!inMeeting.value) void refresh(); });
 onMounted(() => { void refresh(); timer=setInterval(refresh,15000); window.addEventListener('focus',refresh); });
-onUnmounted(() => { mounted=false; clearInterval(timer); window.removeEventListener('focus',refresh); });
+onUnmounted(() => { mounted=false;generation++; clearInterval(timer); window.removeEventListener('focus',refresh); });
 </script>
 <style scoped>
+.active-meeting-error{margin:0;padding:12px;border:1px solid #6ee7b7;border-radius:12px;background:#123d34;color:white;font:13px/1.5 system-ui,sans-serif}
+
 .active-meeting-toasts { position:fixed; bottom:max(20px,env(safe-area-inset-bottom)); left:16px; z-index:1100; display:grid; gap:8px; width:min(440px,calc(100vw - 32px)); max-height:45dvh; overflow:auto; }
 .active-meeting-toast { display:flex; align-items:center; gap:12px; padding:12px; color:#fff; background:#123d34; border:1px solid #6ee7b7; border-radius:12px; box-shadow:0 4px 20px #0004; }
 .active-meeting-toast div { flex:1; min-width:0; overflow-wrap:anywhere; }

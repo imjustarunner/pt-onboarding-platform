@@ -128,7 +128,8 @@ class ClientSchoolRoiSigningLink {
     intakeSubmissionId = undefined,
     roiContext = undefined,
     roiResponse = undefined,
-    accessAppliedAt = undefined
+    accessAppliedAt = undefined,
+    expectedActiveSubmissionId = undefined
   }) {
     const rid = Number(id || 0);
     if (!rid) return null;
@@ -153,10 +154,14 @@ class ClientSchoolRoiSigningLink {
     if (!updates.length) return this.findById(rid);
     updates.push('updated_at = CURRENT_TIMESTAMP');
     values.push(rid);
+    const activeGuard = expectedActiveSubmissionId !== undefined
+      ? " AND status <> 'completed' AND latest_intake_submission_id = ?"
+      : '';
+    if (activeGuard) values.push(Number(expectedActiveSubmissionId) || 0);
     await pool.execute(
       `UPDATE client_school_roi_signing_links
        SET ${updates.join(', ')}
-       WHERE id = ?`,
+       WHERE id = ?${activeGuard}`,
       values
     );
     return this.findById(rid);

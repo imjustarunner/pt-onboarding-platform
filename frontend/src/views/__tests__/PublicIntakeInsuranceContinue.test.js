@@ -81,6 +81,16 @@ async function continueInsurance() {
   expect(wrapper.vm.currentFlowStep.type).toBe('communications');
 }
 
+it('shows the missing authorization error in Spanish on the real office Continue path', async () => {
+  await render({ insuranceInfo: { payerChoice: 'self_pay', isSelfPay: true } });
+  wrapper.vm.inPageLocale = 'es';
+  await flushPromises();
+  await wrapper.vm.handleCurrentFlowContinue();
+  await flushPromises();
+  expect(wrapper.vm.stepError).toBe('Complete la autorización para continuar.');
+  expect(wrapper.vm.currentFlowStep.type).toBe('insurance_info');
+});
+
 describe('office insurance Continue and Back', () => {
   it('uploads all four selected card files and retains their references through Continue', async () => {
     await render({ insuranceInfo: { payerChoice: 'insurance', primary: { insurerName: 'Commercial', memberId: 'QA-P1' }, secondary: { insurerName: 'Secondary', memberId: 'QA-S1' }, hasSecondary: true } });

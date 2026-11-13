@@ -11,6 +11,18 @@ import {schoolContactWorkMailboxAvailable} from '../schoolContactReplyRouting.se
 const agency = { id: 450, name: 'ITSCOLLC', slug: 'auricwell-qa-demo', is_active: 1, is_archived: 0, feature_flags: { googleSsoEnabled: true } };
 const provider = { id: 1433, first_name: 'Avery', last_name: 'Demo', role: 'provider', email: 'avery@example.com', work_mailbox_email: 'qaproviderauricwell@itsco.health', personal_email: 'private@example.com', sso_password_override: 0, login_is_group_email: 0 };
 const input = { agencyId: 450, userId: 1433 };
+it('rechecks accelerated QA authorization immediately before transport and records no accepted send after revocation',async()=>{
+ const beforeDelivery=vi.fn().mockRejectedValue(Object.assign(new Error('QA contact stopped'),{status:403}));
+ await expect(sendSchoolContactEmail({agencyId:450,providerUserId:1433,clientId:999,schoolId:451,to:'testing+clock@itsco.health',workflowId:3,stepKey:'second_contact',beforeDelivery})).rejects.toMatchObject({status:403});
+ expect(beforeDelivery).toHaveBeenCalledOnce();expect(m.send).not.toHaveBeenCalled();expect(m.updateMessage).toHaveBeenCalledWith(801,{sendStatus:'failed'});
+});
+it('marks accelerated QA in the durable message metadata while keeping real mail timestamps and controlled delivery',async()=>{
+ const qaAcceleration={elapsedHours:48,actorUserId:1435,actualTriggeredAt:new Date().toISOString()};
+ await sendSchoolContactEmail({agencyId:450,providerUserId:1433,clientId:999,schoolId:451,to:'testing+clock@itsco.health',workflowId:3,stepKey:'second_contact',qaAcceleration,beforeDelivery:vi.fn(async()=>{})});
+ expect(m.add.mock.calls[0][0].from.schoolContactAutomation.acceleratedQa).toEqual(qaAcceleration);
+ expect(m.send.mock.calls[0][0]).toMatchObject({to:'testing@itsco.health',bcc:'testing@itsco.health'});
+ expect(m.updateMessage).toHaveBeenCalledWith(801,expect.objectContaining({sendStatus:'sent',sentAt:expect.any(Date)}));
+});
 let plan;
 beforeEach(() => {
   vi.clearAllMocks(); plan = undefined;

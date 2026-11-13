@@ -394,6 +394,7 @@
                       <div v-if="receiptPreviews[receipt.id]" class="sent-email-preview" v-html="receiptPreviews[receipt.id]" />
                     </details>
                   </section>
+                  <p v-if="attachmentOpenError" class="error" role="alert">{{ attachmentOpenError }}</p>
                   <TicketAttachmentFiling
                     v-if="ticketAttachments.length"
                     :key="selected.id"
@@ -1520,6 +1521,7 @@ const composerEl = ref(null);
 const suggestingActions = ref(false);
 const actionBusyId = ref(null);
 const ticketAttachments = ref([]);
+const attachmentOpenError = ref('');
 const suggestedActionsCollapsed = ref(false);
 const suggestedActionsDismissed = ref(false);
 const proposedActionCount = computed(
@@ -2109,6 +2111,7 @@ function selectTicket(t) {
   responsePlanDismissed.value = false;
   responsePlanCollapsed.value = false;
   ticketAttachments.value = [];
+  attachmentOpenError.value = "";
   suggestedActionsDismissed.value = false;
   suggestedActionsCollapsed.value = false;
   oneTimePasswords.value = {};
@@ -2158,6 +2161,7 @@ function clearSelection() {
   responsePlanDismissed.value = false;
   responsePlanCollapsed.value = false;
   ticketAttachments.value = [];
+  attachmentOpenError.value = "";
   suggestedActionsDismissed.value = false;
   oneTimePasswords.value = {};
   draft.value = '';
@@ -2185,14 +2189,17 @@ function dismissSuggestedActions() {
 }
 
 async function openTicketAttachment(att) {
-  if (!selected.value?.id || !att?.id) return;
+  const ticketId=Number(selected.value?.id),actorId=Number(myUserId.value),sourceAgency=Number(selected.value?.agency_id);
+  if (!ticketId || !att?.id) return;
+  attachmentOpenError.value='';
+  const current=()=>Number(selected.value?.id)===ticketId&&Number(myUserId.value)===actorId&&Number(selected.value?.agency_id)===sourceAgency;
   try {
-    await openPrivateAttachment(() => api.get(
-      `/support-tickets/${selected.value.id}/attachments/${att.id}/download`,
-      { responseType: 'blob', skipGlobalLoading: true }
-    ), att.file_name);
+    await openPrivateAttachment(({signal}) => api.get(
+      `/support-tickets/${ticketId}/attachments/${att.id}/view`,
+      { responseType: 'blob', skipGlobalLoading: true, signal }
+    ), att.file_name, {isCurrent:current});
   } catch (e) {
-    actionError.value = e?.response?.data?.error?.message || e?.message || 'Failed to open attachment';
+    if(current())attachmentOpenError.value = e.message || 'Failed to open attachment';
   }
 }
 

@@ -195,6 +195,8 @@
             :client="client"
             :can-edit="canEditAccount"
             :can-process-paper="paperProcessingAvailable"
+            :can-send-secure-message="canOpenClientSecureMessage"
+            @secure-message="openClientSecureMessage"
             :can-view-medical-record="canViewMedicalRecord"
             :glance-items="overviewGlanceItems"
             :status-label="isClientArchived ? 'Archived' : displayStatusLabel"
@@ -1097,7 +1099,7 @@
                   >
                     Edit client
                   </button>
-                  <button type="button" class="cdp-btn-soft" @click="goChartSub('communications')">
+                  <button v-if="canOpenClientSecureMessage" type="button" class="cdp-btn-soft" @click="openClientSecureMessage">
                     Send secure message
                   </button>
                   <button
@@ -3642,6 +3644,14 @@ const canFinishChartSetup = computed(() => [
   'supervisor',
   'clinical_practice_assistant'
 ].includes(roleNorm.value) && (hasAgencyAccess.value || viewerIsAssignedProvider.value));
+
+const canOpenClientSecureMessage=computed(()=>!agencyAccessLoading.value&&!agencyAccessError.value&&!!Number(props.client?.id)&&!!Number(props.client?.agency_id||selectedAgencyId.value)&&['super_admin','admin','support','staff','clinical_practice_assistant','provider','provider_plus','supervisor'].includes(roleNorm.value)&&(hasAgencyAccess.value||viewerIsAssignedProvider.value));
+function openClientSecureMessage(){
+ if(!canOpenClientSecureMessage.value)return;
+ const clientId=Number(props.client.id),agencyId=Number(props.client.agency_id||selectedAgencyId.value);
+ const slug=String(route.params?.organizationSlug||'').trim();
+ return router.push({path:slug?`/${slug}/messages`:'/messages',query:{view:'hub',channel:'secure',secureClientId:String(clientId),agencyId:String(agencyId)}});
+}
 
 const clientDobLabel = computed(() => {
   const raw = props.client?.date_of_birth;

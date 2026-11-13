@@ -4080,7 +4080,7 @@ export const listSupportTicketAttachments = async (req, res, next) => {
   }
 };
 
-export const downloadSupportTicketAttachment = async (req, res, next) => {
+const serveSupportTicketAttachment = async (req, res, next, inlineOnly = false) => {
   try {
     const ticketId = parseInt(req.params.id, 10);
     const attachmentId = parseInt(req.params.attachmentId, 10);
@@ -4092,9 +4092,11 @@ export const downloadSupportTicketAttachment = async (req, res, next) => {
     if(row && !(await ticketAttachmentIsVisible(req,ticket,row))) return res.status(404).json({error:{message:'Attachment not found'}});
     if (!row) return res.status(404).json({ error: { message: 'Attachment not found' } });
     const buffer = await readTicketAttachmentBuffer(row);
-    await logAuditEvent(req,{actionType:'support_ticket_attachment_viewed',agencyId:ticket.agency_id,targetType:'support_ticket',targetId:ticket.id,metadata:{attachmentId:Number(row.id)}});
     const preview = ticketAttachmentType(buffer, row.file_name);
+    if (inlineOnly && preview.disposition !== 'inline') return res.status(415).json({ error: { code: 'ATTACHMENT_PREVIEW_UNAVAILABLE', message: 'This file cannot be previewed safely. Use the download action if you have download access.' } });
+    await logAuditEvent(req,{actionType:'support_ticket_attachment_viewed',agencyId:ticket.agency_id,targetType:'support_ticket',targetId:ticket.id,metadata:{attachmentId:Number(row.id)}});
     res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Content-Type', preview.mimeType);
     res.setHeader('Content-Disposition', `${preview.disposition}; filename="${preview.filename}"`);
@@ -4104,6 +4106,10 @@ export const downloadSupportTicketAttachment = async (req, res, next) => {
     next(e);
   }
 };
+
+// Both entry points retain the same participant, tenant and internal-message checks.
+export const downloadSupportTicketAttachment = (req, res, next) => serveSupportTicketAttachment(req, res, next);
+export const viewSupportTicketAttachment = (req, res, next) => serveSupportTicketAttachment(req, res, next, true);
 
 export async function loadTicketConversation(req,ticketId){
  if(!Number.isSafeInteger(Number(ticketId))||Number(ticketId)<=0)throw Object.assign(new Error('Invalid ticket id'),{status:400});

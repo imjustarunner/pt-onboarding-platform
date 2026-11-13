@@ -2,6 +2,49 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildCompletedIntakeRecord } from '../completedIntakeRecord.service.js';
 
+test('receipt identity includes explicit middle names without changing the captured typed signature', () => {
+  const intake = {
+    guardian: { firstName: 'SAMPLE', middleName: 'María', lastName: 'Signer' },
+    clients: [{ firstName: 'SAMPLE', middleName: 'Lee', lastName: 'Child', fullName: 'SAMPLE Child' }],
+    responses: { submission: { insuranceInfo: { authorizationSignature: 'SAMPLEMaríaSigner' } } }
+  };
+  const before = JSON.stringify(intake);
+  const record = buildCompletedIntakeRecord({ submission: { intake_data: intake } });
+  const rows = record.sections.flatMap(section => section.rows || []);
+  assert.ok(rows.some(row => row.label === 'Name' && row.value === 'SAMPLE María Signer'));
+  assert.ok(rows.some(row => row.label === 'Client' && row.value === 'SAMPLE Lee Child'));
+  assert.ok(rows.some(row => row.value === 'SAMPLEMaríaSigner'), 'captured evidence is verbatim, not reconstructed');
+  assert.equal(JSON.stringify(intake), before);
+});
+
+test('Spanish receipt localizes nested insurance metadata and retains exact policy values', () => {
+  const intake = { responses: { submission: { insuranceInfo: {
+    coverageScope: 'client', clientCoverages: [{ confirmed: true }],
+    primary: { insurerName: 'SAMPLE Carrier', subscriberFirstName: 'SAMPLE', subscriberLastName: 'Titular', subscriberSex: 'F', relationshipToSubscriber: 'child', isMedicaid: false },
+    authorizationAgreed: true, authorizationSignature: 'SAMPLE Signed Name'
+  } } } };
+  const before = JSON.stringify(intake);
+  const record = buildCompletedIntakeRecord({ link: { language_code: 'es' }, submission: { intake_data: intake } });
+  const rows = record.sections.flatMap(section => section.rows || []);
+  assert.ok(rows.some(row => row.label.includes('Ámbito de cobertura')));
+  assert.ok(rows.some(row => row.label.includes('Cobertura del cliente 1') && row.label.endsWith('Confirmado')));
+  assert.ok(rows.some(row => row.label.endsWith('Nombre del titular') && row.value === 'SAMPLE'));
+  assert.ok(rows.some(row => row.value === 'SAMPLE Carrier'));
+  assert.ok(rows.some(row => row.value === 'SAMPLE Signed Name'));
+  assert.ok(!rows.some(row => /Coverage Scope|Subscriber First Name|Authorization Signature/.test(row.label)));
+  assert.equal(JSON.stringify(intake), before);
+});
+
+test('receipt keeps a canonical middle name when split fields are incomplete and tolerates missing clients', () => {
+  const record = buildCompletedIntakeRecord({
+    guardian: { firstName: 'SAMPLE', lastName: 'Signer', fullName: 'SAMPLE María Signer' },
+    clients: [null, { firstName: 'SAMPLE', lastName: 'Child', fullName: 'SAMPLE Lee Child' }]
+  });
+  const rows = record.sections.flatMap(section => section.rows || []);
+  assert.ok(rows.some(row => row.label === 'Name' && row.value === 'SAMPLE María Signer'));
+  assert.ok(rows.some(row => row.value === 'SAMPLE Lee Child'));
+});
+
 test('programmed school ROI links use the exact signed artifact, never an unrelated blank template or family session token', () => {
   const document = { id: 1653, document_template_id: 139, signed_at: '2026-11-08T05:21:49Z',
     documentViewUrl: 'https://storage.example.test/only-this-signed-roi', audit_trail: { smartSchoolRoi: true } };

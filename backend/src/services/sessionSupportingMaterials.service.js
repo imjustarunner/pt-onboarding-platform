@@ -13,6 +13,7 @@ import StorageService from './storage.service.js';
 import DocumentEncryptionService from './documentEncryption.service.js';
 import { logAuditEvent } from './auditEvent.service.js';
 import { scanSessionMaterial } from './sessionMaterialScan.service.js';
+import { queuePrivatePacketScan, privateScanInProgress } from './privatePacketScanJob.service.js';
 import { CLIENT_DOCUMENT_MAX_BYTES } from '../utils/clientDocumentUpload.js';
 
 const TYPE = 'session_supporting_material';
@@ -20,6 +21,10 @@ const fail = (status, message) => { throw Object.assign(new Error(message), { st
 const positiveId = value => Number.isSafeInteger(Number(value)) && Number(value) > 0;
 const metadata = row => { try { return typeof row.metadata_json === 'string' ? JSON.parse(row.metadata_json) : row.metadata_json || {}; } catch { return {}; } };
 const clinicalRoles = new Set(['admin', 'super_admin', 'provider', 'provider_plus', 'intern', 'intern_plus', 'supervisor', 'clinical_practice_assistant']);
+async function queueClinicalCheck(doc,session,actorId) {
+  try { return await queuePrivatePacketScan({doc,clientId:session.client_id,actorId,kind:'session_material',clinicalSessionId:session.id}); }
+  catch { return {status:'pending',message:'The private file check could not be confirmed. Refresh the attachments before retrying.'}; }
+}
 
 export async function sessionMaterialAccess(user, sessionId, { write = false } = {}) {
   if (!user?.id || !clinicalRoles.has(user.role) || user.demoMode || user.switchedFromUserId) fail(403, 'Use your own authorized clinical staff account.');
@@ -106,7 +111,9 @@ export async function uploadMaterial(req, sessionId, file, title) {
   }
   await PhiDocumentAuditLog.create({ documentId: doc.id, clientId: session.client_id, action: 'uploaded', actorUserId: req.user.id });
   await audit(req, session, 'uploaded', linked.id);
-  return { id: Number(linked.id), title: label, mimeType: file.mimetype, createdAt: linked.created_at, sharedWith: [], encrypted: true, available: scan.status === 'clean', scanStatus: scan.status };
+  const queued=scan.status==='pending'?await queueClinicalCheck(doc,session,req.user.id):null;
+  return { id: Number(linked.id), title: label, mimeType: file.mimetype, createdAt: linked.created_at, sharedWith: [], encrypted: true, available: scan.status === 'clean', scanStatus: scan.status,
+    ...(queued?{scanQueued:true,scanMessage:queued.message}:{}) };
 }
 
 async function linkedMaterial(session, documentId, { requireAvailable = true } = {}) {
@@ -140,7 +147,7 @@ export async function listMaterials(req, sessionId) {
       catch (error) { if (error.status !== 403) throw error; }
     }
     result.push({ id: Number(row.id), title: row.title, mimeType: row.mime_type, createdAt: row.created_at, encrypted: true, available: shareableFile(item.doc), scanStatus: item.doc.scan_status,
-      sharedWith, sharingRecipients });
+      sharedWith, sharingRecipients,...(privateScanInProgress(item.doc)?{scanQueued:true}:{}) });
   }
   await audit(req, session, 'listed');
   return result;
@@ -159,13 +166,16 @@ export async function downloadMaterial(req, sessionId, documentId) {
 export async function scanMaterial(req, sessionId, documentId) {
   const session = await sessionMaterialAccess(req.user, sessionId, { write: true });
   const { doc, linked } = await linkedMaterial(session, documentId, { requireAvailable: false });
+  if(privateScanInProgress(doc))return {available:false,scanStatus:'pending',scanQueued:true,scanMessage:'The private file check is queued or running. Refresh attachments in a few minutes.'};
+  if(shareableFile(doc))return {available:true,scanStatus:'clean'};
   const stored = await StorageService.readObject(doc.storage_path);
   const body = await DocumentEncryptionService.decryptPhiDocumentBuffer(doc, stored);
   const scan = await scanSessionMaterial(body);
   await ClientPhiDocument.updateById(doc.id, { scan_status: scan.status, scan_result: scan.reason || null,
     scanned_at: scan.status === 'pending' ? null : new Date(), quarantine_path: scan.status === 'clean' ? null : doc.storage_path });
   await audit(req, session, 'security_scanned', linked.id);
-  return { available: scan.status === 'clean', scanStatus: scan.status };
+  const queued=scan.status==='pending'?await queueClinicalCheck({...doc,scan_status:'pending',scan_result:scan.reason||null},session,req.user.id):null;
+  return { available: scan.status === 'clean', scanStatus: scan.status,...(queued?{scanQueued:true,scanMessage:queued.message}:{}) };
 }
 
 export async function shareMaterial(req, sessionId, documentId, { recipientIds, reviewed }) {

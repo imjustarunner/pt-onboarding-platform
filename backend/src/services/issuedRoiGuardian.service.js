@@ -2,6 +2,7 @@ import jwt from 'jsonwebtoken';
 import config from '../config/config.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import { guardianCanReadIntakeDocuments } from '../utils/guardianDocumentAccess.js';
+import { matchesIntakeSession } from '../middleware/intakeBillingSession.middleware.js';
 
 // The guardian signed in on this request, when that account can already read the child's documents.
 export async function portalGuardianForIssuedRoi(req, clientId, {
@@ -54,4 +55,38 @@ export async function resolveIssuedRoiConsentSigner({ req, issuedLink, clientId,
     return recipient;
   }
   return await existing(issuedLink, clientId) || await portal(req, clientId);
+}
+
+// Issued requests share an intake template, so template ID alone cannot bind a
+// signing session. The authoritative request pointer, child and existing signer
+// must all agree before either consent or finalization changes any records.
+export function assertIssuedRoiSessionBinding({ issuedLink, submission, guardianUserId, sessionToken }) {
+  if (!issuedLink?.id) return;
+  const guardianId = Number(guardianUserId) || 0;
+  const recipientId = Number(issuedLink.recipient_guardian_user_id) || 0;
+  if (!submission?.id
+    || Number(issuedLink.latest_intake_submission_id) !== Number(submission.id)
+    || Number(issuedLink.intake_link_id) !== Number(submission.intake_link_id)
+    || Number(issuedLink.client_id) !== Number(submission.client_id)
+    || (Number(submission.guardian_user_id) || 0) !== guardianId
+    || (recipientId && guardianId !== recipientId)
+    || submission.co_guardian_invite_id
+    || !matchesIntakeSession(sessionToken, submission.session_token)) {
+    throw Object.assign(new Error('This session does not belong to this guardian’s school release. Open the requested release from your portal again.'), { status: 403 });
+  }
+  const submitted = String(submission.status || '').toLowerCase() === 'submitted';
+  if (!['started', 'consented', 'submitted'].includes(String(submission.status || '').toLowerCase())) {
+    throw Object.assign(new Error('This school release session cannot be continued. Open the requested release from your portal again.'), { status: 409 });
+  }
+  if (String(issuedLink.status || '').toLowerCase() === 'completed' && !submitted) {
+    throw Object.assign(new Error('This school release is already completed. Request a new update to change it.'), { status: 409 });
+  }
+  if (!submitted) {
+    const expires = submission.draft_expires_at || submission.retention_expires_at;
+    const base = submission.consent_given_at || submission.created_at;
+    const expiryTime = expires ? new Date(expires).getTime() : base ? new Date(base).getTime() + 24 * 60 * 60 * 1000 : NaN;
+    if (Number.isFinite(expiryTime) && expiryTime <= Date.now()) {
+      throw Object.assign(new Error('This school release session has expired. Open the release from your portal again.'), { status: 410 });
+    }
+  }
 }

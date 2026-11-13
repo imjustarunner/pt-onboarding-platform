@@ -1,6 +1,12 @@
 import { mount } from '@vue/test-utils';
 import { describe, expect, it } from 'vitest';
 import MeetingSessionExitPanel from '../MeetingSessionExitPanel.vue';
+it.each(['left','alone-timeout','connection-lost'])('offers explicit End to a server-authorized host after %s',async variant=>{
+ const w=mount(MeetingSessionExitPanel,{props:{variant,canEndMeeting:true,canRejoin:true}});const end=w.findAll('button').find(b=>b.text()==='End meeting for everyone');expect(end).toBeTruthy();await end.trigger('click');expect(w.emitted('end-meeting')).toHaveLength(1);w.unmount();
+});
+it.each(['host-ended','ended-by-you'])('never offers End again after %s',variant=>{
+ const w=mount(MeetingSessionExitPanel,{props:{variant,canEndMeeting:true}});expect(w.findAll('button').some(b=>b.text()==='End meeting for everyone')).toBe(false);w.unmount();
+});
 
 describe('MeetingSessionExitPanel', () => {
   it('distinguishes a lost connection from a host closing the session',()=>{
