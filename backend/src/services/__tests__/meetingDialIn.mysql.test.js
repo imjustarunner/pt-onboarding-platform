@@ -40,7 +40,7 @@ describe.skipIf(!enabled)('telephone meeting lifecycle with isolated MySQL', () 
       `CREATE TABLE agencies (id INT PRIMARY KEY,is_active BOOLEAN,timezone VARCHAR(80))`,
       `CREATE TABLE user_agencies (user_id INT,agency_id INT,is_active BOOLEAN)`,
       `CREATE TABLE supervision_sessions (id INT PRIMARY KEY,agency_id INT,supervisor_user_id INT,co_facilitator_user_id INT,supervisee_user_id INT,start_at DATETIME(3),end_at DATETIME(3),event_timezone VARCHAR(80),status VARCHAR(32),modality VARCHAR(20),waiting_room_enabled BOOLEAN,twilio_room_sid VARCHAR(512),twilio_room_unique_name VARCHAR(80),live_ended_at DATETIME(3),live_ended_by_user_id INT,meeting_settings_json JSON,updated_at DATETIME)`,
-      `CREATE TABLE supervision_session_attendees (id INT AUTO_INCREMENT PRIMARY KEY,session_id INT,user_id INT,status VARCHAR(24),UNIQUE KEY(session_id,user_id))`,
+      `CREATE TABLE supervision_session_attendees (id INT AUTO_INCREMENT PRIMARY KEY,session_id INT,user_id INT,participant_role VARCHAR(32) NOT NULL DEFAULT 'supervisee',status VARCHAR(24),UNIQUE KEY(session_id,user_id))`,
       `CREATE TABLE supervision_session_presenters (session_id INT,user_id INT)`,
       `CREATE TABLE supervision_session_join_presence (session_id INT,join_identity VARCHAR(100),display_name VARCHAR(100),is_guest BOOLEAN,joined_at DATETIME(3),last_seen_at DATETIME(3),left_at DATETIME(3),PRIMARY KEY(session_id,join_identity))`,
       `CREATE TABLE supervision_session_video_admissions (session_id INT,user_id INT,join_identity VARCHAR(100),admitted_at DATETIME DEFAULT CURRENT_TIMESTAMP,UNIQUE KEY(session_id,user_id))`,
@@ -71,7 +71,7 @@ describe.skipIf(!enabled)('telephone meeting lifecycle with isolated MySQL', () 
     await m.db.query('DELETE FROM meeting_calendar_guests');
     for (const table of ['meeting_dial_in_deliveries','meeting_dial_in_calls','meeting_dial_in_invitations','supervision_session_attendance_events','supervision_session_attendance_rollups','supervision_session_video_admissions','supervision_session_join_presence','supervision_session_attendees','supervision_sessions','provider_schedule_events','provider_schedule_event_attendees','meeting_participant_preferences','provider_schedule_event_join_presence','provider_schedule_event_video_admissions','provider_schedule_event_attendance_segments','agency_meeting_attendance_rollups']) await m.db.query(`DELETE FROM ${table}`);
     await m.db.query("INSERT INTO supervision_sessions(id,agency_id,supervisor_user_id,supervisee_user_id,start_at,end_at,status,modality,waiting_room_enabled,meeting_settings_json) VALUES (5,2,7,8,DATE_SUB(UTC_TIMESTAMP(),INTERVAL 10 MINUTE),DATE_ADD(UTC_TIMESTAMP(),INTERVAL 50 MINUTE),'SCHEDULED','VIRTUAL',1,JSON_OBJECT('dialIn',true))");
-    await m.db.query("INSERT INTO supervision_session_attendees(session_id,user_id,status) VALUES (5,7,'INVITED'),(5,8,'INVITED')");
+    await m.db.query("INSERT INTO supervision_session_attendees(session_id,user_id,participant_role,status) VALUES (5,7,'supervisor','INVITED'),(5,8,'supervisee','INVITED')");
     await m.db.query('UPDATE user_agencies SET is_active=1');
     callStatus = new Map();
     m.createSession.mockReset().mockImplementation(async () => `media-${crypto.randomUUID()}`);
