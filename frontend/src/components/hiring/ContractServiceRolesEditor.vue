@@ -17,7 +17,8 @@
           <label>Individual childcare hourly-rate override — optional<input type="number" min="0.01" step="0.01" :value="details.childcare?.hourlyRate || ''" @input="detail('childcare','hourlyRate',$event.target.value)" /><small>Use only an expressly approved exception. Explain its child-count and staffing treatment in the written compensation terms.</small></label>
           <ChildcareRateScheduleEditor :model-value="details.childcare?.ratesByBand || {}" :category="compensationCategory || modelValue.compensationCategory" :level="details.childcare?.payLevel" :policy="serviceCompensation?.childcare" :flat-rate="details.childcare?.hourlyRate" @update:model-value="detail('childcare','ratesByBand',$event)" />
         </template>
-        <label v-if="requireCompensationForAllRoles || ['childcare','psychological_testing'].includes(role.id)">Individual compensation schedule — required before generation<textarea :value="details[role.id]?.compensationTerms || ''" @input="detail(role.id,'compensationTerms',$event.target.value)" :placeholder="role.id==='childcare'?'Approved childcare pay level, base rate, child-count bands and individual exceptions':role.id==='psychological_testing'?'Approved administration/scoring rate, evaluation rate, indirect rate and allowance rules':'Exact approved individual amounts, pay basis, service eligibility and indirect-time treatment from this person’s agreement'" /></label>
+        <p v-if="role.id==='childcare' && hasChildcareSchedule" role="status">The approved four-band childcare schedule above is included in the contract automatically. Add any additional individual terms below.</p>
+        <label v-if="requireCompensationForAllRoles || ['childcare','psychological_testing'].includes(role.id)">{{ role.id==='childcare' && hasChildcareSchedule ? 'Additional childcare compensation terms — optional' : 'Individual compensation schedule — required before generation' }}<textarea :aria-label="`${role.title}: compensation terms`" :value="details[role.id]?.compensationTerms || ''" @input="detail(role.id,'compensationTerms',$event.target.value)" :placeholder="role.id==='childcare'?(hasChildcareSchedule?'Additional approved arrangements or exceptions; leave blank to use the schedule above':'Approved childcare pay level, base rate, child-count bands and individual exceptions'):role.id==='psychological_testing'?'Approved administration/scoring rate, evaluation rate, indirect rate and allowance rules':'Exact approved individual amounts, pay basis, service eligibility and indirect-time treatment from this person’s agreement'" /></label>
         <label v-if="role.id==='psychological_testing'">Approved testing assignment and supervision — required before generation<textarea :value="details[role.id]?.authorizationTerms || ''" @input="detail(role.id,'authorizationTerms',$event.target.value)" placeholder="Approved instruments and components; personnel qualifications; responsible qualified licensee and direct-supervision arrangement; written approval reference" /></label>
         <small>The selected role’s standard clause is included in the preview. Complete individual service terms and verify eligibility before issuing.</small>
       </div>
@@ -29,12 +30,17 @@
 import {computed} from 'vue';
 import {CONTRACT_SERVICE_ROLE_OPTIONS} from '../../constants/contractServiceRoles.js';
 import ChildcareRateScheduleEditor from './ChildcareRateScheduleEditor.vue';
-import {childcareMoney} from '../../utils/childcarePresentation';
+import {childcareMoney,resolvedChildcareBands} from '../../utils/childcarePresentation';
 const props=defineProps({modelValue:{type:Object,default:()=>({})},options:{type:Array,default:()=>[]},source:{type:String,default:''},allowInference:{type:Boolean,default:true},requireCompensationForAllRoles:{type:Boolean,default:false},compensationCategory:[Number,String],serviceCompensation:{type:Object,default:null}});
 const emit=defineEmits(['update:modelValue']);
 const roles=computed(()=>props.options.length?props.options:CONTRACT_SERVICE_ROLE_OPTIONS);
 const selected=computed(()=>props.modelValue.serviceRoles || []);
 const details=computed(()=>props.modelValue.serviceRoleDetails || {});
+const hasChildcareSchedule=computed(()=>{
+  const category=Number(props.compensationCategory||props.modelValue.compensationCategory),level=Number(details.value.childcare?.payLevel);
+  if(props.requireCompensationForAllRoles || !props.serviceCompensation?.childcare || ![1,2,3,4].includes(category) || ![1,2,3,4,5].includes(level))return false;
+  return Object.values(resolvedChildcareBands({category,level,policy:props.serviceCompensation.childcare,overrides:details.value.childcare?.ratesByBand,flatRate:details.value.childcare?.hourlyRate})).every(rate=>rate!=null);
+});
 const tutoringRates=computed(()=>{
   const p=props.serviceCompensation?.tutoring,level=Number(details.value.tutoring?.payLevel),category=Number(props.compensationCategory||props.modelValue.compensationCategory),override=details.value.tutoring?.hourlyRate;
   if(!p||![1,2,3,4,5].includes(level))return null;

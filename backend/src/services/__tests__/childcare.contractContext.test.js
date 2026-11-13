@@ -51,12 +51,13 @@ describe('exact NLU QA context in the ordinary staff contract journey',()=>{
  });
  it.each([453,454])('generates a normal Staff agreement in QA%d with a structured Category1 childcare schedule and visible four-band rates',async organizationId=>{
   state.agency=agency(organizationId);
-  const input={agencyId:organizationId,candidateUserId:70,configId:5,createdByUserId:1435,compensationCategory:1,compensationLevel:3,tokens:{ROLE_LABEL:'Staff',CONTRACT_SERVICE_ROLES:['childcare'],CONTRACT_SERVICE_ROLE_DETAILS:{childcare:{payLevel:3,ratesByBand:{1:21,2:26,3:30,4:33},compensationTerms:'Synthetic approved QA childcare schedule; no real employment or clinical authority.'}}}};
+  const input={agencyId:organizationId,candidateUserId:70,configId:5,createdByUserId:1435,compensationCategory:1,compensationLevel:3,tokens:{ROLE_LABEL:'Staff',CONTRACT_SERVICE_ROLES:['childcare'],CONTRACT_SERVICE_ROLE_DETAILS:{childcare:{payLevel:3,ratesByBand:{1:21,2:26,3:30,4:33}}}}};
   const preview=await previewCandidateContract(input);
   expect(preview.unresolvedTokens).toEqual([]);
   expect(preview.tokens.COMPENSATION_POLICY_VERSION).toBe('nlu-four-category-2026-11-21');
   expect(preview.tokens.COMPENSATION_SCHEDULE).toMatchObject({category:1,childcareLevel:3,childcareRatesByBand:{1:21,2:26,3:30,4:33},clinicalEligible:false,creditRate:null,hcodeRate:null});
   expect(preview.html).toContain('Childcare and daycare responsibilities');expect(preview.html).toContain('$21.00');expect(preview.html).toContain('$33.00');expect(preview.html).not.toContain('Generic psychotherapy duties');
+  expect(preview.html).toContain('Approved compensation schedule for this service');
   const result=await generateAndAssignCandidateContract({...input,expectedPreviewHash:preview.previewHash});
   expect(result).toMatchObject({generationId:401,task:{id:301,status:'pending'}});
   expect(state.persistedTokens.COMPENSATION_SCHEDULE).toEqual(preview.tokens.COMPENSATION_SCHEDULE);

@@ -30,4 +30,20 @@ describe('individual childcare band schedule', () => {
     await wrapper.get('input[aria-label="1-child hourly-rate override"]').setValue('29');
     expect(wrapper.emitted('update:modelValue').at(-1)[0]).toMatchObject({ compensationLevel: 5, serviceRoles: ['tutoring', 'childcare'], serviceRoleDetails: { childcare: { payLevel: 3, ratesByBand: { 1: '29' }, compensationTerms: 'Synthetic QA terms' } } });
   });
+  it('uses the resolved NLU schedule automatically and labels additional childcare text optional', async () => {
+    const wrapper=mount(Roles,{props:{compensationCategory:2,serviceCompensation:{childcare:policy},modelValue:{serviceRoles:['bachelors_counseling','tutoring','childcare'],serviceRoleDetails:{childcare:{payLevel:3}}}}});
+    expect(wrapper.text()).toContain('included in the contract automatically');
+    expect(wrapper.text()).toContain('Additional childcare compensation terms — optional');
+    expect(wrapper.text()).not.toContain('Individual compensation schedule — required before generation');
+    expect(wrapper.get('[data-testid=childcare-resolved-4]').text()).toBe('$32.00');
+    await wrapper.setProps({modelValue:{serviceRoles:['childcare'],serviceRoleDetails:{childcare:{}}}});
+    expect(wrapper.text()).toContain('Individual compensation schedule — required before generation');
+    wrapper.unmount();
+  });
+  it('keeps written compensation mandatory when an individual agreement supplies the pay terms',()=>{
+    const wrapper=mount(Roles,{props:{requireCompensationForAllRoles:true,compensationCategory:2,serviceCompensation:{childcare:policy},modelValue:{serviceRoles:['childcare'],serviceRoleDetails:{childcare:{payLevel:3}}}}});
+    expect(wrapper.text()).toContain('Individual compensation schedule — required before generation');
+    expect(wrapper.text()).not.toContain('included in the contract automatically');
+    wrapper.unmount();
+  });
 });
