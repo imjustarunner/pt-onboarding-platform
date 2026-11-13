@@ -4,7 +4,7 @@ export function serviceLegalContext({ host = '', path = '', organizationSlug = '
   const school = schoolPortal || role === 'school_staff' || /^\/schoolcarebridge(?:\/|$)/.test(path)
     || /^(?:(?:www|app)\.)?schoolcarebridge\.org$/i.test(host);
   const tenant = legalProfileForContext({ host, path, organizationSlug });
-  const learning = !school && tenant?.slug === 'nlu' && (['tutoring','learning','childcare'].includes(serviceType)
+  const learning = !school && tenant?.slug === 'nlu' && ( /\/(?:login|find-tutor|join\/tutoring)(?:\/|$)/.test(path) ||['tutoring','learning','childcare'].includes(serviceType)
     || /\/(?:tutoring|tutoring-profile|students|childcare)(?:\/|$)/.test(path));
   if (learning) return {
     name: tenant.name,

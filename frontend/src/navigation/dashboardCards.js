@@ -416,7 +416,7 @@ export function buildDashboardCards({
   if (workspace.learningOnly) {
     const students=cards.find(card=>card.id==='clients');
     if (students && workspace.canTutor) Object.assign(students,{label:'My students',kind:'link',to:scopedWorkspacePath(orgSlug,'/students'),description:'Your assigned tutoring students and learning plans.'});
-    return cards.filter(card=>!['documentation_hub','supervision','my_supervision','schools_programs'].includes(card.id) && (workspace.canTutor || card.id!=='clients'));
+    return cards.filter(card=>!['documentation_hub','supervision','my_supervision','schools_programs','staff'].includes(card.id) && (workspace.canTutor || card.id!=='clients'));
   }
   return cards;
 }

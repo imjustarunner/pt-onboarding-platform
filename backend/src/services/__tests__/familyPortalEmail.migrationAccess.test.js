@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-const m=vi.hoisted(()=>({execute:vi.fn(),links:vi.fn(),cards:vi.fn(),demographics:vi.fn(),plan:vi.fn(),insurance:vi.fn(),readiness:vi.fn(),billingLink:vi.fn(),preview:vi.fn(),send:vi.fn(),gate:vi.fn()}));
+const m=vi.hoisted(()=>({execute:vi.fn(),links:vi.fn(),cards:vi.fn(),demographics:vi.fn(),plan:vi.fn(),insurance:vi.fn(),readiness:vi.fn(),billingLink:vi.fn(),preview:vi.fn(),send:vi.fn(),gate:vi.fn(),invitation:vi.fn(),invitationContext:vi.fn(),saveChoices:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute}}));
 vi.mock('../clientPortalInvites.service.js',()=>({previewClientPortalInvites:m.preview}));
 vi.mock('../messagesHub.service.js',()=>({sendHubPortalInvitation:m.send}));
-vi.mock('../familyNotificationChoices.service.js',()=>({familyNotificationDeliveryGate:m.gate}));
+vi.mock('../familyNotificationChoices.service.js',()=>({familyNotificationDeliveryGate:m.gate,createFamilyNotificationInvitation:m.invitation,familyNotificationInvitationContext:m.invitationContext,saveFamilyNotificationChoices:m.saveChoices}));
 vi.mock('../../models/ClientGuardian.model.js',()=>({default:{listClientsForGuardian:m.links}}));
 vi.mock('../../models/GuardianPaymentCard.model.js',()=>({default:{findActiveByGuardian:m.cards}}));
 vi.mock('../guardianDemographics.service.js',()=>({guardianDemographics:{read:m.demographics}}));
@@ -15,7 +15,7 @@ vi.mock('../coverageVerification.service.js',()=>({coverageFingerprint:vi.fn()})
 vi.mock('../clientPortalEmail.service.js',()=>({clientEmailContext:vi.fn(),sendClientPortalEmail:vi.fn()}));
 vi.mock('../familyLedger/senders.js',()=>({requireReadySender:vi.fn()}));
 vi.mock('../familyLedger/tasks.js',()=>({createPaymentTask:vi.fn()}));
-import {prepareMigrationCohort,portalMigrationOverview,migrationPaymentReady,inviteMigrationFamily} from '../portalMigration.service.js';
+import {prepareMigrationCohort,portalMigrationOverview,migrationPaymentReady,inviteMigrationFamily,migrationNotificationChoices,saveMigrationNotificationChoices} from '../portalMigration.service.js';
 import {activeBillingBenefitRecipient,benefitNoticeFingerprint} from '../billingBenefitsEmail.service.js';
 
 const recipient={key:'2:10',agencyId:2,guardianUserId:10,email:'family@example.com',clients:[{clientId:8,label:'DeCl'},{clientId:9,label:'SiCl'}]};
@@ -54,4 +54,17 @@ it('scopes branded onboarding to the selected self profile and reuses the accoun
  expect(result.items.find(i=>i.key==='payment').complete).toBe(true);
  expect(result.items.find(i=>i.key==='authorization').complete).toBe(false);
  expect(m.cards).toHaveBeenCalledWith(10,2,expect.anything());
+});
+
+it('allows a learning-only guardian to manage only their own notification choices without billing',async()=>{
+ m.links.mockRejectedValue(new Error('Billing relationship must not be queried'));
+ m.invitation.mockResolvedValue({url:'https://example.test/preferences/test-token'});
+ m.invitationContext.mockResolvedValue({scope:{agency_id:453,client_id:2545,guardian_user_id:1780},recipient:{client_type:'learning'},revision:0,choices:{}});
+ const input={user:{id:1780,role:'client_guardian'},agencyId:453,clientId:2545};
+ expect((await migrationNotificationChoices(input)).token).toBe('test-token');
+ expect(m.invitation).toHaveBeenCalledWith(expect.objectContaining({agencyId:453,clientId:2545,guardianUserId:1780,forAccountSettings:true}));
+ await saveMigrationNotificationChoices({...input,token:'test-token',choices:{}});expect(m.saveChoices).toHaveBeenCalled();
+ await expect(saveMigrationNotificationChoices({...input,user:{id:1799,role:'client_guardian'},token:'test-token'})).rejects.toMatchObject({status:403});
+ await expect(migrationNotificationChoices({...input,user:{id:1780,role:'provider'}})).rejects.toMatchObject({status:403});
+ m.invitation.mockRejectedValue(Object.assign(new Error('Link revoked'),{status:410}));await expect(migrationNotificationChoices(input)).rejects.toMatchObject({status:410});
 });

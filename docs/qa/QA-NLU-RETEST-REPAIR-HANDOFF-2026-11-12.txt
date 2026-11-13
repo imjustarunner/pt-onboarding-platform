@@ -1,0 +1,87 @@
+NLU RETEST REPAIRS — NOVEMBER 12, 2026
+Engineering handoff; live findings remain open until fresh deployed testing.
+
+EVIDENCE AND SCOPE
+The owner's nlu-retest-2026-11-12.zip is retained separately as evidence. Its
+quoted runner instructions are source material, not new authority to alter
+roles, payments, clocks or signatures. No new client, tutor or guardian is
+needed. Preserve Morgan1759, Parker2545, Quinn2547, Finley1496, Casey1771,
+Devon1772 and the co-guardian Rene created by this evening's bot run.
+Rene's vault entry4470827 is a vault identifier, not a confirmed app user ID.
+Keep Rene's Parker-only scope; do not invite again merely to inspect it.
+
+REPAIRS TO VERIFY
+- NR01/03–13: tutoring first-step rendering, responsive contact form and
+  tutoring provider lookup after form context loads. Recheck optional guardian
+  phone/DOB/address/gender, email rejection, secure resume, tutoring agreements,
+  and Discuss payment without a card. An unsigned draft does not authorize
+  another enrollment; the pre-existing client cap blocker remains.
+- TU12/13: tutoring booking is independent of the clinical TherapyNotes rollout.
+  Cold-entry menus retrieve the exact tenant's service permissions. Clinical
+  APIs remain protected. Self-pay tutoring quotes are per format, including an
+  EITHER service with different virtual/in-person rates.
+- Pure tutoring with the configured POST_SESSION policy can book an assigned
+  online-enabled tutor without buying a prepaid package. PREPAY remains gated.
+  The family explicitly acknowledges current price and attendance terms.
+  When no attendance policy exists, the app's existing zero-fee default applies;
+  this release does not invent a fee. Guardian booking is serialized per tutor
+  and rechecks the live opening before creation. Partial calendar-link failures
+  retain the saved appointment ID and instruct the family not to book again.
+- Published single-component tutoring discount offers are mirrored to the
+  family package catalog on an explicit administrator catalog save. Updates
+  reuse the tagged package; removed/unpublished offers stop being public.
+  Unrelated packages and historical entitlements/snapshots remain intact.
+  Composite, small-group and other unsupported offers require explicit package
+  configuration and are reported. Saving a catalog never buys a package, grants
+  credits, collects a card or activates a payment.
+- An office reserved for the tutor and explicitly published for intake is
+  distinguished from a booked student appointment. Test genuine occupied
+  intervals, other staff reservations and cancellations independently.
+- NR17/20/TU11: NLU login/finder legal links, responsive form, cold menu Students,
+  clinical/staff menu removal, own compensation/pay access, tutoring payment
+  proposals/history and learning guardian descriptions. Dual-service families
+  retain clinical access only in their authorized service context.
+- Rene's own notification choices use active relationship and exact token scope;
+  billing permissions are not required or granted by preference setup.
+- Setup/welcome copy describes authorized access without promising restricted
+  guardians permission to sign documents or manage billing.
+- Failed tutoring enrollment-message recovery uses the original workflow's
+  current verified sender/branding and the original communication ID. It does
+  not re-enroll, generate new password links, bypass review, or resend messages
+  that already have send/tracking receipts. Verify exact From/Reply-To, actual
+  physical testing@ receipt, original packet/link permissions and no duplicate.
+
+LIVE SETUP / RETAINED BLOCKERS
+Canonical service320 is TUTORING (EITHER). Services318 and319 use variant codes
+TUTORING VIRTUAL / TUTORING IN PERSON;321 is HOMEWORK HELP. Keep Homework Help
+separate. At inspection all four services were not publicly bookable, the two
+learning-catalog offers were published, and the family booking catalog was
+empty. The guarded setup attempt stopped without changing records when it
+encountered the variant code. A subsequent admin sign-in was rate-limited;
+no cooldown bypass or limit change was attempted. See BOOKING-SETUP.json for
+final setup status before asking a bot to book. Admin setup must enable the
+canonical approved service and publish/reuse the two advertised package offers.
+
+Communications6347(Parker) and6349(Quinn) were failed with no external message
+ID, sent time, delivered time or opened time. The bot reports neither arrived.
+The recorded error was missing agency/support mail domain. Recovery6463 did
+arrive and is consumed; NEVER retry it. Recheck current delivery metadata just
+before one permitted retry of each truly missing original record. Transport
+acceptance alone is not a receipt pass. Local inbox access was unavailable in
+the earlier engineering run; the bot's newly supplied inbox evidence is retained.
+
+No live card charge, client creation, payroll approval/export, fabricated
+signature, guardian privilege increase or SMS activation is part of these fixes.
+Childcare CC00–CC25 remains NOT RUN in this retest packet. Do not convert these
+repairs or local fixtures into an end-to-end tutoring/childcare PASS.
+
+TESTING HANDOFF
+Keep the original NR01–20, TU00–46, TE01–12 and CC00–25 ledgers and earlier
+findings. Use the additional RR rows below to target these repairs, then resume
+the blocked original journey after a real linked appointment is booked.
+Each live row needs PASS / FAIL / BLOCKED / NOT RUN, frontend/API build, actor,
+agency/client/service/appointment/session/note/message IDs, actual click path,
+America/Denver local date/time with UTC offset and screenshots. A new local
+engineering pass does not close a prior live failure. Required real time,
+private office/media prerequisites and an isolated test merchant remain real
+prerequisites; never change clocks, fake attendance or invent payment consent.

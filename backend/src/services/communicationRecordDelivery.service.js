@@ -20,6 +20,18 @@ export async function sendCommunicationRecord(comm,meta,userId,{attachments=null
     source:'manual',clientId:comm.client_id||null,userId:comm.user_id||null,templateType:comm.template_type||null,templateId:comm.template_id||null,
     generatedByUserId:userId||null,existingCommunicationId:comm.id,linkUrl,attachments,schoolSessionScopeKey:meta.schoolSessionScopeKey||null,
     reviewedCancellationToken:meta.reviewedCancellationToken||null,reviewedCancellationItemKey:meta.reviewedCancellationItemKey||null};
+  if(!senderIdentityId && comm.delivery_status==='failed' && meta.intakeLinkId
+      && ['intake_packet_completion','enrollment_submission_confirmation'].includes(comm.template_type)) {
+    const {default:IntakeLink}=await import('../models/IntakeLink.model.js');
+    const link=await IntakeLink.findById(Number(meta.intakeLinkId));
+    if(link?.master_channel==='tutoring') {
+      if(Number(link.organization_id)!==Number(comm.agency_id))throw Object.assign(new Error('The enrollment link belongs to another organization.'),{status:403});
+      // Recover the original failed message with the workflow's current verified
+      // sender/branding. Never create a new enrollment, setup link or receipt row.
+      const {sendEnrollmentPortalEmail}=await import('./enrollmentPortalEmail.service.js');
+      return sendEnrollmentPortalEmail({...message,agencyId:comm.agency_id,enrollmentChannel:'tutoring',locale:link.language_code||'en'});
+    }
+  }
   if(senderIdentityId)return sendEmailFromIdentity({...message,senderIdentityId,
     fromDisplayNameOverride:meta.fromDisplayName||meta.fromName||null,
     internetMessageIdOverride:meta.internetMessageIdOverride||null,replyToOverride:meta.replyTo||null});

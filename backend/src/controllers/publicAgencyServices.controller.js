@@ -1,3 +1,4 @@
+import { saveAndPublishLearningCatalog } from '../services/learningCatalogPublication.service.js';
 import Agency from '../models/Agency.model.js';
 import {assertManagedTutoringProfileTarget} from '../services/tutoringProfileAuthorization.service.js';
 import {isNluTutoringQaAgency,allowNluQaTutor} from '../utils/nluTutoringQaPolicy.js';
@@ -2126,7 +2127,7 @@ export async function saveLearningCatalog(req,res,next) {
  if(!['admin','super_admin'].includes(req.user?.role))return res.status(403).json({error:{message:'Administrator access is required for rates and compensation standards.'}});
  try {const agency=await requireAgencyBySlug(res,req.params.agencySlug);if(!agency)return;
  const catalog=validateLearningCatalog(req.body);
- await pool.execute('INSERT INTO agency_learning_catalogs (agency_id,catalog_json) VALUES (?,?) ON DUPLICATE KEY UPDATE catalog_json=VALUES(catalog_json)',[agency.id,JSON.stringify(catalog)]);
- res.json({catalog});
+ const publication=await saveAndPublishLearningCatalog({agencyId:agency.id,catalog,actorUserId:req.user.id});
+ res.json({catalog,publication});
  }catch(e){if(e.status===400)return res.status(400).json({error:{message:e.message}});next(e);}
 }

@@ -1,7 +1,7 @@
 <template>
   <DigitalFormShell
     class="public-intake ai-shell-host"
-    :class="{ 'public-intake--office-start': isOfficeInDepthIntake && step === 0.5, 'public-intake--compact-start': isOfficeInDepthIntake && step === 0.5 && !officeStart.editingStartLayout.value }"
+    :class="{ 'public-intake--office-start': isEnrollmentStartPage && step === 0.5, 'public-intake--compact-start': isEnrollmentStartPage && step === 0.5 && !officeStart.editingStartLayout.value }"
     :branding="formBranding"
     :service-type="isTutoringEnrollment ? 'tutoring' : ''"
     :enrollment-layout="(loading || isOfficeInDepthIntake || isSchoolScopedIntake || ['intake', 'smart_registration', 'smart_school_roi'].includes(formTypeKey)) && !isJobApplication && !officeStart.editingStartLayout.value"
@@ -14,10 +14,10 @@
     :intake-sidebar-steps="dfProgressSteps"
     :intake-sidebar-step-index="dfProgressIndex"
     :cover-mode="shellCoverMode"
-    :scenic-sidebar-url="isOfficeInDepthIntake && step === 0.5 && !officeStart.editingStartLayout.value ? '' : officeScenicSidebarUrl"
+    :scenic-sidebar-url="isEnrollmentStartPage && step === 0.5 && !officeStart.editingStartLayout.value ? '' : officeScenicSidebarUrl"
     :logo-url-override="officeLogoFallback"
-    :hide-sidebar="(isOfficeInDepthIntake && step === 0.5 && !officeStart.editingStartLayout.value) || (isJobApplication && step === -1) || (loading && !looksLikeOfficeIntake)"
-    :wide="(isJobApplication && (step === -1 || step === 1 || step === 2)) || (isOfficeInDepthIntake && step >= 0.5) || (!isOfficeInDepthIntake && step === 2)"
+    :hide-sidebar="(isEnrollmentStartPage && step === 0.5 && !officeStart.editingStartLayout.value) || (isJobApplication && step === -1) || (loading && !looksLikeOfficeIntake)"
+    :wide="(isJobApplication && (step === -1 || step === 1 || step === 2)) || (isEnrollmentStartPage && step >= 0.5) || (!isOfficeInDepthIntake && step === 2)"
     :show-language-toggle="hasLinkedLanguageToggle && !loading && !fatalError"
     :language="currentFormLanguage"
     :language-switching="linkedLanguageSwitching"
@@ -40,7 +40,7 @@
     <template #billing-actions>
       <button type="button" class="df-btn df-btn-secondary" @click="saveAndComeBackLater">{{ t('saveAndComeBackLater') }}</button>
     </template>
-    <template v-if="isOfficeInDepthIntake && step === 0.5" #sidebar>
+    <template v-if="isEnrollmentStartPage && step === 0.5" #sidebar>
       <OfficeIntakeStartPage
         part="rail"
         :logo-url="officeStartLogoUrl"
@@ -59,7 +59,7 @@
         class="df-btn df-btn-secondary intake-back-btn"
         @click="goBackPublicPage"
       >
-        {{ isOfficeInDepthIntake && step === 0.5 ? t('backToWelcome') : t('back') }}
+        {{ isEnrollmentStartPage && step === 0.5 ? t('backToWelcome') : t('back') }}
       </button>
       <button
         v-if="!loading && !isOfficeInDepthIntake && (step === 1 || step === 2)"
@@ -100,7 +100,7 @@
         <button type="button" class="intake-inline-error-dismiss" @click="error = ''">&#10005;</button>
       </div>
       <button
-        v-if="canUseDevFill && !(isJobApplication && step === -1) && !(isOfficeInDepthIntake && step >= 0.5)"
+        v-if="canUseDevFill && !(isJobApplication && step === -1) && !(isEnrollmentStartPage && step >= 0.5)"
         class="btn btn-secondary btn-sm dev-fill-button"
         type="button"
         @click="fillExample"
@@ -110,7 +110,7 @@
       <template v-if="!(isJobApplication && step === -1) && step >= 1 && publicFormLead">
         <p class="df-form-lead">{{ publicFormLead }}</p>
       </template>
-      <IntakeProviderRequest v-if="requestedProviderSummary && isOfficeInDepthIntake && step !== 0.5"
+      <IntakeProviderRequest :learning="isTutoringEnrollment" v-if="requestedProviderSummary && isOfficeInDepthIntake && step !== 0.5"
         :readonly="step === 3 || finalizingPacket"
         :provider="requestedProviderSummary"
         :opening="intakeResponses.submission?.requested_opening_preference"
@@ -396,7 +396,7 @@
       </div>
 
       <OfficeIntakeStartPage
-        v-else-if="step === 0.5 && isOfficeInDepthIntake"
+        v-else-if="step === 0.5 && asksWhoFor"
         part="page"
         :logo-url="officeStartLogoUrl"
         :agency-name="officeStartAgencyName"
@@ -409,7 +409,7 @@
         @dev-fill="fillExample"
       >
         <template #provider>
-          <IntakeProviderRequest v-if="providerProfileRequest"
+          <IntakeProviderRequest :learning="isTutoringEnrollment" v-if="providerProfileRequest"
             :provider="requestedProviderSummary"
             :opening="intakeResponses.submission?.requested_opening_preference"
             :locale="intakeLocale"
@@ -524,7 +524,7 @@
               <label for="guardianEmail">{{ t('yourEmail') }} <span class="required-indicator">*</span></label>
               <input id="guardianEmail" v-model="guardianEmail" type="email" :readonly="!!portalEnrollmentEmail" :class="{ 'input-error': !!consentErrors.guardianEmail }" />
             </div>
-            <div v-if="intakeForSelf !== false || ['couple', 'family'].includes(serviceSubject)" class="form-group form-group--dob">
+            <div v-if="intakeForSelf === true || ['couple', 'family'].includes(serviceSubject)" class="form-group form-group--dob">
               <label for="starterDob">{{ t('dateOfBirth') }} <span class="required-indicator">*</span></label>
               <BirthDateInput id="starterDob" v-model="starterDob" :invalid="!!consentErrors.starterDob" />
             </div>
@@ -4996,7 +4996,7 @@ function goToFirstFormStep() {
   // until the person chooses. Use looksLikeOfficeIntake (public key) too — the
   // link JSON is not loaded yet when onMounted first calls this, and treating
   // that as a school packet would default to dependent and hide the picker.
-  const officeStart = isOfficeInDepthIntake.value || looksLikeOfficeIntake.value;
+  const officeStart = asksWhoFor.value;
   if (intakeForSelf.value === null && !officeStart && !isJobApplication.value && !isMedicalRecordsRequest.value) {
     intakeForSelf.value = false;
   }
@@ -5708,6 +5708,7 @@ const isOfficeInDepthIntake = computed(() => {
 });
 
 /** School enrollment or office in-depth — not job/medical/registration/ROI/quick forms. */
+const isEnrollmentStartPage = computed(() => isOfficeInDepthIntake.value || isTutoringEnrollment.value);
 const needsEnrollmentReminderConsent = computed(() => {
   if (!link.value) return false;
   const ft = formTypeKey.value;
@@ -5764,13 +5765,13 @@ watch(() => [loading.value, intakeResponses.submission, providerProfileRequest.v
   catch { providerSelectionNotice.value = 'We could not verify your previously selected time. Our team will need to confirm availability.'; }
 }, { immediate: true });
 
-watch(() => [providerProfileRequest.value, referralAgencySlug.value || agencyInfo.value?.portal_url || agencyInfo.value?.slug], async ([id, slug]) => {
+watch(() => [providerProfileRequest.value, referralAgencySlug.value || agencyInfo.value?.portal_url || agencyInfo.value?.slug, link.value?.master_channel], async ([id, slug, channel]) => {
   const generation = ++entryProviderGeneration;
   entryProviderProfile.value = null;
-  if (!id || !slug) return;
+  if (!id || !slug || !link.value) return;
   try {
     const { data } = await api.get(`/public/agency-services/${encodeURIComponent(slug)}/providers/${Number(id)}`, {
-      params: { serviceType: link.value?.master_channel || 'counseling' }, skipAuthRedirect: true, skipGlobalLoading: true
+      params: { serviceType: channel || 'counseling' }, skipAuthRedirect: true, skipGlobalLoading: true
     });
     if (generation === entryProviderGeneration && String(data?.provider?.id) === String(id)) {
       entryProviderProfile.value = { ...data.provider, details: data.profile?.details || data.provider.details };
@@ -10055,7 +10056,7 @@ const loadLink = async ({ background = false } = {}) => {
         client_last: nameParts.lastName || ''
       }];
     }
-    if (isOfficeInDepthIntake.value) {
+    if (isOfficeInDepthIntake.value || isTutoringEnrollment.value) {
       await loadOfficeJoinChrome();
       await applyConvertPrefillFromQuery();
     }

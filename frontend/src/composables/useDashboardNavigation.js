@@ -13,6 +13,7 @@ import { isBookClubAgency } from '../utils/bookClubAgency.js';
 import { isSupervisor } from '../utils/helpers.js';
 import { canAccessSchoolPortalsSurfaces } from '../utils/schoolPortalsAccess.js';
 import { canAccessSkillBuildersSchoolProgramSurfaces } from '../utils/skillBuildersSchoolProgramAccess.js';
+import { serviceWorkspace } from '../utils/nluWorkspace.js';
 import { noteAidWorkspaceLabel } from '../config/noteAidAccess.js';
 
 const flag = value => value === true || value === 1 || ['1', 'true', 'yes', 'on'].includes(String(value ?? '').toLowerCase());
@@ -52,6 +53,25 @@ export function useDashboardNavigation({ user, agency, organizations, brandingSt
       schools: canAccessSchoolPortalsSurfaces(gates)
     };
   });
+
+  // Cold entry to Schedule/Profile still needs the selected tenant's service
+  // context. Menu visibility never substitutes for server authorization.
+  let workspaceGeneration=0;
+  watch([()=>unref(user)?.id,()=>unref(user)?.status,()=>unref(agency)?.id,()=>!!unref(enabled)],async()=>{
+    const run=++workspaceGeneration,person=unref(user),agencyId=Number(unref(agency)?.id);
+    if(!person?.id||!agencyId||!unref(enabled)||['client','client_guardian','guardian','school_staff'].includes(person.role))return;
+    if(Number(person.workspaceServiceContext?.agencyId)!==agencyId)person.workspaceServiceContext=null;
+    const results=await Promise.allSettled([
+      api.get('/tutoring-workspace/context',{params:{agencyId},skipGlobalLoading:true}),
+      api.get('/childcare/context',{params:{agencyId},skipGlobalLoading:true})
+    ]);
+    if(run!==workspaceGeneration||unref(user)!==person||Number(unref(agency)?.id)!==agencyId)return;
+    const learning=results[0].status==='fulfilled'?results[0].value.data:{};
+    const care=results[1].status==='fulfilled'?results[1].value.data:{};
+    if(Number(learning.agencyId)!==agencyId&&Number(care.agencyId)!==agencyId)return;
+    person.workspaceServiceContext={...learning,agencyId,canChildcare:care.enabled===true&&(care.canWork===true||care.canManage===true),learningOnly:learning.learningOnly===true||(!learning.canClinical&&care.canWork===true&&!care.canManage)};
+  },{immediate:true});
+  onScopeDispose(()=>{workspaceGeneration++;});
 
   // Only menu-specific metadata is needed off the dashboard. Discard late replies
   // after a user/tenant change or after the dashboard supplies its live rail.
@@ -118,7 +138,7 @@ export function useDashboardNavigation({ user, agency, organizations, brandingSt
       programPortalRailIconUrl: item => programPortalIconUrl(item, brandingStore)
     });
     const cards = sortDashboardCards(buildDashboardCards({
-      user: person, brandingStore, orgSlug, agencyFlags: flags, cardIconOrgOverride: iconOrg,
+      user: person, agency: org, brandingStore, orgSlug, agencyFlags: flags, cardIconOrgOverride: iconOrg,
       filteredTabs: dashboardBaseTabs({
         userStatus: person.status || 'active',
         isPending: ['PREHIRE_OPEN', 'PENDING_SETUP', 'pending'].includes(person.status),
@@ -130,7 +150,7 @@ export function useDashboardNavigation({ user, agency, organizations, brandingSt
       momentumListEnabled: unref(momentumListEnabled), portalsNestCard: portals,
       providerSurfacesEnabled: flags.portalVariant !== 'employee' || flag(flags.submitEnabledForEmployeePortal),
       shiftProgramsEnabledForAgency: flag(flags.shiftProgramsEnabled),
-      canAccessToolsAids: dashboardCanAccessToolsAids(person),
+      canAccessToolsAids: !serviceWorkspace(person,org).learningOnly && dashboardCanAccessToolsAids(person),
       hasClinicalSupervision: !!((metadata.supervision ?? person.has_clinical_supervision) || person.capabilities?.hasClinicalSupervision),
       noteWorkspaceLabel: noteAidWorkspaceLabel({ role: person.role, tenant: iconOrg || org, auricwell: !!unref(auricwell) })
     }));

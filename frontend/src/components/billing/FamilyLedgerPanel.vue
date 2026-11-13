@@ -1,5 +1,5 @@
 <template><section class="family-ledger"><fieldset :disabled="readOnly" class="ledger-preview-fieldset"><header><h3>{{ ft("Invoices & receipts") }}</h3><button @click="load" :disabled="busy">{{ ft("Refresh") }}</button></header><p v-if="error" role="alert">{{ ft(error) }}</p><p v-if="message" role="status">{{ ft(message) }}</p><p v-if="loading" role="status">{{ ft("Loading billing…") }}</p>
-  <GuardianPaymentPreference v-if="clientId && !readOnly" :agency-id="agencyId" :client-id="clientId" />
+  <GuardianPaymentPreference v-if="clientId && !readOnly" :agency-id="agencyId" :client-id="clientId" :learning-only="learningOnly" />
   <p v-if="clientId"><button :disabled="busy" @click="downloadStatement()">{{ ft("Download all service statements") }}</button></p>
   <div class="ledger-summary" :aria-label="ft('Billing summary')"><div><span>{{ ft("Your verified amount due") }}</span><strong>{{ loading || error ? '—' : money(visibleBalance) }}</strong><small>{{ ft("Only your assigned share; excludes holds and pending payments") }}</small></div><div><span>{{ ft("Payment plans") }}</span><strong>{{ loading || error ? '—' : balances.filter(r => r.isOwnShare && r.plan).length }}</strong><small>{{ ft("Review schedules and authorization below") }}</small></div><div><span>{{ ft("Payment setup tasks") }}</span><strong>{{ loading || error ? '—' : tasks.filter(t => t.status === 'pending').length }}</strong><small>{{ ft("Complete your card verification and waiver") }}</small></div></div>
   <article v-for="task in tasks.filter(t => t.status === 'pending')" :key="`task-${task.id}`" class="task"><div><strong>{{ task.title }}</strong><p>{{ ft("Due") }} {{ date(task.expiresAt) }}</p></div><router-link :to="{path:'/billing/complete',query:{task:task.id,agencyId}}">{{ ft("Complete payment setup →") }}</router-link></article>
@@ -20,7 +20,7 @@ import { useFamilyLocale } from '../../composables/useFamilyLocale';
 const { ft, locale: familyLocale } = useFamilyLocale();
 import GuardianPaymentPreference from '../guardian/GuardianPaymentPreference.vue';
 import { computed,ref,watch } from 'vue';import { loadStripe } from '@stripe/stripe-js/pure';import {usePortalCareApi} from '../../composables/usePortalCareApi';const api=usePortalCareApi();
-const props=defineProps({readOnly:Boolean,agencyId:[String,Number],clientId:[String,Number]});
+const props=defineProps({learningOnly:Boolean,readOnly:Boolean,agencyId:[String,Number],clientId:[String,Number]});
 const balances=ref([]),tasks=ref([]),receipts=ref([]),splits=ref([]),peers=ref({}),loading=ref(false),busy=ref(false),error=ref(''),message=ref(''),selected=ref(null),amount=ref(''),planVersion=ref(''),planAuto=ref({}),planSignatures=ref({}),splitPayer=ref(null),myPercent=ref(50),splitSignature=ref(''),responseSignature=ref('');let seq=0,requestKey='';
 const receiptSearch=ref(''),receiptRange=ref('all');
 const visibleBalance=computed(()=>balances.value.filter(row=>row.isOwnShare&&!row.paymentStatus).reduce((sum,row)=>sum+Math.max(0,Number(row.dueCents)||0),0));

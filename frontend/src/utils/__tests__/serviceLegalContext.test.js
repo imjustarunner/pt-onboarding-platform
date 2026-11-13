@@ -39,3 +39,5 @@ describe('service-specific terms across tenant hosts',()=>{
   expect(JSON.stringify(docs.privacy||docs.privacypolicy)).toContain('donors');
  });
 });
+
+it.each(['/login','/nlu-qa-demo/login','/nlu-qa-demo/find-tutor','/nlu-qa-demo/join/tutoring'])('keeps public NLU legal links scoped on %s',path=>{const result=serviceLegalContext({host:'app.nextleveluplcc.com',path});expect(result.nonclinical).toBe(true);expect(result.links.every(x=>x.href.startsWith('https://nextleveluplcc.com/nlu/'))).toBe(true);});

@@ -4430,6 +4430,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
            e.clinical_session_id,
            e.note_context_id,
            e.billing_context_id,
+           EXISTS(SELECT 1 FROM appointments a WHERE a.office_event_id=e.id AND a.status NOT IN ('canceled','canceled_by_provider','canceled_by_client','canceled_by_guardian')) AS has_appointment,
            EXISTS(
              SELECT 1
              FROM provider_virtual_slot_availability pv
@@ -4517,6 +4518,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
         clinicalSessionId: Number(r.clinical_session_id || 0) || null,
         noteContextId: Number(r.note_context_id || 0) || null,
         billingContextId: Number(r.billing_context_id || 0) || null,
+        hasAppointment: Number(r.has_appointment || 0) === 1,
         virtualIntakeEnabled: Number(r.virtual_intake_enabled || 0) === 1,
         inPersonIntakeEnabled: Number(r.in_person_intake_enabled || 0) === 1,
         assignmentAvailabilityMode: String(r.assignment_availability_mode || '').toUpperCase() || null,

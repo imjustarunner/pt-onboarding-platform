@@ -127,8 +127,13 @@ export async function migrationNotificationSettings(input) {
   return {url:invitation.url};
 }
 
+function requireOwnNotificationAccount(input) {
+ if(!['client','client_guardian'].includes(input.user?.role)||!Number(input.user?.id))throw billingError(403,'Your own portal account is required');
+ // Recipient issuance/context separately checks this exact active guardian link,
+ // tenant membership and no-view state. Notification choices do not grant billing.
+}
 export async function migrationNotificationChoices(input) {
- await migrationAccess(input);
+ requireOwnNotificationAccount(input);
  const {createFamilyNotificationInvitation,familyNotificationInvitationContext}=await import('./familyNotificationChoices.service.js');
  const {FAMILY_ACCOUNT_UPDATE_CATEGORIES,FAMILY_CHOICE_VERSION,FAMILY_CHOICE_DISCLOSURE,accountUpdateChoices}=await import('../utils/familyNotificationChoices.js');
  const invitation=await createFamilyNotificationInvitation({agencyId:input.agencyId,clientId:input.clientId,guardianUserId:input.user.id,actorUserId:input.user.id,forAccountSettings:true});
@@ -137,7 +142,7 @@ export async function migrationNotificationChoices(input) {
  return {token,version:FAMILY_CHOICE_VERSION,disclosure:FAMILY_CHOICE_DISCLOSURE,categories:FAMILY_ACCOUNT_UPDATE_CATEGORIES,revision:context.revision,choices:accountUpdateChoices(context.choices,{isSchool:context.recipient.client_type==='school'})};
 }
 export async function saveMigrationNotificationChoices(input) {
- await migrationAccess(input);
+ requireOwnNotificationAccount(input);
  const {familyNotificationInvitationContext,saveFamilyNotificationChoices}=await import('./familyNotificationChoices.service.js');
  const context=await familyNotificationInvitationContext(input.token),scope=context.scope;
  if(Number(scope.agency_id)!==input.agencyId||Number(scope.client_id)!==input.clientId||Number(scope.guardian_user_id)!==Number(input.user.id))throw billingError(403,'These notification choices belong to a different profile.');

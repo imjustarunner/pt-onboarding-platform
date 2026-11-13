@@ -15,7 +15,7 @@ export function dashboardNavigationContextKey(user, agencyId, dashboardPath = ''
       ? Object.fromEntries(Object.keys(value).sort().map(key => [key, stable(value[key])])) : value;
   return JSON.stringify(stable([
     user?.id || null, user?.role || '', agencyId || null, dashboardPath,
-    user?.capabilities || {}, user?.status || '', user?.type || '',
+    user?.workspaceServiceContext || null, user?.capabilities || {}, user?.status || '', user?.type || '',
     user?.has_supervisor_privileges || user?.hasSupervisorPrivileges || false,
     user?.has_clinical_supervision || false, user?.skill_builder_eligible || false,
     user?.has_skill_builder_coordinator_access || false,

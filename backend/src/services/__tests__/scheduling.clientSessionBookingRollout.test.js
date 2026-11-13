@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-const m=vi.hoisted(()=>({execute:vi.fn(),beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn(),care:vi.fn(),eligible:vi.fn()}));
+const m=vi.hoisted(()=>({execute:vi.fn(),beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn(),care:vi.fn(),eligible:vi.fn(),offered:vi.fn()}));
+vi.mock('../providerServiceOfferings.service.js',()=>({readProviderServices:m.offered}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute,getConnection:async()=>m}}));
 vi.mock('../staffCareEligibility.service.js',()=>({staffCareEligibility:m.eligible,readStaffCareEligibility:m.care}));
-import { evaluateClientSessionBooking, requireClientSessionBooking, saveClientSessionBookingRollout, sessionBookingProviders } from '../clientSessionBookingRollout.service.js';
+import { evaluateClientSessionBooking, clientSessionBookingAccess, requireClientSessionBooking, saveClientSessionBookingRollout, sessionBookingProviders } from '../clientSessionBookingRollout.service.js';
 const policy={revision:3,entries:[{providerUserId:12,enabled:true},{providerUserId:30,enabled:true}]};
 const input={providerUserIds:[12],enabled:true,transitionReviewed:true,note:'Reviewed October cohort',revision:3};
 beforeEach(()=>{vi.clearAllMocks();m.care.mockResolvedValue({canProvideCare:true});m.eligible.mockImplementation(row=>({canProvideCare:row.id!==99}));m.execute.mockImplementation(async sql=>sql.startsWith('SELECT id,slug')?[[{id:2,slug:'real',feature_flags:{}}]]:sql.startsWith('SELECT feature_flags')?[[{feature_flags:{clientSessionBookingRollout:policy,keep:true}}]]:sql.includes('FROM users u')?[[{id:12,first_name:'Legal',preferred_name:'Preferred',last_name:'Name'},{id:30,first_name:'Other'},{id:99,first_name:'Nonclient staff'}]]:[{affectedRows:1}]);});
@@ -63,4 +64,12 @@ it('opens the practice for new eligible providers, preserves explicit pauses and
  expect(saved.enabledForAllProviders).toBe(true); expect(evaluateClientSessionBooking(saved,14).enabled).toBe(true);
  m.care.mockResolvedValue({canProvideCare:false,reason:'Sees clients is off'});
  await expect(requireClientSessionBooking(2,14)).rejects.toThrow('Sees clients is off');
+});
+
+it('keeps tutoring capability independent of the clinical transition and checks the exact assignment',async()=>{
+ m.offered.mockResolvedValue({careEligibility:{canProvideCare:true},services:[{serviceType:'tutoring',offered:true}]});
+ expect((await clientSessionBookingAccess(453,1496,undefined,{businessType:'tutoring'})).enabled).toBe(true);
+ m.offered.mockResolvedValue({careEligibility:{canProvideCare:false},services:[{serviceType:'tutoring',offered:true}]});
+ expect((await clientSessionBookingAccess(453,1496,undefined,{businessType:'tutoring'})).enabled).toBe(false);
+ await expect(requireClientSessionBooking(453,1496)).rejects.toMatchObject({status:403});
 });

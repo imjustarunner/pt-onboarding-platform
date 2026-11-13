@@ -14,7 +14,7 @@ export async function getClientSessionBookingAccess(req, res, next) {
     const providerUserId = Number(req.query?.providerUserId || req.user.id);
     if (!Number.isSafeInteger(providerUserId) || providerUserId < 1) return res.status(400).json({ error: { message: 'Choose a provider.' } });
     // This response contains only a booking capability, never private provider data.
-    res.json(await clientSessionBookingAccess(agencyId, providerUserId));
+    res.json(await clientSessionBookingAccess(agencyId, providerUserId, undefined, {businessType:req.query.businessType}));
   } catch (error) { next(error); }
 }
 export async function getClientSessionBookingRollout(req, res, next) {

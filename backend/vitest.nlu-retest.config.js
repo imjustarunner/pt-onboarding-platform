@@ -1,0 +1,2 @@
+import base from './vitest.nlu-release.config.js';
+export default {...base,test:{...base.test,include:[...base.test.include,'src/services/__tests__/communicationRecordDelivery.test.js','src/services/__tests__/learningCatalogPublication.test.js','src/services/__tests__/guardianSessionBooking.test.js','src/services/__tests__/scheduling.clientSessionBookingRollout.test.js','src/services/__tests__/familyPortalEmail.migrationAccess.test.js']}};

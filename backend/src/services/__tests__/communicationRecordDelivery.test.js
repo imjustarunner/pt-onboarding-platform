@@ -1,5 +1,7 @@
 import {beforeEach,expect,it,vi} from 'vitest';
-const m=vi.hoisted(()=>({identity:vi.fn(),legacy:vi.fn(),attachments:vi.fn(),payrollAttachments:vi.fn(),update:vi.fn()}));
+const m=vi.hoisted(()=>({identity:vi.fn(),legacy:vi.fn(),attachments:vi.fn(),payrollAttachments:vi.fn(),update:vi.fn(),link:vi.fn(),enrollment:vi.fn()}));
+vi.mock('../../models/IntakeLink.model.js',()=>({default:{findById:m.link}}));
+vi.mock('../enrollmentPortalEmail.service.js',()=>({sendEnrollmentPortalEmail:m.enrollment}));
 vi.mock('../email.service.js',()=>({default:{sendEmail:m.legacy}}));
 vi.mock('../unifiedEmail/unifiedEmailSender.service.js',()=>({sendEmailFromIdentity:m.identity}));
 vi.mock('../../models/UserCommunication.model.js',()=>({default:{updateDeliveryStatus:m.update}}));
@@ -32,4 +34,13 @@ it('never approves a bare payroll email if its retained CSV or payroll access is
  m.payrollAttachments.mockRejectedValue(Object.assign(new Error('Synthetic payroll access denied'),{status:403}));
  await expect(sendCommunicationRecord({...comm,template_type:'payroll_posted_reconciliation'},{senderIdentityId:41},501)).rejects.toMatchObject({status:403});
  expect(m.identity).not.toHaveBeenCalled();expect(m.legacy).not.toHaveBeenCalled();
+});
+
+it('recovers a failed tutoring receipt through its exact enrollment sender without replacing the record',async()=>{
+ m.link.mockResolvedValue({id:355,organization_id:453,master_channel:'tutoring',language_code:'en'});
+ const failed={...comm,id:6349,agency_id:453,template_type:'enrollment_submission_confirmation',delivery_status:'failed'};
+ await sendCommunicationRecord(failed,{intakeLinkId:355},1435);
+ expect(m.enrollment).toHaveBeenCalledWith(expect.objectContaining({existingCommunicationId:6349,agencyId:453,enrollmentChannel:'tutoring'}));expect(m.legacy).not.toHaveBeenCalled();
+ m.link.mockResolvedValue({organization_id:6,master_channel:'tutoring'});
+ await expect(sendCommunicationRecord(failed,{intakeLinkId:355},1435)).rejects.toMatchObject({status:403});
 });

@@ -139,9 +139,9 @@
               </div>
               <div v-else-if="selectedChild" class="child-panel-content">
                 <p v-if="selectedChild.no_view" role="status">{{ pendingEnrollmentState.pending ? 'Your children are linked. Complete your own enrollment above to continue. The other guardian’s private answers remain hidden.' : 'Your children are linked, but detailed records are not available under your current access. Contact your care team if this needs review.' }}</p>
-                <GuardianClientDetails v-if="!isSuperadminPreview && !selectedChild.guardian_portal_locked && !selectedChild.no_view" :client-id="Number(selectedChildId)" />
+                <GuardianClientDetails :learning-only="learningOnlySelectedProfile" v-if="!isSuperadminPreview && !selectedChild.guardian_portal_locked && !selectedChild.no_view" :client-id="Number(selectedChildId)" />
                 <GuardianLearningInvitations v-if="!isSuperadminPreview && standardsLearningVisible && selectedChildRecordAccess" :key="`learning-invites:${selectedChildAgencyId}:${selectedChildId}`" :client-id="selectedChildId" :agency-id="selectedChildAgencyId" :client-name="selectedFirstName" />
-                <GuardianCareAccess v-if="!isSuperadminPreview && !selectedChild.guardian_portal_locked" :client-id="selectedChildId" :client-name="selectedFirstName" :user-id="authStore.user?.id" @messages="navigatePortal('messages')" />
+                <GuardianCareAccess :learning-only="learningOnlySelectedProfile" v-if="!isSuperadminPreview && !selectedChild.guardian_portal_locked" :client-id="selectedChildId" :client-name="selectedFirstName" :user-id="authStore.user?.id" @messages="navigatePortal('messages')" />
                 <div v-if="selectedChild.guardian_portal_locked" class="locked-banner">
                   This client is 18 or older. Guardian-managed waivers, intake documents, and related guardian actions are
                   not available for privacy and compliance.
@@ -475,9 +475,9 @@
                 </p>
               </div>
               <template v-else>
-                <FamilyLedgerPanel :agency-id="selectedChildAgencyId" :client-id="selectedChildId" />
+                <FamilyLedgerPanel :learning-only="learningOnlySelectedProfile" :agency-id="selectedChildAgencyId" :client-id="selectedChildId" />
                 <FamilyCostEstimates :agency-id="Number(selectedChildAgencyId)" :client-id="Number(selectedChildId)" />
-                <HistoricalBillingRequest :agency-id="selectedChildAgencyId" :client-id="selectedChildId" />
+                <HistoricalBillingRequest :learning-only="learningOnlySelectedProfile" :agency-id="selectedChildAgencyId" :client-id="selectedChildId" />
                 <GuardianBillingTab v-if="learningBillingVisible" :agency-id="currentAgencyId" :client-id="selectedChildId" />
               </template>
             </template>
@@ -1046,14 +1046,15 @@ const portalNavigation = computed(() => {
   const labels = {overview:'Dashboard',documents:'Tasks & documents',billing:'Invoices & receipts',payment_methods:learningOnlySelectedProfile.value?'Payments':'Insurance & payments',child:selectedChild.value ? `${childDisplayName(selectedChild.value).split(' — ')[0]} · ${familyLocale.value === 'es' ? 'información' : 'information'}` : 'Client information'};
   const items = dashboardTabs.value.filter(t => !(standardsLearningVisible.value && t.key === 'overview')).map(t => ({...t,label:labels[t.key] || t.label,icon:icons[t.key]}));
   if(!isSuperadminPreview.value && selectedChildId.value && items.some(item=>item.key==='documents'))items.push({key:'updates',label:'Selected updates',icon:'tasks'});
-  items.push({key:'checkins',label:'Check-ins & trends',icon:'plan'},{key:'evaluations',label:'Evaluations',icon:'documents'});
+  if (!learningOnlySelectedProfile.value) items.push({key:'checkins',label:'Check-ins & trends',icon:'plan'},{key:'evaluations',label:'Evaluations',icon:'documents'});
   if (portalPlanAllowed.value) items.splice(3,0,{key:'plan',label:ft(standardsLearningVisible.value?'{name}’s learning plan':'{name}’s care plan',{name:selectedFirstName.value}),icon:'plan'});
 
   if(onboardingRequired.value) items.unshift({key:'onboarding',label:'Complete onboarding',icon:'tasks'});
   items.unshift({key:'family',label:familyHomeLabel.value,icon:'dashboard'},{key:'family_billing',label:'Balances & payments',icon:'billing'},{key:'family_messages',label:'All secure messages',icon:'messages'});
   items.push({key:'assistance',label:'Accounts I help with',icon:'account'});
   if (!isSuperadminPreview.value) items.push({key:'enroll',label:familyLocale.value === 'es' ? 'Inscribir a un hijo o a mí' : 'Enroll a child or yourself',icon:'sessions'});
-  items.push( {key:'records',label:'Request my records',icon:'documents'}, {key:'help',label:'Portal help & feedback',icon:'support'});
+  if (!learningOnlySelectedProfile.value) items.push({key:'records',label:'Request my records',icon:'documents'});
+  items.push({key:'help',label:'Portal help & feedback',icon:'support'});
   items.push({key:'contact',label:'Reminder contacts',icon:'support'},{key:'signout',label:'Sign out',icon:'account'});
   const accountKeys=['assistance','family','family_billing','family_messages','notifications','account','records','help','enroll'];
   const ordered=[...items.filter(i=>accountKeys.includes(i.key)),...items.filter(i=>!accountKeys.includes(i.key)&&i.key!=='signout'),...items.filter(i=>i.key==='signout')];

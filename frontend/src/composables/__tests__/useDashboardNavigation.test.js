@@ -134,3 +134,16 @@ describe('dashboard navigation before a dashboard visit', () => {
     expect(dashboardNavigationContextKey(user, 2, '/example/dashboard', { ...agency, feature_flags: { noteAidEnabled: false } })).not.toBe(context);
   });
 });
+
+it('uses the selected NLU agency for the cold-entry menu and preserves own pay',async()=>{
+ const nav=start({user:ref({...provider,workspaceServiceContext:{agencyId:453,canTutor:true,learningOnly:true}}),agency:ref({id:453,slug:'nlu-qa-demo',feature_flags:{qaSandbox:{program:'tutoring'}}}),dashboardTo:ref('/nlu-qa-demo/dashboard')});
+ await flushPromises();expect(labels(nav)).toContain('My students');
+ expect(labels(nav)).not.toContain('My Clients');expect(labels(nav)).not.toContain('Note Workspace');expect(labels(nav)).not.toContain('Staff');
+ expect(labels(nav)).toContain('My Account');expect(card(nav,'clients').to).toBe('/nlu-qa-demo/students');
+});
+
+it('loads service permissions on a cold schedule entry and discards the clinical menu',async()=>{
+ get.mockImplementation(async url=>({data:url==='/tutoring-workspace/context'?{agencyId:453,canTutor:true,canClinical:false,learningOnly:true}:{}}));
+ const nav=start({user:ref({...provider}),agency:ref({id:453,slug:'nlu-qa-demo'}),dashboardTo:ref('/nlu-qa-demo/dashboard')});
+ await flushPromises();expect(labels(nav)).toContain('My students');expect(labels(nav)).not.toContain('My Clients');expect(labels(nav)).not.toContain('Note Workspace');
+});

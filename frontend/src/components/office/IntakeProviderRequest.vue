@@ -10,7 +10,7 @@
         <span>{{ openingSummary.date }} · {{ openingSummary.time }}</span>
         <small>{{ openingSummary.frequency }} · {{ openingSummary.setting }} · {{ openingSummary.timeZone }}</small>
       </div>
-      <p>{{ spanish ? 'Nuestro equipo confirmará disponibilidad y coordinará la atención. Esta solicitud no confirma una cita.' : 'Our team will confirm availability and coordinate care. This request does not confirm an appointment.' }}</p>
+      <p>{{ spanish ? 'Nuestro equipo confirmará disponibilidad y coordinará la atención. Esta solicitud no confirma una cita.' : learning ? 'Our team will confirm availability and coordinate tutoring. This request does not confirm an appointment.' : 'Our team will confirm availability and coordinate care. This request does not confirm an appointment.' }}</p>
       <p v-if="error" role="alert">{{ error }}</p>
       <p v-if="notice" role="status">{{ notice }}</p>
     </div>
@@ -22,7 +22,7 @@
 import { computed, ref, watch } from 'vue';
 import ProviderLanguageBadges from '../publicServices/ProviderLanguageBadges.vue';
 import { openingPreferencePresentation } from '../../utils/openingPreferencePresentation';
-const props = defineProps({ provider: Object, opening: Object, error: String, notice: String, locale: String, readonly: Boolean });
+const props = defineProps({ provider: Object, opening: Object, error: String, notice: String, locale: String, readonly: Boolean, learning: Boolean });
 defineEmits(['remove']);
 const spanish = computed(() => String(props.locale || '').startsWith('es'));
 const openingSummary = computed(() => openingPreferencePresentation(props.opening, spanish.value ? 'es' : 'en-US'));

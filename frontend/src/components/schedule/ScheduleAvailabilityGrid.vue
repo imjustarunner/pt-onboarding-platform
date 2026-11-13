@@ -5954,6 +5954,7 @@ import {
 import {appointmentOfficeId,officesForAgency,defaultAppointmentServiceLocation} from '../../utils/appointmentOfficeSelection.js';
 import { useScheduleFullscreen } from '../../composables/useScheduleFullscreen.js';
 import { useAuthStore } from '../../store/auth';
+import { serviceWorkspace } from '../../utils/nluWorkspace.js';
 import { useAgencyStore } from '../../store/agency';
 import { familyScheduleProjection } from '../../utils/familyScheduleVisibility';
 import { useBrandingStore } from '../../store/branding';
@@ -9315,6 +9316,7 @@ watch([() => props.userId, () => effectiveAgencyIds.value.join(',')], () => {
 onMounted(() => window.addEventListener('focus', loadSchoolWeekdays));
 onUnmounted(() => { schoolWeekdayGeneration++; window.removeEventListener('focus', loadSchoolWeekdays); });
 
+const tutoringWorkspaceOnly = computed(() => serviceWorkspace(authStore.user, agencyStore.currentAgency || {}).learningOnly);
 const clientSessionBookingEnabled = ref(false);
 const clientSessionBookingAgencyId = computed(() => Number(selectedActionAgencyId.value || effectiveAgencyId.value || 0));
 let bookingAccessGeneration = 0;
@@ -9324,7 +9326,7 @@ const refreshClientSessionBookingAccess = async () => {
   const providerUserId = scheduleActorUserId.value;
   if (!agencyId || !providerUserId) { clientSessionBookingEnabled.value = false; return false; }
   try {
-    const result = await api.get('/appointments/booking-access', {params:{agencyId,providerUserId},skipGlobalLoading:true});
+    const result = await api.get('/appointments/booking-access', {params:{agencyId,providerUserId,...(tutoringWorkspaceOnly.value?{businessType:'tutoring'}:{})},skipGlobalLoading:true});
     if (generation !== bookingAccessGeneration) return false;
     clientSessionBookingEnabled.value = result.data?.enabled === true;
     return clientSessionBookingEnabled.value;
@@ -9333,7 +9335,7 @@ const refreshClientSessionBookingAccess = async () => {
     return false;
   }
 };
-watch([clientSessionBookingAgencyId, scheduleActorUserId], () => {
+watch([clientSessionBookingAgencyId, scheduleActorUserId, tutoringWorkspaceOnly], () => {
   // Revoke the previous provider/agency capability synchronously, before another click.
   clientSessionBookingEnabled.value = false;
   void refreshClientSessionBookingAccess();
@@ -11963,7 +11965,8 @@ const buildCellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout 
           roomId
         });
       } else {
-        const bookedLabel = `Booked · ${roomShort}`;
+        const published = top?.inPersonIntakeEnabled && !top?.hasAppointment && !top?.clientId && !top?.clinicalSessionId && !top?.billingContextId;
+        const bookedLabel = `${published ? 'Available in person' : 'Reserved'} · ${roomShort}`;
         blocks.push({
           key: `office-booked-${blockKeySuffix}`,
           kind: 'ob',
@@ -11976,7 +11979,7 @@ const buildCellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout 
           canReschedule: canManageOffices.value || Number(top?.bookedProviderId || top?.assignedProviderId || 0) === Number(authStore.user?.id),
           isOfficeBlock: true,
           officeStatus: 'booked',
-          officeStatusLabel: 'Booked / reserved — not open for another booking',
+          officeStatusLabel: published ? 'Your reserved office is published for in-person sessions' : 'Office reservation — see linked appointments for session availability',
           officeRoomLabel,
           shortLabel: `${buildingPrefix}${bookedLabel}${intakeSuffix}`,
           title: officeTitle(dayName, hour, top),
@@ -13418,7 +13421,7 @@ const availableQuickActions = computed(() => {
       description: hasOffice
         ? 'Schedule a client session — add more than one client to make it a group session'
         : 'Schedule a session (office optional). Add more than one client to make it a group session.',
-      disabledReason: clientSessionBookingEnabled.value ? '' : 'Your practice will enable session booking after your TherapyNotes transition.',
+      disabledReason: clientSessionBookingEnabled.value ? '' : (tutoringWorkspaceOnly.value ? 'Your organization must enable an active tutoring assignment before booking.' : 'Your practice will enable session booking after your TherapyNotes transition.'),
       visible: !supervisionOnlyMode,
       tone: 'violet',
       chooserPriority: 10
@@ -15913,10 +15916,11 @@ async function loadEditorPracticeCategories() {
     const allowed = Array.isArray(r.data?.allowedCategories) ? r.data.allowedCategories : [];
     let codes = selected
       .map((c) => String(c || '').trim().toLowerCase())
-      .filter((c) => PRACTICE_CATEGORY_LABELS[c]);
+      .filter((c) => PRACTICE_CATEGORY_LABELS[c] && (!tutoringWorkspaceOnly.value || c === 'tutoring'));
     if (!codes.length) {
       // Soft fallback only when nothing resolved yet (pre-defaults tenants / misconfig).
-      if (allowed.includes('mental_health')) codes = ['mental_health'];
+      if (tutoringWorkspaceOnly.value && allowed.includes('tutoring')) codes = ['tutoring'];
+      else if (allowed.includes('mental_health') && !tutoringWorkspaceOnly.value) codes = ['mental_health'];
       else if (allowed.length === 1) codes = [String(allowed[0])];
     }
     editorPracticeCategories.value = codes;
@@ -15924,8 +15928,9 @@ async function loadEditorPracticeCategories() {
       editorPracticeCategory.value = editorPracticeCategories.value[0] || '';
     }
   } catch {
-    editorPracticeCategories.value = ['mental_health'];
-    if (!editorPracticeCategory.value) editorPracticeCategory.value = 'mental_health';
+    editorPracticeCategories.value = tutoringWorkspaceOnly.value ? [] : ['mental_health'];
+    if (tutoringWorkspaceOnly.value) editorPracticeCategory.value = '';
+    else if (!editorPracticeCategory.value) editorPracticeCategory.value = 'mental_health';
   }
 }
 
@@ -15942,7 +15947,7 @@ async function loadEditorTenantServices() {
     editorPackageEntitlements.value = r.data?.packagePreview?.entitlements || [];
     // Fallback: booking-options can be empty before suites are seeded; services list ensures defaults.
     if (!services.length) {
-      const r2 = await api.get(`/tenant-booking/agencies/${aid}/services`, {
+      const r2 = await api.get(`/tenant-booking/agencies/${aid}/tenant-services`, {
         params: { ensureSuites: 'true' }
       }).catch(() => null);
       const raw = Array.isArray(r2?.data?.services) ? r2.data.services : [];

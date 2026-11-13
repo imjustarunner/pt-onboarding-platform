@@ -1,6 +1,8 @@
 import pool from '../config/database.js';
+import { isNluTutoringQaAgency, allowNluQaTutor } from '../utils/nluTutoringQaPolicy.js';
 import { isAuricwellQaAgency, allowQaExchangeRecipient } from '../utils/auricwellQaPolicy.js';
 import { parseFeatureFlags } from './medicalBillingFlags.service.js';
+import { readProviderServices } from './providerServiceOfferings.service.js';
 import { staffCareEligibility, readStaffCareEligibility } from './staffCareEligibility.service.js';
 
 export const SESSION_BOOKING_COMING_SOON = 'Client session booking is coming soon for this provider. A practice administrator must enable their transition from TherapyNotes.';
@@ -18,7 +20,12 @@ export async function readClientSessionBookingRollout(agencyId, db = pool) {
   const policy = parseFeatureFlags(agency.feature_flags).clientSessionBookingRollout;
   return policy && Array.isArray(policy.entries) ? policy : empty();
 }
-export async function clientSessionBookingAccess(agencyId, providerUserId, db = pool) {
+export async function clientSessionBookingAccess(agencyId, providerUserId, db = pool, { businessType } = {}) {
+  if (businessType === 'tutoring') {
+    const offered = await readProviderServices(providerUserId, agencyId, db);
+    const enabled = offered.careEligibility.canProvideCare && offered.services.some(service => service.serviceType === 'tutoring' && service.offered);
+    return { enabled, businessType: 'tutoring', reason: enabled ? null : 'An active tutoring assignment is required in this organization.' };
+  }
   const review = evaluateClientSessionBooking(await readClientSessionBookingRollout(agencyId, db), providerUserId);
   if (!review.enabled) return review;
   const care = await readStaffCareEligibility(providerUserId, agencyId, db);
@@ -31,14 +38,15 @@ export async function requireClientSessionBooking(agencyId, providerUserId, db =
 }
 export async function sessionBookingProviders(agencyId, db = pool) {
   const [[agency]] = await db.execute('SELECT id,slug,feature_flags FROM agencies WHERE id = ?', [agencyId]);
-  const qa = isAuricwellQaAgency(agency);
+  const nluQa=isNluTutoringQaAgency(agency);
+  const qa = isAuricwellQaAgency(agency)||nluQa;
   const [rows] = await db.execute(`SELECT u.id,u.email,u.is_demo,u.first_name,u.preferred_name,u.last_name,u.role,u.credential,u.status,u.is_active,
       u.sees_clients,u.has_provider_access,ua.agency_role,COALESCE(ua.is_active,1) AS membership_active,p.public_details_json
     FROM users u JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=?
     LEFT JOIN provider_public_profiles p ON p.user_id=u.id
     WHERE COALESCE(u.is_archived,0)=0 AND (COALESCE(u.is_demo,0)=0 OR ?=1)
     ORDER BY u.last_name,u.first_name`, [agencyId, qa ? 1 : 0]);
-  return rows.filter(row => (!qa ? !Number(row.is_demo) : allowQaExchangeRecipient(agency, row)) && staffCareEligibility(row, agencyId).canProvideCare).map(row => ({
+  return rows.filter(row => (!qa ? !Number(row.is_demo) : nluQa ? allowNluQaTutor(agency,row) : allowQaExchangeRecipient(agency, row)) && staffCareEligibility(row, agencyId).canProvideCare).map(row => ({
     id: Number(row.id), name: `${row.preferred_name || row.first_name || ''} ${row.last_name || ''}`.trim()
   }));
 }

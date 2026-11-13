@@ -9,7 +9,7 @@ vi.mock('vue-router',()=>({useRoute:()=>route,useRouter:()=>({replace:vi.fn().mo
 vi.mock('../../components/documents/PDFPreview.vue',()=>({default:{template:'<div/>'}}));
 let w;
 beforeEach(()=>{
- localStorage.clear();sessionStorage.clear();window.scrollTo=vi.fn();Element.prototype.scrollIntoView=vi.fn();post.mockReset().mockResolvedValue({data:{}});
+ route.query={session:'qa-draft'};localStorage.clear();sessionStorage.clear();window.scrollTo=vi.fn();Element.prototype.scrollIntoView=vi.fn();post.mockReset().mockResolvedValue({data:{}});
  get.mockReset().mockImplementation(async url=>({data:url==='/public-intake/tutor-test'?{link:{id:1,form_type:'intake',scope_type:'agency',organization_id:453,master_channel:'tutoring',inherits_office_master:1,intake_fields:[],intake_steps:[{id:'counseling_dep_about_you',type:'questions',fields:[{key:'guardian_dob',required:true}]},{id:'counseling_dep_about_child',type:'questions',fields:[{key:'child_sex',required:true}]},{type:'packet_hipaa_notice'},{type:'smart_disclosure'}]},agency:{id:453,name:'NLU QA',slug:'nlu-qa-demo'},organization:{id:453,name:'NLU QA',slug:'nlu-qa-demo',organization_type:'agency'},templates:[]}:url.endsWith('/progress')?{submissionId:12,intakeData:null}:{}}));
 });
 afterEach(()=>w?.unmount());
@@ -33,4 +33,15 @@ it('submits the tutoring contact step without a parent DOB, phone or automatic c
  const request=post.mock.calls.find(([url])=>url.endsWith('/consent'));
  expect(request).toBeTruthy();expect(request[1].signerEmail).toBe('qa.nlu.parent@example.com');
  expect(request[1].signerPhone||'').toBe('');expect(request[1].intakeData.responses.guardian.other_guardian_send_intake_link).toBe('no');
+});
+
+it('renders the first tutoring form after starting instead of leaving an empty half-step',async()=>{
+ route.query={};await render();w.vm.goToFirstFormStep();await flushPromises();
+ expect(w.vm.step).toBe(0.5);expect(w.find('#guardianFirstName').exists()).toBe(true);expect(w.classes()).toContain('public-intake--compact-start');
+ w.vm.intakeForSelf=false;await flushPromises();expect(w.text()).toContain('Are there any other guardians');
+});
+it('waits for tutoring context before fetching a requested provider',async()=>{
+ route.query={providerId:'1496',serviceType:'tutoring',enrollmentSource:'provider'};await render();
+ const calls=get.mock.calls.filter(([url])=>url.endsWith('/providers/1496'));
+ expect(calls.length).toBeGreaterThan(0);expect(calls.every(([,config])=>config.params.serviceType==='tutoring')).toBe(true);
 });

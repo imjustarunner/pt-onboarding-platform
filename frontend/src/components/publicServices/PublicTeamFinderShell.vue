@@ -185,10 +185,12 @@
         </div>
       </main>
     </div>
+    <PoweredByFooter :include-powered-by="false" />
   </div>
 </template>
 
 <script setup>
+import PoweredByFooter from '../PoweredByFooter.vue';
 import ClientMatchingPreferences from '../public/ClientMatchingPreferences.vue';
 import {focusMatch} from '../../navigation/providerFocus.js';
 import { computed, onMounted, onUnmounted, ref } from 'vue';

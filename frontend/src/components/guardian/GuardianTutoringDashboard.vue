@@ -36,6 +36,7 @@
       </div>
     </section>
 
+    <GuardianClinicalBooking :client-id="Number(clientId)" :agency-id="careContext?.agencyId" :service-id="careContext?.serviceId" @booked="load" />
     <TutorOfficeStatus :key="clientId" :client-id="clientId" />
     <div class="gtd-grid">
       <section class="gtd-card gtd-packages">
@@ -54,7 +55,7 @@
             </li>
           </ul>
         </div>
-        <p v-else class="gtd-muted">No active session package yet. Purchase a package to book tutoring sessions.</p>
+        <p v-else class="gtd-muted">No active session package yet. Review your tutor’s booking and payment options.</p>
         <p v-if="legacyTokenBalance > 0" class="gtd-legacy">
           Legacy token balance: {{ legacyTokenBalance }} (still honored until used).
         </p>
@@ -193,6 +194,7 @@
 </template>
 
 <script setup>
+import GuardianClinicalBooking from './GuardianClinicalBooking.vue';
 import {inject,unref} from 'vue';
 const careContext=inject('portalCareContext',null);
 import PackagePriceChoice from '../learning/PackagePriceChoice.vue';
