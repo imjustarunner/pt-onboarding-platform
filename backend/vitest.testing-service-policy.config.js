@@ -5,6 +5,7 @@ export default {root:fileURLToPath(new URL('.',import.meta.url)),resolve:{alias:
  'src/services/__tests__/testingCatalog.test.js',
  'src/services/__tests__/nluCompensationPolicy.test.js',
  'src/services/__tests__/hire.contractServiceRoles.test.js',
+ 'src/services/__tests__/hire.childcareTerms.test.js',
  'src/services/__tests__/hire.categoryLevelTerms.test.js',
  'src/services/__tests__/hire.roleMerge.test.js',
  'src/services/__tests__/payrollSubmissionContext.test.js',
