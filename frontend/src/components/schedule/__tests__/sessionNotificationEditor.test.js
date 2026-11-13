@@ -4,6 +4,7 @@ const m=vi.hoisted(()=>({get:vi.fn()}));
 vi.mock('../../../services/api',()=>({default:{get:m.get}}));
 import Editor from '../SessionNotificationEditor.vue';
 import Header from '../AppointmentHeaderFields.vue';
+import Shell from '../AppointmentEditorShell.vue';
 let wrapper;
 beforeEach(()=>{vi.clearAllMocks();m.get.mockResolvedValue({data:{settings:{platform:{channels:{email:'available',in_app:'available',sms:'disabled'}},channelsEnabled:{email:true,in_app:true}}}});});
 afterEach(()=>wrapper?.unmount());
@@ -21,4 +22,15 @@ it('renders real controls in Customizable mode and explains scheduling note visi
  expect(wrapper.findComponent(Editor).exists()).toBe(true);expect(wrapper.text()).not.toContain('Save the session, then open Notifications');
  expect(wrapper.get('[data-testid="scheduling-notes-visibility"]').text()).toContain('Synced calendar details');
  expect(wrapper.get('[data-testid="scheduling-notes-visibility"]').text()).toContain('family appointment list does not display');
+});
+it('keeps added reminders visible through the real appointment editor shell',async()=>{
+ wrapper=mount(Shell,{props:{title:'Book Session',bookSessionLayout:true,agencyId:377,showNotifications:true,notificationMode:'customizable',
+  'onUpdate:customReminders':rules=>wrapper.setProps({customReminders:rules})},global:{stubs:{ScheduleAgencyLogo:true}}});
+ await flushPromises();
+ await wrapper.getComponent(Editor).get('button').trigger('click');await flushPromises();
+ expect(wrapper.getComponent(Editor).props('rules')).toHaveLength(1);
+ expect(wrapper.get('select[aria-label="Reminder 1 timing"]').element.value).toBe('60');
+ await wrapper.get('select[aria-label="Reminder 1 timing"]').setValue('1440');await flushPromises();
+ expect(wrapper.props('customReminders')[0].offsetMinutes).toBe(1440);
+ expect(wrapper.getComponent(Header).props('customReminders')).toEqual(wrapper.props('customReminders'));
 });

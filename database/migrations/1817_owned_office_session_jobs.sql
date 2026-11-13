@@ -1,0 +1,22 @@
+CREATE TABLE IF NOT EXISTS owned_office_session_jobs (
+  id CHAR(36) NOT NULL PRIMARY KEY,
+  agency_id INT NOT NULL,
+  provider_user_id INT NOT NULL,
+  created_by_user_id INT NOT NULL,
+  booking_key CHAR(64) NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'queued',
+  phase VARCHAR(20) NOT NULL DEFAULT 'preparing',
+  completed_count INT NOT NULL DEFAULT 0,
+  total_count INT NOT NULL,
+  input_json JSON NULL,
+  result_json JSON NULL,
+  error_message VARCHAR(500) NULL,
+  attempts INT NOT NULL DEFAULT 0,
+  available_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  lease_token CHAR(36) NULL,
+  lease_until DATETIME NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_owned_office_booking (agency_id, created_by_user_id, booking_key),
+  KEY ix_owned_office_jobs (status, available_at, lease_until)
+);

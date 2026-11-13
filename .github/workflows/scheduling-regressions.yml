@@ -207,7 +207,7 @@ jobs:
           backend/src/controllers/__tests__/scheduling.officeBuildingPhoto.test.js
       - name: Selected office reservation, shared practice booking, and reminder defaults
         run: |
-          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.scheduling.config.js backend/src/services/__tests__/scheduling.officeSessionAgency.test.js backend/src/services/__tests__/scheduling.reminderRules.test.js backend/src/controllers/__tests__/scheduling.sharedOfficeBooking.test.js backend/src/services/__tests__/scheduling.ownedOfficeSession.test.js backend/src/services/__tests__/scheduling.notificationCustomizations.test.js
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.scheduling.config.js backend/src/services/__tests__/scheduling.officeSessionAgency.test.js backend/src/services/__tests__/scheduling.reminderRules.test.js backend/src/controllers/__tests__/scheduling.sharedOfficeBooking.test.js backend/src/services/__tests__/scheduling.ownedOfficeSession.test.js backend/src/services/__tests__/scheduling.ownedOfficeSessionJobs.test.js backend/src/services/__tests__/scheduling.notificationCustomizations.test.js
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.meeting-launch.config.js backend/src/services/__tests__/meetingJoinPolicy.test.js
           (cd frontend && node node_modules/vitest/vitest.mjs run --config vitest.office-session-supervision.config.js)
       - name: Unified office approvals on mobile

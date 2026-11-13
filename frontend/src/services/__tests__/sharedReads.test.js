@@ -35,3 +35,14 @@ it('never reuses a read that started before a related write completed',async()=>
 it('keeps sharing unrelated background reads while a payroll row is saved',async()=>{
  let finish;const network=vi.fn(c=>c.method==='get'?new Promise(resolve=>{finish=resolve}):Promise.resolve({data:{ok:true}}));const read=createSharedReadAdapter(network,uri);const first=read(config());await Promise.resolve();await read(config({method:'patch',url:'/payroll/import-rows/4'}));const second=read(config());await Promise.resolve();expect(network).toHaveBeenCalledTimes(2);finish({data:{}});await Promise.all([first,second]);
 });
+
+it.each(['/office-schedule/locations/1/weekly-grid','/availability/providers/501/school-weekdays','/company-events'])('coalesces duplicate navigation reads: %s',async url=>{
+ let finish;const network=vi.fn(()=>new Promise(resolve=>{finish=resolve}));const read=createSharedReadAdapter(network,uri);
+ const requests=[read(config({url,params:{weekStart:'2026-11-23'}})),read(config({url,params:{weekStart:'2026-11-23'}})),read(config({url,params:{weekStart:'2026-11-23'}}))];
+ await Promise.resolve();expect(network).toHaveBeenCalledTimes(1);finish({data:{slots:[]}});await Promise.all(requests);
+});
+it('refreshes the office grid after a booking instead of joining an older read',async()=>{
+ const finishes=[];const network=vi.fn(c=>c.method==='get'?new Promise(resolve=>finishes.push(resolve)):Promise.resolve({data:{ok:true}}));const read=createSharedReadAdapter(network,uri);
+ const old=read(config({url:'/office-schedule/locations/1/weekly-grid'}));await Promise.resolve();await read(config({method:'post',url:'/office-schedule/booking-requests'}));
+ const fresh=read(config({url:'/office-schedule/locations/1/weekly-grid'}));await Promise.resolve();expect(network).toHaveBeenCalledTimes(3);finishes.forEach(f=>f({data:{}}));await Promise.all([old,fresh]);
+});

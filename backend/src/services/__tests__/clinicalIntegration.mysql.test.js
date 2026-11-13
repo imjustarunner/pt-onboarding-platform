@@ -27,7 +27,8 @@ describe.skipIf(!process.env.CLINICAL_INTEGRATION_MYSQL_PORT)('clinical integrat
       ['983_session_notification_system.sql', /^ALTER TABLE appointment_reminders /],
       ['1702_appointment_guardian_recipients.sql', /^ALTER TABLE appointment_reminders /],
       ['1723_contact_reminder_sms_consent.sql', /^ALTER TABLE appointment_reminders /],
-      ['1816_appointment_notification_customizations.sql', /^CREATE TABLE IF NOT EXISTS appointment_notification_customizations /]
+      ['1816_appointment_notification_customizations.sql', /^CREATE TABLE IF NOT EXISTS appointment_notification_customizations /],
+      ['1817_owned_office_session_jobs.sql', /^CREATE TABLE IF NOT EXISTS owned_office_session_jobs /]
     ]) {
       const source = await readFile(new URL(`../../../../database/migrations/${file}`, import.meta.url), 'utf8');
       for (const sql of splitSqlStatements(stripSqlLineComments(source))) if (pattern.test(sql.replace(/\s+/g, ' ').trim())) await db.query(sql);
@@ -47,6 +48,16 @@ describe.skipIf(!process.env.CLINICAL_INTEGRATION_MYSQL_PORT)('clinical integrat
     if (admin) await admin.end();
   });
   const refresh = () => refreshClientSessionNotifications(377, 21, 10, { db, getPlan: async () => plan });
+  it('persists and atomically leases a booking job without duplicating retries',async()=>{
+    await db.execute(`INSERT INTO owned_office_session_jobs (id,agency_id,provider_user_id,created_by_user_id,booking_key,total_count,input_json)
+      VALUES ('job-test',377,501,501,?,26,?) ON DUPLICATE KEY UPDATE id=id`,['a'.repeat(64),JSON.stringify({office:{id:1}})]);
+    await db.execute(`INSERT INTO owned_office_session_jobs (id,agency_id,provider_user_id,created_by_user_id,booking_key,total_count,input_json)
+      VALUES ('job-duplicate',377,501,501,?,26,?) ON DUPLICATE KEY UPDATE id=id`,['a'.repeat(64),'{}']);
+    const [claim]=await db.execute(`UPDATE owned_office_session_jobs SET status='processing',lease_token='test-lease',lease_until=DATE_ADD(UTC_TIMESTAMP(),INTERVAL 15 MINUTE)
+      WHERE (status='queued' AND available_at<=UTC_TIMESTAMP()) OR (status='processing' AND lease_until<UTC_TIMESTAMP()) ORDER BY available_at LIMIT 1`);
+    expect(claim.affectedRows).toBe(1);const [[count]]=await db.query('SELECT COUNT(*) AS n FROM owned_office_session_jobs');expect(count.n).toBe(1);
+    const [[job]]=await db.query("SELECT * FROM owned_office_session_jobs WHERE lease_token='test-lease'");expect(job.id).toBe('job-test');
+  });
   it('persists session-specific choices, keeps agency boundaries and supports returning to defaults', async () => {
     const rules=[{id:'day-before',channel:'email',offsetMinutes:1440,message:'Please arrive early.',askConfirmation:true}];
     await saveAppointmentNotificationRules(8,377,rules,501,db);

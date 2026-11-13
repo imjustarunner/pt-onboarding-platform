@@ -1,6 +1,6 @@
 // Share only pending JSON reads; never cache a completed response or a mutation.
 export const isPayrollWorkspacePath=path=>/\/admin\/payroll(?:\/|$)/.test(String(path || '')) || /^\/(?:fundthred\/)?noteworthy\/app(?:\/|$)/.test(String(path || ''));
-const sharedPath=path=>/\/(?:users\/\d+\/preferences|secure-session-comments\/today|family-billing\/insurance-cards\/review-queue|availability\/admin\/skill-builders\/options|communications\/center-summary|payroll\/me\/indirect-time-session)$/.test(path);
+const sharedPath=path=>/\/(?:office-schedule\/locations\/\d+\/weekly-grid|users\/\d+\/schedule-summary|availability\/providers\/\d+\/school-weekdays|company-events|users\/\d+\/preferences|secure-session-comments\/today|family-billing\/insurance-cards\/review-queue|availability\/admin\/skill-builders\/options|communications\/center-summary|payroll\/me\/indirect-time-session)$/.test(path);
 export function sharedReadScope() {
   try {
     const user=JSON.parse(localStorage.getItem('user') || 'null');
@@ -10,6 +10,7 @@ export function sharedReadScope() {
   }catch{return null;}
 }
 const readGroup=path=>{
+  if(/\/(?:office-schedule|office-slots|appointments|company-events)(?:\/|$)|\/users\/\d+\/schedule-(?:events|summary)(?:\/|$)|\/availability\//.test(path))return 'scheduling';
   const preferences=path.match(/\/users\/(\d+)\/preferences(?:\/|$)/);
   if(preferences)return `preferences:${preferences[1]}`;
   for(const group of ['/secure-session-comments','/family-billing/insurance-cards','/availability/admin/skill-builders','/communications','/payroll/me/indirect-time-session'])if(path.includes(group+'/') || path.endsWith(group))return group;

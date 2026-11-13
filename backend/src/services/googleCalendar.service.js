@@ -10,6 +10,7 @@ import {
 } from './googleWorkspaceAuth.service.js';
 import { ensureMeetAutoTranscriptionEnabled } from './googleMeetTranscript.service.js';
 import { utcToRfc3339Wall } from '../utils/officeEventDateTime.util.js';
+import { officeCalendarSummary } from '../utils/officeCalendarSummary.js';
 
 function parseServiceAccountJson() {
   const raw = process.env.GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON;
@@ -618,12 +619,15 @@ export class GoogleCalendarService {
     const [rows] = await pool.execute(
       `SELECT
          e.id,
+         e.client_id,
+         e.clinical_session_id,
          e.slot_state,
          e.status,
          e.start_at,
          e.end_at,
          e.office_location_id,
          e.room_id,
+         (SELECT name FROM agencies WHERE id=CAST(JSON_UNQUOTE(JSON_EXTRACT(e.session_context_json,'$.agencyId')) AS UNSIGNED)) AS booking_agency_name,
          ol.name AS building_name,
          ol.timezone AS building_timezone,
          r.google_resource_email AS room_google_resource_email,
@@ -668,7 +672,6 @@ export class GoogleCalendarService {
       room_number: row.room_number,
       name: row.room_name
     });
-    const summarySuffix = slotState === 'ASSIGNED_BOOKED' ? 'Booked' : 'Assigned';
 
     return {
       ok: missing.length === 0,
@@ -676,7 +679,7 @@ export class GoogleCalendarService {
       missing,
       wouldWrite: missing.length === 0,
       preview: {
-        summary: `${buildingName} • ${officeLabel} — ${summarySuffix}`,
+        summary: officeCalendarSummary(row, buildingName, officeLabel),
         providerEmail: providerEmail || null,
         roomResourceEmail: roomResourceEmail || null,
         timeZone,
@@ -802,7 +805,7 @@ export class GoogleCalendarService {
     }
   }
 
-  static async upsertBookedOfficeEvent({ officeEventId }) {
+  static async upsertBookedOfficeEvent({ officeEventId, sendUpdates = 'all' }) {
     const eid = parseInt(officeEventId, 10);
     if (!eid) return { ok: false, reason: 'invalid_office_event_id' };
 
@@ -810,6 +813,7 @@ export class GoogleCalendarService {
     const [rows] = await pool.execute(
       `SELECT
          e.*,
+         (SELECT name FROM agencies WHERE id=CAST(JSON_UNQUOTE(JSON_EXTRACT(e.session_context_json,'$.agencyId')) AS UNSIGNED)) AS booking_agency_name,
          ol.name AS building_name,
          ol.timezone AS building_timezone,
          r.name AS room_name,
@@ -874,8 +878,7 @@ export class GoogleCalendarService {
       room_number: row.room_number,
       name: row.room_name
     });
-    const summarySuffix = slotState === 'ASSIGNED_BOOKED' ? 'Booked' : 'Assigned';
-    const summary = `${buildingName} • ${officeLabel} — ${summarySuffix}`;
+    const summary = officeCalendarSummary(row, buildingName, officeLabel);
 
     const timeZone = String(row.building_timezone || '').trim() || 'America/New_York';
     const start = toRfc3339Local(row.start_at, timeZone);
@@ -909,6 +912,7 @@ export class GoogleCalendarService {
     const syncResult = await this.upsertProviderPrimaryCalendarEvent({
       subjectEmail: providerEmail,
       existingGoogleEventId: row.google_provider_event_id,
+      sendUpdates,
       summary,
       startAt: row.start_at,
       endAt: row.end_at,

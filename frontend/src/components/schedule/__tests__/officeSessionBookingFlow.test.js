@@ -245,3 +245,12 @@ it('shares catalog requests, isolates practices and retries failed reads', async
   expect(await read('/locations', { agencyId: 2, providerId: 501 })).toEqual({ serviceLocations: [1] });
   expect(get).toHaveBeenCalledTimes(3);
 });
+
+it('shows a saved office client appointment when the room-reservation layer is hidden',async()=>{
+ wrapper=shallowMount(Grid,{props:{userId:7,agencyId:2},global:{stubs:{Teleport:false,RouterLink:true}}});await flushPromises();const s=wrapper.vm.$.setupState;
+ s.weekStart='2026-11-23';s.showMyRooms=false;s.summary={weekStart:'2026-11-23',officeEvents:[{id:18510,appointmentId:264,clientId:81,agencyId:2,_agencyId:2,buildingId:8,roomId:10,startAt:'2026-11-26T22:00:00Z',endAt:'2026-11-26T23:00:00Z',status:'BOOKED'}]};await nextTick();
+ expect(s.summary.scheduleEvents).toEqual([expect.objectContaining({kind:'PERSONAL_EVENT',appointmentId:264,officeEventId:18510})]);
+ const item={...s.summary.scheduleEvents[0],eventId:-18510,eventKind:'PERSONAL_EVENT'};expect(s.isEditableScheduleStackItem(item)).toBe(true);expect(s.isClientSessionScheduleEvent(item)).toBe(true);
+ await s.openAppointmentEditInScheduleModal({item,dayName:'Thursday',hour:15});await flushPromises();expect(s.editorAppointmentId).toBe(264);
+ expect(mocks.get.mock.calls.some(([url])=>String(url).includes('/schedule-events/-18510'))).toBe(false);
+});
