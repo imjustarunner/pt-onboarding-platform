@@ -1,8 +1,23 @@
 import { describe, expect, it } from 'vitest';
 import { injectPublicFavicon, legacyTisiPublicDestination, publicBrowserBranding } from '../publicBrowserBranding.js';
+import { CONVERSA_ICON_URL } from '../../constants/conversa.js';
+import { buildShareMeta, injectShareMetaIntoHtml } from '../sharePreview.js';
 import { PUBLIC_SITE_DOMAINS } from '../publicDomainRouting.js';
 
 describe('public browser branding', () => {
+  it('keeps event pages and their sign-in branded as Conversa before and after app startup', () => {
+    for (const host of ['auricwell.com', 'plottwisthq.com', 'app.itsco.health']) {
+      for (const path of ['/conversa/events/itsco/potluck-353', '/conversa/login/itsco']) {
+        expect(publicBrowserBranding(host,path)).toEqual({slug:'conversa',title:'Conversa | Events',favicon:CONVERSA_ICON_URL});
+        const shell='<html><head><title>Plot Twist Co.</title><link id="app-favicon" href="/old.png"><link id="app-apple-touch-icon" href="/old.png"></head></html>';
+        const html=injectPublicFavicon(injectShareMetaIntoHtml(shell,buildShareMeta({host,path})),host,path);
+        expect(html).toContain('<title>Conversa | Events</title>');
+        expect(html.match(/assets\/conversa\/mark.svg/g)).toHaveLength(2);
+        expect(html).not.toContain('Plot Twist');expect(html).not.toContain('og:url');
+      }
+    }
+    expect(publicBrowserBranding('app.itsco.health','/conversa/events-other')).toBeNull();
+  });
   it('uses the supplied SchoolCareBridge icon for browser identity',()=>{
     for(const host of ['schoolcarebridge.org','qv.app.schoolcarebridge.org'])expect(publicBrowserBranding(host).favicon).toBe('/assets/schoolcarebridge/icon.png');
   });
