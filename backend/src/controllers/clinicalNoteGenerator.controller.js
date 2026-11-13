@@ -1,3 +1,4 @@
+import {requireTestingEligibility} from '../services/testingEligibility.service.js';
 import {issueNarrivaGenerationReceipt} from '../services/narrivaGenerationReceipt.service.js';
 import clinicalAppointmentAlerts from '../services/clinicalAppointmentAlerts.service.js';
 import { resolveClinicalDraftSessionContext } from '../services/clinicalDraftSessionContext.service.js';
@@ -1249,6 +1250,7 @@ export const generateClinicalNote = async (req, res, next) => {
       if(generationSessionContext.clinicalSessionId || generationSessionContext.officeEventId)await resolveClinicalDraftSessionContext(generationSessionContext);
     };
     await assertGenerationSessionCurrent();
+    await requireTestingEligibility({agencyId,userId:req.user.id,serviceCodes:[generationSessionContext.serviceCode],clientId:generationSessionContext.clientId,serviceDate:generationSessionContext.dateOfService});
     const includeInteractiveComplexity = parseBool(req.body?.includeInteractiveComplexity);
     const dateWritten = req.body?.dateWritten ? normalizeDateOnly(req.body.dateWritten) : null;
 

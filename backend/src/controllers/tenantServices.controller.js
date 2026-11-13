@@ -3,6 +3,7 @@ import { schedulingResponseForUser } from '../services/schedulingBillingAccess.s
 import AgencyBusinessType, { BUSINESS_TYPE_CODES } from '../models/AgencyBusinessType.model.js';
 import TenantService from '../models/TenantService.model.js';
 import StaffServiceAssignment from '../models/StaffServiceAssignment.model.js';
+import {requireTestingEligibility} from '../services/testingEligibility.service.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import { resolveBookingOptions } from '../services/appointment.service.js';
@@ -264,6 +265,7 @@ export const putServiceStaff = async (req, res, next) => {
     const service = await TenantService.findById(serviceId, agencyId);
     if (!service) return res.status(404).json({ error: { message: 'Service not found' } });
     const userIds = Array.isArray(req.body?.userIds) ? req.body.userIds : [];
+    for(const userId of userIds)await requireTestingEligibility({agencyId,userId:Number(userId),serviceCodes:[service.serviceCode],checkCodeAssignments:false});
     const staff = await StaffServiceAssignment.replaceForService(agencyId, serviceId, userIds);
     res.json({ ok: true, staff });
   } catch (e) {

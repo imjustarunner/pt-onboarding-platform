@@ -1,3 +1,4 @@
+import {requireTestingEligibility} from './testingEligibility.service.js';
 import User from '../models/User.model.js';
 import { hasVerifiedBillingScope } from '../utils/verifiedBillingScope.js';
 import Client from '../models/Client.model.js';
@@ -93,6 +94,7 @@ class ClinicalEligibilityService {
       err.status = 404;
       throw err;
     }
+    await requireTestingEligibility({agencyId:Number(session.agency_id),userId:Number(session.provider_user_id),serviceCodes:[session.service_code],clientId:Number(session.client_id),serviceDate:session.scheduled_start_at||session.date_of_service});
     const client = await Client.findById(session.client_id);
     if (!client) {
       const err = new Error('Client not found for agency');

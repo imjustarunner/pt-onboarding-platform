@@ -1,3 +1,4 @@
+import {TESTING_SERVICE_CODES,testingCompensationBasis} from '../content/testingServicePolicy.js';
 import { isProgramServiceRole } from '../content/programServiceRates.js';
 import {validateCredentials} from '../utils/credentialDisplay.js';
 import {employmentCategoryLevelTerms,applyEmploymentPayTerms} from '../content/employmentCategoryLevelTerms.js';
@@ -327,7 +328,7 @@ export async function getAgencyBuilderDefaults(agencyId) {
   return {
     ...await contractServiceFocusSettings(agency),
     contractTenant:handbookTenant(agency),
-    contractServiceRoleOptions: handbookTenant(agency) ? CONTRACT_SERVICE_ROLES.map(({id,title,description,clause_key})=>({id,title,description,clauseKey:clause_key})) : [],
+    contractServiceRoleOptions: handbookTenant(agency) ? CONTRACT_SERVICE_ROLES.map(({id,title,description,clause_key})=>({id,title,description,clauseKey:clause_key,...(id==='psychological_testing'?{codeGuide:TESTING_SERVICE_CODES.map(row=>({code:row.code,name:row.name,payBucket:row.bucket==='credit'?'Clinical Session Rate':'Direct Care Rate',basis:testingCompensationBasis(row),testingOnly:!!row.requiredRole}))}:{})})) : [],
     agency: agency
       ? {
           id: agency.id,
@@ -610,9 +611,9 @@ export async function renderContractHtml({
   const currentRow = currentLevels.find(r=>Number(r.category)===Number(category)&&Number(r.level)===Number(level));
   const categoryLevel = config.pay_mode !== 'none' && clinicalRole && (!!currentRow?.paySystem || /itsco|next ?level ?up|inner ?strength/i.test(`${agency.name||''} ${agency.slug||agency.portal_url||''}`));
   const terms = individualTerms || (categoryLevel ? employmentCategoryLevelTerms({row:currentRow,tokens:mergedTokens,agencyName:agency.name,agencySlug:agency.slug}) : null);
-  // Only server-resolved NLU compensation can satisfy the written childcare schedule.
-  // Other agencies retain their individually approved terms; preview tokens cannot supply this bypass.
-  if(handbookTenant(agency)==='nlu' && terms?.serviceCompensationTerms) {
+  // Server-resolved schedules satisfy NLU childcare and approved Testing terms.
+  // Other individual service terms remain required; preview tokens cannot bypass them.
+  if(terms?.serviceCompensationTerms && (handbookTenant(agency)==='nlu' || terms.serviceCompensationTerms.psychological_testing)) {
     rolePlan=contractServiceRolePlan({...roleInput,libraryClauses:roleLibraryClauses,serviceCompensationTerms:terms.serviceCompensationTerms});
   }
   const payClauses = terms ? applyEmploymentPayTerms(originalClauses,terms) : originalClauses;

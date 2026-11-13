@@ -26,7 +26,7 @@ export async function getUserCompensationForAgency({ agencyId, userId }) {
   return {
     priorPerCodeRates:priorRates,
     submission,
-    codeGuide: compensationCodes(serviceCodeRules || [],agencyId),
+    codeGuide: compensationCodes(serviceCodeRules || [],submission.schedule),
     agencyId,
     userId,
     rateCard: rateCard || null,

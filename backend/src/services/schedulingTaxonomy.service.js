@@ -1,3 +1,5 @@
+import {requireTestingEligibility,approvedTestingCodeAssignments} from './testingEligibility.service.js';
+import {requiresTestingRole,testingServiceDefinition} from '../content/testingServicePolicy.js';
 import { requireClientSessionBooking } from './clientSessionBookingRollout.service.js';
 import { resolveAgencySchedulingCatalog } from './agencySchedulingCatalog.service.js';
 import { readStaffCareEligibility } from './staffCareEligibility.service.js';
@@ -258,7 +260,15 @@ export async function getSchedulingBookingMetadata({ userRole, providerCredentia
   const catalog = await resolveAgencySchedulingCatalog({ agencyId, credentialTier, allServiceCodes, eligibleServiceCodes });
   const credentialOverrides = await loadCredentialOverrides('CO');
   const grantedServiceCodes = providerId ? await grantedServiceCodesForProvider(agencyId, providerId) : [];
-  const visibleServiceCodes = filterServiceCodesForCredential(catalog.eligibleServiceCodes, credentialTier, credentialOverrides, grantedServiceCodes);
+  let visibleServiceCodes = filterServiceCodesForCredential(catalog.eligibleServiceCodes, credentialTier, credentialOverrides, grantedServiceCodes);
+  if(providerId && visibleServiceCodes.some(row=>requiresTestingRole(row.code))) {
+    try {
+      await requireTestingEligibility({agencyId,userId:providerId,serviceCodes:visibleServiceCodes.map(row=>row.code),checkCodeAssignments:false});
+      const allowed=new Set(await approvedTestingCodeAssignments(agencyId,providerId));
+      visibleServiceCodes=visibleServiceCodes.filter(row=>{const definition=testingServiceDefinition(row.code);return !requiresTestingRole(row.code)||allowed.has(definition.baseCode||definition.code);});
+    }
+    catch(error) { if(error.status!==403)throw error;visibleServiceCodes=visibleServiceCodes.filter(row=>!requiresTestingRole(row.code)); }
+  }
   return {
     credentialTier,
     careEligibility,
@@ -286,6 +296,7 @@ export async function validateSchedulingSelection({
   if (enforceSessionRollout && DIRECT_SERVICE_APPOINTMENT_TYPES.has(normalizedAppointmentTypeCode)) await requireClientSessionBooking(agencyId, providerId);
   const normalizedAppointmentSubtypeCode = normalizeCode(appointmentSubtypeCode);
   const normalizedServiceCode = normalizeCode(serviceCode);
+  await requireTestingEligibility({agencyId,userId:providerId,serviceCodes:[normalizedServiceCode],serviceDate:scheduledStartAt});
   const normalizedModality = normalizeModality(modality);
 
   const metadata = await getSchedulingBookingMetadata({ userRole, providerCredentialText, agencyId, providerId });

@@ -25,6 +25,7 @@ import { DEFAULT_MEDICAL_SERVICE_CODES } from './medicalBillingDefaults.service.
 import { buildMedicaid8MinuteBands } from './serviceCodeUnits.service.js';
 import { ensureSchedulingCatalogEntry } from './schedulingCatalogSync.service.js';
 import { isClinicalAddon } from '../utils/clinicalServiceCodeCatalog.js';
+import { requiresTestingRole, testingServiceDefinition } from '../content/testingServicePolicy.js';
 
 const CLINICAL_BOOKABLE = new Set(
   ITSCO_DIRECT_BOOKABLE_CODES.map((c) => String(c).trim().toUpperCase())
@@ -125,6 +126,7 @@ export async function ensureAgencyPayrollDictionary(agencyId) {
       payDivisor: Number.isFinite(Number(d?.payDivisor)) ? Number(d.payDivisor) : 1,
       payRateUnit: Number(d?.durationMinutes) === 0 ? 'per_unit' : 'per_unit',
       creditValue: Number.isFinite(Number(d?.creditValue)) ? Number(d.creditValue) : 0,
+      paySystemBucket: d?.paySystemBucket ?? null,
       showInRateSheet: 1
     });
     inserted += 1;
@@ -140,7 +142,13 @@ async function ensureMedicalCode(agencyId, code, { actorUserId = null } = {}) {
   // Synchronization fills gaps; it must not reset saved units, rates, credential
   // restrictions, add-on flags, or deliberately disabled agency services.
   if (existing) return existing;
-  const def = medicalDefForCode(c);
+  const reference = testingServiceDefinition(c);
+  const def = medicalDefForCode(c) || (reference ? {
+    unitCalcMode:'SINGLE',unitMinutes:reference.nominalMinutes,
+    minMinutes:reference.minimumMinutes,maxMinutes:reference.maximumMinutes,
+    maxUnitsPerSession:reference.claimBasis==='encounter'?1:null,
+    allowedCredentialTiers:['intern_plus']
+  } : null);
   const meta = tenantMetaForCode(c);
   let ladderBandsJson = null;
   const unitCalcMode = def?.unitCalcMode || 'SINGLE';
@@ -154,7 +162,7 @@ async function ensureMedicalCode(agencyId, code, { actorUserId = null } = {}) {
   return AgencyMedicalServiceCode.upsert({
     agencyId,
     serviceCode: c,
-    description: def?.description || meta.description || meta.name,
+    description: def?.description || testingServiceDefinition(c)?.name || meta.description || meta.name,
     unitCalcMode,
     unitMinutes: def?.unitMinutes ?? null,
     minMinutes: def?.minMinutes ?? null,
@@ -168,7 +176,9 @@ async function ensureMedicalCode(agencyId, code, { actorUserId = null } = {}) {
     allowedCredentialTiers: def?.allowedCredentialTiers || null,
     isAddon: isClinicalAddon(c, def || {}),
     sessionMode: meta.allowsIndividual === false ? 'group' : 'either',
-    isActive: true,
+    // A payroll reference does not verify a testing payer pathway or claim-unit
+    // setup. Existing saved codes are returned above, including disabled ones.
+    isActive: !requiresTestingRole(c),
     createdByUserId: actorUserId
   });
 }
@@ -229,6 +239,7 @@ async function ensurePayrollRule(agencyId, code) {
     durationMinutes: d?.durationMinutes ?? null,
     payDivisor: Number.isFinite(Number(d?.payDivisor)) ? Number(d.payDivisor) : 1,
     creditValue: Number.isFinite(Number(d?.creditValue)) ? Number(d.creditValue) : 0,
+    paySystemBucket: d?.paySystemBucket ?? null,
     countsForTier: 1,
     showInRateSheet: 1
   });
