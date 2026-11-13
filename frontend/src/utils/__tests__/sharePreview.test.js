@@ -1,3 +1,5 @@
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { buildShareMeta, injectShareMetaIntoHtml } from '../sharePreview.js';
@@ -106,8 +108,8 @@ it('does not impose AuricWell on tenant office previews or reveal visit identifi
 });
 
 it('keeps the shipped SPA title placeholders compatible with nginx tenant replacements', () => {
- const html=readFileSync('index.html','utf8');
- const nginx=readFileSync('nginx.conf','utf8');
+ const html=readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../../index.html'),'utf8');
+ const nginx=readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../../nginx.conf'),'utf8');
  expect(nginx).toContain("sub_filter '<title>Portal</title>' '<title>$page_share_name</title>'");
  expect(nginx).toContain("sub_filter 'content=\"Portal\"' 'content=\"$page_share_name\"'");
  for(const tag of ['<title>Portal</title>','property="og:title" content="Portal"','name="twitter:title" content="Portal"']) {
