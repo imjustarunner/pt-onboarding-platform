@@ -437,7 +437,9 @@ export const searchTasksHub = async (req, res, next) => {
         const school = String(r.task?.school_tag || r.task?.metadata?.schoolName || '');
         return {
           ...r,
-          relevance: Math.max(score(r.title), score(r.subtitle), score(school))
+          // Task rows already matched their scoped SQL query, including an
+          // authorized client name that is intentionally absent from the title.
+          relevance: Math.max(score(r.title), score(r.subtitle), score(school), r.entity_type === 'task' ? 25 : 0)
         };
       })
       .filter((r) => r.relevance >= 25)
