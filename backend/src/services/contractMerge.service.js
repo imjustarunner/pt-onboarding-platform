@@ -589,9 +589,11 @@ export async function renderContractHtml({
     enabled: !!handbookTenant(agency) && config.pay_mode !== 'none' && !/amendment|addendum|acknowledg/i.test(config.slug || '')
   };
   let rolePlan = contractServiceRolePlan(roleInput);
+  let roleLibraryClauses = [];
   if (rolePlan.roles.length) {
     const keys=rolePlan.clauses.map(clause=>clause.clause_key);
     const [libraryClauses]=await pool.execute(`SELECT clause_key,title,body_html,is_active FROM contract_clauses WHERE agency_id=? AND clause_key IN (${keys.map(()=>'?').join(',')})`,[agencyId,...keys]);
+    roleLibraryClauses=libraryClauses;
     rolePlan=contractServiceRolePlan({...roleInput,libraryClauses});
   }
   mergedTokens.CONTRACT_SERVICE_ROLES = rolePlan.roles;
@@ -608,9 +610,14 @@ export async function renderContractHtml({
   const currentRow = currentLevels.find(r=>Number(r.category)===Number(category)&&Number(r.level)===Number(level));
   const categoryLevel = config.pay_mode !== 'none' && clinicalRole && (!!currentRow?.paySystem || /itsco|next ?level ?up|inner ?strength/i.test(`${agency.name||''} ${agency.slug||agency.portal_url||''}`));
   const terms = individualTerms || (categoryLevel ? employmentCategoryLevelTerms({row:currentRow,tokens:mergedTokens,agencyName:agency.name,agencySlug:agency.slug}) : null);
+  // Only server-resolved NLU compensation can satisfy the written childcare schedule.
+  // Other agencies retain their individually approved terms; preview tokens cannot supply this bypass.
+  if(handbookTenant(agency)==='nlu' && terms?.serviceCompensationTerms) {
+    rolePlan=contractServiceRolePlan({...roleInput,libraryClauses:roleLibraryClauses,serviceCompensationTerms:terms.serviceCompensationTerms});
+  }
   const payClauses = terms ? applyEmploymentPayTerms(originalClauses,terms) : originalClauses;
   const handbookClauses = handbookTenant(agency) ? applyEmploymentHandbookCompensation(payClauses,{tenant:handbookTenant(agency)}) : payClauses;
-  const replaceFallbackClinicalDuties = rolePlan.roles.length > 0 && !rolePlan.roles.some(role => ['bachelors_counseling','psychotherapy'].includes(role));
+  const replaceFallbackClinicalDuties = rolePlan.roles.length > 0 && !rolePlan.roles.includes('psychotherapy');
   const clauses = applyContractServiceRoleClauses(handbookClauses,rolePlan,{replaceFallbackClinicalDuties});
   const compensation = terms ? {row:currentRow || {category,level,direct_rate:null,indirect_rate:null},rates:[]} : await selectedContractCompensation(agencyId, category, level, config.pay_mode);
   if(terms) { mergedTokens.COMPENSATION_POLICY_VERSION=terms.version; mergedTokens.COMPENSATION_SCHEDULE=terms.schedule; }
@@ -662,7 +669,7 @@ export async function renderContractHtml({
   }
   const roleKeys = new Set(rolePlan.manifest.map(role=>role.key));
   const clauseManifest = [...clauses.filter(c=>!roleKeys.has(c.clause_key)).map(c => ({key:c.clause_key,title:c.title || c.clause_key,included:selectedClauses.includes(c),reason:c.policyReason || (selectedClauses.includes(c)?'Selected by contract configuration':String(c.clause_key).toUpperCase()==='SUP_COMP'?'Supervision compensation is not assigned':'Clinical supervision is not selected'),policyVersion:c.policyVersion})),...rolePlan.manifest];
-  if (replaceFallbackClinicalDuties && handbookClauses.some(c=>c.clause_key==='JOB_DESC_LPC')) clauseManifest.push({key:'JOB_DESC_LPC',title:'Generic psychotherapy job duties',included:false,reason:'Replaced by the selected nonclinical or testing service-role duties'});
+  if (replaceFallbackClinicalDuties && handbookClauses.some(c=>c.clause_key==='JOB_DESC_LPC')) clauseManifest.push({key:'JOB_DESC_LPC',title:'Generic psychotherapy job duties',included:false,reason:'Replaced by selected service-role duties; psychotherapy is not assigned'});
   const bodyParts = visibleClauses.map((c) => {
     let body = replaceTokens(c.body_html, mergedTokens)
       // Imported Markdown occasionally leaves a single emphasis marker after a quoted role.

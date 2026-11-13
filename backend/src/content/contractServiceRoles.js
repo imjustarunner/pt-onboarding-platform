@@ -96,14 +96,14 @@ export function inferNluContractCategory({credential = '',jobTitle = '',role = '
   return null;
 }
 
-export function contractServiceRolePlan({ selected, inferred, details, libraryClauses = [], enabled = true } = {}) {
+export function contractServiceRolePlan({ selected, inferred, details, libraryClauses = [], enabled = true, serviceCompensationTerms = {} } = {}) {
   if (!enabled) return { roles: [], clauses: [], manifest: [], missingFields:[] };
   const roles = selected === undefined ? normalizeContractServiceRoles(inferred) : normalizeContractServiceRoles(selected, {strict:true});
   const approvedDetails = normalizeContractServiceRoleDetails(details);
   const library = new Map(libraryClauses.map(clause=>[clause.clause_key,clause]));
   const missingFields = [];
   for (const role of roles) {
-    if (['childcare','psychological_testing'].includes(role) && !approvedDetails[role]?.compensationTerms) missingFields.push(`${role.toUpperCase()}_COMPENSATION_TERMS`);
+    if (['childcare','psychological_testing'].includes(role) && !approvedDetails[role]?.compensationTerms && !serviceCompensationTerms[role]) missingFields.push(`${role.toUpperCase()}_COMPENSATION_TERMS`);
     if (role === 'childcare' && !approvedDetails[role]?.payLevel) missingFields.push('CHILDCARE_PAY_LEVEL');
     if (role === 'psychological_testing' && !approvedDetails[role]?.authorizationTerms) missingFields.push('PSYCHOLOGICAL_TESTING_AUTHORIZATION_TERMS');
   }
@@ -111,9 +111,10 @@ export function contractServiceRolePlan({ selected, inferred, details, libraryCl
     roles, missingFields,
     clauses: CONTRACT_SERVICE_ROLES.filter(role => roles.includes(role.id)).map(role => {
       const terms=approvedDetails[role.id];
+      const resolvedTerms=serviceCompensationTerms[role.id];
       const saved=library.get(role.clause_key);
       if (saved && (Number(saved.is_active)===0 || !String(saved.body_html||'').trim())) throw Object.assign(new Error(`The selected role clause is inactive or empty: ${role.title}. Review its library entry before generating.`),{status:400});
-      return {...role,title:saved?.title || role.title,body_html:(saved?.body_html || role.body_html) + (terms?.payLevel?`<p><strong>Approved ${role.id==='childcare'?'childcare':'service-specific'} pay level:</strong> ${terms.payLevel}</p>`:'') + (terms?.hourlyRate?`<p><strong>Individual hourly-rate override:</strong> $${terms.hourlyRate.toFixed(2)}; apply only as expressly described in the written service terms.</p>`:'') + (terms?.compensationTerms?`<h3>Individual compensation terms for this service</h3><p>${escape(terms.compensationTerms).replace(/\n/g,'<br />')}</p>`:'') + (terms?.authorizationTerms?`<h3>Approved assignment and supervision</h3><p>${escape(terms.authorizationTerms).replace(/\n/g,'<br />')}</p>`:''),policyReason:'Selected service role; qualifications and separate compensation terms remain required'};
+      return {...role,title:saved?.title || role.title,body_html:(saved?.body_html || role.body_html) + (terms?.payLevel?`<p><strong>Approved ${role.id==='childcare'?'childcare':'service-specific'} pay level:</strong> ${terms.payLevel}</p>`:'') + (terms?.hourlyRate?`<p><strong>Individual hourly-rate override:</strong> $${terms.hourlyRate.toFixed(2)}; apply only as expressly described in the written service terms.</p>`:'') + (resolvedTerms?`<h3>Approved compensation schedule for this service</h3><p>${escape(resolvedTerms).replace(/\n/g,'<br />')}</p>`:'') + (terms?.compensationTerms?`<h3>${resolvedTerms?'Additional individual compensation terms':'Individual compensation terms for this service'}</h3><p>${escape(terms.compensationTerms).replace(/\n/g,'<br />')}</p>`:'') + (terms?.authorizationTerms?`<h3>Approved assignment and supervision</h3><p>${escape(terms.authorizationTerms).replace(/\n/g,'<br />')}</p>`:''),policyReason:'Selected service role; qualifications and separate compensation terms remain required'};
     }),
     manifest: CONTRACT_SERVICE_ROLES.map(role => ({key:role.clause_key,title:role.title,included:roles.includes(role.id),reason:roles.includes(role.id)?'Selected service role':'Service role is not selected',policyVersion:CONTRACT_SERVICE_ROLE_VERSION}))
   };

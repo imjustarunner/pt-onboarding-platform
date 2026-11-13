@@ -121,7 +121,7 @@
         <p class="muted">Confirm these values against the candidate and your agency records.</p>
         <button type="button" class="btn btn-primary" :disabled="previewBusy || !contractConfigId" @click="previewContract">{{ previewBusy ? 'Preparing preview…' : 'Update contract preview' }}</button>
         <p v-if="previewError" role="alert" class="error">{{ previewError }}</p>
-        <p v-if="contractPreview?.unresolvedTokens?.length" class="error">Complete these fields: {{ contractPreview.unresolvedTokens.join(', ') }}</p>
+        <p v-if="contractPreview?.unresolvedTokens?.length" class="error">Complete these fields: {{ contractPreview.unresolvedTokens.map(key => CONTRACT_SERVICE_ROLE_FIELD_LABELS[key] || key.replaceAll('_', ' ')).join('; ') }}</p>
         <div v-if="contractPreview?.unresolvedTokens?.length" class="sph-grid"><label v-for="key in additionalContractFields" :key="key">{{ key.replaceAll('_', ' ') }}<input :value="contractOverrides[key]" @input="setAdditionalContractField(key, $event.target.value)" /></label></div>
         <p v-if="contractPreview && !previewMatches" class="sph-warn">Values changed. Update the preview before reviewing it.</p>
         <iframe v-if="contractPreview" class="sph-preview" :srcdoc="contractPreview.html" sandbox="" title="Candidate employment agreement preview" />
@@ -239,6 +239,7 @@ import ContractServiceFocusSelect from '../../components/hiring/ContractServiceF
 import JobDescriptionSections from '../../components/careers/JobDescriptionSections.vue';
 import HireWorkflowEditor from '../../components/admin/HireWorkflowEditor.vue';
 import ContractExpectationsEditor from '../../components/careers/ContractExpectationsEditor.vue';
+import { CONTRACT_SERVICE_ROLE_FIELD_LABELS } from '../../constants/contractServiceRoles.js';
 import { computed, onMounted, onBeforeUnmount, nextTick, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router';
 import api from '../../services/api';
@@ -629,7 +630,7 @@ const contractTokens = computed(() => ({ ...wizardTokens.value, ...contractOverr
   IS_SUPERVISOR: portalWorkflow.value.supervisorRole ? '1' : '0', SUPERVISOR_DUTIES: portalWorkflow.value.supervisorClause || '' }));
 const contractFieldKeys = computed(() => ['START_DATE', 'EXECUTION_DATE', 'EXPIRATION_DATE', 'SUPERVISOR_NAME', 'LICENSURE_DEADLINE', 'MIN_DAYS_PER_WEEK', 'MIN_HOURS', ...(agreementBuilder.value && agreementVariant.value === 'student' ? ['UNIVERSITY_NAME', 'UNIVERSITY', 'TRAINING_START_PHASE'] : []), ...contractFields.map(f => f.key)]);
 const compactToken = key => key.replaceAll('_', '').toUpperCase();
-const additionalContractFields = computed(() => (contractPreview.value?.unresolvedTokens || []).filter(key => !contractFieldKeys.value.some(known => compactToken(known) === compactToken(key))));
+const additionalContractFields = computed(() => (contractPreview.value?.unresolvedTokens || []).filter(key => !CONTRACT_SERVICE_ROLE_FIELD_LABELS[key] && !contractFieldKeys.value.some(known => compactToken(known) === compactToken(key))));
 function setAdditionalContractField(key, value) {
   const canonical = Object.keys(wizardTokens.value).find(known => known.includes('_') && compactToken(known) === compactToken(key)) || key;
   contractOverrides[key] = value;
