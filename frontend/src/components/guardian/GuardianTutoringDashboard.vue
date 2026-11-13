@@ -36,7 +36,7 @@
       </div>
     </section>
 
-    <GuardianClinicalBooking :client-id="Number(clientId)" :agency-id="careContext?.agencyId" :service-id="careContext?.serviceId" @booked="load" />
+    <GuardianClinicalBooking learning :client-id="Number(clientId)" :agency-id="careContext?.agencyId" :service-id="careContext?.serviceId" @booked="load" />
     <TutorOfficeStatus :key="clientId" :client-id="clientId" />
     <div class="gtd-grid">
       <section class="gtd-card gtd-packages">

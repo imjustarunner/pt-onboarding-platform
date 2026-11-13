@@ -43,7 +43,7 @@ export async function guardianBookingOptions(input) {
     if (learning) {
       const offered = await readProviderServices(provider.id, agency.id);
       if (!offered.careEligibility.canProvideCare || !offered.services.some(s=>s.serviceType==='tutoring'&&s.offered&&s.onlineScheduling)) continue;
-      const [[profile]]=await pool.execute('SELECT payment_policy FROM provider_tutoring_profiles WHERE agency_id=? AND user_id=?',[agency.id,provider.id]);
+      const [[profile]]=await pool.execute("SELECT COALESCE(payment_policy, 'POST_SESSION') AS payment_policy FROM provider_tutoring_profiles WHERE agency_id=? AND user_id=?",[agency.id,provider.id]);
       if (profile?.payment_policy !== 'POST_SESSION') continue;
     }
     try { if (!learning) await requireClientSessionBooking(agency.id,provider.id); } catch(error) { if(error.code==='CLIENT_SESSION_BOOKING_NOT_ENABLED') continue; throw error; }

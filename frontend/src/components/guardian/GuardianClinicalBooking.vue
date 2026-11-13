@@ -1,5 +1,9 @@
 <template>
-  <section v-if="choices.length" class="family-booking">
+  <section v-if="choices.length || learning" class="family-booking">
+    <p v-if="optionsLoading" role="status">{{ ft('Loading appointment options…') }}</p>
+    <p v-if="error" role="alert">{{ error }} <button type="button" :disabled="busy || optionsLoading" @click="loadOptions">{{ ft('Try again') }}</button></p>
+    <p v-if="learning && !optionsLoading && !choices.length && !error">{{ ft('Your learning team can help arrange the next appointment.') }}</p>
+    <template v-if="choices.length">
     <button v-if="!open" type="button" @click="open=true;loadSlots()">{{ ft("Book a session") }}</button>
     <form v-else @submit.prevent="book">
       <header><h3>{{ ft("Book a session") }}</h3><button type="button" @click="open=false">{{ ft("Close") }}</button></header>
@@ -14,9 +18,10 @@
         <p>{{ ft("Booking records the agreed session price. Payment is handled separately; this action does not charge a card.") }}</p>
         <label><input type="checkbox" v-model="confirmed" required /> {{ ft("I acknowledge the session price and attendance policy.") }}</label>
       </section>
-      <p v-if="error" role="alert">{{ error }}</p><p v-if="notice" role="status">{{ notice }}</p>
+      <p v-if="notice" role="status">{{ notice }}</p>
       <button :disabled="busy||loading||slotIndex===null||!confirmed">{{ busy?ft('Booking…'):ft('Confirm booking') }}</button>
     </form>
+    </template>
   </section>
 </template>
 <script setup>
@@ -24,9 +29,10 @@ import { useFamilyLocale } from '../../composables/useFamilyLocale';
 const { ft, locale: familyLocale } = useFamilyLocale();
 import {ref,computed,watch} from 'vue';
 import {usePortalCareApi} from '../../composables/usePortalCareApi';
-const props=defineProps({agencyId:[String,Number],serviceId:[String,Number],clientId:Number});const emit=defineEmits(['booked']);const api=usePortalCareApi();
+const props=defineProps({learning:Boolean,agencyId:[String,Number],serviceId:[String,Number],clientId:Number});const emit=defineEmits(['booked']);const api=usePortalCareApi();
 const choices=ref([]),selected=ref(0),open=ref(false),slots=ref([]),slotIndex=ref(null),confirmed=ref(false),loading=ref(false),busy=ref(false),error=ref(''),notice=ref(''),timeZone=ref('America/Denver');
 const week=ref(new Date().toLocaleDateString('en-CA',{timeZone:'America/Denver'}));let generation=0;
+const optionsLoading=ref(false);
 const choice=computed(()=>choices.value[selected.value]);
 const money=cents=>new Intl.NumberFormat(familyLocale.value,{style:'currency',currency:'USD'}).format((cents||0)/100);
 const when=value=>new Date(value).toLocaleString(familyLocale.value,{timeZone:timeZone.value,dateStyle:'medium',timeStyle:'short'});
@@ -43,9 +49,13 @@ async function book(){
     if(own===generation){await loadSlots();notice.value=ft('Appointment #{id} is booked for {when}.', {id: data.appointmentId, when: when(data.startAt)});emit('booked');}
   }catch(e){if(own===generation){error.value=e.response?.data?.error?.message||ft("Booking could not be completed. Refresh appointments before trying again.");resetSelection();}}finally{busy.value=false;}
 }
-watch(()=>[props.clientId,props.agencyId,props.serviceId],async()=>{const own=++generation;choices.value=[];open.value=false;resetSelection();if(!props.clientId)return;
-  try{const {data}=await api.get(`/guardian-portal/clients/${props.clientId}/session-booking`,{params:{agencyId:props.agencyId,serviceId:props.serviceId},skipGlobalLoading:true});if(own===generation){choices.value=Array.isArray(data.choices)?data.choices:[];selected.value=0;}}catch{/* Other practices keep their current booking flow. */}
-},{immediate:true});
+async function loadOptions(){const own=++generation;choices.value=[];open.value=false;error.value='';resetSelection();if(!props.clientId)return;
+  optionsLoading.value=true;
+  try{const {data}=await api.get(`/guardian-portal/clients/${props.clientId}/session-booking`,{params:{agencyId:props.agencyId,serviceId:props.serviceId},skipGlobalLoading:true});if(own===generation){choices.value=Array.isArray(data.choices)?data.choices:[];selected.value=0;}}
+  catch(e){if(own===generation&&props.learning)error.value=e.response?.data?.error?.message||ft('Appointment options could not be loaded. Please try again.');}
+  finally{if(own===generation)optionsLoading.value=false;}
+}
+watch(()=>[props.clientId,props.agencyId,props.serviceId],loadOptions,{immediate:true});
 </script>
 <style scoped>
 .family-booking{margin:16px 0;padding:16px;background:#f0f7ff;border:1px solid #cfdeed;border-radius:12px}.family-booking header{display:flex;justify-content:space-between;align-items:center}.family-booking label{display:flex;gap:8px;align-items:center;margin:12px 0}.family-booking select{max-width:100%}.family-booking fieldset{max-height:300px;overflow:auto;border:1px solid #cfdeed}.policy{padding:16px;background:white;border-radius:8px;margin:16px 0}.family-booking button{padding:10px 16px;border-radius:8px;cursor:pointer}

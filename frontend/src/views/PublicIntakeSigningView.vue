@@ -10071,7 +10071,7 @@ const loadLink = async ({ background = false } = {}) => {
     await applyCoGuardianInviteFromQuery();
     void hydrateHeavyIntakeAssets();
   } catch (e) {
-    fatalError.value = e.response?.data?.error?.message || 'Failed to load enrollment link';
+    fatalError.value = publicEnrollmentCopy(e.response?.data?.error?.message || 'Failed to load enrollment link',intakeLocale.value);
   } finally {
     loading.value = false;
   }
