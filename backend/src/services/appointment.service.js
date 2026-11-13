@@ -12,6 +12,8 @@ import {reconcileClinicalAfterHours,savedOfficeBookingTimezone} from './clinical
 import pool from '../config/database.js';
 import AgencyServiceLocation from '../models/AgencyServiceLocation.model.js';
 import { ensureAppointmentClinicalLink, assertAppointmentClients } from './appointmentClinicalLink.service.js';
+import { assertClientServiceSchedulingActive } from './clientServiceSchedulingGuard.service.js';
+import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
 import User from '../models/User.model.js';
 import { validateSchedulingSelection } from './schedulingTaxonomy.service.js';
 import Appointment from '../models/Appointment.model.js';
@@ -251,6 +253,8 @@ async function createLockedAppointment({
   }
 
   const bookingClients = await assertAppointmentClients(aid, participants);
+  for (const client of bookingClients) await assertClientServiceSchedulingActive({ agencyId:aid, providerUserId,
+    clientId:client.id, businessType:businessType || (['learning','tutoring'].includes(client.client_type)?'learning':null), source, providerScheduleEventId,officeEventId });
   if (!businessType || ['mental_health', 'healthcare'].includes(businessType) || bookingClients.some(client => ['clinical', 'school'].includes(client.client_type))) {
     await requireClientSessionBooking(aid, providerUserId);
   }
@@ -467,7 +471,9 @@ async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId 
     } else await requireAppointmentRequestProvider(appointmentId, actorUserId, { onlyPending: true });
   }
   if (patch.startAt || patch.endAt || patch.participants || ['scheduled','confirmed'].includes(patch.status)) {
-    await assertAppointmentClients(existing.agencyId, patch.participants || await Appointment.listParticipants(appointmentId));
+    const clients=await assertAppointmentClients(existing.agencyId, patch.participants || await Appointment.listParticipants(appointmentId));
+    for(const client of clients||[])await assertClientServiceSchedulingActive({agencyId:existing.agencyId,providerUserId:patch.providerUserId||existing.providerUserId,
+      clientId:client.id,businessType:patch.businessType||existing.businessType,source:existing.source,providerScheduleEventId:existing.providerScheduleEventId,officeEventId:existing.officeEventId});
   }
   if (patch.serviceLocationId != null) {
     const location = await AgencyServiceLocation.findById(patch.serviceLocationId);
@@ -652,14 +658,19 @@ export async function cancelAppointment(appointmentId, {
   clientId = null,
   waive = false,
   waiverReason = null,
-  expectedFeeCents = null
+  expectedFeeCents = null,
+  expectedPolicyId = undefined,
+  expectedPackageAction = null,
+  cancellationAt = null,
+  deferNotification = false
 } = {}) {
   const existing = await Appointment.findById(appointmentId);
   if (!existing) return null;
   if (existing.productOrigin === 'auricwell_ehr') throw Object.assign(new Error('Use the practice EHR cancellation workflow for this appointment.'), { status: 409 });
 
   const { requireAppointmentRequestProvider, recordGuardianAppointmentApproval } = await import('./guardianAppointments.service.js');
-  if (actorRole === 'guardian') {
+  const familyCancellationActor=['guardian','client_guardian','client'].includes(actorRole);
+  if (familyCancellationActor) {
     const { requireGuardianCancellation } = await import('./guardianAppointments.service.js');
     await requireGuardianCancellation({ userId: actorUserId, clientId, appointment: existing });
   } else {
@@ -686,7 +697,8 @@ export async function cancelAppointment(appointmentId, {
     appointment: existing,
     actorRole,
     clientId: billingClientId,
-    waive: !!waive
+    waive: !!waive,
+    ...(cancellationAt ? { now: parseUtcDate(cancellationAt) } : {})
   });
   const providerCaused = !['client', 'client_guardian', 'guardian'].includes(String(actorRole).toLowerCase())
     && (!status || ['canceled_by_provider', 'canceled_by_organization'].includes(status));
@@ -713,6 +725,10 @@ export async function cancelAppointment(appointmentId, {
   if (expectedFeeCents !== null && Number(evaluation.recommendedFeeCents || 0) !== expectedFeeCents) {
     throw Object.assign(new Error('The cancellation fee changed. Review the current fee before confirming.'),
       { status: 409, code: 'CANCELLATION_FEE_CHANGED' });
+  }
+  if ((expectedPolicyId !== undefined && String(evaluation.policy?.id || '') !== String(expectedPolicyId || ''))
+      || (expectedPackageAction !== null && evaluation.recommendedPackageAction !== expectedPackageAction)) {
+    throw Object.assign(new Error('The cancellation policy changed. Review it again before confirming.'), {status:409,code:'CANCELLATION_POLICY_CHANGED'});
   }
 
   const nextStatus = Appointment.normalizeStatus(
@@ -745,10 +761,10 @@ export async function cancelAppointment(appointmentId, {
     cancellationReason: notificationFacts.clientFacingReason,
     cancellationFeeCents: waive ? 0 : evaluation.recommendedFeeCents,
     cancellationRecommendationJson: evaluation,
-    canceledAt: toMysqlDateTime(new Date()),
+    canceledAt: toMysqlDateTime(cancellationAt ? parseUtcDate(cancellationAt) : new Date()),
     canceledByUserId: actorUserId,
     updatedByUserId: actorUserId
-  }, { actorUserId, guardianCancellationClientId: actorRole === 'guardian' ? billingClientId : null });
+  }, { actorUserId, guardianCancellationClientId: familyCancellationActor ? billingClientId : null });
 
   try {
     await cancelPendingReminders(appointmentId);
@@ -778,10 +794,11 @@ export async function cancelAppointment(appointmentId, {
   }
   // review: leave reservation as-is for staff resolution
   const { releaseAppointmentCalendar } = await import('./appointmentCalendarMaintenance.service.js');
-  await releaseAppointmentCalendar(existing, actorUserId);
+  if(deferNotification)await releaseAppointmentCalendar(existing, actorUserId,{preserveProviderReservation:true});
+  else await releaseAppointmentCalendar(existing, actorUserId);
 
   await recordGuardianAppointmentApproval(appointmentId, actorUserId);
-  const notificationDelivery = await notifyAppointmentCancellation(appointmentId, notificationFacts, actorUserId);
+  const notificationDelivery = deferNotification ? null : await notifyAppointmentCancellation(appointmentId, notificationFacts, actorUserId);
   return { ...bundle, cancellationEvaluation: evaluation, notificationDelivery };
 }
 

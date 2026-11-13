@@ -37,13 +37,27 @@ export function cancellationClientDetails(facts = {}, { requireReason = true } =
   if (!Object.hasOwn(CANCELLATION_FOLLOW_UP, followUpAction)) throw fail('Choose a follow-up action for the client.');
   if (followUpAction === 'replacement_booked' && !Number(facts.replacementAppointmentId)) throw fail('Link the replacement appointment before telling the client it is booked.');
   const followUpMessage = String(facts.followUpMessage || '').trim();
+  const personalNote = String(facts.personalNote || '').trim();
+  if (personalNote.length > 1000) throw fail('Keep the personal note within 1,000 characters.');
   if (followUpMessage.length > 1000) throw fail('Keep the client follow-up message within 1,000 characters.');
-  return { clientFacingReason: reason, followUpAction, followUpMessage, notificationMode: choices.notificationMode };
+  return { clientFacingReason: reason, followUpAction, followUpMessage, personalNote, notificationMode: choices.notificationMode };
 }
 
 export function buildCancellationNotification(appointment, facts, resolved = {}) {
   const noShow = facts.eventType === 'no_show';
   const details = cancellationClientDetails(facts, { requireReason: !noShow });
+  if (facts.guardianSummary && facts.guardianCancellationOperationId) {
+    const summary=facts.guardianSummary,count=Number(summary.count),fee=Number(summary.totalFeeCents||0);
+    if(!Number.isSafeInteger(count)||count<0||(count===0&&!summary.endsService)||!Number.isSafeInteger(fee)||fee<0)throw fail('A valid cancellation summary is required.');
+    const paragraphs=[count?`${count} future appointment${count===1?' has':'s have'} been canceled.`:'No future appointments remained to cancel.',
+      ...(summary.endsService?[`You have ended ${summary.serviceLabel || 'this service'} with this provider. No further appointments in this service remain scheduled. Other services and agencies are unchanged.`]:['Other appointments outside this selection remain scheduled.']),
+      `Reason: ${details.clientFacingReason}`,fee>0?`The total cancellation fee is ${new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(fee/100)}. Review the individual charges in your portal.`:'No additional cancellation fee was charged for this selection.'];
+    const note=details.personalNote?`<p><strong>A personal note</strong><br><em>${escapeHtml(details.personalNote).replaceAll('\n','<br>')}</em></p>`:'';
+    const html=paragraphs.map(p=>`<p>${escapeHtml(p)}</p>`).join('')+note;
+    return {...details,subject:summary.endsService?'Your service and future appointments have been canceled':'Your appointment cancellation confirmation',
+      text:[...paragraphs,...(details.personalNote?[`A personal note:\n${details.personalNote}`]:[])].join('\n\n'),
+      html,bodyHtml:html,bodyText:paragraphs.join('\n\n'),sms:'Your cancellation is confirmed. Please review the summary in your secure portal.'};
+  }
   const when = new Intl.DateTimeFormat('en-US', { dateStyle: 'full', timeStyle: 'short',
     timeZone: appointment.sourceTimezone || 'America/Denver' }).format(parseUtcDate(appointment.startAt));
   const nextText = resolved.nextAppointment

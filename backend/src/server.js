@@ -2846,6 +2846,18 @@ if (shouldStartServerBackgroundJobs()) {
   };
   setTimeout(ownedOfficeBookingTick, 5000).unref();
   setInterval(ownedOfficeBookingTick, 5000).unref();
+  let guardianCancellationRunning=false;
+  const guardianCancellationTick=async()=>{
+    if(guardianCancellationRunning)return;
+    guardianCancellationRunning=true;
+    try {
+      const {canRunSchedulingMaintenance}=await import('./services/schedulingWorkerGate.js');
+      if(await canRunSchedulingMaintenance())await(await import('./services/guardianServiceCancellation.service.js')).guardianServiceCancellations.processPending();
+    }catch(error){console.warn('[Guardian cancellation] Retry pending',error.code||'error');}
+    finally{guardianCancellationRunning=false;}
+  };
+  setTimeout(guardianCancellationTick,5000).unref();
+  setInterval(guardianCancellationTick,5000).unref();
   const recurringCalendarTick=async()=>{
     if(recurringCalendarRunning)return;
     recurringCalendarRunning=true;

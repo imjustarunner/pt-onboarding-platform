@@ -16,3 +16,9 @@ it('never grants access just because the requested profile exists',async()=>{awa
 it('distinguishes providers and services at the same location',()=>{const a={agencyId:6,providerUserId:21,businessType:'learning'};expect(serviceMatchesAppointment(services[1],a)).toBe(true);expect(serviceMatchesAppointment(services[0],a)).toBe(false);expect(serviceMatchesAppointment(services[1],{...a,agencyId:2})).toBe(false);expect(serviceMatchesAppointment(services[1],{...a,providerUserId:20})).toBe(false);});
 it('ending counseling preserves another active tutoring service',async()=>{const result=await endProviderCounselingService({clientId:4,agencyId:6,providerUserId:20});expect(result.remainingActive).toBe(1);const changes=pool.execute.mock.calls.filter(([q])=>q.startsWith('UPDATE client_service_enrollments'));expect(changes.map(([,v])=>v[1])).toEqual([11]);expect(pool.execute.mock.calls.some(([q])=>q.includes("status='ARCHIVED'"))).toBe(false);});
 it('does not silently reopen a service staff already ended',async()=>{pool.execute.mockResolvedValue([[{id:12,is_active:0}]]);await ensureClientService({clientId:4,agencyId:6,providerUserId:21,serviceKind:'tutoring'});expect(pool.execute.mock.calls.some(([q])=>q.startsWith('INSERT'))).toBe(false);});
+
+it('keeps ended-service appointment history readable without letting it be used to restart booking',async()=>{
+ pool.execute.mockImplementation(async sql=>sql.includes('SELECT c.id')?[[{id:4}]]:sql.includes('FROM client_service_enrollments')?[[{...services[0],is_active:0}]]:[{}]);
+ await expect(guardianServiceContext({userId:9,clientId:4,agencyId:6,serviceId:11,scope:null})).rejects.toHaveProperty('status',403);
+ const result=await guardianServiceContext({userId:9,clientId:4,agencyId:6,serviceId:11,scope:null,allowEndedServices:true});expect(result.service.is_active).toBe(0);expect(requireClinicalScope).not.toHaveBeenCalled();
+});

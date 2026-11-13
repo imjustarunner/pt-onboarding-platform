@@ -1,4 +1,7 @@
 import { withClientSchedulingLock, hasClientSchedulingLock } from './clientSchedulingGuard.service.js';
+import { assertClientServiceSchedulingActive } from './clientServiceSchedulingGuard.service.js';
+import TenantService from '../models/TenantService.model.js';
+import Client from '../models/Client.model.js';
 import { publishOfficeAssignmentEvent } from './officeAssignmentBookingAvailability.service.js';
 import { officePlanHasClient, officeYearBoundary, withinOfficeRecordWindow } from '../utils/officeRecordWindow.js';
 import { officeBookingAgencyId } from '../utils/officeBookingAgency.js';
@@ -402,6 +405,12 @@ export class OfficeScheduleMaterializer {
           if (hasMatchingRow) continue;
 
           await withClientSchedulingLock([sessionContext?.clientId], async () => {
+            if(sessionContext?.clientId) {
+              const service=sessionContext.tenantServiceId?await TenantService.findById(sessionContext.tenantServiceId,sessionContext.agencyId):null;
+              const client=service?null:await Client.findById(sessionContext.clientId);
+              await assertClientServiceSchedulingActive({agencyId:sessionContext.agencyId,providerUserId:a.provider_id,clientId:sessionContext.clientId,
+                businessType:service?.businessType||(['learning','tutoring'].includes(client?.client_type)?'learning':null),officeBookingPlanId:desiredPlanId});
+            }
             const sessionEvent = await OfficeEvent.upsertSlotState({
               allowAutomaticReservationDowngrade: appointmentsOnly,
               officeLocationId: officeId,
@@ -437,7 +446,7 @@ export class OfficeScheduleMaterializer {
           }).catch(error => {
             // Pending termination owns these dates; render other slots while its
             // durable cleanup retries, without creating more client reservations.
-            if (error.code !== 'CLIENT_TERMINATION_PENDING') throw error;
+            if (!['CLIENT_TERMINATION_PENDING','CLIENT_SERVICE_ENDED','CLIENT_SERIES_ENDED'].includes(error.code)) throw error;
           });
         }
       }

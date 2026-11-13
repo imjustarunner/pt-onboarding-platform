@@ -339,6 +339,8 @@ jobs:
           src/components/schedule/__tests__/AppointmentCommunicationsPanel.test.js
           src/components/schedule/__tests__/OfferedTimeDialog.test.js
           src/components/guardian/__tests__/GuardianAppointmentsPanel.test.js
+          src/components/guardian/__tests__/GuardianCancellation.test.js
+          src/components/guardian/__tests__/GuardianCancellationDialog.test.js
           src/composables/__tests__/AppointmentChangeWizard.test.js
           src/components/schedule/__tests__/SchoolSupportCancellationBenefit.test.js
           src/composables/__tests__/useAppointmentChange.test.js
@@ -399,7 +401,7 @@ jobs:
       - name: Clinical catalog and reminder persistence
         env:
           CLINICAL_INTEGRATION_MYSQL_PORT: '3306'
-        run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.clinical-integrations.config.js backend/src/services/__tests__/clinicalIntegration.mysql.test.js
+        run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.clinical-integrations.config.js backend/src/services/__tests__/clinicalIntegration.mysql.test.js backend/src/services/__tests__/guardianCancellation.mysql.test.js
       - name: One-session alert persistence and concurrent workers
         env:
           PORTAL_ACTIVITY_MYSQL_PORT: '3306'

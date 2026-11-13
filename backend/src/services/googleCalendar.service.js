@@ -1488,7 +1488,7 @@ export class GoogleCalendarService {
     return { ok: true };
   }
 
-  static async cancelBookedOfficeEvent({ officeEventId }) {
+  static async cancelBookedOfficeEvent({ officeEventId, sendUpdates = 'all' }) {
     const eid = parseInt(officeEventId, 10);
     if (!eid) return { ok: false, reason: 'invalid_office_event_id' };
 
@@ -1526,7 +1526,7 @@ export class GoogleCalendarService {
     const cal = this.buildCalendarClientForSubject(providerEmail);
     const calendarId = 'primary';
     try {
-      await cal.events.delete({ calendarId, eventId: googleEventId, sendUpdates: 'all' });
+      await cal.events.delete({ calendarId, eventId: googleEventId, sendUpdates: ['all','none','externalOnly'].includes(sendUpdates)?sendUpdates:'all' });
       await pool.execute(
         `UPDATE office_events
          SET google_sync_status = 'SYNCED',

@@ -17,6 +17,12 @@ export function buildScheduleNoticeMessage(entries, portalUrl, { recipientUserId
   const sections = entries.filter(e => !linkedReplacements.has(Number(e.appointment.id))).map(({ appointment: a, payload, cancellation }) => {
     if (cancellation?.replacementAppointmentId) return cancellation;
     if (cancellation) {
+      if(payload.facts?.guardianSummary && payload.facts?.guardianCancellationOperationId) {
+        if(Number(recipientUserId)>0 && Number(recipientUserId)===Number(payload.facts.cancellationActorUserId))return cancellation;
+        const summary=payload.facts.guardianSummary;
+        const text=`${summary.count?`${summary.count} future appointment${summary.count===1?' has':'s have'} been canceled.`:'No future appointments remained to cancel.'}${summary.endsService?` The ${summary.serviceLabel||'selected'} service with this provider has ended.`:''} Other services are unchanged. ${FAMILY_APPOINTMENT_LOGIN}`;
+        return {...cancellation,text,html:`<p>${escapeNoticeHtml(text)}</p>`,sms:text};
+      }
       if (payload.facts?.absenceSource) return { ...cancellation, text:cancellation.bodyText || cancellation.text, html:cancellation.bodyHtml || cancellation.html };
       if (cancellation.noShow) return { ...cancellation, sms: `Please review the missed appointment notice in your secure portal. ${FAMILY_APPOINTMENT_LOGIN}` };
       const attribution = familyCancellationAttribution(a,payload.facts,recipientUserId);
