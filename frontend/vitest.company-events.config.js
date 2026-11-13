@@ -15,6 +15,8 @@ export default defineConfig({
       'src/utils/__tests__/eventOperations.test.js',
       'src/utils/__tests__/companyEventRsvpEvents.test.js',
       'src/utils/__tests__/companyEventInvitationHost.test.js',
+      'src/utils/__tests__/publicBrowserBranding.test.js',
+      'src/utils/__tests__/sharePreview.test.js',
       'src/utils/__tests__/loginHandoff.test.js',
       'src/utils/__tests__/completePasswordTokenLogin.portal.test.js',
       'src/views/public/__tests__/CompanyEventStaffView.test.js',

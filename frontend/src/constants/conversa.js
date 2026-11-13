@@ -8,6 +8,11 @@ export const CONVERSA_PRODUCT_URL = 'https://plottwistco.com/conversa';
 export const CONVERSA_ASSET_REVISION = '20261103-therapy';
 export const CONVERSA_ICON_URL = `/assets/conversa/mark.svg?v=${CONVERSA_ASSET_REVISION}`;
 export const CONVERSA_LOGO_URL = `/assets/conversa/brand/conversa-logo-horizontal.svg?v=${CONVERSA_ASSET_REVISION}`;
+export const CONVERSA_EVENT_LOGO_URL = '/assets/conversa/brand/conversa-logo-events.svg?v=20261112';
+export function conversaEventBrowserBranding(path = '/') {
+  return /^\/conversa\/(?:events|login)(?:\/|$)/.test(String(path))
+    ? { slug: 'conversa', title: 'Conversa | Events', favicon: CONVERSA_ICON_URL } : null;
+}
 export const CONVERSA_PREVIEW_URL = `/assets/conversa/ui/conversa-therapy-preview-20261103.png?v=${CONVERSA_ASSET_REVISION}`;
 export const CONVERSA_TAGLINE = 'Every conversation, clearly connected.';
 

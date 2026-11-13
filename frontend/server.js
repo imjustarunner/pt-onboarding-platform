@@ -40,7 +40,7 @@ app.use((req,res,next)=>{
 });
 
 app.get(/^\/mobile(?:\/|$)/, (_req,res)=>res.set('Cache-Control','no-store').set('X-Robots-Tag','noindex,nofollow').sendFile(join(distPath,'mobile.html')));
-app.get(/^\/conversa\//, (_req,res)=>res.set('Cache-Control','no-store').set('X-Robots-Tag','noindex,nofollow').sendFile(join(distPath,'index.html')));
+app.get(/^\/conversa\//, (_req,res)=>res.set('Cache-Control','no-store').set('X-Robots-Tag','noindex,nofollow').sendFile(join(distPath,'_public-sites/conversa-events/index.html')));
 
 console.log(`Serving files from: ${distPath}`);
 console.log(`Dist directory exists: ${existsSync(distPath)}`);
