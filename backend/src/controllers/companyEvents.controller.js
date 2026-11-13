@@ -1142,8 +1142,18 @@ async function listEventsVisibleToUser(userId, agencyIds = [], options = {}) {
 }
 
 async function listEventResponseSummary(eventId) {
-  const [[row]]=await pool.execute('SELECT voting_config_json FROM company_events WHERE id=?',[eventId]);
+  const [[row]]=await pool.execute('SELECT event_type,organization_id,rsvp_mode,voting_config_json FROM company_events WHERE id=?',[eventId]);
   const config=parseVotingConfig(parseJsonMaybe(row?.voting_config_json));
+  if (row && isCompanyGathering(row) && row.rsvp_mode !== 'custom_vote') {
+    const [responses] = await pool.execute('SELECT user_id,response_key,response_label FROM company_event_responses WHERE company_event_id=?', [eventId]);
+    const summary = ['yes','no','maybe'].map(key => ({ key, label: {yes:'Yes',no:'No',maybe:'Maybe'}[key], total: 0 }));
+    for (const response of responses) {
+      const key = normalizeCompanyEventRsvp(response);
+      const bucket = summary.find(item => item.key === key);
+      if (bucket) bucket.total++;
+    }
+    return summary;
+  }
   return reviewedPollSummary(eventId,config.options);
 }
 

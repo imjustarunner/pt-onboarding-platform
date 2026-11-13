@@ -4,6 +4,7 @@ import { normalizeSmsPhone } from '../utils/smsThreadIdentity.js';
 import { readEventOperations } from '../utils/companyEventOperations.js';
 import { computeNextOccurrence } from './companyEvents.service.js';
 import { isCompanyEventInvitee } from './companyEventAudience.service.js';
+import { resolveCompanyEventInvitationLinks } from './companyEventLinks.service.js';
 import { smsPolicyError, formatRegisteredSms } from '../utils/smsCompliancePolicy.js';
 import { assertCompanyEventSmsCampaign, buildCompanyEventSms, parseCompanyEventSmsCommand, selectCompanyEventSmsReply, normalizeCompanyEventDeliveryStatus } from '../utils/companyEventSms.js';
 
@@ -127,7 +128,7 @@ export async function handleCompanyEventTopicInbound({ from, to, body, messageId
   const phone = normalizeSmsPhone(from);
   if (!phone) return null;
   const [rows] = await db.execute(`SELECT d.*, t.code, e.title, e.is_active, e.starts_at, e.ends_at, e.recurrence_json, e.voting_closed_at,
-      e.operations_json, e.rsvp_deadline, e.event_type
+      e.operations_json, e.rsvp_deadline, e.event_type, e.potluck_enabled, e.staff_link_token
     FROM company_event_sms_deliveries d
     JOIN company_event_sms_topics t ON t.company_event_id = d.company_event_id
     JOIN company_events e ON e.id = d.company_event_id AND e.agency_id = d.agency_id
@@ -139,6 +140,10 @@ export async function handleCompanyEventTopicInbound({ from, to, body, messageId
   if (!selected) return null;
   if (selected.ambiguous) return { handled: true, agencyId: Number(sender.agency_id), purpose: rows.some(row => row.dispatch_type === 'rsvp_invitation') ? 'workforce' : 'polling', responseMessage: `Which event? Reply Yes, No or Maybe followed by its code: ${selected.codes.join(', ')}.` };
   if (command.type === 'mute') {
+    if (selected.purpose !== 'polling' && !command.explicit) {
+      return { handled: true, agencyId: Number(sender.agency_id), purpose: selected.purpose, eventId: selected.company_event_id,
+        responseMessage: `For "${selected.title}", reply Yes ${selected.code}, No ${selected.code}, or Maybe ${selected.code}. Your RSVP and text preferences have not changed. To mute only this event, reply MUTE ${selected.code}.` };
+    }
     await db.execute(`INSERT INTO company_event_sms_preferences (company_event_id, phone, provider_message_id) VALUES (?, ?, ?)
       ON DUPLICATE KEY UPDATE provider_message_id = VALUES(provider_message_id)`, [selected.company_event_id, phone, messageId || null]);
     // This acknowledgment never clears campaign STOP and needs the existing permission to send.
@@ -180,8 +185,16 @@ export async function handleCompanyEventTopicInbound({ from, to, body, messageId
       response_label=VALUES(response_label),response_body=VALUES(response_body),source='sms',from_number=VALUES(from_number),received_at=UTC_TIMESTAMP()`,
     [selected.company_event_id, selected.user_id, response, { yes: 'Yes', no: 'No', maybe: 'Maybe' }[response], String(body).slice(0,2000), phone]);
     await db.execute('UPDATE company_event_sms_deliveries SET response_key = ?, responded_at = UTC_TIMESTAMP() WHERE id = ?', [response, selected.id]);
+    let nextStep = '';
+    if (selected.potluck_enabled && response !== 'no') {
+      nextStep = ' Potluck: sign in on the event page to choose or update what you’re bringing.';
+      try {
+        const links = await resolveCompanyEventInvitationLinks(event, null, db);
+        if (links.detailsUrl) nextStep += ` ${links.detailsUrl}`;
+      } catch { /* The saved RSVP still gets its confirmation if link lookup fails. */ }
+    }
     return { handled: true, agencyId: Number(sender.agency_id), purpose: 'workforce', eventId: selected.company_event_id,
-      responseMessage: `Thanks! Your RSVP for "${selected.title}" is ${response}. You can reply again to update it.` };
+      responseMessage: `Thanks! Your RSVP for "${selected.title}" is ${response}. To change it, reply Yes ${selected.code}, No ${selected.code}, or Maybe ${selected.code}.${nextStep}` };
   }
   if (selected.voting_closed_at || Number(selected.is_active) === 0 || ended) {
     return { handled: true, agencyId: Number(sender.agency_id), purpose: selected.purpose, eventId: selected.company_event_id,
@@ -259,7 +272,7 @@ export async function getCompanyEventSmsConsentDetails(eventRow) {
     const registration = sender.registration;
     const programName = `${registration.brandName} ${audience === 'staff' ? 'Employee and Company Event' : 'Service Event'} Texting`;
     return { enabled: true, campaignNumber, purpose, programName, programKey: audience === 'staff' ? 'polling' : 'operations', privacyUrl: registration.privacyUrl, termsUrl: registration.termsUrl, supportContact: registration.supportContact,
-      disclosure: `Optional: I agree to receive texts from ${registration.brandName} about this event. Message frequency varies. Message and data rates may apply. Reply with the event code to mute this event, STOP to opt out of this texting program, or HELP for help. Consent is not required to attend or receive services. Enrollment requires reviewed SMS consent. Support: ${registration.supportContact}.` };
+      disclosure: `Optional: I agree to receive texts from ${registration.brandName} about this event. Message frequency varies. Message and data rates may apply. Reply MUTE followed by the event code to mute this event, STOP to opt out of this texting program, or HELP for help. Consent is not required to attend or receive services. Enrollment requires reviewed SMS consent. Support: ${registration.supportContact}.` };
   } catch (error) { return { enabled: false, campaignNumber, purpose, programKey: audience === 'staff' ? 'polling' : 'operations', reason: error.code || 'sender_unavailable' }; }
 }
 

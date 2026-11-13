@@ -3,6 +3,8 @@ import { readEventOperations } from '../utils/companyEventOperations.js';
 import { isCompanyEventInvitee, listCompanyEventInvitees } from '../services/companyEventAudience.service.js';
 import { canManageEventConversation } from '../services/companyEventConversation.service.js';
 import { saveStaffPotluckContribution } from '../services/staffEventPotluck.service.js';
+import { isCompanyGathering } from '../services/companyEventPersonalAgenda.service.js';
+import { companyEventInvitationLinks } from '../services/companyEventLinks.service.js';
 
 async function loadStaffLink(req) {
   const id = Number(req.params.id);
@@ -19,6 +21,33 @@ async function authorizedEvent(req, res) {
     res.status(403).json({ error: { message: 'This private page is available to event invitees and coordinators.' } }); return null;
   }
   return event;
+}
+
+/** An unlisted invitation preview. Possession of this shared link never grants
+ * access to staff identities, responses, messages, voting or work records. */
+export async function getCompanyEventInvitationPreview(req, res, next) {
+  try {
+    const event = await loadStaffLink(req);
+    if (!event || !isCompanyGathering(event)) return res.status(404).json({ error: { message: 'Event invitation not found' } });
+    const operations = readEventOperations(event);
+    const ids = [...new Set([Number(event.agency_id), ...operations.invitedAgencyIds.map(Number)])];
+    const [agencies] = await pool.execute(`SELECT id,name,slug,portal_url,custom_domain,logo_path,color_palette FROM agencies WHERE id IN (${ids.map(() => '?').join(',')}) AND is_active=1`, ids);
+    const host = agencies.find(agency => Number(agency.id) === Number(event.agency_id));
+    const links = companyEventInvitationLinks(event, null, host);
+    const providing = typeof event.organizer_providing_json === 'string' ? JSON.parse(event.organizer_providing_json || '[]') : event.organizer_providing_json || [];
+    res.set?.('Cache-Control', 'no-store');
+    res.set?.('X-Robots-Tag', 'noindex, nofollow');
+    return res.json({
+      event: { id: event.id, title: event.title, description: event.description || '', eventType: event.event_type,
+        startsAt: event.starts_at, endsAt: event.ends_at, timezone: event.timezone, dateToBeDecided: !event.starts_at,
+        eventLocationName: event.event_location_name || '', eventLocationAddress: event.event_location_address || '',
+        rsvpDeadline: event.rsvp_deadline, potluckEnabled: !!event.potluck_enabled, organizerProviding: providing,
+        heroImageUrl: event.public_hero_image_url || '', publicHeroFocalPoint: event.public_hero_focal_point || 'center' },
+      branding: { agencyName: agencies.map(agency => agency.name).filter(Boolean).join(' + '), logoUrl: host?.logo_path || '' },
+      agencies: agencies.map(agency => ({ name: agency.name, logoUrl: agency.logo_path || '' })),
+      canonicalUrl: links.detailsUrl
+    });
+  } catch (error) { next(error); }
 }
 export async function getCompanyEventStaffLink(req, res, next) {
   try {
