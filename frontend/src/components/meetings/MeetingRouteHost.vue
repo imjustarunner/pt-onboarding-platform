@@ -21,7 +21,7 @@ const router = useRouter();
 const route = router.currentRoute;
 const { state, setMiniMode, clearMiniMode } = useActiveMeeting();
 const heldRoute = shallowRef(null);
-const isMeeting = route => /^(Organization)?Join(Supervision|TeamMeeting)$/.test(String(route.name || ''));
+const isMeeting = route => route.name === 'BrandedInterview' || /^(Organization)?Join(Supervision|TeamMeeting)$/.test(String(route.name || ''));
 const mini = computed(() => !!heldRoute.value && state.active);
 const otherMeeting = computed(() => mini.value && isMeeting(route.value) && route.value.path !== heldRoute.value.path);
 const isSupervision = computed(() => String(heldRoute.value?.name || '').endsWith('Supervision'));

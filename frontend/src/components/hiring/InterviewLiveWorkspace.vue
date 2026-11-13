@@ -32,7 +32,11 @@
             <strong>{{ job.title }} · {{ job.employer }}</strong><p class="small">{{ job.startDate }} – {{ job.endDate || 'Present' }}</p>
             <p v-if="job.summary">{{ job.summary }}</p>
             <ul><li v-for="(item, i) in (job.highlights || job.responsibilities || [])" :key="i">{{ item }}</li></ul>
-            <p class="ilw-prompt">Explore: What did you learn in your role at {{ job.employer || 'this organization' }}, and how would it apply here?</p>
+            <p class="ilw-prompt">Explore: {{ roleQuestion(job) }}</p>
+            <button type="button" class="ilw-btn" :disabled="questionSending || guestAccessEnded"
+              :aria-pressed="isSharedQuestion(roleQuestion(job))" @click="toggleSharedQuestion(roleQuestion(job))">
+              {{ isSharedQuestion(roleQuestion(job)) ? 'Remove question' : 'Show question' }}
+            </button>
           </article>
           <article v-if="education.length" class="ilw-source-card"><strong>Education</strong><p v-for="(item, i) in education" :key="i">{{ item.school }} · {{ item.degree }} {{ item.field }}</p></article>
           <article v-if="certifications.length" class="ilw-source-card"><strong>Certifications</strong><p v-for="(item, i) in certifications" :key="i">{{ item.name }}</p></article>
@@ -141,9 +145,10 @@
               {{ isComplete(section.key, q.key || qIdx) ? '✓' : '' }}
             </button>
             <div class="ilw-q-text">{{ q.text || q.prompt || q }}</div>
-            <button class="ilw-btn ilw-show-question" :disabled="questionSending || guestAccessEnded"
-              :aria-label="`Show question: ${q.text || q.prompt || q}`"
-              @click="displayQuestion(String(q.text || q.prompt || q))">Show question</button>
+            <button type="button" class="ilw-btn ilw-show-question" :disabled="questionSending || guestAccessEnded"
+              :aria-pressed="isSharedQuestion(String(q.text || q.prompt || q))"
+              :aria-label="`${isSharedQuestion(String(q.text || q.prompt || q)) ? 'Remove' : 'Show'} question: ${q.text || q.prompt || q}`"
+              @click="toggleSharedQuestion(String(q.text || q.prompt || q))">{{ isSharedQuestion(String(q.text || q.prompt || q)) ? 'Remove question' : 'Show question' }}</button>
           </div>
           <div v-if="!sectionQuestions(section).length && section.prompt" class="ilw-q">
             <div class="ilw-q-text muted">{{ section.prompt }}</div>
@@ -272,7 +277,7 @@ const props = defineProps({
   briefTarget: { type: String, default: null }
 });
 
-const emit = defineEmits(['finalized', 'loaded', 'guest-access-ended']);
+const emit = defineEmits(['finalized', 'loaded', 'guest-access-ended', 'shared-question']);
 
 const authStore = useAuthStore();
 const briefTeleportTarget = ref(null);
@@ -295,6 +300,14 @@ const { question: sharedQuestion, error: questionError, sending: questionSending
   endpoint: computed(() => `/team-meetings/${props.eventId}/interview-question`),
   enabled: computed(() => !!props.eventId && !guestAccessEnded.value)
 });
+watch(sharedQuestion, question => emit('shared-question', question), { immediate: true });
+const isSharedQuestion = text => !!text && sharedQuestion.value.text === text;
+const toggleSharedQuestion = text => displayQuestion(isSharedQuestion(text) ? '' : text);
+const roleQuestion = job => {
+  const current = job.isCurrent === true || job.current === true || !String(job.endDate || '').trim()
+    || /^(present|current|ongoing|now)$/i.test(String(job.endDate).trim());
+  return `What ${current ? 'are you learning' : 'did you learn'} in your role at ${job.employer || 'this organization'}, and how would it apply here?`;
+};
 const error = ref('');
 const interviewId = ref(null);
 const flowSections = ref([]);
@@ -538,33 +551,29 @@ function setRating(key, n) {
   queueSave();
 }
 
-async function regenIcebreaker() {
+const openerHistory = { salutation: new Set(), icebreaker: new Set() };
+async function regenerateOpener(key, pool) {
   try {
-    const pool = icebreakerPool.value;
-    const text = pool[Math.floor(Math.random() * pool.length)];
-    if (!text) return;
-    const sec = flowSections.value.find((s) => s.key === 'icebreaker');
-    if (sec) {
-      sec.item = text;
-      sec.questions = [{ key: 'icebreaker_1', text }];
+    const sec = flowSections.value.find(s => s.key === key);
+    if (!sec) return;
+    const current = String(sectionQuestions(sec)[0]?.text || sec.item || '');
+    const choices = [...new Set(pool.map(text => String(text || '').trim()).filter(Boolean))];
+    openerHistory[key].add(current);
+    let unused = choices.filter(text => !openerHistory[key].has(text));
+    if (!unused.length) {
+      openerHistory[key].clear();
+      unused = choices.filter(text => text !== current);
     }
-    if (sec) await saveArtifacts({ sectionPatch: { ...sec } });
+    const text = unused[Math.floor(Math.random() * unused.length)];
+    if (!text) return;
+    openerHistory[key].add(text);
+    sec.item = text;
+    sec.questions = [{ key: `${key}_1`, text }];
+    await saveArtifacts({ sectionPatch: { ...sec } });
   } catch { error.value = 'Unable to update the interview guide.'; }
 }
-
-async function regenSalutation() {
-  try {
-    const pool = salutationPool.value;
-    const text = pool[Math.floor(Math.random() * pool.length)];
-    if (!text) return;
-    const sec = flowSections.value.find((s) => s.key === 'salutation');
-    if (sec) {
-      sec.item = text;
-      sec.questions = [{ key: 'salutation_1', text }];
-    }
-    if (sec) await saveArtifacts({ sectionPatch: { ...sec } });
-  } catch { error.value = 'Unable to update the interview guide.'; }
-}
+const regenIcebreaker = () => regenerateOpener('icebreaker', icebreakerPool.value);
+const regenSalutation = () => regenerateOpener('salutation', salutationPool.value);
 
 function queueSave() {
   if (autosaveTimer) clearTimeout(autosaveTimer);

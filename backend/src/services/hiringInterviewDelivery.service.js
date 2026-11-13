@@ -6,6 +6,7 @@ import HiringProfile from '../models/HiringProfile.model.js';
 import HiringInterview from '../models/HiringInterview.model.js';
 import { sendHiringInterviewInviteEmail } from './hiringInterviewInviteEmail.service.js';
 import { interviewDeliveryStatus } from './hiringInterviewSender.service.js';
+import { tenantInterviewJoinUrl } from '../utils/tenantMeetingUrl.js';
 
 export async function deliverExistingInterview(interview) {
   if (interview.guest_access_ended_at || ['completed', 'cancelled'].includes(interview.status)) {
@@ -22,7 +23,7 @@ export async function deliverExistingInterview(interview) {
       agencyId: interview.agency_id, candidate, title: interview.display_title || 'Interview invitation',
       whenLabel: new Intl.DateTimeFormat('en-US', { dateStyle: 'full', timeStyle: 'short', timeZone: interview.interview_timezone || 'America/Denver' }).format(interviewDate(interview.interview_starts_at)) + ` (${interview.interview_timezone || 'America/Denver'})`,
       startsAt: interviewDate(event?.start_at || interview.interview_starts_at), endsAt: interviewDate(event?.end_at), timezone: interview.interview_timezone, interviewId: interview.id,
-      publicJoinUrl: interview.public_join_url, interviewerRows: interviewerRows.filter(Boolean),
+      publicJoinUrl: (interview.guest_join_token ? await tenantInterviewJoinUrl(interview.agency_id, interview.guest_join_token) : interview.public_join_url), interviewerRows: interviewerRows.filter(Boolean),
       jobDescriptionId: profile?.job_description_id, jobTitle: profile?.applied_role
     }));
   } catch (e) { delivery = { sent: false, reason: e.message || 'Invitation failed.' }; }

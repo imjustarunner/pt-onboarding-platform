@@ -8,6 +8,7 @@ import {
   createSchoolInternalNote
 } from '../controllers/schoolOverview.controller.js';
 import { listForDashboard } from '../controllers/socialFeedLinks.controller.js';
+import { getDashboardReferralTotals } from '../controllers/referralTotals.controller.js';
 
 const router = express.Router();
 router.get('/school-closures',authenticate,async(req,res,next)=>{
@@ -27,6 +28,8 @@ router.post('/school-closures/:eventId/dismiss',authenticate,async(req,res,next)
 
 // At-a-glance dashboard metrics (admin dashboards) - tenant scoped via agencyAccess middleware
 router.get('/agency-specs', authenticate, tenantAccess, requireBackofficeAdmin, getAgencySpecs);
+
+router.get('/referral-totals', authenticate, requireBackofficeAdmin, getDashboardReferralTotals);
 
 // Schedule snapshot for tenant admin dashboard (today's real sessions)
 router.get('/schedule-snapshot', authenticate, tenantAccess, requireBackofficeAdmin, getScheduleSnapshot);

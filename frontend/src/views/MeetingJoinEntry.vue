@@ -1,7 +1,8 @@
 <template>
  <template v-if="interview && !identified">
-  <p class="interviewer-sign-in">On the interview team? <RouterLink :to="{path:'/login',query:{redirect:route.fullPath}}">Interviewer sign in</RouterLink></p>
-  <ApplicantInterview :key="refId" :invitation-token="refId" />
+  <ApplicantInterview :key="refId" :invitation-token="refId">
+    <template #header-actions><RouterLink class="interviewer-sign-in" :to="{path:'/login',query:{redirect:route.fullPath}}">Interviewer sign in</RouterLink></template>
+  </ApplicantInterview>
  </template>
  <component v-else-if="identified" :is="meetingComponent" />
  <main v-else-if="accountJoin" class="calendar-guest">
@@ -31,18 +32,25 @@ import {supervisionAccessFor} from '../utils/supervisionInvitationAccess';import
 import VideoSessionRoom from '../components/video/VideoSessionRoom.vue';
 import {setApplicantInterviewMode} from '../utils/applicantInterviewMode';
 const ApplicantInterview=defineAsyncComponent(()=>import('./teamMeeting/ApplicantInterviewView.vue'));
-const route=useRoute(),auth=useAuthStore(),loading=ref(true),identified=ref(false),interview=ref(false),title=ref(''),displayName=ref(''),visit=ref(null),video=ref(null),error=ref(''),busy=ref(false),ended=ref(false),waitingRoomEnabled=ref(true),linkAvailable=ref(false),guestAccountNotice=ref(''),guestLinkEnabled=ref(false);let timer,stopped=false,version=0;
+const route=useRoute(),auth=useAuthStore(),loading=ref(true),identified=ref(false),interview=ref(false),title=ref(''),displayName=ref(''),visit=ref(null),video=ref(null),error=ref(''),busy=ref(false),ended=ref(false),waitingRoomEnabled=ref(true),linkAvailable=ref(false),guestAccountNotice=ref(''),guestLinkEnabled=ref(false);let timer,stopped=false,version=0,pollingVisit=null;
 const type=computed(()=>route.params.sessionId?'supervision':'team-meeting'),refId=computed(()=>String(route.params.sessionId||route.params.eventId));
 const accountJoin=computed(()=>type.value==='supervision' && route.query?.account==='1');
+const guestJoin=computed(()=>type.value==='supervision' && route.query?.guest==='1' && !accountJoin.value);
 const meetingComponent=computed(()=>type.value==='supervision'?Supervision:Team);
 const Supervision=defineAsyncComponent(()=>import('./supervision/JoinSupervisionView.vue')),Team=defineAsyncComponent(()=>import('./teamMeeting/JoinTeamMeetingView.vue'));
 const base=()=>`/meeting-calendar/${type.value}/${encodeURIComponent(refId.value)}`;
 const opts=()=>({skipAuthRedirect:true,skipGlobalLoading:true,headers:{'X-Calendar-Guest':visit.value?.credential||''}});
-async function join(){busy.value=true;error.value='';try{const url=base(),requestVersion=version;const data=(await api.post(`${url}/guests`,{displayName:displayName.value},opts())).data;if(stopped||requestVersion!==version)return;visit.value={...data,base:url};timer=setInterval(poll,4000);void poll();}catch(e){error.value=e.response?.data?.error?.message||'Cannot join meeting.';}finally{busy.value=false;}}
-async function poll(){if(stopped||!visit.value||ended.value)return;const current=visit.value;try{const state=(await api.get(`${current.base}/guests/${current.id}`,opts())).data;if(current!==visit.value||stopped||ended.value)return;waitingRoomEnabled.value=state.waitingRoomEnabled!==false;if(video.value&&state.videoPolicy)video.value={...video.value,...state.videoPolicy};if(state.status==='admitted'&&!video.value){const credentials=(await api.post(`${current.base}/guests/${current.id}/video-token`,{},opts())).data;if(current===visit.value&&!stopped&&!ended.value)video.value=credentials;}if(state.status==='left')leave();}catch(e){error.value=e.response?.data?.error?.message||'Cannot check meeting status.';if([403,404,410].includes(Number(e.response?.status)))leave();}}
+async function join(){if(busy.value)return;busy.value=true;error.value='';try{const url=base(),requestVersion=version;const data=(await api.post(`${url}/guests`,{displayName:displayName.value},opts())).data;if(stopped||requestVersion!==version)return;visit.value={...data,base:url};timer=setInterval(poll,4000);void poll();}catch(e){error.value=e.response?.data?.error?.message||'Cannot join meeting.';}finally{busy.value=false;}}
+async function poll(){if(stopped||!visit.value||ended.value||pollingVisit===visit.value)return;const current=visit.value;pollingVisit=current;try{const state=(await api.get(`${current.base}/guests/${current.id}`,opts())).data;if(current!==visit.value||stopped||ended.value)return;waitingRoomEnabled.value=state.waitingRoomEnabled!==false;if(video.value&&state.videoPolicy)video.value={...video.value,...state.videoPolicy};if(state.status==='admitted'&&!video.value){const credentials=(await api.post(`${current.base}/guests/${current.id}/video-token`,{},opts())).data;if(current===visit.value&&!stopped&&!ended.value)video.value=credentials;}if(state.status==='left')leave();}catch(e){error.value=e.response?.data?.error?.message||'Cannot check meeting status.';if([403,404,410].includes(Number(e.response?.status)))leave();}finally{if(pollingVisit===current)pollingVisit=null;}}
 function leave(){if(ended.value)return;ended.value=true;clearInterval(timer);video.value=null;if(visit.value)void api.post(`${visit.value.base}/guests/${visit.value.id}/leave`,{},opts()).catch(()=>{});}
 async function initialize(){const requestVersion=++version;try{
  let sharedInfo;
+ if(guestJoin.value){
+   const info=(await api.get(base(),opts())).data;
+   if(requestVersion!==version||stopped)return;
+   title.value=info.title;linkAvailable.value=true;waitingRoomEnabled.value=info.waitingRoomEnabled!==false;
+   return;
+ }
  // Resolve applicant invitations before touching staff authentication. Existing
  // onboarding or expired staff cookies must not prevent an applicant joining.
  if(type.value==='team-meeting' && /^[\w-]{32}$/.test(refId.value) && !/^\d+$/.test(refId.value)){
@@ -79,7 +87,7 @@ async function initialize(){const requestVersion=++version;try{
  const info=sharedInfo||(await api.get(base(),opts())).data;if(requestVersion!==version||stopped)return;title.value=info.title;interview.value=info.interview;linkAvailable.value=true;waitingRoomEnabled.value=info.waitingRoomEnabled !== false;guestLinkEnabled.value=info.guestLinkEnabled===true;
  }catch(e){error.value=e.response?.data?.error?.message||'This meeting link is unavailable.';}finally{if(requestVersion===version)loading.value=false;}}
 onMounted(initialize);
-watch(()=>`${type.value}:${refId.value}:${accountJoin.value}`,()=>{setApplicantInterviewMode(false);leave();visit.value=null;ended.value=false;video.value=null;identified.value=false;interview.value=false;error.value='';loading.value=true;linkAvailable.value=false;waitingRoomEnabled.value=true;guestAccountNotice.value='';guestLinkEnabled.value=false;void initialize();});
+watch(()=>`${type.value}:${refId.value}:${accountJoin.value}:${guestJoin.value}`,()=>{setApplicantInterviewMode(false);leave();visit.value=null;ended.value=false;video.value=null;identified.value=false;interview.value=false;error.value='';loading.value=true;linkAvailable.value=false;waitingRoomEnabled.value=true;guestAccountNotice.value='';guestLinkEnabled.value=false;void initialize();});
 onBeforeUnmount(()=>{setApplicantInterviewMode(false);stopped=true;clearInterval(timer);if(visit.value)leave();});
 </script>
-<style scoped>.interviewer-sign-in{margin:0;padding:12px 20px;background:#fff;color:#182536}.interviewer-sign-in a{color:#174ea6;text-decoration:underline}.calendar-guest{max-width:1100px;margin:30px auto;padding:24px}.calendar-guest label{display:block}.calendar-guest input,.calendar-guest button{padding:12px;margin:10px}.calendar-guest [role=alert]{color:#9c2020}</style>
+<style scoped>.interviewer-sign-in{color:#f2e9dc;font-size:.72rem;text-decoration:underline;text-underline-offset:4px}.calendar-guest{max-width:1100px;margin:30px auto;padding:24px}.calendar-guest label{display:block}.calendar-guest input,.calendar-guest button{padding:12px;margin:10px}.calendar-guest [role=alert]{color:#9c2020}</style>

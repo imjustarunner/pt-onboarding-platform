@@ -4108,6 +4108,7 @@ const isImmersiveJoinRoute = computed(() => {
   const path = String(route.path || '');
   return (
     path.startsWith('/quick-view/')
+    || /^\/interview\/[^/]+\/video\//.test(path)
     || /\/join\/(?:team-meeting|supervision)\//.test(path)
   );
 });

@@ -21,7 +21,7 @@
     <div v-if="mini" class="vsr__mini-header" @pointerdown="startMiniDrag">
       <span>Meeting in progress</span>
       <button type="button" class="vsr__ctrl" @click="meetingViewport.restore">Return to meeting</button>
-      <button type="button" class="vsr__ctrl vsr__ctrl--danger" @click="requestLeave">Leave</button>
+      <button v-if="!hideLeaveControl" type="button" class="vsr__ctrl vsr__ctrl--danger" @click="requestLeave">Leave</button>
     </div>
     <p v-if="mini && meetingViewport.transcriptionStatus?.value" class="vsr__mini-notice" role="status">{{ meetingViewport.transcriptionStatus.value }}</p>
     <div v-if="errorMessage" class="vsr__error" role="alert">
@@ -64,7 +64,7 @@
       <p id="alone-wait-body">You’re the only person here. Video will disconnect in {{ aloneWait.secondsRemaining }} seconds to avoid an unattended call.</p>
       <p>You can wait up to 10 minutes alone, then rejoin when ready.</p>
       <button v-if="aloneWait.canExtend" type="button" class="vsr__btn" @click="extendAloneWait">Keep waiting</button>
-      <button type="button" class="vsr__btn" @click="leaveAloneRoom">Leave meeting now</button>
+      <button v-if="!hideLeaveControl" type="button" class="vsr__btn" @click="leaveAloneRoom">Leave meeting now</button>
     </div>
     <p v-else-if="aloneWait.phase === 'waiting'" class="vsr__alone-waiting" role="status">Waiting for someone to join · 1 person here</p>
     <template v-if="!errorMessage && !aloneTimedOut">
@@ -394,6 +394,7 @@
           </label>
         </div>
       </details>
+      <Teleport defer :to="controlsTarget || 'body'" :disabled="!controlsTarget || videoFullscreen || mini">
       <div v-if="!hideControls || videoFullscreen || mini" class="vsr__controls" role="toolbar" aria-label="Session media controls">
         <button v-if="meetingViewport?.canMinimize.value && sessionReady && !lobbyMode && !mini" type="button"
           class="vsr__ctrl vsr__mini-button" title="Keep this meeting open while you use the app" @click="minimizeMeeting">Mini</button>
@@ -528,11 +529,12 @@
         </div>
         <slot name="extra-controls" />
       </div>
+      </Teleport>
       <div v-if="videoFullscreen" class="vsr__fs-chrome">
         <button type="button" class="vsr__fs-exit" @click="setVideoFullscreen(false)">
           Exit full screen
         </button>
-        <button type="button" class="vsr__fs-exit vsr__fs-leave" @click="requestLeave">
+        <button v-if="!hideLeaveControl" type="button" class="vsr__fs-exit vsr__fs-leave" @click="requestLeave">
           Leave meeting
         </button>
         <span v-if="raisedHandsNotice" class="vsr__fs-hand" role="status">✋ {{ raisedHandsNotice }}</span>
@@ -616,6 +618,9 @@ const props = defineProps({
   localName: { type: String, default: 'You' },
   localProfilePhotoUrl: { type: String, default: '' },
   compact: { type: Boolean, default: false },
+  /** The interview shell supplies one persistent leave button above fullscreen. */
+  hideLeaveControl: { type: Boolean, default: false },
+  controlsTarget: { type: String, default: '' },
   layout: { type: String, default: 'standard' }, // standard | strip
   autoConnect: { type: Boolean, default: true },
   /** When alone, fill the main stage with self-view instead of a tiny PiP. */
@@ -881,8 +886,9 @@ watch(transportConnected, (ready) => {
 onBeforeUnmount(() => clearInterval(waitTimer));
 const stageEl = ref(null);
 const stageSize = ref({ width: 960, height: 540 });
-const thumbnailSide = ref('bottom');
-const sideThumbnails = computed(()=>['left','right'].includes(thumbnailSide.value) && tileFocus.value==='remote' && !screenFocused.value && stageSize.value.width>=520);
+const thumbnailSide = ref(props.focusCandidate ? 'left' : 'bottom');
+watch(() => props.focusCandidate, enabled => { if (enabled) thumbnailSide.value = 'left'; });
+const sideThumbnails = computed(()=>['left','right'].includes(thumbnailSide.value) && tileFocus.value==='remote' && !screenFocused.value && stageSize.value.width>=(props.focusCandidate?400:520));
 let stageResizeObserver = null;
 const thumbnailKeys = computed(() => {
   if (!screenFocused.value && !['remote', 'local', 'speaker'].includes(tileFocus.value)) return [];
@@ -900,17 +906,21 @@ const thumbnailGrid = computed(() => {
 });
 function tileStageStyle(kind, key) {
   if (!screenFocused.value && tileFocus.value === 'equal') return { order: tileOrderFor(kind, key) };
-  if (sideThumbnails.value) return null;
+  if (sideThumbnails.value) {
+    const index = thumbnailKeys.value.indexOf(key);
+    return index < 0 ? null : { gridColumn: thumbnailSide.value === 'left' ? 1 : 2, gridRow: index + 1 };
+  }
   const index = thumbnailKeys.value.indexOf(key);
   if (index < 0) return null;
   return { gridColumn: 2 + index % thumbnailGrid.value.columns, gridRow: 2 + Math.floor(index / thumbnailGrid.value.columns) };
 }
 const stageGridStyle = computed(() => {
   if(sideThumbnails.value){
-    const rail=Math.min(160,Math.floor(stageSize.value.width*.22));
-    const count=Math.max(1,stageVideoCount.value-1);
+    const rail=Math.min(194,Math.floor(stageSize.value.width*.24));
+    const count=Math.max(1,thumbnailKeys.value.length);
     return {gridTemplateColumns:thumbnailSide.value==='left'?`${rail}px minmax(0,1fr)`:`minmax(0,1fr) ${rail}px`,
-      gridTemplateRows:`repeat(${count},minmax(90px,1fr))`,
+      gridTemplateRows:`repeat(${count},minmax(0,1fr))`,
+      '--vsr-thumbnail-side':`${Math.max(1, Math.min(rail, (stageSize.value.height - 6 * (count - 1)) / count))}px`,
       '--vsr-camera-side':`${Math.min(stageSize.value.width-rail-6,stageSize.value.height)}px`};
   }
   if (screenFocused.value || ['remote', 'local', 'speaker'].includes(tileFocus.value)) {
@@ -1986,14 +1996,14 @@ function monitorMeetingAudio(sub, owner) {
 }
 
 async function enableMeetingAudio() {
+  if (playbackBusy.value) return;
   playbackBusy.value = true;
   playbackError.value = '';
   try {
     // Must run directly from the click, before any await, for Safari autoplay.
     const playback = OTApi?.unblockAudio?.();
-    for (const sub of [...subscribers.values(), screenSubscriber].filter(Boolean)) {
-      sub.subscribeToAudio?.(trainingStreamPermission(sub.stream || availableStreams.get(sub.streamId)).audio);
-    }
+    // Autoplay recovery is local playback only. Keep every live subscription
+    // and publisher intact, including training audio permissions.
     restoreListeningVolumes();
     const mediaPlayback = [...(stageEl.value?.querySelectorAll('video, audio') || [])]
       .filter(media => media.paused).map(media => media.play());
@@ -2301,7 +2311,6 @@ async function subscribeStreamOnce(stream, owner) {
       if (remote) remote.videoIssue = '';
       forceMediaFill(targetEl);
       try {
-        if (typeof sub?.subscribeToAudio === 'function') sub.subscribeToAudio(trainingStreamPermission(stream).audio);
         sub.setAudioVolume?.(remoteListeningVolume(remoteMetaFromStream(stream)));
       } catch { /* ignore */ }
     }
@@ -3556,10 +3565,6 @@ watch(
 function restoreMeetingPlayback() {
   if (!sessionReady.value || document.hidden) return;
   try { Promise.resolve(OTApi?.unblockAudio?.()).catch(() => { audioResumeNeeded.value = true; }); } catch { audioResumeNeeded.value = true; }
-  for (const sub of [...subscribers.values(), screenSubscriber].filter(Boolean)) {
-    // Restart the receiver after the OS releases phone-call audio focus.
-    try { sub.subscribeToAudio?.(false); sub.subscribeToAudio?.(trainingStreamPermission(sub.stream || availableStreams.get(sub.streamId)).audio); } catch { audioResumeNeeded.value = true; }
-  }
   restoreListeningVolumes();
   for (const media of stageEl.value?.querySelectorAll('video, audio') || []) {
     if (media.paused) {
@@ -3571,11 +3576,9 @@ function restoreMeetingPlayback() {
 function handleVisibilityResume() {
   updateAloneWait();
   if (document.hidden) { wasBackgrounded = true; return; }
-  if (!sessionReady.value) return;
+  if (!sessionReady.value || !wasBackgrounded) return;
   try { Promise.resolve(joinToneCtx?.resume?.()).catch(() => {}); } catch { /* ignore */ }
   reconcileSubscriptions();
-  try { publisher?.publishAudio(!!publishAudio.value); } catch { /* ignore */ }
-  try { publisher?.publishVideo(!!publishVideo.value); } catch { /* ignore */ }
   for (const r of remotes.value) {
     if (r.hasVideo) void refreshRemoteVideo(r.streamId, true);
   }
@@ -4931,5 +4934,5 @@ defineExpose({
 </style>
 
 <style scoped>
-.vsr__stage--side-left .vsr__tile--featured{grid-column:2!important;grid-row:1 / -1!important}.vsr__stage--side-right .vsr__tile--featured{grid-column:1!important;grid-row:1 / -1!important}.vsr__stage--side-left .vsr__tile--pip{grid-column:1!important}.vsr__stage--side-right .vsr__tile--pip{grid-column:2!important}.vsr__stage--side-left .vsr__tile--pip,.vsr__stage--side-right .vsr__tile--pip{max-height:140px;align-self:center}
+.vsr__stage--side-left .vsr__tile--featured{grid-column:2!important;grid-row:1 / -1!important}.vsr__stage--side-right .vsr__tile--featured{grid-column:1!important;grid-row:1 / -1!important}.vsr__stage--side-left .vsr__tile--pip{grid-column:1!important}.vsr__stage--side-right .vsr__tile--pip{grid-column:2!important}.vsr__stage--side-left .vsr__tile--pip,.vsr__stage--side-right .vsr__tile--pip{min-height:0!important;max-height:none;align-self:center}
 </style>

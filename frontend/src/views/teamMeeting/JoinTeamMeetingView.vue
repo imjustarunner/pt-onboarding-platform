@@ -1,7 +1,7 @@
 <template>
   <div
     class="join-team-meeting-view join-team-meeting-view--branded"
-    :class="{ 'join-team-meeting-view--video-fs': videoFullscreen }"
+    :class="{ 'join-team-meeting-view--video-fs': videoFullscreen, 'join-team-meeting-view--interview': isInterviewMeeting }"
   >
     <InterviewEndedGuestPanel
       v-if="interviewGuestEnded"
@@ -74,8 +74,9 @@
       </div>
       <header v-if="!videoFullscreen" class="join-header">
         <div class="join-header__left">
-          <BrandingLogo size="large" class="join-header__logo" :logo-url="joinHeaderLogoUrl || undefined" />
-          <div>
+          <InterviewRoomBrand v-if="isInterviewMeeting" :agency-name="meetingBrand?.name || agencyStore.currentAgency?.name || 'Your team'" :logo-url="meetingBrand?.logoUrl || joinHeaderLogoUrl || ''" />
+          <BrandingLogo v-else size="large" class="join-header__logo" :logo-url="joinHeaderLogoUrl || undefined" />
+          <div v-if="!isInterviewMeeting">
             <h1>{{ displayMeetingTitle }}</h1>
             <p class="join-header__meta">
               <span v-if="sessionMetaLine">{{ sessionMetaLine }}</span>
@@ -199,11 +200,17 @@
           </span>
           <span v-if="raisedHandCount" class="join-hand-chip" title="Hands raised">✋ {{ raisedHandCount }}</span>
           <span v-if="meetingCompletedAt" class="join-completed-chip">Session completed</span>
-          <button type="button" class="btn btn-danger btn-sm" @click="requestLeave">
+          <button v-if="!isInterviewMeeting" type="button" class="btn btn-danger btn-sm" @click="requestLeave">
             {{ isHost ? 'Leave / End meeting' : 'Leave meeting' }}
           </button>
         </div>
       </header>
+      <Teleport to="body">
+        <button v-if="isInterviewMeeting" type="button" class="interview-leave" @click="requestLeave">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M10 5H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4M14 8l4 4-4 4M8 12h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /></svg>
+          Leave interview
+        </button>
+      </Teleport>
       <MeetingDialInPanel v-if="!videoFullscreen && !showEmployeeLogin && resolvedEventId" meeting-type="team-meeting" :meeting-id="Number(resolvedEventId)" />
       <div
         class="join-session-layout"
@@ -215,7 +222,12 @@
           'join-session-layout--video-fs': videoFullscreen
         }"
       >
-        <aside v-if="isInterviewMeeting && canSeeFullWorkspace && !isInLobby && !videoFullscreen" id="interview-candidate-brief" class="interview-candidate-brief" aria-label="Candidate materials" />
+        <aside v-if="isInterviewMeeting && canSeeFullWorkspace && !isInLobby && !videoFullscreen" id="interview-candidate-brief" class="interview-candidate-brief" aria-label="Candidate materials">
+          <div v-if="sharedInterviewQuestion?.text" class="interview-question-preview">
+            <p>Applicant’s question view</p>
+            <InterviewQuestionCard :question="sharedInterviewQuestion" variant="panel" />
+          </div>
+        </aside>
         <div class="join-video" :class="{ 'join-video--lobby': isInLobby && !videoFullscreen }">
           <!-- Host admit controls stay above the video so flex layout cannot squeeze them away. -->
           <SupervisionVideoLobbyPanel
@@ -270,6 +282,7 @@
               layout="standard"
               :equal-tiles-when-remote="true"
               :focus-candidate="isInterviewMeeting && canSeeFullWorkspace"
+              :hide-leave-control="isInterviewMeeting"
               :preserve-video-aspect="isInterviewMeeting"
               :local-display-name="localDisplayName"
               :local-role-label="localRoleLabel"
@@ -289,7 +302,7 @@
               @screen-sharing-change="onMeetingScreenSharing"
               @leave-request="requestLeave"
             >
-              <template #branding><InterviewMeetingBrand v-if="isInterviewMeeting" :brand="meetingBrand" @leave="requestLeave" /></template>
+
               <template #extra-controls>
                 <button v-if="canSeeMeetingWorkspace && !isInLobby && !isInterviewMeeting && !isEvaluationMeeting" type="button" class="btn btn-secondary btn-sm" @click="showMeetingDetails">Show goals, agenda &amp; actions</button>
                 <button v-if="canManageMeetingLive && !isInLobby" type="button" class="btn btn-secondary btn-sm" @click="openAddAttendeeModal">Invite someone</button>
@@ -355,6 +368,7 @@
               :event-id="resolvedEventId"
               :agency-id="agencyStore.currentAgency?.id || authStore.user?.agencyId || null"
               :dark="true"
+              @shared-question="sharedInterviewQuestion = $event"
               @guest-access-ended="onGuestAccessEndedByInterviewer"
             />
             <details v-if="showAttendanceTab" class="join-stack-section join-interview-support">
@@ -648,7 +662,6 @@ import { suspendInactivityTimeout, resumeInactivityTimeout } from '../../utils/a
 import { createMeetingRefresh } from '../../utils/meetingRefresh';
 import { useTeamMeetingLiveTranscript } from '../../composables/useTeamMeetingLiveTranscript';
 import SupervisionVideoRoom from '../../components/supervision/SupervisionVideoRoom.vue';
-import InterviewMeetingBrand from '../../components/hiring/InterviewMeetingBrand.vue';
 import SupervisionVideoLobbyPanel from '../../components/supervision/SupervisionVideoLobbyPanel.vue';
 import SupervisionWaitingRoomStage from '../../components/supervision/SupervisionWaitingRoomStage.vue';
 import MeetingAgendaPanel from '../../components/meetings/MeetingAgendaPanel.vue';
@@ -659,6 +672,9 @@ import MeetingLiveActivityPanel from '../../components/meetings/MeetingLiveActiv
 import MeetingSessionExitPanel from '../../components/meetings/MeetingSessionExitPanel.vue';
 import InterviewLiveWorkspace from '../../components/hiring/InterviewLiveWorkspace.vue';
 import InterviewSharedChat from '../../components/hiring/InterviewSharedChat.vue';
+import InterviewQuestionCard from '../../components/hiring/InterviewQuestionCard.vue';
+import InterviewRoomBrand from '../../components/hiring/InterviewRoomBrand.vue';
+import '../../styles/interviewRoom.css';
 import InterviewEndedGuestPanel from '../../components/hiring/InterviewEndedGuestPanel.vue';
 import EmployeeEvaluationWorkspace from '../../components/evaluations/EmployeeEvaluationWorkspace.vue';
 import BrandingLogo from '../../components/BrandingLogo.vue';
@@ -866,6 +882,7 @@ const addedAttendeeIds = ref(new Set());
 const addAttendeeError = ref('');
 const tileFocus = ref('equal');
 const videoFullscreen = ref(false);
+const sharedInterviewQuestion = ref(null);
 const detailsRequested = ref(false);
 const screenSharing = ref(false);
 let contentRevealPending = false;
@@ -1520,7 +1537,7 @@ async function resolveAndRedirect() {
       return 'continue';
     }
 
-    if (organizationSlug.value === slug) return 'continue';
+    if (organizationSlug.value === slug || (data.isInterviewer === true && route.params.interviewAgencySlug === slug)) return 'continue';
 
     // Generic multi-tenant hosts still need the org-scoped join URL.
     joinAttemptedForPath.value = '';
@@ -1954,17 +1971,17 @@ async function teardownLiveSession() {
   stopAdmissionPolling();
   stopPresenceHeartbeat();
   stopCompletionPolling();
+  // Capture flushes in the background; leaving must release camera/mic now.
+  const flushed = stopTranscriptCapture();
   try {
-    await stopTranscriptCapture();
-  } catch { /* ignore */ }
-  try {
-    videoRoomRef.value?.disconnect?.();
+    videoRoomRef.value?.disconnect?.(false);
   } catch { /* ignore */ }
   sendPresence('leave');
   token.value = '';
   vonageSessionId.value = '';
   roomName.value = '';
   videoConnected.value = false;
+  await Promise.resolve(flushed).catch(() => {});
 }
 
 function showSessionExit({ variant = 'left', canRejoin = true } = {}) {
@@ -2017,13 +2034,13 @@ function onVideoConnected() {
 
 async function finishLeave({ variant = 'left', canRejoin = true } = {}) {
   intentionalLeave.value = true;
-  await teardownLiveSession();
+  void teardownLiveSession();
   showHostLeaveModal.value = false;
   showSessionExit({ variant, canRejoin });
 }
 
 function requestLeave() {
-  if (isHost.value && !meetingCompletedAt.value) {
+  if (isHost.value && !isInterviewMeeting.value && !meetingCompletedAt.value) {
     showHostLeaveModal.value = true;
     completeError.value = '';
     return;
@@ -2303,6 +2320,8 @@ onUnmounted(() => {
   );
   color: #eef2f8;
 }
+.join-team-meeting-view--interview{background:#0b352b url('/assets/plotline/interview/background.png') center/cover}.join-team-meeting-view--interview .join-header{padding-right:208px;min-height:76px}.join-team-meeting-view--interview .join-header__right{margin-left:auto}.join-team-meeting-view--interview .join-header__left{min-width:0}
+@media(max-width:700px){.join-team-meeting-view--interview .join-header{padding-right:140px;min-height:70px}}
 .join-team-meeting-view--branded .join-header h1 {
   color: #f4faf6;
 }
@@ -3049,14 +3068,17 @@ onUnmounted(() => {
 <style scoped>
 .join-session-layout--interview { grid-template-columns: minmax(230px, 290px) minmax(0, 1fr) minmax(330px, 410px); }
 .join-session-layout--interview .join-workspace { background: #172332; }
-.join-session-layout--interview .join-video__stage:not(.join-video__stage--collapsed) { flex: 1 0 max(600px, 70dvh); min-height: max(600px, 70dvh); }
+.join-session-layout--interview .join-video__stage:not(.join-video__stage--collapsed) { flex: 1 1 0; min-height: 320px; }
 .join-session-layout--interview .join-video__stage > :deep(.supervision-video-room) { height: 100%; min-height: 0; }
+.join-session-layout--interview .join-video > :deep(.interview-shared-chat) { position: sticky; bottom: 0; z-index: 4; flex: 0 0 clamp(160px, 23dvh, 220px); height: clamp(160px, 23dvh, 220px); }
+.interview-question-preview { padding: 10px; background: #172332; }
+.interview-question-preview > p { margin: 0 0 8px; color: #cbbdff; font-size: .8rem; }
 .join-session-layout--interview .join-workspace__body > * { flex-shrink: 0; }
 .join-interview-support summary { cursor: pointer; padding: 4px 0; font-weight: 600; }
 .join-interview-support[open] summary { margin-bottom: 12px; }
 .interview-candidate-brief { min-width: 0; overflow: auto; border-radius: 12px; }
 @media (min-width: 901px) and (max-width: 1250px) {
-  .join-session-layout--interview { grid-template-columns: minmax(0, 1fr) minmax(330px, 390px); overflow: auto; }
+  .join-session-layout--interview { grid-template-columns: minmax(0, 1fr) minmax(330px, 390px); grid-template-rows: minmax(500px, 1fr) auto; overflow: auto; }
   .interview-candidate-brief { grid-column: 1; grid-row: 2; max-height: 340px; }
   .join-session-layout--interview .join-workspace { grid-column: 2; grid-row: 1 / 3; }
 }

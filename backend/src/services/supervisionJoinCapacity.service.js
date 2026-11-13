@@ -46,7 +46,13 @@ async function currentSession(sid,db) {
 
 async function reservePlace(sid,identity,displayName,isGuest,row,db) {
  const identities=await supervisionJoinOccupancy(sid,db),alreadyPresent=identities.has(person(identity)),limit=capacity(row);
- if(!alreadyPresent&&identities.size>=limit)throw fail('This supervision session is full. A participant can join when a place opens.');
+ // Individual sessions keep two account places plus one separately admitted
+ // guest. A guest must never take the supervisee's place on reconnect.
+ const individual=String(row.session_type || 'individual').toLowerCase()==='individual';
+ const guests=[...identities].filter(key=>key.startsWith('calendar-guest-')).length;
+ const occupied=individual?(isGuest?guests:identities.size-guests):identities.size;
+ const allowed=individual&&isGuest?1:limit;
+ if(!alreadyPresent&&occupied>=allowed)throw fail('This supervision session is full. A participant can join when a place opens.');
  const [[clock]]=await db.execute('SELECT UNIX_TIMESTAMP() AS reserved_at');
  const reservedAt=Number(clock?.reserved_at);
  if(!Number.isSafeInteger(reservedAt)||reservedAt<1)throw fail('Unable to reserve a meeting place. Please try again.',503);
@@ -54,7 +60,7 @@ async function reservePlace(sid,identity,displayName,isGuest,row,db) {
    VALUES(?,?,?,?,UTC_TIMESTAMP(),UTC_TIMESTAMP(),NULL) ON DUPLICATE KEY UPDATE
    joined_at=IF(left_at IS NULL,joined_at,UTC_TIMESTAMP()),last_seen_at=UTC_TIMESTAMP(),left_at=NULL,
    display_name=COALESCE(VALUES(display_name),display_name)`,[sid,identity,displayName,isGuest?1:0]);
- return {alreadyPresent,activeCount:identities.size+(alreadyPresent?0:1),maxParticipants:limit,tokenExpiresAt:reservedAt+40};
+ return {alreadyPresent,activeCount:identities.size+(alreadyPresent?0:1),maxParticipants:individual?limit+1:limit,tokenExpiresAt:reservedAt+40};
 }
 
 export async function reserveSupervisionJoin({sessionId,userId,joinIdentity,displayName=null,matchesOpenAudience,expectedRole=null},database=pool) {

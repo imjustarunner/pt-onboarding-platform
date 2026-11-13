@@ -4,6 +4,7 @@ import { dismissSupervisionSignup } from '../services/supervisionSignup.service.
 import {startReviewActivity,pulseReviewActivity,submitReviewActivity,listReviewActivities} from '../controllers/cosignReviewActivity.controller.js';
 import {getRecord,submitCorrection,reviewCorrection,syncCorrections} from '../controllers/supervisionTimeCorrection.controller.js';
 import {calendarHostList,calendarHostAdmit} from './meetingCalendar.routes.js';
+import { supervisionGuestLink } from '../services/supervisionGuestLink.service.js';
 import {listManualSupervision,createManualSupervision,finishManualSupervision} from '../controllers/supervisionManual.controller.js';
 import { requirePersonalSupervisionInvitation } from '../services/meetingJoinPolicy.service.js';
 import { listSupervisionAgreements, signAgreement, downloadAgreement } from '../controllers/supervisionAgreement.controller.js';
@@ -170,6 +171,10 @@ router.get('/sessions/:id/video-token', getSupervisionVideoToken);
 router.get('/sessions/:id/live-attendance', getSupervisionLiveAttendance);
 router.post('/sessions/:id/end-live', endSupervisionLiveSession);
 router.get('/sessions/:id/calendar-guests',calendarHostList('supervision'));
+router.post('/sessions/:id/guest-link', async (req, res, next) => {
+  try { res.json(await supervisionGuestLink(req.params.id, req.user.id)); }
+  catch (error) { next(error); }
+});
 router.post('/sessions/:id/calendar-guests/:guestId/admit',calendarHostAdmit('supervision'));
 router.get('/sessions/:id/lobby-participants', getLobbyParticipants);
 router.get('/sessions/:id/admission-status', getAdmissionStatus);

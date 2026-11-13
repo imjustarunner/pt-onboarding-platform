@@ -2,6 +2,7 @@ import express from 'express';
 import rateLimit from 'express-rate-limit';
 import multer from 'multer';
 import { interviewApplicantAccess } from '../services/interviewApplicantAccess.service.js';
+import { interviewApplicantDetails } from '../services/interviewApplicantDetails.service.js';
 import { getTeamMeetingVideoToken, getTeamMeetingAdmissionStatus, postTeamMeetingJoinPresence, getTeamMeetingTranscriptionState, appendTeamMeetingAudio } from '../controllers/teamMeetings.controller.js';
 import { getInterviewSharedChat, postInterviewSharedChat, getInterviewQuestion } from '../controllers/interviewSharedChat.controller.js';
 
@@ -27,6 +28,10 @@ const applicantReply = handler => (req, res, next) => {
   ].includes(key))));
   return handler(req, res, next);
 };
+router.get('/details', async (req, res, next) => {
+  try { res.json(await interviewApplicantDetails(req.interviewApplicant)); }
+  catch (error) { next(error); }
+});
 router.get('/video-token', applicantReply(getTeamMeetingVideoToken));
 router.get('/admission-status', applicantReply(getTeamMeetingAdmissionStatus));
 router.post('/join-presence', applicantReply(postTeamMeetingJoinPresence));

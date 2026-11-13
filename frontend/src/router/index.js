@@ -1145,6 +1145,12 @@ const routes = [
   },
   // Join team meeting (no org slug): resolve event → redirect to /{slug}/join/team-meeting/:id
   {
+    path: '/interview/:interviewAgencySlug/video/:eventId',
+    name: 'BrandedInterview',
+    component: () => import('../views/MeetingJoinEntry.vue'),
+    meta: { requiresGuest: false, hideNav: true }
+  },
+  {
     path: '/interview-rsvp/:token',
     name: 'InterviewRsvp',
     component: () => import('../views/teamMeeting/PersonalMeetingInvitationView.vue'),

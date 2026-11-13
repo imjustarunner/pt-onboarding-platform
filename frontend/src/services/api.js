@@ -407,6 +407,7 @@ api.interceptors.response.use(
       '/school-events/kiosk',
       '/join/supervision',
       '/join/team-meeting',
+      '/interview/',
       '/school-onboarding',
       '/school-reinit',
       '/client-action',
