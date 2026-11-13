@@ -12,6 +12,7 @@ import { escapePortalHtml as e } from './portalEmailBranding.service.js';
 import { dateToMysqlUtcDateTime, utcMysqlToIso } from '../utils/zonedWallTime.util.js';
 import { isDobAdultLocked } from '../utils/guardianWaivers.utils.js';
 import { createSchoolSessionEmailOptOutLink, schoolSessionEmailOptOutContent, isSchoolSessionEmailOptedOut, SCHOOL_EMAIL_TEMPLATE } from './schoolSessionEmailPreferences.service.js';
+import { serviceNotificationBlocked } from './clientServiceNotificationPolicy.service.js';
 
 const hash = text => crypto.createHash('sha256').update(String(text)).digest('hex');
 const emailHash = email => hash(String(email || '').trim().toLowerCase());
@@ -109,6 +110,7 @@ export async function buildAppointmentEmail({appointment,clientId,to,kind='remin
 }
 
 export async function sendAppointmentEmail(input) {
+  if(await serviceNotificationBlocked({appointment:input.appointment,clientId:input.clientId}))return {skipped:true,reason:'service_ended_notifications_disabled'};
   const setting=await resolveAppointmentServiceSetting(input.appointment);
   if(setting.isSchool && await isSchoolSessionEmailOptedOut({agencyId:input.appointment.agencyId,clientId:input.clientId,to:input.to})) return {skipped:true,reason:'school_session_email_opted_out'};
   const {context,...content}=await buildAppointmentEmail(input);

@@ -5,6 +5,7 @@ import { sendNotificationEmail, sendEmailFromIdentity } from './unifiedEmail/uni
 import { clientEmailContext, sendClientPortalEmail } from './clientPortalEmail.service.js';
 import { resolveDayCancellationEmail, reviewedDayCancellationContext } from './dayCancellationEmail.service.js';
 import { individualCancellationEmailContext } from './appointmentCancellationEmail.service.js';
+import { serviceNotificationBlocked } from './clientServiceNotificationPolicy.service.js';
 
 async function scheduleMailboxes(agencyId) {
   try { return await resolveWaitlistMailboxes(pool, agencyId); }
@@ -18,6 +19,7 @@ async function scheduleMailboxes(agencyId) {
 export async function sendScheduleNotificationEmail({ agencyId, appointment = null, entries = null, ...message }) {
   if(message.clientId) {
     const items=entries || (appointment ? [{appointment}] : []);
+    if((await Promise.all(items.map(item=>serviceNotificationBlocked({appointment:item.appointment,clientId:message.clientId,facts:item.payload?.facts})))).some(Boolean))return {skipped:true,reason:'service_ended_notifications_disabled'};
     const learning=items.length>0 && items.every(item=>['learning','tutoring'].includes(String(item.appointment?.businessType||item.appointment?.business_type||'').toLowerCase()));
     const context=await clientEmailContext({agencyId,clientId:message.clientId,...(learning?{learning:true}: {})});
     const reviewed=items.filter(item=>item.payload?.facts?.reviewedCancellationToken);

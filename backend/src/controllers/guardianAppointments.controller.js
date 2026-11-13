@@ -1,6 +1,7 @@
 import { guardianReminderPreferences, listGuardianAppointments, requestGuardianAppointmentChange, appointmentRequests, requireAppointmentRequestProvider, declineGuardianAppointmentRequest } from '../services/guardianAppointments.service.js';
 import { cancelGuardianAppointments } from '../services/guardianAppointments.service.js';
 import { guardianServiceCancellations } from '../services/guardianServiceCancellation.service.js';
+import { guardianServiceExitFeedback } from '../services/guardianServiceExitFeedback.service.js';
 const cancellationInput = req => ({...req.body,userId:req.user.id,clientId:Number(req.params.clientId),appointmentId:Number(req.params.appointmentId),
   agencyId:req.query.agencyId||req.body?.agencyId,serviceId:req.query.serviceId||req.body?.serviceId});
 export const cancel = async (req,res,next) => { try {
@@ -32,4 +33,13 @@ export const cancelPreview = async (req, res, next) => { try {
 export const cancellationProgress=async(req,res,next)=>{try{
   if(req.guardianPreviewMode)return res.status(403).json({error:{message:'Preview cannot access cancellation progress'}});
   res.json({cancellation:await guardianServiceCancellations.status({userId:req.user.id,clientId:Number(req.params.clientId),operationId:req.params.operationId})});
+}catch(error){next(error);}};
+const feedbackInput=req=>({...req.body,userId:req.user.id,clientId:Number(req.params.clientId),operationId:req.params.operationId});
+export const getExitFeedback=async(req,res,next)=>{try{
+  if(req.guardianPreviewMode)return res.status(403).json({error:{message:'Preview cannot access service feedback'}});
+  res.set('Cache-Control','private, no-store').json(await guardianServiceExitFeedback.read(feedbackInput(req)));
+}catch(error){next(error);}};
+export const saveExitFeedback=async(req,res,next)=>{try{
+  if(req.guardianPreviewMode)return res.status(403).json({error:{message:'Preview cannot submit service feedback'}});
+  res.json(await guardianServiceExitFeedback.submit(feedbackInput(req)));
 }catch(error){next(error);}};

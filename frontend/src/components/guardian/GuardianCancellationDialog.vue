@@ -25,6 +25,7 @@
         <p v-if="review.count"><strong>{{ review.count }} appointment{{ review.count===1?'':'s' }}</strong> {{ review.endsService ? `and ${review.serviceLabel} with this provider` : 'in this selection' }}.</p>
         <p v-else>No future appointments remain to cancel. You can still end {{ review.serviceLabel }} with this provider.</p>
         <p v-if="review.endsService">No later appointments in this service will remain scheduled or generate reminders. Other services and agencies remain unchanged.</p>
+        <p v-if="review.endsService">Our team will be notified. Future email and text notifications for this service will stop, and you will receive one confirmation email. You can then leave optional feedback.</p>
         <p><strong>{{ review.totalFeeCents ? `Total cancellation fee: ${money(review.totalFeeCents)}` : 'No cancellation fee applies.' }}</strong></p>
         <details><summary>{{ ft('Dates, deadlines, and fees') }}</summary><ul><li v-for="fee in review.fees" :key="fee.appointmentId">
           <strong>{{ when(fee.startAt,fee.timeZone) }} · {{ money(fee.feeCents) }}</strong>

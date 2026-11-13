@@ -129,6 +129,8 @@ router.post('/clients/:clientId/appointments/:appointmentId/requests', guardianA
 router.post('/clients/:clientId/appointments/:appointmentId/cancel-preview', guardianAppointments.cancelPreview);
 router.post('/clients/:clientId/appointments/:appointmentId/cancel', guardianAppointments.cancel);
 router.get('/clients/:clientId/cancellations/:operationId', guardianAppointments.cancellationProgress);
+router.get('/clients/:clientId/cancellations/:operationId/feedback', guardianAppointments.getExitFeedback);
+router.post('/clients/:clientId/cancellations/:operationId/feedback', rateLimit({windowMs:60*1000,max:10}), guardianAppointments.saveExitFeedback);
 router.post('/clients/:clientId/appointments/:appointmentId/replacement-offer', replacementResponse);
 router.get('/clients/:clientId/notification-history', listClientNotificationHistory);
 router.get('/clients/:clientId/notification-setup', notificationSetup.getSetup);

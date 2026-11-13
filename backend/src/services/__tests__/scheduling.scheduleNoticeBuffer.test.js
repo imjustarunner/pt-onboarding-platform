@@ -33,7 +33,7 @@ function harness() {
     if (sql.startsWith('UPDATE appointment_reminders') || sql.startsWith('UPDATE appointment_change_notification_queue')) return [{}];
     throw new Error(`Unimplemented test SQL: ${sql}`);
   }) };
-  const deps={database,now:()=>clock,lock:async(k,fn)=>fn(),familyRecipients:vi.fn(async()=>({hasRelationships:false,recipients:[]})),
+  const deps={database,serviceBlocked:vi.fn(async()=>false),now:()=>clock,lock:async(k,fn)=>fn(),familyRecipients:vi.fn(async()=>({hasRelationships:false,recipients:[]})),
     encrypt:s=>JSON.stringify({encrypted:Buffer.from(s).toString('base64')}),decrypt:s=>Buffer.from(JSON.parse(s).encrypted,'base64').toString(),
     appointment:vi.fn(async id=>appointments.get(Number(id))),participants:vi.fn(async()=>[{clientId:8}]),
     tenant:vi.fn(async()=>({channelsEnabled:{sms:true},changeNotify:{channels:['email','sms'],bufferMinutes:15}})),
@@ -314,4 +314,14 @@ it('can send one service-ending summary from an already canceled past anchor wit
  expect(h.notices).toHaveLength(2);expect(h.notices[1].status).toBe('pending');
  h.advance(15);await h.service.process(2);expect(h.deps.sendEmail).toHaveBeenCalledTimes(2);
  await h.service.queue(1,ending);expect(h.notices).toHaveLength(2);
+});
+it('suppresses already-queued email and text updates when the service ends before delivery',async()=>{
+ const h=harness();h.deps.serviceBlocked.mockResolvedValue(false);
+ await h.service.queue(1,{eventType:'canceled',facts:{clientFacingReason:'Changing schedule'}});
+ h.deps.serviceBlocked.mockResolvedValue(true);h.advance(15);await h.service.process(1);
+ expect(h.notices[0].status).toBe('suppressed');expect(h.deps.sendEmail).not.toHaveBeenCalled();expect(h.deps.sendSms).not.toHaveBeenCalled();
+});
+it('keeps the saved service-ending confirmation email-only after texts have stopped',async()=>{
+ const h=harness();await h.service.queue(1,{eventType:'canceled',facts:{guardianCancellationOperationId:'ending-1',guardianSummary:{endsService:true},cancellationActorRole:'guardian'}});
+ await h.service.process(1);expect(h.deps.sendEmail).toHaveBeenCalledTimes(1);expect(h.deps.sendSms).not.toHaveBeenCalled();
 });

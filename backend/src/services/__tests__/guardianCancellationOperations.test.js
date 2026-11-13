@@ -14,6 +14,8 @@ beforeEach(()=>{
   if(sql.startsWith('SELECT DISTINCT a.id'))return [[...appointments.values()].filter(a=>a.status==='scheduled').map(a=>({...a,officeBookingPlanId:350}))];
   if(sql.startsWith('SELECT id,review_json'))return [[]];
   if(sql.startsWith('SELECT id FROM client_service_enrollments'))return [[]];
+  if(sql.startsWith('SELECT team_notified_at'))return [[{team_notified_at:operation.team_notified_at||null}]];
+  if(sql.startsWith('UPDATE guardian_service_cancellations SET team_notified_at='))operation.team_notified_at='2026-11-13 16:00:01';
   if(sql.startsWith('SELECT * FROM guardian_service_cancellations'))return [[...(operation
     && (!sql.includes('lease_token')||operation.lease_token===args[0])
     && (!sql.includes('AND actor_user_id=?')||operation.actor_user_id===args[1])?[operation]:[])]];
@@ -63,6 +65,16 @@ it('processes each cancellation quietly and queues only one summary after all 26
  for(const[,options]of m.cancel.mock.calls)expect(options).toMatchObject({deferNotification:true,cancellationAt:'2026-11-13 16:00:00.123',expectedPolicyId:3,expectedPackageAction:'release'});
  expect(m.notify).toHaveBeenCalledTimes(1);expect(m.notify.mock.calls[0][1]).toMatchObject({guardianSummary:{count:26,endsService:true,totalFeeCents:0},personalNote:input.personalNote});
  expect(appointments.get(90).status).toBe('scheduled');expect(operation.status).toBe('completed');expect(m.calendar).toHaveBeenCalledTimes(26);
+ expect(m.notify.mock.calls[0][1]).toMatchObject({emailOnly:true,guardianSummary:{teamNotified:true,notificationsDisabled:true}});
+ expect(operation.team_notified_at).toBeTruthy();
+ const teamInsert=m.execute.mock.calls.findIndex(([sql])=>sql.startsWith('INSERT INTO notifications'));
+ expect(m.execute.mock.invocationCallOrder[teamInsert]).toBeLessThan(m.notify.mock.invocationCallOrder[0]);
+});
+it('does not repeat the team alert when a confirmation queue attempt needs retrying',async()=>{
+ m.notify.mockRejectedValueOnce(new Error('Temporary queue failure'));
+ await submit();await service.processPending();expect(operation.status).toBe('queued');
+ await service.processPending();expect(operation.status).toBe('completed');
+ expect(m.execute.mock.calls.filter(([sql])=>sql.startsWith('INSERT INTO notifications'))).toHaveLength(1);
 });
 it('resumes partial work without canceling the first nine twice or emailing an incomplete series',async()=>{
  const cancel=m.cancel.getMockImplementation();let failed=false;

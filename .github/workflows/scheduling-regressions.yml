@@ -341,6 +341,7 @@ jobs:
           src/components/guardian/__tests__/GuardianAppointmentsPanel.test.js
           src/components/guardian/__tests__/GuardianCancellation.test.js
           src/components/guardian/__tests__/GuardianCancellationDialog.test.js
+          src/components/guardian/__tests__/GuardianServiceExitFeedback.test.js
           src/composables/__tests__/AppointmentChangeWizard.test.js
           src/components/schedule/__tests__/SchoolSupportCancellationBenefit.test.js
           src/composables/__tests__/useAppointmentChange.test.js

@@ -18,9 +18,15 @@ export function buildScheduleNoticeMessage(entries, portalUrl, { recipientUserId
     if (cancellation?.replacementAppointmentId) return cancellation;
     if (cancellation) {
       if(payload.facts?.guardianSummary && payload.facts?.guardianCancellationOperationId) {
-        if(Number(recipientUserId)>0 && Number(recipientUserId)===Number(payload.facts.cancellationActorUserId))return cancellation;
+        if(Number(recipientUserId)>0 && Number(recipientUserId)===Number(payload.facts.cancellationActorUserId)){
+          if(!payload.facts.guardianSummary.endsService)return cancellation;
+          const feedbackUrl=new URL(portalUrl);
+          feedbackUrl.searchParams.set('serviceExit',payload.facts.guardianCancellationOperationId);
+          return {...cancellation,text:`${cancellation.text}\n\nHelp us improve (optional): ${feedbackUrl.href}\nSign in to leave a short rating or suggestion. Feedback is optional and does not restart services or notifications.`,
+            html:`${cancellation.html}<p><a href="${escapeNoticeHtml(feedbackUrl.href)}">Help us improve (optional)</a></p><p>Sign in to leave a short rating or suggestion. Feedback is optional and does not restart services or notifications.</p>`};
+        }
         const summary=payload.facts.guardianSummary;
-        const text=`${summary.count?`${summary.count} future appointment${summary.count===1?' has':'s have'} been canceled.`:'No future appointments remained to cancel.'}${summary.endsService?` The ${summary.serviceLabel||'selected'} service with this provider has ended.`:''} Other services are unchanged. ${FAMILY_APPOINTMENT_LOGIN}`;
+        const text=`${summary.count?`${summary.count} future appointment${summary.count===1?' has':'s have'} been canceled.`:'No future appointments remained to cancel.'}${summary.endsService?` The ${summary.serviceLabel||'selected'} service with this provider has ended.${summary.teamNotified?' Our team has been notified.':''}${summary.notificationsDisabled?' Future email and text notifications for this service have been disabled.':''}`:''} Other services are unchanged. ${FAMILY_APPOINTMENT_LOGIN}`;
         return {...cancellation,text,html:`<p>${escapeNoticeHtml(text)}</p>`,sms:text};
       }
       if (payload.facts?.absenceSource) return { ...cancellation, text:cancellation.bodyText || cancellation.text, html:cancellation.bodyHtml || cancellation.html };

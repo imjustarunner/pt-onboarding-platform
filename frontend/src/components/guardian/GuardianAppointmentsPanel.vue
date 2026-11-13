@@ -19,6 +19,7 @@
       <p v-if="preferenceNotice" role="status">{{ preferenceNotice }}</p>
     </details>
     <p v-if="notice" role="status">{{ notice }}</p>
+    <GuardianServiceExitFeedback v-if="exitFeedbackId&&!preview" :key="`${clientId}:${exitFeedbackId}`" :client-id="clientId" :operation-id="exitFeedbackId" @close="exitFeedbackId='';exitFeedbackDismissed=true" />
     <p v-if="error" role="alert">{{ error }}</p><p v-if="loading" role="status">{{ ft("Loading appointments…") }}</p>
     <p v-else-if="!appointments.length">{{ ft("No appointments are available to display.") }}</p>
     <article v-for="a in appointments" :key="a.id" :id="`appointment-${a.id}`" tabindex="-1">
@@ -81,6 +82,7 @@ import { useFamilyLocale } from '../../composables/useFamilyLocale';
 const { ft, locale: familyLocale } = useFamilyLocale();
 import { ref, reactive, computed, watch, nextTick } from 'vue';
 import GuardianCancellationDialog from './GuardianCancellationDialog.vue';
+import GuardianServiceExitFeedback from './GuardianServiceExitFeedback.vue';
 import GuardianClinicalBooking from './GuardianClinicalBooking.vue';
 import SecureSessionCommentButton from '../session-comments/SecureSessionCommentButton.vue';
 import SecureSessionCommentTip from '../session-comments/SecureSessionCommentTip.vue';
@@ -92,9 +94,10 @@ const api=usePortalCareApi();
 const props=defineProps({clientId:{type:Number,default:null},preview:{type:Boolean,default:false},familyNotifications:Boolean});
 const editingId=ref(null),actionForm=ref(null);
 const cancellationAppointment=ref(null),cancellationScope=ref('single');
+const exitFeedbackId=ref(''),exitFeedbackDismissed=ref(false);
 function openCancellation(a,scope='single'){cancellationScope.value=scope;cancellationAppointment.value=a;editingId.value=null;}
 async function openAction(a,type){if(type==='cancel'){openCancellation(a);return;}draft(a).type=type;clearReview(a);editingId.value=a.id;await nextTick();actionForm.value?.scrollIntoView?.({block:'center'});actionForm.value?.querySelector('textarea')?.focus();}
-async function cancellationCompleted(result){cancellationAppointment.value=null;notice.value=result.endsService?`${result.count} future appointments canceled and this service ended. Your other services are unchanged.`:`${result.count} appointment(s) canceled.`;await load();}
+async function cancellationCompleted(result){cancellationAppointment.value=null;notice.value=result.endsService?`Your services have ended. Our team has been notified. Future email and text notifications for this service are off. ${result.count} future appointments canceled. Your other services are unchanged.`:`${result.count} appointment(s) canceled.`;if(result.endsService){exitFeedbackId.value=result.id;exitFeedbackDismissed.value=false;}await load();}
 const preferences=ref(null),preferenceNotice=ref('');
 const appointments=ref([]),loading=ref(false),busy=ref(false),error=ref(''),notice=ref(''),drafts=reactive({});let sequence=0;
 const selectedSlots = reactive({}), selectedFormats = reactive({});
@@ -129,6 +132,8 @@ const cancellationSuggestion=computed(()=>props.preview?null:appointments.value.
 const when=(value,timeZone)=>appointmentDate(value).toLocaleString(familyLocale.value,{timeZone:timeZone||'America/Denver',dateStyle:'medium',timeStyle:'short'});
 async function load(){const own=++sequence;appointments.value=[];preferences.value=null;preferenceNotice.value='';error.value='';if(!props.clientId||props.preview)return;loading.value=true;try{const {data}=await api.get(`/guardian-portal/clients/${props.clientId}/appointments`,{skipGlobalLoading:true});if(own===sequence) {
   appointments.value=data.appointments||[];
+  const query=new URLSearchParams(window.location.search),requestedExit=query.get('serviceExit');
+  if(!exitFeedbackDismissed.value&&!exitFeedbackId.value&&Number(query.get('clientId'))===props.clientId&&/^[0-9a-f-]{36}$/i.test(requestedExit||''))exitFeedbackId.value=requestedExit;
   await nextTick();
   const requestedId = Number(new URLSearchParams(window.location.search).get('appointmentId'));
   if (appointments.value.some(a => Number(a.id) === requestedId)) document.getElementById(`appointment-${requestedId}`)?.scrollIntoView?.({ block: 'center' });
@@ -163,7 +168,7 @@ async function submit(a) {
     }
   } finally { busy.value=false; }
 }
-watch(()=>props.clientId,()=>{notice.value='';editingId.value=null;cancellationAppointment.value=null;Object.keys(drafts).forEach(k=>delete drafts[k]);Object.keys(selectedSlots).forEach(k=>delete selectedSlots[k]);Object.keys(selectedFormats).forEach(k=>delete selectedFormats[k]);load();},{immediate:true});
+watch(()=>props.clientId,()=>{notice.value='';editingId.value=null;cancellationAppointment.value=null;exitFeedbackId.value='';exitFeedbackDismissed.value=false;Object.keys(drafts).forEach(k=>delete drafts[k]);Object.keys(selectedSlots).forEach(k=>delete selectedSlots[k]);Object.keys(selectedFormats).forEach(k=>delete selectedFormats[k]);load();},{immediate:true});
 </script>
 <style scoped>
 .guardian-appointments article{margin:16px 0;padding:20px!important;border:1px solid #dce4ee;border-left:4px solid #2467a7;border-radius:12px;background:#fff}.guardian-appointments h3{font-size:20px;margin:0 0 8px}.appointment-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}.appointment-actions button{background:#eff5fc;color:#174473;border:1px solid #c7d7e8;border-radius:8px}.guardian-appointments form{background:#f4f7fb;padding:18px;border-radius:10px;margin-top:16px}.guardian-appointments input[type=checkbox]{width:20px;height:20px}.guardian-appointments button{min-height:42px}

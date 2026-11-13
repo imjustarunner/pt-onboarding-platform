@@ -30,3 +30,14 @@ it('keeps the service-ending option available from canceled history after all vi
  const w=mount(Panel,{props:{clientId:8}});await flushPromises();expect(w.find('.appointment-actions').exists()).toBe(false);
  await w.get('.cancellation-suggestion button').trigger('click');expect(w.get('input[value=end_services]').element.checked).toBe(true);w.unmount();
 });
+it('opens the optional feedback form from the signed-in confirmation email and clears it when switching clients',async()=>{
+ const operationId='11111111-1111-4111-8111-111111111111';
+ window.history.replaceState({},'',`/guardian?panel=appointments&clientId=8&serviceExit=${operationId}`);
+ api.get.mockImplementation(async url=>({data:url.endsWith('/feedback')?{submitted:false}:url.endsWith('/appointments')?{appointments:[]}:{channels:{email:true,sms:false}}}));
+ const w=mount(Panel,{props:{clientId:8}});
+ try{
+  await flushPromises();expect(w.get('.exit-feedback').text()).toContain('Help us improve (optional)');
+  expect(api.get).toHaveBeenCalledWith(`/guardian-portal/clients/8/cancellations/${operationId}/feedback`,{skipGlobalLoading:true});
+  await w.setProps({clientId:9});await flushPromises();expect(w.find('.exit-feedback').exists()).toBe(false);expect(api.post).not.toHaveBeenCalled();
+ }finally{w.unmount();window.history.replaceState({},'','/');}
+});

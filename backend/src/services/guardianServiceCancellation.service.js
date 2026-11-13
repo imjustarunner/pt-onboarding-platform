@@ -90,7 +90,8 @@ export function createGuardianServiceCancellationService(overrides={}) {
 
   async function preview(input) { return (await plan(input)).review; }
   const describe=row=>({id:row.id,status:row.status,scope:row.scope,count:(parse(row.review_json)?.fees||[]).length,
-    completed:Number(row.completed_count),endsService:row.scope==='end_services',error:row.error_message||null});
+    completed:Number(row.completed_count),endsService:row.scope==='end_services',teamNotified:!!row.team_notified_at,
+    serviceNotificationsDisabled:row.scope==='end_services',error:row.error_message||null});
   async function status({userId,clientId,operationId}) {
     const [[row]]=await d.db.execute('SELECT * FROM guardian_service_cancellations WHERE id=? AND actor_user_id=? AND client_id=?',[operationId,userId,clientId]);
     if(!row)throw fail('Cancellation progress not found.',404);
@@ -185,16 +186,25 @@ export function createGuardianServiceCancellationService(overrides={}) {
       await d.calendarCleanup(await d.appointment(fee.appointmentId),row.actor_user_id);
       await d.db.execute('UPDATE guardian_service_cancellations SET lease_until=DATE_ADD(UTC_TIMESTAMP(),INTERVAL 15 MINUTE) WHERE id=? AND lease_token=?',[row.id,token]);
     }
+    // Notify the team exactly once before confirming that it has been notified.
+    const team=await d.db.getConnection();
+    try {
+      await team.beginTransaction();
+      const [[held]]=await team.execute('SELECT team_notified_at FROM guardian_service_cancellations WHERE id=? AND lease_token=? FOR UPDATE',[row.id,token]);
+      if(!held)throw new Error('Cancellation lease changed.');
+      if(!held.team_notified_at){
+        await team.execute(`INSERT INTO notifications (type,severity,title,message,user_id,agency_id,related_entity_type,related_entity_id,actor_user_id,actor_source)
+          VALUES ('public_appointment_request_received','info',?,?,?,?,'appointment',?,?,'guardian_portal')`,
+        [review.endsService?'Client ended services':'Client appointments canceled',`${review.count} appointment(s) canceled. Reason: ${details.reason}${details.personalNote?` Personal note: ${details.personalNote}`:''}`,row.provider_user_id,row.agency_id,row.appointment_id,row.actor_user_id]);
+        await team.execute('UPDATE guardian_service_cancellations SET team_notified_at=UTC_TIMESTAMP(3) WHERE id=? AND lease_token=?',[row.id,token]);
+      }
+      await team.commit();
+    }catch(error){await team.rollback();throw error;}finally{team.release();}
     await d.notify(row.appointment_id,{eventType:'canceled',cancellationActorRole:details.actorRole||'guardian',cancellationActorUserId:row.actor_user_id,
       clientFacingReason:details.reason,followUpAction:'none',guardianCancellationOperationId:row.id,
-      guardianSummary:{count:review.count,endsService:review.endsService,serviceLabel:review.serviceLabel,totalFeeCents},
-      personalNote:details.personalNote},row.actor_user_id);
-    // One staff notification for the operation, not one notification per appointment.
-    const title=review.endsService?'Client ended services':'Client appointments canceled';
-    await d.db.execute(`INSERT INTO notifications (type,severity,title,message,user_id,agency_id,related_entity_type,related_entity_id,actor_user_id,actor_source)
-      SELECT 'public_appointment_request_received','info',?,?,?,?,'appointment',?,?,'guardian_portal'
-      WHERE NOT EXISTS (SELECT 1 FROM notifications WHERE title=? AND related_entity_type='appointment' AND related_entity_id=? AND actor_user_id=? AND actor_source='guardian_portal')`,
-    [title,`${review.count} appointment(s) canceled. Reason: ${details.reason}${details.personalNote?` Personal note: ${details.personalNote}`:''}`,row.provider_user_id,row.agency_id,row.appointment_id,row.actor_user_id,title,row.appointment_id,row.actor_user_id]);
+      guardianSummary:{count:review.count,endsService:review.endsService,serviceLabel:review.serviceLabel,totalFeeCents,
+        teamNotified:true,notificationsDisabled:review.endsService},
+      ...(review.endsService?{emailOnly:true}:{}),personalNote:details.personalNote},row.actor_user_id);
     await d.db.execute(`UPDATE guardian_service_cancellations SET status='completed',error_message=NULL,lease_token=NULL,lease_until=NULL WHERE id=? AND lease_token=?`,[row.id,token]);
   }
   let running=false;

@@ -5,6 +5,8 @@ import {readFile} from 'node:fs/promises';
 vi.mock('../../config/database.js',()=>({default:{},onTableWrite:()=>{}}));
 import {createGuardianServiceCancellationService} from '../guardianServiceCancellation.service.js';
 import {assertClientServiceSchedulingActive} from '../clientServiceSchedulingGuard.service.js';
+import {createGuardianServiceExitFeedback} from '../guardianServiceExitFeedback.service.js';
+import {serviceNotificationBlocked} from '../clientServiceNotificationPolicy.service.js';
 const enabled=!!process.env.CLINICAL_INTEGRATION_MYSQL_PORT;
 let admin,db,service,created=false;
 const name=`codex_guardian_cancellation_${process.pid}`;
@@ -28,6 +30,7 @@ beforeAll(async()=>{
  ])await db.query(sql);
  const enroll=await readFile(new URL('../../../../database/migrations/1681_client_service_enrollments.sql',import.meta.url),'utf8');await db.query(enroll.split(';')[0]);
  await db.query(await readFile(new URL('../../../../database/migrations/1818_guardian_service_cancellations.sql',import.meta.url),'utf8'));
+ for(const sql of (await readFile(new URL('../../../../database/migrations/1819_guardian_service_exit_feedback.sql',import.meta.url),'utf8')).split(';').filter(sql=>sql.trim()))await db.query(sql);
  for(let id=1;id<=26;id++){
   await db.execute("INSERT INTO appointments VALUES (?,2,7,'mental_health','reserved_office_session:abc',?,?,'scheduled',NULL,?,0)",[id,`2030-01-${String(id+1).padStart(2,'0')} 16:00:00`,`2030-01-${String(id+1).padStart(2,'0')} 17:00:00`,id+100]);
   await db.execute('INSERT INTO appointment_participants VALUES (?,8)',[id]);await db.execute('INSERT INTO office_events VALUES (?,350)',[id+100]);
@@ -66,4 +69,14 @@ it.skipIf(!enabled)('cancels all 26 through real migration-defined SQL while pre
  await service.submit({...empty,reviewToken:emptyReview.reviewToken});await service.processPending();
  const[[emptyJob]]=await db.execute('SELECT status,completed_count FROM guardian_service_cancellations WHERE id=?',[empty.requestId]);
  expect(emptyJob).toMatchObject({status:'completed',completed_count:0});expect(cancel).toHaveBeenCalledTimes(26);expect(notify).toHaveBeenCalledTimes(2);
+ const[[finished]]=await db.execute('SELECT team_notified_at FROM guardian_service_cancellations WHERE id=?',[empty.requestId]);expect(finished.team_notified_at).toBeTruthy();
+ const messageInput={appointment:{id:1,agencyId:2,providerUserId:7,businessType:'mental_health'},clientId:8};
+ expect(await serviceNotificationBlocked(messageInput,db)).toBe(true);
+ expect(await serviceNotificationBlocked({...messageInput,facts:{guardianSummary:{endsService:true},guardianCancellationOperationId:empty.requestId,cancellationActorUserId:9}},db)).toBe(false);
+ const feedback=createGuardianServiceExitFeedback({db,authorize:async()=>{},encrypt:JSON.stringify});
+ const response={userId:9,clientId:8,operationId:empty.requestId,rating:4,comments:'More evening appointments.',contactRequested:false};
+ expect(await feedback.read(response)).toEqual({submitted:false});await feedback.submit(response);await feedback.submit(response);
+ expect(await feedback.read(response)).toEqual({submitted:true});
+ const[[feedbackCount]]=await db.query('SELECT COUNT(*) AS n FROM guardian_service_exit_feedback');expect(feedbackCount.n).toBe(1);
+ const[[alertCount]]=await db.query("SELECT COUNT(*) AS n FROM notifications WHERE title='Client service feedback'");expect(alertCount.n).toBe(1);
 });
