@@ -81,7 +81,10 @@ export async function filterSharedMailboxOutreach({identity,fromEmail,subject,bo
 export async function sendQueuedOutreachRejections({limit=20}={}) {
   await pool.execute(`UPDATE unsolicited_outreach_notices SET status='needs_review',last_error='Delivery interrupted; verify communication history before retrying'
     WHERE status='sending' AND attempted_at<DATE_SUB(UTC_TIMESTAMP(),INTERVAL 30 MINUTE)`);
-  const [rows]=await pool.execute(`SELECT * FROM unsolicited_outreach_notices WHERE status='queued' AND ready_at<=UTC_TIMESTAMP() ORDER BY id LIMIT ?`,[Math.max(1,Math.min(50,Math.floor(Number(limit))||20))]);
+  // mysql2 binds JavaScript numbers as DOUBLE; MySQL requires an integer
+  // literal for LIMIT on some deployed versions. Only interpolate a bounded integer.
+  const batchSize=Math.max(1,Math.min(50,Math.floor(Number(limit))||20));
+  const [rows]=await pool.execute(`SELECT * FROM unsolicited_outreach_notices WHERE status='queued' AND ready_at<=UTC_TIMESTAMP() ORDER BY id LIMIT ${batchSize}`);
   const results=[];
   for (const row of rows) {
     const [claim]=await pool.execute(`UPDATE unsolicited_outreach_notices SET status='sending',attempted_at=UTC_TIMESTAMP(),last_error=NULL WHERE id=? AND status='queued'`,[row.id]);
