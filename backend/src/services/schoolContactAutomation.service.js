@@ -13,6 +13,7 @@ import ClientNotes from '../models/ClientNotes.model.js';
 import ClinicalNote from '../models/clinical/ClinicalNote.model.js';
 import { resolveMessagesSendMailbox } from './tenantMessageMailboxes.service.js';
 import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service.js';
+import {requireQaContactScope} from './schoolContactQaScope.service.js';
 
 const parse = value => { try { return typeof value === 'string' ? JSON.parse(value) : value || {}; } catch { return {}; } };
 const millis = value => value ? new Date(typeof value === 'string' && /^\d{4}-\d\d-\d\d \d\d:/.test(value) ? value.replace(' ','T')+'Z' : value).getTime() : 0;
@@ -224,7 +225,7 @@ async function remindProviderSms(workflow, ctx) {
   }
 }
 
-async function processWorkflow(workflow, now) {
+async function processWorkflow(workflow, now, qa = null) {
   // This rechecks the enabled cohort, current membership, provider role, and
   // school access on every tick, even if a pending row was manually inserted.
   let ctx;
@@ -251,11 +252,14 @@ async function processWorkflow(workflow, now) {
   });
   workflow={...workflow,...care};
   if (workflow.intake_scheduled && !workflow.intake_arranged_at) {
-    await pool.execute('UPDATE school_contact_workflows SET intake_arranged_at=COALESCE(intake_arranged_at,?) WHERE id=?',[now,workflow.id]);
-    workflow.intake_arranged_at=now;
+    const observedAt=qa?new Date():now;
+    await pool.execute('UPDATE school_contact_workflows SET intake_arranged_at=COALESCE(intake_arranged_at,?) WHERE id=?',[observedAt,workflow.id]);
+    workflow.intake_arranged_at=observedAt;
   }
-  const action = nextSchoolContactStep(workflow, { status: workflow.plan_status, stale_after_hours: workflow.stale_after_hours,
+  const decision=qa&&workflow.second_contact_at?{...workflow,second_contact_at:new Date(millis(workflow.initial_sent_at)+48*HOUR)}:workflow;
+  const action = nextSchoolContactStep(decision, { status: workflow.plan_status, stale_after_hours: workflow.stale_after_hours,
     sms_after_days: workflow.sms_after_days, email_after_days: workflow.email_after_days, decided_at: workflow.current_plan_decided_at }, now);
+  if(qa && action!==qa.stepKey) return {action:'stopped',reason:action};
   if (['cancel','complete','await_provider','await_parent','await_intake'].includes(action)) {
     const status = { cancel: 'cancelled', complete: 'complete', await_provider: 'awaiting_provider', await_parent: 'waiting_parent', await_intake:workflow.provider_notified_at?'intake_followup_required':'intake_arranged' }[action];
     await pool.execute('UPDATE school_contact_workflows SET status=? WHERE id=?', [status, workflow.id]);
@@ -277,11 +281,21 @@ async function processWorkflow(workflow, now) {
   }
   const guardian = await guardianFor(workflow);
   if (!guardian?.email) { await pool.execute("UPDATE school_contact_workflows SET status='blocked',last_error='Link an authorized guardian with an email address to begin.' WHERE id=?", [workflow.id]); return; }
+  if(qa&&!/^testing(?:\+[^@\s]+)?@itsco\.health$/i.test(guardian.email))throw Object.assign(new Error('Use a controlled testing alias for the QA family.'),{status:403});
+  const beforeDelivery=qa?async()=>{
+    const authority=await requireQaContactScope(qa.actorUserId,qa.scope);
+    const current=await guardianFor(workflow),fresh=await observeReplies(workflow);
+    const [[latestCare]]=await pool.execute(`SELECT EXISTS(SELECT 1 FROM client_intake_note_drafts WHERE agency_id=? AND client_id=? AND status='final' AND finalized_at IS NOT NULL) AS intake_completed,
+      EXISTS(SELECT 1 FROM appointments ap JOIN appointment_participants pt ON pt.appointment_id=ap.id AND pt.client_id=? WHERE ap.agency_id=? AND ap.provider_user_id=? AND ap.business_type IN ('clinical','mental_health','healthcare') AND ap.service_code IN ('90791','H0031') AND ap.status IN ('scheduled','confirmed','client_confirmed') AND ap.end_at>=UTC_TIMESTAMP()) AS intake_scheduled`,[workflow.agency_id,workflow.client_id,workflow.client_id,workflow.agency_id,workflow.provider_user_id]);
+    if(!current||Number(current.id)!==Number(guardian.id)||current.email!==guardian.email||String(authority.initial_recipient_email).toLowerCase()!==guardian.email.toLowerCase()||fresh.parent_reply_at||fresh.provider_replied_at||fresh.external_reply_recorded_at||latestCare?.intake_completed||latestCare?.intake_scheduled
+      ||await ClinicalNote.hasSignedIntakeForClient({agencyId:workflow.agency_id,clientId:workflow.client_id})||!await stillEnabled(workflow))throw Object.assign(new Error('QA contact access, intake or reply state changed before delivery.'),{code:'qa_contact_stopped',status:409});
+  }:null;
   const values={parent_name:[guardian.first_name,guardian.last_name].filter(Boolean).join(' ') || 'Parent',provider_name:[ctx.provider.first_name,ctx.provider.last_name].filter(Boolean).join(' '),school_name:workflow.school_name,service_day:displaySchoolContactDay(workflow.service_day)};
   const sendEmail=()=>sendSchoolContactEmail({agencyId:workflow.agency_id,providerUserId:workflow.provider_user_id,clientId:workflow.client_id,schoolId:workflow.school_id,
     to:guardian.email,parentName:values.parent_name,schoolName:values.school_name,serviceDay:values.service_day,
     template:action==='initial_email'?preferredSchoolContactTemplate(workflow.template):action==='second_contact'?(workflow.second_template || DEFAULT_SECOND_CONTACT_TEMPLATE):(workflow.final_template || DEFAULT_FINAL_CONTACT_TEMPLATE),
-    subject:SCHOOL_CONTACT_SUBJECTS[action],conversationId:workflow.conversation_id,workflowId:workflow.id,stepKey:action});
+    subject:SCHOOL_CONTACT_SUBJECTS[action],conversationId:workflow.conversation_id,workflowId:workflow.id,stepKey:action,beforeDelivery,
+    qaAcceleration:qa?{elapsedHours:qa.elapsedHours,actorUserId:qa.actorUserId,actualTriggeredAt:qa.actualTriggeredAt}:null});
   const result=await runStep(workflow,action,async()=>{
     if(action==='second_contact'){
       const sms=await sendFollowupSms(workflow,ctx,guardian);
@@ -289,15 +303,17 @@ async function processWorkflow(workflow, now) {
       // No opted-in, active clinical route: use the requested second email.
       // An ambiguous carrier send throws and never falls back to a duplicate.
     }
-    return sendEmail();
+    if(beforeDelivery)await beforeDelivery();
+    const sent=await sendEmail();
+    return qa?{...sent,reason:`Accelerated QA only: logical elapsed${qa.elapsedHours}h; triggered${qa.actualTriggeredAt}; actual delivery timestamps retained.`}:sent;
   });
-  if(result.needsReview) return;
+  if(result.needsReview) return qa?{action:'needs_review',stepKey:action}:undefined;
   if(action==='initial_email') await pool.execute("UPDATE school_contact_workflows SET initial_sent_at=?,conversation_id=?,status='waiting_parent',last_error=NULL WHERE id=?",[result.completedAt,result.conversationId || workflow.conversation_id,workflow.id]);
   if(action==='second_contact') await pool.execute("UPDATE school_contact_workflows SET second_contact_at=?,status='waiting_parent',last_error=NULL WHERE id=?",[result.completedAt,workflow.id]);
   if(action==='final_contact') await pool.execute("UPDATE school_contact_workflows SET final_contact_at=?,status='waiting_parent',last_error=NULL WHERE id=?",[result.completedAt,workflow.id]);
   if(action!=='initial_email' && result.channel!=='sms') await pool.execute(`INSERT IGNORE INTO client_parent_contact_attempts (client_id,agency_id,source_type,conversation_key,first_source_id,occurred_at)
     VALUES (?,?,'email',?,?,?)`,[workflow.client_id,workflow.agency_id,`${workflow.conversation_id}:school-${action}:${workflow.id}`,result.messageId,result.completedAt]);
-
+  return qa?{action:result.sent?'sent':result.skipped?'skipped':'evaluated',stepKey:action,messageId:result.messageId||null}:undefined;
 }
 
 const workflowSelect = `SELECT w.*,p.status AS plan_status,p.template,p.sms_after_days,p.email_after_days,p.stale_after_hours,p.second_template,p.final_template,p.sms_template,p.decided_at AS current_plan_decided_at,s.name AS school_name,
@@ -310,23 +326,37 @@ const workflowSelect = `SELECT w.*,p.status AS plan_status,p.template,p.sms_afte
     JOIN agencies s ON s.id=w.school_id LEFT JOIN client_provider_assignments a ON a.id=w.assignment_id
     WHERE w.agency_id IN (?,?) AND ${schoolContactScopeSql('pilot','w.provider_user_id')} AND w.status NOT IN ('cancelled','complete','needs_review')`;
 
-export async function processSchoolContactAutomation({ now = new Date(), limit = 50 } = {}) {
-  await queueSchoolContactAssignments();
+export async function processSchoolContactAutomation({ now = new Date(), limit = 50, scope=null,qaElapsedHours=null,qaActorId=null } = {}) {
+  if(scope && (scope.agencyId!==450 || !['clientId','providerUserId','workflowId'].every(key=>Number.isSafeInteger(scope[key])&&scope[key]>0)))throw Object.assign(new Error('Invalid exact QA workflow scope.'),{status:400});
+  if(qaElapsedHours!==null && (!scope||![48,96].includes(qaElapsedHours)||!Number.isSafeInteger(Number(qaActorId))||Number(qaActorId)<1))throw Object.assign(new Error('An exact QA scope and48/96-hour stage are required.'),{status:400});
+  if(!scope)await queueSchoolContactAssignments();
   const size = Math.min(100,Math.max(1,Number(limit)||50));
-  const [rows] = await pool.execute(`${workflowSelect} ORDER BY w.updated_at,w.id LIMIT ${Math.floor(size)}`, SCHOOL_CONTACT_AGENCY_IDS);
+  const filter=scope?` AND w.agency_id=? AND w.client_id=? AND w.provider_user_id=? AND w.id=? AND c.is_demo=1`:'';
+  const bindings=[...SCHOOL_CONTACT_AGENCY_IDS,...(scope?[scope.agencyId,scope.clientId,scope.providerUserId,scope.workflowId]:[])];
+  const [rows] = await pool.execute(`${workflowSelect}${filter} ORDER BY w.updated_at,w.id LIMIT ${scope?1:Math.floor(size)}`, bindings);
   let processed = 0;
+  const outcomes=[];
   for (const row of rows) {
     const lock = await pool.getConnection();
     try {
       const [[claim]] = await lock.execute('SELECT GET_LOCK(?,0) AS claimed', [`school-contact:${row.id}`]);
       if (!Number(claim?.claimed)) continue;
-      const [[fresh]] = await pool.execute(`${workflowSelect} AND w.id=? LIMIT 1`, [...SCHOOL_CONTACT_AGENCY_IDS,row.id]);
+      const [[fresh]] = await pool.execute(`${workflowSelect}${filter} AND w.id=? LIMIT 1`, [...bindings,row.id]);
       if (!fresh) continue;
-      await processWorkflow(fresh, now);
+      let qa=null,decisionNow=now;
+      if(qaElapsedHours!==null){
+        await requireQaContactScope(qaActorId,scope);
+        if((qaElapsedHours===48&&fresh.second_contact_at)||(qaElapsedHours===96&&fresh.final_contact_at)){outcomes.push({action:'already_completed',workflowId:fresh.id,stepKey:qaElapsedHours===48?'second_contact':'final_contact'});processed++;continue;}
+        if(qaElapsedHours===96&&!fresh.second_contact_at)throw Object.assign(new Error('Complete the48-hour QA stage before96 hours.'),{status:409});
+        qa={actorUserId:qaActorId,scope,elapsedHours:qaElapsedHours,stepKey:qaElapsedHours===48?'second_contact':'final_contact',actualTriggeredAt:new Date().toISOString()};
+        decisionNow=new Date(millis(fresh.initial_sent_at)+qaElapsedHours*HOUR);
+      }
+      const outcome=await processWorkflow(fresh, decisionNow,qa);
+      if(scope)outcomes.push({workflowId:fresh.id,...(outcome||{action:'evaluated'})});
       processed++;
     } finally { try { await lock.execute('SELECT RELEASE_LOCK(?)', [`school-contact:${row.id}`]); } finally { lock.release(); } }
   }
-  return { processed };
+  return { processed,...(scope?{outcomes}:{}) };
 }
 
 export async function listSchoolContactWorkflows({ agencyId, providerUserId, clientId = null }) {

@@ -6,6 +6,9 @@ import { buildFamilyWelcomePdfPreview, getSchoolContactPlan, saveSchoolContactPl
 const router = express.Router();
 router.use(authenticate);
 const input = req => ({ agencyId: req.query.agencyId || req.headers['x-agency-id'], userId: req.user.id });
+router.post('/qa/workflows/:id/advance-clock',rateLimit({windowMs:10*60*1000,max:8,standardHeaders:true,legacyHeaders:false}),async(req,res,next)=>{
+  try{const {advanceQaContactClock}=await import('../services/schoolContactQaClock.service.js');res.set('Cache-Control','no-store').json(await advanceQaContactClock(req));}catch(error){next(error);}
+});
 router.get('/providers', async(req,res,next)=>{try{const {listSchoolContactPlanProviders}=await import('../services/schoolContactPlanAdmin.service.js');res.json(await listSchoolContactPlanProviders(input(req)));}catch(e){next(e);}});
 router.put('/providers/:id/required', async(req,res,next)=>{try{const {requireSchoolContactPlan}=await import('../services/schoolContactPlanAdmin.service.js');res.json(await requireSchoolContactPlan(input(req),req.params.id,req.body.required));}catch(e){next(e);}});
 router.get('/', async (req, res, next) => { try { res.json(await getSchoolContactPlan(input(req))); } catch (error) { next(error); } });

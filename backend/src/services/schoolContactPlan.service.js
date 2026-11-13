@@ -166,7 +166,7 @@ export async function buildFamilyWelcomePdfPreview(input, schoolId = null) {
 }
 
 export async function sendSchoolContactEmail({ agencyId, providerUserId, clientId = null, schoolId = null, to, parentName, schoolName, serviceDay,
-  template = DEFAULT_SCHOOL_CONTACT_TEMPLATE, subject = SCHOOL_CONTACT_SUBJECTS.initial_email, body, example = false, conversationId = null, workflowId = null, stepKey = null, includePdf = null } = {}) {
+  template = DEFAULT_SCHOOL_CONTACT_TEMPLATE, subject = SCHOOL_CONTACT_SUBJECTS.initial_email, body, example = false, conversationId = null, workflowId = null, stepKey = null, includePdf = null, beforeDelivery=null,qaAcceleration=null } = {}) {
   const ctx = await getContactPlanContext({ agencyId, userId: providerUserId });
   if (example) await loadPreviewSchoolDays(ctx);
   const exampleSchool = example ? (schoolId == null ? ctx.schools[0] : ctx.schools.find(s => Number(s.id) === Number(schoolId))) : null;
@@ -231,7 +231,7 @@ export async function sendSchoolContactEmail({ agencyId, providerUserId, clientI
     ? `<school-contact-${Number(workflowId)}-${stepKey}@itsco.health>` : null;
   const messageId = await Conversation.addMessage({ conversationId: conversation.id, channel: 'email', direction: 'outbound', authorUserId: ctx.userId,
     from: { email: from, name: [ctx.provider.first_name, ctx.provider.last_name].filter(Boolean).join(' '), replyTo,
-      ...(workflowId && stepKey ? { schoolContactAutomation: { workflowId: Number(workflowId), stepKey } } : {}) },
+      ...(workflowId && stepKey ? { schoolContactAutomation: { workflowId: Number(workflowId), stepKey,...(qaAcceleration?{acceleratedQa:qaAcceleration}:{}) } } : {}) },
     to: [{ email: recipient }], cc: example ? [{ email: routing.providerEmail }] : [], bcc: [{ email: routing.providerEmail }],
     subject: example ? `[Example] ${title}` : title, bodyText: text, bodyHtml: html, sendStatus: 'preparing', internetMessageId: stableMessageId,
     isAutoReply: example, autoReplyKind: example ? 'school_contact_example' : null });
@@ -252,6 +252,7 @@ export async function sendSchoolContactEmail({ agencyId, providerUserId, clientI
     }
     // QA remains physically closed. The approved live cohort uses the verified
     // guardian/provider addresses. Automatic sends never expand generic copies.
+    if(beforeDelivery)await beforeDelivery();
     const recipients = schoolContactDelivery(ctx.agencyId, { to: recipient, cc: example && isSchoolContactDemoAgency(ctx.agency) ? routing.providerEmail : null, bcc: !example || isSchoolContactDemoAgency(ctx.agency) ? routing.providerEmail : null });
     const receipt = await sendEmailFromIdentity({ senderIdentityId: mailbox.identity.id, ...recipients,
       subject: example ? `[Example] ${title}` : title, text, html, attachments, replyToOverride: replyTo,

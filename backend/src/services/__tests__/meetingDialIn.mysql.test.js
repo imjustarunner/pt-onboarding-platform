@@ -27,7 +27,7 @@ describe.skipIf(!enabled)('telephone meeting lifecycle with isolated MySQL', () 
   let callStatus;
   beforeAll(async () => {
     if (socket && !/^\/private\/tmp\/meeting-dial-in-test\.[^/]+\/mysql\.sock$/.test(socket)) throw new Error('An isolated test socket is required.');
-    if (!socket && (host!=='127.0.0.1' || ![33319,33316].includes(port))) throw new Error('Explicit loopback test host and isolated test port required.');
+    if (!socket && (host!=='127.0.0.1' || ![33319,33316,33326].includes(port))) throw new Error('Explicit loopback test host and isolated test port required.');
     if (!/^meeting_dial_in_test_\d+_[a-f0-9]{10}$/.test(schema)) throw new Error('Unsafe fixture schema');
     const connection = socket ? {socketPath:socket,user:'root'} : {host,port,user:process.env.DIAL_IN_TEST_MYSQL_USER || 'root',password:process.env.DIAL_IN_TEST_MYSQL_PASSWORD || ''};
     admin = await mysql.createConnection(connection);
@@ -37,7 +37,7 @@ describe.skipIf(!enabled)('telephone meeting lifecycle with isolated MySQL', () 
     for (const statement of splitSqlStatements(stripSqlLineComments(sql))) await m.db.query(statement);
     const tables = [
       `CREATE TABLE users (id INT PRIMARY KEY,email VARCHAR(80),work_email VARCHAR(80),preferred_name VARCHAR(80),first_name VARCHAR(80),last_name VARCHAR(80),personal_phone VARCHAR(30),work_phone VARCHAR(30),phone_number VARCHAR(30),role VARCHAR(30),status VARCHAR(30),is_active BOOLEAN DEFAULT TRUE,is_archived BOOLEAN DEFAULT FALSE,is_demo BOOLEAN DEFAULT FALSE)`,
-      `CREATE TABLE agencies (id INT PRIMARY KEY,is_active BOOLEAN,timezone VARCHAR(80))`,
+      `CREATE TABLE agencies (id INT PRIMARY KEY,is_active BOOLEAN,timezone VARCHAR(80),slug VARCHAR(80),feature_flags JSON,is_archived BOOLEAN DEFAULT FALSE)`,
       `CREATE TABLE user_agencies (user_id INT,agency_id INT,is_active BOOLEAN)`,
       `CREATE TABLE supervision_sessions (id INT PRIMARY KEY,agency_id INT,supervisor_user_id INT,co_facilitator_user_id INT,supervisee_user_id INT,start_at DATETIME(3),end_at DATETIME(3),event_timezone VARCHAR(80),status VARCHAR(32),modality VARCHAR(20),waiting_room_enabled BOOLEAN,twilio_room_sid VARCHAR(512),twilio_room_unique_name VARCHAR(80),live_ended_at DATETIME(3),live_ended_by_user_id INT,meeting_settings_json JSON,updated_at DATETIME)`,
       `CREATE TABLE supervision_session_attendees (id INT AUTO_INCREMENT PRIMARY KEY,session_id INT,user_id INT,participant_role VARCHAR(32) NOT NULL DEFAULT 'supervisee',status VARCHAR(24),UNIQUE KEY(session_id,user_id))`,
@@ -56,7 +56,7 @@ describe.skipIf(!enabled)('telephone meeting lifecycle with isolated MySQL', () 
       `CREATE TABLE supervision_session_attendance_rollups (session_id INT,user_id INT,first_joined_at DATETIME,last_left_at DATETIME,total_seconds INT,segment_count INT,is_finalized BOOLEAN,manual_correction_id INT,updated_at DATETIME,PRIMARY KEY(session_id,user_id))`
     ];
     for (const statement of tables) await m.db.query(statement);
-    await m.db.query("INSERT INTO agencies VALUES (2,1,'America/Denver')");
+    await m.db.query("INSERT INTO agencies(id,is_active,timezone,slug,feature_flags) VALUES (2,1,'America/Denver','phone-test',JSON_OBJECT())");
     await m.db.query("INSERT INTO users(id,email,first_name,last_name,role,status) VALUES (7,'host@example.test','Host','Person','provider','ACTIVE'),(8,'peer@example.test','Invited','Person','provider','ACTIVE'),(9,'other@example.test','Other','Person','provider','ACTIVE')");
     await m.db.query('INSERT INTO user_agencies VALUES (7,2,1),(8,2,1),(9,2,1)');
     vi.stubEnv('MEETING_DIAL_IN_ENABLED', 'true'); vi.stubEnv('MEETING_DIAL_IN_NUMBER', '+12025550123');

@@ -60,13 +60,15 @@ jobs:
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.guardian-delivery-repairs.config.js --maxWorkers=2 --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/brief1112b-invites.json"
       - name: Issued ROI signer, progress and actual SQL active-session ownership
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.issued-roi-session.config.js --maxWorkers=2 --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/brief1112b-roi.json"
+      - name: Exact QA outreach clock and unchanged ordinary worker behavior
+        run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.qa-contact-clock.config.js --maxWorkers=2 --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/brief1112b-clock.json"
       - name: Require executed SQL cases, not skipped placeholders
         run: |
           node --input-type=module <<'NODE'
           import assert from 'node:assert/strict';
           import { readFileSync } from 'node:fs';
           import { join } from 'node:path';
-          const reports = ['clinical', 'invites', 'roi'].map(name => JSON.parse(readFileSync(join(process.env.RUNNER_TEMP, `brief1112b-${name}.json`), 'utf8')));
+          const reports = ['clinical', 'invites', 'roi', 'clock'].map(name => JSON.parse(readFileSync(join(process.env.RUNNER_TEMP, `brief1112b-${name}.json`), 'utf8')));
           const results = reports.flatMap(report => report.testResults);
           const required = [
             ['meetingEndPermission.mysql.test.js', 13],
@@ -75,7 +77,8 @@ jobs:
             ['coGuardianRequestOrigin.mysql.test.js', 4],
             ['coGuardianSelectedRetry.mysql.test.js', 16],
             ['coGuardianReminders.mysql.test.js', 7],
-            ['ClientSchoolRoiSigningLink.activeSession.mysql.test.js', 4]
+            ['ClientSchoolRoiSigningLink.activeSession.mysql.test.js', 4],
+            ['schoolContactQaClock.mysql.test.js', 19]
           ];
           for (const [name, minimum] of required) {
             const result = results.find(row => row.name.endsWith(`/${name}`));
