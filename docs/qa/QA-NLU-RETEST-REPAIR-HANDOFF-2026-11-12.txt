@@ -1,3 +1,14 @@
+CURRENT QA SETUP UPDATE — READ FIRST
+Completed at 2026-11-13T04:57:55.799Z UTC (November12, America/Denver MST UTC-07:00).
+Administrator1435 enabled public booking on the canonical TUTORING service320
+and assigned retained authorized Finley1496 to it. Existing variant services318/319
+and Homework Help321 remain separate. Published family package76 (four virtual
+visits,10% discount) and77 (four in-person visits,10% discount), bound to service320.
+These mirror the already advertised offers. No new client/user, booking, purchase,
+charge, email or signature was created. Actual booking, attendance and inbox
+results still require the bot's ordinary scoped journey. Earlier setup attempts
+and their cooldown are historical; do not repeat them.
+
 NLU RETEST REPAIRS — NOVEMBER 12, 2026
 Engineering handoff; live findings remain open until fresh deployed testing.
 

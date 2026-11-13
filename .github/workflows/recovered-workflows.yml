@@ -63,9 +63,9 @@ jobs:
           node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.school-roi-followup.config.js
       - name: NLU tutoring, childcare and employee compensation boundaries
         run: |
-          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.nlu-release.config.js
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.nlu-retest.config.js
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.nlu-parent-context.config.js
-          node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.nlu-release.config.js
+          node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.nlu-retest.config.js
           node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.nlu-parent-context.config.js
           NODE_ENV=test node --test backend/src/services/__tests__/billingCoverage.audit.test.js backend/src/services/__tests__/smartDisclosureParties.test.js
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.enrollment-repairs.config.js
