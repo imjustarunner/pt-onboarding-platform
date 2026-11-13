@@ -12,6 +12,9 @@ const run=(args,format='json')=>{
   if(args[0]==='builds'&&args[1]==='submit')console.error(String(result.stderr||'').slice(-3500));
   throw Error(`Cloud operation failed: ${args.slice(0,3).join(' ')}. No credential values were printed.`);
  }
+ // builds submit streams build progress before its final formatted response.
+ // Its successful exit is sufficient; the caller does not consume that result.
+ if(args[0]==='builds'&&args[1]==='submit')return;
  return format.startsWith('json')?JSON.parse(result.stdout||'{}'):result.stdout.trim();
 };
 let dir;
