@@ -21,7 +21,7 @@ const agency={id:2,slug:'itsco',name:'ITSCO',portal_url:'itsco'};
 beforeEach(()=>{
  vi.clearAllMocks();Agency.findByPortalUrl.mockResolvedValue(agency);
  identities.findByAgencyAndIdentityKey.mockImplementation(async(id,key)=>key==='support'?{id:11}:key==='personal_507'?{id:86,from_email:'rachel@itsco.health'}:null);
- pool.execute.mockImplementation(async sql=>sql.includes('SELECT DISTINCT')?[[{id:507,work_email:null}]]:sql.includes('SELECT u.id')?[[]]:[{insertId:321,affectedRows:1}]);
+ pool.execute.mockImplementation(async sql=>sql.includes('communication_blocked_addresses')?[[]]:sql.includes('SELECT DISTINCT')?[[{id:507,work_email:null}]]:sql.includes('SELECT u.id')?[[]]:[{insertId:321,affectedRows:1}]);
  sendEmailFromIdentity.mockResolvedValue({sent:true});
 });
 describe('ITSCO practicum/internship inquiries',()=>{

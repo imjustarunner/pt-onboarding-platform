@@ -1,3 +1,4 @@
+import { filterSharedMailboxOutreach } from '../unsolicitedOutreach.service.js';
 import { listDedicatedSchoolMailboxes, schoolContextForAddresses } from './schoolMailboxContext.service.js';
 import { isSchoolWelcomeSupportReply, isTechnologyIdentity, ingestTechnologyEmail, prioritizeTechnologyAddresses, ignoreOutboundTechnologyCopy } from '../technologySupport.service.js';
 import { deferredInboundMessages, deferInboundMessage, clearInboundRetry } from './gmailInboundRetry.js';
@@ -945,6 +946,18 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
     );
     const subject = hdrs.get('subject') || '';
 
+    const routed = await routeSenderIdentityFromHeaders(hdrs);
+    const outreachIdentity = routed.senderIdentityId ? await EmailSenderIdentity.findById(routed.senderIdentityId) : null;
+    const outreach = await filterSharedMailboxOutreach({
+      identity: outreachIdentity, fromEmail, subject, bodyText: pickBodyText(payload), headers: hdrs, ourFromEmails
+    });
+    if (outreach.filtered) {
+      await gmail.users.messages.modify({ userId: 'me', id,
+        requestBody: { removeLabelIds: ['UNREAD'], addLabelIds: [processedLabelId, ignoredLabelId] } });
+      results.ignored += 1;
+      continue;
+    }
+
     const {handleUnmonitoredMailboxReply}=await import('../unmonitoredMailbox.service.js');
     const unmonitored=await handleUnmonitoredMailboxReply({headers:hdrs,fromEmail,gmailMessageId:id});
     if(unmonitored.handled){
@@ -962,7 +975,6 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
       await gmail.users.messages.modify({userId:'me',id,requestBody:{removeLabelIds:['UNREAD'],addLabelIds:[processedLabelId]}});
       results.inboxDeliveries++; continue;
     }
-    const routed = await routeSenderIdentityFromHeaders(hdrs);
     if (await isSchoolWelcomeSupportReply({ addresses: [...routed.to, ...routed.cc, ...routed.deliveredTo], inReplyTo: hdrs.get('in-reply-to'), references: hdrs.get('references') })) {
       const support = await EmailSenderIdentity.findByAgencyAndIdentityKey(2, 'support');
       if (!support?.id) throw new Error('Support identity missing for school welcome reply');
@@ -1047,7 +1059,8 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
     } catch (e) {
       throw e; // Never acknowledge partial fan-out; outer retry preserves successful copies.
     }
-    const routedIdentity = routed.senderIdentityId ? await EmailSenderIdentity.findById(routed.senderIdentityId) : null;
+    const routedIdentity = Number(routed.senderIdentityId) === Number(outreachIdentity?.id) ? outreachIdentity
+      : (routed.senderIdentityId ? await EmailSenderIdentity.findById(routed.senderIdentityId) : null);
     if(routedIdentity?.agency_id && (automated || !/^\s*(?:re|fw|fwd):/i.test(subject) && / - (?:Paper Enrollment Packet Uploaded|Digital Enrollment Packet)$/i.test(subject))){
       const {recordSchoolGroupEmail}=await import('../schoolGroupEmailInbox.service.js');
       const packetEmail=await recordSchoolGroupEmail({agencyId:routedIdentity.agency_id,fromEmail,subject,automated,gmail,gmailMessageId:id,payload,
