@@ -35,3 +35,10 @@ it('ignores a late unavailable-provider/history result after switching the selec
  rejectOld({response:{status:409,data:{error:{message:'Old provider unavailable.'}}}});resolveHistory({data:{threads:[{threadId:7,providerName:'Old provider'}]}});await flushPromises();
  expect(w.text()).toContain('Correct new service message');expect(w.text()).not.toContain('Old provider');expect(api.get).not.toHaveBeenCalledWith('/dependent-portal/messages/7',expect.anything());
 });
+it('opens a limited personal portal for a discontinued provider without care or family billing access',async()=>{
+ api.get.mockResolvedValue({data:{...overview,clientId:8,agencies:[{id:6,name:'Agency',services:[{id:3,label:'Counseling',kind:'counseling',providerName:'Dr. Example',is_active:0,service_status:'terminated',portal_status:'discontinued',portal_status_label:'Discontinued services',closure_reason:'discontinued_contact',client_end_reason:'Unable to re-establish contact.'}]}]}});
+ const w=mount(Portal,{global:{stubs:{EndedServicePortal:{props:['access','service'],template:'<section>{{access.statusLabel}} {{service.provider_name}} {{access.reason}}</section>'},FamilyPortalShell:{props:['navigation'],template:'<div><nav><button v-for="n in navigation" @click="$emit(\'navigate\',n.key)">{{n.label}}</button></nav><slot/></div>'}}}});await flushPromises();
+ expect(w.text()).toContain('Discontinued services');expect(w.text()).toContain('Dr. Example');expect(w.text()).toContain('Unable to re-establish contact');
+ expect(w.text()).toContain('Session history');expect(w.text()).not.toMatch(/My appointments|My plan|Secure messages|Invoices & receipts|Payment methods/);
+ expect(api.get.mock.calls.map(([url])=>url)).toEqual(['/dependent-portal/me']);expect(api.post).not.toHaveBeenCalled();
+});

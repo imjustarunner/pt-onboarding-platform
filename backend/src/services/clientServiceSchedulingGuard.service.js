@@ -18,8 +18,10 @@ export async function assertClientServiceSchedulingActive({ agencyId, providerUs
     officeBookingPlanId=event?.booking_plan_id||null;
   }
   const [[stopped]] = await db.execute(`SELECT id FROM guardian_service_cancellations WHERE client_id=? AND agency_id=?
-    AND provider_user_id=? AND service_kind=? AND scope='future' AND status IN ('queued','processing','completed','failed')
-    AND ((series_kind='source' AND series_key=?) OR (series_kind='provider' AND series_key=?) OR (series_kind='office_plan' AND series_key=?)) LIMIT 1`,
-  [clientId, agencyId, providerUserId, kind, source || '', recurrence,officeBookingPlanId?String(officeBookingPlanId):null]);
+    AND provider_user_id=? AND service_kind=? AND scope IN ('future','end_services') AND status IN ('queued','processing','completed','failed')
+    AND ((series_kind='source' AND series_key=?) OR (series_kind='provider' AND series_key=?) OR (scope='future' AND series_kind='office_plan' AND series_key=?)
+      OR JSON_CONTAINS(review_json,JSON_OBJECT('kind','source','key',?),'$.stoppedSeries')
+      OR JSON_CONTAINS(review_json,JSON_OBJECT('kind','provider','key',?),'$.stoppedSeries')) LIMIT 1`,
+  [clientId, agencyId, providerUserId, kind, source || '', recurrence,officeBookingPlanId?String(officeBookingPlanId):null,source||'',recurrence]);
   if (stopped?.id) throw Object.assign(new Error('This recurring series was canceled. Start a new series only after confirming the client wants to resume.'), { status:409, code:'CLIENT_SERIES_ENDED' });
 }

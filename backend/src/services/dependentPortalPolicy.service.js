@@ -18,6 +18,8 @@ export function personalBillingRouteAllowed(method,path,clientId){
  return method==='POST'&&/^\/api\/family-billing\/(allocations\/\d+\/pay|plans\/\d+\/(accept|cancel)|balances\/\d+\/split|splits\/\d+\/respond)$/.test(path);
 }
 export function dependentRouteAllowed(method,path,clientId){
+ if(method==='GET'&&new RegExp(`^/api/guardian-portal/clients/${Number(clientId)}/(service-access|session-history(?:/download)?|intake-documents(?:/[^/]+/download-url)?|enrollment-copies/[^/]+/download|services/\\d+/return-request|cancellations/[^/]+(?:/feedback)?)$`).test(path))return true;
+ if(method==='POST'&&new RegExp(`^/api/guardian-portal/clients/${Number(clientId)}/(services/\\d+/return-request|cancellations/[^/]+/feedback)$`).test(path))return true;
  // Public address assistance has no client-record scope; normal personal-login checks remain in force.
  if(method==='POST' && /^\/api\/address-lookup\/(suggest|select)$/.test(path))return true;
  if(method==='GET' && /^\/api\/secure-session-comments\/(today|history|badges|appointments\/\d+)$/.test(path))return true;
@@ -46,6 +48,10 @@ export async function enforceDependentPortalScope(req,res,next){
   req.dependentPortalAccess=access;
   const path=String(req.originalUrl||req.path).split('?')[0].replace(/\/$/,'');
   if(access.revoked_at&&path!=='/api/auth/logout')return res.status(403).json({error:{message:'This personal portal invitation is no longer active. Contact your care team.'}});
+  if(req.method==='POST'&&path==='/api/guardian-portal/support-tickets'){
+   if(Number(req.body?.clientId)!==Number(access.client_id))return res.status(403).json({error:{message:'This login only opens your own account.'}});
+   return next();
+  }
   if(personalBillingRouteAllowed(req.method,path,access.client_id)){
    const [[independent]]=await pool.execute("SELECT client_id FROM client_portal_independence WHERE client_id=? AND user_id=? AND status='active'",[access.client_id,req.user.id]);
    if(independent){

@@ -12,4 +12,20 @@ describe('single-client personal portal boundaries',()=>{
  it('leaves ordinary guardians unchanged',async()=>{execute.mockResolvedValue([[]]);const next=vi.fn();await enforceDependentPortalScope({user:{id:3,role:'client_guardian'}},{},next);expect(next).toHaveBeenCalledOnce();});
  it('allows own-password maintenance without permitting changes to another user',()=>{expect(dependentRouteAllowed('POST','/api/users/change-password',8)).toBe(true);expect(dependentRouteAllowed('POST','/api/users/99/change-password',8)).toBe(false);});
  it('resolves display icons without permitting asset mutations',()=>{expect(dependentRouteAllowed('GET','/api/icons/57',8)).toBe(true);expect(dependentRouteAllowed('PUT','/api/icons/57',8)).toBe(false);expect(dependentRouteAllowed('POST','/api/icons/upload',8)).toBe(false);});
+ it.each(['service-access','session-history','session-history/download','intake-documents','enrollment-copies/42/download','services/3/return-request'])('retains own ended-service access without opening another client: %s',suffix=>{
+  expect(dependentRouteAllowed('GET',`/api/guardian-portal/clients/8/${suffix}`,8)).toBe(true);
+  expect(dependentRouteAllowed('GET',`/api/guardian-portal/clients/9/${suffix}`,8)).toBe(false);
+ });
+ it('allows a consideration request but never appointment booking under personal infrastructure',()=>{
+  expect(dependentRouteAllowed('POST','/api/guardian-portal/clients/8/services/3/return-request',8)).toBe(true);
+  expect(dependentRouteAllowed('POST','/api/guardian-portal/clients/9/services/3/return-request',8)).toBe(false);
+  expect(dependentRouteAllowed('POST','/api/guardian-portal/clients/8/appointments',8)).toBe(false);
+ });
+ it('limits logistical support requests to the personal client and respects invitation revocation first',async()=>{
+  for(const [clientId,revoked,allowed] of [[8,false,true],[9,false,false],[8,true,false]]){
+   execute.mockResolvedValue([[{client_id:8,revoked_at:revoked?new Date():null}]]);const res={status:vi.fn().mockReturnThis(),json:vi.fn()},next=vi.fn();
+   await enforceDependentPortalScope({user:{id:3,role:'client_guardian'},method:'POST',originalUrl:'/api/guardian-portal/support-tickets',body:{clientId}},res,next);
+   expect(next.mock.calls.length).toBe(allowed?1:0);if(!allowed)expect(res.status).toHaveBeenCalledWith(403);
+  }
+ });
 });

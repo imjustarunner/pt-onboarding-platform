@@ -92,12 +92,13 @@ const authStore = getActivePinia() ? useAuthStore() : { user: null };
 import {usePortalCareApi} from '../../composables/usePortalCareApi';
 const api=usePortalCareApi();
 const props=defineProps({clientId:{type:Number,default:null},preview:{type:Boolean,default:false},familyNotifications:Boolean});
+const emit=defineEmits(['notifications','service-ended']);
 const editingId=ref(null),actionForm=ref(null);
 const cancellationAppointment=ref(null),cancellationScope=ref('single');
 const exitFeedbackId=ref(''),exitFeedbackDismissed=ref(false);
 function openCancellation(a,scope='single'){cancellationScope.value=scope;cancellationAppointment.value=a;editingId.value=null;}
 async function openAction(a,type){if(type==='cancel'){openCancellation(a);return;}draft(a).type=type;clearReview(a);editingId.value=a.id;await nextTick();actionForm.value?.scrollIntoView?.({block:'center'});actionForm.value?.querySelector('textarea')?.focus();}
-async function cancellationCompleted(result){cancellationAppointment.value=null;notice.value=result.endsService?`Your services have ended. Our team has been notified. Future email and text notifications for this service are off. ${result.count} future appointments canceled. Your other services are unchanged.`:`${result.count} appointment(s) canceled.`;if(result.endsService){exitFeedbackId.value=result.id;exitFeedbackDismissed.value=false;}await load();}
+async function cancellationCompleted(result){cancellationAppointment.value=null;notice.value=result.endsService?`Your services have ended. Our team has been notified. Future email and text notifications for this service are off. ${result.count} future appointments canceled. Your other services are unchanged.`:`${result.count} appointment(s) canceled.`;if(result.endsService){exitFeedbackId.value=result.id;exitFeedbackDismissed.value=false;}await load();if(result.endsService)emit('service-ended',result);}
 const preferences=ref(null),preferenceNotice=ref('');
 const appointments=ref([]),loading=ref(false),busy=ref(false),error=ref(''),notice=ref(''),drafts=reactive({});let sequence=0;
 const selectedSlots = reactive({}), selectedFormats = reactive({});

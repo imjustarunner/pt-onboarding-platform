@@ -4,6 +4,8 @@ import { enrollmentOptions, startGuardianEnrollment } from '../services/guardian
 import * as guardianSessionBooking from '../controllers/guardianSessionBooking.controller.js';
 import { listSharedFiles,sharedFile } from '../services/guardianFileShares.service.js';
 import { guardianCheckins } from '../services/guardianCheckins.service.js';
+import {servicePortalGate,globalServicePortalGate,guardianServiceAccess,guardianSessionHistory,sessionHistoryCsv} from '../services/guardianServicePortal.service.js';
+import {clientServiceReturnRequests} from '../services/clientServiceReturnRequest.service.js';
 import { authorizedClient } from '../services/guardianAppointments.service.js';
 import { ensureClientSecureConversation } from '../services/clientSecureConversation.service.js';
 import {familyAccount,updateFamilyAccount} from '../services/familyPortalAccount.service.js';
@@ -92,6 +94,26 @@ router.use((req, res, next) => {
   next();
 });
 
+
+router.use(globalServicePortalGate);
+router.use('/clients/:clientId',servicePortalGate);
+const returnInput=req=>({...req.query,...req.body,userId:req.user.id,clientId:Number(req.params.clientId),serviceId:Number(req.params.serviceId)});
+router.get('/clients/:clientId/services/:serviceId/return-request',async(req,res,next)=>{try{if(req.guardianPreviewMode)return res.sendStatus(403);res.set('Cache-Control','private, no-store').json(await clientServiceReturnRequests.read(returnInput(req)));}catch(error){next(error);}});
+router.post('/clients/:clientId/services/:serviceId/return-request',rateLimit({windowMs:60*60*1000,max:10}),async(req,res,next)=>{try{if(req.guardianPreviewMode)return res.sendStatus(403);res.status(202).json(await clientServiceReturnRequests.submit(returnInput(req)));}catch(error){next(error);}});
+router.get('/clients/:clientId/service-access',async(req,res,next)=>{try{
+ if(req.guardianPreviewMode)return res.status(403).json({error:{message:'Preview cannot read service access.'}});
+ res.set('Cache-Control','private, no-store').json(await guardianServiceAccess({...req.query,userId:req.user.id,clientId:Number(req.params.clientId)}));
+}catch(error){next(error);}});
+router.get('/clients/:clientId/session-history',async(req,res,next)=>{try{
+ if(req.guardianPreviewMode)return res.status(403).json({error:{message:'Preview cannot read session history.'}});
+ const rows=await guardianSessionHistory({...req.query,userId:req.user.id,clientId:Number(req.params.clientId)});
+ res.set('Cache-Control','private, no-store').json({sessions:rows.slice(0,100),total:rows.length});
+}catch(error){next(error);}});
+router.get('/clients/:clientId/session-history/download',async(req,res,next)=>{try{
+ if(req.guardianPreviewMode)return res.status(403).json({error:{message:'Preview cannot download session history.'}});
+ const rows=await guardianSessionHistory({...req.query,userId:req.user.id,clientId:Number(req.params.clientId)});
+ res.set({'Cache-Control':'private, no-store','Content-Type':'text/csv; charset=utf-8','X-Content-Type-Options':'nosniff','Content-Disposition':`attachment; filename="session-history-${Number(req.params.clientId)}.csv"`}).send(sessionHistoryCsv(rows));
+}catch(error){next(error);}});
 
 // These enrollment document handlers restrict both listing and downloads to
 // the signed-in guardian's own submissions, in addition to active-link and

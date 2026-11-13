@@ -7,6 +7,9 @@ import {createGuardianServiceCancellationService} from '../guardianServiceCancel
 import {assertClientServiceSchedulingActive} from '../clientServiceSchedulingGuard.service.js';
 import {createGuardianServiceExitFeedback} from '../guardianServiceExitFeedback.service.js';
 import {serviceNotificationBlocked} from '../clientServiceNotificationPolicy.service.js';
+import {updateClientServiceStatus} from '../clientServiceEnrollment.service.js';
+import {guardianSessionHistory} from '../guardianServicePortal.service.js';
+import {createClientServiceReturnRequests} from '../clientServiceReturnRequest.service.js';
 const enabled=!!process.env.CLINICAL_INTEGRATION_MYSQL_PORT;
 let admin,db,service,created=false;
 const name=`codex_guardian_cancellation_${process.pid}`;
@@ -18,6 +21,11 @@ beforeAll(async()=>{
  const settings={host:'127.0.0.1',port,user:'root',password:'',timezone:'+00:00',dateStrings:true};
  admin=await mysql.createConnection(settings);await admin.query(`CREATE DATABASE ${name}`);created=true;db=mysql.createPool({...settings,database:name,connectionLimit:6});
  for(const sql of [
+  'CREATE TABLE clients (id INT PRIMARY KEY,agency_id INT,client_type VARCHAR(30),status VARCHAR(30),client_status_id INT)',
+  'CREATE TABLE users (id INT PRIMARY KEY,first_name VARCHAR(80),last_name VARCHAR(80))',
+  'CREATE TABLE agencies (id INT PRIMARY KEY,name VARCHAR(80))',
+  'CREATE TABLE client_agency_assignments (client_id INT,agency_id INT,is_active BOOL)',
+  'CREATE TABLE client_statuses (id INT PRIMARY KEY,status_key VARCHAR(30))',
   'CREATE TABLE appointments (id INT PRIMARY KEY,agency_id INT,provider_user_id INT,business_type VARCHAR(30),source VARCHAR(100),start_at DATETIME,end_at DATETIME,status VARCHAR(40),provider_schedule_event_id INT,office_event_id INT,cancellation_fee_cents INT DEFAULT 0)',
   'CREATE TABLE appointment_participants (appointment_id INT,client_id INT)',
   'CREATE TABLE provider_schedule_events (id INT PRIMARY KEY,agency_id INT,provider_id INT,recurrence_series_id VARCHAR(80),recurrence_stopped BOOL DEFAULT 0)',
@@ -31,6 +39,11 @@ beforeAll(async()=>{
  const enroll=await readFile(new URL('../../../../database/migrations/1681_client_service_enrollments.sql',import.meta.url),'utf8');await db.query(enroll.split(';')[0]);
  await db.query(await readFile(new URL('../../../../database/migrations/1818_guardian_service_cancellations.sql',import.meta.url),'utf8'));
  for(const sql of (await readFile(new URL('../../../../database/migrations/1819_guardian_service_exit_feedback.sql',import.meta.url),'utf8')).split(';').filter(sql=>sql.trim()))await db.query(sql);
+ for(const sql of (await readFile(new URL('../../../../database/migrations/1820_client_service_lifecycle.sql',import.meta.url),'utf8')).split(';').filter(sql=>sql.trim()))await db.query(sql);
+ await db.query("INSERT INTO clients VALUES (8,2,'clinical','CURRENT',1),(99,2,'clinical','CURRENT',1)");
+ await db.query("INSERT INTO users VALUES (7,'Provider','One'),(99,'Provider','Two')");
+ await db.query("INSERT INTO agencies VALUES (2,'Agency One'),(3,'Agency Two')");
+ await db.query("INSERT INTO client_statuses VALUES (1,'current')");await db.query('INSERT INTO client_agency_assignments VALUES (8,3,1)');
  for(let id=1;id<=26;id++){
   await db.execute("INSERT INTO appointments VALUES (?,2,7,'mental_health','reserved_office_session:abc',?,?,'scheduled',NULL,?,0)",[id,`2030-01-${String(id+1).padStart(2,'0')} 16:00:00`,`2030-01-${String(id+1).padStart(2,'0')} 17:00:00`,id+100]);
   await db.execute('INSERT INTO appointment_participants VALUES (?,8)',[id]);await db.execute('INSERT INTO office_events VALUES (?,350)',[id+100]);
@@ -41,6 +54,7 @@ beforeAll(async()=>{
  }
  await db.query("INSERT INTO office_booking_plans VALUES (350,1,JSON_OBJECT('agencyId',2,'bookingSource','automatic_office_reservation'))");
  await db.query("INSERT INTO client_service_enrollments (client_id,agency_id,service_kind,provider_user_id,label) VALUES (8,2,'counseling',7,'Counseling'),(8,2,'tutoring',7,'Tutoring'),(8,3,'counseling',7,'Other agency'),(8,2,'counseling',99,'Other provider')");
+ await db.query("ALTER TABLE appointments ADD COLUMN source_timezone VARCHAR(80) DEFAULT 'America/Denver', ADD COLUMN modality VARCHAR(24) DEFAULT 'IN_PERSON'");
  const appointment=async id=>{const[[a]]=await db.execute('SELECT * FROM appointments WHERE id=?',[id]);return a&&{...a,agencyId:a.agency_id,providerUserId:a.provider_user_id,businessType:a.business_type,startAt:a.start_at,endAt:a.end_at,providerScheduleEventId:a.provider_schedule_event_id,officeEventId:a.office_event_id,cancellationFeeCents:a.cancellation_fee_cents};};
  cancel.mockImplementation(async(id)=>{await db.execute("UPDATE appointments SET status='canceled_by_client' WHERE id=?",[id]);return {cancellationFeeCents:0};});
  service=createGuardianServiceCancellationService({db,appointment,authorize:async()=>({agency_id:2,client_type:'clinical'}),authorizeEnd:async()=>{},requireCancellation:async()=>{},
@@ -79,4 +93,33 @@ it.skipIf(!enabled)('cancels all 26 through real migration-defined SQL while pre
  expect(await feedback.read(response)).toEqual({submitted:true});
  const[[feedbackCount]]=await db.query('SELECT COUNT(*) AS n FROM guardian_service_exit_feedback');expect(feedbackCount.n).toBe(1);
  const[[alertCount]]=await db.query("SELECT COUNT(*) AS n FROM notifications WHERE title='Client service feedback'");expect(alertCount.n).toBe(1);
+ const[[enrollment]]=await db.query("SELECT * FROM client_service_enrollments WHERE client_id=8 AND agency_id=2 AND provider_user_id=7 AND service_kind='counseling'");
+ expect(enrollment.service_status).toBe('discontinued');expect(enrollment.ended_at).toBeTruthy();
+ const returns=createClientServiceReturnRequests({db,authorize:async()=>({agency_id:2}),encrypt:JSON.stringify,decrypt:JSON.parse});
+ const again={userId:9,clientId:8,agencyId:2,serviceId:enrollment.id,requestId:'33333333-3333-4333-8333-333333333333',note:'Please consider me again.'};
+ await returns.submit(again);await returns.submit(again);
+ const[[requests]]=await db.query('SELECT COUNT(*) AS n FROM client_service_return_requests');expect(requests.n).toBe(1);
+ expect((await returns.read(again)).request).toMatchObject({status:'pending',note:again.note});
+ expect((await returns.read({...again,userId:10})).request).toBeNull();
+ await returns.review({...again,userId:7,decision:'reviewed',message:'Please discuss availability with us.'});
+ const[[notResumed]]=await db.execute('SELECT is_active FROM client_service_enrollments WHERE id=?',[enrollment.id]);expect(notResumed.is_active).toBe(0);
+ expect((await returns.read(again)).request).toMatchObject({status:'reviewed',response:'Please discuss availability with us.'});
+ await returns.submit({...again,requestId:'44444444-4444-4444-8444-444444444444'});
+ const staff={clientId:8,agencyId:2,serviceId:enrollment.id,userId:9,input:{status:'active',expectedStatus:'discontinued',reason:'Authorized return to care',confirmed:true}};
+ const options={lock:async(ids,work)=>work()};
+ await updateClientServiceStatus(staff,db,options);
+ const[[openReview]]=await db.query("SELECT COUNT(*) AS n FROM client_service_return_requests WHERE status='pending'");expect(openReview.n).toBe(0);
+ await expect(assertClientServiceSchedulingActive({clientId:8,agencyId:2,providerUserId:7,businessType:'mental_health',source:'reserved_office_session:abc'},db)).rejects.toMatchObject({code:'CLIENT_SERIES_ENDED'});
+ await expect(assertClientServiceSchedulingActive({clientId:8,agencyId:2,providerUserId:7,businessType:'mental_health',source:'reserved_office_session:fresh'},db)).resolves.toBeUndefined();
+ await updateClientServiceStatus({...staff,input:{status:'completed',expectedStatus:'active',reason:'Care completed',confirmed:true}},db,options);
+ const[[updated]]=await db.execute('SELECT service_status,is_active FROM client_service_enrollments WHERE id=?',[enrollment.id]);expect(updated).toEqual({service_status:'completed',is_active:0});
+ const[remaining]=await db.query('SELECT id FROM client_service_enrollments WHERE is_active=1');expect(remaining).toHaveLength(3);
+ const closed=await updateClientServiceStatus({...staff,input:{status:'terminated',expectedStatus:'completed',closureReason:'discontinued_contact',reason:'Private outreach history.',confirmed:true}},db,options);
+ const publicService=closed.services.find(s=>Number(s.id)===Number(enrollment.id));
+ expect(publicService).toMatchObject({service_status:'terminated',portal_status:'discontinued',portal_status_label:'Discontinued services',closure_reason:'discontinued_contact'});
+ expect(publicService.client_end_reason).toContain('unable to re-establish contact');expect(publicService.client_end_reason).not.toContain('Private outreach');
+ const[[canceledCount]]=await db.query("SELECT COUNT(*) AS n FROM appointments WHERE id<60 AND status='canceled_by_client'");expect(canceledCount.n).toBe(26);
+ const history=await guardianSessionHistory({userId:9,clientId:8,agencyId:2,serviceId:enrollment.id},db,{authorize:async()=>({client_id:8,agency_id:2,service:enrollment})});
+ expect(history).toHaveLength(26);expect(history.every(row=>row.status==='canceled_by_client')).toBe(true);expect(history.some(row=>row.providerName==='Provider Two')).toBe(false);
+
 });

@@ -1,14 +1,15 @@
 import {beforeEach,describe,expect,it,vi} from 'vitest';
-const m=vi.hoisted(()=>({execute:vi.fn(),links:vi.fn(),decryptTicket:vi.fn(row=>row),decryptMessage:vi.fn(row=>row),notify:vi.fn(),topic:true,encrypted:true,priority:true,ticket:null,rows:[]}));
+const m=vi.hoisted(()=>({execute:vi.fn(),links:vi.fn(),authorized:vi.fn(),decryptTicket:vi.fn(row=>row),decryptMessage:vi.fn(row=>row),notify:vi.fn(),topic:true,encrypted:true,priority:true,ticket:null,rows:[]}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute}}));
 vi.mock('../../models/ClientGuardian.model.js',()=>({default:{listClientsForGuardian:m.links,isNoView:p=>!!(p?.noView||p?.noViewOtherGuardian)}}));
+vi.mock('../../services/guardianAppointments.service.js',()=>({authorizedClient:m.authorized}));
 vi.mock('../../models/Notification.model.js',()=>({default:{create:m.notify}}));
 vi.mock('../../services/chatEncryption.service.js',()=>({isChatEncryptionConfigured:()=>true}));
 vi.mock('../../utils/supportTicketCrypto.js',()=>({prepareEncryptedTicketText:()=>({plain:'[encrypted]',ciphertext:'cipher',iv:'iv',authTag:'tag',keyId:'test'}),decryptTicketMessageRow:m.decryptMessage,decryptTicketRow:m.decryptTicket,ticketDisplayStatus:row=>row.status}));
 import {listGuardianSupportTickets,getGuardianSupportTicket,sendGuardianSupportTicketMessage,createGuardianSupportTicket,restrictGuardianBillingTicketAccess} from '../guardianSupportTickets.controller.js';
 const response=()=>{const res={status:vi.fn(),json:vi.fn()};res.status.mockReturnValue(res);res.json.mockReturnValue(res);return res;};
 const request=(id=10,role='client_guardian')=>({user:{id,role},params:{ticketId:'91',id:'91',attachmentId:'12'},body:{body:'A private receipt question'}});
-beforeEach(()=>{vi.clearAllMocks();m.topic=true;m.encrypted=true;m.priority=true;m.ticket={id:91,client_id:7,agency_id:2,topic:'billing',created_by_user_id:10,status:'open',question:'Private receipt',attachment_id:12};m.rows=[];m.links.mockResolvedValue([{client_id:7,agency_id:2,organization_id:null,relationship_type:'self',permissions_json:{},full_name:'Synthetic Adult'}]);m.execute.mockImplementation(async sql=>{
+beforeEach(()=>{vi.clearAllMocks();m.authorized.mockRejectedValue(Object.assign(new Error('Agency not linked'),{status:403}));m.topic=true;m.encrypted=true;m.priority=true;m.ticket={id:91,client_id:7,agency_id:2,topic:'billing',created_by_user_id:10,status:'open',question:'Private receipt',attachment_id:12};m.rows=[];m.links.mockResolvedValue([{client_id:7,agency_id:2,organization_id:null,relationship_type:'self',permissions_json:{},full_name:'Synthetic Adult'}]);m.execute.mockImplementation(async sql=>{
  if(sql.includes('information_schema.tables'))return [[{cnt:0}]];
  if(sql.includes('information_schema.COLUMNS'))return [sql.includes("COLUMN_NAME = 'topic'")?(m.topic?[{present:1}]:[]):sql.includes("COLUMN_NAME = 'priority'")?(m.priority?[{present:1}]:[]):m.encrypted?[{present:1}]:[]];
  if(sql.includes('SELECT t.*'))return [m.rows];
@@ -39,4 +40,14 @@ it('does not decrypt a ticket whose agency differs from the authorized profile, 
 describe('billing topic is private from the initial insert',()=>{
  it.each([[true,true],[true,false],[false,true],[false,false]])('writes topic atomically with encryption=%s priority=%s',async(encrypted,priority)=>{m.encrypted=encrypted;m.priority=priority;const req={...request(10,'client'),body:{clientId:7,topic:'billing',subject:'Prior receipt request',question:'Please provide my earlier receipts.'}},res=response(),next=vi.fn();await createGuardianSupportTicket(req,res,next);expect(next).not.toHaveBeenCalled();expect(res.status).toHaveBeenCalledWith(201);const [sql,params]=m.execute.mock.calls.find(([sql])=>sql.includes('INSERT INTO support_tickets'));expect(sql).toContain('topic)');expect(params.at(-1)).toBe('billing');expect((sql.match(/\?/g)||[]).length).toBe(params.length);expect(m.execute.mock.calls.some(([sql])=>sql.includes('UPDATE support_tickets SET topic'))).toBe(false);});
  it('fails closed before creating billing content when topic storage is unavailable',async()=>{m.topic=false;const res=response();await createGuardianSupportTicket({...request(),body:{clientId:7,topic:'billing',question:'Private balance question'}},res,vi.fn());expect(res.status).toHaveBeenCalledWith(503);expect(m.execute.mock.calls.some(([sql])=>sql.includes('INSERT'))).toBe(false);});
+});
+
+it('keeps a former client’s billing support in the selected authorized care agency',async()=>{
+ m.authorized.mockResolvedValue({client_id:7,agency_id:6,organization_id:2,permissions_json:{},full_name:'Synthetic Adult'});
+ m.ticket.agency_id=6;
+ const req={...request(10,'client'),query:{agencyId:'6'},body:{clientId:7,agencyId:6,topic:'billing',question:'Please provide my former-service receipt.'}},res=response(),next=vi.fn();
+ await createGuardianSupportTicket(req,res,next);expect(next).not.toHaveBeenCalled();
+ const insert=m.execute.mock.calls.find(([sql])=>sql.includes('INSERT INTO support_tickets'));expect(insert[1][0]).toBe(6);expect(insert[1][3]).toBe(6);
+ expect(m.authorized).toHaveBeenCalledWith(10,7,null,{agencyId:6,allowEndedServices:true});
+ const read=response();await getGuardianSupportTicket(request(10,'client'),read,next);expect(read.json).toHaveBeenCalledWith(expect.objectContaining({ticket:expect.objectContaining({agency_id:6})}));
 });

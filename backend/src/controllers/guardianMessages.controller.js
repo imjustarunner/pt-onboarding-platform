@@ -50,8 +50,8 @@ async function resolveAssignedProvider(clientId, organizationId) {
 }
 
 async function assertGuardianClientAccess(guardianUserId, clientId) {
-  const clients = await ClientGuardian.listClientsForGuardian({ guardianUserId, requiredClinicalScope: 'clinical_messages' });
-  return (clients || []).find((c) => Number(c.client_id) === Number(clientId)) || null;
+  const {authorizedClient}=await import('../services/guardianAppointments.service.js');
+  try{return await authorizedClient(guardianUserId,clientId,'clinical_messages');}catch(error){if(error.status===403)return null;throw error;}
 }
 
 async function hasThreadAccess(userId, threadId) {

@@ -2,7 +2,9 @@ import { guardianAppointmentJoin } from './guardianVirtualJoin.js';
 import PhoneNumber from '../models/PhoneNumber.model.js';
 import { resolveAppointmentServiceSetting } from './appointmentServiceSetting.service.js';
 import pool from '../config/database.js';
-import {guardianServiceContext,serviceMatchesAppointment,guardianContextAllowsAppointment} from './clientServiceEnrollment.service.js';
+import {guardianServiceContext,serviceMatchesAppointment,guardianContextAllowsAppointment,listClientServices} from './clientServiceEnrollment.service.js';
+import {servicePortalAccess} from '../utils/clientServiceLifecycle.js';
+import {assertClientServiceSchedulingActive} from './clientServiceSchedulingGuard.service.js';
 import {guardianServiceRestrictions} from '../utils/guardianServiceRestrictions.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import { ageOn } from './guardianClinicalAccess.service.js';
@@ -24,7 +26,10 @@ export async function authorizedClient(userId, clientId, requiredClinicalScope =
   const client = clients.find(c => Number(c.client_id) === Number(clientId) && !ClientGuardian.isNoView(c.permissions_json));
   if (!client) throw fail('Appointment access is not authorized for this child. Contact the care team.', 403);
   if(guardianServiceRestrictions(client))return guardianServiceContext({userId,clientId,scope:requiredClinicalScope,agencyId:client.agency_id,allowEndedServices:careContext.allowEndedServices===true});
-  return client;
+  const services=await listClientServices(clientId,client.agency_id);
+  const access=servicePortalAccess(client,services);
+  if(access.limited&&!careContext.allowEndedServices)throw Object.assign(fail('This service has ended. Billing, receipts, records, and account support remain available.',403),{code:'SERVICE_PORTAL_LIMITED'});
+  return {...client,services,portal_access:access};
 }
 // Appointment logistics have their own relationship permission. Treatment-plan
 // frequency and clinical documents continue to require a clinical disclosure grant.
@@ -210,6 +215,7 @@ export async function requestGuardianAppointmentChange({ userId, clientId, appoi
     const [[appointment]] = await db.execute('SELECT id,status,start_at,provider_user_id,agency_id,business_type FROM appointments WHERE id=? AND agency_id=? FOR UPDATE', [appointmentId, client.agency_id]);
     const [[participant]] = await db.execute('SELECT id FROM appointment_participants WHERE appointment_id=? AND client_id=?', [appointmentId, clientId]);
     if (!appointment || !participant) throw fail('Appointment not found.', 404);
+    await assertClientServiceSchedulingActive({agencyId:appointment.agency_id,providerUserId:appointment.provider_user_id,clientId,businessType:appointment.business_type},db);
     if(!guardianContextAllowsAppointment(client,appointment))throw fail('This appointment is outside your learning portal access.',403);
     if (!appointment.provider_user_id) throw fail('The care team must assign a provider before a change can be requested.', 409);
     if (!['scheduled', 'confirmed', 'client_confirmed'].includes(appointment.status)) throw fail('This appointment can no longer receive a change request.', 409);

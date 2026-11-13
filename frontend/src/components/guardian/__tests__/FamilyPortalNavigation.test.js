@@ -134,3 +134,13 @@ it('keeps insurance access for a dual-service profile even when tutoring is sele
  shell.vm.$emit('navigate','payment_methods');await flushPromises();
  expect(w.findComponent({name:'GuardianPaymentInsuranceTab'}).props('learningOnly')).toBe(false);w.unmount();
 });
+it('retains an ended service in the picker and limits its portal without closing another active service',async()=>{
+ const profile={...people[0],care_contexts:[{agency_id:2,agency_name:'ITSCO',agency_slug:'itsco',services:[{id:11,label:'Counseling',provider_name:'Michael',provider_user_id:20,service_kind:'counseling',is_active:0,service_status:'discontinued',status_label:'Discontinued services',portal_limited:true},{id:12,label:'Tutoring',provider_name:'Avery',provider_user_id:21,service_kind:'tutoring',is_active:1,service_status:'active',status_label:'Active services'}]}]};
+ api.get.mockImplementation(async url=>({data:url==='/guardian-portal/overview'?{children:[profile],programs:agencies}:{events:[],items:[],documents:[],grants:[],subjects:[],plans:[]}}));
+ const{w}=await setup('/itsco/guardian?clientId=1&serviceId=11&panel=appointments');
+ expect(w.findComponent({name:'EndedServicePortal'}).exists()).toBe(true);
+ expect(w.findComponent(Shell).props('navigation').some(item=>['messages','notifications','onboarding','enroll'].includes(item.key))).toBe(false);
+ const picker=w.findAllComponents({name:'PortalContextPicker'}).find(p=>p.props('label')==='Service & provider');
+ expect(picker.props('groups')[0].options).toHaveLength(2);picker.vm.$emit('update:modelValue',12);await flushPromises();
+ expect(w.findComponent({name:'EndedServicePortal'}).exists()).toBe(false);expect(w.findComponent(Shell).props('navigation').some(item=>item.key==='messages')).toBe(true);w.unmount();
+});

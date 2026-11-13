@@ -123,6 +123,7 @@ export function createGuardianServiceCancellationService(overrides={}) {
         throw fail('A cancellation for these appointments is already processing. Refresh its status before submitting another.',409);
       }
       const row={id:input.requestId,agency_id:p.anchor.agencyId};
+      const stoppedSeries=[...new Map(p.selectedSeries.map(cancellationSeries).filter(s=>s&&s.kind!=='office_plan').map(s=>[`${s.kind}:${s.key}`,s])).values()];
       const db=await d.db.getConnection();
       try {
         await db.beginTransaction();
@@ -130,12 +131,12 @@ export function createGuardianServiceCancellationService(overrides={}) {
           (id,agency_id,client_id,provider_user_id,actor_user_id,appointment_id,scope,service_kind,series_kind,series_key,
            request_hash,payload_encrypted,review_json,confirmed_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [row.id,row.agency_id,input.clientId,p.anchor.providerUserId,input.userId,p.anchor.id,p.review.scope,p.serviceKind,
-          p.identity?.kind||null,p.identity?.key||null,requestHash,d.encrypt({...details,actorRole:p.client.relationship_type==='self'?'client':'guardian'},cryptoContext(row)),JSON.stringify(p.review),sqlTime(p.now)]);
+          p.identity?.kind||null,p.identity?.key||null,requestHash,d.encrypt({...details,actorRole:p.client.relationship_type==='self'?'client':'guardian'},cryptoContext(row)),JSON.stringify({...p.review,...(p.review.scope!=='single'?{stoppedSeries}:{})}),sqlTime(p.now)]);
         if(p.review.endsService) {
           await db.execute(`INSERT INTO client_service_enrollments (client_id,agency_id,service_kind,provider_user_id,label,is_active,created_by_user_id,updated_by_user_id)
-            VALUES (?,?,?,?,?,0,?,?) ON DUPLICATE KEY UPDATE is_active=0,updated_by_user_id=VALUES(updated_by_user_id)`,
+            VALUES (?,?,?,?,?,0,?,?) ON DUPLICATE KEY UPDATE is_active=0,service_status='discontinued',ended_at=UTC_TIMESTAMP(),updated_by_user_id=VALUES(updated_by_user_id)`,
           [input.clientId,row.agency_id,p.serviceKind,p.anchor.providerUserId,scopeLabel(p.serviceKind),input.userId,input.userId]);
-          await db.execute(`UPDATE client_service_enrollments SET is_active=0,updated_by_user_id=?
+          await db.execute(`UPDATE client_service_enrollments SET is_active=0,service_status='discontinued',closure_reason='client_choice',client_end_reason='Services were discontinued at your request.',ended_at=UTC_TIMESTAMP(),updated_by_user_id=?
             WHERE client_id=? AND agency_id=? AND provider_user_id=? AND service_kind=?`,[input.userId,input.clientId,row.agency_id,p.anchor.providerUserId,p.serviceKind]);
           await db.execute(`INSERT INTO client_status_history (client_id,changed_by_user_id,field_changed,from_value,to_value,note)
             VALUES (?,?,'service_enrollment','active','ended',?)`,[input.clientId,input.userId,`Client or authorized guardian ended ${scopeLabel(p.serviceKind)} with provider ${p.anchor.providerUserId}; other services remain unchanged.`]);

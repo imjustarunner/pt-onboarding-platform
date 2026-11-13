@@ -16,6 +16,7 @@ const fail = (message, status = 400) => Object.assign(new Error(message), { stat
 
 async function context(input) {
   const client = await authorizedAppointmentClient(input.userId, input.clientId, input);
+  if(client.portal_access?.limited)throw Object.assign(fail('This service has ended. Future bookings are unavailable.',403),{code:'SERVICE_PORTAL_LIMITED'});
   const [[agency]] = await pool.execute('SELECT id,slug,feature_flags FROM agencies WHERE id=?', [client.agency_id]);
   // Pilot the standard appointment flow in the isolated ITSCO workspace first.
   const learning = ['learning','tutoring'].includes(client.client_type) && (!client.service || client.service.service_kind === 'tutoring');
@@ -32,7 +33,9 @@ async function context(input) {
       WHERE a.client_id=c.id AND a.provider_user_id=u.id AND a.is_active=1)`, [agency.id, input.clientId]);
   assigned = new Set(assignments.map(row => Number(row.id)));
   }
-  const providers = (await sessionBookingProviders(agency.id)).filter(provider => assigned.has(provider.id));
+  const enrollments=client.service?[client.service]:client.services||await listClientServices(input.clientId,agency.id);
+  const relevant=enrollments.filter(s=>s.service_kind===(learning?'tutoring':'counseling'));
+  const providers = (await sessionBookingProviders(agency.id)).filter(provider => assigned.has(provider.id)&&(!relevant.length||relevant.some(s=>Number(s.is_active)===1&&(!Number(s.provider_user_id)||Number(s.provider_user_id)===Number(provider.id)))));
   return { client, agency, providers, learning };
 }
 export async function guardianBookingOptions(input) {

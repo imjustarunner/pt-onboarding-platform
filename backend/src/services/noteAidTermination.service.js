@@ -131,7 +131,7 @@ export async function recordSignedTermination(note, { database = pool, clinicalD
       if (termination.reason === 'client_exchange') {
         await referToExchange(note);
       } else {
-      const services=await endProviderCounselingService({clientId:note.client_id,agencyId:note.agency_id,providerUserId:note.created_by_user_id},conn);
+      const services=await endProviderCounselingService({clientId:note.client_id,agencyId:note.agency_id,providerUserId:note.created_by_user_id,terminationReason:termination.reason},conn);
       if(!services.remainingActive){
       const lifecycle = await updateLifecycle({
         clientId: note.client_id, statusKey: 'terminated', actorUserId: note.created_by_user_id,

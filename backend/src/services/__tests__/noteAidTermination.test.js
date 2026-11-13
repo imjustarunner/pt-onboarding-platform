@@ -48,14 +48,14 @@ describe('termination history and provider decisions', () => {
   });
 });
 
-function fixture({ reason = 'goals_achieved', affectedRows = 1, failure = null, signed = true, amendment = false } = {}) {
+function fixture({ reason = 'goals_achieved', affectedRows = 1, failure = null, signed = true, amendment = false, enrollments=[] } = {}) {
   const calls = [];
   const connection = {
     beginTransaction: async () => calls.push('begin'),
     execute: async (sql, params) => {
       calls.push({ sql, params });
       if (failure && sql.includes(failure)) throw new Error('database failure');
-      if (sql.includes('SELECT * FROM client_service_enrollments'))return [[]];
+      if (sql.includes('SELECT * FROM client_service_enrollments'))return [enrollments];
       if (sql.includes('INSERT IGNORE')) return [{ affectedRows }];
       if (sql.includes('SELECT first_name')) return [[{ first_name: 'Taylor', last_name: 'Morgan' }]];
       return [{ affectedRows: 1 }];
@@ -106,9 +106,10 @@ describe('signed termination outcomes', () => {
   });
 
   it('records other reasons without granting kudos', async () => {
-    const f = fixture({ reason: 'lost_contact' });
+    const f = fixture({ reason: 'lost_contact',enrollments:[{id:44,agency_id:2,provider_user_id:3,service_kind:'counseling',is_active:1}] });
     await recordSignedTermination(f.note, f.deps);
     assert.equal(f.calls.filter((c) => c?.sql && /kudos|announcements/.test(c.sql)).length, 0);
+    assert.deepEqual(f.calls.find(c=>c?.sql?.startsWith('UPDATE client_service_enrollments')).params,['terminated',3,'discontinued_contact','Services were discontinued because we were unable to re-establish contact.',44]);
   });
 
   it('uses the original termination as the idempotency key for amendments', async () => {
