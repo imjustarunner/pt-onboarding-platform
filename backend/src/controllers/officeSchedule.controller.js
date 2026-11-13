@@ -2664,6 +2664,10 @@ export const createOfficeBookingRequest = async (req, res, next) => {
     }
 
     const policyAgencyId = await resolveOfficeSessionAgency({ providerId: requestedProviderId, officeLocationId: loc.id, agencyId: req.body?.agencyId });
+    if (clientId && !['super_admin', 'superadmin'].includes(req.user.role)) {
+      const actorAgencies = await User.getAgencies(req.user.id);
+      if (!actorAgencies.some(row => Number(row.id) === policyAgencyId)) return res.status(403).json({ error: { message: 'Scheduling access to the selected agency is required.' } });
+    }
     if (clientId) await requireClientSessionBooking(policyAgencyId, requestedProviderId);
     if (clientId && !req.body?.appointmentId && !req.body?.appointmentSeriesId) {
       const occurrences = expandAppointmentRecurrence({ startAt: `${startAt.replace(' ', 'T')}Z`, endAt: `${endAt.replace(' ', 'T')}Z`,
