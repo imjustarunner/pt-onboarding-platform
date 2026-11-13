@@ -26,7 +26,7 @@
     <ProviderDayNoteDialog v-if="dayNoteDate" :date="dayNoteDate" :time-zone="bookingTimezoneIana" :provider-id="Number(userId || authStore.user?.id)"
       :agency-ids="effectiveAgencyIds" @close="dayNoteDate = ''" />
     <SchoolWeekdayEditor v-if="schoolWeekdayEditorAgency" :provider-id="Number(userId || authStore.user?.id)" :agency-id="schoolWeekdayEditorAgency"
-      @close="schoolWeekdayEditorAgency = 0" @saved="loadSchoolWeekdays" />
+      @close="schoolWeekdayEditorAgency = 0" @saved="loadSchoolWeekdays({ force: true })" />
     <SchoolAssignmentRailPanel v-if="schoolRailDetail" :detail="schoolRailDetail" :provider-id="Number(userId || authStore.user?.id)"
       :time-zone="bookingTimezoneIana" :time-format="scheduleTimeFormat" :can-cancel="canBookFromGrid" :can-request="canRequestSchoolChange"
       @close="schoolRailDetail = null" @request-change="openSchoolAssignmentRequest(false)" @adjust-slots="openSchoolAssignmentRequest(true)"
@@ -2027,8 +2027,8 @@
           :show-location="editorShowLocation"
           :location-address="editorLocationAddress"
           :location-options="editorServiceLocationOptions"
-          :location-options-loading="bookingMetadataLoading"
-          :location-options-error="bookingMetadataError"
+          :location-options-loading="bookingLocationsLoading"
+          :location-options-error="bookingLocationsError"
           :service-location-id="Number(editorServiceLocationId || bookingServiceLocationId || 0)"
           :show-room="editorShowRoom"
           :room-id="Number(editorRoomId || 0)"
@@ -2734,6 +2734,12 @@
           :class="{ 'nr-slot-header--form': !showActionChooser }"
           data-testid="schedule-slot-editor"
         >
+          <div v-if="showInitialBookingContext && canEditBookingStrip" class="nr-selected-reservation" data-testid="selected-office-reservation">
+            <span class="nr-info-label">Selected office reservation</span>
+            <strong>{{ selectedOfficeReservationDateLabel }} · {{ selectedOfficeReservationTimeLabel }}</strong>
+            <span>{{ selectedOfficeReservationPlaceLabel }} · {{ bookingTimezoneLabel }}</span>
+            <span class="nr-reservation-scope">{{ bookingMoveScope === 'occurrence' ? 'Editing this date only — the recurring reservation stays in place.' : 'Editing this reservation and its upcoming dates.' }}</span>
+          </div>
           <div class="nr-info-bar nr-info-bar--edit">
             <div class="nr-info-cell nr-info-cell--when">
               <span class="nr-info-label">When</span>
@@ -2896,6 +2902,7 @@
                     v-else-if="headerTenantOptions.length > 1"
                     v-model.number="selectedActionAgencyId"
                     class="nr-info-select"
+                    :disabled="showInitialBookingContext && canEditBookingStrip && bookingMoveScope === 'occurrence'"
                     @change="onBookingAgencyChange"
                   >
                     <option v-for="opt in headerTenantOptions" :key="`nr-info-tenant-${opt.id}`" :value="Number(opt.id)">
@@ -3048,12 +3055,12 @@
             data-testid="schedule-booking-meta"
           >
             <div class="nr-booking-strip-cell">
-              <span class="nr-info-label">Booking</span>
+              <span class="nr-info-label">Repeats</span>
               <select
                 v-if="canEditBookingStrip && canManageOffices"
                 v-model="bookingStripFrequency"
                 class="nr-info-select"
-                :disabled="bookingStripSaving"
+                :disabled="bookingStripSaving || bookingMoveScope === 'occurrence'"
               >
                 <option v-for="opt in RECURRENCE_OPTIONS" :key="`rec2-${opt.value}`" :value="opt.value">{{ opt.label }}</option>
               </select>
@@ -3065,7 +3072,7 @@
                 v-if="canEditBookingStrip && canManageOffices"
                 v-model="bookingStripStatus"
                 class="nr-info-select"
-                :disabled="bookingStripSaving"
+                :disabled="bookingStripSaving || bookingMoveScope === 'occurrence'"
               >
                 <option value="BOOKED">Booked</option>
                 <option value="ASSIGNED">Assigned</option>
@@ -3080,7 +3087,7 @@
                 v-model="bookingStripUntil"
                 class="nr-info-select"
                 type="date"
-                :disabled="bookingStripSaving || bookingStripFrequency === 'ONCE'"
+                :disabled="bookingStripSaving || bookingMoveScope === 'occurrence' || bookingStripFrequency === 'ONCE'"
                 :title="bookingStripFrequency === 'ONCE' ? 'One-time bookings apply to this occurrence only' : 'Optional: leave blank for no end date'"
               />
               <span v-else class="nr-info-value">{{ modalOccupiedSlotSummary.bookedUntilLabel || '—' }}</span>
@@ -3093,8 +3100,13 @@
               <span v-else class="nr-info-value">{{ modalOccupiedSlotSummary.roomDisplay || '—' }}</span>
             </div>
             <label v-if="canEditBookingStrip && modalContext?.officeEventId" class="nr-booking-strip-cell">
-              <span class="nr-info-label">Move applies to</span>
-              <select v-model="bookingMoveScope" class="nr-info-select"><option value="future">Recurring time</option><option value="occurrence">This occurrence only</option></select>
+              <span class="nr-info-label">Changes apply to</span>
+              <select v-model="bookingMoveScope" class="nr-info-select" :disabled="bookingStripSaving" aria-label="Reservation edit scope">
+                <option value="future">This and future dates</option>
+                <option value="occurrence" :disabled="bookingStripSeriesSettingsChanged">This occurrence only</option>
+              </select>
+              <span v-if="bookingStripSeriesSettingsChanged" class="nr-tz-under">Repeat, status and agency changes apply to this and future dates.</span>
+              <span v-else-if="bookingMoveScope === 'occurrence'" class="nr-tz-under">Change the time or room for this date. To change repeat, status or agency, choose this and future dates.</span>
             </label>
             <div
               v-if="canEditBookingStrip"
@@ -3350,7 +3362,7 @@
                 <select
                   v-model.number="selectedActionAgencyId"
                   class="input"
-                  :disabled="headerTenantOptions.length <= 1"
+                  :disabled="headerTenantOptions.length <= 1 || (canEditBookingStrip && bookingMoveScope === 'occurrence')"
                   @change="onBookingAgencyChange"
                 >
                   <option v-for="opt in headerTenantOptions" :key="`nr-body-tenant-${opt.id}`" :value="Number(opt.id)">
@@ -5907,6 +5919,7 @@ import { assignOverlapLanes, layoutScheduleDayBlocks, scheduleBlockPlacementKey 
 import { virtualPublicationRanges, virtualAvailabilityCellSlice } from '../../utils/virtualAvailabilityGrid';
 import './schedule-new-request-modal.css';
 import ScheduleAgencyLogo from './ScheduleAgencyLogo.vue';
+import { createBookingCatalogCache } from '../../utils/bookingCatalogCache.js';
 import { supervisionCoFacilitatorIds, isSupervisionFacilitator } from '../../utils/supervisionFacilitators.js';
 import { computed, inject, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { scheduleHubContext } from './scheduleHubContext.js';
@@ -9030,7 +9043,7 @@ const OFFICE_AGENCY_SCOPED_ACTIONS = new Set([
 ]);
 
 const showClinicalBookingFields = computed(() => {
-  const effId = Number(effectiveAgencyId.value || 0);
+  const effId = Number(selectedActionAgencyId.value || effectiveAgencyId.value || 0);
   if (!effId) return false;
   const opt = (bookingAgencyOptions.value || []).find((r) => Number(r?.id) === effId)
     || (agencyFilterOptions.value || []).find((r) => Number(r?.id) === effId);
@@ -9262,6 +9275,7 @@ const scheduleActorUserId = computed(() => {
 });
 
 // One shared weekday record per agency drives the calendar and Provider Days.
+const loadSchoolWeekdayCatalog = createBookingCatalogCache(api, { ttlMs: 30000 });
 const schoolWeekdayContexts = ref([]);
 const schoolWeekdayEditorAgency = ref(0);
 let schoolWeekdayGeneration = 0;
@@ -9272,13 +9286,13 @@ const schoolWeekdayIcons = day => schoolWeekdayContexts.value.flatMap(context =>
   const detail = item.status === 'assigned' ? `Assigned: ${item.schools.map(s => s.schoolName).join(', ')}` : item.status === 'available' ? 'Available for a school' : 'Not available for a school';
   return [{ ...item, agencyId: context.agencyId, label: `${day} · ${detail} · ${agencyLabel(context.agencyId) || 'School availability'}. Update school availability` }];
 });
-async function loadSchoolWeekdays() {
+async function loadSchoolWeekdays({ force = false } = {}) {
   const generation = ++schoolWeekdayGeneration;
   const providerId = Number(props.userId || authStore.user?.id);
   const self = providerId === Number(authStore.user?.id);
   if (!self && !['admin','super_admin','staff','support'].includes(authStore.user?.role)) { schoolWeekdayContexts.value = []; return; }
   const results = await Promise.allSettled(effectiveAgencyIds.value.map(async agencyId => {
-    const { data } = await api.get(`/availability/providers/${providerId}/school-weekdays`, { params: { agencyId }, skipGlobalLoading: true });
+    const data = await loadSchoolWeekdayCatalog(`/availability/providers/${providerId}/school-weekdays`, { agencyId }, { force });
     return { ...data, agencyId };
   }));
   if (generation !== schoolWeekdayGeneration) return;
@@ -12952,6 +12966,9 @@ const intakeConfirmChoice = ref(null); // 'both' | 'ip_only' | 'vi_yes' – set 
 const forfeitScope = ref('occurrence'); // 'occurrence' | 'future'
 const ackForfeit = ref(false);
 const bookingMetadataLoading = ref(false);
+const bookingLocationsLoading = ref(false);
+const bookingLocationsError = ref('');
+const loadBookingCatalog = createBookingCatalogCache(api);
 const bookingMetadataError = ref('');
 const bookingMetadata = ref({
   appointmentTypes: [],
@@ -14100,7 +14117,7 @@ const submitBusyLabel = computed(() => {
 
 const REQUEST_NOTES_MAX = 500;
 const selectedActionAgencyLabel = computed(() => {
-  const id = Number(effectiveAgencyId.value || selectedActionAgencyId.value || 0);
+  const id = Number(selectedActionAgencyId.value || effectiveAgencyId.value || 0);
   const opt = (actionAgencyOptions.value || []).find((row) => Number(row?.id) === id);
   return String(opt?.label || opt?.name || '').trim() || (id ? `Agency ${id}` : '—');
 });
@@ -14140,7 +14157,7 @@ const modalScheduleSubtitle = computed(() => {
       || Number(modalContext.value?.officeEventId || 0) > 0
       || ['ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY', 'ASSIGNED_BOOKED', 'COMPANY_HOLD'].includes(state);
     return hasOfficeSlot
-      ? 'Manage this office time slot'
+      ? 'Edit the selected office reservation'
       : 'Choose what to schedule for this time';
   }
   if (t === 'slot_details') return 'Selected office slot details.';
@@ -16753,6 +16770,8 @@ const resetBookingSelectionDefaults = () => {
 const resetBookingMetadataState = () => {
   bookingMetadataLoading.value = false;
   bookingMetadataError.value = '';
+  bookingLocationsLoading.value = false;
+  bookingLocationsError.value = '';
   bookingMetadata.value = { appointmentTypes: [], appointmentSubtypes: [], serviceCodes: [], serviceLocations: [] };
 };
 
@@ -16785,7 +16804,7 @@ const normalizeBookingSelectionPayload = () => {
         return id > 0 ? id : null;
       })()
       : null,
-    agencyId: Number(effectiveAgencyId.value || 0) || null,
+    agencyId: Number(editorAgencyId.value || effectiveAgencyId.value || 0) || null,
     ...(clientId ? { clientId } : {}),
     tenantServiceId: Number(editorTenantServiceId.value || 0) || null,
     packageEntitlementId: Number(editorPackageEntitlementId.value || 0) || null,
@@ -16866,6 +16885,7 @@ const refreshBookingUnitPreview = async () => {
 };
 
 let bookingMetadataRequest = 0;
+let bookingCatalogContextKey = '';
 const loadBookingMetadataForProvider = async () => {
   const requestId = ++bookingMetadataRequest;
   const rt = String(requestType.value || '');
@@ -16881,22 +16901,40 @@ const loadBookingMetadataForProvider = async () => {
     resetBookingMetadataState();
     return;
   }
+  const params = { providerId, agencyId: Number(editorAgencyId.value || effectiveAgencyId.value || 0) || undefined };
+  const contextKey = `${params.agencyId}:${providerId}`;
+  if (contextKey !== bookingCatalogContextKey) {
+    if (bookingCatalogContextKey && !isAppointmentEditMode.value && !editorHydratingAppointment.value) {
+      bookingServiceLocationId.value = 0;
+      editorServiceLocationId.value = 0;
+    }
+    bookingCatalogContextKey = contextKey;
+    resetBookingMetadataState();
+  }
+  bookingLocationsLoading.value = !bookingMetadata.value.serviceLocations.length;
+  bookingLocationsError.value = '';
+  void loadBookingCatalog('/office-schedule/booking-locations', params).then(data => {
+    if (requestId !== bookingMetadataRequest) return;
+    bookingMetadata.value = { ...bookingMetadata.value, serviceLocations: data.serviceLocations || bookingMetadata.value.serviceLocations };
+    preferDefaultServiceLocation();
+  }).catch(() => {
+    if (requestId === bookingMetadataRequest && !bookingMetadata.value.serviceLocations.length) bookingLocationsError.value = 'Could not load service locations. Reopen the booking to retry.';
+  }).finally(() => { if (requestId === bookingMetadataRequest) bookingLocationsLoading.value = false; });
   try {
     bookingMetadataLoading.value = true;
     bookingMetadataError.value = '';
-    const resp = await api.get('/office-schedule/booking-metadata', {
-      params: {
-        providerId,
-        agencyId: Number(editorAgencyId.value || effectiveAgencyId.value || 0) || undefined
-      }
-    });
+    const data = await loadBookingCatalog('/office-schedule/booking-metadata', params);
     if (requestId !== bookingMetadataRequest) return;
     bookingMetadata.value = {
-      appointmentTypes: Array.isArray(resp?.data?.appointmentTypes) ? resp.data.appointmentTypes : [],
-      appointmentSubtypes: Array.isArray(resp?.data?.appointmentSubtypes) ? resp.data.appointmentSubtypes : [],
-      serviceCodes: Array.isArray(resp?.data?.serviceCodes) ? resp.data.serviceCodes : [],
-      serviceLocations: Array.isArray(resp?.data?.serviceLocations) ? resp.data.serviceLocations : []
+      appointmentTypes: Array.isArray(data?.appointmentTypes) ? data.appointmentTypes : [],
+      appointmentSubtypes: Array.isArray(data?.appointmentSubtypes) ? data.appointmentSubtypes : [],
+      serviceCodes: Array.isArray(data?.serviceCodes) ? data.serviceCodes : [],
+      serviceLocations: bookingMetadata.value.serviceLocations.length ? bookingMetadata.value.serviceLocations : data.serviceLocations || []
     };
+    if (bookingMetadata.value.serviceLocations.length) {
+      bookingLocationsError.value = '';
+      bookingLocationsLoading.value = false;
+    }
     if (!editorHydratingAppointment.value && !isAppointmentEditMode.value && !isScheduleEventEditMode.value && !bookingServiceCode.value && requestType.value==='individual_session') {
       const { suggestPsychotherapyCodeForDuration } = await import('../../utils/noteAidSessionQueue.js');
       if (requestId !== bookingMetadataRequest) return;
@@ -16911,9 +16949,7 @@ const loadBookingMetadataForProvider = async () => {
     }
   } catch (e) {
     if (requestId !== bookingMetadataRequest) return;
-    bookingMetadata.value = { appointmentTypes: [], appointmentSubtypes: [], serviceCodes: [], serviceLocations: [] };
-    bookingServiceLocationId.value = 0;
-    editorServiceLocationId.value = 0;
+    bookingMetadata.value = { ...bookingMetadata.value, appointmentTypes: [], appointmentSubtypes: [], serviceCodes: [] };
     bookingMetadataError.value = e?.response?.data?.error?.message || 'Could not load booking metadata for this provider.';
   } finally {
     if (requestId === bookingMetadataRequest) bookingMetadataLoading.value = false;
@@ -17193,14 +17229,46 @@ const canEditBookingStrip = computed(() => {
     || Number(modalContext.value?.officeEventId || 0) > 0;
 });
 
+const bookingStripSeriesSettingsChanged = computed(() => {
+  if (bookingMoveScope.value === 'occurrence') return false;
+  const b = bookingStripBaseline.value || {};
+  return bookingStripFrequency.value !== b.frequency || bookingStripStatus.value !== b.status
+    || bookingStripUntil.value !== b.until || Number(editorAgencyId.value) !== Number(b.agencyId);
+});
 const bookingStripDirty = computed(() => {
   const b = bookingStripBaseline.value || {};
-  return String(bookingStripFrequency.value || '') !== String(b.frequency || '')
-    || String(bookingStripStatus.value || '') !== String(b.status || '')
-    || String(bookingStripUntil.value || '') !== String(b.until || '')
+  return bookingStripSeriesSettingsChanged.value
     || editorStartTime.value !== b.startTime || editorEndTime.value !== b.endTime
-    || modalDay.value !== b.day || Number(editorAgencyId.value) !== Number(b.agencyId)
+    || modalDay.value !== b.day
     || Number(bookingStripRoom.value) !== Number(modalContext.value?.roomId);
+});
+watch(bookingMoveScope, (scope, previous) => {
+  if (scope === 'occurrence') {
+    bookingStripFrequency.value = 'ONCE';
+    bookingStripUntil.value = '';
+  } else if (previous === 'occurrence') {
+    bookingStripFrequency.value = bookingStripBaseline.value.frequency;
+    bookingStripUntil.value = bookingStripBaseline.value.until;
+  }
+});
+const selectedOfficeReservationDateLabel = computed(() => {
+  const ymd = String(modalContext.value?.dateYmd || '').slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(ymd)
+    ? new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${ymd}T12:00:00Z`))
+    : modalContext.value?.dayName || modalDay.value;
+});
+const selectedOfficeReservationTimeLabel = computed(() => {
+  const format = value => {
+    if (!value) return '';
+    const [hour, minute] = value.split(':').map(Number);
+    return `${hour % 12 || 12}:${String(minute).padStart(2, '0')} ${hour >= 12 ? 'PM' : 'AM'}`;
+  };
+  return `${format(bookingStripBaseline.value.startTime)}–${format(bookingStripBaseline.value.endTime)}`;
+});
+const selectedOfficeReservationPlaceLabel = computed(() => {
+  const ctx = modalContext.value || {};
+  const office = officeLocations.value.find(row => Number(row.id) === Number(ctx.officeLocationId));
+  return [office?.name || ctx.officeLocationName || 'Office', modalOccupiedSlotSummary.value.roomDisplay].filter(Boolean).join(' · ');
 });
 
 const syncBookingStripFromContext = () => {
@@ -17307,7 +17375,7 @@ const saveBookingStripEdits = async () => {
       moved = true;
       startYmd = addDaysYmd(startYmd, dayIdxFromWeekStartMonday(modalDay.value) - dayIdxFromWeekStartMonday(baseline.day));
     }
-    const bookingOptionsChanged = String(bookingStripFrequency.value) !== String(baseline.frequency) || String(bookingStripStatus.value) !== String(baseline.status) || String(bookingStripUntil.value) !== String(baseline.until) || Number(agencyId) !== Number(baseline.agencyId);
+    const bookingOptionsChanged = bookingMoveScope.value !== 'occurrence' && (String(bookingStripFrequency.value) !== String(baseline.frequency) || String(bookingStripStatus.value) !== String(baseline.status) || String(bookingStripUntil.value) !== String(baseline.until) || Number(agencyId) !== Number(baseline.agencyId));
     if (bookingOptionsChanged && standingId > 0) {
       if (status === 'TEMPORARY') {
         await post(`/office-slots/${officeLocationId}/assignments/${standingId}/temporary`, {
@@ -20124,6 +20192,7 @@ const showActionAgencyPicker = computed(() => {
 });
 
 const canChangeActionAgency = computed(() => {
+  if (showInitialBookingContext.value && canEditBookingStrip.value && bookingMoveScope.value === 'occurrence') return false;
   if (SESSION_BOOKING_ACTIONS.has(String(requestType.value || ''))) {
     return headerTenantOptions.value.length > 1;
   }
@@ -27610,6 +27679,10 @@ watch(()=>props.spanMode,value=>{
 </script>
 
 <style scoped>
+.nr-selected-reservation { display: flex; flex-direction: column; gap: 5px; margin-bottom: 14px; padding: 16px 18px; background: #eef5ff; border: 1px solid #b6cbea; border-left: 4px solid #34629a; border-radius: 12px; color: #20354f; }
+.nr-selected-reservation strong { font-size: 17px; }
+.nr-reservation-scope { font-size: 13px; color: #4c617b; }
+
 .schedule-service-code-control{display:flex;align-items:center;gap:8px;min-width:0}.schedule-service-code-control>select{flex:1;min-width:0;width:0}
 
 .schedule-stage-shell { min-width:0; }

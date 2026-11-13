@@ -9,7 +9,7 @@ const empty = () => ({ revision: 0, entries: [] });
 const id = value => Number.isSafeInteger(Number(value)) && Number(value) > 0;
 export function evaluateClientSessionBooking(policy, providerUserId) {
   const entry = Array.isArray(policy?.entries) ? policy.entries.find(row => Number(row.providerUserId) === Number(providerUserId)) : null;
-  const enabled = id(providerUserId) && entry?.enabled === true;
+  const enabled = id(providerUserId) && (entry ? entry.enabled === true : policy?.enabledForAllProviders === true);
   return { enabled, reason: enabled ? null : SESSION_BOOKING_COMING_SOON, revision: Number(policy?.revision || 0) };
 }
 export async function readClientSessionBookingRollout(agencyId, db = pool) {
@@ -66,7 +66,7 @@ export async function saveClientSessionBookingRollout({ agencyId, actorUserId, i
       entries.push({ providerUserId, enabled: input.enabled, note, updatedByUserId: actorUserId, updatedAt });
 
     }
-    const policy = { revision: Number(current.revision) + 1, entries, history: [...(current.history || []), { providerUserIds, enabled: input.enabled, note, updatedByUserId: actorUserId, updatedAt }] };
+    const policy = { ...current, revision: Number(current.revision) + 1, entries, history: [...(current.history || []), { providerUserIds, enabled: input.enabled, note, updatedByUserId: actorUserId, updatedAt }] };
     await db.execute(`UPDATE agencies SET feature_flags = JSON_SET(COALESCE(feature_flags, JSON_OBJECT()), '$.clientSessionBookingRollout', CAST(? AS JSON)) WHERE id = ?`, [JSON.stringify(policy), agencyId]);
     await db.commit();
     return policy;

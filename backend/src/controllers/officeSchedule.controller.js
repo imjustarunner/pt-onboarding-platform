@@ -1,6 +1,7 @@
 import { runOfficeDecision } from './officeApprovalWorkflow.controller.js';
 import { bookingServiceDuration } from '../utils/bookingServiceDuration.js';
 import { requireClientSessionBooking } from '../services/clientSessionBookingRollout.service.js';
+import { resolveOfficeSessionAgency } from '../services/officeSessionAgency.service.js';
 import { activeOfficeProviderSql } from '../utils/officeProviderEligibility.js';
 import {indexPendingRoomRequest,pendingBookingOccurrences} from '../utils/officePendingRequests.js';
 import {listPendingOfficeBookingRequests as readPendingOfficeBookingRequests} from '../services/pendingOfficeBookingRequests.service.js';
@@ -2659,8 +2660,8 @@ export const createOfficeBookingRequest = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Requested provider not found' } });
     }
 
-    const policyAgencyId = await resolveAuditAgencyIdForOffice(loc.id, req.user.id);
-    if (clientId) await requireClientSessionBooking(Number(req.body?.agencyId || policyAgencyId), requestedProviderId);
+    const policyAgencyId = await resolveOfficeSessionAgency({ providerId: requestedProviderId, officeLocationId: loc.id, agencyId: req.body?.agencyId });
+    if (clientId) await requireClientSessionBooking(policyAgencyId, requestedProviderId);
     if (clientId && !req.body?.appointmentId && !req.body?.appointmentSeriesId) {
       const occurrences = expandAppointmentRecurrence({ startAt: `${startAt.replace(' ', 'T')}Z`, endAt: `${endAt.replace(' ', 'T')}Z`,
         recurrence: normalizedRecurrence, occurrenceCount: bookedOccurrenceCount || 1, timeZone: loc.timezone || 'America/Denver' });
@@ -2695,7 +2696,7 @@ export const createOfficeBookingRequest = async (req, res, next) => {
     // Every new room request uses the same allocator and pending hold. Legacy
     // same-day allocation used a separate room scan and bypassed duplicate holds.
     const created = await OfficeBookingRequest.create({
-      sessionContext: { appointmentId: Number(req.body?.appointmentId || 0) || null, appointmentSeriesId: req.body?.appointmentSeriesId || null, timestampsUtc: true, agencyId: Number(req.body?.agencyId || 0) || null,
+      sessionContext: { appointmentId: Number(req.body?.appointmentId || 0) || null, appointmentSeriesId: req.body?.appointmentSeriesId || null, timestampsUtc: true, agencyId: policyAgencyId,
         tenantServiceId: Number(req.body?.tenantServiceId || 0) || null, packageEntitlementId: Number(req.body?.packageEntitlementId || 0) || null },
       requestType: 'PROVIDER_REQUEST',
       roomType: req.body?.roomType || 'counseling',
@@ -3101,8 +3102,8 @@ const approveOfficeBookingRequestLocked = async (req, res, next) => {
     if (!requestedProvider) {
       return res.status(404).json({ error: { message: 'Requested provider not found' } });
     }
-    const policyAgencyId = await resolveAuditAgencyIdForOffice(loc.id, req.user.id);
-    if (reqRow.client_id) await requireClientSessionBooking(Number(reqRow.agency_id || policyAgencyId), requestedProvider.id);
+    const policyAgencyId = await resolveOfficeSessionAgency({ providerId: requestedProvider.id, officeLocationId: loc.id, agencyId: parseJsonSafely(reqRow.session_context_json)?.agencyId || reqRow.agency_id });
+    if (reqRow.client_id) await requireClientSessionBooking(policyAgencyId, requestedProvider.id);
     const validatedSelection = {
       ...(await validateSchedulingSelection({ enforceSessionRollout: true,
         agencyId: policyAgencyId,
@@ -3333,6 +3334,28 @@ const approveOfficeBookingRequestLocked = async (req, res, next) => {
   } catch (e) {
     next(e);
   }
+};
+
+export const getBookingLocations = async (req, res, next) => {
+  try {
+    const providerId = Number(req.query?.providerId || req.user.id);
+    const agencyId = Number(req.query?.agencyId);
+    if (!Number.isSafeInteger(providerId) || providerId < 1 || !Number.isSafeInteger(agencyId) || agencyId < 1) {
+      return res.status(400).json({ error: { message: 'Choose an agency and provider.' } });
+    }
+    if (providerId !== Number(req.user.id) && !canManageSchedule(req.user.role)) return res.status(403).json({ error: { message: 'Access denied' } });
+    if (providerId !== Number(req.user.id) && !['super_admin', 'superadmin'].includes(req.user.role)) {
+      const actorAgencies = await User.getAgencies(req.user.id);
+      if (!actorAgencies.some(row => Number(row.id) === agencyId)) return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+    const members = await User.getAgencies(providerId);
+    if (!members.some(row => Number(row.id) === agencyId)) return res.status(403).json({ error: { message: 'Provider is not assigned to this agency.' } });
+    const { filterServiceLocationsForProvider, listUserOfficeIds, listUserSchoolIds } = await import('../services/officeBillingSites.service.js');
+    const [locations, offices, schools] = await Promise.all([
+      AgencyServiceLocation.listByAgency(agencyId), listUserOfficeIds(providerId), listUserSchoolIds(providerId)
+    ]);
+    res.json({ providerId, agencyId, serviceLocations: filterServiceLocationsForProvider(locations, offices, schools) });
+  } catch (error) { next(error); }
 };
 
 export const getBookingMetadata = async (req, res, next) => {

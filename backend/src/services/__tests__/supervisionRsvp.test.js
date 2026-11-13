@@ -7,7 +7,7 @@ import {getSupervisionRsvp,saveSupervisionRsvp} from '../supervisionRsvp.service
 const session={id:1,status:'SCHEDULED',start_at:'2099-09-22 18:30:00',attendee_status:'INVITED',is_required:1};
 beforeEach(()=>{vi.clearAllMocks();m.execute.mockImplementation(async sql=>sql.startsWith('SELECT')?[[session]]:[{affectedRows:1}]);});
 it('updates only the invited person’s RSVP without recording attendance',async()=>{await saveSupervisionRsvp({sessionId:1,userId:2,response:'declined',reason:'Client appointment conflict'});expect(m.execute).toHaveBeenCalledWith(expect.stringContaining('UPDATE supervision_session_attendees'),['DECLINED','Client appointment conflict',1,2]);expect(m.commit).toHaveBeenCalledOnce();expect(m.execute.mock.calls.some(([sql])=>sql.includes('attendance_rollups'))).toBe(false);});
-it('requires an active agency membership and existing attendee record',async()=>{m.execute.mockResolvedValue([[]]);await expect(saveSupervisionRsvp({sessionId:1,userId:99,response:'accepted'})).rejects.toMatchObject({status:410});expect(m.rollback).toHaveBeenCalled();expect(m.execute.mock.calls[0][0]).toContain('ua.agency_id=s.agency_id');});
+it('requires active staff membership or an existing authorized invitation',async()=>{m.execute.mockResolvedValue([[]]);await expect(saveSupervisionRsvp({sessionId:1,userId:99,response:'accepted'})).rejects.toMatchObject({status:410});expect(m.rollback).toHaveBeenCalled();expect(m.execute.mock.calls[0][0]).toContain('ua.agency_id=s.agency_id');});
 it('allows an invited person to change a prior decline',async()=>{m.execute.mockImplementation(async sql=>sql.startsWith('SELECT')?[[{...session,attendee_status:'DECLINED'}]]:[{affectedRows:1}]);await saveSupervisionRsvp({sessionId:1,userId:2,response:'accepted'});expect(m.execute).toHaveBeenCalledWith(expect.stringContaining('UPDATE supervision_session_attendees'),['SIGNED_UP',null,1,2]);});
 it('does not reopen closed signup or past supervision',async()=>{m.execute.mockResolvedValue([[{...session,enrollment_mode:'signup_only',signupOpen:false}]]);await expect(saveSupervisionRsvp({sessionId:1,userId:2,response:'accepted'})).rejects.toMatchObject({status:409});m.execute.mockResolvedValue([[{...session,start_at:'2020-01-01 12:00:00'}]]);await expect(saveSupervisionRsvp({sessionId:1,userId:2,response:'declined'})).rejects.toMatchObject({status:410});});
 
@@ -28,7 +28,7 @@ it.each(['forever','all_future'])('rejects indefinite RSVP scope %s',async scope
 it('declines only the invited user’s recurring day through the inclusive local end date',async()=>{
  const group={...session,agency_id:2,session_type:'group',recurrence_series_id:'a',recurrence_frequency:'WEEKLY',start_at:'2026-10-20 23:00:00',event_timezone:'America/Denver'};
  m.execute.mockImplementation(async sql=>{
-  if(sql.startsWith('SELECT s.*,a.status'))return [[group]];
+  if(sql.startsWith('SELECT s.*,a.user_id'))return [[group]];
   if(sql.startsWith('SELECT s.* FROM'))return [[group,{...group,id:2,start_at:'2026-10-27 23:00:00'},{...group,id:3,start_at:'2026-10-28 23:00:00'},{...group,id:4,start_at:'2026-11-04 00:00:00'}]];
   return [{affectedRows:1}];
  });
@@ -101,4 +101,15 @@ it.each([
 it('allows a decline to be reversed while the host keeps a regular group session in progress',async()=>{
  m.execute.mockResolvedValue([[{...session,session_type:'group',status:'IN_PROGRESS',start_at:'2026-10-27 23:00:00',end_at:'2026-10-28 00:00:00',attendee_status:'DECLINED'}]]);
  await expect(getSupervisionRsvp({sessionId:1,userId:2,now:new Date('2026-10-28T00:05:00Z')})).resolves.toMatchObject({canRespond:true,canAccept:true});
+});
+
+it('lets an unlisted active colleague see an optional RSVP without writing and creates a roster entry only when responding',async()=>{
+ const optional={...session,attendee_user_id:null,is_required:0,session_type:'group',enrollment_mode:'invited'};
+ m.execute.mockImplementation(async sql=>sql.startsWith('SELECT')?[[optional]]:[{affectedRows:1}]);
+ await expect(getSupervisionRsvp({sessionId:1,userId:9})).resolves.toMatchObject({status:'INVITED',required:false,canRespond:true});
+ expect(m.execute.mock.calls.some(([sql])=>sql.startsWith('INSERT'))).toBe(false);
+ const query=m.execute.mock.calls[0][0];expect(query).toContain("s.session_type='group'");expect(query).toContain("'client_guardian'");expect(query).toContain('u.is_assistant_account');
+ await saveSupervisionRsvp({sessionId:1,userId:9,response:'accepted'});
+ expect(m.execute).toHaveBeenCalledWith(expect.stringContaining("'supervisee',0,0,'INVITED'"),[1,9]);
+ expect(m.execute).toHaveBeenCalledWith(expect.stringContaining('UPDATE supervision_session_attendees'),['SIGNED_UP',null,1,9]);
 });

@@ -1,4 +1,5 @@
 import { isSupervisionFacilitator } from '../utils/supervisionFacilitators.js';
+import { supervisionCalendarStaffSql } from '../utils/supervisionCalendarAudience.js';
 import pool from '../config/database.js';
 import { parseMeetingSettings } from './meetingSettingsPolicy.js';
 import { isAuricwellQaAgency, allowQaExchangeRecipient } from '../utils/auricwellQaPolicy.js';
@@ -74,7 +75,16 @@ export async function canJoinSupervision(session, userId, matchesOpenAudience) {
     'SELECT 1 FROM supervision_session_presenters WHERE session_id=? AND user_id=? LIMIT 1',
     [session.id, userId]
   );
-  return !!presenters?.length || !!(matchesOpenAudience && await matchesOpenAudience({ sessionRow: session, userId }));
+  return !!presenters?.length || await canDiscoverAgencyGroupSupervision(session, userId)
+    || !!(matchesOpenAudience && await matchesOpenAudience({ sessionRow: session, userId }));
+}
+
+export async function canDiscoverAgencyGroupSupervision(session, userId, db = pool) {
+  if (session.session_type !== 'group' || session.enrollment_mode === 'signup_only') return false;
+  const [rows] = await db.execute(`SELECT 1 FROM user_agencies member JOIN users viewer ON viewer.id=member.user_id
+    JOIN agencies org ON org.id=member.agency_id AND org.is_active=1
+    WHERE member.agency_id=? AND member.user_id=? AND ${supervisionCalendarStaffSql()} LIMIT 1`, [session.agency_id, userId]);
+  return !!rows.length;
 }
 
 // A cross-agency invitation grants access to this session only, never to its
