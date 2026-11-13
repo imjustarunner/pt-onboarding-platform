@@ -332,11 +332,17 @@ class Task {
         t.title LIKE ?
         OR t.description LIKE ?
         OR COALESCE(JSON_UNQUOTE(JSON_EXTRACT(t.metadata, '$.schoolName')), '') LIKE ?
+        OR (t.source_ref_type = 'paper_packet_processing' AND EXISTS (
+          SELECT 1 FROM clients search_client
+          WHERE search_client.id = JSON_UNQUOTE(JSON_EXTRACT(t.metadata, '$.clientId'))
+            AND search_client.agency_id = t.assigned_to_agency_id
+            AND COALESCE(search_client.full_name, '') LIKE ?
+        ))
         ${reference ? `OR t.id = ? OR t.source_ref_id = ?
         OR JSON_UNQUOTE(JSON_EXTRACT(t.metadata, '$.clientId')) = ?
         OR JSON_UNQUOTE(JSON_EXTRACT(t.metadata, '$.documentId')) = ?` : ''}
       )`;
-      p.push(needle, needle, needle);
+      p.push(needle, needle, needle, needle);
       if (reference) p.push(reference, reference, reference, reference);
     }
     if (filters.outreachSchoolId) {

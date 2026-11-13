@@ -5,8 +5,10 @@
       <div class="school-contact-workflow-heading"><strong>{{ statusLabel(workflow) }}</strong><small v-if="workflow.initialSentAt">First email · {{ formatDate(workflow.initialSentAt) }}</small></div>
       <ol v-if="workflow.steps?.length" class="school-contact-workflow-note"><li v-for="step in workflow.steps" :key="step.id">{{ step.step_key.replaceAll('_',' ') }} · {{ step.status }}<span v-if="step.completed_at"> · {{ formatDate(step.completed_at) }}</span><RouterLink v-if="step.conversation_id" :to="{path:messagesPath,query:{conversationId:step.conversation_id}}"> · View email</RouterLink></li></ol>
       <p v-if="workflow.note" class="school-contact-workflow-note">{{ workflow.note }}</p>
-      <div class="school-contact-workflow-actions"><RouterLink v-if="workflow.conversationId" :to="{ path: messagesPath, query: { conversationId: workflow.conversationId } }">View email conversation ↗</RouterLink><button v-if="canRecordReply(workflow)" type="button" :disabled="busyId !== null" @click="recordReply(workflow)">{{ busyId === workflow.id ? 'Recording…' : 'Record parent reply · Stop follow-ups' }}</button></div>
+      <div class="school-contact-workflow-actions"><RouterLink v-if="workflow.conversationId" :to="{ path: messagesPath, query: { conversationId: workflow.conversationId } }">View email conversation ↗</RouterLink><button v-if="canRecordReply(workflow)" type="button" :disabled="busyId !== null" @click="recordReply(workflow)">{{ busyId === workflow.id ? 'Recording…' : 'Record parent reply · Stop follow-ups' }}</button><button v-if="canRetryWelcome(workflow)" type="button" :disabled="busyId !== null" @click="retryWelcome(workflow)">{{ busyId === workflow.id ? 'Queuing…' : 'Retry welcome' }}</button></div>
       <p v-if="canRecordReply(workflow)" class="school-contact-workflow-hint">Received a reply outside the app? Record it here to stop automated messages to this family.</p>
+      <p v-if="workflow.retryInitialQueued" role="status" class="school-contact-workflow-notice">Welcome retry queued. Delivery will be checked before sending.</p>
+      <p v-else-if="workflow.status === 'needs_review'" class="school-contact-workflow-hint">Review delivery history before resending. A retry is available only when the earlier welcome was confirmed not sent.</p>
     </article>
     <p v-if="notice" role="status" class="school-contact-workflow-notice">{{ notice }}</p>
     <p v-if="error" role="alert" class="school-contact-workflow-error">{{ error }}</p>
@@ -27,8 +29,9 @@ const messagesPath = computed(() => {
 });
 const workflows = ref([]), busyId = ref(null), error = ref(''), notice = ref('');
 let version = 0, disposed = false;
-const statusLabel = workflow => workflow.status==='intake_followup_required' ? 'Intake Follow-Up Required' : workflow.status==='intake_arranged' ? 'Intake coordination in progress' : workflow.externalReplyRecordedAt ? 'Outside reply recorded · Follow-ups stopped' : ({ queued: 'Introduction queued', waiting_parent: 'Waiting for the family', awaiting_provider: 'Your response is needed', complete: 'Intake documented', cancelled: 'Contact plan stopped', blocked: 'Contact needs attention', needs_review: 'Delivery needs review' })[workflow.status] || 'Contact in progress';
+const statusLabel = workflow => workflow.retryInitialQueued ? 'Welcome retry queued' : workflow.status==='intake_followup_required' ? 'Intake Follow-Up Required' : workflow.status==='intake_arranged' ? 'Intake coordination in progress' : workflow.externalReplyRecordedAt ? 'Outside reply recorded · Follow-ups stopped' : ({ queued: 'Introduction queued', waiting_parent: 'Waiting for the family', awaiting_provider: 'Your response is needed', complete: 'Intake documented', cancelled: 'Contact plan stopped', blocked: 'Contact needs attention', needs_review: 'Delivery needs review' })[workflow.status] || 'Contact in progress';
 const canRecordReply = workflow => !!workflow.initialSentAt && !workflow.parentReplyAt && !workflow.externalReplyRecordedAt && !['complete', 'cancelled'].includes(workflow.status);
+const canRetryWelcome = workflow => workflow.canRetryInitial === true && workflow.status === 'needs_review' && !workflow.initialSentAt && !workflow.retryInitialQueued && !workflow.parentReplyAt && !workflow.externalReplyRecordedAt;
 const formatDate = formatDateTimeShort;
 async function load() {
   const request = ++version;
@@ -50,6 +53,23 @@ async function recordReply(workflow) {
     notice.value = 'Parent reply recorded. Automated follow-ups to this family have stopped.';
   } catch (e) { if (request === version) error.value = e.response?.data?.error?.message || 'The reply could not be recorded. Please try again.'; }
   finally { if (request === version) busyId.value = null; }
+}
+async function retryWelcome(workflow) {
+  if (busyId.value !== null || !canRetryWelcome(workflow)) return;
+  const request = version, agencyId = props.agencyId, clientId = props.clientId;
+  const current = () => !disposed && request === version && Number(props.agencyId) === Number(agencyId) && Number(props.clientId) === Number(clientId);
+  busyId.value = workflow.id; error.value = ''; notice.value = '';
+  try {
+    const { data } = await api.post(`/school-contact-plan/workflows/${workflow.id}/retry-initial`, {}, { params: { agencyId }, skipGlobalLoading: true });
+    if (!current()) return;
+    if (data.queued !== true || Number(data.workflowId) !== Number(workflow.id)) throw new Error('The retry was not confirmed');
+    workflow.canRetryInitial = false; workflow.retryInitialQueued = true; workflow.status = 'queued';
+  } catch (e) {
+    if (current()) {
+      workflow.canRetryInitial = false;
+      error.value = e.response?.data?.error?.message || 'The retry was not confirmed. Refresh this record and review delivery before trying again.';
+    }
+  } finally { if (current()) busyId.value = null; }
 }
 watch(() => [props.agencyId, props.clientId], load, { immediate: true });
 onBeforeUnmount(() => { disposed = true; version++; });

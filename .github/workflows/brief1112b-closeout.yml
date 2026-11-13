@@ -37,6 +37,8 @@ jobs:
       DB_NAME: never_production
       RECOVERY_TEST_MYSQL_HOST: 127.0.0.1
       RECOVERY_TEST_MYSQL_PORT: '33326'
+      FAMILY_WELCOME_TEST_MYSQL_HOST: 127.0.0.1
+      FAMILY_WELCOME_TEST_MYSQL_PORT: '33326'
       PUPPETEER_SKIP_DOWNLOAD: 'true'
     steps:
       - uses: actions/checkout@v4
@@ -66,13 +68,15 @@ jobs:
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.roi-request-history.config.js --maxWorkers=2 --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/brief1112b-roi-history.json"
       - name: Exact paper source, task references and persisted human review
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.paper-final-blockers.config.js --maxWorkers=2 --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/brief1112b-paper-final.json"
+      - name: Provider-owned welcome recovery and actual SQL delivery history
+        run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.school-contact-plan.config.js --maxWorkers=2 --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/brief1112b-welcome-recovery.json"
       - name: Require executed SQL cases, not skipped placeholders
         run: |
           node --input-type=module <<'NODE'
           import assert from 'node:assert/strict';
           import { readFileSync } from 'node:fs';
           import { join } from 'node:path';
-          const reports = ['clinical', 'invites', 'roi', 'clock', 'roi-history', 'paper-final'].map(name => JSON.parse(readFileSync(join(process.env.RUNNER_TEMP, `brief1112b-${name}.json`), 'utf8')));
+          const reports = ['clinical', 'invites', 'roi', 'clock', 'roi-history', 'paper-final', 'welcome-recovery'].map(name => JSON.parse(readFileSync(join(process.env.RUNNER_TEMP, `brief1112b-${name}.json`), 'utf8')));
           const results = reports.flatMap(report => report.testResults);
           const required = [
             ['meetingEndPermission.mysql.test.js', 13],
@@ -85,7 +89,10 @@ jobs:
             ['schoolContactQaClock.mysql.test.js', 19],
             ['schoolRoiEvidence.mysql.test.js', 3],
             ['managedPaperRoiAcknowledgement.mysql.test.js', 11],
-            ['taskReferenceSearch.mysql.test.js', 6]
+            ['taskReferenceSearch.mysql.test.js', 7],
+            ['schoolContactPlan.mysql.test.js', 7],
+            ['schoolContactAutomation.mysql.test.js', 9],
+            ['schoolContactInitialRetry.mysql.test.js', 49]
           ];
           for (const [name, minimum] of required) {
             const result = results.find(row => row.name.endsWith(`/${name}`));

@@ -60,3 +60,82 @@ it('lets a live ITSCO provider record an outside family reply through the same p
  expect(api.post).toHaveBeenCalledWith('/school-contact-plan/workflows/12/parent-replied',{},expect.objectContaining({params:{agencyId:2}}));
  expect(wrapper.text()).toContain('stopped');
 });
+
+const failedWelcome = { id: 12, clientId: 99, status: 'needs_review', initialSentAt: null, canRetryInitial: true,
+  note: 'EMAIL_SENDER_UNVERIFIED', steps: [{ id: 7, step_key: 'initial_email', status: 'needs_review' }] };
+const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
+
+it('queues a server-approved unsent welcome retry without claiming it was sent or erasing its history', async () => {
+  api.get.mockResolvedValue({ data: [{ ...failedWelcome }] });
+  api.post.mockResolvedValue({ data: { queued: true, workflowId: 12, status: 'queued', alreadyQueued: false } });
+  wrapper = mount(Card, options); await flushPromises();
+  expect(wrapper.find('button').text()).toBe('Retry welcome');
+  await wrapper.find('button').trigger('click'); await flushPromises();
+  expect(api.post).toHaveBeenCalledWith('/school-contact-plan/workflows/12/retry-initial', {}, expect.objectContaining({ params: { agencyId: 450 }, skipGlobalLoading: true }));
+  expect(wrapper.find('[role="status"]').text()).toBe('Welcome retry queued. Delivery will be checked before sending.');
+  expect(wrapper.text()).toContain('EMAIL_SENDER_UNVERIFIED');
+  expect(wrapper.text()).toContain('initial email · needs_review');
+  expect(wrapper.text()).not.toContain('First email');
+  expect(wrapper.find('button').exists()).toBe(false);
+});
+
+it.each([
+  ['unknown delivery', { canRetryInitial: false }],
+  ['no explicit retry authorization', { canRetryInitial: undefined }],
+  ['a successful initial', { initialSentAt: workflow.initialSentAt, status: 'waiting_parent' }],
+  ['a cancelled plan', { status: 'cancelled' }],
+  ['a parent reply', { parentReplyAt: workflow.initialSentAt }],
+  ['an outside reply', { externalReplyRecordedAt: workflow.initialSentAt }]
+])('does not offer welcome retry for %s', async (_label, change) => {
+  api.get.mockResolvedValue({ data: [{ ...failedWelcome, ...change }] });
+  wrapper = mount(Card, options); await flushPromises();
+  expect(wrapper.findAll('button').some(button => button.text() === 'Retry welcome')).toBe(false);
+  expect(api.post).not.toHaveBeenCalled();
+});
+
+it('blocks repeated clicks while the queue request is pending and accepts an already-queued response', async () => {
+  const pending = deferred();
+  api.get.mockResolvedValue({ data: [{ ...failedWelcome }] }); api.post.mockReturnValue(pending.promise);
+  wrapper = mount(Card, options); await flushPromises();
+  const button = wrapper.find('button');
+  await button.trigger('click'); await button.trigger('click');
+  expect(button.attributes('disabled')).toBeDefined(); expect(button.text()).toBe('Queuing…');
+  expect(api.post).toHaveBeenCalledTimes(1);
+  pending.resolve({ data: { queued: true, workflowId: 12, status: 'queued', alreadyQueued: true } }); await flushPromises();
+  expect(wrapper.text()).toContain('Welcome retry queued. Delivery will be checked before sending.');
+  expect(wrapper.find('button').exists()).toBe(false);
+});
+
+it('shows a queued retry after readback without offering another send', async () => {
+  api.get.mockResolvedValue({ data: [{ ...failedWelcome, status: 'queued', canRetryInitial: false, retryInitialQueued: true }] });
+  wrapper = mount(Card, options); await flushPromises();
+  expect(wrapper.find('[role="status"]').text()).toContain('Delivery will be checked before sending');
+  expect(wrapper.find('button').exists()).toBe(false); expect(api.post).not.toHaveBeenCalled();
+});
+
+it('requires record refresh after an uncertain retry result instead of offering a blind resend', async () => {
+  api.get.mockResolvedValue({ data: [{ ...failedWelcome }] }); api.post.mockRejectedValue(new Error('connection closed'));
+  wrapper = mount(Card, options); await flushPromises();
+  await wrapper.find('button').trigger('click'); await flushPromises();
+  expect(wrapper.find('[role="alert"]').text()).toContain('Refresh this record and review delivery');
+  expect(wrapper.find('button').exists()).toBe(false);
+  expect(wrapper.text()).not.toContain('Welcome retry queued');
+});
+
+it.each(['resolved', 'rejected'])('ignores an old retry %s response after the selected agency and client change', async outcome => {
+  const pending = deferred();
+  api.get.mockResolvedValueOnce({ data: [{ ...failedWelcome }] }); api.post.mockReturnValueOnce(pending.promise);
+  wrapper = mount(Card, options); await flushPromises();
+  await wrapper.find('button').trigger('click');
+  api.get.mockResolvedValueOnce({ data: [{ ...failedWelcome, id: 44, clientId: 100 }] });
+  await wrapper.setProps({ agencyId: 2, clientId: 100 }); await flushPromises();
+  if (outcome === 'resolved') pending.resolve({ data: { queued: true, workflowId: 12, status: 'queued' } });
+  else pending.reject({ response: { data: { error: { message: 'Old record delivery changed' } } } });
+  await flushPromises();
+  expect(wrapper.find('button').text()).toBe('Retry welcome'); expect(wrapper.find('button').attributes('disabled')).toBeUndefined();
+  expect(wrapper.find('[role="alert"]').exists()).toBe(false); expect(wrapper.find('[role="status"]').exists()).toBe(false);
+  api.post.mockResolvedValueOnce({ data: { queued: true, workflowId: 44, status: 'queued' } });
+  await wrapper.find('button').trigger('click'); await flushPromises();
+  expect(api.post).toHaveBeenLastCalledWith('/school-contact-plan/workflows/44/retry-initial', {}, expect.objectContaining({ params: { agencyId: 2 } }));
+  expect(wrapper.text()).toContain('Welcome retry queued. Delivery will be checked before sending.');
+});
