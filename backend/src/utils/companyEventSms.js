@@ -51,7 +51,8 @@ export function buildCompanyEventSms({ event, code, body, brandName, audience = 
     return `${text}\nReply ${shortPollReplyCode(code)} to turn off texts about this event. Reply NOPOLLS to stop poll texts only.`;
   }
   const program = audience === 'staff' ? `${brandName || 'Our organization'}'s Employee Texting` : `${brandName || 'Our organization'}'s Service Texting`;
-  return `${text}\nReply MUTE ${code} to turn off texts about this event only; this does not change your RSVP. Reply STOP to opt out of ${program}. HELP for help. Msg & data rates may apply.`;
+  const mute = audience === 'staff' ? `Reply MUTE ${code} to turn off texts about this event only; this does not change your RSVP.` : `Reply ${code} to turn off texts about this event.`;
+  return `${text}\n${mute} Reply STOP to opt out of ${program}. HELP for help. Msg & data rates may apply.`;
 }
 
 export function parseCompanyEventSmsCommand(body) {

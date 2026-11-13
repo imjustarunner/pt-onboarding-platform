@@ -140,7 +140,7 @@ export async function handleCompanyEventTopicInbound({ from, to, body, messageId
   if (!selected) return null;
   if (selected.ambiguous) return { handled: true, agencyId: Number(sender.agency_id), purpose: rows.some(row => row.dispatch_type === 'rsvp_invitation') ? 'workforce' : 'polling', responseMessage: `Which event? Reply Yes, No or Maybe followed by its code: ${selected.codes.join(', ')}.` };
   if (command.type === 'mute') {
-    if (selected.purpose !== 'polling' && !command.explicit) {
+    if (selected.purpose === 'workforce' && !command.explicit) {
       return { handled: true, agencyId: Number(sender.agency_id), purpose: selected.purpose, eventId: selected.company_event_id,
         responseMessage: `For "${selected.title}", reply Yes ${selected.code}, No ${selected.code}, or Maybe ${selected.code}. Your RSVP and text preferences have not changed. To mute only this event, reply MUTE ${selected.code}.` };
     }
@@ -272,7 +272,7 @@ export async function getCompanyEventSmsConsentDetails(eventRow) {
     const registration = sender.registration;
     const programName = `${registration.brandName} ${audience === 'staff' ? 'Employee and Company Event' : 'Service Event'} Texting`;
     return { enabled: true, campaignNumber, purpose, programName, programKey: audience === 'staff' ? 'polling' : 'operations', privacyUrl: registration.privacyUrl, termsUrl: registration.termsUrl, supportContact: registration.supportContact,
-      disclosure: `Optional: I agree to receive texts from ${registration.brandName} about this event. Message frequency varies. Message and data rates may apply. Reply MUTE followed by the event code to mute this event, STOP to opt out of this texting program, or HELP for help. Consent is not required to attend or receive services. Enrollment requires reviewed SMS consent. Support: ${registration.supportContact}.` };
+      disclosure: `Optional: I agree to receive texts from ${registration.brandName} about this event. Message frequency varies. Message and data rates may apply. Reply ${audience === 'staff' ? 'MUTE followed by the event code' : 'with the event code'} to mute this event, STOP to opt out of this texting program, or HELP for help. Consent is not required to attend or receive services. Enrollment requires reviewed SMS consent. Support: ${registration.supportContact}.` };
   } catch (error) { return { enabled: false, campaignNumber, purpose, programKey: audience === 'staff' ? 'polling' : 'operations', reason: error.code || 'sender_unavailable' }; }
 }
 

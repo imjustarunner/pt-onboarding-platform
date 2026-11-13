@@ -115,8 +115,8 @@ describe('event campaign isolation', () => {
 });
 
 describe('event inbound persistence', () => {
-  it('mutes only the referenced event and never changes campaign consent', async () => {
-    pool.execute.mockResolvedValueOnce([[delivery]]).mockResolvedValueOnce([{ affectedRows: 1 }]);
+  it.each(['polling','care','reminders'])('preserves the %s event-only mute and never changes campaign consent', async purpose => {
+    pool.execute.mockResolvedValueOnce([[{...delivery,purpose}]]).mockResolvedValueOnce([{ affectedRows: 1 }]);
     const reply = vi.fn().mockRejectedValue(new Error('Recipient already STOPped'));
     const result = await handleCompanyEventTopicInbound({ ...incoming, body: '112', sendReply: reply });
     expect(result).toMatchObject({ handled: true, muted: true, eventId: 4 });

@@ -30,4 +30,7 @@ describe('agency event invitation links and text', () => {
     const body='Which dates work best?\n1: Friday\n2: Saturday\nReply 129 1 (or another option).';
     expect(buildCompanyEventSms({event,code:129,body,brandName:'ITSCO',purpose:'polling'})).toBe(`${body}\nReply 129 to turn off texts about this event. Reply NOPOLLS to stop poll texts only.`);
   });
+  it('preserves participant service-event text controls separately from employee RSVP commands',()=>{
+    expect(buildCompanyEventSms({event,code:128,body:'Your class is tomorrow.',brandName:'ITSCO',audience:'participant',purpose:'reminders'})).toBe("Your class is tomorrow.\nReply 128 to turn off texts about this event. Reply STOP to opt out of ITSCO's Service Texting. HELP for help. Msg & data rates may apply.");
+  });
 });
