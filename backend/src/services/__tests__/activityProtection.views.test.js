@@ -40,6 +40,7 @@ describe('audited staff document viewing', () => {
     expect(mocks.append).toHaveBeenCalledTimes(30);
     expect(mocks.getConnection).not.toHaveBeenCalled();
   });
+  it('audits exact Support ticket previews without releasing or reserving downloads',async()=>{await evidenceRequestContext.run(request('support','/api/support-tickets/553/attachments/307/view'),async()=>{await authorizeProtectedActivity(request('support','/api/support-tickets/553/attachments/307/view'),{kind:'client_file',resource:'private-ticket-preview'});});expect(mocks.getConnection).not.toHaveBeenCalled();expect(mocks.append).toHaveBeenCalledWith(expect.objectContaining({action:'file_view_requested'}));});
   it('refuses to serve a view when its durable audit cannot be recorded', async () => {
     mocks.append.mockRejectedValue(new Error('Audit unavailable'));
     await expect(view(request())).rejects.toThrow('Audit unavailable');
@@ -68,7 +69,7 @@ describe('audited staff document viewing', () => {
     '/api/clients/4/paper-packet-processing/documents/9/view?attachment=1',
     '/api/phi-documents/school-attachments/4364/view?download=true',
     '/api/phi-documents/school-attachments/4364/view?attachment=1',
-    '/api/phi-documents/school-attachments/4364/download'
+    '/api/phi-documents/school-attachments/4364/download', '/api/support-tickets/553/attachments/307/download', '/api/support-tickets/553/attachments/307/view?download=true'
   ])('keeps download/print reservation controls on %s', async url => {
     await expect(view(request('admin', url))).rejects.toThrow('reservation boundary');
   });

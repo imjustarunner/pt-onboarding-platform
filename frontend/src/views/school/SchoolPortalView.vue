@@ -1792,8 +1792,9 @@
 
     <SchoolHelpDeskModal
       v-if="showHelpDesk && organizationId"
+      :initial-ticket-id="helpDeskTicketId"
       :schoolOrganizationId="organizationId"
-      @close="showHelpDesk = false"
+      @close="showHelpDesk = false; helpDeskTicketId = null"
     />
 
     <PostSchoolEventModal
@@ -2710,6 +2711,7 @@ const vClickOutside = {
 };
 
 const showHelpDesk = ref(false);
+const helpDeskTicketId = ref(null);
 const fallReinitStatus = ref(null); // payload from /school-reinit/me
 const showFallReinitModal = ref(false);
 const fallReinitSessionDismissed = ref(false);
@@ -4167,6 +4169,7 @@ const schoolPortalNavigateMode = async (mode) => {
 
   const closeTutorialPanels = () => {
     showHelpDesk.value = false;
+    helpDeskTicketId.value = null;
     showUploadModal.value = false;
     closeIntakeModal();
   };
@@ -5830,10 +5833,13 @@ const loadNotificationClient = async (clientId) => {
 };
 
 const openTicketFromNotification = async ({ ticketId, clientId, messageId } = {}) => {
-  const cid = Number(clientId || 0);
-  if (!cid) return;
+  const cid = Number(clientId || 0), schoolId=Number(organizationId.value);
+  if (!cid) {
+    if(Number(ticketId)>0&&schoolId){helpDeskTicketId.value=Number(ticketId);showHelpDesk.value=true;}
+    return;
+  }
   const client = await loadNotificationClient(cid);
-  if (!client || isClientPortalLocked(client)) return;
+  if (schoolId!==Number(organizationId.value)||!client || isClientPortalLocked(client)) return;
   ticketModalClient.value = client;
   ticketModalTicketId.value = ticketId ? Number(ticketId) : null;
   ticketModalMessageId.value = messageId ? Number(messageId) : null;
@@ -6005,6 +6011,8 @@ onUnmounted(() => {
 });
 
 watch(organizationId, async (id) => {
+  helpDeskTicketId.value = null;
+  showHelpDesk.value = false;
   if (!id) return;
   await bootstrapSchoolPortal();
 });

@@ -32,11 +32,12 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
+import { formatFileSize } from '../../utils/fileSize.js';
 const props = defineProps({ ticket: { type: Object, required: true }, attachments: { type: Array, default: () => [] }, canFile: Boolean, linkingClientId: { type: Number, default: null } });
 defineEmits(['open', 'link-client']);
 const busy = ref(null), choosing = ref(false), query = ref(''), searching = ref(false), results = ref([]), error = ref(''), message = ref(''), saved = ref({});
 const clientLabel = computed(() => props.ticket.client_full_name || props.ticket.client_identifier_code || props.ticket.client_initials || `Client #${props.ticket.client_id}`);
-const sizeLabel = bytes => Number(bytes) > 0 ? `${(Number(bytes) / 1024 / 1024).toFixed(1)} MB` : '';
+const sizeLabel = formatFileSize;
 const alreadyAdded = attachment => saved.value[attachment.id] || (attachment.client_document_id && Number(attachment.client_document_client_id) === Number(props.ticket.client_id));
 const supported = attachment => ['application/pdf', 'application/x-pdf', 'image/jpeg', 'image/jpg', 'image/png'].includes(attachment.mime_type) || (['', 'application/octet-stream'].includes(attachment.mime_type || '') && /\.pdf$/i.test(attachment.file_name || ''));
 watch(() => [props.ticket.id, props.ticket.client_id], () => { choosing.value = false; results.value = []; saved.value = {}; error.value = ''; message.value = ''; });

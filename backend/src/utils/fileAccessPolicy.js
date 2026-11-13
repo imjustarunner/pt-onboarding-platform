@@ -15,6 +15,7 @@ export function isClientFileView(req) {
     path = decodeURIComponent(url.pathname).replace(/\/+/g, '/').toLowerCase();
   } catch { return false; }
   if ([...url.searchParams.keys()].some(key => /download|attachment|export/i.test(key))) return false;
+  if (/^\/api\/support-tickets\/\d+\/attachments\/\d+\/view\/?$/.test(path)) return true;
   if (/^\/api\/clients\/\d+\/(?:school-roi-documents|paper-packet-processing\/documents)\/\d+\/view\/?$/.test(path)) return true;
   return /^\/api\/phi-documents\/(?:\d+\/view|school-attachments\/\d+\/view|enrollment-receipts\/\d+\/view|signed-school-packets\/\d+|clients\/\d+\/chart-artifacts\/[^/]+\/view)\/?$/.test(path);
 }

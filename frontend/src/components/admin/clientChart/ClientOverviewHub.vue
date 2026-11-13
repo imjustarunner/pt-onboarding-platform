@@ -126,7 +126,7 @@
         <h4>Quick actions</h4>
         <div class="cc-side-actions">
           <button v-if="canEdit" type="button" class="cdp-btn-primary" @click="$emit('edit')">Edit client</button>
-          <button type="button" class="cdp-btn-soft" @click="$emit('navigate', 'messages')">Send secure message</button>
+          <button v-if="canSendSecureMessage" type="button" class="cdp-btn-soft" @click="$emit('secure-message')">Send secure message</button>
           <button type="button" class="cdp-btn-soft" @click="$emit('upload')">Upload document</button>
           <button v-if="canProcessPaper" type="button" class="cdp-btn-soft" @click="$emit('client-actions', 'process')">Process paper packet</button>
         </div>
@@ -173,6 +173,7 @@ const props = defineProps({
   clientId: { type: [Number, String], required: true },
   client: { type: Object, default: null },
   canProcessPaper: Boolean,
+  canSendSecureMessage:{type:Boolean,default:false},
   canEdit: { type: Boolean, default: false },
   canViewMedicalRecord: { type: Boolean, default: false },
   glanceItems: { type: Array, default: () => [] },
@@ -189,7 +190,7 @@ const props = defineProps({
   organizationName: { type: String, default: '' }
 });
 
-defineEmits(['upload','client-actions','edit', 'navigate', 'alert-click', 'view-event', 'open-document']);
+defineEmits(['secure-message','upload','client-actions','edit', 'navigate', 'alert-click', 'view-event', 'open-document']);
 
 /** @param {string} [viewKey] — chart artifact viewKey; parent opens Documents and views it directly */
 

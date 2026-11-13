@@ -56,24 +56,24 @@ const DEFAULT_COPY_EN = {
 };
 
 const DEFAULT_COPY_ES = {
-  title: 'DECLARACION DE DIVULGACION',
+  title: 'DECLARACIÓN DE DIVULGACIÓN',
   introHtml: `<p>Este documento es OBLIGATORIO para todas las profesiones de salud mental en Colorado.</p>
 <p><em>Department of Regulatory Agencies<br/>Division of Professions and Occupations<br/>1560 Broadway, Suite 1350 Denver, Colorado 80202 (303) 894-7800</em></p>
-<p>El proposito de este documento es explicar los niveles de regulacion aplicables a los profesionales de salud mental. La entidad cubierta y los clinicos/proveedores empleados aparecen a continuacion.</p>
-<p><em>Nota: Los clinicos y proveedores listados estan sujetos a cambio.</em></p>`,
+<p>El propósito de este documento es explicar los niveles de regulación aplicables a los profesionales de salud mental. La entidad cubierta y los clínicos/proveedores empleados aparecen a continuación.</p>
+<p><em>Nota: Los clínicos y proveedores listados están sujetos a cambio.</em></p>`,
   doraHtml: '',
   rightsHtml: `<p><strong>Derechos del cliente y divulgaciones:</strong></p>
-<p>(I) Tengo derecho a recibir informacion sobre metodos, tecnicas, duracion y estructura de honorarios.</p>
-<p>(II) Puedo buscar una segunda opinion o terminar la terapia en cualquier momento.</p>
+<p>(I) Tengo derecho a recibir información sobre métodos, técnicas, duración y estructura de honorarios.</p>
+<p>(II) Puedo buscar una segunda opinión o terminar la terapia en cualquier momento.</p>
 <p>(III) La intimidad sexual nunca es apropiada y debe reportarse a la junta correspondiente.</p>
-<p>(IV) La informacion es confidencial salvo excepciones legales identificadas por el profesional.</p>
-<p>(V) Los registros no se mantienen mas de siete anos, sujeto a cambios de ley.</p>`,
-  levelsOfRegulationHtml: `<p><strong>Niveles de regulacion aplicables</strong></p>
-<p>Los titulos regulados varian en educacion, formacion y experiencia. Los candidatos y no licenciados practican bajo supervision.</p>`,
-  acknowledgmentText: 'He leido la informacion anterior de la Declaracion de Divulgacion y entiendo mis derechos como cliente o como parte responsable del cliente.',
+<p>(IV) La información es confidencial salvo excepciones legales identificadas por el profesional.</p>
+<p>(V) Los registros no se mantienen más de siete años, sujeto a cambios de ley.</p>`,
+  levelsOfRegulationHtml: `<p><strong>Niveles de regulación aplicables</strong></p>
+<p>Los títulos regulados varían en educación, formación y experiencia. Los candidatos y no licenciados practican bajo supervisión.</p>`,
+  acknowledgmentText: 'He leído la información anterior de la Declaración de Divulgación y entiendo mis derechos como cliente o como parte responsable del cliente.',
   fullyLicensedHeading: 'PROVEEDORES CON LICENCIA COMPLETA',
-  preLicensedHeading: 'PROVEEDORES PRE-LICENCIADOS BAJO SUPERVISION',
-  unlicensedHeading: 'PROVEEDORES SIN LICENCIA BAJO SUPERVISION'
+  preLicensedHeading: 'PROVEEDORES PRE-LICENCIADOS BAJO SUPERVISIÓN',
+  unlicensedHeading: 'PROVEEDORES SIN LICENCIA BAJO SUPERVISIÓN'
 };
 
 export function isSmartDisclosureDemoSchool(org) {

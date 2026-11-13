@@ -3755,6 +3755,8 @@ export async function sendHubPortalInvitation({
   guardianUserId = null,
   skipEmail = false,
   existingLinkOnly = false,
+  expectedRecipientEmail = null,
+  selectedClientIds = null,
   paperPacketProcessed = false,
   migration = false,
   migrationClientIds = null
@@ -3835,15 +3837,33 @@ export async function sendHubPortalInvitation({
   const inviteAgencyId = Number(portalContext.tenant.id);
 
   if (existingLinkOnly) {
-    const link = (await ClientGuardian.listForClient(cid)).find(g => Number(g.guardian_user_id) === uid);
-    if (Number(client.agency_id) !== aid || !link || ![1, true].includes(link.access_enabled) || link.permissions_json?.noView || link.permissions_json?.noViewOtherGuardian) {
-      throw Object.assign(new Error('Portal contact access changed. Refresh the invitation preview.'), { status: 409 });
+    const selected = Array.isArray(selectedClientIds) ? [...new Set(selectedClientIds.map(Number))] : [cid];
+    if (!selected.length || !selected.includes(cid) || selected.some(id => !Number.isSafeInteger(id) || id <= 0)) {
+      throw Object.assign(new Error('The selected clients changed. Refresh the invitation preview.'), { status:409,code:'PORTAL_INVITATION_PREVIEW_CHANGED' });
+    }
+    for (const selectedId of selected) {
+      const selectedClient = selectedId === cid ? client : await Client.findById(selectedId);
+      const link = (await ClientGuardian.listForClient(selectedId)).find(g => Number(g.guardian_user_id) === uid);
+      let permissions;
+      try { permissions = typeof link?.permissions_json === 'string' ? JSON.parse(link.permissions_json) : link?.permissions_json || {}; } catch { permissions = null; }
+      const access = selectedId === cid ? {ok:true} : await resolveClientRecordAccess({userId:actorId,role:actorRows?.[0]?.role,clientId:selectedId});
+      if (Number(selectedClient?.agency_id) !== aid || !access?.ok || !link || ![1, true].includes(link.access_enabled)
+        || !permissions || typeof permissions !== 'object' || Array.isArray(permissions)
+        || permissions.noView || permissions.noViewOtherGuardian || permissions.noContact || permissions.no_contact
+        || permissions.contactRestricted || permissions.revoked || permissions.relationshipRevoked) {
+        throw Object.assign(new Error('Portal contact access changed. Refresh the invitation preview.'), { status:409,code:'PORTAL_INVITATION_PREVIEW_CHANGED' });
+      }
     }
   }
 
   let guardian = uid ? await User.findById(uid) : null;
   if (!guardian && email) {
     guardian = await User.findByEmail(email);
+  }
+
+  if (existingLinkOnly && (!guardian || guardian.is_active === 0 || guardian.is_active === false
+    || ['ARCHIVED','INACTIVE','INACTIVE_EMPLOYEE','TERMINATED','SUSPENDED'].includes(String(guardian.status).toUpperCase()))) {
+    throw Object.assign(new Error('This portal account is no longer available. Refresh the invitation preview.'), {status:409,code:'PORTAL_INVITATION_PREVIEW_CHANGED'});
   }
 
   if (!guardian) {
@@ -3874,6 +3894,12 @@ export async function sendHubPortalInvitation({
       err.status = 409;
       throw err;
     }
+  }
+
+  if(existingLinkOnly && expectedRecipientEmail && (
+    String(email||'').trim().toLowerCase()!==String(expectedRecipientEmail).trim().toLowerCase()
+    || String(guardian.email||guardian.personal_email||'').trim().toLowerCase()!==String(expectedRecipientEmail).trim().toLowerCase())) {
+    throw Object.assign(new Error('This recipient changed. Refresh the invitation preview before sending.'),{status:409,code:'PORTAL_INVITATION_PREVIEW_CHANGED'});
   }
 
   if (!email || !String(email).includes('@')) {
@@ -3948,6 +3974,7 @@ export async function sendHubPortalInvitation({
     const permissions=ClientGuardian.parsePermissions(sibling.permissions_json);
     if((sibling.permissions_json&&!permissions)||permissions?.noView||permissions?.noViewOtherGuardian)continue;
     if(migration&&Array.isArray(migrationClientIds)&&!migrationClientIds.map(Number).includes(Number(sibling.id)))continue;
+    if(existingLinkOnly&&Array.isArray(selectedClientIds)&&!selectedClientIds.map(Number).includes(Number(sibling.id)))continue;
     const siblingContext = await resolveClientPortalContext(sibling);
     if (siblingContext.learning === portalContext.learning) included.push(sibling);
   }
@@ -3963,7 +3990,7 @@ export async function sendHubPortalInvitation({
       agencyName:agency.name,clients:included.length ? included : [client],existingAccount,url:setupUrl,
       portalUrl:emailContext.url('guardian'),school:included.some(c=>c.organization_type==='school')})
     : (paperPacketProcessed ? buildPaperPacketPortalEmail : buildClientEnrollmentEmail)({username:guardian.email || guardian.username,firstName:firstName || guardian.first_name,
-      agencyName:agency.name,clients:existingAccount ? [client] : included.length ? included : [client],learning:portalContext.learning,existingAccount,url:setupUrl,
+      agencyName:agency.name,clients:existingLinkOnly&&Array.isArray(selectedClientIds) ? (included.length?included:[client]) : (existingAccount?[client]:(included.length?included:[client])),learning:portalContext.learning,existingAccount,url:setupUrl,
       schoolName:paperPacketProcessed && client.organization_id ? (await (await import('../models/Agency.model.js')).default.findById(client.organization_id))?.name : null});
   delivery = await sendClientPortalEmail({agencyId:inviteAgencyId,clientId:cid,context:emailContext,
     to:email,...built,source:'auto',templateType:migration?'portal_migration_invite':'hub_portal_invite',userId:guardian.id});

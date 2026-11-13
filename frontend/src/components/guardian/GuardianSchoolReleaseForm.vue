@@ -88,9 +88,17 @@ async function load() {
       return;
     }
     schoolName.value = String(body.roiContext?.school?.name || schoolName.value || '').trim();
+    // The embedded form uses the same server-created session as the public
+    // signing flow. A portal-shaped string is not an intake capability.
+    const session = await api.post(`/public-intake/${encodeURIComponent(data.publicKey)}/session`, {});
+    if (current !== ticket) return;
+    const sessionToken = String(session?.data?.sessionToken || '').trim();
+    if (!sessionToken) {
+      throw new Error('The school release session could not be started.');
+    }
     packet.value = {
       publicKey: data.publicKey,
-      sessionToken: `portal-${clientId}-${releaseSchoolId}-${data.publicKey}`,
+      sessionToken,
       roiContext: body.roiContext,
       link: body.link,
       boundClient: body.boundClient || null

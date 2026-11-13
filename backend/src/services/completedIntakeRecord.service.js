@@ -215,6 +215,24 @@ function humanizeKey(key) {
     .trim();
 }
 
+function personDisplayName(person = {}) {
+  if (!person || typeof person !== 'object') return '';
+  const parts = [
+    person.firstName || person.first_name,
+    person.middleName || person.middle_name,
+    person.lastName || person.last_name
+  ].map(part => String(part || '').trim()).filter(Boolean);
+  const fullName = String(person.fullName || person.full_name || '').trim();
+  const hasCompleteExplicitMiddle = Boolean(
+    (person.firstName || person.first_name)
+    && (person.middleName || person.middle_name)
+    && (person.lastName || person.last_name)
+  );
+  // A legacy canonical full name may contain a middle name that was never
+  // split into fields. Only replace it with a complete explicit middle name.
+  return (hasCompleteExplicitMiddle ? parts.join(' ') : fullName) || parts.join(' ');
+}
+
 function hasValue(val) {
   if (val == null) return false;
   if (Array.isArray(val)) return val.length > 0;
@@ -998,8 +1016,8 @@ export function buildCompletedIntakeRecord({
   const clientBags = Array.isArray(responses.clients) ? responses.clients : [];
   const listedClients = (Array.isArray(clients) && clients.length ? clients : (Array.isArray(intakeData.clients) ? intakeData.clients : clientBags));
 
-  const contactName = [guardian.firstName, guardian.lastName].filter(Boolean).join(' ').trim()
-    || [guardianBag.firstName, guardianBag.lastName].filter(Boolean).join(' ').trim()
+  const contactName = personDisplayName(guardian)
+    || personDisplayName(guardianBag)
     || String(submission?.signer_name || '').trim();
   const contactEmail = String(guardian.email || guardianBag.email || submission?.signer_email || '').trim();
   const contactPhone = String(guardian.phone || guardian.phoneNumber || guardianBag.phone || guardianBag.phoneNumber || submission?.signer_phone || '').trim();
@@ -1019,7 +1037,7 @@ export function buildCompletedIntakeRecord({
   if (!isJobApplication) {
     listedClients.forEach((client, index) => {
       const fallback = recordText(listedClients.length > 1 ? `Client ${index + 1}` : 'Client');
-      const name = String(client?.fullName || `${client?.firstName || ''} ${client?.lastName || ''}`.trim() || fallback).trim();
+      const name = personDisplayName(client) || fallback;
       const dob = String(client?.dateOfBirth || client?.date_of_birth || '').trim();
       pushRow(contactRows, fallback, dob ? `${name} · ${recordText('Date of birth')} ${dob}` : name);
     });

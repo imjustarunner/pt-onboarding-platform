@@ -197,4 +197,12 @@ describe('supervision leave versus explicit meeting closure',()=>{
     expect(wrapper.findComponent({name:'SupervisionLiveRoom'}).props('canEndForEveryone')).toBe(false);
     expect(wrapper.findComponent({name:'MeetingSessionExitPanel'}).exists()).toBe(false);alert.mockRestore();
   });
+  it.each(['alone-timeout','media-unavailable','networkDisconnected'])('retains explicit host End after %s without pretending a video connection succeeded',async reason=>{
+    const room=await render();room.vm.$emit('disconnected',{reason});await flushPromises();
+    const exit=wrapper.findComponent({name:'MeetingSessionExitPanel'});expect(exit.props('canEndMeeting')).toBe(true);
+    expect(m.post.mock.calls.some(([url])=>url.endsWith('/end-live'))).toBe(false);
+    exit.vm.$emit('end-meeting');await flushPromises();
+    expect(m.post).toHaveBeenCalledWith('/supervision/sessions/101/end-live',{},expect.any(Object));expect(m.finish).toHaveBeenCalledOnce();
+    expect(wrapper.findComponent({name:'MeetingSessionExitPanel'}).props('canRejoin')).toBe(false);
+  });
 });

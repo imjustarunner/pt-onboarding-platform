@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-const mock = vi.hoisted(() => ({ sql: vi.fn(), session: vi.fn(), clinicalCreate: vi.fn(), clinicalFind: vi.fn(), clinicalList: vi.fn(), phiCreate: vi.fn(), phiFind: vi.fn(), phiDelete: vi.fn(), phiUpdate: vi.fn(), phiAudit: vi.fn(), agency: vi.fn(), clinicalOrg: vi.fn(), eligible: vi.fn(), record: vi.fn(), care: vi.fn(), supervisor: vi.fn(), supervisedClient: vi.fn(), recipients: vi.fn(), recipient: vi.fn(), share: vi.fn(), write: vi.fn(), read: vi.fn(), remove: vi.fn(), configured: vi.fn(), encrypt: vi.fn(), decrypt: vi.fn(), audit: vi.fn(), scan: vi.fn() }));
+const mock = vi.hoisted(() => ({ sql: vi.fn(), session: vi.fn(), clinicalCreate: vi.fn(), clinicalFind: vi.fn(), clinicalList: vi.fn(), phiCreate: vi.fn(), phiFind: vi.fn(), phiDelete: vi.fn(), phiUpdate: vi.fn(), phiAudit: vi.fn(), agency: vi.fn(), clinicalOrg: vi.fn(), eligible: vi.fn(), record: vi.fn(), care: vi.fn(), supervisor: vi.fn(), supervisedClient: vi.fn(), recipients: vi.fn(), recipient: vi.fn(), share: vi.fn(), write: vi.fn(), read: vi.fn(), remove: vi.fn(), configured: vi.fn(), encrypt: vi.fn(), decrypt: vi.fn(), audit: vi.fn(), scan: vi.fn(), queue: vi.fn(), inProgress: vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: { execute: mock.sql } }));
 vi.mock('../../models/clinical/ClinicalSession.model.js', () => ({ default: { findById: mock.session } }));
 vi.mock('../../models/clinical/ClinicalDocument.model.js', () => ({ default: { create: mock.clinicalCreate, findById: mock.clinicalFind, listBySession: mock.clinicalList } }));
@@ -14,6 +14,7 @@ vi.mock('../storage.service.js', () => ({ default: { sanitizeFilename: name => S
 vi.mock('../documentEncryption.service.js', () => ({ default: { isConfigured: mock.configured, encryptBuffer: mock.encrypt, decryptPhiDocumentBuffer: mock.decrypt, sessionMaterialAad: data => JSON.stringify(data) } }));
 vi.mock('../auditEvent.service.js', () => ({ logAuditEvent: mock.audit }));
 vi.mock('../sessionMaterialScan.service.js', () => ({ scanSessionMaterial: mock.scan }));
+vi.mock('../privatePacketScanJob.service.js',()=>({queuePrivatePacketScan:mock.queue,privateScanInProgress:mock.inProgress}));
 import { uploadMaterial, listMaterials, downloadMaterial, shareMaterial, scanMaterial, materialRecipients, sessionMaterialAccess, revokeMaterialShare } from '../sessionSupportingMaterials.service.js';
 const req = { user: { id: 1433, role: 'provider' } };
 const session = { id: 166, agency_id: 450, client_id: 2273, provider_user_id: 1433 };
@@ -24,7 +25,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   mock.session.mockResolvedValue({ ...session }); mock.record.mockResolvedValue({ ok: true, isAssignedClinician: true, client: { id: 2273, agency_id: 450 } });
   mock.configured.mockReturnValue(true); mock.encrypt.mockResolvedValue({ encryptedBuffer: Buffer.from('ciphertext'), encryptionKeyId: 'kms', encryptionWrappedKeyB64: 'wrapped', encryptionIvB64: 'iv', encryptionAuthTagB64: 'tag', encryptionAlg: 'AES-256-GCM' });
-  mock.scan.mockResolvedValue({ status: 'clean' }); mock.phiCreate.mockResolvedValue({ ...phi }); mock.phiFind.mockResolvedValue({ ...phi });
+  mock.scan.mockResolvedValue({ status: 'clean' }); mock.queue.mockResolvedValue(null);mock.inProgress.mockReturnValue(false); mock.phiCreate.mockResolvedValue({ ...phi }); mock.phiFind.mockResolvedValue({ ...phi });
   mock.clinicalCreate.mockResolvedValue({ ...linked }); mock.clinicalFind.mockResolvedValue({ ...linked }); mock.clinicalList.mockResolvedValue([{ ...linked }]);
   mock.read.mockResolvedValue(Buffer.from('ciphertext')); mock.decrypt.mockResolvedValue(file.buffer); mock.sql.mockResolvedValue([[]]);
   mock.recipients.mockResolvedValue({ recipients: [{ id: 20, name: 'First parent', shared: false }, { id: 21, name: 'Second parent', shared: false }] });
@@ -132,4 +133,15 @@ describe('encrypted session supporting materials', () => {
     expect(row).toMatchObject({ available: false, sharedWith: [], sharingRecipients: [{ id: 20, name: 'One' }] });
     expect(mock.sql).toHaveBeenCalledWith(expect.stringContaining('s.client_id = ? AND s.agency_id = ?'), [9, 2273, 450]);
   });
+});
+
+it('queues an encrypted pending clinical material through the approved job after its saved session link exists',async()=>{
+ mock.scan.mockResolvedValue({status:'pending',reason:'Local socket unavailable'});mock.queue.mockResolvedValue({status:'pending',message:'Private file check queued.'});
+ const result=await uploadMaterial(req,166,file,'Thought record');expect(result).toMatchObject({available:false,scanQueued:true});
+ expect(mock.queue).toHaveBeenCalledWith(expect.objectContaining({clientId:2273,actorId:1433,kind:'session_material',clinicalSessionId:166}));
+ expect(mock.clinicalCreate.mock.invocationCallOrder[0]).toBeLessThan(mock.queue.mock.invocationCallOrder[0]);expect(mock.share).not.toHaveBeenCalled();
+});
+it('refreshes an existing worker lease without decrypting or repeatedly dispatching pending work',async()=>{
+ mock.inProgress.mockReturnValue(true);mock.phiFind.mockResolvedValue({...phi,scan_status:'pending'});
+ expect(await scanMaterial(req,166,8)).toMatchObject({available:false,scanQueued:true});expect(mock.read).not.toHaveBeenCalled();expect(mock.scan).not.toHaveBeenCalled();expect(mock.queue).not.toHaveBeenCalled();expect(mock.phiUpdate).not.toHaveBeenCalled();
 });

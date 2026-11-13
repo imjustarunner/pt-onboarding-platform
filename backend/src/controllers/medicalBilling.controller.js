@@ -1,4 +1,5 @@
 import {assistantBillingAuthorization,assertAssistantBillingCommand} from '../services/assistantBillingCommand.service.js';
+import {medicalServiceCatalogRead} from '../services/medicalServiceCatalogRead.service.js';
 import { isReviewedStarterPlan } from '../services/starterTreatmentPlanReview.service.js';
 import { collapseClaimAttempts } from '../services/claimFamily.service.js';
 import { attachClaimReferences } from '../services/clinicalClaimReferences.service.js';
@@ -3275,25 +3276,8 @@ export const listMedicalServiceCodes = async (req, res, next) => {
   try {
     const agencyId = parseIntValue(req.query.agencyId);
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
-    await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
-    try {
-      const { ensureAgencyMedicalBillingDefaults } = await import('../services/medicalBillingDefaults.service.js');
-      await ensureAgencyMedicalBillingDefaults(agencyId, { actorUserId: req.user.id });
-    } catch (cause) {
-      const { catalogSynchronizationError } = await import('../services/agencyServiceCodeCatalog.service.js');
-      throw catalogSynchronizationError(cause);
-    }
-    try {
-      const { reconcileAgencyServiceCodeCatalog } = await import('../services/agencyServiceCodeCatalog.service.js');
-      await reconcileAgencyServiceCodeCatalog(agencyId, { actorUserId: req.user.id });
-    } catch (cause) {
-      const { catalogSynchronizationError } = await import('../services/agencyServiceCodeCatalog.service.js');
-      throw catalogSynchronizationError(cause);
-    }
-    const items = await AgencyMedicalServiceCode.listByAgency(agencyId, {
-      includeInactive: String(req.query.includeInactive || '') === '1'
-    });
-    return res.json(await schedulingResponseForUser(req.user, agencyId, { items }));
+    return res.json(await medicalServiceCatalogRead({user:req.user,agencyId,
+      includeInactive:String(req.query.includeInactive||'')==='1',readOnly:String(req.query.readOnly||'')==='1'}));
   } catch (e) {
     next(e);
   }

@@ -23,7 +23,7 @@
               Question
               <textarea v-model="question" :disabled="submitting || !!createdTicketId" rows="4" class="textarea" placeholder="What do you need help with?" />
             </label>
-            <TicketAttachmentComposer ref="attachmentComposer" :context-key="schoolOrganizationId" :disabled="submitting" />
+            <TicketAttachmentComposer ref="attachmentComposer" :context-key="`${schoolOrganizationId}:${actorId}`" :disabled="submitting" />
             <p v-if="createdTicketId">Ticket #{{ createdTicketId }} is already saved. Retry only its file; do not resend the question.</p>
             <button class="btn btn-primary" @click="submit" :disabled="submitting || !question.trim()">
               {{ submitting ? 'Sending…' : createdTicketId ? 'Retry file upload' : 'Send' }}
@@ -37,13 +37,15 @@
             <strong>Your questions</strong>
             <button class="btn btn-secondary btn-sm" @click="load" :disabled="loading">Refresh</button>
           </div>
-          <div v-if="loading" class="loading">Loading…</div>
+          <SchoolSupportTicketThread v-if="selectedTicketId" :key="`${schoolOrganizationId}:${selectedTicketId}`" :ticket-id="selectedTicketId" :school-organization-id="schoolOrganizationId" @close="selectedTicketId = null" @updated="load" />
+          <div v-else-if="loading" class="loading">Loading…</div>
+          <div v-else-if="listError" class="error" role="alert">{{ listError }}</div>
           <div v-else-if="tickets.length === 0" class="empty">No questions yet.</div>
           <div v-else class="tickets">
             <div v-for="t in tickets" :key="t.id" class="ticket">
               <div class="ticket-top">
                 <div class="ticket-subject">
-                  <strong>{{ t.subject || 'Question' }}</strong>
+                  <button type="button" class="ticket-open" @click="selectedTicketId = Number(t.id)">{{ t.subject || 'Question' }} · Ticket #{{ t.id }}</button>
                   <span class="status">{{ formatStatus(t.status) }}</span>
                 </div>
                 <div class="ticket-date">{{ formatDateTime(t.created_at) }}</div>
@@ -65,20 +67,27 @@
 </template>
 
 <script setup>
-import { onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import {useAuthStore} from '../../store/auth';
+import SchoolSupportTicketThread from './SchoolSupportTicketThread.vue';
 import TicketAttachmentComposer from '../tickets/TicketAttachmentComposer.vue';
 import api from '../../services/api';
 import { GUARDIAN_TICKET_TOPICS } from '../../utils/ticketTopics';
 
 const props = defineProps({
-  schoolOrganizationId: { type: Number, required: true }
+  schoolOrganizationId: { type: Number, required: true },
+  initialTicketId: { type: Number, default: null }
 });
 defineEmits(['close']);
 
+const auth=useAuthStore(),actorId=computed(()=>Number(auth.user?.id)||null);
 const tickets = ref([]);
+const selectedTicketId = ref(props.initialTicketId);
+let generation=0,loadVersion=0,disposed=false;
 const loading = ref(false);
 const submitting = ref(false);
 const error = ref('');
+const listError = ref('');
 const attachmentComposer=ref(null),createdTicketId=ref(null);
 
 const schoolTicketTopics = GUARDIAN_TICKET_TOPICS;
@@ -87,20 +96,20 @@ const subject = ref('');
 const question = ref('');
 
 const load = async () => {
+  const schoolId=Number(props.schoolOrganizationId),actor=actorId.value,request=++loadVersion,version=generation;
+  const current=()=>!disposed&&schoolId===Number(props.schoolOrganizationId)&&version===generation&&request===loadVersion&&actor===actorId.value;
   try {
-    loading.value = true;
-    error.value = '';
+    loading.value = true; listError.value = '';
+    if(!actorId.value)return;
     const r = await api.get('/support-tickets/mine');
-    tickets.value = (r.data || []).filter((t) => Number(t.school_organization_id) === Number(props.schoolOrganizationId));
+    if(current())tickets.value = (Array.isArray(r.data)?r.data:[]).filter((t) => Number(t.school_organization_id) === schoolId);
   } catch (e) {
-    error.value = e.response?.data?.error?.message || 'Failed to load questions';
-  } finally {
-    loading.value = false;
-  }
+    if(current())listError.value = e.response?.data?.error?.message || 'Failed to load questions';
+  } finally { if(current())loading.value = false; }
 };
 
 const submit = async () => {
-  if(submitting.value)return;const schoolId=Number(props.schoolOrganizationId);
+  if(submitting.value)return;const schoolId=Number(props.schoolOrganizationId),actor=actorId.value,version=generation,current=()=>!disposed&&generation===version&&Number(props.schoolOrganizationId)===schoolId&&actor===actorId.value;
   try {
     submitting.value = true;
     error.value = '';
@@ -109,17 +118,18 @@ const submit = async () => {
       topic: topic.value || 'general',
       subject: subject.value.trim() || null,
       question: question.value.trim()
-    });if(Number(props.schoolOrganizationId)!==schoolId)return;createdTicketId.value=created.data?.id;if(!createdTicketId.value)throw new Error('The ticket was saved without a usable reference. Refresh your questions before trying again.');}
-    if(!(await attachmentComposer.value?.uploadPending(createdTicketId.value))){error.value='Your question is saved, but its file was not added. Retry the file upload for this ticket.';return;}
+    });if(!current())return;createdTicketId.value=created.data?.id;if(!createdTicketId.value)throw new Error('The ticket was saved without a usable reference. Refresh your questions before trying again.');}
+    if(!(await attachmentComposer.value?.uploadPending(createdTicketId.value))){if(!current())return;error.value='Your question is saved, but its file was not added. Retry the file upload for this ticket.';return;}
+    if(!current())return;
     createdTicketId.value=null;attachmentComposer.value?.reset();
     topic.value = 'general';
     subject.value = '';
     question.value = '';
     await load();
   } catch (e) {
-    error.value = e.response?.data?.error?.message || 'Failed to submit question';
+    if(current())error.value = e.response?.data?.error?.message || 'Failed to submit question';
   } finally {
-    submitting.value = false;
+    if(current())submitting.value = false;
   }
 };
 
@@ -131,8 +141,9 @@ const formatStatus = (s) => {
   return 'Open';
 };
 
-watch(()=>props.schoolOrganizationId,()=>{createdTicketId.value=null;topic.value='general';subject.value='';question.value='';});
-onMounted(load);
+watch(()=>[props.schoolOrganizationId,actorId.value],()=>{generation++;tickets.value=[];selectedTicketId.value=null;createdTicketId.value=null;submitting.value=false;topic.value='general';subject.value='';question.value='';void load();},{immediate:true});
+watch(()=>props.initialTicketId,id=>selectedTicketId.value=id,{immediate:true});
+onBeforeUnmount(()=>{disposed=true;generation++;});
 </script>
 
 <style scoped>
@@ -207,6 +218,7 @@ onMounted(load);
   margin-bottom: 10px;
   background: var(--bg);
 }
+.ticket-open {border:0;background:transparent;color:var(--primary,#16457c);font:inherit;font-weight:700;text-align:left;cursor:pointer;padding:0;text-decoration:underline;}
 .ticket-top {
   display: flex;
   justify-content: space-between;

@@ -24,7 +24,7 @@
       </div>
       <p v-if="actionError" role="alert">{{ actionError }}</p>
       <div class="mse__actions">
-        <button v-if="variant === 'alone-timeout' && canEndMeeting" type="button" class="btn btn-secondary" :disabled="ending" @click="$emit('end-meeting')">{{ ending ? 'Ending…' : 'End meeting for everyone' }}</button>
+        <button v-if="!isClosed && canEndMeeting" type="button" class="btn btn-secondary" :disabled="ending" @click="$emit('end-meeting')">{{ ending ? 'Ending…' : 'End meeting for everyone' }}</button>
         <button
           v-if="canRejoin"
           type="button"

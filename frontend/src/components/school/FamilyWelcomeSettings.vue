@@ -66,10 +66,12 @@
       <p v-if="notice" class="fw-notice" role="status">{{ notice }}</p>
       <p v-if="error" class="fw-error" role="alert">{{ error }}</p>
       <div class="fw-row fw-save">
+        <span v-if="hasUnsavedChanges && !busy" class="hint" role="status">Changes not saved yet. Save Family Welcome to keep your wording.</span>
         <button type="button" class="btn btn-primary" :disabled="busy" @click="save()">{{ busy ? 'Saving…' : 'Save Family Welcome' }}</button>
       </div>
 
-      <div v-if="profilePrompt" class="fw-prompt" role="alertdialog" aria-labelledby="fw-prompt-text">
+      <div v-if="profilePrompt" ref="profilePromptElement" class="fw-prompt" role="alertdialog" tabindex="-1" aria-labelledby="fw-prompt-text">
+        <p>Not saved yet. Adding your profile link is optional; choose an option below to continue.</p>
         <p id="fw-prompt-text">{{ FAMILY_WELCOME_PROFILE_PROMPT }}</p>
         <div class="fw-row">
           <button type="button" class="fw-secondary" @click="addLinkFromPrompt">Add profile link</button>
@@ -81,7 +83,7 @@
 </template>
 
 <script setup>
-import { nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
 import FamilyWelcomeFields from './FamilyWelcomeFields.vue';
 import FamilyWelcomePdfButton from './FamilyWelcomePdfButton.vue';
@@ -96,6 +98,9 @@ const status = ref('declined'), includePdf = ref(true), openField = ref('templat
 const draft = reactive({ template: '', secondTemplate: '', finalTemplate: '', smsTemplate: '' });
 const editors = {};
 const previewSchoolId = ref(null);
+const profilePromptElement = ref(null), savedSnapshot = ref('');
+const snapshot = () => JSON.stringify({ status:status.value,includePdf:includePdf.value,...draft });
+const hasUnsavedChanges = computed(()=>!!plan.value?.eligible && snapshot()!==savedSnapshot.value);
 let version = 0;
 onBeforeUnmount(() => { version++; });
 
@@ -106,6 +111,7 @@ function apply(data) {
   status.value = data.demoOnly === false && data.status === 'unconfigured' ? '' : data.status === 'enabled' ? 'enabled' : 'declined';
   includePdf.value = data.includePdf !== false;
   for (const key of Object.keys(draft)) draft[key] = data[key] || data.recommendedTemplates?.[key] || '';
+  savedSnapshot.value=snapshot();
 }
 async function load() {
   const request = ++version;
@@ -164,15 +170,25 @@ async function save({ skipProfileCheck = false } = {}) {
   if (!['enabled', 'declined'].includes(status.value)) { error.value = 'Choose On or Off before saving your Family Welcome preferences.'; return; }
   const invalid = FAMILY_WELCOME_MESSAGES.find(m => validateFamilyWelcomeTemplate(draft[m.field], m.sms));
   if (invalid) { openField.value = invalid.field; error.value = `${invalid.label}: ${validateFamilyWelcomeTemplate(draft[invalid.field], invalid.sms)}`; return; }
-  if (!skipProfileCheck && welcomeMissingProfileLink(draft)) { profilePrompt.value = true; return; }
+  if (!skipProfileCheck && welcomeMissingProfileLink(draft)) {
+    profilePrompt.value = true;
+    await nextTick();profilePromptElement.value?.scrollIntoView?.({block:'center',behavior:'smooth'});profilePromptElement.value?.focus?.();
+    return;
+  }
   profilePrompt.value = false;
   const request = version;
   busy.value = true;
   try {
-    const { data } = await api.put('/school-contact-plan', { status: status.value, ...draft, includePdf: includePdf.value }, { params: { agencyId: props.agencyId }, skipGlobalLoading: true });
+    const submitted={status:status.value,...Object.fromEntries(Object.entries(draft).map(([key,value])=>[key,value.trim()])),includePdf:includePdf.value};
+    const { data } = await api.put('/school-contact-plan', submitted, { params: { agencyId: props.agencyId }, skipGlobalLoading: true });
     if (request !== version) return;
+    // The server response is its database readback. Never replace the author's
+    // unsaved wording with stale/default text and report that as success.
+    if(!data?.eligible || Object.entries(submitted).some(([key,value])=>data[key]!==value)) {
+      error.value='Your saved settings could not be confirmed. Your wording is still here. Reload the saved settings in another tab before trying again.';return;
+    }
     apply(data);
-    notice.value = status.value === 'enabled' ? 'Family Welcome & Follow-Up is on.' : 'Family Welcome & Follow-Up is off. Support will introduce you, and you will be copied.';
+    notice.value = status.value === 'enabled' ? 'Saved. Family Welcome & Follow-Up is on.' : 'Saved. Family Welcome & Follow-Up is off. Support will introduce you, and you will be copied.';
   } catch (e) {
     if (request !== version) return;
     error.value = messageFrom(e, 'Your settings could not be saved. Please try again.');

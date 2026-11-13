@@ -22,3 +22,12 @@ it('preserves an unknown send for review instead of immediately launching a seco
 it('does not use an arbitrary destination or silently claim scanning is configured',async()=>{
  const deps=fixture();deps.jobName='https://external.example.test/upload';expect(await queuePrivatePacketScan(input,deps)).toBeNull();expect(deps.request).not.toHaveBeenCalled();expect(deps.db.execute).not.toHaveBeenCalled();
 });
+it('queues clinical bytes by immutable document/client/session IDs only and never sends bytes to the job API',async()=>{
+ const deps=fixture();await queuePrivatePacketScan({doc:{id:9,client_id:4,is_encrypted:1,document_type:'session_supporting_material'},clientId:4,actorId:8,kind:'session_material',clinicalSessionId:166},deps);
+ const env=deps.request.mock.calls[0][1].overrides.containerOverrides[0].env;
+ expect(env).toContainEqual({name:'PACKET_SCAN_KIND',value:'session_material'});expect(env).toContainEqual({name:'PACKET_SCAN_CLINICAL_SESSION_ID',value:'166'});
+ expect(JSON.stringify(env)).not.toContain('storage');expect(JSON.stringify(env)).not.toContain('buffer');
+});
+it.each([{kind:'other'},{kind:'session_material',clinicalSessionId:0},{kind:'session_material',clinicalSessionId:166,doc:{id:9,client_id:99,is_encrypted:1,document_type:'session_supporting_material'}}])('rejects an unsupported or mismatched clinical worker request before dispatch %j',async change=>{
+ const deps=fixture();await expect(queuePrivatePacketScan({...input,...change},deps)).rejects.toThrow();expect(deps.request).not.toHaveBeenCalled();
+});

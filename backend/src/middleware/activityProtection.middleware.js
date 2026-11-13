@@ -16,6 +16,7 @@ export function fileOperation(req){
  if (req.method==='POST' && /\/print-upload$/.test(path)) return false;
  if (/\/printable-packet\/(availability|template(?:\/.*)?|org-version-history)$/.test(path)) return false;
  return /(?:^|[/.-])(download|exports?|pdf|csv|zip|print|printable-packet|completion-package)(?:[./-]|$)/i.test(path)
+  || /^\/api\/support-tickets\/\d+\/attachments\/\d+\/view\/?$/.test(path)
   || /^\/api\/phi-documents\/(?:\d+\/view|school-attachments\/\d+\/view|enrollment-receipts\/\d+\/view|signed-school-packets\/\d+|clients\/\d+\/chart-artifacts\/[^/]+\/view)\/?$/.test(path)
   || /^\/uploads\/(?:uploads\/)*(phi-documents|intake_signed|intake_uploads)\//.test(path);
 }

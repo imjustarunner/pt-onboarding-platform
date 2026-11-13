@@ -13,6 +13,12 @@ async function chooseFile(wrapper) {
   await wrapper.find('input[type=file]').trigger('change');
 }
 const field = (w, id) => w.find(`[data-testid="${id}"]`);
+it('refreshes a queued private scan without posting another job or sharing the file',async()=>{
+ api.get.mockResolvedValue({data:[{...clean,available:false,scanStatus:'pending',scanQueued:true}]});
+ const w=mount(SessionSupportingMaterials,{props:{clinicalSessionId:166}});await open(w);
+ const refresh=w.findAll('button').find(b=>b.text()==='Refresh scan status');expect(refresh).toBeTruthy();await refresh.trigger('click');await flushPromises();
+ expect(api.get).toHaveBeenCalledTimes(2);expect(api.post).not.toHaveBeenCalled();expect(api.put).not.toHaveBeenCalled();w.unmount();
+});
 beforeEach(() => {
   vi.resetAllMocks();
   api.get.mockImplementation(url => Promise.resolve({ data: url.endsWith('/recipients') ? parents : [] }));

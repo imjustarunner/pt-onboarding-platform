@@ -313,9 +313,9 @@ function startPresenceHeartbeat() {
         },
         { skipAuthRedirect: true, skipGlobalLoading: true }
       );
-      canEndForEveryone.value = !intentionalLeave.value && data?.canEndForEveryone === true;
+      if (!intentionalLeave.value) canEndForEveryone.value = data?.canEndForEveryone === true;
     } catch {
-      canEndForEveryone.value = false;
+      if (!intentionalLeave.value) canEndForEveryone.value = false;
     } finally {
       presenceInFlight = false;
     }
@@ -338,8 +338,8 @@ async function leavePresence() {
   } catch { /* ignore */ }
 }
 
-async function teardownLiveSession() {
-  canEndForEveryone.value = false;
+async function teardownLiveSession({ keepHostEndPermission = false } = {}) {
+  if (!keepHostEndPermission) canEndForEveryone.value = false;
   stopAdmissionPolling();
   stopPresenceHeartbeat();
   try {
@@ -430,7 +430,10 @@ async function endLiveSessionForEveryone() {
 
 async function finishLeave({ variant = 'left', canRejoin = true } = {}) {
   intentionalLeave.value = true;
-  await teardownLiveSession();
+  // Losing camera/microphone or the video connection must not strand the host.
+  // This retains only the last server-verified UI capability; transcript/end
+  // endpoints independently recheck current assignment and membership on click.
+  await teardownLiveSession({keepHostEndPermission:isSupervisor.value && canRejoin && !sessionHasEnded.value});
   showSessionExit({ variant, canRejoin });
 }
 

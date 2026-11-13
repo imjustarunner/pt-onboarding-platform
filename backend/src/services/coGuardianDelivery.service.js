@@ -9,10 +9,20 @@ import { buildPublicPortalLoginUrl } from '../utils/publicPortalUrl.js';
 import { isDobAdultLocked } from '../utils/guardianWaivers.utils.js';
 import { guardianReminderDue, guardianReminderNextDate } from './coGuardianReminderPolicy.js';
 import { validateQaIntakeGuardian } from './qaIntakeIdentity.service.js';
+import { resolveClientRecordAccess } from './clientRecordAccess.service.js';
 
 const failed = status => ['failed', 'bounced', 'undelivered', 'not_sent'].includes(status);
 const json = value => typeof value === 'string' ? JSON.parse(value || '{}') : value || {};
 const fail = (status, message) => { throw Object.assign(new Error(message), { status, statusCode: status }); };
+const selectedInviteRoles = new Set(['super_admin','admin','support','staff','provider','provider_plus','intern','intern_plus','clinical_practice_assistant']);
+const inactiveUser = user => !user || user.is_active===0 || user.is_active===false || user.is_archived===1 || user.is_archived===true
+  || ['ARCHIVED','INACTIVE','INACTIVE_EMPLOYEE','TERMINATED','SUSPENDED'].includes(String(user.status).toUpperCase());
+export function guardianDeliveryFailureCode(error) {
+  const code=String(error?.code || '');
+  if (/^[A-Z][A-Z0-9_]{2,63}$/.test(code)) return code;
+  const status=Number(error?.status || error?.statusCode || error?.response?.status);
+  return Number.isInteger(status) && status>=400 && status<=599 ? `HTTP_${status}` : 'SEND_FAILED';
+}
 export function inviteDeliveryState(result) {
   return result?.sent ? 'sent' : result?.queued ? 'pending' : 'failed';
 }
@@ -28,7 +38,9 @@ export async function deliverCoGuardianInvite({ inviteId, enrollmentChannel = nu
   } catch (error) {
     // Keep failures before transport (for example sender/context lookup) visible
     // to the parent and follow-up worker instead of leaving "sending" forever.
-    delivery = { sent: false, queued: false, communicationId: error?.communicationId || null };
+    const failureCode=guardianDeliveryFailureCode(error);
+    console.warn('[guardian-invite] Delivery failed before a receipt', {inviteId:Number(inviteId),agencyId:Number(message.agency?.id)||null,code:failureCode});
+    delivery = { sent: false, queued: false, communicationId: error?.communicationId || null, failureCode };
   }
   const state = inviteDeliveryState(delivery);
   await pool.execute(`UPDATE co_guardian_invite_deliveries SET delivery_status=?, communication_id=?, internet_message_id=?, failure_kind=? WHERE id=?`,
@@ -49,7 +61,126 @@ export async function deliverCoGuardianInvite({ inviteId, enrollmentChannel = nu
   if (automaticReminder && state !== 'sent') {
     await pool.execute("UPDATE co_guardian_invite_reminders SET state='held',next_due_at=NULL WHERE invite_id=?", [inviteId]);
   }
-  return { ...delivery, deliveryStatus: state };
+  return { ...delivery, deliveryStatus: state, deliveryAttemptId: Number(insert.insertId) };
+}
+
+export function selectedGuardianRetrySnapshot({invite,clients,lastDelivery}) {
+  return crypto.createHash('sha256').update(JSON.stringify([
+    Number(invite.id),Number(invite.agency_id),String(invite.invited_email||'').trim().toLowerCase(),
+    invite.status,invite.source,invite.public_key,Number(invite.invited_by_user_id)||null,
+    [...clients].map(client=>[Number(client.id),Number(client.agency_id)]).sort((a,b)=>a[0]-b[0]),
+    Number(lastDelivery?.id)||null,lastDelivery?.delivery_status||null
+  ])).digest('hex');
+}
+
+async function assertSelectedGuardianRetryAccess({actorUserId,invite,clients,selectedClientIds,db=pool}) {
+  const actor=await User.findById(actorUserId);
+  if (inactiveUser(actor) || !selectedInviteRoles.has(actor.role)) fail(403,'Staff portal invitation access required.');
+  const selected=[...new Set((selectedClientIds||[]).map(Number))].sort((a,b)=>a-b);
+  const bound=clients.map(client=>Number(client.id)).sort((a,b)=>a-b);
+  if (!bound.length || JSON.stringify(selected)!==JSON.stringify(bound)
+    || clients.some(client=>Number(client.agency_id)!==Number(invite.agency_id))) {
+    fail(409,'Select all children linked to this existing guardian enrollment invitation, then refresh the preview.');
+  }
+  for (const client of clients) {
+    if (!(await resolveClientRecordAccess({userId:actorUserId,role:actor.role,clientId:Number(client.id)}))?.ok) fail(403,'You do not have permission to invite every linked child.');
+  }
+  const requester=invite.invited_by_user_id?await User.findById(invite.invited_by_user_id):null;
+  if (inactiveUser(requester)) fail(403,'The original invitation requester is no longer active.');
+  if (['client_guardian','guardian','client'].includes(requester.role)) {
+    await assertInvitationOwner({invite,userId:requester.id,agencyId:invite.agency_id,db});
+  } else if (selectedInviteRoles.has(requester.role)) {
+    const [membership]=await db.execute('SELECT user_id FROM user_agencies WHERE user_id=? AND agency_id=? AND is_active=1',[requester.id,invite.agency_id]);
+    if (!membership.length) fail(403,'The original requester no longer belongs to this agency.');
+  } else fail(403,'The original requester cannot manage this invitation.');
+}
+
+async function assertInvitationRecipientAllowed({invite,clients,recipientEmail=invite.invited_email,db=pool}) {
+  const bound=clients.map(client=>Number(client.id)).sort((a,b)=>a-b);
+  // Keep restrictions attached to this same invitation authoritative even
+  // after an email correction. Only the old, invitation-created privacy link's
+  // automatic disable may be ignored; contact/legal revocations never are.
+  const [priorTargets]=await db.execute(`SELECT cg.client_id,cg.access_enabled,cg.permissions_json,
+      u.email,u.role,u.status,u.is_active,u.is_archived
+    FROM client_guardians cg JOIN users u ON u.id=cg.guardian_user_id
+    WHERE cg.client_id IN (${bound.map(()=>'?').join(',')})
+      AND CASE WHEN JSON_VALID(cg.permissions_json) THEN JSON_EXTRACT(cg.permissions_json,'$.coGuardianInviteId') ELSE NULL END=?`,[...bound,Number(invite.id)]);
+  for(const target of priorTargets){
+    let permissions;try{permissions=json(target.permissions_json);}catch{permissions=null;}
+    const supersededPrivacy=permissions?.coGuardianInviteRestricted===true && target.email
+      && String(target.email).trim().toLowerCase()!==String(invite.invited_email).trim().toLowerCase();
+    if(inactiveUser(target) || !['client_guardian','guardian','client'].includes(target.role)
+      || !permissions || typeof permissions!=='object' || Array.isArray(permissions)
+      || permissions.noContact || permissions.no_contact || permissions.contactRestricted || permissions.revoked || permissions.relationshipRevoked
+      || (Number(target.access_enabled)!==1 && !supersededPrivacy)){
+      fail(403,'A guardian restriction on this invitation requires review before sending, including after an email correction.');
+    }
+  }
+  // A corrected address may not have an account yet. An existing recipient's
+  // explicit revocation/contact restriction still takes precedence over an old
+  // failed invite. Expected no-view privacy on own enrollment is preserved.
+  const addresses=new Set([invite.invited_email,recipientEmail].map(value=>String(value||'').trim().toLowerCase()).filter(Boolean));
+  for(const address of addresses){
+  const matchedTarget=await User.findByEmail(address);
+  if(matchedTarget){
+    const target=await User.findById(matchedTarget.id);
+    if(inactiveUser(target) || !['client_guardian','guardian','client'].includes(target.role))fail(403,'The invited guardian account is unavailable. Review its access before sending.');
+    const [targetLinks]=await db.execute(`SELECT client_id,access_enabled,permissions_json FROM client_guardians
+      WHERE guardian_user_id=? AND client_id IN (${bound.map(()=>'?').join(',')})`,[target.id,...bound]);
+    for(const link of targetLinks){
+      let permissions;try{permissions=json(link.permissions_json);}catch{permissions=null;}
+      if(Number(link.access_enabled)!==1 || !permissions || typeof permissions!=='object' || Array.isArray(permissions)
+        || permissions.noContact || permissions.no_contact || permissions.contactRestricted || permissions.revoked || permissions.relationshipRevoked){
+        fail(403,'The invited guardian’s current contact or access restrictions do not permit sending this invitation.');
+      }
+    }
+  }
+  }
+}
+
+/** Existing own-enrollment invitations are a different purpose from full portal
+ * access. No-view contacts retain all restrictions; only a recorded failed
+ * invitation is offered, and the original recipient/children stay authoritative. */
+export async function previewStaffGuardianRetries({actorUserId,agencyId,clientIds}) {
+  const selected=[...new Set((clientIds||[]).map(Number))];
+  if (!selected.length) return {recipients:[],pendingEmails:[],skipped:[]};
+  const [rows]=await pool.execute(`SELECT i.id,i.agency_id,i.invited_by_user_id,i.invited_email,i.invited_first_name,i.invited_last_name,
+      i.status,i.source,i.public_key,c.id AS client_id,c.agency_id AS client_agency_id,c.initials,
+      d.id AS delivery_id,d.delivery_status
+    FROM co_guardian_invites i JOIN co_guardian_invite_clients ic ON ic.invite_id=i.id
+    JOIN clients c ON c.id=ic.client_id
+    LEFT JOIN co_guardian_invite_deliveries d ON d.id=(SELECT MAX(latest.id) FROM co_guardian_invite_deliveries latest WHERE latest.invite_id=i.id)
+    WHERE i.agency_id=? AND i.status IN ('pending','expired') AND COALESCE(i.source,'')<>'learning_portal'
+      AND EXISTS(SELECT 1 FROM co_guardian_invite_clients chosen WHERE chosen.invite_id=i.id AND chosen.client_id IN (${selected.map(()=>'?').join(',')}))
+    ORDER BY i.id,c.id`,[agencyId,...selected]);
+  const groups=new Map();
+  for(const row of rows){if(!groups.has(row.id))groups.set(row.id,[]);groups.get(row.id).push(row);}
+  const recipients=[],skipped=[],pendingEmails=[];
+  for(const group of groups.values()){
+    const invite=group[0],clients=group.map(row=>({id:Number(row.client_id),agency_id:Number(row.client_agency_id)}));
+    // Legacy contact-only requests do not replace a normal portal setup invite.
+    if(!String(invite.public_key||'').trim())continue;
+    pendingEmails.push(String(invite.invited_email||'').trim().toLowerCase());
+    const lastDelivery={id:invite.delivery_id,delivery_status:invite.delivery_status};
+    let reason=null;
+    if(!failed(lastDelivery.delivery_status)) reason='Own enrollment invitation is already sent, pending, or unconfirmed. Review its delivery history before retrying.';
+    else try{
+      await assertSelectedGuardianRetryAccess({actorUserId,invite,clients,selectedClientIds:selected.filter(id=>clients.some(client=>client.id===id)),db:pool});
+      await assertInvitationRecipientAllowed({invite,clients,db:pool});
+    }
+      catch(error){if(![403,409].includes(error.status))throw error;reason=error.message;}
+    if(reason){for(const row of group)if(selected.includes(Number(row.client_id)))skipped.push({clientId:Number(row.client_id),label:row.initials||`Client ${row.client_id}`,reason});continue;}
+    recipients.push({key:`${agencyId}:own-enrollment:${invite.id}`,kind:'own_enrollment',agencyId:Number(agencyId),invitationId:Number(invite.id),
+      name:[invite.invited_first_name,invite.invited_last_name].filter(Boolean).join(' '),email:invite.invited_email,
+      portalName:'Own enrollment invitation — recorded failed delivery',deliveryStatus:lastDelivery.delivery_status,
+      clients:group.map(row=>({clientId:Number(row.client_id),label:row.initials||`Client ${row.client_id}`})),
+      snapshot:selectedGuardianRetrySnapshot({invite,clients,lastDelivery})});
+  }
+  return {recipients,pendingEmails,skipped};
+}
+
+export async function sendStaffSelectedGuardianRetry({actorUserId,agencyId,inviteId,clientIds,snapshot}) {
+  return rotateAndSendInvitation({userId:actorUserId,agencyId,inviteId,selectedRetry:{clientIds,snapshot}});
 }
 
 export async function listGuardianInvitations({ userId, agencyId, clientId = null, viewerEmails = [] }) {
@@ -83,7 +214,8 @@ export async function listGuardianInvitations({ userId, agencyId, clientId = nul
     try { permissions = json(row.permissions); } catch { return false; }
     return Number(row.clientAgencyId) === Number(agencyId) && Number(row.portalEnabled) === 1
       && Number(row.accessEnabled) === 1 && permissions && typeof permissions === 'object' && !Array.isArray(permissions)
-      && !permissions.noView && !permissions.noViewOtherGuardian && !isDobAdultLocked(row.dateOfBirth);
+      && !permissions.noView && !permissions.noViewOtherGuardian && !permissions.noContact && !permissions.no_contact
+      && !permissions.contactRestricted && !permissions.revoked && !permissions.relationshipRevoked && !isDobAdultLocked(row.dateOfBirth);
   };
   const ownEmails=new Set(viewerEmails.filter(Boolean).map(value=>String(value).trim().toLowerCase()));
   const visible = [...grouped.values()].filter(group=>Number(group[0].recipientUserId)!==Number(userId) && !ownEmails.has(String(group[0].email || '').trim().toLowerCase())).filter(group => group.some(row=>canSee(row)&&(!clientId||Number(row.clientId)===Number(clientId)))).slice(0,30);
@@ -116,7 +248,12 @@ export async function assertInvitationOwner({ invite, userId, agencyId, db = poo
   const [clients] = await db.execute(`SELECT c.id, c.agency_id, c.date_of_birth, cg.access_enabled, cg.permissions_json
     FROM co_guardian_invite_clients ic JOIN clients c ON c.id=ic.client_id
     LEFT JOIN client_guardians cg ON cg.client_id=c.id AND cg.guardian_user_id=? WHERE ic.invite_id=?`, [userId, invite.id]);
-  if (!clients.length || clients.some(c => Number(c.agency_id) !== Number(agencyId) || Number(c.access_enabled) !== 1 || json(c.permissions_json).noView || json(c.permissions_json).noViewOtherGuardian)) fail(403, 'Your current guardian access does not permit this invitation. Contact your support team.');
+  if (!clients.length || clients.some(c => {
+    let p;try{p=json(c.permissions_json);}catch{return true;}
+    return Number(c.agency_id)!==Number(agencyId) || Number(c.access_enabled)!==1
+      || !p || typeof p!=='object' || Array.isArray(p) || p.noView || p.noViewOtherGuardian
+      || p.noContact || p.no_contact || p.contactRestricted || p.revoked || p.relationshipRevoked;
+  })) fail(403, 'Your current guardian access does not permit this invitation. Contact your support team.');
   // Adult client access must be reviewed by the care team, even if an old invite exists.
   const today = new Date();
   if (clients.some(c => c.date_of_birth && new Date(new Date(c.date_of_birth).getFullYear()+18, new Date(c.date_of_birth).getMonth(), new Date(c.date_of_birth).getDate()) <= today)) fail(403, 'Contact your support team to update an adult client’s invitation.');
@@ -141,7 +278,7 @@ export async function sendStaffGuardianInvitationReminder({ actorUserId, agencyI
   return rotateAndSendInvitation({ userId: actorUserId, agencyId, inviteId, staffReminder: true });
 }
 
-async function rotateAndSendInvitation({ userId, agencyId, inviteId, email, staffReminder = false, automaticReminder = false }) {
+async function rotateAndSendInvitation({ userId, agencyId, inviteId, email, staffReminder = false, automaticReminder = false, selectedRetry = null }) {
   const db = await pool.getConnection(), lock = `guardian-invite:${Number(inviteId)}`;
   let locked = false;
   try {
@@ -153,7 +290,7 @@ async function rotateAndSendInvitation({ userId, agencyId, inviteId, email, staf
     const invite = rows[0];
     if (invite?.source === 'learning_portal') fail(409, 'Learning portal invitations cannot be redirected or resent from enrollment controls. Ask the organization to review the saved delivery result.');
     let clients;
-    if (staffReminder || automaticReminder) {
+    if (staffReminder || automaticReminder || selectedRetry) {
       if (!invite || Number(invite.agency_id) !== Number(agencyId)) fail(404, 'Invitation not found.');
       if (!['pending', 'expired'].includes(invite.status)) fail(409, 'This invitation has already been used or revoked.');
       [clients] = await db.execute('SELECT c.id, c.agency_id FROM co_guardian_invite_clients ic JOIN clients c ON c.id=ic.client_id WHERE ic.invite_id=?', [inviteId]);
@@ -165,14 +302,20 @@ async function rotateAndSendInvitation({ userId, agencyId, inviteId, email, staf
       if (Number(packets[0]?.is_active) !== 1 || Number(packets[0]?.create_guardian) !== 1) fail(409, 'The enrollment packet must be active and provision guardian accounts.');
       if (packets[0].scope_type === 'agency' && Number(packets[0].organization_id) !== Number(agencyId)) fail(409, 'The enrollment packet belongs to a different agency.');
       invite.enrollment_channel = packets[0].master_channel || null;
+      if(selectedRetry)await assertSelectedGuardianRetryAccess({actorUserId:userId,invite,clients,selectedClientIds:selectedRetry.clientIds,db});
     } else {
       clients = await assertInvitationOwner({ invite, userId, agencyId, db });
     }
-    const recipient = String(staffReminder || automaticReminder ? invite.invited_email : email || '').trim().toLowerCase();
+    const recipient = String(staffReminder || automaticReminder || selectedRetry ? invite.invited_email : email || '').trim().toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient) || recipient.length > 254) fail(400, 'Enter a valid email address for the other parent or guardian.');
     await validateQaIntakeGuardian({agencyId,email:recipient},db);
+    await assertInvitationRecipientAllowed({invite,clients,recipientEmail:recipient,db});
     const [attempts] = await db.execute('SELECT * FROM co_guardian_invite_deliveries WHERE invite_id=? ORDER BY id DESC LIMIT 1', [inviteId]);
     const last = attempts[0];
+    if(selectedRetry && (!failed(last?.delivery_status) || !selectedRetry.snapshot
+      || selectedRetry.snapshot!==selectedGuardianRetrySnapshot({invite,clients,lastDelivery:last}))) {
+      throw Object.assign(new Error('This guardian invitation or its delivery changed. Refresh the preview and review its history before sending again.'),{status:409,statusCode:409,code:'PORTAL_INVITATION_PREVIEW_CHANGED'});
+    }
     if (!staffReminder && !automaticReminder && !failed(last?.delivery_status)) {
       fail(409, 'The invitation has no recorded delivery failure. Contact support for help; its email address cannot be changed here.');
     }
@@ -221,7 +364,9 @@ async function rotateAndSendInvitation({ userId, agencyId, inviteId, email, staf
     const delivery = await deliverCoGuardianInvite({ inviteId, agency, to: recipient, firstName: invite.invited_first_name,
       inviteUrl: inviteUrl.toString(), clientId: clients[0].id,
       enrollmentChannel: last?.enrollment_channel || invite.enrollment_channel || null, school: invite.source === 'school', reminder: isReminder, automaticReminder });
-    return { deliveryStatus: delivery.deliveryStatus, email: recipient, communicationId: delivery.communicationId || null };
+    return { deliveryStatus: delivery.deliveryStatus, email: recipient, communicationId: delivery.communicationId || null,
+      invitationId:Number(inviteId),deliveryAttemptId:delivery.deliveryAttemptId||null,redirected:delivery.redirected===true,
+      ...(delivery.failureCode?{failureCode:delivery.failureCode}:{}) };
   } catch (error) { await db.rollback(); throw error; }
   finally { if (locked) await db.execute('SELECT RELEASE_LOCK(?)', [lock]); db.release(); }
 }

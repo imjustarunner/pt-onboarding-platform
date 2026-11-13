@@ -851,6 +851,7 @@ import { useTasksStore } from '../../store/tasks';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import { getParentAgencyFromOrg, isTenantOrganizationType } from '../../utils/organizationTypes';
+import { taskTeamOrganizations } from '../../utils/taskOrganizationScope';
 import api from '../../services/api';
 import TasksStatusSummary from './TasksStatusSummary.vue';
 import TasksFiltersBar from './TasksFiltersBar.vue';
@@ -1182,6 +1183,7 @@ const teamListFilterSearch = ref('');
 const teamLists = ref([]);
 const teamListsGrouped = ref([]);
 const teamListsLoading = ref(false);
+let teamListRequest = 0;
 const teamListTasksByListId = ref({});
 const teamListTasksLoading = ref({});
 const expandedTenantGroups = ref({});
@@ -1262,16 +1264,22 @@ const escalationsPath = computed(() => `${orgPrefix.value}/admin/escalations`);
 
 const hideableAgencies = computed(() => {
   const agencies = agencyStore.userAgencies || authStore.user?.agencies || [];
-  return (Array.isArray(agencies) ? agencies : []).map((a) => ({
+  return taskTeamOrganizations(agencies).map((a) => ({
     id: Number(a.id || a.agency_id),
     name: a.name || a.agency_name
   })).filter((a) => a.id > 0);
 });
 
 const effectiveTenantId = computed(() => {
-  if (teamFilters.tenantId) return Number(teamFilters.tenantId);
+  if (hideableAgencies.value.some(org => String(org.id) === String(teamFilters.tenantId))) return Number(teamFilters.tenantId);
   return agencyId.value ? Number(agencyId.value) : null;
 });
+
+watch(hideableAgencies, organizations => {
+  if (teamFilters.tenantId && !organizations.some(org => String(org.id) === String(teamFilters.tenantId))) {
+    teamFilters.tenantId = '';
+  }
+}, { immediate: true });
 
 
 const filteredTeamLists = computed(() => teamLists.value);
@@ -1878,15 +1886,30 @@ async function viewProjectById(id) {
   if (p) overviewProject.value = p;
 }
 
+function teamListScope() {
+  return JSON.stringify([
+    authStore.user?.id, authStore.user?.role, agencyId.value, teamFilters.tenantId,
+    teamListSearch.value.trim().toLowerCase(), hideableAgencies.value.map(org => org.id)
+  ]);
+}
+
 async function loadTeamLists() {
+  const request = ++teamListRequest;
+  const scope = teamListScope();
+  const current = () => request === teamListRequest && scope === teamListScope();
   teamListsLoading.value = true;
+  teamLists.value = [];
+  teamListsGrouped.value = [];
   const q = teamListSearch.value.trim().toLowerCase();
   let agencies = teamFilters.tenantId
     ? hideableAgencies.value.filter((a) => String(a.id) === String(teamFilters.tenantId))
     : [...hideableAgencies.value];
   if (!agencies.length && agencyId.value) {
     const cur = agencyStore.currentAgency?.value ?? agencyStore.currentAgency;
-    agencies = [{ id: Number(agencyId.value), name: cur?.name || 'Current tenant' }];
+    const current = Number(cur?.id) === Number(agencyId.value)
+      ? cur : (agencyStore.userAgencies || []).find(org => Number(org.id) === Number(agencyId.value));
+    agencies = taskTeamOrganizations(current ? [current] : [])
+      .map(org => ({ id: Number(org.id), name: org.name || 'Current tenant' }));
   }
   try {
     const groups = await Promise.all(
@@ -1906,6 +1929,7 @@ async function loadTeamLists() {
         }
       })
     );
+    if (!current()) return;
     teamListsGrouped.value = teamFilters.tenantId
       ? groups
       : groups.filter((g) => g.lists.length > 0);
@@ -1918,10 +1942,12 @@ async function loadTeamLists() {
     }
     expandedTenantGroups.value = expanded;
   } catch {
-    teamListsGrouped.value = [];
-    teamLists.value = [];
+    if (current()) {
+      teamListsGrouped.value = [];
+      teamLists.value = [];
+    }
   } finally {
-    teamListsLoading.value = false;
+    if (current()) teamListsLoading.value = false;
   }
 }
 
@@ -2789,6 +2815,7 @@ onMounted(async () => {
   }
 });
 onUnmounted(() => {
+  teamListRequest++;
   window.removeEventListener('focus', refreshNoteQueues);
   if (!embedded.value) {
     window.removeEventListener('keydown', onKeydown);

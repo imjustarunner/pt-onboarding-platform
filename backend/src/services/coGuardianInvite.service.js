@@ -8,7 +8,7 @@ import IntakeSubmission from '../models/IntakeSubmission.model.js';
 import { matchesIntakeSession } from '../middleware/intakeBillingSession.middleware.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import { sendEnrollmentPortalEmail } from './enrollmentPortalEmail.service.js';
-import { deliverCoGuardianInvite } from './coGuardianDelivery.service.js';
+import { deliverCoGuardianInvite, guardianDeliveryFailureCode } from './coGuardianDelivery.service.js';
 import { buildPublicPortalBaseUrl, buildPublicPortalLoginUrl } from '../utils/publicPortalUrl.js';
 import { SUPPORT_TICKET_SOURCE_KEYS, normalizeSupportTicketSourceKey } from '../constants/supportTicketSources.js';
 import { prepareEncryptedTicketText } from '../utils/supportTicketCrypto.js';
@@ -560,8 +560,9 @@ export async function emailCoGuardianInvite({ inviteId, agency, to, firstName, i
       linkLabel: es ? 'Completar su inscripción' : 'Complete your enrollment'
     });
   } catch (err) {
-    console.warn('Co-guardian invite email skipped:', err?.message || err);
-    return { sent: false, queued: false, deliveryStatus: 'failed', communicationId: err?.communicationId || null };
+    const failureCode=guardianDeliveryFailureCode(err);
+    console.warn('Co-guardian invite email skipped:', {inviteId:Number(inviteId),agencyId:Number(agency?.id)||null,code:failureCode});
+    return { sent: false, queued: false, deliveryStatus: 'failed', communicationId: err?.communicationId || null, failureCode };
   }
 }
 
