@@ -13,6 +13,7 @@ vi.mock('../../services/safetyPlans/access.js', () => ({clientAccess: vi.fn()}))
 vi.mock('../../middleware/clientDocumentUpload.middleware.js', () => ({receiveClientDocument: vi.fn()}));
 vi.mock('../../services/clientChartArtifacts.service.js', () => ({assembleClientChartArtifacts: vi.fn(), renderChartArtifactView: vi.fn()}));
 import {viewSchoolChartAttachment} from '../schoolChartAttachment.controller.js';
+import {viewPhiDocument} from '../phiDocuments.controller.js';
 const request = () => ({user: {id: 1434, role: 'support'}, params: {docId: '4364'}, headers: {}, ip: '192.0.2.4'});
 const response = () => ({status: vi.fn().mockReturnThis(), json: vi.fn(), setHeader: vi.fn(), send: vi.fn()});
 beforeEach(() => {
@@ -54,4 +55,15 @@ it('retains the reader removal guard if the source is removed between classifica
   const doc = await m.document(); m.document.mockResolvedValueOnce(doc).mockResolvedValueOnce({...doc, removed_at: new Date()});
   const res = response(); await viewSchoolChartAttachment(request(), res, vi.fn());
   expect(res.status).toHaveBeenCalledWith(410); expect(m.read).not.toHaveBeenCalled();
+});
+it('refuses a notification source that belongs to another selected child before reading or auditing bytes',async()=>{
+ const req=request();req.query={clientId:'2553'};const res=response();await viewPhiDocument(req,res,vi.fn());expect(res.status).toHaveBeenCalledWith(404);expect(m.read).not.toHaveBeenCalled();expect(m.decrypt).not.toHaveBeenCalled();expect(m.audit).not.toHaveBeenCalled();
+});
+it('rejects an invalid selected-child binding instead of silently ignoring it',async()=>{
+ const req=request();req.query={clientId:'latest'};const res=response();await viewPhiDocument(req,res,vi.fn());expect(res.status).toHaveBeenCalledWith(400);expect(m.read).not.toHaveBeenCalled();
+});
+it('does not disclose the document-client association to an unauthorized caller through the new binding',async()=>{
+ m.agencies.mockResolvedValue([]);
+ for(const clientId of ['2449','2553','latest']){const req=request();req.query={clientId};const res=response();await viewPhiDocument(req,res,vi.fn());expect(res.status).toHaveBeenCalledWith(403);expect(res.json).toHaveBeenCalledWith({error:{message:'Access denied'}});}
+ expect(m.read).not.toHaveBeenCalled();expect(m.decrypt).not.toHaveBeenCalled();expect(m.audit).not.toHaveBeenCalled();
 });

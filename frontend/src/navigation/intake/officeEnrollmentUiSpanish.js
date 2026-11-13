@@ -1,5 +1,6 @@
 /** Spanish display copy for office enrollment steps; stored answers and consent choices are unchanged. */
 export const OFFICE_ENROLLMENT_UI_ES = {
+  "Tell us whether you will use insurance or self-pay for services.": "Indique si usará un seguro o pagará los servicios por su cuenta.",
   "Friends and getting along with others": "Amistades y relaciones con otras personas",
   "Mother": "Madre",
   "Father": "Padre",

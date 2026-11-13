@@ -364,7 +364,11 @@ function formatFieldValue(field, value, locale, link) {
 }
 
 function pushRow(rows, label, value, extra = {}) {
-  const text = String(value || '').trim();
+  let text = String(value || '').trim();
+  // Use the same explicit local timestamp as the signature certificate. Date-only
+  // answers and captured signature text remain verbatim.
+  if (/\b(?:signed|approved|acknowledged|accepted|submitted)\s+(?:at|on)$/i.test(String(label || '').trim())
+    && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(text)) text = formatDateTime(text);
   if (!label || !text) return;
   rows.push({
     label: String(label).trim(),

@@ -1185,7 +1185,7 @@ const handleItemClick = async (it) => {
   if (!isClickable(it)) return;
 
   if (kind === 'doc' || kind === 'client_created') {
-    if (clientId) emit('open-client', { clientId, pane: kind === 'doc' ? 'documents' : null });
+    if (clientId) emit('open-client', { clientId, pane: kind === 'doc' ? 'documents' : null, ...(kind==='doc'&&Number(it.phi_document_id)>0?{documentId:Number(it.phi_document_id),filename:it.original_name||undefined}:{}) });
     return;
   }
 

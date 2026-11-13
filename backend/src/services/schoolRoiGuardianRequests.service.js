@@ -36,7 +36,7 @@ export async function requestSchoolRoiForGuardians({ client, schoolOrganizationI
     try {
       const existing = await findExisting({ clientId: client.id, schoolOrganizationId, recipientGuardianUserId });
       if (existing?.last_email_sent_at && Date.now() - new Date(existing.last_email_sent_at).getTime() < 180000) {
-        deliveries.push({ guardianUserId: recipientGuardianUserId, name: [guardian.first_name, guardian.last_name].filter(Boolean).join(' '), email: guardian.email, sent: true, status: 'recently_sent' });
+        deliveries.push({ guardianUserId: recipientGuardianUserId, name: [guardian.first_name, guardian.last_name].filter(Boolean).join(' '), email: guardian.email, sent: false, alreadyRecorded: true, status: 'recently_sent' });
         continue;
       }
       const issued = await issueLink({ client, schoolOrganizationId, actorUserId, recipientGuardianUserId,
@@ -51,13 +51,21 @@ export async function requestSchoolRoiForGuardians({ client, schoolOrganizationI
           : `Your care team asks you to review and sign your own school release. Each guardian needs to respond separately. Sign in and open Documents: ${login}`,
         templateType: 'school_roi_signing', generatedByUserId: actorUserId, source: 'auto', linkUrl: login.toString() });
       const delivery = schoolRoiDelivery(result);
-      if (delivery.sent) await recordSent({ id: issued.issuedLink.id, toEmail: to });
+      let historyRecorded = false;
+      let warning = null;
+      if (delivery.sent || delivery.redirected) {
+        try { await recordSent({ id: issued.issuedLink.id, toEmail: to }); historyRecorded = true; }
+        catch { warning = 'Transport was accepted but the request history update needs review. Check communication history before sending again.'; }
+      }
       deliveries.push({ guardianUserId: recipientGuardianUserId, name: [guardian.first_name, guardian.last_name].filter(Boolean).join(' '), email: to,
-        sent: delivery.sent, status: delivery.sent ? 'sent' : result?.pendingApproval || result?.queued ? 'pending' : 'failed' });
+        sent: delivery.sent, redirected: delivery.redirected === true, communicationId: delivery.communication_id || null,
+        historyRecorded, ...(warning ? { warning } : {}),
+        status: delivery.redirected ? 'redirected' : delivery.sent ? 'sent' : result?.pendingApproval || result?.queued ? 'pending' : 'failed' });
     } catch (error) {
       deliveries.push({ guardianUserId: recipientGuardianUserId, email: guardian.email || null, sent: false, status: 'failed', error: error.message });
     }
   }
-  return { ok: deliveries.every(row => row.sent), deliveries, message: deliveries.every(row => row.sent)
-    ? 'Portal requests sent separately to the selected authorized guardians.' : 'Some guardian requests need follow-up. Review each delivery status.' };
+  const accepted = deliveries.every(row => ['sent', 'redirected', 'recently_sent'].includes(row.status));
+  return { ok: accepted, deliveries, message: accepted
+    ? 'Portal requests recorded separately for the selected authorized guardians. Review each delivery status.' : 'Some guardian requests need follow-up. Review each delivery status.' };
 }

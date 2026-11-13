@@ -35,6 +35,10 @@ describe('ROI immediate delivery',()=>{
  it('refuses a sender from another tenant',async()=>{m.identities.mockResolvedValue([{id:12,agency_id:3,from_email:'schools@itsco.health'}]);await expect(sendSchoolRoiEmail({agencyId:2})).rejects.toThrow('schools@');expect(m.send).not.toHaveBeenCalled();});
  it.each(['school_roi_signing','school_roi_signer_completion','school_roi_release','smart_school_roi'])('retires the approval hold for branded %s',async templateType=>{expect(await emailRequiresAdminApproval({agencyId:2,templateType})).toBe(false);expect(await emailRequiresAdminApproval({agencyId:2,templateType,usedFallbackSender:true})).toBe(true);});
  it.each([{blocked:true},{skipped:true},{pendingApproval:true},{id:"x",redirected:true},{id:"x",queued:true},{}])('never claims %j was sent',result=>{expect(schoolRoiDelivery(result).sent).toBe(false);});
+ it('distinguishes an accepted testing redirect from a failed or pending send',()=>{
+  expect(schoolRoiDelivery({id:'accepted',redirected:true,communicationId:22})).toEqual({sent:false,redirected:true,communication_id:22});
+  expect(schoolRoiDelivery({id:'accepted',queued:true,redirected:true})).not.toHaveProperty('redirected',true);
+ });
 });
 describe('guardian access readiness',()=>{
  it.each([null,{access_enabled:0},{access_enabled:1,permissions_json:{canViewDocs:false}},{access_enabled:1,permissions_json:{noView:true}}])('denies revoked or restricted document access %j',link=>{expect(guardianCanReadIntakeDocuments(link)).toBe(false);});

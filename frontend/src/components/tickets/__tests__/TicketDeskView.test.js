@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushPromises, shallowMount } from '@vue/test-utils';
+import { defineComponent } from 'vue';
 import TicketDeskView from '../TicketDeskView.vue';
 
 const mocks = vi.hoisted(() => ({
@@ -26,6 +27,7 @@ const queueCalls = () => mocks.api.get.mock.calls.filter(([url]) => url === '/su
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.api.post.mockReset().mockResolvedValue({ data: {} });
   sessionStorage.clear();
   mocks.auth.user = { id: 7, role: 'super_admin' };
   const tenant = { id: 2, name: 'ITSCO', organization_type: 'agency' };
@@ -50,8 +52,8 @@ beforeEach(() => {
 
 afterEach(() => wrapper?.unmount());
 
-async function render(props = {}) {
-  wrapper = shallowMount(TicketDeskView, { props, global: { stubs: { RouterLink: true } } });
+async function render(props = {}, stubs = {}) {
+  wrapper = shallowMount(TicketDeskView, { props, global: { stubs: { RouterLink: true, ...stubs } } });
   await flushPromises();
 }
 
@@ -240,6 +242,95 @@ it('offers private files on the exact external reply ticket and hides the contro
  expect(wrapper.findComponent({name:'TicketAttachmentComposer'}).props('ticketId')).toBe(101);
  await button('Internal note').trigger('click');
  expect(wrapper.find('ticket-attachment-composer-stub').exists()).toBe(false);
+});
+
+it('keeps both reply and official answer disabled while the private file is uploading',async()=>{
+ await render({embedded:true,initialTicketId:101,agencyId:2,syncRoute:false});
+ await wrapper.find('.composer-textarea').setValue('Keep this reply with its attachment');
+ const files=wrapper.findComponent({name:'TicketAttachmentComposer'});files.vm.$emit('busy',true);await flushPromises();
+ expect(button('Send reply').attributes('disabled')).toBeDefined();
+ await button('Official answer').trigger('click');
+ await wrapper.find('.composer-textarea').setValue('Official answer with its attachment');
+ expect(button('Send answer').attributes('disabled')).toBeDefined();
+ expect(mocks.api.post).not.toHaveBeenCalled();
+ files.vm.$emit('busy',false);await flushPromises();
+ expect(button('Send answer').attributes('disabled')).toBeUndefined();
+ await button('Reply').trigger('click');
+ expect(wrapper.find('.composer-textarea').element.value).toBe('Keep this reply with its attachment');
+});
+
+it('retains the answer and selected file when its upload fails, without posting an answer',async()=>{
+ const upload=vi.fn().mockResolvedValue(false);
+ const Files=defineComponent({name:'TicketAttachmentComposer',setup(_props,{expose}){expose({hasFile:()=>true,uploadPending:upload});return()=>null;}});
+ await render({embedded:true,initialTicketId:101,agencyId:2,syncRoute:false},{TicketAttachmentComposer:Files});
+ await button('Official answer').trigger('click');await wrapper.find('.composer-textarea').setValue('Answer that must retain its file');
+ await button('Send answer').trigger('click');await flushPromises();
+ expect(upload).toHaveBeenCalledWith(101);expect(mocks.api.post).not.toHaveBeenCalled();
+ expect(wrapper.find('.composer-textarea').element.value).toBe('Answer that must retain its file');
+ expect(wrapper.text()).toContain('Add the file successfully before sending');
+});
+
+function ownedPortalQueue() {
+ const original=mocks.api.get.getMockImplementation();
+ mocks.api.get.mockImplementation(async (url,options) => {
+  if(url==='/support-tickets')return{data:[assignedTicket,{...otherTicket,claimed_by_user_id:7}]};
+  if(url==='/support-tickets/102/messages')return{data:{ticket:{...otherTicket,claimed_by_user_id:7},messages:[]}};
+  return original(url,options);
+ });
+}
+it('sends the clicked official-answer snapshot after upload and preserves text edited while waiting',async()=>{
+ let finishUpload;const pending=new Promise(resolve=>{finishUpload=resolve;});
+ const Files=defineComponent({name:'TicketAttachmentComposer',setup(_props,{expose}){expose({hasFile:()=>true,uploadPending:()=>pending});return()=>null;}});
+ await render({embedded:true,initialTicketId:101,agencyId:2,syncRoute:false},{TicketAttachmentComposer:Files});
+ await button('Official answer').trigger('click');await wrapper.find('.composer-textarea').setValue('Answer reviewed at the click');
+ await wrapper.get('.promote-library-check input').setValue(true);await wrapper.get('.promote-library-title').setValue('Original library title');
+ await button('Send answer').trigger('click');await wrapper.find('.composer-textarea').setValue('New draft typed during upload');
+ await wrapper.get('.promote-library-title').setValue('New library work');
+ finishUpload(true);await flushPromises();
+ expect(mocks.api.post).toHaveBeenCalledWith('/support-tickets/101/answer',expect.objectContaining({answer:'Answer reviewed at the click',promoteToLibrary:{title:'Original library title'}}));
+ expect(wrapper.find('.composer-textarea').element.value).toBe('New draft typed during upload');
+ expect(wrapper.get('.promote-library-title').element.value).toBe('New library work');
+});
+it('does not clear a new answer after a ticket A-to-B-to-A transition while an earlier answer finishes',async()=>{
+ ownedPortalQueue();let finishAnswer;mocks.api.post.mockImplementation(()=>new Promise(resolve=>{finishAnswer=resolve;}));
+ await render();await wrapper.find('.ticket-row').trigger('click');await flushPromises();
+ await button('Official answer').trigger('click');await wrapper.find('.composer-textarea').setValue('Original answer');await button('Send answer').trigger('click');
+ await button('Next').trigger('click');await flushPromises();await button('Previous').trigger('click');await flushPromises();
+ await wrapper.find('.composer-textarea').setValue('Fresh work after returning to A');
+ finishAnswer({data:{}});await flushPromises();
+ expect(wrapper.find('.composer-textarea').element.value).toBe('Fresh work after returning to A');
+ expect(button('Send answer').attributes('disabled')).toBeUndefined();
+});
+it('allows sending the next ticket and does not let an old answer release the new request’s busy state',async()=>{
+ ownedPortalQueue();let finishFirst,finishSecond;
+ mocks.api.post.mockImplementation(url=>new Promise(resolve=>{if(url==='/support-tickets/101/answer')finishFirst=resolve;else finishSecond=resolve;}));
+ await render();await wrapper.find('.ticket-row').trigger('click');await flushPromises();
+ await button('Official answer').trigger('click');await wrapper.find('.composer-textarea').setValue('First answer');await button('Send answer').trigger('click');
+ await button('Next').trigger('click');await flushPromises();await button('Official answer').trigger('click');await wrapper.find('.composer-textarea').setValue('Second answer');
+ expect(button('Send answer').attributes('disabled')).toBeUndefined();await button('Send answer').trigger('click');
+ finishFirst({data:{}});await flushPromises();expect(button('Sending…').attributes('disabled')).toBeDefined();
+ finishSecond({data:{}});await flushPromises();await wrapper.find('.composer-textarea').setValue('Next independent draft');
+ expect(button('Send reply').attributes('disabled')).toBeUndefined();
+});
+it('does not show an old upload failure or post its answer after moving to another ticket',async()=>{
+ ownedPortalQueue();let finishUpload;const pending=new Promise(resolve=>{finishUpload=resolve;});
+ const Files=defineComponent({name:'TicketAttachmentComposer',setup(_props,{expose}){expose({hasFile:()=>true,uploadPending:()=>pending});return()=>null;}});
+ await render({}, {TicketAttachmentComposer:Files});await wrapper.find('.ticket-row').trigger('click');await flushPromises();
+ await button('Official answer').trigger('click');await wrapper.find('.composer-textarea').setValue('Old answer');await button('Send answer').trigger('click');
+ await button('Next').trigger('click');await flushPromises();await wrapper.find('.composer-textarea').setValue('Current ticket draft');
+ finishUpload(false);await flushPromises();expect(mocks.api.post).not.toHaveBeenCalled();
+ expect(wrapper.find('.composer-textarea').element.value).toBe('Current ticket draft');expect(wrapper.text()).not.toContain('Add the file successfully before sending');
+ expect(button('Send reply').attributes('disabled')).toBeUndefined();
+});
+it('releases the parent attachment-busy flag when changing to an internal note during a real upload',async()=>{
+ let finishUpload;mocks.api.post.mockImplementation(()=>new Promise(resolve=>{finishUpload=resolve;}));
+ await render({embedded:true,initialTicketId:101,agencyId:2,syncRoute:false},{TicketAttachmentComposer:false});
+ const input=wrapper.get('input[type="file"]');Object.defineProperty(input.element,'files',{value:[new File(['%PDF'],'qa.pdf',{type:'application/pdf'})],configurable:true});await input.trigger('change');
+ await button('Add file to ticket').trigger('click');await button('Internal note').trigger('click');await wrapper.find('.composer-textarea').setValue('Internal work after changing mode');
+ expect(button('Add note').attributes('disabled')).toBeUndefined();
+ finishUpload({data:{attachment:{id:900,file_name:'qa.pdf'}}});await flushPromises();
+ expect(wrapper.find('.composer-textarea').element.value).toBe('Internal work after changing mode');
+ expect(mocks.api.post.mock.calls.map(([url])=>url)).toEqual(['/support-tickets/101/attachments']);
 });
 
 it('shows website email senders, assignment provenance and truthful delivery receipts',async()=>{

@@ -28,6 +28,18 @@ const data = () => ({ organizations: [{ id: 1, name: 'Company One', colors: { pr
 const button = (w, text) => w.findAll('button').find(b => b.text() === text);
 beforeEach(() => { mockRoute.query={}; mockRoute.meta={}; vi.clearAllMocks(); localStorage.clear(); api.get.mockResolvedValue({ data: data() }); });
 describe('billing workspace', () => {
+  it('shows the actual authorized agency id and server slug even when a QA organization shares its business name', async () => {
+    mockRoute.query = { billingScope: '450', billingSection: 'claims' };
+    const payload = data();
+    payload.organizations = [{ ...payload.organizations[0], id: 450, name: 'ITSCOLLC', slug: 'auricwell-qa-demo' }];
+    payload.claims = [];
+    api.get.mockResolvedValue({ data: payload });
+    const w = mount(BillingWorkspaceView); await flushPromises();
+    expect(w.get('[data-testid="billing-scope-identity"]').text()).toBe('Organization #450 · auricwell-qa-demo');
+    expect(w.get('.scope-context').text()).toContain('Billing for ITSCOLLC');
+    expect(api.get.mock.calls.find(([path]) => path === '/medical-billing/workspace')[1].params.agencyId).toBe('450');
+    w.unmount();
+  });
   it.each(['needs_help','needs_review','submitted_or_processing','awaiting_signatures'])('opens the dashboard link in the matching scoped %s queue',async billingStatus=>{
     mockRoute.query={billingSection:'claims',agencyId:'1',billingStatus};
     const w=mount(BillingWorkspaceView);await flushPromises();

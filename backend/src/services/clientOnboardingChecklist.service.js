@@ -27,6 +27,7 @@ import { computeCurrentSchoolYearLabel } from '../utils/schoolYear.js';
 import { rosterClientHasAssignedProvider } from '../utils/schoolYearRosterFilter.js';
 import { displayServiceDay, isRealServiceDay } from '../utils/schoolReportBuckets.js';
 import { getDisposition } from './clientYearDisposition.service.js';
+import { acknowledgeReviewedPaperRoi } from './managedPaperRoiAcknowledgement.service.js';
 
 function rosterHasWeekday(client) {
   if (isRealServiceDay(client?.service_day)) return true;
@@ -560,6 +561,7 @@ export async function acknowledgeRoiStaffOnboarding({ clientId, roiExpiresAt = u
   if (!isSchoolClient(client) || !isPaperPacketClient(client)) {
     throw Object.assign(new Error('School ROI acknowledgment applies only to paper-packet school clients'), { status: 400 });
   }
+  if(await acknowledgeReviewedPaperRoi({client,actorUserId,roiExpiresAt}))return getClientOnboardingChecklist(cid);
   const updates = { paper_packet_staff_roi_pending: 0 };
   if (roiExpiresAt !== undefined) {
     const ymd = parseRoiExpiresAtYmd(roiExpiresAt);

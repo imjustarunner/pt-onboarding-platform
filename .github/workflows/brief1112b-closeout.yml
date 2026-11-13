@@ -62,13 +62,17 @@ jobs:
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.issued-roi-session.config.js --maxWorkers=2 --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/brief1112b-roi.json"
       - name: Exact QA outreach clock and unchanged ordinary worker behavior
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.qa-contact-clock.config.js --maxWorkers=2 --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/brief1112b-clock.json"
+      - name: Remaining ROI selection, signed history and actual SQL attribution
+        run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.roi-request-history.config.js --maxWorkers=2 --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/brief1112b-roi-history.json"
+      - name: Exact paper source, task references and persisted human review
+        run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.paper-final-blockers.config.js --maxWorkers=2 --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/brief1112b-paper-final.json"
       - name: Require executed SQL cases, not skipped placeholders
         run: |
           node --input-type=module <<'NODE'
           import assert from 'node:assert/strict';
           import { readFileSync } from 'node:fs';
           import { join } from 'node:path';
-          const reports = ['clinical', 'invites', 'roi', 'clock'].map(name => JSON.parse(readFileSync(join(process.env.RUNNER_TEMP, `brief1112b-${name}.json`), 'utf8')));
+          const reports = ['clinical', 'invites', 'roi', 'clock', 'roi-history', 'paper-final'].map(name => JSON.parse(readFileSync(join(process.env.RUNNER_TEMP, `brief1112b-${name}.json`), 'utf8')));
           const results = reports.flatMap(report => report.testResults);
           const required = [
             ['meetingEndPermission.mysql.test.js', 13],
@@ -78,7 +82,10 @@ jobs:
             ['coGuardianSelectedRetry.mysql.test.js', 16],
             ['coGuardianReminders.mysql.test.js', 7],
             ['ClientSchoolRoiSigningLink.activeSession.mysql.test.js', 4],
-            ['schoolContactQaClock.mysql.test.js', 19]
+            ['schoolContactQaClock.mysql.test.js', 19],
+            ['schoolRoiEvidence.mysql.test.js', 3],
+            ['managedPaperRoiAcknowledgement.mysql.test.js', 11],
+            ['taskReferenceSearch.mysql.test.js', 6]
           ];
           for (const [name, minimum] of required) {
             const result = results.find(row => row.name.endsWith(`/${name}`));
@@ -104,6 +111,11 @@ jobs:
         run: |
           node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.brief1112b-display.config.js --maxWorkers=2
           node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.task-organization-scope.config.js --maxWorkers=2
+      - name: Remaining paper controls, ROI decisions and pre-coverage copy
+        run: |
+          node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.roi-request-history.config.js --maxWorkers=2
+          node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.paper-final-blockers.config.js --maxWorkers=2
+          (cd frontend && node node_modules/vitest/vitest.mjs run src/components/public-intake/__tests__/InsurancePaymentEnrollment.test.js --maxWorkers=2)
       - name: School threads, private files and exact client message entry
         run: |
           node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.ticket-attachment.config.js --maxWorkers=2

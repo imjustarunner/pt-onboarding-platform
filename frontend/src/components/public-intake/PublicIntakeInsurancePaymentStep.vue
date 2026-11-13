@@ -3,7 +3,7 @@
     <div class="pi-ip-main">
       <header class="pi-ip-header">
         <h2 v-if="!hideHeading" class="pi-ip-title">
-          {{ paymentSuppressed ? tx('Insurance Information') : paymentOnly ? tx('Payment Information') : tx('Insurance & Payment Information') }}
+          {{ paymentSuppressed ? tx('Insurance Information') : paymentOnly ? tx('Payment Information') : !paymentEligible ? tx('Insurance Information') : tx('Insurance & Payment Information') }}
         </h2>
         <p class="pi-ip-subtitle">
           {{
@@ -11,6 +11,8 @@
               ? tx('Our office will review your insurance and confirm benefits.')
               : paymentOnly
               ? tx('Set up payment for your selected package or services.')
+              : !paymentEligible
+              ? tx('Tell us whether you will use insurance or self-pay for services.')
               : tx('Help us verify your insurance and set up payment for services.')
           }}
         </p>
@@ -59,6 +61,7 @@
           </button>
         </div>
         <p class="pi-ip-hint">{{ tx('You can change this later if needed.') }}</p>
+        <p v-if="authError && !payerChoice" class="pi-ip-error" role="alert">{{ tx(authError) }}</p>
       </section>
 
       <!-- Insurance details only when billing insurance — never for Self-Pay. -->
@@ -185,7 +188,7 @@
       </section>
 
       <!-- Authorization -->
-      <section class="pi-ip-section pi-ip-auth">
+      <section v-if="paymentOnly || insuranceOnFile || payerChoice" class="pi-ip-section pi-ip-auth">
         <h3 class="pi-ip-section-title">{{ tx('Authorization & Agreement') }}</h3>
         <p class="pi-ip-section-lead">{{ tx('By checking the box below, I certify that:') }}</p>
         <ul class="pi-ip-auth-list">
@@ -193,7 +196,7 @@
           <li v-if="!paymentOnly && !insuranceOnFile && payerChoice === 'insurance'">
             {{ tx('I authorize this organization to release information necessary to verify benefits and bill my insurance.') }}
           </li>
-          <li v-if="!paymentSuppressed">{{ tx('I understand the office will explain any patient responsibility and applicable payment terms before collecting payment.') }}</li>
+          <li v-if="paymentEligible">{{ tx('I understand the office will explain any patient responsibility and applicable payment terms before collecting payment.') }}</li>
           <li>{{ tx('I understand the office may follow up for missing information.') }}</li>
         </ul>
 
@@ -228,7 +231,7 @@
     </div>
 
     <aside v-if="showSidebar" class="pi-ip-sidebar">
-      <div v-if="selectedPackage && !paymentSuppressed" class="pi-ip-side-card">
+      <div v-if="selectedPackage && paymentEligible" class="pi-ip-side-card">
         <div class="pi-ip-side-kicker">{{ tx('Selected Package') }}</div>
         <strong class="pi-ip-side-name">{{ selectedPackage.name }}</strong>
         <div v-if="selectedPackage.sessionCount" class="pi-ip-side-meta">
@@ -259,13 +262,13 @@
         <ul class="pi-ip-side-list">
           <li v-if="!paymentOnly && !insuranceOnFile">{{ tx('Our office will review your insurance and confirm benefits.') }}</li>
           <li>{{ tx('We will contact you if we need more information.') }}</li>
-          <li v-if="!paymentSuppressed">{{ tx("You'll receive a benefits or payment summary as applicable.") }}</li>
+          <li v-if="paymentEligible">{{ tx("You'll receive a benefits or payment summary as applicable.") }}</li>
         </ul>
       </div>
 
       <div class="pi-ip-side-card pi-ip-side-card--secure">
         <strong>{{ tx('Secure & private') }}</strong>
-        <p>{{ paymentSuppressed ? tx('Your insurance information is encrypted and available only through authorized access.') : tx('Card details are collected by Stripe. Insurance details are available to authorized billing staff and your own payer account.') }}</p>
+        <p>{{ showPaymentSection && (paymentOnly || cardAvailable) ? tx('Card details are collected by Stripe. Insurance details are available to authorized billing staff and your own payer account.') : tx('Your insurance information is encrypted and available only through authorized access.') }}</p>
       </div>
     </aside>
   </div>

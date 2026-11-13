@@ -106,12 +106,25 @@
         </div>
 
         <div v-if="completedDocuments.length" class="success-card">
-          <strong>Signed school ROI on file</strong>
+          <strong>Signed school ROI history</strong>
           <div v-for="doc in completedDocuments" :key="doc.id" class="signing-actions">
-            <span>{{ doc.signer_name || 'Guardian' }} · {{ formatDateTime(doc.signed_at) }}</span>
+            <span>{{ doc.signer_name || 'Guardian' }} · {{ formatDateTime(doc.signed_at) }} · {{ roiEvidenceLabel(doc) }}</span>
             <button type="button" class="btn btn-secondary btn-sm" :disabled="openingSignedRoi" @click="viewSignedRoi(doc)">View signed ROI</button>
           </div>
-          <p>Use the guardian request controls below when an updated ROI is needed.</p>
+          <p>Historical signed records are retained as evidence. Current effective staff permissions are shown below; an older document does not replace another guardian’s latest decision.</p>
+          <p v-if="pendingGuardianRequests.length" class="roi-pending-requests">
+            Updated release pending:
+            <span v-for="(request, index) in pendingGuardianRequests" :key="request.id">{{ index ? ' · ' : '' }}{{ request.guardian_name || 'Guardian' }} — request {{ request.id }} ({{ request.status === 'in_progress' ? 'in progress' : 'awaiting own response' }})</span>.
+          </p>
+          <p v-else-if="hasCompletedRoi && !hasPendingLegacyRequest">No new signing has been requested. Use the guardian request controls only when an updated release is needed.</p>
+          <p v-else-if="hasPendingLegacyRequest">An updated release is pending. Earlier signed records remain on file while the new response is outstanding.</p>
+          <p v-else>No signed release for this school is on file. The earlier school’s record is retained as history.</p>
+        </div>
+
+        <div v-else-if="pendingGuardianRequests.length" class="warning-card roi-pending-requests">
+          <strong>Guardian release requests pending</strong>
+          <p v-for="request in pendingGuardianRequests" :key="request.id">{{ request.guardian_name || 'Guardian' }} — request {{ request.id }} ({{ request.status === 'in_progress' ? 'in progress' : 'awaiting own response' }}).</p>
+          <p>Each guardian opens their own request from their portal. No additional signing session is needed.</p>
         </div>
 
         <div v-if="canStartSigning" class="sms-card">
@@ -470,9 +483,13 @@ const savedIntakeLinkId = ref('');
 const selectedIntakeLinkId = ref('');
 const issuedLink = ref(null);
 const completedDocuments = ref([]);
+const pendingGuardianRequests = ref([]);
 const openingSignedRoi = ref(false);
-const hasCompletedRoi = computed(() => completedDocuments.value.length > 0 || issuedLink.value?.status === 'completed');
-const canStartSigning = computed(() => !hasCompletedRoi.value || ['pending', 'in_progress'].includes(issuedLink.value?.status));
+const hasCompletedRoi = computed(() => completedDocuments.value.some(doc => doc.evidence_state !== 'historical_other_school') || issuedLink.value?.status === 'completed');
+const hasPendingLegacyRequest = computed(() => ['issued', 'pending', 'in_progress'].includes(issuedLink.value?.status));
+const canStartSigning = computed(() => hasPendingLegacyRequest.value || (!hasCompletedRoi.value && !pendingGuardianRequests.value.length));
+const roiEvidenceLabel = doc => ({ latest_signed: 'Most recent signed record', superseded: 'Historical / superseded',
+  historical_other_school: 'Historical — another school' }[doc?.evidence_state] || 'Historical signed record');
 const configSaving = ref(false);
 const issueLoading = ref(false);
 const roiDateSaving = ref(false);
@@ -590,6 +607,7 @@ const activeSmartRoiSummary = computed(() => {
   return 'This client will use the school-specific ROI form automatically.';
 });
 const issuedLinkStateLabel = computed(() => {
+  if (pendingGuardianRequests.value.length) return 'Guardian update pending';
   const state = String(issuedLink.value?.status || '').trim().toLowerCase();
   if (state === 'completed') return 'Completed';
   if (state === 'in_progress') return 'In progress';
@@ -598,6 +616,7 @@ const issuedLinkStateLabel = computed(() => {
   return 'Not issued';
 });
 const issuedLinkStateClass = computed(() => {
+  if (pendingGuardianRequests.value.length) return 'state-packet';
   const state = String(issuedLink.value?.status || '').trim().toLowerCase();
   if (state === 'completed') return 'state-roi';
   if (state === 'in_progress') return 'state-packet';
@@ -694,6 +713,7 @@ watch(() => props.client?.id, () => { paperWorkflowOpen.value = false; paperPack
 const load = async () => {
   const version = ++loadVersion;
   completedDocuments.value = [];
+  pendingGuardianRequests.value = [];
   const clientId = Number(props.client?.id || 0);
   if (!clientId) {
     loading.value = false;
@@ -762,6 +782,7 @@ const load = async () => {
     selectedIntakeLinkId.value = savedIntakeLinkId.value;
     issuedLink.value = signing.issued_link || null;
     completedDocuments.value = Array.isArray(signing.completed_documents) ? signing.completed_documents : [];
+    pendingGuardianRequests.value = Array.isArray(signing.pending_guardian_requests) ? signing.pending_guardian_requests : [];
     emailLanguageDraft.value = String(signing.issued_link?.language_code || activeSmartRoiLink.value?.language_code || 'en').toLowerCase().startsWith('es')
       ? 'es'
       : 'en';
@@ -1061,6 +1082,11 @@ const startEmailCooldown = (seconds) => {
 const sendRoiEmail = async () => {
   const clientId = Number(props.client?.id || 0);
   if (!clientId) return;
+  const requestedGuardianIds = [...new Set(selectedGuardianIds.value.map(Number))];
+  if (!requestedGuardianIds.length) return;
+  const requestedLanguage = emailLanguageDraft.value;
+  let requestVersion = loadVersion;
+  const currentRequest = () => clientId === Number(props.client?.id || 0) && requestVersion === loadVersion;
   try {
     emailSending.value = true;
     error.value = '';
@@ -1069,12 +1095,24 @@ const sendRoiEmail = async () => {
       const ok = await saveSigningConfig();
       if (!ok) return;
     }
+    if (clientId !== Number(props.client?.id || 0)) return;
+    requestVersion = loadVersion;
     const response = await api.post(`/clients/${clientId}/school-roi-signing-email`, {
-      languageCode: emailLanguageDraft.value
+      languageCode: requestedLanguage,
+      guardianUserIds: requestedGuardianIds
     });
+    if (!currentRequest()) return;
     if (Array.isArray(response.data?.deliveries)) {
-      emailStatus.value = response.data.deliveries.map(row => `${row.name || row.email || 'Guardian'}: ${row.status === 'recently_sent' ? 'Already sent recently' : row.status === 'sent' ? 'Sent' : row.status === 'pending' ? 'Awaiting delivery approval' : `Needs follow-up${row.error ? ': ' + row.error : ''}`}`).join(' · ');
-      emailSendLog.value = [...response.data.deliveries.filter(row => row.sent).map(row => ({ email: row.email, sentAt: new Date().toISOString() })), ...emailSendLog.value].slice(0, 20);
+      const labels = { recently_sent: 'Already recorded recently', sent: 'Sent', redirected: 'Redirected to testing inbox',
+        pending: 'Awaiting delivery approval', queued: 'Queued', failed: 'Needs follow-up', blocked: 'Blocked' };
+      const summary = response.data.deliveries.map(row => `${row.name || row.email || 'Guardian'}: ${labels[row.status] || 'Delivery status unavailable'}${row.error ? ': ' + row.error : ''}${row.warning ? ' — ' + row.warning : ''}`).join(' · ');
+      const log = [...response.data.deliveries.filter(row => ['sent', 'redirected'].includes(row.status)).map(row => ({ email: row.email, sentAt: new Date().toISOString() })), ...emailSendLog.value].slice(0, 20);
+      const reloadVersion = loadVersion + 1;
+      await load();
+      if (clientId !== Number(props.client?.id || 0) || loadVersion !== reloadVersion) return;
+      selectedGuardianIds.value = guardianEmails.value.filter(g => g.can_request_roi && requestedGuardianIds.includes(Number(g.guardian_user_id))).map(g => g.guardian_user_id);
+      emailStatus.value = summary;
+      emailSendLog.value = log;
       startEmailCooldown(180);
       return;
     }
@@ -1104,6 +1142,7 @@ const sendRoiEmail = async () => {
     emit('updated', { keepOpen: true, client: response.data?.client || undefined });
     await load();
   } catch (err) {
+    if (!currentRequest()) return;
     const errMsg = err.response?.data?.error?.message || err.message || 'Failed to send ROI email';
     error.value = errMsg;
     if (err.response?.status === 429) {
@@ -1154,6 +1193,7 @@ watch(
 );
 
 onBeforeUnmount(() => {
+  loadVersion++;
   if (_emailCooldownTimer) { clearInterval(_emailCooldownTimer); _emailCooldownTimer = null; }
 });
 </script>

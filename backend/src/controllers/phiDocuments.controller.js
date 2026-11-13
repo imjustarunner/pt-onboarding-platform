@@ -787,6 +787,13 @@ export const viewPhiDocument = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Client not found' } });
     }
 
+    // Validate the selected-child binding only after the normal private ACL.
+    // An unauthorized caller must not distinguish a matching client from a guess.
+    if(req.query?.clientId!==undefined){
+      const expected=Number(req.query.clientId);
+      if(!Number.isSafeInteger(expected)||expected<1)return res.status(400).json({error:{message:'A valid client is required for this document.'}});
+      if(expected!==Number(doc.client_id))return res.status(404).json({error:{message:'This document does not belong to the selected client.'}});
+    }
     // Log access (best-effort)
     try {
       const ip = req.headers['x-forwarded-for']?.toString().split(',')[0].trim() || req.ip || null;

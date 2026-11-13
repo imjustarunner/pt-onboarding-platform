@@ -160,11 +160,12 @@
         <div v-show="roiOpen" class="ob-section-body">
           <p v-if="isFallPending" class="ob-readonly-hint muted">Completed last year — shown for context.</p>
           <p v-else-if="readonly" class="ob-readonly-hint muted">School ROI permissions — view only.</p>
+          <p v-else-if="checklist.is_paper_packet" class="ob-readonly-hint muted">Paper ROI permissions are shown here for reference. Review the source, signatures and staff selections in Process paper packet step by step above; its signed paper date determines the expiration.</p>
           <ClientOnboardingRoiStaffPanel
             :client-id="clientId"
             :step-done="checklist.roi_staff_item.done || isFallPending"
             :roi-expires-at="checklist.client?.roi_expires_at"
-            :readonly="readonly || isFallPending"
+            :readonly="readonly || isFallPending || checklist.is_paper_packet"
             @updated="onRoiStaffUpdated"
             @mark-complete="onRoiStaffUpdated"
           />

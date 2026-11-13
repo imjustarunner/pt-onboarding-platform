@@ -18,6 +18,7 @@ vi.mock('../../models/SchoolRoiIntakeLinkConfig.model.js',()=>({default:{findByS
 vi.mock('../../models/ClientSchoolRoiSigningLink.model.js',()=>({default:{findForClient:vi.fn(async()=>null)}}));
 vi.mock('../../services/paperPacketVision.service.js',()=>({getLatestPaperPacketVisionEval:vi.fn(async()=>null)}));
 import pool from '../../config/database.js';
+import SigningLinks from '../../models/ClientSchoolRoiSigningLink.model.js';
 let req, res, next;
 beforeEach(() => {
   vi.resetAllMocks();
@@ -56,4 +57,20 @@ it('returns signed evidence and the second guardian’s pending response through
  await listClientSchoolRoiAccess(req,res,next);
  expect(next).not.toHaveBeenCalled();expect(pool.execute).toHaveBeenCalledWith(expect.stringContaining('co_guardian_invites'),[4,2]);
  expect(res.json).toHaveBeenCalledWith(expect.objectContaining({guardian_emails:[expect.objectContaining({guardian_user_id:21,enrollment_status:'pending'})],school_roi_signing:expect.objectContaining({completed_documents:[expect.objectContaining({id:9})]})}));
+});
+
+it('describes historical evidence separately from the exact guardian with a pending update', async () => {
+ Client.findById.mockResolvedValue({id:4,agency_id:2,organization_id:3,client_type:'school'});
+ pool.execute.mockResolvedValue([[]]);
+ Documents.listSignedForClient.mockResolvedValue([
+  {id:9,intake_submission_id:90,guardian_user_id:21,submission_school_organization_id:3,signed_at:'2026-11-08T05:21:49Z',signed_pdf_path:'old.pdf',audit_trail:{smartSchoolRoi:true,signerName:'Parent'}},
+  {id:10,intake_submission_id:91,guardian_user_id:21,submission_school_organization_id:3,signed_at:'2026-11-12T05:21:49Z',signed_pdf_path:'new.pdf',audit_trail:{smartSchoolRoi:true,signerName:'Parent'}}
+ ]);
+ SigningLinks.findForClient.mockImplementation(async args => Number(args.recipientGuardianUserId) === 21 ? {id:391,status:'issued',issued_at:'2026-11-13T05:00:00Z'} : null);
+ await listClientSchoolRoiAccess(req,res,next);
+ expect(next).not.toHaveBeenCalled();
+ const result=res.json.mock.calls[0][0].school_roi_signing;
+ expect(result.completed_documents.map(r=>r.evidence_state)).toEqual(['superseded','latest_signed']);
+ expect(result.pending_guardian_requests).toEqual([expect.objectContaining({id:391,guardian_user_id:21,status:'issued'})]);
+ expect(JSON.stringify(result.pending_guardian_requests)).not.toContain('public_key');
 });

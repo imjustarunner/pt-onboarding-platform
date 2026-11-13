@@ -7,10 +7,10 @@
       <p v-if="ticket.question" class="question"><strong>Your question</strong><br>{{ ticket.question }}</p>
       <article v-for="message in visibleMessages" :key="message.id"><strong>{{ message.author_display_name || message.author_name || 'Conversation reply' }}</strong><p>{{ message.body }}</p></article>
       <form @submit.prevent="send">
-        <TicketAttachmentComposer ref="attachments" :ticket-id="ticketId" :context-key="`${schoolOrganizationId}:${actorId}`" :disabled="sending" />
+        <TicketAttachmentComposer ref="attachments" :ticket-id="ticketId" :context-key="`${schoolOrganizationId}:${actorId}`" :disabled="sending" @busy="attachmentBusy = $event" />
         <label>Follow-up<textarea v-model="draft" :disabled="sending" rows="4" required /></label>
         <p v-if="sendError" role="alert">{{ sendError }}</p>
-        <button type="submit" :disabled="sending || !draft.trim()">{{ sending ? 'Sending…' : 'Send follow-up' }}</button>
+        <button type="submit" :disabled="sending || attachmentBusy || !draft.trim()">{{ sending ? 'Sending…' : 'Send follow-up' }}</button>
       </form>
     </template>
   </section>
@@ -23,7 +23,7 @@ import TicketAttachmentComposer from '../tickets/TicketAttachmentComposer.vue';
 const props=defineProps({ticketId:{type:Number,required:true},schoolOrganizationId:{type:Number,required:true}});
 const emit=defineEmits(['close','updated']);
 const auth=useAuthStore(),actorId=computed(()=>Number(auth.user?.id)||null);
-const ticket=ref(null),messages=ref([]),loading=ref(false),sending=ref(false),error=ref(''),sendError=ref(''),draft=ref(''),attachments=ref(null);
+const ticket=ref(null),messages=ref([]),loading=ref(false),sending=ref(false),error=ref(''),sendError=ref(''),draft=ref(''),attachments=ref(null),attachmentBusy=ref(false);
 let generation=0,loadVersion=0,disposed=false;
 const visibleMessages=computed(()=>messages.value.filter(message=>Number(message.is_internal||0)!==1&&Number(message.is_deleted||0)!==1));
 function context(){const id=Number(props.ticketId),school=Number(props.schoolOrganizationId),actor=actorId.value,version=generation;return{id,current:()=>!disposed&&id===Number(props.ticketId)&&school===Number(props.schoolOrganizationId)&&actor===actorId.value&&version===generation};}
@@ -35,14 +35,14 @@ async function load(){
  }catch(e){if(current())error.value=e.response?.data?.error?.message||e.message||'This conversation could not load.';}finally{if(current())loading.value=false;}
 }
 async function send(){
- if(sending.value||loading.value||!ticket.value||!draft.value.trim())return;
- const ctx=context(),body=draft.value.trim();sending.value=true;sendError.value='';
+ if(sending.value||attachmentBusy.value||loading.value||!ticket.value||!draft.value.trim())return;
+ const ctx=context(),snapshot=draft.value,body=snapshot.trim();sending.value=true;sendError.value='';
  try{if(attachments.value?.hasFile?.()&&!(await attachments.value.uploadPending(ctx.id))){if(ctx.current())sendError.value='Your follow-up is saved here. Add the file successfully before sending.';return;}
   if(!ctx.current())return;await api.post(`/support-tickets/${ctx.id}/messages`,{body});if(!ctx.current())return;
-  draft.value='';await load();if(ctx.current())emit('updated');
+  if(draft.value===snapshot)draft.value='';await load();if(ctx.current())emit('updated');
  }catch(e){if(ctx.current())sendError.value=e.response?.data?.error?.message||e.message||'Your follow-up was not sent. Your text is still here.';}finally{if(ctx.current())sending.value=false;}
 }
-watch(()=>[props.ticketId,props.schoolOrganizationId,actorId.value],()=>{generation++;ticket.value=null;messages.value=[];draft.value='';error.value='';sendError.value='';sending.value=false;loading.value=false;void load();},{immediate:true});
+watch(()=>[props.ticketId,props.schoolOrganizationId,actorId.value],()=>{generation++;ticket.value=null;messages.value=[];draft.value='';error.value='';sendError.value='';sending.value=false;loading.value=false;attachmentBusy.value=false;void load();},{immediate:true});
 onBeforeUnmount(()=>{disposed=true;generation++;});
 </script>
 <style scoped>

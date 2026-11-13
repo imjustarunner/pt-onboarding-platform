@@ -63,6 +63,14 @@ it('autosaves a working entry and restores it after a literal remount without ma
 });
 it('keeps a failed autosave visible and does not close or approve the form',async()=>{vi.useFakeTimers();await render();api.put.mockRejectedValueOnce(Error('Unavailable'));await w.findAll('label').find(l=>l.text()==='Preferred language').get('input').setValue('Unsaved');await vi.advanceTimersByTimeAsync(600);await flushPromises();expect(w.text()).toContain('could not save');expect(context.state.completedSteps).toEqual([]);expect(w.emitted('close')).toBeUndefined();vi.useRealTimers();});
 
+it('does not dirty or save a packet merely by inspecting another already available step',async()=>{
+ vi.useFakeTimers();context.state.completedSteps=steps;await render();api.put.mockClear();await w.findAll('nav button')[0].trigger('click');await vi.advanceTimersByTimeAsync(800);await flushPromises();expect(api.put).not.toHaveBeenCalled();expect(w.text()).not.toContain('Unsaved changes');expect(w.text()).toContain('Client #4 · Document #9 · Evaluation #11');
+});
+
+it('explains sequential controls and retains earlier source review IDs without inventing a completed negative case',async()=>{
+ context.state.previousPackets=[{documentId:7,consentReview:{versionLabel:'1.01'},processedAt:'2026-11-11T10:00:00Z'}];await render();expect(w.findAll('nav button')[3].attributes('disabled')).toBeDefined();expect(w.findAll('nav button')[3].attributes('title')).toContain('Save the preceding step');expect(w.text()).toContain('Document #7 · Version 1.01');expect(api.put).not.toHaveBeenCalled();expect(api.post).not.toHaveBeenCalled();
+});
+
 it('does not request a quarantined preview and refreshes a completed check without replacing unsaved entry',async()=>{
  context.documents[0].scan_status='pending';await render();
  expect(api.get.mock.calls.some(([url])=>url.endsWith('/view'))).toBe(false);

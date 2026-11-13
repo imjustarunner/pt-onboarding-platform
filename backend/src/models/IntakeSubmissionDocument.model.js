@@ -131,9 +131,12 @@ class IntakeSubmissionDocument {
               isd.signed_at,
               isd.audit_trail,
               s.client_id AS submission_client_id,
+              s.guardian_user_id,
+              CASE WHEN l.scope_type = 'school' THEN l.organization_id ELSE NULL END AS submission_school_organization_id,
               dt.name AS document_template_name
        FROM intake_submission_documents isd
        LEFT JOIN intake_submissions s ON s.id = isd.intake_submission_id
+       LEFT JOIN intake_links l ON l.id = s.intake_link_id
        LEFT JOIN document_templates dt ON dt.id = isd.document_template_id
        WHERE isd.signed_pdf_path IS NOT NULL
          AND (

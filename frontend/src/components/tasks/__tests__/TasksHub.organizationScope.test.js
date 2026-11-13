@@ -101,3 +101,14 @@ it('losing full-tenant membership clears lists and does not restore a restricted
   expect(state.teamListsGrouped).toEqual([]);
   expect(mocks.get.mock.calls.some(([url, options]) => url === '/task-lists/team' && Number(options.params.agencyId) === 456)).toBe(false);
 });
+
+it('shows the exact completed task/source result even when the task title uses masked initials',async()=>{
+ const state=await mountHub();const result={entity_type:'task',entity_id:2488,title:'Process paper packet · PerQap #2544',subtitle:'Task #2488 · Client #2544 · Document #4396',view:'all',status:'completed'};
+ mocks.get.mockImplementation(async url=>({data:url==='/tasks/search'?[result]:[]}));await wrapper.get('.tasks-hub__search input').setValue('2488');await wrapper.get('.tasks-hub__search input').trigger('keydown.enter');await flushPromises();expect(wrapper.get('.search-results').text()).toContain('Task #2488 · Client #2544 · Document #4396');expect(state.searchResults[0].status).toBe('completed');
+});
+it('does not let a stale smart-search response replace the newly selected tenant or query',async()=>{
+ const state=await mountHub();let release;mocks.get.mockImplementation(async url=>url==='/tasks/search'?new Promise(resolve=>{release=resolve;}):{data:[]});state.searchQ='2488';const request=state.runSmartSearch();await flushPromises();state.teamFilters.tenantId='458';state.searchQ='9000';release({data:[{entity_type:'task',entity_id:2488,title:'Old result'}]});await request;await flushPromises();expect(state.searchResults).toEqual([]);
+});
+it('distinguishes a failed search from an empty search without discarding the existing task list',async()=>{
+ const state=await mountHub();mocks.tasks.tasks=[{id:2488,title:'Existing completed task',status:'completed'}];mocks.get.mockImplementation(async url=>{if(url==='/tasks/search')throw Error('Paused');return{data:[]};});state.searchQ='2488';await state.runSmartSearch();expect(wrapper.text()).toContain('Task search is unavailable');expect(mocks.tasks.tasks[0].id).toBe(2488);
+});

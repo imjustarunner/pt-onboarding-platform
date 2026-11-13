@@ -2622,6 +2622,7 @@ import SchoolPortalMessagesPanel from '../../components/school/redesign/SchoolPo
 import PublicDocumentsPanel from '../../components/school/redesign/PublicDocumentsPanel.vue';
 import SchoolMyDocumentsPanel from '../../components/school/redesign/SchoolMyDocumentsPanel.vue';
 import SchoolNotificationsPanel from '../../components/school/redesign/SchoolNotificationsPanel.vue';
+import { openSchoolPacketNotification } from '../../utils/schoolPacketNotification.js';
 import FaqPanel from '../../components/school/redesign/FaqPanel.vue';
 import ClientDetailPanel from '../../components/admin/ClientDetailPanel.vue';
 import OrganizationSettingsModal from '../../components/school/OrganizationSettingsModal.vue';
@@ -3820,7 +3821,7 @@ const notificationsNewestSnippet = ref('');
 const newestSchoolNotification = ref(null);
 const openLatestSchoolNotification = () => {
   const item = newestSchoolNotification.value;
-  if (item?.kind === 'doc' && item.client_id && !item.client_access_locked) return openClientFromNotification({ clientId: item.client_id, pane: 'documents' });
+  if (item?.kind === 'doc' && item.client_id && !item.client_access_locked) return openClientFromNotification({ clientId: item.client_id, documentId: item.phi_document_id, filename: item.original_name, pane: 'documents' });
   return openNotificationsPanel();
 };
 const bannerItems = ref([]);
@@ -5846,9 +5847,15 @@ const openTicketFromNotification = async ({ ticketId, clientId, messageId } = {}
   showTicketModal.value = true;
 };
 
-const openClientFromNotification = async ({ clientId, pane } = {}) => {
+const openClientFromNotification = async ({ clientId, pane, documentId, filename } = {}) => {
   const cid = Number(clientId || 0);
   if (!cid) return;
+  if(Number(documentId)>0){
+    const schoolId=Number(organizationId.value),actorId=Number(authStore.user?.id),actorRole=authStore.user?.role;
+    const current=()=>schoolId===Number(organizationId.value)&&actorId===Number(authStore.user?.id)&&actorRole===authStore.user?.role;
+    try{return await openSchoolPacketNotification({clientId:cid,documentId,filename},{isCurrent:current});}
+    catch(error){if(current())window.alert(error.message||'The packet could not be opened.');return;}
+  }
   const client = await loadNotificationClient(cid);
   if (!client || isClientPortalLocked(client)) return;
   openClient({client,pane});

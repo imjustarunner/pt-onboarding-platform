@@ -930,7 +930,7 @@
                   class="promote-library-title"
                   placeholder="Library template title (optional)"
                 />
-                <TicketAttachmentComposer ref="replyAttachments" v-if="selected?.id && composerMode !== 'internal'" :key="selected.id" :ticket-id="selected.id" :disabled="sending || messagesLoading" :show-files="false" @uploaded="loadMessages(selected.id)" />
+                <TicketAttachmentComposer ref="replyAttachments" v-if="selected?.id && composerMode !== 'internal'" :key="selected.id" :ticket-id="selected.id" :disabled="sending || messagesLoading" :show-files="false" @busy="replyAttachmentBusy = $event" @uploaded="loadMessages(selected.id)" />
                 <div v-if="actionError" class="error">{{ actionError }}</div>
                 <div class="composer-actions">
                   <button
@@ -965,7 +965,7 @@
                     v-if="composerMode === 'answer'"
                     type="button"
                     class="btn btn-primary"
-                    :disabled="sending || !draft.trim() || !canActOnSelected"
+                    :disabled="sending || replyAttachmentBusy || !draft.trim() || !canActOnSelected"
                     @click="submitOfficialAnswer"
                   >
                     {{ sending ? 'Sending…' : 'Send answer' }}
@@ -974,7 +974,7 @@
                     v-else
                     type="button"
                     class="btn btn-primary"
-                    :disabled="sending || !draft.trim() || (isEmailTicket && composerMode !== 'internal' && (!selectedSender || !canActOnSelected || (canonicalTicketId && Number(canonicalTicketId) !== Number(selectedId))))"
+                    :disabled="sending || replyAttachmentBusy || !draft.trim() || (isEmailTicket && composerMode !== 'internal' && (!selectedSender || !canActOnSelected || (canonicalTicketId && Number(canonicalTicketId) !== Number(selectedId))))"
                     @click="sendMessage"
                   >
                     {{ sending ? 'Sending…' : composerMode === 'internal' ? 'Add note' : 'Send reply' }}
@@ -1267,6 +1267,31 @@ async function openCanonicalThread() {
 }
 
 const sendAttempt = ref(null);
+let composerScopeVersion = 0;
+let activeSendRequest = null;
+let disposed = false;
+function invalidateComposerRequests({ resetAttachments = false } = {}) {
+  composerScopeVersion++;
+  activeSendRequest = null;
+  sending.value = false;
+  if (resetAttachments) replyAttachmentBusy.value = false;
+}
+function beginTicketSend(ticketId, mode) {
+  const version = composerScopeVersion;
+  const actorId = Number(authStore.user?.id);
+  const actorRole = authStore.user?.role;
+  const agencyId = Number(selected.value?.agency_id || agencyStore.currentAgency?.id);
+  const requestId = Symbol('ticket-send');
+  activeSendRequest = requestId;
+  sending.value = true;
+  return {
+    current: () => !disposed && activeSendRequest === requestId && version === composerScopeVersion
+      && Number(selectedId.value) === Number(ticketId) && composerMode.value === mode
+      && Number(authStore.user?.id) === actorId && authStore.user?.role === actorRole
+      && Number(selected.value?.agency_id || agencyStore.currentAgency?.id) === agencyId,
+    finish: () => { if (activeSendRequest === requestId) { activeSendRequest = null; sending.value = false; } }
+  };
+}
 let messageLoadSequence = 0;
 let draftGenerationSequence = 0;
 let restoringDraft = false;
@@ -1278,6 +1303,7 @@ function deliveryLabel(delivery) {
 }
 function switchComposerMode(mode) {
   if (mode === composerMode.value) return;
+  invalidateComposerRequests();
   composerDrafts.value[composerMode.value] = draft.value;
   composerMode.value = mode;
   draft.value = composerDrafts.value[mode] || '';
@@ -1289,6 +1315,7 @@ function setReplyDraft(text) {
 }
 const sending = ref(false);
 const replyAttachments=ref(null);
+const replyAttachmentBusy=ref(false);
 const busy = ref(false);
 const searchInput = ref('');
 const priorityFilter = ref('');
@@ -2084,6 +2111,7 @@ function exitToQueue() {
 }
 
 function selectTicket(t) {
+  invalidateComposerRequests({ resetAttachments: true });
   if (selectedId.value && Number(selectedId.value) !== Number(t.id)) {
     saveDraftForTicket(selectedId.value, draft.value);
   }
@@ -2151,10 +2179,12 @@ async function maybeAutoPrepareDraftOnOpen(t) {
   // Intake generates the first draft. Opening a conversation does not claim it.
 }
 
-function clearSelection() {
-  if (selectedId.value) saveDraftForTicket(selectedId.value, draft.value);
+function clearSelection({ persist = true } = {}) {
+  invalidateComposerRequests({ resetAttachments: true });
+  if (persist && selectedId.value) saveDraftForTicket(selectedId.value, draft.value);
   selectedId.value = null;
   selected.value = null;
+  draft.value = '';
   messages.value = [];
   ticketActions.value = [];
   responsePlan.value = null;
@@ -2402,7 +2432,7 @@ function nameFromEmail(email) {
 }
 
 async function sendMessage() {
-  if (!selected.value?.id || !draft.value.trim() || sending.value) return;
+  if (!selected.value?.id || !draft.value.trim() || sending.value || replyAttachmentBusy.value) return;
   const ticketId = selected.value.id;
   const mode = composerMode.value;
   const body = draft.value.trim();
@@ -2417,13 +2447,14 @@ async function sendMessage() {
   const request = { body, isInternal: mode === 'internal', clientRequestId: sendAttempt.value.id,
     senderIdentityId: senderIdentityId.value, senderMode: senderMode.value,
     draftSnapshotId: draftSnapshotId.value, expectedLastMessageId: lastMessageId.value };
-  sending.value = true;
+  const sendContext = beginTicketSend(ticketId, mode);
   actionError.value = ''; emailNotice.value = '';
   try {
-    if(replyAttachments.value?.hasFile?.() && !(await replyAttachments.value.uploadPending(ticketId))){actionError.value='Your reply is saved. Add the file successfully before sending.';return;}
+    if(replyAttachments.value?.hasFile?.() && !(await replyAttachments.value.uploadPending(ticketId))){if(sendContext.current())actionError.value='Your reply is saved. Add the file successfully before sending.';return;}
+    if (!sendContext.current()) return;
     const replyResult = await api.post(`/support-tickets/${ticketId}/messages`, request);
     const receipt = replyResult.data?.emailReply;
-    const current = Number(selectedId.value) === Number(ticketId);
+    const current = sendContext.current();
     const confirmed = !email || receipt?.status === 'sent' || receipt?.sent === true;
     if (current && (receipt?.sent === false || (email && !confirmed))) {
       emailNotice.value = receipt?.status === 'queued' || receipt?.status === 'pending_approval'
@@ -2431,7 +2462,7 @@ async function sendMessage() {
         : receipt?.status === 'sending' ? 'Delivery is still being confirmed. Your reply remains saved.'
         : 'Delivery was not confirmed. Your reply is saved; check the conversation before trying again.';
     }
-    if (confirmed && receipt?.sent !== false && !current) {
+    if (confirmed && receipt?.sent !== false && !current && Number(selectedId.value) !== Number(ticketId)) {
       try {
         const saved = JSON.parse(sessionStorage.getItem(storageKey) || '{}');
         if (String(saved.modes?.[mode] || '').trim() === body && saved.sendAttempt?.id === request.clientRequestId) {
@@ -2445,15 +2476,18 @@ async function sendMessage() {
       clearDraftForTicket(ticketId);
       if (email) emailNotice.value = 'Reply sent.';
     }
-    if (current) await loadMessages(ticketId);
+    if (!current) return;
+    await loadMessages(ticketId);
+    if (!sendContext.current()) return;
     emit('updated', selected.value);
-    await loadTickets(); await loadMetrics();
+    await loadTickets();
+    if (sendContext.current()) await loadMetrics();
   } catch (e) {
-    if (Number(selectedId.value) === Number(ticketId)) {
+    if (sendContext.current()) {
       messagesError.value = e?.response?.data?.error?.message || e?.message || 'Send failed. Your reply is saved.';
       if (e?.response?.status === 409) await loadMessages(ticketId);
     }
-  } finally { sending.value = false; }
+  } finally { sendContext.finish(); }
 }
 
 async function claim() {
@@ -2709,44 +2743,55 @@ async function markDraftSent() {
 }
 
 async function submitOfficialAnswer() {
+  if (sending.value || replyAttachmentBusy.value) return;
   if (isEmailTicket.value) return sendMessage();
   if (!selected.value?.id || !draft.value.trim()) return;
   if (!canActOnSelected.value) {
     actionError.value = `Ticket is claimed by ${assigneeName(selected.value) || 'someone else'}.`;
     return;
   }
-  sending.value = true;
+  const answerTicketId = Number(selected.value.id);
+  const answerMode = composerMode.value;
+  const originalDraft = draft.value;
+  const answerFinal = originalDraft.trim();
+  const draftText = String(selected.value?.ai_draft_response || '').trim();
+  const promotion = promoteToLibrary.value ? { title: promoteLibraryTitle.value.trim() || undefined } : undefined;
+  const request = { answer: answerFinal, status: 'answered',
+    aiDraftDecision: draftText ? (draftText === answerFinal ? 'accepted' : 'edited') : null,
+    promoteToLibrary: promotion };
+  saveDraftForTicket(answerTicketId, originalDraft);
+  const sendContext = beginTicketSend(answerTicketId, answerMode);
+  const answerCurrent = sendContext.current;
   actionError.value = '';
   try {
-    const draftText = String(selected.value?.ai_draft_response || '').trim();
-    const answerFinal = draft.value.trim();
-    let aiDraftDecision = null;
-    if (draftText) aiDraftDecision = draftText === answerFinal ? 'accepted' : 'edited';
-    const replyResult = await api.post(`/support-tickets/${selected.value.id}/answer`, {
-      answer: answerFinal,
-      status: 'answered',
-      aiDraftDecision,
-      promoteToLibrary: promoteToLibrary.value
-        ? {
-            title: promoteLibraryTitle.value.trim() || undefined
-          }
-        : undefined
-    });
-    draft.value = '';
-    clearDraftForTicket(selected.value.id);
-    promoteToLibrary.value = false;
-    promoteLibraryTitle.value = '';
-    draftSources.value = [];
+    if(replyAttachments.value?.hasFile?.() && !(await replyAttachments.value.uploadPending(answerTicketId))){if(answerCurrent())actionError.value='Your reply is saved. Add the file successfully before sending.';return;}
+    if(!answerCurrent())return;
+    const replyResult = await api.post(`/support-tickets/${answerTicketId}/answer`, request);
+    if(!answerCurrent())return;
+    const unchanged = draft.value === originalDraft;
+    if (unchanged) {
+      draft.value = '';
+      clearDraftForTicket(answerTicketId);
+      if (promoteToLibrary.value === !!promotion && (!promotion || promoteLibraryTitle.value.trim() === (promotion.title || ''))) {
+        promoteToLibrary.value = false;
+        promoteLibraryTitle.value = '';
+      }
+      draftSources.value = [];
+    }
     await loadPendingProposalCount();
-    composerMode.value = 'reply';
+    if(!answerCurrent())return;
     await loadAll();
-    await loadMessages(selected.value.id);
-    await loadResponsePlan(selected.value.id);
+    if(!answerCurrent())return;
+    await loadMessages(answerTicketId);
+    if(!answerCurrent())return;
+    await loadResponsePlan(answerTicketId);
+    if(!answerCurrent())return;
     if (replyResult.data?.emailReply?.sent === false) actionError.value = replyResult.data.emailReply.reason;
+    if (unchanged && !draft.value) composerMode.value = 'reply';
   } catch (e) {
-    actionError.value = e?.response?.data?.error?.message || e?.message || 'Failed to submit answer';
+    if(answerCurrent())actionError.value = e?.response?.data?.error?.message || e?.message || 'Failed to submit answer';
   } finally {
-    sending.value = false;
+    sendContext.finish();
   }
 }
 
@@ -2849,6 +2894,12 @@ watch([() => props.initialTicketId, () => props.agencyId], ([id, agencyId]) => {
   if (Number(selectedId.value) !== Number(id)) selectTicket({ id: Number(id), agency_id: agencyIdInput.value });
 });
 
+watch(() => [authStore.user?.id, authStore.user?.role, agencyStore.currentAgency?.id], () => {
+  // The previous identity's draft was already saved by the input watcher. Do
+  // not save it again under the newly selected user's storage namespace.
+  clearSelection({ persist: false });
+}, { flush: 'sync' });
+
 onMounted(async () => {
   messagePollTimer = setInterval(() => {
     if (selectedId.value && isEmailTicket.value && !sending.value && !messagesLoading.value && !document.hidden) loadMessages(selectedId.value, { quiet: true });
@@ -2903,6 +2954,8 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  disposed = true;
+  invalidateComposerRequests({ resetAttachments: true });
   if (selectedId.value) saveDraftForTicket(selectedId.value, draft.value);
   clearInterval(messagePollTimer);
   clearTimeout(searchDebounceTimer);
