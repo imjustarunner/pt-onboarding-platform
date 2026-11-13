@@ -89,7 +89,7 @@ jobs:
             ['schoolContactQaClock.mysql.test.js', 19],
             ['schoolRoiEvidence.mysql.test.js', 3],
             ['managedPaperRoiAcknowledgement.mysql.test.js', 11],
-            ['taskReferenceSearch.mysql.test.js', 6],
+            ['taskReferenceSearch.mysql.test.js', 7],
             ['schoolContactPlan.mysql.test.js', 7],
             ['schoolContactAutomation.mysql.test.js', 9],
             ['schoolContactInitialRetry.mysql.test.js', 49]
