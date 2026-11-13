@@ -1,0 +1,167 @@
+Testing component compensation and eligibility
+Policy version: medicaid-testing-2026-11-13
+
+Applies across practices, including ITSCO, Next Level Up and Inner Strength.
+This policy is prospective through an executed individual compensation schedule.
+It does not rewrite an earlier signed agreement, change earned pay, update a
+payer fee schedule, grant clinical scope or authorize a claim.
+
+PAY BUCKETS
+96116/96121: neurobehavioral status examination, initial/additional hour.
+Clinical Session Rate per actual eligible hour-equivalent; this family has a
+narrower provider list. Interns require a licensed psychologist supervisor.
+A master's credential alone does not establish this code's rendering eligibility.
+96130/96131: psychological evaluation, integration, interpretation, report and
+feedback. Existing Clinical Session Rate per actual eligible hour-equivalent.
+96132/96133: the corresponding separately authorized neuropsychological work.
+One actual evaluation hour equals 1 clinical credit. A claim unit does not
+automatically equal one credit. No second automatic indirect cash allowance.
+
+96136/96137: qualified-professional administration/scoring, two or more tests.
+96138/96139: technician administration/scoring only through its own covered
+pathway. Both use existing Direct Care hourly pay for actual component minutes,
+plus the agreed indirect allowance (10 minutes per direct hour, prorated,
+preserving a greater agreement). Thirty actual minutes equal .5 Direct Care
+hour. Do not represent technician work as professional work to obtain payment.
+
+96146: one automated instrument, automated result only. Actual employee setup
+or support uses the approved Direct Care assignment; unattended computer time
+is not employee time. Professional/technician administration and two or more
+tests do not fit this code. Verify the separate benefit/provider pathway.
+
+98966/98967/98968: eligible clinical telephone assessment/management, respectively
+5-10, 11-20 and 21-30 minutes. Encounter claim quantity; actual clinical minutes
+for Direct Care compensation and prorated indirect allowance. Established
+member/parent/guardian and related-encounter exclusions apply. Feedback already
+included in an evaluation cannot also be a telephone claim.
+
+H0001: substance-use assessment, encounter billing; Direct Care pay for actual
+minutes under a newly adopted schedule. It is not a general psychological test.
+H0004: treatment-plan counseling. Preserve its existing verified 15-minute unit
+mapping (.25 Direct Care hour/unit) and existing billing controls.
+
+Routine scheduling, billing, authorization administration and other separately
+approved administrative duties use indirect pay. Clinical interpretation and
+report preparation belong to the evaluation component even without the member
+present. Record actual compensable work once; no overlapping or duplicate time.
+An unfavorable margin does not permit reclassifying clinical work as indirect
+or reducing agreed wages for already performed work.
+
+CLAIM TIMING IS SEPARATE FROM PAYROLL TIME
+The October 2026 Colorado SBHS Manual lists hour-based evaluation families and
+30-minute administration/scoring families. They are not arbitrary one-unit
+encounters. Add-ons are 96131 with 96130, 96133 with 96132, 96137 with 96136,
+and 96139 with 96138. Do not book an add-on as an independent primary service.
+Common midpoint illustrations: 31-90 cumulative minutes for an hourly initial
+unit, 91-150 for initial plus first add-on; 16-45 for a half-hour initial unit,
+46-75 for initial plus first add-on. Apply the actual current payer episode,
+date and unit rules; never derive claim quantities from payroll credits.
+Neither the manual's increment maximum nor claim thresholds cap paid work time.
+
+ELIGIBILITY
+Psychological/neuropsychological Testing requires:
+- A signed, effective Testing service role with documented instrument-specific
+  qualifications, assigned components, responsible professional and supervision.
+- An explicit active provider assignment to the applicable component/base code.
+  An administration assignment does not grant evaluation or neuro interpretation.
+- Medicaid client coverage for this policy, plus verified benefit, rendering
+  provider type, authorization and modifier requirements before a claim.
+
+H0001/H0004 and eligible telephone services retain their own clinical approvals;
+they are not restricted to Testing staff merely because this reference lists them.
+Colorado C.R.S. 12-245-232 and applicable board rules still control scope. An
+internal role, degree, compensation category or another person's license is
+insufficient by itself. Supervised administration does not authorize independent
+interpretation, diagnostic conclusions or an independent report.
+
+IMPLEMENTATION AND ROLLOUT
+The shared policy drives the code reference, handbook, contract guide and newly
+adopted payroll method. Authorize components through active staff-service
+assignments after verifying the signed role. The latest applicable executed
+agreement controls; a later removal of Testing cannot resurrect an older grant.
+Runtime checks cover assignment writes, booking, service changes, documentation,
+claim preparation and claim review. No new User.role enum or automatic grants.
+New Testing medical catalog rows remain inactive until their payer pathway and
+claim-unit setup are reviewed. Saved agency activation, overrides and billing
+unit settings are preserved. New defaults do not reprice existing signed terms.
+
+New-schedule payroll requires actual component minutes separately from claim
+units, including dated import records. Do not allocate aggregate work across
+dates by billed-unit ratios. Missing time requires reconciliation before pay
+calculation. Extra-indirect submissions use actual Direct Care minutes, not
+claim units, for the prorated allowance. Retain source work and approval records.
+Inner Strength's individually negotiated schedules require separate payroll
+setup; no other agency's matrix is assumed.
+
+Reimbursement is a planning input, never the employee's pay rate. The old CCHA
+Masters figures supplied for this review are historical comparisons only.
+Current contracted allowed amounts, actual collections, supervision, test
+licenses/materials, taxes, benefits and overhead remain separate inputs.
+
+No migration or live activation is part of this change. Preserve the deployment
+hold, then reconcile the branch against current main and the ongoing NLU UI /
+Enrollment branch. Keep bookings 290/291, packages 76/77, existing signed records,
+guardian permissions and existing cancellation terms intact. Do not transfer an
+old signature to new text. Complete browser tests before release.
+
+SOURCES
+Local source: assets/Narriva_Brand_Kit/October 2026 SBHS Billing Manual.pdf,
+pages 30-44, 49 and 51 (effective October 1, 2026).
+https://hcpf.colorado.gov/sbhs-billing-manual
+https://olls.info/crs/crs2026-title-12.htm (section 12-245-232)
+
+TARGETED VALIDATION
+Backend: node ../frontend/node_modules/vitest/vitest.mjs run
+  --config vitest.testing-service-policy.config.js
+Frontend: node node_modules/vitest/vitest.mjs run
+  --config vitest.testing-service-policy.config.js
+Node test runner: SKIP_DB_CONNECT=1 node --experimental-test-module-mocks --test
+  --test-force-exit src/services/__tests__/agencyServiceCodeCatalog.service.test.js
+  src/services/__tests__/claimMdWorkflow.test.mjs
+Run each command from its backend or frontend directory. Existing generated
+handbook/training content fixtures must be present for handbook regression tests.
+
+SOURCED EXAMPLES AND DRAFT SEED — NOVEMBER 13 FOLLOW-UP
+The Testing handbook area groups qualifications, timing, compensation buckets
+and source-backed component examples. Its canonical November draft entry links
+the same area. Named battery instruments come from APA's published teaching
+examples (2019 addendum), checked against the current APA 2026 guide and the
+October 2026 Colorado manual. The historical examples do not establish current
+Medicaid coverage, a staff member's competence, an age range or approved editions.
+No software brand has been presumed to qualify for automated code 96146.
+
+The full 16-code map is retained as metadata_json.testingReference in each
+editable draft. Clinical Session, Direct Care and indirect duty references use
+the policy above. This is a versioned reference catalog; it does not activate
+operative payroll rules, rates, services, role assignments or payer billing.
+Activation remains governed by the deployment hold and prospective agreements.
+
+CONTRACT PRESENTATION — HANDBOOK REFERENCE
+New individual Testing terms state the duties, actual-time rates, allowance and
+approved supervision reference. They refer to the Workplace Handbook Testing
+area for code mappings, billing thresholds, examples and service qualifications.
+The builder's code guide is a preparation reference and is excluded from the
+generated agreement. Automatic Testing terms do not print procedure-code lists.
+New category/level previews use the descriptive therapeutic-skills service name
+for the combined program; the internal service identifier and pay data remain
+unchanged. Presentation version: handbook-service-reference-2026-11-13.
+Stored drafts, earlier generated snapshots and signed contracts are not rewritten.
+Legacy per-procedure agreements retain their existing generation path and require
+separate prospective review before conversion. No contracts are issued or deployed
+by this presentation correction.
+
+Seed preview from backend:
+  SKIP_DB_CONNECT=1 node src/scripts/seedTestingReferences.js
+    --env=/path/to/backend/.env --agencies=2,6,377,453,454
+The preview is read-only. Review its exact changes and stateHash. An explicit
+apply additionally requires --apply --expected-state=HASH --actor=ACTOR_ID
+and --backup=/new/private/backup.json. The apply verifies the state again,
+requires an active accountable superadmin, saves a private exclusive backup,
+and modifies only editable handbook/November drafts and an audit entry.
+Published versions/updates, other sections, existing pay terms and permissions
+are preserved. Missing QA drafts receive the Testing reference area only.
+Repeat the read-only preview afterward: all write counts must be zero.
+
+Current source references:
+https://www.apaservices.org/practice/reimbursement/health-codes/testing/billing-coding.pdf
+https://www.molinahealthcare.com/marketplace/ca/en-us/Members/Members%20Resources/-/media/78550F84C2074EF2BED422EDE7D58007.ashx

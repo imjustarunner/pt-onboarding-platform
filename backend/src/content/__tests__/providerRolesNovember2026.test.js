@@ -69,7 +69,7 @@ describe('November provider role policies',()=>{
  });
  it('requires documented exceptional non-master’s Category 3 placement without changing service authority',()=>{
   const row={category:3,level:1,paySystem:{nluCompensationPolicyVersion:NLU_COMPENSATION_POLICY_VERSION,indirectRate:22,supportActivityRate:18}};
-  const tokens={CREDENTIAL:'BA',CONTRACT_SERVICE_ROLES:['childcare']};
+  const tokens={CREDENTIAL:'BA',CONTRACT_SERVICE_ROLES:['childcare'],CONTRACT_SERVICE_ROLE_DETAILS:{childcare:{payLevel:1}}};
   expect(()=>employmentCategoryLevelTerms({agencySlug:'nlu',row,tokens})).toThrow('placement-exception approval');
   const terms=employmentCategoryLevelTerms({agencySlug:'nlu',row,tokens:{...tokens,NLU_CATEGORY_PLACEMENT_EXCEPTION_REFERENCE:'Approved role/qualifications/oversight/effective-date review #123'}});
   expect(terms.schedule.placementExceptionReference).toContain('#123');

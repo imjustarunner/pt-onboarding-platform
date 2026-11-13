@@ -89,7 +89,7 @@ export function getHandbookSource(agency, { employeeTemplates } = {}) {
   // These are review material only. Never put draft policies into a published
   // section or its metadata merely because their source snapshot is available.
   source.reviewUpdates = tenant === 'nlu' ? rolePolicy.updates : applyNluH2014ReviewClarification(rolePolicy.updates, tenant).map(update => ({ ...update, changed_content: correctDirectCareIndirectText(update.changed_content) }));
-  source.reviewUpdatesCapturedAt = '2026-11-12';
+  source.reviewUpdatesCapturedAt = '2026-11-13';
   return source;
 }
 
@@ -186,7 +186,7 @@ export function mergeSuppliedSections(sourceSections, existingSections, removedS
 }
 
 export function handbookMetadata(source) {
-  return { title: source.title, organization: source.organization, coverUrl: source.coverUrl, edition: source.edition, sourceDate: source.sourceDate, ...(source.presentation ? { presentation: structuredClone(source.presentation) } : {}), ...(source.forms ? { forms: structuredClone(source.forms) } : {}), ...(source.template ? { template: structuredClone(source.template) } : {}) };
+  return { title: source.title, organization: source.organization, coverUrl: source.coverUrl, edition: source.edition, sourceDate: source.sourceDate, ...(source.presentation ? { presentation: structuredClone(source.presentation) } : {}), ...(source.forms ? { forms: structuredClone(source.forms) } : {}), ...(source.template ? { template: structuredClone(source.template) } : {}), ...(source.testingReference ? { testingReference: structuredClone(source.testingReference) } : {}) };
 }
 
 export function parseHandbookMetadata(raw) {

@@ -1,3 +1,5 @@
+import {requireTestingEligibility} from '../services/testingEligibility.service.js';
+import {requiresTestingRole} from '../content/testingServicePolicy.js';
 import { attachClaimReferences } from '../services/clinicalClaimReferences.service.js';
 import { loadClaimFamily, claimRecordId } from '../services/claimFamily.service.js';
 import { serviceDetailBillingBlockers } from '../services/clinicalSupervisorReview.service.js';
@@ -45,6 +47,11 @@ export async function prepareClaimReview(agencyId, claimId) {
   claim.patient_control_number=family.patientControlNumber;
   const [lines] = await clinicalPool.execute('SELECT * FROM clinical_claim_lines WHERE clinical_claim_id = ? ORDER BY line_number', [claimId]);
   const readiness = await evaluateClaimReadiness({ agencyId, clientId: claim.client_id, clinicalSessionId: claim.clinical_session_id, clinicalNoteId: claim.clinical_note_id, requireSignedNote: true });
+  if(lines.some(line=>requiresTestingRole(line.procedure_code||line.service_code))) {
+    const [[session]]=await clinicalPool.execute('SELECT provider_user_id,scheduled_start_at FROM clinical_sessions WHERE id=? AND agency_id=?',[claim.clinical_session_id,agencyId]);
+    try { await requireTestingEligibility({agencyId,userId:Number(session?.provider_user_id),serviceCodes:lines.map(line=>line.procedure_code||line.service_code),clientId:claim.client_id,serviceDate:session?.scheduled_start_at||claim.service_date}); }
+    catch(error) { if(error.status!==403)throw error;readiness.blockers.push(error.message);readiness.ready=false; }
+  }
   if(claimRecordId(family.current)!==Number(claimId))readiness.blockers.push('A newer submission attempt exists for this claim. Open the current attempt from the claim history.');
   if (!claim.clinical_note_id || lines.some(line => Number(line.clinical_note_id) !== Number(claim.clinical_note_id))) throw fail(409, 'Every service line must be linked to this claim’s signed note');
   const sourceInsurance = await readClientInsurance(claim.client_id, agencyId);

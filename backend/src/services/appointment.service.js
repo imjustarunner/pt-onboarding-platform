@@ -1,3 +1,4 @@
+import {requireTestingEligibility} from './testingEligibility.service.js';
 import { normalizeCustomSessionReminders, readAppointmentNotificationRules, saveAppointmentNotificationRules, validateCustomReminderChannels } from './appointmentNotificationCustomization.service.js';
 import { recordQaAttendanceTerms, syncQaAppointmentBalance, requireQaOutcomeElapsed } from './qaAppointmentBilling.service.js';
 import { requireClientSessionBooking } from './clientSessionBookingRollout.service.js';
@@ -282,6 +283,7 @@ async function createLockedAppointment({
         appointmentTypeCode: 'SESSION', serviceCode, modality, scheduledStartAt: start, scheduledEndAt: end });
     }
   }
+  if(providerUserId)for(const client of bookingClients)await requireTestingEligibility({agencyId:aid,userId:providerUserId,serviceCodes:[serviceCode,...(addonServiceCodes||[])],clientId:client.id||client.client_id,serviceDate:start});
   if(clinicalBooking&&providerUserId){const resolved=await reconcileClinicalAfterHours({agencyId:aid,providerUserId,primaryCode:serviceCode,startAt:start,timeZone,modality:modality||service?.modality,placeOfService:actualPlaceOfService,addonServiceCodes,billing});addonServiceCodes=resolved.addonServiceCodes;}
   if (packageEntitlementId) {
     const entitlement = await BookingPackage.findEntitlementById(packageEntitlementId, aid);
@@ -545,6 +547,10 @@ async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId 
     for (const code of codes) await validateSchedulingSelection({ agencyId: existing.agencyId, providerId: provider.id, userRole: provider.role,
       providerCredentialText: provider.credential, appointmentTypeCode: 'SESSION', serviceCode: code,
       modality: patch.modality || existing.modality });
+  }
+  if(clinicalContextChanged || moved) {
+    const participants=patch.participants||await Appointment.listParticipants(appointmentId);
+    for(const participant of participants)if(participant.clientId||participant.client_id)await requireTestingEligibility({agencyId:existing.agencyId,userId:patch.providerUserId||existing.providerUserId,serviceCodes:[patch.serviceCode??existing.serviceCode,...(patch.addonServiceCodes??existing.addonServiceCodes??[])],clientId:participant.clientId||participant.client_id,serviceDate:patch.startAt||existing.startAt});
   }
   if (moved || (patch.providerUserId !== undefined && Number(patch.providerUserId) !== Number(existing.providerUserId))) {
     await assertAppointmentWindowAvailable(pool, { ...existing, ...patch,

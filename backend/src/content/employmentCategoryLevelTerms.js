@@ -8,6 +8,7 @@ import {ANNUAL_INDIRECT_COMMITMENT, INDIRECT_WORK_ADMINISTRATION, LEVEL_REVIEW_P
 import {employmentStarterClauses} from '../services/employmentStarter.service.js';
 import { programScheduleTerms, isProgramServiceRole } from './programServiceRates.js';
 import {nluEmploymentCategoryTerms} from './nluEmploymentCategoryTerms.js';
+import {TESTING_SERVICE_POLICY_VERSION,testingCompensationSchedule} from './testingServicePolicy.js';
 export const EMPLOYMENT_PAY_VERSION = 'category-level-employment-2026-10-29-program';
 const escape = s => String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const positive = value => Number.isFinite(Number(value)) && Number(value)>0;
@@ -22,6 +23,17 @@ export function employmentCategoryLevelTerms({row,tokens={},agencyName='the Prac
  const school=handbookTenant({slug:agencySlug || tokens.AGENCY_SLUG})==='itsco' && /\bschools?\b/i.test(tokens.SERVICE_FOCUS||'');
  const tenant = handbookTenant({slug:agencySlug || tokens.AGENCY_SLUG});
  const schedule={...p,supportRate:p.supportActivityRate,clinicalEligible:clinical,category:Number(row.category),level:Number(row.level),autoIndirectMinutes:directCareIndirectMinutes(p.autoIndirectMinutesPerHour),tier3LevelBonus:Number(p.tierBonus?.[3]||0),...programScheduleTerms({tenant,category:row.category,level:row.level})};
+ const roles=tokens.CONTRACT_SERVICE_ROLES||[];
+ const serviceCompensationTerms={};
+ if(roles.includes('psychological_testing')) {
+  const details=tokens.CONTRACT_SERVICE_ROLE_DETAILS||tokens.CONTRACT_EXPECTATIONS?.serviceRoleDetails||{};
+  Object.assign(schedule,{serviceRoles:[...roles],testingServicePolicyVersion:TESTING_SERVICE_POLICY_VERSION,
+   testingAdministrationRate:p.hcodeRate,testingAdministrationRateProbation:p.hcodeRateProbation,
+   testingEvaluationRate:p.creditRate,testingEvaluationRateProbation:p.creditRateProbation,
+   testingAuthorizationReference:details.psychological_testing?.authorizationTerms||'',
+   testingAuthorized:!!details.psychological_testing?.authorizationTerms});
+  serviceCompensationTerms.psychological_testing=testingCompensationSchedule(schedule);
+ }
  const adapt=s=>escape(s).replaceAll('ITSCO',escape(agencyName));
  const compensation=`<h2>Compensation · Category ${Number(row.category)}, Level ${Number(row.level)}</h2>
  <p>The individual schedule below sets the agreed rates for this appointment. Category reflects qualifications; level selects rates within that category. Workload and benefit tiers are separate. These terms replace conflicting legacy direct/indirect, hourly-or-credit and funding-percentage language for work under this agreement. Changes require advance written notice and any required agreement; earned pay and leave are preserved.</p>
@@ -32,7 +44,7 @@ export function employmentCategoryLevelTerms({row,tokens={},agencyName='the Prac
  <h3>Paid event work and level review</h3><p>${school?adapt(ANNUAL_INDIRECT_COMMITMENT):'The employee agrees to a minimum of four hours of assigned outreach or agency events per calendar year, paid separately at the agreed indirect hourly rate. Record actual work; these hours are not automatically added to payroll.'}</p><p>${adapt(INDIRECT_WORK_ADMINISTRATION)}</p><p>Review criteria are in the Workplace Handbook section “${LEVEL_EXPECTATIONS_TITLE}”.</p><p>${adapt(LEVEL_REVIEW_PROCESS)}</p><p>${adapt(LEVEL_CHANGE_PROCESS)}</p>`;
  const benefits=`<h2>Benefits, sick leave and reimbursements</h2><p>Paid time off, sick and personal care leave, training leave, and other eligible benefits follow the current handbook and applicable plan documents. Compensation categories, levels and benefit tiers are distinct. Health insurance contributions and other tier-based benefits follow the applicable benefit tier, enrollment requirements and plan terms. Student eligibility follows the handbook’s student-specific rules; this section does not automatically grant every employee benefit to a student. Prospective policy changes do not remove earned wages, protected leave, accrued rights or required reimbursements.</p><p>For clinical-credit services, the 1.20 equivalent is used for sick-leave accrual, not a separate 20% cash supplement: 25 credits yield 30 equivalent hours and one hour of sick leave. H-code work uses its direct and applicable indirect components once, without the clinical-credit multiplier. Separately worked indirect and support time is included. Reconcile to all actual compensable time and add any statutory shortfall; no probationary waiting period applies to protected sick leave.</p><p>${adapt(SICK_LEAVE_RATE_POLICY)}</p><p>${adapt(TRAINING_LEAVE_CLAUSE)}</p>${school?`<p>${adapt(SCHOOL_SUPPORT_CLAUSE)}</p><p>${adapt(SCHOOL_MILEAGE_CLAUSE)}</p>`:''}<p>${adapt(HEALTH_INSURANCE_CLAUSE)}</p>`;
  const legal=employmentStarterClauses().find(c=>c.clause_key==='STARTER_V1_LEGAL').body_html;
- return {compensation,benefits,legal,schedule,version:EMPLOYMENT_PAY_VERSION};
+ return {compensation,benefits,legal,schedule,serviceCompensationTerms,version:EMPLOYMENT_PAY_VERSION};
 }
 // Only known employment compensation/benefit blocks are replaced; unrelated
 // employment clauses remain selected by the agency configuration.

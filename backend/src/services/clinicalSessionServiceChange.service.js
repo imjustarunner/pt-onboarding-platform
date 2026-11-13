@@ -1,3 +1,4 @@
+import {requireTestingEligibility} from './testingEligibility.service.js';
 import {createHash, randomUUID} from 'node:crypto';
 import pool from '../config/database.js';
 import clinicalPool from '../config/clinicalDatabase.js';
@@ -83,6 +84,7 @@ async function editableNotes(clinical,session,user) {
   return notes;
 }
 async function eligibleTarget(main,session,user,input,d) {
+  await requireTestingEligibility({agencyId:input.agencyId,userId:user.id,serviceCodes:[input.serviceCode],clientId:Number(session.client_id),serviceDate:session.scheduled_start_at||session.date_of_service},main);
   const care=await d.readEligibility(user.id,input.agencyId,main);
   if(!care.canProvideCare)throw failure('Current client-care privileges are required to change a service.',403);
   const catalog=await d.resolveCatalog({agencyId:input.agencyId,credentialTier:care.credentialTier,allServiceCodes:[],eligibleServiceCodes:[]});

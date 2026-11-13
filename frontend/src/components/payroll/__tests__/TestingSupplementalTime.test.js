@@ -1,0 +1,21 @@
+import {it,expect,vi} from 'vitest';
+import {mount,flushPromises} from '@vue/test-utils';
+const m=vi.hoisted(()=>({request:vi.fn()}));
+vi.mock('../../../composables/useSubmitContext',()=>({useSubmitApi:()=>m}));
+import SupplementalTime from '../SupplementalTime.vue';
+it('labels Testing input as actual minutes and prorates the indirect allowance',async()=>{
+ const wrapper=mount(SupplementalTime,{props:{agencyId:2,context:{effective:true,startsOn:'2026-11-01',indirectMinutesPerHour:10},codes:[{code:'96136',group:'direct_care',basis:'minutes',creditValue:1/60,quantityLabel:'Actual eligible minutes ÷ 60'}]}});
+ await wrapper.get('.ft-time-actions button').trigger('click');
+ await wrapper.get('select').setValue('96136');
+ const numbers=wrapper.findAll('input[type=number]');
+ await numbers[0].setValue('30');await numbers[1].setValue('12');
+ expect(wrapper.text()).toContain('Documented direct-service minutes');
+ expect(wrapper.get('output').text()).toContain('Included automatically: 5 min');
+ expect(wrapper.get('output').text()).toContain('Extra time to submit: 7 min');
+ await wrapper.get('textarea').setValue('Scoring follow-up above included allowance');
+ await wrapper.get('input[minlength="3"]').setValue('Approved testing assignment');
+ await wrapper.get('input[type=checkbox]').setValue(true);
+ await wrapper.get('form').trigger('submit');await flushPromises();
+ expect(m.request).toHaveBeenCalledWith(expect.objectContaining({data:expect.objectContaining({payload:expect.objectContaining({totalMinutes:7,excessIndirect:{code:'96136',units:30,actualMinutes:12}})})}));
+ wrapper.unmount();
+});

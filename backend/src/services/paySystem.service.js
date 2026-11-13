@@ -1,4 +1,5 @@
 import {futureHireEnrollment, futureHirePayContext} from './futureHirePay.service.js';
+import {TESTING_SERVICE_POLICY_VERSION,testingServiceDefinition,computeTestingServicePay} from '../content/testingServicePolicy.js';
 import PayrollRate from '../models/PayrollRate.model.js';
 import { classifyPayType } from './payrollCodeClassification.js';
 export { classifyPayType } from './payrollCodeClassification.js';
@@ -242,6 +243,20 @@ export function computeLineAmount({ rateProfile, status, serviceCode, quantity, 
     autoIndirectHours: 0, autoIndirectAmount: 0, autoIndirectRate: 0,
     hcodeDirectAmount: 0, hcodeGrossAmount: 0, totalWithAutoIndirect: 0,
     hcodeFallbackToCredit: false, fixedSupplementalRate: false, splitNote: null
+  };
+  const testing=computeTestingServicePay({profile:rateProfile,status,serviceCode:code,actualMinutes,serviceContext});
+  if(testing) return {
+    serviceCode:code,payType:testing.definition.bucket,units:Number(quantity)||0,
+    payDivisor:1,creditValue:0,payHours:testing.hours,hourEquivalent:testing.hours,
+    quantityLabel:`${Number(actualMinutes)} actual work minutes`,rate:testing.rate,
+    rateLabel:testing.definition.bucket==='credit'?'testing_evaluation_hourly_rate':'direct_care_actual_time_rate',
+    amount:round2(testing.amount),autoIndirectHours:testing.autoIndirectHours,
+    autoIndirectAmount:round2(testing.autoIndirectAmount),autoIndirectRate:testing.indirectRate,
+    hcodeDirectAmount:round2(testing.amount),hcodeGrossAmount:round2(testing.amount+testing.autoIndirectAmount),
+    totalWithAutoIndirect:round2(testing.amount+testing.autoIndirectAmount),hcodeFallbackToCredit:false,
+    fixedSupplementalRate:true,splitNote:null,leaveAdminRatio:0,
+    compensationPolicyVersion:rateProfile.compensationPolicyVersion,testingServicePolicyVersion:rateProfile.testingServicePolicyVersion,
+    minimumHourlyRate:testing.minimumHourlyRate,wageFloorJurisdiction:testing.wageFloorJurisdiction
   };
   const nlu=computeNluServicePay({profile:rateProfile,status,serviceCode:code,actualMinutes,serviceContext});
   if(nlu) {
@@ -912,7 +927,9 @@ function splitAgreementDatedLines(breakdown, {status,rateProfile,datedUnitsByCod
     if (!row || typeof row!=='object' || key.startsWith('__') || key==='AUTO INDIRECT' || row.supervisionTrackingOnly || ['percent_collected','percent_billed','historical_fixed'].includes(row.payMethod)) continue;
     const code=canonicalServiceCode(key,row), units=Number(row.finalizedUnits??row.units??0);
     const nluActualTime=isNluCompensationProfile(rateProfile)&&!!nluCompensationService(code);
-    if (!(units>0) || (classifyPayType(code,row)==='skip'&&!nluActualTime)) continue;
+    const testing=testingServiceDefinition(code);
+    const actualTimeRequired=nluActualTime||(rateProfile.testingServicePolicyVersion===TESTING_SERVICE_POLICY_VERSION&&testing&&testing.code!=='H0004');
+    if (!(units>0) || (classifyPayType(code,row)==='skip'&&!actualTimeRequired)) continue;
     const dates=datedUnitsByCode?.get(code) || [];
     if(dates.some(item=>!Number.isFinite(Number(item.units??item.payable_units)) || Number(item.units??item.payable_units)<0))throw Object.assign(new Error(`Invalid dated units for ${code}; reconcile the import before applying the amendment.`),{code:'AMENDMENT_PAYROLL_REVIEW_REQUIRED'});
     const total=dates.reduce((n,d)=>n+Math.max(0,Number(d.units??d.payable_units??0)),0);
@@ -933,22 +950,22 @@ function splitAgreementDatedLines(breakdown, {status,rateProfile,datedUnitsByCod
       const lineStatus=resolveUserPaySystemStatus({...args,assignment:prior?status.agreementLegacyAssignment:args.assignment,asOfDate:date});
       const datedProfile=prior?status.agreementPriorRateProfile:profileWithDatedAddition(rateProfile,date);
       let actualMinutes=null,serviceContext=null;
-      if(nluActualTime){
+      if(actualTimeRequired){
         actualMinutes=item.actualMinutes??item.actual_work_minutes??(dates.length===1?(row.actualMinutes??row.actual_work_minutes):null);
-        serviceContext=item.serviceContext??(dates.length===1?row.serviceContext:null);
+        serviceContext=item.serviceContext??(dates.length===1?row.serviceContext:null)??(nluActualTime?null:{});
         if(actualMinutes==null||!Number.isFinite(Number(actualMinutes))||Number(actualMinutes)<0||!serviceContext||typeof serviceContext!=='object')throw Object.assign(new Error(`Actual work minutes and service context are required for each dated ${code} record; billing units cannot allocate aggregate work time.`),{code:'AMENDMENT_PAYROLL_REVIEW_REQUIRED'});
         actualMinutes=Number(actualMinutes);totalActualMinutes+=actualMinutes;
       }
-      const groupKey=`${prior?'prior':'amendment'}-${lineStatus.useReducedRates?'reduced':'regular'}-${programProbationApplies(datedProfile,lineStatus)?'program-probation':'program-regular'}-${datedProfile.conditionalAdditionPolicyId||''}-${date >= (datedProfile.supplementalRatesEffectiveOn || '') ? 'supplemental' : 'legacy'}${nluActualTime?'-'+date+'-'+JSON.stringify(serviceContext):''}`;
+      const groupKey=`${prior?'prior':'amendment'}-${lineStatus.useReducedRates?'reduced':'regular'}-${programProbationApplies(datedProfile,lineStatus)?'program-probation':'program-regular'}-${datedProfile.conditionalAdditionPolicyId||''}-${date >= (datedProfile.supplementalRatesEffectiveOn || '') ? 'supplemental' : 'legacy'}${actualTimeRequired?'-'+date+'-'+JSON.stringify(serviceContext):''}`;
       const group=groups.get(groupKey)||{units:0,status:lineStatus,profile:datedProfile,actualMinutes:0,serviceContext};
-      group.units+=Number(item.units??item.payable_units??0);if(nluActualTime)group.actualMinutes+=actualMinutes;groups.set(groupKey,group);
+      group.units+=Number(item.units??item.payable_units??0);if(actualTimeRequired)group.actualMinutes+=actualMinutes;groups.set(groupKey,group);
     }
     const aggregateMinutes=row.actualMinutes??row.actual_work_minutes;
-    if(nluActualTime&&aggregateMinutes!=null&&(!Number.isFinite(Number(aggregateMinutes))||Math.abs(totalActualMinutes-Number(aggregateMinutes))>0.000001))throw Object.assign(new Error(`Dated actual work minutes for ${code} do not match the aggregate time; reconcile the work records before calculating pay.`),{code:'AMENDMENT_PAYROLL_REVIEW_REQUIRED'});
+    if(actualTimeRequired&&aggregateMinutes!=null&&(!Number.isFinite(Number(aggregateMinutes))||Math.abs(totalActualMinutes-Number(aggregateMinutes))>0.000001))throw Object.assign(new Error(`Dated actual work minutes for ${code} do not match the aggregate time; reconcile the work records before calculating pay.`),{code:'AMENDMENT_PAYROLL_REVIEW_REQUIRED'});
     delete breakdown[key];
     let first=true;
     for(const [groupKey,group] of groups) {
-      breakdown[first?key:`${key}__${groupKey}`]=scaleBreakdownRow(row,group.units,{displayServiceCode:code,rateEraStatus:group.status,agreementRateProfile:group.profile,...(nluActualTime?{actualMinutes:group.actualMinutes,serviceContext:group.serviceContext}:{})}); first=false;
+      breakdown[first?key:`${key}__${groupKey}`]=scaleBreakdownRow(row,group.units,{displayServiceCode:code,rateEraStatus:group.status,agreementRateProfile:group.profile,...(actualTimeRequired?{actualMinutes:group.actualMinutes,serviceContext:group.serviceContext}:{})}); first=false;
     }
   }
 }

@@ -1,6 +1,9 @@
 import { NLU_COMPENSATION_POLICY_VERSION, NLU_COMPENSATION_CATEGORIES, NLU_PAY_LEVELS, NLU_FOUNDATIONAL_RATES, NLU_BACHELOR_CHILDCARE_RATES, NLU_BACHELOR_TUTORING_VIRTUAL_RATES, NLU_BACHELOR_TUTORING_IN_PERSON_RATES } from './nluCompensationPolicy.js';
 
-export const PROVIDER_ROLES_RELEASE = 'provider-roles-2026-11-12';
+import {testingCodeReferenceHtml} from './testingServicePolicy.js';
+import {testingReferenceSections,testingReferenceCatalog,testingDigestBody,TESTING_ROOT_SLUG,TESTING_SECTION_SLUGS} from './testingHandbookReference.js';
+
+export const PROVIDER_ROLES_RELEASE = 'provider-roles-2026-11-13-testing-examples';
 const supported = new Set(['itsco','nlu','isi']);
 const esc = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const p = text => `<p>${text}</p>`;
@@ -31,7 +34,8 @@ export function childcarePolicyHtml(tenant) {
 <h3>Required work and pay</h3><p>${nlu?'Required preparation, cleanup and on-duty availability without children present use the employee’s applicable one-child base childcare rate unless a different assignment and rate were established in advance. Childcare receives no automatic indirect allowance under this schedule.':'The completed individual schedule must state the approved childcare rates, treatment of shared groups and paid preparation, cleanup and on-duty availability before work. Another agency’s category numbers, rate amounts and rate caps do not apply automatically to this Practice.'} Record all actual compensable work. Apply the highest applicable wage floor and required overtime; do not treat the absence of children or a billable client service as unpaid required availability.</p>`;
 }
 
-export const TESTING_PROTOCOL_HTML = `<h3>Qualified personnel and direct supervision</h3><p>The Practice distinguishes administration/scoring, professional evaluation/interpretation/reporting/feedback, and separately eligible clinical telephone assessment. Assign testing only after documenting the instrument, purpose, individual’s training and competency, authorized component, responsible professional, supervision, consent and payer authorization. Tutoring assessments and educational progress checks are not automatically psychological testing.</p>
+const TESTING_PROTOCOL_CORE_HTML = `<h3>Qualified personnel and direct supervision</h3><p>The Practice distinguishes administration/scoring, professional evaluation/interpretation/reporting/feedback, and separately eligible clinical telephone assessment. Assign testing only after documenting the instrument, purpose, individual’s training and competency, authorized component, responsible professional, supervision, consent and payer authorization. Tutoring assessments and educational progress checks are not automatically psychological testing.</p>
+<p>The October 2026 SBHS testing pages list interns, unlicensed master's/doctoral providers, LCSWs, LPCs, LMFTs, licensed doctoral providers, APNs, RxNs, PAs and MDs/DOs as service-provider categories for the professional testing families. This list does not authorize every listed person to administer every instrument or independently interpret results. Verify the exact code, billing provider type, current benefit and rendering qualifications. Technician 96138/96139 and automated 96146 have distinct service definitions; use their own pathway. A bachelor's degree or an internal Testing role alone does not establish eligibility.</p>
 <p>Colorado C.R.S. §12-245-232 establishes testing-specific qualifications. Subsection (3) permits a qualified psychometrician or student trainee to administer testing under the direct supervision of a licensee who meets that section’s requirements. It is not blanket authority for any employee to practice under another person’s license. The responsible licensee must meet the qualifications for the actual instrument and testing activity. Advanced testing has additional qualification requirements. <a href="https://olls.info/crs/crs2026-title-12.htm">Colorado Revised Statutes, Title 12, §12-245-232</a>.</p>
 <p>Subsection (3) expressly addresses administration. Scoring duties, interpretation and evaluation responsibilities require their own documented qualification and authorization review.</p><p>The supervisor’s ethical and safe-environment responsibilities remain in effect. Direct supervision also requires appropriate review, direction, competence, disclosures and records under the applicable board rules, including LPC Rule 1.7 when applicable. Delegated administration does not independently authorize a technician to interpret results, reach clinical conclusions, sign an independent evaluation or use the supervisor’s rendering credentials. <a href="https://www.sos.state.co.us/CCR/GenerateRulePdf.do?ruleVersionId=12132&amp;fileName=4%20CCR%20737-1">Colorado LPC Rules, 4 CCR 737-1</a>.</p>
 <h3>Separate service components and roles</h3><p>Administration/scoring includes the authorized instrument administration, relevant observations and scoring according to instructions. Professional evaluation includes authorized interpretation, integration with history, clinical decisions, recommendations, report preparation and feedback. Final interpretation and conclusions remain with the appropriately qualified and authorized professional. Trainees participate only within their permitted role and supervision.</p>
@@ -40,6 +44,8 @@ export const TESTING_PROTOCOL_HTML = `<h3>Qualified personnel and direct supervi
 <p>Under a payer’s applicable midpoint method, 30-minute administration families commonly reach one initial unit at 16–45 cumulative minutes and the first add-on at 46–75; 60-minute evaluation families commonly reach one initial unit at 31–90 minutes and the first add-on at 91–150. Verify the actual code and payer rule before applying these illustrations. Do not start an add-on automatically at minute 31 or 61.</p>
 <h3>Telephone work</h3><p>A clinical telephone assessment is distinct from scheduling, reminders and administrative messages. Before using a telephone code such as 98966, verify that the code remains available and covered for the payer/date, the individual is eligible, the patient/parent/guardian relationship and duration qualify, and related prior/subsequent-service exclusions are met. Calls with school personnel are not automatically eligible. Feedback already included in a testing evaluation cannot also be billed as a separate telephone service for the same work. Record and pay required actual work even when no separate claim is allowed.</p>
 <h3>Payer verification and duplicate billing</h3><p>Verify each payer’s covered codes, service-provider qualifications, rendering provider, oversight, authorization, modifiers and limits. Colorado Medicaid testing guidance does not cover every illustrative family above or create one universal claim pathway. FFS, managed-care and RAE instructions may differ; verify the current HCPF instructions and date-specific unlicensed/pre-licensed reporting rules. <a href="https://hcpf.colorado.gov/sbhs-billing-manual">Health First Colorado behavioral-health billing manual</a>.</p><p>Do not bill or pay the same activity/minutes twice as testing, psychotherapy, telephone work or another service. Do not split work artificially to generate extra initial/add-on codes. Keep insurance claim units, reimbursement and employee actual-time pay separate.</p>`;
+
+export const TESTING_PROTOCOL_HTML = TESTING_PROTOCOL_CORE_HTML + testingCodeReferenceHtml();
 
 export function nluChildcarePayHtml() {
  const rows=base=>base.map((v,i)=>[i+1,...[0,4,6,8].map(add=>money(v+add))]);
@@ -96,7 +102,7 @@ export function applyProviderRolesNovemberPolicy(source,updates=[],tenant) {
  const additions=[
   section('counseling-and-psychotherapy-role-expectations','Counseling support and psychotherapy: qualifications and expectations',COUNSELING_EXPECTATIONS_HTML),
   section('childcare-role-and-supervision','Childcare role, staffing and supervision',childcarePolicyHtml(tenant)),
-  section('psychological-testing-and-telephone-protocol','Psychological testing, supervision and telephone services',TESTING_PROTOCOL_HTML)
+  ...testingReferenceSections(TESTING_PROTOCOL_HTML)
  ];
  if(tenant==='isi') {
   const focus=source.sections.find(s=>s.slug==='service-focus-assignment');
@@ -111,7 +117,7 @@ export function applyProviderRolesNovemberPolicy(source,updates=[],tenant) {
    section('nlu-service-specific-pay-levels','Service-specific Pay Levels 1–5',table(['Pay level','Provider designation','Placement considerations'],NLU_PAY_LEVELS.map(l=>[l.level,l.label,l.description]))+p('Advancement is not automatic. All categories retain five levels. Document separate childcare/tutoring placement when needed; a clinical title or pay level does not automatically establish an advanced tutoring level.')),
    section('nlu-childcare-compensation','Childcare compensation',nluChildcarePayHtml()+WAGE_FLOOR_HTML),
    section('nlu-tutoring-compensation','Tutoring compensation and placement',nluTutoringPayHtml()+WAGE_FLOOR_HTML),
-   section('nlu-testing-compensation','Testing and clinical telephone compensation',nluTestingPayHtml()+WAGE_FLOOR_HTML));
+   section('nlu-testing-compensation','Testing and clinical telephone compensation',nluTestingPayHtml()+WAGE_FLOOR_HTML,TESTING_ROOT_SLUG));
   for(const category of [1,2,3,4])put(source,nluRateCategorySection(category));
   put(source,section('compensation-category-placement','Compensation category placement',nluCategoryDefinitionsHtml()));
   const program=source.sections.find(s=>s.slug==='nlu-tutoring-and-h2014-compensation');
@@ -122,10 +128,11 @@ export function applyProviderRolesNovemberPolicy(source,updates=[],tenant) {
   }
  }
  for(const value of additions)put(source,value);
+ source.testingReference=testingReferenceCatalog();
  const affected=new Set(additions.map(s=>s.slug));
  if(tenant==='nlu')for(const s of source.sections)if(/^compensation-rate-category-[1-4]$/.test(s.slug)||s.slug==='compensation-category-placement'||s.slug==='nlu-tutoring-and-h2014-compensation')affected.add(s.slug);
  // Only draft source-review entries are reconciled here; saved historical editions are untouched.
- const revised=updates.map(update=>{
+ const revised=updates.filter(update=>!(update.period_label==='November 2026'&&update.status==='draft'&&TESTING_SECTION_SLUGS.includes(update.handbook_section_slug))).map(update=>{
   const value={...update};
   if(tenant==='nlu') {
    value.changed_content=remapNluCategories(value.changed_content);
@@ -137,7 +144,8 @@ export function applyProviderRolesNovemberPolicy(source,updates=[],tenant) {
   if(destinations.some(slug=>affected.has(slug)))value.changed_content=destinations.map(slug=>source.sections.find(s=>s.slug===slug)).filter(Boolean).map(s=>`<h3>${s.title}</h3>${s.bodyHtml}`).join('');
   return value;
  });
- const digestSections=[...additions,...(tenant==='nlu'?[section('compensation-category-placement','Four-category pay schedules and prospective transition',source.sections.filter(s=>/^compensation-rate-category-[1-4]$/.test(s.slug)).map(s=>`<h3>${s.title}</h3>${s.bodyHtml}`).join(''))]:[])];
+ const testingUpdate=section(TESTING_ROOT_SLUG,'Testing — verified code examples, pay buckets and eligibility',testingDigestBody(source.sections));
+ const digestSections=[...additions.filter(s=>!TESTING_SECTION_SLUGS.includes(s.slug)),testingUpdate,...(tenant==='nlu'?[section('compensation-category-placement','Four-category pay schedules and prospective transition',source.sections.filter(s=>/^compensation-rate-category-[1-4]$/.test(s.slug)).map(s=>`<h3>${s.title}</h3>${s.bodyHtml}`).join(''))]:[])];
  for(const value of digestSections) {
   const update={id:`${tenant}-${PROVIDER_ROLES_RELEASE}-${value.slug}`,status:'draft',period_label:'November 2026',digest_title:'November 2026 Workplace Handbook Updates',subject:value.title,rationale:tenant==='nlu'?'Adopt the owner-supplied four-category NLU policy and service-specific schedules prospectively; preserve existing individual terms and distinguish service eligibility from compensation.':'Add separately reviewable childcare/testing duties and distinguish bachelor’s-level support from master’s-level psychotherapy while preserving this agency’s existing compensation categories and individual rates.',changed_content:value.bodyHtml,handbook_section_slug:value.slug,policy_section_slugs:[value.slug],related_section_slugs:[],link_origin:'source_review'};
   const index=revised.findIndex(row=>row.id===update.id);
