@@ -1,3 +1,5 @@
+import { listClientServices } from './clientServiceEnrollment.service.js';
+import { guardianServiceAllowed } from '../utils/guardianServiceRestrictions.js';
 import { readProviderServices } from './providerServiceOfferings.service.js';
 import pool from '../config/database.js';
 import { authorizedAppointmentClient } from './guardianAppointments.service.js';
@@ -18,11 +20,18 @@ async function context(input) {
   // Pilot the standard appointment flow in the isolated ITSCO workspace first.
   const learning = ['learning','tutoring'].includes(client.client_type) && (!client.service || client.service.service_kind === 'tutoring');
   if (!learning && (!isAuricwellQaAgency(agency) || !await getAgencySelfPayOnly(agency.id))) throw fail('Online session booking is not enabled for this workspace.', 409);
+  let assigned;
+  if (learning) {
+    const enrollments=client.service?[client.service]:await listClientServices(input.clientId,agency.id);
+    assigned=new Set(enrollments.filter(service=>Number(service.agency_id)===Number(agency.id)&&Number(service.is_active)===1
+      &&service.service_kind==='tutoring'&&guardianServiceAllowed(client,service)).map(service=>Number(service.provider_user_id)).filter(Boolean));
+  } else {
   const [assignments] = await pool.execute(`SELECT DISTINCT u.id FROM users u JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=?
     JOIN clients c ON c.id=? AND c.agency_id=ua.agency_id
     WHERE u.id=c.provider_id OR EXISTS (SELECT 1 FROM client_provider_assignments a
       WHERE a.client_id=c.id AND a.provider_user_id=u.id AND a.is_active=1)`, [agency.id, input.clientId]);
-  const assigned = new Set(assignments.map(row => Number(row.id)));
+  assigned = new Set(assignments.map(row => Number(row.id)));
+  }
   const providers = (await sessionBookingProviders(agency.id)).filter(provider => assigned.has(provider.id));
   return { client, agency, providers, learning };
 }

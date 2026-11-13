@@ -1,5 +1,6 @@
 import {beforeEach,it,expect,vi} from 'vitest';
-const m=vi.hoisted(()=>({execute:vi.fn(),access:vi.fn(),providers:vi.fn(),rollout:vi.fn(),services:vi.fn(),assigned:vi.fn(),availability:vi.fn(),policy:vi.fn(),quote:vi.fn(),selfPay:vi.fn(),create:vi.fn(),event:vi.fn(),link:vi.fn(),offerings:vi.fn()}));
+const m=vi.hoisted(()=>({execute:vi.fn(),access:vi.fn(),providers:vi.fn(),rollout:vi.fn(),services:vi.fn(),assigned:vi.fn(),availability:vi.fn(),policy:vi.fn(),quote:vi.fn(),selfPay:vi.fn(),create:vi.fn(),event:vi.fn(),link:vi.fn(),offerings:vi.fn(),enrollments:vi.fn()}));
+vi.mock('../clientServiceEnrollment.service.js',()=>({listClientServices:m.enrollments}));
 vi.mock('../providerServiceOfferings.service.js',()=>({readProviderServices:m.offerings}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute,getConnection:async()=>({execute:async(sql,args)=>sql.includes('GET_LOCK')?[[{acquired:1}]]:m.execute(sql,args),release:vi.fn()})}}));
 vi.mock('../guardianAppointments.service.js',()=>({authorizedAppointmentClient:m.access}));
@@ -16,7 +17,7 @@ const terms={policyId:3,noticeHours:24,lateFeeCents:8000,noShowFeeCents:10000,se
 const startAt=new Date(Date.now()+86400000*7).toISOString();const endAt=new Date(+new Date(startAt)+3600000).toISOString();
 const input={userId:1450,clientId:2272,agencyId:450,providerId:1433,tenantServiceId:287,startAt,endAt,modality:'VIRTUAL',confirmed:true,acknowledgedTerms:terms};
 beforeEach(()=>{
- vi.resetAllMocks();m.access.mockResolvedValue({agency_id:450});m.execute.mockImplementation(async sql=>sql.includes('FROM agencies')?[[{id:450,slug:'auricwell-qa-demo',feature_flags:{qaSandbox:{syntheticOnly:true}}}]]:[[{id:1433}]]);
+ vi.resetAllMocks();m.enrollments.mockResolvedValue([{id:1038,agency_id:453,is_active:1,service_kind:'tutoring',provider_user_id:1433}]);m.access.mockResolvedValue({agency_id:450});m.execute.mockImplementation(async sql=>sql.includes('FROM agencies')?[[{id:450,slug:'auricwell-qa-demo',feature_flags:{qaSandbox:{syntheticOnly:true}}}]]:[[{id:1433}]]);
  m.providers.mockResolvedValue([{id:1433,name:'Avery'},{id:1438,name:'Cameron'}]);m.assigned.mockResolvedValue([287]);m.selfPay.mockResolvedValue(true);
  m.services.mockResolvedValue([{id:287,isActive:true,isPubliclyBookable:true,billingMethod:'self_pay',businessType:'mental_health',defaultDurationMinutes:60,modality:'EITHER',cancellationPolicyId:3}]);
  m.policy.mockResolvedValue({policy:{id:3,noticeHours:24,lateFeeCents:8000,noShowFeeCents:10000}});m.quote.mockResolvedValue({amountCents:12000});
@@ -43,7 +44,7 @@ it('reports a saved appointment if calendar linking fails, without creating anot
 });
 
 it('books post-session tutoring without a clinical rollout or a purchased package',async()=>{
- m.access.mockResolvedValue({agency_id:453,client_type:'learning',service:{service_kind:'tutoring'}});
+ m.access.mockResolvedValue({agency_id:453,client_type:'learning',service:{id:1038,agency_id:453,is_active:1,service_kind:'tutoring',provider_user_id:1433}});
  m.execute.mockImplementation(async sql=>sql.includes('FROM agencies')?[[{id:453,slug:'nlu-qa-demo'}]]:sql.includes('payment_policy')?[[{payment_policy:'POST_SESSION'}]]:[[{id:1433}]]);
  m.offerings.mockResolvedValue({careEligibility:{canProvideCare:true},services:[{serviceType:'tutoring',offered:true,onlineScheduling:true}]});
  m.services.mockResolvedValue([{id:287,isActive:true,isPubliclyBookable:true,billingMethod:'self_pay',businessType:'tutoring',serviceCode:'TUTORING',defaultDurationMinutes:60,modality:'IN_PERSON'}]);
@@ -60,4 +61,15 @@ it('shows the standard zero-fee fallback when tutoring has no configured attenda
  m.services.mockResolvedValue([{id:287,isActive:true,isPubliclyBookable:true,billingMethod:'self_pay',businessType:'tutoring',serviceCode:'TUTORING',defaultDurationMinutes:60,modality:'EITHER'}]);m.policy.mockResolvedValue({policy:null});
  const {choices}=await guardianBookingOptions(input);expect(choices).toHaveLength(2);expect(choices.map(c=>c.modality)).toEqual(['TELEHEALTH','IN_PERSON']);
  expect(choices[0].terms).toMatchObject({policyId:null,lateFeeCents:0,noShowFeeCents:0});
+});
+
+it('uses the selected tutoring assignment and never substitutes a legacy or other-service provider',async()=>{
+ m.access.mockResolvedValue({agency_id:453,client_type:'learning',service:{id:1038,agency_id:453,is_active:1,service_kind:'tutoring',provider_user_id:1433}});
+ m.execute.mockImplementation(async sql=>sql.includes('FROM agencies')?[[{id:453}]]:sql.includes('payment_policy')?[[{payment_policy:'POST_SESSION'}]]:[[{id:1438}]]);
+ m.offerings.mockResolvedValue({careEligibility:{canProvideCare:true},services:[{serviceType:'tutoring',offered:true,onlineScheduling:true}]});
+ m.services.mockResolvedValue([{id:287,isActive:true,isPubliclyBookable:true,billingMethod:'self_pay',businessType:'tutoring',serviceCode:'TUTORING',defaultDurationMinutes:60,modality:'IN_PERSON'}]);
+ expect((await guardianBookingOptions(input)).choices.map(c=>c.providerId)).toEqual([1433]);
+ expect(m.execute.mock.calls.some(([sql])=>sql.includes('client_provider_assignments'))).toBe(false);
+ m.access.mockResolvedValue({agency_id:453,client_type:'learning'});m.enrollments.mockResolvedValue([{agency_id:6,is_active:1,service_kind:'tutoring',provider_user_id:1433},{agency_id:453,is_active:0,service_kind:'tutoring',provider_user_id:1433}]);
+ expect((await guardianBookingOptions(input)).choices).toEqual([]);
 });
