@@ -102,7 +102,7 @@ export async function bookSessionInOwnedOffice(input) {
           modality: input.modality, serviceCode: input.serviceCode, serviceLocationId: input.serviceLocationId,
           addonServiceCodes: input.addonServiceCodes || [], tenantServiceId: input.tenantServiceId, packageEntitlementId: input.packageEntitlementId,
           title: 'Client session', notes: input.notes, notificationMode: input.notificationMode || 'default', customReminders,
-          source: bookingSource, createdByUserId: input.actorUserId,
+          source: bookingSource, createdByUserId: input.actorUserId, billing: input.billing || null,
           participants: [{ role: 'client', clientId: input.clientId, isBillingResponsible: true, receivesReminders: true }],
           ensureContext: false, deferScheduleNotice: true });
         linked.push(appointment);

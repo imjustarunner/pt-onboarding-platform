@@ -40,6 +40,10 @@ jobs:
         run: |
           npm ci --prefix backend
           npm ci --prefix frontend --ignore-scripts
+      - name: Care invitation delivery, insurance gating, and guardian portal setup
+        run: |
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.care-invitations.config.js
+          node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.care-invitations.config.js
       - name: How-to videos and expiring school provider training
         run: |
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.how-to-videos.config.js

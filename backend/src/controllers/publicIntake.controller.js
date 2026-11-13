@@ -3133,6 +3133,12 @@ const resolvePublicIntakeContext = async (publicKey) => {
   if (!key) return { link: null, issuedRoiLink: null, boundClient: null };
   const directLink = await IntakeLink.findByPublicKey(key);
   if (directLink) {
+    if(key.startsWith('care-')) {
+    const [[careInvitation]]=await pool.execute(`SELECT CONCAT_WS(' ',u.first_name,u.last_name) providerName,i.modality,i.start_at startAt,i.time_zone timeZone,i.frequency
+      FROM care_invitations i JOIN users u ON u.id=i.provider_user_id WHERE i.intake_link_id=? LIMIT 1`,[directLink.id]);
+    if(careInvitation)directLink.care_invitation=careInvitation;
+    }
+
     // Saved update keys are authoritative even if a link marker was edited.
     // Check before enrollment masters, invitations or roster paths can run.
     const updateBinding=await resolveClientUpdatePacketBinding(directLink);
@@ -6246,6 +6252,7 @@ export const getPublicIntakeLink = async (req, res, next) => {
       link: {
         id: link.id,
         title: link.title,
+        care_invitation: link.care_invitation || null,
         description: publicDescription,
         language_code: link.language_code || 'en',
         scheduling_timezone: agency?.id ? await ProviderAvailabilityService.resolveAgencyTimeZone({ agencyId: agency.id }) : null,
@@ -6777,6 +6784,10 @@ export const createPublicIntakeSession = async (req, res, next) => {
     const draftExpiresAt = enrollmentPacket ? retentionExpiresAt : null;
     const sessionToken = crypto.randomBytes(18).toString('hex');
 
+    if(link.care_invitation) {
+      const [[used]]=await pool.execute("SELECT id FROM intake_submissions WHERE intake_link_id=? AND status='submitted' LIMIT 1",[link.id]);
+      if(used)throw Object.assign(new Error('This care invitation has already been completed. Use your confirmation email to set up or open your guardian portal.'),{status:409});
+    }
     let submission = await IntakeSubmission.create({
       intakeLinkId: link.id,
       status: 'started',
@@ -13303,6 +13314,12 @@ async function validateSubmittedProviderPreferences(link, intakeData) {
           AND COALESCE(u.is_archived, 0) = 0 AND u.status = 'ACTIVE_EMPLOYEE'`, [id]);
       return scopeLearningIntakeProviders(id, rows.map(row => ({ ...row, acceptingNewClients: !!row.accepting })), options.programType);
     } : listOfficeIntakeProviders;
+  if(link.care_invitation) {
+    // Staff-issued placement stays server-side; browser choices cannot reroute it.
+    const bag=intakeData?.responses?.submission;
+    if(bag)for(const key of ['preferred_office_provider_ids','preferred_office_provider_summary','requested_profile_provider_id','enrollment_source','providerSelection','providerSelections','requested_opening_preference'])delete bag[key];
+    return null;
+  }
   return validateEnrollmentProviderSelection({ link, intakeData, agencyId, loadProviders });
 }
 

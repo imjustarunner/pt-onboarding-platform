@@ -130,7 +130,7 @@ export async function processIntakeEligibility(job,policy,config,deps={}) {
   const connection=await (deps.connection||resolveClaimMdConnection)(job.agency_id);
   requireClaimMdEligibility(connection,job.agency_id,deps.env||process.env);
   const profile=await (deps.profile||getClaimMdBillingProfile)(job.agency_id,config.officeId);
-  const fingerprint=coverageFingerprint(insurance),serviceDate=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Denver',year:'numeric',month:'2-digit',day:'2-digit'}).format(deps.now||new Date());
+  const fingerprint=coverageFingerprint(insurance),serviceDate=job.care_start_at?new Intl.DateTimeFormat('en-CA',{timeZone:job.care_time_zone||'America/Denver',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(job.care_start_at)):new Intl.DateTimeFormat('en-CA',{timeZone:'America/Denver',year:'numeric',month:'2-digit',day:'2-digit'}).format(deps.now||new Date());
   let needsReview=false;
   const discoveries=[];
   const medicaidDiscovery=needsMedicaidDiscovery(insurance,config);
@@ -176,8 +176,9 @@ export async function runIntakeEligibilityJobs(deps={}) {
   // A crash may occur after transmission. The pre-existing billing task remains;
   // interrupted jobs need investigation instead of a second paid lookup.
   await db.execute("UPDATE intake_eligibility_jobs SET status='review_required' WHERE status='processing' AND updated_at<DATE_SUB(NOW(),INTERVAL 30 MINUTE)");
-  const [jobs]=await db.execute(`SELECT j.*,a.feature_flags,p.reviewer_user_id,p.enabled AS automation_enabled FROM intake_eligibility_jobs j
+  const [jobs]=await db.execute(`SELECT j.*,ci.start_at AS care_start_at,ci.time_zone AS care_time_zone,a.feature_flags,p.reviewer_user_id,p.enabled AS automation_enabled FROM intake_eligibility_jobs j
     JOIN agencies a ON a.id=j.agency_id JOIN agency_eligibility_automation p ON p.agency_id=j.agency_id
+    LEFT JOIN intake_submissions cs ON cs.id=j.submission_id LEFT JOIN care_invitations ci ON ci.intake_link_id=cs.intake_link_id AND ci.agency_id=j.agency_id
     JOIN clients c ON c.id=j.client_id AND c.agency_id=j.agency_id
     WHERE j.status='pending' AND a.is_active=1 AND COALESCE(a.is_archived,0)=0 AND p.enabled=1
       AND c.compliance_archived_at IS NULL AND c.status NOT IN ('ARCHIVED','INACTIVE','TERMINATED') ORDER BY j.id LIMIT 25`);

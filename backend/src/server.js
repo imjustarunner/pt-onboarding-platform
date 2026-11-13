@@ -3223,3 +3223,14 @@ const noteworthyCleanupTick=async()=>{
 };
 setTimeout(noteworthyCleanupTick,45000).unref();
 setInterval(noteworthyCleanupTick,5*60*1000).unref();
+
+// Recipient-bound care enrollments resume after automatic or billing verification.
+let careInvitationRunning=false;
+const careInvitationTick=async()=>{
+ if(careInvitationRunning)return;careInvitationRunning=true;
+ try{await (await import('./services/careInvitationWorker.service.js')).runCareInvitations();}
+ catch(error){console.warn('[care-invitations] Worker needs retry',error?.code||'unavailable');}
+ finally{careInvitationRunning=false;}
+};
+setTimeout(careInvitationTick,45000).unref();
+setInterval(careInvitationTick,60000).unref();

@@ -42,7 +42,7 @@ async function assertAgencyAccess(req, agencyId) {
   if (Number(user.agencyId) === Number(agencyId)) return true;
   try {
     const [rows] = await pool.execute(
-      `SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1`,
+      `SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? AND is_active=1 LIMIT 1`,
       [user.id, agencyId]
     );
     return Boolean(rows?.[0]);
@@ -165,4 +165,19 @@ export async function putOfficeClientWaitlist(req, res, next) {
     if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
     next(e);
   }
+}
+
+export async function getCareInvitationOptions(req,res,next) {
+ try{const agencyId=safeInt(req.query.agencyId);const gate=await assertOfficeStaff(req,[agencyId]);if(!gate.ok)return res.status(gate.status).json({error:{message:gate.message}});
+ const {careInvitationOptions}=await import('../services/careInvitation.service.js');res.json(await careInvitationOptions(agencyId));}catch(e){next(e);}
+}
+export async function postCareInvitation(req,res,next) {
+ try{const agencyId=safeInt(req.body.agencyId);const gate=await assertOfficeStaff(req,[agencyId]);if(!gate.ok)return res.status(gate.status).json({error:{message:gate.message}});
+ const {createCareInvitation}=await import('../services/careInvitation.service.js');res.status(201).json(await createCareInvitation(req.body,req.user.id));}catch(e){next(e);}
+}
+export async function listCareInvitations(req,res,next) {
+ try{const agencyId=safeInt(req.query.agencyId);const gate=await assertOfficeStaff(req,[agencyId]);if(!gate.ok)return res.status(gate.status).json({error:{message:gate.message}});
+ const [invitations]=await pool.execute(`SELECT i.id,i.recipient_email,i.modality,i.start_at,i.time_zone,i.frequency,i.status,i.client_id,i.last_error,i.created_at,
+ CONCAT_WS(' ',u.first_name,u.last_name) provider_name,l.public_key FROM care_invitations i JOIN users u ON u.id=i.provider_user_id JOIN intake_links l ON l.id=i.intake_link_id WHERE i.agency_id=? ORDER BY i.id DESC LIMIT 50`,[agencyId]);
+ res.set('Cache-Control','no-store').json({invitations:invitations.map(({public_key,...row})=>({...row,url:'https://auricwell.com/intake/'+public_key}))});}catch(e){next(e);}
 }

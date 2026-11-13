@@ -1,0 +1,25 @@
+import {beforeEach,expect,it,vi} from 'vitest';
+const m=vi.hoisted(()=>({execute:vi.fn(),send:vi.fn(),createLink:vi.fn(),sender:vi.fn(),eligible:vi.fn(),release:vi.fn()}));
+vi.mock('../../config/database.js',()=>({default:{execute:m.execute,getConnection:async()=>({execute:m.execute,release:m.release})},onTableWrite:()=>()=>{}}));
+vi.mock('../../models/IntakeLink.model.js',()=>({default:{create:m.createLink,findById:async()=>({intake_steps:[],intake_fields:[]})}}));
+vi.mock('../email.service.js',()=>({default:{sendEmail:m.send}}));
+vi.mock('../emailSenderIdentityResolver.service.js',()=>({resolveConfiguredSenderIdentity:m.sender}));
+vi.mock('../staffCareEligibility.service.js',()=>({requireStaffCareEligibility:m.eligible}));
+import {createCareInvitation} from '../careInvitation.service.js';
+const input={agencyId:377,providerId:501,email:'parent@example.com',modality:'VIRTUAL',note:'My personal note',requestKey:'care-request-123456789'};
+let prior;
+beforeEach(()=>{vi.clearAllMocks();prior=null;m.sender.mockResolvedValue({from_email:'portal@auricwell.com'});m.createLink.mockImplementation(async data=>({id:90,public_key:data.publicKey}));m.send.mockResolvedValue({id:'gmail-message',communicationId:80});m.execute.mockImplementation(async sql=>{
+ if(sql.includes('GET_LOCK'))return [[{acquired:1}]];
+ if(sql.includes('SELECT i.*,l.public_key'))return [prior?[prior]:[]];
+ if(sql.includes('FROM agencies'))return [[{id:377,name:'Inner Strength',feature_flags:{insuranceVerificationTasks:{enabled:true,taskListId:20}}}]];
+ if(sql.includes('CONCAT_WS'))return [[{id:501,name:'Michael Mendez'}]];
+ if(sql.includes('SELECT id FROM intake_links'))return [[{id:271}]];
+ if(sql.includes('email_sender_identities'))return [[{from_email:'michael@innerstrengthin.com'}]];
+ if(sql.startsWith('INSERT INTO care_invitations'))return [{insertId:8}];
+ return [{affectedRows:1}];
+});});
+it('sends one branded email with the trusted AuricWell link and provider reply address',async()=>{const result=await createCareInvitation(input,9);expect(result.status).toBe('invited');expect(result.url).toMatch(/^https:\/\/auricwell.com\/intake\/care-[a-f0-9]{64}$/);expect(m.send).toHaveBeenCalledWith(expect.objectContaining({to:'parent@example.com',fromAddress:'portal@auricwell.com',replyTo:'michael@innerstrengthin.com',source:'manual',html:expect.stringContaining('<em>My personal note</em>')}));expect(m.createLink).toHaveBeenCalledWith(expect.objectContaining({createGuardian:true,createClient:true,inheritsOfficeMaster:true}));expect(m.release).toHaveBeenCalled();});
+it('returns the saved receipt on the same request without sending twice',async()=>{prior={id:8,agency_id:377,provider_user_id:501,recipient_email:input.email,status:'invited',public_key:'care-existing',communication_id:80};expect(await createCareInvitation(input,9)).toMatchObject({alreadyCreated:true,communicationId:80});expect(m.send).not.toHaveBeenCalled();expect(m.createLink).not.toHaveBeenCalled();});
+it('rejects request-key reuse for another recipient or tenant',async()=>{prior={id:8,agency_id:2,provider_user_id:501,recipient_email:'another@example.com',public_key:'private'};await expect(createCareInvitation(input,9)).rejects.toThrow('another invitation');expect(m.send).not.toHaveBeenCalled();});
+it('reports approval-held mail honestly without claiming it was sent',async()=>{m.send.mockResolvedValue({pendingApproval:true,queued:true,communicationId:80});expect(await createCareInvitation(input,9)).toMatchObject({status:'pending_delivery'});});
+it('leaves an uncertain transport outcome for review instead of retrying the send',async()=>{m.send.mockRejectedValue(Error('Connection lost'));await expect(createCareInvitation(input,9)).rejects.toThrow('Connection lost');expect(m.send).toHaveBeenCalledOnce();expect(m.execute).toHaveBeenCalledWith(expect.stringContaining("status='delivery_review'"),[8]);});
