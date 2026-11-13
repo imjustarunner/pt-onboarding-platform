@@ -11,3 +11,8 @@ export function publicIntakeDescription(value, fallback = '') {
   if (!text || isInternalIntakeDescription(text)) return String(fallback || '').trim();
   return text;
 }
+
+// Product copy uses Enrollment; technical form keys and routes are unchanged.
+export function publicEnrollmentCopy(value,locale='en') {
+ return String(value??'').replace(/\bintake\b/gi,String(locale).startsWith('es')?'inscripción':'enrollment');
+}

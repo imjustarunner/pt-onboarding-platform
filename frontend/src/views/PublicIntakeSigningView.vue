@@ -3190,6 +3190,7 @@
 </template>
 
 <script setup>
+import { publicEnrollmentCopy } from '../utils/publicIntakeCopy.js';
 import { addressFieldBinding } from '../utils/addressFieldBinding.js';
 import { fillAddressGroupFromZip } from '../utils/addressZipAutofill.js';
 import { compactIntakeProgress, restoreIntakeProgressSnapshot } from '../utils/intakeProgressPayload.js';
@@ -4945,8 +4946,8 @@ watch(intakeLocale, () => {
 const customMessages = computed(() => link.value?.custom_messages || null);
 const t = (key) => {
   const custom = customMessages.value?.[key];
-  if (custom && String(custom).trim()) return String(custom).trim();
-  return INTAKE_TRANSLATIONS[intakeLocale.value]?.[key] ?? INTAKE_TRANSLATIONS.en[key] ?? key;
+  const message = custom && String(custom).trim() ? String(custom).trim() : INTAKE_TRANSLATIONS[intakeLocale.value]?.[key] ?? INTAKE_TRANSLATIONS.en[key] ?? key;
+  return link.value?.master_channel==='tutoring' ? publicEnrollmentCopy(message,intakeLocale.value) : message;
 };
 
 const formTypeKey = computed(() => String(link.value?.form_type || '').toLowerCase());
@@ -10033,7 +10034,7 @@ const loadLink = async ({ background = false } = {}) => {
       && !hasProgrammedDisclosureStep.value
       && !hasRegistrationStep.value
     ) {
-      fatalError.value = 'No documents configured for this intake link.';
+      fatalError.value = 'No documents configured for this enrollment link.';
     } else if (String(link.value?.form_type || '').toLowerCase() === 'smart_school_roi') {
       fatalError.value = '';
     } else if (String(link.value?.form_type || '').toLowerCase() === 'smart_disclosure') {
@@ -10070,7 +10071,7 @@ const loadLink = async ({ background = false } = {}) => {
     await applyCoGuardianInviteFromQuery();
     void hydrateHeavyIntakeAssets();
   } catch (e) {
-    fatalError.value = e.response?.data?.error?.message || 'Failed to load intake link';
+    fatalError.value = e.response?.data?.error?.message || 'Failed to load enrollment link';
   } finally {
     loading.value = false;
   }

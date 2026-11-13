@@ -45,3 +45,7 @@ it('waits for tutoring context before fetching a requested provider',async()=>{
  const calls=get.mock.calls.filter(([url])=>url.endsWith('/providers/1496'));
  expect(calls.length).toBeGreaterThan(0);expect(calls.every(([,config])=>config.params.serviceType==='tutoring')).toBe(true);
 });
+
+it('uses enrollment wording in tutoring copy, including a retained custom label',async()=>{
+ await render();w.vm.link.custom_messages={beginIntake:'Begin intake'};expect(w.vm.t('beginIntake')).toBe('Begin enrollment');
+});

@@ -17,6 +17,10 @@ export async function publishLearningPackages({agencyId,catalog,actorUserId}, {p
     }
     const modality=component.format==='virtual'?'TELEHEALTH':'IN_PERSON';
     const allowed=available.filter(s=>s.isActive&&s.businessType==='tutoring'&&String(s.serviceCode||'').toUpperCase()==='TUTORING'&&s.packageEligible&&[modality,'EITHER'].includes(s.modality)).map(s=>s.id);
+    if(!allowed.length) {
+      if(old)await packages.update(old.id,agencyId,{isActive:false,isPublic:false});
+      results.push({sourceId:source.id,status:'requires_service_configuration'});continue;
+    }
     const body={businessType:'tutoring',name:source.name,packageType:'prepaid_bundle',sessionCount:component.sessions,
       isActive:source.published,isPublic:source.published,consumeOn:'complete',allowedTenantServiceIds:allowed,
       domainConfig:{...(old?.domainConfig||{}),learningCatalogId:source.id,program:source.program,pricing:{mode:'provider-discount',format:component.format,minutes:component.minutes,discountPercent:component.discountPercent}}};

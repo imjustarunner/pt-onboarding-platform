@@ -16,3 +16,8 @@ it('requires explicit package setup for composite offers instead of granting inc
  const packages={listForAgency:async()=>[],create:vi.fn()},services={listForAgency:async()=>[]};
  const result=await publishLearningPackages({agencyId:453,catalog:{packages:[{id:'bridge',components:[{service:'tutoring'},{service:'counseling'}]}]}},{packages,services});expect(result[0].status).toBe('requires_package_configuration');expect(packages.create).not.toHaveBeenCalled();
 });
+
+it('does not publish an unrestricted tutoring offer when its canonical service is missing',async()=>{
+ const packages={listForAgency:async()=>[],create:vi.fn()},services={listForAgency:async()=>[{id:321,isActive:true,businessType:'tutoring',serviceCode:'HOMEWORK HELP',packageEligible:true,modality:'IN_PERSON'}]};
+ const result=await publishLearningPackages({agencyId:453,catalog:{packages:[{id:'four',published:true,components:[{service:'tutoring',format:'in-person',pricingMode:'provider-discount'}]}]}},{packages,services});expect(result[0].status).toBe('requires_service_configuration');expect(packages.create).not.toHaveBeenCalled();
+});

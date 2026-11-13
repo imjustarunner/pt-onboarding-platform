@@ -10,6 +10,9 @@ Devon1772 and the co-guardian Rene created by this evening's bot run.
 Rene's vault entry4470827 is a vault identifier, not a confirmed app user ID.
 Keep Rene's Parker-only scope; do not invite again merely to inspect it.
 
+TERMINOLOGY
+Use Enrollment throughout tutoring screens, notices and new test results.
+
 REPAIRS TO VERIFY
 - NR01/03–13: tutoring first-step rendering, responsive contact form and
   tutoring provider lookup after form context loads. Recheck optional guardian
