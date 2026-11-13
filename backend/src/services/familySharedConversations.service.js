@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import pool from '../config/database.js';
+import {terminalProfile} from '../utils/clientServiceLifecycle.js';
 import { clinicalAccess } from './guardianClinicalAccess.service.js';
 import { clientAgencyMembership, listClientServices } from './clientServiceEnrollment.service.js';
 import { guardianContactRows, sharedGuardianContact } from './guardianContactSharing.service.js';
@@ -33,11 +34,12 @@ export function createFamilySharedConversations(overrides={}) {
   async function currentAudience({clientId,agencyId,serviceId=0,providerUserId=0,allowUnavailableProvider=false,requireClinical=false},db=d.db) {
     const cid=uid(clientId),aid=uid(agencyId);
     if(!await d.membership(cid,aid,db))throw fail(404,'This client is not enrolled with this practice.');
-    const [[client]]=await db.execute(`SELECT c.id,c.agency_id,c.provider_id,c.client_type,c.guardian_portal_enabled FROM clients c
+    const [[client]]=await db.execute(`SELECT c.id,c.status,c.agency_id,c.provider_id,c.client_type,c.guardian_portal_enabled FROM clients c
       JOIN agencies a ON a.id=? AND a.is_active=1 AND COALESCE(a.is_archived,0)=0 WHERE c.id=?`,[aid,cid]);
     if(!client)throw fail(404,'This client is not available.');
     const allServices=await d.services(cid,aid,db);
     const services=allServices.filter(s=>Number(s.is_active)===1);
+    if(!allowUnavailableProvider&&(terminalProfile(client)||(allServices.length&&!services.length)))throw fail(403,'This service has ended. New care conversations are unavailable; contact billing or request your records.');
     const service=serviceId?(allowUnavailableProvider?allServices:services).find(s=>Number(s.id)===Number(serviceId)):null;
     if(serviceId&&!service)throw fail(403,'This service is no longer available.');
     if(!allowUnavailableProvider&&!serviceId&&services.length>1&&new Set(services.map(s=>`${s.service_kind}:${s.provider_user_id}`)).size>1)

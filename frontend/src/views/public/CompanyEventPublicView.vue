@@ -1,5 +1,5 @@
 <template>
-  <main class="event-page event-experience" :style="cssVars">
+  <main class="event-page event-experience" :class="{'event-experience--conversa': !isProgramEvent}" :style="cssVars">
     <!-- Loading / Error -->
     <div v-if="loading" class="event-centered">
       <div class="event-spinner"></div>
@@ -10,7 +10,7 @@
     </div>
 
     <template v-else-if="event">
-      <div class="event-public-hero"><EventPageHero :event="{...event,heroImageUrl:heroImage,description:''}" :branding="branding" visibility="Public event" :status="isProgramEvent ? prettyType : registrationUnavailableMessage ? 'Registration closed' : 'Open RSVP'" /></div>
+      <div class="event-public-hero"><EventPageHero :event="{...event,heroImageUrl:heroImage,description:''}" :branding="branding" :conversa="!isProgramEvent" visibility="Public event" :status="isProgramEvent ? prettyType : registrationUnavailableMessage ? 'Registration closed' : 'Open RSVP'" /></div>
 
       <div class="event-body">
         <!-- Already-RSVPd banner -->

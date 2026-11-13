@@ -3,6 +3,10 @@
     <header><h2>{{ ft("Appointments") }}</h2><button type="button" @click="load" :disabled="loading">{{ ft("Refresh") }}</button></header>
     <GuardianClinicalBooking v-if="!preview" :client-id="clientId" @booked="load" />
     <p>{{ ft("Your next appointments are shown first. Open an appointment to make a change.") }}</p>
+    <aside v-if="cancellationSuggestion" class="cancellation-suggestion" role="status">
+      <p>You have canceled at least two appointments in this recurring series. If you intend to stop this service, cancel all future sessions—including dates beyond the six shown.</p>
+      <button type="button" @click="openCancellation(cancellationSuggestion,'end_services')">Cancel all future sessions and end services</button>
+    </aside>
     <button v-if="familyNotifications && !preview" type="button" @click="$emit('notifications')">{{ ft("Family notification settings") }}</button>
     <details v-if="!familyNotifications && !preview && preferences">
       <summary>{{ ft("My reminder preferences") }}</summary>
@@ -15,6 +19,7 @@
       <p v-if="preferenceNotice" role="status">{{ preferenceNotice }}</p>
     </details>
     <p v-if="notice" role="status">{{ notice }}</p>
+    <GuardianServiceExitFeedback v-if="exitFeedbackId&&!preview" :key="`${clientId}:${exitFeedbackId}`" :client-id="clientId" :operation-id="exitFeedbackId" @close="exitFeedbackId='';exitFeedbackDismissed=true" />
     <p v-if="error" role="alert">{{ error }}</p><p v-if="loading" role="status">{{ ft("Loading appointments…") }}</p>
     <p v-else-if="!appointments.length">{{ ft("No appointments are available to display.") }}</p>
     <article v-for="a in appointments" :key="a.id" :id="`appointment-${a.id}`" tabindex="-1">
@@ -55,9 +60,9 @@
         <p v-if="request.decisionReason">{{ request.decisionReason }}</p>
       </div>
       <div v-if="canRequest(a)" class="appointment-actions"><button type="button" @click="openAction(a,'reschedule')">{{ ft("Request a new time") }}</button><button type="button" @click="openAction(a,'cancel')">{{ a.serviceSetting?.isSchool ? ft('Report an absence') : ft('Cancel appointment') }}</button></div>
-      <form v-if="canRequest(a) && editingId === a.id" :ref="el => { if(el && editingId === a.id) actionForm = el; }" @submit.prevent="submit(a)">
+      <form v-if="canRequest(a) && editingId === a.id && draft(a).type==='reschedule'" :ref="el => { if(el && editingId === a.id) actionForm = el; }" @submit.prevent="submit(a)">
         <h4>{{ draft(a).type === 'reschedule' ? ft('Request a new time') : a.serviceSetting?.isSchool ? ft('Report an absence') : ft('Cancel appointment') }}</h4><button type="button" @click="editingId=null">{{ ft("Close without changes") }}</button>
-        <label>{{ ft("Action") }} <select v-model="draft(a).type" @change="clearReview(a)"><option value="cancel">{{ ft("Cancel appointment") }}</option><option value="reschedule">{{ ft("Request rescheduling") }}</option></select></label>
+        <label>{{ ft("Action") }} <select v-model="draft(a).type" @change="actionTypeChanged(a)"><option value="cancel">{{ ft("Cancel appointment") }}</option><option value="reschedule">{{ ft("Request rescheduling") }}</option></select></label>
         <label v-if="draft(a).type === 'cancel'">{{ ft("Cancel") }} <select v-model="draft(a).scope" @change="clearReview(a)"><option value="single">{{ ft("Only this appointment") }}</option><option value="future">{{ ft("All future sessions in this recurring series") }}</option></select></label>
         <label>{{ ft("Reason (required)") }}<textarea v-model="draft(a).reason" required maxlength="2000" rows="2" /></label>
         <p>{{ ft("Your reason will be visible to the authorized guardians and care team.") }}</p>
@@ -69,12 +74,15 @@
         <button :disabled="busy || !draft(a).reason.trim() || (draft(a).type === 'cancel' && draft(a).review && !draft(a).confirmed)">{{ draft(a).type === 'cancel' ? (!draft(a).review ? ft('Review cancellation') : draft(a).scope === 'future' ? ft('Cancel all future sessions') : ft('Confirm cancellation')) : ft('Request provider approval') }}</button>
       </form>
     </article>
+    <GuardianCancellationDialog v-if="cancellationAppointment && !preview" :client-id="clientId" :appointment="cancellationAppointment" :initial-scope="cancellationScope" @close="cancellationAppointment=null" @completed="cancellationCompleted" />
   </section>
 </template>
 <script setup>
 import { useFamilyLocale } from '../../composables/useFamilyLocale';
 const { ft, locale: familyLocale } = useFamilyLocale();
-import { ref, reactive, watch, nextTick } from 'vue';
+import { ref, reactive, computed, watch, nextTick } from 'vue';
+import GuardianCancellationDialog from './GuardianCancellationDialog.vue';
+import GuardianServiceExitFeedback from './GuardianServiceExitFeedback.vue';
 import GuardianClinicalBooking from './GuardianClinicalBooking.vue';
 import SecureSessionCommentButton from '../session-comments/SecureSessionCommentButton.vue';
 import SecureSessionCommentTip from '../session-comments/SecureSessionCommentTip.vue';
@@ -84,8 +92,13 @@ const authStore = getActivePinia() ? useAuthStore() : { user: null };
 import {usePortalCareApi} from '../../composables/usePortalCareApi';
 const api=usePortalCareApi();
 const props=defineProps({clientId:{type:Number,default:null},preview:{type:Boolean,default:false},familyNotifications:Boolean});
+const emit=defineEmits(['notifications','service-ended']);
 const editingId=ref(null),actionForm=ref(null);
-async function openAction(a,type){draft(a).type=type;clearReview(a);editingId.value=a.id;await nextTick();actionForm.value?.scrollIntoView?.({block:'center'});actionForm.value?.querySelector('textarea')?.focus();}
+const cancellationAppointment=ref(null),cancellationScope=ref('single');
+const exitFeedbackId=ref(''),exitFeedbackDismissed=ref(false);
+function openCancellation(a,scope='single'){cancellationScope.value=scope;cancellationAppointment.value=a;editingId.value=null;}
+async function openAction(a,type){if(type==='cancel'){openCancellation(a);return;}draft(a).type=type;clearReview(a);editingId.value=a.id;await nextTick();actionForm.value?.scrollIntoView?.({block:'center'});actionForm.value?.querySelector('textarea')?.focus();}
+async function cancellationCompleted(result){cancellationAppointment.value=null;notice.value=result.endsService?`Your services have ended. Our team has been notified. Future email and text notifications for this service are off. ${result.count} future appointments canceled. Your other services are unchanged.`:`${result.count} appointment(s) canceled.`;if(result.endsService){exitFeedbackId.value=result.id;exitFeedbackDismissed.value=false;}await load();if(result.endsService)emit('service-ended',result);}
 const preferences=ref(null),preferenceNotice=ref('');
 const appointments=ref([]),loading=ref(false),busy=ref(false),error=ref(''),notice=ref(''),drafts=reactive({});let sequence=0;
 const selectedSlots = reactive({}), selectedFormats = reactive({});
@@ -115,10 +128,13 @@ async function respondToOffer(a, action) {
 }
 const draft=a=>drafts[a.id] ||= {type:'cancel',reason:'',scope:'single',confirmed:false};
 const appointmentDate=value=>new Date(typeof value==='string'&&!/(Z|[+-]\d\d:\d\d)$/.test(value)?value.replace(' ','T')+'Z':value);
-const canRequest=a=>!props.preview&&['scheduled','confirmed','client_confirmed'].includes(a.status)&&+appointmentDate(a.startAt)>Date.now();
+const canRequest=a=>!props.preview&&!a.serviceEnded&&['scheduled','confirmed','client_confirmed'].includes(a.status)&&+appointmentDate(a.startAt)>Date.now();
+const cancellationSuggestion=computed(()=>props.preview?null:appointments.value.find(a=>!a.serviceEnded&&a.canEndServices!==false&&a.cancellationHint?.showEndServices)||null);
 const when=(value,timeZone)=>appointmentDate(value).toLocaleString(familyLocale.value,{timeZone:timeZone||'America/Denver',dateStyle:'medium',timeStyle:'short'});
 async function load(){const own=++sequence;appointments.value=[];preferences.value=null;preferenceNotice.value='';error.value='';if(!props.clientId||props.preview)return;loading.value=true;try{const {data}=await api.get(`/guardian-portal/clients/${props.clientId}/appointments`,{skipGlobalLoading:true});if(own===sequence) {
   appointments.value=data.appointments||[];
+  const query=new URLSearchParams(window.location.search),requestedExit=query.get('serviceExit');
+  if(!exitFeedbackDismissed.value&&!exitFeedbackId.value&&Number(query.get('clientId'))===props.clientId&&/^[0-9a-f-]{36}$/i.test(requestedExit||''))exitFeedbackId.value=requestedExit;
   await nextTick();
   const requestedId = Number(new URLSearchParams(window.location.search).get('appointmentId'));
   if (appointments.value.some(a => Number(a.id) === requestedId)) document.getElementById(`appointment-${requestedId}`)?.scrollIntoView?.({ block: 'center' });
@@ -129,6 +145,7 @@ async function load(){const own=++sequence;appointments.value=[];preferences.val
 async function savePreferences(){const own=sequence;busy.value=true;error.value='';preferenceNotice.value='';try{const{data}=await api.put(`/guardian-portal/clients/${props.clientId}/reminder-preferences`,preferences.value);if(own===sequence){preferences.value=data;preferenceNotice.value=ft("Your preferences were saved. Text delivery still requires recorded consent.");}}catch(e){error.value=e.response?.data?.error?.message||ft("Preferences could not be saved.");}finally{busy.value=false;}}
 const money = cents => new Intl.NumberFormat(familyLocale.value, {style:'currency',currency:'USD'}).format(cents / 100);
 function clearReview(a) { draft(a).review=null; draft(a).confirmed=false; }
+function actionTypeChanged(a){clearReview(a);if(draft(a).type==='cancel')openCancellation(a);}
 async function submit(a) {
   if (busy.value) return;
   const own=sequence, cancel=draft(a).type==='cancel';
@@ -152,7 +169,7 @@ async function submit(a) {
     }
   } finally { busy.value=false; }
 }
-watch(()=>props.clientId,()=>{notice.value='';editingId.value=null;Object.keys(drafts).forEach(k=>delete drafts[k]);Object.keys(selectedSlots).forEach(k=>delete selectedSlots[k]);Object.keys(selectedFormats).forEach(k=>delete selectedFormats[k]);load();},{immediate:true});
+watch(()=>props.clientId,()=>{notice.value='';editingId.value=null;cancellationAppointment.value=null;exitFeedbackId.value='';exitFeedbackDismissed.value=false;Object.keys(drafts).forEach(k=>delete drafts[k]);Object.keys(selectedSlots).forEach(k=>delete selectedSlots[k]);Object.keys(selectedFormats).forEach(k=>delete selectedFormats[k]);load();},{immediate:true});
 </script>
 <style scoped>
 .guardian-appointments article{margin:16px 0;padding:20px!important;border:1px solid #dce4ee;border-left:4px solid #2467a7;border-radius:12px;background:#fff}.guardian-appointments h3{font-size:20px;margin:0 0 8px}.appointment-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}.appointment-actions button{background:#eff5fc;color:#174473;border:1px solid #c7d7e8;border-radius:8px}.guardian-appointments form{background:#f4f7fb;padding:18px;border-radius:10px;margin-top:16px}.guardian-appointments input[type=checkbox]{width:20px;height:20px}.guardian-appointments button{min-height:42px}

@@ -179,6 +179,8 @@ class ClientGuardian {
          c.date_of_birth,
          c.grade,
          c.status,
+         cs.status_key AS client_status_key,
+         cs.label AS client_status_label,
          c.document_status,
          c.submission_date,
          c.organization_id,
@@ -202,6 +204,7 @@ class ClientGuardian {
          cg.permissions_json
        FROM client_guardians cg
        JOIN clients c ON c.id = cg.client_id
+       LEFT JOIN client_statuses cs ON cs.id=c.client_status_id
        LEFT JOIN agencies o ON o.id = c.organization_id
        JOIN agencies a ON a.id = c.agency_id
        WHERE cg.guardian_user_id = ?

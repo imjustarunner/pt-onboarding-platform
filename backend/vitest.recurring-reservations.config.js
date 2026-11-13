@@ -10,7 +10,7 @@ export default {
       'src/services/__tests__/recurringScheduleWindow.test.js',
       'src/services/__tests__/annualMileage.test.js',
       'src/controllers/__tests__/annualMileageAccess.test.js',
-      'src/controllers/__tests__/manualSupervisionContinuation.test.js'
+      'src/controllers/__tests__/manualSupervisionContinuation.test.js','src/controllers/__tests__/guardianServiceStatusAccess.test.js'
     ]
   }
 };

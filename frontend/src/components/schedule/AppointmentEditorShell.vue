@@ -35,6 +35,7 @@
       @update:recurrenceFrequency="emit('update:recurrenceFrequency', $event)"
       @update:videoRoomMode="emit('update:videoRoomMode', $event)"
       @update:notificationMode="emit('update:notificationMode', $event)"
+      @update:customReminders="emit('update:customReminders', $event)"
       @update:schedulingNotes="emit('update:schedulingNotes', $event)"
       @update:othersPresentNames="emit('update:othersPresentNames', $event)"
       @request-office="emit('request-office')"
@@ -242,6 +243,7 @@ const props = defineProps({
   videoRoomMode: { type: String, default: 'unique_session' },
   showNotifications: { type: Boolean, default: false },
   notificationMode: { type: String, default: 'default' },
+  customReminders: { type: Array, default: () => [] },
   showSchedulingNotes: { type: Boolean, default: false },
   schedulingNotes: { type: String, default: '' },
   showOthersPresent: { type: Boolean, default: false },
@@ -286,6 +288,7 @@ const emit = defineEmits([
   'update:virtualCreateMeetLink',
   'update:videoRoomMode',
   'update:notificationMode',
+  'update:customReminders',
   'update:schedulingNotes',
   'update:othersPresentNames'
 ]);
@@ -374,6 +377,7 @@ const headerProps = computed(() => ({
   videoRoomMode: props.videoRoomMode,
   showNotifications: props.showNotifications,
   notificationMode: props.notificationMode,
+  customReminders: props.customReminders,
   showSchedulingNotes: props.showSchedulingNotes,
   schedulingNotes: props.schedulingNotes,
   showOthersPresent: props.showOthersPresent,

@@ -63,7 +63,7 @@
             <option v-for="c in contractConfigs" :key="c.id" :value="c.id">{{ c.name }}</option>
           </select>
         </label>
-        <p v-if="requiresActivation" class="sph-warn" role="status">Draft agreement — full employment terms still require approval. You can prepare and preview it; issuing an agreement or sending the invitation remains blocked until the configuration is activated.</p>
+        <p v-if="requiresActivation" class="sph-warn" role="status">This standard agreement is saved as a draft. Prepare and read the preview, then <a href="#standard-agreement-review">review and approve its standard terms below</a> to enable sending.</p>
         <div class="sph-grid">
           <label>Start date <input v-model="contract.startDate" type="date" /></label>
           <label>Execution date <input v-model="contract.executionDate" type="date" /></label>
@@ -125,6 +125,7 @@
         <div v-if="contractPreview?.unresolvedTokens?.length" class="sph-grid"><label v-for="key in additionalContractFields" :key="key">{{ key.replaceAll('_', ' ') }}<input :value="contractOverrides[key]" @input="setAdditionalContractField(key, $event.target.value)" /></label></div>
         <p v-if="contractPreview && !previewMatches" class="sph-warn">Values changed. Update the preview before reviewing it.</p>
         <iframe v-if="contractPreview" class="sph-preview" :srcdoc="contractPreview.html" sandbox="" title="Candidate employment agreement preview" />
+        <StandardAgreementApproval v-if="requiresActivation" :agency-id="agencyId" :config-id="Number(contractConfigId)" :agency-name="contractOverrides.COMPANY_NAME || wizardTokens.COMPANY_NAME || 'this organization'" :preview-ready="!!contractPreview?.html?.trim() && previewMatches && !contractPreview.unresolvedTokens?.length" :library-url="contractsPath" @approved="refreshContractLibrary" />
         <label v-if="contractPreview && previewMatches && !contractPreview.unresolvedTokens?.length" class="sph-check"><input v-model="contractReviewed" type="checkbox" />I reviewed this agreement and its values.</label>
       </section>
 
@@ -239,6 +240,7 @@ import ContractServiceFocusSelect from '../../components/hiring/ContractServiceF
 import JobDescriptionSections from '../../components/careers/JobDescriptionSections.vue';
 import HireWorkflowEditor from '../../components/admin/HireWorkflowEditor.vue';
 import ContractExpectationsEditor from '../../components/careers/ContractExpectationsEditor.vue';
+import StandardAgreementApproval from '../../components/hiring/StandardAgreementApproval.vue';
 import { CONTRACT_SERVICE_ROLE_FIELD_LABELS } from '../../constants/contractServiceRoles.js';
 import { computed, onMounted, onBeforeUnmount, nextTick, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router';
@@ -609,7 +611,7 @@ const contractFields = [{ key: 'COMPANY_NAME', label: 'Employer name' }, { key: 
 const contractOverrides = reactive({}), contractPreview = ref(null), contractReviewed = ref(false), previewBusy = ref(false), previewError = ref('');
 const showSchoolDays = computed(() => schoolDaysEnabled.value && /\bschools?\b/i.test(contractOverrides.SERVICE_FOCUS || ''));
 watch(showSchoolDays, visible => { if (!visible) contract.minDays = ''; });
-const contractsPath = computed(() => orgPath(`/admin/contracts?agencyId=${agencyId.value}&candidateUserId=${userId.value}`));
+const contractsPath = computed(() => orgPath(`/admin/contracts?agencyId=${agencyId.value}&candidateUserId=${userId.value}&tab=library`));
 const packagesPath = computed(() => orgPath(`/admin/settings?agencyId=${agencyId.value}&category=workflow&item=packages`));
 const documentsPath = computed(() => orgPath(`/admin/documents?agencyId=${agencyId.value}`));
 const assignedSupervisorName = computed(() => { const u = staffUsers.value.find(u => Number(u.id) === Number(portalWorkflow.value.supervisorUserId)); return u ? `${u.first_name} ${u.last_name}` : ''; });

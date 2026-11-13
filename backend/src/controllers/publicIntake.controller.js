@@ -3660,61 +3660,10 @@ const mergeIntakeSubmissionPatch = (intakeData, submissionPatch = {}) => {
   return next;
 };
 
-async function computePublicIntakeClientMatch({ link, intakeData = null, payload = {} } = {}) {
-  const base = {
-    registration_client_match: 'new',
-    registration_matched_client_id: null
-  };
-  if (!linkSupportsPublicRegistrationFeatures(link)) return base;
-  if (isEnrollmentReminderLink(link)) return base;
-  const orgId = Number(
-    payload?.organizationId
-      || intakeData?.responses?.submission?.organizationId
-      || link.organization_id
-      || 0
-  ) || null;
-  const rawClients = Array.isArray(payload?.clients) && payload.clients.length
-    ? payload.clients
-    : (Array.isArray(intakeData?.clients) && intakeData.clients.length
-      ? intakeData.clients
-      : (payload?.client ? [payload.client] : []));
-  const first = rawClients[0];
-  const firstName = String(first?.firstName || '').trim();
-  const lastName = String(first?.lastName || '').trim();
-  const fullName = String(first?.fullName || `${firstName} ${lastName}` || '').trim();
-  if (!orgId || !fullName) return base;
-
-  let agencyId = await OrganizationAffiliation.getActiveAgencyIdForOrganization(orgId);
-  if (!agencyId) {
-    agencyId = await AgencySchool.getActiveAgencyIdForSchool(orgId);
-  }
-  if (!agencyId) return base;
-
-  const expectedInitials = deriveInitials(fullName);
-  const dob = findDateLikeValue(first || {}) || normalizeDateOnly(first?.dateOfBirth || first?.date_of_birth);
-
-  let sql = `SELECT c.id FROM clients c
-    INNER JOIN client_organization_assignments coa
-      ON coa.client_id = c.id AND coa.organization_id = ? AND coa.is_active = TRUE
-    WHERE c.agency_id = ? AND c.initials = ?`;
-  const params = [orgId, agencyId, expectedInitials];
-  if (dob) {
-    sql += ' AND (c.date_of_birth IS NULL OR DATE(c.date_of_birth) = ?)';
-    params.push(dob);
-  }
-  sql += ' LIMIT 5';
-  try {
-    const [matches] = await pool.execute(sql, params);
-    if (Array.isArray(matches) && matches.length === 1) {
-      return {
-        registration_client_match: 'existing',
-        registration_matched_client_id: Number(matches[0].id) || null
-      };
-    }
-  } catch {
-    return base;
-  }
-  return base;
+async function computePublicIntakeClientMatch() {
+  // Public answers must not reveal whether a person has a prior care record.
+  // Private staff review and authenticated, server-bound packets handle reuse.
+  return {registration_client_match:'new',registration_matched_client_id:null};
 }
 
 /**
@@ -6161,7 +6110,7 @@ export const getPublicIntakeLink = async (req, res, next) => {
       }
     }
     const isClientBoundRoiLink = !!issuedRoiLink?.client_id;
-    const needsCaptcha = !isSmartSchoolRoiForm(link) && !isClientBoundRoiLink && requiresCaptchaForLink(organization, agency);
+    const needsCaptcha = !isSmartSchoolRoiForm(link) && !isClientBoundRoiLink && requiresCaptchaForLink(organization, agency, process.env, link);
     const shouldIncludeRoiContext = isSmartSchoolRoiForm(link) || hasProgrammedSchoolRoiStep(link);
     const roiContext = shouldIncludeRoiContext
       ? await buildSmartSchoolRoiContext({
@@ -6713,7 +6662,7 @@ export const createPublicIntakeSession = async (req, res, next) => {
     }) : null;
     const { organization, agency } = await resolveIntakeOrgContext(link, { issuedRoiLink, boundClient });
     const isClientBoundRoiLink = !!issuedRoiLink?.client_id;
-    const needsCaptcha = !isSmartSchoolRoiForm(link) && !isClientBoundRoiLink && requiresCaptchaForLink(organization, agency);
+    const needsCaptcha = !isSmartSchoolRoiForm(link) && !isClientBoundRoiLink && requiresCaptchaForLink(organization, agency, process.env, link);
     const intakeSiteKey = String(process.env.RECAPTCHA_SITE_KEY_INTAKE || '').trim();
     const captchaConfigured = !!intakeSiteKey && (!!config.recaptcha?.secretKey || !!config.recaptcha?.enterpriseApiKey);
     const isLocalBypass = isLocalRecaptchaBypassRequest(req);
@@ -6796,8 +6745,9 @@ export const createPublicIntakeSession = async (req, res, next) => {
       ipAddress,
       userAgent: req.get('user-agent'),
       retentionExpiresAt,
-      clientId: issuedRoiLink?.client_id || null,
-      guardianUserId: issuedGuardianId
+      clientId: req.reenrollmentPackage?.client_id || issuedRoiLink?.client_id || null,
+      guardianUserId: req.reenrollmentPackage?.guardian_user_id || issuedGuardianId,
+      ...(req.reenrollmentPackage?{portalEnrollment:{userId:req.user.id,email:req.user.email,agencyId:req.reenrollmentPackage.agency_id}}:{})
     });
 
     if (draftExpiresAt && submission?.id) {
@@ -7634,32 +7584,8 @@ export const lookupPublicRegistrationAccount = async (req, res, next) => {
     if (!email || !email.includes('@')) {
       return res.status(400).json({ error: { message: 'Valid email is required' } });
     }
-    const user = await User.findByEmail(email);
-    if (!user?.id) {
-      return res.json({
-        exists: false,
-        accountState: 'new',
-        profile: null
-      });
-    }
-    const [guardianRows] = await pool.execute(
-      `SELECT COUNT(*) AS total
-       FROM client_guardians
-       WHERE guardian_user_id = ?`,
-      [Number(user.id)]
-    );
-    const guardianLinks = Number(guardianRows?.[0]?.total || 0) || 0;
-    return res.json({
-      exists: true,
-      accountState: 'existing',
-      profile: {
-        firstName: String(user.first_name || '').trim() || null,
-        lastName: String(user.last_name || '').trim() || null,
-        email: String(user.email || '').trim().toLowerCase(),
-        role: String(user.role || '').trim().toLowerCase() || null,
-        hasGuardianLinks: guardianLinks > 0
-      }
-    });
+    res.set('Cache-Control','private, no-store');
+    return res.json({exists:false,accountState:'unverified',profile:null,message:'Complete the enrollment steps. Account access is confirmed privately after submission.'});
   } catch (error) {
     next(error);
   }
@@ -9161,7 +9087,7 @@ export const finalizePublicIntake = async (req, res, next) => {
         const existingClient = await Client.findById(attachInfo.attachClientId, { includeSensitive: true });
         if (existingClient?.id) {
           // Mirror bulk import: if the matched client was archived, restore to PENDING_REVIEW before attach.
-          if (String(existingClient.status || '').toUpperCase() === 'ARCHIVED') {
+          if (!isClientUpdatePacket(link) && String(existingClient.status || '').toUpperCase() === 'ARCHIVED') {
             try {
               await Client.updateStatus(existingClient.id, 'PENDING_REVIEW', null, 'Unarchived via enrollment packet match');
               existingClient.status = 'PENDING_REVIEW';
@@ -10889,7 +10815,7 @@ export const submitPublicIntake = async (req, res, next) => {
         const existingClient = await Client.findById(attachInfo.attachClientId, { includeSensitive: true });
         if (existingClient?.id) {
           // Mirror bulk import: if the matched client was archived, restore to PENDING_REVIEW before attach.
-          if (String(existingClient.status || '').toUpperCase() === 'ARCHIVED') {
+          if (!isClientUpdatePacket(link) && String(existingClient.status || '').toUpperCase() === 'ARCHIVED') {
             try {
               await Client.updateStatus(existingClient.id, 'PENDING_REVIEW', null, 'Unarchived via enrollment packet match');
               existingClient.status = 'PENDING_REVIEW';

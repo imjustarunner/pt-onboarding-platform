@@ -27,6 +27,13 @@ export async function createCareInvitation(input,actorUserId) {
   const [[prior]]=await pool.execute('SELECT i.*,l.public_key FROM care_invitations i JOIN intake_links l ON l.id=i.intake_link_id WHERE i.created_by_user_id=? AND i.request_key=?',[actorUserId,requestKey]);
   if(prior&&(Number(prior.agency_id)!==data.agencyId||Number(prior.provider_user_id)!==data.providerId||prior.recipient_email!==data.email))throw fail('This request already belongs to another invitation. Close and reopen the dialog to send a different invitation.');
   if(prior)return {id:prior.id,status:prior.status,url:`https://auricwell.com/intake/${prior.public_key}`,alreadyCreated:true,communicationId:prior.communication_id};
+  // Staff-only review. Never expose an existing care relationship through the
+  // public enrollment form, and never infer which child an email represents.
+  const [matches]=await pool.execute(`SELECT DISTINCT c.id,c.full_name FROM client_guardians cg JOIN users u ON u.id=cg.guardian_user_id JOIN clients c ON c.id=cg.client_id
+   WHERE LOWER(u.email)=? AND (c.agency_id=? OR EXISTS(SELECT 1 FROM client_agency_assignments ca WHERE ca.client_id=c.id AND ca.agency_id=? AND ca.is_active=1)) ORDER BY c.id`,[data.email,data.agencyId,data.agencyId]);
+  const candidates=Array.isArray(matches)?matches.filter(c=>Number(c.id)>0):[];
+  const reviewed=[...new Set((Array.isArray(input.reviewedClientIds)?input.reviewedClientIds:[]).map(Number))].sort((a,b)=>a-b);
+  if(candidates.length&&!(input.newSubjectConfirmed===true&&JSON.stringify(reviewed)===JSON.stringify(candidates.map(c=>Number(c.id)).sort((a,b)=>a-b))))throw Object.assign(fail('Review the existing client record before sending a new enrollment. Re-enrollment should stay in the same file.'),{code:'EXISTING_RECORD_REVIEW',clients:candidates.map(c=>({id:Number(c.id),name:c.full_name||`Client ${c.id}`}))});
   const [[agency]]=await pool.execute('SELECT id,name,feature_flags FROM agencies WHERE id=? AND is_active=1 AND COALESCE(is_archived,0)=0',[data.agencyId]);
   const [[provider]]=await pool.execute(`SELECT u.id,CONCAT_WS(' ',u.first_name,u.last_name) name FROM users u JOIN user_agencies ua ON ua.user_id=u.id
     WHERE u.id=? AND ua.agency_id=? AND ua.is_active=1 AND u.is_active=1 AND COALESCE(u.is_archived,0)=0`,[data.providerId,data.agencyId]);

@@ -1,4 +1,5 @@
 import { withClientSchedulingLock, assertClientNotTerminated } from './clientSchedulingGuard.service.js';
+import { assertClientServiceSchedulingActive } from './clientServiceSchedulingGuard.service.js';
 import pool from '../config/database.js';
 import clinicalPool from '../config/clinicalDatabase.js';
 import Client from '../models/Client.model.js';
@@ -87,6 +88,10 @@ async function ensureLockedAppointmentContext({
   if (!resolvedAgencyId) {
     return { ok: false, reason: 'missing_agency', ensured: false, event };
   }
+  if(eventStart>=new Date()&&!event.clinical_session_id)await assertClientServiceSchedulingActive({
+    agencyId:resolvedAgencyId,providerUserId:event.booked_provider_id||event.assigned_provider_id,clientId:resolvedClientId,
+    businessType:['learning','tutoring'].includes(client.client_type)?'learning':null,officeEventId:eid,
+    source:savedContext.reservedSessionBookingKey?`reserved_office_session:${savedContext.reservedSessionBookingKey.slice(0,32)}`:null});
 
   if (Number(client.agency_id) !== resolvedAgencyId) {
     const [memberships] = await pool.execute(

@@ -2,13 +2,16 @@ import { guardianAppointmentJoin } from './guardianVirtualJoin.js';
 import PhoneNumber from '../models/PhoneNumber.model.js';
 import { resolveAppointmentServiceSetting } from './appointmentServiceSetting.service.js';
 import pool from '../config/database.js';
-import {guardianServiceContext,serviceMatchesAppointment,guardianContextAllowsAppointment} from './clientServiceEnrollment.service.js';
+import {guardianServiceContext,serviceMatchesAppointment,guardianContextAllowsAppointment,listClientServices} from './clientServiceEnrollment.service.js';
+import {servicePortalAccess} from '../utils/clientServiceLifecycle.js';
+import {assertClientServiceSchedulingActive} from './clientServiceSchedulingGuard.service.js';
 import {guardianServiceRestrictions} from '../utils/guardianServiceRestrictions.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import { ageOn } from './guardianClinicalAccess.service.js';
 import Appointment from '../models/Appointment.model.js';
 import { encryptFamilyBilling, decryptFamilyBilling } from './familyBillingEncryption.service.js';
 import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
+import { cancellationSeries, sameCancellationSeries, appointmentServiceKind } from '../utils/guardianCancellationScope.js';
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
 const context = (agencyId, appointmentId) => `guardian-appointment:${agencyId}:${appointmentId}`;
 export function validateGuardianAppointmentRequest(input) {
@@ -18,17 +21,20 @@ export function validateGuardianAppointmentRequest(input) {
   return { type: input.type, reason };
 }
 export async function authorizedClient(userId, clientId, requiredClinicalScope = 'session_frequency', careContext = {}) {
-  if(careContext.agencyId||careContext.serviceId)return guardianServiceContext({userId,clientId,scope:requiredClinicalScope,agencyId:careContext.agencyId,serviceId:careContext.serviceId});
+  if(careContext.agencyId||careContext.serviceId)return guardianServiceContext({userId,clientId,scope:requiredClinicalScope,agencyId:careContext.agencyId,serviceId:careContext.serviceId,allowEndedServices:careContext.allowEndedServices===true});
   const clients = await ClientGuardian.listClientsForGuardian({ guardianUserId: userId, requiredClinicalScope });
   const client = clients.find(c => Number(c.client_id) === Number(clientId) && !ClientGuardian.isNoView(c.permissions_json));
   if (!client) throw fail('Appointment access is not authorized for this child. Contact the care team.', 403);
-  if(guardianServiceRestrictions(client))return guardianServiceContext({userId,clientId,scope:requiredClinicalScope,agencyId:client.agency_id});
-  return client;
+  if(guardianServiceRestrictions(client))return guardianServiceContext({userId,clientId,scope:requiredClinicalScope,agencyId:client.agency_id,allowEndedServices:careContext.allowEndedServices===true});
+  const services=await listClientServices(clientId,client.agency_id);
+  const access=servicePortalAccess(client,services);
+  if(access.limited&&!careContext.allowEndedServices)throw Object.assign(fail('This service has ended. Billing, receipts, records, and account support remain available.',403),{code:'SERVICE_PORTAL_LIMITED'});
+  return {...client,services,portal_access:access};
 }
 // Appointment logistics have their own relationship permission. Treatment-plan
 // frequency and clinical documents continue to require a clinical disclosure grant.
 export async function authorizedAppointmentClient(userId, clientId, careContext = {}) {
-  const client = await authorizedClient(userId, clientId, null, careContext);
+  const client = await authorizedClient(userId, clientId, null, {...careContext,allowEndedServices:true});
   let permissions = client.permissions_json || {};
   if (typeof permissions === 'string') {
     try { permissions = JSON.parse(permissions); } catch { throw fail('Appointment access requires an access review.', 403); }
@@ -39,7 +45,7 @@ export async function authorizedAppointmentClient(userId, clientId, careContext 
   // An adult's own login may schedule; a related adult's access still needs
   // the existing disclosure review. Childhood enrollment alone is not enough.
   if (client.relationship_type !== 'self' && ageOn(client.date_of_birth) >= 18) {
-    await authorizedClient(userId, clientId, 'session_frequency', { ...careContext, agencyId: careContext.agencyId || client.agency_id });
+    await authorizedClient(userId, clientId, 'session_frequency', { ...careContext, agencyId: careContext.agencyId || client.agency_id,allowEndedServices:true });
   }
   return client;
 }
@@ -155,7 +161,7 @@ export async function listGuardianAppointments({ userId, clientId, agencyId, ser
     else if(client.service.service_kind==='counseling')serviceFilter+=" AND (a.business_type IS NULL OR a.business_type IN ('mental_health','healthcare'))";
     else{serviceFilter+=' AND a.business_type=?';params.push(client.service.service_kind);}
   }
-  const selection = `SELECT DISTINCT a.source,a.office_location_id AS officeLocationId,a.room_id AS roomId,a.business_type AS businessType,a.agency_id AS agencyId,a.service_location_id AS serviceLocationId,a.office_event_id AS officeEventId,a.clinical_session_id AS clinicalSessionId,a.id,a.provider_user_id AS providerUserId,a.start_at AS startAt,a.end_at AS endAt,a.status,a.modality,a.source_timezone AS timeZone,se.google_meet_link AS googleMeetLink,a.cancellation_reason AS cancellationReason,CONCAT_WS(' ',p.first_name,p.last_name) AS providerName,CONCAT_WS(' ',u.first_name,u.last_name) AS canceledBy FROM appointments a JOIN appointment_participants ap ON ap.appointment_id=a.id AND ap.client_id=? LEFT JOIN provider_schedule_events se ON se.id=a.provider_schedule_event_id AND se.agency_id=a.agency_id LEFT JOIN users p ON p.id=a.provider_user_id LEFT JOIN users u ON u.id=a.canceled_by_user_id WHERE a.agency_id=? AND a.status<>'draft'${serviceFilter}`;
+  const selection = `SELECT DISTINCT a.source,se.recurrence_series_id AS recurrenceSeriesId,oe.booking_plan_id AS officeBookingPlanId,a.office_location_id AS officeLocationId,a.room_id AS roomId,a.business_type AS businessType,a.agency_id AS agencyId,a.service_location_id AS serviceLocationId,a.office_event_id AS officeEventId,a.clinical_session_id AS clinicalSessionId,a.id,a.provider_user_id AS providerUserId,a.start_at AS startAt,a.end_at AS endAt,a.status,a.modality,a.source_timezone AS timeZone,se.google_meet_link AS googleMeetLink,a.cancellation_reason AS cancellationReason,CONCAT_WS(' ',p.first_name,p.last_name) AS providerName,CONCAT_WS(' ',u.first_name,u.last_name) AS canceledBy FROM appointments a JOIN appointment_participants ap ON ap.appointment_id=a.id AND ap.client_id=? LEFT JOIN provider_schedule_events se ON se.id=a.provider_schedule_event_id AND se.agency_id=a.agency_id LEFT JOIN office_events oe ON oe.id=a.office_event_id LEFT JOIN users p ON p.id=a.provider_user_id LEFT JOIN users u ON u.id=a.canceled_by_user_id WHERE a.agency_id=? AND a.status<>'draft'${serviceFilter}`;
   // This is a display window only: keep the provider's future reservation intact.
   // Query upcoming and history independently, so far-future rows cannot crowd out either.
   const [upcoming] = await pool.execute(`${selection} AND a.start_at>=UTC_TIMESTAMP()
@@ -163,6 +169,24 @@ export async function listGuardianAppointments({ userId, clientId, agencyId, ser
   const [history] = await pool.execute(`${selection} AND (a.start_at<UTC_TIMESTAMP() OR a.status IN ('canceled_by_provider','canceled_by_client','canceled_by_guardian','canceled_by_organization','late_canceled','rescheduled'))
     AND a.start_at>=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 1 YEAR) ORDER BY a.start_at DESC,a.id DESC LIMIT 100`, params);
   const rows = [...upcoming, ...history].filter(a=>guardianContextAllowsAppointment(client,a));
+  const recurring=rows.filter(a=>cancellationSeries(a));
+  let cancelled=[],endedServices=[];
+  if(recurring.length){
+    [cancelled]=await pool.execute(`SELECT a.id,a.source,a.business_type AS businessType,a.provider_user_id AS providerUserId,p.recurrence_series_id AS recurrenceSeriesId,e.booking_plan_id AS officeBookingPlanId
+      FROM appointments a JOIN appointment_participants ap ON ap.appointment_id=a.id AND ap.client_id=?
+      LEFT JOIN provider_schedule_events p ON p.id=a.provider_schedule_event_id AND p.agency_id=a.agency_id
+      LEFT JOIN office_events e ON e.id=a.office_event_id LEFT JOIN users actor ON actor.id=a.canceled_by_user_id
+      WHERE a.agency_id=? AND a.canceled_at>=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 90 DAY)
+      AND (a.status IN ('canceled_by_client','canceled_by_guardian') OR (a.status='late_canceled' AND actor.role IN ('client','guardian','client_guardian')))`,[clientId,client.agency_id]);
+  }
+  if(rows.length)[endedServices]=await pool.execute('SELECT provider_user_id,service_kind FROM client_service_enrollments WHERE client_id=? AND agency_id=? AND is_active=0',[clientId,client.agency_id]);
+  for(const a of rows){
+    a.isRecurring=!!cancellationSeries(a);
+    a.serviceEnded=endedServices.some(service=>Number(service.provider_user_id)===Number(a.providerUserId)&&service.service_kind===appointmentServiceKind(a,client));
+    a.canEndServices=!a.serviceEnded&&(appointmentServiceKind(a,client)!=='counseling'||commentAccess.scopes.includes('session_frequency'));
+    const count=cancelled.filter(c=>Number(c.providerUserId)===Number(a.providerUserId)&&appointmentServiceKind(c,client)===appointmentServiceKind(a,client)&&sameCancellationSeries(c,a)).length;
+    a.cancellationHint={cancelledCount:count,showEndServices:a.canEndServices&&a.isRecurring&&count>=2};
+  }
   const [offers] = await pool.execute('SELECT appointment_id FROM appointment_replacement_offers WHERE client_id=? AND agency_id=?', [clientId, client.agency_id]);
   const offerIds = new Set(offers.map(o => Number(o.appointment_id)));
   for (const row of rows) {
@@ -191,6 +215,7 @@ export async function requestGuardianAppointmentChange({ userId, clientId, appoi
     const [[appointment]] = await db.execute('SELECT id,status,start_at,provider_user_id,agency_id,business_type FROM appointments WHERE id=? AND agency_id=? FOR UPDATE', [appointmentId, client.agency_id]);
     const [[participant]] = await db.execute('SELECT id FROM appointment_participants WHERE appointment_id=? AND client_id=?', [appointmentId, clientId]);
     if (!appointment || !participant) throw fail('Appointment not found.', 404);
+    await assertClientServiceSchedulingActive({agencyId:appointment.agency_id,providerUserId:appointment.provider_user_id,clientId,businessType:appointment.business_type},db);
     if(!guardianContextAllowsAppointment(client,appointment))throw fail('This appointment is outside your learning portal access.',403);
     if (!appointment.provider_user_id) throw fail('The care team must assign a provider before a change can be requested.', 409);
     if (!['scheduled', 'confirmed', 'client_confirmed'].includes(appointment.status)) throw fail('This appointment can no longer receive a change request.', 409);

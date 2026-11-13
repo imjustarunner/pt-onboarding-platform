@@ -962,15 +962,7 @@
               :class="{ 'input-error': !!consentErrors.guardianEmail }"
             />
             <div v-if="consentErrors.guardianEmail" class="error-text">{{ consentErrors.guardianEmail }}</div>
-            <div v-if="usesRegistrationFeatures && registrationAccountLookupChecked && registrationAccountExists" class="muted" style="margin-top:4px;">
-              Existing account found. This form will use a shorter path for returning users.
-            </div>
-            <div v-else-if="usesRegistrationFeatures && registrationAccountLookupChecked && !registrationAccountExists" class="muted" style="margin-top:4px;">
-              No existing account found. You will complete the full new-user steps.
-            </div>
-            <div v-if="usesRegistrationFeatures && isExistingClientByMatch" class="muted" style="margin-top:4px;">
-              Existing client record matched for this school (initials + affiliation). Some steps may be shortened.
-            </div>
+            <p v-if="usesRegistrationFeatures" class="muted" style="margin-top:4px;">Complete the enrollment steps. Account access and any existing records are confirmed privately after submission.</p>
           </div>
           <div class="form-group form-group--span-4">
             <label>
@@ -2844,14 +2836,7 @@
               </p>
             </div>
 
-            <p
-              v-if="registrationReturningAutoMatch?.matched && registrationReturningAutoMatch?.initials"
-              class="reg-returning-match-notice"
-              style="margin: 0 0 12px; padding: 10px 12px; background: #f0f7ff; border-radius: 8px; border: 1px solid #cfe4ff;"
-            >
-              We matched you to an existing profile for
-              <strong>{{ registrationReturningAutoMatch.initials }}</strong>.
-            </p>
+
             <div v-if="registeredEventSummary" class="reg-success-event">
               <div class="reg-success-event-title">{{ registeredEventSummary.title }}</div>
               <div v-if="registeredEventSummary.startsAtFormatted" class="reg-success-event-date">
@@ -13553,38 +13538,10 @@ const applyRegistrationAccountState = (exists) => {
   intakeResponses.submission.registration_has_account = !!exists;
 };
 
-const lookupRegistrationAccount = async (emailRaw) => {
-  const email = String(emailRaw || '').trim().toLowerCase();
-  if (!usesRegistrationFeatures.value || !email || !isValidEmailAddress(email)) {
-    registrationAccountLookupChecked.value = false;
-    registrationAccountExists.value = false;
-    return;
-  }
-  registrationAccountLookupLoading.value = true;
-  try {
-    const resp = await api.get(`/public-intake/${publicKey}/account-lookup`, {
-      params: { email },
-      // Suppress the global "Loading…" overlay — this fires on every
-      // keystroke in the email field, so the full-page modal felt
-      // jarring. The inline `registrationAccountLookupLoading` flag
-      // already handles the small per-field spinner.
-      skipGlobalLoading: true
-    });
-    const exists = !!resp.data?.exists;
-    registrationAccountExists.value = exists;
-    registrationAccountLookupChecked.value = true;
-    applyRegistrationAccountState(exists);
-    if (exists) {
-      const first = String(resp.data?.profile?.firstName || '').trim();
-      const last = String(resp.data?.profile?.lastName || '').trim();
-      if (first && !String(guardianFirstName.value || '').trim()) guardianFirstName.value = first;
-      if (last && !String(guardianLastName.value || '').trim()) guardianLastName.value = last;
-    }
-  } catch {
-    registrationAccountLookupChecked.value = false;
-  } finally {
-    registrationAccountLookupLoading.value = false;
-  }
+const lookupRegistrationAccount = async () => {
+  registrationAccountLookupChecked.value = false;
+  registrationAccountExists.value = false;
+  applyRegistrationAccountState(false);
 };
 
 watch(guardianFirstName, (val) => {

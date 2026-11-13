@@ -129,7 +129,7 @@ async function assertGuardianOwnsTicket(guardianUserId, ticketId) {
   );
   const ticket = rows?.[0];
   if (!ticket || !guardianCanViewTicket(guardianUserId,ticket)) return null;
-  const link=await assertGuardianClientAccess(guardianUserId,ticket.client_id);
+  const link=await assertGuardianClientAccess(guardianUserId,ticket.client_id,ticket.agency_id);
   if(!link||Number(link.agency_id)!==Number(ticket.agency_id))return null;
   return ticket;
 }
@@ -145,16 +145,19 @@ export const restrictGuardianBillingTicketAccess = async (req,res,next) => {
     const [[ticket]]=await pool.execute('SELECT * FROM support_tickets WHERE id = ? LIMIT 1',[ticketId]);
     if (!ticket) return res.status(404).json({error:{message:'Ticket not found'}});
     if (['billing','technology'].includes(normalizeTicketTopic(ticket.topic))) {
-      const link=guardianCanViewTicket(req.user.id,ticket)?await assertGuardianClientAccess(req.user.id,ticket.client_id):null;
+      const link=guardianCanViewTicket(req.user.id,ticket)?await assertGuardianClientAccess(req.user.id,ticket.client_id,ticket.agency_id):null;
       if(!link||Number(link.agency_id)!==Number(ticket.agency_id))return res.status(404).json({error:{message:'Ticket not found'}});
     }
     next();
   } catch(error) {next(error);}
 };
 
-async function assertGuardianClientAccess(guardianUserId, clientId) {
+async function assertGuardianClientAccess(guardianUserId, clientId,agencyId=null) {
   const clients = await ClientGuardian.listClientsForGuardian({ guardianUserId });
-  return (clients || []).find((c) => Number(c.client_id) === Number(clientId) && !ClientGuardian.isNoView(c.permissions_json)) || null;
+  const client=(clients || []).find((c) => Number(c.client_id) === Number(clientId) && !ClientGuardian.isNoView(c.permissions_json)) || null;
+  if(!client||!agencyId||Number(client.agency_id)===Number(agencyId))return client;
+  const {authorizedClient}=await import('../services/guardianAppointments.service.js');
+  try{return await authorizedClient(guardianUserId,clientId,null,{agencyId:Number(agencyId),allowEndedServices:true});}catch(error){if([403,404].includes(error.status))return null;throw error;}
 }
 
 /**
@@ -168,6 +171,7 @@ export const listGuardianSupportTickets = async (req, res, next) => {
     const linked = await ClientGuardian.listClientsForGuardian({ guardianUserId: req.user.id });
     const ids = linked.filter(c => !ClientGuardian.isNoView(c.permissions_json)).map(c => Number(c.client_id));
     const scopes=new Set(linked.filter(c=>!ClientGuardian.isNoView(c.permissions_json)).map(c=>`${Number(c.client_id)}:${Number(c.agency_id)}`));
+    if(req.query?.agencyId)for(const clientId of ids){const link=await assertGuardianClientAccess(req.user.id,clientId,Number(req.query.agencyId));if(link)scopes.add(`${clientId}:${Number(link.agency_id)}`);}
     if (!ids.length) return res.json({ tickets: [] });
     const hasTopic=await hasSupportTicketTopicColumn();
     const [rows] = await pool.execute(
@@ -217,12 +221,14 @@ export const createGuardianSupportTicket = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'clientId and question are required' } });
     }
 
-    const client = await assertGuardianClientAccess(req.user.id, clientId);
+    let client = await assertGuardianClientAccess(req.user.id, clientId);
+    const requestedAgency=Number(req.query?.agencyId||req.body?.agencyId);
+    if(client&&requestedAgency){const {authorizedClient}=await import('../services/guardianAppointments.service.js');client=await authorizedClient(req.user.id,clientId,null,{agencyId:requestedAgency,allowEndedServices:true});}
     if (!client) {
       return res.status(403).json({ error: { message: 'Access denied to this child' } });
     }
 
-    const schoolOrganizationId = Number(client.organization_id || client.agency_id || 0);
+    const schoolOrganizationId = Number((requestedAgency?client.agency_id:client.organization_id) || client.agency_id || 0);
     const agencyId = Number(client.agency_id || 0);
     if (!schoolOrganizationId || !agencyId) {
       return res.status(400).json({ error: { message: 'Child is missing organization affiliation' } });

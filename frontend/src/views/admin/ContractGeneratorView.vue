@@ -273,7 +273,7 @@ const peopleOpsRoute = computed(() =>
   effectiveSlug.value ? `/${effectiveSlug.value}/people-operations` : '/people-operations'
 );
 
-const tab = ref('build');
+const tab = ref(route.query.tab === 'library' ? 'library' : 'build');
 const libraryTab = ref('configs');
 const loading = ref(false);
 const error = ref('');
@@ -688,7 +688,7 @@ onMounted(async () => {
   }
   if (route.query.candidateUserId) {
     build.value.candidateUserId = route.query.candidateUserId;
-    tab.value = 'build';
+    if (route.query.tab !== 'library') tab.value = 'build';
   }
 });
 </script>

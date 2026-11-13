@@ -1,0 +1,7 @@
+<template><section v-if="packages.length||error" aria-label="Re-enrollment packages"><h3>Re-enrollment packages</h3><p>Review the current agreements and confirm your contact, insurance/payment, and communication details. Your documents stay in your existing file. The team reviews the completed package before restarting services.</p><p v-if="error" role="alert">{{error}}</p><article v-for="item in packages" :key="item.id"><strong>{{item.status==='submitted'?'Package submitted — waiting for team review':'Package ready to review'}}</strong><ul><li v-for="document in item.documents" :key="document.id">{{document.title}}</li></ul><a v-if="item.path" :href="item.path">Review re-enrollment package</a></article></section></template>
+<script setup>
+import {ref,watch,onUnmounted} from 'vue';
+import {usePortalCareApi} from '../../composables/usePortalCareApi';
+const props=defineProps({clientId:{type:Number,required:true},serviceId:Number}),api=usePortalCareApi(),packages=ref([]),error=ref('');let generation=0;
+watch(()=>[props.clientId,props.serviceId],async()=>{const own=++generation;packages.value=[];error.value='';try{const {data}=await api.get(`/guardian-portal/clients/${props.clientId}/reenrollment`,{params:{serviceId:props.serviceId||null},skipGlobalLoading:true});if(own===generation)packages.value=data.packages||[];}catch(e){if(own===generation)error.value=e.response?.data?.error?.message||'Re-enrollment packages could not load.';}},{immediate:true});onUnmounted(()=>{generation++;});
+</script>

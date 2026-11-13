@@ -11,3 +11,8 @@ it('preserves document-notification opt-outs even when a staff member selected t
 it('preserves confidential no-automatic-email instructions',async()=>{m.intake.mockResolvedValue({noAutomaticEmail:true,recipientEmail:input.to});expect(await familyNotificationDeliveryGate(input)).toEqual({allowed:false,reason:'enrollment_automatic_email_off'});});
 it('does not add a new SMS route',async()=>{expect(await familyNotificationDeliveryGate({...input,channel:'sms'})).toEqual({allowed:false,reason:'client_updates_email_only'});expect(m.recipient).not.toHaveBeenCalled();});
 it('permits the current authorized contact with document email enabled',async()=>{expect(await familyNotificationDeliveryGate(input)).toEqual({allowed:true});expect(m.recipient).toHaveBeenCalledWith({agencyId:2,clientId:5,to:input.to});});
+it('revalidates re-enrollment at delivery and preserves document-email opt-outs without adding texts',async()=>{
+ expect(await familyNotificationDeliveryGate({...input,templateType:'care_reenrollment'})).toEqual({allowed:true});expect(m.recipient).toHaveBeenCalledWith({agencyId:2,clientId:5,to:input.to,reenrollment:true});
+ m.execute.mockImplementation(async sql=>sql.includes('FROM family_notification_choices')?[[{choices_json:{documents:'off'}}]]:[[]]);expect(await familyNotificationDeliveryGate({...input,templateType:'care_reenrollment'})).toMatchObject({allowed:false});
+ expect(await familyNotificationDeliveryGate({...input,templateType:'care_reenrollment',channel:'sms'})).toMatchObject({allowed:false});
+});

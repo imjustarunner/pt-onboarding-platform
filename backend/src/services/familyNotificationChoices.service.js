@@ -116,11 +116,11 @@ export async function latestFamilyEmailSchedulingChoice({agencyId,clientId,to,af
 }
 // Restricts existing permitted delivery; never creates SMS consent or bypasses an agency pause.
 export async function familyNotificationDeliveryGate({agencyId,clientId,to,channel='email',templateType,notificationCategory},db=pool) {
-  if(['client_update','client_portal_share'].includes(String(templateType||'').replace(/^trigger:/,''))) {
+  if(['client_update','client_portal_share','care_reenrollment'].includes(String(templateType||'').replace(/^trigger:/,''))) {
     if(channel!=='email')return {allowed:false,reason:'client_updates_email_only'};
     try {
       const {currentClientUpdateRecipient}=await import('./clientUpdate.service.js');
-      await currentClientUpdateRecipient({agencyId,clientId,to});
+      await currentClientUpdateRecipient({agencyId,clientId,to,...(String(templateType).replace(/^trigger:/,'')==='care_reenrollment'?{reenrollment:true}:{})});
     }catch{return {allowed:false,reason:'client_update_portal_access_changed'};}
   }
   if (channel === 'email' && isRequestedAccountEmail(templateType)) return {allowed:true};
@@ -134,7 +134,7 @@ export async function familyNotificationDeliveryGate({agencyId,clientId,to,chann
       return {allowed:false,reason:'enrollment_automatic_email_off'};
   }
   if (String(templateType || '').replace(/^trigger:/,'') === 'enrollment_submission_confirmation') return {allowed:true};
-  const category=notificationCategory||familyNotificationCategory(templateType);
+  const category=notificationCategory||(String(templateType).replace(/^trigger:/,'')==='care_reenrollment'?'documents':familyNotificationCategory(templateType));
   if(!category||!Number(agencyId))return {allowed:true};
   if(channel==='sms'&&category==='insurance')return {allowed:false,reason:'insurance_notifications_email_only'};
   if(!FAMILY_NOTIFICATION_CATEGORIES.some(c=>c.key===category))return {allowed:false,reason:'unknown_family_notification_category'};

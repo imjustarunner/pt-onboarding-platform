@@ -7,6 +7,13 @@ import { isReadableCompanyGathering as isCompanyGathering } from '../utils/compa
 import { companyEventInvitationLinks } from '../services/companyEventLinks.service.js';
 import { ensureCompanyEventPage, findCompanyEventPage } from '../services/companyEventPages.service.js';
 
+function publicAgencyBrand(agency, hostId) {
+  let colorPalette = agency.color_palette || null;
+  if (typeof colorPalette === 'string') { try { colorPalette = JSON.parse(colorPalette); } catch { colorPalette = null; } }
+  return { name: agency.name, slug: agency.slug || agency.portal_url || '',
+    logoUrl: agency.logo_path || agency.logo_url || '', colorPalette, isHost: Number(agency.id) === Number(hostId) };
+}
+
 async function loadStaffLink(req) {
   if (req.params.organizationSlug || req.params.eventSlug) return findCompanyEventPage(req.params);
   const id = Number(req.params.id);
@@ -33,11 +40,12 @@ export async function getCompanyEventInvitationPreview(req, res, next) {
     if (!event || !isCompanyGathering(event)) return res.status(404).json({ error: { message: 'Event invitation not found' } });
     const operations = readEventOperations(event);
     const ids = [...new Set([Number(event.agency_id), ...operations.invitedAgencyIds.map(Number)])];
-    const [agencies] = await pool.execute(`SELECT id,name,slug,portal_url,custom_domain,logo_path,color_palette,organization_type,club_kind FROM agencies WHERE id IN (${ids.map(() => '?').join(',')}) AND is_active=1`, ids);
+    const [agencies] = await pool.execute(`SELECT id,name,slug,portal_url,custom_domain,logo_path,logo_url,color_palette,organization_type,club_kind FROM agencies WHERE id IN (${ids.map(() => '?').join(',')}) AND is_active=1`, ids);
     const host = agencies.find(agency => Number(agency.id) === Number(event.agency_id));
     if(!host || !isCompanyGathering({...event,host_organization_type:host.organization_type,host_club_kind:host.club_kind}))return res.status(404).json({error:{message:'Event invitation not found'}});
     await ensureCompanyEventPage(event, host);
     const links = companyEventInvitationLinks(event, null, host);
+    const agencyBrands = [host, ...agencies.filter(agency => agency !== host)].map(agency => publicAgencyBrand(agency, event.agency_id));
     const providing = typeof event.organizer_providing_json === 'string' ? JSON.parse(event.organizer_providing_json || '[]') : event.organizer_providing_json || [];
     res.set?.('Cache-Control', 'no-store');
     res.set?.('X-Robots-Tag', 'noindex, nofollow');
@@ -48,8 +56,9 @@ export async function getCompanyEventInvitationPreview(req, res, next) {
         rsvpDeadline: event.rsvp_deadline, potluckEnabled: !!event.potluck_enabled, organizerProviding: providing,
         publicRegistrationEnabled: operations.publicRegistrationEnabled,
         heroImageUrl: event.public_hero_image_url || '', publicHeroFocalPoint: event.public_hero_focal_point || 'center' },
-      branding: { agencyName: agencies.map(agency => agency.name).filter(Boolean).join(' + '), logoUrl: host?.logo_path || '' },
-      agencies: agencies.map(agency => ({ name: agency.name, logoUrl: agency.logo_path || '' })),
+      branding: { agencyName: agencyBrands.map(agency => agency.name).filter(Boolean).join(' + '), hostAgencyName: host.name,
+        agencySlug: agencyBrands[0].slug, logoUrl: agencyBrands[0].logoUrl, colorPalette: agencyBrands[0].colorPalette, agencies: agencyBrands },
+      agencies: agencyBrands,
       canonicalUrl: links.detailsUrl, organizationSlug: host?.slug || host?.portal_url || ''
     });
   } catch (error) { next(error); }
@@ -58,7 +67,7 @@ export async function getCompanyEventStaffLink(req, res, next) {
   try {
     const event = await authorizedEvent(req, res); if (!event) return;
     const operations = readEventOperations(event);
-    const [[agency]] = await pool.execute('SELECT name,logo_path,color_palette FROM agencies WHERE id=?', [event.agency_id]);
+    const [[agency]] = await pool.execute('SELECT name,logo_path,color_palette,logo_url,slug,portal_url FROM agencies WHERE id=?', [event.agency_id]);
     const [invitees, [responses], [organizers]] = await Promise.all([
       listCompanyEventInvitees({ event }),
       pool.execute('SELECT user_id,response_key FROM company_event_responses WHERE company_event_id=?', [event.id]),
@@ -89,7 +98,8 @@ export async function getCompanyEventStaffLink(req, res, next) {
         potluckEnabled: !!event.potluck_enabled, organizerProviding: typeof event.organizer_providing_json === 'string' ? JSON.parse(event.organizer_providing_json || '[]') : event.organizer_providing_json || [],
         updates: operations.dashboardAnnouncements.filter(item => new Date(item.scheduledAt).getTime() <= now && (!item.endsAt || new Date(item.endsAt).getTime() > now)),
         response: responseByUser.get(Number(req.user.id)) || '', updatedAt: event.updated_at },
-      branding: { agencyName: agency?.name || '', logoUrl: agency?.logo_path || '', colorPalette: agency?.color_palette || null },
+      branding: { agencyName: agency?.name || '', hostAgencyName: agency?.name || '', agencySlug: agency?.slug || agency?.portal_url || '',
+        logoUrl: agency?.logo_path || agency?.logo_url || '', colorPalette: agency?.color_palette || null },
       needList: needList.map(item => ({ id: item.id, name: item.item_name, category: item.item_category,
         custom: String(item.item_notes || '').startsWith('[INVITEE_CONTRIBUTION]'), openRequest: String(item.item_notes || '').startsWith('[OPEN_REQUEST_SLOT]'), claimed: !!(item.claimed_by_user_id || item.claimed_by_guest_email), mine: Number(item.claimed_by_user_id) === Number(req.user.id) })),
       canManage: await canManageEventConversation(event, req.user)
