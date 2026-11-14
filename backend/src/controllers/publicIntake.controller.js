@@ -12,6 +12,7 @@ import { withOfficeReferralSource } from '../utils/officeReferralSource.js';
 import { extractInsuranceCardFieldsBestEffort } from '../services/insuranceCardReading.service.js';
 import ProviderAvailabilityService from '../services/providerAvailability.service.js';
 import { validateQaIntakeGuardian } from '../services/qaIntakeIdentity.service.js';
+import { schoolRoiSignedTimestamp } from '../utils/schoolRoiCalendarDate.js';
 import { requiresCaptchaForLink } from '../utils/intakeCaptchaPolicy.js';
 import { clientEmailLabel } from '../services/clientPortalEmailContent.js';
 import { intakeClientPortal, clientPortalInviteUrl } from '../services/clientPortalContext.service.js';
@@ -229,7 +230,7 @@ async function resolveIntakeDevFillOptions(req, link, submissionId = null) {
   };
 }
 
-function buildPacketSectionSignedHtml({ sectionContext, response, signedAt }) {
+function buildPacketSectionSignedHtml({ sectionContext, response, signedAt, timeZone = 'America/Denver' }) {
   // The selected language/audience determines the canonical server edition.
   // Never render client-supplied HTML or silently attach a newer edition to an
   // acknowledgment captured before the document changed.
@@ -244,7 +245,7 @@ function buildPacketSectionSignedHtml({ sectionContext, response, signedAt }) {
   const title = sectionContext?.title || sectionTitle(sectionContext?.sectionKey, sectionContext?.locale);
   const body = String(sectionContext?.html || '');
   const signerName = String(response?.signerName || '').trim();
-  const when = signedAt instanceof Date ? signedAt.toISOString() : String(signedAt || '');
+  const when = schoolRoiSignedTimestamp(signedAt, timeZone, sectionContext?.locale);
   const sigImg = response?.signatureData
     ? `<div style="margin-top:24px;"><img src="${response.signatureData}" alt="Signature" style="max-width:320px;height:auto;" /></div>`
     : '';
@@ -354,6 +355,8 @@ async function persistPacketSectionFromIntakeData({
     && !['school', 'program', 'learning'].includes(orgType);
   if (!agencyId) throw new Error('Missing agency for consent sections');
   if (!officePacket && !schoolOrgId) throw new Error('Missing school for consent sections');
+  const { agency: signingAgency } = await resolveIntakeOrgContext(link, { boundClient });
+  const signingTimeZone = signingAgency?.timezone || 'America/Denver';
 
   const seen = new Set();
   for (const { sectionKey, response } of candidates) {
@@ -377,7 +380,8 @@ async function persistPacketSectionFromIntakeData({
         signerName: response.signerName || updatedSubmission.signer_name || null,
         snapshotHtml: response.snapshotHtml || sectionContext.html
       },
-      signedAt: now
+      signedAt: now,
+      timeZone: signingTimeZone
     });
 
     const signedResult = await PublicIntakeSigningService.generateSignedDocument({
@@ -392,6 +396,7 @@ async function persistPacketSectionFromIntakeData({
       signatureData: response.signatureData || null,
       signer: buildSignerFromSubmission(updatedSubmission),
       auditTrail: {
+        timeZone: signingTimeZone,
         packetSection: true,
         clientId: boundClient.id,
         clientName: boundClient.full_name || intakeData?.clients?.[0]?.fullName,
@@ -479,7 +484,7 @@ async function persistEmbeddedDisclosureForClient({ intakeData, updatedSubmissio
           },
           signatureData: disclosureResponse.signatureData || null,
           signer: buildSignerFromSubmission(updatedSubmission),
-          auditTrail: { smartDisclosure: true, embeddedStep: true, disclosureResponse, clientId: boundClient.id, clientName: boundClient.full_name || intakeData?.clients?.[0]?.fullName, multiClientSignatureConsent: intakeData?.multiClientSignatureConsent || null },
+          auditTrail: { ...(await buildAuditTrail({link,submission:updatedSubmission})), smartDisclosure: true, embeddedStep: true, disclosureResponse, clientId: boundClient.id, clientName: boundClient.full_name || intakeData?.clients?.[0]?.fullName, multiClientSignatureConsent: intakeData?.multiClientSignatureConsent || null },
           workflowData: buildWorkflowData({ submission: { ...updatedSubmission, submitted_at: now } }),
           submissionId
         });
@@ -578,14 +583,14 @@ async function persistEmbeddedRoiForClient({ intakeData, updatedSubmission, issu
           }
         }
         const roiAuditTrail = {
-          ...buildAuditTrail({
+          ...(await buildAuditTrail({
             link,
             submission: {
               ...updatedSubmission,
               submitted_at: now,
               client_name: roiResponse.clientFullName || null
             }
-          }),
+          })),
           smartSchoolRoi: true,
           embeddedStep: true,
           roiResponse,
@@ -3617,18 +3622,24 @@ const buildWorkflowData = ({ submission }) => ({
   intent_ip: submission.ip_address || null
 });
 
-const buildAuditTrail = ({ link, submission }) => ({
-  intakeLinkId: link.id,
-  submissionId: submission.id,
-  signerRole: submission.signer_role || 'guardian',
-  signerName: submission.signer_name,
-  signerInitials: submission.signer_initials,
-  clientName: submission.client_name || null,
-  consentGivenAt: submission.consent_given_at,
-  submittedAt: submission.submitted_at,
-  ipAddress: submission.ip_address,
-  userAgent: submission.user_agent
-});
+const buildAuditTrail = async ({ link, submission }) => {
+  const { agency } = await resolveIntakeOrgContext(link);
+  return {
+    // Use the same server-owned agency setting as the school ROI. Signer/device
+    // timezone preferences must not change the signed event's calendar display.
+    timeZone: agency?.timezone || 'America/Denver',
+    intakeLinkId: link.id,
+    submissionId: submission.id,
+    signerRole: submission.signer_role || 'guardian',
+    signerName: submission.signer_name,
+    signerInitials: submission.signer_initials,
+    clientName: submission.client_name || null,
+    consentGivenAt: submission.consent_given_at,
+    submittedAt: submission.submitted_at,
+    ipAddress: submission.ip_address,
+    userAgent: submission.user_agent
+  };
+};
 
 const hasValue = (val) => {
   if (val === null || val === undefined) return false;
@@ -7708,7 +7719,7 @@ export const signPublicIntakeDocument = async (req, res, next) => {
 
     const now = new Date();
     const signer = buildSignerFromSubmission(submission);
-    const auditTrail = buildAuditTrail({ link, submission });
+    const auditTrail = await buildAuditTrail({ link, submission });
     const workflowData = {
       consent_given_at: submission.consent_given_at,
       intent_to_sign_at: now,
@@ -8667,7 +8678,7 @@ export const finalizePublicIntake = async (req, res, next) => {
 
       const signer = buildSignerFromSubmission(updatedSubmission);
       const workflowData = buildWorkflowData({ submission: { ...updatedSubmission, submitted_at: now } });
-      const auditTrail = buildAuditTrail({
+      const auditTrail = await buildAuditTrail({
         link,
         submission: {
           ...updatedSubmission,
@@ -8961,7 +8972,7 @@ export const finalizePublicIntake = async (req, res, next) => {
         },
         signatureData: disclosureResponse.signatureData || req.body?.signatureData || null,
         signer,
-        auditTrail: buildAuditTrail({
+        auditTrail: await buildAuditTrail({
           link,
           submission: {
             ...updatedSubmission,
@@ -9698,7 +9709,7 @@ export const finalizePublicIntake = async (req, res, next) => {
             fieldDefinitions,
             baseFieldValues
           });
-          const clientAuditTrail = buildAuditTrail({
+          const clientAuditTrail = await buildAuditTrail({
             link,
             submission: { ...updatedSubmission, submitted_at: now, client_name: clientName }
           });
@@ -11113,7 +11124,7 @@ export const submitPublicIntake = async (req, res, next) => {
       const clientPayload = rawClients[i];
       const clientId = clientPayload?.id || null;
       const clientName = String(clientPayload?.fullName || '').trim() || null;
-      const auditTrail = buildAuditTrail({
+      const auditTrail = await buildAuditTrail({
         link,
         submission: { ...updatedSubmission, submitted_at: now, client_name: clientName }
       });

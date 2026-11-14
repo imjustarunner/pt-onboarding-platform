@@ -5,15 +5,18 @@
  </aside>
 </template>
 <script setup>
+import {canPollWorkspace,useSessionPolling} from '../../composables/useSessionPolling';
 import {computed,onBeforeUnmount,onMounted,ref,watch} from 'vue';
 import {useRoute} from 'vue-router';
 import api from '../../services/api';
 const props=defineProps({agencyId:{type:[Number,String],default:null}}),route=useRoute(),update=ref(null);
 const updateLink=computed(()=>({path:`${route.params.organizationSlug?'/'+route.params.organizationSlug:''}/provider/update`,query:{agencyId:String(props.agencyId)}}));
 let alive=true,timer;
-async function load(){const id=Number(props.agencyId);if(!id){update.value=null;return;}try{const {data}=await api.get('/provider-update/me/status',{params:{agencyId:id},skipGlobalLoading:true});if(alive&&id===Number(props.agencyId))update.value=data;}catch{if(alive&&id===Number(props.agencyId))update.value=null;}}
+async function load(){
+  if (!canPollWorkspace()) return;const id=Number(props.agencyId);if(!id){update.value=null;return;}try{const {data}=await api.get('/provider-update/me/status',{params:{agencyId:id},skipGlobalLoading:true});if(alive&&id===Number(props.agencyId))update.value=data;}catch{if(alive&&id===Number(props.agencyId))update.value=null;}}
 watch(()=>props.agencyId,()=>{update.value=null;void load();},{immediate:true});
 function focus(){if(!document.hidden)void load();}
+useSessionPolling(load);
 onMounted(()=>{window.addEventListener('focus',focus);timer=setInterval(focus,60000);});
 onBeforeUnmount(()=>{alive=false;clearInterval(timer);window.removeEventListener('focus',focus);});
 </script>

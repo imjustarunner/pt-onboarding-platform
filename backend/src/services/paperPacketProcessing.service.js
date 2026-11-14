@@ -1,4 +1,5 @@
 import {withPaperProcessingClientLock} from './paperProcessingSource.service.js';
+import crypto from 'node:crypto';
 import {paperPacketRoiExpiresAtYmd} from '../utils/paperPacketRoiExpiry.js';
 import {findSchoolPacketVersionByLabel} from './schoolPrintablePacketCache.service.js';
 import {encryptDemographicsPayload,decryptDemographicsPayload} from './demographicsImport.service.js';
@@ -13,6 +14,8 @@ import { isPaperPacketClient } from '../utils/paperPacketClient.js';
 import { getLatestPaperPacketVisionEval } from './paperPacketVision.service.js';
 import { markPaperPacketSignatureReceived, updateClientOnboardingDocs, acknowledgeRoiStaffOnboarding } from './clientOnboardingChecklist.service.js';
 import { sendHubPortalInvitation } from './messagesHub.service.js';
+import { readClientInsurance } from './clientInsurance.service.js';
+import { isPaperSelfPayType, paperInsuranceCompletionIssues } from '../../../frontend/src/navigation/paperInsuranceCompletion.js';
 
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
 const object = value => { if (!value) return {}; if (typeof value === 'object') return value; try { return JSON.parse(value); } catch { return {}; } };
@@ -21,7 +24,15 @@ export const paperProcessingState = client => object(client?.onboarding_docs_jso
 const dependencies = overrides => ({ clients: Client, guardians: ClientGuardian, documents: ClientPhiDocument, agencies: Agency,
   versions:findSchoolPacketVersionByLabel,staff:ClientSchoolStaffRoiAccess,encryptDraft:encryptDemographicsPayload,decryptDraft:decryptDemographicsPayload,
   vision: getLatestPaperPacketVisionEval, send: sendHubPortalInvitation, markSignatures: markPaperPacketSignatureReceived,
-  markDocuments: updateClientOnboardingDocs, acknowledgeRoi: acknowledgeRoiStaffOnboarding, database: pool, ...overrides });
+  markDocuments: updateClientOnboardingDocs, acknowledgeRoi: acknowledgeRoiStaffOnboarding, insurance:readClientInsurance, database: pool, ...overrides });
+
+async function inspectPaperInsurance(client, typeId, deps) {
+  const [[type]] = await deps.database.execute('SELECT id,insurance_key,label FROM insurance_types WHERE id=? AND agency_id=? AND is_active=1', [Number(typeId)||0, client.agency_id]);
+  if (!type) throw fail('Select the insurance or self-pay category shown on the paper packet.');
+  if (isPaperSelfPayType(type)) return {type,missingFields:[],fingerprint:null};
+  const insurance = await deps.insurance(client.id, client.agency_id, deps.database);
+  return {type,missingFields:paperInsuranceCompletionIssues(insurance),fingerprint:crypto.createHash('sha256').update(JSON.stringify({categoryId:Number(type.id),insurance})).digest('hex')};
+}
 
 async function readClient(clientId, deps) {
   const client = await deps.clients.findById(clientId, { includeSensitive: true });
@@ -114,8 +125,9 @@ async function saveStep({ clientId, actorId, step, data = {} }, overrides = {}) 
     state.sharedCustody = data.sharedCustody;
   } else if (step === 'insurance') {
     if (data.reviewed !== true) throw fail('Review and save the insurance or self-pay information before continuing.');
-    const [[type]] = await deps.database.execute('SELECT id FROM insurance_types WHERE id=? AND agency_id=? AND is_active=1', [Number(data.insuranceTypeId)||0, client.agency_id]);
-    if (!type) throw fail('Select the insurance or self-pay category shown on the paper packet.');
+    const {type,missingFields,fingerprint} = await inspectPaperInsurance(client, data.insuranceTypeId, deps);
+    if (missingFields.length && data.partialInformationConfirmed !== true) throw fail(`${missingFields.join(' ')} Enter the available details, or confirm “This is all the insurance information I have or know” to continue with staff lookup and billing review pending.`);
+    state.insuranceReview={categoryId:Number(type.id),missingFields,partialInformationConfirmed:missingFields.length>0&&data.partialInformationConfirmed===true,followUpRequired:missingFields.length>0,coverageVerifiedByThisStep:false,fingerprint,reviewedAt:new Date().toISOString(),reviewedByUserId:Number(actorId)};
     await deps.clients.update(client.id, {insurance_type_id:Number(type.id)}, actorId);
   } else if (step === 'consents') {
     return saveReviewedConsent({client,state,data,actorId,deps});
@@ -139,6 +151,8 @@ async function complete({clientId, actorId, signaturesConfirmed, staffRoiConfirm
     await sourceDocument(client, state.documentId, deps);
     const vision = await deps.vision(client.id);
     if (!state.processedAt) {
+      const insurance=await inspectPaperInsurance(client, client.insurance_type_id, deps);
+      if(insurance.missingFields.length && (state.insuranceReview?.partialInformationConfirmed!==true || state.insuranceReview?.fingerprint!==insurance.fingerprint))throw fail(`${insurance.missingFields.join(' ')} Review the current insurance step and confirm “This is all the insurance information I have or know” before finishing. Missing details remain for staff lookup and billing review.`);
       if (signaturesConfirmed !== true || staffRoiConfirmed !== true) throw fail('Confirm the existing paper signatures and matched staff ROI selections.');
       assertPacketMatch(client, state, vision);
       if(state.consentReview?.kind==='human_source_review'){const current=await deps.staff.listSchoolStaffRosterForClient({clientId:client.id,schoolOrganizationId:client.organization_id,roiExpiresAt:client.roi_expires_at});const key=rows=>JSON.stringify(rows.map(row=>({schoolStaffUserId:Number(row.schoolStaffUserId||row.school_staff_user_id),state:row.state||row.effective_access_state||row.access_level||'packet'})).sort((a,b)=>a.schoolStaffUserId-b.schoolStaffUserId));if(key(current)!==key(state.consentReview.staffSelections))throw fail('School staff selections changed after the paper review. Review and save the release step again.',409);}

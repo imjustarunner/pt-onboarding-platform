@@ -30,6 +30,18 @@ export async function listFamilySecureHistory({ userId, clientId, agencyId, serv
     try {
       await refresh(row.id, userId);
       const mapped = await shared.requireAccess(userId, row.id, { db });
+      let readOnly = mapped ? !!mapped.readOnly : true;
+      if (mapped && !readOnly) {
+        try {
+          // Reading retained history deliberately permits ended services. New
+          // replies still need the current send gate and original audience.
+          const writable = await shared.requireAccess(userId, row.id, { db, forSend: true });
+          readOnly = !writable || !!writable.readOnly;
+        } catch (error) {
+          if (![403, 404, 409].includes(Number(error.status))) throw error;
+          readOnly = true;
+        }
+      }
       let participants = mapped?.participants;
       if (!participants) {
         const [members] = await db.execute(`SELECT u.id,u.role,u.first_name,u.last_name
@@ -44,7 +56,7 @@ export async function listFamilySecureHistory({ userId, clientId, agencyId, serv
       }
       result.push({ threadId: Number(row.id), thread_id: Number(row.id), client_id: Number(clientId), agency_id: Number(row.agency_id),
         organization_id: row.organization_id, service_id: Number(row.service_id) || null, last_message_at: row.last_message_at,
-        participants, shared: true, available: true, readOnly: true, service_label: 'Previous secure conversation' });
+        participants, shared: true, available: true, readOnly, service_label: 'Previous secure conversation' });
     } catch (error) { if (![403,404,409].includes(error.status)) throw error; }
   }
   return result;

@@ -3,6 +3,8 @@ import { readFile } from 'node:fs/promises';
 import { isolatedWorkflowMysql, recoveryMysqlEnabled } from './fixtures/isolatedWorkflowMysql.js';
 import { listFamilySecureHistory } from '../familySecureHistory.service.js';
 import { familyMessageVisibilitySql, canReadFamilySecureMessage, assertCanReadFamilySecureMessage } from '../familySecureMessageAccess.service.js';
+import {locateSecureSubject} from '../secureSubjectLocation.service.js';
+import {createFamilySharedConversations,FAMILY_CONVERSATION_POLICY_VERSION} from '../familySharedConversations.service.js';
 
 const migration = name => new URL(`../../../../database/migrations/${name}`, import.meta.url);
 describe.skipIf(!recoveryMysqlEnabled)('historical secure message audience on actual MySQL', () => {
@@ -17,6 +19,13 @@ describe.skipIf(!recoveryMysqlEnabled)('historical secure message audience on ac
       for (const sql of source.split(';').map(s=>s.trim()).filter(Boolean)) await db.query(sql);
     }
     await db.query("ALTER TABLE users ADD role VARCHAR(50),ADD first_name VARCHAR(50),ADD last_name VARCHAR(50)");
+    await db.query("ALTER TABLE users ADD is_active TINYINT DEFAULT 1,ADD is_archived TINYINT DEFAULT 0,ADD status VARCHAR(40) DEFAULT 'ACTIVE',ADD terminated_at DATETIME NULL,ADD status_expires_at DATETIME NULL");
+    await db.query('ALTER TABLE agencies ADD is_active TINYINT DEFAULT 1,ADD is_archived TINYINT DEFAULT 0');
+    await db.query("ALTER TABLE clients ADD status VARCHAR(30) DEFAULT 'ACTIVE',ADD agency_id INT DEFAULT 450,ADD provider_id INT DEFAULT 1,ADD client_type VARCHAR(30) DEFAULT 'clinical',ADD guardian_portal_enabled TINYINT DEFAULT 1");
+    await db.query('CREATE TABLE client_guardians(client_id INT,guardian_user_id INT,access_enabled TINYINT,relationship_type VARCHAR(30),permissions_json JSON)');
+    await db.query('CREATE TABLE user_agencies(user_id INT,agency_id INT,is_active TINYINT)');
+    await db.query('CREATE TABLE client_provider_assignments(client_id INT,provider_user_id INT,is_active TINYINT)');
+    await db.query('CREATE TABLE client_service_enrollments(client_id INT,agency_id INT,provider_user_id INT,is_active TINYINT)');
     await db.query(await readFile(migration('281_chat_threads_add_organization_id.sql'),'utf8'));
     await db.query("ALTER TABLE chat_threads ADD client_id INT NULL,ADD service_enrollment_id BIGINT NOT NULL DEFAULT 0");
     await db.query("ALTER TABLE chat_threads ADD message_channel ENUM('internal','secure') NOT NULL DEFAULT 'internal'");
@@ -29,14 +38,19 @@ describe.skipIf(!recoveryMysqlEnabled)('historical secure message audience on ac
     await db.query('CREATE TABLE chat_message_deletes(message_id INT,user_id INT)');
     await db.query('CREATE TABLE chat_message_attachments(id INT PRIMARY KEY,message_id INT,original_filename VARCHAR(100))');
     await db.query("INSERT INTO users(id,role,first_name) VALUES(1,'provider','Provider'),(2,'client_guardian','Original parent'),(3,'client_guardian','New parent'),(4,'client_guardian','Unrelated'),(5,'provider','Other provider')");
-    await db.query('INSERT INTO agencies VALUES(450),(451);');
-    await db.query('INSERT INTO clients VALUES(10),(11);');
+    await db.query('INSERT INTO agencies(id) VALUES(450),(451);');
+    await db.query('INSERT INTO clients(id) VALUES(10),(11);');
+    await db.query('INSERT INTO user_agencies VALUES(1,450,1),(2,450,1),(3,450,1)');
+    await db.query('INSERT INTO client_provider_assignments VALUES(10,1,1)');
   });
   afterAll(async () => { if(fixture) await fixture.close(); });
   beforeEach(async () => {
     await db.query('SET FOREIGN_KEY_CHECKS=0');
     for (const table of ['chat_messages','chat_thread_participants','chat_threads','client_secure_message_records','family_shared_conversations','chat_message_attachments']) await db.query(`TRUNCATE ${table}`);
     await db.query('SET FOREIGN_KEY_CHECKS=1');
+    await db.query("UPDATE clients SET status='ACTIVE'");
+    await db.query('DELETE FROM client_guardians');
+    await db.query("INSERT INTO client_guardians VALUES(10,2,1,'guardian',JSON_OBJECT())");
     await db.query("INSERT INTO chat_threads(id,agency_id,message_channel) VALUES(100,450,'secure'),(200,450,'internal'),(300,450,'secure')");
     await db.query("INSERT INTO chat_thread_participants(thread_id,user_id,created_at) VALUES(100,1,'2026-11-10 08:00:00'),(100,2,'2026-11-10 08:00:00'),(100,3,'2026-11-11 08:00:00'),(200,3,'2026-11-11 08:00:00'),(300,1,'2026-11-10 08:00:00'),(300,3,'2026-11-10 08:00:00')");
     await db.query("INSERT INTO chat_messages(id,thread_id,sender_user_id,body,created_at) VALUES(1000,100,1,'older family message','2026-11-10 09:00:00'),(1001,100,2,'legacy without audience','2026-11-10 10:00:00'),(1002,100,1,'current message','2026-11-11 09:00:00'),(2000,200,1,'ordinary internal chat','2026-11-10 09:00:00'),(3000,300,1,'mapped history','2026-11-10 09:00:00')");
@@ -51,6 +65,15 @@ describe.skipIf(!recoveryMysqlEnabled)('historical secure message audience on ac
   it('a snapshot excludes someone even if their membership predates the message',async()=>{
     await db.query("UPDATE chat_thread_participants SET created_at='2026-11-09 08:00:00' WHERE user_id=3");
     expect(await ids(3)).not.toContain(1000);
+  });
+  it('locates a reply subject only for its original authorized audience and exact thread',async()=>{
+    await db.query("INSERT INTO chat_messages(id,thread_id,sender_user_id,body,parent_message_id,created_at) VALUES(1003,100,1,'follow-up',1000,'2026-11-11 10:00:00')");
+    await db.execute('INSERT INTO client_secure_message_records(agency_id,client_id,thread_id,message_id,sender_user_id,audience_json) VALUES(450,10,100,1003,1,?)',[JSON.stringify([1,2,3])]);
+    const authorize=(input,db)=>assertCanReadFamilySecureMessage({...input,checkCurrent:false},db);
+    expect(await locateSecureSubject({userId:2,threadId:100,messageId:1003},db,{authorize})).toEqual({threadId:100,rootMessageId:1000,messageId:1003});
+    await expect(locateSecureSubject({userId:3,threadId:100,messageId:1003},db,{authorize})).rejects.toMatchObject({status:404});
+    await expect(locateSecureSubject({userId:2,threadId:300,messageId:1003},db,{authorize})).rejects.toMatchObject({status:404});
+    expect(await locateSecureSubject({userId:3,threadId:100,messageId:1002},db,{authorize})).toMatchObject({rootMessageId:1002});
   });
   it('numeric audience snapshots and explicit author remain readable',async()=>{
     await db.execute('UPDATE client_secure_message_records SET audience_json=? WHERE message_id=1000',[JSON.stringify([2])]);
@@ -106,6 +129,44 @@ describe.skipIf(!recoveryMysqlEnabled)('historical secure message audience on ac
   it('current-rights rejection removes previous history without broadening its audience',async()=>{
     const history=await listFamilySecureHistory({userId:2,clientId:10,agencyId:450},db,{refresh:async()=>{throw Object.assign(new Error('Revoked'),{status:403});},shared:{requireAccess:async()=>null},contacts:async()=>[]});
     expect(history).toEqual([]);
+  });
+  async function mappedHistory() {
+    const service={id:11,is_active:1,service_kind:'counseling',provider_user_id:1};
+    const shared=createFamilySharedConversations({db,membership:async()=>true,services:async()=>[service],clinical:async()=>({scopes:['clinical_messages']}),contacts:async()=>[]});
+    const audience=await shared.currentAudience({clientId:10,agencyId:450,serviceId:11});
+    await db.execute('INSERT INTO family_shared_conversations(thread_id,client_id,agency_id,service_id,provider_user_id,clinical_required,policy_version,audience_hash,audience_json,created_by_user_id) VALUES(100,10,450,11,1,1,?,?,?,1)',[FAMILY_CONVERSATION_POLICY_VERSION,audience.fingerprint,JSON.stringify(audience.audienceIds)]);
+    const dependencies={refresh:async(threadId,userId)=>{await shared.requireAccess(userId,threadId,{db});},shared,contacts:async()=>[]};
+    return {service,shared,dependencies};
+  }
+  it('keeps an unchanged active original audience writable after the actual send gate succeeds',async()=>{
+    const {dependencies}=await mappedHistory();const result=await listFamilySecureHistory({userId:2,clientId:10,agencyId:450},db,dependencies);
+    expect(result).toHaveLength(1);expect(result[0]).toMatchObject({threadId:100,readOnly:false,participants:[{id:1},{id:2}]});
+  });
+  it.each(['ended client','ended service'])('retains %s history as read only when actual send eligibility is unavailable',async reason=>{
+    const {service,shared,dependencies}=await mappedHistory();
+    if(reason==='ended client')await db.query("UPDATE clients SET status='ARCHIVED' WHERE id=10");else service.is_active=0;
+    expect((await shared.requireAccess(2,100,{db})).readOnly).toBe(false);
+    await expect(shared.requireAccess(2,100,{db,forSend:true})).rejects.toMatchObject({status:403});
+    const before=(await db.query('SELECT * FROM chat_thread_participants ORDER BY thread_id,user_id'))[0];
+    const result=await listFamilySecureHistory({userId:2,clientId:10,agencyId:450},db,dependencies);
+    expect(result).toHaveLength(1);expect(result[0]).toMatchObject({threadId:100,readOnly:true,participants:[{id:1},{id:2}]});
+    expect(await ids(2)).toContain(1000);expect(await listFamilySecureHistory({userId:3,clientId:10,agencyId:450},db,dependencies)).toEqual([]);
+    expect((await db.query('SELECT * FROM chat_thread_participants ORDER BY thread_id,user_id'))[0]).toEqual(before);
+  });
+  it('keeps retained messages read only for an original member after a new eligible guardian is linked',async()=>{
+    const {dependencies}=await mappedHistory();await db.query("INSERT INTO client_guardians VALUES(10,3,1,'guardian',JSON_OBJECT())");
+    const result=await listFamilySecureHistory({userId:2,clientId:10,agencyId:450},db,dependencies);expect(result[0]).toMatchObject({threadId:100,readOnly:true,participants:[{id:1},{id:2}]});
+    expect(await listFamilySecureHistory({userId:3,clientId:10,agencyId:450},db,dependencies)).toEqual([]);expect(await ids(3)).not.toContain(1000);
+  });
+  it.each([403,404,409])('a send-only %i denial does not hide authorized original history or offer a reply',async status=>{
+    const {shared,dependencies}=await mappedHistory();const check=shared.requireAccess;
+    dependencies.shared={...shared,requireAccess:async(userId,threadId,options)=>{if(options?.forSend)throw Object.assign(new Error('Send unavailable'),{status});return check(userId,threadId,options);}};
+    const result=await listFamilySecureHistory({userId:2,clientId:10,agencyId:450},db,dependencies);expect(result[0]).toMatchObject({threadId:100,readOnly:true});
+  });
+  it('does not silently mark history writable or readable after an unexpected send-check failure',async()=>{
+    const {shared,dependencies}=await mappedHistory();const check=shared.requireAccess;
+    dependencies.shared={...shared,requireAccess:async(userId,threadId,options)=>{if(options?.forSend)throw Object.assign(new Error('Availability check failed'),{code:'TEST_CONNECTION_LOST'});return check(userId,threadId,options);}};
+    await expect(listFamilySecureHistory({userId:2,clientId:10,agencyId:450},db,dependencies)).rejects.toMatchObject({code:'TEST_CONNECTION_LOST'});
   });
   it('does not change internal chat history and rejects SQL interpolation inputs',async()=>{
     expect(await ids(3)).toContain(2000);

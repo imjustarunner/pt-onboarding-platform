@@ -52,6 +52,8 @@
   </details>
 </template>
 <script setup>
+import {canPollWorkspace,useSessionPolling} from '../../composables/useSessionPolling';
+
 import { CONVERSA_LOGO_URL } from '../../constants/conversa';
 import { ref, watch, computed, onMounted, onBeforeUnmount, getCurrentInstance, nextTick } from 'vue';
 import api from '../../services/api';
@@ -103,6 +105,7 @@ function localInput(value) { const date = new Date(value); return Number.isFinit
 const selectedAnswer = poll => choices.value[poll.id] === '__other' ? String(otherReplies.value[poll.id] || '').trim() : String(choices.value[poll.id] || '');
 function startChange(poll) { changing.value[poll.id] = true; const key = poll.myResponse.key || poll.myResponse.original; choices.value[poll.id] = poll.options.some(o => o.key === key) ? key : poll.allowOther ? '__other' : ''; otherReplies.value[poll.id] = poll.myResponse.original; }
 async function load(quiet = false) {
+  if (!canPollWorkspace()) return;
   const id = ++request, scope = context; pendingRequest = id; if (!quiet) loading.value = true;
   try {
     const { data } = await api.get('/me/staff-polls', { params: params(), skipGlobalLoading: true });
@@ -147,6 +150,7 @@ async function closeNow(poll) {
   finally { if (scope === context) busy.value = null; }
 }
 watch(() => [props.agencyId, props.pollId, props.linkedEventId], () => { context++; request++; viewedRecently.clear(); pollHeaders.clear(); polls.value = []; opened.value = !!props.pollId; showHistory.value = false; choices.value = {}; closingTimes.value = {}; changing.value = {}; otherReplies.value = {}; busy.value = null; notice.value = ''; error.value = ''; load(); }, { immediate: true });
+useSessionPolling(refresh);
 onMounted(() => { if (typeof IntersectionObserver !== 'undefined') { viewObserver = new IntersectionObserver(recordVisiblePolls, { threshold: 0.5 }); for (const { element } of pollHeaders.values()) viewObserver.observe(element); } timer = setInterval(refresh, 30000); window.addEventListener('focus', refresh); document.addEventListener('visibilitychange', refresh); });
 onBeforeUnmount(() => { context++; request++; clearInterval(timer); viewObserver?.disconnect(); window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', refresh); });
 </script>

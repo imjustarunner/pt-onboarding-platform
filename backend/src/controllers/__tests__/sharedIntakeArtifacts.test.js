@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import { buildSharedIntakeDocuments } from '../../services/sharedIntakeDocuments.service.js';
 import { assertPortalEnrollmentIdentity } from '../../utils/portalEnrollmentBinding.js';
 import { assertIssuedRoiSessionBinding } from '../../services/issuedRoiGuardian.service.js';
+import { schoolRoiSignedTimestamp } from '../../utils/schoolRoiCalendarDate.js';
 import pool from '../../config/database.js';
 after(() => pool.end());
 
@@ -23,7 +24,7 @@ function setup() {
     buildPacketSectionContext: async ({ sectionKey }) => ({ title: sectionKey, html: sectionKey, contentHash: 'signed-content', packetVersion: '1' }),
     buildPacketSectionSignedHtml: ({ sectionContext }) => sectionContext.html,
     buildSignerFromSubmission: () => ({ firstName: 'Pat' }),
-    buildWorkflowData: () => ({}), buildAuditTrail: ({ submission }) => ({ clientName: submission.client_name }),
+    buildWorkflowData: () => ({}), buildAuditTrail: async ({ submission }) => ({ clientName: submission.client_name,timeZone:'America/Denver' }),
     PublicIntakeSigningService: { generateSignedDocument: async args => {
       generated.push(args); return { storagePath: `signed-${generated.length}.pdf`, pdfHash: 'hash' };
     } },
@@ -76,6 +77,7 @@ test('both children receive all three consents, disclosure, and individualized R
   }
   assert.equal(new Set(state.attached.map(doc => doc.storagePath)).size, 10);
   assert.ok(state.generated.every(doc => doc.signatureData === 'parent-signature'));
+  assert.ok(state.generated.every(doc => doc.auditTrail.timeZone === 'America/Denver'));
   assert.ok(state.generated.some(doc => doc.template.html_content === 'Blair Example 2017-06-07'));
 });
 
@@ -85,6 +87,30 @@ test('a failed chart attachment does not count as a completed consent', async ()
   const section = load('persistPacketSectionFromIntakeData', 'async function persistEmbeddedDisclosureForClient', state.deps);
   await assert.rejects(section({ intakeData: { packetSections: { policy_services: { acknowledged: true, signatureData: 'signature' } } }, updatedSubmission: { client_id: 102 }, agency: { id: 10 }, organization: { id: 20 }, link: {}, now: new Date() }), /Unable to attach/);
   assert.equal(state.acknowledged.length, 0);
+});
+
+test('a newly generated consent section prints the same agency calendar instant as its ROI', () => {
+  const start=source.indexOf('function buildPacketSectionSignedHtml(');
+  const body=source.slice(start,source.indexOf('async function validatePacketEditionsBeforeSubmission',start));
+  const render=new Function('schoolRoiSignedTimestamp','sectionTitle',`${body};return buildPacketSectionSignedHtml;`)(schoolRoiSignedTimestamp,()=> 'Policy');
+  const request={sectionContext:{title:'Policy',html:'Canonical policy',locale:'en'},response:{signerName:'QA Guardian'},signedAt:new Date('2026-11-14T00:30:00.000Z')};
+  const denver=render({...request,timeZone:'America/Denver'});
+  assert.ok(denver.includes('Signed at: November 13, 2026 at 5:30:00 PM MST'));
+  assert.ok(!denver.includes('2026-11-14T00:30'));
+  const tokyo=render({...request,timeZone:'Asia/Tokyo'});
+  assert.ok(tokyo.includes('Signed at: November 14, 2026 at 9:30:00 AM GMT+9'));
+  assert.equal(request.signedAt.toISOString(),'2026-11-14T00:30:00.000Z');
+});
+
+test('enrollment audit timezone comes from the resolved agency while stored event instants stay unchanged',async()=>{
+  const start=source.indexOf('const buildAuditTrail = ');
+  const body=source.slice(start,source.indexOf('const hasValue = ',start));
+  const build=new Function('resolveIntakeOrgContext',`${body};return buildAuditTrail;`)(async()=>({agency:{id:450,timezone:'America/Denver'}}));
+  const instant='2026-11-14T00:30:00.000Z';
+  const result=await build({link:{id:343},submission:{id:1603,consent_given_at:instant,submitted_at:instant,timezone:'Asia/Tokyo',preferred_time_zone:'Pacific/Honolulu'}});
+  assert.equal(result.timeZone,'America/Denver');
+  assert.equal(result.consentGivenAt,instant);
+  assert.equal(result.submittedAt,instant);
 });
 
 test('a Spanish disclosure remains Spanish when finalized through an English office link', async () => {

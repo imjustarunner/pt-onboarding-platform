@@ -8,7 +8,7 @@ vi.mock('../../../config/medicalBillingAccess.js',()=>({canAccessMedicalBilling:
 import { canAccessMedicalBilling } from '../../../config/medicalBillingAccess.js';
 const demographic={firstName:'Test',lastName:'Patient',dateOfBirth:'1996-10-01',addressLine1:'123 Synthetic St',city:'Test City',state:'CO',postalCode:'80000',sex:'F'};
 beforeEach(()=>{vi.clearAllMocks();canAccessMedicalBilling.mockReturnValue(true);api.get.mockResolvedValue({data:{insurance:null,demographics:demographic,missingClaimFields:['Member ID is missing']}});api.put.mockResolvedValue({data:{missingClaimFields:['Member ID is missing']}});});
-async function setup(){const w=mount(ClientInsuranceEditor,{props:{clientId:5,agencyId:377},global:{stubs:{ClientCoverageVerification:true,ClientDocumentationReadiness:true}}});await w.find('button').trigger('click');await flushPromises();return w;}
+async function setup(props={}){const w=mount(ClientInsuranceEditor,{props:{clientId:5,agencyId:377,...props},global:{stubs:{ClientCoverageVerification:true,ClientDocumentationReadiness:true}}});await w.find('button').trigger('click');await flushPromises();return w;}
 it('shows returned other insurance and every nested payer field within the billing profile',async()=>{
  api.get.mockResolvedValue({data:{insurance:{primary:{},patient:demographic},eligibilityFindings:[{id:17,payerId:'SKCO0',slot:'primary',serviceDate:'2026-11-10',status:'active_reported',identityMatches:true,otherCoverageReported:true,otherInsurers:[{entity_name:'Synthetic other insurer'}],response:{elig:{ins_number:'SYNTHETIC',benefit:[{entity_name:'Synthetic other insurer',extra_payer_field:{coverage_detail:'Retained detail'}}]}}}]}});
  const w=await setup();const findings=w.find('[aria-label="Information returned by insurers"]');
@@ -80,6 +80,26 @@ it('requires a fresh review if demographics fill missing identity on an older ve
 it('lets the paper workflow await a failed save without marking policy details saved',async()=>{
  const w=await setup();api.put.mockRejectedValueOnce(new Error('offline'));expect(await w.vm.save()).toBe(false);expect(w.emitted('saved')).toBeUndefined();
  expect(await w.vm.save()).toBe(true);expect(w.emitted('saved')).toHaveLength(1);w.unmount();
+});
+
+it('blocks paper completion before saving a blank secondary member ID, retains input and recovers after correction without requiring a payer ID',async()=>{
+ api.get.mockResolvedValue({data:{insurance:{primary:{insurerName:'QA Commercial',memberId:'PRIMARY',relationshipToSubscriber:'child',subscriberFirstName:'QA',subscriberLastName:'Parent'},secondary:{insurerName:'QA Medicaid',memberId:'',relationshipToSubscriber:'self',isMedicaid:true},patient:demographic},demographics:demographic}});
+ const w=await setup();expect(await w.vm.save({paperEntry:true})).toBe(false);expect(api.put).not.toHaveBeenCalled();expect(w.get('[role="alert"]').text()).toContain('Secondary Member ID');
+ const secondary=w.findAllComponents({name:'InsurancePolicyFields'})[1];expect(secondary.props('modelValue').insurerName).toBe('QA Medicaid');
+ secondary.vm.$emit('update:modelValue',{...secondary.props('modelValue'),memberId:'SECONDARY'});await flushPromises();
+ expect(await w.vm.save({paperEntry:true})).toMatchObject({saved:true,partialInformationConfirmed:false});expect(api.put).toHaveBeenCalledTimes(1);expect(api.put.mock.calls[0][1]).toMatchObject({primary:{memberId:'PRIMARY'},secondary:{memberId:'SECONDARY',isMedicaid:true}});w.unmount();
+});
+it('retains ordinary partial-save support without marking it as complete paper coverage',async()=>{
+ api.get.mockResolvedValue({data:{insurance:{primary:{insurerName:'QA Partial'},secondary:{insurerName:'QA Secondary'}},demographics:demographic}});
+ const w=await setup();expect(await w.vm.save()).toBe(true);expect(api.put).toHaveBeenCalledTimes(1);
+ expect(await w.vm.save({paperEntry:true})).toBe(false);expect(api.put).toHaveBeenCalledTimes(1);expect(w.get('[role="alert"]').text()).toContain('Member ID');w.unmount();
+});
+it('accepts an explicit all-I-know confirmation while preserving the unknown field and keeping verification false',async()=>{
+ api.get.mockResolvedValue({data:{insurance:{primary:{insurerName:'QA Commercial',memberId:'PRIMARY',relationshipToSubscriber:'self'},secondary:{insurerName:'QA Medicaid',memberId:'',relationshipToSubscriber:'self',isMedicaid:true},patient:demographic},demographics:demographic}});
+ const w=await setup({paperEntry:true});expect(w.text()).toContain('Some insurance details are missing');expect(w.text()).toContain('Secondary Member ID is missing');
+ const acknowledgement=()=>w.findAll('label').find(label=>label.text()==='This is all the insurance information I have or know.').get('input');
+ await acknowledgement().setValue(true);expect(await w.vm.save({paperEntry:true})).toMatchObject({saved:true,partialInformationConfirmed:true});expect(api.put.mock.calls[0][1]).toMatchObject({secondary:{memberId:'',isMedicaid:true},verifiedForClaims:false});
+ await acknowledgement().setValue(true);const secondary=w.findAllComponents({name:'InsurancePolicyFields'})[1];secondary.vm.$emit('update:modelValue',{...secondary.props('modelValue'),insurerName:'Updated QA Medicaid'});await flushPromises();expect(acknowledgement().element.checked).toBe(false);expect(await w.vm.save({paperEntry:true})).toBe(false);expect(api.put).toHaveBeenCalledTimes(1);w.unmount();
 });
 
 it.each([

@@ -55,6 +55,7 @@ import {
 import {
   listGuardianMessageThreads,
   listGuardianThreadMessages,
+  locateGuardianSecureSubject,
   sendGuardianThreadMessage,
   openGuardianClientThread,
   listGuardianSmsAudit,
@@ -189,6 +190,7 @@ router.get('/emails', listGuardianEmails);
 router.get('/emails/:conversationId', getGuardianEmail);
 router.post('/emails/:conversationId', replyGuardianEmail);
 router.get('/messages/:threadId', listGuardianThreadMessages);
+router.get('/messages/:threadId/locate/:messageId',locateGuardianSecureSubject);
 router.post('/messages/:threadId', sendGuardianThreadMessage);
 router.get('/sms-audit', listGuardianSmsAudit);
 router.get('/support-tickets', listGuardianSupportTickets);

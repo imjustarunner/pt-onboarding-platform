@@ -1,7 +1,7 @@
 import pool from '../config/database.js';
 import {clientAgencyMembership} from '../services/clientServiceEnrollment.service.js';
 import { resolveClientRecordAccess } from '../services/clientRecordAccess.service.js';
-import { decryptChatText } from '../services/chatEncryption.service.js';
+import { readChatMessageContent } from '../services/chatEncryption.service.js';
 import { recordSecureMessageEvent } from '../services/secureMessageBoundary.service.js';
 
 async function requireRecordAccess(req) {
@@ -44,8 +44,7 @@ export async function getClientSecureMessage(req, res, next) {
       [client.id,client.agency_id, req.params.messageId]);
     if (!rows.length) return res.status(404).json({ error: { message: 'Secure message record not found' } });
     const message = rows[0];
-    const body = message.body_ciphertext ? decryptChatText({ ciphertextB64: message.body_ciphertext, ivB64: message.body_iv,
-      authTagB64: message.body_auth_tag, keyId: message.encryption_key_id }) : message.body || '';
+    const content = readChatMessageContent(message);
     await recordSecureMessageEvent({ agencyId: client.agency_id, threadId: message.thread_id, messageId: message.id,
       userId: req.user.id, eventType: 'medical_record_opened', req });
     const audience = typeof message.audience_json === 'string' ? JSON.parse(message.audience_json) : message.audience_json || [];
@@ -56,7 +55,7 @@ export async function getClientSecureMessage(req, res, next) {
        WHERE e.message_id = ? ORDER BY e.id DESC LIMIT 100`, [message.id]);
     const [attachments] = await pool.execute('SELECT id, original_filename, byte_size FROM chat_message_attachments WHERE message_id = ?', [message.id]);
     res.set('Cache-Control', 'no-store');
-    res.json({ message: { id: message.id, threadId: message.thread_id, body, subject: message.subject,
+    res.json({ message: { id: message.id, threadId: message.thread_id, body: content.body, subject: content.subject,
       createdAt: message.created_at, senderName: message.sender_name, recipients, attachments: attachments.map(a => ({ ...a, downloadPath: `/chat/attachments/${a.id}` })) }, events });
   } catch (e) { next(e); }
 }

@@ -9,6 +9,12 @@ import {coverageFingerprint} from '../coverageVerification.service.js';
 const insurance={primary:{insurerName:'Synthetic coverage',memberId:'DEMO-001'}};
 beforeEach(()=>m.insurance.mockResolvedValue(insurance));
 
+it('keeps normal billing verification required after paper entry acknowledges unknown policy details',()=>{
+ const partial={primary:{insurerName:'Synthetic commercial',memberId:'PRIMARY'},secondary:{insurerName:'Synthetic Medicaid',memberId:'',isMedicaid:true}};
+ const paperProcessing={processedAt:'2026-11-14T15:00:00Z',insuranceReview:{partialInformationConfirmed:true,followUpRequired:true,coverageVerifiedByThisStep:false}};
+ expect(evaluateCoverageAdmission({client:{client_type:'school',onboarding_docs_json:{paperProcessing}},agency:{feature_flags:{medicalBillingEnabled:true}},insurance:partial,review:null})).toMatchObject({ready:false,required:true,reason:expect.stringContaining('Billing must verify')});
+});
+
 it('uses the same seven-day review window as claim submission and invalidates changed primary/secondary evidence',()=>{
  const now=new Date('2026-11-03T18:00:00Z'),input={now,client:{client_type:'clinical'},agency:{feature_flags:{medicalBillingEnabled:true}},insurance,review:{status:'verified',insurance_fingerprint:coverageFingerprint(insurance),created_at:'2026-10-27T18:00:00Z'}};
  expect(evaluateCoverageAdmission(input).ready).toBe(true);
@@ -22,8 +28,11 @@ it('uses the same seven-day review window as claim submission and invalidates ch
  expect(evaluateCoverageAdmission({...input,insurance:expired,review:{...input.review,insurance_fingerprint:coverageFingerprint(expired)}}).ready).toBe(false);
 });
 
-it.skipIf(!process.env.BILLING_TEST_MYSQL_SOCKET && process.env.BILLING_FOLLOWUP_MYSQL_TEST!=='1')('MySQL admission blocks new insured assignment, preserves existing care and retains deferred public intake',async()=>{
- const db=await mysql.createConnection(process.env.BILLING_TEST_MYSQL_SOCKET?{socketPath:process.env.BILLING_TEST_MYSQL_SOCKET,user:'root',timezone:'+00:00'}:{host:'127.0.0.1',port:33316,user:'root',password:'synthetic-root-only',timezone:'+00:00'}),schema=`coverage_assign_${randomUUID().replaceAll('-','')}`;
+it.skipIf(!process.env.BILLING_TEST_MYSQL_SOCKET && process.env.BILLING_FOLLOWUP_MYSQL_TEST!=='1' && !process.env.RECOVERY_TEST_MYSQL_HOST)('MySQL admission blocks new insured assignment, preserves existing care and retains deferred public intake',async()=>{
+ const recoveryPort=Number(process.env.RECOVERY_TEST_MYSQL_PORT);
+ if(process.env.RECOVERY_TEST_MYSQL_HOST&&(process.env.RECOVERY_TEST_MYSQL_HOST!=='127.0.0.1'||![33319,33316,33320,33326].includes(recoveryPort)))throw Error('Explicit isolated loopback test database required.');
+ const recovery=process.env.RECOVERY_TEST_MYSQL_HOST?{host:'127.0.0.1',port:recoveryPort,user:'root',password:'',timezone:'+00:00'}:null;
+ const db=await mysql.createConnection(recovery||(process.env.BILLING_TEST_MYSQL_SOCKET?{socketPath:process.env.BILLING_TEST_MYSQL_SOCKET,user:'root',timezone:'+00:00'}:{host:'127.0.0.1',port:33316,user:'root',password:'synthetic-root-only',timezone:'+00:00'})),schema=`coverage_assign_${randomUUID().replaceAll('-','')}`;
  try{
   await db.query(`CREATE DATABASE ${schema}`);await db.query(`USE ${schema}`);
   await db.query('CREATE TABLE agencies(id INT,feature_flags JSON,organization_type VARCHAR(30))');

@@ -25,19 +25,19 @@ async function render({realRoi=false}={}){w=mount(SchoolPaperPacketWorkflow,{pro
 const next=()=>w.findAll('.paper-actions button').at(-1).trigger('click');
 it('keeps the PDF visible beside one step and resumes saved progress with separate guardian accounts',async()=>{
  await render();expect(w.get('[data-test="packet"]').text()).toContain('synthetic-private-packet.pdf');expect(w.findAll('fieldset')).toHaveLength(1);
- await next();await flushPromises();expect(w.get('h4').text()).toContain('Parent 1');await next();await flushPromises();expect(context.state.guardian1Id).toBe(20);
- w.unmount();await render();expect(w.get('h4').text()).toContain('Parent 2');await next();await flushPromises();expect(context.state.guardian2Id).toBe(21);expect(api.post).not.toHaveBeenCalled();expect(w.get('[data-test="packet"]').exists()).toBe(true);
+ await next();await flushPromises();expect(w.get('.paper-entry h4').text()).toContain('Parent 1');await next();await flushPromises();expect(context.state.guardian1Id).toBe(20);
+ w.unmount();await render();expect(w.get('.paper-entry h4').text()).toContain('Parent 2');await next();await flushPromises();expect(context.state.guardian2Id).toBe(21);expect(api.post).not.toHaveBeenCalled();expect(w.get('[data-test="packet"]').exists()).toBe(true);
 });
 it('saves insurance corrections before advancing, and stays on the step when that save fails',async()=>{
  context.state={completedSteps:steps.slice(0,4),documentId:9,guardian1Id:20,guardian2Id:21,sharedCustody:'yes'};await render();
- await w.get('input[type="checkbox"]').setValue(true);saveInsurance.mockResolvedValueOnce(false);await next();await flushPromises();expect(w.get('h4').text()).toContain('Insurance');expect(api.put).not.toHaveBeenCalled();
- await next();await flushPromises();expect(saveInsurance).toHaveBeenCalledTimes(2);expect(api.put).toHaveBeenCalledWith(expect.anything(),{step:'insurance',data:{reviewed:true,insuranceTypeId:7}});expect(w.get('h4').text()).toContain('Paper consents and release');expect(w.findAll('form form')).toHaveLength(0);
+ await w.get('input[type="checkbox"]').setValue(true);saveInsurance.mockResolvedValueOnce(false);await next();await flushPromises();expect(w.get('.paper-entry h4').text()).toContain('Insurance');expect(api.put).not.toHaveBeenCalled();
+ await next();await flushPromises();expect(saveInsurance).toHaveBeenCalledTimes(2);expect(api.put).toHaveBeenCalledWith(expect.anything(),{step:'insurance',data:{reviewed:true,insuranceTypeId:7,partialInformationConfirmed:false}});expect(w.get('.paper-entry h4').text()).toContain('Paper consents and release');expect(w.findAll('form form')).toHaveLength(0);
 });
 it('finishes only after saving ROI corrections and displays each recipient outcome',async()=>{
  context.state={completedSteps:steps,documentId:9,guardian1Id:20,guardian2Id:21,sharedCustody:'yes'};await render();
  await fillHuman();
  saveRoi.mockResolvedValueOnce(false);await next();await flushPromises();expect(api.post).not.toHaveBeenCalled();expect(w.get('[role="alert"]').text()).toContain('ROI corrections');
- await next();await flushPromises();expect(api.post).not.toHaveBeenCalled();expect(w.get('h4').text()).toContain('Review');await next();await flushPromises();expect(api.post).toHaveBeenCalledExactlyOnceWith('/clients/4/paper-packet-processing/complete',{signaturesConfirmed:true,staffRoiConfirmed:true});expect(w.text()).toContain('Parent 20: sent');expect(w.text()).toContain('Parent 21: failed');
+ await next();await flushPromises();expect(api.post).not.toHaveBeenCalled();expect(w.get('.paper-entry h4').text()).toContain('Review');await next();await flushPromises();expect(api.post).toHaveBeenCalledExactlyOnceWith('/clients/4/paper-packet-processing/complete',{signaturesConfirmed:true,staffRoiConfirmed:true});expect(w.text()).toContain('Parent 20: sent');expect(w.text()).toContain('Parent 21: failed');
  await w.findAll('button').find(b=>b.text()==='Retry failed invitations').trigger('click');await flushPromises();expect(saveRoi).toHaveBeenCalledTimes(2);expect(api.post).toHaveBeenCalledTimes(2);
 });
 it('keeps an unmatched paper packet pending without offering a new signature form',async()=>{
@@ -56,7 +56,7 @@ it('previews encrypted PDF bytes and releases the private blob when closed',asyn
 async function fillHuman(){await w.findAll('.paper-human-review input').find(i=>i.attributes('placeholder')).setValue('1.02');for(const select of w.findAll('.paper-signature-evidence select'))await select.setValue('present');for(const input of w.findAll('.paper-signature-evidence input'))await input.setValue(input.attributes('type')==='date'?'2026-11-12':input.attributes('type')==='number'?'1':'Synthetic Parent');for(const input of w.findAll('input[type="checkbox"]'))await input.setValue(true);}
 it('offers usable, explicit source review when OCR misses signatures, and advances only after the reviewer records them',async()=>{
  context.state={completedSteps:steps,documentId:9};context.packetRead.status='needs_review';context.packetRead.roiSignatureDetected=false;context.packetRead.disclosureSignatureDetected=false;context.packetRead.reviewReasons=['replacement_packet_requires_review','roi_signature_missing'];
- await render();expect(w.text()).toContain('Confirm the evidence');await next();await flushPromises();expect(api.put).not.toHaveBeenCalled();await fillHuman();await next();await flushPromises();expect(api.put).toHaveBeenCalledWith(expect.anything(),expect.objectContaining({step:'consents',data:expect.objectContaining({staffChanges:[{schoolStaffUserId:99,nextState:'roi_docs'}],evidenceReview:expect.objectContaining({documentId:9,evaluationId:11,versionLabel:'1.02',sourceViewed:true,denyReviewed:true})})}));expect(w.get('h4').text()).toContain('Review');expect(w.text()).toContain('Synthetic Parent');
+ await render();expect(w.text()).toContain('Confirm the evidence');await next();await flushPromises();expect(api.put).not.toHaveBeenCalled();await fillHuman();await next();await flushPromises();expect(api.put).toHaveBeenCalledWith(expect.anything(),expect.objectContaining({step:'consents',data:expect.objectContaining({staffChanges:[{schoolStaffUserId:99,nextState:'roi_docs'}],evidenceReview:expect.objectContaining({documentId:9,evaluationId:11,versionLabel:'1.02',sourceViewed:true,denyReviewed:true})})}));expect(w.get('.paper-entry h4').text()).toContain('Review');expect(w.text()).toContain('Synthetic Parent');
 });
 it('autosaves a working entry and restores it after a literal remount without marking a step complete',async()=>{
  vi.useFakeTimers();await render();await w.findAll('label').find(l=>l.text()==='Preferred language').get('input').setValue('B20-UNSAVED-REMOUNT-PROBE');await vi.advanceTimersByTimeAsync(600);await flushPromises();expect(w.text()).toContain('Entry draft saved. Save insurance policy changes separately before reloading.');expect(context.state.completedSteps).toEqual([]);w.unmount();await render();expect(w.findAll('label').find(l=>l.text()==='Preferred language').get('input').element.value).toBe('B20-UNSAVED-REMOUNT-PROBE');expect(api.post).not.toHaveBeenCalled();vi.useRealTimers();
@@ -88,13 +88,29 @@ it('shows the missing required field without silently swallowing Save and contin
  context.client.date_of_birth=null;await render();await next();await flushPromises();
  expect(w.get('[role="alert"]').text()).toContain('Date of birth');
  expect(w.get('[role="alert"]').text()).toContain('leave this step pending');
- expect(api.put).not.toHaveBeenCalled();expect(w.get('h4').text()).toContain('Client demographics');
+ expect(api.put).not.toHaveBeenCalled();expect(w.get('.paper-entry h4').text()).toContain('Client demographics');
  const date=w.get('input[type="date"]');await date.setValue('2016-03-12');await next();await flushPromises();
  expect(api.put).toHaveBeenCalledWith(expect.anything(),expect.objectContaining({step:'demographics',data:expect.objectContaining({dateOfBirth:'2016-03-12'})}));
- expect(w.get('h4').text()).toContain('Parent 1');
+ expect(w.get('.paper-entry h4').text()).toContain('Parent 1');
 });
 it('hydrates a date-only field from a serialized database DATE without timezone conversion',async()=>{
  context.client.date_of_birth='2016-03-12T00:00:00.000Z';await render();expect(w.get('input[type="date"]').element.value).toBe('2016-03-12');
+});
+it('shows missing entry emails and unreviewed custody from step one without inventing OCR findings',async()=>{
+ context.guardians=[];context.packetRead.status='needs_review';context.packetRead.reviewReasons=['replacement_packet_requires_review'];
+ await render();const pending=w.get('[aria-label="Pending packet entry"]');expect(pending.text()).toContain('Parent 1 email is not recorded');expect(pending.text()).toContain('Parent 2 email is not recorded');expect(pending.text()).toContain('rights have not been reviewed');expect(pending.text()).toContain('file check does not confirm');expect(w.get('.paper-entry h4').text()).toContain('Client demographics');expect(api.put).not.toHaveBeenCalled();expect(api.post).not.toHaveBeenCalled();
+});
+it('restores a specific missing-email and unclear-custody working entry without marking the packet complete',async()=>{
+ context.state.documentId=9;context.workingDraft={documentId:9,evaluationId:11,stage:0,guardianForms:[{firstName:'Parent',lastName:'QA',email:'first@example.com'},{firstName:'Other',lastName:'QA',email:''}],sharedCustody:'unsure'};
+ await render();const pending=w.get('[aria-label="Pending packet entry"]');expect(pending.text()).not.toContain('Parent 1 email is not recorded');expect(pending.text()).toContain('Parent 2 email is not recorded');expect(pending.text()).toContain('rights are unclear');expect(context.state.completedSteps).toEqual([]);expect(api.post).not.toHaveBeenCalled();
+});
+it('requires the insurance editor completion guard before advancing and skips it for explicit Self-Pay',async()=>{
+ context.state={documentId:9,completedSteps:['demographics','guardian1','guardian2','school']};await render();saveInsurance.mockResolvedValueOnce(false);await w.findAll('input[type="checkbox"]').at(-1).setValue(true);await next();await flushPromises();expect(saveInsurance).toHaveBeenCalledWith({paperEntry:true});expect(api.put).not.toHaveBeenCalled();expect(w.get('.paper-entry h4').text()).toContain('Insurance');expect(w.text()).toContain('Review the available insurance details');
+ w.unmount();api.get.mockImplementation(async(path)=>path.includes('/view')?{data:{text:async()=>JSON.stringify({url:'/synthetic.pdf'})},headers:{'content-type':'application/json'}}:{data:path.endsWith('/paper-packet-processing')?structuredClone(context):path==='/client-settings/insurance-types'?[{id:7,label:'Self-Pay',insurance_key:'self_pay',is_active:1}]:[]});saveInsurance.mockClear();await render();await w.findAll('input[type="checkbox"]').at(-1).setValue(true);await next();await flushPromises();expect(saveInsurance).not.toHaveBeenCalled();expect(w.get('.paper-entry h4').text()).toContain('Paper consents');
+});
+it('passes only the explicit partial-information confirmation to the server and displays saved lookup needs without blocking Finish',async()=>{
+ context.state={documentId:9,completedSteps:['demographics','guardian1','guardian2','school']};saveInsurance.mockResolvedValue({saved:true,partialInformationConfirmed:true});await render();await w.findAll('input[type="checkbox"]').at(-1).setValue(true);await next();await flushPromises();expect(api.put).toHaveBeenCalledWith('/clients/4/paper-packet-processing',expect.objectContaining({step:'insurance',data:{reviewed:true,insuranceTypeId:7,partialInformationConfirmed:true}}));
+ w.unmount();context.state={documentId:9,completedSteps:[...steps,'consents'],processedAt:'2026-11-14T15:00:00Z',insuranceReview:{partialInformationConfirmed:true,followUpRequired:true,missingFields:['Secondary Member ID is missing.'],coverageVerifiedByThisStep:false},invitations:{}};await render();const followup=w.get('[aria-label="Insurance staff follow-up"]');expect(followup.text()).toContain('Secondary Member ID is missing');expect(followup.text()).toContain('does not verify coverage');expect(w.text()).toContain('Paper packet processed');
 });
 it('does not restore an old autosave response after another child opens',async()=>{vi.useFakeTimers();await render();let finish;api.put.mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve}));await w.findAll('label').find(l=>l.text()==='Preferred language').get('input').setValue('Old child probe');await vi.advanceTimersByTimeAsync(600);await flushPromises();context.client={...context.client,id:5,full_name:'Other Synthetic'};context.documents=[{id:10,mime_type:'application/pdf',scan_status:'clean'}];context.packetRead={...context.packetRead,id:12,documentId:10};context.state={completedSteps:[],workingDraftRevision:0};await w.setProps({clientId:5});await flushPromises();finish({data:{state:{workingDraftRevision:999}}});await flushPromises();expect(w.findAll('label').find(l=>l.text()==='Preferred language').get('input').element.value).not.toBe('Old child probe');expect(w.vm.state.workingDraftRevision).toBe(0);vi.useRealTimers();});
 
@@ -109,5 +125,5 @@ it('keeps real staff changes pending until the reviewed consents request succeed
  expect(api.put.mock.calls.some(([path])=>path.includes('/school-roi-access/'))).toBe(false);
  api.put.mockImplementation(async(path,body)=>{if(body.step==='consents')committed=true;return originalPut(path,body);});await next();await flushPromises();
  expect(api.put).toHaveBeenCalledWith('/clients/4/paper-packet-processing',expect.objectContaining({step:'consents',data:expect.objectContaining({staffChanges:[{schoolStaffUserId:99,nextState:'roi_docs'}],evidenceReview:expect.objectContaining({documentId:9,evaluationId:11})})}));
- expect(api.get.mock.calls.filter(([path])=>path.endsWith('/school-roi-access'))).toHaveLength(2);expect(api.put.mock.calls.every(([path])=>path==='/clients/4/paper-packet-processing')).toBe(true);expect(api.post).not.toHaveBeenCalled();expect(w.get('h4').text()).toContain('Review');
+ expect(api.get.mock.calls.filter(([path])=>path.endsWith('/school-roi-access'))).toHaveLength(2);expect(api.put.mock.calls.every(([path])=>path==='/clients/4/paper-packet-processing')).toBe(true);expect(api.post).not.toHaveBeenCalled();expect(w.get('.paper-entry h4').text()).toContain('Review');
 });

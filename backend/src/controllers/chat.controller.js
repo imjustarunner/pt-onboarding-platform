@@ -11,8 +11,9 @@ import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import Notification from '../models/Notification.model.js';
-import { decryptChatText, encryptChatText, isChatEncryptionConfigured } from '../services/chatEncryption.service.js';
+import { decryptChatText, encryptChatText, encryptChatContent, readChatMessageContent, isChatEncryptionConfigured } from '../services/chatEncryption.service.js';
 import { startAdhocTeamMeeting } from '../services/teamMeetingStart.service.js';
+import { normalizeSecureMessageSubject } from '../services/secureMessageSubjects.service.js';
 
 async function hasChatMessageEncryptionColumns() {
   try {
@@ -38,6 +39,22 @@ async function hasChatMessagesAnnouncementColumn() {
   } catch {
     return false;
   }
+}
+
+async function hasChatMessagesSubjectColumn() {
+  try {
+    const [rows] = await pool.execute(`SELECT 1 FROM information_schema.columns
+      WHERE table_schema = DATABASE() AND table_name = 'chat_messages' AND column_name = 'subject' LIMIT 1`);
+    return rows?.length > 0;
+  } catch { return false; }
+}
+
+async function hasChatMessagesTopicColumn() {
+  try {
+    const [rows] = await pool.execute(`SELECT 1 FROM information_schema.columns
+      WHERE table_schema = DATABASE() AND table_name = 'chat_messages' AND column_name = 'topic_id' LIMIT 1`);
+    return rows?.length > 0;
+  } catch { return false; }
 }
 
 async function hasChatMessageAttachmentsTable() {
@@ -192,14 +209,16 @@ async function loadReplyCountsForRoots(rootIds, viewerUserId) {
   if (!(await hasParentMessageColumn())) return out;
   const placeholders = rootIds.map(() => '?').join(',');
   const [rows] = await pool.execute(
-    `SELECT parent_message_id AS root_id, COUNT(*) AS c
+    `SELECT parent_message_id AS root_id, COUNT(*) AS c, MAX(m.created_at) AS last_reply_at
        FROM chat_messages m
       WHERE parent_message_id IN (${placeholders}) AND ${familyMessageVisibilitySql(viewerUserId)}
+        AND NOT EXISTS(SELECT 1 FROM chat_message_deletes hidden
+          WHERE hidden.message_id=m.id AND hidden.user_id=?)
       GROUP BY parent_message_id`,
-    rootIds
+    [...rootIds, viewerUserId]
   );
   for (const r of rows || []) {
-    out.set(Number(r.root_id), Number(r.c || 0));
+    out.set(Number(r.root_id), { count: Number(r.c || 0), lastReplyAt: r.last_reply_at || null });
   }
   return out;
 }
@@ -1302,6 +1321,7 @@ export const deleteThreadForMe = async (req, res, next) => {
     if (!threadId) return res.status(400).json({ error: { message: 'threadId is required' } });
     await assertThreadAccess(req.user.id, threadId,{requireActiveAgency:!!req.quickView?.mobileDeviceSessionId});
 
+
     await pool.execute(
       `INSERT INTO chat_thread_deletes (thread_id, user_id, deleted_at)
        VALUES (?, ?, NOW())
@@ -1322,6 +1342,23 @@ export const listMessages = async (req, res, next) => {
     const threadId = parseInt(req.params.threadId, 10);
     if (!threadId) return res.status(400).json({ error: { message: 'threadId is required' } });
     await assertThreadAccess(req.user.id, threadId,{requireActiveAgency:!!req.quickView?.mobileDeviceSessionId});
+    const summaryOnly = req.secureSubjectSummaryOnly === true;
+    const selectedMessageId = req.query.messageId == null ? null : Number(req.query.messageId);
+    const selectedReplyId = req.query.replyMessageId == null ? null : Number(req.query.replyMessageId);
+    const exactReplyParentId = req.query.parentMessageId == null ? null : Number(req.query.parentMessageId);
+    if ((selectedMessageId != null && (!Number.isSafeInteger(selectedMessageId) || selectedMessageId <= 0 || req.query.parentMessageId != null || req.query.beforeId != null)) ||
+        (selectedReplyId != null && (!Number.isSafeInteger(selectedReplyId) || selectedReplyId <= 0 || !Number.isSafeInteger(exactReplyParentId) || exactReplyParentId <= 0 || selectedMessageId != null || req.query.beforeId != null)) ||
+        (summaryOnly && (selectedMessageId != null || selectedReplyId != null || req.query.parentMessageId != null))) {
+      return res.status(400).json({ error: { message: 'Invalid secure subject selection' } });
+    }
+    if (selectedMessageId != null) await assertCanReadFamilySecureMessage({ userId: req.user.id, messageId: selectedMessageId, threadId });
+    if (selectedReplyId != null) await assertCanReadFamilySecureMessage({ userId: req.user.id, messageId: selectedReplyId, threadId });
+    let summaryThread = null;
+    if (summaryOnly) {
+      const [[thread]] = await pool.execute('SELECT agency_id,message_channel FROM chat_threads WHERE id=?', [threadId]);
+      if (thread?.message_channel !== 'secure') return res.status(400).json({ error: { message: 'Subject summaries require a secure conversation' } });
+      summaryThread = thread;
+    }
     if (String(req.user?.role || '').toLowerCase() === 'school_staff') {
       const [[channelRow]] = await pool.execute('SELECT message_channel FROM chat_threads WHERE id = ?', [threadId]);
       if (channelRow?.message_channel === 'secure') {
@@ -1364,7 +1401,9 @@ export const listMessages = async (req, res, next) => {
     const hasEncryptionCols = await hasChatMessageEncryptionColumns();
     const hasAnnouncementCol = await hasChatMessagesAnnouncementColumn();
     const hasParentCol = await hasParentMessageColumn();
-    const parentMessageIdQ = req.query.parentMessageId
+    const subjectCol = await hasChatMessagesSubjectColumn() ? ', m.subject' : ', NULL AS subject';
+    const topicCol = await hasChatMessagesTopicColumn() ? ', m.topic_id' : ', NULL AS topic_id';
+    const parentMessageIdQ = selectedReplyId != null ? exactReplyParentId : req.query.parentMessageId
       ? parseInt(req.query.parentMessageId, 10)
       : null;
     const encCols = hasEncryptionCols
@@ -1387,8 +1426,10 @@ export const listMessages = async (req, res, next) => {
     const beforeId = req.query.beforeId == null ? null : Number(req.query.beforeId);
     if (beforeId != null && (!Number.isSafeInteger(beforeId) || beforeId <= 0)) return res.status(400).json({ error: { message: 'Invalid history cursor' } });
     if (beforeId) { parentClause += ' AND m.id < ?'; sqlParams.push(beforeId); }
+    if (selectedMessageId != null) { parentClause += ' AND m.id = ?'; sqlParams.push(selectedMessageId); }
+    if (selectedReplyId != null) { parentClause += ' AND m.id = ?'; sqlParams.push(selectedReplyId); }
     const [rows] = await pool.execute(
-      `SELECT m.id, m.thread_id, m.sender_user_id, m.body${encCols}${annCol}${parentCol}, m.created_at,
+      `SELECT m.id, m.thread_id, m.sender_user_id, m.body${subjectCol}${topicCol}${encCols}${annCol}${parentCol}, m.created_at,
               u.first_name AS sender_first_name, u.last_name AS sender_last_name,
               u.profile_photo_path AS sender_profile_photo_path
        FROM chat_messages m
@@ -1402,8 +1443,9 @@ export const listMessages = async (req, res, next) => {
       sqlParams
     );
     const ordered = (rows || []).reverse();
-    if(req.quickView?.mobileDeviceSessionId && parentMessageIdQ){
-      const [parents]=await pool.execute(`SELECT m.id,m.thread_id,m.sender_user_id,m.body${encCols}${parentCol},m.created_at,u.first_name AS sender_first_name,u.last_name AS sender_last_name,u.profile_photo_path AS sender_profile_photo_path
+    if ((selectedMessageId != null || selectedReplyId != null) && !ordered.length) return res.status(404).json({ error: { message: 'Secure message not found in this subject' } });
+    if(req.quickView?.mobileDeviceSessionId && parentMessageIdQ && selectedReplyId == null){
+      const [parents]=await pool.execute(`SELECT m.id,m.thread_id,m.sender_user_id,m.body${subjectCol}${topicCol}${encCols}${parentCol},m.created_at,u.first_name AS sender_first_name,u.last_name AS sender_last_name,u.profile_photo_path AS sender_profile_photo_path
         FROM chat_messages m JOIN users u ON u.id=m.sender_user_id WHERE m.id=? AND m.thread_id=? AND m.parent_message_id IS NULL AND ${familyMessageVisibilitySql(req.user.id)} AND NOT EXISTS(SELECT 1 FROM chat_message_deletes d WHERE d.message_id=m.id AND d.user_id=?)`,[parentMessageIdQ,threadId,req.user.id]);
       if(!parents.length)return res.status(404).json({error:{message:'The original message is unavailable.'}});
       ordered.unshift(parents[0]);
@@ -1412,15 +1454,15 @@ export const listMessages = async (req, res, next) => {
     const messageIds = ordered.map((m) => Number(m.id)).filter(Boolean);
     const [attachmentsByMessage, reactionsByMessage, mentionsByMessage, replyCounts, viewedMessageIds] =
       await Promise.all([
-        loadAttachmentsForMessages(messageIds),
-        loadReactionsForMessages(messageIds, me),
-        loadMentionsForMessages(messageIds),
+        summaryOnly ? Promise.resolve(new Map()) : loadAttachmentsForMessages(messageIds),
+        summaryOnly ? Promise.resolve(new Map()) : loadReactionsForMessages(messageIds, me),
+        summaryOnly ? Promise.resolve(new Map()) : loadMentionsForMessages(messageIds),
         // Reply counts only meaningful for root timeline
         !parentMessageIdQ ? loadReplyCountsForRoots(messageIds, me) : Promise.resolve(new Map()),
         loadViewedMessageIds(messageIds, me)
       ]);
     const latestReplies=new Map();
-    if(req.quickView?.mobileDeviceSessionId && !parentMessageIdQ && messageIds.length && hasParentCol){
+    if(!summaryOnly && req.quickView?.mobileDeviceSessionId && !parentMessageIdQ && messageIds.length && hasParentCol){
       const [previews]=await pool.execute(`SELECT m.id,m.parent_message_id,m.body${encCols},m.sender_user_id,m.created_at,u.first_name AS sender_first_name,u.last_name AS sender_last_name,u.profile_photo_path AS sender_profile_photo_path
         FROM chat_messages m JOIN users u ON u.id=m.sender_user_id WHERE ${familyMessageVisibilitySql(me)} AND m.parent_message_id IN(${messageIds.map(()=>'?').join(',')})
         AND m.id=(SELECT MAX(latest.id) FROM chat_messages latest WHERE latest.parent_message_id=m.parent_message_id AND ${familyMessageVisibilitySql(me, 'latest')} AND NOT EXISTS(SELECT 1 FROM chat_message_deletes d WHERE d.message_id=latest.id AND d.user_id=?))`,[...messageIds,me]);
@@ -1431,27 +1473,21 @@ export const listMessages = async (req, res, next) => {
       const id = m?.id ? Number(m.id) : null;
       const isMine = Number(m?.sender_user_id) === me;
       const isReadByOther = !!(isMine && id && (viewedMessageIds.has(id) || (otherLastReadMessageId && id <= otherLastReadMessageId)));
-      let body = m?.body;
-      if (!body && m?.body_ciphertext && m?.body_iv && m?.body_auth_tag) {
-        try {
-          body = decryptChatText({
-            ciphertextB64: m.body_ciphertext,
-            ivB64: m.body_iv,
-            authTagB64: m.body_auth_tag,
-            keyId: m.encryption_key_id || null
-          });
-        } catch {
-          body = '[Unable to decrypt message]';
-        }
-      }
+      let content;
+      try { content = readChatMessageContent(m); }
+      catch { content = { body: '[Unable to decrypt message]', subject: null }; }
       const attachments = attachmentsByMessage.get(Number(m?.id)) || [];
       const reactions = reactionsByMessage.get(Number(m?.id)) || [];
       const mentioned = mentionsByMessage.get(Number(m?.id)) || [];
+      const safeSummary = { id: m.id, thread_id: m.thread_id, sender_user_id: m.sender_user_id, created_at: m.created_at,
+        sender_first_name: m.sender_first_name, sender_last_name: m.sender_last_name, sender_profile_photo_path: m.sender_profile_photo_path, topic_id: m.topic_id || null };
       return {
-        ...m,
-        body: body || '',
+        ...(summaryOnly ? safeSummary : m),
+        body: summaryOnly ? '' : content.body || '',
+        subject: content.subject,
         parent_message_id: m.parent_message_id != null ? Number(m.parent_message_id) : null,
-        reply_count: replyCounts.get(Number(m?.id)) || 0,
+        reply_count: replyCounts.get(Number(m?.id))?.count || 0,
+        last_reply_at: replyCounts.get(Number(m?.id))?.lastReplyAt || null,
         ...(req.quickView?.mobileDeviceSessionId?{latest_reply:latestReplies.get(Number(m.id)) || null}:{}),
         mentioned_user_ids: mentioned,
         is_read_by_other: isReadByOther,
@@ -1459,7 +1495,8 @@ export const listMessages = async (req, res, next) => {
         reactions
       };
     });
-    const messageChannel = await recordSecureThreadOpen({ threadId, userId: req.user.id, messageIds:[...messageIds,...[...latestReplies.values()].map(r=>Number(r.id))], req });
+    const messageChannel = summaryOnly ? 'secure' : await recordSecureThreadOpen({ threadId, userId: req.user.id, messageIds:[...messageIds,...[...latestReplies.values()].map(r=>Number(r.id))], req });
+    if (summaryOnly) await recordSecureMessageEvent({ agencyId: summaryThread.agency_id, threadId, userId: req.user.id, eventType: 'subject_list_viewed', req });
     res.set?.('X-Message-Channel', messageChannel);
     res.set?.('Cache-Control', 'no-store');
     const visible = ['client','client_guardian'].includes(req.user?.role)
@@ -1543,6 +1580,18 @@ export const sendMessage = async (req, res, next) => {
       if(rootParentId)await assertCanReadFamilySecureMessage({userId:req.user.id,messageId:rootParentId});
     }
 
+    const hasEncCols = await hasChatMessageEncryptionColumns();
+    let messageSubject = isSecureMessage && !rootParentId ? normalizeSecureMessageSubject(req.body?.subject) : null;
+    if (isSecureMessage && rootParentId) {
+      const subjectCol = await hasChatMessagesSubjectColumn() ? ', subject' : ', NULL AS subject';
+      const encCols = hasEncCols ? ', body_ciphertext, body_iv, body_auth_tag, encryption_key_id' : '';
+      // The root was resolved in this thread and authorized above. A reply keeps
+      // that subject; a submitted replacement title cannot create a new topic.
+      const [[root]] = await pool.execute(`SELECT body${subjectCol}${encCols} FROM chat_messages WHERE id = ? AND thread_id = ? LIMIT 1`, [rootParentId, threadId]);
+      if (!root) throw Object.assign(new Error('Original secure message is unavailable'), { status: 404 });
+      messageSubject = readChatMessageContent(root).subject;
+    }
+
     let topicId = req.body?.topicId || null;
     if (rootParentId) {
       const [parentTopic] = await pool.execute('SELECT topic_id FROM chat_messages WHERE id = ? AND thread_id = ?', [rootParentId, threadId]);
@@ -1559,7 +1608,6 @@ export const sendMessage = async (req, res, next) => {
     let bodyIv = null;
     let bodyTag = null;
     let bodyKeyId = null;
-    const hasEncCols = await hasChatMessageEncryptionColumns();
     const senderNeedsEncrypt = roleNorm === 'school_staff' || roleNorm === 'client_guardian';
     let threadNeedsEncrypt = senderNeedsEncrypt;
     if (!threadNeedsEncrypt) {
@@ -1582,7 +1630,7 @@ export const sendMessage = async (req, res, next) => {
 
     if (hasEncCols && isChatEncryptionConfigured()) {
       try {
-        const enc = encryptChatText(body);
+        const enc = isSecureMessage ? encryptChatContent({ body, subject: messageSubject }) : encryptChatText(body);
         bodyCipher = enc.ciphertextB64;
         bodyIv = enc.ivB64;
         bodyTag = enc.authTagB64;
@@ -1623,7 +1671,7 @@ export const sendMessage = async (req, res, next) => {
       }
       const [ins] = await messageDb.execute(`INSERT INTO chat_messages (${columns.join(', ')}) VALUES (${values.map(() => '?').join(', ')})`, values);
       insertedMessageId = Number(ins.insertId);
-      const subjectRaw = String(req.body?.subject || '').trim();
+      const subjectRaw = isSecureMessage ? '' : String(req.body?.subject || '').trim();
       if (subjectRaw) {
         try {
           await messageDb.execute(`UPDATE chat_messages SET subject = ? WHERE id = ?`, [
@@ -1764,9 +1812,12 @@ export const sendMessage = async (req, res, next) => {
     const out = row[0] || {};
     if (!out.body && body) out.body = body;
     out.message_channel = t.message_channel;
+    out.subject = isSecureMessage ? messageSubject : String(req.body?.subject || '').trim().slice(0, 500) || null;
+    out.topic_id = topicId;
     out.parent_message_id = out.parent_message_id != null ? Number(out.parent_message_id) : rootParentId;
     out.mentioned_user_ids = mentionedIds;
     out.reply_count = 0;
+    out.last_reply_at = null;
     out.attachments = (await loadAttachmentsForMessages([insertedMessageId])).get(insertedMessageId) || [];
     out.reactions = (await loadReactionsForMessages([insertedMessageId], req.user.id)).get(insertedMessageId) || [];
     res.status(201).json(out);

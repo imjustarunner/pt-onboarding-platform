@@ -25,7 +25,7 @@ const route = useRoute();
 const router = useRouter();
 const mini = useActiveMeeting();
 const auth=useAuthStore(),agency=useAgencyStore(),lock=useSessionLockStore();
-const sessionBlocked=computed(()=>lock.isLocked||lock.verificationFailed);
+const sessionBlocked=computed(()=>lock.isLocked||lock.warningActive||lock.verificationFailed);
 const scopeKey=computed(()=>`${Number(auth.user?.id)||0}:${Number(props.userId)||0}:${Number(agency.currentAgency?.id)||0}`);
 const eligible=computed(()=>!!props.userId&&Number(props.userId)===Number(auth.user?.id)&&!sessionBlocked.value);
 const pollError=ref('');

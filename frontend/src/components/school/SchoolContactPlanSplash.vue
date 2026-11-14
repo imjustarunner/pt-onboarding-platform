@@ -159,6 +159,7 @@
 </template>
 
 <script setup>
+import {canPollWorkspace,useSessionPolling} from '../../composables/useSessionPolling';
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { RouterLink } from 'vue-router';
 import api from '../../services/api';
@@ -230,6 +231,7 @@ function minimize() {
   try { sessionStorage.setItem(dismissalKey(), '1'); } catch { /* Session storage may be unavailable. */ }
 }
 async function load({ reset = false } = {}) {
+  if (!canPollWorkspace()) return;
   if (!props.agencyId || !props.userId || loading || disposed) return;
   if (!reset && (open.value || busy.value || plan.value?.eligible)) return;
   loading = true;
@@ -309,6 +311,7 @@ watch(() => [props.agencyId, props.userId], () => {
   load({ reset: true });
 }, { immediate: true });
 function onFocus() { load(); }
+useSessionPolling(load);
 onMounted(() => { timer = setInterval(onFocus, 60000); window.addEventListener('focus', onFocus); window.addEventListener('family-welcome:open', openTour); });
 onBeforeUnmount(() => { disposed = true; version++; clearInterval(timer); window.removeEventListener('focus', onFocus); window.removeEventListener('family-welcome:open', openTour); previousFocus?.focus?.(); });
 </script>

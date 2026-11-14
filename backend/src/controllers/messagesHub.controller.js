@@ -2,6 +2,7 @@ import { openQueuedMessage } from '../services/secureQueuePayload.service.js';
 import { resolveClientForSecureRecipients, ensureClientSecureConversation } from '../services/clientSecureConversation.service.js';
 import { assertChatChannel, recordSecureThreadOpen } from '../services/secureMessageBoundary.service.js';
 import { resolveChatTopic, findExistingTopicThread } from '../services/chatTopics.service.js';
+import { normalizeSecureMessageSubject, resolveSecureSubjectReply } from '../services/secureMessageSubjects.service.js';
 import {
   searchHubPeople,
   browseHubPeople,
@@ -23,7 +24,9 @@ import {
   listHubUnreadFeed,
   listHubInboxFeed,
   markHubPersonRead,
-  markHubPersonUnread
+  markHubPersonUnread,
+  parsePersonKey,
+  resolveHubClientSecureRecipient
 } from '../services/messagesHub.service.js';
 import { generateHubSmartReply } from '../services/hubSmartReply.service.js';
 import {
@@ -548,6 +551,7 @@ export const postMessagesHubSend = async (req, res, next) => {
     if (!['secure', 'sms', 'email', 'internal'].includes(method)) {
       return res.status(400).json({ error: { message: 'method must be secure, sms, email, or internal' } });
     }
+    if (method === 'secure' && (req.body?.newTopic || (!req.body?.parentMessageId && !req.body?.legacyRootMessageId && !req.body?.topicId))) normalizeSecureMessageSubject(req.body?.subject);
     if ((method === 'secure' || method === 'internal') && !body && !attachments.length) {
       return res.status(400).json({ error: { message: 'body or attachments required' } });
     }
@@ -652,17 +656,34 @@ export const postMessagesHubSend = async (req, res, next) => {
 
     let chatThreadId = null;
     let chatTopicId = null;
+    let chatParentMessageId = null;
     if (method === 'secure' || method === 'internal') {
       if (method === 'secure' && !person.userId) {
-        const invited = await sendHubPortalInvitation({ agencyId, actorUserId: req.user.id, personKey, clientId: person.clientId, skipEmail: true });
-        person = await prepareHubSend({ agencyId, userId: req.user.id, personKey: invited?.personKey || personKey, method });
+        const selectedKey = parsePersonKey(personKey);
+        const clientTile = selectedKey?.type === 'client' || person.kinds?.includes('client') || person.sharedSecureAvailable === true;
+        if (clientTile) {
+          const selectedClientId = Number(person.clientId || (selectedKey?.type === 'client' ? selectedKey.id : null));
+          if (req.body?.clientId && Number(req.body.clientId) !== selectedClientId) throw Object.assign(new Error('This secure message belongs to a different client'), { status: 403 });
+          const target = await resolveHubClientSecureRecipient({ clientId: selectedClientId, agencyId, actorUserId: req.user.id, serviceId: req.body?.serviceId || null });
+          person = { ...(await prepareHubSend({ agencyId, userId: req.user.id, personKey: target.personKey, method })), clientId: selectedClientId };
+          req.body.clientId = selectedClientId;
+          if (!req.body.serviceId && target.serviceId) req.body.serviceId = target.serviceId;
+        } else {
+          const invited = await sendHubPortalInvitation({ agencyId, actorUserId: req.user.id, personKey, clientId: person.clientId, skipEmail: true });
+          person = await prepareHubSend({ agencyId, userId: req.user.id, personKey: invited?.personKey || personKey, method });
+        }
       }
       if (!person.userId) return res.status(400).json({ error: { message: 'Messaging requires a recipient account' } });
       const clientId = method === 'secure' ? await resolveClientForSecureRecipients({ agencyId, actorUserId: req.user.id, recipientUserId: person.userId, clientId: req.body?.clientId || person.clientId }) : null;
       if (method === 'secure' && clientId) {
-        const shared = await ensureClientSecureConversation({ clientId, actorUserId: req.user.id, agencyId, serviceId: req.body?.serviceId || null });
-        if (!shared.audienceUserIds.includes(Number(person.userId))) return res.status(403).json({ error: { message: 'Recipient does not have access to this client conversation' } });
-        chatThreadId = shared.threadId;
+        const reply = req.body?.newTopic ? null : await resolveSecureSubjectReply({ userId: req.user.id, recipientUserId: person.userId, agencyId, clientId,
+          parentMessageId: req.body?.parentMessageId ?? req.body?.legacyRootMessageId ?? null, topicId: req.body?.topicId || null });
+        if (reply) { chatThreadId = reply.threadId; chatParentMessageId = reply.rootMessageId; chatTopicId = reply.topicId; }
+        else {
+          const shared = await ensureClientSecureConversation({ clientId, actorUserId: req.user.id, agencyId, serviceId: req.body?.serviceId || null });
+          if (!shared.audienceUserIds.includes(Number(person.userId))) return res.status(403).json({ error: { message: 'Recipient does not have access to this client conversation' } });
+          chatThreadId = shared.threadId;
+        }
         req.body.clientId = clientId;
       } else {
         chatThreadId = (!req.body?.newTopic && await findExistingTopicThread({ userId: req.user.id, otherUserId: person.userId, topicId: req.body?.topicId, legacyRootMessageId: req.body?.legacyRootMessageId })) || await ensureHubChatThread({ agencyId, userId: req.user.id, otherUserId: person.userId, messageChannel: method });
@@ -672,7 +693,11 @@ export const postMessagesHubSend = async (req, res, next) => {
         const {assertSharedGuardianSend}=await import('../services/guardianSharedMessages.service.js');
         await assertSharedGuardianSend(req.user.id,chatThreadId,{expectedRecipientUserIds:req.body?.expectedRecipientUserIds});
       }
-      if (method === 'secure' || req.body?.topicId || req.body?.newTopic || req.body?.legacyRootMessageId) {
+      if (method === 'secure') {
+        // Secure subjects belong inside the encrypted root message, never in
+        // plaintext chat_topics. Replies use the same guarded root as portals.
+        chatParentMessageId = req.body?.newTopic ? null : chatParentMessageId ?? req.body?.parentMessageId ?? req.body?.legacyRootMessageId ?? null;
+      } else if (req.body?.topicId || req.body?.newTopic || req.body?.legacyRootMessageId) {
         chatTopicId = await resolveChatTopic({ threadId: chatThreadId, userId: req.user.id,
           topicId: req.body?.newTopic ? null : req.body?.topicId,
           legacyRootMessageId: req.body?.newTopic ? null : req.body?.legacyRootMessageId, subject });
@@ -721,7 +746,8 @@ export const postMessagesHubSend = async (req, res, next) => {
           body,
           subject: subject || null,
           payload: {
-            clientId: req.body?.clientId || person.clientId || null, topicId: chatTopicId, threadId: chatThreadId, smsThreadKey: req.body?.smsThreadKey || null,
+            clientId: req.body?.clientId || person.clientId || null, serviceId: req.body?.serviceId || null, topicId: chatTopicId, parentMessageId: chatParentMessageId, threadId: chatThreadId, smsThreadKey: req.body?.smsThreadKey || null,
+            ...(method === 'secure' && person.userId ? { recipientPersonKey: `user:${Number(person.userId)}@${Number(agencyId)}` } : {}),
             expectedRecipientUserIds:req.body?.expectedRecipientUserIds || null,
             numberId: req.body?.numberId || null,
             startNewConversation: method === 'sms' && !req.body?.smsThreadKey,
@@ -811,7 +837,7 @@ export const postMessagesHubSend = async (req, res, next) => {
         return null;
       })
       .filter(Boolean);
-    req.body = { ...req.body, clientId: req.body?.clientId || person.clientId || null, topicId: chatTopicId, body, attachments: chatAttachments, subject: subject || req.body?.subject || null };
+    req.body = { ...req.body, clientId: req.body?.clientId || person.clientId || null, topicId: chatTopicId, ...(method === 'secure' ? { parentMessageId: chatParentMessageId } : {}), body, attachments: chatAttachments, subject: subject || req.body?.subject || null };
 
     const originalJson = res.json.bind(res);
     res.json = (payload) => {
@@ -1240,7 +1266,7 @@ export async function processHubMessageQueue({ limit = 40 } = {}) {
       let person = await prepareHubSend({
         agencyId: row.agency_id,
         userId: row.user_id,
-        personKey: row.person_key,
+        personKey: row.channel === 'secure' ? payload.recipientPersonKey || row.person_key : row.person_key,
         method: row.channel
       });
       const user = await User.findById(row.user_id);
@@ -1258,18 +1284,17 @@ export async function processHubMessageQueue({ limit = 40 } = {}) {
         });
       } else if (row.channel === 'secure' || row.channel === 'internal') {
         if (row.channel === 'secure' && !person.userId) {
-          const invited = await sendHubPortalInvitation({
-            agencyId: row.agency_id,
-            actorUserId: row.user_id,
-            personKey: row.person_key,
-            skipEmail: true
-          });
-          person = await prepareHubSend({
-            agencyId: row.agency_id,
-            userId: row.user_id,
-            personKey: invited?.personKey || row.person_key,
-            method: row.channel
-          });
+          const selectedKey = parsePersonKey(row.person_key);
+          if (selectedKey?.type === 'client' || person.kinds?.includes('client') || person.sharedSecureAvailable === true) {
+            const selectedClientId = Number(person.clientId || (selectedKey?.type === 'client' ? selectedKey.id : null));
+            if (payload.clientId && Number(payload.clientId) !== selectedClientId) throw Object.assign(new Error('Queued secure message belongs to a different client'), { status: 403 });
+            const target = await resolveHubClientSecureRecipient({ clientId: selectedClientId, agencyId: row.agency_id, actorUserId: row.user_id, serviceId: payload.serviceId || null });
+            person = { ...(await prepareHubSend({ agencyId: row.agency_id, userId: row.user_id, personKey: target.personKey, method: row.channel })), clientId: selectedClientId };
+            payload.clientId = selectedClientId;
+          } else {
+            const invited = await sendHubPortalInvitation({ agencyId: row.agency_id, actorUserId: row.user_id, personKey: row.person_key, skipEmail: true });
+            person = await prepareHubSend({ agencyId: row.agency_id, userId: row.user_id, personKey: invited?.personKey || row.person_key, method: row.channel });
+          }
         }
         if (!person.userId) throw new Error('Recipient has no user account');
         const sharedClientId = row.channel === 'secure' ? await resolveClientForSecureRecipients({ agencyId: row.agency_id, actorUserId: row.user_id, recipientUserId: person.userId, clientId: payload.clientId || person.clientId }) : null;
@@ -1294,7 +1319,7 @@ export async function processHubMessageQueue({ limit = 40 } = {}) {
         await runWithMockRes(sendChatMessage, {
           user,
           params: { threadId: String(threadId) },
-          body: { method: row.channel, clientId: payload.clientId || person.clientId || null, body: row.body || '', attachments: chatAttachments, subject: row.subject || null, topicId: payload.topicId || null,expectedRecipientUserIds:payload.expectedRecipientUserIds || null }
+          body: { method: row.channel, clientId: payload.clientId || person.clientId || null, body: row.body || '', attachments: chatAttachments, subject: row.subject || null, topicId: payload.topicId || null, parentMessageId: payload.parentMessageId || null,expectedRecipientUserIds:payload.expectedRecipientUserIds || null }
         });
       } else {
         throw new Error(`Unsupported queue channel: ${row.channel}`);

@@ -5863,6 +5863,8 @@
 </template>
 
 <script setup>
+import {canPollWorkspace,useSessionPolling} from '../../composables/useSessionPolling';
+
 import ScheduledTrainingEditor from './ScheduledTrainingEditor.vue';
 import ClientAlertDialog from '../clients/ClientAlertDialog.vue';
 import ProviderUpdateSchoolSchedule from '../provider/ProviderUpdateSchoolSchedule.vue';
@@ -6707,6 +6709,7 @@ const selectedExternalCalendarIdSet = computed(
 let schedMouseUpHandler = null;
 let schedScheduleRefreshHandler = null;
 let schedSoftRefreshTimer = null;
+useSessionPolling(() => { void load({ forceRefresh: true }); void loadSelectedOfficeGrid(); });
 const hideWeekend = ref(props.mode === 'self');
 const focusedDays = ref([]);
 /** day | agenda | week — day/agenda focus one day; week = full multi-day grid */
@@ -8053,6 +8056,7 @@ onMounted(() => {
   // Soft refresh so newly scheduled supervision/meetings appear without a hard reload.
   if (schedSoftRefreshTimer) clearInterval(schedSoftRefreshTimer);
   schedSoftRefreshTimer = setInterval(() => {
+    if (!canPollWorkspace()) return;
     if (document.visibilityState === 'hidden') return;
     void load({ forceRefresh: true });
     void loadSelectedOfficeGrid();
@@ -9961,6 +9965,7 @@ function refreshGoogleSummaryInBackground({ cacheKey, generation, uid, week, sna
   }, 0);
 }
 const load = async ({ forceRefresh = false } = {}) => {
+  if (!canPollWorkspace()) return;
   if (!props.userId || scheduleDisposed || (scheduleRetryPending.value && Date.now() < scheduleRetryDeadline)) return;
   if (!effectiveAgencyIds.value.length) {
     // Self / My Schedule uses includeAllAgencies — do not wait on org chips or the grid stays blank.
@@ -20591,6 +20596,7 @@ const refreshVisibleOfficeGrid = () => {
   if (document.visibilityState !== 'hidden' && Date.now()-lastOfficeGridRefresh>15000) void loadSelectedOfficeGrid();
 };
 const loadSelectedOfficeGrid = async () => {
+  if (!canPollWorkspace()) return;
   const requestId = ++officeGridRequestId;
   lastOfficeGridRefresh = Date.now();
   const id = Number(selectedOfficeLocationId.value || 0);

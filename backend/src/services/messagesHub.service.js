@@ -17,7 +17,7 @@ import {
 } from './secureMessagingPolicy.service.js';
 import { composeNewEmail } from './unifiedInbox.service.js';
 import { findOrCreateDirectThread, findExistingDirectThreadBetweenUsers } from '../controllers/chat.controller.js';
-import { decryptChatText, isChatEncryptionConfigured } from './chatEncryption.service.js';
+import { decryptChatText, isChatEncryptionConfigured, readChatMessageContent } from './chatEncryption.service.js';
 import { listHubQueuedForPerson } from './hubMessageQueue.service.js';
 
 const TEAM_ROLES = new Set([
@@ -313,7 +313,9 @@ function buildMethods({
   clientStatusKey = null,
   clientType = null,
   portalAccess = false,
-  userStatus = null
+  userStatus = null,
+  sharedSecureAvailable = false,
+  sharedSecureReason = null
 }) {
   const isClientish = kinds.includes('client') || kinds.includes('guardian');
   const isSchoolStaff = kinds.includes('school_staff');
@@ -337,7 +339,7 @@ function buildMethods({
   const secureOk = isSchoolStaff
     ? !!hasUserId
     : isClientish
-      ? !!(hasEmail || hasUserId)
+      ? !!(hasEmail || hasUserId || sharedSecureAvailable)
       : !!hasUserId;
 
   const internalAvailable = hasUserId && (isStaffish || isSchoolStaff) && !isClientish;
@@ -359,11 +361,15 @@ function buildMethods({
   else if (internalAvailable) preferred = 'internal';
 
   let secureReason;
-  if (secureOk && isClientish && !portalReady) {
+  if (secureOk && isClientish && sharedSecureAvailable) {
+    secureReason = 'Shared with all eligible family portal participants and the authorized care team; retained in this client’s record. No separate client account is created.';
+  } else if (secureOk && isClientish && !portalReady) {
     secureReason =
       'Secure message is their portal invite — they set a password (and confirm the client’s date of birth) from the link';
   } else if (secureOk) {
     secureReason = isClientish ? 'Shared with all guardians who have access and the authorized care team; retained in the client record' : 'Protected in-app conversation with an access log';
+  } else if (isClientish && !hasEmail && !hasUserId && sharedSecureReason) {
+    secureReason = sharedSecureReason;
   } else if (isClientish && !hasEmail && !hasUserId) {
     secureReason = 'Add an email on the client or guardian record to send a secure message';
   } else {
@@ -735,9 +741,59 @@ async function buildInboxMap(agencyIds, userId) {
   return map;
 }
 
-/**
- * Linked guardians + client portal flags for client-centric Hub threads.
- */
+/** Resolve delivery without opening a conversation or creating a portal account. */
+async function currentSharedClientMessaging({ clientId, agencyId, actorUserId }) {
+  const cid = Number(clientId);
+  const aid = Number(agencyId);
+  const actor = Number(actorUserId);
+  const unavailable = {
+    available: false,
+    familyUserIds: [],
+    reason: 'Shared secure messaging is not available to this account.'
+  };
+  if (![cid, aid, actor].every((id) => Number.isSafeInteger(id) && id > 0)) return unavailable;
+  try {
+    const { familySharedConversations } = await import('./familySharedConversations.service.js');
+    const audience = await familySharedConversations.currentAudience({ clientId: cid, agencyId: aid });
+    const ids = new Set((audience.audienceIds || []).map(Number));
+    if (Number(audience.clientId) !== cid || Number(audience.agencyId) !== aid || !ids.has(actor)) {
+      return unavailable;
+    }
+    const familyUserIds = (audience.participants || [])
+      .filter((person) =>
+        ['client', 'client_guardian'].includes(String(person.role).toLowerCase()) && ids.has(Number(person.id))
+      )
+      .map((person) => Number(person.id));
+    return familyUserIds.length ? { available: true, familyUserIds, reason: null } : unavailable;
+  } catch (error) {
+    const expected = [403, 404, 409].includes(Number(error?.status)) &&
+      String(error?.code || '').startsWith('FAMILY_SHARED_');
+    return {
+      ...unavailable,
+      reason: expected
+        ? error.message
+        : 'Secure messaging availability could not be checked. Refresh and try again.'
+    };
+  }
+}
+
+/** A client tile can send to an existing family portal without owning an account. */
+export async function resolveHubClientSecureRecipient({ clientId, agencyId, actorUserId, serviceId = null }) {
+  const cid = Number(clientId), aid = Number(agencyId), actor = Number(actorUserId);
+  if (![cid, aid, actor].every(id => Number.isSafeInteger(id) && id > 0)) throw Object.assign(new Error('Choose the client and practice for this secure message'), { status: 400 });
+  const { familySharedConversations } = await import('./familySharedConversations.service.js');
+  const audience = await familySharedConversations.currentAudience({ clientId: cid, agencyId: aid, serviceId: serviceId || 0, resolveCurrentService: true });
+  const eligibleIds = new Set((audience.audienceIds || []).map(Number));
+  if (Number(audience.clientId) !== cid || Number(audience.agencyId) !== aid || !eligibleIds.has(actor)) {
+    throw Object.assign(new Error('This shared secure conversation is not available to your account'), { status: 403, code: 'FAMILY_SHARED_ACCESS' });
+  }
+  const recipient = (audience.participants || []).filter(person => ['client', 'client_guardian'].includes(String(person.role).toLowerCase()) &&
+    eligibleIds.has(Number(person.id)) && Number(person.id) !== actor).sort((a, b) => Number(a.id) - Number(b.id))[0];
+  if (!recipient) throw Object.assign(new Error('No eligible family portal account can receive this secure message'), { status: 403, code: 'FAMILY_SHARED_ACCESS' });
+  return { personKey: formatPersonKey('user', recipient.id, aid), clientId: cid, agencyId: aid, serviceId: Number(audience.serviceId) || null };
+}
+
+/** Linked guardians + client portal flags for client-centric Hub threads. */
 export async function buildClientThreadContext({
   clientId,
   agencyId,
@@ -761,6 +817,7 @@ export async function buildClientThreadContext({
   const { publicUploadsUrlFromStoredPath } = await import('../utils/uploads.js');
   const rows = await ClientGuardian.listForClient(cid);
   const hasAppInbox = actorUserId ? await actorHasAppInbox(aid, actorUserId) : false;
+  const shared = await currentSharedClientMessaging({ clientId: cid, agencyId: aid, actorUserId });
 
   const linkedGuardians = [];
   for (const r of rows || []) {
@@ -794,6 +851,7 @@ export async function buildClientThreadContext({
       relationshipTitle: r.relationship_title || (relType === 'self' ? 'Self' : 'Guardian'),
       portalAccess: portalReady,
       portalAccessEnabled: portalAccess,
+      sharedSecureEligible: portalAccess && shared.familyUserIds.includes(uid),
       userStatus: r.status || null,
       canInviteToPortal,
       isSelf: relType === 'self',
@@ -826,7 +884,9 @@ export async function buildClientThreadContext({
       clientStatusKey: clientSeed.clientStatusKey || null,
       clientType: clientSeed.clientType || null,
       portalAccess: clientHasPortal,
-      userStatus: clientSeed.userStatus || selfPortal?.userStatus || null
+      userStatus: clientSeed.userStatus || selfPortal?.userStatus || null,
+      sharedSecureAvailable: shared.available,
+      sharedSecureReason: shared.reason
     });
     clientParticipant = {
       personKey: clientPersonKey,
@@ -838,6 +898,8 @@ export async function buildClientThreadContext({
       canInviteToPortal,
       isClient: true,
       isSelf: !!selfPortal,
+      sharedSecureAvailable: shared.available,
+      sharedSecureReason: shared.reason,
       methods,
       preferredMethod,
       secureDefault,
@@ -845,12 +907,10 @@ export async function buildClientThreadContext({
     };
   }
 
+  const eligibleGuardians = linkedGuardians.filter((guardian) => guardian.sharedSecureEligible);
   const defaultTalkingToPersonKey =
-    portalGuardians.find((g) => g.email)?.personKey ||
-    portalGuardians[0]?.personKey ||
-    linkedGuardians.find((g) => g.email)?.personKey ||
-    linkedGuardians.find((g) => g.portalAccess)?.personKey ||
-    linkedGuardians[0]?.personKey ||
+    eligibleGuardians.find((g) => g.email)?.personKey ||
+    eligibleGuardians[0]?.personKey ||
     (clientHasPortal ? clientParticipant?.personKey : null) ||
     null;
 
@@ -860,6 +920,8 @@ export async function buildClientThreadContext({
     clientParticipant,
     clientHasPortal,
     clientNoPortalBanner: !clientHasPortal,
+    sharedSecureAvailable: shared.available,
+    sharedSecureReason: shared.reason,
     defaultTalkingToPersonKey,
     talkingToName:
       linkedGuardians.find((g) => g.personKey === defaultTalkingToPersonKey)?.displayName ||
@@ -1715,6 +1777,7 @@ export async function resolveHubPerson({ agencyId, userId, personKey }) {
       clientMessaging = await loadClientMessagingContext({
         clientId: seed.clientId,
         agencyId: resolvedAgencyId,
+        actorUserId: userId,
         selectedUserId: (seed.kinds || []).includes('guardian') ? seed.userId || null : null
       });
     } catch (e) {
@@ -1722,6 +1785,26 @@ export async function resolveHubPerson({ agencyId, userId, personKey }) {
     }
   }
 
+  if ((seed.kinds || []).includes('client') && clientMessaging) {
+    // A guardian-enabled record is not an account owned by the child. Shared
+    // delivery is independent of the client's own portal/email availability.
+    seed.portalAccess = clientMessaging.clientHasPortal === true;
+    ({ methods, preferredMethod, secureDefault, isActiveClient, canInviteToPortal, portalReady } =
+      buildMethods({
+        kinds: seed.kinds,
+        hasUserId: !!seed.userId,
+        hasPhone: !!seed.phone,
+        smsOk: seed.smsOptIn,
+        hasEmail: !!seed.email,
+        hasAppInbox,
+        clientStatusKey: seed.clientStatusKey,
+        clientType: seed.clientType,
+        portalAccess: seed.portalAccess,
+        userStatus: seed.userStatus || null,
+        sharedSecureAvailable: clientMessaging.sharedSecureAvailable === true,
+        sharedSecureReason: clientMessaging.sharedSecureReason || null
+      }));
+  }
   return {
     ...seed,
     methods,
@@ -1738,7 +1821,7 @@ export async function resolveHubPerson({ agencyId, userId, personKey }) {
   };
 }
 
-async function loadClientMessagingContext({ clientId, agencyId, selectedUserId = null } = {}) {
+async function loadClientMessagingContext({ clientId, agencyId, actorUserId, selectedUserId = null } = {}) {
   const cid = Number(clientId || 0);
   if (!cid) return null;
 
@@ -1767,7 +1850,7 @@ async function loadClientMessagingContext({ clientId, agencyId, selectedUserId =
   const thread = await buildClientThreadContext({
     clientId: cid,
     agencyId: resolvedAgencyId,
-    actorUserId: null,
+    actorUserId,
     clientSeed: {
       displayName: client.full_name || client.initials || `Client #${cid}`,
       userId: client.user_id || null,
@@ -1784,8 +1867,9 @@ async function loadClientMessagingContext({ clientId, agencyId, selectedUserId =
   const portalGuardians = thread.portalGuardians || [];
   const selfPortal = guardians.find((g) => g.isSelf && g.portalAccess) || null;
 
+  const eligibleGuardians = guardians.filter((guardian) => guardian.sharedSecureEligible);
   let talkingToUserId = selectedUserId ? Number(selectedUserId) : null;
-  if (talkingToUserId && !guardians.some((g) => Number(g.userId) === talkingToUserId)) {
+  if (talkingToUserId && !eligibleGuardians.some((g) => Number(g.userId) === talkingToUserId)) {
     talkingToUserId = null;
   }
   if (!talkingToUserId) {
@@ -1793,20 +1877,21 @@ async function loadClientMessagingContext({ clientId, agencyId, selectedUserId =
       ? parsePersonKey(thread.defaultTalkingToPersonKey)
       : null;
     talkingToUserId =
-      portalGuardians.find((g) => g.email)?.userId ||
-      guardians.find((g) => g.email)?.userId ||
-      (fromKey?.type === 'user' ? fromKey.id : null) ||
-      portalGuardians[0]?.userId ||
-      guardians[0]?.userId ||
+      eligibleGuardians.find((g) => g.email)?.userId ||
+      (fromKey?.type === 'user' && eligibleGuardians.some((g) => Number(g.userId) === Number(fromKey.id))
+        ? fromKey.id
+        : null) ||
+      eligibleGuardians[0]?.userId ||
       (thread.clientHasPortal ? Number(client.user_id) || selfPortal?.userId : null) ||
       null;
   }
 
-  const talkingTo =
-    guardians.find((g) => Number(g.userId) === Number(talkingToUserId)) ||
-    (thread.clientParticipant && Number(thread.clientParticipant.userId) === Number(talkingToUserId)
-      ? thread.clientParticipant
-      : null);
+  const talkingTo = talkingToUserId
+    ? guardians.find((g) => Number(g.userId) === Number(talkingToUserId)) ||
+      (thread.clientParticipant && Number(thread.clientParticipant.userId) === Number(talkingToUserId)
+        ? thread.clientParticipant
+        : null)
+    : null;
 
   return {
     clientId: cid,
@@ -1817,6 +1902,8 @@ async function loadClientMessagingContext({ clientId, agencyId, selectedUserId =
       thread.clientParticipant?.personKey || formatPersonKey('client', cid, resolvedAgencyId),
     clientHasPortal: !!thread.clientHasPortal,
     clientNoPortalBanner: !!thread.clientNoPortalBanner,
+    sharedSecureAvailable: thread.sharedSecureAvailable === true,
+    sharedSecureReason: thread.sharedSecureReason || null,
     guardianPortalEnabled: !!(client.guardian_portal_enabled === 1 || client.guardian_portal_enabled === true),
     clientStatusKey: client.client_status_key || null,
     guardians,
@@ -1829,7 +1916,7 @@ async function loadClientMessagingContext({ clientId, agencyId, selectedUserId =
   };
 }
 
-async function loadChatTimeline({ agencyId, actorUserId, otherUserId, limit = 40, beforeId = null, channel = null, clientId = null }) {
+export async function loadChatTimeline({ agencyId, actorUserId, otherUserId, limit = 40, beforeId = null, channel = null, clientId = null }) {
   if (!otherUserId) return [];
   try {
     // Merge across all direct threads between these two users. Hub send may create a
@@ -1993,18 +2080,9 @@ async function loadChatTimeline({ agencyId, actorUserId, otherUserId, limit = 40
     const schoolsBySender = new Map(schoolSenders.map(p => [Number(p.userId), p.schoolNames]));
     const items = [];
     for (const m of rows || []) {
-      let body = m.body;
-      if (!body && m.body_ciphertext && isChatEncryptionConfigured()) {
-        try {
-          body = decryptChatText({
-            ciphertextB64: m.body_ciphertext,
-            ivB64: m.body_iv,
-            authTagB64: m.body_auth_tag, keyId: m.encryption_key_id
-          });
-        } catch {
-          body = '[Encrypted message]';
-        }
-      }
+      let content;
+      try { content = readChatMessageContent(m); }
+      catch { content = { body: '[Encrypted message]', subject: null }; }
       const mid = Number(m.id);
       const senderId = Number(m.sender_user_id) || null;
       const direction = senderId === Number(actorUserId) ? 'outbound' : 'inbound';
@@ -2025,7 +2103,7 @@ async function loadChatTimeline({ agencyId, actorUserId, otherUserId, limit = 40
       items.push({
         id: `chat-${m.id}`,
         channel: m.message_channel || 'internal',
-        bodyPreview: String(body || ''),
+        bodyPreview: String(content.body || ''),
         createdAt: m.created_at,
         direction,
         attachments: attachmentsByMessage.get(mid) || [],
@@ -2042,7 +2120,7 @@ async function loadChatTimeline({ agencyId, actorUserId, otherUserId, limit = 40
             }
           : null,
         readBy,
-        meta: { threadId: Number(m.thread_id), messageId: mid, topicId: m.topic_id || null, legacyRootMessageId: Number(m.parent_message_id || m.id), subject: m.subject || null }
+        meta: { threadId: Number(m.thread_id), messageId: mid, topicId: m.topic_id || null, legacyRootMessageId: Number(m.parent_message_id || m.id), subject: content.subject }
       });
     }
     return items;

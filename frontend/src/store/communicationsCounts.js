@@ -1,3 +1,4 @@
+import {canPollWorkspace} from '../composables/useSessionPolling';
 import { canAccessTicketDesk } from '../utils/ticketAccess.js';
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
@@ -132,6 +133,7 @@ export const useCommunicationsCountsStore = defineStore('communicationsCounts', 
   };
 
   const fetchCounts = () => {
+  if (!canPollWorkspace()) return;
     const key = contextKey();
     if (key !== activeContext) {
       clearCounts();
