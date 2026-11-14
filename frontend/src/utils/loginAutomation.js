@@ -21,5 +21,5 @@ export function createLoginAutomation({read,verify,submit}) {
   },650);
  }
  function passwordInserted(){passwordIntent=true;clearTimeout(passwordTimer);passwordTimer=setTimeout(attemptPassword,180);}
- return {usernameChanged,passwordInserted,dispose(){disposed=true;clearTimeout(usernameTimer);clearTimeout(passwordTimer);lastSubmit='';lastVerify='';passwordIntent=false;}};
+ return {usernameChanged,passwordInserted,submissionStarted(){clearTimeout(passwordTimer);passwordIntent=false;const s=read();lastSubmit=`${s.username}\0${s.password}`;},dispose(){disposed=true;clearTimeout(usernameTimer);clearTimeout(passwordTimer);lastSubmit='';lastVerify='';passwordIntent=false;}};
 }

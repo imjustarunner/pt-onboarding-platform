@@ -2256,6 +2256,8 @@ const maybeVerify = async () => {
 };
 
 const handleSubmit = async () => {
+  if(loading.value || verifying.value)return;
+  loginAuto.submissionStarted();
   if (isPlatformLogin.value) {
     if (verifying.value || loading.value) return;
     const email = username.value.trim().toLowerCase();
