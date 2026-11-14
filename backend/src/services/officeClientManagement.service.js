@@ -354,16 +354,16 @@ async function loadAffiliationsByClientIds(clientIds, agencyLookup) {
   if (!ids.length) return map;
   const placeholders = ids.map(() => '?').join(',');
   try {
-    const [rows] = await pool.execute(
-      `SELECT ca.client_id, ca.agency_id, ca.is_primary,
+    const query=`SELECT ca.client_id, ca.agency_id, ca.is_primary, ca.default_office_location_id,
               a.name AS agency_name, a.slug AS agency_slug, a.logo_url, a.logo_path
        FROM client_agency_assignments ca
        INNER JOIN agencies a ON a.id = ca.agency_id
        WHERE ca.client_id IN (${placeholders})
          AND ca.is_active = TRUE
-       ORDER BY ca.is_primary DESC, a.name ASC`,
-      ids
-    );
+       ORDER BY ca.is_primary DESC, a.name ASC`;
+    let rows;
+    try{[rows]=await pool.execute(query,ids);}
+    catch(error){if(error.code!=='ER_BAD_FIELD_ERROR')throw error;[rows]=await pool.execute(query.replace('ca.default_office_location_id','NULL AS default_office_location_id'),ids);}
     for (const row of rows || []) {
       const cid = Number(row.client_id);
       const agencyId = Number(row.agency_id);
@@ -371,6 +371,7 @@ async function loadAffiliationsByClientIds(clientIds, agencyLookup) {
       list.push({
         agencyId,
         isPrimary: !!row.is_primary,
+        officeLocationId:Number(row.default_office_location_id)||null,
         name: row.agency_name || agencyLookup.get(agencyId)?.name || null,
         slug: row.agency_slug || agencyLookup.get(agencyId)?.slug || null,
         logoUrl: agencyLogoUrl(row) || agencyLookup.get(agencyId)?.logoUrl || null
@@ -475,6 +476,7 @@ function mergeClientAgencies({ primaryAgencyId, affiliations, agencyLookup }) {
       name: item.name || prev.name || agencyLookup.get(id)?.name || null,
       slug: item.slug || prev.slug || agencyLookup.get(id)?.slug || null,
       logoUrl: item.logoUrl || prev.logoUrl || agencyLookup.get(id)?.logoUrl || null,
+      officeLocationId:item.officeLocationId ?? prev.officeLocationId ?? null,
       isPrimary: !!(item.isPrimary || prev.isPrimary)
     });
   };

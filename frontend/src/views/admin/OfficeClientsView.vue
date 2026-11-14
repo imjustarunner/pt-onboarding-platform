@@ -153,7 +153,7 @@
                 </td>
                 <td>{{ guardianSummary(c) }}</td>
                 <td>{{ c.intakeType || '—' }}</td>
-                <td @click.stop><label class="ocm-office-label"><span class="sr-only">Office for {{ c.fullName || c.initials || 'client' }}</span><select :value="c.officeLocationId || ''" :disabled="officeSavingId === c.id" @change="assignOffice(c,$event.target.value)"><option value="">Choose office…</option><option v-for="office in officesFor(c)" :key="office.id" :value="office.physical_office_location_id || office.id">{{ office.name }}</option></select><small v-if="officeSavingId === c.id">Saving…</small></label></td>
+                <td @click.stop><label class="ocm-office-label"><span class="sr-only">Office for {{ c.fullName || c.initials || 'client' }}</span><select :value="selectedOffice(c) || ''" :disabled="officeSavingId === c.id || !officeAgencyId(c)" @change="assignOffice(c,$event.target.value)"><option value="">Choose office…</option><option v-for="office in officesFor(c)" :key="office.id" :value="office.physical_office_location_id || office.id">{{ office.name }}</option></select><small v-if="officeSavingId === c.id">Saving…</small></label></td>
                 <td>
                   <div v-if="assignedProviders(c).length" class="ocm-provider-stack">
                     <div v-for="p in assignedProviders(c)" :key="'p-' + c.id + '-' + p.providerId + '-' + (p.agencyId || 0)" class="ocm-provider-row">
@@ -542,7 +542,11 @@ function waitlistAgencyId(c) {
 }
 
 function portalText(client){return client.portalEnabled?portalLabel(true):client.portalSetupPending?'Pending setup':'Not enabled';}
-function officeAgencyId(client) { return Number(client.agencyId || scopeAgencyIds.value[0]); }
+function officeAgencyId(client) {
+  const scoped=scopeAgencyIds.value.map(Number),primary=Number(client.agencyId);
+  return scoped.includes(primary)?primary:agencyChips(client).map(agency=>Number(agency.agencyId)).find(id=>scoped.includes(id)) || null;
+}
+function selectedOffice(client){const context=officeAgencyId(client),affiliation=agencyChips(client).find(agency=>Number(agency.agencyId)===context);return affiliation?.officeLocationId ?? (context===Number(client.agencyId)?client.officeLocationId:null);}
 function officesFor(client) { return officeOptions.value[officeAgencyId(client)] || []; }
 async function loadOffices() {
   await Promise.all(scopeAgencyIds.value.map(async id => {
@@ -552,10 +556,12 @@ async function loadOffices() {
 }
 async function assignOffice(client, value) {
   const officeId=Number(value)||null, agencyId=officeAgencyId(client);
+  if(!agencyId)return;
   officeSavingId.value=client.id;error.value='';
   try {
     await api.post(`/clients/${client.id}/agency-affiliations`,{agency_id:agencyId,default_office_location_id:officeId},{skipGlobalLoading:true});
-    client.officeLocationId=officeId;
+    if(agencyId===Number(client.agencyId))client.officeLocationId=officeId;
+    const affiliation=client.agencies?.find(agency=>Number(agency.agencyId)===agencyId);if(affiliation)affiliation.officeLocationId=officeId;
   } catch(e) {error.value=e.response?.data?.error?.message || 'Could not save the office assignment.';}
   finally {officeSavingId.value=null;}
 }
