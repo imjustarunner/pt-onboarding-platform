@@ -13,84 +13,14 @@
       <button type="button" class="gmsg-tab" :class="{ active: mode === 'support' }" @click="switchToSupport">
         {{ ft("Support") }}
       </button>
+      <button type="button" class="gmsg-tab" :disabled="loading" @click="loadThreads">Refresh messages</button>
 
     </div>
 
     <div v-if="error" class="error">{{ ft(error) }}</div>
+    <p v-if="ticketCreationStatus" class="muted" role="status">{{ ft(ticketCreationStatus) }}</p>
 
-    <template v-if="mode === 'provider'">
-      <div v-if="loading" class="muted">{{ ft("Loading conversations…") }}</div>
-      <div v-else class="gmsg-body gmsg-provider-body" :class="{'has-conversation': selectedKey}">
-        <aside class="gmsg-list" :class="{'conversation-picked': selectedKey}">
-          <button
-            v-for="item in mailboxItems"
-            :key="item.key"
-            type="button"
-            class="gmsg-row"
-            :class="{ active: selectedKey === item.key, unread: item.unread }"
-            :disabled="item.type === 'secure' && !item.available && !item.provider"
-            @click="selectMailboxItem(item)"
-          >
-            <div class="gmsg-row-title">
-              <ConversaBadge :type="item.type" />
-              {{ item.title }}
-            </div>
-            <div class="gmsg-row-meta">{{ item.subtitle }}<small v-if="item.thread?.service_label"> · {{item.thread.agency_name}} · {{item.thread.service_label}}</small></div><span class="message-action">{{ item.provider || item.available ? ft("Message your care team →") : ft("Waiting for a provider assignment") }}</span>
-            <small v-if="item.type === 'secure'" class="group-label">{{ ft("Shared care conversation") }}</small>
-          </button>
-          <div v-if="!mailboxItems.length" class="muted pad">{{ ft("No care conversations are available for this profile yet. You can use Support for account questions.") }}</div>
-        </aside>
-
-        <section class="gmsg-chat">
-          <div v-if="!selectedKey" class="muted pad message-placeholder">{{ ft("Open your care conversation using the button above.") }}</div>
-          <template v-else>
-            <button class="back-conversations" type="button" @click="selected=null;selectedEmail=null;messages=[]">{{ ft("← Back to conversations") }}</button>
-            <div class="gmsg-chat-head">
-              <strong>{{ selectedTitle }}</strong>
-              <span v-if="selectedType === 'email'" class="muted">{{ selectedSubtitle }}</span>
-            </div>
-            <section v-if="selectedType === 'secure'" class="conversation-audience" :aria-label="ft('Who can see these messages')">
-              <strong>{{ selected?.readOnly ? 'Retained conversation history' : ft("Who can read and reply") }}</strong>
-              <ul><li v-for="person in selected?.participants || []" :key="person.id">{{ person.name }}{{ Number(person.id) === Number(meId) ? ' (you)' : '' }} <span>· {{ person.role === 'guardian' ? ft("Guardian") : person.role === 'client' ? ft("Client") : person.role === 'provider' ? ft("Provider") : ft("Care team") }}</span></li></ul>
-              <p v-if="!selected?.readOnly">{{ ft("This is a group conversation. Everyone listed can read your replies, including when you address one person.") }}</p><p v-else>Previous messages retain their original audiences. Access is checked when you open them.</p>
-            </section>
-            <div v-if="messagesLoading" class="muted pad">{{ ft("Loading…") }}</div>
-            <div v-else class="gmsg-thread" ref="threadEl">
-              <div
-                v-for="m in messages"
-                :key="m.id"
-                class="gmsg-bubble"
-                :class="{ mine: m.isMine }"
-              >
-                <div class="gmsg-meta">{{ m.senderName || (m.isMine ? ft("You") : ft("Care conversation")) }} · {{ formatTime(m.created_at) }}</div>
-                <div class="gmsg-message-text">{{ m.body }}</div>
-              </div>
-              <div v-if="!messages.length" class="muted">{{ ft("No messages yet. Say hello.") }}</div>
-            </div>
-            <p v-if="selectedType === 'secure' && selected?.readOnly" class="muted pad">This previous secure conversation is read-only. Choose the current shared conversation to send an update.</p>
-            <label v-if="selectedType==='secure' && selected?.readOnly && draft">Your unsent draft (not sent)<textarea :value="draft" readonly /></label>
-            <div v-if="selectedType === 'email' || !selected?.readOnly" class="gmsg-composer">
-              <div v-if="selectedType === 'secure'" class="gmsg-sharing-notice"><FamilySharingNotice ref="sharingNotice" :agency-id="selected?.agency_id" :scope-key="`${meId}:${selected?.client_id}:${selected?.thread_id}`" /></div>
-              <label v-if="selectedType==='secure' && audienceReviewNeeded"><input v-model="audienceReviewed" type="checkbox" /> I reviewed the updated shared recipients above.</label>
-              <textarea
-                v-model="draft"
-                rows="2"
-                :placeholder="selectedType === 'email' ? ft('Write an email reply…') : ft('Write to everyone listed above…')"
-              />
-              <button
-                type="button"
-                class="btn btn-primary"
-                :disabled="sending || messagesLoading || (audienceReviewNeeded && !audienceReviewed) || (selectedType === 'secure' && !audienceReady) || !draft.trim()"
-                @click="send"
-              >
-                {{ sending ? ft("Sending…") : selectedType === 'email' ? ft("Send reply") : ft("Send to group") }}
-              </button>
-            </div>
-            <details v-if="selectedType === 'secure'" class="muted pad"><summary>{{ ft("Message security & activity") }}</summary><SecureMessageBanner :thread-id="selected?.thread_id" /><p>{{ ft("For emergencies, contact emergency services.") }}</p></details>
-          </template>
-        </section>
-      </div>
-    </template>
+    <GuardianSecureConversations v-if="mode === 'provider'" :threads="threads" :client-id="clientId" :initial-thread-id="initialThreadId" :initial-message-id="initialMessageId" :loading="loading" @refresh="loadThreads" />
 
     <template v-else>
       <div v-if="ticketsLoading" class="muted">{{ ft("Loading support tickets…") }}</div>
@@ -125,6 +55,7 @@
               <span class="muted">{{ ft("Agency staff will reply here") }}</span>
             </div>
             <div class="gmsg-composer pad">
+              <p v-if="pendingTicketCreate && !submittingCurrentTicket" class="muted" role="status">Another request is being submitted. This draft has not been sent.</p>
               <label class="gmsg-field">
                 <span>{{ ft("Child") }}</span>
                 <select v-model="newTicket.clientId">
@@ -154,7 +85,7 @@
                 :disabled="ticketSending || !newTicket.clientId || !newTicket.question.trim()"
                 @click="createTicket"
               >
-                {{ ticketSending ? ft("Submitting…") : ft("Submit request") }}
+                {{ ticketSending ? (submittingCurrentTicket ? ft("Submitting…") : ft("Waiting for pending request…")) : ft("Submit request") }}
               </button>
             </div>
           </template>
@@ -188,7 +119,7 @@
                 type="button"
                 class="btn btn-primary"
                 :disabled="
-                  ticketSending ||
+                  ticketSending || ticketMessagesLoading ||
                   !ticketDraft.trim() ||
                   String(selectedTicket.status || '').toLowerCase() === 'closed'
                 "
@@ -206,111 +137,30 @@
 </template>
 
 <script setup>
-import { useFamilyLocale } from '../../composables/useFamilyLocale';
-const { ft, locale: familyLocale } = useFamilyLocale();
+import {useFamilyLocale} from '../../composables/useFamilyLocale';
 import QaRecipientEmailInbox from '../messages/QaRecipientEmailInbox.vue';
-import SecureMessageBanner from '../conversa/SecureMessageBanner.vue';
-import FamilySharingNotice from '../session-comments/FamilySharingNotice.vue';
-import ConversaBrand from '../../components/conversa/ConversaBrand.vue';
-import ConversaBadge from '../../components/conversa/ConversaBadge.vue';
-import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import GuardianSecureConversations from './GuardianSecureConversations.vue';
+import ConversaBrand from '../conversa/ConversaBrand.vue';
+import {computed,nextTick,onBeforeUnmount,onMounted,ref,watch} from 'vue';
 import {usePortalCareApi} from '../../composables/usePortalCareApi';
-const careApi=usePortalCareApi();
 import baseApi from '../../services/api';
+import {GUARDIAN_TICKET_TOPICS,ticketTopicLabel} from '../../utils/ticketTopics';
+import {useAuthStore} from '../../store/auth';
+const {ft}=useFamilyLocale();
+const props=defineProps({initialThreadId:[Number,String],initialMessageId:[Number,String],clientId:[Number,String]});
+const careApi=usePortalCareApi();
 const api=new Proxy({}, {get:(_,key)=>(...args)=>(props.clientId?careApi:baseApi)[key](...args)});
-import { useAuthStore } from '../../store/auth';
-import { GUARDIAN_TICKET_TOPICS, ticketTopicLabel } from '../../utils/ticketTopics';
-
-const props=defineProps({initialThreadId:[Number,String],clientId:[Number,String]});
-const authStore = useAuthStore();
-const meId = computed(() => authStore.user?.id || null);
-const guardianTopics = GUARDIAN_TICKET_TOPICS;
-
-const mode = ref('provider');
-const threads = ref([]);
-const emails = ref([]);
-const selected = ref(null);
-const selectedEmail = ref(null);
-const selectedType = ref('secure');
-const messages = ref([]);
-const loading = ref(false);
-const messagesLoading = ref(false);
-const sending = ref(false);
-const sharingNotice = ref(null), audienceReviewNeeded=ref(false), audienceReviewed=ref(false);
-let sendIntent = 0;
-const audienceReady = ref(false);
-const error = ref('');
-const draft = ref('');
-const threadEl = ref(null);
-
-const smsItems = ref([]);
-const smsLoading = ref(false);
-const smsClientFilter = ref('');
-
-const tickets = ref([]);
-const ticketsLoading = ref(false);
-const selectedTicketId = ref(null);
-const selectedTicket = ref(null);
-const ticketMessages = ref([]);
-const ticketMessagesLoading = ref(false);
-const ticketDraft = ref('');
-const ticketSending = ref(false);
-const creatingTicket = ref(false);
-const ticketThreadEl = ref(null);
-const newTicket = ref({ clientId: '', topic: 'general', subject: '', question: '' });
-
-const childOptions = computed(() =>
-  (threads.value || []).filter(t=>!props.clientId||Number(t.client_id)===Number(props.clientId)).map((t) => ({
-    client_id: t.client_id,
-    client_label: t.client_label
-  }))
-);
-
-const mailboxItems = computed(() => {
-  const secure = (threads.value || []).filter(t=>!props.clientId||Number(t.client_id)===Number(props.clientId)).map((t) => ({
-    key: `secure-${t.thread_id || `${t.client_id}-${t.agency_id}-${t.service_id || 0}`}`,
-    type: 'secure',
-    title: t.client_label || 'Secure message',
-    subtitle: t.provider
-      ? `${t.provider.first_name || ''} ${t.provider.last_name || ''}`.trim() || 'Provider'
-      : 'No assigned provider yet',
-    unread: false,
-    available: t.available,
-    provider: t.provider,
-    thread: t
-  }));
-  const mail = (emails.value || []).map((e) => ({
-    key: `email-${e.conversationId}`,
-    type: 'email',
-    title: e.subject || 'Email',
-    subtitle: e.preview || 'Email',
-    unread: !!e.unread,
-    conversationId: e.conversationId,
-    email: e
-  }));
-  return secure;
-});
-
-const selectedKey = computed(() => {
-  if (selectedType.value === 'email' && selectedEmail.value?.conversationId) {
-    return `email-${selectedEmail.value.conversationId}`;
-  }
-  if (selected.value) return `secure-${selected.value.thread_id || `${selected.value.client_id}-${selected.value.agency_id}-${selected.value.service_id || 0}`}`;
-  return null;
-});
-
-const selectedTitle = computed(() => {
-  if (selectedType.value === 'email') return selectedEmail.value?.subject || 'Email';
-  return selected.value?.client_label || 'Secure message';
-});
-
-const selectedSubtitle = computed(() => {
-  if (selectedType.value === 'email') return 'Email with your care team';
-  if (selected.value?.participants?.length) return 'Visible to: ' + selected.value.participants.map(p => p.name).join(', ');
-  const p = selected.value?.provider;
-  return p ? `Secure · ${p.first_name || ''} ${p.last_name || ''}`.trim() : 'Secure message';
-});
-
+const guardianTopics=GUARDIAN_TICKET_TOPICS;
+const mode=ref('provider'),threads=ref([]),emails=ref([]),loading=ref(false),error=ref('');
+let threadLoadIntent=0;
+const auth=useAuthStore(),meId=computed(()=>auth.user?.id);
+let ticketRequest=0,ticketSendIntent=0;
+const ticketDrafts=new Map();
+const tickets=ref([]),ticketsLoading=ref(false),selectedTicketId=ref(null),selectedTicket=ref(null),ticketMessages=ref([]),ticketMessagesLoading=ref(false),ticketDraft=ref(''),ticketSending=ref(false),creatingTicket=ref(false),ticketThreadEl=ref(null);
+const ticketCreationStatus=ref(''),pendingTicketCreate=ref(null);
+const newTicket=ref({clientId:'',topic:'general',subject:'',question:''});
+const submittingCurrentTicket=computed(()=>pendingTicketCreate.value?.request===ticketRequest&&pendingTicketCreate.value?.draft===JSON.stringify(newTicket.value));
+const childOptions=computed(()=>[...new Map(threads.value.filter(t=>!props.clientId||Number(t.client_id)===Number(props.clientId)).map(t=>[t.client_id,{client_id:t.client_id,client_label:t.client_label}])).values()]);
 function formatTime(v) {
   if (!v) return '';
   try {
@@ -321,132 +171,22 @@ function formatTime(v) {
 }
 
 async function loadThreads() {
+  const intent=++threadLoadIntent, clientId=props.clientId;
   loading.value = true;
   error.value = '';
   try {
-    const r = await api.get('/guardian-portal/messages', { params:{clientId:props.clientId||undefined},skipGlobalLoading: true });
+    const r = await api.get('/guardian-portal/messages', { params:{clientId:clientId||undefined},skipGlobalLoading: true });
+    if(intent!==threadLoadIntent||clientId!==props.clientId)return;
     threads.value = Array.isArray(r.data?.threads) ? r.data.threads : [];
     emails.value = Array.isArray(r.data?.emails) ? r.data.emails : [];
   } catch (e) {
+    if(intent!==threadLoadIntent||clientId!==props.clientId)return;
     error.value = 'Messages could not be loaded. Please try again or use Support.';
     threads.value = [];
     emails.value = [];
   } finally {
-    loading.value = false;
+    if(intent===threadLoadIntent)loading.value = false;
   }
-}
-
-async function selectMailboxItem(item) {
-  if (item?.type === 'email') {
-    await selectEmail(item);
-    return;
-  }
-  await selectThread(item.thread);
-}
-
-async function selectEmail(item) {
-  const conversationId = item?.conversationId || item?.email?.conversationId;
-  if (!conversationId) return;
-  creatingTicket.value = false;
-  selected.value = null;
-  selectedType.value = 'email';
-  selectedEmail.value = item.email || item;
-  messagesLoading.value = true;
-  error.value = '';
-  draft.value = '';
-  try {
-    const r = await api.get(`/guardian-portal/emails/${conversationId}`, { skipGlobalLoading: true });
-    messages.value = (Array.isArray(r.data?.messages) ? r.data.messages : []).map((m) => ({
-      id: m.id,
-      body: m.body,
-      created_at: m.created_at,
-      senderName: [m.sender_first_name, m.sender_last_name].filter(Boolean).join(' '),
-      isMine: !!m.isMine
-    }));
-    if (selectedEmail.value) selectedEmail.value.unread = false;
-    const idx = emails.value.findIndex((e) => Number(e.conversationId) === Number(conversationId));
-    if (idx >= 0) emails.value[idx] = { ...emails.value[idx], unread: false };
-    await nextTick();
-    if (threadEl.value) threadEl.value.scrollTop = threadEl.value.scrollHeight;
-  } catch (e) {
-    error.value = (e?.response?.status < 500 ? e.response?.data?.error?.message : '') || 'Failed to load email';
-    messages.value = [];
-  } finally {
-    messagesLoading.value = false;
-  }
-}
-
-async function selectThread(t) {
-  audienceReady.value = false; audienceReviewNeeded.value=false; audienceReviewed.value=false;
-  if (!t?.provider?.id && !t?.available) return;
-  creatingTicket.value = false;
-  messagesLoading.value = true;
-  error.value = '';
-  draft.value = '';
-  try {
-    let thread = t;
-    if (!thread.thread_id) {
-      const opened = await api.post(
-        '/guardian-portal/messages/open',
-        { clientId: t.client_id,agencyId:t.agency_id,serviceId:t.service_id },
-        { skipGlobalLoading: true }
-      );
-      thread = {
-        ...t,
-        thread_id: opened.data?.thread_id,
-        available: !!opened.data?.thread_id,
-        participants: opened.data?.participants || t.participants,
-        shared: opened.data?.shared || t.shared,
-        provider: opened.data?.provider || t.provider
-      };
-      const idx = threads.value.findIndex((x) => x.client_id === t.client_id);
-      if (idx >= 0) threads.value[idx] = thread;
-    }
-    if (!thread.thread_id) throw new Error('Could not open conversation');
-    selectedType.value = 'secure';
-    selectedEmail.value = null;
-    selected.value = thread;
-    const [r, audience] = await Promise.all([api.get(`/guardian-portal/messages/${thread.thread_id}`, { skipGlobalLoading: true }), api.get(`/guardian-portal/clients/${thread.client_id}/care-access`, { params:{agencyId:thread.agency_id,serviceId:thread.service_id},skipGlobalLoading:true })]);
-    selected.value = {...thread, participants: thread.readOnly ? (thread.participants || []) : (audience.data.participants || [])};
-    audienceReady.value = selected.value.participants.length > 0;
-    const raw = Array.isArray(r.data?.messages) ? r.data.messages : (Array.isArray(r.data) ? r.data : []);
-    messages.value = raw.map((m) => ({
-      id: m.id,
-      body: m.body,
-      created_at: m.created_at,
-      senderName: [m.sender_first_name, m.sender_last_name].filter(Boolean).join(' '),
-      isMine: Number(m.sender_user_id) === Number(meId.value)
-    }));
-    await nextTick();
-    if (threadEl.value) threadEl.value.scrollTop = threadEl.value.scrollHeight;
-  } catch (e) {
-    error.value = 'The conversation could not be opened. Please try again or use Support.';
-    messages.value = [];
-  } finally {
-    messagesLoading.value = false;
-  }
-}
-
-async function send() {
-  if (sending.value || (audienceReviewNeeded.value&&!audienceReviewed.value) || !draft.value.trim() || messagesLoading.value || (selectedType.value === 'secure' && !audienceReady.value)) return;
-  const own = ++sendIntent, thread = selected.value, email = selectedEmail.value, type = selectedType.value, text = draft.value.trim();
-  const stillSelected = () => own === sendIntent && selectedType.value === type && (type === 'secure' ? selected.value?.thread_id === thread?.thread_id : selectedEmail.value?.conversationId === email?.conversationId);
-  sending.value = true;
-  try {
-    if (type === 'email' && email?.conversationId) {
-      await api.post(`/guardian-portal/emails/${email.conversationId}`, { body: text });
-      if (stillSelected()) { draft.value = ''; await selectEmail(email); }
-      return;
-    }
-    if (!thread?.thread_id || thread.readOnly || !await sharingNotice.value?.ensureAcknowledged() || !stillSelected()) return;
-    await api.post(`/guardian-portal/messages/${thread.thread_id}`, { clientId: thread.client_id, body: text, expectedRecipientUserIds: (thread.participants || []).map(p => Number(p.id || p.userId || p.user_id)).filter(id => id > 0 && id !== Number(meId.value)) });
-    if (stillSelected()) { draft.value = ''; await selectThread(thread); }
-  } catch (e) {
-    if (stillSelected()) {
-      if(['FAMILY_SHARED_AUDIENCE_REVIEW_REQUIRED','FAMILY_SHARED_AUDIENCE_CHANGED'].includes(e.response?.data?.error?.code)){try{const {data}=await api.get(`/guardian-portal/clients/${thread.client_id}/care-access`,{params:{agencyId:thread.agency_id,serviceId:thread.service_id},skipGlobalLoading:true});if(stillSelected()){selected.value={...selected.value,participants:data.participants||[]};audienceReviewNeeded.value=true;audienceReviewed.value=false;error.value='The shared recipients changed. Review the updated list and confirm before sending your preserved draft.';}}catch{audienceReady.value=false;error.value='The updated recipient list could not be verified. Your draft is preserved; reopen the current shared conversation.';}}
-      else {if(e.response?.data?.error?.code==='FAMILY_SHARED_THREAD_REQUIRED')selected.value={...selected.value,readOnly:true};error.value=(e?.response?.status<500?e.response?.data?.error?.message:'')||'Send failed';}
-    }
-  } finally { if (own === sendIntent) sending.value = false; }
 }
 
 async function loadTickets() {
@@ -468,29 +208,9 @@ async function switchToSupport() {
   await loadTickets();
 }
 
-async function loadSmsAudit() {
-  smsLoading.value = true;
-  error.value = '';
-  try {
-    const params = { limit: 50 };
-    if (smsClientFilter.value) params.clientId = smsClientFilter.value;
-    const r = await api.get('/guardian-portal/sms-audit', { params, skipGlobalLoading: true });
-    smsItems.value = Array.isArray(r.data?.items) ? r.data.items : [];
-  } catch (e) {
-    error.value = (e?.response?.status < 500 ? e.response?.data?.error?.message : '') || 'Failed to load text history';
-    smsItems.value = [];
-  } finally {
-    smsLoading.value = false;
-  }
-}
-
-async function switchToSms() {
-  mode.value = 'sms';
-  if (!threads.value.length) await loadThreads();
-  await loadSmsAudit();
-}
-
 function startNewTicket() {
+  ++ticketRequest;
+  if(selectedTicketId.value)ticketDrafts.set(Number(selectedTicketId.value),ticketDraft.value);
   creatingTicket.value = true;
   selectedTicketId.value = null;
   selectedTicket.value = null;
@@ -505,65 +225,98 @@ function startNewTicket() {
 
 async function openTicket(t) {
   if (!t?.id) return;
+  const intent=++ticketRequest,clientId=props.clientId,userId=meId.value;
+  if(selectedTicketId.value)ticketDrafts.set(Number(selectedTicketId.value),ticketDraft.value);
+  const current=()=>intent===ticketRequest&&clientId===props.clientId&&userId===meId.value;
   creatingTicket.value = false;
   selectedTicketId.value = t.id;
+  selectedTicket.value=null;ticketMessages.value=[];
   ticketMessagesLoading.value = true;
-  ticketDraft.value = '';
+  ticketDraft.value = ticketDrafts.get(Number(t.id))||'';
   error.value = '';
   try {
     const r = await api.get(`/guardian-portal/support-tickets/${t.id}`, { skipGlobalLoading: true });
+    if(!current())return;
     selectedTicket.value = r.data?.ticket || t;
     ticketMessages.value = Array.isArray(r.data?.messages) ? r.data.messages : [];
     await nextTick();
     if (ticketThreadEl.value) ticketThreadEl.value.scrollTop = ticketThreadEl.value.scrollHeight;
   } catch (e) {
+    if(!current())return;
     error.value = (e?.response?.status < 500 ? e.response?.data?.error?.message : '') || 'Failed to load ticket';
     ticketMessages.value = [];
   } finally {
-    ticketMessagesLoading.value = false;
+    if(current())ticketMessagesLoading.value = false;
   }
 }
 
 async function createTicket() {
-  if (!newTicket.value.clientId || !newTicket.value.question.trim()) return;
+  if (ticketSending.value || !creatingTicket.value || !newTicket.value.clientId || !newTicket.value.question.trim()) return;
+  const request = ticketRequest, clientId = props.clientId, userId = meId.value;
+  const intent = ++ticketSendIntent;
+  const submittedDraft = JSON.stringify(newTicket.value);
+  const payload = {
+    clientId: Number(newTicket.value.clientId),
+    topic: newTicket.value.topic || 'general',
+    subject: newTicket.value.subject || undefined,
+    question: newTicket.value.question.trim()
+  };
+  const sameScope = () => intent === ticketSendIntent && clientId === props.clientId && userId === meId.value;
+  const sameRequest = () => sameScope() && request === ticketRequest && creatingTicket.value &&
+    mode.value === 'support' && JSON.stringify(newTicket.value) === submittedDraft;
   ticketSending.value = true;
+  pendingTicketCreate.value = {request,draft:submittedDraft};
+  ticketCreationStatus.value = '';
   error.value = '';
   try {
-    const r = await api.post('/guardian-portal/support-tickets', {
-      clientId: Number(newTicket.value.clientId),
-      topic: newTicket.value.topic || 'general',
-      subject: newTicket.value.subject || undefined,
-      question: newTicket.value.question.trim()
-    });
-    creatingTicket.value = false;
-    await loadTickets();
-    if (r.data?.ticket) await openTicket(r.data.ticket);
+    const r = await api.post('/guardian-portal/support-tickets', payload);
+    if (!sameScope()) return;
+    const created = r.data?.ticket;
+    if (created?.id) {
+      // Refreshing the entire list here can hide a newly edited request while
+      // the original POST is pending. Merge only this returned ticket instead.
+      tickets.value = [created, ...tickets.value.filter(t => Number(t.id) !== Number(created.id))];
+      if (sameRequest()) await openTicket(created);
+      else ticketCreationStatus.value = `Support request #${created.id} was submitted. Your current draft is unchanged.`;
+    } else {
+      ticketCreationStatus.value = 'Your request was submitted. Refresh the request list to view it; your current draft is unchanged.';
+    }
   } catch (e) {
-    error.value = (e?.response?.status < 500 ? e.response?.data?.error?.message : '') || 'Could not create ticket';
+    if (sameRequest()) {
+      error.value = (e?.response?.status < 500 ? e.response?.data?.error?.message : '') || 'Could not create ticket';
+    } else if (sameScope()) {
+      ticketCreationStatus.value = 'The earlier request could not be submitted. Your current draft is unchanged.';
+    }
   } finally {
-    ticketSending.value = false;
+    if (intent === ticketSendIntent) {ticketSending.value = false;pendingTicketCreate.value = null;}
   }
 }
 
 async function sendTicketReply() {
-  if (!selectedTicket.value?.id || !ticketDraft.value.trim()) return;
+  if (ticketSending.value||ticketMessagesLoading.value||!selectedTicket.value?.id || !ticketDraft.value.trim()) return;
+  const ticket=selectedTicket.value,text=ticketDraft.value.trim(),clientId=props.clientId,userId=meId.value,intent=++ticketSendIntent;
+  const current=()=>intent===ticketSendIntent&&clientId===props.clientId&&userId===meId.value&&Number(selectedTicketId.value)===Number(ticket.id);
   ticketSending.value = true;
   try {
-    await api.post(`/guardian-portal/support-tickets/${selectedTicket.value.id}/messages`, {
-      body: ticketDraft.value.trim()
+    await api.post(`/guardian-portal/support-tickets/${ticket.id}/messages`, {
+      body: text
     });
-    ticketDraft.value = '';
-    await openTicket(selectedTicket.value);
+    if(ticketDrafts.get(Number(ticket.id))?.trim()===text)ticketDrafts.delete(Number(ticket.id));
+    if(current()){
+      if(ticketDraft.value.trim()===text)ticketDraft.value='';
+      await openTicket(ticket);
+    }
   } catch (e) {
-    error.value = (e?.response?.status < 500 ? e.response?.data?.error?.message : '') || 'Reply failed';
+    if(current())error.value = (e?.response?.status < 500 ? e.response?.data?.error?.message : '') || 'Reply failed';
   } finally {
-    ticketSending.value = false;
+    if(intent===ticketSendIntent)ticketSending.value = false;
   }
 }
 
-async function openRequestedThread(){const id=Number(props.initialThreadId);if(!id)return;const thread=threads.value.find(t=>Number(t.thread_id)===id);if(thread)await selectThread(thread);}
-watch(()=>props.initialThreadId,openRequestedThread);
-onMounted(async()=>{await loadThreads();await openRequestedThread();});
+
+watch(()=>[props.clientId,meId.value],()=>{++ticketRequest;++ticketSendIntent;selectedTicket.value=null;selectedTicketId.value=null;ticketDraft.value='';ticketMessages.value=[];ticketDrafts.clear();ticketSending.value=false;creatingTicket.value=false;newTicket.value={clientId:'',topic:'general',subject:'',question:''};pendingTicketCreate.value=null;ticketCreationStatus.value='';loadThreads();});
+onMounted(loadThreads);
+onBeforeUnmount(()=>{++threadLoadIntent;++ticketRequest;++ticketSendIntent;ticketDrafts.clear();});
 </script>
 
 <style scoped>

@@ -16,7 +16,12 @@ describe('source-linked clinical case overview',()=>{
     expect(db.execute.mock.calls[0][1]).toEqual([1,7,3]);expect(db.execute.mock.calls[1][1]).toEqual([1,3,7,7]);
     expect(db.execute.mock.calls.every(([sql])=>sql.includes('privatePsychotherapyNote')&&sql.includes('restricted'))).toBe(true);
     expect(load).toHaveBeenNthCalledWith(1,scope,'note',4,db);expect(load).toHaveBeenNthCalledWith(2,scope,'treatment_plan',8,db);
-    expect(result.treatmentPlans[0]).toMatchObject({presentingProblem:'Anxiety'});expect(JSON.stringify(result)).not.toContain('500');
+    expect(result.treatmentPlans[0]).toMatchObject({presentingProblem:'Anxiety'});
+    // Timestamps and opaque hashes may legitimately contain the digits500.
+    // Inspect the exposed clinical content rather than unrelated metadata.
+    expect(result).not.toHaveProperty('billing');
+    expect(JSON.stringify({recentNotes:result.recentNotes,treatmentPlans:result.treatmentPlans})).not.toContain('500');
+    expect(result.treatmentPlans[0]).not.toHaveProperty('billing');
     db.execute.mockResolvedValueOnce([[{id:4,title:'Progress note'}]]).mockResolvedValueOnce([[{id:8,title:'Plan',status:'active'}]]);
     load.mockResolvedValueOnce({hash:'note-v2-with-addendum',content:'{}'}).mockResolvedValueOnce({hash:'plan-v1',content:'{}'});
     expect((await buildSupervisionCaseOverview(scope,3,{db,load})).contentHash).not.toBe(result.contentHash);

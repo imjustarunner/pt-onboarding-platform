@@ -139,6 +139,33 @@ describe.skipIf(!recoveryMysqlEnabled)('secure comments and immutable shared aud
     await db.query('UPDATE users SET is_archived=0 WHERE id=1');await db.query('UPDATE client_provider_assignments SET is_active=0 WHERE client_id=10 AND provider_user_id=1');
     await expect(comments.thread({user:{id:1},appointmentId:101,clientId:10})).rejects.toMatchObject({status:403});
   });
+  it('uses the same single clinical-service conversation from a chart and the family portal without moving prior history',async()=>{
+    const legacy=await shared.open({userId:1,clientId:10,agencyId:450});
+    expect(legacy.serviceId).toBe(0);
+    const [before]=await db.execute('SELECT * FROM chat_thread_participants WHERE thread_id=? ORDER BY user_id',[legacy.threadId]);
+    await db.query("INSERT INTO client_service_enrollments(id,client_id,agency_id,service_kind,provider_user_id,label,is_active) VALUES(501,10,450,'counseling',1,'Counseling',1)");
+    const chart=await shared.open({userId:1,clientId:10,agencyId:450});
+    const portal=await shared.open({userId:2,clientId:10,agencyId:450,serviceId:501});
+    const otherParent=await shared.open({userId:3,clientId:10,agencyId:450,serviceId:501});
+    expect(chart.serviceId).toBe(501);expect(portal.threadId).toBe(chart.threadId);expect(otherParent.threadId).toBe(chart.threadId);
+    expect(chart.threadId).not.toBe(legacy.threadId);
+    // The subject and its replies can stay together when the recorded audience
+    // and current rights still match. Resolving new service contexts does not
+    // silently close a valid older conversation or rewrite its membership.
+    expect((await shared.requireAccess(2,legacy.threadId)).readOnly).toBe(false);
+    expect((await shared.requireAccess(1,legacy.threadId,{forSend:true})).readOnly).toBe(false);
+    expect((await db.execute('SELECT * FROM chat_thread_participants WHERE thread_id=? ORDER BY user_id',[legacy.threadId]))[0]).toEqual(before);
+    await db.query("INSERT INTO client_guardians(client_id,guardian_user_id,relationship_type,permissions_json)VALUES(10,5,'guardian','{}')");
+    await db.execute("INSERT INTO guardian_clinical_grants(agency_id,client_id,guardian_user_id,access_level,medical_rights_verified,consent_basis,scopes_json,review_due_date)VALUES(450,10,5,'full',1,'legal_representative',?,'2030-01-01')",[scopes]);
+    await expect(shared.requireAccess(5,legacy.threadId)).rejects.toMatchObject({status:403});
+    await expect(shared.requireAccess(5,chart.threadId)).rejects.toMatchObject({status:403});
+    await expect(shared.requireAccess(2,legacy.threadId,{forSend:true})).rejects.toMatchObject({status:409,code:'FAMILY_SHARED_AUDIENCE_CHANGED'});
+  });
+  it('requires an explicit choice across distinct active clinical services',async()=>{
+    await db.query("INSERT INTO client_service_enrollments(client_id,agency_id,service_kind,provider_user_id,label,is_active) VALUES(10,450,'counseling',1,'First',1),(10,450,'counseling',5,'Second',1)");
+    await expect(shared.open({userId:1,clientId:10,agencyId:450})).rejects.toMatchObject({status:409,code:'FAMILY_SHARED_CONTEXT_REQUIRED'});
+    const [[count]]=await db.execute('SELECT COUNT(*) AS n FROM family_shared_conversations');expect(count.n).toBe(0);
+  });
   it('starts a new immutable shared thread for an audience change, leaves old private membership intact, and requires a real reviewed full recipient list',async()=>{
     await db.query("INSERT INTO chat_threads(id,agency_id,thread_type,message_channel,name)VALUES(50,450,'client_secure','secure','Previous private thread')");
     await db.query('INSERT INTO chat_thread_participants(thread_id,user_id)VALUES(50,1),(50,2)');

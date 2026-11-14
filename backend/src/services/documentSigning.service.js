@@ -3,6 +3,8 @@ import { applyDocumentAnnotations } from '../utils/pdfDocumentAnnotations.js';
 import { findContractPlaceholders } from '../utils/contractPlaceholders.js';
 import { fitPdfFieldText } from '../utils/pdfFormFields.js';
 import { validateHireDocumentFields } from '../utils/hireDocumentFields.js';
+import { schoolRoiCalendarDates, schoolRoiSignedTimestamp } from '../utils/schoolRoiCalendarDate.js';
+import { isValidTimeZone } from '../utils/zonedWallTime.util.js';
 import { PDFDocument, rgb } from 'pdf-lib';
 import fs from 'fs/promises';
 import path from 'path';
@@ -24,6 +26,11 @@ const sanitizeForPdf = (text) =>
     .replace(/[\u2013\u2014]/g, '-')
     .replace(/[\u2026]/g, '...')
     .replace(/[^\x20-\x7E\xA0-\xFF]/g, '');
+
+function documentSigningTimeZone(options = {}, auditTrail = {}) {
+  const supplied = [options?.timeZone, auditTrail?.timeZone].find(isValidTimeZone);
+  return { timeZone: supplied ? String(supplied).trim() : 'UTC', suppliedTimeZone: !!supplied };
+}
 
 // Circuit-breaker: skip Puppeteer briefly after failures (not 5 minutes —
 // printable packets cannot use the text fallback, so a long open circuit
@@ -311,7 +318,11 @@ ${originalStyles}
       if (signatureImage && !contractLayout && !placedEntries.some(entry => entry.kind === 'signature')) {
         console.log(`DocumentSigningService.generateFinalizedPDF: Adding signature to PDF...`);
         console.log(`DocumentSigningService.generateFinalizedPDF: Signature coordinates:`, signatureCoords);
-        await this.addSignatureToPDF(pdfDoc, signatureImage, signatureCoords, { suppressDate: suppressSignatureDate });
+        await this.addSignatureToPDF(pdfDoc, signatureImage, signatureCoords, {
+          suppressDate: suppressSignatureDate,
+          signedAt: workflowData?.finalized_at || workflowData?.intent_to_sign_at || auditTrail?.signedAt || new Date(),
+          timeZone: documentSigningTimeZone(options, auditTrail).timeZone
+        });
         console.log(`DocumentSigningService.generateFinalizedPDF: Signature added successfully`);
       }
 
@@ -321,7 +332,8 @@ ${originalStyles}
         referenceNumber,
         documentName,
         signatureImage: signatureOnAuditPage ? signatureImage : null,
-        omitRawAuditTrail
+        omitRawAuditTrail,
+        timeZone: options.timeZone
       });
       console.log(`DocumentSigningService.generateFinalizedPDF: Audit certificate added successfully`);
 
@@ -925,7 +937,8 @@ ${originalStyles}
       if (!options?.suppressDate) {
         // Add date near signature (default: to the right, fallback below)
         try {
-          const dateText = new Date().toISOString().slice(0, 10);
+          const { timeZone } = documentSigningTimeZone(options);
+          const dateText = schoolRoiCalendarDates(options?.signedAt || new Date(), timeZone).effectiveDate;
           const font = await pdfDoc.embedFont('Helvetica');
           const fontSize = 10;
           const dateWidth = font.widthOfTextAtSize(dateText, fontSize);
@@ -1102,6 +1115,10 @@ ${originalStyles}
    */
   static async addAuditCertificatePage(pdfDoc, workflowData, userData, auditTrail, options = {}) {
     const { referenceNumber = null, documentName = null, signatureImage = null, omitRawAuditTrail = false } = options || {};
+    // Only server-supplied document/audit context determines the certificate zone.
+    // A signer's device/preferred zone must not change the agency's signing day.
+    const { timeZone, suppliedTimeZone } = documentSigningTimeZone(options, auditTrail);
+    const signedTimestamp = value => schoolRoiSignedTimestamp(value, timeZone);
     const page = pdfDoc.addPage([612, 792]); // Letter size
     const { width, height } = page.getSize();
 
@@ -1216,8 +1233,16 @@ ${originalStyles}
     });
     y -= 30;
 
+    page.drawText(`Time Zone: ${timeZone}${suppliedTimeZone ? '' : ' (fallback; no valid agency time zone supplied)'}`, {
+      x: 72,
+      y,
+      size: 10,
+      color: rgb(0, 0, 0)
+    });
+    y -= 20;
+
     if (workflowData.consent_given_at) {
-      page.drawText(`Consent Given: ${new Date(workflowData.consent_given_at).toISOString()}`, {
+      page.drawText(`Consent Given: ${signedTimestamp(workflowData.consent_given_at)}`, {
         x: 72,
         y,
         size: 10,
@@ -1227,7 +1252,7 @@ ${originalStyles}
     }
 
     if (workflowData.intent_to_sign_at) {
-      page.drawText(`Intent to Sign: ${new Date(workflowData.intent_to_sign_at).toISOString()}`, {
+      page.drawText(`Intent to Sign: ${signedTimestamp(workflowData.intent_to_sign_at)}`, {
         x: 72,
         y,
         size: 10,
@@ -1237,7 +1262,7 @@ ${originalStyles}
     }
 
     if (workflowData.identity_verified_at) {
-      page.drawText(`Identity Verified: ${new Date(workflowData.identity_verified_at).toISOString()}`, {
+      page.drawText(`Identity Verified: ${signedTimestamp(workflowData.identity_verified_at)}`, {
         x: 72,
         y,
         size: 10,
@@ -1247,7 +1272,7 @@ ${originalStyles}
     }
 
     if (workflowData.finalized_at) {
-      page.drawText(`Document Finalized: ${new Date(workflowData.finalized_at).toISOString()}`, {
+      page.drawText(`Document Finalized: ${signedTimestamp(workflowData.finalized_at)}`, {
         x: 72,
         y,
         size: 10,

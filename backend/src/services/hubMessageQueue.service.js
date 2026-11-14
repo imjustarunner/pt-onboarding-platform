@@ -8,6 +8,14 @@ const MAX_DELAY_SECONDS = 600; // 10 minutes
 export const DEFAULT_DELAY_SECONDS = 20;
 export { MAX_DELAY_SECONDS };
 
+// Old draining workers only claim `queued`. New secure payloads require the
+// current recipient-aware dispatcher, so keep them outside that old protocol.
+const PENDING_STATUS_SQL = "('queued', 'queued_secure')";
+function openOwnerQueueItem(row) {
+  const opened = openQueuedMessage(row);
+  return opened?.status === 'queued_secure' ? { ...opened, status: 'queued' } : opened;
+}
+
 export function clampSendDelaySeconds(raw, fallback = DEFAULT_DELAY_SECONDS) {
   const n = Number(raw);
   if (!Number.isFinite(n)) return fallback;
@@ -38,7 +46,7 @@ export async function enqueueHubMessage({
     `INSERT INTO hub_message_queue
       (agency_id, user_id, person_key, channel, body, subject, payload_json,
        scheduled_send_at, queue_reason, status, related_conversation_id, related_message_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       agencyId,
       userId,
@@ -49,6 +57,7 @@ export async function enqueueHubMessage({
       payload ? JSON.stringify(payload) : null,
       when,
       queueReason,
+      channel === 'secure' ? 'queued_secure' : 'queued',
       relatedConversationId,
       relatedMessageId
     ]
@@ -58,7 +67,7 @@ export async function enqueueHubMessage({
 
 export async function findHubQueueItem(id) {
   const [rows] = await pool.execute(`SELECT * FROM hub_message_queue WHERE id = ? LIMIT 1`, [id]);
-  return openQueuedMessage(rows?.[0] || null);
+  return openOwnerQueueItem(rows?.[0] || null);
 }
 
 export async function listHubQueuedMessages({ userId, agencyId = null, limit = 50 } = {}) {
@@ -71,12 +80,12 @@ export async function listHubQueuedMessages({ userId, agencyId = null, limit = 5
   }
   const [rows] = await pool.execute(
     `SELECT * FROM hub_message_queue
-     WHERE user_id = ? AND status = 'queued' ${agencyClause}
+     WHERE user_id = ? AND status IN ${PENDING_STATUS_SQL} ${agencyClause}
      ORDER BY scheduled_send_at ASC, id ASC
      LIMIT ${lim}`,
     params
   );
-  return (rows || []).map(openQueuedMessage);
+  return (rows || []).map(openOwnerQueueItem);
 }
 
 export async function cancelHubQueuedMessage({ id, userId }) {
@@ -96,10 +105,12 @@ export async function cancelHubQueuedMessage({ id, userId }) {
     err.status = 400;
     throw err;
   }
-  await pool.execute(
-    `UPDATE hub_message_queue SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-    [id]
+  const [cancelled] = await pool.execute(
+    `UPDATE hub_message_queue SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
+     WHERE id = ? AND user_id = ? AND status IN ${PENDING_STATUS_SQL}`,
+    [id, userId]
   );
+  if (Number(cancelled?.affectedRows || 0) !== 1) throw Object.assign(new Error('Message is no longer queued'), { status: 409 });
   return {
     cancelled: true,
     id: Number(id),
@@ -129,7 +140,7 @@ export async function listDueHubQueue({ limit = 40 } = {}) {
     .catch(() => null);
   const [rows] = await pool.execute(
     `SELECT * FROM hub_message_queue
-     WHERE status = 'queued' AND scheduled_send_at <= NOW()
+     WHERE status IN ${PENDING_STATUS_SQL} AND scheduled_send_at <= NOW()
      ORDER BY scheduled_send_at ASC, id ASC
      LIMIT ${lim}`
   );
@@ -143,7 +154,7 @@ export async function claimHubQueueRow(id) {
   const [result] = await pool.execute(
     `UPDATE hub_message_queue
      SET status = 'sending', updated_at = CURRENT_TIMESTAMP
-     WHERE id = ? AND status = 'queued'`,
+     WHERE id = ? AND status IN ${PENDING_STATUS_SQL}`,
     [id]
   );
   return Number(result?.affectedRows || 0) === 1;
@@ -159,7 +170,7 @@ export async function countHubQueuedMessages({ userId, agencyId = null } = {}) {
   }
   const [rows] = await pool.execute(
     `SELECT COUNT(*) AS n FROM hub_message_queue
-     WHERE user_id = ? AND status = 'queued' ${agencyClause}`,
+     WHERE user_id = ? AND status IN ${PENDING_STATUS_SQL} ${agencyClause}`,
     params
   );
   return Number(rows?.[0]?.n || 0);
@@ -183,13 +194,13 @@ export async function listHubQueuedForPerson({
     `SELECT * FROM hub_message_queue
      WHERE user_id = ?
        AND person_key = ?
-       AND status = 'queued'
+       AND status IN ${PENDING_STATUS_SQL}
        ${agencyClause}
      ORDER BY scheduled_send_at ASC, id ASC
      LIMIT ${lim}`,
     params
   );
-  return (rows || []).map(openQueuedMessage);
+  return (rows || []).map(openOwnerQueueItem);
 }
 
 export async function markHubQueueSent(id) {

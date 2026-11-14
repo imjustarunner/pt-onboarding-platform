@@ -181,9 +181,7 @@
       </div>
     </div>
 
-    <SchoolContactWorkflowCard
-      v-if="familyWelcomeEligible"
-      :key="`${familyWelcomeContext}:${client.id}`"
+    <FamilyWelcomeWorkflowCard
       :agency-id="familyWelcomeAgencyId"
       :client-id="client.id"
     />
@@ -293,12 +291,12 @@
 <script setup>
 import {portalDateTime, portalCalendarDate} from '../../utils/portalDates';
 import ParentContactAttempts from '../clients/ParentContactAttempts.vue';
-import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import ClientTicketThreadPanel from './ClientTicketThreadPanel.vue';
 import PhiDocumentsPanel from '../admin/PhiDocumentsPanel.vue';
-import SchoolContactWorkflowCard from './SchoolContactWorkflowCard.vue';
+import FamilyWelcomeWorkflowCard from './FamilyWelcomeWorkflowCard.vue';
 import { assignedDayDisplay, displaySchoolClientStatusLabel } from '../../utils/schoolClientStatusDisplay.js';
 import {
   schoolStaffOwnDocumentsOnly,
@@ -327,33 +325,6 @@ const familyWelcomeAgencyId = computed(() => {
   const agencyId = explicitAgencyId || clientAgencyId;
   return [2, 450].includes(agencyId) ? agencyId : null;
 });
-const familyWelcomeContext = computed(() => {
-  const hasCareRole = ['provider', 'provider_plus', 'intern', 'intern_plus', 'supervisor', 'clinical_practice_assistant'].includes(roleNorm.value)
-    || [true, 1, '1'].includes(authStore.user?.has_provider_access);
-  const userId = Number(authStore.user?.id || 0);
-  return hasCareRole && userId && familyWelcomeAgencyId.value
-    ? `${userId}:${familyWelcomeAgencyId.value}` : '';
-});
-const eligibleFamilyWelcomeContext = ref('');
-const familyWelcomeEligible = computed(() => !!familyWelcomeContext.value && eligibleFamilyWelcomeContext.value === familyWelcomeContext.value);
-let familyWelcomeRequest = 0;
-watch(familyWelcomeContext, async (context) => {
-  const request = ++familyWelcomeRequest;
-  eligibleFamilyWelcomeContext.value = '';
-  if (!context) return;
-  try {
-    // This ordinary descriptor checks the server-owned rollout/cohort before the
-    // client card requests provider-owned workflows. No clinical ROI is required
-    // to review an introduction to a family whose intake is still pending.
-    const { data } = await api.get('/school-contact-plan', {
-      params: { agencyId: familyWelcomeAgencyId.value }, skipGlobalLoading: true
-    });
-    if (request === familyWelcomeRequest && context === familyWelcomeContext.value && data?.eligible === true) {
-      eligibleFamilyWelcomeContext.value = context;
-    }
-  } catch { /* Optional contact history must not block the ordinary client overview. */ }
-}, { immediate: true });
-onBeforeUnmount(() => { familyWelcomeRequest++; });
 const schoolOrganizationId = computed(() =>
   Number(props.schoolOrganizationId || props.client?.organization_id || 0) || null
 );

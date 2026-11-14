@@ -104,7 +104,17 @@ export function encryptChatText(plaintext) {
   };
 }
 
-export function decryptChatText({ ciphertextB64, ivB64, authTagB64, keyId = null }) {
+// This marker is outside the ciphertext so legacy body text (including JSON)
+// can never be mistaken for a message envelope. Both subject and body remain
+// inside the authenticated encrypted payload; the marker contains no content.
+const CHAT_CONTENT_PREFIX = 'awmsg1:';
+
+export function encryptChatContent({ body, subject = null }) {
+  const encrypted = encryptChatText(JSON.stringify({ version: 1, type: 'secure_message', body: String(body || ''), subject }));
+  return { ...encrypted, ciphertextB64: `${CHAT_CONTENT_PREFIX}${encrypted.ciphertextB64}` };
+}
+
+function decryptRawChatText({ ciphertextB64, ivB64, authTagB64, keyId = null }) {
   const iv = Buffer.from(String(ivB64 || ''), 'base64');
   const tag = Buffer.from(String(authTagB64 || ''), 'base64');
   const ciphertext = Buffer.from(String(ciphertextB64 || ''), 'base64');
@@ -130,5 +140,28 @@ export function decryptChatText({ ciphertextB64, ivB64, authTagB64, keyId = null
 
   // If none of the candidates could decrypt this ciphertext, surface the error.
   throw lastErr || new Error('Unable to decrypt chat text');
+}
+
+export function decryptChatContent(encrypted) {
+  const ciphertext = String(encrypted?.ciphertextB64 || '');
+  if (!ciphertext.startsWith(CHAT_CONTENT_PREFIX)) return { body: decryptRawChatText(encrypted) };
+  const content = JSON.parse(decryptRawChatText({ ...encrypted, ciphertextB64: ciphertext.slice(CHAT_CONTENT_PREFIX.length) }));
+  if (content?.version !== 1 || content.type !== 'secure_message' || typeof content.body !== 'string' ||
+      !(content.subject === null || typeof content.subject === 'string')) throw new Error('Invalid encrypted message content');
+  return { body: content.body, subject: content.subject };
+}
+
+// Existing previews and other encryption consumers continue to receive body
+// text only. Secure message views explicitly request the structured content.
+export function decryptChatText(encrypted) {
+  return decryptChatContent(encrypted).body;
+}
+
+export function readChatMessageContent(row) {
+  if (!row?.body_ciphertext) return { body: row?.body || '', subject: row?.subject || null };
+  const content = decryptChatContent({ ciphertextB64: row.body_ciphertext, ivB64: row.body_iv,
+    authTagB64: row.body_auth_tag, keyId: row.encryption_key_id || null });
+  // Only legacy body-only ciphertext may use the old plaintext subject column.
+  return { body: content.body, subject: Object.hasOwn(content, 'subject') ? content.subject : row.subject || null };
 }
 

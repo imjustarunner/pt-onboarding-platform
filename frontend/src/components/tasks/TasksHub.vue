@@ -338,14 +338,16 @@
                 </option>
               </select>
             </div>
-            <TasksFiltersBar v-if="notesScope === 'all'" v-model="filters" :departments="departments" :team-view="activeTab === 'all' && teamMode === 'tasks'" />
+            <TasksFiltersBar v-if="notesScope === 'all'" :model-value="filters" @update:model-value="onTaskFiltersChanged" :departments="departments" :team-view="activeTab === 'all' && teamMode === 'tasks'" />
 
             <template v-if="notesScope === 'all'">
+            <p v-if="searchQ.trim().length >= 2" class="task-search-scope muted" role="status">List: {{ currentTaskViewLabel }} · {{ currentTaskViewMeaning }}<template v-if="statusChip !== 'all'"> · {{ statusChip === 'in_progress' ? 'In Progress' : statusChip.charAt(0).toUpperCase() + statusChip.slice(1) }}</template>. Search suggestions cover your authorized task views.</p>
             <div v-if="tasksStore.loading" class="hub-state" data-tour="tasks-loading">Loading tasks…</div>
             <div v-else-if="tasksStore.error" class="hub-state error">{{ tasksStore.error }}</div>
             <div v-else-if="displayTasks.length === 0" class="hub-state" data-tour="tasks-empty">
               <template v-if="activeTab === 'assigned'">No tasks assigned to you right now. Team-wide work is under Team Tasks.</template>
               <template v-else>No tasks found</template>
+              <p v-if="crossViewTaskResult">A matching task is in {{ searchViewLabel(crossViewTaskResult) }}. <button type="button" class="btn btn-secondary btn-sm" @click="selectSearchResult(crossViewTaskResult)">Open task #{{ crossViewTaskResult.entity_id }} in {{ searchViewLabel(crossViewTaskResult) }}</button></p>
             </div>
 
             <TasksListTable @task-updated="refresh"
@@ -921,7 +923,6 @@ const HIDDEN_AGENCIES_KEY = 'tasksHub.hiddenAgencyIds';
 const activeTab = ref('assigned');
 const layout = ref('list');
 const notesTodoOpen = ref(false);
-const statusChip = ref('all');
 const searchQ = ref('');
 const notesScope = ref('all'); // all | notes | cosign
 const cosignNotes = ref([]);
@@ -969,6 +970,18 @@ const filters = ref({
   school: '',
   sort: 'due_asc'
 });
+// Cards and the Status dropdown express one filter, never two contradictory statuses.
+const statusChip=computed({get:()=>filters.value.status||(filters.value.due==='overdue'?'overdue':'all'),set:value=>{filters.value={...filters.value,status:['pending','in_progress','completed'].includes(value)?value:'',due:value==='overdue'?'overdue':filters.value.due==='overdue'?'':filters.value.due};}});
+function onTaskFiltersChanged(next){
+ const selected={...filters.value,...next};
+ if(selected.status==='completed'&&selected.due==='overdue'){
+  if(selected.due!==filters.value.due)selected.status='';else selected.due='';
+ }
+ filters.value=selected;
+}
+const currentTaskViewLabel=computed(()=>({assigned:'Assigned to Me',mine:'My Tasks',all:'Team Tasks',watchlist:'Watchlist'})[activeTab.value]||'Tasks');
+const currentTaskViewMeaning=computed(()=>({assigned:'assigned directly to you',mine:'created by you',all:'the selected team scope',watchlist:'your followed shared lists'})[activeTab.value]||'the selected view');
+const crossViewTaskResult=computed(()=>searchResults.value.find(result=>result.entity_type==='task'&&result.view&&result.view!==activeTab.value&&(result.view!=='all'||canViewAll.value))||null);
 const departments = ref([]);
 const typeDefs = ref([]);
 const detailTask = ref(null);
@@ -1871,6 +1884,9 @@ async function selectSearchResult(r) {
   }
   // task
   const view = r.view === 'all' ? 'all' : (r.view === 'mine' ? 'mine' : 'assigned');
+  if(view==='all'&&!canViewAll.value){linkedTaskError.value='This task view is not available for your account.';return;}
+  if(view==='all')teamMode.value='tasks';
+  const status=r.status||r.task?.status;if(['pending','in_progress','completed'].includes(status))statusChip.value=status;
   activeTab.value = ['assigned', 'mine', 'all', 'watchlist'].includes(view) ? view : 'assigned';
   await refresh();
   const task = (tasksStore.tasks || []).find((t) => Number(t.id) === Number(r.entity_id)) || r.task;

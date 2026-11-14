@@ -58,6 +58,7 @@
 </template>
 
 <script setup>
+import {canPollWorkspace,useSessionPolling} from '../../composables/useSessionPolling';
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
@@ -137,6 +138,7 @@ const dotClass = (p) => presenceDotClassForPerson(p);
 const detailLines = (p) => presenceDetailLines(p);
 
 const fetchPresence = async (showLoading = true) => {
+  if (!canPollWorkspace()) return;
   try {
     if (showLoading) loading.value = true;
     error.value = '';
@@ -165,6 +167,7 @@ const onVisibilityChange = () => {
 
 watch(resolvedAgencyId, () => fetchPresence(true));
 
+useSessionPolling(() => fetchPresence(false));
 onMounted(() => {
   fetchPresence(true);
   pollTimer = setInterval(() => fetchPresence(false), POLL_INTERVAL_MS);

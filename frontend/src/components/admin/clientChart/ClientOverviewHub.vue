@@ -27,6 +27,8 @@
 
       <slot name="clinical-summary" />
 
+      <FamilyWelcomeWorkflowCard :agency-id="client?.agency_id" :client-id="clientId" />
+
       <div class="cc-tile-row">
         <button type="button" class="cc-tile" disabled>
           <div class="cc-tile__k">Current status</div>
@@ -167,6 +169,7 @@ import api from '../../../services/api';
 import { operationalClientDocuments } from '../../../utils/operationalClientDocuments.js';
 import { enrollmentReceiptCards } from '../../../utils/enrollmentReceiptCards.js';
 import ClientCareTimeline from './ClientCareTimeline.vue';
+import FamilyWelcomeWorkflowCard from '../../school/FamilyWelcomeWorkflowCard.vue';
 import '../../../styles/client-hub.css';
 
 const props = defineProps({

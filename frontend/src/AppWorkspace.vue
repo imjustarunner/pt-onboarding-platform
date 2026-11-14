@@ -2292,6 +2292,8 @@
 </template>
 
 <script setup>
+import {canPollWorkspace,useSessionPolling} from './composables/useSessionPolling';
+
 import { canAccessTicketDesk } from './utils/ticketAccess.js';
 import WorkspaceNavigation from './components/WorkspaceNavigation.vue';
 import { CONVERSA_ICON_URL } from './constants/conversa';
@@ -4670,6 +4672,7 @@ const clearPayrollToastSnooze = () => {
 };
 
 const fetchPayrollPendingSubmissions = async () => {
+  if (!canPollWorkspace()) return;
   if (!isAuthenticated.value || !canSeePayrollManagement.value || !currentAgencyId.value) {
     payrollPendingCount.value = 0;
     payrollPendingItems.value = [];
@@ -4785,6 +4788,7 @@ const clearHiringToastSnooze = (key, snoozedRef) => {
 };
 
 const fetchPeopleOperationsNavCounts = async () => {
+  if (!canPollWorkspace()) return;
   if (
     !isAuthenticated.value
     || !canSeePeopleOperationsNav.value
@@ -4822,6 +4826,7 @@ const fetchPeopleOperationsNavCounts = async () => {
 };
 
 const fetchHiringAttentionToasts = async () => {
+  if (!canPollWorkspace()) return;
   if (!canSeeHiringToasts.value) {
     preHireToastCount.value = 0;
     preHireToastNames.value = [];
@@ -4901,6 +4906,7 @@ const goToApplicantsFromToast = () => {
 };
 const MIN_PENDING_DATE = '2026-02-01';
 const fetchSchoolClientsPendingCount = async () => {
+  if (!canPollWorkspace()) return;
   if (!isAuthenticated.value || !showSchoolClientsPendingBadge.value || !schoolClientsAgencyId.value) {
     schoolClientsPendingCount.value = 0;
     return;
@@ -6077,6 +6083,7 @@ const availabilityPendingTitle = computed(() => (
 let buildingsPendingInterval = null;
 
 const fetchBuildingsPendingCounts = async () => {
+  if (!canPollWorkspace()) return;
   if (!isAuthenticated.value) return;
   if (!showBuildingsPendingBadge.value) return;
   try {
@@ -6446,6 +6453,7 @@ function showNextNotificationToast() {
 }
 
 const showNewNotificationToast = async () => {
+  if (!canPollWorkspace()) return;
   try {
     if (!notificationUpdatesInitialized.value) {
       await initializeNotificationUpdateCursor();
@@ -6631,6 +6639,7 @@ const shouldFetchNotificationsCounts = computed(() => {
   return true;
 });
 const fetchNotificationsCounts = async () => {
+  if (!canPollWorkspace()) return;
   if (!shouldFetchNotificationsCounts.value) return;
   if (notificationsCountsFetchInFlight) return;
   notificationsCountsFetchInFlight = true;
@@ -6646,6 +6655,7 @@ const fetchNotificationsCounts = async () => {
 };
 
 const initializeNotificationUpdateCursor = async () => {
+  if (!canPollWorkspace()) return;
   if (notificationUpdatesInitialized.value) return;
   const updates = await notificationStore.fetchUpdates(0, true);
   notificationUpdateCursor.value = Number(updates.latestId || 0);
@@ -6695,6 +6705,13 @@ function syncCommunicationsCountsWithEngagementMenu(enabled) {
   }
 }
 watch(showEngagementMenu, syncCommunicationsCountsWithEngagementMenu);
+useSessionPolling(() => {
+  if (!isAuthenticated.value) return;
+  void fetchBuildingsPendingCounts(); void fetchSchoolClientsPendingCount();
+  void fetchPayrollPendingSubmissions(); void fetchPeopleOperationsNavCounts(); void fetchHiringAttentionToasts();
+  if (shouldFetchNotificationsCounts.value) { void fetchNotificationsCounts(); void showNewNotificationToast(); }
+  if (showEngagementMenu.value) void communicationsCountsStore.fetchCounts();
+});
 watch(() => agencyStore.currentAgency?.id, () => {
   if (showEngagementMenu.value) void communicationsCountsStore.fetchCounts();
 });
