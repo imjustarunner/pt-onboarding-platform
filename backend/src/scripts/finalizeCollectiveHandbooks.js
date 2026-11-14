@@ -86,7 +86,11 @@ try {
       for (const row of plan.medicalInsertions) await db.query("INSERT IGNORE INTO agency_medical_service_codes(agency_id,service_code,description,unit_calc_mode,is_addon,is_active,session_mode) VALUES(?,?,?,'NONE',?,0,'individual')", [plan.agency.id, row.serviceCode, row.description, row.isAddon ? 1 : 0]);
       // This dated favorable policy never flips an undated employee assignment
       // or changes a rate table, a signed schedule, or a historical service date.
-      await db.query("UPDATE agencies SET feature_flags=JSON_SET(COALESCE(feature_flags,JSON_OBJECT()),'$.payrollPolicy.minimumWorkloadWaivedFrom',?) WHERE id=?", [plan.minimumWorkloadWaivedFrom, plan.agency.id]);
+      // Merge the object so a company without payrollPolicy receives the
+      // parent too. Setting only a nested leaf silently does nothing in MySQL.
+      await db.query("UPDATE agencies SET feature_flags=JSON_MERGE_PATCH(COALESCE(feature_flags,JSON_OBJECT()),JSON_OBJECT('payrollPolicy',JSON_OBJECT('minimumWorkloadWaivedFrom',?))) WHERE id=?", [plan.minimumWorkloadWaivedFrom, plan.agency.id]);
+      const [[waiver]] = await db.query("SELECT JSON_UNQUOTE(JSON_EXTRACT(feature_flags,'$.payrollPolicy.minimumWorkloadWaivedFrom')) AS waived_from FROM agencies WHERE id=?", [plan.agency.id]);
+      if (waiver?.waived_from !== plan.minimumWorkloadWaivedFrom) throw new Error(`The prospective workload waiver was not saved for ${plan.agency.id}. Roll back and inspect.`);
       await db.query('UPDATE workplace_handbook_versions SET version_number=?,source_revision=?,metadata_json=?,is_draft=0,published_at=UTC_TIMESTAMP(),published_by_user_id=NULL,changelog=? WHERE id=? AND agency_id=? AND is_draft=1', [plan.versionNumber, plan.sourceRevision, JSON.stringify(plan.metadata), `Owner-approved final November revision ${COLLECTIVE_HANDBOOK_RELEASE}; prior reviewed draft ${plan.originalVersionNumber} retained in the private release backup.`, plan.versionId, plan.agency.id]);
       await db.query('UPDATE workplace_handbook_documents SET published_version_id=? WHERE id=? AND agency_id=?', [plan.versionId, plan.documentId, plan.agency.id]);
       const digestIds = [...new Set([...plan.digests.map(d => d.id), novemberId])];
