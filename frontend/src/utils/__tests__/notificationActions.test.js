@@ -93,3 +93,6 @@ it('opens a school-upload Support task rather than the old chart shortcut', () =
   expect(notificationDestination(notice, { organizationSlug: 'qa', role: 'support' })).toBe('/qa/tasks?taskId=90');
   expect(notificationDestination(notice, { organizationSlug: 'qa', role: 'school_staff' })).toBeNull();
 });
+it('opens the correct client session for an in-app guardian reminder',()=>{
+ expect(notificationDestination({type:'program_reminder',related_entity_type:'appointment',related_entity_id:12,audience_json:{clientId:9}},{organizationSlug:'example',role:'client_guardian'})).toEqual({path:'/example/guardian',query:{panel:'appointments',appointmentId:'12',clientId:'9'}});
+});

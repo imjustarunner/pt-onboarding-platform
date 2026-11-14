@@ -15,6 +15,7 @@ import {
 import Appointment from '../models/Appointment.model.js';
 import appointmentStaffTools from '../services/appointmentStaffTools.service.js';
 import { canceledSessionSummary } from '../services/canceledSessionSummary.service.js';
+import { sessionCommunicationTimeline } from '../services/sessionCommunicationTimeline.js';
 
 async function assertAgencyAccess(req, agencyId) {
   const aid = Number(agencyId || 0);
@@ -137,7 +138,7 @@ export const getAppointmentTimeline = async (req, res, next) => {
       listReminders(appointmentId),
       listCommunications(appointmentId)
     ]);
-    res.json({ ok: true, reminders, communications, cancellation:await canceledSessionSummary(appointment) });
+    res.json({ ok: true, reminders, communications, timeline:sessionCommunicationTimeline(reminders,communications), cancellation:await canceledSessionSummary(appointment) });
   } catch (e) {
     next(e);
   }

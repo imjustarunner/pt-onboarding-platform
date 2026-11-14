@@ -24,3 +24,8 @@ it('makes preference readers use a recipient-bound verbal record without fabrica
  const impl=pool.execute.getMockImplementation();pool.execute.mockImplementation((sql,...args)=>sql.includes('SELECT n.phone_number')?Promise.resolve([[{phone_number:message.from}]]):impl(sql,...args));
  expect(await recordedReminderConsent(2,message.to,{clientId:101,recipientUserId:55})).toMatchObject({source:'staff_verbal'});expect(reviewedVerbalReminderGrant).toHaveBeenCalledWith({evidence,agencyId:2,phone:message.to,clientId:101,recipientUserId:55});
 });
+it('hides an otherwise consented reminder number when STOP is active',async()=>{
+ const impl=pool.execute.getMockImplementation();pool.execute.mockImplementation((sql,...args)=>sql.includes('SELECT n.phone_number')?Promise.resolve([[{phone_number:message.from}]]):sql.includes("purpose = 'suppression' AND status = 'opted_out'")?Promise.resolve([[{stopped:1}]]):impl(sql,...args));
+ expect(await recordedReminderConsent(2,message.to,{clientId:101,recipientUserId:55,requireActive:true})).toBeNull();
+ expect(reviewedVerbalReminderGrant).not.toHaveBeenCalled();
+});

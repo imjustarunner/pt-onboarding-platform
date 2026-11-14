@@ -10,11 +10,11 @@ beforeEach(()=>{vi.clearAllMocks();m.get.mockResolvedValue({data:{settings:{plat
 afterEach(()=>wrapper?.unmount());
 it('adds, edits, previews and removes reminder choices before an appointment exists',async()=>{
  wrapper=mount(Editor,{props:{agencyId:377,dateYmd:'2026-11-26',startTime:'15:00',timezoneLabel:'Mountain Time'}});await flushPromises();
- await wrapper.get('button').trigger('click');let rules=wrapper.emitted('update:rules').at(-1)[0];expect(rules).toEqual([expect.objectContaining({channel:'email',offsetMinutes:60})]);await wrapper.setProps({rules});
+ await wrapper.get('button').trigger('click');let rules=wrapper.emitted('update:rules').at(-1)[0];expect(rules).toEqual([expect.objectContaining({channels:['email'],offsetMinutes:60})]);await wrapper.setProps({rules});
  await wrapper.get('select[aria-label="Reminder 1 timing"]').setValue('1440');rules=wrapper.emitted('update:rules').at(-1)[0];expect(rules[0].offsetMinutes).toBe(1440);await wrapper.setProps({rules});
  await wrapper.get('textarea').setValue('Please arrive five minutes early.');rules=wrapper.emitted('update:rules').at(-1)[0];await wrapper.setProps({rules});
  expect(wrapper.get('.reminder-preview').text()).toContain('Please arrive five minutes early.');
- expect(wrapper.get('option[value="sms"]').element.disabled).toBe(true);
+ expect(wrapper.findAll('.reminder-channel').map(node=>node.text()).join(' ')).not.toMatch(/Text/);
  await wrapper.get('button[aria-label="Remove reminder 1"]').trigger('click');expect(wrapper.emitted('update:rules').at(-1)[0]).toEqual([]);
 });
 it('renders real controls in Customizable mode and explains scheduling note visibility',async()=>{

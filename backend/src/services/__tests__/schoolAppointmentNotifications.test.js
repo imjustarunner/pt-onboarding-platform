@@ -41,12 +41,13 @@ beforeEach(() => {
   Guardians.listForClient.mockResolvedValue([]); Contacts.listReminderRecipientsForClient.mockResolvedValue([]);
   Guardians.getLink.mockImplementation(async({clientId,guardianUserId})=>(await Guardians.listForClient(clientId)).find(g=>Number(g.guardian_user_id) === Number(guardianUserId)) || null);
   latestIntakeCommunicationChoices.mockImplementation(async () => choice);
-  recordedReminderConsent.mockResolvedValue(null); resolveRegisteredSmsSender.mockResolvedValue('+17195550199'); Vonage.sendSms.mockResolvedValue({ messageId: 'test' });
+  recordedReminderConsent.mockResolvedValue({collectedAt:'2026-01-01T00:00:00Z'}); resolveRegisteredSmsSender.mockResolvedValue('+17195550199'); Vonage.sendSms.mockResolvedValue({ messageId: 'test' });
   sendNotificationEmail.mockResolvedValue({ id: 'email' });
   lock = { execute: vi.fn(async sql => sql.includes('GET_LOCK') ? [[{ acquired: 1 }]] : sql.includes('SELECT status') ? [[{ status: 'pending' }]] : [[]]), release: vi.fn() };
   pool.getConnection.mockResolvedValue(lock);
   pool.query.mockImplementation((...args)=>pool.execute(...args));
   pool.execute.mockImplementation(async sql => {
+    if (sql.includes('FROM session_reminder_')) return [[]];
     if (sql.includes('FROM platform_session_notification_settings')) return [[]];
     if (sql.includes('FROM agency_session_notification_settings')) return [[{ channels_enabled_json: { email: true, sms: true },
       booking_confirmation_json: { enabled: true, channels: ['sms'], requireResponse: true, message: 'Reply Y to confirm at our office' },

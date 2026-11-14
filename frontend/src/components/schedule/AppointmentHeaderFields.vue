@@ -557,32 +557,9 @@
         <span class="ahf-section-icon" aria-hidden="true">🔔</span>
         <h4 class="ahf-section-title">Notifications</h4>
       </header>
-      <div class="ahf-notif-toggles">
-        <button
-          type="button"
-          class="ahf-mod-chip"
-          :class="{ on: notificationMode === 'default' }"
-          :disabled="disabled"
-          @click="emit('update:notificationMode', 'default')"
-        >
-          Default
-        </button>
-        <button
-          type="button"
-          class="ahf-mod-chip"
-          :class="{ on: notificationMode === 'customizable' }"
-          :disabled="disabled"
-          @click="emit('update:notificationMode', 'customizable')"
-        >
-          Customizable
-        </button>
-      </div>
-      <p v-if="notificationMode === 'default'" class="ahf-info-banner ahf-info-banner--ok" role="status">
-        Uses organization default reminders. Clients and providers will be notified per your organization's settings. Client preferences override the default.
-      </p>
-      <DefaultNotificationPreview :custom-reminders="notificationMode === 'customizable' ? customReminders : []" :agency-id="agencyId" :date-ymd="dateYmd" :start-time="startTime" :timezone-label="timezoneLabel" />
-      <SessionNotificationEditor v-if="notificationMode !== 'default'" :rules="customReminders" :agency-id="agencyId" :disabled="disabled"
-        :date-ymd="dateYmd" :start-time="startTime" :timezone-label="timezoneLabel" @update:rules="emit('update:customReminders', $event)" />
+      <AppointmentReminderSettings :mode="notificationMode" :rules="customReminders" :agency-id="agencyId" :busy="disabled" :show-save="false"
+        :date-ymd="dateYmd" :start-time="startTime" :timezone-label="timezoneLabel"
+        @update:mode="emit('update:notificationMode',$event)" @update:rules="emit('update:customReminders',$event)" />
     </section>
 
     <!-- Section 5: Notes -->
@@ -615,8 +592,7 @@ import { officeRoomTitle } from '../../utils/officeRoomTitle.js';
 import ServiceInformation from '../notes/ServiceInformation.vue';
 import { computed, ref, watch } from 'vue';
 import ScheduleAgencyLogo from './ScheduleAgencyLogo.vue';
-import SessionNotificationEditor from './SessionNotificationEditor.vue';
-import DefaultNotificationPreview from './DefaultNotificationPreview.vue';
+import AppointmentReminderSettings from './AppointmentReminderSettings.vue';
 
 const roomPreferenceSearch = ref('');
 const moreServices = ref(false);

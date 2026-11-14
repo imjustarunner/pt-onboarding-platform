@@ -9,20 +9,19 @@
           <div v-if="whenTimeLabel" class="aip-sub">{{ whenTimeLabel }}</div>
         </div>
       </div>
-      <div class="aip-card">
+      <div v-if="!serviceLabel" class="aip-card">
         <span class="aip-ico aip-ico--indigo" aria-hidden="true">📁</span>
         <div>
-          <div class="aip-k">Type</div>
+          <div class="aip-k">{{ clientId ? 'Service' : 'Type' }}</div>
           <div class="aip-v">{{ typeLabel || '—' }}</div>
         </div>
       </div>
       <div v-if="statusLabel" class="aip-card">
-        <span class="aip-ico aip-ico--green" aria-hidden="true">●</span>
+        <span class="aip-ico" :class="statusPretty==='Unconfirmed'?'aip-ico--amber':'aip-ico--green'" aria-hidden="true">●</span>
         <div>
           <div class="aip-k">Status</div>
           <div class="aip-v aip-status-row">
-            <span>{{ statusPretty }}</span>
-            <span v-if="statusLabel" class="aip-badge">{{ statusPretty }}</span>
+            <span v-if="statusLabel" class="aip-badge" :class="{'aip-badge--pending':statusPretty==='Unconfirmed'}">{{ statusPretty }}</span>
           </div>
         </div>
       </div>
@@ -33,13 +32,13 @@
           <div class="aip-v">{{ modalityLabel || '—' }}</div>
         </div>
       </div>
-      <div class="aip-card">
+      <div v-if="agencyNames.length > 1" class="aip-card">
         <span class="aip-ico aip-ico--purple" aria-hidden="true">⌂</span>
         <div>
           <div class="aip-k">Agency</div>
           <div class="aip-v aip-tenant">
             <ScheduleAgencyLogo class="aip-tenant-logo" :icon-url="tenantIconUrl" :label="tenantLabel" />
-            <span>{{ tenantLabel || '—' }}</span>
+            <span>{{ agencyNames.join(' · ') }}</span>
           </div>
         </div>
       </div>
@@ -82,6 +81,13 @@
         <div>
           <div class="aip-k">Service</div>
           <div class="aip-v">{{ serviceLabel }}</div>
+        </div>
+      </div>
+      <div v-for="guardian in guardianAccounts" :key="`guardian-${guardian.guardian_user_id}`" class="aip-card">
+        <span class="aip-ico aip-ico--amber" aria-hidden="true">👤</span>
+        <div><div class="aip-k">{{ guardian.relationship_type === 'self' ? 'Client portal account' : 'Parent / guardian account' }}</div>
+          <button v-if="canOpenProvider" type="button" class="aip-link" @click="emit('open-provider', Number(guardian.guardian_user_id))">{{ [guardian.first_name,guardian.last_name].filter(Boolean).join(' ') || 'Open account' }}</button>
+          <span v-else class="aip-v">{{ [guardian.first_name,guardian.last_name].filter(Boolean).join(' ') || 'Portal account' }}</span>
         </div>
       </div>
 
@@ -238,7 +244,8 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
+import api from '../../services/api';
 import ScheduleAgencyLogo from './ScheduleAgencyLogo.vue';
 
 const props = defineProps({
@@ -249,6 +256,7 @@ const props = defineProps({
   statusLabel: { type: String, default: '' },
   modalityLabel: { type: String, default: '' },
   tenantLabel: { type: String, default: '' },
+  agencyId: { type: Number, default: 0 },
   tenantIconUrl: { type: String, default: '' },
   providerLabel: { type: String, default: 'Provider' },
   providerName: { type: String, default: '' },
@@ -288,10 +296,29 @@ const props = defineProps({
 const emit = defineEmits(['edit', 'open-provider', 'open-client', 'open-billing', 'open-clinical', 'open-note', 'join']);
 
 const participantsExpanded = ref(false);
+const guardianAccounts = ref([]), affiliatedAgencies = ref([]);
+let accountRequest = 0;
+const agencyNames = computed(() => [...new Map([
+  ...(props.agencyId ? [{agency_id:props.agencyId,agency_name:props.tenantLabel}] : []),
+  ...affiliatedAgencies.value
+].filter(row=>row.agency_name).map(row=>[Number(row.agency_id),row.agency_name])).values()]);
+watch(() => [props.clientId,props.canOpenProvider], async () => {
+  const current=++accountRequest;guardianAccounts.value=[];affiliatedAgencies.value=[];
+  if(!props.clientId)return;
+  const results=await Promise.allSettled([
+    api.get(`/clients/${props.clientId}/guardians`,{skipGlobalLoading:true}),
+    ...(props.canOpenProvider?[api.get(`/clients/${props.clientId}/agency-affiliations`,{skipGlobalLoading:true})]:[])
+  ]);
+  if(current!==accountRequest)return;
+  if(results[0]?.status==='fulfilled')guardianAccounts.value=(Array.isArray(results[0].value.data)?results[0].value.data:[]).filter(row=>Number(row.guardian_user_id)>0);
+  if(results[1]?.status==='fulfilled')affiliatedAgencies.value=Array.isArray(results[1].value.data)?results[1].value.data:[];
+},{immediate:true});
 
 const statusPretty = computed(() => {
   const s = String(props.statusLabel || '').trim();
   if (!s) return '—';
+  if (props.clientId && s.toLowerCase() === 'scheduled') return 'Unconfirmed';
+  if (props.clientId && ['confirmed','client_confirmed'].includes(s.toLowerCase())) return 'Confirmed';
   return s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 });
 
@@ -323,18 +350,19 @@ const participantDisplaySummary = computed(() => {
 </script>
 
 <style scoped>
-.aip { display: flex; flex-direction: column; gap: 14px; }
+.aip .aip-badge--pending{background:#fff4cc;color:#775208;border-color:#e6cb79}
+.aip { display: flex; flex-direction: column; gap: 10px; }
 .aip-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: 8px;
 }
 .aip-card {
   display: flex;
   gap: 10px;
   align-items: flex-start;
   min-width: 0;
-  padding: 12px 14px;
+  padding: 8px 10px;
   border-radius: 12px;
   background: #f8fafc;
   border: 1px solid #eef2f7;

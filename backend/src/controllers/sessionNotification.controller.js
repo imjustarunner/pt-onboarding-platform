@@ -2,6 +2,8 @@ import staffTools from '../services/appointmentStaffTools.service.js';
 import manualReminders from '../services/manualSessionReminder.service.js';
 import User from '../models/User.model.js';
 import Appointment from '../models/Appointment.model.js';
+import { readSessionReminderDefaults, saveSessionReminderDefaults } from '../services/sessionReminderDefaults.service.js';
+import { validateCustomReminderChannels } from '../services/appointmentNotificationCustomization.service.js';
 import {
   getPlatformSettings,
   putPlatformSettings,
@@ -142,9 +144,11 @@ export const getAppointmentNotificationPlan = async (req, res, next) => {
     const reminderState = await manualReminders.state(appt);
     let canEdit = true;
     try { await staffTools.authorizeEdit(req.user,id); } catch(error) { if(error.status!==403)throw error; canEdit=false; }
-    reminderState.canSendAdditionalReminder = reminderState.canSendAdditionalReminder && canEdit
-      && (plan.deliveries||[]).some(item=>item.kind!=='confirmation'&&item.recipientRole!=='provider');
-    res.json({ ok: true, plan: { ...plan, ...reminderState } });
+    reminderState.canSendAdditionalReminder = reminderState.canSendAdditionalReminder && canEdit;
+    const manualPlan = await buildDeliveryPlan(id, { manual: true });
+    const manualReminderChannels = [...new Set((manualPlan.deliveries || []).filter(item => item.recipientRole !== 'provider').map(item => item.channel))];
+    reminderState.canSendAdditionalReminder = reminderState.canSendAdditionalReminder && manualReminderChannels.length > 0;
+    res.json({ ok: true, plan: { ...plan, ...reminderState, manualReminderChannels } });
   } catch (e) {
     next(e);
   }
@@ -160,7 +164,7 @@ export const rescheduleSessionNotifications = async (req, res, next) => {
     }
     if (req.body?.kind === 'additional_reminder') {
       await staffTools.authorizeEdit(req.user, id);
-      const result = await manualReminders.queue(appt, buildDeliveryPlan, req.user.id);
+      const result = await manualReminders.queue(appt, id => buildDeliveryPlan(id, { manual: true }), req.user.id, { channels: req.body.channels ?? ['email'] });
       return res.json({ ok: true, ...result });
     }
     const scheduled = await scheduleSessionNotifications(id, { replace: true });
@@ -169,6 +173,24 @@ export const rescheduleSessionNotifications = async (req, res, next) => {
     if (e.status) return res.status(e.status).json({ error: { message: e.message, availableAt: e.availableAt || null } });
     next(e);
   }
+};
+
+export const getMySessionReminderDefaults = async (req, res, next) => {
+  try {
+    const agencyId = Number(req.params.agencyId);
+    if (!await assertAgencyAccess(req, agencyId)) return res.status(403).json({ error: { message: 'Agency access is required.' } });
+    res.json({ rules: await readSessionReminderDefaults(agencyId, req.user.id) });
+  } catch (error) { next(error); }
+};
+export const putMySessionReminderDefaults = async (req, res, next) => {
+  try {
+    const agencyId = Number(req.params.agencyId);
+    if (!await assertAgencyAccess(req, agencyId)) return res.status(403).json({ error: { message: 'Agency access is required.' } });
+    const { normalizeCustomSessionReminders } = await import('../services/appointmentNotificationCustomization.service.js');
+    const rules = normalizeCustomSessionReminders(req.body.rules);
+    await validateCustomReminderChannels(agencyId, rules);
+    res.json({ rules: await saveSessionReminderDefaults(agencyId, req.user.id, rules, req.user.id) });
+  } catch (error) { if (error.status) return res.status(error.status).json({ error: { message: error.message } }); next(error); }
 };
 
 export const previewAppointmentPushUpdate = async (req, res, next) => {

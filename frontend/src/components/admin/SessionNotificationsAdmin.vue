@@ -3,8 +3,7 @@
     <div class="sna-head">
       <h4>Session notifications</h4>
       <p class="hint">
-        Enable channels one at a time. Platform minimums always apply; clients can opt out of optional
-        reminders and “session changes and important updates,” but not required floors.
+        Set available channels and the organization default. Providers can save My default or customize a session. Client preferences and recorded consent always apply.
       </p>
     </div>
 
@@ -43,50 +42,9 @@
       </section>
 
       <section class="sna-section">
-        <h5>Standard reminder (required floor for this tenant)</h5>
-        <label class="check">
-          <input v-model="settings.standardReminder.enabled" type="checkbox" />
-          Enable standard reminder
-        </label>
-        <label class="check">
-          <input v-model="settings.standardReminder.askConfirmation" type="checkbox" />
-          Include confirmation prompt (Y / N / R)
-        </label>
-        <p class="hint">
-          Clients reply <strong>Y</strong> to confirm, <strong>N</strong> to cancel (runs cancel policy),
-          <strong>R</strong> to request reschedule — updates the appointment in booking automatically.
-        </p>
-        <div class="sna-row-fields">
-          <label>
-            Amount
-            <input v-model.number="settings.standardReminder.offsetValue" class="input" type="number" min="0" />
-          </label>
-          <label>
-            Unit
-            <select v-model="settings.standardReminder.offsetUnit" class="input">
-              <option value="days">Days before</option>
-              <option value="hours">Hours before</option>
-              <option value="minutes">Minutes before</option>
-            </select>
-          </label>
-        </div>
-      </section>
-
-      <section class="sna-section">
-        <h5>Additional reminders</h5>
-        <ul class="sna-list">
-          <li v-for="(rule, idx) in settings.additionalReminders" :key="rule.id || idx" class="sna-item">
-            <label class="check">
-              <input v-model="rule.enabled" type="checkbox" />
-              <strong>{{ rule.label || 'Reminder' }}</strong>
-            </label>
-            <span class="muted">
-              {{ rule.offsetValue }} {{ rule.offsetUnit }} · {{ rule.channel }}
-              <template v-if="rule.askConfirmation"> · asks confirm</template>
-            </span>
-          </li>
-        </ul>
-        <button type="button" class="btn btn-secondary btn-sm" @click="addAdditional">+ Add reminder rule</button>
+        <h5>Organization default</h5>
+        <p class="hint">The app default is an email 72 hours before, then email and opted-in text 24 hours and 2 hours before. Choose your organization's timing and channels below.</p>
+        <SessionNotificationEditor :agency-id="Number(agencyId)" :rules="settings.reminderRules || []" :channel-settings="settings" :disabled="saving" @update:rules="settings.reminderRules=$event" />
       </section>
 
       <section class="sna-section">
@@ -123,6 +81,7 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api.js';
+import SessionNotificationEditor from '../schedule/SessionNotificationEditor.vue';
 
 const props = defineProps({
   agencyId: { type: [Number, String], required: true }
@@ -183,6 +142,7 @@ const load = async () => {
         askConfirmation: true,
         ...(s.standardReminder || {})
       },
+      reminderRules: Array.isArray(s.reminderRules) ? s.reminderRules : [],
       additionalReminders: Array.isArray(s.additionalReminders) ? s.additionalReminders : [],
       changeNotify: {
         enabled: true,
@@ -234,6 +194,7 @@ const save = async () => {
         bookingConfirmation: { ...settings.value.bookingConfirmation, ...s.bookingConfirmation },
         standardReminder: { ...settings.value.standardReminder, ...s.standardReminder },
         additionalReminders: s.additionalReminders || [],
+        reminderRules: s.reminderRules || [],
         changeNotify: { ...settings.value.changeNotify, ...s.changeNotify },
         platform: s.platform
       };

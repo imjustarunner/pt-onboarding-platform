@@ -1487,7 +1487,6 @@
                 @dblclick="onCellBlockDoubleClick($event, b, d, slot.hour, slot.minute)"
               >
                 <SecureSessionCommentButton v-if="b.appointmentId && canUseSessionComments(authStore.user?.role)" icon-only :appointment-id="b.appointmentId" :client-id="parseClientIdFromScheduleEvent(b)" />
-                <button v-if="scheduleReferenceForBlock(b)" class="cell-record-reference" type="button" :title="`Copy reference ${scheduleReferenceForBlock(b)}`" @pointerdown.stop @keydown.stop @dblclick.stop @click.stop="copyScheduleReference(scheduleReferenceForBlock(b))">{{ scheduleReferenceForBlock(b) }}</button>
                 <span v-if="b.recurrenceSeriesId" class="cell-recurrence-marker" role="img" aria-label="Recurring appointment">↻</span>
                 <span v-if="staffAlertForBlock(b)" class="cell-staff-alert" role="img" :aria-label="staffAlertFaceLabel(b)">⚑</span>
                 <!-- Top resize handle — any draggable block -->
@@ -1857,6 +1856,7 @@
               :modality-label="editorInfoModalityLabel"
               :tenant-label="editorIsSupervision ? supervisionRecordAgencyName || modalTenantLabel : modalTenantLabel"
               :tenant-icon-url="editorTenantIconUrl"
+              :agency-id="Number(editorAgencyId || 0)"
               :provider-label="editorIsSupervision ? 'Supervisor' : isAppointmentEditMode ? 'Booked for' : 'Provider'"
               :provider-name="bookingTargetUserLabel"
               :provider-user-id="Number(bookingTargetUserId || props.userId || 0)"
@@ -2655,7 +2655,7 @@
           </div>
 
           <div v-if="editorWorkspaceTab === 'communications' && Number(editorAppointmentId || 0) > 0" class="appt-workspace-panel">
-            <AppointmentCommunicationsPanel :appointment-id="Number(editorAppointmentId)" />
+            <AppointmentCommunicationsPanel :appointment-id="Number(editorAppointmentId)" :client-id="Number(editorInfoClientId || 0)" />
           </div>
           <div v-show="editorWorkspaceTab === 'notifications'" class="appt-workspace-panel appt-workspace-panel--flush">
             <SupervisionScheduleHistory v-if="isSupervisionEditMode && editorWorkspaceTab === 'notifications'" :key="selectedSupvSessionId" :session-id="Number(selectedSupvSessionId)" :timezone="scheduleMeetingTimeZone()" />
@@ -2671,7 +2671,7 @@
               :available-at="editorExtraReminderAvailableAt" :notice="editorReminderNotice"
               :busy="editorReminderBusy"
               :format-when="formatEditorDisplayDateTime"
-              @push-extra="pushEditorExtraReminder" @refresh="loadEditorReminders"
+              :manual-channels="editorManualReminderChannels" :blocked-reason="editorReminderBlockedReason" @push-extra="pushEditorExtraReminder" @refresh="loadEditorReminders"
             >
               <button
                 v-if="Number(editorAppointmentId || 0) > 0"
@@ -12527,14 +12527,6 @@ const dayViewLaneLayout = computed(() => {
   return assignOverlapLanes(Array.from(byKey.values()));
 });
 
-function scheduleReferenceForBlock(block) {
-  const s=summary.value||{};
-  const groups=[s.scheduleEvents,s.officeEvents,s.supervisionSessions,s.virtualWorkingHours,s.virtualAvailability,s.inPersonAvailability,s.schoolSoftSessions];
-  if(Number(block?.appointmentId)>0)for(const rows of groups){const row=(rows||[]).find(r=>Number(r.appointmentId)===Number(block.appointmentId));if(row?.appointmentReference)return row.appointmentReference;}
-  if(block?.kind==='portal')return(s.virtualWorkingHours||[]).find(r=>Number(r.id)===Number(block.virtualHoursId))?.scheduleReference||'';
-  const rows=block?.isOfficeBlock?s.officeEvents:['supv','supv-signup'].includes(block?.kind)?s.supervisionSessions:block?.kind==='sevt'?s.scheduleEvents:block?.kind==='school-soft'?s.schoolSoftSessions:[];
-  return (rows||[]).find(row=>Number(row.id)===Number(block?.eventId||block?.id))?.scheduleReference||'';
-}
 const editorVisibleReference=computed(()=>{
   if(editorRecordReference.value)return editorRecordReference.value;
   const s=summary.value||{};
@@ -14322,6 +14314,8 @@ const editorSchoolOverlapNames=computed(() => {
 const editorVideoRoomMode = ref('unique_session');
 const editorNotificationMode = ref('default');
 const editorCustomReminders = ref([]);
+const editorManualReminderChannels = ref([]);
+const editorReminderBlockedReason = ref('');
 watch(editorClinicalParticipantsMode, (mode) => {
   if (!editorIsClinical.value) return;
   // Attendance "others" is a names field — do not auto-expand Additional clients.
@@ -14664,6 +14658,7 @@ const editorShowPackageSettlement = computed(() => {
 });
 
 const editorBillingPaymentStatus = ref('');
+const editorInfoAddonServiceCodes = ref([]);
 
 function onEditorPackageSettled(bundle) {
   const billing = bundle?.billing || bundle?.appointment?.billing || null;
@@ -14969,7 +14964,7 @@ function formatEditorDisplayDate(ymd) {
   const s = String(ymd || '').trim().slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
   try {
-    return toLocalDateNoon(s).toLocaleDateString([], { month: 'long', day: 'numeric', year: 'numeric' });
+    return toLocalDateNoon(s).toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
   } catch {
     return s;
   }
@@ -15078,9 +15073,9 @@ const editorInfoClientName = computed(() => {
 const editorInfoServiceLabel = computed(() => {
   const sid = Number(editorTenantServiceId.value || 0);
   const svc = (editorTenantServices.value || []).find((s) => Number(s.id) === sid);
-  if (!svc) return '';
-  const code = String(svc.serviceCode || svc.service_code || '').trim();
-  return `${code ? `${code} · ` : ''}${svc.name || 'Service'}`;
+  const code = String(svc?.serviceCode || svc?.service_code || editorSessionServiceCode.value || '').trim();
+  const codes = [...new Set([code, ...editorInfoAddonServiceCodes.value.map(item=>typeof item==='string'?item:item.code)].filter(Boolean))];
+  return codes.length ? `${codes.join(' + ')} · ${svc?.name || editorInfoTypeLabel.value || 'Service'}` : '';
 });
 const editorInfoLocationLabel = computed(() => {
   if(editorIsLearning.value) return Number(editorLearningDetails.value?.appointmentId)===Number(editorAppointmentId.value) ? editorLearningDetails.value?.serviceSetting?.locationLabel||'Location needs review' : 'Loading appointment location…';
@@ -16069,6 +16064,7 @@ async function loadEditorReminders() {
         editorClinicalSessionId.value = Number(appointment.clinicalSessionId || 0);
         editorPackageEntitlementId.value = Number(appointment.packageEntitlementId || 0);
         editorBillingPaymentStatus.value = String(appointment.billing?.paymentStatus || '');
+        editorInfoAddonServiceCodes.value = Array.isArray(appointment.addonServiceCodes) ? appointment.addonServiceCodes : [];
         if (appointment.businessType) editorPracticeCategory.value = practiceCategoryForBusinessType(appointment.businessType) || editorPracticeCategory.value;
         await nextTick();editorHydratingAppointment.value=false;
       }
@@ -16080,6 +16076,8 @@ async function loadEditorReminders() {
         ? plan.attendees
         : (Array.isArray(plan?.participants) ? plan.participants : []);
       editorExtraReminderAvailableAt.value = plan.additionalReminderAvailableAt || '';
+      editorManualReminderChannels.value = plan.manualReminderChannels || [];
+      editorReminderBlockedReason.value = plan.additionalReminderUnavailableReason || '';
       editorCanPushExtraReminder.value = plan?.canSendAdditionalReminder === true
         && plan?.additionalReminderAllowed !== false;
       const lastReminder = editorReminderPlan.value.filter(item => item.status === 'sent' && item.sentAt)
@@ -16154,7 +16152,7 @@ async function saveEditorReminderSettings() {
   finally {editorReminderBusy.value=false;}
 }
 
-async function pushEditorExtraReminder() {
+async function pushEditorExtraReminder(channels) {
   const apptId = Number(editorAppointmentId.value || 0);
   if (!apptId || !editorCanPushExtraReminder.value || editorReminderBusy.value) return;
   editorReminderBusy.value = true;
@@ -16162,7 +16160,7 @@ async function pushEditorExtraReminder() {
   editorRemindersError.value = '';
   try {
     await api.post(`/appointments/${apptId}/session-notifications/reschedule`, {
-      kind: 'additional_reminder'
+      kind: 'additional_reminder', channels
     });
     await loadEditorReminders();
     editorReminderNotice.value = 'Additional reminder queued. Delivery status appears below. Another can be requested after 24 hours.';
@@ -27772,7 +27770,7 @@ watch(()=>props.spanMode,value=>{
 </script>
 
 <style scoped>
-.cell-record-reference{position:absolute;left:8px;bottom:2px;max-width:calc(100% - 34px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0;border:0;background:transparent;color:inherit;font:8px/1.2 ui-monospace,monospace;opacity:.65;cursor:copy;z-index:3}.cell-record-reference:focus-visible{opacity:1;outline:2px solid currentColor}.schedule-record-footer{display:flex;justify-content:flex-end;align-items:center;gap:8px;padding:12px 16px;font-size:10px;color:#64748b}.schedule-record-footer button{border:0;background:transparent;color:inherit;font:11px ui-monospace,monospace;cursor:copy}
+.schedule-record-footer{display:flex;justify-content:flex-end;align-items:center;gap:8px;padding:12px 16px;font-size:10px;color:#64748b}.schedule-record-footer button{border:0;background:transparent;color:inherit;font:11px ui-monospace,monospace;cursor:copy}
 
 .nr-selected-reservation { display: flex; flex-direction: column; gap: 5px; margin-bottom: 14px; padding: 16px 18px; background: #eef5ff; border: 1px solid #b6cbea; border-left: 4px solid #34629a; border-radius: 12px; color: #20354f; }
 .nr-selected-reservation strong { font-size: 17px; }

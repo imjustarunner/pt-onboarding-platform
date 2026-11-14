@@ -272,12 +272,13 @@ export async function resolveRegisteredSmsSender({ agencyId, purpose, numberId =
 
 // Preference readers may recognize a later signed enrollment, but this lookup
 // never authorizes delivery. sendSms still rechecks registration and STOP.
-export async function recordedReminderConsent(agencyId, phone, context = {}) {
+export async function recordedReminderConsent(agencyId, phone, { requireActive = false, ...context } = {}) {
   const normalized = normalizeSmsPhone(phone);
   if (!normalized) return null;
   const from = await resolveRegisteredSmsSender({ agencyId, purpose: 'reminders' });
   if (!from) return null;
   const sender = await getSmsSender(from);
+  if (requireActive && await isSmsSuppressed(sender, normalized)) return null;
   const [rows] = await pool.execute(`SELECT evidence_json FROM sms_recipient_permissions
     WHERE scope_key = ? AND phone = ? AND purpose = 'reminders' AND status = 'opted_in'
       AND (expires_at IS NULL OR expires_at > UTC_TIMESTAMP()) LIMIT 1`, [sender.scope, normalized]);

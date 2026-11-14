@@ -546,7 +546,7 @@ it('keeps the linked appointment context through a real calendar cell and cancel
  state.summary={...summary,scheduleEvents:[raw]};
  expect(state.bookingTimezoneIana).toBe('America/Denver');
  const fallback=m.get.getMockImplementation();
- m.get.mockImplementation(async(url,...args)=>url==='/appointments/104'?{data:{appointment:{id:104,status:'scheduled',clinicalSessionId:166,tenantServiceId:34,serviceCode:'90834',serviceLocationId:125,modality:'TELEHEALTH'}}}:fallback(url,...args));
+ m.get.mockImplementation(async(url,...args)=>url==='/appointments/104'?{data:{appointment:{id:104,status:'scheduled',addonServiceCodes:['99051'],clinicalSessionId:166,tenantServiceId:34,serviceCode:'90834',serviceLocationId:125,modality:'TELEHEALTH'}}}:fallback(url,...args));
  const item=state.cellBlocks('Monday',9,15,true).find(block=>block.kind==='sevt');
  expect(item).toMatchObject({appointmentId:104,clinicalSessionId:166,officeEventId:null,clientId:2273,serviceCode:'90834',tenantServiceId:34,serviceLocationId:125,modality:'TELEHEALTH'});
  await flushPromises();
@@ -556,6 +556,8 @@ it('keeps the linked appointment context through a real calendar cell and cancel
  expect(state.editorOfficeEventId).toBe(0);
  expect(state.editorAppointmentId).toBe(104);expect(state.editorClinicalSessionId).toBe(166);
  expect(state.editorSessionServiceCode).toBe('90834');
+ expect(state.editorInfoServiceLabel).toContain('90834 + 99051');
+ expect(state.editorInfoWhenDateLabel).toContain('Monday');
  expect(state.editorServiceLocationId).toBe(125);
  m.post.mockResolvedValue({data:{appointment:{id:104},sessions:[{id:166,clientId:2273}]}});
  const dialog=new DOMWrapper(document.body).get('.modal-backdrop--request');

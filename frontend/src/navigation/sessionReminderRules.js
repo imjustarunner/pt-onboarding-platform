@@ -13,15 +13,16 @@ export function dedupeSessionReminders(reminders = []) {
 }
 
 export function normalizeCustomSessionReminders(input = []) {
-  if (!Array.isArray(input) || input.length > 5) throw Object.assign(new Error('Add up to five session reminders.'), { status: 400 });
+  if (!Array.isArray(input) || input.length > 12) throw Object.assign(new Error('Add up to twelve session reminders.'), { status: 400 });
   return input.map((row, index) => {
     const channel = String(row?.channel || 'email').toLowerCase();
     const offsetMinutes = Number(row?.offsetMinutes);
     const message = String(row?.message || '').trim();
-    if (!['email', 'sms', 'in_app'].includes(channel)) throw Object.assign(new Error('Choose email, text or in-app for each reminder.'), { status: 400 });
+    const channels = Array.isArray(row?.channels) ? [...new Set(row.channels.map(value => String(value).toLowerCase()))] : [channel];
+    if (!channels.length || channels.some(value => !['email', 'sms', 'in_app'].includes(value))) throw Object.assign(new Error('Choose email, text or in-app for each reminder.'), { status: 400 });
     if (!Number.isInteger(offsetMinutes) || offsetMinutes < 5 || offsetMinutes > 10080) throw Object.assign(new Error('Set reminders between 5 minutes and 7 days before the session.'), { status: 400 });
     if (message.length > 1000) throw Object.assign(new Error('Keep reminder messages under 1,000 characters.'), { status: 400 });
     const id = /^[a-zA-Z0-9_-]{1,64}$/.test(String(row?.id || '')) ? String(row.id) : `custom-${index + 1}`;
-    return { id, channel, offsetMinutes, message, askConfirmation: row?.askConfirmation !== false };
+    return { id, ...(Array.isArray(row?.channels) ? { channels } : { channel }), offsetMinutes, message, askConfirmation: row?.askConfirmation !== false };
   });
 }

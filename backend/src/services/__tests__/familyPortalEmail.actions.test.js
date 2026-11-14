@@ -99,3 +99,7 @@ it('uses the tutoring context and NLU session link even for a previously clinica
  expect(message.text).toContain('tutoring session');expect(message.text).toContain('https://app.nextleveluplcc.com/tutoring-session/appointment/44');
  expect(JSON.stringify(message)).not.toContain('auricwell.com');
 });
+it('sends a confirmed client a friendly reminder without another confirm button',async()=>{
+ const message=await buildAppointmentEmail({appointment:{...appt,status:'client_confirmed'},clientId:22,to:email,actionUrl:'https://example.test/respond/opaque'});
+ expect(message.text).toContain('friendly reminder');expect(message.text).toContain('look forward');expect(message.text).not.toContain('Confirm appointment');expect(message.text).not.toContain('Confirm directly');expect(message.text).toContain('Cancel appointment');
+});

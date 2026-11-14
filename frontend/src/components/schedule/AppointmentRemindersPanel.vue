@@ -48,16 +48,21 @@
           </div>
 
           <p v-if="notice" role="status">{{ notice }}</p>
-          <p v-if="appointmentId && !canPushExtra && availableAt" class="muted">Additional reminders have a 24-hour cooldown. Next available: {{ formatWhenLocal(availableAt) }}.</p>
+          <p v-if="blockedReason" role="status">{{blockedReason}}</p>
+          <p v-if="appointmentId && !canPushExtra && availableAt && !blockedReason" class="muted">Additional reminders have a 24-hour cooldown. Next available: {{ formatWhenLocal(availableAt) }}.</p>
           <div class="arp-actions">
+            <fieldset v-if="appointmentId && manualChannels.length" class="arp-manual-channels" :disabled="busy || !canPushExtra">
+              <legend>Send a reminder now by</legend>
+              <label v-for="channel in manualChannels" :key="channel"><input type="checkbox" :value="channel" v-model="selectedChannels" />{{ {email:'Email',sms:'Text message',in_app:'In-app'}[channel] || channel }}</label>
+            </fieldset>
             <button
               v-if="appointmentId"
               type="button"
               class="btn btn-secondary btn-sm"
-              :disabled="busy || !canPushExtra"
-              @click="emit('push-extra')"
+              :disabled="busy || !canPushExtra || !selectedChannels.length"
+              @click="emit('push-extra', [...selectedChannels])"
             >
-              {{ busy ? 'Queuing…' : 'Send additional reminder' }}
+              {{ busy ? 'Queuing…' : 'Send reminder now' }}
             </button>
             <slot />
           </div>
@@ -101,7 +106,7 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 
 const props = defineProps({
   appointmentId: { type: [Number, String], default: 0 },
@@ -115,10 +120,17 @@ const props = defineProps({
   notice: { type: String, default: '' },
   canPushExtra: { type: Boolean, default: false },
   busy: { type: Boolean, default: false },
+  manualChannels: { type: Array, default: () => [] },
+  blockedReason: { type: String, default: '' },
   formatWhen: { type: Function, default: null }
 });
 
 const emit = defineEmits(['push-extra','refresh']);
+const selectedChannels = ref([]);
+watch(() => [props.appointmentId, props.manualChannels], () => {
+  const remaining=selectedChannels.value.filter(channel=>props.manualChannels.includes(channel));
+  selectedChannels.value=remaining.length?remaining:props.manualChannels.includes('email')?['email']:props.manualChannels.slice(0,1);
+}, {immediate:true});
 
 const filter = ref('all');
 const filters = [
@@ -336,6 +348,7 @@ function statusClass(status) {
   gap: 8px;
   align-items: center;
 }
+.arp-manual-channels{display:flex;gap:12px;flex-wrap:wrap;padding:8px;border:1px solid #dbe4ed;border-radius:8px;width:100%;font-size:13px}.arp-manual-channels label{display:inline-flex;gap:5px;align-items:center}.arp-manual-channels input{width:16px!important;height:16px!important;flex:none!important;margin:0!important}
 .arp-empty { font-size: 0.85rem; }
 .arp-side {
   display: flex;
