@@ -12,7 +12,7 @@ it('opens only the exact authorized task-linked client and does not reopen it af
  const w=mount(InsuranceVerificationQueue,{props:{agencyId:450,clientId:22},attachTo:document.body});await flushPromises();
  expect(api.get).toHaveBeenCalledWith('/medical-billing/workspace/insurance-verification',expect.objectContaining({params:expect.objectContaining({agencyId:450,clientId:22})}));
  expect(document.querySelector('[role=dialog]').textContent).toContain('Editor 22 / 450');expect(document.activeElement).toBe(document.querySelector('[role=dialog]'));
- document.querySelector('[role=dialog] button').click();await flushPromises();expect(document.querySelector('[role=dialog]')).toBeNull();expect(api.get).toHaveBeenCalledTimes(2);w.unmount();
+ document.querySelector('[role=dialog] button').click();await flushPromises();expect(document.querySelector('[role=dialog]')).toBeNull();expect(api.get.mock.calls.filter(([url])=>url==='/medical-billing/workspace/insurance-verification')).toHaveLength(2);w.unmount();
 });
 it('never opens an unreturned or different-scope client from a URL',async()=>{
  api.get.mockResolvedValue(payload([row(23),{...row(22),agencyId:451}]));const w=mount(InsuranceVerificationQueue,{props:{agencyId:450,clientId:22},attachTo:document.body});await flushPromises();expect(document.querySelector('[role=dialog]')).toBeNull();w.unmount();

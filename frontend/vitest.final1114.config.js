@@ -12,6 +12,7 @@ export default defineConfig({root:new URL('.',import.meta.url).pathname,plugins:
  'src/components/admin/clientChart/__tests__/ClientTreatmentPlansPanel.progress.test.js',
  'src/components/guardian/__tests__/GuardianIntakeDocuments.test.js',
  'src/components/billing/__tests__/CoverageVerification.test.js',
+ 'src/components/billing/__tests__/InsuranceVerificationQueue.test.js',
  'src/components/clients/__tests__/SchoolPaperPacketWorkflow.test.js',
  'src/components/clinical/__tests__/NoteAidGeneratedPlan.test.js'
 ]}});
