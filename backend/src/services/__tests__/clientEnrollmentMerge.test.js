@@ -19,7 +19,7 @@ it('blocks incompatible guardian permissions instead of broadening access', () =
 });
 it('retains both guardians and moves every enrollment artifact without changing signers or files', async () => {
   const link = { guardian_user_id: 8, access_enabled: 1, relationship_type: 'guardian', permissions_json: {} };
-  const db = { execute: vi.fn(async sql => sql.startsWith('SELECT') ? [[{ ...link, client_id: 1 }, { ...link, client_id: 2 }, { ...link, client_id: 2, guardian_user_id: 9 }]] : [{ affectedRows: 1 }]) };
+  const db = { execute: vi.fn(async sql => sql.startsWith('SELECT * FROM client_guardians') ? [[{ ...link, client_id: 1 }, { ...link, client_id: 2 }, { ...link, client_id: 2, guardian_user_id: 9 }]] : sql.startsWith('SELECT') ? [[]] : [{ affectedRows: 1 }]) };
   await moveEnrollmentRecords(db, 1, 2);
   expect(db.execute).toHaveBeenCalledWith('DELETE FROM client_guardians WHERE client_id = ? AND guardian_user_id = ?', [2, 8]);
   expect(db.execute).toHaveBeenCalledWith('UPDATE client_guardians SET client_id = ? WHERE client_id = ? AND guardian_user_id = ?', [1, 2, 9]);
@@ -38,3 +38,4 @@ it('propagates document-transfer failures so the caller rolls back instead of ar
   await expect(moveEnrollmentRecords(db, 1, 2)).rejects.toThrow('storage unavailable');
   expect(db.execute.mock.calls.some(([sql]) => sql.includes('DELETE FROM co_guardian'))).toBe(false);
 });
+it('preserves the current pending access exactly when an explicit merge review chooses it',async()=>{const source={client_id:2,guardian_user_id:8,access_enabled:1,relationship_type:'guardian',permissions_json:{intakeLinkGuardianProfile:true}},target={...source,client_id:1,access_enabled:0,permissions_json:{pendingGuardianVerification:true,accountPreparationSource:'saved_guardian_contact'}};const db={execute:vi.fn(async sql=>sql.startsWith('SELECT * FROM client_guardians')?[[target,source]]:sql.startsWith('SELECT')?[[]]:[{affectedRows:1}])};await moveEnrollmentRecords(db,1,2,{guardianAccessResolution:'keep_current',actorUserId:7});const audit=db.execute.mock.calls.find(([sql])=>sql.includes("'guardian_link_merge'"));expect(JSON.parse(audit[1][4])).toMatchObject({currentAccessEnabled:false,priorProgramAccessEnabled:true,resolution:'keep_current'});expect(db.execute.mock.calls.some(([sql])=>sql.includes('UPDATE client_guardians SET access_enabled'))).toBe(false);});

@@ -24,7 +24,7 @@ beforeEach(() => {
     CREATE TABLE agency_contacts(id INTEGER PRIMARY KEY, agency_id INTEGER, created_by_user_id INTEGER,
       share_with_all INTEGER, client_id INTEGER, full_name TEXT, email TEXT, email_alt TEXT, phone TEXT,
       source TEXT, source_ref_id INTEGER, relationship_type TEXT, is_active INTEGER, updated_at TEXT);
-    CREATE TABLE client_contact_affiliations(id INTEGER PRIMARY KEY, agency_id INTEGER, client_id INTEGER,
+    CREATE TABLE client_contact_affiliations(reminder_consent_attestations_json TEXT,id INTEGER PRIMARY KEY, agency_id INTEGER, client_id INTEGER,
       agency_contact_id INTEGER, relationship_type TEXT, email_reminders_enabled INTEGER, sms_reminders_enabled INTEGER,
       sms_opt_in INTEGER, is_active INTEGER, notify_ack_by_user_id INTEGER, notify_ack_at TEXT, created_by_user_id INTEGER,
       notify_email_sent_at TEXT, notify_email_message_id TEXT, contact_last_choice TEXT, contact_choice_at TEXT,
@@ -41,7 +41,7 @@ beforeEach(() => {
   mocks.buildEmail.mockReturnValue({ subject: 'Reminder preferences', text: 'Minimal reminder notice', html: '<p>Notice</p>' });
 });
 afterEach(() => db.close());
-const input = { agencyId: 2, clientId: 8, userId: 15, fullName: 'Support Contact', phone: '(303) 555-0100', relationshipType: 'other' };
+const input = { verbalEmailConsent:true,verbalSmsConsent:true,agencyId: 2, clientId: 8, userId: 15, fullName: 'Support Contact', phone: '(303) 555-0100', relationshipType: 'other' };
 describe('additional contact save against the client identity schema', () => {
   it('lists only reminders authorized by an active linked guardian or self account without a clients.user_id column', async () => {
     db.exec(`ALTER TABLE client_contact_affiliations ADD COLUMN sms_consent_status TEXT;
@@ -51,8 +51,10 @@ describe('additional contact save against the client identity schema', () => {
     const saved = await upsertClientAffiliatedContact(input);
     db.prepare('UPDATE client_contact_affiliations SET notify_ack_by_user_id=15,notify_ack_at=CURRENT_TIMESTAMP,email_reminders_enabled=1 WHERE id=?').run(saved.affiliation.id);
     expect(await Contact.listReminderRecipientsForClient(8)).toHaveLength(1);
+    mocks.guardian.mockResolvedValue({access_enabled:1,permissions_json:{noView:true}});
     db.exec("UPDATE client_guardians SET permissions_json=' {\"noView\":true}'");
     expect(await Contact.listReminderRecipientsForClient(8)).toHaveLength(0);
+    mocks.guardian.mockResolvedValue({access_enabled:0,permissions_json:{}});
     db.exec("UPDATE client_guardians SET permissions_json='{}',access_enabled=0");
     expect(await Contact.listReminderRecipientsForClient(8)).toHaveLength(0);
   });
@@ -129,3 +131,5 @@ describe('additional contact save against the client identity schema', () => {
     expect(mocks.email).toHaveBeenCalledOnce();
   });
 });
+
+it('prevents another parent from changing the existing contact through update or upsert',async()=>{const saved=await upsertClientAffiliatedContact(input);await expect(updateClientAffiliatedContact({affiliationId:saved.affiliation.id,clientId:8,userId:16,patch:{isActive:false}})).rejects.toHaveProperty('status',403);await expect(upsertClientAffiliatedContact({...input,userId:16,fullName:'Replaced contact name'})).rejects.toHaveProperty('status',403);expect((await Contact.findById(saved.affiliation.id)).contact_full_name).toBe('Support Contact');});

@@ -100,7 +100,7 @@ export async function applyPeopleMerge(req, res, next) {
     }
     if (persona === 'clients') await authorizeClientMerge(req.user, keepId, sourceIds);
     const result = persona === 'clients'
-      ? await mergeClients({ keepId, sourceIds, fieldChoices, actorUserId: req.user.id })
+      ? await mergeClients({ keepId, sourceIds, fieldChoices, completedOrganizationIds: parseIds(req.body?.completedOrganizationIds), guardianAccessResolution:req.body?.guardianAccessResolution === 'keep_current' ? 'keep_current' : null, actorUserId: req.user.id })
       : await mergeUsers({ keepId, sourceIds, fieldChoices, actorUserId: req.user.id });
     return res.json({ ok: true, result });
   } catch (err) {

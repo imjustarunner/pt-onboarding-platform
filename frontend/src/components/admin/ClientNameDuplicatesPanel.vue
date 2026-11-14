@@ -4,7 +4,7 @@
       <div>
         <h2 class="cnd-title">Possible name duplicates</h2>
         <p class="cnd-sub">
-          Review matching full names, including middle names and suffixes. Open the records to compare; nothing is merged automatically.
+          Compare the records, keep the current school or office record, and retain completed program history.
         </p>
       </div>
       <label class="cnd-include">
@@ -55,22 +55,61 @@
             </tr>
           </tbody>
         </table>
+        <div class="cnd-merge-controls">
+          <label>Keep current record <select v-model="keepByGroup[group.key]" :disabled="merging || mergeBusy" @change="cancelMerge"><option v-for="member in group.members" :key="member.id" :value="member.id">{{ member.organization_name || 'Office' }} · {{ member.provider_name || member.full_name }} · {{ member.client_status_label || member.status }}</option></select></label>
+          <button type="button" class="btn btn-secondary btn-sm" :disabled="merging || group.members.some(m => m.status === 'ARCHIVED')" @click="reviewMerge(group)">Review merge</button>
+        </div>
+        <section v-if="mergeGroupKey === group.key" class="cnd-merge-review" aria-label="Review client merge">
+          <p v-if="mergeBusy" role="status">Loading comparison…</p>
+          <template v-if="mergePreview">
+            <h3>Review the combined client record</h3>
+            <p>Current school, office, and provider assignments stay with the record you keep. Prior program affiliations remain in its history. Uploaded enrollment documents and guardian links are retained.</p>
+            <div class="cnd-comparison"><table class="cnd-table"><thead><tr><th>Field</th><th>Value to keep</th></tr></thead><tbody><tr v-for="field in mergePreview.fields" :key="field.key"><td>{{ field.label || field.key }}</td><td><select :value="fieldSource(field)" @change="chooseField(group,field.key,$event.target.value)"><option :value="mergePreview.keep.id">{{ displayValue(field.keepValue) }} · Current record</option><option v-for="other in field.otherValues" :key="other.id" :value="other.id">{{ displayValue(other.value) }} · Prior record</option></select></td></tr></tbody></table></div>
+            <fieldset v-if="mergePreview.guardianAccessDifferences?.length"><legend>Guardian access differs</legend><p v-for="row in mergePreview.guardianAccessDifferences" :key="`${row.sourceClientId}-${row.guardianUserId}`">{{ row.name }} · Current record: {{ row.currentAccessEnabled ? 'enabled' : 'pending / off' }} · Prior record: {{ row.priorAccessEnabled ? 'enabled' : 'off' }}</p><label><input v-model="keepCurrentGuardianAccess" type="checkbox" /> Retain the current record’s exact guardian access and keep prior permissions in audit history.</label></fieldset>
+            <fieldset v-if="priorPrograms.length"><legend>Completed programs</legend><label v-for="program in priorPrograms" :key="program.organization_id"><input v-model="completedOrganizationIds" type="checkbox" :value="Number(program.organization_id)" /> {{ program.organization_name }} — retain as completed</label></fieldset>
+            <label class="cnd-include"><input v-model="identityConfirmed" type="checkbox" /> I compared the records and confirmed they are the same person.</label>
+            <div class="cnd-merge-controls"><button type="button" class="btn btn-secondary btn-sm" :disabled="merging" @click="cancelMerge">Cancel</button><button type="button" class="btn btn-primary btn-sm" :disabled="!identityConfirmed || (mergePreview.guardianAccessDifferences?.length && !keepCurrentGuardianAccess) || merging || mergeBusy" @click="applyMerge(group)">{{ merging ? 'Merging…' : 'Merge client records' }}</button></div>
+          </template>
+          <p v-if="mergeError" class="cnd-error" role="alert">{{ mergeError }}</p>
+        </section>
       </article>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, watch } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
 
 const props = defineProps({
   agencyId: { type: [Number, String], default: null }
 });
 
-defineEmits(['open-client']);
+const emit = defineEmits(['open-client', 'merged']);
 
 const groups = ref([]);
+const keepByGroup = reactive({}), fieldChoices = reactive({});
+const keepCurrentGuardianAccess=ref(false);
+const mergeGroupKey = ref(null), mergePreview = ref(null), mergeError = ref(''), mergeBusy = ref(false), merging = ref(false), identityConfirmed = ref(false), completedOrganizationIds = ref([]);
+const priorPrograms = computed(() => [...new Map((mergePreview.value?.affiliations || []).filter(row => ['program','clinical'].includes(String(row.organization_type).toLowerCase()) && !(Number(row.client_id) === Number(mergePreview.value?.keep.id) && Number(row.is_primary) === 1)).map(row => [Number(row.organization_id),row])).values()]);
+function fieldSource(field) { return fieldChoices[field.key] || (JSON.stringify(field.chosenValue) === JSON.stringify(field.keepValue) ? mergePreview.value.keep.id : field.otherValues.find(row => JSON.stringify(row.value) === JSON.stringify(field.chosenValue))?.id) || mergePreview.value.keep.id; }
+function displayValue(value) { return value === null || value === undefined || value === '' ? 'Not recorded' : String(value); }
+function cancelMerge() { mergeGroupKey.value=null;mergePreview.value=null;mergeError.value='';identityConfirmed.value=false; }
+async function reviewMerge(group, reset=true) {
+  mergeGroupKey.value=group.key;mergeBusy.value=true;mergeError.value='';
+  if(reset){keepCurrentGuardianAccess.value=false;mergePreview.value=null;identityConfirmed.value=false;completedOrganizationIds.value=[];Object.keys(fieldChoices).forEach(key => delete fieldChoices[key]);}
+  try { const {data}=await api.post('/clients/merge/preview',{keepId:Number(keepByGroup[group.key]),sourceIds:group.members.map(row => Number(row.id)).filter(id => id!==Number(keepByGroup[group.key])),fieldChoices:{...fieldChoices}},{skipGlobalLoading:true});mergePreview.value=data; }
+  catch(e){mergeError.value=e.response?.data?.error?.message || 'Unable to load the merge comparison.';}
+  finally{mergeBusy.value=false;}
+}
+async function chooseField(group,key,id){fieldChoices[key]=Number(id);await reviewMerge(group,false);}
+async function applyMerge(group) {
+  if(!identityConfirmed.value || merging.value)return;
+  merging.value=true;mergeError.value='';
+  try {await api.post('/clients/merge',{keepId:Number(mergePreview.value.keep.id),sourceIds:mergePreview.value.others.map(row => row.id),fieldChoices:{...fieldChoices},completedOrganizationIds:completedOrganizationIds.value,guardianAccessResolution:keepCurrentGuardianAccess.value?'keep_current':null},{skipGlobalLoading:true});cancelMerge();await loadGroups();emit('merged');}
+  catch(e){mergeError.value=e.response?.data?.error?.message || 'The merge could not finish. Your review is still here.';}
+  finally{merging.value=false;}
+}
 const loading = ref(false);
 const error = ref('');
 const includeArchived = ref(false);
@@ -110,6 +149,7 @@ async function loadGroups() {
       skipGlobalLoading: true
     });
     groups.value = Array.isArray(res.data?.groups) ? res.data.groups : [];
+    for(const group of groups.value){keepByGroup[group.key]=group.members.find(row => row.provider_name && !String(row.organization_name || '').toLowerCase().includes('summer'))?.id || group.members[0]?.id;}
   } catch (e) {
     groups.value = [];
     error.value = e?.response?.data?.error?.message || 'Could not scan for name duplicates.';
@@ -118,7 +158,7 @@ async function loadGroups() {
   }
 }
 
-watch(() => props.agencyId, loadGroups, { immediate: true });
+watch(() => props.agencyId, () => {cancelMerge();return loadGroups();}, { immediate: true });
 
 defineExpose({ loadGroups, groups });
 </script>
@@ -171,4 +211,5 @@ defineExpose({ loadGroups, groups });
   cursor: pointer;
   text-decoration: underline;
 }
+.cnd-merge-controls{display:flex;gap:10px;align-items:center;padding:10px 12px;flex-wrap:wrap}.cnd-merge-controls label{display:flex;align-items:center;gap:8px}.cnd-merge-review{padding:12px;border-top:1px solid #dbe5ef;display:grid;gap:10px}.cnd-merge-review h3,.cnd-merge-review p{margin:0}.cnd-merge-review p{font-size:13px;color:#52647d}.cnd-comparison{overflow:auto;max-height:320px}.cnd-merge-review fieldset{display:grid;gap:8px;border:1px solid #dbe5ef;border-radius:8px}.cnd-merge-review select,.cnd-merge-controls select{max-width:100%;padding:6px;border:1px solid #cdd9e6;border-radius:6px}
 </style>

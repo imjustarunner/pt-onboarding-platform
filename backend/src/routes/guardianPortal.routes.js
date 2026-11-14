@@ -73,7 +73,8 @@ import {
   createClientAffiliatedContact,
   patchClientAffiliatedContact,
   deleteClientAffiliatedContact,
-  inviteClientAffiliatedContactSms
+  inviteClientAffiliatedContactSms,
+  inviteClientAffiliatedContactGuardian
 } from '../controllers/clientContactAffiliation.controller.js';
 
 import * as guardianAppointments from '../controllers/guardianAppointments.controller.js';
@@ -287,5 +288,6 @@ router.post('/clients/:clientId/contacts', createClientAffiliatedContact);
 router.patch('/clients/:clientId/contacts/:affiliationId', patchClientAffiliatedContact);
 router.delete('/clients/:clientId/contacts/:affiliationId', deleteClientAffiliatedContact);
 router.post('/clients/:clientId/contacts/:affiliationId/sms-invitation', inviteClientAffiliatedContactSms);
+router.post('/clients/:clientId/contacts/:affiliationId/guardian-invitation', inviteClientAffiliatedContactGuardian);
 
 export default router;

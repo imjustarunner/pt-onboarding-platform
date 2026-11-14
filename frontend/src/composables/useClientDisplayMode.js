@@ -77,7 +77,7 @@ export function useClientDisplayMode() {
 
   function getClientLabel(client, { fallbackPrefix = 'Client' } = {}) {
     const { initials, code, fullName, id } = normalizeClientFields(client);
-    const fallback = id != null ? `${fallbackPrefix} #${id}` : '—';
+    const fallback = id != null ? `${fallbackPrefix} ${String(id).padStart(6,'0')}` : '—';
 
     if (isSchoolStaffRole.value) return initials || code || fallback;
 

@@ -49,6 +49,7 @@ class ClientContactAffiliation {
               a.agency_id,
               a.client_id,
               a.agency_contact_id,
+              a.notify_ack_by_user_id,
               a.email_reminders_enabled,
               a.sms_reminders_enabled,
               a.sms_opt_in,
@@ -63,14 +64,12 @@ class ClientContactAffiliation {
          AND a.is_active = 1
          AND c.is_active = 1
          AND a.notify_ack_at IS NOT NULL
-         AND EXISTS (SELECT 1 FROM client_guardians cg WHERE cg.client_id = a.client_id
-           AND cg.guardian_user_id = a.notify_ack_by_user_id AND cg.access_enabled = 1
-           AND COALESCE(JSON_EXTRACT(cg.permissions_json, '$.noView'), false) = false
-           AND COALESCE(JSON_EXTRACT(cg.permissions_json, '$.noViewOtherGuardian'), false) = false)
          AND (a.email_reminders_enabled = 1 OR a.sms_reminders_enabled = 1)`,
       [clientId]
     );
-    return rows || [];
+    const {requireReminderGuardian}=await import('../services/clientContactAffiliation.service.js');
+    const authorized=await Promise.all((rows || []).map(async row=>{try{await requireReminderGuardian(clientId,row.notify_ack_by_user_id);return row;}catch(e){if(e.status===403)return null;throw e;}}));
+    return authorized.filter(Boolean);
   }
 
   static async findByClientAndContact(clientId, agencyContactId) {
@@ -99,15 +98,16 @@ class ClientContactAffiliation {
       smsOptIn = false,
       notifyAckByUserId = null,
       notifyAckAt = null,
-      createdByUserId = null
+      createdByUserId = null,
+      reminderConsentAttestations = {}
     } = data;
 
     const [result] = await pool.execute(
       `INSERT INTO client_contact_affiliations
         (agency_id, client_id, agency_contact_id, relationship_type,
          email_reminders_enabled, sms_reminders_enabled, sms_opt_in, is_active,
-         notify_ack_by_user_id, notify_ack_at, created_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`,
+         notify_ack_by_user_id, notify_ack_at, created_by_user_id, reminder_consent_attestations_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`,
       [
         agencyId,
         clientId,
@@ -118,7 +118,8 @@ class ClientContactAffiliation {
         smsOptIn ? 1 : 0,
         notifyAckByUserId || null,
         notifyAckAt || null,
-        createdByUserId || null
+        createdByUserId || null,
+        JSON.stringify(reminderConsentAttestations)
       ]
     );
     return this.findById(result.insertId);
@@ -128,6 +129,7 @@ class ClientContactAffiliation {
     const updates = [];
     const params = [];
     const map = {
+      reminderConsentAttestations:'reminder_consent_attestations_json',
       relationshipType: 'relationship_type',
       emailRemindersEnabled: 'email_reminders_enabled',
       smsRemindersEnabled: 'sms_reminders_enabled',
@@ -157,6 +159,8 @@ class ClientContactAffiliation {
       if (['emailRemindersEnabled', 'smsRemindersEnabled', 'smsOptIn', 'isActive'].includes(camel)) {
         updates.push(`${col} = ?`);
         params.push(patch[camel] ? 1 : 0);
+      } else if(camel === 'reminderConsentAttestations'){
+        updates.push(`${col} = ?`);params.push(JSON.stringify(patch[camel] || {}));
       } else if (camel === 'contactLastChoice') {
         const v = String(patch[camel] || '').toLowerCase();
         updates.push(`${col} = ?`);
@@ -207,6 +211,7 @@ class ClientContactAffiliation {
       notifyEmailSentAt: row.notify_email_sent_at || null,
       contactLastChoice: row.contact_last_choice || null,
       contactChoiceAt: row.contact_choice_at || null,
+      reminderConsentAttestations: typeof row.reminder_consent_attestations_json === 'string' ? JSON.parse(row.reminder_consent_attestations_json || '{}') : row.reminder_consent_attestations_json || {},
       createdByUserId: row.created_by_user_id ? Number(row.created_by_user_id) : null,
       createdAt: row.created_at || null,
       updatedAt: row.updated_at || null,

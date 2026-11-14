@@ -1,0 +1,5 @@
+import {expect,it} from 'vitest';
+import {enrollmentSourceLabel,filterEnrollments} from '../enrollmentPresentation.js';
+const clients=[{id:1,source:'PUBLIC_INTAKE_LINK',organizationId:3,organizationType:'school'},{id:2,source:'PUBLIC_INTAKE_LINK',organizationId:4,clientType:'clinical',isDemo:true},{id:3,source:'SCHOOL_UPLOAD',organizationId:3,organizationType:'program'},{id:4,source:'PUBLIC_INTAKE_LINK',organizationId:4,createdViaDevFill:true}];
+it('combines source, organization, care setting and QA filters',()=>{expect(filterEnrollments(clients,{source:'PUBLIC_INTAKE_LINK',organization:3,setting:'school'}).map(c=>c.id)).toEqual([1]);expect(filterEnrollments(clients,{demo:'only'}).map(c=>c.id)).toEqual([2,4]);expect(filterEnrollments(clients,{demo:'all'})).toHaveLength(4);expect(filterEnrollments(clients).map(c=>c.id)).toEqual([1,3]);});
+it('labels the public intake source clearly',()=>{expect(enrollmentSourceLabel('PUBLIC_INTAKE_LINK')).toBe('Public intake link');expect(enrollmentSourceLabel('SCHOOL_UPLOAD')).toBe('School paper packet');});

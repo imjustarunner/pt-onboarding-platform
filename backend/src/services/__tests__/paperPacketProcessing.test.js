@@ -147,3 +147,38 @@ it('applies only current-school staff changes after evidence acceptance and reta
 it('rejects a staff ID outside the validated source school without changing permissions',async()=>{ready();await expect(savePaperProcessingStep({clientId:4,actorId:8,step:'consents',data:{signaturesConfirmed:true,staffRoiConfirmed:true,staffChanges:[{schoolStaffUserId:999,nextState:'roi_docs'}],evidenceReview:humanReview()}},deps)).rejects.toThrow('current school');expect(deps.staff.setAccessState).not.toHaveBeenCalled();});
 
 it('never lets a stale Finish overwrite an authoritative replacement source',async()=>{ready();deps.markSignatures.mockImplementation(async()=>{client.onboarding_docs_json={paperPacketSource:{documentId:10},paperProcessing:{documentId:10,completedSteps:[],invitations:{20:{status:'sent'}}}};});await expect(completePaperProcessing(input,deps)).rejects.toHaveProperty('status',409);expect(paperProcessingState(client).documentId).toBe(10);expect(paperProcessingState(client).processedAt).toBeFalsy();expect(deps.send).not.toHaveBeenCalled();});
+
+it('lets a prepared guardian pass the parent step without granting access or sending',async()=>{
+ deps.guardians.getLink.mockResolvedValue({access_enabled:0,permissions_json:{pendingGuardianVerification:true,accountPreparationSource:'saved_guardian_contact'}});
+ client.onboarding_docs_json.paperProcessing={completedSteps:['demographics'],documentId:9};
+ const state=await savePaperProcessingStep({clientId:4,actorId:8,step:'guardian1',data:{guardianUserId:20}},deps);
+ expect(state.guardian1Id).toBe(20);expect(deps.send).not.toHaveBeenCalled();expect(deps.clients.update.mock.calls.every(([,patch])=>patch.guardian_portal_enabled!==1)).toBe(true);
+});
+it('activates a prepared link only after saving the completed signed-packet review',async()=>{
+ ready();const links={20:{access_enabled:0,permissions_json:{pendingGuardianVerification:true,accountPreparationSource:'saved_guardian_contact'}},21:{access_enabled:1}};
+ deps.guardians.getLink.mockImplementation(async({guardianUserId})=>links[guardianUserId]);
+ deps.guardians.upsertLink=vi.fn(async data=>{expect(paperProcessingState(client).processedAt).toBeTruthy();links[data.guardianUserId]={access_enabled:1,permissions_json:data.permissionsJson};});
+ await completePaperProcessing(input,deps);
+ expect(deps.guardians.upsertLink).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({guardianUserId:20,accessEnabled:true,permissionsJson:expect.objectContaining({paperPacketVerification:expect.objectContaining({documentId:9,actorUserId:8})})}));
+ expect(links[20].permissions_json).not.toHaveProperty('pendingGuardianVerification');expect(deps.send).toHaveBeenCalledTimes(2);
+});
+it('never activates pending contacts when consent evidence fails or an authoritative source changes',async()=>{
+ ready();deps.guardians.getLink.mockResolvedValue({access_enabled:0,permissions_json:{pendingGuardianVerification:true,accountPreparationSource:'saved_guardian_contact'}});deps.guardians.upsertLink=vi.fn();
+ await expect(completePaperProcessing({...input,signaturesConfirmed:false},deps)).rejects.toThrow('Confirm');expect(deps.guardians.upsertLink).not.toHaveBeenCalled();
+ deps.markSignatures.mockImplementation(async()=>{client.onboarding_docs_json={paperPacketSource:{documentId:10},paperProcessing:{documentId:10,completedSteps:[]}};});
+ await expect(completePaperProcessing(input,deps)).rejects.toHaveProperty('status',409);expect(deps.guardians.upsertLink).not.toHaveBeenCalled();
+});
+it('keeps an explicitly paused contact paused after packet review',async()=>{
+ ready();deps.guardians.getLink.mockResolvedValue({access_enabled:0,permissions_json:{canViewDocs:false,pendingGuardianVerification:false,accountPreparationSource:'saved_guardian_contact'}});deps.guardians.upsertLink=vi.fn();
+ const result=await completePaperProcessing(input,deps);expect(deps.guardians.upsertLink).not.toHaveBeenCalled();expect(deps.send).not.toHaveBeenCalled();expect(result.invitations[20].status).toBe('blocked');
+});
+it('keeps a listed other parent as a contact without requiring their own account for shared custody',async()=>{
+ client.onboarding_docs_json.paperProcessing={completedSteps:['demographics','guardian1'],documentId:9,guardian1Id:20};deps.contacts={listForClient:vi.fn(async()=>[{id:30,relationship_type:'parent'}])};
+ let state=await savePaperProcessingStep({clientId:4,actorId:8,step:'guardian2',data:{contactOnly:true}},deps);
+ expect(state).toMatchObject({guardian2Id:null,guardian2ContactIds:[30],additionalContactIds:[30]});
+ await savePaperProcessingStep({clientId:4,actorId:8,step:'school',data:{schoolConfirmed:true,sharedCustody:'yes'}},deps);
+ state=paperProcessingState(client);state.completedSteps=[...PAPER_PROCESSING_STEPS];client.onboarding_docs_json={paperProcessing:state};
+ await completePaperProcessing(input,deps);expect(deps.send).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({guardianUserId:20}));
+});
+it('does not restore guardian access after staff pause a finalized account',async()=>{ready();const link={access_enabled:0,permissions_json:{pendingGuardianVerification:true,accountPreparationSource:'paper_packet_entry'}};deps.guardians.getLink.mockResolvedValue(link);deps.guardians.upsertLink=vi.fn(async data=>{link.access_enabled=1;link.permissions_json=data.permissionsJson;});await completePaperProcessing(input,deps);link.access_enabled=0;client.onboarding_docs_json={paperProcessing:{...paperProcessingState(client),invitations:{}}};await completePaperProcessing(input,deps);expect(deps.guardians.upsertLink).toHaveBeenCalledTimes(1);expect(paperProcessingState(client).invitations[20].status).toBe('blocked');});
+it('retains a retryable recipient result when account activation is blocked after signed review',async()=>{ready();client.onboarding_docs_json.paperProcessing.guardian2Id=null;client.onboarding_docs_json.paperProcessing.sharedCustody='no';const link={access_enabled:0,permissions_json:{pendingGuardianVerification:true,accountPreparationSource:'saved_guardian_contact'}};deps.guardians.getLink.mockResolvedValue(link);deps.guardians.upsertLink=vi.fn().mockRejectedValueOnce(Error('Two guardians already have access.')).mockImplementationOnce(async data=>{link.access_enabled=1;link.permissions_json=data.permissionsJson;});const state=await completePaperProcessing(input,deps);expect(state.processedAt).toBeTruthy();expect(state.invitations[20]).toMatchObject({status:'blocked',reason:'Two guardians already have access.'});expect(deps.send).not.toHaveBeenCalled();await completePaperProcessing(input,deps);expect(deps.send).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({guardianUserId:20}));expect(deps.markSignatures).toHaveBeenCalledOnce();});
