@@ -18,12 +18,14 @@ Missing browser upload support is a tool blocker, not a successful upload.
 RELEASE AND SETUP BOUNDARY
 These repairs are prepared source, not a claim that they are already deployed.
 Engineering must provide the matching frontend/backend SHA, ready=true, additive
-migrations 1823_learning_session_metadata and 1824_qa_payment_simulations, and an
+migrations 1825_learning_session_metadata and 1824_qa_payment_simulations, and an
 actual dated admin-setup result before the dependent new checks can pass.
 The last authenticated inventory observed build 87d789afb8398b213afd8810f03058dc60f35728.
 Record the current build instead of assuming that observation remains current.
-The new source is based on main 304b1e688515aa8c91e8c938f845dda095a7ae3c and preserves
-its handbook, compensation, workload-waiver and other unrelated release changes.
+The approved source integrated main304b1e688 and now also main eec7e46c4,
+preserving its handbook, compensation, workload-waiver, reminder and session-detail
+changes. The learning metadata migration was renumbered1825 to avoid main’s
+new1823 reminder migration; its SQL content is unchanged.
 Never run admin scripts, SQL, DevTools writes or admin logins as the ordinary bot.
 A server 500, missing column or unavailable protected route is an engineering
 failure to record; do not work around it by changing record IDs or attendance.
