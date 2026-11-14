@@ -15,12 +15,12 @@ beforeEach(() => {
   m.appointment.mockResolvedValue({ id:68, agencyId:377, startAt:'2026-11-26 22:00:00', sourceTimezone:'America/Denver' });
   m.execute.mockImplementation(async sql => sql.includes('platform_session_notification_settings') ? [[{
     channels_json: { email:'available', sms:'consent_required', in_app:'available' }, min_rules_json:[{channel:'email',offsetValue:24,offsetUnit:'hours'}]
-  }]] : sql.includes('SELECT rules_json') ? [[{rules_json:customRules}]] : sql.trimStart().startsWith('SELECT') ? [[]] : [{insertId:1,affectedRows:1}]);
+  }]] : sql.includes('FROM appointment_notification_customizations') ? [[{rules_json:customRules}]] : sql.trimStart().startsWith('SELECT') ? [[]] : [{insertId:1,affectedRows:1}]);
 });
-it('plans one actual 24-hour email delivery when platform and tenant rules coincide', async () => {
+it('uses 72/24/2-hour defaults while merging an explicit platform floor into the 24-hour delivery', async () => {
   const plan = await buildDeliveryPlan(68);
-  expect(plan.deliveries).toHaveLength(1);
-  expect(plan.deliveries[0]).toMatchObject({ kind: 'standard_reminder', ruleKey: 'tenant_standard', channel: 'email', offsetMinutes: 1440, isRequired: true });
+  expect(plan.deliveries.map(row=>row.offsetMinutes).sort((a,b)=>b-a)).toEqual([4320,1440,120]);
+  expect(plan.deliveries.find(row=>row.offsetMinutes===1440)).toMatchObject({ kind: 'standard_reminder', ruleKey: 'organization:app-24h', channel: 'email', isRequired: true });
 });
 it('keeps distinct channels, recipients and confirmation deliveries while merging duplicate required floors', () => {
   const floor = { kind: 'standard_reminder', channel: 'email', recipientRole: 'client', offsetMinutes: 1440, ruleKey: 'platform:24h', isRequired: true };
@@ -29,17 +29,17 @@ it('keeps distinct channels, recipients and confirmation deliveries while mergin
   expect(result).toHaveLength(4); expect(result[0]).toMatchObject({ ruleKey: 'tenant_standard', isRequired: true, messageBody: 'Practice wording' });
 });
 
-it('applies saved custom reminders while keeping defaults and rejecting a text without consent', async()=>{
+it('uses the complete custom schedule instead of organization defaults and rejects a text without consent', async()=>{
  m.appointment.mockResolvedValue({id:68,agencyId:377,startAt:'2026-11-26 22:00:00',sourceTimezone:'America/Denver',notificationMode:'customizable'});
  customRules=[{id:'extra',channel:'email',offsetMinutes:60,message:'Arrive early',askConfirmation:true},{id:'text',channel:'sms',offsetMinutes:60,message:'',askConfirmation:true}];
- const plan=await buildDeliveryPlan(68);expect(plan.deliveries).toHaveLength(2);
+ const plan=await buildDeliveryPlan(68);expect(plan.deliveries).toHaveLength(1);
  expect(plan.deliveries.find(row=>row.ruleKey==='appointment_custom:extra')).toMatchObject({channel:'email',offsetMinutes:60,messageBody:'Arrive early'});
  expect(plan.deliveries.some(row=>row.channel==='sms')).toBe(false);
 });
-it('deduplicates a custom reminder with the same default time while preserving required rules',async()=>{
+it('keeps a custom reminder optional even when its timing matches the organization default',async()=>{
  m.appointment.mockResolvedValue({id:68,agencyId:377,startAt:'2026-11-26 22:00:00',notificationMode:'customizable'});
  customRules=[{id:'same-time',channel:'email',offsetMinutes:1440,message:'Custom wording',askConfirmation:true}];
- const plan=await buildDeliveryPlan(68);expect(plan.deliveries).toHaveLength(1);expect(plan.deliveries[0]).toMatchObject({messageBody:'Custom wording',isRequired:true});
+ const plan=await buildDeliveryPlan(68);expect(plan.deliveries).toHaveLength(1);expect(plan.deliveries[0]).toMatchObject({messageBody:'Custom wording',isRequired:false});
 });
 it('recomputes the saved custom timing when the appointment moves',async()=>{
  m.appointment.mockResolvedValue({id:68,agencyId:377,startAt:'2080-12-03 22:00:00',sourceTimezone:'America/Denver',notificationMode:'customizable'});

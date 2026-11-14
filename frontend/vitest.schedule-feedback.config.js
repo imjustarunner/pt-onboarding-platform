@@ -10,6 +10,7 @@ export default {
     'src/components/schedule/__tests__/ScheduleAgencyLogo.test.js',
     'src/components/schedule/__tests__/AppointmentReminderSettings.test.js',
     'src/components/schedule/__tests__/SessionNotificationEditor.policy.test.js',
+    'src/components/schedule/__tests__/sessionNotificationEditor.test.js',
     'src/components/schedule/__tests__/AppointmentInfoPanel.policy.test.js',
     'src/components/schedule/__tests__/AppointmentRemindersPanel.policy.test.js',
     'src/components/schedule/__tests__/scheduleDayLayout.test.js',

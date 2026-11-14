@@ -5,7 +5,7 @@ vi.mock('../sessionNotification.service.js',()=>({getTenantSettings:m.settings,r
 import {normalizeCustomSessionReminders,readAppointmentNotificationRules,saveAppointmentNotificationRules,validateCustomReminderChannels} from '../appointmentNotificationCustomization.service.js';
 beforeEach(()=>{vi.clearAllMocks();m.execute.mockResolvedValue([[]]);m.settings.mockResolvedValue({platform:{},channelsEnabled:{}});});
 it('rejects invalid rules before writing any settings',async()=>{
- for(const rules of [[{channel:'email',offsetMinutes:0}],[{channel:'email',offsetMinutes:10081}],[{channel:'email',offsetMinutes:60,message:'x'.repeat(1001)}],[{channel:'fax',offsetMinutes:60}],Array.from({length:6},()=>({channel:'email',offsetMinutes:60}))]){
+ for(const rules of [[{channel:'email',offsetMinutes:0}],[{channel:'email',offsetMinutes:10081}],[{channel:'email',offsetMinutes:60,message:'x'.repeat(1001)}],[{channel:'fax',offsetMinutes:60}],Array.from({length:13},()=>({channel:'email',offsetMinutes:60}))]){
   expect(()=>normalizeCustomSessionReminders(rules)).toThrow();await expect(saveAppointmentNotificationRules(8,377,rules,501)).rejects.toThrow();
  }
  expect(m.execute).not.toHaveBeenCalled();

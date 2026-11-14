@@ -4,6 +4,8 @@ export default {
   test: { environment: 'node', include: [
     'src/services/__tests__/manualSessionReminder.test.js',
     'src/services/__tests__/sessionReminderPolicy.test.js',
+    'src/services/__tests__/scheduling.reminderRules.test.js',
+    'src/services/__tests__/scheduling.notificationCustomizations.test.js',
     'src/services/__tests__/sessionReminderPolicyRebuild.test.js',
     'src/services/__tests__/sessionNotificationWorker.test.js',
     'src/services/__tests__/smsConsentVerbalGate.test.js',
