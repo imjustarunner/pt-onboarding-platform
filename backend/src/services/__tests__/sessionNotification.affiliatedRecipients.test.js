@@ -1,4 +1,4 @@
-import {beforeEach,expect,it,vi} from 'vitest';
+import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 import {readFile} from 'node:fs/promises';
 const m=vi.hoisted(()=>({query:vi.fn(),execute:vi.fn(),connection:vi.fn(),find:vi.fn(),participants:vi.fn(),contacts:vi.fn(),
   guardians:vi.fn(),family:vi.fn(),sendEmail:vi.fn(),sendSms:vi.fn(),gate:vi.fn(),log:vi.fn()}));
@@ -32,6 +32,7 @@ const row=(patch={})=>({id:17,appointment_id:104,agency_id:450,recipient_client_
  requires_confirmation:1,message_body:'SECRET clinical body with https://example.org/action-token',status:'pending',...patch});
 let due;
 beforeEach(()=>{
+ vi.useFakeTimers({toFake:['Date']});vi.setSystemTime(new Date('2026-11-09T14:00:00Z'));
  vi.clearAllMocks();due=[row()];
  m.find.mockResolvedValue({...appointment});m.participants.mockResolvedValue([{clientId:33,receivesReminders:true}]);
  m.contacts.mockResolvedValue([{...grandparent}]);m.guardians.mockResolvedValue([{guardian_user_id:900,access_enabled:1,email:'parent@example.org',phone:'+13035550999'}]);
@@ -49,9 +50,10 @@ beforeEach(()=>{
 });
 
 it('plans an independently authorized grandparent email when the parent has both email and SMS off',async()=>{
+ m.contacts.mockResolvedValue([{...grandparent,sms_reminders_enabled:false}]);
  const plan=await buildDeliveryPlan(104);
  expect(plan.deliveries.length).toBeGreaterThan(0);
- expect(plan.deliveries.every(item=>item.recipientAffiliationId===77 && item.recipientClientId===33 && item.channel==='email')).toBe(true);
+ expect(plan.deliveries.filter(item=>item.recipientAffiliationId!==77 || item.recipientClientId!==33 || item.channel!=='email')).toEqual([]);
  expect(plan.deliveries.every(item=>item.requiresConfirmation===false && item.messageBody===null)).toBe(true);
 });
 
@@ -133,4 +135,36 @@ it('does not multiply a legacy email reminder when two affiliations point to the
  await processDueSessionNotifications({agencyId:450});
  expect(m.execute.mock.calls.filter(([sql])=>sql.includes('INSERT IGNORE INTO appointment_reminders') && sql.includes('recipient_affiliation_id'))).toHaveLength(1);
  expect(m.sendEmail).not.toHaveBeenCalled();
+});
+it('uses the 72-hour email and 24/2-hour email-plus-opted-in-text app schedule',async()=>{
+ const plan=await buildDeliveryPlan(104);const deliveries=plan.deliveries.filter(item=>item.recipientAffiliationId===77);
+ expect(deliveries.map(item=>[item.offsetMinutes,item.channel])).toEqual([[4320,'email'],[1440,'email'],[1440,'sms'],[120,'email'],[120,'sms']]);
+});
+it('replaces the organization timing with a complete custom five-hour schedule',async()=>{
+ m.find.mockResolvedValue({...appointment,notificationMode:'customizable'});const original=m.execute.getMockImplementation();
+ m.execute.mockImplementation(async(sql,...args)=>sql.includes('FROM appointment_notification_customizations')?[[{rules_json:JSON.stringify([{id:'custom',channels:['email'],offsetMinutes:300,askConfirmation:true}])}]]:original(sql,...args));
+ const plan=await buildDeliveryPlan(104);expect(plan.deliveries).toHaveLength(1);expect(plan.deliveries[0]).toMatchObject({channel:'email',offsetMinutes:300,recipientAffiliationId:77});
+});
+it('does not send or plan any reminders after a declined RSVP',async()=>{
+ m.find.mockResolvedValue({...appointment,cancellationRecommendationJson:{clientReply:'declined'}});
+ expect((await buildDeliveryPlan(104)).deliveries).toEqual([]);expect(await processDueSessionNotifications({agencyId:450})).toMatchObject({sent:0,skipped:1});expect(m.sendEmail).not.toHaveBeenCalled();expect(m.sendSms).not.toHaveBeenCalled();
+});
+
+afterEach(()=>vi.useRealTimers());
+it('does not dispatch a stale reminder after a clinical session starts',async()=>{
+ m.find.mockResolvedValue({...appointment,startAt:'2026-11-09T13:00:00Z'});expect(await processDueSessionNotifications({agencyId:450})).toMatchObject({sent:0,skipped:1});expect(m.sendEmail).not.toHaveBeenCalled();expect(m.sendSms).not.toHaveBeenCalled();
+});
+it('plans a separate app notification for each active guardian without duplicating addresses',async()=>{
+ m.contacts.mockResolvedValue([]);m.family.mockResolvedValue({hasRelationships:true,recipients:[{userId:900},{userId:901}]});
+ m.guardians.mockResolvedValue([900,901].map(id=>({guardian_user_id:id,access_enabled:1,email:'parent@example.org',phone:'+13035550999'})));
+ const plan=await buildDeliveryPlan(104,{manual:true});
+ expect(plan.deliveries.map(item=>[item.channel,item.recipientGuardianUserId])).toEqual([['in_app',900],['in_app',901]]);
+});
+it('does not offer a text option from a legacy opt-in flag without an active recorded enrollment',async()=>{
+ const original=m.execute.getMockImplementation();m.execute.mockImplementation((sql,...args)=>sql.includes('SELECT c.session_email_opt_in')?Promise.resolve([[{status:'ACTIVE',session_email_opt_in:0,session_sms_opt_in:1}]]):original(sql,...args));
+ m.contacts.mockResolvedValue([]);expect((await buildDeliveryPlan(104,{manual:true})).deliveries.some(item=>item.channel==='sms')).toBe(false);
+});
+it('never redirects app notifications to a legacy guardian when no current relationship exists',async()=>{
+ m.contacts.mockResolvedValue([]);m.family.mockResolvedValue({hasRelationships:false,recipients:[]});m.guardians.mockResolvedValue([]);
+ expect((await buildDeliveryPlan(104,{manual:true})).deliveries).toEqual([]);
 });

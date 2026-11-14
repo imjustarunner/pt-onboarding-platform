@@ -78,11 +78,14 @@ const rules = computed(() => {
         channel, timing, message, channelLabel: ({ in_app: 'In-app', email: 'Email', sms: 'Text', phone: 'Phone' })[channel] || channel });
     }
   }
-  for (const rule of platform.minRules || []) add(rule, { ruleKey: `platform:${rule.label || 'minimum'}` });
+  for (const rule of props.customReminders.length ? [] : platform.minRules || []) add(rule, { ruleKey: `platform:${rule.label || 'minimum'}` });
   if (tenant.bookingConfirmation?.enabled) add(tenant.bookingConfirmation, { immediate: true, confirmation: true, kind: 'confirmation', ruleKey: 'booking_confirmation' });
-  if (tenant.standardReminder?.enabled !== false) add(tenant.standardReminder || {});
-  for (const rule of tenant.additionalReminders || []) if (rule.enabled !== false) add(rule, { kind: 'additional_reminder', ruleKey: String(rule.id || rule.label || rule.channel) });
-  for (const rule of props.customReminders) add({ ...rule, offsetValue: rule.offsetMinutes, offsetUnit: 'minutes' }, { ruleKey: `appointment_custom:${rule.id}` });
+  if(props.customReminders.length || Array.isArray(tenant.reminderRules)) {
+    for(const rule of props.customReminders.length ? props.customReminders : tenant.reminderRules) add({...rule,offsetValue:rule.offsetMinutes,offsetUnit:'minutes'},{ruleKey:`${props.customReminders.length?'appointment_custom':'organization'}:${rule.id}`});
+  } else {
+    if (tenant.standardReminder?.enabled !== false) add(tenant.standardReminder || {});
+    for (const rule of tenant.additionalReminders || []) if (rule.enabled !== false) add(rule, { kind: 'additional_reminder', ruleKey: String(rule.id || rule.label || rule.channel) });
+  }
   return dedupeSessionReminders(entries);
 });
 </script>

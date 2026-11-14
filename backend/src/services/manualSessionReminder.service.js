@@ -1,43 +1,50 @@
 import pool from '../config/database.js';
 import { withSessionSchedulingLock } from './sessionSchedulingLock.service.js';
 import { utcMysqlToIso, dateToMysqlUtcDateTime } from '../utils/zonedWallTime.util.js';
+import { sessionRsvpState } from './sessionReminderPolicy.js';
 
 export const EXTRA_REMINDER_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 const instant = value => new Date(utcMysqlToIso(value) || value);
-const eligible = appointment => appointment && appointment.productOrigin !== 'auricwell_ehr' && ['scheduled', 'confirmed', 'client_confirmed'].includes(appointment.status);
+const eligible = appointment => appointment && appointment.productOrigin !== 'auricwell_ehr' && ['scheduled', 'confirmed', 'client_confirmed'].includes(appointment.status) && sessionRsvpState(appointment) !== 'declined';
 const fail = (status, message, extra = {}) => Object.assign(new Error(message), { status, ...extra });
 
 export function createManualSessionReminders({ db = pool, clock = () => new Date(), lock = withSessionSchedulingLock } = {}) {
   async function state(appointment, executor = db) {
     const [rows] = await executor.execute(`SELECT * FROM appointment_reminders WHERE appointment_id=? ORDER BY scheduled_for,id`, [appointment.id]);
-    const manual = rows.filter(row => row.rule_key === 'manual_extra' && ['pending', 'sent', 'canceled'].includes(row.status));
+    const manual = rows.filter(row => row.rule_key === 'manual_extra');
     const latest = Math.max(0, ...manual.map(row => +instant(row.created_at)));
     const next = latest ? latest + EXTRA_REMINDER_COOLDOWN_MS : 0;
     const pending = manual.some(row => row.status === 'pending');
     return {
-      items: rows.map(row => ({ id: Number(row.id), kind: row.kind, channel: row.channel, status: row.status,
+      items: rows.map(row => ({ id: Number(row.id), kind: String(row.kind||'reminder').replace(':in_app',''), channel: String(row.kind||'').includes(':in_app')?'in_app':row.channel, status: row.status,
         scheduledFor: utcMysqlToIso(row.scheduled_for), sentAt: utcMysqlToIso(row.sent_at),
         bodyPreview: row.message_body || '', description: row.error_message || row.skip_reason || '',
         recipientUserId: row.recipient_guardian_user_id || null })),
       canSendAdditionalReminder: eligible(appointment) && +instant(appointment.startAt) > +clock() && !pending && next <= +clock(),
       additionalReminderAvailableAt: next ? new Date(next).toISOString() : null,
-      additionalReminderPending: pending
+      additionalReminderPending: pending,
+      rsvpState: sessionRsvpState(appointment),
+      additionalReminderUnavailableReason: !['scheduled','confirmed','client_confirmed'].includes(appointment.status) ? 'This session is not scheduled for reminders.' : sessionRsvpState(appointment)==='declined' ? 'The client declined this session. No reminders can be sent.' : ''
     };
   }
-  async function queue(appointment, buildPlan, actorUserId) {
+  async function queue(appointment, buildPlan, actorUserId, { channels = null } = {}) {
+    if (channels !== null && (!Array.isArray(channels) || !channels.length || channels.some(channel => !['email','sms','in_app'].includes(channel)))) throw fail(400, 'Choose at least one available reminder channel.');
     return lock(appointment.id, async () => {
       const conn = await db.getConnection();
       try {
         await conn.beginTransaction();
         const current = await state(appointment, conn);
         if (!current.canSendAdditionalReminder) throw fail(409,
-          current.additionalReminderPending ? 'An additional reminder is already queued.' : 'Additional reminders are limited to once every 24 hours for an upcoming session.',
+          current.additionalReminderUnavailableReason || (current.additionalReminderPending ? 'An additional reminder is already queued.' : 'Additional reminders are limited to once every 24 hours for an upcoming session.'),
           { availableAt: current.additionalReminderAvailableAt });
         const plan = await buildPlan(appointment.id);
         if (!eligible(plan.appointment) || +instant(plan.appointment.startAt) <= +clock()) throw fail(409, 'Additional reminders are available only for upcoming sessions.');
         const seen = new Set();
+        const available = new Set((plan.deliveries || []).map(item => item.channel));
+        if (channels?.some(channel => !available.has(channel))) throw fail(409, 'A selected reminder channel is unavailable or the recipient has not opted in. Refresh and choose an available channel.');
         const deliveries = (plan.deliveries || []).filter(item => {
           if (item.kind === 'confirmation' || item.recipientRole === 'provider') return false;
+          if (channels && !channels.includes(item.channel)) return false;
           const key = JSON.stringify([item.channel, item.recipientGuardianUserId || 0, item.recipientClientId || plan.clientId || 0, item.recipientAffiliationId || 0]);
           if (seen.has(key)) return false;
           seen.add(key); return true;

@@ -1,0 +1,10 @@
+import {beforeEach,expect,it,vi} from 'vitest';
+vi.mock('../../config/database.js',()=>({default:{}}));
+vi.mock('../sessionNotification.service.js',()=>({processDueSessionNotifications:vi.fn()}));
+import {createSessionNotificationWorker} from '../sessionNotificationWorker.service.js';
+let canRun,db,conn,process,run,acquired;
+beforeEach(()=>{acquired=1;canRun=vi.fn(async()=>true);process=vi.fn(async()=>({sent:1}));conn={execute:vi.fn(async()=>[[{acquired}]]),release:vi.fn()};db={getConnection:vi.fn(async()=>conn)};run=createSessionNotificationWorker({db,canRun,process});});
+it('dispatches only reminder rows from the current production revision',async()=>{expect(await run()).toEqual({sent:1});expect(process).toHaveBeenCalledWith({limit:50,includeRelatedQueues:false});expect(conn.execute).toHaveBeenCalledWith("SELECT RELEASE_LOCK('session_notifications:production')");expect(conn.release).toHaveBeenCalled();});
+it('does not dispatch from a local API, preview, or retired revision',async()=>{canRun.mockResolvedValue(false);expect(await run()).toMatchObject({skipped:true});expect(db.getConnection).not.toHaveBeenCalled();expect(process).not.toHaveBeenCalled();});
+it('does not run a second production dispatcher while the lock is held',async()=>{acquired=0;expect(await run()).toMatchObject({skipped:true,reason:'another_worker'});expect(process).not.toHaveBeenCalled();expect(conn.release).toHaveBeenCalled();});
+it('releases the dispatcher lock after a transport failure',async()=>{process.mockRejectedValue(new Error('transport failed'));await expect(run()).rejects.toThrow('transport failed');expect(conn.execute).toHaveBeenCalledWith("SELECT RELEASE_LOCK('session_notifications:production')");expect(conn.release).toHaveBeenCalled();});

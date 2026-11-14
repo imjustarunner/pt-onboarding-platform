@@ -2914,8 +2914,17 @@ if (shouldStartServerBackgroundJobs()) {
   setTimeout(secureSessionCommentTick, 10000).unref();
   setInterval(secureSessionCommentTick, 60000).unref();
 
-  // Cloud Run has always-allocated CPU and minimum instances. Row locks protect
-  // this bounded demo worker across replicas; it never drains another tenant.
+  let sessionNotificationsRunning=false;
+  const sessionNotificationTick=async()=>{
+    if(sessionNotificationsRunning)return;sessionNotificationsRunning=true;
+    try{await(await import('./services/sessionNotificationWorker.service.js')).runSessionNotificationTick();}
+    catch(error){console.warn('[session-notifications] Delivery needs review',error.code||'worker_failed');}
+    finally{sessionNotificationsRunning=false;}
+  };
+  setTimeout(sessionNotificationTick,15000).unref();
+  setInterval(sessionNotificationTick,15000).unref();
+
+  // The synthetic tenant retains its independently bounded QA worker.
   let qaSessionNotificationsRunning = false;
   const qaSessionNotificationTick = async () => {
     if (qaSessionNotificationsRunning) return;

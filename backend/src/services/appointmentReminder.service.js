@@ -8,11 +8,9 @@ import Appointment from '../models/Appointment.model.js';
 import TenantService from '../models/TenantService.model.js';
 import { dateToMysqlUtcDateTime, utcMysqlToIso } from '../utils/zonedWallTime.util.js';
 import { maybeEncryptNotePayload, maybeDecryptNotePayload } from './clinicalNoteCrypto.service.js';
+import { APP_SESSION_REMINDERS } from './sessionReminderPolicy.js';
 
-const DEFAULT_REMINDERS = [
-  { channel: 'email', offsetMinutes: 1440 },
-  { channel: 'email', offsetMinutes: 120 }
-];
+const DEFAULT_REMINDERS = APP_SESSION_REMINDERS.flatMap(rule=>rule.channels.map(channel=>({channel,offsetMinutes:rule.offsetMinutes})));
 
 function parseJson(raw, fallback = null) {
   if (raw == null) return fallback;
@@ -75,13 +73,14 @@ export async function logCommunication({
   bodyPreview = null,
   metadata = null,
   reminderId = null,
-  createdByUserId = null
+  createdByUserId = null,
+  db = pool
 } = {}) {
-  const encryptedCancellation = kind === 'cancellation' || metadata?.scheduleNotice === true;
+  const encryptedCancellation = kind === 'cancellation' || kind === 'notification_reply' || metadata?.scheduleNotice === true;
   const storedMetadata = encryptedCancellation
     ? maybeEncryptNotePayload(JSON.stringify({ ...(metadata || {}), bodyPreview }))
     : metadata ? JSON.stringify(metadata) : null;
-  await pool.execute(
+  const [result] = await db.execute(
     `INSERT INTO appointment_communications
       (appointment_id, agency_id, direction, channel, kind, body_preview, metadata_json, reminder_id, created_by_user_id)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -91,12 +90,13 @@ export async function logCommunication({
       direction,
       channel,
       kind,
-      encryptedCancellation ? 'Cancellation notification — view recorded message' : bodyPreview ? String(bodyPreview).slice(0, 500) : null,
+      encryptedCancellation ? kind === 'notification_reply' ? 'Reply to session notification — view recorded message' : 'Cancellation notification — view recorded message' : bodyPreview ? String(bodyPreview).slice(0, 500) : null,
       storedMetadata,
       reminderId || null,
       createdByUserId || null
     ]
   );
+  return { id: Number(result?.insertId || 0) };
 }
 
 export async function listCommunications(appointmentId) {
@@ -108,9 +108,15 @@ export async function listCommunications(appointmentId) {
     [Number(appointmentId)]
   );
   const [receipts] = rows?.length ? await pool.execute('SELECT communication_id,confirmed_at FROM cancellation_email_receipts WHERE appointment_id=?',[Number(appointmentId)]) : [[]];
+  const [replyReviews] = rows?.some(row=>row.direction==='inbound') ? await pool.execute('SELECT id,raw_body,status,interpreted_intent FROM appointment_reply_reviews WHERE appointment_id=?',[Number(appointmentId)]) : [[]];
+  const [emailReplies] = rows?.some(row=>row.kind==='notification_reply') ? await pool.execute('SELECT communication_id,action_status FROM session_notification_email_replies WHERE appointment_id=?',[Number(appointmentId)]) : [[]];
   return (rows || []).map((r) => {
     const raw = typeof r.metadata_json === 'string' ? r.metadata_json : JSON.stringify(r.metadata_json);
     const metadata = parseJson(maybeDecryptNotePayload(raw), null);
+    const review = replyReviews.find(review=>Number(review.id)===Number(metadata?.reviewId));
+    if(review && metadata) { metadata.body=review.raw_body;metadata.actionStatus=review.status;metadata.deliveryStatus='received'; }
+    const emailReply=emailReplies.find(reply=>Number(reply.communication_id)===Number(r.id));
+    if(emailReply && metadata) {metadata.actionStatus=emailReply.action_status;metadata.needsSupport=emailReply.action_status!=='applied';}
     const receipt = receipts.find(receipt=>Number(receipt.communication_id) === Number(metadata?.communicationId));
     if (receipt && metadata) { metadata.receiptRequired=true;metadata.receiptConfirmedAt=receipt.confirmed_at || null; }
     return ({
@@ -143,7 +149,8 @@ export async function listReminders(appointmentId) {
     status: r.status,
     skipReason: r.skip_reason,
     sentAt: r.sent_at,
-    errorMessage: r.error_message
+    errorMessage: r.error_message,
+    messageBody: r.message_body || '', createdAt: r.created_at
   }));
 }
 
@@ -151,66 +158,7 @@ export async function listReminders(appointmentId) {
  * Create pending reminder rows from defaults. Idempotent if reminders already exist.
  */
 export async function scheduleRemindersForAppointment(appointmentId, { replace = false } = {}) {
-  const appt = await Appointment.findById(appointmentId);
-  if (!appt) return [];
-  if (appt.productOrigin === 'auricwell_ehr') return [];
-  const { resolveAppointmentServiceSetting } = await import('./appointmentServiceSetting.service.js');
-  if ((await resolveAppointmentServiceSetting(appt)).isSchool) {
-    return (await import('./sessionNotification.service.js')).scheduleSessionNotifications(appointmentId, { replace });
-  }
-  const start = parseStartAt(appt.startAt);
-  if (!start) return [];
-
-  if (replace) {
-    await pool.execute(
-      `UPDATE appointment_reminders SET status = 'canceled'
-       WHERE appointment_id = ? AND status = 'pending'`,
-      [appt.id]
-    );
-  } else {
-    const existing = await listReminders(appt.id);
-    if (existing.some((r) => r.status === 'pending' || r.status === 'sent')) return existing;
-  }
-
-  const defaults = await resolveReminderDefaults({
-    agencyId: appt.agencyId,
-    tenantServiceId: appt.tenantServiceId
-  });
-
-  const created = [];
-  for (const d of defaults) {
-    const channel = String(d.channel || 'email').toLowerCase();
-    if (!['email', 'sms', 'phone'].includes(channel)) continue;
-    const offset = Math.max(0, Number(d.offsetMinutes ?? d.offset_minutes ?? 1440) || 0);
-    const when = new Date(start.getTime() - offset * 60 * 1000);
-    if (when.getTime() <= Date.now() - 60 * 1000) continue; // already past
-    const scheduledFor = toMysqlDateTime(when);
-    const [result] = await pool.execute(
-      `INSERT INTO appointment_reminders
-        (appointment_id, agency_id, channel, offset_minutes, scheduled_for, status)
-       VALUES (?, ?, ?, ?, ?, 'pending')`,
-      [appt.id, appt.agencyId, channel, offset, scheduledFor]
-    );
-    created.push({
-      id: Number(result.insertId),
-      channel,
-      offsetMinutes: offset,
-      scheduledFor,
-      status: 'pending'
-    });
-  }
-  if (created.length) {
-    await logCommunication({
-      appointmentId: appt.id,
-      agencyId: appt.agencyId,
-      direction: 'system',
-      channel: 'in_app',
-      kind: 'reminder',
-      bodyPreview: `Scheduled ${created.length} reminder(s)`,
-      metadata: { count: created.length }
-    });
-  }
-  return created;
+  return (await import('./sessionNotification.service.js')).scheduleSessionNotifications(appointmentId, { replace });
 }
 
 export async function cancelPendingReminders(appointmentId, { preserveManual = false } = {}) {

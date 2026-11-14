@@ -50,3 +50,13 @@ it('serializes two simultaneous extra reminder requests and queues only one batc
  const concurrent=createManualSessionReminders({db,clock:()=>now,lock});const results=await Promise.allSettled([concurrent.queue(appointment,build,7),concurrent.queue(appointment,build,8)]);
  expect(results.filter(r=>r.status==='fulfilled')).toHaveLength(1);expect(results.find(r=>r.status==='rejected').reason.status).toBe(409);expect(build).toHaveBeenCalledTimes(1);
 });
+it.each(['failed','skipped'])('keeps the manual cooldown when an attempted batch is %s',async status=>{
+ rows=[{id:1,rule_key:'manual_extra',status,created_at:'2026-11-13 19:00:00'}];await expect(service.queue(appointment,build,8)).rejects.toMatchObject({status:409});expect(build).not.toHaveBeenCalled();
+});
+it('does not offer or queue a manual reminder after a declined RSVP with fee review pending',async()=>{
+ const appt={...appointment,cancellationRecommendationJson:{clientReply:'declined'}};expect(await service.state(appt)).toMatchObject({canSendAdditionalReminder:false,rsvpState:'declined'});await expect(service.queue(appt,build,7)).rejects.toMatchObject({status:409});expect(build).not.toHaveBeenCalled();
+});
+it('queues only the selected channel and rejects an unavailable text option',async()=>{
+ await service.queue(appointment,build,7,{channels:['sms']});expect(conn.execute.mock.calls.filter(([sql])=>sql.includes('INSERT INTO appointment_reminders'))).toHaveLength(1);
+ build.mockResolvedValue({appointment,deliveries:[{kind:'standard_reminder',channel:'email'}]});await expect(service.queue(appointment,build,7,{channels:['sms']})).rejects.toMatchObject({status:409});
+});

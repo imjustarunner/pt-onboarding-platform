@@ -8,6 +8,7 @@ import { appointmentActionsHtml } from '../utils/appointmentEmailContent.js';
 import { appointmentProviderCopy } from './appointmentProviderCopy.service.js';
 import { schoolAppointmentReminderText } from '../utils/schoolAppointmentReminder.js';
 import { appointmentResponseUrl } from '../utils/appointmentResponseUrl.js';
+import { sessionRsvpState } from './sessionReminderPolicy.js';
 import { escapePortalHtml as e } from './portalEmailBranding.service.js';
 import { dateToMysqlUtcDateTime, utcMysqlToIso } from '../utils/zonedWallTime.util.js';
 import { isDobAdultLocked } from '../utils/guardianWaivers.utils.js';
@@ -92,7 +93,7 @@ export async function submitAppointmentEmailAction(token,action) {
   } finally {try {if(locked)await db.execute('SELECT RELEASE_LOCK(?)',[lock]);} finally {db.release();}}
 }
 
-export async function buildAppointmentEmail({appointment,clientId,to,kind='reminder',actionUrl,schoolOptOut}) {
+export async function buildAppointmentEmail({appointment,clientId,to,kind='reminder',actionUrl,schoolOptOut,message='',requiresConfirmation=true}) {
   const context=await clientEmailContext({agencyId:appointment.agencyId,clientId,...(['learning','tutoring'].includes(String(appointment.businessType||appointment.business_type||'').toLowerCase())?{learning:true}: {})});
   const setting=await resolveAppointmentServiceSetting(appointment);
   if(setting.isSchool && schoolOptOut===undefined) schoolOptOut=await createSchoolSessionEmailOptOutLink({agencyId:appointment.agencyId,clientId,to});
@@ -100,11 +101,13 @@ export async function buildAppointmentEmail({appointment,clientId,to,kind='remin
   if(actionUrl===undefined) actionUrl=await createAppointmentEmailLink({appointment,clientId,to,context});
   const when=formatAppointmentTime(appointment),name=context.tenant.name;
   const subject=setting.isSchool?`${name}: School session notice`:`${name}: ${kind.startsWith('confirmation')?'Please confirm your appointment':'Appointment reminder'}`;
-  const intro=setting.isSchool?`${schoolAppointmentReminderText} Scheduled session: ${when}.`:`Your ${context.learning?'tutoring session':'appointment'} with ${name} is scheduled for ${when}.`;
-  const actions=appointmentEmailActions(setting.isSchool);
+  const confirmed = sessionRsvpState(appointment) === 'confirmed';
+  const ask = !confirmed && requiresConfirmation;
+  const intro=setting.isSchool?`${schoolAppointmentReminderText} Scheduled session: ${when}.`:message || `${confirmed?'A friendly reminder: your':'Your'} ${context.learning?'tutoring session':'appointment'} with ${name} is scheduled for ${when}.${confirmed?' We look forward to seeing you.':''}`;
+  const actions=appointmentEmailActions(setting.isSchool).filter(action=>action!=='confirm'||ask);
   const links=actionUrl?actions.map(action=>({label:setting.isSchool?'Cancel school session':actionLabels[action],url:`${actionUrl}?action=${action}`})):setting.isSchool?[]:[{label:'Open your portal',url:context.url(`guardian?panel=appointments&clientId=${clientId}`)}];
   if(!setting.isSchool&&['learning','tutoring'].includes(String(appointment.businessType||'').toLowerCase())&&['VIRTUAL','ONLINE','VIDEO','TELEHEALTH'].includes(String(appointment.modality||'').toUpperCase()))links.push({label:'Join tutoring session',url:context.url(`tutoring-session/appointment/${Number(appointment.id)}?clientId=${Number(clientId)}&agencyId=${Number(appointment.agencyId)}`)});
-  const footer=setting.isSchool?`${actionUrl?'If your dependent cannot attend, use the cancel button.':'This is an informational notice. Contact the guardian or care team about a cancellation.'} Please report school absences directly to the school as usual.`:actionUrl?'Confirm directly from this email. Cancellation and new-time requests open a review page. No sign-in is needed. Any cancellation policy will still apply.':'Sign in to view your appointment or contact your team about a change.';
+  const footer=setting.isSchool?`${actionUrl?'If your dependent cannot attend, use the cancel button.':'This is an informational notice. Contact the guardian or care team about a cancellation.'} Please report school absences directly to the school as usual.`:actionUrl?`${ask?'Confirm directly from this email. ':''}Cancellation and new-time requests open a review page. No sign-in is needed. Any cancellation policy will still apply.`:'Sign in to view your appointment or contact your team about a change.';
   return {context,subject,...(setting.isSchool?{templateType:SCHOOL_EMAIL_TEMPLATE,schoolSessionScopeKey:schoolOptOut?.scopeKey}:{}),text:`${intro}\n\n${links.map(l=>`${l.label}:\n${l.url}`).join('\n\n')}\n\n${footer}${optOut.text}`,
     html:`<h2 style="font-size:22px">${setting.isSchool?'School session notice':'Your upcoming appointment'}</h2><p>${e(intro)}</p>${appointmentActionsHtml(links)}<p>${e(footer)}</p>${optOut.html}`};
 }
@@ -115,7 +118,8 @@ export async function sendAppointmentEmail(input) {
   if(setting.isSchool && await isSchoolSessionEmailOptedOut({agencyId:input.appointment.agencyId,clientId:input.clientId,to:input.to})) return {skipped:true,reason:'school_session_email_opted_out'};
   const {context,...content}=await buildAppointmentEmail(input);
   const cc=setting.isSchool?await appointmentProviderCopy(input.appointment,input.to):[];
-  return sendClientPortalEmail({agencyId:input.appointment.agencyId,clientId:input.clientId,context,to:input.to,
+  const result = await sendClientPortalEmail({agencyId:input.appointment.agencyId,clientId:input.clientId,context,to:input.to,
     appointments:true,...(cc.length?{cc}:{}),
     userId:input.userId || null,templateType:input.kind?.startsWith('confirmation')?'session_confirmation':'session_reminder',source:'auto',...content});
+  return result;
 }

@@ -46,6 +46,8 @@ import {
 import {
   getTenantSessionNotifications,
   putTenantSessionNotifications,
+  getMySessionReminderDefaults,
+  putMySessionReminderDefaults,
   getClientSessionNotificationPrefs,
   putClientSessionNotificationPrefs,
   runSessionNotificationCron
@@ -100,6 +102,8 @@ router.get('/agencies/:agencyId/attendance-discharge-reviews', listAttendanceDis
 router.post('/agencies/:agencyId/attendance-discharge-reviews/:reviewId/decide', decideAttendanceDischargeReview);
 router.get('/agencies/:agencyId/session-notifications', getTenantSessionNotifications);
 router.put('/agencies/:agencyId/session-notifications', putTenantSessionNotifications);
+router.get('/agencies/:agencyId/session-notifications/my-default', getMySessionReminderDefaults);
+router.put('/agencies/:agencyId/session-notifications/my-default', putMySessionReminderDefaults);
 router.get('/agencies/:agencyId/clients/:clientId/session-notification-preferences', getClientSessionNotificationPrefs);
 router.put('/agencies/:agencyId/clients/:clientId/session-notification-preferences', putClientSessionNotificationPrefs);
 

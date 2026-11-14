@@ -24,5 +24,5 @@ export async function validateCustomReminderChannels(agencyId, rules) {
   const { getTenantSettings, resolveEffectiveChannels } = await import('./sessionNotification.service.js');
   const settings = await getTenantSettings(agencyId);
   const available = resolveEffectiveChannels(settings.platform, settings.channelsEnabled);
-  for (const rule of rules) if (!available[rule.channel]) throw Object.assign(new Error(`The ${rule.channel === 'sms' ? 'text' : rule.channel} notification channel is not enabled for this agency.`), { status: 400 });
+  for (const rule of rules) for (const channel of rule.channels || [rule.channel]) if (!available[channel]) throw Object.assign(new Error(`The ${channel === 'sms' ? 'text' : channel} notification channel is not enabled for this agency.`), { status: 400 });
 }

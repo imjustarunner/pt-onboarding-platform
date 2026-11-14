@@ -179,8 +179,10 @@ it('renders the booking dialog at the document level above the application navig
   const dialog=document.querySelector('[data-schedule-ui="v2"]');expect(dialog).not.toBeNull();expect(dialog.parentElement).toBe(document.body);
 });
 
-it('shows and copies the stable session reference without opening or dragging the appointment',async()=>{
- m.summary.scheduleEvents=[{id:71,kind:'SCHEDULE_HOLD',agencyId:2,title:'Demo session',appointmentId:91,appointmentReference:'S0123456789ABCDEFABCD',scheduleReference:'MABCDEF0123456789ABCD',startAt:'2026-10-13T15:00:00Z',endAt:'2026-10-13T16:00:00Z'}];
- const writeText=vi.fn(async()=>{});Object.defineProperty(navigator,'clipboard',{value:{writeText},configurable:true});const state=await mount();
- const control=wrapper.find('.cell-record-reference');expect(control.text()).toBe('S0123456789ABCDEFABCD');await control.trigger('click');await flushPromises();expect(writeText).toHaveBeenCalledWith('S0123456789ABCDEFABCD');expect(state.showRequestModal).toBe(false);
+it('keeps reference codes off calendar cards and copies them from the opened details',async()=>{
+ m.summary.scheduleEvents=[{id:71,kind:'PERSONAL_EVENT',clientId:5,agencyId:2,title:'Demo session',appointmentId:91,appointmentReference:'S0123456789ABCDEFABCD',scheduleReference:'MABCDEF0123456789ABCD',startAt:'2026-10-13T15:00:00Z',endAt:'2026-10-13T16:00:00Z'}];
+ const writeText=vi.fn(async()=>{});Object.defineProperty(navigator,'clipboard',{value:{writeText},configurable:true});await mount();
+ expect(wrapper.find('.cell-record-reference').exists()).toBe(false);expect(wrapper.text()).not.toContain('S0123456789ABCDEFABCD');
+ await wrapper.find('.cell-block-sevt').trigger('click');await flushPromises();
+ const control=document.querySelector('.schedule-record-footer button');expect(control?.textContent).toBe('S0123456789ABCDEFABCD');control.click();await flushPromises();expect(writeText).toHaveBeenCalledWith('S0123456789ABCDEFABCD');
 });

@@ -958,8 +958,13 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
       continue;
     }
 
+    const { ingestSessionNotificationEmailReply } = await import('../sessionNotificationEmailReplies.service.js');
+    const { extractFamilyEmailText: extractSessionReplyText } = await import('../familyEmailPolicy.js');
+    const sessionNotificationReply = isAutoReply(hdrs) ? null : await ingestSessionNotificationEmailReply({fromEmail:rawFromEmail,
+      inReplyTo:hdrs.get('in-reply-to'),referencesHeader:hdrs.get('references'),messageId:hdrs.get('message-id')||`gmail:${id}`,
+      subject,bodyText:await extractSessionReplyText(payload),gmailPayload:payload});
     const {handleUnmonitoredMailboxReply}=await import('../unmonitoredMailbox.service.js');
-    const unmonitored=await handleUnmonitoredMailboxReply({headers:hdrs,fromEmail,gmailMessageId:id});
+    const unmonitored=sessionNotificationReply?.matched ? {handled:false} : await handleUnmonitoredMailboxReply({headers:hdrs,fromEmail,gmailMessageId:id});
     if(unmonitored.handled){
       await gmail.users.messages.modify({userId:'me',id,requestBody:{removeLabelIds:['UNREAD'],addLabelIds:[processedLabelId]}});
       continue;

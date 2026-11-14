@@ -1,4 +1,7 @@
-import { readAppointmentNotificationRules } from './appointmentNotificationCustomization.service.js';
+import { readAppointmentNotificationRules, normalizeCustomSessionReminders } from './appointmentNotificationCustomization.service.js';
+import { readSessionReminderDefaults, saveSessionReminderDefaults, organizationReminderRules } from './sessionReminderDefaults.service.js';
+import { APP_SESSION_REMINDERS, sessionRsvpState, scheduledReminderSpacing, sessionReminderMessage } from './sessionReminderPolicy.js';
+import { rebuildSessionReminderPolicies } from './sessionReminderPolicyRebuild.service.js';
 import { serviceNotificationBlocked } from './clientServiceNotificationPolicy.service.js';
 import { appointmentFamilyRecipients } from './appointmentFamilyRecipients.service.js';
 import { createHash } from 'node:crypto';
@@ -44,11 +47,11 @@ export function minimalContactSessionReminder(appointment) {
 
 const CHANNELS = ['in_app', 'email', 'sms', 'phone'];
 
-/** Default Book Session reminder cadence: 7d always; 24h/4h gated by interaction. */
+/** Shared session cadence; legacy callers use the same persisted notification plan. */
 export const DEFAULT_CADENCE_OFFSETS = Object.freeze({
-  sevenDay: 7 * 24 * 60,
+  seventyTwoHour: 72 * 60,
   twentyFourHour: 24 * 60,
-  fourHour: 4 * 60
+  twoHour: 2 * 60
 });
 
 const DEFAULT_PLATFORM = {
@@ -58,21 +61,12 @@ const DEFAULT_PLATFORM = {
     sms: 'consent_required',
     phone: 'disabled'
   },
-  minRules: [
-    {
-      kind: 'standard_reminder',
-      offsetValue: 24,
-      offsetUnit: 'hours',
-      channel: 'email',
-      required: true,
-      label: 'Platform minimum 24h email'
-    }
-  ],
+  minRules: [],
   defaultBufferMinutes: 15,
   allowTenantDisable: { in_app: true, email: false, sms: true, phone: true }
 };
 
-const DEFAULT_TENANT_CHANNELS = { in_app: true, email: true, sms: false, phone: false };
+const DEFAULT_TENANT_CHANNELS = { in_app: true, email: true, sms: true, phone: false };
 
 function parseJson(raw, fallback = null) {
   if (raw == null) return fallback;
@@ -172,6 +166,7 @@ export async function getTenantSettings(agencyId) {
   const aid = Number(agencyId || 0);
   if (!aid) return null;
   const platform = await getPlatformSettings();
+  const savedReminderRules = await readSessionReminderDefaults(aid);
   try {
     const [rows] = await pool.execute(
       `SELECT * FROM agency_session_notification_settings WHERE agency_id = ? LIMIT 1`,
@@ -203,6 +198,7 @@ export async function getTenantSettings(agencyId) {
           respectUserOptOut: true
         },
         messageTemplates: {},
+        reminderRules: savedReminderRules || APP_SESSION_REMINDERS,
         platform
       };
     }
@@ -214,6 +210,7 @@ export async function getTenantSettings(agencyId) {
       additionalReminders: parseJson(r.additional_reminders_json, []),
       changeNotify: parseJson(r.change_notify_json, { enabled: true, bufferMinutes: 15, channels: ['email'], respectUserOptOut: true }),
       messageTemplates: parseJson(r.message_templates_json, {}),
+      reminderRules: organizationReminderRules({ standardReminder: parseJson(r.standard_reminder_json, {}), additionalReminders: parseJson(r.additional_reminders_json, []) }, savedReminderRules),
       platform
     };
   } catch {
@@ -225,6 +222,7 @@ export async function getTenantSettings(agencyId) {
       additionalReminders: [],
       changeNotify: { enabled: true, bufferMinutes: 15, channels: ['email'], respectUserOptOut: true },
       messageTemplates: {},
+      reminderRules: savedReminderRules || APP_SESSION_REMINDERS,
       platform
     };
   }
@@ -257,6 +255,11 @@ export async function putTenantSettings(agencyId, body = {}, updatedByUserId = n
     platform,
     body.channelsEnabled || body.channels_enabled_json || DEFAULT_TENANT_CHANNELS
   );
+  const reminderRules = body.reminderRules === undefined ? null : normalizeCustomSessionReminders(body.reminderRules);
+  if(reminderRules && !reminderRules.length) throw Object.assign(new Error('Choose at least one organization reminder.'),{status:400});
+  if(reminderRules) for(const rule of reminderRules) for(const channel of rule.channels||[rule.channel]) {
+    if(!channelsEnabled[channel]) throw Object.assign(new Error('Enable each selected reminder channel before saving the organization default.'),{status:400});
+  }
   await pool.execute(
     `INSERT INTO agency_session_notification_settings
       (agency_id, channels_enabled_json, booking_confirmation_json, standard_reminder_json,
@@ -281,6 +284,7 @@ export async function putTenantSettings(agencyId, body = {}, updatedByUserId = n
       updatedByUserId || null
     ]
   );
+  if (reminderRules) await saveSessionReminderDefaults(aid, 0, reminderRules, updatedByUserId);
   return getTenantSettings(aid);
 }
 
@@ -400,7 +404,7 @@ export async function loadClientConsent(clientId, agencyId, recipientGuardianUse
     const cp = await latestIntakeCommunicationChoices(clientId, agencyId, recipientGuardianUserId);
     const signed = cp?.version === INTAKE_COMMUNICATION_VERSION && cp?.signatureAccepted && cp?.signedAt;
     const phoneNumber = (recipientGuardianUserId ? recipientGuardian.phone : c.phone || c.guardian_phone) || (signed ? cp.recipientPhone : null) || null;
-    const recorded = await recordedReminderConsent(agencyId, phoneNumber, {clientId,recipientUserId:recipientGuardianUserId || undefined});
+    const recorded = await recordedReminderConsent(agencyId, phoneNumber, {clientId,recipientUserId:recipientGuardianUserId || undefined,requireActive:true});
     const declinedAt = cp?.signedAt || cp?.submittedAt;
     const laterReviewedConsent = recorded && declinedAt && Date.parse(recorded.collectedAt) > new Date(declinedAt).getTime();
     const matchingGuardians = guardians.filter(g => Number(g.access_enabled) === 1 && PhoneNumber.normalizePhone(g.phone)
@@ -413,7 +417,7 @@ export async function loadClientConsent(clientId, agencyId, recipientGuardianUse
       guardianUserId,
       intakeChoice: cp?.smsPreference || null,
       email: emailChoice ? emailChoice.email : cp?.emailPreference === 'no' ? false : recipientGuardianUserId && cp?.emailPreference ? true : c.session_email_opt_in == null ? true : Number(c.session_email_opt_in) === 1,
-      sms: cp?.smsPreference === 'no' ? !!laterReviewedConsent : !!recorded || (signed ? cp.smsPreference === 'scheduling_only' : Number(c.session_sms_opt_in) === 1),
+      sms: !!recorded && (cp?.smsPreference !== 'no' || !!laterReviewedConsent),
       phone: Number(c.session_phone_opt_in) === 1,
       emailAddress,
       phoneNumber
@@ -441,20 +445,20 @@ async function affiliatedRecipientAllowsChannel(appt, clientId, contact, channel
 /**
  * Build the effective delivery plan for an appointment (confirmation + reminders).
  */
-export async function buildDeliveryPlan(appointmentId) {
+export async function buildDeliveryPlan(appointmentId, options = {}) {
   const appointment = await Appointment.findById(appointmentId);
   if (!appointment || appointment.productOrigin === 'auricwell_ehr') return { appointment, deliveries: [] };
   const participants = await Appointment.listParticipants(appointmentId);
   const clientId = participants.find(p => p.clientId)?.clientId;
-  if (!clientId) return buildRecipientDeliveryPlan(appointmentId);
+  if (!clientId) return buildRecipientDeliveryPlan(appointmentId, null, null, null, options);
   const family = await appointmentFamilyRecipients(clientId, appointment.agencyId);
-  let plan = family.hasRelationships ? { appointment, deliveries: [] } : await buildRecipientDeliveryPlan(appointmentId);
+  let plan = family.hasRelationships ? { appointment, deliveries: [] } : await buildRecipientDeliveryPlan(appointmentId, null, null, null, options);
   const seen = new Set(plan.deliveries.map(delivery => JSON.stringify([delivery.kind, delivery.channel, delivery.channel === 'sms' ? PhoneNumber.normalizePhone(plan.consent?.phoneNumber) : String(plan.consent?.emailAddress || '').toLowerCase(), delivery.offsetMinutes, delivery.ruleKey, delivery.sendImmediately])));
   for (const recipient of family.recipients) {
-    const own = await buildRecipientDeliveryPlan(appointmentId, recipient.userId, clientId);
+    const own = await buildRecipientDeliveryPlan(appointmentId, recipient.userId, clientId, null, options);
     plan = { ...own, deliveries: [...plan.deliveries, ...own.deliveries.filter(delivery => {
       const address = delivery.channel === 'sms' ? PhoneNumber.normalizePhone(own.consent.phoneNumber)
-        : delivery.channel === 'email' ? String(own.consent.emailAddress || '').toLowerCase() : 'provider';
+        : delivery.channel === 'email' ? String(own.consent.emailAddress || '').toLowerCase() : `portal:${recipient.userId}`;
       const key = JSON.stringify([delivery.kind, delivery.channel, address, delivery.offsetMinutes, delivery.ruleKey, delivery.sendImmediately]);
       if (seen.has(key)) return false;
       seen.add(key); return true;
@@ -465,7 +469,7 @@ export async function buildDeliveryPlan(appointmentId) {
   const contacts = await Affiliations.listReminderRecipientsForClient(clientId);
   for (const contact of contacts) {
     if (Number(contact.agency_id) !== Number(appointment.agencyId)) continue;
-    const own = await buildRecipientDeliveryPlan(appointmentId, null, clientId, contact);
+    const own = await buildRecipientDeliveryPlan(appointmentId, null, clientId, contact, options);
     plan = { ...own, deliveries: [...plan.deliveries, ...own.deliveries.filter(delivery => {
       const address = delivery.channel === 'sms' ? PhoneNumber.normalizePhone(contact.contact_phone) : String(contact.contact_email || '').toLowerCase();
       const key = JSON.stringify([delivery.kind, delivery.channel, address, delivery.offsetMinutes, delivery.ruleKey, delivery.sendImmediately]);
@@ -478,10 +482,11 @@ export async function buildDeliveryPlan(appointmentId) {
   return plan;
 }
 
-async function buildRecipientDeliveryPlan(appointmentId, recipientGuardianUserId = null, recipientClientId = null, contact = null) {
+async function buildRecipientDeliveryPlan(appointmentId, recipientGuardianUserId = null, recipientClientId = null, contact = null, { manual = false } = {}) {
   const appt = await Appointment.findById(appointmentId);
   if (!appt) return { appointment: null, deliveries: [] };
   if (appt.productOrigin === 'auricwell_ehr') return { appointment: appt, deliveries: [] };
+  if (sessionRsvpState(appt) === 'declined') return { appointment: appt, deliveries: [] };
   const tenant = await getTenantSettings(appt.agencyId);
   const platform = tenant.platform || (await getPlatformSettings());
   const effectiveChannels = resolveEffectiveChannels(platform, tenant.channelsEnabled);
@@ -497,10 +502,15 @@ async function buildRecipientDeliveryPlan(appointmentId, recipientGuardianUserId
   const start = parseStartAt(appt.startAt);
   const serviceSetting = await resolveAppointmentServiceSetting(appt);
   const deliveries = [];
+  const contactChannels = contact ? Object.fromEntries(await Promise.all(['email','sms'].map(async channel =>
+    [channel, await affiliatedRecipientAllowsChannel(appt, clientId, contact, channel)]))) : null;
 
   const canUseChannel = (channel) => {
     const ch = String(channel || '').toLowerCase();
+    if(manual && prefs?.optionalRemindersEnabled === false) return false;
     if (contact && !['email', 'sms'].includes(ch)) return false;
+    if(ch === 'in_app' && !recipientGuardianUserId) return false;
+    if (contactChannels && !contactChannels[ch]) return false;
     if (!effectiveChannels[ch] || participants.find(p => p.clientId === clientId)?.receivesReminders === false) return false;
     // A configured minimum never overrides a recipient's channel choice.
     if (!prefs?.isDefault && prefs?.channels && prefs.channels[ch] === false) return false;
@@ -509,6 +519,11 @@ async function buildRecipientDeliveryPlan(appointmentId, recipientGuardianUserId
     if (ch === 'email' && consent.email === false) return false;
     return true;
   };
+
+  if (manual) return { appointment: appt, start, clientId, prefs, consent, effectiveChannels,
+    deliveries: ['email', 'sms', 'in_app'].filter(channel => canUseChannel(channel) && (channel !== 'in_app' || consent.guardianUserId || recipientGuardianUserId))
+      .map(channel => ({ kind: 'additional_reminder', ruleKey: 'manual_extra', channel, offsetMinutes: 0,
+        recipientRole: 'client', requiresConfirmation: !serviceSetting.isSchool && sessionRsvpState(appt) === 'unanswered', isRequired: false })) };
 
   // School visits have a single morning notice per opted-in channel, independent
   // of platform floors, booking confirmations or optional office cadences.
@@ -522,8 +537,9 @@ async function buildRecipientDeliveryPlan(appointmentId, recipientGuardianUserId
       })) : [] };
   }
 
-  // Platform minimums
-  for (const rule of platform.minRules || []) {
+  // Explicit platform requirements apply to organization defaults. Personal/custom
+  // reminder selections are complete schedules rather than additions.
+  for (const rule of appt.notificationMode === 'customizable' ? [] : platform.minRules || []) {
     const channel = rule.channel || 'email';
     if (!canUseChannel(channel, { required: true })) continue;
     if (channel === 'sms' && !consent.sms) continue;
@@ -566,70 +582,16 @@ async function buildRecipientDeliveryPlan(appointmentId, recipientGuardianUserId
     }
   }
 
-  // Standard reminder (tenant) — confirmation (Y/N/R) on by default
-  const std = tenant.standardReminder || {};
-  if (std.enabled !== false) {
-    const channels = Array.isArray(std.channels) ? std.channels : [std.channel || 'email'].filter(Boolean);
-    let mins = offsetToMinutes(std.offsetValue ?? 24, std.offsetUnit || 'hours');
-    // User may request earlier optional timing — not later than required floor for required rules
-    if (prefs?.reminderLead && std.required !== true) {
-      mins = offsetToMinutes(prefs.reminderLead.offsetValue, prefs.reminderLead.offsetUnit);
-    }
-    const askConfirm = std.askConfirmation !== false && prefs?.confirmationRequestsEnabled !== false;
-    for (const channel of channels) {
-      if (!canUseChannel(channel, { required: !!std.required })) continue;
-      if (channel === 'sms' && !consent.sms) continue;
-      deliveries.push({
-        kind: 'standard_reminder',
-        ruleKey: 'tenant_standard',
-        channel,
-        offsetMinutes: mins,
-        recipientRole: 'client',
-        requiresConfirmation: askConfirm,
-        isRequired: std.required !== false,
-        templateKey: std.templateKey || 'standard_reminder',
-        messageBody: std.message || buildReminderMessage({
-          title: appt.title,
-          when: sessionReminderTime(appt),
-          askConfirmation: askConfirm
-        })
-      });
-    }
-  }
-
-  // Additional optional reminders — confirmation on by default when enabled
-  if (prefs?.optionalRemindersEnabled !== false) {
-    for (const rule of tenant.additionalReminders || []) {
-      if (rule.enabled === false) continue;
-      const channel = rule.channel || 'email';
-      if (!canUseChannel(channel)) continue;
-      const askConfirm = rule.askConfirmation !== false && prefs?.confirmationRequestsEnabled !== false;
-      deliveries.push({
-        kind: 'additional_reminder',
-        ruleKey: String(rule.id || rule.label || channel),
-        channel,
-        offsetMinutes: offsetToMinutes(rule.offsetValue, rule.offsetUnit),
-        recipientRole: rule.recipient || 'client',
-        requiresConfirmation: askConfirm,
-        isRequired: false,
-        templateKey: rule.templateKey || null,
-        messageBody: rule.message || buildReminderMessage({
-          title: appt.title,
-          when: sessionReminderTime(appt),
-          askConfirmation: askConfirm
-        })
-      });
-    }
-  }
-
-  if (appt.notificationMode === 'customizable' && prefs?.optionalRemindersEnabled !== false) {
-    for (const rule of await readAppointmentNotificationRules(appt.id, appt.agencyId)) {
-      if (!canUseChannel(rule.channel)) continue;
-      deliveries.push({ kind: 'standard_reminder', ruleKey: `appointment_custom:${rule.id}`,
-        channel: rule.channel, offsetMinutes: rule.offsetMinutes, recipientRole: 'client',
-        requiresConfirmation: rule.askConfirmation && prefs?.confirmationRequestsEnabled !== false,
-        isRequired: false, messageBody: rule.message || buildReminderMessage({ title: appt.title,
-          when: sessionReminderTime(appt), askConfirmation: rule.askConfirmation && prefs?.confirmationRequestsEnabled !== false }) });
+  const custom = appt.notificationMode === 'customizable';
+  const rules = custom ? await readAppointmentNotificationRules(appt.id, appt.agencyId)
+    : tenant.reminderRules || organizationReminderRules(tenant);
+  if (prefs?.optionalRemindersEnabled !== false) for (const rule of rules) {
+    for (const channel of rule.channels || [rule.channel]) {
+      if (!canUseChannel(channel) || (channel === 'in_app' && !consent.guardianUserId && !recipientGuardianUserId)) continue;
+      const ask = rule.askConfirmation !== false && prefs?.confirmationRequestsEnabled !== false;
+      deliveries.push({ kind: 'standard_reminder', ruleKey: `${custom ? 'appointment_custom' : 'organization'}:${rule.id}`,
+        channel, offsetMinutes: rule.offsetMinutes, recipientRole: 'client', requiresConfirmation: ask,
+        isRequired: false, messageBody: rule.message || null });
     }
   }
   const unique = dedupeSessionReminders(deliveries);
@@ -651,8 +613,11 @@ export async function scheduleSessionNotifications(appointmentId, { replace = tr
 
 async function scheduleSessionNotificationsUnlocked(appointmentId, { replace = true } = {}) {
   const plan = await buildDeliveryPlan(appointmentId);
-  if (!plan.appointment || !plan.start) return [];
-  if (replace) await cancelPendingReminders(appointmentId, { preserveManual: true });
+  if (!plan.appointment) return [];
+  if (replace) await cancelPendingReminders(appointmentId, { preserveManual: sessionRsvpState(plan.appointment)!=='declined' });
+  if (!plan.start) return [];
+  const [storedRows] = await pool.execute('SELECT * FROM appointment_reminders WHERE appointment_id=?', [appointmentId]);
+  const existing = Array.isArray(storedRows) ? storedRows : [];
 
   const created = [];
   for (const d of plan.deliveries) {
@@ -671,6 +636,12 @@ async function scheduleSessionNotificationsUnlocked(appointmentId, { replace = t
     }
     if (when.getTime() <= Date.now() - 60 * 1000 && d.kind !== 'confirmation') continue;
     const scheduledFor = toMysqlDateTime(when);
+    if (existing.some(row => row.status !== 'canceled' && row.channel === (d.channel === 'in_app' ? 'email' : d.channel)
+      && String(row.kind || '').includes(':in_app') === (d.channel === 'in_app')
+      && utcMysqlToIso(row.scheduled_for) === utcMysqlToIso(scheduledFor)
+      && Number(row.recipient_guardian_user_id || 0) === Number(d.recipientGuardianUserId || 0)
+      && Number(row.recipient_client_id || 0) === Number(d.recipientClientId || 0)
+      && Number(row.recipient_affiliation_id || 0) === Number(d.recipientAffiliationId || 0))) continue;
     try {
       const [result] = await pool.execute(
         `INSERT INTO appointment_reminders
@@ -752,163 +723,9 @@ export async function scheduleDefaultCadenceReminders(appointmentId, options = {
   return withSessionSchedulingLock(appointmentId, () => scheduleDefaultCadenceRemindersUnlocked(appointmentId, options));
 }
 
-async function scheduleDefaultCadenceRemindersUnlocked(appointmentId, {
-  replace = false,
-  channel = 'email',
-  includeFollowUps = null,
-  interaction = null
-} = {}) {
-  const appt = await Appointment.findById(appointmentId);
-  if (!appt) throw Object.assign(new Error('Appointment not found'), { status: 404 });
-  if (appt.productOrigin === 'auricwell_ehr') return [];
-  if(appt.providerUserId){
-    const participants=await Appointment.listParticipants(appt.id);
-    if(await serviceNotificationBlocked({appointment:appt,clientId:participants.find(p=>p.clientId)?.clientId}))return [];
-  }
-  const serviceSetting = await resolveAppointmentServiceSetting(appt);
-  // School visits use the family's normal reminder preferences, without a
-  // confirmation-driven escalation cadence.
-  if (serviceSetting.isSchool) return scheduleSessionNotificationsUnlocked(appointmentId, { replace });
-  const start = parseStartAt(appt.startAt);
-  if (!start) return [];
-
-  let interactionJson = interaction;
-  if (!interactionJson) {
-    try {
-      const [rows] = await pool.execute(
-        `SELECT interaction_json FROM appointment_reminders
-         WHERE appointment_id = ? AND interaction_json IS NOT NULL
-         ORDER BY id DESC LIMIT 1`,
-        [Number(appointmentId)]
-      );
-      interactionJson = parseJson(rows?.[0]?.interaction_json, null);
-    } catch {
-      interactionJson = null;
-    }
-  }
-
-  const opened = !!(interactionJson?.opened_at || interactionJson?.confirmed_at || interactionJson?.chosen_cadence);
-  const followUps = includeFollowUps === true
-    || (includeFollowUps == null && opened);
-
-  if (replace) {
-    try {
-      await pool.execute(
-        `UPDATE appointment_reminders
-         SET status = 'canceled', skip_reason = 'cadence_reschedule'
-         WHERE appointment_id = ?
-           AND status = 'pending'
-           AND (
-             rule_key IN ('cadence_7d', 'cadence_24h', 'cadence_4h')
-             OR offset_minutes IN (?, ?, ?)
-           )`,
-        [
-          Number(appointmentId),
-          DEFAULT_CADENCE_OFFSETS.sevenDay,
-          DEFAULT_CADENCE_OFFSETS.twentyFourHour,
-          DEFAULT_CADENCE_OFFSETS.fourHour
-        ]
-      );
-    } catch {
-      /* best-effort */
-    }
-  }
-
-  const specs = [
-    {
-      offsetMinutes: DEFAULT_CADENCE_OFFSETS.sevenDay,
-      kind: 'standard_reminder',
-      ruleKey: 'cadence_7d',
-      requiresConfirmation: true,
-      always: true
-    },
-    {
-      offsetMinutes: DEFAULT_CADENCE_OFFSETS.twentyFourHour,
-      kind: 'additional_reminder',
-      ruleKey: 'cadence_24h',
-      requiresConfirmation: true,
-      always: false
-    },
-    {
-      offsetMinutes: DEFAULT_CADENCE_OFFSETS.fourHour,
-      kind: 'additional_reminder',
-      ruleKey: 'cadence_4h',
-      requiresConfirmation: true,
-      always: false
-    }
-  ];
-
-  const created = [];
-  const ch = channel === 'sms' ? 'sms' : 'email';
-  for (const spec of specs) {
-    if (!spec.always && !followUps) continue;
-    const when = new Date(start.getTime() - spec.offsetMinutes * 60 * 1000);
-    if (when.getTime() <= Date.now() - 60 * 1000) continue;
-    const scheduledFor = toMysqlDateTime(when);
-    const messageBody = buildReminderMessage({
-      title: appt.title,
-      when: sessionReminderTime(appt),
-      askConfirmation: true
-    });
-    try {
-      const [result] = await pool.execute(
-        `INSERT INTO appointment_reminders
-          (appointment_id, agency_id, channel, kind, rule_key, recipient_role,
-           requires_confirmation, template_key, is_required, message_body,
-           offset_minutes, scheduled_for, status, interaction_json)
-         VALUES (?, ?, ?, ?, ?, 'client', ?, ?, 0, ?, ?, ?, 'pending', ?)`,
-        [
-          appt.id,
-          appt.agencyId,
-          ch,
-          spec.kind,
-          spec.ruleKey,
-          spec.requiresConfirmation ? 1 : 0,
-          spec.ruleKey,
-          messageBody,
-          spec.offsetMinutes,
-          scheduledFor,
-          interactionJson ? JSON.stringify(interactionJson) : null
-        ]
-      );
-      created.push({
-        id: Number(result.insertId),
-        ...spec,
-        channel: ch,
-        scheduledFor
-      });
-    } catch (e) {
-      if (String(e?.message || '').includes('Unknown column') || e?.code === 'ER_BAD_FIELD_ERROR') {
-        const [result] = await pool.execute(
-          `INSERT INTO appointment_reminders
-            (appointment_id, agency_id, channel, offset_minutes, scheduled_for, status)
-           VALUES (?, ?, ?, ?, ?, 'pending')`,
-          [appt.id, appt.agencyId, ch, spec.offsetMinutes, scheduledFor]
-        );
-        created.push({
-          id: Number(result.insertId),
-          ...spec,
-          channel: ch,
-          scheduledFor
-        });
-      } else {
-        throw e;
-      }
-    }
-  }
-
-  if (created.length) {
-    await logCommunication({
-      appointmentId: appt.id,
-      agencyId: appt.agencyId,
-      direction: 'system',
-      channel: 'in_app',
-      kind: 'reminder',
-      bodyPreview: `Scheduled default cadence (${created.map((c) => c.ruleKey).join(', ')})`,
-      metadata: { cadence: created.map((c) => c.ruleKey), followUps }
-    });
-  }
-  return created;
+async function scheduleDefaultCadenceRemindersUnlocked(appointmentId, { replace = false } = {}) {
+  // Bookings, edits, preferences and RSVP replies all use the same persisted plan.
+  return scheduleSessionNotificationsUnlocked(appointmentId, { replace });
 }
 
 /**
@@ -961,7 +778,7 @@ export async function applyConfirmReply(appointmentId, {
     metadata: { status: 'client_confirmed', interaction }
   });
 
-  // After confirm, schedule conditional 24h/4h follow-ups if still upcoming
+  // Preserve the normal follow-ups after confirmation; send-time copy drops RSVP prompts.
   try {
     await scheduleDefaultCadenceReminders(appointmentId, {
       replace: false,
@@ -990,9 +807,9 @@ async function sendContactSessionEmail({ contact, appointment, clientId }) {
   return result;
 }
 
-async function sendSessionEmail({to,agencyId,clientId,kind='reminder',appointment}) {
+async function sendSessionEmail({to,agencyId,clientId,kind='reminder',appointment,text,requiresConfirmation=true,reminderId=null,guardianUserId=null}) {
   const {sendAppointmentEmail}=await import('./appointmentEmailActions.service.js');
-  const result=await sendAppointmentEmail({to,clientId,kind,appointment});
+  const result=await sendAppointmentEmail({to,clientId,kind,appointment,message:text,requiresConfirmation,reminderId,guardianUserId});
   if(['school_session_email_opted_out','service_ended_notifications_disabled'].includes(result?.reason)) return result;
   if(!result?.id || result.skipped || result.blocked || result.queued || result.pendingApproval) throw new Error('The appointment email was not confirmed as sent.');
   return result;
@@ -1009,28 +826,40 @@ function defaultMessage(appt, kind, requiresConfirmation) {
   });
 }
 
-async function sendInAppIfPossible(appt, body) {
-  try {
+async function sendInAppIfPossible(appt, body, recipientUserId, clientId) {
+  if (!recipientUserId) throw new Error('No active portal account is available for this reminder.');
     const NotificationDispatcher = (await import('./notificationDispatcher.service.js')).default;
-    if (appt.providerUserId && typeof NotificationDispatcher.createNotificationAndDispatch === 'function') {
+    if (typeof NotificationDispatcher.createNotificationAndDispatch === 'function') {
       await NotificationDispatcher.createNotificationAndDispatch({
-        userId: appt.providerUserId,
+        userId: recipientUserId,
         agencyId: appt.agencyId,
         type: 'program_reminder',
         title: 'Session notification',
         message: body,
         relatedEntityType: 'appointment',
-        relatedEntityId: appt.id
+        relatedEntityId: appt.id,
+        audienceJson: { clientId }
       });
     }
-  } catch {
-    /* optional */
-  }
+}
+
+async function trackReminderEmail({appointment,row,clientId,to,result}) {
+  if(!result?.internetMessageId||result.redirected||result.skipped||result.blocked)return;
+  try { const {recordSessionReminderEmail}=await import('./sessionNotificationEmailReplies.service.js');
+    await recordSessionReminderEmail({appointment,reminderId:row.id,clientId,guardianUserId:row.recipient_guardian_user_id,
+      affiliationId:row.recipient_affiliation_id,to,result});
+  } catch(error){console.warn('[session notification] Reply linkage needs review',row.id,error.code||'projection_failed');}
+}
+
+async function logReminderCommunication(input) {
+  try { await logCommunication(input); }
+  catch(error) { console.warn('[session notification] Delivery history projection needs review',input.appointmentId,error.code||'projection_failed'); }
 }
 
 /** Drain due appointment_reminders using session notification send rules. */
-export async function processDueSessionNotifications({ limit = 50, agencyId = null } = {}) {
+export async function processDueSessionNotifications({ limit = 50, agencyId = null, includeRelatedQueues = true } = {}) {
   if (agencyId !== null && (!Number.isSafeInteger(agencyId) || agencyId < 1)) throw new Error('A valid notification agency is required');
+  await rebuildSessionReminderPolicies({schedule:scheduleSessionNotifications,agencyId,limit:10});
   // Prefer new columns; fall back to Phase 4 processor shape
   let rows;
   try {
@@ -1048,24 +877,31 @@ export async function processDueSessionNotifications({ limit = 50, agencyId = nu
   }
 
   const results = { sent: 0, skipped: 0, failed: 0, voiceScaffold: 0 };
+  const settingsByAgency=new Map();
   for (const row of rows || []) {
     // Both legacy/manual and scheduled drains use this connection-scoped lock.
     // Recheck under the lock so overlapping workers cannot send the same row.
     const lock = await pool.getConnection();
     let acquired = false;
     let schoolDeliveryLock = null;
+    let recipientDeliveryLock = null;
     try {
       const [[result]] = await lock.execute('SELECT GET_LOCK(?, 0) AS acquired', [`session_reminder:${row.id}`]);
       acquired = Number(result?.acquired) === 1;
       if (!acquired) continue;
       const [[current]] = await lock.execute('SELECT status FROM appointment_reminders WHERE id = ?', [row.id]);
       if (current?.status !== 'pending') continue;
+      if(row.rule_key!=='manual_extra') {
+        const [[policy]]=await pool.execute('SELECT status FROM session_reminder_policy_rebuilds WHERE appointment_id=?',[row.appointment_id]);
+        if(policy?.status==='pending') {await rebuildSessionReminderPolicies({schedule:scheduleSessionNotifications,appointmentId:row.appointment_id,agencyId,limit:1});continue;}
+        if(policy?.status==='review') {await pool.execute("UPDATE appointment_reminders SET status='skipped',skip_reason='reminder_schedule_needs_review' WHERE id=?",[row.id]);results.skipped++;continue;}
+      }
     const appt = await Appointment.findById(row.appointment_id);
     if (appt && Number(row.agency_id) !== Number(appt.agencyId)) {
       await pool.execute("UPDATE appointment_reminders SET status='skipped',skip_reason='recipient_agency_mismatch' WHERE id=?",[row.id]);
       results.skipped++; continue;
     }
-    if (!appt || appt.productOrigin === 'auricwell_ehr' || /cancel/i.test(appt.status || '') || ['completed', 'no_show', 'rescheduled', 'draft'].includes(appt.status)) {
+    if (!appt || appt.productOrigin === 'auricwell_ehr' || sessionRsvpState(appt) === 'declined' || ['completed', 'no_show', 'rescheduled', 'reschedule_requested', 'draft'].includes(appt.status)) {
       await pool.execute(
         `UPDATE appointment_reminders SET status = 'canceled', skip_reason = 'canceled_appt' WHERE id = ?`,
         [row.id]
@@ -1075,6 +911,10 @@ export async function processDueSessionNotifications({ limit = 50, agencyId = nu
     }
 
     const serviceSetting = await resolveAppointmentServiceSetting(appt);
+    if(!serviceSetting.isSchool && +parseStartAt(appt.startAt)<=Date.now()) {
+      await pool.execute("UPDATE appointment_reminders SET status='skipped',skip_reason='session_already_started' WHERE id=?",[row.id]);
+      results.skipped++;continue;
+    }
     if (serviceSetting.isSchool) {
       const window = schoolAppointmentReminderWindow(appt);
       if (!window || Date.now() >= +window.deadline) {
@@ -1113,12 +953,33 @@ export async function processDueSessionNotifications({ limit = 50, agencyId = nu
     }
     const participants = await Appointment.listParticipants(appt.id);
     const clientId = row.recipient_client_id || participants.find(p => p.clientId)?.clientId || null;
+    if(!settingsByAgency.has(appt.agencyId))settingsByAgency.set(appt.agencyId,await getTenantSettings(appt.agencyId));
+    const currentSettings=settingsByAgency.get(appt.agencyId);
+    const currentChannel=String(row.kind||'').includes(':in_app')?'in_app':row.channel;
+    if(!resolveEffectiveChannels(currentSettings.platform,currentSettings.channelsEnabled)[currentChannel]) {
+      await pool.execute("UPDATE appointment_reminders SET status='skipped',skip_reason='organization_channel_disabled' WHERE id=?",[row.id]);results.skipped++;continue;
+    }
     if(await serviceNotificationBlocked({appointment:appt,clientId})){
       await pool.execute("UPDATE appointment_reminders SET status='canceled',skip_reason='service_ended' WHERE id=?",[row.id]);
       results.skipped++;continue;
     }
     if (row.recipient_client_id && !participants.some(p => Number(p.clientId) === Number(clientId))) {
       await pool.execute("UPDATE appointment_reminders SET status='skipped',skip_reason='recipient_unlinked' WHERE id=?",[row.id]);results.skipped++;continue;
+    }
+    if (!serviceSetting.isSchool) {
+      recipientDeliveryLock = `session-recipient:${createHash('sha256').update(`${appt.id}:${clientId || 0}:${row.recipient_guardian_user_id || 0}:${row.recipient_affiliation_id || 0}`).digest('hex').slice(0, 40)}`;
+      const [[deliveryLock]] = await lock.execute('SELECT GET_LOCK(?, 0) AS acquired', [recipientDeliveryLock]);
+      if (Number(deliveryLock?.acquired) !== 1) { recipientDeliveryLock = null; continue; }
+      if (row.rule_key !== 'manual_extra') {
+        const [recent] = await pool.execute(`SELECT sent_at FROM appointment_reminders WHERE appointment_id=? AND status='sent'
+          AND recipient_guardian_user_id <=> ? AND recipient_client_id <=> ? AND recipient_affiliation_id <=> ?
+          AND NOT (scheduled_for <=> ? AND offset_minutes <=> ?) ORDER BY sent_at DESC LIMIT 1`,
+        [appt.id, row.recipient_guardian_user_id || null, row.recipient_client_id || null, row.recipient_affiliation_id || null, row.scheduled_for, row.offset_minutes]);
+        if (!scheduledReminderSpacing({startAt:appt.startAt,lastSentAt:recent?.[0]?.sent_at}).allowed) {
+          await pool.execute("UPDATE appointment_reminders SET status='skipped',skip_reason='within_24_hours_of_previous_reminder' WHERE id=?",[row.id]);
+          results.skipped++; continue;
+        }
+      }
     }
     if (row.recipient_affiliation_id) {
       const { default: Affiliations } = await import('../models/ClientContactAffiliation.model.js');
@@ -1152,9 +1013,10 @@ export async function processDueSessionNotifications({ limit = 50, agencyId = nu
           await pool.execute("UPDATE appointment_reminders SET status='skipped',skip_reason='contact_channel_unavailable' WHERE id=?", [row.id]);
           results.skipped++; continue;
         }
-        await pool.execute("UPDATE appointment_reminders SET status='sent',sent_at=NOW() WHERE id=?", [row.id]);
-        await logCommunication({ appointmentId: appt.id, agencyId: appt.agencyId, channel: row.channel, kind: 'reminder', reminderId: row.id,
-          bodyPreview: text, metadata: { recipientRole: 'contact', affiliationId: contact.affiliation_id, deliveryStatus: 'sent',
+        if(row.channel==='email')await trackReminderEmail({appointment:appt,row,clientId,to:contact.contact_email,result:receipt});
+        await pool.execute("UPDATE appointment_reminders SET status='sent',sent_at=NOW(),message_body=? WHERE id=?", [text,row.id]);
+        await logReminderCommunication({ appointmentId: appt.id, agencyId: appt.agencyId, channel: row.channel, kind: 'reminder', reminderId: row.id,
+          bodyPreview: text, metadata: { recipientRole: 'contact', affiliationId: contact.affiliation_id, deliveryStatus: 'sent',bodyRendered:true,
             recipient: row.channel === 'sms' ? contact.contact_phone : contact.contact_email } });
         results.sent++;
       } catch (error) {
@@ -1205,8 +1067,10 @@ export async function processDueSessionNotifications({ limit = 50, agencyId = nu
     let channel = String(row.channel || 'email');
     if (isInApp) channel = 'in_app';
 
-    const body = serviceSetting.isSchool ? buildSchoolReminder(appt)
-      : formatQueuedSessionMessage(appt, row.message_body) || defaultMessage(appt, kind.replace(':in_app', ''), !!row.requires_confirmation);
+    const askConfirmation = !serviceSetting.isSchool && sessionRsvpState(appt) !== 'confirmed' && !!row.requires_confirmation;
+    const body = serviceSetting.isSchool ? buildSchoolReminder(appt) : sessionReminderMessage({appointment:appt,
+      when:sessionReminderTime(appt),requiresConfirmation:askConfirmation,
+      message:formatQueuedSessionMessage(appt,row.message_body),nearSession:+parseStartAt(appt.startAt)-Date.now()<=5*3600000});
     const contactBody = minimalContactSessionReminder(appt);
     const prefs = clientId ? await getClientPreferences(appt.agencyId, clientId, consent.guardianUserId) : null;
     const participant = participants.find((p) => p.clientId === clientId);
@@ -1214,7 +1078,7 @@ export async function processDueSessionNotifications({ limit = 50, agencyId = nu
       || (channel === 'email' && !consent.email)
       || (!row.is_required && prefs?.optionalRemindersEnabled === false && kind.includes('reminder'))
       || (!serviceSetting.isSchool && kind.startsWith('confirmation') && prefs?.confirmationRequestsEnabled === false);
-    if (channel !== 'in_app' && optedOut) {
+    if (optedOut) {
       await pool.execute("UPDATE appointment_reminders SET status = 'skipped', skip_reason = 'recipient_opted_out' WHERE id = ?", [row.id]);
       results.skipped += 1;
       continue;
@@ -1226,14 +1090,14 @@ export async function processDueSessionNotifications({ limit = 50, agencyId = nu
         `UPDATE appointment_reminders SET status = 'skipped', skip_reason = 'voice_not_configured' WHERE id = ?`,
         [row.id]
       );
-      await logCommunication({
+      await logReminderCommunication({
         appointmentId: appt.id,
         agencyId: appt.agencyId,
         channel: 'phone',
         kind: 'reminder',
         bodyPreview: 'Automated phone call skipped — voice dialer not configured',
         reminderId: row.id,
-          metadata: { deliveryStatus: 'sent', guardianUserId: row.recipient_guardian_user_id || null, recipient: channel === 'sms' ? consent.phoneNumber : consent.emailAddress }
+          metadata: { deliveryStatus: 'skipped', reason: 'Voice reminders are not configured.', guardianUserId: row.recipient_guardian_user_id || null }
       });
       results.voiceScaffold += 1;
       results.skipped += 1;
@@ -1241,19 +1105,23 @@ export async function processDueSessionNotifications({ limit = 50, agencyId = nu
     }
 
     if (channel === 'in_app') {
-      await sendInAppIfPossible(appt, body);
+      if(!row.recipient_guardian_user_id) {
+        await pool.execute("UPDATE appointment_reminders SET status='skipped',skip_reason='no_portal_recipient' WHERE id=?",[row.id]);results.skipped++;continue;
+      }
+      const appBody=askConfirmation ? body.replace('Reply Y to confirm, N to cancel, R to request a reschedule.','Open this appointment in your portal to confirm, cancel, or request a new time.') : body;
+      await sendInAppIfPossible(appt, appBody, row.recipient_guardian_user_id, clientId);
       await pool.execute(
-        `UPDATE appointment_reminders SET status = 'sent', sent_at = NOW() WHERE id = ?`,
-        [row.id]
+        `UPDATE appointment_reminders SET status = 'sent', sent_at = NOW(),message_body=? WHERE id = ?`,
+        [appBody,row.id]
       );
-      await logCommunication({
+      await logReminderCommunication({
         appointmentId: appt.id,
         agencyId: appt.agencyId,
         channel: 'in_app',
         kind: kind.startsWith('confirmation') ? 'reminder' : 'reminder',
-        bodyPreview: body.slice(0, 500),
+        bodyPreview: appBody.slice(0, 500),
         reminderId: row.id,
-          metadata: { deliveryStatus: 'sent', guardianUserId: row.recipient_guardian_user_id || null, recipient: channel === 'sms' ? consent.phoneNumber : consent.emailAddress }
+          metadata: { deliveryStatus: 'sent', bodyRendered:true, guardianUserId: row.recipient_guardian_user_id || null, recipient: channel === 'sms' ? consent.phoneNumber : consent.emailAddress }
       });
       results.sent += 1;
       continue;
@@ -1282,17 +1150,17 @@ export async function processDueSessionNotifications({ limit = 50, agencyId = nu
         const sent = await VonageService.sendSms({ purpose: 'reminders', agencyId: appt.agencyId, clientId, notificationCategory: serviceSetting.isSchool ? 'school_sessions' : 'appointments', to: toPhoneNorm, from, body: body.slice(0, 480) });
         if (!(sent?.id || sent?.sid || sent?.messageId || sent?.messageUuid || sent?.messageUUID) || sent?.skipped || sent?.blocked || sent?.queued || sent?.pendingApproval) throw new Error(sent?.reason || 'Text delivery was not accepted; review before resending.');
         await pool.execute(
-          `UPDATE appointment_reminders SET status = 'sent', sent_at = NOW() WHERE id = ?`,
-          [row.id]
+          `UPDATE appointment_reminders SET status = 'sent', sent_at = NOW(),message_body=? WHERE id = ?`,
+          [body.slice(0,480),row.id]
         );
-        await logCommunication({
+        await logReminderCommunication({
           appointmentId: appt.id,
           agencyId: appt.agencyId,
           channel: 'sms',
           kind: 'reminder',
           bodyPreview: body.slice(0, 500),
           reminderId: row.id,
-          metadata: { deliveryStatus: 'sent', guardianUserId: row.recipient_guardian_user_id || null, recipient: channel === 'sms' ? consent.phoneNumber : consent.emailAddress }
+          metadata: { deliveryStatus: 'sent', bodyRendered:true, guardianUserId: row.recipient_guardian_user_id || null, recipient: channel === 'sms' ? consent.phoneNumber : consent.emailAddress }
         });
         results.sent += 1;
       } catch (e) {
@@ -1325,25 +1193,27 @@ export async function processDueSessionNotifications({ limit = 50, agencyId = nu
           html: `<p>${escapeHtml(body).replace(/\n/g, '<br/>')}</p>`,
           agencyId: appt.agencyId || null,
           clientId: clientId || null,
-          kind
+          kind,
+          requiresConfirmation: askConfirmation, reminderId: row.id, guardianUserId: row.recipient_guardian_user_id || null
         });
         emailSent=!delivery?.skipped;
+        if(emailSent)await trackReminderEmail({appointment:appt,row,clientId,to:consent.emailAddress,result:delivery});
         if(delivery?.reason)emailSkipReason=delivery.reason;
       }
       if(emailSent) {
-      await logCommunication({
+      await pool.execute("UPDATE appointment_reminders SET status='sent',sent_at=NOW(),message_body=? WHERE id=?",[body,row.id]);
+      await logReminderCommunication({
         appointmentId: appt.id,
         agencyId: appt.agencyId,
         channel: 'email',
         kind: 'reminder',
         bodyPreview: body.slice(0, 500),
         reminderId: row.id,
-          metadata: { deliveryStatus: 'sent', guardianUserId: row.recipient_guardian_user_id || null, recipient: channel === 'sms' ? consent.phoneNumber : consent.emailAddress }
+          metadata: { deliveryStatus: 'sent', bodyRendered:true, guardianUserId: row.recipient_guardian_user_id || null, recipient: channel === 'sms' ? consent.phoneNumber : consent.emailAddress }
       });
       }
 
       if(emailSent) {
-        await pool.execute("UPDATE appointment_reminders SET status='sent',sent_at=NOW() WHERE id=?",[row.id]);
         results.sent += 1;
       } else {
         await pool.execute("UPDATE appointment_reminders SET status='skipped',skip_reason=? WHERE id=?",[emailSkipReason,row.id]);
@@ -1363,12 +1233,14 @@ export async function processDueSessionNotifications({ limit = 50, agencyId = nu
     } finally {
       try {
         if (schoolDeliveryLock) await lock.execute('SELECT RELEASE_LOCK(?)', [schoolDeliveryLock]);
+        if (recipientDeliveryLock) await lock.execute('SELECT RELEASE_LOCK(?)', [recipientDeliveryLock]);
         if (acquired) await lock.execute('SELECT RELEASE_LOCK(?)', [`session_reminder:${row.id}`]);
       }
       finally { lock.release(); }
     }
   }
 
+  if(!includeRelatedQueues)return results;
   // Also drain change buffer
   const bufferResult = await processDueChangeNotifications({ limit: 20, agencyId });
   const { processDueCancellationNotifications } = await import('./appointmentCancellationNotification.service.js');

@@ -226,6 +226,11 @@ export async function applyAppointmentReply({
       `Client confirmed appointment #${appt.id} (${appt.title || 'session'} on ${appt.startAt}).`
     );
   } else if (intent === 'cancel') {
+    // An authenticated N declines reminders even while a fee needs acknowledgment.
+    await pool.execute(`UPDATE appointments SET cancellation_recommendation_json=JSON_SET(
+      COALESCE(cancellation_recommendation_json,JSON_OBJECT()),'$.clientReply','declined',
+      '$.clientReplyChannel',?,'$.clientRepliedAt',DATE_FORMAT(UTC_TIMESTAMP(),'%Y-%m-%dT%H:%i:%sZ')) WHERE id=?`,[channel,appt.id]);
+    await pool.execute("UPDATE appointment_reminders SET status='canceled',skip_reason='rsvp_declined' WHERE appointment_id=? AND status='pending'",[appt.id]);
     try {
       const { evaluateCancel } = await import('./bookingCancellationPolicy.service.js');
       const evaluation = await evaluateCancel({ appointment: appt, actorRole: 'client', clientId });
