@@ -1,15 +1,15 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
-const state = vi.hoisted(() => ({ role: 'provider', get: vi.fn(), patch: vi.fn() }));
-vi.mock('vue-router', () => ({ useRouter: () => ({ push: vi.fn() }) }));
+const state = vi.hoisted(() => ({ role: 'provider', get: vi.fn(), patch: vi.fn(), push:vi.fn(),agency:null }));
+vi.mock('vue-router', () => ({ useRouter: () => ({ push: state.push }) }));
 vi.mock('../../../../store/auth', () => ({ useAuthStore: () => ({ user: { id: 1439, role: state.role } }) }));
-vi.mock('../../../../store/agency', () => ({ useAgencyStore: () => ({ currentAgency: { id: 450, slug: 'demo' } }) }));
+vi.mock('../../../../store/agency', () => ({ useAgencyStore: () => state.agency }));
 vi.mock('../../../../services/api', () => ({ default: { get: state.get, patch: state.patch } }));
 vi.mock('../ClientChartAvatar.vue', () => ({ default: { template: '<span />' } }));
 vi.mock('../TreatmentPlanAckPanel.vue', () => ({ default: { template: '<span />' } }));
 import Panel from '../ClientTreatmentPlansPanel.vue';
 beforeEach(() => {
-  vi.clearAllMocks(); state.role = 'provider';
+  vi.clearAllMocks(); state.role = 'provider';state.agency={currentAgency:{id:450,slug:'demo'},userAgencies:[{id:450,slug:'demo'}]};
   const plan = { id: 51, status: 'active', title: 'Synthetic plan', created_by_user_id: 1439, goals: [{ id: 61, goal_index: 1, goal_text: 'Synthetic goal', status: 'active', objectives: [] }] };
   state.get.mockResolvedValue({ data: { plans: [plan], latestPlan: plan, events: [] } });
   state.patch.mockResolvedValue({ data: { changed: true, status: 'achieved', notifications: { sent: 1, needs_review: 1 } } });
@@ -28,4 +28,10 @@ it('keeps clinical progress controls out of support and learning-plan views', as
     state.role = role; const wrapper = mount(Panel, { props: { clientId: 2297, agencyId: 450, clientType } }); await flushPromises();
     expect(wrapper.find('form.ctp-progress-controls').exists()).toBe(false); wrapper.unmount();
   }
+});
+
+it('opens the selected client plan in its own agency instead of a stale NLU selection',async()=>{
+ state.agency={currentAgency:{id:453,slug:'nlu-qa-demo'},userAgencies:[{id:450,slug:'auricwell-qa-demo'},{id:453,slug:'nlu-qa-demo'}]};
+ const w=mount(Panel,{props:{clientId:2449,agencyId:450,clientType:'clinical'}});await flushPromises();await w.findAll('button').find(b=>b.text()==='Update in Note Workspace').trigger('click');
+ expect(state.push).toHaveBeenCalledWith(expect.objectContaining({path:'/auricwell-qa-demo/note-aid'}));w.unmount();
 });

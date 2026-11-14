@@ -1845,6 +1845,7 @@ async function runSmartSearch() {
 function applySearch() {
   if(searchTimer)clearTimeout(searchTimer);
   runSmartSearch();
+  refresh();
 }
 
 function searchViewLabel(r) {
@@ -1883,7 +1884,7 @@ async function selectSearchResult(r) {
     return;
   }
   // task
-  const view = r.view === 'all' ? 'all' : (r.view === 'mine' ? 'mine' : 'assigned');
+  const view = activeTab.value === 'all' && canViewAll.value ? 'all' : r.view === 'all' ? 'all' : (r.view === 'mine' ? 'mine' : 'assigned');
   if(view==='all'&&!canViewAll.value){linkedTaskError.value='This task view is not available for your account.';return;}
   if(view==='all')teamMode.value='tasks';
   const status=r.status||r.task?.status;if(['pending','in_progress','completed'].includes(status))statusChip.value=status;
@@ -2380,6 +2381,7 @@ async function refresh() {
   await Promise.all([
     tasksStore.fetchTasks({
       view,
+      q: searchQ.value.trim() || undefined,
       status: filters.value.status || undefined,
       urgency: filters.value.urgency || undefined,
       due: filters.value.due || undefined,

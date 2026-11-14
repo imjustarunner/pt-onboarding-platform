@@ -389,19 +389,20 @@
         </button>
       </nav>
 
+      <p v-if="agencyExitError" class="error-message" role="alert">{{ agencyExitError }}</p>
       <div v-if="canExitSchoolPortalShell" class="sp-sidebar-exit" aria-label="Leave school portal">
-        <router-link :to="portalMyDashboardPath" class="sp-nav-item sp-nav-item--exit">
+        <button type="button" :disabled="agencyExitBusy" @click="exitToAgencyWorkspace('dashboard')" class="sp-nav-item sp-nav-item--exit">
           <span class="sp-nav-icon" aria-hidden="true">←</span>
           <span class="sp-nav-label">My Dashboard</span>
-        </router-link>
-        <router-link
+        </button>
+        <button
           v-if="canExitToAdminDashboard"
-          :to="portalAdminDashboardPath"
+          type="button" :disabled="agencyExitBusy" @click="exitToAgencyWorkspace('admin-dashboard')"
           class="sp-nav-item sp-nav-item--exit"
         >
           <span class="sp-nav-icon" aria-hidden="true">⌂</span>
           <span class="sp-nav-label">Admin Dashboard</span>
-        </router-link>
+        </button>
         <router-link
           v-if="canBackToSchools"
           :to="backToSchoolsPath"
@@ -507,15 +508,15 @@
             Tutorial {{ tutorialStore.enabled ? 'On' : 'Off' }}
           </button>
           <TestAccountSwitcher compact force-check />
-          <router-link
+          <button
             v-if="canExitSchoolPortalShell"
-            :to="portalMyDashboardPath"
+            type="button" :disabled="agencyExitBusy" @click="exitToAgencyWorkspace('dashboard')"
             class="sp-back-dashboard"
             title="Return to My Dashboard"
           >
             <span class="sp-back-dashboard__arrow" aria-hidden="true">←</span>
             <span class="sp-back-dashboard__label">My Dashboard</span>
-          </router-link>
+          </button>
           <div v-if="authStore.user?.id" class="sp-user-chip">
             <div class="sp-user-avatar" aria-hidden="true">{{ portalUserInitials }}</div>
             <div class="sp-user-meta">
@@ -619,20 +620,20 @@
               </div>
             </div>
             <div class="top-actions-primary">
-              <router-link
+              <button
                 v-if="canExitSchoolPortalShell"
-                :to="portalMyDashboardPath"
+                type="button" :disabled="agencyExitBusy" @click="exitToAgencyWorkspace('dashboard')"
                 class="btn btn-secondary btn-sm"
               >
                 My Dashboard
-              </router-link>
-              <router-link
+              </button>
+              <button
                 v-if="canExitSchoolPortalShell && canExitToAdminDashboard"
-                :to="portalAdminDashboardPath"
+                type="button" :disabled="agencyExitBusy" @click="exitToAgencyWorkspace('admin-dashboard')"
                 class="btn btn-secondary btn-sm"
               >
                 Admin Dashboard
-              </router-link>
+              </button>
 
               <div
                 v-if="showAdminSchoolSwitcher"
@@ -2566,6 +2567,8 @@
 </template>
 
 <script setup>
+import { transferSchoolAgencySession } from '../../services/schoolAgencyWorkspace';
+
 import SchoolOnboardingActivity from '../../components/school/SchoolOnboardingActivity.vue';
 import NavSearchBar from '../../components/NavSearchBar.vue';
 import { isSchoolScheduleClientLocked } from '../../utils/schoolStaffRoiLabels.js';
@@ -3793,6 +3796,15 @@ const portalTenantSlug = computed(() => {
   if (fromAgency) return fromAgency;
   return '';
 });
+const agencyExitBusy=ref(false),agencyExitError=ref('');
+async function exitToAgencyWorkspace(section='dashboard') {
+ if(agencyExitBusy.value)return;
+ agencyExitBusy.value=true;agencyExitError.value='';
+ try {
+  await transferSchoolAgencySession({agencies:agencyStore.userAgencies?.value ?? agencyStore.userAgencies ?? [],parentId:Number(affiliatedAgencyId.value || cardIconOrg.value?.id),section,role:authStore.user?.role},{api,router});
+ } catch(e){agencyExitError.value=e.response?.data?.error?.message||e.message||'Your agency workspace could not be opened. Sign in with your agency account.';}
+ finally{agencyExitBusy.value=false;}
+}
 const portalMyDashboardPath = computed(() => {
   if (roleNorm.value === 'super_admin' || roleNorm.value === 'superadmin') return '/dashboard';
   const slug = portalTenantSlug.value;

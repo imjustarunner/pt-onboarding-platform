@@ -1,3 +1,4 @@
+import { safeLoginDestination } from '../utils/loginHandoff';
 import { canAccessTicketDesk } from '../utils/ticketAccess.js';
 import { schoolCareBridgeRoutes, addSchoolCareBridgeWorkflowAliases } from './schoolCareBridgeRoutes.js';
 import { familyBillingRoutes } from './familyBillingRoutes.js';
@@ -6372,6 +6373,8 @@ router.beforeEach(async (to, from, next) => {
       else next({path:auricwell.path,replace:true});
       return;
     }
+    const internalReturn = safeLoginDestination(to.query.redirect);
+    if (internalReturn && !auricwellLoginDestination(internalReturn) && !authStore.user?.requiresPasswordChange) { next({path: internalReturn, replace:true}); return; }
     const returnTo = auricwellLoginDestination(to.query.redirect);
     if (returnTo) { window.location.assign(returnTo); next(false); return; }
     if (isFundthredLogin(to)) { next({ path: fundthredLoginLocation(to.query.redirect).query.redirect, replace: true }); return; }

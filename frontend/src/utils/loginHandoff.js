@@ -7,7 +7,7 @@ export const isTokenAuthenticationRoute = route => ['ResetPassword', 'Organizati
 export const isSessionEntryRoute = route => isLoginEntryRoute(route) || isTokenAuthenticationRoute(route) || route?.name === 'PasswordlessLogin' || /^\/school-onboarding(?:\/|$)/.test(String(route?.path || ''));
 
 export function safeLoginDestination(value) {
-  return typeof value === 'string' && value.startsWith('/') && !value.startsWith('//') && !value.includes('\\') ? value : null;
+  return typeof value === 'string' && value.startsWith('/') && !value.startsWith('//') && !value.includes('\\') && !/[\u0000-\u0020]/.test(value) ? value : null;
 }
 
 // Preserve meeting links, school destinations, query strings and hashes through SSO.
@@ -64,4 +64,10 @@ export function auricwellSsoDestination(value, hostname = window.location.hostna
   const params = new URLSearchParams({ workspace: 'auricwell' });
   if (destination) params.set('redirect', destination.startsWith('/app') ? `/auricwell${destination}` : destination);
   return `/login?${params}`;
+}
+
+// Retain an explicit internal destination when username verification changes branding.
+export function loginVerificationQuery(query = {}) {
+  const redirect = safeLoginDestination(query.redirect);
+  return { ...(redirect ? { redirect } : {}), ...(query.workspace === 'auricwell' ? { workspace: 'auricwell' } : {}) };
 }

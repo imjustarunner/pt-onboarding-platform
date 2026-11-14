@@ -15,6 +15,7 @@ it('shows the agency review schedule, keeps imported scheduling text separate an
   await state.save({ finalize: true });
   expect(state.error).toContain('Enter a goal'); expect(api.post).not.toHaveBeenCalled();
   state.model.goals[0].goalText = 'Practice coping.';
+  state.model.goals[0].durationMonths = 6;
   await state.save({ finalize: true });
   expect(state.error).toContain('Discharge criteria'); expect(api.post).not.toHaveBeenCalled();
   w.unmount();
@@ -88,4 +89,13 @@ it('selects shared and custom interventions and saves corrected decreasing score
     effectiveDate: '2026-08-20', goals: [expect.objectContaining({ objectives: [expect.objectContaining({ scaleCurrent: 8, scaleTarget: 3, scaleDirection: 'decrease', interventions: ['Previously selected custom intervention', 'Active Listening', 'New personal technique'] })] })]
   }));
   wrapper.unmount();
+});
+
+it('keeps partial drafts saveable and gates finalization on goal durations',async()=>{
+ api.get.mockResolvedValue({data:{policy:{renewAfterDays:90}}});api.post.mockResolvedValue({data:{plan:{id:55}}});
+ const initialPlan={effectiveDate:'2026-11-14',dischargePlan:'Independent coping',diagnoses:[{icd10Code:'F41.9',isPrimary:true}],goals:[{goalText:'Improve coping',objectives:[{objectiveText:'Practice coping',scaleCurrent:3,scaleTarget:7}]}]};
+ const w=shallowMount(Review,{props:{open:false,agencyId:450,clientId:2449,initialPlan,allowImportedDraft:true}});await w.setProps({open:true});await flushPromises();const state=w.vm.$.setupState;
+ expect(w.text()).toContain('Choose a duration');await state.save({finalize:true});expect(api.post).not.toHaveBeenCalled();
+ await state.save({finalize:false});expect(api.post).toHaveBeenCalledWith('/medical-billing/treatment-plans',expect.objectContaining({status:'draft',finalize:false}));
+ state.model.goals[0].durationMonths=6;await state.save({finalize:true});expect(api.post).toHaveBeenLastCalledWith('/medical-billing/treatment-plans',expect.objectContaining({goals:[expect.objectContaining({durationMonths:6,projectedCompletion:'2027-05-14'})]}));w.unmount();
 });

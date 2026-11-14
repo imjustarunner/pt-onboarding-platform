@@ -48,6 +48,7 @@
           </div>
 
           <p v-if="notice" role="status">{{ notice }}</p>
+          <p v-if="appointmentId && !loading && !manualChannels.includes('sms')" role="status">Text reminders are disabled for this appointment’s currently permitted recipients. Recorded text opt-in and an approved route are required.</p>
           <p v-if="blockedReason" role="status">{{blockedReason}}</p>
           <p v-if="appointmentId && !canPushExtra && availableAt && !blockedReason" class="muted">Additional reminders have a 24-hour cooldown. Next available: {{ formatWhenLocal(availableAt) }}.</p>
           <div class="arp-actions">

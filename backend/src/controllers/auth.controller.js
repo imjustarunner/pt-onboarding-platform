@@ -5116,16 +5116,13 @@ function normalizeBrandSwitchHost(host) {
 }
 
 /**
- * Superadmin cross-domain tenant switch: mint a one-time handoff token.
+ * Cross-domain switch: superadmins, or verified agency staff returning to the central app.
  * POST /auth/brand-switch/handoff
  * body: { targetHost, agencyId? }
  */
 export const createBrandSwitchHandoff = async (req, res, next) => {
   try {
     const role = String(req.user?.role || req.user?.effectiveRole || '').toLowerCase();
-    if (role !== 'super_admin') {
-      return res.status(403).json({ error: { message: 'Super admin access required' } });
-    }
     const userId = Number(req.user?.id || 0);
     if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
 
@@ -5134,6 +5131,10 @@ export const createBrandSwitchHandoff = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'targetHost is required' } });
     }
     const agencyId = Number(req.body?.agencyId || req.body?.agency_id || 0) || null;
+    if(role !== 'super_admin') {
+      const {requireAgencyWorkspaceHandoff}=await import('../services/workspaceHandoffAccess.service.js');
+      await requireAgencyWorkspaceHandoff({user:req.user,agencyId,targetHost});
+    }
     const jti = crypto.randomBytes(32).toString('hex');
     const expiresAt = new Date(Date.now() + 60 * 1000); // 60s
     const expiresMysql = expiresAt.toISOString().slice(0, 19).replace('T', ' ');
@@ -5232,6 +5233,12 @@ export const consumeBrandSwitchHandoff = async (req, res, next) => {
       });
     }
 
+    const handoffUser = await User.findById(row.user_id);
+    if(!handoffUser || (handoffUser.is_active===0 || handoffUser.is_active===false) || handoffUser.is_archived)return res.status(401).json({error:{message:'User not found or inactive'}});
+    if(String(handoffUser.role).toLowerCase()!=='super_admin') {
+      const {requireAgencyWorkspaceHandoff}=await import('../services/workspaceHandoffAccess.service.js');
+      await requireAgencyWorkspaceHandoff({user:handoffUser,agencyId:row.agency_id,targetHost:expectedHost});
+    }
     const [consumeResult] = await pool.execute(
       `UPDATE auth_brand_switch_handoffs
        SET consumed_at = UTC_TIMESTAMP()

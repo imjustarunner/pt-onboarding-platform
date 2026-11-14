@@ -78,6 +78,10 @@ jobs:
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.final1113-shared-client.config.js --maxWorkers=2
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.final1113-enrollment.config.js --maxWorkers=2
           TZ=Pacific/Honolulu node --test backend/src/services/__tests__/documentSigning.auditCertificate.test.js backend/src/controllers/__tests__/sharedIntakeArtifacts.test.js
+      - name: Final 1114 exact email destinations, school session handoff and workflow recovery
+        run: |
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.final1114.config.js --maxWorkers=2 --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/brief1112b-final1114-backend.json"
+          node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.final1114.config.js --maxWorkers=2 --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/brief1112b-final1114-frontend.json"
       - name: Require executed SQL cases, not skipped placeholders
         run: |
           node --input-type=module <<'NODE'

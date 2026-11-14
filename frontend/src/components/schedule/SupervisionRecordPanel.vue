@@ -79,14 +79,15 @@ const emit = defineEmits(['record','open-attendance','open-notes','changed']);
 const record = ref(null), loading = ref(false), busy = ref(false), error = ref(''), notice = ref('');
 const newKey = () => globalThis.crypto.randomUUID();
 const form = reactive({ userIds: [], startAt:'', endAt:'', minutes:'', modality:'MIXED', reason:'', attested:false, requestKey:newKey() });
-const statusLabel = computed(() => ({ FINALIZED:'Completed', MISSED:'No attendance recorded', CANCELLED:'Cancelled', SCHEDULED:'Scheduled', MANUAL_PENDING:'Awaiting approval' })[String(record.value?.session.status).toUpperCase()] || record.value?.session.status);
+const roomEndedBeforeStart=computed(()=>{const ended=parseScheduleUtcInstant(record.value?.session.endedAt),start=parseScheduleUtcInstant(record.value?.session.startAt);return !!(ended&&start&&ended<start);});
+const statusLabel = computed(() => roomEndedBeforeStart.value ? 'Meeting room ended before scheduled start' : ({ FINALIZED:'Completed', MISSED:'No attendance recorded', CANCELLED:'Cancelled', SCHEDULED:'Scheduled', MANUAL_PENDING:'Awaiting approval' })[String(record.value?.session.status).toUpperCase()] || record.value?.session.status);
 const isAbsence = computed(() => ['MISSED','EXCUSED'].includes(form.modality));
 const editableParticipants = computed(() => (record.value?.participants || []).filter(p => (record.value.canManage || Number(p.userId) === record.value.actorUserId) && (!isAbsence.value || p.role === 'Supervisee')));
 const attendanceOverview = computed(() => (record.value?.participants || []).map(p => `${p.name}: ${attendanceLabel(p)}`).join(' · '));
 const canSubmit = computed(() => form.userIds.length && form.startAt && form.endAt && (isAbsence.value || Number(form.minutes) > 0) && form.reason.trim().length >= 10 && form.attested);
 const canRetry = computed(() => record.value?.canManage && record.value.corrections.some(c => c.status === 'approved' && c.sync_status !== 'complete'));
 function minutesLabel(seconds) { return seconds == null ? 'No attendance recorded' : `${Math.round(Number(seconds) / 6) / 10} min`; }
-function attendanceLabel(person) { return person.attendanceCorrectionType === 'MISSED' ? 'Missed supervision' : person.attendanceCorrectionType === 'EXCUSED' ? 'Excused absence' : Number(person.totalSeconds) > 0 ? minutesLabel(person.totalSeconds) : 'No attendance recorded'; }
+function attendanceLabel(person) { if(!(Number(person.totalSeconds)>0) && person.firstJoinedAt && parseScheduleUtcInstant(person.firstJoinedAt)<parseScheduleUtcInstant(record.value?.session.startAt) && (record.value?.events||[]).filter(e=>Number(e.userId)===Number(person.userId)).every(e=>parseScheduleUtcInstant(e.at)<parseScheduleUtcInstant(record.value?.session.startAt)))return 'Only activity before scheduled start · no scheduled attendance credit'; return person.attendanceCorrectionType === 'MISSED' ? 'Missed supervision' : person.attendanceCorrectionType === 'EXCUSED' ? 'Excused absence' : Number(person.totalSeconds) > 0 ? minutesLabel(person.totalSeconds) : 'No attendance recorded'; }
 function when(value) { const date = parseScheduleUtcInstant(value); return date ? new Intl.DateTimeFormat(undefined,{ timeZone:props.timezone,month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit' }).format(date) : '—'; }
 function participantName(id) { return record.value?.participants.find(p => Number(p.userId) === Number(id))?.name || 'Participant'; }
 function creditLabel(person) {

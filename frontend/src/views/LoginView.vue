@@ -411,6 +411,7 @@
                   inputmode="email"
                   :disabled="loading || verifying"
                   @input="onUsernameInput"
+                  @change="onUsernameInput"
                   @blur="maybeVerify"
                   @keydown.enter.prevent="handleSubmit"
                 />
@@ -447,6 +448,9 @@
                     required
                     placeholder="Enter your password"
                     autocomplete="current-password"
+                    @paste="loginAuto.passwordInserted"
+                    @input="onPasswordInput"
+                    @change="loginAuto.passwordInserted"
                     autocapitalize="none"
                     autocorrect="off"
                     spellcheck="false"
@@ -703,6 +707,8 @@
 </template>
 
 <script setup>
+import { loginVerificationQuery } from '../utils/loginHandoff';
+import { createLoginAutomation } from '../utils/loginAutomation';
 import AuricWellAuthBrand from '../components/AuricWellAuthBrand.vue';
 import PasskeySignIn from '../components/PasskeySignIn.vue';
 import { PLATFORM_BRAND } from '../config/platformBrand.js';
@@ -1963,9 +1969,12 @@ const forgetRememberedAccount = () => {
   resetToUsernameStep();
 };
 
+const loginAuto=createLoginAutomation({read:()=>({username:String(username.value||''),password:password.value,verifiedUsername:lastVerifiedUsername.value,showPassword:showPassword.value,needsOrgChoice:needsOrgChoice.value,loading:loading.value,verifying:verifying.value}),verify:options=>verifyUsername(options),submit:()=>handleSubmit()});
+onUnmounted(()=>loginAuto.dispose());
 const onUsernameInput = () => {
-  lastUsernameInputAt.value = Date.now();
+  lastUsernameInputAt.value = Date.now();loginAuto.usernameChanged();
 };
+const onPasswordInput = event => {if(!event.inputType || ['insertFromPaste','insertReplacementText'].includes(event.inputType))loginAuto.passwordInserted();};
 
 const resetToUsernameStep = () => {
   const rememberedSlug = effectiveLoginSlug.value || rememberedGoogleLogin.value?.orgSlug;
@@ -2110,7 +2119,7 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
       }
       await router.replace({
         path: targetLoginPath,
-        query: isFundThredLogin.value || isConversaLogin.value ? route.query : (auricwellLoginDestination(route.query.redirect) || route.query.workspace === 'auricwell' ? { ...(route.query.redirect ? {redirect:route.query.redirect} : {}), ...(route.query.workspace === 'auricwell' ? {workspace:'auricwell'} : {}) } : {})
+        query: isFundThredLogin.value || isConversaLogin.value ? route.query : loginVerificationQuery(route.query)
       });
       return;
     }
@@ -2152,7 +2161,7 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
           }
           await router.replace({
             path: normalizedTarget,
-            query: isFundThredLogin.value || isConversaLogin.value ? route.query : (auricwellLoginDestination(route.query.redirect) || route.query.workspace === 'auricwell' ? { ...(route.query.redirect ? {redirect:route.query.redirect} : {}), ...(route.query.workspace === 'auricwell' ? {workspace:'auricwell'} : {}) } : {})
+            query: isFundThredLogin.value || isConversaLogin.value ? route.query : loginVerificationQuery(route.query)
           });
           return;
         }

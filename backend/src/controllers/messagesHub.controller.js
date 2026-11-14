@@ -758,6 +758,7 @@ export const postMessagesHubSend = async (req, res, next) => {
           subject: subject || null,
           payload: {
             clientId: req.body?.clientId || person.clientId || null, serviceId: req.body?.serviceId || null, topicId: chatTopicId, parentMessageId: chatParentMessageId, threadId: chatThreadId, smsThreadKey: req.body?.smsThreadKey || null,
+            ...(method === 'secure' ? { secureSubjectRequired: true } : {}),
             ...(method === 'secure' && person.userId ? { recipientPersonKey: `user:${Number(person.userId)}@${Number(agencyId)}` } : {}),
             expectedRecipientUserIds:req.body?.expectedRecipientUserIds || null,
             numberId: req.body?.numberId || null,
@@ -1330,6 +1331,7 @@ export async function processHubMessageQueue({ limit = 40 } = {}) {
         await runWithMockRes(sendChatMessage, {
           user,
           params: { threadId: String(threadId) },
+          trustedLegacyQueuedSubject: row.channel === 'secure' && payload.secureSubjectRequired !== true && row.subject == null,
           body: { method: row.channel, clientId: payload.clientId || person.clientId || null, body: row.body || '', attachments: chatAttachments, subject: row.subject || null, topicId: payload.topicId || null, parentMessageId: payload.parentMessageId || null,expectedRecipientUserIds:payload.expectedRecipientUserIds || null }
         });
       } else {

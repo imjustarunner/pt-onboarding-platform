@@ -108,3 +108,10 @@ it('uses the exact-read contract for a notified subject outside the summary page
  });
  const w=mount(Conversations,opts({initialThreadId:5,initialMessageId:100}));await flushPromises();expect(w.text()).toContain(root.body);expect(w.find('[role=alert]').exists()).toBe(false);expect(api.get.mock.calls.filter(([,o])=>o?.params?.messageId).every(([,o])=>!o.params.summaryOnly)).toBe(true);w.unmount();
 });
+
+it('shows an unread indicator until that subject body is actually opened',async()=>{
+ let opened=false;const previous=api.get.getMockImplementation();
+ api.get.mockImplementation(async(url,options)=>{if(url==='/guardian-portal/messages/5'){if(options?.params?.summaryOnly)return{data:[{...root,body:'',unread_count:opened?0:1}]};opened=true;}return previous(url,options);});
+ const w=mount(Conversations,opts());await flushPromises();expect(w.get('.subject-unread').text()).toContain('Unread · 1');expect(opened).toBe(false);
+ await w.get('.subject-row').trigger('click');await flushPromises();expect(opened).toBe(true);expect(w.find('.subject-unread').exists()).toBe(false);expect(w.text()).toContain('Conversation #100');w.unmount();
+});

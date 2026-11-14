@@ -15,7 +15,7 @@
       <FundthredBalances :agency-id="agencyId" :refresh-key="schoolSupportRefreshKey" @request="requestLeave" @submit="goToSubmit" @updated="refreshSchoolSupport(false)" />
 
       <RecurringPayments :agency-id="agencyId" />
-      <AccountabilityWorkspace :agency-id="agencyId" />
+      <AccountabilityWorkspace v-if="canDiscoverAccountability(authStore.user?.id)" :agency-id="agencyId" />
       <div v-if="currentTierBanner" class="pay-tier-banner" :class="`pay-tier-banner--${currentTierBanner.kind}`">
         <strong>{{ currentTierBanner.label }}</strong>
         <span>{{ currentTierBanner.detail }}</span>
@@ -2474,6 +2474,7 @@
 </template>
 
 <script setup>
+import {canDiscoverAccountability} from '../../utils/accountabilityDiscovery';
 import PayrollAdjustmentDetails from '../payroll/PayrollAdjustmentDetails.vue';
 const api = useSubmitApi();
 const submitContext = useSubmitContext();

@@ -170,3 +170,7 @@ it('waits for tenant metadata before requesting clinical supervision history', a
   await flushPromises();
   expect(get.mock.calls.some(([url]) => url === '/supervision/my-history-status')).toBe(false);
 });
+
+it('does not probe a disabled childcare service from a clinical cold entry',async()=>{
+ start();await flushPromises();expect(get.mock.calls.some(([url])=>url==='/childcare/context')).toBe(false);
+});

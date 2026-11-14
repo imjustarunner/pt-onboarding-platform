@@ -54,7 +54,7 @@ const orderedTopics=computed(()=>{
   for(const topic of topics.value){const key=`${topic.thread.thread_id}:${topic.topic_id||topic.id}`;if(!groups.has(key))groups.set(key,[]);groups.get(key).push(topic);}
   return [...groups.values()].map(rows=>{
     rows.sort((a,b)=>Number(a.id)-Number(b.id));const last=rows.map(m=>m.last_reply_at||m.created_at).filter(Boolean).sort((a,b)=>Date.parse(b)-Date.parse(a))[0];
-    return {...rows[0],legacyRoots:rows,last_reply_at:last,reply_count:rows.reduce((n,m)=>n+(Number(m.reply_count)||0),rows.length-1)};
+    return {...rows[0],legacyRoots:rows,last_reply_at:last,reply_count:rows.reduce((n,m)=>n+(Number(m.reply_count)||0),rows.length-1),unread_count:rows.reduce((n,m)=>n+(Number(m.unread_count)||0),0)};
   }).sort((a,b)=>Date.parse(b.last_reply_at||b.created_at)-Date.parse(a.last_reply_at||a.created_at)||Number(b.id)-Number(a.id));
 });
 
@@ -132,7 +132,10 @@ async function openTopic(topic,{notifiedMessageId=null,notifiedRootId=null}={}){
     // Reading original-audience history must not open a new conversation or
     // depend on current compose eligibility. Send rechecks these exact people.
     audience.value=thread.participants||[];
-    verifiedTopicKey.value=topicKey(topic);highlightedMessageId.value=notifiedMessageId;
+    verifiedTopicKey.value=topicKey(topic);
+    const summary=await api.get(`/guardian-portal/messages/${thread.thread_id}`,{params:{...params(thread),summaryOnly:1},skipGlobalLoading:true}).catch(()=>({data:[]}));
+    if(intent!==openIntent||key!==contextKey.value)return;
+    for(const row of raw(summary.data)){const stored=topics.value.find(t=>Number(t.id)===Number(row.id)&&Number(t.thread.thread_id)===Number(thread.thread_id));if(stored)stored.unread_count=Number(row.unread_count)||0;}highlightedMessageId.value=notifiedMessageId;
     if(!thread.readOnly&&!audience.value.length)error.value='The recipients could not be verified. Refresh messages before replying.';
     await nextTick();if(intent!==openIntent||key!==contextKey.value)return;const target=notifiedMessageId&&threadEl.value?.querySelector(`[data-message-id="${Number(notifiedMessageId)}"]`);if(target?.scrollIntoView)target.scrollIntoView({block:'center'});else if(threadEl.value)threadEl.value.scrollTop=threadEl.value.scrollHeight;
   }catch{if(intent===openIntent)error.value='This secure conversation could not be opened. Refresh messages to try again.';}
@@ -209,7 +212,7 @@ onBeforeUnmount(()=>{++loadIntent;++openIntent;++sendIntent;drafts.clear();});
     <div v-else class="conversation-layout" :class="{'is-open':selected||newSubject}">
       <aside class="subjects" aria-label="Message subjects">
         <button v-for="topic in orderedTopics" :key="`${topic.thread.thread_id}:${topic.id}`" type="button" class="subject-row" :class="{active:selected?.id===topic.id}" @click="openTopic(topic)">
-          <strong>{{ title(topic) }}</strong><span>{{ name(topic) }} · {{ when(topic.last_reply_at||topic.created_at) }}</span><small>{{ topic.reply_count||0 }} {{ Number(topic.reply_count)===1?'reply':'replies' }}</small>
+          <strong>{{ title(topic) }}</strong><small>Conversation #{{ topic.id }}</small><span v-if="topic.unread_count" class="subject-unread" :aria-label="`${topic.unread_count} unread messages`">Unread · {{ topic.unread_count }}</span><span>{{ name(topic) }} · {{ when(topic.last_reply_at||topic.created_at) }}</span><small>{{ topic.reply_count||0 }} {{ Number(topic.reply_count)===1?'reply':'replies' }}</small>
         </button>
         <p v-if="!orderedTopics.length&&!busy" class="empty-subjects">No secure subjects yet. Start a subject to message your care team.</p>
         <button v-if="Object.keys(rootCursors).length" type="button" :disabled="olderBusy" @click="olderSubjects">{{ olderBusy?'Loading…':'Older subjects' }}</button>

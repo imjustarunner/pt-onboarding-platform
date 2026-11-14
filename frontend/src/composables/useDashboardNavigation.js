@@ -63,7 +63,7 @@ export function useDashboardNavigation({ user, agency, organizations, brandingSt
     if(Number(person.workspaceServiceContext?.agencyId)!==agencyId)person.workspaceServiceContext=null;
     const results=await Promise.allSettled([
       api.get('/tutoring-workspace/context',{params:{agencyId},skipGlobalLoading:true}),
-      api.get('/childcare/context',{params:{agencyId},skipGlobalLoading:true})
+      flag(parse(unref(agency)?.feature_flags ?? unref(agency)?.featureFlags).childcareEnabled) ? api.get('/childcare/context',{params:{agencyId},skipGlobalLoading:true}) : Promise.resolve({data:{enabled:false}})
     ]);
     if(run!==workspaceGeneration||unref(user)!==person||Number(unref(agency)?.id)!==agencyId)return;
     const learning=results[0].status==='fulfilled'?results[0].value.data:{};
