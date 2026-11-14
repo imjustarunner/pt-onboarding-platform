@@ -18,7 +18,7 @@ it('shows a labeled key using the same personal colors, with transparent fills',
  expect(wrapper.text()).toContain('Office assigned');
  expect(wrapper.text()).toContain('Office booked');
  expect(wrapper.find('.legend-items').text()).toContain('Virtual opening');
- expect(wrapper.find('.legend-items').text()).toContain('In-person intake');
+ expect(wrapper.find('.legend-items').text()).toContain('In-person enrollment');
  expect(wrapper.text()).not.toContain('Office assigned available');
  expect(interview().find('.legend-swatch').attributes('style')).toContain('rgba(18, 52, 86, 0.12)');
  await wrapper.setProps({colors:{interview:'#654321'},dark:true});
