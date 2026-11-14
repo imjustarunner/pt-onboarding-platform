@@ -3,7 +3,7 @@ const billing=vi.hoisted(()=>({requireBillingLink:vi.fn(),recordBillingConsent:v
 vi.mock('../../config/database.js',()=>({default:{}}));
 vi.mock('../familyBillingPolicy.service.js',()=>({...billing,billingError:(status,message)=>Object.assign(new Error(message),{status})}));
 vi.mock('../familyBillingEncryption.service.js',()=>({encryptFamilyBilling:JSON.stringify,decryptFamilyBilling:JSON.parse}));
-import {qaPaymentSimulationConfig,assertQaSimulationScope,validateQaCardInput,createQaPaymentIntent,confirmQaPaymentIntent,qaCardMerchant,qaSimulationGateway,createQaTestCard} from '../qaPaymentSimulator.service.js';
+import {qaPaymentSimulationConfig,assertQaSimulationScope,validateQaCardInput,createQaPaymentIntent,confirmQaPaymentIntent,qaCardMerchant,qaSimulationGateway,createQaTestCard,assertQaPackageRefundReady} from '../qaPaymentSimulator.service.js';
 
 const agency=()=>({id:453,slug:'nlu-qa-demo',is_active:1,is_archived:0,feature_flags:{qaSandbox:{syntheticOnly:true,program:'tutoring',simulatedPaymentsEnabled:true}}});
 const user=()=>({id:1759,role:'client_guardian',is_demo:1,is_active:1,is_archived:0,status:'ACTIVE'});
@@ -49,6 +49,8 @@ describe('strict QA payment scope',()=>{
  });
 });
 describe('persistent payment identity and outcomes',()=>{
+ it.each([null,{status:'ACTIVE',sessions_remaining:0,sessions_reserved:0},{status:'CANCELLED',sessions_remaining:2,sessions_reserved:0},{status:'CANCELLED',sessions_remaining:0,sessions_reserved:1}])('does not refund a package with an unreconciled entitlement %j',entitlement=>{expect(()=>assertQaPackageRefundReady(entitlement)).toThrow('Reconcile and cancel');});
+ it('allows normal refund review after package cancellation has reconciled every unused/reserved visit',()=>{expect(()=>assertQaPackageRefundReady({status:'CANCELLED',sessions_remaining:0,sessions_reserved:0})).not.toThrow();});
  const input={agencyId:453,userId:1759,clientId:2545,sourceKind:'package',sourceId:800,amountCents:18000,idempotencyKey:'package:800'};
  it('reuses the saved request without storing any card number',async()=>{
   const db=database();expect(await createQaPaymentIntent(input,db)).toMatchObject({id:'qa_pi_saved',amount:18000,qa_simulated:true,livemode:false});

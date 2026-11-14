@@ -6,7 +6,7 @@
     <p v-if="notice" role="status" class="notice">{{ notice }}</p>
     <InsuranceCardTasks v-if="section === 'all' && insurableClients.length" :key="insuranceRevision" :agency-id="agencyId" :client-id="clientId" />
     <template v-if="data">
-      <p v-if="!data.clients.length">No client billing profiles are available under your current access in this organization.</p>
+      <p v-if="!data.clients.length">{{learningOnly?'No student payment profiles are available under your current access in this organization.':'No client billing profiles are available under your current access in this organization.'}}</p>
       <section class="client-grid">
         <article v-for="client in scopedClients" :key="client.clientId" class="billing-card">
           <h4>{{ client.clientName }}</h4>
@@ -17,8 +17,8 @@
           <button v-if="!client.medicaid && section === 'authorization' && (client.canManageBilling || client.canAcceptResponsibility)" type="button" @click="openAuthorization(client,'responsibility')">Review and sign payment authorization</button>
           <template v-else-if="client.canManageBilling && !client.medicaid">
             <p v-if="!client.medicaid" class="status">{{ client.paymentCardId ? 'Your payment method is assigned' : learningOnly ? 'Payment is handled separately under your agreed tutoring arrangement. Contact the office if you need help.' : 'Payment method required before paid services' }}</p>
-            <label>Your card for this client<select v-model="cardSelections[client.clientId]"><option value="">Select a saved card</option><option v-for="card in data.cards" :key="card.id" :value="card.id" :disabled="card.verificationRequired">{{ card.card_brand }} •••• {{ card.card_last4 }}{{ card.verificationRequired ? ' — add again to verify' : '' }}</option></select></label>
-            <button class="btn btn-secondary" type="button" :disabled="busy || !cardSelections[client.clientId]" @click="assign(client)">Apply card to this client</button>
+            <label>Your card for this {{learningOnly?'student':'client'}}<select v-model="cardSelections[client.clientId]"><option value="">Select a saved card</option><option v-for="card in data.cards" :key="card.id" :value="card.id" :disabled="card.verificationRequired">{{ card.card_brand }} •••• {{ card.card_last4 }}{{ card.verificationRequired ? ' — add again to verify' : '' }}</option></select></label>
+            <button class="btn btn-secondary" type="button" :disabled="busy || !cardSelections[client.clientId]" @click="assign(client)">Apply card to this {{learningOnly?'student':'client'}}</button>
             <p v-if="client.recurringEnabled">Recurring authorization active, up to {{ money(client.recurringLimitCents) }} per charge.</p>
             <button v-if="client.recurringEnabled" class="btn btn-secondary" type="button" :disabled="busy" @click="revoke(client)">Revoke recurring authorization</button>
             <button v-else-if="!client.medicaid" class="btn btn-secondary" type="button" :disabled="busy || !client.paymentCardId" @click="openAuthorization(client,'recurring')">Authorize recurring billing</button>
@@ -31,7 +31,7 @@
         <p>{{ data.terms }}</p>
         <label v-if="authorization.purpose === 'recurring'">Maximum amount per charge (USD)<input v-model="limitDollars" type="number" min="0.01" max="10000" step="0.01" required /></label>
         <label>Your full name (electronic signature)<input v-model="signature" required maxlength="255" autocomplete="name" /></label>
-        <label class="check"><input v-model="accepted" type="checkbox" required /> I have read and agree to this authorization for this client.</label>
+        <label class="check"><input v-model="accepted" type="checkbox" required /> I have read and agree to this authorization for this {{learningOnly?'student':'client'}}.</label>
         <div class="actions"><button class="btn btn-primary" :disabled="busy || !accepted">Sign authorization</button><button class="btn btn-secondary" type="button" :disabled="busy" @click="authorization = null">Cancel</button></div>
       </form>
       <template v-if="manageableClients.length || insurableClients.length">

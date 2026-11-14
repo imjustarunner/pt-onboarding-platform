@@ -20,6 +20,7 @@ async function resolve(){
   if(own!==generation)return;
   if(result.error){error.value=result.error.message;return;}
   await load();emit('resolved');
+ }catch(e){if(own===generation)error.value=e.response?.data?.error?.message||'The QA outcome could not be applied. Refresh before retrying.';
  }finally{if(own===generation||!selected.value)busy.value=false;}
 }
 watch(()=>props.agencyId,load,{immediate:true});

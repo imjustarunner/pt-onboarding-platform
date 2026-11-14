@@ -82,7 +82,7 @@ it('keeps timed children in quarter-hour agenda and phone lists, and packs overl
   s.scheduleSpanMode = 'agenda'; await flushPromises();
   expect(s.agendaItems.filter(b => b.kind === 'school-soft')).toHaveLength(1);
 });
-it('shows availability beside appointments and keeps school context behind them, with quarter guides and exact saved minutes', async () => {
+it('shows unoccupied availability and keeps school context behind appointments, with quarter guides and exact saved minutes', async () => {
   m.summary.schoolSoftSessions = [student()];
   m.summary.virtualWorkingHours = [{ id: 91, agencyId: 2, dayOfWeek: 'Tuesday', startTime: '10:15', endTime: '12:00', sessionType: 'BOTH' }];
   m.summary.scheduleEvents = [{ id: 72, kind: 'SESSION', agencyId: 2, clientId: 200, title: 'Synthetic office session', startAt: '2026-10-13T16:45:00Z', endAt: '2026-10-13T17:30:00Z' }];
@@ -95,8 +95,13 @@ it('shows availability beside appointments and keeps school context behind them,
     const soft = blocks.find(b => b.kind === 'school-soft');
     const office = blocks.find(b => b.eventId === 72);
     const portal = blocks.find(b => b.kind === 'portal');
-    for (const block of [soft, office, portal]) expect(block.sideBySideLane.cols).toBe(3);
-    expect(new Set([soft, office, portal].map(block => block.sideBySideLane.col)).size).toBe(3);
+    // The 10:45 booking removes that part of the virtual opening. The remaining
+    // 10:15–10:45 opening and booking can share a lane beside the school session.
+    for (const block of [soft, office, portal]) expect(block.sideBySideLane.cols).toBe(2);
+    expect(soft.sideBySideLane.col).not.toBe(office.sideBySideLane.col);
+    expect(soft.sideBySideLane.col).not.toBe(portal.sideBySideLane.col);
+    expect(portal.virtualSlice).toEqual({topPct:25,heightPct:50});
+    expect(m.summary.virtualWorkingHours[0]).toMatchObject({startTime:'10:15',endTime:'12:00'});
     expect(portal.backgroundContext).toBe(false);
     expect(soft.timedSlice.topPct).toBeCloseTo(28/60*100);
     expect(soft.timedSlice.heightPct).toBeCloseTo(53/60*100);
@@ -111,10 +116,13 @@ it('shows availability beside appointments and keeps school context behind them,
   await hourCell().find('.cell-blocks').trigger('keydown', { key: 'Escape' });
   s.scheduleSideBySide = false; await flushPromises();
   const portal = s.cellBlocks('Tuesday', 10).find(b => b.kind === 'portal');
-  expect(s.cellBlockStyle(portal)).toMatchObject({ position: 'absolute', top: '25%', height: 'calc(75% - 2px)', flex: 'none' });
+  expect(s.cellBlockStyle(portal)).toMatchObject({ position: 'absolute', top: '25%', height: 'calc(50% - 2px)', flex: 'none' });
   s.scheduleSideBySide = true; s.showQuarterDetail = true; await flushPromises();
   expect(wrapper.find('.sched-quarter-guides').exists()).toBe(false);
   const soft = s.cellBlocks('Tuesday', 10, 15).find(b => b.kind === 'school-soft');
+  expect(s.cellBlocks('Tuesday',10,45).some(block=>block.kind==='portal')).toBe(false);
+  expect(s.cellBlocks('Tuesday',11,0).some(block=>block.kind==='portal')).toBe(false);
+  expect(s.cellBlocks('Tuesday',11,30).some(block=>block.kind==='portal')).toBe(true);
   expect(soft.timedSlice.topPct).toBeCloseTo(13/15*100);
   expect(soft.timedSlice.heightPct).toBeCloseTo(53/15*100);
   await wrapper.find('.cell-block-school-soft').trigger('click');

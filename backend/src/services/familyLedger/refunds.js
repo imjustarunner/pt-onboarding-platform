@@ -7,7 +7,7 @@ import { encryptFamilyBilling, decryptFamilyBilling } from '../familyBillingEncr
 import { cents, key, transaction } from './policy.js';
 import { lockAllocation } from './payments.js';
 import { prepareCreditRefund, queueReceiptEvent } from './copayCredits.js';
-import {QA_PAYMENT_PROCESSOR,qaSimulationAccount,getQaPaymentIntent,isQaSimulationAccount} from '../qaPaymentSimulator.service.js';
+import {QA_PAYMENT_PROCESSOR,qaSimulationAccount,getQaPaymentIntent,isQaSimulationAccount,assertQaPackageRefundReady} from '../qaPaymentSimulator.service.js';
 
 export async function refundPayment({agencyId,paymentId,amountCents,idempotencyKey,actorUserId,reason,refundRequestId=null}) {
   const amount=cents(amountCents), requestKey=key(idempotencyKey);
@@ -17,6 +17,11 @@ export async function refundPayment({agencyId,paymentId,amountCents,idempotencyK
     if(!lookup.length||lookup[0].status!=='succeeded')throw billingError(409,'Only a recorded successful payment can be refunded');
     if(!['CASH','STRIPE',QA_PAYMENT_PROCESSOR].includes(lookup[0].processor))throw billingError(409,'Reconcile imported payments through the original payment system');
     const payment=lookup[0],{receivable}=await lockAllocation(agencyId,payment.allocation_id,db);
+    if(payment.processor===QA_PAYMENT_PROCESSOR&&receivable.source_type==='package_settlement'){
+      const payload=sourcePayload(receivable);
+      const [[entitlement]]=await db.execute('SELECT status,sessions_remaining,sessions_reserved FROM booking_package_entitlements WHERE id=? AND agency_id=? AND client_id=? FOR UPDATE',[payload.entitlementId||0,agencyId,receivable.client_id]);
+      assertQaPackageRefundReady(entitlement);
+    }
     const [existing]=await db.execute('SELECT * FROM family_payment_refunds WHERE agency_id=? AND idempotency_key=? FOR UPDATE',[agencyId,requestKey]);
     if(existing.length) {
       if(Number(existing[0].payment_id)!==Number(paymentId)||Number(existing[0].amount_cents)!==amount)throw billingError(409,'This refund reference belongs to another payment');

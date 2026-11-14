@@ -16,7 +16,7 @@ describe('private family billing',()=>{
   const w=mount(FamilyBilling,{props:{agencyId:453,guardianUserId:2,clientId:10,learningOnly:true}});await flushPromises();
   expect(w.text()).toContain('Payment methods');expect(w.text()).toContain('Your saved cards');expect(w.text()).not.toMatch(/insurance|Coverage is recorded|Medicaid/);
   expect(w.findComponent({name:'InsuranceCardTasks'}).exists()).toBe(false);
-  await w.get('.client-grid select').setValue('7');await button(w,'Apply card to this client').trigger('click');await flushPromises();
+  await w.get('.client-grid select').setValue('7');await button(w,'Apply card to this student').trigger('click');await flushPromises();
   expect(api.post).toHaveBeenCalledWith('/guardian-billing/clients/10/payment-method',{agencyId:453,cardId:7,recurring:false});
   await w.setProps({learningOnly:false});await flushPromises();expect(w.text()).toContain('Your insurance policies');w.unmount();
  });

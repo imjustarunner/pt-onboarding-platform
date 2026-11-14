@@ -11,6 +11,9 @@ export const isQaSimulationAccount=value=>/^qa_simulator_(450|453|454)$/.test(St
 export function validateQaCardInput(value){
  if(String(value||'').replace(/\s/g,'')!=='0000000000000000')throw billingError(400,'For this QA simulation, enter sixteen zeros. Do not enter a real card.');
 }
+export function assertQaPackageRefundReady(entitlement){
+ if(!entitlement||entitlement.status!=='CANCELLED'||Number(entitlement.sessions_remaining)!==0||Number(entitlement.sessions_reserved)!==0)throw billingError(409,'Reconcile and cancel this package’s remaining and reserved visits through the package workflow before refunding its simulated purchase.');
+}
 export async function qaPaymentSimulationConfig(agencyId,db=pool){
  if(!requiresQaStripe(agencyId))return {enabled:false};
  const [[agency]]=await db.execute('SELECT id,slug,feature_flags,is_active,is_archived FROM agencies WHERE id=?',[Number(agencyId)]);

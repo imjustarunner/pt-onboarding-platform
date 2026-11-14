@@ -1,0 +1,1353 @@
+NLU + ITSCO RETEST AND CHILDCARE — COMPLETE BOT BRIEF
+Prepared November 13, 2026; America/Denver. Read this update first.
+PRIVATE QA ASSIGNMENT / ANSWER KEY — NEVER UPLOAD THIS BRIEF INTO THE APP.
+
+One briefing file contains the instructions, earlier cases and blank new ledgers.
+No folder, repository or ZIP access is needed. Attach only this TXT and the three
+actual app-upload inputs listed below. Do not ask for the embedded CSV/JSON/TXT
+references separately. Inventory received files, then wait for START NLU RETEST.
+The user may authorize continuation of an existing run; preserve its real results.
+
+ACTUAL SEPARATE APP-UPLOAD INPUTS
+- math-worksheet.pdf
+- reading-worksheet.pdf
+- upload-negative.txt (harmless upload input only if TXT is unsupported)
+Do not substitute this private brief, a tutor key or another person's material.
+Missing browser upload support is a tool blocker, not a successful upload.
+
+RELEASE AND SETUP BOUNDARY
+These repairs are prepared source, not a claim that they are already deployed.
+Engineering must provide the matching frontend/backend SHA, ready=true, additive
+migrations 1823_learning_session_metadata and 1824_qa_payment_simulations, and an
+actual dated admin-setup result before the dependent new checks can pass.
+The last authenticated inventory observed build 87d789afb8398b213afd8810f03058dc60f35728.
+Record the current build instead of assuming that observation remains current.
+The new source is based on main 304b1e688515aa8c91e8c938f845dda095a7ae3c and preserves
+its handbook, compensation, workload-waiver and other unrelated release changes.
+Never run admin scripts, SQL, DevTools writes or admin logins as the ordinary bot.
+A server 500, missing column or unavailable protected route is an engineering
+failure to record; do not work around it by changing record IDs or attendance.
+
+CURRENT RETAINED PEOPLE AND RECORDS
+- NLU QA453 nlu-qa-demo; learning program454 nlu-qa-learning. Tutoring uses
+  app.nextleveluplcc.com and NLU service/parent branding. Live NLU6 is untouched.
+- ITSCO QA450 auricwell-qa-demo, school451, clinic452 are the counseling scope.
+  Clinical features remain OFF in453/454. Do not enable them to test mixed care.
+- Finley1496 qa.nlu.tutor@example.com, Morgan1759 qa.nlu.parent@example.com,
+  Parker2545 (submission1569, enrollment1038), Quinn2547 (1571,1039).
+- Rene qa.nlu.coparent@example.com was already independently invited for Parker.
+  Reuse that actual delivered setup; do not invite again or grant Quinn by inference.
+- Casey1771 is a ready synthetic staff fixture, not a proved onboarding pass.
+  Devon1772 is prospective and intentionally remains behind missing real-identifier
+  requirements. Never invent an SSN, ID, background check or activated employee.
+- Finley and Casey have existing scoped childcare assignments. The normal provider
+  enum for a tutor does not grant clinical credentials or another agency's rights.
+- Packages76 virtual four/$180 and77 in-person four/$198 are retained catalog quotes.
+  Canonical tutoring service320; saved customer hourly quotes $50 virtual/$55 in person.
+- Preserve appointment290/Parker (Nov16 10:15–11:15 MST) and291/Quinn
+  (Nov17 10:00–11:00 MST), events598/599, office12/room18. These are scheduled,
+  not attendance or completion. Use separate new QA occurrences for destructive
+  change/cancel/no-show/completion cases; do not reset retained evidence.
+- Preserve Casey shift1, punches563/564 and claim844 (98 seconds; count3→4;
+  amount unavailable). It does not prove a full shift, earned payroll or onboarding.
+- Recount before creating people. The latest retained inventory already exceeded
+  the historical30-client cap (109 clients); seven provider-role identities were
+  reported. Reuse retained clients; do not create more people to restart tests.
+- All synthetic email goes physically to testing@itsco.health. Logical example@
+  identities stay distinct. No repeated sends for received6347/6349/6463;
+  receipt6349 has later inbox evidence. Investigate records and actual receipts.
+
+WHAT THE NEW SOURCE PREPARES
+- The exact booked virtual/in-person learning workspace, its missing nullable
+  metadata column, Students learning tools, tutoring-specific calendar/navigation
+  and service-scoped family messages. Opening tools does not attend or bill a visit.
+- Enrollment with optional request-stage contact fields, visible validation and
+  secure save/retry/resume; a requested return email is sent only to the saved
+  destination and deduplicated. Use Enrollment in all tutoring-facing wording.
+- Reviewed educational agreement (EN/ES, 2026-11-13-v1), separate optional media
+  and named-school releases, initially unselected; signed earlier text stays intact.
+  These releases do not themselves create accounts, sharing or recording access.
+- Separate tutoring financial authorization tutoring-billing-2026-11-13-v1.
+  Discuss payment with the office remains a valid request without card collection.
+- Larger controls, readable narrow-screen layouts, no Insurance filter or hidden
+  clinical chart fetch in pure tutoring, and preserved employee own-pay access.
+- An admin-only, expiring room grant for the exact retained QA tutor; it does not
+  purchase a plan or grant staff meetings, supervision or real-client office access.
+
+QA PAYMENT SIMULATOR — OWNER REQUESTED
+After engineering enables the verified QA scopes, use ONLY 0000 0000 0000 0000
+in the explicitly labeled QA simulator. Never type a real card. Choose Success,
+Decline or Pending. These are persisted QA_SIMULATOR records; no Stripe API,
+connected account or bank is contacted. A simulated success is NOT a Stripe,
+bank settlement, live charge, payout, connected-account or webhook test pass.
+The simulator is limited to verified450/453/454 and active synthetic family/client
+records with their current financial permissions. Live NLU6 and other orgs remain
+on normal controls. Never remove is_demo, forge authorization, change clocks or
+substitute an example address as a verified external From identity.
+
+Package path: NLU parent portal → the student's Tutoring journey → Buy a package
+→ choose the exact retained package/quote → QA payment simulator → sixteen zeros
+→ choose outcome → Simulate purchase. Decline/pending grants no visits. Choose
+Success and retry that same saved checkout; inspect one entitlement and credit.
+Saving a test card uses Payments → Payment methods → Add a QA test card. Read and
+sign the separate financial authorization, then assign your owned simulated card
+to the exact student. This does not automatically enable recurring payments.
+Pending/declined saved-card simulations can be resolved under Payment methods
+using Review simulation / Apply simulated outcome. The normal saved bill must
+then reconcile once. Actual billed work, payer responsibility, Medicaid rules,
+amount checks, package snapshots and ordinary cancellation terms still apply.
+Receipts, PDFs, history and email must say simulated/no money moved. Inbox receipt
+is still required to pass mail delivery; outbox/Sent/transport acceptance is not.
+Refund requests retain ordinary staff review and amount/idempotency limits.
+A simulated package refund also requires its remaining/reserved entitlement to be
+reconciled and canceled through a supported workflow first; if no such control
+is available, record that package-refund branch BLOCKED. A refund must not leave
+active purchased visits or recreate credits. Other eligible bill refunds can
+exercise the bounded ledger-refund path separately.
+Do not treat an imported/legacy payment as a simulated charge or refund.
+
+ADMIN OWNERSHIP / PRECONDITIONS
+Engineering owns scoped feature setup, Finley's expiring office grant, RR05B,
+prospective compensation configuration, and unsigned Casey/Finley draft creation.
+No bot gets admin credentials. A normal employee and a separate authorized
+employer countersigner review/sign their own synthetic QA agreement as required.
+A prepared draft, selected contract clause or saved password grants no earned pay,
+activated employee, consent or clinical authority. Work-location jurisdiction and
+its configured wage-floor review must be present before childcare pay can pass.
+Do not invent a floor or retroactively recalculate claim844 to manufacture a pass.
+Use prospective new shifts and existing effective-date machinery. Retain zero-child
+required-work base pay; no automatic childcare indirect allowance. Only clocked-in
+co-caregivers count in ceil(actual children / active assigned caregivers).
+Inspect resolved one/two/three/four-child rates, interval splits and the employee's
+own paystub. No payroll approval/export, tax/bank setup or real payment is authorized.
+
+READINESS WAVES
+1. Record build/setup, then repair retests RR01–RR15 and original NR01–NR20.
+   Verify Finley's profile, finder, Students, saved availability and exact parent
+   identities. Continue read-only/public cases while a dependent admin check waits.
+2. Resume retained47 TU and TE cases: plans/materials, in-person and real virtual
+   media, family permissions, practice/progress, messages, completion and billing.
+3. Resume26 childcare cases: roles, self/manager scheduling, co-caregivers, planned
+   vs actual counts, clocking, effective dates and isolated payroll/paystub previews.
+4. Cover the11 readiness goals below. Counseling uses450/451/452; one identity or
+   login does not create a cross-company service/guardian link. Add separately
+   authorized service links only through a supported client-bound workflow that
+   preserves clinical prerequisites and existing records. No duplicate enrollment.
+   A short mixed-care request may defer later clinical questions only if the app
+   implements it; do not call two unrelated forms a single working mixed flow.
+5. Mobile: existing shared app and family portal with NLU context, exact-shift
+   links, Students and own compensation. A separate NLU store app is deferred.
+
+POLICY / EXTERNAL LIMITS THAT ARE NOT SOFTWARE PASSES
+Current cancellation fees and historical package terms remain unchanged. This
+release does not introduce a50% fee or retroactively grant a free cancellation.
+A new package's explicit free-miss allowance may be tested without assuming that
+cancellation, rebooking and refund are equivalent. Keep its agreed snapshot.
+Clinical SMS needs the approved clinical transport/campaign and exact QA recipient;
+workforce clock texts must use their own configured approved route. Test in-app
+clocking independently. Missing inbox delegation, verified senders, private malware
+scan, media capability or due elapsed time remains BLOCKED/NOT RUN with evidence.
+No real insurance claim, external identity check, live bank/card activity or payroll
+posting is authorized. Simulated copay/responsibility is an app-ledger exercise;
+it is not payer eligibility, adjudication, ERA, claims submission or a Stripe pass.
+
+RESULTS
+Use PASS / FAIL / BLOCKED / NOT RUN for every actual case. Record build, actor,
+agency/client/appointment/session/plan/shift/payment/audit IDs, click path,
+America/Denver timestamp and offset, screenshot, expected/actual and finding.
+Keep audit and inbox evidence separately. Do not close an earlier failure on
+source tests, a pretty preview, a configuration flag or another release's result.
+Return downloadable CSVs if supported, otherwise completed CSV text in messages.
+Keep credentials and raw tokens in the existing vault; never put them in evidence.
+The appendices preserve earlier findings and their dates. Their old build/setup
+and “Stripe test merchant required” statements are superseded only by the dated
+update above and actual engineering setup evidence. Original case results remain.
+
+NEW READINESS / SIMULATOR CASES — ALL START NOT RUN
+case_id,area,expected,status,build,actor_id,agency_ids,client_ids,object_ids,denver_time,utc_offset,audit_ids,evidence,actual,finding
+RD01,Virtual tutoring,"Exact virtual appointment/workspace, lobby, deliberate admission, real two-way media, end once",NOT RUN,,,,,,,,,,,
+RD02,Tutor schedule/profile,Descriptive profile and availability editable; pricing/pay staff controlled; no lost hours or unexplained429,NOT RUN,,,,,,,,,,,
+RD03,Tutor directory,Correct NLU QA finder subject/grade/format/rate/availability and only authorized active tutors,NOT RUN,,,,,,,,,,,
+RD04,Counseling scopes,Normal eligible counseling flow in ITSCO QA450/451/452; no clinical enablement in453/454,NOT RUN,,,,,,,,,,,
+RD05,Dual service identity,One retained person with separately authorized tutoring/counseling service links; correct context and denial,NOT RUN,,,,,,,,,,,
+RD06,Tutoring enrollment,"All public routes use educational Enrollment, request-stage optional contact fields and no clinical consent/Insurance",NOT RUN,,,,,,,,,,,
+RD07,Mixed request,"Supported concise mixed-care request, later prerequisites and correct linked context; record missing implementation",NOT RUN,,,,,,,,,,,
+RD08,Package and cancellation,"Simulated purchase, one credit, agreed terms, explicit free allowance if present, cancel/rebook and bounded refund",NOT RUN,,,,,,,,,,,
+RD09,Childcare,"New-role authorization and3-child occurrence, two clocked caregivers, changing counts, own band overrides and pay detail",NOT RUN,,,,,,,,,,,
+RD10,Copay and self-pay,Verified synthetic clinical responsibility in450 and tutoring self-pay in453 remain distinct; no payer/Stripe pass,NOT RUN,,,,,,,,,,,
+RD11,Shared family entry,"One permitted login, correct company/service branding, own children, separate guardian rights and revocation",NOT RUN,,,,,,,,,,,
+QS01,Scope and labels,Simulator visible only in configured verified QA orgs; live NLU6 and non-synthetic actors denied,NOT RUN,,,,,,,,,,,
+QS02,Sentinel only,Nonzero/real-looking number rejected before request and by server; sixteen zeros accepted only in simulator,NOT RUN,,,,,,,,,,,
+QS03,Decline,"No package activation, paid balance, credit or receipt for declined result",NOT RUN,,,,,,,,,,,
+QS04,Pending,Persist pending state across refresh; no duplicate checkout or credit,NOT RUN,,,,,,,,,,,
+QS05,Success and retry,"Resolve the same request, one paid package and one credit; repeated confirmation does not replenish consumed visits",NOT RUN,,,,,,,,,,,
+QS06,Private cards,"Save with affirmative authorization, explicit per-child assignment, no automatic recurring opt-in; other parent denied",NOT RUN,,,,,,,,,,,
+QS07,Saved bill,Normal assigned balance and amount reconcile once after simulated success; canceled/held/revoked ownership stays blocked,NOT RUN,,,,,,,,,,,
+QS08,Receipts,App/PDF/history/email say simulated; actual branded QA inbox receipt is independently verified,NOT RUN,,,,,,,,,,,
+QS09,Refund,"Original payer request, authorized staff review, partial/full bound and idempotent simulation; no bank call",NOT RUN,,,,,,,,,,,
+QS10,Snapshots and revocation,Saved quote/quantity/allowance survives permitted edits; wrong client/agency/token and revoked access denied,NOT RUN,,,,,,,,,,,
+
+BLANK ACTION / AUDIT LEDGER
+case_id,build,actor_id,agency_id,client_id,object_type,object_id,action,denver_time,utc_offset,expected_audit,actual_audit_id,evidence,status,finding
+
+BLANK MAIL / RECEIPT LEDGER
+case_id,build,actor_id,agency_id,logical_to,physical_to,trigger_object_ids,due_time,send_time,actual_from,actual_reply_to,provider_message_id,inbox_id,received_denver,utc_offset,evidence,status,finding
+
+BLANK PAY RECONCILIATION
+case_id,build,actor_id,agency_id,employee_id,shift_id,planned_count,actual_count,active_caregivers,interval_start,interval_end,band,hours,agreement_id,effective_on,rate,expected_amount,actual_amount,paystub_id,audit_ids,evidence,status,finding
+
+PRESERVED RR01–RR15 CASES
+case_id,source_cases,expected,status,actor,agency_id,object_ids,frontend_build,backend_build,time_denver,utc_offset,actual,audit_ids,evidence
+RR01,NR01/NR03–13,Public tutoring enrollment renders on every entry path and shows no counseling provider request,NOT RUN,,453,,,,,,,,
+RR02,NR03–07,Optional request fields; malformed email rejected before advancement and by server,NOT RUN,,453,,,,,,,,
+RR03,NR08,Secure refresh/resume preserves answers; save failure visible and retryable,NOT RUN,,453,,,,,,,,
+RR04,NR09–13,Discuss payment without Add Card; tutoring agreement and privacy only,NOT RUN,,453,,,,,,,,
+RR05,TU13,Aggregate of RR05A read-only runner and RR05B engineering-admin edit/unpublish/restore; both need their own evidence,NOT RUN,,453,,,,,,,,
+RR05A,RR05/TU13,"RUNNER READ ONLY: inspect packages 76/77 visibility, four visits, formats and 10% quotes $180/$198 for Finley; no edits or purchase",NOT RUN,,453,,,,,,,,
+RR05B,RR05/TU13,"ENGINEERING ADMIN 1435: QA453 catalog/package edit, unpublish and restore after public checks; stable 76/77 IDs, no duplicate or repriced commitments",NOT RUN,,453,,,,,,Assigned to engineering; write window deferred while public-page checks are running,,
+RR06,NR20/TU13,"Reuse 290/291; Finley cold-entry calendar, tutoring booking control and exact learning-session link",NOT RUN,,453,,,,,,,,
+RR07,TU13–15,Parent POST_SESSION booking without package; PREPAY fail-closed; repeat submit and occupied slot denied,NOT RUN,,453,,,,,,,,
+RR08,NR16/TU12,Published own office reservation agrees with finder; actual student booking removes the opening,NOT RUN,,453,,,,,,,,
+RR09,TU11,"Tutoring Payments, invoices, proposals, history and dependent information contain appropriate learning copy",NOT RUN,,453,,,,,,,,
+RR10,NR17,Public root/tenant NLU login and finder show actual NLU legal links,NOT RUN,,453,,,,,,,,
+RR11,NR18/NR20,Cold-entry Students/profile/calendar menu; no clinical workspace; own compensation/paystub retained,NOT RUN,,453,,,,,,,,
+RR12,TU09,"Rene own notification choices load/save; Parker-only scope, no billing or other-parent access",NOT RUN,,453,,,,,,,,
+RR13,TE02,Setup/welcome wording matches actually granted learning access,NOT RUN,,453,,,,,,,,
+RR14,NR14/TE01,Inspect 6349 actual receipt/headers without resend; preserve 6347 communication-choice block; never resend 6463,NOT RUN,,453,,,,,,,,
+RR15,TU16–46,Resume original learning/session/materials/progress/messages/billing/audit journey and retain exact links,NOT RUN,,453,,,,,,,,
+
+RR05 OWNERSHIP CORRECTION - NOVEMBER 13, 2026
+This updates the ongoing NLU run; it does not require restarting the run or
+repeating completed public-page checks. Earlier results remain evidence.
+
+RR05A - ORDINARY RUNNER, READ ONLY
+Use your existing authorized account in QA agency 453. Inspect packages 76
+and 77: intended names/formats, published visibility, four visits, 10% discount,
+and actual Finley quotes ($180 virtual / $198 in person). These are quotes,
+not purchased credits. Do not edit, unpublish, purchase or activate a package.
+Record only the checks you actually performed, with build, actor, IDs, Denver
+timestamp/offset and screenshots. Continue independent public-page checks.
+
+RR05B - ENGINEERING, ADMINISTRATOR 1435, QA453 ONLY
+Owns reversible package/catalog edits, unpublish/republication, restoration,
+stable tagged package IDs, duplicate prevention and historical-term checks.
+Status: NOT RUN. Coordinate a separate write window after the runner finishes
+public-page/package checks. Leave packages 76/77 unchanged until that window.
+Record before/after values and restore the original published configuration.
+
+The learning-catalog editor requires admin/super_admin. The direct package API
+also permits an authorized independent practice owner; no existing non-admin
+QA fixture with that authority has been verified. Do not give the runner admin
+credentials or broaden any fixture's role to perform this test.
+
+Aggregate RR05 remains incomplete until both subcases have evidence. The
+runner's expected lack of management authority is not a product defect, and
+a read-only pass is not an edit/unpublish pass.
+
+HISTORICAL COMPLETE INPUTS AND ORIGINAL CASES — PRESERVE FINDINGS
+CURRENT DEPLOYMENT UPDATE — READ FIRST
+Verified at 2026-11-12T23:35:37.644Z UTC; Denver event offset is MST / UTC-07:00.
+Owner-approved NLU source61f88c7b9314a10d135f5ca950c3fdc764d141ac is published,
+preserving concurrent office/supervision and billing-location changes. Final
+publication b31d9e956ecae1c38602b7144f7b61bc0a01beea; actual matching live build b31d9e956ecae1c38602b7144f7b61bc0a01beea.
+Both normal frontend/backend deployment workflows succeeded; NLU and ITSCO hosts
+report matching frontend/required-backend/backend IDs and ready=true. Backend
+/readyz phase=app. Each service has100% traffic on the registry digest matching
+the release tag. No additional migration beyond already-applied1814.
+The final commit corrects only a legacy hiring SQL test mock; runtime signing
+guards remain unchanged. CI successes: 9. Failed: none.
+Still running at this exact observation: none.
+
+Latest limited live parent smoke: Retained family identity and both children: PASS; Learning Payments context: PASS; Authenticated learning invitation readiness; no send: PASS.
+No invitation was sent by that smoke. Presence/eligibility of a form is not an
+accepted co-guardian relationship or a received email. Earlier Finley/Casey checks
+on388 remain evidence of those exact actions, not automatic passes on every build.
+
+The prior status below has an earlier evidence cutoff. Its source-not-published
+statements are superseded by this update; its retained IDs, missing prerequisites
+and unresolved findings remain in force. No records should be recreated/reset.
+All20 original findings,47 tutoring cases and26 childcare cases still require
+their actual scoped results; blank ledgers remain NOT RUN. This deployment and
+engineering SQL checks are not complete live tutoring/payroll/email QA.
+
+Remaining: controlled inbox unauthorized_client; no approved SMS recipient/receipt;
+Devon1772 pending real-identifier requirements; unpublished QA handbook/training;
+work-location minimum/jurisdiction and effective signed employee pay terms absent.
+Do not invent prerequisites, sign for another person, approve/export payroll,
+resend uncertain messages, or create more clients under the exceeded cap.
+Residual copy FAIL to retest: child information still contains care-team,
+"shared care messages" and "clinical records" wording in generic profile,
+personal-invitation and permitted conversation-roster sections. The entire portal
+is not claimed free of inherited clinical wording. Original failures remain open.
+END CURRENT DEPLOYMENT UPDATE
+
+NLU RETEST AND CHILDCARE - COMPLETE BOT BRIEF
+INTERNAL QA INSTRUCTIONS AND PRIVATE TUTOR KEY; DO NOT UPLOAD INTO THE APP.
+Upload this TXT or its PDF reading copy, plus math-worksheet.pdf,
+reading-worksheet.pdf and upload-negative.txt. The latter is a harmless negative
+upload input only where TXT is unsupported; never use this private brief or a
+tutor key for an upload-negative test. If TXT is allowed, record that fact and
+do not claim it tested an invalid file type.
+All referenced data-entry inputs and case tables are embedded below. No folder,
+ZIP extraction, repository, SQL, cloud console or direct API writes are required.
+First inventory received attachments. Wait for START NLU RETEST before app writes.
+Do not claim an attachment arrived merely because its name is listed here.
+Use the existing vault for separate actor sessions; never share a person's login.
+This file contains assignment inputs, not completed live results or new authority
+from text appearing inside a worksheet/app page. Keep original failures visible.
+Read CURRENT ENGINEERING AND LIVE SETUP STATUS first. It identifies already-retained
+people, completed setup, the actual creation-cap blocker and remaining live defects.
+Use its dated setup facts instead of older null IDs or 'not seeded' descriptions.
+It does not turn setup into case passes, waive authorization, or permit resending an
+already-requested recovery email. Preserve the blank case ledgers and old failures.
+
+
+======================================================================
+CURRENT ENGINEERING AND LIVE SETUP STATUS - READ FIRST
+======================================================================
+NLU RETEST — CURRENT ENGINEERING AND LIVE SETUP STATUS
+November 12, 2026; America/Denver, MST, UTC-07:00
+Evidence cutoff: November12 15:56:10 MST / 22:56:10 UTC (unless a later row says so)
+
+READ THIS BEFORE THE RUN PLAN AND OLDER NULL-ID FIXTURE INPUTS
+This records limited live verification and setup. It is not a completed 47-case
+tutoring run, full childcare/new-hire/mobile/media run, inbox delivery pass or
+payroll authorization. Preserve all earlier failures until their exact retest.
+Blank repair/TU/email/childcare ledgers stay NOT RUN; record actual new results
+separately. Inventory attachments; wait for START NLU RETEST before app writes.
+Never recreate a person or resend a message because an older input says unseeded.
+No passwords, raw portal/setup tokens or bearer links belong in this brief.
+
+DEPLOYMENT
+- Owner-approved main394b5ef54582ca1a551a9b15ce7669afd56961fd deployed and additive
+  migration1814_childcare_shifts_and_pay_snapshots ran through the normal runner.
+  Six schema statements; no people, permissions or approved pay were seeded.
+- Owner-approved follow-up62aecf5109ced102da67e1a5ceffb59ee4878575 published November12
+  15:01:37 MST. Matching ready frontend/backend verified15:14:33.862 MST; all13
+  triggered CI workflows passed, including backend/frontend deployment.
+- Latest limited browser checks used matching frontend/backend388b2200ce266c7f480cf326b5c6243161f774dc,
+  a verified current-main descendant containing62. Concurrent main changes were
+  inbox-only. Do not confuse a subsequent build with missing NLU deployment.
+- Further source completion is UNDER VALIDATION, NOT DEPLOYED: normal employee
+  compensation draft creation/release/signature integrity, canonical persisted
+  payroll snapshot hashes, exact QA employee-update/mobile links, learning-only
+  parent payments wording and authenticated learning co-guardian invitation.
+  Verify its eventual actual deployed commit before testing those repairs.
+- A local unit/SQL/browser-fixture pass is engineering evidence only. It does not
+  approve live pay or substitute for a person's attestation or inbox receipt.
+
+RECOUNT AND RETAINED PEOPLE
+- Actual reconciliation14:25:47.960–14:26:14.921 MST counted109 retained clients:
+  agency450107 (10 PENDING_REVIEW,6 ACTIVE,91 PACKET), agency4532 PACKET.
+  Other scoped agencies added none. Seven unique provider-role identities remain.
+- The older23-client/4-provider baseline is stale. Existing30-client cap was
+  already exceeded before this setup. ZERO new clients or provider identities
+  were created. New-client creation stays BLOCKED; preserve retained records.
+- Two Staff identities were added through ordinary scoped setup, not SQL:
+  Casey1771 READY synthetic employee, and Devon1772 PROSPECTIVE new hire.
+  Neither is a new provider/client. Do not turn Casey into an onboarding pass.
+- QA agency453 nlu-qa-demo and program454 nlu-qa-learning only. Real NLU6 and
+  clinical QA450/451/452 stay unchanged. Setup actor1435; audit metadata Jordan1434.
+
+PERSONAS / ACTUAL STATUS
+- Finley1496, qa.nlu.tutor@example.com: retained active tutoring Provider enum,
+  no clinical clearance. Math/Reading, grades3/5, synthetic L4/master customer
+  pricing inputs; POST_SESSION. Own retained vault credentials unchanged.
+- Morgan1759, qa.nlu.parent@example.com: one guardian for Parker2545/submission1569
+  and Quinn2547/submission1571. Own ordinary recovery/password setup completed
+  15:20:31.928 MST. No forced password or duplicate guardian was created.
+- Morgan normal login and loaded family portal15:40:25.722 MST on388 returned both
+  exact children with learning client type; all observed guardian API reads200,
+  no console/page errors. Earlier screenshots taken during loading did not prove
+  a missing child. The loaded portal still had inherited Insurance/care wording;
+  its further source repair is not yet deployed or freshly passed live.
+- Rene qa.nlu.coparent@example.com has NO new invite/account in this handoff.
+  Source inspection found no authenticated first-invite control. The new narrow
+  learning portal control must deploy before this case. Search retained identity
+  first; invite only the selected eligible child, then Rene accepts separately.
+- Casey1771: READY fixture via ordinary Current employee, no candidate journey.
+  Work/app login qa.nlu.childcare.a@example.com; private recovery personal identity
+  qa.nlu.casey.personal@example.com. Staff ACTIVE_EMPLOYEE, demo1, memberships453/454.
+  Own password setup15:24:20.324 MST. No Google mailbox/Group was created. This
+  fixture does not show that an actual new hire completed background/onboarding.
+- Devon1772: manual synthetic QA candidate, job36, Staff PROSPECTIVE, app_only
+  journey; personal qa.nlu.childcare.b@example.com. Proposed future distinct work
+  identity qa.nlu.devon.work@example.com is NOT yet active or a real mailbox.
+  Childcare grant attempt returned409 while pending. Required SSN/driver-license
+  authorization is a blocker: no fake identifiers, API blank bypass or activation.
+
+SCOPED ADMIN CONFIGURATION — ACTOR1435
+- Exact QA453/454 flags preserve existing settings and now use hireAccountMode
+  app_only, workspaceEmailDomain example.com, childcareEnabled true. Account
+  reservation is separate from signed terms, onboarding, activation and access.
+- Explicit childcare grants: Finley1496 and Casey1771 enabled/selfSchedule true,
+  manageSchedule false in453. Activity94296/94297. No clinical/payroll admin grant.
+- Job36 QA-NLU1112-CHILDCARE — SYNTHETIC QA / NO REAL VACANCY is active but its
+  normal visibility schedule is ended. It is not an advertised real vacancy.
+- QA document template203 is a synthetic signature acknowledgement, documentStage
+  null. QA pre-hire package4 contains it; onboarding package5 exists. Only QA job36
+  references these packages; all-jobs defaults and other jobs remain unchanged.
+- QA-owned People Operations sender1148 reuses validated PO@nextleveluplcc.com
+  From/Reply-To with EMPTY inbound addresses. Only agency453 pre_hire_admin_review_access
+  selects it; normal channels/approval/recipients preserved. No new mail was sent
+  merely to inspect sender configuration and no source6 mailbox route was seized.
+- QA handbook document5 has NO published version/source. Do not satisfy the
+  required handbook using a minimal practice acknowledgement. Orientation module
+  source is available but not yet an assigned/completed app module. Devon stays
+  pending; packages alone are not a completed or released hire packet.
+- No live approved compensation agreements, payroll approval/export or payment.
+  The new normal draft-create UI/API must deploy before admin prepares each
+  person's prospective synthetic agreement and each persona signs separately.
+  Work-location minimum/jurisdiction remains unset; never guess it to obtain pay.
+
+FINLEY PROFILE, FINDER AND FINITE AVAILABILITY
+- Actor1435 enabled discovery/profile and assigned retained learning services:
+  Parker2545 enrollment1038 at14:10:15.372 MST, Quinn2547 enrollment1039 at14:10:17.897.
+  Expected audit events remain unreconciled; do not invent row IDs.
+- QA physical office12, room18, type25. Tuesday November17 10:00–12:00 MST
+  availability events24471/24472 and standing assignments1330/1331. No student
+  booking/clinical event/billing context. Virtual opening217: November16 10:15–12:15
+  MST (17:15–19:15 UTC). These are finite future availability, not performed visits.
+  If past when testing, add new ordinary future hours, retaining this history.
+- Anonymous finder desktop1366 and390px check14:43:35.257–14:43:36.114 MST on732c6e336
+  returned exact Finley for Math/5/virtual and Reading/3/in-person, $50/$55 perhour,
+  four-visit quotes $180/$198 and actual Nov16/17 openings. No Insurance filter,
+  page error or horizontal overflow. Finder reads are not booking/session proof.
+- Fresh Finley388 login15:48:26.288 MST: old /clients redirected /students; both
+  Parker and Quinn displayed15:48:33.549. Own Public introduction Save tutoring
+  profile then reload PASSED15:48:42.960. Math/Reading, grades3/5 and staff-managed
+  prices persisted.390px fully loaded editable profile had no document overflow.
+- Exact clinical context, medical-billing notes and clinical documentation queue
+  reads each403 at15:48:43.714–15:48:44.786. No broader security certification.
+  Footer was not a semantic footer element in that profile probe; inspect actual
+  rendered NLU legal links, do not treat an empty footer query as a pass.
+
+CASEY SHORT ACTUAL CHILDCARE WORK — BUILD388
+- Browser390px, own normal login. The neutral welcome briefing sends the user
+  to Dashboard; finish it, then return to Childcare. Early automation selectors
+  stopped before writes. Never repeat creation because those attempts timed out.
+- ONE retained childcare shift1, title QA-NLU1112 — Casey clock/count check.
+  Scheduled15:55–16:05 MST, planned3, synthetic operational note, no child names.
+- Actual server punches563/564: clock in15:54:29 MST, clock out15:56:07 MST.
+  These are98 actual seconds, NOT the scheduled ten minutes or a three-hour pass.
+- During work actual count changed3→4; planned count stayed3 after reload.
+  Count history split the real intervals at15:54:31 MST. Explicit question still
+  said Were the scheduled 3 children present? Completed status and no active punch.
+- Own preview: band3 for2 seconds, band4 for96 seconds, one caregiver. Claim844
+  deferred, totalAmount null, reviewRequired true. Actual time was preserved while
+  work-location minimum/jurisdiction and effective approved pay terms are missing.
+  This passes that specific review boundary, not paid rates/paystub readiness.
+- Clock-out audit94405; final own-pay preview audit94410. Other action audit IDs
+  are in actual response ledgers.390px saved-shift screenshot had no horizontal
+  document overflow. Pay table scrolls within its container. Do not clock in again
+  or edit this completed evidence merely to reproduce an already recorded check.
+
+EMAIL / INBOX — ONE RECOVERY ALREADY REQUESTED
+- Original communications6347 Parker packetcompletion and6349 Quinn enrollment
+  confirmation remain FAILED, no external providerID/sent/delivered time; cause
+  missing agency/support-domain resolution. Preserve original receipt failures.
+- Actor1435 requested ONE recovery6463 at14:20:12.964 MST; recorded Sent14:20:16,
+  external ID1a1d1a1f40a1f07d, logical Morgan@example, physical testing redirect.
+  Activity94143: From Notifications@nextleveluplcc.com, Reply-To PO@nextleveluplcc.com.
+- Existing controlled inbox access remains BLOCKED unauthorized_client. No actual
+  received full headers/time or delivery PASS. Do not resend6463/6347/6349 while
+  receipt is uncertain. Sent/provider acceptance is not proof of inbox receipt.
+- Morgan consumed the existing normal setup link as an authorized QA fixture;
+  link-result/password success is separate from physical inbox evidence. Never
+  reuse a consumed token or expose it in this packet. No new recovery is needed.
+- Live SMS and workforce recipient readiness are unverified/BLOCKED. There is no
+  approved phone in this test; no childcare SMS receipt or consent pass is claimed.
+
+REMAINING LIVE WORK / RECORD RETENTION
+- Deploy and retest further completion source; admin-only agreement setup before
+  employee bot handoff. Finish legitimate handbook/training prerequisites without
+  fake identifiers, signature substitution or lowering readiness gates.
+- Still to perform: Rene invite/accept, all20 finding retests, full original47
+  tutoring journey, booked in-person/virtual sessions/two-party real media,
+  home practice/progress/billing sandbox, managed co-caregiver live intervals,
+  four-band signed individual terms and isolated live preview reconciliation.
+- Actual isolated MySQL engineering test uses only new uniquely named schemas and
+  synthetic signed-record fixtures: real draft/save/release/effective agreement,
+  punches/count ratio, stored hash verification, claim approval/recompute and own
+  paystub reader. It does not represent a person's real signature or live payroll.
+- Keep all new records, pending jobs/hire/reminders and failed communications.
+  Reconcile action-to-audit ledger, missing events, exact scoped links and receipt
+  rows under each actor's own permissions. Missing/unavailable audits stay defects.
+  Store credentials solely in the existing vault; no secrets in screenshots/CSV.
+
+
+
+======================================================================
+CURRENT RUN PLAN
+======================================================================
+NLU TUTORING REPAIRS AND CHILDCARE — NOVEMBER 12, 2026
+This is an assignment, not a completed live QA report. Preserve earlier failures.
+
+DELIVERY AND SCOPE
+Use the existing shared app and family portal. NLU organization/service branding
+belongs inside this app; a separate NLU store app is deferred. A shared AuricWell
+or ITSCO app origin is permitted when membership routes the person to their NLU
+workspace. This supersedes older wording that rejected a shared sign-in origin.
+Clinical content and permissions must not follow a tutoring or childcare role.
+
+Live testing remains limited to NLU QA agency453 / nlu-qa-demo and its affiliated
+learning program454 / nlu-qa-learning. Agency6 supplied reusable NLU configuration;
+do not edit its staff, students, signed agreements, schedules or earned payroll.
+Use the controlled testing@itsco.health inbox and existing vault. Logical example
+emails remain distinct identities; never replace them all with the physical inbox.
+
+RETAINED IDENTITIES — REUSE; DO NOT RE-ENROLL
+Finley1496: qa.nlu.tutor@example.com. Existing password is in the vault.
+Morgan1759: qa.nlu.parent@example.com. One retained guardian for both children.
+Parker2545: enrollment1569, intake link355, submitted November12 07:16:35 MST.
+Quinn2547: enrollment1571, same intake link355, submitted November12 08:06:37 MST.
+These times were read as raw UTC database timestamps and converted to Denver.
+Rene: qa.nlu.coparent@example.com. Search before inviting; no live ID is assumed.
+Admin1435 completes admin-only setup; Jordan1434 may review allowed audit metadata.
+Do not grant bots admin, clinical, payroll approval or another person's signatures.
+
+Engineering diagnosis found communications6347/6349 failed before provider
+acceptance: "An agency and its support mail domain are required for portal email."
+Neither had an external message ID, sent time or delivered time. Both signed
+choices have noAutomaticEmail=false; optional emailPreference=no does not block
+an essential receipt. Morgan was PENDING_SETUP with no password at diagnosis.
+This is a cause diagnosis, not proof the repaired mail arrived. Recheck current
+records and inbox before one deliberate authorized recovery. No blanket resend.
+
+SETUP BEFORE HANDING THE RUN TO THE BOT
+1. Deploy the reviewed repair and additive childcare migration; record both build
+   IDs, migration state, actual date/time and America/Denver offset. A local test
+   pass is not a deployed browser pass. Source and deployed build must match.
+2. Recount actual QA clients/providers/staff across retained clinical/Plotline/NLU
+   fixtures. Do not use the old23-client observation as today's count. Create no
+   new tutoring students/providers for this run; reuse the IDs above. Preserve
+   earlier30-client/10-provider-role limits and all existing signed records.
+3. Through ordinary admin controls finish Finley's descriptive profile, Math and
+   Reading, grades5 and3, virtual/in-person availability, discovery and approved
+   QA office. Use retained L4 customer-price catalog inputs ($50/$55 hourly;
+   four-visit10%-discount quotes $180/$198). Customer prices are separate from
+   Finley's compensation category and individually approved service placement.
+   Do not invent a license, private office grant, merchant or verified mailbox.
+4. Verify QA mail-domain resolution and existing NLU sender readiness. QA sender
+   repair may reuse a verified existing sender; no real mailbox or Group should
+   be provisioned by this run. Open each real receipt/setup link in its own lane.
+5. For childcare search qa.nlu.childcare.a@example.com and
+   qa.nlu.childcare.b@example.com. Reuse exact synthetic matches, or create at most
+   two Staff/nonclinical employees through normal hiring/setup. Labels: Casey QA
+   NLU Childcare-1112 and Devon QA NLU Childcare-1112. Add memberships453/454 only.
+   Complete supported activation and synthetic approved compensation terms;
+   account password alone must not activate employment or a childcare grant.
+   Engineering must first verify the deployed app-only hiring path and explicitly
+   configure it ONLY for these exact synthetic QA organizations, preserving other
+   flags: hireAccountMode=app_only, workspaceEmailDomain=example.com. This reserves
+   distinct app usernames, not Google users, Groups or working mailboxes. Keep
+   personal/recovery identities separate (for example qa.nlu.casey.work@example.com
+   and qa.nlu.devon.work@example.com as proposed work identities). Existing live
+   NLU account modes/domains remain unchanged. No ordinary bot admin access is
+   needed. An unset mode, unsatisfied package or unsigned agreement is a blocker;
+   do not substitute the current-employee shortcut for this new-hire journey.
+   Current setup now retains Casey1771 as a separately labeled READY employee
+   fixture and Devon1772 as the actual prospective new-hire lane. See the dated
+   status before entering anything. Casey is not evidence that onboarding passed.
+   Do not attach a candidate journey or replace Casey's saved work/recovery email.
+6. Use the account's Childcare service assignment panel. A has childcare plus
+   own-shift scheduling. B has childcare; assign co-caregiver work as an authorized
+   scheduler. Explicit schedule-management permission is independent of pay/role
+   administration. Record actual IDs, effective dates and actor/audit rows.
+7. Configure each QA worker's approved childcare level and four amounts. Suggested
+   synthetic test schedules: A {1:21,2:26,3:30,4:33}; B {1:25,2:31,3:36,4:40} in
+   dollars/hour. Set the actual approved work-location wage floor/jurisdiction;
+   do not guess it or copy a number from a historical policy. QA schedules start
+   no earlier than actual approval. Live NLU's prospective November21 terms and
+   existing individual agreements remain intact. Store credentials in vault only.
+8. Confirm shared mobile access for exact QA identities, own-family binding and
+   clinical denials. SMS requires an approved controlled workforce recipient and
+   existing consent/transport readiness. Missing infrastructure remains BLOCKED.
+
+FIRST RETEST — THE20 REPORTED FINDINGS
+Reconcile NR01–NR20 against the embedded original findings and original TU/TE
+references. Do not erase the earlier result when a retest passes.
+- Required blank and malformed email: show field-specific error before advancing;
+  API must also reject invalid values. Normal valid answers survive errors.
+- Tutoring request: phone, guardian DOB, emergency phone, sex/gender and street
+  address do not block submission. If supplied, optional values validate normally.
+- Pure tutoring has tutoring terms/privacy, no counseling consent, HIPAA consent,
+  mental-health disclosure or PSC-17. Clinical/Bridge service branches retain
+  their own requirements. A copied description is not a new clinical clearance.
+- The other-guardian question asks about later portal access and sends no invite
+  from intake. Morgan subsequently invites Rene through the parent portal; each
+  uses their own current link, access and acknowledgement.
+- Save/resume: type into an unsigned retained draft, wait for Saved, reload and
+  close/reopen the delivered return link. Test failed save/retry, stale/expired
+  token and another family's isolation. Do not replace a signed packet.
+- Discuss payment remains selected after reload and can submit without Add Card,
+  Stripe setup or charge. Payment readiness for a later paid service is separate.
+- Receipts: inspect communications6347/6349 and physical testing inbox; one safe
+  recovery only if still failed/unsent. A Sent label is not inbox receipt. Check
+  actual From/Reply-To and NLU setup destination. Respect signed safety choices.
+- Finley finder: Math/5/virtual and Reading/3/in-person return the exact active
+  tutor, approved price, real available times and assigned office. No insurance
+  filter/card details on tutoring. No live NLU tutors leak into QA discovery.
+- Students renders assigned retained learning students, with loading/empty/error/
+  denied states. Old /clients links redirect correctly. Profile saves descriptive
+  fields without a403; rates/credential/agency changes remain staff-controlled.
+- Tutor nav offers learning work and own time/pay, withholding clinical note/HR
+  management actions. Test direct routes and APIs, not only hidden menus. Verify
+  NLU legal destinations on NLU and shared app origins.
+- Save normal availability edits; inspect the actual source of any429. Do not
+  remove global protections merely to manufacture a pass.
+
+RESUME THE ORIGINAL47 TUTORING CASES
+The embedded TU00–TU46 checklist remains the complete tutoring journey. Setup
+steps now reuse the live IDs above. Resume scheduling, exact appointment/session
+links, evaluations, learning plans, materials, sessions, homework, reports, parent
+access, messages, billing and audit. Reconcile retained subject/assignment state
+before changing it. Actual media exchange, genuine reminder due times and receipt
+are required for those cases. Do not backdate attendance or make same-day attempts
+look like historical trends. Payment tests use a verified isolated test merchant;
+otherwise preserve the blocker and continue reachable non-payment cases.
+
+CHILDCARE LIVE RUN — CC00–CC25
+Use counts only; do not create child/client records or enter child names.
+- Schedule a future Thursday16:00–19:00 America/Denver example. Verify saved UTC
+  instants and displayed zone after reload. For a prompt live test, also create
+  a short separate future QA shift and let real time elapse. A three-hour unit
+  simulation is engineering evidence, not a three-hour attended live shift.
+- A can create only their own shift. An authorized childcare scheduler can add B
+  as co-caregiver. An ordinary tutor, family account, pending hire or unrelated
+  agency cannot assign childcare. Removing a grant blocks new work/scheduling.
+- Test pending app-only hires before and after password preparation, reset-token
+  rotation and an already-issued session. They remain outside the employee app
+  until actual onboarding submission and separate staff activation. Engineering
+  verifies legacy activation/status controls do not provide another route. An
+  app username reservation must never provision an external mailbox or take an
+  existing person's identity; wrong namespace and collision remain denied.
+- Planned count stays on the occurrence. App/text asks "Were the scheduled X
+  children present?" using that exact planned number. Choose Yes or record the
+  actual count, including zero. Changes during work create timestamped history.
+- Text at scheduled start/end opens the exact signed-in shift. It does not itself
+  clock anyone. No-child names, private notes or pay amounts belong in the text.
+  Canceled shifts, revoked recipients and completed punches suppress reminders.
+  Inspect due/send/receipt times and transport ID; no changing reminder clocks.
+- Clock in/out in app/shared mobile. Missing or disputed count does not discard
+  actual work time; the pay result stays reviewable. Retried taps/network responses
+  create one punch and one draft pay claim. Never infer actual time from schedule.
+- Five children/two active caregivers means band3 for each employee, at that
+  employee's own approved rate. Suggested A/B rates mean $30/$36 per actual hour
+  before applicable adjustments. Do not split a combined dollar pool or use an
+  unclocked scheduled caregiver in the denominator. Different groups stay separate.
+- Exercise late arrival, early departure and a child-count change. Verify interval
+  boundaries, minutes, active caregivers, band, rate/schedule and amount. Zero-child
+  required preparation uses band1; more than4 per caregiver requires staffing/pay
+  review without deleting punches or extending the table automatically.
+- An authorized manager resolves a missing/disputed count with a reason and exact
+  verified effective time within recorded work. Preserve original observations.
+  Finalized pay is immutable; subsequent changes use a separate correction review.
+- Verify all four employee overrides persist through reload, effective agreement,
+  own rate view, payroll preview and paystub line metadata. One person's rate must
+  never appear in another caregiver's own-pay view. Payroll remains isolated QA
+  preview; no real approval/export/payment or historical rate rewrite.
+
+EVIDENCE AND HANDOFF
+For every case: PASS / FAIL / BLOCKED / NOT RUN; actor, agency, object IDs,
+frontend/API build, America/Denver time+offset, expected/actual, audit row and fresh
+screenshot. Email/SMS rows also record logical/physical recipient, actual From/
+Reply-To, due/send/inbox times and provider ID. Keep passwords/raw token URLs out.
+No filesystem is required by the bot: maintain tables in the conversation and
+return downloadable CSV if supported, otherwise completed CSV in messages.
+
+Report20 repair retests, the original47 tutoring cases,26 childcare cases,
+per-recipient delivery and action-to-audit ledgers. Separate engineering checks
+from deployed/live observations. Keep all retained people, shifts, unsigned
+pending work and evidence for owner review; do not delete/reset fixtures.
+
+
+
+======================================================================
+ORIGINAL20 FINDINGS - REPORTED EVIDENCE; RETEST REQUIRED
+======================================================================
+# NLU tutoring QA fix list — 12 November 2026 (America/Denver, MST, UTC-7)
+
+These are the product fixes found while running TU04–TU09 and TE01 on agency 453 (nlu-qa-demo). The owner said on 12 November 2026 that all of this needs changing. Parker enrollment reference 1569 (~7:16 AM MST) and Quinn enrollment reference 1571 (~8:06 AM MST) both went through; the items below are the problems seen along the way, plus earlier tutor-setup findings still open.
+
+1. **Turn off reCAPTCHA on the public tutoring intake.** It was on `/intake/tutoring-intake-453-en-f0866ac28ad9` on 12 November, including an “I’m not a robot” box and a “Select all images with crosswalks” challenge that expired and came back after a refresh. The owner turned it off about 6:51 AM MST, and the later enrollment runs had no captcha. (TU06; screenshots `FAIL-TU06-intake-recaptcha-and-required-phone.png`, `FAIL-TU06-recaptcha-challenge.png`)
+
+2. **Remove or raise the availability save rate limit so a tutor can actually save hours.** On 2 November at 11:27 AM MST the availability page showed “Too many requests — cooling down.” On 12 November at 4:09–4:10 AM MST the same save worked (in-person, virtual, and the Tutoring service stayed on after reload). (TU04; no screenshot of the 2 November cooldown; later save is `PASS-TU04-availability-saved.png`, `PASS-TU04-services-saved.png`, `PASS-TU04-availability-after-reload.png`)
+
+3. **Do not require a phone number to start a tutoring enrollment** unless the team has chosen a number to collect. The intake required a phone; Morgan used 719-555-0100 after the owner picked it. (TU06; screenshot `FAIL-TU06-intake-recaptcha-and-required-phone.png`)
+
+4. **Rewrite the step 1 custody question.** The form asks whether the parent shares custody or medical decision-making rights with another parent or guardian, and answering Yes would send the co-guardian their own enrollment right away. The owner wants: “Are there any other guardians who need their own portal access?” Rene should be invited later from Morgan’s parent account (TU09), not from this form. (TU06; no dedicated screenshot; seen on the same intake as `FAIL-TU06-intake-recaptcha-and-required-phone.png` and `INFO-TU06-enrollment-choice.png`)
+
+5. **Do not require the parent’s own date of birth, or an emergency contact phone, just to request tutoring.** Step 3 blocked the form until both were entered. Made-up values used: DOB 1985-06-15 and emergency phone 719-555-0101. (TU06; screenshot `FAIL-TU06-step-3-guardian-dob-and-emergency-phone-required.png`)
+
+6. **Widen the sex/gender choices, and do not require a full street address if it is not needed to start tutoring.** Step 7 (“About Parker”) required sex and only offered Female or Male, plus a full street address. The brief gives neither. (TU06; screenshot `FAIL-TU06-step-7-sex-and-address-required.png`)
+
+7. **Reject a malformed email before the parent can continue.** `qa.nlu.parent@` produced no email-specific error. (TU07; screenshot `FAIL-TU07-malformed-email-not-flagged.png`)
+
+8. **Keep entered answers if the parent refreshes, or offer a clear save/resume.** A refresh wiped every field. There was no save or resume. (A blank required last name was caught correctly with “Please complete all required fields before continuing.” Unsupported upload and a retried submit were not run.) (TU07; screenshots `FAIL-TU07-refresh-wiped-fields.png`, `PASS-TU07-blank-last-name-validation.png`)
+
+9. **Let the parent continue without a card when “Discuss payment with the office” is already selected.** Step 11, Insurance & Payment Information, said “Please choose a payment method option” even though that office-discussion option was preselected, and the only way forward was Add Card. After Add Card, the page said “Card collection is not available for this organization yet” and then allowed continue as payment follow-up. Nothing was charged. Starting tutoring should not require a payment method. (TU06; screenshots `FAIL-TU06-step-11-payment-method-dead-end.png`, `INFO-TU06-step-11-card-collection-unavailable.png`)
+
+10. **Remove counseling consent from the tutoring intake, or retitle it so it is not “Informed Consent and Group Counseling Consent.”** Agreeing on step 13 was required. The brief says tutoring should not need clinical consent to start. (TU06; screenshot `FAIL-TU06-step-13-informed-consent-and-group-counseling-consent.png`)
+
+11. **Do not require a HIPAA privacy consent to start tutoring.** Step 15 required it. No dedicated screenshot. (TU06; the clinical-consent run is the same pass as `FAIL-TU06-step-13-informed-consent-and-group-counseling-consent.png`)
+
+12. **Replace the mental-health Disclosure Statement with tutoring-appropriate text, or drop it from this flow.** Step 16 was required and said “MANDATORY for all mental health professions in Colorado.” It listed only Melissa Mendez, Credentialing Specialist, and no tutor. No dedicated screenshot. (TU06; same run as `FAIL-TU06-step-13-informed-consent-and-group-counseling-consent.png`)
+
+13. **Take the PSC-17 screen off the tutoring intake** (it was offered on step 12, though it was optional). No dedicated screenshot. (TU06; same run as `FAIL-TU06-step-13-informed-consent-and-group-counseling-consent.png`)
+
+14. **Send the enrollment receipt and password-setup email when a parent submits.** Nothing reached testing@itsco.health for Morgan after Parker (ref 1569, ~7:16 AM MST) or Quinn (ref 1571, ~8:06 AM MST). The inbox was checked at 7:17, 7:54 and 8:07 AM MST; the newest mail there was from 6:38 AM MST, before the first submit, and nothing mentioned NLU, Parker, Quinn or qa.nlu.parent. TU09 (Rene’s co-guardian invite) and the parent-portal cases are blocked until this arrives. (TE01 / TU06 / TU09; no screenshot)
+
+15. **Publish Finley’s subjects, grades, L4 rate, open times and office location so the public finder can match a family to the tutor.** Unfiltered, the finder showed 1 tutor (Finley) with “Contact us for pricing” and no subjects, grades or open times, plus “No assigned office locations are published yet.” Math / grade 5 / virtual and Reading / grade 3 / in-person both returned 0 tutors. Those profile fields are admin-only, so the tutor cannot finish this. Related enrollment mismatch: Quinn’s in-person step offered city choices Colorado Springs / Denver / Either / Other / Not yet decided, and the provider step only offered “Either virtual or in person.” (TU05, also TU08; screenshots `INFO-TU05-finder-shows-1-tutor-contact-us-for-pricing.png`, `FAIL-TU05-math-grade-5-virtual-0-tutors.png`, `FAIL-TU05-reading-grade-3-in-person-0-tutors.png`, `PASS-TU08-quinn-confirmation-ref-1571.png`)
+
+16. **Remove the Insurance filter from the tutoring finder**, or hide it when the program is tutoring rather than clinical care. (TU05; visible on `INFO-TU05-finder-shows-1-tutor-contact-us-for-pricing.png`; also earlier `prep-find-tutor-0-tutors.png`)
+
+17. **Point the Terms and Privacy footer links at Next Level Up pages, not plottwisthq.com.** (TU11 / public login and portal chrome; no 12 November screenshot. Earlier prep shots still on file are `prep-nlu-qa-demo-login-terms-links-auricwell.png` and `prep-nlu-root-login-terms-links-auricwell.png`, from when those links pointed at AuricWell.)
+
+18. **Fix the tutor Clients page so it is not blank.** `/nlu-qa-demo/clients` stayed on the URL and showed a blank area under an “NLU Dashboard” header, with no content and no error. It is unclear whether this is a denied page or a render failure. (TU02; screenshot `FAIL-TU02-tutor-clients-page-blank.png`)
+
+19. **Give the tutor a working tutoring-profile editor, or an admin way to set subjects, grades, rate, availability and discovery, without a 403.** The earlier tutoring-profile editor 403 was not retested on 12 November because there was still no Tutoring profile page in the tutor nav. This is why TU05 could not be finished from Finley’s account. (TU02 / TU05; no screenshot)
+
+20. **Remove clinical and HR navigation items from a nonclinical tutor account.** Finley’s nav still showed My Clients, Staff, Note Workspace, My Payroll, My Compensation and My Benefits. (TU00 / TU02; screenshot `INFO-TU02-tutor-nav-menu.png`)
+
+Related notes, not separate product defects: the successful Parker submit is `PASS-TU06-parker-confirmation-ref-1569.png`. The form was 17 steps on that run; skipping optional inputs on Quinn’s run cut it to 13 steps. Whether Morgan was duplicated when Quinn was enrolled under the same email is unverified and needs a staff view.
+
+
+
+======================================================================
+REPAIR CASES
+======================================================================
+case_id,source_case,status,actor,agency_id,object_ids,build_id,time_denver,utc_offset,expected,actual,audit_row_ids,screenshot,finding
+NR01,TU/TE: see original finding,NOT RUN,,453,,,,,Retest reported finding 1,,,,
+NR02,TU/TE: see original finding,NOT RUN,,453,,,,,Retest reported finding 2,,,,
+NR03,TU/TE: see original finding,NOT RUN,,453,,,,,Retest reported finding 3,,,,
+NR04,TU/TE: see original finding,NOT RUN,,453,,,,,Retest reported finding 4,,,,
+NR05,TU/TE: see original finding,NOT RUN,,453,,,,,Retest reported finding 5,,,,
+NR06,TU/TE: see original finding,NOT RUN,,453,,,,,Retest reported finding 6,,,,
+NR07,TU/TE: see original finding,NOT RUN,,453,,,,,Retest reported finding 7,,,,
+NR08,TU/TE: see original finding,NOT RUN,,453,,,,,Retest reported finding 8,,,,
+NR09,TU/TE: see original finding,NOT RUN,,453,,,,,Retest reported finding 9,,,,
+NR10,TU/TE: see original finding,NOT RUN,,453,,,,,Retest reported finding 10,,,,
+NR11,TU/TE: see original finding,NOT RUN,,453,,,,,Retest reported finding 11,,,,
+NR12,TU/TE: see original finding,NOT RUN,,453,,,,,Retest reported finding 12,,,,
+NR13,TU/TE: see original finding,NOT RUN,,453,,,,,Retest reported finding 13,,,,
+NR14,TU/TE: see original finding,NOT RUN,,453,,,,,Retest reported finding 14,,,,
+NR15,TU/TE: see original finding,NOT RUN,,453,,,,,Retest reported finding 15,,,,
+NR16,TU/TE: see original finding,NOT RUN,,453,,,,,Retest reported finding 16,,,,
+NR17,TU/TE: see original finding,NOT RUN,,453,,,,,Retest reported finding 17,,,,
+NR18,TU/TE: see original finding,NOT RUN,,453,,,,,Retest reported finding 18,,,,
+NR19,TU/TE: see original finding,NOT RUN,,453,,,,,Retest reported finding 19,,,,
+NR20,TU/TE: see original finding,NOT RUN,,453,,,,,Retest reported finding 20,,,,
+
+
+
+======================================================================
+CHILDCARE CASES
+======================================================================
+case_id,source_case,status,actor,agency_id,object_ids,build_id,time_denver,utc_offset,expected,actual,audit_row_ids,screenshot,finding
+CC00,Childcare,NOT RUN,,453,,,,,Recount; retain students and approve synthetic childcare fixtures,,,,
+CC01,Childcare,NOT RUN,,453,,,,,Activate childcare service assignment independently of base account role,,,,
+CC02,Childcare,NOT RUN,,453,,,,,Resolve category and service-specific childcare level,,,,
+CC03,Childcare,NOT RUN,,453,,,,,Approve and persist all four individual band overrides,,,,
+CC04,Childcare,NOT RUN,,453,,,,,Staff creates only own childcare shift,,,,
+CC05,Childcare,NOT RUN,,453,,,,,Authorized scheduler assigns co-caregiver; ordinary staff denied,,,,
+CC06,Childcare,NOT RUN,,453,,,,,"Planned count, location, timezone and private note persist",,,,
+CC07,Childcare,NOT RUN,,453,,,,,Clock-in reminder actually due and received; exact signed-in link,,,,
+CC08,Childcare,NOT RUN,,453,,,,,Clock in and explicitly confirm scheduled count,,,,
+CC09,Childcare,NOT RUN,,453,,,,,Correct actual count without changing planned count,,,,
+CC10,Childcare,NOT RUN,,453,,,,,Clock-out reminder actually due and received; suppress completed punches,,,,
+CC11,Childcare,NOT RUN,,453,,,,,Clock out once; retain actual time when attendance needs review,,,,
+CC12,Childcare,NOT RUN,,453,,,,,Five children/two active caregivers select band3 independently,,,,
+CC13,Childcare,NOT RUN,,453,,,,,Late co-caregiver splits actual work intervals,,,,
+CC14,Childcare,NOT RUN,,453,,,,,Early departure changes active-caregiver denominator,,,,
+CC15,Childcare,NOT RUN,,453,,,,,Count change splits attendance and rate intervals,,,,
+CC16,Childcare,NOT RUN,,453,,,,,Zero-child required work uses base; above4 requires review,,,,
+CC17,Childcare,NOT RUN,,453,,,,,Missing/disputed attendance retains punches and blocks unsupported pay,,,,
+CC18,Childcare,NOT RUN,,453,,,,,Manager count-timeline correction retains original history,,,,
+CC19,Childcare,NOT RUN,,453,,,,,Network retry and duplicate taps preserve one punch/claim,,,,
+CC20,Childcare,NOT RUN,,453,,,,,"Canceled shifts, overlapping work and stale links handled",,,,
+CC21,Childcare,NOT RUN,,453,,,,,"Own rates, payroll preview and paystub preserve employee overrides",,,,
+CC22,Childcare,NOT RUN,,453,,,,,Prospective rate revision preserves earned/finalized pay,,,,
+CC23,Childcare,NOT RUN,,453,,,,,"Revoked grant, pending hire, family and cross-agency denied",,,,
+CC24,Childcare,NOT RUN,,453,,,,,Shared app/mobile role union and own-pay isolation,,,,
+CC25,Childcare,NOT RUN,,453,,,,,"Audit, receipt ledger and truthful final retention report",,,,
+
+
+
+======================================================================
+INPUT cases.csv (embedded; do not request another upload)
+======================================================================
+case_id,area,action,status,actor,agency_id,client_ids,appointment_ids,session_ids,plan_ids,action_time_denver,utc_offset,expected,actual,audit_row_ids,screenshot,finding
+TU00,Baseline,Recount and preserve clinical/Plotline fixtures,NOT RUN,,453,,,,,,,,,,,
+TU01,Setup,Confirm NLU QA453 and learning program454; no AuricWell route,NOT RUN,,453,,,,,,,,,,,
+TU02,Setup,Configure one nonclinical tutor through normal setup,NOT RUN,,453,,,,,,,,,,,
+TU03,Catalog,Verify copied tiers and two synthetic package prices,NOT RUN,,453,,,,,,,,,,,
+TU04,Intake,Inspect copied forms and required QA acknowledgments,NOT RUN,,453,,,,,,,,,,,
+TU05,Public,Find tutor by subject/grade/format; no counseling-only providers,NOT RUN,,453,,,,,,,,,,,
+TU06,Enrollment,Parent enrolls Parker through real public tutoring flow,NOT RUN,,453,,,,,,,,,,,
+TU07,Enrollment,"Save/resume, required fields, invalid email and unsupported upload",NOT RUN,,453,,,,,,,,,,,
+TU08,Enrollment,Add Quinn without duplicate parent or student,NOT RUN,,453,,,,,,,,,,,
+TU09,Enrollment,Co-guardian own access and selective sharing,NOT RUN,,453,,,,,,,,,,,
+TU10,Portal,"Password setup, recovery and NLU parent sign-in",NOT RUN,,453,,,,,,,,,,,
+TU11,Portal,"All NLU labels, help, menus and downloads; no clinical content",NOT RUN,,453,,,,,,,,,,,
+TU12,Scheduling,"Availability, duration, code, price and Denver timezone",NOT RUN,,453,,,,,,,,,,,
+TU13,Scheduling,Book virtual tutoring with exact appointment/session/student link,NOT RUN,,453,,,,,,,,,,,
+TU14,Scheduling,Book in-person tutoring through same normal calendar,NOT RUN,,453,,,,,,,,,,,
+TU15,Scheduling,"Reschedule, conflicts and duplicate-submit protection",NOT RUN,,453,,,,,,,,,,,
+TU16,Evaluation,"Perform baseline, retain actual responses and rubric",NOT RUN,,453,,,,,,,,,,,
+TU17,Plan,Create/review/approve a nonclinical learning plan,NOT RUN,,453,,,,,,,,,,,
+TU18,Plan,Each parent sees/signs their own current plan revision,NOT RUN,,453,,,,,,,,,,,
+TU19,Plan,Separate family ratings and tutor mastery,NOT RUN,,453,,,,,,,,,,,
+TU20,Materials,"Upload worksheet, order materials and save source plan",NOT RUN,,453,,,,,,,,,,,
+TU21,In-person,Open exact appointment and learning workspace,NOT RUN,,453,,,,,,,,,,,
+TU22,In-person,"Annotate, capture responses, save/reload and download",NOT RUN,,453,,,,,,,,,,,
+TU23,Virtual,Early/valid/closed 30-minute windows using real time,NOT RUN,,453,,,,,,,,,,,
+TU24,Virtual,Tutor opens; parent checks in; deliberate admission,NOT RUN,,453,,,,,,,,,,,
+TU25,Virtual,Two real browser sessions verify audio/video and reconnect,NOT RUN,,453,,,,,,,,,,,
+TU26,Virtual,"Whiteboard, documents, chat and learning binder are NLU",NOT RUN,,453,,,,,,,,,,,
+TU27,Virtual,Additional guardian admission vs unrelated next student,NOT RUN,,453,,,,,,,,,,,
+TU28,Completion,"End once; durable attendance, note, summary and payroll draft",NOT RUN,,453,,,,,,,,,,,
+TU29,Progress,Distinct session evidence and honest multi-point trends,NOT RUN,,453,,,,,,,,,,,
+TU30,Homework,"Review/publish assignment, learner completion and feedback",NOT RUN,,453,,,,,,,,,,,
+TU31,Reports,Publish a parent progress report with correct student/version,NOT RUN,,453,,,,,,,,,,,
+TU32,Privacy,"Private notes, raw transcript and unshared materials withheld",NOT RUN,,453,,,,,,,,,,,
+TU33,Billing,"Compare agreed quote, package and post-session charge",NOT RUN,,453,,,,,,,,,,,
+TU34,Billing,Token/package balance and retry idempotency,NOT RUN,,453,,,,,,,,,,,
+TU35,Billing,Sandbox payment success/decline/retry only if verified test merchant,NOT RUN,,453,,,,,,,,,,,
+TU36,Billing,"Canceled/no-show event, policy and duplicate fee prevention",NOT RUN,,453,,,,,,,,,,,
+TU37,Billing,Homework Help distinct from TUTORING and clinical H2014,NOT RUN,,453,,,,,,,,,,,
+TU38,Payroll,"Tutor compensation draft, no approved payroll export",NOT RUN,,453,,,,,,,,,,,
+TU39,Messaging,"Parent/tutor secure notice, reply routing and no AuricWell footer",NOT RUN,,453,,,,,,,,,,,
+TU40,Email,Actual enrollment/booking/reminder/change/cancel receipts,NOT RUN,,453,,,,,,,,,,,
+TU41,Audit,Action ledger reconciled with scoped audit search/export/links,NOT RUN,,453,,,,,,,,,,,
+TU42,Access,"Other family, tutor, agency and school staff denied",NOT RUN,,453,,,,,,,,,,,
+TU43,Retention,Complete final persona/ID table; retain pending evidence,NOT RUN,,453,,,,,,,,,,,
+TU44,Group,Optional learning-program group with exact roster/privacy,NOT RUN,,453,,,,,,,,,,,
+TU45,Handoff,Tutor transfer preserves learning history and permissions,NOT RUN,,453,,,,,,,,,,,
+TU46,Closeout,Program completion/reassessment and retained parent access,NOT RUN,,453,,,,,,,,,,,
+
+
+
+======================================================================
+INPUT email-cases.csv (embedded; do not request another upload)
+======================================================================
+email_case_id,case_id,type_to_verify,recipient_variant,status,actual_type,logical_to,physical_to,actual_from,actual_reply_to,action_ids,due_at,received_at_denver,utc_offset,transport_id,inbox_id,screenshot,finding
+TE01,TU06,Enrollment receipt/password setup,Parent; existing-account variant,NOT RUN,,,testing@itsco.health,,,,,,,,,,
+TE02,TU09,Co-guardian invitation,Each permitted guardian separately,NOT RUN,,,testing@itsco.health,,,,,,,,,,
+TE03,TU10,Password recovery,Exact tutoring identity,NOT RUN,,,testing@itsco.health,,,,,,,,,,
+TE04,TU13,Appointment confirmation,Parent and assigned tutor,NOT RUN,,,testing@itsco.health,,,,,,,,,,
+TE05,TU40,Actually due appointment reminder,Each authorized reminder recipient,NOT RUN,,,testing@itsco.health,,,,,,,,,,
+TE06,TU15,Reschedule/change,Original recipients; suppress old reminder,NOT RUN,,,testing@itsco.health,,,,,,,,,,
+TE07,TU36,Cancel/no-show,Each meaningful status and recipient,NOT RUN,,,testing@itsco.health,,,,,,,,,,
+TE08,TU18,Learning-plan review notice,Each eligible parent own revision,NOT RUN,,,testing@itsco.health,,,,,,,,,,
+TE09,TU39,Secure message waiting,Parent; tutor; app-only personal-forward variant,NOT RUN,,,testing@itsco.health,,,,,,,,,,
+TE10,TU30,Homework/report shared,Only if a real worker/type exists,NOT RUN,,,testing@itsco.health,,,,,,,,,,
+TE11,TU33,Statement/balance/payment receipt,Authorized payer only; sandbox where needed,NOT RUN,,,testing@itsco.health,,,,,,,,,,
+TE12,TU28,Completion/progress notice,Only if implemented; inspect catalog,NOT RUN,,,testing@itsco.health,,,,,,,,,,
+
+
+
+======================================================================
+INPUT audit-ledger.csv (embedded; do not request another upload)
+======================================================================
+case_id,actor_user_id,agency_id,client_id,object_type,object_id,action,action_time_denver,expected_event,actual_audit_row_id,target_link,export_reference,status,finding
+
+
+
+======================================================================
+INPUT fixtures.json (embedded; do not request another upload)
+======================================================================
+{
+  "marker": "QA-NLU1101",
+  "agencyId": 453,
+  "agencySlug": "nlu-qa-demo",
+  "learningOrganizationId": 454,
+  "learningOrganizationSlug": "nlu-qa-learning",
+  "parentPortal": "https://app.nextleveluplcc.com/nlu-qa-demo/guardian",
+  "mailPhysicalTo": "testing@itsco.health",
+  "sourceAgencyReadOnly": 6,
+  "setupAdminId": 1435,
+  "supportUserId": 1434,
+  "liveTutorId": 1496,
+  "guardian": {
+    "firstName": "Morgan",
+    "lastName": "QA NLU-1101",
+    "email": "qa.nlu.parent@example.com",
+    "liveUserId": 1759
+  },
+  "coGuardian": {
+    "firstName": "Rene",
+    "lastName": "QA NLU-1101",
+    "email": "qa.nlu.coparent@example.com",
+    "liveUserId": null
+  },
+  "students": [
+    {
+      "key": "A",
+      "firstName": "Parker",
+      "lastName": "QA NLU-1101",
+      "dob": "2016-04-12",
+      "grade": "5",
+      "subject": "Math",
+      "focus": "Add fractions with unlike denominators",
+      "liveClientId": 2545,
+      "liveEnrollmentSubmissionId": 1569
+    },
+    {
+      "key": "B",
+      "firstName": "Quinn",
+      "lastName": "QA NLU-1101",
+      "dob": "2018-09-16",
+      "grade": "3",
+      "subject": "Reading",
+      "focus": "Main idea and supporting details",
+      "liveClientId": 2547,
+      "liveEnrollmentSubmissionId": 1571
+    }
+  ],
+  "caps": {
+    "allQaClients": 30,
+    "allQaProviderRoles": 10,
+    "newStudentsMaximum": 2,
+    "newTutorAccountsMaximum": 1,
+    "reservePlotlineApplicantSlots": 4
+  },
+  "createdConfiguration": {
+    "catalogTiers": 5,
+    "syntheticPackages": 2,
+    "serviceIds": [
+      318,
+      319,
+      320,
+      321
+    ],
+    "intakeFormIds": [
+      349,
+      350,
+      351
+    ],
+    "auditRowId": 77611
+  },
+  "notCreated": [
+    "appointments",
+    "learning plans",
+    "signatures",
+    "payment methods",
+    "live email receipts"
+  ],
+  "retainedStateVerifiedOn": "2026-11-12",
+  "guardianSetupStatus": "PENDING_SETUP at diagnosis; recover existing receipt before retesting"
+}
+
+
+
+======================================================================
+INPUT catalog-and-tutor.json (embedded; do not request another upload)
+======================================================================
+{
+  "source": "nlu",
+  "agencyId": 453,
+  "learningOrganizationId": 454,
+  "catalog": {
+    "rates": [],
+    "tiers": [
+      {
+        "id": "L1",
+        "pay": {
+          "virtual": 1800,
+          "in-person": 1900,
+          "small-group": null
+        },
+        "fees": {
+          "virtual": 3200,
+          "in-person": 3700,
+          "small-group": null
+        },
+        "name": "Tutor Assistant",
+        "description": "HS student / new tutor / follows provided plan"
+      },
+      {
+        "id": "L2",
+        "pay": {
+          "virtual": 2000,
+          "in-person": 2100,
+          "small-group": null
+        },
+        "fees": {
+          "virtual": 3700,
+          "in-person": 4200,
+          "small-group": null
+        },
+        "name": "Developing Tutor",
+        "description": "Experienced HS tutor, college student, bachelor\u2019s with little experience"
+      },
+      {
+        "id": "L3",
+        "pay": {
+          "virtual": 2100,
+          "in-person": 2300,
+          "small-group": null
+        },
+        "fees": {
+          "virtual": 4000,
+          "in-person": 4500,
+          "small-group": null
+        },
+        "name": "Professional Tutor",
+        "description": "Bachelor\u2019s + experience; experienced tutor; master\u2019s with little experience"
+      },
+      {
+        "id": "L4",
+        "pay": {
+          "virtual": 2500,
+          "in-person": 2700,
+          "small-group": null
+        },
+        "fees": {
+          "virtual": 5000,
+          "in-person": 5500,
+          "small-group": null
+        },
+        "name": "Advanced Tutor",
+        "description": "Teacher, master\u2019s + experience, experienced interventionist"
+      },
+      {
+        "id": "L5",
+        "pay": {
+          "virtual": 3000,
+          "in-person": 3300,
+          "small-group": null
+        },
+        "fees": {
+          "virtual": 6000,
+          "in-person": 6500,
+          "small-group": null
+        },
+        "name": "Educational Specialist",
+        "description": "Experienced licensed teacher, interventionist, SPED/reading/math specialist"
+      }
+    ],
+    "version": 1,
+    "packages": [
+      {
+        "id": "qa-nlu-1101-virtual-four",
+        "name": "SYNTHETIC QA - four virtual tutoring visits",
+        "program": "tutoring",
+        "published": true,
+        "components": [
+          {
+            "service": "tutoring",
+            "format": "virtual",
+            "pricingMode": "provider-discount",
+            "discountPercent": 10,
+            "sessions": 4,
+            "minutes": 60
+          }
+        ]
+      },
+      {
+        "id": "qa-nlu-1101-in-person-four",
+        "name": "SYNTHETIC QA - four in-person tutoring visits",
+        "program": "tutoring",
+        "published": true,
+        "components": [
+          {
+            "service": "tutoring",
+            "format": "in-person",
+            "pricingMode": "provider-discount",
+            "discountPercent": 10,
+            "sessions": 4,
+            "minutes": 60
+          }
+        ]
+      }
+    ]
+  },
+  "proposedTutor": {
+    "liveUserId": 1496,
+    "firstName": "Finley",
+    "lastName": "QA NLU Tutor-1101",
+    "email": "qa.nlu.tutor@example.com",
+    "personalEmailAlias": "qa.nlu.tutor.personal@example.com",
+    "role": "provider",
+    "clinicalCredentials": null,
+    "agencyMemberships": [
+      453,
+      454
+    ],
+    "subjectAreas": [
+      "Math",
+      "Reading"
+    ],
+    "gradeLevels": [
+      "3",
+      "5"
+    ],
+    "acceptingNewStudents": true,
+    "paymentPolicy": "POST_SESSION",
+    "learning": {
+      "programs": [
+        "tutoring"
+      ],
+      "educationLevel": "master",
+      "tierId": "L4",
+      "rateOverrides": []
+    },
+    "note": "Tier and education label are synthetic pricing inputs, not verified qualifications. Keep medical/clinical grants off. Do not invent a Tutor user.role: the deployed enum uses provider for this role surface."
+  },
+  "expectedQuotes": {
+    "virtualHourlyCents": 5000,
+    "inPersonHourlyCents": 5500,
+    "fourVirtualDiscountedCents": 18000,
+    "fourInPersonDiscountedCents": 19800,
+    "note": "These are catalog quotes. Compare appointment and collection snapshots; never assume a legacy flat provider session fee correctly prices both formats."
+  }
+}
+
+
+
+======================================================================
+INPUT enrollment-answers.json (embedded; do not request another upload)
+======================================================================
+{
+  "primaryContact": "Morgan QA NLU-1101",
+  "preferredLanguage": "English",
+  "phone": "Leave blank unless required; no unapproved SMS or random number.",
+  "studentA": {
+    "program": "tutoring",
+    "grade": "5",
+    "subject": "Math",
+    "format": "virtual",
+    "goals": "Explain why denominators must match, then add fractions independently.",
+    "strengths": "Enjoys drawing models and explaining a strategy aloud.",
+    "schoolSupports": "Synthetic classroom uses fraction strips; no real IEP or diagnosis asserted.",
+    "accessNeeds": "Use clear written instructions and one problem at a time."
+  },
+  "studentB": {
+    "program": "tutoring",
+    "grade": "3",
+    "subject": "Reading",
+    "format": "in-person",
+    "goals": "Find a main idea and cite two details.",
+    "strengths": "Enjoys short nature stories and oral explanation.",
+    "schoolSupports": "Synthetic classroom practice only.",
+    "accessNeeds": "Allow a quiet minute to reread."
+  },
+  "consent": "Each persona makes their own selections in the actual form; no copied signatures, prechecked consent or automatic SMS enrollment."
+}
+
+
+
+======================================================================
+INPUT session-examples.txt (embedded; do not request another upload)
+======================================================================
+SYNTHETIC NLU TUTORING QA ONLY - no real student or clinical record.
+
+BASELINE - record only when performed in the QA exercise:
+Parker attempted five fraction tasks and answered two independently. On one item Parker added denominators; a fraction-strip model helped explain equal parts. Parker rated confidence 4/10. Prioritize common denominators and explaining the model before adding a new topic.
+
+LEARNING PLAN - proposed for tutor review:
+Goal: Add fractions with unlike denominators and explain the common unit.
+Baseline: 2 of 5 tasks correct independently in this performed synthetic check.
+Target: At least 4 of 5 correct independently on two separate checks.
+Strategy: Model equal wholes, name equivalent fractions, guided practice, then exit ticket.
+Link the actual standard and its stored version selected in the app. Do not invent a standard ID.
+Family question: How confident does Parker seem explaining this week's fraction strategy, from 1 (not yet) to 10 (very confident)? The tutor reviews this wording before enabling a parent rating.
+
+FOLLOW-UP NOTE - use only for work actually performed:
+SYNTHETIC TUTORING QA. Reviewed equal wholes and equivalent fractions. Parker solved three of five new items independently and corrected one after a visual prompt. Strength: explained why the whole must stay the same size. Challenge: common denominator when neither denominator divides the other. Next visit: compare two strategies and use a five-item independent exit ticket. No diagnosis, clinical risk assessment or medical service is asserted.
+
+READING NOTE:
+SYNTHETIC TUTORING QA. Quinn read the original garden passage, stated its main idea and identified one supporting detail independently. After a reread, Quinn located a second detail and distinguished an observation from a guess. Next: practice citing the sentence supporting an answer. Record the actual rubric score rather than inferring a percentage from this narrative.
+
+TREND EXERCISE:
+Across three legitimately recorded distinct sessions/checks, use new equivalent tasks. Suggested synthetic results: 2/5, 3/5, 4/5; independence and prompts stay separate. A fourth independent 4/5 can satisfy the stated two-check threshold. Do not relabel three same-day attempts as historical sessions or set mastery merely from one high score. Keep parent observations separate from tutor evidence.
+
+HOME PRACTICE:
+Try two fraction models, explain one addition problem aloud, and bring a question to the next visit. Publish only reviewed student-facing material, not tutor keys, raw transcripts or another student's work.
+
+
+
+======================================================================
+INPUT answer-key-and-scoring.txt (embedded; do not request another upload)
+======================================================================
+SYNTHETIC NLU TUTORING QA ONLY - no real student or clinical record.
+INTERNAL TUTOR ONLY; do not upload as the learner worksheet.
+
+Math: 1/2 > 1/4 for equal wholes; 3/4; 1/2; 11/12; 7/8. Credit a correct model/explanation as described by the tutor. Record accuracy, attempted count and help separately.
+Reading: main idea concerns the class testing whether leaves help soil retain moisture. Details: covered soil stayed damp longer; students checked covered and uncovered spots. Comparing spots supports an inference but does not prove all trees or conditions behave identically. Score a pre-agreed five-item rubric consistently.
+These are original practice items, not a standardized or validated assessment. Do not label them CDE-approved or a READ Act screen.
+
+
+
+======================================================================
+INPUT math-worksheet.txt (embedded; do not request another upload)
+======================================================================
+SYNTHETIC NLU TUTORING QA ONLY - no real student or clinical record.
+
+QA Grade 5 - fraction reasoning
+
+1. Draw 1/2 and 1/4 using equal-size wholes. Which is larger? Explain.
+
+2. 1/2 + 1/4 = ____
+
+3. 1/3 + 1/6 = ____
+
+4. 2/3 + 1/4 = ____
+
+5. 3/4 + 1/8 = ____
+
+Show your work. Write one question you would ask your tutor.
+
+
+
+======================================================================
+INPUT reading-worksheet.txt (embedded; do not request another upload)
+======================================================================
+SYNTHETIC NLU TUTORING QA ONLY - no real student or clinical record.
+
+QA Grade 3 - the garden observation
+
+At the class garden, Lee noticed the soil near a small tree was dry. Lee and Jo put a ring of fallen leaves around the tree. They left space around its trunk. Each afternoon they checked the soil. After several days, the covered soil stayed damp longer than the uncovered soil. The class decided to keep observing both spots.
+
+1. What is the main idea?
+
+2. Give two details that support your idea.
+
+3. Why did the class observe both spots?
+
+4. Which statement is an observation rather than a guess?
+
+5. What question would you investigate next?
+
+
+EMAIL/SMS RESULT CSV
+case_id,logical_recipient,physical_recipient,action_id,due_at,sent_at,received_at_denver,from,reply_to,provider_id,status,evidence,finding
+
+
+END OF COMPLETE NLU BRIEF - source sha256 ea89e44885f28b79a8f070b2211eae9e50e64411a970e93bfd0ebf1f4a55df60
+
+
+RECEIVED BOT RESULTS — HISTORICAL EVIDENCE, NOT RESULTS ON THE NEW RELEASE
+These are the supplied November12 retest rows. Preserve the recorded PASS/FAIL/
+BLOCKED/NOT RUN and their object/build/time evidence. New-run ledgers above remain
+blank. Later verified receipts and retained setup in the leading update supersede
+only the specific earlier observation; never resend just to recreate evidence.
+URLs in this embedded copy are omitted; authorized originals retain the evidence.
+
+HISTORICAL INPUT: repair-cases.csv
+case_id,source_case,status,actor,agency_id,object_ids,build_id,time_denver,utc_offset,expected,actual,audit_row_ids,screenshot,finding
+NR01,TU/TE: see original finding,BLOCKED,anonymous or Finley 1496,453,intake tutoring-intake-453-en-f0866ac28ad9; Finley1496,b4a20a6d9bd41ddb3e26a1543b8c63bfd996016d,2026-11-12 16:52-17:02 MST,-07:00,"Retest reported finding 1: reCAPTCHA is off on the public tutoring intake, and no captcha challenge appears.","Public tutoring intake rendered blank, so this retest could not be performed. Stuck on Loading… at /intake/tutoring-intake-453-en-f0866ac28ad9; /nlu-qa-demo/intake/ showed Opening your workspace… then went blank; the join-page Start Full Enrollment Packet and Finley's provider Request package both landed on the same blank intake. Console: 404 on GET /api/public/agency-services/nlu-qa-demo/providers/1496?serviceType=counseling, even though the page URL had serviceType=tutoring.",,FAIL-NR01-intake-stuck-blank-white.png; FAIL-NR01-intake-chrome-form-area-blank.png,"NEW REGRESSION, 2026-11-12 16:52-17:02 MST, build b4a20a6d9bd41ddb3e26a1543b8c63bfd996016d. The public tutoring intake that worked on the morning of 12 November (Parker 1569, Quinn 1571) now fails to render. NR01 and NR03-NR13 are BLOCKED until the intake loads. A tutoring intake should not request counseling providers; the 404 used serviceType=counseling."
+NR02,TU/TE: see original finding,PASS,Finley 1496,453,Finley1496,b4a20a6d9bd41ddb3e26a1543b8c63bfd996016d,2026-11-12 17:10-17:16 MST,-07:00,"Retest reported finding 2: a tutor can save normal availability edits, with no 429 cooldown that blocks the save.","Availability saved, with no 429 or cooldown. Openings were still present after reload.",,PASS-NR02-availability-saved-no-cooldown.png,PASS on build b4a20a6d. The 2 November 2026 11:27 AM MST cooldown remains in earlier evidence; this retest saved successfully. Do not treat this as permission to remove global rate-limit protections.
+NR03,TU/TE: see original finding,BLOCKED,anonymous or Finley 1496,453,intake tutoring-intake-453-en-f0866ac28ad9; Finley1496,b4a20a6d9bd41ddb3e26a1543b8c63bfd996016d,2026-11-12 16:52-17:02 MST,-07:00,Retest reported finding 3: a phone number is not required to start a tutoring enrollment.,"Public tutoring intake rendered blank, so this retest could not be performed. Stuck on Loading… at /intake/tutoring-intake-453-en-f0866ac28ad9; /nlu-qa-demo/intake/ showed Opening your workspace… then went blank; the join-page Start Full Enrollment Packet and Finley's provider Request package both landed on the same blank intake. Console: 404 on GET /api/public/agency-services/nlu-qa-demo/providers/1496?serviceType=counseling, even though the page URL had serviceType=tutoring.",,FAIL-NR01-intake-stuck-blank-white.png; FAIL-NR01-intake-chrome-form-area-blank.png,"NEW REGRESSION, 2026-11-12 16:52-17:02 MST, build b4a20a6d9bd41ddb3e26a1543b8c63bfd996016d. The public tutoring intake that worked on the morning of 12 November (Parker 1569, Quinn 1571) now fails to render. NR01 and NR03-NR13 are BLOCKED until the intake loads. A tutoring intake should not request counseling providers; the 404 used serviceType=counseling."
+NR04,TU/TE: see original finding,BLOCKED,anonymous or Finley 1496,453,intake tutoring-intake-453-en-f0866ac28ad9; Finley1496,b4a20a6d9bd41ddb3e26a1543b8c63bfd996016d,2026-11-12 16:52-17:02 MST,-07:00,Retest reported finding 4: the other-guardian question asks about later portal access and does not send an invite from intake.,"Public tutoring intake rendered blank, so this retest could not be performed. Stuck on Loading… at /intake/tutoring-intake-453-en-f0866ac28ad9; /nlu-qa-demo/intake/ showed Opening your workspace… then went blank; the join-page Start Full Enrollment Packet and Finley's provider Request package both landed on the same blank intake. Console: 404 on GET /api/public/agency-services/nlu-qa-demo/providers/1496?serviceType=counseling, even though the page URL had serviceType=tutoring.",,FAIL-NR01-intake-stuck-blank-white.png; FAIL-NR01-intake-chrome-form-area-blank.png,"NEW REGRESSION, 2026-11-12 16:52-17:02 MST, build b4a20a6d9bd41ddb3e26a1543b8c63bfd996016d. The public tutoring intake that worked on the morning of 12 November (Parker 1569, Quinn 1571) now fails to render. NR01 and NR03-NR13 are BLOCKED until the intake loads. A tutoring intake should not request counseling providers; the 404 used serviceType=counseling."
+NR05,TU/TE: see original finding,BLOCKED,anonymous or Finley 1496,453,intake tutoring-intake-453-en-f0866ac28ad9; Finley1496,b4a20a6d9bd41ddb3e26a1543b8c63bfd996016d,2026-11-12 16:52-17:02 MST,-07:00,Retest reported finding 5: parent date of birth and emergency phone do not block a tutoring request.,"Public tutoring intake rendered blank, so this retest could not be performed. Stuck on Loading… at /intake/tutoring-intake-453-en-f0866ac28ad9; /nlu-qa-demo/intake/ showed Opening your workspace… then went blank; the join-page Start Full Enrollment Packet and Finley's provider Request package both landed on the same blank intake. Console: 404 on GET /api/public/agency-services/nlu-qa-demo/providers/1496?serviceType=counseling, even though the page URL had serviceType=tutoring.",,FAIL-NR01-intake-stuck-blank-white.png; FAIL-NR01-intake-chrome-form-area-blank.png,"NEW REGRESSION, 2026-11-12 16:52-17:02 MST, build b4a20a6d9bd41ddb3e26a1543b8c63bfd996016d. The public tutoring intake that worked on the morning of 12 November (Parker 1569, Quinn 1571) now fails to render. NR01 and NR03-NR13 are BLOCKED until the intake loads. A tutoring intake should not request counseling providers; the 404 used serviceType=counseling."
+NR06,TU/TE: see original finding,BLOCKED,anonymous or Finley 1496,453,intake tutoring-intake-453-en-f0866ac28ad9; Finley1496,b4a20a6d9bd41ddb3e26a1543b8c63bfd996016d,2026-11-12 16:52-17:02 MST,-07:00,Retest reported finding 6: sex/gender and street address do not block a tutoring request; optional values validate if supplied.,"Public tutoring intake rendered blank, so this retest could not be performed. Stuck on Loading… at /intake/tutoring-intake-453-en-f0866ac28ad9; /nlu-qa-demo/intake/ showed Opening your workspace… then went blank; the join-page Start Full Enrollment Packet and Finley's provider Request package both landed on the same blank intake. Console: 404 on GET /api/public/agency-services/nlu-qa-demo/providers/1496?serviceType=counseling, even though the page URL had serviceType=tutoring.",,FAIL-NR01-intake-stuck-blank-white.png; FAIL-NR01-intake-chrome-form-area-blank.png,"NEW REGRESSION, 2026-11-12 16:52-17:02 MST, build b4a20a6d9bd41ddb3e26a1543b8c63bfd996016d. The public tutoring intake that worked on the morning of 12 November (Parker 1569, Quinn 1571) now fails to render. NR01 and NR03-NR13 are BLOCKED until the intake loads. A tutoring intake should not request counseling providers; the 404 used serviceType=counseling."
+NR07,TU/TE: see original finding,BLOCKED,anonymous or Finley 1496,453,intake tutoring-intake-453-en-f0866ac28ad9; Finley1496,b4a20a6d9bd41ddb3e26a1543b8c63bfd996016d,2026-11-12 16:52-17:02 MST,-07:00,"Retest reported finding 7: a malformed email shows a field-specific error before the parent can continue, and the API rejects it.","Public tutoring intake rendered blank, so this retest could not be performed. Stuck on Loading… at /intake/tutoring-intake-453-en-f0866ac28ad9; /nlu-qa-demo/intake/ showed Opening your workspace… then went blank; the join-page Start Full Enrollment Packet and Finley's provider Request package both landed on the same blank intake. Console: 404 on GET /api/public/agency-services/nlu-qa-demo/providers/1496?serviceType=counseling, even though the page URL had serviceType=tutoring.",,FAIL-NR01-intake-stuck-blank-white.png; FAIL-NR01-intake-chrome-form-area-blank.png,"NEW REGRESSION, 2026-11-12 16:52-17:02 MST, build b4a20a6d9bd41ddb3e26a1543b8c63bfd996016d. The public tutoring intake that worked on the morning of 12 November (Parker 1569, Quinn 1571) now fails to render. NR01 and NR03-NR13 are BLOCKED until the intake loads. A tutoring intake should not request counseling providers; the 404 used serviceType=counseling."
+NR08,TU/TE: see original finding,BLOCKED,anonymous or Finley 1496,453,intake tutoring-intake-453-en-f0866ac28ad9; Finley1496,b4a20a6d9bd41ddb3e26a1543b8c63bfd996016d,2026-11-12 16:52-17:02 MST,-07:00,"Retest reported finding 8: entered answers survive a refresh, or a clear save/resume returns the unsigned draft.","Public tutoring intake rendered blank, so this retest could not be performed. Stuck on Loading… at /intake/tutoring-intake-453-en-f0866ac28ad9; /nlu-qa-demo/intake/ showed Opening your workspace… then went blank; the join-page Start Full Enrollment Packet and Finley's provider Request package both landed on the same blank intake. Console: 404 on GET /api/public/agency-services/nlu-qa-demo/providers/1496?serviceType=counseling, even though the page URL had serviceType=tutoring.",,FAIL-NR01-intake-stuck-blank-white.png; FAIL-NR01-intake-chrome-form-area-blank.png,"NEW REGRESSION, 2026-11-12 16:52-17:02 MST, build b4a20a6d9bd41ddb3e26a1543b8c63bfd996016d. The public tutoring intake that worked on the morning of 12 November (Parker 1569, Quinn 1571) now fails to render. NR01 and NR03-NR13 are BLOCKED until the intake loads. A tutoring intake should not request counseling providers; the 404 used serviceType=counseling."
+NR09,TU/TE: see original finding,BLOCKED,anonymous or Finley 1496,453,intake tutoring-intake-453-en-f0866ac28ad9; Finley1496,b4a20a6d9bd41ddb3e26a1543b8c63bfd996016d,2026-11-12 16:52-17:02 MST,-07:00,"Retest reported finding 9: Discuss payment with the office stays selected after reload and can submit without Add Card, Stripe, or a charge.","Public tutoring intake rendered blank, so this retest could not be performed. Stuck on Loading… at /intake/tutoring-intake-453-en-f0866ac28ad9; /nlu-qa-demo/intake/ showed Opening your workspace… then went blank; the join-page Start Full Enrollment Packet and Finley's provider Request package both landed on the same blank intake. Console: 404 on GET /api/public/agency-services/nlu-qa-demo/providers/1496?serviceType=counseling, even though the page URL had serviceType=tutoring.",,FAIL-NR01-intake-stuck-blank-white.png; FAIL-NR01-intake-chrome-form-area-blank.png,"NEW REGRESSION, 2026-11-12 16:52-17:02 MST, build b4a20a6d9bd41ddb3e26a1543b8c63bfd996016d. The public tutoring intake that worked on the morning of 12 November (Parker 1569, Quinn 1571) now fails to render. NR01 and NR03-NR13 are BLOCKED until the intake loads. A tutoring intake should not request counseling providers; the 404 used serviceType=counseling."
+NR10,TU/TE: see original finding,BLOCKED,anonymous or Finley 1496,453,intake tutoring-intake-453-en-f0866ac28ad9; Finley1496,b4a20a6d9bd41ddb3e26a1543b8c63bfd996016d,2026-11-12 16:52-17:02 MST,-07:00,Retest reported finding 10: a pure tutoring intake has no counseling/group counseling consent requirement.,"Public tutoring intake rendered blank, so this retest could not be performed. Stuck on Loading… at /intake/tutoring-intake-453-en-f0866ac28ad9; /nlu-qa-demo/intake/ showed Opening your workspace… then went blank; the join-page Start Full Enrollment Packet and Finley's provider Request package both landed on the same blank intake. Console: 404 on GET /api/public/agency-services/nlu-qa-demo/providers/1496?serviceType=counseling, even though the page URL had serviceType=tutoring.",,FAIL-NR01-intake-stuck-blank-white.png; FAIL-NR01-intake-chrome-form-area-blank.png,"NEW REGRESSION, 2026-11-12 16:52-17:02 MST, build b4a20a6d9bd41ddb3e26a1543b8c63bfd996016d. The public tutoring intake that worked on the morning of 12 November (Parker 1569, Quinn 1571) now fails to render. NR01 and NR03-NR13 are BLOCKED until the intake loads. A tutoring intake should not request counseling providers; the 404 used serviceType=counseling."
+NR11,TU/TE: see original finding,BLOCKED,anonymous or Finley 1496,453,intake tutoring-intake-453-en-f0866ac28ad9; Finley1496,b4a20a6d9bd41ddb3e26a1543b8c63bfd996016d,2026-11-12 16:52-17:02 MST,-07:00,Retest reported finding 11: a pure tutoring intake does not require a HIPAA privacy consent.,"Public tutoring intake rendered blank, so this retest could not be performed. Stuck on Loading… at /intake/tutoring-intake-453-en-f0866ac28ad9; /nlu-qa-demo/intake/ showed Opening your workspace… then went blank; the join-page Start Full Enrollment Packet and Finley's provider Request package both landed on the same blank intake. Console: 404 on GET /api/public/agency-services/nlu-qa-demo/providers/1496?serviceType=counseling, even though the page URL had serviceType=tutoring.",,FAIL-NR01-intake-stuck-blank-white.png; FAIL-NR01-intake-chrome-form-area-blank.png,"NEW REGRESSION, 2026-11-12 16:52-17:02 MST, build b4a20a6d9bd41ddb3e26a1543b8c63bfd996016d. The public tutoring intake that worked on the morning of 12 November (Parker 1569, Quinn 1571) now fails to render. NR01 and NR03-NR13 are BLOCKED until the intake loads. A tutoring intake should not request counseling providers; the 404 used serviceType=counseling."
+NR12,TU/TE: see original finding,BLOCKED,anonymous or Finley 1496,453,intake tutoring-intake-453-en-f0866ac28ad9; Finley1496,b4a20a6d9bd41ddb3e26a1543b8c63bfd996016d,2026-11-12 16:52-17:02 MST,-07:00,Retest reported finding 12: a pure tutoring intake does not require the Colorado mental-health Disclosure Statement.,"Public tutoring intake rendered blank, so this retest could not be performed. Stuck on Loading… at /intake/tutoring-intake-453-en-f0866ac28ad9; /nlu-qa-demo/intake/ showed Opening your workspace… then went blank; the join-page Start Full Enrollment Packet and Finley's provider Request package both landed on the same blank intake. Console: 404 on GET /api/public/agency-services/nlu-qa-demo/providers/1496?serviceType=counseling, even though the page URL had serviceType=tutoring.",,FAIL-NR01-intake-stuck-blank-white.png; FAIL-NR01-intake-chrome-form-area-blank.png,"NEW REGRESSION, 2026-11-12 16:52-17:02 MST, build b4a20a6d9bd41ddb3e26a1543b8c63bfd996016d. The public tutoring intake that worked on the morning of 12 November (Parker 1569, Quinn 1571) now fails to render. NR01 and NR03-NR13 are BLOCKED until the intake loads. A tutoring intake should not request counseling providers; the 404 used serviceType=counseling."
+NR13,TU/TE: see original finding,BLOCKED,anonymous or Finley 1496,453,intake tutoring-intake-453-en-f0866ac28ad9; Finley1496,b4a20a6d9bd41ddb3e26a1543b8c63bfd996016d,2026-11-12 16:52-17:02 MST,-07:00,Retest reported finding 13: the PSC-17 screen is not offered on a pure tutoring intake.,"Public tutoring intake rendered blank, so this retest could not be performed. Stuck on Loading… at /intake/tutoring-intake-453-en-f0866ac28ad9; /nlu-qa-demo/intake/ showed Opening your workspace… then went blank; the join-page Start Full Enrollment Packet and Finley's provider Request package both landed on the same blank intake. Console: 404 on GET /api/public/agency-services/nlu-qa-demo/providers/1496?serviceType=counseling, even though the page URL had serviceType=tutoring.",,FAIL-NR01-intake-stuck-blank-white.png; FAIL-NR01-intake-chrome-form-area-blank.png,"NEW REGRESSION, 2026-11-12 16:52-17:02 MST, build b4a20a6d9bd41ddb3e26a1543b8c63bfd996016d. The public tutoring intake that worked on the morning of 12 November (Parker 1569, Quinn 1571) now fails to render. NR01 and NR03-NR13 are BLOCKED until the intake loads. A tutoring intake should not request counseling providers; the 404 used serviceType=counseling."
+NR14,TU/TE: see original finding,FAIL,inbox testing@itsco.health; Morgan 1759,453,6463; 6347; 6349; Parker2545/1569; Quinn2547/1571,,2026-11-12 14:20:14 MST (setup mail); receipts still absent as of 20:29-20:45 MST,-07:00,Retest reported finding 14: enrollment receipt and password-setup email are actually received for the parent.,A Set your password email from Notifications@nextleveluplcc.com arrived at testing@itsco.health at 14:20:14 MST (21:20:14Z) as recovery 6463. That link was not opened tonight (already consumed); no token is stored here. Enrollment receipts for Parker (1569 / communication 6347) and Quinn (1571 / communication 6349) never arrived.,,,FAIL for the original finding that enrollment receipt and password-setup mail should arrive when a parent submits. Partial PASS: a setup/recovery message did later arrive as 6463 (already requested 14:20 MST; not resent tonight) and Morgan can sign in (TU10). The missing Parker and Quinn enrollment receipts remain a failure.
+NR15,TU/TE: see original finding,PASS,anonymous,453,Finley1496,b4a20a6d9bd41ddb3e26a1543b8c63bfd996016d,2026-11-12 16:51-16:52 MST,-07:00,"Retest reported finding 15: the public finder returns the exact active tutor for Math / grade 5 / virtual, with approved price, real available times, and assigned office.","Math / grade 5 / virtual showed Finley at $50/hour, four visits $180, with slots Monday November 16 10:15 AM and 11:15 AM. Location text: NLU SYNTHETIC QA — tutoring office.",,PASS-NR15-finder-math-grade-5-virtual-finley-50.png; PASS-NR15-finder-unfiltered-view.png,"PASS on build b4a20a6d. This overturns the morning 12 November FAIL of 0 tutors for Math / grade 5 / virtual, but the earlier failure stays on file until this retest. Finder reads are not booking or session proof."
+NR16,TU/TE: see original finding,PASS,anonymous,453,Finley1496,b4a20a6d9bd41ddb3e26a1543b8c63bfd996016d,2026-11-12 16:52 MST,-07:00,"Retest reported finding 16: Reading / grade 3 / in-person returns the exact tutor with approved price and times, and the tutoring finder has no Insurance filter.","Reading / grade 3 / in-person showed Finley at $55/hour, four visits $198, with slots Tuesday November 17 10:00 AM and 11:00 AM. No Insurance filter and no other tutors were listed.",,PASS-NR16-finder-reading-grade-3-in-person-finley-55.png; INFO-NR16-schedule-tue-nov17-marked-booked-finder-still-offers.png,"PASS for the Insurance-filter and tutor-match retest on build b4a20a6d. CONFLICT / INFO, seen 17:10-17:16 MST on Finley's own schedule: the Tuesday November 17 10:00-12:00 PM MST in-person block is marked Booked / reserved — not open for another booking, yet the finder still offered 10:00 AM and 11:00 AM. This does not change the NR16 PASS for the filter and listed tutor, but the offered times are not safe to treat as open bookable slots."
+NR17,TU/TE: see original finding,FAIL,anonymous,453,,b4a20a6d9bd41ddb3e26a1543b8c63bfd996016d,2026-11-12 16:52 MST,-07:00,"Retest reported finding 17: Terms and Privacy links on NLU and shared app origins point at Next Level Up pages, not a non-NLU destination.","No plottwisthq.com links. /nlu-qa-demo/login and /login both list AuricWell Privacy, Terms, and Messaging (auricwell.com/auricwell/...) alongside Next Level Up pages (nextleveluplcc.com/nlu/privacypolicy, terms, messaging). The finder page has no Terms/Privacy links at all. Inside Finley's signed-in app at 17:16 MST the links were NLU-only (PASS for that part).",,FAIL-NR17-nlu-qa-demo-login-auricwell-and-nlu-legal-links.png; FAIL-NR17-root-login-auricwell-and-nlu-legal-links.png,"FAIL overall on build b4a20a6d. The earlier plottwisthq.com destination is gone, but public login still mixes AuricWell legal links with NLU links, and the finder has none. Signed-in NLU-only links at 17:16 MST are a partial pass and were not given a separate screenshot."
+NR18,TU/TE: see original finding,PASS,Finley 1496,453,Finley1496; Parker2545; Quinn2547,b4a20a6d9bd41ddb3e26a1543b8c63bfd996016d,2026-11-12 17:07 MST,-07:00,"Retest reported finding 18: old /clients links redirect correctly, and Students renders the assigned retained learning students.","/clients redirected to /students. After loading, My students listed Parker QA NLU-1101 and Quinn QA NLU-1101.",,PASS-NR18-clients-redirects-to-students-parker-quinn.png,PASS on build b4a20a6d. This retests the morning blank /clients page. The earlier failure stays on file.
+NR19,TU/TE: see original finding,PASS,Finley 1496,453,Finley1496,b4a20a6d9bd41ddb3e26a1543b8c63bfd996016d,2026-11-12 17:08 MST,-07:00,Retest reported finding 19: the tutor can save descriptive tutoring-profile fields without a 403; rates and approvals stay staff-controlled.,"The introduction edit saved (Tutoring profile saved for this agency.), persisted after reload, and was then reverted. Subjects and grades were editable; prices were read-only (Your agency manages service approvals, customer prices and pay.). No 403.",,PASS-NR19-tutoring-profile-saved.png,PASS on build b4a20a6d. The earlier tutoring-profile editor 403 / missing Tutoring profile page remains in prior evidence. The edit used for this check was reverted after the save was confirmed.
+NR20,TU/TE: see original finding,FAIL,Finley 1496,453,Finley1496,b4a20a6d9bd41ddb3e26a1543b8c63bfd996016d,2026-11-12 17:07 MST,-07:00,"Retest reported finding 20: a nonclinical tutor nav offers learning work and own time/pay only, and withholds clinical note and HR management actions.","Partial: Finley's main menu still showed My Clients, Staff, and Note Workspace. My Payroll, My Compensation, and My Benefits have moved under My Account. Direct-route and API probes were not run.",,FAIL-NR20-tutor-nav-still-shows-clients-staff-note-workspace.png,"FAIL (partial) on build b4a20a6d. Payroll, compensation, and benefits no longer sit on the main menu, but Clients, Staff, and Note Workspace remain. Direct-route/API probes are still NOT RUN, so this is a menu-only result, not a broader access certification."
+
+HISTORICAL INPUT: cases.csv
+case_id,area,action,status,actor,agency_id,client_ids,appointment_ids,session_ids,plan_ids,action_time_denver,utc_offset,expected,actual,audit_row_ids,screenshot,finding
+TU00,Baseline,Recount and preserve clinical/Plotline fixtures,NOT RUN,,453,,,,,,,,,,,
+TU01,Setup,Confirm NLU QA453 and learning program454; no AuricWell route,NOT RUN,,453,,,,,,,,,,,
+TU02,Setup,Configure one nonclinical tutor through normal setup,NOT RUN,,453,,,,,,,,,,,
+TU03,Catalog,Verify copied tiers and two synthetic package prices,NOT RUN,,453,,,,,,,,,,,
+TU04,Intake,Inspect copied forms and required QA acknowledgments,NOT RUN,,453,,,,,,,,,,,
+TU05,Public,Find tutor by subject/grade/format; no counseling-only providers,NOT RUN,,453,,,,,,,,,,,
+TU06,Enrollment,Parent enrolls Parker through real public tutoring flow,NOT RUN,,453,,,,,,,,,,,
+TU07,Enrollment,"Save/resume, required fields, invalid email and unsupported upload",NOT RUN,,453,,,,,,,,,,,
+TU08,Enrollment,Add Quinn without duplicate parent or student,PASS,Morgan 1759,453,Parker2545; Quinn2547,,,,2026-11-12 20:29 MST,-07:00,Add Quinn without creating a duplicate parent or student; one Morgan remains the guardian for both children.,Parker QA NLU-1101 and Quinn QA NLU-1101 both appear under one Morgan QA NLU-1101 family portal. Settings > Guardian contacts shows Morgan once.,,PASS-TU10-morgan-family-portal-dashboard.png,PASS (confirm) on the evening of 2026-11-12. This confirms the morning Quinn enrollment 1571 did not create a second Morgan. The dashboard screenshot shows both children on Morgan's account; the Guardian contacts check is recorded in the actual result and had no separate cited screenshot.
+TU09,Enrollment,Co-guardian own access and selective sharing,PASS,Morgan 1759; Rene (vault login 4470827),453,Parker2545; Quinn2547,,,,2026-11-12 20:30-20:45 MST,-07:00,"Co-guardian gets their own access from a parent-portal invite, for only the selected child, with selective sharing of billing, documents, and private responses.","About 20:30 MST Morgan invited Rene (qa.nlu.coparent@example.com, relationship Parent) from Parker's information page only. The app said Invitation sent. They must use their own link to accept. and showed status Rene · Invitation sent; waiting for acceptance. Rene accepted about 20:38 MST; the invite named Parker only and said Your learning portal access for Parker is connected... Rene set a password about 20:45 MST (the page required a linked dependent's date of birth; the owner says that is intended and not a finding). Rene signed in with vault login 4470827 and sees Parker only, not Quinn. Billing said Billing access is not authorized for this client. Documents were not shared. The learning plan said This plan action is not enabled for your relationship. Morgan's private responses stayed hidden. The invite link itself was not recorded; no token is stored in this ledger.",,PASS-TU09-morgan-parker-invite-rene-sent.png; PASS-TU09-rene-invite-names-parker-only.png; PASS-TU09-rene-accepted-parker-access-connected.png; INFO-TU09-rene-password-setup-requires-dependent-dob.png; PASS-TU09-rene-dashboard-parker-only.png; PASS-TU09-rene-invoices-billing-not-authorized.png; PASS-TU09-rene-plan-action-not-enabled.png; FAIL-TU09-rene-notification-preferences-load-error.png,"PASS for co-guardian invite, accept, and selective sharing (Parker only; no billing, documents, or plan action; Morgan's private responses hidden). Additional findings that do not overturn the PASS: Rene's nav still shows the same menu items as Morgan, with locked pages — hiding unauthorized items would be clearer; Notification setup showed We could not load all family preferences. Try again before changing them.; Request my records does not open (URL resets to the guardian root) for Rene as well as Morgan (also logged under TU11). The dependent-DOB step at password setup is intended, per the owner, and is not recorded as a product defect."
+TU10,Portal,"Password setup, recovery and NLU parent sign-in",PASS,Morgan 1759 (vault login 4469639),453,Parker2545; Quinn2547,,,,2026-11-12 20:29 MST,-07:00,"Password setup, recovery, and NLU parent sign-in land in the NLU family portal. Do not resend an already-requested recovery.","About 20:29 MST Morgan signed in with the existing vault login 4469639 and landed on /nlu-qa-demo/guardian, titled Family portal, header Next Level Up - SYNTHETIC QA. Both children were visible. No recovery email was resent. The earlier Set your password mail (recovery 6463, arrived 14:20:14 MST) was not opened tonight because that link had already been consumed; no token is stored here.",,PASS-TU10-morgan-family-portal-dashboard.png,"PASS. Sign-in used the already-completed password, not a new recovery. Receipt-email gaps stay under TE01/NR14 and do not block this sign-in result."
+TU11,Portal,"All NLU labels, help, menus and downloads; no clinical content",FAIL,Morgan 1759; Rene (vault login 4470827),453,Parker2545; Quinn2547,,,,2026-11-12 20:29-20:45 MST,-07:00,"All NLU labels, help, menus and downloads; no clinical, insurance, or non-NLU wording on the learning parent portal.","Signed-in footer links were NLU-only (privacypolicy, terms, and messaging at nextleveluplcc.com/nlu). Failures: the login screen still groups links as AuricWell terms and privacy; billing mentions AuricWell; the footer notice and dependent-invite text mention clinical records; payment wording mentions insurance records; invoices mention copays or other verified patient responsibility and earlier TherapyNotes history; there is no Add Card; Responsible payer: Not yet designated; the menu includes Check-ins & trends, Evaluations, and Request my records; Request my records does not open and the URL resets to the guardian root, for both Morgan and Rene.",,FAIL-TU11-payments-insurance-records-wording.png; FAIL-TU11-invoices-copays-therapynotes-wording.png; PASS-TU09-morgan-parker-invite-rene-sent.png; PASS-TU10-morgan-family-portal-dashboard.png,"FAIL. Footer destinations on the signed-in portal are NLU-only (a partial pass, consistent with the signed-in part of NR17). The deployed learning-only parent payments wording still includes insurance records and TherapyNotes language, so that repair is not a pass. Clinical-records wording, AuricWell labels, clinical-style menu items, and the broken Request my records action remain."
+TU12,Scheduling,"Availability, duration, code, price and Denver timezone",FAIL,Finley 1496; Morgan 1759,453,Parker2545; Quinn2547,,,,2026-11-12 20:55 MST,-07:00,"Availability, duration, code, price and Denver timezone are visible and consistent on tutor and parent sides, and they match the public finder.","PARTIAL/FAIL. Finley's /nlu-qa-demo/my-schedule showed Mountain Time (MT). Monday November 16 showed Virtual · 10:15 AM–12:15 PM. Tuesday November 17 showed no open block, yet the public finder still offered Tuesday November 17 10:00 AM and 11:00 AM in-person (same conflict recorded earlier under NR16). On the parent side, duration, code, and price were not shown because no package exists.",,FAIL-TU12-finley-week-virtual-mon-no-tue-open-block.png; INFO-NR16-schedule-tue-nov17-marked-booked-finder-still-offers.png; FAIL-TU13-morgan-parker-no-active-session-package.png,PARTIAL/FAIL at about 20:55 MST. Timezone (Mountain Time (MT)) and the Monday virtual opening match the retained hours. Failures: the Tuesday in-person block is missing from Finley's open schedule while the public finder still offers 10:00/11:00 AM; parent duration/code/price cannot be checked until a package exists. The earlier NR16 INFO conflict remains visible and is not overwritten.
+TU13,Scheduling,Book virtual tutoring with exact appointment/session/student link,FAIL,Morgan 1759; Finley 1496,453,Parker2545,,,,2026-11-12 20:52-20:55 MST,-07:00,"Book virtual tutoring with an exact appointment, session, and student link. No clinical wording on the tutoring calendar.","About 20:52 MST on the parent side, Morgan > Parker tutoring showed No active session package yet. Purchase a package to book tutoring sessions. The booking route showed No public packages available yet. Appointments showed No appointments are available to display. No card was asked for, and nothing was created. About 20:55 MST on the tutor side, Book Session · Coming soon appeared, with Your practice will enable session booking after your TherapyNotes transition. Schedule Meeting only offered General team meeting and was not used.",,FAIL-TU13-morgan-parker-no-active-session-package.png; FAIL-TU13-booking-route-no-public-packages.png; FAIL-TU13-finley-book-session-coming-soon-therapynotes.png,"FAIL. There is no working public or parent booking path and no tutor-side Book Session control. Clinical/TherapyNotes wording appears on the tutoring calendar. No appointment or session IDs exist because nothing was created. This blocks TU14, TU15, and later cases that need an appointment."
+TU14,Scheduling,Book in-person tutoring through same normal calendar,BLOCKED,Morgan 1759; Finley 1496,453,Parker2545; Quinn2547,,,,2026-11-12 20:52-20:55 MST,-07:00,Book in-person tutoring through same normal calendar Cannot run until a real appointment can be booked (blocked by TU13).,Not run: parent booking is blocked (No active session package yet / No public packages available yet) and the tutor Book Session control is Coming soon. Nothing was booked.,,FAIL-TU13-morgan-parker-no-active-session-package.png; FAIL-TU13-booking-route-no-public-packages.png; FAIL-TU13-finley-book-session-coming-soon-therapynotes.png,"BLOCKED on the failed booking path (see TU13). No appointment or session was created, so this case cannot be run yet. The earlier NR16 finder-vs-schedule conflict and the TU13 booking failures stay on file."
+TU15,Scheduling,"Reschedule, conflicts and duplicate-submit protection",BLOCKED,Morgan 1759; Finley 1496,453,Parker2545; Quinn2547,,,,2026-11-12 20:52-20:55 MST,-07:00,"Reschedule, conflicts and duplicate-submit protection Cannot run until a real appointment can be booked (blocked by TU13).",Not run: parent booking is blocked (No active session package yet / No public packages available yet) and the tutor Book Session control is Coming soon. Nothing was booked.,,FAIL-TU13-morgan-parker-no-active-session-package.png; FAIL-TU13-booking-route-no-public-packages.png; FAIL-TU13-finley-book-session-coming-soon-therapynotes.png,"BLOCKED on the failed booking path (see TU13). No appointment or session was created, so this case cannot be run yet. The earlier NR16 finder-vs-schedule conflict and the TU13 booking failures stay on file."
+TU16,Evaluation,"Perform baseline, retain actual responses and rubric",BLOCKED,Morgan 1759; Finley 1496,453,Parker2545; Quinn2547,,,,2026-11-12 20:52-20:55 MST,-07:00,"Perform baseline, retain actual responses and rubric Cannot run until a real appointment can be booked (blocked by TU13).",Not run: parent booking is blocked (No active session package yet / No public packages available yet) and the tutor Book Session control is Coming soon. Nothing was booked.,,FAIL-TU13-morgan-parker-no-active-session-package.png; FAIL-TU13-booking-route-no-public-packages.png; FAIL-TU13-finley-book-session-coming-soon-therapynotes.png,"BLOCKED on the failed booking path (see TU13). No appointment or session was created, so this case cannot be run yet. The earlier NR16 finder-vs-schedule conflict and the TU13 booking failures stay on file."
+TU17,Plan,Create/review/approve a nonclinical learning plan,NOT RUN,,453,,,,,,,,,,,
+TU18,Plan,Each parent sees/signs their own current plan revision,NOT RUN,,453,,,,,,,,,,,
+TU19,Plan,Separate family ratings and tutor mastery,NOT RUN,,453,,,,,,,,,,,
+TU20,Materials,"Upload worksheet, order materials and save source plan",NOT RUN,,453,,,,,,,,,,,
+TU21,In-person,Open exact appointment and learning workspace,BLOCKED,Morgan 1759; Finley 1496,453,Parker2545; Quinn2547,,,,2026-11-12 20:52-20:55 MST,-07:00,Open exact appointment and learning workspace Cannot run until a real appointment can be booked (blocked by TU13).,Not run: parent booking is blocked (No active session package yet / No public packages available yet) and the tutor Book Session control is Coming soon. Nothing was booked.,,FAIL-TU13-morgan-parker-no-active-session-package.png; FAIL-TU13-booking-route-no-public-packages.png; FAIL-TU13-finley-book-session-coming-soon-therapynotes.png,"BLOCKED on the failed booking path (see TU13). No appointment or session was created, so this case cannot be run yet. The earlier NR16 finder-vs-schedule conflict and the TU13 booking failures stay on file."
+TU22,In-person,"Annotate, capture responses, save/reload and download",BLOCKED,Morgan 1759; Finley 1496,453,Parker2545; Quinn2547,,,,2026-11-12 20:52-20:55 MST,-07:00,"Annotate, capture responses, save/reload and download Cannot run until a real appointment can be booked (blocked by TU13).",Not run: parent booking is blocked (No active session package yet / No public packages available yet) and the tutor Book Session control is Coming soon. Nothing was booked.,,FAIL-TU13-morgan-parker-no-active-session-package.png; FAIL-TU13-booking-route-no-public-packages.png; FAIL-TU13-finley-book-session-coming-soon-therapynotes.png,"BLOCKED on the failed booking path (see TU13). No appointment or session was created, so this case cannot be run yet. The earlier NR16 finder-vs-schedule conflict and the TU13 booking failures stay on file."
+TU23,Virtual,Early/valid/closed 30-minute windows using real time,BLOCKED,Morgan 1759; Finley 1496,453,Parker2545; Quinn2547,,,,2026-11-12 20:52-20:55 MST,-07:00,Early/valid/closed 30-minute windows using real time Cannot run until a real appointment can be booked (blocked by TU13).,Not run: parent booking is blocked (No active session package yet / No public packages available yet) and the tutor Book Session control is Coming soon. Nothing was booked.,,FAIL-TU13-morgan-parker-no-active-session-package.png; FAIL-TU13-booking-route-no-public-packages.png; FAIL-TU13-finley-book-session-coming-soon-therapynotes.png,"BLOCKED on the failed booking path (see TU13). No appointment or session was created, so this case cannot be run yet. The earlier NR16 finder-vs-schedule conflict and the TU13 booking failures stay on file."
+TU24,Virtual,Tutor opens; parent checks in; deliberate admission,BLOCKED,Morgan 1759; Finley 1496,453,Parker2545; Quinn2547,,,,2026-11-12 20:52-20:55 MST,-07:00,Tutor opens; parent checks in; deliberate admission Cannot run until a real appointment can be booked (blocked by TU13).,Not run: parent booking is blocked (No active session package yet / No public packages available yet) and the tutor Book Session control is Coming soon. Nothing was booked.,,FAIL-TU13-morgan-parker-no-active-session-package.png; FAIL-TU13-booking-route-no-public-packages.png; FAIL-TU13-finley-book-session-coming-soon-therapynotes.png,"BLOCKED on the failed booking path (see TU13). No appointment or session was created, so this case cannot be run yet. The earlier NR16 finder-vs-schedule conflict and the TU13 booking failures stay on file."
+TU25,Virtual,Two real browser sessions verify audio/video and reconnect,BLOCKED,Morgan 1759; Finley 1496,453,Parker2545; Quinn2547,,,,2026-11-12 20:52-20:55 MST,-07:00,Two real browser sessions verify audio/video and reconnect Cannot run until a real appointment can be booked (blocked by TU13).,Not run: parent booking is blocked (No active session package yet / No public packages available yet) and the tutor Book Session control is Coming soon. Nothing was booked.,,FAIL-TU13-morgan-parker-no-active-session-package.png; FAIL-TU13-booking-route-no-public-packages.png; FAIL-TU13-finley-book-session-coming-soon-therapynotes.png,"BLOCKED on the failed booking path (see TU13). No appointment or session was created, so this case cannot be run yet. The earlier NR16 finder-vs-schedule conflict and the TU13 booking failures stay on file."
+TU26,Virtual,"Whiteboard, documents, chat and learning binder are NLU",BLOCKED,Morgan 1759; Finley 1496,453,Parker2545; Quinn2547,,,,2026-11-12 20:52-20:55 MST,-07:00,"Whiteboard, documents, chat and learning binder are NLU Cannot run until a real appointment can be booked (blocked by TU13).",Not run: parent booking is blocked (No active session package yet / No public packages available yet) and the tutor Book Session control is Coming soon. Nothing was booked.,,FAIL-TU13-morgan-parker-no-active-session-package.png; FAIL-TU13-booking-route-no-public-packages.png; FAIL-TU13-finley-book-session-coming-soon-therapynotes.png,"BLOCKED on the failed booking path (see TU13). No appointment or session was created, so this case cannot be run yet. The earlier NR16 finder-vs-schedule conflict and the TU13 booking failures stay on file."
+TU27,Virtual,Additional guardian admission vs unrelated next student,BLOCKED,Morgan 1759; Finley 1496,453,Parker2545; Quinn2547,,,,2026-11-12 20:52-20:55 MST,-07:00,Additional guardian admission vs unrelated next student Cannot run until a real appointment can be booked (blocked by TU13).,Not run: parent booking is blocked (No active session package yet / No public packages available yet) and the tutor Book Session control is Coming soon. Nothing was booked.,,FAIL-TU13-morgan-parker-no-active-session-package.png; FAIL-TU13-booking-route-no-public-packages.png; FAIL-TU13-finley-book-session-coming-soon-therapynotes.png,"BLOCKED on the failed booking path (see TU13). No appointment or session was created, so this case cannot be run yet. The earlier NR16 finder-vs-schedule conflict and the TU13 booking failures stay on file."
+TU28,Completion,"End once; durable attendance, note, summary and payroll draft",BLOCKED,Morgan 1759; Finley 1496,453,Parker2545; Quinn2547,,,,2026-11-12 20:52-20:55 MST,-07:00,"End once; durable attendance, note, summary and payroll draft Cannot run until a real appointment can be booked (blocked by TU13).",Not run: parent booking is blocked (No active session package yet / No public packages available yet) and the tutor Book Session control is Coming soon. Nothing was booked.,,FAIL-TU13-morgan-parker-no-active-session-package.png; FAIL-TU13-booking-route-no-public-packages.png; FAIL-TU13-finley-book-session-coming-soon-therapynotes.png,"BLOCKED on the failed booking path (see TU13). No appointment or session was created, so this case cannot be run yet. The earlier NR16 finder-vs-schedule conflict and the TU13 booking failures stay on file."
+TU29,Progress,Distinct session evidence and honest multi-point trends,BLOCKED,Morgan 1759; Finley 1496,453,Parker2545; Quinn2547,,,,2026-11-12 20:52-20:55 MST,-07:00,Distinct session evidence and honest multi-point trends Cannot run until a real appointment can be booked (blocked by TU13).,Not run: parent booking is blocked (No active session package yet / No public packages available yet) and the tutor Book Session control is Coming soon. Nothing was booked.,,FAIL-TU13-morgan-parker-no-active-session-package.png; FAIL-TU13-booking-route-no-public-packages.png; FAIL-TU13-finley-book-session-coming-soon-therapynotes.png,"BLOCKED on the failed booking path (see TU13). No appointment or session was created, so this case cannot be run yet. The earlier NR16 finder-vs-schedule conflict and the TU13 booking failures stay on file."
+TU30,Homework,"Review/publish assignment, learner completion and feedback",NOT RUN,,453,,,,,,,,,,,
+TU31,Reports,Publish a parent progress report with correct student/version,NOT RUN,,453,,,,,,,,,,,
+TU32,Privacy,"Private notes, raw transcript and unshared materials withheld",NOT RUN,,453,,,,,,,,,,,
+TU33,Billing,"Compare agreed quote, package and post-session charge",NOT RUN,,453,,,,,,,,,,,
+TU34,Billing,Token/package balance and retry idempotency,NOT RUN,,453,,,,,,,,,,,
+TU35,Billing,Sandbox payment success/decline/retry only if verified test merchant,NOT RUN,,453,,,,,,,,,,,
+TU36,Billing,"Canceled/no-show event, policy and duplicate fee prevention",BLOCKED,Morgan 1759; Finley 1496,453,Parker2545; Quinn2547,,,,2026-11-12 20:52-20:55 MST,-07:00,"Canceled/no-show event, policy and duplicate fee prevention Cannot run until a real appointment can be booked (blocked by TU13).",Not run: parent booking is blocked (No active session package yet / No public packages available yet) and the tutor Book Session control is Coming soon. Nothing was booked.,,FAIL-TU13-morgan-parker-no-active-session-package.png; FAIL-TU13-booking-route-no-public-packages.png; FAIL-TU13-finley-book-session-coming-soon-therapynotes.png,"BLOCKED on the failed booking path (see TU13). No appointment or session was created, so this case cannot be run yet. The earlier NR16 finder-vs-schedule conflict and the TU13 booking failures stay on file."
+TU37,Billing,Homework Help distinct from TUTORING and clinical H2014,NOT RUN,,453,,,,,,,,,,,
+TU38,Payroll,"Tutor compensation draft, no approved payroll export",NOT RUN,,453,,,,,,,,,,,
+TU39,Messaging,"Parent/tutor secure notice, reply routing and no AuricWell footer",NOT RUN,,453,,,,,,,,,,,
+TU40,Email,Actual enrollment/booking/reminder/change/cancel receipts,NOT RUN,,453,,,,,,,,,,,
+TU41,Audit,Action ledger reconciled with scoped audit search/export/links,NOT RUN,,453,,,,,,,,,,,
+TU42,Access,"Other family, tutor, agency and school staff denied",NOT RUN,,453,,,,,,,,,,,
+TU43,Retention,Complete final persona/ID table; retain pending evidence,NOT RUN,,453,,,,,,,,,,,
+TU44,Group,Optional learning-program group with exact roster/privacy,NOT RUN,,453,,,,,,,,,,,
+TU45,Handoff,Tutor transfer preserves learning history and permissions,NOT RUN,,453,,,,,,,,,,,
+TU46,Closeout,Program completion/reassessment and retained parent access,NOT RUN,,453,,,,,,,,,,,
+
+HISTORICAL INPUT: email-cases.csv
+email_case_id,case_id,type_to_verify,recipient_variant,status,actual_type,logical_to,physical_to,actual_from,actual_reply_to,action_ids,due_at,received_at_denver,utc_offset,transport_id,inbox_id,screenshot,finding
+TE01,TU06,Enrollment receipt/password setup,Parent; existing-account variant,FAIL,Password-setup / recovery mail received; enrollment receipts never arrived,qa.nlu.parent@example.com,testing@itsco.health,Notifications@nextleveluplcc.com,,"6463 (setup/recovery received); 6347 and 6349 (enrollment receipts, still failed / never arrived)",Parker submit 2026-11-12 07:16:35 MST; Quinn submit 2026-11-12 08:06:37 MST,2026-11-12 14:20:14 MST (setup/recovery 6463 only; 21:20:14Z). Enrollment receipts never arrived.,-07:00,,,,"FAIL for enrollment receipts (Parker communication 6347 and Quinn 6349 never arrived at testing@itsco.health). Partial PASS for setup mail: a Set your password message from Notifications@nextleveluplcc.com arrived 2026-11-12 14:20:14 MST (21:20:14Z) as recovery 6463, already requested earlier that afternoon; this was not a resend tonight. The setup link was not opened because it had already been consumed; no token is stored here. Morgan later signed in with the existing vault login (TU10)."
+TE02,TU09,Co-guardian invitation,Each permitted guardian separately,PASS,"Co-guardian invitation and welcome (two new communications, not resends)",qa.nlu.coparent@example.com,testing@itsco.health,Next Level Up <Notifications@nextleveluplcc.com>,,,Invite sent about 2026-11-12 20:30 MST,Invite 2026-11-12 20:32:41 MST (03:32:41Z); welcome 2026-11-12 20:38:28 MST (03:38:28Z),-07:00,,,,"PASS for delivery of two new messages, not resends. The 20:32:41 MST invite was NLU-branded and correctly said Rene would not get billing, documents, or clinical access. Wording finding on the 20:38:28 MST welcome to your family portal message: it says Rene can complete forms, manage billing, which contradicts the invite, and it refers to Parker as (PANL). No raw invite token is stored here."
+TE03,TU10,Password recovery,Exact tutoring identity,NOT RUN,,,testing@itsco.health,,,,,,,,,,
+TE04,TU13,Appointment confirmation,Parent and assigned tutor,NOT RUN,,,testing@itsco.health,,,,,,,,,,
+TE05,TU40,Actually due appointment reminder,Each authorized reminder recipient,NOT RUN,,,testing@itsco.health,,,,,,,,,,
+TE06,TU15,Reschedule/change,Original recipients; suppress old reminder,NOT RUN,,,testing@itsco.health,,,,,,,,,,
+TE07,TU36,Cancel/no-show,Each meaningful status and recipient,NOT RUN,,,testing@itsco.health,,,,,,,,,,
+TE08,TU18,Learning-plan review notice,Each eligible parent own revision,NOT RUN,,,testing@itsco.health,,,,,,,,,,
+TE09,TU39,Secure message waiting,Parent; tutor; app-only personal-forward variant,NOT RUN,,,testing@itsco.health,,,,,,,,,,
+TE10,TU30,Homework/report shared,Only if a real worker/type exists,NOT RUN,,,testing@itsco.health,,,,,,,,,,
+TE11,TU33,Statement/balance/payment receipt,Authorized payer only; sandbox where needed,NOT RUN,,,testing@itsco.health,,,,,,,,,,
+TE12,TU28,Completion/progress notice,Only if implemented; inspect catalog,NOT RUN,,,testing@itsco.health,,,,,,,,,,
+
+HISTORICAL INPUT: childcare-cases.csv
+case_id,source_case,status,actor,agency_id,object_ids,build_id,time_denver,utc_offset,expected,actual,audit_row_ids,screenshot,finding
+CC00,Childcare,NOT RUN,,453,,,,,Recount; retain students and approve synthetic childcare fixtures,,,,
+CC01,Childcare,NOT RUN,,453,,,,,Activate childcare service assignment independently of base account role,,,,
+CC02,Childcare,NOT RUN,,453,,,,,Resolve category and service-specific childcare level,,,,
+CC03,Childcare,NOT RUN,,453,,,,,Approve and persist all four individual band overrides,,,,
+CC04,Childcare,NOT RUN,,453,,,,,Staff creates only own childcare shift,,,,
+CC05,Childcare,NOT RUN,,453,,,,,Authorized scheduler assigns co-caregiver; ordinary staff denied,,,,
+CC06,Childcare,NOT RUN,,453,,,,,"Planned count, location, timezone and private note persist",,,,
+CC07,Childcare,NOT RUN,,453,,,,,Clock-in reminder actually due and received; exact signed-in link,,,,
+CC08,Childcare,NOT RUN,,453,,,,,Clock in and explicitly confirm scheduled count,,,,
+CC09,Childcare,NOT RUN,,453,,,,,Correct actual count without changing planned count,,,,
+CC10,Childcare,NOT RUN,,453,,,,,Clock-out reminder actually due and received; suppress completed punches,,,,
+CC11,Childcare,NOT RUN,,453,,,,,Clock out once; retain actual time when attendance needs review,,,,
+CC12,Childcare,NOT RUN,,453,,,,,Five children/two active caregivers select band3 independently,,,,
+CC13,Childcare,NOT RUN,,453,,,,,Late co-caregiver splits actual work intervals,,,,
+CC14,Childcare,NOT RUN,,453,,,,,Early departure changes active-caregiver denominator,,,,
+CC15,Childcare,NOT RUN,,453,,,,,Count change splits attendance and rate intervals,,,,
+CC16,Childcare,NOT RUN,,453,,,,,Zero-child required work uses base; above4 requires review,,,,
+CC17,Childcare,NOT RUN,,453,,,,,Missing/disputed attendance retains punches and blocks unsupported pay,,,,
+CC18,Childcare,NOT RUN,,453,,,,,Manager count-timeline correction retains original history,,,,
+CC19,Childcare,NOT RUN,,453,,,,,Network retry and duplicate taps preserve one punch/claim,,,,
+CC20,Childcare,NOT RUN,,453,,,,,"Canceled shifts, overlapping work and stale links handled",,,,
+CC21,Childcare,NOT RUN,,453,,,,,"Own rates, payroll preview and paystub preserve employee overrides",,,,
+CC22,Childcare,NOT RUN,,453,,,,,Prospective rate revision preserves earned/finalized pay,,,,
+CC23,Childcare,NOT RUN,,453,,,,,"Revoked grant, pending hire, family and cross-agency denied",,,,
+CC24,Childcare,NOT RUN,,453,,,,,Shared app/mobile role union and own-pay isolation,,,,
+CC25,Childcare,NOT RUN,,453,,,,,"Audit, receipt ledger and truthful final retention report",,,,
