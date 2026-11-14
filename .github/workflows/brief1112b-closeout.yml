@@ -103,7 +103,8 @@ jobs:
             ['schoolContactInitialRetry.mysql.test.js', 63],
             ['secureSessionComments.mysql.test.js', 5],
             ['familySecureMessageAccess.mysql.test.js', 21],
-            ['chat.secureSubjects.mysql.test.js', 5]
+            ['chat.secureSubjects.mysql.test.js', 5],
+            ['hubMessageQueue.protocol.mysql.test.js', 5]
           ];
           for (const [name, minimum] of required) {
             const result = results.find(row => row.name.endsWith(`/${name}`));
