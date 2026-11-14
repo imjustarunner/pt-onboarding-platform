@@ -1,14 +1,25 @@
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import pool from '../../config/database.js';
+import {guardianServiceContext} from '../clientServiceEnrollment.service.js';
 import { billingError, requireStatementAccess, requireBillingLink, auditBilling } from '../familyBillingPolicy.service.js';
 import { decryptFamilyBilling } from '../familyBillingEncryption.service.js';
 import { parseJson, today, dateOnly, assertCollectible } from './policy.js';
 import { findReceivable, sourcePayload } from './receivables.js';
 import { presentBalance } from './presentation.js';
 
-export async function listBalances({agencyId,userId,clientId=null,staff=false,overdueOnly=false,allForStatement=false}) {
+export async function billingServiceFilter({agencyId,userId,clientId,serviceId}) {
+  if(!serviceId)return {sql:'',args:[]};
+  if(!clientId)throw billingError(400,'A selected service requires its family profile.');
+  const context=await guardianServiceContext({userId,clientId,agencyId,serviceId,scope:null,allowEndedServices:true});
+  const domains={tutoring:['tutoring','learning'],counseling:['mental_health','clinical','counseling'],coaching:['coaching'],consultation:['consulting','consultation']}[context.service?.service_kind];
+  if(!domains)throw billingError(403,'Select an authorized service to view its balances.');
+  return {serviceKind:context.service.service_kind,sql:` AND r.service_domain IN (${domains.map(()=>'?').join(',')})`,args:domains};
+}
+
+export async function listBalances({agencyId,userId,clientId=null,serviceId=null,staff=false,overdueOnly=false,allForStatement=false}) {
   const args=[agencyId];
-  let filter='';
+  const serviceFilter=await billingServiceFilter({agencyId,userId,clientId,serviceId});
+  let filter=serviceFilter.sql;args.push(...serviceFilter.args);
   if(clientId){filter+=' AND r.client_id=?';args.push(clientId);}
   if(!staff){filter+=` AND (a.payer_user_id=? OR EXISTS(SELECT 1 FROM client_guardians self_link WHERE self_link.client_id=r.client_id AND self_link.guardian_user_id=? AND self_link.relationship_type='self' AND self_link.access_enabled=1) OR EXISTS(SELECT 1 FROM family_statement_shares s WHERE s.agency_id=r.agency_id AND s.client_id=r.client_id AND s.guardian_user_id=? AND s.active=1) OR EXISTS(SELECT 1 FROM guardian_portal_policies gp WHERE gp.agency_id=r.agency_id AND gp.client_id=r.client_id AND gp.shared_billing=1)) AND (EXISTS(SELECT 1 FROM client_guardians cg WHERE cg.client_id=r.client_id AND cg.guardian_user_id=? AND cg.access_enabled=1) OR EXISTS(SELECT 1 FROM client_support_grants g JOIN client_portal_independence i ON i.client_id=g.client_id AND i.status='active' WHERE g.client_id=r.client_id AND g.agency_id=r.agency_id AND g.helper_user_id=? AND g.revoked_at IS NULL AND JSON_CONTAINS(g.scopes_json,JSON_QUOTE('billing')))) AND (NOT EXISTS(SELECT 1 FROM client_portal_independence i WHERE i.client_id=r.client_id AND i.status='active' AND i.user_id<>?) OR a.payer_user_id=?)`;args.push(userId,userId,userId,userId,userId,userId,userId);}
   if(overdueOnly)filter+=" AND r.status='open' AND r.due_date<CURRENT_DATE AND r.disputed_at IS NULL AND r.hold_reason IS NULL AND a.amount_cents>a.paid_cents";
@@ -62,8 +73,9 @@ export async function receiptFor({agencyId,paymentId,userId,staff=false}) {
   await auditBilling({agencyId,clientId:row.client_id,userId,action:'receipt_viewed',objectId:row.id});
   return receipt;
 }
-export async function listReceipts({agencyId,userId,staff=false,clientId=null,ownOnly=false}) {
-  const args=[agencyId];let filter='';if(clientId){filter+=' AND r.client_id=?';args.push(clientId);}
+export async function listReceipts({agencyId,userId,staff=false,clientId=null,serviceId=null,ownOnly=false}) {
+  const serviceFilter=await billingServiceFilter({agencyId,userId,clientId,serviceId});
+  const args=[agencyId,...serviceFilter.args];let filter=serviceFilter.sql;if(clientId){filter+=' AND r.client_id=?';args.push(clientId);}
   if(ownOnly){filter+=' AND p.payer_user_id=?';args.push(userId);}
   if(!staff){filter+=' AND (p.payer_user_id=? OR EXISTS(SELECT 1 FROM family_statement_shares s WHERE s.agency_id=r.agency_id AND s.client_id=r.client_id AND s.guardian_user_id=? AND s.active=1) OR EXISTS(SELECT 1 FROM guardian_portal_policies gp WHERE gp.agency_id=r.agency_id AND gp.client_id=r.client_id AND gp.shared_billing=1) OR EXISTS(SELECT 1 FROM client_guardians cg WHERE cg.client_id=r.client_id AND cg.guardian_user_id=? AND cg.relationship_type=\'self\' AND cg.access_enabled=1))';args.push(userId,userId,userId);}
   const [rows]=await pool.execute(`SELECT p.id FROM family_ledger_payments p JOIN family_receivable_allocations a ON a.id=p.allocation_id JOIN family_receivables r ON r.id=a.receivable_id WHERE p.agency_id=? AND p.status='succeeded'${filter} ORDER BY p.received_at DESC LIMIT 100`,args);
@@ -84,9 +96,9 @@ export async function renderReceiptPdf(receipt) {
 }
 
 /** Downloadable service statement; includes only balances the signed-in payer may view. */
-export async function guardianStatementPdf({agencyId,userId,clientId,receivableId=null}) {
+export async function guardianStatementPdf({agencyId,userId,clientId,serviceId=null,receivableId=null}) {
   await requireStatementAccess(userId,clientId,agencyId);
-  const balances=(await listBalances({agencyId,userId,clientId,allForStatement:true})).filter(b=>!receivableId||Number(b.receivableId)===Number(receivableId));
+  const balances=(await listBalances({agencyId,userId,clientId,serviceId,allForStatement:true})).filter(b=>!receivableId||Number(b.receivableId)===Number(receivableId));
   if(receivableId&&!balances.length)throw billingError(404,'Statement not found');
   const [[agency]]=await pool.execute('SELECT name FROM agencies WHERE id=?',[agencyId]);
   const money=v=>v==null?'Under review':new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(Number(v)/100);

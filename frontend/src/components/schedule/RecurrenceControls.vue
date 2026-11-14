@@ -40,7 +40,7 @@
       Repeats on the same day of each month (e.g. the 15th). Shorter months clamp to the last day.
     </p>
 
-    <div v-if="isRecurring && !openSlotHint && endModes.length > 1" class="rec-row">
+    <div v-if="isRecurring && endModes.length > 1" class="rec-row">
       <label class="rec-label">Ends</label>
       <select
         class="rec-select"
@@ -54,7 +54,7 @@
       </select>
     </div>
 
-    <div v-if="isRecurring && !openSlotHint && endModes.includes('count') && endMode === 'count'" class="rec-row">
+    <div v-if="isRecurring && endModes.includes('count') && endMode === 'count'" class="rec-row">
       <label class="rec-label">Occurrences</label>
       <input
         class="rec-select"
@@ -67,7 +67,7 @@
       />
     </div>
 
-    <div v-if="isRecurring && !openSlotHint && endModes.includes('until') && endMode === 'until'" class="rec-row">
+    <div v-if="isRecurring && endModes.includes('until') && endMode === 'until'" class="rec-row">
       <label class="rec-label">Until</label>
       <input
         class="rec-select"

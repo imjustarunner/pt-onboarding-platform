@@ -6,6 +6,7 @@ import StaffServiceAssignment from '../models/StaffServiceAssignment.model.js';
 import {requireTestingEligibility} from '../services/testingEligibility.service.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
+import { resolveSelfPayQuote } from '../services/selfPayRates.service.js';
 import { resolveBookingOptions } from '../services/appointment.service.js';
 import {
   buildCapabilitiesPayload,
@@ -296,6 +297,15 @@ export const getBookingOptions = async (req, res, next) => {
       providerId: req.query.providerId ? Number(req.query.providerId) : null,
       clientId: req.query.clientId ? Number(req.query.clientId) : null
     });
+    if(req.query.quote==='1' && Number(req.query.providerId)>0) {
+      for(const service of options.services||[])if(service.businessType==='tutoring') {
+        service.quotes={};
+        for(const modality of ['TELEHEALTH','IN_PERSON']) {
+          try {const quote=await resolveSelfPayQuote({agencyId,providerId:Number(req.query.providerId),service,modality,learningFormat:modality==='IN_PERSON'?'in-person':'virtual',durationMinutes:service.defaultDurationMinutes});service.quotes[modality]=quote?.amountCents!=null?quote:null;}
+          catch(error){if(![400,409].includes(error.status))throw error;service.quotes[modality]=null;}
+        }
+      }
+    }
     res.json(await schedulingResponseForUser(req.user, agencyId, { ok: true, ...options }));
   } catch (e) {
     if (e?.status) return res.status(e.status).json({ error: { message: e.message } });

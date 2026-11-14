@@ -13,7 +13,7 @@ vi.mock('../agencyAccessProfiles.service.js',()=>({readAgencyAccess:async userId
 import {createEmployeeCompensationDraft} from '../employeeCompensationDraft.service.js';
 import {saveCompensationDraft,releaseCompensationDraft} from '../compensationDraft.service.js';
 import {effectiveCompensationAgreement,agreementRateProfile} from '../employmentAgreementPolicy.service.js';
-import {saveChildcareGrant,createChildcareShift,recordChildcareAction,previewChildcarePay} from '../childcare.service.js';
+import {childcareWorkReview,saveChildcareGrant,createChildcareShift,recordChildcareAction,previewChildcarePay} from '../childcare.service.js';
 import {calculateChildcarePay,childcareClaimAmount,childcareSnapshotHash} from '../childcarePay.service.js';
 import {computeNluServicePay,NLU_COMPENSATION_POLICY_VERSION} from '../../content/nluCompensationPolicy.js';
 import {SERVICE_CREDIT_POLICY_VERSION} from '../../utils/serviceCreditPolicy.js';
@@ -80,6 +80,8 @@ describe.runIf(process.env.CHILDCARE_SIGNED_MYSQL_TESTS==='1')('signed childcare
   for(const table of ['agencies','users','user_agencies','company_events','company_event_provider_assignments','company_event_audiences','skill_builders_event_kiosk_punches','payroll_time_claims','user_activity_log','tasks','contract_generations','signed_documents','user_specific_documents','provider_update_pushes','provider_update_recipients','payroll_compensation_authorizations','payroll_periods','payroll_summaries','payroll_user_compensation_levels','payroll_compensation_levels','payroll_pay_system_rates'])await cloneDefinition(table);
   const migration=await fs.readFile(new URL('../../../../database/migrations/1814_childcare_shifts_and_pay_snapshots.sql',import.meta.url),'utf8');
   for(const statement of migration.split(';').map(value=>value.trim()).filter(Boolean))await state.connection.query(statement);
+  const reviewMigration=await fs.readFile(new URL('../../../../database/migrations/1827_childcare_work_review.sql',import.meta.url),'utf8');
+  for(const statement of reviewMigration.split(';').filter(s=>s.trim()))await state.connection.query(statement);
   const flags={qaSandbox:{syntheticOnly:true,program:'tutoring',sourceAgencyId:6},nluCompensationPolicyVersion:NLU_COMPENSATION_POLICY_VERSION,nluCompensationEffectiveOn:'2026-11-12'};
   await state.db.execute('INSERT INTO agencies(id,name,slug,is_active,feature_flags) VALUES (453,?,?,1,?)',['SYNTHETIC SQL QA ONLY','nlu-qa-demo',JSON.stringify(flags)]);
   for(const [id,role]of [[ADMIN,'admin'],[FIRST,'staff'],[SECOND,'staff']]){
@@ -114,6 +116,7 @@ describe.runIf(process.env.CHILDCARE_SIGNED_MYSQL_TESTS==='1')('signed childcare
   expect(first).toMatchObject({totalMinutes:180,totalAmount:86,reviewRequired:false});expect(second).toMatchObject({totalMinutes:60,totalAmount:31,reviewRequired:false});
   expect(first.segments.map(segment=>({band:segment.band,rate:segment.rate,minutes:segment.minutes,scheduleId:segment.scheduleId}))).toEqual([{band:3,rate:30,minutes:60,scheduleId:newAgreementId},{band:2,rate:26,minutes:60,scheduleId:newAgreementId},{band:3,rate:30,minutes:60,scheduleId:newAgreementId}]);
   expect(second.segments[0]).toMatchObject({band:2,caregivers:2,rate:31,scheduleId:secondAgreementId});
+  for(const uid of [FIRST,SECOND]){await childcareWorkReview.submit({shiftId,userId:uid,confirmed:true});const [[review]]=await state.db.execute('SELECT snapshot_hash FROM childcare_work_reviews WHERE shift_id=? AND user_id=?',[shiftId,uid]);await childcareWorkReview.review({shiftId,userId:ADMIN,targetUserId:uid,decision:'approved',note:'Synthetic isolated childcare work reviewed.',snapshotHash:review.snapshot_hash,confirmed:true});}
   const period=await PayrollPeriod.create({agencyId:AGENCY,label:'SYNTHETIC ISOLATED DRAFT — NEVER EXPORT',periodStart:'2026-11-15',periodEnd:'2026-11-28',createdByUserId:ADMIN});periodId=period.id;
   const [claims]=await state.db.execute("SELECT id FROM payroll_time_claims WHERE claim_type='childcare_shift' ORDER BY user_id");expect(claims).toHaveLength(2);
   for(const {id}of claims){const claim=await PayrollTimeClaim.findById(id,state.db);expect(claim.payload.childcareSnapshotHashVersion).toBe(2);expect(claim.payload.childcareSnapshotHash).toBe(childcareSnapshotHash(claim.payload.childcareSnapshot));const amount=childcareClaimAmount(claim);await PayrollTimeClaim.approve({id,approverUserId:ADMIN,targetPayrollPeriodId:periodId,appliedAmount:amount,bucket:'direct',creditsHours:claim.payload.childcareSnapshot.totalMinutes/60,childcareSnapshotHash:claim.payload.childcareSnapshotHash,requireSubmitted:true,db:state.db});}

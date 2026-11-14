@@ -22,3 +22,8 @@ it('clears the package when the selected family/service changes',async()=>{
  await w.findAll('select')[1].setValue('180');await w.setProps({clientId:2547,serviceId:3});await flushPromises();await button(w,'Book a session').trigger('click');await flushPromises();
  expect(w.findAll('select')[1].element.selectedOptions[0]._value).toBeNull();expect(m.post).not.toHaveBeenCalled();w.unmount();
 });
+it('offers the same purchased package from Appointments when learning context is inherited',async()=>{
+ const w=mount(Booking,{props:{clientId:2545},global:{provide:{portalCareContext:{clientId:2545,agencyId:453,serviceId:1038,serviceKind:'tutoring'}}}});await flushPromises();
+ await button(w,'Book a session').trigger('click');await flushPromises();expect(w.text()).toContain('Saved four visits');
+ await w.findAll('select')[1].setValue('180');await w.get('input[type=radio]').setValue();await w.get('input[type=checkbox]').setValue(true);await w.get('form').trigger('submit');await flushPromises();expect(m.post.mock.calls.at(-1)[1].packageEntitlementId).toBe(180);w.unmount();
+});

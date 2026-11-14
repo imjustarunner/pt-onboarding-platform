@@ -46,7 +46,7 @@ export async function listGuardianEnrollmentDrafts({ userId, agencyId, submissio
 }
 
 export function enrollmentDraftSummary({ row, data }) {
-  return { id: Number(row.id), organizationName: row.organization_name, tasks: enrollmentDraftTasks(data, {channel:row.master_channel}),
+  return { id: Number(row.id), organizationName: row.organization_name, channel:row.master_channel, hasAnswers:(data.clients||[]).some(c=>c.firstName||c.fullName)||Number(data.progressStep)>1, tasks: enrollmentDraftTasks(data, {channel:row.master_channel}),
     children: (data.clients || []).map(child => ({ name: child.fullName || [child.firstName, child.lastName].filter(Boolean).join(' ') })),
     expired: !row.draft_expires_at || new Date(row.draft_expires_at).getTime() <= Date.now() };
 }

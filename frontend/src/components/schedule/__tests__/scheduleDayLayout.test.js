@@ -186,3 +186,29 @@ it('keeps reference codes off calendar cards and copies them from the opened det
  await wrapper.find('.cell-block-sevt').trigger('click');await flushPromises();
  const control=document.querySelector('.schedule-record-footer button');expect(control?.textContent).toBe('S0123456789ABCDEFABCD');control.click();await flushPromises();expect(writeText).toHaveBeenCalledWith('S0123456789ABCDEFABCD');
 });
+it('does not require an invisible clinical code for tutoring and shows the actual format quote',async()=>{
+ m.user={id:7,role:'provider',workspaceServiceContext:{agencyId:2,canTutor:true,canChildcare:true,canClinical:false,learningOnly:true}};
+ const svc={id:320,businessType:'tutoring',serviceCode:'TUTORING',defaultDurationMinutes:60,quotes:{TELEHEALTH:{amountCents:5000,rateCents:5000,rateUnit:'hour'},IN_PERSON:{amountCents:5500,rateCents:5500,rateUnit:'hour'}}};
+ m.get.mockImplementation(async url=>({data:url.includes('/schedule-summary')?m.summary:url.includes('booking-options')?{services:[svc]}:{}}));
+ const state=await mount();state.requestType='individual_session';state.editorPracticeCategory='tutoring';await state.loadEditorTenantServices();state.editorTenantServiceId=320;state.editorModality='TELEHEALTH';state.modalHour=10;state.modalEndHour=11;
+ await flushPromises();expect(state.editorIsLearning).toBe(true);expect(state.bookingClassificationInvalidReason).toBe('');expect(state.editorTutoringPriceCents).toBe(5000);
+ state.editorModality='IN_PERSON';await flushPromises();expect(state.editorTutoringPriceCents).toBe(5500);
+});
+it('discards a late counseling roster when a mixed provider switches to tutoring',async()=>{
+ m.user={id:7,role:'provider',workspaceServiceContext:{agencyId:2,canTutor:true,canClinical:true,canChildcare:true,learningOnly:false}};
+ const state=await mount();state.requestType='individual_session';state.editorPracticeCategory='mental_health';await flushPromises();let finish;
+ m.get.mockImplementation(async(url,options)=>url.includes('virtual-session-clients')?(options?.params?.serviceType==='tutoring'?{data:{clients:[{id:2545,displayName:'Parker QA'}],guardians:[]}}:new Promise(r=>finish=r)):{data:{}});
+ const old=state.loadVirtualSessionClients();state.editorPracticeCategory='tutoring';await state.loadVirtualSessionClients();finish({data:{clients:[{id:999,displayName:'Other counseling profile'}],guardians:[]}});await old;await flushPromises();expect(state.virtualSessionClients.map(c=>c.id)).toEqual([2545]);
+});
+
+it('labels legacy openings explicitly and filters service hours while keeping busy appointments visible',async()=>{
+ m.user={id:7,role:'provider',workspaceServiceContext:{agencyId:2,canTutor:true,canClinical:true,learningOnly:false}};
+ m.summary.virtualWorkingHours=[{id:1,agencyId:2,dayOfWeek:'Tuesday',startTime:'10:00',endTime:'11:00',sessionType:'BOTH',frequency:'WEEKLY',serviceType:'tutoring'},{id:2,agencyId:2,dayOfWeek:'Tuesday',startTime:'11:00',endTime:'12:00',sessionType:'BOTH',frequency:'ONCE',startDate:'2026-10-13'}];
+ m.summary.scheduleEvents=[{id:91,agencyId:2,kind:'PERSONAL_EVENT',title:'Existing counseling booking',appointmentId:90,startAt:'2026-10-13T19:00:00Z',endAt:'2026-10-13T20:00:00Z'}];
+ const state=await mount();expect(state.cellBlocks('Tuesday',10).some(b=>b.shortLabel?.includes('Tutoring'))).toBe(true);expect(state.cellBlocks('Tuesday',11).some(b=>b.shortLabel?.includes('Unclassified'))).toBe(true);
+ state.openingServiceFilter='tutoring';await flushPromises();expect(state.cellBlocks('Tuesday',11).some(b=>b.kind==='portal')).toBe(false);expect(state.scheduleEventsInCell('Tuesday',13)).toHaveLength(1);
+});
+
+it('retains a saved recurring opening end date when reopening it for ordinary editing',async()=>{
+ const state=await mount();await state.openSlotActionModal({dayName:'Tuesday',hour:10,dateYmd:'2026-10-13',initialRequestType:'portal_intake',sourceOpenSlot:{virtualHoursId:18,agencyId:2,startAt:'2026-10-13T10:00:00',startTime:'10:00',endTime:'11:00',serviceType:'tutoring',frequency:'WEEKLY',startDate:'2026-10-13',endDate:'2026-12-15'}});await flushPromises();expect(state.editorRecurrenceUntilDate).toBe('2026-12-15');expect(state.editorRecurrenceEndMode).toBe('until');
+});

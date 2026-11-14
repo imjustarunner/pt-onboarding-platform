@@ -135,7 +135,7 @@
           </div>
 
           <div class="sched-command__actions">
-            <ScheduleColorLegend :colors="scheduleColors" :dark="darkScheduleTheme" :learning-only="tutoringWorkspaceOnly" :tutoring="serviceWorkspace(authStore.user,agencyStore.currentAgency||{}).canTutor" /><ScheduleHelp :learning-only="tutoringWorkspaceOnly" :tutoring="serviceWorkspace(authStore.user,agencyStore.currentAgency||{}).canTutor" />
+            <ScheduleColorLegend :colors="scheduleColors" :dark="darkScheduleTheme" :learning-only="tutoringWorkspaceOnly || openingServiceFilter==='tutoring'" :tutoring="serviceWorkspace(authStore.user,agencyStore.currentAgency||{}).canTutor" /><ScheduleHelp :learning-only="tutoringWorkspaceOnly || openingServiceFilter==='tutoring'" :tutoring="serviceWorkspace(authStore.user,agencyStore.currentAgency||{}).canTutor" />
             <button
               v-if="Number(effectiveAgencyId || 0) > 0 && clientSessionBookingEnabled"
               class="sched-command__book"
@@ -297,7 +297,7 @@
           >
             Full week view
           </button>
-          <ScheduleColorLegend :colors="scheduleColors" :dark="darkScheduleTheme" :learning-only="tutoringWorkspaceOnly" :tutoring="serviceWorkspace(authStore.user,agencyStore.currentAgency||{}).canTutor" /><ScheduleHelp :learning-only="tutoringWorkspaceOnly" :tutoring="serviceWorkspace(authStore.user,agencyStore.currentAgency||{}).canTutor" />
+          <ScheduleColorLegend :colors="scheduleColors" :dark="darkScheduleTheme" :learning-only="tutoringWorkspaceOnly || openingServiceFilter==='tutoring'" :tutoring="serviceWorkspace(authStore.user,agencyStore.currentAgency||{}).canTutor" /><ScheduleHelp :learning-only="tutoringWorkspaceOnly || openingServiceFilter==='tutoring'" :tutoring="serviceWorkspace(authStore.user,agencyStore.currentAgency||{}).canTutor" />
         </div>
       </div>
 
@@ -411,6 +411,7 @@
           <Teleport :to="scheduleOrganizationTarget || 'body'" :disabled="!compactPageChrome || !scheduleOrganizationTarget">
           <div class="sched-toolbar-secondary" :class="{ 'sched-toolbar-secondary--inline': compactPageChrome && scheduleOrganizationTarget }">
             <div v-if="agencyFilterOptions.length" class="sched-org-filters">
+              <label v-if="editorServiceChoices.some(s=>s.value==='tutoring')" class="sched-opening-service">Opening service <select v-model="openingServiceFilter" aria-label="Opening service"><option value="all">All services</option><option value="unclassified">Unclassified openings</option><option v-for="service in editorServiceChoices.filter(s=>s.value!=='childcare')" :key="service.value" :value="service.value">{{service.label}}</option></select><small v-if="openingServiceFilter!=='all'">Existing busy appointments remain visible across services.</small></label>
               <div class="sched-calendars-label" title="Focus the calendar on one organization, or show all">Organization</div>
               <select
                 class="sched-select" aria-label="Schedule organization"
@@ -1930,6 +1931,10 @@
         <label v-if="editorIsClinical && mixedSessionServices && !isAppointmentEditMode && !isScheduleEventEditMode" class="schedule-service-choice">This session is for
           <select v-model="editorPracticeCategory" required><option value="">Choose a service</option><option value="tutoring">Tutoring</option><option value="mental_health">Counseling</option></select>
         </label>
+        <section v-if="editorIsLearning && !isAppointmentEditMode && !isScheduleEventEditMode" class="schedule-service-choice">
+          <label>Tutoring service<select v-model="editorTenantServiceId" :disabled="editorServicesLoading"><option :value="0">Choose a tutoring service</option><option v-for="service in editorHeaderServiceOptions" :key="service.id" :value="service.id">{{service.name}}</option></select></label>
+          <p v-if="editorServicesLoading">Loading tutoring services…</p><p v-else-if="editorTutoringPriceCents!=null">Session price: {{new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(editorTutoringPriceCents/100)}} · {{editorModality==='IN_PERSON'?'In person':'Virtual'}} · {{modalSessionDurationMinutes}} minutes</p><p v-else role="status">Select a service and format to review its price before booking.</p>
+        </section>
         <AppointmentEditorShell
           v-show="editorWorkspaceTab === 'edit'"
           :title="modalEditorTitle"
@@ -1952,7 +1957,7 @@
           :show-recurrence="editorShowRecurrence"
           :recurrence-frequency="editorRecurrenceFrequency"
           :recurrence-end-mode="editorRecurrenceEndMode"
-          :recurrence-end-modes="requestType === 'office_request_only' ? (editorRecurrenceFrequency === 'WEEKLY' ? [] : ['count']) : undefined"
+          :recurrence-end-modes="editorIsOpenSlot ? ['until','indefinite'] : requestType === 'office_request_only' ? (editorRecurrenceFrequency === 'WEEKLY' ? [] : ['count']) : undefined"
           :recurrence-occurrence-count="editorRecurrenceOccurrenceCount"
           :recurrence-until-date="editorRecurrenceUntilDate"
           :recurrence-weekdays="editorRecurrenceWeekdays"
@@ -9315,6 +9320,7 @@ watch([() => props.userId, () => effectiveAgencyIds.value.join(',')], () => {
 onMounted(() => window.addEventListener('focus', loadSchoolWeekdays));
 onUnmounted(() => { schoolWeekdayGeneration++; window.removeEventListener('focus', loadSchoolWeekdays); });
 
+const openingServiceFilter=ref('all');
 const tutoringWorkspaceOnly = computed(() => serviceWorkspace(authStore.user, agencyStore.currentAgency || {}).learningOnly);
 const editorOpeningServiceType=ref('');
 const editorServiceChoices=computed(()=>{
@@ -11716,10 +11722,11 @@ const portalIntakeInCell = (dayName, hour, minute = 0) => {
     return (Number(m[1]) * 60) + Number(m[2]);
   };
   return rows.filter((row) => {
+    if(openingServiceFilter.value!=='all'&&(row.serviceType||'unclassified')!==openingServiceFilter.value)return false;
     if (String(row?.dayOfWeek || '') !== String(dayName || '')) return false;
     if (!availabilityOccursOn(row, addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dayName)))) return false;
     const sessionType = String(row?.sessionType || '').toUpperCase();
-    if (!['INTAKE', 'BOTH'].includes(sessionType)) return false;
+    if (!['INTAKE', 'BOTH','REGULAR','FOLLOW_UP','SESSION'].includes(sessionType)) return false;
     const startMin = toMin(String(row?.startTime || '').slice(0, 5));
     const endMin = toMin(String(row?.endTime || '').slice(0, 5));
     if (startMin == null || endMin == null) return false;
@@ -12088,9 +12095,9 @@ const buildCellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout 
     slices.forEach((slice,sliceIndex)=>blocks.push({
       key: `portal-${vwhId || agencyId || 'x'}-${st}-${sliceIndex}`,
       kind: 'portal',
-      shortLabel: `Virtual · ${clockRangeLabel(startAt, endAt, true)}`,
+      shortLabel: `${row.serviceType==='tutoring'?'Tutoring':row.serviceType==='counseling'?'Counseling':'Unclassified opening'} · Virtual · ${clockRangeLabel(startAt, endAt, true)}`,
       virtualSlice: slice,
-      title: `Saved virtual availability${agencySuffix(agencyId ? [agencyId] : [])} — ${dayName} ${st}–${et}. The public directory can show openings while online booking is off. Publishing a new-client opening switches Virtual from Waitlist to Open. Appointments, school assignments, and app schedule blocks exclude occupied times. A room reservation alone does not block virtual booking.`,
+      title: `${row.serviceType==='tutoring'?'Tutoring':row.serviceType==='counseling'?'Counseling':'Unclassified opening — choose a service'} · Saved virtual availability${agencySuffix(agencyId ? [agencyId] : [])} — ${dayName} ${st}–${et}. The public directory can show openings while online booking is off. Publishing a new-client opening switches Virtual from Waitlist to Open. Appointments, school assignments, and app schedule blocks exclude occupied times. A room reservation alone does not block virtual booking.`,
       agencyId,
       startTime: row?.startTime || null,
       endTime: row?.endTime || null,
@@ -14465,7 +14472,7 @@ const editorRecurrenceEndMode = computed({
   get: () => {
     if (requestType.value === 'office_request_only') return editorRecurrenceFrequency.value === 'WEEKLY' ? 'indefinite' : 'count';
     if (editorIsSupervision.value) return String(supervisionRecurrenceEndMode.value || 'count');
-    return String(scheduleEventRecurrenceEndMode.value || 'count');
+    return editorIsOpenSlot.value && scheduleEventRecurrenceEndMode.value==='count' ? 'indefinite' : String(scheduleEventRecurrenceEndMode.value || 'count');
   },
   set: (v) => {
     const next = String(v || 'count');
@@ -15090,6 +15097,11 @@ const editorInfoClientName = computed(() => {
   const id = editorInfoClientId.value;
   if (!id) return '';
   return scheduleEventClientDisplayName(id) || 'Client';
+});
+const editorTutoringPriceCents=computed(()=>{
+ const svc=editorTenantServices.value.find(s=>Number(s.id)===Number(editorTenantServiceId.value));
+ const quote=svc?.quotes?.[editorModality.value==='IN_PERSON'?'IN_PERSON':'TELEHEALTH'];
+ return quote?.amountCents!=null?(quote.rateUnit==='hour'?Math.round(Number(quote.rateCents)*modalSessionDurationMinutes.value/60):Number(quote.amountCents)):null;
 });
 const editorInfoServiceLabel = computed(() => {
   const sid = Number(editorTenantServiceId.value || 0);
@@ -16001,12 +16013,14 @@ async function loadEditorPracticeCategories() {
   }
 }
 
+let editorServicesRequest=0;
 async function loadEditorTenantServices() {
+  const request=++editorServicesRequest;
   const aid = Number(editorAgencyId.value || effectiveAgencyId.value || 0);
   if (!aid || !editorIsClinical.value) return;
   editorServicesLoading.value = true;
   try {
-    const params = {};
+    const params = {quote:'1'};
     const providerId = Number(bookingTargetUserId.value || props.userId || 0);
     if (providerId) params.providerId = providerId;
     const r = await api.get(`/tenant-booking/agencies/${aid}/booking-options`, { params, skipGlobalLoading: true });
@@ -16024,9 +16038,11 @@ async function loadEditorTenantServices() {
         return true;
       });
     }
+    if(request!==editorServicesRequest||aid!==Number(editorAgencyId.value||effectiveAgencyId.value||0))return;
     if (tutoringWorkspaceOnly.value) services=services.filter(service=>['tutoring','learning'].includes(String(service.businessType||service.business_type)));
     editorTenantServices.value = services;
-    if (!editorPracticeCategory.value) {
+    if(tutoringWorkspaceOnly.value && services.length===1)editorTenantServiceId.value=Number(services[0].id);
+    if (!editorPracticeCategory.value && !mixedSessionServices.value) {
       const first = services[0];
       editorPracticeCategory.value = practiceCategoryForBusinessType(first?.businessType || first?.business_type) || 'mental_health';
     }
@@ -16549,7 +16565,7 @@ watch(editorTenantServiceId, (id) => {
     applyEditorServiceDuration(svc);
   }
   const code = normalizeCodeValue(svc.serviceCode || svc.service_code);
-  if (code && String(editorPracticeCategory.value || '') === 'mental_health') {
+  if (code && editorIsClinical.value) {
     bookingServiceCode.value = code;
   }
 });
@@ -16566,6 +16582,8 @@ const bookingSubmitAttempted = ref(false);
 const requestSubmitBlockedReason = computed(() => {
   if (submitting.value) return submitBusyLabel.value;
   if(editorIsOpenSlot.value&&((editorServiceChoices.value.length>0&&!editorOpeningServiceType.value)||editorOpeningServiceType.value==='childcare'))return 'Choose Tutoring or Counseling, or open Childcare scheduling.';
+  if(editorIsOpenSlot.value&&editorRecurrenceFrequency.value!=='ONCE'&&editorRecurrenceEndMode.value==='until'&&(!editorRecurrenceUntilDate.value||editorRecurrenceUntilDate.value<editorDateYmd.value))return 'Choose an end date on or after the first opening.';
+  if(editorIsLearning.value&&!Number(editorTenantServiceId.value))return 'Choose the tutoring service for this session.';
   if(editorIsClinical.value&&mixedSessionServices.value&&!editorPracticeCategory.value)return 'Choose whether this session is tutoring or counseling.';
   if (!String(requestType.value || '').trim()) return 'Select an action to continue.';
   if (actionRequiresAgency.value && !effectiveAgencyId.value) return 'Select an agency for this action.';
@@ -16848,7 +16866,7 @@ const modalSessionDurationMinutes = computed(() => {
   return Number.isFinite(mins) && mins > 0 ? mins : 60;
 });
 const bookingClassificationInvalidReason = computed(() => {
-  if (!showClinicalBookingFields.value) return '';
+  if (!showClinicalBookingFields.value || editorIsLearning.value) return '';
   if (!isSessionBookingRequestType.value) return '';
   if (!normalizeCodeValue(bookingServiceCode.value)) {
     return 'A service code is required for this session.';
@@ -18909,7 +18927,10 @@ const refreshScheduleSummaryInBackground = () => {
   void load({ forceRefresh: true });
 };
 
+let virtualRosterRequest=0;
 const loadVirtualSessionClients = async (agencyIdOverride = null) => {
+  const rosterRequest=++virtualRosterRequest;
+  virtualSessionClients.value=[]; virtualSessionGuardians.value=[];
   const uid = Number(scheduleActorUserId.value || props.userId || authStore.user?.id || 0);
   const agencyId = Number(
     agencyIdOverride
@@ -18918,7 +18939,7 @@ const loadVirtualSessionClients = async (agencyIdOverride = null) => {
     || effectiveAgencyId.value
     || 0
   );
-  if (!uid || !agencyId) {
+  if (!uid || !agencyId || (mixedSessionServices.value && !editorPracticeCategory.value)) {
     virtualSessionClients.value = [];
     virtualSessionGuardians.value = [];
     return;
@@ -18932,15 +18953,19 @@ const loadVirtualSessionClients = async (agencyIdOverride = null) => {
         includeGuardians: virtualSessionIncludeGuardians.value ? 'true' : 'false'
       }
     });
+    if(rosterRequest!==virtualRosterRequest)return;
     virtualSessionClients.value = Array.isArray(r?.data?.clients) ? r.data.clients : [];
     virtualSessionGuardians.value = Array.isArray(r?.data?.guardians) ? r.data.guardians : [];
   } catch {
+    if(rosterRequest!==virtualRosterRequest)return;
     virtualSessionClients.value = [];
     virtualSessionGuardians.value = [];
   } finally {
-    virtualSessionClientsLoading.value = false;
+    if(rosterRequest===virtualRosterRequest)virtualSessionClientsLoading.value = false;
   }
 };
+watch([editorAgencyId,editorPracticeCategory],()=>{if(showRequestModal.value&&editorIsClinical.value&&!editorHydratingAppointment.value&&!isAppointmentEditMode.value&&!isScheduleEventEditMode.value){virtualSessionSelectedClientIds.value=[];void loadVirtualSessionClients();}});
+
 
 const getBusyConflictFromSummary = (summaryPayload, ranges = []) => {
   const targetRanges = Array.isArray(ranges) ? ranges : [];
@@ -19788,7 +19813,8 @@ const openSlotActionModal = async ({
     editorOpenPurpose.value=sourceOpenSlot.purpose==='MEETING'?'MEETING':'INTAKE';
     scheduleEventRecurrence.value=sourceOpenSlot.frequency || 'WEEKLY';
     officeBookingRecurrence.value=scheduleEventRecurrence.value;
-    scheduleEventRecurrenceEndMode.value='indefinite';
+    editorRecurrenceUntilDate.value=String(sourceOpenSlot.endDate||'').slice(0,10);
+    scheduleEventRecurrenceEndMode.value=editorRecurrenceUntilDate.value&&scheduleEventRecurrence.value!=='ONCE'?'until':'indefinite';
   }
   if (!sourceOpenSlot && Number(minute) > 0) {
     modalStartMinute.value = snapQuarterMinute(Number(minute));
@@ -21867,7 +21893,7 @@ const ensureVirtualWorkingHoursForRange = async ({
   if (editingOpenSlot.value?.virtualHoursId) {
     if (agencyId !== Number(editingOpenSlot.value.agencyId)) throw new Error('This weekly series belongs to its original agency. Create a new open slot to publish for another agency.');
     const edit=editingOpenSlot.value;
-    const apply=scope=>api.patch(`/availability/providers/${scheduleActorUserId.value}/virtual-working-hours/${edit.virtualHoursId}`, {agencyId,scope,occurrenceDate:String(edit.startAt).slice(0,10),dayOfWeek:dayName,startTime:`${pad2(startHour)}:${pad2(startMinute)}`,endTime:`${pad2(endHour)}:${pad2(endMinute)}`,availableForIntake,availableForSession,startDate:addDaysYmd(weekStart.value,dayIdxFromWeekStartMonday(dayName)),purpose:editorOpenPurpose.value,serviceType:editorOpeningServiceType.value,endDate:editorRecurrenceUntilDate.value||null,careTypes:editorOpeningServiceType.value==='tutoring'?null:editorCareTypes.value});
+    const apply=scope=>api.patch(`/availability/providers/${scheduleActorUserId.value}/virtual-working-hours/${edit.virtualHoursId}`, {agencyId,scope,occurrenceDate:String(edit.startAt).slice(0,10),dayOfWeek:dayName,startTime:`${pad2(startHour)}:${pad2(startMinute)}`,endTime:`${pad2(endHour)}:${pad2(endMinute)}`,availableForIntake,availableForSession,frequency:scheduleEventRecurrence.value,startDate:addDaysYmd(weekStart.value,dayIdxFromWeekStartMonday(dayName)),purpose:editorOpenPurpose.value,serviceType:editorOpeningServiceType.value,endDate:editorRecurrenceEndMode.value==='until'?(editorRecurrenceUntilDate.value||null):null,careTypes:editorOpeningServiceType.value==='tutoring'?null:editorCareTypes.value});
     if(edit.frequency==='ONCE')await apply('single');else if(!await askSeriesEditScope({title:'Update published opening',run:apply}))throw new Error('No availability changes were saved.');
     return;
   }
@@ -21875,6 +21901,7 @@ const ensureVirtualWorkingHoursForRange = async ({
   const frequency = scheduleEventRecurrence.value || 'WEEKLY';
   const startDate = addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(day));
   const purpose = frequency==='ONCE' ? editorOpenPurpose.value : 'ONGOING';
+  const targetEndDate=frequency==='ONCE'?startDate:(editorRecurrenceEndMode.value==='until'?editorRecurrenceUntilDate.value||null:null);
   const targetStart = `${pad2(startHour)}:${pad2(startMinute)}`;
   const targetEnd = `${pad2(endHour)}:${pad2(endMinute)}`;
   const forIntake = availableForIntake !== false;
@@ -21897,7 +21924,7 @@ const ensureVirtualWorkingHoursForRange = async ({
 
   const targetStartMin = minuteFromTime(targetStart);
   const targetEndMin = minuteFromTime(targetEnd);
-  const sameDay = normalized.filter((r) => !(r.excludedDates||[]).length && (r.serviceType||(tutoringWorkspaceOnly.value?'tutoring':'counseling'))===editorOpeningServiceType.value && JSON.stringify(r.careTypes)===JSON.stringify(editorOpeningServiceType.value==='tutoring'?null:editorCareTypes.value) && r.dayOfWeek === day && r.frequency === frequency && r.startDate === startDate && (r.purpose||'ONGOING') === purpose);
+  const sameDay = normalized.filter((r) => !(r.excludedDates||[]).length && (r.serviceType||(tutoringWorkspaceOnly.value?'tutoring':'counseling'))===editorOpeningServiceType.value && JSON.stringify(r.careTypes)===JSON.stringify(editorOpeningServiceType.value==='tutoring'?null:editorCareTypes.value) && r.dayOfWeek === day && r.frequency === frequency && r.startDate === startDate && (r.endDate||null)===targetEndDate && (r.purpose||'ONGOING') === purpose);
   const overlaps = sameDay.filter((r) => {
     const s = minuteFromTime(r.startTime);
     const e = minuteFromTime(r.endTime);
@@ -21928,7 +21955,7 @@ const ensureVirtualWorkingHoursForRange = async ({
     sessionType: mergedIntake && mergedSession ? 'BOTH' : (mergedIntake ? 'INTAKE' : 'REGULAR'),
     availableForIntake: mergedIntake,
     availableForSession: mergedSession,
-    frequency, startDate, endDate: frequency==='ONCE'?startDate:(editorRecurrenceUntilDate.value||null), purpose,serviceType:editorOpeningServiceType.value,careTypes:editorOpeningServiceType.value==='tutoring'?null:editorCareTypes.value,excludedDates:[]
+    frequency, startDate, endDate:targetEndDate, purpose,serviceType:editorOpeningServiceType.value,careTypes:editorOpeningServiceType.value==='tutoring'?null:editorCareTypes.value,excludedDates:[]
   };
   const nextRows = [...rowsWithoutOverlaps, mergedRow];
   await api.put(`/availability/providers/${scheduleActorUserId.value}/virtual-working-hours`, { agencyId, rows: nextRows });
@@ -23088,10 +23115,10 @@ const submitRequest = async () => {
         // Linking publishes only the selected reservation(s), without inventing a weekly virtual series.
         for (const ctx of contexts) {
           if (editorOpenVirtual.value) await api.post(`/office-slots/${ctx.officeLocationId}/events/${ctx.officeEventId}/virtual-intake`, {
-            enabled: true, agencyId, availableForIntake: forIntake, availableForSession: forSession, frequency:scheduleEventRecurrence.value, purpose:editorOpenPurpose.value,serviceType:editorOpeningServiceType.value,endDate:editorRecurrenceUntilDate.value||null,careTypes:editorOpeningServiceType.value==='tutoring'?null:editorCareTypes.value
+            enabled: true, agencyId, availableForIntake: forIntake, availableForSession: forSession, frequency:scheduleEventRecurrence.value, purpose:editorOpenPurpose.value,serviceType:editorOpeningServiceType.value,endDate:editorRecurrenceEndMode.value==='until'?(editorRecurrenceUntilDate.value||null):null,careTypes:editorOpeningServiceType.value==='tutoring'?null:editorCareTypes.value
           });
           if (editorOpenInPerson.value) await api.post(`/office-slots/${ctx.officeLocationId}/events/${ctx.officeEventId}/in-person-intake`, {
-            enabled: true, agencyId, availableForIntake: forIntake, availableForSession: forSession, frequency:scheduleEventRecurrence.value, purpose:editorOpenPurpose.value,serviceType:editorOpeningServiceType.value,endDate:editorRecurrenceUntilDate.value||null,careTypes:editorOpeningServiceType.value==='tutoring'?null:editorCareTypes.value
+            enabled: true, agencyId, availableForIntake: forIntake, availableForSession: forSession, frequency:scheduleEventRecurrence.value, purpose:editorOpenPurpose.value,serviceType:editorOpeningServiceType.value,endDate:editorRecurrenceEndMode.value==='until'?(editorRecurrenceUntilDate.value||null):null,careTypes:editorOpeningServiceType.value==='tutoring'?null:editorCareTypes.value
           });
         }
       } else {

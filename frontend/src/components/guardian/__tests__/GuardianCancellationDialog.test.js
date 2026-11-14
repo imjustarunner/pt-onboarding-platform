@@ -39,3 +39,7 @@ it('retries a lost confirmation response with the same request identity',async()
  const first=api.post.mock.calls.at(-1)[1].requestId;await button('Cancel all future sessions and end services').trigger('click');await flushPromises();
  expect(api.post.mock.calls.at(-1)[1].requestId).toBe(first);
 });
+it('explains that the package courtesy is consumed while the session credit is returned',async()=>{
+ api.post.mockResolvedValueOnce({data:{...preview,endsService:false,count:1,totalFeeCents:0,fees:[{...preview.fees[0],feeCents:0,hasPackage:true,packageAction:'forfeit',packageCourtesyApplies:true,packageCourtesyRemaining:1}]}});
+ w=mount(Dialog,{props:{clientId:8,appointment:{...appointment,businessType:'tutoring'}}});await review();expect(w.text()).toContain('One courtesy late cancellation will be used');expect(w.text()).toContain('This package session will be returned');expect(w.text()).not.toContain('This package session will be used.');
+});

@@ -180,7 +180,7 @@ class PayrollTimeClaim {
              rejection_reason = NULL,
              rejected_by_user_id = NULL,
              rejected_at = NULL
-         WHERE id = ? ${childcareSnapshotHash ? "AND claim_type='childcare_shift' AND JSON_UNQUOTE(JSON_EXTRACT(payload_json,'$.childcareSnapshotHash'))=? AND JSON_EXTRACT(payload_json,'$.childcareSnapshot.reviewRequired')=FALSE" : ''} ${requireSubmitted ? "AND status='submitted' AND EXISTS (SELECT 1 FROM payroll_periods p WHERE p.id = ? AND p.agency_id = payroll_time_claims.agency_id AND LOWER(p.status) NOT IN ('posted','finalized') AND p.posted_at IS NULL AND p.finalized_at IS NULL)" : ''} ${eventTravelReviewedAt ? `AND EXISTS (
+         WHERE id = ? ${childcareSnapshotHash ? "AND claim_type='childcare_shift' AND JSON_UNQUOTE(JSON_EXTRACT(payload_json,'$.childcareSnapshotHash'))=? AND JSON_UNQUOTE(JSON_EXTRACT(payload_json,'$.childcareSnapshot.reviewRequired'))='false' AND (COALESCE(JSON_UNQUOTE(JSON_EXTRACT(payload_json,'$.childcareWorkApprovalRequired')),'false')<>'true' OR JSON_UNQUOTE(JSON_EXTRACT(payload_json,'$.childcareWorkApproved'))='true')" : ''} ${requireSubmitted ? "AND status='submitted' AND EXISTS (SELECT 1 FROM payroll_periods p WHERE p.id = ? AND p.agency_id = payroll_time_claims.agency_id AND LOWER(p.status) NOT IN ('posted','finalized') AND p.posted_at IS NULL AND p.finalized_at IS NULL)" : ''} ${eventTravelReviewedAt ? `AND EXISTS (
            SELECT 1 FROM company_event_travel_reports r WHERE r.id = payroll_time_claims.event_travel_report_id
            AND r.reviewed_at IS NOT NULL AND JSON_UNQUOTE(JSON_EXTRACT(r.report_json, '$.reviewedAt')) = ?)` : ''}
          LIMIT 1`,

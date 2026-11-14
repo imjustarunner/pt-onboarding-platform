@@ -14,7 +14,7 @@
         <p v-else>{{ when(appointment.startAt,appointment.timeZone) }}</p>
       </template>
       <template v-else-if="step==='reason'">
-        <h3>{{ ft('Tell your care team why') }}</h3>
+        <h3>{{ ft(learning?'Tell your tutoring team why':'Tell your care team why') }}</h3>
         <label>{{ ft('Reason (required)') }}<select v-model="reasonChoice"><option value="">{{ ft('Choose a reason') }}</option><option v-for="reason in reasons" :key="reason" :value="reason">{{ ft(reason) }}</option><option value="other">{{ ft('Other') }}</option></select></label>
         <label v-if="reasonChoice==='other'">{{ ft('Your reason') }}<textarea v-model="otherReason" maxlength="500" rows="3" required /></label>
         <label>{{ ft('Personal note (optional)') }}<textarea v-model="personalNote" maxlength="1000" rows="3" /></label>
@@ -30,7 +30,7 @@
         <details><summary>{{ ft('Dates, deadlines, and fees') }}</summary><ul><li v-for="fee in review.fees" :key="fee.appointmentId">
           <strong>{{ when(fee.startAt,fee.timeZone) }} · {{ money(fee.feeCents) }}</strong>
           <p>{{ fee.policyName }} · {{ fee.noticeHours }} hours’ notice.<template v-if="fee.cancelDeadlineAt"> Cancel by {{ when(fee.cancelDeadlineAt,fee.timeZone) }}.</template> {{ fee.isLate ? 'This is inside the late-cancellation window.' : 'This meets the required notice.' }}</p>
-          <p v-if="fee.hasPackage">{{ ['forfeit','late_forfeit'].includes(fee.packageAction) ? 'This package session will be used.' : fee.packageAction==='review' ? learning ? 'The tutoring office will review the package credit.' : 'The care team will review the package credit.' : 'This package session will be returned.' }}</p>
+          <p v-if="fee.hasPackage">{{ fee.packageCourtesyApplies ? 'One courtesy late cancellation will be used. This package session will be returned; one fewer courtesy cancellation will remain.' : ['forfeit','late_forfeit'].includes(fee.packageAction) ? 'This package session will be used.' : fee.packageAction==='review' ? learning ? 'The tutoring office will review the package credit.' : 'The care team will review the package credit.' : 'This package session will be returned.' }}</p>
         </li></ul></details>
         <details><summary>{{ ft('Preview your confirmation') }}</summary><p v-if="review.count">{{ review.count }} future appointment{{ review.count===1?' has':'s have' }} been canceled.</p><p v-else>No future appointments remained to cancel.</p><p v-if="review.endsService">You have ended {{ review.serviceLabel }} with this provider. Other services are unchanged.</p><p>Reason: {{ reason }}</p><blockquote v-if="personalNote.trim()"><strong>A personal note</strong><br><em>{{ personalNote.trim() }}</em></blockquote></details>
         <p>One summary will be sent, rather than a separate email for every appointment.</p>
