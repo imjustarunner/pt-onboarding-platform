@@ -1,6 +1,7 @@
 import {TESTING_SERVICE_CODES,testingCompensationBasis} from '../content/testingServicePolicy.js';
 import {testingExampleSummary} from '../content/testingServiceExamples.js';
 import {CONTRACT_PRESENTATION_VERSION,handbookReferencedContractHtml} from '../content/contractHandbookReference.js';
+import {applyCollectiveAssignmentClause,COLLECTIVE_ASSIGNMENT_KEY,COLLECTIVE_ASSIGNMENT_VERSION} from '../content/collectiveAssignmentClause.js';
 import { isProgramServiceRole } from '../content/programServiceRates.js';
 import {validateCredentials} from '../utils/credentialDisplay.js';
 import {employmentCategoryLevelTerms,applyEmploymentPayTerms} from '../content/employmentCategoryLevelTerms.js';
@@ -621,7 +622,12 @@ export async function renderContractHtml({
   const payClauses = terms ? applyEmploymentPayTerms(originalClauses,terms) : originalClauses;
   const handbookClauses = handbookTenant(agency) ? applyEmploymentHandbookCompensation(payClauses,{tenant:handbookTenant(agency)}) : payClauses;
   const replaceFallbackClinicalDuties = rolePlan.roles.length > 0 && !rolePlan.roles.includes('psychotherapy');
-  const clauses = applyContractServiceRoleClauses(handbookClauses,rolePlan,{replaceFallbackClinicalDuties});
+  const roleClauses = applyContractServiceRoleClauses(handbookClauses,rolePlan,{replaceFallbackClinicalDuties});
+  const clauses = applyCollectiveAssignmentClause(roleClauses,{agency,config,agreementPlan});
+  // Derive the presentation version from the actual server-selected clauses.
+  delete mergedTokens.COLLECTIVE_ASSIGNMENT_VERSION;
+  delete mergedTokens.COLLECTIVEASSIGNMENTVERSION;
+  if (clauses.some(clause => clause.clause_key === COLLECTIVE_ASSIGNMENT_KEY)) mergedTokens.COLLECTIVE_ASSIGNMENT_VERSION = COLLECTIVE_ASSIGNMENT_VERSION;
   const compensation = terms ? {row:currentRow || {category,level,direct_rate:null,indirect_rate:null},rates:[]} : await selectedContractCompensation(agencyId, category, level, config.pay_mode);
   if(terms) { mergedTokens.COMPENSATION_POLICY_VERSION=terms.version; mergedTokens.COMPENSATION_SCHEDULE=terms.schedule; mergedTokens.CONTRACT_PRESENTATION_VERSION=CONTRACT_PRESENTATION_VERSION; }
 
