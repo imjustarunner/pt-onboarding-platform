@@ -281,10 +281,10 @@ describe.skipIf(!recoveryMysqlEnabled)('encrypted subject conversations on actua
     await db.query('UPDATE hub_message_queue SET scheduled_send_at=DATE_SUB(NOW(),INTERVAL 1 SECOND)');
     expect(await processHubMessageQueue()).toMatchObject({ sent: 1, failed: 0 });
     // Rows queued before recipient pinning must use the same safe resolution.
-    await enqueueHubMessage({ agencyId: 450, userId: 1, personKey: tile.personKey, channel: 'secure',
+    const legacyQueued = await enqueueHubMessage({ agencyId: 450, userId: 1, personKey: tile.personKey, channel: 'secure',
       body: 'Earlier queued client-tile message', subject: 'Earlier queued subject',
       payload: { clientId: 10, threadId: 100, expectedRecipientUserIds: [2, 3] }, scheduledSendAt: new Date(Date.now() - 2000) });
-    await db.query("UPDATE hub_message_queue SET scheduled_send_at=DATE_SUB(NOW(),INTERVAL 1 SECOND) WHERE status='queued'");
+    await db.execute("UPDATE hub_message_queue SET status='queued',scheduled_send_at=DATE_SUB(NOW(),INTERVAL 1 SECOND) WHERE id=?", [legacyQueued.id]);
     expect(await processHubMessageQueue()).toMatchObject({ sent: 1, failed: 0 });
     const [[afterUsers]] = await db.query('SELECT COUNT(*) AS n FROM users'); expect(afterUsers.n).toBe(3);
     await db.query('DELETE FROM client_guardians');
