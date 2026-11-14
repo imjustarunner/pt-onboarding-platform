@@ -10,7 +10,10 @@ const token = text => text.toLowerCase().replace(/[^a-z]/g,'');
 export function paperInsuranceTableText(annotation) {
   for (const page of annotation?.pages || []) {
     const words=(page.blocks || []).flatMap(block=>(block.paragraphs || []).flatMap(paragraph=>(paragraph.words || []).map(word=>{
-      const vertices=word.boundingBox?.vertices || [];
+      // PDF/TIFF responses use normalizedVertices; image responses may use pixels.
+      // https://docs.cloud.google.com/vision/docs/pdf
+      const box=word.boundingBox || {};
+      const vertices=box.vertices?.length ? box.vertices : (box.normalizedVertices || []).map(v=>({x:(v.x || 0)*(page.width || 1000),y:(v.y || 0)*(page.height || 1000)}));
       const x=vertices.map(v=>v.x || 0),y=vertices.map(v=>v.y || 0);
       return {text:(word.symbols || []).map(s=>s.text || '').join(''),left:Math.min(...x),right:Math.max(...x),top:Math.min(...y),bottom:Math.max(...y)};
     }))).filter(word=>word.text && Number.isFinite(word.left) && word.right>word.left && word.bottom>word.top);
