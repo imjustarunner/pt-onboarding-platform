@@ -3,6 +3,7 @@
     <p v-if="loading" role="status">Opening your payment receipt…</p>
     <p v-if="error" role="alert">{{ error }}</p>
     <template v-if="data">
+      <p v-if="data.receipt.simulated" role="status">SIMULATED QA RECORD — no money moved. Stripe and banks were not contacted.</p>
       <header><p>{{ data.receipt.agencyName }}</p><h1>Payment receipt</h1><p>{{ data.receipt.receiptNumber }} · {{ date(data.receipt.receivedAt) }}</p></header>
       <section class="receipt-card" aria-label="Payment details">
         <h2>{{ money(data.receipt.amountCents) }} received</h2>
@@ -21,7 +22,7 @@
         <button :disabled="busy">{{ busy?'Sending…':'Send refund request to billing' }}</button>
       </form>
       <p v-if="message" role="status">{{ message }}</p>
-      <p class="note">This is a payment receipt, not a new bill. Bank and card details stay with the payment processor.</p>
+      <p class="note">{{ data.receipt.simulated ? 'This receipt records a QA simulation only.' : 'This is a payment receipt, not a new bill. Bank and card details stay with the payment processor.' }}</p>
     </template>
   </main>
 </template>

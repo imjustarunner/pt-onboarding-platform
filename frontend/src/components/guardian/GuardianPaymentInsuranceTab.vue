@@ -36,12 +36,15 @@
       </form>
       <template v-if="manageableClients.length || insurableClients.length">
         <section v-if="paymentEligibleClients.length && section !== 'authorization'" class="billing-card wallet-section">
-          <div class="section-head"><h4>Your saved cards</h4><button v-if="data.stripe.enabled" class="btn btn-secondary" type="button" @click="showCard = !showCard">{{ showCard ? 'Close card form' : 'Add a card' }}</button></div>
-          <p v-if="!data.stripe.enabled">Online card setup is not available yet because this agency has not completed its payment connection. Your financial authorization is saved separately.</p>
+          <p v-if="data.paymentSimulator?.enabled" class="qa-payment-notice" role="status">QA payment simulation is enabled. These records do not move money or contact a bank.</p>
+          <div class="section-head"><h4>Your saved cards</h4><button v-if="data.stripe.enabled||data.paymentSimulator?.enabled" class="btn btn-secondary" type="button" @click="showCard = !showCard">{{ showCard ? 'Close card form' : data.paymentSimulator?.enabled?'Add a QA test card':'Add a card' }}</button></div>
+          <p v-if="!data.stripe.enabled&&!data.paymentSimulator?.enabled">Online card setup is not available yet because this agency has not completed its payment connection. Your financial authorization is saved separately.</p>
+          <QaPendingPayments v-if="data.paymentSimulator?.enabled" :agency-id="agencyId" :key="`${agencyId}:${guardianUserId || ''}`" @resolved="load" />
           <p v-if="!data.cards.length">No payment method on file.</p>
-          <div v-for="card in data.cards" :key="card.id" class="saved-row"><span>{{ card.card_brand }} •••• {{ card.card_last4 }} · {{ expired(card) ? 'Expired' : 'Expires' }} {{ card.card_exp_month }}/{{ card.card_exp_year }}</span><button class="btn btn-secondary" type="button" :disabled="busy" @click="removingCard = card">Remove</button></div>
+          <div v-for="card in data.cards" :key="card.id" class="saved-row"><span>{{ card.card_brand }} •••• {{ card.card_last4 }} <template v-if="card.simulated"> · Simulated · {{card.simulationScenario}}</template><template v-else> · {{ expired(card) ? 'Expired' : 'Expires' }} {{ card.card_exp_month }}/{{ card.card_exp_year }}</template></span><button class="btn btn-secondary" type="button" :disabled="busy" @click="removingCard = card">Remove</button></div>
           <div v-if="removingCard" class="notice"><p>Remove your card ending in {{ removingCard.card_last4 }}? This also revokes its recurring authorizations for your clients at this agency.</p><button class="btn btn-secondary" :disabled="busy" @click="removeCard">Remove card</button> <button class="btn btn-secondary" @click="removingCard = null">Keep card</button></div>
-          <SecureCardSetup v-if="showCard && paymentEligibleClients.length" :key="`${agencyId}:${guardianUserId || ''}:${clientId || ''}`" :agency-id="agencyId" :owner-key="guardianUserId" :collection-allowed="paymentEligibleClients.length > 0" @saved="cardSaved" />
+          <QaTestCardSetup v-if="showCard&&paymentEligibleClients.length&&data.paymentSimulator?.enabled" :key="`${agencyId}:${guardianUserId || ''}:${clientId || ''}`" :agency-id="agencyId" :terms="data.terms" :terms-version="data.termsVersion" @saved="cardSaved" />
+          <SecureCardSetup v-else-if="showCard && paymentEligibleClients.length" :key="`${agencyId}:${guardianUserId || ''}:${clientId || ''}`" :agency-id="agencyId" :owner-key="guardianUserId" :collection-allowed="paymentEligibleClients.length > 0" @saved="cardSaved" />
         </section>
         <section v-if="insurableClients.length && section === 'all'" class="billing-card insurance-section">
           <div class="section-head"><h4>Your insurance policies</h4><button class="btn btn-secondary" type="button" @click="editInsurance()">Add insurance</button></div>
@@ -77,6 +80,8 @@ import InsuranceCardTasks from '../billing/InsuranceCardTasks.vue';
 import { ref, computed, watch, nextTick } from 'vue';
 import api from '../../services/api';
 import SecureCardSetup from '../billing/SecureCardSetup.vue';
+import QaTestCardSetup from '../billing/QaTestCardSetup.vue';
+import QaPendingPayments from '../billing/QaPendingPayments.vue';
 import InsurancePolicyFields from '../billing/InsurancePolicyFields.vue';
 const insuranceRevision = ref(0),draftVersion=ref(0),cardFiles=ref({primary:{},secondary:{}});
 function applyCardFields(slot,fields){if(!insuranceDraft.value)return;for(const [key,value] of Object.entries(fields))if(value&&!insuranceDraft.value[slot][key])insuranceDraft.value[slot][key]=value;coverageConfirmed.value=false;}

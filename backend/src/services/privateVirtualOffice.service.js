@@ -9,6 +9,7 @@ import ProviderMyRoom from '../models/ProviderMyRoom.model.js';
 import { hasActiveMeetingMembership } from './meetingJoinPolicy.service.js';
 import { privateOfficeDemoAccess } from './privateOfficeDemoAccess.service.js';
 import { getMeetingPlan } from './meetingAccessPlan.service.js';
+import {qaTutorOfficePlan} from './qaReadiness.service.js';
 import { encryptChatText, decryptChatText } from './chatEncryption.service.js';
 import Video from './vonageVideo.service.js';
 import * as clinical from './clinicalVideo.service.js';
@@ -32,7 +33,7 @@ export async function assertOfficeAccess(room, db = pool) {
  if (!member && !room.demoAccess) throw fail(404,'This office is unavailable.');
  const [users] = await db.execute('SELECT role FROM users WHERE id=?',[room.userId]);
  if (!['provider','provider_plus','clinician','supervisor','admin','super_admin','superadmin','intern','intern_plus','clinical_practice_assistant'].includes(users[0]?.role)) throw fail(403,'A provider account is required for a private office.');
- const plan = await getMeetingPlan(room.userId,db);
+ const plan = room.demoAccess&&await qaTutorOfficePlan(room,db)||await getMeetingPlan(room.userId,db);
  if (!plan.privateOffice) throw fail(403,'A private virtual office is included with Premium and Premium Plus.');
  return plan;
 }

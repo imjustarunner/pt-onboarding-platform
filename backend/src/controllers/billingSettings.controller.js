@@ -99,18 +99,18 @@ async function getStripeConnectStatusForAgency(agencyId) {
   };
 }
 
-function buildSubscriptionProviderStatus({ account, merchantMode, quickBooksStatus, stripeConnect }) {
+function buildSubscriptionProviderStatus({ account, merchantMode, quickBooksStatus, stripeConnect, agencyId=null }) {
   const provider = normalizeSubscriptionPaymentProvider(account?.subscription_payment_provider);
   if (provider === 'STRIPE') {
     const stripeReady = merchantMode === 'platform_managed'
-      ? isStripeConfigured()
-      : (isStripeConfigured() && stripeConnect?.stripeConnectStatus === 'active' && !!stripeConnect?.stripeConnectAccountId);
+      ? isStripeConfigured(agencyId)
+      : (isStripeConfigured(agencyId) && stripeConnect?.stripeConnectStatus === 'active' && !!stripeConnect?.stripeConnectAccountId);
     return {
       provider,
       isConnected: stripeReady,
       paymentsEnabled: stripeReady,
       needsReconnectForPayments: merchantMode === 'agency_managed' ? !stripeReady : false,
-      stripePublishableKey: getStripePublishableKey(),
+      stripePublishableKey: getStripePublishableKey(agencyId),
       stripeConnectedAccountId: merchantMode === 'agency_managed' ? (stripeConnect?.stripeConnectAccountId || null) : null
     };
   }
@@ -157,6 +157,7 @@ export const getBillingSettings = async (req, res, next) => {
     const qboStatus = await BillingMerchantContextService.getQuickBooksStatusForAgencySubscription(agencyId);
     const stripeConnect = await getStripeConnectStatusForAgency(agencyId);
     const subscriptionProviderStatus = buildSubscriptionProviderStatus({
+      agencyId,
       account,
       merchantMode: account?.subscription_merchant_mode || 'agency_managed',
       quickBooksStatus: qboStatus,
@@ -264,6 +265,7 @@ export const updateBillingSettings = async (req, res, next) => {
       const qboStatus = await BillingMerchantContextService.getQuickBooksStatusForAgencySubscription(parsedAgencyId);
       const stripeConnect = await getStripeConnectStatusForAgency(parsedAgencyId);
       const subscriptionProviderStatus = buildSubscriptionProviderStatus({
+        agencyId:parsedAgencyId,
         account: {
           ...existingAccount,
           subscription_merchant_mode: effectiveMerchantMode,
@@ -330,6 +332,7 @@ export const updateBillingSettings = async (req, res, next) => {
     const qboStatus = await BillingMerchantContextService.getQuickBooksStatusForAgencySubscription(agencyId);
     const stripeConnect = await getStripeConnectStatusForAgency(parsedAgencyId);
     const refreshedProviderStatus = buildSubscriptionProviderStatus({
+      agencyId:parsedAgencyId,
       account: refreshedAccount,
       merchantMode: normalizedMerchantMode || refreshedAccount?.subscription_merchant_mode || 'agency_managed',
       quickBooksStatus: qboStatus,

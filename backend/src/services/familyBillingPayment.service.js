@@ -7,12 +7,14 @@ import { billingError, requireResponsiblePayer, auditBilling } from './familyBil
 import { hasMedicaidCoverage } from '../utils/insurancePaymentPolicy.js';
 import { requireLiveGuardianBilling } from './guardianTestAccess.service.js';
 import { resolveLearningChargeDomain } from './learningChargeClassification.service.js';
+import {qaPaymentSimulationConfig,assertQaSimulationScope,qaCardMerchant,QA_PAYMENT_PROCESSOR} from './qaPaymentSimulator.service.js';
 
 export function verifyPaymentResult(intent, { amountCents, currency, customerId }) {
-  if (intent.status !== 'succeeded' || Number(intent.amount_received) !== Number(amountCents) || String(intent.currency).toLowerCase() !== String(currency).toLowerCase() || (typeof intent.customer === 'string' ? intent.customer : intent.customer?.id) !== customerId) throw billingError(409, 'Payment has not been confirmed by Stripe');
+  if (intent.status !== 'succeeded' || Number(intent.amount_received) !== Number(amountCents) || String(intent.currency).toLowerCase() !== String(currency).toLowerCase() || (typeof intent.customer === 'string' ? intent.customer : intent.customer?.id) !== customerId) throw billingError(409, intent.qa_simulated ? 'The payment simulation is not successful for this saved bill.' : 'Payment has not been confirmed by Stripe');
 }
 export async function payFamilyCharge({ agencyId, userId, chargeId, expectedAmountCents, automatic = false }) {
-  await requireLiveGuardianBilling(userId);
+  if((await qaPaymentSimulationConfig(agencyId)).enabled)await assertQaSimulationScope({agencyId,userId});
+  else await requireLiveGuardianBilling(userId);
   const db = await pool.getConnection();
   try {
     await db.beginTransaction();
@@ -38,15 +40,19 @@ export async function payFamilyCharge({ agencyId, userId, chargeId, expectedAmou
     const cards = await GuardianPaymentCard.findActiveByGuardian(userId, agencyId, db);
     const card = cards.find(c => Number(c.id) === Number(payer.payment_card_id));
     if (!card?.stripe_payment_method_id || !card?.connected_account_id) throw billingError(409, 'Assign your own verified card to this client first');
-    const [merchant] = await db.execute("SELECT stripe_connect_account_id FROM agency_billing_accounts WHERE agency_id = ? AND stripe_connect_status = 'active'", [agencyId]);
-    if (merchant[0]?.stripe_connect_account_id !== card.connected_account_id) throw billingError(409, 'This card belongs to a different payment account. Add it again for this organization.');
+    const simulatedProcessor=await qaCardMerchant(card,{agencyId,userId,clientId:charge.client_id},db);
+    const processor=simulatedProcessor||'STRIPE';
+    if(!simulatedProcessor){
+     const [merchant] = await db.execute("SELECT stripe_connect_account_id FROM agency_billing_accounts WHERE agency_id = ? AND stripe_connect_status = 'active'", [agencyId]);
+     if (merchant[0]?.stripe_connect_account_id !== card.connected_account_id) throw billingError(409, 'This card belongs to a different payment account. Add it again for this organization.');
+    }
     if (automatic) {
       if ((insurance?.primary?.memberId || insurance?.secondary?.memberId) && charge.charge_type === 'SESSION_FEE') throw billingError(409, 'Insurance must be adjudicated before automatically charging a patient balance');
       const [consents] = await db.execute("SELECT id FROM guardian_billing_consents WHERE id = ? AND agency_id = ? AND guardian_user_id = ? AND client_id = ? AND payment_card_id = ? AND purpose = 'recurring' AND revoked_at IS NULL", [payer.consent_id || 0, agencyId, userId, charge.client_id, card.id]);
       if (!consents.length || Number(charge.total_cents) > Number(payer.recurring_limit_cents || 0)) throw billingError(409, 'No current recurring authorization covers this charge');
     }
     const baseKey = `family_charge:${agencyId}:${chargeId}`;
-    const [previous] = await db.execute("SELECT * FROM learning_payments WHERE agency_id = ? AND learning_session_charge_id = ? AND processor = 'STRIPE' AND idempotency_key LIKE 'family_charge:%' ORDER BY id DESC LIMIT 1 FOR UPDATE", [agencyId, chargeId]);
+    const [previous] = await db.execute("SELECT * FROM learning_payments WHERE agency_id = ? AND learning_session_charge_id = ? AND processor = ? AND idempotency_key LIKE 'family_charge:%' ORDER BY id DESC LIMIT 1 FOR UPDATE", [agencyId, chargeId,processor]);
     let previousPayment = previous[0];
     let key = previousPayment?.idempotency_key || baseKey;
     // A different guardian cannot inherit a pending request or its authentication secret.
@@ -71,7 +77,7 @@ export async function payFamilyCharge({ agencyId, userId, chargeId, expectedAmou
         snapshot = { customerId:card.stripe_customer_id, paymentMethodId:card.stripe_payment_method_id, accountId:card.connected_account_id, amountCents:Number(charge.total_cents), currency:String(charge.currency || 'USD').toLowerCase() };
       }
     }
-    if (!previousPayment) await db.execute(`INSERT INTO learning_payments (agency_id, learning_session_charge_id, amount_cents, currency, payment_status, processor, idempotency_key, created_by_user_id, metadata_json) VALUES (?, ?, ?, ?, 'REQUIRES_ACTION', 'STRIPE', ?, ?, ?)`, [agencyId, chargeId, charge.total_cents, charge.currency || 'USD', key, userId, encryptFamilyBilling(snapshot, `family-payment:${agencyId}:${chargeId}`)]);
+    if (!previousPayment) await db.execute(`INSERT INTO learning_payments (agency_id, learning_session_charge_id, amount_cents, currency, payment_status, processor, idempotency_key, created_by_user_id, metadata_json) VALUES (?, ?, ?, ?, 'REQUIRES_ACTION', ?, ?, ?, ?)`, [agencyId, chargeId, charge.total_cents, charge.currency || 'USD',processor, key, userId, encryptFamilyBilling(snapshot, `family-payment:${agencyId}:${chargeId}`)]);
     // Persist the attempt before the external call. Its stable key is reused after
     // a network interruption; no new key is generated by the browser.
     await db.commit();
@@ -88,7 +94,7 @@ export async function payFamilyCharge({ agencyId, userId, chargeId, expectedAmou
     if (Number(intent.amount) !== snapshot.amountCents || intent.currency !== snapshot.currency || (typeof intent.customer === 'string' ? intent.customer : intent.customer?.id) !== snapshot.customerId) throw billingError(409, 'Processor payment does not match this bill');
     await db.execute('UPDATE learning_payments SET processor_intent_id = ? WHERE idempotency_key = ?', [intent.id, key]);
     const authenticationRequired = intent.status === 'requires_payment_method' && (intent.last_payment_error?.code === 'authentication_required' || intent.last_payment_error?.decline_code === 'authentication_required');
-    if (!automatic && (intent.status === 'requires_action' || authenticationRequired)) return { paid:false, requiresAction:true, clientSecret:intent.client_secret, ...(authenticationRequired ? {paymentMethodId:snapshot.paymentMethodId} : {}), connectedAccountId:snapshot.accountId, publishableKey:getStripePublishableKey() };
+    if (!automatic && (intent.status === 'requires_action' || authenticationRequired)) return { paid:false, requiresAction:true, clientSecret:intent.client_secret, ...(authenticationRequired ? {paymentMethodId:snapshot.paymentMethodId} : {}), connectedAccountId:snapshot.accountId, publishableKey:getStripePublishableKey(agencyId) };
     if (intent.status === 'requires_payment_method' || intent.status === 'canceled') throw billingError(402, 'This payment was declined. Assign another verified card and retry, or contact billing.');
     verifyPaymentResult(intent, { amountCents:snapshot.amountCents, currency:snapshot.currency, customerId:snapshot.customerId });
     await db.beginTransaction();
@@ -96,7 +102,7 @@ export async function payFamilyCharge({ agencyId, userId, chargeId, expectedAmou
     await db.execute("UPDATE learning_session_charges SET charge_status = 'CAPTURED', captured_at = CURRENT_TIMESTAMP WHERE id = ? AND agency_id = ?", [chargeId, agencyId]);
     await auditBilling({ agencyId, userId, clientId: charge.client_id, action: automatic ? 'automatic_payment_captured' : 'payment_captured', objectId: chargeId }, db);
     await db.commit();
-    return { paid: true };
+    return { paid: true,...(simulatedProcessor?{simulated:true,processor:QA_PAYMENT_PROCESSOR}:{}) };
   } catch (e) {
     await db.rollback();
     // Never return Stripe objects or card/customer identifiers in errors.
@@ -107,13 +113,20 @@ export async function payFamilyCharge({ agencyId, userId, chargeId, expectedAmou
 
 /** Signed webhook reconciliation uses the stored payment snapshot, not metadata
  * supplied by a browser or the payer's subsequently changed default card. */
-export async function reconcileFamilyPayment(intent, connectedAccountId) {
+export async function reconcileFamilyPayment(intent, connectedAccountId, {simulated=false}={}) {
   const db = await pool.getConnection();
   try {
     await db.beginTransaction();
-    const [rows] = await db.execute("SELECT * FROM learning_payments WHERE processor = 'STRIPE' AND processor_intent_id = ? AND idempotency_key LIKE 'family_charge:%' FOR UPDATE", [intent.id]);
+    const processor=simulated?'QA_SIMULATOR':'STRIPE';
+    if(!!intent.qa_simulated!==simulated)throw billingError(403,'Payment processor mismatch');
+    const [rows] = await db.execute("SELECT * FROM learning_payments WHERE processor = ? AND processor_intent_id = ? AND idempotency_key LIKE 'family_charge:%' FOR UPDATE", [processor,intent.id]);
     if (!rows.length) { await db.commit(); return false; }
     for (const payment of rows) {
+      if(simulated){
+        const {getQaPaymentIntent,qaSimulationAccount}=await import('./qaPaymentSimulator.service.js');
+        intent=await getQaPaymentIntent(intent.id,payment.agency_id,db);
+        if(connectedAccountId!==qaSimulationAccount(payment.agency_id)||intent.sourceKind!=='family_charge'||intent.sourceId!==String(payment.learning_session_charge_id)||intent.payerUserId!==Number(payment.created_by_user_id))throw billingError(403,'Payment simulation binding mismatch');
+      }
       const snapshot = decryptFamilyBilling(payment.metadata_json, `family-payment:${payment.agency_id}:${payment.learning_session_charge_id}`);
       if (!snapshot || snapshot.accountId !== connectedAccountId) throw billingError(403, 'Payment account mismatch');
       verifyPaymentResult(intent, snapshot);

@@ -6,6 +6,7 @@ import { billingTermsForProfiles, linkAllowsBilling, linkAllowsBillingView, link
 import { normalizePolicy, applySubmittedClientInsurance, readClientInsurance, claimInsuranceIssues } from './clientInsurance.service.js';
 import { getStripePublishableKey } from './stripePayments.service.js';
 import { hasMedicaidCoverage } from '../utils/insurancePaymentPolicy.js';
+import {qaPaymentSimulationConfig,qaCardMerchant} from './qaPaymentSimulator.service.js';
 
 export async function getFamilyBillingSummary(userId, agencyId) {
   const [clients] = await pool.execute(`SELECT c.id, c.full_name, c.initials, c.date_of_birth, c.client_type, c.primary_insurer_name, c.billing_insurance_payload IS NOT NULL AS insurance_on_file, cg.access_enabled, cg.relationship_type, cg.permissions_json,i.status AS independence_status,g.scopes_json AS support_scopes,
@@ -47,9 +48,10 @@ export async function getFamilyBillingSummary(userId, agencyId) {
   if (canManage) await auditBilling({ agencyId, userId, action: 'view_own_billing' });
   const [merchant] = await pool.execute('SELECT stripe_connect_account_id, stripe_connect_status FROM agency_billing_accounts WHERE agency_id = ?', [agencyId]);
   const paymentState=await qaStripeCollectionState(agencyId);
-  const connectedAccountId = paymentState.allowed && merchant[0]?.stripe_connect_status === 'active' ? merchant[0].stripe_connect_account_id : null;
+  const paymentSimulator=await qaPaymentSimulationConfig(agencyId);
+  const connectedAccountId = paymentSimulator.enabled?paymentSimulator.accountId:paymentState.allowed && merchant[0]?.stripe_connect_status === 'active' ? merchant[0].stripe_connect_account_id : null;
   const terms=billingTermsForProfiles(clients.filter(linkAllowsBillingView));
-  return { clients: items, cards, profiles: visibleProfiles, ...terms, stripe: { enabled: !!connectedAccountId && !!getStripePublishableKey(), connectedAccountId, publishableKey:paymentState.allowed?getStripePublishableKey():null,testModeRequired:paymentState.testModeRequired,mode:paymentState.mode } };
+  return { clients: items, cards, profiles: visibleProfiles, ...terms,paymentSimulator, stripe: { enabled: !paymentSimulator.enabled&&!!connectedAccountId && !!getStripePublishableKey(agencyId), connectedAccountId, publishableKey:paymentState.allowed&&!paymentSimulator.enabled?getStripePublishableKey(agencyId):null,testModeRequired:paymentState.testModeRequired,mode:paymentSimulator.enabled?'simulated':paymentState.mode } };
 }
 export async function acceptPayer({ userId, agencyId, clientId, consent, ip, userAgent }) {
   const db = await pool.getConnection();
@@ -71,7 +73,8 @@ export async function assignCard({ userId, agencyId, clientId, cardId, recurring
     if (!clients.length) throw billingError(404, 'Client not found');
     const cards = await GuardianPaymentCard.findActiveByGuardian(userId, agencyId, db);
     const card = cards.find(c => Number(c.id) === positiveId(cardId));
-    if (!card || card.legacyRequiresReview || card.payment_provider !== 'STRIPE' || !card.connected_account_id) throw billingError(403, 'Select your own verified payment method');
+    if (!card || card.legacyRequiresReview || !card.connected_account_id) throw billingError(403, 'Select your own verified payment method');
+    if(!await qaCardMerchant(card,{agencyId,userId,clientId},db)&&card.payment_provider!=='STRIPE')throw billingError(403,'Select your own verified payment method');
     let consentId = null;
     if (recurring === true) {
       positiveId(limitCents);

@@ -35,10 +35,10 @@ function mapPayment(r) {
 }
 
 class BookingPackagePayment {
-  static async findById(id) {
+  static async findById(id, db = pool) {
     const pid = Number(id || 0);
     if (!pid) return null;
-    const [rows] = await pool.execute(
+    const [rows] = await db.execute(
       `SELECT * FROM booking_package_payments WHERE id = ? LIMIT 1`,
       [pid]
     );
@@ -71,8 +71,8 @@ class BookingPackagePayment {
     metadata = null,
     idempotencyKey = null,
     createdByUserId = null
-  } = {}) {
-    const [result] = await pool.execute(
+  } = {}, db = pool) {
+    const [result] = await db.execute(
       `INSERT INTO booking_package_payments
         (agency_id, client_id, entitlement_id, package_id, amount_cents, currency,
          payment_mode, payment_status, processor, processor_intent_id, processor_charge_id,
@@ -96,7 +96,7 @@ class BookingPackagePayment {
         createdByUserId || null
       ]
     );
-    return this.findById(result.insertId);
+    return this.findById(result.insertId, db);
   }
 
   static async update(id, patch = {}) {

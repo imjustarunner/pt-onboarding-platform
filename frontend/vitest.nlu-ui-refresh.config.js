@@ -5,5 +5,9 @@ export default {...base,test:{...base.test,include:[...new Set([...base.test.inc
  'src/components/guardian/__tests__/GuardianFamilyBilling.test.js',
  'src/components/admin/__tests__/FrequentPagesBar.test.js',
  'src/views/__tests__/LibraryView.test.js',
- 'src/utils/__tests__/virtualAvailabilityGrid.test.js'
+ 'src/utils/__tests__/virtualAvailabilityGrid.test.js',
+ 'src/components/billing/__tests__/QaPayments.test.js',
+ 'src/components/guardian/__tests__/GuardianTutoringPayment.test.js',
+ 'src/components/billing/__tests__/FamilyLedgerPanel.test.js',
+ 'src/views/__tests__/PaymentReceiptView.test.js'
 ])]}};

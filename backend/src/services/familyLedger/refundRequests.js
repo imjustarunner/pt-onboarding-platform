@@ -5,6 +5,7 @@ import { transaction, cents } from './policy.js';
 import { lockAllocation } from './payments.js';
 import { receiptFor } from './views.js';
 import { paymentCreditState } from './copayCredits.js';
+import {QA_PAYMENT_PROCESSOR,assertQaSimulationScope} from '../qaPaymentSimulator.service.js';
 
 export async function receiptWorkspace({agencyId,paymentId,userId,staff=false}) {
   const receipt=await receiptFor({agencyId,paymentId,userId,staff});
@@ -16,7 +17,7 @@ export async function receiptWorkspace({agencyId,paymentId,userId,staff=false}) 
     WHERE c.payment_id=? AND c.agency_id=? ORDER BY c.id`,[paymentId,agencyId]);
   const [deliveries]=own||staff?await pool.execute('SELECT kind,status,sent_at AS sentAt FROM family_receipt_deliveries WHERE agency_id=? AND payment_id=? ORDER BY id',[agencyId,paymentId]):[[]];
   return {receipt,credit:await paymentCreditState(paymentId),applications,deliveries,
-    canRequestRefund:own&&['STRIPE','CASH'].includes(payment.processor)&&receipt.netPaidCents>0,
+    canRequestRefund:own&&['STRIPE','CASH',QA_PAYMENT_PROCESSOR].includes(payment.processor)&&receipt.netPaidCents>0,
     refundRequests:refundRequests.map(r=>({id:r.id,amountCents:r.amount_cents,status:r.status,createdAt:r.created_at,
       reason:decryptFamilyBilling(r.reason_encrypted,`refund-request:${agencyId}:${paymentId}`).reason,
       resolution:r.resolution_encrypted?decryptFamilyBilling(r.resolution_encrypted,`refund-request:${agencyId}:${paymentId}`).reason:null}))};
@@ -28,8 +29,9 @@ export async function requestPaymentRefund({agencyId,paymentId,userId,amountCent
   return transaction(async db=>{
     const [[payment]]=await db.execute("SELECT * FROM family_ledger_payments WHERE id=? AND agency_id=? AND status='succeeded'",[paymentId,agencyId]);
     if(!payment||Number(payment.payer_user_id)!==Number(userId))throw billingError(404,'Payment not found for your account.');
-    if(!['STRIPE','CASH'].includes(payment.processor))throw billingError(409,'Contact billing about a payment imported from another system.');
+    if(!['STRIPE','CASH',QA_PAYMENT_PROCESSOR].includes(payment.processor))throw billingError(409,'Contact billing about a payment imported from another system.');
     const {receivable}=await lockAllocation(agencyId,payment.allocation_id,db);
+    if(payment.processor===QA_PAYMENT_PROCESSOR)await assertQaSimulationScope({agencyId,userId,clientId:receivable.client_id},db);
     const [[existing]]=await db.execute("SELECT id,status FROM family_payment_refund_requests WHERE payment_id=? AND status IN ('requested','processing','review') ORDER BY id DESC FOR UPDATE",[paymentId]);
     if(existing)return {requestId:existing.id,status:existing.status,alreadyRequested:true};
     const [[refunds]]=await db.execute("SELECT COALESCE(SUM(amount_cents),0) AS amount FROM family_payment_refunds WHERE payment_id=? AND status IN ('pending','unknown','succeeded')",[paymentId]);

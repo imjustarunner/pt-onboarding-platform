@@ -15,6 +15,7 @@ import ProviderMyRoom from '../models/ProviderMyRoom.model.js';
 import * as office from '../services/privateVirtualOffice.service.js';
 import {assignedTutoringStudents} from '../services/tutoringOffice.service.js';
 import { getMeetingPlan, setMeetingPlan, MEETING_PLANS } from '../services/meetingAccessPlan.service.js';
+import {qaTutorOfficePlan} from '../services/qaReadiness.service.js';
 
 const respond = fn => async (req,res,next) => {
  res.set({'Cache-Control':'no-store','Referrer-Policy':'no-referrer'});
@@ -31,7 +32,11 @@ async function ownerOfVisit(req) {
  await office.assertOfficeAccess(room);
  return room;
 }
-export const getMyRoomPlan = respond(async req => ({plan:await getMeetingPlan(req.user.id),plans:MEETING_PLANS}));
+export const getMyRoomPlan = respond(async req => {
+ const agencyId=Number(req.query.agencyId);
+ const room=[453,454].includes(agencyId)?await ProviderMyRoom.findByUserId(req.user.id,agencyId):null;
+ return {plan:await qaTutorOfficePlan(room)||await getMeetingPlan(req.user.id),plans:MEETING_PLANS};
+});
 export const putMyRoomPlan = respond(async req => ({plan:await setMeetingPlan(Number(req.params.userId),req.body.tier,req.user.id)}));
 export const getMyRoomMe = respond(async req => { const {room,plan}=await host(req); return {room:await virtualOfficePresentation(room,req),plan}; });
 export const getMyRoomLobby = respond(async req => { const {room}=await host(req); return office.officeLobby(room,req); });

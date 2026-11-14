@@ -23,6 +23,10 @@ beforeEach(()=>{
  });
 });
 describe('branded payment receipt',()=>{
+ it('labels a simulated payment in the subject and both mail bodies',()=>{
+  const mail=buildReceiptEmail({receipt:{...receipt,simulated:true,responsibilityType:'Self-pay'},url:'https://example.com',refundUrl:'https://example.com/refund'});
+  expect(mail.subject).toContain('qa simulation');expect(mail.text).toContain('no money moved');expect(mail.html).toContain('no money moved');expect(mail.text).not.toContain('next eligible session');
+ });
  it('puts the same specific payment and refund action in HTML and plain text',()=>{
   const links=receiptLinks(context,{agencyId:2,paymentId:91});const mail=buildReceiptEmail({receipt,...links});
   expect(mail.text).toContain('$25.00');expect(mail.text).toContain(receipt.receiptNumber);expect(mail.text).toContain(links.refundUrl);

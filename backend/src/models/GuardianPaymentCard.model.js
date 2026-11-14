@@ -11,7 +11,7 @@ export function decodePaymentCard(row) {
   return result;
 }
 export function paymentCardSummary(card) {
-  return { verificationRequired: card.legacyRequiresReview === true, ...Object.fromEntries(['id','card_brand','card_last4','card_exp_month','card_exp_year','cardholder_name','is_default','is_active','added_at'].map(k => [k, card[k]])) };
+  return { ...(card.payment_provider==='QA_SIMULATOR'?{simulated:true,simulationScenario:card.qaScenario}:{}), verificationRequired: card.legacyRequiresReview === true, ...Object.fromEntries(['id','card_brand','card_last4','card_exp_month','card_exp_year','cardholder_name','is_default','is_active','added_at'].map(k => [k, card[k]])) };
 }
 export default class GuardianPaymentCard {
   static async create({ guardianUserId, agencyId, paymentProvider = 'STRIPE', stripeCustomerId, stripePaymentMethodId, connectedAccountId, setupIntentId, cardBrand, cardLast4, cardExpMonth, cardExpYear, cardholderName, intakeSubmissionId = null }, db = pool) {

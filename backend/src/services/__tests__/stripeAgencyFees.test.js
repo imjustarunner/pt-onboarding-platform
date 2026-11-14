@@ -2,6 +2,7 @@ import {beforeEach,describe,it,expect,vi} from 'vitest';
 const mocks=vi.hoisted(()=>({create:vi.fn(),retrieve:vi.fn(),refund:vi.fn(),quote:vi.fn()}));
 vi.mock('stripe',()=>({default:class {constructor(){this.paymentIntents={create:mocks.create,retrieve:mocks.retrieve};this.refunds={create:mocks.refund};}}}));
 vi.mock('../medicalServiceFees.service.js',()=>({quoteAgencyCardFee:mocks.quote}));
+vi.mock('../../config/database.js',()=>({default:{execute:async()=>[[]]}}));
 import Stripe from '../stripePayments.service.js';
 beforeEach(()=>{vi.clearAllMocks();vi.stubEnv('STRIPE_SECRET_KEY','sk_test_SYNTHETIC_ONLY');mocks.quote.mockResolvedValue({feeCents:25,quoteId:7});mocks.create.mockResolvedValue({id:'pi_synthetic'});mocks.retrieve.mockResolvedValue({id:'pi_synthetic',application_fee_amount:25});});
 describe('Stripe agency application fee integration',()=>{

@@ -116,6 +116,8 @@ import supervisionSessionsRoutes from './routes/supervisionSessions.routes.js';
 import teamMeetingsRoutes from './routes/teamMeetings.routes.js';
 import agencyCampaignsRoutes from './routes/agencyCampaigns.routes.js';
 import healthCheckRoutes from './routes/healthCheck.routes.js';
+import qaPaymentsRoutes from './routes/qaPayments.routes.js';
+import qaReadinessRoutes from './routes/qaReadiness.routes.js';
 import referralUploadRoutes from './routes/referralUpload.routes.js';
 import referralOcrRoutes from './routes/referralOcr.routes.js';
 import referralPacketDraftRoutes from './routes/referralPacketDraft.routes.js';
@@ -1100,6 +1102,8 @@ app.use('/api/bulk-import', bulkImportRoutes); // Bulk import routes (legacy mig
 app.use('/api/office-schedule', officeScheduleRoutes);
 app.use('/api/learning-billing', learningBillingRoutes);
 app.use('/api/guardian-billing', guardianBillingRoutes);
+app.use('/api/qa-payments', qaPaymentsRoutes);
+app.use('/api/qa-readiness', qaReadinessRoutes);
 app.use('/api/family-billing', familyLedgerRoutes);
 app.use('/api/portal-migration', portalMigrationRoutes);
 app.use('/api/family-cost-estimates', familyCostEstimatesRoutes);

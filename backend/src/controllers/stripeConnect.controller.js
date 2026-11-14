@@ -1,3 +1,5 @@
+import {assertQaStripeTestMode,qaStripeCollectionState} from '../services/qaStripePaymentGuard.service.js';
+import {qaPaymentSimulationConfig} from '../services/qaPaymentSimulator.service.js';
 /**
  * stripeConnect.controller.js
  *
@@ -61,12 +63,13 @@ export const startConnect = async (req, res, next) => {
   let connection, locked = false;
   let lockName;
   try {
-    if (!isStripeConfigured()) {
+    if (!isStripeConfigured(req.params.agencyId)) {
       return res.status(503).json({ error: { message: 'Stripe is not configured on this platform.' } });
     }
 
     const agencyId = parseInt(req.params.agencyId, 10);
     if (!agencyId) return res.status(400).json({ error: { message: 'Invalid agencyId' } });
+    await assertQaStripeTestMode(agencyId);
 
     const agency = await Agency.findById(agencyId);
     if (!agency) return res.status(404).json({ error: { message: 'Agency not found' } });
@@ -139,10 +142,15 @@ export const startConnect = async (req, res, next) => {
  */
 export const getStripeStatus = async (req, res, next) => {
   try {
-    const canManageConnection=['admin','agency_admin','super_admin','backoffice_admin'].includes(req.user.role)
+    const paymentState=await qaStripeCollectionState(req.params.agencyId);
+    const canManageConnection=req.paymentAccountAdministrator===true||['admin','agency_admin','super_admin','backoffice_admin'].includes(req.user.role)
       ||await isIndependentPracticeOwner(req.user.id,req.params.agencyId);
-    if (!isStripeConfigured()) {
-      return res.json({ status: 'not_connected', chargesEnabled: false, stripeAccountId: null, canManageConnection });
+    const simulation=await qaPaymentSimulationConfig(req.params.agencyId);
+    if(simulation.enabled)return res.json({status:'qa_simulation',chargesEnabled:false,stripeAccountId:null,canManageConnection,simulatedPaymentsEnabled:true,processor:'QA_SIMULATOR',message:'QA payments are simulated. Connected banks and live Stripe accounts are not used.'});
+    if (!isStripeConfigured(req.params.agencyId)) {
+      return res.json({ status: 'not_connected', chargesEnabled: false, stripeAccountId: null, canManageConnection,
+        testModeRequired:paymentState.testModeRequired,mode:paymentState.mode,
+        ...(paymentState.testModeRequired?{setupBlocked:'qa_test_credentials',setupMessage:'Add the dedicated Stripe test-mode keys before connecting this QA payment account.'}:{}) });
     }
 
     const agencyId = parseInt(req.params.agencyId, 10);

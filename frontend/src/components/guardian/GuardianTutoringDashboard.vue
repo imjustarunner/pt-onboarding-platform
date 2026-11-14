@@ -174,9 +174,10 @@
         <p v-if="!catalogLoading && !catalog.length" class="gtd-muted">No public packages available yet.</p>
 
         <PackagePriceChoice :agency-id="selectedPackage?.agencyId" :client-id="clientId" :pkg="selectedPackage" @change="choosePackagePrice"/>
-        <div v-if="checkoutReady && stripeEnabled && amountDue > 0" class="gtd-pay">
-          <label>Cardholder name<input v-model="cardholderName" type="text" /></label>
-          <StripeCardEntry ref="cardEntry" :publishable-key="publishableKey" :connected-account-id="connectedAccountId" :client-secret="clientSecret" :email="authStore.user?.email" :name="cardholderName" :context-key="`${clientId}:${authStore.user?.id || ''}:${selectedPackageId || ''}`" :disabled="buying" @error="stripeElementError=$event" />
+        <div v-if="checkoutReady && (stripeEnabled||qaSimulation) && amountDue > 0" class="gtd-pay">
+          <QaPaymentEntry v-if="qaSimulation" :key="paymentIntentId" ref="cardEntry" :agency-id="careContext?.agencyId||selectedPackage?.agencyId" :intent-id="paymentIntentId" :disabled="buying" />
+          <template v-else><label>Cardholder name<input v-model="cardholderName" type="text" /></label>
+          <StripeCardEntry ref="cardEntry" :publishable-key="publishableKey" :connected-account-id="connectedAccountId" :client-secret="clientSecret" :email="authStore.user?.email" :name="cardholderName" :context-key="`${clientId}:${authStore.user?.id || ''}:${selectedPackageId || ''}`" :disabled="buying" @error="stripeElementError=$event" /></template>
           <p v-if="stripeElementError" class="gtd-error">{{ stripeElementError }}</p>
         </div>
 
@@ -186,7 +187,7 @@
           :disabled="!selectedPackageId || buying || checkoutBlocked || (selectedPackage?.domainConfig?.pricing?.mode==='provider-discount'&&!packageChoice)"
           @click="purchaseSelected"
         >
-          {{ buying ? 'Processing…' : (amountDue > 0 ? `Pay ${formatMoney(amountDue)}` : (selectedPackage?.domainConfig?.pricing?.mode==='provider-discount'?'Continue to payment':'Activate package')) }}
+          {{ buying ? 'Processing…' : qaSimulation ? `Simulate ${formatMoney(amountDue)} purchase` : (amountDue > 0 ? `Pay ${formatMoney(amountDue)}` : (selectedPackage?.domainConfig?.pricing?.mode==='provider-discount'?'Continue to payment':'Activate package')) }}
         </button>
       </div>
     </div>
@@ -202,6 +203,7 @@ import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { useRouter } from 'vue-router';
 import TutorOfficeStatus from './TutorOfficeStatus.vue';
 import StripeCardEntry from '../billing/StripeCardEntry.vue';
+import QaPaymentEntry from '../billing/QaPaymentEntry.vue';
 import {useAuthStore} from '../../store/auth';
 import * as los from '@/services/tutoringLearningOs';
 import * as unifiedPackages from '@/services/unifiedPackages';
@@ -251,6 +253,7 @@ const buyError = ref('');
 const buying = ref(false);
 const checkoutReady = ref(false),checkoutBlocked=ref(false);
 const stripeEnabled = ref(false);
+const qaSimulation=ref(false);
 const amountDue = ref(0);
 const clientSecret = ref(null);
 const paymentIntentId = ref(null);
@@ -398,6 +401,7 @@ async function prepareCheckout() {
   if(selectedPackage.value?.domainConfig?.pricing?.mode==='provider-discount'&&!packageChoice.value)return;
   buyError.value = '';
   checkoutReady.value = false;
+  qaSimulation.value=false;
   destroyCard();
   amountDue.value = 0;
   clientSecret.value = null;
@@ -413,6 +417,7 @@ async function prepareCheckout() {
       return;
     }
     stripeEnabled.value = !!res.stripeEnabled;
+    qaSimulation.value=res.simulated===true&&res.processor==='QA_SIMULATOR';
     amountDue.value = Number(res.amountCents || 0);
     clientSecret.value = res.clientSecret || null;
     paymentIntentId.value = res.paymentIntentId || null;
@@ -433,25 +438,29 @@ async function purchaseSelected() {
   buying.value = true;
   buyError.value = '';
   try {
-    if (!checkoutReady.value || !clientSecret.value) {
+    if (!checkoutReady.value || (!clientSecret.value&&!qaSimulation.value)) {
       await prepareCheckout();
       if (!buyOpen.value) return;
-      if (stripeEnabled.value && amountDue.value > 0) {
+      if ((stripeEnabled.value||qaSimulation.value) && amountDue.value > 0) {
         // Card form ready — user can click Pay again after entering card
         return;
       }
     }
-    if (stripeEnabled.value && clientSecret.value && amountDue.value > 0) {
+    if ((stripeEnabled.value&&clientSecret.value||qaSimulation.value) && amountDue.value > 0) {
+      const version=checkoutVersion;
+      const purchase={clientId:props.clientId,packageId:selectedPackageId.value,agencyId:careContext?.value?.agencyId,serviceId:careContext?.value?.serviceId,paymentIntentId:paymentIntentId.value};
       if(!cardEntry.value)await mountCard();
       if(!cardEntry.value)throw new Error('Payment form is not ready.');
       const {error:stripeErr,paymentIntent}=await cardEntry.value.confirmPayment();
+      if(version!==checkoutVersion||!buyOpen.value)return;
       if (stripeErr) {
         buyError.value = stripeErr.message || 'Payment failed';
         return;
       }
-      await unifiedPackages.confirmGuardianPackage(props.clientId, selectedPackageId.value, {
-        agencyId:careContext?.value?.agencyId,serviceId:careContext?.value?.serviceId,paymentIntentId: paymentIntent?.id || paymentIntentId.value
+      await unifiedPackages.confirmGuardianPackage(purchase.clientId, purchase.packageId, {
+        agencyId:purchase.agencyId,serviceId:purchase.serviceId,paymentIntentId: paymentIntent?.id || purchase.paymentIntentId
       });
+      if(version!==checkoutVersion||!buyOpen.value)return;
       await loadPackages();
       closeBuyDrawer();
     }
@@ -494,7 +503,7 @@ async function completePractice(id) {
   }
 }
 
-watch(()=>[props.clientId,authStore.user?.id,authStore.user?.email],()=>{closeBuyDrawer();cardholderName.value='';selectedPackageId.value=null;clientSecret.value=null;void load();});
+watch(()=>[props.clientId,authStore.user?.id,authStore.user?.email,unref(careContext)?.agencyId,unref(careContext)?.serviceId],()=>{closeBuyDrawer();cardholderName.value='';selectedPackageId.value=null;clientSecret.value=null;void load();});
 watch(selectedPackageId, async (id, prev) => {
   if (buyOpen.value && id && id !== prev) {
     await prepareCheckout();

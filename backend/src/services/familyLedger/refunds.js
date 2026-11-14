@@ -7,6 +7,7 @@ import { encryptFamilyBilling, decryptFamilyBilling } from '../familyBillingEncr
 import { cents, key, transaction } from './policy.js';
 import { lockAllocation } from './payments.js';
 import { prepareCreditRefund, queueReceiptEvent } from './copayCredits.js';
+import {QA_PAYMENT_PROCESSOR,qaSimulationAccount,getQaPaymentIntent,isQaSimulationAccount} from '../qaPaymentSimulator.service.js';
 
 export async function refundPayment({agencyId,paymentId,amountCents,idempotencyKey,actorUserId,reason,refundRequestId=null}) {
   const amount=cents(amountCents), requestKey=key(idempotencyKey);
@@ -14,7 +15,7 @@ export async function refundPayment({agencyId,paymentId,amountCents,idempotencyK
   const prepared=await transaction(async db=>{
     const [lookup]=await db.execute('SELECT * FROM family_ledger_payments WHERE id=? AND agency_id=?',[paymentId,agencyId]);
     if(!lookup.length||lookup[0].status!=='succeeded')throw billingError(409,'Only a recorded successful payment can be refunded');
-    if(!['CASH','STRIPE'].includes(lookup[0].processor))throw billingError(409,'Reconcile imported payments through the original payment system');
+    if(!['CASH','STRIPE',QA_PAYMENT_PROCESSOR].includes(lookup[0].processor))throw billingError(409,'Reconcile imported payments through the original payment system');
     const payment=lookup[0],{receivable}=await lockAllocation(agencyId,payment.allocation_id,db);
     const [existing]=await db.execute('SELECT * FROM family_payment_refunds WHERE agency_id=? AND idempotency_key=? FOR UPDATE',[agencyId,requestKey]);
     if(existing.length) {
@@ -39,7 +40,7 @@ export async function refundPayment({agencyId,paymentId,amountCents,idempotencyK
   });
   if(prepared.refund.status==='succeeded')return {refunded:true,refundId:prepared.refund.id,alreadyRefunded:true};
   if(prepared.payment.processor==='CASH') { await finalizeRefund(prepared.refund.id,agencyId,null,null); return {refunded:true,refundId:prepared.refund.id}; }
-  if(prepared.payment.processor!=='STRIPE')throw billingError(409,'Reconcile imported payments through the original payment system');
+  if(!['STRIPE',QA_PAYMENT_PROCESSOR].includes(prepared.payment.processor))throw billingError(409,'Reconcile imported payments through the original payment system');
   const snapshot=decryptFamilyBilling(prepared.payment.snapshot_encrypted,`ledger-payment:${agencyId}:${prepared.payment.allocation_id}`);
   if(!prepared.refund.processor_refund_id&&prepared.refund.created_at&&Date.now()-new Date(prepared.refund.created_at).getTime()>23*3600000)throw billingError(409,'This refund needs processor reconciliation before retrying; its idempotency window may have expired');
   let result;
@@ -56,8 +57,14 @@ export async function finalizeRefund(refundId,agencyId,processorRefund,accountId
     if(!refunds.length)throw billingError(404,'Refund not found');
     const row=refunds[0],{receivable,allocation}=await lockAllocation(agencyId,row.allocation_id,db);
     const [current]=await db.execute('SELECT status FROM family_payment_refunds WHERE id=? FOR UPDATE',[refundId]);
-    if(row.processor==='STRIPE') {
+    if(['STRIPE',QA_PAYMENT_PROCESSOR].includes(row.processor)) {
       const snapshot=decryptFamilyBilling(row.snapshot_encrypted,`ledger-payment:${agencyId}:${row.allocation_id}`);
+      if(row.processor===QA_PAYMENT_PROCESSOR){
+        if(!processorRefund?.qa_simulated||accountId!==qaSimulationAccount(agencyId))throw billingError(409,'Refund simulation binding mismatch');
+        const saved=await getQaPaymentIntent(processorRefund.id,agencyId,db);
+        if(saved.sourceKind!=='refund'||saved.sourceId!==String(refundId)||saved.status!=='succeeded'||saved.payerUserId!==Number(row.payer_user_id)||saved.clientId!==Number(receivable.client_id))throw billingError(409,'Refund simulation binding mismatch');
+        processorRefund={...saved,payment_intent:saved.metadata.originalPaymentIntentId};
+      }else if(processorRefund?.qa_simulated||isQaSimulationAccount(accountId))throw billingError(409,'Refund processor mismatch');
       if(snapshot.accountId!==accountId||processorRefund?.status!=='succeeded'||Number(processorRefund.amount)!==Number(row.amount_cents)||processorRefund.payment_intent!==row.processor_intent_id||String(processorRefund.metadata?.family_ledger_refund_id)!==String(refundId))throw billingError(409,'Refund confirmation does not match the payment');
     } else if(row.processor!=='CASH'||processorRefund)throw billingError(409,'Unsupported refund processor');
     if(current[0].status==='succeeded')return;
@@ -75,6 +82,7 @@ export async function finalizeRefund(refundId,agencyId,processorRefund,accountId
   });
 }
 export async function reconcileLedgerRefund(refund,accountId) {
+  if(refund.qa_simulated||isQaSimulationAccount(accountId))return false;
   if(!refund.metadata?.family_ledger_refund_id)return false;
   if(refund.status==='succeeded')await finalizeRefund(Number(refund.metadata.family_ledger_refund_id),Number(refund.metadata.agency_id),refund,accountId);
   return true;

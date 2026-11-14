@@ -1,5 +1,6 @@
 import {getAuricwellPricing,saveAuricwellPricing} from '../controllers/auricwellPricing.controller.js';
 import { requireMedicalBillingFinancialAccess } from '../middleware/medicalBilling.middleware.js';
+import {requirePaymentSettingsRead} from '../middleware/paymentAccount.middleware.js';
 import express from 'express';
 import { authenticate, requireAgencyAccess, requireAgencyAdmin, requireSuperAdmin } from '../middleware/auth.middleware.js';
 import stripeConnectRoutes from './stripeConnect.routes.js';
@@ -85,7 +86,7 @@ router.get('/:agencyId/estimate', authenticate, requireAgencyAccess, getAgencyBi
 // Billing settings
 router.get('/:agencyId/business-profile', authenticate, requireAgencyAdmin, getIndependentBusinessProfile);
 router.put('/:agencyId/business-profile', authenticate, requireAgencyAdmin, updateIndependentBusinessProfile);
-router.get('/:agencyId/settings', authenticate, requireAgencyAccess, requireMedicalBillingFinancialAccess, getBillingSettings);
+router.get('/:agencyId/settings', authenticate, requireAgencyAccess, requirePaymentSettingsRead, getBillingSettings);
 router.put('/:agencyId/settings', authenticate, requireAgencyAdmin, billingSettingsValidators, updateBillingSettings);
 router.get('/:agencyId/payment-methods/setup', authenticate, requireAgencyAdmin, getAgencyBillingPaymentMethodSetup);
 router.get('/:agencyId/payment-methods', authenticate, requireAgencyAccess, requireMedicalBillingFinancialAccess, listAgencyBillingPaymentMethods);

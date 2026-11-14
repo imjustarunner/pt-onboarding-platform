@@ -183,7 +183,7 @@ class BookingPackage {
     return (rows || []).map(mapPackage);
   }
 
-  static async findById(id, agencyId = null) {
+  static async findById(id, agencyId = null, db = pool) {
     const pid = Number(id || 0);
     if (!pid) return null;
     const params = [pid];
@@ -197,7 +197,7 @@ class BookingPackage {
       params.push(Number(agencyId));
     }
     sql += ` LIMIT 1`;
-    const [rows] = await pool.execute(sql, params);
+    const [rows] = await db.execute(sql, params);
     return mapPackage(rows?.[0]);
   }
 
@@ -393,7 +393,7 @@ class BookingPackage {
     return (rows || []).map(mapEntitlement);
   }
 
-  static async findEntitlementById(id, agencyId = null) {
+  static async findEntitlementById(id, agencyId = null, db = pool) {
     const eid = Number(id || 0);
     if (!eid) return null;
     const params = [eid];
@@ -408,7 +408,7 @@ class BookingPackage {
       params.push(Number(agencyId));
     }
     sql += ` LIMIT 1`;
-    const [rows] = await pool.execute(sql, params);
+    const [rows] = await db.execute(sql, params);
     const row = rows?.[0];
     if (!row) return null;
     return {
@@ -447,14 +447,14 @@ class BookingPackage {
     stripePaymentIntentId = null,
     createdByUserId = null,
     pricingSnapshot = null
-  } = {}) {
-    const pkg = await this.findById(packageId, agencyId);
+  } = {}, db = pool) {
+    const pkg = await this.findById(packageId, agencyId, db);
     if (!pkg || !pkg.isActive) {
       throw Object.assign(new Error('Package not found'), { status: 404 });
     }
     const cid = Number(clientId || 0);
     if (!cid) throw Object.assign(new Error('clientId is required'), { status: 400 });
-    const [result] = await pool.execute(
+    const [result] = await db.execute(
       `INSERT INTO booking_package_entitlements
         (agency_id, client_id, package_id, learning_program_class_id, business_type,
          sessions_purchased, sessions_remaining, sessions_reserved,
@@ -473,7 +473,7 @@ class BookingPackage {
         pricingSnapshot?JSON.stringify(pricingSnapshot):null
       ]
     );
-    return this.findEntitlementById(result.insertId, pkg.agencyId);
+    return this.findEntitlementById(result.insertId, pkg.agencyId, db);
   }
 
   /**
@@ -491,7 +491,8 @@ class BookingPackage {
     entitlementId = null
   } = {}) {
     const pkg = await this.findById(packageId, agencyId);
-    if (!pkg || !pkg.isActive) {
+    const savedCheckout = Number(entitlementId)>0 && !!stripePaymentIntentId && paymentStatus==='PAID';
+    if (!pkg || (!pkg.isActive && !savedCheckout)) {
       throw Object.assign(new Error('Package not found'), { status: 404 });
     }
     const cid = Number(clientId || 0);

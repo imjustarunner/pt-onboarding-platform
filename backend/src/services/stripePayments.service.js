@@ -16,6 +16,8 @@
 
 import Stripe from 'stripe';
 import {quoteAgencyCardFee} from './medicalServiceFees.service.js';
+import {stripeConfiguration} from '../utils/qaStripeConfiguration.js';
+import {stripePaymentConfiguration} from './stripePaymentContext.service.js';
 
 // Express with Stripe Managed Risk requires this documented preview version.
 // Keep it scoped to account creation; existing payment API calls retain theirs.
@@ -24,21 +26,21 @@ export function stripeConnectStatus(account) {
   return account?.charges_enabled && account?.payouts_enabled ? 'active' : 'pending';
 }
 
-function getStripe() {
-  const key = process.env.STRIPE_SECRET_KEY || '';
+function getStripe(key = process.env.STRIPE_SECRET_KEY || '') {
   if (!key || key === 'sk_test_REPLACE_ME') {
     throw new Error('Stripe is not configured. Set STRIPE_SECRET_KEY in your .env file.');
   }
   return new Stripe(key, { apiVersion: '2024-06-20' });
 }
 
-export function isStripeConfigured() {
-  const key = process.env.STRIPE_SECRET_KEY || '';
-  return !!key && key !== 'sk_test_REPLACE_ME';
+export function isStripeConfigured(agencyId=null) {
+  return stripeConfiguration(agencyId).allowed;
 }
 
-export function getStripePublishableKey() {
-  const key = process.env.STRIPE_PUBLISHABLE_KEY || '';
+export function getStripePublishableKey(agencyId=null) {
+  const config=stripeConfiguration(agencyId);
+  if(config.testModeRequired&&!config.allowed)return null;
+  const key = config.publishable;
   if (!key || key === 'pk_test_REPLACE_ME') return null;
   return key;
 }
@@ -46,6 +48,15 @@ export function getStripePublishableKey() {
 /** Build the Stripe request options object for a connected account (or empty for platform). */
 function connectOpts(connectedAccountId) {
   return connectedAccountId ? { stripeAccount: connectedAccountId } : {};
+}
+
+async function paymentStripe(connectedAccountId=null,agencyId=null){
+  if(String(connectedAccountId||'').startsWith('qa_simulator_')){
+    const {qaSimulationGateway}=await import('./qaPaymentSimulator.service.js');
+    return qaSimulationGateway(connectedAccountId);
+  }
+  const config=await stripePaymentConfiguration({connectedAccountId,agencyId});
+  return getStripe(config.secret);
 }
 
 class StripePaymentsService {
@@ -58,7 +69,7 @@ class StripePaymentsService {
    * Called once during agency onboarding.
    */
   static async createConnectAccount({ email = null, businessName = null, businessUrl = null, businessType = null, metadata = {}, idempotencyKey = null } = {}) {
-    const stripe = getStripe();
+    const stripe = await paymentStripe(null,metadata?.agency_id);
     if (!email) throw new Error('An administrator email is required to start Stripe setup.');
     if (businessType && !['company','individual','non_profit','government_entity'].includes(businessType)) throw new Error('Invalid Stripe business type.');
     const account = await stripe.v2.core.accounts.create({
@@ -84,7 +95,7 @@ class StripePaymentsService {
    * The agency admin is redirected here to complete KYC and bank setup.
    */
   static async createAccountLink({ connectedAccountId, returnUrl, refreshUrl }) {
-    const stripe = getStripe();
+    const stripe = await paymentStripe(connectedAccountId);
     const link = await stripe.accountLinks.create({
       account: connectedAccountId,
       return_url: returnUrl,
@@ -99,7 +110,7 @@ class StripePaymentsService {
    * `charges_enabled` being true means the account is fully onboarded.
    */
   static async retrieveConnectAccount(connectedAccountId) {
-    const stripe = getStripe();
+    const stripe = await paymentStripe(connectedAccountId);
     return stripe.accounts.retrieve(connectedAccountId);
   }
 
@@ -108,7 +119,7 @@ class StripePaymentsService {
    * Stripe Express dashboard without a separate Stripe login.
    */
   static async createLoginLink(connectedAccountId) {
-    const stripe = getStripe();
+    const stripe = await paymentStripe(connectedAccountId);
     return stripe.accounts.createLoginLink(connectedAccountId);
   }
 
@@ -117,7 +128,7 @@ class StripePaymentsService {
    * The agency's Stripe account itself is NOT deleted — only the connection.
    */
   static async disconnectConnectAccount(connectedAccountId) {
-    const stripe = getStripe();
+    const stripe = await paymentStripe(connectedAccountId);
     return stripe.accounts.del(connectedAccountId);
   }
 
@@ -145,7 +156,7 @@ class StripePaymentsService {
   }
 
   static async ensureAppCustomer({ customerKey, email = null, name = null, connectedAccountId = null, metadata = {} } = {}) {
-    const stripe = getStripe();
+    const stripe = await paymentStripe(connectedAccountId,metadata?.agency_id);
     const opts = connectOpts(connectedAccountId);
     const metaKey = String(customerKey || '').trim();
     if (!metaKey) throw new Error('customerKey is required');
@@ -185,7 +196,7 @@ class StripePaymentsService {
    * customer that lives on the connected account.
    */
   static async attachPaymentMethod({ customerId, paymentMethodId, connectedAccountId = null }) {
-    const stripe = getStripe();
+    const stripe = await paymentStripe(connectedAccountId);
     const opts = connectOpts(connectedAccountId);
 
     const pm = await stripe.paymentMethods.attach(
@@ -207,7 +218,7 @@ class StripePaymentsService {
    * Retrieve a PaymentMethod (to get brand, last4, etc.).
    */
   static async getPaymentMethod(paymentMethodId, connectedAccountId = null) {
-    const stripe = getStripe();
+    const stripe = await paymentStripe(connectedAccountId);
     return stripe.paymentMethods.retrieve(paymentMethodId, {}, connectOpts(connectedAccountId));
   }
 
@@ -223,7 +234,7 @@ class StripePaymentsService {
    * frontend must load Stripe with { stripeAccount: connectedAccountId }.
    */
   static async createSetupIntent({ customerId, connectedAccountId = null }) {
-    const stripe = getStripe();
+    const stripe = await paymentStripe(connectedAccountId);
     const intent = await stripe.setupIntents.create(
       {
         customer: customerId,
@@ -236,7 +247,7 @@ class StripePaymentsService {
   }
 
   static async retrieveSetupIntent(setupIntentId, connectedAccountId) {
-    return getStripe().setupIntents.retrieve(setupIntentId, {}, connectOpts(connectedAccountId));
+    return (await paymentStripe(connectedAccountId)).setupIntents.retrieve(setupIntentId, {}, connectOpts(connectedAccountId));
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -261,7 +272,7 @@ class StripePaymentsService {
     applicationFeeAmountCents = 0,
     idempotencyKey = null
   }) {
-    const stripe = getStripe();
+    const stripe = await paymentStripe(connectedAccountId,metadata?.agency_id);
     const opts = { ...connectOpts(connectedAccountId), ...(idempotencyKey ? { idempotencyKey } : {}) };
 
     const intentParams = {
@@ -275,7 +286,7 @@ class StripePaymentsService {
       off_session: true
     };
 
-    const feeQuote=await quoteAgencyCardFee({agencyId:metadata.agency_id,connectedAccountId,amountCents:Number(intentParams.amount),currency:String(intentParams.currency).toLowerCase(),idempotencyKey});
+    const feeQuote=stripe.qa_simulated?{feeCents:0,quoteId:null}:await quoteAgencyCardFee({agencyId:metadata.agency_id,connectedAccountId,amountCents:Number(intentParams.amount),currency:String(intentParams.currency).toLowerCase(),idempotencyKey});
     if(applicationFeeAmountCents>0&&feeQuote.feeCents>0)throw new Error('Two application fee policies cannot apply to the same payment');
     const applicationFee=feeQuote.feeCents||applicationFeeAmountCents;
     if(connectedAccountId&&applicationFee>0)intentParams.application_fee_amount=applicationFee;
@@ -299,7 +310,7 @@ class StripePaymentsService {
     applicationFeeAmountCents = 0,
     idempotencyKey = null
   }) {
-    const stripe = getStripe();
+    const stripe = await paymentStripe(connectedAccountId,metadata?.agency_id);
     const opts = { ...connectOpts(connectedAccountId), ...(idempotencyKey ? { idempotencyKey } : {}) };
     const amount = Math.max(0, Math.round(Number(amountCents || 0)));
     if (amount < 1) throw new Error('amountCents must be at least 1');
@@ -312,7 +323,7 @@ class StripePaymentsService {
       automatic_payment_methods: { enabled: true }
     };
     if (customerId) intentParams.customer = customerId;
-    const feeQuote=await quoteAgencyCardFee({agencyId:metadata.agency_id,connectedAccountId,amountCents:Number(intentParams.amount),currency:String(intentParams.currency).toLowerCase(),idempotencyKey});
+    const feeQuote=stripe.qa_simulated?{feeCents:0,quoteId:null}:await quoteAgencyCardFee({agencyId:metadata.agency_id,connectedAccountId,amountCents:Number(intentParams.amount),currency:String(intentParams.currency).toLowerCase(),idempotencyKey});
     if(applicationFeeAmountCents>0&&feeQuote.feeCents>0)throw new Error('Two application fee policies cannot apply to the same payment');
     const applicationFee=feeQuote.feeCents||applicationFeeAmountCents;
     if(connectedAccountId&&applicationFee>0)intentParams.application_fee_amount=applicationFee;
@@ -323,13 +334,13 @@ class StripePaymentsService {
   }
 
   static async retrievePaymentIntent(paymentIntentId, connectedAccountId = null) {
-    const stripe = getStripe();
+    const stripe = await paymentStripe(connectedAccountId);
     return stripe.paymentIntents.retrieve(paymentIntentId, {}, connectOpts(connectedAccountId));
   }
 
   static async createDonationCheckout({amountCents,email,connectedAccountId,metadata,successUrl,cancelUrl,idempotencyKey}) {
     if (!connectedAccountId) throw new Error('Donations require the nonprofit’s connected Stripe account');
-    return getStripe().checkout.sessions.create({
+    return (await paymentStripe(connectedAccountId,metadata?.agency_id)).checkout.sessions.create({
       mode:'payment', payment_method_types:['card'], customer_email:email,
       line_items:[{quantity:1,price_data:{currency:'usd',unit_amount:amountCents,product_data:{name:'Donation to MH4Kidz',description:'General mission support. No goods or services are provided.'}}}],
       payment_intent_data:{metadata,description:'MH4Kidz charitable contribution'}, metadata,
@@ -338,21 +349,21 @@ class StripePaymentsService {
   }
 
   static async retrieveDonationPaymentIntent(paymentIntentId, connectedAccountId) {
-    return getStripe().paymentIntents.retrieve(paymentIntentId, {expand:['latest_charge']}, {stripeAccount:connectedAccountId});
+    return (await paymentStripe(connectedAccountId)).paymentIntents.retrieve(paymentIntentId, {expand:['latest_charge']}, {stripeAccount:connectedAccountId});
   }
 
   static async refundPaymentIntent({ paymentIntentId, amountCents, connectedAccountId, idempotencyKey, metadata }) {
-    const stripe=getStripe();
+    const stripe=await paymentStripe(connectedAccountId,metadata?.agency_id);
     const intent=await stripe.paymentIntents.retrieve(paymentIntentId,{},connectOpts(connectedAccountId));
     return stripe.refunds.create({ payment_intent: paymentIntentId, amount: amountCents, metadata, ...(intent.application_fee_amount>0?{refund_application_fee:true}:{}) }, { ...connectOpts(connectedAccountId), idempotencyKey });
   }
 
   static async retrieveRefund(refundId, connectedAccountId) {
-    return getStripe().refunds.retrieve(refundId, {}, { stripeAccount: connectedAccountId });
+    return (await paymentStripe(connectedAccountId)).refunds.retrieve(refundId, {}, { stripeAccount: connectedAccountId });
   }
 
   static async cancelPaymentIntent(paymentIntentId, connectedAccountId) {
-    return getStripe().paymentIntents.cancel(paymentIntentId, {}, connectOpts(connectedAccountId));
+    return (await paymentStripe(connectedAccountId)).paymentIntents.cancel(paymentIntentId, {}, connectOpts(connectedAccountId));
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -366,9 +377,13 @@ class StripePaymentsService {
    * Use STRIPE_CONNECT_WEBHOOK_SECRET for Connect events (they include
    * `event.account`), or STRIPE_WEBHOOK_SECRET for direct events.
    */
-  static constructWebhookEvent(rawBody, signature, { connect = false } = {}) {
-    const stripe = getStripe();
-    const secret = connect
+  static constructWebhookEvent(rawBody, signature, { connect = false, qaTest = false } = {}) {
+    const config=qaTest?stripeConfiguration(450):null;
+    if(qaTest&&!config.allowed)throw new Error('The isolated Stripe test configuration is not ready.');
+    const stripe = qaTest?getStripe(config.secret):getStripe();
+    const secret = qaTest
+      ? (connect?process.env.QA_STRIPE_TEST_CONNECT_WEBHOOK_SECRET:process.env.QA_STRIPE_TEST_WEBHOOK_SECRET)||''
+      : connect
       ? process.env.STRIPE_CONNECT_WEBHOOK_SECRET || ''
       : process.env.STRIPE_WEBHOOK_SECRET || '';
 

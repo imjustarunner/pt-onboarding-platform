@@ -11,6 +11,8 @@ import AgencyBusinessType from '../models/AgencyBusinessType.model.js';
 import { assertPackagePaymentBinding, assertPackageStripeResult } from './packagePaymentPolicy.service.js';
 import { readClientInsurance } from './clientInsurance.service.js';
 import { shouldSuppressInsurancePayment } from '../utils/insurancePaymentPolicy.js';
+import {qaPaymentSimulationConfig,assertQaSimulationScope,getQaPaymentIntent,QA_PAYMENT_PROCESSOR} from './qaPaymentSimulator.service.js';
+import {prepareQaPackageCheckout,assertQaPackageResult} from './qaPackageCheckout.service.js';
 
 async function assertClientPackageCollection(agencyId, clientId, pkg, amountCents) {
   const [clients] = await pool.execute('SELECT id FROM clients WHERE id = ? AND agency_id = ?', [Number(clientId), Number(agencyId)]);
@@ -268,7 +270,8 @@ export async function startPackageCheckout({
     };
   }
 
-  const stripeReady = isStripeConfigured();
+  if((await qaPaymentSimulationConfig(agencyId)).enabled)return prepareQaPackageCheckout({agencyId,clientId,purchaserUserId,actorUserId,pkg,pricingSnapshot});
+  const stripeReady = isStripeConfigured(agencyId);
   const connectedAccountId = await getAgencyStripeConnectAccountId(agencyId);
   if (!stripeReady || !connectedAccountId) {
     throw Object.assign(
@@ -327,7 +330,7 @@ export async function startPackageCheckout({
     amountCents,
     clientSecret: intent.client_secret,
     paymentIntentId: intent.id,
-    publishableKey: getStripePublishableKey() || process.env.STRIPE_PUBLISHABLE_KEY || null,
+    publishableKey: getStripePublishableKey(agencyId),
     connectedAccountId,
     entitlementId: pending.id,
     paymentId: payment.id,
@@ -356,11 +359,17 @@ export async function confirmPackageCheckout({
     ? await BookingPackage.findEntitlementByPaymentIntent(paymentIntentId, agencyId)
     : null;
   const existingPayment = paymentIntentId ? await BookingPackagePayment.findByIntentId(paymentIntentId) : null;
-  assertPackagePaymentBinding({ entitlement, payment: existingPayment, agencyId, clientId, packageId, paymentIntentId, purchaserUserId });
-  const connectedAccountId = await getAgencyStripeConnectAccountId(agencyId);
-  if (!isStripeConfigured() || !connectedAccountId) throw Object.assign(new Error('Payment account is not available for verification'), { status: 409 });
-  const intent = await StripePaymentsService.retrievePaymentIntent(paymentIntentId, connectedAccountId);
-  assertPackageStripeResult(intent, { entitlement, payment: existingPayment, connectedAccountId });
+  const simulated=existingPayment?.processor===QA_PAYMENT_PROCESSOR;
+  if(simulated)await assertQaSimulationScope({agencyId,userId:purchaserUserId,clientId});
+  assertPackagePaymentBinding({ entitlement, payment: existingPayment, agencyId, clientId, packageId, paymentIntentId, purchaserUserId,expectedProcessor:simulated?QA_PAYMENT_PROCESSOR:'STRIPE' });
+  let intent;
+  if(simulated){intent=await getQaPaymentIntent(paymentIntentId,agencyId);assertQaPackageResult(intent,{agencyId,clientId,purchaserUserId,entitlement,payment:existingPayment});}
+  else{
+   const connectedAccountId = await getAgencyStripeConnectAccountId(agencyId);
+   if (!isStripeConfigured(agencyId) || !connectedAccountId) throw Object.assign(new Error('Payment account is not available for verification'), { status: 409 });
+   intent = await StripePaymentsService.retrievePaymentIntent(paymentIntentId, connectedAccountId);
+   assertPackageStripeResult(intent, { entitlement, payment: existingPayment, connectedAccountId });
+  }
   // Verify ownership even on replay. Consumed or cancelled paid packages must
   // never regain credits just because the original payment succeeds again.
   if (entitlement.paymentStatus === 'PAID') {
@@ -368,7 +377,7 @@ export async function confirmPackageCheckout({
     return { ok: true, entitlement, alreadyActivated: true };
   }
   const {recordVerifiedPackageSettlement}=await import('./familyLedger/payments.js');
-  await recordVerifiedPackageSettlement({agencyId,clientId,payerUserId:entitlement.purchaserUserId,packageId:pkg.id,entitlementId:entitlement.id,amountCents:Number(existingPayment.amountCents),paymentIntentId:intent.id,actorUserId});
+  await recordVerifiedPackageSettlement({agencyId,clientId,payerUserId:entitlement.purchaserUserId,packageId:pkg.id,entitlementId:entitlement.id,amountCents:Number(existingPayment.amountCents),paymentIntentId:intent.id,actorUserId,processor:simulated?QA_PAYMENT_PROCESSOR:'LEGACY'});
   const activated = await BookingPackage.activateEntitlement({
     agencyId,
     clientId,
@@ -388,7 +397,7 @@ export async function confirmPackageCheckout({
 
   await runTutoringPostPurchaseHooks({ entitlement: activated, package: pkg, actorUserId });
 
-  return { ok: true, entitlement: activated };
+  return { ok: true, entitlement: activated,...(simulated?{simulated:true,processor:QA_PAYMENT_PROCESSOR}:{}) };
 }
 
 /**

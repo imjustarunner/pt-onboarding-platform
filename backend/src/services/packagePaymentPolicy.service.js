@@ -1,11 +1,11 @@
 import { billingError } from './familyBillingPolicy.service.js';
 
-export function assertPackagePaymentBinding({ entitlement, payment, agencyId, clientId, packageId, paymentIntentId, purchaserUserId }) {
+export function assertPackagePaymentBinding({ entitlement, payment, agencyId, clientId, packageId, paymentIntentId, purchaserUserId,expectedProcessor='STRIPE' }) {
   const matches = (row) => row && Number(row.agencyId) === Number(agencyId)
     && Number(row.clientId) === Number(clientId) && Number(row.packageId) === Number(packageId);
   if (!paymentIntentId || !matches(entitlement) || !matches(payment)
     || entitlement.stripePaymentIntentId !== paymentIntentId
-    || payment.processorIntentId !== paymentIntentId || payment.processor !== 'STRIPE'
+    || payment.processorIntentId !== paymentIntentId || payment.processor !== expectedProcessor
     || Number(payment.entitlementId) !== Number(entitlement.id)
     || !Number.isSafeInteger(payment.amountCents) || payment.amountCents <= 0
     || !['PENDING', 'SUCCEEDED'].includes(payment.paymentStatus)

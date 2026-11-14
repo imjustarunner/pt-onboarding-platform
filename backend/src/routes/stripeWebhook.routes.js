@@ -21,6 +21,7 @@ import {stripeConnectStatus} from '../services/stripePayments.service.js';
 import express from 'express';
 import StripePaymentsService from '../services/stripePayments.service.js';
 import pool from '../config/database.js';
+import {assertQaStripeWebhookScope} from '../services/qaStripeWebhook.service.js';
 
 const router = express.Router();
 
@@ -158,5 +159,18 @@ router.post(
     res.json({ received: true });
   }
 );
+
+// Dedicated signing secrets and scope checks keep QA events out of live accounts.
+for(const connect of [false,true]){
+ router.post(connect?'/qa-test-connect-webhook':'/qa-test-webhook',express.raw({type:'application/json'}),async(req,res)=>{
+  let event;
+  try{
+   event=StripePaymentsService.constructWebhookEvent(req.body,req.headers['stripe-signature'],{connect,qaTest:true});
+   await assertQaStripeWebhookScope(event);
+  }catch{return res.status(400).json({error:'Invalid QA test webhook signature or organization scope'});}
+  try{await handleStripeEvent(event);return res.json({received:true,testMode:true});}
+  catch(error){console.error('[stripe QA webhook] Handler error:',error.message);return res.status(500).json({error:'Webhook processing failed'});}
+ });
+}
 
 export default router;

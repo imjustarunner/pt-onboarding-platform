@@ -195,7 +195,7 @@ export const getPublicPacket = async (req, res, next) => {
     const packages = all.filter((p) => offeredIds.has(p.id) && p.is_active);
     const agency = await Agency.findById(packet.agency_id);
     const connectedAccountId = await getAgencyStripeConnectAccountId(packet.agency_id);
-    const publishableKey = getStripePublishableKey();
+    const publishableKey = getStripePublishableKey(packet.agency_id);
     const intakeLinks = await listIntakeLinksForPacket(packet);
     const completedIntakeLinkIds = (packet.completed_intake_link_ids || []).map(Number);
     res.json({
@@ -213,7 +213,7 @@ export const getPublicPacket = async (req, res, next) => {
       intakeLinks,
       agency: { id: packet.agency_id, name: agency?.name || '', slug: agency?.slug || null },
       stripe: {
-        enabled: !!(isStripeConfigured() && publishableKey && connectedAccountId),
+        enabled: !!(isStripeConfigured(packet.agency_id) && publishableKey && connectedAccountId),
         publishableKey: publishableKey || null,
         connectedAccountId: connectedAccountId || null
       }
@@ -246,8 +246,8 @@ export const postPublicPacketCheckout = async (req, res, next) => {
 
     const amountCents = resolveChargeAmountCents(pkg, paymentMode);
     const connectedAccountId = await getAgencyStripeConnectAccountId(packet.agency_id);
-    const publishableKey = getStripePublishableKey();
-    const stripeReady = !!(isStripeConfigured() && publishableKey && connectedAccountId);
+    const publishableKey = getStripePublishableKey(packet.agency_id);
+    const stripeReady = !!(isStripeConfigured(packet.agency_id) && publishableKey && connectedAccountId);
 
     if (!stripeReady && amountCents > 0) throw billingError(402,'Card collection is not configured. Contact the office to arrange a recorded cash payment.');
 
@@ -302,7 +302,7 @@ export const postPublicPacketConfirm = async (req, res, next) => {
     const pkg = await assertOfferedPackage(packet, packageId);
 
     const connectedAccountId = await getAgencyStripeConnectAccountId(packet.agency_id);
-    const stripeReady = !!(isStripeConfigured() && connectedAccountId);
+    const stripeReady = !!(isStripeConfigured(packet.agency_id) && connectedAccountId);
     const savedAttempt=paymentIntentId?await savedPractitionerCheckout(packet,paymentIntentId):null;
     if(savedAttempt&&(Number(savedAttempt.package_id)!==packageId||savedAttempt.payment_mode!==paymentMode||savedAttempt.connected_account_id!==connectedAccountId))throw billingError(409,'Checkout binding changed');
     const expectedAmount = savedAttempt?Number(savedAttempt.amount_cents):resolveChargeAmountCents(pkg, paymentMode);

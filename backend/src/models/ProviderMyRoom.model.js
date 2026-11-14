@@ -39,10 +39,10 @@ function mapLobby(r) {
 }
 
 class ProviderMyRoom {
-  static async findByUserId(userId, agencyId = null) {
+  static async findByUserId(userId, agencyId = null, db = pool) {
     const uid = Number(userId || 0);
     if (!uid) return null;
-    const [rows] = await pool.execute(
+    const [rows] = await db.execute(
       `SELECT * FROM provider_my_rooms WHERE user_id = ? ${agencyId ? "AND agency_id = ?" : ""} ORDER BY id LIMIT 1`,
       agencyId ? [uid, Number(agencyId)] : [uid]
     );
@@ -69,19 +69,19 @@ class ProviderMyRoom {
     return mapRoom(rows?.[0]);
   }
 
-  static async getOrCreateForUser(userId, agencyId = null) {
+  static async getOrCreateForUser(userId, agencyId = null, db = pool) {
     const uid = Number(userId || 0);
     if (!uid) throw Object.assign(new Error('userId is required'), { status: 400 });
 
-    const existing = await this.findByUserId(uid, agencyId);
+    const existing = await this.findByUserId(uid, agencyId, db);
     if (existing) {
       if (agencyId && !existing.agencyId) {
         try {
-          await pool.execute(
+          await db.execute(
             `UPDATE provider_my_rooms SET agency_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
             [Number(agencyId), existing.id]
           );
-          return this.findByUserId(uid, agencyId);
+          return this.findByUserId(uid, agencyId, db);
         } catch {
           return existing;
         }
@@ -93,7 +93,7 @@ class ProviderMyRoom {
     const joinToken = generateJoinToken().slice(0, 64);
     let displayName = null;
     try {
-      const [users] = await pool.execute(
+      const [users] = await db.execute(
         `SELECT first_name, last_name FROM users WHERE id = ? LIMIT 1`,
         [uid]
       );
@@ -108,7 +108,7 @@ class ProviderMyRoom {
     }
 
     try {
-      const [result] = await pool.execute(
+      const [result] = await db.execute(
         `INSERT INTO provider_my_rooms
            (user_id, agency_id, slug, join_token, display_name, is_active)
          VALUES (?, ?, ?, ?, ?, 1)`,
@@ -128,7 +128,7 @@ class ProviderMyRoom {
     } catch (e) {
       // Race: another request created the room
       if (e?.code === 'ER_DUP_ENTRY') {
-        return this.findByUserId(uid, agencyId);
+        return this.findByUserId(uid, agencyId, db);
       }
       throw e;
     }

@@ -12951,11 +12951,6 @@ export const getStripeConfig = async (req, res, next) => {
     const { link } = await resolvePublicIntakeContext(publicKey);
     if (!link?.is_active) return res.status(404).json({ error: { message: 'Intake link not found' } });
 
-    const publishableKey = getStripePublishableKey();
-    if (!publishableKey) {
-      return res.json({ stripeEnabled: false, publishableKey: null, connectedAccountId: null });
-    }
-
     // Resolve the agency for this intake link
     let agencyId = Number(link?.agency_id || 0) || null;
     if (!agencyId && link?.organization_id) {
@@ -12967,6 +12962,8 @@ export const getStripeConfig = async (req, res, next) => {
 
     const paymentState=await qaStripeCollectionState(agencyId);
     if(!paymentState.allowed)return res.json({stripeEnabled:false,publishableKey:null,connectedAccountId:null,testModeRequired:true,mode:paymentState.mode});
+    const publishableKey = getStripePublishableKey(agencyId);
+    if (!publishableKey) return res.json({stripeEnabled:false,publishableKey:null,connectedAccountId:null,testModeRequired:paymentState.testModeRequired,mode:paymentState.mode});
     const connectedAccountId = agencyId ? await getAgencyStripeConnectAccountId(agencyId) : null;
 
     res.json({

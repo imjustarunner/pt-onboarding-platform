@@ -11,6 +11,7 @@ import { responsibilityLabels } from './presentation.js';
 import { requireLiveGuardianBilling } from '../guardianTestAccess.service.js';
 import { reconcileMissedFeePayroll } from '../missedSessionFeePayroll.service.js';
 import { applyCopayCreditsLocked, queueReceiptEvent } from './copayCredits.js';
+import {qaPaymentSimulationConfig,assertQaSimulationScope,qaCardMerchant,qaSimulationAccount,getQaPaymentIntent,isQaSimulationAccount,QA_PAYMENT_PROCESSOR} from '../qaPaymentSimulator.service.js';
 
 const context = (agencyId, allocationId) => `ledger-payment:${agencyId}:${allocationId}`;
 export async function lockAllocation(agencyId, allocationId, db) {
@@ -26,8 +27,10 @@ export async function activeCard(agencyId, clientId, userId, db) {
   const cards=await Cards.findActiveByGuardian(userId,agencyId,db);
   const card=cards.find(c=>Number(c.id)===Number(payer.payment_card_id));
   if(!card?.stripe_payment_method_id||!card?.connected_account_id)throw billingError(409,'Assign your verified card to this client first');
-  const [merchant]=await db.execute("SELECT stripe_connect_account_id FROM agency_billing_accounts WHERE agency_id=? AND stripe_connect_status='active'",[agencyId]);
-  if(merchant[0]?.stripe_connect_account_id!==card.connected_account_id)throw billingError(409,'Verify a card for this organization’s payment account');
+  if(!await qaCardMerchant(card,{agencyId,userId,clientId},db)){
+   const [merchant]=await db.execute("SELECT stripe_connect_account_id FROM agency_billing_accounts WHERE agency_id=? AND stripe_connect_status='active'",[agencyId]);
+   if(merchant[0]?.stripe_connect_account_id!==card.connected_account_id)throw billingError(409,'Verify a card for this organization’s payment account');
+  }
   return {payer,card};
 }
 async function assertRecurring({agencyId,userId,clientId,payer,card,amount},db) {
@@ -35,7 +38,8 @@ async function assertRecurring({agencyId,userId,clientId,payer,card,amount},db) 
   if(!consents.length||amount>Number(payer.recurring_limit_cents||0))throw billingError(409,'This amount is not covered by a current recurring authorization');
 }
 export async function payAllocation({agencyId,userId,allocationId,amountCents,idempotencyKey,automatic=false,planId=null}) {
-  await requireLiveGuardianBilling(userId);
+  if((await qaPaymentSimulationConfig(agencyId)).enabled)await assertQaSimulationScope({agencyId,userId});
+  else await requireLiveGuardianBilling(userId);
   const requestedAmount=cents(amountCents), requestKey=key(idempotencyKey);
   let amount=requestedAmount;
   const attempt=await transaction(async db=>{
@@ -97,7 +101,8 @@ export async function payAllocation({agencyId,userId,allocationId,amountCents,id
       }
     }
     const snapshot={customerId:card.stripe_customer_id,paymentMethodId:card.stripe_payment_method_id,accountId:card.connected_account_id,amountCents:amount,requestedAmountCents:requestedAmount,automaticCopay:automatic&&!planId,currency:String(receivable.currency).toLowerCase(),brand:card.card_brand,last4:card.card_last4};
-    const [result]=await db.execute("INSERT INTO family_ledger_payments (agency_id,allocation_id,payer_user_id,processor,amount_cents,currency,idempotency_key,snapshot_encrypted,created_by_user_id) VALUES (?,?,?,'STRIPE',?,?,?,?,?)",[agencyId,allocationId,userId,amount,receivable.currency,requestKey,encryptFamilyBilling(snapshot,context(agencyId,allocationId)),userId]);
+    const processor=card.payment_provider===QA_PAYMENT_PROCESSOR?QA_PAYMENT_PROCESSOR:'STRIPE';
+    const [result]=await db.execute("INSERT INTO family_ledger_payments (agency_id,allocation_id,payer_user_id,processor,amount_cents,currency,idempotency_key,snapshot_encrypted,created_by_user_id) VALUES (?,?,?,?,?,?,?,?,?)",[agencyId,allocationId,userId,processor,amount,receivable.currency,requestKey,encryptFamilyBilling(snapshot,context(agencyId,allocationId)),userId]);
     return {id:result.insertId,agency_id:agencyId,allocation_id:allocationId,payer_user_id:userId,amount_cents:amount,status:'pending',idempotency_key:requestKey,snapshot_encrypted:encryptFamilyBilling(snapshot,context(agencyId,allocationId))};
   });
   if(attempt.creditOnly)return {paid:true,chargedCents:0,creditAppliedCents:attempt.creditAppliedCents};
@@ -130,15 +135,15 @@ export async function payAllocation({agencyId,userId,allocationId,amountCents,id
   if(intent.status==='succeeded') { await finalizePayment(attempt.id,agencyId,intent,snapshot.accountId); return {paid:true,paymentId:attempt.id}; }
   const authentication=intent.status==='requires_action'||(intent.status==='requires_payment_method'&&(intent.last_payment_error?.code==='authentication_required'||intent.last_payment_error?.decline_code==='authentication_required'));
   await pool.execute("UPDATE family_ledger_payments SET status=? WHERE id=? AND status<>'succeeded'",[authentication?'requires_action':intent.status==='canceled'?'cancelled':'pending',attempt.id]);
-  if(authentication&&!automatic)return {paid:false,requiresAction:true,clientSecret:intent.client_secret,paymentMethodId:snapshot.paymentMethodId,connectedAccountId:snapshot.accountId,publishableKey:getStripePublishableKey(),paymentId:attempt.id};
+  if(authentication&&!automatic)return {paid:false,requiresAction:true,clientSecret:intent.client_secret,paymentMethodId:snapshot.paymentMethodId,connectedAccountId:snapshot.accountId,publishableKey:getStripePublishableKey(agencyId),paymentId:attempt.id};
   throw billingError(409,authentication?'Sign in to complete bank authentication':intent.status==='requires_payment_method'?'The card was declined. Verify another card and retry.':'Payment is processing; refresh before retrying');
 }
 async function receiptSnapshot(payment,receivable,allocation,snapshot,db,receivedAt) {
   const [agencies]=await db.execute('SELECT name FROM agencies WHERE id=?',[payment.agency_id]);
   const [payers]=await db.execute('SELECT first_name,last_name FROM users WHERE id=?',[payment.payer_user_id]);
-  const [clients]=await db.execute('SELECT full_name,initials FROM clients WHERE id=? AND agency_id=?',[receivable.client_id,payment.agency_id]);
+  const [clients]=await db.execute('SELECT full_name,initials,client_type FROM clients WHERE id=? AND agency_id=?',[receivable.client_id,payment.agency_id]);
   const responsibility=sourcePayload(receivable),type=responsibilityLabels[responsibility.responsibilityType]||'Service payment';
-  return {...(responsibility.serviceTerm?{serviceCode:responsibility.serviceTerm.serviceCode,serviceUnits:responsibility.serviceTerm.units,unitAmountCents:responsibility.serviceTerm.amountCents,priceBasis:responsibility.serviceTerm.priceBasis}:{}),portalBrand:['mental_health','clinical'].includes(receivable.service_domain)?'AuricWell':`${agencies[0]?.name||'Organization'} Portal`,clientName:clients[0]?.full_name||clients[0]?.initials||null,receiptNumber:`R-${payment.agency_id}-${payment.id}`,agencyName:agencies[0]?.name||'Organization',payerName:[payers[0]?.first_name,payers[0]?.last_name].filter(Boolean).join(' '),service:['mental_health','clinical','unknown'].includes(receivable.service_domain)?'Services':`${receivable.service_domain} services`,serviceDate:receivable.service_date?dateOnly(receivable.service_date):null,balanceReference:receivable.id,responsibilityType:type,verificationBasis:responsibility.responsibilityType==='missed_session_fee'?'Missed-appointment fee under existing client agreement; no service claim':responsibility.verificationBasis==='era'?'Payer remittance':responsibility.responsibilityType==='copay'?'Verified visit copay, subject to payer determination':'Verified patient responsibility / agreed service terms',shareCents:Number(allocation.amount_cents),previouslyPaidCents:Number(allocation.paid_cents),remainingAtPaymentCents:allocationDue(allocation)-Number(payment.amount_cents),amountCents:Number(payment.amount_cents),currency:payment.currency,receivedAt:new Date(receivedAt).toISOString(),method:payment.processor==='CASH'?'Cash':payment.processor==='LEGACY'?'Previously recorded payment':`${snapshot.brand||'Card'} ending in ${snapshot.last4||'••••'}`};
+  return {...(payment.processor===QA_PAYMENT_PROCESSOR?{simulated:true,processor:QA_PAYMENT_PROCESSOR}:{}),...(['learning','tutoring'].includes(String(clients[0]?.client_type).toLowerCase())?{learningService:true}:{}),...(responsibility.serviceTerm?{serviceCode:responsibility.serviceTerm.serviceCode,serviceUnits:responsibility.serviceTerm.units,unitAmountCents:responsibility.serviceTerm.amountCents,priceBasis:responsibility.serviceTerm.priceBasis}:{}),portalBrand:['mental_health','clinical'].includes(receivable.service_domain)?'AuricWell':`${agencies[0]?.name||'Organization'} Portal`,clientName:clients[0]?.full_name||clients[0]?.initials||null,receiptNumber:`R-${payment.agency_id}-${payment.id}`,agencyName:agencies[0]?.name||'Organization',payerName:[payers[0]?.first_name,payers[0]?.last_name].filter(Boolean).join(' '),service:['mental_health','clinical','unknown'].includes(receivable.service_domain)?'Services':`${receivable.service_domain} services`,serviceDate:receivable.service_date?dateOnly(receivable.service_date):null,balanceReference:receivable.id,responsibilityType:type,verificationBasis:responsibility.responsibilityType==='missed_session_fee'?'Missed-appointment fee under existing client agreement; no service claim':responsibility.verificationBasis==='era'?'Payer remittance':responsibility.responsibilityType==='copay'?'Verified visit copay, subject to payer determination':'Verified patient responsibility / agreed service terms',shareCents:Number(allocation.amount_cents),previouslyPaidCents:Number(allocation.paid_cents),remainingAtPaymentCents:allocationDue(allocation)-Number(payment.amount_cents),amountCents:Number(payment.amount_cents),currency:payment.currency,receivedAt:new Date(receivedAt).toISOString(),method:payment.processor==='CASH'?'Cash':payment.processor==='LEGACY'?'Previously recorded payment':`${snapshot.brand||'Card'} ending in ${snapshot.last4||'••••'}`};
 }
 async function postCapture(payment,receivable,allocation,snapshot,db,receivedAt=new Date()) {
   if(payment.status==='succeeded')return;
@@ -162,7 +167,13 @@ export async function finalizePayment(paymentId,agencyId,intent,accountId) {
     const {receivable,allocation}=await lockAllocation(agencyId,lookup[0].allocation_id,db);
     const [rows]=await db.execute('SELECT * FROM family_ledger_payments WHERE id=? FOR UPDATE',[paymentId]);
     const payment=rows[0], snapshot=decryptFamilyBilling(payment.snapshot_encrypted,context(agencyId,payment.allocation_id));
-    if(payment.processor!=='STRIPE'||snapshot.accountId!==accountId||(payment.processor_intent_id&&payment.processor_intent_id!==intent.id)||String(intent.metadata?.family_ledger_payment_id)!==String(payment.id)||String(intent.metadata?.agency_id)!==String(agencyId))throw billingError(409,'Payment binding mismatch');
+    if(payment.processor===QA_PAYMENT_PROCESSOR){
+      // Use persisted simulator evidence, never a caller-supplied success label.
+      if(!intent.qa_simulated||accountId!==qaSimulationAccount(agencyId))throw billingError(409,'Payment simulation binding mismatch');
+      intent=await getQaPaymentIntent(intent.id,agencyId,db);
+      if(intent.sourceKind!=='family_ledger'||intent.sourceId!==String(payment.id)||intent.payerUserId!==Number(payment.payer_user_id)||intent.clientId!==Number(receivable.client_id)||intent.amount!==Number(payment.amount_cents))throw billingError(409,'Payment simulation binding mismatch');
+    }else if(payment.processor!=='STRIPE'||intent.qa_simulated)throw billingError(409,'Payment processor mismatch');
+    if(snapshot.accountId!==accountId||(payment.processor_intent_id&&payment.processor_intent_id!==intent.id)||String(intent.metadata?.family_ledger_payment_id)!==String(payment.id)||String(intent.metadata?.agency_id)!==String(agencyId))throw billingError(409,'Payment binding mismatch');
     verifyPaymentResult(intent,snapshot);
     await db.execute('UPDATE family_ledger_payments SET processor_intent_id=? WHERE id=?',[intent.id,payment.id]);
     await postCapture(payment,receivable,allocation,snapshot,db);
@@ -175,18 +186,19 @@ export async function finalizePayment(paymentId,agencyId,intent,accountId) {
   return result;
 }
 export async function reconcileLedgerPayment(intent,accountId) {
+  if(intent.qa_simulated||isQaSimulationAccount(accountId))return false;
   if(!intent.metadata?.family_ledger_payment_id)return false;
   await finalizePayment(Number(intent.metadata.family_ledger_payment_id),Number(intent.metadata.agency_id),intent,accountId); return true;
 }
 /** Read-only processor lookup followed by idempotent local posting; never charges. */
 export async function reconcileSavedPayment({agencyId,paymentId}) {
-  const [rows]=await pool.execute("SELECT * FROM family_ledger_payments WHERE agency_id=? AND id=? AND processor='STRIPE'",[agencyId,paymentId]);
+  const [rows]=await pool.execute("SELECT * FROM family_ledger_payments WHERE agency_id=? AND id=? AND processor IN ('STRIPE','QA_SIMULATOR')",[agencyId,paymentId]);
   const payment=rows[0];
   if(!payment)throw billingError(404,'Payment not found');
   if(!payment.processor_intent_id)throw billingError(409,'The processor reference is missing. Reconcile this attempt in Stripe before another charge');
   const snapshot=decryptFamilyBilling(payment.snapshot_encrypted,context(agencyId,payment.allocation_id));
   const intent=await Stripe.retrievePaymentIntent(payment.processor_intent_id,snapshot.accountId);
-  if(intent.status!=='succeeded')return {paid:false,message:'Stripe has not confirmed a successful payment. No new charge was attempted.'};
+  if(intent.status!=='succeeded')return {paid:false,message:payment.processor===QA_PAYMENT_PROCESSOR?'The simulation is not successful yet. No money moves.':'Stripe has not confirmed a successful payment. No new charge was attempted.'};
   return finalizePayment(payment.id,agencyId,intent,snapshot.accountId);
 }
 export async function recordCash({agencyId,allocationId,payerUserId,amountCents,receivedAt,idempotencyKey,actorUserId,note}) {
@@ -214,17 +226,19 @@ export async function recordCash({agencyId,allocationId,payerUserId,amountCents,
 }
 
 /** Internal adapter: called only after the original checkout has verified Stripe. */
-export async function recordVerifiedPackageSettlement({agencyId,clientId,payerUserId,packageId,entitlementId,amountCents,paymentIntentId,actorUserId}) {
+export async function recordVerifiedPackageSettlement({agencyId,clientId,payerUserId,packageId,entitlementId,amountCents,paymentIntentId,actorUserId,processor='LEGACY'}) {
+  if(!['LEGACY',QA_PAYMENT_PROCESSOR].includes(processor))throw billingError(400,'Invalid package payment processor.');
   return transaction(async db=>{
+    if(processor===QA_PAYMENT_PROCESSOR)await assertQaSimulationScope({agencyId,userId:payerUserId,clientId},db);
     const {createReceivable}=await import('./receivables.js');
     const r=await createReceivable({agencyId,clientId,sourceType:'package_settlement',sourceKey:paymentIntentId,serviceDomain:'unknown',amountCents,shares:[{payerUserId,basisPoints:10000}],actorUserId,payload:{packageId,entitlementId,paymentIntentId,verifiedExistingCheckout:true}},db);
     const [allocation]=await allocationsFor(r.id,db,true);
     const requestKey=`verified-package:${paymentIntentId}`;
     const [existing]=await db.execute('SELECT id FROM family_ledger_payments WHERE agency_id=? AND idempotency_key=?',[agencyId,requestKey]);if(existing.length)return {paymentId:existing[0].id};
     // Already-received funds must be recorded even when coverage changed after capture.
-    const snapshot={originalPaymentIntentId:paymentIntentId};
-    const [result]=await db.execute("INSERT INTO family_ledger_payments (agency_id,allocation_id,payer_user_id,processor,amount_cents,currency,idempotency_key,snapshot_encrypted,created_by_user_id,processor_intent_id) VALUES (?,?,?,'LEGACY',?,'USD',?,?,?,?)",[agencyId,allocation.id,payerUserId,amountCents,requestKey,encryptFamilyBilling(snapshot,context(agencyId,allocation.id)),actorUserId||payerUserId,paymentIntentId]);
-    await postCapture({id:result.insertId,agency_id:agencyId,payer_user_id:payerUserId,processor:'LEGACY',amount_cents:amountCents,currency:'USD',created_by_user_id:actorUserId||payerUserId,status:'pending'},r,allocation,snapshot,db);
+    const snapshot={originalPaymentIntentId:paymentIntentId,...(processor===QA_PAYMENT_PROCESSOR?{accountId:qaSimulationAccount(agencyId),brand:'QA SIMULATION',last4:'0000'}:{})};
+    const [result]=await db.execute("INSERT INTO family_ledger_payments (agency_id,allocation_id,payer_user_id,processor,amount_cents,currency,idempotency_key,snapshot_encrypted,created_by_user_id,processor_intent_id) VALUES (?,?,?,?,?,'USD',?,?,?,?)",[agencyId,allocation.id,payerUserId,processor,amountCents,requestKey,encryptFamilyBilling(snapshot,context(agencyId,allocation.id)),actorUserId||payerUserId,paymentIntentId]);
+    await postCapture({id:result.insertId,agency_id:agencyId,payer_user_id:payerUserId,processor,amount_cents:amountCents,currency:'USD',created_by_user_id:actorUserId||payerUserId,status:'pending'},r,allocation,snapshot,db);
     return {paymentId:result.insertId};
   });
 }
