@@ -21867,7 +21867,7 @@ const ensureVirtualWorkingHoursForRange = async ({
   if (editingOpenSlot.value?.virtualHoursId) {
     if (agencyId !== Number(editingOpenSlot.value.agencyId)) throw new Error('This weekly series belongs to its original agency. Create a new open slot to publish for another agency.');
     const edit=editingOpenSlot.value;
-    const apply=scope=>api.patch(`/availability/providers/${scheduleActorUserId.value}/virtual-working-hours/${edit.virtualHoursId}`, {agencyId,scope,occurrenceDate:String(edit.startAt).slice(0,10),dayOfWeek:dayName,startTime:`${pad2(startHour)}:${pad2(startMinute)}`,endTime:`${pad2(endHour)}:${pad2(endMinute)}`,availableForIntake,availableForSession,startDate:addDaysYmd(weekStart.value,dayIdxFromWeekStartMonday(dayName)),purpose:editorOpenPurpose.value,serviceType:editorOpeningServiceType.value,careTypes:editorOpeningServiceType.value==='tutoring'?null:editorCareTypes.value});
+    const apply=scope=>api.patch(`/availability/providers/${scheduleActorUserId.value}/virtual-working-hours/${edit.virtualHoursId}`, {agencyId,scope,occurrenceDate:String(edit.startAt).slice(0,10),dayOfWeek:dayName,startTime:`${pad2(startHour)}:${pad2(startMinute)}`,endTime:`${pad2(endHour)}:${pad2(endMinute)}`,availableForIntake,availableForSession,startDate:addDaysYmd(weekStart.value,dayIdxFromWeekStartMonday(dayName)),purpose:editorOpenPurpose.value,serviceType:editorOpeningServiceType.value,endDate:editorRecurrenceUntilDate.value||null,careTypes:editorOpeningServiceType.value==='tutoring'?null:editorCareTypes.value});
     if(edit.frequency==='ONCE')await apply('single');else if(!await askSeriesEditScope({title:'Update published opening',run:apply}))throw new Error('No availability changes were saved.');
     return;
   }
@@ -23088,10 +23088,10 @@ const submitRequest = async () => {
         // Linking publishes only the selected reservation(s), without inventing a weekly virtual series.
         for (const ctx of contexts) {
           if (editorOpenVirtual.value) await api.post(`/office-slots/${ctx.officeLocationId}/events/${ctx.officeEventId}/virtual-intake`, {
-            enabled: true, agencyId, availableForIntake: forIntake, availableForSession: forSession, frequency:scheduleEventRecurrence.value, purpose:editorOpenPurpose.value,serviceType:editorOpeningServiceType.value,careTypes:editorOpeningServiceType.value==='tutoring'?null:editorCareTypes.value
+            enabled: true, agencyId, availableForIntake: forIntake, availableForSession: forSession, frequency:scheduleEventRecurrence.value, purpose:editorOpenPurpose.value,serviceType:editorOpeningServiceType.value,endDate:editorRecurrenceUntilDate.value||null,careTypes:editorOpeningServiceType.value==='tutoring'?null:editorCareTypes.value
           });
           if (editorOpenInPerson.value) await api.post(`/office-slots/${ctx.officeLocationId}/events/${ctx.officeEventId}/in-person-intake`, {
-            enabled: true, agencyId, availableForIntake: forIntake, availableForSession: forSession, frequency:scheduleEventRecurrence.value, purpose:editorOpenPurpose.value,serviceType:editorOpeningServiceType.value,careTypes:editorOpeningServiceType.value==='tutoring'?null:editorCareTypes.value
+            enabled: true, agencyId, availableForIntake: forIntake, availableForSession: forSession, frequency:scheduleEventRecurrence.value, purpose:editorOpenPurpose.value,serviceType:editorOpeningServiceType.value,endDate:editorRecurrenceUntilDate.value||null,careTypes:editorOpeningServiceType.value==='tutoring'?null:editorCareTypes.value
           });
         }
       } else {

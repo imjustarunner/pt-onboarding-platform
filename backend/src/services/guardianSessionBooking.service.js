@@ -15,7 +15,7 @@ import { resolveSelfPayQuote, getAgencySelfPayOnly } from './selfPayRates.servic
 import { createAppointment, linkProviderScheduleEvent } from './appointment.service.js';
 import ProviderScheduleEvent from '../models/ProviderScheduleEvent.model.js';
 import BookingPackage from '../models/BookingPackage.model.js';
-import {assertPackageProviderBinding} from './bookingPackagePricing.js';
+import {assertPackageProviderBinding,assertPackageExpiration} from './bookingPackagePricing.js';
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
 
 async function context(input) {
@@ -72,7 +72,7 @@ export async function guardianBookingOptions(input) {
           || (pkg.purchaserUserId && Number(pkg.purchaserUserId)!==Number(input.userId))
           || (pkg.allowedTenantServiceIds?.length&&!pkg.allowedTenantServiceIds.map(Number).includes(Number(service.id))))return false;
         if(pkg.pricingSnapshot?.mode==='provider-discount'&&Number(pkg.pricingSnapshot.minutes)!==Number(service.defaultDurationMinutes))return false;
-        try{assertPackageProviderBinding(pkg.pricingSnapshot,{providerUserId:provider.id,tenantServiceId:service.id,modality,participantMode:'single'});return true;}catch{return false;}
+        try{assertPackageExpiration(pkg.pricingSnapshot,pkg.activatedAt,input.startAt||new Date().toISOString());assertPackageProviderBinding(pkg.pricingSnapshot,{providerUserId:provider.id,tenantServiceId:service.id,modality,participantMode:'single'});return true;}catch{return false;}
       }).map(pkg=>({id:pkg.id,name:pkg.packageName||'Tutoring package',sessionsAvailable:Number(pkg.sessionsRemaining),sessionsReserved:Number(pkg.sessionsReserved||0),freeMissesRemaining:Number(pkg.freeMissesRemaining||0)}));
       choices.push({packages:eligiblePackages,businessType:learning?'tutoring':'mental_health',providerId:provider.id,providerName:provider.name,serviceId:service.id,serviceName:service.name,
         durationMinutes:service.defaultDurationMinutes,modality:learning?format:service.modality,minNoticeHours:service.minNoticeHours??0,maxAdvanceDays:service.maxAdvanceDays??90,

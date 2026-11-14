@@ -10,7 +10,7 @@
         <PortalContextPicker v-if="allFamilyProfiles.length > 1 || familyAgencies.length > 1" class="family-profile-picker" :label="ft('Viewing')" :model-value="`${currentAgencyId}:${selectedChildId}`" :groups="profilePickerGroups" :placeholder="ft('Choose a profile')" :hint="ft('Choose a family member and organization. Each service keeps its own information.')" @select="option => chooseFamilyProfile(option.clientId, null, option.agencyId)" />
         <div v-if="allFamilyProfiles.length===1 && familyAgencies.length<=1" class="single-profile family-current-profile"><small>{{ ft('Viewing') }}</small><strong>{{ profileLabel(selectedChild) }}</strong></div>
         <PortalContextPicker v-if="selectedServices.length > 1" :label="ft(limitedServicePortal?'Past provider':'Service & team')" :model-value="selectedService?.id" :groups="servicePickerGroups" @update:model-value="chooseService" />
-        <div v-else-if="selectedService" class="single-profile"><small>{{ ft(limitedServicePortal?"Past provider":"Service & team") }}</small><strong>{{ft(selectedService.label)}} · {{selectedService.provider_name || ft("Provider being assigned")}}</strong></div>
+        <div v-else-if="selectedService" class="single-profile"><small>{{ ft(limitedServicePortal?"Past provider":"Service & team") }}</small><strong>{{ft(selectedService.label)}} · {{selectedService.provider_name || ft(selectedService.service_kind==='tutoring'?"Tutor being assigned":"Provider being assigned")}}</strong></div>
         <button class="more-family" type="button" @click="navigatePortal('family')">{{ ft(familyHomeLabel) }} <span>{{ allFamilyProfiles.length }}</span></button>
       </div>
     </template>
@@ -1072,7 +1072,7 @@ const portalNavigation = computed(() => {
   items.push({key:'contact',label:'Reminder contacts',icon:'support'},{key:'signout',label:'Sign out',icon:'account'});
   const accountKeys=['assistance','family','family_billing','family_messages','notifications','account','records','help','enroll'];
   const ordered=[...items.filter(i=>accountKeys.includes(i.key)),...items.filter(i=>!accountKeys.includes(i.key)&&i.key!=='signout'),...items.filter(i=>i.key==='signout')];
-  const available=ordered.filter(i=>(!learningOnlySelectedProfile.value || !['updates','assistance','help'].includes(i.key))
+  const available=ordered.filter(i=>(!learningOnlySelectedProfile.value || !['updates','assistance'].includes(i.key))
     && !(restrictedLearningGuardian.value && ['billing','payment_methods','family_billing'].includes(i.key))
     && !(selectedGuardianPermissions.value.canViewDocs===false && i.key==='documents'));
   return available.map(i=>({...i,label:ft(i.label),group:i.key==='signout'?ft('Account'):accountKeys.includes(i.key)?ft('Family & account'):`${ft('Viewing')} ${selectedFirstName.value}`}));
@@ -1966,7 +1966,7 @@ watch(
     allowedKeys.add('messages');
     allowedKeys.add('account');
     allowedKeys.add('notifications');
-    for(const key of ['assistance','checkins','evaluations','onboarding','family','family_billing','family_messages','help','plan','notification_history']) allowedKeys.add(key);
+    for(const key of ['assistance','checkins','evaluations','onboarding','family','family_billing','family_messages','enroll','updates','help','plan','notification_history']) allowedKeys.add(key);
     if (!allowedKeys.has(activePanel.value)) {
       activePanel.value = standardsLearningVisible.value && allowedKeys.has('tutoring')
         ? 'tutoring'

@@ -18,9 +18,11 @@ export function officePublicationMatches(event,anchor,frequency,timeZone) {
   && +utc(event.end_at)-+utc(event.start_at)===+utc(anchor.end_at)-+utc(anchor.start_at);
 }
 // Publish only real, assigned room reservations. Cadence never manufactures a room or a client appointment.
-export async function publishOfficeAvailability({event,agencyId,providerId,frequency='ONCE',purpose='INTAKE',format,availableForIntake=true,availableForSession=false,careTypes=null,serviceType=null,actorId,replaceFormats=false}) {
+export async function publishOfficeAvailability({event,agencyId,providerId,frequency='ONCE',purpose='INTAKE',format,availableForIntake=true,availableForSession=false,careTypes=null,serviceType=null,endDate=null,actorId,replaceFormats=false}) {
  if(!['IN_PERSON','VIRTUAL',...(replaceFormats?['BOTH','PRIVATE']:[])].includes(format))throw Object.assign(new Error('Choose an appointment format.'),{status:400});
  if(!['ONCE','MONTHLY','WEEKLY','BIWEEKLY','EVERY_3_WEEKS','EVERY_4_WEEKS'].includes(frequency))throw Object.assign(new Error('Choose once, weekly, every 2 weeks, or every 4 weeks.'),{status:400});
+ const through=endDate?String(endDate).slice(0,10):null;
+ if(through&&(!/^\d{4}-\d{2}-\d{2}$/.test(through)||isNaN(Date.parse(through))||new Date(through).toISOString().slice(0,10)!==through))throw Object.assign(new Error('Choose a valid opening end date.'),{status:400});
  purpose=frequency==='ONCE'?(purpose==='MEETING'?'MEETING':'INTAKE'):'ONGOING';
  if(serviceType){const [scoped]=await prepareAvailabilityServices(providerId,agencyId,[{id:event.id,serviceType,careTypes}]);serviceType=scoped.serviceType;careTypes=scoped.careTypes;}
  const conn=await pool.getConnection();
@@ -32,7 +34,7 @@ export async function publishOfficeAvailability({event,agencyId,providerId,frequ
    FROM office_events e WHERE e.office_location_id=? AND e.room_id=? AND e.assigned_provider_id=?
    AND e.start_at>=? AND e.start_at<DATE_ADD(?,INTERVAL 1 YEAR) AND COALESCE(e.status,'')<>'CANCELLED'
    ORDER BY e.start_at FOR UPDATE`,[event.office_location_id,event.room_id,providerId,event.start_at,event.start_at]);
-  const candidates=events.filter(e=>Number(e.standing_assignment_id||0)===Number(event.standing_assignment_id||0)&&officePublicationMatches(e,event,frequency,timeZone));
+  const candidates=events.filter(e=>Number(e.standing_assignment_id||0)===Number(event.standing_assignment_id||0)&&officePublicationMatches(e,event,frequency,timeZone)&&(!through||local(e.start_at,timeZone,{year:'numeric',month:'2-digit',day:'2-digit'})<=through));
   const open=candidates.filter(e=>!e.client_id&&!e.clinical_session_id&&!e.billing_context_id&&!Number(e.has_appointment));
   if(!open.some(e=>Number(e.id)===Number(event.id)))throw Object.assign(new Error('This reservation is no longer available to publish.'),{status:409});
   const seriesId=frequency==='ONCE'&&!replaceFormats?null:randomUUID();

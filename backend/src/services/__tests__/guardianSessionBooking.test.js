@@ -86,7 +86,7 @@ it('reserves the selected paid tutoring package through the normal appointment c
  tutoringFixture();const options=await guardianBookingOptions(input);expect(options.choices[0].packages).toMatchObject([{id:4,sessionsAvailable:4}]);
  await bookGuardianSession({...input,packageEntitlementId:4});expect(m.create).toHaveBeenCalledWith(expect.objectContaining({packageEntitlementId:4,agencyId:453,providerUserId:1433}));
 });
-it.each([{purchaserUserId:999},{status:'CANCELLED'},{paymentStatus:'PENDING'},{sessionsRemaining:0},{pricingSnapshot:{mode:'provider-discount',providerId:999,tenantServiceId:287,format:'virtual',minutes:60}},{pricingSnapshot:{mode:'provider-discount',providerId:1433,tenantServiceId:287,format:'in-person',minutes:60}}])('rejects an unusable package before appointment writes: %j',async patch=>{
+it.each([{activatedAt:'2020-01-01',pricingSnapshot:{mode:'provider-discount',providerId:1433,tenantServiceId:287,format:'virtual',minutes:60,policies:{expirationDays:1}}},{purchaserUserId:999},{status:'CANCELLED'},{paymentStatus:'PENDING'},{sessionsRemaining:0},{pricingSnapshot:{mode:'provider-discount',providerId:999,tenantServiceId:287,format:'virtual',minutes:60}},{pricingSnapshot:{mode:'provider-discount',providerId:1433,tenantServiceId:287,format:'in-person',minutes:60}}])('rejects an unusable package before appointment writes: %j',async patch=>{
  tutoringFixture();const [pkg]=await m.packages();m.packages.mockResolvedValue([{...pkg,...patch}]);
  expect((await guardianBookingOptions(input)).choices[0].packages).toEqual([]);
  await expect(bookGuardianSession({...input,packageEntitlementId:4})).rejects.toMatchObject({status:409});expect(m.create).not.toHaveBeenCalled();

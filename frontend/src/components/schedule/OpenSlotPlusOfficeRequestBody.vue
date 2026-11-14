@@ -14,7 +14,7 @@
     <fieldset v-if="serviceType==='counseling' || (!serviceType && !serviceOptions.length && !['life_coach','consultant'].includes(practitionerType))" class="osorb-panel"><legend>Counseling appointment types</legend><label v-for="type in ['INDIVIDUAL','COUPLES','FAMILY']" :key="type" class="osorb-check"><input type="checkbox" :checked="careTypes.includes(type)" @change="emit('update:careTypes',$event.target.checked?[...careTypes,type]:careTypes.filter(t=>t!==type))"/> {{type}}</label><p class="osorb-help muted">Select the counseling appointment types offered in this opening.</p></fieldset>
     <fieldset class="osorb-panel" data-testid="appointment-format">
       <legend>Appointment format</legend>
-      <p v-if="canLinkOffice &amp;&amp; frequency!=='ONCE'" class="osorb-help muted">For office-linked recurring openings, we publish matching existing room reservations over the next year. Dates with client appointments are skipped; future unreserved rooms are not published.</p>
+      <p v-if="canLinkOffice &amp;&amp; frequency!=='ONCE'" class="osorb-help muted">For office-linked recurring openings, we publish matching existing room reservations through the selected end date, or up to a year when no end date is set. Dates with client appointments are skipped; future unreserved rooms are not published.</p>
     <label v-if="frequency==='ONCE'" class="osorb-check">One-time opening
       <select :value="purpose" @change="emit('update:purpose',$event.target.value)"><option value="INTAKE">{{serviceType==='tutoring'?'One-time tutoring session':'Single enrollment session'}}</option><option value="MEETING">Meeting</option></select>
     </label>

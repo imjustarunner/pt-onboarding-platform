@@ -27,8 +27,10 @@ const teamName=thread=>{
  if(thread.provider)return [thread.provider.first_name,thread.provider.last_name].filter(Boolean).join(' ');
  const profile=props.profiles.find(p=>Number(p.client_id)===Number(thread.client_id));
  const contexts=profile?.care_contexts?.length?profile.care_contexts:[profile];
- const service=contexts.filter(Boolean).filter(c=>Number(c.agency_id)===Number(thread.agency_id)).flatMap(c=>c.services||[]).find(s=>Number(s.id)===Number(thread.service_id));
- return service?.provider_name||ft('Your service team');
+ const services=contexts.filter(Boolean).filter(c=>Number(c.agency_id)===Number(thread.agency_id)).flatMap(c=>c.services||[]);
+ const service=services.find(s=>Number(s.id)===Number(thread.service_id));
+ const names=[...new Set(services.map(s=>s.provider_name).filter(Boolean))];
+ return service?.provider_name||(names.length===1?names[0]:ft('Your service team'));
 };
 const personName=id=>{const p=props.profiles.find(p=>Number(p.client_id)===Number(id));return p?.full_name||p?.initials||ft("Profile");};
 const money=n=>new Intl.NumberFormat(familyLocale.value,{style:'currency',currency:'USD'}).format(n/100);

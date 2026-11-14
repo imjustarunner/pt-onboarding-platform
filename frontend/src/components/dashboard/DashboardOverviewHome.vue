@@ -175,6 +175,7 @@
       <DashboardOverviewSection v-if="availableCardKeys.includes('activity') && !hiddenCards.includes('activity')" v-show="!collapsedCards.includes('activity')"
         :style="cardLayout.orderStyle('activity')" :label="cardLabels.activity" :section-id="'activity'" @collapse="setCollapsed('activity', true)">
       <OverviewRecentActivity
+        :learning="learning"
         :loading="sectionState.activity.loading"
         :error="sectionState.activity.error"
         @retry="refresh('activity')"

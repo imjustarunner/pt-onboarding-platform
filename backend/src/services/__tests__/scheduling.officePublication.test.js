@@ -21,3 +21,10 @@ describe('office-linked publication cadence',()=>{
   expect(out).toMatchObject({publishedCount:1,skippedAppointments:1,purpose:'ONGOING'});expect(IP.upsertSlot).toHaveBeenCalledWith(expect.objectContaining({database:conn,agencyId:2,providerId:9,frequency:'EVERY_4_WEEKS'}));expect(conn.commit).toHaveBeenCalled();
  });
 });
+
+it('honors an explicit office-linked series end date without manufacturing room reservations',async()=>{
+ IP.upsertSlot.mockReset();const later={...first,id:2,start_at:'2026-11-05 14:00:00',end_at:'2026-11-05 15:00:00'};
+ const conn={beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn(),execute:vi.fn(async sql=>[sql.includes('FROM office_locations')?[{timezone:'America/Denver'}]:[first,later]])};pool.getConnection.mockResolvedValue(conn);
+ const result=await publishOfficeAvailability({event:first,agencyId:2,providerId:9,frequency:'EVERY_4_WEEKS',format:'IN_PERSON',endDate:'2026-10-31'});
+ expect(result.publishedCount).toBe(1);expect(IP.upsertSlot).toHaveBeenCalledTimes(1);
+});

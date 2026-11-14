@@ -1,0 +1,157 @@
+ADDITIONAL QA PLAN — NOVEMBER 14, 2026
+NLU mixed services, tutoring wording, purchased packages and linked families
+
+This supplements earlier TU/TE, CC, RR, RD and WA ledgers. Earlier failures stay
+open until fresh deployed browser/inbox evidence verifies them. Engineering
+checks, configuration and a generated packet are not a completed live QA pass.
+
+CURRENT OWNER SCOPE
+- NLU QA agency453, nlu-qa-demo, now offers tutoring, counseling and childcare.
+  This follows the owner's explicit instruction to enable all three. The stale
+  readiness-plan restriction against counseling in453 is superseded. Learning
+  program454 remains learning-only. Live NLU6 stays unchanged.
+- Clinical child462, nlu-qa-counseling, is the affiliated capability anchor only.
+  Perform enrollment, booking, messaging and billing in parent453. No independent
+  child462 public/mail/login workflow is authorized or transport-allowlisted.
+- Retained independently licensed LPC Avery1433 is the all-three QA employee.
+  Membership453 was added;450/456 and default450 were preserved. No clinical
+  credential was invented. Its active453 service offerings are counseling and
+  tutoring; childcare assignment allows self-scheduling, not managing others.
+- Finley1496 remains tutoring/childcare only. Enabling counseling for the agency
+  must not authorize Finley to open clinical records or sign clinical notes.
+- Riley1807 remains the separately authorized synthetic QA administrator only
+  in453/454. This is the owner-approved exception to the bot's older no-admin
+  instruction. Do not give1435 to the runner. Real employee countersigning stays
+  with Haley Inyart; real childcare approval stays with Melissa.
+
+VERIFIED SETUP AND PRESERVED HISTORY
+- Casey draft66/task2589 + Riley counter2590, and Finley draft67/task2591 +
+  Riley counter2592, are completed. Signed documents219/220 and effective
+  schedules66/67 replace withdrawn unsigned64/65. Do not sign either again.
+- New synthetic Denver shifts have the reviewed19.29/hour floor. Existing shift1,
+  punches563/564 and claim844 were not repriced. Casey's17 band is an intentional
+  below-floor review case; preserve punches and require review. No payroll export.
+- Keep Parker2545, Quinn2547, Morgan1759 and Parker-only Rene1785. Jamie2571 from
+  enrollment1597 and Rowan Testchild2573 from1604 are retained; create no duplicates.
+- Preserve appointments290/291 and learning sessions2/3: no start/end/cancel or
+  fabricated attendance. Appointment294 remains canceled; do not recreate it.
+- Morgan's simulated purchase is receiptR-453-4/payment4/entitlement180, with four
+  credits observed by the prior runner. Reuse it for redemption; do not purchase
+  it again just to inspect. A simulator pass is not Stripe/bank/webhook evidence.
+- Packages76/77 and their historical purchase snapshots are unchanged. New QA
+  package82 explicitly has one courtesy late cancellation or missed visit,
+  a24-hour notice period and four virtual visits. Inspect its current terms and
+  quote first. It does not retroactively grant a free miss to entitlement180.
+- Cross-company fixture: retained clinical Rowan2271 stays primary450 and has
+  secondary453. Existing450 counseling enrollment1028 was preserved; new453
+  tutoring1043 and counseling1044 are assigned to Avery1433. Existing guardians
+  1449,1440,1456 retain their own relationships and private answers. No new person,
+  appointment, signature or email was created by this affiliation setup.
+- This is a new positive fixture, not a pass for the earlier1437 failure. The
+  first inspected1437 profile was not sufficiently verified for clinical setup;
+  it was left unchanged. Ari2297 and Sky2298 remain contact-only fixtures.
+- Finley's office119 QA grant expires November20,2026 at23:50:07MST. Do not renew
+  early, buy a plan or claim real media merely because the grant exists.
+- Preserve Devon1772 pending. Do not invent an identifier, license, signed form,
+  consent, historical session or another person's attestation.
+- Keep the most recent people count/cap. This assignment creates no people.
+  Recount before any later creation and obtain the owner's direction if needed.
+
+RELEASE CHECK
+The accompanying deployment manifest identifies the repair candidate and whether
+it is published. Require a matching ready frontend/backend containing the repair
+before scoring new behavior. Configuration alone does not deploy these repairs.
+Record build, actor, agency/client/service/appointment/session IDs, Denver local
+wall time with offset, screenshot and actual finding for every live case.
+
+REPAIR BEHAVIOR TO VERIFY
+- Each new opening explicitly identifies its service. Tutoring openings omit
+  Individual/Couples/Family care types; childcare opens real shift scheduling.
+  Subject/grade matching still uses the tutor profile. Post virtual/in-person
+  formats and new/current-student eligibility; verify one-time vs recurring
+  dates and the selected end date. Preserve existing opening times/history.
+- Mixed providers have distinct counseling and tutoring hours. A tutoring search
+  cannot consume counseling hours; busy work still blocks either service.
+  Legacy single-service tutoring hours remain usable. Untyped mixed hours need
+  explicit classification; do not silently relabel retained clinical hours.
+- Book Session lists assigned students, shows plain formats and tutoring labels,
+  and does not require mental-health coding to book an explicitly tutoring visit
+  for a child who also has counseling. Customer pricing uses the actual format.
+- Tutoring navigation, help and the calendar key omit irrelevant clinical items.
+  Preserve own compensation/paystub access. Verify checkbox wrapping at390px.
+- The public agency /enroll page offers service enrollment even without group
+  programs. A family can look up another organization's public enrollment by
+  portal address/code while retaining its authenticated account. Lookup/start
+  grants no agency membership or access to another household's records.
+- Linked families switch existing authorized services in one portal on one host.
+  Separate hosts do not silently share cookies. Do not merge accounts by email
+  or promise cross-host SSO from these repairs.
+- A tutoring booking offers only the student's paid, active, unexpired eligible
+  package for that payer/tutor/format/service. Selecting it must reserve one
+  session in the existing ledger. Refresh/retry cannot debit it twice.
+- Parent receipt routes remain open for the authorized payer; another payer or
+  agency cannot read payment4. No repurchase or private token copying.
+- Tutoring Documents shows Enrollment titles without rewriting signed PDFs.
+  Payment sharing, cancellation and assignment text reflects the selected
+  service, including a mixed-service child. Inspect the actual rendered output.
+
+FRESH CASES — ALL START NOT RUN
+MX00 Verify matching ready deployed build, roles, memberships and preserved IDs.
+MX01 Avery has counseling + My students + childcare; no unrelated agency access.
+MX02 Finley retains tutoring/childcare and receives denied direct clinical access.
+MX03 Publish/save/reload a new tutoring-only one-time opening; no clinical types.
+MX04 Publish bounded tutoring weekly hours; dates, end date and format persist.
+MX05 Avery's tutoring/counseling hours filter independently; conflicts stay shared.
+MX06 Book Session lists assigned Parker/Quinn; no unrelated or clinical-only child.
+MX07 Compare virtual50/hour and in-person55/hour catalog pricing with booking.
+MX08 Morgan selects existing entitlement180 for a NEW booking; one credit reserved.
+MX09 Wrong payer/tutor/format, exhausted and stale package fail without a debit.
+MX10 Complete only a NEW performed visit once; reconcile reservation/consumption.
+MX11 Inspect new package82; in simulator only test its explicit courtesy allowance.
+MX12 Cancel the NEW package82 visit once; retry does not grant another courtesy.
+MX13 Open R-453-4/payment4 as Morgan; unauthorized recipient/agency denied.
+MX14 Public450/enroll offers counseling;453/enroll offers tutoring/counseling.
+MX15 Current-account lookup of nlu-qa-demo shows its published tutoring form.
+MX16 Unpublished/invalid organization, private form and account mismatch denied.
+MX17 Existing Rowan2271/guardian1440 or1456 sees450 counseling +453 services.
+MX18 Switch tutoring/counseling without mixing plans, files, invoices or branding.
+MX19 Original guardian1437 case remains separately tracked; do not infer a pass.
+MX20 Inspect signed pay schedules66/67; new3-child shift uses actual work intervals.
+MX21 Co-caregiver, changing count, zero children and below-floor review reconcile.
+MX22 Desktop/mobile: service navigation, exact-shift links and own pay; deny peers.
+MX23 Reconcile actual email, audit history and every earlier WA/TU/TE/CC/RD finding.
+
+EMAIL AND EVIDENCE
+- Physical synthetic email recipient remains testing@itsco.health. Keep logical
+  example identities separate. Use each persona's own portal/token; testing@
+  cannot generically impersonate a guardian or reference sender.
+- App metadata for Jamie2571/1597 and Rowan2573/1604 records optional email
+  preference No. No completion/setup rows appeared in their inspected app
+  communication lists. This does not independently verify receipt, signed
+  notice version, automatic-email safety preference or the cause. Keep the
+  reported missing-mail findings open and reconcile actual signed choices.
+- Do not resend1597,1604,6347,6349 or6463. Inspect existing delivery/consent
+  evidence and actual inbox receipt. Sent/accepted is not a receipt. If the
+  workflow is missing or blocked, preserve its exact status and record the cause.
+- Keep legitimate authorization, individual signatures, preferences, SMS opt-in,
+  true elapsed time and payment/clinical prerequisites. No real payment, insurance
+  claim, paid check, clinical attestation or automatic status forcing.
+- A real virtual-session pass still needs two browsers/devices exchanging media,
+  a real lobby/admission, and one durable end. Unavailable media stays BLOCKED.
+- Payroll checks use isolated previews/test-database paystubs; no approval/export.
+  Counseling insurance/copay scenarios need an explicit synthetic test expectation;
+  do not submit a claim or label the QA payment simulator an insurance pass.
+- Passwords and bearer links belong only in the private vault. Local engineering
+  credential files do not establish that an external bot vault was updated.
+
+BLANK RESULT LEDGER
+case_id,status,build,actor_user_id,agency_id,client_id,service_id,appointment_id,session_id,action_time_denver,utc_offset,audit_row_id,evidence,finding
+
+BLANK ACTION/AUDIT LEDGER
+case_id,actor_user_id,agency_id,object_type,object_id,action,action_time_denver,expected_audit_action,actual_audit_row_id,target_reference,status,finding
+
+BLANK EMAIL LEDGER
+case_id,logical_to,physical_to,actual_from,actual_reply_to,template_type,action_id,due_at,sent_at,received_at_denver,transport_id,inbox_id,status,evidence,finding
+
+Keep all earlier47 TU cases,12 TE variants, childcare cases, reported20 findings
+and43 wording findings. Separate engineering validation from fresh live results.

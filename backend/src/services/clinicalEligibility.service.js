@@ -1,3 +1,4 @@
+import {readProviderServices} from './providerServiceOfferings.service.js';
 import {requireTestingEligibility} from './testingEligibility.service.js';
 import User from '../models/User.model.js';
 import { hasVerifiedBillingScope } from '../utils/verifiedBillingScope.js';
@@ -58,14 +59,12 @@ class ClinicalEligibilityService {
       throw err;
     }
     // A mixed-service agency must not turn an explicitly tutoring-only provider
-    // into a clinician. Missing legacy selections keep their existing access;
+    // into a clinician. Agencies without a service catalog keep legacy access;
     // client assignment, credentials and signing prerequisites still apply.
     if (requireClinicalService && ['provider','provider_plus','intern','intern_plus','supervisor','facilitator'].includes(String(reqUser.role))) {
-      const [[profile]] = await pool.execute('SELECT public_details_json FROM provider_public_profiles WHERE user_id=?', [reqUser.id]);
-      let details = profile?.public_details_json || {};
-      if (typeof details === 'string') details = JSON.parse(details);
-      const services = details.serviceOfferingsByAgency?.[String(agencyId)];
-      if (Array.isArray(services) && !services.includes('counseling')) {
+      const offered = await readProviderServices(reqUser.id, agencyId);
+      const clinical = offered.services.find(service => service.serviceType === 'counseling');
+      if (clinical && !clinical.offered) {
         throw Object.assign(new Error('Counseling service access is not assigned in this agency.'), {status:403});
       }
     }
