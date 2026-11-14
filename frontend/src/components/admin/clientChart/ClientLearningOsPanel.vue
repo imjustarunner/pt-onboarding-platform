@@ -647,7 +647,7 @@ async function refresh() {
   loading.value = true;
   error.value = '';
   try {
-    const data = await los.fetchLearningOverview(props.clientId);
+    const data = await los.fetchLearningOverview(props.clientId,{agencyId:props.agencyId||undefined});
     overview.value = data.subjects || [];
     if (selectedSubject.value) {
       const match = overview.value.find((r) => r.subject.id === selectedSubject.value.id);

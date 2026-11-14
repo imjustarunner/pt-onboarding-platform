@@ -30,7 +30,8 @@ describe('service-specific terms across tenant hosts',()=>{
   expect(context.name).toBe('Next Level Up');expect(context.nonclinical).toBe(true);
   expect(context.links.every(link=>link.href.startsWith('https://nextleveluplcc.com/nlu/'))).toBe(true);
   expect(context.links.some(link=>/auricwell|platformhipaa/i.test(link.href))).toBe(false);
-  expect(context.notice).toContain('does not grant access to clinical records');
+  expect(context.notice).toContain('your authorized service and organization');
+  expect(context.notice).not.toMatch(/clinical records|HIPAA/i);
  });
  it('publishes the education-record boundary and separates user notices from organization signatures',()=>{
   const docs=legalDocumentsForProfile(tenantLegalProfiles.schoolcarebridge);

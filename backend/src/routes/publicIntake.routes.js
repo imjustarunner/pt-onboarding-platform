@@ -11,6 +11,7 @@ import {
   createPublicConsent,
   savePublicIntakeProgress,
   getPublicIntakeProgress,
+  emailSavedTutoringEnrollment,
   finalizePublicIntake,
   getPublicIntakeLink,
   getPublicIntakeTemplateHtml,
@@ -101,6 +102,7 @@ router.post('/:publicKey/match-client', matchPublicIntakeClient);
 router.post('/:publicKey/login-help', reportPublicIntakeLoginHelp);
 router.get('/:publicKey/linked-translation', getPublicLinkedTranslation);
 router.get('/:publicKey/progress', getPublicIntakeProgress);
+router.post('/:publicKey/resume-email',rateLimit({windowMs:60*60*1000,max:6,standardHeaders:true,legacyHeaders:false}),[body('sessionToken').notEmpty().isString()],emailSavedTutoringEnrollment);
 router.post(
   '/:publicKey/progress',
   [

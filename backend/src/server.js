@@ -1,4 +1,5 @@
 import addressAutocompleteRoutes from './routes/addressAutocomplete.routes.js';
+import { publicErrorMessage } from './utils/publicErrorMessage.js';
 import meetingDialInWebhookRoutes from './routes/meetingDialInWebhook.routes.js';
 import { attachMeetingDialInAudio } from './services/meetingDialInTranscription.service.js';
 import { publicRouter as publicMeetingReservationRoutes, staffRouter as meetingReservationRoutes } from './routes/meetingReservations.routes.js';
@@ -1277,7 +1278,7 @@ app.use((err, req, res, next) => {
   }
   res.status(err.status || 500).json({
     error: {
-      message: err.message || 'Internal server error',
+      message: publicErrorMessage(err),
       ...familySharingDetails,
       ...(err.code === 'PROVIDER_TIME_CONFLICT' ? { code: err.code, overridable: !!err.overridable } : {}),
       ...(err.code === 'PAYMENT_SETUP_REVIEW_REQUIRED' ? { code: err.code } : {}),

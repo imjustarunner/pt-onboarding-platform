@@ -1,7 +1,7 @@
 <template>
   <DigitalFormShell
     class="public-intake ai-shell-host"
-    :class="{ 'public-intake--office-start': isEnrollmentStartPage && step === 0.5, 'public-intake--compact-start': isEnrollmentStartPage && step === 0.5 && !officeStart.editingStartLayout.value }"
+    :class="{ 'nlu-tutoring-ui': isTutoringEnrollment, 'public-intake--office-start': isEnrollmentStartPage && step === 0.5, 'public-intake--compact-start': isEnrollmentStartPage && step === 0.5 && !officeStart.editingStartLayout.value }"
     :branding="formBranding"
     :service-type="isTutoringEnrollment ? 'tutoring' : ''"
     :enrollment-layout="(loading || isOfficeInDepthIntake || isSchoolScopedIntake || ['intake', 'smart_registration', 'smart_school_roi'].includes(formTypeKey)) && !isJobApplication && !officeStart.editingStartLayout.value"
@@ -30,8 +30,8 @@
     :trust-items="officeStartTrustItems"
     :contact-compact="isOfficeInDepthIntake && showCompactSidebarContact"
     :show-intake-sidebar-security="!(isOfficeInDepthIntake && showCompactSidebarContact)"
-    :intake-sidebar-max-reachable="isOfficeInDepthIntake ? (isAssistedIntakeSession ? 999 : maxReachedProgressIndex) : 0"
-    :intake-sidebar-interactive="isOfficeInDepthIntake && !enrollmentStopped"
+    :intake-sidebar-max-reachable="isEnrollmentStartPage ? (isAssistedIntakeSession ? 999 : maxReachedProgressIndex) : 0"
+    :intake-sidebar-interactive="isEnrollmentStartPage && !enrollmentStopped"
     @update:language="switchLinkedLanguage"
     @contact-support="openSplashSupportModal"
     @select-step="jumpToProgressStep"
@@ -527,7 +527,8 @@
             </div>
             <div class="form-group form-group--email">
               <label for="guardianEmail">{{ t('yourEmail') }} <span class="required-indicator">*</span></label>
-              <input id="guardianEmail" v-model="guardianEmail" type="email" :readonly="!!portalEnrollmentEmail" :class="{ 'input-error': !!consentErrors.guardianEmail }" />
+              <input id="guardianEmail" v-model="guardianEmail" type="email" :readonly="!!portalEnrollmentEmail" :class="{ 'input-error': !!consentErrors.guardianEmail }" :aria-invalid="!!consentErrors.guardianEmail" :aria-describedby="consentErrors.guardianEmail?'guardian-email-error':undefined" />
+              <p v-if="consentErrors.guardianEmail" id="guardian-email-error" class="error" role="alert">{{consentErrors.guardianEmail}}</p>
             </div>
             <div v-if="intakeForSelf === true || ['couple', 'family'].includes(serviceSubject)" class="form-group form-group--dob">
               <label for="starterDob">{{ t('dateOfBirth') }} <span class="required-indicator">*</span></label>
@@ -537,7 +538,7 @@
               v-if="intakeForSelf === false && (!serviceSubject || serviceSubject === 'dependent' || serviceSubject === 'representative')"
               class="form-group form-group--rel"
             >
-              <label for="guardianRelationship">{{ t('relationshipToClient') }} <span class="required-indicator">*</span></label>
+              <label for="guardianRelationship">{{ isTutoringEnrollment ? tx('Relationship to student') : t('relationshipToClient') }} <span class="required-indicator">*</span></label>
               <select
                 id="guardianRelationship"
                 v-model="guardianRelationship"
@@ -1048,7 +1049,8 @@
                 {{ txField(field) }}
                 <span v-if="field.required" class="required-indicator">*</span>
               </label>
-              <div v-if="field.helperText" class="helper-text">{{ txField(field, 'helperText') }}</div>
+              <TutoringAgreementContent v-if="field.agreementSections" :sections="field.agreementSections" :version="field.agreementVersion" :locale="intakeLocale" />
+              <div v-else-if="field.helperText" class="helper-text">{{ txField(field, 'helperText') }}</div>
               <div v-if="field.description" class="helper-text muted">{{ tx(field.description) }}</div>
               <input v-address-autocomplete="addressFieldBinding(field, visibleGuardianFields, intakeResponses.guardian, { locale: intakeLocale, publicKey, scopeKey: 'guardian' })"
                 v-if="field.type !== 'textarea' && field.type !== 'checkbox' && field.type !== 'select' && field.type !== 'radio' && field.type !== 'date'"
@@ -1102,7 +1104,8 @@
                 {{ txField(field) }}
                 <span v-if="field.required" class="required-indicator">*</span>
               </label>
-              <div v-if="field.helperText" class="helper-text">{{ txField(field, 'helperText') }}</div>
+              <TutoringAgreementContent v-if="field.agreementSections" :sections="field.agreementSections" :version="field.agreementVersion" :locale="intakeLocale" />
+              <div v-else-if="field.helperText" class="helper-text">{{ txField(field, 'helperText') }}</div>
               <div v-if="field.description" class="helper-text muted">{{ tx(field.description) }}</div>
               <input v-address-autocomplete="addressFieldBinding(field, visibleSubmissionFields, intakeResponses.submission, { locale: intakeLocale, publicKey, scopeKey: 'submission' })"
                 v-if="field.type !== 'textarea' && field.type !== 'checkbox' && field.type !== 'select' && field.type !== 'radio' && field.type !== 'date'"
@@ -1284,7 +1287,8 @@
                     @click="applySameAsSiblingToClient(idx)"
                   >{{ sameAsSiblingLabel(idx) }}</button>
                 </label>
-                <div v-if="field.helperText" class="helper-text">{{ txField(field, 'helperText') }}</div>
+                <TutoringAgreementContent v-if="field.agreementSections" :sections="field.agreementSections" :version="field.agreementVersion" :locale="intakeLocale" />
+              <div v-else-if="field.helperText" class="helper-text">{{ txField(field, 'helperText') }}</div>
                 <div v-if="field.description" class="helper-text muted">{{ tx(field.description) }}</div>
                 <input v-address-autocomplete="addressFieldBinding(field, visibleClientFields(idx), intakeResponses.clients[idx], { locale: intakeLocale, publicKey, scopeKey: `client:${idx}` })"
                   v-if="field.type !== 'textarea' && field.type !== 'checkbox' && field.type !== 'select' && field.type !== 'radio' && field.type !== 'date'"
@@ -1373,7 +1377,8 @@
                 {{ txField(field) }}
                 <span v-if="field.required" class="required-indicator">*</span>
               </label>
-              <div v-if="field.helperText" class="helper-text">{{ txField(field, 'helperText') }}</div>
+              <TutoringAgreementContent v-if="field.agreementSections" :sections="field.agreementSections" :version="field.agreementVersion" :locale="intakeLocale" />
+              <div v-else-if="field.helperText" class="helper-text">{{ txField(field, 'helperText') }}</div>
               <input v-address-autocomplete="addressFieldBinding(field, visibleQuestionFields, questionValues, { locale: intakeLocale, publicKey, scopeKey: 'questions' })"
                 v-if="field.type !== 'textarea' && field.type !== 'checkbox' && field.type !== 'select' && field.type !== 'radio' && field.type !== 'date'"
                 v-model="questionValues[field.key]"
@@ -3158,8 +3163,10 @@
         <input :value="returnLinkUrl" type="text" readonly class="intake-return-url" @focus="$event.target.select()" />
         <div class="intake-return-actions">
           <button type="button" class="df-btn df-btn-primary" @click="copyReturnLink">{{ returnLinkCopied ? t('copied') : t('copyTemporaryLink') }}</button>
+          <button v-if="isTutoringEnrollment" type="button" class="df-btn df-btn-secondary" :disabled="resumeEmailBusy||resumeEmailRequested" @click="emailSavedEnrollment">{{resumeEmailBusy?tx('Requesting…'):tx('Email my return link')}}</button>
           <button type="button" class="df-btn df-btn-secondary" @click="returnLinkOpen = false">{{ t('close') }}</button>
         </div>
+        <p v-if="resumeEmailNotice" role="status">{{resumeEmailNotice}}</p>
       </div>
     </div>
 
@@ -3190,6 +3197,7 @@
 </template>
 
 <script setup>
+import TutoringAgreementContent from '../components/enrollment/TutoringAgreementContent.vue';
 import { publicEnrollmentCopy } from '../utils/publicIntakeCopy.js';
 import { addressFieldBinding } from '../utils/addressFieldBinding.js';
 import { fillAddressGroupFromZip } from '../utils/addressZipAutofill.js';
@@ -4544,6 +4552,7 @@ const requiresOriginalInstrumentLanguage = field => isOfficeInDepthIntake.value
   && preserveOriginalOfficeInstrument(field, intakeLocale.value);
 const txField = (field, prop = 'label') => {
   if (!field) return '';
+  if(prop==='label' && field.uiLabel)return interpolateChildTokens(field.uiLabel);
   const safety = asqFieldCopy(field, {locale:intakeLocale.value,self:intakeForSelf.value === true});
   if (safety?.[prop]) return safety[prop];
   const publishedSpanish = isOfficeInDepthIntake.value && intakeLocale.value === 'es' ? officeSpanishScreenField(field) : null;
@@ -5332,6 +5341,7 @@ const officeEssentialOnlyMode = ref(false);
 const officeSkipSplashOffered = ref(false);
 const officeSkipSplashPendingKind = ref(''); // 'questions' | 'clinical'
 const returnLinkOpen = ref(false);
+const resumeEmailBusy=ref(false),resumeEmailRequested=ref(false),resumeEmailNotice=ref('');
 const returnLinkCopied = ref(false);
 const smartDisclosureFlowRef = ref(null);
 const packetSectionFlowRef = ref(null);
@@ -6202,7 +6212,7 @@ const maxReachedProgressIndex = ref(0);
 
 function jumpToProgressStep(index) {
   if (finalizingPacket.value) return;
-  if (!isOfficeInDepthIntake.value) return;
+  if (!isEnrollmentStartPage.value) return;
   const steps = dfProgressSteps.value || [];
   const target = steps[index];
   if (!target) return;
@@ -8352,16 +8362,19 @@ const returnLinkUrl = computed(() => {
 });
 
 async function saveAndComeBackLater() {
-  if (!sessionToken.value) {
-    try {
+  try {
+    if (!sessionToken.value) {
       await createIntakeSession();
-    } catch {
-      startLayoutError.value = '';
     }
+    if (!sessionToken.value) throw new Error(tx('Your enrollment could not be saved. Keep this tab open and try again.'));
+    await saveServerProgress({required:true});
+    persistDraftSnapshot();
+    returnLinkCopied.value = false;
+    returnLinkOpen.value = true;
+  } catch(error) {
+    returnLinkOpen.value=false;
+    progressSaveError.value=error?.response?.data?.error?.message || tx('Your enrollment could not be saved. Keep this tab open and try again.');
   }
-  persistDraftSnapshot();
-  returnLinkCopied.value = false;
-  returnLinkOpen.value = true;
 }
 
 async function copyReturnLink() {
@@ -8381,6 +8394,14 @@ async function copyReturnLink() {
   } catch {
     returnLinkCopied.value = false;
   }
+}
+
+async function emailSavedEnrollment(){
+  if(resumeEmailBusy.value||resumeEmailRequested.value)return;
+  resumeEmailBusy.value=true;resumeEmailNotice.value='';
+  try{await saveServerProgress({required:true});const {data}=await api.post(`/public-intake/${publicKey}/resume-email`,{sessionToken:sessionToken.value});resumeEmailRequested.value=true;resumeEmailNotice.value=data.deliveryStatus==='sent'?tx('Your return-link email was sent. Check your inbox; delivery can take a moment.'):tx('Your return-link request is being processed. Keep your copied link and wait before requesting another email.');}
+  catch(error){resumeEmailNotice.value=error.response?.data?.error?.message||tx('The return-link email could not be requested. Your saved enrollment is unchanged; keep your copied link.');}
+  finally{resumeEmailBusy.value=false;}
 }
 
 function goBackPublicPage() {
@@ -8628,9 +8649,15 @@ const buildServerProgressIntakeData = () => compactIntakeProgress({
 });
 
 const saveServerProgress = async ({ required = false } = {}) => {
-  if (loadingSavedProgress.value || savedProgressLoadFailed.value || stopEnrollmentLoading.value || enrollmentStopped.value) return;
+  if (loadingSavedProgress.value || savedProgressLoadFailed.value || stopEnrollmentLoading.value || enrollmentStopped.value) {
+    if (required && isTutoringEnrollment.value) throw new Error(tx('Your saved enrollment is not ready. Keep this tab open and reload it before continuing.'));
+    return;
+  }
   const token = String(sessionToken.value || '').trim();
-  if (!token) return;
+  if (!token) {
+    if (required && isTutoringEnrollment.value) throw new Error(tx('Your enrollment could not be saved. Keep this tab open and try again.'));
+    return;
+  }
   const payload = { sessionToken: token, step: step.value, intakeData: JSON.parse(JSON.stringify(buildServerProgressIntakeData())) };
   // Keep writes in order so an earlier background save cannot replace a later Continue.
   const pending = progressSaveQueue.catch(() => {}).then(() => api.post(`/public-intake/${publicKey}/progress`, payload, { skipGlobalLoading: true }));

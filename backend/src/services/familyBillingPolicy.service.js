@@ -5,6 +5,23 @@ import {parseSupportJson} from './clientSupportPolicy.service.js';
 import {guardianLearningAccessOnly} from '../utils/guardianServiceRestrictions.js';
 
 export const BILLING_TERMS_VERSION = 'family-billing-2026-10-21-v2';
+export const TUTORING_BILLING_TERMS_VERSION = 'tutoring-billing-2026-11-13-v1';
+export const TUTORING_BILLING_TERMS = 'I accept financial responsibility for the students I select and the tutoring services and prices I agree to. Booking a session, discussing payment with the office or signing this agreement does not charge a card. If secure card setup is available, I may separately save my own payment method and approve its use. Recurring payments require a separate, explicit authorization with a per-charge limit and disclosed payment schedule. Cancellation and package terms are the terms agreed for that booking or purchase; this authorization does not add a fee or change an existing price. Payment activity and receipts appear in Payments. My authorization does not cover another student, another guardian’s card or unapproved charges. I can revoke recurring authorization before future charges; amounts already owed remain subject to their agreed terms.';
+export function billingTermsForProfiles(profiles=[]) {
+  const learning=profiles.length>0&&profiles.every(p=>['learning','tutoring'].includes(String(p.clientType||p.client_type).toLowerCase())&&!Number(p.hasClinicalService||p.has_clinical_service||0));
+  return learning?{terms:TUTORING_BILLING_TERMS,termsVersion:TUTORING_BILLING_TERMS_VERSION}:{terms:BILLING_TERMS,termsVersion:BILLING_TERMS_VERSION};
+}
+export async function resolveBillingTerms({userId,agencyId,clientId},db=pool) {
+  const [profiles]=await db.execute(`SELECT c.client_type,cg.permissions_json,cg.access_enabled,cg.relationship_type,
+    i.status AS independence_status,g.scopes_json AS support_scopes,
+    EXISTS(SELECT 1 FROM client_service_enrollments service WHERE service.client_id=c.id AND service.agency_id=? AND service.service_kind='counseling' AND service.is_active=1) AS has_clinical_service
+    FROM client_guardians cg JOIN clients c ON c.id=cg.client_id
+    LEFT JOIN client_portal_independence i ON i.client_id=c.id
+    LEFT JOIN client_support_grants g ON g.client_id=c.id AND g.agency_id=? AND g.helper_user_id=cg.guardian_user_id AND g.revoked_at IS NULL
+    WHERE cg.guardian_user_id=? AND (c.agency_id=? OR EXISTS(SELECT 1 FROM client_agency_assignments ca WHERE ca.client_id=c.id AND ca.agency_id=? AND ca.is_active=1))
+      AND (? IS NULL OR c.id=?)`,[agencyId,agencyId,userId,agencyId,agencyId,clientId||null,clientId||null]);
+  return billingTermsForProfiles(profiles.filter(linkAllowsBillingView));
+}
 export const BILLING_TERMS = 'I accept financial responsibility for the clients I select. I authorize this organization to keep my payment method with Stripe and to charge my selected card for the amounts I approve. If I separately enable recurring billing for a client, I authorize charges for that client’s scheduled services and patient balances at the rates and payment schedule disclosed by the organization. A verified copay may be charged on the same day after the scheduled session ends and the provider confirms that the session occurred or signs the completed session note. A canceled or unconfirmed session does not authorize an automatic copay. Charges must stay within my selected per-charge limit and the disclosed service terms. Insurance coverage and patient responsibility must be verified first; Medicaid-protected care is excluded. Payment activity and receipts are recorded in Billing. This authorization does not permit charges for another client or use of another guardian’s card. I can revoke recurring authorization in Billing before a future charge; revocation does not cancel amounts already owed. Saving a card or signing a payment setup form alone does not enable recurring charges.';
 
 export function billingError(status, message) { return Object.assign(new Error(message), { status, statusCode: status }); }
@@ -60,10 +77,12 @@ export async function auditBilling({ agencyId, userId, clientId = null, action, 
   await db.execute('INSERT INTO family_billing_audit (agency_id, actor_user_id, client_id, action, object_id) VALUES (?, ?, ?, ?, ?)', [agencyId, userId || null, clientId, action, objectId]);
 }
 export async function recordBillingConsent({ userId, agencyId, clientId = null, cardId = null, submissionId = null, purpose, consent, ip, userAgent }, db = pool) {
-  if (consent?.accepted !== true || consent?.version !== BILLING_TERMS_VERSION || !String(consent?.signatureName || '').trim()) throw billingError(400, 'Read and sign the current billing authorization');
-  const evidence = { terms: BILLING_TERMS, recurringLimitCents: consent.limitCents || null, frequency: purpose === 'recurring' ? 'per scheduled service or verified patient balance' : null, signatureName: String(consent.signatureName).trim().slice(0, 255), ip: String(ip || '').slice(0, 80), userAgent: String(userAgent || '').slice(0, 500), acceptedAt: new Date().toISOString() };
+  if (consent?.accepted !== true || ![BILLING_TERMS_VERSION,TUTORING_BILLING_TERMS_VERSION].includes(consent?.version) || !String(consent?.signatureName || '').trim()) throw billingError(400, 'Read and sign the current billing authorization');
+  const current=await resolveBillingTerms({userId,agencyId,clientId},db);
+  if (consent?.accepted !== true || consent?.version !== current.termsVersion || !String(consent?.signatureName || '').trim()) throw billingError(400, 'Read and sign the current billing authorization');
+  const evidence = { terms: current.terms, recurringLimitCents: consent.limitCents || null, frequency: purpose === 'recurring' ? (current.termsVersion===TUTORING_BILLING_TERMS_VERSION?'per agreed tutoring service':'per scheduled service or verified patient balance') : null, signatureName: String(consent.signatureName).trim().slice(0, 255), ip: String(ip || '').slice(0, 80), userAgent: String(userAgent || '').slice(0, 500), acceptedAt: new Date().toISOString() };
   const [r] = await db.execute(`INSERT INTO guardian_billing_consents (agency_id, guardian_user_id, client_id, payment_card_id, intake_submission_id, purpose, terms_version, terms_hash, evidence_encrypted) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [agencyId, userId, clientId, cardId, submissionId, purpose, BILLING_TERMS_VERSION, crypto.createHash('sha256').update(BILLING_TERMS).digest('hex'), encryptFamilyBilling(evidence, `consent:${agencyId}:${userId}`)]);
+    [agencyId, userId, clientId, cardId, submissionId, purpose, current.termsVersion, crypto.createHash('sha256').update(current.terms).digest('hex'), encryptFamilyBilling(evidence, `consent:${agencyId}:${userId}`)]);
   return r.insertId;
 }
 

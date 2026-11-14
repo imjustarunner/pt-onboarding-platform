@@ -163,7 +163,7 @@
             <div>
               <strong>{{ pkg.name }}</strong>
               <div class="gtd-muted">
-                {{ pkg.sessionCount }} sessions · {{ formatMoney(pkg.priceCents) }}
+                {{ pkg.sessionCount }} sessions · {{ selectedPackageId===pkg.id && packageChoice?.quote ? formatMoney(packageChoice.quote.amountCents)+' total' : formatMoney(pkg.priceCents) }}
                 <template v-if="pkg.programName"> · {{ pkg.programName }}</template>
                 <template v-else> · Individual</template>
               </div>
@@ -183,7 +183,7 @@
         <button
           type="button"
           class="gtd-btn primary"
-          :disabled="!selectedPackageId || buying || (selectedPackage?.domainConfig?.pricing?.mode==='provider-discount'&&!packageChoice)"
+          :disabled="!selectedPackageId || buying || checkoutBlocked || (selectedPackage?.domainConfig?.pricing?.mode==='provider-discount'&&!packageChoice)"
           @click="purchaseSelected"
         >
           {{ buying ? 'Processing…' : (amountDue > 0 ? `Pay ${formatMoney(amountDue)}` : (selectedPackage?.domainConfig?.pricing?.mode==='provider-discount'?'Continue to payment':'Activate package')) }}
@@ -249,7 +249,7 @@ const selectedPackage=computed(()=>catalog.value.find(p=>p.id===selectedPackageI
 function choosePackagePrice(value){checkoutVersion++;packageChoice.value=value;checkoutReady.value=false;destroyCard();}
 const buyError = ref('');
 const buying = ref(false);
-const checkoutReady = ref(false);
+const checkoutReady = ref(false),checkoutBlocked=ref(false);
 const stripeEnabled = ref(false);
 const amountDue = ref(0);
 const clientSecret = ref(null);
@@ -422,7 +422,8 @@ async function prepareCheckout() {
     if (stripeEnabled.value && clientSecret.value) await mountCard();
   } catch (e) {
     if(version!==checkoutVersion)return;
-    buyError.value = e.response?.data?.error?.message || e.message || 'Checkout failed';
+    checkoutBlocked.value=e.response?.status===402;
+    buyError.value = checkoutBlocked.value?'Online package payment is not available for this organization. Contact the office to discuss your options. No payment was taken.':e.response?.data?.error?.message || e.message || 'Checkout failed';
     checkoutReady.value = false;
   }
 }

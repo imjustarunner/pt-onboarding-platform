@@ -22,7 +22,9 @@ describe('academic tutoring effective enrollment', () => {
   });
   it('uses Spanish tutoring agreement labels without including a clinical notice', () => {
     const result=tutoringIntakeSteps([{type:'packet_hipaa_notice'}],{locale:'es'});
-    expect(result).toHaveLength(2);expect(result.at(-1).label).toBe('Acuerdo de tutoría');
+    expect(result).toHaveLength(4);
+    expect(result.find(step=>step.id==='tutoring_services_agreement').label).toContain('Acuerdo');
+    expect(result.at(-1).label).toBe('Permiso opcional de coordinación escolar');
   });
 });
 

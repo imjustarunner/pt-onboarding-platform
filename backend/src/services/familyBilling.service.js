@@ -2,19 +2,20 @@ import {qaStripeCollectionState} from './qaStripePaymentGuard.service.js';
 import pool from '../config/database.js';
 import GuardianPaymentCard, { paymentCardSummary } from '../models/GuardianPaymentCard.model.js';
 import GuardianInsuranceProfile from '../models/GuardianInsuranceProfile.model.js';
-import { BILLING_TERMS, BILLING_TERMS_VERSION, linkAllowsBilling, linkAllowsBillingView, linkAllowsInsurance, requireInsuranceLink, requireBillingLink, requireResponsiblePayer, billingError, positiveId, auditBilling, recordBillingConsent } from './familyBillingPolicy.service.js';
+import { billingTermsForProfiles, linkAllowsBilling, linkAllowsBillingView, linkAllowsInsurance, requireInsuranceLink, requireBillingLink, requireResponsiblePayer, billingError, positiveId, auditBilling, recordBillingConsent } from './familyBillingPolicy.service.js';
 import { normalizePolicy, applySubmittedClientInsurance, readClientInsurance, claimInsuranceIssues } from './clientInsurance.service.js';
 import { getStripePublishableKey } from './stripePayments.service.js';
 import { hasMedicaidCoverage } from '../utils/insurancePaymentPolicy.js';
 
 export async function getFamilyBillingSummary(userId, agencyId) {
-  const [clients] = await pool.execute(`SELECT c.id, c.full_name, c.initials, c.date_of_birth, c.client_type, c.primary_insurer_name, c.billing_insurance_payload IS NOT NULL AS insurance_on_file, cg.access_enabled, cg.relationship_type, cg.permissions_json,i.status AS independence_status,g.scopes_json AS support_scopes
+  const [clients] = await pool.execute(`SELECT c.id, c.full_name, c.initials, c.date_of_birth, c.client_type, c.primary_insurer_name, c.billing_insurance_payload IS NOT NULL AS insurance_on_file, cg.access_enabled, cg.relationship_type, cg.permissions_json,i.status AS independence_status,g.scopes_json AS support_scopes,
+    EXISTS(SELECT 1 FROM client_service_enrollments service WHERE service.client_id=c.id AND service.agency_id=? AND service.service_kind='counseling' AND service.is_active=1) AS has_clinical_service
     FROM client_guardians cg JOIN clients c ON c.id = cg.client_id
     LEFT JOIN client_portal_independence i ON i.client_id=c.id
     LEFT JOIN client_support_grants g ON g.client_id=c.id AND g.helper_user_id=cg.guardian_user_id AND g.agency_id=? AND g.revoked_at IS NULL
     LEFT JOIN dependent_portal_access d ON d.user_id=cg.guardian_user_id
     WHERE cg.guardian_user_id = ? AND (c.agency_id = ? OR EXISTS(SELECT 1 FROM client_agency_assignments ca WHERE ca.client_id=c.id AND ca.agency_id=? AND ca.is_active=1))
-    AND (cg.access_enabled=1 OR (i.status='active' AND g.helper_user_id IS NOT NULL)) AND (d.user_id IS NULL OR d.client_id=c.id) ORDER BY c.full_name`, [agencyId,userId,agencyId,agencyId]);
+    AND (cg.access_enabled=1 OR (i.status='active' AND g.helper_user_id IS NOT NULL)) AND (d.user_id IS NULL OR d.client_id=c.id) ORDER BY c.full_name`, [agencyId,agencyId,userId,agencyId,agencyId]);
   const items = [];
   for (const c of clients) {
     if (!linkAllowsBillingView(c) && !linkAllowsInsurance(c)) continue;
@@ -47,7 +48,8 @@ export async function getFamilyBillingSummary(userId, agencyId) {
   const [merchant] = await pool.execute('SELECT stripe_connect_account_id, stripe_connect_status FROM agency_billing_accounts WHERE agency_id = ?', [agencyId]);
   const paymentState=await qaStripeCollectionState(agencyId);
   const connectedAccountId = paymentState.allowed && merchant[0]?.stripe_connect_status === 'active' ? merchant[0].stripe_connect_account_id : null;
-  return { clients: items, cards, profiles: visibleProfiles, terms: BILLING_TERMS, termsVersion: BILLING_TERMS_VERSION, stripe: { enabled: !!connectedAccountId && !!getStripePublishableKey(), connectedAccountId, publishableKey:paymentState.allowed?getStripePublishableKey():null,testModeRequired:paymentState.testModeRequired,mode:paymentState.mode } };
+  const terms=billingTermsForProfiles(clients.filter(linkAllowsBillingView));
+  return { clients: items, cards, profiles: visibleProfiles, ...terms, stripe: { enabled: !!connectedAccountId && !!getStripePublishableKey(), connectedAccountId, publishableKey:paymentState.allowed?getStripePublishableKey():null,testModeRequired:paymentState.testModeRequired,mode:paymentState.mode } };
 }
 export async function acceptPayer({ userId, agencyId, clientId, consent, ip, userAgent }) {
   const db = await pool.getConnection();

@@ -920,7 +920,7 @@
 
               <div ref="myScheduleStageRef" class="my-schedule-stage my-schedule-stage--hub">
               <div v-if="scheduleViewMode === 'supervisee' && superviseesError" class="error" style="margin-top: 8px;">{{ superviseesError }}</div>
-              <div v-if="!providerSurfacesEnabled" class="hint" style="margin-top: 8px;">
+              <div v-if="!scheduleSurfacesEnabled" class="hint" style="margin-top: 8px;">
                 Scheduling is disabled for this organization.
               </div>
               <div v-else-if="scheduleViewMode !== 'self' && scheduleViewMode !== 'schedule_list' && !currentAgencyId" class="hint" style="margin-top: 8px;">
@@ -1827,6 +1827,7 @@ const providerSurfacesEnabled = computed(
     isTruthyFlag(agencyFlags.value?.submitEnabledForEmployeePortal))
 );
 const inSchoolEnabled = computed(() => agencyFlags.value?.inSchoolSubmissionsEnabled !== false);
+const scheduleSurfacesEnabled = computed(() => providerSurfacesEnabled.value || serviceWorkspace(authStore.user,agencyStore.currentAgency).canTutor || serviceWorkspace(authStore.user,agencyStore.currentAgency).canChildcare);
 const medcancelEnabledForAgency = computed(() => inSchoolEnabled.value && agencyFlags.value?.medcancelEnabled !== false);
 const shiftProgramsEnabledForAgency = computed(() => isTruthyFlag(agencyFlags.value?.shiftProgramsEnabled));
 

@@ -9,7 +9,7 @@ export function serviceLegalContext({ host = '', path = '', organizationSlug = '
   if (learning) return {
     name: tenant.name,
     nonclinical: true,
-    notice: 'Next Level Up provides tutoring, learning and childcare services. Use only information your organization authorizes you to access. Learning and childcare access does not grant access to clinical records. Your service agreements and the Next Level Up terms and privacy policy apply.',
+    notice: 'Next Level Up provides tutoring, learning and childcare services. Access is limited to your authorized service and organization. Your service agreements and the Next Level Up terms and privacy policy apply.',
     links: tenantLegalLinks(tenant).filter(link => link.type !== 'platformhipaa').map(link => ({
       label: `${tenant.name} ${link.type === 'terms' ? 'Terms of Use' : link.label}`,
       href: (tenant.legalOrigin || tenant.origin) + link.path

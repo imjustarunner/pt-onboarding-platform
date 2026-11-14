@@ -1,6 +1,6 @@
 import pool from '../config/database.js';
 import staffTools from './appointmentStaffTools.service.js';
-import { canOpenInPersonLearning, selectedLearningServiceCode } from './learningServiceCompensation.js';
+import { canOpenLearningWorkspace, selectedLearningServiceCode } from './learningServiceCompensation.js';
 import { ensureTutoringAppointmentWorkspace } from './tutoringAppointmentWorkspace.service.js';
 import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
 
@@ -8,7 +8,7 @@ const fail = (status,message) => Object.assign(new Error(message),{status});
 export function createInPersonLearningWorkspace({ db = pool, authorize = staffTools.authorize, bridge = ensureTutoringAppointmentWorkspace } = {}) {
   return async function open(user, appointmentId) {
     const appointment = await authorize(user, appointmentId);
-    if (!canOpenInPersonLearning(appointment,user.id)) throw fail(403,'Only the assigned tutor may open an available in-person learning appointment.');
+    if (!canOpenLearningWorkspace(appointment,user.id)) throw fail(403,'Only the assigned tutor may open an available learning appointment.');
     const conn = await db.getConnection();
     try {
       await conn.beginTransaction();
@@ -16,7 +16,7 @@ export function createInPersonLearningWorkspace({ db = pool, authorize = staffTo
         COALESCE(NULLIF(a.service_code,''),service.service_code) AS learning_service_code
         FROM appointments a LEFT JOIN tenant_services service ON service.id=a.tenant_service_id AND service.agency_id=a.agency_id
         WHERE a.id=? AND a.agency_id=? AND a.provider_user_id=? FOR UPDATE`,[appointment.id,appointment.agencyId,user.id]);
-      if (!visit || !canOpenInPersonLearning(visit,user.id)) throw fail(409,'The appointment changed. Reload it before opening the learning session.');
+      if (!visit || !canOpenLearningWorkspace(visit,user.id) || String(visit.modality).toUpperCase()!==String(appointment.modality).toUpperCase()) throw fail(409,'The appointment changed. Reload it before opening the learning session.');
       const start=parseUtcDate(visit.starts_at),end=parseUtcDate(visit.ends_at);
       if (!start || !end || +end<=+start) throw fail(409,'Set the appointment time before opening the learning session.');
       visit.learning_service_code = selectedLearningServiceCode(visit.learning_service_code);
@@ -29,7 +29,8 @@ export function createInPersonLearningWorkspace({ db = pool, authorize = staffTo
       }
       const linked=await bridge({agencyId:appointment.agencyId,userId:user.id},{...visit,tutoringAppointmentId:appointment.id,participants:participants.map(p=>({id:Number(p.id)}))},conn,{allowEnded:true});
       await conn.commit();
-      return {sessionId:linked.learningSessionId,destination:`/in-person-tutoring-session/${linked.learningSessionId}`};
+      const path=String(visit.modality).toUpperCase()==='IN_PERSON'?'in-person-tutoring-session':'tutoring-session';
+      return {sessionId:linked.learningSessionId,appointmentId:appointment.id,destination:`/${path}/${linked.learningSessionId}`};
     } catch(error) { await conn.rollback();throw error; } finally { conn.release(); }
   };
 }

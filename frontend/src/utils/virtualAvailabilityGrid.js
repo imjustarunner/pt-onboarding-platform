@@ -19,3 +19,16 @@ export function virtualAvailabilityCellSlice(startTime, endTime, hour, minute=0,
   const from=Math.max(start,cell),to=Math.min(end,cell+step);
   return to>from ? {topPct:(from-cell)/step*100,heightPct:(to-from)/step*100} : null;
 }
+
+/** Subtract actual busy minutes without editing the published working hours. */
+export function virtualAvailabilityCellSlices(startTime,endTime,hour,minute=0,step=60,busy=[]) {
+  const slice=virtualAvailabilityCellSlice(startTime,endTime,hour,minute,step);
+  if(!slice)return [];
+  const cell=Number(hour)*60+Number(minute);
+  let free=[[cell+slice.topPct*step/100,cell+(slice.topPct+slice.heightPct)*step/100]];
+  for(const [start,end] of busy) {
+    if(!Number.isFinite(start)||!Number.isFinite(end)||end<=start)continue;
+    free=free.flatMap(([from,to])=>end<=from||start>=to?[[from,to]]:[...(start>from?[[from,Math.min(start,to)]]:[]),...(end<to?[[Math.max(end,from),to]]:[])]);
+  }
+  return free.map(([from,to])=>({topPct:(from-cell)/step*100,heightPct:(to-from)/step*100}));
+}

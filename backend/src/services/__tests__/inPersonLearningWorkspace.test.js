@@ -17,7 +17,7 @@ beforeEach(()=>{
  open=createInPersonLearningWorkspace({db,authorize,bridge});
 });
 it('opens an explicitly selected in-person Homework Help visit without a virtual room or billing action',async()=>{
- expect(await open({id:20},8)).toEqual({sessionId:90,destination:'/in-person-tutoring-session/90'});
+ expect(await open({id:20},8)).toEqual({sessionId:90,appointmentId:8,destination:'/in-person-tutoring-session/90'});
  expect(authorize).toHaveBeenCalledWith({id:20},8);
  expect(bridge).toHaveBeenCalledWith({agencyId:6,userId:20},expect.objectContaining({modality:'IN_PERSON',learning_service_code:'HOMEWORK HELP',participants:[{id:40}]}),conn,{allowEnded:true});
  expect(conn.commit).toHaveBeenCalled();expect(conn.rollback).not.toHaveBeenCalled();
@@ -29,6 +29,12 @@ it('requires existing schedule authorization and the assigned provider',async()=
  authorize.mockRejectedValueOnce(Object.assign(new Error('No agency access'),{status:403}));
  await expect(open({id:20},8)).rejects.toHaveProperty('status',403);
  expect(db.getConnection).not.toHaveBeenCalled();
+});
+it('prepares the exact virtual session without changing its modality or admitting a visit',async()=>{
+ authorize.mockResolvedValue({...appointment,modality:'VIRTUAL'});visit.modality='VIRTUAL';
+ expect(await open({id:20},8)).toEqual({sessionId:90,appointmentId:8,destination:'/tutoring-session/90'});
+ expect(bridge).toHaveBeenCalledWith(expect.any(Object),expect.objectContaining({modality:'VIRTUAL',tutoringAppointmentId:8}),conn,{allowEnded:true});
+ expect(conn.execute.mock.calls.some(([q])=>/office_lobby|attendance|payroll|charges/.test(q))).toBe(false);
 });
 it.each([{status:'no_show'},{business_type:'mental_health'},{modality:'VIRTUAL'},{provider_user_id:21}])('rechecks changed appointment data before creating a workspace: %j',async patch=>{
  Object.assign(visit,patch);await expect(open({id:20},8)).rejects.toHaveProperty('status',409);

@@ -1,8 +1,8 @@
 <template>
-  <div class="my-comp ft-payroll">
-    <FundThredPayrollBrand />
+  <div class="my-comp" :class="{'ft-payroll':!learningWorkspace,'nlu-workspace':learningWorkspace}">
+    <FundThredPayrollBrand v-if="!learningWorkspace" />
     <div class="header">
-      <h1>My Compensation</h1>
+      <h1>My compensation</h1>
       <p class="subtitle">Your configured compensation for the selected organization (read-only).</p>
     </div>
 
@@ -11,10 +11,10 @@
 
     <div v-else class="card">
       <section v-if="data?.submission?.schedule" class="rate-transition">
-        <img src="/assets/fundthred/wordmark.svg" alt="FundThred" width="170" />
+        <img v-if="!learningWorkspace" src="/assets/fundthred/wordmark.svg" alt="FundThred" width="170" />
         <h3>New compensation · {{ data.submission.startsOn || 'Date awaiting confirmation' }}</h3>
         <p>{{ data.submission.effective ? 'Active compensation schedule. These rates apply from the date shown.' : data.submission.executed ? 'Signed terms. Payroll activation and service dates determine when these rates apply.' : 'Planned terms. Payroll approval and activation are pending.' }}</p>
-        <div v-if="!isNluSchedule || data.submission.schedule.clinicalEligible === true" class="rate-pair"><article v-if="data.submission.schedule.clinicalCreditEligible !== false"><h4>Clinical Session Rate</h4><strong>{{ fmtMoney(data.submission.schedule.creditRate) }} / credit</strong><p>Minimum-workload rate: {{ fmtMoney(data.submission.schedule.creditRateProbation) }} / credit, when applicable.</p></article><article><h4>Direct Care Rate</h4><strong>{{ fmtMoney(data.submission.schedule.hcodeRate) }} / direct hour</strong><p>Minimum-workload rate: {{ fmtMoney(data.submission.schedule.hcodeRateProbation) }} / hour, when applicable.</p></article></div>
+        <div v-if="!learningWorkspace && (!isNluSchedule || data.submission.schedule.clinicalEligible === true)" class="rate-pair"><article v-if="data.submission.schedule.clinicalCreditEligible !== false"><h4>Clinical Session Rate</h4><strong>{{ fmtMoney(data.submission.schedule.creditRate) }} / credit</strong><p>Minimum-workload rate: {{ fmtMoney(data.submission.schedule.creditRateProbation) }} / credit, when applicable.</p></article><article><h4>Direct Care Rate</h4><strong>{{ fmtMoney(data.submission.schedule.hcodeRate) }} / direct hour</strong><p>Minimum-workload rate: {{ fmtMoney(data.submission.schedule.hcodeRateProbation) }} / hour, when applicable.</p></article></div>
         <p>Indirect: {{ fmtMoney(data.submission.schedule.indirectRate) }}/hour · Support activities: {{ fmtMoney(data.submission.schedule.supportRate) }}/hour.</p>
         <template v-if="isNluSchedule">
           <p>NLU category {{schedule.category}} · Overall pay level {{schedule.level}}.</p>
@@ -24,7 +24,7 @@
         </template>
         <p v-else>{{ data.submission.indirectMinutesPerHour }} minutes of indirect pay are included per Direct Care hour. Submit only work above that allowance. Credits measure compensation, not actual hours.</p>
       </section>
-      <section v-for="group in codeGroups" :key="group.id" class="rate-transition"><h3>{{ group.label }} · approved code mappings</h3><div class="code-grid"><article v-for="code in group.codes" :key="code.code"><strong>{{ code.code }}</strong><p>{{ code.quantityLabel }}</p></article></div></section>
+      <section v-for="group in permittedCodeGroups" :key="group.id" class="rate-transition"><h3>{{ group.label }} · approved code mappings</h3><div class="code-grid"><article v-for="code in group.codes" :key="code.code"><strong>{{ code.code }}</strong><p>{{ code.quantityLabel }}</p></article></div></section>
       <p>These code mappings reflect Payroll’s saved settings. Refer to the <a :href="handbookUrl">workplace handbook</a> for service eligibility and policy.</p>
       <SupplementalTime :agency-id="agencyId" :context="data?.submission" :codes="data?.codeGuide" />
       <details v-if="!data?.submission?.effective" open>
@@ -47,7 +47,7 @@
       <div class="sheet-title">Rate sheet</div>
       <div class="muted" style="margin-top: 4px;">Per-code rates only. Category/unit math is managed by payroll admins in the agency’s Service Code Rules.</div>
       <div style="margin-top: 10px;">
-        <div v-if="!visibleRateRows.length" class="muted">No rates configured yet.</div>
+        <div v-if="!visibleRateRows.length" class="muted">{{learningWorkspace?'Your approved service rates have not been published yet. Contact your team to review your compensation.':'No rates configured yet.'}}</div>
         <div v-else class="rate-grid">
           <div v-for="r in visibleRateRows" :key="r.serviceCode" class="rate-item">
             <div class="rate-code">{{ r.serviceCode }}</div>
@@ -98,6 +98,7 @@
 
 <script setup>
 import FundThredPayrollBrand from '../payroll/FundThredPayrollBrand.vue';
+import {serviceWorkspace} from '../../utils/nluWorkspace.js';
 import SupplementalTime from '../payroll/SupplementalTime.vue';
 import {childcareMoney as serviceMoney,CHILDCARE_BANDS} from '../../utils/childcarePresentation.js';
 import { computed, onMounted, ref, watch } from 'vue';
@@ -113,6 +114,8 @@ import {
 
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
+const learningWorkspace=computed(()=>serviceWorkspace(authStore.user,agencyStore.currentAgency||{}).learningOnly);
+const permittedCodeGroups=computed(()=>learningWorkspace.value?codeGroups.value.filter(group=>!['clinical_session','direct_care'].includes(group.id)):codeGroups.value);
 
 const agencyId = computed(() => {
   const a = agencyStore.currentAgency?.value || agencyStore.currentAgency;

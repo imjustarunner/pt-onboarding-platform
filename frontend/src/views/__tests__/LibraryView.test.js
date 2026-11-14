@@ -29,9 +29,9 @@ beforeEach(() => {
   api.get.mockResolvedValue({data: {documents: [{ key: 'provider-guide', title: 'Provider guide', betaAvailable: true, description: 'Clinical practice' }], canManage: false}});
 });
 afterEach(() => wrapper?.unmount());
-async function render(path = '/itsco/library') {
+async function render(path = '/itsco/library', userFields = {}) {
   const pinia = createPinia();
-  useAuthStore(pinia).user = {id: 8, role: 'provider', capabilities: {canViewLibrary: true}};
+  useAuthStore(pinia).user = {id: 8, role: 'provider', capabilities: {canViewLibrary: true},...userFields};
   useAgencyStore(pinia).currentAgency = {id: 99, slug: 'different-agency', name: 'Other'};
   useAgencyStore(pinia).userAgencies = [{id: 2, slug: 'itsco', name: 'ITSCO'}];
   const router = createRouter({history: createMemoryHistory(), routes: [{name:'OrganizationLibrary', path:'/:organizationSlug/library',component:Library},{name:'OrganizationLibraryResource',path:'/:organizationSlug/library/:resourceId',component:Library},{path:'/:organizationSlug/:other',component:{template:'<div />'}}]});
@@ -39,6 +39,15 @@ async function render(path = '/itsco/library') {
   wrapper = mount(Library,{global:{plugins:[pinia,router],stubs}}); await flushPromises(); return router;
 }
 async function clickText(text) { const btn=wrapper.findAll('button').find(b=>b.text().includes(text)); expect(btn).toBeTruthy(); await btn.trigger('click'); await flushPromises(); }
+it('keeps a learning-only provider out of clinical forms even through a retained tab link',async()=>{
+ const router=await render('/itsco/library?section=clinical',{workspaceServiceContext:{agencyId:2,canTutor:true,canClinical:false,learningOnly:true}});
+ expect(wrapper.vm.activeTab).toBe('all');
+ expect(wrapper.text()).not.toContain('C-SSRS');
+ expect(api.get.mock.calls.some(([url])=>url==='/clinical-forms')).toBe(false);
+ await router.push('/itsco/library?section=clinical&q=test');await flushPromises();
+ expect(wrapper.vm.activeTab).toBe('all');
+ expect(api.get.mock.calls.some(([url])=>url==='/clinical-forms')).toBe(false);
+});
 it('opens enrollment sources with paper-packet context and shares an individual source in the current agency',async()=>{
   await render('/itsco/library?section=enrollment&setting=school&service=tutoring&audience=guardian&locale=es&schoolId=40&agencyId=2');
   const catalog=wrapper.getComponent({name:'LibraryEnrollmentDocuments'});

@@ -7092,6 +7092,18 @@ export const savePublicIntakeProgress = async (req, res, next) => {
   }
 };
 
+export const emailSavedTutoringEnrollment = async (req,res,next) => {
+  try {
+    const token=String(req.body?.sessionToken||'').trim();
+    const loaded=await loadProgressSubmission(String(req.params.publicKey||'').trim(),token,req);
+    if(loaded.error)return res.status(loaded.error.status).json({error:{message:loaded.error.message}});
+    if(String(loaded.link.master_channel||'').toLowerCase()!=='tutoring')return res.status(404).json({error:{message:'Return-link email is not available for this form.'}});
+    assertPortalEnrollmentIdentity(loaded.submission, req.body, token);
+    const {requestEnrollmentResumeEmail}=await import('../services/enrollmentResumeEmail.service.js');
+    res.set('Cache-Control','no-store').json(await requestEnrollmentResumeEmail({agencyId:await resolveAgencyIdForLink(loaded.link),...loaded,sessionToken:token}));
+  }catch(error){next(error);}
+};
+
 export const getPublicIntakeProgress = async (req, res, next) => {
   try {
     const publicKey = String(req.params.publicKey || '').trim();

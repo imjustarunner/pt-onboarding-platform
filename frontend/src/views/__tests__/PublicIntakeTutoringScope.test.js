@@ -16,7 +16,7 @@ afterEach(()=>w?.unmount());
 async function render(){w=mount(View,{global:{plugins:[createPinia()],stubs:{DigitalFormShell:{template:'<main><slot/></main>'},SignaturePad:true,LearningEnrollmentQuestions:true}}});await flushPromises();}
 it('removes clinical inherited steps while keeping the learning and tutoring agreement',async()=>{
  await render();expect(w.vm.isTutoringEnrollment).toBe(true);expect(w.vm.isOfficeInDepthIntake).toBe(false);
- expect(w.vm.intakeSteps.map(s=>s.id)).toEqual(['learning-enrollment','tutoring_provider_preference','tutoring_services_agreement']);
+ expect(w.vm.intakeSteps.map(s=>s.id)).toEqual(['learning-enrollment','tutoring_provider_preference','tutoring_services_agreement','tutoring_optional_media_release','tutoring_optional_school_release']);
  expect(w.vm.otherGuardianContactOk()).toBe(true);
  w.vm.intakeResponses.submission.other_guardian_portal_requested='yes';
  expect(w.vm.otherGuardianFieldBag()).toEqual({other_guardian_portal_requested:'yes',other_guardian_send_intake_link:'no'});
@@ -48,4 +48,28 @@ it('waits for tutoring context before fetching a requested provider',async()=>{
 
 it('uses enrollment wording in tutoring copy, including a retained custom label',async()=>{
  await render();w.vm.link.custom_messages={beginIntake:'Begin intake'};expect(w.vm.t('beginIntake')).toBe('Begin enrollment');
+});
+
+it('opens the return-link dialog only after a server save and retains a failed draft for retry',async()=>{
+ await render();
+ post.mockRejectedValueOnce({response:{data:{error:{message:'Save unavailable'}}}});
+ await w.vm.saveAndComeBackLater();await flushPromises();
+ expect(w.vm.returnLinkOpen).toBe(false);expect(w.vm.progressSaveError).toBe('Save unavailable');
+ expect(post.mock.calls.some(([url])=>url.endsWith('/resume-email'))).toBe(false);
+ post.mockResolvedValue({data:{}});
+ await w.vm.saveAndComeBackLater();await flushPromises();
+ expect(w.vm.returnLinkOpen).toBe(true);expect(w.vm.progressSaveError).toBe('');
+});
+it('does not present a return link after the saved draft fails to load',async()=>{
+ await render();w.vm.savedProgressLoadFailed=true;
+ await w.vm.saveAndComeBackLater();
+ expect(w.vm.returnLinkOpen).toBe(false);expect(post).not.toHaveBeenCalled();
+});
+it('requests the saved enrollment return email once after saving, without an arbitrary recipient',async()=>{
+ await render();post.mockResolvedValue({data:{deliveryStatus:'pending'}});
+ await w.vm.emailSavedEnrollment();await flushPromises();await w.vm.emailSavedEnrollment();
+ const emails=post.mock.calls.filter(([url])=>url.endsWith('/resume-email'));
+ expect(emails).toHaveLength(1);expect(emails[0][1]).toEqual({sessionToken:'qa-draft'});
+ expect(w.vm.resumeEmailNotice).toContain('being processed');
+ expect(post.mock.calls.findIndex(([url])=>url.endsWith('/progress'))).toBeLessThan(post.mock.calls.findIndex(([url])=>url.endsWith('/resume-email')));
 });

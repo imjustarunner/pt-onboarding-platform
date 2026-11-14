@@ -21,6 +21,7 @@ import { useBrandingStore } from '../../store/branding';
 import { canDiscoverQuickNavRoute, resolveRegisteredRoute } from '../../navigation/quickNavRuntime';
 import { useNavShortcuts } from '../../composables/useNavShortcuts.js';
 import { useRoute, useRouter } from 'vue-router';
+import {serviceWorkspace} from '../../utils/nluWorkspace.js';
 
 const props = defineProps({
   limit: { type: Number, default: 6 },
@@ -38,12 +39,16 @@ const visibleShortcuts = computed(() => {
     const resolved = resolveRegisteredRoute(router, location, branding.portalHostPortalUrl);
     if (!resolved || !canDiscoverQuickNavRoute(resolved, {user:auth.user,agency:agencies.currentAgency || {},platformBranding:branding.platformBranding || {}})) continue;
     const path = resolved.path, tab = resolved.query.tab;
+    const learning=serviceWorkspace(auth.user,agencies.currentAgency||{}).learningOnly;
+    if(learning && /\/(?:admin|agencydashboard)(?:\/|$)/.test(path))continue;
     let label = shortcut.label, iconKey = tab || ({'my-schedule':'my_schedule','my-meetings':'meetings','messages':'chats','my-learning':'training','notifications':'notifications'}[shortcut.canonicalKey]) || shortcut.canonicalKey;
     if (/\/(note-aid|clinical-note-generator)(\/|$)/.test(path)) { label = 'Note Workspace'; iconKey = 'clinical_note_generator'; }
     else if (tab === 'clients' && /\/dashboard$/.test(path)) { label = 'My Clients'; iconKey = 'clients'; }
     else if (/school-operations.*clients|\/admin\/school-clients$/.test(path)) { label = 'School Clients'; iconKey = 'clients'; }
     else if (/workforce-operations.*clients|\/admin\/clients$/.test(path)) { label = 'Client Directory'; iconKey = 'clients'; }
-    const destination = resolved.fullPath;
+    const scheduleDestination=/(?:^|\/)my-schedule\/?$/.test(path)||(/\/dashboard\/?$/.test(path)&&tab==='my_schedule');
+    const prefix=route.params?.organizationSlug?`/${route.params.organizationSlug}`:'';
+    const destination = learning && scheduleDestination ? `${prefix}/my-schedule` : resolved.fullPath;
     const existing = seen.get(destination);
     if (existing) existing.visitCount += shortcut.visitCount;
     else seen.set(destination, {...shortcut,label,destination,iconUrl:branding.getDashboardCardIconUrl?.(iconKey, agencies.currentAgency) || null});

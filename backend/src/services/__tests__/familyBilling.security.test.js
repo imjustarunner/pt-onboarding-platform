@@ -63,7 +63,7 @@ test('browser success cannot substitute for verified amount, currency, customer,
  for(const patch of [{status:'processing'},{amount_received:1},{currency:'eur'},{customer:'cus_other'}])assert.throws(()=>verifyPaymentResult({...intent,...patch},expected));
 });
 test('consent must be affirmative, signed, and current; evidence is encrypted',async()=>{
- const calls=[];const db={execute:async(sql,args)=>{calls.push(args);return[{insertId:1}];}};
+ const calls=[];const db={execute:async(sql,args)=>{if(sql.startsWith('SELECT'))return [[]];calls.push(args);return[{insertId:1}];}};
  for(const consent of [{accepted:false,version:BILLING_TERMS_VERSION,signatureName:'Parent'},{accepted:true,version:'old',signatureName:'Parent'},{accepted:true,version:BILLING_TERMS_VERSION,signatureName:''}]) await assert.rejects(recordBillingConsent({userId:2,agencyId:1,purpose:'recurring',consent},db));
  assert.equal(calls.length,0);
  await recordBillingConsent({userId:2,agencyId:1,clientId:10,cardId:4,purpose:'recurring',consent:{accepted:true,version:BILLING_TERMS_VERSION,signatureName:'Parent',limitCents:2500}},db);

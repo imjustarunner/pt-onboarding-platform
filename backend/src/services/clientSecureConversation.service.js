@@ -52,10 +52,11 @@ export async function clientSecureAudience(clientId, db = pool, context = {}) {
      WHERE LOWER(u.status) IN ('active', 'active_employee','ehr_only') AND u.is_active=1 AND COALESCE(u.is_archived,0)=0
        AND u.terminated_at IS NULL AND (u.status_expires_at IS NULL OR u.status_expires_at>UTC_TIMESTAMP())
        AND u.role IN ('provider','provider_plus','intern','intern_plus','clinician','therapist','supervisor','clinical_practice_assistant','admin','super_admin') AND
-       ((u.id = ? AND NOT EXISTS(SELECT 1 FROM client_provider_assignments ended WHERE ended.client_id=? AND ended.provider_user_id=u.id))
-        OR u.id IN (SELECT provider_user_id FROM client_provider_assignments WHERE client_id = ? AND is_active = 1))
+       ((?=1 AND u.id=?) OR (?=0 AND (
+        (u.id = ? AND NOT EXISTS(SELECT 1 FROM client_provider_assignments ended WHERE ended.client_id=? AND ended.provider_user_id=u.id))
+        OR u.id IN (SELECT provider_user_id FROM client_provider_assignments WHERE client_id = ? AND is_active = 1))))
        AND EXISTS (SELECT 1 FROM user_agencies ua WHERE ua.user_id=u.id AND ua.agency_id=? AND ua.is_active=1)
-       AND (? IS NULL OR u.id=?)`, [service?.provider_user_id || (owningAgency===agencyId?client.provider_id:null),clientId,clientId,agencyId,service?Number(service.provider_user_id):null,service?Number(service.provider_user_id):null]);
+       AND (? IS NULL OR u.id=?)`, [service?1:0,service?.provider_user_id||0,service?1:0,owningAgency===agencyId?client.provider_id:null,clientId,clientId,agencyId,service?Number(service.provider_user_id):null,service?Number(service.provider_user_id):null]);
   for (const provider of providers) participants.push({ id: Number(provider.id), name: [provider.first_name, provider.last_name].filter(Boolean).join(' '), role: 'provider' });
   const unique = [...new Map(participants.map(p => [p.id, p])).values()];
   return { client, guardians, participants: unique, userIds: unique.map(p => p.id) };

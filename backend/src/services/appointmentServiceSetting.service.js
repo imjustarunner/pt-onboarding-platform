@@ -28,11 +28,23 @@ export async function resolveAppointmentServiceSetting(appt) {
   placeOfService = String(location?.place_of_service || placeOfService || '').padStart(2, '0');
   const isSchool = !!location?.school_organization_id || location?.location_kind === 'school' || placeOfService === '03';
   const isRemote = ['telehealth', 'virtual', 'video'].includes(String(appt.modality || '').toLowerCase());
+  // Tutoring uses its actual physical office/room, independently of medical POS.
+  let learningOffice=null;
+  if (!location && !isRemote && ['tutoring','learning'].includes(String(appt.businessType).toLowerCase()) && Number(appt.officeLocationId)>0) {
+    const [[office]]=await pool.execute(`SELECT o.id,o.name,r.id AS room_id,r.room_number,r.label AS room_label,r.name AS room_name
+      FROM office_locations o LEFT JOIN office_rooms r ON r.id=? AND r.location_id=o.id
+      WHERE o.id=? AND (o.agency_id=? OR EXISTS(SELECT 1 FROM office_location_agencies oa WHERE oa.office_location_id=o.id AND oa.agency_id=?))`,[appt.roomId||null,appt.officeLocationId,agencyId,agencyId]);
+    if(office && (!appt.roomId || Number(office.room_id)===Number(appt.roomId))) learningOffice=office;
+  }
+  const roomLabel=learningOffice?(learningOffice.room_label||learningOffice.room_name||(learningOffice.room_number?`Room ${learningOffice.room_number}`:null)):null;
   return {
     serviceLocationId,
-    setting: isSchool ? 'school' : isRemote ? 'telehealth' : location ? 'in_person' : 'unknown',
+    setting: isSchool ? 'school' : isRemote ? 'telehealth' : location || learningOffice ? 'in_person' : 'unknown',
     isSchool,
-    locationLabel: location?.name || (isSchool ? 'School' : isRemote ? 'Telehealth' : 'Service location needs review'),
+    locationLabel: location?.name || (learningOffice?[learningOffice.name,roomLabel].filter(Boolean).join(' · '):isSchool ? 'School' : isRemote ? 'Online' : 'Service location needs review'),
+    physicalOfficeLocationId:learningOffice?Number(learningOffice.id):null,
+    roomId:learningOffice?.room_id?Number(learningOffice.room_id):null,
+    roomLabel,
     billingOfficeLocationId: Number(location?.billing_office_location_id || appt.officeLocationId) || null,
     requiresConfirmation: !isSchool
   };

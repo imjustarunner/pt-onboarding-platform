@@ -1136,7 +1136,7 @@
                   alt=""
                 />
                 <span v-if="staffAlertForBlock(item)" class="cell-staff-alert cell-staff-alert--inline" role="img" :aria-label="staffAlertFaceLabel(item)" :title="staffAlertFaceLabel(item)">⚑</span>
-                <SecureSessionCommentButton v-if="item.appointmentId && canUseSessionComments(authStore.user?.role)" icon-only :appointment-id="item.appointmentId" :client-id="parseClientIdFromScheduleEvent(item)" />
+                <SecureSessionCommentButton v-if="item.appointmentId && canUseSessionComments(authStore.user?.role)" icon-only :appointment-id="item.appointmentId" :client-id="parseClientIdFromScheduleEvent(item)" :learning="tutoringWorkspaceOnly" />
                 <button type="button" class="sched-agenda__title sched-agenda__open" @click.stop="item.allDay ? openAllDayBlock($event, item, agendaDayName) : onCellBlockClick($event, item, agendaDayName, item.hour, item.cellMinute || 0)">
                   <span
                     v-if="item.confirmationState === 'confirmed'"
@@ -1145,7 +1145,7 @@
                   <span
                     v-else-if="item.confirmationState === 'unconfirmed'"
                     class="cell-block-confirm-chip cell-block-confirm-chip--pending"
-                  >Unconfirmed</span>
+                  >{{ tutoringWorkspaceOnly ? 'Scheduled · awaiting confirmation' : 'Unconfirmed' }}</span>
                   {{ agendaItemTitle(item) }}
                 </button>
               </div>
@@ -1627,8 +1627,8 @@
                   <span
                     v-else-if="b.confirmationState === 'unconfirmed'"
                     class="cell-block-confirm-chip cell-block-confirm-chip--pending"
-                    aria-label="Awaiting client confirmation"
-                  >Unconfirmed</span>
+                    :aria-label="tutoringWorkspaceOnly ? 'Scheduled; awaiting family confirmation' : 'Awaiting client confirmation'"
+                  >{{ tutoringWorkspaceOnly ? 'Scheduled · awaiting confirmation' : 'Unconfirmed' }}</span>
                   <span>{{ gridBlockLabel(b) }}</span>
                   <span
                     v-if="b.schedulingNoteSnippet"
@@ -1747,7 +1747,7 @@
 
     <div v-if="showRequestModal" class="modal-backdrop modal-backdrop--request" data-schedule-ui="v2" @click.self="requestCloseModal">
       <ClinicalWorkspaceFrame
-        :enabled="editorIsClinical && !showActionChooser && (!editorPracticeCategory || editorPracticeCategory === 'mental_health')"
+        :enabled="editorIsClinical && !editorIsLearning && !showActionChooser && (!editorPracticeCategory || editorPracticeCategory === 'mental_health')"
         :tenant-id="editorAgencyId || selectedActionAgencyId" context-label="Client session" return-label="Back to schedule" compact
         @back="requestCloseModal"
         class="modal modal--request modal--new-request"
@@ -1897,7 +1897,7 @@
               'supv-info-layout--with-workspace': showSupervisionAgendaWorkspace
             }"
           >
-            <SecureSessionCommentButton v-if="editorIsClinical && canUseSessionComments(authStore.user?.role) && Number(editorAppointmentId || 0) > 0" :appointment-id="Number(editorAppointmentId)" :client-id="Number(editorInfoClientId || 0) || null" />
+            <SecureSessionCommentButton v-if="editorIsClinical && canUseSessionComments(authStore.user?.role) && Number(editorAppointmentId || 0) > 0" :appointment-id="Number(editorAppointmentId)" :client-id="Number(editorInfoClientId || 0) || null" :learning="editorIsLearning" />
             <GuardianAppointmentRequests v-if="Number(editorAppointmentId || 0) > 0" :appointment-id="Number(editorAppointmentId)" />
             <AppointmentInfoPanel
               :when-label="editorInfoWhenLabel"
@@ -1947,7 +1947,7 @@
               @open-note="editorWorkspaceTab = 'note'"
               @join="startTrackedSupvMeet"
             />
-            <AppointmentStaffTools v-if="Number(editorAppointmentId || 0) > 0" :appointment-id="Number(editorAppointmentId)" />
+            <AppointmentStaffTools v-if="Number(editorAppointmentId || 0) > 0" :appointment-id="Number(editorAppointmentId)" @details="editorLearningDetails=$event" />
             <MeetingDialInPanel v-if="editorIsMeeting && Number(scheduleEventEditId || 0) && editorWorkspaceTab === 'info'" meeting-type="team-meeting" :meeting-id="Number(scheduleEventEditId)" />
             <MeetingDialInPanel v-if="editorIsSupervision && Number(selectedSupvSessionId || 0) && editorWorkspaceTab === 'info'" meeting-type="supervision" :meeting-id="Number(selectedSupvSessionId)" />
             <MeetingParticipantsDetails v-if="editorIsMeeting && Number(scheduleEventEditId || 0)" :event-id="scheduleEventEditId" />
@@ -1971,6 +1971,11 @@
             </aside>
           </div>
 
+        <section v-if="editorWorkspaceTab==='learning' && editorIsLearning" class="appt-workspace-panel nlu-workspace" aria-label="Tutoring learning workspace">
+          <h2>Learning session</h2><p>Appointment #{{editorAppointmentId}} · Prepare this visit without starting attendance or creating a payment.</p>
+          <AppointmentStaffTools v-if="editorAppointmentId" :appointment-id="Number(editorAppointmentId)" />
+          <router-link v-if="editorInfoClientId" class="nlu-button nlu-button--secondary" :to="scheduleOrgTo(`/students/${editorInfoClientId}`)">Open student learning record</router-link>
+        </section>
         <p v-if="editorSchoolOverlapNames.length" role="alert" class="nr-warn">These virtual hours overlap your assignment at {{editorSchoolOverlapNames.join(', ')}}. You can save them; assigned school hours remain reserved, and existing sessions stay protected. Request an hours change if you intend to see other clients then.</p>
         <AppointmentEditorShell
           v-show="editorWorkspaceTab === 'edit'"
@@ -2541,7 +2546,7 @@
             />
           </div>
 
-          <div v-show="editorWorkspaceTab === 'session'" class="appt-workspace-panel appt-workspace-panel--flush">
+          <div v-if="!editorIsLearning" v-show="editorWorkspaceTab === 'session'" class="appt-workspace-panel appt-workspace-panel--flush">
             <OfficeEventSessionNotePanel
               ref="editorSessionNotePanel"
               :practice-category="editorPracticeCategory || 'mental_health'"
@@ -2562,7 +2567,7 @@
             <p v-else class="muted">Session notes are available for booked client sessions.</p>
           </div>
 
-          <div v-show="editorWorkspaceTab === 'clinical'" class="appt-workspace-panel appt-workspace-panel--flush">
+          <div v-if="!editorIsLearning" v-show="editorWorkspaceTab === 'clinical'" class="appt-workspace-panel appt-workspace-panel--flush">
             <AppointmentClinicalPanel
               v-if="editorIsClinical"
               :diagnoses="editorChartDiagnoses"
@@ -5918,7 +5923,7 @@ import ScheduleColorSettings from './ScheduleColorSettings.vue';
 import { defaultScheduleColors, resolveScheduleColors, scheduleTypePalette, scheduleBlockColorKey, isExactHourAppointment } from '../../utils/scheduleAppearance.js';
 import ClinicalWorkspaceFrame from '../clinicalWorkspace/ClinicalWorkspaceFrame.vue';
 import { assignOverlapLanes, layoutScheduleDayBlocks, scheduleBlockPlacementKey } from '../../utils/scheduleOverlapLayout.js';
-import { virtualPublicationRanges, virtualAvailabilityCellSlice } from '../../utils/virtualAvailabilityGrid';
+import { virtualPublicationRanges, virtualAvailabilityCellSlices } from '../../utils/virtualAvailabilityGrid';
 import './schedule-new-request-modal.css';
 import ScheduleAgencyLogo from './ScheduleAgencyLogo.vue';
 import { createBookingCatalogCache } from '../../utils/bookingCatalogCache.js';
@@ -12039,7 +12044,7 @@ const buildCellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout 
   const portalByAgency = new Map();
   for (const row of portalHits) {
     const aid = Number(row?.agencyId || row?._agencyId || 0) || null;
-    const key = aid || 'none';
+    const key = `${aid || 'none'}:${row.id || ''}:${row.startTime}`;
     if (!portalByAgency.has(key)) portalByAgency.set(key, row);
   }
   const officeHitsForPortalTie = officeEventsInCell(dayName, hour, minute);
@@ -12047,8 +12052,16 @@ const buildCellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout 
     const st = String(ev?.slotState || '').toUpperCase();
     return ['ASSIGNED_BOOKED', 'ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY'].includes(st);
   });
-  for (const [aid, row] of portalByAgency) {
-    const agencyId = (aid === 'none' || !aid) ? null : Number(aid);
+  const dayStart=new Date(`${addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dayName))}T00:00:00`);
+  const busyRows=Array.isArray(summary.value?.busyBlocks)&&summary.value.busyBlocks.length
+    ? summary.value.busyBlocks
+    : [...(summary.value?.scheduleEvents||[]),...(summary.value?.supervisionSessions||[]),...(summary.value?.externalBusy||[])];
+  const busyMinutes=busyRows.filter(row=>!isScheduleEventTerminal(row)&&row.blocksScheduling!==false&&row.displayStatus!=='AVAILABLE'&&row.activityType!=='opening'&&!(row.isOfficeBlock&&!row.appointmentId)).flatMap(row=>{
+    const start=parseGridEventDate(row.startAt||row.start),end=parseGridEventDate(row.endAt||row.end);
+    return start&&end?[[(start-dayStart)/60000,(end-dayStart)/60000]]:[];
+  });
+  for (const [, row] of portalByAgency) {
+    const agencyId = Number(row?.agencyId || row?._agencyId || 0) || null;
     const vwhId = Number(row?.id || 0) || 0;
     const st = String(row?.startTime || '').slice(0, 5);
     const et = String(row?.endTime || '').slice(0, 5);
@@ -12056,11 +12069,12 @@ const buildCellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout 
     const startAt = (dateYmd && st) ? `${dateYmd}T${st.length === 5 ? `${st}:00` : st}` : null;
     const endAt = (dateYmd && et) ? `${dateYmd}T${et.length === 5 ? `${et}:00` : et}` : null;
     const movable = !portalOfficeTied && vwhId > 0;
-    blocks.push({
-      key: `portal-${vwhId || agencyId || 'x'}-${st}`,
+    const slices=virtualAvailabilityCellSlices(st,et,hour,minute,showQuarterDetail.value?15:60,busyMinutes);
+    slices.forEach((slice,sliceIndex)=>blocks.push({
+      key: `portal-${vwhId || agencyId || 'x'}-${st}-${sliceIndex}`,
       kind: 'portal',
       shortLabel: `Virtual · ${clockRangeLabel(startAt, endAt, true)}`,
-      virtualSlice: virtualAvailabilityCellSlice(st, et, hour, minute, showQuarterDetail.value ? 15 : 60),
+      virtualSlice: slice,
       title: `Saved virtual availability${agencySuffix(agencyId ? [agencyId] : [])} — ${dayName} ${st}–${et}. The public directory can show openings while online booking is off. Publishing a new-client opening switches Virtual from Waitlist to Open. Appointments, school assignments, and app schedule blocks exclude occupied times. A room reservation alone does not block virtual booking.`,
       agencyId,
       startTime: row?.startTime || null,
@@ -12074,7 +12088,7 @@ const buildCellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout 
       canReschedule: movable,
       canEdit: movable,
       draggable: movable
-    });
+    }));
   }
 
   // Supervision sessions — compute first for school overlap / replacement logic
@@ -14211,7 +14225,7 @@ const modalEditorTitle = computed(() => {
   if (isScheduleEventEditMode.value) {
     const item = editingScheduleStackItem.value;
     if (isMeetingStackItem(item)) return appointmentEditorTitleForKind(item?.eventKind || 'TEAM_MEETING');
-    if (isClientSessionScheduleEvent(item)) return 'Clinical Session';
+    if (isClientSessionScheduleEvent(item)) return editorIsLearning.value?'Tutoring session':'Clinical session';
     return appointmentEditorTitleForKind(item?.eventKind || 'PERSONAL_EVENT', { kindLabel: item?.kindLabel });
   }
   return appointmentEditorTitleForKind(requestType.value, {
@@ -14223,6 +14237,9 @@ const editorIsClinical = computed(() => (
   ['individual_session', 'group_session'].includes(String(requestType.value || ''))
   || (isScheduleEventEditMode.value && isClientSessionScheduleEvent(editingScheduleStackItem.value))
 ));
+const editorIsLearning = computed(() => editorIsClinical.value && (
+  tutoringWorkspaceOnly.value || ['tutoring','learning'].includes(String(editorPracticeCategory.value||editingScheduleStackItem.value?.businessType||'').toLowerCase())
+));
 const editorIsMeeting = computed(() => (
   ['agency_meeting', 'huddle'].includes(String(requestType.value || ''))
   || (isScheduleEventEditMode.value && isMeetingStackItem(editingScheduleStackItem.value))
@@ -14232,6 +14249,7 @@ const editorClinicalSessionId = ref(0);
 const editorClinicalNoteId = ref(0);
 const editorClaimId = ref(0);
 const editorAppointmentId = ref(0);
+const editorLearningDetails=ref(null);
 const editorOthersPresentNames = ref('');
 const editorNotificationsScheduleEventId = computed(() => {
   if (Number(editorAppointmentId.value || 0) > 0) return 0;
@@ -14649,7 +14667,7 @@ const editorCoProviderOptions = computed(() => {
       };
     });
 });
-const editorShowClinicalTab = computed(() => editorShowBillingTab.value || editorIsClinical.value);
+const editorShowClinicalTab = computed(() => !editorIsLearning.value && (editorShowBillingTab.value || editorIsClinical.value));
 
 const editorWorkspaceTabs = computed(() => {
   if (!showAppointmentEditorShell.value) return [];
@@ -14723,7 +14741,8 @@ const editorWorkspaceTabs = computed(() => {
       tabs.push({ id: 'meeting_notes', label: 'Notes', icon: '✎' });
     }
   }
-  if (editorIsClinical.value) tabs.push({ id: 'session', label: 'Session note', icon: '✎' });
+  if (editorIsLearning.value) tabs.push({id:'learning',label:'Learning',icon:'✎'});
+  else if (editorIsClinical.value) tabs.push({ id: 'session', label: 'Session note', icon: '✎' });
   if (editorShowBillingTab.value) tabs.push({ id: 'billing', label: 'Billing', icon: '$' });
   if (editorShowClinicalTab.value) tabs.push({ id: 'clinical', label: 'Clinical', icon: '☰' });
   if (Number(editorAppointmentId.value || 0) > 0) tabs.push({ id: 'communications', label: 'Communications', icon: '✉' });
@@ -15035,6 +15054,7 @@ const editorInfoServiceLabel = computed(() => {
   return `${code ? `${code} · ` : ''}${svc.name || 'Service'}`;
 });
 const editorInfoLocationLabel = computed(() => {
+  if(editorIsLearning.value) return Number(editorLearningDetails.value?.appointmentId)===Number(editorAppointmentId.value) ? editorLearningDetails.value?.serviceSetting?.locationLabel||'Location needs review' : 'Loading appointment location…';
   const id = Number(editorServiceLocationId.value || bookingServiceLocationId.value || 0);
   const hit = (editorServiceLocationOptions.value || []).find((l) => Number(l.id) === id);
   if (hit?.label) return hit.label;
@@ -15301,7 +15321,7 @@ const editorOpenSlotDurationWarning = computed(() => {
   if (!(endMin > startMin) || (endMin - startMin) <= 60) return '';
   return 'Open slots are typically shown as 1-hour windows — longer is atypical but allowed.';
 });
-const editorRoomLabel = computed(() => String(modalOccupiedSlotSummary.value?.roomDisplay || '').trim());
+const editorRoomLabel = computed(() => editorIsLearning.value?(Number(editorLearningDetails.value?.appointmentId)===Number(editorAppointmentId.value)?editorLearningDetails.value?.serviceSetting?.roomLabel||'':''):String(modalOccupiedSlotSummary.value?.roomDisplay || '').trim());
 const editorRoomOptions = computed(() => {
   const rooms = Array.isArray(officeRooms.value) ? officeRooms.value : [];
   const base = rooms.map((r) => ({
@@ -16074,7 +16094,7 @@ async function loadEditorReminders() {
 async function loadEditorClinicalChart() {
   const clientId = Number(editorInfoClientId.value || 0);
   const agencyId = Number(editorAgencyId.value || selectedActionAgencyId.value || 0);
-  if (!clientId || !agencyId || !editorIsClinical.value) {
+  if (!clientId || !agencyId || !editorIsClinical.value || editorIsLearning.value) {
     editorChartDiagnoses.value = [];
     editorChartLatestPlan.value = null;
     return;
@@ -16123,6 +16143,7 @@ function openPushSessionUpdateFromEditor() {
 }
 
 async function ensureEditorClinicalContext() {
+  if (editorIsLearning.value) return false;
   const appointmentId = Number(editorAppointmentId.value || 0);
   const clientId = Number(editorInfoClientId.value || 0);
   const key = `${appointmentId}:${clientId}`;

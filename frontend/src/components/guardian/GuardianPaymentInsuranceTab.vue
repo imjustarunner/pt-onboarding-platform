@@ -16,7 +16,7 @@
           <p v-else-if="client.paymentSetupRequested" role="status">Billing requested payment setup. In order to prevent interruption of services, please add a payment method below. Contact Billing if you need help or wish to discuss an arrangement.</p>
           <button v-if="!client.medicaid && section === 'authorization' && (client.canManageBilling || client.canAcceptResponsibility)" type="button" @click="openAuthorization(client,'responsibility')">Review and sign payment authorization</button>
           <template v-else-if="client.canManageBilling && !client.medicaid">
-            <p v-if="!client.medicaid" class="status">{{ client.paymentCardId ? 'Your payment method is assigned' : 'Payment method required before paid services' }}</p>
+            <p v-if="!client.medicaid" class="status">{{ client.paymentCardId ? 'Your payment method is assigned' : learningOnly ? 'Payment is handled separately under your agreed tutoring arrangement. Contact the office if you need help.' : 'Payment method required before paid services' }}</p>
             <label>Your card for this client<select v-model="cardSelections[client.clientId]"><option value="">Select a saved card</option><option v-for="card in data.cards" :key="card.id" :value="card.id" :disabled="card.verificationRequired">{{ card.card_brand }} •••• {{ card.card_last4 }}{{ card.verificationRequired ? ' — add again to verify' : '' }}</option></select></label>
             <button class="btn btn-secondary" type="button" :disabled="busy || !cardSelections[client.clientId]" @click="assign(client)">Apply card to this client</button>
             <p v-if="client.recurringEnabled">Recurring authorization active, up to {{ money(client.recurringLimitCents) }} per charge.</p>

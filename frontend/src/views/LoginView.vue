@@ -498,7 +498,8 @@
               Change username
             </button>
           </form>
-          
+          <section v-if="nluEnrollmentPath" class="nlu-enrollment-entry" aria-label="Tutoring enrollment"><strong>Looking for tutoring?</strong><p>Find a tutor or start a tutoring enrollment. You do not need an account to send a request.</p><router-link class="nlu-button nlu-button--primary" :to="nluEnrollmentPath">Enroll in tutoring</router-link></section>
+
           <template v-if="isPlatformLogin && !isIOSNative && !showRememberedGoogleButton">
             <div class="hq-divider">OR CONTINUE WITH</div>
             <button type="button" class="hq-google" :disabled="loading || verifying" @click="identifyGoogleAccount">
@@ -798,6 +799,12 @@ const isFundThredLogin = computed(() => isFundthredLogin(route));
 useFundThredBranding('Sign in | FundThred', isFundThredLogin);
 const authStore = useAuthStore();
 const brandingStore = useBrandingStore();
+const nluEnrollmentPath=computed(()=>{
+  const slug=String(route.params.organizationSlug||loginTheme.value?.agency?.slug||'').trim();
+  const host=typeof window!=='undefined'?window.location.hostname:'';
+  if(!/^nlu(?:-|$)/i.test(slug)&&!/(?:^|\.)nextleveluplcc\.com$/i.test(host))return '';
+  return `/${slug||'nlu'}/join/tutoring`;
+});
 const agencyStore = useAgencyStore();
 const organizationStore = useOrganizationStore();
 const APP_PREVIEW_STORAGE_KEY = '__pt_local_app_preview__';

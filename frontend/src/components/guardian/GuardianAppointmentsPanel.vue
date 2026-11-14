@@ -18,9 +18,9 @@
     <p v-if="error" role="alert">{{ error }}</p><p v-if="loading" role="status">{{ ft("Loading appointments…") }}</p>
     <p v-else-if="!appointments.length">{{ ft("No appointments are available to display.") }}</p>
     <article v-for="a in appointments" :key="a.id" :id="`appointment-${a.id}`" tabindex="-1">
-      <h3>{{ when(a.startAt, a.timeZone) }}</h3><p>{{ a.providerName }} · {{ a.modality === 'IN_PERSON' ? ft('In person') : a.modality === 'VIRTUAL' ? ft('Online') : a.modality }} · {{ ft(a.status.replaceAll('_',' ')) }}</p>
+      <h3>{{ when(a.startAt, a.timeZone) }}<template v-if="a.endAt"> – {{ endTime(a.endAt,a.timeZone) }}</template></h3><p>Appointment #{{a.id}} · {{ a.providerName }} · {{ a.modality === 'IN_PERSON' ? ft('In person') : a.modality === 'VIRTUAL' ? ft('Online') : a.modality }} · {{ ft(a.status.replaceAll('_',' ')) }}</p>
       <a v-if="a.joinUrl" :href="a.joinUrl" target="_blank" rel="noopener noreferrer" class="join-appointment">{{ ft("Join online appointment →") }}</a>
-      <SecureSessionCommentButton v-if="!preview && a.secureCommentsAvailable" :appointment-id="a.id" :client-id="clientId" />
+      <SecureSessionCommentButton v-if="!preview && a.secureCommentsAvailable" :appointment-id="a.id" :client-id="clientId" :learning="['tutoring','learning'].includes(a.businessType)" />
       <SecureSessionCommentTip v-if="!preview && a.secureCommentsAvailable" :appointment-id="a.id" :start-at="a.startAt" :user-id="authStore.user?.id" :self="authStore.user?.role === 'client'" />
       <p v-if="a.attendanceDetails">{{ a.attendanceDetails }}</p>
       <p v-else-if="a.serviceSetting">Service location: {{ a.serviceSetting.locationLabel }}</p>
@@ -117,6 +117,7 @@ const draft=a=>drafts[a.id] ||= {type:'cancel',reason:'',scope:'single',confirme
 const appointmentDate=value=>new Date(typeof value==='string'&&!/(Z|[+-]\d\d:\d\d)$/.test(value)?value.replace(' ','T')+'Z':value);
 const canRequest=a=>!props.preview&&['scheduled','confirmed','client_confirmed'].includes(a.status)&&+appointmentDate(a.startAt)>Date.now();
 const when=(value,timeZone)=>appointmentDate(value).toLocaleString(familyLocale.value,{timeZone:timeZone||'America/Denver',dateStyle:'medium',timeStyle:'short'});
+const endTime=(value,timeZone)=>appointmentDate(value).toLocaleTimeString(familyLocale.value,{timeZone:timeZone||'America/Denver',hour:'numeric',minute:'2-digit',timeZoneName:'short'});
 async function load(){const own=++sequence;appointments.value=[];preferences.value=null;preferenceNotice.value='';error.value='';if(!props.clientId||props.preview)return;loading.value=true;try{const {data}=await api.get(`/guardian-portal/clients/${props.clientId}/appointments`,{skipGlobalLoading:true});if(own===sequence) {
   appointments.value=data.appointments||[];
   await nextTick();

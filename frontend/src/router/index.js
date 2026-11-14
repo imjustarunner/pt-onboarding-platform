@@ -1525,6 +1525,8 @@ const routes = [
     meta: { requiresGuest: false, flatDistrictSchedule: true, publicDistrictSchedule: true }
   },
   // Organization-specific routes (supports Agency, School, Program, Learning)
+  ...['learning','learning-plans','learning-sessions','students/:clientId'].map((path,index)=>({path:`/:organizationSlug/${path}`,name:`OrganizationTutoringLearning${index}`,component:()=>import('../views/tutoring/TutoringStudentsView.vue'),meta:{requiresAuth:true,organizationSlug:true}})),
+  ...['learning','learning-plans','learning-sessions','students/:clientId'].map((path,index)=>({path:`/${path}`,name:`TutoringLearning${index}`,component:()=>import('../views/tutoring/TutoringStudentsView.vue'),meta:{requiresAuth:true}})),
   {path:'/:organizationSlug/students',name:'OrganizationTutoringStudents',component:()=>import('../views/tutoring/TutoringStudentsView.vue'),meta:{requiresAuth:true,organizationSlug:true}},
   {path:'/:organizationSlug/clients',redirect:to=>({path:`/${to.params.organizationSlug}/students`,query:to.query}),meta:{requiresAuth:true,organizationSlug:true}},
   {path:'/:organizationSlug/tutoring-profile',name:'OrganizationTutoringProfile',component:()=>import('../views/tutoring/TutoringProfileView.vue'),meta:{requiresAuth:true,organizationSlug:true}},

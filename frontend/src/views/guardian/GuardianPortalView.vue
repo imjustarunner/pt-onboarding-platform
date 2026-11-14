@@ -32,7 +32,7 @@
       <ClientSupportAccounts v-if="!isSuperadminPreview && activePanel === 'assistance'" />
       <GuardianEnrollmentStart v-if="!isSuperadminPreview && activePanel === 'enroll'" :agency-id="currentAgencyId" :language="familyLocale" />
       <GuardianInvitations v-if="!isSuperadminPreview && activePanel === 'family'" :agency-id="selectedChildAgencyId || currentAgencyId" :language="familyLocale" />
-      <FamilyNotificationChoices v-if="activePanel === 'notifications' && !isSuperadminPreview && selectedChildRecordAccess" :agency-id="selectedChildAgencyId" :client-id="selectedChildId" :profiles="readableFamilyProfiles" />
+      <FamilyNotificationChoices v-if="activePanel === 'notifications' && !isSuperadminPreview && selectedChildRecordAccess" :agency-id="selectedChildAgencyId" :client-id="selectedChildId" :profiles="readableFamilyProfiles" :learning="familyProfilesLearningOnly(readableFamilyProfiles)" />
 
       <div v-if="programs.length === 0 && children.length === 0 && !['account','messages','payment_methods','billing','assistance','enroll'].includes(activePanel)" class="empty-state">
         <p>No children or programs are linked to this guardian account yet.</p>
@@ -1039,8 +1039,10 @@ const dashboardTabs = computed(() => {
 });
 
 const portalGrants = ref([]);
+const selectedGuardianPermissions=computed(()=>{try{const value=selectedChild.value?.permissions_json;return typeof value==='string'?JSON.parse(value):value||{};}catch{return {canViewDocs:false,canSignDocs:false,learningOnly:true};}});
+const restrictedLearningGuardian=computed(()=>selectedGuardianPermissions.value.learningOnly===true);
 let portalGrantRequest = 0;
-const portalPlanAllowed = computed(() => !isSuperadminPreview.value && !!selectedChildId.value && (standardsLearningVisible.value || selectedChild.value?.relationship_type === 'self' || portalGrants.value.some(g => Number(g.clientId) === Number(selectedChildId.value) && Number(g.guardianUserId) === Number(authStore.user?.id) && g.scopes?.includes('treatment_plan'))));
+const portalPlanAllowed = computed(() => !isSuperadminPreview.value && !!selectedChildId.value && (!restrictedLearningGuardian.value || selectedGuardianPermissions.value.canViewProgress===true) && (standardsLearningVisible.value || selectedChild.value?.relationship_type === 'self' || portalGrants.value.some(g => Number(g.clientId) === Number(selectedChildId.value) && Number(g.guardianUserId) === Number(authStore.user?.id) && g.scopes?.includes('treatment_plan'))));
 const portalNavigation = computed(() => {
   const icons = {overview:'dashboard',tutoring:'dashboard',registrations:'sessions',documents:'tasks',child:'child',dependents:'child',billing:'billing',payment_methods:'shield',account:'account',messages:'messages',notifications:'tasks',notification_history:'messages'};
   const labels = {overview:'Dashboard',documents:'Tasks & documents',billing:'Invoices & receipts',payment_methods:learningOnlySelectedProfile.value?'Payments':'Insurance & payments',child:selectedChild.value ? `${childDisplayName(selectedChild.value).split(' — ')[0]} · ${familyLocale.value === 'es' ? 'información' : 'information'}` : 'Client information'};
@@ -1058,7 +1060,10 @@ const portalNavigation = computed(() => {
   items.push({key:'contact',label:'Reminder contacts',icon:'support'},{key:'signout',label:'Sign out',icon:'account'});
   const accountKeys=['assistance','family','family_billing','family_messages','notifications','account','records','help','enroll'];
   const ordered=[...items.filter(i=>accountKeys.includes(i.key)),...items.filter(i=>!accountKeys.includes(i.key)&&i.key!=='signout'),...items.filter(i=>i.key==='signout')];
-  return ordered.map(i=>({...i,label:ft(i.label),group:i.key==='signout'?ft('Account'):accountKeys.includes(i.key)?ft('Family & account'):`${ft('Viewing')} ${selectedFirstName.value}`}));
+  const available=ordered.filter(i=>(!learningOnlySelectedProfile.value || !['updates','assistance','help'].includes(i.key))
+    && !(restrictedLearningGuardian.value && ['billing','payment_methods','family_billing'].includes(i.key))
+    && !(selectedGuardianPermissions.value.canViewDocs===false && i.key==='documents'));
+  return available.map(i=>({...i,label:ft(i.label),group:i.key==='signout'?ft('Account'):accountKeys.includes(i.key)?ft('Family & account'):`${ft('Viewing')} ${selectedFirstName.value}`}));
 });
 const portalTitle = computed(() => activePanel.value === 'onboarding' ? 'Welcome to your new portal' : activePanel.value === 'family' ? familyHomeLabel.value : ['overview','tutoring'].includes(activePanel.value) ? `${familyLocale.value === 'es' ? 'Bienvenido' : 'Welcome'}${(authStore.user?.first_name || authStore.user?.firstName) ? ', ' + (authStore.user.first_name || authStore.user.firstName) : ''}!` : portalNavigation.value.find(t => t.key === activePanel.value)?.label || 'Your portal');
 const portalSubtitle = computed(() => ['overview','tutoring'].includes(activePanel.value) ? (familyLocale.value === 'es' ? `El proceso de ${standardsLearningVisible.value ? 'aprendizaje' : 'atención'} de ${selectedFirstName.value}, sus citas y próximos pasos.` : `${selectedFirstName.value}’s ${standardsLearningVisible.value ? 'learning' : 'care'} journey, appointments, and next steps.`) : ({schoolcarebridge:'Your school, service day, provider, and release of information.',billing:'Your assigned balances, payment plans, and downloadable receipts.',payment_methods:learningOnlySelectedProfile.value?'Manage your saved payment methods.':'Manage your private insurance coverage and payment methods.',plan:'Review the goals and progress shared with your account.',documents:'Complete forms, review documents, and stay up to date.',messages:learningOnlySelectedProfile.value?'A shared conversation with authorized guardians and your learning team.':'A shared conversation with authorized guardians and your care team.'}[activePanel.value] || 'Manage the information shared with your account.'));

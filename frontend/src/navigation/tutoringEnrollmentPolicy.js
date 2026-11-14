@@ -1,6 +1,8 @@
 // Shared by the public form and server. Apply only to academic tutoring;
 // separately selected clinical services retain their own enrollment requirements.
-export const TUTORING_AGREEMENT_KEY = 'tutoring_service_agreement_2026_11_12';
+import {TUTORING_ENROLLMENT_VERSION,tutoringAgreementSections,tutoringOptionalReleaseSteps} from './tutoringEnrollmentAgreement.js';
+export const LEGACY_TUTORING_AGREEMENT_KEY='tutoring_service_agreement_2026_11_12';
+export const TUTORING_AGREEMENT_KEY = 'tutoring_service_agreement_2026_11_13';
 const clinicalTypes = new Set(['clinical_questions', 'smart_disclosure', 'disclosure', 'packet_informed_group_consent', 'packet_policy_services', 'packet_hipaa_notice', 'school_roi', 'guardian_waiver', 'guardian_waivers', 'demographics']);
 const clinicalTitle = /\b(?:hipaa|psychotherapy|mental.health|group counseling|informed consent.*counseling|disclosure statement)\b/i;
 const optionalDetails = /(?:guardian|parent).*?(?:dob|birth)|emergency.*phone|(?:address|street|postal|zip)|(?:^|_)(?:sex|gender)(?:_|$)/i;
@@ -18,7 +20,7 @@ export function tutoringIntakeSteps(steps = [], { locale = 'en' } = {}) {
     const id = String(step.id || '');
     return !id.startsWith('counseling_') && !clinicalTypes.has(step.type) && step.serviceContext !== 'clinical'
       && !clinicalTitle.test(`${step.label || ''} ${step.title || ''}`) && id !== 'office_package_selection'
-      && id !== 'tutoring_services_agreement' && !/custody/i.test(id);
+      && !['tutoring_services_agreement','tutoring_optional_media_release','tutoring_optional_school_release'].includes(id) && !/custody/i.test(id);
   }).map(step => {
     if (['insurance', 'insurance_info', 'payment_collection'].includes(step.type)) return { ...step, type: step.type === 'insurance' ? 'insurance_info' : step.type, paymentOnly: true, paymentRequired: false, enrollmentService: 'tutoring', label: spanish ? 'Preferencias de pago' : 'Payment preferences' };
     if (!Array.isArray(step.fields)) return { ...step };
@@ -38,9 +40,13 @@ export function tutoringIntakeSteps(steps = [], { locale = 'en' } = {}) {
   }
   const agreement = {
     id: 'tutoring_services_agreement', type: 'questions', scope: 'submission', audience: 'all', visibility: 'always',
-    label: spanish ? 'Acuerdo de tutoría' : 'Tutoring services agreement',
+    label: spanish ? 'Acuerdo de inscripción y políticas familiares de tutoría' : 'Tutoring Enrollment Agreement & Family Policies',
+    version:TUTORING_ENROLLMENT_VERSION,
     fields: [{ id: TUTORING_AGREEMENT_KEY, key: TUTORING_AGREEMENT_KEY, type: 'checkbox', scope: 'submission', required: true,
-      label: spanish ? 'Solicito apoyo académico de tutoría. La tutoría no es asesoramiento clínico ni un diagnóstico médico. Las citas y los acuerdos de pago se confirman por separado. Puedo invitar a otro tutor legal desde mi portal después de crear mi cuenta.' : 'I request academic tutoring support. Tutoring is not clinical counseling or a medical diagnosis. Appointments and payment arrangements are confirmed separately. I can invite another guardian from my portal after my account is ready.' }]
+      uiLabel:spanish?'He leído y acepto este acuerdo de tutoría.':'I have read and agree to this tutoring agreement.',
+      agreementSections:tutoringAgreementSections(locale),agreementVersion:TUTORING_ENROLLMENT_VERSION,
+      label:tutoringAgreementSections(locale).map(([title,body])=>`${title}\n${body}`).join('\n\n'),
+      helperText:tutoringAgreementSections(locale).map(([title,body])=>`${title}\n${body}`).join('\n\n') }]
   };
-  return [...kept, agreement];
+  return [...kept, agreement,...tutoringOptionalReleaseSteps(locale)];
 }

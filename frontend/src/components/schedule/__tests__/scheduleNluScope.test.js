@@ -35,3 +35,27 @@ it('restores the note control only when the same agency grants clinical work',as
  m.user.workspaceServiceContext={agencyId:453,canTutor:true,canClinical:true,learningOnly:false};await flushPromises();
  expect(wrapper.find('button[title="Open Note Workspace"]').exists()).toBe(true);
 });
+it('keeps tutoring appointments out of the clinical chart and note context paths',async()=>{
+ const state=await mountGrid(true);
+ state.stackDetailsItems=[{eventId:598,eventKind:'PERSONAL_EVENT',clientId:2545,businessType:'tutoring'}];
+ state.scheduleEventEditId=598;state.requestType='edit_schedule_event';state.editorAppointmentId=290;
+ state.editorAgencyId=453;state.virtualSessionSelectedClientIds=[2545];
+ await flushPromises();await state.loadEditorClinicalChart();
+ expect(state.editorIsLearning).toBe(true);
+ expect(state.editorWorkspaceTabs.map(tab=>tab.id)).toContain('learning');
+ expect(state.editorWorkspaceTabs.map(tab=>tab.id)).not.toContain('clinical');
+ expect(await state.ensureEditorClinicalContext()).toBe(false);
+ expect(m.get.mock.calls.some(([url])=>url.includes('/medical-billing/'))).toBe(false);
+});
+it('subtracts a booked appointment from the visible virtual opening without changing published hours',async()=>{
+ const state=await mountGrid(true);state.showQuarterDetail=false;
+ const event={id:598,kind:'PERSONAL_EVENT',appointmentId:290,clientId:2545,status:'SCHEDULED',startAt:'2026-11-09T17:15:00Z',endAt:'2026-11-09T18:15:00Z'};
+ state.summary={...state.summary,weekStart:'2026-11-09',virtualWorkingHours:[{id:50,agencyId:453,dayOfWeek:'Monday',frequency:'WEEKLY',sessionType:'BOTH',startTime:'09:00:00',endTime:'12:00:00'}],scheduleEvents:[event]};
+ await flushPromises();
+ const ten=state.cellBlocks('Monday',10,0).filter(b=>b.kind==='portal');
+ const eleven=state.cellBlocks('Monday',11,0).filter(b=>b.kind==='portal');
+ expect(ten.map(b=>b.virtualSlice)).toEqual([{topPct:0,heightPct:25}]);
+ expect(eleven.map(b=>b.virtualSlice)).toEqual([{topPct:25,heightPct:75}]);
+ expect(state.summary.virtualWorkingHours[0].startTime).toBe('09:00:00');
+ expect(state.summary.virtualWorkingHours[0].endTime).toBe('12:00:00');
+});

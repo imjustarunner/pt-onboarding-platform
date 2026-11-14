@@ -16,7 +16,7 @@
     />
     <router-view v-if="route.meta?.familyCommandCenter" />
     <div v-else class="preview-root" :data-preview-viewport="effectivePreviewViewport">
-      <div id="app" :inert="!applicantInterviewMode && !isLoginEntry && (sessionLockStore.isLocked || sessionLockStore.warningActive)" :aria-hidden="!applicantInterviewMode && !isLoginEntry && (sessionLockStore.isLocked || sessionLockStore.warningActive) ? 'true' : undefined" :class="{ 'conversa-app': isAuthenticated, 'is-native': isNative, 'is-platform-hq': isPlatformHqShell, 'is-clinical-workspace': clinicalWorkspaceActive }">
+      <div id="app" :inert="!applicantInterviewMode && !isLoginEntry && (sessionLockStore.isLocked || sessionLockStore.warningActive)" :aria-hidden="!applicantInterviewMode && !isLoginEntry && (sessionLockStore.isLocked || sessionLockStore.warningActive) ? 'true' : undefined" :class="{ 'conversa-app': isAuthenticated, 'is-native': isNative, 'is-platform-hq': isPlatformHqShell, 'is-clinical-workspace': clinicalWorkspaceActive, 'nlu-tutoring-ui': nluTutoringUi }">
       <div v-if="pageLoading && !isPayrollRoute && !isScheduleRoute && !isClientProfileRoute && !isDashboardRoute && !applicantInterviewMode && !isLoginEntry && !isPublicOfficeRoute && !route.meta?.publicMarketingHub" class="agency-loading-overlay" aria-label="Loading">
         <div class="agency-loading-card">
           <div class="agency-loading-logo"><BrandingLogo :logoUrl="loaderLogoUrl" size="xlarge" class="loader-logo" /></div>
@@ -2313,6 +2313,8 @@ import SecureSessionCommentsHost from './components/session-comments/SecureSessi
 import FamilySharingNoticeHost from './components/session-comments/FamilySharingNoticeHost.vue';
 import { canUseSessionComments } from './components/session-comments/sessionComments';
 import { useBrandingStore } from './store/branding';
+import './styles/nluTutoring.css';
+import { serviceWorkspace } from './utils/nluWorkspace.js';
 import { useAgencyStore } from './store/agency';
 import { useOrganizationStore } from './store/organization';
 import { useTutorialStore } from './store/tutorial';
@@ -2562,6 +2564,11 @@ onUnmounted(() => {
 const userPreferencesStore = useUserPreferencesStore();
 const router = useRouter();
 const route = useRoute();
+const nluTutoringUi = computed(() => !clinicalWorkspaceActive.value && (
+  serviceWorkspace(authStore.user,agencyStore.currentAgency || {}).learningOnly
+  || (typeof window!=='undefined' && /(?:^|\.)nextleveluplcc\.com$/i.test(window.location.hostname)
+    && (/\/(?:login|guardian|find-tutor|tutoring-profile|students)(?:\/|$)/.test(route.path) || route.query.serviceType==='tutoring'))
+));
 const goToIndirectLogTime = () => {
   goToLogTime(router, route);
 };

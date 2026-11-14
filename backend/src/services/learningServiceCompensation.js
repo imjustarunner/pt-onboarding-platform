@@ -17,9 +17,14 @@ export function learningSessionServiceCode(session) {
   return selectedLearningServiceCode(learningServiceMetadata(session).learningServiceCode);
 }
 
-export function canOpenInPersonLearning(appointment, actorUserId) {
+export function canOpenLearningWorkspace(appointment, actorUserId) {
   return Number(appointment?.providerUserId || appointment?.provider_user_id) === Number(actorUserId)
     && ['learning','tutoring'].includes(String(appointment?.businessType || appointment?.business_type).toLowerCase())
-    && String(appointment?.modality).toUpperCase() === 'IN_PERSON'
+    && ['IN_PERSON','VIRTUAL','TELEHEALTH'].includes(String(appointment?.modality).toUpperCase())
     && ['scheduled','confirmed','client_confirmed','in_progress','completed'].includes(String(appointment?.status).toLowerCase());
+}
+
+export function canOpenInPersonLearning(appointment, actorUserId) {
+  return canOpenLearningWorkspace(appointment, actorUserId)
+    && String(appointment?.modality).toUpperCase() === 'IN_PERSON';
 }

@@ -324,6 +324,9 @@ async function inferStudentForSession(session, preferredClientId = null) {
 async function ensureSessionMarkedInPerson(sessionId) {
   const session = await LearningClassSession.findById(sessionId);
   if (!session) return null;
+  if (session.delivery_context && String(session.delivery_context).toLowerCase() !== 'in_person') {
+    throw Object.assign(new Error('Open this virtual appointment through its scheduled tutoring workspace. Its delivery format has not changed.'), { status: 409 });
+  }
   if (String(session.delivery_context || '').toLowerCase() !== 'in_person') {
     return LearningClassSession.update(sessionId, { deliveryContext: 'in_person' });
   }

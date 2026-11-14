@@ -146,6 +146,7 @@
 
 <script setup>
 import {suicideScreener,matchesSuicideScreener,screenerLocation} from '../utils/clinicalScreeners';
+import {serviceWorkspace} from '../utils/nluWorkspace.js';
 import DocumentAnalyticsControl from '../components/library/DocumentAnalyticsControl.vue';
 import CompanyReferenceLibrary from '../components/library/CompanyReferenceLibrary.vue';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
@@ -252,7 +253,7 @@ const distributeItem = ref(null);
 const distributeInitialMode = ref('personal_copy');
 
 const caps = computed(() => authStore.user?.capabilities || {});
-const canUseClinicalForms=computed(()=>['admin','super_admin','provider','provider_plus','intern','intern_plus','supervisor','facilitator','qbha'].includes(authStore.user?.role));
+const canUseClinicalForms=computed(()=>!serviceWorkspace(authStore.user,selectedAgency.value || {}).learningOnly && ['admin','super_admin','provider','provider_plus','intern','intern_plus','supervisor','facilitator','qbha'].includes(authStore.user?.role));
 const canManage = computed(() => !!caps.value.canManageLibrary);
 const canViewStatistics = computed(() => ['admin', 'super_admin', 'superadmin'].includes(authStore.user?.effectiveRole || authStore.user?.role));
 const agencyStore = useAgencyStore();
@@ -284,6 +285,7 @@ const documentTabs = [
   { id: 'files', label: 'Files & resources', icon: '▱' }
 ];
 const visibleDocumentTabs=computed(()=>documentTabs.filter(tab=>tab.id!=='clinical'||canUseClinicalForms.value));
+watch(canUseClinicalForms,allowed=>{if(!allowed&&activeTab.value==='clinical')activeTab.value='all';},{immediate:true});
 const sectionTitle = computed(() => folderId.value !== undefined ? folders.value.find(f => Number(f.id) === Number(folderId.value))?.name || 'Folder' : activeCategoryId.value ? categories.value.find(c => Number(c.id) === Number(activeCategoryId.value))?.name || 'Documents' : documentTabs.find(t => t.id === activeTab.value)?.label || 'All documents');
 const sectionDescription = computed(() => activeTab.value === 'clinical' ? 'Saved forms and screenings you can access. Open a record to review it, attach it to a client, or share for signatures.' : activeTab.value === 'recent' ? 'Recently opened resources and recently updated clinical forms.' : activeTab.value === 'guides' ? 'Your organization’s policies, handbooks, and practice guides.' : activeTab.value === 'favorites' ? 'The documents you keep close at hand.' : 'Find, create, and work with your organization’s documents.');
 const guideItems = computed(() => referenceDocuments.value.filter(d => d.key === 'workplace-handbook' || d.published || d.betaAvailable).map(d => ({ ...d, id: `guide:${d.key}`, guideKey: d.key, name: d.title, updatedAt: d.published?.published_at || null, resourceType: 'company_guide', fileType: d.key === 'workplace-handbook' ? 'handbook' : 'guide', categoryName: 'Policies & procedures', categorySlug: 'policies_procedures', scope: 'organization', agencyId: agencyId.value })));
@@ -679,7 +681,8 @@ function onDocClick(event) {
 }
 
 watch(() => [route.query.section, route.query.folder, route.query.category, route.query.browse, route.query.q], () => {
-  const next = [tabFromSection(route.query.section), positiveId(route.query.folder), positiveId(route.query.category) || null, route.query.browse === 'all', String(route.query.q || '')];
+  const requestedTab=tabFromSection(route.query.section);
+  const next = [requestedTab==='clinical'&&!canUseClinicalForms.value?'all':requestedTab, positiveId(route.query.folder), positiveId(route.query.category) || null, route.query.browse === 'all', String(route.query.q || '')];
   const current = [activeTab.value, folderId.value, activeCategoryId.value, showAll.value, search.value.trim()];
   if (JSON.stringify(next) === JSON.stringify(current)) return;
   [activeTab.value, folderId.value, activeCategoryId.value, showAll.value, search.value] = next;

@@ -6,7 +6,8 @@ import { resolveClientRecordAccess } from './clientRecordAccess.service.js';
 import { maybeEncryptNotePayload, maybeDecryptNotePayload } from './clinicalNoteCrypto.service.js';
 import { listClientDiagnosisAlerts } from './clinicalDiagnosisPolicy.service.js';
 import { hasSchedulingBillingAccess } from './schedulingBillingAccess.service.js';
-import { canOpenInPersonLearning } from './learningServiceCompensation.js';
+import { canOpenLearningWorkspace } from './learningServiceCompensation.js';
+import {resolveAppointmentServiceSetting} from './appointmentServiceSetting.service.js';
 
 const APPOINTMENT_OPERATIONS_ROLES = new Set(['admin', 'super_admin', 'superadmin', 'agency_admin', 'backoffice_admin', 'staff', 'support', 'scheduler', 'front_desk']);
 const STAFF_ROLES = new Set([...APPOINTMENT_OPERATIONS_ROLES, 'super_admin', 'superadmin', 'admin', 'support', 'staff', 'provider', 'provider_plus', 'intern', 'intern_plus', 'supervisor', 'clinical_practice_assistant', 'billing']);
@@ -45,12 +46,14 @@ export function createAppointmentStaffTools({ db = pool, appointments = Appointm
     const diagnosticAlerts = [];
     for (const clientId of new Set(participants.map(p => Number(p.clientId)).filter(Boolean))) {
       const access = await clientAccess({ userId: user.id, role: user.role, clientId });
-      if (access.ok) { clients.push({ id: clientId, name: access.client.full_name || access.client.initials || `Client #${clientId}` }); diagnosticAlerts.push(...(await diagnosisAlerts({agencyId:appointment.agencyId,clientId})).map(alert=>({...alert,clientId}))); }
+      if (access.ok) { clients.push({ id: clientId, name: access.client.full_name || access.client.initials || `Client #${clientId}` }); if(!['learning','tutoring'].includes(appointment.businessType))diagnosticAlerts.push(...(await diagnosisAlerts({agencyId:appointment.agencyId,clientId})).map(alert=>({...alert,clientId}))); }
     }
     let canEdit = true;
     try { await scheduleAccess(user, appointment.providerUserId, appointment.agencyId, true); } catch (error) { if (error.status !== 403) throw error; canEdit = false; }
     return { appointmentId: appointment.id, agencyId: appointment.agencyId, alert: mapAlert(rows[0]), canEdit, clients, diagnosisAlerts:diagnosticAlerts,
-      canOpenLearningWorkspace: canOpenInPersonLearning(appointment,user.id) };
+      businessType: appointment.businessType,
+      serviceSetting:['learning','tutoring'].includes(appointment.businessType)?await resolveAppointmentServiceSetting(appointment):null,
+      canOpenLearningWorkspace: canOpenLearningWorkspace(appointment,user.id) };
   }
   async function save(user, id, body) {
     const appointment = await appointmentAccess(user, id, true);
