@@ -74,7 +74,14 @@ export async function writeClientInsurance({ clientId, agencyId, primary, second
   return value;
 }
 export async function readClientInsurance(clientId, agencyId, db = pool) {
-  const [rows] = await db.execute('SELECT billing_insurance_payload,paper_packet_demo_candidate_enc FROM clients WHERE id = ? AND agency_id = ?', [clientId, agencyId]);
+  let rows;
+  try { [rows] = await db.execute('SELECT billing_insurance_payload,paper_packet_demo_candidate_enc FROM clients WHERE id = ? AND agency_id = ?', [clientId, agencyId]); }
+  catch(error) {
+    if(error.code!=='ER_BAD_FIELD_ERROR'||!String(error.sqlMessage||error.message).includes('paper_packet_demo_candidate_enc'))throw error;
+    // Older installs can read their existing insurance before the optional paper
+    // candidate migration. There is no packet-holder evidence to bind there.
+    [rows]=await db.execute('SELECT billing_insurance_payload FROM clients WHERE id = ? AND agency_id = ?', [clientId, agencyId]);
+  }
   return rows[0] ? withPaperPolicyHolders(decryptFamilyBilling(rows[0].billing_insurance_payload, `client-insurance:${agencyId}:${clientId}`),paperReadingCandidate(rows[0])) : null;
 }
 
@@ -121,7 +128,12 @@ export function selfSubscriberPolicy(policy, patient) {
 
 /** Versioned, agency-scoped read for clinical products sharing this coverage. */
 export async function readClientInsuranceSnapshot(clientId, agencyId, db = pool, { lock = false } = {}) {
-  const [rows] = await db.execute(`SELECT id,billing_insurance_payload,paper_packet_demo_candidate_enc FROM clients WHERE id=? AND agency_id=?${lock ? ' FOR UPDATE' : ''}`, [clientId, agencyId]);
+  let rows;
+  try { [rows] = await db.execute(`SELECT id,billing_insurance_payload,paper_packet_demo_candidate_enc FROM clients WHERE id=? AND agency_id=?${lock ? ' FOR UPDATE' : ''}`, [clientId, agencyId]); }
+  catch(error) {
+    if(error.code!=='ER_BAD_FIELD_ERROR'||!String(error.sqlMessage||error.message).includes('paper_packet_demo_candidate_enc'))throw error;
+    [rows]=await db.execute(`SELECT id,billing_insurance_payload FROM clients WHERE id=? AND agency_id=?${lock ? ' FOR UPDATE' : ''}`, [clientId, agencyId]);
+  }
   if (!rows.length) throw billingError(404, 'Client not found in agency');
   const raw = rows[0].billing_insurance_payload;
   const payload = typeof raw === 'string' ? JSON.parse(raw) : raw;
