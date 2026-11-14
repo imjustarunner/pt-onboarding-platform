@@ -10,7 +10,8 @@ export function mobileQaScope(user, memberships) {
  const retainedProvider=[1433,1496].includes(Number(user?.id));
  const nlu=Number(user.is_demo)===1&&Number(user.is_active)===1&&Number(user.is_archived||0)!==1&&['ACTIVE','ACTIVE_EMPLOYEE'].includes(user.status)
    ? memberships.filter(agency=>(retainedProvider&&isNluTutoringQaAgency(agency)&&allowNluQaProvider(agency,user))||nluQaWorkflowEmployee(user,agency)) : [];
- const agencies=nlu.length?nlu:isQaPreviewIdentity(user)?memberships.filter(isAuricwellQaAgency):[];
+ const clinical = isQaPreviewIdentity(user) ? memberships.filter(isAuricwellQaAgency) : [];
+ const agencies = [...new Map([...clinical, ...nlu].map(agency => [Number(agency.id), agency])).values()];
  if(!agencies.length)throw failure(403,'MOBILE_ACCOUNT_UNAVAILABLE','This test account does not have an approved synthetic mobile workspace.');
  if(!nlu.length)assertPreviewActor(user,{}, {qaAgencyId:Number(agencies[0].id)});
  return {agencies,qaAgencyIds:agencies.map(a=>Number(a.id))};
@@ -85,7 +86,7 @@ export async function enforceMobileQaBoundary(req) {
  for(const[key,value]of Object.entries(req.params||{}))if(/(?:^id$|Id$|_id$)/.test(key)&&(!/^[1-9][0-9]*$/.test(String(value))||!Number.isSafeInteger(Number(value))))throw failure(403,'MOBILE_QA_SURFACE_UNAVAILABLE','Use the canonical record link in the synthetic mobile workspace.');
  const path=String(req.originalUrl||req.path||'').split('?')[0].replace(/^\/api\/quick-view/,'').replace(/\/$/,'');
  const method=String(req.method).toUpperCase();
- if(ids.every(id=>[453,454].includes(Number(id)))) {
+ if([453,454].includes(Number(req.quickView.agencyId))) {
   // Scope issuance and primary-device access recheck the exact retained identity
   // and membership. Clinical adapters still enforce credentials and assignment.
   const mixedClinical=Number(req.quickView.userId)===1433&&Number(req.quickView.agencyId)===453&&qaClinicalRouteAllowed(method,path,req.body);

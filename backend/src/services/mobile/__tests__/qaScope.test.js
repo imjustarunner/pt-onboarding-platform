@@ -83,3 +83,12 @@ it('adds only the retained mixed-service provider to NLU mobile and keeps Finley
  await expect(enforceMobileQaBoundary({...req,quickView:{...req.quickView,userId:1496}})).rejects.toMatchObject({status:403});
  await expect(enforceMobileQaBoundary({...req,query:{agencyId:6}})).rejects.toMatchObject({status:403});
 });
+
+
+it('preserves Avery’s pre-existing clinical QA mobile membership when NLU is added',async()=>{
+ const nlu={id:453,slug:'nlu-qa-demo',is_active:1,feature_flags:{qaSandbox:{syntheticOnly:true,program:'tutoring',mixedServicesEnabled:true}}};
+ expect(mobileQaScope(user,[agency,nlu,{id:456,slug:'other'}]).qaAgencyIds).toEqual([450,453]);
+ const req={quickView:{qaAgencyIds:[450,453],agencyId:453,userId:1433,mobileDeviceSessionId:2},method:'GET',query:{agencyId:453},originalUrl:'/api/quick-view/tutoring-workspace/students'};
+ await expect(enforceMobileQaBoundary(req)).resolves.toBeUndefined();
+ await expect(enforceMobileQaBoundary({...req,originalUrl:'/api/quick-view/future-admin-records'})).rejects.toMatchObject({status:403});
+});
