@@ -36,7 +36,7 @@ const paperProcessingHandler = action => async (req, res, next) => {
     if (action === 'read') return res.set('Cache-Control','no-store').json(await paperProcessingContext(clientId));
     if (action === 'check') {
       const { checkPaperPacketFile } = await import('../services/paperPacketScan.service.js');
-      const result = await checkPaperPacketFile({clientId,documentId:Number(req.params.docId),actorId});
+      const result = await checkPaperPacketFile({clientId,documentId:Number(req.params.docId),actorId,...(req.body?.reread===true?{reread:true}:{})});
       await logAuditEvent(req,{actionType:'paper_packet_file_check',agencyId:access.client.agency_id,metadata:{clientId,documentId:Number(req.params.docId),status:result.status}});
       return res.set('Cache-Control','no-store').json(result);
     }

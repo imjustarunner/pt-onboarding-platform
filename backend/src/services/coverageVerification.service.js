@@ -9,6 +9,7 @@ import { hasMedicaidCoverage, policyIsMedicaid } from '../utils/insurancePayment
 import { billingError, auditBilling } from './familyBillingPolicy.service.js';
 import { validNpi } from './supervisedBillingPolicy.service.js';
 import { queueInsuranceVerificationSafely } from './insuranceVerificationTask.service.js';
+import { insuranceSubscriberIssues } from '../../../frontend/src/navigation/paperInsuranceReview.js';
 
 const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map(k=>[k,canonical(value[k])])) : value;
 export const coverageFingerprint = insurance => crypto.createHash('sha256').update(JSON.stringify(canonical({primary:insurance?.primary||null,secondary:insurance?.secondary||null,patient:insurance?.patient||null}))).digest('hex');
@@ -26,6 +27,7 @@ export function assignmentCoverageIssues(insurance,serviceDate) {
  const date=coverageDate(serviceDate),issues=[];
  for(const slot of insurance?.secondary?['primary','secondary']:['primary']) {
   const policy=insurance?.[slot],label=slot==='primary'?'Primary':'Secondary';
+  issues.push(...insuranceSubscriberIssues(policy,insurance?.patient,{allowUnspecified:true}).map(issue=>`${label}: ${issue}`));
   if(!String(policy?.insurerName||'').trim())issues.push(`${label} insurance carrier is missing`);
   if(!String(policy?.memberId||'').trim())issues.push(`${label} member ID is missing`);
   if(policy?.effectiveDate&&coverageDate(policy.effectiveDate)>date)issues.push(`${label} coverage starts after the verification date`);

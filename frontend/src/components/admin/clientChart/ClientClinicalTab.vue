@@ -8,7 +8,7 @@
       <div class="cc-clinical-toolbar">
         <div class="cc-clinical-toolbar__meta muted">
           <span v-if="clinicalCapturedAt">
-            Intake responses captured {{ formatDate(clinicalCapturedAt) }}.
+            Enrollment responses captured {{ formatDate(clinicalCapturedAt) }}.
           </span>
           <span v-else-if="clinicalTemplateMode">
             {{ isLearningClient ? 'Student profile template.' : 'Clinical profile template.' }}
@@ -38,7 +38,7 @@
       >
         <p><strong>Clinical answers are stored but can't be displayed right now.</strong></p>
         <p class="muted small">
-          Set <code>INTAKE_RESPONSES_ENCRYPTION_KEY_BASE64</code> on the backend to decrypt stored intake responses.
+          Set <code>INTAKE_RESPONSES_ENCRYPTION_KEY_BASE64</code> on the backend to decrypt stored enrollment responses.
         </p>
         <button
           v-if="isSuperAdmin"

@@ -3,8 +3,9 @@ import pool from '../config/database.js';
 import { encryptFamilyBilling, decryptFamilyBilling } from './familyBillingEncryption.service.js';
 import { billingError } from './familyBillingPolicy.service.js';
 import { hasMedicaidCoverage, policyIsMedicaid } from '../utils/insurancePaymentPolicy.js';
+import { insuranceSubscriberIssues } from '../../../frontend/src/navigation/paperInsuranceReview.js';
 
-export const POLICY_TEXT_FIELDS = ['insurerName', 'payerId', 'eligibilityPayerId', 'memberId', 'groupNumber', 'patientSuffix', 'subscriberName', 'subscriberFirstName', 'subscriberLastName', 'subscriberDob', 'subscriberSex', 'relationshipToSubscriber', 'subscriberAddressLine1', 'subscriberAddressLine2', 'subscriberCity', 'subscriberState', 'subscriberPostalCode', 'planType', 'effectiveDate', 'terminationDate', 'claimsPhone'];
+export const POLICY_TEXT_FIELDS = ['insurerName', 'payerId', 'eligibilityPayerId', 'payerCatalogId', 'paperSubscriberName', 'memberId', 'groupNumber', 'patientSuffix', 'subscriberName', 'subscriberFirstName', 'subscriberLastName', 'subscriberDob', 'subscriberSex', 'relationshipToSubscriber', 'subscriberAddressLine1', 'subscriberAddressLine2', 'subscriberCity', 'subscriberState', 'subscriberPostalCode', 'planType', 'effectiveDate', 'terminationDate', 'claimsPhone'];
 export function mergePatientDefaults(patient = {}, demographics = {}) {
   const merged={...patient},identity=value=>String(value||'').trim().replace(/\s+/g,' ').toUpperCase();
   // Do not construct a new identity by combining disagreeing chart and policy names.
@@ -55,6 +56,8 @@ export async function writeClientInsurance({ clientId, agencyId, primary, second
     Object.assign(patientValue,mergePatientDefaults(patientValue,demographics));
   }
   const value = { acceptAssignment, patient: patientValue, verifiedForClaims: verifiedForClaims === true, primary: normalizePolicy(selfSubscriberPolicy(primary,patientValue)), secondary: secondary ? normalizePolicy(selfSubscriberPolicy(secondary,patientValue)) : null, profileId, coverageSources, confirmedBy, updatedAt: new Date().toISOString() };
+  const subscriberIssues=[value.primary,value.secondary].filter(Boolean).flatMap(policy=>insuranceSubscriberIssues(policy,patientValue));
+  if (value.verifiedForClaims && subscriberIssues.length) throw billingError(409,subscriberIssues.join(' '));
   const encrypted = encryptFamilyBilling(value, `client-insurance:${agencyId}:${clientId}`);
   const [result] = await db.execute(`UPDATE clients SET billing_insurance_payload = ?, primary_insurer_name = ?, insurance_member_id = NULL, insurance_group_number = NULL, insurance_subscriber_name = NULL WHERE id = ? AND agency_id = ?`, [encrypted, value.primary.insurerName || null, clientId, agencyId]);
   if (!result.affectedRows) throw billingError(404, 'Client not found in agency');

@@ -5,7 +5,7 @@
         <h3 class="ob-title">Client actions</h3>
         <p class="ob-sub muted">{{ clientLabel }}</p>
       </div>
-      <button type="button" class="close" aria-label="Close" @click="$emit('close')">×</button>
+      <button type="button" class="close" aria-label="Close client actions" @click="$emit('close')">×</button>
     </div>
 
     <div v-if="loading" class="ob-state">
@@ -523,9 +523,10 @@ watch(() => props.clientId, load, { immediate: true });
   background: #fff;
   border-radius: 12px;
   padding: 16px 18px;
-  max-width: 520px;
-  width: min(520px, 92vw);
-  max-height: 85vh;
+  box-sizing: border-box;
+  max-width: 1680px;
+  width: min(1680px, 96vw);
+  max-height: 94dvh;
   overflow: auto;
   box-shadow: 0 16px 40px rgba(0,0,0,0.18);
 }

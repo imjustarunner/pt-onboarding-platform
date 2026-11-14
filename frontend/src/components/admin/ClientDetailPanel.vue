@@ -7225,7 +7225,8 @@ watch(
 }
 
 .client-actions-overlay { z-index: 10001; padding: 16px; }
-.client-actions-dialog { width: min(1280px, 100%); max-height: 94dvh; overflow: auto; border-radius: 12px; background: var(--bg-card, white); }
+.client-actions-dialog { width: min(1760px, 100%); max-height: 96dvh; overflow: auto; border-radius: 12px; background: var(--bg-card, white); }
+.client-actions-dialog :deep(.ob-panel--modal) { width: 100%; max-width: none; max-height: 96dvh; }
 
 .modal-content.large {
   background: var(--bg-card, var(--bg));

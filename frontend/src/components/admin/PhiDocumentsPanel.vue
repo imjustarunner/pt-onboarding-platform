@@ -212,14 +212,14 @@
 
     <div v-if="showIntakeSection" class="intake-panel">
       <div v-if="embedded" class="embedded-section-head">
-        <h4 class="embedded-section-title">Intake responses</h4>
+        <h4 class="embedded-section-title">Enrollment responses</h4>
       </div>
       <div class="intake-header">
-        <h4>Intake Responses</h4>
+        <h4>Enrollment Responses</h4>
         <div v-if="intakeLoading" class="muted">Loading…</div>
       </div>
       <div v-if="intakeError" class="error">{{ intakeError }}</div>
-      <div v-else-if="intakeSubmissions.length === 0" class="empty">No intake responses found for this client yet.</div>
+      <div v-else-if="intakeSubmissions.length === 0" class="empty">No enrollment responses found for this client yet.</div>
       <div v-else class="intake-list">
         <details v-for="entry in intakeSubmissions" :key="entry.submissionId" class="intake-item">
           <summary>
@@ -234,7 +234,7 @@
           </div>
           <div v-if="entry.derivedDocuments?.intakeResponsesText" class="intake-json-wrap">
             <div class="intake-json-header">
-              <div class="intake-json-label">Intake Responses Document</div>
+              <div class="intake-json-label">Enrollment Responses Document</div>
               <button
                 class="btn btn-secondary btn-xs"
                 type="button"
@@ -546,7 +546,7 @@ const reloadIntakeResponses = async () => {
     const resp = await api.get(`/phi-documents/clients/${props.clientId}/intake-responses`);
     intakeSubmissions.value = resp.data?.submissions || [];
   } catch (e) {
-    intakeError.value = e.response?.data?.error?.message || 'Failed to load intake responses';
+    intakeError.value = e.response?.data?.error?.message || 'Failed to load enrollment responses';
   } finally {
     intakeLoading.value = false;
   }

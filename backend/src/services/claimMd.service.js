@@ -2,6 +2,7 @@ import { claimResubmissionFields } from './claimResubmissionPolicy.js';
 import { assertLiveClearinghouseAgency } from './syntheticClearinghouseGuard.service.js';
 import { normalizeUsStateCode } from '../utils/usStateTimezone.js';
 import { policyIsMedicaid } from '../utils/insurancePaymentPolicy.js';
+import { insuranceSubscriberIssues } from '../../../frontend/src/navigation/paperInsuranceReview.js';
 import { observeClaimMdData } from './claimMdDataMonitor.service.js';
 /**
  * Claim.MD clearinghouse adapter (https://api.claim.md/).
@@ -114,6 +115,8 @@ export function buildClaimMdJsonClaim(claim, lines = [], { insurance, practice =
   if (policyIsMedicaid(insurance?.primary) && insurance?.secondary && Number(claim.payer_sequence || 1) !== 2) {
     throw Object.assign(new Error('Medicaid cannot be billed first while another policy is recorded. Resolve payer order before submission.'), { status:409, code:'MEDICAID_PAYER_ORDER' });
   }
+  const subscriberIssues=[insurance?.primary,insurance?.secondary].filter(Boolean).flatMap(policy=>insuranceSubscriberIssues(policy,insurance?.patient));
+  if(subscriberIssues.length)throw Object.assign(new Error(subscriberIssues.join(' ')),{status:409,code:'MEDICAID_SUBSCRIBER_REVIEW'});
   const primary = insurance?.primary || {}, patient = insurance?.patient || {};
   const state=value=>normalizeUsStateCode(value)||value;
   const required = { payerid:primary.payerId, ins_number:primary.memberId,

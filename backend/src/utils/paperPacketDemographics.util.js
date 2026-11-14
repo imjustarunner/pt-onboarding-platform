@@ -185,13 +185,14 @@ function cleanCity(value) {
   return s.split(/\bstate\b/i)[0].trim() || null;
 }
 
-export function extractPaperPacketDemographics(rawText) {
+export function extractPaperPacketDemographics(rawText, {insuranceText} = {}) {
   const result = emptyParsed();
   const lines = String(rawText || '').replace(/\r\n/g, '\n')
     // Vision can wrap the printed labels on the current packet across lines.
     // Join labels only; never take an unrelated date elsewhere as a child's DOB.
     .replace(/dependent['’]?s?\s*\n\s*(date\s+of\s+birth|age|sex|grade|name|address|city)/gi, "Dependent's $1")
     .replace(/(dependent['’]?s?\s+date\s+of)\s*\n\s*birth/gi, '$1 Birth')
+    .replace(/\s+(?=(?:primary insurance|secondary insurance|policy holder|secondary holder|member id|secondary id|policy group|secondary group)\b)/gi, '\n')
     .split('\n');
   let i = 0;
   while (i < lines.length) {
@@ -249,6 +250,10 @@ export function extractPaperPacketDemographics(rawText) {
     else if (label.key === 'secondaryMemberId' && !result.secondaryMemberId) result.secondaryMemberId = cleanShortText(value, 80);
     else if (label.key === 'policyGroup' && !result.policyGroup) result.policyGroup = cleanShortText(value, 80);
     else if (label.key === 'secondaryGroup' && !result.secondaryGroup) result.secondaryGroup = cleanShortText(value, 80);
+  }
+  if (insuranceText) {
+    const table=extractPaperPacketDemographics(insuranceText);
+    for(const key of ['primaryInsurance','secondaryInsurance','policyHolder','secondaryHolder','memberId','secondaryMemberId','policyGroup','secondaryGroup'])result[key]=table[key];
   }
   return result;
 }

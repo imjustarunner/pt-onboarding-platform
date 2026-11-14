@@ -120,3 +120,16 @@ test('reads only the DOB attached to a wrapped current-packet label',()=>{
  const parsed=extractPaperPacketDemographics("Dependent’s Date of\nBirth\n03/12/2016\nDependent's\nGrade\n5\nSIGN HERE — REQUIRED\n11/09/2026");
  assert.equal(parsed.dateOfBirth,'2016-03-12');assert.equal(parsed.grade,'5');
 });
+
+test('keeps same-row primary and secondary policy cells separate',()=>{
+ const parsed=extractPaperPacketDemographics('Primary Insurance CHAMPVA Secondary Insurance Colorado Medicaid\nPolicy Holder Taylor Example Secondary Holder Morgan Example\nMember ID # PRIMARY-TEST Secondary ID # A123456\nPolicy Group G-TEST Secondary Group None');
+ assert.equal(parsed.primaryInsurance,'CHAMPVA');assert.equal(parsed.secondaryInsurance,'Colorado Medicaid');
+ assert.equal(parsed.policyHolder,'Taylor Example');assert.equal(parsed.secondaryHolder,'Morgan Example');
+ assert.equal(parsed.memberId,'PRIMARY-TEST');assert.equal(parsed.secondaryMemberId,'A123456');assert.equal(parsed.secondaryGroup,null);
+});
+
+test('prefers labeled spatial cells over flattened OCR and preserves a blank table cell',()=>{
+ const parsed=extractPaperPacketDemographics('Primary Insurance Colorado Medicaid\nMember ID WRONG\nSecondary Insurance Other', {insuranceText:'Primary Insurance: CHAMPVA\nSecondary Insurance: Colorado Medicaid\nMember ID: PRIMARY-TEST\nSecondary ID: A123456\nPolicy Holder: Taylor Example\nSecondary Holder: Morgan Example\nPolicy Group:\nSecondary Group:'});
+ assert.equal(parsed.primaryInsurance,'CHAMPVA');assert.equal(parsed.secondaryInsurance,'Colorado Medicaid');
+ assert.equal(parsed.memberId,'PRIMARY-TEST');assert.equal(parsed.secondaryMemberId,'A123456');assert.equal(parsed.policyGroup,null);
+});

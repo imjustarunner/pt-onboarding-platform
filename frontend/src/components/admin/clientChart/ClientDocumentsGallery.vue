@@ -3,7 +3,7 @@
     <div class="cdg-head">
       <h4 class="cdg-title">Documents &amp; session materials</h4>
       <p class="hint">
-        Smart ROI, Smart Disclosure, HIPAA and other master-packet sections, the branded full packet, clinical summary, and intake answers.
+        Smart ROI, Smart Disclosure, HIPAA and other master-packet sections, the branded full packet, clinical summary, and enrollment answers.
       </p>
     </div>
 
@@ -82,7 +82,7 @@
       <div class="modal signed-packet-modal" @click.stop>
         <div class="modal-header">
           <strong>
-            Intake packet
+            Enrollment packet
             <span v-if="selectedPacket.packet_version">— V{{ selectedPacket.packet_version }}</span>
           </strong>
           <button class="btn btn-secondary btn-sm" type="button" @click="selectedPacket = null">Close</button>
