@@ -42,7 +42,7 @@ it('applies family preferences to both agencies without enrolling texts implicit
 it('does not fetch private dashboard data or claim empty records for restricted pending profiles', async () => {
  const w = mount(Dashboard,{props:{profiles:profiles.slice(0,2).map(p=>({...p,no_view:true}))}});
  await flushPromises();expect(api.get).not.toHaveBeenCalled();
- expect(w.text()).toContain('restricted record access');expect(w.text()).toContain('Complete any enrollment forms shown above');
+ expect(w.text()).toContain('restricted record access');expect(w.text()).toContain('Open Tasks & documents for pending enrollment');
  expect(w.text()).not.toContain('No upcoming appointments');expect(w.find('.family-summary-grid').exists()).toBe(false);w.unmount();
 });
 it('loads only readable profiles and reacts when server relationship access changes', async () => {

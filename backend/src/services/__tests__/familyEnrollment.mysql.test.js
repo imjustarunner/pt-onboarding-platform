@@ -35,7 +35,8 @@ describe.skipIf(!process.env.EVIDENCE_TEST_SOCKET && !process.env.EVIDENCE_TEST_
    CREATE TABLE client_guardian_intake_profiles (id INT PRIMARY KEY, client_id INT UNIQUE, profile_encrypted TEXT);
    CREATE TABLE client_status_history (id INT AUTO_INCREMENT PRIMARY KEY, client_id INT, changed_by_user_id INT, field_changed VARCHAR(64), from_value TEXT, to_value TEXT, note TEXT);
    CREATE TABLE clinical_notes (id INT PRIMARY KEY,agency_id INT,client_id INT,provider_signed_at DATETIME NULL,is_deleted TINYINT NOT NULL DEFAULT 0);
-   CREATE TABLE agencies (id INT PRIMARY KEY, name VARCHAR(255), feature_flags JSON, is_active INT DEFAULT 1, is_archived INT DEFAULT 0);
+   CREATE TABLE agencies (id INT PRIMARY KEY, name VARCHAR(255), slug VARCHAR(255), organization_type VARCHAR(32) DEFAULT 'agency', public_availability_enabled INT DEFAULT 0, feature_flags JSON, is_active INT DEFAULT 1, is_archived INT DEFAULT 0);
+   CREATE TABLE agency_public_service_types (agency_id INT, service_type VARCHAR(32), is_enabled INT DEFAULT 0);
    CREATE TABLE user_agencies (user_id INT, agency_id INT, is_active INT DEFAULT 1);
    CREATE TABLE intake_links (id INT PRIMARY KEY, master_channel VARCHAR(32), organization_id INT, language_code VARCHAR(3), scope_type VARCHAR(32), form_type VARCHAR(32), inherits_school_master INT DEFAULT 0, is_school_master INT DEFAULT 0, is_office_master INT DEFAULT 0, is_active INT DEFAULT 1);
    CREATE TABLE agency_office_intake_masters (agency_id INT, published_intake_link_id INT);
