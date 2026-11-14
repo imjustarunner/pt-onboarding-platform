@@ -17,6 +17,8 @@ import ReferralPacketDraft from '../../models/ReferralPacketDraft.model.js';
 import ClientPhiDocument from '../../models/ClientPhiDocument.model.js';
 import DocumentEncryptionService from '../documentEncryption.service.js';
 import StorageService from '../storage.service.js';
+import { scanSessionMaterial } from '../sessionMaterialScan.service.js';
+import { CLIENT_DOCUMENT_MAX_BYTES, CLIENT_DOCUMENT_SIZE_MESSAGE } from '../../utils/clientDocumentUpload.js';
 import { buildAndPersistResponsePlanForTicket } from '../schoolSupportResponsePlan.service.js';
 import { queueSchoolStaffGoogleGroupSync } from '../schoolGroupProvisioning.service.js';
 
@@ -882,6 +884,11 @@ async function uploadSchoolPacketFromTicketAction({ ticketId, payload, actorUser
     err.statusCode = 400;
     throw err;
   }
+  if (!isPdfAttachment(attachment) || buffer.length > CLIENT_DOCUMENT_MAX_BYTES) {
+    throw Object.assign(new Error(!isPdfAttachment(attachment) ? 'Choose a PDF registration packet.' : CLIENT_DOCUMENT_SIZE_MESSAGE), { statusCode: 400 });
+  }
+  const scan = await scanSessionMaterial(buffer);
+  if (scan.status === 'infected') throw Object.assign(new Error('This file did not pass its security check. Choose a different file.'), { statusCode: 422 });
 
   const originalName = String(attachment.file_name || payload.fileName || 'referral-packet.pdf');
   const sanitizedFilename = StorageService.sanitizeFilename(originalName);
@@ -941,7 +948,10 @@ async function uploadSchoolPacketFromTicketAction({ ticketId, payload, actorUser
       originalName,
       mimeType: attachment.mime_type || 'application/pdf',
       uploadedByUserId: actorUserId || null,
-      quarantinePath,
+      quarantinePath: scan.status === 'clean' ? null : quarantinePath,
+      scanStatus: scan.status,
+      scanResult: scan.reason || null,
+      scannedAt: scan.status === 'clean' ? new Date() : null,
       isEncrypted: true,
       encryptionKeyId: encryptionResult.encryptionKeyId,
       encryptionWrappedKey: encryptionResult.encryptionWrappedKeyB64,
@@ -961,6 +971,7 @@ async function uploadSchoolPacketFromTicketAction({ ticketId, payload, actorUser
   return {
     draftId: draft.id,
     phiDocumentId: phiDoc?.id || null,
+    scanStatus: scan.status,
     organizationId: organization.id,
     organizationSlug: organization.slug || null,
     organizationName: organization.name || null,
@@ -1012,15 +1023,18 @@ export async function approveAndExecuteTicketAction({
     ...(payloadOverrides && typeof payloadOverrides === 'object' ? payloadOverrides : {})
   };
 
-  await pool.execute(
+  const [approval] = await pool.execute(
     `UPDATE support_ticket_action_items
      SET status = 'approved',
          approved_by_user_id = ?,
          approved_at = CURRENT_TIMESTAMP,
          payload_json = ?
-     WHERE id = ?`,
+     WHERE id = ? AND status IN ('proposed', 'failed')`,
     [Number(approvedByUserId) || null, JSON.stringify(payload), aid]
   );
+  if (approval.affectedRows === 0) {
+    throw Object.assign(new Error('This action is already being processed. Refresh the ticket before trying again.'), { statusCode: 409 });
+  }
 
   let result = {};
   let temporaryPassword = null;

@@ -5,10 +5,18 @@ export async function authorizeReferralPacket({ user, agencyId, organizationId, 
   if (!user?.id) throw fail('Sign in to upload a packet.');
   if (user.role === 'super_admin') return;
   const memberships = await users.getAgencies(user.id);
-  const ids = new Set(memberships.filter(row => row.is_active !== 0).map(row => Number(row.id)));
-  if (user.role === 'school_staff') {
+  const active = memberships.filter(row => ![0, false, '0'].includes(row.membership_is_active ?? row.is_active));
+  const ids = new Set(active.map(row => Number(row.id)));
+  // A school affiliation can carry the school role even when the user's global
+  // role is staff/provider. Keep that access limited to this school and uploader.
+  const schoolMember = active.find(row => Number(row.id) === Number(organizationId));
+  const schoolRole = String(schoolMember?.agency_role || user.role).toLowerCase();
+  const processingRoles = ['admin','support','staff','clinical_practice_assistant','provider_plus'];
+  const agencyProcessor = processingRoles.includes(user.role) && ids.has(Number(agencyId));
+  const ownSchoolAccess = schoolMember && (schoolRole === 'school_staff' || [...processingRoles,'provider'].includes(user.role));
+  if (user.role === 'school_staff' || (ownSchoolAccess && !agencyProcessor)) {
     if (!ids.has(Number(organizationId)) || (draft && Number(draft.uploaded_by_user_id) !== Number(user.id))) throw fail('This packet is not available to your school account.');
-  } else if (!['admin','support','staff','clinical_practice_assistant','provider_plus'].includes(user.role) || !ids.has(Number(agencyId))) throw fail('You do not have packet-processing access for this agency.');
+  } else if (!agencyProcessor) throw fail('You do not have packet-processing access for this agency.');
 }
 export async function referralPacketMatch({ agencyId, organizationId, firstName, lastName, initials, existingClientId, reviewedMatchIds }, db = pool) {
   const name = [firstName,lastName].filter(Boolean).join(' ').replace(/\s+/g,' ').trim();
