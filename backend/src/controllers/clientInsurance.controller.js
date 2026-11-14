@@ -5,6 +5,9 @@ import { readClientInsurance, writeClientInsurance, claimInsuranceIssues, insura
 import { positiveId, auditBilling } from '../services/familyBillingPolicy.service.js';
 import { requireClientAccountSupport } from '../services/clientAccountSupportAccess.service.js';
 import { readEligibilityProfile } from '../services/eligibilityProfile.service.js';
+import { clientInsurancePayers, resolveConfiguredPolicy } from '../services/clientInsurancePayers.service.js';
+import { decryptDemographicsPayload } from '../services/demographicsImport.service.js';
+import { paperCoverageFromCandidate } from '../../../frontend/src/navigation/paperInsuranceReview.js';
 
 async function authorize(req, support) {
   if (support) {
@@ -22,10 +25,19 @@ async function getInsurance(req,res,next,support=false) {
     const c = await authorize(req,support);
     const insurance = await readClientInsurance(c.clientId,c.agencyId);
     const demographics = await insuranceDemographics(c.clientId,c.agencyId);
+    const payers = await clientInsurancePayers(c.agencyId, pool);
+    const [[paperClient]] = await pool.execute('SELECT paper_packet_demo_candidate_enc FROM clients WHERE id=? AND agency_id=?', [c.clientId,c.agencyId]);
+    let paperCoverage = null;
+    if (paperClient?.paper_packet_demo_candidate_enc) {
+      try {
+        const parsed=decryptDemographicsPayload(paperClient.paper_packet_demo_candidate_enc);
+        if(!req.query?.paperDocumentId || !parsed?.documentId || Number(parsed.documentId)===Number(req.query.paperDocumentId))paperCoverage = paperCoverageFromCandidate(parsed, demographics);
+      } catch { /* The source PDF remains available for manual review. */ }
+    }
     const [submitted]=await pool.execute(`SELECT DISTINCT p.*, u.first_name, u.last_name FROM guardian_insurance_profiles p JOIN users u ON u.id=p.guardian_user_id LEFT JOIN guardian_insurance_clients gic ON gic.profile_id=p.id AND gic.agency_id=p.agency_id WHERE p.agency_id=? AND (p.client_id=? OR gic.client_id=?) ORDER BY p.collected_at DESC`,[c.agencyId,c.clientId,c.clientId]);
     const policies=submitted.map(row=>{const value=decodeInsuranceProfile(row);return{id:row.id,submittedBy:[row.first_name,row.last_name].filter(Boolean).join(' '),primary:value.primary || {},secondary:value.secondary || null,hasCardEvidence:!!value.primary_card_front_url,cardEvidence:Object.fromEntries(['primary_front','primary_back','secondary_front','secondary_back'].map(slot=>[slot,!!value[`${slot.replace('_','_card_')}_url`]]))};});
     await auditBilling({...c,userId:req.user.id,action:'staff_view_insurance'});
-    res.set('Cache-Control','no-store').json({insurance:support?supportInsurance(insurance):insurance,policies,demographics,...(support?{}:{missingClaimFields:claimInsuranceIssues(insurance?.primary),eligibilityFindings:await readEligibilityProfile(c)})});
+    res.set('Cache-Control','no-store').json({insurance:support?supportInsurance(insurance):insurance,policies,demographics,payers,paperCoverage,...(support?{}:{missingClaimFields:claimInsuranceIssues(insurance?.primary),eligibilityFindings:await readEligibilityProfile(c)})});
   } catch(e){next(e);}
 }
 async function saveInsurance(req,res,next,support=false) {
@@ -50,7 +62,9 @@ async function saveInsurance(req,res,next,support=false) {
     }
     if (coverageSources.primary && coverageSources.secondary && coverageSources.primary.profileId === coverageSources.secondary.profileId && coverageSources.primary.slot === coverageSources.secondary.slot) throw Object.assign(new Error('The same submitted policy cannot be both primary and secondary'), {status:400});
     if (coverageSources.primary) profileId = coverageSources.primary.profileId;
-    const insurance = await writeClientInsurance({...c,primary:req.body.primary,secondary:req.body.secondary,patient:req.body.patient,profileId,coverageSources,confirmedBy:req.user.id,verifiedForClaims:!transitionImport&&!support&&req.body.verifiedForClaims===true,acceptAssignment:support||transitionImport?(previous?.acceptAssignment??null):req.body.acceptAssignment===true ? true : req.body.acceptAssignment===false ? false : null,...(transitionImport?{queueEligibility:false}:{})});
+    const payers = [req.body.primary,req.body.secondary].some(policy=>policy?.payerCatalogId) ? await clientInsurancePayers(c.agencyId,pool) : [];
+    const primary=resolveConfiguredPolicy(req.body.primary,payers),secondary=resolveConfiguredPolicy(req.body.secondary,payers);
+    const insurance = await writeClientInsurance({...c,primary,secondary,patient:req.body.patient,profileId,coverageSources,confirmedBy:req.user.id,verifiedForClaims:!transitionImport&&!support&&req.body.verifiedForClaims===true,acceptAssignment:support||transitionImport?(previous?.acceptAssignment??null):req.body.acceptAssignment===true ? true : req.body.acceptAssignment===false ? false : null,...(transitionImport?{queueEligibility:false}:{})});
     await auditBilling({...c,userId:req.user.id,action:'staff_update_insurance'});
     const eligibilityQueueWarning=insurance.eligibilityQueueWarning||null,automaticEligibility=insurance.automaticEligibility||null;
     res.set('Cache-Control','no-store').json({insurance:support?supportInsurance(insurance):insurance,eligibilityQueueWarning,automaticEligibility,...(support?{}:{missingClaimFields:claimInsuranceIssues(insurance.primary)})});

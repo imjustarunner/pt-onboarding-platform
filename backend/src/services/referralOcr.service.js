@@ -3,6 +3,7 @@ import dommatrixPkg from 'dommatrix';
 import StorageService from './storage.service.js';
 import { createRequire } from 'module';
 import { PDFDocument } from 'pdf-lib';
+import { paperInsuranceTableText } from '../utils/paperInsuranceTable.js';
 
 let visionClient = null;
 
@@ -183,7 +184,7 @@ class ReferralOcrService {
     return filteredText || text;
   }
 
-  static async extractPdfWithVision({ buffer, pagesToScan, languageHint }) {
+  static async extractPdfWithVision({ buffer, pagesToScan, languageHint, includePaperInsurance = false }) {
     const bucket = await StorageService.getGCSBucket();
     const prefix = `referrals_ocr_tmp/${Date.now()}-${Math.random().toString(36).slice(2)}/`;
     const gcsUri = `gs://${bucket.name}/${prefix}`;
@@ -219,6 +220,7 @@ class ReferralOcrService {
       const [listed] = await bucket.getFiles({ prefix });
       files = listed || [];
       const chunks = [];
+      let insuranceText='';
       for (const file of files) {
         try {
           const [content] = await file.download();
@@ -227,12 +229,14 @@ class ReferralOcrService {
           responses.forEach((r) => {
             const txt = r?.fullTextAnnotation?.text || r?.textAnnotations?.[0]?.description || '';
             if (txt) chunks.push(txt);
+            if(includePaperInsurance && !insuranceText)insuranceText=paperInsuranceTableText(r?.fullTextAnnotation);
           });
         } catch {
           // ignore malformed chunk
         }
       }
-      return chunks.join('\n').trim();
+      const text=chunks.join('\n').trim();
+      return includePaperInsurance ? {text,insuranceText} : text;
     } catch (error) {
       console.error('Vision PDF OCR failed.', {
         code: Number.isInteger(error?.code) ? error.code : 'vision_ocr_failed'

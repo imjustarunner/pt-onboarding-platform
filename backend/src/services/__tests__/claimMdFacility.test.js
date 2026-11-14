@@ -53,3 +53,9 @@ it('uses the stable claim number as the outgoing PCN while retaining an attempt-
  const legacy=buildClaimMdJsonClaim({...claim,id:14,claim_reference:'002-2026-11-009',patient_control_number:'13'},lines,{insurance,practice});
  expect(legacy.pcn).toBe('13');expect(legacy.remote_claimid).toBe('PT-2-14');
 });
+
+it('blocks a mismatched Medicaid subscriber in either billing position before building a claim',()=>{
+ const mismatch={...insurance.primary,insurerName:'Colorado Medicaid',isMedicaid:true,relationshipToSubscriber:'child',subscriberFirstName:'Other',subscriberLastName:'Holder'};
+ expect(()=>buildClaimMdJsonClaim(claim,lines,{insurance:{...insurance,primary:mismatch},practice})).toThrow('Medicaid must be checked for this client');
+ expect(()=>buildClaimMdJsonClaim(claim,lines,{insurance:{...insurance,primary:{...insurance.primary,payerId:'84146',insurerName:'CHAMPVA'},secondary:mismatch},practice})).toThrow('Medicaid must be checked for this client');
+});

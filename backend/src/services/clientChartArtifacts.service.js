@@ -43,7 +43,7 @@ export const ARTIFACT_KIND_LABELS = Object.freeze({
   informed_group_consent: 'Informed consent',
   policy_services: 'Policy & services',
   clinical_summary: 'Clinical summary',
-  intake_responses: 'Intake responses',
+  intake_responses: 'Enrollment responses',
   session_material: 'Session material',
   signed_form: 'Signed form'
 });
@@ -441,16 +441,18 @@ export function sessionMaterialArtifactAvailable(doc, now = Date.now()) {
 
 export async function assembleClientChartArtifacts({ clientId, client }) {
   const cid = Number(clientId || client?.id || 0);
-  const [phiDocs, packets, sectionAcks, signedTemplates, disclosureAck, submissions] = await Promise.all([
+  const [phiDocs, packets, sectionAcks, signedTemplates, disclosureAck, submissions, paperDocs] = await Promise.all([
     ClientPhiDocument.findByClientId(cid).catch(() => []),
     ClientSignedSchoolPacket.listByClientId(cid).catch(() => []),
     listPacketSectionAcknowledgementsForClient(cid),
     IntakeSubmissionDocument.listSignedForClient(cid).catch(() => []),
     getLatestDisclosureAcknowledgement(cid),
-    loadIntakeSubmissionsForClient(cid)
+    loadIntakeSubmissionsForClient(cid),
+    ClientPhiDocument.findSchoolPaperPacketsForClient(cid).catch(() => [])
   ]);
 
-  const activePhi = (phiDocs || []).filter((d) => !d?.removed_at);
+  const paperIds=new Set((paperDocs || []).filter(d=>!d.removed_at).map(d=>Number(d.id)));
+  const activePhi = [...new Map([...(phiDocs || []),...(paperDocs || [])].filter(d=>!d?.removed_at).map(d=>[Number(d.id),d])).values()];
   const usedPhiIds = new Set();
   const usedIsdIds = new Set();
   const usedSectionKeys = new Set();
@@ -464,7 +466,7 @@ export async function assembleClientChartArtifacts({ clientId, client }) {
   };
 
   for (const d of activePhi) {
-    const kind = classifyChartArtifact({
+    const kind = paperIds.has(Number(d.id)) ? 'packet' : classifyChartArtifact({
       documentType: d.document_type,
       title: d.document_title,
       originalName: d.original_name
@@ -478,6 +480,12 @@ export async function assembleClientChartArtifacts({ clientId, client }) {
       hasSignature: Boolean(d.signed_at || d.signature_at || d.has_signature),
       source: 'phi'
     });
+    if(paperIds.has(Number(d.id))) {
+      artifact.kindLabel='Uploaded paper packet';
+      artifact.available=d.scan_status==='clean';
+      artifact.scanStatus=d.scan_status || 'pending';
+    }
+
     if (kind === 'session_material') {
       artifact.scanStatus = d.scan_status || 'pending';
       artifact.available = sessionMaterialArtifactAvailable(d);
@@ -665,7 +673,7 @@ export async function assembleClientChartArtifacts({ clientId, client }) {
     if (packetRows[0]) {
       take('packet', makeArtifact({
         kind: 'packet',
-        title: 'Full intake packet',
+        title: 'Full enrollment packet',
         viewKey: `packet-${packetRows[0].id}`,
         signedAt: packetRows[0].signed_at,
         hasSignature: true,
@@ -674,7 +682,7 @@ export async function assembleClientChartArtifacts({ clientId, client }) {
     } else if (interviewSubmission?.id && (interviewSignals.hasPacketBody || interviewSignals.hasDisclosure || interviewSignals.hasRoi || signals.hasPacketBody || signals.hasDisclosure || signals.hasRoi || activePhi.length)) {
       take('packet', makeArtifact({
         kind: 'packet',
-        title: 'Full intake packet',
+        title: 'Full enrollment packet',
         viewKey: `intake-html-${interviewSubmission.id}`,
         signedAt: interviewSubmittedAt,
         hasSignature: Boolean(interviewSignals.hasPacketBody || interviewSignals.hasDisclosure || interviewSignals.hasRoi || signals.hasPacketBody || signals.hasDisclosure || signals.hasRoi),
@@ -686,7 +694,7 @@ export async function assembleClientChartArtifacts({ clientId, client }) {
   if (interviewSubmission && !featured.intake_responses) {
     take('intake_responses', makeArtifact({
       kind: 'intake_responses',
-      title: 'Intake responses',
+      title: 'Enrollment responses',
       viewKey: `intake-answers-${interviewSubmission.id}`,
       uploadedAt: interviewSubmittedAt,
       hasSignature: Boolean(interviewSubmission.status === 'submitted' || interviewSignals.hasRoi || signals.hasRoi),

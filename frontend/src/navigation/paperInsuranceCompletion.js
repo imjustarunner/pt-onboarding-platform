@@ -1,6 +1,7 @@
 // Missing information is a staff lookup/review flag. A worker may complete paper
 // entry with these gaps after explicitly confirming this is all they know.
 // This is not payer verification or claim readiness.
+import { insuranceSubscriberIssues } from './paperInsuranceReview.js';
 export const isPaperSelfPayType = type => /self[\s_-]*pay/i.test(String(type?.insurance_key || type?.label || ''));
 
 export function paperInsuranceCompletionIssues(insurance) {
@@ -9,6 +10,7 @@ export function paperInsuranceCompletionIssues(insurance) {
     const policy = insurance?.[position];
     if (position === 'secondary' && !policy) continue;
     const label = position === 'primary' ? 'Primary' : 'Secondary';
+    issues.push(...insuranceSubscriberIssues(policy, insurance?.patient).map(issue => `${label}: ${issue}`));
     for (const [key, name] of [['insurerName', 'insurance carrier'], ['memberId', 'Member ID']]) {
       if (!String(policy?.[key] || '').trim()) issues.push(`${label} ${name} is missing.`);
     }

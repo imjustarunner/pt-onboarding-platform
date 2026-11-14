@@ -96,7 +96,7 @@ it('retains ordinary partial-save support without marking it as complete paper c
 });
 it('accepts an explicit all-I-know confirmation while preserving the unknown field and keeping verification false',async()=>{
  api.get.mockResolvedValue({data:{insurance:{primary:{insurerName:'QA Commercial',memberId:'PRIMARY',relationshipToSubscriber:'self'},secondary:{insurerName:'QA Medicaid',memberId:'',relationshipToSubscriber:'self',isMedicaid:true},patient:demographic},demographics:demographic}});
- const w=await setup({paperEntry:true});expect(w.text()).toContain('Some insurance details are missing');expect(w.text()).toContain('Secondary Member ID is missing');
+ const w=await setup({paperEntry:true});expect(w.text()).toContain('Some insurance details need follow-up');expect(w.text()).toContain('Secondary Member ID is missing');
  const acknowledgement=()=>w.findAll('label').find(label=>label.text()==='This is all the insurance information I have or know.').get('input');
  await acknowledgement().setValue(true);expect(await w.vm.save({paperEntry:true})).toMatchObject({saved:true,partialInformationConfirmed:true});expect(api.put.mock.calls[0][1]).toMatchObject({secondary:{memberId:'',isMedicaid:true},verifiedForClaims:false});
  await acknowledgement().setValue(true);const secondary=w.findAllComponents({name:'InsurancePolicyFields'})[1];secondary.vm.$emit('update:modelValue',{...secondary.props('modelValue'),insurerName:'Updated QA Medicaid'});await flushPromises();expect(acknowledgement().element.checked).toBe(false);expect(await w.vm.save({paperEntry:true})).toBe(false);expect(api.put).toHaveBeenCalledTimes(1);w.unmount();
@@ -110,4 +110,11 @@ it.each([
  api.put.mockResolvedValue({data:{automaticEligibility:{status,missing}}});
  const w=await setup();await w.find('form').trigger('submit');await flushPromises();
  expect(w.find('[role="status"]').text()).toContain(message);w.unmount();
+});
+
+it('prefills the paper secondary independently while retaining existing primary staff edits',async()=>{
+ api.get.mockResolvedValue({data:{insurance:{primary:{insurerName:'Saved staff coverage',memberId:'SAVED'}},demographics:demographic,payers:[],paperCoverage:{primary:{insurerName:'Packet primary',memberId:'PACKET-PRIMARY',paperSubscriberName:'Taylor Example'},secondary:{insurerName:'Colorado Medicaid',memberId:'A123456',paperSubscriberName:'Morgan Example',relationshipToSubscriber:'self'}}}});
+ const w=await setup({paperEntry:true});expect(w.get('[aria-label="Insurance read from paper packet"]').text()).toContain('Taylor Example');expect(w.text()).toContain('Reconcile the two positions');
+ await w.get('form').trigger('submit');await flushPromises();expect(api.put.mock.calls[0][1]).toMatchObject({primary:{insurerName:'Saved staff coverage',memberId:'SAVED'},secondary:{insurerName:'Colorado Medicaid',memberId:'A123456'}});
+ await w.findAll('.paper-coverage button')[0].trigger('click');await w.get('form').trigger('submit');await flushPromises();expect(api.put.mock.calls[1][1].primary).toMatchObject({insurerName:'Packet primary',memberId:'PACKET-PRIMARY'});w.unmount();
 });

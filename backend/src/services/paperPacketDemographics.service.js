@@ -9,7 +9,8 @@ import {
   encryptDemographicsPayload,
   isDemographicsEncryptionConfigured
 } from './demographicsImport.service.js';
-import { readClientInsurance, writeClientInsurance } from './clientInsurance.service.js';
+import { readClientInsurance, writeClientInsurance, patientFromDemographics } from './clientInsurance.service.js';
+import { paperCoverageFromCandidate } from '../../../frontend/src/navigation/paperInsuranceReview.js';
 import {
   extractPaperPacketDemographics,
   paperPacketDemographicFill,
@@ -55,7 +56,7 @@ async function fillEmptyGuardianProfile(clientId, parsed) {
   });
 }
 
-/** Same coverage record online registration writes, and only when the file has none. */
+/** Fill each empty coverage position independently; saved staff edits stay intact. */
 async function fillEmptyInsurance(client, parsed) {
   const agencyId = Number(client?.agency_id || 0);
   const clientId = Number(client?.id || 0);
@@ -68,27 +69,25 @@ async function fillEmptyInsurance(client, parsed) {
   } catch {
     return;
   }
-  if (existing?.primary?.insurerName || existing?.primary?.memberId) return;
-  const primary = {
-    insurerName: parsed.primaryInsurance || '',
-    memberId: parsed.memberId || '',
-    groupNumber: parsed.policyGroup || '',
-    subscriberName: parsed.policyHolder || ''
-  };
-  const secondary = (parsed.secondaryInsurance || parsed.secondaryMemberId || parsed.secondaryGroup || parsed.secondaryHolder)
-    ? {
-      insurerName: parsed.secondaryInsurance || '',
-      memberId: parsed.secondaryMemberId || '',
-      groupNumber: parsed.secondaryGroup || '',
-      subscriberName: parsed.secondaryHolder || ''
-    }
-    : null;
-  if (!primary.insurerName && !primary.memberId) return;
+  const patient={...patientFromDemographics(client),...(existing?.patient || {})};
+  const paper=paperCoverageFromCandidate(parsed,patient);
+  const occupied=policy=>!!(policy?.insurerName || policy?.memberId || policy?.payerId);
+  // A different saved primary needs staff reconciliation before adding another
+  // policy automatically. Keep the paper proposal available in the editor.
+  if(existing?.primary?.memberId && paper.primary?.memberId && existing.primary.memberId!==paper.primary.memberId)return;
+  if(!['primary','secondary'].some(slot=>!occupied(existing?.[slot])&&paper[slot]))return;
+  const primary=occupied(existing?.primary)?existing.primary:paper.primary || existing?.primary || {};
+  const secondary=occupied(existing?.secondary)?existing.secondary:paper.secondary || existing?.secondary || null;
+  if (!primary.insurerName && !primary.memberId && !secondary?.insurerName && !secondary?.memberId) return;
   await writeClientInsurance({
     clientId,
     agencyId,
     primary,
     secondary,
+    patient,
+    profileId:existing?.profileId || null,
+    coverageSources:existing?.coverageSources || null,
+    acceptAssignment:existing?.acceptAssignment ?? null,
     verifiedForClaims: false
   });
 }
@@ -109,10 +108,12 @@ export function readPaperPacketDemographicCandidate(client) {
 export async function applyPaperPacketDemographicsFromText({
   clientId,
   ocrText,
+  insuranceText,
+  documentId = null,
   actorUserId = null
 } = {}) {
   const cid = Number(clientId || 0);
-  const parsed = extractPaperPacketDemographics(ocrText);
+  const parsed = extractPaperPacketDemographics(ocrText,{insuranceText});
   if (!cid || !paperPacketDemographicsHaveContent(parsed)) {
     return { attempted: true, stored: false, filled: [] };
   }
@@ -123,6 +124,7 @@ export async function applyPaperPacketDemographicsFromText({
   if (isDemographicsEncryptionConfigured()) {
     patch.paper_packet_demo_candidate_enc = encryptDemographicsPayload({
       ...parsed,
+      documentId: Number(documentId) || null,
       readAt: new Date().toISOString()
     });
   }
@@ -141,7 +143,7 @@ export async function applyPaperPacketDemographicsFromText({
     console.warn('[paperPacketDemographics] guardian profile fill failed', error?.message || error);
   }
   try {
-    await fillEmptyInsurance(client, parsed);
+    await fillEmptyInsurance({...client,...patch}, parsed);
   } catch (error) {
     console.warn('[paperPacketDemographics] insurance fill failed', error?.message || error);
   }

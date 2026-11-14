@@ -3,7 +3,7 @@
     <div class="cc-enc-toolbar">
       <div class="cc-enc-toolbar__meta">
         <h3>Documents</h3>
-        <p>The signed school packet, HIPAA, ROI, clinical summary, and intake answers for this client.</p>
+        <p>The signed school packet, HIPAA, ROI, clinical summary, and enrollment answers for this client.</p>
       </div>
       <button v-if="canProcessPaper" type="button" class="btn btn-primary" @click="$emit('client-actions', 'process')">Process paper packet</button>
       <button type="button" class="btn btn-secondary btn-sm" :disabled="refreshing" @click="refreshAll">
