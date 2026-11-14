@@ -89,3 +89,8 @@ it.each([undefined,'America/New_York'])('does not turn a display-only timezone f
  await updateAppointment(20,{serviceCode:'90791',...(timeZone?{timeZone}:{})},{actorUserId:9});
  expect(Appointment.setServiceCodes).toHaveBeenCalledWith(20,{serviceCode:'90791',addonServiceCodes:['90785']});expect(current.addonServiceCodes).not.toContain('99051');
 });
+
+it('preserves clinical linkage while allowing an explicitly silent administrative office attachment',async()=>{
+ await updateAppointment(20,{roomId:10,officeLocationId:1},{actorUserId:9,deferScheduleNotice:true});
+ expect(current.roomId).toBe(10);expect(current.clinicalSessionId).toBe(159);expect(ensureAppointmentClinicalLink).toHaveBeenCalledWith(20,9);expect(appointmentScheduleNotices.queue).not.toHaveBeenCalled();
+});

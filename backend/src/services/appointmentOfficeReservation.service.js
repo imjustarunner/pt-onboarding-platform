@@ -1,12 +1,15 @@
 import pool from '../config/database.js';
 import Appointment from '../models/Appointment.model.js';
 import staffTools from './appointmentStaffTools.service.js';
+import { utcMysqlToIso, utcDateToZonedYmd } from '../utils/zonedWallTime.util.js';
 import { updateAppointment } from './appointment.service.js';
 
 const fail = message => Object.assign(new Error(message), { status: 409 });
-export function createAppointmentOfficeReservations({ db = pool, access = staffTools.authorizeEdit, appointments = Appointment, update = updateAppointment } = {}) {
+export function createAppointmentOfficeReservations({ db = pool, access = staffTools.authorizeEdit, appointments = Appointment, update = updateAppointment,
+  materialize = async input => (await import('./officeScheduleMaterializer.service.js')).default.materializeWeek(input)
+} = {}) {
   async function reservations(appointment) {
-    const [rows] = await db.execute(`SELECT e.id,e.room_id,e.office_location_id,r.room_number,r.label,ol.name AS office_name
+    const [rows] = await db.execute(`SELECT e.id,e.room_id,e.office_location_id,r.room_number,r.label,ol.name AS office_name,ol.timezone AS office_timezone
       FROM office_events e JOIN office_rooms r ON r.id=e.room_id JOIN office_locations ol ON ol.id=e.office_location_id
       JOIN office_location_agencies ola ON ola.office_location_id=e.office_location_id AND ola.agency_id=?
       WHERE e.booked_provider_id=? AND e.status='BOOKED' AND e.start_at<=? AND e.end_at>=?
@@ -16,7 +19,7 @@ export function createAppointmentOfficeReservations({ db = pool, access = staffT
       ORDER BY e.office_location_id,e.room_id,e.id`,
     [appointment.agencyId, appointment.providerUserId, appointment.startAt, appointment.endAt, appointment.id, appointment.endAt, appointment.startAt]);
     return rows.map(row => ({ id: Number(row.id), roomId: Number(row.room_id), officeLocationId: Number(row.office_location_id),
-      label: `${row.office_name} · ${row.label || `Office #${row.room_number || row.room_id}`}` }));
+      timeZone: row.office_timezone || 'America/Denver', label: `${row.office_name} · ${row.label || `Office #${row.room_number || row.room_id}`}` }));
   }
   async function series(appointment) {
     if (!appointment.providerScheduleEventId) return null;
@@ -52,7 +55,16 @@ export function createAppointmentOfficeReservations({ db = pool, access = staffT
       const target = await access(user, targetId, true, true);
       if (await clientIds(targetId) !== expectedClients) throw fail('The series includes different clients. Link those appointments individually.');
       if (target.officeEventId) throw fail('This session already has an office session record. Edit its room through the existing office booking.');
-      const room = (await reservations(target)).find(row => row.roomId === selected.roomId && row.officeLocationId === selected.officeLocationId);
+      let room = (await reservations(target)).find(row => row.roomId === selected.roomId && row.officeLocationId === selected.officeLocationId);
+      if (!room) {
+        // Standing office bookings are generated lazily. Generate only this
+        // reserved hour before rejecting a later date in an existing series.
+        const start=new Date(utcMysqlToIso(target.startAt));start.setUTCMinutes(0,0,0);
+        const date=utcDateToZonedYmd(start,selected.timeZone);
+        await materialize({officeLocationId:selected.officeLocationId,weekStartRaw:date,createdByUserId:user.id,force:true,
+          reservationWindow:{roomId:selected.roomId,date,startAt:start.toISOString().slice(0,19).replace('T',' '),endAt:new Date(+start+3600000).toISOString().slice(0,19).replace('T',' ')}});
+        room=(await reservations(target)).find(row => row.roomId === selected.roomId && row.officeLocationId === selected.officeLocationId);
+      }
       if (!room) throw fail('The selected office is not reserved for every saved occurrence. Reserve the missing dates or choose this appointment only.');
       targets.push({ targetId, room });
     }

@@ -40,6 +40,11 @@ jobs:
         run: |
           npm ci --prefix backend
           npm ci --prefix frontend --ignore-scripts
+      - name: Schedule feedback, reminders, references and office linking
+        run: |
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.schedule-feedback.config.js --maxWorkers=2
+          node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.schedule-feedback.config.js --maxWorkers=2
+          node --test backend/src/utils/__tests__/providerAvailabilityReminders.test.js
       - name: Unsolicited website and shared inbox outreach boundaries
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.unsolicited-outreach.config.js --maxWorkers=2
       - name: Care invitation delivery, insurance gating, and guardian portal setup

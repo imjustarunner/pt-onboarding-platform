@@ -440,7 +440,7 @@ export async function updateAppointment(appointmentId, patch = {}, options = {})
     return updateLockedAppointment(appointmentId, patch, options);
   });
 }
-async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId = null, settleOutcome = true, guardianCancellationClientId = null, expectedScheduleFingerprint = null, expectedParticipantClientId = null } = {}) {
+async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId = null, settleOutcome = true, guardianCancellationClientId = null, expectedScheduleFingerprint = null, expectedParticipantClientId = null, deferScheduleNotice = false } = {}) {
   if (patch.customReminders !== undefined) patch.customReminders = normalizeCustomSessionReminders(patch.customReminders);
   const existing = await Appointment.findById(appointmentId);
   if (existing && patch.customReminders !== undefined) {
@@ -644,7 +644,7 @@ async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId 
     await refreshAppointmentCalendar(await Appointment.findById(appointmentId), actorUserId);
   }
 
-  if (moved || ['modality','roomId','serviceLocationId','providerUserId'].some(k => patch[k] !== undefined && String(patch[k]) !== String(existing[k]))) {
+  if (!deferScheduleNotice && (moved || ['modality','roomId','serviceLocationId','providerUserId'].some(k => patch[k] !== undefined && String(patch[k]) !== String(existing[k])))) {
     await (await import('./appointmentScheduleNotice.service.js')).appointmentScheduleNotices.queue(appointmentId, { eventType: moved ? 'moved' : 'updated', before: existing, actorUserId });
   }
   if (!moved && (patch.customReminders !== undefined || patch.notificationMode !== undefined)) await scheduleSessionNotifications(appointmentId, { replace: true });

@@ -3,14 +3,15 @@ vi.mock('../../config/database.js',()=>({default:{}}));
 vi.mock('../appointmentStaffTools.service.js',()=>({default:{authorizeEdit:vi.fn()}}));
 vi.mock('../appointment.service.js',()=>({updateAppointment:vi.fn()}));
 import { createAppointmentOfficeReservations } from '../appointmentOfficeReservation.service.js';
-let access,update,db,conn,service,options,peers;
+let access,update,db,conn,service,options,peers,materialize;
 const appointment={id:12,agencyId:2,providerUserId:7,status:'scheduled',providerScheduleEventId:80,startAt:'2026-11-15 18:00:00',endAt:'2026-11-15 19:00:00',clinicalSessionId:110};
 beforeEach(()=>{
   options=[{id:40,room_id:10,office_location_id:8,room_number:10,office_name:'Main office'}];peers=[{id:12},{id:13}];
   access=vi.fn(async(user,id)=>({...appointment,id}));update=vi.fn(async()=>({id:12}));
   db={execute:vi.fn(async sql=>sql.includes('SELECT recurrence_series_id')?[[{recurrence_series_id:'monthly-sundays'}]]:sql.includes('SELECT a.id FROM appointments')?[peers]:[options])};
   conn={execute:vi.fn(async()=>[[{id:40}]]),beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn()};db.getConnection=vi.fn(async()=>conn);
-  service=createAppointmentOfficeReservations({db,access,update,appointments:{listParticipants:async()=>[{clientId:31}]}});
+  materialize=vi.fn(async()=>{});
+  service=createAppointmentOfficeReservations({db,access,update,materialize,appointments:{listParticipants:async()=>[{clientId:31}]}});
 });
 it('adds the reserved room to the existing session without replacing its clinical record or recurrence',async()=>{
   expect(await service.link({id:7},12,{officeEventId:40})).toMatchObject({linkedAppointmentIds:[12],roomId:10});
@@ -41,4 +42,13 @@ it('does not offer sessions to a viewer who cannot edit them',async()=>{
 
 it('rejects a released or reassigned office when the locked ownership check changes',async()=>{
  conn.execute.mockResolvedValue([[]]);await expect(service.link({id:7},12,{officeEventId:40})).rejects.toThrow('reservation changed');expect(update).not.toHaveBeenCalled();expect(conn.rollback).toHaveBeenCalled();
+});
+
+it('generates only a missing reserved hour for later dates before linking the whole series',async()=>{
+ let reads=0,generated=false;const original=db.execute.getMockImplementation();db.execute.mockImplementation(async(sql,...params)=>{
+  if(sql.includes('FROM office_events e JOIN office_rooms')){reads++;return[reads===3&&!generated?[]:options];}
+  return original(sql,...params);
+ });materialize.mockImplementation(async()=>{generated=true;});
+ expect((await service.link({id:7},12,{officeEventId:40,scope:'series'})).linkedAppointmentIds).toEqual([12,13]);
+ expect(materialize).toHaveBeenCalledOnce();expect(materialize.mock.calls[0][0]).toMatchObject({officeLocationId:8,createdByUserId:7,reservationWindow:{roomId:10,date:'2026-11-15'}});
 });

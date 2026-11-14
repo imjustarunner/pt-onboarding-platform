@@ -1839,13 +1839,18 @@ export const getWeeklyGrid = async (req, res, next) => {
 
     const linkedEventIds = [...new Set(slots.map(s => Number(s.eventId)).filter(Boolean))];
     if (linkedEventIds.length) {
-      const [linked] = await pool.query(`SELECT e.id event_id,e.start_at,e.end_at,a.id appointment_id
+      const [linked] = await pool.query(`SELECT e.id event_id,e.start_at,e.end_at,a.id appointment_id,
+        EXISTS(SELECT 1 FROM appointments allocated WHERE allocated.room_id=e.room_id
+          AND allocated.office_location_id=e.office_location_id AND allocated.provider_user_id=e.booked_provider_id
+          AND allocated.start_at>=e.start_at AND allocated.end_at<=e.end_at
+          AND allocated.status IN ('scheduled','confirmed','client_confirmed','completed')) AS has_linked_appointment
         FROM office_events e LEFT JOIN appointments a ON a.office_event_id=e.id
         WHERE e.id IN (?)`, [linkedEventIds]);
       const byEvent = new Map(linked.map(row => [Number(row.event_id), row]));
       for (const slot of slots) {
         const event = byEvent.get(Number(slot.eventId));
         slot.appointmentId = event?.appointment_id || null;
+        slot.hasAppointment = !!event?.appointment_id || Number(event?.has_linked_appointment)===1;
         slot.eventStartAt = event?.start_at || null;
         slot.eventEndAt = event?.end_at || null;
       }
