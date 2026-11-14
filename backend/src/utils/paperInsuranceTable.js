@@ -30,7 +30,7 @@ export function paperInsuranceTableText(annotation) {
       const row=line.words.sort((a,b)=>a.left-b.left);
       for(let i=0;i<row.length-1;i++) {
         const label=labels.find(([,a,b])=>token(row[i].text)===a && token(row[i+1].text)===b);
-        if(label)found.push({label:label[0],y:line.y,left:row[i].left,right:row[i+1].right});
+        if(label)found.push({label:label[0],y:line.y,left:row[i].left,right:row[i+1].right,words:[row[i],row[i+1]]});
       }
     }
     const primary=found.find(label=>label.label==='Primary Insurance'),secondary=found.find(label=>label.label==='Secondary Insurance');
@@ -41,6 +41,7 @@ export function paperInsuranceTableText(annotation) {
     const rows=[...new Set(leftLabels.map(label=>label.y))].sort((a,b)=>a-b);
     if(rows.length<2)continue;
     const leftValue=Math.max(...leftLabels.map(label=>label.right)),rightValue=Math.max(...rightLabels.map(label=>label.right));
+    const printedLabelWords=new Set(found.flatMap(label=>label.words));
     const result=[];
     for(const label of [...leftLabels,...rightLabels]) {
       const index=rows.findIndex(y=>Math.abs(y-label.y)<=tolerance);
@@ -49,8 +50,15 @@ export function paperInsuranceTableText(annotation) {
       const top=index>0?(rows[index-1]+rows[index])/2:rows[0]-spacing/2;
       const bottom=index<rows.length-1?(rows[index]+rows[index+1])/2:rows[index]+spacing/2;
       const isLeft=label.left<labelColumnBoundary;
-      const values=words.filter(word=>(word.top+word.bottom)/2>top && (word.top+word.bottom)/2<bottom
+      let values=words.filter(word=>!printedLabelWords.has(word) && (word.top+word.bottom)/2>top && (word.top+word.bottom)/2<bottom
         && (word.left+word.right)/2>(isLeft?leftValue:rightValue) && (!isLeft || (word.left+word.right)/2<secondary.left));
+      // Handwriting can produce a small duplicate fragment inside a recognized
+      // member number. Keep the whole number rather than appending that fragment.
+      if(['Member ID','Secondary ID'].includes(label.label))values=values.filter(word=>!values.some(other=>{
+        if(other===word || other.text.replace(/\D/g,'').length<6 || other.text.length<=word.text.length*2)return false;
+        const overlap=Math.max(0,Math.min(word.right,other.right)-Math.max(word.left,other.left))*Math.max(0,Math.min(word.bottom,other.bottom)-Math.max(word.top,other.top));
+        return overlap/((word.right-word.left)*(word.bottom-word.top))>.6;
+      }));
       const value=values.sort((a,b)=>a.left-b.left).map(w=>w.text).join(' ').replace(/^[#|:\s]+/,'').trim();
       result.push(`${label.label}: ${value}`);
     }
