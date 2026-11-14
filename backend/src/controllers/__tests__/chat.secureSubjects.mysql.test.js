@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { isolatedWorkflowMysql, recoveryMysqlEnabled } from '../../services/__tests__/fixtures/isolatedWorkflowMysql.js';
 import { splitSqlStatements, stripSqlLineComments } from '../../utils/migrationSql.js';
 
-const state = vi.hoisted(() => ({ db: null, recordAccess: true, shared: null }));
+const state = vi.hoisted(() => ({ db: null, recordAccess: true, shared: null, currentServices: [] }));
 vi.mock('../../config/database.js', () => ({ default: {
   execute: (...args) => state.db.execute(...args), getConnection: (...args) => state.db.getConnection(...args)
 } }));
@@ -37,7 +37,7 @@ import { loadChatTimeline, prepareHubSend, sendHubPortalInvitation } from '../..
 import { createFamilySharedConversations, familySharedConversations } from '../../services/familySharedConversations.service.js';
 import { resolveSecureSubjectReply } from '../../services/secureMessageSubjects.service.js';
 import { ensureClientSecureConversation, resolveClientForSecureRecipients } from '../../services/clientSecureConversation.service.js';
-import { postMessagesHubSend, processHubMessageQueue } from '../messagesHub.controller.js';
+import { postMessagesHubEnsureThread, postMessagesHubSend, processHubMessageQueue } from '../messagesHub.controller.js';
 import { openQueuedMessage } from '../../services/secureQueuePayload.service.js';
 import { enqueueHubMessage } from '../../services/hubMessageQueue.service.js';
 
@@ -85,11 +85,11 @@ describe.skipIf(!recoveryMysqlEnabled)('encrypted subject conversations on actua
   });
   afterAll(async () => { try { if (fixture) await fixture.close(); } finally { vi.unstubAllEnvs(); } });
   beforeEach(async () => {
-    state.recordAccess = true; state.shared = null; vi.clearAllMocks();
+    state.recordAccess = true; state.shared = null; state.currentServices = []; vi.clearAllMocks();
     prepareHubSend.mockResolvedValue({ userId: 2, clientId: 10, agencyId: 450, personKey: 'user:2' });
     familySharedConversations.currentAudience.mockImplementation(createFamilySharedConversations({ db,
       membership: async (clientId, agencyId) => Number(clientId) === 10 && Number(agencyId) === 450,
-      services: async () => [], clinical: async () => ({ scopes: ['clinical_messages'] }) }).currentAudience);
+      services: async () => state.currentServices, clinical: async () => ({ scopes: ['clinical_messages'] }) }).currentAudience);
     ensureClientSecureConversation.mockResolvedValue({ threadId: 100, audienceUserIds: [1, 2] });
     resolveClientForSecureRecipients.mockResolvedValue(10);
     await db.query('SET FOREIGN_KEY_CHECKS=0');
@@ -290,6 +290,29 @@ describe.skipIf(!recoveryMysqlEnabled)('encrypted subject conversations on actua
     await db.query('DELETE FROM client_guardians');
     const noLongerEligible = await invoke(postMessagesHubSend, { body: { ...body } });
     expect(noLongerEligible.status).toBe(403);
+    expect(sendHubPortalInvitation).not.toHaveBeenCalled();
+  });
+  it('client-tile recipient and attachment preflight uses the existing family account and keeps the selected service', async () => {
+    await db.query("INSERT INTO client_guardians VALUES(10,2,1,'mother',JSON_OBJECT()),(10,3,1,'father',JSON_OBJECT())");
+    state.currentServices = [{ id: 20, is_active: 1, service_kind: 'counseling', provider_user_id: 1, agency_id: 450 }];
+    const tile = { userId: null, email: null, clientId: 10, agencyId: 450, kinds: ['client'], sharedSecureAvailable: true, personKey: 'client:10@450' };
+    prepareHubSend.mockImplementation(async ({ personKey }) => personKey === tile.personKey ? tile : { userId: 2, clientId: null, agencyId: 450, personKey });
+    const participants = [{ id: 1, role: 'provider', required: true }, { id: 2, role: 'guardian', required: true }, { id: 3, role: 'guardian', required: true }];
+    ensureClientSecureConversation.mockImplementation(async context => ({ threadId: 100, clientId: context.clientId, agencyId: context.agencyId, serviceId: context.serviceId,
+      audienceUserIds: [1, 2, 3], participants }));
+    const body = { method: 'secure', personKey: tile.personKey, agencyId: 450, clientId: 10, serviceId: 20 };
+    const result = await invoke(postMessagesHubEnsureThread, { body });
+    expect(result.error).toBeUndefined(); expect(result.data).toMatchObject({ ok: true, threadId: 100, shared: true, clientId: 10, serviceId: 20, agencyId: 450,
+      person: { userId: 2, clientId: 10 }, participants, sharingPolicy: 'all_eligible_family' });
+    expect(ensureClientSecureConversation).toHaveBeenLastCalledWith({ clientId: 10, actorUserId: 1, agencyId: 450, serviceId: 20 });
+    expect(prepareHubSend).toHaveBeenLastCalledWith(expect.objectContaining({ personKey: 'user:2@450', method: 'secure' }));
+    expect(sendHubPortalInvitation).not.toHaveBeenCalled();
+    const [[users]] = await db.query('SELECT COUNT(*) AS n FROM users'), [[messages]] = await db.query('SELECT COUNT(*) AS n FROM chat_messages');
+    expect(users.n).toBe(3); expect(messages.n).toBe(0);
+    expect((await invoke(postMessagesHubEnsureThread, { body: { ...body, clientId: 11 } })).status).toBe(403);
+    expect((await invoke(postMessagesHubEnsureThread, { userId: 99, body: { ...body } })).status).toBe(403);
+    await db.query('UPDATE client_guardians SET access_enabled=0');
+    expect((await invoke(postMessagesHubEnsureThread, { body: { ...body } })).status).toBe(403);
     expect(sendHubPortalInvitation).not.toHaveBeenCalled();
   });
   it('retains the legacy invitation fallback for a genuinely new non-client contact', async () => {

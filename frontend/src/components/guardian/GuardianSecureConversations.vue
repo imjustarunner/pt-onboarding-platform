@@ -85,13 +85,13 @@ async function loadTopics(){
       const rootId=data?.rootMessageId;
       locatedRootId=Number(rootId)||null;
       topic=topics.value.find(m=>Number(m.thread.thread_id)===requestedThread&&Number(m.id)===Number(rootId));
-      if(!topic&&rootId){const older=await api.get(`/guardian-portal/messages/${requestedThread}`,{params:{...params(thread),messageId:Number(rootId),summaryOnly:1},skipGlobalLoading:true});if(!current()||openIntent!==openingAtLoad)return;const root=raw(older.data).find(m=>Number(m.id)===Number(rootId));if(root){topic={...root,thread};topics.value.push(topic);}}
+      if(!topic&&rootId){const older=await api.get(`/guardian-portal/messages/${requestedThread}`,{params:{...params(thread),messageId:Number(rootId)},skipGlobalLoading:true});if(!current()||openIntent!==openingAtLoad)return;const root=raw(older.data).find(m=>Number(m.id)===Number(rootId));if(root){topic={...root,thread};topics.value.push(topic);}}
     }
     if(!current()||openIntent!==openingAtLoad)return;
     if(applyNotification)consumedNotification=notification;
     topic=topic||(!requestedMessage&&requestedThread?orderedTopics.value.find(m=>Number(m.thread.thread_id)===requestedThread):null);
     if(!topic&&wanted&&!requestedMessage&&!requestedThread)topic=topics.value.find(m=>Number(m.id)===Number(wanted.id)&&Number(m.thread.thread_id)===Number(wanted.threadId));
-    if(!topic&&wanted&&!requestedMessage&&!requestedThread){const thread=contextThreads.value.find(t=>Number(t.thread_id)===Number(wanted.threadId));if(thread){const {data}=await api.get(`/guardian-portal/messages/${thread.thread_id}`,{params:{...params(thread),messageId:Number(wanted.id),summaryOnly:1},skipGlobalLoading:true});if(!current()||openIntent!==openingAtLoad)return;const root=raw(data).find(m=>Number(m.id)===Number(wanted.id));if(root){topic={...root,thread};topics.value.push(topic);}}}
+    if(!topic&&wanted&&!requestedMessage&&!requestedThread){const thread=contextThreads.value.find(t=>Number(t.thread_id)===Number(wanted.threadId));if(thread){const {data}=await api.get(`/guardian-portal/messages/${thread.thread_id}`,{params:{...params(thread),messageId:Number(wanted.id)},skipGlobalLoading:true});if(!current()||openIntent!==openingAtLoad)return;const root=raw(data).find(m=>Number(m.id)===Number(wanted.id));if(root){topic={...root,thread};topics.value.push(topic);}}}
     if(topic)await openTopic(topic,{notifiedMessageId:requestedMessage||null,notifiedRootId:locatedRootId||topic.id});
     else if(requestedThread||requestedMessage)error.value='This secure conversation is not available for the selected profile. Refresh messages or contact your care team.';
     else if(wasComposing)await startSubject();

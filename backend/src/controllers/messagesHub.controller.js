@@ -465,7 +465,7 @@ export const postMessagesHubEnsureThread = async (req, res, next) => {
     if (!personKey) return res.status(400).json({ error: { message: 'personKey is required' } });
 
     const method = req.body?.method === 'secure' ? 'secure' : 'internal';
-    const person = await prepareHubSend({
+    let person = await prepareHubSend({
       agencyId,
       userId: req.user.id,
       personKey,
@@ -473,6 +473,17 @@ export const postMessagesHubEnsureThread = async (req, res, next) => {
     });
     agencyId = person.agencyId || agencyId;
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (method === 'secure' && !person.userId) {
+      const selectedKey = parsePersonKey(personKey);
+      if (selectedKey?.type === 'client' || person.kinds?.includes('client') || person.sharedSecureAvailable === true) {
+        const selectedClientId = Number(person.clientId || (selectedKey?.type === 'client' ? selectedKey.id : null));
+        if (req.body?.clientId && Number(req.body.clientId) !== selectedClientId) throw Object.assign(new Error('This secure message belongs to a different client'), { status: 403 });
+        const target = await resolveHubClientSecureRecipient({ clientId: selectedClientId, agencyId, actorUserId: req.user.id, serviceId: req.body?.serviceId || null });
+        person = { ...(await prepareHubSend({ agencyId, userId: req.user.id, personKey: target.personKey, method })), clientId: selectedClientId };
+        req.body.clientId = selectedClientId;
+        if (!req.body.serviceId && target.serviceId) req.body.serviceId = target.serviceId;
+      }
+    }
     if (!person.userId) {
       return res.status(400).json({
         error: { message: 'Secure/internal messaging requires a user account on the recipient' }

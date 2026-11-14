@@ -98,3 +98,13 @@ it('restores the selected older subject and draft after its root falls outside t
  const recent=Array.from({length:60},(_,i)=>({...root,id:200+i,subject:`Recent subject ${200+i}`}));api.get.mockImplementation(async(url,{params}={})=>({data:url!=='/guardian-portal/messages/5'?[]:params?.parentMessageId?[]:params?.messageId?[root]:params?.beforeId?[root]:recent}));
  const w=mount(Conversations,opts({threads:[history]}));await flushPromises();await w.findAll('button').find(b=>b.text()==='Older subjects').trigger('click');await flushPromises();await w.findAll('.subject-row').find(b=>b.text().includes(root.subject)).trigger('click');await flushPromises();await w.get('textarea').setValue('Older subject draft');await w.setProps({threads:[{...history}]});await flushPromises();expect(w.get('h3').text()).toBe(root.subject);expect(w.get('textarea').element.value).toBe('Older subject draft');w.unmount();
 });
+
+it('uses the exact-read contract for a notified subject outside the summary page',async()=>{
+ api.get.mockImplementation(async(url,{params}={})=>{
+  if(url.endsWith('/locate/100'))return {data:{threadId:5,rootMessageId:100,messageId:100}};
+  if(url!=='/guardian-portal/messages/5')return {data:[]};
+  if(params?.messageId){if(params.summaryOnly)throw {response:{status:400}};return {data:[root]};}
+  if(params?.parentMessageId)return {data:[reply]};return {data:[]};
+ });
+ const w=mount(Conversations,opts({initialThreadId:5,initialMessageId:100}));await flushPromises();expect(w.text()).toContain(root.body);expect(w.find('[role=alert]').exists()).toBe(false);expect(api.get.mock.calls.filter(([,o])=>o?.params?.messageId).every(([,o])=>!o.params.summaryOnly)).toBe(true);w.unmount();
+});
