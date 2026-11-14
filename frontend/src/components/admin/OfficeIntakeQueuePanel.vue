@@ -1,11 +1,11 @@
 <template>
-  <div class="oiq-root">
+  <div class="oiq-root auricwell-client-workspace">
     <!-- Header -->
     <div class="oiq-header">
       <div class="oiq-header-copy">
-        <h1 class="oiq-title">New Enrollments</h1>
+        <AuricWellBrand context="Enrollment review" /><h1 class="oiq-title">New Enrollments</h1>
         <p class="oiq-subtitle">
-          Prospective clients from interest forms and office enrollment awaiting a first provider assignment.
+          Incoming office, school, and program enrollments awaiting provider assignment.
         </p>
       </div>
       <div class="oiq-header-actions">
@@ -32,15 +32,15 @@
       </div>
       <div v-if="acceptance?.agency" class="oiq-stat-card">
         <div class="oiq-stat-value">{{ acceptance.agency.assignedCount || 0 }}</div>
-        <div class="oiq-stat-label">Referred to providers</div>
+        <div class="oiq-stat-label">Assigned to providers</div>
       </div>
     </div>
 
-    <!-- Referred: Awaiting acceptance -->
+    <!-- Assigned: Awaiting acceptance -->
     <div class="oiq-referred-section">
       <button type="button" class="oiq-referred-toggle" @click="showReferred = !showReferred">
         <div class="oiq-referred-toggle-left">
-          <span class="oiq-referred-label">Referred: Awaiting acceptance</span>
+          <span class="oiq-referred-label">Assigned: Awaiting acceptance</span>
           <span v-if="recentlyReferred.length" class="oiq-referred-count">{{ recentlyReferred.length }}</span>
           <span v-else class="oiq-referred-empty-note">none pending within 30 days</span>
         </div>
@@ -48,15 +48,15 @@
       </button>
       <div v-if="showReferred" class="oiq-referred-list">
         <div v-if="!recentlyReferred.length" class="oiq-referred-none">
-          No clients are currently awaiting acceptance — all referred clients have been accepted or declined within the review window.
+          No clients are currently awaiting acceptance — all assigned clients have been accepted or declined within the review window.
         </div>
         <div v-for="c in recentlyReferred" :key="c.eventId || c.id" class="oiq-referred-row">
           <div class="oiq-referred-name">
             <strong>{{ getClientLabel(c) }}</strong>
             <span class="oiq-pill oiq-pill--type">{{ clientTypeLabel(c.clientType) }}</span>
           </div>
-          <div class="oiq-referred-to">
-            Referred to <strong>{{ c.providerName || '—' }}</strong>
+          <div :title="`Assigned by ${c.assignedByName || 'staff member not recorded'}`" class="oiq-referred-to">
+            Assigned to <strong>{{ c.providerName || '—' }}</strong>
           </div>
           <div class="oiq-referred-date">{{ formatDate(c.assignedAt) }}</div>
           <a :href="clientProfilePath(c)" class="oiq-referred-open" target="_blank" rel="noopener">Open ↗</a>
@@ -93,13 +93,20 @@
       <div class="oiq-filter-wrap">
         <select v-model="filterType" class="oiq-sort-select">
           <option value="">All types</option>
-          <option value="clinical">Office / Clinical</option>
+          <option value="clinical">Office / Clinical</option><option value="school">School</option>
           <option value="learning">Learning</option>
           <option value="basic_nonclinical">Coaching / Consulting</option>
         </select>
       </div>
     </div>
 
+    <div class="oiq-enrollment-filters">
+      <label>Source<select v-model="sourceFilter" aria-label="Enrollment source"><option value="">All sources</option><option v-for="source in sourceOptions" :key="source" :value="source">{{ enrollmentSourceLabel(source) }}</option></select></label>
+      <label>Organization<select v-model="organizationFilter" aria-label="Enrollment organization"><option value="">All organizations</option><option v-for="organization in organizationOptions" :key="organization.id" :value="organization.id">{{ organization.name }}</option></select></label>
+      <label>Care setting<select v-model="settingFilter" aria-label="Enrollment care setting"><option value="">All care settings</option><option value="office">Office</option><option value="school">School</option><option value="program">Program</option><option value="learning">Learning</option></select></label>
+      <label>QA / demos<select v-model="demoFilter" aria-label="Enrollment demos"><option value="exclude">Live enrollments</option><option value="all">Include QA / demos</option><option value="only">QA / demos only</option></select></label>
+      <span>{{ filtered.length }} matching enrollments</span>
+    </div>
     <!-- Error / empty -->
     <div v-if="error" class="oiq-banner oiq-banner--warn">{{ error }}</div>
     <div v-else-if="!loading && filtered.length === 0" class="oiq-empty">
@@ -143,7 +150,7 @@
                     title="Created via Dev Fill (test/fake intake)"
                   >Dev Fill</span>
                   <span class="oiq-pill oiq-pill--type">{{ clientTypeLabel(c.clientType) }}</span>
-                  <span class="oiq-pill oiq-pill--pathway">{{ pathwayLabel(c) }}</span>
+                  <span class="oiq-pill oiq-pill--pathway">{{ enrollmentSourceLabel(c.source) }}</span><span class="oiq-pill oiq-pill--type">{{ enrollmentCareSetting(c) }}<template v-if="c.organizationName"> · {{ c.organizationName }}</template></span>
                   <span
                     v-if="needsClinicalReview(c)"
                     class="oiq-pill oiq-pill--clinical-hold"
@@ -416,6 +423,9 @@
 
 <script setup>
 import LearningEnrollmentSummary from '../learning/LearningEnrollmentSummary.vue';
+import AuricWellBrand from '../auricwell/AuricWellBrand.vue';
+import '../../styles/auricwellClients.css';
+import {enrollmentSourceLabel,enrollmentCareSetting,filterEnrollments} from '../../utils/enrollmentPresentation.js';
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAgencyStore } from '../../store/agency';
@@ -463,6 +473,9 @@ const searchQuery = ref('');
 const sortField = ref('createdAt');
 const sortAsc = ref(false);
 const filterType = ref('');
+const sourceFilter=ref(''), organizationFilter=ref(''), settingFilter=ref(''), demoFilter=ref('exclude');
+const sourceOptions=computed(()=>[...new Set(clients.value.map(client=>client.source).filter(Boolean))].sort());
+const organizationOptions=computed(()=>[...new Map(clients.value.filter(client=>client.organizationId).map(client=>[client.organizationId,{id:client.organizationId,name:client.organizationName || `Organization ${client.organizationId}`}])).values()].sort((a,b)=>a.name.localeCompare(b.name)));
 const showReferred = ref(false);
 
 const selected = computed(() => clients.value.find((c) => c.id === selectedId.value) || null);
@@ -596,7 +609,7 @@ function matchesSearch(c) {
 }
 
 const filtered = computed(() => {
-  let list = clients.value;
+  let list = filterEnrollments(clients.value,{source:sourceFilter.value,organization:organizationFilter.value,setting:settingFilter.value,demo:demoFilter.value});
   if (filterType.value) list = list.filter((c) => c.clientType === filterType.value);
   if (searchTokens.value.length) list = list.filter(matchesSearch);
   list = [...list].sort((a, b) => {
@@ -618,7 +631,7 @@ const filtered = computed(() => {
 
 async function loadProviders() {
   try {
-    const res = await api.get('/users');
+    const res = await api.get('/users',{skipGlobalLoading:true});
     const all = res.data || [];
     providerOptions.value = all
       .filter((u) => ['provider', 'provider_plus'].includes(String(u.role || '').toLowerCase()))
@@ -646,7 +659,7 @@ async function load() {
   loading.value = true;
   error.value = '';
   try {
-    const res = await api.get('/client-exchange/pending-office-clients', { params: { agencyId: agencyId.value } });
+    const res = await api.get('/client-exchange/pending-office-clients', { params: { agencyId: agencyId.value, includeSchool:'true' }, skipGlobalLoading:true });
     clients.value = res.data?.clients || [];
     // Do not auto-select; user clicks to open detail
   } catch (e) {
@@ -659,7 +672,7 @@ async function load() {
 async function loadRecentlyReferred() {
   if (!agencyId.value) return;
   try {
-    const res = await api.get('/client-exchange/recently-referred', { params: { agencyId: agencyId.value } });
+    const res = await api.get('/client-exchange/recently-referred', { params: { agencyId: agencyId.value }, skipGlobalLoading:true });
     recentlyReferred.value = res.data?.clients || [];
   } catch {
     recentlyReferred.value = [];
@@ -1419,4 +1432,6 @@ a.oiq-detail-value {
   text-decoration: none;
   flex-shrink: 0;
 }
+
+.oiq-root{max-width:none;width:100%;padding:12px}.oiq-title{margin:4px 0}.oiq-enrollment-filters{display:flex;flex-wrap:wrap;align-items:end;gap:10px;margin:8px 0 12px}.oiq-enrollment-filters label{display:grid;gap:4px;font-size:12px;color:#53657e}.oiq-enrollment-filters select{padding:7px 9px;background:white;border:1px solid #c7d4e5;border-radius:7px;color:#17345c}.oiq-enrollment-filters>span{font-size:12px;color:#60718a;padding:8px 0}.oiq-card{padding:10px 12px}.oiq-stats-row{gap:8px}.oiq-stat-card{padding:10px 12px}.oiq-referred-section{margin:10px 0}
 </style>

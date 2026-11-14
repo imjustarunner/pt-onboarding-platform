@@ -1,3 +1,4 @@
+import { assertContactOwner, reminderConsentAttestations } from './clientContactPolicy.service.js';
 /**
  * Client-affiliated contacts: create/link, reminder prefs, notify email.
  */
@@ -21,6 +22,12 @@ export async function requireReminderGuardian(clientId, userId) {
     const client = await Client.findById(clientId);
     const user = await User.findById(userId);
     if (user?.role === 'client' && Number(client?.user_id) === Number(userId)) return;
+  }
+  const actor = await User.findById(userId);
+  if (['super_admin','admin','support','staff','scheduler','provider','provider_plus','clinical_practice_assistant'].includes(actor?.role)) {
+    const {resolveClientRecordAccess}=await import('./clientRecordAccess.service.js');
+    const access=await resolveClientRecordAccess({userId,role:actor.role,clientId});
+    if(access.ok)return;
   }
   if (!link || Number(link.access_enabled) !== 1 || ClientGuardian.isNoView(link.permissions_json)) {
     throw Object.assign(new Error('An account guardian must authorize reminders for an additional contact'), { status: 403 });
@@ -143,7 +150,9 @@ export async function upsertClientAffiliatedContact({
   acknowledgeNotify = false,
   existingContactId = null,
   recipientPermissionToInvite = false,
-  importOnly = false
+  importOnly = false,
+  verbalEmailConsent = false,
+  verbalSmsConsent = false
 } = {}) {
   if (importOnly) {
     emailRemindersEnabled = false;
@@ -167,6 +176,8 @@ export async function upsertClientAffiliatedContact({
   if (Number(client.agency_id || client.agencyId) !== resolvedAgencyId) throw Object.assign(new Error('Client does not belong to this agency'), { status: 403 });
 
   const wantsReminders = !!(emailRemindersEnabled || smsRemindersEnabled);
+  // Validate selected channels before creating a contact or sending anything.
+  reminderConsentAttestations({emailEnabled:emailRemindersEnabled,smsEnabled:smsRemindersEnabled,emailConsent:verbalEmailConsent,smsConsent:verbalSmsConsent,userId,email,phone});
   if (wantsReminders) await requireReminderGuardian(clientId, userId);
   if (wantsReminders && !acknowledgeNotify) {
     const err = new Error(
@@ -219,6 +230,10 @@ export async function upsertClientAffiliatedContact({
     contact = null;
   }
 
+  if (contact) {
+    const existingAffiliation=await ClientContactAffiliation.findByClientAndContact(clientId,contact.id);
+    if(existingAffiliation)await assertContactOwner(existingAffiliation,userId);
+  }
   if (!contact) {
     if (!fullName && !normEmail && !phone) {
       const err = new Error('Name, email, or phone is required');
@@ -254,6 +269,7 @@ export async function upsertClientAffiliatedContact({
 
   let affiliation = await ClientContactAffiliation.findByClientAndContact(clientId, contact.id);
   const ackAt = wantsReminders && acknowledgeNotify ? new Date() : null;
+  const consentAttestations=reminderConsentAttestations({emailEnabled:emailRemindersEnabled,smsEnabled:smsRemindersEnabled,emailConsent:verbalEmailConsent,smsConsent:verbalSmsConsent,userId,email:contact.email,phone:contact.phone,previous:affiliation?.reminder_consent_attestations_json});
   const wasEmail = !!affiliation?.email_reminders_enabled;
   const wasSms = !!affiliation?.sms_reminders_enabled;
 
@@ -266,6 +282,7 @@ export async function upsertClientAffiliatedContact({
       emailRemindersEnabled,
       smsRemindersEnabled,
       smsOptIn: false,
+      reminderConsentAttestations:consentAttestations,
       notifyAckByUserId: ackAt ? userId : null,
       notifyAckAt: ackAt,
       createdByUserId: userId
@@ -275,6 +292,7 @@ export async function upsertClientAffiliatedContact({
       (emailRemindersEnabled && !wasEmail) || (smsRemindersEnabled && !wasSms);
     affiliation = await ClientContactAffiliation.update(affiliation.id, {
       relationshipType: relationshipType || affiliation.relationship_type,
+      ...(!importOnly ? {reminderConsentAttestations:consentAttestations} : {}),
       ...(!importOnly ? { emailRemindersEnabled, smsRemindersEnabled, isActive: true } : {}),
       ...(enabling && acknowledgeNotify
         ? { notifyAckByUserId: userId, notifyAckAt: new Date() }
@@ -324,6 +342,7 @@ export async function updateClientAffiliatedContact({
     throw err;
   }
 
+  await assertContactOwner(row,userId);
   const nextEmail =
     patch.emailRemindersEnabled !== undefined
       ? !!patch.emailRemindersEnabled
@@ -345,7 +364,9 @@ export async function updateClientAffiliatedContact({
     throw err;
   }
 
+  const consentAttestations=reminderConsentAttestations({emailEnabled:nextEmail && !row.email_reminders_enabled,smsEnabled:nextSms && !row.sms_reminders_enabled,emailConsent:patch.verbalEmailConsent,smsConsent:patch.verbalSmsConsent,userId,email:row.contact_email,phone:row.contact_phone,previous:row.reminder_consent_attestations_json});
   const updated = await ClientContactAffiliation.update(affiliationId, {
+    reminderConsentAttestations:consentAttestations,
     relationshipType: patch.relationshipType,
     emailRemindersEnabled: nextEmail,
     smsRemindersEnabled: nextSms,

@@ -12,7 +12,7 @@ vi.mock('../../utils/smsCompliancePolicy.js', () => ({ validateSmsRegistration: 
 import { contactReminderPhoneHash } from '../../utils/contactReminderConsent.js';
 import { requestContactSmsInvitation, applyContactReminderSmsKeyword, contactSmsInvitationText } from '../contactReminderSmsConsent.service.js';
 const input = { affiliationId: 7, clientId: 2297, userId: 1437, recipientPermissionToInvite: true };
-const row = { id: 7, agency_id: 450, client_id: 2297, is_active: 1, contact_is_active: 1, sms_reminders_enabled: 1, notify_ack_at: new Date(), notify_ack_by_user_id: 1437, contact_phone: '+13035550100', sms_consent_status: 'pending', sms_consent_phone_hash: contactReminderPhoneHash('+13035550100') };
+const row = { created_by_user_id:1437,id: 7, agency_id: 450, client_id: 2297, is_active: 1, contact_is_active: 1, sms_reminders_enabled: 1, notify_ack_at: new Date(), notify_ack_by_user_id: 1437, contact_phone: '+13035550100', sms_consent_status: 'pending', sms_consent_phone_hash: contactReminderPhoneHash('+13035550100') };
 const sender = { id: 4, agency_id: 450, phone_number: '+13035550200', scope: 'campaign:C1', registration: { provider: 'notifyre', allowRestart: true } };
 beforeEach(() => {
   vi.resetAllMocks();
@@ -114,3 +114,5 @@ describe('signed inbound START / STOP', () => {
     expect(m.record).not.toHaveBeenCalled();
   });
 });
+
+it('rejects another parent requesting changes to a contact they did not add',async()=>{m.find.mockResolvedValue({...row,created_by_user_id:2000});await expect(requestContactSmsInvitation(input)).rejects.toHaveProperty('status',403);expect(m.send).not.toHaveBeenCalled();});

@@ -21,3 +21,18 @@ it('limits support to their agency and school staff to their own school and uplo
  await expect(authorizeReferralPacket({...scope,user:{id:1,role:'school_staff'},draft:{uploaded_by_user_id:2}},users)).rejects.toMatchObject({status:403});
  await expect(authorizeReferralPacket({...scope,user:{id:1,role:'client_guardian'}},users)).rejects.toMatchObject({status:403});
 });
+it('lets a provider with a direct school membership upload and resume only their own school packet', async () => {
+ const users={getAgencies:vi.fn(async()=>[{id:450,membership_is_active:1},{id:451,organization_type:'school',membership_is_active:1}])};
+ const request={...scope,user:{id:482,role:'provider'}};
+ await authorizeReferralPacket(request,users);
+ await authorizeReferralPacket({...request,draft:{uploaded_by_user_id:482}},users);
+ await expect(authorizeReferralPacket({...request,draft:{uploaded_by_user_id:999}},users)).rejects.toMatchObject({status:403});
+ await expect(authorizeReferralPacket({...request,organizationId:999},users)).rejects.toMatchObject({status:403});
+ users.getAgencies.mockResolvedValue([{id:450},{id:451,membership_is_active:0}]);
+ await expect(authorizeReferralPacket(request,users)).rejects.toMatchObject({status:403});
+});
+it('honors a school role on an active membership without granting agency processing access', async () => {
+ const users={getAgencies:vi.fn(async()=>[{id:451,agency_role:'school_staff',membership_is_active:1}])};
+ await authorizeReferralPacket({...scope,user:{id:1,role:'provider'}},users);
+ await expect(authorizeReferralPacket({...scope,user:{id:1,role:'client_guardian'}}, {getAgencies:async()=>[{id:451}]})).rejects.toMatchObject({status:403});
+});

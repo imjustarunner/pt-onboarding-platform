@@ -1,8 +1,8 @@
 <template>
-  <div class="container client-mgmt-page">
+  <div class="container client-mgmt-page auricwell-client-workspace">
     <div class="page-header cm-page-header" data-tour="clients-header">
       <div class="cm-header-copy">
-        <h1 data-tour="clients-title">Client Management</h1>
+        <AuricWellBrand context="Client management" /><h1 data-tour="clients-title">Client Management</h1>
         <p class="cm-subtitle">
           Manage client submissions, documentation, and affiliations
           <span v-if="usingServerPagination"> across all tenants</span>
@@ -108,6 +108,7 @@
       <ClientNameDuplicatesPanel
         :agency-id="effectiveAgencyScopeId"
         @open-client="openClientDetail"
+        @merged="fetchClients(); loadSideCounts()"
       />
     </div>
 
@@ -204,8 +205,8 @@
         </select>
         <select v-model="devFillFilter" @change="applyFilters" class="filter-select">
           <option value="">All records</option>
-          <option value="only">Dev Fill only</option>
-          <option value="exclude">Hide Dev Fill</option>
+          <option value="only">QA / demos only</option>
+          <option value="exclude">Hide QA / demos</option>
         </select>
         <select
           v-if="canSeeRenewalFlags"
@@ -475,7 +476,6 @@
             <th style="width: 34px;">
               <input type="checkbox" :checked="allPageSelected" @change.stop="toggleSelectAllPage($event)" />
             </th>
-            <th>Client ID</th>
             <th class="cm-sortable col-initials" :aria-sort="ariaSortFor('initials')" @click="toggleColumnSort('initials')">
               {{ clientDisplayLabel }}
               <span class="cm-sort-indicator" aria-hidden="true">{{ sortIndicatorFor('initials') }}</span>
@@ -561,7 +561,6 @@
             <td class="select-cell" @click.stop>
               <input type="checkbox" :checked="selectedIds.has(client.id)" @change.stop="toggleSelected(client.id)" />
             </td>
-            <td class="mono" data-label="Client ID">{{ client.id }}</td>
             <td
               data-label="Name" class="initials-cell col-initials"
               @click.stop="openClientDetail(client)"
@@ -611,8 +610,8 @@
               <span class="cm-provider-label" :style="getProviderLabelStyle(client)">
                 {{ client.provider_name || 'Unassigned' }}
               </span>
-              <span v-if="client.referral_date && client.provider_name" class="cm-referral-date">
-                Referred {{ formatDate(client.referral_date) }}
+              <span v-if="client.provider_name" :title="assignmentTooltip(client)" class="cm-referral-date">
+                Assigned<template v-if="client.assigned_at || client.provider_assigned_at"> {{ formatDate(client.assigned_at || client.provider_assigned_at) }}</template>
               </span>
             </td>
             <td v-if="columnPrefs.submissionDate" data-label="Submitted">{{ formatDate(client.submission_date) }}</td>
@@ -1291,6 +1290,8 @@ import ClientPortalInviteDialog from '../../components/clients/ClientPortalInvit
 import PostClientToExchangeButton from '../../components/clientExchange/PostClientToExchangeButton.vue';
 const ReferralUpload = defineAsyncComponent(() => import('../../components/school/ReferralUpload.vue'));
 import FaxClientIntake from '../../components/clients/FaxClientIntake.vue';
+import AuricWellBrand from '../../components/auricwell/AuricWellBrand.vue';
+import '../../styles/auricwellClients.css';
 import { ref, reactive, computed, onMounted, watch, defineAsyncComponent } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
@@ -1353,7 +1354,7 @@ async function loadSideCounts() {
   if (!aid) return;
   try {
     const [intakeRes, exchangeRes, dupeRes] = await Promise.all([
-      api.get('/client-exchange/pending-office-clients', { params: { agencyId: aid }, skipGlobalLoading: true }),
+      api.get('/client-exchange/pending-office-clients', { params: { agencyId: aid, includeSchool: 'true' }, skipGlobalLoading: true }),
       api.get('/client-exchange/listings', { params: { agencyId: aid }, skipGlobalLoading: true }),
       canBackofficeEdit.value
         ? api.get('/clients/name-duplicates', { params: { agencyId: aid }, skipGlobalLoading: true })
@@ -1573,7 +1574,7 @@ const error = ref('');
 const searchQuery = ref('');
 const clientStatusFilter = ref('');
 const workflowStatusFilter = ref('');
-const devFillFilter = ref('');
+const devFillFilter = ref('exclude');
 const organizationFilter = ref('');
 const providerFilter = ref('');
 const skillsOnly = ref(false);
@@ -1670,7 +1671,7 @@ const fetchCreateInsuranceTypes = async () => {
       createInsuranceError.value = 'Unable to determine agency for insurance types.';
       return;
     }
-    const r = await api.get('/client-settings/insurance-types', { params: { agencyId } });
+    const r = await api.get('/client-settings/insurance-types', { params: { agencyId }, skipGlobalLoading: true });
     const rows = Array.isArray(r.data) ? r.data : [];
     createInsuranceTypes.value = rows
       .filter((s) => s && (s.is_active === undefined || s.is_active === 1 || s.is_active === true))
@@ -1702,7 +1703,7 @@ const fetchLanguageOptions = async () => {
   try {
     languagesLoading.value = true;
     languagesError.value = '';
-    const r = await api.get('/client-settings/languages');
+    const r = await api.get('/client-settings/languages', { skipGlobalLoading: true });
     const rows = Array.isArray(r.data) ? r.data : [];
     languageOptions.value = rows
       .filter((x) => x && (x.is_active === undefined || x.is_active === 1 || x.is_active === true))
@@ -1774,7 +1775,7 @@ const fetchCreatePaperworkStatuses = async () => {
       createPaperworkStatusesError.value = 'Unable to determine agency for document statuses.';
       return;
     }
-    const r = await api.get('/client-settings/paperwork-statuses', { params: { agencyId } });
+    const r = await api.get('/client-settings/paperwork-statuses', { params: { agencyId }, skipGlobalLoading: true });
     const rows = Array.isArray(r.data) ? r.data : [];
     const active = rows.filter((s) => s && (s.is_active === undefined || s.is_active === 1 || s.is_active === true));
     // Exclude "completed" from selectable-needed list (completed is computed/derived),
@@ -2102,7 +2103,7 @@ const fetchLinkedOrganizations = async () => {
 
     // Agency-side: prefer affiliation-based list (schools/programs/learning). Fallback to legacy agency↔school links if needed.
     try {
-      const resp = await api.get(`/agencies/${agencyId}/affiliated-organizations`);
+      const resp = await api.get(`/agencies/${agencyId}/affiliated-organizations`, { skipGlobalLoading: true });
       const rows = Array.isArray(resp.data) ? resp.data : [];
       linkedOrganizations.value = rows
         .filter((o) => String(o?.organization_type || '').toLowerCase() !== 'agency')
@@ -2117,7 +2118,7 @@ const fetchLinkedOrganizations = async () => {
         }));
     } catch (e) {
       // Legacy fallback (schools only)
-      const response = await api.get(`/agencies/${agencyId}/schools`);
+      const response = await api.get(`/agencies/${agencyId}/schools`, { skipGlobalLoading: true });
       const rows = response.data || [];
       linkedOrganizations.value = rows.map((r) => ({
         id: r.school_organization_id,
@@ -2358,8 +2359,8 @@ const fetchClients = async () => {
     if (referralEntryFilter.value) { params.append('referral_entry_id', referralEntryFilter.value); params.append('referral_direction', referralDirectionFilter.value); }
     if (clientStatusFilter.value) params.append('client_status_id', clientStatusFilter.value);
     if (workflowStatusFilter.value) params.append('status', workflowStatusFilter.value);
-    if (devFillFilter.value === 'only') params.append('dev_fill', 'only');
-    if (devFillFilter.value === 'exclude') params.append('dev_fill', 'exclude');
+    if (devFillFilter.value === 'only') params.append('demo', 'only');
+    if (devFillFilter.value === 'exclude') params.append('demo', 'exclude');
     if (organizationFilter.value) params.append('organization_id', organizationFilter.value);
     if (providerFilter.value) params.append('provider_id', providerFilter.value);
     const parsed = parseClientManagementSearch(searchQuery.value, {
@@ -2394,7 +2395,7 @@ const fetchClients = async () => {
       }
     }
 
-    const response = await api.get(`/clients?${params.toString()}`);
+    const response = await api.get(`/clients?${params.toString()}`, { skipGlobalLoading: true });
     if (generation !== clientLoadGeneration) return;
     const payload = response.data || [];
     const raw = Array.isArray(payload) ? payload : (payload.items || []);
@@ -2438,7 +2439,7 @@ const fetchClientStatuses = async () => {
       clientStatuses.value = [];
       return;
     }
-    const response = await api.get('/client-settings/client-statuses', { params: { agencyId } });
+    const response = await api.get('/client-settings/client-statuses', { params: { agencyId }, skipGlobalLoading: true });
     clientStatuses.value = (response.data || []).filter((s) => s && (s.is_active === undefined || s.is_active === 1 || s.is_active === true));
   } catch (err) {
     clientStatuses.value = [];
@@ -2452,7 +2453,7 @@ const fetchProviders = async () => {
       availableProviders.value = [];
       return;
     }
-    const response = await api.get('/provider-scheduling/providers', { params: { agencyId } });
+    const response = await api.get('/provider-scheduling/providers', { params: { agencyId }, skipGlobalLoading: true });
     availableProviders.value = response.data || [];
   } catch (err) {
     console.error('Failed to fetch providers:', err);
@@ -2470,8 +2471,8 @@ const fetchProviderAssignmentsForOrg = async () => {
   try {
     providerOptionsLoading.value = true;
     const [sched, aff] = await Promise.all([
-      api.get('/provider-scheduling/assignments', { params: { agencyId, schoolOrganizationId: orgId } }),
-      api.get('/provider-scheduling/affiliated-providers', { params: { agencyId, schoolOrganizationId: orgId } })
+      api.get('/provider-scheduling/assignments', { params: { agencyId, schoolOrganizationId: orgId }, skipGlobalLoading: true }),
+      api.get('/provider-scheduling/affiliated-providers', { params: { agencyId, schoolOrganizationId: orgId }, skipGlobalLoading: true })
     ]);
     providerAssignmentsForOrg.value = sched.data || [];
     affiliatedProvidersForOrg.value = Array.isArray(aff.data) ? aff.data : [];
@@ -2493,7 +2494,7 @@ const fetchDeliveryMethodsForSchool = async () => {
   }
   try {
     deliveryMethodsLoading.value = true;
-    const resp = await api.get(`/school-settings/${orgId}/paperwork-delivery-methods`, { params: { agencyId } });
+    const resp = await api.get(`/school-settings/${orgId}/paperwork-delivery-methods`, { params: { agencyId }, skipGlobalLoading: true });
     deliveryMethods.value = (resp.data || []).filter((m) => m && (m.is_active === 1 || m.is_active === true));
   } catch {
     deliveryMethods.value = [];
@@ -2977,6 +2978,11 @@ const formatDocumentStatus = (status) => {
   };
   return statusMap[status] || status;
 };
+
+function assignmentTooltip(client) {
+  const actor=client.assigned_by_name || client.provider_assigned_by_name;
+  return `Assigned to ${client.provider_name || 'provider'}${actor ? ` by ${actor}` : ' · Assigning staff member not recorded'}${client.referral_date ? ` · ${formatDate(client.referral_date)}` : ''}`;
+}
 
 const formatClientStatus = (client) => {
   const label = String(client?.client_status_label || '').trim();
@@ -4335,4 +4341,5 @@ watch(() => currentPage.value, (newPage, oldPage) => {
  .cm-clients-table .cm-initials-badge, .cm-clients-table .cm-affiliation-badge { min-width:0; max-width:100%; white-space:normal; overflow-wrap:anywhere; }
  .cm-clients-table .actions-cell { position:static; justify-content:flex-start; }
 }
+.client-mgmt-page{max-width:none;width:100%;padding:14px 18px}.cm-clients-table .col-initials{min-width:180px;max-width:270px}.cm-clients-table td,.cm-clients-table th{padding-left:10px;padding-right:10px}.cm-header-copy h1{margin:4px 0}
 </style>

@@ -31,6 +31,9 @@ describe('additional reminder contact consent display', () => {
     await flushPromises();
     await wrapper.findAll('button').find(button => button.text() === 'Add contact').trigger('click');
     await wrapper.find('input[type="text"]').setValue('Grandparent QA');
+    await wrapper.find('input[type="email"]').setValue('controlled@example.test');
+    await wrapper.findAll('input[type="checkbox"]')[0].setValue(true);
+    await wrapper.findAll('label').find(label=>label.text().includes('verbally consented to email')).get('input').setValue(true);
     const ack = wrapper.findAll('input[type="checkbox"]').at(-1);
     await ack.setValue(true);
     await wrapper.find('form').trigger('submit');
@@ -41,3 +44,5 @@ describe('additional reminder contact consent display', () => {
     expect(m.post.mock.calls[0][1].recipientPermissionToInvite).toBe(false);
   });
 });
+it('shows the other parent’s contact while removing its edit and delete controls',async()=>{m.get.mockResolvedValue({data:{items:[{...contact,canEdit:false,relationshipType:'other'}]}});const w=mount(Panel,{props:{clientId:2297,mode:'guardian'}});await flushPromises();expect(w.text()).toContain('Grandparent QA');expect(w.text()).toContain('View only');expect(w.findAll('button').some(button=>['Edit reminders','Remove'].includes(button.text()))).toBe(false);w.unmount();});
+it('requires separate verbal consent checkboxes for the chosen reminder channels',async()=>{const w=mount(Panel,{props:{clientId:2297,mode:'guardian'}});await flushPromises();await w.findAll('button').find(b=>b.text()==='Add contact').trigger('click');await w.find('input[type="text"]').setValue('Contact QA');await w.findAll('input[type="checkbox"]')[0].setValue(true);await w.findAll('input[type="checkbox"]')[1].setValue(true);expect(w.text()).toContain('verbally consented to email');expect(w.text()).toContain('verbally consented to text');expect(w.find('button[type="submit"]').attributes('disabled')).toBeDefined();await w.find('form').trigger('submit');expect(m.post).not.toHaveBeenCalled();w.unmount();});

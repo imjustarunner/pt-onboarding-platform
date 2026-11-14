@@ -44,7 +44,7 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.ticket-detail-modal { position: fixed; inset: 0; width: min(1240px, calc(100vw - 32px)); height: min(940px, calc(100dvh - 40px)); max-width: none; max-height: none; margin: auto; padding: 0; border: 1px solid var(--border, #cbd5e1); border-radius: 14px; color: var(--text-primary, #1f2937); background: var(--bg-card, #fff); overflow: hidden; }
+.ticket-detail-modal { position: fixed; inset: 0; width: min(1520px, calc(100vw - 24px)); height: min(980px, calc(100dvh - 24px)); max-width: none; max-height: none; margin: auto; padding: 0; border: 1px solid var(--border, #cbd5e1); border-radius: 14px; color: var(--text-primary, #1f2937); background: var(--bg-card, #fff); overflow: hidden; }
 .ticket-detail-modal[open] { display: flex; flex-direction: column; }
 .ticket-detail-modal::backdrop { background: rgb(15 23 42 / 55%); }
 .ticket-modal-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; border-bottom: 1px solid var(--border, #cbd5e1); }

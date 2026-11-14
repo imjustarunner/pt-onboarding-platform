@@ -1,3 +1,4 @@
+import {assertContactOwner} from './clientContactPolicy.service.js';
 /** A guardian can request reminders, but only the recipient's START grants SMS.
  * This fixed, one-time invitation requires permission to send the invitation.
  * It cannot send arbitrary clinical content or bypass campaign/STOP/QA gates. */
@@ -31,6 +32,7 @@ export async function requestContactSmsInvitation({ affiliationId, clientId, use
     locked = true;
     let row = await ClientContactAffiliation.findById(affiliationId);
     if (!row || Number(row.client_id) !== Number(clientId) || !Number(row.is_active) || !Number(row.contact_is_active)) throw fail(404, 'Contact not found.');
+    await assertContactOwner(row,userId);
     await requireReminderGuardian(clientId, row.notify_ack_by_user_id);
     if (!row.sms_reminders_enabled || !row.notify_ack_at) throw fail(409, 'Enable text reminders for this contact first.');
     if (row.sms_consent_status === 'stopped') throw fail(409, 'This contact selected STOP. Invitations cannot be resent; they must restart texting themselves.');

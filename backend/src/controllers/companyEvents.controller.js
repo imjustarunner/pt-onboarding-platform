@@ -22,7 +22,7 @@ import { registerPublicEventGuest } from '../services/companyEventPublicRegistra
 import { mapEventOperations, readEventOperations, assertEventRegistrationOpen } from '../utils/companyEventOperations.js';
 import { isEventCoordinator, validateEventOperations, saveEventOperations } from '../services/companyEventOperations.service.js';
 import {reviewedPollResponses,reviewedPollSummary,reviewPollResponse} from '../services/staffPollReview.service.js';
-import {validatePollOptions,unmatchedPollReply} from '../utils/staffPollResponses.js';
+import {validatePollOptions,unmatchedPollReply,matchStaffPollReply} from '../utils/staffPollResponses.js';
 import { getPollResultPreference, setPollResultPreference, deliverPollResults } from '../services/companyEventPollResults.service.js';
 import { getSmsSender } from '../services/smsCompliance.service.js';
 import { validateSmsRegistration } from '../utils/smsCompliancePolicy.js';
@@ -374,15 +374,7 @@ function applyTemplateVariables(template, context = {}) {
 }
 
 function parseResponseInput(body, options = []) {
-  const raw = String(body || '').trim();
-  if (!raw) return null;
-  const upper = raw.toUpperCase();
-  const normalizedOptions = normalizeVotingOptions(options);
-  for (const option of normalizedOptions) {
-    if (upper === option.key.toUpperCase()) return { key: option.key, label: option.label, raw };
-    if (upper === option.label.toUpperCase()) return { key: option.key, label: option.label, raw };
-  }
-  return null;
+  return matchStaffPollReply(body, normalizeVotingOptions(options));
 }
 
 function resolveRsvpOption(event, response) {

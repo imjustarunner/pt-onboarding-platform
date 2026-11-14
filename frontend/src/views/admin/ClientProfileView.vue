@@ -1,6 +1,6 @@
 <template>
-  <div class="cpv-shell">
-    <div class="cpv-breadcrumb">
+  <div class="cpv-shell auricwell-client-workspace">
+    <div class="cpv-breadcrumb"><AuricWellBrand compact context="Client record" />
       <button type="button" class="cpv-back-btn" @click="goBack">
         <span aria-hidden="true">←</span> Back to workspace
       </button>
@@ -32,6 +32,8 @@ import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { clinicalReturnPath } from '../../utils/clinicalWorkspace';
 import ClientDetailPanel from '../../components/admin/ClientDetailPanel.vue';
+import AuricWellBrand from '../../components/auricwell/AuricWellBrand.vue';
+import '../../styles/auricwellClients.css';
 
 const route = useRoute();
 const router = useRouter();
