@@ -115,8 +115,6 @@ export function buildClaimMdJsonClaim(claim, lines = [], { insurance, practice =
   if (policyIsMedicaid(insurance?.primary) && insurance?.secondary && Number(claim.payer_sequence || 1) !== 2) {
     throw Object.assign(new Error('Medicaid cannot be billed first while another policy is recorded. Resolve payer order before submission.'), { status:409, code:'MEDICAID_PAYER_ORDER' });
   }
-  const subscriberIssues=[insurance?.primary,insurance?.secondary].filter(Boolean).flatMap(policy=>insuranceSubscriberIssues(policy,insurance?.patient));
-  if(subscriberIssues.length)throw Object.assign(new Error(subscriberIssues.join(' ')),{status:409,code:'MEDICAID_SUBSCRIBER_REVIEW'});
   const primary = insurance?.primary || {}, patient = insurance?.patient || {};
   const state=value=>normalizeUsStateCode(value)||value;
   const required = { payerid:primary.payerId, ins_number:primary.memberId,
@@ -143,6 +141,8 @@ export function buildClaimMdJsonClaim(claim, lines = [], { insurance, practice =
   if(diagnoses.some(code=>! /^[A-Z][0-9][A-Z0-9]{1,5}$/.test(code))) missing.push('valid ICD-10 diagnosis codes');
   if (!['M','F','U'].includes(patient.sex) || !['M','F','U'].includes(primary.subscriberSex)) missing.push('valid policy sex codes');
   if (missing.length) throw Object.assign(new Error(`Claim is incomplete: ${missing.join(', ')}`), {status:409,code:'CLAIM_FIELDS_INCOMPLETE',missingFields:missing});
+  const subscriberIssues=[insurance?.primary,insurance?.secondary].filter(Boolean).flatMap(policy=>insuranceSubscriberIssues(policy,insurance?.patient));
+  if(subscriberIssues.length)throw Object.assign(new Error(subscriberIssues.join(' ')),{status:409,code:'MEDICAID_SUBSCRIBER_REVIEW'});
   const date = value => value instanceof Date ? value.toISOString().slice(0,10) : String(value || '').slice(0,10);
   const validDate = value => /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(value)) && new Date(value).toISOString().slice(0,10) === value;
   if(!validDate(patient.dateOfBirth) || !validDate(primary.subscriberDob)) throw Object.assign(new Error('Patient or subscriber birth date is invalid'),{status:409});

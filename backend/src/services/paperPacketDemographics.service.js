@@ -72,10 +72,10 @@ async function fillEmptyInsurance(client, parsed) {
   const patient={...patientFromDemographics(client),...(existing?.patient || {})};
   const paper=paperCoverageFromCandidate(parsed,patient);
   const occupied=policy=>!!(policy?.insurerName || policy?.memberId || policy?.payerId);
+  if(!['primary','secondary'].some(slot=>!occupied(existing?.[slot])&&paper[slot]))return;
   const primary=occupied(existing?.primary)?existing.primary:paper.primary || existing?.primary || {};
   const secondary=occupied(existing?.secondary)?existing.secondary:paper.secondary || existing?.secondary || null;
-  if(primary===existing?.primary && secondary===existing?.secondary)return;
-  if (!primary.insurerName && !primary.memberId) return;
+  if (!primary.insurerName && !primary.memberId && !secondary?.insurerName && !secondary?.memberId) return;
   await writeClientInsurance({
     clientId,
     agencyId,

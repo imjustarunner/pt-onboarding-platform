@@ -12,3 +12,9 @@ it('adds paper secondary despite existing primary and preserves assignment and p
  await applyPaperPacketDemographicsFromText({clientId:4,ocrText:'Primary Insurance CHAMPVA Secondary Insurance Colorado Medicaid\nPolicy Holder Taylor Example Secondary Holder Morgan Example\nMember ID PRIMARY-TEST Secondary ID A123456'});
  expect(writeClientInsurance).toHaveBeenCalledWith(expect.objectContaining({primary,secondary:expect.objectContaining({memberId:'A123456',paperSubscriberName:'Morgan Example',subscriberFirstName:'Jordan',relationshipToSubscriber:'self'}),profileId:11,coverageSources:{primary:{profileId:11,slot:'primary'}},acceptAssignment:true,verifiedForClaims:false}));
 });
+it('does not reset verified saved coverage when the packet adds no empty coverage position',async()=>{
+ writeClientInsurance.mockClear();Client.findById.mockResolvedValue({id:4,agency_id:2,full_name:'Jordan Example'});
+ readClientInsurance.mockResolvedValue({primary:{insurerName:'Saved policy',memberId:'SAVED'},verifiedForClaims:true});
+ await applyPaperPacketDemographicsFromText({clientId:4,ocrText:'Primary Insurance CHAMPVA\nMember ID PRIMARY-TEST'});
+ expect(writeClientInsurance).not.toHaveBeenCalled();
+});
