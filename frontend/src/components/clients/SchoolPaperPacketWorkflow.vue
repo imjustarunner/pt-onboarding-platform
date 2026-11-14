@@ -151,7 +151,7 @@ const needsHumanReview=computed(()=>!state.value.processedAt);
 const pendingEntryReasons=computed(()=>{
  const reasons=[];
  for(let index=0;index<2;index++){
-  if(index===1&&secondNotListed.value)continue;
+  if(index===1&&(secondNotListed.value || !secondPortalAccount.value))continue;
   const contact=guardianForms[index]||{};
   if(!String(contact.email||'').trim())reasons.push(`Parent ${index+1} email is not recorded. Obtain the listed parent's own email before completing that contact.`);
  }

@@ -98,10 +98,10 @@ it('hydrates a date-only field from a serialized database DATE without timezone 
 });
 it('shows missing entry emails and unreviewed custody from step one without inventing OCR findings',async()=>{
  context.guardians=[];context.packetRead.status='needs_review';context.packetRead.reviewReasons=['replacement_packet_requires_review'];
- await render();const pending=w.get('[aria-label="Pending packet entry"]');expect(pending.text()).toContain('Parent 1 email is not recorded');expect(pending.text()).toContain('Parent 2 email is not recorded');expect(pending.text()).toContain('rights have not been reviewed');expect(pending.text()).toContain('file check does not confirm');expect(w.get('.paper-entry h4').text()).toContain('Client demographics');expect(api.put).not.toHaveBeenCalled();expect(api.post).not.toHaveBeenCalled();
+ await render();const pending=w.get('[aria-label="Pending packet entry"]');expect(pending.text()).toContain('Parent 1 email is not recorded');expect(pending.text()).not.toContain('Parent 2 email is not recorded');expect(pending.text()).toContain('rights have not been reviewed');expect(pending.text()).toContain('file check does not confirm');expect(w.get('.paper-entry h4').text()).toContain('Client demographics');expect(api.put).not.toHaveBeenCalled();expect(api.post).not.toHaveBeenCalled();
 });
 it('restores a specific missing-email and unclear-custody working entry without marking the packet complete',async()=>{
- context.state.documentId=9;context.workingDraft={documentId:9,evaluationId:11,stage:0,guardianForms:[{firstName:'Parent',lastName:'QA',email:'first@example.com'},{firstName:'Other',lastName:'QA',email:''}],sharedCustody:'unsure'};
+ context.state.documentId=9;context.workingDraft={documentId:9,evaluationId:11,stage:0,secondPortalAccount:true,guardianForms:[{firstName:'Parent',lastName:'QA',email:'first@example.com'},{firstName:'Other',lastName:'QA',email:''}],sharedCustody:'unsure'};
  await render();const pending=w.get('[aria-label="Pending packet entry"]');expect(pending.text()).not.toContain('Parent 1 email is not recorded');expect(pending.text()).toContain('Parent 2 email is not recorded');expect(pending.text()).toContain('rights are unclear');expect(context.state.completedSteps).toEqual([]);expect(api.post).not.toHaveBeenCalled();
 });
 it('requires the insurance editor completion guard before advancing and skips it for explicit Self-Pay',async()=>{
