@@ -72,6 +72,9 @@ async function fillEmptyInsurance(client, parsed) {
   const patient={...patientFromDemographics(client),...(existing?.patient || {})};
   const paper=paperCoverageFromCandidate(parsed,patient);
   const occupied=policy=>!!(policy?.insurerName || policy?.memberId || policy?.payerId);
+  // A different saved primary needs staff reconciliation before adding another
+  // policy automatically. Keep the paper proposal available in the editor.
+  if(existing?.primary?.memberId && paper.primary?.memberId && existing.primary.memberId!==paper.primary.memberId)return;
   if(!['primary','secondary'].some(slot=>!occupied(existing?.[slot])&&paper[slot]))return;
   const primary=occupied(existing?.primary)?existing.primary:paper.primary || existing?.primary || {};
   const secondary=occupied(existing?.secondary)?existing.secondary:paper.secondary || existing?.secondary || null;

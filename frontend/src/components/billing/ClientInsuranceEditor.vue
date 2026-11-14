@@ -21,6 +21,7 @@
       </section>
       <section v-if="paperEntry && paperCoverage && Object.keys(paperCoverage).length" class="paper-coverage" aria-label="Insurance read from paper packet">
         <h5>Insurance read from paper packet</h5><p>Compare both columns with the PDF. Existing saved policies stay in place until you choose to replace them.</p>
+        <p v-if="draft.primary?.memberId && paperCoverage.primary?.memberId && draft.primary.memberId !== paperCoverage.primary.memberId" role="alert">The saved primary policy has a different member ID from the packet’s primary column. Reconcile the two positions before saving or verifying coverage.</p>
         <article v-for="(policy,slot) in paperCoverage" :key="slot"><strong>{{ slot === 'primary' ? 'Primary' : 'Secondary' }}: {{ policy.insurerName || 'Carrier not read' }}</strong><p>Member ID: {{ policy.memberId || 'Not read' }} · Holder written on packet: {{ policy.paperSubscriberName || 'Not read' }}</p><button type="button" class="btn btn-secondary" @click="usePaperPolicy(slot)">Use packet {{ slot }} details</button></article>
       </section>
       <h5>Client identity</h5><button type="button" class="btn btn-secondary" @click="useDemographics">Fill missing fields from Demographics</button><div class="identity-fields"><label v-for="field in patientFields" :key="field.key">{{ field.label }}<input v-model="draft.patient[field.key]" :type="field.type || 'text'" maxlength="255" /></label></div>
