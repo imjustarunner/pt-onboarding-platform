@@ -35,8 +35,9 @@ export function paperInsuranceTableText(annotation) {
     }
     const primary=found.find(label=>label.label==='Primary Insurance'),secondary=found.find(label=>label.label==='Secondary Insurance');
     if(!primary || !secondary || secondary.left<=primary.right || Math.abs(primary.y-secondary.y)>tolerance)continue;
-    const leftLabels=found.filter(label=>label.left<secondary.left && label.y>=primary.y-tolerance);
-    const rightLabels=found.filter(label=>label.left>=secondary.left && label.y>=primary.y-tolerance);
+    const labelColumnBoundary=(primary.left+secondary.left)/2;
+    const leftLabels=found.filter(label=>label.left<labelColumnBoundary && label.y>=primary.y-tolerance);
+    const rightLabels=found.filter(label=>label.left>=labelColumnBoundary && label.y>=primary.y-tolerance);
     const rows=[...new Set(leftLabels.map(label=>label.y))].sort((a,b)=>a-b);
     if(rows.length<2)continue;
     const leftValue=Math.max(...leftLabels.map(label=>label.right)),rightValue=Math.max(...rightLabels.map(label=>label.right));
@@ -47,7 +48,7 @@ export function paperInsuranceTableText(annotation) {
       const spacing=index>0?rows[index]-rows[index-1]:rows[1]-rows[0];
       const top=index>0?(rows[index-1]+rows[index])/2:rows[0]-spacing/2;
       const bottom=index<rows.length-1?(rows[index]+rows[index+1])/2:rows[index]+spacing/2;
-      const isLeft=label.left<secondary.left;
+      const isLeft=label.left<labelColumnBoundary;
       const values=words.filter(word=>(word.top+word.bottom)/2>top && (word.top+word.bottom)/2<bottom
         && (word.left+word.right)/2>(isLeft?leftValue:rightValue) && (!isLeft || (word.left+word.right)/2<secondary.left));
       const value=values.sort((a,b)=>a.left-b.left).map(w=>w.text).join(' ').replace(/^[#|:\s]+/,'').trim();
