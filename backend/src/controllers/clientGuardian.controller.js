@@ -1,3 +1,4 @@
+import {resolveClientRecordAccess} from '../services/clientRecordAccess.service.js';
 import { guardianAccountStatuses } from '../services/guardianAccountStatus.service.js';
 import { deferGuardianInvitation } from '../utils/schoolGuardianPortalPolicy.js';
 import { validationResult } from 'express-validator';
@@ -5,6 +6,7 @@ import Client from '../models/Client.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import User from '../models/User.model.js';
 import { isDobAdultLocked } from '../utils/guardianWaivers.utils.js';
+import { updateLinkedGuardianContact } from '../services/linkedGuardianContact.service.js';
 
 function safeJson(value, fallback = null) {
   if (value === null || value === undefined || value === '') return fallback;
@@ -177,10 +179,20 @@ export const updateClientGuardian = async (req, res, next) => {
     const relationshipTitle = req.body.relationshipTitle !== undefined ? String(req.body.relationshipTitle || '').trim() : undefined;
     const relationshipType = req.body.relationshipType !== undefined ? normalizeRelationshipType(req.body.relationshipType) : undefined;
     const accessEnabled = req.body.accessEnabled !== undefined ? (req.body.accessEnabled !== false) : undefined;
-    const permissionsJson = req.body.permissionsJson !== undefined ? safeJson(req.body.permissionsJson, null) : undefined;
+    let permissionsJson = req.body.permissionsJson !== undefined ? safeJson(req.body.permissionsJson, null) : undefined;
 
     const existing = (await ClientGuardian.listForClient(clientId)).find((g) => Number(g.guardian_user_id) === guardianUserId);
     if (!existing) return res.status(404).json({ error: { message: 'Guardian link not found' } });
+
+    const client = await Client.findById(clientId, { includeSensitive: true });
+    if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
+    const access=await resolveClientRecordAccess({userId:req.user.id,role:req.user.role,clientId,client});
+    if(!access.ok)return res.status(access.status || 403).json({error:{message:access.message || 'Client access denied.'}});
+    if (req.body.contact) await updateLinkedGuardianContact({ clientId, guardianUserId, user: req.user, contact: req.body.contact });
+
+    if (accessEnabled === false) {
+      permissionsJson = { ...safeJson(permissionsJson ?? existing.permissions_json, {}), pendingGuardianVerification: false };
+    }
 
     await ClientGuardian.upsertLink({
       clientId,

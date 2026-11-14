@@ -1,11 +1,11 @@
 <template>
-  <div class="ocm-root">
+  <div class="ocm-root auricwell-client-workspace">
     <header class="ocm-header">
       <div>
-        <p class="ocm-eyebrow">Office Client Management</p>
+        <AuricWellBrand context="Client management" />
         <h1 class="ocm-title">Office Clients</h1>
         <p class="ocm-subtitle">
-          Prospective and continuing office enrollments across your affiliated offices — no brand switch required.
+          Office enrollments, provider assignments, and client records across your organizations.
         </p>
       </div>
       <div class="ocm-hub-header-actions">
@@ -37,7 +37,7 @@
     <div class="ocm-toolbar">
       <input v-model="searchQuery" class="ocm-search" type="search" placeholder="Search clients, guardians, providers…" />
       <select v-if="multiTenant" v-model="tenantFilter" class="ocm-select">
-        <option value="all">All my offices</option>
+        <option value="all">All organizations</option>
         <option v-for="a in accessibleAgencies" :key="a.id" :value="String(a.id)">{{ a.name }}</option>
       </select>
       <select v-model="bucket" class="ocm-select">
@@ -55,12 +55,13 @@
       </select>
       <label class="ocm-check"><input v-model="clinicalReviewOnly" type="checkbox" /> Clinical review</label>
       <label class="ocm-check"><input v-model="needsActionOnly" type="checkbox" /> Needs action</label>
+      <select v-model="demoFilter" class="ocm-select" aria-label="QA and demo clients"><option value="exclude">Hide QA / demos</option><option value="all">Include QA / demos</option><option value="only">QA / demos only</option></select>
       <label class="ocm-check"><input v-model="unassignedOnly" type="checkbox" /> Unassigned</label>
     </div>
 
     <div v-if="error" class="ocm-banner">{{ error }}</div>
 
-    <div class="ocm-layout">
+    <div class="ocm-layout" :class="{ 'has-selection': !!selected }">
       <div class="ocm-main">
         <div class="ocm-table-wrap">
           <table class="ocm-table">
@@ -81,11 +82,7 @@
                     Intake<span class="ocm-sort-ind">{{ sortIndicator('intake') }}</span>
                   </button>
                 </th>
-                <th>
-                  <button type="button" class="ocm-th-btn" @click="toggleSort('preferredProvider')">
-                    Preferred<span class="ocm-sort-ind">{{ sortIndicator('preferredProvider') }}</span>
-                  </button>
-                </th>
+                <th>Office</th>
                 <th>
                   <button type="button" class="ocm-th-btn" @click="toggleSort('assignedProvider')">
                     Assigned<span class="ocm-sort-ind">{{ sortIndicator('assignedProvider') }}</span>
@@ -139,7 +136,7 @@
                       </template>
                     </div>
                     <div>
-                      <strong>{{ c.fullName || '—' }}</strong>
+                      <router-link class="ocm-client-name" :to="clientProfilePath(c.id)" @click.stop>{{ c.fullName || c.initials || c.identifierCode || 'Client' }}</router-link>
                       <span
                         v-if="c.createdViaDevFill"
                         class="ocm-pill ocm-pill--dev-fill"
@@ -156,7 +153,7 @@
                 </td>
                 <td>{{ guardianSummary(c) }}</td>
                 <td>{{ c.intakeType || '—' }}</td>
-                <td>{{ c.preferredProviderName || '—' }}</td>
+                <td @click.stop><label class="ocm-office-label"><span class="sr-only">Office for {{ c.fullName || c.initials || 'client' }}</span><select :value="c.officeLocationId || ''" :disabled="officeSavingId === c.id" @change="assignOffice(c,$event.target.value)"><option value="">Choose office…</option><option v-for="office in officesFor(c)" :key="office.id" :value="office.physical_office_location_id || office.id">{{ office.name }}</option></select><small v-if="officeSavingId === c.id">Saving…</small></label></td>
                 <td>
                   <div v-if="assignedProviders(c).length" class="ocm-provider-stack">
                     <div v-for="p in assignedProviders(c)" :key="'p-' + c.id + '-' + p.providerId + '-' + (p.agencyId || 0)" class="ocm-provider-row">
@@ -174,7 +171,7 @@
                   </div>
                   <span v-else>Unassigned</span>
                 </td>
-                <td><span class="ocm-pill" :class="c.portalEnabled ? 'ocm-pill--ok' : 'ocm-pill--muted'">{{ portalLabel(c.portalEnabled) }}</span></td>
+                <td><span class="ocm-pill" :class="c.portalEnabled ? 'ocm-pill--ok' : 'ocm-pill--muted'">{{ portalText(c) }}</span></td>
                 <td>
                   <span class="ocm-pill ocm-pill--status">{{ statusText(c) }}</span>
                 </td>
@@ -183,7 +180,7 @@
                 <td class="ocm-row-actions" @click.stop>
                   <QuickPostClientToExchange :client="c" />
                   <button type="button" class="ocm-link" @click="selectedId = c.id">Review</button>
-                  <a :href="clientProfilePath(c.id)" target="_blank" rel="noopener">Open</a>
+                  <router-link :to="clientProfilePath(c.id)">Client record</router-link>
                 </td>
               </tr>
             </tbody>
@@ -218,25 +215,7 @@
         </section>
       </div>
 
-      <aside class="ocm-rail">
-        <div class="ocm-rail-head">
-          <h2>New Office Clients</h2>
-          <span class="ocm-pill ocm-pill--status">{{ queueRows.length }}</span>
-        </div>
-        <div v-for="c in queueRows.slice(0, 12)" :key="'q-' + c.id" class="ocm-queue-row" @click="selectedId = c.id">
-          <div>
-            <strong>{{ c.fullName }}</strong>
-            <span
-              v-if="c.createdViaDevFill"
-              class="ocm-pill ocm-pill--dev-fill"
-              title="Created via Dev Fill (test/fake client)"
-            >Dev Fill</span>
-            <div class="ocm-muted">{{ c.nextStep?.label || statusText(c) }} · {{ formatRelativeTime(c.createdAt) }}</div>
-          </div>
-          <button type="button" class="ocm-btn ocm-btn--tiny" @click.stop="selectedId = c.id">Review</button>
-        </div>
-        <router-link class="ocm-link ocm-rail-footer" :to="orgPath('/admin/office-intake-queue')">View full intake queue</router-link>
-
+      <aside v-if="selected" class="ocm-rail">
         <div v-if="selected" ref="officeReviewDrawer" class="ocm-drawer" tabindex="-1">
           <div class="ocm-drawer-head">
             <h3>
@@ -278,7 +257,7 @@
                 <template v-else>Unassigned</template>
               </dd>
             </div>
-            <div><dt>Portal</dt><dd>{{ portalLabel(selected.portalEnabled) }}</dd></div>
+            <div><dt>Portal</dt><dd>{{ portalText(selected) }}</dd></div>
             <div v-if="selected.needsClinicalReview"><dt>Clinical</dt><dd>Needs clinical review</dd></div>
             <div v-if="selected.therapyUnit"><dt>Unit</dt><dd>{{ selected.therapyUnit.unitType }} ({{ selected.therapyUnit.memberCount }} members)</dd></div>
           </dl>
@@ -327,6 +306,8 @@
 </template>
 
 <script setup>
+import AuricWellBrand from '../../components/auricwell/AuricWellBrand.vue';
+import '../../styles/auricwellClients.css';
 import SendCareInvitation from '../../components/admin/SendCareInvitation.vue';
 import ProviderEnrollmentWaitlist from '../../components/provider/ProviderEnrollmentWaitlist.vue';
 import QuickPostClientToExchange from '../../components/clientExchange/QuickPostClientToExchange.vue';
@@ -334,6 +315,7 @@ import PostClientToExchangeButton from '../../components/clientExchange/PostClie
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
+import { enrollmentIsDemo } from '../../utils/enrollmentPresentation.js';
 import {
   useOfficeClientAgency,
   formatRelativeTime,
@@ -364,6 +346,7 @@ const error = ref('');
 const clients = ref([]);
 const aggregates = ref({});
 const providers = ref([]);
+const officeOptions = ref({}), officeSavingId = ref(null);
 const selectedId = ref(null);
 const searchQuery = ref('');
 const bucket = ref(String(route.query.bucket || 'all'));
@@ -372,6 +355,7 @@ const sort = ref(String(route.query.sort || (multiTenant.value ? 'agency' : 'sub
 const sortDir = ref(String(route.query.sortDir || 'desc') === 'asc' ? 'asc' : 'desc');
 const clinicalReviewOnly = ref(String(route.query.clinicalReview || '') === '1');
 const needsActionOnly = ref(String(route.query.needsAction || '') === '1');
+const demoFilter=ref('exclude');
 const unassignedOnly = ref(String(route.query.unassigned || '') === '1');
 const assignProviderId = ref('');
 const assigning = ref(false);
@@ -448,7 +432,7 @@ function sortIndicator(key) {
 }
 
 const displayRows = computed(() => {
-  let rows = [...clients.value];
+  let rows = clients.value.filter(client => demoFilter.value === 'all' || (demoFilter.value === 'only' ? enrollmentIsDemo(client) : !enrollmentIsDemo(client)));
   if (unassignedOnly.value) rows = rows.filter((c) => !hasAssigned(c));
   const key = String(sort.value || 'submitted');
   const dir = sortDir.value === 'asc' ? 1 : -1;
@@ -557,6 +541,25 @@ function waitlistAgencyId(c) {
   return Number(c?.agencyId || agencyChips(c)[0]?.agencyId || scopeAgencyIds.value[0] || agencyId.value || 0) || null;
 }
 
+function portalText(client){return client.portalEnabled?portalLabel(true):client.portalSetupPending?'Pending setup':'Not enabled';}
+function officeAgencyId(client) { return Number(client.agencyId || scopeAgencyIds.value[0]); }
+function officesFor(client) { return officeOptions.value[officeAgencyId(client)] || []; }
+async function loadOffices() {
+  await Promise.all(scopeAgencyIds.value.map(async id => {
+    try { const {data}=await api.get('/payroll/office-locations',{params:{agencyId:id},skipGlobalLoading:true});officeOptions.value={...officeOptions.value,[id]:Array.isArray(data)?data:data?.locations || []}; }
+    catch { officeOptions.value={...officeOptions.value,[id]:[]}; }
+  }));
+}
+async function assignOffice(client, value) {
+  const officeId=Number(value)||null, agencyId=officeAgencyId(client);
+  officeSavingId.value=client.id;error.value='';
+  try {
+    await api.post(`/clients/${client.id}/agency-affiliations`,{agency_id:agencyId,default_office_location_id:officeId},{skipGlobalLoading:true});
+    client.officeLocationId=officeId;
+  } catch(e) {error.value=e.response?.data?.error?.message || 'Could not save the office assignment.';}
+  finally {officeSavingId.value=null;}
+}
+
 async function load() {
   if (!scopeAgencyIds.value.length) {
     error.value = 'No office agencies available for your account.';
@@ -575,8 +578,8 @@ async function load() {
       needsAction: needsActionOnly.value ? '1' : undefined
     };
     const [rosterRes, providersRes] = await Promise.all([
-      api.get('/office-clients', { params }),
-      api.get('/office-clients/providers', { params: { agencyIds: agencyIdsParam() } })
+      api.get('/office-clients', { params, skipGlobalLoading:true }),
+      api.get('/office-clients/providers', { params: { agencyIds: agencyIdsParam() }, skipGlobalLoading:true })
     ]);
     clients.value = Array.isArray(rosterRes.data?.clients) ? rosterRes.data.clients : [];
     aggregates.value = rosterRes.data?.aggregates || {};
@@ -651,7 +654,8 @@ watch(
   { deep: true }
 );
 
-onMounted(load);
+onMounted(() => { load();loadOffices(); });
+watch(scopeAgencyIds,loadOffices);
 </script>
 
 <style scoped>
@@ -703,7 +707,7 @@ onMounted(load);
 .ocm-agency-chip { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.8rem; color: var(--app-ink, #374151); }
 .ocm-agency-logo { width: 1.35rem; height: 1.35rem; border-radius: 6px; object-fit: contain; background: var(--app-surface, #fff); border: 1px solid var(--app-line, #e5e7eb); }
 .ocm-agency-fallback, .ocm-provider-agency-fallback {
-  width: 1.35rem; height: 1.35rem; border-radius: 6px; background: #1e4d3b; color: #fff;
+  width: 1.35rem; height: 1.35rem; border-radius: 6px; background: var(--primary,#12356b); color: #fff;
   display: inline-grid; place-items: center; font-size: 0.55rem; font-weight: 700;
 }
 .ocm-agency-names { font-weight: 600; color: var(--app-muted, #4b5563); }
@@ -732,7 +736,7 @@ onMounted(load);
 .ocm-row-actions { display: flex; gap: 0.5rem; white-space: nowrap; }
 .ocm-link { color: var(--app-text-green, #0f766e); font-weight: 600; text-decoration: none; background: none; border: 0; cursor: pointer; padding: 0; }
 .ocm-btn { border-radius: 10px; border: 1px solid var(--app-line, #d7e3dc); background: var(--app-surface, #fff); padding: 0.45rem 0.8rem; cursor: pointer; font-weight: 600; color: var(--app-ink, #14352a); text-decoration: none; display: inline-flex; align-items: center; justify-content: center; }
-.ocm-btn--primary { background: #1e4d3b; color: #fff; border-color: #1e4d3b; }
+.ocm-btn--primary { background: var(--primary,#12356b); color: #fff; border-color: var(--primary,#12356b); }
 .ocm-btn--ghost { background: var(--app-surface-muted, #f8faf9); }
 .ocm-btn--tiny { padding: 0.25rem 0.55rem; font-size: 0.75rem; }
 .ocm-btn--block { width: 100%; margin-top: 0.75rem; }
@@ -760,4 +764,7 @@ onMounted(load);
   .ocm-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .ocm-rail { position: static; }
 }
+
+.ocm-root{width:100%;max-width:none;min-width:0;margin:0;padding:14px 18px}.ocm-header{gap:12px;margin-bottom:12px}.ocm-title{font-size:24px}.ocm-subtitle{font-size:13px;max-width:none}.ocm-kpis{gap:8px;margin-bottom:10px}.ocm-kpi{padding:10px 12px}.ocm-layout{grid-template-columns:minmax(0,1fr)}.ocm-layout.has-selection{grid-template-columns:minmax(0,1fr) 300px}.ocm-main{min-width:0}.ocm-table{font-size:13px}.ocm-table th,.ocm-table td{padding:8px 10px}.ocm-table th:first-child,.ocm-table td:first-child{position:sticky;left:0;min-width:190px;max-width:250px;background:var(--app-surface,#fff);z-index:1}.ocm-table th:first-child{z-index:2;background:var(--app-surface-muted,#f5f8fc)}.ocm-client-name{font-weight:650;color:#12356b;text-decoration:none}.ocm-client-name:hover{text-decoration:underline}.ocm-office-label select{max-width:190px;min-width:140px;padding:6px;border:1px solid #c5d2e4;border-radius:6px;color:#17345c;background:white}.ocm-row-actions{white-space:nowrap}.ocm-drawer{margin:0;position:sticky;top:10px}.sr-only{position:absolute;width:1px;height:1px;clip:rect(0,0,0,0);overflow:hidden}.ocm-continue-grid{display:none}.ocm-section{display:none}
+@media(max-width:1100px){.ocm-layout.has-selection{grid-template-columns:1fr}.ocm-header{flex-wrap:wrap}.ocm-table td,.ocm-table th{padding:7px}.ocm-rail{order:-1}}
 </style>

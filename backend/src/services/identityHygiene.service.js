@@ -1,7 +1,8 @@
+import { listMergeAffiliations, preserveMergedAffiliations } from './clientAffiliationMerge.service.js';
 import pool from '../config/database.js';
 import { changeAccountLifecycle } from './accountLifecycle.service.js';
 import User from '../models/User.model.js';
-import { moveEnrollmentRecords } from './clientEnrollmentMerge.service.js';
+import { assertCompatibleGuardianLinks, moveEnrollmentRecords } from './clientEnrollmentMerge.service.js';
 import {
   CLIENT_MERGE_FIELDS,
   USER_MERGE_FIELDS,
@@ -257,10 +258,20 @@ export async function previewClientMerge({ keepId, sourceIds, fieldChoices = {} 
     if (row) others.push(row);
   }
   if (!keep || !others.length) throw Object.assign(new Error('Keep and source records are required'), { status: 400 });
+  const [guardianRows]=await pool.execute(`SELECT g.client_id,g.guardian_user_id,g.access_enabled,g.permissions_json,g.relationship_type,u.first_name,u.last_name
+    FROM client_guardians g JOIN users u ON u.id=g.guardian_user_id WHERE g.client_id IN (${[keep.id,...others.map(row=>row.id)].map(()=>'?').join(',')})`,[keep.id,...others.map(row=>row.id)]);
+  const guardianAccessDifferences=guardianRows.filter(row=>Number(row.client_id)!==Number(keep.id)).flatMap(row=>{
+    const current=guardianRows.find(other=>Number(other.client_id)===Number(keep.id) && Number(other.guardian_user_id)===Number(row.guardian_user_id));
+    if(!current)return [];
+    try{assertCompatibleGuardianLinks(current,row);return [];}catch{/* Explicit review retains the current access policy. */}
+    return [{sourceClientId:Number(row.client_id),guardianUserId:Number(row.guardian_user_id),name:[row.first_name,row.last_name].filter(Boolean).join(' '),currentAccessEnabled:Number(current.access_enabled)===1,priorAccessEnabled:Number(row.access_enabled)===1}];
+  });
   // Support needs demographic merge choices, not unrelated chart content.
   const publicRow = row => Object.fromEntries(['id', 'agency_id', ...CLIENT_MERGE_FIELDS.map(f => f.key)]
     .map(key => [key, row[key]]));
   return {
+    guardianAccessDifferences,
+    affiliations: await listMergeAffiliations(pool, [keep.id, ...others.map(row => row.id)]),
     keep: publicRow(keep),
     others: others.map(publicRow),
     fields: buildMergePreview({ keep, others, fields: CLIENT_MERGE_FIELDS, fieldChoices })
@@ -338,7 +349,7 @@ export async function assertClientMergePreservesSignedNotes(database, sourceIds)
   if (records.length) throw Object.assign(new Error('A source client has signed clinical records. Preserve those records under their original client identity and use the clinical chart reconciliation workflow before merging.'), { status: 409 });
 }
 
-export async function mergeClients({ keepId, sourceIds, fieldChoices = {}, actorUserId = null }) {
+export async function mergeClients({ keepId, sourceIds, fieldChoices = {}, completedOrganizationIds = [], guardianAccessResolution = null, actorUserId = null }) {
   const preview = await previewClientMerge({ keepId, sourceIds, fieldChoices });
   const conn = await pool.getConnection();
   let clinicalConn = null;
@@ -384,9 +395,9 @@ export async function mergeClients({ keepId, sourceIds, fieldChoices = {}, actor
     if (sets.length) {
       await conn.execute(`UPDATE clients SET ${sets.join(', ')} WHERE id = ?`, values);
     }
+    await preserveMergedAffiliations({ database:conn,keepId,sourceIds:preview.others.map(row => row.id),completedOrganizationIds,actorUserId });
     for (const other of preview.others) {
-      await moveEnrollmentRecords(conn, keepId, other.id);
-      await execIgnore(`UPDATE client_organization_assignments SET client_id = ? WHERE client_id = ?`, [keepId, other.id], conn);
+      await moveEnrollmentRecords(conn, keepId, other.id, {guardianAccessResolution,actorUserId});
       await execIgnore(`UPDATE client_agency_assignments SET client_id = ? WHERE client_id = ?`, [keepId, other.id], conn);
       await execIgnore(`UPDATE client_notes SET client_id = ? WHERE client_id = ?`, [keepId, other.id], conn);
       await execIgnore(`UPDATE note_aid_work_queue_items SET client_id = ? WHERE client_id = ?`, [keepId, other.id], conn);

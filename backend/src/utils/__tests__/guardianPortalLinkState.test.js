@@ -1,0 +1,4 @@
+import {expect,it} from 'vitest';
+import {preparedGuardianLink} from '../guardianPortalLinkState.js';
+it.each(['saved_guardian_contact','paper_packet_entry'])('recognizes prepared pending links from %s',source=>{expect(preparedGuardianLink({access_enabled:0,permissions_json:JSON.stringify({pendingGuardianVerification:true,accountPreparationSource:source})})).toBe(true);});
+it.each([null,{access_enabled:0,permissions_json:'invalid'},{access_enabled:0,permissions_json:{pendingGuardianVerification:false,accountPreparationSource:'saved_guardian_contact'}},{access_enabled:0,permissions_json:{pendingGuardianVerification:true,accountPreparationSource:'co_guardian_invite'}},{access_enabled:1,permissions_json:{pendingGuardianVerification:true,accountPreparationSource:'saved_guardian_contact'}}])('keeps enabled, paused and unrelated invitation states distinct: %j',link=>{expect(preparedGuardianLink(link)).toBe(false);});

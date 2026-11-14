@@ -1,3 +1,5 @@
+import {filterClientDemos} from '../utils/clientDemoFilter.js';
+import { generateUniqueSixDigitClientCode } from '../utils/clientCode.js';
 import { readableIntakeKey, readableIntakeValue, flattenIntakeFields } from '../utils/intakeResponsePresentation.js';
 import { clientSummaryTone } from '../utils/clientSummaryTone.js';
 import { attachParentContactCounts } from '../services/parentContactCounts.service.js';
@@ -455,19 +457,7 @@ async function getAgencyEnabledClientTypes(agencyId) {
   return out;
 }
 
-async function generateUniqueSixDigitClientCode({ agencyId }) {
-  // Best-effort uniqueness within an agency. Retry a few times to avoid collisions.
-  for (let i = 0; i < 25; i++) {
-    const n = crypto.randomInt(0, 1000000);
-    const code = String(n).padStart(6, '0');
-    const [rows] = await pool.execute(
-      `SELECT id FROM clients WHERE agency_id = ? AND identifier_code = ? LIMIT 1`,
-      [agencyId, code]
-    );
-    if (!rows?.[0]?.id) return code;
-  }
-  throw new Error('Unable to generate unique client code');
-}
+
 
 /**
  * Get all clients (agency view)
@@ -826,6 +816,22 @@ export const getClients = async (req, res, next) => {
       } catch (e) {
         console.warn('[getClients] renewalFlags failed', e?.message || e);
       }
+    }
+
+    out=filterClientDemos(out,String(req.query.demo || '').toLowerCase());
+    if (out.length && isBackofficeRole(req.user.role)) {
+      try {
+        const ids = out.map(row => Number(row.id));
+        const [assignments] = await pool.execute(`SELECT h.client_id,h.changed_at AS assigned_at,
+          CONCAT_WS(' ',u.first_name,u.last_name) AS assigned_by_name
+          FROM client_status_history h JOIN clients c ON c.id=h.client_id
+          LEFT JOIN users u ON u.id=h.changed_by_user_id
+          WHERE h.client_id IN (${ids.map(() => '?').join(',')}) AND h.field_changed='provider_id'
+          AND h.id=(SELECT MAX(latest.id) FROM client_status_history latest WHERE latest.client_id=h.client_id AND latest.field_changed='provider_id')
+          AND h.to_value=CAST(c.provider_id AS CHAR)`, ids);
+        const byId = new Map(assignments.map(row => [Number(row.client_id),row]));
+        out = out.map(row => ({...row,...(byId.get(Number(row.id)) || {})}));
+      } catch (e) { if(e.code !== 'ER_NO_SUCH_TABLE') throw e; }
     }
 
     if (!shouldPaginate) {
@@ -7469,7 +7475,7 @@ export const listClientAffiliations = async (req, res, next) => {
          FROM client_organization_assignments coa
          JOIN agencies org ON org.id = coa.organization_id
          WHERE coa.client_id = ?
-           AND coa.is_active = TRUE
+           ${['true','1'].includes(String(req.query.includeHistory)) ? '' : 'AND coa.is_active = TRUE'}
          ORDER BY coa.is_primary DESC, org.name ASC`,
         [clientId]
       );

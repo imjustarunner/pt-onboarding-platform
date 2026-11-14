@@ -1,6 +1,6 @@
 <template>
   <section class="paper-workflow" aria-label="Process school paper packet">
-    <header class="paper-header"><div><h3>Process school paper packet</h3><p>Compare each step with the uploaded packet. Existing paper signatures stay on file.</p></div><button type="button" class="btn btn-secondary" :disabled="busy" @click="closeWorkflow">Close</button></header>
+    <header class="paper-header"><div><AuricWellBrand compact context="Client enrollment" /><h3>Process paper packet</h3><p>Compare each step with the uploaded packet. Existing paper signatures stay on file.</p></div><button type="button" class="btn btn-secondary" :disabled="busy" @click="closeWorkflow">Close</button></header>
     <p v-if="error" ref="validationMessage" tabindex="-1" class="error" role="alert">{{ error }}</p>
     <p v-if="draftMessage" role="status" class="paper-draft-status">{{ draftMessage }}</p>
     <p v-if="loading" role="status">Loading packet and saved information…</p>
@@ -26,16 +26,23 @@
               <label v-for="field in addressFields" :key="field.key">{{ field.label }}<input v-if="field.key === 'address_street'" v-address-autocomplete="{ model: demographics, fields: { street: 'address_street', city: 'address_city', state: 'address_state', postalCode: 'address_zip' }, locale: 'en', scopeKey: clientId }" v-model="demographics[field.key]" autocomplete="street-address" maxlength="255" /><input v-else v-model="demographics[field.key]" maxlength="255" /></label></div>
             </template>
             <template v-else-if="stage === 1 || stage === 2">
-              <p>Use this parent’s own email for their portal invitation.</p>
+              <p v-if="stage === 1 || secondPortalAccount">Use this parent’s own email for their portal invitation.</p>
               <label v-if="stage === 2" class="paper-check"><input v-model="secondNotListed" type="checkbox" /> No second parent or guardian is listed on this packet</label>
-              <div v-if="stage === 1 || !secondNotListed" class="paper-fields">
+              <label v-if="stage === 2 && !secondNotListed" class="paper-wide">Other parent’s access<select v-model="secondPortalAccount"><option :value="false">Contact only — no portal account</option><option :value="true">Prepare a separate guardian portal account</option></select></label>
+              <ClientAffiliatedContactsPanel v-if="stage === 2 && !secondNotListed && !secondPortalAccount" :client-id="clientId" mode="staff" title="Other parent and additional contacts" embedded :allow-guardian-invites="false" />
+              <div v-if="stage === 1 || (!secondNotListed && secondPortalAccount)" class="paper-fields">
                 <label v-if="context.guardians.length" class="paper-wide">Existing linked contact<select :value="guardianForms[stage-1].id || ''" @change="selectGuardian(stage-1,$event.target.value)"><option value="">Enter a parent or guardian</option><option v-for="g in context.guardians" :key="g.guardian_user_id" :value="g.guardian_user_id">{{ [g.first_name,g.last_name].filter(Boolean).join(' ') }} · {{ g.email }}</option></select></label>
-                <label>First name<input v-model="guardianForms[stage-1].firstName" :readonly="!!guardianForms[stage-1].id" required maxlength="255" /></label><label>Last name<input v-model="guardianForms[stage-1].lastName" :readonly="!!guardianForms[stage-1].id" required maxlength="255" /></label>
-                <label>Email<input v-model="guardianForms[stage-1].email" :readonly="!!guardianForms[stage-1].id" required type="email" maxlength="255" /></label><label>Phone<input v-model="guardianForms[stage-1].phone" :readonly="!!guardianForms[stage-1].id" type="tel" maxlength="30" /></label>
+                <label>First name<input v-model="guardianForms[stage-1].firstName" required maxlength="255" /></label><label>Last name<input v-model="guardianForms[stage-1].lastName" required maxlength="255" /></label>
+                <label>Email<input v-model="guardianForms[stage-1].email" required type="email" maxlength="255" /></label><label>Phone<input v-model="guardianForms[stage-1].phone" type="tel" maxlength="30" /></label>
                 <label class="paper-wide">Relationship to client<input v-model="guardianForms[stage-1].relationshipTitle" required maxlength="100" /></label>
               </div>
-              <p v-if="guardianForms[stage-1]?.id">This is an existing portal account. Its identity stays unchanged; contact changes can be made in the client profile.</p>
-              <p>If an email is missing from the paper, leave this step pending while the support team obtains it. An invitation cannot be delivered without an email.</p>
+              <p v-if="(stage === 1 || secondPortalAccount) && guardianForms[stage-1]?.id" class="muted">Contact corrections update this parent’s existing portal account.</p>
+              <div v-if="(stage === 1 || secondPortalAccount) && selectedGuardian(stage-1) && !Number(selectedGuardian(stage-1).access_enabled) && !preparedGuardian(selectedGuardian(stage-1))" class="guardian-access-review">
+                <p>This contact’s portal access is paused for this client.</p>
+                <label class="paper-check"><input v-model="guardianForms[stage-1].reactivateConfirmed" type="checkbox" /> I verified this parent’s authority on the packet and approve enabling their portal access when this packet review is finalized.</label>
+              </div>
+              <p v-if="(stage === 1 || secondPortalAccount) && preparedGuardian(selectedGuardian(stage-1))" class="paper-prepared-account">Portal account prepared. Its access will be enabled after you finish reviewing the signed packet; no invitation is sent at this step.</p>
+              <p v-if="stage === 1 || secondPortalAccount">If an email is missing from the paper, leave this step pending while the support team obtains it. An invitation cannot be delivered without an email.</p>
             </template>
             <template v-else-if="stage === 3">
               <p><strong>School:</strong> {{ context.schoolName }}</p><label class="paper-check"><input v-model="schoolConfirmed" type="checkbox" required /> This is the school shown on the packet</label>
@@ -75,13 +82,13 @@
               <p v-if="state.processedAt">The paper consent review was saved. The existing paper remains the signature evidence.</p>
               <p>Finishing establishes the portal and sends a separate invitation to each listed parent. It does not collect new signatures or send one parent’s private answers to the other.</p>
             </template>
-            <template v-else><p><strong>{{ context.client.full_name }}</strong> · {{ context.schoolName }}</p><p>Source: {{ selectedDocument?.original_name || 'Uploaded packet' }} · Version {{ state.consentReview?.versionLabel || context.packetRead?.versionLabel || 'Not identified' }}</p><ul><li v-for="id in [state.guardian1Id,state.guardian2Id].filter(Boolean)" :key="id">{{ guardianLabel(id) }} · {{ guardianContact(id) }} — own portal invitation</li></ul><p>Shared custody: {{ state.sharedCustody }}. Insurance: {{ insuranceTypes.find(type => Number(type.id) === Number(insuranceTypeId))?.label || 'Review required' }}.</p><template v-if="state.consentReview?.kind === 'human_source_review'"><p v-for="kind in ['roi','disclosure']" :key="kind">{{ kind === 'roi' ? 'ROI' : 'Disclosure' }}: {{ state.consentReview[kind].signerName }} · {{ state.consentReview[kind].signedDate }} · PDF page {{ state.consentReview[kind].page }}</p></template><ul v-if="state.consentReview?.staffSelections"><li v-for="staff in state.consentReview.staffSelections" :key="staff.schoolStaffUserId">{{ staff.name || `Staff #${staff.schoolStaffUserId}` }}: {{ staff.state }}</li></ul><p>Paper consents and release selections were reviewed. Finish sends each listed parent their own portal invitation.</p></template>
+            <template v-else><p><strong>{{ context.client.full_name }}</strong> · {{ context.schoolName }}</p><p>Source: {{ selectedDocument?.original_name || 'Uploaded packet' }} · Version {{ state.consentReview?.versionLabel || context.packetRead?.versionLabel || 'Not identified' }}</p><ul><li v-for="id in [state.guardian1Id,state.guardian2Id].filter(Boolean)" :key="id">{{ guardianLabel(id) }} · {{ guardianContact(id) }} — own portal invitation</li></ul><p v-if="state.additionalContactIds?.length">{{ state.additionalContactIds.length }} additional contact(s) saved without portal access.</p><p>Shared custody: {{ state.sharedCustody }}. Insurance: {{ insuranceTypes.find(type => Number(type.id) === Number(insuranceTypeId))?.label || 'Review required' }}.</p><template v-if="state.consentReview?.kind === 'human_source_review'"><p v-for="kind in ['roi','disclosure']" :key="kind">{{ kind === 'roi' ? 'ROI' : 'Disclosure' }}: {{ state.consentReview[kind].signerName }} · {{ state.consentReview[kind].signedDate }} · PDF page {{ state.consentReview[kind].page }}</p></template><ul v-if="state.consentReview?.staffSelections"><li v-for="staff in state.consentReview.staffSelections" :key="staff.schoolStaffUserId">{{ staff.name || `Staff #${staff.schoolStaffUserId}` }}: {{ staff.state }}</li></ul><p>Paper consents and release selections were reviewed. Finish posts the verified portal accounts and sends their invitations. Contacts stay contacts; a secondary guardian can be invited separately.</p></template>
           </fieldset>
           <div v-if="!state.processedAt" class="paper-actions"><button v-if="stage > 0" type="button" class="btn btn-secondary" :disabled="busy" @click="stage--">Back</button><button type="button" class="btn btn-primary" :disabled="busy || (stage === 6 && !packetMatched)" @click="next">{{ busy ? 'Saving…' : stage === 6 ? 'Finish and send portal invitations' : 'Save and continue' }}</button></div>
         </div>
       </div>
       <aside class="paper-source" aria-label="Uploaded paper packet">
-        <p class="paper-source-identity">Client #{{ clientId }}<template v-if="documentId"> · Document #{{ documentId }}</template><template v-if="context.packetRead?.id"> · Evaluation #{{ context.packetRead.id }}</template></p>
+        <strong class="paper-source-identity">{{ context.client.full_name || 'Uploaded client packet' }}</strong><details class="paper-reference-details"><summary>Packet reference</summary>Client {{ String(clientId).padStart(6,'0') }}<template v-if="documentId"> · Document #{{ documentId }}</template><template v-if="context.packetRead?.id"> · Evaluation #{{ context.packetRead.id }}</template></details>
         <details v-if="state.previousPackets?.length"><summary>Previous packet reviews retained</summary><ul><li v-for="(previous,index) in state.previousPackets" :key="`${previous.documentId}-${index}`">Document #{{ previous.documentId }}<template v-if="previous.consentReview?.versionLabel"> · Version {{ previous.consentReview.versionLabel }}</template><template v-if="previous.processedAt"> · Processed {{ new Date(previous.processedAt).toLocaleString() }}</template><template v-else> · Earlier review retained</template></li></ul><p>Earlier source and invitation history remain on file. The current source still needs its own review.</p></details>
         <label>Uploaded packet<select v-model="documentId" :disabled="busy || !!state.processedAt" @change="changePacket"><option value="">Select the uploaded packet</option><option v-for="doc in documents" :key="doc.id" :value="String(doc.id)">{{ doc.document_title || doc.original_name || 'Paper packet' }}{{ doc.scan_status === 'clean' ? '' : ' — file check pending' }}</option></select></label>
         <button v-if="documentId" type="button" class="btn btn-secondary" :disabled="busy || checkingFile || fileCheckQueued || !!state.processedAt || (selectedDocument?.scan_status === 'clean' && !!context.packetRead)" @click="checkFile">{{ checkingFile ? 'Checking…' : 'Check file and read packet' }}</button><p v-if="fileCheckMessage" role="status">{{ fileCheckMessage }}</p>
@@ -99,12 +106,14 @@
 import { computed, nextTick, onMounted, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
 import PDFPreview from '../documents/PDFPreview.vue';
+import AuricWellBrand from '../auricwell/AuricWellBrand.vue';
+import ClientAffiliatedContactsPanel from '../client/ClientAffiliatedContactsPanel.vue';
 import ClientInsuranceEditor from '../billing/ClientInsuranceEditor.vue';
 import AssignmentCoverageReview from '../billing/AssignmentCoverageReview.vue';
 import ClientOnboardingRoiStaffPanel from './ClientOnboardingRoiStaffPanel.vue';
 const props=defineProps({clientId:{type:[Number,String],required:true}});
 const emit=defineEmits(['close','processed']);
-const labels=['Client demographics','Parent 1 portal account','Parent 2 portal account','School and custody','Insurance','Paper consents and release','Review'];
+const labels=['Client demographics','Parent 1 portal account','Other parent and contacts','School and custody','Insurance','Paper consents and release','Review'];
 const keys=['demographics','guardian1','guardian2','school','insurance','consents'];
 const context=ref(null), state=ref({completedSteps:[],invitations:{}}), stage=ref(0), loading=ref(true),busy=ref(false),error=ref('');
 const stepFields=ref(null), validationMessage=ref(null), insuranceEditor=ref(null), roiEditor=ref(null);
@@ -112,6 +121,7 @@ const checkingFile=ref(false),fileCheckMessage=ref(''),fileCheckQueued=ref(false
 const selectedDocument=computed(()=>documents.value.find(d=>Number(d.id)===Number(documentId.value)));
 const reviewReasonLabel=reason=>String(reason||'').replaceAll('_',' ');
 const documents=ref([]),documentId=ref(''),packetUrl=ref(''),packetLoading=ref(false),packetError=ref(''),packetRendered=ref(false);
+const secondPortalAccount=ref(false);
 const demographics=reactive({}),guardianForms=reactive([{},{}]),secondNotListed=ref(false),schoolConfirmed=ref(false),sharedCustody=ref('');
 const insuranceTypes=ref([]),insuranceTypeId=ref(''),insuranceReviewed=ref(false),showVerification=ref(false),signaturesConfirmed=ref(false),staffRoiConfirmed=ref(false);
 const blankEvidence=()=>({versionLabel:'',locale:'en',sourceViewed:false,denyReviewed:false,roi:{status:'',signerName:'',signedDate:'',page:1},disclosure:{status:'',signerName:'',signedDate:'',page:1}});
@@ -142,7 +152,7 @@ async function viewPacket(){
   if(selectedDocument.value?.scan_status !== 'clean')return;
   packetLoading.value=true;
   try{
-    const response=await api.get(`${endpoint.value}/documents/${documentId.value}/view`,{responseType:'blob'});
+    const response=await api.get(`${endpoint.value}/documents/${documentId.value}/view`,{responseType:'blob',skipGlobalLoading:true});
     if(n!==viewGeneration)return;
     const type=String(response.headers?.['content-type']||response.data?.type||'').toLowerCase();
     if(type.includes('application/json')){
@@ -162,29 +172,47 @@ async function checkFile(){
  try{const{data}=await api.post(`${url}/documents/${source}/check`);if(disposed||generation!==contextGeneration||source!==documentId.value)return;fileCheckMessage.value=data.message;fileCheckQueued.value=['queued','pending','running'].includes(data.status);const{data:latest}=await api.get(url);if(disposed||generation!==contextGeneration||source!==documentId.value)return;documents.value=latest.documents||[];updatePacketRead(latest.packetRead);if(data.status==='clean')await viewPacket();}catch(e){if(generation===contextGeneration)fileCheckMessage.value=e.response?.data?.error?.message||'The file check could not complete. Please retry.';}finally{if(generation===contextGeneration)checkingFile.value=false;}
 }
 function updatePacketRead(read){if(context.value.packetRead?.id&&Number(context.value.packetRead.id)!==Number(read?.id)){humanEvidence.sourceViewed=false;humanEvidence.denyReviewed=false;signaturesConfirmed.value=false;staffRoiConfirmed.value=false;}context.value.packetRead=read;}
-async function refreshPacketRead(){const generation=contextGeneration,source=documentId.value,{data}=await api.get(endpoint.value);if(disposed||generation!==contextGeneration||source!==documentId.value)return;updatePacketRead(data.packetRead);}
+async function refreshPacketRead(){const generation=contextGeneration,source=documentId.value,{data}=await api.get(endpoint.value,{skipGlobalLoading:true});if(disposed||generation!==contextGeneration||source!==documentId.value)return;updatePacketRead(data.packetRead);}
 async function refreshFileCheck(){const generation=contextGeneration,source=documentId.value,url=endpoint.value;checkingFile.value=true;try{const{data}=await api.get(url);if(disposed||generation!==contextGeneration||source!==documentId.value)return;documents.value=data.documents||[];updatePacketRead(data.packetRead);if(selectedDocument.value?.scan_status==='clean'){fileCheckQueued.value=false;fileCheckMessage.value='File check passed. Review the packet reading results below.';await viewPacket();}}catch(e){if(generation===contextGeneration)fileCheckMessage.value=e.response?.data?.error?.message||'Unable to refresh the file check. Your entered information is still here.';}finally{if(generation===contextGeneration)checkingFile.value=false;}}
 
+function preparedGuardian(link) {
+  let permissions=link?.permissions_json;
+  if(typeof permissions==='string'){try{permissions=JSON.parse(permissions);}catch{return false;}}
+  return Number(link?.access_enabled)!==1 && permissions?.pendingGuardianVerification===true && ['saved_guardian_contact','paper_packet_entry'].includes(permissions.accountPreparationSource);
+}
+function selectedGuardian(index) { return context.value?.guardians.find(g => Number(g.guardian_user_id) === Number(guardianForms[index]?.id)); }
 async function loadWorkflow(){const generation=++contextGeneration;hydrated=false;loading.value=true;try{
-  const {data}=await api.get(endpoint.value);if(generation!==contextGeneration||disposed)return;context.value=data;state.value=data.state;stage.value=furthest.value;Object.assign(humanEvidence,blankEvidence(),{versionLabel:data.packetRead?.versionLabel||''},data.state.consentReview?.kind==='human_source_review'?data.state.consentReview:{});
+  const {data}=await api.get(endpoint.value,{skipGlobalLoading:true});if(generation!==contextGeneration||disposed)return;context.value=data;state.value=data.state;stage.value=state.value.processedAt?6:0;Object.assign(humanEvidence,blankEvidence(),{versionLabel:data.packetRead?.versionLabel||''},data.state.consentReview?.kind==='human_source_review'?data.state.consentReview:{});
   const c=data.client, names=String(c.full_name||'').trim().split(/\s+/);Object.assign(demographics,c,{firstName:names.shift()||'',lastName:names.join(' '),dateOfBirth:dateInputValue(c.date_of_birth)});
   selectGuardian(0,state.value.guardian1Id||data.guardians[0]?.guardian_user_id);selectGuardian(1,state.value.guardian2Id||data.guardians[1]?.guardian_user_id);
-  secondNotListed.value=(state.value.completedSteps||[]).includes('guardian2')&&!state.value.guardian2Id;sharedCustody.value=state.value.sharedCustody||'';schoolConfirmed.value=(state.value.completedSteps||[]).includes('school');insuranceTypeId.value=String(c.insurance_type_id||'');insuranceReviewed.value=(state.value.completedSteps||[]).includes('insurance');signaturesConfirmed.value=staffRoiConfirmed.value=!!state.value.processedAt||Number(state.value.consentReview?.documentId)===Number(state.value.documentId);
-  const types=await api.get('/client-settings/insurance-types',{params:{agencyId:c.agency_id}});
+  secondPortalAccount.value=!!(state.value.guardian2Id || data.guardians[1]?.guardian_user_id);secondNotListed.value=(state.value.completedSteps||[]).includes('guardian2')&&!state.value.guardian2Id&&!state.value.additionalContactIds?.length;sharedCustody.value=state.value.sharedCustody||'';schoolConfirmed.value=(state.value.completedSteps||[]).includes('school');insuranceTypeId.value=String(c.insurance_type_id||'');insuranceReviewed.value=(state.value.completedSteps||[]).includes('insurance');signaturesConfirmed.value=staffRoiConfirmed.value=!!state.value.processedAt||Number(state.value.consentReview?.documentId)===Number(state.value.documentId);
+  const types=await api.get('/client-settings/insurance-types',{params:{agencyId:c.agency_id},skipGlobalLoading:true});
   if(generation!==contextGeneration||disposed)return;
   documents.value=(data.documents||[]).filter(d=>(String(d.mime_type||'').includes('pdf')||/\.pdf$/i.test(d.original_name||'')));
   insuranceTypes.value=(types.data||[]).filter(t=>t.is_active===true||Number(t.is_active)===1);
   documentId.value=String(state.value.documentId||data.packetRead?.documentId||documents.value[0]?.id||'');await viewPacket();if(generation!==contextGeneration||disposed)return;
-  const draft=data.workingDraft;if(draft&&Number(draft.documentId)===Number(documentId.value)){Object.assign(demographics,draft.demographics||{});for(let i=0;i<2;i++)if(draft.guardianForms?.[i])guardianForms[i]=draft.guardianForms[i];secondNotListed.value=!!draft.secondNotListed;schoolConfirmed.value=!!draft.schoolConfirmed;sharedCustody.value=draft.sharedCustody||'';insuranceTypeId.value=String(draft.insuranceTypeId||'');insuranceReviewed.value=!!draft.insuranceReviewed;if(draft.humanEvidence&&Number(draft.evaluationId)===Number(context.value.packetRead?.id))Object.assign(humanEvidence,draft.humanEvidence);stage.value=Math.min(Number(draft.stage)||0,furthest.value);draftMessage.value='Working draft restored. Review the source before continuing.';}
+  const draft=data.workingDraft;if(draft&&Number(draft.documentId)===Number(documentId.value)){Object.assign(demographics,draft.demographics||{});for(let i=0;i<2;i++)if(draft.guardianForms?.[i])guardianForms[i]=draft.guardianForms[i];secondNotListed.value=!!draft.secondNotListed;if(draft.secondPortalAccount!==undefined)secondPortalAccount.value=!!draft.secondPortalAccount;schoolConfirmed.value=!!draft.schoolConfirmed;sharedCustody.value=draft.sharedCustody||'';insuranceTypeId.value=String(draft.insuranceTypeId||'');insuranceReviewed.value=!!draft.insuranceReviewed;if(draft.humanEvidence&&Number(draft.evaluationId)===Number(context.value.packetRead?.id))Object.assign(humanEvidence,draft.humanEvidence);stage.value=state.value.processedAt?6:0;draftMessage.value='Saved entries restored. Start with client demographics and review the packet in order.';}
   await nextTick();hydrated=true;
 }catch(e){if(generation===contextGeneration)error.value=e.response?.data?.error?.message||'Unable to load the paper-packet workflow.';}finally{if(generation===contextGeneration)loading.value=false;}}
 onMounted(loadWorkflow);
 watch(()=>props.clientId,()=>{contextGeneration++;viewGeneration++;draftGeneration++;hydrated=false;draftDirty=false;busy.value=false;checkingFile.value=false;clearTimeout(draftTimer);releasePacket();context.value=null;for(const key of Object.keys(demographics))delete demographics[key];Object.assign(humanEvidence,blankEvidence());void loadWorkflow();});
 async function connectGuardian(index){
   const generation=contextGeneration,url=endpoint.value,clientId=props.clientId;
-  const form=guardianForms[index], existing=context.value.guardians.find(g=>String(g.email||'').toLowerCase()===String(form.email||'').trim().toLowerCase());
-  if(existing){if(![1,true].includes(existing.access_enabled))throw new Error('This guardian’s access is disabled. Review the contact in the client profile before continuing.');if(form.relationshipTitle !== existing.relationship_title)await api.post(`/clients/${clientId}/guardians`,{email:existing.email,firstName:existing.first_name,lastName:existing.last_name,relationshipType:'guardian',relationshipTitle:form.relationshipTitle,accessEnabled:true,permissionsJson:existing.permissions_json});return Number(existing.guardian_user_id);}
-  const {data}=await api.post(`/clients/${clientId}/guardians`,{...form,relationshipType:'guardian',accessEnabled:true,permissionsJson:{canViewDocs:true,canSignDocs:true,canViewLinks:true,canViewProgress:true,canMessage:true,hideOtherGuardianAnswers:true}});
+  const form=guardianForms[index];
+  const existing = form.id ? context.value.guardians.find(g => Number(g.guardian_user_id) === Number(form.id)) : context.value.guardians.find(g => String(g.email || '').toLowerCase() === String(form.email || '').trim().toLowerCase());
+  if (existing) {
+    const enabled = Number(existing.access_enabled) === 1;
+    if (!enabled && !preparedGuardian(existing) && !form.reactivateConfirmed) throw new Error('Verify this parent’s authority and check the portal-access confirmation here before continuing.');
+    const contact = { firstName: form.firstName, lastName: form.lastName, email: form.email, phone: form.phone || '' };
+    const changed = String(form.firstName || '') !== String(existing.first_name || '') || String(form.lastName || '') !== String(existing.last_name || '') || String(form.email || '').trim().toLowerCase() !== String(existing.email || '').toLowerCase() || String(form.phone || '') !== String(existing.phone_number || '');
+    if (changed || (!enabled && form.reactivateConfirmed) || form.relationshipTitle !== existing.relationship_title) {
+      await api.patch(`/clients/${clientId}/guardians/${existing.guardian_user_id}`, { ...(changed ? {contact} : {}), relationshipTitle: form.relationshipTitle,  }, {skipGlobalLoading:true});
+      if (disposed || generation !== contextGeneration) throw new Error('The selected client changed.');
+      Object.assign(existing, {first_name:form.firstName,last_name:form.lastName,email:form.email,phone_number:form.phone || '',relationship_title:form.relationshipTitle,access_enabled:enabled ? 1 : 0});
+    }
+    return Number(existing.guardian_user_id);
+  }
+  const {data}=await api.post(`/clients/${clientId}/guardians`,{...form,relationshipType:'guardian',accessEnabled:false,permissionsJson:{pendingGuardianVerification:true,accountPreparationSource:'paper_packet_entry'}});
   if(disposed||generation!==contextGeneration)throw new Error('The selected client changed.');
   const id=Number(data.guardianUser?.id);if(!id)throw new Error('The guardian account could not be connected.');
   const {data:updated}=await api.get(url);if(disposed||generation!==contextGeneration)throw new Error('The selected client changed.');context.value.guardians=updated.guardians;return id;
@@ -207,7 +235,7 @@ async function next(){
   if(stage.value===6)return finish();const generation=contextGeneration,url=endpoint.value;busy.value=true;error.value='';try{
   let data={};
   if(stage.value===0)data={...demographics,documentId:Number(documentId.value)};
-  if(stage.value===1||stage.value===2)data=stage.value===2&&secondNotListed.value?{notListed:true}:{guardianUserId:await connectGuardian(stage.value-1)};
+  if(stage.value===1||stage.value===2)data=stage.value===2&&secondNotListed.value?{notListed:true}:stage.value===2&&!secondPortalAccount.value?{contactOnly:true}:{guardianUserId:await connectGuardian(stage.value-1),reactivateConfirmed:guardianForms[stage.value-1].reactivateConfirmed===true};
   if(stage.value===3)data={schoolConfirmed:schoolConfirmed.value,sharedCustody:sharedCustody.value};
   if(stage.value===4){
     if(!selfPay.value && !(await insuranceEditor.value?.save()))throw new Error('Open the insurance details and save the available information before continuing.');
@@ -226,7 +254,7 @@ async function finish(){const generation=contextGeneration,url=endpoint.value;bu
  const{data}=await api.post(`${url}/complete`,{signaturesConfirmed:signaturesConfirmed.value,staffRoiConfirmed:staffRoiConfirmed.value});if(disposed||generation!==contextGeneration)return;state.value=data.state;stage.value=6;emit('processed',data.state);
  }catch(e){if(generation===contextGeneration)error.value=e.response?.data?.error?.message||e.message||'Unable to complete processing.';}finally{if(generation===contextGeneration)busy.value=false;}}
 
-function snapshot(){return {documentId:Number(documentId.value),evaluationId:context.value?.packetRead?.id||null,stage:stage.value,demographics:{...demographics},guardianForms:JSON.parse(JSON.stringify(guardianForms)),secondNotListed:secondNotListed.value,schoolConfirmed:schoolConfirmed.value,sharedCustody:sharedCustody.value,insuranceTypeId:insuranceTypeId.value,insuranceReviewed:insuranceReviewed.value,humanEvidence:JSON.parse(JSON.stringify(humanEvidence))};}
+function snapshot(){return {documentId:Number(documentId.value),evaluationId:context.value?.packetRead?.id||null,stage:stage.value,demographics:{...demographics},guardianForms:JSON.parse(JSON.stringify(guardianForms)),secondNotListed:secondNotListed.value,secondPortalAccount:secondPortalAccount.value,schoolConfirmed:schoolConfirmed.value,sharedCustody:sharedCustody.value,insuranceTypeId:insuranceTypeId.value,insuranceReviewed:insuranceReviewed.value,humanEvidence:JSON.parse(JSON.stringify(humanEvidence))};}
 async function saveWorkingDraft(){
  clearTimeout(draftTimer);if(!draftDirty||!documentId.value||state.value.processedAt)return;
  const data=snapshot(),url=endpoint.value,generation=draftGeneration;draftDirty=false;draftSaving=true;draftMessage.value='Saving working draft…';
@@ -242,4 +270,5 @@ watch(()=>{const{stage,...fields}=snapshot();return JSON.stringify(fields);},()=
 </script>
 <style scoped>
 .paper-workflow{border:1px solid var(--border-color,#d9e1e5);border-radius:12px;padding:18px;background:var(--bg-primary,#fff)}.paper-header{display:flex;justify-content:space-between;gap:20px;align-items:start}.paper-header h3{margin:0}.paper-header p{margin:8px 0 16px}.paper-columns{display:grid;grid-template-columns:minmax(280px,1fr) minmax(320px,1.1fr);gap:22px}.paper-entry{min-width:0;max-height:80vh;overflow:auto;padding-right:8px}.paper-entry nav{display:flex;gap:6px;flex-wrap:wrap}.paper-entry nav button{font:inherit;border:1px solid #c6d3dc;border-radius:6px;padding:7px;background:transparent}.paper-entry nav [aria-current=step]{background:#e6f0f6;font-weight:700}.paper-fields{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px}.paper-wide{grid-column:1/-1}.paper-fields>label{min-width:0}.paper-workflow{min-width:0;overflow-wrap:anywhere}.paper-workflow fieldset{min-width:0}.paper-actions{flex-wrap:wrap}.paper-workflow label{display:flex;flex-direction:column;gap:5px;margin:10px 0}.paper-workflow input,.paper-workflow select{font:inherit;max-width:100%;min-width:0;padding:8px;border:1px solid #becbd3;border-radius:5px}.paper-workflow fieldset{border:0;padding:0;margin:0}.paper-workflow .paper-check{flex-direction:row;align-items:start}.paper-check input{margin-top:3px}.paper-source{position:sticky;top:0;align-self:start;min-width:0;max-height:80vh;overflow:auto;padding:12px;background:#f4f7f9;border-radius:8px}.paper-source :deep(.pdf-preview){min-height:450px}.paper-actions{display:flex;justify-content:space-between;gap:12px;margin-top:18px}.error{color:#a11}.paper-workflow p{line-height:1.45}@media(max-width:900px){.paper-columns{grid-template-columns:1fr}.paper-source{position:static;max-height:55vh}.paper-entry{max-height:none}.paper-fields{grid-template-columns:1fr}.paper-header{flex-wrap:wrap}}
+.guardian-access-review{padding:10px;border:1px solid #b5c7e2;background:#f1f6ff;border-radius:8px}.guardian-access-review p{margin:0 0 6px}.paper-header h3{margin:5px 0}.paper-workflow{--primary:#12356b;color:#17345c}
 </style>

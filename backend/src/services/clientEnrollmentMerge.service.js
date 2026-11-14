@@ -29,7 +29,7 @@ export function assertCompatibleGuardianLinks(target, source) {
 
 // Called inside the merge transaction. No signed files or signer ownership are
 // rewritten, and no conflicting guardian relationship is silently discarded.
-export async function moveEnrollmentRecords(db, keepId, sourceId) {
+export async function moveEnrollmentRecords(db, keepId, sourceId, {guardianAccessResolution=null,actorUserId=null}={}) {
   const [links] = await db.execute('SELECT * FROM client_guardians WHERE client_id IN (?, ?) FOR UPDATE', [keepId, sourceId]);
   const target = links.filter(row => Number(row.client_id) === Number(keepId));
   const source = links.filter(row => Number(row.client_id) === Number(sourceId));
@@ -38,12 +38,29 @@ export async function moveEnrollmentRecords(db, keepId, sourceId) {
   for (const row of source) {
     const existing = target.find(t => Number(t.guardian_user_id) === Number(row.guardian_user_id));
     if (existing) {
-      assertCompatibleGuardianLinks(existing, row);
+      try {assertCompatibleGuardianLinks(existing,row);}
+      catch(error){
+        if(guardianAccessResolution!=='keep_current' || (existing.relationship_type || 'guardian')!==(row.relationship_type || 'guardian'))throw error;
+        // An explicit review may retain the current chart's exact permissions.
+        // Never combine grants or enable a pending/revoked current relationship.
+        await db.execute(`INSERT INTO client_status_history (client_id,changed_by_user_id,field_changed,from_value,to_value,note)
+          VALUES (?,?,'guardian_link_merge',?,? ,?)`,[keepId,actorUserId,String(sourceId),String(keepId),JSON.stringify({guardianUserId:Number(row.guardian_user_id),resolution:'keep_current',priorProgramAccessEnabled:Number(row.access_enabled)===1,priorProgramPermissions:row.permissions_json,currentAccessEnabled:Number(existing.access_enabled)===1})]);
+      }
       await db.execute('DELETE FROM client_guardians WHERE client_id = ? AND guardian_user_id = ?', [sourceId, row.guardian_user_id]);
     } else {
       await db.execute('UPDATE client_guardians SET client_id = ? WHERE client_id = ? AND guardian_user_id = ?', [keepId, sourceId, row.guardian_user_id]);
     }
   }
+  const [contacts]=await db.execute('SELECT * FROM client_contact_affiliations WHERE client_id IN (?,?) FOR UPDATE',[keepId,sourceId]);
+  for(const row of contacts.filter(contact=>Number(contact.client_id)===Number(sourceId))){
+    const existing=contacts.find(contact=>Number(contact.client_id)===Number(keepId) && Number(contact.agency_contact_id)===Number(row.agency_contact_id));
+    if(existing){
+      if(Number(existing.created_by_user_id)!==Number(row.created_by_user_id) || Number(existing.email_reminders_enabled)!==Number(row.email_reminders_enabled) || Number(existing.sms_reminders_enabled)!==Number(row.sms_reminders_enabled))throw fail('An additional contact has different ownership or reminder permissions. Review that contact before merging.');
+      // Retain the original affiliation as history; the current record already has it.
+      await db.execute('UPDATE client_contact_affiliations SET is_active=0,email_reminders_enabled=0,sms_reminders_enabled=0 WHERE id=?',[row.id]);
+    }else await db.execute('UPDATE client_contact_affiliations SET client_id=? WHERE id=?',[keepId,row.id]);
+  }
+  await db.execute('UPDATE agency_contacts SET client_id=? WHERE client_id=?',[keepId,sourceId]);
   for (const table of ['intake_submissions', 'intake_submission_clients', 'intake_submission_documents', 'client_phi_documents']) {
     await db.execute(`UPDATE ${table} SET client_id = ? WHERE client_id = ?`, [keepId, sourceId]);
   }

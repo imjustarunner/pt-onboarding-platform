@@ -1,0 +1,12 @@
+import {mount,flushPromises} from '@vue/test-utils';
+import {ref} from 'vue';
+import {beforeEach,expect,it,vi} from 'vitest';
+vi.mock('vue-router',()=>({useRoute:()=>({query:{}})}));
+vi.mock('../../../composables/useOfficeClientAgency.js',()=>({useOfficeClientAgency:()=>({agencyId:ref(2),accessibleAgencies:ref([{id:2,name:'Example'}]),multiTenant:ref(false),tenantFilter:ref('2'),scopeAgencyIds:ref([2]),showingAllAgencies:ref(false),agencyIdsParam:()=> '2',orgPath:path=>`/example${path}`,clientProfilePath:id=>`/example/admin/clients/${id}`}),formatRelativeTime:()=> 'Today',portalLabel:()=> 'Pending'}));
+vi.mock('../../../services/api',()=>({default:{get:vi.fn(),post:vi.fn()}}));
+import api from '../../../services/api';
+import View from '../OfficeClientsView.vue';
+beforeEach(()=>{vi.clearAllMocks();api.get.mockImplementation(async path=>({data:path==='/office-clients'?{clients:[{id:4,agencyId:2,fullName:'Synthetic Client',portalSetupPending:true,bucket:'prospective'},{id:5,agencyId:2,fullName:'Demo Client',isDemo:true}],aggregates:{}}:path==='/payroll/office-locations'?[{id:9,physical_office_location_id:7,name:'Main office'}]:{providers:[]}}));api.post.mockResolvedValue({data:{ok:true}});});
+async function render(){const w=mount(View,{global:{stubs:{RouterLink:{props:['to'],template:'<a :href="to"><slot /></a>'},ProviderEnrollmentWaitlist:true,QuickPostClientToExchange:true,PostClientToExchangeButton:true,SendCareInvitation:true}}});await flushPromises();return w;}
+it('opens the shared client record and assigns a physical office directly in its roster row',async()=>{const w=await render();expect(w.find('a[href="/example/admin/clients/4"]').exists()).toBe(true);expect(w.text()).not.toContain('Demo Client');expect(w.text()).toContain('Pending setup');const office=w.find('tbody select');await office.setValue('7');await flushPromises();expect(api.post).toHaveBeenCalledWith('/clients/4/agency-affiliations',{agency_id:2,default_office_location_id:7},{skipGlobalLoading:true});expect(office.element.value).toBe('7');w.unmount();});
+it('retains the prior office and shows a failed save instead of pretending it succeeded',async()=>{api.post.mockRejectedValue({response:{data:{error:{message:'Office assignment unavailable'}}}});const w=await render();await w.find('tbody select').setValue('7');await flushPromises();expect(w.text()).toContain('Office assignment unavailable');expect(w.find('tbody select').element.value).toBe('');w.unmount();});

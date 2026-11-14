@@ -1,3 +1,4 @@
+import ClientContactAffiliation from '../models/ClientContactAffiliation.model.js';
 import {withPaperProcessingClientLock} from './paperProcessingSource.service.js';
 import {paperPacketRoiExpiresAtYmd} from '../utils/paperPacketRoiExpiry.js';
 import {findSchoolPacketVersionByLabel} from './schoolPrintablePacketCache.service.js';
@@ -13,12 +14,13 @@ import { isPaperPacketClient } from '../utils/paperPacketClient.js';
 import { getLatestPaperPacketVisionEval } from './paperPacketVision.service.js';
 import { markPaperPacketSignatureReceived, updateClientOnboardingDocs, acknowledgeRoiStaffOnboarding } from './clientOnboardingChecklist.service.js';
 import { sendHubPortalInvitation } from './messagesHub.service.js';
+import { preparedGuardianLink } from '../utils/guardianPortalLinkState.js';
 
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
 const object = value => { if (!value) return {}; if (typeof value === 'object') return value; try { return JSON.parse(value); } catch { return {}; } };
 export const PAPER_PROCESSING_STEPS = ['demographics', 'guardian1', 'guardian2', 'school', 'insurance', 'consents'];
 export const paperProcessingState = client => object(client?.onboarding_docs_json).paperProcessing || { completedSteps: [], invitations: {} };
-const dependencies = overrides => ({ clients: Client, guardians: ClientGuardian, documents: ClientPhiDocument, agencies: Agency,
+const dependencies = overrides => ({ contacts:ClientContactAffiliation, clients: Client, guardians: ClientGuardian, documents: ClientPhiDocument, agencies: Agency,
   versions:findSchoolPacketVersionByLabel,staff:ClientSchoolStaffRoiAccess,encryptDraft:encryptDemographicsPayload,decryptDraft:decryptDemographicsPayload,
   vision: getLatestPaperPacketVisionEval, send: sendHubPortalInvitation, markSignatures: markPaperPacketSignatureReceived,
   markDocuments: updateClientOnboardingDocs, acknowledgeRoi: acknowledgeRoiStaffOnboarding, database: pool, ...overrides });
@@ -101,16 +103,23 @@ async function saveStep({ clientId, actorId, step, data = {} }, overrides = {}) 
     }
     state.documentId = Number(doc.id);
   } else if (step === 'guardian1' || step === 'guardian2') {
-    if (step === 'guardian2' && data.notListed === true) state.guardian2Id = null;
+    if (step === 'guardian2' && (data.notListed === true || data.contactOnly === true)) {
+      state.guardian2Id = null;
+      const contacts=data.contactOnly === true ? await deps.contacts.listForClient(client.id) : [];
+      state.additionalContactIds=contacts.map(row=>Number(row.id));
+      state.guardian2ContactIds=contacts.filter(row=>['parent','guardian','parent_guardian'].includes(String(row.relationship_type).toLowerCase())).map(row=>Number(row.id));
+      if(data.contactOnly === true && !contacts.length)throw fail('Save the other parent or an additional contact, or select that no other parent is listed.');
+    }
     else {
       const guardianId = Number(data.guardianUserId), link = await deps.guardians.getLink({clientId:client.id,guardianUserId:guardianId});
-      if (!link || ![1,true].includes(link.access_enabled)) throw fail('Connect an enabled parent or guardian portal account before continuing.');
+      if (!link || (Number(link.access_enabled) !== 1 && !preparedGuardianLink(link) && data.reactivateConfirmed !== true)) throw fail('Connect a verified parent or guardian account, or review the paused contact’s access before continuing.');
       if (guardianId === Number(state[step === 'guardian2' ? 'guardian1Id' : 'guardian2Id'])) throw fail('The second guardian needs their own account and email.');
       state[`${step}Id`] = guardianId;
+      if(Number(link.access_enabled)!==1 && !preparedGuardianLink(link) && data.reactivateConfirmed === true)state.reactivationGuardianIds=[...new Set([...(state.reactivationGuardianIds || []),guardianId])];
     }
   } else if (step === 'school') {
     if (data.schoolConfirmed !== true || !['yes','no','unsure'].includes(data.sharedCustody)) throw fail('Confirm the school and the custody/decision-making information on the paper packet.');
-    if (data.sharedCustody === 'yes' && !state.guardian2Id) throw fail('Shared custody requires the other guardian’s contact. Complete the second-parent step.');
+    if (data.sharedCustody === 'yes' && !state.guardian2Id && !state.guardian2ContactIds?.length) throw fail('Shared custody requires the other guardian’s contact. Complete the second-parent step.');
     state.sharedCustody = data.sharedCustody;
   } else if (step === 'insurance') {
     if (data.reviewed !== true) throw fail('Review and save the insurance or self-pay information before continuing.');
@@ -142,20 +151,40 @@ async function complete({clientId, actorId, signaturesConfirmed, staffRoiConfirm
       if (signaturesConfirmed !== true || staffRoiConfirmed !== true) throw fail('Confirm the existing paper signatures and matched staff ROI selections.');
       assertPacketMatch(client, state, vision);
       if(state.consentReview?.kind==='human_source_review'){const current=await deps.staff.listSchoolStaffRosterForClient({clientId:client.id,schoolOrganizationId:client.organization_id,roiExpiresAt:client.roi_expires_at});const key=rows=>JSON.stringify(rows.map(row=>({schoolStaffUserId:Number(row.schoolStaffUserId||row.school_staff_user_id),state:row.state||row.effective_access_state||row.access_level||'packet'})).sort((a,b)=>a.schoolStaffUserId-b.schoolStaffUserId));if(key(current)!==key(state.consentReview.staffSelections))throw fail('School staff selections changed after the paper review. Review and save the release step again.',409);}
+      if(state.guardian2ContactIds?.length){const contacts=await deps.contacts.listForClient(client.id);if(state.guardian2ContactIds.some(id=>!contacts.some(row=>Number(row.id)===Number(id))))throw fail('The other parent’s contact changed. Review the contacts step again.',409);}
       if (!['yes', 'no'].includes(state.sharedCustody)) throw fail('Clarify custody/decision-making rights before finishing this packet.');
       if (!state.guardian1Id || (state.guardian2Id && Number(state.guardian1Id) === Number(state.guardian2Id))) throw fail('Each parent needs their own enabled portal contact.');
-      if (state.sharedCustody === 'yes' && !state.guardian2Id) throw fail('Complete the second guardian’s portal contact.');
+      if (state.sharedCustody === 'yes' && !state.guardian2Id && !state.guardian2ContactIds?.length) throw fail('Save the other parent as a contact or prepare their separate portal account.');
       await deps.markSignatures({clientId:client.id,actorUserId:actorId,packetVersionLabel:state.consentReview?.versionLabel||vision.detected_version_label,packetLocale:state.consentReview?.locale||'en',paperRoiSignedDate:state.consentReview?.roi?.signedDate||null});
       await deps.markDocuments({clientId:client.id,actorUserId:actorId,items:[{key:'roi',status:'present'}]});
       await deps.acknowledgeRoi({clientId:client.id,actorUserId:actorId});
       client = await readClient(clientId, deps);
       state.processedAt = new Date().toISOString(); state.processedByUserId = actorId;
+      state.verifiedGuardianIds = [state.guardian1Id,state.guardian2Id].filter(Boolean).map(Number);
       state.signatureSourceDocumentId = Number(state.documentId); state.packetEvaluationId = Number(vision.id);delete state.workingDraftEnc;
       await deps.clients.update(client.id, {guardian_portal_enabled:1}, actorId);
       await writeState(client, state, actorId, deps);
     }
+    // Activate prepared contacts only after the authoritative signed-paper review is saved.
+    const activationBlocked=new Set();
+    if(!state.guardianAccessFinalizedAt) {
+      for (const guardianId of (state.verifiedGuardianIds || [])) {
+        const link = await deps.guardians.getLink({clientId:client.id,guardianUserId:guardianId});
+        if (!link || Number(link.access_enabled)===1 || Number(object(link.permissions_json).paperPacketVerification?.documentId)===Number(state.documentId) || (!preparedGuardianLink(link) && !(state.reactivationGuardianIds || []).includes(Number(guardianId)))) continue;
+        const permissions = object(link.permissions_json);
+        const {pendingGuardianVerification, ...retained} = permissions;
+        try{await deps.guardians.upsertLink({clientId:client.id,guardianUserId:guardianId,
+          relationshipType:link.relationship_type || 'guardian',relationshipTitle:link.relationship_title || 'Parent / guardian',accessEnabled:true,
+          permissionsJson:{canViewDocs:true,canSignDocs:true,canViewLinks:true,canViewProgramMaterials:true,canViewProgress:true,canMessage:true,hideOtherGuardianAnswers:true,...retained,
+            paperPacketVerification:{documentId:Number(state.documentId),actorUserId:actorId,verifiedAt:new Date().toISOString()}},createdByUserId:actorId});}
+        catch(error){activationBlocked.add(Number(guardianId));state.invitations={...(state.invitations||{}),[guardianId]:{status:'blocked',reason:error.message || 'Portal access could not be finalized. Review this contact and retry.'}};}
+      }
+      if(!activationBlocked.size)state.guardianAccessFinalizedAt=new Date().toISOString();
+      await writeState(client,state,actorId,deps);
+    }
     state.invitations = { ...(state.invitations || {}) };
     for (const guardianId of [...new Set([state.guardian1Id,state.guardian2Id].filter(Boolean).map(Number))]) {
+      if(activationBlocked.has(guardianId))continue;
       if (['sent','queued','pending','redirected','unconfirmed','unknown'].includes(state.invitations[guardianId]?.status)) continue;
       const link = await deps.guardians.getLink({clientId:client.id,guardianUserId:guardianId});
       if (!link || ![1,true].includes(link.access_enabled)) {
@@ -190,7 +219,7 @@ function assertPacketMatch(client, state, vision) {
   }
 }
 
-function publicState(state){const {workingDraftEnc,...visible}=state;return {...visible,...(visible.previousPackets?{previousPackets:visible.previousPackets.map(({workingDraftEnc,...item})=>item)}:{})};}
+function publicState(state){const {workingDraftEnc,...visible}=state;if(visible.processedAt){visible.invitations={...(visible.invitations||{})};for(const id of [visible.guardian1Id,visible.guardian2Id].filter(Boolean)){if(!visible.invitations[id])visible.invitations[id]={status:'blocked',reason:'Portal finalization is pending. Review the contact and retry.'};}}return {...visible,...(visible.previousPackets?{previousPackets:visible.previousPackets.map(({workingDraftEnc,...item})=>item)}:{})};}
 function readWorkingDraft(client,deps){
  const envelope=paperProcessingState(client).workingDraftEnc;if(!envelope)return null;
  try{const draft=deps.decryptDraft(envelope);return Number(draft.clientId)===Number(client.id)&&Number(draft.agencyId)===Number(client.agency_id)&&Number(draft.schoolId)===Number(client.organization_id)&&Number(draft.documentId)===Number(object(client.onboarding_docs_json).paperPacketSource?.documentId||paperProcessingState(client).documentId)?draft:null;}catch{return null;}
@@ -201,7 +230,7 @@ async function saveWorkingDraft(client,data,actorId,deps){
  const evaluation=await deps.vision(client.id);if(evaluation&&Number(data.evaluationId)!==Number(evaluation.id))throw fail('The packet reading changed. Reload before saving this working draft.',409);
  const current=Number(object(client.onboarding_docs_json).paperPacketSource?.documentId||state.documentId||data.documentId);
  if(!doc||doc.removed_at||!(doc.referral_draft_id||doc.source_referral_draft_id)||Number(doc.client_id)!==Number(client.id)||Number(doc.agency_id)!==Number(client.agency_id)||Number(doc.school_organization_id)!==Number(client.organization_id)||current!==Number(doc.id))throw fail('The packet source changed. Reload the current packet before saving this working draft.',409);
- const snapshot={};for(const key of ['stage','demographics','guardianForms','secondNotListed','schoolConfirmed','sharedCustody','insuranceTypeId','insuranceReviewed','humanEvidence'])if(data[key]!==undefined)snapshot[key]=data[key];
+ const snapshot={};for(const key of ['stage','demographics','guardianForms','secondNotListed','secondPortalAccount','schoolConfirmed','sharedCustody','insuranceTypeId','insuranceReviewed','humanEvidence'])if(data[key]!==undefined)snapshot[key]=data[key];
  if(JSON.stringify(snapshot).length>24000)throw fail('This working draft is too large. Save the current step instead.');
  if(!state.documentId)state.documentId=Number(doc.id);
  const savedAt=new Date().toISOString();state.workingDraftEnc=deps.encryptDraft({...snapshot,clientId:client.id,agencyId:client.agency_id,schoolId:client.organization_id,documentId:doc.id,evaluationId:evaluation?.id||null,savedAt,savedByUserId:actorId});

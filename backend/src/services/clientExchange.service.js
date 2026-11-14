@@ -508,6 +508,7 @@ export async function listPendingAcceptanceClients({ agencyId, windowDays = 30 }
       `SELECT
          e.id AS event_id,
          e.client_id, e.provider_user_id, e.assigned_at,
+         CONCAT_WS(' ',assigner.first_name,assigner.last_name) AS assigned_by_name,
          e.exchanged_at, e.marked_current_at, e.exchange_listing_id,
          c.initials, c.full_name, c.identifier_code, c.client_type, c.status AS client_status,
          c.contact_phone, c.source, c.intake_preferences_json, c.adaptive_intake_meta_json,
@@ -515,6 +516,7 @@ export async function listPendingAcceptanceClients({ agencyId, windowDays = 30 }
        FROM office_client_assignment_events e
        INNER JOIN clients c ON c.id = e.client_id
        INNER JOIN users u ON u.id = e.provider_user_id
+       LEFT JOIN users assigner ON assigner.id=e.assigned_by_user_id
        WHERE e.agency_id = ?
          AND e.ended_at IS NULL
          AND e.exchanged_at IS NULL
@@ -537,6 +539,7 @@ export async function listPendingAcceptanceClients({ agencyId, windowDays = 30 }
       intakePreferences: parseJsonColumn(row.intake_preferences_json),
       adaptiveMeta: parseJsonColumn(row.adaptive_intake_meta_json),
       assignedAt: row.assigned_at,
+      assignedByName: row.assigned_by_name || null,
       providerName: `${row.provider_first || ''} ${row.provider_last || ''}`.trim() || null,
       providerUserId: Number(row.provider_user_id)
     }));
@@ -546,10 +549,11 @@ export async function listPendingAcceptanceClients({ agencyId, windowDays = 30 }
 }
 
 /** Support/admin queue: office clients (clinical/learning) awaiting a first provider assignment. */
-export async function listPendingOfficeClients({ agencyId }) {
+export async function listPendingOfficeClients({ agencyId, includeSchool = false }) {
   const aid = Number(agencyId);
   if (!aid) return [];
-  const typePlaceholders = OFFICE_CLIENT_TYPES.map(() => '?').join(',');
+  const clientTypes = includeSchool ? [...new Set([...OFFICE_CLIENT_TYPES,'school'])] : OFFICE_CLIENT_TYPES;
+  const typePlaceholders = clientTypes.map(() => '?').join(',');
   const baseWhere = `WHERE c.agency_id = ?
        AND c.client_type IN (${typePlaceholders})
        AND c.provider_id IS NULL
@@ -561,10 +565,10 @@ export async function listPendingOfficeClients({ agencyId }) {
       `SELECT c.id, c.initials, c.full_name, c.identifier_code, c.client_type, c.status,
               c.contact_phone, c.submission_date, c.source, c.intake_preferences_json,
               c.adaptive_intake_meta_json, c.created_at, c.date_of_birth,
-              c.created_via_dev_fill
-       FROM clients c
+              c.created_via_dev_fill, c.is_demo, c.agency_id, c.organization_id, org.name AS organization_name, org.organization_type, a.name AS agency_name
+       FROM clients c LEFT JOIN agencies org ON org.id=c.organization_id LEFT JOIN agencies a ON a.id=c.agency_id
        ${baseWhere}`,
-      [aid, ...OFFICE_CLIENT_TYPES]
+      [aid, ...clientTypes]
     );
     rows = r;
   } catch (err) {
@@ -572,16 +576,19 @@ export async function listPendingOfficeClients({ agencyId }) {
     const [r] = await pool.execute(
       `SELECT c.id, c.initials, c.full_name, c.identifier_code, c.client_type, c.status,
               c.contact_phone, c.submission_date, c.source, c.intake_preferences_json,
-              c.created_at
-       FROM clients c
+              c.created_at, c.agency_id, c.organization_id, org.name AS organization_name, org.organization_type, a.name AS agency_name
+       FROM clients c LEFT JOIN agencies org ON org.id=c.organization_id LEFT JOIN agencies a ON a.id=c.agency_id
        ${baseWhere}`,
       // date_of_birth may not exist in older schema, handled via adaptiveMeta fallback
-      [aid, ...OFFICE_CLIENT_TYPES]
+      [aid, ...clientTypes]
     );
     rows = r;
   }
   const clients = (rows || []).map((row) => ({
     id: Number(row.id),
+    agencyId: Number(row.agency_id) || aid, agencyName:row.agency_name || null,
+    organizationId:Number(row.organization_id) || null, organizationName:row.organization_name || null, organizationType:row.organization_type || null,
+    isDemo: Number(row.is_demo) === 1,
     initials: row.initials,
     fullName: row.full_name,
     identifierCode: row.identifier_code,

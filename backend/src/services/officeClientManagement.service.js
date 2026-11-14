@@ -1,3 +1,4 @@
+import {preparedGuardianLink} from '../utils/guardianPortalLinkState.js';
 /**
  * Office Client Management — roster, hub summary, waitlist actions.
  * Prospective = unassigned / pending office sources / waitlist / prospective-ish status.
@@ -152,7 +153,7 @@ async function loadGuardiansByClientIds(clientIds) {
   let rows;
   try {
     const [r] = await pool.execute(
-      `SELECT cg.client_id, cg.relationship_type, cg.relationship_title, cg.access_enabled,
+      `SELECT cg.client_id, cg.relationship_type, cg.relationship_title, cg.access_enabled, cg.permissions_json,
               u.id AS guardian_user_id, u.first_name, u.last_name, u.email
        FROM client_guardians cg
        INNER JOIN users u ON u.id = cg.guardian_user_id
@@ -184,6 +185,7 @@ async function loadGuardiansByClientIds(clientIds) {
       fullName: `${row.first_name || ''} ${row.last_name || ''}`.trim(),
       email: row.email || null,
       relationship: row.relationship_title || row.relationship_type || 'Guardian',
+      portalSetupPending:preparedGuardianLink(row),
       accessEnabled: Number(row.access_enabled) === 1
     });
     map.set(cid, list);
@@ -307,6 +309,7 @@ function enrichRow(base, { guardians, therapyUnit, nextAppointmentAt, waitlistNo
     providerSelection: prefs.providerSelection || null,
     preferredProviderName: null,
     portalEnabled: !!base.portalEnabled,
+    portalSetupPending:(guardians || []).some(guardian=>guardian.portalSetupPending),
     guardians: guardians || [],
     therapyUnit: therapyUnit || null,
     nextAppointmentAt: nextAppointmentAt || null,
@@ -549,7 +552,9 @@ export async function listOfficeClients({
            c.contact_phone, c.submission_date, c.source, c.intake_preferences_json,
            c.adaptive_intake_meta_json, c.created_at, c.date_of_birth, c.provider_id,
            c.agency_id, c.guardian_portal_enabled, c.waitlist_started_at, c.client_status_id,
-           c.created_via_dev_fill,
+           c.created_via_dev_fill, c.is_demo, c.default_office_location_id,
+           (SELECT caa.default_office_location_id FROM client_agency_assignments caa
+             WHERE caa.client_id=c.id AND caa.agency_id=c.agency_id AND caa.is_active=1 LIMIT 1) AS agency_office_location_id,
            cs.status_key AS client_status_key, cs.label AS client_status_label,
            u.first_name AS provider_first, u.last_name AS provider_last,
            a.name AS agency_name, a.slug AS agency_slug, a.logo_url AS agency_logo_url, a.logo_path AS agency_logo_path
@@ -638,7 +643,9 @@ export async function listOfficeClients({
     }),
     portalEnabled: Number(row.guardian_portal_enabled) === 1,
     waitlistStartedAt: row.waitlist_started_at || null,
-    createdViaDevFill: Number(row.created_via_dev_fill) === 1
+    createdViaDevFill: Number(row.created_via_dev_fill) === 1,
+    isDemo: Number(row.is_demo) === 1,
+    officeLocationId: Number(row.agency_office_location_id || row.default_office_location_id) || null
   }));
 
   const ids = baseRows.map((r) => r.id);
