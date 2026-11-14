@@ -1,4 +1,5 @@
 import { readAppointmentNotificationRules } from './appointmentNotificationCustomization.service.js';
+import { serviceNotificationBlocked } from './clientServiceNotificationPolicy.service.js';
 import { appointmentFamilyRecipients } from './appointmentFamilyRecipients.service.js';
 import { createHash } from 'node:crypto';
 import ClientGuardian from '../models/ClientGuardian.model.js';
@@ -486,6 +487,7 @@ async function buildRecipientDeliveryPlan(appointmentId, recipientGuardianUserId
   const effectiveChannels = resolveEffectiveChannels(platform, tenant.channelsEnabled);
   const participants = await Appointment.listParticipants(appt.id);
   const clientId = recipientClientId || participants.find((p) => p.clientId)?.clientId || null;
+  if(await serviceNotificationBlocked({appointment:appt,clientId}))return {appointment:appt,deliveries:[]};
   const consent = contact ? {
     email: !!contact.email_reminders_enabled && !!contact.contact_email,
     sms: !!contact.sms_reminders_enabled && !!contact.sms_opt_in && contact.sms_consent_status === 'opted_in' && contact.sms_consent_phone_hash === contactReminderPhoneHash(contact.contact_phone),
@@ -650,7 +652,7 @@ export async function scheduleSessionNotifications(appointmentId, { replace = tr
 async function scheduleSessionNotificationsUnlocked(appointmentId, { replace = true } = {}) {
   const plan = await buildDeliveryPlan(appointmentId);
   if (!plan.appointment || !plan.start) return [];
-  if (replace) await cancelPendingReminders(appointmentId);
+  if (replace) await cancelPendingReminders(appointmentId, { preserveManual: true });
 
   const created = [];
   for (const d of plan.deliveries) {
@@ -759,6 +761,10 @@ async function scheduleDefaultCadenceRemindersUnlocked(appointmentId, {
   const appt = await Appointment.findById(appointmentId);
   if (!appt) throw Object.assign(new Error('Appointment not found'), { status: 404 });
   if (appt.productOrigin === 'auricwell_ehr') return [];
+  if(appt.providerUserId){
+    const participants=await Appointment.listParticipants(appt.id);
+    if(await serviceNotificationBlocked({appointment:appt,clientId:participants.find(p=>p.clientId)?.clientId}))return [];
+  }
   const serviceSetting = await resolveAppointmentServiceSetting(appt);
   // School visits use the family's normal reminder preferences, without a
   // confirmation-driven escalation cadence.
@@ -987,7 +993,7 @@ async function sendContactSessionEmail({ contact, appointment, clientId }) {
 async function sendSessionEmail({to,agencyId,clientId,kind='reminder',appointment}) {
   const {sendAppointmentEmail}=await import('./appointmentEmailActions.service.js');
   const result=await sendAppointmentEmail({to,clientId,kind,appointment});
-  if(result?.reason==='school_session_email_opted_out') return result;
+  if(['school_session_email_opted_out','service_ended_notifications_disabled'].includes(result?.reason)) return result;
   if(!result?.id || result.skipped || result.blocked || result.queued || result.pendingApproval) throw new Error('The appointment email was not confirmed as sent.');
   return result;
 }
@@ -1107,6 +1113,10 @@ export async function processDueSessionNotifications({ limit = 50, agencyId = nu
     }
     const participants = await Appointment.listParticipants(appt.id);
     const clientId = row.recipient_client_id || participants.find(p => p.clientId)?.clientId || null;
+    if(await serviceNotificationBlocked({appointment:appt,clientId})){
+      await pool.execute("UPDATE appointment_reminders SET status='canceled',skip_reason='service_ended' WHERE id=?",[row.id]);
+      results.skipped++;continue;
+    }
     if (row.recipient_client_id && !participants.some(p => Number(p.clientId) === Number(clientId))) {
       await pool.execute("UPDATE appointment_reminders SET status='skipped',skip_reason='recipient_unlinked' WHERE id=?",[row.id]);results.skipped++;continue;
     }
@@ -1305,7 +1315,7 @@ export async function processDueSessionNotifications({ limit = 50, agencyId = nu
       continue;
     }
     try {
-      let emailSent=false;
+      let emailSent=false,emailSkipReason='school_session_email_opted_out';
       if (consent.emailAddress) {
         const delivery=await sendSessionEmail({
           to: consent.emailAddress,
@@ -1318,6 +1328,7 @@ export async function processDueSessionNotifications({ limit = 50, agencyId = nu
           kind
         });
         emailSent=!delivery?.skipped;
+        if(delivery?.reason)emailSkipReason=delivery.reason;
       }
       if(emailSent) {
       await logCommunication({
@@ -1335,7 +1346,7 @@ export async function processDueSessionNotifications({ limit = 50, agencyId = nu
         await pool.execute("UPDATE appointment_reminders SET status='sent',sent_at=NOW() WHERE id=?",[row.id]);
         results.sent += 1;
       } else {
-        await pool.execute("UPDATE appointment_reminders SET status='skipped',skip_reason='school_session_email_opted_out' WHERE id=?",[row.id]);
+        await pool.execute("UPDATE appointment_reminders SET status='skipped',skip_reason=? WHERE id=?",[emailSkipReason,row.id]);
         results.skipped += 1;
       }
     } catch (e) {

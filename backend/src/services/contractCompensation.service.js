@@ -3,6 +3,7 @@ import PayrollPaySystemRate from '../models/PayrollPaySystemRate.model.js';
 import PayrollServiceCodeRule from '../models/PayrollServiceCodeRule.model.js';
 import { classifyPayType, computeLineAmount } from './paySystem.service.js';
 import {categoryIdsForAgency} from './compensationCategories.service.js';
+import {testingServiceDefinition,testingCompensationBasis} from '../content/testingServicePolicy.js';
 
 export async function contractCompensationLevels(agencyId, { includeServiceRates = false } = {}) {
   const [levels, profiles, serviceRates] = await Promise.all([PayrollCompensationLevel.listForAgency(agencyId), PayrollPaySystemRate.listForAgency(agencyId), PayrollCompensationLevel.getLevelRatesForAgency(agencyId)]);
@@ -41,6 +42,13 @@ export function contractServiceRates(row, rules) {
     }
     if (row.paySystem && row.paySystem.creditRate != null) {
       const profile = row.paySystem;
+      const testing=testingServiceDefinition(rule.service_code);
+      if(testing&&testing.code!=='H0004') {
+        const rate=Number(testing.bucket==='credit'?profile.creditRate:profile.hcodeRate);
+        const reduced=Number(testing.bucket==='credit'?profile.creditRateProbation:profile.hcodeRateProbation);
+        if(!(rate>0))throw Object.assign(new Error(`Configure the approved ${testing.bucket} rate for ${testing.code}.`),{status:400});
+        return {code:testing.code,rate:`$${rate.toFixed(2)}`,reduced:reduced>0?`$${reduced.toFixed(2)}`:'',unit:'per actual eligible hour; claim units are separate',compensationBasis:testingCompensationBasis(testing),requiredServiceRole:testing.requiredRole,medicaidOnly:!!testing.requiredRole,additionalIndirect:testing.bucket==='hcode'?`10 indirect minutes per direct hour at $${Number(profile.indirectRate).toFixed(2)}/hour; preserve greater agreed allowance`:''};
+      }
       const requiredRate = rule.category === 'tutoring' && profile.tutoringRate != null ? profile.tutoringRate : rule.service_code === 'H2014' && profile.h2014Rate != null ? profile.h2014Rate : payType === 'indirect' ? profile.indirectRate : payType === 'support_activity' ? profile.supportActivityRate : payType === 'hcode' ? (profile.hcodeRate ?? profile.creditRate) : profile.creditRate;
       if (requiredRate == null) throw Object.assign(new Error(`Configure the ${payType} rate for service ${rule.service_code}, Category ${row.category}, Level ${row.level}.`), { status: 400 });
       const previewDate = profile.programRatesEffectiveOn || profile.agreementEffectiveOn || new Date().toISOString().slice(0,10);

@@ -1,4 +1,5 @@
 import { isServiceCodeDeniedForTier } from '../utils/clinicalServiceCodeEligibility.js';
+import {requireTestingEligibility} from '../services/testingEligibility.service.js';
 import pool from '../config/database.js';
 import { readAgencyAccess } from '../services/agencyAccessProfiles.service.js';
 import { applyAgencyAccess } from '../utils/agencyAccessPolicy.js';
@@ -59,6 +60,7 @@ export async function updateStaffServiceAssignments(req,res,next){try{
   const eligibility=wanted.length?await requireStaffCareEligibility(userId,agencyId,connection):null;
   const [available]=await connection.execute('SELECT id,service_code FROM tenant_services WHERE agency_id=? AND is_active=1 FOR UPDATE',[agencyId]);
   if(wanted.some(id=>!available.some(s=>Number(s.id)===id)))throw fail(400,'Choose only active services from this agency.');
+  await requireTestingEligibility({agencyId,userId,serviceCodes:available.filter(service=>wanted.includes(Number(service.id))).map(service=>service.service_code),checkCodeAssignments:false},connection);
   if(available.some(s=>wanted.includes(Number(s.id))&&isServiceCodeDeniedForTier(eligibility?.credentialTier,s.service_code)))throw fail(403,'Bachelor’s-level providers cannot be assigned 9-series service codes.');
   // Change only this employee's active catalog choices; preserve office/modality settings.
   for(const service of available){

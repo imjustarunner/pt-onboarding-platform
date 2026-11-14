@@ -34,15 +34,6 @@
     <div v-if="scheduleChangeNotice" class="hint" role="status" style="padding:12px;border:1px solid currentColor;border-radius:8px;margin-bottom:12px;">
       {{ scheduleChangeNotice }} <button type="button" class="btn btn-secondary btn-sm" @click="scheduleChangeNotice=''">Dismiss</button>
     </div>
-    <details v-if="!hideCalendarSubscription && Number(userId) === Number(authStore.user?.id) && effectiveAgencyIds.length" class="sched-subscription" data-tour="my-schedule-subscription" @toggle="subscriptionOpen = $event.target.open">
-      <summary>Add my schedule to a personal calendar</summary>
-      <template v-if="subscriptionOpen">
-        <div v-for="id in effectiveAgencyIds" :key="id">
-          <h3 v-if="effectiveAgencyIds.length > 1">{{ agencyLabel(id) }}</h3>
-          <CalendarSharing :agency-id="id" />
-        </div>
-      </template>
-    </details>
     <AppointmentWaiverReviewQueue :agency-ids="effectiveAgencyIds" @reviewed="onAppointmentWaiverReviewed" />
     <ScheduledTrainingEditor v-if="trainingEditorOpen && canScheduleTraining(authStore.user)" :agency-id="Number(effectiveAgencyId)" @close="trainingEditorOpen=false" @saved="refreshScheduleSummaryInBackground()" />
     <Teleport to="body"><div v-if="selectedTrainingEventId" class="training-detail-backdrop" @click.self="selectedTrainingEventId=null"><section class="training-detail-dialog" role="dialog" aria-modal="true" aria-label="Scheduled training" @keydown.esc="selectedTrainingEventId=null"><button type="button" class="btn btn-secondary" @click="selectedTrainingEventId=null">Close</button><router-link v-if="selectedTrainingInvited" :to="`/join/team-meeting/${selectedTrainingEventId}`" class="btn btn-primary">Open training</router-link><ScheduledTrainingPanel :event-id="selectedTrainingEventId" @state="selectedTrainingInvited=$event.invited" /></section></div></Teleport>
@@ -144,6 +135,7 @@
           </div>
 
           <div class="sched-command__actions">
+            <ScheduleColorLegend :colors="scheduleColors" :dark="darkScheduleTheme" /><ScheduleHelp />
             <button
               v-if="Number(effectiveAgencyId || 0) > 0 && clientSessionBookingEnabled"
               class="sched-command__book"
@@ -216,43 +208,7 @@
           </div>
         </div>
 
-        <div v-if="calendarSettingsOpen" class="sched-command__filters" role="group" aria-label="Calendar settings sections">
-          <button v-if="!hideOfficeAndCalendarIntegration" type="button" class="sched-command__filter"
-            :class="{ on: activeSettingsSection === 'people' }" :aria-expanded="activeSettingsSection === 'people'"
-            aria-controls="sched-settings-people" @click="toggleSettingsSection('people')">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-            People
-            <span aria-hidden="true">▾</span>
-          </button>
-          <button v-if="!hideOfficeAndCalendarIntegration" type="button" class="sched-command__filter"
-            :class="{ on: activeSettingsSection === 'office' }" :aria-expanded="activeSettingsSection === 'office'"
-            aria-controls="sched-settings-office" @click="toggleSettingsSection('office')">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/></svg>
-            Office
-            <span aria-hidden="true">▾</span>
-          </button>
-          <button v-if="!hideOfficeAndCalendarIntegration && googleCalendarEnabled" type="button" class="sched-command__filter"
-            :class="{ on: activeSettingsSection === 'feeds' }" :aria-expanded="activeSettingsSection === 'feeds'"
-            aria-controls="sched-settings-feeds" @click="toggleSettingsSection('feeds')">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
-            Feeds
-            <span aria-hidden="true">▾</span>
-          </button>
-          <button type="button" class="sched-command__filter"
-            :class="{ on: activeSettingsSection === 'layout' }" :aria-expanded="activeSettingsSection === 'layout'"
-            aria-controls="sched-settings-layout" @click="toggleSettingsSection('layout')">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
-            Layout
-            <span aria-hidden="true">▾</span>
-          </button>
-          <button type="button" class="sched-command__filter"
-            :class="{ on: activeSettingsSection === 'more' }" :aria-expanded="activeSettingsSection === 'more'"
-            aria-controls="sched-settings-more" @click="toggleSettingsSection('more')">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>
-            More
-            <span aria-hidden="true">▾</span>
-          </button>
-        </div>
+
       </div>
 
       <div v-else class="sched-chrome-top" data-tour="my-schedule-week-nav">
@@ -341,6 +297,7 @@
           >
             Full week view
           </button>
+          <ScheduleColorLegend :colors="scheduleColors" :dark="darkScheduleTheme" /><ScheduleHelp />
         </div>
       </div>
 
@@ -426,9 +383,9 @@
           to see meetings, sessions, and Check-Ins.
         </p>
 
-        <div v-if="officeReminderToast && !hideOfficeAndCalendarIntegration" class="sched-office-reminder-toast">
-          {{ officeReminderToast }}
-        </div>
+        <Teleport :to="fullscreenActive && fullscreenRoot ? fullscreenRoot : 'body'"><div v-if="officeReminderToast" class="sched-office-reminder-toast" role="status">
+          {{ officeReminderToast }}<button type="button" aria-label="Dismiss confirmation" @click="officeReminderToast = ''">×</button>
+        </div></Teleport>
         <div
           v-if="bookingReceipt"
           class="sched-booking-receipt"
@@ -459,7 +416,7 @@
                 class="sched-select" aria-label="Schedule organization"
                 :value="scheduleOrgScopeValue"
                 :disabled="loading"
-                title="Choose one organization to show, or All. Use Shown chips to combine several."
+                title="Choose one organization to show, or All. Combine organizations in Settings → Calendars."
                 @change="onScheduleOrganizationChange($event)"
               >
                 <option :value="0">All organizations</option>
@@ -489,50 +446,44 @@
           :class="{ 'sr-only': compactPageChrome }"
         >
           <span class="sched-calendar-settings__title">Calendar settings</span>
-          <span class="sched-calendar-settings__hint muted">people · office · feeds · layout · more tools</span>
+          <span class="sched-calendar-settings__hint muted">Calendars, display, privacy, connections and tools</span>
           <span class="sched-calendar-settings__chev" aria-hidden="true">▾</span>
         </summary>
         <div class="sched-calendar-settings__body">
-          <div class="sched-display-preferences">
-            <label class="sched-client-names">
-              <span>Client names</span>
+          <div class="sched-settings-heading">
+            <strong>Schedule settings</strong>
+            <button type="button" class="sched-pill" aria-label="Close schedule settings" @click="calendarSettingsOpen = false">Close</button>
+          </div>
+          <div class="sched-settings-tabs" role="tablist" aria-label="Schedule settings" @keydown="onSettingsTabKeydown">
+            <button v-for="section in settingsSections" :key="section.id" :id="`sched-tab-${section.id}`" type="button"
+              role="tab" :aria-selected="activeSettingsSection === section.id" :aria-controls="`sched-settings-${section.id}`"
+              :tabindex="activeSettingsSection === section.id ? 0 : -1" :class="{ on: activeSettingsSection === section.id }"
+              @click="toggleSettingsSection(section.id)">{{ section.label }}</button>
+          </div>
+          <section id="sched-settings-privacy" v-show="activeSettingsSection === 'privacy'" role="tabpanel" aria-labelledby="sched-tab-privacy" class="sched-settings-section">
+            <h3>Client privacy</h3>
+            <p class="hint">Choose what appears on your calendar cards and hover text. Open a session to see its client details.</p>
+            <label class="sched-client-names"><span>Client names</span>
               <select v-model="clientNameDisplay" class="sched-select" data-testid="schedule-client-name-display" @change="saveClientNameDisplay">
-                <option value="hidden">Hide names</option>
-                <option value="initials">Initials only</option>
-                <option value="full">Full names</option>
+                <option value="hidden">Hide names</option><option value="initials">Initials only</option><option value="full">Full names</option>
               </select>
             </label>
-            <label class="sched-client-names"><span>Time format</span><select v-model="scheduleTimeFormat" class="sched-select" @change="saveClientNameDisplay"><option value="12h">12-hour · 8 AM</option><option value="24h">24-hour · 08:00</option></select></label>
-            <span class="sched-display-preferences__hint">On calendar cards and hover text. Open an appointment for client details.</span>
-          </div>
-              <div v-if="agencyFilterOptions.length > 1" class="sched-organization-options">
-                <div class="sched-calendars-label" style="margin-left: 8px;">Shown</div>
-                <div class="sched-calendars-actions">
-                  <button type="button" class="sched-chip" :class="{ on: scheduleOrgScopeAll }" :disabled="loading" title="Show events from every organization you belong to" @click="selectAllScheduleAgencies">All</button>
-                </div>
-                <button
-                  v-for="opt in agencyFilterOptions"
-                  :key="`org-chip-${opt.id}`"
-                  type="button"
-                  class="sched-chip"
-                  :class="{ on: activeScheduleAgencyIdSet.has(Number(opt.id)) }"
-                  :disabled="loading"
-                  @click="toggleScheduleAgencyFilter(Number(opt.id))"
-                  :title="activeScheduleAgencyIdSet.has(Number(opt.id)) ? `Hide ${opt.label} from this schedule` : `Show ${opt.label} on this schedule`"
-                  :style="activeScheduleAgencyIdSet.has(Number(opt.id)) ? { '--chipAccent': agencyBadgeColorById(opt.id) || undefined } : undefined"
-                >
-                  <span
-                    v-if="agencyBadgeColorById(opt.id)"
-                    class="sched-org-chip-dot"
-                    :style="{ background: agencyBadgeColorById(opt.id) }"
-                    aria-hidden="true"
-                  ></span>
-                  <img v-if="agencyIconUrlById(opt.id)" :src="agencyIconUrlById(opt.id)" alt="" class="sched-org-chip-icon">
-                  {{ opt.label }}
-                </button>
-              </div>
+          </section>
+          <section id="sched-settings-calendars" v-show="activeSettingsSection === 'calendars'" role="tabpanel" aria-labelledby="sched-tab-calendars" class="sched-settings-section">
+            <div class="sched-settings-section-heading"><h3>Shown organizations</h3>
+              <button type="button" class="sched-pill" :disabled="loading || scheduleOrgScopeAll" @click="selectAllScheduleAgencies">Show all</button>
+            </div>
+            <p class="hint">Select the organizations to include in this calendar.</p>
+            <div class="sched-organization-list">
+              <label v-for="opt in agencyFilterOptions" :key="`org-choice-${opt.id}`" class="sched-organization-choice">
+                <input type="checkbox" :checked="activeScheduleAgencyIdSet.has(Number(opt.id))" :disabled="loading" @change="toggleScheduleAgencyFilter(Number(opt.id))" />
+                <ScheduleAgencyLogo :agency-id="Number(opt.id)" :icon-url="agencyIconUrlById(opt.id) || ''" :label="opt.label" class="sched-org-chip-icon" />
+                <span>{{ opt.label }}</span>
+              </label>
+            </div>
+          </section>
       <div class="sched-tool-bar" data-tour="my-schedule-tool-groups">
-        <div v-if="!hideOfficeAndCalendarIntegration" id="sched-settings-people" v-show="!compactPageChrome || activeSettingsSection === 'people'" class="sched-tool-cluster" title="Ways to see other people’s calendars">
+        <div v-if="!hideOfficeAndCalendarIntegration" id="sched-settings-people" aria-labelledby="sched-tab-people" role="tabpanel" v-show="activeSettingsSection === 'people'" class="sched-tool-cluster" title="Ways to see other people’s calendars">
           <span class="sched-tool-cluster__label">People</span>
           <button
             type="button"
@@ -558,7 +509,7 @@
           <router-link v-if="Number(userId) === Number(authStore.user?.id)" class="sched-pill sched-pill-link" :to="scheduleOrgTo('/meeting-times')">Offer meeting times</router-link>
         </div>
 
-        <div v-if="!hideOfficeAndCalendarIntegration" id="sched-settings-office" v-show="!compactPageChrome || activeSettingsSection === 'office'" class="sched-tool-cluster" title="Filter your office rooms by building">
+        <div v-if="!hideOfficeAndCalendarIntegration" id="sched-settings-office" aria-labelledby="sched-tab-office" role="tabpanel" v-show="activeSettingsSection === 'office'" class="sched-tool-cluster" title="Filter your office rooms by building">
           <span class="sched-tool-cluster__label">Office</span>
         <button v-if="!hideOfficeAndCalendarIntegration" type="button" class="sched-pill"
           :class="{ on: showMyRooms }" role="switch" :aria-checked="String(showMyRooms)"
@@ -618,11 +569,11 @@
 
         <div
           v-if="!hideOfficeAndCalendarIntegration && googleCalendarEnabled"
-          id="sched-settings-feeds" v-show="!compactPageChrome || activeSettingsSection === 'feeds'"
+          id="sched-settings-feeds" aria-labelledby="sched-tab-feeds" role="tabpanel" v-show="activeSettingsSection === 'feeds'"
           class="sched-tool-cluster"
           title="Google Calendar for this SSO account."
         >
-          <span class="sched-tool-cluster__label">My calendars</span>
+          <h3>Google Calendar</h3><p v-if="rawSummary?.googleSyncPending" role="status" class="hint sched-settings-full-width">Updating Google Calendar… Your app schedule is ready.</p><p v-if="rawSummary?.googleOverlayRefreshError" class="hint sched-settings-full-width">{{ rawSummary.googleOverlayRefreshError }}</p><p class="hint sched-settings-full-width">Only events outside AuricWell appear as Google overlays. Open an app appointment for its Google Calendar link.</p>
           <button
             type="button"
             class="sched-pill"
@@ -673,8 +624,9 @@
           </button>
         </div>
 
-        <div id="sched-settings-layout" v-show="!compactPageChrome || activeSettingsSection === 'layout'" class="sched-tool-cluster" title="How the week grid is laid out">
-          <span class="sched-tool-cluster__label">Display</span>
+        <div id="sched-settings-layout" aria-labelledby="sched-tab-layout" role="tabpanel" v-show="activeSettingsSection === 'layout'" class="sched-tool-cluster" title="How the week grid is laid out">
+          <h3>Display</h3>
+          <label class="sched-client-names"><span>Time format</span><select v-model="scheduleTimeFormat" class="sched-select" aria-label="Time format" @change="saveClientNameDisplay"><option value="12h">12-hour · 8 AM</option><option value="24h">24-hour · 08:00</option></select></label>
           <label class="sched-inline compact"><span>Jump to date</span><input type="date" :value="weekJumpDateValue" :disabled="loading" data-tour="my-schedule-week-jump" @change="onWeekJumpDateChange" /></label>
           <button
             type="button"
@@ -773,11 +725,11 @@
         </button>
       </div>
 
-      <div id="sched-settings-more" v-show="!compactPageChrome || activeSettingsSection === 'more'" class="sched-more-tools sched-more-tools--flat" data-tour="my-schedule-more-tools">
+      <div id="sched-settings-more" aria-labelledby="sched-tab-more" role="tabpanel" v-show="activeSettingsSection === 'more'" class="sched-more-tools sched-more-tools--flat" data-tour="my-schedule-more-tools">
         <div class="sched-more-tools__heading">More tools</div>
         <div class="sched-more-tools__body">
           <div class="sched-tool-cluster sched-tool-cluster--wrap">
-            <span class="sched-tool-cluster__label">Programs & layout</span>
+            <span class="sched-tool-cluster__label">Schedule shortcuts</span>
             <button
               v-if="showCompanyEventsCalendarButton"
               type="button"
@@ -831,16 +783,12 @@
             </div>
           </details>
         </div>
-      </div>
+          <ScheduleCalendarMenu v-if="!hideCalendarSubscription && Number(userId) === Number(authStore.user?.id)" :agency-ids="effectiveAgencyIds" />
           <div ref="scheduleToolsTarget" class="sched-settings-tools-target" />
+      </div>
         </div>
       </details>
 
-      <div class="sched-room-visibility">
-
-        <ScheduleColorLegend :colors="scheduleColors" :dark="darkScheduleTheme" />
-        <ScheduleHelp />
-      </div>
 
       <div v-if="!hideOfficeAndCalendarIntegration && isOfficeScopeSpecific && officeGridError" class="error" style="margin-top: 10px;">
         {{ officeGridError }}
@@ -1249,11 +1197,10 @@
                   class="cell-block-peer-face cell-block-peer-face--initials"
                   :style="{ background: peerColorById(b.peerUserId) }"
                 >{{ peerInitials(b.peerUserId) }}</span>
-                <img
+                <ScheduleAgencyLogo
                   v-if="b.agencyId && blockAgencyIconUrl(b)"
                   class="cell-block-agency-icon"
-                  :src="blockAgencyIconUrl(b)"
-                  alt=""
+                  :agency-id="Number(b.agencyId)" :icon-url="blockAgencyIconUrl(b) || ''"
                 />
                 <span v-if="staffAlertForBlock(b)" class="cell-staff-alert cell-staff-alert--inline" role="img" :aria-label="staffAlertFaceLabel(b)" :title="staffAlertFaceLabel(b)">⚑</span>
                 <div class="sched-day-card__body">
@@ -1540,6 +1487,7 @@
                 @dblclick="onCellBlockDoubleClick($event, b, d, slot.hour, slot.minute)"
               >
                 <SecureSessionCommentButton v-if="b.appointmentId && canUseSessionComments(authStore.user?.role)" icon-only :appointment-id="b.appointmentId" :client-id="parseClientIdFromScheduleEvent(b)" />
+                <button v-if="scheduleReferenceForBlock(b)" class="cell-record-reference" type="button" :title="`Copy reference ${scheduleReferenceForBlock(b)}`" @pointerdown.stop @keydown.stop @dblclick.stop @click.stop="copyScheduleReference(scheduleReferenceForBlock(b))">{{ scheduleReferenceForBlock(b) }}</button>
                 <span v-if="b.recurrenceSeriesId" class="cell-recurrence-marker" role="img" aria-label="Recurring appointment">↻</span>
                 <span v-if="staffAlertForBlock(b)" class="cell-staff-alert" role="img" :aria-label="staffAlertFaceLabel(b)">⚑</span>
                 <!-- Top resize handle — any draggable block -->
@@ -1567,11 +1515,10 @@
                   :style="{ background: peerColorById(b.peerUserId) }"
                   aria-hidden="true"
                 >{{ peerInitials(b.peerUserId) }}</span>
-                <img
+                <ScheduleAgencyLogo
                   v-if="hasAgencyBadge(b) && !b.hideAgencyDot && blockAgencyIconUrl(b)"
                   class="cell-block-agency-icon"
-                  :src="blockAgencyIconUrl(b)"
-                  alt=""
+                  :agency-id="Number(b.agencyId)" :icon-url="blockAgencyIconUrl(b) || ''"
                   :aria-label="agencyBadgeTitle(b)"
                 />
                 <span
@@ -1745,6 +1692,7 @@
       </div>
     </div>
 
+    <Teleport :to="fullscreenActive && fullscreenRoot ? fullscreenRoot : 'body'">
     <div v-if="showRequestModal" class="modal-backdrop modal-backdrop--request" data-schedule-ui="v2" @click.self="requestCloseModal">
       <ClinicalWorkspaceFrame
         :enabled="editorIsClinical && !editorIsLearning && !showActionChooser && (!editorPracticeCategory || editorPracticeCategory === 'mental_health')"
@@ -1768,7 +1716,7 @@
             <div class="nr-head-copy">
               <div id="nr-title" class="nr-title">{{ modalEditorTitle }}</div>
               <div class="nr-subtitle">{{ modalScheduleSubtitle }}</div>
-              <div v-if="editorAppointmentId" class="nr-subtitle">Appointment #{{ editorAppointmentId }}<span v-if="editorClinicalSessionId"> · Clinical session #{{ editorClinicalSessionId }}</span></div>
+
             </div>
           </div>
           <div class="nr-head-context" data-testid="schedule-modal-context">
@@ -1861,6 +1809,7 @@
             >
               Change appointment…
             </button>
+            <a v-if="editorGoogleCalendarUrl" :href="editorGoogleCalendarUrl" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm">View Google Calendar copy</a>
           </div>
 
           <div v-if="isSupervisionEditMode && selectedSupvSession?.recurrenceSeriesId" class="supervision-recurrence-badge" data-testid="supervision-recurrence-summary">
@@ -1947,6 +1896,7 @@
               @open-note="editorWorkspaceTab = 'note'"
               @join="startTrackedSupvMeet"
             />
+            <AppointmentOfficeReservation v-if="Number(editorAppointmentId || 0) > 0 && !editorOfficeEventId && !editorIsMeeting && !editorIsSupervision && (!editorIsLearning || editorInfoModalityLabel === 'In-person')" :appointment-id="Number(editorAppointmentId)" />
             <AppointmentStaffTools v-if="Number(editorAppointmentId || 0) > 0" :appointment-id="Number(editorAppointmentId)" @details="editorLearningDetails=$event" />
             <MeetingDialInPanel v-if="editorIsMeeting && Number(scheduleEventEditId || 0) && editorWorkspaceTab === 'info'" meeting-type="team-meeting" :meeting-id="Number(scheduleEventEditId)" />
             <MeetingDialInPanel v-if="editorIsSupervision && Number(selectedSupvSessionId || 0) && editorWorkspaceTab === 'info'" meeting-type="supervision" :meeting-id="Number(selectedSupvSessionId)" />
@@ -2718,9 +2668,10 @@
               :plan-items="editorReminderPlan"
               :attendees="editorReminderAttendees"
               :can-push-extra="editorCanPushExtraReminder"
+              :available-at="editorExtraReminderAvailableAt" :notice="editorReminderNotice"
               :busy="editorReminderBusy"
               :format-when="formatEditorDisplayDateTime"
-              @push-extra="pushEditorExtraReminder"
+              @push-extra="pushEditorExtraReminder" @refresh="loadEditorReminders"
             >
               <button
                 v-if="Number(editorAppointmentId || 0) > 0"
@@ -2731,6 +2682,7 @@
                 Push session update…
               </button>
             </AppointmentRemindersPanel>
+            <AppointmentReminderSettings v-if="editorWorkspaceTab === 'notifications' && Number(editorAppointmentId || 0)>0" :agency-id="Number(editorAgencyId || 0)" v-model:mode="editorNotificationMode" v-model:rules="editorCustomReminders" :busy="editorReminderBusy || editorRemindersLoading" @save="saveEditorReminderSettings" />
           </div>
         </div>
 
@@ -4864,7 +4816,8 @@
         </div>
         <div v-else-if="!showActionChooser && !isAppointmentEditMode && !intakeConfirmStep && requestType !== 'admin_assign' && requestType !== 'cancel_booking' && requestType !== 'slot_details'" class="nr-footer">
           <div v-if="modalError" class="error nr-footer__error" role="alert">{{ modalError }}</div>
-          <div v-if="showRequestSubmitBlockedBanner" class="nr-blocked-reason" style="flex: 1 1 100%; margin-bottom: 8px;">
+          <div v-if="submitting && officeBookingProgress" role="status" aria-live="polite" style="flex: 1 1 100%; margin-bottom: 8px;">{{ officeBookingProgress }}</div>
+          <div v-if="showRequestSubmitBlockedBanner && !submitting" class="nr-blocked-reason" style="flex: 1 1 100%; margin-bottom: 8px;">
             {{ requestSubmitBlockedReason }}
           </div>
           <button v-if="editorIsOpenSlot && editingOpenSlot?.virtualHoursId" type="button" class="btn nr-remove-availability" :disabled="submitting" @click="openAvailabilityRemoval">
@@ -4886,8 +4839,10 @@
             {{ submitting ? submitBusyLabel : submitActionLabel }}
           </button>
         </div>
+        <footer v-if="editorVisibleReference" class="schedule-record-footer"><span>Reference</span><button type="button" @click="copyScheduleReference(editorVisibleReference)">{{ editorVisibleReference }}</button><span>Click to copy</span></footer>
       </ClinicalWorkspaceFrame>
     </div>
+    </Teleport>
 
     <AvailabilityPublicationEdit v-if="removingOpenPublication" :row="removingOpenPublication" action="delete" :provider-id="removingOpenPublication.providerId" :time-zone="bookingTimezoneIana" @close="removingOpenPublication=null" @saved="onAvailabilityRemoved" />
 
@@ -5075,7 +5030,7 @@
     <div
       v-if="showSupvAppVideoModal && supvAppVideoToken"
       class="modal-backdrop supv-video-backdrop supv-video-takeover"
-      style="z-index: 10001;"
+      style="z-index: 10400;"
     >
       <div class="modal supv-video-modal supv-video-fullscreen" @click.stop>
         <SupervisionLiveRoom
@@ -5102,7 +5057,7 @@
         />
       </div>
     </div>
-    <div v-if="supvAppVideoError" class="modal-backdrop" style="z-index: 10002;" @click.self="supvAppVideoError = ''">
+    <div v-if="supvAppVideoError" class="modal-backdrop" style="z-index: 10401;" @click.self="supvAppVideoError = ''">
       <div class="modal" style="max-width: 400px;">
         <div class="modal-head">
           <div class="modal-title">Could not join</div>
@@ -5198,7 +5153,7 @@
                   </span>
                   <span class="stack-details-label">{{ item.label }}</span>
                   <span v-if="item.subLabel" class="stack-details-sub">{{ item.subLabel }}</span>
-                  <span v-if="item.appointmentId" class="stack-details-sub">Appointment #{{ item.appointmentId }}<template v-if="item.clinicalSessionId"> · Clinical session #{{ item.clinicalSessionId }}</template></span>
+
                 </span>
                 <span class="stack-details-pick-cta">{{ item.googleEvent && !item.eventId ? 'Open' : 'Open in app' }} →</span>
               </button>
@@ -5206,7 +5161,7 @@
                 <div v-if="item.kindLabel" class="stack-details-kind">{{ item.kindLabel }}</div>
                 <div class="stack-details-label">{{ item.label }}</div>
                 <div v-if="item.subLabel" class="stack-details-sub">{{ item.subLabel }}</div>
-                <div v-if="item.appointmentId" class="stack-details-sub">Appointment #{{ item.appointmentId }}<template v-if="item.clinicalSessionId"> · Clinical session #{{ item.clinicalSessionId }}</template></div>
+
                 <div v-if="item.detailText && scheduleEventEditId !== Number(item.eventId || 0)" class="stack-details-detail">{{ item.detailText }}</div>
 
                 <div
@@ -5520,7 +5475,7 @@
       </div>
     </Teleport>
 
-    <div v-if="showAppointmentMoveModal" class="modal-backdrop" style="z-index: 10002;" @click.self="closeAppointmentMoveModal">
+    <div v-if="showAppointmentMoveModal" class="modal-backdrop" style="z-index: 10401;" @click.self="closeAppointmentMoveModal">
       <div class="modal cancel-meeting-modal" style="max-width: 440px;" role="dialog" aria-modal="true" aria-labelledby="appointment-move-title">
         <div class="modal-head">
           <div id="appointment-move-title" class="modal-title">Move appointment</div>
@@ -5558,7 +5513,7 @@
       </div>
     </div>
 
-    <div v-if="showSeriesEditScopeModal" class="modal-backdrop" style="z-index: 10002;" @click.self="closeSeriesEditScopeModal">
+    <div v-if="showSeriesEditScopeModal" class="modal-backdrop" style="z-index: 10401;" @click.self="closeSeriesEditScopeModal">
       <div class="modal cancel-meeting-modal" style="max-width: 440px;" role="dialog" aria-modal="true" aria-labelledby="series-edit-scope-title">
         <div class="modal-head">
           <div id="series-edit-scope-title" class="modal-title">Update series</div>
@@ -5587,7 +5542,7 @@
       </div>
     </div>
 
-    <div v-if="showCancelMeetingModal" class="modal-backdrop" style="z-index: 10001;" @click.self="closeCancelMeetingConfirm">
+    <div v-if="showCancelMeetingModal" class="modal-backdrop" style="z-index: 10400;" @click.self="closeCancelMeetingConfirm">
       <div class="modal cancel-meeting-modal" style="max-width: 440px;" role="dialog" aria-modal="true" aria-labelledby="cancel-meeting-title">
         <div class="modal-head">
           <div id="cancel-meeting-title" class="modal-title">
@@ -5911,13 +5866,14 @@
 import ScheduledTrainingEditor from './ScheduledTrainingEditor.vue';
 import ClientAlertDialog from '../clients/ClientAlertDialog.vue';
 import ProviderUpdateSchoolSchedule from '../provider/ProviderUpdateSchoolSchedule.vue';
-import {decorateSessionLocations, officeCoveredBySession, virtualSchoolOverlap, scheduleEventSignature} from '../../utils/scheduleLocationProjection.js';
+import {decorateSessionLocations, includeOfficeClientSessions, officeCoveredBySession, virtualSchoolOverlap, scheduleEventSignature} from '../../utils/scheduleLocationProjection.js';
 import ScheduledTrainingPanel from '../meetings/ScheduledTrainingPanel.vue';
 import { canScheduleTraining } from '../../utils/scheduledTraining';
 import { officeRequestWindows } from '../../utils/officeRequestWindows.js';
 import ProviderEnrollmentWaitlist from '../provider/ProviderEnrollmentWaitlist.vue';
 import { getScheduleSummaryResponse } from '../../utils/scheduleSummaryRequests';
-import CalendarSharing from '../CalendarSharing.vue';
+import { prefetchNextScheduleWeek } from '../../utils/scheduleSummaryPrefetch.js';
+import ScheduleCalendarMenu from './ScheduleCalendarMenu.vue';
 import { virtualOfficeGuestUrl } from '../../utils/virtualOfficeLinks.js';
 import ScheduleColorSettings from './ScheduleColorSettings.vue';
 import { defaultScheduleColors, resolveScheduleColors, scheduleTypePalette, scheduleBlockColorKey, isExactHourAppointment } from '../../utils/scheduleAppearance.js';
@@ -5957,6 +5913,7 @@ import {
   wallDatetimeLocalToSummaryIso
 } from '../../utils/scheduleEventInstants.js';
 import {appointmentOfficeId,officesForAgency,defaultAppointmentServiceLocation} from '../../utils/appointmentOfficeSelection.js';
+import { submitOfficeBooking } from '../../utils/ownedOfficeBooking.js';
 import { useScheduleFullscreen } from '../../composables/useScheduleFullscreen.js';
 import { useAuthStore } from '../../store/auth';
 import { serviceWorkspace } from '../../utils/nluWorkspace.js';
@@ -6050,6 +6007,8 @@ import OfferedTimeDialog from './OfferedTimeDialog.vue';
 const offeredTime = ref(null);
 const onOfferReleased = async () => { offeredTime.value = null; invalidateScheduleSummaryCacheForUser(props.userId); await load({ forceRefresh: true }); };
 import AppointmentStaffTools from './AppointmentStaffTools.vue';
+import AppointmentOfficeReservation from './AppointmentOfficeReservation.vue';
+import AppointmentReminderSettings from './AppointmentReminderSettings.vue';
 import { allDayItemOccursOn, isAllDayScheduleItem, visibleScheduleHours } from '../../utils/scheduleVisibleHours';
 import {
   APPOINTMENT_EDITOR_STATUS_OPTIONS,
@@ -6411,7 +6370,7 @@ const gridMinHour = computed(() => hours.value[0] ?? 7);
 const gridMaxHour = computed(() => (hours.value.at(-1) ?? 21) + 1);
 const selectedSchoolSoftBlock = ref(null);
 watch(() => props.userId, () => { selectedSchoolSoftBlock.value = null; });
-const schoolSoftBlocks = computed(() => schoolSoftScheduleBlocks(summary.value?.schoolSoftSessions || [], bookingTimezoneIana.value, scheduleTimeFormat.value).map(block => scheduleClientFace(block, clientNameDisplay.value)));
+const schoolSoftBlocks = computed(() => schoolSoftScheduleBlocks(summary.value?.schoolSoftSessions || [], bookingTimezoneIana.value, scheduleTimeFormat.value).map(block => scheduleClientFace(block, Number(props.userId) === Number(authStore.user?.id) ? clientNameDisplay.value : 'hidden')));
 const untimedSchoolBlocksForDay = day => {
   const date = addDaysYmd(summary.value?.weekStart || weekStart.value, dayIdxFromWeekStartMonday(day));
   return schoolSoftBlocks.value.filter(block => block.untimed && block.displayDate === date);
@@ -6489,7 +6448,7 @@ const allDayBlocksForDay = (day) => {
     }
   }
   blocks.push(...schoolClosureBlocks(summary.value?.schoolDayClosures, summary.value?.schoolAssignments, date));
-  return blocks.map(block => scheduleClientFace(block, clientNameDisplay.value));
+  return blocks.map(block => scheduleClientFace(block, Number(props.userId) === Number(authStore.user?.id) ? clientNameDisplay.value : 'hidden'));
 };
 const hasVisibleAllDayItems = computed(() => visibleDays.value.some(day => allDayBlocksForDay(day).length));
 const openAllDayBlock = (event, block, day) => {
@@ -6501,7 +6460,6 @@ const openAllDayBlock = (event, block, day) => {
 const loading = ref(false);
 const error = ref('');
 const rawSummary = ref(null);
-const subscriptionOpen = ref(false);
 const googleCalendarEnabled = computed(() => Number(rawSummary.value?.providerId) === Number(props.userId) && rawSummary.value?.googleCalendarEnabled === true);
 const familyPersonalMode = ref('busy');
 const familyScheduleDetails = ref({});
@@ -6513,8 +6471,11 @@ const familyScheduleEnabled = computed(() => {
 });
 const summary = computed({
   get: () => {
-    const raw = rawSummary.value ? filterSummaryByActiveAgencies(rawSummary.value) : null;
-    const data = raw ? {...raw, scheduleEvents:decorateSessionLocations(raw.scheduleEvents, raw.schoolAssignments, raw.officeEvents, String(agencyStore.currentAgency?.timezone || 'America/Denver'))} : raw;
+    const raw = rawSummary.value;
+    // Resolve owned-room links before display filters: a room reserved under
+    // another agency still supplies the location of this provider's session.
+    const projected = raw ? {...raw, scheduleEvents:decorateSessionLocations(includeOfficeClientSessions(raw.scheduleEvents, raw.officeEvents), raw.schoolAssignments, raw.officeEvents, String(agencyStore.currentAgency?.timezone || 'America/Denver'))} : raw;
+    const data = projected ? filterSummaryByActiveAgencies(projected) : null;
     if (!data || !familyScheduleEnabled.value || Number(props.userId) !== Number(authStore.user?.id)) return data;
     return { ...data, scheduleEvents: familyScheduleProjection(data.scheduleEvents, familyPersonalMode.value, familyScheduleDetails.value) };
   },
@@ -6547,7 +6508,28 @@ const showPeerBusyOverlay = ref(false);
 const showAvailabilityEditor = ref(false);
 const showAvailHoursLegend = ref(false);
 const calendarSettingsOpen = ref(false);
-const activeSettingsSection = ref('layout');
+const activeSettingsSection = ref('calendars');
+const settingsSections = computed(() => [
+  { id: 'calendars', label: 'Calendars' },
+  ...(!props.hideOfficeAndCalendarIntegration ? [{ id: 'people', label: 'People' }, { id: 'office', label: 'Office' }] : []),
+  { id: 'layout', label: 'Display' },
+  { id: 'privacy', label: 'Privacy' },
+  ...(!props.hideOfficeAndCalendarIntegration && googleCalendarEnabled.value ? [{ id: 'feeds', label: 'Connections' }] : []),
+  { id: 'more', label: 'More' }
+]);
+watch(settingsSections, sections => {
+  if (!sections.some(section => section.id === activeSettingsSection.value)) activeSettingsSection.value = 'calendars';
+});
+function onSettingsTabKeydown(event) {
+  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+  event.preventDefault();
+  const sections = settingsSections.value;
+  const current = sections.findIndex(section => section.id === activeSettingsSection.value);
+  const index = event.key === 'Home' ? 0 : event.key === 'End' ? sections.length - 1
+    : (current + (event.key === 'ArrowRight' ? 1 : -1) + sections.length) % sections.length;
+  activeSettingsSection.value = sections[index].id;
+  nextTick(() => document.getElementById(`sched-tab-${sections[index].id}`)?.focus());
+}
 const hubTitleSwitchRef = ref(null);
 const hubViewMenuOpen = ref(false);
 const compactHubViews = computed(() =>
@@ -6576,7 +6558,7 @@ function toggleCalendarSettings() {
 }
 function toggleSettingsSection(id) {
   calendarSettingsOpen.value = true;
-  activeSettingsSection.value = activeSettingsSection.value === id ? '' : id;
+  activeSettingsSection.value = id;
 }
 function onCalendarSettingsToggle(ev) {
   // The compact toolbar controls each panel; native details only controls the legacy layout.
@@ -9923,6 +9905,7 @@ let scheduleRetryTimer = null;
 let scheduleRetryDeadline = 0;
 let scheduleRetryAttempts = 0;
 let scheduleDisposed = false;
+let nextWeekPrefetchTimer = null;
 function waitForScheduleRetry(deadline) {
   clearTimeout(scheduleRetryTimer);
   scheduleRetryDeadline = deadline;
@@ -9945,8 +9928,38 @@ function waitForScheduleRetry(deadline) {
 }
 onUnmounted(() => {
   scheduleDisposed = true;
+  clearTimeout(nextWeekPrefetchTimer);
   clearTimeout(scheduleRetryTimer);
 });
+const tagPersonalSummary = data => {
+  const tagged = { ...data };
+  for (const field of ['scheduleEvents', 'officeEvents', 'supervisionSessions', 'schoolAssignments', 'officeRequests', 'schoolRequests', 'virtualWorkingHours']) {
+    tagged[field] = (data[field] || []).map(row => ({ ...row, _agencyId: Number(row.agencyId || 0) || null }));
+  }
+  return tagged;
+};
+let scheduleReadGeneration = 0;
+function refreshGoogleSummaryInBackground({ cacheKey, generation, uid, week, snapshot }) {
+  if (!snapshot?.googleCalendarEnabled || !snapshot.googleSyncPending || props.hideOfficeAndCalendarIntegration) return;
+  // The app calendar has already rendered. Google reconciliation must not hold its spinner.
+  const current = () => !scheduleDisposed && generation === scheduleReadGeneration && props.userId === uid && weekStart.value === week;
+  const params = { weekStart: week, weekStartsOn: effectiveWeekStartsOn.value, includeAllAgencies: 'true', skipOfficeMaterialize: 'true',
+    skipGoogleSync: 'false', includeGoogleBusy: googleBusyPreference.value ? 'true' : 'false', includeGoogleEvents: googleEventsPreference.value ? 'true' : 'false' };
+  setTimeout(async () => {
+    if (!current()) return;
+    try {
+      const { data } = await getScheduleSummaryResponse(`/users/${uid}/schedule-summary`, { params, timeout: 15000, skipGlobalLoading: true });
+      if (!current() || !data || rawSummary.value !== snapshot) return;
+      const tagged = tagPersonalSummary(data);
+      setScheduleSummary(cacheKey, tagged);
+      summary.value = tagged;
+    } catch {
+      if (current() && rawSummary.value === snapshot) {
+        summary.value = { ...snapshot, googleSyncPending: false, googleOverlayRefreshError: 'Google Calendar could not be refreshed. Your app schedule is ready; use Refresh to try Google again.' };
+      }
+    }
+  }, 0);
+}
 const load = async ({ forceRefresh = false } = {}) => {
   if (!props.userId || scheduleDisposed || (scheduleRetryPending.value && Date.now() < scheduleRetryDeadline)) return;
   if (!effectiveAgencyIds.value.length) {
@@ -9958,9 +9971,12 @@ const load = async ({ forceRefresh = false } = {}) => {
     }
   }
 
+  const generation = scheduleReadGeneration + 1;
+  const uid = props.userId;
+  const requestedWeek = weekStart.value;
   const ids = effectiveAgencyIds.value;
   const useAllAgencies = props.mode === 'self';
-  const cacheKey = `${props.userId}|${useAllAgencies ? 'all' : [...ids].sort((a, b) => a - b).join(',')}|${weekStart.value}|${effectiveWeekStartsOn.value}|${showGoogleBusy.value}|${showGoogleEvents.value}|${showExternalBusy.value}|${(selectedExternalCalendarIds.value || []).slice().sort((a, b) => a - b).join(',')}`;
+  const cacheKey = `${props.userId}|${useAllAgencies ? 'all' : [...ids].sort((a, b) => a - b).join(',')}|${weekStart.value}|${effectiveWeekStartsOn.value}|${googleBusyPreference.value}|${googleEventsPreference.value}|${showExternalBusy.value}|${(selectedExternalCalendarIds.value || []).slice().sort((a, b) => a - b).join(',')}`;
   // A forced read bypasses cache freshness, but retains this exact calendar as
   // a fallback if a background refresh is throttled or temporarily unavailable.
   const stalePack = getScheduleSummaryStale(cacheKey);
@@ -9970,7 +9986,11 @@ const load = async ({ forceRefresh = false } = {}) => {
     error.value = '';
     loading.value = false;
     tryOpenFocusScheduleEvent();
-    if (stalePack.fresh && !forceRefresh) return;
+    if (stalePack.fresh && !forceRefresh) {
+      scheduleReadGeneration = generation;
+      if (useAllAgencies) refreshGoogleSummaryInBackground({ cacheKey, generation, uid, week: requestedWeek, snapshot: rawSummary.value });
+      return;
+    }
   }
 
   // Coalesce concurrent identical fetches (save/close + watchers used to stack dozens).
@@ -9979,6 +9999,7 @@ const load = async ({ forceRefresh = false } = {}) => {
     return loadInFlight;
   }
 
+  scheduleReadGeneration = generation;
   const run = (async () => {
   try {
     if (forceRefresh || !stalePack?.data) loading.value = true;
@@ -9993,50 +10014,34 @@ const load = async ({ forceRefresh = false } = {}) => {
           includeAllAgencies: 'true',
           // Skip office materialization on personal grid — big win for first paint.
           skipOfficeMaterialize: viewMode.value === 'office_layout' ? 'false' : 'true',
-          includeGoogleBusy: props.hideOfficeAndCalendarIntegration ? 'false' : (showGoogleBusy.value ? 'true' : 'false'),
-          includeGoogleEvents: props.hideOfficeAndCalendarIntegration ? 'false' : (showGoogleEvents.value ? 'true' : 'false'),
+          skipGoogleSync: 'true',
+          includeGoogleBusy: 'false',
+          includeGoogleEvents: 'false',
           ...(props.hideOfficeAndCalendarIntegration ? {} : (showExternalBusy.value && selectedExternalCalendarIds.value.length
             ? { externalCalendarIds: selectedExternalCalendarIds.value.join(',') }
             : {}))
         },
         skipGlobalLoading: true
       }, { fresh: forceRefresh });
+      if (generation !== scheduleReadGeneration || uid !== props.userId || requestedWeek !== weekStart.value) return;
       const data = resp.data || null;
       if (data) {
-        const tagged = {
-          ...data,
-          scheduleEvents: (data.scheduleEvents || []).map((ev) => ({
-            ...ev,
-            _agencyId: Number(ev?.agencyId || 0) || null
-          })),
-          officeEvents: (data.officeEvents || []).map((ev) => ({
-            ...ev,
-            _agencyId: Number(ev?.agencyId || 0) || null
-          })),
-          supervisionSessions: (data.supervisionSessions || []).map((ev) => ({
-            ...ev,
-            _agencyId: Number(ev?.agencyId || 0) || null
-          })),
-          schoolAssignments: (data.schoolAssignments || []).map((ev) => ({
-            ...ev,
-            _agencyId: Number(ev?.agencyId || 0) || null
-          })),
-          officeRequests: (data.officeRequests || []).map((ev) => ({
-            ...ev,
-            _agencyId: Number(ev?.agencyId || 0) || null
-          })),
-          schoolRequests: (data.schoolRequests || []).map((ev) => ({
-            ...ev,
-            _agencyId: Number(ev?.agencyId || 0) || null
-          })),
-          virtualWorkingHours: (data.virtualWorkingHours || []).map((row) => ({
-            ...row,
-            _agencyId: Number(row?.agencyId || 0) || null
-          }))
-        };
+        const tagged = tagPersonalSummary(data);
         mergeDiscoveredScheduleAgencies(tagged.scheduleAgencyIds || []);
         setScheduleSummary(cacheKey, tagged);
         summary.value = tagged;
+        loading.value = false;
+        refreshGoogleSummaryInBackground({ cacheKey, generation, uid, week: requestedWeek, snapshot: rawSummary.value });
+        // Warm only the adjacent personal week after the visible one has painted.
+        // Reuse the normal cache and its write invalidation; never materialize other room weeks.
+        if (resp.config?.params && viewMode.value !== 'office_layout') {
+          clearTimeout(nextWeekPrefetchTimer);
+          const uid = props.userId;
+          nextWeekPrefetchTimer = setTimeout(() => {
+            void prefetchNextScheduleWeek(`/users/${uid}/schedule-summary`, resp.config, cacheKey,
+              () => !scheduleDisposed && props.userId === uid);
+          }, 800);
+        }
       } else {
         summary.value = null;
       }
@@ -10254,6 +10259,7 @@ const load = async ({ forceRefresh = false } = {}) => {
       nextTick(() => showOfficeReminder());
     }
   } catch (e) {
+    if (generation !== scheduleReadGeneration || uid !== props.userId || requestedWeek !== weekStart.value) return;
     const status = Number(e?.response?.status || 0);
     const accessDenied = status === 401 || status === 403;
     if (accessDenied) invalidateScheduleSummaryCacheForUser(props.userId);
@@ -10273,7 +10279,7 @@ const load = async ({ forceRefresh = false } = {}) => {
       ? `${message} Showing the previously loaded schedule.`
       : message;
   } finally {
-    loading.value = false;
+    if (generation === scheduleReadGeneration) loading.value = false;
   }
   })();
 
@@ -10332,30 +10338,18 @@ watch(() => props.focusEventId, () => {
 
 // Defer + debounce load so startup/watcher bursts do not spam schedule-summary.
 let deferredLoadTimer = null;
-let deferredLoadIdleHandle = null;
 const clearDeferredLoad = () => {
   if (deferredLoadTimer) {
     clearTimeout(deferredLoadTimer);
     deferredLoadTimer = null;
-  }
-  if (deferredLoadIdleHandle && typeof cancelIdleCallback !== 'undefined') {
-    cancelIdleCallback(deferredLoadIdleHandle);
-    deferredLoadIdleHandle = null;
   }
 };
 const deferredLoad = () => {
   clearDeferredLoad();
   deferredLoadTimer = setTimeout(() => {
     deferredLoadTimer = null;
-    if (typeof requestIdleCallback !== 'undefined') {
-      deferredLoadIdleHandle = requestIdleCallback(() => {
-        deferredLoadIdleHandle = null;
-        void load();
-      }, { timeout: 120 });
-    } else {
-      void load();
-    }
-  }, 150);
+    void load();
+  }, 0);
 };
 watch(() => props.userId, deferredLoad, { immediate: true });
 watch(() => props.userId, () => { void loadAvailabilityHours(); }, { immediate: true });
@@ -10365,13 +10359,13 @@ watch(effectiveAgencyIds, () => {
   if (props.mode === 'self') return;
   deferredLoad();
 }, { deep: true });
-watch([showGoogleBusy, showGoogleEvents, showExternalBusy, selectedExternalCalendarIds], deferredLoad, { deep: true });
+watch([googleBusyPreference, googleEventsPreference, showExternalBusy, selectedExternalCalendarIds], deferredLoad, { deep: true });
 
 // Org chip toggles filter the already-loaded all-tenant payload (no refetch).
 watch(activeScheduleAgencyIds, () => {
   if (props.mode !== 'self') return;
   const cached = getScheduleSummary(
-    `${props.userId}|all|${weekStart.value}|${effectiveWeekStartsOn.value}|${showGoogleBusy.value}|${showGoogleEvents.value}|${showExternalBusy.value}|${(selectedExternalCalendarIds.value || []).slice().sort((a, b) => a - b).join(',')}`
+    `${props.userId}|all|${weekStart.value}|${effectiveWeekStartsOn.value}|${googleBusyPreference.value}|${googleEventsPreference.value}|${showExternalBusy.value}|${(selectedExternalCalendarIds.value || []).slice().sort((a, b) => a - b).join(',')}`
   );
   if (cached) summary.value = cached;
 }, { deep: true });
@@ -11902,7 +11896,7 @@ const cellBlockCache = new Map();
 const cellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout = false) => {
   const key = `${dayName}|${hour}|${minute}|${expanded}|${forLayout}`;
   if (!cellBlockCache.has(key)) {
-    cellBlockCache.set(key, computed(() => buildCellBlocks(dayName, hour, minute, expanded, forLayout).map(block => scheduleClientFace(block, clientNameDisplay.value, clockRangeLabel(block.startAt, block.endAt)))));
+    cellBlockCache.set(key, computed(() => buildCellBlocks(dayName, hour, minute, expanded, forLayout).map(block => scheduleClientFace(block, Number(props.userId) === Number(authStore.user?.id) ? clientNameDisplay.value : 'hidden', clockRangeLabel(block.startAt, block.endAt)))));
   }
   return cellBlockCache.get(key).value;
 };
@@ -12421,7 +12415,7 @@ const buildCellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout 
   }
   // Context blocks sit behind events and do not use up a visible event slot.
   const foreground = displayBlocks.filter(block => !block.backgroundContext && !block.schoolRail && !block.schoolRailContinuation);
-  if (!unlimited && !singleDayFocused && foreground.length > 3) {
+  if (!unlimited && !singleDayFocused && !scheduleSideBySide.value && foreground.length > 3) {
     const extra = foreground.length - 2;
     return [
       ...displayBlocks.filter(block => block.backgroundContext || block.schoolRail || block.schoolRailContinuation), ...foreground.slice(0, 2),
@@ -12479,7 +12473,7 @@ const sideBySideDayLayouts = computed(() => {
       hour:slot.hour, minute:slot.minute,
       blocks:cellBlocks(day, slot.hour, slot.minute, false, true)
     }));
-    byDay.set(day, layoutScheduleDayBlocks(cells, showQuarterDetail.value ? 15 : 60));
+    byDay.set(day, layoutScheduleDayBlocks(cells, showQuarterDetail.value ? 15 : 60, { showAvailabilityLanes: scheduleSideBySide.value }));
   }
   return byDay;
 });
@@ -12532,6 +12526,29 @@ const dayViewLaneLayout = computed(() => {
   }
   return assignOverlapLanes(Array.from(byKey.values()));
 });
+
+function scheduleReferenceForBlock(block) {
+  const s=summary.value||{};
+  const groups=[s.scheduleEvents,s.officeEvents,s.supervisionSessions,s.virtualWorkingHours,s.virtualAvailability,s.inPersonAvailability,s.schoolSoftSessions];
+  if(Number(block?.appointmentId)>0)for(const rows of groups){const row=(rows||[]).find(r=>Number(r.appointmentId)===Number(block.appointmentId));if(row?.appointmentReference)return row.appointmentReference;}
+  if(block?.kind==='portal')return(s.virtualWorkingHours||[]).find(r=>Number(r.id)===Number(block.virtualHoursId))?.scheduleReference||'';
+  const rows=block?.isOfficeBlock?s.officeEvents:['supv','supv-signup'].includes(block?.kind)?s.supervisionSessions:block?.kind==='sevt'?s.scheduleEvents:block?.kind==='school-soft'?s.schoolSoftSessions:[];
+  return (rows||[]).find(row=>Number(row.id)===Number(block?.eventId||block?.id))?.scheduleReference||'';
+}
+const editorVisibleReference=computed(()=>{
+  if(editorRecordReference.value)return editorRecordReference.value;
+  const s=summary.value||{};
+  if(Number(editorAppointmentId.value)>0){for(const rows of [s.officeEvents,s.scheduleEvents]){const row=(rows||[]).find(r=>Number(r.appointmentId)===Number(editorAppointmentId.value));if(row?.appointmentReference)return row.appointmentReference;}}
+  const officeId=Number(editorOfficeEventId.value||modalContext.value?.officeEventId||0);
+  if(officeId)return(s.officeEvents||[]).find(r=>Number(r.id)===officeId)?.scheduleReference||'';
+  if(Number(scheduleEventEditId.value)>0)return(s.scheduleEvents||[]).find(r=>Number(r.id)===Number(scheduleEventEditId.value))?.scheduleReference||'';
+  if(Number(selectedSupvSessionId.value)>0)return(s.supervisionSessions||[]).find(r=>Number(r.id)===Number(selectedSupvSessionId.value))?.scheduleReference||'';
+  return '';
+});
+async function copyScheduleReference(reference){
+  try {await navigator.clipboard.writeText(reference);flashScheduleToast('Schedule reference copied.');}
+  catch {flashScheduleToast(`Reference: ${reference}`,10000);}
+}
 
 const isCellVisuallyBlank = (dayName, hour) => cellBlocks(dayName, hour).length === 0;
 
@@ -12843,6 +12860,8 @@ const modalActionSource = ref('general'); // general | plus_or_blank | office_bl
 const requestNotes = ref('');
 const submitting = ref(false);
 const modalError = ref('');
+const officeBookingProgress = ref('');
+const postOfficeBooking = payload => submitOfficeBooking(api, payload, { onProgress: message => { officeBookingProgress.value = message; } });
 const SCHEDULE_EVENT_ACTIONS = new Set(['personal_event', 'schedule_hold', 'schedule_hold_all_day', 'indirect_services', 'agency_meeting', 'huddle']);
 const AGENCY_OPTIONAL_ACTIONS = new Set([
   'office',
@@ -14356,6 +14375,9 @@ const editorRemindersLoading = ref(false);
 const editorRemindersError = ref('');
 const editorReminderLastSent = ref('');
 const editorReminderPlan = ref([]);
+const editorExtraReminderAvailableAt = ref('');
+const editorReminderNotice = ref('');
+const editorRecordReference = ref('');
 const editorReminderAttendees = ref([]);
 const editorCanPushExtraReminder = ref(false);
 const editorReminderBusy = ref(false);
@@ -15041,10 +15063,17 @@ const editorOfficeEventId = computed(() => Number(isScheduleEventEditMode.value
 const editorSessionServiceCode = computed(() => {
   return String(bookingServiceCode.value || scheduleEventEditForm.value?.serviceCode || '').trim();
 });
+const editorGoogleCalendarUrl = computed(() => {
+  if (!googleCalendarEnabled.value) return '';
+  const item = editingScheduleStackItem.value;
+  const row = findScheduleEventByIdAndKind(item?.eventId, item?.eventKind);
+  const value = row?.googleCalendarUrl || row?.htmlLink || selectedSupvSession.value?.googleCalendarUrl || '';
+  try { const url = new URL(value); return url.protocol === 'https:' && ['calendar.google.com', 'www.google.com'].includes(url.hostname) ? url.href : ''; } catch { return ''; }
+});
 const editorInfoClientName = computed(() => {
   const id = editorInfoClientId.value;
   if (!id) return '';
-  return scheduleEventClientDisplayName(id) || `Client #${id}`;
+  return scheduleEventClientDisplayName(id) || 'Client';
 });
 const editorInfoServiceLabel = computed(() => {
   const sid = Number(editorTenantServiceId.value || 0);
@@ -15221,7 +15250,7 @@ const editorParticipantSummary = computed(() => {
   const n = virtualSessionSelectedClientIdSet.value?.size || 0;
   if (n === 1) {
     const id = Array.from(virtualSessionSelectedClientIdSet.value.values())[0];
-    return scheduleEventClientDisplayName(id) || `Client #${id}`;
+    return scheduleEventClientDisplayName(id) || 'Client';
   }
   if (n > 1) return `${n} clients`;
   return '—';
@@ -16007,14 +16036,14 @@ async function loadEditorReminders() {
   editorShowReminders.value = true;
   try {
     if (apptId) {
-      const [planRes, timelineRes, appointmentRes] = await Promise.all([
-        api.get(`/appointments/${apptId}/notification-plan`).catch(() => null),
-        api.get(`/appointments/${apptId}/timeline`).catch(() => null),
-        api.get(`/appointments/${apptId}`).catch(() => null)
+      const [planRes, appointmentRes] = await Promise.all([
+        api.get(`/appointments/${apptId}/notification-plan`),
+        api.get(`/appointments/${apptId}`)
       ]);
       if (Number(editorAppointmentId.value || 0) !== apptId) return;
       const appointment = appointmentRes?.data?.appointment;
       if (appointment) {
+        editorRecordReference.value=appointment.scheduleReference || '';
         editorHydratingAppointment.value=true;
         const firstHydration = editorAppointmentBaseline.value?.id !== apptId;
         if (firstHydration && JSON.stringify([editorNotificationMode.value, editorCustomReminders.value]) === notificationSnapshot) {
@@ -16050,15 +16079,12 @@ async function loadEditorReminders() {
       editorReminderAttendees.value = Array.isArray(plan?.attendees)
         ? plan.attendees
         : (Array.isArray(plan?.participants) ? plan.participants : []);
-      editorCanPushExtraReminder.value = plan?.canSendAdditionalReminder !== false
+      editorExtraReminderAvailableAt.value = plan.additionalReminderAvailableAt || '';
+      editorCanPushExtraReminder.value = plan?.canSendAdditionalReminder === true
         && plan?.additionalReminderAllowed !== false;
-      const timeline = timelineRes?.data?.events || timelineRes?.data?.timeline || [];
-      const lastReminder = (Array.isArray(timeline) ? timeline : [])
-        .filter((e) => String(e?.kind || e?.type || '').toLowerCase().includes('reminder'))
-        .sort((a, b) => String(b?.at || b?.createdAt || '').localeCompare(String(a?.at || a?.createdAt || '')))[0];
-      const lastRaw = lastReminder
-        ? String(lastReminder.at || lastReminder.createdAt || lastReminder.sentAt || '')
-        : '';
+      const lastReminder = editorReminderPlan.value.filter(item => item.status === 'sent' && item.sentAt)
+        .sort((a,b) => String(b.sentAt).localeCompare(String(a.sentAt)))[0];
+      const lastRaw = lastReminder?.sentAt || '';
       editorReminderLastSent.value = lastRaw ? formatEditorDisplayDateTime(lastRaw) : '';
       return;
     }
@@ -16115,16 +16141,31 @@ async function loadEditorClinicalChart() {
   }
 }
 
+async function saveEditorReminderSettings() {
+  const id=Number(editorAppointmentId.value);if(!id||editorReminderBusy.value)return;
+  editorReminderBusy.value=true;editorRemindersError.value='';editorReminderNotice.value='';
+  const patch={notificationMode:editorNotificationMode.value,customReminders:editorNotificationMode.value==='customizable'?editorCustomReminders.value:[]};
+  try {
+    await api.patch(`/appointments/${id}`,patch,{skipGlobalLoading:true});
+    if(Number(editorAppointmentId.value)!==id)return;
+    if(editorAppointmentBaseline.value?.id===id)editorAppointmentBaseline.value={...editorAppointmentBaseline.value,notificationMode:patch.notificationMode,customReminders:JSON.stringify(patch.customReminders)};
+    await loadEditorReminders();editorReminderNotice.value='Reminder settings saved.';
+  } catch(error) {if(Number(editorAppointmentId.value)===id)editorRemindersError.value=error.response?.data?.error?.message||'Reminder settings could not be saved.';}
+  finally {editorReminderBusy.value=false;}
+}
+
 async function pushEditorExtraReminder() {
   const apptId = Number(editorAppointmentId.value || 0);
-  if (!apptId || !editorCanPushExtraReminder.value) return;
+  if (!apptId || !editorCanPushExtraReminder.value || editorReminderBusy.value) return;
   editorReminderBusy.value = true;
+  editorReminderNotice.value = '';
+  editorRemindersError.value = '';
   try {
     await api.post(`/appointments/${apptId}/session-notifications/reschedule`, {
-      kind: 'additional_reminder',
-      force: true
+      kind: 'additional_reminder'
     });
     await loadEditorReminders();
+    editorReminderNotice.value = 'Additional reminder queued. Delivery status appears below. Another can be requested after 24 hours.';
   } catch (e) {
     editorRemindersError.value = e?.response?.data?.error?.message || e?.message || 'Could not push reminder';
   } finally {
@@ -16278,9 +16319,9 @@ function onAppointmentChangeCompleted(result) {
   editorClinicalNoteId.value = Number(result?.noteId || 0);
   editorStatus.value = result?.appointment?.status || editorStatus.value;
   window.dispatchEvent(new Event('pt-schedule-refresh'));
-  window.alert(result?.preview?.waiverRequested
+  flashScheduleToast(result?.preview?.waiverRequested
     ? 'The signed session note is saved and the waiver request is in the review queue. No insurance claim was created.'
-    : 'Appointment change saved. The signed, nonbillable note is attached to this session. No insurance claim was created.');
+    : 'Appointment change saved. The signed, nonbillable note is attached to this session. No insurance claim was created.', 7000);
 }
 
 /**
@@ -16293,6 +16334,10 @@ function openAppointmentEditor({ mode = 'create', kind = '', id = 0, defaults = 
   editorHydratingAppointment.value = true;
   // Never treat a schedule-event / supervision id as an appointment id.
   editorAppointmentId.value = Number(defaults.appointmentId || 0) || 0;
+  editorReminderNotice.value = '';
+  editorRecordReference.value = '';
+  editorExtraReminderAvailableAt.value = '';
+  editorCanPushExtraReminder.value = false;
   editorClinicalSessionId.value = Number(defaults.clinicalSessionId || 0) || 0;
   editorClinicalNoteId.value = Number(defaults.clinicalNoteId || 0) || 0;
   editorClaimId.value = Number(defaults.claimId || 0) || 0;
@@ -22161,7 +22206,7 @@ const completePlatformVirtualSessionBooking = async ({
     const recurrence = String(officeBookingRecurrence.value || 'ONCE');
     await withdrawEditorPriorOfficeRequests();
     const series = editorOfficeSeriesParams();
-    const r = await api.post('/office-schedule/booking-requests', {
+    const r = await postOfficeBooking({
         roomType: requestedOfficeRoomType.value,
       agencyId,
       appointmentId: canonicalBooking.recurrenceSeriesId ? undefined : appointmentId,
@@ -22264,6 +22309,7 @@ const submitRequest = async () => {
 
   try {
     submitting.value = true;
+    officeBookingProgress.value = '';
     modalError.value = '';
     let createdScheduleEvents = [];
     let meetingAttendeeUserIds = [];
@@ -22954,7 +23000,7 @@ const submitRequest = async () => {
         const endAt = `${String(t.dateYmd).slice(0, 10)}T${pad2(Math.min(Number(t.hour || h) + (endH - h), 23))}:${pad2(endMinute)}:00`;
         const preferred = Number(editorPreferredRoomId.value || roomId || 0) || roomId;
         // eslint-disable-next-line no-await-in-loop
-        const r = await api.post('/office-schedule/booking-requests', {
+        const r = await postOfficeBooking({
         roomType: requestedOfficeRoomType.value,
           officeLocationId: officeId,
           roomId: preferred,
@@ -22970,6 +23016,11 @@ const submitRequest = async () => {
         const bookingReqId = Number(r?.data?.request?.id || 0);
         if (bookingReqId) editorLastOfficeBookingRequestId.value = bookingReqId;
         if (r?.data?.kind === 'auto_booked') {
+          ensureScheduleAgencyVisible(Number(r.data.agencyId || editorAgencyId.value || effectiveAgencyId.value));
+          const count = r.data.appointmentIds?.length || occurrenceCount || 1;
+          showBookingReceipt({ title: `${count} client session${count === 1 ? '' : 's'} scheduled`, when: formatBookingReceiptWhen({ dateYmd: String(t.dateYmd).slice(0,10), startHour: Number(t.hour || h), startMinute, endHour: endH, endMinute }) });
+          officeReminderToast.value = `${count} client session${count === 1 ? '' : 's'} scheduled.`;
+          setTimeout(() => { officeReminderToast.value = ''; }, 10000);
           // eslint-disable-next-line no-await-in-loop
           await loadSelectedOfficeGrid();
           refreshInBackground = true;
@@ -25739,7 +25790,7 @@ const onAppointmentPointerUp = (e) => {
 
 const dispatchCellBlockAction = (block, dayName, hour, minute = 0) => {
   const kind = String(block?.kind || '');
-  if (kind === 'sevt' && (block?.eventKind === 'COMPANY_EVENT_INVITATION' || Number(block?.eventId) < 0)) {
+  if (kind === 'sevt' && (block?.eventKind === 'COMPANY_EVENT_INVITATION')) {
     const event = (summary.value?.scheduleEvents || []).find(row => Number(row.id) === Number(block.eventId)
       && String(row.kind || '').toUpperCase() === String(block.eventKind || '').toUpperCase());
     if (event) openStackDetailsModal({ title: String(event.title || 'Company event'),
@@ -25791,7 +25842,7 @@ const dispatchCellBlockAction = (block, dayName, hour, minute = 0) => {
     const bKind = String(block?.eventKind || '').trim().toUpperCase();
     const events = (summary.value?.scheduleEvents || []);
     let targetEvent = null;
-    if (bid > 0 && bKind) {
+    if (bid !== 0 && bKind) {
       targetEvent = events.find(
         (ev) => Number(ev?.id || 0) === bid && String(ev?.kind || '').trim().toUpperCase() === bKind
       );
@@ -26133,15 +26184,16 @@ function isClientSessionScheduleEvent(ev = null) {
 const scheduleEventClientDisplayName = (clientId) => {
   const id = Number(clientId || 0);
   if (!id) return '';
-  const row = (virtualSessionClients.value || []).find((c) => Number(c?.id || 0) === id);
-  return String(row?.displayName || row?.fullName || '').trim() || `Client #${id}`;
+  const row = (virtualSessionClients.value || []).find(c => Number(c?.id || 0) === id);
+  const event = (summary.value?.scheduleEvents || []).find(event => Number(event.clientId) === id && event.clientName);
+  return String(event?.clientName || row?.fullName || row?.displayName || '').trim() || 'Client';
 };
 
 const scheduleEventEditClientOptions = computed(() => {
   const rows = Array.isArray(virtualSessionClients.value) ? [...virtualSessionClients.value] : [];
   const selectedId = Number(scheduleEventEditForm.value.clientId || 0);
   if (selectedId > 0 && !rows.some((c) => Number(c?.id || 0) === selectedId)) {
-    rows.unshift({ id: selectedId, displayName: `Client #${selectedId}` });
+    rows.unshift({ id: selectedId, displayName: 'Client' });
   }
   return rows;
 });
@@ -26156,13 +26208,13 @@ const isEditableScheduleStackItem = (item) => {
   const kind = String(item?.eventKind || '').trim().toUpperCase();
   if (!EDITABLE_SCHEDULE_EVENT_KINDS.has(kind)) return false;
   if (item?.canEdit === false) return false;
-  return Number(item?.eventId || 0) > 0;
+  return Number(item?.eventId || 0) > 0 || (Number(item?.eventId || 0) < 0 && Number(item?.appointmentId || 0) > 0);
 };
 
 /** Host (or admin-meeting invitee) may change time/date. */
 const canRescheduleScheduleStackItem = (item) => {
   if (!item || item?.isCancelled) return false;
-  if (Number(item?.eventId || 0) <= 0) return false;
+  if (Number(item?.eventId || 0) <= 0 && !Number(item?.appointmentId || 0)) return false;
   if (item?.canReschedule === true) return true;
   if (item?.canReschedule === false) return false;
   if (isEditableScheduleStackItem(item)) return true;
@@ -26623,7 +26675,7 @@ const openAppointmentEditInScheduleModal = async ({
     return;
   }
 
-  const target = list.find((it) => focusId > 0 && Number(it?.eventId || 0) === focusId)
+  const target = list.find((it) => focusId !== 0 && Number(it?.eventId || 0) === focusId)
     || list.find((it) => isEditableScheduleStackItem(it))
     || list[0];
 
@@ -27289,7 +27341,7 @@ const buildScheduleStackItemFromEvent = (ev, overrides = {}) => {
   const baseKindLabel = scheduleKindLabel(targetKind, withClient);
   return {
     id: `sevt-${targetKind || 'evt'}-${String(ev?.id || ev?.googleEventId || Date.now())}`,
-    label: String(ev?.title || '').trim() || 'Schedule event',
+    label: clientId ? (Number(props.userId) === Number(authStore.user?.id) ? `Client session · ${ev.clientName || scheduleEventClientDisplayName(clientId)}` : 'Client session') : String(ev?.title || '').trim() || 'Schedule event',
     subLabel: ev?.allDay ? 'All day' : formatRangeFromRaw(ev?.startAt, ev?.endAt, ['TEAM_MEETING', 'HUDDLE'].includes(targetKind)),
     kindLabel: calendarSessionState(ev) ? `${baseKindLabel} · ${calendarSessionState(ev)}` : baseKindLabel,
     detailText: buildScheduleEventDetailText(ev),
@@ -27370,7 +27422,9 @@ const buildScheduleEventDetailText = (ev) => {
     : formatRangeFromRaw(ev?.startAt, ev?.endAt, ['TEAM_MEETING', 'HUDDLE'].includes(kind));
   if (when) lines.push(`When: ${when}`);
   const clientId = parseClientIdFromScheduleEvent(ev);
-  if (clientId) lines.push(`Client: ${scheduleEventClientDisplayName(clientId)}`);
+  if (clientId && Number(props.userId) === Number(authStore.user?.id)) lines.push(`Client: ${ev.clientName || scheduleEventClientDisplayName(clientId)}`);
+  const location = String(ev.locationLabel || '').trim();
+  if (location) lines.push(`Location: ${location}`);
   const desc = String(ev?.description || '').trim();
   if (desc) lines.push(`Notes:\n${desc}`);
   const rc = String(ev?.reasonCode || '').trim();
@@ -27718,6 +27772,8 @@ watch(()=>props.spanMode,value=>{
 </script>
 
 <style scoped>
+.cell-record-reference{position:absolute;left:8px;bottom:2px;max-width:calc(100% - 34px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0;border:0;background:transparent;color:inherit;font:8px/1.2 ui-monospace,monospace;opacity:.65;cursor:copy;z-index:3}.cell-record-reference:focus-visible{opacity:1;outline:2px solid currentColor}.schedule-record-footer{display:flex;justify-content:flex-end;align-items:center;gap:8px;padding:12px 16px;font-size:10px;color:#64748b}.schedule-record-footer button{border:0;background:transparent;color:inherit;font:11px ui-monospace,monospace;cursor:copy}
+
 .nr-selected-reservation { display: flex; flex-direction: column; gap: 5px; margin-bottom: 14px; padding: 16px 18px; background: #eef5ff; border: 1px solid #b6cbea; border-left: 4px solid #34629a; border-radius: 12px; color: #20354f; }
 .nr-selected-reservation strong { font-size: 17px; }
 .nr-reservation-scope { font-size: 13px; color: #4c617b; }
@@ -28186,7 +28242,25 @@ watch(()=>props.spanMode,value=>{
 .sched-calendar-settings__hint { font-weight: 500; font-size: 0.8rem; }
 .sched-calendar-settings__chev { margin-left: auto; opacity: 0.6; }
 .sched-calendar-settings[open] .sched-calendar-settings__chev { transform: rotate(180deg); }
-.sched-calendar-settings__body { padding: 0 10px 12px; }
+.sched-calendar-settings__body { padding: 16px; }
+.sched-settings-heading, .sched-settings-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.sched-settings-heading { margin-bottom: 12px; color: var(--sched-ink, #0f172a); }
+.sched-settings-tabs { display: flex; gap: 4px; overflow-x: auto; border-bottom: 1px solid #dbe5e3; margin-bottom: 18px; }
+.sched-settings-tabs button { border: 0; border-bottom: 3px solid transparent; padding: 10px 14px; background: transparent; color: #475569; font: inherit; font-size: 13px; font-weight: 600; white-space: nowrap; cursor: pointer; }
+.sched-settings-tabs button.on { border-bottom-color: #166534; color: #14532d; background: #f0fdf4; }
+.sched-settings-tabs button:focus-visible { outline: 2px solid #166534; outline-offset: -2px; }
+.sched-settings-section h3, .sched-tool-cluster h3 { margin: 0; font-size: 14px; }
+.sched-settings-section .hint { margin: 8px 0 16px; }
+.sched-settings-full-width { flex-basis: 100%; margin: 0 0 8px; }
+.sched-organization-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: 8px; max-height: 190px; overflow-y: auto; }
+.sched-organization-choice { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 13px; cursor: pointer; }
+.sched-organization-choice input { accent-color: #166534; }
+.sched-organization-choice .sched-org-chip-icon { width: 22px; height: 22px; flex: 0 0 22px; object-fit: contain; }
+.sched-calendar-settings .sched-tool-cluster { flex-wrap: wrap; border: 0; padding: 0; }
+.sched-calendar-settings .sched-tool-bar { padding: 0; }
+.sched-calendar-settings .sched-settings-tools-target { margin-top: 16px; }
+.sched-calendar-settings .sched-more-tools { margin: 0; }
+@media (max-width: 600px) { .sched-calendar-settings__body { padding: 12px; } .sched-settings-tabs button { padding: 10px; } }
 .sched-page-sub {
   margin: 4px 0 0;
   font-size: 14px;
@@ -29165,14 +29239,14 @@ watch(()=>props.spanMode,value=>{
   bottom: 24px;
   left: 50%;
   transform: translateX(-50%);
-  background: var(--primary);
+  background: var(--primary, #0f766e);
   color: white;
   padding: 12px 20px;
   border-radius: 12px;
   font-weight: 700;
   font-size: 14px;
   box-shadow: var(--shadow-lg);
-  z-index: 9999;
+  z-index: 10500;
   max-width: 90vw;
   text-align: center;
   animation: sched-toast-fade 0.3s ease-out;
@@ -30905,6 +30979,8 @@ watch(()=>props.spanMode,value=>{
   z-index: 1;
 }
 
+.sched-top-help { display:flex; justify-content:flex-end; gap:8px; align-items:center; padding:4px 0; }
+.sched-office-reminder-toast button { margin-left:12px; border:0; background:transparent; color:inherit; cursor:pointer; font:inherit; }
 .sched-room-visibility { display:flex; flex-wrap:wrap; align-items:center; gap:6px 12px; padding:4px 0; }
 .sched-room-visibility > .sched-pill { flex-shrink:0; }
 
@@ -30917,7 +30993,7 @@ watch(()=>props.spanMode,value=>{
   align-items: center;
   justify-content: center;
   padding: 18px;
-  z-index: 5000;
+  z-index: 10200;
 }
 .modal-backdrop--request {
   padding: 12px;

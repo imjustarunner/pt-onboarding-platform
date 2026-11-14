@@ -22,10 +22,20 @@ it('shows chart context and directs documentation to the single Session note sou
 });
 
 it('retains the canonical full-note action and handles an empty chart', async () => {
-  const wrapper = mount(Panel, { props: { clinicalSessionId: 167 } });
+  const wrapper = mount(Panel, { props: { clinicalSessionId: 167, clinicalNoteId: 10 } });
   expect(wrapper.text()).toContain('No treatment plan on file');
   expect(wrapper.text()).toContain('No active diagnoses');
-  await wrapper.findAll('button').find(button => button.text() === 'Open clinical note').trigger('click');
+  await wrapper.findAll('button').find(button => button.text() === 'Review in Note Workspace').trigger('click');
   expect(wrapper.emitted('open-note')).toHaveLength(1);
   wrapper.unmount();
+});
+
+it('shows all treatment goals and every objective, including objectives after the fourth', () => {
+  const wrapper = mount(Panel, { props: { latestPlan: { goals: [
+    { id: 1, goal_text: 'First goal', objectives: Array.from({length: 6}, (_,i) => ({objective_text: `Objective ${i+1}`})) },
+    { id: 2, goal_text: 'Second goal', objectives: [{ objective_text: 'Later goal objective' }] }
+  ] } } });
+  expect(wrapper.text()).toContain('Second goal'); expect(wrapper.text()).toContain('Objective 6');
+  expect(wrapper.text()).toContain('Later goal objective'); expect(wrapper.findAll('.acp-plan-goal')).toHaveLength(2);
+  expect(wrapper.text()).not.toContain('Review in Note Workspace'); wrapper.unmount();
 });

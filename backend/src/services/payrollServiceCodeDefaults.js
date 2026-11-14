@@ -6,6 +6,8 @@
 // - These defaults affect hours/credits math, but fee-for-service pay should still
 //   be driven by per-code rates (units * rate) rather than hours.
 // - Agency-specific edits in the DB always take precedence over these defaults.
+import {TESTING_SERVICE_CODES} from '../content/testingServicePolicy.js';
+
 export const PAYROLL_SERVICE_CODE_DEFAULTS = new Map(
   [
     // Direct CPTs
@@ -78,6 +80,18 @@ export const PAYROLL_SERVICE_CODE_DEFAULTS = new Map(
     ['HOLIDAY BONUS', { category: 'bonus', otherSlot: 1, durationMinutes: 0, payDivisor: 1, creditValue: 0 }]
   ].map(([k, v]) => [String(k).trim().toUpperCase(), v])
 );
+
+// Add missing definitions only. Saved agency overrides and historical terms remain.
+for (const definition of TESTING_SERVICE_CODES) {
+  if (PAYROLL_SERVICE_CODE_DEFAULTS.has(definition.code)) continue;
+  const minutes=definition.nominalMinutes;
+  PAYROLL_SERVICE_CODE_DEFAULTS.set(definition.code,{
+    category:'direct',otherSlot:1,durationMinutes:minutes||1,
+    payDivisor:minutes?60/minutes:60,creditValue:minutes?minutes/60:1/60,
+    paySystemBucket:definition.bucket,requiresActualMinutes:true,
+    requiredServiceRole:definition.requiredRole,claimBasis:definition.claimBasis
+  });
+}
 
 export function payrollDefaultsForCode(code) {
   const key = String(code || '').trim().toUpperCase();

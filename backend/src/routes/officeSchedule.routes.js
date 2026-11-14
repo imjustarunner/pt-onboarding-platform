@@ -5,6 +5,7 @@ import express from 'express';
 import * as officePolicy from '../controllers/officeSchedulingPolicy.controller.js';
 import { authenticate } from '../middleware/auth.middleware.js';
 import { requirePhysicalOffice } from '../middleware/physicalOffice.middleware.js';
+import { readOwnedOfficeSessionJob } from '../services/ownedOfficeSessionJobs.service.js';
 import {
   listLocations,
   getLocation,
@@ -60,6 +61,13 @@ router.get('/board/:locationId', publicBoard);
 
 // Authenticated routes
 router.use(authenticate);
+router.get('/booking-jobs/:jobId', async (req,res,next) => {
+  try {
+    const job = await readOwnedOfficeSessionJob(req.params.jobId, req.user.id);
+    if (!job) return res.status(404).json({ error: { message: 'Booking progress not found.' } });
+    res.json({ job });
+  } catch (error) { next(error); }
+});
 router.param('locationId', requirePhysicalOffice);
 router.param('id', (req,res,next,value) => req.path.startsWith('/locations/') ? requirePhysicalOffice(req,res,next,value) : next());
 router.get('/scheduling-policies', officePolicy.listPolicies);

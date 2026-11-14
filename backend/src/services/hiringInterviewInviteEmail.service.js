@@ -1,4 +1,5 @@
 import {interviewCalendarJoinUrl} from '../utils/interviewCalendarLink.js';
+import { interviewRsvpUrl } from '../utils/interviewJoinUrl.js';
 import { interviewInvitationBody } from '../utils/interviewInvitationBody.js';
 import { resolveMeetingRecipient } from './meetingRecipientIdentity.service.js';
 /**
@@ -178,7 +179,7 @@ export async function prepareHiringInterviewInviteEmail({
   const replyTo = (Array.isArray(interviewerRows) ? interviewerRows : []).map(row=>String(row.email || '').trim()).filter(Boolean).join(', ') || String(identity.from_email).trim();
 
   const subject = String(title || 'Interview invitation').trim();
-  const rsvpUrl = publicJoinUrl.replace('/join/team-meeting/','/interview-rsvp/');
+  const rsvpUrl = interviewRsvpUrl(publicJoinUrl);
   const text = [
     `Hi ${firstName},`,
     '',

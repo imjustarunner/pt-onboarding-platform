@@ -3,7 +3,7 @@
     <div class="arp-layout">
       <div class="arp-main">
         <header class="arp-head">
-          <h3 class="arp-title">Notifications</h3>
+          <h3 class="arp-title">Notifications</h3><button type="button" class="arp-filter" :disabled="loading || busy" @click="emit('refresh')">Refresh status</button>
           <div class="arp-filters">
             <button
               v-for="f in filters"
@@ -47,6 +47,8 @@
             </template>
           </div>
 
+          <p v-if="notice" role="status">{{ notice }}</p>
+          <p v-if="appointmentId && !canPushExtra && availableAt" class="muted">Additional reminders have a 24-hour cooldown. Next available: {{ formatWhenLocal(availableAt) }}.</p>
           <div class="arp-actions">
             <button
               v-if="appointmentId"
@@ -55,7 +57,7 @@
               :disabled="busy || !canPushExtra"
               @click="emit('push-extra')"
             >
-              Push additional reminder
+              {{ busy ? 'Queuing…' : 'Send additional reminder' }}
             </button>
             <slot />
           </div>
@@ -78,7 +80,7 @@
               Participants receive join reminders by email or SMS based on their notification preferences.
             </template>
             <template v-else>
-              Attendee channel permissions appear here after the appointment is saved.
+              Channel availability follows the client’s communication preferences and consent. Review recorded delivery details in the notification history.
             </template>
           </p>
         </section>
@@ -109,12 +111,14 @@ const props = defineProps({
   lastSentLabel: { type: String, default: '' },
   planItems: { type: Array, default: () => [] },
   attendees: { type: Array, default: () => [] },
+  availableAt: { type: String, default: '' },
+  notice: { type: String, default: '' },
   canPushExtra: { type: Boolean, default: false },
   busy: { type: Boolean, default: false },
   formatWhen: { type: Function, default: null }
 });
 
-const emit = defineEmits(['push-extra']);
+const emit = defineEmits(['push-extra','refresh']);
 
 const filter = ref('all');
 const filters = [

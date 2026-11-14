@@ -373,7 +373,12 @@ router.delete('/:id/affiliations/:organizationId', removeClientAffiliation);
 
 // Multi-agency affiliations (admin/staff/support/super_admin)
 router.get('/:id/service-enrollments', serviceEnrollments.list);
+router.get('/:id/reenrollment/options', requireActiveStatus, serviceEnrollments.reenrollmentOptions);
+router.post('/:id/reenrollment', requireActiveStatus, serviceEnrollments.sendReenrollment);
 router.post('/:id/service-enrollments', serviceEnrollments.save);
+router.patch('/:id/service-enrollments/:serviceId/status', serviceEnrollments.status);
+router.get('/:id/service-enrollments/:serviceId/return-requests', serviceEnrollments.returns);
+router.post('/:id/service-enrollments/:serviceId/return-requests/:requestId/review', serviceEnrollments.reviewReturn);
 router.delete('/:id/service-enrollments/:serviceId', serviceEnrollments.archive);
 router.get('/:id/agency-affiliations', listClientAgencyAffiliations);
 router.post('/:id/agency-affiliations', upsertClientAgencyAffiliation);

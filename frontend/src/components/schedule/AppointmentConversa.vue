@@ -57,7 +57,7 @@ async function send(choice = null) {
     const { data } = await api.post('/messages/hub/send', {
       agencyId: props.agencyId, personKey: method.value === 'sms' ? clientKey.value : recipientKey.value,
       clientId: props.clientId, method: method.value, body: body.value.trim(), subject: subject.value.trim(),
-      mode: 'new', newTopic: true, deliveryChoice: choice, ...(method.value==='secure'?{expectedRecipientUserIds:[...(sharedAudience.value?.recipientUserIds||[])]}:{})
+      mode: 'new', newTopic: true, deliveryChoice: choice, ...(method.value==='secure'?{expectedRecipientUserIds:[...(sharedAudience.value?.recipientUserIds||[])],serviceId:sharedAudience.value?.serviceId||undefined}:{})
     }, { skipGlobalLoading: true });
     if (data?.error) throw new Error(data.error.message || 'Message was not sent.');
     status.value = data.queued || data.scheduled ? 'Message queued in Conversa. Delivery follows the recipient’s settings.' : 'Message sent through Conversa.';
@@ -88,7 +88,7 @@ watch(() => [props.clientId, props.agencyId], load, { immediate: true });
     <p v-if="method === 'sms'" class="hint">Texts follow existing consent and opt-out rules. Use secure messages for private care details.</p>
     <EmailDeliveryChoice :info="deliveryChoice" :busy="busy" @choose="send($event)" @cancel="deliveryChoice = null" />
     <p v-if="error" role="alert">{{ error }}</p><p v-if="status" role="status">{{ status }}</p>
-    <button type="button" class="btn btn-primary" :disabled="busy || loading || !body.trim() || !activeMethod?.available" @click="send()">{{ busy ? 'Sending…' : 'Send through Conversa' }}</button>
+    <button type="button" class="btn btn-primary" :disabled="busy || loading || !body.trim() || !activeMethod?.available || (method === 'secure' && !sharedAudience?.canSend)" @click="send()">{{ busy ? 'Sending…' : 'Send through Conversa' }}</button>
   </section>
 </template>
 <style scoped>

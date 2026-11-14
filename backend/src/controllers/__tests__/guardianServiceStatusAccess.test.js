@@ -1,0 +1,12 @@
+import {beforeEach,expect,it,vi} from 'vitest';
+const m=vi.hoisted(()=>({execute:vi.fn(),list:vi.fn(),save:vi.fn(),update:vi.fn()}));
+vi.mock('../../config/database.js',()=>({default:{execute:m.execute}}));
+vi.mock('../../services/clientServiceEnrollment.service.js',()=>({listClientServices:m.list,saveClientService:m.save,clientAgencyMembership:async()=>true,updateClientServiceStatus:m.update}));
+vi.mock('../../services/clientServiceReturnRequest.service.js',()=>({clientServiceReturnRequests:{list:vi.fn(),review:vi.fn()}}));
+import {list,status,save} from '../clientServiceEnrollment.controller.js';
+const res=()=>({set:vi.fn().mockReturnThis(),json:vi.fn().mockReturnThis(),status:vi.fn().mockReturnThis()});
+const req=(serviceId=3,role='provider')=>({user:{id:7,role},params:{id:8,serviceId},query:{agencyId:2},body:{status:'active',reason:'Resume',confirmed:true}});
+beforeEach(()=>{vi.clearAllMocks();m.execute.mockImplementation(async(sql,args)=>sql.includes('user_agencies')?[[{member:1}]]:[args[3]===4?[]:[{id:3}]]);m.list.mockResolvedValue([{id:3,provider_user_id:7},{id:4,provider_user_id:99}]);m.update.mockImplementation(async()=>({services:[{id:3,provider_user_id:7},{id:4,provider_user_id:99}]}));});
+it('lets an assigned provider manage their service while excluding other providers from responses',async()=>{const r=res(),next=vi.fn();await list(req(),r,next);expect(r.json).toHaveBeenCalledWith({services:[{id:3,provider_user_id:7}]});const changed=res();await status(req(),changed,next);expect(changed.json).toHaveBeenCalledWith({services:[{id:3,provider_user_id:7}]});expect(next).not.toHaveBeenCalled();});
+it('rejects another provider’s enrollment and client attempts to reactivate themselves',async()=>{for(const input of [req(4),req(3,'client')]){const next=vi.fn();await status(input,res(),next);expect(next).toHaveBeenCalledWith(expect.objectContaining({status:403}));}expect(m.update).not.toHaveBeenCalled();});
+it('does not give providers administrative assignment rights',async()=>{const r=res();await save(req(),r,vi.fn());expect(r.status).toHaveBeenCalledWith(403);expect(m.save).not.toHaveBeenCalled();});

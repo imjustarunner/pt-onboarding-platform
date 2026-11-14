@@ -245,6 +245,10 @@
               @navigate="go"
               @customize="openGlanceCustomizer"
             />
+            <ReferralTotalsButton
+              v-if="currentAgencyId && ['admin', 'super_admin', 'support'].includes(roleLower)"
+              :agency-id="currentAgencyId"
+            />
           </div>
 
           <div
@@ -522,6 +526,7 @@ import FrequentPagesBar from '../../components/admin/FrequentPagesBar.vue';
 import QuickActionsSection from '../../components/admin/QuickActionsSection.vue';
 import OpsDaySchedulePanel from '../../components/admin/opsDashboard/OpsDaySchedulePanel.vue';
 import AtAGlanceRow from '../../components/admin/opsDashboard/AtAGlanceRow.vue';
+import ReferralTotalsButton from '../../components/admin/ReferralTotalsButton.vue';
 import OpsSummaryCards from '../../components/admin/opsDashboard/OpsSummaryCards.vue';
 import PeopleOpsPipelineCard from '../../components/admin/opsDashboard/PeopleOpsPipelineCard.vue';
 import TenantContextCards from '../../components/admin/opsDashboard/TenantContextCards.vue';

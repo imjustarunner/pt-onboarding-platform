@@ -106,6 +106,6 @@ export function createAppointmentStaffTools({ db = pool, appointments = Appointm
       return { ...entry, text, clipText, showOnSchedule: showClip };
     }).filter(entry => entry.text);
   }
-  return { get, save, list, authorize: (user, id) => appointmentAccess(user, id, false, true) };
+  return { get, save, list, authorizeEdit: (user, id) => appointmentAccess(user, id, true, true), authorize: (user, id) => appointmentAccess(user, id, false, true) };
 }
 export default createAppointmentStaffTools();

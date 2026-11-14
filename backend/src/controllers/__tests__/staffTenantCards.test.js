@@ -1,13 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-const m = vi.hoisted(() => ({ execute: vi.fn(), getConnection: vi.fn() }));
+const m = vi.hoisted(() => ({ execute: vi.fn(), getConnection: vi.fn(), testing: vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: m }));
+vi.mock('../../services/agencyAccessProfiles.service.js', () => ({ readAgencyAccess: vi.fn(async () => null) }));
+vi.mock('../../services/testingEligibility.service.js', () => ({ requireTestingEligibility: m.testing }));
 import { listStaffCardAgencies, guardAgencyMembershipUpdate, listStaffServiceAssignments, updateStaffServiceAssignments } from '../staffTenantCards.controller.js';
 const request = (extra = {}) => ({ user: { id: 501 }, params: { id: '538', agencyId: '6' }, body: { serviceIds: [234,239] }, ...extra });
 const response = () => ({ status: vi.fn().mockReturnThis(), json: vi.fn() });
 let actor, targetMember, actorMember, connection, carePerson;
 beforeEach(() => {
   carePerson={role:'admin',agency_role:'facilitator',credential:'BA',status:'ACTIVE_EMPLOYEE',is_active:1,membership_active:1,sees_clients:1};
-  vi.clearAllMocks(); actor = { id: 501, role: 'super_admin', is_active: 1, status: 'ACTIVE_EMPLOYEE' }; targetMember = true; actorMember = true;
+  vi.clearAllMocks(); m.testing.mockReset().mockResolvedValue(null); actor = { id: 501, role: 'super_admin', is_active: 1, status: 'ACTIVE_EMPLOYEE' }; targetMember = true; actorMember = true;
   connection = { beginTransaction: vi.fn(), commit: vi.fn(), rollback: vi.fn(), release: vi.fn(), execute: vi.fn(async sql => {
     if (sql.startsWith('SELECT u.role,u.credential')) return [[carePerson]];
     if (sql.startsWith('SELECT user_id')) return [[{user_id:538}]];
@@ -75,5 +77,12 @@ describe('staff tenant relationships', () => {
     const writes=connection.execute.mock.calls.filter(([s])=>s.startsWith('UPDATE'));
     expect(writes.map(([,args])=>args)).toEqual([[1,6,234,538],[1,6,239,538],[0,6,253,538]]);
     for (const [sql] of writes) { expect(sql).toContain('AND user_id=?'); expect(sql).not.toContain('modality='); expect(sql).not.toContain('office_location_id='); }
+  });
+  it('checks the selected service role before changing any assignment', async () => {
+    m.testing.mockRejectedValue(Object.assign(new Error('Testing role required'), {status:403}));
+    const res=response(); await updateStaffServiceAssignments(request(),res,vi.fn());
+    expect(m.testing).toHaveBeenCalledWith(expect.objectContaining({agencyId:6,userId:538,checkCodeAssignments:false}),connection);
+    expect(res.status).toHaveBeenCalledWith(403); expect(connection.rollback).toHaveBeenCalled();
+    expect(connection.execute.mock.calls.some(([sql])=>/^(UPDATE|INSERT)/.test(sql))).toBe(false);
   });
 });

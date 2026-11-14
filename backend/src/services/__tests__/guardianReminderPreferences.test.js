@@ -4,10 +4,11 @@ vi.mock('../../models/ClientGuardian.model.js', () => ({ default: { listClientsF
 vi.mock('../sessionNotification.service.js', () => ({ getClientPreferences: vi.fn(), putClientPreferences: vi.fn() }));
 vi.mock('../familyBillingEncryption.service.js', () => ({ encryptFamilyBilling: vi.fn(), decryptFamilyBilling: vi.fn() }));
 import ClientGuardian from '../../models/ClientGuardian.model.js';
+import pool from '../../config/database.js';
 import { getClientPreferences, putClientPreferences } from '../sessionNotification.service.js';
 import { guardianReminderPreferences, listGuardianAppointments } from '../guardianAppointments.service.js';
 beforeEach(() => {
-  vi.resetAllMocks();
+  vi.resetAllMocks();pool.execute.mockResolvedValue([[]]);
   ClientGuardian.listClientsForGuardian.mockResolvedValue([{ client_id: 1, agency_id: 2 }]);
   getClientPreferences.mockResolvedValue({ isDefault: false, channels: { sms: false } });
 });

@@ -39,7 +39,7 @@ const req = () => ({
   user: { id: 465, role: 'clinical_practice_assistant' },
   params: { id: '878' },
   query: {},
-  body: { roomId: 6, approverComment: 'Use this room' }
+  body: { roomId: 6, approverComment: 'Use this room', acknowledgeAlternativeRoom: true }
 });
 const res = () => ({
   status: vi.fn().mockReturnThis(),
@@ -141,4 +141,10 @@ it('never repeats a successful decision because notification delivery failed', a
       warning: expect.stringContaining('Do not submit it again')
     })
   );
+});
+
+it('requires explicit confirmation when approving a different office',async()=>{
+ const r=req();r.body.acknowledgeAlternativeRoom=false;const response=res(),handler=vi.fn();
+ await runOfficeDecision(r,response,vi.fn(),{source:'intake',action:'approve',handler});
+ expect(response.status).toHaveBeenCalledWith(409);expect(response.json).toHaveBeenCalledWith(expect.objectContaining({error:expect.objectContaining({code:'OFFICE_ALTERNATIVE_ROOM'})}));expect(handler).not.toHaveBeenCalled();
 });

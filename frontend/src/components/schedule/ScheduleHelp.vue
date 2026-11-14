@@ -12,8 +12,12 @@ const topics = [
   ['Cancel one appointment', 'Open the appointment and choose Change appointment. Enter the reason to share with the client, review follow-up and the generated note, then confirm.'],
   ['Cancel a provider’s day', 'Use Cancel day for the selected provider and date. Review affected appointments, hosted meetings and openings before confirming. Other recurring dates remain scheduled.'],
   ['Remove an opening', 'Open the published availability and choose Remove availability. Choose this occurrence or this and future occurrences. Existing appointments and room reservations stay booked.'],
-  ['Contact a client', 'Open the scheduled appointment. Under Info, choose Text, message or email client · Conversa. Select the client/contact and channel, then review your message before sending.'],
-  ['Leave a schedule clip', 'Open the appointment and add a Schedule clip. It stays on the appointment. Check Show on the schedule to flag it on the schedule face. Staff with full schedule access can see it; clients cannot.'],
+  ['Contact a client', 'Open the scheduled appointment. Under Info, choose Contact client beside the Conversa logo. Select the client/contact and channel, then review your message before sending.'],
+  ['Leave a schedule clip', 'Open the appointment and add a Schedule clip. It stays on the appointment. Choose “In this appointment and on the schedule” to flag it on the schedule face. Staff with full schedule access can see it; clients cannot.'],
+  ['Link an existing office booking', 'Open the session’s Info tab and choose Link an existing office reservation. Select your reserved room. For a recurring series, choose this and future saved appointments. Each date needs an existing reservation; session notes and dates are preserved.'],
+  ['Copy an appointment reference', 'Click the small reference at the bottom of a schedule card, or the Reference button at the bottom of its details, to copy it. Sessions and office bookings have their own stable references.'],
+  ['Review notes and reminders', 'Session note holds your source text. Review its formatted draft and sign in Note Workspace. In Notifications, use Additional reminders to add, edit, or remove reminders and save the settings. Refresh status shows delivery activity. An extra reminder can be requested once every 24 hours.'],
+  ['Canceled appointments', 'Canceled appointments remain at their original time with a canceled label. Open one to review its nonbillable change note and communication history.'],
   ['See earlier or later times', 'The schedule includes the earliest and latest timed events. Use the hours control above the time labels to show all 24 hours.']
 ];
 function closeOutside(event) { if (!root.value?.contains(event.target) && !panel.value?.contains(event.target)) open.value = false; }

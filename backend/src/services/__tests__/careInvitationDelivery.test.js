@@ -6,7 +6,7 @@ vi.mock('../email.service.js',()=>({default:{sendEmail:m.send}}));
 vi.mock('../emailSenderIdentityResolver.service.js',()=>({resolveConfiguredSenderIdentity:m.sender}));
 vi.mock('../staffCareEligibility.service.js',()=>({requireStaffCareEligibility:m.eligible}));
 import {createCareInvitation} from '../careInvitation.service.js';
-const input={agencyId:377,providerId:501,email:'parent@example.com',modality:'VIRTUAL',note:'My personal note',requestKey:'care-request-123456789'};
+const input={agencyId:377,providerId:501,email:'parent@example.com',modality:'VIRTUAL',note:'My personal note',noteFrom:'Support Team',requestKey:'care-request-123456789'};
 let prior;
 beforeEach(()=>{vi.clearAllMocks();prior=null;m.sender.mockResolvedValue({from_email:'portal@auricwell.com'});m.createLink.mockImplementation(async data=>({id:90,public_key:data.publicKey}));m.send.mockResolvedValue({id:'gmail-message',communicationId:80});m.execute.mockImplementation(async sql=>{
  if(sql.includes('GET_LOCK'))return [[{acquired:1}]];
@@ -25,3 +25,20 @@ it('reports approval-held mail honestly without claiming it was sent',async()=>{
 it('leaves an uncertain transport outcome for review instead of retrying the send',async()=>{m.send.mockRejectedValue(Error('Connection lost'));await expect(createCareInvitation(input,9)).rejects.toThrow('Connection lost');expect(m.send).toHaveBeenCalledOnce();expect(m.execute).toHaveBeenCalledWith(expect.stringContaining("status='delivery_review'"),[8]);});
 
 it('fits the persisted intake link key width',async()=>{await createCareInvitation(input,9);const key=m.createLink.mock.calls[0][0].publicKey;expect(key.length).toBeLessThanOrEqual(64);expect(key.length).toBeGreaterThanOrEqual(40);});
+it('requires private staff review of an existing client before sending a new enrollment',async()=>{
+ const execute=m.execute.getMockImplementation();m.execute.mockImplementation((sql,...args)=>sql.includes('FROM client_guardians')?Promise.resolve([[{id:12,full_name:'Existing client'}]]):execute(sql,...args));
+ await expect(createCareInvitation(input,9)).rejects.toMatchObject({status:409,code:'EXISTING_RECORD_REVIEW',clients:[{id:12,name:'Existing client'}]});expect(m.createLink).not.toHaveBeenCalled();expect(m.send).not.toHaveBeenCalled();
+ await expect(createCareInvitation({...input,newSubjectConfirmed:true,reviewedClientIds:[99]},9)).rejects.toMatchObject({code:'EXISTING_RECORD_REVIEW'});
+ expect((await createCareInvitation({...input,newSubjectConfirmed:true,reviewedClientIds:[12]},9)).status).toBe('invited');
+});
+
+it('rejects a personal note without attribution before creating a link or sending mail',async()=>{
+ await expect(createCareInvitation({...input,noteFrom:'  '},9)).rejects.toThrow('who the personal note is from');
+ expect(m.execute).not.toHaveBeenCalled();expect(m.createLink).not.toHaveBeenCalled();expect(m.send).not.toHaveBeenCalled();
+});
+it('uses the entered author for the note while keeping the assigned provider as inviter',async()=>{
+ await createCareInvitation({...input,noteFrom:'Loriana'},9);
+ const mail=m.send.mock.calls[0][0];expect(mail.subject).toContain('Michael Mendez has invited you');
+ expect(mail.html).toContain('A note from Loriana');expect(mail.text).toContain('A note from Loriana:');
+ expect(mail.html).not.toContain('A note from Michael Mendez');
+});

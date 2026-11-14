@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { flushPromises, shallowMount, mount } from '@vue/test-utils';
+import { DOMWrapper, flushPromises, shallowMount, mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import { nextTick } from 'vue';
 
@@ -165,18 +165,20 @@ async function openReservation() {
 }
 it('anchors editing to the selected date, time and room and prevents occurrence scope after a cadence change', async () => {
   const s = await openReservation();
-  const context = wrapper.get('[data-testid="selected-office-reservation"]');
+  const editor = new DOMWrapper(document.body).get('.modal-backdrop--request');
+  const context = editor.get('[data-testid="selected-office-reservation"]');
   expect(context.text()).toContain('Thursday, November 26, 2026');
   expect(context.text()).toContain('3:00 PM–4:00 PM'); expect(context.text()).toContain('Office #10');
   s.bookingStripFrequency = 'BIWEEKLY'; await nextTick();
-  expect(wrapper.get('select[aria-label="Reservation edit scope"] option[value="occurrence"]').element.disabled).toBe(true);
+  expect(editor.get('select[aria-label="Reservation edit scope"] option[value="occurrence"]').element.disabled).toBe(true);
   expect(s.bookingMoveScope).toBe('future');
 });
 it('locks recurrence for one-date edits and moves only that occurrence without a booking-plan write', async () => {
   const s = await openReservation();
-  await wrapper.get('select[aria-label="Reservation edit scope"]').setValue('occurrence');
+  const editor = new DOMWrapper(document.body).get('.modal-backdrop--request');
+  await editor.get('select[aria-label="Reservation edit scope"]').setValue('occurrence');
   expect(s.bookingStripFrequency).toBe('ONCE'); expect(s.bookingStripDirty).toBe(false);
-  const repeat = wrapper.get('[data-testid="schedule-booking-meta"] select');
+  const repeat = editor.get('[data-testid="schedule-booking-meta"] select');
   expect(repeat.element.disabled).toBe(true);
   s.onModalStartTimeInput('16:00'); await nextTick();
   s.onModalEndTimeInput('17:00'); await nextTick();
@@ -244,4 +246,13 @@ it('shares catalog requests, isolates practices and retries failed reads', async
   get.mockResolvedValue({ data: { serviceLocations: [1] } });
   expect(await read('/locations', { agencyId: 2, providerId: 501 })).toEqual({ serviceLocations: [1] });
   expect(get).toHaveBeenCalledTimes(3);
+});
+
+it('shows a saved office client appointment when the room-reservation layer is hidden',async()=>{
+ wrapper=shallowMount(Grid,{props:{userId:7,agencyId:2},global:{stubs:{Teleport:false,RouterLink:true}}});await flushPromises();const s=wrapper.vm.$.setupState;
+ s.weekStart='2026-11-23';s.showMyRooms=false;s.summary={weekStart:'2026-11-23',officeEvents:[{id:18510,appointmentId:264,clientId:81,agencyId:2,_agencyId:2,buildingId:8,roomId:10,startAt:'2026-11-26T22:00:00Z',endAt:'2026-11-26T23:00:00Z',status:'BOOKED'}]};await nextTick();
+ expect(s.summary.scheduleEvents).toEqual([expect.objectContaining({kind:'PERSONAL_EVENT',appointmentId:264,officeEventId:18510})]);
+ const item={...s.summary.scheduleEvents[0],eventId:-18510,eventKind:'PERSONAL_EVENT'};expect(s.isEditableScheduleStackItem(item)).toBe(true);expect(s.isClientSessionScheduleEvent(item)).toBe(true);
+ await s.openAppointmentEditInScheduleModal({item,dayName:'Thursday',hour:15});await flushPromises();expect(s.editorAppointmentId).toBe(264);
+ expect(mocks.get.mock.calls.some(([url])=>String(url).includes('/schedule-events/-18510'))).toBe(false);
 });

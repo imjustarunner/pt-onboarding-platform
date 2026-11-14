@@ -11,7 +11,9 @@ const m = vi.hoisted(() => ({
   find: vi.fn(),
   storage: vi.fn(),
   officeAgencies: vi.fn(),
+  noreply: vi.fn(),
 }));
+vi.mock("../tenantMessageMailboxes.service.js",()=>({ensureTenantNoreplyMailbox:m.noreply}));
 vi.mock("../../config/database.js", () => ({
   default: {
     execute: m.execute,
@@ -77,6 +79,7 @@ const item = {
 let rows, group;
 beforeEach(() => {
   vi.resetAllMocks();
+  m.noreply.mockResolvedValue({noreply:{id:88,agency_id:2,is_active:1,from_email:"noreply@example.test",reply_to:"po@example.test"}});
   group = { kind: "decision", agency_id: 2, user_id: 12 };
   rows = [1, 2, 3, 4, 5].map((id) => ({
     id,
@@ -111,6 +114,8 @@ it("sends five decisions together, with one branded-content email and records th
   expect(m.send).toHaveBeenCalledOnce();
   expect(m.send.mock.calls[0][0]).toMatchObject({
     triggerKey: "office_request_decision",
+    senderIdentityId:88,
+    replyToOverride:"noreply@example.test",
     agencyId: 2,
     userId: 12,
   });
@@ -253,7 +258,7 @@ it("shows precise local times and recurrence without treating a room as a confir
   expect(content.text).toContain("Monday, November 2, 2026");
   expect(content.text).toContain("5:00 PM–7:00 PM (America/Denver)");
   expect(content.text).toContain("Weekly");
-  expect(content.text).toContain("until app session booking is enabled");
+  expect(content.text).toContain("No client session is attached to this request");
   expect(content.text).not.toContain("Confirmed:");
   const unconfirmed = buildOfficeRequestEmail({
     kind: "decision",
@@ -391,4 +396,10 @@ it("does not confuse linked appointments with missing file attachments", () => {
       false,
     );
   }
+});
+
+it('never falls back to People Operations when the office no-reply sender is disabled',async()=>{
+ m.noreply.mockResolvedValue({noreply:{id:88,agency_id:2,is_active:0,from_email:'noreply@example.test'}});
+ await sendDueOfficeRequestEmails();expect(m.send).not.toHaveBeenCalled();
+ expect(m.dbQuery).toHaveBeenCalledWith(expect.stringContaining("status='needs_review'"),expect.arrayContaining([expect.stringContaining('no-reply')]));
 });

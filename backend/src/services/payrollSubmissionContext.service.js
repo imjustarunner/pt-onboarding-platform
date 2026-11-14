@@ -1,3 +1,4 @@
+import {TESTING_SERVICE_POLICY_VERSION,testingServiceDefinition,testingCompensationBasis,requiresTestingRole,canUseTestingRole} from '../content/testingServicePolicy.js';
 import {futureHireEnrollment, futureHirePayContext} from './futureHirePay.service.js';
 import pool from '../config/database.js';
 import { isJacquelyneTimeUser } from '../utils/jacquelyneTimePolicy.js';
@@ -34,14 +35,16 @@ export async function submissionContext({agencyId,userId,asOf=day(new Date())}) 
   indirectMinutesPerHour:schedule?directCareIndirectMinutes(schedule.autoIndirectMinutes??defaultHcodeIndirectMinutes(schedule.category)):0,
   effective:!!agencyEnabled&&Number(assignment?.pay_system_enabled)===1&&!!agreement&&!!schedule&&!!starts&&asOf>=starts};
 }
-export function compensationCodes(rules) {
+export function compensationCodes(rules,profile=null) {
  return rules.filter(r=>isPayrollCodeVisible(r) && ['credit','hcode','indirect','support_activity','flat'].includes(classifyPayType(r.service_code,r))).map(r=>{
   const code=r.service_code,payType=classifyPayType(code,r),h=payType==='hcode';
   if (payType === 'flat') return {code,group:'flat',payType,creditValue:0,basis:'occurrences',flatRateAmount:Number(r.flat_rate_amount),quantityLabel:`$${Number(r.flat_rate_amount).toFixed(2)} per eligible occurrence · no credits or hours`,restricted:false};
+  const definition=testingServiceDefinition(code);
+  if(definition && profile?.testingServicePolicyVersion===TESTING_SERVICE_POLICY_VERSION)return {code,group:definition.bucket==='credit'?'clinical_session':'direct_care',payType:definition.bucket,creditValue:definition.code==='H0004'?.25:1/60,basis:definition.code==='H0004'?'units':'minutes',quantityLabel:testingCompensationBasis(definition),restricted:requiresTestingRole(code)&&!canUseTestingRole(profile),requiredServiceRole:definition.requiredRole,medicaidOnly:requiresTestingRole(code),claimBasis:definition.claimBasis,minimumMinutes:definition.minimumMinutes,maximumMinutes:definition.maximumMinutes};
   const value=Number(r.credit_value),perMinute=h&&Number(r.pay_divisor)===60;
   const group={credit:'clinical_session',hcode:'direct_care',indirect:'indirect',support_activity:'support_activity'}[payType];
   return {code,group,payType,creditValue:value,basis:perMinute?'minutes':h?'units':payType==='credit'?'credits':'hours',
-   quantityLabel:perMinute?'Documented service minutes ÷ 60':h?`${value.toFixed(2)} direct hours per verified unit`:payType==='credit'?`${value.toFixed(2)} credits per service`:`${value.toFixed(2)} hours per unit`,restricted:false};
+   quantityLabel:perMinute?'Documented service minutes ÷ 60':h?`${value.toFixed(2)} direct hours per verified unit`:payType==='credit'?`${value.toFixed(2)} credits per service`:`${value.toFixed(2)} hours per unit`,restricted:requiresTestingRole(code)&&!canUseTestingRole(profile),...(definition?{requiredServiceRole:definition.requiredRole,medicaidOnly:requiresTestingRole(code)}:{})};
  });
 }
 export function excessIndirect({units,actualMinutes,hoursPerUnit,minutesPerHour}) {
@@ -59,10 +62,13 @@ export async function validateSupplementalTime({agencyId,userId,claimDate,payloa
  if(payload.excessIndirect) {
   const x=payload.excessIndirect;
   const [[rule]]=await pool.execute('SELECT * FROM payroll_service_code_rules WHERE agency_id=? AND service_code=?',[agencyId,x.code]);
-  if(!ctx.effective||!rule||classifyPayType(rule.service_code,rule)!=='hcode'||!(Number(rule.credit_value)>0))throw Object.assign(new Error('Confirm the dated Direct Care Rate and service mapping before submitting excess time.'),{status:409});
-  const calc=excessIndirect({units:x.units,actualMinutes:x.actualMinutes,hoursPerUnit:rule.credit_value,minutesPerHour:ctx.indirectMinutesPerHour});
+  const definition=testingServiceDefinition(x.code),actualTime=ctx.schedule?.testingServicePolicyVersion===TESTING_SERVICE_POLICY_VERSION&&definition&&definition.code!=='H0004';
+  const payType=actualTime?definition.bucket:rule&&classifyPayType(rule.service_code,rule);
+  const hoursPerUnit=actualTime?1/60:Number(rule?.credit_value);
+  if(!ctx.effective||!rule||payType!=='hcode'||!(hoursPerUnit>0))throw Object.assign(new Error('Confirm the dated Direct Care Rate and service mapping before submitting excess time.'),{status:409});
+  const calc=excessIndirect({units:x.units,actualMinutes:x.actualMinutes,hoursPerUnit,minutesPerHour:ctx.indirectMinutesPerHour});
   if(calc.excessMinutes<=0||!Number.isFinite(Number(payload.totalMinutes))||Math.abs(Number(payload.totalMinutes)-calc.excessMinutes)>0.01)throw Object.assign(new Error('Submit only the indirect minutes above the automatic allowance.'),{status:400});
-  payload.excessIndirect={...x,...calc,minutesPerHour:ctx.indirectMinutesPerHour};
+  payload.excessIndirect={...x,...calc,minutesPerHour:ctx.indirectMinutesPerHour,directTimeBasis:actualTime?'actual_minutes':'configured_units'};
  }
  if(ctx.effective && payload.categoryGroup==='indirect_service' && !payload.excessIndirect && payload.excludesAutomaticIndirect!==true)throw Object.assign(new Error('Confirm this time excludes the indirect allowance already included with billed services.'),{status:400});
  return ctx;

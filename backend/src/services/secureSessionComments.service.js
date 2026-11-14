@@ -4,7 +4,7 @@ import { encryptChatText, decryptChatText } from './chatEncryption.service.js';
 import { clinicalAccess } from './guardianClinicalAccess.service.js';
 import { guardianContactRows, sharedGuardianContact } from './guardianContactSharing.service.js';
 import { requireSharedFamilyAck, readSharedFamilyNotice } from './sharedFamilyNotice.service.js';
-import { clientAgencyMembership } from './clientServiceEnrollment.service.js';
+import { clientAgencyMembership, listClientServices, serviceMatchesAppointment } from './clientServiceEnrollment.service.js';
 import { isValidTimeZone, utcDateToZonedYmd, utcMysqlToIso } from '../utils/zonedWallTime.util.js';
 
 const PROVIDERS = new Set(['provider', 'provider_plus', 'intern', 'intern_plus', 'clinician', 'therapist', 'supervisor', 'clinical_practice_assistant', 'admin', 'super_admin']);
@@ -47,7 +47,7 @@ export function sessionCommentAttention({ comments, appointments, state, now, ti
 
 export function createSecureSessionComments(overrides = {}) {
   const d = { db: pool, encrypt: encryptChatText, decrypt: decryptChatText, clinical: clinicalAccess,
-    membership: clientAgencyMembership, contacts:guardianContactRows, requireAck:requireSharedFamilyAck, notice:readSharedFamilyNotice,
+    membership: clientAgencyMembership, services: listClientServices, contacts:guardianContactRows, requireAck:requireSharedFamilyAck, notice:readSharedFamilyNotice,
     clock: () => new Date(), ...overrides };
 
   async function actor(user, db = d.db) {
@@ -89,7 +89,10 @@ export function createSecureSessionComments(overrides = {}) {
     if (!membership) return false;
     const [[assignment]] = await db.execute('SELECT id,is_active FROM client_provider_assignments WHERE client_id=? AND provider_user_id=? ORDER BY is_active DESC,id DESC LIMIT 1', [a.client_id, current.id]);
     // An explicitly ended assignment wins over a stale legacy primary field.
-    return assignment ? Number(assignment.is_active)===1 : Number(a.legacy_provider_id) === Number(current.id);
+    if (assignment) return Number(assignment.is_active) === 1;
+    if (Number(a.legacy_provider_id) === Number(current.id)) return true;
+    const services = await d.services(a.client_id, a.agency_id, db);
+    return services.some(service => Number(service.is_active) === 1 && Number(service.provider_user_id) === Number(current.id) && serviceMatchesAppointment(service, a));
   }
   async function access(user, appointmentId, clientId, db = d.db, lock = false) {
     const current = await actor(user, db);

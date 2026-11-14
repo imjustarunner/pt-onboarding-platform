@@ -186,12 +186,14 @@ async function ensureDocumentPacket(request, items, actorUserId) {
   const documents = items.filter((item) => item.item_type === 'document');
   if (!documents.length) return request;
   if (request.packet_public_key) return request;
+  const reenrollment=request.purpose==='reenrollment';
+  const packet=reenrollment?(typeof request.packet_config_json==='string'?JSON.parse(request.packet_config_json):request.packet_config_json):null;
   const ids = documents.map((item) => Number(item.reference_key)).filter((id) => id > 0);
-  const publicKey = crypto.randomBytes(24).toString('hex');
+  const publicKey = (reenrollment?'reenroll-':'')+crypto.randomBytes(24).toString('hex');
   const client=await Client.findById(request.client_id,{includeSensitive:true});
-  if(!client||Number(client.agency_id)!==Number(request.agency_id)||['ARCHIVED','DECLINED'].includes(String(client.status||'').toUpperCase()))throw fail(409,'Review the current client record before requesting documents.');
+  if(!client||Number(client.agency_id)!==Number(request.agency_id)||(!reenrollment&&['ARCHIVED','DECLINED'].includes(String(client.status||'').toUpperCase())))throw fail(409,'Review the current client record before requesting documents.');
   let schoolId=null;
-  if(String(client.client_type||'').toLowerCase()==='school'&&Number(client.organization_id)) {
+  if(!reenrollment&&String(client.client_type||'').toLowerCase()==='school'&&Number(client.organization_id)) {
     const [[school]]=await pool.execute(`SELECT s.id FROM agencies s WHERE s.id=? AND s.organization_type='school' AND s.is_active=1 AND COALESCE(s.is_archived,0)=0
       AND (EXISTS(SELECT 1 FROM organization_affiliations f WHERE f.organization_id=s.id AND f.agency_id=? AND f.is_active=1)
       OR EXISTS(SELECT 1 FROM agency_schools legacy WHERE legacy.school_organization_id=s.id AND legacy.agency_id=? AND legacy.is_active=1))`,[client.organization_id,request.agency_id,request.agency_id]);
@@ -200,7 +202,7 @@ async function ensureDocumentPacket(request, items, actorUserId) {
   }
   await IntakeLink.create({
     publicKey,
-    title: 'Documents to complete',
+    title: reenrollment?'Re-enrollment package':'Documents to complete',
     description: 'Selected documents for an existing client. This does not start a new enrollment.',
     scopeType: schoolId?'school':'agency',
     formType: 'intake',
@@ -209,9 +211,10 @@ async function ensureDocumentPacket(request, items, actorUserId) {
     createClient: true,
     createGuardian: false,
     requiresAssignment: false,
-    customMessages:{clientUpdateRequestId:Number(request.id)},
+    customMessages:{clientUpdateRequestId:Number(request.id),...(reenrollment?{reenrollment:true}:{})},
+    intakeFields:packet?.fields||null,
     allowedDocumentTemplateIds: ids,
-    intakeSteps: documents.map((item) => ({
+    intakeSteps: packet?.steps||documents.map((item) => ({
       type: 'document',
       templateId: Number(item.reference_key),
       title: item.title
@@ -257,8 +260,8 @@ async function ensureAssessments(request, items, actorUserId) {
 
 /** Existing portal authority only. Operational email eligibility never grants
  * access to a clinical document, account or relationship. Reused at transport. */
-export async function currentClientUpdateRecipient({agencyId,clientId,to,guardianUserId=null}) {
-  assertEnabled();
+export async function currentClientUpdateRecipient({agencyId,clientId,to,guardianUserId=null,reenrollment=false}) {
+  if(!reenrollment)assertEnabled();
   const client=await Client.findById(Number(clientId),{includeSensitive:true});
   if(!client||Number(client.agency_id)!==Number(agencyId))throw fail(403,'The update is outside this client’s agency.');
   if(!singleClientUpdateMailbox(to))throw fail(409,'Choose one valid saved portal contact email address.');
@@ -273,7 +276,7 @@ export async function currentClientUpdateRecipient({agencyId,clientId,to,guardia
   if(matches.length!==1)throw fail(409,'Choose a currently authorized portal contact. Review portal access in the client profile first.');
   const recipient=matches[0];
   const {assertClientCanViewOwnShared}=await import('./assessmentDeliverable.service.js');
-  await assertClientCanViewOwnShared({user:{id:recipient.guardian_user_id,role:recipient.role},clientId});
+  await assertClientCanViewOwnShared({user:{id:recipient.guardian_user_id,role:recipient.role},clientId,...(reenrollment?{allowEndedServices:true}:{})});
   return {client,recipient};
 }
 
@@ -282,6 +285,7 @@ export async function sendClientUpdate(requestId, { actorUserId, guardianEmail }
   const request = await loadRequest(requestId);
   if (!request) throw fail(404, 'Update request not found');
   const items = await loadItems(request.id);
+  if (request.purpose==='reenrollment')return sendSingleClientUpdate(requestId,{actorUserId,guardianEmail});
   if (!items.some(item => item.item_type === 'document')) return sendSingleClientUpdate(requestId, { actorUserId, guardianEmail });
   const { recipient } = await currentClientUpdateRecipient({ agencyId: request.agency_id, clientId: request.client_id, to: guardianEmail, guardianUserId: request.guardian_user_id });
   const recipients = await prepareGuardianConsentUpdates({ request, items, primaryGuardianUserId: recipient.guardian_user_id });
@@ -301,14 +305,21 @@ export async function sendClientUpdate(requestId, { actorUserId, guardianEmail }
     deliveryStatus: deliveries.every(row => ['sent', 'already_sent'].includes(row.deliveryStatus)) ? 'sent' : 'needs_followup' };
 }
 
+export async function sendReenrollmentUpdate(requestId,options){
+ const request=await loadRequest(requestId);
+ if(request?.purpose!=='reenrollment')throw fail(403,'A staff-issued re-enrollment package is required.');
+ return sendSingleClientUpdate(requestId,options);
+}
+
 async function sendSingleClientUpdate(requestId, { actorUserId, guardianEmail } = {}) {
-  assertEnabled();
   const request = await loadRequest(requestId);
+  const reenrollment=request?.purpose==='reenrollment';
+  if(!reenrollment)assertEnabled();
   if (!request) throw fail(404, 'Client update not found');
   if(request.status!=='draft')throw fail(409,'Delivery has already been attempted. Check email history before creating another update.');
-  const {client,recipient}=await currentClientUpdateRecipient({agencyId:request.agency_id,clientId:request.client_id,to:guardianEmail,guardianUserId:request.guardian_user_id});
+  const {client,recipient}=await currentClientUpdateRecipient({agencyId:request.agency_id,clientId:request.client_id,to:guardianEmail,guardianUserId:request.guardian_user_id,reenrollment});
   const {familyNotificationDeliveryGate}=await import('./familyNotificationChoices.service.js');
-  const gate=await familyNotificationDeliveryGate({agencyId:request.agency_id,clientId:request.client_id,to:recipient.email,templateType:'client_update'});
+  const gate=await familyNotificationDeliveryGate({agencyId:request.agency_id,clientId:request.client_id,to:recipient.email,templateType:reenrollment?'care_reenrollment':'client_update'});
   if(!gate.allowed)throw fail(409,'This contact’s email preferences do not allow an update notice.');
   const [claim]=await pool.execute("UPDATE client_update_requests SET status='in_progress',guardian_user_id=?,sent_at=UTC_TIMESTAMP() WHERE id=? AND status='draft'",[recipient.guardian_user_id,request.id]);
   if(!claim.affectedRows)throw fail(409,'Delivery has already been attempted. Check email history.');
@@ -321,11 +332,11 @@ async function sendSingleClientUpdate(requestId, { actorUserId, guardianEmail } 
   const context=await clientEmailContext({agencyId:request.agency_id,clientId:request.client_id,client});
   const url=clientPortalInviteUrl({portal:context.portal,existingAccount:true});
   const login=new URL(url),destination=new URL(login.searchParams.get('redirect')||context.url('guardian'),login.origin);
-  destination.searchParams.set('panel','updates');destination.searchParams.set('clientId',String(request.client_id));login.searchParams.set('redirect',destination.pathname+destination.search);
-  const text='Your care team has selected a few updates for your existing profile. Sign in to review only the requested items. You do not need to complete a new enrollment.';
+  destination.searchParams.set('panel',reenrollment?'past_providers':'updates');if(reenrollment)destination.searchParams.set('serviceId',String(request.service_enrollment_id));destination.searchParams.set('clientId',String(request.client_id));login.searchParams.set('redirect',destination.pathname+destination.search);
+  const text=reenrollment?'A fresh enrollment package is ready in your secure portal. Sign in to review the current agreements and confirm contact, insurance/payment and communication details. Your documents will be added to your existing client file. Completing the package does not restart services or book appointments; the team will review next steps.':'Your care team has selected a few updates for your existing profile. Sign in to review only the requested items. You do not need to complete a new enrollment.';
   const delivery=await sendClientPortalEmail({agencyId:request.agency_id,clientId:request.client_id,context,to:recipient.email,userId:recipient.guardian_user_id,
-    subject:'Updates are ready in your secure portal',text:`${text}\n\nReview updates: ${login}`,html:`<p>${escapePortalHtml(text)}</p>${portalMessageHtml({text:login.toString(),linkUrl:login.toString(),linkLabel:'Review portal updates'})}`,
-    linkUrl:login.toString(),templateType:'client_update',source:'manual',generatedByUserId:actorUserId||null});
+    subject:reenrollment?'Your secure enrollment package is ready':'Updates are ready in your secure portal',text:`${text}\n\nReview updates: ${login}`,html:`<p>${escapePortalHtml(text)}</p>${portalMessageHtml({text:login.toString(),linkUrl:login.toString(),linkLabel:'Review portal updates'})}`,
+    linkUrl:login.toString(),templateType:reenrollment?'care_reenrollment':'client_update',source:'manual',generatedByUserId:actorUserId||null});
   if(delivery?.id&&!delivery.redirected)await pool.execute("UPDATE client_update_requests SET status='sent' WHERE id=? AND status='in_progress'",[request.id]);
   return {request:await loadRequest(request.id),items:await loadItems(request.id),delivery,
     deliveryStatus:delivery?.pendingApproval||delivery?.queued?'queued':delivery?.id&&!delivery.redirected?'sent':delivery?.skipped?'skipped':delivery?.redirected?'redirected':'unconfirmed'};
@@ -343,13 +354,14 @@ export async function resolveClientUpdatePacketBinding(link) {
   const marked=isClientUpdatePacket(link);
   const request=await findUpdateByPacketPublicKey(link?.public_key);
   if(!marked&&!request)return null;
-  assertEnabled();
+  const reenrollment=request?.purpose==='reenrollment';
+  if(!reenrollment)assertEnabled();
   let messages=link.custom_messages||link.customMessages||{};if(typeof messages==='string'){try{messages=JSON.parse(messages);}catch{messages={};}}
-  if(!marked||!request||!['sent','in_progress'].includes(request.status)||Number(request.id)!==Number(messages.clientUpdateRequestId)||!request.guardian_user_id)throw fail(409,'This update is no longer available. Contact the care team.');
+  if(!marked||!request||!(reenrollment?['sent','in_progress','completed']:['sent','in_progress']).includes(request.status)||Number(request.id)!==Number(messages.clientUpdateRequestId)||!request.guardian_user_id)throw fail(409,'This update is no longer available. Contact the care team.');
   const contacts=await ClientGuardian.listForClient(request.client_id);
   const contact=contacts.find(row=>Number(row.guardian_user_id)===Number(request.guardian_user_id));
-  const {client,recipient}=await currentClientUpdateRecipient({agencyId:request.agency_id,clientId:request.client_id,to:contact?.email,guardianUserId:request.guardian_user_id});
-  if(['ARCHIVED','DECLINED'].includes(String(client.status||'').toUpperCase()))throw fail(409,'This client’s update is no longer active.');
+  const {client,recipient}=await currentClientUpdateRecipient({agencyId:request.agency_id,clientId:request.client_id,to:contact?.email,guardianUserId:request.guardian_user_id,reenrollment});
+  if(!reenrollment&&['ARCHIVED','DECLINED'].includes(String(client.status||'').toUpperCase()))throw fail(409,'This client’s update is no longer active.');
   const expected=link.scope_type==='school'?client.organization_id:client.agency_id;
   if(Number(link.organization_id)!==Number(expected))throw fail(403,'The update packet scope has changed.');
   return {attachClientId:Number(client.id),guardianUserId:Number(recipient.guardian_user_id),attachSource:'client_update',agencyIdResolved:Number(request.agency_id),returningMatchInitials:String(client.initials||''),mergePatch:{}};

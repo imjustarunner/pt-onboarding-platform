@@ -17,7 +17,7 @@ describe.skipIf(!recoveryMysqlEnabled)('secure comments and immutable shared aud
       `CREATE TABLE users (id INT PRIMARY KEY,role VARCHAR(64),first_name VARCHAR(80),last_name VARCHAR(80),email VARCHAR(180),personal_email VARCHAR(180),work_email VARCHAR(180),phone_number VARCHAR(40),personal_phone VARCHAR(40),work_phone VARCHAR(40),is_active TINYINT DEFAULT 1,is_archived TINYINT DEFAULT 0,status VARCHAR(40) DEFAULT 'ACTIVE',status_expires_at DATETIME NULL,terminated_at DATETIME NULL,timezone VARCHAR(80) DEFAULT 'America/Denver')`,
       `CREATE TABLE agencies(id INT PRIMARY KEY,name VARCHAR(80),slug VARCHAR(80),is_active TINYINT DEFAULT 1,is_archived TINYINT DEFAULT 0)`,
       `CREATE TABLE user_agencies(user_id INT,agency_id INT,is_active TINYINT DEFAULT 1)`,
-      `CREATE TABLE clients(id INT PRIMARY KEY,agency_id INT,organization_id INT NULL,provider_id INT,client_type VARCHAR(40),guardian_portal_enabled TINYINT DEFAULT 1,full_name VARCHAR(180),initials VARCHAR(20),date_of_birth DATE)`,
+      `CREATE TABLE clients(id INT PRIMARY KEY,status VARCHAR(40) DEFAULT 'CURRENT',agency_id INT,organization_id INT NULL,provider_id INT,client_type VARCHAR(40),guardian_portal_enabled TINYINT DEFAULT 1,full_name VARCHAR(180),initials VARCHAR(20),date_of_birth DATE)`,
       `CREATE TABLE client_agency_assignments(client_id INT,agency_id INT,is_active TINYINT)`,
       `CREATE TABLE client_provider_assignments(id INT PRIMARY KEY AUTO_INCREMENT,client_id INT,provider_user_id INT,organization_id INT,is_active TINYINT DEFAULT 1)`,
       `CREATE TABLE client_guardians(client_id INT,guardian_user_id INT,relationship_type VARCHAR(30),access_enabled TINYINT DEFAULT 1,permissions_json JSON,PRIMARY KEY(client_id,guardian_user_id))`,

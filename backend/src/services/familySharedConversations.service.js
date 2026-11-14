@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import pool from '../config/database.js';
+import {terminalProfile} from '../utils/clientServiceLifecycle.js';
 import { clinicalAccess } from './guardianClinicalAccess.service.js';
 import { clientAgencyMembership, listClientServices } from './clientServiceEnrollment.service.js';
 import { guardianContactRows, sharedGuardianContact } from './guardianContactSharing.service.js';
@@ -33,21 +34,24 @@ export function createFamilySharedConversations(overrides={}) {
   async function currentAudience({clientId,agencyId,serviceId=0,providerUserId=0,allowUnavailableProvider=false,requireClinical=false},db=d.db) {
     const cid=uid(clientId),aid=uid(agencyId);
     if(!await d.membership(cid,aid,db))throw fail(404,'This client is not enrolled with this practice.');
-    const [[client]]=await db.execute(`SELECT c.id,c.agency_id,c.provider_id,c.client_type,c.guardian_portal_enabled FROM clients c
+    const [[client]]=await db.execute(`SELECT c.id,c.status,c.agency_id,c.provider_id,c.client_type,c.guardian_portal_enabled FROM clients c
       JOIN agencies a ON a.id=? AND a.is_active=1 AND COALESCE(a.is_archived,0)=0 WHERE c.id=?`,[aid,cid]);
     if(!client)throw fail(404,'This client is not available.');
     const allServices=await d.services(cid,aid,db);
     const services=allServices.filter(s=>Number(s.is_active)===1);
+    if(!allowUnavailableProvider&&(terminalProfile(client)||(allServices.length&&!services.length)))throw fail(403,'This service has ended. New care conversations are unavailable; contact billing or request your records.');
     const service=serviceId?(allowUnavailableProvider?allServices:services).find(s=>Number(s.id)===Number(serviceId)):null;
     if(serviceId&&!service)throw fail(403,'This service is no longer available.');
     if(!allowUnavailableProvider&&!serviceId&&services.length>1&&new Set(services.map(s=>`${s.service_kind}:${s.provider_user_id}`)).size>1)
-      throw fail(409,'Choose the client’s service before opening shared secure messages.','FAMILY_SHARED_CONTEXT_REQUIRED');
+      throw Object.assign(fail(409,'Choose the client’s service before opening shared secure messages.','FAMILY_SHARED_CONTEXT_REQUIRED'), { services: services.map(s => ({ id: Number(s.id), label: s.label || s.service_kind, providerName: s.provider_name || '', providerUserId: Number(s.provider_user_id) })) });
     let pid=Number(service?.provider_user_id||providerUserId||client.provider_id)||0;
     const [assigned]=await db.execute(`SELECT DISTINCT u.id,u.role,u.first_name,u.last_name,u.is_active,u.is_archived,u.status,u.terminated_at,u.status_expires_at
-      FROM users u JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=? AND ua.is_active=1
+      FROM users u JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=? AND COALESCE(ua.is_active,1)=1
       WHERE (?=1 AND u.id=?) OR (?=0 AND (
         (u.id=? AND NOT EXISTS(SELECT 1 FROM client_provider_assignments ended WHERE ended.client_id=? AND ended.provider_user_id=u.id))
-        OR EXISTS(SELECT 1 FROM client_provider_assignments p WHERE p.client_id=? AND p.provider_user_id=u.id AND p.is_active=1)))`,[aid,service?1:0,service?.provider_user_id||0,service?1:0,client.provider_id||0,cid,cid]);
+        OR EXISTS(SELECT 1 FROM client_provider_assignments p WHERE p.client_id=? AND p.provider_user_id=u.id AND p.is_active=1)
+        OR EXISTS(SELECT 1 FROM client_service_enrollments se WHERE se.client_id=? AND se.agency_id=? AND se.provider_user_id=u.id AND se.is_active=1
+          AND NOT EXISTS(SELECT 1 FROM client_provider_assignments ended WHERE ended.client_id=se.client_id AND ended.provider_user_id=u.id AND ended.is_active=0))))`,[aid,service?1:0,service?.provider_user_id||0,service?1:0,client.provider_id||0,cid,cid,cid,aid]);
     const providers=assigned.filter(p=>active(p)&&PROVIDERS.has(p.role));
     if(!pid&&providers.length===1)pid=Number(providers[0].id);
     const provider=providers.find(p=>Number(p.id)===pid);

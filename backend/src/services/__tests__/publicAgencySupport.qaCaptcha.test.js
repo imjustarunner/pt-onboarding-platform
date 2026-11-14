@@ -13,7 +13,7 @@ import {verifyRecaptchaV3} from '../captcha.service.js';
 import {getPublicAgencySupportConfig,createPublicAgencySupportTicket} from '../publicAgencySupport.service.js';
 const qa={id:450,slug:'auricwell-qa-demo',portal_url:'auricwell-qa-demo',name:'Fictional QA',is_active:1,feature_flags:{qaSandbox:{syntheticOnly:true}}};
 const payload={name:'Fictional QA',email:'testing+captcha-fixture@itsco.health',message:'A fictional support test question',phiAcknowledged:true};
-beforeEach(()=>{vi.clearAllMocks();Agency.findByPortalUrl.mockResolvedValue(qa);Agency.findBySlug.mockResolvedValue(null);pool.execute.mockRejectedValue(new Error('STOP_AFTER_CAPTCHA'));});
+beforeEach(()=>{vi.clearAllMocks();Agency.findByPortalUrl.mockResolvedValue(qa);Agency.findBySlug.mockResolvedValue(null);pool.execute.mockImplementation(async sql=>{if(sql.includes('communication_blocked_addresses'))return [[]];throw new Error('STOP_AFTER_CAPTCHA');});});
 describe('public support CAPTCHA uses the actual stored demo route',()=>{
  it.each([qa,{...qa,id:453,slug:'nlu-qa-demo',portal_url:'nlu-qa-demo',feature_flags:{qaSandbox:{syntheticOnly:true,program:'tutoring'}}},{...qa,id:456,slug:'scb-qa-company',portal_url:'scb-qa-company',organization_type:'agency',feature_flags:{qaCaptcha:{syntheticOnly:true}}}])('returns no key and permits token-free synthetic request only for the exact route',async agency=>{
   Agency.findByPortalUrl.mockResolvedValue(agency);

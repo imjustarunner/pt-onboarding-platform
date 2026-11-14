@@ -1,3 +1,6 @@
+import {TESTING_SERVICE_CODES,testingCompensationBasis} from '../content/testingServicePolicy.js';
+import {testingExampleSummary} from '../content/testingServiceExamples.js';
+import {CONTRACT_PRESENTATION_VERSION,handbookReferencedContractHtml} from '../content/contractHandbookReference.js';
 import { isProgramServiceRole } from '../content/programServiceRates.js';
 import {validateCredentials} from '../utils/credentialDisplay.js';
 import {employmentCategoryLevelTerms,applyEmploymentPayTerms} from '../content/employmentCategoryLevelTerms.js';
@@ -327,7 +330,7 @@ export async function getAgencyBuilderDefaults(agencyId) {
   return {
     ...await contractServiceFocusSettings(agency),
     contractTenant:handbookTenant(agency),
-    contractServiceRoleOptions: handbookTenant(agency) ? CONTRACT_SERVICE_ROLES.map(({id,title,description,clause_key})=>({id,title,description,clauseKey:clause_key})) : [],
+    contractServiceRoleOptions: handbookTenant(agency) ? CONTRACT_SERVICE_ROLES.map(({id,title,description,clause_key})=>({id,title,description,clauseKey:clause_key,...(id==='psychological_testing'?{codeGuide:TESTING_SERVICE_CODES.map(row=>({code:row.code,name:row.name,payBucket:row.bucket==='credit'?'Clinical Session Rate':'Direct Care Rate',basis:testingCompensationBasis(row),testingOnly:!!row.requiredRole,example:testingExampleSummary(row.code)}))}:{})})) : [],
     agency: agency
       ? {
           id: agency.id,
@@ -610,9 +613,9 @@ export async function renderContractHtml({
   const currentRow = currentLevels.find(r=>Number(r.category)===Number(category)&&Number(r.level)===Number(level));
   const categoryLevel = config.pay_mode !== 'none' && clinicalRole && (!!currentRow?.paySystem || /itsco|next ?level ?up|inner ?strength/i.test(`${agency.name||''} ${agency.slug||agency.portal_url||''}`));
   const terms = individualTerms || (categoryLevel ? employmentCategoryLevelTerms({row:currentRow,tokens:mergedTokens,agencyName:agency.name,agencySlug:agency.slug}) : null);
-  // Only server-resolved NLU compensation can satisfy the written childcare schedule.
-  // Other agencies retain their individually approved terms; preview tokens cannot supply this bypass.
-  if(handbookTenant(agency)==='nlu' && terms?.serviceCompensationTerms) {
+  // Server-resolved schedules satisfy NLU childcare and approved Testing terms.
+  // Other individual service terms remain required; preview tokens cannot bypass them.
+  if(terms?.serviceCompensationTerms && (handbookTenant(agency)==='nlu' || terms.serviceCompensationTerms.psychological_testing)) {
     rolePlan=contractServiceRolePlan({...roleInput,libraryClauses:roleLibraryClauses,serviceCompensationTerms:terms.serviceCompensationTerms});
   }
   const payClauses = terms ? applyEmploymentPayTerms(originalClauses,terms) : originalClauses;
@@ -620,7 +623,7 @@ export async function renderContractHtml({
   const replaceFallbackClinicalDuties = rolePlan.roles.length > 0 && !rolePlan.roles.includes('psychotherapy');
   const clauses = applyContractServiceRoleClauses(handbookClauses,rolePlan,{replaceFallbackClinicalDuties});
   const compensation = terms ? {row:currentRow || {category,level,direct_rate:null,indirect_rate:null},rates:[]} : await selectedContractCompensation(agencyId, category, level, config.pay_mode);
-  if(terms) { mergedTokens.COMPENSATION_POLICY_VERSION=terms.version; mergedTokens.COMPENSATION_SCHEDULE=terms.schedule; }
+  if(terms) { mergedTokens.COMPENSATION_POLICY_VERSION=terms.version; mergedTokens.COMPENSATION_SCHEDULE=terms.schedule; mergedTokens.CONTRACT_PRESENTATION_VERSION=CONTRACT_PRESENTATION_VERSION; }
 
   mergedTokens.COMPENSATION_CATEGORY = individualTerms?'':String(category);
   mergedTokens.COMPENSATION_LEVEL = individualTerms?'':String(level);
@@ -643,7 +646,7 @@ export async function renderContractHtml({
   });
 
   const visibleClauses = selectedClauses.map(clause => ({
-    ...clause, body_html: withWeeklyHoursExpectations(clause.body_html)
+    ...clause, body_html: withWeeklyHoursExpectations(terms ? handbookReferencedContractHtml(clause.body_html) : clause.body_html)
   }));
   if (agreementPlan && String(mergedInput.MIN_HOURS ?? '').trim() && !visibleClauses.some(clause => findContractPlaceholders(clause.body_html).some(key => key.replaceAll('_', '') === 'MINHOURS'))) {
     visibleClauses.splice(3, 0, { body_html: withWeeklyHoursExpectations('<p>The {{ROLE_LABEL}} is expected to maintain at least {{MIN_HOURS}} direct service hours per week.</p>') });

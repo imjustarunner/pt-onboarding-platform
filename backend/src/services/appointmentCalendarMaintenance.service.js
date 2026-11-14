@@ -23,7 +23,7 @@ export async function refreshAppointmentCalendar(appointment, actorUserId) {
   await scheduleSessionNotifications(appointment.id, { replace: true });
 }
 
-export async function releaseAppointmentCalendar(appointment, actorUserId) {
+export async function releaseAppointmentCalendar(appointment, actorUserId,{preserveProviderReservation=false}={}) {
   // Use SQL for the calendar facet to avoid calling its appointment-cancellation hook recursively.
   if (appointment.providerScheduleEventId) await pool.execute("UPDATE provider_schedule_events SET status = 'CANCELLED', updated_by_user_id = ? WHERE id = ?",
     [actorUserId, appointment.providerScheduleEventId]);
@@ -31,8 +31,12 @@ export async function releaseAppointmentCalendar(appointment, actorUserId) {
   const event = await OfficeEvent.findById(appointment.officeEventId);
   if (!event) return;
   if (event.booking_plan_id) {
-    const office = await OfficeLocation.findById(event.office_location_id);
-    await OfficeBookingPlan.addSkippedDate(event.booking_plan_id, utcDateToZonedYmd(asDate(event.start_at), office?.timezone || appointment.sourceTimezone || 'America/Denver'));
+    const [[plan]]=preserveProviderReservation?await pool.execute('SELECT session_context_json FROM office_booking_plans WHERE id=?',[event.booking_plan_id]):[[]];
+    const context=typeof plan?.session_context_json==='string'?JSON.parse(plan.session_context_json):plan?.session_context_json;
+    if(!preserveProviderReservation||Number(context?.clientId)===Number(event.client_id)){
+      const office = await OfficeLocation.findById(event.office_location_id);
+      await OfficeBookingPlan.addSkippedDate(event.booking_plan_id, utcDateToZonedYmd(asDate(event.start_at), office?.timezone || appointment.sourceTimezone || 'America/Denver'));
+    }
   }
   await OfficeEvent.cancelOccurrence({ eventId: event.id });
 }

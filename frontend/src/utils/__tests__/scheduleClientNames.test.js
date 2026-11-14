@@ -9,7 +9,7 @@ it('hides client names and free text on the face while retaining editor identity
   expect(hidden).toMatchObject({ clientId: 42, appointmentId: 71, clientName: 'Jane Doe', displayClientName: 'Client' });
   expect(hidden.shortLabel).toContain('10–11 AM');
   expect(scheduleClientFace(session, 'initials').shortLabel).toContain('JD session');
-  expect(scheduleClientFace(session, 'full').title).toBe('Jane Doe visit');
+  expect(scheduleClientFace(session, 'full').title).toContain('Jane Doe');
   expect(session.schedulingNoteSnippet).toBe('Ask Jane Doe');
 });
 it('handles last-name-first, Unicode and missing names without deriving initials from free text', () => {
@@ -29,4 +29,9 @@ it('deduplicates district slivers, keeps school closures, and excludes other dat
   expect(blocks).toHaveLength(2);
   expect(blocks.map(b => b.shortLabel)).toEqual(['D11 · No school', 'North · No school']);
   expect(blocks[0].title).toContain('Snow day');
+});
+
+it('uses the canonical full name even when an old title still contains initials', () => {
+  const result = scheduleClientFace({kind:'sevt',isClientSession:true,clientId:42,clientName:'Jane Doe',shortLabel:'JD session',title:'JD session',locationLabel:'Windchime · Office #10'}, 'full', '3–4 PM');
+  expect(result.shortLabel).toContain('Jane Doe'); expect(result.title).toContain('Windchime · Office #10');
 });

@@ -4,10 +4,25 @@ const input={agencyId:377,providerId:501,email:'BREANNA035@gmail.com',modality:'
 it('supports an assigned office with an optional first appointment',()=>{expect(normalizeCareInvitation({...input,startAt:null},new Date('2026-11-12'))).toMatchObject({email:'breanna035@gmail.com',startAt:null,officeId:1});});
 it('allows a virtual invitation without an office or time',()=>{expect(normalizeCareInvitation({...input,modality:'VIRTUAL',officeId:null,startAt:null})).toMatchObject({officeId:null,startAt:null});});
 it.each([{modality:'OTHER'},{email:'parent@example.com\nBcc:x@example.com'},{officeId:null},{timeZone:'bad_zone'},{startAt:'2026-01-01'},{serviceCode:'OTHER'},{providerId:-1}])('rejects malformed or unavailable invitation choices %j',patch=>{expect(()=>normalizeCareInvitation({...input,...patch},new Date('2026-11-12'))).toThrow();});
-it('renders Mountain time, recurrence, the AuricWell link, and an escaped italic personal note',()=>{const mail=careInvitationEmail({...input,agencyName:'The Inner Strength Institute',providerName:'Michael Mendez',url:'https://auricwell.com/intake/care-private',note:'I will reach out Saturday. <script>bad</script> Email michael@innerstrengthin.com.'});expect(mail.subject).toContain('Michael Mendez has invited you');expect(mail.html).toContain('<em>I will reach out');expect(mail.html).not.toContain('<script>');expect(mail.text).toContain('4:00 PM MST');expect(mail.text).toContain('every other week');expect(mail.html).toContain('https://auricwell.com/intake/care-private');});
+it('renders Mountain time, recurrence, the AuricWell link, and an escaped italic personal note',()=>{const mail=careInvitationEmail({...input,agencyName:'The Inner Strength Institute',providerName:'Michael Mendez',url:'https://auricwell.com/intake/care-private',noteFrom:'Support Team',note:'I will reach out Saturday. <script>bad</script> Email michael@innerstrengthin.com.'});expect(mail.subject).toContain('Michael Mendez has invited you');expect(mail.html).toContain('<em>I will reach out');expect(mail.html).not.toContain('<script>');expect(mail.text).toContain('4:00 PM MST');expect(mail.text).toContain('every other week');expect(mail.html).toContain('https://auricwell.com/intake/care-private');});
 const insurance={primary:{memberId:'fake',isMedicaid:false}};
 const check={policy_slot:'primary',status:'returned',insurance_fingerprint:'current',evidence:{summary:{status:'active_reported',identityMatches:true,otherCoverageReported:false,payerErrors:[]}}};
 const ready=patch=>automaticCareCoverageReady({insurance,evidence:{checks:[check],cleanCob:true,discoveryPending:0},fingerprint:'current',...patch});
 it('permits automatic admission only with current matching eligibility and independent clean COB',()=>{expect(ready()).toBe(true);expect(ready({evidence:{checks:[check],cleanCob:false}})).toBe(false);expect(ready({fingerprint:'changed'})).toBe(false);});
 it('routes Medicaid, multiple policies, and unresolved coverage to billing',()=>{expect(ready({insurance:{primary:{memberId:'fake',isMedicaid:true}}})).toBe(false);expect(ready({insurance:{...insurance,secondary:{memberId:'another'}}})).toBe(false);expect(ready({evidence:{checks:[check],cleanCob:true,discoveryPending:1}})).toBe(false);});
 it.each([{identityMatches:false},{identityMatches:null},{otherCoverageReported:true},{status:'inactive_reported'},{payerErrors:[{error_code:75}]}])('never releases a questionable payer response %j',patch=>{expect(ready({evidence:{cleanCob:true,checks:[{...check,evidence:{summary:{...check.evidence.summary,...patch}}}]}})).toBe(false);});
+
+it('requires an explicitly entered name or team for a nonempty personal note',()=>{
+ const now=new Date('2026-11-13');
+ for(const noteFrom of [undefined,'','  '])expect(()=>normalizeCareInvitation({...input,note:'We spoke on the phone.',noteFrom},now)).toThrow('who the personal note is from');
+ expect(normalizeCareInvitation({...input,note:'We spoke on the phone.',noteFrom:'  Support Team  '},now)).toMatchObject({noteFrom:'Support Team'});
+ expect(normalizeCareInvitation({...input,note:'  ',noteFrom:''},now)).toMatchObject({note:'',noteFrom:''});
+});
+it('omits an empty note and safely escapes its entered attribution',()=>{
+ const common={...input,agencyName:'Inner Strength',providerName:'Michael Mendez',url:'https://auricwell.com/intake/care-example'};
+ const blank=careInvitationEmail({...common,note:'',noteFrom:'Loriana'});
+ expect(blank.text).not.toContain('A note from');expect(blank.html).not.toContain('A note from');
+ const mail=careInvitationEmail({...common,note:'Thank you for speaking with us.',noteFrom:'Support <Team>'});
+ expect(mail.html).toContain('A note from Support &lt;Team&gt;');expect(mail.html).not.toContain('<Team>');
+ expect(mail.html).toContain('<em>Thank you for speaking with us.</em>');
+});

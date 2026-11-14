@@ -173,3 +173,14 @@ it('waits for delayed canonical office context before asserting the mobile booki
   expect(state.modalError).toBe('');
  }finally{releaseOffice({data:{agencies:[{id:2}]}});}
 });
+
+it('renders the booking dialog at the document level above the application navigation',async()=>{
+  const state=await mount();state.onScheduleCellPlusClick('Tuesday',11,null,0);await flushPromises();
+  const dialog=document.querySelector('[data-schedule-ui="v2"]');expect(dialog).not.toBeNull();expect(dialog.parentElement).toBe(document.body);
+});
+
+it('shows and copies the stable session reference without opening or dragging the appointment',async()=>{
+ m.summary.scheduleEvents=[{id:71,kind:'SCHEDULE_HOLD',agencyId:2,title:'Demo session',appointmentId:91,appointmentReference:'S0123456789ABCDEFABCD',scheduleReference:'MABCDEF0123456789ABCD',startAt:'2026-10-13T15:00:00Z',endAt:'2026-10-13T16:00:00Z'}];
+ const writeText=vi.fn(async()=>{});Object.defineProperty(navigator,'clipboard',{value:{writeText},configurable:true});const state=await mount();
+ const control=wrapper.find('.cell-record-reference');expect(control.text()).toBe('S0123456789ABCDEFABCD');await control.trigger('click');await flushPromises();expect(writeText).toHaveBeenCalledWith('S0123456789ABCDEFABCD');expect(state.showRequestModal).toBe(false);
+});

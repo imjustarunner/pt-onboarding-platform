@@ -1,14 +1,17 @@
 import {beforeEach,describe,it,expect,vi} from 'vitest';
-const mocks=vi.hoisted(()=>({execute:vi.fn(),agency:vi.fn()}));
+const mocks=vi.hoisted(()=>({execute:vi.fn(),agency:vi.fn(),terms:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:mocks.execute}}));
 vi.mock('../../models/Agency.model.js',()=>({default:{findById:mocks.agency}}));
 vi.mock('../contractCompensation.service.js',()=>({contractCompensationLevels:vi.fn(async()=>[{category:2,level:3,direct_rate:26,indirect_rate:20,paySystem:{}}]),selectedContractCompensation:vi.fn(async()=>({row:{category:2,level:3,direct_rate:26,indirect_rate:20},rates:[]}))}));
-vi.mock('../../content/employmentCategoryLevelTerms.js',()=>({employmentCategoryLevelTerms:()=>({compensation:'<p>Approved pay schedule</p>',schedule:{},version:'test'}),applyEmploymentPayTerms:(clauses,terms)=>clauses.map(clause=>clause.clause_key==='COMP_HOURLY'?{...clause,body_html:terms.compensation}:clause)}));
+vi.mock('../../content/employmentCategoryLevelTerms.js',()=>({employmentCategoryLevelTerms:mocks.terms,applyEmploymentPayTerms:(clauses,terms)=>clauses.map(clause=>clause.clause_key==='COMP_HOURLY'?{...clause,body_html:terms.compensation}:clause)}));
 vi.mock('../packetBrandChrome.service.js',()=>({resolvePacketBrandChrome:async()=>({bodyFontFamily:'sans-serif'}),packetBodyFontCss:()=>''}));
 import {renderContractHtml} from '../contractMerge.service.js';
 import {contractCompensationLevels,selectedContractCompensation} from '../contractCompensation.service.js';
+import {testingCompensationSchedule} from '../../content/testingServicePolicy.js';
+import {CONTRACT_PRESENTATION_VERSION,handbookReferencedContractHtml} from '../../content/contractHandbookReference.js';
 beforeEach(()=>{
  vi.clearAllMocks();
+ mocks.terms.mockReturnValue({compensation:'<p>Approved pay schedule</p>',schedule:{},version:'test'});
  mocks.agency.mockResolvedValue({id:6,slug:'nlu',name:'Next Level Up'});
  mocks.execute.mockImplementation(async sql=>{
   if(sql.includes('FROM contract_configs'))return [[{id:1,is_active:1,pay_mode:'hourly',slug:'employment',clause_keys_json:['INTRO','COMP_HOURLY','JOB_DESC_LPC','SIG_BLOCK']}]];
@@ -18,6 +21,23 @@ beforeEach(()=>{
 });
 const render=tokens=>renderContractHtml({agencyId:6,configId:1,tokens:{COMPENSATION_CATEGORY:'2',COMPENSATION_LEVEL:'3',ROLE_LABEL:'Employee',JOB_TITLE:'Childcare Provider',CREDENTIAL:'GED',...tokens}});
 describe('selected service clauses in the full contract preview',()=>{
+ it('keeps the code guide in the handbook while printing individual Testing rates and descriptive program duties',async()=>{
+  const profile={creditRate:44,hcodeRate:32,hcodeRateProbation:25,indirectRate:22,h2014Rate:18};
+  mocks.terms.mockReturnValue({compensation:'<p>Eligible H2014: $18.00 per actual hour-equivalent.</p>',schedule:profile,version:'test',serviceCompensationTerms:{psychological_testing:testingCompensationSchedule(profile)}});
+  const result=await render({JOB_TITLE:'Testing Provider',CREDENTIAL:'MA',CONTRACT_SERVICE_ROLES:['psychological_testing'],CONTRACT_SERVICE_ROLE_DETAILS:{psychological_testing:{authorizationTerms:'Verified instruments, assigned components and qualified supervisor; approval reference A.'}}});
+  const text=result.html.replace(/<[^>]*>/g,' ');
+  expect(text).toContain('$32.00/actual hour');expect(text).toContain('$44.00/actual hour-equivalent');expect(text).toContain('$18.00 per actual hour-equivalent');
+  expect(text).toContain('Workplace Handbook Testing area');expect(text).toContain('therapeutic skills services (Therapy + Tutoring component)');
+  expect(text).not.toMatch(/\b(?:96116|96121|96130|96131|96132|96133|96136|96137|96138|96139|96146|H2014)\b/);
+  expect(text).not.toContain('Sourced activity example');expect(result.tokens.COMPENSATION_SCHEDULE.h2014Rate).toBe(18);
+  expect(result.tokens.CONTRACT_PRESENTATION_VERSION).toBe(CONTRACT_PRESENTATION_VERSION);
+ });
+ it('preserves internal identifiers, links, amounts and unrelated numbers in contract presentation',()=>{
+  const html='<p>H2014: $18.00; office 80919; license 96136.</p><a href="/handbook?code=H2014" data-code="H2014">H2014 reference</a>';
+  const rendered=handbookReferencedContractHtml(html);
+  expect(rendered).toContain('href="/handbook?code=H2014"');expect(rendered).toContain('data-code="H2014"');
+  expect(rendered).toContain('$18.00; office 80919; license 96136');expect(rendered).not.toContain('>H2014 reference');expect(html).toContain('>H2014 reference');
+ });
  it.each(['itsco','nlu','tisi'])('includes childcare for %s, omits unrelated psychotherapy duties and blocks missing pay terms',async slug=>{
   mocks.agency.mockResolvedValue({id:6,slug,name:'Example Practice'});
   const result=await render({CONTRACT_SERVICE_ROLES:['childcare']});

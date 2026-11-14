@@ -1,5 +1,6 @@
 // Only expose a real room attached to this appointment. Never construct a
 // learning-room route from a canonical appointment ID.
+import {serviceMatchesAppointment} from './clientServiceEnrollment.service.js';
 export function guardianVirtualJoin(row) {
   if (!['VIRTUAL', 'TELEHEALTH', 'VIDEO', 'ONLINE'].includes(String(row.modality || '').toUpperCase())) return null;
   if (!['scheduled', 'confirmed', 'client_confirmed', 'in_progress'].includes(row.status)) return null;
@@ -10,6 +11,8 @@ export function guardianVirtualJoin(row) {
 }
 
 export async function guardianAppointmentJoin(row,client,db) {
+  if(client.portal_access?.limited)return null;
+  if((client.services||[]).some(s=>Number(s.provider_user_id)===Number(row.providerUserId)&&(Number(s.is_active)!==1||s.portal_limited)&&serviceMatchesAppointment(s,{...row,agencyId:row.agencyId||client.agency_id})))return null;
   const learning=['learning','tutoring'].includes(String(row.businessType||row.business_type||client.client_type).toLowerCase());
   if(!learning)return guardianVirtualJoin(row);
   if(!['VIRTUAL','ONLINE','VIDEO','TELEHEALTH'].includes(String(row.modality).toUpperCase())||!['scheduled','confirmed','client_confirmed','in_progress'].includes(row.status))return null;

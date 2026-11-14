@@ -1,4 +1,7 @@
 import { withClientSchedulingLock, hasClientSchedulingLock } from './clientSchedulingGuard.service.js';
+import { assertClientServiceSchedulingActive } from './clientServiceSchedulingGuard.service.js';
+import TenantService from '../models/TenantService.model.js';
+import Client from '../models/Client.model.js';
 import { publishOfficeAssignmentEvent } from './officeAssignmentBookingAvailability.service.js';
 import { officePlanHasClient, officeYearBoundary, withinOfficeRecordWindow } from '../utils/officeRecordWindow.js';
 import { officeBookingAgencyId } from '../utils/officeBookingAgency.js';
@@ -272,7 +275,7 @@ export class OfficeScheduleMaterializer {
     }
   }
 
-  static async materializeWeek({ officeLocationId, weekStartRaw, createdByUserId, useExactWeekStart = false, force = false }) {
+  static async materializeWeek({ officeLocationId, weekStartRaw, createdByUserId, useExactWeekStart = false, force = false, reservationWindow = null }) {
     const officeId = parseInt(officeLocationId, 10);
     const rawWeekStart = normalizeYmd(weekStartRaw);
     const weekStart = useExactWeekStart
@@ -280,7 +283,14 @@ export class OfficeScheduleMaterializer {
       : startOfWeekISO(String(rawWeekStart || ''));
     const uid = parseInt(createdByUserId, 10) || 0;
     if (!officeId || !weekStart) return { ok: false, reason: 'invalid_args' };
-    const key = `${officeId}|${weekStart}`;
+    if (reservationWindow && (!Number(reservationWindow.roomId) || !normalizeYmd(reservationWindow.date)
+      || !normalizeDateTime(reservationWindow.startAt) || !normalizeDateTime(reservationWindow.endAt)
+      || reservationWindow.date < weekStart || reservationWindow.date >= addDays(weekStart, 7))) {
+      throw new Error('A valid reservation window is required for targeted materialization.');
+    }
+    // A client booking needs only its selected room/hour, not every assignment in 26 whole weeks.
+    // Its cache must never satisfy a later full-week grid materialization.
+    const key = `${officeId}|${weekStart}${reservationWindow ? `|${reservationWindow.roomId}|${reservationWindow.startAt}|${reservationWindow.endAt}` : ''}`;
     const now = Date.now();
     let cacheHit = false;
     // `force` bypasses the short-lived read cache so a freshly created/updated assignment
@@ -298,16 +308,20 @@ export class OfficeScheduleMaterializer {
     const runner = (async () => {
       const loc = await OfficeLocation.findById(officeId);
       const officeTz = loc?.timezone || 'America/Denver';
-      const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
+      const days = (reservationWindow ? [reservationWindow.date] : Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)))
         .filter(date => withinOfficeRecordWindow(date, officeTz));
       if (!days.length) return { ok: true, upsertedCount: 0, cancelledCount: 0, reason: 'beyond_record_window' };
-      const windowStart = mysqlDateTimeForDateHour(weekStart, 0, officeTz) || `${weekStart} 00:00:00`;
-      const windowEnd = mysqlDateTimeForDateHour(addDays(weekStart, 7), 0, officeTz) || `${addDays(weekStart, 7)} 00:00:00`;
+      const windowStart = reservationWindow?.startAt || mysqlDateTimeForDateHour(weekStart, 0, officeTz) || `${weekStart} 00:00:00`;
+      const windowEnd = reservationWindow?.endAt || mysqlDateTimeForDateHour(addDays(weekStart, 7), 0, officeTz) || `${addDays(weekStart, 7)} 00:00:00`;
       let upsertedCount = 0;
       let cancelledCount = 0;
 
       // Standing assignments + booking plans are the source of truth for assigned_* states.
-      const standing = await attachOfficeSchedulingPolicies(await OfficeStandingAssignment.listByOffice(officeId));
+      const assignments = await OfficeStandingAssignment.listByOffice(officeId);
+      const standing = await attachOfficeSchedulingPolicies(reservationWindow ? assignments.filter(a =>
+        Number(a.room_id) === Number(reservationWindow.roomId)
+        && mysqlDateTimeForDateHour(reservationWindow.date, a.hour, officeTz) === reservationWindow.startAt
+        && mysqlDateTimeForDateHour(reservationWindow.date, Number(a.hour) + 1, officeTz) === reservationWindow.endAt) : assignments);
       const plans = await OfficeBookingPlan.listActiveByAssignmentIds(standing.map((s) => s.id));
       const planByAssignment = new Map(plans.map((p) => [p.standing_assignment_id, p]));
       const existingEvents = await OfficeEvent.listForOfficeWindow({
@@ -391,6 +405,12 @@ export class OfficeScheduleMaterializer {
           if (hasMatchingRow) continue;
 
           await withClientSchedulingLock([sessionContext?.clientId], async () => {
+            if(sessionContext?.clientId) {
+              const service=sessionContext.tenantServiceId?await TenantService.findById(sessionContext.tenantServiceId,sessionContext.agencyId):null;
+              const client=service?null:await Client.findById(sessionContext.clientId);
+              await assertClientServiceSchedulingActive({agencyId:sessionContext.agencyId,providerUserId:a.provider_id,clientId:sessionContext.clientId,
+                businessType:service?.businessType||(['learning','tutoring'].includes(client?.client_type)?'learning':null),officeBookingPlanId:desiredPlanId});
+            }
             const sessionEvent = await OfficeEvent.upsertSlotState({
               allowAutomaticReservationDowngrade: appointmentsOnly,
               officeLocationId: officeId,
@@ -426,7 +446,7 @@ export class OfficeScheduleMaterializer {
           }).catch(error => {
             // Pending termination owns these dates; render other slots while its
             // durable cleanup retries, without creating more client reservations.
-            if (error.code !== 'CLIENT_TERMINATION_PENDING') throw error;
+            if (!['CLIENT_TERMINATION_PENDING','CLIENT_SERVICE_ENDED','CLIENT_SERIES_ENDED'].includes(error.code)) throw error;
           });
         }
       }

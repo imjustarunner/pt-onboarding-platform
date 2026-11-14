@@ -99,6 +99,9 @@ export const getAppointment = async (req, res, next) => {
     if (!(await assertAgencyAccess(req, bundle.agencyId))) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
+    const {default:scheduleReferences}=await import('../services/scheduleRecordReference.service.js');
+    const references=await scheduleReferences.ensure([{type:'appointment',id}]);
+    bundle.scheduleReference=references.get(`appointment:${id}`)||null;
     res.json(await schedulingResponseForUser(req.user, bundle.agencyId, { ok: true, appointment: bundle }));
   } catch (e) {
     next(e);

@@ -1,12 +1,12 @@
 <template>
-  <main class="event-experience staff-event-page">
-    <nav class="ee-nav" aria-label="Event navigation"><div class="ee-nav-inner"><a class="ee-nav-brand" href="/dashboard"><img :src="CONVERSA_EVENT_LOGO_URL" alt="Conversa" width="140" height="36" /></a><div class="ee-nav-links"><a href="/dashboard"><House :size="18" aria-hidden="true" />Home</a><a href="#event-overview" aria-current="page"><CalendarDays :size="18" aria-hidden="true" />Events</a><a href="/messages?view=workspace&tab=dms"><Users :size="18" aria-hidden="true" />Groups</a><a href="/messages"><MessageSquare :size="18" aria-hidden="true" />Messages</a></div><span v-if="signedIn" class="ee-nav-person" :aria-label="userName">{{ initials(userName) }}</span></div></nav>
+  <main class="event-experience event-experience--conversa staff-event-page">
+    <nav class="ee-nav" aria-label="Event navigation"><div class="ee-nav-inner"><a class="ee-nav-brand" href="/dashboard"><img :src="CONVERSA_EVENT_LOGO_URL" alt="Conversa" width="140" height="36" /><span class="ee-nav-product">Events</span></a><div class="ee-nav-links"><a href="/dashboard"><House :size="18" aria-hidden="true" />Home</a><a href="#event-overview" aria-current="page"><CalendarDays :size="18" aria-hidden="true" />Events</a><a href="/messages?view=workspace&tab=dms"><Users :size="18" aria-hidden="true" />Groups</a><a href="/messages"><MessageSquare :size="18" aria-hidden="true" />Messages</a></div><EventHostIdentity v-if="displayBranding.agencyName" :branding="displayBranding" compact class="ee-nav-host" /><span v-if="signedIn" class="ee-nav-person" :aria-label="userName">{{ initials(userName) }}</span></div></nav>
     <div class="ee-container">
       <div v-if="loading" class="ee-card ee-page-state" role="status">Loading your event…</div>
       <template v-else-if="!signedIn || (!event && invitationPreview)"><CompanyEventPublicView v-if="showGuestRegistration && eventId" :key="eventId" :event-id="eventId" /><template v-else-if="invitationPreview"><EventInvitationPreview :invitation="invitationPreview" :sign-in-url="signInUrl" :guest-registration-url="guestRegistrationUrl" :signed-in="signedIn" /><CompanyEventRsvpView v-if="personalInvitation" :key="personalInvitation" :invitation-token="personalInvitation" :expected-event-id="eventId" class="event-personal-rsvp" /></template><div v-else class="ee-card ee-page-state"><p class="ee-muted">Private event invitation</p><h1>You’re invited</h1><p>Sign in to view this event and join in.</p><a :href="signInUrl" class="ee-button ee-button-primary">Sign in to view event</a></div></template>
       <p v-if="error" role="alert" class="ee-error">{{ error }}</p>
       <template v-if="event">
-        <EventPageHero :event="event" :branding="branding" :status="rsvpClosed ? 'RSVP closed' : event.startsAt ? 'Open RSVP' : 'Planning together'" />
+        <EventPageHero :event="event" :branding="branding" conversa :status="rsvpClosed ? 'RSVP closed' : event.startsAt ? 'Open RSVP' : 'Planning together'" />
         <div v-if="canManage || event.outreachTripId || participation?.canSubmitTravel" class="event-organizer-actions"><a v-if="canManage && !event.outreachTripId" class="ee-button" :href="`/admin/company-events?eventId=${eventId}&agencyId=${event.agencyId}`">Manage this event <ArrowUpRight :size="14" aria-hidden="true" /></a><a v-if="event.outreachTripId && authStore.user?.capabilities?.canAccessOutreach" class="ee-button" :href="`/admin/outreach-hub?trip=${event.outreachTripId}`">School notes and trip route</a><a v-if="event.isWorkEvent && participation?.canSubmitTravel" class="ee-button" :href="`/dashboard?tab=submit&eventTravel=${eventId}`">Submit event travel</a></div>
         <div class="ee-overview-grid">
           <section class="ee-card event-rsvp-card" aria-labelledby="event-rsvp-title">
@@ -60,6 +60,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { House, CalendarDays, Users, MessageSquare, ArrowUpRight, Check, CircleHelp, CircleX, X, Tag, MapPin, Map, UserRound, Clock3, CalendarPlus, CalendarClock, ChevronDown, ChartNoAxesColumnIncreasing, Utensils, ArrowRight, Bell } from '@lucide/vue';
+import EventHostIdentity from '../../components/events/EventHostIdentity.vue';
 import EventPageHero from '../../components/events/EventPageHero.vue';
 import EventInvitationPreview from '../../components/events/EventInvitationPreview.vue';
 import CompanyEventRsvpView from './CompanyEventRsvpView.vue';
@@ -89,6 +90,7 @@ const guestRegistrationUrl = computed(() => readablePage.value && invitationPrev
 const event = ref(null);
 const invitationPreview = ref(null);
 const branding = ref({});
+const displayBranding = computed(() => event.value ? branding.value : { ...invitationPreview.value?.branding, agencies: invitationPreview.value?.branding?.agencies || invitationPreview.value?.agencies });
 const canManage = ref(false);
 const showAttendees = ref(false), attendeeSearch = ref('');
 const userName = computed(() => [authStore.user?.first_name || authStore.user?.firstName, authStore.user?.last_name || authStore.user?.lastName].filter(Boolean).join(' ') || 'You');
@@ -179,7 +181,7 @@ async function submitCheckoutTime() {
 async function loadEvent(scope = pageGeneration) {
   const {data} = await api.get(staffEndpoint(), {skipAuthRedirect:true});
   if(scope !== pageGeneration)return;
-  resolvedEventId.value=Number(data.event?.id) || 0;event.value=data.event;branding.value=data.branding || {};canManage.value=!!data.canManage;needList.value=data.needList || [];response.value=data.event?.response || '';
+  resolvedEventId.value=Number(data.event?.id) || 0;event.value=data.event;branding.value={...invitationPreview.value?.branding,...data.branding,agencies:invitationPreview.value?.agencies || data.branding?.agencies};canManage.value=!!data.canManage;needList.value=data.needList || [];response.value=data.event?.response || '';
   const mine=needList.value.find(item=>item.mine);contributionId.value=mine?.custom ? '__custom' : String(mine?.id || '');contributionName.value=mine?.custom ? mine.name : '';
 }
 async function savePotluck() {

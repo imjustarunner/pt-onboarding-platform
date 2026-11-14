@@ -38,7 +38,7 @@
         <div>
           <div class="aip-k">Agency</div>
           <div class="aip-v aip-tenant">
-            <img v-if="tenantIconUrl" class="aip-tenant-logo" :src="tenantIconUrl" alt="" />
+            <ScheduleAgencyLogo class="aip-tenant-logo" :icon-url="tenantIconUrl" :label="tenantLabel" />
             <span>{{ tenantLabel || '—' }}</span>
           </div>
         </div>
@@ -191,8 +191,8 @@
       >
         <span class="aip-ico aip-ico--blue" aria-hidden="true">$</span>
         <div>
-          <div class="aip-k">{{ claimId ? 'Open claim' : 'Billing / claim' }}</div>
-          <div class="aip-v">Create or manage claim</div>
+          <div class="aip-k">{{ claimId ? 'Open claim' : 'Insurance & payment setup' }}</div>
+          <div class="aip-v">{{ claimId ? 'Review existing claim' : 'Complete the session note first' }}</div>
         </div>
       </button>
       <button
@@ -239,6 +239,7 @@
 
 <script setup>
 import { computed, ref } from 'vue';
+import ScheduleAgencyLogo from './ScheduleAgencyLogo.vue';
 
 const props = defineProps({
   whenLabel: { type: String, default: '' },

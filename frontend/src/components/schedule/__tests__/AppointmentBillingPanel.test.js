@@ -29,3 +29,10 @@ it('loads nonfinancial client coverage even before a scheduled session has a cli
 });
 
 it('reads primary and secondary insurers from the minimal session response',async()=>{api.get.mockResolvedValue({data:{financialAccess:false,clientId:22,policies:[{position:'primary',insurerName:'DEMO QA Primary'},{position:'secondary',insurerName:'DEMO QA Secondary'}],paymentSetup:{medicaid:true,responsibleParties:[{name:'DEMO QA Adult'}]}}});const w=mount(AppointmentBillingPanel,{props:{agencyId:377,clientId:22,clinicalSessionId:3}});await flushPromises();expect(w.text()).toContain('DEMO QA Primary');expect(w.text()).toContain('DEMO QA Secondary');expect(w.text()).toContain('Not required for Medicaid');expect(w.find('[aria-label="Claim progress"]').exists()).toBe(false);w.unmount();});
+
+it('directs an unclaimed session to its note instead of offering claim creation',async()=>{
+  api.get.mockResolvedValue({data:{financialAccess:true,progress:[{status:'open',label:'Note needed',step:0}]}});
+  const w=mount(AppointmentBillingPanel,{props:{agencyId:377,clinicalSessionId:3,canViewFinancials:true}});await flushPromises();
+  expect(w.text()).not.toContain('Open existing claim');
+  await w.findAll('button').find(button=>button.text()==='Complete session note').trigger('click');expect(w.emitted('open-note')).toHaveLength(1);expect(w.emitted('open-claim')).toBeUndefined();w.unmount();
+});

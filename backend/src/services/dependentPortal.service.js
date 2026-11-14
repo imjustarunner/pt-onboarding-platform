@@ -24,8 +24,8 @@ export async function personalContext(userId,input){
 export async function personalOverview(userId){
  const profile=await personalProfile(userId),agencies=await guardianCareContexts(profile,userId);
  const [[independent]]=await pool.execute("SELECT client_id FROM client_portal_independence WHERE client_id=? AND user_id=? AND status='active'",[profile.client_id,userId]);
- return {independent:!!independent,clientId:profile.client_id,name:profile.full_name||profile.initials,schoolName:profile.organization_type==='school'?profile.organization_name:null,
-  agencies:agencies.map(a=>({id:a.agency_id,name:a.agency_name,slug:a.agency_slug,logo:a.agency_logo_url,services:a.services.map(s=>({id:s.id,label:s.label,kind:s.service_kind,providerName:s.provider_name}))}))};
+ return {independent:!!independent,clientId:profile.client_id,client_status_key:profile.client_status_key,status:profile.status,name:profile.full_name||profile.initials,schoolName:profile.organization_type==='school'?profile.organization_name:null,
+  agencies:agencies.map(a=>({id:a.agency_id,name:a.agency_name,slug:a.agency_slug,logo:a.agency_logo_url,portalAccess:a.portal_access,services:a.services.map(s=>({id:s.id,label:s.label,kind:s.service_kind,providerName:s.provider_name,provider_user_id:s.provider_user_id,is_active:s.is_active,service_status:s.service_status,portal_status:s.portal_status,portal_status_label:s.portal_status_label,portal_limited:s.portal_limited,ended_at:s.ended_at,closure_reason:s.closure_reason,client_end_reason:s.client_end_reason}))}))};
 }
 export async function personalAppointments(userId,input){
  const context=await personalContext(userId,input);

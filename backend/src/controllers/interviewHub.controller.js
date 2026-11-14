@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { tenantMeetingBase } from '../utils/tenantMeetingUrl.js';
+import { tenantInterviewJoinUrl } from '../utils/tenantMeetingUrl.js';
 import { deliverExistingInterview } from '../services/hiringInterviewDelivery.service.js';
 import { sendHiringInterviewInviteEmail } from '../services/hiringInterviewInviteEmail.service.js';
 import { requireHiringInterviewAccess } from '../services/hiringInterviewAccess.service.js';
@@ -17,12 +17,12 @@ import HiringInterview from '../models/HiringInterview.model.js';
 import HiringInterviewArtifact from '../models/HiringInterviewArtifact.model.js';
 import ProviderScheduleEvent from '../models/ProviderScheduleEvent.model.js';
 import ProviderScheduleEventAttendee from '../models/ProviderScheduleEventAttendee.model.js';
-import { joinUrlForTeamMeeting } from '../utils/joinToken.js';
 import VonageVideoService from '../services/vonageVideo.service.js';
 import EmailTemplateService from '../services/emailTemplate.service.js';
 import {
   ensureDefaultTemplate,
   buildInterviewFlow,
+  interviewTemplateWithOpeners,
   finalizeInterview,
   pickRandom,
   DEFAULT_SALUTATIONS,
@@ -291,7 +291,7 @@ export const getInterview = async (req, res, next) => {
 
     return res.json({
       success: true,
-      data: { interview, template, jobQuestionSet, artifact, flow }
+      data: { interview, template: interviewTemplateWithOpeners(template), jobQuestionSet, artifact, flow }
     });
   } catch (err) {
     return next(err);
@@ -561,7 +561,7 @@ export const getInterviewByScheduleEvent = async (req, res, next) => {
 
     return res.json({
       success: true,
-      data: { interview, template, jobQuestionSet, artifact, flow }
+      data: { interview, template: interviewTemplateWithOpeners(template), jobQuestionSet, artifact, flow }
     });
   } catch (err) {
     return next(err);
@@ -572,13 +572,14 @@ async function hostJoinUrlForInterview(row) {
   if (!row) return null;
   const hostToken = String(row.host_join_token || row.hostJoinToken || '').trim();
   if (!hostToken) return null;
-  return joinUrlForTeamMeeting(await tenantMeetingBase(row.agency_id || row.agencyId), hostToken);
+  return tenantInterviewJoinUrl(row.agency_id || row.agencyId, hostToken);
 }
 
 async function enrichInterviewRow(row) {
   if (!row) return row;
   return {
     ...row,
+    public_join_url: row.guest_join_token ? await tenantInterviewJoinUrl(row.agency_id || row.agencyId, row.guest_join_token) : row.public_join_url,
     host_join_url: await hostJoinUrlForInterview(row)
   };
 }
@@ -615,9 +616,7 @@ export const randomIcebreaker = async (req, res, next) => {
       const template = templateId
         ? await InterviewHubTemplate.findById(templateId)
         : await InterviewHubTemplate.findDefaultByAgencyId(agencyId);
-      if (Array.isArray(template?.icebreaker_pool_json) && template.icebreaker_pool_json.length) {
-        pool = template.icebreaker_pool_json;
-      }
+      pool = interviewTemplateWithOpeners(template).icebreaker_pool_json;
     }
     return res.json({ success: true, data: { icebreaker: pickRandom(pool) } });
   } catch (err) {
@@ -635,9 +634,7 @@ export const randomSalutation = async (req, res, next) => {
       const template = templateId
         ? await InterviewHubTemplate.findById(templateId)
         : await InterviewHubTemplate.findDefaultByAgencyId(agencyId);
-      if (Array.isArray(template?.salutation_pool_json) && template.salutation_pool_json.length) {
-        pool = template.salutation_pool_json;
-      }
+      pool = interviewTemplateWithOpeners(template).salutation_pool_json;
     }
     return res.json({ success: true, data: { salutation: pickRandom(pool) } });
   } catch (err) {

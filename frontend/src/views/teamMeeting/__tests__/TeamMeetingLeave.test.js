@@ -24,10 +24,10 @@ beforeEach(() => {
 });
 afterEach(() => { wrapper?.unmount(); vi.clearAllTimers(); vi.useRealTimers(); vi.restoreAllMocks(); });
 async function render() {
-  wrapper = shallowMount(JoinTeamMeetingView); await flushPromises();
-  return wrapper.findAll('button').find(b => b.text() === (m.host ? 'Leave / End meeting' : 'Leave meeting'));
+  wrapper = shallowMount(JoinTeamMeetingView,{global:{stubs:{teleport:true}}}); await flushPromises();
+  return wrapper.findAll('button').find(b => b.text() === (m.subtype === 'interview' ? 'Leave interview' : m.host ? 'Leave / End meeting' : 'Leave meeting'));
 }
-describe.each(['general', 'training', 'leadership_circle', 'interview'])('%s leave and end actions', subtype => {
+describe.each(['general', 'training', 'leadership_circle'])('%s leave and end actions', subtype => {
   it('lets the host leave without ending the meeting', async () => {
     m.subtype = subtype; const leave = await render(); await leave.trigger('click');
     await wrapper.get('[role="dialog"]').findAll('button').find(b => b.text() === 'Leave without ending').trigger('click'); await flushPromises();
@@ -52,4 +52,12 @@ it('lets participants leave without offering host controls', async () => {
   expect(wrapper.find('.join-modal-backdrop').exists()).toBe(false);
   expect(m.post.mock.calls.some(([url]) => url.endsWith('/complete'))).toBe(false);
   expect(window.confirm).not.toHaveBeenCalled();
+});
+
+it('lets an interviewer leave with one click and keeps ending separate',async()=>{
+ m.subtype='interview'; const leave=await render();await leave.trigger('click');await flushPromises();
+ expect(wrapper.find('[role="dialog"]').exists()).toBe(false);
+ expect(window.confirm).not.toHaveBeenCalled();
+ expect(m.post.mock.calls.some(([url])=>url.endsWith('/complete'))).toBe(false);
+ expect(wrapper.findComponent({name:'MeetingSessionExitPanel'}).props('canRejoin')).toBe(true);
 });

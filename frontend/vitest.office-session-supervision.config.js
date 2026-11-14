@@ -9,6 +9,10 @@ export default defineConfig({
     include: [
       'src/components/schedule/__tests__/officeSessionBookingFlow.test.js',
       'src/components/schedule/__tests__/sessionNotificationEditor.test.js',
+      'src/utils/__tests__/ownedOfficeBooking.test.js',
+      'src/utils/__tests__/scheduleSummaryPrefetch.test.js',
+      'src/utils/__tests__/scheduleLocationProjection.test.js',
+      'src/services/__tests__/sharedReads.test.js',
       'src/components/schedule/__tests__/supervisionScheduler.test.js',
       'src/components/schedule/__tests__/supervisionActionDialog.test.js',
       'src/components/schedule/__tests__/supervisionNotificationSettings.test.js',

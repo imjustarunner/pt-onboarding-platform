@@ -12,6 +12,7 @@ vi.mock('../appointmentServiceSetting.service.js',()=>({resolveAppointmentServic
 vi.mock('../appointmentCalendarMaintenance.service.js',()=>({releaseAppointmentCalendar:m.release}));
 vi.mock('../appointmentCancellationNotification.service.js',()=>({cancellationClientDetails:vi.fn(),notifyAppointmentCancellation:vi.fn(async()=>({sent:1})),isCanceledAppointmentStatus:status=>['canceled_by_provider','canceled_by_client','canceled_by_guardian','canceled_by_organization','late_canceled','rescheduled'].includes(status)}));
 import {cancelAppointment,updateAppointment} from '../appointment.service.js';
+import {notifyAppointmentCancellation} from '../appointmentCancellationNotification.service.js';
 beforeEach(()=>{
  vi.resetAllMocks();m.find.mockResolvedValue({id:1,agencyId:2,providerUserId:7,status:'scheduled',startAt:'2027-01-01 16:00:00',endAt:'2027-01-01 17:00:00'});
  m.provider.mockRejectedValue(Object.assign(new Error('Pending requests require provider'),{status:403}));
@@ -43,4 +44,10 @@ it('does not apply a fee that changed after the family reviewed it', async()=>{
  await expect(cancelAppointment(1,{actorUserId:9,actorRole:'guardian',clientId:8,reason:'Cancel',expectedFeeCents:0}))
   .rejects.toMatchObject({status:409,code:'CANCELLATION_FEE_CHANGED'});
  expect(m.update).not.toHaveBeenCalled();expect(m.release).not.toHaveBeenCalled();
+});
+
+it('uses the client’s confirmed time and one summary without per-date notices or loss of the standing room reservation',async()=>{
+ const at='2026-12-31 15:59:59.999';await cancelAppointment(1,{actorUserId:9,actorRole:'client',clientId:8,reason:'Changing provider',expectedFeeCents:2500,expectedPolicyId:4,expectedPackageAction:'release',cancellationAt:at,deferNotification:true});
+ expect(m.provider).not.toHaveBeenCalled();expect(m.evaluate).toHaveBeenCalledWith(expect.objectContaining({now:new Date('2026-12-31T15:59:59.999Z'),actorRole:'client'}));
+ expect(notifyAppointmentCancellation).not.toHaveBeenCalled();expect(m.release).toHaveBeenCalledWith(expect.any(Object),9,{preserveProviderReservation:true});
 });

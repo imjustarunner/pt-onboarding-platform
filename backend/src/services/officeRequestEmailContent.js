@@ -101,7 +101,7 @@ export function buildOfficeRequestEmail({
         );
       else
         lines.push(
-          "You may now schedule sessions in this office during the approved times. Continue using your current scheduling system until app session booking is enabled for you.",
+          "The office reservation is ready. No client session is attached to this request; this email confirms the room reservation.",
         );
     }
     const url = review
@@ -142,7 +142,7 @@ export function buildOfficeRequestEmail({
   });
   return {
     subject: `${preview ? "PREVIEW · " : ""}${review ? "Office approval needed" : allMoved ? "Office reservation changed" : allApproved ? "Office approved" : "Office request update"} · ${items.length} request${items.length === 1 ? "" : "s"}`,
-    text: `${preview ? "DESIGN PREVIEW — fictional reservations; nothing has been booked.\n\n" : ""}Hello ${name || "there"},\n\n${title}\n${intro}\n\n${sections.map((s) => s.text).join("\n\n")}`,
-    html: `<div data-office-request-email="1" style="font-family:Arial,sans-serif;color:#203b32;font-size:16px;line-height:1.55;padding:12px 0;width:100%;max-width:640px;box-sizing:border-box;margin:auto">${preview ? '<p style="padding:12px;background:#fff3d2;border-radius:8px;color:#755811;font-size:13px"><strong>DESIGN PREVIEW</strong> · Fictional reservations. Nothing has been booked. Photos below are placeholders.</p>' : ""}<p>Hello ${esc(name || "there")},</p><h1 style="font-size:28px;line-height:1.2;color:#175d43">${esc(title)}</h1><p>${esc(intro)}</p>${sections.map((s) => s.html).join("")}</div>`,
+    text: `${preview ? "DESIGN PREVIEW — fictional reservations; nothing has been booked.\n\n" : ""}Hello ${name || "there"},\n\n${title}\n${intro}\n\n${sections.map((s) => s.text).join("\n\n")}\n\nThis is an automated no-reply message. Review or update the request in the app.`,
+    html: `<div data-office-request-email="1" style="font-family:Arial,sans-serif;color:#203b32;font-size:16px;line-height:1.55;padding:12px 0;width:100%;max-width:640px;box-sizing:border-box;margin:auto">${preview ? '<p style="padding:12px;background:#fff3d2;border-radius:8px;color:#755811;font-size:13px"><strong>DESIGN PREVIEW</strong> · Fictional reservations. Nothing has been booked. Photos below are placeholders.</p>' : ""}<p>Hello ${esc(name || "there")},</p><h1 style="font-size:28px;line-height:1.2;color:#175d43">${esc(title)}</h1><p>${esc(intro)}</p>${sections.map((s) => s.html).join("")}<p style="font-size:12px;color:#62716b">This is an automated no-reply message. Review or update the request in the app.</p></div>`,
   };
 }

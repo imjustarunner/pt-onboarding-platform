@@ -62,3 +62,10 @@ describe('calendar overlap layout',()=>{
   for(const a of rows) for(const b of rows) if(a.key!==b.key&&a.startMs<b.endMs&&b.startMs<a.endMs)expect(lanes.get(a.key).col).not.toBe(lanes.get(b.key).col);
  });
 });
+
+it('gives the office, saved availability and Google busy block three visible lanes in side-by-side mode', () => {
+  const cells = [{ hour: 8, blocks: [{key:'office',kind:'office'},{key:'virtual',kind:'portal'},{key:'busy',kind:'gbusy'}] }];
+  const layout = layoutScheduleDayBlocks(cells,60,{showAvailabilityLanes:true});
+  expect([...layout.values()].map(item=>item.col).sort()).toEqual([0,1,2]);
+  expect([...layout.values()].every(item=>item.cols===3 && !item.background)).toBe(true);
+});

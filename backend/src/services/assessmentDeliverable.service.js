@@ -61,10 +61,10 @@ export async function assertCoachCanAccessClient({ user, clientId }) {
   if(!access.ok)throw err(access.status||403,'Not authorized for this client');
   return access.client;
 }
-export async function assertClientCanViewOwnShared({ user, clientId }) {
+export async function assertClientCanViewOwnShared({ user, clientId, allowEndedServices=false }) {
   if (!user) throw err(401,'Authentication required');
   if(!['client','client_guardian','guardian'].includes(String(user.role).toLowerCase())) return assertCoachCanAccessClient({user,clientId});
-  const client=await authorizedClient(user.id,clientId,'clinical_documents');
+  const client=allowEndedServices?await authorizedClient(user.id,clientId,'clinical_documents',{allowEndedServices:true}):await authorizedClient(user.id,clientId,'clinical_documents');
   if(client.permissions_json?.canViewDocs===false)throw err(403,'Documents are not shared with this account.');
   if(!['learning','tutoring'].includes(String(client.client_type).toLowerCase()))await requireClinicalScope({agencyId:client.agency_id,clientId,userId:user.id,scope:'clinical_documents'});
   return client;

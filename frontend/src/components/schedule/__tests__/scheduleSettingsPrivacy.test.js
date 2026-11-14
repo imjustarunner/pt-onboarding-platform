@@ -46,7 +46,15 @@ it('puts organization beside View as and reveals the former header tools with Se
   const settings = wrapper.get('[data-testid="my-schedule-calendar-settings"]');
   expect(settings.element.open).toBe(true);
   expect(settings.find('.tasks-fixture').exists()).toBe(true);
+  expect(settings.get('[data-testid="schedule-client-name-display"]').isVisible()).toBe(false);
+  expect(settings.get('.tasks-fixture').isVisible()).toBe(false);
+  const privacy = settings.findAll('[role="tab"]').find(tab => tab.text() === 'Privacy');
+  await privacy.trigger('click');
   expect(settings.get('[data-testid="schedule-client-name-display"]').isVisible()).toBe(true);
+  expect(settings.get('[aria-label="Time format"]').isVisible()).toBe(false);
+  await settings.findAll('[role="tab"]').find(tab => tab.text() === 'More').trigger('click');
+  expect(settings.get('.tasks-fixture').isVisible()).toBe(true);
+  expect(settings.find('.sched-organization-list').isVisible()).toBe(false);
   await button.trigger('click'); expect(settings.element.open).toBe(false);
 });
 it('applies hide, initials and full names to timed, untimed, all-day, day and agenda cards', async () => {

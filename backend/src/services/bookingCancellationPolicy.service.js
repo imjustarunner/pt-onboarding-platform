@@ -145,7 +145,9 @@ export async function evaluateCancel({
   appointment = null,
   actorRole = 'staff',
   clientId = null,
-  waive = false
+  waive = false,
+  now = new Date(),
+  plannedComplimentaryCancels = 0
 } = {}) {
   const appt = appointment || (appointmentId ? await Appointment.findById(appointmentId) : null);
   if (!appt) throw Object.assign(new Error('Appointment not found'), { status: 404 });
@@ -175,7 +177,7 @@ export async function evaluateCancel({
 
   const start = parseStartAt(appt.startAt);
   const deadline = deadlineFromStart(appt.startAt, effective.noticeHours);
-  const now = new Date();
+  if (!(now instanceof Date) || !Number.isFinite(+now)) throw Object.assign(new Error('A valid cancellation time is required.'), { status:400 });
   const withinNotice = !deadline || now.getTime() <= deadline.getTime();
   const isClient = String(actorRole || '').toLowerCase().includes('client')
     || String(actorRole || '').toLowerCase() === 'guardian';
@@ -209,7 +211,7 @@ export async function evaluateCancel({
       clientId,
       periodDays: effective.periodDays
     });
-    if (used < effective.complimentaryCancelsPerPeriod) {
+    if (used + Math.max(0, Number(plannedComplimentaryCancels) || 0) < effective.complimentaryCancelsPerPeriod) {
       recommendedFeeCents = 0;
       recommendedPackageAction = 'release';
       usedComplimentary = true;

@@ -1,3 +1,4 @@
+import {requireTestingEligibility} from '../services/testingEligibility.service.js';
 import {assistantBillingAuthorization,assertAssistantBillingCommand} from '../services/assistantBillingCommand.service.js';
 import {medicalServiceCatalogRead} from '../services/medicalServiceCatalogRead.service.js';
 import { isReviewedStarterPlan } from '../services/starterTreatmentPlanReview.service.js';
@@ -2440,6 +2441,7 @@ export const createMedicalClaim = async (req, res, next) => {
     if (!session || Number(session.agency_id) !== agencyId || Number(session.client_id) !== clientId) {
       return res.status(404).json({ error: { message: 'Session not found for this client and agency' } });
     }
+    await requireTestingEligibility({agencyId,userId:Number(session.provider_user_id),serviceCodes:[session.service_code,...(Array.isArray(req.body.lineItems)?req.body.lineItems.map(line=>line.procedureCode||line.serviceCode):[])],clientId,serviceDate:session.scheduled_start_at||session.date_of_service});
     const billingAccess = await hasSchedulingBillingAccess(req.user, agencyId);
     if (!billingAccess && Number(session.provider_user_id) !== Number(req.user.id) && req[clinicalSignatureHandoff] !== true) {
       return res.status(403).json({ error: { message: 'Only the session provider or billing team can prepare this claim' } });

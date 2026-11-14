@@ -2453,11 +2453,14 @@ export const getTeamMeetingTimeClaims = async (req, res, next) => {
     const kind = String(event.kind || '').toUpperCase();
     const hostId = Number(event.provider_id || 0);
     const ids = (attendance?.participants || []).map(p=>Number(p.userId)).filter(Boolean);
-    const [identities] = ids.length ? await pool.execute(`SELECT id,role,credential,title,employment_type FROM users WHERE id IN (${ids.map(()=>'?').join(',')})`,ids) : [[]];
+    const [identities] = ids.length ? await pool.execute(`SELECT id,role,credential,title,employment_type,has_supervisor_privileges FROM users WHERE id IN (${ids.map(()=>'?').join(',')})`,ids) : [[]];
     const rows = (attendance?.participants || []).map((p) => {
       const claim = latestByUser.get(Number(p.userId)) || null;
-      const unpaidIndirect = isStudentIntern(identities.find(u=>Number(u.id)===Number(p.userId)));
-      const defaultCode = unpaidIndirect ? 'Unpaid Indirect' : isJacquelyneHuddle(event, p.userId) && utcDateToZonedYmd(event.start_at, event.event_timezone) >= JACQUELYNE_TIME_START ? 'Admin Time' : (kind === 'HUDDLE' && p.isHost) ? huddleHostServiceCode(event,p.role) : 'MEETING';
+      const identity = identities.find(u=>Number(u.id)===Number(p.userId)) || {};
+      const unpaidIndirect = isStudentIntern(identity);
+      const supervisorMeeting = kind === 'TEAM_MEETING' && ['leadership_circle', 'supervisors_meeting'].includes(String(event.meeting_subtype || '').toLowerCase())
+        && (String(identity.role || '').toLowerCase() === 'supervisor' || Number(identity.has_supervisor_privileges) === 1);
+      const defaultCode = unpaidIndirect ? 'Unpaid Indirect' : isJacquelyneHuddle(event, p.userId) && utcDateToZonedYmd(event.start_at, event.event_timezone) >= JACQUELYNE_TIME_START ? 'Admin Time' : (kind === 'HUDDLE' && p.isHost) ? huddleHostServiceCode(event,p.role) : supervisorMeeting ? 'Supervisor meeting' : 'MEETING';
       return {
         userId: p.userId,
         name: p.name,

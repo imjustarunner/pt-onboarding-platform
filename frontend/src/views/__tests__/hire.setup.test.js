@@ -48,7 +48,10 @@ describe('hire setup wizards', () => {
     expect(category.text()).toContain('4 — Licensed and Advanced Provider');
     expect(wrapper.text()).not.toContain('Legacy Hourly');expect(wrapper.text()).not.toContain('Legacy Fee-for-service');
     expect(wrapper.text()).toContain('H-code direct-care base: $26.00');expect(wrapper.text()).toContain('10 indirect minutes');
-    expect(wrapper.text()).toContain('Draft agreement — full employment terms still require approval');
+    expect(wrapper.text()).toContain('This standard agreement is saved as a draft');
+    expect(wrapper.get('a[href="#standard-agreement-review"]').text()).toContain('review and approve');
+    expect(wrapper.get('#standard-agreement-review a').attributes('href')).toContain('tab=library');
+    expect(wrapper.get('#standard-agreement-review button').element.disabled).toBe(true);
     expect(wrapper.findAll('label').find(l=>l.text().includes('Tutoring')&&l.find('input[type="checkbox"]').exists()).get('input').element.checked).toBe(true);
     await button('Update contract preview').trigger('click'); await flushPromises();
     expect(http.post.mock.calls.at(-1)[1]).toMatchObject({configId:32,tokens:{CONTRACT_SERVICE_ROLES:['tutoring'],CONTRACT_SERVICE_ROLE_DETAILS:{tutoring:{payLevel:3}}}});

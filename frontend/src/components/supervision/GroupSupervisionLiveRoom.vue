@@ -14,7 +14,7 @@
         </div>
       </div>
       <div class="gsl__header-right">
-        <SupervisionShareLink :session-id="supervisionSessionId" />
+        <SupervisionShareLink :session-id="supervisionSessionId" :can-invite-guest="isSupervisor && !isInLobby" />
         <button v-if="!isInLobby" type="button" class="btn btn-secondary btn-sm" @click="tileFocus = 'collapsed'; presentationBandOpen = true">Presentation layout</button>
         <button
           v-if="isSupervisor || isPresenter"

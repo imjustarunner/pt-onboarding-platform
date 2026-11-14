@@ -34,7 +34,7 @@ it('opens an emailed request inside Building Master and keeps conflict review av
   api.get.mockImplementation(async url=>({data:url.endsWith('/context')?{request,rooms:[],warnings:[],window:{startDate:'2026-11-16'},horizon:'Next 12 dates'}:url==='/office-schedule/approvals'?{requests:[request],total:1}:url.endsWith('weekly-grid')?grid:[]}));
   await setup();
   expect(wrapper.get('.building-approval-workspace').text()).toContain('Pat');
-  expect(api.get).toHaveBeenCalledWith('/office-schedule/approvals/booking%3A4/context');
+  expect(api.get).toHaveBeenCalledWith('/office-schedule/approvals/booking%3A4/context',expect.objectContaining({skipGlobalLoading:true}));
   expect(wrapper.get('.grid-wrap').isVisible()).toBe(false);
   await wrapper.get('.building-approval-workspace > button').trigger('click');
   expect(navigation.replace).toHaveBeenCalledWith({query:expect.objectContaining({officeId:'1',approvals:undefined,request:undefined})});

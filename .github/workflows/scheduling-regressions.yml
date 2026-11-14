@@ -40,6 +40,13 @@ jobs:
         run: |
           npm ci --prefix backend
           npm ci --prefix frontend --ignore-scripts
+      - name: Schedule feedback, reminders, references and office linking
+        run: |
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.schedule-feedback.config.js --maxWorkers=2
+          node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.schedule-feedback.config.js --maxWorkers=2
+          node --test backend/src/utils/__tests__/providerAvailabilityReminders.test.js
+      - name: Unsolicited website and shared inbox outreach boundaries
+        run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.unsolicited-outreach.config.js --maxWorkers=2
       - name: Care invitation delivery, insurance gating, and guardian portal setup
         run: |
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.care-invitations.config.js
@@ -207,7 +214,7 @@ jobs:
           backend/src/controllers/__tests__/scheduling.officeBuildingPhoto.test.js
       - name: Selected office reservation, shared practice booking, and reminder defaults
         run: |
-          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.scheduling.config.js backend/src/services/__tests__/scheduling.officeSessionAgency.test.js backend/src/services/__tests__/scheduling.reminderRules.test.js backend/src/controllers/__tests__/scheduling.sharedOfficeBooking.test.js backend/src/services/__tests__/scheduling.ownedOfficeSession.test.js backend/src/services/__tests__/scheduling.notificationCustomizations.test.js
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.scheduling.config.js backend/src/services/__tests__/scheduling.officeSessionAgency.test.js backend/src/services/__tests__/scheduling.reminderRules.test.js backend/src/controllers/__tests__/scheduling.sharedOfficeBooking.test.js backend/src/services/__tests__/scheduling.ownedOfficeSession.test.js backend/src/services/__tests__/scheduling.ownedOfficeSessionJobs.test.js backend/src/services/__tests__/scheduling.notificationCustomizations.test.js
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.meeting-launch.config.js backend/src/services/__tests__/meetingJoinPolicy.test.js
           (cd frontend && node node_modules/vitest/vitest.mjs run --config vitest.office-session-supervision.config.js)
       - name: Unified office approvals on mobile
@@ -339,6 +346,14 @@ jobs:
           src/components/schedule/__tests__/AppointmentCommunicationsPanel.test.js
           src/components/schedule/__tests__/OfferedTimeDialog.test.js
           src/components/guardian/__tests__/GuardianAppointmentsPanel.test.js
+          src/components/guardian/__tests__/GuardianCancellation.test.js
+          src/components/guardian/__tests__/GuardianCancellationDialog.test.js
+          src/components/guardian/__tests__/GuardianServiceExitFeedback.test.js
+          src/components/guardian/__tests__/EndedServicePortal.test.js
+          src/components/guardian/__tests__/ServiceReturnRequest.test.js
+          src/components/guardian/__tests__/ReenrollmentFlow.test.js
+          src/views/guardian/__tests__/DependentPortalView.test.js
+          src/components/admin/__tests__/ClientServiceEnrollments.providers.test.js
           src/composables/__tests__/AppointmentChangeWizard.test.js
           src/components/schedule/__tests__/SchoolSupportCancellationBenefit.test.js
           src/composables/__tests__/useAppointmentChange.test.js
@@ -399,7 +414,7 @@ jobs:
       - name: Clinical catalog and reminder persistence
         env:
           CLINICAL_INTEGRATION_MYSQL_PORT: '3306'
-        run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.clinical-integrations.config.js backend/src/services/__tests__/clinicalIntegration.mysql.test.js
+        run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.clinical-integrations.config.js backend/src/services/__tests__/clinicalIntegration.mysql.test.js backend/src/services/__tests__/guardianCancellation.mysql.test.js
       - name: One-session alert persistence and concurrent workers
         env:
           PORTAL_ACTIVITY_MYSQL_PORT: '3306'
@@ -423,6 +438,8 @@ jobs:
           backend/src/services/__tests__/scheduling.supervisionScheduleActions.mysql.test.js
           backend/src/services/__tests__/scheduling.schoolSupport.mysql.test.js
           backend/src/services/__tests__/scheduling.schoolStatusTransitions.mysql.test.js
+      - name: Outreach rejection outbox and cleanup limits in MySQL
+        run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.unsolicited-outreach.config.js --maxWorkers=2
       - name: Work username reservation transactions
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.hire.config.js backend/src/services/__tests__/hire.username.mysql.test.js
       - name: Brief B paper processing and targeted retest

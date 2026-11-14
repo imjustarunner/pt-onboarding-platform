@@ -1,5 +1,7 @@
+import { queueOfficeEventGoogleSync } from '../services/providerAssignmentGoogleSync.service.js';
 import { schedulingResponseForUser } from '../services/schedulingBillingAccess.service.js';
 import { bookSessionInOwnedOffice } from '../services/ownedOfficeSession.service.js';
+import { queueOwnedOfficeSession } from '../services/ownedOfficeSessionJobs.service.js';
 import { normalizeCustomSessionReminders, validateCustomReminderChannels } from '../services/appointmentNotificationCustomization.service.js';
 import { runOfficeDecision } from './officeApprovalWorkflow.controller.js';
 import { bookingServiceDuration } from '../utils/bookingServiceDuration.js';
@@ -1837,13 +1839,18 @@ export const getWeeklyGrid = async (req, res, next) => {
 
     const linkedEventIds = [...new Set(slots.map(s => Number(s.eventId)).filter(Boolean))];
     if (linkedEventIds.length) {
-      const [linked] = await pool.query(`SELECT e.id event_id,e.start_at,e.end_at,a.id appointment_id
+      const [linked] = await pool.query(`SELECT e.id event_id,e.start_at,e.end_at,a.id appointment_id,
+        EXISTS(SELECT 1 FROM appointments allocated WHERE allocated.room_id=e.room_id
+          AND allocated.office_location_id=e.office_location_id AND allocated.provider_user_id=e.booked_provider_id
+          AND allocated.start_at>=e.start_at AND allocated.end_at<=e.end_at
+          AND allocated.status IN ('scheduled','confirmed','client_confirmed','completed')) AS has_linked_appointment
         FROM office_events e LEFT JOIN appointments a ON a.office_event_id=e.id
         WHERE e.id IN (?)`, [linkedEventIds]);
       const byEvent = new Map(linked.map(row => [Number(row.event_id), row]));
       for (const slot of slots) {
         const event = byEvent.get(Number(slot.eventId));
         slot.appointmentId = event?.appointment_id || null;
+        slot.hasAppointment = !!event?.appointment_id || Number(event?.has_linked_appointment)===1;
         slot.eventStartAt = event?.start_at || null;
         slot.eventEndAt = event?.end_at || null;
       }
@@ -2516,7 +2523,7 @@ const approveRequestImpl = async (req, res, next) => {
     const createdEvent = createdEvents?.[0] || null;
     if (createdEvent?.id) {
       try {
-        await GoogleCalendarService.upsertBookedOfficeEvent({ officeEventId: createdEvent.id });
+        await queueOfficeEventGoogleSync(createdEvent.id);
       } catch {
         // ignore
       }
@@ -2702,14 +2709,15 @@ export const createOfficeBookingRequest = async (req, res, next) => {
 
     const customReminders = normalizeCustomSessionReminders(req.body?.customReminders || []);
     const notificationMode = customReminders.length ? 'customizable' : req.body?.notificationMode || 'default';
-    const ownedBooking = await bookSessionInOwnedOffice({ office: loc, roomId: room?.id || null,
+    const ownedInput = { office: loc, roomId: room?.id || null,
       providerId: requestedProviderId, actorUserId: req.user.id, agencyId: policyAgencyId, clientId,
       startAt, endAt, recurrence: normalizedRecurrence, occurrenceCount: bookedOccurrenceCount || 1,
       ...validatedSelection, serviceLocationId: rawSelection.serviceLocationId || null, notes,
       tenantServiceId: Number(req.body?.tenantServiceId || 0) || null, packageEntitlementId: Number(req.body?.packageEntitlementId || 0) || null,
       appointmentId: req.body?.appointmentId, appointmentSeriesId: req.body?.appointmentSeriesId,
-      notificationMode, customReminders });
-    if (ownedBooking) return res.status(201).json(await schedulingResponseForUser(req.user, policyAgencyId, ownedBooking));
+      notificationMode, customReminders };
+    const ownedBooking = await (req.body?.asyncOwnedSession === true ? queueOwnedOfficeSession : bookSessionInOwnedOffice)(ownedInput);
+    if (ownedBooking) return res.status(ownedBooking.kind === 'booking_job' ? 202 : 201).json(await schedulingResponseForUser(req.user, policyAgencyId, ownedBooking));
     await validateCustomReminderChannels(policyAgencyId, customReminders);
 
     // Every new room request uses the same allocator and pending hold. Legacy
@@ -3338,7 +3346,7 @@ const approveOfficeBookingRequestLocked = async (req, res, next) => {
     });
 
     try {
-      if (createdEvent?.id) await GoogleCalendarService.upsertBookedOfficeEvent({ officeEventId: createdEvent.id });
+      if (createdEvent?.id) await queueOfficeEventGoogleSync(createdEvent.id);
     } catch {
       // ignore
     }

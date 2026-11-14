@@ -56,10 +56,13 @@ const upload = multer({
   limits: { fileSize: 20 * 1024 * 1024 }
 });
 import { authenticate } from '../middleware/auth.middleware.js';
+import {reenrollmentPacketGate,publicEnrollmentResponsePrivacy} from '../middleware/reenrollmentPacket.middleware.js';
 
 const router = express.Router();
 
 router.use(publicIntakeRequestLimiter);
+router.use(publicEnrollmentResponsePrivacy);
+router.use('/:publicKey',reenrollmentPacketGate);
 router.get('/application-documents/:submissionId/:docId', viewApplicationDocument);
 
 router.get('/registration-receipt/:submissionId', getPublicRegistrationReceipt);

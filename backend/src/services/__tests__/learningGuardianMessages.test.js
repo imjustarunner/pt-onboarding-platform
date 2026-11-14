@@ -8,7 +8,7 @@ import {clientSecureAudience} from '../clientSecureConversation.service.js';
 let db,client,provider,ordinary,limited,service,shared;
 beforeEach(()=>{
  vi.clearAllMocks();
- client={id:2545,agency_id:453,provider_id:1496,client_type:'learning',guardian_portal_enabled:1};
+ client={id:2545,status:'CURRENT',agency_id:453,provider_id:1496,client_type:'learning',guardian_portal_enabled:1};
  provider={id:1496,role:'provider',is_active:1,is_archived:0,status:'ACTIVE_EMPLOYEE',first_name:'Finley'};
  ordinary={id:1759,guardian_user_id:1759,role:'client_guardian',relationship_type:'guardian',is_active:1,is_archived:0,status:'ACTIVE',permissions_json:{},first_name:'Morgan'};
  limited={id:1900,guardian_user_id:1900,role:'client_guardian',relationship_type:'guardian',is_active:1,is_archived:0,status:'ACTIVE',permissions_json:{learningOnly:true,serviceKinds:['tutoring'],serviceAgencyIds:[453],canMessage:true},first_name:'Rene'};
@@ -16,7 +16,7 @@ beforeEach(()=>{
  m.services.mockImplementation(async()=>[{...service}]);m.membership.mockResolvedValue(true);m.clinical.mockResolvedValue({scopes:['clinical_messages']});
  db={execute:m.execute,beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn()};db.getConnection=vi.fn(async()=>db);
  m.execute.mockImplementation(async(sql)=>{
-  if(sql.startsWith('SELECT c.id,c.agency_id,c.provider_id'))return [[{...client}]];
+  if(sql.startsWith('SELECT c.id,c.agency_id,c.provider_id')||sql.startsWith('SELECT c.id,c.status,c.agency_id,c.provider_id'))return [[{...client}]];
   if(sql.startsWith('SELECT id, agency_id, organization_id'))return [[{...client}]];
   if(sql.startsWith('SELECT id FROM clients'))return [[{id:client.id}]];
   if(sql.includes('FROM users u JOIN user_agencies')||sql.includes('SELECT DISTINCT u.id, u.first_name'))return [[provider]];
@@ -29,6 +29,12 @@ beforeEach(()=>{
 });
 
 describe('learning-only links retain their exact messaging service boundary',()=>{
+ it.each(['ended profile','ended tutoring service'])('blocks a new learning conversation for an %s',async reason=>{
+  if(reason==='ended profile')client.status='TERMINATED';
+  else service.is_active=0;
+  await expect(shared.currentAudience({clientId:2545,agencyId:453,serviceId:1038})).rejects.toMatchObject({status:403});
+  expect(m.execute.mock.calls.some(([sql])=>/^(INSERT|UPDATE|DELETE)/.test(sql))).toBe(false);
+ });
  it('allows the explicitly bound tutoring conversation in its original agency',async()=>{
   const audience=await shared.currentAudience({clientId:2545,agencyId:453,serviceId:1038});expect(audience.audienceIds).toEqual([1496,1759,1900]);
   expect((await clientSecureAudience(2545,db,{agencyId:453,serviceId:1038})).userIds).toContain(1900);

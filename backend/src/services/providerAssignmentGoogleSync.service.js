@@ -4,6 +4,21 @@ import OfficeScheduleMaterializer from './officeScheduleMaterializer.service.js'
 
 const SYNCABLE_OFFICE_SLOT_STATES = ['ASSIGNED_BOOKED', 'ASSIGNED_AVAILABLE'];
 
+const queuedOfficeSyncIds = new Set();
+// Persist the retry marker before returning the approval. The existing office
+// watchdog repairs a pending copy if this process stops before its immediate task.
+export async function queueOfficeEventGoogleSync(officeEventId) {
+  const id = Number(officeEventId);
+  if (!Number.isSafeInteger(id) || id <= 0) return;
+  await pool.execute(`UPDATE office_events SET google_sync_status='PENDING',google_sync_error=NULL WHERE id=? AND (status IS NULL OR UPPER(status)<>'CANCELLED')`, [id]);
+  if (queuedOfficeSyncIds.has(id)) return;
+  queuedOfficeSyncIds.add(id);
+  setImmediate(async () => {
+    try { await syncOfficeEventToGoogleBestEffort(id); }
+    finally { queuedOfficeSyncIds.delete(id); }
+  });
+}
+
 export async function syncOfficeEventToGoogleBestEffort(officeEventId) {
   try {
     return await GoogleCalendarService.upsertBookedOfficeEvent({ officeEventId });

@@ -11,6 +11,7 @@ import { logCommunication } from './appointmentReminder.service.js';
 import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
 import { maybeEncryptNotePayload, maybeDecryptNotePayload } from './clinicalNoteCrypto.service.js';
 import { cancellationFollowUp, validateCancellationChoices, appointmentTimeLabel } from './cancellationFollowUp.service.js';
+import { serviceNotificationBlocked } from './clientServiceNotificationPolicy.service.js';
 
 const escapeHtml = value => String(value || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const decode = value => typeof value === 'string' ? JSON.parse(value) : value;
@@ -37,13 +38,30 @@ export function cancellationClientDetails(facts = {}, { requireReason = true } =
   if (!Object.hasOwn(CANCELLATION_FOLLOW_UP, followUpAction)) throw fail('Choose a follow-up action for the client.');
   if (followUpAction === 'replacement_booked' && !Number(facts.replacementAppointmentId)) throw fail('Link the replacement appointment before telling the client it is booked.');
   const followUpMessage = String(facts.followUpMessage || '').trim();
+  const personalNote = String(facts.personalNote || '').trim();
+  if (personalNote.length > 1000) throw fail('Keep the personal note within 1,000 characters.');
   if (followUpMessage.length > 1000) throw fail('Keep the client follow-up message within 1,000 characters.');
-  return { clientFacingReason: reason, followUpAction, followUpMessage, notificationMode: choices.notificationMode };
+  return { clientFacingReason: reason, followUpAction, followUpMessage, personalNote, notificationMode: choices.notificationMode };
 }
 
 export function buildCancellationNotification(appointment, facts, resolved = {}) {
   const noShow = facts.eventType === 'no_show';
   const details = cancellationClientDetails(facts, { requireReason: !noShow });
+  if (facts.guardianSummary && facts.guardianCancellationOperationId) {
+    const summary=facts.guardianSummary,count=Number(summary.count),fee=Number(summary.totalFeeCents||0);
+    if(!Number.isSafeInteger(count)||count<0||(count===0&&!summary.endsService)||!Number.isSafeInteger(fee)||fee<0)throw fail('A valid cancellation summary is required.');
+    const paragraphs=[count?`${count} future appointment${count===1?' has':'s have'} been canceled.`:'No future appointments remained to cancel.',
+      ...(summary.endsService?[`You have ended ${summary.serviceLabel || 'this service'} with this provider. Your services have been terminated, and no further appointments in this service remain scheduled.`,
+        ...(summary.teamNotified?['Our team has been notified.']:[]),
+        ...(summary.notificationsDisabled?['Future email and text notifications for this service have been disabled. This is your final service confirmation.']:[]),
+        'Your other services and agencies are unchanged.']:['Other appointments outside this selection remain scheduled.']),
+      `Reason: ${details.clientFacingReason}`,fee>0?`The total cancellation fee is ${new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(fee/100)}. Review the individual charges in your portal.`:'No additional cancellation fee was charged for this selection.'];
+    const note=details.personalNote?`<p><strong>A personal note</strong><br><em>${escapeHtml(details.personalNote).replaceAll('\n','<br>')}</em></p>`:'';
+    const html=paragraphs.map(p=>`<p>${escapeHtml(p)}</p>`).join('')+note;
+    return {...details,subject:summary.endsService?'Confirmation: your services have ended':'Your appointment cancellation confirmation',
+      text:[...paragraphs,...(details.personalNote?[`A personal note:\n${details.personalNote}`]:[])].join('\n\n'),
+      html,bodyHtml:html,bodyText:paragraphs.join('\n\n'),sms:'Your cancellation is confirmed. Please review the summary in your secure portal.'};
+  }
   const when = new Intl.DateTimeFormat('en-US', { dateStyle: 'full', timeStyle: 'short',
     timeZone: appointment.sourceTimezone || 'America/Denver' }).format(parseUtcDate(appointment.startAt));
   const nextText = resolved.nextAppointment
@@ -91,7 +109,8 @@ export function createCancellationNotificationService({ database = pool, appoint
   smsSender = resolveRegisteredSmsSender, sendSms = options => VonageService.sendSms(options),
   log = logCommunication, encrypt = maybeEncryptNotePayload, decrypt = maybeDecryptNotePayload,
   provider = async id => (await import('../models/User.model.js')).default.findById(id),
-  followUp = cancellationFollowUp, offers = { ensure: async (...args) => (await import('./appointmentReplacementOffer.service.js')).replacementOffers.ensure(...args) } } = {}) {
+  followUp = cancellationFollowUp, serviceBlocked = input => serviceNotificationBlocked(input, database),
+  offers = { ensure: async (...args) => (await import('./appointmentReplacementOffer.service.js')).replacementOffers.ensure(...args) } } = {}) {
   async function summary(appointmentId) {
     const [rows] = await database.execute('SELECT id,client_id,channel,delivery_status,error_message FROM appointment_cancellation_deliveries WHERE appointment_id=? ORDER BY id', [appointmentId]);
     const count = state => rows.filter(row => row.delivery_status === state).length;
@@ -125,6 +144,9 @@ export function createCancellationNotificationService({ database = pool, appoint
           || !participants.some(p => Number(p.clientId) === Number(row.client_id)) || !isCanceledAppointmentStatus(appointment.status)) {
         await finish('skipped', 'Appointment is no longer canceled or recipient is no longer linked.'); return;
       }
+      if(await serviceBlocked({appointment,clientId:row.client_id})){
+        await finish('suppressed','This service has ended. Email and text notifications are disabled.');return;
+      }
       if (message.notificationMode === 'none') {
         audit = await communications.create({ agencyId: row.agency_id, clientId: row.client_id,
           templateType: 'session_cancellation', channel: 'in_app', subject: 'Cancellation recorded without notification',
@@ -157,7 +179,7 @@ export function createCancellationNotificationService({ database = pool, appoint
       }
       const externalId = result?.id || result?.sid || result?.messageId || result?.messageUuid || result?.messageUUID || null;
       acceptedExternalId = externalId;
-      if(result?.reason==='school_session_email_opted_out') {await finish('skipped',result.reason);return;}
+      if(['school_session_email_opted_out','service_ended_notifications_disabled'].includes(result?.reason)) {await finish('skipped',result.reason);return;}
       const receipt = notificationTransportReceipt(result, row.agency_id);
       const sent = receipt.accepted;
       if (sent && receipt.redirectedTo) recipient = receipt.redirectedTo;

@@ -13,7 +13,7 @@ vi.mock('../tenantEmailChrome.service.js', () => ({ wrapOutboundHtmlWithTenantCh
 vi.mock('../unifiedEmail/unifiedEmailSender.service.js', () => ({ sendEmailFromIdentity: m.send }));
 vi.mock('../publicJobDescription.service.js', () => ({ buildJobDescriptionAttachmentForEmail: async () => null, buildPublicJobDescriptionUrl: () => '', peopleOperationsFromDisplayName: a => `${a.name} People Operations` }));
 import { sendHiringInterviewInviteEmail, prepareHiringInterviewInviteEmail } from '../hiringInterviewInviteEmail.service.js';
-const args = { agencyId: 4, candidate: { id: 30, email: 'candidate@example.org', first_name: 'A & B' }, title: 'Interview invitation', whenLabel: 'October 2, 1 pm MDT', publicJoinUrl: 'https://tenant.org/join/guest', interviewerRows: [{ first_name: 'Elena', last_name: 'Cruz' }, { first_name: 'Alex', last_name: 'Rivera' }] };
+const args = { agencyId: 4, candidate: { id: 30, email: 'candidate@example.org', first_name: 'A & B' }, title: 'Interview invitation', whenLabel: 'October 2, 1 pm MDT', publicJoinUrl: 'https://plotlinepo.com/interview/tenant/video/guest', interviewerRows: [{ first_name: 'Elena', last_name: 'Cruz' }, { first_name: 'Alex', last_name: 'Rivera' }] };
 beforeEach(() => { vi.clearAllMocks(); m.agency.mockResolvedValue({ name: 'Tenant' }); m.sender.mockResolvedValue({ id: 7, from_email: 'po@tenant.org', reply_to: 'unrelated@tenant.org' }); m.wrap.mockImplementation(async ({ html }) => `<header>Tenant header</header>${html}<footer>Tenant footer</footer>`); m.send.mockResolvedValue({ id: 'provider-message' }); });
 describe('branded interview invitation', () => {
   it('includes local 12-hour time and working calendar links with the candidate join link', async () => {
@@ -23,7 +23,7 @@ describe('branded interview invitation', () => {
     expect(email.html).toContain('Thank you for your interest in Tenant');
     expect(email.html).toContain('calendar.google.com/calendar/render');
     expect(email.html).toContain('outlook.live.com');
-    expect(email.html).toContain(`https://tenant.org/api/team-meetings/${interviewCalendarReference(240)}/calendar.ics`);
+    expect(email.html).toContain(`https://plotlinepo.com/api/team-meetings/${interviewCalendarReference(240)}/calendar.ics`);
     expect(email.html).toContain('Do not share or forward');
     expect(email.html).toContain('No account or sign-in is needed');
     expect(email.text).toContain('No account or sign-in is needed');

@@ -45,8 +45,13 @@ describe('NLU childcare written schedule in a combined-role contract',()=>{
   await expect(render({payLevel:undefined})).rejects.toThrow('approved NLU service category and pay level');
   await expect(render({ratesByBand:{4:-1}})).rejects.toThrow('positive hourly amount');
  });
- it('does not let the resolved childcare schedule satisfy testing requirements',async()=>{
-  const result=await render({}, {CONTRACT_SERVICE_ROLES:['childcare','psychological_testing']});
-  expect(result.unresolvedTokens).toEqual(['PSYCHOLOGICAL_TESTING_COMPENSATION_TERMS','PSYCHOLOGICAL_TESTING_AUTHORIZATION_TERMS']);
+ it('resolves Testing pay independently of childcare while requiring Testing assignment approval',async()=>{
+  const result=await render({hourlyRate:31}, {CONTRACT_SERVICE_ROLES:['childcare','psychological_testing']});
+  expect(result.unresolvedTokens).toEqual(['PSYCHOLOGICAL_TESTING_AUTHORIZATION_TERMS']);
+  expect(result.tokens.COMPENSATION_SCHEDULE).toMatchObject({childcareRate:31,testingAdministrationRate:24,testingEvaluationRate:24,testingAuthorized:false});
+  expect(result.html).toContain('1 child per active caregiver: $31.00/hour');
+  expect(result.html).toContain('Authorized administration/scoring: $24.00/actual hour');
+  expect(result.html).toContain('evaluation/interpretation/report/feedback: $24.00/actual hour-equivalent');
+  expect(result.html).toContain('Workplace Handbook Testing area');
  });
 });

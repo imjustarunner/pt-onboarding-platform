@@ -9,7 +9,10 @@ export function interviewCalendarEventId(ref){
 }
 export function interviewCalendarJoinUrl(personalUrl,eventId){
  const url=new URL(personalUrl);
- if(!['http:','https:'].includes(url.protocol)||!url.pathname.includes('/join/'))throw new Error('Invalid interview URL.');
+ if(!['http:','https:'].includes(url.protocol))throw new Error('Invalid interview URL.');
+ const branded=/^(\/interview\/[^/]+\/video)\/[^/]+\/?$/.exec(url.pathname);
+ if(branded){url.pathname=`${branded[1]}/${interviewCalendarReference(eventId)}`;url.search='';url.hash='';return url.toString();}
+ if(!url.pathname.includes('/join/'))throw new Error('Invalid interview URL.');
  const prefix=url.pathname.split('/join/')[0];
  url.pathname=`${prefix}/join/team-meeting/${interviewCalendarReference(eventId)}`;url.search='';url.hash='';return url.toString();
 }

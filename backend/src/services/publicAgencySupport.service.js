@@ -1,3 +1,4 @@
+import { filterUnsolicitedOutreach } from './unsolicitedOutreach.service.js';
 import {resolveChatReferral} from './websiteChatReferral.service.js';
 import {getPublicWebsiteIdentity} from './publicWebsiteIdentity.service.js';
 import { routePublicWebsiteTicket } from './publicWebsiteTicketRouting.service.js';
@@ -533,6 +534,9 @@ export async function createPublicAgencySupportTicket(agencySlug, payload = {}, 
     err.code = captcha.reason || 'captcha_failed';
     throw err;
   }
+
+  const outreach = await filterUnsolicitedOutreach({ agencyId: agency.id, fromEmail: email, bodyText: message });
+  if (outreach.filtered) return { ok: true, ticketId: null, suppressed: true };
 
   const internshipContact = internshipInquiry ? await resolveInternshipContact(agency) : null;
   const chatReferral = await resolveChatReferral(String(agencySlug),payload.chatReferral);

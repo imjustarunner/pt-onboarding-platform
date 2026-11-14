@@ -5,7 +5,7 @@ import { getCompanyEventInvitationPreview } from '../companyEventStaffLink.contr
 const token='a'.repeat(48);
 const event={id:353,agency_id:2,title:'Denver potluck',event_type:'company_event',staff_link_token:token,description:'Celebrate together',starts_at:null,
   operations_json:{invitedAgencyIds:[3],pageLink:{eventId:353,organizationSlug:'itsco',eventSlug:'denver-potluck-353'}},potluck_enabled:1,organizer_providing_json:'["Main dishes"]',created_by_user_id:7,private_data:'must not leak'};
-const agencies=[{id:2,name:'ITSCO',slug:'itsco'},{id:3,name:'Inner Strength',slug:'innerstrength'}];
+const agencies=[{id:2,name:'ITSCO',slug:'itsco',logo_url:'/assets/itsco/logo.png',color_palette:'{"primary":"#527e4b"}'},{id:3,name:'Inner Strength',slug:'innerstrength'}];
 const response=()=>({status:vi.fn().mockReturnThis(),json:vi.fn(),set:vi.fn()});
 beforeEach(()=>{vi.resetAllMocks();pool.execute.mockImplementation(async sql=>sql.includes('FROM company_events')?[[event]]:[agencies]);});
 async function invoke(params={id:'353',token}){const res=response(),next=vi.fn();await getCompanyEventInvitationPreview({params},res,next);expect(next).not.toHaveBeenCalled();return res;}
@@ -14,6 +14,8 @@ describe('unlisted no-login event invitation',()=>{
     const res=await invoke();const data=res.json.mock.calls[0][0];
     expect(data.event).toMatchObject({title:'Denver potluck',dateToBeDecided:true,potluckEnabled:true,organizerProviding:['Main dishes']});
     expect(data.branding.agencyName).toBe('ITSCO + Inner Strength');
+    expect(data.branding).toMatchObject({hostAgencyName:'ITSCO',agencySlug:'itsco',logoUrl:'/assets/itsco/logo.png',colorPalette:{primary:'#527e4b'}});
+    expect(data.agencies.map(agency=>agency.isHost)).toEqual([true,false]);
     expect(data.canonicalUrl).toBe('https://auricwell.com/conversa/events/itsco/denver-potluck-353');
     expect(JSON.stringify(data)).not.toMatch(/private_data|created_by|attendees|responses|userId|conversation|needList|mandatory/);
     expect(res.set).toHaveBeenCalledWith('X-Robots-Tag','noindex, nofollow');

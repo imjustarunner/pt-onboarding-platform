@@ -396,10 +396,14 @@ async function syncSupervisionAttendanceWithPresence(sessionId, { sessionRow = n
   return { ok: true, activeCount: activeIds.length };
 }
 
-async function countActiveJoinPresence(sessionId) {
+async function countActiveJoinPresence(sessionId, sessionType = '') {
   const sid = Number(sessionId || 0);
   if (!sid) return 0;
-  if(dialInConfigured())return (await supervisionJoinOccupancy(sid)).size;
+  if(dialInConfigured()) {
+    const identities = [...await supervisionJoinOccupancy(sid)];
+    return String(sessionType).toLowerCase() === 'individual'
+      ? identities.filter(identity => !identity.startsWith('calendar-guest-')).length : identities.length;
+  }
   try {
     await pruneStaleJoinPresence(sid);
     const [rows] = await pool.execute(
@@ -2089,7 +2093,7 @@ export const getSupervisionJoinInfo = async (req, res, next) => {
     const redirectKey = ref;
     const tokenRole = SupervisionSession.classifyJoinTokenRole(session, ref);
     const sessionType = String(session.session_type || 'individual').toLowerCase();
-    const activeCount = await countActiveJoinPresence(session.id);
+    const activeCount = await countActiveJoinPresence(session.id, sessionType);
     const maxCapacity = maxJoinCapacityForSessionType(sessionType);
     const appJoinUrl = joinUrlForSupervision(await tenantMeetingBase(session.agency_id), ref);
     const closedByName = session.live_ended_at
@@ -2217,7 +2221,7 @@ export const postSupervisionJoinPresence = async (req, res, next) => {
         }
       }
     }
-    const activeCount = await countActiveJoinPresence(id);
+    const activeCount = await countActiveJoinPresence(id, row.session_type);
     const maxCapacity = maxJoinCapacityForSessionType(row.session_type);
     res.json({
       ok: true,
@@ -2558,7 +2562,7 @@ export const getSupervisionVideoToken = async (req, res, next) => {
     const joinReservation=!useLobby&&dialInConfigured()?await reserveSupervisionJoin({sessionId:id,userId:actorUserId,joinIdentity:identity,displayName,matchesOpenAudience:userMatchesSupervisionOpenAudience,expectedRole:role}):null;
     const maxCapacity = maxJoinCapacityForSessionType(sessionType);
     const alreadyPresent = await isJoinIdentityActive(id, identity);
-    const activeCount = await countActiveJoinPresence(id);
+    const activeCount = await countActiveJoinPresence(id, sessionType);
     if (!useLobby && !alreadyPresent && activeCount >= maxCapacity) {
       return res.status(409).json({
         error: {

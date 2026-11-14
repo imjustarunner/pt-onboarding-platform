@@ -21,7 +21,7 @@ test('explicit choices override legacy format strings, absent profiles remain sa
 });
 test('only booked reservations without clinical or learning sessions are flagged',()=>{
  assert.equal(officeBookingNeedsSession({state:'assigned_booked'}),true);
- for(const slot of [{state:'open'},{state:'assigned_available'},{state:'company_hold'},{state:'assigned_booked',clinicalSessionId:12},{state:'assigned_booked',learningSessionId:25},{state:'assigned_booked',learningLinked:true}])assert.equal(officeBookingNeedsSession(slot),false);
+ for(const slot of [{state:'open'},{state:'assigned_available'},{state:'company_hold'},{state:'assigned_booked',hasAppointment:true},{state:'assigned_booked',clinicalSessionId:12},{state:'assigned_booked',learningSessionId:25},{state:'assigned_booked',learningLinked:true}])assert.equal(officeBookingNeedsSession(slot),false);
 });
 
 test('a supervisor who does not see clients has no opening reminders; global closed overrides stale profile overrides',()=>{

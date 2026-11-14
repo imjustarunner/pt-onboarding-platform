@@ -20,7 +20,15 @@ export function scheduleClientFace(block, mode, timeLabel = '') {
   }
   const clinical = block.isClientSession || block.clientId || block.kind === 'school-soft'
     || ['session', 'external'].includes(block.peerActivityType);
-  if (!clinical || display === 'full') return { ...block, displayClientName: block.clientName };
+  if (!clinical) return { ...block, displayClientName: block.clientName };
+  if (display === 'full') {
+    const name = String(block.clientName || '').trim();
+    if (!name || /^client\s*#?\s*\d+$/i.test(name)) return { ...block, displayClientName: name };
+    const location = block.schoolName || block.locationLabel || '';
+    const label = [block.isCancelled ? 'Canceled' : block.isMissed ? 'Missed' : '', `${name} · Session`].filter(Boolean).join(' · ');
+    return { ...block, displayClientName: name, shortLabel: [label, timeLabel || block.timeLabel, location].filter(Boolean).join('\n'),
+      title: [label, block.allDay ? 'All day' : timeLabel || block.timeLabel, location].filter(Boolean).join(' · ') };
+  }
   const initials = display === 'initials' ? scheduleClientInitials(block.clientName) : '';
   const name = initials || 'Client';
   const state = block.isCancelled ? 'Canceled' : block.isMissed ? 'Missed' : '';

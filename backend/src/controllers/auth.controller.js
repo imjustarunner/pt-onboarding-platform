@@ -1,3 +1,4 @@
+import recoverGuardianAccess from '../services/guardianAccessRecovery.service.js';
 import { usesPasswordLogin } from '../utils/passwordLogin.js';
 import { familyLoginOrganization, portalSignInUsername } from '../utils/familyLoginContext.js';
 import { mintRoutingHint } from '../services/schoolCareBridgeRouting.service.js';
@@ -3141,26 +3142,8 @@ export const requestGuardianTempPassword = async (req, res, next) => {
     const requestedEmail = String(req.body?.email || '').trim().toLowerCase();
     const orgSlug = normalizeOrgSlug(req.body?.organizationSlug || req.body?.orgSlug);
     if (!requestedEmail) return safeGenericRecoveryResponse(res);
-    const captcha = await verifyRecoveryCaptcha({ req, expectedAction: 'login_password_reset' });
-    if (!captcha.ok) return safeGenericRecoveryResponse(res);
-    const user = await User.findByEmail(requestedEmail).catch(() => null);
-    const roleNorm = String(user?.role || '').trim().toLowerCase();
-    const guardianUser = user?.id && (roleNorm === 'client_guardian' || roleNorm === 'guardian') ? user : null;
-    try {
-      const { fileGuardianAccessHelpTicket } = await import('../services/coGuardianInvite.service.js');
-      await fileGuardianAccessHelpTicket({
-        email: requestedEmail,
-        user: guardianUser,
-        orgSlug,
-        req
-      });
-    } catch (e) {
-      console.error('[auth] requestGuardianTempPassword ticket failed', e?.message || e);
-    }
-    return safeGenericRecoveryResponse(res, {
-      recoveryMode: 'ticket',
-      message: 'If this matches a parent or guardian access token, the care team can send a new token or a temporary password. This is not the Forgot password flow.'
-    });
+    const result = await recoverGuardianAccess({ email: requestedEmail, orgSlug, req });
+    return safeGenericRecoveryResponse(res, result);
   } catch (e) {
     next(e);
   }
