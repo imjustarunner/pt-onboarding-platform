@@ -35,14 +35,15 @@ describe.skipIf(!process.env.EVIDENCE_TEST_SOCKET && !process.env.EVIDENCE_TEST_
    CREATE TABLE client_guardian_intake_profiles (id INT PRIMARY KEY, client_id INT UNIQUE, profile_encrypted TEXT);
    CREATE TABLE client_status_history (id INT AUTO_INCREMENT PRIMARY KEY, client_id INT, changed_by_user_id INT, field_changed VARCHAR(64), from_value TEXT, to_value TEXT, note TEXT);
    CREATE TABLE clinical_notes (id INT PRIMARY KEY,agency_id INT,client_id INT,provider_signed_at DATETIME NULL,is_deleted TINYINT NOT NULL DEFAULT 0);
-   CREATE TABLE agencies (id INT PRIMARY KEY, name VARCHAR(255));
-   CREATE TABLE user_agencies (user_id INT, agency_id INT);
-   CREATE TABLE intake_links (id INT PRIMARY KEY, organization_id INT, language_code VARCHAR(3), scope_type VARCHAR(32), form_type VARCHAR(32), inherits_school_master INT DEFAULT 0, is_school_master INT DEFAULT 0, is_office_master INT DEFAULT 0, is_active INT DEFAULT 1);
+   CREATE TABLE agencies (id INT PRIMARY KEY, name VARCHAR(255), feature_flags JSON, is_active INT DEFAULT 1, is_archived INT DEFAULT 0);
+   CREATE TABLE user_agencies (user_id INT, agency_id INT, is_active INT DEFAULT 1);
+   CREATE TABLE intake_links (id INT PRIMARY KEY, master_channel VARCHAR(32), organization_id INT, language_code VARCHAR(3), scope_type VARCHAR(32), form_type VARCHAR(32), inherits_school_master INT DEFAULT 0, is_school_master INT DEFAULT 0, is_office_master INT DEFAULT 0, is_active INT DEFAULT 1);
    CREATE TABLE agency_office_intake_masters (agency_id INT, published_intake_link_id INT);
+   CREATE TABLE agency_channel_intake_masters (agency_id INT, channel VARCHAR(32), published_intake_link_id INT);
    CREATE TABLE agency_schools (agency_id INT, school_organization_id INT, is_active INT);
    CREATE TABLE organization_affiliations (agency_id INT, organization_id INT, is_active INT);
-   INSERT INTO agencies VALUES (450,'Demo'),(451,'Demo school'),(2,'Other agency');
-   INSERT INTO user_agencies VALUES (8,450);
+   INSERT INTO agencies(id,name) VALUES (450,'Demo'),(451,'Demo school'),(2,'Other agency');
+   INSERT INTO user_agencies(user_id,agency_id) VALUES (8,450);
    INSERT INTO intake_links (id,organization_id,language_code,scope_type,form_type,inherits_school_master,is_active) VALUES
     (10,450,'en','agency','intake',0,1),(11,451,'es','school','intake',1,1),(12,2,'en','agency','intake',0,1),(13,450,'en','agency','intake',0,1),(14,451,'en','school','intake',1,0);
    INSERT INTO agency_office_intake_masters VALUES (450,10),(2,12);
