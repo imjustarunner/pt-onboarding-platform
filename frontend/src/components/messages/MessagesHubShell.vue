@@ -5244,7 +5244,7 @@ async function openLinkedSecureClient(){
   if(!current())return;
   let person=data?.person;const context=person?.clientMessaging;
   if(!person||Number(person.clientId)!==clientId||Number(person.agencyId)!==aid||(context&&Number(context.clientId)!==clientId))throw Error('This client is not available for secure messaging in this agency.');
-  if(!person.methods?.some(method=>method.id==='secure'&&method.available)){
+  if(!person.userId||!person.methods?.some(method=>method.id==='secure'&&method.available)){
    const guardians=context?.guardians||[],preferred=guardians.find(g=>Number(g.userId)===Number(context?.talkingToUserId));
    const guardian=[preferred,...guardians].find(g=>g?.personKey&&g.methods?.some(method=>method.id==='secure'&&method.available));
    if(!guardian)throw Error(person.methods?.find(method=>method.id==='secure')?.reason||'No eligible secure recipient is available for this client. Review their linked portal contacts.');
