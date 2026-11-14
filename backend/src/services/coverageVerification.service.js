@@ -9,7 +9,7 @@ import { hasMedicaidCoverage, policyIsMedicaid } from '../utils/insurancePayment
 import { billingError, auditBilling } from './familyBillingPolicy.service.js';
 import { validNpi } from './supervisedBillingPolicy.service.js';
 import { queueInsuranceVerificationSafely } from './insuranceVerificationTask.service.js';
-import { insuranceSubscriberIssues } from '../../../frontend/src/navigation/paperInsuranceReview.js';
+import { insuranceSubscriberIssues, isColoradoMedicaidPolicy, medicaidMemberIdNeedsDiscovery } from '../../../frontend/src/navigation/paperInsuranceReview.js';
 
 const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map(k=>[k,canonical(value[k])])) : value;
 export const coverageFingerprint = insurance => crypto.createHash('sha256').update(JSON.stringify(canonical({primary:insurance?.primary||null,secondary:insurance?.secondary||null,patient:insurance?.patient||null}))).digest('hex');
@@ -46,17 +46,17 @@ export function buildEligibilityRequest({insurance,slot,serviceDate,profile,look
  if(medicaidDiscovery && (slot!=='primary' || [insurance?.primary,insurance?.secondary].some(p=>p?.insurerName||p?.payerId||p?.eligibilityPayerId||p?.memberId||policyIsMedicaid(p))))throw billingError(409,'Medicaid discovery is only for clients without recorded insurance');
  const policy=medicaidDiscovery?{isMedicaid:true,eligibilityPayerId:'SKCO0'}:savedPolicy;
  if(!['member_id','demographics'].includes(lookupMode))throw billingError(400,'Choose a supported eligibility lookup');
- const payerId=policy?.eligibilityPayerId||policy?.payerId;
+ const payerId=isColoradoMedicaidPolicy(policy)?'SKCO0':policy?.eligibilityPayerId||policy?.payerId;
  // Colorado's 270 companion guide places all members in the subscriber loop
  // and explicitly supports first name + last name + DOB without a member ID.
- const coloradoMedicaid=payerId==='SKCO0'&&policyIsMedicaid(policy);
+ const coloradoMedicaid=isColoradoMedicaidPolicy(policy);
  if(lookupMode==='demographics'&&!coloradoMedicaid)throw billingError(400,'Name and birth-date lookup is configured only for Colorado Medicaid');
  if(coloradoMedicaid) {
   if(!patient?.firstName||!patient.lastName||!patient.dateOfBirth)throw billingError(409,'Save the Medicaid member’s legal name and date of birth before checking eligibility');
   const taxId=String(profile.practice.tax_id||'').replace(/\D/g,'');
   if(!validNpi(profile.billingNpi)||!/^\d{9}$/.test(taxId))throw billingError(409,'Configure the agency tax ID and billing-office NPI before checking eligibility');
   const compact=v=>coverageDate(v).replaceAll('-','');
-  return {payerid:payerId,...(lookupMode==='member_id'&&policy.memberId?{ins_number:policy.memberId}:{}),ins_name_f:patient.firstName,ins_name_l:patient.lastName,ins_dob:compact(patient.dateOfBirth),pat_rel:'18',
+  return {payerid:payerId,...(lookupMode==='member_id'&&policy.memberId&&!medicaidMemberIdNeedsDiscovery(policy,patient)?{ins_number:policy.memberId}:{}),ins_name_f:patient.firstName,ins_name_l:patient.lastName,ins_dob:compact(patient.dateOfBirth),pat_rel:'18',
    ...(['M','F'].includes(patient.sex)?{ins_sex:patient.sex}:{}),fdos:compact(serviceDate),service_code:'30,MH',prov_npi:profile.billingNpi,prov_taxid:taxId,prov_taxid_type:profile.practice.tax_id_type==='ssn'?'S':'E',prov_name_l:profile.practice.name};
  }
  if(!(policy?.eligibilityPayerId||policy?.payerId)||!policy.memberId||!policy.subscriberFirstName||!policy.subscriberLastName||!policy.subscriberDob)throw billingError(409,'Save the payer ID, member ID and subscriber identity before checking eligibility');
@@ -135,7 +135,10 @@ export async function runCoverageCheck({agencyId,clientId,slot,serviceDate,reque
   const evidence={result,summary:summarizeEligibility(result,{payerId:payload.payerid}),requestInsuranceFingerprint:fingerprint,eligibilityPayerId:payload.payerid,billingOfficeId:profile.officeId,billingNpi:profile.billingNpi,lookupMode:payload.ins_number?'member_id':'demographics'};
   // A demographic fallback may find the person under a different member ID.
   // Preserve that finding, but do not approve the currently saved wrong ID.
-  evidence.summary.identityMatches=eligibilityIdentityMatches({...payload,...(insurance?.[slot]?.memberId?{ins_number:insurance[slot].memberId}:{})},result);
+  const childDiscovery=payload.payerid==='SKCO0'&&!payload.ins_number&&medicaidMemberIdNeedsDiscovery(insurance?.[slot],insurance?.patient);
+  const returnedMembers=asList(result?.elig||result?.result?.elig);
+  evidence.summary.identityMatches=eligibilityIdentityMatches({...payload,...(!childDiscovery&&insurance?.[slot]?.memberId?{ins_number:insurance[slot].memberId}:{})},result);
+  if(childDiscovery&&!/^[A-Z]\d{6}$/i.test(String(returnedMembers[0]?.ins_number||'')))evidence.summary.identityMatches=false;
   try { await db.execute("UPDATE client_coverage_checks SET status='returned',completed_at=CURRENT_TIMESTAMP(6),evidence_encrypted=? WHERE id=? AND agency_id=? AND client_id=?",[encryptFamilyBilling(evidence,context(agencyId,clientId)),id,agencyId,clientId]); }
   catch(error) { await observeClaimMdData({agencyId,endpoint:'eligdata',failure:'evidence_storage_failed'}); throw error; }
   await auditBilling({agencyId,clientId,userId:actorUserId,action:'insurance_eligibility_checked',objectId:id},db);

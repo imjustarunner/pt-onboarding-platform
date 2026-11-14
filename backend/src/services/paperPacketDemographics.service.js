@@ -2,6 +2,8 @@
  * Save demographic fields read from a signed paper packet onto the client.
  * Empty chart fields are filled. Existing values stay put so staff can merge them.
  */
+import { translatePaperResponses } from './paperPacketTranslation.service.js';
+import { paperReadingCandidate, preservePaperReadingReview } from './paperPacketReading.service.js';
 import Client from '../models/Client.model.js';
 import ClientGuardianIntakeProfile from '../models/ClientGuardianIntakeProfile.model.js';
 import {
@@ -110,10 +112,12 @@ export async function applyPaperPacketDemographicsFromText({
   ocrText,
   insuranceText,
   documentId = null,
+  locale = 'auto',
   actorUserId = null
 } = {}) {
   const cid = Number(clientId || 0);
-  const parsed = extractPaperPacketDemographics(ocrText,{insuranceText});
+  const extracted=extractPaperPacketDemographics(ocrText,{insuranceText,locale});
+  const parsed=await translatePaperResponses(extracted);
   if (!cid || !paperPacketDemographicsHaveContent(parsed)) {
     return { attempted: true, stored: false, filled: [] };
   }
@@ -122,11 +126,11 @@ export async function applyPaperPacketDemographicsFromText({
 
   const patch = paperPacketDemographicFill(client, parsed);
   if (isDemographicsEncryptionConfigured()) {
-    patch.paper_packet_demo_candidate_enc = encryptDemographicsPayload({
+    patch.paper_packet_demo_candidate_enc = encryptDemographicsPayload(preservePaperReadingReview({
       ...parsed,
       documentId: Number(documentId) || null,
       readAt: new Date().toISOString()
-    });
+    },paperReadingCandidate(client)));
   }
   if (Object.keys(patch).length) {
     try {

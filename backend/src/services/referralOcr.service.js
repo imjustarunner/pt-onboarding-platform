@@ -45,7 +45,7 @@ class ReferralOcrService {
     }
     const request = {
       image: { content: buffer },
-      ...(languageHint ? { imageContext: { languageHints: [languageHint] } } : {})
+      ...(languageHint ? { imageContext: { languageHints: Array.isArray(languageHint)?languageHint:[languageHint] } } : {})
     };
     const [res] = await getVisionClient().textDetection(request);
     const text = res?.fullTextAnnotation?.text || res?.textAnnotations?.[0]?.description || '';
@@ -200,7 +200,7 @@ class ReferralOcrService {
           createdAt: new Date().toISOString()
         }
       });
-      const imageContext = languageHint ? { languageHints: [languageHint] } : undefined;
+      const imageContext = languageHint ? { languageHints: Array.isArray(languageHint)?languageHint:[languageHint] } : undefined;
       const [operation] = await getVisionClient().asyncBatchAnnotateFiles({
         requests: [
           {

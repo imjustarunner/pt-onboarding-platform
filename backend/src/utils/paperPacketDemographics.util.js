@@ -4,7 +4,32 @@
  * on the same line or the next line.
  */
 
+import {foldPaperText,paperPacketLocale,englishPaperValue,paperWrittenResponses} from './paperPacketLocale.js';
+
+const SPANISH_PRINTED_LABELS=['Nombre del dependiente','Fecha de nacimiento del dependiente','Edad del dependiente','Sexo del dependiente','Grado del dependiente','Dirección del dependiente','Ciudad del dependiente','Código postal','Su nombre','Su teléfono','Su correo electrónico','Otro padre/tutor — nombre, teléfono y correo','Seguro primario','Seguro secundario','Titular de la póliza','Titular secundario','Número de identificación de miembro','Número de identificación secundario','Número de grupo de la póliza','Número de grupo secundario'];
+const literalPattern=value=>value.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+function joinSpanishLabels(text){let result=String(text || '');for(const label of SPANISH_PRINTED_LABELS)result=result.replace(new RegExp(label.split(' ').map(literalPattern).join('\\s+'),'giu'),label);return result;}
+
 const LABEL_RULES = [
+  ['fullName', /^nombre\s+(?:completo\s+)?del\s+(?:dependiente|menor|estudiante|cliente)\b/i],
+  ['dateOfBirth', /^fecha\s+de\s+nacimiento(?:\s+del\s+(?:dependiente|menor|estudiante|cliente))?\b/i],
+  ['age', /^edad(?:\s+del\s+dependiente)?\b/i],
+  ['administrativeSex', /^sexo(?:\s+del\s+dependiente)?\b/i],
+  ['grade', /^grado(?:\s+(?:del\s+dependiente|escolar))?\b/i],
+  ['addressStreet', /^direccion(?:\s+(?:del\s+dependiente|postal))?\b/i],
+  ['addressCity', /^ciudad(?:\s+del\s+dependiente)?\b/i],
+  ['addressState', /^estado\b/i], ['addressZip', /^codigo\s+postal\b/i],
+  ['guardianName', /^su\s+nombre\b/i], ['contactPhone', /^su\s+(?:numero\s+de\s+)?telefono\b/i],
+  ['email', /^su\s+correo\s+electronico\b/i],
+  ['otherGuardian', /^otro\s+(?:padre\/tutor|padre|tutor)(?:\s*[—–-]\s*nombre,\s*telefono\s+y\s+correo)?\b/i],
+  ['primaryInsurance', /^seguro\s+primario\b/i], ['secondaryInsurance', /^seguro\s+secundario\b/i],
+  ['policyHolder', /^titular\s+de\s+la\s+poliza\b/i], ['secondaryHolder', /^titular\s+secundario\b/i],
+  ['memberId', /^numero\s+de\s+identificacion\s+de\s+miembro\b/i], ['secondaryMemberId', /^numero\s+de\s+identificacion\s+secundario\b/i],
+  ['policyGroup', /^numero\s+de\s+grupo\s+de\s+la\s+poliza\b/i], ['secondaryGroup', /^numero\s+de\s+grupo\s+secundario\b/i],
+  ['preferredLanguage', /^(?:idioma\s+preferido\s+(?:del|para el)\s+dependiente|preferred language for dependent)\b/i],
+  ['guardianPreferredLanguage', /^(?:idioma\s+preferido\s+(?:del|para el)\s+(?:padre|tutor)(?:\/tutor)?|preferred language for parent\/guardian)\b/i],
+  ['guardianRelationship', /^(?:parentesco(?:\s+con\s+el\s+cliente)?|relacion\s+con\s+el\s+cliente|relationship to client)\b/i],
+
   ['fullName', /^dependent'?s?\s+name\b/i],
   ['dateOfBirth', /^dependent['’]?s?\s+date\s+of\s+birth\b/i],
   ['age', /^dependent'?s?\s+age\b/i],
@@ -29,12 +54,15 @@ const LABEL_RULES = [
 ];
 
 const YES_NO_RULES = [
+  ['legalCustodian', /^¿?es usted el padre\/madre legal o custodio\b/i],
+  ['legalRightToTreat', /^tengo el derecho legal de obtener tratamiento\b/i],
+  ['custodyDocumentation', /^¿?esta dispuesto\/a a proporcionar\b/i],
   ['legalCustodian', /^are you the legal parent or custodian\b/i],
   ['legalRightToTreat', /^i have a legal right to obtain treatment\b/i],
   ['custodyDocumentation', /^are you willing to provide documentation\b/i]
 ];
 
-const STOP_LINE = /^(history of|please list any necessary|please select|consent to release|sign here|authorized school|acknowledgement|how long has this)/i;
+const STOP_LINE = /^(history of|please list any necessary|please select|consent to release|sign here|authorized school|acknowledgement|how long has this|historial de|por favor (?:explique|enumere|seleccione)|autorizacion|firme aqui)/i;
 
 function emptyParsed() {
   return {
@@ -66,22 +94,27 @@ function emptyParsed() {
   };
 }
 
-function parseDateToken(text) {
+const validCalendarDate=value=>Number.isFinite(Date.parse(value))&&new Date(value).toISOString().slice(0,10)===value?value:null;
+function parseDateToken(text, locale='en') {
   const s = String(text || '');
   const mdY = s.match(/(\d{1,2})[\/\-.](\d{1,2})[\/\-.](20\d{2}|19\d{2})/);
   if (mdY) {
-    return `${mdY[3]}-${String(mdY[1]).padStart(2, '0')}-${String(mdY[2]).padStart(2, '0')}`;
+    const first=Number(mdY[1]),second=Number(mdY[2]);
+    if(locale==='es' && first<=12 && second<=12)return null;
+    const month=locale==='es'&&first>12?second:first,day=locale==='es'&&first>12?first:second;
+    if(month>12||day>31)return null;
+    return validCalendarDate(`${mdY[3]}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`);
   }
   const iso = s.match(/(20\d{2}|19\d{2})-(\d{2})-(\d{2})/);
-  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  if (iso) return validCalendarDate(`${iso[1]}-${iso[2]}-${iso[3]}`);
   return null;
 }
 
 function matchLabel(line) {
-  const s = String(line || '').trim();
+  const s = String(line || '').normalize('NFC').trim();
   if (!s) return null;
   for (const [key, re] of LABEL_RULES) {
-    const m = s.match(re);
+    const m = foldPaperText(s).match(re);
     if (!m || m.index !== 0) continue;
     const rest = s.slice(m[0].length).replace(/^[\s:\-–—]+/, '').trim();
     return { key, rest };
@@ -95,7 +128,7 @@ function takeValue(lines, index, rest) {
   let j = index + 1;
   while (j < lines.length && !String(lines[j] || '').trim()) j += 1;
   if (j >= lines.length) return { value: '', next: j };
-  if (matchLabel(lines[j]) || STOP_LINE.test(String(lines[j] || '').trim())) {
+  if (matchLabel(lines[j]) || STOP_LINE.test(foldPaperText(String(lines[j] || '').trim()))) {
     return { value: '', next: j };
   }
   return { value: String(lines[j] || '').trim(), next: j + 1 };
@@ -145,7 +178,7 @@ function cleanZip(value) {
 }
 
 function markedYesNo(text) {
-  const s = String(text || '');
+  const s = foldPaperText(text).replace(/\bsi\b/g,'yes');
   const mark = '(?:\\[[xX]\\]|\\([xX]\\)|☑|✓|✔|\\b[xX]\\b)';
   const yes = new RegExp(`${mark}\\s*yes\\b|\\byes\\b\\s*${mark}`, 'i').test(s);
   const no = new RegExp(`${mark}\\s*no\\b|\\bno\\b\\s*${mark}`, 'i').test(s);
@@ -185,14 +218,16 @@ function cleanCity(value) {
   return s.split(/\bstate\b/i)[0].trim() || null;
 }
 
-export function extractPaperPacketDemographics(rawText, {insuranceText} = {}) {
+export function extractPaperPacketDemographics(rawText, {insuranceText,locale='auto'} = {}) {
   const result = emptyParsed();
-  const lines = String(rawText || '').replace(/\r\n/g, '\n')
+  result.sourceLocale=paperPacketLocale(rawText,locale);result.sourceValues={};result.responses=paperWrittenResponses(rawText,result.sourceLocale);
+  const lines = joinSpanishLabels(rawText).replace(/\r\n/g, '\n')
     // Vision can wrap the printed labels on the current packet across lines.
     // Join labels only; never take an unrelated date elsewhere as a child's DOB.
     .replace(/dependent['’]?s?\s*\n\s*(date\s+of\s+birth|age|sex|grade|name|address|city)/gi, "Dependent's $1")
     .replace(/(dependent['’]?s?\s+date\s+of)\s*\n\s*birth/gi, '$1 Birth')
     .replace(/\s+(?=(?:primary insurance|secondary insurance|policy holder|secondary holder|member id|secondary id|policy group|secondary group)\b)/gi, '\n')
+    .replace(/\s+(?=(?:seguro primario|seguro secundario|titular de la póliza|titular secundario|número de identificación de miembro|número de identificación secundario|número de grupo de la póliza|número de grupo secundario)\b)/giu, '\n')
     .split('\n');
   let i = 0;
   while (i < lines.length) {
@@ -201,13 +236,13 @@ export function extractPaperPacketDemographics(rawText, {insuranceText} = {}) {
       i += 1;
       continue;
     }
-    if (STOP_LINE.test(line)) break;
-    const yesNo = YES_NO_RULES.find(([, re]) => re.test(line));
+    if (STOP_LINE.test(foldPaperText(line))) break;
+    const yesNo = YES_NO_RULES.find(([, re]) => re.test(foldPaperText(line)));
     if (yesNo) {
       let answer = markedYesNo(line);
       if (!answer) {
         const next = String(lines[i + 1] || '').trim();
-        if (/^(yes|no)$/i.test(next)) answer = next.toLowerCase();
+        if (/^(yes|no|si)$/i.test(foldPaperText(next))) answer = foldPaperText(next)==='si'?'yes':next.toLowerCase();
       }
       if (answer && !result[yesNo[0]]) result[yesNo[0]] = answer;
       i += 1;
@@ -223,7 +258,7 @@ export function extractPaperPacketDemographics(rawText, {insuranceText} = {}) {
     const value = taken.value;
     if (label.key === 'age') continue;
     if (label.key === 'fullName' && !result.fullName) result.fullName = cleanName(value);
-    else if (label.key === 'dateOfBirth' && !result.dateOfBirth) result.dateOfBirth = parseDateToken(value);
+    else if (label.key === 'dateOfBirth' && !result.dateOfBirth) {result.sourceValues.dateOfBirth=value;result.dateOfBirth=parseDateToken(value,/^fecha\b/.test(foldPaperText(line))?'es':'en');if(!result.dateOfBirth&&value)result.dateOfBirthNeedsReview=true;}
     else if (label.key === 'administrativeSex' && !result.administrativeSex) result.administrativeSex = cleanSex(value);
     else if (label.key === 'grade' && !result.grade) result.grade = cleanGrade(value);
     else if (label.key === 'addressStreet' && !result.addressStreet) result.addressStreet = cleanStreet(value);
@@ -242,6 +277,7 @@ export function extractPaperPacketDemographics(rawText, {insuranceText} = {}) {
       result.otherGuardianPhone = other.phone;
       result.otherGuardianEmail = other.email;
     }
+    else if (['preferredLanguage','guardianPreferredLanguage','guardianRelationship'].includes(label.key) && !result[label.key]) result[label.key]=cleanShortText(value,100);
     else if (label.key === 'primaryInsurance' && !result.primaryInsurance) result.primaryInsurance = cleanShortText(value);
     else if (label.key === 'secondaryInsurance' && !result.secondaryInsurance) result.secondaryInsurance = cleanShortText(value);
     else if (label.key === 'policyHolder' && !result.policyHolder) result.policyHolder = cleanName(value);
@@ -251,6 +287,7 @@ export function extractPaperPacketDemographics(rawText, {insuranceText} = {}) {
     else if (label.key === 'policyGroup' && !result.policyGroup) result.policyGroup = cleanShortText(value, 80);
     else if (label.key === 'secondaryGroup' && !result.secondaryGroup) result.secondaryGroup = cleanShortText(value, 80);
   }
+  for(const key of ['administrativeSex','grade','preferredLanguage','guardianPreferredLanguage','guardianRelationship'])if(result[key]){const original=result[key];result[key]=englishPaperValue(key,original);if(original!==result[key])result.sourceValues[key]=original;}
   if (insuranceText) {
     const table=extractPaperPacketDemographics(insuranceText);
     for(const key of ['primaryInsurance','secondaryInsurance','policyHolder','secondaryHolder','memberId','secondaryMemberId','policyGroup','secondaryGroup'])result[key]=table[key];
@@ -262,6 +299,8 @@ export function paperPacketDemographicsHaveContent(parsed) {
   const p = parsed || {};
   return !!(
     p.fullName
+    || p.responses?.length
+    || p.dateOfBirthNeedsReview
     || p.dateOfBirth
     || p.contactPhone
     || p.email
@@ -298,6 +337,8 @@ export function paperPacketDemographicFill(client, parsed) {
   if (blank(client?.address_zip) && p.addressZip) patch.address_zip = p.addressZip;
   if (blank(client?.contact_phone) && p.contactPhone) patch.contact_phone = p.contactPhone;
   if (blank(client?.email) && p.email) patch.email = p.email;
+  if (blank(client?.preferred_language) && p.preferredLanguage) patch.preferred_language=p.preferredLanguage;
+  if (blank(client?.primary_parent_language) && p.guardianPreferredLanguage) patch.primary_parent_language=p.guardianPreferredLanguage;
   if (blank(client?.gender) && p.administrativeSex) patch.gender = p.administrativeSex;
   if (blank(client?.grade) && p.grade) patch.grade = p.grade;
   return patch;

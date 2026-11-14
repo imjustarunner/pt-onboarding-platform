@@ -139,3 +139,10 @@ it('offers an explicit reread of the existing packet and preserves entered data 
  context.packetRead.id=12;await w.findAll('button').find(b=>b.text()==='Refresh file-check status').trigger('click');await flushPromises();
  expect(w.get('input[maxlength="255"]').element.value).toBe('Unsaved synthetic name');expect(w.findAll('button').some(b=>b.text()==='Refresh file-check status')).toBe(false);
 });
+
+it('copies Spanish packet proposals into English fields and posts only a reviewed response snapshot',async()=>{
+ context.packetReading={documentId:9,snapshotId:'SOURCE-ES-1',sourceLocale:'es',translationStatus:'translated',sourceValues:{administrativeSex:'Masculino'},dateOfBirthNeedsReview:false,fields:{firstName:'José',lastName:'Prueba',dateOfBirth:'2023-09-23',gender:'Male'},parent1:{firstName:'María',lastName:'Prueba',relationshipTitle:'Mother'},responses:[{key:'medicalInformation',label:'Medical information',sourceText:'No tiene alergias.',sourceLocale:'es',englishText:'No allergies.',status:'translated'}]};
+ await render();await w.findAll('button').find(b=>b.text()==='Use English packet details').trigger('click');expect(w.findAll('.paper-fields input')[0].element.value).toBe('José');expect(w.get('.paper-fields select').element.value).toBe('Male');
+ await w.get('[aria-label="Medical information in English"]').setValue('No known food allergies.');await w.findAll('.english-entry input[type="checkbox"]')[0].setValue(true);await next();await flushPromises();
+ expect(api.put).toHaveBeenCalledWith('/clients/4/paper-packet-processing',expect.objectContaining({step:'demographics',data:expect.objectContaining({firstName:'José',gender:'Male',englishResponses:{snapshotId:'SOURCE-ES-1',reviewed:true,answers:{medicalInformation:'No known food allergies.'}}})}));
+});

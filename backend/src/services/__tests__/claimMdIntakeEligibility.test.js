@@ -8,6 +8,16 @@ const insurance={primary:{isMedicaid:true,eligibilityPayerId:'SKCO0',memberId:'S
 const job={id:1,agency_id:2,client_id:3,insurance_fingerprint:coverageFingerprint(insurance)};
 function deps(){return {db:{execute:vi.fn(async sql=>sql.includes('directory_snapshot_json')?[[{directory_snapshot_json:{eligibility:'yes'}}]]:[[]])},configurePayers:async()=>insurance,connection:async()=>({mode:'live'}),profile:async()=>({billingNpi:'1306688650',practice:{tax_id:'123456789',name:'Test'}}),check:vi.fn(),applyProfile:vi.fn(),queueTask:vi.fn(),env:{}};}
 describe('intake eligibility',()=>{
+ it('skips a Medicaid ID belonging to another listed holder, but uses a client-held ID',()=>{
+  for(const [holder,modes] of [['Parent Person',['demographics']],['Test Person',['member_id','demographics']]])expect(intakeLookupModes({...insurance,primary:{...insurance.primary,paperSubscriberName:holder}},'primary')).toEqual(modes);
+ });
+ it('checks commercial primary and Medicaid secondary independently and holds an unresolved slot',async()=>{
+  const both={...insurance,primary:{payerId:'60054',memberId:'COMMERCIAL',subscriberFirstName:'Parent',subscriberLastName:'Person',subscriberDob:'1980-01-01',relationshipToSubscriber:'child'},secondary:{...insurance.primary,paperSubscriberName:'Parent Person'}};
+  const d=deps();d.configurePayers=async()=>both;d.check.mockImplementation(async({slot})=>({summary:{status:slot==='primary'?'active_reported':'inactive_reported',identityMatches:true}}));
+  expect(await processIntakeEligibility({...job,insurance_fingerprint:coverageFingerprint(both)},{reviewer_user_id:9},{officeId:6},d)).toBe('review_required');
+  expect(d.check.mock.calls.map(([v])=>[v.slot,v.lookupMode])).toEqual([['primary','member_id'],['secondary','demographics']]);
+  expect(d.applyProfile.mock.calls[0][0].results.map(v=>v.slot)).toEqual(['primary','secondary']);
+ });
  it('supports name and DOB only for configured Colorado Medicaid',()=>{
   expect(intakeLookupModes(insurance,'primary')).toEqual(['member_id','demographics']);
   expect(intakeLookupModes({...insurance,primary:{...insurance.primary,memberId:''}},'primary')).toEqual(['demographics']);

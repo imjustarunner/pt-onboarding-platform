@@ -21,3 +21,19 @@ test('leaves ambiguous or absent insurance grids for manual source review',()=>{
  assert.equal(paperInsuranceTableText({pages:[]}), '');
  assert.equal(paperInsuranceTableText({pages:[{blocks:[{paragraphs:[{words:[word('Insurance',10,10)]}]}]}]}),'');
 });
+
+test('maps multi-line Spanish insurance labels to the same primary and secondary cells',()=>{
+ const items=[];const add=(text,x,y,width=80)=>{const parts=text.split(' ');for(let i=0;i<parts.length;i++)items.push(word(parts[i],x+(i%3)*28,y+Math.floor(i/3)*10,26));};
+ for(const[y,left,right,primary,secondary]of[[100,'Seguro primario','Seguro secundario','CHAMPVA','Medicaid'],[135,'Titular de la póliza','Titular secundario','Demo Parent','Demo Other'],[180,'Número de identificación de miembro','Número de identificación secundario','000000000-00','A123456'],[230,'Número de grupo de la póliza','Número de grupo secundario','','']]){
+  add(left,20,y);if(primary)items.push(word(primary,160,y+7,100));add(right,300,y);if(secondary)items.push(word(secondary,440,y+7,120));
+ }
+ const annotations={pages:[{width:700,height:300,blocks:[{paragraphs:[{words:items}]}]}]};const text=paperInsuranceTableText(annotations);
+ assert.match(text,/Primary Insurance: CHAMPVA/);assert.match(text,/Secondary Insurance: Medicaid/);assert.match(text,/Policy Holder: Demo Parent/);assert.match(text,/Member ID: 000000000-00/);assert.match(text,/Secondary ID: A123456/);
+});
+test('keeps inline carrier values when a different row has a longer printed label',()=>{
+ const words=[];const add=(label,x,y)=>{for(const part of label.split(' ')){const width=part.length*5;words.push(word(part,x,y,width));x+=width+4;}return x;};
+ for(const[y,left,right,value,value2]of[[100,'Seguro primario','Seguro secundario','CHAMPVA','Colorado Medicaid'],[130,'Titular de la póliza','Titular secundario','Demo Parent','Demo Other'],[160,'Número de identificación de miembro','Número de identificación secundario','000000000-00','A123456']]){
+  const x=add(left,20,y);words.push(word(value,x+4,y,value.length*5));const x2=add(right,420,y);words.push(word(value2,x2+4,y,value2.length*5));
+ }
+ const text=paperInsuranceTableText({pages:[{blocks:[{paragraphs:[{words}]}]}]});assert.match(text,/Primary Insurance: CHAMPVA/);assert.match(text,/Secondary Insurance: Colorado Medicaid/);assert.match(text,/Member ID: 000000000-00/);
+});

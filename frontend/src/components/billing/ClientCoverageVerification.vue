@@ -8,7 +8,7 @@
   <label>Billing office <select v-model="officeId" :disabled="busy"><option value="">Select</option><option v-for="office in offices" :key="office.id" :value="office.id">{{ office.name }} · {{ office.practice_npi }}</option></select></label>
   <label>Lookup method <select v-model="lookupMode" :disabled="busy"><option value="member_id">Saved member ID and identity</option><option value="demographics">Colorado Medicaid: member name and date of birth</option></select></label>
   <button v-for="slot in ['primary','secondary']" :key="slot" type="button" :disabled="busy || !officeId" @click="check(slot)">Check {{ slot }} eligibility</button>
-  <p>Save insurance details before checking. Eligibility must be enabled for the payer and billing NPI in Claim.MD. If unavailable, verify through the payer portal or by phone and record the evidence below.</p>
+  <p>Check primary and secondary coverage separately. For Colorado Medicaid, an ID listed under another holder is skipped; the lookup uses the client’s legal name and birth date. Save insurance details before checking. Eligibility must be enabled for the payer and billing NPI in Claim.MD. If unavailable, verify through the payer portal or by phone and record the evidence below.</p>
   <p v-if="error" role="alert">{{ error }}</p><p v-if="notice" role="status">{{ notice }}</p>
   <p v-if="evidence.review" role="status"><strong>Saved review: {{ evidence.review.status }}</strong> · {{ formatBillingDate(reviewDate) }} · {{ formatBillingTimestamp(evidence.review.created_at) }}. {{ evidence.review.evidence?.reference }}</p>
   <ul><li v-for="blocker in evidence.blockers" :key="blocker">{{ blocker }}</li></ul>

@@ -1,5 +1,6 @@
 import { chartIntakeDataForClient } from '../utils/multiChildIntake.js';
 import { isSchoolRoiDocument } from '../utils/schoolRoiDocument.js';
+import { paperReadingForStaff } from './paperPacketReading.service.js';
 /**
  * Chart Records → Documents aggregator.
  *
@@ -713,6 +714,11 @@ export async function assembleClientChartArtifacts({ clientId, client }) {
     }));
   }
 
+  const paperReading=paperReadingForStaff(client);
+  if(paperReading?.reviewedAt && paperReading.responses.length && paperIds.has(Number(paperReading.documentId))) {
+    take('intake_responses',makeArtifact({kind:'intake_responses',title:'Enrollment responses from paper',viewKey:`paperanswers-${paperReading.documentId}`,uploadedAt:paperReading.reviewedAt,source:'reviewed_paper_responses'}));
+  }
+
   const artifacts = [];
   for (const kind of ALWAYS_FEATURED) {
     if (featured[kind]) artifacts.push(featured[kind]);
@@ -1125,6 +1131,14 @@ export async function renderChartArtifactView({ client, viewKey }) {
   const key = String(viewKey || '').trim();
   if (!key) return { notFound: true };
   const cid = Number(client?.id || 0);
+
+  if(key.startsWith('paperanswers-')) {
+    const reading=paperReadingForStaff(client),documentId=Number(key.slice('paperanswers-'.length));
+    if(!reading?.reviewedAt || !reading.responses.length || reading.documentId!==documentId)return {notFound:true};
+    const source=await ClientPhiDocument.findSchoolPaperPacket(cid,documentId);
+    if(!source || source.removed_at || source.scan_status!=='clean' || Number(source.agency_id)!==Number(client.agency_id))return {notFound:true};
+    return {html:wrapHtmlDocument('Enrollment responses',`<h1>Enrollment responses</h1><p>English entry reviewed ${escapeHtml(reading.reviewedAt)}. Original signed paper packet retained.</p>${reading.responses.map(response=>`<section><h2>${escapeHtml(response.label)}</h2><h3>English answer</h3><pre>${escapeHtml(response.englishText)}</pre><details><summary>Original ${response.sourceLocale==='es'?'Spanish ':''}answer</summary><pre lang="${response.sourceLocale==='es'?'es':'en'}">${escapeHtml(response.sourceText)}</pre></details></section>`).join('')}`)};
+  }
 
   if (key.startsWith('phi-')) {
     return { delegatePhiId: Number(key.slice(4)) };

@@ -6,7 +6,13 @@ const labels = [
   ['Member ID','member','id'], ['Secondary ID','secondary','id'],
   ['Policy Group','policy','group'], ['Secondary Group','secondary','group']
 ];
-const token = text => text.toLowerCase().replace(/[^a-z]/g,'');
+const spanishLabels=[
+  ['Primary Insurance','seguro primario'],['Secondary Insurance','seguro secundario'],
+  ['Policy Holder','titular de la poliza'],['Secondary Holder','titular secundario'],
+  ['Member ID','numero de identificacion de miembro'],['Secondary ID','numero de identificacion secundario'],
+  ['Policy Group','numero de grupo de la poliza'],['Secondary Group','numero de grupo secundario']
+].map(([label,text])=>[label,text.split(' ')]);
+const token = text => text.normalize('NFD').replace(/\p{M}/gu,'').toLowerCase().replace(/[^a-z]/g,'');
 export function paperInsuranceTableText(annotation) {
   for (const page of annotation?.pages || []) {
     const words=(page.blocks || []).flatMap(block=>(block.paragraphs || []).flatMap(paragraph=>(paragraph.words || []).map(word=>{
@@ -18,6 +24,7 @@ export function paperInsuranceTableText(annotation) {
       return {text:(word.symbols || []).map(s=>s.text || '').join(''),left:Math.min(...x),right:Math.max(...x),top:Math.min(...y),bottom:Math.max(...y)};
     }))).filter(word=>word.text && Number.isFinite(word.left) && word.right>word.left && word.bottom>word.top);
     if (!words.length) continue;
+    const originalOrder=[...words];
     const heights=words.map(w=>w.bottom-w.top).sort((a,b)=>a-b), tolerance=heights[Math.floor(heights.length/2)]*.7;
     const lines=[];
     for(const word of words.sort((a,b)=>(a.top+a.bottom)-(b.top+b.bottom))) {
@@ -26,6 +33,13 @@ export function paperInsuranceTableText(annotation) {
       if(row)row.words.push(word);else lines.push({y:center,words:[word]});
     }
     const found=[];
+    // Multi-line Spanish labels remain consecutive inside Vision paragraphs.
+    for(let i=0;i<originalOrder.length;i++)for(const [label,parts] of spanishLabels){
+      const span=originalOrder.slice(i,i+parts.length);
+      if(span.length!==parts.length || !parts.every((part,j)=>token(span[j].text)===part))continue;
+      const top=Math.min(...span.map(w=>w.top)),bottom=Math.max(...span.map(w=>w.bottom));
+      found.push({label,y:(top+bottom)/2,left:Math.min(...span.map(w=>w.left)),right:Math.max(...span.map(w=>w.right)),words:span});
+    }
     for(const line of lines) {
       const row=line.words.sort((a,b)=>a.left-b.left);
       for(let i=0;i<row.length-1;i++) {
@@ -40,7 +54,6 @@ export function paperInsuranceTableText(annotation) {
     const rightLabels=found.filter(label=>label.left>=labelColumnBoundary && label.y>=primary.y-tolerance);
     const rows=[...new Set(leftLabels.map(label=>label.y))].sort((a,b)=>a-b);
     if(rows.length<2)continue;
-    const leftValue=Math.max(...leftLabels.map(label=>label.right)),rightValue=Math.max(...rightLabels.map(label=>label.right));
     const printedLabelWords=new Set(found.flatMap(label=>label.words));
     const result=[];
     for(const label of [...leftLabels,...rightLabels]) {
@@ -51,7 +64,7 @@ export function paperInsuranceTableText(annotation) {
       const bottom=index<rows.length-1?(rows[index]+rows[index+1])/2:rows[index]+spacing/2;
       const isLeft=label.left<labelColumnBoundary;
       let values=words.filter(word=>!printedLabelWords.has(word) && (word.top+word.bottom)/2>top && (word.top+word.bottom)/2<bottom
-        && (word.left+word.right)/2>(isLeft?leftValue:rightValue) && (!isLeft || (word.left+word.right)/2<secondary.left));
+        && (word.left+word.right)/2>label.right && (!isLeft || (word.left+word.right)/2<secondary.left));
       // Handwriting can produce a small duplicate fragment inside a recognized
       // member number. Keep the whole number rather than appending that fragment.
       if(['Member ID','Secondary ID'].includes(label.label))values=values.filter(word=>!values.some(other=>{
