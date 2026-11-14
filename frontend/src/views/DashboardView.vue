@@ -2513,7 +2513,7 @@ watch([currentAgencyId,()=>authStore.user?.id],async([agencyId,userId])=>{
   if(!agencyId||!userId||props.previewMode||['client','client_guardian','guardian','school_staff'].includes(authStore.user.role))return;
   const [tutoring,childcare]=await Promise.allSettled([
     api.get('/tutoring-workspace/context',{params:{agencyId},skipGlobalLoading:true}),
-    api.get('/childcare/context',{params:{agencyId},skipGlobalLoading:true})
+    ['true','1','yes','on'].includes(String(agencyFlags.value.childcareEnabled).toLowerCase()) ? api.get('/childcare/context',{params:{agencyId},skipGlobalLoading:true}) : Promise.resolve({data:{enabled:false}})
   ]);
   if(current!==serviceContextGeneration||!authStore.user||Number(authStore.user.id)!==Number(userId))return;
   const learning=tutoring.status==='fulfilled'?tutoring.value.data:{};

@@ -18,3 +18,19 @@ it('ignores a delayed old-client resolution after the requested chart changes',a
 it('clears a linked secure composer on session lock and re-resolves the intended child after unlock',async()=>{const state=await open();m.lock.isLocked=true;await flushPromises();expect(state.selected).toBeNull();m.lock.isLocked=false;await flushPromises();expect(state.selected.clientId).toBe(2542);});
 
 it('keeps the chart-linked agency explicit when the ambient agency differs',async()=>{m.agency.currentAgency={id:999};const state=await open();expect(state.agencyId).toBe(450);expect(state.selected.agencyId).toBe(450);expect(state.composeAgencyId).toBe(450);expect(m.get).toHaveBeenCalledWith('/messages/hub/people/client%3A2542%40450',expect.objectContaining({params:{agencyId:450}}));});
+
+it('opens a thread-only email destination as the existing child conversation rather than a new draft',async()=>{
+ m.route.query={threadId:'379',secure:'1'};
+ const previous=m.get.getMockImplementation();
+ const context={clientId:2560,clientName:'Pip',talkingToUserId:1790,guardians:[{userId:1790,personKey:'user:1790@450',methods:[{id:'secure',available:true}]}]};
+ const guardian={personKey:'user:1790@450',userId:1790,agencyId:450,clientId:999,displayName:'Rowan',kinds:['guardian'],methods:[{id:'secure',available:true}]};
+ const items=[236,237].map((id,i)=>({id:`chat-${id}`,channel:'secure',bodyPreview:i?'Existing reply':'Existing root',createdAt:`2026-11-14T18:0${i}:00Z`,meta:{threadId:379,messageId:id,legacyRootMessageId:236,subject:'Office subject'}}));
+ m.get.mockImplementation(async(path,...rest)=>path==='/chat/threads/379/meta'?{data:{message_channel:'secure',client_id:2560,agency_id:450}}:path==='/messages/hub/people/client%3A2560%40450'?{data:{person:{...person(2560),userId:null,clientMessaging:context}}}:path==='/messages/hub/people/user%3A1790%40450'?{data:{person:guardian}}:path==='/messages/hub/people/user%3A1790%40450/timeline'?{data:{person:guardian,items}}:previous(path,...rest));
+ const state=await open();expect(m.replace).toHaveBeenCalledWith({path:m.route.path,query:{threadId:'379',secure:'1',secureClientId:'2560',agencyId:'450',channel:'secure'}});
+ m.route.query=m.replace.mock.calls.at(-1)[0].query;await flushPromises();
+ expect(state.selectedClientId).toBe(2560);expect(state.activeEmailThreadKey).toBe('legacy:379:236');expect(state.emailComposeMode).toBe('reply');expect(state.visibleTimeline).toHaveLength(2);expect(m.post.mock.calls.some(([path])=>path.endsWith('/send'))).toBe(false);
+});
+it('keeps an unauthorized email-thread link closed without trying a different client',async()=>{
+ m.route.query={threadId:'375',secure:'1'};const previous=m.get.getMockImplementation();m.get.mockImplementation(async(path,...rest)=>{if(path==='/chat/threads/375/meta')throw {response:{data:{error:{message:'Access denied'}}}};return previous(path,...rest);});
+ const state=await open();expect(state.selected).toBeNull();expect(state.error).toContain('Access denied');expect(m.replace).not.toHaveBeenCalled();expect(m.post.mock.calls.some(([path])=>/send|invite/.test(path))).toBe(false);
+});

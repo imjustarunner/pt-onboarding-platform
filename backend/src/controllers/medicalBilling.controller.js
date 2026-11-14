@@ -1,3 +1,4 @@
+import {treatmentPlanGoalTimeframes} from '../services/treatmentPlanGoalTimeframes.js';
 import {requireTestingEligibility} from '../services/testingEligibility.service.js';
 import {assistantBillingAuthorization,assertAssistantBillingCommand} from '../services/assistantBillingCommand.service.js';
 import {medicalServiceCatalogRead} from '../services/medicalServiceCatalogRead.service.js';
@@ -361,6 +362,8 @@ export const saveTreatmentPlanToChart = async (req, res, next) => {
       }
     }
 
+    const goals = treatmentPlanGoalTimeframes(Array.isArray(req.body.goals) ? req.body.goals : [],{finalize:finalizeRequested,effectiveDate:req.body.effectiveDate||req.body.effective_date});
+
     let clinicalSessionId = sessionId;
     if (!clinicalSessionId && parseIntValue(req.body.officeEventId)) {
       const session = await ClinicalSession.upsert({
@@ -373,7 +376,6 @@ export const saveTreatmentPlanToChart = async (req, res, next) => {
       clinicalSessionId = session?.id || null;
     }
 
-    const goals = Array.isArray(req.body.goals) ? req.body.goals : [];
 
     let primaryDiagnosisId = parseIntValue(req.body.primaryDiagnosisId);
     let diagnosticJustification = req.body.diagnosticJustification

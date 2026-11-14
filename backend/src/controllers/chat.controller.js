@@ -223,6 +223,21 @@ async function loadReplyCountsForRoots(rootIds, viewerUserId) {
   return out;
 }
 
+async function loadSubjectUnreadCounts(rootIds, viewerUserId) {
+  const out = new Map();
+  if (!rootIds.length) return out;
+  const uid=Number(viewerUserId);
+  const [rows]=await pool.execute(`SELECT COALESCE(m.parent_message_id,m.id) AS root_id,COUNT(*) AS unread_count
+    FROM chat_messages m WHERE COALESCE(m.parent_message_id,m.id) IN (${rootIds.map(()=>'?').join(',')})
+      AND m.sender_user_id<>? AND ${familyMessageVisibilitySql(uid)}
+      AND NOT EXISTS(SELECT 1 FROM chat_message_deletes d WHERE d.message_id=m.id AND d.user_id=?)
+      AND NOT EXISTS(SELECT 1 FROM chat_thread_reads r WHERE r.thread_id=m.thread_id AND r.user_id=? AND r.last_read_message_id>=m.id)
+      AND NOT EXISTS(SELECT 1 FROM secure_message_events e WHERE e.thread_id=m.thread_id AND e.message_id=m.id AND e.actor_user_id=? AND e.event_type='message_opened')
+    GROUP BY COALESCE(m.parent_message_id,m.id)`,[...rootIds,uid,uid,uid,uid]);
+  for(const row of rows)out.set(Number(row.root_id),Number(row.unread_count));
+  return out;
+}
+
 async function insertMessageMentions(messageId, mentionedUserIds) {
   if (!mentionedUserIds?.length) return;
   if (!(await hasChatMessageMentionsTable())) return;
@@ -1461,6 +1476,7 @@ export const listMessages = async (req, res, next) => {
         !parentMessageIdQ ? loadReplyCountsForRoots(messageIds, me) : Promise.resolve(new Map()),
         loadViewedMessageIds(messageIds, me)
       ]);
+    const subjectUnreadCounts = !parentMessageIdQ && summaryOnly ? await loadSubjectUnreadCounts(messageIds, me) : new Map();
     const latestReplies=new Map();
     if(!summaryOnly && req.quickView?.mobileDeviceSessionId && !parentMessageIdQ && messageIds.length && hasParentCol){
       const [previews]=await pool.execute(`SELECT m.id,m.parent_message_id,m.body${encCols},m.sender_user_id,m.created_at,u.first_name AS sender_first_name,u.last_name AS sender_last_name,u.profile_photo_path AS sender_profile_photo_path
@@ -1487,6 +1503,7 @@ export const listMessages = async (req, res, next) => {
         subject: content.subject,
         parent_message_id: m.parent_message_id != null ? Number(m.parent_message_id) : null,
         reply_count: replyCounts.get(Number(m?.id))?.count || 0,
+        unread_count: subjectUnreadCounts.get(Number(m.id)) || 0,
         last_reply_at: replyCounts.get(Number(m?.id))?.lastReplyAt || null,
         ...(req.quickView?.mobileDeviceSessionId?{latest_reply:latestReplies.get(Number(m.id)) || null}:{}),
         mentioned_user_ids: mentioned,
@@ -1581,7 +1598,9 @@ export const sendMessage = async (req, res, next) => {
     }
 
     const hasEncCols = await hasChatMessageEncryptionColumns();
-    let messageSubject = isSecureMessage && !rootParentId ? normalizeSecureMessageSubject(req.body?.subject) : null;
+    // Already-accepted queues keep their historical subject contract. Only the
+    // internal worker sets this property; HTTP body/query flags never authorize it.
+    let messageSubject = isSecureMessage && !rootParentId ? (req.trustedLegacyQueuedSubject === true && req.body?.subject == null ? null : normalizeSecureMessageSubject(req.body?.subject)) : null;
     if (isSecureMessage && rootParentId) {
       const subjectCol = await hasChatMessagesSubjectColumn() ? ', subject' : ', NULL AS subject';
       const encCols = hasEncCols ? ', body_ciphertext, body_iv, body_auth_tag, encryption_key_id' : '';

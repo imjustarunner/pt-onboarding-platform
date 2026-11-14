@@ -966,8 +966,10 @@
                 v-model="composeSubject"
                 type="text"
                 class="msg-hub-subject"
-                placeholder="Subject"
+                placeholder="Subject (required for a new conversation)"
+                :required="newSecureSubject" maxlength="200" aria-label="Secure conversation subject"
               />
+              <label v-if="newSecureSubject && familySecureCompose" class="msg-hub-secure-review"><input v-model="newSecureReviewed" type="checkbox" /> I understand this new conversation is encrypted and shared with everyone listed above. Messages are not therapy; private matters belong in a scheduled private session.</label>
               <div
                 v-if="smartReply || smartReplyLoading"
                 class="msg-hub-smart-reply"
@@ -3388,7 +3390,11 @@ const composerPlaceholder = computed(() => {
   return 'Write a secure message…';
 });
 
+const newSecureSubject = computed(() => sendMethod.value === 'secure' && (emailComposeMode.value === 'new' || !secureSubjectThreads.value.some(t => t.key === activeEmailThreadKey.value)));
+const newSecureReviewed = ref(false);
+watch(() => [selected.value?.personKey, selectedClientId.value, activeEmailThreadKey.value, emailComposeMode.value, sendMethod.value], () => { newSecureReviewed.value = false; });
 const canSendCompose = computed(() => {
+  if (newSecureSubject.value && (!composeSubject.value.trim() || Array.from(composeSubject.value.trim()).length > 200 || /[\r\n]/.test(composeSubject.value) || familySecureCompose.value && !newSecureReviewed.value)) return false;
   if (familySecureCompose.value && !secureFamilyAudience.value?.canSend) return false;
   if (sendMethod.value === 'internal' || sendMethod.value === 'secure') {
     return !!(composeBody.value.trim() || chatStagedAttachments.value.length);
@@ -5227,7 +5233,7 @@ watch(listSearch, () => {
 });
 
 let linkedSecureRequest=0;
-const linkedSecureScope=()=>JSON.stringify([route.query.secureClientId,route.query.agencyId,authStore.user?.id,authStore.user?.role,sessionBlocked.value]);
+const linkedSecureScope=()=>JSON.stringify([route.query.secureClientId,route.query.agencyId,route.query.threadId,route.query.messageId,authStore.user?.id,authStore.user?.role,sessionBlocked.value]);
 function clearLinkedSecureComposer(){
  timelineRequestId++;selected.value=null;selectedConversation.value=null;conversationPreview.value=null;timeline.value=[];recentFiles.value=[];recentActivity.value=[];composeBody.value='';composeSubject.value='';composeCc.value='';composeBcc.value='';composeAttachments.value=[];chatStagedAttachments.value=[];chatThreadId.value=null;sendError.value='';
 }
@@ -5257,10 +5263,50 @@ async function openLinkedSecureClient(){
   inboxChannel.value='secure';await pickPerson(person,{method:'secure',keepClientContext:true});
   if(!current())return;
   if(Number(selectedClientId.value)!==clientId||Number(selected.value?.agencyId)!==aid||(clientMessaging.value&&Number(clientMessaging.value.clientId)!==clientId))throw Error('The selected secure recipient no longer matches this client.');
-  sendMethod.value='secure';startNewSubjectCompose();await focusComposer();
+  sendMethod.value='secure';
+  if (route.query.threadId) {
+   const tid=Number(route.query.threadId),mid=Number(route.query.messageId);
+   if(!Number.isSafeInteger(tid)||tid<1 || route.query.messageId && (!Number.isSafeInteger(mid)||mid<1))throw Error('Invalid secure conversation link.');
+   let rootId=null;
+   if(mid){
+    const located=await api.get(`/chat/threads/${tid}/locate/${mid}`,{skipGlobalLoading:true});
+    if(!current())return;rootId=Number(located.data.rootMessageId);
+   }
+   let topic=secureSubjectThreads.value.find(t=>Number(t.threadId)===tid&&(!rootId||Number(t.legacyRootMessageId)===rootId));
+   if(rootId){
+    const root=await api.get(`/chat/threads/${tid}/messages`,{params:{messageId:rootId},skipGlobalLoading:true});
+    const replies=await api.get(`/chat/threads/${tid}/messages`,{params:{parentMessageId:rootId},skipGlobalLoading:true});
+    let records=[...(Array.isArray(root.data)?root.data:root.data.messages||[]),...(Array.isArray(replies.data)?replies.data:replies.data.messages||[])];
+    if(mid!==rootId&&!records.some(m=>Number(m.id)===mid)){
+     const exact=await api.get(`/chat/threads/${tid}/messages`,{params:{parentMessageId:rootId,replyMessageId:mid},skipGlobalLoading:true});
+     records.push(...(Array.isArray(exact.data)?exact.data:exact.data.messages||[]));
+    }
+    if(!current())return;
+    const incoming=records.map(m=>({id:`chat-${m.id}`,channel:'secure',bodyPreview:m.body,createdAt:m.created_at,direction:Number(m.sender_user_id)===Number(authStore.user.id)?'outbound':'inbound',from:{displayName:[m.sender_first_name,m.sender_last_name].filter(Boolean).join(' ')},attachments:m.attachments||[],meta:{threadId:tid,messageId:Number(m.id),legacyRootMessageId:Number(m.parent_message_id||m.id),topicId:m.topic_id||null,subject:m.subject}}));
+    timeline.value=[...timeline.value.filter(m=>!incoming.some(i=>i.id===m.id)),...incoming];
+    topic=secureSubjectThreads.value.find(t=>Number(t.threadId)===tid&&t.messages.some(m=>Number(m.meta?.messageId)===rootId));
+   }
+   if (!topic) throw Error('The linked secure conversation is not available in this client’s history.');
+   await openPersonSubjectThread(topic);
+  } else { startNewSubjectCompose(); await focusComposer(); }
  }catch(e){if(current()){clearLinkedSecureComposer();error.value=e.response?.data?.error?.message||e.message||'The secure composer could not be opened. Review this client’s messaging access.';}}
 }
-watch(()=>[route.query.secureClientId,route.query.agencyId,authStore.user?.id,authStore.user?.role,sessionBlocked.value],()=>openLinkedSecureClient());
+watch(()=>[route.query.secureClientId,route.query.agencyId,route.query.threadId,route.query.messageId,authStore.user?.id,authStore.user?.role,sessionBlocked.value],()=>openLinkedSecureClient());
+
+
+let linkedThreadRequest=0;
+async function openLinkedSecureThread() {
+ const request=++linkedThreadRequest, raw=String(route.query.threadId||'');
+ if(!raw || route.query.secureClientId || sessionBlocked.value)return;
+ if(!/^[1-9]\d*$/.test(raw)){error.value='Invalid secure conversation link.';return;}
+ try {
+  const {data}=await api.get(`/chat/threads/${Number(raw)}/meta`,{skipGlobalLoading:true});
+  if(request!==linkedThreadRequest||String(route.query.threadId)!==raw||sessionBlocked.value)return;
+  if(data.message_channel!=='secure'||!Number(data.client_id)||!Number(data.agency_id))throw Error('This secure conversation is unavailable to your account.');
+  await router.replace({path:route.path,query:{...route.query,secureClientId:String(data.client_id),agencyId:String(data.agency_id),channel:'secure'}});
+ } catch(e){if(request===linkedThreadRequest)error.value=e.response?.data?.error?.message||e.message||'The linked secure conversation could not be opened.';}
+}
+watch(()=>[route.query.threadId,sessionBlocked.value],()=>openLinkedSecureThread());
 
 async function openLinkedConversation() {
   const id = Number(route.query.conversationId);
@@ -5290,7 +5336,7 @@ onMounted(() => {
   window.addEventListener('online', refreshMailInBackground);
   window.addEventListener('message', onComposerMessage);
   window.addEventListener('email-workspace-changed', onWorkspaceChanged);
-  if(route.query.secureClientId)openLinkedSecureClient();else openLinkedConversation();
+  if(route.query.secureClientId)openLinkedSecureClient();else if(route.query.threadId)openLinkedSecureThread();else openLinkedConversation();
   document.addEventListener('click', onDocClickClosePickers);
   loadInboxCounts();
   loadGroupMemberships();

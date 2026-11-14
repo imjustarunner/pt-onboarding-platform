@@ -42,9 +42,13 @@ const paperProcessingHandler = action => async (req, res, next) => {
     }
     if (action === 'view') {
       const doc = await paperProcessingSourceDocument(clientId, Number(req.params.docId));
-      req.params.docId = String(doc.id);
-      const { viewPhiDocument } = await import('./phiDocuments.controller.js');
-      return viewPhiDocument(req, res, next);
+      const {paperPacketBytes}=await import('../services/paperPacketBytes.service.js');
+      const {buffer}=await paperPacketBytes({documentId:doc.id,clientId,schoolOrganizationId:doc.school_organization_id});
+      const mime=String(doc.mime_type||doc.content_type||'application/pdf').toLowerCase();
+      if(!['application/pdf','image/jpeg','image/png'].includes(mime))return res.status(415).json({error:{message:'This packet format cannot be previewed.'}});
+      await logAuditEvent(req,{actionType:'paper_packet_source_viewed',agencyId:access.client.agency_id,metadata:{clientId,sourceDocumentId:doc.id}});
+      res.set('Cache-Control','private, no-store');res.set('X-Content-Type-Options','nosniff');res.set('Content-Type',mime);
+      return res.send(buffer);
     }
     const state = action === 'complete'
       ? await completePaperProcessing({clientId,actorId,signaturesConfirmed:req.body?.signaturesConfirmed,staffRoiConfirmed:req.body?.staffRoiConfirmed})

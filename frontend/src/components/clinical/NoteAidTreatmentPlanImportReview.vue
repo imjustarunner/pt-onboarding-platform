@@ -317,6 +317,7 @@
           >
             {{ discarding ? 'Discarding…' : 'Discard draft' }}
           </button>
+          <p v-if="goalsMissingDuration.length" role="status">Choose a duration of 1–36 months for goals {{ goalsMissingDuration.join(', ') }} before finalizing. You can save an incomplete draft.</p>
           <template v-if="isDraftEditor || isUpdaterMode || allowImportedDraft">
             <button type="button" class="na-btn-outline" :disabled="saving" @click="save({ finalize: false })">
               {{ saving && !finalizing ? 'Saving…' : (allowImportedDraft ? 'Save for review' : 'Save draft') }}
@@ -324,7 +325,7 @@
             <button
               type="button"
               class="na-btn-primary"
-              :disabled="saving || (aiContentUsed && !attestAiReviewed)"
+              :disabled="saving || goalsMissingDuration.length > 0 || (aiContentUsed && !attestAiReviewed)"
               @click="save({ finalize: true })"
             >
               {{ finalizing ? 'Finalizing…' : (isUpdaterMode ? 'Confirm &amp; sign updated plan' : 'Finalize treatment plan') }}
@@ -334,7 +335,7 @@
             v-else
             type="button"
             class="na-btn-primary"
-            :disabled="saving || (aiContentUsed && !attestAiReviewed)"
+            :disabled="saving || goalsMissingDuration.length > 0 || (aiContentUsed && !attestAiReviewed)"
             @click="save({ finalize: true })"
           >
             {{ saving ? 'Saving…' : 'Confirm &amp; save to chart' }}
@@ -504,8 +505,10 @@ function applyDurationToAll() {
   }
 }
 
-function mapGoal(g) {
-  const months = g.durationMonths != null ? Number(g.durationMonths) : null;
+function mapGoal(g, effectiveDate) {
+  const stored=String(g.projectedCompletion||g.projected_completion||'').slice(0,10);
+  const restoredMonths=effectiveDate && /^\d{4}-\d{2}-\d{2}$/.test(stored) ? DURATION_PRESETS.find(months=>completionDateFromDurationMonths(months,effectiveDate)===stored) : null;
+  const months = g.durationMonths != null ? Number(g.durationMonths) : restoredMonths || null;
   return {
     id: g.id, status: g.status, superseded_at: g.superseded_at,
     goalText: g.goalText || g.goal_text || '',
@@ -580,7 +583,7 @@ function applyPlanRecord(plan) {
           isPrimary: !!(d.isPrimary ?? d.is_primary) || i === 0
         }))
         : [{ icd10Code: '', description: '', isPrimary: true }]),
-    goals: (plan.goals || []).map((g) => mapGoal(g))
+    goals: (plan.goals || []).map((g) => mapGoal(g, (plan.effective_date || plan.effectiveDate || '').toString().slice(0,10)))
   });
   if (!model.value.goals.length) addGoal();
 }
@@ -923,6 +926,7 @@ watch(
   }
 );
 
+const goalsMissingDuration=computed(()=>(model.value?.goals||[]).map((g,i)=>({goal:g,index:i+1})).filter(({goal})=>!Number.isInteger(Number(goal.durationMonths))||Number(goal.durationMonths)<1||Number(goal.durationMonths)>36).map(({index})=>index));
 async function save({ finalize = true } = {}) {
   if (!model.value) return;
   saving.value = true;
@@ -934,6 +938,7 @@ async function save({ finalize = true } = {}) {
       || !g.objectives?.length || g.objectives.some(o => !String(o.objectiveText || '').trim())))) {
       throw new Error('Enter a goal and at least one objective for every goal before saving.');
     }
+    if(finalize && goalsMissingDuration.value.length)throw new Error(`Choose a duration of 1–36 months for goals ${goalsMissingDuration.value.join(', ')} before finalizing. You can save an incomplete draft.`);
     if (!String(model.value.effectiveDate || '').trim()) {
       model.value.effectiveDate = todayIsoDate();
     }
@@ -986,6 +991,7 @@ async function save({ finalize = true } = {}) {
       goals: model.value.goals.map((g, i) => ({
         goalIndex: i + 1,
         goalText: g.goalText,
+        durationMonths:g.durationMonths,
         projectedCompletion: g.projectedCompletion || completionDateFromDurationMonths(g.durationMonths) || null,
         objectives: (g.objectives || []).map((o, j) => ({
           objectiveIndex: j + 1,

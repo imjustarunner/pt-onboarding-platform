@@ -2,7 +2,7 @@
  <button type="button" class="care-send" @click="open">Send care invitation</button>
  <dialog ref="dialog" class="care-dialog" @close="opened=false">
   <form @submit.prevent="send">
-   <h2>Send care invitation</h2><p>Invite a family to complete and sign the full enrollment packet. Assignment and scheduling wait for verified insurance.</p>
+   <h2>Send care invitation</h2><p>Invite a family to complete and sign the full enrollment packet. Insurance review applies when using coverage. Self-pay does not require insurer verification; clinical and assignment prerequisites still apply.</p>
    <label>Practice<select v-model="agencyId" required @change="load"><option value="">Choose a practice</option><option v-for="a in agencies" :key="a.id" :value="Number(a.id)">{{ a.name }}</option></select></label>
    <label>Provider<select v-model="providerId" required><option value="">Choose a provider</option><option v-for="p in providers" :key="p.id" :value="Number(p.id)">{{ p.name }}</option></select></label>
    <label>Parent or guardian email<input v-model="email" type="email" required autocomplete="off"></label>

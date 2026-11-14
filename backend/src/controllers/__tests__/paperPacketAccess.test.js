@@ -8,6 +8,8 @@ vi.mock('../../services/auditEvent.service.js',()=>({logAuditEvent:vi.fn()}));
 vi.mock('../../services/paperPacketProcessing.service.js',()=>({paperProcessingContext:vi.fn(),paperProcessingSourceDocument:vi.fn(),savePaperProcessingStep:vi.fn(),completePaperProcessing:vi.fn()}));
 vi.mock('../../services/paperPacketTask.service.js',()=>({completePaperPacketTask:vi.fn(),listPaperPacketTasks:vi.fn(async()=>[])}));
 vi.mock('../phiDocuments.controller.js',()=>({viewPhiDocument:vi.fn()}));
+vi.mock('../../services/paperPacketBytes.service.js',()=>({paperPacketBytes:vi.fn()}));
+import {paperPacketBytes} from '../../services/paperPacketBytes.service.js';
 import Client from '../../models/Client.model.js';
 import User from '../../models/User.model.js';
 import {paperProcessingContext,paperProcessingSourceDocument,completePaperProcessing} from '../../services/paperPacketProcessing.service.js';
@@ -15,15 +17,15 @@ import {listPaperPacketDocuments,getPaperProcessing,postPaperProcessing,viewPape
 import {viewPhiDocument} from '../phiDocuments.controller.js';
 import {listPaperPacketTasks} from '../../services/paperPacketTask.service.js';
 let res,next;
-beforeEach(()=>{vi.resetAllMocks();Client.findById.mockResolvedValue({id:4,agency_id:2,organization_id:3});User.getAgencies.mockResolvedValue([{id:2}]);res={status:vi.fn().mockReturnThis(),json:vi.fn().mockReturnThis(),set:vi.fn().mockReturnThis()};next=vi.fn();});
+beforeEach(()=>{vi.resetAllMocks();Client.findById.mockResolvedValue({id:4,agency_id:2,organization_id:3});User.getAgencies.mockResolvedValue([{id:2}]);res={status:vi.fn().mockReturnThis(),json:vi.fn().mockReturnThis(),set:vi.fn().mockReturnThis(),send:vi.fn().mockReturnThis()};next=vi.fn();});
 const request=role=>({params:{id:'4'},user:{id:8,role},body:{signaturesConfirmed:true,staffRoiConfirmed:true}});
 it.each(['school_staff','client_guardian','client','provider'])('rejects %s before reading packet details',async role=>{await getPaperProcessing(request(role),res,next);expect(res.status).toHaveBeenCalledWith(403);expect(paperProcessingContext).not.toHaveBeenCalled();});
 it('rejects a support user from another agency without sending invitations',async()=>{User.getAgencies.mockResolvedValue([{id:9}]);await postPaperProcessing(request('support'),res,next);expect(res.status).toHaveBeenCalledWith(403);expect(completePaperProcessing).not.toHaveBeenCalled();});
 it('allows agency support to read the resumable context without a write',async()=>{paperProcessingContext.mockResolvedValue({state:{}});await getPaperProcessing(request('support'),res,next);expect(res.set).toHaveBeenCalledWith('Cache-Control','no-store');expect(res.json).toHaveBeenCalledWith({state:{}});expect(completePaperProcessing).not.toHaveBeenCalled();});
-it('opens only the validated paper source through the existing audited document reader',async()=>{
- const req=request('support');req.params.docId='9';paperProcessingSourceDocument.mockResolvedValue({id:9});
+it('streams only the validated clean paper source through the authorized app origin',async()=>{
+ const req=request('support');req.params.docId='9';paperProcessingSourceDocument.mockResolvedValue({id:9,school_organization_id:3,mime_type:'application/pdf'});paperPacketBytes.mockResolvedValue({buffer:Buffer.from('%PDF-fictional')});
  await viewPaperProcessingDocument(req,res,next);
- expect(paperProcessingSourceDocument).toHaveBeenCalledWith(4,9);expect(viewPhiDocument).toHaveBeenCalledWith(req,res,next);
+ expect(paperProcessingSourceDocument).toHaveBeenCalledWith(4,9);expect(paperPacketBytes).toHaveBeenCalledWith({documentId:9,clientId:4,schoolOrganizationId:3});expect(res.send).toHaveBeenCalledWith(Buffer.from('%PDF-fictional'));expect(res.set).toHaveBeenCalledWith('Content-Type','application/pdf');expect(viewPhiDocument).not.toHaveBeenCalled();
 });
 it('does not open a source when validation rejects it',async()=>{
  const req=request('support');req.params.docId='10';const error=new Error('Foreign document');paperProcessingSourceDocument.mockRejectedValue(error);

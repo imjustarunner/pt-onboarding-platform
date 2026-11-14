@@ -3,7 +3,6 @@ import { familyMessageVisibilitySql, assertCanReadFamilySecureMessage } from './
 import { refreshClientSecureAccess } from './clientSecureConversation.service.js';
 
 export function normalizeSecureMessageSubject(value) {
-  if (value == null) return null; // Older clients normalized omitted subjects to null.
   if (typeof value !== 'string' || /[\r\n\u0000]/u.test(value) || !value.trim() || Array.from(value.trim()).length > 200) {
     throw Object.assign(new Error('Subject must contain 1–200 characters on one line'), { status: 400, code: 'SECURE_MESSAGE_SUBJECT_INVALID' });
   }

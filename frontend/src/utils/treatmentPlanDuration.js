@@ -34,7 +34,7 @@ export function completionDateFromDurationMonths(months, fromDate = new Date()) 
   const base = fromDate instanceof Date ? new Date(fromDate) : new Date(fromDate);
   if (Number.isNaN(base.getTime())) return null;
   const d = new Date(base);
-  d.setMonth(d.getMonth() + Math.round(m));
+  d.setUTCMonth(d.getUTCMonth() + Math.round(m));
   return d.toISOString().slice(0, 10);
 }
 

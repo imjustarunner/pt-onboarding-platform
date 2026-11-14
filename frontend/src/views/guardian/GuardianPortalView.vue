@@ -1064,8 +1064,8 @@ const portalNavigation = computed(() => {
   if (portalPlanAllowed.value) items.splice(3,0,{key:'plan',label:ft(standardsLearningVisible.value?'{name}’s learning plan':'{name}’s care plan',{name:selectedFirstName.value}),icon:'plan'});
 
   if(onboardingRequired.value) items.unshift({key:'onboarding',label:'Complete onboarding',icon:'tasks'});
-  items.unshift({key:'family',label:'Family overview',icon:'dashboard'},{key:'family_billing',label:'Balances & payments',icon:'billing'},{key:'family_messages',label:'All secure messages',icon:'messages'});
-  items.push({key:'assistance',label:'Accounts I help with',icon:'account'});
+  items.unshift({key:'family',label:allFamilyProfiles.value.every(p=>p.relationship_type==='self')?'My overview':'Family overview',icon:'dashboard'},{key:'family_billing',label:'Balances & payments',icon:'billing'},{key:'family_messages',label:'All secure messages',icon:'messages'});
+  if(allFamilyProfiles.value.some(p=>p.relationship_type !== 'self'))items.push({key:'assistance',label:'Accounts I help with',icon:'account'});
   if (!isSuperadminPreview.value) items.push({key:'enroll',label:familyLocale.value === 'es' ? 'Inscribir a un hijo o a mí' : 'Enroll in services',icon:'sessions'});
   if (!learningOnlySelectedProfile.value) items.push({key:'records',label:'Request my records',icon:'documents'});
   items.push({key:'help',label:'Portal help & feedback',icon:'support'});

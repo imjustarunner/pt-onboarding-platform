@@ -12,3 +12,11 @@ it('resolves the contradictory Completed/Overdue choice according to the latest 
 it('switches a task hit out of the Team Lists browser into the actual Team Tasks rows',async()=>{await open('tab=all&teamMode=lists');const state=w.vm.$.setupState;state.searchQ='2488';await state.runSmartSearch();await state.selectSearchResult(state.searchResults[0]);await flushPromises();expect(state.teamMode).toBe('tasks');expect(w.get('[data-testid="task-rows"]').text()).toContain('Task #2488 · completed');});
 
 it('does not upgrade a regular user to a Team Tasks view from a stale search hit',async()=>{m.auth.user.role='provider';await open('tab=mine');const state=w.vm.$.setupState;await state.selectSearchResult({entity_type:'task',entity_id:2488,view:'all',status:'completed',task:completed});await flushPromises();expect(state.detailTask).toBeNull();expect(w.text()).toContain('This task view is not available');expect(taskCalls().some(q=>q.get('view')==='all')).toBe(false);});
+
+it('filters Completed Team rows by the typed task ID and keeps Team when a duplicate hit prefers My Tasks',async()=>{
+ await open('tab=all&teamMode=tasks');const state=w.vm.$.setupState;
+ state.statusChip='completed';state.searchQ='2488';await state.applySearch();await flushPromises();
+ expect(store.lastFilters).toMatchObject({view:'all',q:'2488',status:'completed',agencyId:450});
+ await state.selectSearchResult({entity_type:'task',entity_id:2488,view:'mine',status:'completed',task:completed});await flushPromises();
+ expect(state.activeTab).toBe('all');expect(store.lastFilters.view).toBe('all');expect(state.detailTask.id).toBe(2488);
+});

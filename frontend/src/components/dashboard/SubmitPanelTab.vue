@@ -12,7 +12,7 @@
       <SupplementalTime :agency-id="agencyId" :context="compensation?.submission" :codes="compensation?.codeGuide" @submitted="refreshHistory" />
       <p v-if="retiredMedcancel" class="submit-hub__sub-hint">School missed-session benefits now use earned School Support Hours. Use the temporary School Support Hours form above or your balances in My Payroll. Prior-period Medicaid no-show records remain in pay history.</p>
       <RecurringPayments :agency-id="agencyId" />
-      <AccountabilityWorkspace :agency-id="agencyId" :target-user-id="submitContext?.employee.id" />
+      <AccountabilityWorkspace v-if="canDiscoverAccountability(currentUserId)" :agency-id="agencyId" :target-user-id="submitContext?.employee.id" />
       <PayCalculatorCard :agency-id="agencyId" :start-expanded="false" />
 
       <button
@@ -170,6 +170,7 @@
 </template>
 
 <script setup>
+import {canDiscoverAccountability} from '../../utils/accountabilityDiscovery';
 import SchoolSupportSubmit from '../payroll/SchoolSupportSubmit.vue';
 const api = useSubmitApi();
 const submitContext = useSubmitContext();

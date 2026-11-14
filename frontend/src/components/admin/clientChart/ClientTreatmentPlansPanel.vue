@@ -623,7 +623,8 @@ async function selectPlan(id) {
 }
 
 function openNoteAidUpdater() {
-  const slug = agencyStore.currentAgency?.slug || agencyStore.currentAgency?.organization_slug;
+  const matchingAgency=(agencyStore.userAgencies||[]).find(a=>Number(a.id)===Number(props.agencyId));
+  const slug = matchingAgency?.portal_url || matchingAgency?.slug || (Number(agencyStore.currentAgency?.id)===Number(props.agencyId) ? agencyStore.currentAgency?.slug || agencyStore.currentAgency?.organization_slug : null) || router.currentRoute?.value?.params?.organizationSlug;
   const planId = Number(detailPlan.value?.id || latestPlan.value?.id || 0) || null;
   const status = String(detailPlan.value?.status || latestPlan.value?.status || '').toLowerCase();
   const usable = planId && !['superseded', 'inactive', 'discarded'].includes(status);

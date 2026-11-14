@@ -326,6 +326,16 @@ describe.skipIf(!recoveryMysqlEnabled)('encrypted subject conversations on actua
     expect(sendHubPortalInvitation).toHaveBeenCalledWith(expect.objectContaining({ personKey: 'contact:77@450', skipEmail: true }));
     expect(familySharedConversations.currentAudience).not.toHaveBeenCalled();
   });
+  it('dispatches a previously accepted subjectless queue without grandfathering a new HTTP send',async()=>{
+    await enqueueHubMessage({agencyId:450,userId:1,personKey:'user:2',channel:'secure',body:'Previously accepted update',subject:null,
+      payload:{clientId:10,threadId:100,expectedRecipientUserIds:[2]},scheduledSendAt:new Date(Date.now()-1000)});
+    state.shared={threadId:100,clientId:10,agencyId:450,audienceUserIds:[1,2]};
+    // Make only this isolated fixture due in the database's own timezone.
+    await db.query('UPDATE hub_message_queue SET scheduled_send_at=DATE_SUB(NOW(),INTERVAL 1 SECOND)');
+    expect(await processHubMessageQueue()).toMatchObject({sent:1,failed:0});
+    const roots=await invoke(listMessages);expect(roots.error).toBeUndefined();expect(roots.data).toHaveLength(1);
+    expect(roots.data[0]).toMatchObject({subject:null,body:'Previously accepted update'});
+  });
   it('keeps a queued reply root encrypted through queue storage and actual worker dispatch', async () => {
     const root = await create('Queued fictional subject');
     const queued = await invoke(postMessagesHubSend, { body: { method: 'secure', personKey: 'user:2', agencyId: 450,
@@ -335,7 +345,7 @@ describe.skipIf(!recoveryMysqlEnabled)('encrypted subject conversations on actua
     const [[saved]] = await db.query('SELECT * FROM hub_message_queue');
     expect(saved.subject).toBeNull(); expect(saved.body).toBeNull();
     expect(JSON.stringify(saved)).not.toContain(root.subject); expect(JSON.stringify(saved)).not.toContain('Queued fictional reply');
-    expect(openQueuedMessage(saved).payload_json).toMatchObject({ threadId: 100, parentMessageId: root.id, expectedRecipientUserIds: [2] });
+    expect(openQueuedMessage(saved).payload_json).toMatchObject({ threadId: 100, parentMessageId: root.id, expectedRecipientUserIds: [2], secureSubjectRequired:true });
     state.shared = { threadId: 100, clientId: 10, agencyId: 450, audienceUserIds: [1, 2] };
     // Only the disposable queue fixture is made due; no clock is changed.
     await db.query('UPDATE hub_message_queue SET scheduled_send_at=DATE_SUB(NOW(),INTERVAL 1 SECOND)');
@@ -343,6 +353,18 @@ describe.skipIf(!recoveryMysqlEnabled)('encrypted subject conversations on actua
     const replies = await invoke(listMessages, { query: { parentMessageId: root.id } });
     expect(replies.error).toBeUndefined(); expect(replies.data).toHaveLength(1);
     expect(replies.data[0]).toMatchObject({ parent_message_id: root.id, subject: root.subject, body: 'Queued fictional reply' });
+  });
+  it('shows per-subject unread counts without marking bodies read, including unread replies and hidden messages',async()=>{
+    const root=await create();
+    let summary=await invoke(listMessages,{userId:2,summaryOnly:true});
+    expect(summary.error).toBeUndefined();expect(summary.data[0].unread_count).toBe(1);
+    expect(summary.data[0].body).toBe('');
+    await invoke(listMessages,{userId:2,query:{messageId:root.id}});
+    summary=await invoke(listMessages,{userId:2,summaryOnly:true});expect(summary.data[0].unread_count).toBe(0);
+    const reply=await invoke(sendMessage,{body:{body:'A new reply',parentMessageId:root.id}});expect(reply.error).toBeUndefined();
+    summary=await invoke(listMessages,{userId:2,summaryOnly:true});expect(summary.data[0].unread_count).toBe(1);
+    await db.execute('INSERT INTO chat_message_deletes(message_id,user_id) VALUES(?,2)',[reply.data.id]);
+    summary=await invoke(listMessages,{userId:2,summaryOnly:true});expect(summary.data[0].unread_count).toBe(0);
   });
   it('reads encrypted subjects through the chart archive without weakening record access', async () => {
     const root = await create();
@@ -353,15 +375,20 @@ describe.skipIf(!recoveryMysqlEnabled)('encrypted subject conversations on actua
     const denied = await invoke(getClientSecureMessage, { messageId: root.id, query: { agencyId: 450 } });
     expect(denied.error).toMatchObject({ status: 403 }); expect(denied.data).toBeUndefined();
   });
-  it.each(['', '   ', 'x'.repeat(201), 'First\nsecond', 'Title\u0000', 42])('rejects invalid supplied root subject before creating any message: %j', async subject => {
+  it.each([undefined, null, '', '   ', 'x'.repeat(201), 'First\nsecond', 'Title\u0000', 42])('rejects invalid supplied root subject before creating any message: %j', async subject => {
     const result = await invoke(sendMessage, { body: { subject, body: 'Fictional body' } });
     expect(result.error).toMatchObject({ status: 400, code: 'SECURE_MESSAGE_SUBJECT_INVALID' });
     const [[count]] = await db.query('SELECT COUNT(*) AS n FROM chat_messages'); expect(count.n).toBe(0);
   });
-  it('accepts exactly 200 Unicode codepoints and keeps older subject-omitting callers compatible', async () => {
+  it('accepts exactly 200 Unicode codepoints and rejects a new subject-omitting caller', async () => {
     const root = await create('🔒'.repeat(200)); expect(Array.from(root.subject)).toHaveLength(200);
     const oldCaller = await invoke(sendMessage, { body: { body: 'Legacy caller body' } });
-    expect(oldCaller.error).toBeUndefined(); expect(oldCaller.data.subject).toBeNull();
+    expect(oldCaller.error).toMatchObject({status:400,code:'SECURE_MESSAGE_SUBJECT_INVALID'});
+    const [[count]]=await db.query('SELECT COUNT(*) AS n FROM chat_messages');expect(count.n).toBe(1);
+  });
+  it('does not allow an HTTP body flag to bypass the new subject requirement',async()=>{
+    const result=await invoke(sendMessage,{body:{body:'No new subject',trustedLegacyQueuedSubject:true}});
+    expect(result.error).toMatchObject({status:400,code:'SECURE_MESSAGE_SUBJECT_INVALID'});
   });
   it('reads legacy subjects and never treats a legacy JSON body as structured message content', async () => {
     const literal = JSON.stringify({ version: 1, type: 'secure_message', body: 'literal body', subject: 'literal subject' });

@@ -68,3 +68,9 @@ it('resets selected participant and discards an old save response when provider 
   finish({data:{message:'Old provider saved'}});await flushPromises();
   expect(w.emitted('changed')).toBeUndefined();expect(w.text()).not.toContain('Old provider saved');w.unmount();
 });
+
+it('distinguishes an early ended room from eligible scheduled attendance without awarding hours',async()=>{
+ data.session={...data.session,status:'SCHEDULED',startAt:'2026-11-15T17:00:00Z',endedAt:'2026-11-14T12:30:00Z'};
+ data.participants=[{userId:501,name:'QA supervisor',role:'Supervisor',totalSeconds:0,firstJoinedAt:'2026-11-14T12:20:00Z'}];data.events=[{userId:501,at:'2026-11-14T12:20:00Z',eventType:'joined'},{userId:501,at:'2026-11-14T12:30:00Z',eventType:'left'}];
+ const w=mount(SupervisionRecordPanel,{props:{sessionId:1397,compact:true}});await flushPromises();expect(w.text()).toContain('Meeting room ended');expect(w.text()).toContain('Only activity before scheduled start');expect(api.post).not.toHaveBeenCalled();w.unmount();
+});

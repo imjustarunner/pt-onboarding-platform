@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { auricwellLoginDestination, auricwellSsoDestination, consumeSsoHandoff, getSsoArrivalRoute, isLoginEntryRoute, isTokenAuthenticationRoute, isSessionEntryRoute, safeLoginDestination } from '../loginHandoff';
+import { auricwellLoginDestination, auricwellSsoDestination, consumeSsoHandoff, getSsoArrivalRoute, isLoginEntryRoute, isTokenAuthenticationRoute, isSessionEntryRoute, safeLoginDestination, loginVerificationQuery } from '../loginHandoff';
 describe('branded SSO arrival', () => {
   it('keeps super admins on the original tenant login while loading the platform workspace', () => {
     expect(getSsoArrivalRoute({ path: '/admin', query: { sso: '1', ssoOrg: 'itsco' } }, 'itsco')).toEqual({ path: '/login', query: { sso: '1', ssoOrg: 'itsco', redirect: '/admin' }, replace: true });
@@ -65,4 +65,10 @@ describe('Auricwell sign-in return addresses',()=>{
   expect(auricwellSsoDestination(path,'auricwell.com')).toBeNull();
   expect(auricwellLoginDestination(path,'app.itsco.health')).toBeNull();
  });
+});
+
+it('preserves the exact secure destination across username-verification branding changes',()=>{
+ const redirect='/auricwell-qa-demo/messages?view=workspace&threadId=379&secure=1';
+ expect(loginVerificationQuery({redirect,workspace:'auricwell',u:'private-name'})).toEqual({redirect,workspace:'auricwell'});
+ for(const redirect of ['//outside.test','/\\outside.test','/ok\nLocation:x'])expect(loginVerificationQuery({redirect})).toEqual({});
 });

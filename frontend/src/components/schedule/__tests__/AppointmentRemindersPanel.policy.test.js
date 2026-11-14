@@ -7,3 +7,5 @@ it('offers only permitted manual channels and sends the selected channel immedia
 it('blocks a manual push during its 24-hour cooldown and shows the next time',()=>{
  const w=mount(Panel,{props:{appointmentId:12,canPushExtra:false,manualChannels:['email','sms'],availableAt:'2026-11-15T20:00:00Z'}});expect(w.findAll('button').find(button=>button.text()==='Send reminder now').attributes('disabled')).toBeDefined();expect(w.text()).toContain('24-hour cooldown');w.unmount();
 });
+
+it('explicitly labels text unavailable without inventing another warning email',()=>{const w=mount(Panel,{props:{appointmentId:292,manualChannels:['email']}});expect(w.text()).toContain('Text reminders are disabled');expect(w.emitted('push-extra')).toBeUndefined();w.unmount();});

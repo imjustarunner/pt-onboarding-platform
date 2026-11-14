@@ -92,6 +92,15 @@ router.get('/inbox/files', listFilesInbox);
 router.get('/inbox/bookmarks', listBookmarksInbox);
 router.get('/inbox/pins', listPinsInbox);
 
+router.get('/threads/:threadId/locate/:messageId', async(req,res,next)=>{
+  try {
+    if(String(req.user.role)==='school_staff')return res.sendStatus(403);
+    const {locateSecureSubject}=await import('../services/secureSubjectLocation.service.js');
+    const result=await locateSecureSubject({userId:req.user.id,threadId:req.params.threadId,messageId:req.params.messageId});
+    res.set('Cache-Control','no-store').json(result);
+  }catch(e){next(e);}
+});
+
 router.get('/threads/:threadId/secure-events', async (req, res, next) => {
   try {
     const threadId = Number(req.params.threadId);
