@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import mysql from 'mysql2/promise';
 import crypto from 'node:crypto';
+import {readFile} from 'node:fs/promises';
+import {generateUniqueSixDigitClientCode} from '../../utils/clientCode.js';
 const state = vi.hoisted(() => ({ pool: null, clinicalUnavailable: false }));
 vi.mock('../../config/database.js', () => ({ default: {
  execute: (...args) => state.pool.execute(...args), getConnection: () => state.pool.getConnection()
@@ -54,9 +56,11 @@ describe.skipIf(!process.env.EVIDENCE_TEST_SOCKET && !process.env.EVIDENCE_TEST_
    INSERT INTO agency_office_intake_masters VALUES (450,10),(2,12);
    INSERT INTO agency_schools VALUES (450,451,1);
   `);
+  await state.pool.query(await readFile(new URL('../../../../database/migrations/1823_sequential_client_identifiers.sql',import.meta.url),'utf8'));
  });
  beforeEach(async () => {
   state.clinicalUnavailable = false;
+  await state.pool.query("UPDATE client_identifier_sequences SET last_number=99999 WHERE sequence_key='client'");
   for (const table of ['client_organization_assignments','client_contact_affiliations','agency_contacts','clients','client_guardians','intake_submissions','intake_submission_clients','intake_submission_documents','client_phi_documents','co_guardian_invite_clients','client_guardian_intake_profiles','client_status_history','clinical_notes']) await state.pool.query(`DELETE FROM ${table}`);
   await state.pool.query(`
    INSERT INTO clients (id,agency_id,full_name,date_of_birth,status,identifier_code) VALUES (1,450,'Synthetic Child','2015-01-01','PACKET','100001'),(2,450,'Synthetic Child','2015-01-01','PACKET','100002');
@@ -72,6 +76,15 @@ describe.skipIf(!process.env.EVIDENCE_TEST_SOCKET && !process.env.EVIDENCE_TEST_
  afterAll(async () => {
   if (state.pool) await state.pool.end();
   if (admin) { await admin.query(`DROP DATABASE IF EXISTS ${database}`); await admin.end(); }
+ });
+ it('reserves distinct sequential six-digit numbers concurrently and skips existing legacy identifiers',async()=>{
+  const codes=await Promise.all(Array.from({length:20},()=>generateUniqueSixDigitClientCode({agencyId:450},state.pool)));
+  expect(new Set(codes).size).toBe(20);
+  expect(codes.sort()).toEqual(Array.from({length:20},(_,index)=>String(index===0?100000:100002+index)));
+ });
+ it('stops at six-digit exhaustion without wrapping into existing identifiers',async()=>{
+  await state.pool.query("UPDATE client_identifier_sequences SET last_number=999999 WHERE sequence_key='client'");
+  await expect(generateUniqueSixDigitClientCode({agencyId:450},state.pool)).rejects.toThrow('All six-digit client numbers');
  });
  it('offers only published active forms in the guardian’s agencies, excluding personal or foreign links', async () => {
   const deps = { db: state.pool, users: { findById: async () => ({ id: 8, role: 'client_guardian', email: 'parent@example.test' }) } };

@@ -1,4 +1,3 @@
-import User from '../models/User.model.js';
 import { contactReminderPhoneHash } from '../utils/contactReminderConsent.js';
 
 const STAFF = new Set(['super_admin','admin','support','staff','scheduler','provider','provider_plus','clinical_practice_assistant']);
@@ -6,9 +5,10 @@ export function canEditAffiliatedContact(contact, actor) {
   return STAFF.has(String(actor?.role || '').toLowerCase())
     || (!!Number(actor?.id) && Number(contact?.created_by_user_id) === Number(actor.id));
 }
-export async function assertContactOwner(contact, userId, users = User) {
+export async function assertContactOwner(contact, userId, users = null) {
   if (Number(contact?.created_by_user_id) === Number(userId) && Number(userId)) return;
-  if (!canEditAffiliatedContact(contact, await users.findById(userId))) {
+  const userModel=users || (await import('../models/User.model.js')).default;
+  if (!canEditAffiliatedContact(contact, await userModel.findById(userId))) {
     throw Object.assign(new Error('This contact was added by another parent. You can view it; only that parent or the care team can change or remove it.'), {status:403});
   }
 }
