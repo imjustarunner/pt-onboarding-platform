@@ -4,8 +4,7 @@
       <div>
         <h3 class="cca-title">{{ title }}</h3>
         <p class="cca-sub">
-          Add people who can receive appointment reminders for this client without portal access.
-          An authorized account holder can enable minimal appointment reminders. These contacts cannot read messages or access the record. Selecting texts requests an invitation; the recipient must reply START before text reminders begin.
+          Contacts stay outside the portal. Both parents can see them; each parent manages the contacts they added.
         </p>
       </div>
       <button type="button" class="btn btn-primary btn-sm" @click="showForm = !showForm">
@@ -16,7 +15,7 @@
     <p v-if="error" class="cca-error">{{ error }}</p>
     <p v-if="success" class="cca-success">{{ success }}</p>
 
-    <form v-if="showForm" class="cca-form" @submit.prevent="submit">
+    <component :is="embedded ? 'div' : 'form'" ref="contactForm" v-if="showForm" class="cca-form" @submit.prevent="submit">
       <div class="cca-grid">
         <label>
           Full name
@@ -44,14 +43,16 @@
       </div>
       <div class="cca-toggles">
         <label class="cca-check">
-          <input v-model="form.emailRemindersEnabled" type="checkbox" :disabled="mode !== 'guardian'" />
+          <input v-model="form.emailRemindersEnabled" type="checkbox" />
           Email appointment reminders
         </label>
         <label class="cca-check">
-          <input v-model="form.smsRemindersEnabled" type="checkbox" :disabled="mode !== 'guardian'" />
+          <input v-model="form.smsRemindersEnabled" type="checkbox" />
           Text appointment reminders
         </label>
       </div>
+      <label v-if="form.emailRemindersEnabled" class="cca-ack"><input v-model="form.verbalEmailConsent" type="checkbox" /><span>I attest that this person verbally consented to email appointment reminders.</span></label>
+      <label v-if="form.smsRemindersEnabled" class="cca-ack"><input v-model="form.verbalSmsConsent" type="checkbox" /><span>I attest that this person verbally consented to text appointment reminders.</span></label>
       <label v-if="needsAck" class="cca-ack">
         <input v-model="form.acknowledgeNotify" type="checkbox" />
         <span>
@@ -65,11 +66,11 @@
         <span>This person agreed to receive one text invitation. I will let them know to reply START to opt in. Without this permission, save the contact and ask them before sending an invitation.</span>
       </label>
       <div class="cca-actions">
-        <button type="submit" class="btn btn-primary" :disabled="saving || (needsAck && !form.acknowledgeNotify)">
+        <button :type="embedded ? 'button' : 'submit'" class="btn btn-primary" :disabled="saving || (needsAck && !form.acknowledgeNotify) || (form.emailRemindersEnabled && !form.verbalEmailConsent) || (form.smsRemindersEnabled && !form.verbalSmsConsent)" @click="embedded && submit()">
           {{ saving ? 'Saving…' : 'Save contact' }}
         </button>
       </div>
-    </form>
+    </component>
 
     <div v-if="loading" class="cca-muted">Loading contacts…</div>
     <ul v-else-if="items.length" class="cca-list">
@@ -102,7 +103,7 @@
             <span v-if="item.contactChoiceAt"> · {{ formatWhen(item.contactChoiceAt) }}</span>
           </p>
         </div>
-        <div class="cca-item-actions">
+        <div v-if="item.canEdit !== false" class="cca-item-actions">
           <button
             type="button"
             class="btn btn-ghost btn-sm"
@@ -111,7 +112,7 @@
           >
             Edit reminders
           </button>
-          <button v-if="mode === 'guardian' && item.smsRemindersEnabled && item.smsConsentStatus !== 'opted_in'" type="button" class="btn btn-ghost btn-sm"
+          <button v-if="item.smsRemindersEnabled && item.smsConsentStatus !== 'opted_in'" type="button" class="btn btn-ghost btn-sm"
             :disabled="saving || item.smsConsentStatus === 'stopped' || ['sending', 'uncertain'].includes(item.smsInvitationStatus)" @click="invite(item)">
             {{ item.smsInvitationSentAt ? 'Resend opt-in invitation' : 'Send opt-in invitation' }}
           </button>
@@ -119,6 +120,8 @@
             Remove
           </button>
         </div>
+        <p v-if="item.canEdit === false" class="cca-choice">Added by the other parent or care team · View only</p>
+        <button v-if="allowGuardianInvites && ['parent','guardian'].includes(item.relationshipType) && item.contact?.email" type="button" class="btn btn-secondary btn-sm" :disabled="saving" @click="inviteGuardian(item)">Invite secondary guardian</button>
       </li>
     </ul>
     <p v-else class="cca-muted">No affiliated contacts yet.</p>
@@ -130,13 +133,15 @@
           <button type="button" class="cca-close" @click="editing = null">×</button>
         </header>
         <label class="cca-check">
-          <input v-model="editForm.emailRemindersEnabled" type="checkbox" :disabled="mode !== 'guardian' && !editing?.emailRemindersEnabled" />
+          <input v-model="editForm.emailRemindersEnabled" type="checkbox" />
           Email appointment reminders
         </label>
         <label class="cca-check">
-          <input v-model="editForm.smsRemindersEnabled" type="checkbox" :disabled="mode !== 'guardian' && !editing?.smsRemindersEnabled" />
+          <input v-model="editForm.smsRemindersEnabled" type="checkbox" />
           Text appointment reminders
         </label>
+        <label v-if="editForm.emailRemindersEnabled" class="cca-ack"><input v-model="editForm.verbalEmailConsent" type="checkbox" /><span>I attest that this person verbally consented to email appointment reminders.</span></label>
+        <label v-if="editForm.smsRemindersEnabled" class="cca-ack"><input v-model="editForm.verbalSmsConsent" type="checkbox" /><span>I attest that this person verbally consented to text appointment reminders.</span></label>
         <label v-if="editNeedsAck" class="cca-ack">
           <input v-model="editForm.acknowledgeNotify" type="checkbox" />
           <span>
@@ -153,7 +158,7 @@
           <button
             type="button"
             class="btn btn-primary"
-            :disabled="saving || (editNeedsAck && !editForm.acknowledgeNotify)"
+            :disabled="saving || (editNeedsAck && !editForm.acknowledgeNotify) || (editForm.emailRemindersEnabled && !editForm.verbalEmailConsent) || (editForm.smsRemindersEnabled && !editForm.verbalSmsConsent)"
             @click="saveEdit"
           >
             Save
@@ -169,6 +174,8 @@ import { computed, onMounted, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
 
 const props = defineProps({
+  embedded:Boolean,
+  allowGuardianInvites:{type:Boolean,default:true},
   clientId: { type: [Number, String], required: true },
   /** 'staff' uses /api/clients/:id/contacts; 'guardian' uses guardian-portal path */
   mode: { type: String, default: 'staff' },
@@ -176,6 +183,7 @@ const props = defineProps({
   clientInitials: { type: String, default: '' }
 });
 
+const contactForm=ref(null);
 const items = ref([]);
 const loading = ref(false);
 const saving = ref(false);
@@ -189,8 +197,10 @@ const form = reactive({
   email: '',
   phone: '',
   relationshipType: 'parent',
-  emailRemindersEnabled: props.mode === 'guardian',
+  emailRemindersEnabled: false,
   smsRemindersEnabled: false,
+  verbalEmailConsent:false,
+  verbalSmsConsent:false,
   acknowledgeNotify: false,
   recipientPermissionToInvite: false
 });
@@ -198,6 +208,8 @@ const form = reactive({
 const editForm = reactive({
   emailRemindersEnabled: false,
   smsRemindersEnabled: false,
+  verbalEmailConsent:false,
+  verbalSmsConsent:false,
   acknowledgeNotify: false,
   recipientPermissionToInvite: false
 });
@@ -286,6 +298,10 @@ async function load() {
 }
 
 async function submit() {
+  const invalid=[...(contactForm.value?.querySelectorAll('input') || [])].find(input=>!input.checkValidity());
+  if(invalid){invalid.reportValidity();return;}
+  if((form.emailRemindersEnabled && !form.verbalEmailConsent) || (form.smsRemindersEnabled && !form.verbalSmsConsent))return;
+
   saving.value = true;
   error.value = '';
   success.value = '';
@@ -298,6 +314,8 @@ async function submit() {
       emailRemindersEnabled: form.emailRemindersEnabled,
       smsRemindersEnabled: form.smsRemindersEnabled,
       recipientPermissionToInvite: form.recipientPermissionToInvite,
+      verbalEmailConsent:form.verbalEmailConsent,
+      verbalSmsConsent:form.verbalSmsConsent,
       acknowledgeNotify: form.acknowledgeNotify
     });
     success.value = resultMessage(data, 'Contact saved.');
@@ -305,7 +323,7 @@ async function submit() {
     form.fullName = '';
     form.email = '';
     form.phone = '';
-    form.acknowledgeNotify = false;
+    form.acknowledgeNotify = false;form.verbalEmailConsent=false;form.verbalSmsConsent=false;form.emailRemindersEnabled=false;form.smsRemindersEnabled=false;
     form.recipientPermissionToInvite = false;
     await load();
   } catch (e) {
@@ -316,13 +334,21 @@ async function submit() {
 }
 
 function togglePrefs(item) {
+  if(item.canEdit === false)return;
   editing.value = item;
+  editForm.verbalEmailConsent=!!item.reminderConsentAttestations?.email;editForm.verbalSmsConsent=!!item.reminderConsentAttestations?.sms;
   editForm.emailRemindersEnabled = !!item.emailRemindersEnabled;
   editForm.smsRemindersEnabled = !!item.smsRemindersEnabled;
   editForm.acknowledgeNotify = false;
   editForm.recipientPermissionToInvite = false;
 }
 
+async function inviteGuardian(item){
+  saving.value=true;error.value='';success.value='';
+  try{const{data}=await api.post(`${basePath.value}/${item.id}/guardian-invitation`,{});success.value=data.emailed?'Secondary guardian invitation sent. They will complete their own portal setup.':data.queued?'Secondary guardian invitation queued.':'Invitation created. Check its delivery in enrollment communications.';await load();}
+  catch(e){error.value=e.response?.data?.error?.message || 'Unable to invite this contact as a secondary guardian.';}
+  finally{saving.value=false;}
+}
 async function saveEdit() {
   if (!editing.value) return;
   saving.value = true;
@@ -332,6 +358,8 @@ async function saveEdit() {
       emailRemindersEnabled: editForm.emailRemindersEnabled,
       smsRemindersEnabled: editForm.smsRemindersEnabled,
       recipientPermissionToInvite: editForm.recipientPermissionToInvite,
+      verbalEmailConsent:editForm.verbalEmailConsent,
+      verbalSmsConsent:editForm.verbalSmsConsent,
       acknowledgeNotify: editForm.acknowledgeNotify
     });
     success.value = resultMessage(data, 'Reminder settings updated.');

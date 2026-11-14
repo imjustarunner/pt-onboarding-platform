@@ -25,7 +25,11 @@ describe.skipIf(!process.env.EVIDENCE_TEST_SOCKET && !process.env.EVIDENCE_TEST_
   await admin.query(`CREATE DATABASE ${database}`);
   state.pool = mysql.createPool({ ...connection, user: 'root', database, multipleStatements: true });
   await state.pool.query(`
-   CREATE TABLE clients (id INT PRIMARY KEY, agency_id INT, ${CLIENT_MERGE_FIELDS.map(f => `${f.key} VARCHAR(255)`).join(',')});
+   CREATE TABLE users (id INT PRIMARY KEY, first_name VARCHAR(255), last_name VARCHAR(255));
+   CREATE TABLE clients (id INT PRIMARY KEY, agency_id INT, organization_id INT, ${CLIENT_MERGE_FIELDS.map(f => `${f.key} VARCHAR(255)`).join(',')});
+   CREATE TABLE client_organization_assignments(client_id INT,organization_id INT,is_primary INT,is_active INT,PRIMARY KEY(client_id,organization_id));
+   CREATE TABLE client_contact_affiliations(id INT PRIMARY KEY,client_id INT,agency_contact_id INT,created_by_user_id INT,email_reminders_enabled INT,sms_reminders_enabled INT,is_active INT);
+   CREATE TABLE agency_contacts(id INT PRIMARY KEY,client_id INT);
    CREATE TABLE client_guardians (id INT AUTO_INCREMENT PRIMARY KEY, client_id INT, guardian_user_id INT, relationship_type VARCHAR(32), access_enabled INT, permissions_json JSON, UNIQUE(client_id,guardian_user_id));
    CREATE TABLE intake_submissions (id INT PRIMARY KEY, client_id INT, guardian_user_id INT);
    CREATE TABLE intake_submission_clients (id INT PRIMARY KEY, client_id INT, intake_submission_id INT, bundle_pdf_path VARCHAR(255));
@@ -35,13 +39,14 @@ describe.skipIf(!process.env.EVIDENCE_TEST_SOCKET && !process.env.EVIDENCE_TEST_
    CREATE TABLE client_guardian_intake_profiles (id INT PRIMARY KEY, client_id INT UNIQUE, profile_encrypted TEXT);
    CREATE TABLE client_status_history (id INT AUTO_INCREMENT PRIMARY KEY, client_id INT, changed_by_user_id INT, field_changed VARCHAR(64), from_value TEXT, to_value TEXT, note TEXT);
    CREATE TABLE clinical_notes (id INT PRIMARY KEY,agency_id INT,client_id INT,provider_signed_at DATETIME NULL,is_deleted TINYINT NOT NULL DEFAULT 0);
-   CREATE TABLE agencies (id INT PRIMARY KEY, name VARCHAR(255), feature_flags JSON, is_active INT DEFAULT 1, is_archived INT DEFAULT 0);
+   CREATE TABLE agencies (id INT PRIMARY KEY, name VARCHAR(255), organization_type VARCHAR(32), feature_flags JSON, is_active INT DEFAULT 1, is_archived INT DEFAULT 0);
    CREATE TABLE user_agencies (user_id INT, agency_id INT, is_active INT DEFAULT 1);
    CREATE TABLE intake_links (id INT PRIMARY KEY, master_channel VARCHAR(32), organization_id INT, language_code VARCHAR(3), scope_type VARCHAR(32), form_type VARCHAR(32), inherits_school_master INT DEFAULT 0, is_school_master INT DEFAULT 0, is_office_master INT DEFAULT 0, is_active INT DEFAULT 1);
    CREATE TABLE agency_office_intake_masters (agency_id INT, published_intake_link_id INT);
    CREATE TABLE agency_channel_intake_masters (agency_id INT, channel VARCHAR(32), published_intake_link_id INT);
    CREATE TABLE agency_schools (agency_id INT, school_organization_id INT, is_active INT);
    CREATE TABLE organization_affiliations (agency_id INT, organization_id INT, is_active INT);
+   INSERT INTO users VALUES(8,'Synthetic','Parent A'),(9,'Synthetic','Parent B');
    INSERT INTO agencies(id,name) VALUES (450,'Demo'),(451,'Demo school'),(2,'Other agency');
    INSERT INTO user_agencies(user_id,agency_id) VALUES (8,450);
    INSERT INTO intake_links (id,organization_id,language_code,scope_type,form_type,inherits_school_master,is_active) VALUES
@@ -52,7 +57,7 @@ describe.skipIf(!process.env.EVIDENCE_TEST_SOCKET && !process.env.EVIDENCE_TEST_
  });
  beforeEach(async () => {
   state.clinicalUnavailable = false;
-  for (const table of ['clients','client_guardians','intake_submissions','intake_submission_clients','intake_submission_documents','client_phi_documents','co_guardian_invite_clients','client_guardian_intake_profiles','client_status_history','clinical_notes']) await state.pool.query(`DELETE FROM ${table}`);
+  for (const table of ['client_organization_assignments','client_contact_affiliations','agency_contacts','clients','client_guardians','intake_submissions','intake_submission_clients','intake_submission_documents','client_phi_documents','co_guardian_invite_clients','client_guardian_intake_profiles','client_status_history','clinical_notes']) await state.pool.query(`DELETE FROM ${table}`);
   await state.pool.query(`
    INSERT INTO clients (id,agency_id,full_name,date_of_birth,status,identifier_code) VALUES (1,450,'Synthetic Child','2015-01-01','PACKET','100001'),(2,450,'Synthetic Child','2015-01-01','PACKET','100002');
    INSERT INTO client_guardians (client_id,guardian_user_id,relationship_type,access_enabled,permissions_json) VALUES (1,8,'guardian',1,'{}'),(2,8,'guardian',1,'{}'),(2,9,'guardian',1,'{}');

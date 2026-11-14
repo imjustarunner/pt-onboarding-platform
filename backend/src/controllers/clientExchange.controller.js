@@ -364,7 +364,7 @@ export async function listPendingOfficeClients(req, res, next) {
     if (!isBackoffice(req.user.role) && !isSupervisor) {
       return res.status(403).json({ error: { message: 'Support/admin access required' } });
     }
-    const clients = await ClientExchange.listPendingOfficeClients({ agencyId });
+    const clients = await ClientExchange.listPendingOfficeClients({ agencyId, includeSchool: req.query.includeSchool === 'true' || req.query.includeSchool === '1' });
     const visible=canViewDemoExchange(req.user.role)?clients:(await Promise.all(clients.map(async c=>await isDemoExchangeClient({clientId:c.client_id||c.id,agencyId})?null:c))).filter(Boolean);
     res.json({ clients:visible });
   } catch (e) {

@@ -1,3 +1,4 @@
+import { assertContactOwner, canEditAffiliatedContact } from '../services/clientContactPolicy.service.js';
 import Client from '../models/Client.model.js';
 import ClientContactAffiliation from '../models/ClientContactAffiliation.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
@@ -46,7 +47,7 @@ async function assertCanManageClientContacts(req, clientId) {
   // Guardian / client self
   if (role === 'client_guardian' || role === 'guardian') {
     const link = await ClientGuardian.getLink({ clientId, guardianUserId: uid });
-    if (!link || !link.access_enabled || ClientGuardian.isNoView(link.permissions_json)) {
+    if (!link || Number(link.access_enabled)!==1 || ClientGuardian.isNoView(link.permissions_json)) {
       const err = new Error('Access denied');
       err.status = 403;
       throw err;
@@ -72,7 +73,7 @@ export async function listClientAffiliatedContacts(req, res, next) {
     if (!clientId) return res.status(400).json({ error: { message: 'Invalid client id' } });
     await assertCanManageClientContacts(req, clientId);
     const rows = await ClientContactAffiliation.listForClient(clientId);
-    res.json({ items: rows.map((r) => ClientContactAffiliation.toApi(r)) });
+    res.json({ items: rows.map((r) => ({...ClientContactAffiliation.toApi(r),canEdit:canEditAffiliatedContact(r,req.user)})) });
   } catch (e) {
     if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
     next(e);
@@ -94,6 +95,8 @@ export async function createClientAffiliatedContact(req, res, next) {
       relationshipType: req.body?.relationshipType,
       emailRemindersEnabled: !!req.body?.emailRemindersEnabled,
       smsRemindersEnabled: !!req.body?.smsRemindersEnabled,
+      verbalEmailConsent:req.body?.verbalEmailConsent === true,
+      verbalSmsConsent:req.body?.verbalSmsConsent === true,
       acknowledgeNotify: !!req.body?.acknowledgeNotify,
       recipientPermissionToInvite: req.body?.recipientPermissionToInvite === true,
       existingContactId: req.body?.existingContactId || req.body?.agencyContactId || null,
@@ -125,6 +128,8 @@ export async function patchClientAffiliatedContact(req, res, next) {
         smsRemindersEnabled: req.body?.smsRemindersEnabled,
         isActive: req.body?.isActive,
         recipientPermissionToInvite: req.body?.recipientPermissionToInvite === true,
+        verbalEmailConsent:req.body?.verbalEmailConsent === true,
+        verbalSmsConsent:req.body?.verbalSmsConsent === true,
         acknowledgeNotify: !!req.body?.acknowledgeNotify
       }
     });
@@ -148,6 +153,7 @@ export async function deleteClientAffiliatedContact(req, res, next) {
     if (!row || Number(row.client_id) !== clientId) {
       return res.status(404).json({ error: { message: 'Affiliation not found' } });
     }
+    await assertContactOwner(row,req.user.id);
     const updated = await ClientContactAffiliation.softDeactivate(affiliationId);
     await logAuditEvent(req, { actionType: 'client_reminder_contact_removed', agencyId: row.agency_id, targetType: 'client_reminder_contact', targetId: affiliationId, metadata: { clientId } });
     res.json({ ok: true, affiliation: ClientContactAffiliation.toApi(updated) });
@@ -199,6 +205,9 @@ export async function inviteClientAffiliatedContactSms(req, res, next) {
     const affiliationId = parseId(req.params.affiliationId);
     if (!clientId || !affiliationId) return res.status(400).json({ error: { message: 'Invalid ids' } });
     await assertCanManageClientContacts(req, clientId);
+    const affiliation=await ClientContactAffiliation.findById(affiliationId);
+    if(!affiliation || Number(affiliation.client_id)!==clientId)return res.status(404).json({error:{message:"Contact not found"}});
+    await assertContactOwner(affiliation,req.user.id);
     const result = await requestContactSmsInvitation({ affiliationId, clientId, userId: req.user.id, recipientPermissionToInvite: req.body?.recipientPermissionToInvite === true });
     const row = await ClientContactAffiliation.findById(affiliationId);
     await logAuditEvent(req, { actionType: 'client_reminder_contact_sms_invitation', agencyId: row.agency_id, targetType: 'client_reminder_contact', targetId: affiliationId, metadata: { clientId, status: result.status } });
@@ -207,4 +216,16 @@ export async function inviteClientAffiliatedContactSms(req, res, next) {
     if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
     next(e);
   }
+}
+
+export async function inviteClientAffiliatedContactGuardian(req,res,next){
+  try {
+    const clientId=parseId(req.params.id || req.params.clientId),affiliationId=parseId(req.params.affiliationId);
+    if(!clientId || !affiliationId)return res.status(400).json({error:{message:'Invalid client or contact'}});
+    await assertCanManageClientContacts(req,clientId);
+    const {inviteContactAsGuardian}=await import('../services/clientContactGuardianInvite.service.js');
+    const result=await inviteContactAsGuardian({clientId,affiliationId,userId:req.user.id});
+    await logAuditEvent(req,{actionType:'client_contact_guardian_invited',targetType:'client',targetId:clientId,metadata:{affiliationId,inviteId:result.inviteId}});
+    res.json(result);
+  }catch(e){if(e.status)return res.status(e.status).json({error:{message:e.message}});next(e);}
 }

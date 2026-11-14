@@ -2334,6 +2334,7 @@
                 </article>
               </div>
 
+              <details v-if="pastAffiliations.length" class="casg-past-affiliations"><summary>Completed programs and past affiliations ({{ pastAffiliations.length }})</summary><ul><li v-for="row in pastAffiliations" :key="row.organization_id">{{ row.organization_name }} · Completed</li></ul></details>
               <div class="casg-add-row" style="margin-top: 16px; border-top: 1px solid #e2e8f0; padding-top: 14px;">
                 <div style="min-width: 280px; flex: 1;">
                   <label class="filters-label">Add tenant membership</label>
@@ -3999,6 +4000,7 @@ const docStatusDetailsEl = ref(null);
 
 // Multi-org + multi-provider assignments (backoffice only)
 const affiliations = ref([]);
+const pastAffiliations = ref([]);
 /** Affiliated orgs for the active chart tenant (used to gate learning surfaces). */
 const chartAgencyAffiliatedOrgs = ref([]);
 
@@ -5820,8 +5822,9 @@ const fetchClientAffiliations = async () => {
   try {
     affiliationsLoading.value = true;
     if (canEditAccount.value) assignmentsError.value = '';
-    const r = await api.get(`/clients/${props.client.id}/affiliations`, { skipGlobalLoading: true });
-    affiliations.value = r.data || [];
+    const r = await api.get(`/clients/${props.client.id}/affiliations`, { params:{includeHistory:true}, skipGlobalLoading: true });
+    affiliations.value = (r.data || []).filter(row => Number(row.is_active) === 1);
+    pastAffiliations.value = (r.data || []).filter(row => Number(row.is_active) === 0);
     if (canEditAccount.value && !selectedAssignmentOrgId.value) {
       const primary = (affiliations.value || []).find((a) => a?.is_primary) || affiliations.value?.[0] || null;
       if (primary?.organization_id) selectedAssignmentOrgId.value = String(primary.organization_id);
@@ -5832,6 +5835,7 @@ const fetchClientAffiliations = async () => {
       assignmentsError.value = e.response?.data?.error?.message || 'Failed to load affiliations';
     }
     affiliations.value = [];
+    pastAffiliations.value = [];
     if (canEditAccount.value) overviewProviders.value = [];
   } finally {
     affiliationsLoading.value = false;
