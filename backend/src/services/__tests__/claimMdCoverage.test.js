@@ -14,6 +14,10 @@ describe('client-scoped eligibility and other coverage',()=>{
   expect(request).toMatchObject({ins_name_f:'Child',ins_name_l:'Test',ins_dob:'20100301'});
   if(holder==='Child')expect(request.ins_number).toBe('P123456');else expect(request).not.toHaveProperty('ins_number');
  });
+ it('uses a client-held Medicaid ID even when legacy relationship and subscriber DOB fields were wrong',()=>{
+  const info=insurance();info.primary={...info.primary,isMedicaid:true,eligibilityPayerId:'SKCO0',memberId:'C123456',subscriberFirstName:'Child',paperSubscriberName:'Child Test'};
+  expect(buildEligibilityRequest({insurance:info,slot:'primary',serviceDate:'2026-11-10',profile})).toMatchObject({ins_number:'C123456',ins_name_f:'Child',ins_name_l:'Test',ins_dob:'20100301',pat_rel:'18'});
+ });
  it.each([{ins_name_f:'Child',ins_name_l:'Test',ins_dob:'20100301',match:true},{ins_name_f:'Parent',ins_name_l:'Test',ins_dob:'19800201',match:false},{ins_name_f:'Child',ins_name_l:'Other',ins_dob:'20100301',match:false},{ins_name_f:'Child',ins_name_l:'Test',ins_dob:'20100302',match:false}])('requires the returned Medicaid identity to match the client: %j',async({match,...identity})=>{
   const info=insurance();info.secondary={...info.primary,isMedicaid:true,eligibilityPayerId:'SKCO0',memberId:'P123456'};
   const request=vi.fn(async()=>({elig:{...identity,ins_number:'C123456',benefit:{benefit_code:'30',benefit_coverage_code:'1'}}}));

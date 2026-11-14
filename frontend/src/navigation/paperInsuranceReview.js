@@ -7,14 +7,19 @@ export const isColoradoMedicaidPolicy = policy => ['COCHA','SKCO0'].includes(Str
 // has prepared the child's subscriber fields. Never send that questionable ID.
 export function medicaidMemberIdNeedsDiscovery(policy, patient) {
   if (!policyIsMedicaid(policy) && !isColoradoMedicaidPolicy(policy)) return false;
+  const child = patient?.firstName && patient?.lastName ? nameKey(`${patient.firstName} ${patient.lastName}`) : '';
+  const sourceStillApplies = !policy?.paperReportedMemberId || policy.memberId === policy.paperReportedMemberId;
+  const savedHolder = policy?.subscriberFirstName && policy?.subscriberLastName ? `${policy.subscriberFirstName} ${policy.subscriberLastName}` : policy?.subscriberName;
+  const holder = sourceStillApplies && policy?.paperSubscriberName ? policy.paperSubscriberName : savedHolder;
+  // The listed holder decides whether to use this number. Colorado requests
+  // still send the client's own DOB and subscriber loop, including legacy
+  // records whose relationship or subscriber DOB was entered incorrectly.
+  if(holder && child)return nameKey(holder)!==child;
   if (policy?.relationshipToSubscriber && policy.relationshipToSubscriber !== 'self') return true;
   if (policy?.subscriberFirstName && patient?.firstName && nameKey(policy.subscriberFirstName) !== nameKey(patient.firstName)) return true;
   if (policy?.subscriberLastName && patient?.lastName && nameKey(policy.subscriberLastName) !== nameKey(patient.lastName)) return true;
   if (policy?.subscriberDob && patient?.dateOfBirth && policy.subscriberDob !== patient.dateOfBirth) return true;
-  const child = nameKey(`${patient?.firstName || ''} ${patient?.lastName || ''}`);
-  const holder = policy?.paperSubscriberName || policy?.subscriberName;
-  const sourceStillApplies = !policy?.paperReportedMemberId || policy.memberId === policy.paperReportedMemberId;
-  return !!(holder && child && sourceStillApplies && nameKey(holder) !== child);
+  return false;
 }
 
 // Older OCR entries may already contain the child's subscriber defaults. Bind
