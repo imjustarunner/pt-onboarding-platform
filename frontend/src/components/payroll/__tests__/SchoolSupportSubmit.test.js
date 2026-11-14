@@ -10,8 +10,8 @@ beforeEach(()=>{vi.clearAllMocks();m.get.mockResolvedValue({data:balances()});m.
 afterEach(()=>wrapper?.unmount());
 async function create(){wrapper=mount(Form,{props:{agencyId:2}});await flushPromises();}
 async function fill(){await wrapper.get('input[type="date"]').setValue('2026-10-30');await wrapper.get('input[type="number"]').setValue('1');}
-it('offers a temporary date-and-hours form without proof or appointment fields',async()=>{
- await create();expect(wrapper.text()).toContain('Temporary');expect(wrapper.text()).toContain('2 hours available');expect(wrapper.text()).toContain('No attachment, appointment link, or payroll approval');expect(wrapper.findAll('input')).toHaveLength(2);
+it('explains the actual cancellation route and retains earlier earned rights in a separate legacy form',async()=>{
+ await create();expect(wrapper.text()).toContain('Earlier earned balance requests');expect(wrapper.text()).toContain('actual school client appointment');expect(wrapper.text()).toContain('2 hours available');expect(wrapper.text()).toContain('Earlier earned rights do not require a new cancellation');expect(wrapper.findAll('input')).toHaveLength(2);
  await fill();await wrapper.get('form').trigger('submit');await flushPromises();
  expect(m.post).toHaveBeenCalledWith('/payroll/me/pto-requests',expect.objectContaining({agencyId:2,requestType:'school_support',submissionKey:expect.any(String),items:[{date:'2026-10-30',hours:1}]}));
  expect(wrapper.text()).toContain('1 hour and $18.00 added to payroll');expect(wrapper.emitted('submitted')).toHaveLength(1);

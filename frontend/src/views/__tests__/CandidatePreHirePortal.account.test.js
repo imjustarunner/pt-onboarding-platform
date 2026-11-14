@@ -40,6 +40,15 @@ it('keeps submitted onboarding read-only while staff activation is pending', asy
   expect(wrapper.find('input[autocomplete="new-password"]').exists()).toBe(false);
   wrapper.unmount();
 });
+it('keeps a candidate contract iframe, consent stage and unsaved values intact while its handbook modal is read',async()=>{
+ state.agency={id:6,name:'Next Level Up'};state.tasks=[{id:7,title:'Employment agreement',taskType:'document',actionType:'signature',status:'pending',metadata:{contractGeneration:true}}];
+ api.get.mockImplementation(async url=>({data:url.endsWith('/tasks/7')?{document:{htmlContent:'<p>Approved contract terms.</p>'},metadata:{contractGeneration:true},auditTrail:{portalConsent:{given:true}}}:state}));
+ const wrapper=shallowMount(Portal,{attachTo:document.body,global:{stubs:{HirePortalWorkspace:{props:['data'],template:'<button class="open-contract" @click="$emit(\'document\',data.tasks[0])">Open agreement</button>'},ContractHandbookModal:{props:['open','sectionSlug'],template:'<div v-if="open" class="handbook-modal-test"><span>{{sectionSlug}}</span><button @click="$emit(\'close\')">Close</button></div>'}}}});
+ await flushPromises();await wrapper.get('.open-contract').trigger('click');await flushPromises();const frame=wrapper.get('iframe.contract-html-preview').element;expect(frame.getAttribute('sandbox')).toBe('allow-scripts');wrapper.vm.$.setupState.fieldValues={answer:'Unfinished candidate answer'};
+ window.dispatchEvent(new MessageEvent('message',{origin:'null',source:window,data:{type:'contract-handbook-reference',agencyId:6,sectionSlug:'testing-services',expectedVersionId:42}}));await flushPromises();expect(wrapper.find('.handbook-modal-test').exists()).toBe(false);
+ window.dispatchEvent(new MessageEvent('message',{origin:'null',source:frame.contentWindow,data:{type:'contract-handbook-reference',agencyId:6,sectionSlug:'testing-services',expectedVersionId:42}}));await flushPromises();expect(wrapper.get('.handbook-modal-test').text()).toContain('testing-services');await wrapper.get('.handbook-modal-test button').trigger('click');await flushPromises();
+ expect(wrapper.get('iframe.contract-html-preview').element).toBe(frame);expect(wrapper.vm.$.setupState.panelStep).toBe('review');expect(wrapper.vm.$.setupState.fieldValues.answer).toBe('Unfinished candidate answer');expect(api.post).not.toHaveBeenCalled();wrapper.unmount();
+});
 it('offers the same final password step for explicit app-only hires without claiming activation',async()=>{
   state.hireAccountMode='app_only';state.candidate.canFinalizeLogin=true;
   const wrapper=await mountAccount();expect(wrapper.findAll('input[autocomplete="new-password"]')).toHaveLength(2);

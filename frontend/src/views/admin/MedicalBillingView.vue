@@ -161,6 +161,8 @@
           <label class="mb-check"><input v-model="svcForm.tierQbha" type="checkbox" /> QBHA</label>
           <label class="mb-check"><input v-model="svcForm.tierBachelors" type="checkbox" /> Bachelor’s+</label>
           <label class="mb-check"><input v-model="svcForm.tierInternPlus" type="checkbox" /> Licensed / pre-licensed</label>
+          <label class="mb-check"><input v-model="svcForm.isActive" type="checkbox" /> Enabled for clinical use</label>
+          <p v-if="!svcForm.isActive" class="muted mb-input--wide">Catalog reference only. Verify payer coverage, units, provider qualifications and required service-role approval before enabling.</p>
           <div class="mb-pos-list">
             <span class="muted">Allowed POS (where this code may be offered)</span>
             <label v-for="p in POS_CHOICES" :key="`pos-${p.code}`" class="mb-check">
@@ -176,9 +178,16 @@
           <button type="button" class="mb-btn mb-btn--small" @click="previewUnits">Preview units</button>
           <span v-if="previewResult" class="muted">{{ previewResult }}</span>
         </div>
-        <ul class="mb-list">
-          <li v-for="c in serviceCodes" :key="c.id">
+        <div class="mb-row inventory-filters">
+          <label>Service category <select v-model="inventoryGroup" class="mb-input"><option value="all">All services, including inactive references</option><option v-for="group in inventoryGroups" :key="group.value" :value="group.value">{{ group.label }}</option></select></label>
+          <label>Find a code <input v-model="inventoryQuery" class="mb-input" type="search" placeholder="Code or description" /></label>
+        </div>
+        <p class="muted">Colors identify the service category; the text labels identify its pay basis. An inactive reference is visible here while clinical use remains disabled.</p>
+        <ul class="mb-list service-inventory">
+          <li v-for="c in visibleServiceCodes" :key="c.id" :class="`inventory-${c.inventory?.group || 'other'}`">
             <strong>{{ c.service_code }}</strong>
+            <span v-if="c.inventory" class="service-category" :class="`category-${c.inventory.group}`">{{ c.inventory.groupLabel }}</span>
+            <span class="catalog-status" :class="{ inactive: !c.isActive }">{{ c.isActive ? 'Enabled' : 'Inactive · setup required' }}</span>
             <span
               v-if="serviceCodeSessionMode(c) === 'group'"
               class="mb-ready mb-ready--group"
@@ -190,6 +199,7 @@
               title="Individual session code"
             >Indiv</span>
             <span class="muted">{{ c.description || '' }}</span>
+            <div v-if="c.inventory" class="inventory-basis"><strong>{{ c.inventory.payLabel }}</strong> · {{ c.inventory.compensationBasis }}<small v-if="c.inventory.requiredRole">Testing role required · Medicaid only</small><small v-if="c.inventory.baseCode">Add-on to {{ c.inventory.baseCode }}; do not use alone.</small><small v-if="c.inventory.claimTiming">{{ c.inventory.claimTiming }}</small></div>
             <span>{{ c.unit_calc_mode }}</span>
             <span v-if="c.min_minutes != null">min {{ c.min_minutes }}m</span>
             <span v-if="c.max_minutes != null">max {{ c.max_minutes }}m</span>
@@ -201,7 +211,7 @@
             <button type="button" class="mb-btn mb-btn--small" @click="editServiceCode(c)">Edit</button>
           </li>
         </ul>
-        <p v-if="!serviceCodes.length" class="muted">No agency medical service codes yet.</p>
+        <p v-if="!visibleServiceCodes.length" class="muted">No service codes match this selection.</p>
       </section>
       <template v-if="!serviceCodesOnly">
       <section class="mb-card"><h2>Service codes and fee schedules</h2><p>Manage the shared code catalog and unit rules in Settings. Set practice, payer, provider and self-pay charges in Fee schedules.</p><router-link :to="serviceCodeSettingsLocation">Service code settings →</router-link> · <router-link :to="feeScheduleLocation">Fee schedules →</router-link></section>
@@ -447,6 +457,10 @@ const chart = ref(null);
 const sessionReadiness = ref({});
 const readinessLoadingId = ref(null);
 const serviceCodes = ref([]);
+const inventoryGroup = ref('all');
+const inventoryQuery = ref('');
+const inventoryGroups = computed(() => [...new Map(serviceCodes.value.filter(c => c.inventory).map(c => [c.inventory.group, { value: c.inventory.group, label: c.inventory.groupLabel }])).values()]);
+const visibleServiceCodes = computed(() => serviceCodes.value.filter(c => (inventoryGroup.value === 'all' || c.inventory?.group === inventoryGroup.value) && `${c.service_code} ${c.description || ''}`.toLowerCase().includes(inventoryQuery.value.toLowerCase().trim())));
 const serviceLocations = ref([]);
 const billingOffices = ref([]);
 
@@ -488,6 +502,7 @@ const POS_CHOICES = [
 ];
 
 const svcForm = ref({
+  isActive: true,
   serviceCode: '',
   description: '',
   unitCalcMode: 'SINGLE',
@@ -572,7 +587,7 @@ const loadServiceCodes = async () => {
   if (!agencyId.value || !flags.value.medicalBillingEnabled) return;
   try {
     const res = await api.get('/medical-billing/service-codes', {
-      params: { agencyId: agencyId.value, includeInactive: '0' }
+      params: { agencyId: agencyId.value, includeInactive: props.serviceCodesOnly ? '1' : '0' }
     });
     serviceCodes.value = res?.data?.items || [];
   } catch (e) {
@@ -597,6 +612,7 @@ const loadServiceLocations = async () => {
 const editServiceCode = (row) => {
   const allowed = parseAllowedPos(row.allowed_place_of_service_json);
   svcForm.value = {
+    isActive: row.isActive === true || Number(row.is_active) === 1,
     serviceCode: row.service_code || '',
     description: row.description || '',
     unitCalcMode: row.unit_calc_mode || 'SINGLE',
@@ -628,6 +644,7 @@ const saveServiceCode = async () => {
     await api.post('/medical-billing/service-codes', {
       agencyId: agencyId.value,
       serviceCode: svcForm.value.serviceCode,
+      isActive: svcForm.value.isActive,
       description: svcForm.value.description,
       unitCalcMode: svcForm.value.unitCalcMode,
       unitMinutes: svcForm.value.unitMinutes,
@@ -980,4 +997,7 @@ watch(agencyId, async () => {
   max-height: 280px; overflow: auto; font-size: 0.8rem;
 }
 .mb-error { color: #a12622; margin-top: 1rem; }
+
+.inventory-filters{align-items:end;gap:16px;margin:22px 0 12px}.inventory-filters label{display:grid;gap:5px;font-size:12px}.service-inventory>li{border-left:4px solid #8b96a3;padding-left:14px}.service-category,.catalog-status{display:inline-block;font-size:11px;line-height:1.5;padding:3px 8px;border:1px solid #cbd5e1;border-radius:20px;margin:3px 5px}.service-category{background:#f1f5f9;color:#334155}.category-testing-evaluation{background:#f2eafa;color:#593477;border-color:#cab1e1}.category-testing-administration{background:#e7effc;color:#214c84;border-color:#a9c4ea}.category-direct-care{background:#e4f3ef;color:#165b4a;border-color:#a3cbbf}.category-clinical{background:#edf0f8;color:#354874;border-color:#b8c5df}.category-indirect{background:#fff1db;color:#7a4b18;border-color:#dfc494}.category-tutoring{background:#e9f6fd;color:#175370;border-color:#9dcbdc}.category-childcare{background:#fceaf1;color:#7e3555;border-color:#dfb3c6}.category-addon{background:#f4eee7;color:#6a4c2d;border-color:#d6c0a5}.inventory-testing-evaluation{border-left-color:#80609d!important}.inventory-testing-administration{border-left-color:#4c78ad!important}.inventory-direct-care{border-left-color:#38886e!important}.inventory-indirect{border-left-color:#b68b4c!important}.catalog-status{background:#f2f7f4;color:#285844}.catalog-status.inactive{background:#fff7eb;color:#80552b;border-color:#dac7ad}.inventory-basis{font-size:12px;line-height:1.7;margin:8px 0}.inventory-basis small{display:block;color:#5b6572}
+.category-program{background:#f1ecf8;color:#5d3d7d;border-color:#c9b8df}.inventory-program{border-left-color:#80629e!important}
 </style>

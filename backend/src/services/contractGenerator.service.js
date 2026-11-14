@@ -1,3 +1,4 @@
+import {assertContractProbationChoice} from '../content/contractProbationPolicy.js';
 import { compensationAgencyPolicy } from './compensationCategories.service.js';
 import { contractCompensationLevels } from './contractCompensation.service.js';
 import { jobOfficeOptions } from '../utils/contractPresentation.js';
@@ -352,6 +353,7 @@ export async function previewCandidateContract({
     officeLocationId: officeLocationId || tokens.ASSIGNED_OFFICE_ID || null
   });
   const merged = { ...autofill, ...tokens };
+  merged.HANDBOOK_REFERENCES_ENABLED='1';
   if (Object.hasOwn(tokens, 'UNIVERSITY_NAME')) merged.UNIVERSITY = tokens.UNIVERSITY_NAME;
   // Agency and office records own these fields. Blank or stale client tokens must
   // never replace the place of business or an explicitly selected office.
@@ -372,6 +374,7 @@ export async function previewCandidateContract({
     includeAssignedOffice: true,
     reviewInactiveConfig
   });
+  assertContractProbationChoice({agencySlug:autofill.AGENCY_SLUG,config:rendered.config,tokens:merged});
   const previewHash = createHash('sha256').update(JSON.stringify([agencyId, candidateUserId, configId, rendered.html])).digest('hex');
   return { ...rendered, requiresActivation: Number(rendered.config?.is_active) !== 1, tokens: rendered.tokens || merged, previewHash };
 }

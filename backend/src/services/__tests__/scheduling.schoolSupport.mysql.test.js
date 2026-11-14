@@ -51,6 +51,17 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('school support request
   expect(await rows('payroll_pto_ledger')).toHaveLength(1);
   expect(Number((await rows('payroll_adjustments'))[0].other_taxable_amount)).toBe(18);
  });
+ it('pays the signed fractional cancellation amount and prevents changed-amount retries',async()=>{
+  const {requestId}=await request({items:[{date:'2026-10-20',hours:.5}]});
+  await expect(request()).rejects.toThrow('different signed');await approve(requestId);
+  expect((await schoolSupportAvailability({agencyId:2,userId:10})).balanceHours).toBe(.5);
+  expect(Number((await rows('payroll_adjustments'))[0].other_taxable_amount)).toBe(9);
+ });
+ it('rejects more than one hour or multiple dated entries before reserving a cancellation benefit',async()=>{
+  await expect(request({items:[{date:'2026-10-20',hours:1.01}]})).rejects.toThrow('up to 1.00');
+  await expect(request({items:[{date:'2026-10-20',hours:.5},{date:'2026-10-21',hours:.5}]})).rejects.toThrow('one dated entry');
+  expect(await rows('payroll_pto_requests')).toEqual([]);
+ });
  it('only one of two simultaneous cancellations can reserve the final hour',async()=>{
   const result=await Promise.allSettled([request(),request({sourceAppointmentId:2})]);
   expect(result.filter(r=>r.status==='fulfilled')).toHaveLength(1);
@@ -96,7 +107,7 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('school support request
  it('denies a linked benefit with modified hours, a restored session, or an insufficient balance even with override',async()=>{
   const {requestId}=await request();
   await pool.query('UPDATE payroll_pto_requests SET total_hours=2 WHERE id=?',[requestId]);
-  await expect(approve(requestId)).rejects.toThrow('exactly one');
+  await expect(approve(requestId)).rejects.toThrow('up to one');
   await pool.query('UPDATE payroll_pto_requests SET total_hours=1 WHERE id=?',[requestId]);
   await pool.query("UPDATE appointments SET status='confirmed' WHERE id=1");await expect(approve(requestId)).rejects.toThrow('Complete the signed');
   await pool.query("UPDATE appointments SET status='no_show' WHERE id=1");await pool.query('UPDATE payroll_pto_accounts SET school_support_balance_hours=0');

@@ -1,5 +1,6 @@
 <template>
   <div class="cg-page">
+    <ContractHandbookModal v-if="handbookReference" :open="true" v-bind="handbookReference" @close="handbookReference=null" />
     <header class="cg-header">
       <div>
         <router-link class="cg-back" :to="peopleOpsRoute">← People Operations</router-link>
@@ -85,12 +86,13 @@
                 :key="`${lvl.category}-${lvl.level}`"
                 :value="`${lvl.category}:${lvl.level}`"
               >
-                Category {{ lvl.category }}{{ compensationCategories[lvl.category]?.label ? ` · ${compensationCategories[lvl.category].label}` : '' }} / Level {{ lvl.level }} — {{ lvl.label || 'Review placement' }}
+                Category {{ lvl.category }}{{ compensationCategories[lvl.category]?.label ? ` · ${compensationCategories[lvl.category].label}` : '' }} / Level {{ lvl.level }} · {{PROVIDER_DESIGNATION_LABELS[Number(lvl.level)-1]}} — {{ lvl.label || 'Review placement' }}
               </option>
             </select>
             <span class="cg-note">Pulls direct/indirect rates from payroll compensation table</span>
           </div>
           <div v-if="contractTenant==='nlu' && Number(build.compensationCategory)>=3" class="cg-sheet-row"><span class="cg-label">Placement exception approval</span><input v-model="build.tokens.NLU_CATEGORY_PLACEMENT_EXCEPTION_REFERENCE" placeholder="Written approval reference and date, when an exception is needed" /><span class="cg-note">For an exceptional non-master’s Category 3 or approved unlicensed/advanced Category 4 placement, identify the documented basis, role, oversight and effective date.</span></div>
+          <div v-if="usesIndividualAgreement" class="cg-sheet-row"><span class="cg-label">Provider designation — optional</span><select v-model="build.tokens.PROVIDER_DESIGNATION_LEVEL"><option value="">Not assigned</option><option v-for="level in 5" :key="level" :value="String(level)">Level {{level}} — {{PROVIDER_DESIGNATION_LABELS[level-1]}}</option></select><span class="cg-note">Records the approved role designation; individual rates remain separately agreed.</span></div>
           <div v-if="usesIndividualAgreement" class="cg-sheet-row cg-sheet-row--readonly"><span class="cg-label">Compensation source</span><span class="cg-readonly">Approved individual agreement / written offer</span><span class="cg-note">Complete this person’s agreement reference and each selected role’s actual compensation below. Shared category/level rates are not applied.</span></div>
           <div v-if="!selectionDriven" class="cg-sheet-row">
             <span class="cg-label">4 · Job description clause</span>
@@ -119,7 +121,7 @@
           </div>
           <div class="cg-sheet-row"><span class="cg-label">Candidate name</span><input v-model="build.tokens.CANDIDATE_NAME" /><span class="cg-note">Legal name</span></div>
           <div class="cg-sheet-row"><span class="cg-label">Job title</span><input v-model="build.tokens.JOB_TITLE" /><span class="cg-note">From applied job / JD</span></div>
-          <ContractServiceFocusSelect v-model="build.tokens.SERVICE_FOCUS" :options="serviceFocusOptions" />
+          <ContractServiceFocusSelect v-if="contractTenant!=='isi'" v-model="build.tokens.SERVICE_FOCUS" :options="serviceFocusOptions" />
           <div v-if="showSchoolDays" class="cg-sheet-row"><span class="cg-label">Expected school days / week</span><input v-model="build.tokens.MIN_DAYS_PER_WEEK" type="number" min="1" max="7" step="1" /><span class="cg-note">Expected presence in the school, approximately 8:00 a.m.–3:00 p.m., with roughly seven clients per day. Applies when school is all or part of the service focus.</span></div>
           <div class="cg-sheet-row"><span class="cg-label">Role label</span><input v-model="build.tokens.ROLE_LABEL" :readonly="selectionDriven" /><span class="cg-note">Provider, Student, Facilitator…</span></div>
           <div class="cg-sheet-row"><span class="cg-label">Execution date</span><input v-model="build.tokens.EXECUTION_DATE" type="text" /><span class="cg-note">Date contract is sent</span></div>
@@ -144,6 +146,7 @@
           <div v-if="selectionDriven && agreementVariant === 'student'" class="cg-sheet-row"><span class="cg-label">Starting training phase</span><select v-model="build.tokens.TRAINING_START_PHASE"><option value="practicum">Practicum → internship</option><option value="internship">Direct-entry internship</option></select><span class="cg-note">One agreement covers both phases. Practicum continues into internship unless either party gives written notice of non-continuation, subject to academic requirements and the practicum review.</span></div>
         </div>
 
+        <ContractProbationChoice v-if="probationRequired" v-model="build.tokens.PROBATION_APPLIES" v-model:terms="build.tokens.PROBATION_TERMS" :individual="contractTenant==='isi'" />
         <ContractExpectationsEditor :show-core-fields="false" v-model="individualExpectations" :individual-agreement-mode="contractTenant==='isi'" :service-role-options="contractServiceRoleOptions" :service-role-source="build.tokens.CONTRACT_SERVICE_ROLE_SOURCE" :compensation-category="build.compensationCategory" :service-compensation="serviceCompensation" title="Individual expectations and compensated duties" description="Starts with this posting’s defaults. Changes here apply only to this person’s agreement." />
         <button v-if="postingDefaults" type="button" class="cg-btn" @click="individualExpectations = JSON.parse(JSON.stringify(postingDefaults))">Restore this posting’s defaults</button>
         <p v-if="requiresActivation" class="cg-note">Draft agreement: preview for review. Full terms must be approved and this configuration activated before issuing.</p>
@@ -154,7 +157,7 @@
         <p v-if="wizardMsg" class="cg-ok">{{ wizardMsg }}</p>
 
         <details v-if="clauseManifest.length"><summary>Clauses selected for this agreement</summary><ul><li v-for="clause in clauseManifest" :key="clause.key"><strong>{{ clause.included ? 'Included' : 'Omitted' }} · {{ clause.title }}</strong> — {{ clause.reason }}</li></ul></details>
-        <div v-if="previewHtml" class="cg-preview" v-html="previewHtml"></div>
+        <div v-if="previewHtml" class="cg-preview" @click="openContractHandbook" v-html="previewHtml"></div>
       </section>
 
       <!-- Library admin -->
@@ -201,6 +204,10 @@ import CredentialPicker from '../../components/CredentialPicker.vue';
 import ContractExpectationsEditor from '../../components/careers/ContractExpectationsEditor.vue';
 import { ref, onMounted, computed, watch } from 'vue';
 import ContractServiceFocusSelect from '../../components/hiring/ContractServiceFocusSelect.vue';
+import ContractProbationChoice from '../../components/hiring/ContractProbationChoice.vue';
+import {PROVIDER_DESIGNATION_LABELS} from '../../constants/providerDesignationLevels.js';
+import ContractHandbookModal from '../../components/documents/ContractHandbookModal.vue';
+import {referenceFromContractClick} from '../../utils/contractHandbookReferences.js';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
@@ -347,6 +354,7 @@ const build = ref({
     INDIVIDUAL_COMPENSATION_BASIS: '',
     PRIOR_COMPENSATION_AGREEMENT_REFERENCE: '',
     NLU_CATEGORY_PLACEMENT_EXCEPTION_REFERENCE: '',
+    PROBATION_APPLIES:'',PROBATION_TERMS:'',PROVIDER_DESIGNATION_LEVEL:'',
     ASSIGNED_OFFICE_NAME: '',
     ASSIGNED_OFFICE_ADDRESS: '',
     ASSIGNED_OFFICE_SOURCE: '',
@@ -355,10 +363,14 @@ const build = ref({
 });
 
 const requiresActivation = computed(() => { const config = configs.value.find(c => Number(c.id) === Number(build.value.configId)); return !!config && Number(config.is_active) !== 1; });
-const canBuild = computed(() => Boolean(build.value.candidateUserId && build.value.configId));
+const probationRequired = computed(() => !!contractTenant.value && !/amendment|addendum|acknowledg/i.test(configs.value.find(c=>Number(c.id)===Number(build.value.configId))?.slug||''));
+const probationChosen = computed(() => !probationRequired.value || ['yes','no'].includes(build.value.tokens.PROBATION_APPLIES) && (contractTenant.value!=='isi' || build.value.tokens.PROBATION_APPLIES!=='yes' || !!String(build.value.tokens.PROBATION_TERMS||'').trim()));
+const canBuild = computed(() => Boolean(build.value.candidateUserId && build.value.configId && probationChosen.value));
 const editingClauseId = ref(null);
 const clauseDraft = ref({ title: '', bodyHtml: '' });
 const previewHtml = ref('');
+const handbookReference=ref(null);
+function openContractHandbook(event){const reference=referenceFromContractClick(event,{root:event.currentTarget,expectedAgencyId:agencyId.value});if(reference)handbookReference.value=reference;}
 const postingDefaults = ref(null);
 const individualExpectations = ref({});
 const usesIndividualAgreement = computed(()=>contractTenant.value==='isi' && individualExpectations.value.individualCompensationBasis==='approved_individual_agreement');

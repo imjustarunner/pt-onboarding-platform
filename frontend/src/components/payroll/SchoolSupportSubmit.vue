@@ -1,12 +1,14 @@
 <template>
-  <section v-if="eligible || loading || error" class="school-support-submit" aria-label="School Support Hours — Temporary">
-    <h3>School Support Hours <span>Temporary</span></h3>
+  <section v-if="eligible || loading || error" class="school-support-submit" aria-label="School Support Hours">
+    <h3>School Support Hours</h3>
+    <p>For a new cancellation-based use, open the actual school client appointment, complete the cancellation or missed-session details, and choose <strong>Use up to 1 hour</strong>. Review and sign the change to attach its request.</p>
     <p v-if="submitContext"><strong>Submitting for {{ submitContext.employee.firstName }} {{ submitContext.employee.lastName }}</strong> · You are recorded as the submitter.</p>
     <p v-if="loading">Loading your available hours…</p>
     <p v-if="error" role="alert">{{ error }} <button v-if="!data" type="button" @click="load">Try again</button></p>
     <template v-if="eligible">
       <p><strong>{{ number(available) }} hours available</strong> from your earned school support bank.</p>
-      <p>Enter the date and hours you want to use. Your payment is added to the applicable open pay period when you submit. No attachment, appointment link, or payroll approval is needed.</p>
+      <details><summary>Earlier earned balance requests</summary>
+      <p>This legacy option preserves hours earned under an earlier unrestricted policy. New cancellation-based requests belong on the actual appointment. For a legacy earned-balance use, enter its use date and hours; payment is added to the applicable open pay period when you submit. Earlier earned rights do not require a new cancellation.</p>
       <p v-if="pending > 0">{{ number(pending) }} hours are reserved for your earlier pending requests.</p>
       <form @submit.prevent="submit">
         <label>Use date<input v-model="useDate" type="date" required :disabled="saving" /></label>
@@ -15,6 +17,7 @@
         <button type="submit" :disabled="loading || saving || available <= 0">{{ saving ? 'Adding to payroll…' : 'Submit School Support Hours' }}</button>
       </form>
       <p v-if="success" role="status">{{ success }}</p>
+      </details>
     </template>
   </section>
 </template>

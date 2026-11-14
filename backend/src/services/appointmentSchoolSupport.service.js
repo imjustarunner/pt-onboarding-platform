@@ -34,13 +34,15 @@ export async function appointmentSchoolSupportContext({appointmentId,actorUserId
   const {policy}=await getAgencyPtoPolicy({agencyId:appointment.agencyId});
   if(!policy.ptoEnabled||!policy.schoolSupportEnabled)return unsupported;
   const start=parseUtcDate(appointment.startAt);
-  if(!start)return unsupported;
-  const useDate=new Intl.DateTimeFormat('en-CA',{timeZone:appointment.sourceTimezone||'America/Denver',year:'numeric',month:'2-digit',day:'2-digit'}).format(start);
+  if(!start||!appointment.sourceTimezone)return {...unsupported,unavailableReason:'Verify the appointment date and local timezone before requesting School Support Hours.'};
+  let useDate;
+  try{useDate=new Intl.DateTimeFormat('en-CA',{timeZone:appointment.sourceTimezone,year:'numeric',month:'2-digit',day:'2-digit'}).format(start);}catch{return {...unsupported,unavailableReason:'Verify the appointment’s saved local timezone before requesting School Support Hours.'};}
   if(policy.schoolSupportAccrualAfter&&useDate<=String(policy.schoolSupportAccrualAfter).slice(0,10))return unsupported;
   const availability=await schoolSupportAvailability({agencyId:appointment.agencyId,userId:actorUserId,db});
   const [[request]]=await db.execute('SELECT id,status,total_hours FROM payroll_pto_requests WHERE source_appointment_id=? AND agency_id=? AND user_id=?',[appointment.id,appointment.agencyId,actorUserId]);
-  return {eligible:true,label:'School Support Hours',...availability,useDate,hoursPerSession:1,
-    canRequest:!request&&availability.availableHours>=1,
+  const maximumHours=Math.floor(Math.min(1,availability.availableHours)*100+1e-8)/100;
+  return {eligible:true,label:'School Support Hours',...availability,useDate,hoursPerSession:1,maximumHours,
+    canRequest:!request&&maximumHours>=.01,
     request:request?{id:request.id,status:request.status,hours:Number(request.total_hours)}:null};
 }
 
@@ -50,7 +52,9 @@ export async function reserveCancellationSchoolSupport({appointmentId,facts,acto
   const appointment=await Appointment.findById(appointmentId,{executor:db});
   if(Number(appointment?.providerUserId)!==Number(actorUserId))fail('Only the assigned provider may request their School Support Hour',403);
   const context=await appointmentSchoolSupportContext({appointmentId,actorUserId,eventType:facts.eventType,clientId:facts.clientId,db});
-  if(!context.eligible)fail('School Support Hours are not available for this appointment');
+  if(!context.eligible)fail(context.unavailableReason||'School Support Hours are not available for this appointment');
+  const hours=Number(facts.schoolSupportHours??1);
+  if(!Number.isFinite(hours)||hours<=0||hours>1||Math.abs(Math.round(hours*100)-hours*100)>1e-8)fail('Choose between 0.01 and 1.00 School Support Hour for this appointment',400);
   await createSchoolSupportRequest({agencyId:appointment.agencyId,userId:actorUserId,actorId:actorUserId,sourceAppointmentId:appointment.id,
-    items:[{date:context.useDate,hours:1}],notes:`School session ${facts.eventType==='no_show'?'missed':'cancelled'}. Appointment #${appointment.id}.`,db});
+    items:[{date:context.useDate,hours}],notes:`School session ${facts.eventType==='no_show'?'missed':'cancelled'}. Appointment #${appointment.id}.`,db});
 }

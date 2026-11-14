@@ -21,6 +21,14 @@ it('shows waiting status and no primary signature controls to the supervisor',as
 it('shows the assigned signer the consent step',async()=>{
  m.user.id=567;m.user.role='provider';await render(base());expect(w.find('.step-consent').exists()).toBe(true);expect(w.find('.step-waiting').exists()).toBe(false);
 });
+it('opens the cited handbook in place without resetting document review or unsaved signer values',async()=>{
+ m.user.id=567;m.user.role='provider';const data=base();data.task.assigned_to_agency_id=377;data.workflow={consent_given_at:'2026-11-13T12:00:00Z'};data.template.html_content='<p>Employment terms.</p><a href="/tisi/workplace-handbook?versionId=42#handbook-testing-services" data-handbook-reference="true" data-handbook-agency-id="377" data-handbook-section="testing-services" data-handbook-version-id="42">Testing handbook</a>';
+ await render(data);w.vm.$.setupState.fieldValues={savedAnswer:'An unfinished answer'};
+ const handbook={reference:{agency:{id:377,name:'The Inner Strength Institute'},document:{title:'Workplace Handbook'},version:{id:42,number:2},section:{slug:'testing-services',title:'Testing',bodyHtml:'<p>Approved testing policy.</p>'},location:[{title:'Testing'}],metadata:{presentation:{agencyBrand:{primary:'#0F172A',secondary:'#1E40AF',accent:'#F97316'}}}}};
+ m.get.mockImplementation(async url=>({data:url==='/provider-update/handbook/reference'?handbook:data}));
+ await w.get('.html-preview a').trigger('click');await flushPromises();expect(document.querySelector('[role=dialog]').textContent).toContain('Approved testing policy');
+ document.querySelector('[aria-label="Close handbook reference"]').click();await flushPromises();expect(document.querySelector('[role=dialog]')).toBeNull();expect(w.find('.step-intent').exists()).toBe(true);expect(w.vm.$.setupState.fieldValues.savedAnswer).toBe('An unfinished answer');expect(m.post).not.toHaveBeenCalled();
+});
 it('shows countersignature only after Halle signs',async()=>{
  const data=base();data.signedDocument={user_id:567,signed_pdf_path:'signed.pdf',audit_trail:{}};await render(data);
  expect(w.text()).toContain('Halle Brimm has signed');expect(w.text()).toContain('Review & countersign');expect(w.findAll('.signature-pad-stub')).toHaveLength(1);

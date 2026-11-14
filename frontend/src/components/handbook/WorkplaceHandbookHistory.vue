@@ -1,5 +1,5 @@
 <template>
-  <section class="update-history" aria-labelledby="history-title">
+  <section class="update-history agency-document" :style="brandStyle" aria-labelledby="history-title">
     <header><div><h2 id="history-title">Handbook update tracker</h2><p>Browse monthly changes. Earlier updates remain available in their original edition.</p></div><button type="button" @click="$emit('close')">← Back to handbook</button></header>
     <p v-if="loading" role="status">Loading monthly updates…</p>
     <p v-else-if="error" role="alert">{{ error }} <button type="button" @click="load">Try again</button></p>
@@ -34,11 +34,13 @@
   </section>
 </template>
 <script setup>
+import { useDocumentBranding } from '../../composables/useDocumentBranding.js';
 import { ref, watch, onBeforeUnmount } from 'vue';
 import DOMPurify from 'dompurify';
 import api from '../../services/api';
 import WorkplaceHandbookPolicyLinks from './WorkplaceHandbookPolicyLinks.vue';
 const props = defineProps({ agencyId: { type: [Number, String], required: true }, sections: { type: Array, default: () => [] }, initialDigestId: { type: [Number,String], default: null } });
+const brandStyle = useDocumentBranding(() => ({}), () => props.agencyId);
 defineEmits(['close', 'open-section']);
 const months = ref([]), detail = ref(null), selectedId = ref(null), loading = ref(false), detailLoading = ref(false), error = ref(''), detailError = ref('');
 let listRequest = 0, detailRequest = 0;

@@ -762,6 +762,7 @@ export async function resolvePolicyRuleForServiceCode({ agencyId, serviceCode, c
       maxUnitsPerDay: toInt(rule.max_units_per_day, 0) || null,
       placeOfService: rule.place_of_service || null,
       providerTypeNotes: rule.provider_type_notes || null,
+      afterHours99051: parseJson(rule.metadata_json)?.afterHours99051 || null,
       enabledForAgency: enabled,
       allowedForCredentialTier: eligibility.allowed,
       eligibilityRows: eligibilityRows || [],

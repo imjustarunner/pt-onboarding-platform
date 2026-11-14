@@ -65,7 +65,7 @@
       <h2>Review Document</h2>
       <div class="document-preview">
         <!-- Use personalized content if available, otherwise fall back to template -->
-        <div v-if="displayContent && displayType === 'html'" v-html="displayContent" class="html-preview"></div>
+        <div v-if="displayContent && displayType === 'html'" v-html="displayContent" class="html-preview" @click="openHandbookReference"></div>
         <div v-else-if="pdfUrl" class="pdf-preview-container">
           <PDFPreview
             :pdf-url="pdfUrl"
@@ -246,6 +246,7 @@
         </div>
       </div>
     </div>
+    <ContractHandbookModal :open="!!handbookReference" v-bind="handbookReference || {}" @close="handbookReference = null" />
   </div>
 </template>
 
@@ -260,6 +261,8 @@ import { useDocumentsStore } from '../../store/documents';
 import { useAuthStore } from '../../store/auth';
 import { getDashboardRoute } from '../../utils/router';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
+import ContractHandbookModal from './ContractHandbookModal.vue';
+import { referenceFromContractClick } from '../../utils/contractHandbookReferences.js';
 
 const props = defineProps({
   taskId: { type: [String, Number], default: null }
@@ -281,6 +284,12 @@ const template = ref(null);
 const userDocument = ref(null);
 const userSpecificDocument = ref(null);
 const task = ref(null);
+const handbookReference = ref(null);
+function openHandbookReference(event) {
+  const expectedAgencyId = task.value?.assigned_to_agency_id || task.value?.agency_id || userSpecificDocument.value?.agency_id || template.value?.agency_id;
+  const reference = referenceFromContractClick(event, { root: event.currentTarget, expectedAgencyId });
+  if (reference) handbookReference.value = reference;
+}
 const workflow = ref(null);
 const signedDocument = ref(null);
 const signingAccess = ref(null);

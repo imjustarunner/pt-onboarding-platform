@@ -7,6 +7,7 @@ import {SERVICE_CREDIT_POLICY_VERSION, conditionalLevelBonus, defaultHcodeIndire
 import {isNluAmendment} from '../content/nluCompensationAmendment.js';
 import {normalizeChildcareRatesByBand} from '../content/nluCompensationPolicy.js';
 import {prospectiveCompensationDate,assertEmployeeCompensationAdmin,employeeCompensationPolicyContext,assertEmployeeCompensationTarget,assertEmployeeCompensationPush,employeeCompensationHistory,assertImportableEmployeeCompensation} from './employeeCompensationDraft.service.js';
+import {annotateCompensationHandbookHtml} from './contractHandbookReferences.service.js';
 
 export const DRAFT_KIND = 'provider_update_compensation';
 export function cleanDraftHtml(value) {
@@ -105,7 +106,9 @@ export async function saveCompensationDraft(agencyId,id,patch,userId) {
    if(data.effectiveDate<String(data.source?.policyEffectiveOn||''))throw Object.assign(new Error('Preserve the organization’s approved prospective policy date.'),{status:409});
   }
   if(data.conditionalAdditionMode===HANDBOOK_ADDITION_MODE&&!(data.createdVia==='employee_compensation_ui'&&data.source?.priorAgreement)){const rate=await PayrollPaySystemRate.get(agencyId,data.schedule.category,data.schedule.level);if(rate)data.schedule.tier3LevelBonus=additionsFromRate(rate).clinical;}
-  const html=renderAmendment(data);
+  const annotated=await annotateCompensationHandbookHtml(renderAmendment(data),{agencyId,db,serviceRoles:data.schedule?.serviceRoles||data.CONTRACT_SERVICE_ROLES});
+  const html=annotated.html;
+  if(annotated.reference)data.handbookReference=annotated.reference;
   const [updated]=await db.execute(`UPDATE contract_generations SET token_values_json=?,rendered_html=?
    WHERE id=? AND agency_id=? AND task_id IS NULL AND user_specific_document_id IS NULL
    AND JSON_UNQUOTE(JSON_EXTRACT(token_values_json,'$.draftKind'))=?`,[JSON.stringify(data),html,id,agencyId,DRAFT_KIND]);

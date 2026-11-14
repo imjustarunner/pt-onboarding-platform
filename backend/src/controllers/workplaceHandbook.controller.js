@@ -1,3 +1,4 @@
+import {readContractHandbookReference} from '../services/contractHandbookReferences.service.js';
 import { listHandbookHistory, readHandbookHistory } from '../services/workplaceHandbookHistory.service.js';
 import {
   ensureDocument,
@@ -34,6 +35,10 @@ export async function assertHandbookReader(user, agencyId) {
   const agencies = await User.getAgencies(user?.id);
   if (!(agencies || []).some(a => Number(a.id) === Number(agencyId))) throw Object.assign(new Error('Access denied'), { status: 403 });
 }
+
+export const getContractHandbookReference = async (req,res,next) => {
+  try{const agencyId=Number(req.query.agencyId);await assertHandbookReader(req.user,agencyId);res.set('Cache-Control','private, no-store');res.json({reference:await readContractHandbookReference({agencyId,slug:req.query.slug,versionId:req.query.versionId})});}catch(error){next(error)}
+};
 
 export const answerQuestion = async (req, res, next) => {
   try {

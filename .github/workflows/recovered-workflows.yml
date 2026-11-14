@@ -74,10 +74,10 @@ jobs:
           node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.brief-1109.config.js
           node --test backend/src/services/__tests__/noteAidImportParsers.test.js backend/src/services/__tests__/noteAidDemographicsAndPlanParsers.test.js backend/src/services/__tests__/treatmentPlanContext.test.js
           NODE_ENV=test node --test backend/src/services/__tests__/completedIntakeRecord.service.test.js backend/src/services/__tests__/guardianSchoolRoi.service.test.js
-      - name: Scoped People Operations and hiring source receipts
+      - name: People Operations, collective contracts and service eligibility
         run: |
-          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.hire.config.js
-          node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.contract-roles.config.js
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.collective-release.config.js
+          node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.collective-release.config.js
       - name: Final retest repairs, private ticket files and message artwork
         run: |
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.final1111b.config.js

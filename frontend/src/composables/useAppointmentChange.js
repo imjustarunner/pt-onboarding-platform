@@ -36,7 +36,8 @@ export function useAppointmentChange() {
     replacementAppointmentId: null,
     waiver: { action: 'no', reason: '', comment: '' },
     additionalComments: '',
-    useSchoolSupportHour: false
+    useSchoolSupportHour: false,
+    schoolSupportHours: 1
   });
   const schoolSupport = ref(null);
   const schoolSupportLoading = ref(false);
@@ -89,6 +90,7 @@ export function useAppointmentChange() {
     facts.waiver = { action: 'no', reason: '', comment: '' };
     facts.additionalComments = '';
     facts.useSchoolSupportHour = false;
+    facts.schoolSupportHours = 1;
     supportLoadVersion += 1;
     schoolSupport.value = null;
     schoolSupportLoading.value = false;
@@ -184,7 +186,8 @@ export function useAppointmentChange() {
       replacementAppointmentId: facts.replacementAppointmentId || null,
       waiver,
       additionalComments: facts.additionalComments || null,
-      useSchoolSupportHour: facts.useSchoolSupportHour === true
+      useSchoolSupportHour: facts.useSchoolSupportHour === true,
+      schoolSupportHours: facts.useSchoolSupportHour ? Number(facts.schoolSupportHours ?? 1) : null
     };
   }
 
@@ -205,6 +208,7 @@ export function useAppointmentChange() {
       });
       if (version !== supportLoadVersion) return;
       schoolSupport.value = data;
+      if(!facts.useSchoolSupportHour&&data?.canRequest)facts.schoolSupportHours=Number(data.maximumHours??1);
     } catch {
       if (version !== supportLoadVersion) return;
       schoolSupport.value = null;
@@ -215,7 +219,7 @@ export function useAppointmentChange() {
   }
 
   function supportSelectionValid() {
-    return !facts.useSchoolSupportHour || (!schoolSupportLoading.value && !schoolSupportError.value && schoolSupport.value?.canRequest);
+    return !facts.useSchoolSupportHour || (!schoolSupportLoading.value && !schoolSupportError.value && schoolSupport.value?.canRequest&&Number(facts.schoolSupportHours)>0&&Number(facts.schoolSupportHours)<=Number(schoolSupport.value?.maximumHours??1));
   }
 
   async function refreshPreview() {

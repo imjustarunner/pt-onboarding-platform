@@ -1,6 +1,6 @@
 import pool from '../config/database.js';
 import {createHash} from 'node:crypto';
-import {evaluate99051Schedule,canonicalAfterHoursAddons,clinicalScheduleInstant,AFTER_HOURS_POLICY_VERSION} from '../utils/clinicalAfterHoursPolicy.js';
+import {evaluate99051Schedule,canonicalAfterHoursAddons,clinicalScheduleInstant,AFTER_HOURS_POLICY_VERSION,LEGACY_AFTER_HOURS_POLICY_VERSION} from '../utils/clinicalAfterHoursPolicy.js';
 import {markScheduleDerived99051Decision} from '../utils/scheduleDerived99051Decision.js';
 import {isProBonoFunding,isProBonoServiceCode} from '../utils/clinicalFundingPolicy.js';
 import {isClinicalAddon} from '../utils/clinicalServiceCodeCatalog.js';
@@ -14,7 +14,7 @@ const code=value=>String(value||'').trim().toUpperCase();
 
 /** Dedicated add-on authorization; primary-service catalogs intentionally omit
  * add-ons. Existing denials always win; this does not infer payer coverage. */
-export async function canApply99051({agencyId,providerUserId,primaryCode,modality,placeOfService},overrides={}) {
+export async function canApply99051({agencyId,providerUserId,primaryCode,modality,placeOfService,afterHoursSchedule},overrides={}) {
   const d={database:pool,readCare:readStaffCareEligibility,credentialOverrides:loadCredentialOverrides,providerGrants:grantedServiceCodesForProvider,policy:resolvePolicyRuleForServiceCode,enabled:isServiceCodeEnabledForAgency,...overrides};
   if(!Number(agencyId)||!Number(providerUserId)||!code(primaryCode)||isClinicalAddon(primaryCode)||isProBonoServiceCode(primaryCode))return {allowed:false,reason:'eligible_primary_service_required'};
   const care=await d.readCare(providerUserId,agencyId,d.database);
@@ -31,6 +31,11 @@ export async function canApply99051({agencyId,providerUserId,primaryCode,modalit
   if(Array.isArray(primaryTiers)&&!primaryTiers.includes(care.credentialTier))return {allowed:false,reason:'primary_service_restricted'};
   const [rules,grants,policy,enabled,primaryPolicy,primaryEnabled]=await Promise.all([d.credentialOverrides('CO'),d.providerGrants(agencyId,providerUserId),d.policy({agencyId,serviceCode:'99051',credentialTier:care.credentialTier}),d.enabled({agencyId,serviceCode:'99051'}),d.policy({agencyId,serviceCode:code(primaryCode),credentialTier:care.credentialTier}),d.enabled({agencyId,serviceCode:code(primaryCode)})]);
   if(!enabled||!primaryEnabled||(policy&&(!policy.enabledForAgency||!policy.allowedForCredentialTier))||(primaryPolicy&&(!primaryPolicy.enabledForAgency||!primaryPolicy.allowedForCredentialTier)))return {allowed:false,reason:'agency_policy_restricted'};
+  if(afterHoursSchedule?.reason==='weekday_morning_start'){
+    const approval=policy?.afterHours99051,date=afterHoursSchedule.localDate;
+    const validDate=value=>/^\d{4}-\d{2}-\d{2}$/.test(String(value||''))&&Number.isFinite(+new Date(String(value)+'T12:00:00Z'))&&new Date(String(value)+'T12:00:00Z').toISOString().slice(0,10)===value;
+    if(approval?.allowWeekdayMorning!==true||!String(approval.payerAuthorizationReference||'').trim()||!(Number(approval.reviewedByUserId)>0)||!validDate(approval.effectiveFrom)||!validDate(date)||date<approval.effectiveFrom||(approval.effectiveThrough&&(!validDate(approval.effectiveThrough)||date>approval.effectiveThrough)))return {allowed:false,reason:'morning_payer_review_required'};
+  }
   if(!credentialAllows(care.credentialTier,'99051',rules)&&!grants.map(code).includes('99051'))return {allowed:false,reason:'credential_restricted'};
   if(!credentialAllows(care.credentialTier,primaryCode,rules)&&!grants.map(code).includes(code(primaryCode)))return {allowed:false,reason:'primary_service_restricted'};
   for(const allowedPos of [parse(medical.allowed_place_of_service_json),parse(medical.primary_allowed_place_of_service_json)])if(Array.isArray(allowedPos)&&allowedPos.length&&(!placeOfService||!allowedPos.map(String).includes(String(placeOfService))))return {allowed:false,reason:'place_of_service_restricted'};
@@ -41,10 +46,10 @@ export async function canApply99051({agencyId,providerUserId,primaryCode,modalit
 }
 
 export async function reconcileClinicalAfterHours({agencyId,providerUserId,primaryCode,startAt,timeZone,modality,placeOfService,addonServiceCodes=[],metadata,billing},overrides={}) {
-  const schedule=evaluate99051Schedule({startAt,timeZone});
+  const schedule=evaluate99051Schedule({startAt,timeZone,policyVersion:overrides.policyVersion||AFTER_HOURS_POLICY_VERSION});
   let authorization={allowed:false,reason:schedule.reason};
   if(isProBonoFunding({serviceCode:primaryCode,metadata,billing}))authorization={allowed:false,reason:'pro_bono_no_automatic_charge'};
-  else if(schedule.eligible)authorization=await (overrides.authorize||canApply99051)({agencyId,providerUserId,primaryCode,modality,placeOfService},overrides);
+  else if(schedule.eligible)authorization=await (overrides.authorize||canApply99051)({agencyId,providerUserId,primaryCode,modality,placeOfService,afterHoursSchedule:schedule},overrides);
   const allowed=schedule.eligible&&authorization.allowed;
   const addons=canonicalAfterHoursAddons(addonServiceCodes,allowed);
   return {addonServiceCodes:addons,billingAddons:addons.map(value=>{const previous=addonServiceCodes.find(item=>item&&typeof item==='object'&&code(item.code)===value);return previous?{...previous,code:value,units:value==='99051'?1:previous.units||1}:{code:value,units:1};}),afterHours:{...schedule,allowed,authorizationReason:authorization.reason}};
@@ -95,12 +100,12 @@ const addonCount=lines=>lines.filter(line=>code(line.procedure_code||line.proced
 export async function deriveApproved99051Decision({note,session,billing},overrides={}) {
   if(!Number(note?.clinical_version_id)||!Number.isSafeInteger(Number(note?.id))||Number(note.id)<1||!String(note?.clinical_version_content_hash||'').trim())return null;
   const startAt=clinicalScheduleInstant(session?.scheduled_start_at),timeZone=String(session?.source_timezone||'').trim();
-  const schedule=evaluate99051Schedule({startAt,timeZone});
+  const schedule=evaluate99051Schedule({startAt,timeZone,policyVersion:overrides.policyVersion||AFTER_HOURS_POLICY_VERSION});
   if(!startAt||!schedule.localDate||!Number(session?.agency_id)||!Number(session?.id)||!Number(session?.client_id)||!Number(session?.provider_user_id)||!code(session?.service_code))return null;
   const metadata=parse(note.metadata_json)||{},approvedDate=metadata.dateOfService||metadata.date_of_service;
   if(approvedDate&&String(approvedDate instanceof Date?approvedDate.toISOString():approvedDate).slice(0,10)!==schedule.localDate)return null;
   const resolved=await reconcileClinicalAfterHours({agencyId:session.agency_id,providerUserId:session.provider_user_id,primaryCode:session.service_code,startAt,timeZone,modality:session.is_telehealth?'TELEHEALTH':'IN_PERSON',placeOfService:session.place_of_service,metadata:note.metadata_json,billing},overrides);
-  const facts={kind:'schedule_derived_99051',policyVersion:AFTER_HOURS_POLICY_VERSION,agencyId:Number(session.agency_id),clientId:Number(session.client_id),clinicalSessionId:Number(session.id),providerUserId:Number(session.provider_user_id),noteId:Number(note.id),approvedRevisionId:Number(note.clinical_version_id),approvedContentHash:note.clinical_version_content_hash||null,primaryServiceCode:code(session.service_code),startAt,sourceTimezone:timeZone,serviceDate:schedule.localDate,placeOfService:String(session.place_of_service||''),isTelehealth:Number(session.is_telehealth)===1,included:resolved.afterHours.allowed};
+  const facts={kind:'schedule_derived_99051',policyVersion:schedule.policyVersion,agencyId:Number(session.agency_id),clientId:Number(session.client_id),clinicalSessionId:Number(session.id),providerUserId:Number(session.provider_user_id),noteId:Number(note.id),approvedRevisionId:Number(note.clinical_version_id),approvedContentHash:note.clinical_version_content_hash||null,primaryServiceCode:code(session.service_code),startAt,sourceTimezone:timeZone,serviceDate:schedule.localDate,placeOfService:String(session.place_of_service||''),isTelehealth:Number(session.is_telehealth)===1,included:resolved.afterHours.allowed};
   const binding={...facts,bindingHash:digest(facts)};
   return markScheduleDerived99051Decision({included:binding.included,binding});
 }
@@ -112,7 +117,8 @@ export async function reviewClaim99051Policy({claim,note,session,lines,billing},
   const actual=addonCount(lines),metadata=parse(note?.metadata_json)||{};
   const expected=(Array.isArray(metadata.billingAddons)?metadata.billingAddons:[]).filter(addon=>code(addon.code||addon.serviceCode||addon.service_code)==='99051');
   if(!binding&&!actual.length&&!expected.length)return {decision:null,blockers:[]};
-  const decision=await deriveApproved99051Decision({note,session,billing},overrides);
+  if(binding?.policyVersion&&![AFTER_HOURS_POLICY_VERSION,LEGACY_AFTER_HOURS_POLICY_VERSION].includes(binding.policyVersion))return {decision:null,blockers:['The saved99051 schedule policy version is not recognized. Review this draft before transmission.']};
+  const decision=await deriveApproved99051Decision({note,session,billing},{...overrides,...(binding?.policyVersion?{policyVersion:binding.policyVersion}:{})});
   if(!decision)return {decision:null,blockers:['The approved encounter start and source timezone must be verified before applying the99051 after-hours policy.']};
   if(binding&&stable(binding)!==stable(decision.binding))return {decision:null,blockers:['The99051 schedule policy binding changed. Reconcile this draft with the approved encounter and current service eligibility.']};
   const countMatches=decision.included?actual.length===1&&Number(actual[0].units)===1:actual.length===0;

@@ -84,7 +84,8 @@ export function isEligibleFor90785(primaryCode, { isExtendedEncounter = false } 
 }
 
 export function shouldSuggest99051(startAt, { timeZone } = {}) {
-  return evaluate99051Schedule({startAt,timeZone}).eligible;
+  const schedule=evaluate99051Schedule({startAt,timeZone});
+  return schedule.eligible&&schedule.reason!=='weekday_morning_start';
 }
 
 export function resolveNoteAidBillingCodes({
@@ -135,7 +136,7 @@ export function resolveNoteAidBillingCodes({
   if (includeAfterHours99051&&shouldSuggest99051(sessionStartAt,{timeZone})) {
     addons.push({ code: ADDON_CODES.AFTER_HOURS, units: 1 });
   }else if(includeAfterHours99051){
-    warnings.push('99051 was not added: verify a saved source timezone and a weekday session start at or after 17:00, or a weekend start.');
+    warnings.push('99051 was not added: verify a saved source timezone and a start outside regular weekday09:00–17:00 hours or a weekend start; weekday mornings require separately verified payer authorization for 99051.');
   }
 
   const byCode = new Map();

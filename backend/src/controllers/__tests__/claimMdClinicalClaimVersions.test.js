@@ -4,7 +4,8 @@ vi.mock('../../config/database.js', () => ({ default: { execute: m.main }, onTab
 vi.mock('../../config/clinicalDatabase.js', () => ({ default: { execute: m.clinical, getConnection: async () => ({ execute: m.clinical, beginTransaction: m.begin, commit: m.commit, rollback: m.rollback, release: vi.fn() }) } }));
 vi.mock('../../models/clinical/ClinicalSession.model.js', () => ({ default: { findById: m.session } }));
 vi.mock('../../models/clinical/ClinicalClaim.model.js', () => ({ default: { create: m.create } }));
-vi.mock('../../models/AgencyMedicalServiceCode.model.js', () => ({ default: { findByAgencyAndCode: vi.fn(async () => null) } }));
+vi.mock('../../models/AgencyMedicalServiceCode.model.js', () => ({ default: { findByAgencyAndCode: vi.fn(async () => null), listByAgency: vi.fn(async()=>[]) } }));
+vi.mock('../../services/testingEligibility.service.js',()=>({requireTestingEligibility:vi.fn(async()=>{})}));
 vi.mock('../../services/clinicalEligibility.service.js', () => ({ default: { ensureAgencyAccess: vi.fn() } }));
 vi.mock('../../services/schedulingBillingAccess.service.js', () => ({ hasSchedulingBillingAccess: vi.fn(async () => true), schedulingResponseForUser: vi.fn(async (_u, _a, body) => body) }));
 vi.mock('../../services/clinicalNoteVersionBilling.service.js', async original => ({ ...await original(), getApprovedClinicalContext: m.approved }));
@@ -17,6 +18,7 @@ vi.mock('../../services/supervisedBillingPolicy.service.js', async original => (
 vi.mock('../../services/feeSchedule.service.js', () => ({ resolveCanonicalFeeQuote: m.quote, resolveClaimModifiers:vi.fn(async()=>({modifiers:[],source:null})), getCanonicalFeeSchedule: vi.fn() }));
 vi.mock('../../services/resolveClaimProviders.service.js', () => ({ resolveClaimProviders: m.providers }));
 import { createMedicalClaim } from '../medicalBilling.controller.js';
+import MedicalCodes from '../../models/AgencyMedicalServiceCode.model.js';
 
 const hash = 'b'.repeat(64);
 const physical = { id: 4, agency_id: 2, client_id: 3, clinical_session_id: 5, provider_signed_at: '2026-10-01', is_billable: 1, metadata_json: { serviceCode: '90834', dateOfService: '2026-10-01' } };
@@ -25,6 +27,7 @@ const request = (body = {}) => ({ user: { id: 22, role: 'staff' }, body: { agenc
 const response = () => ({ status: vi.fn().mockReturnThis(), json: vi.fn() });
 beforeEach(() => {
   vi.clearAllMocks();
+  MedicalCodes.findByAgencyAndCode.mockResolvedValue(null);
   m.providers.mockResolvedValue({mode:'billing_supervisor',billingUserId:90,renderingUserId:7});
   m.quote.mockResolvedValue({amountCents:15000,rateCents:15000,rateUnit:'unit',source:'provider',sourceLabel:'Provider override',rateRevisionId:44,payerId:'SYNTH',providerUserId:90,providerRateEligible:true});
   m.main.mockResolvedValue([[{ feature_flags: { medicalBillingEnabled: true } }]]);
@@ -37,6 +40,18 @@ beforeEach(() => {
   m.create.mockResolvedValue({ id: 50 });
   m.approval.mockResolvedValue({clinical_note_id:4,provider_signed_at:physical.provider_signed_at,effective_revision_id:12,approved_at:'2026-11-03'});
   m.clinical.mockImplementation(async sql => sql.includes('AS has_original_signature') ? [[await m.approval()]] : sql.includes('FROM clinical_notes') ? [[physical]] : sql.startsWith('SELECT') ? [[]] : [{ affectedRows: 1 }]);
+});
+
+it.each([
+  [{isActive:false,unitCalcMode:'NONE'},403,'SERVICE_CODE_INACTIVE'],
+  [{isActive:true,unitCalcMode:'NONE'},409,'SERVICE_UNIT_SETUP_REQUIRED']
+])('blocks an unconfigured Testing reference before creating a claim even for an otherwise approved provider',async(catalog,status,code)=>{
+  const testingSession={id:5,agency_id:2,client_id:3,provider_user_id:7,service_code:'96136',duration_minutes:30,place_of_service:'11'};
+  const testingNote={...approved,metadata_json:{...approved.metadata_json,serviceCode:'96136',billingPrimaryUnits:1,structuredChart:{durationMinutes:30,placeOfService:'11'}}};
+  m.session.mockResolvedValue(testingSession);m.approved.mockResolvedValue({note:testingNote,session:testingSession});MedicalCodes.findByAgencyAndCode.mockResolvedValue(catalog);
+  const next=vi.fn();await createMedicalClaim(request({primaryProcedureCode:'96136'}),response(),next);
+  expect(next).toHaveBeenCalledWith(expect.objectContaining({status,code}));expect(m.create).not.toHaveBeenCalled();expect(m.begin).not.toHaveBeenCalled();
+  expect(testingSession.service_code).toBe('96136');expect(testingNote.metadata_json.serviceCode).toBe('96136');
 });
 
 it('creates billing services from the approved revision and records its immutable reference', async () => {
