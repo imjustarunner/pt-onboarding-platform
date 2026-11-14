@@ -3,8 +3,8 @@
     <strong>Attachments</strong>
     <template v-if="canFile">
       <p v-if="ticket.client_id">Add files to: <strong>{{ clientLabel }}</strong>.</p>
-      <p v-else>Choose the existing client before adding a registration packet to their profile.</p>
-      <button type="button" :disabled="busy || !!linkingClientId" @click="choosing = !choosing">{{ ticket.client_id ? 'Change linked client' : 'Choose client' }}</button>
+      <p v-else>Create a new client from a packet, or choose an existing client for other files.</p>
+      <button type="button" :disabled="busy || !!linkingClientId" @click="choosing = !choosing">{{ ticket.client_id ? 'Change linked client' : 'Choose existing client' }}</button>
       <form v-if="choosing" @submit.prevent="search">
         <label>Find client<input v-model="query" type="search" placeholder="Name or initials" minlength="2" required /></label>
         <button :disabled="searching || !!linkingClientId">{{ searching ? 'Searching…' : 'Search' }}</button>
@@ -22,6 +22,7 @@
       <button type="button" class="attachment-name" @click="$emit('open', attachment)">{{ attachment.file_name || 'Attachment' }}</button>
       <span class="size">{{ sizeLabel(attachment.file_size) }}</span>
       <template v-if="canFile && supported(attachment)">
+        <button v-if="ticket.school_organization_id && isPacket(attachment)" type="button" class="create-client" :disabled="busy || packetBusy || !!linkingClientId" @click="$emit('create-client', attachment)">{{ packetBusy === attachment.id ? 'Opening packet…' : 'Create new client' }}</button>
         <span v-if="alreadyAdded(attachment)" class="saved">Added to client</span>
         <button v-else type="button" :disabled="busy || !ticket.client_id || !!linkingClientId" @click="add(attachment)">{{ busy === attachment.id ? 'Adding…' : 'Add to client' }}</button>
       </template>
@@ -33,11 +34,12 @@
 import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
 import { formatFileSize } from '../../utils/fileSize.js';
-const props = defineProps({ ticket: { type: Object, required: true }, attachments: { type: Array, default: () => [] }, canFile: Boolean, linkingClientId: { type: Number, default: null } });
-defineEmits(['open', 'link-client']);
+const props = defineProps({ ticket: { type: Object, required: true }, attachments: { type: Array, default: () => [] }, canFile: Boolean, linkingClientId: { type: Number, default: null }, packetBusy: { type: Number, default: null } });
+defineEmits(['open', 'link-client', 'create-client']);
 const busy = ref(null), choosing = ref(false), query = ref(''), searching = ref(false), results = ref([]), error = ref(''), message = ref(''), saved = ref({});
 const clientLabel = computed(() => props.ticket.client_full_name || props.ticket.client_identifier_code || props.ticket.client_initials || `Client #${props.ticket.client_id}`);
 const sizeLabel = formatFileSize;
+const isPacket = attachment => /\.pdf$/i.test(attachment.file_name || '') || ['application/pdf', 'application/x-pdf'].includes(attachment.mime_type);
 const alreadyAdded = attachment => saved.value[attachment.id] || (attachment.client_document_id && Number(attachment.client_document_client_id) === Number(props.ticket.client_id));
 const supported = attachment => ['application/pdf', 'application/x-pdf', 'image/jpeg', 'image/jpg', 'image/png'].includes(attachment.mime_type) || (['', 'application/octet-stream'].includes(attachment.mime_type || '') && /\.pdf$/i.test(attachment.file_name || ''));
 watch(() => [props.ticket.id, props.ticket.client_id], () => { choosing.value = false; results.value = []; saved.value = {}; error.value = ''; message.value = ''; });
@@ -76,4 +78,5 @@ button { cursor: pointer; } button:disabled { opacity: .6; cursor: default; }
 label { display: grid; gap: 5px; margin: 10px 0; } ul { list-style: none; padding: 0; }
 .size, .hint { color: var(--text-secondary, #475569); font-size: .85rem; }
 .saved { color: #166534; } [role=alert] { color: #b42318; } [role=status] { color: #166534; }
+.create-client{background:#0047b3;color:#fff;border-color:#0047b3}.ticket-attachment-filing p{margin:8px 0;font-size:13px}.attachment-row{gap:7px;margin:8px 0}
 </style>

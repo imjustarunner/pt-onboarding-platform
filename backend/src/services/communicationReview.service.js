@@ -56,12 +56,37 @@ export async function inspectInboundReception({ from, to, body = '' }) {
   return { number, profile, reason: reason === 'unknown_sender' && isLikelyAdvertising(body) ? 'suspected_advertising' : reason };
 }
 
+function phoneKey(value) {
+  const digits = String(value || '').replace(/\D/g, '');
+  return digits.length === 11 && digits.startsWith('1') ? digits.slice(1) : digits;
+}
+async function reviewSenderNames(agencyId, rows) {
+  const keys = [...new Set(rows.map(row => phoneKey(row.from_number)).filter(Boolean))];
+  if (!keys.length) return new Map();
+  const placeholders = keys.map(() => '?').join(',');
+  const phoneClause = column => `RIGHT(REGEXP_REPLACE(COALESCE(u.${column},''),'[^0-9]',''),10) IN (${placeholders})`;
+  const [users] = await pool.execute(`SELECT DISTINCT u.id,u.first_name,u.last_name,u.phone_number,u.personal_phone,u.work_phone
+    FROM users u JOIN user_agencies ua ON ua.user_id=u.id
+    WHERE ua.agency_id=? AND ua.is_active=TRUE AND (${['phone_number','personal_phone','work_phone'].map(phoneClause).join(' OR ')})`,
+    [agencyId, ...keys, ...keys, ...keys]);
+  const matches = new Map();
+  for (const user of users) for (const phone of [user.phone_number,user.personal_phone,user.work_phone]) {
+    const key = phoneKey(phone);
+    if (!keys.includes(key)) continue;
+    const existing = matches.get(key) || new Map();
+    existing.set(user.id, [user.first_name,user.last_name].filter(Boolean).join(' '));
+    matches.set(key,existing);
+  }
+  return new Map([...matches].filter(([, names]) => names.size === 1).map(([key,names]) => [key,[...names.values()][0]]));
+}
+
 export async function listCommunicationReview(agencyId, { status = 'review', beforeId = null } = {}) {
   const params = [agencyId, status];
   if (beforeId) params.push(beforeId);
   const [rows] = await pool.execute(`SELECT * FROM communication_review_queue WHERE agency_id=? AND status=?
     ${beforeId ? 'AND id < ?' : ''} ORDER BY id DESC LIMIT 100`, params);
-  return rows.map(row => ({ id:row.id, channel:row.channel, reason:row.reason, status:row.status,
+  const senderNames = await reviewSenderNames(agencyId, rows);
+  return rows.map(row => ({ id:row.id, channel:row.channel, reason:row.reason, status:row.status, senderName:senderNames.get(phoneKey(row.from_number)) || null,
     from:row.from_number, to:row.to_number, createdAt:row.created_at, messageLogId:row.message_log_id, voicemailId:row.voicemail_id,
     body:decryptChatText({ ciphertextB64:row.body_ciphertext, ivB64:row.body_iv, authTagB64:row.body_auth_tag, keyId:row.encryption_key_id }) }));
 }

@@ -27,6 +27,12 @@ async function loadEventLinks() {
 }
 const draft = ref(blank());
 const editing = ref(null);
+const recipientSearch = ref('');
+const visibleRecipients = computed(() => users.value.filter(user => String(user.name || '').toLowerCase().includes(recipientSearch.value.trim().toLowerCase())));
+function selectVisibleRecipients() {
+  const eligible = visibleRecipients.value.filter(user => !smsOnly.value || canReceiveOutsideApp(user));
+  draft.value.userIds = [...new Set([...draft.value.userIds, ...eligible.map(user => user.id)])];
+}
 function edit(event) {
   editing.value = event;
   draft.value = { ...blank(), kind: event.votingConfig?.enabled ? 'poll' : 'text', title: event.title, message: event.splashContent || event.description || '', userIds: (event.audience?.userIds || []).filter(id => users.value.some(user => user.id === id)), question: event.votingConfig?.question || '', options: event.votingConfig?.options?.map(o => o.label) || ['Yes', 'No'], deliveryMode: event.votingConfig?.deliveryMode || (event.votingConfig?.viaSms ? 'both' : 'internal'), shareResults: event.votingConfig?.shareResults !== false, allowOther: !!event.votingConfig?.allowOther };
@@ -46,7 +52,7 @@ async function load() {
   error.value = '';
   try {
     const [list, audience] = await Promise.all([
-      api.get(base(), { params: { communicationsOnly: 1 } }), api.get(`${base()}/audience-options`, { params: { communicationsOnly: 1 } })
+      api.get(base(), { params: { communicationsOnly: 1 }, skipGlobalLoading: true }), api.get(`${base()}/audience-options`, { params: { communicationsOnly: 1 }, skipGlobalLoading: true })
     ]);
     if (g !== generation) return;
     events.value = Array.isArray(list.data) ? list.data : [];
@@ -167,13 +173,14 @@ watch(() => [props.agencyId, allowed.value], () => {
 
 <template>
   <section class="conversa-team" aria-labelledby="conversa-team-title">
-    <header class="team-header"><div><h2 id="conversa-team-title">Team texts &amp; polls</h2><p>Conversa brings team broadcasts, replies, and delivery history together.</p></div><img :src="CONVERSA_ICON_URL" alt="Conversa" width="56" height="56" /></header>
+    <header class="team-header"><div><h2 id="conversa-team-title">Team texts &amp; polls</h2></div><img :src="CONVERSA_ICON_URL" alt="Conversa" width="56" height="56" /></header>
     <p v-if="!allowed" role="alert">Only superadmins, admins, and support can manage team texts and polls.</p>
     <p v-else-if="!agencyId">Select an agency to manage its team communications.</p>
     <template v-else>
-      <p class="team-note">Managed by superadmins, admins, and support. Selected team members can receive texts and answer polls. Text delivery follows their consent and notification preferences.</p>
+
       <p v-if="error" role="alert">{{ error }}</p><p v-if="notice" role="status">{{ notice }}</p>
       <details class="team-guide"><summary>Plan an event or potluck with a poll</summary><ol><li>Create a team poll to choose a date. Select the invitees, set the voting deadline, then save and confirm sending. The deadline only controls voting.</li><li>After deciding the date, choose <strong>Create linked event</strong>. Enter the actual event start/end time and location. The poll and event have separate schedules.</li><li>For a potluck, enable <strong>Potluck style</strong>, list what the organizer provides, save, then add items or open category slots under <strong>Need List (Potluck)</strong>.</li><li>Review the invitees and choose <strong>Send Invitations</strong>. Attendees can RSVP and claim what they are bringing. Saving alone does not send invitations.</li></ol><p class="team-note">Already have a scheduled event? Create the poll here and select that event under Linked internal event. Saving makes an in-app poll available to its selected team; confirming Send poll sends the invitations.</p><button type="button" @click="eventSetup = {}">Open company event setup</button></details>
+      <div class="team-layout">
       <form class="team-compose" @submit.prevent="create(draft.kind === 'poll')">
         <h3>{{ editing ? 'Edit team communication' : 'Create a team communication' }}</h3>
         <fieldset :disabled="busy || loading"><legend class="sr-only">Team communication details</legend>
@@ -200,13 +207,14 @@ watch(() => [props.agencyId, allowed.value], () => {
             <p class="team-note">Replies are identified to organizers. Participants see their own responses. New polls are available for 30 days. Close voting when you are ready to publish final totals.</p>
           </template>
           <p class="team-note">Active internal staff only. School staff and inactive accounts are excluded. SMS opt-outs stay visible.</p>
-          <fieldset class="team-recipients"><legend>Team members · {{ draft.userIds.length }} selected</legend><p v-if="loading">Loading team members…</p><p v-else-if="!users.length">No active internal team members available.</p><label v-for="user in users" :key="user.id" class="team-check"><input v-model="draft.userIds" type="checkbox" :value="user.id" :disabled="smsOnly && !canReceiveOutsideApp(user)" /> <span>{{ user.name }}<small v-if="draft.kind === 'poll'" class="sms-status" :class="{ 'sms-blocked': !user.pollingSms?.eligible }">{{ user.pollingSms?.label || 'SMS consent not confirmed' }}<span v-if="user.pollingEmail?.eligible"> · Work email voting invitation</span><span v-else-if="draft.deliveryMode === 'both' && !user.pollingSms?.eligible"> · Internal only</span></small></span></label></fieldset>
+          <div class="recipient-toolbar"><input v-model="recipientSearch" type="search" placeholder="Find team members" aria-label="Find team members" /><button type="button" @click="selectVisibleRecipients">Select shown</button><button type="button" @click="draft.userIds = []">Clear</button></div>
+          <fieldset class="team-recipients"><legend>Team members · {{ draft.userIds.length }} selected</legend><p v-if="loading">Loading team members…</p><p v-else-if="!users.length">No active internal team members available.</p><label v-for="user in visibleRecipients" :key="user.id" class="team-check"><input v-model="draft.userIds" type="checkbox" :value="user.id" :disabled="smsOnly && !canReceiveOutsideApp(user)" /> <span>{{ user.name }}<small v-if="draft.kind === 'poll'" class="sms-status" :class="{ 'sms-blocked': !user.pollingSms?.eligible }">{{ user.pollingSms?.label || 'SMS consent not confirmed' }}<span v-if="user.pollingEmail?.eligible"> · Work email voting invitation</span><span v-else-if="draft.deliveryMode === 'both' && !user.pollingSms?.eligible"> · Internal only</span></small></span></label></fieldset>
           <button class="team-primary" :disabled="!draft.userIds.length || busy || loading">{{ busy ? 'Saving…' : draft.kind === 'poll' ? 'Save & review delivery' : editing ? 'Save changes' : 'Save team message' }}</button>
           <button v-if="draft.kind === 'poll'" type="button" :disabled="!draft.userIds.length || busy || loading" @click="create(false)">Save without sending</button>
           <button v-if="editing" type="button" @click="cancelEdit">Cancel editing</button>
         </fieldset>
       </form>
-      <div class="team-header"><h3>Team communications</h3><button type="button" :disabled="busy || loading" @click="load">Refresh</button></div>
+      <section class="team-history"><div class="team-header"><h3>Team communications</h3><button type="button" :disabled="busy || loading" @click="load">Refresh</button></div>
       <section v-if="pollPreview" class="team-entry" aria-label="Poll delivery preview"><h3>{{ pollPreview.title }} · delivery preview</h3><p>{{ pollPreviewSummary(pollPreview) }}</p><p v-if="pollPreview.smsSender">{{ pollPreview.smsSender.label }}<span v-if="pollPreview.smsSender.ready"> · {{ pollPreview.smsSender.fromNumber }}</span></p><ul v-if="pollPreview.reasons?.length"><li v-for="reason in pollPreview.reasons" :key="reason.code">{{ reason.count }} · {{ reason.label }}</li></ul><p class="team-note">This preview sends nothing. Opt-outs and eligibility are checked again during delivery.</p></section>
       <p v-if="loading">Loading communications…</p><p v-else-if="!events.length">Your team texts and polls will appear here.</p>
       <article v-for="event in events" :key="event.id" class="team-entry">
@@ -226,6 +234,7 @@ watch(() => [props.agencyId, allowed.value], () => {
           <button type="button" :disabled="busy" @click="action(event, 'delivery')">Delivery history</button>
         </div>
       </article>
+      </section></div>
       <StaffPollResultsReview v-if="reviewing" :agency-id="agencyId" :event="reviewing" @changed="reviewing = $event; load()" @close="reviewing = null; load()" />
       <StaffPollDeliveryHistory v-if="delivery" :history="delivery" @close="delivery = null" @refresh="action(delivery, 'delivery')" />
       <div v-if="eventSetup" class="event-setup-backdrop" @keydown.esc="closeEventSetup"><section class="event-setup-dialog" role="dialog" aria-modal="true" aria-label="Company event setup"><button type="button" @click="closeEventSetup">Close event setup</button><StaffEventForm ref="eventSetupForm" :agency-id="Number(agencyId)" :initial-event-id="eventSetup.initialEventId" :initial-poll="eventSetup.initialPoll" @saved="eventSaved" @close="eventSetup = null" /></section></div>
@@ -235,8 +244,16 @@ watch(() => [props.agencyId, allowed.value], () => {
 
 <style scoped>
 .conversa-team{max-width:1040px;margin:0 auto;color:var(--conversa-navy,#0b2352)}.team-header{display:flex;align-items:center;justify-content:space-between;gap:16px}.team-header h2,.team-header h3{margin:0}.team-header p{margin:8px 0}.team-note{color:#52627a;font-size:.9rem;line-height:1.6}.team-compose,.team-entry{background:var(--conversa-surface,#fff);border:1px solid #dce5f0;border-radius:16px;padding:24px;margin:20px 0}.team-grid{display:grid;grid-template-columns:1fr 2fr;gap:16px}fieldset{border:0;padding:0;min-width:0}label{display:grid;gap:6px;margin:12px 0;font-weight:600}input:not([type=checkbox]),select,textarea{width:100%;box-sizing:border-box;padding:10px;border:1px solid #b8c8df;border-radius:8px;background:#fff;color:#0b2352;font:inherit}.sms-status{display:block;font-size:.8rem;color:#16704b;margin-top:3px}.sms-blocked{color:#76521c}.team-check{display:flex;align-items:center;gap:9px;font-weight:400}.team-recipients{max-height:240px;overflow:auto;border:1px solid #dce5f0;border-radius:10px;padding:12px;margin:16px 0}.team-recipients legend{font-weight:600;padding:0 4px}.team-option{display:flex;align-items:center;gap:12px}.team-option label{flex:1}.team-actions{display:flex;flex-wrap:wrap;gap:8px}button{border:1px solid #b8c8df;border-radius:8px;background:#fff;color:#0047b3;padding:10px 14px;font:inherit;cursor:pointer}button:disabled{opacity:.55;cursor:default}button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:3px solid #60b5ff;outline-offset:2px}.team-primary{background:#0047b3;color:#fff}.team-type{font-size:.8rem;color:#0047b3;font-weight:700}.team-entry p{white-space:pre-wrap;overflow-wrap:anywhere}[role=alert]{color:#b91c1c}[role=status]{padding:12px;background:#e5f5f0;color:#165a43;border-radius:8px}.sr-only{position:absolute;width:1px;height:1px;padding:0;overflow:hidden;clip:rect(0,0,0,0)}@media(max-width:600px){.team-grid{grid-template-columns:1fr}.team-compose,.team-entry{padding:16px}.team-header{align-items:flex-start}}
+
+.conversa-team{max-width:none;margin:0}.team-header{gap:8px}.team-header h2{font-size:20px}.team-header>img{width:32px;height:32px}.team-note{font-size:12px;line-height:1.4;margin:6px 0}.team-layout{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(320px,.8fr);gap:14px;margin-top:10px;align-items:start}.team-compose,.team-entry{border-radius:10px;padding:12px;margin:0 0 10px}.team-compose h3{font-size:15px;margin:0 0 8px}.team-grid{gap:10px}label{gap:4px;margin:8px 0;font-size:13px}input:not([type=checkbox]),select,textarea{padding:7px 9px;font-size:13px}button{padding:6px 9px;font-size:12px}.team-recipients{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 10px;max-height:190px;padding:8px;margin:8px 0}.team-recipients .team-check{margin:4px 0;font-size:12px}.team-recipients>p{grid-column:1/-1}.recipient-toolbar{display:flex;gap:6px;align-items:center}.recipient-toolbar input{flex:1;min-width:100px}.recipient-toolbar button{white-space:nowrap}.team-history .team-header{margin-bottom:10px}.team-history h3{font-size:15px}.team-entry p{font-size:13px;line-height:1.4;margin:6px 0}.team-actions{gap:5px}
+@media(max-width:1000px){.team-layout{grid-template-columns:1fr}.team-history{border-top:1px solid #dce5f0;padding-top:12px}}
+@media(max-width:560px){.team-recipients{grid-template-columns:1fr}.recipient-toolbar{flex-wrap:wrap}}
 </style>
 
 <style scoped>
 .team-guide{margin-top:16px;padding:16px;background:#f2f6fd;border:1px solid #dce5f0;border-radius:12px}.team-guide summary{cursor:pointer;font-weight:700}.team-guide li{margin:10px 0;line-height:1.6}.event-setup-backdrop{position:fixed;inset:0;z-index:1100;background:#152c5077;display:flex;justify-content:center;padding:20px}.event-setup-dialog{background:white;border-radius:14px;max-width:1100px;width:100%;overflow:auto;padding:20px;box-sizing:border-box}@media(max-width:600px){.event-setup-backdrop{padding:6px}.event-setup-dialog{padding:12px}}
+
+.conversa-team{max-width:none;margin:0}.team-header{gap:8px}.team-header h2{font-size:20px}.team-header>img{width:32px;height:32px}.team-note{font-size:12px;line-height:1.4;margin:6px 0}.team-layout{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(320px,.8fr);gap:14px;margin-top:10px;align-items:start}.team-compose,.team-entry{border-radius:10px;padding:12px;margin:0 0 10px}.team-compose h3{font-size:15px;margin:0 0 8px}.team-grid{gap:10px}label{gap:4px;margin:8px 0;font-size:13px}input:not([type=checkbox]),select,textarea{padding:7px 9px;font-size:13px}button{padding:6px 9px;font-size:12px}.team-recipients{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 10px;max-height:190px;padding:8px;margin:8px 0}.team-recipients .team-check{margin:4px 0;font-size:12px}.team-recipients>p{grid-column:1/-1}.recipient-toolbar{display:flex;gap:6px;align-items:center}.recipient-toolbar input{flex:1;min-width:100px}.recipient-toolbar button{white-space:nowrap}.team-history .team-header{margin-bottom:10px}.team-history h3{font-size:15px}.team-entry p{font-size:13px;line-height:1.4;margin:6px 0}.team-actions{gap:5px}
+@media(max-width:1000px){.team-layout{grid-template-columns:1fr}.team-history{border-top:1px solid #dce5f0;padding-top:12px}}
+@media(max-width:560px){.team-recipients{grid-template-columns:1fr}.recipient-toolbar{flex-wrap:wrap}}
 </style>

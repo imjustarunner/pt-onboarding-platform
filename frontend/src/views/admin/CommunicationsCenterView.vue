@@ -1,13 +1,13 @@
 <template>
   <div class="cc-shell conversa-surface">
-    <details v-if="canUseSmsInbox" class="cc-clinical-texts"><summary>Agency texts and faxes</summary><ClinicalClientTexts /></details>
+
     <div class="cc-bg" aria-hidden="true" />
 
     <header class="cc-top">
       <div class="cc-brand">
         <p class="cc-eyebrow">{{ agencyLabel }} · Communications management</p>
-        <ConversaBrand heading="h1" tagline />
-        <p class="cc-tag">Inbox, team conversations, tickets, and communication tools</p>
+        <ConversaBrand heading="h1" compact />
+
       </div>
       <nav class="cc-switch" role="tablist" aria-label="Communications management sections">
         <button
@@ -97,12 +97,12 @@
         <MessagesHubShell v-if="visitedModes.has('messages')" />
       </section>
 
-      <section v-if="activeMode === 'team' && canManageTeam" class="cc-mode">
+      <section v-if="visitedModes.has('team') && canManageTeam" v-show="activeMode === 'team'" class="cc-mode">
         <ConversaTeamCommunications :agency-id="agencyStore.currentAgency?.id" />
       </section>
       <!-- ========== SUPPORT HUB ========== -->
       <section v-show="activeMode === 'support'" class="cc-mode">
-        <CommunicationReviewQueue v-if="activeMode === 'support' && ['admin','super_admin','support','clinical_practice_assistant'].includes(roleLower)" :agency-id="agencyStore.currentAgency?.id" />
+
         <div class="cc-mode-intro split">
           <div>
             <h2>Support Hub</h2>
@@ -111,87 +111,53 @@
           <div class="cc-intro-actions">
             <button type="button" class="cc-btn outline" @click.prevent.stop="setMode('home')">← Inbox</button>
             <router-link class="cc-btn outline" :to="escalationsPath">Escalations</router-link>
-            <router-link class="cc-btn solid" :to="ticketsPath">Ticket desk</router-link>
+            <button type="button" class="cc-btn solid" @click="openHubQueue('')">Support tickets</button>
           </div>
         </div>
 
         <div class="cc-kpi-row">
-          <article v-for="c in hubKpis" :key="c.key" class="cc-kpi" :class="c.tone || ''">
+          <button type="button" v-for="c in hubKpis" :key="c.key" class="cc-kpi" :class="c.tone || ''" @click="openHubKpi(c.key)">
             <span class="cc-kpi-label">{{ c.label }}</span>
             <strong class="cc-kpi-value">{{ c.value }}</strong>
             <span class="cc-kpi-hint">{{ c.hint }}</span>
-          </article>
+          </button>
         </div>
 
+        <section v-if="hubQueueOpen" class="cc-panel cc-inline-desk">
+          <header class="cc-panel-h"><h3>Support tickets · {{ agencyLabel }}</h3><button type="button" class="cc-btn outline sm" @click="hubQueueOpen = false">Close queue</button></header>
+          <TicketDeskView :key="`${agencyStore.currentAgency?.id}:${hubQueueStatus}`" :agency-id="agencyStore.currentAgency?.id" :initial-status="hubQueueStatus" :active="activeMode === 'support'" :sync-route="false" />
+        </section>
         <div class="cc-grid-main">
-          <section class="cc-panel">
+          <section v-for="(panel, index) in hubPanels" :key="panel" class="cc-panel" :class="{ 'cc-panel--tickets': panel === 'tickets' }">
             <header class="cc-panel-h">
-              <div>
-                <h3>Escalations</h3>
-                <p class="cc-panel-sub">Issue · root cause · recommended resolution — assignable ownership</p>
+              <h3>{{ { tickets: 'Support tickets', escalations: 'Escalations', activity: 'Recent activity' }[panel] }}</h3>
+              <div class="cc-panel-tools">
+                <select v-if="panel !== 'activity'" v-model="hubSort[panel]" :aria-label="`Sort ${panel}`"><option value="updated">Recently updated</option><option value="oldest">Oldest first</option><option value="priority">Priority</option></select>
+                <button type="button" class="cc-btn outline sm" :disabled="index === 0" :aria-label="`Move ${panel} earlier`" @click="moveHubPanel(index, -1)">↑</button>
+                <button type="button" class="cc-btn outline sm" :disabled="index === hubPanels.length - 1" :aria-label="`Move ${panel} later`" @click="moveHubPanel(index, 1)">↓</button>
               </div>
-              <router-link class="cc-btn solid sm" :to="escalationsPath">Escalations desk</router-link>
             </header>
-            <div v-if="escalationSummary.recent?.length" class="cc-table">
-              <div class="cc-tr head">
-                <span>ID</span><span>Subject</span><span>Status</span><span>Owner</span><span>Updated</span>
-              </div>
-              <div v-for="e in escalationSummary.recent" :key="e.id" class="cc-tr">
-                <span class="mono">#{{ e.id }}</span>
-                <span class="grow">
-                  {{ e.subject }}
-                  <i v-if="e.immediate_action_required" class="prio high">immediate</i>
-                </span>
-                <span class="status">{{ e.escalation_status_label || e.escalation_status }}</span>
-                <span>{{ e.claimed_by_name || 'Unassigned' }}</span>
-                <span class="muted">{{ formatTime(e.updated_at || e.created_at) }}</span>
-              </div>
-            </div>
-            <p v-else class="cc-empty pad">No open escalations. Submit from the admin dashboard card or Escalations desk.</p>
-          </section>
-
-          <section class="cc-panel">
-            <header class="cc-panel-h">
-              <div>
-                <h3>Support tickets</h3>
-                <div class="cc-mini-tabs">
-                  <span class="on">Open ({{ summary.tickets?.open || 0 }})</span>
-                  <span>In progress ({{ summary.tickets?.in_progress || 0 }})</span>
-                  <span>Pending ({{ summary.tickets?.waiting || 0 }})</span>
-                  <span>Resolved today ({{ summary.tickets?.closed_today || 0 }})</span>
-                </div>
-              </div>
-              <router-link class="cc-btn solid sm" :to="ticketsPath">Ticket desk</router-link>
-            </header>
-            <div v-if="summary.tickets?.recent?.length" class="cc-table">
-              <div class="cc-tr head">
-                <span>ID</span><span>Subject</span><span>Priority</span><span>Status</span><span>Updated</span>
-              </div>
-              <div v-for="t in summary.tickets.recent" :key="t.id" class="cc-tr cc-click-row" @click="openTicket(t)">
-                <span class="mono">#{{ t.id }}</span>
-                <span class="grow">{{ t.subject }}</span>
-                <span><i class="prio" :class="prioClass(t.priority)">{{ t.priority }}</i></span>
-                <span class="status">{{ t.status }}</span>
-                <span class="muted">{{ formatTime(t.updatedAt) }}</span>
-              </div>
-            </div>
-            <p v-else class="cc-empty pad">No open tickets right now.</p>
-          </section>
-
-          <section class="cc-panel">
-            <header class="cc-panel-h"><h3>Recent activity</h3></header>
-            <ul v-if="summary.recentActivity?.length" class="cc-activity">
-              <li v-for="a in summary.recentActivity" :key="a.id">
-                <span class="cc-act-kind">{{ a.kind || 'event' }}</span>
-                <div>
-                  <strong>{{ a.text }}</strong>
-                  <small>{{ formatTime(a.occurredAt) }}</small>
-                </div>
-              </li>
-            </ul>
-            <p v-else class="cc-empty">No recent activity.</p>
+            <template v-if="panel === 'tickets'">
+              <div class="cc-mini-tabs"><button v-for="status in ['open','in_progress','waiting','closed']" :key="status" type="button" @click="openHubQueue(status)">{{ {open:'Open',in_progress:'In progress',waiting:'Waiting',closed:'Closed'}[status] }}</button></div>
+              <button v-for="t in sortedHubRows('tickets')" :key="t.id" type="button" class="cc-ticket-summary" @click="openTicket(t)">
+                <span class="cc-summary-id">#{{ t.id }} <i class="prio" :class="prioClass(t.priority)">{{ t.priority }}</i></span>
+                <strong>{{ t.subject || 'Support request' }}</strong><span>{{ t.schoolName || t.school_name || agencyLabel }} · {{ t.status }} · {{ formatTime(t.updatedAt || t.updated_at) }}</span>
+              </button>
+              <p v-if="!summary.tickets?.recent?.length" class="cc-empty">No open tickets right now.</p>
+              <button type="button" class="cc-btn solid sm" @click="openHubQueue('')">View all support tickets</button>
+            </template>
+            <template v-else-if="panel === 'escalations'">
+              <router-link v-for="e in sortedHubRows('escalations')" :key="e.id" class="cc-ticket-summary" :to="{ path: escalationsPath, query: { escalationId: String(e.id) } }"><strong>#{{ e.id }} {{ e.subject }}</strong><span>{{ e.escalation_status_label || e.escalation_status }} · {{ e.claimed_by_name || 'Unassigned' }} · {{ formatTime(e.updated_at || e.created_at) }}</span></router-link>
+              <p v-if="!escalationSummary.recent?.length" class="cc-empty">No open escalations.</p>
+            </template>
+            <ul v-else class="cc-activity"><li v-for="a in summary.recentActivity || []" :key="a.id"><span class="cc-act-kind">{{ a.kind || 'event' }}</span><div><strong>{{ a.text }}</strong><small>{{ formatTime(a.occurredAt) }}</small></div></li><li v-if="!summary.recentActivity?.length">No recent activity.</li></ul>
           </section>
         </div>
+        <details class="cc-support-review" @toggle="reviewOpened = $event.target.open || reviewOpened">
+          <summary>Text review &amp; spam</summary>
+          <CommunicationReviewQueue @open-team="setMode('team')" v-if="reviewOpened && canUseSupportHub" :agency-id="agencyStore.currentAgency?.id" />
+        </details>
+        <details v-if="canUseSmsInbox" ref="agencyTextsEl" class="cc-support-review" @toggle="clinicalTextsOpened = $event.target.open || clinicalTextsOpened"><summary>Agency texts and faxes</summary><ClinicalClientTexts v-if="clinicalTextsOpened" /></details>
 
         <section class="cc-panel">
           <header class="cc-panel-h"><h3>Communication management</h3></header>
@@ -233,6 +199,7 @@
         :prefix="prefix"
         @go-home="setMode('home')"
       />
+    <TicketDetailModal v-if="hubTicket" :ticket-id="hubTicket.id" :agency-id="hubTicket.agencyId" @close="hubTicket = null" @updated="load" />
   </div>
 </template>
 
@@ -242,6 +209,8 @@ import ConversaBrand from '../../components/conversa/ConversaBrand.vue';
 import ConversaTeamCommunications from '../../components/conversa/ConversaTeamCommunications.vue';
 import { canManageConversaTeam } from '../../constants/conversa';
 import CommunicationReviewQueue from '../../components/communications/CommunicationReviewQueue.vue';
+import TicketDeskView from '../../components/tickets/TicketDeskView.vue';
+import TicketDetailModal from '../../components/tickets/TicketDetailModal.vue';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
@@ -450,13 +419,32 @@ function formatTime(v) {
   }
 }
 
+const hubTicket = ref(null), hubQueueOpen = ref(false), hubQueueStatus = ref('');
+const reviewOpened = ref(false), clinicalTextsOpened = ref(false), agencyTextsEl = ref(null);
+const hubPanels = ref(['tickets', 'escalations', 'activity']);
+const hubSort = ref({ tickets: 'updated', escalations: 'updated' });
+try { const saved = JSON.parse(localStorage.getItem('conversa-support-panels') || 'null'); if (Array.isArray(saved) && saved.length === 3 && new Set(saved).size === 3 && saved.every(key => hubPanels.value.includes(key))) hubPanels.value = saved; } catch {}
+function moveHubPanel(index, offset) {
+  const next = [...hubPanels.value], target = index + offset;
+  if (target < 0 || target >= next.length) return;
+  [next[index], next[target]] = [next[target], next[index]]; hubPanels.value = next;
+  try { localStorage.setItem('conversa-support-panels', JSON.stringify(next)); } catch {}
+}
+function sortedHubRows(panel) {
+  const rows = [...(panel === 'tickets' ? summary.value.tickets?.recent || [] : escalationSummary.value.recent || [])];
+  const time = row => new Date(row.updatedAt || row.updated_at || row.created_at || 0).getTime();
+  const priority = row => row.immediate_action_required ? 0 : ({ high: 1, medium: 2, low: 3 }[row.priority] || 4);
+  return rows.sort((a,b) => hubSort.value[panel] === 'priority' ? priority(a) - priority(b) || time(a) - time(b) : hubSort.value[panel] === 'oldest' ? time(a) - time(b) : time(b) - time(a));
+}
+function openHubQueue(status = '') { hubQueueStatus.value = status; hubQueueOpen.value = true; }
+function openHubKpi(key) {
+  if (key === 'escalations') router.push(escalationsPath.value);
+  else if (key === 'unassigned') { clinicalTextsOpened.value = true; if (agencyTextsEl.value) { agencyTextsEl.value.open = true; agencyTextsEl.value.scrollIntoView({block:'nearest'}); } }
+  else openHubQueue({ tickets: 'open', ip: 'in_progress', waiting: 'waiting' }[key] || '');
+}
 function openTicket(ticket) {
   const id = ticket?.id || ticket?.ticketId;
-  if (!id) return;
-  router.push({
-    path: ticketsPath.value,
-    query: { status: 'open', ticketId: String(id) }
-  }).catch(() => {});
+  if (id) hubTicket.value = { id, agencyId: ticket.agencyId || ticket.agency_id || agencyStore.currentAgency?.id };
 }
 
 function openHomeSupportRow(row) {
@@ -1163,4 +1151,12 @@ button.cc-kpi:hover {
 .hot { color: #dc2626; }
 .cc-empty { color: var(--cc-muted); font-size: 13px; }
 .cc-empty.pad { padding: 18px 0; }
+
+.cc-top{padding:10px 18px;gap:10px;align-items:center}.cc-eyebrow{margin-bottom:4px;font-size:10px}.cc-mode{padding:14px 18px}.cc-mode-intro{margin-bottom:10px}.cc-mode-intro h2{font-size:21px;margin:0}.cc-mode-intro p{margin:4px 0;font-size:13px}
+.cc-kpi-row{gap:8px;margin-bottom:12px}.cc-kpi{padding:10px 12px;text-align:left;font:inherit}.cc-kpi-value{font-size:25px}.cc-grid-main{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.cc-panel--tickets{grid-column:1/-1}.cc-panel-h{padding:10px 12px}.cc-panel-tools{display:flex;gap:5px;align-items:center}.cc-panel-tools select{font:inherit;font-size:12px;padding:5px;border:1px solid #cbd5e1;border-radius:6px}
+.cc-ticket-summary{display:flex;flex-direction:column;gap:3px;width:100%;box-sizing:border-box;text-align:left;border:0;border-top:1px solid #e2e8f0;background:transparent;color:inherit;padding:9px 12px;cursor:pointer;text-decoration:none}.cc-ticket-summary:hover{background:var(--bg-secondary,#eef4ff)}.cc-ticket-summary>span{font-size:12px;color:var(--text-secondary,#64748b)}.cc-ticket-summary strong{font-size:14px}.cc-mini-tabs{padding:6px 12px;display:flex;gap:6px}.cc-mini-tabs button{padding:5px 8px;font:inherit;font-size:12px;border:1px solid #dce5f0;border-radius:6px;background:transparent;color:inherit;cursor:pointer}
+.cc-support-review{margin:12px 0;border:1px solid #dce5f0;border-radius:8px;padding:10px 12px;background:var(--bg-card,#fff)}.cc-support-review>summary{cursor:pointer;font-weight:600;font-size:13px}.cc-inline-desk{margin-bottom:12px}.cc-inline-desk :deep(.ticket-desk){padding:10px;height:75dvh}.cc-switch-btn{padding:8px 10px}
+@media(max-width:700px){.cc-grid-main{grid-template-columns:1fr}.cc-panel-h{flex-wrap:wrap}.cc-top{position:static}.cc-mode{padding:10px}.cc-kpi-hint{display:none}}
+
+.cc-panel{padding:10px 12px;border-radius:10px}.cc-panel-h{padding:0 0 8px;min-height:0;margin-bottom:4px}.cc-panel-h h3{margin:0;font-size:15px}.cc-panel .cc-empty{margin:8px 0;padding:0}.cc-kpi{min-height:0;box-shadow:none;border-radius:10px}.cc-grid-main .cc-panel{margin:0}.cc-tiles{gap:8px}.cc-tile{padding:9px 10px;border-radius:8px}
 </style>
