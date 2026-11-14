@@ -412,6 +412,7 @@
               </div>
               <p class="muted">This note is attached to the session and is nonbillable. Signing does not create an insurance claim.</p>
               <div class="acw-narrative">{{ change.localNarrative.value || 'Complete prior steps to generate the note.' }}</div>
+              <label v-if="change.workflow.value?.status !== 'completed'" class="acw-signature"><input v-model="change.signatureConfirmed.value" type="checkbox" :disabled="change.saving.value" /><span>I reviewed this note and confirm my signature.</span></label>
               <div v-if="['canceled', 'rescheduled'].includes(change.facts.eventType) && change.facts.clientFacingReason" class="acw-client-notice">
                 <h4 class="acw-h4">{{ change.facts.notificationMode === 'none' ? 'Cancellation recorded — no email or text will be sent' : 'Client message to review' }}</h4>
                 <p v-if="change.facts.eventType === 'rescheduled'">Your appointment has moved. The message will include its verified new date and time.</p><p v-else>Your appointment scheduled for {{ change.context.whenLabel || change.preview.value?.appointment?.displayWhen }} has been canceled.</p>
@@ -474,7 +475,6 @@
             >Continue →</button>
             <template v-else-if="change.workflow.value?.status !== 'completed'">
             <p v-if="['private_slots','portal_booking'].includes(change.facts.followUpAction)">Only offer times you can commit to. A completed reservation schedules the appointment immediately, without another approval.</p>
-            <label><input v-model="change.signatureConfirmed.value" type="checkbox" /> I reviewed this note and confirm my signature.</label>
             <button
               type="button"
               class="acw-btn primary"
@@ -622,7 +622,7 @@ async function onSign() {
 .acw-overlay {
   position: fixed;
   inset: 0;
-  z-index: 5200;
+  z-index: 10400;
   background: rgba(15, 23, 42, 0.45);
   display: flex;
   align-items: stretch;
@@ -820,7 +820,9 @@ async function onSign() {
   border-top: 1px solid #e2e8f0;
   background: #fff;
 }
-.acw-footer-right { display: flex; gap: 8px; }
+.acw-footer-right { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.acw-signature { display:flex; align-items:flex-start; gap:10px; padding:16px; margin-top:16px; border:1px solid #cbd5e1; border-radius:10px; background:#f8fafc; line-height:1.5; }
+.acw-signature input { flex:none; width:18px; height:18px; margin:2px 0 0; }
 .acw-btn {
   border: 1px solid #cbd5e1;
   background: #fff;

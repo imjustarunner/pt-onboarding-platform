@@ -136,6 +136,8 @@ export async function listReminders(appointmentId) {
     id: Number(r.id),
     appointmentId: Number(r.appointment_id),
     channel: r.channel,
+    kind: r.kind || 'reminder',
+    ruleKey: r.rule_key || null,
     offsetMinutes: Number(r.offset_minutes),
     scheduledFor: r.scheduled_for,
     status: r.status,
@@ -211,10 +213,10 @@ export async function scheduleRemindersForAppointment(appointmentId, { replace =
   return created;
 }
 
-export async function cancelPendingReminders(appointmentId) {
+export async function cancelPendingReminders(appointmentId, { preserveManual = false } = {}) {
   await pool.execute(
     `UPDATE appointment_reminders SET status = 'canceled'
-     WHERE appointment_id = ? AND status = 'pending'`,
+     WHERE appointment_id = ? AND status = 'pending'${preserveManual ? " AND COALESCE(rule_key,'')<>'manual_extra'" : ''}`,
     [Number(appointmentId)]
   );
 }

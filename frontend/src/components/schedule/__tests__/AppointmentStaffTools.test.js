@@ -47,3 +47,7 @@ describe('appointment Conversa', () => {
     expect(wrapper.text()).toContain('Current guardian access is required'); expect(wrapper.find('textarea').element.value).toBe('Hello');
   });
 });
+
+it('presents the Conversa logo and contact action at the bottom of appointment Info',async()=>{
+ api.get.mockResolvedValue({data:{agencyId:377,alert:{text:'',revision:0},canEdit:true,clients:[{id:31,name:'Demo client'}]}});const w=mount(StaffTools,{props:{appointmentId:12}});await flushPromises();expect(w.get('.staff-contact .conversa-launch img').attributes('alt')).toBe('Conversa');expect(w.get('.conversa-launch').text()).toContain('Contact client');expect(w.text()).not.toContain('Text, message or email client · Conversa');w.unmount();
+});

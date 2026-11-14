@@ -476,14 +476,14 @@ export const postMessagesHubEnsureThread = async (req, res, next) => {
       });
     }
     const clientId = method === 'secure' ? await resolveClientForSecureRecipients({ agencyId, actorUserId: req.user.id, recipientUserId: person.userId, clientId: req.body?.clientId || person.clientId }) : null;
-    const shared = clientId ? await ensureClientSecureConversation({ clientId, actorUserId: req.user.id, agencyId }) : null;
+    const shared = clientId ? await ensureClientSecureConversation({ clientId, actorUserId: req.user.id, agencyId, serviceId: req.body?.serviceId || null }) : null;
     if (shared && !shared.audienceUserIds.includes(Number(person.userId))) return res.status(403).json({ error: { message: 'Recipient does not have access to this client conversation' } });
     const threadId = shared?.threadId || await ensureHubChatThread({ agencyId, userId: req.user.id, otherUserId: person.userId, messageChannel: method });
     return res.json({ ok: true, threadId, person,
-      ...(shared?{shared:true,participants:shared.participants,sharingPolicy:'all_eligible_family',clientId:shared.clientId,agencyId:shared.agencyId}: {}) });
+      ...(shared?{shared:true,participants:shared.participants,sharingPolicy:'all_eligible_family',serviceId:Number(req.body?.serviceId)||null,clientId:shared.clientId,agencyId:shared.agencyId}: {}) });
   } catch (e) {
     if (e?.status) {
-      return res.status(e.status).json({ error: { message: e.message, ...(String(e.code || "").startsWith("FAMILY_") ? { code:e.code, ...(e.code === "FAMILY_SHARING_ACK_REQUIRED" ? {agencyId:e.agencyId,version:e.version} : {}) } : {}) } });
+      return res.status(e.status).json({ error: { message: e.message, ...(String(e.code || "").startsWith("FAMILY_") ? { code:e.code, ...(e.services ? { services:e.services } : {}), ...(e.code === "FAMILY_SHARING_ACK_REQUIRED" ? {agencyId:e.agencyId,version:e.version} : {}) } : {}) } });
     }
     next(e);
   }
@@ -660,7 +660,7 @@ export const postMessagesHubSend = async (req, res, next) => {
       if (!person.userId) return res.status(400).json({ error: { message: 'Messaging requires a recipient account' } });
       const clientId = method === 'secure' ? await resolveClientForSecureRecipients({ agencyId, actorUserId: req.user.id, recipientUserId: person.userId, clientId: req.body?.clientId || person.clientId }) : null;
       if (method === 'secure' && clientId) {
-        const shared = await ensureClientSecureConversation({ clientId, actorUserId: req.user.id, agencyId });
+        const shared = await ensureClientSecureConversation({ clientId, actorUserId: req.user.id, agencyId, serviceId: req.body?.serviceId || null });
         if (!shared.audienceUserIds.includes(Number(person.userId))) return res.status(403).json({ error: { message: 'Recipient does not have access to this client conversation' } });
         chatThreadId = shared.threadId;
         req.body.clientId = clientId;
@@ -830,7 +830,7 @@ export const postMessagesHubSend = async (req, res, next) => {
     return sendChatMessage(req, res, next);
   } catch (e) {
     if (e?.status) {
-      return res.status(e.status).json({ error: { message: e.message, ...(String(e.code || "").startsWith("FAMILY_") ? { code:e.code, ...(e.code === "FAMILY_SHARING_ACK_REQUIRED" ? {agencyId:e.agencyId,version:e.version} : {}) } : {}) } });
+      return res.status(e.status).json({ error: { message: e.message, ...(String(e.code || "").startsWith("FAMILY_") ? { code:e.code, ...(e.services ? { services:e.services } : {}), ...(e.code === "FAMILY_SHARING_ACK_REQUIRED" ? {agencyId:e.agencyId,version:e.version} : {}) } : {}) } });
     }
     next(e);
   }

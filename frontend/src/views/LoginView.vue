@@ -608,10 +608,10 @@
 
         <div v-if="showGuardianTempPasswordMessage" class="modal-overlay" @click.self="closeRecoveryModals">
           <div class="modal">
-            <h3>Need a new access token?</h3>
+            <h3>Recover parent or guardian access</h3>
             <p class="modal-subtitle">
-              Parent and guardian access starts with a private token, not staff Forgot password.
-              If that token expired or never arrived, we notify the care team. They can send a new token or a temporary password.
+              Enter your account email to receive a link to set or reset your password, including after an invitation expires.
+              If your invitation needs review, the care team will follow up.
             </p>
             <form @submit.prevent="submitGuardianTempPasswordHelp" class="modal-form">
               <div class="form-group">
@@ -2537,22 +2537,15 @@ const submitGuardianTempPasswordHelp = async () => {
   recoveryError.value = '';
   recoverySuccess.value = '';
   try {
-    if (!await bootstrapRecoveryRecaptcha(forgotPasswordEmail.value || username.value)) return;
-    const captchaToken = await getLoginRecoveryCaptchaToken('login_password_reset');
-    if (recoveryRecaptchaRequired.value && !captchaToken) {
-      recoveryError.value = 'Security verification did not complete. Please refresh and try again.';
-      return;
-    }
     const resp = await api.post('/auth/request-guardian-temp-password', {
       email: String(forgotPasswordEmail.value || '').trim(),
       ...(isSchoolCareBridge.value ? { surface: 'schoolcarebridge' } : {}),
-      organizationSlug: loginSlug.value || undefined,
-      captchaToken: captchaToken || undefined
+      organizationSlug: loginSlug.value || undefined
     }, { skipGlobalLoading: true, skipAuthRedirect: true });
     recoverySuccess.value = resp?.data?.message
       || 'If this matches a parent or guardian access token, the care team can send a new token or a temporary password.';
   } catch {
-    recoverySuccess.value = 'If this matches a parent or guardian access token, the care team can send a new token or a temporary password.';
+    recoveryError.value = 'We could not submit your request. Please try again in a few minutes.';
   } finally {
     recoveryLoading.value = false;
   }

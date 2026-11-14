@@ -1,3 +1,5 @@
+import staffTools from '../services/appointmentStaffTools.service.js';
+import manualReminders from '../services/manualSessionReminder.service.js';
 import User from '../models/User.model.js';
 import Appointment from '../models/Appointment.model.js';
 import {
@@ -137,7 +139,12 @@ export const getAppointmentNotificationPlan = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
     const plan = await buildDeliveryPlan(id);
-    res.json({ ok: true, plan });
+    const reminderState = await manualReminders.state(appt);
+    let canEdit = true;
+    try { await staffTools.authorizeEdit(req.user,id); } catch(error) { if(error.status!==403)throw error; canEdit=false; }
+    reminderState.canSendAdditionalReminder = reminderState.canSendAdditionalReminder && canEdit
+      && (plan.deliveries||[]).some(item=>item.kind!=='confirmation'&&item.recipientRole!=='provider');
+    res.json({ ok: true, plan: { ...plan, ...reminderState } });
   } catch (e) {
     next(e);
   }
@@ -151,9 +158,15 @@ export const rescheduleSessionNotifications = async (req, res, next) => {
     if (!(await assertAgencyAccess(req, appt.agencyId))) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
+    if (req.body?.kind === 'additional_reminder') {
+      await staffTools.authorizeEdit(req.user, id);
+      const result = await manualReminders.queue(appt, buildDeliveryPlan, req.user.id);
+      return res.json({ ok: true, ...result });
+    }
     const scheduled = await scheduleSessionNotifications(id, { replace: true });
     res.json({ ok: true, scheduled });
   } catch (e) {
+    if (e.status) return res.status(e.status).json({ error: { message: e.message, availableAt: e.availableAt || null } });
     next(e);
   }
 };

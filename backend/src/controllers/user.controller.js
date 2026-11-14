@@ -4433,7 +4433,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
            e.clinical_session_id,
            e.note_context_id,
            e.billing_context_id,
-           EXISTS(SELECT 1 FROM appointments a WHERE a.office_event_id=e.id AND a.status NOT IN ('canceled','canceled_by_provider','canceled_by_client','canceled_by_guardian')) AS has_appointment,
+           EXISTS(SELECT 1 FROM appointments a WHERE (a.office_event_id=e.id OR (a.room_id=e.room_id AND a.provider_user_id=e.booked_provider_id AND a.start_at>=e.start_at AND a.end_at<=e.end_at)) AND a.status IN ('scheduled','confirmed','client_confirmed','completed')) AS has_appointment,
            EXISTS(
              SELECT 1
              FROM provider_virtual_slot_availability pv
@@ -4466,7 +4466,8 @@ export const getUserScheduleSummary = async (req, res, next) => {
           AND bp.is_active = TRUE
          JOIN office_location_agencies ola ON ola.office_location_id = ol.id AND ola.agency_id = ?
          WHERE (e.assigned_provider_id = ? OR e.booked_provider_id = ?)
-           AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
+           AND (e.status IS NULL OR UPPER(e.status) NOT IN ('CANCELLED','CANCELED')
+             OR EXISTS(SELECT 1 FROM appointments retained WHERE retained.office_event_id=e.id AND retained.status<>'draft'))
            AND e.start_at < ?
            AND e.end_at > ?
          ORDER BY e.start_at ASC`,
@@ -4586,7 +4587,8 @@ export const getUserScheduleSummary = async (req, res, next) => {
          LEFT JOIN office_standing_assignments osa ON osa.id = e.standing_assignment_id
          JOIN office_location_agencies ola ON ola.office_location_id = ol.id AND ola.agency_id = ?
          WHERE (e.assigned_provider_id = ? OR e.booked_provider_id = ?)
-           AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
+           AND (e.status IS NULL OR UPPER(e.status) NOT IN ('CANCELLED','CANCELED')
+             OR EXISTS(SELECT 1 FROM appointments retained WHERE retained.office_event_id=e.id AND retained.status<>'draft'))
            AND e.start_at < ?
            AND e.end_at > ?
          ORDER BY e.start_at ASC`,
@@ -6103,6 +6105,8 @@ export const getUserScheduleSummary = async (req, res, next) => {
         agencyId: aid, providerId, startDate: weekStart, endDate: weekEnd, timeZone
       }));
     }
+    const {default:scheduleReferences}=await import('../services/scheduleRecordReference.service.js');
+    await scheduleReferences.enrich(fullPayload);
     res.json(fullPayload);
   } catch (e) {
     next(e);

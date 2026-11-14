@@ -191,8 +191,8 @@
       >
         <span class="aip-ico aip-ico--blue" aria-hidden="true">$</span>
         <div>
-          <div class="aip-k">{{ claimId ? 'Open claim' : 'Billing / claim' }}</div>
-          <div class="aip-v">Create or manage claim</div>
+          <div class="aip-k">{{ claimId ? 'Open claim' : 'Insurance & payment setup' }}</div>
+          <div class="aip-v">{{ claimId ? 'Review existing claim' : 'Complete the session note first' }}</div>
         </div>
       </button>
       <button

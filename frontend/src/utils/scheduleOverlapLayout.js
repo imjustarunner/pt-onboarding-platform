@@ -23,7 +23,7 @@ export function assignOverlapLanes(items = []) {
 export const scheduleBlockPlacementKey = (hour, minute, key) => `${hour}:${minute}:${key}`;
 
 /** Timed spans, published openings, and whole-cell overlays share one coordinate system. */
-export function layoutScheduleDayBlocks(cells, rowMinutes = 60) {
+export function layoutScheduleDayBlocks(cells, rowMinutes = 60, { showAvailabilityLanes = false } = {}) {
   const intervals=[];
   for (const {hour,minute=0,blocks=[]} of cells) {
     for (const block of blocks) {
@@ -33,7 +33,7 @@ export function layoutScheduleDayBlocks(cells, rowMinutes = 60) {
       const startMs=hour*60+minute+rowMinutes*top/100;
       intervals.push({key:scheduleBlockPlacementKey(hour,minute,block.key),startMs,endMs:startMs+rowMinutes*height/100,
         // Availability describes the day; it must not take a client appointment's lane.
-        context:block.kind==='school'||block.kind==='portal'||(block.kind==='sevt'&&block.eventKind==='SCHEDULE_HOLD'&&!block.isCancelled),
+        context:block.kind==='school'||(!showAvailabilityLanes&&block.kind==='portal')||(block.kind==='sevt'&&block.eventKind==='SCHEDULE_HOLD'&&!block.isCancelled),
         cancelled:!!block.isCancelled,clientSession:!!block.isClientSession});
     }
   }

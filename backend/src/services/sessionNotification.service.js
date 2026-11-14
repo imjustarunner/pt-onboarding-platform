@@ -652,7 +652,7 @@ export async function scheduleSessionNotifications(appointmentId, { replace = tr
 async function scheduleSessionNotificationsUnlocked(appointmentId, { replace = true } = {}) {
   const plan = await buildDeliveryPlan(appointmentId);
   if (!plan.appointment || !plan.start) return [];
-  if (replace) await cancelPendingReminders(appointmentId);
+  if (replace) await cancelPendingReminders(appointmentId, { preserveManual: true });
 
   const created = [];
   for (const d of plan.deliveries) {

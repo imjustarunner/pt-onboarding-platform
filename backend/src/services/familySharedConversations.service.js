@@ -43,12 +43,14 @@ export function createFamilySharedConversations(overrides={}) {
     const service=serviceId?(allowUnavailableProvider?allServices:services).find(s=>Number(s.id)===Number(serviceId)):null;
     if(serviceId&&!service)throw fail(403,'This service is no longer available.');
     if(!allowUnavailableProvider&&!serviceId&&services.length>1&&new Set(services.map(s=>`${s.service_kind}:${s.provider_user_id}`)).size>1)
-      throw fail(409,'Choose the client’s service before opening shared secure messages.','FAMILY_SHARED_CONTEXT_REQUIRED');
+      throw Object.assign(fail(409,'Choose the client’s service before opening shared secure messages.','FAMILY_SHARED_CONTEXT_REQUIRED'), { services: services.map(s => ({ id: Number(s.id), label: s.label || s.service_kind, providerName: s.provider_name || '', providerUserId: Number(s.provider_user_id) })) });
     let pid=Number(service?.provider_user_id||providerUserId||client.provider_id)||0;
     const [assigned]=await db.execute(`SELECT DISTINCT u.id,u.role,u.first_name,u.last_name,u.is_active,u.is_archived,u.status,u.terminated_at,u.status_expires_at
-      FROM users u JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=? AND ua.is_active=1
-      WHERE (u.id=? AND NOT EXISTS(SELECT 1 FROM client_provider_assignments ended WHERE ended.client_id=? AND ended.provider_user_id=u.id))
-      OR EXISTS(SELECT 1 FROM client_provider_assignments p WHERE p.client_id=? AND p.provider_user_id=u.id AND p.is_active=1)`,[aid,client.provider_id||0,cid,cid]);
+      FROM users u JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=? AND COALESCE(ua.is_active,1)=1
+      WHERE ((u.id=? AND NOT EXISTS(SELECT 1 FROM client_provider_assignments ended WHERE ended.client_id=? AND ended.provider_user_id=u.id))
+      OR EXISTS(SELECT 1 FROM client_provider_assignments p WHERE p.client_id=? AND p.provider_user_id=u.id AND p.is_active=1)
+      OR EXISTS(SELECT 1 FROM client_service_enrollments se WHERE se.client_id=? AND se.agency_id=? AND se.provider_user_id=u.id AND se.is_active=1
+        AND NOT EXISTS(SELECT 1 FROM client_provider_assignments ended WHERE ended.client_id=se.client_id AND ended.provider_user_id=u.id AND ended.is_active=0)))`,[aid,client.provider_id||0,cid,cid,cid,aid]);
     const providers=assigned.filter(p=>active(p)&&PROVIDERS.has(p.role));
     if(!pid&&providers.length===1)pid=Number(providers[0].id);
     const provider=providers.find(p=>Number(p.id)===pid);

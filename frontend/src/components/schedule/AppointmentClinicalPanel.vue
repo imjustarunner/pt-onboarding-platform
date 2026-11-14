@@ -22,16 +22,18 @@
           </button>
         </header>
         <div v-if="chartLoading" class="muted">Loading treatment plan…</div>
-        <template v-else-if="primaryGoal">
+        <template v-else-if="goals.length">
+          <section v-for="(goal, goalIndex) in goals" :key="goal.id || goalIndex" class="acp-plan-goal">
           <div class="acp-goal">
-            <strong>Goal {{ primaryGoal.goal_index || primaryGoal.goalIndex || 1 }}:</strong>
-            {{ primaryGoal.goal_text || primaryGoal.goalText || '—' }}
+            <strong>Goal {{ goal.goal_index || goal.goalIndex || goalIndex + 1 }}:</strong>
+            {{ goal.goal_text || goal.goalText || '—' }}
           </div>
-          <ul v-if="primaryObjectives.length" class="acp-objectives">
-            <li v-for="(o, idx) in primaryObjectives" :key="o.id || idx">
+          <ul v-if="goal.objectives?.length" class="acp-objectives">
+            <li v-for="(o, idx) in goal.objectives" :key="o.id || idx">
               {{ o.objective_text || o.objectiveText || '—' }}
             </li>
           </ul>
+          </section>
           <div v-if="planMeta" class="acp-meta muted">{{ planMeta }}</div>
         </template>
         <p v-else class="muted">No treatment plan on file for this client yet.</p>
@@ -55,10 +57,10 @@
 
     </div>
 
-    <div class="acp-note-bar">
+    <div v-if="clinicalNoteId" class="acp-note-bar">
       <div>
-        <strong>View the full clinical note</strong>
-        <span class="muted">Open the complete note with all details.</span>
+        <strong>Review this session’s note</strong>
+        <span class="muted">This is the formatted note created from Session note. Review and sign it in Note Workspace.</span>
       </div>
       <button
         type="button"
@@ -66,7 +68,7 @@
         :disabled="!clinicalNoteId && !clinicalSessionId"
         @click="emit('open-note')"
       >
-        Open clinical note
+        Review in Note Workspace
       </button>
     </div>
   </div>
@@ -86,14 +88,7 @@ const props = defineProps({
 
 const emit = defineEmits(['open-session-note', 'open-treatment-plan', 'open-note']);
 
-const primaryGoal = computed(() => {
-  const goals = props.latestPlan?.goals || [];
-  return goals[0] || null;
-});
-const primaryObjectives = computed(() => {
-  const objs = primaryGoal.value?.objectives || [];
-  return Array.isArray(objs) ? objs.slice(0, 4) : [];
-});
+const goals = computed(() => Array.isArray(props.latestPlan?.goals) ? props.latestPlan.goals : []);
 const planMeta = computed(() => {
   const p = props.latestPlan;
   if (!p) return '';
@@ -202,6 +197,7 @@ const planMeta = computed(() => {
   cursor: pointer;
   padding: 0;
 }
+.acp-plan-goal + .acp-plan-goal { margin-top: 16px; padding-top: 12px; border-top: 1px solid #e8eef5; }
 .acp-goal {
   font-size: 0.88rem;
   color: #0f172a;

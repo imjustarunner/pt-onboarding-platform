@@ -3454,6 +3454,7 @@ function htmlToPlainText(html) {
 }
 
 async function ensureChatThread() {
+  if (familySecureCompose.value && secureFamilyAudience.value?.threadId) return secureFamilyAudience.value.threadId;
   if (chatThreadId.value) return chatThreadId.value;
   if (!selected.value?.personKey) return null;
   const sendAgencyId = selected.value.agencyId || agencyId.value;
@@ -5049,7 +5050,7 @@ async function executeSend({ deliveryChoice = null, sendToAllPortalGuardians = f
       } else {
         payload.undoDelaySeconds = Number(undoDelaySeconds.value) || 20;
       }
-      if (familySecureCompose.value) payload.expectedRecipientUserIds = [...(secureFamilyAudience.value?.recipientUserIds || [])];
+      if (familySecureCompose.value) { payload.expectedRecipientUserIds = [...(secureFamilyAudience.value?.recipientUserIds || [])]; payload.serviceId = secureFamilyAudience.value?.serviceId || undefined; }
       const { data } = await api.post('/messages/hub/send', payload, { skipGlobalLoading: true });
       if (data?.error?.message) {
         throw Object.assign(new Error(data.error.message), { response: { data } });

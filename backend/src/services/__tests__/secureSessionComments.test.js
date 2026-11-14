@@ -52,3 +52,15 @@ describe('local-day attention and end of last day session',()=>{
     expect(calculate({now,appointments:[nextDay],comments:[{id:1,appointment:nextDay}]}).unread).toEqual([]);
   });
 });
+
+it('recognizes the occurrence provider through an active service enrollment when the legacy provider field is empty',async()=>{
+  const db={execute:vi.fn(async sql=>sql.includes('FROM user_agencies')?[[{user_id:7}]]:[[]])};
+  const services=vi.fn(async()=>[{id:20,agency_id:2,is_active:1,provider_user_id:7,service_kind:'counseling'}]);
+  const service=createSecureSessionComments({db,services});
+  const provider={id:7,role:'provider',status:'ACTIVE_EMPLOYEE',is_active:1};
+  const appointment={agency_id:2,client_id:31,provider_user_id:7,legacy_provider_id:null};
+  expect(await service.hasCurrentRights(provider,appointment)).toBe(true);
+  expect(await service.hasCurrentRights({...provider,id:8},appointment)).toBe(false);
+  db.execute.mockImplementation(async sql=>sql.includes('FROM user_agencies')?[[{user_id:7}]]:[[{id:30,is_active:0}]]);
+  expect(await service.hasCurrentRights(provider,appointment)).toBe(false);
+});

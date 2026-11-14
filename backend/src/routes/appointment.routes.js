@@ -1,3 +1,4 @@
+import officeReservations from '../services/appointmentOfficeReservation.service.js';
 import { getClientSessionBookingAccess, getClientSessionBookingRollout, putClientSessionBookingRollout } from '../controllers/clientSessionBookingRollout.controller.js';
 import { getAppointmentStaffTools, saveAppointmentStaffAlert, listAppointmentStaffAlerts, openAppointmentLearningWorkspace } from '../controllers/appointmentStaffTools.controller.js';
 import Appointment from '../models/Appointment.model.js';
@@ -71,6 +72,14 @@ router.post('/', createAppointmentHandler);
 router.get('/:id/guardian-requests', guardianAppointments.providerList);
 router.post('/:id/guardian-requests/:requestId/decline', guardianAppointments.providerDecline);
 router.get('/:id', getAppointment);
+router.get('/:id/office-reservations', async (req,res,next) => {
+  try { res.set('Cache-Control','no-store'); res.json(await officeReservations.get(req.user,Number(req.params.id))); }
+  catch(error) { if(error.status)return res.status(error.status).json({error:{message:error.message}}); next(error); }
+});
+router.post('/:id/office-reservations/link', async (req,res,next) => {
+  try { res.json({ok:true,...await officeReservations.link(req.user,Number(req.params.id),req.body||{})}); }
+  catch(error) { if(error.status)return res.status(error.status).json({error:{message:error.message},linkedAppointmentIds:error.linkedAppointmentIds||[]}); next(error); }
+});
 router.get('/:id/staff-tools', getAppointmentStaffTools);
 router.post('/:id/learning-workspace', openAppointmentLearningWorkspace);
 router.put('/:id/staff-alert', saveAppointmentStaffAlert);
