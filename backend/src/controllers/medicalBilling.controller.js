@@ -10,6 +10,8 @@ import {reconcileNewClaimAfterHours,savedClinicalFunding,assertNoAutomaticProBon
 import { listClientDiagnosisAlerts } from '../services/clinicalDiagnosisPolicy.service.js';
 import { assertClinicalBillingApproval } from '../services/billingClinicalApproval.service.js';
 import { clinicalNoteSnapshotHash, ensureOriginalRevision, appendOriginalSignature, hasPendingRevision, getRevisionSummary, listPendingRevisionWork, appendRevisionAddendum } from '../services/clinicalNoteVersion.service.js';
+import { medicalCatalogActiveChoice } from '../services/serviceCodeInventoryPresentation.js';
+import { assertConfiguredTestingReferenceCodes } from '../services/testingCatalogClaimGuard.service.js';
 import { assertClientDiagnosisPolicy } from '../services/clinicalDiagnosisPolicy.service.js';
 import { assertClinicalSigner, CLINICAL_SIGNER_ROLES } from '../services/clinicalNoteSigningToken.service.js';
 import { getApprovedClinicalContext, assertClinicalVersionSubmission, clinicalVersionReference, approvedVersionBillingBlockers } from '../services/clinicalNoteVersionBilling.service.js';
@@ -2441,7 +2443,7 @@ export const createMedicalClaim = async (req, res, next) => {
     if (!session || Number(session.agency_id) !== agencyId || Number(session.client_id) !== clientId) {
       return res.status(404).json({ error: { message: 'Session not found for this client and agency' } });
     }
-    await requireTestingEligibility({agencyId,userId:Number(session.provider_user_id),serviceCodes:[session.service_code,...(Array.isArray(req.body.lineItems)?req.body.lineItems.map(line=>line.procedureCode||line.serviceCode):[])],clientId,serviceDate:session.scheduled_start_at||session.date_of_service});
+    await requireTestingEligibility({agencyId,userId:Number(session.provider_user_id),serviceCodes:[session.service_code,...(Array.isArray(req.body.lines)?req.body.lines.map(line=>line.procedureCode||line.serviceCode):[]),...(Array.isArray(req.body.lineItems)?req.body.lineItems.map(line=>line.procedureCode||line.serviceCode):[])],clientId,serviceDate:session.scheduled_start_at||session.date_of_service});
     const billingAccess = await hasSchedulingBillingAccess(req.user, agencyId);
     if (!billingAccess && Number(session.provider_user_id) !== Number(req.user.id) && req[clinicalSignatureHandoff] !== true) {
       return res.status(403).json({ error: { message: 'Only the session provider or billing team can prepare this claim' } });
@@ -2658,6 +2660,9 @@ export const createMedicalClaim = async (req, res, next) => {
     const payerName = insuranceSnapshot?.primary?.insurerName || null;
     const afterHoursPolicy=await reconcileNewClaimAfterHours({session:sessionRow,note:approvedNote,lines,metadata:parseObject(approvedNote?.metadata_json),billing:sourceFunding});
     lines=afterHoursPolicy.lines;
+    const resolvedClaimCodes = lines.map(line => line.procedureCode || line.serviceCode);
+    await assertConfiguredTestingReferenceCodes({agencyId,serviceCodes:resolvedClaimCodes});
+    await requireTestingEligibility({agencyId,userId:Number(sessionRow?.provider_user_id||session.provider_user_id),serviceCodes:resolvedClaimCodes,clientId,serviceDate:sessionRow?.scheduled_start_at||dateOfService});
     if (providerResolutionFailed && lines.some(line => line.chargeCents == null || line.chargeCents === '')) throw Object.assign(new Error('Resolve the claim billing provider before applying its fee schedule.'), { status: 409 });
     lines = await priceNewClaimLines({ lines, agencyId, payerId: insuranceSnapshot?.primary?.payerId || null,
       providerUserId: claimProviderMeta?.billingUserId || claimProviderMeta?.renderingUserId || sessionRow?.rendering_provider_user_id || sessionRow?.provider_user_id || null,
@@ -3321,7 +3326,7 @@ export const upsertMedicalServiceCode = async (req, res, next) => {
     const isAddon = isClinicalAddon(serviceCode) || (req.body.isAddon !== undefined
       ? [true, 1, '1', 'true'].includes(req.body.isAddon)
       : !!existingCode?.isAddon);
-    const isActive = req.body.isActive !== false;
+    const isActive = medicalCatalogActiveChoice(req.body.isActive, existingCode, serviceCode);
     const item = await AgencyMedicalServiceCode.upsert({
       agencyId,
       serviceCode,
@@ -3365,12 +3370,12 @@ export const upsertMedicalServiceCode = async (req, res, next) => {
         syncClinicalCodePresent,
         removeServiceCodeEverywhere
       } = await import('../services/agencyServiceCodeCatalog.service.js');
-      if (!isActive) {
+      if (!isActive && existingCode?.isActive) {
         await removeServiceCodeEverywhere(agencyId, serviceCode, {
           skipMedical: true,
           forceAllSurfaces: true
         });
-      } else {
+      } else if (isActive) {
         await syncClinicalCodePresent(agencyId, serviceCode, { actorUserId: req.user.id });
       }
     } catch (cause) {

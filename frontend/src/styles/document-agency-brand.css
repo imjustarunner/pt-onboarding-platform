@@ -1,0 +1,50 @@
+/* Shared document chrome uses the selected agency's configured palette. */
+.agency-document{color:var(--doc-ink);--ink:var(--doc-ink);--muted:var(--doc-muted);--line:var(--doc-line)}
+.agency-document .handbook-book,.handbook-book.agency-document{color:var(--doc-ink);background:var(--doc-page);--ink:var(--doc-ink);--muted:var(--doc-muted);--line:var(--doc-line)}
+.agency-document.agency-document :is(.book-cover,.reader-toolbar,.book-outline,.page-navigation,.artwork-credits,.care-orientation-banner,.section-updates,.pending-section,.reference-changes,.publish-box){background:var(--doc-tint);color:var(--doc-ink);border-color:var(--doc-line)}
+.agency-document.agency-document :is(.book-page,.reader-pane,.handbook-workspace){background:var(--doc-page);color:var(--doc-ink)}
+.agency-document.agency-document :is(.outline-link,.outline-status,.book-search input,.handbook-prose,.cover-description,.chapter-introduction,.page-topline,.section-eyebrow,.update-status,.reference-heading,.reference-heading .eyebrow,.workspace-toolbar p,.publish-box p){color:var(--doc-ink)}
+.agency-document.agency-document :is(.outline-link:hover,.outline-link.active,.outline-chapter.current-chapter,.chapter-sections button){background:var(--doc-active);color:var(--doc-ink);border-color:var(--doc-line)}
+.agency-document.agency-document :is(.page-rule,.cover-rule){background:var(--doc-accent)}
+.agency-document.agency-document :is(.book-primary,.publish-button,.btn.primary,.edition-tabs [aria-pressed=true],.handbook-tabs [aria-pressed=true]){background:var(--doc-ink);border-color:var(--doc-ink);color:white}
+.agency-document.agency-document :is(.handbook-prose a,.pending-section a,.artwork-credits a,.chapter-sections h4){color:var(--doc-ink)}
+.agency-document.agency-document .handbook-prose blockquote{background:var(--doc-tint);border-color:var(--doc-accent)}
+.agency-document.agency-document .handbook-prose th{background:var(--doc-tint)}
+.agency-document.agency-document :is(.book-search,.page-navigation button,.chapter-picker select,.section-update,.reference-workspace button){border-color:var(--doc-line)}
+.agency-document .page-navigation button:last-child{background:var(--doc-ink);color:white}
+.agency-document.agency-document :is(.workspace-actions button,.reference-workspace button,.reference-actions button,.reference-workspace,.handbook-tabs button,.btn){color:var(--doc-ink)}
+.agency-document.agency-document :is(.reference-error,.workspace-error,.err){color:#922f32}
+
+.handbook-book.agency-document.agency-document :is(.book-cover,.reader-toolbar,.book-outline,.page-navigation,.artwork-credits,.care-orientation-banner,.section-updates,.pending-section){background:var(--doc-tint);color:var(--doc-ink);border-color:var(--doc-line)}
+.handbook-book.agency-document.agency-document :is(.book-page,.reader-pane){background:var(--doc-page)}
+.handbook-book.agency-document.agency-document :is(.outline-link,.outline-status,.handbook-prose,.cover-description,.chapter-introduction,.page-topline,.section-eyebrow,.update-status){color:var(--doc-ink)}
+.handbook-book.agency-document.agency-document :is(.outline-link:hover,.outline-link.active,.outline-chapter.current-chapter,.chapter-sections button){background:var(--doc-active);color:var(--doc-ink);border-color:var(--doc-line)}
+.handbook-book.agency-document.agency-document .handbook-prose :is(a,h1,h2,h3,h4,h5,h6){color:var(--doc-ink)}
+.handbook-book.agency-document.agency-document .handbook-prose th{background:var(--doc-tint)}
+.handbook-book.agency-document.agency-document .handbook-prose blockquote{background:var(--doc-tint);border-color:var(--doc-accent)}
+.handbook-book.agency-document.agency-document .foundation-content{--foundation-green:var(--doc-ink);--foundation-aqua:var(--doc-tint);--foundation-lime:var(--doc-active)}
+.handbook-book.agency-document.agency-document :is(.page-rule,.cover-rule){background:var(--doc-accent)}
+.agency-document.agency-document :is(.entry,.glass,.digest-workspace,.reference-changes,.publish-box,.hb-card,.handbook-location){border-color:var(--doc-line)}
+.agency-document.agency-document :is(.digest-chip.on,.reader-tabs [aria-pressed=true],.handbook-tabs [aria-pressed=true],.primary){background:var(--doc-ink);border-color:var(--doc-ink);color:white}
+.service-code-category-badge{display:inline-block;border:1px solid #cbd5e1;border-radius:7px;padding:4px 7px;font-size:11px;line-height:1.5;font-weight:650;color:#334155;background:#f1f5f9}
+.service-code-testing-evaluation{background:#f2eafa;color:#593477;border-color:#cab1e1}
+.service-code-testing-administration{background:#e7effc;color:#214c84;border-color:#a9c4ea}
+.service-code-direct-care{background:#e4f3ef;color:#165b4a;border-color:#a3cbbf}
+mark[data-service-group]{display:inline-block;border:1px solid #cbd5e1;border-radius:7px;padding:4px 7px;font-size:11px;line-height:1.5;font-weight:650;white-space:normal}
+mark[data-service-group="testing-evaluation"]{background:#f2eafa;color:#593477;border-color:#cab1e1}
+mark[data-service-group="testing-administration"]{background:#e7effc;color:#214c84;border-color:#a9c4ea}
+mark[data-service-group="direct-care"]{background:#e4f3ef;color:#165b4a;border-color:#a3cbbf}
+mark[data-service-group="indirect"]{background:#fff1db;color:#7a4b18;border-color:#dfc494}
+mark[data-service-group="tutoring"]{background:#e9f6fd;color:#175370;border-color:#9dcbdc}
+mark[data-service-group="childcare"]{background:#fceaf1;color:#7e3555;border-color:#dfb3c6}
+.agency-document.agency-document.agency-document :is(.entry-head,.ok,.btn,.doc-link,.kicker){color:var(--doc-ink)}
+.agency-document.agency-document.agency-document :is(.btn.primary,.primary,.edition-tabs [aria-pressed=true],.handbook-tabs [aria-pressed=true]){background:var(--doc-ink);background-image:none;color:white;border-color:var(--doc-ink)}
+.agency-document.agency-document.agency-document .digest-chip.on{border-color:var(--doc-ink);box-shadow:0 0 0 1px var(--doc-ink)}
+.handbook-book.agency-document.agency-document :is(.value-card,.founder-initials){background:var(--doc-tint);border-color:var(--doc-line);color:var(--doc-ink)}
+.handbook-book.agency-document.agency-document :is(.value-top,.value-card h4,.story-body p:first-child,.goals-body li){color:var(--doc-ink);border-color:var(--doc-accent)}
+.handbook-book.agency-document.agency-document .foundation-vision .purpose-panel{background:var(--doc-active);color:var(--doc-ink)}
+.handbook-book.agency-document.agency-document .purpose-panel :is(.purpose-heading,.purpose-signature){color:white}
+.handbook-book.agency-document.agency-document .foundation-vision :is(.purpose-heading,.purpose-signature){color:var(--doc-ink)}
+.handbook-book.agency-document.agency-document .value-card:last-child:nth-child(odd){background:var(--doc-ink);color:white;border-color:var(--doc-ink)}
+.handbook-book.agency-document.agency-document .value-card:last-child:nth-child(odd) :is(h4,.value-top){color:white}
+mark[data-service-group="program"]{background:#f1ecf8;color:#5d3d7d;border-color:#c9b8df}

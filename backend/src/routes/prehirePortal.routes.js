@@ -43,6 +43,7 @@ import {
   setPortalAccountPassword,
   getPortalSubmissions,
   getPortalHandbook,
+  getPortalContractHandbookReference,
   submitPortalBackgroundCheck,
   recordPortalHandbookOpen,
   completePortalChecklistItem,
@@ -138,6 +139,7 @@ router.post('/:token/document-learning/enrollments/:id/quiz', portalLearning('qu
 router.post('/:token/document-learning/enrollments/:id/heartbeat', portalLearning('heartbeat'));
 router.post('/:token/document-learning/enrollments/:id/time', portalLearning('time'));
 router.post('/:token/document-learning/enrollments/:id/answer', handbookAssistantLimit, portalLearning('answer'));
+router.get('/:token/resources/handbook/reference', getPortalContractHandbookReference);
 router.get('/:token/resources/handbook', getPortalHandbook);
 router.post('/:token/resources/handbook/answer', handbookAssistantLimit, answerPortalHandbook);
 router.post('/:token/background-check', submitPortalBackgroundCheck);

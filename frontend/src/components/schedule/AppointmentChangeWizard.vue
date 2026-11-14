@@ -300,6 +300,7 @@
 
               <SchoolSupportCancellationBenefit
                 v-model="change.facts.useSchoolSupportHour"
+                v-model:hours="change.facts.schoolSupportHours"
                 :benefit="change.schoolSupport.value" :loading="change.schoolSupportLoading.value" :error="change.schoolSupportError.value"
                 :event-type="change.facts.eventType" @refresh="change.refreshSchoolSupport()"
               />
@@ -403,6 +404,7 @@
             <div>
               <SchoolSupportCancellationBenefit
                 v-model="change.facts.useSchoolSupportHour"
+                v-model:hours="change.facts.schoolSupportHours"
                 :benefit="change.schoolSupport.value" :loading="change.schoolSupportLoading.value" :error="change.schoolSupportError.value"
                 :readonly="!!change.workflow.value && change.workflow.value.status !== 'draft'" :event-type="change.facts.eventType" @refresh="change.refreshSchoolSupport()"
               />

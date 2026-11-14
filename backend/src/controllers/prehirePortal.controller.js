@@ -1,3 +1,4 @@
+import {readContractHandbookReference,portalContractHandbookAgency} from '../services/contractHandbookReferences.service.js';
 import { hireAccountModeForUser, hireModeRequiresPortalPassword } from '../utils/hireAccountMode.js';
 import { loadPortalPrehireExtras, resolveJobDescriptionIdForCandidate } from '../services/hirePortalExtras.service.js';
 import { onboardingPasswordReady } from '../utils/hirePortalWorkflow.js';
@@ -1631,6 +1632,10 @@ export const uploadPortalPrehireDocument = async (req, res, next) => {
   } catch (e) {
     next(e);
   }
+};
+
+export const getPortalContractHandbookReference = async (req,res,next) => {
+  try{const agencyId=await portalContractHandbookAgency(req.portalUser.id,req.query.versionId);res.set('Cache-Control','private, no-store');res.json({reference:await readContractHandbookReference({agencyId,slug:req.query.slug,versionId:req.query.versionId})});}catch(error){next(error)}
 };
 
 export const getPortalHandbook = async (req, res, next) => {

@@ -147,13 +147,15 @@ export function resolveUserPaySystemStatus({
   displayTierLevel = null
 }) {
   const waiveProbation = Number(assignment?.waive_probation || assignment?.waiveProbation || 0) === 1;
-  const waiveMwr = Number(assignment?.waive_minimum_workload || assignment?.waiveMinimumWorkload || 0) === 1;
+  const explicitMwrWaiver = Number(assignment?.waive_minimum_workload || assignment?.waiveMinimumWorkload || 0) === 1;
   const spanishEligible = Number(assignment?.spanish_bonus_eligible || assignment?.spanishBonusEligible || 0) === 1;
   const locationEligible = Number(assignment?.location_bonus_eligible || assignment?.locationBonusEligible || 0) === 1;
 
   const overrideStart = parseDateOnly(assignment?.probation_start_override || assignment?.probationStartOverride);
   const start = overrideStart || parseDateOnly(providerStartDate);
   const asOf = parseDateOnly(asOfDate) || parseDateOnly(periodEnd) || new Date();
+  const datedMwrWaiver=parseDateOnly(assignment?.minimum_workload_waived_from || assignment?.minimumWorkloadWaivedFrom);
+  const waiveMwr=explicitMwrWaiver || !!(datedMwrWaiver && asOf>=datedMwrWaiver);
   const tenureDays = start ? daysBetween(start, asOf) : null;
   const autoProbationEnd = start ? addCalendarDays(start, PROBATION_DAYS) : null;
   const manualEndedOn = parseDateOnly(assignment?.probation_ended_on || assignment?.probationEndedOn);
@@ -196,6 +198,7 @@ export function resolveUserPaySystemStatus({
     useReducedRates,
     waiveProbation,
     waiveMinimumWorkload: waiveMwr,
+    minimumWorkloadWaivedFrom:datedMwrWaiver?toYmd(datedMwrWaiver):null,
     spanishBonusEligible: spanishEligible,
     locationBonusEligible: locationEligible,
     tierLevel,
@@ -741,6 +744,11 @@ export async function loadUserPaySystemContext({
     // ignore
   }
 
+  const [agencyPolicyRows]=await pool.execute('SELECT feature_flags FROM agencies WHERE id=? LIMIT 1',[agencyId]);
+  let agencyFlags=agencyPolicyRows[0]?.feature_flags||{};
+  if(typeof agencyFlags==='string'){try{agencyFlags=JSON.parse(agencyFlags)}catch{agencyFlags={}}}
+  const datedWaiver=agencyFlags.payrollPolicy?.minimumWorkloadWaivedFrom;
+  if(/^\d{4}-\d{2}-\d{2}$/.test(datedWaiver||''))assignment.minimum_workload_waived_from=datedWaiver;
   const legacyAssignment = {...assignment};
   let agreement;
   try { agreement = future?.agreement || await effectiveCompensationAgreement({agencyId,userId,asOfDate:periodEnd}); }
@@ -758,6 +766,8 @@ export async function loadUserPaySystemContext({
     }
     if(rateProfile.conditionalAdditionMode===HANDBOOK_ADDITION_MODE)rateProfile.conditionalAdditionHistory=await loadAdditionHistory({agencyId,category:rateProfile.category,level:rateProfile.level});
     if(agreement.data.schedule?.probationWaived){assignment.waive_probation=1;assignment.probation_ended_on=null;}
+    if(agreement.data.schedule?.newHireTermsVersion && agreement.data.schedule.minimumWorkloadEnabled===false)assignment.waive_minimum_workload=1;
+    if(agreement.data.schedule?.newHireTermsVersion && /^\d{4}-\d{2}-\d{2}$/.test(agreement.data.schedule.originalProbationStartDate||''))assignment.probation_start_override=agreement.data.schedule.originalProbationStartDate;
 
   }
   const statusArgs = {
@@ -823,6 +833,7 @@ export function resolveMidPeriodRateSplit({
   const candidates = [];
   if (atEnd.probationEnd) candidates.push(atEnd.probationEnd);
   if (atEnd.initiationProtectionEnd) candidates.push(atEnd.initiationProtectionEnd);
+  if (atEnd.minimumWorkloadWaivedFrom) candidates.push(atEnd.minimumWorkloadWaivedFrom);
 
   for (const ymd of candidates) {
     const cutoff = parseDateOnly(ymd);

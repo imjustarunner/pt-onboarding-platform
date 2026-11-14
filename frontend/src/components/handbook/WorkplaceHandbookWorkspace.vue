@@ -1,5 +1,5 @@
 <template>
-  <section class="handbook-workspace" :style="{ '--handbook-font': handbookFont }">
+  <section class="handbook-workspace agency-document" :style="{ ...brandStyle, '--handbook-font': handbookFont }">
     <p v-if="loading" role="status">Loading handbook…</p>
     <p v-if="error" class="workspace-error" role="alert">{{ error }} <button type="button" @click="load">Reload</button></p>
     <p v-if="success" class="workspace-success" role="status">{{ success }}</p>
@@ -34,6 +34,7 @@ import { computed, nextTick, ref, watch } from 'vue';
 import api from '../../services/api';
 import WorkplaceHandbookBook from './WorkplaceHandbookBook.vue';
 import HandbookSectionEditor from './HandbookSectionEditor.vue';
+import { useDocumentBranding } from '../../composables/useDocumentBranding.js';
 const props = defineProps({ agencyId: { type: [Number, String], required: true }, adminUpdateId: { type: [Number, String], default: null }, pushId: { type: [Number, String], default: null }, updates: { type: Array, default: () => [] }, fullHandbookUrl: { type: String, default: '' } });
 const emit = defineEmits(['published', 'sections', 'dirty', 'draft-changed']);
 const workspace = ref(null);
@@ -70,6 +71,7 @@ const shown = computed(() => {
   return workspace.value?.[view.value];
 });
 const handbookFont = computed(() => ({ 'itsco-foundations': 'var(--font-itsco)', 'nlu-foundations': 'var(--font-nlu)', 'isi-foundations': 'var(--font-isi)' }[shown.value?.metadata?.presentation?.theme] || 'var(--font-ptco)'));
+const brandStyle = useDocumentBranding(() => shown.value?.metadata || {}, () => props.agencyId);
 async function openSection(slug) {
   if (editorDirty.value && !window.confirm('Discard unsaved section changes to open another policy?')) return;
   editorDirty.value = false;

@@ -67,6 +67,6 @@ export async function futureHirePayContext({agencyId,userId,periodStart,periodEn
     AND include_service_pay=0 AND (effective_start IS NULL OR effective_start<=?) AND (effective_end IS NULL OR effective_end>=?)`,[agencyId,userId,end,day(periodStart)||start]);
   if(salary.length)throw review(`New hire ${userId} has a salary excluding service pay. Resolve the overlap before calculating payroll.`);
   return {agreement,individual,assignment:{agency_id:agencyId,user_id:userId,category:s.category??null,level:s.level??null,
-    pay_system_enabled:1,pay_system_effective_start:start,probation_start_override:start,
-    waive_probation:s.probationWaived?1:0,bypass:0,automatic_future_hire:true}};
+    pay_system_enabled:1,pay_system_effective_start:start,probation_start_override:s.newHireTermsVersion&&s.originalProbationStartDate?s.originalProbationStartDate:start,
+    waive_probation:s.probationWaived?1:0,waive_minimum_workload:s.newHireTermsVersion&&s.minimumWorkloadEnabled===false?1:0,bypass:0,automatic_future_hire:true}};
 }

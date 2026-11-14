@@ -21,6 +21,15 @@ beforeEach(()=>{
 });
 const render=tokens=>renderContractHtml({agencyId:6,configId:1,tokens:{COMPENSATION_CATEGORY:'2',COMPENSATION_LEVEL:'3',ROLE_LABEL:'Employee',JOB_TITLE:'Childcare Provider',CREDENTIAL:'GED',...tokens}});
 describe('selected service clauses in the full contract preview',()=>{
+ it('requires an actual published handbook for a new API preview and never falls back to draft links',async()=>{
+  await expect(render({HANDBOOK_REFERENCES_ENABLED:'1',PROBATION_APPLIES:'no',CONTRACT_SERVICE_ROLES:[]})).rejects.toMatchObject({status:409});
+ });
+ it('retains an ISI provider designation separately from individual service rates without looking up a matrix',async()=>{
+  mocks.agency.mockResolvedValue({id:377,slug:'tisi',name:'The Inner Strength Institute'});
+  const result=await render({PROBATION_APPLIES:'no',PROVIDER_DESIGNATION_LEVEL:'4',CONTRACT_SERVICE_ROLES:['childcare'],INDIVIDUAL_COMPENSATION_BASIS:'approved_individual_agreement',PRIOR_COMPENSATION_AGREEMENT_REFERENCE:'Approved offer A',CONTRACT_SERVICE_ROLE_DETAILS:{childcare:{payLevel:3,compensationTerms:'Approved individual childcare $29.50/hour.'}}});
+  expect(result.tokens.COMPENSATION_SCHEDULE).toMatchObject({providerDesignationLevel:4,providerDesignationLabel:'Advanced Provider',compensationBasis:'approved_individual_agreement'});
+  expect(result.html).toContain('Level 4 — Advanced Provider');expect(result.html).toContain('$29.50/hour');expect(contractCompensationLevels).not.toHaveBeenCalled();
+ });
  it('keeps the code guide in the handbook while printing individual Testing rates and descriptive program duties',async()=>{
   const profile={creditRate:44,hcodeRate:32,hcodeRateProbation:25,indirectRate:22,h2014Rate:18};
   mocks.terms.mockReturnValue({compensation:'<p>Eligible H2014: $18.00 per actual hour-equivalent.</p>',schedule:profile,version:'test',serviceCompensationTerms:{psychological_testing:testingCompensationSchedule(profile)}});

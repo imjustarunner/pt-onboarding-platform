@@ -1,5 +1,5 @@
 <template>
-  <div :class="['hb-admin', { 'handbook-screen-only': !access.canPrint }]">
+  <div :class="['hb-admin', 'agency-document', { 'handbook-screen-only': !access.canPrint }]" :style="brandStyle">
     <p class="handbook-print-notice">Read the current Workplace Handbook in the app. Printing and PDF export are not available in this view.</p>
     <header class="head">
       <div>
@@ -112,6 +112,7 @@ import HandbookDraftSections from './HandbookDraftSections.vue';
 import DraftHtmlEditor from '../admin/DraftHtmlEditor.vue';
 import WorkplaceHandbookWorkspace from './WorkplaceHandbookWorkspace.vue';
 import WorkplaceHandbookPolicyLinks from './WorkplaceHandbookPolicyLinks.vue';
+import { useDocumentBranding } from '../../composables/useDocumentBranding.js';
 
 const emit = defineEmits(['dirty', 'published', 'draft-changed']);
 const props = defineProps({
@@ -132,6 +133,8 @@ const handbookSections = ref([]);
 const workspaceReader = ref(null);
 const publishedEntries = ref([]);
 const access = ref({});
+const documentMetadata = ref({});
+const brandStyle = useDocumentBranding(() => documentMetadata.value, () => props.agencyId);
 const isPublished = computed(() => current.value?.digest?.status === 'published');
 const safeHtml = value => DOMPurify.sanitize(String(value || ''));
 
@@ -149,6 +152,7 @@ async function reloadList() {
   ]);
   digests.value = listRes.data?.digests || [];
   access.value = pubRes.data?.access || {};
+  documentMetadata.value = pubRes.data?.handbook?.metadata || pubRes.data?.metadata || {};
   fullUrl.value = pubRes.data?.fullHandbookUrl || pubRes.data?.document?.full_handbook_url || '';
   publishedEntries.value = pubRes.data?.handbook?.updates || pubRes.data?.entries || [];
 }

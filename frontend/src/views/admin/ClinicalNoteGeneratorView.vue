@@ -932,7 +932,7 @@
             <label
               v-if="showAfterHours99051Option"
               class="na-toggle-row na-toggle-row--inline"
-              title="99051 — saved local session start at or after 5pm on weekdays, or a weekend start; agency and payer eligibility still apply"
+              title="Shared regular hours are weekdays9 a.m.–5 p.m. Scheduled evening/weekend services require existing eligibility; weekday mornings need Billing verification."
             >
               <span>After hours (99051)</span>
               <span class="na-switch" :class="{ on: includeAfterHours99051 }">
@@ -940,6 +940,7 @@
                 <span class="na-switch-thumb" />
               </span>
             </label>
+            <small v-if="morning99051NeedsReview" class="muted">This session is before regular 9 a.m.–5 p.m. hours. Billing must confirm that the payer authorizes 99051 for a weekday morning before it is added.</small>
             <span
               v-for="addon in displayedBillingAddons"
               :key="addon.code + String(addon.units || 1)"
@@ -989,6 +990,7 @@
                 <span class="na-switch-thumb" />
               </span>
             </label>
+            <small v-if="morning99051NeedsReview" class="muted">Weekday mornings are outside regular hours, but 99051 requires Billing to verify payer authorization.</small>
             <button class="na-generate" type="button" :disabled="csGenerateDisabled" @click="generateNote">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
                 <path d="M12 2l1.2 6.3L19 12l-5.8 3.7L12 22l-1.2-6.3L5 12l5.8-3.7L12 2z"/>
@@ -1711,6 +1713,7 @@ import {
   resolveNoteAidBillingCodes,
   shouldSuggest99051
 } from '../../utils/noteAidBillingAddons.js';
+import { evaluate99051Schedule } from '../../utils/clinicalAfterHoursPolicy.js';
 import { rememberRecentAid, saveNoteLibraryUiPrefs } from '../../utils/noteAidLibraryPrefs.js';
 import { isClinicalChartEnabled, parseAgencyFeatureFlags } from '../../config/medicalBillingAccess.js';
 import { useAgencyStore } from '../../store/agency';
@@ -3671,6 +3674,7 @@ const scheduleSeededAddonCodes = ref([]);
 const aiContentGenerated = ref(false);
 const attestAiContentReviewed = ref(false);
 
+const morning99051NeedsReview=computed(()=>evaluate99051Schedule({startAt:sessionScheduledStart.value,timeZone:sessionSourceTimezone.value}).reason==='weekday_morning_start');
 const afterHoursScheduleEligible=computed(()=>shouldSuggest99051(sessionScheduledStart.value,{timeZone:sessionSourceTimezone.value,primaryCode:actualServiceCode.value,metadata:outputObj.value?.meta}));
 const noteAidAddonMenuOptions = computed(()=>[
   { code: '90785', label: '90785 — Interactive complexity' },

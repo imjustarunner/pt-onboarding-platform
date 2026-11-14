@@ -1,5 +1,5 @@
 <template>
-  <Teleport to="body" :disabled="!expanded"><section ref="analyticsRoot" :role="expanded ? 'dialog' : undefined" :aria-modal="expanded || undefined" @keydown="readerKeydown" :class="['handbook-book', metadata.presentation?.theme, { 'handbook-screen-only': !canPrint, 'reader-expanded': expanded, 'neutral-reader': neutral }]" :aria-label="documentTitle">
+  <Teleport to="body" :disabled="!expanded"><section ref="analyticsRoot" :style="brandStyle" :role="expanded ? 'dialog' : undefined" :aria-modal="expanded || undefined" @keydown="readerKeydown" :class="['handbook-book', 'agency-document', metadata.presentation?.theme, { 'handbook-screen-only': !canPrint, 'reader-expanded': expanded, 'neutral-reader': neutral }]" :aria-label="documentTitle">
     <div class="reader-toolbar"><span>{{ documentTitle }}</span><button ref="expandButton" type="button" :aria-expanded="expanded" @click="toggleExpanded">{{ expanded ? 'Return to page ↙' : 'Expand reader ↗' }}</button></div>
     <p class="handbook-print-notice">Read the current {{ documentTitle }} in the app. Printing and PDF export are not available in this view.</p>
     <DocumentAnalyticsControl v-if="analytics" :agency-id="analytics.agencyId" :document-key="metadata.documentKey || 'workplace-handbook'" :document-title="documentTitle" />
@@ -112,6 +112,9 @@ import SchoolPracticeRoadmap from './SchoolPracticeRoadmap.vue';
 import CrisisGuideQuickActions from './CrisisGuideQuickActions.vue';
 import DocumentAnalyticsControl from '../library/DocumentAnalyticsControl.vue';
 import { useDocumentAnalytics } from '../../composables/useDocumentAnalytics';
+import { useDocumentBranding } from '../../composables/useDocumentBranding.js';
+import '../../styles/document-agency-brand.css';
+import { decorateServiceCodeInventory } from '../../utils/serviceCodeInventory.js';
 
 const props = defineProps({ neutral: Boolean, handbook: { type: Object, required: true }, updates: { type: Array, default: () => [] }, fullHandbookUrl: { type: String, default: '' }, canOpenOriginal: { type: Boolean, default: false }, canPrint: { type: Boolean, default: false }, answerQuestion: { type: Function, default: null }, assistantPreview: { type: Boolean, default: false }, analytics: { type: Object, default: null }, analyticsHttp: { type: Object, default: undefined } });
 const emit = defineEmits(['reload', 'handbook-link', 'section-change']);
@@ -147,6 +150,7 @@ async function rateSection(helpful) { feedbackMessage.value = await readingAnaly
 const article = ref(null), outlineScroll = ref(null), readerLayout = ref(null);
 const sections = computed(() => props.handbook?.sections || []);
 const metadata = computed(() => props.handbook?.metadata || {});
+const brandStyle = useDocumentBranding(() => metadata.value, () => props.analytics?.agencyId);
 const isSchoolGuide = computed(() => metadata.value.documentKey === 'school-practice-guide');
 const isCareGuide = computed(() => metadata.value.documentKey === 'counseling-guide');
 const isSkillsGuide = computed(() => metadata.value.documentKey === 'skill-development-guide');
@@ -192,7 +196,7 @@ const sourceUrl = computed(() => props.canOpenOriginal && /^https?:\/\//i.test(p
 const documentRoute = inject(routeLocationKey, null);
 const safeHtml = value => {
   const prefix = documentRoute?.params?.organizationSlug ? `/${encodeURIComponent(documentRoute.params.organizationSlug)}` : '';
-  return DOMPurify.sanitize(String(value || '').replace(/href="\/(outcome-measures|library|clinical-forms|safety-plans)(?=[?"])/g, (_, path) => `href="${prefix}/${path}`));
+  return decorateServiceCodeInventory(DOMPurify.sanitize(String(value || '').replace(/href="\/(outcome-measures|library|clinical-forms|safety-plans)(?=[?"])/g, (_, path) => `href="${prefix}/${path}`)), metadata.value.testingReference);
 };
 function safeChanged(value) {
   const raw = String(value || '');

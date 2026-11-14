@@ -1,5 +1,6 @@
 <template>
  <section class="comp-drafts">
+  <ContractHandbookModal v-if="handbookReference" :open="true" v-bind="handbookReference" @close="handbookReference=null" />
   <h2>Compensation agreement drafts</h2>
   <p>Edit each individual schedule and agreement text here. Saving a draft does not change payroll, assign signature tasks or send messages.</p><p v-if="form && !isNluDraft">Proposed effective date: October 10, 2026.</p>
   <p v-if="error" role="alert">{{error}}</p>
@@ -61,19 +62,25 @@
     <label>Individual notes<textarea v-model="form.additionalTerms" rows="2" /></label>
     <h3>Agreement clauses</h3><DraftHtmlEditor :key="selected.id" v-model="form.commonClausesHtml" label="Agreement clauses" />
     <div class="actions"><button :disabled="saving" @click="save">{{saving?'Saving…':'Save draft & update preview'}}</button><button @click="download">Download printable HTML</button><span role="status">{{notice}}</span></div>
-    <details open><summary>View saved agreement</summary><iframe sandbox="" title="Saved compensation agreement" :srcdoc="previewHtml" /></details>
+    <details open><summary>View saved agreement</summary><iframe ref="previewFrame" sandbox="allow-scripts" title="Saved compensation agreement" :srcdoc="contractHandbookSrcdoc(previewHtml)" /></details>
     <details class="release"><summary>Release this individual {{form.initialAgreement ? 'schedule' : 'amendment'}} for signature</summary><p>Release makes this document visible to this employee in their real update and My Documents. {{isNluDraft ? 'The assigned authorized agency signer will countersign.' : 'Haley Inyart will countersign.'}} It does not send an email or text and does not change payroll. Private previews remain read-only. Save any edits before releasing.</p><label><input v-model="releaseReady" type="checkbox" /> I reviewed the completed terms and want this employee to be able to sign.</label><button :disabled="saving || !releaseReady || selected.issues.length>0 || hasUnsavedChanges" @click="release">Make available for signature</button></details>
    </article>
   </div>
  </section>
 </template>
 <script setup>
-import {computed,onMounted,ref,watch} from 'vue';
+import {computed,onMounted,onBeforeUnmount,ref,watch} from 'vue';
+import ContractHandbookModal from '../documents/ContractHandbookModal.vue';
+import {contractHandbookSrcdoc,referenceFromContractMessage} from '../../utils/contractHandbookReferences.js';
 import api from '../../services/api';
 import DraftHtmlEditor from './DraftHtmlEditor.vue';
 import ChildcareRateScheduleEditor from '../hiring/ChildcareRateScheduleEditor.vue';
 import {childcareMoney} from '../../utils/childcarePresentation.js';
 const props=defineProps({agencyId:{type:[String,Number],required:true}});
+const handbookReference=ref(null),previewFrame=ref(null);
+function onHandbookMessage(event){const reference=referenceFromContractMessage(event,previewFrame.value,{expectedAgencyId:props.agencyId});if(reference)handbookReference.value=reference;}
+onMounted(()=>window.addEventListener('message',onHandbookMessage));
+onBeforeUnmount(()=>window.removeEventListener('message',onHandbookMessage));
 const drafts=ref([]),selected=ref(null),form=ref(null),search=ref(''),error=ref(''),notice=ref(''),saving=ref(false);
 const releaseReady=ref(false),servicePolicy=ref(null),libraryCategories=ref(null),policyError=ref('');
 const creationOptions=ref(null),optionsLoading=ref(false),creationOpen=ref(false),creationError=ref('');
@@ -139,7 +146,7 @@ async function save(){
 async function release(){if(!releaseReady.value||selected.value.issues.length||hasUnsavedChanges.value)return;saving.value=true;try{await api.post(`/provider-update/compensation-drafts/${selected.value.id}/release`,{agencyId:props.agencyId,expectedHtml:selected.value.html,pushId:form.value.pushId});notice.value=isNluDraft.value?'Released for employee and authorized agency signatures. No email or text sent.':'Released for employee signature, then Haley’s countersignature. No email or text sent.';selected.value=null;form.value=null;releaseReady.value=false;await reload();}catch(e){error.value=e.response?.data?.error?.message||'Could not release amendment.';}finally{saving.value=false;}}
 function download(){const url=URL.createObjectURL(new Blob([previewHtml.value],{type:'text/html'}));const a=document.createElement('a');a.href=url;a.download=`${isNluDraft.value?'NLU':'ITSCO'}-compensation-draft-${selected.value.data.employee.userId}.html`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 watch(()=>createForm.value.userId,()=>{createForm.value.agreementType='';createForm.value.priorAgreementReference='';if(Number(createForm.value.countersignerUserId)===Number(createForm.value.userId))createForm.value.countersignerUserId=null;});
-onMounted(()=>{reload();loadCreationOptions();});watch(()=>props.agencyId,()=>{openRequest++;optionsRequest++;creationOptions.value=null;creationOpen.value=false;createForm.value=emptyCreateForm();creationError.value='';servicePolicy.value=null;libraryCategories.value=null;policyError.value='';drafts.value=[];selected.value=null;form.value=null;error.value='';notice.value='';reload();loadCreationOptions();});
+onMounted(()=>{reload();loadCreationOptions();});watch(()=>props.agencyId,()=>{handbookReference.value=null;openRequest++;optionsRequest++;creationOptions.value=null;creationOpen.value=false;createForm.value=emptyCreateForm();creationError.value='';servicePolicy.value=null;libraryCategories.value=null;policyError.value='';drafts.value=[];selected.value=null;form.value=null;error.value='';notice.value='';reload();loadCreationOptions();});
 </script>
 <style scoped>
 .comp-drafts{line-height:1.6}.create-draft{padding:16px;border:1px solid #cbd5e1;border-radius:10px;margin:16px 0}.create-draft input,.create-draft select,.create-draft button{font:inherit;min-height:44px}.create-draft button:disabled{opacity:.6}.draft-layout{display:grid;grid-template-columns:260px 1fr;gap:24px}.draft-layout aside{max-height:80vh;overflow:auto}.draft-layout aside button{display:block;width:100%;text-align:left;margin:6px 0;background:#fff;border:1px solid #d6e1dc;border-radius:10px;padding:12px}.draft-layout aside .selected{border:2px solid #3e6d54}.draft-layout small{display:block}.draft-layout aside span{font-size:11px;background:#e1f0e6;padding:3px 6px;margin-left:4px}.fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}label{display:block;margin:8px 0}input,textarea,select{display:block;width:100%;box-sizing:border-box;padding:9px;border:1px solid #cbd5e1;border-radius:7px}.issues{padding:14px 28px;background:#fff5de;border-radius:10px}.actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:20px 0}.actions button{padding:10px 16px;background:#3e6d54;color:white;border:0;border-radius:8px}iframe{width:100%;height:680px;border:1px solid #d6e1dc}.muted{color:#52675d;font-size:13px}@media(max-width:800px){.draft-layout{grid-template-columns:1fr}.draft-layout aside{max-height:260px}.fields{grid-template-columns:1fr}}

@@ -92,6 +92,16 @@ describe('school support hour selection', () => {
     expect(change.schoolSupport.value.availableHours).toBe(1); expect(change.preview.value).toBeNull();
     const payload = api.put.mock.calls[0][1]; expect(payload.useSchoolSupportHour).toBe(true); expect(payload).not.toHaveProperty('balanceHours');
   });
+  it('initiates a fractional request using the actual cancellation and persists its selected amount', async () => {
+    const change = await setup();
+    api.get.mockResolvedValue({data:{eligible:true,balanceHours:.5,pendingHours:0,availableHours:.5,maximumHours:.5,canRequest:true}});
+    await change.refreshSchoolSupport();expect(change.facts.schoolSupportHours).toBe(.5);
+    change.facts.useSchoolSupportHour=true;change.facts.schoolSupportHours=.25;
+    api.put.mockResolvedValue({data:{ok:true}});await change.saveDraft();
+    expect(api.put.mock.calls[0][1]).toMatchObject({eventType:'canceled',useSchoolSupportHour:true,schoolSupportHours:.25});
+    change.step.value=3;expect(change.canContinueFromStep(3)).toBe(true);
+    change.facts.schoolSupportHours=.75;expect(change.canContinueFromStep(3)).toBe(false);
+  });
   it('requires review again if another request used the last available hour', async () => {
     const change = await setup(); change.facts.useSchoolSupportHour = true; change.step.value = 3;
     api.post.mockResolvedValue({data:{preview:{}}});

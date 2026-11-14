@@ -11,7 +11,7 @@ import Appointment from '../../models/Appointment.model.js';
 import router from '../../routes/appointment.routes.js';
 beforeEach(()=>{
  m.user={id:10,role:'provider'};m.agencies=[{id:2}];
- Appointment.findById.mockResolvedValue({id:1,agencyId:2,providerUserId:10,startAt:'2026-10-20 18:00:00'});
+ Appointment.findById.mockResolvedValue({id:1,agencyId:2,providerUserId:10,startAt:'2026-10-20 18:00:00',sourceTimezone:'America/Denver'});
  Appointment.listParticipants.mockResolvedValue([{clientId:20,isBillingResponsible:true}]);
  pool.execute.mockImplementation(async sql=>{
   if(sql.includes('FROM clients'))return [[{client_type:'school'}]];

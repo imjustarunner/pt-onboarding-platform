@@ -1,5 +1,5 @@
 <template>
-  <div ref="readerRoot" :class="['hb-digest', { 'handbook-screen-only': !canPrint }]">
+  <div ref="readerRoot" :class="['hb-digest', 'agency-document', { 'handbook-screen-only': !canPrint }]" :style="brandStyle">
     <p class="handbook-print-notice">Read the current Workplace Handbook in the app. Printing and PDF export are not available in this view.</p>
     <div v-if="loading" class="muted">Loading handbook…</div>
     <p v-else-if="error" role="alert" class="reader-error">{{ error }} <button type="button" class="btn" @click="load">Try again</button></p>
@@ -108,6 +108,7 @@
 </template>
 
 <script setup>
+import { useDocumentBranding } from '../../composables/useDocumentBranding.js';
 import DOMPurify from 'dompurify';
 import { onMounted, onUpdated, ref, watch } from 'vue';
 import {connectTrainingVideos} from '../../utils/trainingVideo';
@@ -165,6 +166,7 @@ async function saveEdit(){
 }
 const error = ref('');
 const handbook = ref(null);
+const brandStyle = useDocumentBranding(() => handbook.value?.metadata || {}, () => props.agencyId);
 const canAcknowledge = computed(() => !loading.value && !error.value && !loadError.value && !!((digest.value && entries.value.length) || (handbook.value?.version && handbook.value?.sections?.length)));
 const book = ref(null);
 const activeView = ref('updates');

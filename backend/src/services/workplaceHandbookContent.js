@@ -18,6 +18,8 @@ import { applySessionCompensationAmendment } from '../content/sessionCompensatio
 import { applyProgramRateHandbookAmendment } from '../content/programRateHandbookAmendment.js';
 import { applyAdpSickLeaveReportingHandbook } from '../content/adpSickLeaveReportingHandbook.js';
 import { applyProviderRolesNovemberPolicy } from '../content/providerRolesNovember2026.js';
+import { applyCollectiveHandbookReview } from '../content/collectiveHandbookNovember2026.js';
+import { agencyDocumentPresentation } from './documentAgencyBranding.js';
 
 const itsco = JSON.parse(readFileSync(new URL('../content/handbooks/itsco.json', import.meta.url), 'utf8'));
 const itscoUpdateDrafts = JSON.parse(readFileSync(new URL('../content/handbooks/itsco-draft-updates.json', import.meta.url), 'utf8'));
@@ -30,7 +32,7 @@ export const handbookBodyHash = body => createHash('sha256').update(cleanHandboo
 export function cleanHandbookHtml(value) {
   return sanitizeHtml(String(value || ''), {
     allowedTags: [...sanitizeHtml.defaults.allowedTags, 'h1', 'h2', 'span', 's', 'u', 'mark'],
-    allowedAttributes: { a: ['href', 'title'], td: ['colspan', 'rowspan'], th: ['colspan', 'rowspan'], ol: ['start'] },
+    allowedAttributes: { a: ['href', 'title'], mark: ['data-service-group'], td: ['colspan', 'rowspan'], th: ['colspan', 'rowspan'], ol: ['start'] },
     allowedSchemes: ['https', 'http', 'mailto', 'tel'], allowProtocolRelative: false
   });
 }
@@ -40,6 +42,7 @@ export function getHandbookSource(agency, { employeeTemplates } = {}) {
   const tenant = handbookTenant(agency);
   if (!tenant) return null;
   const source = structuredClone({ itsco, nlu, isi }[tenant]);
+  source.presentation = agencyDocumentPresentation(agency, source.presentation);
   const currentOctoberUpdates = applyCurrentOctoberPolicies(source, tenant);
   applyNluH2014ProgramClarification(source, tenant);
   const sessionPolicyUpdates = applySessionCompensationAmendment(source, tenant);
@@ -80,6 +83,7 @@ export function getHandbookSource(agency, { employeeTemplates } = {}) {
   applyNluServicePayClarification(source, tenant);
   applyNarrivaServiceHandbookAmendment(source);
   const rolePolicy = applyProviderRolesNovemberPolicy(source, payrollReportingUpdates, tenant);
+  const reviewedPolicy = applyCollectiveHandbookReview(source, rolePolicy.updates, tenant);
   source.revision = createHash('sha256').update(JSON.stringify(source)).digest('hex');
   source.sections = source.sections.map((s, index) => ({
     slug: s.slug, parent_slug: s.parentSlug, title: s.title, source_page: s.sourcePage,
@@ -88,7 +92,7 @@ export function getHandbookSource(agency, { employeeTemplates } = {}) {
   validateHandbookSections(source.sections);
   // These are review material only. Never put draft policies into a published
   // section or its metadata merely because their source snapshot is available.
-  source.reviewUpdates = tenant === 'nlu' ? rolePolicy.updates : applyNluH2014ReviewClarification(rolePolicy.updates, tenant).map(update => ({ ...update, changed_content: correctDirectCareIndirectText(update.changed_content) }));
+  source.reviewUpdates = tenant === 'nlu' ? reviewedPolicy.updates : applyNluH2014ReviewClarification(reviewedPolicy.updates, tenant).map(update => ({ ...update, changed_content: correctDirectCareIndirectText(update.changed_content) }));
   source.reviewUpdatesCapturedAt = '2026-11-13';
   return source;
 }
@@ -186,7 +190,7 @@ export function mergeSuppliedSections(sourceSections, existingSections, removedS
 }
 
 export function handbookMetadata(source) {
-  return { title: source.title, organization: source.organization, coverUrl: source.coverUrl, edition: source.edition, sourceDate: source.sourceDate, ...(source.presentation ? { presentation: structuredClone(source.presentation) } : {}), ...(source.forms ? { forms: structuredClone(source.forms) } : {}), ...(source.template ? { template: structuredClone(source.template) } : {}), ...(source.testingReference ? { testingReference: structuredClone(source.testingReference) } : {}) };
+  return { title: source.title, organization: source.organization, coverUrl: source.coverUrl, edition: source.edition, sourceDate: source.sourceDate, ...(source.presentation ? { presentation: structuredClone(source.presentation) } : {}), ...(source.forms ? { forms: structuredClone(source.forms) } : {}), ...(source.template ? { template: structuredClone(source.template) } : {}), ...(source.testingReference ? { testingReference: structuredClone(source.testingReference) } : {}), ...(source.ownerReviewRelease ? { ownerReviewRelease: source.ownerReviewRelease, excludedUnprovidedSections: structuredClone(source.ownerReviewExcludedEmptySections || []) } : {}) };
 }
 
 export function parseHandbookMetadata(raw) {

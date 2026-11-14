@@ -20,7 +20,8 @@ export function serviceFocusOptionsFromSections(sections) {
 
 export async function contractServiceFocusSettings(agency) {
   const tenant = handbookTenant(agency);
-  const serviceFocusOptions = [...SERVICE_FOCUS_CATEGORIES];
+  if(tenant==='isi')return {serviceFocusOptions:[],schoolDaysEnabled:false};
+  const serviceFocusOptions = SERVICE_FOCUS_CATEGORIES.filter(option=>tenant!=='nlu'||!hasSchoolServiceFocus(option));
   if (!tenant) return { serviceFocusOptions, schoolDaysEnabled: false };
   // Read only the published version; opening a contract must never create a handbook draft.
   let sections;
@@ -37,7 +38,7 @@ export async function contractServiceFocusSettings(agency) {
   const key = value => value.toLowerCase().replace(/[^a-z0-9]/g, '');
   const seen = new Set(serviceFocusOptions.map(key));
   for (const option of serviceFocusOptionsFromSections(sections)) {
-    if (!seen.has(key(option))) {
+    if (!(tenant==='nlu'&&hasSchoolServiceFocus(option)) && !seen.has(key(option))) {
       serviceFocusOptions.push(option);
       seen.add(key(option));
     }
