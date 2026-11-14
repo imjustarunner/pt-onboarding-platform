@@ -419,7 +419,8 @@
               </div>
 
               <div v-if="panelStep !== 'consent' || activeTask.status === 'completed'" class="review-block">
-                <HireDocumentPreview v-if="activeTaskDetail?.document" :key="activeTask.id" :http="portalApi"
+                <iframe v-if="isContractTask && activeTaskDetail?.document?.htmlContent" ref="contractFrame" class="contract-html-preview" :srcdoc="contractPreviewHtml" sandbox="allow-scripts" :title="activeTask.title || 'Employment agreement'" @load="previewReady = true" />
+                <HireDocumentPreview v-else-if="activeTaskDetail?.document" :key="activeTask.id" :http="portalApi"
                   :url="`/prehire-portal/${token}/tasks/${activeTask.id}/preview`" :title="activeTask.title" :editable="!isContractTask && activeTask.status !== 'completed' && activeTask.actionType !== 'review' && (!fillableFields.length || onDocumentFields.length > 0)" :field-definitions="onDocumentFields" v-model:field-values="fieldValues" v-model="documentAnnotations" @ready="previewReady = $event" />
                 <div v-if="detachedFields.length && activeTask.status !== 'completed'" class="doc-form-fields">
                   <div v-if="!activeTaskDetail?.document?.htmlContent" class="doc-form-intro">
@@ -564,6 +565,7 @@
     </template>
   </div>
   <PlotlineSignature/>
+  <ContractHandbookModal :open="!!contractHandbookReference" v-bind="contractHandbookReference || {}" :http="portalApi" :portal-token="String(token)" @close="contractHandbookReference = null" />
 </template>
 
 <script setup>
@@ -573,7 +575,9 @@ import HireAccountAccess from '../components/prehire/HireAccountAccess.vue';
 import HireWorkEmailPicker from '../components/prehire/HireWorkEmailPicker.vue';
 import HireDocumentPreview from '../components/prehire/HireDocumentPreview.vue';
 import { useOnboardingActivity } from '../composables/useOnboardingActivity.js';
-import { ref, computed, onMounted, nextTick, watch, reactive } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch, reactive } from 'vue';
+import ContractHandbookModal from '../components/documents/ContractHandbookModal.vue';
+import { contractHandbookSrcdoc, referenceFromContractMessage } from '../utils/contractHandbookReferences.js';
 import { useRoute, useRouter } from 'vue-router';
 import DOMPurify from 'dompurify';
 import axios from 'axios';
@@ -606,6 +610,14 @@ const portalLinkCopied = ref(false);
 
 const candidate = computed(() => portalData.value?.candidate || {});
 const agency = computed(() => portalData.value?.agency || null);
+const contractFrame = ref(null), contractHandbookReference = ref(null);
+const contractPreviewHtml = computed(() => contractHandbookSrcdoc(activeTaskDetail.value?.document?.htmlContent || ''));
+function contractReferenceMessage(event) {
+  const reference = referenceFromContractMessage(event, contractFrame.value, { expectedAgencyId: agency.value?.id });
+  if (reference) contractHandbookReference.value = reference;
+}
+onMounted(() => window.addEventListener('message', contractReferenceMessage));
+onBeforeUnmount(() => window.removeEventListener('message', contractReferenceMessage));
 const portalLinkDisplay = computed(() => {
   if (portalData.value?.portalLink) return portalData.value.portalLink;
   if (!token.value) return '';
@@ -2609,4 +2621,5 @@ onMounted(async () => {
   }
   .task-panel { width: min(920px, 100vw); max-height: 100vh; border-radius: 0; }
 }
+.contract-html-preview{display:block;width:100%;height:min(70dvh,760px);min-height:420px;border:1px solid #d6dce5;border-radius:8px;background:white}
 </style>

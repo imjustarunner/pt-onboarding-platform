@@ -6,7 +6,7 @@ describe('school support cancellation choice',()=>{
  it('shows the real balance and asks for one hour without implying an immediate deduction',async()=>{
   const wrapper=mount(Benefit,{props:{benefit,eventType:'canceled'}});
   expect(wrapper.text()).toContain('School Support Hours');expect(wrapper.text()).toContain('Earned balance2 hours');
-  expect(wrapper.text()).toContain('Use 1 hour for this canceled session');expect(wrapper.text()).toContain('only after approval');
+  expect(wrapper.text()).toContain('Use up to 1 hour for this canceled session');expect(wrapper.text()).toContain('only after approval');
   await wrapper.find('input').setValue(true);expect(wrapper.emitted('update:modelValue')).toEqual([[true]]);
  });
  it('disables new requests at zero available hours and permits clearing an invalid selection',async()=>{
@@ -18,6 +18,11 @@ describe('school support cancellation choice',()=>{
  it('shows the persisted request instead of a second request checkbox',()=>{
   const wrapper=mount(Benefit,{props:{benefit:{...benefit,request:{id:23,status:'submitted',hours:1}},readonly:true}});
   expect(wrapper.text()).toContain('Request #23 · Awaiting payroll review');expect(wrapper.find('input').exists()).toBe(false);
+ });
+ it('accepts an explicit fractional amount within the returned available maximum',async()=>{
+  const wrapper=mount(Benefit,{props:{benefit:{...benefit,availableHours:.5,maximumHours:.5},modelValue:true,hours:.5}});
+  expect(wrapper.find('input[type=number]').attributes('max')).toBe('0.5');
+  await wrapper.find('input[type=number]').setValue(.25);expect(wrapper.emitted('update:hours')).toEqual([[.25]]);
  });
  it('does not reveal a benefit panel to an ineligible viewer',()=>{
   const wrapper=mount(Benefit,{props:{benefit:{eligible:false}}});expect(wrapper.find('section').exists()).toBe(false);

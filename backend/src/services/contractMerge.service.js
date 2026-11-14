@@ -1,3 +1,5 @@
+import {agencyDocumentPresentation} from './documentAgencyBranding.js';
+import {publishedContractHandbookIndex,linkContractHandbookHtml,CONTRACT_HANDBOOK_REFERENCE_VERSION} from './contractHandbookReferences.service.js';
 import {TESTING_SERVICE_CODES,testingCompensationBasis} from '../content/testingServicePolicy.js';
 import {testingExampleSummary} from '../content/testingServiceExamples.js';
 import {CONTRACT_PRESENTATION_VERSION,handbookReferencedContractHtml} from '../content/contractHandbookReference.js';
@@ -331,7 +333,7 @@ export async function getAgencyBuilderDefaults(agencyId) {
   return {
     ...await contractServiceFocusSettings(agency),
     contractTenant:handbookTenant(agency),
-    contractServiceRoleOptions: handbookTenant(agency) ? CONTRACT_SERVICE_ROLES.map(({id,title,description,clause_key})=>({id,title,description,clauseKey:clause_key,...(id==='psychological_testing'?{codeGuide:TESTING_SERVICE_CODES.map(row=>({code:row.code,name:row.name,payBucket:row.bucket==='credit'?'Clinical Session Rate':'Direct Care Rate',basis:testingCompensationBasis(row),testingOnly:!!row.requiredRole,example:testingExampleSummary(row.code)}))}:{})})) : [],
+    contractServiceRoleOptions: handbookTenant(agency) ? CONTRACT_SERVICE_ROLES.filter(role=>handbookTenant(agency)!=='isi'||role.id!=='tutoring').map(({id,title,description,clause_key})=>({id,title,description,clauseKey:clause_key,...(id==='psychological_testing'?{codeGuide:TESTING_SERVICE_CODES.map(row=>({code:row.code,name:row.name,payBucket:row.bucket==='credit'?'Clinical Session Rate':'Direct Care Rate',basis:testingCompensationBasis(row),testingOnly:!!row.requiredRole,example:testingExampleSummary(row.code)}))}:{})})) : [],
     agency: agency
       ? {
           id: agency.id,
@@ -592,6 +594,7 @@ export async function renderContractHtml({
     inferred: inferContractServiceRoles({job:{title:mergedTokens.JOB_TITLE,role_type:mergedTokens.ROLE_TYPE},credential:mergedTokens.CREDENTIAL,serviceFocus:mergedTokens.SERVICE_FOCUS}).roles,
     enabled: !!handbookTenant(agency) && config.pay_mode !== 'none' && !/amendment|addendum|acknowledg/i.test(config.slug || '')
   };
+  if(handbookTenant(agency)==='isi' && mergedTokens.PROBATION_APPLIES && roleInput.selected?.includes('tutoring'))throw Object.assign(new Error('The Inner Strength Institute does not offer tutoring. Choose the approved clinical or other assigned service roles.'),{status:400});
   let rolePlan = contractServiceRolePlan(roleInput);
   let roleLibraryClauses = [];
   if (rolePlan.roles.length) {
@@ -651,8 +654,12 @@ export async function renderContractHtml({
     return includeSupervisor || !isSupervisorClause(c);
   });
 
+  const handbookIndex=mergedTokens.HANDBOOK_REFERENCES_ENABLED==='1'&&handbookTenant(agency)?await publishedContractHandbookIndex(agencyId):null;
+  for(const key of ['CONTRACT_HANDBOOK_REFERENCE_VERSION','HANDBOOK_PUBLICATION_VERSION_ID']){delete mergedTokens[key];delete mergedTokens[key.replaceAll('_','')];}
+  if(mergedTokens.HANDBOOK_REFERENCES_ENABLED==='1'&&handbookTenant(agency)&&!handbookIndex)throw Object.assign(new Error('Publish this company’s approved Workplace Handbook before preparing a new agreement with policy references.'),{status:409});
+  if(handbookIndex){mergedTokens.CONTRACT_HANDBOOK_REFERENCE_VERSION=CONTRACT_HANDBOOK_REFERENCE_VERSION;mergedTokens.HANDBOOK_PUBLICATION_VERSION_ID=handbookIndex.version_id;}
   const visibleClauses = selectedClauses.map(clause => ({
-    ...clause, body_html: withWeeklyHoursExpectations(terms ? handbookReferencedContractHtml(clause.body_html) : clause.body_html)
+    ...clause, body_html: linkContractHandbookHtml(withWeeklyHoursExpectations(terms ? handbookReferencedContractHtml(clause.body_html) : clause.body_html),{agency,index:handbookIndex,clauseKey:clause.clause_key})
   }));
   if (agreementPlan && String(mergedInput.MIN_HOURS ?? '').trim() && !visibleClauses.some(clause => findContractPlaceholders(clause.body_html).some(key => key.replaceAll('_', '') === 'MINHOURS'))) {
     visibleClauses.splice(3, 0, { body_html: withWeeklyHoursExpectations('<p>The {{ROLE_LABEL}} is expected to maintain at least {{MIN_HOURS}} direct service hours per week.</p>') });
@@ -703,6 +710,7 @@ export async function renderContractHtml({
   if ((expectations.additionalDuties || []).some(d=>d.payBasis==='service_code') && !dutyRates.length) {
     dutyRates = (await selectedContractCompensation(agencyId, category, level, 'ffs')).rates;
   }
+  if(terms?.schedule?.newHireTermsVersion && !terms.schedule.probationApplies)dutyRates=dutyRates.map(rate=>({...rate,reduced:null}));
   const expectationsHtml = renderAdditionalExpectations(expectations, compensation.row, dutyRates);
   if (expectationsHtml) {
     const signatureIndex = bodyParts.findIndex(body=>body.includes('class="contract-signatures"'));
@@ -712,6 +720,13 @@ export async function renderContractHtml({
 
   const { resolvePacketBrandChrome, packetBodyFontCss } = await import('./packetBrandChrome.service.js');
   const brand = await resolvePacketBrandChrome(agency);
+  const palette=agencyDocumentPresentation(agency).agencyBrand||{};
+  const colors=[palette.primary,palette.secondary,palette.accent].filter(color=>/^#[a-f0-9]{6}$/i.test(color||''));
+  const brightness=color=>{const n=parseInt(color.slice(1),16);return .2126*(n>>16)+.7152*((n>>8)&255)+.0722*(n&255)};
+  const contractInk=colors.sort((a,b)=>brightness(a)-brightness(b))[0]||'#203e34';
+  const contractAccent=palette.accent||palette.primary||contractInk;
+  const tint=color=>{const n=parseInt(color.slice(1),16);return '#'+[n>>16,(n>>8)&255,n&255].map(channel=>Math.round(channel*.14+255*.86).toString(16).padStart(2,'0')).join('')};
+  const contractTint=tint(palette.primary||contractInk);
   const font = brand.bodyFontFamily;
   const fontCss = packetBodyFontCss(brand);
   const css = template?.css_extras || '';
@@ -742,17 +757,18 @@ export async function renderContractHtml({
   const brandHeader = letterheadHeader
     || (brandLogo ? `<header class="contract-brand"><img src="${brandLogo}" alt="${companyName}" style="max-width:100%;max-height:110px;object-fit:contain"/><p>${companyAddress}</p></header>` : '')
     || (companyName
-      ? `<header class="contract-brand" style="border-bottom:2px solid #0f172a;padding-bottom:12px;margin-bottom:24px;">
-  <div style="font-size:1.35rem;font-weight:700;letter-spacing:0.02em;">${companyName}</div>
+      ? `<header class="contract-brand" style="border-bottom:2px solid ${contractAccent};padding-bottom:12px;margin-bottom:24px;">
+  <div style="font-size:1.35rem;font-weight:700;letter-spacing:0.02em;color:${contractInk};">${companyName}</div>
   ${companyAddress ? `<div style="font-size:0.85rem;color:#475569;margin-top:4px;">${companyAddress}</div>` : ''}
 </header>`
       : '');
   const html = `<!DOCTYPE html>
 <html><head><meta charset="utf-8"/><style>
   ${fontCss}
-  body { font-family: ${font}; color: #203e34; font-size: 15px; line-height: 1.6; max-width: 900px; margin: 0 auto; padding: 24px; }
-  h1,h2,h3 { color: #0f172a; }
-  table { width: 100%; border-collapse:collapse; font-size:14px; } th,td{border:1px solid #c8d8ce;padding:10px;text-align:left} h2{font-size:20px}h3{font-size:17px}
+  body { font-family: ${font}; color: ${contractInk}; font-size: 15px; line-height: 1.6; max-width: 900px; margin: 0 auto; padding: 24px; }
+  h1,h2,h3 { color: ${contractInk}; }
+  table { width: 100%; border-collapse:collapse; font-size:14px; } th,td{border:1px solid ${contractTint};padding:10px;text-align:left} h2{font-size:20px}h3{font-size:17px}
+  th{background:${contractTint}} a{color:${contractInk};text-decoration:underline} .contract-handbook-references{border-left:3px solid ${contractAccent};background:${contractTint};padding:10px 14px;margin:16px 0;font-size:13px} .contract-handbook-references p{margin:6px 0}
   ${css}
   ${letterheadCss}
 </style></head><body>

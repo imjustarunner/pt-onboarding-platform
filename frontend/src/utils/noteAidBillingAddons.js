@@ -112,10 +112,11 @@ export function isEligibleFor90785(primaryCode, { isExtendedEncounter = false } 
   return CODES_ELIGIBLE_FOR_90785.has(code);
 }
 
-/** Weekday starts at/after 17:00 or weekend starts in the saved source timezone. */
+/** Default automatic descriptor window. Early mornings need a verified server payer override. */
 export function shouldSuggest99051(startAt, { timeZone, primaryCode, metadata } = {}) {
   if(isProBonoFunding({serviceCode:primaryCode,metadata}))return false;
-  return evaluate99051Schedule({startAt,timeZone}).eligible;
+  const schedule=evaluate99051Schedule({startAt,timeZone});
+  return schedule.eligible&&schedule.reason!=='weekday_morning_start';
 }
 
 /**

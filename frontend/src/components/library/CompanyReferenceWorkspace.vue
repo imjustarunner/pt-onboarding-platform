@@ -1,5 +1,5 @@
 <template>
-  <section class="reference-workspace" :style="fontStyle" :aria-label="`${documentTitle} workspace`">
+  <section class="reference-workspace agency-document" :style="{ ...brandStyle, ...fontStyle }" :aria-label="`${documentTitle} workspace`">
     <header class="reference-heading"><div><p class="eyebrow">Company documents · Mental health practice</p><h2>{{ documentTitle }}</h2><p>{{ documentKey === 'caseload-management-sop' ? 'Reference only · Capacity, scheduling, documentation, engagement and continuity. No onboarding assignment or quiz.' : documentKey === 'mandated-reporting-sop' ? 'Reporting responsibilities, safety, privacy and documentation, with required staff onboarding.' : documentKey === 'group-psychotherapy-sop' ? 'Reference only · Planning, consent, delivery and documentation for approved psychotherapy groups. No onboarding assignment or quiz.' : documentKey === 'service-documentation-standards' ? 'Practical standards for accurate notes, meaningful progress and service-specific records.' : documentKey === 'facilitator-coding-protocol' ? 'Approved services, documentation, coding review and work-time guidance for bachelor’s-level facilitators.' : documentKey === 'crisis-response-guide' ? 'Find preparation, emergency response, Colorado reporting and follow-up procedures. Q&A is a reference, not an emergency service.' : documentKey === 'facilities-guide' ? 'Shared office procedures, room use and approved access for your company.' : documentKey === 'skill-development-guide' ? 'Connection, regulation and learning, with your company’s group rules and supervised practice.' : documentKey === 'counseling-guide' ? 'An introduction to approaches, helping skills and professional scope. Familiarization does not authorize clinical practice.' : documentKey === 'school-practice-guide' ? 'ITSCO school assignments, intake, caseload management and essential protocols.' : 'Clinical expectations, documentation and guidance for your role.' }}</p></div><button v-if="closable" type="button" @click="close">Close guide</button></header>
     <p v-if="beta" class="reference-actions">Beta edition · Available for testing. Company publication is still under review.</p>
     <p v-if="error" role="alert" class="reference-error">{{ error }} <button type="button" :disabled="busy" @click="load">Retry</button></p>
@@ -23,6 +23,7 @@ import DOMPurify from 'dompurify';
 import api from '../../services/api';
 import WorkplaceHandbookBook from '../handbook/WorkplaceHandbookBook.vue';
 import HandbookSectionEditor from '../handbook/HandbookSectionEditor.vue';
+import { useDocumentBranding } from '../../composables/useDocumentBranding.js';
 const props = defineProps({ agencyId: { type: [Number, String], required: true }, manage: Boolean, beta: Boolean, closable: Boolean, documentKey: { type: String, default: 'provider-guide' }, documentTitle: { type: String, default: 'Provider’s Guide' } });
 const emit = defineEmits(['dirty', 'close', 'handbook-link', 'published']);
 const base = computed(() => `/provider-update/company-documents/${props.documentKey}`);
@@ -33,6 +34,7 @@ const shown = computed(() => state.value[mode.value]);
 const isPublished = computed(() => mode.value === 'published' && !!shown.value?.version?.id);
 const ready = computed(() => state.value.draft?.sections?.length && state.value.draft.sections.every(s => s.content_status === 'ready' && s.body_html));
 const fontStyle = computed(() => ({ '--handbook-font': shown.value?.metadata?.presentation?.theme === 'itsco-foundations' ? 'var(--font-itsco)' : 'var(--font-ptco)' }));
+const brandStyle = useDocumentBranding(() => shown.value?.metadata || {}, () => props.agencyId);
 const safe = value => DOMPurify.sanitize(value || '');
 let sequence = 0;
 function canLeave() { if (busy.value) return false; if ((dirty.value || quizDirty.value) && !window.confirm('Discard unsaved changes to this guide or learning module?')) return false; dirty.value = false; quizDirty.value = false; emit('dirty', false); return true; }

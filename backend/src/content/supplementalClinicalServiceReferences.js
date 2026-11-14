@@ -1,15 +1,15 @@
 import {createHash} from 'node:crypto';
 
-const version='2026-11-06.1';
+const version='2026-11-13.shared-regular-hours';
 const records={
   '99051':{
     code:'99051',title:'After-hours service add-on',policyKind:'addon',
-    serviceDescription:'An add-on to an otherwise eligible clinical service. Auricwell’s owner-defined schedule policy applies when the session starts at or after 5:00 p.m. on weekdays, or starts on Saturday or Sunday, in the actual appointment or office source timezone. A weekday session starting before 5:00 p.m. does not qualify solely by continuing past 5:00 p.m. There is no automatic weekday morning or holiday-only eligibility. It does not create a separate clinical service or establish payer coverage.',
-    schedulePolicy:{basis:'session_start',weekdayStartLocal:'17:00',weekendDays:['Saturday','Sunday'],weekdayMorningEligible:false,holidaysAutomaticallyEligible:false,timezoneSource:'persisted_appointment_or_office'},
+    serviceDescription:'An add-on to an otherwise eligible clinical service. The shared ITSCO, Next Level Up and Inner Strength schedule policy applies when the session starts before 9:00 a.m. or at/after 5:00 p.m. on weekdays, or starts on Saturday or Sunday, in the actual appointment or office source timezone. A weekday session starting before 5:00 p.m. does not qualify solely by continuing past 5:00 p.m. A weekday morning requires separately documented payer authorization for 99051, because the standard descriptor concerns scheduled evening, weekend or holiday office services. A holiday alone does not establish eligibility; apply the saved schedule and payer requirements. It does not create a separate clinical service or establish payer coverage.',
+    schedulePolicy:{basis:'session_start',regularWeekdayStartLocal:'09:00',weekdayStartLocal:'17:00',weekendDays:['Saturday','Sunday'],weekdayMorningEligible:true,holidaysAutomaticallyEligible:false,timezoneSource:'persisted_appointment_or_office'},
     documentation:'Identify the actual underlying clinical service, the encounter’s saved local schedule and source timezone, and the provider’s existing eligibility. Apply all existing agency, payer, credential, modality and place-of-service restrictions. The time-based add-on is never documentation of a clinical intervention and must not replace the underlying service’s required note content. Do not add it outside the authorized schedule window or when the saved timing cannot be verified.',
     requirements:[
       {id:'actual_primary_service',text:'Link the add-on to the actual eligible primary clinical service.'},
-      {id:'saved_schedule_window',text:'Verify the authorized weekday evening or weekend window from the saved encounter schedule and source timezone.'},
+      {id:'saved_schedule_window',text:'Verify a start outside regular weekday 9 a.m.–5 p.m. hours or a weekend start from the saved encounter schedule and source timezone.'},
       {id:'existing_billing_eligibility',text:'Preserve the agency, payer, credential, modality and place-of-service eligibility restrictions.'}
     ],
     supportingReferences:[
@@ -34,6 +34,6 @@ export function supplementalClinicalServiceReference(code) {
   const record=records[code];if(!record)return null;
   const sha256=createHash('sha256').update(JSON.stringify({version,record})).digest('hex');
   return {...structuredClone(record),status:'supplemental-policy',providerQualifications:'Existing provider qualifications and agency/payer eligibility remain controlling.',placesOfService:'Existing approved service and payer place-of-service policy.',allowedPlaceOfServiceCodes:[],ageGroups:'Use the underlying clinical service’s approved age and eligibility rules.',manualText:record.documentation,
-    source:{kind:'user_agency_policy',id:`auricwell-${code==='99051'?'99051-hours':'pro-bono-funding'}`,version,hash:sha256,sha256,title:code==='99051'?'Auricwell owner-defined after-hours policy':'Auricwell owner-defined pro bono funding policy',edition:version,effectiveDate:'2026-11-06',pages:[]},
+    source:{kind:'user_agency_policy',id:`auricwell-${code==='99051'?'99051-hours':'pro-bono-funding'}`,version,hash:sha256,sha256,title:code==='99051'?'Shared collective regular-hours policy':'Auricwell owner-defined pro bono funding policy',edition:version,effectiveDate:'2026-11-13',pages:[]},
     reviewNotice:'Supplemental agency policy supplied by the owner. This is not an entry from the October 2026 SBHS billing PDF and does not establish payer coverage or authorization.'};
 }

@@ -13,15 +13,17 @@ export async function schoolSupportAvailability({agencyId,userId,db=pool,lock=fa
 /** Shared by My Payroll and cancellation signing, so concurrent requests cannot spend the same available hour. */
 export async function createSchoolSupportRequest({agencyId,userId,actorId,items,notes=null,sourceAppointmentId=null,db=null}) {
   const normalized=validateLeaveItems(items),total=normalized.reduce((sum,item)=>sum+item.hours,0);
+  if(sourceAppointmentId&&(normalized.length!==1||total>1))fail('A cancellation benefit is limited to one dated entry of up to 1.00 School Support Hour');
   const conn=db||await pool.getConnection();
   try {
     if(!db)await conn.beginTransaction();
     // All school-support submissions take this account lock before reading pending requests.
     const availability=await schoolSupportAvailability({agencyId,userId,db:conn,lock:true});
     if(sourceAppointmentId){
-      const [[existing]]=await conn.execute('SELECT id,user_id,agency_id FROM payroll_pto_requests WHERE source_appointment_id=? FOR UPDATE',[sourceAppointmentId]);
+      const [[existing]]=await conn.execute('SELECT id,user_id,agency_id,total_hours FROM payroll_pto_requests WHERE source_appointment_id=? FOR UPDATE',[sourceAppointmentId]);
       if(existing){
         if(Number(existing.user_id)!==Number(userId)||Number(existing.agency_id)!==Number(agencyId))fail('This appointment already has a support-hours request for another account');
+        if(Number(existing.total_hours)!==total)fail('This appointment already has a different signed support-hours amount. Preserve the original request.');
         if(!db)await conn.commit();
         return {requestId:existing.id,alreadyRequested:true};
       }

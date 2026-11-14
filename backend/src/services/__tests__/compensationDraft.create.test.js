@@ -31,6 +31,8 @@ beforeEach(()=>{
   if(sql.startsWith('SELECT candidate_user_id FROM contract_generations'))return [[{candidate_user_id:1496}]];
   if(sql.startsWith('SELECT id FROM users WHERE id='))return [[{id:1496}]];
   if(sql.startsWith('SELECT id,slug,name'))return [[agency]];
+  if(sql.includes('FROM workplace_handbook_documents'))return [[{document_id:5,version_id:18,version_number:2,source_revision:'approved-test-policy'}]];
+  if(sql.includes('FROM workplace_handbook_sections'))return [[{id:21,slug:'employee-contract-policy',title:'Employment agreements and handbook references',body_html:'<p>Published policy.</p>'},{id:22,slug:'direct-care-automatic-indirect-correction',title:'Automatic indirect pay',body_html:'<p>Approved allowance.</p>'},{id:23,slug:'childcare-role-and-supervision',title:'Childcare roles',body_html:'<p>Approved childcare.</p>'}]];
   if(sql.startsWith('SELECT u.id,u.role,u.status'))return [[signer]];
   if(sql.startsWith('SELECT u.id,u.first_name'))return [[employee,signer]];
   if(sql.startsWith('SELECT p.id,p.title'))return [[push]];
@@ -67,11 +69,24 @@ describe('normal scoped employee compensation draft creation',()=>{
   expect(result.html).toContain('Initial Individual Compensation Agreement');expect(result.html).not.toContain('Prior agreement: [confirm]');
   expect(result.issues.length).toBeGreaterThan(0);expect(connection.commit).toHaveBeenCalledOnce();
   expect(m.execute.mock.calls.some(([sql])=>/INSERT INTO tasks|UPDATE users|INSERT INTO payroll_compensation_authorizations|hire_journeys/.test(sql))).toBe(false);
+  expect(result.html).toContain('data-handbook-version-id="18"');expect(result.html).toContain('data-handbook-section="direct-care-automatic-indirect-correction"');
+  expect(result.data.handbookReference).toMatchObject({agencyId:453,versionId:18,versionNumber:2});
  });
  it('reopens an existing edited unsigned draft without resetting its terms or duplicating records',async()=>{
   open={id:17,token_values_json:{...ready({employee:{userId:1496,name:'Existing'},effectiveDate:'2026-11-13'}),nluCompensationPolicyVersion:VERSION},rendered_html:'Preserved draft'};
   const result=await create();expect(result).toMatchObject({id:17,reused:true,html:'Preserved draft'});expect(result.data.schedule.childcareRatesByBand[3]).toBe(36);
   expect(m.execute.mock.calls.some(([sql])=>sql.startsWith('INSERT'))).toBe(false);
+  expect(m.execute.mock.calls.some(([sql])=>sql.includes('workplace_handbook'))).toBe(false);
+ });
+ it('adds the current published reference only on an explicit save after checking the retained preview',async()=>{
+  const data=ready({draftKind:'provider_update_compensation',createdVia:'employee_compensation_ui',initialAgreement:true,nluCompensationPolicyVersion:VERSION,employee:{userId:1496,name:'Finley QA'},effectiveDate:'2099-01-01',source:{policyEffectiveOn:'2026-11-12'}});
+  open={id:17,token_values_json:data,rendered_html:'<p>Retained unsigned preview.</p>'};
+  const original=JSON.stringify(data);
+  const saved=await saveCompensationDraft(453,17,{expectedHtml:open.rendered_html,additionalTerms:'Reviewed individual terms.'},1435);
+  expect(saved.html).toContain('data-handbook-version-id="18"');expect(saved.data.handbookReference).toMatchObject({agencyId:453,versionId:18});
+  const update=m.execute.mock.calls.find(([sql])=>sql.startsWith('UPDATE contract_generations SET token_values_json'));
+  expect(update[1][1]).toBe(saved.html);expect(JSON.parse(update[1][0]).handbookReference.versionId).toBe(18);
+  expect(JSON.stringify(data)).toBe(original);expect(open.rendered_html).toBe('<p>Retained unsigned preview.</p>');
  });
  it('preserves the executed service schedule, tutoring formats, role terms and original history on an amendment',async()=>{
   const prior={id:10,agreementDate:'2026-11-01',effectiveOn:'2026-11-01',data:{compensationPolicyVersion:'itsco-2026-10-service-credit-v2',schedule:{nluCompensationPolicyVersion:VERSION,category:2,level:3,clinicalEligible:false,indirectRate:20,supportRate:20,tutoringLevel:4,tutoringCategory:2,tutoringRates:{virtual:25,in_person:27},serviceRoles:['tutoring']},roleCompensation:{supervisor:null},additionalTerms:'Preserved tutoring terms'}};

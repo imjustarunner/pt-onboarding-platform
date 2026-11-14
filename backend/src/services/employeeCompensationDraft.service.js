@@ -11,6 +11,7 @@ import {amendmentIssues,renderAmendment} from '../content/itscoOctober2026Drafts
 import {NLU_COMPENSATION_POLICY_VERSION} from '../content/nluCompensationPolicy.js';
 import {SERVICE_CREDIT_POLICY_VERSION,isServiceCreditPolicy} from '../utils/serviceCreditPolicy.js';
 import {enabledSectionKeys} from '../constants/providerUpdateSections.js';
+import {annotateCompensationHandbookHtml} from './contractHandbookReferences.service.js';
 
 const KIND='provider_update_compensation';
 const parse=value=>{try{return typeof value==='string'?JSON.parse(value):value||{};}catch{return {};}};
@@ -36,7 +37,7 @@ export async function assertEmployeeCompensationAdmin(agencyId,actorUserId,db=po
 }
 
 export async function employeeCompensationPolicyContext(agencyId,db=pool){
- const [[agency]]=await db.execute('SELECT id,slug,name,is_active,is_archived,feature_flags FROM agencies WHERE id=?',[agencyId]);
+ const [[agency]]=await db.execute('SELECT id,slug,name,is_active,is_archived,feature_flags,color_palette FROM agencies WHERE id=?',[agencyId]);
  if(!agency||!Number(agency.is_active)||Number(agency.is_archived)||!isNluChildcareAgency(agency))throw fail('This organization does not have an active NLU compensation workflow.',403);
  if([453,454].includes(Number(agencyId))&&(!isNluTutoringQaAgency(agency)||Number(parse(agency.feature_flags).qaSandbox?.sourceAgencyId)!==6))throw fail('The retained NLU QA organization markers must be intact before preparing synthetic employee compensation.',403);
  const policy=await compensationAgencyPolicy(agencyId,db);
@@ -129,7 +130,9 @@ export async function createEmployeeCompensationDraft(agencyId,input,actorUserId
   // when the executed-agreement payroll reader normalizes this new generation.
   delete data.COMPENSATION_POLICY_VERSION;
   delete data.COMPENSATION_SCHEDULE;
-  const html=renderAmendment(data);
+  const annotated=await annotateCompensationHandbookHtml(renderAmendment(data),{agencyId,agency,db:connection,serviceRoles:data.schedule?.serviceRoles||data.CONTRACT_SERVICE_ROLES});
+  const html=annotated.html;
+  if(annotated.reference)data.handbookReference=annotated.reference;
   const [generation]=await connection.execute('INSERT INTO contract_generations(agency_id,candidate_user_id,token_values_json,rendered_html,created_by_user_id) VALUES (?,?,?,?,?)',[agencyId,userId,JSON.stringify(data),html,actorUserId]);
   const [audit]=await connection.execute('INSERT INTO user_activity_log(action_type,user_id,agency_id,metadata) VALUES (?,?,?,?)',['employee_compensation_draft_created',actorUserId,agencyId,JSON.stringify({generationId:generation.insertId,employeeUserId:userId,pushId,countersignerUserId:counterId,effectiveDate,initialAgreement,tasksAssigned:false,payrollChanged:false})]);
   await connection.commit();return {id:generation.insertId,data,html,issues:amendmentIssues(data),reused:false,auditRowId:audit.insertId};

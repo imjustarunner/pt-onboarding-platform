@@ -77,6 +77,24 @@ describe('school session cancellation benefit',()=>{
   expect(createSchoolSupportRequest).toHaveBeenCalledWith(expect.objectContaining({agencyId:2,userId:10,actorId:10,sourceAppointmentId:1,items:[{date:'2026-10-20',hours:1}],db:pool}));
   expect(createSchoolSupportRequest.mock.calls[0][0].notes).not.toContain('20');
  });
+ it('offers and reserves a fractional available balance without exceeding one hour',async()=>{
+  schoolSupportAvailability.mockResolvedValue({balanceHours:.5,pendingHours:0,availableHours:.5});
+  expect(await appointmentSchoolSupportContext(args)).toMatchObject({eligible:true,canRequest:true,maximumHours:.5});
+  await reserveCancellationSchoolSupport({appointmentId:1,actorUserId:10,facts:{useSchoolSupportHour:true,schoolSupportHours:.5,eventType:'canceled',clientId:20},db:pool});
+  expect(createSchoolSupportRequest).toHaveBeenCalledWith(expect.objectContaining({items:[{date:'2026-10-20',hours:.5}]}));
+ });
+ it.each([0,-1,1.01,2,NaN,.001])('rejects an invalid signed cancellation amount %s',async hours=>{
+  await expect(reserveCancellationSchoolSupport({appointmentId:1,actorUserId:10,facts:{useSchoolSupportHour:true,schoolSupportHours:hours,eventType:'canceled'},db:pool})).rejects.toMatchObject({status:400});
+  expect(createSchoolSupportRequest).not.toHaveBeenCalled();
+ });
+ it.each([null,'invalid/zone'])('requires a verified saved timezone rather than the browser or a fallback: %s',async zone=>{
+  appointment.sourceTimezone=zone;expect(await appointmentSchoolSupportContext(args)).toMatchObject({eligible:false,unavailableReason:expect.stringContaining('timezone')});
+  expect(schoolSupportAvailability).not.toHaveBeenCalled();
+ });
+ it('preserves the exact transition boundary without treating it as a request expiry',async()=>{
+  appointment.startAt='2026-10-10 05:59:59';expect(await appointmentSchoolSupportContext(args)).toEqual({eligible:false});
+  appointment.startAt='2026-10-10 06:00:00';expect(await appointmentSchoolSupportContext(args)).toMatchObject({eligible:true,useDate:'2026-10-10'});
+ });
  it('does nothing without explicit selection',async()=>{
   await reserveCancellationSchoolSupport({appointmentId:1,actorUserId:10,facts:{eventType:'canceled'},db:pool});expect(createSchoolSupportRequest).not.toHaveBeenCalled();
  });

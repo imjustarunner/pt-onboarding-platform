@@ -23,9 +23,13 @@ describe('handbook service-focus options', () => {
     expect(await contractServiceFocusSettings({ id: 2, name: 'ITSCO', slug: 'another-agency' })).toEqual({ serviceFocusOptions: SERVICE_FOCUS_CATEGORIES, schoolDaysEnabled: false });
     expect(db.execute).not.toHaveBeenCalled();
   });
-  it.each(['nlu', 'tisi'])('includes every category for %s without ITSCO school-day rules', async slug => {
+  it('keeps shared NLU service focuses while reserving school-based assignments for ITSCO', async () => {
     db.execute.mockResolvedValue([[{ body_html: '<h2>Welcome</h2><p>No categories listed.</p>' }]]);
-    expect(await contractServiceFocusSettings({ id: 6, slug })).toEqual({ serviceFocusOptions: SERVICE_FOCUS_CATEGORIES, schoolDaysEnabled: false });
+    expect(await contractServiceFocusSettings({ id: 6, slug:'nlu' })).toEqual({ serviceFocusOptions: SERVICE_FOCUS_CATEGORIES.filter(option=>!/\bschools?\b/i.test(option)), schoolDaysEnabled: false });
+  });
+  it('omits an unnecessary service-focus assignment selector for Inner Strength', async () => {
+    expect(await contractServiceFocusSettings({ id:377,slug:'tisi' })).toEqual({serviceFocusOptions:[],schoolDaysEnabled:false});
+    expect(db.execute).not.toHaveBeenCalled();
   });
   it('retains the baseline when handbook tables are unavailable', async () => {
     db.execute.mockRejectedValue({ code: 'ER_NO_SUCH_TABLE' });

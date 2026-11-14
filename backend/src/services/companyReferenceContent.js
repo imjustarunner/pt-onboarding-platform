@@ -1,4 +1,5 @@
 import { clinicalServiceHandbookSections } from '../content/narrivaServiceHandbookAmendment.js';
+import { agencyDocumentPresentation } from './documentAgencyBranding.js';
 import { applyScreenerReference } from './safetyPlans/guideReference.js';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -302,6 +303,7 @@ function baseReferenceSource(agency, key, { packageAssigned = false } = {}) {
 export function referenceSource(agency, key, options = {}) {
   const source = baseReferenceSource(agency, key, options);
   const tenant = handbookTenant(agency);
+  if (source) source.presentation = agencyDocumentPresentation(agency, source.presentation);
   if (!source || !tenant) return source;
   if (tenant === 'nlu') {
     for (const section of source.sections) section.body_html = String(section.body_html || '')

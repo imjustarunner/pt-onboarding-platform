@@ -93,6 +93,7 @@ router.get('/admin-updates', authenticate, ctrl.listAttachableAdminUpdates);
 router.post('/admin-updates', authenticate, ctrl.createAttachedAdminUpdate);
 router.put('/admin-updates/:updateId', authenticate, ctrl.patchAttachedAdminUpdate);
 
+router.get('/handbook/reference', authenticate, hb.getContractHandbookReference);
 router.get('/handbook/published', authenticate, hb.getPublished);
 router.get('/handbook/library', authenticate, hb.getLibraryHandbook);
 router.get('/handbook/history', authenticate, hb.getHistory);

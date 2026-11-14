@@ -12,9 +12,12 @@
 </template>
 <script setup>
 import { computed } from 'vue';
+import { resolveDocumentBrand } from '../../utils/documentBranding.js';
 const props = defineProps({ organization: { type: String, required: true }, presentation: { type: Object, default: () => ({}) }, isi: Boolean, titleLines: { type: Array, default: () => ['Workplace', 'handbook'] } });
-const safeColor = (value, fallback) => /^#[a-f0-9]{6}$/i.test(value || '') ? value : fallback;
-const colors = computed(() => ({ '--cover-primary': props.isi ? '#0b1f3a' : safeColor(props.presentation.primaryColor, '#223a50'), '--cover-accent': props.isi ? '#2f6b3a' : safeColor(props.presentation.accentColor, '#426c60') }));
+const colors = computed(() => {
+  const brand = resolveDocumentBrand({ presentation: { ...props.presentation, theme: props.presentation.theme || (props.isi ? 'isi-foundations' : undefined) } });
+  return { '--cover-primary': brand.ink, '--cover-accent': brand.accent, '--cover-brand-primary': brand.primary };
+});
 const logo = computed(() => props.isi ? '/assets/branding/innerstrength-mark.png' : /^(\/(?!\/)|https:\/\/)/.test(props.presentation.logoUrl || '') ? props.presentation.logoUrl : '');
 const coverImage = computed(() => props.isi ? '/assets/tisi/mountain-banner.webp' : /^\/assets\/handbooks\/[a-z0-9-]+\.(jpg|webp|png)$/.test(props.presentation.coverImageUrl || '') ? props.presentation.coverImageUrl : '');
 </script>

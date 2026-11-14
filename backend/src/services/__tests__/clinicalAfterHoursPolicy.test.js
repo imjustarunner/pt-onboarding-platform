@@ -4,7 +4,7 @@ vi.mock('../../config/clinicalDatabase.js',()=>({default:{execute:vi.fn()}}));
 vi.mock('../staffCareEligibility.service.js',()=>({readStaffCareEligibility:vi.fn()}));
 vi.mock('../billingRules.service.js',()=>({loadCredentialOverrides:vi.fn(),grantedServiceCodesForProvider:vi.fn(),credentialAllows:(tier,_code,rules)=>rules.get('intern_plus|99051')!==false&&tier==='intern_plus'}));
 vi.mock('../billingPolicy.service.js',()=>({resolvePolicyRuleForServiceCode:vi.fn(),isServiceCodeEnabledForAgency:vi.fn()}));
-import {evaluate99051Schedule,canonicalAfterHoursAddons} from '../../utils/clinicalAfterHoursPolicy.js';
+import {evaluate99051Schedule,canonicalAfterHoursAddons,LEGACY_AFTER_HOURS_POLICY_VERSION} from '../../utils/clinicalAfterHoursPolicy.js';
 import {isProBonoFunding,isProBonoServiceCode,resolveProBonoDocumentationService,proBonoClientBilling} from '../../utils/clinicalFundingPolicy.js';
 import {canApply99051,reconcileClinicalAfterHours,persistedClinicalSchedule,reconcileNewClaimAfterHours,assertNoAutomaticProBonoClaim,deriveApproved99051Decision,reviewClaim99051Policy} from '../clinicalAfterHours.service.js';
 import {getClinicalServiceReference} from '../clinicalServiceReference.service.js';
@@ -12,10 +12,10 @@ import {approvedVersionBillingBlockers} from '../clinicalNoteVersionBilling.serv
 
 describe('owner-defined99051 schedule policy',()=>{
  it.each([
-  ['2026-10-28T14:59:00Z',false],['2026-10-28T15:00:00Z',false],['2026-10-28T22:59:00Z',false],['2026-10-28T23:00:00Z',true],
+  ['2026-10-28T14:59:00Z',true],['2026-10-28T15:00:00Z',false],['2026-10-28T22:59:00Z',false],['2026-10-28T23:00:00Z',true],
   ['2026-11-09T23:59:00Z',false],['2026-11-10T00:00:00Z',true],['2026-11-07T07:00:00Z',true],['2026-11-09T06:59:00Z',true],
   ['2026-11-01T07:30:00Z',true],['2026-11-01T08:30:00Z',true],['2026-11-26T19:00:00Z',false]
- ])('%s uses source local start, including DST/weekends, not a morning/holiday extension',(startAt,eligible)=>{
+ ])('%s uses source local start, including DST/weekends, including mornings before09:00 but no automatic holiday extension',(startAt,eligible)=>{
   expect(evaluate99051Schedule({startAt,timeZone:'America/Denver'}).eligible).toBe(eligible);
  });
  it('uses the actual saved timezone and treats SQL datetimes as UTC, independent of process timezone',()=>{
@@ -55,6 +55,17 @@ describe('saved medical/credential/agency restrictions',()=>{
   d.credentialOverrides.mockResolvedValueOnce(new Map([['intern_plus|99051',false]]));expect(await canApply99051(input,d)).toMatchObject({allowed:false});
   d.policy.mockResolvedValueOnce({enabledForAgency:false,allowedForCredentialTier:true});expect(await canApply99051(input,d)).toMatchObject({allowed:false});
   d.enabled.mockResolvedValueOnce(false);expect(await canApply99051(input,d)).toMatchObject({allowed:false});
+ });
+ it('holds early mornings unless the actual saved payer rule documents authorization for that date',async()=>{
+  const morning={...input,afterHoursSchedule:{reason:'weekday_morning_start',localDate:'2026-11-13'}};
+  expect(await canApply99051(morning,d)).toMatchObject({allowed:false,reason:'morning_payer_review_required'});
+  const approval={allowWeekdayMorning:true,payerAuthorizationReference:'Verified payer written authorization #A',reviewedByUserId:9,effectiveFrom:'2026-11-01',effectiveThrough:'2026-11-30'};
+  d.policy.mockResolvedValueOnce({enabledForAgency:true,allowedForCredentialTier:true,afterHours99051:approval});expect(await canApply99051(morning,d)).toMatchObject({allowed:true});
+  for(const patch of [{payerAuthorizationReference:''},{reviewedByUserId:0},{effectiveFrom:'2026-11-14'},{effectiveThrough:'2026-11-12'},{effectiveFrom:'2026-99-99'}]){d.policy.mockResolvedValueOnce({enabledForAgency:true,allowedForCredentialTier:true,afterHours99051:{...approval,...patch}});expect(await canApply99051(morning,d)).toMatchObject({allowed:false,reason:'morning_payer_review_required'});}
+ });
+ it.each([2,6,377])('uses the same outside-hours signal and real permission gate for agency %s',async agencyId=>{
+  const resolved=await reconcileClinicalAfterHours({...input,agencyId,startAt:'2026-11-13T15:59:00Z',timeZone:'America/Denver'},d);
+  expect(resolved.afterHours).toMatchObject({eligible:true,allowed:false,authorizationReason:'morning_payer_review_required'});expect(resolved.addonServiceCodes).not.toContain('99051');
  });
  it('preserves configured place-of-service and modality restrictions',async()=>{
   row.allowed_place_of_service_json=['11'];expect(await canApply99051({...input,placeOfService:'10'},d)).toMatchObject({allowed:false,reason:'place_of_service_restricted'});
@@ -103,7 +114,7 @@ describe('pro bono funding remains distinct from clinical service',()=>{
  });
  it('provides traceable agency supplements without claiming either is in the supplied PDF',()=>{
   for(const value of ['99051','PRO-BONO SERVICE']){const reference=getClinicalServiceReference(value);expect(reference.status).toBe('supplemental-policy');expect(reference.source).toMatchObject({kind:'user_agency_policy',pages:[],hash:expect.stringMatching(/^[a-f0-9]{64}$/)});expect(reference.reviewNotice).toContain('not an entry');}
-  expect(getClinicalServiceReference('99051').schedulePolicy).toMatchObject({basis:'session_start',weekdayStartLocal:'17:00',weekdayMorningEligible:false});expect(getClinicalServiceReference('PRO-BONO SERVICE').zeroClientCharge).toBe(true);expect(getClinicalServiceReference('97535').status).toBe('not-in-supplied-manual');
+  expect(getClinicalServiceReference('99051').schedulePolicy).toMatchObject({basis:'session_start',weekdayStartLocal:'17:00',weekdayMorningEligible:true});expect(getClinicalServiceReference('PRO-BONO SERVICE').zeroClientCharge).toBe(true);expect(getClinicalServiceReference('97535').status).toBe('not-in-supplied-manual');
  });
 });
 describe('server-bound99051 exception to immutable clinical approval',()=>{
@@ -120,11 +131,19 @@ describe('server-bound99051 exception to immutable clinical approval',()=>{
   expect(approvedVersionBillingBlockers({note:approved,session:encounter,claim,lines:raw(result.lines)})).toContain('The claim add-on services differ from the latest approved clinical version.');expect(approved).toEqual(before);expect(database.execute).not.toHaveBeenCalled();
  });
  it('removes a legacy morning99551 only through a verified schedule decision and keeps all other authored add-ons exact',async()=>{
-  const approved=note();approved.metadata_json.billingAddons=[{code:'99051',units:1},{code:'90785',units:1}];const encounter={...session(),scheduled_start_at:'2026-11-09 15:00:00'};
+  const approved=note();approved.metadata_json.billingAddons=[{code:'99051',units:1},{code:'90785',units:1}];const encounter={...session(),scheduled_start_at:'2026-11-09 16:00:00'};
   const result=await reconcileNewClaimAfterHours({session:encounter,note:approved,lines:[{procedureCode:'90837',units:1},{procedureCode:'99051',units:1},{procedureCode:'90785',units:1}]},{authorize:authorize()});
   expect(result.policyBinding.included).toBe(false);expect(result.lines.map(line=>line.procedureCode)).toEqual(['90837','90785']);expect(approvedVersionBillingBlockers({note:approved,session:encounter,claim,lines:raw(result.lines),afterHoursDecision:result.decision})).toEqual([]);
   expect(approvedVersionBillingBlockers({note:approved,session:encounter,claim,lines:[{procedure_code:'90837',units:1}],afterHoursDecision:result.decision})).toContain('The claim add-on services differ from the latest approved clinical version.');
   expect(approved.metadata_json.billingAddons).toContainEqual({code:'99051',units:1});
+ });
+ it('retains a persisted legacy schedule policy binding without retroactive morning repricing',async()=>{
+  const approved=note(),encounter={...session(),scheduled_start_at:'2026-11-09 15:00:00'};
+  const prior=await deriveApproved99051Decision({note:approved,session:encounter},{authorize:authorize(),policyVersion:LEGACY_AFTER_HOURS_POLICY_VERSION});
+  expect(prior.included).toBe(false);
+  const stored={...claim,metadata_json:{scheduleDerived99051:prior.binding}};
+  expect((await reviewClaim99051Policy({claim:stored,note:approved,session:encounter,lines:[{procedure_code:'90837',units:1}]},{authorize:authorize()})).blockers).toEqual([]);
+  expect((await deriveApproved99051Decision({note:approved,session:encounter},{authorize:authorize()})).included).toBe(true);
  });
  it('rejects a serialized/forged decision, cross-note reuse, extra units and duplicate fractional lines',async()=>{
   const approved=note(),encounter=session(),decision=await deriveApproved99051Decision({note:approved,session:encounter},{authorize:authorize()});

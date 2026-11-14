@@ -17,6 +17,11 @@ beforeEach(() => {
 });
 
 describe('prospective Mental Range Collective assignments', () => {
+  it('renders the generated agreement with its company palette and a readable actual agency ink color',async()=>{
+    mocks.agency.mockResolvedValue({id:6,slug:'nlu',name:'Next Level Up',color_palette:{primary:'#6FCFBE',secondary:'#1F2A44',accent:'#9FB7A5'}});
+    const result=await renderContractHtml({agencyId:6,configId:1,tokens:{COMPANY_NAME:'Next Level Up',ROLE_LABEL:'Employee',CONTRACT_SERVICE_ROLES:[]}});
+    expect(result.html).toContain('color: #1F2A44;');expect(result.html).toContain('border-left:3px solid #9FB7A5');
+  });
   it.each(['itsco', 'nlu', 'tisi', 'plottwistco', 'mh4kidz'])('includes exactly one versioned clause in a future %s agreement', async slug => {
     mocks.agency.mockResolvedValue({ id: 6, slug, name: 'Collective company' });
     const result = await renderContractHtml({ agencyId: 6, configId: 1, tokens: { COMPANY_NAME: 'Contracting Company', ROLE_LABEL: 'Employee', CONTRACT_SERVICE_ROLES: [] } });

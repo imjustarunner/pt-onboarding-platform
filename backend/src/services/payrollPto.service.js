@@ -61,7 +61,7 @@ export async function getAgencyPtoPolicy({ agencyId }) {
       ? false
       : policy.ptoEnabled !== false;
   const defaultPayRate = Number(agency?.pto_default_pay_rate || 0);
-  return { policy: { ...policy, ptoEnabled, trainingPtoEnabled: policy.trainingPtoEnabled === true }, defaultPayRate };
+  return { policy: { ...policy, ptoEnabled, trainingPtoEnabled: policy.trainingPtoEnabled === true, schoolSupportEnabled: policy.schoolSupportEnabled === true && String(agency?.slug || '').toLowerCase() === 'itsco' }, defaultPayRate };
 }
 
 export async function upsertAgencyPtoPolicy({ agencyId, policy, defaultPayRate, ptoEnabled }) {
