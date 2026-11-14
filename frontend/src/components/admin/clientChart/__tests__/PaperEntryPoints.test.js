@@ -1,4 +1,5 @@
 import {it,expect,vi} from 'vitest';import {mount,flushPromises} from '@vue/test-utils';
+vi.mock('../../../../store/auth',()=>({useAuthStore:()=>({user:{id:1434,role:'support'}})}));
 vi.mock('../../../../services/api',()=>({default:{get:vi.fn()}}));
 vi.mock('vue-router',()=>({useRoute:()=>({params:{organizationSlug:'qa'}}),useRouter:()=>({push:vi.fn()})}));
 import api from '../../../../services/api';import Overview from '../ClientOverviewHub.vue';import Records from '../ClientRecordsOverview.vue';
