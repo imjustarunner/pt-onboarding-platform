@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { flushPromises, shallowMount } from '@vue/test-utils';
+import { DOMWrapper, flushPromises, shallowMount } from '@vue/test-utils';
 import { reactive } from 'vue';
 import { createPinia, setActivePinia } from 'pinia';
 
@@ -84,17 +84,18 @@ describe('rescheduling an existing meeting from the Edit tab', () => {
       state.editorWorkspaceTab = 'edit';
       await flushPromises();
 
-      const date = wrapper.get('input[aria-label="Appointment date"]');
+      const editor = new DOMWrapper(document.body).get('.modal-backdrop--request');
+      const date = editor.get('input[aria-label="Appointment date"]');
       expect(date.element.disabled).toBe(false);
       expect(date.element.value).toBe('2026-10-29');
       await date.setValue(dateYmd);
-      expect(wrapper.findAll('input[type="time"]').map((input) => input.element.value))
+      expect(editor.findAll('input[type="time"]').map((input) => input.element.value))
         .toEqual(['13:00', '14:30']);
       expect(state.scheduleEventEditForm).toMatchObject({
         startAt: `${dateYmd}T13:00`, endAt: `${dateYmd}T14:30`
       });
 
-      await wrapper.get('.nr-btn-submit').trigger('click');
+      await editor.get('.nr-btn-submit').trigger('click');
       await flushPromises();
       expect(state.scheduleEventEditError).toBe('');
       expect(mocks.patch).toHaveBeenCalledWith('/users/7/schedule-events/10', expect.objectContaining({

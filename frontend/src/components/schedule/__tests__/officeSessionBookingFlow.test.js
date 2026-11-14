@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { flushPromises, shallowMount, mount } from '@vue/test-utils';
+import { DOMWrapper, flushPromises, shallowMount, mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import { nextTick } from 'vue';
 
@@ -165,18 +165,20 @@ async function openReservation() {
 }
 it('anchors editing to the selected date, time and room and prevents occurrence scope after a cadence change', async () => {
   const s = await openReservation();
-  const context = wrapper.get('[data-testid="selected-office-reservation"]');
+  const editor = new DOMWrapper(document.body).get('.modal-backdrop--request');
+  const context = editor.get('[data-testid="selected-office-reservation"]');
   expect(context.text()).toContain('Thursday, November 26, 2026');
   expect(context.text()).toContain('3:00 PM–4:00 PM'); expect(context.text()).toContain('Office #10');
   s.bookingStripFrequency = 'BIWEEKLY'; await nextTick();
-  expect(wrapper.get('select[aria-label="Reservation edit scope"] option[value="occurrence"]').element.disabled).toBe(true);
+  expect(editor.get('select[aria-label="Reservation edit scope"] option[value="occurrence"]').element.disabled).toBe(true);
   expect(s.bookingMoveScope).toBe('future');
 });
 it('locks recurrence for one-date edits and moves only that occurrence without a booking-plan write', async () => {
   const s = await openReservation();
-  await wrapper.get('select[aria-label="Reservation edit scope"]').setValue('occurrence');
+  const editor = new DOMWrapper(document.body).get('.modal-backdrop--request');
+  await editor.get('select[aria-label="Reservation edit scope"]').setValue('occurrence');
   expect(s.bookingStripFrequency).toBe('ONCE'); expect(s.bookingStripDirty).toBe(false);
-  const repeat = wrapper.get('[data-testid="schedule-booking-meta"] select');
+  const repeat = editor.get('[data-testid="schedule-booking-meta"] select');
   expect(repeat.element.disabled).toBe(true);
   s.onModalStartTimeInput('16:00'); await nextTick();
   s.onModalEndTimeInput('17:00'); await nextTick();

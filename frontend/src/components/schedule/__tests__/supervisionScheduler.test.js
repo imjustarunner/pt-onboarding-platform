@@ -1,5 +1,5 @@
 import {beforeEach,afterEach,describe,it,expect,vi} from 'vitest';
-import {shallowMount,flushPromises} from '@vue/test-utils';
+import {DOMWrapper,shallowMount,flushPromises} from '@vue/test-utils';
 import {reactive} from 'vue';
 import {createPinia,setActivePinia} from 'pinia';
 const m=vi.hoisted(()=>({get:vi.fn(),post:vi.fn(),patch:vi.fn(),route:null,replace:vi.fn()}));
@@ -103,11 +103,12 @@ it('shows recurrence and outcome controls on Info, hides Join/status in Edit, an
  wrapper=shallowMount(Grid,{props:{userId:7,agencyId:2},global:{stubs:{Teleport:false,RouterLink:true,ClinicalWorkspaceFrame:{template:'<div><slot /></div>'}}}});await flushPromises();
  const s=wrapper.vm.$.setupState;s.summary=fixture;s.openSupervisionEditInScheduleModal('Monday',10,10);await flushPromises();
  s.editorWorkspaceTab='info';await flushPromises();
- expect(wrapper.find('[data-testid="supervision-recurrence-summary"]').text()).toContain('Weekly');
- expect(wrapper.find('[data-testid="supervision-recurrence-summary"]').text()).not.toContain('When saving');
- expect(wrapper.find('.nr-btn-join').exists()).toBe(true);
+ const dialog=new DOMWrapper(document.body).get('.modal-backdrop--request');
+ expect(dialog.find('[data-testid="supervision-recurrence-summary"]').text()).toContain('Weekly');
+ expect(dialog.find('[data-testid="supervision-recurrence-summary"]').text()).not.toContain('When saving');
+ expect(dialog.find('.nr-btn-join').exists()).toBe(true);
  s.editorWorkspaceTab='edit';await flushPromises();
- expect(wrapper.find('.nr-btn-join').exists()).toBe(false);
+ expect(dialog.find('.nr-btn-join').exists()).toBe(false);
  const editor=wrapper.findComponent({name:'AppointmentEditorShell'});expect(editor.props('showStatus')).toBe(false);expect(editor.props('showVirtual')).toBe(false);
  s.supvStartIsoLocal='2026-10-05T11:00';s.supvEndIsoLocal='2026-10-05T12:00';await s.saveSupvSession();
  expect(s.supervisionActionDraft.mode).toBe('change');expect(m.patch).not.toHaveBeenCalled();

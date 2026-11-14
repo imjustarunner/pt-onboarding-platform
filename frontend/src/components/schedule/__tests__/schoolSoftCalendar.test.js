@@ -82,7 +82,7 @@ it('keeps timed children in quarter-hour agenda and phone lists, and packs overl
   s.scheduleSpanMode = 'agenda'; await flushPromises();
   expect(s.agendaItems.filter(b => b.kind === 'school-soft')).toHaveLength(1);
 });
-it('keeps availability behind client appointments in week and day views, with quarter guides and exact saved minutes', async () => {
+it('shows availability beside appointments and keeps school context behind them, with quarter guides and exact saved minutes', async () => {
   m.summary.schoolSoftSessions = [student()];
   m.summary.virtualWorkingHours = [{ id: 91, agencyId: 2, dayOfWeek: 'Tuesday', startTime: '10:15', endTime: '12:00', sessionType: 'BOTH' }];
   m.summary.scheduleEvents = [{ id: 72, kind: 'SESSION', agencyId: 2, clientId: 200, title: 'Synthetic office session', startAt: '2026-10-13T16:45:00Z', endAt: '2026-10-13T17:30:00Z' }];
@@ -94,15 +94,15 @@ it('keeps availability behind client appointments in week and day views, with qu
     const blocks = s.cellBlocks('Tuesday', 10);
     const soft = blocks.find(b => b.kind === 'school-soft');
     const office = blocks.find(b => b.eventId === 72);
-    expect(soft.sideBySideLane.cols).toBe(2); expect(office.sideBySideLane.cols).toBe(2);
-    expect(soft.sideBySideLane.col).not.toBe(office.sideBySideLane.col);
+    const portal = blocks.find(b => b.kind === 'portal');
+    for (const block of [soft, office, portal]) expect(block.sideBySideLane.cols).toBe(3);
+    expect(new Set([soft, office, portal].map(block => block.sideBySideLane.col)).size).toBe(3);
+    expect(portal.backgroundContext).toBe(false);
     expect(soft.timedSlice.topPct).toBeCloseTo(28/60*100);
     expect(soft.timedSlice.heightPct).toBeCloseTo(53/60*100);
-    for (const kind of ['school', 'portal']) {
-      const context = blocks.find(b => b.kind === kind);
-      expect(context.backgroundContext).toBe(true);
-      expect(s.cellBlockStyle(context).zIndex).toBeLessThan(s.cellBlockStyle(soft).zIndex);
-    }
+    const context = blocks.find(b => b.kind === 'school');
+    expect(context.backgroundContext).toBe(true);
+    expect(s.cellBlockStyle(context).zIndex).toBeLessThan(s.cellBlockStyle(soft).zIndex);
   }
   await hourCell().find('.cell-multi-pick-badge').trigger('click');
   expect(hourCell().find('.cell-expanded-item.cell-block-school').text()).toContain('Demo school');
