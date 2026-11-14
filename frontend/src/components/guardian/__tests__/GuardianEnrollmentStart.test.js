@@ -44,3 +44,11 @@ it('defaults the current learning agency to its tutoring form rather than the of
  await w.find('form').trigger('submit');await flushPromises();
  expect(post).toHaveBeenCalledWith('/guardian-portal/enrollments',{linkId:349,subject:'dependent'});w.unmount();
 });
+
+it('looks up another organization’s published forms and starts them under the same account',async()=>{
+ const w=mount(GuardianEnrollmentStart,{props:{agencyId:450}});await flushPromises();
+ get.mockResolvedValueOnce({data:{options:[{id:355,agencyId:453,agencySlug:'nlu-qa-demo',agencyName:'NLU QA',channel:'tutoring',language:'en'}]}});
+ await w.get('.another-org input').setValue('https://app.nextleveluplcc.com/nlu-qa-demo/guardian');await w.get('.another-org').trigger('submit');await flushPromises();
+ expect(get).toHaveBeenLastCalledWith('/guardian-portal/enrollments/options',{params:{agencySlug:'nlu-qa-demo'}});
+ await w.find('form').trigger('submit');await flushPromises();expect(post).toHaveBeenCalledWith('/guardian-portal/enrollments',{linkId:355,subject:'dependent',agencySlug:'nlu-qa-demo'});w.unmount();
+});

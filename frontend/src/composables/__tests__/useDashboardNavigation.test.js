@@ -8,7 +8,7 @@ const { get } = vi.hoisted(() => ({ get: vi.fn() }));
 vi.mock('../../services/api', () => ({ default: { get } }));
 let wrapper;
 const provider = { id: 7, role: 'provider', status: 'ACTIVE_EMPLOYEE', capabilities: { canViewLibrary: true } };
-const agency = { id: 2, slug: 'example', organization_type: 'agency', feature_flags: {} };
+const agency = { id: 2, slug: 'example', organization_type: 'agency', feature_flags: { clinicalChartEnabled: true } };
 function start(overrides = {}) {
   const state = {
     user: ref({ ...provider }), agency: ref({ ...agency }), organizations: ref([]),
@@ -162,4 +162,11 @@ it('reloads service permissions when a concurrent user refresh replaces the same
  expect(labels(nav)).toContain('My students');
  expect(labels(nav)).toContain('Tutoring profile');
  expect(labels(nav)).not.toContain('Note Workspace');
+});
+
+
+it('waits for tenant metadata before requesting clinical supervision history', async () => {
+  start({ agency: ref({ id: 453, slug: 'nlu-qa-demo' }) });
+  await flushPromises();
+  expect(get.mock.calls.some(([url]) => url === '/supervision/my-history-status')).toBe(false);
 });

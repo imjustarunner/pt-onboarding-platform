@@ -67,3 +67,16 @@ it('offers the published tutoring form and withholds office enrollment in an exp
  expect((await enrollmentOptions(owner,deps)).options).toEqual([expect.objectContaining({id:349,channel:'tutoring'})]);
  expect(deps.db.execute.mock.calls[0][0]).toContain('agency_channel_intake_masters');
 });
+
+it('limits an explicit other-organization lookup to public published service forms, without granting membership',async()=>{
+ const result=await enrollmentOptions(owner,deps,'nlu-qa-demo');
+ const [sql,args]=deps.db.execute.mock.calls[0];
+ expect(args).toEqual([8,'nlu-qa-demo']);expect(sql).toContain('a.public_availability_enabled=1');expect(sql).toContain('st.is_enabled=1');expect(sql).toContain("il.scope_type='agency'");
+ expect(deps.submissions.create).not.toHaveBeenCalled();expect(result.options[0]).not.toHaveProperty('guardian');
+});
+it('binds a new public organization enrollment to the authenticated family and rechecks its published form',async()=>{
+ deps.db.execute.mockImplementation(async sql=>sql.includes('SELECT DISTINCT')?[[{id:355,agency_id:453,agency_slug:'nlu-qa-demo',agency_name:'NLU',master_channel:'tutoring'}]]:[[{id:355,public_key:'tutoring-key'}]]);
+ await startGuardianEnrollment({user:owner,linkId:355,subject:'dependent',agencySlug:'nlu-qa-demo'},deps);
+ expect(deps.submissions.create).toHaveBeenCalledWith(expect.objectContaining({guardianUserId:8,portalEnrollment:{userId:8,email:owner.email,agencyId:453}}));
+ expect(deps.db.execute.mock.calls[0][1]).toEqual([8,'nlu-qa-demo']);
+});

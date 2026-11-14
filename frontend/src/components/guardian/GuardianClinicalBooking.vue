@@ -7,13 +7,15 @@
     <button v-if="!open" type="button" @click="open=true;loadSlots()">{{ ft("Book a session") }}</button>
     <form v-else @submit.prevent="book">
       <header><h3>{{ ft("Book a session") }}</h3><button type="button" @click="open=false">{{ ft("Close") }}</button></header>
-      <label>{{ ft("Provider and service") }}<select v-model="selected" @change="resetSelection();loadSlots()"><option v-for="(choice,index) in choices" :key="`${choice.providerId}:${choice.serviceId}:${choice.modality}`" :value="index">{{ choice.providerName }} · {{ choice.serviceName }} · {{ choice.modality === 'IN_PERSON' ? ft('In person') : choice.modality === 'TELEHEALTH' ? ft('Online') : ft('Any format') }}</option></select></label>
+      <label>{{ ft(learning ? 'Tutor and format' : 'Provider and service') }}<select v-model="selected" @change="packageId=null;resetSelection();loadSlots()"><option v-for="(choice,index) in choices" :key="`${choice.providerId}:${choice.serviceId}:${choice.modality}`" :value="index">{{ choice.providerName }} · {{ choice.serviceName }} · {{ choice.modality === 'IN_PERSON' ? ft('In person') : choice.modality === 'TELEHEALTH' ? ft('Online') : ft('Any format') }}</option></select></label>
       <label>{{ ft("Week containing") }}<input type="date" v-model="week" @change="resetSelection();loadSlots()" /></label>
       <p>{{ ft('Times shown in {zone}.', {zone: timeZone}) }}</p>
-      <p v-if="loading">{{ ft("Loading openings…") }}</p><p v-else-if="!slots.length">{{ ft("No openings this week. Choose another week or contact your care team.") }}</p>
+      <p v-if="loading">{{ ft("Loading openings…") }}</p><p v-else-if="!slots.length">{{ ft(learning ? 'No tutoring openings this week. Choose another week or message your tutor or the tutoring office.' : 'No openings this week. Choose another week or contact your care team.') }} <button type="button" @click="nextWeek">{{ ft('Try next week') }}</button></p>
+      <label v-if="learning && choice?.packages?.length">{{ ft('How will you use your sessions?') }}<select v-model="packageId" @change="confirmed=false"><option :value="null">{{ ft('Pay for this session separately') }}</option><option v-for="pkg in choice.packages" :key="pkg.id" :value="pkg.id">{{pkg.name}} · {{pkg.sessionsAvailable}} {{ft('available')}} · {{pkg.freeMissesRemaining}} {{ft('free cancellations remaining')}}</option></select></label>
+      <p v-if="packageId">{{ ft('One session will be reserved from your selected package. Its saved cancellation terms apply; no new card charge is collected by this booking.') }}</p>
       <fieldset v-if="slots.length"><legend>{{ ft("Available appointments") }}</legend><label v-for="(slot,index) in slots" :key="`${slot.startAt}:${slot.modality}:${slot.roomId}`"><input type="radio" v-model="slotIndex" :value="index" @change="confirmed=false" /> {{ when(slot.startAt) }} · {{ slot.modality==='VIRTUAL'?ft('Online'):slot.location||ft('In person') }}</label></fieldset>
       <section v-if="choice" class="policy">
-        <strong>{{ ft('Session price: {amount}', {amount: money(choice.terms.sessionFeeCents)}) }}</strong>
+        <strong>{{ packageId ? ft('One session from your selected package') : ft('Session price: {amount}', {amount: money(choice.terms.sessionFeeCents)}) }}</strong>
         <p>{{ ft('Cancel at least {hours} hours before your session: no cancellation fee. Cancel with less notice: {late}. Missed appointment: {missed}.', {hours: choice.terms.noticeHours, late: money(choice.terms.lateFeeCents), missed: money(choice.terms.noShowFeeCents)}) }}</p>
         <p>{{ ft("Booking records the agreed session price. Payment is handled separately; this action does not charge a card.") }}</p>
         <label><input type="checkbox" v-model="confirmed" required /> {{ ft("I acknowledge the session price and attendance policy.") }}</label>
@@ -34,22 +36,24 @@ const choices=ref([]),selected=ref(0),open=ref(false),slots=ref([]),slotIndex=re
 const week=ref(new Date().toLocaleDateString('en-CA',{timeZone:'America/Denver'}));let generation=0;
 const optionsLoading=ref(false);
 const choice=computed(()=>choices.value[selected.value]);
+const packageId=ref(null);
 const money=cents=>new Intl.NumberFormat(familyLocale.value,{style:'currency',currency:'USD'}).format((cents||0)/100);
 const when=value=>new Date(value).toLocaleString(familyLocale.value,{timeZone:timeZone.value,dateStyle:'medium',timeStyle:'short'});
 function resetSelection(){slotIndex.value=null;confirmed.value=false;notice.value='';}
+function nextWeek(){const date=new Date(week.value+'T12:00:00Z');date.setUTCDate(date.getUTCDate()+7);week.value=date.toISOString().slice(0,10);void loadSlots();}
 async function loadSlots(){
   if(!choice.value)return;const own=++generation;loading.value=true;error.value='';slots.value=[];resetSelection();
   try{const {data}=await api.get(`/guardian-portal/clients/${props.clientId}/session-booking/slots`,{params:{agencyId:props.agencyId,serviceId:props.serviceId,providerId:choice.value.providerId,tenantServiceId:choice.value.serviceId,modality:choice.value.modality,weekStart:week.value},skipGlobalLoading:true});
-    if(own===generation){slots.value=data.slots;timeZone.value=data.timeZone;choices.value[selected.value]=data.choice;}
+    if(own===generation){slots.value=data.slots;timeZone.value=data.timeZone;choices.value[selected.value]=data.choice;if(packageId.value&&!data.choice.packages?.some(pkg=>pkg.id===Number(packageId.value)))packageId.value=null;}
   }catch(e){if(own===generation)error.value=e.response?.data?.error?.message||ft("Openings could not be loaded.");}finally{if(own===generation)loading.value=false;}
 }
 async function book(){
   if(busy.value||!confirmed.value||slotIndex.value===null)return;const own=generation;busy.value=true;error.value='';
-  try{const {data}=await api.post(`/guardian-portal/clients/${props.clientId}/session-booking`,{agencyId:props.agencyId,serviceId:props.serviceId,providerId:choice.value.providerId,tenantServiceId:choice.value.serviceId,...slots.value[slotIndex.value],acknowledgedTerms:choice.value.terms,confirmed:true});
+  try{const {data}=await api.post(`/guardian-portal/clients/${props.clientId}/session-booking`,{agencyId:props.agencyId,serviceId:props.serviceId,providerId:choice.value.providerId,tenantServiceId:choice.value.serviceId,packageEntitlementId:packageId.value,...slots.value[slotIndex.value],acknowledgedTerms:choice.value.terms,confirmed:true});
     if(own===generation){await loadSlots();notice.value=ft('Appointment #{id} is booked for {when}.', {id: data.appointmentId, when: when(data.startAt)});emit('booked');}
   }catch(e){if(own===generation){error.value=e.response?.data?.error?.message||ft("Booking could not be completed. Refresh appointments before trying again.");resetSelection();}}finally{busy.value=false;}
 }
-async function loadOptions(){const own=++generation;choices.value=[];open.value=false;error.value='';resetSelection();if(!props.clientId)return;
+async function loadOptions(){const own=++generation;choices.value=[];packageId.value=null;open.value=false;error.value='';resetSelection();if(!props.clientId)return;
   optionsLoading.value=true;
   try{const {data}=await api.get(`/guardian-portal/clients/${props.clientId}/session-booking`,{params:{agencyId:props.agencyId,serviceId:props.serviceId},skipGlobalLoading:true});if(own===generation){choices.value=Array.isArray(data.choices)?data.choices:[];selected.value=0;}}
   catch(e){if(own===generation&&props.learning)error.value=e.response?.data?.error?.message||ft('Appointment options could not be loaded. Please try again.');}

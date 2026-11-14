@@ -7861,6 +7861,11 @@ export const listUserVirtualSessionClients = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Access denied for this agency' } });
     }
 
+    if (String(req.query?.serviceType || '') === 'tutoring') {
+      const { tutoringWorkspace } = await import('../services/tutoringWorkspace.service.js');
+      const roster = await tutoringWorkspace.students({ ...req.user, id: userId }, agencyId);
+      return res.json({ clients: roster.students.map(student => ({ ...student, clientType: 'learning', schools: [] })), guardians: [] });
+    }
     const includeGuardians = String(req.query?.includeGuardians || '').trim().toLowerCase() === 'true';
     const listAllAgencyClients = canListAllAgencyClientsForSchedule(actorRole);
 

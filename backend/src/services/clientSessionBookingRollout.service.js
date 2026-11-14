@@ -1,5 +1,5 @@
 import pool from '../config/database.js';
-import { isNluTutoringQaAgency, allowNluQaTutor } from '../utils/nluTutoringQaPolicy.js';
+import { isNluTutoringQaAgency, allowNluQaProvider } from '../utils/nluTutoringQaPolicy.js';
 import { isAuricwellQaAgency, allowQaExchangeRecipient } from '../utils/auricwellQaPolicy.js';
 import { parseFeatureFlags } from './medicalBillingFlags.service.js';
 import { readProviderServices } from './providerServiceOfferings.service.js';
@@ -46,7 +46,7 @@ export async function sessionBookingProviders(agencyId, db = pool) {
     LEFT JOIN provider_public_profiles p ON p.user_id=u.id
     WHERE COALESCE(u.is_archived,0)=0 AND (COALESCE(u.is_demo,0)=0 OR ?=1)
     ORDER BY u.last_name,u.first_name`, [agencyId, qa ? 1 : 0]);
-  return rows.filter(row => (!qa ? !Number(row.is_demo) : nluQa ? allowNluQaTutor(agency,row) : allowQaExchangeRecipient(agency, row)) && staffCareEligibility(row, agencyId).canProvideCare).map(row => ({
+  return rows.filter(row => (!qa ? !Number(row.is_demo) : nluQa ? allowNluQaProvider(agency,row) : allowQaExchangeRecipient(agency, row)) && staffCareEligibility(row, agencyId).canProvideCare).map(row => ({
     id: Number(row.id), name: `${row.preferred_name || row.first_name || ''} ${row.last_name || ''}`.trim()
   }));
 }

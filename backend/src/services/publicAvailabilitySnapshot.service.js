@@ -13,19 +13,19 @@ export async function readPublicWeekAvailability(options, { fresh = false } = {}
   if (Number.isNaN(date.getTime())) throw new Error('Invalid availability week');
   date.setUTCDate(date.getUTCDate() - (date.getUTCDay() + 6) % 7);
   const normalized = {
-    agencyId: Number(options.agencyId), providerId: Number(options.providerId),
+    agencyId: Number(options.agencyId), providerId: Number(options.providerId),serviceType:options.serviceType||null,
     weekStartYmd: date.toISOString().slice(0, 10),
     intakeOnly: Boolean(options.intakeOnly), slotMinutes: 60,
     includeGoogleBusy: true, externalCalendarIds: []
   };
-  const result = await readPublicSnapshot({ key: ['public-week-v5', normalized], kind: 'availability', providerId: normalized.providerId }, async () => {
+  const result = await readPublicSnapshot({ key: ['public-week-v6', normalized], kind: 'availability', providerId: normalized.providerId }, async () => {
     // Keep the base openings in the shared cache. The live filter below hides
     // private offers and restores their openings immediately at release/expiry.
     const result = await Availability.computeWeekAvailability({ ...normalized, includePrivateOffers: true });
     if (!result) throw new Error('Availability could not be loaded');
     // Explicit public allowlist: no busy events, client data, or calendar URLs.
-    const slots = rows => (rows || []).map(({ startAt, endAt, buildingId, buildingName, roomId, roomLabel, sessionType, frequency, purpose, careTypes }) =>
-      ({ startAt, endAt, buildingId, buildingName, roomId, roomLabel, sessionType, frequency, purpose, careTypes }));
+    const slots = rows => (rows || []).map(({ startAt, endAt, buildingId, buildingName, roomId, roomLabel, sessionType, frequency, purpose, careTypes, serviceType }) =>
+      ({ startAt, endAt, buildingId, buildingName, roomId, roomLabel, sessionType, frequency, purpose, careTypes, serviceType }));
     return { ok: true, agencyId: normalized.agencyId, providerId: normalized.providerId,
       weekStart: normalized.weekStartYmd, weekEnd: result.weekEnd, timeZone: result.timeZone, slotMinutes: 60,
       checkedAt: new Date().toISOString(), inPersonSlots: slots(result.inPersonSlots), virtualSlots: slots(result.virtualSlots) };

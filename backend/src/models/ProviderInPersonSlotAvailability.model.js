@@ -1,3 +1,4 @@
+import {availabilityServiceType} from '../utils/availabilityService.js';
 import pool from '../config/database.js';
 
 class ProviderInPersonSlotAvailability {
@@ -12,9 +13,11 @@ class ProviderInPersonSlotAvailability {
     availableForSession = false,
     source = 'OFFICE_EVENT',
     sourceEventId = null,
-    frequency = 'ONCE', purpose = 'INTAKE', seriesId=null, careTypes=null, database = pool,
+    frequency = 'ONCE', purpose = 'INTAKE', seriesId=null, careTypes=null, serviceType=null, database = pool,
     createdByUserId = null
   }) {
+    serviceType = availabilityServiceType(serviceType);
+    if (serviceType === 'tutoring') careTypes = null;
     const [result] = await database.execute(
       `INSERT INTO provider_in_person_slot_availability
          (agency_id, provider_id, office_location_id, room_id, start_at, end_at, is_active, available_for_intake, available_for_session, source, source_event_id, created_by_user_id)
@@ -30,7 +33,7 @@ class ProviderInPersonSlotAvailability {
          updated_at = CURRENT_TIMESTAMP`,
       [agencyId, providerId, officeLocationId, roomId, startAt, endAt, Number(availableForIntake), Number(availableForSession), source, sourceEventId, createdByUserId]
     );
-    await database.execute(`UPDATE provider_in_person_slot_availability SET frequency=?,purpose=?,series_id=?,care_types_json=? WHERE agency_id=? AND provider_id=? AND start_at=? AND end_at=?`,[frequency,purpose,seriesId,careTypes===null?null:JSON.stringify(careTypes),agencyId,providerId,startAt,endAt]);
+    await database.execute(`UPDATE provider_in_person_slot_availability SET frequency=?,purpose=?,series_id=?,care_types_json=?,service_type=COALESCE(?,service_type) WHERE agency_id=? AND provider_id=? AND start_at=? AND end_at=?`,[frequency,purpose,seriesId,careTypes===null?null:JSON.stringify(careTypes),serviceType,agencyId,providerId,startAt,endAt]);
     return result?.insertId || null;
   }
 

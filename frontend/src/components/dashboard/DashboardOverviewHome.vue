@@ -159,7 +159,7 @@
       />
       </DashboardOverviewSection>
 
-      <DashboardOverviewSection v-if="availableCardKeys.includes('notes') && !hiddenCards.includes('notes')" v-show="!collapsedCards.includes('notes')"
+      <DashboardOverviewSection v-if="!learning && availableCardKeys.includes('notes') && !hiddenCards.includes('notes')" v-show="!collapsedCards.includes('notes')"
         :style="cardLayout.orderStyle('notes')" :label="cardLabels.notes" :section-id="'notes'" @collapse="setCollapsed('notes', true)">
       <OverviewNotesSnapshot
         :loading="sectionState.pay.loading"
@@ -200,7 +200,7 @@
 
     <div v-if="showTip" class="ov-tip" role="status">
       <span class="ov-tip-icon" aria-hidden="true">💡</span>
-      <span class="ov-tip-text">Pro Tip: Keep your notes up to date to ensure accurate tracking and reporting.</span>
+      <span class="ov-tip-text">{{learning?'Keep your tutoring session notes up to date in Learning. Publish a family update only when you intend to share it.':'Pro Tip: Keep your notes up to date to ensure accurate tracking and reporting.'}}</span>
       <button type="button" class="ov-tip-dismiss" aria-label="Dismiss tip" @click="showTip = false">×</button>
     </div>
 
@@ -251,6 +251,7 @@ const props = defineProps({
   supervisionPrompts: { type: Array, default: () => [] },
   showSchedule: { type: Boolean, default: true },
   showPayroll: { type: Boolean, default: false },
+  learning: { type: Boolean, default: false },
   showNotes: { type: Boolean, default: false },
   showClaims: { type: Boolean, default: false },
   showLogTime: { type: Boolean, default: false },

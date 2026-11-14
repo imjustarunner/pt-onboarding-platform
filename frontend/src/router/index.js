@@ -1,6 +1,7 @@
 import { canAccessTicketDesk } from '../utils/ticketAccess.js';
 import { schoolCareBridgeRoutes, addSchoolCareBridgeWorkflowAliases } from './schoolCareBridgeRoutes.js';
 import { familyBillingRoutes } from './familyBillingRoutes.js';
+import { isGuardianReceiptRoute } from './guardianRoutePolicy.js';
 import { consumeSsoHandoff, isTokenAuthenticationRoute, isLoginEntryRoute, auricwellLoginDestination } from '../utils/loginHandoff';
 import { auricWellAccountDestination } from '../utils/familyPortalContext.js';
 import { isFundthredHost, fundthredLoginLocation, isFundthredLogin, isFundthredWorkspacePath } from '../utils/fundthred';
@@ -6596,6 +6597,7 @@ router.beforeEach(async (to, from, next) => {
       const isPractitionerClientDashboard = p.endsWith('/client-dashboard') || p.includes('/client-dashboard');
       const GUARDIAN_ALLOWED_EXTERNAL = ['/tutoring-session/', '/in-person-tutoring-session/', '/billing/complete'];
       const pathOk =
+        isGuardianReceiptRoute(to) ||
         isGuardianPath ||
         isPractitionerClientDashboard ||
         GUARDIAN_ALLOWED_EXTERNAL.some((prefix) => p.includes(prefix));

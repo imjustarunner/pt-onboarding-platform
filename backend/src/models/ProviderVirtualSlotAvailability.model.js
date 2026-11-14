@@ -1,3 +1,4 @@
+import {availabilityServiceType} from '../utils/availabilityService.js';
 import pool from '../config/database.js';
 
 function deriveSessionType({ availableForIntake, availableForSession, sessionType }) {
@@ -34,9 +35,11 @@ class ProviderVirtualSlotAvailability {
     availableForSession = null,
     source = 'OFFICE_EVENT',
     sourceEventId = null,
-    frequency = 'ONCE', purpose = 'INTAKE', seriesId=null, careTypes=null, database = pool,
+    frequency = 'ONCE', purpose = 'INTAKE', seriesId=null, careTypes=null, serviceType=null, database = pool,
     createdByUserId = null
   }) {
+    serviceType = availabilityServiceType(serviceType);
+    if (serviceType === 'tutoring') careTypes = null;
     const normalizedSessionType = deriveSessionType({
       availableForIntake,
       availableForSession,
@@ -74,7 +77,7 @@ class ProviderVirtualSlotAvailability {
           createdByUserId
         ]
       );
-      await database.execute(`UPDATE provider_virtual_slot_availability SET frequency=?,purpose=?,series_id=?,care_types_json=? WHERE agency_id=? AND provider_id=? AND start_at=? AND end_at=?`,[frequency,purpose,seriesId,careTypes===null?null:JSON.stringify(careTypes),agencyId,providerId,startAt,endAt]);
+      await database.execute(`UPDATE provider_virtual_slot_availability SET frequency=?,purpose=?,series_id=?,care_types_json=?,service_type=COALESCE(?,service_type) WHERE agency_id=? AND provider_id=? AND start_at=? AND end_at=?`,[frequency,purpose,seriesId,careTypes===null?null:JSON.stringify(careTypes),serviceType,agencyId,providerId,startAt,endAt]);
       return result?.insertId || null;
     } catch (e) {
       if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
@@ -103,7 +106,7 @@ class ProviderVirtualSlotAvailability {
           createdByUserId
         ]
       );
-      await database.execute(`UPDATE provider_virtual_slot_availability SET frequency=?,purpose=?,series_id=?,care_types_json=? WHERE agency_id=? AND provider_id=? AND start_at=? AND end_at=?`,[frequency,purpose,seriesId,careTypes===null?null:JSON.stringify(careTypes),agencyId,providerId,startAt,endAt]);
+      await database.execute(`UPDATE provider_virtual_slot_availability SET frequency=?,purpose=?,series_id=?,care_types_json=?,service_type=COALESCE(?,service_type) WHERE agency_id=? AND provider_id=? AND start_at=? AND end_at=?`,[frequency,purpose,seriesId,careTypes===null?null:JSON.stringify(careTypes),serviceType,agencyId,providerId,startAt,endAt]);
       return result?.insertId || null;
     }
   }

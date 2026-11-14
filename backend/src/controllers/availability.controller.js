@@ -1,3 +1,4 @@
+import {prepareAvailabilityServices} from '../services/availabilityServiceScope.service.js';
 import { allocateOfficeRoom,lockOfficeRequests,unlockOfficeRequests } from '../services/officeRoomAllocation.service.js';
 import { runOfficeDecision } from './officeApprovalWorkflow.controller.js';
 import {resolveOfficeRequestPreferences,readPreferredRooms} from '../services/officeRequestPreferences.service.js';
@@ -1252,7 +1253,7 @@ export const putMyVirtualWorkingHours = async (req, res, next) => {
     if (!Array.isArray(rows)) return res.status(400).json({ error: { message: 'rows must be an array' } });
     if (rows.length > 100) return res.status(400).json({ error: { message: 'Too many rows' } });
 
-    const normalized = ProviderVirtualWorkingHours.normalizeRows(rows);
+    const normalized = ProviderVirtualWorkingHours.normalizeRows(await prepareAvailabilityServices(providerId,agencyId,rows));
     if (normalized.length !== rows.length) return res.status(400).json({error:{message:'Each window needs a valid day and time range. Choose a matching first date for one-time or alternating-week availability.'}});
 
     const saved = await ProviderVirtualWorkingHours.replaceForProvider({ agencyId, providerId, rows: normalized });
@@ -1276,6 +1277,7 @@ export const patchMyVirtualWorkingHoursRow = async (req, res, next) => {
     const dayOfWeek = req.body?.dayOfWeek || req.body?.day_of_week;
     const startTime = req.body?.startTime || req.body?.start_time;
     const endTime = req.body?.endTime || req.body?.end_time;
+    if(req.body?.serviceType!==undefined)await prepareAvailabilityServices(providerId,agencyId,[{id:req.params.id,serviceType:req.body.serviceType}]);
     const updated = await ProviderVirtualWorkingHours.updateRowForProvider({
       id,
       agencyId,
@@ -1285,7 +1287,7 @@ export const patchMyVirtualWorkingHoursRow = async (req, res, next) => {
       endTime,
       availableForIntake: req.body?.availableForIntake,
       availableForSession: req.body?.availableForSession,
-      frequency: req.body?.frequency, startDate:req.body?.startDate, endDate:req.body?.endDate, purpose:req.body?.purpose
+      frequency: req.body?.frequency, startDate:req.body?.startDate, endDate:req.body?.endDate, purpose:req.body?.purpose, serviceType:req.body?.serviceType
     });
     res.json({ ok: true, agencyId, providerId, row: updated });
   } catch (e) {
@@ -4569,7 +4571,7 @@ export const providerAvailabilityDashboard = async (req, res, next) => {
            v.day_of_week,
            v.start_time,
            v.end_time,
-           v.session_type,
+           v.session_type, v.service_type,
            v.frequency
          FROM provider_virtual_working_hours v
          JOIN users u ON u.id = v.provider_id
@@ -4596,6 +4598,7 @@ export const providerAvailabilityDashboard = async (req, res, next) => {
       startTime: r.start_time ? String(r.start_time).slice(0, 5) : '',
       endTime: r.end_time ? String(r.end_time).slice(0, 5) : '',
       sessionType: r.session_type || 'REGULAR',
+      serviceType: r.service_type || null,
       frequency: r.frequency || 'WEEKLY'
     }));
 

@@ -1,3 +1,4 @@
+import {availabilityServiceType} from '../utils/availabilityService.js';
 import {openWaitlistedPublication} from '../services/availabilityPublicationStatus.service.js';
 import {careTypes} from '../utils/availabilityCareTypes.js';
 import pool from '../config/database.js';
@@ -94,7 +95,8 @@ class ProviderVirtualWorkingHours {
       if (!validDate(startDate) || !validDate(endDate) || (endDate && startDate && endDate < startDate)) continue;
       if (!['WEEKLY','EITHER'].includes(frequency) && !startDate) continue;
       if (startDate && DAY_ORDER[(new Date(startDate+'T12:00:00Z').getUTCDay()+6)%7] !== day) continue;
-      if(r.careTypes!=null&&(!Array.isArray(r.careTypes)||!careTypes(r.careTypes)?.length))continue;
+      const serviceType=availabilityServiceType(r.serviceType??r.service_type);
+      if(serviceType!=='tutoring'&&r.careTypes!=null&&(!Array.isArray(r.careTypes)||!careTypes(r.careTypes)?.length))continue;
       const purpose = frequency === 'ONCE' ? (r.purpose === 'MEETING' ? 'MEETING' : 'INTAKE') : 'ONGOING';
       out.push({
         dayOfWeek: day,
@@ -103,7 +105,7 @@ class ProviderVirtualWorkingHours {
         sessionType,
         availableForIntake: flags.availableForIntake,
         availableForSession: flags.availableForSession,
-        frequency, startDate, endDate, purpose, careTypes:careTypes(r.careTypes ?? r.care_types_json), excludedDates:Array.isArray(r.excludedDates)?r.excludedDates:[]
+        frequency, startDate, endDate, purpose, serviceType, careTypes:serviceType==='tutoring'?null:careTypes(r.careTypes ?? r.care_types_json), excludedDates:Array.isArray(r.excludedDates)?r.excludedDates:[]
       });
     }
     // stable sort
@@ -128,7 +130,7 @@ class ProviderVirtualWorkingHours {
     try {
       const [r] = await pool.execute(
         `SELECT id, agency_id, day_of_week, start_time, end_time, session_type, frequency,
-                available_for_intake, available_for_session, DATE_FORMAT(start_date, '%Y-%m-%d') start_date, DATE_FORMAT(end_date, '%Y-%m-%d') end_date, purpose, excluded_dates_json, care_types_json
+                available_for_intake, available_for_session, DATE_FORMAT(start_date, '%Y-%m-%d') start_date, DATE_FORMAT(end_date, '%Y-%m-%d') end_date, purpose, excluded_dates_json, care_types_json, service_type
          FROM provider_virtual_working_hours
          WHERE ${where}
          ORDER BY FIELD(day_of_week,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'), start_time ASC`,
@@ -178,7 +180,7 @@ class ProviderVirtualWorkingHours {
         availableForIntake: flags.availableForIntake,
         availableForSession: flags.availableForSession,
         startDate: r.startDate || r.start_date || null, endDate: r.endDate || r.end_date || null, purpose: r.purpose || 'ONGOING',
-        careTypes:careTypes(r.careTypes ?? r.care_types_json), excludedDates:r.excludedDates || (typeof r.excluded_dates_json==='string'?JSON.parse(r.excluded_dates_json):r.excluded_dates_json) || [],
+        serviceType:availabilityServiceType(r.service_type??r.serviceType), careTypes:careTypes(r.careTypes ?? r.care_types_json), excludedDates:r.excludedDates || (typeof r.excluded_dates_json==='string'?JSON.parse(r.excluded_dates_json):r.excluded_dates_json) || [],
         frequency: normFrequency(r.frequency)
       };
     });
@@ -187,7 +189,7 @@ class ProviderVirtualWorkingHours {
   /**
    * Update a single virtual-working-hours row owned by the provider.
    */
-  static async updateRowForProvider({ id, agencyId, providerId, dayOfWeek, startTime, endTime, availableForIntake, availableForSession, frequency, startDate, endDate, purpose }) {
+  static async updateRowForProvider({ id, agencyId, providerId, dayOfWeek, startTime, endTime, availableForIntake, availableForSession, frequency, startDate, endDate, purpose, serviceType }) {
     const rowId = Number(id || 0);
     const aid = Number(agencyId || 0);
     const pid = Number(providerId || 0);
@@ -201,13 +203,14 @@ class ProviderVirtualWorkingHours {
     const existing = (await this.listForProvider({agencyId:aid,providerId:pid})).find(r => r.id === rowId);
     if (!existing) throw Object.assign(new Error('Virtual working hours row not found'), {status:404});
     const candidate = {...existing, dayOfWeek:day, startTime:start, endTime:end};
-    for (const [k,v] of Object.entries({frequency,startDate,endDate,purpose,availableForIntake,availableForSession})) if(v !== undefined) candidate[k]=v;
+    for (const [k,v] of Object.entries({frequency,startDate,endDate,purpose,availableForIntake,availableForSession,serviceType})) if(v !== undefined) candidate[k]=v;
     const normalized = this.normalizeRows([candidate])[0];
     if (!normalized) throw Object.assign(new Error('Invalid recurrence start date or time'),{status:400});
     const assignments = ['day_of_week = ?', 'start_time = ?', 'end_time = ?'];
     const values = [day, start, end];
     assignments.push('start_date = ?', 'end_date = ?', 'purpose = ?');
     values.push(normalized.startDate, normalized.endDate, normalized.purpose);
+    if(serviceType!==undefined){assignments.push('service_type = ?', 'care_types_json = ?');values.push(normalized.serviceType, normalized.careTypes === null ? null : JSON.stringify(normalized.careTypes));}
     if (availableForIntake != null || availableForSession != null) {
       const sessionType = deriveSessionType(normalized);
       const flags = flagsFromSessionType(sessionType);
@@ -266,8 +269,8 @@ class ProviderVirtualWorkingHours {
           await conn.execute(
             `INSERT INTO provider_virtual_working_hours
                (agency_id, provider_id, day_of_week, start_time, end_time, session_type,
-                available_for_intake, available_for_session, frequency, start_date, end_date, purpose, excluded_dates_json, care_types_json)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                available_for_intake, available_for_session, frequency, start_date, end_date, purpose, excluded_dates_json, care_types_json, service_type)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               aid,
               pid,
@@ -277,7 +280,7 @@ class ProviderVirtualWorkingHours {
               normSessionType(r.sessionType),
               r.availableForIntake ? 1 : 0,
               r.availableForSession ? 1 : 0,
-              normFrequency(r.frequency), r.startDate, r.endDate, r.purpose, JSON.stringify(r.excludedDates||[]), r.careTypes===null?null:JSON.stringify(r.careTypes)
+              normFrequency(r.frequency), r.startDate, r.endDate, r.purpose, JSON.stringify(r.excludedDates||[]), r.careTypes===null?null:JSON.stringify(r.careTypes), r.serviceType||null
             ]
           );
         } catch (e) {
@@ -296,7 +299,7 @@ class ProviderVirtualWorkingHours {
         availableForIntake: !!r.availableForIntake,
         availableForSession: !!r.availableForSession,
         startDate: r.startDate || r.start_date || null, endDate: r.endDate || r.end_date || null, purpose: r.purpose || 'ONGOING',
-        careTypes:careTypes(r.careTypes ?? r.care_types_json), excludedDates:r.excludedDates || (typeof r.excluded_dates_json==='string'?JSON.parse(r.excluded_dates_json):r.excluded_dates_json) || [],
+        serviceType:availabilityServiceType(r.service_type??r.serviceType), careTypes:careTypes(r.careTypes ?? r.care_types_json), excludedDates:r.excludedDates || (typeof r.excluded_dates_json==='string'?JSON.parse(r.excluded_dates_json):r.excluded_dates_json) || [],
         frequency: normFrequency(r.frequency)
       }));
     } catch (e) {

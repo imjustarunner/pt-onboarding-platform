@@ -109,7 +109,7 @@
       </header>
       <div class="ahf-details ahf-details--section">
         <div v-if="showModality" class="ahf-field ahf-field--modality">
-          <span class="ahf-label">Session modality</span>
+          <span class="ahf-label">{{learning?'Format':'Session modality'}}</span>
           <div class="ahf-modality">
             <button
               type="button"
@@ -344,7 +344,7 @@
     >
       <header class="ahf-section-head">
         <span class="ahf-section-icon" aria-hidden="true">👥</span>
-        <h4 class="ahf-section-title">{{ showVirtualOptions ? 'Participants' : 'Service & clients' }}</h4>
+        <h4 class="ahf-section-title">{{ showVirtualOptions ? 'Participants' : learning ? 'Tutoring & student' : 'Service & clients' }}</h4>
       </header>
       <div class="ahf-details ahf-details--section">
         <div v-if="showType && typeOptions.length > 1" class="ahf-field">
@@ -420,9 +420,9 @@
         </div>
 
         <div v-if="bookSessionLayout && showParticipant" class="ahf-field ahf-field--attendance">
-          <span class="ahf-label">Attendance</span>
+          <span class="ahf-label">{{ learning ? 'Who will attend' : 'Attendance' }}</span>
           <slot name="attendance">
-            <span class="ahf-value">Client Only</span>
+            <span class="ahf-value">{{learning?'Student only':'Client Only'}}</span>
           </slot>
         </div>
 
@@ -440,14 +440,14 @@
         </div>
 
         <div v-if="showGroupClientsButton && !showGroupClients" class="ahf-field ahf-field--action">
-          <span class="ahf-label">Additional clients</span>
+          <span class="ahf-label">{{learning?'Additional students':'Additional clients'}}</span>
           <button
             type="button"
             class="ahf-action-btn"
             :disabled="disabled"
             @click="emit('scroll-to-group-clients')"
           >
-            + Add clients
+            {{learning?'+ Add students':'+ Add clients'}}
           </button>
         </div>
 
@@ -514,7 +514,7 @@
     <section v-if="showGroupClients" id="ahf-group-clients" class="ahf-section">
       <header class="ahf-section-head">
         <span class="ahf-section-icon" aria-hidden="true">➕</span>
-        <h4 class="ahf-section-title">Additional clients</h4>
+        <h4 class="ahf-section-title">{{learning?'Additional students':'Additional clients'}}</h4>
       </header>
       <p class="ahf-hint ahf-hint--section">Optional — add more clients to make this a group session.</p>
       <div class="ahf-group-toolbar">
@@ -524,7 +524,7 @@
           :disabled="disabled"
           @click="groupExpanded = !groupExpanded"
         >
-          {{ groupExpanded ? 'Hide list' : '+ Add clients' }}
+          {{ groupExpanded ? 'Hide list' : learning ? '+ Add students' : '+ Add clients' }}
         </button>
         <span v-if="extraClientCount" class="ahf-hint">{{ extraClientCount }} selected</span>
       </div>
@@ -557,7 +557,7 @@
         <span class="ahf-section-icon" aria-hidden="true">🔔</span>
         <h4 class="ahf-section-title">Notifications</h4>
       </header>
-      <AppointmentReminderSettings :mode="notificationMode" :rules="customReminders" :agency-id="agencyId" :busy="disabled" :show-save="false"
+      <AppointmentReminderSettings :learning="learning" :mode="notificationMode" :rules="customReminders" :agency-id="agencyId" :busy="disabled" :show-save="false"
         :date-ymd="dateYmd" :start-time="startTime" :timezone-label="timezoneLabel"
         @update:mode="emit('update:notificationMode',$event)" @update:rules="emit('update:customReminders',$event)" />
     </section>
@@ -569,7 +569,7 @@
         <h4 class="ahf-section-title">Notes</h4>
       </header>
       <details class="ahf-hint" data-testid="scheduling-notes-visibility"><summary>Who can see these notes?</summary>
-        <p>Saved with the appointment or office request for staff with scheduling access. Synced calendar details can include these notes, including for people who can view that calendar. The family appointment list does not display this field. Write treatment details in the session’s clinical note.</p>
+        <p>Saved with the appointment or office request for staff with scheduling access. Synced calendar details can include these notes, including for people who can view that calendar. The family appointment list does not display this field. {{learning?'Tutoring session notes and family updates are written in the Learning workspace, with their own sharing controls.':'Write treatment details in the session’s clinical note.'}}</p>
       </details>
       <div class="ahf-notes-wrap">
         <textarea
@@ -693,6 +693,7 @@ const props = defineProps({
   groupClientsLoading: { type: Boolean, default: false },
   forceExpandGroupClients: { type: Boolean, default: false },
   /** Mockup sectioned Book Session layout */
+  learning: { type: Boolean, default: false },
   bookSessionLayout: { type: Boolean, default: false },
   showInlineRecurrence: { type: Boolean, default: false },
   recurrenceFrequency: { type: String, default: 'ONCE' },

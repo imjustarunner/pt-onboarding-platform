@@ -73,3 +73,13 @@ it('allowlists dedicated personal scheduling actions with canonical IDs and exac
  await expect(enforceMobileQaBoundary({...req,method:'POST',body:{agencyId:456},originalUrl:'/api/quick-view/schedule/appointments'})).rejects.toMatchObject({status:403});
  await expect(enforceMobileQaBoundary({...req,method:'GET',query:{agencyId:456},originalUrl:'/api/quick-view/schedule/actions'})).rejects.toMatchObject({status:403});
 });
+
+it('adds only the retained mixed-service provider to NLU mobile and keeps Finley clinical access closed',async()=>{
+ const nlu={id:453,slug:'nlu-qa-demo',is_active:1,feature_flags:{qaSandbox:{syntheticOnly:true,program:'tutoring',mixedServicesEnabled:true}}};
+ expect(mobileQaScope(user,[nlu,{...nlu,id:6}]).qaAgencyIds).toEqual([453]);
+ expect(()=>mobileQaScope({...user,id:9},[nlu])).toThrow();
+ const req={quickView:{qaAgencyIds:[453],agencyId:453,userId:1433,mobileDeviceSessionId:2},method:'GET',query:{agencyId:453},params:{},originalUrl:'/api/quick-view/clinical/context'};
+ await expect(enforceMobileQaBoundary(req)).resolves.toBeUndefined();
+ await expect(enforceMobileQaBoundary({...req,quickView:{...req.quickView,userId:1496}})).rejects.toMatchObject({status:403});
+ await expect(enforceMobileQaBoundary({...req,query:{agencyId:6}})).rejects.toMatchObject({status:403});
+});

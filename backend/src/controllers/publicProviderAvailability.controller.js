@@ -273,6 +273,7 @@ async function computeProviderWindowSummary({
     const perAgency = await Promise.all(
       scopedAgencyIds.map((aid) =>
         ProviderAvailabilityService.computeWeekAvailability({
+      serviceType: 'counseling',
           agencyId: aid,
           providerId,
           weekStartYmd: candidateWeekStart,
@@ -593,6 +594,7 @@ export const getPublicProviderAvailability = async (req, res, next) => {
     const intakeOnly = bookingMode === 'NEW_CLIENT';
 
     const result = await ProviderAvailabilityService.computeWeekAvailability({
+      serviceType: 'counseling',
       agencyId,
       providerId,
       weekStartYmd: weekStart,
@@ -693,6 +695,7 @@ export const createPublicAppointmentRequest = async (req, res, next) => {
 
     const weekStart = start.toISOString().slice(0, 10);
     const availability = await ProviderAvailabilityService.computeWeekAvailability({
+      serviceType: 'counseling',
       agencyId,
       providerId,
       weekStartYmd: weekStart,

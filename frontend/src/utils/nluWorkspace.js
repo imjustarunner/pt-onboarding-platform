@@ -5,7 +5,7 @@ export function serviceWorkspace(user, agency = {}, context = user?.workspaceSer
   const learningTenant = flags.qaSandbox?.program === 'tutoring' || String(agency.organization_type).toLowerCase() === 'learning';
   const manager = ['admin', 'super_admin'].includes(String(user?.role));
   return { canTutor: scoped?.canTutor === true, canClinical:scoped?.canClinical===true, canChildcare: scoped?.canChildcare === true,
-    learningOnly: !manager && (scoped?.learningOnly === true || learningTenant), agencyId: Number(agency.id) || null };
+    learningOnly: !manager && (scoped?.learningOnly === true || (learningTenant && scoped?.canClinical !== true)), agencyId: Number(agency.id) || null };
 }
 export function isClinicalWorkspacePath(path) {
   return /\/(?:note-aid|clinical-note-generator|medical-records|clinical-records|clinical-notes|supervision)(?:\/|$)/.test(path)||/\/admin\/clients(?:\/|$)/.test(path);
@@ -15,5 +15,6 @@ export function scopedWorkspacePath(slug, path) { return `${slug ? `/${slug}` : 
 export function canLoadClinicalSupervision(user,agency={}) {
  if(!Number(agency?.id))return false;
  const flags=json(agency.feature_flags??agency.featureFlags);
- return !serviceWorkspace(user,agency).learningOnly && !(flags.clinicalChartEnabled===false && flags.standardsLearningEnabled===true);
+ if(serviceWorkspace(user,agency).learningOnly || (flags.clinicalChartEnabled===false&&flags.standardsLearningEnabled===true))return false;
+ return flags.clinicalChartEnabled===true || agency.hasClinicalOrg===true || String(agency.organization_type||'').toLowerCase()==='clinical' || serviceWorkspace(user,agency).canClinical;
 }

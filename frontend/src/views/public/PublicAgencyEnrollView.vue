@@ -2,14 +2,13 @@
   <div class="pea-root" :style="rootFontStyle">
     <header v-if="showPublicShell" class="pea-hero">
       <div class="pea-hero-inner">
-        <p class="pea-eyebrow">Program enrollment</p>
+        <p class="pea-eyebrow">Enrollment</p>
         <div v-if="headerLogoUrl" class="pea-logo-wrap">
           <img class="pea-logo" :src="headerLogoUrl" :alt="headerLogoAlt" loading="eager" />
         </div>
         <h1 class="pea-title">{{ pageTitle }}</h1>
         <p class="pea-subtitle">
-          Choose a program to see individual service enrollments and any open events. This page is for becoming a client — not
-          only for group or class sign-ups.
+          Choose a service to start enrollment, or open a program for its enrollments and events.
         </p>
       </div>
     </header>
@@ -20,11 +19,16 @@
 
     <div v-if="loading" class="pea-loading">Loading…</div>
     <div v-else-if="error" class="pea-error">{{ error }}</div>
-    <div v-else-if="!programs.length" class="pea-empty">
-      <p>No program portals are linked to this organization yet.</p>
+    <div v-else-if="!programs.length && !services.length" class="pea-empty">
+      <p>No online enrollments are available right now. Please contact the organization.</p>
       <RouterLink class="pea-btn" :to="eventsPath">View upcoming events</RouterLink>
     </div>
     <ul v-else class="pea-list">
+      <li v-for="service in services" :key="service.serviceType">
+        <RouterLink class="pea-card" :to="`/${slug}/join/${service.serviceType}`">
+          <div class="pea-card-body"><h2 class="pea-card-title">{{ service.displayName }}</h2><p class="pea-card-meta">Start {{ service.displayName.toLowerCase() }} enrollment</p></div><span class="pea-card-cta">Enroll</span>
+        </RouterLink>
+      </li>
       <li v-for="p in programs" :key="`prog-${p.id}`">
         <RouterLink class="pea-card" :to="programEnrollPath(p.slug)">
           <div class="pea-card-body">
@@ -63,6 +67,7 @@ const showPublicShell = computed(() => true);
 const loading = ref(false);
 const error = ref('');
 const programs = ref([]);
+const services = ref([]);
 const agencyName = ref('');
 
 const pageTitle = computed(() => {
@@ -104,22 +109,31 @@ const rootFontStyle = computed(() => {
   return { fontFamily: String(raw).trim() };
 });
 
+let loadGeneration = 0;
 async function load() {
+  const generation = ++loadGeneration;
   if (!slug.value) return;
   loading.value = true;
   error.value = '';
   try {
-    const res = await api.get(`/public/skill-builders/agency/${encodeURIComponent(slug.value)}/enroll/programs`, {
-      skipGlobalLoading: true
-    });
-    programs.value = Array.isArray(res.data?.programs) ? res.data.programs : [];
-    agencyName.value = String(res.data?.agencyName || '').trim();
+    const [programResult, serviceResult] = await Promise.allSettled([
+      api.get(`/public/skill-builders/agency/${encodeURIComponent(slug.value)}/enroll/programs`, { skipGlobalLoading: true }),
+      api.get(`/public/agency-services/${encodeURIComponent(slug.value)}`, { skipGlobalLoading: true, skipAuthRedirect: true })
+    ]);
+    if (generation !== loadGeneration) return;
+    programs.value = programResult.status === 'fulfilled' ? programResult.value.data?.programs || [] : [];
+    const hub = serviceResult.status === 'fulfilled' ? serviceResult.value.data : null;
+    services.value = (hub?.serviceTypes || []).filter(service => ['counseling','tutoring','coaching','consulting'].includes(service.serviceType));
+    agencyName.value = String(hub?.agency?.name || (programResult.status === 'fulfilled' && programResult.value.data?.agencyName) || '');
+    if (programResult.status === 'rejected' && serviceResult.status === 'rejected') throw programResult.reason;
   } catch (e) {
+    if (generation !== loadGeneration) return;
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load';
     programs.value = [];
+    services.value = [];
     agencyName.value = '';
   } finally {
-    loading.value = false;
+    if (generation === loadGeneration) loading.value = false;
   }
 }
 

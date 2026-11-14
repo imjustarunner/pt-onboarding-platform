@@ -6,7 +6,7 @@ const id=value=>Number.isSafeInteger(Number(value)) && Number(value)>0 ? Number(
 async function scope(req) {
   const agencyId=id(req.body?.agencyId || req.query.agencyId),clientId=id(req.body?.clientId || req.query.clientId || req.params.clientId);
   if(!agencyId)throw Object.assign(new Error('agencyId is required.'),{status:400});
-  await ClinicalEligibilityService.ensureAgencyAccess({reqUser:req.user,agencyId});
+  await ClinicalEligibilityService.ensureAgencyAccess({requireClinicalService:true,reqUser:req.user,agencyId});
   if(clientId){const [[client]]=await pool.execute('SELECT id FROM clients WHERE id=? AND agency_id=? LIMIT 1',[clientId,agencyId]);if(!client){const [[assignment]]=await pool.execute('SELECT client_id FROM client_agency_assignments WHERE client_id=? AND agency_id=? AND is_active=1 LIMIT 1',[clientId,agencyId]);if(!assignment)throw Object.assign(new Error('Client not found in this agency.'),{status:404});}}
   if(clientId){const access=await resolveClientRecordAccess({userId:req.user.id,role:req.user.role,clientId});if(!access.ok)throw Object.assign(new Error('Client record access is required.'),{status:403});}
   return {agencyId,clientId,actorUserId:req.user.id};

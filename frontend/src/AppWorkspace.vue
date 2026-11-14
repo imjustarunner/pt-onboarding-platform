@@ -4473,7 +4473,7 @@ onUnmounted(() => {
   window.removeEventListener('pt-chat-side-rail-changed', onSideChatRailChanged);
 });
 const showGlobalAvailabilityToggle = computed(() => {
-  if (isSummitStatsChallengeChrome.value) return false;
+  if (isSummitStatsChallengeChrome.value || nluTutoringUi.value) return false;
   const role = String(user.value?.role || '').toLowerCase();
   return [
     'provider',

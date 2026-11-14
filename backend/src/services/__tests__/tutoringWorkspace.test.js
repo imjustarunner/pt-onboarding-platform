@@ -13,3 +13,14 @@ it.each(['userId','learning','sessionRateCents','paymentPolicy','agencyRole','ra
 it('scopes students to exact active tutoring enrollment or assigned academic subject',async()=>{expect((await workspace.students(user,453)).students).toEqual([{id:17,displayName:'Synthetic student'}]);const [sql,args]=db.execute.mock.calls.find(([sql])=>sql.startsWith('SELECT DISTINCT'));expect(sql).toContain("e.service_kind='tutoring' AND e.is_active=1");expect(sql).toContain('s.primary_tutor_user_id=?');expect(args).toEqual([453,1496,453,1496]);});
 it('keeps mixed-service clinicians clinical while denying tutor-only clinical APIs',async()=>{const context=await workspace.context(user,453);expect(context.learningOnly).toBe(true);services.mockResolvedValue({careEligibility:{canProvideCare:true},services:[{serviceType:'tutoring',offered:true},{serviceType:'counseling',offered:true}]});expect((await workspace.context(user,453)).learningOnly).toBe(false);const read=vi.fn(async()=>({learningOnly:true}));await expect(assertNonclinicalWorkspaceBoundary({user:{...user,scopedAgencyId:453},originalUrl:'/api/clinical-notes/drafts',headers:{}},{context:read})).rejects.toMatchObject({status:403,code:'NONCLINICAL_WORKSPACE'});await expect(assertNonclinicalWorkspaceBoundary({user,originalUrl:'/api/payroll/me',headers:{}},{context:read})).resolves.toBeUndefined();expect(read).toHaveBeenCalledTimes(1);});
 it.each(['/api/clients/17','/api/clients/17/intake-note','/api/clients/17/clinical-responses','/api/phi-documents/19/view','/api/clinical-forms/3','/api/assessment-deliverables/4','/api/medical-billing/notes'])('rejects a direct clinical target %s before its source handler',async path=>{const context=vi.fn(async()=>({learningOnly:true}));await expect(assertNonclinicalWorkspaceBoundary({user:{...user,scopedAgencyId:453},originalUrl:path},{context})).rejects.toMatchObject({status:403});expect(context).toHaveBeenCalledWith(expect.objectContaining({id:1496}),453);});
+
+
+it('allows only the retained mixed QA provider without broadening Finley’s office exception',async()=>{
+ const {allowNluQaProvider,allowNluQaTutor}=await import('../../utils/nluTutoringQaPolicy.js');
+ const agency={id:453,slug:'nlu-qa-demo',feature_flags:{qaSandbox:{syntheticOnly:true,program:'tutoring',mixedServicesEnabled:true}}};
+ const avery={id:1433,email:'qa.provider.auricwell@example.com',is_demo:1,role:'provider'};
+ expect(allowNluQaProvider(agency,avery)).toBe(true);expect(allowNluQaTutor(agency,avery)).toBe(false);
+ for(const patch of [{id:1434},{email:'someone@example.com'},{is_demo:0},{role:'staff'}])expect(allowNluQaProvider(agency,{...avery,...patch})).toBe(false);
+ expect(allowNluQaProvider({...agency,id:6},avery)).toBe(false);
+ expect(allowNluQaProvider({...agency,feature_flags:{qaSandbox:{syntheticOnly:true,program:'tutoring'}}},avery)).toBe(false);
+});

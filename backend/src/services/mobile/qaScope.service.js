@@ -1,15 +1,15 @@
 import {isQaPreviewIdentity,assertPreviewActor} from '../auricwellPreviewPolicy.js';
 import {isAuricwellQaAgency} from '../../utils/auricwellQaPolicy.js';
 import {failure} from './policy.js';
-import {allowNluQaTutor,isNluTutoringQaAgency} from '../../utils/nluTutoringQaPolicy.js';
+import {allowNluQaProvider,isNluTutoringQaAgency} from '../../utils/nluTutoringQaPolicy.js';
 import {nluQaWorkflowEmployee} from '../../utils/nluWorkforceQaPolicy.js';
 
 /** Reuse the established clinical QA grant; a demo flag alone grants nothing. */
 export function mobileQaScope(user, memberships) {
  if([undefined,null,false,0,'0'].includes(user?.is_demo))return {agencies:memberships,qaAgencyIds:null};
- const retainedTutor=Number(user?.id)===1496&&user.email==='qa.nlu.tutor@example.com'&&user.role==='provider';
+ const retainedProvider=[1433,1496].includes(Number(user?.id));
  const nlu=Number(user.is_demo)===1&&Number(user.is_active)===1&&Number(user.is_archived||0)!==1&&['ACTIVE','ACTIVE_EMPLOYEE'].includes(user.status)
-   ? memberships.filter(agency=>(retainedTutor&&isNluTutoringQaAgency(agency)&&allowNluQaTutor(agency,user))||nluQaWorkflowEmployee(user,agency)) : [];
+   ? memberships.filter(agency=>(retainedProvider&&isNluTutoringQaAgency(agency)&&allowNluQaProvider(agency,user))||nluQaWorkflowEmployee(user,agency)) : [];
  const agencies=nlu.length?nlu:isQaPreviewIdentity(user)?memberships.filter(isAuricwellQaAgency):[];
  if(!agencies.length)throw failure(403,'MOBILE_ACCOUNT_UNAVAILABLE','This test account does not have an approved synthetic mobile workspace.');
  if(!nlu.length)assertPreviewActor(user,{}, {qaAgencyId:Number(agencies[0].id)});
@@ -86,6 +86,10 @@ export async function enforceMobileQaBoundary(req) {
  const path=String(req.originalUrl||req.path||'').split('?')[0].replace(/^\/api\/quick-view/,'').replace(/\/$/,'');
  const method=String(req.method).toUpperCase();
  if(ids.every(id=>[453,454].includes(Number(id)))) {
+  // Scope issuance and primary-device access recheck the exact retained identity
+  // and membership. Clinical adapters still enforce credentials and assignment.
+  const mixedClinical=Number(req.quickView.userId)===1433&&Number(req.quickView.agencyId)===453&&qaClinicalRouteAllowed(method,path,req.body);
+  if(mixedClinical)return;
   const learning=(method==='GET'&&/^\/tutoring-workspace\/(context|profile|students)$/.test(path))
     ||(method==='PUT'&&path==='/tutoring-workspace/profile')
     ||(method==='GET'&&/^\/tutoring-learning-os\/clients\/[1-9][0-9]*\/overview$/.test(path));

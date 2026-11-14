@@ -41,7 +41,7 @@ class ClinicalEligibilityService {
     return BACKOFFICE_ROLES.has(String(role || '').toLowerCase());
   }
 
-  static async ensureAgencyAccess({ reqUser, agencyId }) {
+  static async ensureAgencyAccess({ reqUser, agencyId, requireClinicalService = false }) {
     if (!reqUser?.id) {
       const err = new Error('Unauthenticated');
       err.status = 401;
@@ -56,6 +56,18 @@ class ClinicalEligibilityService {
       const err = new Error('Access denied');
       err.status = 403;
       throw err;
+    }
+    // A mixed-service agency must not turn an explicitly tutoring-only provider
+    // into a clinician. Missing legacy selections keep their existing access;
+    // client assignment, credentials and signing prerequisites still apply.
+    if (requireClinicalService && ['provider','provider_plus','intern','intern_plus','supervisor','facilitator'].includes(String(reqUser.role))) {
+      const [[profile]] = await pool.execute('SELECT public_details_json FROM provider_public_profiles WHERE user_id=?', [reqUser.id]);
+      let details = profile?.public_details_json || {};
+      if (typeof details === 'string') details = JSON.parse(details);
+      const services = details.serviceOfferingsByAgency?.[String(agencyId)];
+      if (Array.isArray(services) && !services.includes('counseling')) {
+        throw Object.assign(new Error('Counseling service access is not assigned in this agency.'), {status:403});
+      }
     }
     return true;
   }

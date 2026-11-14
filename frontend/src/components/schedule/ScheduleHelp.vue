@@ -1,7 +1,8 @@
 <script setup>
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { nextTick, onBeforeUnmount, onMounted, ref, watch, computed } from 'vue';
 import { useAskAssistant } from '../../composables/useAskAssistant';
 const assistant = useAskAssistant();
+const props=defineProps({learningOnly:Boolean,tutoring:Boolean});
 const root = ref(null); const open = ref(false);
 const panel = ref(null), trigger = ref(null), position = ref({}), portal = ref('body');
 const topics = [
@@ -34,6 +35,15 @@ function reposition() {
   const height = Math.min(panel.value?.offsetHeight || 420, window.innerHeight - 24);
   position.value = { width: `${width}px`, left: `${Math.max(12, Math.min(r.left, window.innerWidth - width - 12))}px`, top: `${Math.max(12, Math.min(r.bottom + 8, window.innerHeight - height - 12))}px` };
 }
+const tutoringTopics=[
+ ['Publish tutoring hours','Choose Open Slot, then Tutoring. Select virtual or in person. A one-time opening publishes one tutoring session; weekly tutoring hours repeat through the selected end date. Subjects and grades come from your tutoring profile.'],
+ ['Book an assigned student','Choose Book session, then Tutoring if you provide more than one service. Select your assigned student, format and time. Review the session before saving.'],
+ ['Message a student or family','Open the student’s Learning record or secure messages. Review the recipient and share only the tutoring information intended for that family.'],
+ ['Write tutoring notes','Use the booked session’s Learning workspace. Scheduling notes are visible to staff with scheduling access and may appear on synced calendars. Publish family updates separately; private tutor notes stay private.'],
+ ['Change or remove tutoring hours','Open the published opening and choose this occurrence or this and future occurrences. Existing bookings are preserved.'],
+ ['Reachable hours and bookable hours','Availability preferences say when you can be reached. Use Open Slot to publish actual bookable tutoring hours. Contact the office for assignment or location changes.']
+];
+const visibleTopics=computed(()=>props.learningOnly?tutoringTopics:props.tutoring?[...tutoringTopics,...topics.map(([title,answer])=>['Counseling / general calendar: '+title,answer])]:topics);
 watch(open, async value => { if (value) { reposition(); await nextTick(); reposition(); panel.value?.focus(); } });
 function ask() { open.value = false; assistant.openAsk('', 'ask'); }
 onMounted(() => { document.addEventListener('pointerdown', closeOutside); document.addEventListener('keydown', escape); window.addEventListener('resize', reposition); document.addEventListener('scroll', reposition, true); document.addEventListener('fullscreenchange', reposition); });
@@ -45,7 +55,7 @@ onBeforeUnmount(() => { document.removeEventListener('pointerdown', closeOutside
     <Teleport :to="portal">
     <section v-if="open" ref="panel" class="schedule-help schedule-help__panel" :style="position" role="dialog" tabindex="-1" aria-label="Schedule help">
       <header><strong>Schedule help</strong><button type="button" aria-label="Close schedule help" @click="close">×</button></header>
-      <details v-for="[title, answer] in topics" :key="title"><summary>{{ title }}</summary><p>{{ answer }}</p></details>
+      <details v-for="[title, answer] in visibleTopics" :key="title"><summary>{{ title }}</summary><p>{{ answer }}</p></details>
       <button type="button" class="schedule-help__ask" @click="ask">Ask the assistant…</button>
       <p class="schedule-help__hint">Ask for guidance or help finding a time. Review scheduling changes before confirming them.</p>
     </section>

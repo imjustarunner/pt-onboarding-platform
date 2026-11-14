@@ -4,6 +4,8 @@ import { readProviderServices } from './providerServiceOfferings.service.js';
 import pool from '../config/database.js';
 import { authorizedAppointmentClient } from './guardianAppointments.service.js';
 import { isAuricwellQaAgency } from '../utils/auricwellQaPolicy.js';
+import { isNluTutoringQaAgency } from '../utils/nluTutoringQaPolicy.js';
+import { parseFeatureFlags } from './medicalBillingFlags.service.js';
 import { sessionBookingProviders, requireClientSessionBooking } from './clientSessionBookingRollout.service.js';
 import TenantService from '../models/TenantService.model.js';
 import StaffServiceAssignment from '../models/StaffServiceAssignment.model.js';
@@ -12,6 +14,8 @@ import { resolvePolicyForAppointmentContext } from './bookingCancellationPolicy.
 import { resolveSelfPayQuote, getAgencySelfPayOnly } from './selfPayRates.service.js';
 import { createAppointment, linkProviderScheduleEvent } from './appointment.service.js';
 import ProviderScheduleEvent from '../models/ProviderScheduleEvent.model.js';
+import BookingPackage from '../models/BookingPackage.model.js';
+import {assertPackageProviderBinding} from './bookingPackagePricing.js';
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
 
 async function context(input) {
@@ -20,12 +24,14 @@ async function context(input) {
   const [[agency]] = await pool.execute('SELECT id,slug,feature_flags FROM agencies WHERE id=?', [client.agency_id]);
   // Pilot the standard appointment flow in the isolated ITSCO workspace first.
   const learning = ['learning','tutoring'].includes(client.client_type) && (!client.service || client.service.service_kind === 'tutoring');
-  if (!learning && (!isAuricwellQaAgency(agency) || !await getAgencySelfPayOnly(agency.id))) throw fail('Online session booking is not enabled for this workspace.', 409);
+  const flags=parseFeatureFlags(agency.feature_flags);
+  const mixedQa=isNluTutoringQaAgency(agency)&&flags.qaSandbox?.mixedServicesEnabled===true&&flags.clinicalChartEnabled===true;
+  if (!learning && !mixedQa && (!isAuricwellQaAgency(agency) || !await getAgencySelfPayOnly(agency.id))) throw fail('Online session booking is not enabled for this workspace.', 409);
   let assigned;
-  if (learning) {
+  if (learning || client.service) {
     const enrollments=client.service?[client.service]:await listClientServices(input.clientId,agency.id);
     assigned=new Set(enrollments.filter(service=>Number(service.agency_id)===Number(agency.id)&&Number(service.is_active)===1
-      &&service.service_kind==='tutoring'&&guardianServiceAllowed(client,service)).map(service=>Number(service.provider_user_id)).filter(Boolean));
+      &&service.service_kind===(learning?'tutoring':'counseling')&&guardianServiceAllowed(client,service)).map(service=>Number(service.provider_user_id)).filter(Boolean));
   } else {
   const [assignments] = await pool.execute(`SELECT DISTINCT u.id FROM users u JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=?
     JOIN clients c ON c.id=? AND c.agency_id=ua.agency_id
@@ -40,6 +46,7 @@ async function context(input) {
 }
 export async function guardianBookingOptions(input) {
   const {agency,providers,learning}=await context(input);
+  const packages=learning ? await BookingPackage.listEntitlementsForClient(agency.id,input.clientId,{businessType:'tutoring'}) : [];
   const services=(await TenantService.listForAgency(agency.id)).filter(s=>s.isActive&&s.isPubliclyBookable&&s.billingMethod==='self_pay'&&s.businessType===(learning?'tutoring':'mental_health')&&(!learning||String(s.serviceCode||'').toUpperCase()==='TUTORING'));
   const choices=[];
   for(const provider of providers) {
@@ -60,7 +67,14 @@ export async function guardianBookingOptions(input) {
       const modality=format==='IN_PERSON'?'IN_PERSON':'VIRTUAL';
       const quote=await resolveSelfPayQuote({agencyId:agency.id,providerId:provider.id,service,modality:modality==='VIRTUAL'?'TELEHEALTH':modality,learningFormat:learning?(modality==='VIRTUAL'?'virtual':'in-person'):undefined,durationMinutes:service.defaultDurationMinutes});
       if(!policy||quote?.amountCents==null)continue;
-      choices.push({businessType:learning?'tutoring':'mental_health',providerId:provider.id,providerName:provider.name,serviceId:service.id,serviceName:service.name,
+      const eligiblePackages=packages.filter(pkg=>{
+        if(pkg.status!=='ACTIVE'||pkg.paymentStatus!=='PAID'||Number(pkg.sessionsRemaining)<1
+          || (pkg.purchaserUserId && Number(pkg.purchaserUserId)!==Number(input.userId))
+          || (pkg.allowedTenantServiceIds?.length&&!pkg.allowedTenantServiceIds.map(Number).includes(Number(service.id))))return false;
+        if(pkg.pricingSnapshot?.mode==='provider-discount'&&Number(pkg.pricingSnapshot.minutes)!==Number(service.defaultDurationMinutes))return false;
+        try{assertPackageProviderBinding(pkg.pricingSnapshot,{providerUserId:provider.id,tenantServiceId:service.id,modality,participantMode:'single'});return true;}catch{return false;}
+      }).map(pkg=>({id:pkg.id,name:pkg.packageName||'Tutoring package',sessionsAvailable:Number(pkg.sessionsRemaining),sessionsReserved:Number(pkg.sessionsReserved||0),freeMissesRemaining:Number(pkg.freeMissesRemaining||0)}));
+      choices.push({packages:eligiblePackages,businessType:learning?'tutoring':'mental_health',providerId:provider.id,providerName:provider.name,serviceId:service.id,serviceName:service.name,
         durationMinutes:service.defaultDurationMinutes,modality:learning?format:service.modality,minNoticeHours:service.minNoticeHours??0,maxAdvanceDays:service.maxAdvanceDays??90,
         terms:{policyId:policy.id,noticeHours:policy.noticeHours,lateFeeCents:policy.lateFeeCents,noShowFeeCents:policy.noShowFeeCents,sessionFeeCents:quote.amountCents}});
       }
@@ -75,7 +89,7 @@ export async function guardianBookingSlots(input) {
   const date=new Date(`${input.weekStart}T12:00:00Z`);
   if(!/^\d{4}-\d{2}-\d{2}$/.test(input.weekStart||'')||!Number.isFinite(+date)||Math.abs(+date-Date.now())>100*86400000)throw fail('Choose a week within the booking window.');
   const client=await authorizedAppointmentClient(input.userId,input.clientId,input);
-  const availability=await ProviderAvailability.computeWeekAvailability({agencyId:client.agency_id,providerId:choice.providerId,weekStartYmd:input.weekStart,slotMinutes:choice.durationMinutes,intakeOnly:false});
+  const availability=await ProviderAvailability.computeWeekAvailability({agencyId:client.agency_id,providerId:choice.providerId,weekStartYmd:input.weekStart,slotMinutes:choice.durationMinutes,intakeOnly:false,serviceType:choice.businessType==='tutoring'?'tutoring':'counseling'});
   const slots=[...(choice.modality!=='IN_PERSON'?availability.virtualSlots.map(s=>({...s,modality:'VIRTUAL'})):[]),
     ...(choice.modality!=='TELEHEALTH'?availability.inPersonSlots.map(s=>({...s,modality:'IN_PERSON'})):[])];
   const now=Date.now();
@@ -92,7 +106,10 @@ async function bookGuardianSessionLocked(input) {
   const terms=available.choice.terms;
   if(input.confirmed!==true||Object.keys(terms).some(key=>input.acknowledgedTerms?.[key]!==terms[key]))throw fail('Review and acknowledge the current session price and attendance policy.',409);
   const client=await authorizedAppointmentClient(input.userId,input.clientId,input);
+  const packageEntitlementId=input.packageEntitlementId==null?null:Number(input.packageEntitlementId);
+  if(packageEntitlementId!==null&&(!Number.isSafeInteger(packageEntitlementId)||!available.choice.packages?.some(pkg=>pkg.id===packageEntitlementId)))throw fail('This package is not available for this student, payer, tutor and format. Refresh before booking.',409);
   const appointment=await createAppointment({agencyId:client.agency_id,tenantServiceId:available.choice.serviceId,providerUserId:available.choice.providerId,
+    packageEntitlementId,
     startAt:slot.startAt,endAt:slot.endAt,modality:slot.modality,officeLocationId:slot.buildingId,roomId:slot.roomId,timeZone:available.timeZone,
     source:'guardian_portal',title:available.choice.serviceName,createdByUserId:input.userId,
     notes:`Attendance policy acknowledged by account ${input.userId} at ${new Date().toISOString()}: ${JSON.stringify(terms)}`,
