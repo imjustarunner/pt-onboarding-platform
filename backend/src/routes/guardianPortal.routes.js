@@ -128,12 +128,12 @@ router.get('/clients/:clientId/session-history/download',async(req,res,next)=>{t
 
 router.get('/account',requireActiveStatus,async(req,res,next)=>{try{if(req.guardianPreviewMode)return res.status(403).json({error:{message:'Preview cannot access account details'}});res.set('Cache-Control','no-store').json(await familyAccount(req.user.id));}catch(e){next(e);}});
 router.get('/enrollments/options', requireActiveStatus, async (req, res, next) => {
-  try { res.set('Cache-Control', 'no-store').json(await enrollmentOptions(req.user)); } catch (error) { next(error); }
+  try { res.set('Cache-Control', 'no-store').json(await enrollmentOptions(req.user, undefined, req.query.agencySlug)); } catch (error) { next(error); }
 });
 router.post('/enrollments', requireActiveStatus, rateLimit({ windowMs: 60 * 60 * 1000, max: 15 }), async (req, res, next) => {
   try {
     res.set('Cache-Control', 'no-store').status(201).json(await startGuardianEnrollment({
-      user: req.user, linkId: req.body?.linkId, subject: req.body?.subject,
+      user: req.user, agencySlug: req.body?.agencySlug, linkId: req.body?.linkId, subject: req.body?.subject,
       ipAddress: req.ip, userAgent: req.get('user-agent')
     }));
   } catch (error) { next(error); }

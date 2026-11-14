@@ -7,8 +7,8 @@
         <span class="legend-swatch" :style="swatch(option)" aria-hidden="true"></span>{{ option.label }}
       </span>
     </div>
-    <details>
-      <summary>Other event colors</summary>
+    <details v-if="remaining.length">
+      <summary>{{tutoring?'Counseling and other event colors':'Other event colors'}}</summary>
       <div class="legend-items">
         <span v-for="option in remaining" :key="option.key" class="legend-item">
           <span class="legend-swatch" :style="swatch(option)" aria-hidden="true"></span>{{ option.label }}
@@ -20,11 +20,12 @@
   </details>
 </template>
 <script setup>
+import {computed} from 'vue';
 import { SCHEDULE_COLOR_OPTIONS, scheduleColorFill } from '../../utils/scheduleAppearance.js';
-const props = defineProps({ colors: { type: Object, default: () => ({}) }, dark: Boolean });
+const props = defineProps({ colors: { type: Object, default: () => ({}) }, dark: Boolean,learningOnly:Boolean,tutoring:Boolean });
 const primaryKeys = ['client_session', 'supervision', 'supervision_group', 'interview', 'office_assigned', 'office_booked', 'schedule_hold', 'availability', 'intake_in_person', 'intake_virtual', 'supervision_open', 'training'];
-const primary = SCHEDULE_COLOR_OPTIONS.filter(option => primaryKeys.includes(option.key));
-const remaining = SCHEDULE_COLOR_OPTIONS.filter(option => !primaryKeys.includes(option.key));
+const primary = computed(()=>SCHEDULE_COLOR_OPTIONS.filter(option => props.learningOnly ? ['client_session','intake_virtual','intake_in_person','availability','schedule_hold'].includes(option.key) : primaryKeys.includes(option.key)).map(option=>({...option,label:props.learningOnly?({client_session:'Tutoring session',intake_virtual:'Virtual tutoring opening',intake_in_person:'In-person tutoring opening',availability:'Reachable hours',schedule_hold:'Schedule block'}[option.key]||option.label):option.label.replace(/intake/gi,'enrollment')})));
+const remaining = computed(()=>props.learningOnly?[]:SCHEDULE_COLOR_OPTIONS.filter(option=>!primaryKeys.includes(option.key)).map(option=>({...option,label:option.label.replace(/intake/gi,'enrollment')})));
 const swatch = option => {
   const color = /^#[\da-f]{6}$/i.test(props.colors[option.key]) ? props.colors[option.key] : option.color;
   return { backgroundColor: scheduleColorFill(color, props.dark), borderColor: `${color}a6` };

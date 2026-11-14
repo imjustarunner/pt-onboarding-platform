@@ -1,7 +1,7 @@
 import { saveAndPublishLearningCatalog } from '../services/learningCatalogPublication.service.js';
 import Agency from '../models/Agency.model.js';
 import {assertManagedTutoringProfileTarget} from '../services/tutoringProfileAuthorization.service.js';
-import {isNluTutoringQaAgency,allowNluQaTutor} from '../utils/nluTutoringQaPolicy.js';
+import {isNluTutoringQaAgency,allowNluQaServiceProvider} from '../utils/nluTutoringQaPolicy.js';
 import { isAuricwellQaAgency, allowQaExchangeRecipient } from '../utils/auricwellQaPolicy.js';
 import { readPublicSnapshot } from '../services/publicReadSnapshot.service.js';
 import {slotAllowsCare} from '../utils/availabilityCareTypes.js';
@@ -490,9 +490,9 @@ async function getEnrolledProviderIds(agencyId, serviceType) {
 
 export async function listEnrolledProviders(agencyId, serviceType, {includeDirectory=false}={}) {
   const qaAgency = [450,453,454].includes(Number(agencyId)) ? await Agency.findById(agencyId) : null;
-  const tutoringQa=isNluTutoringQaAgency(qaAgency) && serviceType==='tutoring';
-  const includeDemo = isAuricwellQaAgency(qaAgency)||tutoringQa;
-  const visible = row => tutoringQa ? allowNluQaTutor(qaAgency,row) : includeDemo ? allowQaExchangeRecipient(qaAgency, row) : Number(row.is_demo) !== 1;
+  const nluQa=isNluTutoringQaAgency(qaAgency);
+  const includeDemo = isAuricwellQaAgency(qaAgency)||nluQa;
+  const visible = row => nluQa ? allowNluQaServiceProvider(qaAgency,row,serviceType) : includeDemo ? allowQaExchangeRecipient(qaAgency, row) : Number(row.is_demo) !== 1;
   const serviceEnabled=(await getAgencyServiceTypes(agencyId)).some(s=>s.service_type===serviceType);
   // A clinical directory and school schedule remain public when online booking is not configured.
   if(!serviceEnabled && !(includeDirectory && serviceType==='counseling')) return [];
@@ -625,11 +625,11 @@ async function resolveProviderProfileSummary({ agencyId, providerUserId, service
   };
 }
 
-async function computeProviderWindowSummary({ agencyId, providerId, weekStart, bookingMode, programType, heldSlots = null, lookaheadWeeks = 16, officeId = null, matchesTime = () => true, liveAvailability = false, directorySnapshot = false, timePreferences = {} }) {
+async function computeProviderWindowSummary({ serviceType = null, agencyId, providerId, weekStart, bookingMode, programType, heldSlots = null, lookaheadWeeks = 16, officeId = null, matchesTime = () => true, liveAvailability = false, directorySnapshot = false, timePreferences = {} }) {
   if (directorySnapshot && !liveAvailability) {
     // Provider-scoped snapshots are invalidated by the existing schedule/hold edit triggers.
     return readPublicSnapshot({key:['directory-window-v1',agencyId,providerId,weekStart,bookingMode,programType,officeId,timePreferences],kind:'availability',providerId,ttlSeconds:300}, async () => ({
-      ...await computeProviderWindowSummary({agencyId,providerId,weekStart,bookingMode,programType,heldSlots,lookaheadWeeks,officeId,matchesTime}),
+      ...await computeProviderWindowSummary({serviceType,agencyId,providerId,weekStart,bookingMode,programType,heldSlots,lookaheadWeeks,officeId,matchesTime}),
       checkedAt:new Date().toISOString(),refreshAfterSeconds:300
     }));
   }
@@ -639,7 +639,7 @@ async function computeProviderWindowSummary({ agencyId, providerId, weekStart, b
 
   const computeForWeek = async (candidateWeekStart) => {
     const result = await readPublicWeekAvailability({
-      agencyId,
+      serviceType, agencyId,
       providerId,
       weekStartYmd: candidateWeekStart,
       includeGoogleBusy: true,
@@ -829,7 +829,7 @@ export const listCounselors = async (req, res, next) => {
       profileData.acceptingNewClientsOverride = profileData.agencyAvailability ? profileData.acceptingNewClientsOverride : Boolean(row.provider_accepting_new_clients ?? profileData.acceptingNewClientsOverride ?? true);
       const skipAvailability = directoryOnly || (availabilityOnly && !publicFormatEnabled(profileData,programType,bookingMode));
       const heldSlots = skipAvailability ? [] : await getHeldSlotStartsForProvider(agency.id, Number(row.id));
-      const summary = skipAvailability ? { thisWeek: { virtualSlots: [], inPersonSlots: [] }, nextAvailableAt: null, bookedThroughYmd: null, checkedAt: directoryOnly ? null : new Date().toISOString() } : await computeProviderWindowSummary({
+      const summary = skipAvailability ? { thisWeek: { virtualSlots: [], inPersonSlots: [] }, nextAvailableAt: null, bookedThroughYmd: null, checkedAt: directoryOnly ? null : new Date().toISOString() } : await computeProviderWindowSummary({serviceType,
         lookaheadWeeks: req.query.view === 'availability' ? 3 : 16,
         directorySnapshot:req.query.view === 'availability',
         timePreferences:{day:String(req.query.day||''),timeFrom:String(req.query.timeFrom||''),timeTo:String(req.query.timeTo||'')},
@@ -1022,7 +1022,7 @@ export const listTutors = async (req, res, next) => {
 
       const directoryOnly = req.query.view === 'directory' || row.online_enrolled === 0;
       const heldSlots = directoryOnly ? [] : await getHeldSlotStartsForProvider(agency.id, Number(row.id));
-      const summary = directoryOnly ? { thisWeek: { virtualSlots: [], inPersonSlots: [] }, nextAvailableAt: null, bookedThroughYmd: null } : await computeProviderWindowSummary({
+      const summary = directoryOnly ? { thisWeek: { virtualSlots: [], inPersonSlots: [] }, nextAvailableAt: null, bookedThroughYmd: null } : await computeProviderWindowSummary({serviceType,
         lookaheadWeeks: req.query.view === 'availability' ? 0 : 16,
         agencyId: agency.id,
         providerId: Number(row.id),
@@ -1129,7 +1129,7 @@ export const listEvaluators = async (req, res, next) => {
 
     const evaluators = await runWithConcurrency(providerRows, 6, async (row) => {
       const heldSlots = row.online_enrolled !== 0 ? await getHeldSlotStartsForProvider(agency.id, Number(row.id)) : [];
-      const summary = row.online_enrolled !== 0 ? await computeProviderWindowSummary({
+      const summary = row.online_enrolled !== 0 ? await computeProviderWindowSummary({serviceType,
         agencyId: agency.id,
         providerId: Number(row.id),
         weekStart,
@@ -1268,7 +1268,7 @@ export const getProviderDetail = async (req, res, next) => {
     const profileOnly=req.query.view==='profile' && req._liveAvailability!==true;
     const heldSlots = profileOnly ? [] : await getHeldSlotStartsForProvider(agency.id, providerId);
     // Profile pages load the selected provider's weeks independently; booking still revalidates live.
-    const summary = profileOnly ? {thisWeek:{inPersonSlots:[],virtualSlots:[]},nextAvailableAt:null,bookedThroughYmd:null} : await computeProviderWindowSummary({ agencyId: agency.id, providerId, weekStart, bookingMode, programType, heldSlots, officeId:Number(req.query.officeId)||null, liveAvailability:req._liveAvailability===true });
+    const summary = profileOnly ? {thisWeek:{inPersonSlots:[],virtualSlots:[]},nextAvailableAt:null,bookedThroughYmd:null} : await computeProviderWindowSummary({serviceType, agencyId: agency.id, providerId, weekStart, bookingMode, programType, heldSlots, officeId:Number(req.query.officeId)||null, liveAvailability:req._liveAvailability===true });
     const profileData = await ProviderPublicProfile.getForProvider({ providerUserId: providerId, agencyId:agency.id }) || {};
     profileData.acceptingNewClientsOverride = profileData.agencyAvailability ? profileData.acceptingNewClientsOverride : Boolean(user.provider_accepting_new_clients ?? profileData.acceptingNewClientsOverride ?? true);
     if(!publicFormatEnabled(profileData,programType,bookingMode))summary.nextAvailableAt=null;
@@ -1531,7 +1531,7 @@ export const createBookingRequest = async (req, res, next) => {
     // Validate slot is still available
     const weekStartYmd = start.toISOString().slice(0, 10);
     const availability = await ProviderAvailabilityService.computeWeekAvailability({
-      agencyId: agency.id,
+      serviceType, agencyId: agency.id,
       providerId,
       weekStartYmd,
       includeGoogleBusy: true,

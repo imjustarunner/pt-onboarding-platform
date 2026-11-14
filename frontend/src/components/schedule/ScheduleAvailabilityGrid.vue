@@ -135,7 +135,7 @@
           </div>
 
           <div class="sched-command__actions">
-            <ScheduleColorLegend :colors="scheduleColors" :dark="darkScheduleTheme" /><ScheduleHelp />
+            <ScheduleColorLegend :colors="scheduleColors" :dark="darkScheduleTheme" :learning-only="tutoringWorkspaceOnly" :tutoring="serviceWorkspace(authStore.user,agencyStore.currentAgency||{}).canTutor" /><ScheduleHelp :learning-only="tutoringWorkspaceOnly" :tutoring="serviceWorkspace(authStore.user,agencyStore.currentAgency||{}).canTutor" />
             <button
               v-if="Number(effectiveAgencyId || 0) > 0 && clientSessionBookingEnabled"
               class="sched-command__book"
@@ -297,7 +297,7 @@
           >
             Full week view
           </button>
-          <ScheduleColorLegend :colors="scheduleColors" :dark="darkScheduleTheme" /><ScheduleHelp />
+          <ScheduleColorLegend :colors="scheduleColors" :dark="darkScheduleTheme" :learning-only="tutoringWorkspaceOnly" :tutoring="serviceWorkspace(authStore.user,agencyStore.currentAgency||{}).canTutor" /><ScheduleHelp :learning-only="tutoringWorkspaceOnly" :tutoring="serviceWorkspace(authStore.user,agencyStore.currentAgency||{}).canTutor" />
         </div>
       </div>
 
@@ -1927,9 +1927,13 @@
           <router-link v-if="editorInfoClientId" class="nlu-button nlu-button--secondary" :to="scheduleOrgTo(`/students/${editorInfoClientId}`)">Open student learning record</router-link>
         </section>
         <p v-if="editorSchoolOverlapNames.length" role="alert" class="nr-warn">These virtual hours overlap your assignment at {{editorSchoolOverlapNames.join(', ')}}. You can save them; assigned school hours remain reserved, and existing sessions stay protected. Request an hours change if you intend to see other clients then.</p>
+        <label v-if="editorIsClinical && mixedSessionServices && !isAppointmentEditMode && !isScheduleEventEditMode" class="schedule-service-choice">This session is for
+          <select v-model="editorPracticeCategory" required><option value="">Choose a service</option><option value="tutoring">Tutoring</option><option value="mental_health">Counseling</option></select>
+        </label>
         <AppointmentEditorShell
           v-show="editorWorkspaceTab === 'edit'"
           :title="modalEditorTitle"
+          :learning="editorIsLearning"
           :subtitle="modalScheduleSubtitle"
           :hide-chrome="true"
           :disabled="submitting || scheduleEventSaving || (isSupervisionEditMode && !canSaveSelectedSupvSession)"
@@ -1963,7 +1967,7 @@
           :tenant-label="modalTenantLabel"
           :tenant-icon-url="editorTenantIconUrl"
           :can-edit-tenant="headerTenantOptions.length > 1 && !editingOpenSlot?.virtualHoursId"
-          :provider-label="isAppointmentEditMode ? 'Booked for' : 'Provider'"
+          :provider-label="isAppointmentEditMode ? 'Booked for' : editorIsLearning ? 'Tutor' : 'Provider'"
           :provider-name="bookingTargetUserLabel"
           :appointment-type="editorAppointmentType"
           :appointment-type-label="modalEditorTitle"
@@ -1979,9 +1983,9 @@
           :occurrence-count-label="editorOccurrenceCountLabel"
           :show-type="!editorIsOpenSlot && editorIsClinical && editorTypeOptions.length > 1"
           :show-status="!editorIsOpenSlot && !editorIsMeeting && !editorIsSupervision && (isAppointmentEditMode || isScheduleEventEditMode)"
-          :show-location="editorShowLocation"
+          :show-location="editorShowLocation && (!editorIsLearning || editorModality==='IN_PERSON')"
           :location-address="editorLocationAddress"
-          :location-options="editorServiceLocationOptions"
+          :location-options="editorIsLearning ? editorServiceLocationOptions.map(l=>({...l,label:String(l.name||l.label||'Location').replace(/\s*[·—-]?\s*POS\s*\d+/gi,'').replace(/Patient.s Residence/gi,'Student location')})) : editorServiceLocationOptions"
           :location-options-loading="bookingLocationsLoading"
           :location-options-error="bookingLocationsError"
           :service-location-id="Number(editorServiceLocationId || bookingServiceLocationId || 0)"
@@ -2018,13 +2022,13 @@
           :addon-service-code-options="bookingPreSessionAddonOptions"
           :show-modality="editorIsClinical"
           :modality="editorModality"
-          :show-group-clients="editorIsClinical"
+          :show-group-clients="editorIsClinical && (!editorIsLearning || editorTenantServices.find(s=>Number(s.id)===Number(editorTenantServiceId))?.allowsGroup === true)"
           :group-client-options="(scheduleEventEditClientOptions.length ? scheduleEventEditClientOptions : (virtualSessionClients || [])).filter((c) => Number(c.id) !== Number(primarySessionClientId || 0))"
           :selected-client-ids="virtualSessionSelectedClientIds"
           :primary-client-id="Number(primarySessionClientId || 0)"
           :group-clients-loading="virtualSessionClientsLoading"
           :force-expand-group-clients="editorForceExpandGroupClients"
-          :modality-pos-warning="editorModalityPosWarning"
+          :modality-pos-warning="editorIsLearning ? '' : editorModalityPosWarning"
           :book-session-layout="editorUseBookSessionLayout"
           :video-room-mode="editorVideoRoomMode"
           :show-notifications="editorUseBookSessionLayout"
@@ -2111,7 +2115,7 @@
                 class="ahf-input"
                 :disabled="virtualSessionClientsLoading"
               >
-                <option :value="0">{{ virtualSessionClientsLoading ? 'Loading clients…' : 'Select a client…' }}</option>
+                <option :value="0">{{ virtualSessionClientsLoading ? (editorIsLearning ? 'Loading students…' : 'Loading clients…') : 'Select a client…' }}</option>
                 <option
                   v-for="c in scheduleEventEditClientOptions"
                   :key="`aes-client-${c.id}`"
@@ -2122,9 +2126,9 @@
               </select>
               <template v-if="!editorUseBookSessionLayout">
                 <select v-model="editorClinicalParticipantsMode" class="ahf-input aes-participants-mode">
-                  <option value="Client Only">Client Only</option>
-                  <option value="Client and Others">Client and Others</option>
-                  <option value="Others (client not present)">Others (client not present)</option>
+                  <option value="Client Only">{{editorIsLearning?'Student only':'Client Only'}}</option>
+                  <option value="Client and Others">{{editorIsLearning?'Student and parent or guardian':'Client and Others'}}</option>
+                  <option value="Others (client not present)">{{editorIsLearning?'Other attendees (explain below)':'Others (client not present)'}}</option>
                 </select>
                 <input
                   v-if="editorClinicalParticipantsMode !== 'Client Only'"
@@ -2144,10 +2148,10 @@
               >
                 <option :value="0">
                   {{ virtualSessionClientsLoading
-                    ? 'Loading clients…'
+                    ? (editorIsLearning ? 'Loading students…' : 'Loading clients…')
                     : ((scheduleEventEditClientOptions.length || (virtualSessionClients || []).length)
-                      ? 'Select a client…'
-                      : 'No clients found for this provider') }}
+                      ? (editorIsLearning ? 'Select a student…' : 'Select a client…')
+                      : (editorIsLearning ? 'No assigned students yet' : 'No clients found for this provider')) }}
                 </option>
                 <option
                   v-for="c in scheduleEventEditClientOptions.length ? scheduleEventEditClientOptions : (virtualSessionClients || [])"
@@ -2159,9 +2163,9 @@
               </select>
               <template v-if="!editorUseBookSessionLayout">
                 <select v-model="editorClinicalParticipantsMode" class="ahf-input aes-participants-mode">
-                  <option value="Client Only">Client Only</option>
-                  <option value="Client and Others">Client and Others</option>
-                  <option value="Others (client not present)">Others (client not present)</option>
+                  <option value="Client Only">{{editorIsLearning?'Student only':'Client Only'}}</option>
+                  <option value="Client and Others">{{editorIsLearning?'Student and parent or guardian':'Client and Others'}}</option>
+                  <option value="Others (client not present)">{{editorIsLearning?'Other attendees (explain below)':'Others (client not present)'}}</option>
                 </select>
                 <input
                   v-if="editorClinicalParticipantsMode !== 'Client Only'"
@@ -2236,9 +2240,9 @@
               class="ahf-input aes-participants-mode"
               :disabled="submitting || scheduleEventSaving"
             >
-              <option value="Client Only">Client Only</option>
-              <option value="Client and Others">Client and Others</option>
-              <option value="Others (client not present)">Others (client not present)</option>
+              <option value="Client Only">{{editorIsLearning?'Student only':'Client Only'}}</option>
+              <option value="Client and Others">{{editorIsLearning?'Student and parent or guardian':'Client and Others'}}</option>
+              <option value="Others (client not present)">{{editorIsLearning?'Other attendees (explain below)':'Others (client not present)'}}</option>
             </select>
           </template>
 
@@ -2440,6 +2444,9 @@
 
           <OpenSlotPlusOfficeRequestBody
             v-if="editorIsOpenSlot || requestType === 'attach_open_for_booking'"
+            v-model:service-type="editorOpeningServiceType"
+            :service-options="editorServiceChoices"
+            @open-childcare="openChildcareFromCalendar"
             v-model:virtual-enabled="editorOpenVirtual"
             v-model:in-person-enabled="editorOpenInPerson"
             :can-link-office="editorCanLinkOpenOffice"
@@ -2682,7 +2689,7 @@
                 Push session update…
               </button>
             </AppointmentRemindersPanel>
-            <AppointmentReminderSettings v-if="editorWorkspaceTab === 'notifications' && Number(editorAppointmentId || 0)>0" :agency-id="Number(editorAgencyId || 0)" v-model:mode="editorNotificationMode" v-model:rules="editorCustomReminders" :busy="editorReminderBusy || editorRemindersLoading" @save="saveEditorReminderSettings" />
+            <AppointmentReminderSettings :learning="editorIsLearning" v-if="editorWorkspaceTab === 'notifications' && Number(editorAppointmentId || 0)>0" :agency-id="Number(editorAgencyId || 0)" v-model:mode="editorNotificationMode" v-model:rules="editorCustomReminders" :busy="editorReminderBusy || editorRemindersLoading" @save="saveEditorReminderSettings" />
           </div>
         </div>
 
@@ -4088,7 +4095,7 @@
           </div>
 
           <div v-if="intakeConfirmStep === 'ask_inperson'" class="intake-confirm" style="margin-top: 12px; padding: 12px; background: var(--surface-2); border-radius: 8px;">
-            <div class="lbl" style="margin-bottom: 8px;">Set as available for virtual intake also?</div>
+            <div class="lbl" style="margin-bottom: 8px;">Set as available for virtual enrollment also?</div>
             <div style="display: flex; gap: 8px;">
               <button type="button" class="btn btn-primary" @click="confirmIntakeInPerson(true)">Yes, both</button>
               <button type="button" class="btn btn-secondary" @click="confirmIntakeInPerson(false)">In-person only</button>
@@ -4096,7 +4103,7 @@
             </div>
           </div>
           <div v-else-if="intakeConfirmStep === 'ask_virtual'" class="intake-confirm" style="margin-top: 12px; padding: 12px; background: var(--surface-2); border-radius: 8px;">
-            <div class="lbl" style="margin-bottom: 8px;">Virtual intake only – are you sure?</div>
+            <div class="lbl" style="margin-bottom: 8px;">Virtual enrollment only – are you sure?</div>
             <div style="display: flex; gap: 8px;">
               <button type="button" class="btn btn-primary" @click="confirmIntakeVirtual()">Yes</button>
               <button type="button" class="btn btn-secondary" @click="intakeConfirmStep = null">Cancel</button>
@@ -9309,6 +9316,15 @@ onMounted(() => window.addEventListener('focus', loadSchoolWeekdays));
 onUnmounted(() => { schoolWeekdayGeneration++; window.removeEventListener('focus', loadSchoolWeekdays); });
 
 const tutoringWorkspaceOnly = computed(() => serviceWorkspace(authStore.user, agencyStore.currentAgency || {}).learningOnly);
+const editorOpeningServiceType=ref('');
+const editorServiceChoices=computed(()=>{
+ const workspace=serviceWorkspace(authStore.user,agencyStore.currentAgency||{}),manager=['admin','super_admin'].includes(authStore.user?.role);
+ const kind=String(agencyStore.currentAgency?.organization_type||'');
+ if(['life_coach','consultant'].includes(kind))return [{value:kind==='life_coach'?'coaching':'consulting',label:kind==='life_coach'?'Coaching':'Consulting'}];
+ return [...(workspace.canTutor||manager?[{value:'tutoring',label:'Tutoring'}]:[]),...(workspace.canClinical||manager?[{value:'counseling',label:'Counseling'}]:[]),...(workspace.canChildcare||manager?[{value:'childcare',label:'Childcare'}]:[])];
+});
+const mixedSessionServices=computed(()=>editorServiceChoices.value.filter(s=>s.value!=='childcare').length>1);
+function openChildcareFromCalendar(){void router.push(scheduleOrgTo('/childcare'));}
 const clientSessionBookingEnabled = ref(false);
 const clientSessionBookingAgencyId = computed(() => Number(selectedActionAgencyId.value || effectiveAgencyId.value || 0));
 let bookingAccessGeneration = 0;
@@ -12032,10 +12048,10 @@ const buildCellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout 
   }
   const top = officeHits.sort((a, b) => stateRank(b.slotState) - stateRank(a.slotState))[0] || null;
   if (top?.inPersonIntakeEnabled) {
-    blocks.push({ key: 'intake-ip', kind: 'intake-ip', shortLabel: 'IP', title: `In-person intake enabled — ${officeTitle(dayName, hour, top)}`, agencyId: Number(top?._agencyId || 0) || null, buildingId: top?.buildingId ? Number(top.buildingId) : null, roomId: top?.roomId ? Number(top.roomId) : null });
+    blocks.push({ key: 'intake-ip', kind: 'intake-ip', shortLabel: 'IP', title: `In-person enrollment enabled — ${officeTitle(dayName, hour, top)}`, agencyId: Number(top?._agencyId || 0) || null, buildingId: top?.buildingId ? Number(top.buildingId) : null, roomId: top?.roomId ? Number(top.roomId) : null });
   }
   if (top?.virtualIntakeEnabled) {
-    blocks.push({ key: 'intake-vi', kind: 'intake-vi', shortLabel: 'VI', title: `Virtual intake enabled — ${officeTitle(dayName, hour, top)}`, agencyId: Number(top?._agencyId || 0) || null, buildingId: top?.buildingId ? Number(top.buildingId) : null, roomId: top?.roomId ? Number(top.roomId) : null });
+    blocks.push({ key: 'intake-vi', kind: 'intake-vi', shortLabel: 'VI', title: `Virtual enrollment enabled — ${officeTitle(dayName, hour, top)}`, agencyId: Number(top?._agencyId || 0) || null, buildingId: top?.buildingId ? Number(top.buildingId) : null, roomId: top?.roomId ? Number(top.roomId) : null });
   }
 
   // Portal intake ("Open for new clients") — virtual working hours with INTAKE/BOTH
@@ -12079,7 +12095,7 @@ const buildCellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout 
       startTime: row?.startTime || null,
       endTime: row?.endTime || null,
       virtualHoursId: vwhId,
-      excludedDates:row?.excludedDates,dayOfWeek:dayName,startDate:row?.startDate,endDate:row?.endDate,careTypes:row?.careTypes,
+      excludedDates:row?.excludedDates,dayOfWeek:dayName,startDate:row?.startDate,endDate:row?.endDate,serviceType:row?.serviceType,careTypes:row?.careTypes,
       frequency: row?.frequency || 'WEEKLY',
       officeTied: portalOfficeTied,
       startAt,
@@ -12734,8 +12750,8 @@ const cellBlockKindLabel = (block) => {
   if (kind === 'sevt') return scheduleKindLabel(block?.eventKind, block) || 'Schedule event';
   if (kind === 'gevt' || kind === 'gbusy') return 'Google Calendar';
   if (kind === 'ebusy') return 'Therapy session';
-  if (kind === 'intake-ip') return 'In-person intake';
-  if (kind === 'intake-vi') return 'Virtual intake';
+  if (kind === 'intake-ip') return tutoringWorkspaceOnly.value?'In-person tutoring':'In-person enrollment';
+  if (kind === 'intake-vi') return tutoringWorkspaceOnly.value?'Virtual tutoring':'Virtual enrollment';
   return 'Schedule item';
 };
 
@@ -13449,7 +13465,7 @@ const availableQuickActions = computed(() => {
     {
       id: 'individual_session',
       label: clientSessionBookingEnabled.value ? 'Book Session' : 'Book Session · Coming soon',
-      description: hasOffice
+      description: tutoringWorkspaceOnly.value ? 'Schedule tutoring with one of your assigned students' : hasOffice
         ? 'Schedule a client session — add more than one client to make it a group session'
         : 'Schedule a session (office optional). Add more than one client to make it a group session.',
       disabledReason: clientSessionBookingEnabled.value ? '' : (tutoringWorkspaceOnly.value ? 'Your organization must enable an active tutoring assignment before booking.' : 'Your practice will enable session booking after your TherapyNotes transition.'),
@@ -13469,7 +13485,7 @@ const availableQuickActions = computed(() => {
     {
       id: 'portal_intake',
       label: 'Open Slot for Booking',
-      description: 'Publish open hours so new clients can book this time',
+      description: tutoringWorkspaceOnly.value ? 'Post tutoring hours for new or current students' : 'Publish service-specific openings for new or current clients',
       disabledReason: '',
       visible: !supervisionOnlyMode,
       tone: 'teal',
@@ -13522,17 +13538,17 @@ const availableQuickActions = computed(() => {
     },
     {
       id: 'intake_virtual_off',
-      label: 'Disable virtual intake',
+      label: 'Close virtual enrollment',
       description: 'Keep regular virtual availability',
-      disabledReason: hasEvent && !!ctx.virtualIntakeEnabled ? '' : 'Virtual intake not enabled',
+      disabledReason: hasEvent && !!ctx.virtualIntakeEnabled ? '' : 'Virtual enrollment is closed',
       visible: hasEvent && !!ctx.virtualIntakeEnabled,
       tone: 'slate'
     },
     {
       id: 'intake_inperson_off',
-      label: 'Disable in-person intake',
+      label: 'Close in-person enrollment',
       description: 'Remove in-person intake availability',
-      disabledReason: hasEvent && !!ctx.inPersonIntakeEnabled ? '' : 'In-person intake not enabled',
+      disabledReason: hasEvent && !!ctx.inPersonIntakeEnabled ? '' : 'In-person enrollment is closed',
       visible: hasEvent && !!ctx.inPersonIntakeEnabled,
       tone: 'slate'
     },
@@ -13794,7 +13810,7 @@ const sortQuickActionsSmart = (rows) => {
 
 const visibleQuickActions = computed(() => {
   const rows = Array.isArray(availableQuickActions.value) ? availableQuickActions.value : [];
-  let filtered = rows.filter((row) => row?.visible !== false && row?.id !== 'booked_record');
+  let filtered = rows.filter((row) => row?.visible !== false && row?.id !== 'booked_record' && (!tutoringWorkspaceOnly.value || !String(row?.id).includes('supervision')));
   if (props.hideOfficeAndCalendarIntegration) {
     filtered = filtered.filter((row) => row?.id && CLUB_SCHEDULING_ACTIONS.has(row.id));
   } else {
@@ -13811,7 +13827,7 @@ const visibleQuickActions = computed(() => {
   return sortQuickActionsSmart(filtered);
 });
 
-const SLOT_ACTION_PRIMARY_COUNT = 7;
+const primaryActionCount = computed(() => tutoringWorkspaceOnly.value ? 4 : 7);
 const ownSlotForfeitAction = computed(() => {
   const ctx = modalContext.value || {};
   const ownerId = Number(ctx.assignedProviderId || ctx.bookedProviderId || 0);
@@ -13844,9 +13860,9 @@ const primaryQuickActions = computed(() => {
     const preferred = EMPTY_OFFICE_PRIMARY_IDS.map((id) => byId.get(id)).filter(Boolean);
     const preferredIds = new Set(preferred.map((r) => r.id));
     const rest = rows.filter((r) => !preferredIds.has(r.id));
-    return includeBookingNotice(sortQuickActionsSmart([...preferred, ...rest])).slice(0, SLOT_ACTION_PRIMARY_COUNT);
+    return includeBookingNotice(sortQuickActionsSmart([...preferred, ...rest])).slice(0, primaryActionCount.value);
   }
-  return includeBookingNotice(rows).slice(0, SLOT_ACTION_PRIMARY_COUNT);
+  return includeBookingNotice(rows).slice(0, primaryActionCount.value);
 });
 const moreQuickActions = computed(() => {
   const primaryIds = new Set((primaryQuickActions.value || []).map((r) => r.id));
@@ -14201,7 +14217,7 @@ const modalScheduleSubtitle = computed(() => {
   if (t === 'portal_intake') return 'Publish open hours for new clients on the portal.';
   if (t === 'attach_open_for_booking') return 'Attach open-for-booking availability to this office reservation.';
   if (t === 'school') return 'Request additional weekday daytime hours (not a change to existing open slots).';
-  if (t === 'individual_session') return 'Schedule an individual session — virtual or in-person.';
+  if (t === 'individual_session') return tutoringWorkspaceOnly.value ? 'Schedule a tutoring session — virtual or in person.' : 'Schedule an individual session — virtual or in-person.';
   if (t === 'group_session') return 'Schedule a group session.';
   if (t === 'admin_assign') return 'Update this booking — change duration, provider, or frequency.';
   if (selectedQuickActionLabel.value && selectedQuickActionLabel.value !== 'Not selected') {
@@ -14347,7 +14363,7 @@ const editorAcceptingNewClientsHint = computed(() => {
   if (!editorAvailableForIntake.value) return '';
   const accepting = summary.value?.providerAcceptingNewClients;
   if (accepting === false || accepting === 0 || accepting === '0') {
-    return 'This provider is marked as not accepting new clients — intake slots may not appear in public search until that is turned on.';
+    return editorOpeningServiceType.value==='tutoring'?'This tutor is marked as not accepting new students. New-student openings will appear publicly after that setting is enabled.':'This provider is marked as not accepting new clients. New enrollment openings will appear publicly after that setting is enabled.';
   }
   return '';
 });
@@ -15132,6 +15148,7 @@ function inferModalityFromEvent(target = {}) {
 }
 const editorShowParticipant = computed(() => editorIsClinical.value || editorIsMeeting.value || editorIsSupervision.value);
 const editorParticipantLabel = computed(() => {
+  if(editorIsLearning.value)return 'Student';
   if (editorIsMeeting.value) return 'Participants';
   if (editorIsSupervision.value) {
     if (!isSupervisionEditMode.value && supervisionSignupOnlyEnabled.value) return 'Audience';
@@ -15336,7 +15353,7 @@ const editorOpenSlotRecurrenceHint = computed(() => {
   if (!editorIsOpenSlot.value) return '';
   return editorCanLinkOpenOffice.value
     ? 'Once publishes the selected reservation. Repeating publishes matching existing reservations; appointments and calendar conflicts still block openings.'
-    : 'Choose weekly, every 2 weeks, or every 4 weeks for ongoing availability. Once publishes an intake or meeting only.';
+    : 'Choose weekly, every 2 weeks, or every 4 weeks for ongoing availability. A one-time opening publishes one enrollment session or meeting.';
 });
 const editorOpenSlotDurationWarning = computed(() => {
   if (!editorIsOpenSlot.value) return '';
@@ -16007,6 +16024,7 @@ async function loadEditorTenantServices() {
         return true;
       });
     }
+    if (tutoringWorkspaceOnly.value) services=services.filter(service=>['tutoring','learning'].includes(String(service.businessType||service.business_type)));
     editorTenantServices.value = services;
     if (!editorPracticeCategory.value) {
       const first = services[0];
@@ -16382,6 +16400,7 @@ function openAppointmentEditor({ mode = 'create', kind = '', id = 0, defaults = 
     modality: editorModality.value
   };
   editorAttachOfficeRequest.value = !!defaults.attachOfficeRequest;
+  editorOpeningServiceType.value=defaults.serviceType || (tutoringWorkspaceOnly.value?'tutoring':editorServiceChoices.value.length===1?editorServiceChoices.value[0].value:'');
   editorCareTypes.value=defaults.careTypes||['INDIVIDUAL','COUPLES','FAMILY'];
   editorOpenPurpose.value=defaults.purpose==='MEETING'?'MEETING':'INTAKE';
   editorOpenSlotEnabled.value = defaults.openSlotEnabled !== false;
@@ -16546,6 +16565,8 @@ const requestNotesCount = computed(() => String(requestNotes.value || '').length
 const bookingSubmitAttempted = ref(false);
 const requestSubmitBlockedReason = computed(() => {
   if (submitting.value) return submitBusyLabel.value;
+  if(editorIsOpenSlot.value&&((editorServiceChoices.value.length>0&&!editorOpeningServiceType.value)||editorOpeningServiceType.value==='childcare'))return 'Choose Tutoring or Counseling, or open Childcare scheduling.';
+  if(editorIsClinical.value&&mixedSessionServices.value&&!editorPracticeCategory.value)return 'Choose whether this session is tutoring or counseling.';
   if (!String(requestType.value || '').trim()) return 'Select an action to continue.';
   if (actionRequiresAgency.value && !effectiveAgencyId.value) return 'Select an agency for this action.';
   const t = String(requestType.value || '');
@@ -16559,7 +16580,7 @@ const requestSubmitBlockedReason = computed(() => {
     const hasOffice = appointmentOfficeId(editorOfficeLocationId.value, selectedOfficeLocationId.value) > 0;
     if (!modality) return 'Choose Virtual or In-person.';
     if (!effectiveAgencyId.value) return 'Select an agency for this session.';
-    if (!primarySessionClientId.value) return 'Select a client for this individual session.';
+    if (!primarySessionClientId.value) return editorIsLearning.value?'Select an assigned student for this tutoring session.':'Select a client for this individual session.';
     const hasSchoolSite = Number(editorSchoolOrganizationId.value || 0) > 0
       || !!(editorServiceLocationOptions.value || []).find((l) => {
         const locId = Number(editorServiceLocationId.value || bookingServiceLocationId.value || 0);
@@ -16589,7 +16610,7 @@ const requestSubmitBlockedReason = computed(() => {
     const startH = Number(modalHour.value);
     if (!(endH > startH)) return 'Choose an end time after the start.';
     if (!editorAvailableForIntake.value && !editorAvailableForSession.value) {
-      return 'Select new-client and/or current-client availability.';
+      return editorOpeningServiceType.value==='tutoring'?'Select new-student or current-student availability.':'Select new-client or current-client availability.';
     }
   }
   if (t === 'school' && !schoolWindowValid.value) {
@@ -18907,6 +18928,7 @@ const loadVirtualSessionClients = async (agencyIdOverride = null) => {
     const r = await api.get(`/users/${uid}/virtual-session-clients`, {
       params: {
         agencyId,
+        serviceType: editorIsLearning.value ? 'tutoring' : undefined,
         includeGuardians: virtualSessionIncludeGuardians.value ? 'true' : 'false'
       }
     });
@@ -19207,7 +19229,7 @@ const loadSupervisionInviteGroups = async () => {
 };
 
 const loadSupervisionProviders = async () => {
-  if (!authStore.user?.id) return;
+  if (!authStore.user?.id || tutoringWorkspaceOnly.value) return;
   if (!supervisionUsingAllAgencies.value && !effectiveAgencyId.value) return;
   try {
     supervisionProvidersLoading.value = true;
@@ -19761,7 +19783,8 @@ const openSlotActionModal = async ({
     const end=String(sourceOpenSlot.endTime || '').split(':').map(Number);
     if(start.length>=2){modalHour.value=start[0];modalStartHour.value=start[0];modalStartMinute.value=start[1];}
     if(end.length>=2){modalEndHour.value=end[0];modalEndMinute.value=end[1];}
-    editorCareTypes.value=sourceOpenSlot.careTypes||['INDIVIDUAL','COUPLES','FAMILY'];
+    editorOpeningServiceType.value=sourceOpenSlot.serviceType || sourceOpenSlot.service_type || (tutoringWorkspaceOnly.value?'tutoring':mixedSessionServices.value?'':'counseling');
+  editorCareTypes.value=sourceOpenSlot.careTypes||['INDIVIDUAL','COUPLES','FAMILY'];
     editorOpenPurpose.value=sourceOpenSlot.purpose==='MEETING'?'MEETING':'INTAKE';
     scheduleEventRecurrence.value=sourceOpenSlot.frequency || 'WEEKLY';
     officeBookingRecurrence.value=scheduleEventRecurrence.value;
@@ -21844,7 +21867,7 @@ const ensureVirtualWorkingHoursForRange = async ({
   if (editingOpenSlot.value?.virtualHoursId) {
     if (agencyId !== Number(editingOpenSlot.value.agencyId)) throw new Error('This weekly series belongs to its original agency. Create a new open slot to publish for another agency.');
     const edit=editingOpenSlot.value;
-    const apply=scope=>api.patch(`/availability/providers/${scheduleActorUserId.value}/virtual-working-hours/${edit.virtualHoursId}`, {agencyId,scope,occurrenceDate:String(edit.startAt).slice(0,10),dayOfWeek:dayName,startTime:`${pad2(startHour)}:${pad2(startMinute)}`,endTime:`${pad2(endHour)}:${pad2(endMinute)}`,availableForIntake,availableForSession,startDate:addDaysYmd(weekStart.value,dayIdxFromWeekStartMonday(dayName)),purpose:editorOpenPurpose.value,careTypes:editorCareTypes.value});
+    const apply=scope=>api.patch(`/availability/providers/${scheduleActorUserId.value}/virtual-working-hours/${edit.virtualHoursId}`, {agencyId,scope,occurrenceDate:String(edit.startAt).slice(0,10),dayOfWeek:dayName,startTime:`${pad2(startHour)}:${pad2(startMinute)}`,endTime:`${pad2(endHour)}:${pad2(endMinute)}`,availableForIntake,availableForSession,startDate:addDaysYmd(weekStart.value,dayIdxFromWeekStartMonday(dayName)),purpose:editorOpenPurpose.value,serviceType:editorOpeningServiceType.value,endDate:editorRecurrenceUntilDate.value||null,careTypes:editorOpeningServiceType.value==='tutoring'?null:editorCareTypes.value});
     if(edit.frequency==='ONCE')await apply('single');else if(!await askSeriesEditScope({title:'Update published opening',run:apply}))throw new Error('No availability changes were saved.');
     return;
   }
@@ -21874,7 +21897,7 @@ const ensureVirtualWorkingHoursForRange = async ({
 
   const targetStartMin = minuteFromTime(targetStart);
   const targetEndMin = minuteFromTime(targetEnd);
-  const sameDay = normalized.filter((r) => !(r.excludedDates||[]).length && JSON.stringify(r.careTypes)===JSON.stringify(editorCareTypes.value) && r.dayOfWeek === day && r.frequency === frequency && r.startDate === startDate && (r.purpose||'ONGOING') === purpose);
+  const sameDay = normalized.filter((r) => !(r.excludedDates||[]).length && (r.serviceType||(tutoringWorkspaceOnly.value?'tutoring':'counseling'))===editorOpeningServiceType.value && JSON.stringify(r.careTypes)===JSON.stringify(editorOpeningServiceType.value==='tutoring'?null:editorCareTypes.value) && r.dayOfWeek === day && r.frequency === frequency && r.startDate === startDate && (r.purpose||'ONGOING') === purpose);
   const overlaps = sameDay.filter((r) => {
     const s = minuteFromTime(r.startTime);
     const e = minuteFromTime(r.endTime);
@@ -21905,7 +21928,7 @@ const ensureVirtualWorkingHoursForRange = async ({
     sessionType: mergedIntake && mergedSession ? 'BOTH' : (mergedIntake ? 'INTAKE' : 'REGULAR'),
     availableForIntake: mergedIntake,
     availableForSession: mergedSession,
-    frequency, startDate, endDate: null, purpose,careTypes:editorCareTypes.value,excludedDates:[]
+    frequency, startDate, endDate: frequency==='ONCE'?startDate:(editorRecurrenceUntilDate.value||null), purpose,serviceType:editorOpeningServiceType.value,careTypes:editorOpeningServiceType.value==='tutoring'?null:editorCareTypes.value,excludedDates:[]
   };
   const nextRows = [...rowsWithoutOverlaps, mergedRow];
   await api.put(`/availability/providers/${scheduleActorUserId.value}/virtual-working-hours`, { agencyId, rows: nextRows });
@@ -22279,6 +22302,7 @@ const completePlatformVirtualSessionBooking = async ({
 };
 
 const submitRequest = async () => {
+  if(editorIsOpenSlot.value&&((editorServiceChoices.value.length>0&&!editorOpeningServiceType.value)||editorOpeningServiceType.value==='childcare')){modalError.value='Choose Tutoring or Counseling, or open Childcare to schedule a shift.';return;}
   bookingSubmitAttempted.value = true;
   if (CLIENT_SESSION_CREATE_ACTIONS.has(requestType.value) && !clientSessionBookingEnabled.value) {
     modalError.value = 'Client session booking is coming soon for this provider. Your practice will enable it when their transition is ready.';
@@ -23064,10 +23088,10 @@ const submitRequest = async () => {
         // Linking publishes only the selected reservation(s), without inventing a weekly virtual series.
         for (const ctx of contexts) {
           if (editorOpenVirtual.value) await api.post(`/office-slots/${ctx.officeLocationId}/events/${ctx.officeEventId}/virtual-intake`, {
-            enabled: true, agencyId, availableForIntake: forIntake, availableForSession: forSession, frequency:scheduleEventRecurrence.value, purpose:editorOpenPurpose.value,careTypes:editorCareTypes.value
+            enabled: true, agencyId, availableForIntake: forIntake, availableForSession: forSession, frequency:scheduleEventRecurrence.value, purpose:editorOpenPurpose.value,serviceType:editorOpeningServiceType.value,endDate:editorRecurrenceUntilDate.value||null,careTypes:editorOpeningServiceType.value==='tutoring'?null:editorCareTypes.value
           });
           if (editorOpenInPerson.value) await api.post(`/office-slots/${ctx.officeLocationId}/events/${ctx.officeEventId}/in-person-intake`, {
-            enabled: true, agencyId, availableForIntake: forIntake, availableForSession: forSession, frequency:scheduleEventRecurrence.value, purpose:editorOpenPurpose.value,careTypes:editorCareTypes.value
+            enabled: true, agencyId, availableForIntake: forIntake, availableForSession: forSession, frequency:scheduleEventRecurrence.value, purpose:editorOpenPurpose.value,serviceType:editorOpeningServiceType.value,endDate:editorRecurrenceUntilDate.value||null,careTypes:editorOpeningServiceType.value==='tutoring'?null:editorCareTypes.value
           });
         }
       } else {

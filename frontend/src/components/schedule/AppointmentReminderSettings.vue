@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
 import SessionNotificationEditor from './SessionNotificationEditor.vue';
-const props=defineProps({mode:{type:String,default:'default'},rules:{type:Array,default:()=>[]},agencyId:{type:Number,required:true},busy:Boolean,showSave:{type:Boolean,default:true},dateYmd:String,startTime:String,timezoneLabel:String});
+const props=defineProps({learning:Boolean,mode:{type:String,default:'default'},rules:{type:Array,default:()=>[]},agencyId:{type:Number,required:true},busy:Boolean,showSave:{type:Boolean,default:true},dateYmd:String,startTime:String,timezoneLabel:String});
 const emit=defineEmits(['update:mode','update:rules','save']);
 const organization=ref([]),personal=ref(null),loading=ref(false),saving=ref(false),error=ref(''),notice=ref('');
 const chosen=ref('');
@@ -46,7 +46,7 @@ watch(()=>props.agencyId,load,{immediate:true});
   <p v-if="loading" role="status">Loading reminder defaults…</p><p v-if="error" role="alert">{{error}}</p><p v-if="notice" role="status">{{notice}}</p>
   <SessionNotificationEditor v-if="mode==='customizable' && selection==='custom'" :agency-id="agencyId" :rules="rules" :disabled="busy||saving" :date-ymd="dateYmd" :start-time="startTime" :timezone-label="timezoneLabel" @update:rules="emit('update:rules',$event)" />
   <ul v-else class="reminder-default-preview"><li v-for="rule in preview" :key="rule.id"><strong>{{timing(rule.offsetMinutes)}} before</strong> · {{channels(rule)}}</li></ul>
-  <p>Confirmed clients receive a friendly reminder. Unconfirmed clients receive an RSVP request. Declined sessions receive no reminders. Text requires recorded opt-in.</p>
+  <p>{{learning?'Confirmed students or parents receive a reminder. Unconfirmed families receive a request to confirm. Declined sessions receive no reminders. Text requires recorded opt-in.':'Confirmed clients receive a friendly reminder. Unconfirmed clients receive an RSVP request. Declined sessions receive no reminders. Text requires recorded opt-in.'}}</p>
   <div class="reminder-settings-actions">
    <button v-if="selection==='personal'" type="button" :disabled="busy||saving" @click="choose('custom')">Customize these reminders</button>
    <button v-if="mode==='customizable' && selection==='custom'" type="button" :disabled="busy||saving||!rules.length" @click="savePersonal">{{saving?'Saving…':'Save as My default'}}</button>

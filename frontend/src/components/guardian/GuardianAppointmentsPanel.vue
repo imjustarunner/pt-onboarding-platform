@@ -5,7 +5,7 @@
     <p>{{ ft("Your next appointments are shown first. Open an appointment to make a change.") }}</p>
     <aside v-if="cancellationSuggestion" class="cancellation-suggestion" role="status">
       <p>You have canceled at least two appointments in this recurring series. If you intend to stop this service, cancel all future sessions—including dates beyond the six shown.</p>
-      <button type="button" @click="openCancellation(cancellationSuggestion,'end_services')">Cancel all future sessions and end services</button>
+      <button type="button" @click="openCancellation(cancellationSuggestion,'end_services')">{{ ['tutoring','learning'].includes(cancellationSuggestion?.businessType) ? 'Cancel all future tutoring sessions and end tutoring' : 'Cancel all future sessions and end services' }}</button>
     </aside>
     <button v-if="familyNotifications && !preview" type="button" @click="$emit('notifications')">{{ ft("Family notification settings") }}</button>
     <details v-if="!familyNotifications && !preview && preferences">
@@ -30,7 +30,7 @@
       <p v-if="a.attendanceDetails">{{ a.attendanceDetails }}</p>
       <p v-else-if="a.serviceSetting">Service location: {{ a.serviceSetting.locationLabel }}</p>
       <p v-if="a.serviceSetting?.isSchool">{{ ft("No confirmation is needed. If your child will be absent, let the care team know below and report the absence to school as usual.") }}</p>
-      <p v-if="a.canceledBy">Canceled by {{ a.canceledBy }}<span v-if="a.cancellationReason">: {{ a.cancellationReason }}</span></p>
+      <p v-if="a.canceledBy">Canceled by {{ ['tutoring','learning'].includes(a.businessType) && a.canceledBy === 'client' ? 'you or your family' : a.canceledBy }}<span v-if="a.cancellationReason">: {{ a.cancellationReason }}</span></p>
       <section v-if="a.replacementOffer" class="replacement-offer" :aria-label="ft('Private replacement offer')">
         <h4>{{ ft("Private replacement offer") }}</h4>
         <p v-if="a.replacementOffer.nextAppointment">Your next {{ a.replacementOffer.nextAppointment.recurring ? 'recurring ' : '' }}appointment is {{ a.replacementOffer.nextAppointment.displayWhen }} ({{ a.replacementOffer.nextAppointment.timeZone }}). It remains scheduled.</p>

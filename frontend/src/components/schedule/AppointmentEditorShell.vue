@@ -239,6 +239,7 @@ const props = defineProps({
   primaryClientId: { type: Number, default: 0 },
   groupClientsLoading: { type: Boolean, default: false },
   forceExpandGroupClients: { type: Boolean, default: false },
+  learning: { type: Boolean, default: false },
   bookSessionLayout: { type: Boolean, default: false },
   videoRoomMode: { type: String, default: 'unique_session' },
   showNotifications: { type: Boolean, default: false },
@@ -294,6 +295,7 @@ const emit = defineEmits([
 ]);
 
 const headerProps = computed(() => ({
+  learning: props.learning,
   dateYmd: props.dateYmd,
   startTime: props.startTime,
   endTime: props.endTime,

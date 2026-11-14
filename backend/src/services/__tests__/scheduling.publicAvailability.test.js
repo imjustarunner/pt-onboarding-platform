@@ -137,3 +137,17 @@ it('keeps published openings available when Google reports an overlapping event'
  expect(Google.freeBusy).not.toHaveBeenCalled();expect(result.calendarWarnings).toEqual([]);
  expect(JSON.stringify(result.diagnostics)).not.toContain('Google Calendar');
 });
+
+it('filters each published format by service and never offers a mixed legacy opening as tutoring',async()=>{
+ events=[{...event,publication_service_type:'counseling'}];
+ Hours.listForProvider.mockResolvedValue([{dayOfWeek:'Monday',startTime:'17:00',endTime:'18:00',availableForIntake:true,serviceType:'tutoring'}]);
+ const options={agencyId:1,providerId:9,weekStartYmd:'2030-01-07',intakeOnly:true,includeGoogleBusy:false,includeExternalBusy:false,materializeOfficeEvents:false};
+ const tutoring=await Availability.computeWeekAvailability({...options,serviceType:'tutoring'});
+ expect(tutoring.inPersonSlots).toEqual([]);expect(tutoring.virtualSlots).toHaveLength(1);expect(tutoring.virtualSlots[0].serviceType).toBe('tutoring');
+ const counseling=await Availability.computeWeekAvailability({...options,serviceType:'counseling'});
+ expect(counseling.inPersonSlots).toHaveLength(1);expect(counseling.virtualSlots).toEqual([]);
+ Hours.listForProvider.mockResolvedValue([{dayOfWeek:'Monday',startTime:'17:00',endTime:'18:00',availableForIntake:true}]);
+ expect((await Availability.computeWeekAvailability({...options,serviceType:'tutoring'})).virtualSlots).toEqual([]);
+ const original=pool.execute.getMockImplementation();pool.execute.mockImplementation((sql,args)=>sql.includes('AS sole_tutor')?Promise.resolve([[{sole_tutor:1}]]):original(sql,args));
+ expect((await Availability.computeWeekAvailability({...options,serviceType:'tutoring'})).virtualSlots).toHaveLength(1);
+});

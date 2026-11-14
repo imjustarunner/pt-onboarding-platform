@@ -7,7 +7,7 @@
         <h3>{{ ft('What would you like to change?') }}</h3>
         <label class="cancel-choice"><input v-model="scope" type="radio" value="single" /> {{ ft('Only this appointment') }}</label>
         <label v-if="appointment.isRecurring" class="cancel-choice"><input v-model="scope" type="radio" value="future" /> {{ ft('All future sessions in this recurring series') }}</label>
-        <label v-if="appointment.canEndServices!==false" class="cancel-choice"><input v-model="scope" type="radio" value="end_services" /> {{ ft('Cancel all future sessions and end services') }}</label>
+        <label v-if="appointment.canEndServices!==false" class="cancel-choice"><input v-model="scope" type="radio" value="end_services" /> {{ ft(cancelFutureLabel) }}</label>
         <p v-else>Contact your care team to end this clinical service. Your appointment access does not include changing the care plan.</p>
         <p v-if="scope==='end_services'">This ends this service with {{ appointment.providerName || 'this provider' }} at this agency, including appointments beyond the six shown. Your other services remain unchanged.</p>
         <p v-else-if="scope==='future'">Every remaining appointment in this series will be included, not only the six shown. This does not end your service.</p>
@@ -30,7 +30,7 @@
         <details><summary>{{ ft('Dates, deadlines, and fees') }}</summary><ul><li v-for="fee in review.fees" :key="fee.appointmentId">
           <strong>{{ when(fee.startAt,fee.timeZone) }} · {{ money(fee.feeCents) }}</strong>
           <p>{{ fee.policyName }} · {{ fee.noticeHours }} hours’ notice.<template v-if="fee.cancelDeadlineAt"> Cancel by {{ when(fee.cancelDeadlineAt,fee.timeZone) }}.</template> {{ fee.isLate ? 'This is inside the late-cancellation window.' : 'This meets the required notice.' }}</p>
-          <p v-if="fee.hasPackage">{{ ['forfeit','late_forfeit'].includes(fee.packageAction) ? 'This package session will be used.' : fee.packageAction==='review' ? 'The care team will review the package credit.' : 'This package session will be returned.' }}</p>
+          <p v-if="fee.hasPackage">{{ ['forfeit','late_forfeit'].includes(fee.packageAction) ? 'This package session will be used.' : fee.packageAction==='review' ? learning ? 'The tutoring office will review the package credit.' : 'The care team will review the package credit.' : 'This package session will be returned.' }}</p>
         </li></ul></details>
         <details><summary>{{ ft('Preview your confirmation') }}</summary><p v-if="review.count">{{ review.count }} future appointment{{ review.count===1?' has':'s have' }} been canceled.</p><p v-else>No future appointments remained to cancel.</p><p v-if="review.endsService">You have ended {{ review.serviceLabel }} with this provider. Other services are unchanged.</p><p>Reason: {{ reason }}</p><blockquote v-if="personalNote.trim()"><strong>A personal note</strong><br><em>{{ personalNote.trim() }}</em></blockquote></details>
         <p>One summary will be sent, rather than a separate email for every appointment.</p>
@@ -46,7 +46,7 @@
       <button v-if="['reason','review'].includes(step)" type="button" :disabled="busy" @click="back">{{ ft('Back') }}</button>
       <button v-if="step==='scope'" type="button" @click="step='reason'">{{ ft('Continue') }}</button>
       <button v-else-if="step==='reason'" type="button" :disabled="busy||!reason" @click="preview">{{ busy ? 'Reviewing…' : ft('Review dates and fees') }}</button>
-      <button v-else-if="step==='review'" type="button" class="cancel-danger" :disabled="busy||!confirmed" @click="confirm">{{ busy ? 'Saving your request…' : review.endsService ? 'Cancel all future sessions and end services' : 'Confirm cancellation' }}</button>
+      <button v-else-if="step==='review'" type="button" class="cancel-danger" :disabled="busy||!confirmed" @click="confirm">{{ busy ? 'Saving your request…' : review.endsService ? cancelFutureLabel : 'Confirm cancellation' }}</button>
       <button v-else type="button" :disabled="busy" @click="poll">{{ ft('Check status') }}</button>
     </footer>
   </dialog>
@@ -58,6 +58,8 @@ import {usePortalCareApi} from '../../composables/usePortalCareApi';
 const {ft,locale}=useFamilyLocale(),api=usePortalCareApi();
 const props=defineProps({clientId:{type:Number,required:true},appointment:{type:Object,required:true},initialScope:{type:String,default:'single'}});
 const emit=defineEmits(['close','completed']);
+const learning=computed(()=>['tutoring','learning'].includes(String(props.appointment.businessType||props.appointment.business_type||props.appointment.serviceKind||'')));
+const cancelFutureLabel=computed(()=>learning.value?'Cancel all future tutoring sessions and end tutoring':'Cancel all future sessions and end services');
 const dialog=ref(null);
 const step=ref('scope'),scope=ref(props.initialScope),reasonChoice=ref(''),otherReason=ref(''),personalNote=ref(''),review=ref(null),confirmed=ref(false),busy=ref(false),error=ref(''),cancellation=ref(null);
 const reasons=['Scheduling conflict','Taking a break','Goals reached or feeling better','Changing provider or service'];

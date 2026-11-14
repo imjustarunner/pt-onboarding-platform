@@ -124,3 +124,14 @@ describe('self-pay booking integration', () => {
     expect(Appointment.upsertBilling).toHaveBeenCalledWith(20, expect.objectContaining({ amountCents: 0, settlementMode: 'self_pay_only' }));
   });
 });
+
+
+it.each([['VIRTUAL','virtual'],['IN_PERSON','in-person']])('prices explicit tutoring in %s format without making a mixed-service child clinical for this appointment',async(modality,learningFormat)=>{
+ TenantService.findById.mockResolvedValue({id:10,agencyId:1,businessType:'tutoring',serviceCode:'TUTORING',isActive:true,allowsIndividual:true,billingMethod:'self_pay',priceCents:5000});
+ await createAppointment({...args,modality,endAt:'2026-09-15T17:00:00Z'});
+ expect(resolveSelfPayQuote).toHaveBeenCalledWith(expect.objectContaining({learningFormat,durationMinutes:60}));
+ expect(requireClientSessionBooking).not.toHaveBeenCalled();
+ expect(requireStaffCareEligibility).toHaveBeenCalledWith(9,1);
+ expect(validateSchedulingSelection).not.toHaveBeenCalled();
+ expect(Appointment.create).toHaveBeenCalledWith(expect.objectContaining({businessType:'tutoring',tenantServiceId:10}));
+});

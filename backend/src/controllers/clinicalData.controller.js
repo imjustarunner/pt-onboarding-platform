@@ -136,7 +136,7 @@ export const bootstrapClinicalSession = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'officeEventId is required unless noteOnly is true' } });
     }
 
-    await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
+    await ClinicalEligibilityService.ensureAgencyAccess({ requireClinicalService: true, reqUser: req.user, agencyId });
     await ClinicalEligibilityService.assertAgencyHasClinicalOrg(agencyId);
 
     if (noteOnly && !officeEventId) {
@@ -246,7 +246,7 @@ export const listSessionArtifacts = async (req, res, next) => {
     if (!sessionId) return res.status(400).json({ error: { message: 'Invalid sessionId' } });
     const session = await ClinicalSession.findById(sessionId);
     if (!session) return res.status(404).json({ error: { message: 'Clinical session not found' } });
-    await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId: session.agency_id });
+    await ClinicalEligibilityService.ensureAgencyAccess({ requireClinicalService: true, reqUser: req.user, agencyId: session.agency_id });
     await ClinicalEligibilityService.assertAgencyHasClinicalOrg(session.agency_id);
 
     const billingAccess = await hasSchedulingBillingAccess(req.user, session.agency_id);
@@ -285,7 +285,7 @@ export const createSessionNote = async (req, res, next) => {
     const sessionId = parseIntValue(req.params.sessionId);
     const session = await ClinicalSession.findById(sessionId);
     if (!session) return res.status(404).json({ error: { message: 'Clinical session not found' } });
-    await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId: session.agency_id });
+    await ClinicalEligibilityService.ensureAgencyAccess({ requireClinicalService: true, reqUser: req.user, agencyId: session.agency_id });
     await ClinicalEligibilityService.assertAgencyHasClinicalOrg(session.agency_id);
     await ClinicalEligibilityService.assertSessionNoteEligible(session);
     assertNoPendingClinicalServiceChange(session);
@@ -573,7 +573,7 @@ export const createSessionClaim = async (req, res, next) => {
     const sessionId = parseIntValue(req.params.sessionId);
     const session = await ClinicalSession.findById(sessionId);
     if (!session) return res.status(404).json({ error: { message: 'Clinical session not found' } });
-    await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId: session.agency_id });
+    await ClinicalEligibilityService.ensureAgencyAccess({ requireClinicalService: true, reqUser: req.user, agencyId: session.agency_id });
     await ClinicalEligibilityService.assertAgencyHasClinicalOrg(session.agency_id);
     await ClinicalEligibilityService.assertSessionNoteEligible(session);
 
@@ -630,7 +630,7 @@ export const createSessionDocument = async (req, res, next) => {
     const sessionId = parseIntValue(req.params.sessionId);
     const session = await ClinicalSession.findById(sessionId);
     if (!session) return res.status(404).json({ error: { message: 'Clinical session not found' } });
-    await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId: session.agency_id });
+    await ClinicalEligibilityService.ensureAgencyAccess({ requireClinicalService: true, reqUser: req.user, agencyId: session.agency_id });
     await ClinicalEligibilityService.assertAgencyHasClinicalOrg(session.agency_id);
     await ClinicalEligibilityService.assertSessionNoteEligible(session);
     const title = String(req.body?.title || '').trim();
@@ -699,7 +699,7 @@ async function getRecordForMutation(req, res) {
     res.status(404).json({ error: { message: 'Clinical session not found' } });
     return null;
   }
-  await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId: session.agency_id });
+  await ClinicalEligibilityService.ensureAgencyAccess({ requireClinicalService: true, reqUser: req.user, agencyId: session.agency_id });
   await ClinicalEligibilityService.assertAgencyHasClinicalOrg(session.agency_id);
   if (recordType === 'claim' && !(await hasSchedulingBillingAccess(req.user, session.agency_id))) {
     res.status(403).json({ error: { message: 'Billing access is required to change claims' } });
@@ -827,7 +827,7 @@ export const listDocumentationQueue = async (req, res, next) => {
     const { listDocumentationQueue: listQueue } = await import('../services/documentationQueue.service.js');
     const agencyId = parseIntValue(req.query.agencyId || req.query.agency_id);
     if (agencyId) {
-      await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
+      await ClinicalEligibilityService.ensureAgencyAccess({ requireClinicalService: true, reqUser: req.user, agencyId });
     }
     const { items, clinicalUnavailable } = await listQueue({
       reqUser: req.user,

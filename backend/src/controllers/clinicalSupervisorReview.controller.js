@@ -24,7 +24,7 @@ async function noteScope(req, supervisor = false) {
   if (!note || note.is_deleted) throw policyError(404,'Note not found.');
   const requested = Number(req.body?.agencyId || req.query?.agencyId || req.medicalBillingAgencyId);
   if (requested !== Number(note.agency_id)) throw policyError(404,'Note not found in this agency.');
-  await ClinicalEligibilityService.ensureAgencyAccess({reqUser:req.user,agencyId:note.agency_id});
+  await ClinicalEligibilityService.ensureAgencyAccess({requireClinicalService:true,reqUser:req.user,agencyId:note.agency_id});
   if (supervisor) {
     const policy = await resolveNoteDocumentationPolicy(note);
     if (Number(policy.supervisorUserId) !== Number(req.user.id) || Number(req.user.id) === noteAuthorId(note)) throw policyError(403,'Only the assigned responsible supervisor can review this note.');
@@ -68,7 +68,7 @@ export async function listMyNoteReviewWork(req,res,next) {
     const activeAgencyIds=(memberships || []).filter(a=>a.is_active!==0 && !a.is_archived && (!requestedAgencyId || Number(a.id)===requestedAgencyId) && (!req.auricwellPreview || Number(a.id)===Number(req.auricwellPreview.agencyId))).map(a=>Number(a.id));
     for (const agencyId of new Set(activeAgencyIds)) {
       try {
-        await ClinicalEligibilityService.ensureAgencyAccess({reqUser:req.user,agencyId});
+        await ClinicalEligibilityService.ensureAgencyAccess({requireClinicalService:true,reqUser:req.user,agencyId});
         const [[agency]] = await pool.execute('SELECT feature_flags FROM agencies WHERE id=? AND is_active=1 AND COALESCE(is_archived,0)=0',[agencyId]);
         if (agency && getMedicalBillingFlags(agency).clinicalChartEnabled) permitted.add(agencyId);
       } catch(e) { if (![403,404].includes(e.status)) throw e; }

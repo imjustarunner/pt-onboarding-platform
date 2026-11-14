@@ -50,7 +50,7 @@ it('keeps one child while switching between agencies and two services in one age
  await w.findAll('.family-profile-card button').find(b=>b.text().includes('Reading tutoring')).trigger('click');await flushPromises();
  expect(router.currentRoute.value.path).toBe('/nlu/guardian');expect(router.currentRoute.value.query.serviceId).toBe('12');expect(useGuardianStore().selectedChildId).toBe(3);
  expect(w.findComponent({name:'GuardianTutoringDashboard'}).props('clientId')).toBe(3);expect(w.findComponent(Shell).props('brandName')).toBe('Next Level Up');
- const selector=w.findAll('.context-picker').find(s=>s.text().includes('Service & provider'));
+ const selector=w.findAll('.context-picker').find(s=>s.text().includes('Service & team'));
  await selector.find('.picker-trigger').trigger('click');
  await selector.findAll('[role=option]').find(o=>o.text().includes('Counseling')).trigger('click');await flushPromises();
  expect(router.currentRoute.value.query.serviceId).toBe('13');expect(useGuardianStore().selectedChildId).toBe(3);expect(w.findComponent({name:'GuardianTutoringDashboard'}).exists()).toBe(false);expect(w.findComponent(Shell).props('brandName')).toBe('AuricWell');
@@ -134,12 +134,15 @@ it('uses learning payment navigation and mounts the scoped parent invitation on 
  shell.vm.$emit('navigate','child');await flushPromises();
  expect(w.findComponent({name:'GuardianLearningInvitations'}).props()).toMatchObject({clientId:2,agencyId:6,clientName:'Jordan'});w.unmount();
 });
-it('keeps insurance access for a dual-service profile even when tutoring is selected',async()=>{
+it('scopes payment wording to the selected service while retaining the same dual-service profile',async()=>{
  const dual={...people[1],services:[{id:21,service_kind:'tutoring',label:'Tutoring'},{id:22,service_kind:'counseling',label:'Counseling'}]};
  api.get.mockImplementation(async url=>({data:url==='/guardian-portal/overview'?{children:[dual],programs:[agencies[1]]}:{events:[],items:[],documents:[],grants:[],subjects:[],plans:[]}}));
  const{w}=await setup('/nlu/guardian');const shell=w.findComponent(Shell);
- expect(shell.props('navigation').find(n=>n.key==='payment_methods').label).toBe('Insurance & payments');
+ expect(shell.props('navigation').find(n=>n.key==='payment_methods').label).toBe('Payments');
  shell.vm.$emit('navigate','payment_methods');await flushPromises();
+ expect(w.findComponent({name:'GuardianPaymentInsuranceTab'}).props('learningOnly')).toBe(true);
+ const picker=w.findAllComponents({name:'PortalContextPicker'}).find(p=>p.props('label')==='Service & team');
+ picker.vm.$emit('update:modelValue',22);await flushPromises();shell.vm.$emit('navigate','payment_methods');await flushPromises();
  expect(w.findComponent({name:'GuardianPaymentInsuranceTab'}).props('learningOnly')).toBe(false);w.unmount();
 });
 it('retains an ended service in the picker and limits its portal without closing another active service',async()=>{
@@ -151,4 +154,8 @@ it('retains an ended service in the picker and limits its portal without closing
  const picker=w.findAllComponents({name:'PortalContextPicker'}).find(p=>p.props('label')==='Past provider');
  expect(picker.props('groups').map(g=>g.label)).toEqual(['Current services & providers','Past providers']);expect(picker.props('groups').flatMap(g=>g.options)).toHaveLength(2);picker.vm.$emit('update:modelValue',12);await flushPromises();
  expect(w.findComponent({name:'EndedServicePortal'}).exists()).toBe(false);expect(w.findComponent(Shell).props('navigation').some(item=>item.key==='messages')).toBe(true);w.unmount();
+});
+
+it('keeps a direct enrollment panel link on enrollment after the family context loads',async()=>{
+ const{w}=await setup('/nlu/guardian?panel=enroll');expect(w.findComponent(Shell).props('active')).toBe('enroll');w.unmount();
 });

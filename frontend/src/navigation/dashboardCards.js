@@ -411,6 +411,10 @@ export function buildDashboardCards({
   const workspace = serviceWorkspace(user, agency);
   if (workspace.canTutor) {
     cards.push({id:'tutoring_profile',label:'Tutoring profile',kind:'link',to:scopedWorkspacePath(orgSlug,'/tutoring-profile'),badgeCount:0,description:'Edit your subjects, grades and public introduction.'});
+    if (!workspace.learningOnly) {
+      cards.push({id:'tutoring_students',label:'My students',kind:'link',to:scopedWorkspacePath(orgSlug,'/students'),badgeCount:0,description:'Your assigned tutoring students and learning plans.'});
+      cards.push({id:'learning_workspace',label:'Learning',kind:'link',to:scopedWorkspacePath(orgSlug,'/learning'),badgeCount:0,description:'Tutoring subjects, evaluations, plans and learning materials.'});
+    }
   }
   if (workspace.canChildcare) cards.push({id:'childcare',label:'Childcare',kind:'link',to:scopedWorkspacePath(orgSlug,'/childcare'),badgeCount:0,description:'Schedule childcare, record attendance and clock your work.'});
   if (workspace.learningOnly) {

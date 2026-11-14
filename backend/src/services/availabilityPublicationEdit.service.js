@@ -1,3 +1,5 @@
+import {availabilityServiceType} from '../utils/availabilityService.js';
+import {prepareAvailabilityServices} from './availabilityServiceScope.service.js';
 import {openWaitlistedPublication} from './availabilityPublicationStatus.service.js';
 import {wallMysqlToUtcMysql} from '../utils/zonedWallTime.util.js';
 import {officePublicationMatches} from './publishOfficeAvailability.service.js';
@@ -13,14 +15,14 @@ const json=(v,fallback)=>{try{return typeof v==='string'?JSON.parse(v):v??fallba
 const day=d=>['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][new Date(d+'T12:00:00Z').getUTCDay()];
 const date=value=>{const d=String(value||'').slice(0,10);if(!/^\d{4}-\d{2}-\d{2}$/.test(d)||isNaN(Date.parse(d))||new Date(d).toISOString().slice(0,10)!==d)throw fail('Choose a valid occurrence date.');return d;};
 const time=v=>{if(!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(v||''))throw fail('Choose valid start and end times.');return v;};
-export function planWeeklyEdit(row,{action,scope,occurrenceDate,startDate,startTime,endTime,careTypes:care,availableForIntake,availableForSession}) {
+export function planWeeklyEdit(row,{action,scope,occurrenceDate,startDate,startTime,endTime,careTypes:care,availableForIntake,availableForSession,serviceType}) {
  if(!['delete','move'].includes(action)||!['single','future'].includes(scope))throw fail('Choose this occurrence or this and future occurrences.');
  const on=date(occurrenceDate),start=String(row.start_date||'').slice(0,10),end=String(row.end_date||'').slice(0,10);
  if(day(on)!==row.day_of_week||!availabilityOccursOn(row,on))throw fail('That date is not an occurrence of this opening.',409);
  let excluded=json(row.excluded_dates_json,[]),replacement=null;
  if(action==='move') {
   const to=date(startDate),s=time(startTime),e=time(endTime);if(e<=s)throw fail('End time must follow start time.');
-  replacement={...row,day_of_week:day(to),start_date:to,start_time:s,end_time:e,
+  replacement={...row,service_type:serviceType===undefined?row.service_type:availabilityServiceType(serviceType),day_of_week:day(to),start_date:to,start_time:s,end_time:e,
    end_date:scope==='single'||row.frequency==='ONCE'?to:end?addDaysYmd(end,Math.round((Date.parse(to)-Date.parse(on))/86400000)):null,
    frequency:scope==='single'?'ONCE':row.frequency,
    excluded_dates_json:scope==='single'?[]:excluded.filter(d=>d>=on).map(d=>addDaysYmd(d,Math.round((Date.parse(to)-Date.parse(on))/86400000))),
@@ -35,8 +37,8 @@ export function planWeeklyEdit(row,{action,scope,occurrenceDate,startDate,startT
  return {excludedDates:excluded,endDate:scope==='future'?addDaysYmd(on,-1):end||null,replacement,removeOriginal:row.frequency==='ONCE'||scope==='future'&&start&&on<=start};
 }
 async function insertHours(db,r,agencyId,providerId){
- await db.execute(`INSERT INTO provider_virtual_working_hours (agency_id,provider_id,day_of_week,start_time,end_time,session_type,available_for_intake,available_for_session,frequency,start_date,end_date,purpose,excluded_dates_json,care_types_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
- [agencyId,providerId,r.day_of_week,r.start_time,r.end_time,r.session_type,r.available_for_intake,r.available_for_session,r.frequency,r.start_date,r.end_date||null,r.purpose,JSON.stringify(r.excluded_dates_json||[]),r.care_types_json===null?null:JSON.stringify(r.care_types_json)]);
+ await db.execute(`INSERT INTO provider_virtual_working_hours (agency_id,provider_id,day_of_week,start_time,end_time,session_type,available_for_intake,available_for_session,frequency,start_date,end_date,purpose,excluded_dates_json,care_types_json,service_type) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+ [agencyId,providerId,r.day_of_week,r.start_time,r.end_time,r.session_type,r.available_for_intake,r.available_for_session,r.frequency,r.start_date,r.end_date||null,r.purpose,JSON.stringify(r.excluded_dates_json||[]),r.care_types_json===null?null:JSON.stringify(r.care_types_json),r.service_type||null]);
 }
 export async function editAvailabilityPublication({agencyId,providerId,kind,id,...options},database=pool){
  const table=tables[kind];if(!table||!Number.isSafeInteger(id)||id<1)throw fail('Invalid published availability.');
@@ -44,6 +46,7 @@ export async function editAvailabilityPublication({agencyId,providerId,kind,id,.
  await db.execute('SELECT id FROM users WHERE id=? FOR UPDATE',[providerId]);
  const [rows]=await db.execute(`SELECT *,DATE_FORMAT(${kind==='weekly'?'start_date':'start_at'},'%Y-%m-%d') occurrence_date ${kind==='weekly'?",DATE_FORMAT(start_date,'%Y-%m-%d') start_date,DATE_FORMAT(end_date,'%Y-%m-%d') end_date":''} FROM ${table} WHERE id=? AND agency_id=? AND provider_id=? ${kind==='weekly'?'':'AND is_active=1'} FOR UPDATE`,[id,agencyId,providerId]);
  const row=rows[0];if(!row)throw fail('Opening no longer exists. Refresh the schedule.',404);
+ if(options.serviceType!==undefined){const [scope]=await prepareAvailabilityServices(providerId,agencyId,[{id:row.id,serviceType:options.serviceType,careTypes:options.careTypes}],db);options.serviceType=scope.serviceType;if(scope.serviceType==='tutoring')options.careTypes=null;}
  if(kind==='weekly'){
   const plan=planWeeklyEdit(row,options);
   if(plan.removeOriginal)await db.execute(`DELETE FROM ${table} WHERE id=?`,[id]);
@@ -93,7 +96,7 @@ export async function editAvailabilityPublication({agencyId,providerId,kind,id,.
    // Deactivate the entire selection before upserts: a shifted occurrence can
    // reuse another selected occurrence's date without being erased afterwards.
    for(const r of linked)await db.execute(`UPDATE ${table} SET is_active=0,updated_at=CURRENT_TIMESTAMP WHERE id=?`,[r.id]);
-   for(const {original:r,target:t} of moves)await (kind==='virtual'?Virtual:InPerson).upsertSlot({database:db,agencyId,providerId,officeLocationId:t.office_location_id,roomId:t.room_id,startAt:t.start_at,endAt:t.end_at,sourceEventId:t.id,availableForIntake:!!r.available_for_intake,availableForSession:!!r.available_for_session,frequency:options.scope==='single'?'ONCE':r.frequency,purpose:r.purpose,seriesId:series,careTypes:normalizedCare===undefined?careTypes(r.care_types_json):normalizedCare});
+   for(const {original:r,target:t} of moves)await (kind==='virtual'?Virtual:InPerson).upsertSlot({database:db,agencyId,providerId,officeLocationId:t.office_location_id,roomId:t.room_id,startAt:t.start_at,endAt:t.end_at,sourceEventId:t.id,availableForIntake:!!r.available_for_intake,availableForSession:!!r.available_for_session,frequency:options.scope==='single'?'ONCE':r.frequency,purpose:r.purpose,seriesId:series,serviceType:options.serviceType??r.service_type,careTypes:normalizedCare===undefined?careTypes(r.care_types_json):normalizedCare});
   }
  }
  if(kind!=='weekly' && options.action==='move' && row.available_for_intake)await openWaitlistedPublication(db,{providerId,agencyId,formats:[kind==='virtual'?'VIRTUAL':'IN_PERSON']});

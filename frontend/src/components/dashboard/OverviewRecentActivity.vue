@@ -19,8 +19,8 @@
       >
         <span class="ov-icon" :class="iconClass(item)" aria-hidden="true">{{ iconFor(item.kind, item.status) }}</span>
         <div class="ov-body">
-          <div class="ov-title" :class="{ unread: item.unread }">{{ item.title }}</div>
-          <div v-if="item.subtitle" class="ov-sub">{{ item.subtitle }}</div>
+          <div class="ov-title" :class="{ unread: item.unread }">{{ activityLabel(item.title) }}</div>
+          <div v-if="item.subtitle" class="ov-sub">{{ activityLabel(item.subtitle) }}</div>
         </div>
         <span v-if="item.at" class="ov-when">{{ formatWhen(item.at) }}</span>
       </li>
@@ -30,12 +30,14 @@
 
 <script setup>
 import DashboardCardStatus from './DashboardCardStatus.vue';
-defineProps({
+const props = defineProps({
+  learning: Boolean,
   loading: { type: Boolean, default: false },
   error: { type: String, default: '' },
   items: { type: Array, default: () => [] }
 });
 
+const activityLabel = value => props.learning ? String(value || '').replace(/\bclients\b/gi,'students').replace(/\bclient\b/gi,'student') : value;
 const emit = defineEmits(['retry', 'navigate']);
 
 const iconFor = (kind, status) => {

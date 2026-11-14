@@ -40,7 +40,7 @@ const visibleShortcuts = computed(() => {
     if (!resolved || !canDiscoverQuickNavRoute(resolved, {user:auth.user,agency:agencies.currentAgency || {},platformBranding:branding.platformBranding || {}})) continue;
     const path = resolved.path, tab = resolved.query.tab;
     const learning=serviceWorkspace(auth.user,agencies.currentAgency||{}).learningOnly;
-    if(learning && /\/(?:admin|agencydashboard)(?:\/|$)/.test(path))continue;
+    if(learning && (/\/(?:admin|agencydashboard)(?:\/|$)/.test(path)||['schools_programs','supervision','my_supervision','clients','staff'].includes(tab)))continue;
     let label = shortcut.label, iconKey = tab || ({'my-schedule':'my_schedule','my-meetings':'meetings','messages':'chats','my-learning':'training','notifications':'notifications'}[shortcut.canonicalKey]) || shortcut.canonicalKey;
     if (/\/(note-aid|clinical-note-generator)(\/|$)/.test(path)) { label = 'Note Workspace'; iconKey = 'clinical_note_generator'; }
     else if (tab === 'clients' && /\/dashboard$/.test(path)) { label = 'My Clients'; iconKey = 'clients'; }

@@ -256,7 +256,7 @@ async function createLockedAppointment({
   const bookingClients = await assertAppointmentClients(aid, participants);
   for (const client of bookingClients) await assertClientServiceSchedulingActive({ agencyId:aid, providerUserId,
     clientId:client.id, businessType:businessType || (['learning','tutoring'].includes(client.client_type)?'learning':null), source, providerScheduleEventId,officeEventId });
-  if (!businessType || ['mental_health', 'healthcare'].includes(businessType) || bookingClients.some(client => ['clinical', 'school'].includes(client.client_type))) {
+  if (!businessType || ['mental_health', 'healthcare'].includes(businessType)) {
     await requireClientSessionBooking(aid, providerUserId);
   }
   let actualPlaceOfService=null;
@@ -276,7 +276,7 @@ async function createLockedAppointment({
   if (providerUserId) {
     const memberships = await User.getAgencies(providerUserId);
     if (!memberships.some((a) => Number(a.id) === aid)) throw Object.assign(new Error('Provider is not assigned to this agency'), { status: 403 });
-    if (clinicalBooking || ['mental_health', 'healthcare'].includes(businessType)) await requireStaffCareEligibility(providerUserId, aid);
+    if (clinicalBooking || ['mental_health', 'healthcare', 'tutoring', 'learning'].includes(businessType)) await requireStaffCareEligibility(providerUserId, aid);
     if (clinicalBooking && !selfPayOnly&&!isProBonoServiceCode(serviceCode)) {
       const provider = await User.findById(providerUserId);
       await validateSchedulingSelection({ agencyId: aid, providerId: providerUserId, userRole: provider.role, providerCredentialText: provider.credential,
@@ -333,7 +333,8 @@ async function createLockedAppointment({
   const settlementMode = proBono?'pro_bono':packageEntitlementId ? 'package' : selfPayOnly ? 'self_pay_only' : (billing?.settlementMode || service?.billingMethod || 'self_pay');
   const selfPayQuote = !packageEntitlementId && ['self_pay', 'self_pay_only'].includes(settlementMode)
     ? await resolveSelfPayQuote({ agencyId: aid, providerId: providerUserId, service,
-      modality: modality || service?.modality, durationMinutes: (new Date(end.replace(' ', 'T') + 'Z') - new Date(start.replace(' ', 'T') + 'Z')) / 60000 }) : null;
+      modality: modality || service?.modality, durationMinutes: (new Date(end.replace(' ', 'T') + 'Z') - new Date(start.replace(' ', 'T') + 'Z')) / 60000,
+      learningFormat: businessType === 'tutoring' ? (['VIRTUAL','TELEHEALTH'].includes(String(modality||service?.modality).toUpperCase()) ? 'virtual' : 'in-person') : undefined }) : null;
   const appt = resuming || await Appointment.create({
     replacementOfferId,
     agencyId: aid,

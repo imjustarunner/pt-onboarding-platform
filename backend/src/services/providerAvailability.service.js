@@ -1,3 +1,4 @@
+import {availabilityMatchesService} from '../utils/availabilityService.js';
 import { officeRoomLabel } from '../utils/officeRoomLabel.js';
 import { readProviderCalendarBusy } from './providerCalendarBusy.service.js';
 import {careTypes} from '../utils/availabilityCareTypes.js';
@@ -178,6 +179,7 @@ export class ProviderAvailabilityService {
     externalCalendarIds = [],
     slotMinutes = 60,
     intakeOnly = false,
+    serviceType = null,
     materializeOfficeEvents = true,
     includeDiagnostics = false,
     includePrivateCalendar = false,
@@ -189,6 +191,16 @@ export class ProviderAvailabilityService {
     const wsRaw = String(weekStartYmd || '').slice(0, 10);
     if (!aid || !pid) throw new Error('Invalid agencyId/providerId');
     if (!isValidYmd(wsRaw)) throw new Error('weekStartYmd must be YYYY-MM-DD');
+    // Keep legacy single-service tutoring hours bookable. Untyped mixed-provider
+    // hours remain counseling until their owner explicitly classifies them.
+    let legacyServiceType = serviceType && serviceType !== 'tutoring' ? serviceType : 'counseling';
+    if (serviceType === 'tutoring') {
+      const [[legacy]] = await pool.execute(`SELECT (
+        EXISTS(SELECT 1 FROM provider_public_service_enrollments WHERE agency_id=? AND user_id=? AND service_type='tutoring' AND is_active=1)
+        AND NOT EXISTS(SELECT 1 FROM provider_public_service_enrollments WHERE agency_id=? AND user_id=? AND service_type='counseling' AND is_active=1)
+      ) AS sole_tutor`, [aid, pid, aid, pid]);
+      if (Number(legacy?.sole_tutor) === 1) legacyServiceType = 'tutoring';
+    }
 
     const weekStart = startOfWeekMondayYmd(wsRaw);
     if (!weekStart) throw new Error('weekStartYmd must be YYYY-MM-DD');
@@ -256,6 +268,7 @@ export class ProviderAvailabilityService {
     const virtualRows = await ProviderVirtualWorkingHours.listForProvider({ agencyId: scheduleAid, providerId: pid });
     const virtualBase = [];
     for (const ymd of weekStarts) for (const r of virtualRows || []) {
+      if(!availabilityMatchesService(r.serviceType,serviceType,legacyServiceType))continue;
       const s = ymdDayTimeToUtc({ ymd, dayOfWeek: r.dayOfWeek, hhmm: r.startTime, timeZone: virtualTimeZone });
       const e = ymdDayTimeToUtc({ ymd, dayOfWeek: r.dayOfWeek, hhmm: r.endTime, timeZone: virtualTimeZone });
       if (s && e && e > s && availabilityOccursOn(r, new Intl.DateTimeFormat('en-CA',{timeZone:virtualTimeZone,year:'numeric',month:'2-digit',day:'2-digit'}).format(s))) {
@@ -276,7 +289,7 @@ export class ProviderAvailabilityService {
             sessionType,
             availableForIntake: !!forIntake,
             availableForSession: !!forSession,
-            careTypes:careTypes(r.careTypes), purpose: availabilityPurpose(r),
+            serviceType:r.serviceType||legacyServiceType, careTypes:careTypes(r.careTypes), purpose: availabilityPurpose(r),
             frequency: String(r.frequency || 'WEEKLY').toUpperCase()
           }
         });
@@ -327,6 +340,7 @@ export class ProviderAvailabilityService {
     const officeBookedBusy = [];
     const pushOfficeRows = (rows, legacyNoToggle = false) => {
       for (const r of rows || []) {
+        if(!availabilityMatchesService(r.publication_service_type,serviceType,legacyServiceType))continue;
         const st = parseMySqlDateTime(r.start_at);
         const en = parseMySqlDateTime(r.end_at);
         const tzEvent = String(r.building_timezone || '').trim() || tz;
@@ -354,7 +368,7 @@ export class ProviderAvailabilityService {
           slotState: slotState || null,
           status: status || null,
           timeZone: tzEvent,
-          careTypes:careTypes(r.publication_care_types), frequency:r.publication_frequency||'ONCE',purpose:r.publication_purpose||'INTAKE',
+          serviceType:r.publication_service_type||legacyServiceType, careTypes:careTypes(r.publication_care_types), frequency:r.publication_frequency||'ONCE',purpose:r.publication_purpose||'INTAKE',
           inPersonIntakeEnabled
         };
 
@@ -391,6 +405,7 @@ export class ProviderAvailabilityService {
            e.status,
            e.slot_state,
            e.standing_assignment_id,
+           (SELECT ip.service_type FROM provider_in_person_slot_availability ip WHERE ip.source_event_id=e.id AND ip.provider_id=e.assigned_provider_id AND ip.agency_id IN (${Number(aid)},${Number(scheduleAid)}) AND ip.is_active=1 ORDER BY ip.id DESC LIMIT 1) publication_service_type,
            (SELECT ip.frequency FROM provider_in_person_slot_availability ip WHERE ip.source_event_id=e.id AND ip.provider_id=e.assigned_provider_id AND ip.agency_id IN (${Number(aid)},${Number(scheduleAid)}) AND ip.is_active=1 ORDER BY ip.id DESC LIMIT 1) publication_frequency,
            (SELECT ip.purpose FROM provider_in_person_slot_availability ip WHERE ip.source_event_id=e.id AND ip.provider_id=e.assigned_provider_id AND ip.agency_id IN (${Number(aid)},${Number(scheduleAid)}) AND ip.is_active=1 ORDER BY ip.id DESC LIMIT 1) publication_purpose,
            (SELECT ip.care_types_json FROM provider_in_person_slot_availability ip WHERE ip.source_event_id=e.id AND ip.provider_id=e.assigned_provider_id AND ip.agency_id IN (${Number(aid)},${Number(scheduleAid)}) AND ip.is_active=1 ORDER BY ip.id DESC LIMIT 1) publication_care_types,
@@ -456,6 +471,7 @@ export class ProviderAvailabilityService {
            e.status,
            e.slot_state,
            e.standing_assignment_id,
+           (SELECT ip.service_type FROM provider_in_person_slot_availability ip WHERE ip.source_event_id=e.id AND ip.provider_id=e.assigned_provider_id AND ip.agency_id IN (${Number(aid)},${Number(scheduleAid)}) AND ip.is_active=1 ORDER BY ip.id DESC LIMIT 1) publication_service_type,
            (SELECT ip.frequency FROM provider_in_person_slot_availability ip WHERE ip.source_event_id=e.id AND ip.provider_id=e.assigned_provider_id AND ip.agency_id IN (${Number(aid)},${Number(scheduleAid)}) AND ip.is_active=1 ORDER BY ip.id DESC LIMIT 1) publication_frequency,
            (SELECT ip.purpose FROM provider_in_person_slot_availability ip WHERE ip.source_event_id=e.id AND ip.provider_id=e.assigned_provider_id AND ip.agency_id IN (${Number(aid)},${Number(scheduleAid)}) AND ip.is_active=1 ORDER BY ip.id DESC LIMIT 1) publication_purpose,
            (SELECT ip.care_types_json FROM provider_in_person_slot_availability ip WHERE ip.source_event_id=e.id AND ip.provider_id=e.assigned_provider_id AND ip.agency_id IN (${Number(aid)},${Number(scheduleAid)}) AND ip.is_active=1 ORDER BY ip.id DESC LIMIT 1) publication_care_types,
@@ -516,7 +532,7 @@ export class ProviderAvailabilityService {
           `SELECT
              v.start_at,
              v.end_at,
-             v.session_type, v.frequency, v.purpose, v.care_types_json,
+             v.session_type, v.frequency, v.purpose, v.care_types_json, v.service_type,
              v.available_for_intake,
              v.available_for_session,
              v.office_location_id,
@@ -566,6 +582,7 @@ export class ProviderAvailabilityService {
         rows = r;
       }
       for (const r of rows || []) {
+        if(!availabilityMatchesService(r.service_type,serviceType,legacyServiceType))continue;
         const st = parseMySqlDateTime(r.start_at);
         const en = parseMySqlDateTime(r.end_at);
         const tzEvent = String(r.building_timezone || '').trim() || tz;
@@ -590,7 +607,7 @@ export class ProviderAvailabilityService {
           end: e,
           meta: {
             sessionType,
-            careTypes:careTypes(r.care_types_json), frequency: r.frequency || 'ONCE', purpose:r.purpose||'INTAKE',
+            serviceType:r.service_type||legacyServiceType, careTypes:careTypes(r.care_types_json), frequency: r.frequency || 'ONCE', purpose:r.purpose||'INTAKE',
             buildingId: Number(r.office_location_id || 0) || null,
             buildingName: String(r.building_name || '').trim() || null,
             roomId: Number(r.room_id || 0) || null,
@@ -674,7 +691,7 @@ export class ProviderAvailabilityService {
             startAt: sl.start.toISOString(),
             endAt: sl.end.toISOString(),
             sessionType: base?.meta?.sessionType || 'REGULAR',
-            careTypes:base?.meta?.careTypes ?? null, frequency: base?.meta?.frequency || 'WEEKLY',
+            serviceType:base?.meta?.serviceType||legacyServiceType, careTypes:base?.meta?.careTypes ?? null, frequency: base?.meta?.frequency || 'WEEKLY',
             purpose: base?.meta?.purpose || (base?.meta?.frequency === 'ONCE' ? 'INTAKE' : 'ONGOING'),
             buildingId: base?.meta?.buildingId ?? null,
             buildingName: base?.meta?.buildingName ?? null,
@@ -699,7 +716,7 @@ export class ProviderAvailabilityService {
           roomId: base.meta?.roomId ?? null,
           roomLabel: base.meta?.roomLabel ?? null,
           sessionType: base.meta?.inPersonIntakeEnabled ? 'INTAKE' : 'REGULAR',
-          careTypes:base.meta?.careTypes ?? null, frequency: base.meta?.frequency || 'ONCE', purpose:base.meta?.purpose || 'INTAKE'
+          serviceType:base.meta?.serviceType||legacyServiceType, careTypes:base.meta?.careTypes ?? null, frequency: base.meta?.frequency || 'ONCE', purpose:base.meta?.purpose || 'INTAKE'
         });
       }
     }

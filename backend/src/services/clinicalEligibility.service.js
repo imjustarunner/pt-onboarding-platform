@@ -1,3 +1,4 @@
+import {readProviderServices} from './providerServiceOfferings.service.js';
 import {requireTestingEligibility} from './testingEligibility.service.js';
 import User from '../models/User.model.js';
 import { hasVerifiedBillingScope } from '../utils/verifiedBillingScope.js';
@@ -41,7 +42,7 @@ class ClinicalEligibilityService {
     return BACKOFFICE_ROLES.has(String(role || '').toLowerCase());
   }
 
-  static async ensureAgencyAccess({ reqUser, agencyId }) {
+  static async ensureAgencyAccess({ reqUser, agencyId, requireClinicalService = false }) {
     if (!reqUser?.id) {
       const err = new Error('Unauthenticated');
       err.status = 401;
@@ -56,6 +57,16 @@ class ClinicalEligibilityService {
       const err = new Error('Access denied');
       err.status = 403;
       throw err;
+    }
+    // A mixed-service agency must not turn an explicitly tutoring-only provider
+    // into a clinician. Agencies without a service catalog keep legacy access;
+    // client assignment, credentials and signing prerequisites still apply.
+    if (requireClinicalService && ['provider','provider_plus','intern','intern_plus','supervisor','facilitator'].includes(String(reqUser.role))) {
+      const offered = await readProviderServices(reqUser.id, agencyId);
+      const clinical = offered.services.find(service => service.serviceType === 'counseling');
+      if (clinical && !clinical.offered) {
+        throw Object.assign(new Error('Counseling service access is not assigned in this agency.'), {status:403});
+      }
     }
     return true;
   }

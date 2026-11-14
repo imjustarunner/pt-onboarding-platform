@@ -595,4 +595,5 @@ onBeforeUnmount(destroyCard);
 .gtd-pay label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.85rem; }
 .gtd-pay input { border: 1px solid #cbd5e1; border-radius: 8px; padding: 0.4rem 0.55rem; }
 .gtd-card-mount { border: 1px solid #cbd5e1; border-radius: 8px; padding: 0.65rem; }
+.gtd-drawer input[type=checkbox],.gtd-drawer input[type=radio]{width:18px!important;min-width:18px;flex:0 0 18px;padding:0}.gtd-drawer label{min-width:0;word-break:normal;overflow-wrap:normal}.gtd-drawer label span{min-width:0;flex:1}
 </style>

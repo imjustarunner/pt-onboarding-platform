@@ -7,10 +7,10 @@
       </label>
       <div v-if="allFamilyProfiles.length" class="family-context">
         <PortalContextPicker v-if="familyAgencies.length > 1" :label="ft('Agency')" :model-value="currentAgencyId" :groups="agencyPickerGroups" @update:model-value="chooseAgency" />
-        <PortalContextPicker v-if="allFamilyProfiles.length > 1 || familyAgencies.length > 1" class="family-profile-picker" :label="ft('Viewing')" :model-value="`${currentAgencyId}:${selectedChildId}`" :groups="profilePickerGroups" :placeholder="ft('Choose a profile')" :hint="ft('All family profiles, grouped by agency. Choosing a profile also switches the agency.')" @select="option => chooseFamilyProfile(option.clientId, null, option.agencyId)" />
+        <PortalContextPicker v-if="allFamilyProfiles.length > 1 || familyAgencies.length > 1" class="family-profile-picker" :label="ft('Viewing')" :model-value="`${currentAgencyId}:${selectedChildId}`" :groups="profilePickerGroups" :placeholder="ft('Choose a profile')" :hint="ft('Choose a family member and organization. Each service keeps its own information.')" @select="option => chooseFamilyProfile(option.clientId, null, option.agencyId)" />
         <div v-if="allFamilyProfiles.length===1 && familyAgencies.length<=1" class="single-profile family-current-profile"><small>{{ ft('Viewing') }}</small><strong>{{ profileLabel(selectedChild) }}</strong></div>
-        <PortalContextPicker v-if="selectedServices.length > 1" :label="ft(limitedServicePortal?'Past provider':'Service & provider')" :model-value="selectedService?.id" :groups="servicePickerGroups" @update:model-value="chooseService" />
-        <div v-else-if="selectedService" class="single-profile"><small>{{ ft(limitedServicePortal?"Past provider":"Service & provider") }}</small><strong>{{ft(selectedService.label)}} · {{selectedService.provider_name || ft("Provider being assigned")}}</strong></div>
+        <PortalContextPicker v-if="selectedServices.length > 1" :label="ft(limitedServicePortal?'Past provider':'Service & team')" :model-value="selectedService?.id" :groups="servicePickerGroups" @update:model-value="chooseService" />
+        <div v-else-if="selectedService" class="single-profile"><small>{{ ft(limitedServicePortal?"Past provider":"Service & team") }}</small><strong>{{ft(selectedService.label)}} · {{selectedService.provider_name || ft(selectedService.service_kind==='tutoring'?"Tutor being assigned":"Provider being assigned")}}</strong></div>
         <button class="more-family" type="button" @click="navigatePortal('family')">{{ ft(familyHomeLabel) }} <span>{{ allFamilyProfiles.length }}</span></button>
       </div>
     </template>
@@ -46,7 +46,7 @@
           <h2>{{ ft('Your profile is linked') }}</h2>
           <p>{{ pendingEnrollmentState.pending
             ? ft('Complete your own enrollment above to continue. The other guardian’s private answers remain hidden.')
-            : ft('Detailed records are not available under your current access. Complete any enrollment forms shown above, or contact your care team to review access.') }}</p>
+            : ft('Detailed records are not available under your current access. Open Tasks & documents to review any pending enrollment, or contact the office about your access.') }}</p>
         </div>
         <div v-else class="detail guardian-detail">
           <div class="panel guardian-panel">
@@ -55,7 +55,7 @@
               <FamilyDashboard :profiles="allFamilyProfiles" :preview="isSuperadminPreview" @navigate="navigatePortal" @profile="chooseFamilyProfile" /><h2>{{ allFamilyProfiles.length > 1 ? ft("Your family members") : ft("Your profile") }}</h2><p>{{ ft("Choose a profile to see their appointments, documents, and next steps.") }}</p>
               <div class="family-profile-grid"><article v-for="person in allFamilyProfiles" :key="person.client_id" class="family-profile-card">
                 <div class="profile-logos"><img v-if="profileAgencyLogo(person)" :src="profileAgencyLogo(person)" :alt="person.agency_name"/><img v-if="profileSchool(person)?.logo" :src="profileSchool(person).logo" :alt="profileSchool(person).name"/></div><strong>{{ profileLabel(person) }}</strong><span>{{ person.agency_name }}<template v-if="profileSchool(person)"> · {{ profileSchool(person).name }}</template></span>
-                <p v-if="!familyProfileHasRecordAccess(person)" role="status">{{ ft('Detailed records are restricted. Complete any enrollment forms shown above, or ask your care team to review access.') }}</p>
+                <p v-if="!familyProfileHasRecordAccess(person)" role="status">{{ ft('Detailed records are restricted. Open Tasks & documents to review any pending enrollment, or ask the office about your access.') }}</p>
                 <details><summary>{{ ft("Profile details") }}</summary><p>{{ ['learning','tutoring'].includes(person.client_type) ? ft("Tutoring") : ft("Counseling and care") }}</p><p v-if="person.organization_type === 'school'">School: {{ person.organization_name }}</p><p>{{ person.relationship_type === 'self' ? ft("Your own client profile") : ft("Dependent linked to your account") }}</p></details>
                 <div v-if="person.care_contexts?.length" class="family-service-links"><template v-for="context in person.care_contexts" :key="context.agency_id"><button v-for="service in context.services" :key="service.id" type="button" @click="chooseFamilyProfile(person.client_id,null,context.agency_id,service.id)">{{context.agency_name}} · {{ft(service.label)}}<small>{{service.provider_name || ft("Provider being assigned")}}</small></button><button v-if="!context.services.length" @click="chooseFamilyProfile(person.client_id,null,context.agency_id)">{{context.agency_name}} →</button></template></div><button v-else type="button" @click="chooseFamilyProfile(person.client_id)">{{ ft("Open profile →") }}</button>
               </article></div>
@@ -118,13 +118,13 @@
                   </div>
                 </li>
               </ul>
-              <p v-else-if="!regCatalogLoading" class="hint" style="margin: 0;">Nothing is open for registration right now.</p>
+              <p v-else-if="!regCatalogLoading" class="hint" style="margin: 0;">{{ standardsLearningVisible ? 'No tutoring programs are open for registration right now. Book a session or message your tutoring office.' : 'No programs are open for registration right now. Contact your team for the next options.' }} <button type="button" @click="navigatePortal('appointments')">View appointments</button></p>
             </template>
             <template v-else-if="activePanel === 'appointments'"><p v-if="isSuperadminPreview">Appointment details are available in the signed-in guardian account.</p><GuardianAppointmentsPanel family-notifications @service-ended="serviceEnded" @notifications="navigatePortal('notifications')" v-else :client-id="selectedChildId" /></template>
             <GuardianProgressRecords v-else-if="['checkins','evaluations'].includes(activePanel) && !isSuperadminPreview" :client-id="selectedChildId" :client-name="selectedFirstName" :kind="activePanel" :learning="standardsLearningVisible"/>
             <template v-else-if="activePanel === 'documents'">
               <p v-if="isSuperadminPreview">Documents are available in the signed-in family account.</p>
-              <template v-else><GuardianSchoolReleaseForm v-if="profileSchool(selectedChild) && pendingEnrollmentState.loaded && !pendingEnrollmentState.pending" :client-id="selectedChildId" @completed="schoolReleaseVersion++" /><FamilyPendingDocuments /><PortalSafetyPlans v-if="selectedChildId" :key="`safety:${selectedChildId}`" :client-id="selectedChildId" compact /><GuardianIntakeDocuments :key="`signed-documents:${selectedChildId}:${schoolReleaseVersion}`" :client-id="selectedChildId" /><GuardianSharedFiles :client-id="selectedChildId" /><details class="account-documents"><summary>{{ ft("Other forms assigned to your account") }}</summary><DocumentsTab /></details></template>
+              <template v-else><GuardianSchoolReleaseForm v-if="profileSchool(selectedChild) && pendingEnrollmentState.loaded && !pendingEnrollmentState.pending" :client-id="selectedChildId" @completed="schoolReleaseVersion++" /><FamilyPendingDocuments /><PortalSafetyPlans v-if="selectedChildId" :key="`safety:${selectedChildId}`" :client-id="selectedChildId" compact /><GuardianIntakeDocuments :key="`signed-documents:${selectedChildId}:${schoolReleaseVersion}`" :client-id="selectedChildId" :learning="standardsLearningVisible" /><GuardianSharedFiles :client-id="selectedChildId" :learning="standardsLearningVisible" /><details class="account-documents"><summary>{{ ft("Other forms assigned to your account") }}</summary><DocumentsTab /></details></template>
             </template>
 
             <template v-else-if="activePanel === 'child'">
@@ -468,7 +468,7 @@
               <FamilyAccountSettings :agency-id="selectedChildAgencyId" :client-id="selectedChildId" @notifications="navigatePortal('notifications')" />
             </template>
 
-            <FamilyPayments v-else-if="activePanel === 'family_billing' && !isSuperadminPreview" :agencies="familyAgencies" :guardian-user-id="authStore.user?.id" />
+            <FamilyPayments v-else-if="activePanel === 'family_billing' && !isSuperadminPreview" :agencies="familyAgencies" :profiles="readableFamilyProfiles" :guardian-user-id="authStore.user?.id" />
             <template v-else-if="activePanel === 'billing'">
               <div v-if="isSuperadminPreview" class="guardian-preview-surface">
                 <p class="hint" style="margin: 0;">
@@ -746,7 +746,7 @@ const registrationEnrollPayerType = ref('');
 const registrationEnrollSaving = ref(false);
 const registrationEnrollError = ref('');
 
-const activePanel = ref(['assistance','checkins','evaluations','overview','family','family_billing','family_messages','onboarding','updates','help','schoolcarebridge','tutoring','registrations','history','appointments','documents','child','billing','payment_methods','messages','account','dependents','contact','plan','notifications','notification_history'].includes(route.query.panel) ? route.query.panel : 'family');
+const activePanel = ref(['enroll','assistance','checkins','evaluations','overview','family','family_billing','family_messages','onboarding','updates','help','schoolcarebridge','tutoring','registrations','history','appointments','documents','child','billing','payment_methods','messages','account','dependents','contact','plan','notifications','notification_history'].includes(route.query.panel) ? route.query.panel : 'family');
 const pendingEnrollmentState = ref({ loaded: false, pending: false });
 const selectedChildId = computed({
   get: () => guardianStore.selectedChildId,
@@ -867,7 +867,9 @@ const selectedSchool = computed(() => schoolAffiliations.value.find(s => Number(
 const schoolWorkspaceLabel = computed(() => selectedSchool.value ? `${selectedSchool.value.name}${selectedSchool.value.status === 'former' ? ' · Former school' : ''}` : '');
 const careAgencyName = computed(() => selectedChild.value?.agency_name || tenantAgencyName.value || currentAgencyName.value);
 const clinicalGuardianContext = computed(() => !!selectedChild.value && !standardsLearningVisible.value && (isClinicalClient(selectedChild.value) || hasSchoolAffiliations.value || (!selectedChild.value.client_type && ['agency','clinical'].includes(selectedChild.value.organization_type))));
-const learningOnlySelectedProfile = computed(() => familyProfilesLearningOnly(selectedChild.value ? [selectedChild.value] : allFamilyProfiles.value));
+const learningOnlySelectedProfile = computed(() => selectedService.value
+  ? selectedService.value.service_kind === 'tutoring'
+  : familyProfilesLearningOnly(selectedChild.value ? [selectedChild.value] : allFamilyProfiles.value));
 const learningOnlyPortalContext = computed(() => ['family','family_billing','family_messages','account','assistance','enroll'].includes(activePanel.value) ? familyProfilesLearningOnly(allFamilyProfiles.value) : learningOnlySelectedProfile.value);
 const guardianWorkspaceMode = ref('clinical');
 const schoolWorkspaceActive = computed(() => activePanel.value === 'schoolcarebridge');
@@ -970,7 +972,7 @@ const careAgencyLogo = computed(() => profileAgencyLogo(selectedChild.value) || 
 function profileLabel(profile) { return profile ? `${childDisplayName(profile)}${profile.relationship_type === 'self' ? ' (you)' : ''}` : 'Choose a profile'; }
 async function chooseFamilyProfile(id, panel = null, agencyId = null, serviceId = null) {
   const profile = allFamilyProfiles.value.find(p => Number(p.client_id) === Number(id));
-  const contexts=profile?.care_contexts||[];
+  const contexts=profile?.care_contexts?.length?profile.care_contexts:(profile?[{...profile,services:profile.services||[]}]:[]);
   const aid=agencyId||(contexts.some(c=>Number(c.agency_id)===currentAgencyId.value)?currentAgencyId.value:profile?.agency_id);
   const agency = profile && familyAgencies.value.find(a => Number(a.id) === Number(aid));
   if (!profile || !agency?.slug) return;
@@ -1009,10 +1011,10 @@ const dashboardTabs = computed(() => {
     });
   }
   tabs.push(
-    { key: 'overview', label: 'Dashboard', meta: pm('Home base', 'Preview shell') },
+    { key: 'overview', label: standardsLearningVisible.value ? 'Profile overview' : 'Dashboard', meta: pm('Home base', 'Preview shell') },
     { key: 'registrations', label: 'Registrations', meta: upcomingRegistrationRailSubtitle.value },
     { key: 'documents', label: 'Documents', meta: pm('Forms and signatures', 'Where forms live') },
-    { key:'past_providers',label:'Past providers',meta:'Previous provider assignments and returning to services' },
+    { key:'past_providers',label:learningOnlySelectedProfile.value?'Past tutors':'Past providers',meta:'Previous provider assignments and returning to services' },
     { key: 'appointments', label: 'Appointments', meta: pm('Schedule and change requests', 'Appointments') },
     { key:'notification_history',label:'Communication history',meta:'Emails, texts, invitations and reminders' }
   );
@@ -1053,24 +1055,24 @@ const restrictedLearningGuardian=computed(()=>selectedGuardianPermissions.value.
 let portalGrantRequest = 0;
 const portalPlanAllowed = computed(() => !isSuperadminPreview.value && !!selectedChildId.value && (!restrictedLearningGuardian.value || selectedGuardianPermissions.value.canViewProgress===true) && (standardsLearningVisible.value || selectedChild.value?.relationship_type === 'self' || portalGrants.value.some(g => Number(g.clientId) === Number(selectedChildId.value) && Number(g.guardianUserId) === Number(authStore.user?.id) && g.scopes?.includes('treatment_plan'))));
 const portalNavigation = computed(() => {
-  if(limitedServicePortal.value)return [{key:'overview',label:'Service status',icon:'dashboard'},{key:'past_providers',label:'Past providers',icon:'team'},{key:'history',label:'Session history',icon:'sessions'},{key:'billing',label:'Invoices & receipts',icon:'billing'},{key:'payment_methods',label:'Payment methods & authorizations',icon:'shield'},{key:'documents',label:'Signed copies',icon:'documents'},{key:'records',label:'Request my records',icon:'documents'},{key:'account',label:'Account settings',icon:'account'},{key:'help',label:'Billing & records help',icon:'support'},{key:'signout',label:'Sign out',icon:'account'}].map(item=>({...item,label:ft(item.label),group:ft('Limited service portal')}));
+  if(limitedServicePortal.value)return [{key:'overview',label:'Service status',icon:'dashboard'},{key:'past_providers',label:learningOnlySelectedProfile.value?'Past tutors':'Past providers',icon:'team'},{key:'history',label:'Session history',icon:'sessions'},{key:'billing',label:'Invoices & receipts',icon:'billing'},{key:'payment_methods',label:'Payment methods & authorizations',icon:'shield'},{key:'documents',label:'Signed copies',icon:'documents'},{key:'records',label:'Request my records',icon:'documents'},{key:'account',label:'Account settings',icon:'account'},{key:'help',label:'Billing & records help',icon:'support'},{key:'signout',label:'Sign out',icon:'account'}].map(item=>({...item,label:ft(item.label),group:ft('Limited service portal')}));
   const icons = {overview:'dashboard',tutoring:'dashboard',registrations:'sessions',documents:'tasks',child:'child',dependents:'child',billing:'billing',payment_methods:'shield',account:'account',messages:'messages',notifications:'tasks',notification_history:'messages'};
-  const labels = {overview:'Dashboard',documents:'Tasks & documents',billing:'Invoices & receipts',payment_methods:learningOnlySelectedProfile.value?'Payments':'Insurance & payments',child:selectedChild.value ? `${childDisplayName(selectedChild.value).split(' — ')[0]} · ${familyLocale.value === 'es' ? 'información' : 'information'}` : 'Client information'};
+  const labels = {overview:'Dashboard',documents:'Tasks & documents',billing:'Invoices & receipts',payment_methods:learningOnlySelectedProfile.value?'Payments':'Insurance & payments',child:selectedChild.value ? learningOnlySelectedProfile.value ? `${selectedFirstName.value}’s tutoring info` : `${selectedFirstName.value} · ${familyLocale.value === 'es' ? 'información' : 'information'}` : 'Client information'};
   const items = dashboardTabs.value.filter(t => !(standardsLearningVisible.value && t.key === 'overview')).map(t => ({...t,label:labels[t.key] || t.label,icon:icons[t.key]}));
   if(!isSuperadminPreview.value && selectedChildId.value && items.some(item=>item.key==='documents'))items.push({key:'updates',label:'Selected updates',icon:'tasks'});
   if (!learningOnlySelectedProfile.value) items.push({key:'checkins',label:'Check-ins & trends',icon:'plan'},{key:'evaluations',label:'Evaluations',icon:'documents'});
   if (portalPlanAllowed.value) items.splice(3,0,{key:'plan',label:ft(standardsLearningVisible.value?'{name}’s learning plan':'{name}’s care plan',{name:selectedFirstName.value}),icon:'plan'});
 
   if(onboardingRequired.value) items.unshift({key:'onboarding',label:'Complete onboarding',icon:'tasks'});
-  items.unshift({key:'family',label:familyHomeLabel.value,icon:'dashboard'},{key:'family_billing',label:'Balances & payments',icon:'billing'},{key:'family_messages',label:'All secure messages',icon:'messages'});
+  items.unshift({key:'family',label:'Family overview',icon:'dashboard'},{key:'family_billing',label:'Balances & payments',icon:'billing'},{key:'family_messages',label:'All secure messages',icon:'messages'});
   items.push({key:'assistance',label:'Accounts I help with',icon:'account'});
-  if (!isSuperadminPreview.value) items.push({key:'enroll',label:familyLocale.value === 'es' ? 'Inscribir a un hijo o a mí' : 'Enroll a child or yourself',icon:'sessions'});
+  if (!isSuperadminPreview.value) items.push({key:'enroll',label:familyLocale.value === 'es' ? 'Inscribir a un hijo o a mí' : 'Enroll in services',icon:'sessions'});
   if (!learningOnlySelectedProfile.value) items.push({key:'records',label:'Request my records',icon:'documents'});
   items.push({key:'help',label:'Portal help & feedback',icon:'support'});
   items.push({key:'contact',label:'Reminder contacts',icon:'support'},{key:'signout',label:'Sign out',icon:'account'});
   const accountKeys=['assistance','family','family_billing','family_messages','notifications','account','records','help','enroll'];
   const ordered=[...items.filter(i=>accountKeys.includes(i.key)),...items.filter(i=>!accountKeys.includes(i.key)&&i.key!=='signout'),...items.filter(i=>i.key==='signout')];
-  const available=ordered.filter(i=>(!learningOnlySelectedProfile.value || !['updates','assistance','help'].includes(i.key))
+  const available=ordered.filter(i=>(!learningOnlySelectedProfile.value || !['updates','assistance'].includes(i.key))
     && !(restrictedLearningGuardian.value && ['billing','payment_methods','family_billing'].includes(i.key))
     && !(selectedGuardianPermissions.value.canViewDocs===false && i.key==='documents'));
   return available.map(i=>({...i,label:ft(i.label),group:i.key==='signout'?ft('Account'):accountKeys.includes(i.key)?ft('Family & account'):`${ft('Viewing')} ${selectedFirstName.value}`}));
@@ -1964,7 +1966,7 @@ watch(
     allowedKeys.add('messages');
     allowedKeys.add('account');
     allowedKeys.add('notifications');
-    for(const key of ['assistance','checkins','evaluations','onboarding','family','family_billing','family_messages','help','plan','notification_history']) allowedKeys.add(key);
+    for(const key of ['assistance','checkins','evaluations','onboarding','family','family_billing','family_messages','enroll','updates','help','plan','notification_history']) allowedKeys.add(key);
     if (!allowedKeys.has(activePanel.value)) {
       activePanel.value = standardsLearningVisible.value && allowedKeys.has('tutoring')
         ? 'tutoring'

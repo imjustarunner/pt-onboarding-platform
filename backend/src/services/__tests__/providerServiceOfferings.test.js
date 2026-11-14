@@ -65,3 +65,11 @@ describe('service offerings',()=>{
   expect(()=>validateProviderServices('tutoring',['tutoring'])).toThrow();
  });
 });
+
+
+it('never turns a tutoring price tier into clinical qualification or lets an employee grant themselves counseling',async()=>{
+ person.role='provider';person.agency_role='provider';person.credential='';enrollments=[{service_type:'counseling',is_active:1},{service_type:'tutoring',is_active:1}];
+ const offered=await readProviderServices(9,2);expect(offered.services.find(s=>s.serviceType==='counseling')).toMatchObject({offered:false,onlineScheduling:false});
+ await expect(saveProviderServices(9,2,['counseling','tutoring'],['counseling'])).rejects.toMatchObject({status:403});
+ expect(conn.commit).not.toHaveBeenCalled();
+});

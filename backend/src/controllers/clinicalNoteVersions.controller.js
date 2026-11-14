@@ -25,7 +25,7 @@ async function scope(req) {
   requireStaffPlanActor(req.user);
   const noteId = positiveId(req.params.noteId), agencyId = positiveId(req.body?.agencyId || req.query?.agencyId || req.medicalBillingAgencyId);
   if (!noteId || !agencyId) throw policyError(400, 'A valid noteId and agencyId are required.');
-  await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
+  await ClinicalEligibilityService.ensureAgencyAccess({ requireClinicalService: true, reqUser: req.user, agencyId });
   let note = await ClinicalNote.findById(noteId);
   if (!note || note.is_deleted || Number(note.agency_id) !== agencyId) throw policyError(404, 'Note not found in this agency.');
   const metadata = parseObject(note.metadata_json);
