@@ -133,15 +133,30 @@ describe('candidate process interface', () => {
     expect(wrapper.find('.task-panel').exists()).toBe(true);
     expect(wrapper.find('hire-document-preview-stub').attributes('url')).toBe('/prehire-portal/test-token/tasks/1/preview');
   });
-  it('uses fixed signature fields for employment contracts without annotation controls', async () => {
+  it.each([
+    ['HTML', { htmlContent: '<p>Agreement</p><script>window.contractUnsafe = true;</script>' }],
+    ['PDF', { filePath: 'agreement.pdf', mimeType: 'application/pdf' }]
+  ])('uses fixed signature fields for %s employment contracts without annotation controls', async (format, document) => {
     const data = state(); data.candidate.status = 'PREHIRE_OPEN'; data.journey = {};
     const task = { id: 1, taskType: 'document', title: 'Employment agreement', status: 'pending', actionType: 'signature' };
     data.tasks = [task]; data.workflow.steps.pre_hire = [{ key: 'task-1', kind: 'task', title: task.title, task }];
-    await open(data, { metadata: { contractGeneration: true }, document: { htmlContent: '<p>Agreement</p>' }, auditTrail: { portalConsent: { given: true } } });
+    await open(data, { metadata: { contractGeneration: true }, document, auditTrail: { portalConsent: { given: true } } });
     await wrapper.find('.hire-nav nav').findAll('button').find(b => b.text() === 'Pre-Hire').trigger('click');
     await wrapper.findAll('button').find(b => b.text().includes('Open, review and sign')).trigger('click'); await flushPromises();
-    expect(wrapper.findComponent({ name: 'HireDocumentPreview' }).props('editable')).toBe(false);
+    const preview = wrapper.findComponent({ name: 'HireDocumentPreview' });
+    const contractFrame = wrapper.find('iframe.contract-html-preview');
+    if (format === 'HTML') {
+      expect(preview.exists()).toBe(false);
+      expect(contractFrame.exists()).toBe(true);
+      expect(contractFrame.attributes('sandbox')).toBe('allow-scripts');
+      expect(contractFrame.attributes('srcdoc')).toContain('<p>Agreement</p>');
+      expect(contractFrame.attributes('srcdoc')).not.toContain('window.contractUnsafe');
+    } else {
+      expect(contractFrame.exists()).toBe(false);
+      expect(preview.props('editable')).toBe(false);
+    }
     expect(wrapper.text()).toContain('Sign employee signature field');
+    expect(wrapper.text()).not.toContain('Continue to signature');
   });
   it('shows delivered Grasshopper credentials on Accounts & Access', async () => {
     const data = state(); data.credentialPacket = { systems: [{ key: 'grasshopper', label: 'Grasshopper', username: 'devon', extension: '102', pin: '1234' }] };
