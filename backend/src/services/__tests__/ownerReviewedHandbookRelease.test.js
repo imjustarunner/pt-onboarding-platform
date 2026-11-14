@@ -14,6 +14,7 @@ describe('final company handbook release planning',()=>{
     expect(JSON.stringify(input)).toBe(before);
     expect(plan.versionNumber).toBe(2);
     expect(plan.metadata.ownerApproval).toMatchObject({status:'final',release:COLLECTIVE_HANDBOOK_RELEASE,reviewExportSha256:'review-hash'});
+    expect(plan.metadata).toMatchObject({edition:'November 2026 · Version 2 · Final',sourceDate:'2026-11-13',organization:slug});
     expect(plan.metadata.forms).toEqual({retained:true});
     expect(plan.metadata.presentation.agencyBrand.primary).toBe('#123456');
     expect(plan.minimumWorkloadWaivedFrom).toBe('2026-11-13');

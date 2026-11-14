@@ -67,7 +67,9 @@ export function planOwnerReviewedHandbookRelease(snapshot, { approvalFileHash, a
   }
   const versionNumber = Number(snapshot.maxVersionNumber ?? version.version_number) + 1;
   const metadata = {
-    ...priorMetadata, presentation: agencyDocumentPresentation(agency, priorMetadata.presentation || {}),
+    ...priorMetadata, title: priorMetadata.title || 'Workplace Handbook', organization: agency.name,
+    edition: `November 2026 · Version ${versionNumber} · Final`, sourceDate: approvedOn,
+    presentation: agencyDocumentPresentation(agency, priorMetadata.presentation || {}),
     testingReference: testingReferenceCatalog(), ownerReviewRelease: COLLECTIVE_HANDBOOK_RELEASE,
     excludedUnprovidedSections: source.ownerReviewExcludedEmptySections || [],
     ownerApproval: { release: COLLECTIVE_HANDBOOK_RELEASE, status: 'final', approvedOn, authority: 'Owner’s written chat instructions to apply the detailed review, approve all, finalize and initiate a new version.', reviewExportSha256: approvalFileHash || null, supersedesDraft: { id: version.id, version: version.version_number }, prospectiveMinimumWorkloadWaivedFrom: approvedOn }

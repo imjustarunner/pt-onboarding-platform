@@ -226,6 +226,7 @@ export function applyCollectiveHandbookReview(source, updates = [], tenant) {
     if (index >= 0) revised[index] = value; else revised.push(value);
   }
   source.ownerReviewRelease = COLLECTIVE_HANDBOOK_RELEASE;
+  source.edition = 'November 2026 · Reviewed policy source';
   source.sourceDate = '2026-11-13';
   finishSuppliedHandbookStructure(source);
   const finalSections = new Map(source.sections.map(s => [s.slug, s]));
