@@ -11,7 +11,7 @@
     <p v-if="modelValue.paperSubscriberName" class="self-subscriber">Holder written on packet: <strong>{{ modelValue.paperSubscriberName }}</strong>.</p>
     <div v-if="subscriberIssues.length || paperMedicaidMismatch" class="subscriber-review" role="alert">
       <p v-for="issue in subscriberIssues" :key="issue">{{ issue }}</p>
-      <p v-if="paperMedicaidMismatch">The packet names a different Medicaid holder. Verify that this member ID belongs to this client, using the client’s legal name and birth date. The written holder stays on file; preparing client details does not verify coverage.</p>
+      <p v-if="paperMedicaidMismatch">The packet names a different Medicaid holder. For Colorado Medicaid, eligibility skips that listed ID and searches using this client’s legal name and birth date. A returned member ID must match this client. The written holder stays on file.</p>
       <button v-if="patient && subscriberIssues.length" type="button" @click="useClientIdentity">Use client details for Medicaid verification</button>
     </div>
     <label v-for="field in visibleFields" :key="field.key">{{ tx(field.label) }}<input v-address-autocomplete="field.key === 'subscriberAddressLine1' ? { locale: intakeLocale, scopeKey: `${scopeKey}:${modelValue.id || ''}:${modelValue.insurerName || ''}`, onSelect: fillAddress } : null" :value="modelValue[field.key] || ''" :type="field.type || 'text'" :required="requireComplete && !!field.required" maxlength="255" @input="update(field.key, $event.target.value)" /></label>

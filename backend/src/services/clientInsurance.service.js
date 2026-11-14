@@ -3,9 +3,10 @@ import pool from '../config/database.js';
 import { encryptFamilyBilling, decryptFamilyBilling } from './familyBillingEncryption.service.js';
 import { billingError } from './familyBillingPolicy.service.js';
 import { hasMedicaidCoverage, policyIsMedicaid } from '../utils/insurancePaymentPolicy.js';
-import { insuranceSubscriberIssues } from '../../../frontend/src/navigation/paperInsuranceReview.js';
+import { insuranceSubscriberIssues, withPaperPolicyHolders } from '../../../frontend/src/navigation/paperInsuranceReview.js';
+import { paperReadingCandidate } from './paperPacketReading.service.js';
 
-export const POLICY_TEXT_FIELDS = ['insurerName', 'payerId', 'eligibilityPayerId', 'payerCatalogId', 'paperSubscriberName', 'memberId', 'groupNumber', 'patientSuffix', 'subscriberName', 'subscriberFirstName', 'subscriberLastName', 'subscriberDob', 'subscriberSex', 'relationshipToSubscriber', 'subscriberAddressLine1', 'subscriberAddressLine2', 'subscriberCity', 'subscriberState', 'subscriberPostalCode', 'planType', 'effectiveDate', 'terminationDate', 'claimsPhone'];
+export const POLICY_TEXT_FIELDS = ['insurerName', 'payerId', 'eligibilityPayerId', 'payerCatalogId', 'paperSubscriberName', 'paperReportedMemberId', 'memberId', 'groupNumber', 'patientSuffix', 'subscriberName', 'subscriberFirstName', 'subscriberLastName', 'subscriberDob', 'subscriberSex', 'relationshipToSubscriber', 'subscriberAddressLine1', 'subscriberAddressLine2', 'subscriberCity', 'subscriberState', 'subscriberPostalCode', 'planType', 'effectiveDate', 'terminationDate', 'claimsPhone'];
 export function mergePatientDefaults(patient = {}, demographics = {}) {
   const merged={...patient},identity=value=>String(value||'').trim().replace(/\s+/g,' ').toUpperCase();
   // Do not construct a new identity by combining disagreeing chart and policy names.
@@ -73,8 +74,8 @@ export async function writeClientInsurance({ clientId, agencyId, primary, second
   return value;
 }
 export async function readClientInsurance(clientId, agencyId, db = pool) {
-  const [rows] = await db.execute('SELECT billing_insurance_payload FROM clients WHERE id = ? AND agency_id = ?', [clientId, agencyId]);
-  return rows[0] ? decryptFamilyBilling(rows[0].billing_insurance_payload, `client-insurance:${agencyId}:${clientId}`) : null;
+  const [rows] = await db.execute('SELECT billing_insurance_payload,paper_packet_demo_candidate_enc FROM clients WHERE id = ? AND agency_id = ?', [clientId, agencyId]);
+  return rows[0] ? withPaperPolicyHolders(decryptFamilyBilling(rows[0].billing_insurance_payload, `client-insurance:${agencyId}:${clientId}`),paperReadingCandidate(rows[0])) : null;
 }
 
 /** Keep a second payer's submission available for review without replacing the
@@ -120,12 +121,12 @@ export function selfSubscriberPolicy(policy, patient) {
 
 /** Versioned, agency-scoped read for clinical products sharing this coverage. */
 export async function readClientInsuranceSnapshot(clientId, agencyId, db = pool, { lock = false } = {}) {
-  const [rows] = await db.execute(`SELECT id,billing_insurance_payload FROM clients WHERE id=? AND agency_id=?${lock ? ' FOR UPDATE' : ''}`, [clientId, agencyId]);
+  const [rows] = await db.execute(`SELECT id,billing_insurance_payload,paper_packet_demo_candidate_enc FROM clients WHERE id=? AND agency_id=?${lock ? ' FOR UPDATE' : ''}`, [clientId, agencyId]);
   if (!rows.length) throw billingError(404, 'Client not found in agency');
   const raw = rows[0].billing_insurance_payload;
   const payload = typeof raw === 'string' ? JSON.parse(raw) : raw;
   return {
-    data: decryptFamilyBilling(raw, `client-insurance:${agencyId}:${clientId}`),
+    data: withPaperPolicyHolders(decryptFamilyBilling(raw, `client-insurance:${agencyId}:${clientId}`),paperReadingCandidate(rows[0])),
     fingerprint: crypto.createHash('sha256').update(JSON.stringify({ agencyId: Number(agencyId), clientId: Number(clientId), payload })).digest('hex')
   };
 }

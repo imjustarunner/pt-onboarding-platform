@@ -14,12 +14,13 @@ import { runMeteredCoverageCheck } from './eligibilityUsage.service.js';
 import { queueInsuranceVerificationSafely } from './insuranceVerificationTask.service.js';
 import { applyEligibilityProfileResults } from './eligibilityProfile.service.js';
 import { observeClaimMdData } from './claimMdDataMonitor.service.js';
+import { isColoradoMedicaidPolicy, medicaidMemberIdNeedsDiscovery } from '../../../frontend/src/navigation/paperInsuranceReview.js';
 
 const parse = v => typeof v === 'string' ? JSON.parse(v || '{}') : v || {};
 export function intakeLookupModes(insurance, slot) {
   const policy = insurance?.[slot];
-  const colorado = policy?.eligibilityPayerId === 'SKCO0' && policyIsMedicaid(policy);
-  return colorado ? (policy.memberId ? ['member_id','demographics'] : ['demographics']) : ['member_id'];
+  const colorado = isColoradoMedicaidPolicy(policy);
+  return colorado ? (policy.memberId && !medicaidMemberIdNeedsDiscovery(policy, insurance?.patient) ? ['member_id','demographics'] : ['demographics']) : ['member_id'];
 }
 export function shouldTryDemographics(result) {
   const errors = result?.summary?.payerErrors || [];

@@ -12,6 +12,14 @@ const patient={firstName:'Test',lastName:'Member',dateOfBirth:'2010-01-02',state
 const profile={billingNpi:'1306688650',practice:{tax_id:'123456789',name:'Synthetic'}};
 const evidence=()=>({id:7,eligibilityPayerId:'SKCO0',summary:{status:'active_reported',identityMatches:true},result:{elig:{ins_name_f:'Test',ins_name_l:'Member',ins_dob:'20100102',ins_number:'SYNTHETIC',group_number:'TESTGROUP',plan_begin_date:'20260101',benefit:[{benefit_code:'30',benefit_coverage_code:'1'},{benefit_code:'30',benefit_coverage_code:'U',entity_name:'Other insurer',entity_policy:'TEST-POLICY',extra_payer_field:{keep:'all fields'}}]}}});
 describe('eligibility import into billing profile',()=>{
+ it('replaces a parent-listed Medicaid ID only with an exact child match, retaining the reported ID and commercial policy',()=>{
+  const insurance={primary:{insurerName:'Commercial',memberId:'PRIMARY'},secondary:{isMedicaid:true,eligibilityPayerId:'SKCO0',memberId:'P123456',paperSubscriberName:'Parent Member',subscriberFirstName:'Parent',subscriberLastName:'Member',subscriberDob:'1980-01-01',relationshipToSubscriber:'child'},patient};
+  const result=evidence();result.lookupMode='demographics';result.result.elig.ins_number='C123456';
+  const next=enrichInsuranceFromEligibility(insurance,[{slot:'secondary',result}]);
+  expect(next.primary).toEqual(insurance.primary);expect(next.secondary).toMatchObject({memberId:'C123456',paperReportedMemberId:'P123456',paperSubscriberName:'Parent Member',subscriberFirstName:'Test',subscriberDob:'2010-01-02',relationshipToSubscriber:'self'});expect(next).not.toHaveProperty('verifiedForClaims');
+  for(const patch of [{ins_name_f:'Parent'},{ins_dob:'19800101'},{ins_number:'BAD-ID'}])expect(enrichInsuranceFromEligibility(insurance,[{slot:'secondary',result:{...result,result:{elig:{...result.result.elig,...patch}}}}])).toEqual(insurance);
+  expect(enrichInsuranceFromEligibility(insurance,[{slot:'secondary',result:{...result,lookupMode:'member_id'}}])).toEqual(insurance);
+ });
  it('keeps all returned other-insurance details without assigning payer order or assuming a route',()=>{
   const raw=evidence(),record=eligibilityProfileRecord({id:7,policy_slot:'primary',service_date:'2026-11-10'},raw);
   expect(record.otherCoverageReported).toBe(true);

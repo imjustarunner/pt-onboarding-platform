@@ -1,7 +1,8 @@
 import pool from '../config/database.js';
 import { decryptFamilyBilling } from './familyBillingEncryption.service.js';
 import { readClientInsurance, writeClientInsurance } from './clientInsurance.service.js';
-import { coverageFingerprint, summarizeEligibility } from './coverageVerification.service.js';
+import { coverageFingerprint, summarizeEligibility, eligibilityIdentityMatches } from './coverageVerification.service.js';
+import { medicaidMemberIdNeedsDiscovery, clientSubscriber } from '../../../frontend/src/navigation/paperInsuranceReview.js';
 import { auditBilling } from './familyBillingPolicy.service.js';
 
 const list = value => Array.isArray(value) ? value : value ? [value] : [];
@@ -42,7 +43,12 @@ export function enrichInsuranceFromEligibility(insurance, results) {
     const entries = list(result.result?.elig || result.result?.result?.elig);
     if (entries.length !== 1 || list(entries[0].error).length) continue;
     const entry = entries[0], previous = next[slot] || {};
-    if(previous.memberId && String(previous.memberId).trim()!==String(entry.ins_number||'').trim())continue;
+    const child=next.patient;
+    const childDiscovery=result.eligibilityPayerId==='SKCO0'&&result.lookupMode==='demographics'
+      &&medicaidMemberIdNeedsDiscovery(previous,child)&&/^[A-Z]\d{6}$/i.test(String(entry.ins_number||''))
+      &&!!child?.firstName&&!!child?.lastName&&!!child?.dateOfBirth
+      &&eligibilityIdentityMatches({payerid:'SKCO0',ins_name_f:child.firstName,ins_name_l:child.lastName,ins_dob:child.dateOfBirth.replaceAll('-','')},result.result)===true;
+    if(previous.memberId && String(previous.memberId).trim()!==String(entry.ins_number||'').trim()&&!childDiscovery)continue;
     const fields = { memberId: entry.ins_number, groupNumber: entry.group_number,
       subscriberFirstName: entry.ins_name_f, subscriberLastName: entry.ins_name_l,
       subscriberDob: date(entry.ins_dob), subscriberSex: entry.ins_sex,
@@ -52,6 +58,13 @@ export function enrichInsuranceFromEligibility(insurance, results) {
     fields.effectiveDate = date(entry.plan_begin_date);
     fields.terminationDate = date(entry.plan_end_date);
     const policy = { ...previous };
+    if(childDiscovery) {
+      policy.paperReportedMemberId ||= previous.memberId || '';
+      policy.paperSubscriberName ||= previous.subscriberName || [previous.subscriberFirstName,previous.subscriberLastName].filter(Boolean).join(' ');
+      policy.memberId=String(entry.ins_number).trim();
+      Object.assign(policy,clientSubscriber(child));
+      policy.subscriberName=[child.firstName,child.lastName].join(' ');
+    }
     for (const [key, value] of Object.entries(fields)) if (!policy[key] && typeof value === 'string' && value.trim() && value.length <= 255) policy[key] = value.trim();
     if (result.eligibilityPayerId === 'SKCO0') {
       policy.eligibilityPayerId = 'SKCO0';

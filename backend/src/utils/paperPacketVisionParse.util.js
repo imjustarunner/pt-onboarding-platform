@@ -13,6 +13,7 @@ export function normalizeVersionLabel(raw) {
 
 export function normalizeName(s) {
   return String(s || '')
+    .normalize('NFD').replace(/\p{M}/gu,'')
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, ' ')
     .replace(/\s+/g, ' ')
@@ -21,9 +22,9 @@ export function normalizeName(s) {
 
 /** Detect version label from OCR text (footer / acknowledgement wording). */
 export function extractVersionLabelFromText(text) {
-  const body = String(text || '');
+  const body = String(text || '').normalize('NFD').replace(/\p{M}/gu,'').replace(/firme aqui/gi,'sign here').replace(/requerido/gi,'required').replace(/firma del cliente o parte responsable/gi,"client or responsible party signature").replace(/personal escolar autorizado/gi,'authorized school staff').replace(/resumen de reconocimiento y consentimiento/gi,'acknowledgement and consent summary');
   const patterns = [
-    /(?:packet\s+)?version\s*[:=]?\s*(v\.?\s*)?(\d+\.\d+)\b/gi,
+    /(?:packet\s+)?version(?:\s+del\s+paquete)?\s*[:=]?\s*(v\.?\s*)?(\d+\.\d+)\b/gi,
     /\bversion\s+(\d+\.\d+)\b/gi,
     /\bv\.?\s*(\d+\.\d+)\b/gi
   ];
@@ -47,7 +48,7 @@ export function extractVersionLabelFromText(text) {
  * Signature-area date cues for review; printed ink density is not signature evidence.
  */
 export function detectSignaturesFromText(text) {
-  const body = String(text || '');
+  const body = String(text || '').normalize('NFD').replace(/\p{M}/gu,'').replace(/firme aqui/gi,'sign here').replace(/requerido/gi,'required').replace(/firma del cliente o parte responsable/gi,"client or responsible party signature").replace(/personal escolar autorizado/gi,'authorized school staff').replace(/resumen de reconocimiento y consentimiento/gi,'acknowledgement and consent summary');
   const lower = body.toLowerCase();
   const markers = [];
   const re = /sign here\s*[—\-–]?\s*required/gi;
@@ -100,7 +101,7 @@ export function detectSignaturesFromText(text) {
 
 /** Find staff with DENY checked next to their printed name. */
 export function detectDenyStaffFromText(text, staffList = []) {
-  const lines = String(text || '')
+  const lines = String(text || '').normalize('NFD').replace(/\p{M}/gu,'').replace(/denegar|denegado/gi,'Deny')
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter(Boolean);

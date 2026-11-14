@@ -7,11 +7,20 @@ vi.mock('../../models/Agency.model.js',()=>({default:{}}));
 vi.mock('../paperPacketVision.service.js',()=>({getLatestPaperPacketVisionEval:vi.fn()}));
 vi.mock('../messagesHub.service.js',()=>({sendHubPortalInvitation:vi.fn()}));
 vi.mock('../clientInsurance.service.js',()=>({readClientInsurance:vi.fn()}));
+vi.mock('../demographicsImport.service.js',async importOriginal=>{const actual=await importOriginal();return {...actual,decryptDemographicsPayload:value=>value?.responses?value:actual.decryptDemographicsPayload(value)};});
 vi.mock('../clientOnboardingChecklist.service.js',()=>({markPaperPacketSignatureReceived:vi.fn(),updateClientOnboardingDocs:vi.fn(),acknowledgeRoiStaffOnboarding:vi.fn()}));
 import {compareAndSetPaperProcessingState,savePaperProcessingStep,completePaperProcessing,paperProcessingContext,paperProcessingSourceDocument,paperProcessingState,PAPER_PROCESSING_STEPS} from '../paperPacketProcessing.service.js';
+import {paperReadingSnapshot} from '../paperPacketReading.service.js';
 let client,deps,connection;
 const input={clientId:4,actorId:8,signaturesConfirmed:true,staffRoiConfirmed:true};
 const ready=()=>{client.onboarding_docs_json={items:[{key:'roi',status:'missing'}],paperProcessing:{completedSteps:[...PAPER_PROCESSING_STEPS],documentId:9,guardian1Id:20,guardian2Id:21,sharedCustody:'yes',invitations:{}}};};
+it('saves a reviewed English answer with its Spanish source and rejects a stale reading',async()=>{
+ const candidate={documentId:9,sourceLocale:'es',responses:[{key:'medicalInformation',sourceText:'No tiene alergias.'}]};client.paper_packet_demo_candidate_enc=candidate;deps.encryptDraft=vi.fn(v=>v);
+ const data={documentId:9,firstName:'Synthetic',lastName:'Student',dateOfBirth:'2018-01-02',englishResponses:{reviewed:true,snapshotId:paperReadingSnapshot(candidate),answers:{medicalInformation:'No allergies.'}}};
+ await savePaperProcessingStep({clientId:4,actorId:8,step:'demographics',data},deps);
+ expect(client.paper_packet_demo_candidate_enc).toMatchObject({responses:[{sourceText:'No tiene alergias.'}],reviewedEnglishResponses:{answers:{medicalInformation:'No allergies.'},reviewedByUserId:8}});expect(deps.encryptDraft).toHaveBeenCalled();expect(deps.send).not.toHaveBeenCalled();
+ await expect(savePaperProcessingStep({clientId:4,actorId:8,step:'demographics',data:{...data,englishResponses:{...data.englishResponses,snapshotId:'stale'}}},deps)).rejects.toThrow('reading changed');
+});
 beforeEach(()=>{
  client={id:4,agency_id:2,organization_id:3,insurance_type_id:7,source:'SCHOOL_UPLOAD',full_name:'Synthetic Student',onboarding_docs_json:{items:[{key:'roi',status:'missing'}]}};
  connection={execute:vi.fn(async()=>[[{acquired:1}]]),release:vi.fn()};

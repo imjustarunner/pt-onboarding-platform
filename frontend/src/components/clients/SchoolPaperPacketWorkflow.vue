@@ -17,6 +17,7 @@
     <div v-if="!loading && context" class="paper-columns">
       <div class="paper-entry">
         <nav aria-label="Packet processing steps"><button v-for="(label, index) in labels" :key="label" type="button" :aria-current="stage === index ? 'step' : undefined" :disabled="busy || index > furthest" :title="index > furthest ? 'Save the preceding step before opening this step.' : label" @click="stage=index">{{ index + 1 }}. {{ label }}</button></nav>
+        <PaperPacketEnglishEntry :reading="packetReading" :stage="stage" v-model:answers="englishAnswers" v-model:reviewed="englishResponsesReviewed" :disabled="busy || !!state.processedAt" @use-details="useEnglishDetails" @use-parent="useEnglishParent" />
         <p class="muted">Steps open in order after Save and continue. Missing information stays pending for follow-up; moving between saved steps does not change the packet.</p>
         <template v-if="state.processedAt && stage === 6">
           <h4>Paper packet processed</h4><p>The uploaded ROI and disclosure remain the signature evidence.</p>
@@ -118,6 +119,7 @@ import api from '../../services/api';
 import PDFPreview from '../documents/PDFPreview.vue';
 import AuricWellBrand from '../auricwell/AuricWellBrand.vue';
 import ClientAffiliatedContactsPanel from '../client/ClientAffiliatedContactsPanel.vue';
+import PaperPacketEnglishEntry from './PaperPacketEnglishEntry.vue';
 import ClientInsuranceEditor from '../billing/ClientInsuranceEditor.vue';
 import AssignmentCoverageReview from '../billing/AssignmentCoverageReview.vue';
 import ClientOnboardingRoiStaffPanel from './ClientOnboardingRoiStaffPanel.vue';
@@ -127,6 +129,10 @@ const labels=['Client demographics','Parent 1 portal account','Other parent and 
 const keys=['demographics','guardian1','guardian2','school','insurance','consents'];
 const context=ref(null), state=ref({completedSteps:[],invitations:{}}), stage=ref(0), loading=ref(true),busy=ref(false),error=ref('');
 const stepFields=ref(null), validationMessage=ref(null), insuranceEditor=ref(null), roiEditor=ref(null);
+const englishAnswers=ref({}),englishResponsesReviewed=ref(false);
+const packetReading=computed(()=>Number(context.value?.packetReading?.documentId)===Number(documentId.value)?context.value.packetReading:null);
+function useEnglishDetails(fields){for(const [key,value]of Object.entries(fields))if(value)demographics[key]=value;}
+function useEnglishParent(fields){for(const [key,value]of Object.entries(fields))if(value)guardianForms[0][key]=value;}
 const checkingFile=ref(false),fileCheckMessage=ref(''),fileCheckQueued=ref(false),queuedReadId=ref(null);
 const selectedDocument=computed(()=>documents.value.find(d=>Number(d.id)===Number(documentId.value)));
 const reviewReasonLabel=reason=>String(reason||'').replaceAll('_',' ');
@@ -194,9 +200,10 @@ async function checkFile(){
  if(fileCheckQueued.value||checkingFile.value||state.value.processedAt)return;const generation=contextGeneration,source=documentId.value,url=endpoint.value;checkingFile.value=true;fileCheckMessage.value='';
  try{const{data}=await api.post(`${url}/documents/${source}/check`,{reread:selectedDocument.value?.scan_status==='clean'&&!!context.value.packetRead});if(disposed||generation!==contextGeneration||source!==documentId.value)return;fileCheckMessage.value=data.message;queuedReadId.value=data.readingQueued?Number(context.value.packetRead?.id || 0):null;fileCheckQueued.value=data.readingQueued===true||['queued','pending','running'].includes(data.status);const{data:latest}=await api.get(url);if(disposed||generation!==contextGeneration||source!==documentId.value)return;documents.value=latest.documents||[];updatePacketRead(latest.packetRead);if(data.status==='clean')await viewPacket();}catch(e){if(generation===contextGeneration)fileCheckMessage.value=e.response?.data?.error?.message||'The file check could not complete. Please retry.';}finally{if(generation===contextGeneration)checkingFile.value=false;}
 }
+function updatePacketReading(reading){if(!reading)return;const changed=context.value.packetReading?.snapshotId!==reading.snapshotId;context.value.packetReading=reading;if(changed){englishResponsesReviewed.value=false;for(const response of reading.responses || [])if(!englishAnswers.value[response.key])englishAnswers.value[response.key]=response.englishText || '';}}
 function updatePacketRead(read){if(context.value.packetRead?.id&&Number(context.value.packetRead.id)!==Number(read?.id)){humanEvidence.sourceViewed=false;humanEvidence.denyReviewed=false;signaturesConfirmed.value=false;staffRoiConfirmed.value=false;}context.value.packetRead=read;}
 async function refreshPacketRead(){const generation=contextGeneration,source=documentId.value,{data}=await api.get(endpoint.value,{skipGlobalLoading:true});if(disposed||generation!==contextGeneration||source!==documentId.value)return;updatePacketRead(data.packetRead);}
-async function refreshFileCheck(){const generation=contextGeneration,source=documentId.value,url=endpoint.value;checkingFile.value=true;try{const{data}=await api.get(url);if(disposed||generation!==contextGeneration||source!==documentId.value)return;documents.value=data.documents||[];updatePacketRead(data.packetRead);if(selectedDocument.value?.scan_status==='clean'){if(queuedReadId.value!==null && Number(data.packetRead?.id || 0)===queuedReadId.value){fileCheckMessage.value='Packet reading is still running. Refresh again in a moment; your entered information is still here.';}else{fileCheckQueued.value=false;queuedReadId.value=null;fileCheckMessage.value='File check passed. Review the updated packet details against the PDF.';await insuranceEditor.value?.refreshPaperCoverage?.();await viewPacket();}}}catch(e){if(generation===contextGeneration)fileCheckMessage.value=e.response?.data?.error?.message||'Unable to refresh the file check. Your entered information is still here.';}finally{if(generation===contextGeneration)checkingFile.value=false;}}
+async function refreshFileCheck(){const generation=contextGeneration,source=documentId.value,url=endpoint.value;checkingFile.value=true;try{const{data}=await api.get(url);if(disposed||generation!==contextGeneration||source!==documentId.value)return;documents.value=data.documents||[];updatePacketRead(data.packetRead);updatePacketReading(data.packetReading);if(selectedDocument.value?.scan_status==='clean'){if(queuedReadId.value!==null && Number(data.packetRead?.id || 0)===queuedReadId.value){fileCheckMessage.value='Packet reading is still running. Refresh again in a moment; your entered information is still here.';}else{fileCheckQueued.value=false;queuedReadId.value=null;fileCheckMessage.value='File check passed. Review the updated packet details against the PDF.';await insuranceEditor.value?.refreshPaperCoverage?.();await viewPacket();}}}catch(e){if(generation===contextGeneration)fileCheckMessage.value=e.response?.data?.error?.message||'Unable to refresh the file check. Your entered information is still here.';}finally{if(generation===contextGeneration)checkingFile.value=false;}}
 
 function preparedGuardian(link) {
   let permissions=link?.permissions_json;
@@ -213,8 +220,8 @@ async function loadWorkflow(){const generation=++contextGeneration;hydrated=fals
   if(generation!==contextGeneration||disposed)return;
   documents.value=(data.documents||[]).filter(d=>(String(d.mime_type||'').includes('pdf')||/\.pdf$/i.test(d.original_name||'')));
   insuranceTypes.value=(types.data||[]).filter(t=>t.is_active===true||Number(t.is_active)===1);
-  documentId.value=String(state.value.documentId||data.packetRead?.documentId||documents.value[0]?.id||'');await viewPacket();if(generation!==contextGeneration||disposed)return;
-  const draft=data.workingDraft;if(draft&&Number(draft.documentId)===Number(documentId.value)){Object.assign(demographics,draft.demographics||{});for(let i=0;i<2;i++)if(draft.guardianForms?.[i])guardianForms[i]=draft.guardianForms[i];secondNotListed.value=!!draft.secondNotListed;if(draft.secondPortalAccount!==undefined)secondPortalAccount.value=!!draft.secondPortalAccount;schoolConfirmed.value=!!draft.schoolConfirmed;sharedCustody.value=draft.sharedCustody||'';insuranceTypeId.value=String(draft.insuranceTypeId||'');insuranceReviewed.value=!!draft.insuranceReviewed;if(draft.humanEvidence&&Number(draft.evaluationId)===Number(context.value.packetRead?.id))Object.assign(humanEvidence,draft.humanEvidence);stage.value=state.value.processedAt?6:0;draftMessage.value='Saved entries restored. Start with client demographics and review the packet in order.';}
+  documentId.value=String(state.value.documentId||data.packetRead?.documentId||documents.value[0]?.id||'');englishAnswers.value=Object.fromEntries((packetReading.value?.responses || []).map(response=>[response.key,response.englishText || '']));englishResponsesReviewed.value=!!packetReading.value?.reviewedAt;if(packetReading.value?.sourceLocale==='es')humanEvidence.locale='es';await viewPacket();if(generation!==contextGeneration||disposed)return;
+  const draft=data.workingDraft;if(draft&&Number(draft.documentId)===Number(documentId.value)){if(draft.englishAnswers){englishAnswers.value=draft.englishAnswers;englishResponsesReviewed.value=draft.englishReadingSnapshot===packetReading.value?.snapshotId&&draft.englishResponsesReviewed===true;}Object.assign(demographics,draft.demographics||{});for(let i=0;i<2;i++)if(draft.guardianForms?.[i])guardianForms[i]=draft.guardianForms[i];secondNotListed.value=!!draft.secondNotListed;if(draft.secondPortalAccount!==undefined)secondPortalAccount.value=!!draft.secondPortalAccount;schoolConfirmed.value=!!draft.schoolConfirmed;sharedCustody.value=draft.sharedCustody||'';insuranceTypeId.value=String(draft.insuranceTypeId||'');insuranceReviewed.value=!!draft.insuranceReviewed;if(draft.humanEvidence&&Number(draft.evaluationId)===Number(context.value.packetRead?.id))Object.assign(humanEvidence,draft.humanEvidence);stage.value=state.value.processedAt?6:0;draftMessage.value='Saved entries restored. Start with client demographics and review the packet in order.';}
   await nextTick();hydrated=true;
 }catch(e){if(generation===contextGeneration)error.value=e.response?.data?.error?.message||'Unable to load the paper-packet workflow.';}finally{if(generation===contextGeneration)loading.value=false;}}
 onMounted(loadWorkflow);
@@ -257,7 +264,7 @@ async function next(){
   clearTimeout(draftTimer);await draftQueue.catch(()=>{});draftDirty=false;
   if(stage.value===6)return finish();const generation=contextGeneration,url=endpoint.value;busy.value=true;error.value='';try{
   let data={};
-  if(stage.value===0)data={...demographics,documentId:Number(documentId.value)};
+  if(stage.value===0)data={...demographics,documentId:Number(documentId.value),...(packetReading.value?.responses.length?{englishResponses:{snapshotId:packetReading.value.snapshotId,reviewed:englishResponsesReviewed.value,answers:englishAnswers.value}}:{})};
   if(stage.value===1||stage.value===2)data=stage.value===2&&secondNotListed.value?{notListed:true}:stage.value===2&&!secondPortalAccount.value?{contactOnly:true}:{guardianUserId:await connectGuardian(stage.value-1),reactivateConfirmed:guardianForms[stage.value-1].reactivateConfirmed===true};
   if(stage.value===3)data={schoolConfirmed:schoolConfirmed.value,sharedCustody:sharedCustody.value};
   if(stage.value===4){
@@ -278,7 +285,7 @@ async function finish(){const generation=contextGeneration,url=endpoint.value;bu
  const{data}=await api.post(`${url}/complete`,{signaturesConfirmed:signaturesConfirmed.value,staffRoiConfirmed:staffRoiConfirmed.value});if(disposed||generation!==contextGeneration)return;state.value=data.state;stage.value=6;emit('processed',data.state);
  }catch(e){if(generation===contextGeneration)error.value=e.response?.data?.error?.message||e.message||'Unable to complete processing.';}finally{if(generation===contextGeneration)busy.value=false;}}
 
-function snapshot(){return {documentId:Number(documentId.value),evaluationId:context.value?.packetRead?.id||null,stage:stage.value,demographics:{...demographics},guardianForms:JSON.parse(JSON.stringify(guardianForms)),secondNotListed:secondNotListed.value,secondPortalAccount:secondPortalAccount.value,schoolConfirmed:schoolConfirmed.value,sharedCustody:sharedCustody.value,insuranceTypeId:insuranceTypeId.value,insuranceReviewed:insuranceReviewed.value,humanEvidence:JSON.parse(JSON.stringify(humanEvidence))};}
+function snapshot(){return {documentId:Number(documentId.value),evaluationId:context.value?.packetRead?.id||null,stage:stage.value,demographics:{...demographics},guardianForms:JSON.parse(JSON.stringify(guardianForms)),secondNotListed:secondNotListed.value,secondPortalAccount:secondPortalAccount.value,schoolConfirmed:schoolConfirmed.value,sharedCustody:sharedCustody.value,insuranceTypeId:insuranceTypeId.value,insuranceReviewed:insuranceReviewed.value,humanEvidence:JSON.parse(JSON.stringify(humanEvidence)),...(packetReading.value?.responses.length?{englishAnswers:JSON.parse(JSON.stringify(englishAnswers.value)),englishResponsesReviewed:englishResponsesReviewed.value,englishReadingSnapshot:packetReading.value.snapshotId}:{})};}
 async function saveWorkingDraft(){
  clearTimeout(draftTimer);if(!draftDirty||!documentId.value||state.value.processedAt)return;
  const data=snapshot(),url=endpoint.value,generation=draftGeneration;draftDirty=false;draftSaving=true;draftMessage.value='Saving working draft…';

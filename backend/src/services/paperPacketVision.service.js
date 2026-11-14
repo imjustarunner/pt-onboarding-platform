@@ -1,3 +1,4 @@
+import { paperPacketLocale } from '../utils/paperPacketLocale.js';
 /**
  * Vision evaluation of signed school paper packets.
  * Extracts footer version label, two required signatures (ROI + acknowledgement),
@@ -161,7 +162,7 @@ export async function evaluateAndApplyPaperPacketVision({
   phiDocumentId = null,
   storagePath = null,
   actorUserId = null,
-  locale = 'en'
+  locale = 'auto'
 }) {
   const cid = Number(clientId || 0);
   const sid = Number(schoolOrganizationId || 0);
@@ -231,7 +232,7 @@ export async function evaluateAndApplyPaperPacketVision({
     const ocr = await ReferralOcrService.extractPdfWithVision({
       buffer,
       pagesToScan,
-      languageHint: 'en',
+      languageHint: ['en','es'],
       includePaperInsurance: true
     });
     ocrText=typeof ocr==='string'?ocr:ocr.text;
@@ -252,6 +253,7 @@ export async function evaluateAndApplyPaperPacketVision({
     return { ok: false, status: 'failed', reviewReasons, evalId };
   }
 
+  const packetLocale=paperPacketLocale(ocrText,locale);
   let demographicApply = { attempted: true, filled: [] };
   try {
     demographicApply = await applyPaperPacketDemographicsFromText({
@@ -259,6 +261,7 @@ export async function evaluateAndApplyPaperPacketVision({
       ocrText,
       insuranceText,
       documentId: phiId,
+      locale:packetLocale,
       actorUserId
     });
   } catch (e) {
@@ -268,7 +271,7 @@ export async function evaluateAndApplyPaperPacketVision({
   const versionHit = extractVersionLabelFromText(ocrText);
   const sigs = detectSignaturesFromText(ocrText);
   const matched = versionHit.label
-    ? await findSchoolPacketVersionByLabel(sid, locale, versionHit.label)
+    ? await findSchoolPacketVersionByLabel(sid, packetLocale, versionHit.label)
     : null;
 
   let staffList = parseStaffFromVersion(matched);
@@ -362,7 +365,7 @@ export async function evaluateAndApplyPaperPacketVision({
       clientId: cid,
       schoolOrganizationId: sid,
       packetVersionLabel: matched.version_label || versionHit.label,
-      locale,
+      locale:packetLocale,
       confirmedByUserId: actorUserId
     });
 

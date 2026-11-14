@@ -1,3 +1,4 @@
+import {paperReadingForStaff,reviewedPaperReadingPatch} from './paperPacketReading.service.js';
 import ClientContactAffiliation from '../models/ClientContactAffiliation.model.js';
 import {withPaperProcessingClientLock} from './paperProcessingSource.service.js';
 import crypto from 'node:crypto';
@@ -74,7 +75,7 @@ export async function paperProcessingContext(clientId, overrides = {}) {
   const deps = dependencies(overrides), client = await readClient(clientId, deps);
   const [guardians, school, vision, documents] = await Promise.all([deps.guardians.listForClient(client.id), deps.agencies.findById(client.organization_id), deps.vision(client.id), deps.documents.findSchoolPaperPacketsForClient(client.id)]);
   const fields = ['id','agency_id','organization_id','full_name','date_of_birth','gender','grade','address_street','address_apt','address_city','address_state','address_zip','preferred_language','primary_parent_language','insurance_type_id'];
-  return { client: Object.fromEntries(fields.map(key => [key, client[key] ?? null])), schoolName: school?.name || '',
+  return { packetReading:paperReadingForStaff(client),client: Object.fromEntries(fields.map(key => [key, client[key] ?? null])), schoolName: school?.name || '',
     documents: (documents || []).filter(doc => (doc.referral_draft_id || doc.source_referral_draft_id) && !doc.removed_at
       && Number(doc.client_id) === Number(client.id) && Number(doc.agency_id) === Number(client.agency_id) && Number(doc.school_organization_id) === Number(client.organization_id))
       .map(doc => ({ id:doc.id, original_name:doc.original_name, mime_type:doc.mime_type, scan_status:doc.scan_status })),
@@ -106,6 +107,8 @@ async function saveStep({ clientId, actorId, step, data = {} }, overrides = {}) 
     for (const key of ['gender','grade','address_street','address_apt','address_city','address_state','address_zip','preferred_language']) {
       if (data[key] != null) patch[key] = String(data[key]).trim().slice(0,255);
     }
+    const reviewedResponses=reviewedPaperReadingPatch(client,data.englishResponses,actorId,{encrypt:deps.encryptDraft,documentId:doc.id});
+    if(reviewedResponses)patch.paper_packet_demo_candidate_enc=reviewedResponses;
     await deps.clients.update(client.id, patch, actorId);
     if (state.documentId && Number(state.documentId) !== Number(doc.id)) {
       // Keep entered demographics/contact/coverage data; the replacement needs
@@ -244,8 +247,8 @@ async function saveWorkingDraft(client,data,actorId,deps){
  const evaluation=await deps.vision(client.id);if(evaluation&&Number(data.evaluationId)!==Number(evaluation.id))throw fail('The packet reading changed. Reload before saving this working draft.',409);
  const current=Number(object(client.onboarding_docs_json).paperPacketSource?.documentId||state.documentId||data.documentId);
  if(!doc||doc.removed_at||!(doc.referral_draft_id||doc.source_referral_draft_id)||Number(doc.client_id)!==Number(client.id)||Number(doc.agency_id)!==Number(client.agency_id)||Number(doc.school_organization_id)!==Number(client.organization_id)||current!==Number(doc.id))throw fail('The packet source changed. Reload the current packet before saving this working draft.',409);
- const snapshot={};for(const key of ['stage','demographics','guardianForms','secondNotListed','secondPortalAccount','schoolConfirmed','sharedCustody','insuranceTypeId','insuranceReviewed','humanEvidence'])if(data[key]!==undefined)snapshot[key]=data[key];
- if(JSON.stringify(snapshot).length>24000)throw fail('This working draft is too large. Save the current step instead.');
+ const snapshot={};for(const key of ['stage','demographics','guardianForms','secondNotListed','secondPortalAccount','schoolConfirmed','sharedCustody','insuranceTypeId','insuranceReviewed','humanEvidence','englishAnswers','englishResponsesReviewed','englishReadingSnapshot'])if(data[key]!==undefined)snapshot[key]=data[key];
+ if(JSON.stringify(snapshot).length>(snapshot.englishAnswers?64000:24000))throw fail('This working draft is too large. Save the current step instead.');
  if(!state.documentId)state.documentId=Number(doc.id);
  const savedAt=new Date().toISOString();state.workingDraftEnc=deps.encryptDraft({...snapshot,clientId:client.id,agencyId:client.agency_id,schoolId:client.organization_id,documentId:doc.id,evaluationId:evaluation?.id||null,savedAt,savedByUserId:actorId});
  await writeState(client,state,actorId,deps);return {...publicState(state),workingDraftSavedAt:savedAt};

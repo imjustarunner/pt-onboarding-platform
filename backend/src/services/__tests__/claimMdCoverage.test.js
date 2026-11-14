@@ -8,8 +8,21 @@ const insurance=()=>({primary:{payerId:'TEST',insurerName:'Test Insurance',membe
 const profile={officeId:8,billingNpi:'1306688650',practice:{tax_id:'123456789',name:'Synthetic Agency'}};
 beforeEach(()=>{vi.stubEnv('FAMILY_BILLING_ENCRYPTION_KEY_BASE64',Buffer.alloc(32,7).toString('base64'));});
 describe('client-scoped eligibility and other coverage',()=>{
+ it.each(['Child','Parent'])('uses the supplied Medicaid ID only when the listed holder is the client (%s)',holder=>{
+  const info=insurance();info.primary={isMedicaid:true,eligibilityPayerId:'SKCO0',memberId:'P123456',subscriberFirstName:'Child',subscriberLastName:'Test',subscriberDob:info.patient.dateOfBirth,relationshipToSubscriber:'self',paperSubscriberName:`${holder} Test`,paperReportedMemberId:'P123456'};
+  const request=buildEligibilityRequest({insurance:info,slot:'primary',serviceDate:'2026-11-10',profile});
+  expect(request).toMatchObject({ins_name_f:'Child',ins_name_l:'Test',ins_dob:'20100301'});
+  if(holder==='Child')expect(request.ins_number).toBe('P123456');else expect(request).not.toHaveProperty('ins_number');
+ });
+ it.each([{ins_name_f:'Child',ins_name_l:'Test',ins_dob:'20100301',match:true},{ins_name_f:'Parent',ins_name_l:'Test',ins_dob:'19800201',match:false},{ins_name_f:'Child',ins_name_l:'Other',ins_dob:'20100301',match:false},{ins_name_f:'Child',ins_name_l:'Test',ins_dob:'20100302',match:false}])('requires the returned Medicaid identity to match the client: %j',async({match,...identity})=>{
+  const info=insurance();info.secondary={...info.primary,isMedicaid:true,eligibilityPayerId:'SKCO0',memberId:'P123456'};
+  const request=vi.fn(async()=>({elig:{...identity,ins_number:'C123456',benefit:{benefit_code:'30',benefit_coverage_code:'1'}}}));
+  const db={execute:vi.fn().mockResolvedValue([{insertId:11}])},applyProfile=vi.fn();
+  const checked=await runCoverageCheck({agencyId:2,clientId:4,slot:'secondary',serviceDate:'2026-11-10',requestKey:'child-identity-test',profile},{db,request,readInsurance:async()=>info,applyProfile,queueFollowUp:vi.fn()});
+  expect(request.mock.calls[0][0].payload).not.toHaveProperty('ins_number');expect(checked.summary.identityMatches).toBe(match);expect(applyProfile).toHaveBeenCalledTimes(match?1:0);
+ });
  it('flags a different returned member ID after a demographics fallback instead of verifying the saved ID',async()=>{
-  const info=insurance();info.primary={...info.primary,isMedicaid:true,eligibilityPayerId:'SKCO0',memberId:'OLD-ID'};
+  const info=insurance();info.primary={...info.primary,isMedicaid:true,eligibilityPayerId:'SKCO0',memberId:'OLD-ID',relationshipToSubscriber:'self',subscriberFirstName:'Child',subscriberDob:'2010-03-01'};
   const result={elig:{ins_number:'NEW-ID',ins_name_f:'Child',ins_name_l:'Test',ins_dob:'20100301',benefit:{benefit_code:'30',benefit_coverage_code:'1'}}};
   const db={execute:vi.fn().mockResolvedValue([{insertId:11}])},queueFollowUp=vi.fn(),applyProfile=vi.fn();
   const checked=await runCoverageCheck({agencyId:2,clientId:4,slot:'primary',serviceDate:'2026-11-10',requestKey:'demographic-fallback',lookupMode:'demographics',profile},{db,request:async()=>result,readInsurance:async()=>info,queueFollowUp,applyProfile});
@@ -56,7 +69,7 @@ describe('client-scoped eligibility and other coverage',()=>{
   expect(summarizeEligibility({elig:{benefit:{benefit_code:'MH',benefit_coverage_code:'1'}}}).status).toBe('review_required');
  });
  it.each(['R','U'])('routes other-payer code %s to billing even when plan coverage is active',async(code)=>{
-  const result={elig:{ins_number:'SYNTHETIC',ins_name_f:'Child',ins_name_l:'Test',ins_dob:'20100301',benefit:[{benefit_code:'30',benefit_coverage_code:'1'},{benefit_code:'30',benefit_coverage_code:code,entity_name:'Synthetic other carrier'}]}};
+  const result={elig:{ins_number:'C123456',ins_name_f:'Child',ins_name_l:'Test',ins_dob:'20100301',benefit:[{benefit_code:'30',benefit_coverage_code:'1'},{benefit_code:'30',benefit_coverage_code:code,entity_name:'Synthetic other carrier'}]}};
   expect(summarizeEligibility(result,{payerId:'SKCO0'})).toMatchObject({status:'active_reported',otherCoverageReported:true});
   const db={execute:vi.fn().mockResolvedValue([{insertId:10}])},queueFollowUp=vi.fn().mockResolvedValue(90),request=vi.fn().mockResolvedValue(result);
   const info=insurance();info.primary.eligibilityPayerId='SKCO0';info.primary.isMedicaid=true;
