@@ -50,7 +50,7 @@ it('keeps one child while switching between agencies and two services in one age
  await w.findAll('.family-profile-card button').find(b=>b.text().includes('Reading tutoring')).trigger('click');await flushPromises();
  expect(router.currentRoute.value.path).toBe('/nlu/guardian');expect(router.currentRoute.value.query.serviceId).toBe('12');expect(useGuardianStore().selectedChildId).toBe(3);
  expect(w.findComponent({name:'GuardianTutoringDashboard'}).props('clientId')).toBe(3);expect(w.findComponent(Shell).props('brandName')).toBe('Next Level Up');
- const selector=w.findAll('.context-picker').find(s=>s.text().includes('Service & provider'));
+ const selector=w.findAll('.context-picker').find(s=>s.text().includes('Service & team'));
  await selector.find('.picker-trigger').trigger('click');
  await selector.findAll('[role=option]').find(o=>o.text().includes('Counseling')).trigger('click');await flushPromises();
  expect(router.currentRoute.value.query.serviceId).toBe('13');expect(useGuardianStore().selectedChildId).toBe(3);expect(w.findComponent({name:'GuardianTutoringDashboard'}).exists()).toBe(false);expect(w.findComponent(Shell).props('brandName')).toBe('AuricWell');

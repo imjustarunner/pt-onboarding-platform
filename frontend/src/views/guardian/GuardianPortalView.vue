@@ -746,7 +746,7 @@ const registrationEnrollPayerType = ref('');
 const registrationEnrollSaving = ref(false);
 const registrationEnrollError = ref('');
 
-const activePanel = ref(['assistance','checkins','evaluations','overview','family','family_billing','family_messages','onboarding','updates','help','schoolcarebridge','tutoring','registrations','history','appointments','documents','child','billing','payment_methods','messages','account','dependents','contact','plan','notifications','notification_history'].includes(route.query.panel) ? route.query.panel : 'family');
+const activePanel = ref(['enroll','assistance','checkins','evaluations','overview','family','family_billing','family_messages','onboarding','updates','help','schoolcarebridge','tutoring','registrations','history','appointments','documents','child','billing','payment_methods','messages','account','dependents','contact','plan','notifications','notification_history'].includes(route.query.panel) ? route.query.panel : 'family');
 const pendingEnrollmentState = ref({ loaded: false, pending: false });
 const selectedChildId = computed({
   get: () => guardianStore.selectedChildId,
@@ -972,7 +972,7 @@ const careAgencyLogo = computed(() => profileAgencyLogo(selectedChild.value) || 
 function profileLabel(profile) { return profile ? `${childDisplayName(profile)}${profile.relationship_type === 'self' ? ' (you)' : ''}` : 'Choose a profile'; }
 async function chooseFamilyProfile(id, panel = null, agencyId = null, serviceId = null) {
   const profile = allFamilyProfiles.value.find(p => Number(p.client_id) === Number(id));
-  const contexts=profile?.care_contexts||[];
+  const contexts=profile?.care_contexts?.length?profile.care_contexts:(profile?[{...profile,services:profile.services||[]}]:[]);
   const aid=agencyId||(contexts.some(c=>Number(c.agency_id)===currentAgencyId.value)?currentAgencyId.value:profile?.agency_id);
   const agency = profile && familyAgencies.value.find(a => Number(a.id) === Number(aid));
   if (!profile || !agency?.slug) return;
