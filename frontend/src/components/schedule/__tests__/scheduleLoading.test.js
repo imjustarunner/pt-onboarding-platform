@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { flushPromises, shallowMount, mount as mountComponent } from '@vue/test-utils';
+import { DOMWrapper, flushPromises, shallowMount, mount as mountComponent } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import { reactive } from 'vue';
 
@@ -558,11 +558,13 @@ it('keeps the linked appointment context through a real calendar cell and cancel
  expect(state.editorSessionServiceCode).toBe('90834');
  expect(state.editorServiceLocationId).toBe(125);
  m.post.mockResolvedValue({data:{appointment:{id:104},sessions:[{id:166,clientId:2273}]}});
- const sessionTab=wrapper.findAll('button').find(button=>button.text().includes('Session note'));
+ const dialog=new DOMWrapper(document.body).get('.modal-backdrop--request');
+ expect(wrapper.find('.modal-backdrop--request').exists()).toBe(false);
+ const sessionTab=dialog.findAll('button').find(button=>button.text().includes('Session note'));
  expect(sessionTab).toBeTruthy();await sessionTab.trigger('click');await flushPromises();
  expect(m.post).toHaveBeenCalledWith('/appointments/104/context');
  expect(wrapper.findComponent({name:'OfficeEventSessionNotePanel'}).props()).toMatchObject({clinicalSessionId:166,officeEventId:0,clientId:2273,serviceCode:'90834'});
- const button=wrapper.findAll('button').find(button=>button.text()==='Cancel / Missed session');
+ const button=dialog.findAll('button').find(button=>button.text()==='Cancel / Missed session');
  expect(button).toBeTruthy();
  await button.trigger('click');await flushPromises();
  expect(state.appointmentChange.open.value).toBe(true);
