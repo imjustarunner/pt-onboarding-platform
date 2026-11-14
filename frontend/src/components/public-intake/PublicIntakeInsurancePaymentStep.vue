@@ -151,7 +151,7 @@
             @click="paymentChoice = 'na'"
           >
             <strong>{{ tx('N/A — Not Paying Now') }}</strong>
-            <span class="pi-ip-choice-sub">{{ tx('For insurance-only billing or staff follow-up.') }}</span>
+            <span class="pi-ip-choice-sub">{{ tx(tutoringPayment ? 'Discuss tutoring payment with the office. No card is required for this request.' : 'For insurance-only billing or staff follow-up.') }}</span>
           </button>
         </div>
 

@@ -1,3 +1,4 @@
+import { tutoringIntakeSteps } from '../../../frontend/src/navigation/tutoringEnrollmentPolicy.js';
 import { buildPsc17Fields, buildStandardQuestionnaireFields } from '../data/validatedClinicalScreens.en.js';
 
 const ADULT_INSTRUMENTS = new Set(['phq9', 'gad7', 'auditc', 'dast10', 'pcptsd5', 'asrs', 'mdq']);
@@ -112,7 +113,9 @@ function insertChildPsc17Step(steps) {
  * flows ensure the school PSC-17 items are present so they score in Clinical.
  * School packets are left alone except for empty-page hydration.
  */
-export function hydrateOfficeQuestionnaireSteps(steps, { isOffice = false } = {}) {
+export function hydrateOfficeQuestionnaireSteps(steps, { isOffice = false, enrollmentChannel = '', locale = 'en' } = {}) {
+  // A tutoring packet can inherit office layout, but must never acquire clinical screens.
+  if (enrollmentChannel === 'tutoring') return tutoringIntakeSteps(steps, { locale });
   const hydrated = (Array.isArray(steps) ? steps : []).map((step) => {
     const filled = hydrateEmptyStep(step, { isOffice });
     return isOffice ? tagAdultQuestionnaireAudience(filled) : filled;

@@ -1,13 +1,13 @@
 <template>
   <div class="pi-pkg">
     <p class="pi-pkg-lead">
-      {{ tx('Choose the package that best fits your needs. You can review insurance and payment details on the next step.') }}
+      {{ tx(tutoring ? 'Choose the tutoring package that best fits your needs. Payment preferences are reviewed separately; no card is required for this request.' : 'Choose the package that best fits your needs. You can review insurance and payment details on the next step.') }}
     </p>
 
     <div v-if="loading" class="pi-pkg-loading">{{ tx('Loading packages…') }}</div>
     <div v-else-if="error" class="pi-pkg-error">{{ error }}</div>
     <div v-else-if="!packages.length" class="pi-pkg-empty">
-      {{ tx('No public packages are listed for this enrollment right now. Continue to insurance and payment.') }}
+      {{ tx(tutoring ? 'No public tutoring packages are listed right now. Continue to payment preferences or discuss options with the office.' : 'No public packages are listed for this enrollment right now. Continue to insurance and payment.') }}
     </div>
 
     <div v-else class="pi-pkg-grid">
@@ -43,7 +43,8 @@ const props = defineProps({
   modelValue: { type: Object, default: () => ({}) },
   publicKey: { type: String, required: true },
   translations: { type: Object, default: () => ({}) },
-  requireSelection: { type: Boolean, default: false }
+  requireSelection: { type: Boolean, default: false },
+  tutoring: { type: Boolean, default: false }
 });
 
 const emit = defineEmits(['update:modelValue', 'packages-loaded', 'empty-catalog']);

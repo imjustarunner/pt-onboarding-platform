@@ -25,3 +25,12 @@ it('collects practical matching details without sending answers to the catalog',
 it('does not load a different agency catalog when agency identity is missing',async()=>{
  api.get.mockClear();const w=mount(Questions);await flushPromises();expect(api.get).not.toHaveBeenCalled();w.unmount();
 });
+
+it('keeps the tutoring request short and explains provider-dependent prices without implying pricing is missing',async()=>{
+ api.get.mockResolvedValueOnce({data:{catalog:{packages:[{id:'four',name:'Four visits',program:'tutoring',totalCents:null,components:[{pricingMode:'provider-discount',sessions:4,minutes:60}]}]}}});
+ const w=mount(Questions,{props:{agencySlug:'nlu-qa-demo',modelValue:{program:'tutoring'}}});await flushPromises();
+ expect(w.findAll('.reflection-item')).toHaveLength(0);
+ expect(w.text()).not.toContain('emotional, attention, or social challenges');
+ expect(w.text()).toContain('Choose a tutor to see your price');expect(w.text()).not.toContain('Contact us for pricing');
+ expect(w.find('.learning-matching-details').element.tagName).toBe('DETAILS');w.unmount();
+});

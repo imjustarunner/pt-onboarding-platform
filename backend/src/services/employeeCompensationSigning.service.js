@@ -17,6 +17,9 @@ export async function requireEmployeeCompensationSignatureAccess(task,user,{coun
   FROM contract_generations WHERE task_id=?
   AND JSON_UNQUOTE(JSON_EXTRACT(token_values_json,'$.createdVia'))='employee_compensation_ui' LIMIT 1`,[task.id]);
  if(!generation)return false;
+ if(['overridden','archived','deleted','cancelled','canceled'].includes(String(task.status).toLowerCase())) {
+  throw Object.assign(new Error('This compensation agreement was withdrawn. Open your current agreement instead.'),{status:409});
+ }
  const data=parse(generation.token_values_json),agencyId=Number(generation.agency_id),employeeId=Number(generation.candidate_user_id);
  if(data.draftKind!=='provider_update_compensation'||!generation.user_specific_document_id||!data.releasedAt
    ||Number(task.reference_id)!==Number(generation.user_specific_document_id)

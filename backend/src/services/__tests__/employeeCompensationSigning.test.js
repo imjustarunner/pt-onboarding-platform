@@ -9,6 +9,7 @@ vi.mock('../../models/User.model.js',()=>({default:{}}));
 vi.mock('../storage.service.js',()=>({default:{}}));
 vi.mock('../agencyAccessProfiles.service.js',()=>({readAgencyAccess:m.access}));
 import DocumentSigningService from '../documentSigning.service.js';
+import { requireEmployeeCompensationSignatureAccess } from '../employeeCompensationSigning.service.js';
 
 let task,generation,actor;
 beforeEach(()=>{
@@ -47,4 +48,9 @@ describe('the portal signing service enforces the issued compensation employment
   await expect(portalSign()).resolves.toMatchObject({alreadyFinalized:true});
   expect(m.execute.mock.calls.some(([sql])=>sql.includes('FROM users u JOIN user_agencies'))).toBe(false);
  });
+});
+
+it.each(['overridden','archived','deleted','cancelled'])('rejects the withdrawn %s compensation agreement before recording a new signature',async status=>{
+ task.status=status;
+ await expect(requireEmployeeCompensationSignatureAccess(task,{id:30,role:'staff'})).rejects.toMatchObject({status:409});
 });

@@ -39,7 +39,7 @@
     <p v-if="link?.care_invitation" class="care-invitation-notice" role="status" style="padding:14px;border-left:3px solid #21646b;background:#eef6f5">
       {{ link.care_invitation.providerName }} has invited you to complete enrollment.
       Your invitation is connected to this provider for {{ link.care_invitation.modality === 'IN_PERSON' ? 'in-person' : 'virtual' }} care.
-      Assignment and any requested appointment will be confirmed after your signed paperwork and insurance verification are complete.
+      {{ isTutoringEnrollment ? 'Your tutor and any requested appointment will be confirmed after your tutoring enrollment is reviewed.' : 'Assignment and any requested appointment will be confirmed after your signed paperwork and insurance verification are complete.' }}
     </p>
     <p v-if="progressSaveError" class="error" role="alert">{{ progressSaveError }} <button type="button" @click="saveServerProgress()">{{ tx('Try saving again') }}</button></p>
     <template #billing-actions>
@@ -1493,7 +1493,7 @@
           v-if="showInterviewPageLead"
           class="ai-page-lead"
         >{{ currentFlowStepHelperText }}</p>
-        <LearningEnrollmentQuestions v-if="currentFlowStep?.sourceId==='learning-enrollment'||currentFlowStep?.id==='learning-enrollment'" :model-value="learningForCurrentClient" :provider-id="selectedOfficeProviderIds.length===1?selectedOfficeProviderIds[0]:undefined" @update:model-value="setCurrentLearning($event)" :program="['bridge','academic-acceleration'].includes(route.query.program)?route.query.program:'tutoring'" :agency-slug="agencyInfo?.slug||referralAgencySlug||''" full/>
+        <LearningEnrollmentQuestions v-if="currentFlowStep?.sourceId==='learning-enrollment'||currentFlowStep?.id==='learning-enrollment'" :model-value="learningForCurrentClient" :provider-id="selectedOfficeProviderIds.length===1?selectedOfficeProviderIds[0]:undefined" @update:model-value="setCurrentLearning($event)" :program="['bridge','academic-acceleration'].includes(route.query.program)?route.query.program:'tutoring'" :agency-slug="agencyInfo?.slug||referralAgencySlug||''" :full="!isTutoringEnrollment"/>
         <DigitalFormNotice
           v-if="showClinicalSafetyBanner"
           variant="warn"
@@ -1765,6 +1765,7 @@
             :model-value="intakeResponses.submission.selectedPackageInfo || {}"
             :public-key="publicKey"
             :require-selection="officePackageCatalogEmpty === false"
+            :tutoring="isTutoringEnrollment"
             :translations="stringTranslations"
             @update:model-value="(v) => { intakeResponses.submission.selectedPackageInfo = v; }"
             @packages-loaded="onOfficePackagesLoaded"

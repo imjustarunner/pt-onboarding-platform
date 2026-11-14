@@ -503,7 +503,7 @@ async function completePractice(id) {
   }
 }
 
-watch(()=>[props.clientId,authStore.user?.id,authStore.user?.email,unref(careContext)?.agencyId,unref(careContext)?.serviceId],()=>{closeBuyDrawer();cardholderName.value='';selectedPackageId.value=null;clientSecret.value=null;void load();});
+watch([()=>props.clientId,()=>authStore.user?.id,()=>authStore.user?.email,()=>unref(careContext)?.agencyId,()=>unref(careContext)?.serviceId],()=>{closeBuyDrawer();cardholderName.value='';selectedPackageId.value=null;clientSecret.value=null;void load();});
 watch(selectedPackageId, async (id, prev) => {
   if (buyOpen.value && id && id !== prev) {
     await prepareCheckout();

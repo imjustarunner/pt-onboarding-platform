@@ -36,3 +36,9 @@ it.each(['requires_payment_method','processing'])('keeps a %s scenario pending a
 it('does not confirm an old payment against a newly selected organization',async()=>{
  let resolve;api.post.mockImplementation(()=>new Promise(done=>resolve=done));const w=await checkout();await button(w,'Simulate $180.00 purchase').trigger('click');care.value={agencyId:454,serviceId:2000};await flushPromises();resolve({data:{paymentIntent:{id:'qa_pi_saved',status:'succeeded'}}});await flushPromises();expect(packages.confirmGuardianPackage).not.toHaveBeenCalled();expect(w.find('.qa-payment').exists()).toBe(false);w.unmount();
 });
+
+it('keeps an open checkout when a same-service portal-context refresh replaces its object',async()=>{
+ const w=await checkout();care.value={agencyId:453,serviceId:1038,refreshed:true};await flushPromises();
+ expect(w.find('.gtd-drawer').exists()).toBe(true);expect(w.find('.qa-payment').exists()).toBe(true);
+ expect(packages.checkoutGuardianPackage).toHaveBeenCalledOnce();w.unmount();
+});

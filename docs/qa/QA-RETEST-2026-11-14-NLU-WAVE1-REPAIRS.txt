@@ -1,0 +1,100 @@
+NLU WAVE 1 REPAIRS AND QA APPROVAL OPERATOR — NOVEMBER 14, 2026
+
+This supplements the prior NLU + ITSCO plan and all historical NR/TU/TE/RR/CC/RD
+results. Source validation and configuration are not completed live case passes.
+Use Enrollment for tutoring. Keep live NLU6 unchanged and clinical features off
+in NLU QA453/454. Preserve visits290/291, learning sessions2/3, old Casey shift1,
+punches563/564 and claim844. Reuse the retained synthetic people and packages76/77.
+The owner specifically authorized the additional QA administrator described below;
+that is not permission to create duplicate families or reset previous evidence.
+
+OWNER DECISIONS AND QA EXCEPTION
+- Melissa approves real childcare work. Haley Inyart countersigns real employee
+  agreements. This repair does not change their real accounts or live-company roles.
+- The owner then authorized a separate synthetic QA administrator so weekend
+  tests do not depend on those staff. Riley QA Readiness Administrator, user1807,
+  logical username qa.admin.readiness@example.com, belongs only to NLU QA453 and
+  its automatically affiliated learning program454. No membership in live6,
+  ITSCO's real companies, or clinical/school QA450/451/452 was added.
+- The bot may use this exact QA account for scoped setup and synthetic approvals
+  after engineering confirms the release's task-access repair. This supersedes
+  historical blanket "no admin login" only for Riley1807 in453/454. Do not give
+  the bot setup administrator1435, Haley's real account or Melissa's real account.
+- Passwords are in the existing local secrets store, never this packet. If the
+  bot's separate vault needs an entry, import the supplied private login there;
+  a local credentials file alone does not prove its external vault was updated.
+
+REPAIR EXPECTATIONS
+- Final effective tutoring forms never append PSC-17, PHQ/GAD or other clinical
+  questionnaires merely because they inherit office layout. Their API must not
+  advertise clinical questionnaire fields/screens. Clinical forms keep their
+  separate required screens and consent rules.
+- The parent's Enroll entry offers the published tutoring master in a learning-only
+  organization, not the office master. Signed-in identity stays server-bound.
+  Old misrouted drafts remain stored but are not offered as clinical continuations
+  in a learning-only organization. Tutoring draft to-dos never request insurance.
+- Tutoring requests keep matching details optional/collapsed and omit the expanded
+  emotional reflection used by other learning flows. Tutoring-specific payment,
+  invitation and package copy omits insurance requirements. Separate optional
+  permissions remain initially unselected, with normal attestation when chosen.
+- Package prices depending on a provider say to choose a tutor instead of implying
+  the office has no rates. The retained quote API currently returns Finley1496,
+  $180 virtual/$198 in person for76/77. Verify the actual parent UI and purchase.
+- A background context refresh with unchanged identity/agency/service must not
+  close the package drawer. A real client, payer, agency or service change must
+  invalidate old checkout state. Never confirm one person's checkout for another.
+- Pure learning contexts do not call clinical supervision history endpoints.
+  The beta virtual office remains a nonclinical room; it is not approved for
+  clinical care or a HIPAA certification. Real two-way media is still required.
+- Task read/render/list/assignment/override/delete/reminder/due-date administration
+  uses the task's actual agency, not just the caller's admin label or QA header.
+  Foreign tasks are denied. Withdrawn compensation requests cannot acquire new
+  employee or employer signatures. Existing signed originals stay immutable.
+
+APPROVAL AND PAY SETUP
+- Riley1807 is the synthetic employer countersigner and QA childcare approver.
+  Finley1496 and Casey1771 each review/sign only their own synthetic agreement.
+- Engineering must inspect original requests2583/2585 and their counter-tasks.
+  If still unsigned/pending, use the supported withdrawal/override operation,
+  retain their history, and issue newly reviewed requests designating Riley.
+  Do not erase drafts64/65 or rewrite an executed signature. Record new IDs and
+  any already-completed state instead of replaying signatures.
+- New synthetic Denver shifts use the reviewed2026 Denver minimum input$19.29/h,
+  with its actual source URL and a SYNTHETIC QA jurisdiction label. This does not
+  establish a real worker's location or alter old shifts. A rate below the floor
+  must preserve punches and require review, rather than silently changing an
+  agreement or posting payroll. No automatic childcare indirect allowance.
+- The known one/two/three/four-child inputs remain Casey17/21/23/25 and
+  Finley22/26/28/30. Use ceil(actual children / clocked-in assigned caregivers),
+  real intervals and normal effective dates. Test the below-floor band explicitly.
+- Devon1772 stays pending legitimate real-identifier prerequisites. Do not invent
+  an SSN or background check. No real card, bank change, payroll approval/export,
+  claim submission or live-family invoice is authorized.
+
+FRESH CASES — START NOT RUN UNTIL ACTUALLY VERIFIED LIVE
+case_id,original_cases,expected,status,build,actor_id,agency_id,object_ids,denver_time,utc_offset,audit_ids,evidence,actual,finding
+NW01,RR01/RR04/RD06,Tutoring public form has no appended clinical screen and accepts the valid tutoring request,NOT RUN,,,,,,,,,,
+NW02,RR01/RD06,Parent Enroll selects published tutoring form and binds Morgan1759,NOT RUN,,,,,,,,,,
+NW03,RR01/RD06,Wrong office draft preserved but not offered in learning-only portal; no insurance to-dos,NOT RUN,,,,,,,,,,
+NW04,RD06,Short tutoring request omits expanded emotional reflection; optional details remain editable,NOT RUN,,,,,,,,,,
+NW05,RR05A/RD08,Choose package76 and Finley1496; show$180;77 shows$198; no inherited$0,NOT RUN,,,,,,,,,,
+NW06,RR05A/RD08,Same-service background refresh preserves open drawer and selected provider/quote,NOT RUN,,,,,,,,,,
+NW07,RD08/QS01,Explicit zero-card simulation succeeds once and grants one correct entitlement,NOT RUN,,,,,,,,,,
+NW08,RD08,Real client/payer/service switch invalidates old checkout; no cross-context confirmation,NOT RUN,,,,,,,,,,
+NW09,RD02,Finley learning navigation makes no clinical-supervision history request,NOT RUN,,,,,,,,,,
+NW10,CC00/RD09,Riley1807 signs in and manages only QA453/454; foreign task/data denied,NOT RUN,,,,,,,,,,
+NW11,CC00/RD09,Separate QA employee and Riley countersignatures have correct identity/time/version,NOT RUN,,,,,,,,,,
+NW12,CC00/RD09,Old withdrawn request cannot be signed or used to authorize pay; history retained,NOT RUN,,,,,,,,,,
+NW13,CC01/RD09,New Denver QA shift inherits reviewed floor and retains planned child count,NOT RUN,,,,,,,,,,
+NW14,CC00-CC25/RD09,Actual child count and clocked staffing splits apply each employee's own bands,NOT RUN,,,,,,,,,,
+NW15,CC00-CC25/RD09,Below-floor/missing attendance preserves punches and requires review,NOT RUN,,,,,,,,,,
+NW16,TE01,Actual inbox receipt for reference1597; no resend of1597/6347/6349/6463,NOT RUN,,,,,,,,,,
+NW17,RR05B,Authorized QA admin edits/unpublishes/restores76/77 with stable IDs and no repricing,NOT RUN,,,,,,,,,,
+NW18,RD01,New virtual visit with real media and end-once; preserve290/291 and observe real access window,NOT RUN,,,,,,,,,,
+
+EVIDENCE
+For each actual run record build, actor and exact objects, normal click path,
+America/Denver timestamp with offset, screenshot, expected/actual, audit row and
+PASS/FAIL/BLOCKED/NOT RUN. Source checks do not close earlier failures. Receipt
+1597 is an actual inbox check; transport acceptance is insufficient. The owner
+confirmed the QA bot can check testing@. No message was resent by this repair.

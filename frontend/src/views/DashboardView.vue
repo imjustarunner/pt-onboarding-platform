@@ -1390,7 +1390,7 @@ import SchoolClosureDashboardNotice from '../components/notifications/SchoolClos
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../store/auth';
 import { useAgencyStore } from '../store/agency';
-import { serviceWorkspace } from '../utils/nluWorkspace.js';
+import { serviceWorkspace, canLoadClinicalSupervision } from '../utils/nluWorkspace.js';
 import TutoringStudentsView from './tutoring/TutoringStudentsView.vue';
 import { useUserPreferencesStore } from '../store/userPreferences';
 import { useBrandingStore } from '../store/branding';
@@ -1853,8 +1853,8 @@ const isHourlyWorkerUser = computed(() => {
 });
 
 const hasClinicalSupervision = computed(() => !!(authStore.user?.has_clinical_supervision || authStore.user?.capabilities?.hasClinicalSupervision));
-watch(() => authStore.user?.id, async id => {
-  if (!id || props.previewMode) return;
+watch([() => authStore.user?.id, () => currentAgencyId.value], async ([id]) => {
+  if (!id || props.previewMode || !canLoadClinicalSupervision(authStore.user,agencyStore.currentAgency)) return;
   try {
     const { data } = await api.get('/supervision/my-history-status', {skipGlobalLoading:true});
     if (authStore.user?.id === id) authStore.user.has_clinical_supervision = !!data.hasClinicalSupervision;

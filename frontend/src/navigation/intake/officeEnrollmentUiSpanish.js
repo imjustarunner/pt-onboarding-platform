@@ -1,5 +1,9 @@
 /** Spanish display copy for office enrollment steps; stored answers and consent choices are unchanged. */
 export const OFFICE_ENROLLMENT_UI_ES = {
+  "Choose the tutoring package that best fits your needs. Payment preferences are reviewed separately; no card is required for this request.": "Elija el paquete de tutoría que mejor se adapte a sus necesidades. Las preferencias de pago se revisan por separado; no se requiere una tarjeta para esta solicitud.",
+  "No public tutoring packages are listed right now. Continue to payment preferences or discuss options with the office.": "No hay paquetes públicos de tutoría disponibles en este momento. Continúe a las preferencias de pago o consulte las opciones con la oficina.",
+  "Discuss tutoring payment with the office. No card is required for this request.": "Hable sobre el pago de la tutoría con la oficina. No se requiere una tarjeta para esta solicitud.",
+  "Choose a tutor to see your price": "Elija un tutor para ver el precio",
   "Tell us whether you will use insurance or self-pay for services.": "Indique si usará un seguro o pagará los servicios por su cuenta.",
   "Friends and getting along with others": "Amistades y relaciones con otras personas",
   "Mother": "Madre",

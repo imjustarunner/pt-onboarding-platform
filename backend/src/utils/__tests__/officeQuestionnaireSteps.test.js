@@ -43,3 +43,14 @@ describe('hydrateOfficeQuestionnaireSteps', () => {
     assert.equal(steps.filter((s) => (s.fields || []).some((f) => f.key === 'psc_1')).length, 1);
   });
 });
+
+it('keeps inherited office layout from injecting clinical questions into tutoring', () => {
+  const original=[{id:'questionnaires',type:'clinical_questions',label:'Standard Questionnaires',fields:[]},
+    {id:'questionnaires_psc17',type:'questions',fields:[{key:'psc_1',instrument:'psc17'}]},
+    {id:'learning-enrollment',type:'questions',fields:[{key:'learning_goals',label:'Learning goals'}]}];
+  const result=hydrateOfficeQuestionnaireSteps(original,{isOffice:true,enrollmentChannel:'tutoring'});
+  assert.ok(result.some(step=>step.id==='learning-enrollment'));
+  assert.ok(result.some(step=>step.id==='tutoring_services_agreement'));
+  assert.equal(result.flatMap(step=>step.fields||[]).some(field=>/^(psc|phq|gad)_/.test(field.key)),false);
+  assert.equal(original[0].type,'clinical_questions');
+});

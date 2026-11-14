@@ -13,7 +13,7 @@ import { isBookClubAgency } from '../utils/bookClubAgency.js';
 import { isSupervisor } from '../utils/helpers.js';
 import { canAccessSchoolPortalsSurfaces } from '../utils/schoolPortalsAccess.js';
 import { canAccessSkillBuildersSchoolProgramSurfaces } from '../utils/skillBuildersSchoolProgramAccess.js';
-import { serviceWorkspace } from '../utils/nluWorkspace.js';
+import { serviceWorkspace, canLoadClinicalSupervision } from '../utils/nluWorkspace.js';
 import { noteAidWorkspaceLabel } from '../config/noteAidAccess.js';
 
 const flag = value => value === true || value === 1 || ['1', 'true', 'yes', 'on'].includes(String(value ?? '').toLowerCase());
@@ -100,7 +100,7 @@ export function useDashboardNavigation({ user, agency, organizations, brandingSt
     if (!club.value && ['provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant', 'admin', 'super_admin', 'support', 'supervisor'].includes(role.value)) {
       if (agencyId) requests.push(load('yearUpdate', '/provider-year-update/me/status', { params: { agencyId } }));
     }
-    if (!club.value && !isSupervisor(person)) requests.push(load('supervision', '/supervision/my-history-status', undefined, data => !!data?.hasClinicalSupervision));
+    if (!club.value && canLoadClinicalSupervision(person,unref(agency)) && !isSupervisor(person)) requests.push(load('supervision', '/supervision/my-history-status', undefined, data => !!data?.hasClinicalSupervision));
     if (!club.value && agencyId && complete.value) {
       if (access.value.coordinatorTools) requests.push(load('coordinatorPrograms', '/availability/admin/skill-builders/options', { params: { agencyId } }, data =>
         (Array.isArray(data?.organizations) ? data.organizations : []).filter(org => String(org.organizationType || '').toLowerCase() !== 'school')));

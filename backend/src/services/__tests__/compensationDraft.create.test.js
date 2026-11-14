@@ -1,4 +1,4 @@
-import {beforeEach,describe,it,expect,vi} from 'vitest';
+import {beforeEach,afterEach,describe,it,expect,vi} from 'vitest';
 const m=vi.hoisted(()=>({execute:vi.fn(),getConnection:vi.fn(),access:vi.fn(),policy:vi.fn(),agreements:vi.fn(),authorized:vi.fn(),assignment:vi.fn(),rate:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute,getConnection:m.getConnection}}));
 vi.mock('../agencyAccessProfiles.service.js',()=>({readAgencyAccess:m.access}));
@@ -15,7 +15,9 @@ import {computeNluServicePay} from '../../content/nluCompensationPolicy.js';
 
 const VERSION='nlu-four-category-2026-11-21',now=new Date('2026-11-12T20:00:00Z');
 let agency,employee,signer,push,connection,open,pending,inserted,releasedRow,staffActive;
+afterEach(()=>vi.useRealTimers());
 beforeEach(()=>{
+ vi.useFakeTimers({toFake:['Date']});vi.setSystemTime(new Date('2026-11-13T15:00:00Z'));
  vi.clearAllMocks();
  agency={id:453,slug:'nlu-qa-demo',name:'Next Level Up — SYNTHETIC QA',is_active:1,is_archived:0,feature_flags:{qaSandbox:{syntheticOnly:true,program:'tutoring',sourceAgencyId:6}}};
  employee={id:1496,role:'provider',first_name:'Finley',last_name:'QA Tutor',status:'ACTIVE_EMPLOYEE',is_active:1,is_archived:0,is_demo:1};

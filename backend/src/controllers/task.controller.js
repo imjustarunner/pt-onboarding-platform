@@ -8,6 +8,7 @@ import { validationResult } from 'express-validator';
 import StorageService from '../services/storage.service.js';
 import DocumentVariableService from '../services/documentVariable.service.js';
 import { providerUpdateTasks } from '../services/providerUpdateTasks.service.js';
+import { canAdministerTask, assertTaskAdministration, administratorTaskAgency, scopeTaskAssignment } from '../services/taskAdministratorAccess.service.js';
 
 export const getTask = async (req, res, next) => {
   try {
@@ -22,7 +23,7 @@ export const getTask = async (req, res, next) => {
     // Verify user has access to this task (includes hiring tasks assigned to user)
     const userTasks = await Task.findByUser(userId, { includeHiring: true });
     const hasAccess = userTasks.some(t => t.id === parseInt(id)) ||
-                      (req.user.role === 'admin' || req.user.role === 'super_admin');
+                      await canAdministerTask(req.user, task);
 
     if (!hasAccess) {
       return res.status(403).json({ error: { message: 'Access denied' } });
@@ -56,7 +57,7 @@ export const renderTaskDocumentHtml = async (req, res, next) => {
     // Verify user has access to this task (includes hiring tasks assigned to user)
     const userTasks = await Task.findByUser(userId, { includeHiring: true });
     const hasAccess =
-      userTasks.some((t) => t.id === parseInt(id, 10)) || req.user.role === 'admin' || req.user.role === 'super_admin';
+      userTasks.some((t) => t.id === parseInt(id, 10)) || await canAdministerTask(req.user, task);
     if (!hasAccess) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
@@ -502,6 +503,8 @@ export const assignTask = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
     }
 
+    await scopeTaskAssignment(req);
+
     const assignedByUserId = req.user.id;
     const {
       taskType,
@@ -619,6 +622,8 @@ export const bulkAssignTasks = async (req, res, next) => {
     if (!errors.isEmpty()) {
       return res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
     }
+
+    await scopeTaskAssignment(req);
 
     const assignedByUserId = req.user.id;
     const {
@@ -750,6 +755,8 @@ export const deleteTask = async (req, res, next) => {
 
     const task = await Task.findById(taskId);
     if (!task) return res.status(404).json({ error: { message: 'Task not found' } });
+
+    await assertTaskAdministration(req.user, task);
 
     // Best-effort cleanup of generated files before deleting task row (DB cascade will clean records, not blobs).
     try {
@@ -887,6 +894,7 @@ export const overrideTask = async (req, res, next) => {
     if (!task) {
       return res.status(404).json({ error: { message: 'Task not found' } });
     }
+    await assertTaskAdministration(req.user, task);
 
     const updatedTask = await Task.override(id, userId);
 
@@ -920,6 +928,7 @@ export const updateDueDate = async (req, res, next) => {
     if (!task) {
       return res.status(404).json({ error: { message: 'Task not found' } });
     }
+    await assertTaskAdministration(req.user, task);
 
     // Check if task was previously overdue
     const wasOverdue = task.due_date && new Date(task.due_date) < new Date() && task.status !== 'completed' && task.status !== 'overridden';
@@ -963,6 +972,7 @@ export const sendReminder = async (req, res, next) => {
     if (!task) {
       return res.status(404).json({ error: { message: 'Task not found' } });
     }
+    await assertTaskAdministration(req.user, task);
 
     const result = await TaskAssignmentService.sendReminder(id, userId);
     res.json(result);
@@ -983,6 +993,8 @@ export const getAllTasks = async (req, res, next) => {
     if (assignedToUserId) filters.assignedToUserId = assignedToUserId;
     if (assignedToAgencyId) filters.assignedToAgencyId = assignedToAgencyId;
     
+    if (req.user.role !== 'super_admin') filters.assignedToAgencyId = await administratorTaskAgency(req.user, assignedToAgencyId || req.user.scopedAgencyId || req.headers?.['x-agency-id']);
+
     let tasks = await Task.getAll(filters);
     if (!taskType || taskType === 'document') {
       const { enrichDocumentTasks } = await import('../services/documentTaskEnrichment.service.js');

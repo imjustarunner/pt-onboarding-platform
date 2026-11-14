@@ -18,21 +18,25 @@ export async function enrollmentOptions(user, deps = defaults) {
   // Only published general forms, within the signed-in family's agencies.
   // Personal renewal/ROI/invitation links are never enrollment entry points.
   const [rows] = await deps.db.execute(`
-    SELECT DISTINCT il.id, il.language_code, il.scope_type, il.organization_id,
-      a.id AS agency_id, a.name AS agency_name, org.name AS organization_name
+    SELECT DISTINCT il.id, il.language_code, il.scope_type, il.organization_id, il.master_channel,
+      a.id AS agency_id, a.name AS agency_name, a.feature_flags, org.name AS organization_name
     FROM user_agencies ua JOIN agencies a ON a.id = ua.agency_id
     JOIN intake_links il ON (
       il.id IN (SELECT published_intake_link_id FROM agency_office_intake_masters WHERE agency_id = a.id)
+      OR il.id IN (SELECT published_intake_link_id FROM agency_channel_intake_masters WHERE agency_id = a.id AND channel = 'tutoring')
       OR (il.scope_type = 'school' AND il.inherits_school_master = 1 AND (
         EXISTS (SELECT 1 FROM agency_schools s WHERE s.agency_id = a.id AND s.school_organization_id = il.organization_id AND s.is_active = 1)
         OR EXISTS (SELECT 1 FROM organization_affiliations oa WHERE oa.agency_id = a.id AND oa.organization_id = il.organization_id AND oa.is_active = 1))))
     JOIN agencies org ON org.id = il.organization_id
-    WHERE ua.user_id = ? AND il.is_active = 1 AND il.form_type = 'intake'
+    WHERE ua.user_id = ? AND COALESCE(ua.is_active, 1) = 1 AND a.is_active = 1
+      AND COALESCE(a.is_archived, 0) = 0 AND il.is_active = 1 AND il.form_type = 'intake'
       AND COALESCE(il.is_school_master, 0) = 0 AND COALESCE(il.is_office_master, 0) = 0
     ORDER BY a.name, il.scope_type, org.name, il.language_code, il.id`, [user.id]);
-  return { options: rows.map(row => ({
+  const flags = row => { try { return typeof row.feature_flags === 'string' ? JSON.parse(row.feature_flags) : row.feature_flags || {}; } catch { return {}; } };
+  return { options: rows.filter(row => !(flags(row).clinicalChartEnabled === false && flags(row).standardsLearningEnabled === true)
+    || row.master_channel === 'tutoring').map(row => ({
     id: Number(row.id), agencyId: Number(row.agency_id), agencyName: row.agency_name,
-    organizationName: row.organization_name, channel: row.scope_type === 'school' ? 'school' : 'office',
+    organizationName: row.organization_name, channel: row.master_channel === 'tutoring' ? 'tutoring' : row.scope_type === 'school' ? 'school' : 'office',
     language: String(row.language_code || 'en').startsWith('es') ? 'es' : 'en'
   })) };
 }

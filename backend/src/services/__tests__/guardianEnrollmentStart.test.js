@@ -57,3 +57,13 @@ it('creates self access only for self-enrollment and preserves an existing restr
   expect(enrollmentRelationship({ guardian: { relationship: 'Parent' } })).toBe('guardian');
   expect(enrollmentRelationship({ intakeForSelf: true }, { relationship_type: 'proxy', access_enabled: 0 })).toBe('proxy');
 });
+
+it('offers the published tutoring form and withholds office enrollment in an explicitly learning-only agency',async()=>{
+ const flags={clinicalChartEnabled:false,standardsLearningEnabled:true};
+ deps.db.execute.mockResolvedValueOnce([[
+  {id:349,agency_id:453,agency_name:'NLU QA',scope_type:'agency',master_channel:'tutoring',language_code:'en',feature_flags:JSON.stringify(flags)},
+  {id:353,agency_id:453,agency_name:'NLU QA',scope_type:'agency',master_channel:'office',language_code:'en',feature_flags:flags}
+ ]]);
+ expect((await enrollmentOptions(owner,deps)).options).toEqual([expect.objectContaining({id:349,channel:'tutoring'})]);
+ expect(deps.db.execute.mock.calls[0][0]).toContain('agency_channel_intake_masters');
+});

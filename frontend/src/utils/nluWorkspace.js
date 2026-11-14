@@ -11,3 +11,9 @@ export function isClinicalWorkspacePath(path) {
   return /\/(?:note-aid|clinical-note-generator|medical-records|clinical-records|clinical-notes|supervision)(?:\/|$)/.test(path)||/\/admin\/clients(?:\/|$)/.test(path);
 }
 export function scopedWorkspacePath(slug, path) { return `${slug ? `/${slug}` : ''}${path}`; }
+
+export function canLoadClinicalSupervision(user,agency={}) {
+ if(!Number(agency?.id))return false;
+ const flags=json(agency.feature_flags??agency.featureFlags);
+ return !serviceWorkspace(user,agency).learningOnly && !(flags.clinicalChartEnabled===false && flags.standardsLearningEnabled===true);
+}

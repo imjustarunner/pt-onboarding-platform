@@ -14,7 +14,7 @@
       <label class="form-choice">{{ tx('Where would you like to enroll?', '¿Dónde desea inscribirse?') }}
         <select v-model="linkId" :disabled="starting" required>
           <option value="">{{ tx('Choose an enrollment', 'Elija una inscripción') }}</option>
-          <option v-for="option in available" :key="option.id" :value="option.id">{{ option.agencyName }} · {{ option.channel === 'school' ? option.organizationName : tx('Office or virtual services', 'Servicios en oficina o virtuales') }} · {{ option.language === 'es' ? 'Español' : 'English' }}</option>
+          <option v-for="option in available" :key="option.id" :value="option.id">{{ option.agencyName }} · {{ option.channel === 'tutoring' ? tx('Tutoring', 'Tutoría') : option.channel === 'school' ? option.organizationName : tx('Office or virtual services', 'Servicios en oficina o virtuales') }} · {{ option.language === 'es' ? 'Español' : 'English' }}</option>
         </select>
       </label>
       <p v-if="!available.length">{{ tx('No enrollment is available for this choice. Please contact your care team.', 'No hay una inscripción disponible para esta opción. Comuníquese con su equipo de atención.') }}</p>
@@ -36,7 +36,8 @@ const subject = ref('dependent'), linkId = ref('');
 const available = computed(() => options.value.filter(o => subject.value !== 'self' || o.channel !== 'school'));
 watch(available, rows => {
   if (rows.some(o => o.id === Number(linkId.value))) return;
-  linkId.value = rows.find(o => o.agencyId === Number(props.agencyId) && o.language === props.language && o.channel === 'office')?.id || '';
+  const local = rows.filter(o => o.agencyId === Number(props.agencyId) && o.language === props.language);
+  linkId.value = (local.find(o => o.channel === 'tutoring') || local.find(o => o.channel === 'office'))?.id || '';
 });
 async function load() {
   loading.value = true; error.value = '';

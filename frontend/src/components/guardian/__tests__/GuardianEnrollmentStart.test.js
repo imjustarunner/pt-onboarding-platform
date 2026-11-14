@@ -33,3 +33,14 @@ it('shows an actionable start failure without navigating or losing the selected 
  expect(wrapper.find('[role="alert"]').text()).toContain('Enrollment unavailable');
  expect(wrapper.find('select').element.value).toBe('1');expect(push).not.toHaveBeenCalled();wrapper.unmount();
 });
+
+it('defaults the current learning agency to its tutoring form rather than the office form',async()=>{
+ get.mockResolvedValueOnce({data:{options:[
+  {id:353,agencyId:453,agencyName:'NLU QA',channel:'office',language:'en'},
+  {id:349,agencyId:453,agencyName:'NLU QA',channel:'tutoring',language:'en'}
+ ]}});
+ const w=mount(GuardianEnrollmentStart,{props:{agencyId:453}});await flushPromises();
+ expect(w.find('select').element.value).toBe('349');expect(w.text()).toContain('Tutoring');
+ await w.find('form').trigger('submit');await flushPromises();
+ expect(post).toHaveBeenCalledWith('/guardian-portal/enrollments',{linkId:349,subject:'dependent'});w.unmount();
+});

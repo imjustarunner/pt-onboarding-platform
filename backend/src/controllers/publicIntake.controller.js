@@ -5744,7 +5744,7 @@ const loadAllowedTemplates = async (link, { includeHtml = true } = {}) => {
 };
 
 const hydrateEmptyOfficeQuestionnaireSteps = (steps, link = null) => (
-  hydrateOfficeQuestionnaireSteps(steps, { isOffice: linkLooksLikeOfficeIntake(link) })
+  hydrateOfficeQuestionnaireSteps(steps, { isOffice: linkLooksLikeOfficeIntake(link), enrollmentChannel: link?.master_channel, locale: link?.language_code || 'en' })
 );
 
 const applyOfficeMasterReadOnly = async (link, agency) => {
@@ -6218,13 +6218,13 @@ export const getPublicIntakeLink = async (req, res, next) => {
         guardian_portal_invitation_deferred: false,
         intake_fields: link.intake_fields,
         intake_steps: ensureEnrollmentCommunicationStep(link, hydrateEmptyOfficeQuestionnaireSteps(link.intake_steps, link)),
-        office_questionnaire_fields: linkLooksLikeOfficeIntake(link)
+        office_questionnaire_fields: !isTutoringIntake(link) && linkLooksLikeOfficeIntake(link)
           ? {
               self: buildStandardQuestionnaireFields(),
               dependent: buildPsc17Fields({ scope: 'client' })
             }
           : null,
-        self_adolescent_screens: [...buildPhqAFields(), ...buildGad7Fields()],
+        self_adolescent_screens: isTutoringIntake(link) ? [] : [...buildPhqAFields(), ...buildGad7Fields()],
         custom_messages: link.custom_messages || null,
         linked_es_form: link.has_spanish_master ? null : linkedEsInfo,
         document_translation_map: link.has_spanish_master ? null : (link.document_translation_map || null),
