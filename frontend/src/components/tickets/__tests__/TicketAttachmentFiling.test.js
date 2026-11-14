@@ -11,6 +11,14 @@ const render = props => wrapper = mount(Panel, { props: { ticket: { ...ticket },
 beforeEach(() => { vi.resetAllMocks(); api.post.mockResolvedValue({ data: { documentId: 99, alreadyAdded: false } }); });
 afterEach(() => wrapper?.unmount());
 describe('ticket attachment quick filing', () => {
+  it('offers a new client directly on an unmatched school packet while preserving existing-client filing', async () => {
+    render({ticket:{id:10,school_organization_id:114}});
+    expect(wrapper.text()).not.toContain('Choose the existing client before');
+    await button('Create new client').trigger('click');
+    expect(wrapper.emitted('create-client')[0][0]).toMatchObject({id:20});
+    expect(button('Choose existing client')).toBeDefined();
+    expect(api.post).not.toHaveBeenCalled();
+  });
   it('adds the original 16 MB attachment by ID without downloading or reuploading it', async () => {
     render(); expect(wrapper.text()).toContain('Synthetic Client'); expect(wrapper.text()).toContain('16.0 MB');
     await button('Add to client').trigger('click'); await flushPromises();
@@ -20,7 +28,7 @@ describe('ticket attachment quick filing', () => {
   });
   it('requires selecting a client before filing an unmatched email', async () => {
     render({ ticket: { id: 10 } }); expect(button('Add to client').attributes('disabled')).toBeDefined();
-    await button('Choose client').trigger('click');
+    await button('Choose existing client').trigger('click');
     api.get.mockResolvedValue({ data: { clients: [{ clientId: 30, fullName: 'Synthetic Client' }] } });
     await wrapper.find('input').setValue('Synthetic'); await wrapper.find('form').trigger('submit'); await flushPromises();
     expect(api.get).toHaveBeenCalledWith('/support-tickets/10/client-search', expect.objectContaining({ params: { q: 'Synthetic' } }));

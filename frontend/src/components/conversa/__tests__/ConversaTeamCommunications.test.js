@@ -131,7 +131,7 @@ describe('Conversa team communications', () => {
     const w = mount(Team, { props: { agencyId: 4 } }); await flushPromises();
     expect(w.find('form').exists()).toBe(true);
     expect(w.text()).toContain('Taylor Team'); expect(w.text()).not.toContain('Guardian');
-    expect(api.get).toHaveBeenCalledWith('/agencies/4/company-events', { params: { communicationsOnly: 1 } });
+    expect(api.get).toHaveBeenCalledWith('/agencies/4/company-events', { params: { communicationsOnly: 1 }, skipGlobalLoading: true });
     w.unmount();
   });
   it('saves a team message for explicit recipients without sending on save', async () => {
@@ -170,7 +170,7 @@ describe('Conversa team communications', () => {
     await w.setProps({ agencyId: 9 }); await flushPromises();
     expect(w.get('textarea').element.value).toBe('');
     expect(w.get('.team-recipients input').element.checked).toBe(false);
-    expect(api.get).toHaveBeenCalledWith('/agencies/9/company-events', { params: { communicationsOnly: 1 } }); w.unmount();
+    expect(api.get).toHaveBeenCalledWith('/agencies/9/company-events', { params: { communicationsOnly: 1 }, skipGlobalLoading: true }); w.unmount();
   });
 });
 

@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   route: { query: {}, params: {} },
   router: { replace: vi.fn().mockResolvedValue(undefined) }
 }));
+vi.mock('../../school/ReferralUpload.vue', () => ({ default: { name: 'ReferralUpload', props: ['initialDraft','organizationSlug'], template: '<div />' } }));
 vi.mock('../../../services/api', () => ({ default: mocks.api }));
 vi.mock('../../../store/auth', () => ({ useAuthStore: () => mocks.auth }));
 vi.mock('../../../store/agency', () => ({ useAgencyStore: () => mocks.agency }));
@@ -53,7 +54,7 @@ beforeEach(() => {
 afterEach(() => wrapper?.unmount());
 
 async function render(props = {}, stubs = {}) {
-  wrapper = shallowMount(TicketDeskView, { props, global: { stubs: { RouterLink: true, ...stubs } } });
+  wrapper = shallowMount(TicketDeskView, { props, global: { stubs: { TicketEmailDialog: { name: 'TicketEmailDialog', template: '<section><slot /></section>' }, RouterLink: true, ...stubs } } });
   await flushPromises();
 }
 
@@ -216,11 +217,11 @@ describe('Support email composer safeguards', () => {
     await button('Send reply').trigger('click'); await flushPromises();
     expect(wrapper.find('.composer-textarea').element.value).toBe('A human response');
     expect(wrapper.text()).toContain('Delivery was not confirmed');
-    const firstRequest = mocks.api.post.mock.calls[0][1];
+    const firstRequest = mocks.api.post.mock.calls.find(([url]) => url.endsWith('/messages'))[1];
     expect(firstRequest).toMatchObject({ body: 'A human response', senderIdentityId: 12, senderMode: 'staff', expectedLastMessageId: 41, isInternal: false });
     expect(firstRequest.clientRequestId).toBeTruthy();
     await button('Send reply').trigger('click'); await flushPromises();
-    expect(mocks.api.post.mock.calls[1][1].clientRequestId).toBe(firstRequest.clientRequestId);
+    expect(mocks.api.post.mock.calls.filter(([url]) => url.endsWith('/messages'))[1][1].clientRequestId).toBe(firstRequest.clientRequestId);
   });
 
   it('keeps a new draft on a different ticket when an earlier send finishes', async () => {
@@ -340,6 +341,66 @@ it('shows website email senders, assignment provenance and truthful delivery rec
  assignmentHistory:[{id:1,kind:'assigned',actorName:'Hannah Inyart',at:'2026-11-10T12:00:00Z'}],emailReceipts:[{id:8,direction:'outbound',from_email:'support@itsco.health',send_status:'sent',to:['visitor@example.org'],has_preview:true,communication_id:6479}]}}:original(url,options));
  await render({embedded:true,initialTicketId:101,agencyId:2,syncRoute:false});
  expect(wrapper.get('[aria-label="Email address"]').text()).toContain('support@innerstrengthin.com');
+ await button('Details').trigger('click');
  expect(wrapper.get('[aria-label="Assignment history"]').text()).toContain('Assigned by Hannah Inyart');
- const receipts=wrapper.get('[aria-label="Email delivery and sent copies"]');expect(receipts.text()).toContain('Sent to mail provider');expect(receipts.text()).toContain('Delivery confirmation: Not recorded');expect(receipts.text()).toContain('View sent email');
+ await button('Email history (1)').trigger('click');
+ const receipts=wrapper.findComponent({name:'TicketEmailDialog'}); expect(receipts.text()).toContain('Sent to mail provider');expect(receipts.text()).toContain('Delivery confirmation: Not recorded');expect(receipts.text()).toContain('View sent email');
+});
+
+describe('compact support reply workspace', () => {
+  it('prepares a reply to a new inbound follow-up even when an earlier reply was sent',async()=>{
+    emailFixture();const original=mocks.api.get.getMockImplementation();
+    mocks.api.get.mockImplementation((url,options)=>url.endsWith('/101/messages')?Promise.resolve({data:{ticket:{...emailTicket,sent_at:'2026-11-12T12:00:00Z'},messages:[{id:41,body:'New question',email_delivery:{direction:'inbound'}}],senderOptions:emailOptions,lastMessageId:41}}):original(url,options));
+    mocks.api.post.mockResolvedValue({data:{suggestedAnswer:'Reply to the new question',lastMessageId:41}});
+    await render({embedded:true,initialTicketId:101,agencyId:2,syncRoute:false});
+    expect(wrapper.get('.composer-textarea').element.value).toBe('Reply to the new question');
+  });
+  it('prepares the next ticket while an earlier automatic draft is still pending',async()=>{
+    emailFixture();const original=mocks.api.get.getMockImplementation();let finishFirst;
+    mocks.api.get.mockImplementation((url,options)=>url.endsWith('/102/messages')?Promise.resolve({data:{ticket:{...emailTicket,id:102},messages:[],lastMessageId:51,senderOptions:emailOptions}}):original(url,options));
+    mocks.api.post.mockImplementation(url=>url==='/support-tickets/101/generate-response'?new Promise(resolve=>{finishFirst=resolve;}):Promise.resolve({data:{suggestedAnswer:'Second ticket draft',lastMessageId:51}}));
+    await render();await wrapper.find('.ticket-row').trigger('click');await flushPromises();
+    await button('Next').trigger('click');await flushPromises();
+    expect(wrapper.get('.composer-textarea').element.value).toBe('Second ticket draft');
+    finishFirst({data:{suggestedAnswer:'Old first ticket draft',lastMessageId:41}});await flushPromises();
+    expect(wrapper.get('.composer-textarea').element.value).toBe('Second ticket draft');
+  });
+  it('automatically prepares a missing email draft without claiming the ticket', async () => {
+    emailFixture();
+    const original = mocks.api.get.getMockImplementation();
+    mocks.api.get.mockImplementation((url, options) => url.endsWith('/101/messages') ? Promise.resolve({data:{ticket:{...emailTicket,claimed_by_user_id:null},messages:[],senderOptions:emailOptions,lastMessageId:41}}) : original(url,options));
+    mocks.api.post.mockResolvedValue({ data: { suggestedAnswer: 'Thanks for sending the packet.', draftSnapshotId: 50, lastMessageId: 41 } });
+    await render({ embedded: true, initialTicketId: 101, agencyId: 2, syncRoute: false });
+    expect(mocks.api.post.mock.calls.map(([url])=>url)).toEqual(['/support-tickets/101/generate-response']);
+    expect(wrapper.get('.reply-col .composer-textarea').element.value).toBe('Thanks for sending the packet.');
+    expect(wrapper.find('.conversation-col .composer').exists()).toBe(false);
+    expect(wrapper.text()).not.toContain('Community Standards');
+    await button('Write my own').trigger('click');
+    expect(wrapper.get('.composer-textarea').element.value).toBe('');
+  });
+  it('keeps typing when automatic generation returns late and offers the draft explicitly', async () => {
+    emailFixture(); let finish;
+    mocks.api.post.mockImplementation(url=>url.endsWith('/generate-response') ? new Promise(resolve=>{finish=resolve;}) : Promise.resolve({data:{}}));
+    await render({ embedded:true, initialTicketId:101, agencyId:2, syncRoute:false });
+    await wrapper.get('.composer-textarea').setValue('My own reply');
+    finish({data:{suggestedAnswer:'Generated reply',lastMessageId:41}});await flushPromises();
+    expect(wrapper.get('.composer-textarea').element.value).toBe('My own reply');
+    await button('Use draft').trigger('click');
+    expect(wrapper.get('.composer-textarea').element.value).toBe('Generated reply');
+  });
+  it('opens an attachment as the exact resumable new-client packet, then links the submitted client', async () => {
+    const packet={...emailTicket,school_organization_id:114};
+    const action={id:9,action_type:'upload_school_packet',status:'proposed',payload:{attachmentId:20}};
+    const original=mocks.api.get.getMockImplementation();
+    mocks.api.get.mockImplementation((url,options)=>url.endsWith('/101/messages') ? Promise.resolve({data:{ticket:packet,messages:[],attachments:[{id:20,file_name:'packet.pdf'}]}}) : url.endsWith('/actions') ? Promise.resolve({data:{actions:[action]}}) : original(url,options));
+    mocks.api.post.mockImplementation(url=>Promise.resolve({data:url.endsWith('/9/approve') ? {action:{...action,status:'completed',result:{draftId:60,organizationSlug:'grant',agencyId:2,phiDocumentId:80}}} : {}}));
+    await render({embedded:true,initialTicketId:101,agencyId:2,syncRoute:false}, {ReferralUpload:{name:'ReferralUpload',props:['initialDraft','organizationSlug'],template:'<div />'}});
+    wrapper.findComponent({name:'TicketAttachmentFiling'}).vm.$emit('create-client',{id:20});await flushPromises();
+    const upload=wrapper.findComponent({name:'ReferralUpload'});
+    expect(upload.props('initialDraft')).toMatchObject({id:60,phiDocumentId:80,ticketId:101});
+    expect(upload.props('organizationSlug')).toBe('grant');
+    expect(mocks.api.post).toHaveBeenCalledWith('/support-tickets/101/actions/9/approve',{}, {skipGlobalLoading:true});
+    upload.vm.$emit('submitted', {clientId:90});await flushPromises();
+    expect(mocks.api.post.mock.calls.some(([url,body])=>url==='/support-tickets/101/link-client' && body.clientId===90)).toBe(true);
+  });
 });
