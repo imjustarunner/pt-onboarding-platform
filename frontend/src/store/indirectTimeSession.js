@@ -1,3 +1,4 @@
+import {canPollWorkspace,useSessionPolling} from '../composables/useSessionPolling';
 import { ref, computed } from 'vue';
 import { defineStore } from 'pinia';
 import api from '../services/api';
@@ -288,6 +289,7 @@ export const useIndirectTimeSessionStore = defineStore('indirectTimeSession', ()
   }
 
   async function refresh({ force = false } = {}) {
+    if (!canPollWorkspace()) return session.value;
     const auth = useAuthStore();
     if (!auth.isAuthenticated) {
       resetAll();
@@ -350,6 +352,7 @@ export const useIndirectTimeSessionStore = defineStore('indirectTimeSession', ()
     return session.value;
   }
 
+  useSessionPolling(() => { if (pollTimer) void refresh({ force: true }); });
   function startPolling() {
     stopPolling();
     refresh({ force: true });

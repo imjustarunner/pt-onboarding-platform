@@ -15,6 +15,8 @@
   <FileAccessReviewToasts v-if="auth.user?.id && state?.canReviewPrivacy && !needsVerification" :key="auth.user?.id" :user-id="auth.user.id" />
 </template>
 <script setup>
+import {canPollWorkspace,useSessionPolling} from '../composables/useSessionPolling';
+
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useAuthStore } from '../store/auth';
 import api from '../services/api';
@@ -39,6 +41,7 @@ const protectionMessage = computed(() => unlimitedFileViews.value && protectionH
   : 'Additional access is paused for security review.');
 const needsVerification = computed(() => state.value?.required === true && !state.value.verified);
 async function refreshProtection() {
+  if (!canPollWorkspace()) return;
   const id = auth.user?.id;
   if (!id) return;
   const revision = protectionRevision;
@@ -55,6 +58,7 @@ async function refreshProtection() {
   }
 }
 async function refresh() {
+  if (!canPollWorkspace()) return;
   const id = auth.user?.id; state.value = null;
   if (!id) return;
   await Promise.allSettled([
@@ -66,6 +70,7 @@ let protectionRevision = 0;
 function required() { refresh(); }
 function protectionBlocked() { protectionRevision += 1; protectionRequired.value = true; refreshProtection(); }
 async function refreshSummary() {
+  if (!canPollWorkspace()) return;
  const id=auth.user?.id;
  if(!id || !state.value?.canReviewPrivacy || (state.value?.required && !state.value?.verified) || document.visibilityState==='hidden'){summary.value={};summaryUnavailable.value=false;return;}
  try {const response=await api.get('/privacy-review/summary',{skipGlobalLoading:true});if(auth.user?.id===id){summary.value=response.data;summaryUnavailable.value=false;}} catch { summary.value={};summaryUnavailable.value=true; }
@@ -76,8 +81,8 @@ window.addEventListener('activity-protection-required',protectionBlocked);
 watch(() => auth.user?.id, () => { protectionRevision += 1; protectionRequired.value = false; protectionUnavailable.value = false; protectionHolds.value = []; requestMessage.value = ''; requestError.value = ''; showRequest.value = false; refresh(); }, { immediate: true });
 window.addEventListener('account-security-required', required);
 window.addEventListener('account-security-changed', refresh);
-window.addEventListener('pt:session-resumed', refresh);
-onBeforeUnmount(() => { clearInterval(summaryTimer);window.removeEventListener('activity-protection-required',protectionBlocked); window.removeEventListener('account-security-required', required); window.removeEventListener('account-security-changed', refresh); window.removeEventListener('pt:session-resumed', refresh); });
+useSessionPolling(refresh);
+onBeforeUnmount(() => { clearInterval(summaryTimer);window.removeEventListener('activity-protection-required',protectionBlocked); window.removeEventListener('account-security-required', required); window.removeEventListener('account-security-changed', refresh); });
 </script>
 <style scoped>
 .account-security-notice { padding: .7rem 1rem; border-bottom: 1px solid var(--border, #cbd5e1); background: var(--bg-secondary, #f1f5f9); color: var(--text-primary); font-size: .9rem; }

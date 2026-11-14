@@ -31,7 +31,7 @@ export function assertReviewedFamilyRecipients({shared,userId,expectedRecipientU
 export function createFamilySharedConversations(overrides={}) {
   const d={db:pool,clinical:clinicalAccess,membership:clientAgencyMembership,services:listClientServices,
     contacts:guardianContactRows,audit:recordSecureMessageEvent,...overrides};
-  async function currentAudience({clientId,agencyId,serviceId=0,providerUserId=0,allowUnavailableProvider=false,requireClinical=false},db=d.db) {
+  async function currentAudience({clientId,agencyId,serviceId=0,providerUserId=0,allowUnavailableProvider=false,requireClinical=false,resolveCurrentService=false},db=d.db) {
     const cid=uid(clientId),aid=uid(agencyId);
     if(!await d.membership(cid,aid,db))throw fail(404,'This client is not enrolled with this practice.');
     const [[client]]=await db.execute(`SELECT c.id,c.status,c.agency_id,c.provider_id,c.client_type,c.guardian_portal_enabled FROM clients c
@@ -40,6 +40,12 @@ export function createFamilySharedConversations(overrides={}) {
     const allServices=await d.services(cid,aid,db);
     const services=allServices.filter(s=>Number(s.is_active)===1);
     if(!allowUnavailableProvider&&(terminalProfile(client)||(allServices.length&&!services.length)))throw fail(403,'This service has ended. New care conversations are unavailable; contact billing or request your records.');
+    // Chart composers may omit a service while the family portal supplies it.
+    // Resolve an unambiguous clinical context for NEW opens only, so both reach
+    // the same conversation. Historical reads keep their recorded context and
+    // immutable audience; multiple services still require an explicit choice.
+    if(resolveCurrentService&&!serviceId&&services.length===1&&services[0].service_kind==='counseling'
+      &&(!providerUserId||Number(services[0].provider_user_id)===Number(providerUserId)))serviceId=Number(services[0].id);
     const service=serviceId?(allowUnavailableProvider?allServices:services).find(s=>Number(s.id)===Number(serviceId)):null;
     if(serviceId&&!service)throw fail(403,'This service is no longer available.');
     if(!allowUnavailableProvider&&!serviceId&&services.length>1&&new Set(services.map(s=>`${s.service_kind}:${s.provider_user_id}`)).size>1)
@@ -94,7 +100,7 @@ export function createFamilySharedConversations(overrides={}) {
     try {
       await db.beginTransaction();
       await db.execute('SELECT id FROM clients WHERE id=? FOR UPDATE',[uid(clientId)]);
-      const audience=await currentAudience({clientId,agencyId,serviceId,providerUserId},db);
+      const audience=await currentAudience({clientId,agencyId,serviceId,providerUserId,resolveCurrentService:true},db);
       if(!audience.audienceIds.includes(actorId))throw fail(403,'This shared secure conversation is not available to your account.');
       const [[existing]]=await db.execute(`SELECT thread_id FROM family_shared_conversations
         WHERE client_id=? AND agency_id=? AND service_id=? AND provider_user_id=? AND policy_version=? AND audience_hash=?`,

@@ -23,6 +23,7 @@
   </aside>
 </template>
 <script setup>
+import {canPollWorkspace,useSessionPolling} from '../../composables/useSessionPolling';
 import {computed,ref,watch,onMounted,onBeforeUnmount} from 'vue';
 import api from '../../services/api';
 const props=defineProps({providerId:[Number,String],agencyId:[Number,String],staff:{type:Boolean,default:false}});
@@ -36,6 +37,7 @@ const weekLabel=computed(()=>{
   return `${format(new Date(`${summary.value.weekStart}T12:00:00Z`))}–${format(end)}`;
 });
 async function load(){
+  if (!canPollWorkspace()) return;
   const request=++generation;
   if(!props.providerId||!props.agencyId){summary.value=null;error.value='';loading.value=false;return;}
   loading.value=true;
@@ -47,6 +49,7 @@ async function load(){
 }
 function refreshVisible(){if(document.visibilityState!=='hidden'&&!loading.value)void load();}
 watch(()=>[props.providerId,props.agencyId],()=>{summary.value=null;void load();},{immediate:true});
+useSessionPolling(load);
 onMounted(()=>{window.addEventListener('focus',refreshVisible);timer=setInterval(refreshVisible,60000);});
 onBeforeUnmount(()=>{generation++;clearInterval(timer);window.removeEventListener('focus',refreshVisible);});
 </script>

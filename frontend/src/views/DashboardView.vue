@@ -1363,6 +1363,8 @@
 </template>
 
 <script setup>
+import {canPollWorkspace,useSessionPolling} from '../composables/useSessionPolling';
+
 import EventTravelReportModal from '../components/events/EventTravelReportModal.vue';
 import { eventTravelLinkRequest } from '../navigation/eventTravel.js';
 import ProviderUpdateAssignedBanner from '../components/provider/ProviderUpdateAssignedBanner.vue';
@@ -2085,9 +2087,10 @@ const dashboardBanner = ref(null); // { type, message, agencyId, names } | null
 const scheduledBannerItems = ref([]);
 const companyEvents = ref([]);
 let companyEventsRequest=0, unsubscribeCompanyEventRsvp;
-const refreshCompanyEventInvitations=()=>{ if(document.visibilityState !== 'hidden') void loadMyCompanyEvents(); };
+const refreshCompanyEventInvitations=()=>{ if(!canPollWorkspace())return;if(document.visibilityState !== 'hidden') void loadMyCompanyEvents(); };
 let teamPollRefreshTimer;
 function refreshPendingTeamEvents() {
+  if (!canPollWorkspace()) return;
   if (document.visibilityState !== 'hidden' && companyEvents.value.some(event => event.votingConfig?.enabled && !event.myResponse)) void loadMyCompanyEvents();
 }
 
@@ -2778,6 +2781,7 @@ const openPresentationBuilder = (item) => {
 };
 
 const loadSupervisionPrompts = async () => {
+  if (!canPollWorkspace()) return;
   if (props.previewMode || !isOnboardingComplete.value || !authStore.user?.id) {
     supervisionPromptRows.value = [];
     return;
@@ -2796,6 +2800,7 @@ const loadSupervisionPrompts = async () => {
 };
 
 const loadPresenterAssignments = async () => {
+  if (!canPollWorkspace()) return;
   if (props.previewMode || !isOnboardingComplete.value || !authStore.user?.id) {
     presenterAssignmentRows.value = [];
     return;
@@ -5022,6 +5027,7 @@ const loadMyChallenges = async () => {
 };
 
 const loadMyCompanyEvents = async () => {
+  if (!canPollWorkspace()) return;
   const request=++companyEventsRequest;
   if (props.previewMode || !isOnboardingComplete.value) {
     companyEvents.value = [];
@@ -5187,6 +5193,7 @@ onMounted(async () => {
     loadPresenterAssignments();
   }, supervisionPromptPollMs);
 });
+useSessionPolling(() => { if (!props.previewMode && authStore.user?.id) { void loadMyCompanyEvents(); void loadSupervisionPrompts(); void loadPresenterAssignments(); } });
 watch(activeTab, updateRailCollapsedMode);
 watch(isDarkMode, () => {
   applyScheduleStageThemeIntent();

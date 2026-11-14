@@ -404,7 +404,7 @@ export async function buildSecureClaimRedirect(row) {
 
   const familyRecipient=['client','client_guardian','guardian'].includes(String(recipient?.role || '').toLowerCase());
   const targetPath = row.client_id && familyRecipient
-    ? `${portalPrefix}/guardian?panel=family_messages${row.chat_thread_id?`&familyThreadId=${Number(row.chat_thread_id)}`:''}`
+    ? `${portalPrefix}/guardian?panel=family_messages${row.chat_thread_id?`&familyThreadId=${Number(row.chat_thread_id)}`:''}${row.message_id?`&familyMessageId=${Number(row.message_id)}`:''}`
     : (row.chat_thread_id?`${portalPrefix}/messages?view=workspace&threadId=${row.chat_thread_id}&secure=1`:`${portalPrefix}/messages?secure=1`);
 
   const needsSetup = !recipient?.password_hash;

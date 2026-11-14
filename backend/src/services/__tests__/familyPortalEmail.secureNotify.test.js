@@ -86,3 +86,8 @@ it('names the provider and agency while keeping the message entirely in the port
 it('retains staff message routing for a staff recipient of a client conversation',async()=>{
  m.user.mockResolvedValue({id:1001,role:'provider',password_hash:'set'});const result=await buildSecureClaimRedirect({agency_id:2,client_id:2240,recipient_user_id:1001,chat_thread_id:44});expect(result.targetPath).toBe('/itsco/messages?view=workspace&threadId=44&secure=1');
 });
+it('targets the exact secure subject or reply from a family notification without putting its content in the URL',async()=>{
+ const result=await buildSecureClaimRedirect({agency_id:2,client_id:2240,recipient_user_id:1411,chat_thread_id:44,message_id:77});
+ expect(result.targetPath).toBe('/itsco/guardian?panel=family_messages&familyThreadId=44&familyMessageId=77');
+ expect(result.loginUrl).toContain(encodeURIComponent('familyMessageId=77'));
+});

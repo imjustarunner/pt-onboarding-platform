@@ -1,7 +1,7 @@
 <template>
   <Teleport to="body">
     <Transition name="cp-fade">
-      <div v-if="open" class="cp-overlay" @mousedown.self="closePalette">
+      <div v-if="open && !sessionPaused" class="cp-overlay" @mousedown.self="closePalette">
         <div
           class="cp-panel"
           role="dialog"
@@ -213,6 +213,7 @@ import { useAskAssistant } from '../composables/useAskAssistant';
 import { useAuthStore } from '../store/auth';
 import { useAgencyStore } from '../store/agency';
 import { useBrandingStore } from '../store/branding';
+import { useSessionLockStore } from '../store/sessionLock';
 import { useSchoolPortalQuickNavCache } from '../composables/useSchoolPortalQuickNavCache';
 import { canUseSchoolPortalQuickNav, searchSchoolPortalQuickNav } from '../utils/schoolPortalQuickNav';
 import {
@@ -239,10 +240,13 @@ const brandingStore = useBrandingStore();
 const { schoolsRef: schoolPortalSchoolsRef, ensureCache: ensureSchoolPortalQuickNavCache } =
   useSchoolPortalQuickNavCache();
 
-const { open, mode, seedQuery, closePalette, openPalette, setMode } = useCommandPalette();
+const { open, mode, seedQuery, draftQuery, bindContext, closePalette, openPalette, setMode } = useCommandPalette();
 const { openAsk } = useAskAssistant();
 
-const query = ref('');
+const query = draftQuery;
+const lockStore=useSessionLockStore();
+const sessionPaused=computed(()=>lockStore.isLocked||lockStore.warningActive);
+watch(()=>[authStore.user?.id,Number(agencyStore.currentAgency?.id)||0,authStore.token],([actorId,agencyId,credential])=>bindContext(actorId,agencyId,credential),{immediate:true,flush:'sync'});
 const activeIndex = ref(0);
 const pickerFocus = ref(0);
 const inputRef = ref(null);
@@ -408,7 +412,6 @@ const frequentItems = computed(() => {
 
 watch(open, async (isOpen) => {
   if (!isOpen) {
-    query.value = '';
     pickerFocus.value = 0;
     return;
   }
@@ -441,7 +444,7 @@ function backToPicker() {
 }
 
 async function goNav(item) {
-  if (!item || navigating.value) return;
+  if (!item || navigating.value || sessionPaused.value) return;
   navigationError.value = '';
   const target = item.destination
     ? resolveRegisteredQuickNav({ kind: 'path', path: item.destination, scope: 'platform' }, router, navigationOptions.value)
@@ -463,7 +466,7 @@ async function goNav(item) {
       return;
     }
     recordNavSelection({ path: target.fullPath, title: item.label || item.title, section: item.description || item.groupLabel });
-    closePalette();
+    closePalette({discardQuery:true});
   } catch {
     navigationError.value = 'The page could not load. Check your connection and select it again to retry.';
   } finally {
@@ -478,10 +481,11 @@ function goNavRecent(item) {
 function goNavExample(entry) { void goNav(entry); }
 
 function submitAsk(text) {
+  if (sessionPaused.value) return;
   const prompt = String(text || query.value || '').trim();
   if (!prompt) return;
   recordAskPrompt(prompt);
-  closePalette();
+  closePalette({discardQuery:true});
   openAsk(prompt, 'ask');
 }
 
@@ -537,6 +541,7 @@ function onKeydown(e) {
 }
 
 function handleGlobalKeydown(e) {
+  if (sessionPaused.value) return;
   if ((e.metaKey || e.ctrlKey) && String(e.key).toLowerCase() === 'k') {
     e.preventDefault();
     if (open.value) closePalette();

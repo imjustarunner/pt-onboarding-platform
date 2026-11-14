@@ -1,3 +1,4 @@
+import {canPollWorkspace} from '../composables/useSessionPolling';
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import api from '../services/api';
@@ -96,6 +97,7 @@ export const useNotificationStore = defineStore('notifications', () => {
   };
 
   const fetchCounts = async () => {
+  if (!canPollWorkspace()) return;
     try {
       const response = await api.get('/notifications/counts', { skipGlobalLoading: true });
       counts.value = response.data;

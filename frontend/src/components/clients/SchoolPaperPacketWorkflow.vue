@@ -4,7 +4,17 @@
     <p v-if="error" ref="validationMessage" tabindex="-1" class="error" role="alert">{{ error }}</p>
     <p v-if="draftMessage" role="status" class="paper-draft-status">{{ draftMessage }}</p>
     <p v-if="loading" role="status">Loading packet and saved information…</p>
-    <div v-else-if="context" class="paper-columns">
+    <section v-if="context && !state.processedAt && pendingEntryReasons.length" class="paper-pending-requirements" aria-label="Pending packet entry">
+      <h4>Still to enter or review</h4>
+      <p>These are missing or unconfirmed entries in this workflow. Compare them with the PDF; the file check does not confirm parent contact details or custody.</p>
+      <ul><li v-for="reason in pendingEntryReasons" :key="reason">{{ reason }}</li></ul>
+    </section>
+    <section v-if="context && state.insuranceReview?.followUpRequired" class="paper-insurance-followup" aria-label="Insurance staff follow-up">
+      <h4>Insurance follow-up recorded at paper entry</h4>
+      <p>These details were missing at paper review, when the reviewer confirmed this was all the information available. Staff can look up the remaining details and billing reviews current coverage separately. Paper processing can finish with these gaps; this does not verify coverage or complete clinical readiness or provider assignment.</p>
+      <ul><li v-for="field in state.insuranceReview.missingFields" :key="field">{{ field }}</li></ul>
+    </section>
+    <div v-if="!loading && context" class="paper-columns">
       <div class="paper-entry">
         <nav aria-label="Packet processing steps"><button v-for="(label, index) in labels" :key="label" type="button" :aria-current="stage === index ? 'step' : undefined" :disabled="busy || index > furthest" :title="index > furthest ? 'Save the preceding step before opening this step.' : label" @click="stage=index">{{ index + 1 }}. {{ label }}</button></nav>
         <p class="muted">Steps open in order after Save and continue. Missing information stays pending for follow-up; moving between saved steps does not change the packet.</p>
@@ -44,7 +54,7 @@
             <template v-else-if="stage === 4">
               <p>Insurance policy changes are saved with Save and continue or Save insurance information. They are not included in the automatic working draft.</p>
               <label>Insurance / payment category<select v-model="insuranceTypeId" required><option value="">Select the category on paper</option><option v-for="type in insuranceTypes" :key="type.id" :value="String(type.id)">{{ type.label }}</option></select></label>
-              <ClientInsuranceEditor ref="insuranceEditor" v-if="insuranceTypeId && !selfPay" :client-id="clientId" :agency-id="context.client.agency_id" account-support assignment-review start-open :show-related-reviews="false" />
+              <ClientInsuranceEditor ref="insuranceEditor" v-if="insuranceTypeId && !selfPay" :client-id="clientId" :agency-id="context.client.agency_id" account-support assignment-review start-open paper-entry :show-related-reviews="false" />
               <button v-if="insuranceTypeId && !selfPay" type="button" class="btn btn-secondary" @click="showVerification=!showVerification">{{ showVerification ? 'Close verification' : 'Verify insurance (optional)' }}</button>
               <AssignmentCoverageReview v-if="showVerification && !selfPay" :client-id="Number(clientId)" :agency-id="Number(context.client.agency_id)" />
               <p v-if="selfPay">Self-pay is recorded for billing follow-up. Do not enter a payment-card number from the paper packet.</p>
@@ -85,7 +95,7 @@
         <details v-if="state.previousPackets?.length"><summary>Previous packet reviews retained</summary><ul><li v-for="(previous,index) in state.previousPackets" :key="`${previous.documentId}-${index}`">Document #{{ previous.documentId }}<template v-if="previous.consentReview?.versionLabel"> · Version {{ previous.consentReview.versionLabel }}</template><template v-if="previous.processedAt"> · Processed {{ new Date(previous.processedAt).toLocaleString() }}</template><template v-else> · Earlier review retained</template></li></ul><p>Earlier source and invitation history remain on file. The current source still needs its own review.</p></details>
         <label>Uploaded packet<select v-model="documentId" :disabled="busy || !!state.processedAt" @change="changePacket"><option value="">Select the uploaded packet</option><option v-for="doc in documents" :key="doc.id" :value="String(doc.id)">{{ doc.document_title || doc.original_name || 'Paper packet' }}{{ doc.scan_status === 'clean' ? '' : ' — file check pending' }}</option></select></label>
         <button v-if="documentId" type="button" class="btn btn-secondary" :disabled="busy || checkingFile || fileCheckQueued || !!state.processedAt || (selectedDocument?.scan_status === 'clean' && !!context.packetRead)" @click="checkFile">{{ checkingFile ? 'Checking…' : 'Check file and read packet' }}</button><p v-if="fileCheckMessage" role="status">{{ fileCheckMessage }}</p>
-        <div v-if="context.packetRead && Number(context.packetRead.documentId) === Number(documentId)" class="packet-evidence"><p>Packet version: {{ context.packetRead.versionLabel || 'Not identified' }}. ROI signature: {{ context.packetRead.roiSignatureDetected ? 'Detected' : 'Needs review' }}. Disclosure signature: {{ context.packetRead.disclosureSignatureDetected ? 'Detected' : 'Needs review' }}.</p><ul v-if="context.packetRead.reviewReasons?.length"><li v-for="reason in context.packetRead.reviewReasons" :key="reason">{{ reviewReasonLabel(reason) }}</li></ul></div>
+        <div v-if="context.packetRead && Number(context.packetRead.documentId) === Number(documentId)" class="packet-evidence"><p>Original file check · Packet version: {{ context.packetRead.versionLabel || 'Not identified' }}. ROI signature: {{ context.packetRead.roiSignatureDetected ? 'Detected' : 'Needs review' }}. Disclosure signature: {{ context.packetRead.disclosureSignatureDetected ? 'Detected' : 'Needs review' }}.</p><p v-if="state.processedAt">Paper review is complete. This original file-check result remains as history.</p><ul v-else-if="context.packetRead.reviewReasons?.length"><li v-for="reason in context.packetRead.reviewReasons" :key="reason">{{ reviewReasonLabel(reason) }}</li></ul></div>
         <p v-if="packetLoading" role="status">Opening packet…</p><p v-if="packetError" class="error">{{ packetError }}</p>
         <PDFPreview v-if="packetUrl" :key="packetUrl" :pdf-url="packetUrl" @loaded="packetRendered=true" />
         <p v-else-if="!packetLoading && selectedDocument && selectedDocument.scan_status !== 'clean'">The preview becomes available after the private file check passes.</p>
@@ -128,6 +138,19 @@ const packetMatched=computed(()=>{
  return (read?.status==='applied'||reviewedReplacement) && Number(read.documentId)===Number(documentId.value) && read.roiSignatureDetected && read.disclosureSignatureDetected;
 });
 const needsHumanReview=computed(()=>!state.value.processedAt);
+const pendingEntryReasons=computed(()=>{
+ const reasons=[];
+ for(let index=0;index<2;index++){
+  if(index===1&&secondNotListed.value)continue;
+  const contact=guardianForms[index]||{};
+  if(!String(contact.email||'').trim())reasons.push(`Parent ${index+1} email is not recorded. Obtain the listed parent's own email before completing that contact.`);
+ }
+ if(sharedCustody.value==='unsure')reasons.push('Custody or healthcare decision-making rights are unclear. Support follow-up is required before Finish.');
+ else if(!['yes','no'].includes(sharedCustody.value))reasons.push('Custody or healthcare decision-making rights have not been reviewed.');
+ if(!(state.value.completedSteps||[]).includes('insurance'))reasons.push('Insurance or self-pay entry has not been completed.');
+ if(!(state.value.completedSteps||[]).includes('consents'))reasons.push('The current paper signatures and staff release selections still need a saved source-bound review.');
+ return reasons;
+});
 const hasFailedInvitation=computed(()=>Object.values(state.value.invitations||{}).some(d=>['failed','blocked'].includes(d.status)));
 function guardianLabel(id){const g=context.value?.guardians.find(g=>Number(g.guardian_user_id)===Number(id));return g?[g.first_name,g.last_name].filter(Boolean).join(' '):'Not connected';}
 function guardianContact(id){const g=context.value?.guardians.find(g=>Number(g.guardian_user_id)===Number(id));return g?[g.email,g.phone_number,g.relationship_title].filter(Boolean).join(' · '):'Contact unavailable';}
@@ -210,8 +233,9 @@ async function next(){
   if(stage.value===1||stage.value===2)data=stage.value===2&&secondNotListed.value?{notListed:true}:{guardianUserId:await connectGuardian(stage.value-1)};
   if(stage.value===3)data={schoolConfirmed:schoolConfirmed.value,sharedCustody:sharedCustody.value};
   if(stage.value===4){
-    if(!selfPay.value && !(await insuranceEditor.value?.save()))throw new Error('Open the insurance details and save the available information before continuing.');
-    data={reviewed:insuranceReviewed.value,insuranceTypeId:Number(insuranceTypeId.value)};
+    const insuranceReview=selfPay.value?null:await insuranceEditor.value?.save({paperEntry:true});
+    if(!selfPay.value&&!insuranceReview)throw new Error('Review the available insurance details below. If information is missing, confirm this is all you have or know to continue with staff follow-up.');
+    data={reviewed:insuranceReviewed.value,insuranceTypeId:Number(insuranceTypeId.value),partialInformationConfirmed:insuranceReview?.partialInformationConfirmed===true};
   }
   if(stage.value===5){if(!(await roiEditor.value?.saveAllDirty()))throw new Error('Save the staff ROI corrections before continuing.');data={signaturesConfirmed:signaturesConfirmed.value,staffRoiConfirmed:staffRoiConfirmed.value,staffChanges:roiEditor.value?.getPendingChanges?.()||[],...(needsHumanReview.value?{evidenceReview:{...JSON.parse(JSON.stringify(humanEvidence)),documentId:Number(documentId.value),evaluationId:context.value.packetRead?.id}}:{})};}
   if(disposed||generation!==contextGeneration)return;

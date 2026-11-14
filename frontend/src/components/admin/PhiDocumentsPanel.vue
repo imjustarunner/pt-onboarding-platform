@@ -143,7 +143,7 @@
 
       <div v-if="loading" class="loading">Loading…</div>
       <div v-else-if="error" class="error">{{ error }}</div>
-      <div v-else-if="docs.length === 0" class="empty">No packets found.</div>
+      <div v-else-if="docs.length === 0" class="empty">{{ ownOnly && roleNorm === 'school_staff' ? 'This ROI level only allows documents you uploaded. No documents you uploaded are on file for this client.' : 'No packets found.' }}</div>
 
       <div v-else class="table-wrap">
       <table class="table">
@@ -477,6 +477,11 @@ const reloadDocs = async () => {
     docs.value = resp.data || [];
     receiptOnly.value = false;
   } catch (e) {
+    if (e.response?.status === 403 && props.ownOnly && roleNorm.value === 'school_staff') {
+      docs.value = [];
+      error.value = 'This ROI level only allows documents you uploaded. Other referral documents are not available with your current access.';
+      return;
+    }
     if (e.response?.status === 403) {
       try {
         const receipts = await api.get(`/phi-documents/clients/${props.clientId}/enrollment-receipts`);

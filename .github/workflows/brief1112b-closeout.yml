@@ -70,13 +70,21 @@ jobs:
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.paper-final-blockers.config.js --maxWorkers=2 --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/brief1112b-paper-final.json"
       - name: Provider-owned welcome recovery and actual SQL delivery history
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.school-contact-plan.config.js --maxWorkers=2 --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/brief1112b-welcome-recovery.json"
+      - name: Final 1113 secure subjects, immutable history and partial paper entry
+        run: |
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.final1113-messages.config.js --maxWorkers=2 --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/brief1112b-final1113-messages.json"
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.secure-subjects.config.js --maxWorkers=2 --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/brief1112b-final1113-subjects.json"
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.final1113-paper.config.js --maxWorkers=2 --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/brief1112b-final1113-paper.json"
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.final1113-shared-client.config.js --maxWorkers=2
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.final1113-enrollment.config.js --maxWorkers=2
+          TZ=Pacific/Honolulu node --test backend/src/services/__tests__/documentSigning.auditCertificate.test.js backend/src/controllers/__tests__/sharedIntakeArtifacts.test.js
       - name: Require executed SQL cases, not skipped placeholders
         run: |
           node --input-type=module <<'NODE'
           import assert from 'node:assert/strict';
           import { readFileSync } from 'node:fs';
           import { join } from 'node:path';
-          const reports = ['clinical', 'invites', 'roi', 'clock', 'roi-history', 'paper-final', 'welcome-recovery'].map(name => JSON.parse(readFileSync(join(process.env.RUNNER_TEMP, `brief1112b-${name}.json`), 'utf8')));
+          const reports = ['clinical', 'invites', 'roi', 'clock', 'roi-history', 'paper-final', 'welcome-recovery','final1113-messages','final1113-subjects','final1113-paper'].map(name => JSON.parse(readFileSync(join(process.env.RUNNER_TEMP, `brief1112b-${name}.json`), 'utf8')));
           const results = reports.flatMap(report => report.testResults);
           const required = [
             ['meetingEndPermission.mysql.test.js', 13],
@@ -92,7 +100,10 @@ jobs:
             ['taskReferenceSearch.mysql.test.js', 7],
             ['schoolContactPlan.mysql.test.js', 7],
             ['schoolContactAutomation.mysql.test.js', 9],
-            ['schoolContactInitialRetry.mysql.test.js', 63]
+            ['schoolContactInitialRetry.mysql.test.js', 63],
+            ['secureSessionComments.mysql.test.js', 5],
+            ['familySecureMessageAccess.mysql.test.js', 21],
+            ['chat.secureSubjects.mysql.test.js', 5]
           ];
           for (const [name, minimum] of required) {
             const result = results.find(row => row.name.endsWith(`/${name}`));
@@ -132,6 +143,14 @@ jobs:
         run: |
           node node_modules/vitest/vitest.mjs run --config vitest.guardian-delivery-repairs.config.js --maxWorkers=2
           node node_modules/vitest/vitest.mjs run src/components/guardian/__tests__/GuardianSchoolReleaseForm.test.js src/components/guardian/__tests__/GuardianSchoolReleaseNotice.test.js src/components/guardian/__tests__/GuardianSchoolCareBridge.test.js src/components/public/__tests__/SmartSchoolRoiFlow.test.js --maxWorkers=2
+      - name: Final 1113 family subjects, current chart recovery and held inputs
+        working-directory: frontend
+        run: |
+          node node_modules/vitest/vitest.mjs run --config vitest.final1113-messages.config.js --maxWorkers=2
+          node node_modules/vitest/vitest.mjs run --config vitest.final1113-workflow.config.js --maxWorkers=2
+          node node_modules/vitest/vitest.mjs run --config vitest.final1113-paper.config.js --maxWorkers=2
+          node node_modules/vitest/vitest.mjs run --config vitest.final1113-task-lookup.config.js --maxWorkers=2
+          node node_modules/vitest/vitest.mjs run --config vitest.final1113-enrollment.config.js --maxWorkers=2
       - name: Clinical workspace, Family Welcome readback and billing preview
         working-directory: frontend
         run: |

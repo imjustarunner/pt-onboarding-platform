@@ -261,10 +261,20 @@ export const listGuardianThreadMessages = async (req, res, next) => {
     }
     // Delegate to chat listMessages
     req.params.threadId = String(threadId);
+    req.secureSubjectSummaryOnly = req.query.summaryOnly === '1';
     return listChatMessages(req, res, next);
   } catch (e) {
     next(e);
   }
+};
+
+export const locateGuardianSecureSubject = async (req,res,next)=>{
+  try{
+    if(req.guardianPreviewMode)return res.status(403).json({error:{message:'Preview cannot open secure messages'}});
+    const {locateSecureSubject}=await import('../services/secureSubjectLocation.service.js');
+    const result=await locateSecureSubject({userId:req.user.id,threadId:req.params.threadId,messageId:req.params.messageId});
+    res.set('Cache-Control','no-store').json(result);
+  }catch(error){next(error);}
 };
 
 /**

@@ -366,7 +366,7 @@
           </div>
         </div>
 
-        <SchoolContactWorkflowCard
+        <FamilyWelcomeWorkflowCard
           v-if="subView === 'default' && !isSchoolStaff && [2,450].includes(Number(parentAgencyId || fullClient?.agency_id || client.agency_id))"
           :agency-id="parentAgencyId || fullClient?.agency_id || client.agency_id"
           :client-id="client.id"
@@ -523,7 +523,7 @@
 
 <script setup>
 import ParentContactAttempts from '../clients/ParentContactAttempts.vue';
-import SchoolContactWorkflowCard from './SchoolContactWorkflowCard.vue';
+import FamilyWelcomeWorkflowCard from './FamilyWelcomeWorkflowCard.vue';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../../services/api';

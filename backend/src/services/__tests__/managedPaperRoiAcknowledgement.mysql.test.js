@@ -6,14 +6,16 @@ import {acknowledgeReviewedPaperRoi} from '../managedPaperRoiAcknowledgement.ser
 describe.runIf(recoveryMysqlEnabled)('managed paper ROI acknowledgment actual source CAS',()=>{
  let fixture,db,client,review;const audit=vi.fn();
  beforeAll(async()=>{fixture=await isolatedWorkflowMysql('managed_paper_roi');db=fixture.db;
-  await db.query('CREATE TABLE clients(id INT PRIMARY KEY,agency_id INT,organization_id INT,onboarding_docs_json JSON,paper_packet_staff_roi_pending BOOLEAN DEFAULT TRUE,roi_expires_at DATE,guardian_portal_enabled BOOLEAN DEFAULT FALSE,updated_by_user_id INT,updated_at DATETIME)');
+  await db.query('CREATE TABLE clients(id INT PRIMARY KEY,agency_id INT,organization_id INT,insurance_type_id INT,onboarding_docs_json JSON,paper_packet_staff_roi_pending BOOLEAN DEFAULT TRUE,roi_expires_at DATE,guardian_portal_enabled BOOLEAN DEFAULT FALSE,updated_by_user_id INT,updated_at DATETIME)');
+  await db.query('CREATE TABLE insurance_types(id INT PRIMARY KEY,agency_id INT,insurance_key VARCHAR(50),label VARCHAR(80),is_active BOOLEAN)');
+  await db.query("INSERT INTO insurance_types VALUES(1,450,'self_pay','Self-Pay',TRUE)");
   await db.query('CREATE TABLE client_phi_documents(id INT PRIMARY KEY,client_id INT,agency_id INT,school_organization_id INT,scan_status VARCHAR(20),removed_at DATETIME)');
   await db.query('CREATE TABLE client_paper_packet_vision_evals(id INT PRIMARY KEY,client_id INT,school_organization_id INT,phi_document_id INT)');
  });afterAll(async()=>{await fixture?.close();});
  beforeEach(async()=>{audit.mockReset();await db.query('DELETE FROM clients');await db.query('DELETE FROM client_phi_documents');await db.query('DELETE FROM client_paper_packet_vision_evals');
   review={kind:'human_source_review',documentId:4470,evaluationId:208,versionId:8,reviewedAt:'2026-11-13T01:00:00.000Z',reviewedByUserId:1434,roiExpiresAt:'2029-11-12',sourceViewed:true,denyReviewed:true,roi:{status:'present',signerName:'Fictional Parent',signedDate:'2026-11-12'},disclosure:{status:'present',signerName:'Fictional Parent',signedDate:'2026-11-12'}};
   client={id:2553,agency_id:450,organization_id:451,onboarding_docs_json:{paperPacketSource:{documentId:4470,draftId:230},paperProcessing:{documentId:4470,completedSteps:['consents'],consentReview:review}}};
-  await db.execute('INSERT INTO clients(id,agency_id,organization_id,onboarding_docs_json,roi_expires_at) VALUES(2553,450,451,?,?)',[JSON.stringify(client.onboarding_docs_json),'2029-11-01']);
+  await db.execute('INSERT INTO clients(id,agency_id,organization_id,insurance_type_id,onboarding_docs_json,roi_expires_at) VALUES(2553,450,451,1,?,?)',[JSON.stringify(client.onboarding_docs_json),'2029-11-01']);
   await db.query("INSERT INTO client_phi_documents VALUES(4470,2553,450,451,'clean',NULL)");await db.query('INSERT INTO client_paper_packet_vision_evals VALUES(208,2553,451,4470)');
  });
  const acknowledge=extra=>acknowledgeReviewedPaperRoi({client,actorUserId:1434,...extra},db,audit);

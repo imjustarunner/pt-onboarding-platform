@@ -453,7 +453,7 @@
 
             <template v-else-if="['messages','family_messages'].includes(activePanel)">
               <SecureSessionCommentHistory v-if="!isSuperadminPreview" :client-id="activePanel === 'family_messages' ? null : selectedChildId" family />
-              <GuardianMessagesPanel v-if="!isSuperadminPreview" :key="activePanel === 'family_messages' ? 'all' : selectedChildId" :client-id="activePanel === 'family_messages' ? null : selectedChildId" :initial-thread-id="route.query.familyThreadId" />
+              <GuardianMessagesPanel v-if="!isSuperadminPreview" :key="activePanel === 'family_messages' ? `all:${authStore.user?.id}` : `${authStore.user?.id}:${selectedChildId}:${currentAgencyId}:${selectedServiceId || 0}`" :client-id="activePanel === 'family_messages' ? null : selectedChildId" :initial-thread-id="route.query.familyThreadId || route.query.threadId" :initial-message-id="route.query.familyMessageId || route.query.messageId" />
               <div v-else class="hint">Guardian messaging is hidden in platform preview.</div>
             </template>
 
