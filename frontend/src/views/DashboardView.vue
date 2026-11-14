@@ -1855,7 +1855,7 @@ const isHourlyWorkerUser = computed(() => {
 });
 
 const hasClinicalSupervision = computed(() => !!(authStore.user?.has_clinical_supervision || authStore.user?.capabilities?.hasClinicalSupervision));
-watch([() => authStore.user?.id, () => currentAgencyId.value], async ([id]) => {
+watch([() => authStore.user?.id, () => Number(agencyStore.currentAgency?.id || 0)], async ([id]) => {
   if (!id || props.previewMode || !canLoadClinicalSupervision(authStore.user,agencyStore.currentAgency)) return;
   try {
     const { data } = await api.get('/supervision/my-history-status', {skipGlobalLoading:true});
