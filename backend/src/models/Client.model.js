@@ -1,6 +1,7 @@
 import pool from '../config/database.js';
 import { normalizeGradeForSave } from '../utils/clientGrade.js';
 import { isAuricwellQaAgency } from '../utils/auricwellQaPolicy.js';
+import { isNluTutoringQaAgency } from '../utils/nluTutoringQaPolicy.js';
 
 /**
  * Client Model
@@ -103,9 +104,9 @@ class Client {
     } = clientData;
 
     let isDemo = clientData.is_demo;
-    if (Number(agency_id) === 450) {
-      const [[agency]] = await executor.execute('SELECT id, slug, feature_flags FROM agencies WHERE id = ?', [450]);
-      if (isAuricwellQaAgency(agency)) isDemo = true;
+    if ([450,453,454].includes(Number(agency_id))) {
+      const [[agency]] = await executor.execute('SELECT id, slug, feature_flags FROM agencies WHERE id = ?', [Number(agency_id)]);
+      if (isAuricwellQaAgency(agency) || isNluTutoringQaAgency(agency)) isDemo = true;
     }
 
     // Build insert dynamically so older DBs won't break if a column doesn't exist yet.

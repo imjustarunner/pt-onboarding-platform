@@ -14,7 +14,7 @@ test('insurance follow-up and split liabilities stay scoped through real SQL tra
   for(const file of ['613_guardian_insurance_payment.sql','1413_private_family_billing.sql','1414_family_receivables_and_workflows.sql','1745_copay_receipts_and_credits.sql','1486_client_coverage_verification.sql','1790_stedi_insurance_discovery.sql','1520_guardian_shared_billing.sql','1640_insurance_followups_and_payer_shares.sql','1687_dependent_portal_access.sql','1688_client_portal_independence.sql'])await db.query(await readFile(new URL(`../../../../database/migrations/${file}`,import.meta.url),'utf8'));
   await db.query(`ALTER TABLE agencies ADD slug VARCHAR(100),ADD portal_url VARCHAR(100),ADD is_active BOOLEAN DEFAULT 1,ADD is_archived BOOLEAN DEFAULT 0,ADD organization_type VARCHAR(20) DEFAULT 'agency',ADD feature_flags JSON;
    ALTER TABLE users ADD email VARCHAR(100),ADD status VARCHAR(30) DEFAULT 'ACTIVE',ADD is_active BOOLEAN DEFAULT 1,ADD is_archived BOOLEAN DEFAULT 0,ADD is_demo BOOLEAN DEFAULT 0;
-   ALTER TABLE clients ADD date_of_birth DATE,ADD status VARCHAR(30) DEFAULT 'ACTIVE',ADD compliance_archived_at DATETIME,ADD client_type VARCHAR(32) DEFAULT 'clinical',ADD insurance_type_id INT;
+   ALTER TABLE clients ADD date_of_birth DATE,ADD status VARCHAR(30) DEFAULT 'ACTIVE',ADD compliance_archived_at DATETIME,ADD insurance_type_id INT;
    CREATE TABLE insurance_types(id INT PRIMARY KEY,insurance_key VARCHAR(64),label VARCHAR(255));
    CREATE TABLE intake_links(id INT PRIMARY KEY,scope_type VARCHAR(32),organization_id INT,form_type VARCHAR(32),master_channel VARCHAR(32));
    CREATE TABLE intake_submissions(id INT PRIMARY KEY,intake_link_id INT,guardian_user_id INT,client_id INT,status VARCHAR(32),submitted_at DATETIME);

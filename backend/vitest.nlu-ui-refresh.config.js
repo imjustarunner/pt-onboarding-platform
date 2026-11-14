@@ -16,5 +16,7 @@ export default {...base,test:{...base.test,include:[...new Set([...base.test.inc
  'src/services/__tests__/qaReadiness.test.js',
  'src/services/__tests__/qaLedgerSettlement.test.js',
  'src/services/__tests__/copayReceipts.test.js',
- 'src/services/__tests__/stripeSimulationBoundary.test.js'
+ 'src/services/__tests__/stripeSimulationBoundary.test.js',
+ 'src/models/__tests__/qaClientCreation.test.js',
+ 'src/services/__tests__/qaIntakeIdentity.test.js'
 ])]}};

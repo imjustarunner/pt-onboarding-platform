@@ -13,6 +13,12 @@ async function create(agencyId, agency, requested) {
 it('marks every newly created client in the verified synthetic tenant as demo', async () => {
   expect((await create(450, qa, false)).is_demo).toBe(1);
 });
+it.each([453,454])('marks NLU QA enrollment clients synthetic in verified scope %s',async agencyId=>{
+  const agency={id:agencyId,slug:agencyId===453?'nlu-qa-demo':'nlu-qa-learning',feature_flags:{qaSandbox:{syntheticOnly:true,program:'tutoring'}}};
+  expect((await create(agencyId,agency,false)).is_demo).toBe(1);
+  expect(await create(agencyId,{...agency,feature_flags:{}})).not.toHaveProperty('is_demo');
+});
+it('keeps the live NLU creation path unchanged',async()=>{expect(await create(6,{id:6,slug:'nlu',feature_flags:{}})).not.toHaveProperty('is_demo');});
 it('does not infer a demo client from an agency number without its synthetic identity', async () => {
   expect(await create(450, { ...qa, feature_flags: {} })).not.toHaveProperty('is_demo');
   expect(await create(2, qa)).not.toHaveProperty('is_demo');
