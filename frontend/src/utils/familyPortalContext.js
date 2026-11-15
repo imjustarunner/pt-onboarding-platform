@@ -26,7 +26,7 @@ export function familyPortalClients(clients, organization) {
   const childOrganization = ['school', 'program', 'learning', 'clinical'].includes(typeOf(organization));
   return list.flatMap(client=>{
     const context=client.care_contexts?.find(c=>Number(c.agency_id)===id);
-    if(context)return [{...client,...context,organization_type:client.organization_type,services:context.services||[]}];
+    if(context){const primary=Number(client.agency_id)===id;return [{...client,...context,primary_agency_id:client.agency_id,organization_type:primary?client.organization_type:context.organization_type,organization_id:primary?client.organization_id:(context.organization_id||null),school_affiliations:primary?client.school_affiliations:[],services:context.services||[]}];}
     return (childOrganization?Number(client.organization_id)===id:Number(client.agency_id)===id)?[client]:[];
   });
 }

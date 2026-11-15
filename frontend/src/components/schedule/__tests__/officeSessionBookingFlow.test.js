@@ -200,6 +200,8 @@ it('uses the selected session agency even when only the office owner agency is s
   await nextTick();
   s.onQuickActionSelect({ id: 'individual_session' }); await flushPromises();
   s.editorPracticeCategory = 'mental_health';
+  // The assigned-client selector loads after the agency/service context changes.
+  await flushPromises();
   s.bookingServiceCode = '90837'; s.bookingModality = 'IN_PERSON';
   s.bookingServiceLocationId = 51; s.virtualSessionSelectedClientIds = [81];
   await flushPromises();

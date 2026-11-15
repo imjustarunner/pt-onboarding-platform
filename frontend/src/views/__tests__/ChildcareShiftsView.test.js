@@ -43,3 +43,12 @@ describe('childcare app clocking', () => {
     expect(http.get).toHaveBeenCalledTimes(1); expect(http.post).not.toHaveBeenCalled();
   });
 });
+it('lets a childcare-only reviewer inspect work and sign off without viewing another employee’s pay',async()=>{
+ const reviewed={...shift,status:'completed',workReviews:[{user_id:1496,status:'submitted',snapshot_hash:'current-hash',intervals:[{startedAt:shift.startsAt,endedAt:shift.endsAt}]}],attendanceHistory:[{actualChildren:5,effectiveAt:shift.startsAt}]};
+ const http={get:vi.fn(async path=>({data:path.endsWith('/context')?{enabled:true,canWork:false,canManage:false,canApprove:true}:path.endsWith('/shifts')?{shifts:[reviewed]}:{shift:reviewed}})),post:vi.fn(async()=>({data:{}}))};
+ const w=mount(View,{props:{agencyId:453,userId:1,http,shiftId:7}});await flushPromises();
+ expect(w.text()).toContain('Finley QA · submitted');expect(http.get.mock.calls.some(([url])=>url.includes('pay-preview'))).toBe(false);
+ const approve=w.findAll('button').find(b=>b.text()==='Sign off on childcare work');expect(approve.attributes('disabled')).toBeDefined();
+ await w.find('textarea').setValue('Reviewed the recorded work and child-count timeline.');await w.get('.work-review input[type=checkbox]').setValue(true);await approve.trigger('click');await flushPromises();
+ expect(http.post).toHaveBeenCalledWith('/childcare/shifts/7/review-work',expect.objectContaining({agencyId:453,targetUserId:1496,decision:'approved',snapshotHash:'current-hash',confirmed:true}));w.unmount();
+});

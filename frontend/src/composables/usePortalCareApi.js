@@ -7,11 +7,14 @@ export function usePortalCareApi(){
  if(preview)return preview;
  const context=inject('portalCareContext',null);
  if(!context)return baseApi;
+ return createPortalCareApi(baseApi,context);
+}
+export function createPortalCareApi(baseApi,context){
  const config=(url,options={})=>{
   const care=unref(context);if(!care?.agencyId)return options;
   const match=String(url).match(/\/(?:clients|dependents)\/(\d+)(?:\/|$)/);
   if(match&&Number(match[1])!==Number(care.clientId))return options;
-  return {...options,params:{agencyId:care.agencyId,serviceId:care.serviceId||undefined,...options.params}};
+  return {...options,params:{...options.params,agencyId:care.agencyId,serviceId:care.serviceId||undefined}};
  };
  return {get:(url,options)=>baseApi.get(url,config(url,options)),post:(url,body,options)=>baseApi.post(url,body,config(url,options)),put:(url,body,options)=>baseApi.put(url,body,config(url,options)),patch:(url,body,options)=>baseApi.patch(url,body,config(url,options)),delete:(url,options)=>baseApi.delete(url,config(url,options))};
 }

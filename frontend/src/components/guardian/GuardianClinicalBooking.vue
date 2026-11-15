@@ -29,9 +29,12 @@
 <script setup>
 import { useFamilyLocale } from '../../composables/useFamilyLocale';
 const { ft, locale: familyLocale } = useFamilyLocale();
-import {ref,computed,watch} from 'vue';
+import {ref,computed,watch,inject,unref} from 'vue';
 import {usePortalCareApi} from '../../composables/usePortalCareApi';
-const props=defineProps({learning:Boolean,agencyId:[String,Number],serviceId:[String,Number],clientId:Number});const emit=defineEmits(['booked']);const api=usePortalCareApi();
+const props=defineProps({learning:{type:Boolean,default:undefined},agencyId:[String,Number],serviceId:[String,Number],clientId:Number});
+const portalContext=inject('portalCareContext',null);
+const learning=computed(()=>props.learning ?? (unref(portalContext)?.serviceKind==='tutoring'));
+const emit=defineEmits(['booked']);const api=usePortalCareApi();
 const choices=ref([]),selected=ref(0),open=ref(false),slots=ref([]),slotIndex=ref(null),confirmed=ref(false),loading=ref(false),busy=ref(false),error=ref(''),notice=ref(''),timeZone=ref('America/Denver');
 const week=ref(new Date().toLocaleDateString('en-CA',{timeZone:'America/Denver'}));let generation=0;
 const optionsLoading=ref(false);
@@ -56,7 +59,7 @@ async function book(){
 async function loadOptions(){const own=++generation;choices.value=[];packageId.value=null;open.value=false;error.value='';resetSelection();if(!props.clientId)return;
   optionsLoading.value=true;
   try{const {data}=await api.get(`/guardian-portal/clients/${props.clientId}/session-booking`,{params:{agencyId:props.agencyId,serviceId:props.serviceId},skipGlobalLoading:true});if(own===generation){choices.value=Array.isArray(data.choices)?data.choices:[];selected.value=0;}}
-  catch(e){if(own===generation&&props.learning)error.value=e.response?.data?.error?.message||ft('Appointment options could not be loaded. Please try again.');}
+  catch(e){if(own===generation&&learning.value)error.value=e.response?.data?.error?.message||ft('Appointment options could not be loaded. Please try again.');}
   finally{if(own===generation)optionsLoading.value=false;}
 }
 watch(()=>[props.clientId,props.agencyId,props.serviceId],loadOptions,{immediate:true});

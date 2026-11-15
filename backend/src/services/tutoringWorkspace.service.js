@@ -1,3 +1,4 @@
+import {qaAuditMetadataJson} from '../utils/qaAutomationAttribution.js';
 import pool from '../config/database.js';
 import { readProviderServices } from './providerServiceOfferings.service.js';
 import { normalizeLearningProfile, hourlyRate, validateLearningCatalog } from './learningCatalog.js';
@@ -46,7 +47,7 @@ export function createTutoringWorkspaceService({ db = pool, services = readProvi
     if (!access.canTutor) throw fail(403, 'Tutoring is not enabled for you in this agency.');
     // The update deliberately omits every pricing, employment and approval column.
     await db.execute(`INSERT INTO provider_tutoring_profiles (user_id,agency_id,subject_areas_json,grade_levels_json,bio,accepting_new_students) VALUES (?,?,?,?,?,?) ON DUPLICATE KEY UPDATE subject_areas_json=VALUES(subject_areas_json),grade_levels_json=VALUES(grade_levels_json),bio=VALUES(bio),accepting_new_students=VALUES(accepting_new_students),updated_at=CURRENT_TIMESTAMP`, [user.id, access.agencyId, JSON.stringify(values.subjectAreas), JSON.stringify(values.gradeLevels), values.bio, values.acceptingNewStudents ? 1 : 0]);
-    await db.execute('INSERT INTO user_activity_log(action_type,user_id,agency_id,metadata) VALUES (?,?,?,?)',['tutoring_profile_updated',user.id,access.agencyId,JSON.stringify({targetUserId:user.id,fields})]);
+    await db.execute('INSERT INTO user_activity_log(action_type,user_id,agency_id,metadata) VALUES (?,?,?,?)',['tutoring_profile_updated',user.id,access.agencyId,qaAuditMetadataJson({targetUserId:user.id,fields},user.id)]);
     return profile(user, access.agencyId);
   }
   async function students(user, agencyId) {

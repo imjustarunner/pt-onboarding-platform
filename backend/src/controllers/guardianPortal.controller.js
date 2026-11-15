@@ -2,7 +2,7 @@ import { listEnrollmentCopies } from '../services/guardianEnrollmentCopies.servi
 import { attachGuardianSchoolAffiliations } from '../services/guardianSchoolAffiliations.service.js';
 import { guardianCanReadIntakeDocuments } from '../utils/guardianDocumentAccess.js';
 import pool from '../config/database.js';
-import {guardianCareContexts} from '../services/clientServiceEnrollment.service.js';
+import {guardianCareContexts,guardianServiceContext} from '../services/clientServiceEnrollment.service.js';
 import { fetchSkillBuildersGroupProvidersForPortal } from '../services/skillBuildersEventProviders.service.js';
 import Agency from '../models/Agency.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
@@ -1277,11 +1277,13 @@ export const listMyClientIntakeSignedDocuments = async (req, res, next) => {
         error: { message: 'Not available for this client.', code: 'GUARDIAN_ADULT_CLIENT' }
       });
     }
+    const selectedServiceId=parsePositiveInt(req.query.serviceId);
+    const care=selectedServiceId?await guardianServiceContext({userId:uid,clientId,agencyId:parsePositiveInt(req.query.agencyId),serviceId:selectedServiceId,scope:null,allowEndedServices:true}):null;
     const rows = await IntakeSubmissionDocument.listSignedForGuardianClient({
       guardianUserId: uid,
-      clientId,agencyId:parsePositiveInt(req.query.agencyId)
+      clientId,agencyId:parsePositiveInt(req.query.agencyId),serviceKind:care?.service?.service_kind
     });
-    const copies = await listEnrollmentCopies({userId:uid,clientId,agencyId:parsePositiveInt(req.query.agencyId)});
+    const copies = await listEnrollmentCopies({userId:uid,clientId,agencyId:parsePositiveInt(req.query.agencyId),serviceId:selectedServiceId});
     res.json({ documents: [...copies, ...(rows || [])] });
   } catch (e) {
     next(e);
@@ -1317,7 +1319,9 @@ export const getMyClientIntakeSignedDocumentDownloadUrl = async (req, res, next)
       return res.status(404).json({ error: { message: 'Document not found' } });
     }
 
-    const availableDocuments = await IntakeSubmissionDocument.listSignedForGuardianClient({guardianUserId:uid,clientId,agencyId:Number(req.query.agencyId)||null});
+    const selectedServiceId=parsePositiveInt(req.query.serviceId);
+    const care=selectedServiceId?await guardianServiceContext({userId:uid,clientId,agencyId:parsePositiveInt(req.query.agencyId),serviceId:selectedServiceId,scope:null,allowEndedServices:true}):null;
+    const availableDocuments = await IntakeSubmissionDocument.listSignedForGuardianClient({guardianUserId:uid,clientId,agencyId:Number(req.query.agencyId)||null,serviceKind:care?.service?.service_kind});
     if (!availableDocuments.some(item=>Number(item.id)===Number(documentId))) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }

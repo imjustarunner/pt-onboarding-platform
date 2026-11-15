@@ -38,3 +38,8 @@ describe('tenant family portal', () => {
     const w=mount(Ledger,{props:{agencyId:1},global:{stubs:{RouterLink:true}}});await flushPromises();await w.find('input[type=search]').setValue('R-002');expect(w.find('tbody').text()).toContain('Parent Two');expect(w.find('tbody').text()).not.toContain('Parent One');expect(api.post).not.toHaveBeenCalled();w.unmount();
   });
 });
+
+it('opens permitted documents from the home shortcut and explains restricted document access',async()=>{
+ api.get.mockResolvedValue({data:{tasks:[]}});const w=mount(Home,{props:{agencyId:453,clientId:2271,documentsAvailable:true},global:{stubs:{RouterLink:true,GuardianAppointmentsPanel:true}}});await flushPromises();await w.findAll('button').find(b=>b.text()==='Documents →').trigger('click');expect(w.emitted('navigate').at(-1)).toEqual(['documents']);
+ await w.setProps({documentsAvailable:false});expect(w.findAll('button').some(b=>b.text()==='Documents →')).toBe(false);expect(w.text()).toContain('Documents are not shared with this account');w.unmount();
+});

@@ -105,6 +105,7 @@ export async function calculateChildcarePay({shift,userId,punches,attendance,res
 export function childcareClaimAmount(claim,approvedHours=null) {
   const payload=claim?.payload||{},snapshot=payload.childcareSnapshot;
   if(!snapshot||snapshot.reviewRequired||snapshot.totalAmount==null||!childcareSnapshotHashMatches(snapshot,payload.childcareSnapshotHash,payload.childcareSnapshotHashVersion))throw fail('Review the childcare attendance, staffing and rate snapshot before approving pay.');
+  if(payload.childcareWorkApprovalRequired&&!payload.childcareWorkApproved)throw fail('The employee must submit this work and an authorized childcare reviewer must sign off before payroll approval.');
   if(approvedHours!=null&&Math.abs(Number(approvedHours)-snapshot.totalMinutes/60)>.005001)throw fail('Correct actual childcare time in its shift before changing payroll hours.');
   return snapshot.totalAmount;
 }

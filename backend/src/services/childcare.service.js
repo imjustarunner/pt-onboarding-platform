@@ -1,3 +1,6 @@
+import {qaAuditMetadataJson} from '../utils/qaAutomationAttribution.js';
+import {createChildcareWorkReviewActions} from './childcareWorkReviewActions.js';
+import {correctedChildcarePunches,childcareWorkApproved} from './childcareWorkReview.js';
 import pool from '../config/database.js';
 import {STAFF_ROLES} from '../utils/staffEligibility.js';
 import {isNluChildcareAgency} from './compensationCategories.service.js';
@@ -16,7 +19,7 @@ const jsonParams=value=>JSON.stringify(value);
 const providerSelectionLocks=Symbol('childcareProviderSelectionLocks');
 
 async function audit(db,{agencyId,userId,action,metadata}) {
-  const [result]=await db.execute('INSERT INTO user_activity_log(action_type,user_id,agency_id,metadata) VALUES (?,?,?,?)',[action,userId,agencyId,jsonParams(metadata)]);
+  const [result]=await db.execute('INSERT INTO user_activity_log(action_type,user_id,agency_id,metadata) VALUES (?,?,?,?)',[action,userId,agencyId,qaAuditMetadataJson(metadata,userId)]);
   return result.insertId;
 }
 async function transaction(work) {
@@ -49,29 +52,29 @@ export async function childcareContext({agencyId,userId},db=pool) {
   if(!enabled)fail(403,'Childcare is not enabled for this organization.','CHILDCARE_ACCESS_DENIED');
   const access=await readAgencyAccess(uid,aid,db);
   if(!access||!STAFF_ROLES.includes(access.role))fail(403,'Current employee access to this company is required.','CHILDCARE_ACCESS_DENIED');
-  const [[saved]]=await db.execute('SELECT enabled,self_schedule,manage_schedule FROM childcare_service_grants WHERE agency_id=? AND user_id=?',[aid,uid]);
-  const grant=saved?{enabled:!!Number(saved.enabled),selfSchedule:!!Number(saved.self_schedule),manageSchedule:!!Number(saved.manage_schedule)}:null;
+  const [[saved]]=await db.execute('SELECT enabled,self_schedule,manage_schedule,approve_work FROM childcare_service_grants WHERE agency_id=? AND user_id=?',[aid,uid]);
+  const grant=saved?{enabled:!!Number(saved.enabled),selfSchedule:!!Number(saved.self_schedule),manageSchedule:!!Number(saved.manage_schedule),approveWork:!!Number(saved.approve_work)}:null;
   const canManagePermissions=user.role==='super_admin'||access.role==='admin',canManage=canManagePermissions||!!(grant?.enabled&&grant?.manageSchedule);
-  return {agencyId:aid,agencySlug:agency.slug,enabled:true,canManage,canManagePermissions,canManagePay:canManagePermissions,canWork:!!grant?.enabled,canSchedule:canManage||!!(grant?.enabled&&grant?.selfSchedule),serviceRoles:grant?.enabled?['childcare']:[],grant};
+  return {agencyId:aid,agencySlug:agency.slug,enabled:true,canManage,canManagePermissions,canApprove:canManagePermissions||!!(grant?.enabled&&grant?.approveWork),canManagePay:canManagePermissions,canWork:!!grant?.enabled,canSchedule:canManage||!!(grant?.enabled&&grant?.selfSchedule),serviceRoles:grant?.enabled?['childcare']:[],grant};
 }
 export async function listChildcareStaff({agencyId,userId},db=pool) {
   const ctx=await childcareContext({agencyId,userId},db);if(!ctx.canManage)fail(403,'Childcare staff management requires an organization administrator.');
-  const [rows]=await db.execute(`SELECT u.id,u.first_name,u.last_name,u.role,u.status,u.is_active,u.is_archived,u.terminated_at,g.enabled,g.self_schedule,g.manage_schedule
+  const [rows]=await db.execute(`SELECT u.id,u.first_name,u.last_name,u.role,u.status,u.is_active,u.is_archived,u.terminated_at,g.enabled,g.self_schedule,g.manage_schedule,g.approve_work
     FROM users u JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=? AND COALESCE(ua.is_active,1)=1
     LEFT JOIN childcare_service_grants g ON g.agency_id=ua.agency_id AND g.user_id=u.id ORDER BY u.first_name,u.last_name,u.id`,[ctx.agencyId]);
-  return {staff:rows.filter(active).map(row=>({userId:Number(row.id),firstName:row.first_name,lastName:row.last_name,role:row.role,grant:{enabled:!!Number(row.enabled),selfSchedule:!!Number(row.self_schedule),manageSchedule:!!Number(row.manage_schedule)}}))};
+  return {staff:rows.filter(active).map(row=>({userId:Number(row.id),firstName:row.first_name,lastName:row.last_name,role:row.role,grant:{enabled:!!Number(row.enabled),selfSchedule:!!Number(row.self_schedule),manageSchedule:!!Number(row.manage_schedule),approveWork:!!Number(row.approve_work)}}))};
 }
-export async function saveChildcareGrant({agencyId,userId,targetUserId,enabled,selfSchedule=false,manageSchedule=false}) {
-  if(typeof enabled!=='boolean'||typeof selfSchedule!=='boolean'||typeof manageSchedule!=='boolean')fail(400,'Use explicit childcare and scheduling permission choices.');
+export async function saveChildcareGrant({agencyId,userId,targetUserId,enabled,selfSchedule=false,manageSchedule=false,approveWork=false}) {
+  if(typeof approveWork!=='boolean'||typeof enabled!=='boolean'||typeof selfSchedule!=='boolean'||typeof manageSchedule!=='boolean')fail(400,'Use explicit childcare and scheduling permission choices.');
   return transaction(async db=>{
     const ctx=await childcareContext({agencyId,userId},db);if(!ctx.canManagePermissions)fail(403,'Only an organization administrator may assign childcare permissions.');
     const target=id(targetUserId);
     const [[employee]]=await db.execute(`SELECT u.*,ua.is_active membership_active FROM users u JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=? WHERE u.id=? FOR UPDATE`,[ctx.agencyId,target]);
     if(!active(employee)||Number(employee.membership_active??1)!==1)fail(409,'Complete the employee’s normal activation before assigning childcare.');
-    await db.execute(`INSERT INTO childcare_service_grants(agency_id,user_id,enabled,self_schedule,manage_schedule,granted_by_user_id) VALUES (?,?,?,?,?,?)
-      ON DUPLICATE KEY UPDATE enabled=VALUES(enabled),self_schedule=VALUES(self_schedule),manage_schedule=VALUES(manage_schedule),granted_by_user_id=VALUES(granted_by_user_id)`,[ctx.agencyId,target,enabled?1:0,enabled&&selfSchedule?1:0,enabled&&manageSchedule?1:0,Number(userId)]);
-    const auditRowId=await audit(db,{agencyId:ctx.agencyId,userId,action:'childcare_permission_changed',metadata:{targetUserId:target,enabled,selfSchedule:enabled&&selfSchedule,manageSchedule:enabled&&manageSchedule}});
-    return {userId:target,grant:{enabled,selfSchedule:enabled&&selfSchedule,manageSchedule:enabled&&manageSchedule},auditRowId};
+    await db.execute(`INSERT INTO childcare_service_grants(agency_id,user_id,enabled,self_schedule,manage_schedule,granted_by_user_id,approve_work) VALUES (?,?,?,?,?,?,?)
+      ON DUPLICATE KEY UPDATE enabled=VALUES(enabled),self_schedule=VALUES(self_schedule),manage_schedule=VALUES(manage_schedule),granted_by_user_id=VALUES(granted_by_user_id),approve_work=VALUES(approve_work)`,[ctx.agencyId,target,enabled?1:0,enabled&&selfSchedule?1:0,enabled&&manageSchedule?1:0,Number(userId),enabled&&approveWork?1:0]);
+    const auditRowId=await audit(db,{agencyId:ctx.agencyId,userId,action:'childcare_permission_changed',metadata:{targetUserId:target,enabled,selfSchedule:enabled&&selfSchedule,manageSchedule:enabled&&manageSchedule,approveWork:enabled&&approveWork}});
+    return {userId:target,grant:{enabled,selfSchedule:enabled&&selfSchedule,manageSchedule:enabled&&manageSchedule,approveWork:enabled&&approveWork},auditRowId};
   });
 }
 export async function getChildcareStaffRates({agencyId,userId,targetUserId,asOfDate},db=pool) {
@@ -95,14 +98,15 @@ async function assigned(shift,userId,db) {
 }
 async function authorizeShift(shift,userId,db,{work=false}={}) {
   const ctx=await childcareContext({agencyId:shift.agency_id,userId},db),onShift=await assigned(shift,userId,db);
-  if(!ctx.canManage&&!onShift)fail(404,'Childcare shift not found.');
+  if(!ctx.canManage&&!ctx.canApprove&&!onShift)fail(404,'Childcare shift not found.');
   if(work&&(!ctx.canWork||!onShift))fail(403,'An active childcare assignment to this shift is required.');
   return {...ctx,onShift};
 }
 async function shiftSources(shift,db) {
   const [punches]=await db.execute('SELECT id,user_id,punch_type,punched_at FROM skill_builders_event_kiosk_punches WHERE company_event_id=? ORDER BY punched_at,id',[shift.company_event_id]);
   const [attendance]=await db.execute('SELECT * FROM childcare_attendance_events WHERE shift_id=? ORDER BY effective_at,version',[shift.id]);
-  return {punches,attendance};
+  const [corrections]=await db.execute("SELECT * FROM childcare_time_corrections WHERE shift_id=? AND status='approved' ORDER BY id",[shift.id]);
+  return {punches:correctedChildcarePunches(punches,corrections),attendance};
 }
 async function mapShift(shift,userId,db=pool) {
   const [providers]=await db.execute(`SELECT u.id,u.first_name,u.last_name,
@@ -111,13 +115,20 @@ async function mapShift(shift,userId,db=pool) {
     (SELECT MAX(p.punched_at) FROM skill_builders_event_kiosk_punches p WHERE p.company_event_id=a.company_event_id AND p.user_id=u.id AND p.punch_type='clock_in') last_clock_in,
     (SELECT MAX(p.punched_at) FROM skill_builders_event_kiosk_punches p WHERE p.company_event_id=a.company_event_id AND p.user_id=u.id AND p.punch_type='clock_out') last_clock_out
     FROM company_event_provider_assignments a JOIN users u ON u.id=a.provider_user_id WHERE a.company_event_id=? ORDER BY u.id`,[shift.company_event_id]);
+  const [workReviews]=await db.execute('SELECT user_id,status,snapshot_hash,submitted_at,reviewed_by_user_id,reviewed_at,review_note FROM childcare_work_reviews WHERE shift_id=?',[shift.id]);
+  const [timeCorrections]=await db.execute('SELECT id,user_id,intervals_json,actual_children,reason,status,reviewed_at,review_note FROM childcare_time_corrections WHERE shift_id=? ORDER BY id DESC',[shift.id]);
+  const ownContext=await childcareContext({agencyId:shift.agency_id,userId},db);
+  const reviewAll=ownContext.canApprove||ownContext.canManage;
+  const workSources=await shiftSources(shift,db);
+  for(const person of providers){const own=workSources.punches.filter(p=>Number(p.user_id)===Number(person.id));if(own.length){person.last_punch=own.at(-1).punch_type;person.last_clock_in=own.filter(p=>p.punch_type==='clock_in').at(-1)?.punched_at;person.last_clock_out=own.filter(p=>p.punch_type==='clock_out').at(-1)?.punched_at;}}
+  const intervals=childcareWorkIntervals(workSources.punches).intervals;
   const mine=providers.find(row=>Number(row.id)===Number(userId));
-  return {id:Number(shift.id),eventId:Number(shift.company_event_id),agencyId:Number(shift.agency_id),title:shift.title,startsAt:childcareStoredIso(shift.starts_at),endsAt:childcareStoredIso(shift.ends_at),firstClockInAt:providers.map(row=>childcareStoredIso(row.first_clock_in)).filter(Boolean).sort()[0]||null,timezone:shift.timezone,status:shift.status,plannedChildren:Number(shift.planned_children),actualChildren:shift.actual_children==null?null:Number(shift.actual_children),attendanceVersion:Number(shift.attendance_version),attendanceReviewRequired:!!Number(shift.attendance_review_required),locationName:shift.location_name||'',note:shift.private_note||'',minimumHourlyRate:shift.minimum_hourly_rate==null?null:Number(shift.minimum_hourly_rate),wageFloorJurisdiction:shift.wage_floor_jurisdiction||'',providers:providers.map(row=>({userId:Number(row.id),firstName:row.first_name,lastName:row.last_name,clockedIn:row.last_punch==='clock_in'})),myParticipation:{assigned:!!mine,clockedIn:mine?.last_punch==='clock_in',clockedInAt:childcareStoredIso(mine?.last_clock_in)||null,clockedOutAt:childcareStoredIso(mine?.last_clock_out)||null}};
+  return {workReviews:workReviews.filter(row=>reviewAll||Number(row.user_id)===Number(userId)).map(row=>({...row,intervals:intervals.filter(i=>i.userId===Number(row.user_id)).map(i=>({startedAt:new Date(i.startedAt).toISOString(),endedAt:new Date(i.endedAt).toISOString()}))})),attendanceHistory:workSources.attendance.map(row=>({actualChildren:row.actual_children,effectiveAt:childcareStoredIso(row.effective_at),reviewRequired:!!row.needs_review})),timeCorrections:timeCorrections.filter(row=>reviewAll||Number(row.user_id)===Number(userId)),id:Number(shift.id),eventId:Number(shift.company_event_id),agencyId:Number(shift.agency_id),title:shift.title,startsAt:childcareStoredIso(shift.starts_at),endsAt:childcareStoredIso(shift.ends_at),firstClockInAt:providers.map(row=>childcareStoredIso(row.first_clock_in)).filter(Boolean).sort()[0]||null,timezone:shift.timezone,status:shift.status,plannedChildren:Number(shift.planned_children),actualChildren:shift.actual_children==null?null:Number(shift.actual_children),attendanceVersion:Number(shift.attendance_version),attendanceReviewRequired:!!Number(shift.attendance_review_required),locationName:shift.location_name||'',note:shift.private_note||'',minimumHourlyRate:shift.minimum_hourly_rate==null?null:Number(shift.minimum_hourly_rate),wageFloorJurisdiction:shift.wage_floor_jurisdiction||'',providers:providers.map(row=>({userId:Number(row.id),firstName:row.first_name,lastName:row.last_name,clockedIn:row.last_punch==='clock_in'})),myParticipation:{assigned:!!mine,clockedIn:mine?.last_punch==='clock_in',clockedInAt:childcareStoredIso(mine?.last_clock_in)||null,clockedOutAt:childcareStoredIso(mine?.last_clock_out)||null}};
 }
 export async function listChildcareShifts({agencyId,userId},db=pool) {
-  const ctx=await childcareContext({agencyId,userId},db);if(!ctx.canManage&&!ctx.canWork)fail(403,'Childcare access is required.');
+  const ctx=await childcareContext({agencyId,userId},db);if(!ctx.canManage&&!ctx.canWork&&!ctx.canApprove)fail(403,'Childcare access is required.');
   const [rows]=await db.execute(`SELECT s.*,e.title,e.starts_at,e.ends_at,e.timezone FROM childcare_shifts s JOIN company_events e ON e.id=s.company_event_id
-    WHERE s.agency_id=? ${ctx.canManage?'':'AND EXISTS(SELECT 1 FROM company_event_provider_assignments a WHERE a.company_event_id=s.company_event_id AND a.provider_user_id=?)'} ORDER BY e.starts_at DESC,s.id DESC LIMIT 200`,ctx.canManage?[ctx.agencyId]:[ctx.agencyId,Number(userId)]);
+    WHERE s.agency_id=? ${(ctx.canManage||ctx.canApprove)?'':'AND EXISTS(SELECT 1 FROM company_event_provider_assignments a WHERE a.company_event_id=s.company_event_id AND a.provider_user_id=?)'} ORDER BY e.starts_at DESC,s.id DESC LIMIT 200`,(ctx.canManage||ctx.canApprove)?[ctx.agencyId]:[ctx.agencyId,Number(userId)]);
   return {shifts:await Promise.all(rows.map(row=>mapShift(row,userId,db))),limit:200};
 }
 export async function getChildcareShift({shiftId,userId},db=pool) {
@@ -234,14 +245,22 @@ async function refreshChildcarePay(shift,db) {
       if(!childcareSnapshotHashMatches(stored,saved.snapshot_hash)||childcareSnapshotHash(stored)!==hash)await audit(db,{agencyId:shift.agency_id,userId,action:'childcare_pay_correction_required',metadata:{shiftId:shift.id,claimId:saved.payroll_time_claim_id,reason:'Attendance or compensation changed after approval. Preserve approved earnings and review a separate correction.'}});
       continue;
     }
-    const payload={source:'childcare_shift',companyEventId:Number(shift.company_event_id),childcareShiftId:Number(shift.id),childcareSnapshot:snapshot,childcareSnapshotHash:hash,childcareSnapshotHashVersion:2,totalMinutes:snapshot.totalMinutes,bucket:'direct',categoryLabel:'Childcare',rateReviewRequired:snapshot.reviewRequired,clockInAt:snapshot.segments[0]?.startedAt||null,clockOutAt:snapshot.segments.at(-1)?.endedAt||null};
+    const [[workReview]]=await db.execute('SELECT * FROM childcare_work_reviews WHERE shift_id=? AND user_id=?',[shift.id,userId]);
+    const [[pendingTime]]=await db.execute("SELECT id FROM childcare_time_corrections WHERE shift_id=? AND user_id=? AND status='pending' LIMIT 1",[shift.id,userId]);
+    const workApproved=childcareWorkApproved(workReview,hash)&&!pendingTime;
+    if(workReview&&(workReview.snapshot_hash!==hash||pendingTime)&&['submitted','approved'].includes(workReview.status)){
+      await db.execute("UPDATE childcare_work_reviews SET status='draft' WHERE shift_id=? AND user_id=?",[shift.id,userId]);
+      await audit(db,{agencyId:shift.agency_id,userId,action:'childcare_work_review_invalidated',metadata:{shiftId:shift.id,previousSnapshotHash:workReview.snapshot_hash,currentSnapshotHash:hash}});
+    }
+    const claimStatus=snapshot.reviewRequired||!workApproved?'deferred':'submitted';
+    const payload={childcareWorkApprovalRequired:true,childcareWorkApproved:workApproved,childcareWorkReviewedBy:workApproved?workReview.reviewed_by_user_id:null,source:'childcare_shift',companyEventId:Number(shift.company_event_id),childcareShiftId:Number(shift.id),childcareSnapshot:snapshot,childcareSnapshotHash:hash,childcareSnapshotHashVersion:2,totalMinutes:snapshot.totalMinutes,bucket:'direct',categoryLabel:'Childcare',rateReviewRequired:snapshot.reviewRequired,clockInAt:snapshot.segments[0]?.startedAt||null,clockOutAt:snapshot.segments.at(-1)?.endedAt||null};
     let claimId=saved?.payroll_time_claim_id||null;
     if(snapshot.totalMinutes>0) {
-      if(claimId)await db.execute("UPDATE payroll_time_claims SET payload_json=?,status=?,credits_hours=?,bucket='direct' WHERE id=? AND status IN ('submitted','deferred','rejected')",[jsonParams(payload),snapshot.reviewRequired?'deferred':'submitted',snapshot.totalMinutes/60,claimId]);
+      if(claimId)await db.execute("UPDATE payroll_time_claims SET payload_json=?,status=?,credits_hours=?,bucket='direct' WHERE id=? AND status IN ('submitted','deferred','rejected')",[jsonParams(payload),claimStatus,snapshot.totalMinutes/60,claimId]);
       else {
-        const [created]=await db.execute(`INSERT INTO payroll_time_claims(agency_id,user_id,submitted_by_user_id,status,claim_type,claim_date,payload_json,credits_hours,bucket) VALUES (?,?,?,?,'childcare_shift',?,?,?,'direct')`,[shift.agency_id,userId,userId,snapshot.reviewRequired?'deferred':'submitted',utcDateToZonedYmd(new Date(snapshot.segments.at(-1).endedAt),shift.timezone),jsonParams(payload),snapshot.totalMinutes/60]);claimId=created.insertId;
+        const [created]=await db.execute(`INSERT INTO payroll_time_claims(agency_id,user_id,submitted_by_user_id,status,claim_type,claim_date,payload_json,credits_hours,bucket) VALUES (?,?,?,?,'childcare_shift',?,?,?,'direct')`,[shift.agency_id,userId,userId,claimStatus,utcDateToZonedYmd(new Date(snapshot.segments.at(-1).endedAt),shift.timezone),jsonParams(payload),snapshot.totalMinutes/60]);claimId=created.insertId;
       }
-      const punchIds=snapshot.segments.flatMap(row=>[row.punchInId,row.punchOutId]);
+      const punchIds=snapshot.segments.flatMap(row=>[row.punchInId,row.punchOutId]).filter(id=>Number(id)>0);
       if(punchIds.length)await db.execute(`UPDATE skill_builders_event_kiosk_punches SET payroll_time_claim_id=? WHERE id IN (${punchIds.map(()=>'?').join(',')})`,[claimId,...punchIds]);
     }
     await db.execute('INSERT INTO childcare_pay_snapshots(shift_id,user_id,snapshot_json,snapshot_hash,payroll_time_claim_id) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE snapshot_json=VALUES(snapshot_json),snapshot_hash=VALUES(snapshot_hash),payroll_time_claim_id=VALUES(payroll_time_claim_id)',[shift.id,userId,jsonParams(snapshot),hash,claimId]);
@@ -254,8 +273,8 @@ export async function recordChildcareAction({shiftId,userId,action,actualChildre
     // Use the same employee/event lock order as ordinary event attendance.
     await db.execute('SELECT id FROM users WHERE id=? FOR UPDATE',[id(userId)]);
     const shift=await loadShift(shiftId,db,{lock:true}),ctx=await authorizeShift(shift,userId,db,{work:action==='clock-in'});
-    if(resolveReview&&(!ctx.canManage||!String(reviewNote||'').trim()))fail(403,'A manager must review the recorded count timeline and give a reason before resolving attendance review.');
-    if(action==='attendance'&&!ctx.canManage&&(!ctx.canWork||!ctx.onShift))fail(403,'Only an assigned caregiver may record attendance.');
+    if(resolveReview&&(!(ctx.canManage||ctx.canApprove)||!String(reviewNote||'').trim()))fail(403,'A manager must review the recorded count timeline and give a reason before resolving attendance review.');
+    if(action==='attendance'&&!ctx.canManage&&!ctx.canApprove&&(!ctx.canWork||!ctx.onShift))fail(403,'Only an assigned caregiver may record attendance.');
     if(idempotencyKey) {
       const [receipt]=await db.execute('INSERT IGNORE INTO childcare_action_receipts(shift_id,user_id,action,request_key) VALUES (?,?,?,?)',[shift.id,userId,action,idempotencyKey]);
       if(!receipt.affectedRows){const [[original]]=await db.execute('SELECT action FROM childcare_action_receipts WHERE shift_id=? AND user_id=? AND request_key=?',[shift.id,userId,idempotencyKey]);if(original.action!==action)fail(409,'This request key belongs to a different action.');return {alreadyProcessed:true,shift:await mapShift(shift,userId,db)};}
@@ -263,7 +282,7 @@ export async function recordChildcareAction({shiftId,userId,action,actualChildre
     const {punches}=await shiftSources(shift,db),own=punches.filter(row=>Number(row.user_id)===Number(userId)),last=own.at(-1);
     let correctionTime=null;
     if(effectiveAt!=null) {
-      if(action!=='attendance'||!ctx.canManage||!resolveReview)fail(403,'Only an explicit manager attendance review may correct the recorded count timeline.');
+      if(action!=='attendance'||!(ctx.canManage||ctx.canApprove)||!resolveReview)fail(403,'Only an explicit manager attendance review may correct the recorded count timeline.');
       correctionTime=new Date(effectiveAt);
       const times=punches.map(row=>new Date(childcareStoredIso(row.punched_at)).getTime()),first=times.length?Math.min(...times):null;
       const {open}=childcareWorkIntervals(punches),lastTime=open.size?now.getTime():(times.length?Math.max(...times):null);
@@ -276,7 +295,9 @@ export async function recordChildcareAction({shiftId,userId,action,actualChildre
       if(last?.punch_type==='clock_in')return {alreadyProcessed:true,shift:await mapShift(shift,userId,db)};
       const [other]=await db.execute(`SELECT p.id FROM skill_builders_event_kiosk_punches p WHERE p.user_id=? AND p.company_event_id<>? AND p.punch_type='clock_in' AND NOT EXISTS(SELECT 1 FROM skill_builders_event_kiosk_punches o WHERE o.user_id=p.user_id AND o.company_event_id=p.company_event_id AND o.punch_type='clock_out' AND (o.punched_at>p.punched_at OR (o.punched_at=p.punched_at AND o.id>p.id))) LIMIT 1`,[userId,shift.company_event_id]);
       if(other.length)fail(409,'Clock out of the other event before starting childcare.');
-      await recordAttendance(shift,{actualChildren,confirmPlannedCount,expectedVersion,source:'clock_in',userId,now,reviewChange:true},db);
+      let validCount=false;
+      if(actualChildren!=null||confirmPlannedCount===true)try{await recordAttendance(shift,{actualChildren,confirmPlannedCount,expectedVersion,source:'clock_in',userId,now,reviewChange:true},db);validCount=true;}catch(error){if(![400,409].includes(error.status))throw error;}
+      if(!validCount){await db.execute('UPDATE childcare_shifts SET attendance_review_required=1 WHERE id=?',[shift.id]);shift.attendance_review_required=1;}
       await db.execute("INSERT INTO skill_builders_event_kiosk_punches(company_event_id,user_id,punch_type,punched_at) VALUES (?,?,'clock_in',?)",[shift.company_event_id,userId,sqlInstant(now)]);
     } else if(action==='clock-out') {
       if(last?.punch_type!=='clock_in')return {alreadyProcessed:true,shift:await mapShift(shift,userId,db)};
@@ -290,7 +311,7 @@ export async function recordChildcareAction({shiftId,userId,action,actualChildre
       if(!validCount){await db.execute('UPDATE childcare_shifts SET attendance_review_required=1 WHERE id=?',[shift.id]);shift.attendance_review_required=1;}
       await db.execute("INSERT INTO skill_builders_event_kiosk_punches(company_event_id,user_id,punch_type,punched_at) VALUES (?,?,'clock_out',?)",[shift.company_event_id,userId,sqlInstant(now)]);
     } else {
-      if(last?.punch_type!=='clock_in'&&!ctx.canManage)fail(409,'Record child-count changes while clocked in.');
+      if(last?.punch_type!=='clock_in'&&!ctx.canManage&&!ctx.canApprove)fail(409,'Record child-count changes while clocked in.');
       await recordAttendance(shift,{actualChildren,confirmPlannedCount,expectedVersion,source:correctionTime?'manager_timeline_correction':'attendance_change',userId,now,effectiveAt:correctionTime,reviewNote},db);
       if(resolveReview){await db.execute('UPDATE childcare_shifts SET attendance_review_required=0 WHERE id=?',[shift.id]);shift.attendance_review_required=0;}
     }
@@ -312,3 +333,5 @@ export async function previewChildcarePay({shiftId,userId,targetUserId},db=pool)
   const correctionReviewRequired=saved&&['approved','paid'].includes(saved.claim_status)&&(!childcareSnapshotHashMatches(stored,saved.snapshot_hash)||childcareSnapshotHash(stored)!==childcareSnapshotHash(snapshot));
   return {...snapshot,...(correctionReviewRequired?{reviewRequired:true,totalAmount:null,estimatedUnapprovedAmount:snapshot.totalAmount,approvedAmount:parse(saved.snapshot_json).totalAmount,correctionReviewRequired:true,reasons:[...snapshot.reasons,'This shift changed after payroll approval. Retain the approved amount and review a separate correction.']}:{correctionReviewRequired:false}),claimId:saved?.payroll_time_claim_id||null,claimStatus:saved?.claim_status||null,auditRowId};
 }
+
+export const childcareWorkReview=createChildcareWorkReviewActions({transaction,loadShift,authorizeShift,assigned,shiftSources,mapShift,refreshChildcarePay,audit,recordAttendance,sqlInstant});

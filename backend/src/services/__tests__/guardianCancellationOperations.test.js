@@ -101,3 +101,9 @@ it('requires clinical care-plan authority to end counseling while keeping ordina
  await expect(submit()).rejects.toMatchObject({status:403});expect(operation).toBeNull();
  await expect(submit({scope:'single'})).resolves.toMatchObject({count:1,endsService:false});
 });
+it('previews only one remaining courtesy across multiple late cancellations from the same package',async()=>{
+ for(const a of appointments.values()){a.packageEntitlementId=82;}
+ const pkg=vi.fn(async()=>({id:82,freeMissesRemaining:1}));
+ service=createGuardianServiceCancellationService({db:{execute:m.execute,getConnection:async()=>m},appointment:async id=>appointments.get(Number(id)),authorize:m.authorize,requireCancellation:m.requireCancellation,authorizeEnd:m.authorizeEnd,evaluate:async()=>({allowed:true,isLate:true,policy:{id:3,noticeHours:24},recommendedFeeCents:0,recommendedPackageAction:'forfeit'}),packageEntitlement:pkg,now:()=>new Date('2026-11-13T16:00:00Z')});
+ const result=await service.preview(input);expect(result.fees.filter(f=>f.packageCourtesyApplies)).toHaveLength(1);expect(result.fees[0]).toMatchObject({packageAction:'forfeit',packageCourtesyRemaining:1});expect(pkg).toHaveBeenCalledTimes(1);
+});

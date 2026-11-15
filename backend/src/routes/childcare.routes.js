@@ -1,6 +1,6 @@
 import express from 'express';
 import {authenticate} from '../middleware/auth.middleware.js';
-import {childcareContext,listChildcareStaff,saveChildcareGrant,getChildcareStaffRates,listChildcareShifts,getChildcareShift,createChildcareShift,updateChildcareShift,recordChildcareAction,previewChildcarePay} from '../services/childcare.service.js';
+import {childcareWorkReview,childcareContext,listChildcareStaff,saveChildcareGrant,getChildcareStaffRates,listChildcareShifts,getChildcareShift,createChildcareShift,updateChildcareShift,recordChildcareAction,previewChildcarePay} from '../services/childcare.service.js';
 
 const router=express.Router();router.use(authenticate);
 const run=work=>async(req,res,next)=>{try{res.json(await work(req));}catch(error){next(error);}};
@@ -15,4 +15,8 @@ router.get('/shifts/:shiftId',run(req=>getChildcareShift({shiftId:req.params.shi
 router.patch('/shifts/:shiftId',run(req=>updateChildcareShift({...req.body,shiftId:req.params.shiftId,userId:req.user.id})));
 router.get('/shifts/:shiftId/pay-preview',run(req=>previewChildcarePay({shiftId:req.params.shiftId,userId:req.user.id,targetUserId:req.query.userId})));
 for(const action of ['clock-in','clock-out','attendance'])router.post(`/shifts/:shiftId/${action}`,run(req=>recordChildcareAction({...req.body,shiftId:req.params.shiftId,userId:req.user.id,action,now:new Date()})));
+router.post('/shifts/:shiftId/submit-work',run(req=>childcareWorkReview.submit({...req.body,shiftId:req.params.shiftId,userId:req.user.id})));
+router.post('/shifts/:shiftId/review-work',run(req=>childcareWorkReview.review({...req.body,shiftId:req.params.shiftId,userId:req.user.id})));
+router.post('/shifts/:shiftId/time-corrections',run(req=>childcareWorkReview.requestCorrection({...req.body,shiftId:req.params.shiftId,userId:req.user.id,now:new Date()})));
+router.post('/shifts/:shiftId/time-corrections/:correctionId/review',run(req=>childcareWorkReview.reviewCorrection({...req.body,shiftId:req.params.shiftId,correctionId:req.params.correctionId,userId:req.user.id})));
 export default router;

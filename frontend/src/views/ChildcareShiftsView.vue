@@ -4,7 +4,7 @@
     <p v-if="error" class="error" role="alert">{{ error }}</p>
     <p v-if="notice" class="notice" role="status">{{ notice }}</p>
     <p v-if="loading" role="status">Loading childcare shifts…</p>
-    <p v-else-if="!context?.enabled || (!context.canWork && !context.canManage)" role="status">Childcare is not assigned to your account in this workspace. Ask your scheduler to review your service assignments.</p>
+    <p v-else-if="!context?.enabled || (!context.canWork && !context.canManage && !context.canApprove)" role="status">Childcare is not assigned to your account in this workspace. Ask your scheduler to review your service assignments.</p>
     <template v-else>
       <section v-if="ownRates" class="card"><h2>Your childcare rates</h2><p v-if="ownRates.reviewRequired" class="review">{{ (ownRates.reasons || []).join('; ') }}</p><p>Category {{ ownRates.category || 'not configured' }} · Childcare level {{ ownRates.childcareLevel || 'not configured' }}<span v-if="ownRates.effectiveOn"> · Effective {{ ownRates.effectiveOn }}</span></p><ul><li v-for="band in CHILDCARE_BANDS" :key="band">{{ band }} {{ band === 1 ? 'child' : 'children' }} per caregiver: {{ childcareMoney(ownRates.ratesByBand?.[band]) }}/hour</li></ul></section>
       <button v-if="context.canSchedule || context.canManage" type="button" :disabled="busy" @click="newShift">Schedule childcare</button>
@@ -17,7 +17,7 @@
         <label>Location<input v-model="draft.locationName" maxlength="200" placeholder="Approved childcare location" /></label>
         <div v-if="context.canManagePay" class="columns"><label>Approved work-location minimum hourly rate<input v-model="draft.minimumHourlyRate" type="number" min="0.01" step="0.01" inputmode="decimal" /></label><label>Work-location jurisdiction<input v-model="draft.wageFloorJurisdiction" maxlength="200" placeholder="Approved jurisdiction for this location" /></label></div>
         <fieldset v-if="context.canManage"><legend>Caregivers and co-caregivers</legend><label v-for="person in eligibleStaff" :key="person.userId" class="check"><input v-model="draft.providerUserIds" type="checkbox" :value="person.userId" />{{ person.firstName }} {{ person.lastName }}</label><p v-if="!eligibleStaff.length">No active childcare assignments. Review the employee’s service permissions first.</p></fieldset>
-        <p v-else>You are scheduling your own childcare shift.</p>
+        <p v-else>You are scheduling your own childcare shift. An authorized scheduler can add eligible co-caregivers; only staff actually working share the child-count pay band.</p>
         <label>Private operational note (optional)<textarea v-model="draft.note" maxlength="4000" placeholder="Supplies, arrival instructions, or other operational details" /></label>
         <p>Child names are not needed. Planned children are kept separately from actual attendance.</p>
         <div class="actions"><button type="submit" :disabled="busy">{{ busy ? 'Saving…' : 'Save shift' }}</button><button type="button" :disabled="busy" @click="editing = false">Cancel</button></div>
@@ -30,11 +30,31 @@
           <p v-if="selected.note" class="operational-note">{{ selected.note }}</p>
           <ul class="caregivers"><li v-for="person in selected.providers || []" :key="person.userId">{{ person.firstName }} {{ person.lastName }} · {{ person.clockedIn ? 'Clocked in' : 'Not clocked in' }}</li></ul>
           <template v-if="selected.status !== 'cancelled' && selected.status !== 'canceled'">
-            <fieldset v-if="isAssigned"><legend>Were the scheduled {{ selected.plannedChildren }} children present?</legend><label class="check"><input v-model="countChoice" type="radio" value="planned" name="childcare-count" />Yes, {{ selected.plannedChildren }} children</label><label class="check"><input v-model="countChoice" type="radio" value="actual" name="childcare-count" />A different number</label><label v-if="countChoice === 'actual'">Actual children present<input v-model="actualCount" type="number" min="0" step="1" /></label><label class="check"><input v-model="countChoice" type="radio" value="later" name="childcare-count" />Attendance needs review; record my time now</label></fieldset>
-            <div class="actions"><button v-if="isAssigned && !clockedIn" type="button" :disabled="busy" @click="punch('clock-in')">Clock in</button><button v-if="isAssigned && clockedIn" type="button" :disabled="busy" @click="punch('clock-out')">Clock out</button><button v-if="isAssigned || context.canManage" type="button" :disabled="busy || countChoice === 'later'" @click="saveAttendance">Record attendance change</button><button v-if="canEdit" type="button" :disabled="busy" @click="editShift">Edit schedule</button><button v-if="canEdit" type="button" :disabled="busy" @click="cancelShift">Cancel shift</button></div>
+            <fieldset v-if="isAssigned || context.canManage || context.canApprove"><legend>Were the scheduled {{ selected.plannedChildren }} children present?</legend><label class="check"><input v-model="countChoice" type="radio" value="planned" name="childcare-count" />Yes, {{ selected.plannedChildren }} children</label><label class="check"><input v-model="countChoice" type="radio" value="actual" name="childcare-count" />A different number</label><label v-if="countChoice === 'actual'">Actual children present<input v-model="actualCount" type="number" min="0" step="1" /></label><label class="check"><input v-model="countChoice" type="radio" value="later" name="childcare-count" />Attendance needs review; record my time now</label></fieldset>
+            <div class="actions"><button v-if="isAssigned && !clockedIn" type="button" :disabled="busy" @click="punch('clock-in')">Clock in</button><button v-if="isAssigned && clockedIn" type="button" :disabled="busy" @click="punch('clock-out')">Clock out</button><button v-if="isAssigned || context.canManage || context.canApprove" type="button" :disabled="busy || countChoice === 'later'" @click="saveAttendance">Record attendance change</button><button v-if="canEdit" type="button" :disabled="busy" @click="editShift">Edit schedule</button><button v-if="canEdit" type="button" :disabled="busy" @click="cancelShift">Cancel shift</button></div>
           </template>
           <p v-if="selected.myParticipation?.clockedInAt">Clocked in: {{ instant(selected.myParticipation.clockedInAt, selected.timezone) }}</p><p v-if="selected.myParticipation?.clockedOutAt">Clocked out: {{ instant(selected.myParticipation.clockedOutAt, selected.timezone) }}</p>
-          <form v-if="context.canManage && selected.attendanceReviewRequired" class="review" @submit.prevent="resolveAttendance"><h3>Review attendance</h3><label>Reviewed actual child count<input v-model="reviewCount" type="number" min="0" step="1" required /></label><label>Count applied from ({{ selected.timezone }})<input v-model="reviewEffectiveLocal" type="datetime-local" required /></label><label>Review explanation<textarea v-model="reviewNote" required maxlength="2000" placeholder="Explain how the recorded attendance and work intervals were verified." /></label><p>The original observations and punches stay in history. This records a reviewed count for the stated work interval.</p><button type="submit" :disabled="busy">Record attendance review</button></form>
+          <form v-if="(context.canManage || context.canApprove) && selected.attendanceReviewRequired" class="review" @submit.prevent="resolveAttendance"><h3>Review attendance</h3><label>Reviewed actual child count<input v-model="reviewCount" type="number" min="0" step="1" required /></label><label>Count applied from ({{ selected.timezone }})<input v-model="reviewEffectiveLocal" type="datetime-local" required /></label><label>Review explanation<textarea v-model="reviewNote" required maxlength="2000" placeholder="Explain how the recorded attendance and work intervals were verified." /></label><p>The original observations and punches stay in history. This records a reviewed count for the stated work interval.</p><button type="submit" :disabled="busy">Record attendance review</button></form>
+          <section class="work-review"><h3>Recorded work and childcare sign-off</h3>
+            <p>Clocking out records time. The employee submits their work, then a separate authorized reviewer signs off. Payroll approval remains separate.</p>
+            <template v-if="isAssigned">
+              <p>Your submission: {{ownWorkReview?.status || 'Not submitted'}}</p><p v-if="ownWorkReview?.status==='draft'">The recorded work changed. Review and submit the current intervals again.</p>
+              <label v-if="!clockedIn" class="check"><input v-model="confirmWork" type="checkbox" />I confirm this is my actual recorded work and attendance.</label>
+              <button v-if="!clockedIn && !['submitted','approved'].includes(ownWorkReview?.status)" type="button" :disabled="busy||!confirmWork" @click="perform('submit-work',{confirmed:confirmWork},'Work submitted for childcare review.')">Submit work for review</button>
+              <details><summary>Request an actual time correction / record missed time</summary><p>Enter actual work only. Original clock punches remain in history. The correction needs separate review before it affects pay.</p>
+                <div v-for="(interval,index) in correctionIntervals" :key="index" class="columns"><label>Actual start ({{selected.timezone}})<input v-model="interval.startLocal" type="datetime-local" /></label><label>Actual end<input v-model="interval.endLocal" type="datetime-local" /></label><button v-if="correctionIntervals.length>1" type="button" @click="correctionIntervals.splice(index,1)">Remove interval</button></div>
+                <button type="button" :disabled="correctionIntervals.length>=12" @click="correctionIntervals.push({startLocal:'',endLocal:''})">Add work interval</button>
+                <label>Children present at the beginning of this work<input v-model="correctionChildren" type="number" min="0" step="1" /></label><label>Why does the recorded time need correction?<textarea v-model="correctionReason" maxlength="2000" /></label><button type="button" :disabled="busy" @click="requestTimeCorrection">Send correction for review</button>
+              </details>
+            </template>
+            <article v-for="correction in selected.timeCorrections||[]" :key="`time-${correction.id}`" class="review"><strong>Time correction #{{correction.id}} · {{caregiverName(correction.user_id)}} · {{correction.status}}</strong><p>{{correction.reason}}</p><p v-for="(interval,i) in parseIntervals(correction.intervals_json)" :key="i">{{instant(interval.startedAt,selected.timezone)}} – {{instant(interval.endedAt,selected.timezone)}}</p><p>{{correction.actual_children}} children reported at the start.</p>
+              <template v-if="context.canApprove && correction.status==='pending' && Number(correction.user_id)!==myId"><label>Review explanation<textarea v-model="timeNotes[correction.id]" maxlength="2000" /></label><button type="button" :disabled="busy||!timeNotes[correction.id]?.trim()" @click="reviewTime(correction,'approved')">Approve actual time correction</button><button type="button" :disabled="busy||!timeNotes[correction.id]?.trim()" @click="reviewTime(correction,'rejected')">Return correction</button></template>
+            </article>
+            <article v-for="review in selected.workReviews||[]" :key="`work-${review.user_id}`" class="review"><strong>{{caregiverName(review.user_id)}} · {{review.status}}</strong><p v-for="(interval,i) in review.intervals" :key="i">{{instant(interval.startedAt,selected.timezone)}} – {{instant(interval.endedAt,selected.timezone)}}</p><p v-if="review.review_note">{{review.review_note}}</p>
+              <template v-if="context.canApprove && review.status==='submitted' && Number(review.user_id)!==myId"><label>Review explanation<textarea v-model="workNotes[review.user_id]" maxlength="2000" /></label><label class="check"><input v-model="workConfirmed[review.user_id]" type="checkbox" />I reviewed these actual intervals and the recorded child-count timeline.</label><button type="button" :disabled="busy||!workConfirmed[review.user_id]||!workNotes[review.user_id]?.trim()" @click="reviewWork(review,'approved')">Sign off on childcare work</button><button type="button" :disabled="busy||!workNotes[review.user_id]?.trim()" @click="reviewWork(review,'rejected')">Return work for correction</button></template>
+            </article>
+            <details v-if="selected.attendanceHistory?.length"><summary>Recorded child-count timeline</summary><p v-for="(observation,i) in selected.attendanceHistory" :key="i">{{instant(observation.effectiveAt,selected.timezone)}} · {{observation.actualChildren}} children<span v-if="observation.reviewRequired"> · observation flagged for review</span></p></details>
+          </section>
           <section v-if="pay"><h3>Your childcare pay</h3><p v-if="pay.reviewRequired" class="review" role="status">Review required: {{ (pay.reasons || []).join('; ') }}</p><p v-if="pay.correctionReviewRequired">Previously approved: {{ childcareMoney(pay.approvedAmount) }}. Revised estimate awaiting correction review: {{ childcareMoney(pay.estimatedUnapprovedAmount) }}.</p><p>{{ Number(pay.totalMinutes || 0).toFixed(1) }} actual minutes · {{ childcareMoney(pay.totalAmount) }}</p><div class="table-wrap"><table v-if="pay.segments?.length"><thead><tr><th>Work interval</th><th>Children / caregivers</th><th>Band</th><th>Rate / hour</th><th>Amount</th></tr></thead><tbody><tr v-for="(segment, i) in pay.segments" :key="i"><td>{{ instant(segment.startedAt, selected.timezone) }} – {{ instant(segment.endedAt, selected.timezone) }}</td><td>{{ segment.children }} / {{ segment.caregivers }}</td><td>{{ segment.band }}</td><td>{{ childcareMoney(segment.rate) }}</td><td>{{ childcareMoney(segment.amount) }}</td></tr></tbody></table></div><p>Calculated from recorded attendance, active caregivers, actual time, and your effective approved rates.</p></section>
         </article>
       </section>
@@ -43,7 +63,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAgencyStore } from '../store/agency';
 import { useAuthStore } from '../store/auth';
@@ -58,6 +78,11 @@ const agencyId = computed(() => Number(props.agencyId || agencyStore.currentAgen
 const context = ref(null), shifts = ref([]), selected = ref(null), pay = ref(null), eligibleStaff = ref([]);
 const ownRates = ref(null);
 const loading = ref(false), busy = ref(false), error = ref(''), notice = ref(''), editing = ref(false), editId = ref(null);
+const confirmWork=ref(false),correctionIntervals=ref([{startLocal:'',endLocal:''}]),correctionChildren=ref(''),correctionReason=ref('');
+const workNotes=reactive({}),workConfirmed=reactive({}),timeNotes=reactive({});let correctionKey=null,correctionPending=null;
+const ownWorkReview=computed(()=>selected.value?.workReviews?.find(row=>Number(row.user_id)===myId.value));
+const caregiverName=id=>{const person=selected.value?.providers?.find(p=>Number(p.userId)===Number(id));return person?`${person.firstName} ${person.lastName}`:`Employee #${id}`;};
+const parseIntervals=value=>typeof value==='string'?JSON.parse(value):value;
 const countChoice = ref(''), actualCount = ref(''), draft = ref({});
 const reviewCount = ref(''), reviewNote = ref(''), reviewEffectiveLocal = ref('');
 let generation = 0, selectionGeneration = 0, actionKey = null, pendingPunch = null;
@@ -79,7 +104,7 @@ async function load() {
     const data = unwrap(await http.value.get('/childcare/context', { params: { agencyId: aid } }));
     if (token !== generation) return;
     context.value = data;
-    if (!data.enabled || (!data.canWork && !data.canManage)) return;
+    if (!data.enabled || (!data.canWork && !data.canManage && !data.canApprove)) return;
     if (data.canWork && myId.value) {
       const rates = unwrap(await http.value.get(`/childcare/staff/${myId.value}/rates`, { params: { agencyId: aid } }));
       if (token !== generation) return;
@@ -104,7 +129,7 @@ async function openShift(id, expectedGeneration = generation) {
   try {
     const data = unwrap(await http.value.get(`/childcare/shifts/${id}`, { params: { agencyId: agencyId.value } }));
     if (expectedGeneration !== generation || selectionToken !== selectionGeneration) return;
-    selected.value = data.shift || data; countChoice.value = ''; actualCount.value = ''; reviewCount.value = selected.value.actualChildren ?? ''; reviewNote.value = ''; reviewEffectiveLocal.value = isoToZonedDatetimeLocal(selected.value.firstClockInAt || selected.value.startsAt, selected.value.timezone); actionKey = null; pendingPunch = null;
+    selected.value = data.shift || data; confirmWork.value=false;correctionKey=null;correctionPending=null; countChoice.value = ''; actualCount.value = ''; reviewCount.value = selected.value.actualChildren ?? ''; reviewNote.value = ''; reviewEffectiveLocal.value = isoToZonedDatetimeLocal(selected.value.firstClockInAt || selected.value.startsAt, selected.value.timezone); actionKey = null; pendingPunch = null;
     if (!props.http && Number(route.query.shiftId) !== Number(id)) router.replace({ query: { ...route.query, shiftId: String(id) } });
     if (isAssigned.value) {
       const result = unwrap(await http.value.get(`/childcare/shifts/${id}/pay-preview`, { params: { agencyId: agencyId.value } }));
@@ -168,6 +193,17 @@ function resolveAttendance() {
     return perform('attendance', { ...childcareCountPayload('actual', reviewCount.value, selected.value.plannedChildren), expectedVersion: selected.value.attendanceVersion, resolveReview: true, reviewNote: reviewNote.value.trim(), effectiveAt }, 'Attendance review recorded.');
   } catch (e) { error.value = message(e); }
 }
+function requestTimeCorrection(){
+ try{const intervals=correctionIntervals.value.map(row=>({startedAt:zonedDatetimeLocalToIso(row.startLocal,selected.value.timezone),endedAt:zonedDatetimeLocalToIso(row.endLocal,selected.value.timezone)}));
+  if(intervals.some(row=>!row.startedAt||!row.endedAt)||!correctionReason.value.trim()||correctionChildren.value==='')throw new Error('Enter actual time, the child count and a correction reason.');
+  const body={intervals,actualChildren:Number(correctionChildren.value),reason:correctionReason.value.trim()};
+  if(correctionPending&&correctionPending!==JSON.stringify(body))throw new Error('Confirm the earlier correction request by refreshing before changing its contents.');
+  correctionKey||=globalThis.crypto.randomUUID();correctionPending=JSON.stringify(body);
+  return perform('time-corrections',{...body,idempotencyKey:correctionKey},'Time correction sent for separate review. Original punches are preserved.');
+ }catch(e){error.value=message(e);}
+}
+function reviewWork(row,decision){return perform('review-work',{targetUserId:row.user_id,decision,note:workNotes[row.user_id],snapshotHash:row.snapshot_hash,confirmed:!!workConfirmed[row.user_id]},decision==='approved'?'Childcare work signed off; payroll review remains separate.':'Work returned for correction.');}
+function reviewTime(row,decision){return perform(`time-corrections/${row.id}/review`,{decision,note:timeNotes[row.id]},decision==='approved'?'Actual time correction reviewed. Employee must review and submit the current work.':'Time correction returned.');}
 async function cancelShift() {
   if (busy.value) return;
   busy.value = true; error.value = '';

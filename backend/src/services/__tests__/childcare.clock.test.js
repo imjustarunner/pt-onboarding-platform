@@ -14,6 +14,7 @@ function memoryShift({role='provider'}={}) {
  const state={shift:{id:8,agency_id:453,company_event_id:80,title:'Childcare',planned_children:3,actual_children:null,attendance_version:0,attendance_review_required:0,starts_at:'2026-11-19T23:00:00Z',ends_at:'2026-11-20T02:00:00Z',timezone:'America/Denver',status:'scheduled',is_active:1,minimum_hourly_rate:17,wage_floor_jurisdiction:'QA confirmed location'},punches:[],attendance:[],receipts:new Map(),snapshot:null,claim:null};
  let nextId=100;
  const db={scopedRole:role,beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn(),execute:vi.fn(async(sql,p=[])=>{
+  if(sql.includes('FROM childcare_time_corrections')||sql.includes('FROM childcare_work_reviews'))return [[]];
   if(sql.startsWith('SELECT id FROM users'))return [[{id:7}]];
   if(sql.startsWith('SELECT s.*,e.title'))return [[{...state.shift}]];
   if(sql.startsWith('SELECT id,slug,name'))return [[{id:453,slug:'nlu-qa-demo',is_active:1}]];
@@ -62,8 +63,9 @@ describe('childcare real punch to reviewable payroll claim',()=>{
   await recordChildcareAction({shiftId:8,userId:7,action:'clock-in',confirmPlannedCount:true,idempotencyKey:'clock-in-unique',now:new Date('2026-11-19T23:00:00Z')});
   expect(state.punches).toHaveLength(1);expect(state.claim).toBeNull();
   const result=await recordChildcareAction({shiftId:8,userId:7,action:'clock-out',confirmPlannedCount:true,idempotencyKey:'clock-out-unique',now:new Date('2026-11-20T02:00:00Z')});
-  expect(result.shift.status).toBe('completed');expect(state.claim).toMatchObject({status:'submitted',credits_hours:3});
-  expect(childcareClaimAmount(state.claim)).toBe(105);
+  expect(result.shift.status).toBe('completed');expect(state.claim).toMatchObject({status:'deferred',credits_hours:3});
+  expect(()=>childcareClaimAmount(state.claim)).toThrow('sign off');
+  expect(state.claim.payload.childcareSnapshot.totalAmount).toBe(105);
   const retry=await recordChildcareAction({shiftId:8,userId:7,action:'clock-out',confirmPlannedCount:true,idempotencyKey:'clock-out-unique',now:new Date('2026-11-20T02:01:00Z')});
   expect(retry.alreadyProcessed).toBe(true);expect(state.punches).toHaveLength(2);
   expect(db.execute.mock.calls.filter(([sql])=>sql.startsWith('INSERT INTO payroll_time_claims'))).toHaveLength(1);
@@ -87,7 +89,7 @@ describe('childcare real punch to reviewable payroll claim',()=>{
   const {state,db}=memoryShift();pool.getConnection.mockResolvedValue(db);
   await recordChildcareAction({shiftId:8,userId:7,action:'clock-in',actualChildren:3,now:new Date('2026-11-19T23:00:00Z')});
   await recordChildcareAction({shiftId:8,userId:7,action:'clock-out',actualChildren:3,now:new Date('2026-11-20T02:00:00Z')});
-  state.claim.status='approved';const hash=state.snapshot.snapshot_hash;
+  state.claim.payload.childcareWorkApprovalRequired=false;state.claim.status='approved';const hash=state.snapshot.snapshot_hash;
   await recordChildcareAction({shiftId:8,userId:7,action:'clock-in',actualChildren:2,now:new Date('2026-11-20T02:05:00Z')});
   expect(state.snapshot.snapshot_hash).toBe(hash);expect(childcareClaimAmount(state.claim)).toBe(105);
   expect(db.execute.mock.calls.some(([sql,p])=>sql.startsWith('INSERT INTO user_activity_log')&&p[0]==='childcare_pay_correction_required')).toBe(true);
@@ -100,7 +102,7 @@ describe('childcare real punch to reviewable payroll claim',()=>{
   const original=structuredClone(state.attendance[0]),punches=structuredClone(state.punches);
   await recordChildcareAction({shiftId:8,userId:7,action:'attendance',actualChildren:2,resolveReview:true,reviewNote:'Reviewed count at work start; two were present throughout.',effectiveAt:'2026-11-19T23:00:00Z',now:new Date('2026-11-20T03:00:00Z')});
   expect(state.attendance).toHaveLength(2);expect(state.attendance[0]).toEqual(original);expect(state.punches).toEqual(punches);
-  expect(state.claim.status).toBe('submitted');expect(childcareClaimAmount(state.claim)).toBe(93);
+  expect(state.claim.status).toBe('deferred');expect(state.claim.payload.childcareSnapshot.totalAmount).toBe(93);expect(()=>childcareClaimAmount(state.claim)).toThrow('sign off');
   const correction=db.execute.mock.calls.find(([sql,p])=>sql.startsWith('INSERT INTO childcare_attendance_events')&&p[5]==='manager_timeline_correction');
   expect(correction[1][7]).toContain('two were present');
  });

@@ -159,7 +159,7 @@ class IntakeSubmissionDocument {
   /**
    * Signed intake PDFs for a client where the submission is tied to this guardian.
    */
-  static async listSignedForGuardianClient({ guardianUserId, clientId,agencyId=null }) {
+  static async listSignedForGuardianClient({ guardianUserId, clientId,agencyId=null,serviceKind=null }) {
     const gid = Number(guardianUserId);
     const cid = Number(clientId);
     if (!gid || !cid) return [];
@@ -183,7 +183,7 @@ class IntakeSubmissionDocument {
                           OR JSON_UNQUOTE(JSON_EXTRACT(isd.audit_trail, '$.smartSchoolRoi')) = 'true'
                    THEN CASE WHEN il.language_code = 'es' THEN 'Autorización para compartir información' ELSE 'Release of Information' END
                    ELSE COALESCE(dt.name, 'Signed enrollment agreement') END AS document_template_name,
-              il.title AS intake_link_title
+              il.title AS intake_link_title,il.master_channel
        FROM intake_submission_documents isd
        LEFT JOIN document_templates dt ON dt.id = isd.document_template_id
        JOIN intake_submissions s ON s.id = isd.intake_submission_id
@@ -197,7 +197,7 @@ class IntakeSubmissionDocument {
        ORDER BY isd.signed_at DESC, isd.id DESC`,
       [cid, gid,agencyId,agencyId,agencyId,agencyId]
     );
-    return rows || [];
+    return (rows || []).filter(row=>!serviceKind||(serviceKind==='tutoring'?row.master_channel==='tutoring':row.master_channel!=='tutoring'));
   }
 }
 

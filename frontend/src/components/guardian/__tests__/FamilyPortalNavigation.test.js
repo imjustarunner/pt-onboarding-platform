@@ -159,3 +159,11 @@ it('retains an ended service in the picker and limits its portal without closing
 it('keeps a direct enrollment panel link on enrollment after the family context loads',async()=>{
  const{w}=await setup('/nlu/guardian?panel=enroll');expect(w.findComponent(Shell).props('active')).toBe('enroll');w.unmount();
 });
+it('keeps the verified tutoring context when a membership refresh restores the original agency',async()=>{
+ const linked={...people[0],care_contexts:[{agency_id:2,agency_name:'ITSCO',agency_slug:'itsco',services:[{id:10,service_kind:'counseling',label:'Counseling'}]},{agency_id:6,agency_name:'Next Level Up',agency_slug:'nlu',agency_logo_url:'/nlu.svg',services:[{id:21,service_kind:'tutoring',label:'Tutoring'},{id:22,service_kind:'counseling',label:'Counseling'}]}]};
+ api.get.mockImplementation(async url=>({data:url==='/guardian-portal/overview'?{children:[linked],programs:[]}:{events:[],items:[],documents:[],grants:[],subjects:[],plans:[]}}));
+ const{w}=await setup('/itsco/guardian');const picker=w.findAllComponents({name:'PortalContextPicker'}).find(p=>p.props('label')==='Agency');picker.vm.$emit('update:modelValue',6);await flushPromises();
+ useAgencyStore().currentAgency=agencies[0];await flushPromises();const shell=w.findComponent(Shell);
+ expect(shell.props('brandName')).toBe('Next Level Up');expect(shell.props('navigation').find(n=>n.key==='payment_methods').label).toBe('Payments');
+ shell.vm.$emit('navigate','billing');await flushPromises();expect(w.findComponent({name:'FamilyLedgerPanel'}).props()).toMatchObject({agencyId:6,serviceId:21});w.unmount();
+});
