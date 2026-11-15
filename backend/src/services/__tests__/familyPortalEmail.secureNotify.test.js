@@ -83,8 +83,9 @@ it('names the provider and agency while keeping the message entirely in the port
  m.user.mockResolvedValue({id:1001,first_name:'Synthetic',last_name:'Provider'});await sendSecureMessageNotification(input);const sent=m.send.mock.calls[0][0];expect(sent.text).toContain('Synthetic Provider at ITSCO sent you a secure message');expect(sent.text).toContain('does not include its contents');
 });
 
-it('retains staff message routing for a staff recipient of a client conversation',async()=>{
- m.user.mockResolvedValue({id:1001,role:'provider',password_hash:'set'});const result=await buildSecureClaimRedirect({agency_id:2,client_id:2240,recipient_user_id:1001,chat_thread_id:44});expect(result.targetPath).toBe('/itsco/messages?view=workspace&threadId=44&secure=1');
+it('routes staff notifications to the secure subject reader rather than the team-chat workspace',async()=>{
+ m.user.mockResolvedValue({id:1001,role:'provider',password_hash:'set'});const result=await buildSecureClaimRedirect({agency_id:2,client_id:2240,recipient_user_id:1001,chat_thread_id:44,message_id:77});expect(result.targetPath).toBe('/itsco/messages?threadId=44&messageId=77&secure=1');
+ expect(result.loginUrl).toContain(encodeURIComponent(result.targetPath));expect(m.setup).not.toHaveBeenCalled();
 });
 it('targets the exact secure subject or reply from a family notification without putting its content in the URL',async()=>{
  const result=await buildSecureClaimRedirect({agency_id:2,client_id:2240,recipient_user_id:1411,chat_thread_id:44,message_id:77});

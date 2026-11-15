@@ -102,3 +102,18 @@ it('preserves the Auricwell return context when the agency login theme cannot lo
  get.mockImplementation(async url=>{if(url.includes('login-theme'))throw {response:{status:404}};return {data:{}};});
  await render();expect(replace).toHaveBeenCalledWith({path:'/login',query:route.query});
 });
+
+it('submits a browser bulk password fill labeled insertText exactly once',async()=>{
+ await render();
+ wrapper.vm.username='synthetic@example.com';
+ wrapper.vm.lastVerifiedUsername='synthetic@example.com';wrapper.vm.showPassword=true;
+ await flushPromises();
+ const input=wrapper.get('#password').element;
+ input.value='fictional-password-fill';
+ input.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:null}));
+ await new Promise(resolve=>setTimeout(resolve,250));await flushPromises();
+ expect(post.mock.calls.filter(([url])=>url==='/auth/login')).toHaveLength(1);
+ input.dispatchEvent(new Event('change',{bubbles:true}));
+ await new Promise(resolve=>setTimeout(resolve,250));await flushPromises();
+ expect(post.mock.calls.filter(([url])=>url==='/auth/login')).toHaveLength(1);
+});

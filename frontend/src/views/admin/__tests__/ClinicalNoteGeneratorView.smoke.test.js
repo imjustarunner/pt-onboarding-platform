@@ -57,8 +57,20 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     state.selectedAidId = aid;
     state.selectedServiceCode = aid === 'psychotherapy' ? '90834' : '';
     await nextTick();
-    return { wrapper, state };
+    return { wrapper, state, router };
   }
+
+  it('reopens the saved plan version after a draft save instead of following the old launch ID', async () => {
+    const {wrapper,state,router}=await workspace();
+    await router.replace({path:'/note-aid',query:{noteAid:'psychotherapy_plan',planId:'54',clientId:'22',agencyId:'7'}});
+    await flushPromises();
+    await state.onPlanImportSaved({id:60,status:'draft'});
+    await flushPromises();
+    expect(router.currentRoute.value.query).toMatchObject({planId:'60',clientId:'22',agencyId:'7'});
+    expect(state.approvalMessage).toContain('draft #60 saved');
+    expect(vi.mocked(api.post).mock.calls.some(([path])=>path==='/medical-billing/treatment-plans')).toBe(false);
+    wrapper.unmount();
+  });
 
   it('opens session assessment evidence without needing an AI finding and preserves its saved typed selection', async () => {
     const { wrapper, state } = await workspace();

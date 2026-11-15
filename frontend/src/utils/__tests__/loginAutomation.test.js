@@ -9,3 +9,25 @@ it('does not reuse a verified identity for another username or submit after unmo
 it('allows one fresh verification after the user corrects a failed identifier',async()=>{verify.mockImplementation(async()=>{});auto.usernameChanged();await vi.advanceTimersByTimeAsync(650);state.username='qa@example.co';auto.usernameChanged();state.username='qa@example.com';auto.usernameChanged();await vi.advanceTimersByTimeAsync(650);expect(verify).toHaveBeenCalledTimes(2);});
 
 it('does not follow a manual sign-in with a second automatic attempt',async()=>{state.verifiedUsername=state.username;state.showPassword=true;state.password='fictional-test-password';auto.passwordInserted();auto.submissionStarted();await vi.advanceTimersByTimeAsync(500);expect(submit).not.toHaveBeenCalled();auto.passwordInserted();await vi.advanceTimersByTimeAsync(500);expect(submit).not.toHaveBeenCalled();});
+
+it('recognizes browser/password-manager bulk fills labeled insertText without submitting ordinary single-key typing',async()=>{
+ state.verifiedUsername=state.username;state.showPassword=true;
+ for(const letter of 'typed'){
+  state.password+=letter;auto.passwordInput({inputType:'insertText',data:letter,target:{value:state.password}});
+  await vi.advanceTimersByTimeAsync(200);
+ }
+ expect(submit).not.toHaveBeenCalled();
+ state.password='';auto.passwordInput({inputType:'deleteContentBackward',target:{value:''}});
+ state.password='fictional-saved-password';
+ auto.passwordInput({inputType:'insertText',data:null,target:{value:state.password}});
+ await vi.advanceTimersByTimeAsync(200);expect(submit).toHaveBeenCalledTimes(1);
+ auto.passwordInput({inputType:'insertReplacementText',target:{value:state.password}});
+ await vi.advanceTimersByTimeAsync(200);expect(submit).toHaveBeenCalledTimes(1);
+});
+it('waits for an in-flight manual Verify and submits once when the form becomes ready',async()=>{
+ state.verifying=true;state.password='fictional-password';auto.passwordInserted();
+ await vi.advanceTimersByTimeAsync(200);expect(submit).not.toHaveBeenCalled();
+ state.verifying=false;state.verifiedUsername=state.username;state.showPassword=true;auto.readyChanged();
+ await vi.advanceTimersByTimeAsync(200);expect(submit).toHaveBeenCalledTimes(1);
+ auto.readyChanged();await vi.advanceTimersByTimeAsync(500);expect(submit).toHaveBeenCalledTimes(1);
+});

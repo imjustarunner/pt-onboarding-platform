@@ -36,6 +36,29 @@ beforeEach(async () => {
 });
 afterEach(() => wrapper?.unmount());
 describe('Messages hub thread interactions', () => {
+  it('offers the subject list when a delayed secure send has not selected a conversation', async () => {
+    state.sendMethod='secure';state.activeEmailThreadKey=null;state.mobileShowThread=true;
+    state.timeline=[{id:'chat-239',channel:'secure',bodyPreview:'Existing QA message',createdAt:'2026-11-15',meta:{messageId:239,legacyRootMessageId:239,threadId:379,subject:'Existing QA subject'}}];
+    await nextTick();state.activeEmailThreadKey=null;await nextTick();
+    expect(wrapper.text()).toContain('Choose a subject to read its secure messages');
+    expect(wrapper.text()).not.toContain('No messages yet. Write below and send.');
+    const button=wrapper.findAll('button').find(button=>button.text()==='View secure conversations');
+    await button.trigger('click');expect(state.mobileShowThread).toBe(false);
+  });
+  it('selects a newly sent legacy secure subject instead of showing an empty reader', async () => {
+    state.selected={personKey:'user:1790@2',userId:1790,agencyId:2,displayName:'QA guardian',kinds:['guardian'],methods:[{id:'secure',available:true}]};
+    state.sendMethod='secure';state.emailComposeMode='new';state.timeline=[];
+    await nextTick();state.composeSubject='New QA subject';state.composeBody='Synthetic test content';
+    await flushPromises();state.newSecureReviewed=true;
+    state.secureFamilyAudience={canSend:true,prepareSend:vi.fn(async()=>true),payload:()=>({})};
+    api.post.mockResolvedValue({data:{threadRef:{threadId:379},chat:{id:239,created_at:'2026-11-15T06:00:00Z'}}});
+    api.get.mockImplementation(async path=>({data:path.endsWith('/timeline')?{items:[{id:'chat-239',channel:'secure',bodyPreview:'Synthetic test content',createdAt:'2026-11-15T06:00:00Z',meta:{messageId:239,threadId:379,legacyRootMessageId:239,subject:'New QA subject'}}]}:{}}));
+    await state.send();await flushPromises();
+    expect(state.sendError).toBe('');
+    expect(state.activeEmailThreadKey).toBe('legacy:379:239');
+    expect(state.visibleTimeline.map(message=>message.meta.messageId)).toContain(239);
+    expect(api.post.mock.calls.filter(([path])=>path==='/messages/hub/send')).toHaveLength(1);
+  });
   it('lets the ticket dialog own keyboard events while the email reader is full screen', () => {
     state.readerFullscreen = true; state.activeTicketId = 4;
     for (const key of ['Tab', 'Escape']) {
