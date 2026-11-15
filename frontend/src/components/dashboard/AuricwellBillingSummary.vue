@@ -18,7 +18,6 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useAuthStore } from '../../store/auth';
 import { canAccessBillingWorkspace, canAccessMedicalBilling } from '../../config/medicalBillingAccess';
-import { auricwellAppBase } from '../../auricwell/paths';
 import api from '../../services/api';
 
 const props=defineProps({agencyId:{type:Number,default:null}});
@@ -26,7 +25,7 @@ const auth=useAuthStore(),summary=ref(null),loading=ref(false),error=ref('');
 let sequence=0,active=true;
 const permitted=computed(()=>canAccessBillingWorkspace(auth.user)&&(!props.agencyId||canAccessMedicalBilling(auth.user,props.agencyId)));
 const scopeLabel=computed(()=>summary.value?.organizations?.length===1?summary.value.organizations[0].name:'Your billing organizations');
-const queue=status=>({path:auricwellAppBase(),query:{billingSection:'claims',billingStatus:status,...(props.agencyId?{agencyId:String(props.agencyId)}:{})}});
+const queue=status=>({path:'/admin/medical-billing',query:{billingSection:'claims',billingStatus:status,...(props.agencyId?{agencyId:String(props.agencyId)}:{})}});
 async function load(){
  const run=++sequence;summary.value=null;error.value='';loading.value=false;
  if(!permitted.value)return;

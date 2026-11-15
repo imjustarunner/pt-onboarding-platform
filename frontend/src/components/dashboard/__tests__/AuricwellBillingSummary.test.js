@@ -14,8 +14,16 @@ beforeEach(()=>{vi.clearAllMocks();mocks.auth=reactive({user:{id:55,role:'admin'
 it('shows the two workload counts and separate help row with matching scoped queue links',async()=>{
  const w=mountSummary();await flushPromises();expect(w.text()).toContain('AuricWell billing');expect(w.text()).toContain('ITSCO');expect(w.text()).toContain('Automatic checks');expect(w.text()).toContain('Awaiting signed notes');expect(w.text()).not.toContain('For review');
  expect(w.find('.billing-help.urgent b').text()).toBe('8');expect(w.findAll('.billing-counts strong').map(c=>c.text())).toEqual(['1','0']);
- expect(w.findAllComponents(RouterLinkStub).map(link=>link.props('to'))).toEqual(['submitted_or_processing','needs_review','awaiting_signatures','needs_help'].map(billingStatus=>({path:'/auricwell/app',query:{billingSection:'claims',billingStatus,agencyId:'2'}})));
+ expect(w.findAllComponents(RouterLinkStub).map(link=>link.props('to'))).toEqual(['submitted_or_processing','needs_review','awaiting_signatures','needs_help'].map(billingStatus=>({path:'/admin/medical-billing',query:{billingSection:'claims',billingStatus,agencyId:'2'}})));
  expect(api.get).toHaveBeenCalledWith('/medical-billing/workspace/dashboard-summary',{params:{agencyId:2},skipGlobalLoading:true});w.unmount();
+});
+it('opens the normal billing workspace for support with an existing scoped billing grant',async()=>{
+ mocks.auth.user={id:1453,role:'support',billingAgencyIds:[450]};
+ const w=mountSummary(450);await flushPromises();
+ const links=w.findAllComponents(RouterLinkStub).map(link=>link.props('to'));
+ expect(links).toHaveLength(4);
+ for(const link of links){expect(link.path).toBe('/admin/medical-billing');expect(link.query).toMatchObject({billingSection:'claims',agencyId:'450'});}
+ w.unmount();
 });
 it.each([{role:'admin',billingAgencyIds:[]},{role:'provider',billingAgencyIds:[2]}])('does not request or show billing data without eligible permissions: %j',async user=>{
  mocks.auth.user={id:55,...user};const w=mountSummary();await flushPromises();expect(api.get).not.toHaveBeenCalled();expect(w.find('section').exists()).toBe(false);w.unmount();
