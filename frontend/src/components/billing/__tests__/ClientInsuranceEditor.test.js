@@ -82,24 +82,22 @@ it('lets the paper workflow await a failed save without marking policy details s
  expect(await w.vm.save()).toBe(true);expect(w.emitted('saved')).toHaveLength(1);w.unmount();
 });
 
-it('blocks paper completion before saving a blank secondary member ID, retains input and recovers after correction without requiring a payer ID',async()=>{
+it('preserves partial paper details for billing follow-up and accepts a later corrected number',async()=>{
  api.get.mockResolvedValue({data:{insurance:{primary:{insurerName:'QA Commercial',memberId:'PRIMARY',relationshipToSubscriber:'child',subscriberFirstName:'QA',subscriberLastName:'Parent'},secondary:{insurerName:'QA Medicaid',memberId:'',relationshipToSubscriber:'self',isMedicaid:true},patient:demographic},demographics:demographic}});
- const w=await setup();expect(await w.vm.save({paperEntry:true})).toBe(false);expect(api.put).not.toHaveBeenCalled();expect(w.get('[role="alert"]').text()).toContain('Secondary Member ID');
+ const w=await setup();expect(await w.vm.save({paperEntry:true})).toMatchObject({saved:true,partialInformationConfirmed:true});expect(api.put.mock.calls[0][1].secondary.memberId).toBe('');
  const secondary=w.findAllComponents({name:'InsurancePolicyFields'})[1];expect(secondary.props('modelValue').insurerName).toBe('QA Medicaid');
  secondary.vm.$emit('update:modelValue',{...secondary.props('modelValue'),memberId:'SECONDARY'});await flushPromises();
- expect(await w.vm.save({paperEntry:true})).toMatchObject({saved:true,partialInformationConfirmed:false});expect(api.put).toHaveBeenCalledTimes(1);expect(api.put.mock.calls[0][1]).toMatchObject({primary:{memberId:'PRIMARY'},secondary:{memberId:'SECONDARY',isMedicaid:true}});w.unmount();
+ expect(await w.vm.save({paperEntry:true})).toMatchObject({saved:true,partialInformationConfirmed:false});expect(api.put).toHaveBeenCalledTimes(2);expect(api.put.mock.calls[1][1]).toMatchObject({primary:{memberId:'PRIMARY'},secondary:{memberId:'SECONDARY',isMedicaid:true}});w.unmount();
 });
 it('retains ordinary partial-save support without marking it as complete paper coverage',async()=>{
  api.get.mockResolvedValue({data:{insurance:{primary:{insurerName:'QA Partial'},secondary:{insurerName:'QA Secondary'}},demographics:demographic}});
  const w=await setup();expect(await w.vm.save()).toBe(true);expect(api.put).toHaveBeenCalledTimes(1);
- expect(await w.vm.save({paperEntry:true})).toBe(false);expect(api.put).toHaveBeenCalledTimes(1);expect(w.get('[role="alert"]').text()).toContain('Member ID');w.unmount();
+ expect(await w.vm.save({paperEntry:true})).toMatchObject({saved:true,partialInformationConfirmed:true});expect(api.put).toHaveBeenCalledTimes(2);w.unmount();
 });
-it('accepts an explicit all-I-know confirmation while preserving the unknown field and keeping verification false',async()=>{
+it('records incomplete paper details without a processor verification checkbox or payer request',async()=>{
  api.get.mockResolvedValue({data:{insurance:{primary:{insurerName:'QA Commercial',memberId:'PRIMARY',relationshipToSubscriber:'self'},secondary:{insurerName:'QA Medicaid',memberId:'',relationshipToSubscriber:'self',isMedicaid:true},patient:demographic},demographics:demographic}});
- const w=await setup({paperEntry:true});expect(w.text()).toContain('Some insurance details need follow-up');expect(w.text()).toContain('Secondary Member ID is missing');
- const acknowledgement=()=>w.findAll('label').find(label=>label.text()==='This is all the insurance information I have or know.').get('input');
- await acknowledgement().setValue(true);expect(await w.vm.save({paperEntry:true})).toMatchObject({saved:true,partialInformationConfirmed:true});expect(api.put.mock.calls[0][1]).toMatchObject({secondary:{memberId:'',isMedicaid:true},verifiedForClaims:false});
- await acknowledgement().setValue(true);const secondary=w.findAllComponents({name:'InsurancePolicyFields'})[1];secondary.vm.$emit('update:modelValue',{...secondary.props('modelValue'),insurerName:'Updated QA Medicaid'});await flushPromises();expect(acknowledgement().element.checked).toBe(false);expect(await w.vm.save({paperEntry:true})).toBe(false);expect(api.put).toHaveBeenCalledTimes(1);w.unmount();
+ const w=await setup({paperEntry:true});expect(w.text()).toContain('Some insurance details need follow-up');expect(w.text()).toContain('Secondary Member ID is missing');expect(w.text()).not.toContain('This is all the insurance information I have or know.');
+ expect(await w.vm.save({paperEntry:true})).toMatchObject({saved:true,partialInformationConfirmed:true});expect(api.put.mock.calls[0][1]).toMatchObject({secondary:{memberId:'',isMedicaid:true},verifiedForClaims:false,checkCoverage:false});w.unmount();
 });
 
 it.each([

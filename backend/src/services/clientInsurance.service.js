@@ -49,7 +49,7 @@ export function insuranceForIntakeClient(info, clientIndex, clientCount) {
   if (clientCount > 1 && secondary?.isMedicaid && !(medicaid && info.medicaidPlanPosition === 'secondary') && !assignment?.secondary?.memberId) return null;
   return { primary, secondary, primaryCardFrontUrl: assignment?.primary ? (assignment.primary_front_url || null) : (info.primary_front_url || null), primaryCardBackUrl: assignment?.primary ? (assignment.primary_back_url || null) : (info.primary_back_url || null), secondaryCardFrontUrl: assignment?.primary ? (assignment.secondary_front_url || null) : (info.secondary_front_url || null), secondaryCardBackUrl: assignment?.primary ? (assignment.secondary_back_url || null) : (info.secondary_back_url || null), coverageScope: !assignment?.primary && info.coverageScope === 'account_holder' ? 'account_holder' : 'client', confirmed: !!assignment || clientCount === 1 || !!medicaid };
 }
-export async function writeClientInsurance({ clientId, agencyId, primary, secondary = null, profileId = null, coverageSources = null, confirmedBy = null, patient = null, verifiedForClaims = false, acceptAssignment = null, queueEligibility = true, paperSourceDocumentId=null, paperReviewActorId=null, preservePaperReview=false, paperReviewRequired=false }, db = pool) {
+export async function writeClientInsurance({ clientId, agencyId, primary, secondary = null, profileId = null, coverageSources = null, confirmedBy = null, patient = null, verifiedForClaims = false, acceptAssignment = null, queueEligibility = true, paperSourceDocumentId=null, paperFinalization=null, preservePaperReview=false, paperReviewRequired=false }, db = pool) {
   const previous = await readClientInsurance(clientId, agencyId, db);
   const patientFields = ['firstName','lastName','dateOfBirth','sex','addressLine1','addressLine2','city','state','postalCode'];
   const patientValue = patient && typeof patient === 'object' ? Object.fromEntries(patientFields.map(key => [key, String(patient[key] || '').trim().slice(0,255)])) : { ...(previous?.patient || {}) };
@@ -61,10 +61,12 @@ export async function writeClientInsurance({ clientId, agencyId, primary, second
   if(previous?.paperReviewRequired || paperReviewRequired || paperSourceDocumentId) {
     value.paperReviewRequired=true;
     value.paperSourceDocumentId=Number(paperSourceDocumentId || previous?.paperSourceDocumentId)||null;
+    // Finalization comes from the saved, source-bound processing state, never a request flag.
+    value.paperFinalizedAt=previous?.paperFinalizedAt || null;
     value.paperDraftSaved=!!(paperSourceDocumentId || previous?.paperDraftSaved);
     const fingerprint=insuranceIdentityFingerprint(value),previousReviewed=paperInsuranceIsReviewed(previous);
     const unchangedReview=previousReviewed && previous?.paperReview && previous.paperReview.fingerprint===fingerprint && Number(previous.paperReview.documentId)===value.paperSourceDocumentId;
-    if(paperReviewActorId && value.paperSourceDocumentId)value.paperReview=unchangedReview?previous.paperReview:{approvalId:crypto.randomUUID(),fingerprint,transcriptionFingerprint:fingerprint,reviewedAt:new Date().toISOString(),reviewedByUserId:Number(paperReviewActorId),documentId:value.paperSourceDocumentId};
+    if(confirmedBy && value.paperFinalizedAt && paperFinalization?.finalizedAt===value.paperFinalizedAt && Number(paperFinalization.documentId)===value.paperSourceDocumentId)value.paperReview=unchangedReview?previous.paperReview:{approvalId:crypto.randomUUID(),fingerprint,transcriptionFingerprint:fingerprint,reviewedAt:new Date().toISOString(),reviewedByUserId:Number(confirmedBy),documentId:value.paperSourceDocumentId,finalizedAt:value.paperFinalizedAt};
     else if(previousReviewed && previous?.paperReview && (previous.paperReview.fingerprint===fingerprint || preservePaperReview))value.paperReview={...previous.paperReview,fingerprint,...(preservePaperReview?{eligibilityUpdatedAt:new Date().toISOString()}: {})};
     else value.verifiedForClaims=false;
     const history=[...(previous?.paperReviewHistory || [])];
@@ -89,8 +91,8 @@ export async function writeClientInsurance({ clientId, agencyId, primary, second
   return value;
 }
 async function insuranceRows(clientId,agencyId,db,{lock=false,includeId=false}={}) {
-  const columns=['billing_insurance_payload','paper_packet_demo_candidate_enc','source'];
-  for(let attempt=0;attempt<3;attempt++) {
+  const columns=['billing_insurance_payload','paper_packet_demo_candidate_enc','source','onboarding_docs_json'];
+  for(let attempt=0;attempt<4;attempt++) {
     try {return (await db.execute(`SELECT ${includeId?'id,':''}${columns.join(',')} FROM clients WHERE id = ? AND agency_id = ?${lock?' FOR UPDATE':''}`,[clientId,agencyId]))[0];}
     catch(error) {
       const missing=columns.find(column=>column!=='billing_insurance_payload'&&String(error.sqlMessage||error.message).includes(column));
@@ -103,13 +105,28 @@ function insuranceWithPaperSource(value,row) {
   const candidate=paperReadingCandidate(row);
   let insurance=withPaperPolicyHolders(value,candidate);
   if(candidate || row.source==='SCHOOL_UPLOAD' || insurance?.paperReviewRequired) {
-    insurance={...(insurance || {primary:{},secondary:null,patient:{}}),paperReviewRequired:true,paperSourceDocumentId:Number(candidate?.documentId || insurance?.paperSourceDocumentId)||null};
+    let docs=row.onboarding_docs_json || {};
+    if(typeof docs==='string'){try{docs=JSON.parse(docs);}catch{docs={};}}
+    const documentId=Number(docs.paperPacketSource?.documentId || candidate?.documentId || insurance?.paperSourceDocumentId)||null;
+    const state=docs.paperProcessing;
+    const finalizedAt=state?.processedAt && Number(state.documentId)===documentId && Number(state.signatureSourceDocumentId)===documentId ? state.processedAt : null;
+    insurance={...(insurance || {primary:{},secondary:null,patient:{}}),paperReviewRequired:true,paperSourceDocumentId:documentId,paperFinalizedAt:finalizedAt};
   }
   return insurance;
 }
 export async function readClientInsurance(clientId, agencyId, db = pool) {
   const rows=await insuranceRows(clientId,agencyId,db);
   return rows[0] ? insuranceWithPaperSource(decryptFamilyBilling(rows[0].billing_insurance_payload, `client-insurance:${agencyId}:${clientId}`),rows[0]) : null;
+}
+
+/** Called after the source-bound packet submission is saved. The durable queue
+ * deduplicates repeated submission/invitation retries; no payer call runs here. */
+export async function finalizePaperInsurance({clientId,agencyId,documentId,actorId},db=pool) {
+  const insurance=await readClientInsurance(clientId,agencyId,db);
+  if(!insurance?.paperFinalizedAt || Number(insurance.paperSourceDocumentId)!==Number(documentId))throw billingError(409,'Submit the current paper packet before requesting eligibility.');
+  const saved=await writeClientInsurance({...insurance,clientId,agencyId,confirmedBy:actorId,verifiedForClaims:false,
+    paperFinalization:{documentId:Number(documentId),finalizedAt:insurance.paperFinalizedAt},queueEligibility:true},db);
+  return saved.eligibilityQueueWarning ? {status:'billing_follow_up',retryRequired:true} : {...(saved.automaticEligibility || {status:'billing_follow_up'}),retryRequired:false};
 }
 
 /** Keep a second payer's submission available for review without replacing the

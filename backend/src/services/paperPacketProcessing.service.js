@@ -16,7 +16,8 @@ import { isPaperPacketClient } from '../utils/paperPacketClient.js';
 import { getLatestPaperPacketVisionEval } from './paperPacketVision.service.js';
 import { markPaperPacketSignatureReceived, updateClientOnboardingDocs, acknowledgeRoiStaffOnboarding } from './clientOnboardingChecklist.service.js';
 import { sendHubPortalInvitation } from './messagesHub.service.js';
-import { readClientInsurance } from './clientInsurance.service.js';
+import { readClientInsurance, finalizePaperInsurance } from './clientInsurance.service.js';
+import { queueInsuranceVerificationSafely } from './insuranceVerificationTask.service.js';
 import { isPaperSelfPayType, paperInsuranceCompletionIssues } from '../../../frontend/src/navigation/paperInsuranceCompletion.js';
 import { preparedGuardianLink } from '../utils/guardianPortalLinkState.js';
 
@@ -27,7 +28,8 @@ export const paperProcessingState = client => object(client?.onboarding_docs_jso
 const dependencies = overrides => ({ contacts:ClientContactAffiliation, clients: Client, guardians: ClientGuardian, documents: ClientPhiDocument, agencies: Agency,
   versions:findSchoolPacketVersionByLabel,staff:ClientSchoolStaffRoiAccess,encryptDraft:encryptDemographicsPayload,decryptDraft:decryptDemographicsPayload,
   vision: getLatestPaperPacketVisionEval, send: sendHubPortalInvitation, markSignatures: markPaperPacketSignatureReceived,
-  markDocuments: updateClientOnboardingDocs, acknowledgeRoi: acknowledgeRoiStaffOnboarding, insurance:readClientInsurance, database: pool, ...overrides });
+  markDocuments: updateClientOnboardingDocs, acknowledgeRoi: acknowledgeRoiStaffOnboarding, insurance:readClientInsurance,
+  finalizeInsurance:finalizePaperInsurance,queueInsuranceFollowUp:queueInsuranceVerificationSafely,database: pool, ...overrides });
 
 async function inspectPaperInsurance(client, typeId, deps) {
   const [[type]] = await deps.database.execute('SELECT id,insurance_key,label FROM insurance_types WHERE id=? AND agency_id=? AND is_active=1', [Number(typeId)||0, client.agency_id]);
@@ -138,7 +140,6 @@ async function saveStep({ clientId, actorId, step, data = {} }, overrides = {}) 
   } else if (step === 'insurance') {
     if (data.reviewed !== true) throw fail('Review and save the insurance or self-pay information before continuing.');
     const {type,missingFields,fingerprint} = await inspectPaperInsurance(client, data.insuranceTypeId, deps);
-    if (missingFields.length && data.partialInformationConfirmed !== true) throw fail(`${missingFields.join(' ')} Enter the available details, or confirm “This is all the insurance information I have or know” to continue with staff lookup and billing review pending.`);
     state.insuranceReview={categoryId:Number(type.id),missingFields,partialInformationConfirmed:missingFields.length>0&&data.partialInformationConfirmed===true,followUpRequired:missingFields.length>0,coverageVerifiedByThisStep:false,fingerprint,reviewedAt:new Date().toISOString(),reviewedByUserId:Number(actorId)};
     await deps.clients.update(client.id, {insurance_type_id:Number(type.id)}, actorId);
   } else if (step === 'consents') {
@@ -164,7 +165,7 @@ async function complete({clientId, actorId, signaturesConfirmed, staffRoiConfirm
     const vision = await deps.vision(client.id);
     if (!state.processedAt) {
       const insurance=await inspectPaperInsurance(client, client.insurance_type_id, deps);
-      if(insurance.missingFields.length && (state.insuranceReview?.partialInformationConfirmed!==true || state.insuranceReview?.fingerprint!==insurance.fingerprint))throw fail(`${insurance.missingFields.join(' ')} Review the current insurance step and confirm “This is all the insurance information I have or know” before finishing. Missing details remain for staff lookup and billing review.`);
+      state.insuranceReview={...(state.insuranceReview||{}),categoryId:Number(insurance.type.id),missingFields:insurance.missingFields,followUpRequired:insurance.missingFields.length>0,coverageVerifiedByThisStep:false,fingerprint:insurance.fingerprint};
       if (signaturesConfirmed !== true || staffRoiConfirmed !== true) throw fail('Confirm the existing paper signatures and matched staff ROI selections.');
       assertPacketMatch(client, state, vision);
       if(state.consentReview?.kind==='human_source_review'){const current=await deps.staff.listSchoolStaffRosterForClient({clientId:client.id,schoolOrganizationId:client.organization_id,roiExpiresAt:client.roi_expires_at});const key=rows=>JSON.stringify(rows.map(row=>({schoolStaffUserId:Number(row.schoolStaffUserId||row.school_staff_user_id),state:row.state||row.effective_access_state||row.access_level||'packet'})).sort((a,b)=>a.schoolStaffUserId-b.schoolStaffUserId));if(key(current)!==key(state.consentReview.staffSelections))throw fail('School staff selections changed after the paper review. Review and save the release step again.',409);}
@@ -181,6 +182,19 @@ async function complete({clientId, actorId, signaturesConfirmed, staffRoiConfirm
       state.signatureSourceDocumentId = Number(state.documentId); state.packetEvaluationId = Number(vision.id);delete state.workingDraftEnc;
       await deps.clients.update(client.id, {guardian_portal_enabled:1}, actorId);
       await writeState(client, state, actorId, deps);
+    }
+    // Eligibility starts only after the completed packet is durably submitted.
+    // Coverage gaps and payer failures belong to billing, not the packet processor.
+    if(!state.insuranceSubmission || state.insuranceSubmission.retryRequired) {
+      try {
+        const {type}=await inspectPaperInsurance(client,client.insurance_type_id,deps);
+        const result=isPaperSelfPayType(type)?{status:'not_required'}:await deps.finalizeInsurance({clientId:client.id,agencyId:client.agency_id,documentId:state.documentId,actorId},deps.database);
+        state.insuranceSubmission={...result,submittedAt:new Date().toISOString()};
+      } catch {
+        state.insuranceSubmission={status:'billing_follow_up',retryRequired:true,submittedAt:new Date().toISOString()};
+      }
+      if(state.insuranceSubmission.retryRequired)await deps.queueInsuranceFollowUp({agencyId:client.agency_id,clientId:client.id,reason:'eligibility_error'},deps.database).catch(()=>{});
+      await writeState(client,state,actorId,deps);
     }
     // Activate prepared contacts only after the authoritative signed-paper review is saved.
     const activationBlocked=new Set();
