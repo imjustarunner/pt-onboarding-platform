@@ -12889,7 +12889,7 @@ const requestNotes = ref('');
 const submitting = ref(false);
 const modalError = ref('');
 const officeBookingProgress = ref('');
-const scheduleWeather = useScheduleWeather(() => authStore.user?.id, () => weekStart.value);
+const scheduleWeather = useScheduleWeather(() => authStore.user?.id || authStore.user?.email, () => weekStart.value);
 const forecastDateForDay = day => addDaysYmd(summary.value?.weekStart || weekStart.value, dayIdxFromWeekStartMonday(day));
 const bookingJobs = ref(null);
 const onBackgroundBookingCompleted = () => {

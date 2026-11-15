@@ -17,6 +17,11 @@ it('prefers the signed-in user’s usable home area without looking up an office
  const home={home_city:'Colorado Springs',home_state:'CO',home_street_address:'Private street'};const db={execute:vi.fn()};
  expect(await resolveWeatherLocation(501,home,{officeFallback:true,db})).toMatchObject({home,source:'home',label:'Colorado Springs, CO'}); expect(db.execute).not.toHaveBeenCalled();
 });
+it('keeps all six past days and sixteen forecast days without truncating the end of the forecast',()=>{
+ const dates=Array.from({length:22},(_,index)=>new Date(Date.UTC(2026,10,8+index)).toISOString().slice(0,10));
+ const result=normalizeWeatherForecast({daily:{time:dates}},22,new Date('2026-11-14T20:00:00Z'));
+ expect(result.forecastDays).toHaveLength(22);expect(result.forecastDays[0].date).toBe('2026-11-08');expect(result.forecastDays.at(-1).date).toBe('2026-11-29');
+});
 it('uses only the user’s assigned primary office when their home area is missing',async()=>{
  const db={execute:vi.fn().mockResolvedValue([[{name:'Windchime',city:'Colorado Springs',state:'CO',postal_code:'80919',is_primary:1},{name:'Other office',is_primary:0}]])};
  expect(await resolveWeatherLocation(501,{}, {officeFallback:true,db})).toMatchObject({source:'primary_office',label:'Windchime · Colorado Springs, CO',home:{home_city:'Colorado Springs'}});

@@ -3,6 +3,7 @@ import pool from '../config/database.js';
 import { geocodeAddressWithGoogle } from '../services/googleGeocode.service.js';
 import User from '../models/User.model.js';
 import { normalizeWeatherForecast } from '../services/weatherForecast.js';
+import { cachedWeatherForecast } from '../services/weatherForecastCache.js';
 import { resolveWeatherLocation } from '../services/weatherLocation.service.js';
 
 // Small in-process cache to avoid hammering the (free) upstream API.
@@ -79,7 +80,7 @@ export const getMyWeather = async (req, res, next) => {
     const scheduleView = req.query?.view === 'schedule';
     const cacheKey = `${userId}:${scheduleView ? 'schedule' : 'home'}`;
     const cached = weatherCacheByUserId.get(cacheKey);
-    if (!force && cached && (Date.now() - cached.atMs) < WEATHER_CACHE_TTL_MS) {
+    if (!force && cached && (Date.now() - cached.atMs) < (cached.payload.status === 'ok' && !cached.payload.stale ? WEATHER_CACHE_TTL_MS : 60_000)) {
       return res.json(cached.payload);
     }
 
@@ -178,22 +179,6 @@ export const getMyWeather = async (req, res, next) => {
     let longitude = u?.home_lng == null ? NaN : Number(u.home_lng);
     let geocodeDebug = null;
 
-    // If caller requests force, clear persisted coords so we re-geocode immediately.
-    if (force && location.source === 'home') {
-      latitude = NaN;
-      longitude = NaN;
-      try {
-        await pool.execute(
-          `UPDATE users
-           SET home_lat = NULL, home_lng = NULL, home_geocoded_at = NULL
-           WHERE id = ?`,
-          [userId]
-        );
-      } catch {
-        // ignore (older DBs)
-      }
-    }
-
     // Re-geocode if:
     // - no coords yet
     // - coords were never timestamped (older DB data)
@@ -201,7 +186,7 @@ export const getMyWeather = async (req, res, next) => {
     const geocodedAtMs = u?.home_geocoded_at ? Date.parse(String(u.home_geocoded_at)) : NaN;
     const geocodeStale = !Number.isFinite(geocodedAtMs) || (Date.now() - geocodedAtMs) > (7 * 24 * 60 * 60 * 1000);
 
-    if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || geocodeStale) {
+    if (force || !Number.isFinite(latitude) || !Number.isFinite(longitude) || geocodeStale) {
       let geo = null;
       try {
         geo = await geocodeAddressWithGoogle({
@@ -213,9 +198,12 @@ export const getMyWeather = async (req, res, next) => {
         geocodeDebug = { source: 'google', formattedAddress: geo?.formattedAddress || null };
       } catch {
         geocodeDebug = { source: 'google_failed' };
-        geo = await geocodeHomeAddress({ addressString, postal, city, state });
-        if (geo) geocodeDebug.fallback = 'open_meteo';
       }
+      if (!geo) {
+        try { geo = await geocodeHomeAddress({ addressString, postal, city, state }); } catch { /* Keep valid saved coordinates during a geocoder outage. */ }
+        if (geo) geocodeDebug = { source: 'open_meteo' };
+      }
+      if (!geo && Number.isFinite(latitude) && Number.isFinite(longitude)) geo = { latitude, longitude };
       if (!geo) {
         const payload = { status: 'geocode_failed' };
         if (isDev) {
@@ -242,43 +230,23 @@ export const getMyWeather = async (req, res, next) => {
       }
     }
 
-    let forecastResp = null;
+    let forecast;
     try {
-      forecastResp = await axios.get('https://api.open-meteo.com/v1/forecast', {
-        params: {
-          latitude,
-          longitude,
-          timezone: 'auto',
-          forecast_days: scheduleView ? 16 : 7,
-          temperature_unit: 'fahrenheit',
-          wind_speed_unit: 'mph',
-          precipitation_unit: 'inch',
-          current: 'temperature_2m,weather_code',
-          daily: 'snowfall_sum,precipitation_probability_max,temperature_2m_max,temperature_2m_min,weather_code'
-        },
-        timeout: 15000
-      });
-    } catch (e) {
-      const payload = { status: 'forecast_failed' };
-      if (isDev) {
-        payload.debug = {
-          addressString,
-          usedCoords: { latitude, longitude },
-          geocodeStale,
-          force,
-          geocodeDebug,
-          error: String(e?.message || '').slice(0, 200)
-        };
-      }
+      forecast = await cachedWeatherForecast({ latitude, longitude });
+    } catch {
+      const payload = { status: 'forecast_failed', retryAfterSeconds: 60 };
       weatherCacheByUserId.set(cacheKey, { atMs: Date.now(), payload });
       return res.json(payload);
     }
-
-    const data = forecastResp?.data || {};
+    const data = forecast.data;
+    const normalized = normalizeWeatherForecast(data, 22);
+    if (!scheduleView) {
+      const today = new Intl.DateTimeFormat('en-CA', { timeZone: data.timezone || 'UTC', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+      normalized.forecastDays = normalized.forecastDays.filter(day => day.date >= today).slice(0, 7);
+    }
     const payload = { status: 'ok',
       location: { latitude, longitude, label: location.label, source: location.source },
-      ...normalizeWeatherForecast(data, scheduleView ? 16 : 7),
-      fetchedAt: new Date().toISOString()
+      ...normalized, fetchedAt: forecast.fetchedAt, stale: forecast.stale
     };
 
     // Helpful debug info in development only.

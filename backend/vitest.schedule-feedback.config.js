@@ -4,6 +4,7 @@ export default {
   test: { environment: 'node', include: [
     'src/services/__tests__/manualSessionReminder.test.js',
     'src/services/__tests__/scheduleWeather.test.js',
+    'src/services/__tests__/weatherForecastCache.test.js',
     'src/services/__tests__/attendanceLetterDelivery.test.js',
     'src/services/__tests__/attendanceLetterPdf.test.js',
     'src/services/__tests__/safetyPlansAppointment.test.js',
