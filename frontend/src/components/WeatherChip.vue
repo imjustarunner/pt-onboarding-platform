@@ -1,8 +1,11 @@
 <template>
   <div
     v-if="isAuthenticated"
+    ref="weatherAnchor"
     class="weather-chip-wrap"
+    title=""
     @mouseleave="onWrapLeave"
+    @focusout="onWrapLeave"
   >
     <button
       v-if="weather?.status === 'missing_home_address'"
@@ -22,7 +25,7 @@
       @click="openModal"
       @mouseenter="onPillEnter"
       @focus="onPillEnter"
-      :aria-expanded="modalOpen ? 'true' : 'false'"
+      :aria-expanded="modalOpen || showHoverCard ? 'true' : 'false'"
       aria-haspopup="dialog"
     >
       <span class="weather-chip-temp" v-if="typeof weather?.current?.temperatureF === 'number'">
@@ -30,8 +33,9 @@
       </span>
       <span class="weather-chip-sep" v-if="typeof weather?.current?.temperatureF === 'number'">•</span>
       <span class="weather-chip-label">
-        {{ weather?.snow?.snowLikelyNext72h ? 'Snow' : 'Weather' }}
+        {{ weather?.stale ? 'Weather · saved' : weather?.snow?.snowLikelyNext72h ? 'Snow' : 'Weather' }}
       </span>
+      <span aria-hidden="true">▾</span>
       <span v-if="weather?.snow?.snowLikelyNext72h && weather?.snow?.nextSnowDate" class="weather-chip-sub">
         {{ prettyDate(weather.snow.nextSnowDate) }}
       </span>
@@ -44,20 +48,24 @@
       @click="openModal"
       :title="unavailableTitle"
     >
-      Weather unavailable
+      {{ refreshing && !weather ? 'Weather…' : 'Weather unavailable' }}
     </button>
 
     <!-- Quick hover: snow / no-snow summary (desktop pointer) -->
-    <div
+    <Teleport to="body"><div
       v-if="showHoverCard && weather?.status === 'ok'"
       class="weather-hover-card"
+      :style="hoverStyle"
       role="tooltip"
       @mouseenter="hoverLocked = true"
       @mouseleave="hoverLocked = false; showHoverCard = false"
     >
       <div class="weather-hover-title">{{ hoverCardTitle }}</div>
+      <p class="weather-hover-location">{{ locationLabel }}</p>
       <p class="weather-hover-body">{{ hoverCardBody }}</p>
-    </div>
+      <div v-for="row in forecastRows.slice(0,3)" :key="row.date" class="weather-hover-day"><span>{{ prettyDate(row.date) }}</span><strong>{{ row.tempMaxF == null ? '—' : `${Math.round(row.tempMaxF)}°` }}</strong><span>{{ row.snowfallInches > 0 ? `Snow ${row.snowfallInches}″` : row.snowfallInches === 0 ? 'No snow' : 'Snow total unavailable' }}</span></div>
+      <p v-if="weather.stale" class="weather-hover-location">{{ staleLabel }}</p>
+    </div></Teleport>
 
     <Teleport to="body">
       <div
@@ -73,21 +81,23 @@
           @keydown.escape.prevent="closeModal"
         >
           <div class="weather-modal-head">
-            <h2 id="weather-modal-title">Weather at home</h2>
+            <h2 id="weather-modal-title">Local weather</h2>
             <button type="button" class="weather-modal-close" @click="closeModal" aria-label="Close">×</button>
           </div>
 
           <div class="weather-modal-body">
             <template v-if="weather?.status === 'missing_home_address'">
               <p class="muted">
-                Add a complete home address (including city/state or ZIP) on your account so we can show local weather and snow outlooks.
+                Add your home city and state or ZIP on your account, or assign a main office, to enable local weather.
               </p>
             </template>
 
             <template v-else-if="weather?.status === 'ok'">
+              <p class="muted">{{ locationLabel }}</p>
+              <p v-if="weather.stale" class="weather-stale" role="status">{{ staleLabel }}</p>
               <div class="weather-modal-hero" v-if="typeof weather?.current?.temperatureF === 'number'">
                 <span class="weather-modal-temp">{{ Math.round(weather.current.temperatureF) }}°F</span>
-                <span class="weather-modal-sub">Current (home location)</span>
+                <span class="weather-modal-sub">{{ weather.stale ? 'Last reported temperature' : 'Current temperature' }}</span>
               </div>
 
               <section class="weather-modal-section">
@@ -104,7 +114,7 @@
                     · precip chance {{ Math.round(weather.snow.precipProbAtNextSnow) }}%
                   </span>
                 </p>
-                <p v-else class="muted">No meaningful snow in the next 72 hours at your home location.</p>
+                <p v-else class="muted">No snow forecast in the next 72 hours for this location.</p>
               </section>
 
               <section v-if="forecastRows.length" class="weather-modal-section">
@@ -135,6 +145,7 @@
 
           <div class="weather-modal-actions">
             <button type="button" class="btn btn-secondary" @click="closeModal">Close</button>
+            <button type="button" class="btn btn-secondary" :disabled="refreshing" @click="refresh({force:true})">{{ refreshing ? 'Refreshing…' : 'Refresh weather' }}</button>
             <button type="button" class="btn btn-primary" @click="goToAccountInfo">Update home address</button>
           </div>
         </div>
@@ -144,11 +155,11 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '../store/auth';
-import api from '../services/api';
+import { useWeatherForecast } from '../composables/useScheduleWeather.js';
 
 const authStore = useAuthStore();
 const isAuthenticated = computed(() => authStore.isAuthenticated);
@@ -170,9 +181,10 @@ const goToAccountInfo = async () => {
   }
 };
 
-const weather = ref(null);
-let refreshTimer = null;
-const didForceRefresh = ref(false);
+const { weather, refreshing, refresh } = useWeatherForecast(() => isAuthenticated.value ? authStore.user?.id || authStore.user?.email : null);
+const weatherAnchor = ref(null), hoverStyle = ref({});
+const locationLabel = computed(() => `${weather.value?.location?.source === 'primary_office' ? 'Main office' : 'Home area'} · ${weather.value?.location?.label || 'Your local area'}`);
+const staleLabel = computed(() => `Showing the last available forecast${weather.value?.fetchedAt ? `, updated ${new Date(weather.value.fetchedAt).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})}` : ''}. Refresh is temporarily unavailable; retrying automatically.`);
 
 const modalOpen = ref(false);
 const showHoverCard = ref(false);
@@ -181,7 +193,9 @@ const hoverTimer = ref(null);
 const leaveTimer = ref(null);
 const forecastRows = computed(() => {
   const rows = weather.value?.forecastDays;
-  return Array.isArray(rows) ? rows : [];
+  let today;
+  try { today = new Intl.DateTimeFormat('en-CA', {timeZone:weather.value?.timeZone || undefined,year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date()); } catch { today = new Date().toISOString().slice(0,10); }
+  return Array.isArray(rows) ? rows.filter(row => row.date >= today).slice(0,7) : [];
 });
 
 const prettyDate = (isoDate) => {
@@ -225,11 +239,16 @@ const hoverCardTitle = computed(() => {
 const hoverCardBody = computed(() => detailTitle.value);
 
 const unavailableTitle = computed(() => {
-  const s = String(weather.value?.status || '').trim();
-  const base = s ? `Weather status: ${s}` : 'Weather temporarily unavailable.';
-  const devDebug = weather.value?.debug ? ' (see response debug payload)' : '';
-  return `${base}${devDebug} Open for details or verify your home address.`;
+  return weather.value?.status === 'geocode_failed' ? 'We could not locate your saved weather area. Check your city, state or ZIP and try again.' : 'Weather is temporarily unavailable. Retry here; the calendar and top bar will update together.';
 });
+
+const positionHover = () => {
+  if (!showHoverCard.value || !weatherAnchor.value) return;
+  const box = weatherAnchor.value.getBoundingClientRect(), width = Math.min(290, window.innerWidth - 24);
+  if (box.right < 0 || box.left > window.innerWidth) { showHoverCard.value = false; return; }
+  hoverStyle.value = { width:`${width}px`, left:`${Math.max(12,Math.min(box.right-width,window.innerWidth-width-12))}px`, top:`${Math.max(12,Math.min(box.bottom+7,window.innerHeight-220))}px` };
+};
+watch(showHoverCard, async open => { if (open) { await nextTick(); positionHover(); } });
 
 const onPillEnter = () => {
   if (typeof window !== 'undefined' && window.matchMedia && !window.matchMedia('(pointer: fine)').matches) {
@@ -265,50 +284,27 @@ const closeModal = () => {
 };
 
 const onKeydown = (e) => {
-  if (e.key === 'Escape' && modalOpen.value) closeModal();
+  if (e.key === 'Escape') { showHoverCard.value = false; if (modalOpen.value) closeModal(); }
 };
 
 watch(modalOpen, (open) => {
   if (typeof document === 'undefined') return;
   if (open) {
     document.body.style.overflow = 'hidden';
-    document.addEventListener('keydown', onKeydown);
   } else {
     document.body.style.overflow = '';
-    document.removeEventListener('keydown', onKeydown);
   }
 });
 
-const fetchWeather = async () => {
-  if (!isAuthenticated.value) return;
-  try {
-    const resp = await api.get('/weather/me', { skipGlobalLoading: true, skipAuthRedirect: true });
-    const data = resp?.data || null;
-    weather.value = data;
-
-    if (!didForceRefresh.value && data && data.status && data.status !== 'ok' && data.status !== 'missing_home_address') {
-      didForceRefresh.value = true;
-      const resp2 = await api.get('/weather/me?force=1', { skipGlobalLoading: true, skipAuthRedirect: true });
-      weather.value = resp2?.data || data;
-    }
-  } catch {
-    weather.value = { status: 'unavailable' };
-  }
-};
-
-onMounted(async () => {
-  await fetchWeather();
-  refreshTimer = window.setInterval(fetchWeather, 15 * 60 * 1000);
-});
+onMounted(() => { document.addEventListener('keydown', onKeydown); window.addEventListener('scroll', positionHover, true); window.addEventListener('resize', positionHover); });
 
 onUnmounted(() => {
-  if (refreshTimer) window.clearInterval(refreshTimer);
-  refreshTimer = null;
+  document.removeEventListener('keydown', onKeydown);
+  window.removeEventListener('scroll', positionHover, true); window.removeEventListener('resize', positionHover);
   if (hoverTimer.value) window.clearTimeout(hoverTimer.value);
   if (leaveTimer.value) window.clearTimeout(leaveTimer.value);
   if (typeof document !== 'undefined') {
     document.body.style.overflow = '';
-    document.removeEventListener('keydown', onKeydown);
   }
 });
 </script>
@@ -378,12 +374,9 @@ onUnmounted(() => {
 }
 
 .weather-hover-card {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
-  z-index: 50;
-  min-width: 220px;
-  max-width: 280px;
+  position: fixed;
+  z-index: 10400;
+  box-sizing: border-box;
   padding: 10px 12px;
   border-radius: 10px;
   background: #0f172a;
@@ -395,6 +388,10 @@ onUnmounted(() => {
   pointer-events: auto;
 }
 
+.weather-hover-location { margin: 4px 0 8px; font-size:11px; color:#b8c6d7; }
+.weather-hover-day { display:grid; grid-template-columns:1fr auto 1.5fr; gap:9px; padding:5px 0; }
+.weather-hover-day span:last-child { text-align:right; }
+.weather-stale { padding:9px 11px; border-radius:10px; background:#fff6dc; color:#775c24; font-size:12px; line-height:1.5; }
 .weather-hover-title {
   font-weight: 800;
   font-size: 11px;
@@ -411,9 +408,10 @@ onUnmounted(() => {
 }
 
 .weather-modal-backdrop {
+  box-sizing: border-box;
   position: fixed;
   inset: 0;
-  z-index: 10050;
+  z-index: 10500;
   background: rgba(15, 23, 42, 0.55);
   display: flex;
   align-items: center;
@@ -422,6 +420,7 @@ onUnmounted(() => {
 }
 
 .weather-modal {
+  box-sizing: border-box;
   width: 100%;
   max-width: 420px;
   max-height: min(88vh, 640px);

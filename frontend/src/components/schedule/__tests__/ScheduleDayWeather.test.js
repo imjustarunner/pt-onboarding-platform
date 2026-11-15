@@ -8,6 +8,6 @@ it('shows the high and inches, and describes the forecast and office on hover',(
  expect(wrapper.attributes('title')).toContain('Office forecast: Windchime');expect(wrapper.attributes('title')).toContain('High 35°F');expect(wrapper.attributes('title')).toContain('2.4 inches');wrapper.unmount();
 });
 it('does not reuse another date’s forecast or present missing snowfall as no snow',async()=>{
- const wrapper=mount(Weather,{props:{date:'2026-12-01',weather}});expect(wrapper.text()).toBe('Forecast unavailable');expect(wrapper.text()).not.toContain('35');
+ const wrapper=mount(Weather,{props:{date:'2026-12-01',weather}});expect(wrapper.text()).toBe('Outside forecast range');expect(wrapper.text()).not.toContain('35');
  await wrapper.setProps({date:'2026-11-16',weather:{...weather,forecastDays:[{...weather.forecastDays[0],snowfallInches:null}]}});expect(wrapper.text()).toContain('Snow total unavailable');wrapper.unmount();
 });
