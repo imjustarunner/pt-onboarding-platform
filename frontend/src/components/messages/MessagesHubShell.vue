@@ -829,6 +829,10 @@
                   </div>
                 </div>
               </template>
+              <div v-else-if="sendMethod === 'secure' && !activeEmailThreadKey" class="msg-hub-empty soft" role="status">
+                <p>{{ undoBanner ? 'Your secure message is queued. You can undo it below.' : secureSubjectThreads.length ? 'Choose a subject to read its secure messages.' : 'Write a subject and message below to start a secure conversation.' }}</p>
+                <button v-if="secureSubjectThreads.length" type="button" class="btn btn-secondary btn-sm" @click="mobileShowThread = false">View secure conversations</button>
+              </div>
               <div v-else class="msg-hub-empty soft">
                 No messages yet. Write below and send.
               </div>

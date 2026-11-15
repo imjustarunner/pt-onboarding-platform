@@ -36,6 +36,15 @@ beforeEach(async () => {
 });
 afterEach(() => wrapper?.unmount());
 describe('Messages hub thread interactions', () => {
+  it('offers the subject list when a delayed secure send has not selected a conversation', async () => {
+    state.sendMethod='secure';state.activeEmailThreadKey=null;state.mobileShowThread=true;
+    state.timeline=[{id:'chat-239',channel:'secure',bodyPreview:'Existing QA message',createdAt:'2026-11-15',meta:{messageId:239,legacyRootMessageId:239,threadId:379,subject:'Existing QA subject'}}];
+    await nextTick();state.activeEmailThreadKey=null;await nextTick();
+    expect(wrapper.text()).toContain('Choose a subject to read its secure messages');
+    expect(wrapper.text()).not.toContain('No messages yet. Write below and send.');
+    const button=wrapper.findAll('button').find(button=>button.text()==='View secure conversations');
+    await button.trigger('click');expect(state.mobileShowThread).toBe(false);
+  });
   it('selects a newly sent legacy secure subject instead of showing an empty reader', async () => {
     state.selected={personKey:'user:1790@2',userId:1790,agencyId:2,displayName:'QA guardian',kinds:['guardian'],methods:[{id:'secure',available:true}]};
     state.sendMethod='secure';state.emailComposeMode='new';state.timeline=[];
