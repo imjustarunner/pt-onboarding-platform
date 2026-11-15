@@ -1,3 +1,4 @@
+import {qaAuditMetadataJson} from '../utils/qaAutomationAttribution.js';
 import { appendAuditSearch, auditIdSearchExpressions } from '../services/auditReviewAccess.service.js';
 import pool from '../config/database.js';
 
@@ -17,7 +18,7 @@ class AdminAuditLog {
     
     const [result] = await pool.execute(
       'INSERT INTO admin_audit_log (action_type, actor_user_id, target_user_id, module_id, track_id, agency_id, metadata) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [actionType, actorUserId, targetUserId, moduleId || null, trackId || null, agencyId, metadata ? JSON.stringify(metadata) : null]
+      [actionType, actorUserId, targetUserId, moduleId || null, trackId || null, agencyId, qaAuditMetadataJson(metadata,actorUserId)]
     );
     return this.findById(result.insertId);
   }

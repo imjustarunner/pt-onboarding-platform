@@ -1,3 +1,4 @@
+import {withQaAutomationAttribution} from '../utils/qaAutomationAttribution.js';
 import crypto from 'node:crypto';
 import pool from '../config/database.js';
 import { validateEvidenceProxyConfig } from '../utils/securityEvidence.js';
@@ -73,6 +74,7 @@ export async function requireSecurityReadiness() {
 }
 
 export async function appendSecurityEvidence(event, db = pool, { mirror = true } = {}) {
+  event = {...event,details:withQaAutomationAttribution(event.details || {},event.userId)};
   const id = crypto.randomUUID();
   const write = db.execute(`INSERT INTO security_evidence
     (occurred_at, event_id, request_id, phase, user_id, actor_email, actor_role, session_ref,

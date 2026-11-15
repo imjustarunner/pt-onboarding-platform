@@ -82,6 +82,10 @@ jobs:
         run: |
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.final1114.config.js --maxWorkers=2 --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/brief1112b-final1114-backend.json"
           node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.final1114.config.js --maxWorkers=2 --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/brief1112b-final1114-frontend.json"
+      - name: Owner-authorized QA automation attribution
+        run: |
+          node --test backend/src/utils/__tests__/qaAutomationAttribution.test.js
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.qa-automation-attribution.config.js --maxWorkers=2
       - name: Require executed SQL cases, not skipped placeholders
         run: |
           node --input-type=module <<'NODE'

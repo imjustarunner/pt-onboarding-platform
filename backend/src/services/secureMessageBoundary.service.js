@@ -1,3 +1,4 @@
+import {qaAutomationUserAgent} from '../utils/qaAutomationAttribution.js';
 import crypto from 'node:crypto';
 import pool from '../config/database.js';
 
@@ -27,7 +28,7 @@ export async function recordSecureMessageEvent({ agencyId, threadId = null, mess
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     [agencyId, threadId, messageId, notificationId, userId, eventType,
       ip ? crypto.createHash('sha256').update(String(ip)).digest('hex') : null,
-      req?.headers?.['user-agent'] ? String(req.headers['user-agent']).slice(0, 512) : null]
+      qaAutomationUserAgent(userId,req?.headers?.['user-agent'])]
   );
 }
 

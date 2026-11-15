@@ -1,3 +1,4 @@
+import {qaAuditMetadataJson} from '../utils/qaAutomationAttribution.js';
 import { appendAuditSearch, auditIdSearchExpressions } from '../services/auditReviewAccess.service.js';
 import pool from '../config/database.js';
 
@@ -36,7 +37,7 @@ class UserActivityLog {
         userAgent || null,
         sessionId || null,
         agencyId || null,
-        metadata ? JSON.stringify(metadata) : null,
+        qaAuditMetadataJson(metadata,userId),
         durationSeconds || null,
         moduleId || null
       ]

@@ -1,3 +1,4 @@
+import {qaAuditMetadataJson} from '../utils/qaAutomationAttribution.js';
 import pool from '../config/database.js';
 
 class PhiDocumentAuditLog {
@@ -13,7 +14,7 @@ class PhiDocumentAuditLog {
         actorUserId,
         actorLabel,
         ipAddress,
-        metadata ? JSON.stringify(metadata) : null
+        qaAuditMetadataJson(metadata,actorUserId)
       ]
     );
     return this.findById(result.insertId);
