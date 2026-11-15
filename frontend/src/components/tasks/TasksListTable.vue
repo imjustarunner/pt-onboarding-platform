@@ -189,7 +189,7 @@ function paperPacketReference(task){
   let meta=task.metadata||{};if(typeof meta==='string'){try{meta=JSON.parse(meta);}catch{meta={};}}
   return [Number(meta.clientId)>0?`Client #${Number(meta.clientId)}`:'',Number(meta.documentId)>0?`Document #${Number(meta.documentId)}`:''].filter(Boolean).join(' · ');
 }
-import { computed, reactive, ref, onBeforeUnmount, onMounted } from 'vue';
+import { computed, reactive, ref, watch, onBeforeUnmount, onMounted } from 'vue';
 import { formatDate } from '../../utils/formatDate';
 import { resolveTaskTypeMeta, taskTypeIconSvg } from '../../utils/taskTypeIcons';
 import TaskClaimButton from './TaskClaimButton.vue';
@@ -200,6 +200,7 @@ import { taskSchoolTag } from '../../utils/taskSchoolTag.js';
 
 const props = defineProps({
   tasks: { type: Array, default: () => [] },
+  searchQuery: { type: String, default: '' },
   typeDefs: { type: Array, default: () => [] },
   currentUserId: { type: [Number, String], default: null },
   /** assigned | all | mine | watchlist | action_items */
@@ -348,6 +349,11 @@ const collapsed = reactive({
   later: false,
   completed: true
 });
+watch(() => props.searchQuery, query => {
+  if (String(query || '').trim()) {
+    for (const key of Object.keys(collapsed)) collapsed[key] = false;
+  }
+}, { immediate: true });
 
 function toggle(key) {
   collapsed[key] = !collapsed[key];
