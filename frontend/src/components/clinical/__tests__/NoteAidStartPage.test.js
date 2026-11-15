@@ -12,7 +12,7 @@ describe('Note Workspace temporary generator entry', () => {
     expect(entry.text()).toContain('THERAPY NOTES AI NOTE GENERATOR');
     expect(wrapper.html().indexOf('na-start-generator')).toBeLessThan(wrapper.html().indexOf('na-start-actions'));
     expect(wrapper.findAll('.na-start-actions button')).toHaveLength(3);
-    expect(wrapper.text()).toContain('Create New Note');
+    expect(wrapper.text()).toContain('Choose a session to document');
     wrapper.unmount();
   });
 

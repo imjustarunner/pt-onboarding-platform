@@ -39,7 +39,7 @@ beforeEach(() => {
   });
   api.post.mockImplementation(async (url, body) => {
     if (url === '/clinical-notes/drafts') {
-      const draft = { id: 22, agency_id: 7, date_of_service: body.dateOfService, service_code: body.serviceCode, initials: body.initials, created_at: '2026-10-14T10:00:00Z' };
+      const draft = { id: 22, agency_id: 7, client_id: body.clientId, clinical_session_id: body.clinicalSessionId, office_event_id: body.officeEventId, date_of_service: body.dateOfService, service_code: body.serviceCode, initials: body.initials, created_at: '2026-10-14T10:00:00Z' };
       drafts = [draft];
       return { data: { draft } };
     }
@@ -61,6 +61,7 @@ async function workspace(query) {
 
 describe('Note Workspace queue deep links', () => {
   it('opens the selected ToDo, persists Started, and includes it in the In progress library', async () => {
+    serverItems = [{ ...queued, clientId: 2104, clinicalSessionId: 214, appointmentId: 132, providerUserId: 501 }];
     const { wrapper, state } = await workspace({ workQueueId: 'import_one', agencyId: '7', launchIntent: 'work_queue' });
     expect(state.activeWorkQueueItemId).toBe('import_one');
     expect(state.sidebarTab).toBe('started');
@@ -74,6 +75,17 @@ describe('Note Workspace queue deep links', () => {
     expect(wrapper.findAll('a').map((a) => [a.text(), a.attributes('href')])).toEqual(expect.arrayContaining([
       ['My Dashboard', '/clinic/dashboard'], ['Tasks', '/clinic/tasks']
     ]));
+    wrapper.unmount();
+  });
+
+  it('requires choosing an actual session for an imported progress ToDo without creating a new unlinked draft', async () => {
+    const { wrapper, state } = await workspace({ workQueueId: 'import_one', agencyId: '7', launchIntent: 'work_queue' });
+    expect(state.showActualSessionPicker).toBe(true);
+    expect(state.draftId).toBeNull();
+    expect(state.activeWorkQueueItemId).toBeNull();
+    expect(wrapper.findComponent({ name: 'NoteAidDocumentationQueue' }).props('sessionOnly')).toBe(true);
+    expect(api.post.mock.calls.some(([url]) => url === '/clinical-notes/drafts' || url === '/clinical-data/sessions/bootstrap')).toBe(false);
+    expect(serverItems[0].status).toBe('not_started');
     wrapper.unmount();
   });
 

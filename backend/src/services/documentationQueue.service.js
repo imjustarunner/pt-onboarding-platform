@@ -3,6 +3,17 @@ import pool from '../config/database.js';
 import Agency from '../models/Agency.model.js';
 import User from '../models/User.model.js';
 import { enrichEncountersWithNoteSummary } from './billingEncounterClinical.service.js';
+import { resolveClientRecordAccess } from './clientRecordAccess.service.js';
+import { utcDateToZonedYmd } from '../utils/zonedWallTime.util.js';
+
+function queueInstant(value) {
+  if (value == null || value === '') return null;
+  if (value instanceof Date) return Number.isFinite(value.getTime()) ? value : null;
+  const raw = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
+  const instant = new Date(/(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw) ? raw : `${raw.replace(' ', 'T')}Z`);
+  return Number.isFinite(instant.getTime()) ? instant : null;
+}
 
 function parseIntValue(v) {
   const n = Number(v);
@@ -207,14 +218,17 @@ function sessionRowKey(row) {
 async function listSessionsFromClinicalDb({
   agencyIds,
   cid,
+  sid = null,
   pid,
   from,
   to,
-  lim
+  lim,
+  actualSessionsOnly = false
 }) {
   const agencyPh = agencyIds.map(() => '?').join(', ');
   const baseParams = [...agencyIds];
   if (cid) baseParams.push(cid);
+  if (sid) baseParams.push(sid);
   if (from) baseParams.push(from);
   if (to) baseParams.push(to);
 
@@ -222,6 +236,7 @@ async function listSessionsFromClinicalDb({
     {
       select: `
         cs.id AS clinical_session_id,
+        cs.appointment_id,
         cs.agency_id,
         cs.client_id,
         cs.office_event_id,
@@ -232,9 +247,11 @@ async function listSessionsFromClinicalDb({
         cs.effective_service_code,
         cs.scheduled_start_at,
         cs.scheduled_end_at,
+        cs.source_timezone,
         cs.encounter_status`,
-      providerSql: pid ? ' AND (cs.provider_user_id = ? OR cs.rendering_provider_user_id = ?)' : '',
-      providerParams: pid ? [pid, pid] : []
+      providerSql: pid ? (actualSessionsOnly ? ' AND cs.provider_user_id = ?' : ' AND (cs.provider_user_id = ? OR cs.rendering_provider_user_id = ?)') : '',
+      providerParams: pid ? (actualSessionsOnly ? [pid] : [pid, pid]) : [],
+      actualSql: ' AND (cs.appointment_id IS NOT NULL OR cs.office_event_id IS NOT NULL OR cs.billing_encounter_id IS NOT NULL)'
     },
     {
       select: `
@@ -249,9 +266,10 @@ async function listSessionsFromClinicalDb({
         NULL AS effective_service_code,
         cs.scheduled_start_at,
         cs.scheduled_end_at,
+        cs.source_timezone,
         cs.encounter_status`,
-      providerSql: pid ? ' AND (cs.provider_user_id = ? OR cs.rendering_provider_user_id = ?)' : '',
-      providerParams: pid ? [pid, pid] : []
+      providerSql: pid ? (actualSessionsOnly ? ' AND cs.provider_user_id = ?' : ' AND (cs.provider_user_id = ? OR cs.rendering_provider_user_id = ?)') : '',
+      providerParams: pid ? (actualSessionsOnly ? [pid] : [pid, pid]) : []
     },
     {
       select: `
@@ -266,6 +284,7 @@ async function listSessionsFromClinicalDb({
         NULL AS effective_service_code,
         cs.scheduled_start_at,
         cs.scheduled_end_at,
+        NULL AS source_timezone,
         NULL AS encounter_status`,
       providerSql: pid ? ' AND cs.provider_user_id = ?' : '',
       providerParams: pid ? [pid] : []
@@ -283,6 +302,7 @@ async function listSessionsFromClinicalDb({
         NULL AS effective_service_code,
         cs.scheduled_start_at,
         cs.scheduled_end_at,
+        NULL AS source_timezone,
         NULL AS encounter_status`,
       providerSql: pid ? ' AND cs.provider_user_id = ?' : '',
       providerParams: pid ? [pid] : []
@@ -291,6 +311,7 @@ async function listSessionsFromClinicalDb({
 
   const filterSql = [
     cid ? ' AND cs.client_id = ?' : '',
+    sid ? ' AND cs.id = ?' : '',
     from ? ' AND DATE(cs.scheduled_start_at) >= ?' : '',
     to ? ' AND DATE(cs.scheduled_start_at) <= ?' : ''
   ].join('');
@@ -305,6 +326,7 @@ async function listSessionsFromClinicalDb({
       WHERE cs.agency_id IN (${agencyPh})
       ${filterSql}
       ${variant.providerSql}
+      ${actualSessionsOnly ? (variant.actualSql || ' AND cs.office_event_id IS NOT NULL') : ''}
       ORDER BY cs.scheduled_start_at DESC, cs.id DESC
       LIMIT ${fetchLimit}
     `;
@@ -332,10 +354,12 @@ async function listSessionsFromClinicalDb({
 async function listSessionsFromMainDb({
   agencyIds,
   cid,
+  sid = null,
   pid,
   from,
   to,
-  lim
+  lim,
+  actualSessionsOnly = false
 }) {
   const agencyPh = agencyIds.map(() => '?').join(', ');
   const fetchLimit = lim * 3;
@@ -369,13 +393,15 @@ async function listSessionsFromMainDb({
       AND oe.client_id IS NOT NULL
       AND UPPER(COALESCE(oe.status, '')) NOT IN ('CANCELLED', 'CANCELED', 'RELEASED')
   `;
+  if (actualSessionsOnly) eventSql += ' AND oe.clinical_session_id IS NOT NULL AND oe.clinical_session_id > 0';
   if (cid) {
     eventSql += ' AND oe.client_id = ?';
     eventParams.push(cid);
   }
+  if (sid) { eventSql += ' AND oe.clinical_session_id = ?'; eventParams.push(sid); }
   if (pid) {
-    eventSql += ' AND (oe.booked_provider_id = ? OR oe.assigned_provider_id = ?)';
-    eventParams.push(pid, pid);
+    eventSql += actualSessionsOnly ? ' AND COALESCE(oe.booked_provider_id, oe.assigned_provider_id) = ?' : ' AND (oe.booked_provider_id = ? OR oe.assigned_provider_id = ?)';
+    eventParams.push(...(actualSessionsOnly ? [pid] : [pid, pid]));
   }
   if (from) {
     eventSql += ' AND DATE(oe.start_at) >= ?';
@@ -406,15 +432,18 @@ async function listSessionsFromMainDb({
            be.service_code,
            NULL AS effective_service_code,
            be.service_date AS scheduled_start_at,
+           be.service_date AS calendar_service_date,
            NULL AS scheduled_end_at,
            NULL AS encounter_status
     FROM billing_encounters be
     WHERE be.agency_id IN (${agencyPh})
   `;
+  if (actualSessionsOnly) billingSql += ' AND be.clinical_session_id IS NOT NULL AND be.clinical_session_id > 0';
   if (cid) {
     billingSql += ' AND be.client_id = ?';
     billingParams.push(cid);
   }
+  if (sid) { billingSql += ' AND be.clinical_session_id = ?'; billingParams.push(sid); }
   if (pid) {
     billingSql += ' AND be.provider_user_id = ?';
     billingParams.push(pid);
@@ -480,7 +509,8 @@ function buildQueueItems({
   hydrated,
   statusFilter,
   q,
-  lim
+  lim,
+  actualSessionsOnly = false
 }) {
   const out = [];
 
@@ -498,18 +528,19 @@ function buildQueueItems({
 
     const client = hydrated.clientsById.get(Number(s.client_id)) || null;
     const agency = hydrated.agenciesById.get(Number(s.agency_id)) || null;
-    const providerId = Number(s.rendering_provider_user_id || s.provider_user_id || 0) || null;
+    const providerId = Number((actualSessionsOnly ? s.provider_user_id : (s.rendering_provider_user_id || s.provider_user_id)) || 0) || null;
     const provider = providerId ? hydrated.providersById.get(providerId) : null;
     const event = Number(s.office_event_id) ? hydrated.eventsById.get(Number(s.office_event_id)) : null;
     const billing = Number(s.billing_encounter_id)
       ? hydrated.billingById.get(Number(s.billing_encounter_id))
       : null;
 
-    const dateOfService =
-      toDateOnly(s.scheduled_start_at)
-      || toDateOnly(event?.start_at)
-      || toDateOnly(billing?.service_date)
-      || null;
+    const sourceTimezone = String(s.source_timezone || event?.source_timezone || 'America/Denver');
+    const startInstant = queueInstant(s.scheduled_start_at || event?.start_at);
+    const endInstant = queueInstant(s.scheduled_end_at || event?.end_at);
+    const dateOfService = s.calendar_service_date != null ? toDateOnly(s.calendar_service_date)
+      : (startInstant ? utcDateToZonedYmd(startInstant, sourceTimezone) : toDateOnly(s.scheduled_start_at || event?.start_at))
+        || toDateOnly(billing?.service_date) || null;
 
     const serviceCode = String(
       s.effective_service_code || s.service_code || event?.service_code || billing?.service_code || ''
@@ -555,6 +586,7 @@ function buildQueueItems({
 
     out.push({
       clinicalSessionId: sid || null,
+      appointmentId: Number(s.appointment_id || 0) || null,
       officeEventId: Number(s.office_event_id || 0) || null,
       billingEncounterId: Number(s.billing_encounter_id || 0) || null,
       agencyId: Number(s.agency_id),
@@ -572,7 +604,9 @@ function buildQueueItems({
       clinicalNoteId: note.clinicalNoteId,
       noteTitle: note.noteTitle,
       encounterStatus: s.encounter_status || null,
-      scheduledStartAt: s.scheduled_start_at || null
+      sourceTimezone,
+      scheduledStartAt: s.calendar_service_date != null ? toDateOnly(s.calendar_service_date) : (startInstant?.toISOString() || s.scheduled_start_at || null),
+      scheduledEndAt: endInstant?.toISOString() || null
     });
 
     if (out.length >= lim) break;
@@ -595,23 +629,42 @@ function buildQueueItems({
 /**
  * List sessions needing documentation across the user's affiliated tenants.
  */
+export async function documentationQueueProviderScope({ reqUser, clientId = null, providerUserId = null }, { clientAccess = resolveClientRecordAccess } = {}) {
+  const userId = parseIntValue(reqUser?.id), requestedProvider = parseIntValue(providerUserId), cid = parseIntValue(clientId);
+  if (!userId) throw Object.assign(new Error('Authentication is required.'), { status: 401 });
+  const canReviewClientProviders = ['admin', 'super_admin', 'supervisor'].includes(String(reqUser?.role || '').toLowerCase());
+  if (requestedProvider && requestedProvider !== userId && !canReviewClientProviders) {
+    throw Object.assign(new Error('You can view only your own documentation queue.'), { status: 403 });
+  }
+  if (cid) {
+    const access = await clientAccess({ userId, role: reqUser.role, clientId: cid });
+    if (!access.ok) throw Object.assign(new Error(access.message || 'Client record access is required.'), { status: access.status || 403 });
+  }
+  // Client-scoped chart reviewers may inspect the client's real session list.
+  // Authoring still uses the actual provider ownership checks in the note APIs.
+  return requestedProvider || (cid && canReviewClientProviders ? null : userId);
+}
+
 export async function listDocumentationQueue({
   reqUser,
   agencyId = null,
   clientId = null,
+  clinicalSessionId = null,
   providerUserId = null,
   fromDos = null,
   toDos = null,
   noteStatus = 'undocumented',
   search = '',
-  limit = 100
+  limit = 100,
+  actualSessionsOnly = false
 } = {}) {
   const agencyIds = await resolveAccessibleAgencyIds(reqUser, agencyId);
   if (!agencyIds.length) return { items: [], clinicalUnavailable: false };
 
   const lim = Math.min(Math.max(Number(limit) || 100, 1), 300);
   const cid = parseIntValue(clientId);
-  const pid = parseIntValue(providerUserId) || parseIntValue(reqUser?.id);
+  const sid = parseIntValue(clinicalSessionId);
+  const pid = await documentationQueueProviderScope({ reqUser, clientId: cid, providerUserId });
   const from = toDateOnly(fromDos);
   const to = toDateOnly(toDos);
   const q = String(search || '').trim().toLowerCase();
@@ -623,22 +676,30 @@ export async function listDocumentationQueue({
   const clinicalResult = await listSessionsFromClinicalDb({
     agencyIds,
     cid,
+    sid,
     pid,
     from,
     to,
-    lim
+    lim,
+    actualSessionsOnly
   });
   sessions = clinicalResult.sessions;
   clinicalUnavailable = clinicalResult.clinicalUnavailable;
+  if (actualSessionsOnly && clinicalUnavailable) return { items: [], clinicalUnavailable: true };
 
-  if (!sessions.length && clinicalUnavailable) {
-    sessions = await listSessionsFromMainDb({ agencyIds, cid, pid, from, to, lim });
+  if (!actualSessionsOnly && !sessions.length && clinicalUnavailable) {
+    sessions = await listSessionsFromMainDb({ agencyIds, cid, sid, pid, from, to, lim, actualSessionsOnly });
   }
 
   // When clinical DB works but returned nothing, still merge main-DB appointments for coverage.
-  if (!clinicalUnavailable && !sessions.length) {
-    sessions = await listSessionsFromMainDb({ agencyIds, cid, pid, from, to, lim });
+  if (!actualSessionsOnly && !clinicalUnavailable && !sessions.length) {
+    sessions = await listSessionsFromMainDb({ agencyIds, cid, sid, pid, from, to, lim, actualSessionsOnly });
   }
+
+  if (actualSessionsOnly) sessions = sessions.filter(session => Number(session.clinical_session_id) > 0
+    && (Number(session.appointment_id) > 0 || Number(session.office_event_id) > 0 || Number(session.billing_encounter_id) > 0)
+    && (!pid || Number(session.provider_user_id) === Number(pid))
+    && !['cancelled', 'canceled', 'voided', 'no_show'].includes(String(session.encounter_status || '').toLowerCase()));
 
   const noteMap = await loadNoteStatusBySession(
     sessions.map((s) => s.clinical_session_id || s.clinicalSessionId).filter(Boolean)
@@ -681,7 +742,8 @@ export async function listDocumentationQueue({
     hydrated,
     statusFilter,
     q,
-    lim
+    lim,
+    actualSessionsOnly
   });
 
   return { items, clinicalUnavailable };

@@ -3,7 +3,7 @@
     <div class="na-doc-queue-head">
       <div>
         <h3>Choose a session to document</h3>
-        <p class="muted">Undocumented appointments and encounters, oldest first. Or continue unlinked.</p>
+        <p class="muted">{{ sessionOnly ? 'Select an actual session from the client’s to-do list to open its note.' : 'Undocumented appointments and encounters, oldest first. Or continue unlinked.' }}</p>
       </div>
       <button type="button" class="na-link-btn" :disabled="loading" @click="load">
         {{ loading ? 'Loading…' : 'Refresh' }}
@@ -33,14 +33,15 @@
     <p v-if="error" class="error">{{ error }}</p>
     <p v-else-if="clinicalUnavailable && !items.length" class="na-doc-queue-hint">
       Clinical note database is unavailable — showing schedule and billing sessions when possible.
-      You can still continue unlinked or pick a client below.
+      {{ sessionOnly ? 'Refresh after the session is available in the schedule.' : 'You can still continue unlinked or pick a client below.' }}
     </p>
     <p v-else-if="loading && !items.length" class="muted">Loading documentation queue…</p>
     <p v-else-if="!items.length" class="muted">No undocumented sessions found for this filter.</p>
+    <p v-if="sessionOnly && !loading && !items.length" class="muted">If a booked session is missing, open it from your schedule to finish setup.</p>
 
     <ul v-else class="na-doc-queue-list">
       <li v-for="row in items" :key="rowKey(row)">
-        <button type="button" class="na-doc-queue-row" @click="emit('select', row)">
+        <button type="button" class="na-doc-queue-row" :disabled="!canDocumentRow(row)" @click="emit('select', row)">
           <span class="na-doc-queue-main">
             <strong>{{ row.clientName || row.clientInitials || `Client #${row.clientId}` }}</strong>
             <em>{{ row.agencyName || `Tenant #${row.agencyId}` }}</em>
@@ -49,12 +50,13 @@
             <span>{{ row.dateOfService || '—' }}</span>
             <span>{{ row.serviceCode || '—' }}</span>
             <span class="na-doc-status" :data-status="row.noteStatus">{{ statusLabel(row.noteStatus) }}</span>
+            <span v-if="!canDocumentRow(row)">{{ row.providerUserId ? `Assigned to ${row.providerName || 'another provider'}` : 'Provider assignment required' }}</span>
           </span>
         </button>
       </li>
     </ul>
 
-    <div class="na-doc-queue-footer">
+    <div v-if="!sessionOnly" class="na-doc-queue-footer">
       <button type="button" class="na-btn-outline" @click="emit('continue-unlinked')">
         Continue unlinked
       </button>
@@ -62,7 +64,7 @@
         Pick client first
       </button>
     </div>
-    <p class="na-doc-queue-create-hint muted">
+    <p v-if="!sessionOnly" class="na-doc-queue-create-hint muted">
       Session already happened but the person isn’t in the chart yet? Pick client first, then use
       <strong>Create client</strong> under Client Initials.
     </p>
@@ -79,7 +81,8 @@ import { noteAidTenantOptions } from '../../utils/noteAidTreatmentHelpers.js';
 const props = defineProps({
   agencyId: { type: [Number, String, null], default: null },
   clientId: { type: [Number, String, null], default: null },
-  active: { type: Boolean, default: true }
+  active: { type: Boolean, default: true },
+  sessionOnly: { type: Boolean, default: false }
 });
 
 const emit = defineEmits(['select', 'continue-unlinked', 'client-first']);
@@ -116,6 +119,10 @@ function rowKey(row) {
   return row.clinicalSessionId || row.officeEventId || row.billingEncounterId || `${row.clientId}-${row.dateOfService}`;
 }
 
+function canDocumentRow(row) {
+  return !props.sessionOnly || Number(row.providerUserId) === Number(authStore.user?.id);
+}
+
 async function load() {
   if (!props.active) return;
   loading.value = true;
@@ -126,18 +133,21 @@ async function load() {
       noteStatus: 'undocumented',
       limit: 80
     };
+    if (props.sessionOnly) params.actualSessionsOnly = 1;
     const aid = Number(tenantFilter.value || props.agencyId || 0);
     if (aid) params.agencyId = aid;
     const cid = Number(props.clientId || 0);
     if (cid) params.clientId = cid;
     const providerId = Number(authStore.user?.id || 0);
-    if (providerId) params.providerUserId = providerId;
+    if (providerId && !(props.sessionOnly && cid)) params.providerUserId = providerId;
     if (String(search.value || '').trim()) params.search = String(search.value).trim();
     const res = await api.get('/clinical-data/documentation-queue', {
       params,
       skipGlobalLoading: true
     });
-    items.value = Array.isArray(res?.data?.items) ? res.data.items : [];
+    const rows = Array.isArray(res?.data?.items) ? res.data.items : [];
+    items.value = props.sessionOnly ? rows.filter(row => Number(row.clinicalSessionId) > 0
+      && Number(row.appointmentId || row.officeEventId || row.billingEncounterId) > 0) : rows;
     clinicalUnavailable.value = !!res?.data?.clinicalUnavailable;
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Could not load documentation queue';
@@ -153,7 +163,7 @@ function onSearchInput() {
 }
 
 watch(
-  () => [props.agencyId, props.clientId, props.active],
+  () => [props.agencyId, props.clientId, props.active, props.sessionOnly],
   ([aid, , active]) => {
     if (aid && !tenantFilter.value) tenantFilter.value = String(aid);
     if (active) load();
@@ -229,7 +239,8 @@ defineExpose({ load });
   cursor: pointer;
   font: inherit;
 }
-.na-doc-queue-row:hover { border-color: #14b8a6; background: #f0fdfa; }
+.na-doc-queue-row:hover:not(:disabled) { border-color: #14b8a6; background: #f0fdfa; }
+.na-doc-queue-row:disabled { opacity: .65; cursor: default; }
 .na-doc-queue-main {
   display: flex;
   flex-direction: column;

@@ -5,6 +5,7 @@ import ClinicalNoteDraft from '../models/ClinicalNoteDraft.model.js';
 import Appointment from '../models/Appointment.model.js';
 import {parseUtcDate} from '../utils/officeEventDateTime.util.js';
 import {resolveClinicalDraftSessionContext} from './clinicalDraftSessionContext.service.js';
+import {requireActualProgressSession} from './clinicalProgressSessionGate.service.js';
 const fail=message=>Object.assign(new Error(message),{status:409});
 const backed=s=>s&&(s.appointment_id||s.office_event_id||s.billing_encounter_id);
 export async function draftAppointmentOptions(draft, deps={}) {
@@ -52,6 +53,9 @@ export async function linkDraftAppointment(draft, targetId, confirmed, deps={}) 
   if(choices.linked)throw fail('This draft already has a booked encounter. Reopen its appointment; it cannot be moved here.');
   const target=choices.options.find(row=>Number(row.clinicalSessionId)===targetId);
   if(!target)throw fail('That appointment no longer matches this client, provider, service and local date, or it already has a signed note.');
+  await requireActualProgressSession({agencyId:draft.agency_id,clientId:draft.client_id,providerUserId:draft.user_id,
+    clinicalSessionId:targetId,dateOfService:draft.date_of_service instanceof Date?draft.date_of_service.toISOString().slice(0,10):String(draft.date_of_service).slice(0,10),serviceCode:draft.service_code},
+    {resolveSession:input=>resolveClinicalDraftSessionContext(input,{sessions,database:clinical})});
   if(target.appointmentId){
     const appointments=deps.appointments||Appointment;
     const appointment=await appointments.findById(target.appointmentId);

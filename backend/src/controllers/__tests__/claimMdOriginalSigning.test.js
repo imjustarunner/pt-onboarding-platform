@@ -37,6 +37,22 @@ it('blocks provider signing when the current locked session has a pending cross-
  expect(db.execute.mock.calls.some(([sql])=>sql.includes('FROM clinical_sessions') && sql.includes('FOR UPDATE'))).toBe(true);
  expect(m.original).not.toHaveBeenCalled();expect(events).not.toContain('provider_signature');expect(db.rollback).toHaveBeenCalledOnce();
 });
+it('refuses a new provider signature for a legacy progress note without an actual session source',async()=>{
+ note.clinical_session_id=10;note.note_type='PROGRESS_NOTE';note.metadata_json={serviceCode:'90837'};
+ const original=db.execute.getMockImplementation();
+ db.execute.mockImplementation(async(sql,args)=>sql.startsWith('SELECT clinical_session_id')?[[{clinical_session_id:10,agency_id:450}]]:sql.startsWith('SELECT * FROM clinical_sessions')?[[{id:10,agency_id:450,client_id:2297,provider_user_id:7,service_code:'90837',metadata_json:{source:'note_aid_note_only'}}]]:original(sql,args));
+ const next=vi.fn();await signClinicalNote(request(),response(),next);
+ expect(next).toHaveBeenCalledWith(expect.objectContaining({status:409,code:'NOTE_SESSION_CONTEXT_REQUIRED'}));
+ expect(events).not.toContain('provider_signature');expect(m.original).not.toHaveBeenCalled();expect(db.rollback).toHaveBeenCalledOnce();
+});
+it('does not grant a billing renderer the canonical provider’s progress-note author rights',async()=>{
+ note.clinical_session_id=10;note.note_type='PROGRESS_NOTE';note.metadata_json={serviceCode:'90837'};
+ const original=db.execute.getMockImplementation();
+ db.execute.mockImplementation(async(sql,args)=>sql.startsWith('SELECT clinical_session_id')?[[{clinical_session_id:10,agency_id:450}]]:sql.startsWith('SELECT * FROM clinical_sessions')?[[{id:10,appointment_id:84,agency_id:450,client_id:2297,provider_user_id:999,rendering_provider_user_id:7,service_code:'90837'}]]:original(sql,args));
+ const next=vi.fn();await signClinicalNote(request(),response(),next);
+ expect(next).toHaveBeenCalledWith(expect.objectContaining({status:403,code:'NOTE_SESSION_CONTEXT_REQUIRED'}));
+ expect(events).not.toContain('provider_signature');expect(m.original).not.toHaveBeenCalled();
+});
 it('persists the signature, immutable snapshot and audit together before responding with server time',async()=>{
  const res=response(),next=vi.fn();await signClinicalNote(request(),res,next);expect(next).not.toHaveBeenCalled();expect(events).toEqual(['begin','provider_signature','version_signature_audit','commit']);expect(res.json).toHaveBeenCalledWith(expect.objectContaining({signedAt:note.provider_signed_at,revisionId:10,revisionContentHash:'exact-version'}));expect(note.metadata_json.attestation.medicallyNecessary).toBe(false);
 });

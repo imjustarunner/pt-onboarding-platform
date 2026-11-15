@@ -2,6 +2,7 @@ import {requireTestingEligibility} from '../services/testingEligibility.service.
 import {issueNarrivaGenerationReceipt} from '../services/narrivaGenerationReceipt.service.js';
 import clinicalAppointmentAlerts from '../services/clinicalAppointmentAlerts.service.js';
 import { resolveClinicalDraftSessionContext } from '../services/clinicalDraftSessionContext.service.js';
+import { fullProgressNoteRequiresSession, requireActualProgressSession } from '../services/clinicalProgressSessionGate.service.js';
 import { readStaffCareEligibility, requireStaffCareEligibility } from '../services/staffCareEligibility.service.js';
 import { requireNarrivaIdentifierCorrection } from '../services/narrivaInputPrivacy.service.js';
 import {loadNarrivaGuidanceContext} from '../services/narrivaGuidance.service.js';
@@ -728,6 +729,7 @@ export const createClinicalNoteDraft = async (req, res, next) => {
     const encryptedInputText = maybeEncryptText(inputText);
     const draftToolId = req.body?.toolId || req.body?.outputJson?.meta?.toolId;
     const isTerminationDraft = draftToolId === 'clinical_termination';
+    const requiresProgressSession = fullProgressNoteRequiresSession({ toolId: draftToolId, serviceCode, noteKind: req.body?.noteKind });
     if (isTerminationDraft) {
       officeEventId = null;
       clinicalSessionId = null;
@@ -744,7 +746,9 @@ export const createClinicalNoteDraft = async (req, res, next) => {
     if (!isTerminationDraft) await clinicalAppointmentAlerts.assertReviewed(req.user,{agencyId,clientId,clinicalSessionId,officeEventId,dateOfService});
 
     if (!isTerminationDraft) {
-      const session = await resolveClinicalDraftSessionContext({ agencyId, clientId, providerUserId: req.user.id,
+      const progressSession = requiresProgressSession ? await requireActualProgressSession({ agencyId, clientId, providerUserId: req.user.id,
+        clinicalSessionId, officeEventId, dateOfService, serviceCode }) : null;
+      const session = progressSession || await resolveClinicalDraftSessionContext({ agencyId, clientId, providerUserId: req.user.id,
         clinicalSessionId, officeEventId, dateOfService, serviceCode });
       if (session) {
         clinicalSessionId = Number(session.id);
@@ -908,8 +912,8 @@ export const patchClinicalNoteDraft = async (req, res, next) => {
       }
     }
 
-    let savedToolId = '';
-    try { const savedOutput=maybeDecryptText(existing.output_json); savedToolId=(typeof savedOutput==='string' ? JSON.parse(savedOutput) : savedOutput)?.meta?.toolId || ''; } catch { /* Unknown drafts retain the alert check. */ }
+    let savedToolId = '', savedDraftMeta = {};
+    try { const savedOutput=maybeDecryptText(existing.output_json); savedDraftMeta=(typeof savedOutput==='string' ? JSON.parse(savedOutput) : savedOutput)?.meta || {}; savedToolId=savedDraftMeta.toolId || ''; } catch { /* Unknown drafts retain the alert check. */ }
     const standaloneTermination = savedToolId === 'clinical_termination' && !existing.clinical_session_id && !existing.office_event_id && !req.body?.clinicalSessionId && !req.body?.officeEventId;
     if (!standaloneTermination) await clinicalAppointmentAlerts.assertReviewed(req.user,{agencyId,clientId:nextClientId,clinicalSessionId:req.body?.clinicalSessionId || existing.clinical_session_id,officeEventId:req.body?.officeEventId || existing.office_event_id,dateOfService:req.body?.dateOfService || existing.date_of_service});
 
@@ -970,6 +974,15 @@ export const patchClinicalNoteDraft = async (req, res, next) => {
       await resolveClinicalDraftSessionContext({agencyId,clientId:patch.clientId||existing.client_id,providerUserId:req.user.id,
         clinicalSessionId:patch.clinicalSessionId||existing.clinical_session_id,officeEventId:patch.officeEventId||existing.office_event_id,
         dateOfService:patch.dateOfService||existing.date_of_service,serviceCode:patch.serviceCode||existing.service_code});
+    }
+    let incomingDraftMeta = {};
+    try { const incomingOutput=req.body?.outputJson; incomingDraftMeta=(typeof incomingOutput==='string' ? JSON.parse(incomingOutput) : incomingOutput)?.meta || {}; } catch { /* Saved context remains authoritative when the incoming metadata cannot be read. */ }
+    const savedProgressDraft=fullProgressNoteRequiresSession({toolId:savedToolId,serviceCode:existing.service_code,noteKind:savedDraftMeta.noteKind || savedDraftMeta.noteType});
+    if(savedProgressDraft || fullProgressNoteRequiresSession({toolId:incomingDraftMeta.toolId || req.body?.toolId || savedToolId,
+      serviceCode:patch.serviceCode || existing.service_code,noteKind:req.body?.noteKind || incomingDraftMeta.noteKind || savedDraftMeta.noteKind})) {
+      await requireActualProgressSession({agencyId,clientId:patch.clientId || existing.client_id,providerUserId:req.user.id,
+        clinicalSessionId:patch.clinicalSessionId || existing.clinical_session_id,officeEventId:patch.officeEventId || existing.office_event_id,
+        dateOfService:patch.dateOfService || existing.date_of_service,serviceCode:patch.serviceCode || existing.service_code});
     }
     const updated = await ClinicalNoteDraft.updateForUser({
       draftId,
@@ -1253,8 +1266,12 @@ export const generateClinicalNote = async (req, res, next) => {
     const generationSessionContext={agencyId,clientId:clientId || savedGenerationDraft?.client_id,providerUserId:req.user.id,
       clinicalSessionId:clinicalSessionId || savedGenerationDraft?.clinical_session_id,officeEventId:officeEventId || savedGenerationDraft?.office_event_id,
       dateOfService:dateOfService || savedGenerationDraft?.date_of_service,serviceCode:serviceCode || savedGenerationDraft?.service_code};
+    const requiresProgressSession = fullProgressNoteRequiresSession({ toolId: req.body?.toolId || savedGenerationMeta.toolId
+      || resolveClinicalToolId({ serviceCode: documentationServiceCode || generationSessionContext.serviceCode, programId }),
+      serviceCode: documentationServiceCode || generationSessionContext.serviceCode, noteKind: req.body?.noteKind || savedGenerationMeta.noteKind });
     const assertGenerationSessionCurrent=async()=>{
-      if(generationSessionContext.clinicalSessionId || generationSessionContext.officeEventId)await resolveClinicalDraftSessionContext(generationSessionContext);
+      if(requiresProgressSession)await requireActualProgressSession(generationSessionContext);
+      else if(generationSessionContext.clinicalSessionId || generationSessionContext.officeEventId)await resolveClinicalDraftSessionContext(generationSessionContext);
     };
     await assertGenerationSessionCurrent();
     await requireTestingEligibility({agencyId,userId:req.user.id,serviceCodes:[generationSessionContext.serviceCode],clientId:generationSessionContext.clientId,serviceDate:generationSessionContext.dateOfService});

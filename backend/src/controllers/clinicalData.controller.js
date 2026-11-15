@@ -1,6 +1,7 @@
 import clinicalAppointmentAlerts from '../services/clinicalAppointmentAlerts.service.js';
 import ClinicalNoteDraft from '../models/ClinicalNoteDraft.model.js';
 import { isQuickCopyDraft } from '../utils/therapyNotesQuickGenerator.js';
+import { fullProgressNoteRequiresSession, assertActualProgressSessionSnapshot, requireActualProgressSession } from '../services/clinicalProgressSessionGate.service.js';
 import { withClinicalSigningToken } from '../services/clinicalNoteSigningToken.service.js';
 import { hasSchedulingBillingAccess, schedulingResponseForUser } from '../services/schedulingBillingAccess.service.js';
 import { validationResult } from 'express-validator';
@@ -142,6 +143,10 @@ export const bootstrapClinicalSession = async (req, res, next) => {
     await ClinicalEligibilityService.assertAgencyHasClinicalOrg(agencyId);
 
     if (noteOnly && !officeEventId) {
+      const toolId=req.body?.toolId || req.body?.metadata?.toolId;
+      if(fullProgressNoteRequiresSession({toolId,serviceCode,noteKind:req.body?.noteType || (!toolId && !serviceCode ? 'progress' : '')})) {
+        await requireActualProgressSession({agencyId,clientId,providerUserId:req.user.id});
+      }
       const { ensureNoteOnlyClinicalRecord } = await import('../services/billingEncounterClinical.service.js');
       const titleBits = [
         String(req.body?.noteType || 'PROGRESS_NOTE').replace(/_/g, ' '),
@@ -356,6 +361,11 @@ export const createSessionNote = async (req, res, next) => {
       throw Object.assign(new Error('The session service changed. Reload the appointment and regenerate or review the note for its current service before attaching.'), { status: 409, code: 'CLINICAL_SERVICE_CHANGED' });
     }
     Object.assign(session, currentSession);
+    const assertProgressSource = () => {
+      if(fullProgressNoteRequiresSession({toolId:metadata.toolId,serviceCode:selectedService,noteKind:noteTypeRaw})) {
+        assertActualProgressSessionSnapshot(currentSession,{providerUserId:req.user.id});
+      }
+    };
     let note = null;
     if (draftIdMeta) {
       note = await ClinicalNote.findByDraftId({
@@ -376,6 +386,7 @@ export const createSessionNote = async (req, res, next) => {
           attachDb = null;
           return res.json({ ok: true, note });
         }
+        assertProgressSource();
         note = await ClinicalNote.updatePayload({
           noteId: note.id,
           title,
@@ -385,6 +396,7 @@ export const createSessionNote = async (req, res, next) => {
       }
     }
     if (!note) {
+      assertProgressSource();
       note = await ClinicalNote.create({
         clinicalSessionId: session.id,
         agencyId: session.agency_id,
@@ -838,7 +850,9 @@ export const listDocumentationQueue = async (req, res, next) => {
       reqUser: req.user,
       agencyId,
       clientId: parseIntValue(req.query.clientId || req.query.client_id),
+      clinicalSessionId: parseIntValue(req.query.clinicalSessionId || req.query.clinical_session_id),
       providerUserId: parseIntValue(req.query.providerUserId || req.query.provider_user_id),
+      actualSessionsOnly: ['1', 'true', true, 1].includes(req.query.actualSessionsOnly),
       fromDos: req.query.fromDos || req.query.from_dos || null,
       toDos: req.query.toDos || req.query.to_dos || null,
       noteStatus: String(req.query.noteStatus || req.query.note_status || 'undocumented'),

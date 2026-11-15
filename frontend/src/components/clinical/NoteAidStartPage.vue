@@ -5,7 +5,7 @@
       <h1>{{ heading || 'No note selected' }}</h1>
       <p v-if="description">{{ description }}</p>
       <p v-else-if="sessionLinkedOnly">This workspace opens drafts and signed notes connected to a scheduled session or billing encounter, along with the client’s treatment plans. Choose an existing item below, or open a session on your schedule and use Quick note to start its draft.</p>
-      <p v-else>Select a note from the library, open a to-do from the work queue, or create a new note to begin.</p>
+      <p v-else>Open a session from a client’s to-do list or My Work to document it. Use the temporary Therapy Notes generator for separate notes you need to copy.</p>
     </div>
 
     <router-link v-if="therapyNotesGeneratorPath" :to="therapyNotesGeneratorPath" class="na-start-generator">
@@ -20,8 +20,8 @@
       <button v-if="!sessionLinkedOnly" type="button" class="na-start-btn na-start-btn--primary" @click="$emit('create')">
         <span class="na-start-btn-icon" aria-hidden="true">+</span>
         <span class="na-start-btn-text">
-          <strong>Create New Note</strong>
-          <em>Start a new note</em>
+          <strong>Choose a session to document</strong>
+          <em>Start from an actual session</em>
         </span>
       </button>
       <button
@@ -56,8 +56,8 @@
         <button v-if="!sessionLinkedOnly" type="button" class="na-start-way" @click="$emit('create')">
           <span aria-hidden="true">+</span>
           <div>
-            <strong>Create new note</strong>
-            <em>Start a fresh note</em>
+            <strong>Choose an actual session</strong>
+            <em>Open the client’s session to-do list</em>
           </div>
         </button>
         <button

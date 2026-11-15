@@ -13,7 +13,7 @@
       </div>
       <div v-if="!workspace" class="ccnf-head-actions">
         <button type="button" class="ccnf-write-btn" @click="startNewNoteInProfile">
-          Write note
+          Add contact / misc note
         </button>
         <div class="ccnf-filters">
           <select v-model="kindFilter" class="ccnf-select" aria-label="Filter note type">
@@ -46,19 +46,6 @@
         :is-learning="isLearning"
         @select="onNoteTypeSelected"
       />
-
-      <div v-else-if="workspace.mode === 'treatment-plan-choice'" class="ccnf-plan-choice">
-        <h3>Treatment plan</h3>
-        <p>Write a new plan from scratch, or update the current plan with AI suggestions you review before applying.</p>
-        <div class="ccnf-plan-actions">
-          <button type="button" class="ccnf-write-btn" @click="openNoteAid({ kind: 'plan', launchIntent: 'new_treatment_plan' })">
-            Write new from scratch
-          </button>
-          <button type="button" class="ccnf-write-btn secondary" @click="openNoteAid({ kind: 'plan', launchIntent: 'update_treatment_plan' })">
-            Update current plan
-          </button>
-        </div>
-      </div>
 
       <ClientManualNoteForm
         v-else-if="workspace.mode === 'manual'"
@@ -108,11 +95,16 @@
     </div>
 
     <template v-else>
+    <section class="ccnf-client-todo" aria-label="Client’s to-do list">
+      <h3>Client’s to-do list</h3>
+      <p class="ccnf-sub">Choose the actual session to open its note in Note Workspace.</p>
+      <NoteAidDocumentationQueue :agency-id="agencyId" :client-id="clientId" session-only @select="openSessionFromTodo" />
+    </section>
     <div v-if="loading" class="ccnf-muted">Loading notes…</div>
     <div v-else-if="error" class="ccnf-error">{{ error }}</div>
     <div v-else-if="!filteredRows.length" class="ccnf-muted">
       No notes on file yet.
-      <button type="button" class="ccnf-text-link" @click="startNewNoteInProfile">Write a note</button>
+      <button type="button" class="ccnf-text-link" @click="startNewNoteInProfile">Add a contact or miscellaneous note</button>
       or finalize an intake.
     </div>
 
@@ -174,12 +166,14 @@
 <script setup>
 import { computed, defineAsyncComponent, onMounted, ref, watch } from 'vue';
 import api from '../../../services/api.js';
+import { useRouter } from 'vue-router';
+import NoteAidDocumentationQueue from '../../clinical/NoteAidDocumentationQueue.vue';
 import ClientChartCompletedNote from './ClientChartCompletedNote.vue';
 import ClientNoteTypePicker from './ClientNoteTypePicker.vue';
 import ClientManualNoteForm from './ClientManualNoteForm.vue';
 import AppointmentChangeWizard from '../../schedule/AppointmentChangeWizard.vue';
 import { useAppointmentChange } from '../../../composables/useAppointmentChange.js';
-import { buildNoteAidQuery, noteAidPath as launchNoteAidPath, toDateOfService } from '../../../utils/noteAidLaunch.js';
+import { buildNoteAidQuery, noteAidPath as launchNoteAidPath } from '../../../utils/noteAidLaunch.js';
 
 const ClinicalNoteGeneratorView = defineAsyncComponent(() =>
   import('../../../views/admin/ClinicalNoteGeneratorView.vue')
@@ -193,6 +187,7 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['navigate']);
+const router = useRouter();
 
 const loading = ref(false);
 const error = ref('');
@@ -264,53 +259,6 @@ function noteAidPath(query = {}) {
   return qs ? `${base}?${qs}` : base;
 }
 
-async function ensureSessionDraft({ kind = '', launchIntent = '' } = {}) {
-  const agencyId = Number(props.agencyId || 0);
-  const clientId = Number(props.clientId || 0);
-  if (!agencyId || !clientId) {
-    return { draftId: null, dateOfService: null, officeEventId: null, clinicalSessionId: null, serviceCode: null };
-  }
-  let officeEventId = null;
-  let clinicalSessionId = null;
-  let serviceCode = null;
-  let dateOfService = toDateOfService(new Date());
-  try {
-    if (!recentAppointments.value.length) await loadRecentAppointmentsForChange();
-    const today = toDateOfService(new Date());
-    const pick = (recentAppointments.value || []).find((a) => toDateOfService(a.startAt || a.when) === today)
-      || (recentAppointments.value || [])[0]
-      || null;
-    if (pick) {
-      officeEventId = Number(pick.officeEventId || pick.office_event_id || pick.id || 0) || null;
-      clinicalSessionId = Number(pick.clinicalSessionId || pick.clinical_session_id || 0) || null;
-      serviceCode = String(pick.serviceCode || pick.service_code || '').trim() || null;
-      dateOfService = toDateOfService(pick.startAt || pick.when) || today;
-    }
-  } catch {
-    /* best-effort */
-  }
-  let draftId = null;
-  try {
-    const res = await api.post('/clinical-notes/drafts', {
-      agencyId,
-      clientId,
-      officeEventId,
-      clinicalSessionId,
-      dateOfService,
-      serviceCode,
-      initials: null,
-      inputText: ''
-    }, { skipGlobalLoading: true });
-    draftId = res?.data?.draft?.id || null;
-    if (res?.data?.draft?.clinical_session_id) {
-      clinicalSessionId = Number(res.data.draft.clinical_session_id) || clinicalSessionId;
-    }
-  } catch {
-    /* open Note Workspace without draft id */
-  }
-  return { draftId, dateOfService, officeEventId, clinicalSessionId, serviceCode, kind, launchIntent };
-}
-
 const fullNoteAidHref = computed(() => {
   const ws = workspace.value;
   const base = {
@@ -337,21 +285,17 @@ function startNewNoteInProfile() {
   workspace.value = { mode: 'pick-type' };
 }
 
-async function openNoteAid({ kind = '', launchIntent = '' } = {}) {
-  const linked = await ensureSessionDraft({ kind, launchIntent });
-  workspace.value = {
-    mode: 'write',
-    draftId: linked.draftId,
-    clinicalNoteId: null,
-    isNew: !linked.draftId,
-    openLibrary: !linked.draftId,
-    initialKind: kind || '',
-    launchIntent: launchIntent || '',
-    officeEventId: linked.officeEventId,
-    clinicalSessionId: linked.clinicalSessionId,
-    dateOfService: linked.dateOfService,
-    serviceCode: linked.serviceCode
-  };
+function openSessionFromTodo(row) {
+  if (!Number(row?.clinicalSessionId)) return;
+  const query = buildNoteAidQuery({
+    agencyId: props.agencyId, clientId: props.clientId,
+    clinicalSessionId: row.clinicalSessionId, officeEventId: row.officeEventId,
+    appointmentId: row.appointmentId, billingEncounterId: row.billingEncounterId,
+    sourceTimezone: row.sourceTimezone, scheduledStartAt: row.scheduledStartAt, scheduledEndAt: row.scheduledEndAt,
+    draftId: row.draftId, dateOfService: row.dateOfService,
+    serviceCode: row.serviceCode, noteType: 'PROGRESS_NOTE', launchIntent: 'progress_note'
+  });
+  router.push({ path: launchNoteAidPath({ organizationSlug: props.organizationSlug }), query }).catch(() => {});
 }
 
 const claimNoteIds = computed(() => {
@@ -665,22 +609,6 @@ async function onNoteTypeSelected(opt) {
   if (opt.path === 'manual-misc') {
     workspace.value = { mode: 'manual', noteKind: 'misc' };
     return;
-  }
-  if (opt.path === 'manual-consultation') {
-    workspace.value = { mode: 'manual', noteKind: 'consultation' };
-    return;
-  }
-  if (opt.path === 'treatment-plan-choice') {
-    workspace.value = { mode: 'treatment-plan-choice' };
-    return;
-  }
-  if (opt.path === 'appointment-change') {
-    await loadRecentAppointmentsForChange();
-    workspace.value = { mode: 'appointment-change-pick' };
-    return;
-  }
-  if (opt.path === 'note-aid') {
-    openNoteAid({ kind: opt.kind || '', launchIntent: opt.launchIntent || '' });
   }
 }
 
