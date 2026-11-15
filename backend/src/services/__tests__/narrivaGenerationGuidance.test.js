@@ -41,7 +41,8 @@ beforeEach(()=>{
  m.care.mockImplementation(async()=>care);m.agencies.mockResolvedValue([{id:2}]);
  m.agency.mockResolvedValue({id:2,feature_flags:{narriva:{writing:true},noteAidKbExtraFolders:['owner_guides']}});
  m.client.mockResolvedValue({id:10,first_name:'Protected',last_name:'Identity',date_of_birth:'1990-01-01'});m.guardians.mockResolvedValue([]);
- m.context.mockResolvedValue({clinicalSessionId:20,agencyId:2,clientId:10});
+ // Guidance positives use an actual assigned appointment snapshot.
+ m.context.mockResolvedValue({clinicalSessionId:20,agencyId:2,clientId:10,appointment_id:44,provider_user_id:7});
  m.findDraft.mockImplementation(async()=>saved);m.createDraft.mockResolvedValue({id:56});
  m.updateDraft.mockImplementation(async({patch})=>{saved={...saved,service_code:patch.serviceCode,input_text:patch.inputText,output_json:patch.outputJson};return saved;});
  m.knowledge.mockResolvedValue({text:ownerGuide+'\n'+ownerExample,complete:true,documents:[{id:'owner-guide',contentHash:'guide-v1',role:'authored_training'},{id:'owner-example',contentHash:'example-v1',role:'approved_example'}],coverage:{complete:true}});
@@ -52,13 +53,13 @@ beforeEach(()=>{
 afterEach(()=>vi.unstubAllEnvs());
 
 describe('actual clinical generator shared service guidance boundary',()=>{
- it('still generates an unlinked writing-aid draft without clinical encounter context or a review',async()=>{
+ it('blocks an unlinked progress draft before model dispatch or draft mutation',async()=>{
   saved={...saved,client_id:null,clinical_session_id:null,office_event_id:null};
+  const before=structuredClone(saved);
   const {res,next}=await invoke({clientId:null,clinicalSessionId:null,officeEventId:null});
-  expect(next).not.toHaveBeenCalled();expect(res.status).not.toHaveBeenCalled();
-  expect(m.model).toHaveBeenCalledTimes(1);expect(m.context).not.toHaveBeenCalled();
-  expect(m.client).not.toHaveBeenCalled();
-  expect(res.json.mock.calls[0][0].outputJson.sections).toBeTruthy();
+  expect(next).not.toHaveBeenCalled();expect(res.status).toHaveBeenCalledWith(409);
+  expect(m.model).not.toHaveBeenCalled();expect(m.context).not.toHaveBeenCalled();
+  expect(m.createDraft).not.toHaveBeenCalled();expect(m.updateDraft).not.toHaveBeenCalled();expect(saved).toEqual(before);
   expect(m.execute.mock.calls.some(([sql])=>/INSERT INTO narriva_reviews/i.test(sql))).toBe(false);
  });
  it('delivers the approved exact service definition and owner guide/examples to the actual writer prompt',async()=>{
