@@ -2175,7 +2175,7 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
       // current canonical loginSlug rather than the internal org alias ('summit-stats').
       // This prevents the partner-hub redirect from building /sstc/summit-stats/login on the
       // next visit and trapping the user in the two-step nested flow.
-      const slugToStore = (isSummitLogin && loginSlug.value) ? loginSlug.value : resolvedSlug;
+      const slugToStore = ((isSummitLogin || identifiedFamilySurface.value) && loginSlug.value) ? loginSlug.value : resolvedSlug;
       setRememberedLogin({
         username: u,
         orgSlug: slugToStore,
