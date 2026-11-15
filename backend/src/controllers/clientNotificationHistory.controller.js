@@ -22,10 +22,13 @@ function appointmentHistoryFields(row, clientId) {
   // A group appointment can have separate audits for different clients.
   if (metadata.clientId != null && Number(metadata.clientId) !== clientId) return null;
   const status = String(metadata.deliveryStatus ?? metadata.status ?? '').trim().toLowerCase();
+  // Queue/series audit events are retained, but are not delivery attempts.
+  const internal = metadata.scheduleNotice === true && row.channel === 'in_app'
+    && !metadata.recipient && !['sent', 'delivered', 'failed'].includes(status);
   return { ...row,
-    notification_type: metadata.scheduleNotice === true ? 'session_change' : row.notification_type,
+    notification_type: internal ? 'internal_schedule_record' : metadata.scheduleNotice === true ? 'session_change' : row.notification_type,
     recipient_address: typeof metadata.recipient === 'string' ? metadata.recipient.trim() || null : null,
-    delivery_status: deliveryStatuses.has(status) ? status : 'unknown'
+    delivery_status: internal ? 'internal' : deliveryStatuses.has(status) ? status : 'unknown'
   };
 }
 
@@ -87,7 +90,7 @@ export async function listClientNotificationHistory(req, res, next) {
     // Shared delivery history never discloses message bodies, login/setup links or tokens.
     const familyViewer = ['client', 'client_guardian'].includes(req.user.role);
     const contacts = familyViewer ? await guardianContactRows(clientId) : [];
-    const notifications = rows.map(r => appointmentHistoryFields(r, clientId)).filter(Boolean).map((r) => ({ id: r.id, channel: r.channel, type: r.notification_type,
+    const notifications = rows.map(r => appointmentHistoryFields(r, clientId)).filter(r => r && (!familyViewer || r.notification_type !== 'internal_schedule_record')).map((r) => ({ id: r.id, channel: r.channel, type: r.notification_type,
       recipient: familyViewer ? sharedHistoryRecipient(r.recipient_address,r.channel,contacts,req.user.id) : r.recipient_address,
       status: r.delivery_status, occurredAt: r.occurred_at, organization: r.organization_name }));
     res.set('Cache-Control', 'no-store');

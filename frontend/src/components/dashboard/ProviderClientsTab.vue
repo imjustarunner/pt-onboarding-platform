@@ -233,7 +233,7 @@
               >
                 <td>
                   <div class="pct-client-cell">
-                    <div v-if="(c.agencyBrands || []).length" class="pct-agency-logos" aria-hidden="true">
+                    <div class="pct-agency-logos" aria-hidden="true">
                       <img
                         v-for="b in c.agencyBrands"
                         :key="`logo-${c.id}-${b.agencyId}`"
@@ -2014,15 +2014,19 @@ watch(skillBuildersOnlyFilter, async () => {
 .office-clients-table-wrap { overflow-x: auto; }
 .office-clients-table tr.is-terminated td { color: #9a1f14; opacity: 0.9; }
 .pct-client-cell {
-  display: flex;
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
   align-items: center;
   gap: 8px;
 }
 .pct-agency-logos {
-  display: inline-flex;
+  width: 40px;
+  min-height: 20px;
+  display: grid;
+  grid-template-columns: repeat(2, 18px);
   align-items: center;
+  justify-items: center;
   gap: 3px;
-  flex-shrink: 0;
 }
 .pct-agency-logo {
   width: 18px;
@@ -2039,6 +2043,8 @@ watch(skillBuildersOnlyFilter, async () => {
   display: inline-block;
 }
 .pct-client-link {
+  min-width: 0;
+  overflow-wrap: anywhere;
   appearance: none;
   background: none;
   border: none;

@@ -74,7 +74,7 @@ const documentKey=ref(props.initialDocumentKey);
 const crisisPath=computed(()=>`${route.params.organizationSlug?'/'+encodeURIComponent(route.params.organizationSlug):catalog.value?.branding?.slug?'/'+encodeURIComponent(catalog.value.branding.slug):''}/library?companyDocument=crisis-response-guide#crisis-response-guide-safety-planning`);
 const portalAction=ref('sign'),sharingSection=ref(null),portalAssignmentOpen=ref(false);
 function focusSharing(){portalAssignmentOpen.value=true;}
-async function assignmentSaved(result){portalAssignmentOpen.value=false;await open(record.value.id);notice.value=result.assignedCount?'Document assigned to the portal. Notifications are grouped.':'This document is already assigned to this portal.';}
+async function assignmentSaved(result){portalAssignmentOpen.value=false;await open(record.value.id);notice.value=result.assignedCount?`Document assigned to ${result.recipientName||'the recipient'}’s portal. Notification delivery has not been confirmed.`:'This document is already assigned to this portal.';}
 const readDocument=ref(null),formHeading=ref(null),formTypes=ref([]);
 const formDescriptions={
  'cssrs-screener':'Record screening responses and follow-up.',

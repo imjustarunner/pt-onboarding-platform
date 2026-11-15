@@ -7,6 +7,21 @@ export function intakeDraftContext(row) {
   catch { return raw ? { originalContext: raw } : {}; }
 }
 
+/** Chart metadata only: document timestamps never establish a date of service. */
+export function intakeDraftChartSummary(row, sessions = []) {
+  const context = intakeDraftContext(row);
+  const session = sessions.find(s => Number(s.id) === Number(context.clinicalSessionId)
+    && Number(s.agency_id) === Number(row.agency_id)
+    && String(s.service_code || '').toUpperCase() === String(row.service_code || '').toUpperCase());
+  return {
+    id: row.id, status: row.status, service_code: row.service_code,
+    created_at: row.created_at, updated_at: row.updated_at, finalized_at: row.finalized_at || null,
+    clinical_session_id: session?.id || null,
+    scheduled_start_at: session?.scheduled_start_at || null,
+    date_of_service: /^\d{4}-\d{2}-\d{2}$/.test(context.dateOfService || '') ? context.dateOfService : null
+  };
+}
+
 /** Bind a clinician's review to the actual source, generated text and diagnosis, not a 'ready' label. */
 export function intakeDraftReview(row, sections) {
   const sourceText = String(maybeDecryptNotePayload(row?.scrubbed_input_enc) || '').trim();

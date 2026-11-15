@@ -78,6 +78,7 @@
               <span v-if="row.is_recurring" class="muted"> · Recurring</span>
               <span v-else-if="row.display_state === 'planned'" class="muted"> · Upcoming</span>
             </div>
+            <div v-if="encounterScheduleLabel(row)" class="cc-enc-list-item__meta muted tiny">{{ encounterScheduleLabel(row) }}</div>
             <div v-if="row.billing_attached" class="cc-enc-list-item__meta muted tiny">
               Billing attached
             </div>
@@ -250,7 +251,9 @@ import {
   matchesEncounterSearch,
   noteActionLabel,
   noteStatusClass,
-  noteStatusLabel
+  noteStatusLabel,
+  encounterNeedsNote,
+  encounterScheduleLabel
 } from '../../utils/clientEncounterUtils.js';
 import '../../styles/client-encounters-tab.css';
 
@@ -373,10 +376,7 @@ const filteredEncounters = computed(() => {
   if (listFilter.value === 'planned') {
     rows = rows.filter((row) => String(row?.display_state || row?.note_status || '') === 'planned');
   } else if (listFilter.value === 'notes_needed') {
-    rows = rows.filter((row) => {
-      const s = String(row?.note_status || 'none');
-      return s !== 'signed';
-    });
+    rows = rows.filter(encounterNeedsNote);
   } else if (listFilter.value === 'signed') {
     rows = rows.filter((row) => String(row?.note_status || 'none') === 'signed');
   } else if (listFilter.value === 'missing_claim' && props.canViewMissingClaimFlag) {

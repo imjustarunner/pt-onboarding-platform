@@ -3,11 +3,17 @@
     <div class="portal-assignment-overlay" @click.self="close" @keydown="keyDown">
       <section ref="dialog" class="portal-assignment-dialog" role="dialog" aria-modal="true" aria-labelledby="portal-assignment-title" tabindex="-1">
         <header><div><p>Client portal</p><h3 id="portal-assignment-title">Assign {{ documents.length }} {{ documents.length===1?'document':'documents' }}</h3></div><button type="button" aria-label="Close portal assignment" :disabled="busy" @click="close">×</button></header>
-        <p>Select the recipient once. All selected items will appear together in their portal.</p>
+        <div v-if="result" class="assignment-success" role="status" aria-live="polite">
+          <h4>{{ result.assignedCount ? 'Documents assigned' : 'Documents already assigned' }}</h4>
+          <p>{{ result.assignedCount || 0 }} newly assigned<span v-if="result.alreadyAssignedCount"> · {{ result.alreadyAssignedCount }} already available</span> in {{ result.recipientName }}’s portal.</p>
+          <p>{{ result.notifications === 'grouped' ? 'A grouped notification is queued. Delivery has not been confirmed.' : 'No new notification was queued.' }}</p>
+          <button ref="doneButton" type="button" class="primary" @click="close">Done</button>
+        </div>
+        <p v-else>Select the recipient once. All selected items will appear together in their portal.</p>
         <ul class="assignment-items"><li v-for="(item,i) in documents" :key="i">{{ item.title||'Selected document' }}</li></ul>
         <p v-if="error" role="alert">{{ error }}</p>
         <p v-if="!recipients.length" class="notice">No portal account currently has permission to receive these documents. Review the client’s portal access and document permissions before assigning them.</p>
-        <form v-else @submit.prevent="assign">
+        <form v-else-if="!result" @submit.prevent="assign">
           <label>Assign to<select v-model="recipientId" required :disabled="busy"><option value="" disabled>Choose a portal account</option><option v-for="r in recipients" :key="r.id" :value="r.id">{{ r.name }} · {{ r.kind==='client'?'Client':'Parent / guardian' }}</option></select></label>
           <label>What should they do?<select v-model="action" :disabled="busy"><option value="complete">Complete forms and sign</option><option value="sign">Review and sign saved documents</option></select></label>
           <p class="assignment-help">Forms can be completed in the portal. Documents that require staff completion are shared for review and signature.</p>
@@ -28,16 +34,17 @@ const props=defineProps({clientId:{type:[Number,String],required:true},agencyId:
 const emit=defineEmits(['close','assigned']);
 const dialog=ref(null),recipientId=ref(props.recipients.length===1?props.recipients[0].id:''),action=ref(props.initialAction),authorityConfirmed=ref(false),busy=ref(false),error=ref('');
 const recipient=computed(()=>props.recipients.find(r=>Number(r.id)===Number(recipientId.value)));
+const result=ref(null),doneButton=ref(null);
 watch(recipientId,()=>{authorityConfirmed.value=false;});
 let requestKey=crypto.randomUUID(),lastPayload='',active=true,previousFocus,previousOverflow;
-function close(){if(!busy.value)emit('close');}
+function close(){if(!busy.value){if(result.value)emit('assigned',result.value);else emit('close');}}
 function keyDown(event){if(event.key==='Escape'){event.preventDefault();close();}if(event.key==='Tab'){const focusable=[...dialog.value.querySelectorAll('button:not(:disabled),select:not(:disabled),input:not(:disabled)')];const first=focusable[0],last=focusable.at(-1);if(event.shiftKey&&(document.activeElement===first||document.activeElement===dialog.value)){event.preventDefault();last?.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus();}}}
 async function assign(){
-  if(busy.value||!recipient.value||(recipient.value.kind==='guardian'&&!authorityConfirmed.value))return;
+  if(busy.value||result.value||!recipient.value||(recipient.value.kind==='guardian'&&!authorityConfirmed.value))return;
   const payload={agencyId:Number(props.agencyId),recipient:{id:Number(recipient.value.id),kind:recipient.value.kind},action:action.value,authorityConfirmed:authorityConfirmed.value,context:{...props.context},planDate:new Date().toLocaleDateString('en-CA'),documents:props.documents.map(d=>d.recordId?{recordId:Number(d.recordId),version:Number(d.version)}:{foundationKey:d.foundationKey})};
   const serialized=JSON.stringify(payload);if(lastPayload&&lastPayload!==serialized)requestKey=crypto.randomUUID();lastPayload=serialized;
   busy.value=true;error.value='';
-  try{const {data}=await api.post(`/enrollment-portal/clients/${props.clientId}/assignments`,{...payload,requestKey});if(active)emit('assigned',data);}
+  try{const {data}=await api.post(`/enrollment-portal/clients/${props.clientId}/assignments`,{...payload,requestKey});if(active){result.value={...data,recipientName:recipient.value.name};await nextTick();doneButton.value?.focus();}}
   catch(e){if(active)error.value=e.response?.data?.error?.message||'Assignment could not be confirmed. You can retry this selection safely.';}
   finally{if(active)busy.value=false;}
 }

@@ -207,7 +207,7 @@ export async function listClientMedicalRecordRows({ agencyId, clientId, limit = 
     scheduleEvents = [];
   }
 
-  let signedNotes = [];
+  let notes = [];
   try {
     const [rows] = await clinicalPool.execute(
       `SELECT n.id, n.agency_id, n.client_id, n.clinical_session_id, n.title, n.note_type,
@@ -221,15 +221,15 @@ export async function listClientMedicalRecordRows({ agencyId, clientId, limit = 
        WHERE n.client_id IN (${clientIn})
          AND n.agency_id IN (${inList})
          AND n.is_deleted = 0
-         AND n.provider_signed_at IS NOT NULL
-       ORDER BY n.provider_signed_at DESC
+         AND (n.provider_signed_at IS NOT NULL OR n.clinical_session_id IS NOT NULL)
+       ORDER BY (n.provider_signed_at IS NOT NULL) DESC, COALESCE(n.provider_signed_at, n.updated_at, n.created_at) DESC
        LIMIT ${lim}`,
       [...clientIds, ...agencyIds]
     );
-    signedNotes = rows || [];
+    notes = rows || [];
   } catch (e) {
-    console.warn('[medicalRecordTimeline] signed notes query failed', e?.message || e);
-    signedNotes = [];
+    console.warn('[medicalRecordTimeline] authored notes query failed', e?.message || e);
+    notes = [];
   }
 
   let claims = [];
@@ -258,7 +258,7 @@ export async function listClientMedicalRecordRows({ agencyId, clientId, limit = 
     officeEvents,
     appointments,
     scheduleEvents,
-    signedNotes,
+    notes,
     claims
   }).slice(0, lim);
 }

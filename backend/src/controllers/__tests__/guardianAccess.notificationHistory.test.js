@@ -104,3 +104,13 @@ it('keeps staff authorization and bounded pagination', async () => {
   expect(mocks.execute.mock.calls[0][0]).toMatch(/LIMIT 50 OFFSET 1000000$/);
   expect(res.json).toHaveBeenCalledWith({ notifications: [], hasMore: false, nextOffset: 1000000 });
 });
+
+it('keeps internal series audit records out of family communications and labels them for staff without rewriting evidence', async () => {
+  mocks.execute.mockResolvedValue([[{ id: 'session-99', channel: 'in_app', notification_type: 'other', appointment_metadata: JSON.stringify({ scheduleNotice: true, clientId: 24, body: 'private audit detail' }) }]]);
+  const family = response(); await listClientNotificationHistory(request(), family, vi.fn());
+  expect(family.json.mock.calls[0][0]).toEqual({ notifications: [], hasMore: false, nextOffset: 1 });
+  const staff = response(); await listClientNotificationHistory(request({ user: { id: 7, role: 'provider' } }), staff, vi.fn());
+  expect(staff.json.mock.calls[0][0].notifications[0]).toMatchObject({ type: 'internal_schedule_record', status: 'internal', recipient: null });
+  expect(JSON.stringify(staff.json.mock.calls)).not.toContain('private audit detail');
+  expect(mocks.execute.mock.calls.every(([sql]) => sql.startsWith('SELECT '))).toBe(true);
+});
