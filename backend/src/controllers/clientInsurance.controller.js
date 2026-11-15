@@ -56,9 +56,9 @@ async function saveInsurance(req,res,next,support=false) {
     const previous = await readClientInsurance(c.clientId,c.agencyId);
     const paperDocumentId=Number(req.body.paperDocumentId || previous?.paperSourceDocumentId)||null;
     if(req.body.paperReviewConfirmed===true && !paperDocumentId)throw Object.assign(new Error('Choose the uploaded paper packet before confirming its insurance transcription.'),{status:400});
-    if(req.body.paperDocumentId || req.body.paperReviewConfirmed===true) {
+    if(req.body.paperDocumentId || req.body.paperReviewConfirmed===true || req.body.checkCoverage===true && paperDocumentId) {
       const source=await ClientPhiDocument.findSchoolPaperPacket(c.clientId,paperDocumentId);
-      if(!source || Number(source.client_id)!==c.clientId || Number(source.agency_id)!==c.agencyId || source.removed_at || req.body.paperReviewConfirmed===true && source.scan_status!=='clean')throw Object.assign(new Error('Review the current uploaded packet after its file check is complete.'),{status:409});
+      if(!source || Number(source.client_id)!==c.clientId || Number(source.agency_id)!==c.agencyId || source.removed_at || (req.body.paperReviewConfirmed===true || req.body.checkCoverage===true) && source.scan_status!=='clean')throw Object.assign(new Error('Review the current uploaded packet after its file check is complete.'),{status:409});
       if(previous?.paperSourceDocumentId && Number(previous.paperSourceDocumentId)!==paperDocumentId)throw Object.assign(new Error('The packet source changed. Reload the current packet before confirming its insurance.'),{status:409});
     }
     let profileId = req.body.profileId ? positiveId(req.body.profileId) : null;
@@ -77,16 +77,20 @@ async function saveInsurance(req,res,next,support=false) {
     if (coverageSources.primary) profileId = coverageSources.primary.profileId;
     const payers = [req.body.primary,req.body.secondary].some(policy=>policy?.payerCatalogId) ? await clientInsurancePayers(c.agencyId,pool) : [];
     const primary=resolveConfiguredPolicy(req.body.primary,payers),secondary=resolveConfiguredPolicy(req.body.secondary,payers);
-    const insurance = await writeClientInsurance({...c,primary,secondary,patient:req.body.patient,profileId,coverageSources,confirmedBy:req.user.id,paperSourceDocumentId:paperDocumentId,paperReviewActorId:req.body.paperReviewConfirmed===true?req.user.id:null,queueEligibility:!transitionImport && (!(paperDocumentId || previous?.paperReviewRequired) || req.body.paperReviewConfirmed===true),verifiedForClaims:!transitionImport&&!support&&req.body.verifiedForClaims===true,acceptAssignment:support||transitionImport?(previous?.acceptAssignment??null):req.body.acceptAssignment===true ? true : req.body.acceptAssignment===false ? false : null});
+    const paper=!!(paperDocumentId || previous?.paperReviewRequired);
+    // Older processors can still send paperReviewConfirmed. It never authorizes
+    // a request. Billing may recheck corrected details after packet submission.
+    const billingRecheck=paper && !support && req.body.checkCoverage===true && !!previous?.paperFinalizedAt;
+    const insurance = await writeClientInsurance({...c,primary,secondary,patient:req.body.patient,profileId,coverageSources,confirmedBy:req.user.id,paperSourceDocumentId:paperDocumentId,paperFinalization:billingRecheck?{documentId:paperDocumentId,finalizedAt:previous.paperFinalizedAt}:null,queueEligibility:!transitionImport && (!paper || billingRecheck),verifiedForClaims:!transitionImport&&!support&&req.body.verifiedForClaims===true,acceptAssignment:support||transitionImport?(previous?.acceptAssignment??null):req.body.acceptAssignment===true ? true : req.body.acceptAssignment===false ? false : null});
     await auditBilling({...c,userId:req.user.id,action:'staff_update_insurance'});
-    if(req.body.paperReviewConfirmed===true)await auditBilling({...c,userId:req.user.id,action:'staff_confirm_paper_insurance_transcription',objectId:paperDocumentId});
+    if(billingRecheck)await auditBilling({...c,userId:req.user.id,action:'billing_recheck_submitted_paper_insurance',objectId:paperDocumentId});
     const eligibilityQueueWarning=insurance.eligibilityQueueWarning||null,automaticEligibility=insurance.automaticEligibility||(insurance.paperReviewRequired&&!paperInsuranceIsReviewed(insurance)?{status:'awaiting_paper_review'}:null);
     res.set('Cache-Control','no-store').json({insurance:support?supportInsurance(insurance):insurance,eligibilityQueueWarning,automaticEligibility,...(support?{}:{missingClaimFields:claimInsuranceIssues(insurance.primary)})});
   } catch(e){next(e);}
 }
 
 function supportInsurance(value) {
-  return value ? Object.fromEntries(['primary','secondary','patient','profileId','coverageSources','paperReviewRequired','paperSourceDocumentId','paperReview','paperDraftSaved'].map(key=>[key,value[key]])) : null;
+  return value ? Object.fromEntries(['primary','secondary','patient','profileId','coverageSources','paperReviewRequired','paperSourceDocumentId','paperFinalizedAt','paperReview','paperDraftSaved'].map(key=>[key,value[key]])) : null;
 }
 export const getClientInsurance = (req,res,next) => getInsurance(req,res,next);
 export const saveClientInsurance = (req,res,next) => saveInsurance(req,res,next);

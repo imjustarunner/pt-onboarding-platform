@@ -11,7 +11,7 @@
     <p v-if="modelValue.paperSubscriberName" class="self-subscriber">Holder written on packet: <strong>{{ modelValue.paperSubscriberName }}</strong>.</p>
     <div v-if="subscriberIssues.length || paperMedicaidMismatch" class="subscriber-review" role="alert">
       <p v-for="issue in subscriberIssues" :key="issue">{{ issue }}</p>
-      <p v-if="paperMedicaidMismatch">The packet names a different Medicaid holder. After staff confirms the transcription, search using this client’s legal name and birth date. Do not submit the listed number as the child’s Medicaid ID.</p>
+      <p v-if="paperMedicaidMismatch">The packet names a different Medicaid holder. After packet submission, search using this client’s legal name and birth date. Do not submit the listed number as the child’s Medicaid ID.</p>
       <p v-if="paperMedicaidMismatch && modelValue.paperReportedMemberId">Number written for the other holder: <strong>{{ modelValue.paperReportedMemberId }}</strong>. The child’s member ID remains pending.</p>
       <button v-if="patient && subscriberIssues.length" type="button" @click="useClientIdentity">Use client details for Medicaid verification</button>
     </div>

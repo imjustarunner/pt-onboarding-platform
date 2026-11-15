@@ -10,10 +10,10 @@ import {eligibilityProfileRecord} from '../eligibilityProfile.service.js';
 const patient={firstName:'Synthetic',lastName:'Child',dateOfBirth:'2023-09-20',state:'CO'};
 const insurance=()=>({primary:{isMedicaid:true,eligibilityPayerId:'SKCO0',memberId:'A123456'},patient,paperReviewRequired:true,paperSourceDocumentId:9});
 const profile={billingNpi:'1306688650',practice:{tax_id:'123456789',name:'Synthetic fixture'}};
-const confirm=value=>({...value,paperReview:{approvalId:'synthetic-approval',documentId:9,reviewedByUserId:42,reviewedAt:'2026-11-15T12:00:00Z',fingerprint:insuranceIdentityFingerprint(value)}});
+const confirm=value=>({...value,paperFinalizedAt:'2026-11-15T12:00:00Z',paperReview:{finalizedAt:'2026-11-15T12:00:00Z',approvalId:'synthetic-approval',documentId:9,reviewedByUserId:42,reviewedAt:'2026-11-15T12:00:00Z',fingerprint:insuranceIdentityFingerprint(value)}});
 it('blocks manual and demographic requests before any database reservation or payer call',async()=>{
  const value=insurance(),request=vi.fn(),db={execute:vi.fn()};
- for(const lookupMode of ['member_id','demographics'])expect(()=>buildEligibilityRequest({insurance:value,slot:'primary',profile,serviceDate:'2026-11-15',lookupMode})).toThrow('Confirm the transcribed');
+ for(const lookupMode of ['member_id','demographics'])expect(()=>buildEligibilityRequest({insurance:value,slot:'primary',profile,serviceDate:'2026-11-15',lookupMode})).toThrow('Submit the completed');
  await expect(runCoverageCheck({agencyId:2,clientId:4,slot:'primary',profile,serviceDate:'2026-11-15',requestKey:'unreviewed-fixture'},{db,request,readInsurance:async()=>value})).rejects.toMatchObject({code:'PAPER_INSURANCE_REVIEW_REQUIRED'});expect(request).not.toHaveBeenCalled();expect(db.execute).not.toHaveBeenCalled();
 });
 it('binds confirmation to both policies, the patient and the selected source document',()=>{
@@ -39,4 +39,9 @@ it('keeps no-response failures separate from identity mismatches and ignores old
 it('shows a missing subscriber DOB on primary instead of presenting both slots as queued',async()=>{
  const value=confirm({...insurance(),primary:{payerId:'84146',memberId:'PRIMARY',subscriberFirstName:'Parent',subscriberLastName:'Fixture',relationshipToSubscriber:'child'},secondary:insurance().primary});const db={execute:vi.fn(async()=>[[{id:8,status:'pending'}]])};
  const status=await paperInsuranceStatus({agencyId:2,clientId:4,insurance:value},db);expect(status.policies[0]).toMatchObject({slot:'primary',status:'needs_details',missingFields:['subscriber birth date']});expect(status.policies[1]).toMatchObject({slot:'secondary',status:'queued'});
+});
+
+it('rejects an older insurance-step approval until the packet has actually been submitted',()=>{
+ const legacy=confirm(insurance());delete legacy.paperReview.finalizedAt;expect(paperInsuranceIsReviewed(legacy)).toBe(false);
+ const unsubmitted=confirm(insurance());unsubmitted.paperFinalizedAt=null;expect(paperInsuranceIsReviewed(unsubmitted)).toBe(false);
 });

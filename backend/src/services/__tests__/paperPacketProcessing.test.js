@@ -5,8 +5,9 @@ vi.mock('../../models/ClientGuardian.model.js',()=>({default:{}}));
 vi.mock('../../models/ClientPhiDocument.model.js',()=>({default:{}}));
 vi.mock('../../models/Agency.model.js',()=>({default:{}}));
 vi.mock('../paperPacketVision.service.js',()=>({getLatestPaperPacketVisionEval:vi.fn()}));
+vi.mock('../insuranceVerificationTask.service.js',()=>({queueInsuranceVerificationSafely:vi.fn()}));
 vi.mock('../messagesHub.service.js',()=>({sendHubPortalInvitation:vi.fn()}));
-vi.mock('../clientInsurance.service.js',()=>({readClientInsurance:vi.fn()}));
+vi.mock('../clientInsurance.service.js',()=>({readClientInsurance:vi.fn(),finalizePaperInsurance:vi.fn()}));
 vi.mock('../demographicsImport.service.js',async importOriginal=>{const actual=await importOriginal();return {...actual,decryptDemographicsPayload:value=>value?.responses?value:actual.decryptDemographicsPayload(value)};});
 vi.mock('../clientOnboardingChecklist.service.js',()=>({markPaperPacketSignatureReceived:vi.fn(),updateClientOnboardingDocs:vi.fn(),acknowledgeRoiStaffOnboarding:vi.fn()}));
 import {compareAndSetPaperProcessingState,savePaperProcessingStep,completePaperProcessing,paperProcessingContext,paperProcessingSourceDocument,paperProcessingState,PAPER_PROCESSING_STEPS} from '../paperPacketProcessing.service.js';
@@ -30,43 +31,37 @@ beforeEach(()=>{
  versions:vi.fn(async()=>({id:70,version_label:'1.02'})),staff:{setAccessState:vi.fn(),listSchoolStaffRosterForClient:vi.fn(async()=>[{school_staff_user_id:99,effective_access_state:'packet'}])},
  vision:vi.fn(async()=>({id:11,phi_document_id:9,status:'applied',roi_signature_detected:1,disclosure_signature_detected:1,detected_version_label:'2026-08-20',raw_ocr:'private-text'})),
  send:vi.fn(async({guardianUserId})=>({delivery:{id:`email-${guardianUserId}`}})),markSignatures:vi.fn(),markDocuments:vi.fn(),acknowledgeRoi:vi.fn(),
- insurance:vi.fn(async()=>({primary:{insurerName:'Commercial',memberId:'PRIMARY',relationshipToSubscriber:'self'},patient:{firstName:'Synthetic',lastName:'Student'}})),
+ finalizeInsurance:vi.fn(async()=>({status:'queued',jobId:17})),queueInsuranceFollowUp:vi.fn(async()=>{}),insurance:vi.fn(async()=>({primary:{insurerName:'Commercial',memberId:'PRIMARY',relationshipToSubscriber:'self'},patient:{firstName:'Synthetic',lastName:'Student'}})),
  database:{getConnection:vi.fn(async()=>connection),execute:vi.fn(async()=>[[{id:7}]])}};
 });
 
-it('asks for available details or an explicit unknown-information confirmation, and recovers after entering the missing member ID',async()=>{
- ready();client.onboarding_docs_json.paperProcessing.completedSteps=['demographics','guardian1','guardian2','school'];
- const coverage={primary:{insurerName:'Commercial',memberId:'PRIMARY',relationshipToSubscriber:'child',subscriberFirstName:'Parent',subscriberLastName:'QA'},secondary:{insurerName:'Medicaid',memberId:'',relationshipToSubscriber:'self',isMedicaid:true},patient:{firstName:'Synthetic',lastName:'Student'}};
- deps.insurance.mockResolvedValue(coverage);
- await expect(savePaperProcessingStep({clientId:4,actorId:8,step:'insurance',data:{reviewed:true,insuranceTypeId:7}},deps)).rejects.toThrow('Secondary Member ID');
- expect(deps.insurance).toHaveBeenCalledWith(4,2,deps.database);expect(deps.clients.update).not.toHaveBeenCalled();expect(paperProcessingState(client).completedSteps).not.toContain('insurance');
- coverage.secondary.memberId='SECONDARY';
+it('saves partial insurance without a separate coverage confirmation or payer request',async()=>{
+ ready();deps.insurance.mockResolvedValue({primary:{insurerName:'Commercial',memberId:''},patient:{firstName:'Synthetic',lastName:'Student'}});
  const result=await savePaperProcessingStep({clientId:4,actorId:8,step:'insurance',data:{reviewed:true,insuranceTypeId:7}},deps);
- expect(result.completedSteps).toContain('insurance');expect(deps.clients.update).toHaveBeenCalledWith(4,{insurance_type_id:7},8);expect(deps.send).not.toHaveBeenCalled();
+ expect(result.completedSteps).toContain('insurance');expect(result.insuranceReview).not.toHaveProperty('partialInformationConfirmed');expect(result.insuranceReview).toMatchObject({followUpRequired:true,coverageVerifiedByThisStep:false});expect(deps.finalizeInsurance).not.toHaveBeenCalled();
 });
-it('checks current policies again at Finish when a missing field has not been acknowledged',async()=>{
- ready();deps.insurance.mockResolvedValue({primary:{insurerName:'Commercial',memberId:'PRIMARY',relationshipToSubscriber:'self'},secondary:{insurerName:'Medicaid',memberId:'',relationshipToSubscriber:'self'},patient:{firstName:'Synthetic',lastName:'Student'}});
- await expect(completePaperProcessing(input,deps)).rejects.toThrow('Secondary Member ID');expect(deps.markSignatures).not.toHaveBeenCalled();expect(deps.staff.setAccessState).not.toHaveBeenCalled();expect(deps.send).not.toHaveBeenCalled();
+it('submits partial policies for billing follow-up without inventing IDs or blocking portal invitations',async()=>{
+ ready();deps.insurance.mockResolvedValue({primary:{insurerName:'Commercial',memberId:''}});deps.finalizeInsurance.mockResolvedValue({status:'waiting_for_information',readySlots:[],missing:[{slot:'primary',message:'Member ID is missing'}]});
+ const result=await completePaperProcessing(input,deps);expect(result.processedAt).toBeTruthy();expect(result.insuranceReview.followUpRequired).toBe(true);expect(result.insuranceSubmission.status).toBe('waiting_for_information');expect(deps.send).toHaveBeenCalledTimes(2);
 });
-it('allows explicitly acknowledged partial insurance through Finish without inventing the missing member ID or coverage verification',async()=>{
- ready();client.onboarding_docs_json.paperProcessing.completedSteps=client.onboarding_docs_json.paperProcessing.completedSteps.filter(step=>step!=='insurance');
- const coverage={primary:{insurerName:'Commercial',memberId:'PRIMARY',relationshipToSubscriber:'self'},secondary:{insurerName:'Medicaid',memberId:'',relationshipToSubscriber:'self'},patient:{firstName:'Synthetic',lastName:'Student'}};deps.insurance.mockResolvedValue(coverage);
- const state=await savePaperProcessingStep({clientId:4,actorId:8,step:'insurance',data:{reviewed:true,insuranceTypeId:7,partialInformationConfirmed:true,missingFields:[]}},deps);
- expect(state.completedSteps).toContain('insurance');expect(state.insuranceReview).toMatchObject({partialInformationConfirmed:true,followUpRequired:true,missingFields:['Secondary Member ID is missing.'],coverageVerifiedByThisStep:false,reviewedByUserId:8});expect(coverage.secondary.memberId).toBe('');
- const result=await completePaperProcessing(input,deps);expect(result.processedAt).toBeTruthy();expect(result.insuranceReview.followUpRequired).toBe(true);expect(deps.send).toHaveBeenCalledTimes(2);expect(coverage.secondary.memberId).toBe('');
+it('queues eligibility only after the submitted state is saved, once across repeated submission/invitation retries',async()=>{
+ ready();deps.finalizeInsurance.mockImplementation(async()=>{expect(paperProcessingState(client).processedAt).toBeTruthy();expect(paperProcessingState(client).signatureSourceDocumentId).toBe(9);return {status:'queued',jobId:17};});
+ deps.send.mockRejectedValueOnce(Error('Temporary delivery failure')).mockResolvedValue({delivery:{id:81}});
+ await completePaperProcessing(input,deps);await completePaperProcessing(input,deps);expect(deps.finalizeInsurance).toHaveBeenCalledExactlyOnceWith({clientId:4,agencyId:2,documentId:9,actorId:8},deps.database);expect(deps.send).toHaveBeenCalledTimes(3);
 });
-it('allows all currently unknown policy details to remain blank after the explicit confirmation',async()=>{
- ready();deps.insurance.mockResolvedValue(null);const state=await savePaperProcessingStep({clientId:4,actorId:8,step:'insurance',data:{reviewed:true,insuranceTypeId:7,partialInformationConfirmed:true}},deps);expect(state.insuranceReview.missingFields).toContain('Primary insurance carrier is missing.');expect(state.insuranceReview.missingFields).toContain('Primary Member ID is missing.');expect(state.insuranceReview.followUpRequired).toBe(true);expect((await completePaperProcessing(input,deps)).processedAt).toBeTruthy();expect(deps.insurance.mock.results.every(result=>result.type==='return')).toBe(true);
+it('keeps a queue failure with billing and retries safely without blocking submitted packets',async()=>{
+ ready();deps.finalizeInsurance.mockRejectedValueOnce(Error('Temporary queue outage')).mockResolvedValue({status:'already_queued',jobId:17});
+ let result=await completePaperProcessing(input,deps);expect(result.processedAt).toBeTruthy();expect(result.insuranceSubmission).toMatchObject({status:'billing_follow_up',retryRequired:true});expect(deps.queueInsuranceFollowUp).toHaveBeenCalledExactlyOnceWith({agencyId:2,clientId:4,reason:'eligibility_error'},deps.database);expect(deps.send).toHaveBeenCalledTimes(2);
+ result=await completePaperProcessing(input,deps);expect(result.insuranceSubmission.status).toBe('already_queued');expect(deps.markSignatures).toHaveBeenCalledOnce();expect(deps.send).toHaveBeenCalledTimes(2);
 });
-it('does not reuse a partial-information confirmation for changed insurance data',async()=>{
- ready();const coverage={primary:{insurerName:'Commercial',memberId:'',relationshipToSubscriber:'self'},patient:{firstName:'Synthetic',lastName:'Student'}};deps.insurance.mockResolvedValue(coverage);
- await savePaperProcessingStep({clientId:4,actorId:8,step:'insurance',data:{reviewed:true,insuranceTypeId:7,partialInformationConfirmed:true}},deps);coverage.primary.insurerName='Different saved insurer';
- await expect(completePaperProcessing(input,deps)).rejects.toThrow('Review the current insurance step');expect(deps.markSignatures).not.toHaveBeenCalled();expect(deps.send).not.toHaveBeenCalled();
+it('never queues insurance for an unsigned or replaced packet',async()=>{
+ ready();await expect(completePaperProcessing({...input,signaturesConfirmed:false},deps)).rejects.toThrow('Confirm');expect(deps.finalizeInsurance).not.toHaveBeenCalled();
+ deps.markSignatures.mockImplementation(async()=>{client.onboarding_docs_json={paperPacketSource:{documentId:10},paperProcessing:{documentId:10,completedSteps:[]}};});await expect(completePaperProcessing(input,deps)).rejects.toHaveProperty('status',409);expect(deps.finalizeInsurance).not.toHaveBeenCalled();
 });
 it('allows explicit Self-Pay without an insurance policy or fabricated verification',async()=>{
  deps.database.execute.mockResolvedValue([[{id:7,insurance_key:'self_pay',label:'Self-Pay'}]]);
  await savePaperProcessingStep({clientId:4,actorId:8,step:'insurance',data:{reviewed:true,insuranceTypeId:7}},deps);
- expect(paperProcessingState(client).completedSteps).toContain('insurance');expect(deps.insurance).not.toHaveBeenCalled();
+ expect(paperProcessingState(client).completedSteps).toContain('insurance');expect(deps.insurance).not.toHaveBeenCalled();ready();await completePaperProcessing(input,deps);expect(deps.finalizeInsurance).not.toHaveBeenCalled();expect(paperProcessingState(client).insuranceSubmission.status).toBe('not_required');
 });
 it('requires a category in the correct agency and does not complete the step on a foreign or inactive choice',async()=>{
  deps.database.execute.mockResolvedValue([[]]);

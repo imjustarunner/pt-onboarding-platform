@@ -21,19 +21,25 @@ it('shows the corrected number in one current draft while retaining the uncorrec
  const original=w.get('[aria-label="Original insurance reader output"]');expect(original.attributes('open')).toBeUndefined();expect(original.text()).toContain('605000000-00');expect(w.text()).not.toContain('Use packet primary details');expect(w.findAllComponents(ClientInsuranceEditor)).toHaveLength(0);
  const secondary=w.findAllComponents(InsurancePolicyFields)[1].props('modelValue');expect(secondary).toMatchObject({memberId:'',paperReportedMemberId:'A123456',relationshipToSubscriber:'self',subscriberFirstName:'Sam'});
 });
-it('saves drafts without authorizing a request and refuses confirm/check before the staff checkbox',async()=>{
- await render();expect(await w.vm.save({paperEntry:true,confirmPaper:true})).toBe(false);expect(api.put).not.toHaveBeenCalled();await w.get('form').trigger('submit');await flushPromises();expect(api.put.mock.calls[0][1]).toMatchObject({paperReviewConfirmed:false,paperDocumentId:9,verifiedForClaims:false});expect(w.get('[role="status"]').text()).toContain('No payer request was sent');
+it('saves processor drafts without any separate insurance confirmation or eligibility action',async()=>{
+ await render();expect(w.find('.paper-transcription-confirmation').exists()).toBe(false);expect(w.text()).not.toContain('Confirm details & check coverage');expect(w.text()).not.toContain('Save corrections & check coverage');
+ await w.get('form').trigger('submit');await flushPromises();expect(api.put.mock.calls[0][1]).toMatchObject({paperReviewConfirmed:false,checkCoverage:false,paperDocumentId:9,verifiedForClaims:false});expect(w.get('[role="status"]').text()).toContain('No payer request was sent');expect(w.text()).toContain('Submitting the completed packet');
 });
-it('sends the corrected current fields only after confirmation and invalidates that confirmation on the next edit',async()=>{
- await render();editPrimary('005000000-00');await flushPromises();await w.get('.paper-transcription-confirmation input').setValue(true);expect(await w.vm.save({paperEntry:true,confirmPaper:true})).toMatchObject({saved:true});expect(api.put.mock.calls[0][1]).toMatchObject({paperReviewConfirmed:true,primary:{memberId:'005000000-00',payerId:'84146'},secondary:{memberId:'',paperReportedMemberId:'A123456'}});
- expect(w.get('[aria-label="Current paper insurance details"]').text()).toContain('Eligibility check queued');editPrimary('005000001-00');await flushPromises();expect(w.get('.paper-transcription-confirmation input').element.checked).toBe(false);expect(await w.vm.save({paperEntry:true,confirmPaper:true})).toBe(false);expect(api.put).toHaveBeenCalledTimes(1);
+it('saves corrected current fields on continue without authorizing eligibility, even with an obsolete confirmation option',async()=>{
+ await render();editPrimary('005000000-00');await flushPromises();expect(await w.vm.save({paperEntry:true,confirmPaper:true})).toMatchObject({saved:true});expect(api.put.mock.calls[0][1]).toMatchObject({paperReviewConfirmed:false,checkCoverage:false,primary:{memberId:'005000000-00',payerId:'84146'},secondary:{memberId:'',paperReportedMemberId:'A123456'}});
+ expect(w.get('[aria-label="Current paper insurance details"]').text()).not.toContain('Eligibility check queued');editPrimary('005000001-00');await flushPromises();expect(await w.vm.save({paperEntry:true})).toMatchObject({saved:true});expect(api.put).toHaveBeenCalledTimes(2);
 });
 it('keeps failed no-response attempts in collapsed history without calling them identity mismatches',async()=>{
  await render();const history=w.get('[aria-label="Information returned by insurers"]');expect(history.attributes('open')).toBeUndefined();expect(history.text()).toContain('No payer response was saved');expect(history.text()).not.toContain('Returned identity needs reconciliation');
 });
 it('names missing eligibility inputs without sending an additional request on refresh',async()=>{
- await render();await w.get('.paper-transcription-confirmation input').setValue(true);await w.vm.save({paperEntry:true,confirmPaper:true});state.eligibilityStatus={reviewed:true,jobStatus:'review_required',policies:[{slot:'primary',status:'needs_details',missingFields:['subscriber birth date']},{slot:'secondary',status:'not_checked'}]};await w.findAll('button').find(button=>button.text()==='Refresh saved verification status').trigger('click');await flushPromises();expect(w.get('[aria-label="Current paper insurance details"]').text()).toContain('Not checked — needs subscriber birth date');expect(api.put).toHaveBeenCalledTimes(1);
+ await render();await w.vm.save({paperEntry:true});state.eligibilityStatus={reviewed:true,jobStatus:'review_required',policies:[{slot:'primary',status:'needs_details',missingFields:['subscriber birth date']},{slot:'secondary',status:'not_checked'}]};await w.findAll('button').find(button=>button.text()==='Refresh saved verification status').trigger('click');await flushPromises();expect(w.get('[aria-label="Current paper insurance details"]').text()).toContain('Not checked — needs subscriber birth date');expect(api.put).toHaveBeenCalledTimes(1);
 });
 it('prepares CHAMPVA first and Medicaid second for the recognisable old reversed single-policy import',async()=>{
  state.insurance.primary={insurerName:'Colorado Community Health Alliance',memberId:'A123456',payerId:'COCHA',isMedicaid:true};await render();const policies=w.findAllComponents(InsurancePolicyFields).map(field=>field.props('modelValue'));expect(policies[0]).toMatchObject({payerId:'84146',memberId:'605000000-00'});expect(policies[1]).toMatchObject({isMedicaid:true,memberId:'',paperReportedMemberId:'A123456'});expect(api.put).not.toHaveBeenCalled();
+});
+
+it('allows billing to save corrections and recheck only after packet submission',async()=>{
+ state.insurance.paperFinalizedAt='2026-11-15T12:00:00Z';w=mount(ClientInsuranceEditor,{props:{clientId:4,agencyId:2,paperDocumentId:9,startOpen:true,assignmentReview:true,showRelatedReviews:false}});await flushPromises();
+ await w.findAll('button').find(button=>button.text()==='Save corrections & check coverage').trigger('click');await flushPromises();expect(api.put.mock.calls[0][1]).toMatchObject({checkCoverage:true,paperReviewConfirmed:false});
 });
