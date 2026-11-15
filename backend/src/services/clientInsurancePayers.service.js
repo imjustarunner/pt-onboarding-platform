@@ -9,6 +9,10 @@ export async function clientInsurancePayers(agencyId, db) {
     const aliases = parse(row.source_names_json);
     const names = [...new Set([row.payer_name, row.directory_name, ...(Array.isArray(aliases) ? aliases : []),
       ...(Array.isArray(snapshot.payer_alt_names) ? snapshot.payer_alt_names.map(item => item.alt_payer_name) : [])].filter(Boolean))];
+    // Match the printed carrier to an already verified agency route. Never add
+    // a route or make a directory request from an OCR guess.
+    if(row.claimmd_payer_id==='84146' && names.some(name=>/\bchampva\b/i.test(name)))names.push('CHAMPVA');
+    if(['COCHA','SKCO0'].includes(row.claimmd_payer_id))names.push('Colorado Medicaid','Health First Colorado');
     const isMedicaid = names.some(insurerName => policyIsMedicaid({insurerName})) || ['COCHA', 'SKCO0'].includes(row.claimmd_payer_id);
     const colorado = isMedicaid && (row.claimmd_payer_id === 'COCHA' || names.some(name => /colorado|\bccha\b/i.test(name)));
     return {id: Number(row.id), name: row.payer_name || row.directory_name, names, payerId: row.claimmd_payer_id,

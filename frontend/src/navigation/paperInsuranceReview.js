@@ -8,7 +8,7 @@ export const isColoradoMedicaidPolicy = policy => ['COCHA','SKCO0'].includes(Str
 export function medicaidMemberIdNeedsDiscovery(policy, patient) {
   if (!policyIsMedicaid(policy) && !isColoradoMedicaidPolicy(policy)) return false;
   const child = patient?.firstName && patient?.lastName ? nameKey(`${patient.firstName} ${patient.lastName}`) : '';
-  const sourceStillApplies = !policy?.paperReportedMemberId || policy.memberId === policy.paperReportedMemberId;
+  const sourceStillApplies = !policy?.memberId || !policy?.paperReportedMemberId || policy.memberId === policy.paperReportedMemberId;
   const savedHolder = policy?.subscriberFirstName && policy?.subscriberLastName ? `${policy.subscriberFirstName} ${policy.subscriberLastName}` : policy?.subscriberName;
   const holder = sourceStillApplies && policy?.paperSubscriberName ? policy.paperSubscriberName : savedHolder;
   // The listed holder decides whether to use this number. Colorado requests

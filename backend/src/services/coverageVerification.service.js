@@ -1,4 +1,6 @@
 import crypto from 'node:crypto';
+import {coverageInsuranceFingerprint,assertPaperInsuranceReviewed} from '../utils/paperInsuranceReviewGate.js';
+import {eligibilityIdentityInputs} from '../utils/eligibilityIdentityInputs.js';
 import { isAuricwellQaAgency } from '../utils/auricwellQaPolicy.js';
 import pool from '../config/database.js';
 import { readClientInsurance } from './clientInsurance.service.js';
@@ -11,8 +13,7 @@ import { validNpi } from './supervisedBillingPolicy.service.js';
 import { queueInsuranceVerificationSafely } from './insuranceVerificationTask.service.js';
 import { insuranceSubscriberIssues, isColoradoMedicaidPolicy, medicaidMemberIdNeedsDiscovery } from '../../../frontend/src/navigation/paperInsuranceReview.js';
 
-const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map(k=>[k,canonical(value[k])])) : value;
-export const coverageFingerprint = insurance => crypto.createHash('sha256').update(JSON.stringify(canonical({primary:insurance?.primary||null,secondary:insurance?.secondary||null,patient:insurance?.patient||null}))).digest('hex');
+export const coverageFingerprint = coverageInsuranceFingerprint;
 // Bind a manual review to the exact saved policies and evidence the reviewer saw.
 // The token carries no policy identifiers and cannot be reused for another client/date.
 export const coverageReviewToken = ({agencyId,clientId,serviceDate,insurance,latestCheckId=0,latestEvidenceAt=null,latestReview=null}) => crypto.createHash('sha256').update(JSON.stringify({
@@ -41,6 +42,7 @@ export function coverageDate(value) {
  return s;
 }
 export function buildEligibilityRequest({insurance,slot,serviceDate,profile,lookupMode='member_id',medicaidDiscovery=false}) {
+ assertPaperInsuranceReviewed(insurance);
  if(!['primary','secondary'].includes(slot))throw billingError(400,'Choose primary or secondary coverage');
  const savedPolicy=insurance?.[slot],patient=insurance?.patient;
  if(medicaidDiscovery && (slot!=='primary' || [insurance?.primary,insurance?.secondary].some(p=>p?.insurerName||p?.payerId||p?.eligibilityPayerId||p?.memberId||policyIsMedicaid(p))))throw billingError(409,'Medicaid discovery is only for clients without recorded insurance');
@@ -50,18 +52,19 @@ export function buildEligibilityRequest({insurance,slot,serviceDate,profile,look
  // Colorado's 270 companion guide places all members in the subscriber loop
  // and explicitly supports first name + last name + DOB without a member ID.
  const coloradoMedicaid=isColoradoMedicaidPolicy(policy);
+ const identityInputs=eligibilityIdentityInputs({...insurance,[slot]:policy},slot);
  if(lookupMode==='demographics'&&!coloradoMedicaid)throw billingError(400,'Name and birth-date lookup is configured only for Colorado Medicaid');
  if(coloradoMedicaid) {
-  if(!patient?.firstName||!patient.lastName||!patient.dateOfBirth)throw billingError(409,'Save the Medicaid member’s legal name and date of birth before checking eligibility');
+  if(identityInputs.core.length)throw billingError(409,'Save the Medicaid member’s legal name and date of birth before checking eligibility');
   const taxId=String(profile.practice.tax_id||'').replace(/\D/g,'');
   if(!validNpi(profile.billingNpi)||!/^\d{9}$/.test(taxId))throw billingError(409,'Configure the agency tax ID and billing-office NPI before checking eligibility');
   const compact=v=>coverageDate(v).replaceAll('-','');
   return {payerid:payerId,...(lookupMode==='member_id'&&policy.memberId&&!medicaidMemberIdNeedsDiscovery(policy,patient)?{ins_number:policy.memberId}:{}),ins_name_f:patient.firstName,ins_name_l:patient.lastName,ins_dob:compact(patient.dateOfBirth),pat_rel:'18',
    ...(['M','F'].includes(patient.sex)?{ins_sex:patient.sex}:{}),fdos:compact(serviceDate),service_code:'30,MH',prov_npi:profile.billingNpi,prov_taxid:taxId,prov_taxid_type:profile.practice.tax_id_type==='ssn'?'S':'E',prov_name_l:profile.practice.name};
  }
- if(!(policy?.eligibilityPayerId||policy?.payerId)||!policy.memberId||!policy.subscriberFirstName||!policy.subscriberLastName||!policy.subscriberDob)throw billingError(409,'Save the payer ID, member ID and subscriber identity before checking eligibility');
+ if(identityInputs.core.length)throw billingError(409,'Save the payer ID, member ID and subscriber identity before checking eligibility');
  const self=policy.relationshipToSubscriber==='self';
- if(!['self','child','spouse','other'].includes(policy.relationshipToSubscriber)||(!self&&(!patient?.firstName||!patient.lastName||!patient.dateOfBirth)))throw billingError(409,'Save the relationship and dependent identity before checking eligibility');
+ if(identityInputs.relationship||identityInputs.dependent.length)throw billingError(409,'Save the relationship and dependent identity before checking eligibility');
  const taxId=String(profile.practice.tax_id||'').replace(/\D/g,'');
  if(!validNpi(profile.billingNpi)||!/^\d{9}$/.test(taxId))throw billingError(409,'Configure the agency tax ID and billing-office NPI before checking eligibility');
  const compact=v=>coverageDate(v).replaceAll('-','');
