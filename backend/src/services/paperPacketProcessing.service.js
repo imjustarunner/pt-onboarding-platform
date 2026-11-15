@@ -140,7 +140,7 @@ async function saveStep({ clientId, actorId, step, data = {} }, overrides = {}) 
   } else if (step === 'insurance') {
     if (data.reviewed !== true) throw fail('Review and save the insurance or self-pay information before continuing.');
     const {type,missingFields,fingerprint} = await inspectPaperInsurance(client, data.insuranceTypeId, deps);
-    state.insuranceReview={categoryId:Number(type.id),missingFields,partialInformationConfirmed:missingFields.length>0&&data.partialInformationConfirmed===true,followUpRequired:missingFields.length>0,coverageVerifiedByThisStep:false,fingerprint,reviewedAt:new Date().toISOString(),reviewedByUserId:Number(actorId)};
+    state.insuranceReview={categoryId:Number(type.id),missingFields,followUpRequired:missingFields.length>0,coverageVerifiedByThisStep:false,fingerprint,reviewedAt:new Date().toISOString(),reviewedByUserId:Number(actorId)};
     await deps.clients.update(client.id, {insurance_type_id:Number(type.id)}, actorId);
   } else if (step === 'consents') {
     return saveReviewedConsent({client,state,data,actorId,deps});

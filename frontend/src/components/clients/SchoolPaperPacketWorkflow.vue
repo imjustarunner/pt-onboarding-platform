@@ -267,7 +267,7 @@ async function next(){
   if(stage.value===4){
     const insuranceReview=selfPay.value?null:await insuranceEditor.value?.save({paperEntry:true});
     if(!selfPay.value&&!insuranceReview)throw new Error('Save the available insurance details below before continuing. Missing information stays with billing for follow-up.');
-    data={reviewed:true,insuranceTypeId:Number(insuranceTypeId.value),partialInformationConfirmed:insuranceReview?.partialInformationConfirmed===true};
+    data={reviewed:true,insuranceTypeId:Number(insuranceTypeId.value)};
   }
   if(stage.value===5){if(!(await roiEditor.value?.saveAllDirty()))throw new Error('Save the staff ROI corrections before continuing.');data={signaturesConfirmed:signaturesConfirmed.value,staffRoiConfirmed:staffRoiConfirmed.value,staffChanges:roiEditor.value?.getPendingChanges?.()||[],...(needsHumanReview.value?{evidenceReview:{...JSON.parse(JSON.stringify(humanEvidence)),documentId:Number(documentId.value),evaluationId:context.value.packetRead?.id}}:{})};}
   if(disposed||generation!==contextGeneration)return;

@@ -38,7 +38,7 @@ beforeEach(()=>{
 it('saves partial insurance without a separate coverage confirmation or payer request',async()=>{
  ready();deps.insurance.mockResolvedValue({primary:{insurerName:'Commercial',memberId:''},patient:{firstName:'Synthetic',lastName:'Student'}});
  const result=await savePaperProcessingStep({clientId:4,actorId:8,step:'insurance',data:{reviewed:true,insuranceTypeId:7}},deps);
- expect(result.completedSteps).toContain('insurance');expect(result.insuranceReview).toMatchObject({followUpRequired:true,coverageVerifiedByThisStep:false});expect(deps.finalizeInsurance).not.toHaveBeenCalled();
+ expect(result.completedSteps).toContain('insurance');expect(result.insuranceReview).not.toHaveProperty('partialInformationConfirmed');expect(result.insuranceReview).toMatchObject({followUpRequired:true,coverageVerifiedByThisStep:false});expect(deps.finalizeInsurance).not.toHaveBeenCalled();
 });
 it('submits partial policies for billing follow-up without inventing IDs or blocking portal invitations',async()=>{
  ready();deps.insurance.mockResolvedValue({primary:{insurerName:'Commercial',memberId:''}});deps.finalizeInsurance.mockResolvedValue({status:'waiting_for_information',readySlots:[],missing:[{slot:'primary',message:'Member ID is missing'}]});

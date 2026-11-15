@@ -170,7 +170,7 @@ async function save(options={}){
   paperOrderPrepared.value=false;verified.value=res.data.insurance?.verifiedForClaims ?? submittedVerification;paperFinalizedAt.value=res.data.insurance?.paperFinalizedAt || null;if(isPaper.value && res.data.insurance && !res.data.insurance.paperReview)eligibilityStatus.value=null;
   notice.value=res.data.eligibilityQueueWarning || automaticEligibilityNotice(res.data.automaticEligibility) || (isPaper.value?'Draft saved. No new payer request was sent.':!canSeeBilling.value?'Insurance information saved for billing review.':issues.value.length?`Insurance saved. ${issues.value.length} missing claim fields still need review before submission.`:'Insurance saved. Claim submission still requires its readiness review and approval.');
   emit('saved',res.data);if(checkCoverage){pollCount=0;await refreshVerification();if(['queued','already_queued'].includes(res.data.automaticEligibility?.status))scheduleVerificationRefresh();}
-  return options.paperEntry===true?{saved:true,partialInformationConfirmed:missing.length>0}:true;
+  return options.paperEntry===true?{saved:true,followUpRequired:missing.length>0}:true;
  }catch(e){if(n===seq)error.value=e.response?.data?.error?.message || 'Insurance could not be saved';return false;}finally{if(n===seq)busy.value=false;}
 }
 
