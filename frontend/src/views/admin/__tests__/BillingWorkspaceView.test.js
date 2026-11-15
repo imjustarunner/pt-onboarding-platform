@@ -28,6 +28,23 @@ const data = () => ({ organizations: [{ id: 1, name: 'Company One', colors: { pr
 const button = (w, text) => w.findAll('button').find(b => b.text() === text);
 beforeEach(() => { mockRoute.query={}; mockRoute.meta={}; vi.clearAllMocks(); localStorage.clear(); api.get.mockResolvedValue({ data: data() }); });
 describe('billing workspace', () => {
+  it('explains retained test exclusions and includes those records only after an explicit choice', async () => {
+    mockRoute.query={agencyId:'1',billingSection:'claims'};
+    const hidden=data();hidden.hiddenTestRecords=8;hidden.claims=[];hidden.total=0;
+    api.get.mockResolvedValue({data:hidden});const w=mount(BillingWorkspaceView);await flushPromises();
+    const calls=()=>api.get.mock.calls.filter(([path])=>path==='/medical-billing/workspace');
+    expect(calls().at(-1)[1].params.includeDemo).toBeUndefined();
+    expect(w.get('[data-testid="billing-hidden-test-records"]').text()).toContain('8 retained test work items');
+    const shown=data();shown.hiddenTestRecords=0;shown.claims=[{agency_id:1,client_id:2304,key:'note:132',clinical_note_id:132,is_demo_client:true,stage:'ready_to_submit'}];
+    api.get.mockResolvedValue({data:shown});await w.get('[data-testid="billing-include-demo"]').setValue(true);await flushPromises();
+    expect(calls().at(-1)[1].params).toMatchObject({agencyId:'1',includeDemo:true});
+    expect(w.text()).toContain('Note #132');expect(w.text()).toContain('Test record');
+    expect(w.find('[data-testid="billing-hidden-test-records"]').exists()).toBe(false);
+    expect(api.post).not.toHaveBeenCalled();
+    await w.get('[data-testid="organization-scope"]').setValue('3');await flushPromises();
+    expect(w.get('[data-testid="billing-include-demo"]').element.checked).toBe(false);
+    expect(calls().at(-1)[1].params.agencyId).toBe('3');expect(calls().at(-1)[1].params.includeDemo).toBeUndefined();w.unmount();
+  });
   it('shows the actual authorized agency id and server slug even when a QA organization shares its business name', async () => {
     mockRoute.query = { billingScope: '450', billingSection: 'claims' };
     const payload = data();
@@ -207,6 +224,13 @@ describe('unified clinical and claim workflow', () => {
     const drawer=w.find('[role="dialog"]');expect(drawer.exists()).toBe(true);expect(drawer.text()).toContain('The clinician’s note is in progress');
     expect(drawer.text()).not.toContain('Edit billing fields');expect(drawer.text()).not.toContain('Review for submission');expect(drawer.find('[data-testid="claim-tools"]').exists()).toBe(false);expect(api.post).not.toHaveBeenCalled();
     w.unmount();
+  });
+  it('shows recorded note minutes, units and location without running final checks or creating a claim',async()=>{
+    const payload=data();payload.claims=[{id:null,key:'note:132',agency_id:1,client_id:2304,clinical_note_id:132,stage:'ready_to_submit',duration_minutes:60,service_location_id:121,units:4,place_of_service:'02'}];
+    api.get.mockResolvedValue({data:payload});const w=mount(BillingWorkspaceView);await flushPromises();await button(w,'Note #132').trigger('click');await flushPromises();
+    const facts=w.get('[role="dialog"] .claim-facts');
+    expect(facts.text()).toContain('Recorded minutes60');expect(facts.text()).toContain('Service location#121');expect(facts.text()).toContain('Units4');expect(facts.text()).toContain('Place of service02');
+    expect(api.post).not.toHaveBeenCalled();w.unmount();
   });
   it('opens an approved note as a claim for review without transmitting it', async () => {
     const payload=data();payload.claims=[{id:null,key:'note:71',source:'note',agency_id:1,client_id:12,client_name:'DEMO QA Client',clinical_note_id:71,clinical_session_id:9,stage:'ready_to_submit',canPrepareClaim:true,readOnly:false}];

@@ -74,6 +74,7 @@ export function normalizeBillingWorkItem(row) {
     service_code: primaryLine?.procedureCode || context.serviceCode || row.service_code || null,
     units: primaryLine?.units ?? context.billingPrimaryUnits ?? row.units ?? null,
     place_of_service: row.place_of_service || context.placeOfService || null,
+    duration_minutes: context.durationMinutes ?? null, service_location_id: id(context.serviceLocationId),
     diagnosis_codes: Array.isArray(codes) ? codes : [], service_lines: Array.isArray(lines) ? lines : [],
     provider_user_id: id(row.provider_user_id),
     billing_provider_user_id: id(metadata.billingUserId || row.billing_provider_user_id || row.provider_user_id),
@@ -183,7 +184,7 @@ export function filterBillingWorkItems(items, query = {}, organizations = []) {
   const search = String(query.search || '').trim().slice(0, 100).toLowerCase();
   let rows = items.filter(row => (includesDemoBilling(query) || !syntheticBillingRow(row)) && (!query.clientId || Number(row.client_id) === Number(query.clientId)) &&
     matchesClaimQueue(row,status) &&
-    (!search || [row.claim_reference,row.claim_number,row.claimId,row.client_id,row.client_name,row.provider_name,row.billing_provider_name,row.supervisor_name,row.payer_name,row.service_code,org.get(row.agency_id),...(row.claim_aliases||[]),...(row.diagnosis_codes || [])].some(value => String(value || '').toLowerCase().includes(search))));
+    (!search || [row.key,row.claim_reference,row.claim_number,row.claimId,row.client_id,row.clinical_note_id,row.draft_id,row.clinical_session_id,row.appointment_id,row.client_name,row.provider_name,row.billing_provider_name,row.supervisor_name,row.payer_name,row.service_code,org.get(row.agency_id),...(row.claim_aliases||[]),...(row.diagnosis_codes || [])].some(value => String(value || '').toLowerCase().includes(search))));
   const allowed = ['organization','date_of_service','client_name','service_code','provider_name','billing_provider_name','supervisor_name','payer_name','amount_cents','place_of_service','diagnosis_codes','units','stage'];
   const sort = query.sortBy || 'date_of_service', direction = query.direction === 'asc' ? 1 : -1;
   if (!allowed.includes(sort)) throw Object.assign(new Error('Invalid claim sort column.'), { status: 400 });

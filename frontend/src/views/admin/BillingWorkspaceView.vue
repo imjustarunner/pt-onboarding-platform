@@ -47,6 +47,8 @@
           <div class="panel-heading"><div><h2>{{ scopeId === 'all' ? 'Cross-company work queue' : 'Claim work queue' }}</h2><p>Signed notes, drafts and billing activity are linked by patient. Scheduled visits stay in each patient’s service history.</p></div><form class="search" @submit.prevent="applySearch"><label class="sr-only" for="claim-search">Search claims</label><input id="claim-search" v-model="searchInput" placeholder="Patient, claim, provider, service or payer…" /><button class="secondary">Search</button></form></div>
           <div class="panel-toolbar"><button class="secondary" :aria-pressed="queueMode === 'claims'" @click="queueMode = 'claims'">Claims</button><button class="secondary" :aria-pressed="queueMode === 'connections'" @click="queueMode = 'connections'">Payer, ERA &amp; EFT activity ({{ connectionQueue.length }})</button></div>
           <template v-if="queueMode === 'claims'">
+          <label class="panel-toolbar"><input v-model="includeDemo" type="checkbox" data-testid="billing-include-demo" @change="page = 1" /> Include retained test records</label>
+          <p v-if="hiddenTestRecords" class="panel-note" role="status" data-testid="billing-hidden-test-records">{{ hiddenTestRecords }} retained test {{ hiddenTestRecords === 1 ? 'work item is' : 'work items are' }} excluded from this scope and its totals. Their history is retained.</p>
           <div class="queue-tabs" aria-label="Claim filters"><button v-for="tab in queueTabs" :key="tab.id" :class="{ active: status === tab.id }" :aria-pressed="status === tab.id" @click="changeStatus(tab.id)">{{ tab.label }}</button></div>
           <div v-if="scopedOrganization && status === 'ready_to_submit'" class="panel-toolbar"><button class="primary" :disabled="submittingSet || !claims.length" @click="submitReadySet">{{ submittingSet ? 'Submitting…' : 'Check and submit eligible claims' }}</button><p v-if="submitSetResult" class="panel-note">{{ submitSetResult }}</p></div>
           <p v-if="!capabilities.claims" class="empty-state">Claim data is unavailable until billing setup is complete.</p>
@@ -91,7 +93,7 @@
       <p>{{ date(selectedClaim.date_of_service) }} · {{ selectedClaim.service_code || 'Service not recorded' }} · {{ selectedClaim.provider_name || 'Clinician not recorded' }}</p>
       <span class="badge" :class="claimStatusTone(workStage(selectedClaim))">{{ claimStatusLabel(workStage(selectedClaim)) }}</span>
       <p v-if="selectedClaim.attempt_count > 1" class="subtle">{{ selectedClaim.attempt_count }} submission attempts · one claim history</p>
-      <dl class="claim-facts"><div><dt>Billed as provider</dt><dd>{{ selectedClaim.billing_provider_name || selectedClaim.provider_name || 'Not recorded' }}</dd></div><div><dt>Supervisor</dt><dd>{{ selectedClaim.supervisor_name || '—' }}</dd></div><div><dt>Charge</dt><dd>{{ selectedClaim.amount_cents == null ? 'Not set' : money(selectedClaim.amount_cents, selectedClaim.currency_code) }}</dd></div><div><dt>Units</dt><dd>{{ selectedClaim.units ?? 'Not recorded' }}</dd></div><div><dt>Place of service</dt><dd>{{ selectedClaim.place_of_service || 'Not recorded' }}</dd></div><div><dt>Diagnoses</dt><dd>{{ diagnosisList(selectedClaim.diagnosis_codes) || 'Not recorded' }}</dd></div></dl>
+      <dl class="claim-facts"><div><dt>Billed as provider</dt><dd>{{ selectedClaim.billing_provider_name || selectedClaim.provider_name || 'Not recorded' }}</dd></div><div><dt>Supervisor</dt><dd>{{ selectedClaim.supervisor_name || '—' }}</dd></div><div><dt>Charge</dt><dd>{{ selectedClaim.amount_cents == null ? 'Not set' : money(selectedClaim.amount_cents, selectedClaim.currency_code) }}</dd></div><div><dt>Recorded minutes</dt><dd>{{ selectedClaim.duration_minutes ?? 'Not recorded' }}</dd></div><div><dt>Service location</dt><dd>{{ selectedClaim.service_location_id ? `#${selectedClaim.service_location_id}` : 'Not recorded' }}</dd></div><div><dt>Units</dt><dd>{{ selectedClaim.units ?? 'Not recorded' }}</dd></div><div><dt>Place of service</dt><dd>{{ selectedClaim.place_of_service || 'Not recorded' }}</dd></div><div><dt>Diagnoses</dt><dd>{{ diagnosisList(selectedClaim.diagnosis_codes) || 'Not recorded' }}</dd></div></dl>
       <div class="panel-toolbar"><a class="secondary" :href="clientBillingLink(selectedClaim)">Client billing profile</a><button class="secondary" :aria-expanded="showClientHistory" @click="showClientHistory = !showClientHistory">{{ showClientHistory ? 'Hide' : 'View' }} client service history</button></div>
       <PlannedBillingServices v-if="showClientHistory" :agency-id="Number(selectedClaim.agency_id)" :client-id="Number(selectedClaim.client_id)" :client-name="selectedClaim.client_name || ''" @open-work-item="openClaim" />
       <p v-if="clinicalDraft" class="panel-note" role="status">{{ draftProgressMessage }}</p>
@@ -161,6 +163,7 @@ const validQueueStatus=value=>['all','attention',...billingStages.map(stage=>sta
 const section = ref(navigation.some(n => n.id === route.query.billingSection) ? route.query.billingSection : 'workspace');
 const scopeId = ref(String((route.meta?.auricwellPreview ? agencyStore.currentAgency?.id : null) || route.query.billingScope || route.query.agencyId || (route.query.claimId ? agencyStore.currentAgency?.id : '') || 'all')), status = ref(validQueueStatus(route.query.billingStatus)), page = ref(1), searchInput = ref(String(route.query.claimId || '')), search = ref(String(route.query.claimId || '')), companySearch = ref('');
 const organizations = ref([]), claims = ref([]), total = ref(0), capabilities = ref({}), updatedAt = ref(null), loading = ref(false), error = ref('');
+const includeDemo = ref(false), hiddenTestRecords = ref(0);
 const queueMode = ref('claims'), sortBy = ref('date_of_service'), sortDirection = ref('desc');
 const showClientHistory = ref(false), preparingClaim = ref(false), claimActionError = ref(''), submittingSet = ref(false), submitSetResult = ref('');
 const selectedCompanyId = ref(null), selectedClaim = ref(null), claimTools = ref(null), claimDialog = ref(null);
@@ -239,11 +242,12 @@ function selectCompany(org) { selectedCompanyId.value = org.id; }
 function drillInto(org, area) { scopeId.value = String(org.id); selectedCompanyId.value = null; setSection(area); }
 function openCompanyQueue(org, filter) { queueMode.value = 'claims'; changeStatus(filter); drillInto(org, 'claims'); }
 async function reload() {
-  const seq = ++loadSequence; loading.value = true; error.value = '';
+  const seq = ++loadSequence; loading.value = true; error.value = ''; hiddenTestRecords.value = 0;
   try {
-    const { data } = await api.get('/medical-billing/workspace', { params: { ...(scopeId.value !== 'all' ? { agencyId: scopeId.value } : {}), clientId: route.query.clientId || undefined, status: status.value, search: search.value, page: page.value, sortBy: sortBy.value, direction: sortDirection.value } });
+    const { data } = await api.get('/medical-billing/workspace', { params: { ...(scopeId.value !== 'all' ? { agencyId: scopeId.value } : {}), ...(includeDemo.value ? { includeDemo: true } : {}), clientId: route.query.clientId || undefined, status: status.value, search: search.value, page: page.value, sortBy: sortBy.value, direction: sortDirection.value } });
     if (!active || seq !== loadSequence) return;
     organizations.value = data.organizations; claims.value = data.claims; total.value = data.total; capabilities.value = data.capabilities; updatedAt.value = data.updatedAt;
+    hiddenTestRecords.value = Number(data.hiddenTestRecords || 0);
     // The server returns every authorized billing organization, even for a scoped query.
     // Resolve an all-company entry to the sole practice before opening its billing tools.
     if (scopeId.value === 'all' && data.organizations.length === 1) {
@@ -254,7 +258,8 @@ async function reload() {
   } catch (e) { if (active && seq === loadSequence) { error.value = e.response?.data?.error?.message || 'Billing data could not be loaded. Refresh to try again.'; organizations.value = []; claims.value = []; total.value = 0; } }
   finally { if (active && seq === loadSequence) loading.value = false; }
 }
-watch([scopeId, status, page, search, sortBy, sortDirection, () => route.query.clientId], () => { claims.value = []; closeClaim(); reload(); }, { immediate: true });
+watch([scopeId, () => route.query.clientId], () => { includeDemo.value = false; }, { flush: 'sync' });
+watch([scopeId, status, page, search, sortBy, sortDirection, includeDemo, () => route.query.clientId], () => { claims.value = []; closeClaim(); reload(); }, { immediate: true });
 watch(scopeId, () => { page.value = 1; selectedCompanyId.value = null; router.replace({ query: { ...route.query, billingScope: scopeId.value, billingSection: section.value } }); });
 watch(() => route.query.agencyId, id => { if (id && String(id) !== scopeId.value) scopeId.value = String(id); });
 watch(() => route.query.billingScope, id => { if (id && String(id) !== scopeId.value) scopeId.value = String(id); });
