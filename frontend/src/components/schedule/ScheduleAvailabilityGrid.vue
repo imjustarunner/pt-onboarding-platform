@@ -16055,11 +16055,13 @@ async function loadEditorTenantServices() {
     const params = {quote:'1'};
     const providerId = Number(bookingTargetUserId.value || props.userId || 0);
     if (providerId) params.providerId = providerId;
+    const selectedClients = (virtualSessionSelectedClientIds.value || []).map(Number).filter(id => id > 0);
+    if (selectedClients.length === 1) params.clientId = selectedClients[0];
     const r = await api.get(`/tenant-booking/agencies/${aid}/booking-options`, { params, skipGlobalLoading: true });
     let services = Array.isArray(r.data?.services) ? r.data.services : [];
     editorPackageEntitlements.value = r.data?.packagePreview?.entitlements || [];
     // Fallback: booking-options can be empty before suites are seeded; services list ensures defaults.
-    if (!services.length) {
+    if (!services.length && !params.clientId) {
       const r2 = await api.get(`/tenant-booking/agencies/${aid}/tenant-services`, {
         params: { ensureSuites: 'true' }
       }).catch(() => null);
@@ -16834,7 +16836,7 @@ const bookingServiceCodeOptions = computed(() => {
     };
   }).filter((row) => row.code);
   const selected = normalizeCodeValue(bookingServiceCode.value);
-  if (selected && !out.some((row) => row.code === selected)) {
+  if (selected && (isAppointmentEditMode.value || isScheduleEventEditMode.value) && !out.some((row) => row.code === selected)) {
     out.push({
       code: selected,
       label: `Legacy (${selected})`,
@@ -17059,10 +17061,14 @@ const loadBookingMetadataForProvider = async () => {
     resetBookingMetadataState();
     return;
   }
-  const params = { providerId, agencyId: Number(editorAgencyId.value || effectiveAgencyId.value || 0) || undefined };
-  const contextKey = `${params.agencyId}:${providerId}`;
+  const params = { providerId, agencyId: Number(editorAgencyId.value || effectiveAgencyId.value || 0) || undefined,
+    clientIds: (virtualSessionSelectedClientIds.value || []).map(Number).filter(id => id > 0).sort((a,b) => a-b).join(',') || undefined,
+    businessType: editorPracticeCategory.value || undefined };
+  const contextKey = `${params.agencyId}:${providerId}:${params.businessType || ''}:${params.clientIds || ''}`;
   if (contextKey !== bookingCatalogContextKey) {
-    if (bookingCatalogContextKey && !isAppointmentEditMode.value && !editorHydratingAppointment.value) {
+    const previousScope = bookingCatalogContextKey.split(':').slice(0,2).join(':');
+    const nextScope = contextKey.split(':').slice(0,2).join(':');
+    if (previousScope && previousScope !== nextScope && !isAppointmentEditMode.value && !editorHydratingAppointment.value) {
       bookingServiceLocationId.value = 0;
       editorServiceLocationId.value = 0;
     }
@@ -18656,6 +18662,7 @@ const bookingPrimaryServiceCodeOptions = computed(() => {
 });
 watch(bookingPrimaryServiceCodeOptions, (opts) => {
   if (Number(editorAppointmentId.value || 0)>0) return; // Saved appointments retain their historical service during asynchronous catalog refreshes.
+  if (bookingMetadataLoading.value) return;
   const code = String(bookingServiceCode.value || '').trim().toUpperCase();
   if (!code) return;
   if (!(opts || []).some((o) => String(o.code || '').toUpperCase() === code)) {
@@ -18959,6 +18966,11 @@ const refreshScheduleSummaryInBackground = () => {
   invalidateScheduleSummaryCacheForUser(props.userId);
   void load({ forceRefresh: true });
 };
+
+watch([virtualSessionSelectedClientIds, editorPracticeCategory], () => {
+  if (showRequestModal.value && editorIsClinical.value && !editorHydratingAppointment.value) void loadBookingMetadataForProvider();
+  if (showRequestModal.value && editorIsClinical.value && !editorHydratingAppointment.value) void loadEditorTenantServices();
+}, { deep: true });
 
 let virtualRosterRequest=0;
 const loadVirtualSessionClients = async (agencyIdOverride = null) => {

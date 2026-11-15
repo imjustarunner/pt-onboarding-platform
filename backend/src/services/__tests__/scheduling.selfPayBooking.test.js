@@ -135,3 +135,9 @@ it.each([['VIRTUAL','virtual'],['IN_PERSON','in-person']])('prices explicit tuto
  expect(validateSchedulingSelection).not.toHaveBeenCalled();
  expect(Appointment.create).toHaveBeenCalledWith(expect.objectContaining({businessType:'tutoring',tenantServiceId:10}));
 });
+
+it.each([{serviceCode:'90837'},{serviceCode:'TUTORING',addonServiceCodes:['90785']}])('rejects clinical codes submitted directly with a tutoring service (%j)',async invalid=>{
+ TenantService.findById.mockResolvedValue({id:10,isActive:true,businessType:'tutoring',serviceCode:'TUTORING',defaultDurationMinutes:60});
+ await expect(createAppointment({...args,...invalid})).rejects.toMatchObject({code:'CLIENT_SERVICE_CONTEXT_MISMATCH'});
+ expect(Appointment.create).not.toHaveBeenCalled();
+});

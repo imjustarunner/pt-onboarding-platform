@@ -4,6 +4,12 @@ export default defineConfig({
  root:new URL('.',import.meta.url).pathname,plugins:[vue()],
  resolve:{alias:{'@':new URL('./src',import.meta.url).pathname}},
  test:{environment:'jsdom',setupFiles:['./src/test/setup.js'],include:[
+  'src/utils/__tests__/clientRosterContext.test.js',
+  'src/utils/__tests__/bookingCatalogCache.test.js',
+  'src/components/clients/__tests__/ClientPersonalPortalInvite.test.js',
+  'src/components/clients/__tests__/ClientPortalInviteDialog.test.js',
+  'src/components/dashboard/__tests__/ProviderClientsSchools.test.js',
+  'src/components/dashboard/__tests__/ProviderClientsWaitlistScope.test.js',
   'src/utils/__tests__/clientProfileActions.test.js',
   'src/utils/__tests__/clientChartHubs.test.js',
   'src/components/clients/__tests__/ProviderSearchSelect.test.js',

@@ -4,6 +4,8 @@
       <h2 id="portal-invite-title">Invite clients to their portal</h2>
       <p>{{ clientIds.length }} selected clients. Each authorized account receives one invitation per portal, including accounts shared by siblings.</p>
       <p>Select the specific account(s) you intend to invite. Invitations ask recipients to set up their account and complete notification preferences. Text enrollment remains their choice.</p>
+      <ClientPersonalPortalInvite v-if="personalLoginAvailable && clientIds.length === 1 && agencyId" :client-id="Number(clientIds[0])" :agency-id="Number(agencyId)" @updated="load" />
+      <h3 v-if="personalLoginAvailable">Linked guardian and client accounts</h3>
       <p v-if="loading" role="status">Checking recipients…</p>
       <p v-if="error" role="alert">{{ error }}</p>
       <ul class="invite-recipients">
@@ -36,7 +38,8 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue';
 import api from '../../services/api';
-const props = defineProps({ clientIds: { type: Array, required: true } });
+import ClientPersonalPortalInvite from './ClientPersonalPortalInvite.vue';
+const props = defineProps({ agencyId: { type: Number, default: null }, personalLoginAvailable: { type: Boolean, default: false }, clientIds: { type: Array, required: true } });
 defineEmits(['close']);
 const loading = ref(false), sending = ref(false), error = ref(''), recipients = ref([]), skipped = ref([]), selected = ref([]), results = ref({}), finished = ref(false), needsRefresh = ref(false);
 const staleKeys = new Set();

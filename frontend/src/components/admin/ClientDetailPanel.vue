@@ -1608,7 +1608,7 @@
           />
         </div>
 
-        <ClientPortalOverview ref="portalOverviewRef" :show-actions="false" v-if="chartHub==='portal' && canViewGuardians" :key="client.id" :client="client" :agency="{id:Number(selectedAgencyId||client.agency_id),name:primaryAgencyDisplayName}" :actor="authStore.user" @share-documents="goChartSub('documents')" @share-assessments="goChartSub('assessments')" @manage-access="goChartSub('guardians')" />
+        <ClientPortalOverview ref="portalOverviewRef" :show-actions="false" v-if="chartHub==='portal' && canViewGuardians" :key="client.id" :client="client" :agency="{id:Number(selectedAgencyId||client.agency_id),name:primaryAgencyDisplayName}" :actor="authStore.user" @share-documents="goChartSub('documents')" @share-assessments="goChartSub('assessments')" @manage-access="goChartSub('guardians')" :personal-login-available="clientIsMinor" />
 
         <!-- Guardians Tab -->
         <div v-if="showPanel('guardians')" class="detail-section">
@@ -1691,7 +1691,7 @@
             </div>
 
             <div
-              v-if="canManageGuardians && !hasSelfGuardianLink && !guardiansLoading"
+              v-if="canManageGuardians && !clientIsMinor && !hasSelfGuardianLink && !guardiansLoading"
               class="intake-guardian-placeholder"
               style="margin-top: 10px;"
             >
@@ -1729,6 +1729,8 @@
                 </div>
               </div>
             </div>
+
+            <ClientPersonalPortalInvite v-if="canManageGuardians && clientIsMinor" :client-id="Number(client.id)" :agency-id="Number(selectedAgencyId || client.agency_id)" @updated="fetchGuardians" />
 
             <div v-if="guardiansLoading" class="loading">Loading guardians…</div>
             <div v-else-if="(guardians || []).length === 0 && (!guardianIntakeProfile || intakeGuardianAlreadyLinked)" class="empty-state">
@@ -1910,7 +1912,7 @@
           </div>
         </div>
 
-        <ClientPortalInviteDialog v-if="showPortalInvites && canManageGuardians" :key="client.id" :client-ids="[Number(client.id)]" @close="showPortalInvites = false" />
+        <ClientPortalInviteDialog v-if="showPortalInvites && canManageGuardians" :key="client.id" :client-ids="[Number(client.id)]" :agency-id="Number(selectedAgencyId || client.agency_id)" :personal-login-available="clientIsMinor" @close="showPortalInvites = false" />
 
         <!-- Assignments Tab (backoffice only) -->
         <div v-if="showPanel('assignments')" class="detail-section casg">
@@ -2892,6 +2894,7 @@ import GuardianDemographicReview from './GuardianDemographicReview.vue';
 import ClientGuardianContactEditor from './ClientGuardianContactEditor.vue';
 import ClientReminderTextConsent from './ClientReminderTextConsent.vue';
 import ClientPortalInviteDialog from '../clients/ClientPortalInviteDialog.vue';
+import ClientPersonalPortalInvite from '../clients/ClientPersonalPortalInvite.vue';
 import PractitionerClientPackagesTab from './PractitionerClientPackagesTab.vue';
 import ClientAssessmentsTab from './ClientAssessmentsTab.vue';
 import ClientMedicalRecordsTab from './ClientMedicalRecordsTab.vue';
@@ -3675,6 +3678,8 @@ const clientAgeLabel = computed(() => {
   if (m < 0 || (m === 0 && now.getDate() < d.getDate())) age -= 1;
   return age >= 0 && age < 130 ? String(age) : '';
 });
+
+const clientIsMinor = computed(() => clientAgeLabel.value !== '' && Number(clientAgeLabel.value) < 18);
 
 const primaryInsuranceLabel = computed(() => {
   const name = String(props.client?.primary_insurer_name || props.client?.insurance_type_label || '').trim();

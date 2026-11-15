@@ -172,7 +172,7 @@
                   :aria-sort="allAriaSortFor('school')"
                   @click="toggleAllColumnSort('school')"
                 >
-                  School
+                  School / program
                   <span class="pct-sort-indicator" aria-hidden="true">{{ allSortIndicatorFor('school') }}</span>
                 </th>
                 <th
@@ -181,7 +181,7 @@
                   :aria-sort="allAriaSortFor('type')"
                   @click="toggleAllColumnSort('type')"
                 >
-                  Type
+                  Service
                   <span class="pct-sort-indicator" aria-hidden="true">{{ allSortIndicatorFor('type') }}</span>
                 </th>
                 <th
@@ -262,8 +262,8 @@
                   </div>
                 </td>
                 <td v-if="allColumnPrefs.setting">{{ c.setting || '—' }}</td>
-                <td v-if="allColumnPrefs.school">{{ c.schoolName || '—' }}</td>
-                <td v-if="allColumnPrefs.type">{{ formatClientTypeLabel(c) }}</td>
+                <td v-if="allColumnPrefs.school">{{ rosterOrganizationLabel(c) }}</td>
+                <td v-if="allColumnPrefs.type">{{ rosterServiceLabel(c) }}</td>
                 <td v-if="allColumnPrefs.insurance">{{ formatInsuranceTypeLabel(c) }}</td>
                 <td v-if="allColumnPrefs.status">{{ officeStatusLabel(c) }}</td>
                 <td v-if="allColumnPrefs.sessions">{{ officeSessionTotal(c) }}</td>
@@ -328,7 +328,7 @@
             <thead>
               <tr>
                 <th>Client</th>
-                <th>Type</th>
+                <th>Service</th>
                 <th>Status</th>
                 <th>Sessions (FY)</th>
                 <th>Since</th><th>Feedback</th>
@@ -346,7 +346,7 @@
                     {{ formatOfficeClientLabel(c) }}
                   </button>
                 </td>
-                <td>{{ formatClientTypeLabel(c) }}</td>
+                <td>{{ rosterServiceLabel(c) }}</td>
                 <td>{{ officeStatusLabel(c) }}</td>
                 <td>{{ officeSessionTotal(c) }}</td>
                 <td>{{ formatSinceDate(c.submission_date) }}</td><td><ClientFeedbackSummary :summaries="feedbackByClient[c.id]" :loading="feedbackLoading" :unavailable="!!feedbackError" /></td>
@@ -386,7 +386,7 @@
             <thead>
               <tr>
                 <th>Client</th>
-                <th>Type</th>
+                <th>Service</th>
                 <th>Status</th>
                 <th>Sessions (FY)</th>
                 <th>Since</th><th>Feedback</th>
@@ -404,7 +404,7 @@
                     {{ formatOfficeClientLabel(c) }}
                   </button>
                 </td>
-                <td>{{ formatClientTypeLabel(c) }}</td>
+                <td>{{ rosterServiceLabel(c) }}</td>
                 <td>{{ officeStatusLabel(c) }}</td>
                 <td>{{ officeSessionTotal(c) }}</td>
                 <td>{{ formatSinceDate(c.submission_date) }}</td><td><ClientFeedbackSummary :summaries="feedbackByClient[c.id]" :loading="feedbackLoading" :unavailable="!!feedbackError" /></td>
@@ -453,7 +453,7 @@
               <thead>
                 <tr>
                   <th>Client</th>
-                  <th>Type</th>
+                  <th>Service</th>
                   <th>Preferred</th>
                   <th>Since</th>
                 </tr>
@@ -470,7 +470,7 @@
                       {{ formatOfficeClientLabel(c) }}
                     </button>
                   </td>
-                  <td>{{ formatClientTypeLabel(c) }}</td>
+                  <td>{{ rosterServiceLabel(c) }}</td>
                   <td>{{ formatPreferred(c) }}</td>
                   <td>{{ c.submission_date || '—' }}</td>
                 </tr>
@@ -539,7 +539,7 @@ import ClientExchangePanel from '../clientExchange/ClientExchangePanel.vue';
 import EhrPatientListImportModal from '../admin/EhrPatientListImportModal.vue';
 import NewReferralModal from '../clientExchange/NewReferralModal.vue';
 import ClientEhrBringUpToDatePanel from '../admin/clientChart/ClientEhrBringUpToDatePanel.vue';
-import { displaySchoolClientStatusLabel } from '../../utils/schoolClientStatusDisplay.js';
+import { hasSchoolRosterContext, rosterServiceLabel, rosterOrganizationLabel, rosterStatusLabel } from '../../utils/clientRosterContext.js';
 
 const props = defineProps({
   /** school | office | new | exchange | referrals */
@@ -804,21 +804,7 @@ const isOnSchoolRoster = (clientId) => schoolAffiliatedClientIds.value?.has?.(Nu
 const isPosSchoolClient = (c) => !!clientPosFlags(c?.id).seenAtSchool;
 
 /** True when the client record itself is school-affiliated (independent of my-roster sync). */
-const hasSchoolOrganizationOnRecord = (c) => {
-  const type = String(c?.client_type || '').toLowerCase();
-  const orgType = String(c?.organization_type || c?.organizationType || '').toLowerCase();
-  const orgId = Number(c?.organization_id || 0);
-  const orgName = String(c?.organization_name || '').trim();
-  if (['school', 'program', 'learning'].includes(orgType)) return true;
-  // School/learning client types are school-setting even before roster/POS sync catches up.
-  if (['school', 'learning'].includes(type)) return true;
-  // Any assigned school-named org on a caseload client counts as affiliation.
-  if (orgId || orgName) {
-    // Prefer typed orgs; name alone is not enough unless client_type already matched above.
-    if (['school', 'program', 'learning'].includes(orgType)) return true;
-  }
-  return false;
-};
+const hasSchoolOrganizationOnRecord = hasSchoolRosterContext;
 
 const isSchoolSettingClient = (c) =>
   isOnSchoolRoster(c?.id) || isPosSchoolClient(c) || hasSchoolOrganizationOnRecord(c);
@@ -907,8 +893,8 @@ const combinedClientsList = computed(() => {
 
 const ALL_CLIENT_OPTIONAL_COLUMNS = [
   { key: 'setting', label: 'Setting' },
-  { key: 'school', label: 'School' },
-  { key: 'type', label: 'Type' },
+  { key: 'school', label: 'School / program' },
+  { key: 'type', label: 'Service' },
   { key: 'insurance', label: 'Insurance Type' },
   { key: 'status', label: 'Status' },
   { key: 'sessions', label: 'Sessions (FY)' },
@@ -979,8 +965,8 @@ function toggleAllColumnSort(field) {
 function allClientSortValue(c, field) {
   if (field === 'client') return formatOfficeClientLabel(c);
   if (field === 'setting') return String(c?.setting || '');
-  if (field === 'school') return String(c?.schoolName || c?.organization_name || '');
-  if (field === 'type') return formatClientTypeLabel(c);
+  if (field === 'school') return rosterOrganizationLabel(c);
+  if (field === 'type') return rosterServiceLabel(c);
   if (field === 'insurance') return formatInsuranceTypeLabel(c);
   if (field === 'status') return officeStatusLabel(c);
   if (field === 'sessions') {
@@ -1023,7 +1009,7 @@ const schoolClientsForGrid = computed(() => {
   return null;
 });
 
-const officeStatusLabel = (c) => displaySchoolClientStatusLabel(c) || c?.client_status_label || c?.status || '—';
+const officeStatusLabel = (c) => rosterStatusLabel(c, { school: isSchoolSettingClient(c) });
 
 const officeSessionTotal = (c) => {
   const m = sessionTotalsByClientId.value;
@@ -1274,14 +1260,6 @@ const officeHoverTitle = (c) => {
   return full || initials || '';
 };
 
-const formatClientTypeLabel = (c) => {
-  const t = String(c?.client_type || '').toLowerCase();
-  if (t === 'clinical') return 'Clinical';
-  if (t === 'learning') return 'Learning';
-  if (t === 'school') return 'School';
-  if (t === 'basic_nonclinical') return 'Non-clinical';
-  return t ? t.replace(/_/g, ' ') : '—';
-};
 
 const formatInsuranceTypeLabel = (c) =>
   String(c?.insurance_type_label || c?.primary_insurer_name || '').trim() || '—';
@@ -1388,7 +1366,7 @@ const loadOfficeClients = async () => {
         idsToFetch.map((aid) =>
           api
             .get('/clients', {
-              params: { agency_id: aid, provider_id: currentUserId.value },
+              params: { agency_id: aid, provider_id: currentUserId.value, includeServiceContext: 1 },
               skipGlobalLoading: true
             })
             .then((r) => ({ aid, rows: Array.isArray(r.data) ? r.data : r.data?.items || [] }))
@@ -1407,7 +1385,7 @@ const loadOfficeClients = async () => {
         const decorated = decorateClientAgency(raw, aid);
         const existing = byId.get(id);
         if (existing) {
-          byId.set(id, decorateClientAgency(existing, aid));
+          byId.set(id, decorateClientAgency({ ...existing, service_contexts: [...(existing.service_contexts || []), ...(decorated.service_contexts || [])] }, aid));
         } else {
           byId.set(id, decorated);
         }

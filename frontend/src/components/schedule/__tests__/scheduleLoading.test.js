@@ -576,6 +576,7 @@ it('keeps the linked appointment context through a real calendar cell and cancel
 });
 
 it('keeps quarter-hour clinical starts and a 45-minute service instead of replacing it during billing preview', async () => {
+ const get=m.get.getMockImplementation();m.get.mockImplementation((url,...args)=>url==='/office-schedule/booking-metadata'?Promise.resolve({data:{serviceCodes:[{code:'90834',defaultDurationMinutes:45},{code:'90837',defaultDurationMinutes:60}]}}):get(url,...args));
  const state=await mount();state.selfScheduleAgencyOptions=[{id:450,organization_type:'agency',name:'Synthetic agency',feature_flags:{medicalBillingEnabled:true}}];state.selectedActionAgencyId=450;state.requestType='individual_session';state.showRequestModal=true;await flushPromises();
  state.modalDay='Monday';state.modalHour=9;state.modalStartHour=9;state.modalStartMinute=0;state.modalEndHour=10;state.modalEndMinute=0;
  state.editorPracticeCategory='mental_health';state.editorTenantServices=[{id:34,serviceCode:'90834',businessType:'mental_health',defaultDurationMinutes:45},{id:37,serviceCode:'90837',businessType:'mental_health',defaultDurationMinutes:60}];

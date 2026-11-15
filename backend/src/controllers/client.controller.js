@@ -1,3 +1,4 @@
+import { attachRosterServiceContexts } from '../services/clientServiceContext.service.js';
 import {filterClientDemos} from '../utils/clientDemoFilter.js';
 import { generateUniqueSixDigitClientCode } from '../utils/clientCode.js';
 import { readableIntakeKey, readableIntakeValue, flattenIntakeFields } from '../utils/intakeResponsePresentation.js';
@@ -832,6 +833,10 @@ export const getClients = async (req, res, next) => {
         const byId = new Map(assignments.map(row => [Number(row.client_id),row]));
         out = out.map(row => ({...row,...(byId.get(Number(row.id)) || {})}));
       } catch (e) { if(e.code !== 'ER_NO_SUCH_TABLE') throw e; }
+    }
+
+    if (String(req.query.includeServiceContext || '') === '1') {
+      out = await attachRosterServiceContexts(out, { agencyIds, providerId: ['provider', 'intern', 'intern_plus', 'supervisor'].includes(roleNorm) ? userId : filterProviderId });
     }
 
     if (!shouldPaginate) {

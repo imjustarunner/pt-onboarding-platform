@@ -49,7 +49,7 @@ test('a clinical transfer retires historical school affiliation without losing a
         execute: (sql, params) => connection.execute(`${fixtures}\n${sql}`, params)
       });
       const actual = await query({ agencyId: 2, providerUserId: 493 });
-      assert.deepEqual(actual.sort((a,b)=>a-b), [1,3,4,5,7]);
+      assert.deepEqual(actual.sort((a,b)=>a-b), [1,3,4,5]);
       assert.deepEqual(await query({ agencyId: 2, providerUserId: 999 }), [6]);
       assert.deepEqual(await query({ agencyId: 3, providerUserId: 493 }), []);
     } finally {

@@ -1334,7 +1334,7 @@ export async function getProviderSchoolAffiliatedClientIds({ agencyId, providerU
              INNER JOIN agencies current_org ON current_org.id = current_coa.organization_id
              WHERE current_coa.client_id = c.id
                AND current_coa.is_active = TRUE
-               AND LOWER(COALESCE(current_org.organization_type, '')) IN ('school', 'program', 'learning')
+               AND LOWER(COALESCE(current_org.organization_type, '')) = 'school'
            )
            AND NOT EXISTS (
              SELECT 1
@@ -1342,7 +1342,7 @@ export async function getProviderSchoolAffiliatedClientIds({ agencyId, providerU
              INNER JOIN agencies current_org ON current_org.id = current_cpa.organization_id
              WHERE current_cpa.client_id = c.id
                AND current_cpa.is_active = TRUE
-               AND LOWER(COALESCE(current_org.organization_type, '')) IN ('school', 'program', 'learning')
+               AND LOWER(COALESCE(current_org.organization_type, '')) = 'school'
            )
          )
          AND (
@@ -1355,14 +1355,14 @@ export async function getProviderSchoolAffiliatedClientIds({ agencyId, providerU
            )
          )
          AND (
-           LOWER(COALESCE(c.client_type, '')) IN ('school', 'learning')
-           OR LOWER(COALESCE(org.organization_type, '')) IN ('school', 'program', 'learning')
+           (LOWER(COALESCE(c.client_type, '')) = 'school' AND COALESCE(org.organization_type, '') IN ('', 'school'))
+           OR LOWER(COALESCE(org.organization_type, '')) = 'school'
            OR EXISTS (
              SELECT 1
              FROM client_organization_assignments coa
              INNER JOIN agencies o ON o.id = coa.organization_id
              WHERE coa.client_id = c.id
-               AND LOWER(COALESCE(o.organization_type, '')) IN ('school', 'program', 'learning')
+               AND LOWER(COALESCE(o.organization_type, '')) = 'school'
            )
            OR EXISTS (
              SELECT 1
@@ -1370,7 +1370,7 @@ export async function getProviderSchoolAffiliatedClientIds({ agencyId, providerU
              INNER JOIN agencies o ON o.id = cpa.organization_id
              WHERE cpa.client_id = c.id
                AND cpa.provider_user_id = ?
-               AND LOWER(COALESCE(o.organization_type, '')) IN ('school', 'program', 'learning')
+               AND LOWER(COALESCE(o.organization_type, '')) = 'school'
            )
          )`,
       [aid, pid, pid, pid]
