@@ -18,6 +18,7 @@ import { assertClinicalSigner, CLINICAL_SIGNER_ROLES } from '../services/clinica
 import { getApprovedClinicalContext, assertClinicalVersionSubmission, clinicalVersionReference, approvedVersionBillingBlockers } from '../services/clinicalNoteVersionBilling.service.js';
 import { screeningEncounterProposal } from '../services/h0002EncounterDetails.js';
 import { logNoteAidChartEvent } from '../services/noteAidChartAudit.service.js';
+import { fullProgressNoteRequiresSession, assertActualProgressSessionSnapshot } from '../services/clinicalProgressSessionGate.service.js';
 import { assertLiveClearinghouseAgency, isSyntheticClearinghouseAgency } from '../services/syntheticClearinghouseGuard.service.js';
 import { parseObject } from '../services/supervisedBillingPolicy.service.js';
 import { sessionLocationLabel, reviewSnapshotToken, reviewRequestsForDisplay, effectiveServiceDetails, pendingServiceDetails, assertNoUnresolvedChanges, assertServiceDetailsComplete, markSupervisorQueue, synchronizeSupervisorQueue } from '../services/clinicalSupervisorReview.service.js';
@@ -1894,6 +1895,11 @@ export const signClinicalNote = async (req, res, next) => {
       const terminationTodo = await completeNoteAidSigningWorkflow(note);
       await reviewSubmittedNote(req,note);
       return res.json({ ok: true, noteId, signedAt: note.provider_signed_at, terminationTodo });
+    }
+    const sourceMeta=parseObject(note.metadata_json);
+    if(isProgressClinicalNote(note,sourceMeta) || fullProgressNoteRequiresSession({toolId:sourceMeta.toolId,
+      serviceCode:sourceMeta.serviceCode || lockedSession?.service_code,noteKind:note.note_type || sourceMeta.noteType})) {
+      assertActualProgressSessionSnapshot(lockedSession,{providerUserId:req.user.id});
     }
     if (!req.body?.signingToken || req.body.signingToken!==clinicalNoteSnapshotHash(note,lockedSession || {})) throw Object.assign(new Error('This draft or its service context changed. Reload and review the current version before signing.'),{status:409});
     const accurate = req.body?.accurateAndComplete === true || req.body?.accurateAndComplete === 'true';

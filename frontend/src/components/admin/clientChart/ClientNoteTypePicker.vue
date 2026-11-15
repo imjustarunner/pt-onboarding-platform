@@ -2,7 +2,7 @@
   <div class="cntp">
     <header class="cntp-head">
       <h3 class="cntp-title">What type of note?</h3>
-      <p class="cntp-sub">Choose how you want to document, then we’ll open the right writer.</p>
+      <p class="cntp-sub">Add a contact or miscellaneous note here. Open session notes from the client’s to-do list.</p>
     </header>
 
     <div class="cntp-grid">
@@ -24,47 +24,18 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
-
-const props = defineProps({
+defineProps({
   isLearning: { type: Boolean, default: false },
   isTutoring: { type: Boolean, default: false }
 });
 
 defineEmits(['select']);
 
-const options = computed(() => {
-  if (props.isLearning || props.isTutoring) {
-    return [
-      {
-        id: 'progress',
-        label: 'Session / progress note',
-        hint: 'Opens tutoring or learning note tools for this student.',
-        tone: 'aid',
-        path: 'note-aid',
-        kind: 'progress'
-      },
-      {
-        id: 'contact',
-        label: 'Contact note',
-        hint: 'Manual note for a call, email, or message with a contact.',
-        tone: 'manual',
-        path: 'manual-contact'
-      },
-      {
-        id: 'misc',
-        label: 'Miscellaneous note',
-        hint: 'Freeform chart note (manual).',
-        tone: 'manual',
-        path: 'manual-misc'
-      }
-    ];
-  }
-  return [
+const options = [
     {
       id: 'contact',
       label: 'Contact note',
-      hint: 'Party contacted, relationship, method, time spent, optional billing claim.',
+      hint: 'Document a call, email, or message with a contact.',
       tone: 'manual',
       path: 'manual-contact'
     },
@@ -74,63 +45,8 @@ const options = computed(() => {
       hint: 'Freeform chart note (manual).',
       tone: 'manual',
       path: 'manual-misc'
-    },
-    {
-      id: 'consultation',
-      label: 'Consultation note',
-      hint: 'Handwritten consultation documentation (manual).',
-      tone: 'manual',
-      path: 'manual-consultation'
-    },
-    {
-      id: 'progress',
-      label: 'Progress note',
-      hint: 'Note Workspace tools for your credential tier — must attach to a session.',
-      tone: 'aid',
-      path: 'note-aid',
-      kind: 'progress'
-    },
-    {
-      id: 'intake',
-      label: 'Intake note',
-      hint: 'Intake tools — must attach to a session (or schedule one).',
-      tone: 'aid',
-      path: 'note-aid',
-      kind: 'intake'
-    },
-    {
-      id: 'treatment_plan',
-      label: 'Treatment plan',
-      hint: 'Write new from scratch, or update the current plan.',
-      tone: 'aid',
-      path: 'treatment-plan-choice'
-    },
-    {
-      id: 'treatment_summary',
-      label: 'Treatment summary',
-      hint: 'Opens the treatment summary tool only.',
-      tone: 'aid',
-      path: 'note-aid',
-      kind: 'treatment_summary'
-    },
-    {
-      id: 'termination',
-      label: 'Termination note',
-      hint: 'Opens the termination note tool only.',
-      tone: 'aid',
-      path: 'note-aid',
-      kind: 'termination'
-    },
-    {
-      id: 'missed',
-      label: 'Missed appointment',
-      hint: '15-second cancel / no-show / reschedule workflow with auto narrative — attach to a session.',
-      tone: 'manual',
-      path: 'appointment-change',
-      kind: 'missed_appointment'
     }
-  ];
-});
+];
 </script>
 
 <style scoped>

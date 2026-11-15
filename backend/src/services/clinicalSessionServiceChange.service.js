@@ -26,7 +26,10 @@ export function clinicalServiceChangeSummary(session) {
   const explicit=String(meta.narrivaContext?.modality||meta.sessionContext?.modality||meta.modality||'').toLowerCase();
   const remote=Number(session?.is_telehealth)===1||['02','10'].includes(String(session?.place_of_service||''));
   const modality=['in_person','phone','video'].includes(explicit)?explicit:remote?'':Number(session?.is_telehealth)===0||['11','03','12'].includes(String(session?.place_of_service))?'in_person':'';
+  const asIso=value=>{const parsed=utc(value);return Number.isFinite(parsed.getTime())?parsed.toISOString():null;};
   return {id:Number(session.id),clinicalSessionId:Number(session.id),agencyId:Number(session.agency_id),clientId:Number(session.client_id),serviceCode:code(session.service_code),durationMinutes:duration>0?duration:null,modality,
+    appointmentId:Number(session.appointment_id)||null,officeEventId:Number(session.office_event_id)||null,billingEncounterId:Number(session.billing_encounter_id)||null,
+    sourceTimezone:session.source_timezone||'America/Denver',scheduledStartAt:asIso(session.scheduled_start_at),scheduledEndAt:asIso(session.scheduled_end_at),
     locationLabel:session.location_label || meta.sessionContext?.locationLabel || '',serviceLocationId:Number(session.service_location_id)||null,
     billingOfficeLocationId:Number(session.billing_office_location_id)||null,placeOfService:String(session.place_of_service || ''),pendingServiceChange:!!meta.serviceCodeChangePending,durationReview:meta.serviceDurationReview || null};
 }

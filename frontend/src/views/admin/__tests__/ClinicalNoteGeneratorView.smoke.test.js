@@ -47,15 +47,17 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     vi.mocked(api.get).mockReset().mockResolvedValue({ data: {} });
   });
 
-  async function workspace(aid = 'psychotherapy', { realFrame = false, demoPresentation = null } = {}) {
+  async function workspace(aid = 'psychotherapy', { realFrame = false, realWriterChooser = false, preserveSelection = false, query = {}, demoPresentation = null } = {}) {
     const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/note-aid', component: View }] });
-    await router.push('/note-aid');
-    const wrapper = shallowMount(View, { props: { demoPresentation }, global: { plugins: [router, createPinia()], stubs: { ClinicalWorkspaceFrame: realFrame ? false : { template: '<section><slot /></section>' } } } });
+    await router.push({ path: '/note-aid', query });
+    const wrapper = shallowMount(View, { props: { demoPresentation }, global: { plugins: [router, createPinia()], stubs: { ClinicalWorkspaceFrame: realFrame ? false : { template: '<section><slot /></section>' }, NarrivaModeChooser: realWriterChooser ? false : true } } });
     await flushPromises();
     const state = wrapper.vm.$.setupState;
     state.derivedTier = 'intern_plus';
-    state.selectedAidId = aid;
-    state.selectedServiceCode = aid === 'psychotherapy' ? '90834' : '';
+    if (!preserveSelection) {
+      state.selectedAidId = aid;
+      state.selectedServiceCode = aid === 'psychotherapy' ? '90834' : '';
+    }
     await nextTick();
     return { wrapper, state, router };
   }
@@ -93,7 +95,7 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     const { wrapper, state } = await workspace();
     state.selectedClientId = 22;
     state.selectedClient = { id: 22, agency_id: 7 };
-    state.sessionClinicalSessionId = 318;
+    state.sessionClinicalSessionId = 318; state.sessionAppointmentId = 1318;
     await nextTick();
     expect(state.narrivaReview).toBeNull();
     expect(wrapper.find('narriva-assessment-evidence-stub').exists()).toBe(false);
@@ -153,12 +155,12 @@ describe('ClinicalNoteGeneratorView smoke', () => {
   });
 
   it('saves a selected underlying clinical service without changing Pro Bono funding',async()=>{
-    const {wrapper,state}=await workspace();state.eligibleServiceCodes=['90834','PRO-BONO SERVICE','99051'];state.otherServiceCode='PRO-BONO SERVICE';state.selectedServiceCode='__other__';state.inputText='An actual intervention and response were documented.';state.outputObj={sections:{Narrative:'Documented clinical session.'},meta:{}};state.narrivaUnderlyingServiceCode='90834';await nextTick();expect(state.narrivaUnderlyingOptions.map(item=>item.code)).toEqual(['90834']);vi.mocked(api.post).mockImplementation(async()=>({data:{draft:{id:66}}}));await state.autosave();const saved=vi.mocked(api.post).mock.calls.find(([url])=>url==='/clinical-notes/drafts');expect(saved).toBeTruthy();expect(saved[1]).toMatchObject({serviceCode:'PRO-BONO SERVICE',outputJson:{meta:{underlyingServiceCode:'90834',narrivaContext:{underlyingServiceCode:'90834'}}}});state.onNarrivaFindingAction({checkId:'service_code',finding:{action:'clinical_service'}});await nextTick();expect(state.configExpanded).toBe(true);expect(state.noteWizardStep).toBe(1);expect(state.actualServiceCode).toBe('PRO-BONO SERVICE');expect(state.narrivaUnderlyingServiceCode).toBe('90834');expect(vi.mocked(api.post).mock.calls.some(([url])=>url.endsWith('/service'))).toBe(false);wrapper.unmount();
+    const {wrapper,state}=await workspace();state.sessionClinicalSessionId=90;state.sessionAppointmentId=190;state.eligibleServiceCodes=['90834','PRO-BONO SERVICE','99051'];state.otherServiceCode='PRO-BONO SERVICE';state.selectedServiceCode='__other__';state.inputText='An actual intervention and response were documented.';state.outputObj={sections:{Narrative:'Documented clinical session.'},meta:{}};state.narrivaUnderlyingServiceCode='90834';await nextTick();expect(state.narrivaUnderlyingOptions.map(item=>item.code)).toEqual(['90834']);vi.mocked(api.post).mockImplementation(async()=>({data:{draft:{id:66}}}));await state.autosave();const saved=vi.mocked(api.post).mock.calls.find(([url])=>url==='/clinical-notes/drafts');expect(saved).toBeTruthy();expect(saved[1]).toMatchObject({serviceCode:'PRO-BONO SERVICE',outputJson:{meta:{underlyingServiceCode:'90834',narrivaContext:{underlyingServiceCode:'90834'}}}});state.onNarrivaFindingAction({checkId:'service_code',finding:{action:'clinical_service'}});await nextTick();expect(state.configExpanded).toBe(true);expect(state.noteWizardStep).toBe(1);expect(state.actualServiceCode).toBe('PRO-BONO SERVICE');expect(state.narrivaUnderlyingServiceCode).toBe('90834');expect(vi.mocked(api.post).mock.calls.some(([url])=>url.endsWith('/service'))).toBe(false);wrapper.unmount();
   });
 
   it('saves and reloads an H0004 structured-only draft without inventing narrative or switching to psychotherapy',async()=>{
     const {wrapper,state}=await workspace('h0004_note');
-    state.selectedClientId=202;state.selectedClient={id:202,agency_id:7,client_type:'clinical'};state.eligibleServiceCodes=['H0004'];state.selectedServiceCode='H0004';state.sessionDurationMinutes=60;state.inputText='';state.outputObj=null;
+    state.sessionClinicalSessionId=90;state.sessionAppointmentId=190;state.selectedClientId=202;state.selectedClient={id:202,agency_id:7,client_type:'clinical'};state.eligibleServiceCodes=['H0004'];state.selectedServiceCode='H0004';state.sessionDurationMinutes=60;state.inputText='';state.outputObj=null;
     vi.mocked(api.get).mockImplementation(async url=>({data:url==='/clients/202'?{id:202,agency_id:7,client_type:'clinical'}:{}}));
     await flushPromises();vi.mocked(api.post).mockClear();await state.autosave();expect(vi.mocked(api.post).mock.calls.some(([url])=>url==='/clinical-notes/drafts')).toBe(false);
     state.chartMedications.commentsHtml='Synthetic QA structured-only persistence check.';
@@ -178,11 +180,11 @@ describe('ClinicalNoteGeneratorView smoke', () => {
   });
 
   it('keeps the legacy guidance aid on the explicit service without asking AI to choose a billed code',async()=>{
-    const {wrapper,state}=await workspace('code_decider');state.noteWriterMode='narriva';await nextTick();state.selectedServiceCode='90837';state.initials='SYN';state.dateOfService='2026-11-06';state.inputText='Synthetic intervention and response.';await nextTick();expect(state.generateBlockedReason).toBe('');expect(state.generateDisabled).toBe(false);vi.mocked(api.post).mockImplementation(async url=>({data:url==='/clinical-notes/generate'?{outputJson:{sections:{Narrative:'Synthetic generated note.'}}}:{}}));await state.generateNote();const request=vi.mocked(api.post).mock.calls.find(([url])=>url==='/clinical-notes/generate');expect(request).toBeTruthy();expect(request[1].get('autoSelectCode')).toBe('false');expect(request[1].get('serviceCode')).toBe('90837');expect(request[1].get('toolId')).toBeNull();wrapper.unmount();
+    const {wrapper,state}=await workspace('code_decider');state.sessionClinicalSessionId=90;state.sessionAppointmentId=190;state.noteWriterMode='narriva';await nextTick();state.selectedServiceCode='90837';state.initials='SYN';state.dateOfService='2026-11-06';state.inputText='Synthetic intervention and response.';await nextTick();expect(state.generateBlockedReason).toBe('');expect(state.generateDisabled).toBe(false);vi.mocked(api.post).mockImplementation(async url=>({data:url==='/clinical-notes/generate'?{outputJson:{sections:{Narrative:'Synthetic generated note.'}}}:{}}));await state.generateNote();const request=vi.mocked(api.post).mock.calls.find(([url])=>url==='/clinical-notes/generate');expect(request).toBeTruthy();expect(request[1].get('autoSelectCode')).toBe('false');expect(request[1].get('serviceCode')).toBe('90837');expect(request[1].get('toolId')).toBeNull();wrapper.unmount();
   });
 
   it('generates Pro Bono documentation from the explicitly chosen clinical service while retaining its funding code',async()=>{
-    const {wrapper,state}=await workspace('code_decider');state.noteWriterMode='narriva';await nextTick();state.otherServiceCode='PRO-BONO SERVICE';state.selectedServiceCode='__other__';state.narrivaUnderlyingServiceCode='90837';state.initials='SYN';state.dateOfService='2026-11-06';state.inputText='Synthetic intervention and response.';await nextTick();vi.mocked(api.post).mockImplementation(async url=>({data:url==='/clinical-notes/generate'?{outputJson:{sections:{Narrative:'Synthetic generated note.'}}}:{}}));await state.generateNote();const request=vi.mocked(api.post).mock.calls.find(([url])=>url==='/clinical-notes/generate');expect(request).toBeTruthy();expect(request[1].get('serviceCode')).toBe('PRO-BONO SERVICE');expect(request[1].get('underlyingServiceCode')).toBe('90837');expect(request[1].get('autoSelectCode')).toBe('false');wrapper.unmount();
+    const {wrapper,state}=await workspace('code_decider');state.sessionClinicalSessionId=90;state.sessionAppointmentId=190;state.noteWriterMode='narriva';await nextTick();state.otherServiceCode='PRO-BONO SERVICE';state.selectedServiceCode='__other__';state.narrivaUnderlyingServiceCode='90837';state.initials='SYN';state.dateOfService='2026-11-06';state.inputText='Synthetic intervention and response.';await nextTick();vi.mocked(api.post).mockImplementation(async url=>({data:url==='/clinical-notes/generate'?{outputJson:{sections:{Narrative:'Synthetic generated note.'}}}:{}}));await state.generateNote();const request=vi.mocked(api.post).mock.calls.find(([url])=>url==='/clinical-notes/generate');expect(request).toBeTruthy();expect(request[1].get('serviceCode')).toBe('PRO-BONO SERVICE');expect(request[1].get('underlyingServiceCode')).toBe('90837');expect(request[1].get('autoSelectCode')).toBe('false');wrapper.unmount();
   });
 
   it('cannot reintroduce morning, unverified or Pro Bono99051 through a toggle or schedule-seeded merge',async()=>{
@@ -310,6 +312,134 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     } finally {wrapper.unmount();}
   });
 
+  it('opens the actual-session chooser from both the landing action and the library New note action', async () => {
+    const { wrapper, state } = await workspace('');
+    try {
+      state.beginCreateNote();
+      await nextTick();
+      expect(wrapper.findComponent({ name: 'NoteAidDocumentationQueue' }).props('sessionOnly')).toBe(true);
+      expect(wrapper.findComponent({ name: 'NoteAidLibraryPanel' }).exists()).toBe(false);
+      state.cancelActualSessionPicker();
+      await nextTick();
+      wrapper.findComponent({ name: 'ClinicalNoteLibrarySidebar' }).vm.$emit('new');
+      await nextTick();
+      expect(state.showActualSessionPicker).toBe(true);
+      expect(wrapper.findComponent({ name: 'NoteAidDocumentationQueue' }).exists()).toBe(true);
+    } finally { wrapper.unmount(); }
+  });
+
+  it('opens a real H0004 session from the client to-do list with the three writing methods', async () => {
+    const { wrapper, state } = await workspace('', { realWriterChooser: true });
+    try {
+      state.beginCreateNote();
+      await state.onDocumentationQueueSelect({ clinicalSessionId: 214, officeEventId: 40, agencyId: 7, clientId: 2104,
+        clientName: 'Synthetic client', providerUserId: 501, serviceCode: 'H0004', dateOfService: '2026-11-15', noteStatus: 'none' });
+      await flushPromises();
+      expect(state.sessionClinicalSessionId).toBe(214);
+      expect(state.sessionOfficeEventId).toBe(40);
+      expect(state.selectedAidId).toBe('h0004_note');
+      expect(state.needsActualProgressSession).toBe(false);
+      expect(wrapper.findComponent({ name: 'NarrivaModeChooser' }).exists()).toBe(true);
+      const writers = wrapper.find('.narriva-modes__options');
+      expect(writers.findAll('button')).toHaveLength(3);
+      expect(writers.text()).toContain('Manual writer');
+      expect(writers.text()).toContain('Narriva');
+      expect(writers.text()).toContain('Smart Notes');
+      expect(writers.findAll('button').every(button => button.attributes('disabled') === undefined)).toBe(true);
+      expect(wrapper.findComponent({ name: 'TherapyNotesQuickGenerator' }).exists()).toBe(false);
+      expect(wrapper.find('.na-start-generator').exists()).toBe(false);
+      expect(api.post.mock.calls.some(([url]) => url === '/clinical-data/sessions/bootstrap')).toBe(false);
+      expect(api.post).toHaveBeenCalledWith('/clinical-notes/drafts', expect.objectContaining({ clinicalSessionId: 214, officeEventId: 40, serviceCode: 'H0004' }), expect.any(Object));
+    } finally { wrapper.unmount(); }
+  });
+
+  it('resolves a profile session URL with appointment backing into the actual editor and saved source timezone', async () => {
+    const row = { clinicalSessionId: 214, appointmentId: 132, agencyId: 7, clientId: 2104, clientName: 'Synthetic client', providerUserId: 501,
+      serviceCode: 'H0004', dateOfService: '2026-11-16', noteStatus: 'none', sourceTimezone: 'Asia/Tokyo',
+      scheduledStartAt: '2026-11-15 23:30:00', scheduledEndAt: '2026-11-16 00:30:00' };
+    vi.mocked(api.get).mockImplementation(async url => ({ data: url === '/clinical-data/documentation-queue' ? { items: [row] }
+      : url === '/clinical-notes/context' ? { derivedTier: 'intern_plus', eligibleServiceCodes: ['H0004'] } : {} }));
+    const { wrapper, state } = await workspace('', { preserveSelection: true, realWriterChooser: true,
+      query: { agencyId: '7', clientId: '2104', clinicalSessionId: '214', appointmentId: '132', serviceCode: 'H0004', launchIntent: 'progress_note' } });
+    try {
+      await flushPromises();
+      expect(state.selectedAidId).toBe('h0004_note');
+      expect(api.get).toHaveBeenCalledWith('/clinical-data/documentation-queue', expect.objectContaining({ params: expect.objectContaining({ clinicalSessionId: 214, clientId: 2104, actualSessionsOnly: 1, providerUserId: 501 }) }));
+      expect(state.sessionClinicalSessionId).toBe(214);
+      expect(state.sessionAppointmentId).toBe(132);
+      expect(state.sessionOfficeEventId).toBeNull();
+      expect(state.hasActualSessionContext).toBe(true);
+      expect(state.sessionSourceTimezone).toBe('Asia/Tokyo');
+      expect(state.dateOfService).toBe('2026-11-16');
+      expect(state.sessionStartTimeLocal).toBe('08:30');
+      expect(state.sessionEndTimeLocal).toBe('09:30');
+      expect(wrapper.find('.narriva-modes__options').findAll('button')).toHaveLength(3);
+      expect(wrapper.findComponent({ name: 'NoteAidStartPage' }).exists()).toBe(false);
+    } finally { wrapper.unmount(); }
+  });
+
+  it('replaces the previous URL session before creating a draft for a newly selected actual session', async () => {
+    const { wrapper, state, router } = await workspace('h0004_note', { query: { agencyId: '7', clientId: '100', clinicalSessionId: '100', officeEventId: '1000', serviceCode: '90837' } });
+    try {
+      await state.beginCreateNote();
+      expect(router.currentRoute.value.query.clinicalSessionId).toBeUndefined();
+      expect(router.currentRoute.value.query.clientId).toBeUndefined();
+      vi.mocked(api.post).mockClear();
+      await state.onDocumentationQueueSelect({ clinicalSessionId: 214, appointmentId: 132, agencyId: 7, clientId: 2104,
+        providerUserId: 501, clientName: 'New synthetic client', serviceCode: 'H0004', dateOfService: '2026-11-15', noteStatus: 'none', sourceTimezone: 'America/Denver' });
+      await flushPromises();
+      expect(state.bookingContext).toMatchObject({ clinicalSessionId: 214, appointmentId: 132, officeEventId: null, clientId: 2104, serviceCode: 'H0004' });
+      expect(api.post).toHaveBeenCalledWith('/clinical-notes/drafts', expect.objectContaining({ clinicalSessionId: 214, officeEventId: null, clientId: 2104, serviceCode: 'H0004' }), expect.any(Object));
+      expect(api.post.mock.calls.some(([url, body]) => url === '/clinical-notes/drafts' && Number(body.clinicalSessionId) === 100)).toBe(false);
+    } finally { wrapper.unmount(); }
+  });
+
+  it('keeps legacy synthetic progress text visible but blocks manual save, generation, and signing until its actual appointment is linked', async () => {
+    const { wrapper, state } = await workspace();
+    try {
+      await state.loadDraftIntoWorkspace({ id: 43, agency_id: 7, client_id: 22, clinical_session_id: 10, service_code: '90834', input_text: 'Original preserved clinical facts.',
+        output_json: { sections: { Subjective: 'Original clinician-authored section.' }, meta: { manualSections: true, toolId: 'clinical_psychotherapy_note' } } });
+      await flushPromises();
+      expect(state.needsActualProgressSession).toBe(true);
+      expect(state.canConfirmAndSign).toBe(false);
+      expect(wrapper.findComponent({ name: 'DraftAppointmentRepair' }).exists()).toBe(true);
+      expect(wrapper.find('.na-session-picker').exists()).toBe(false);
+      expect(wrapper.text()).toContain('This saved progress draft has no verified actual session');
+      expect(state.inputText).toBe('Original preserved clinical facts.');
+      vi.mocked(api.patch).mockClear(); vi.mocked(api.post).mockClear();
+      state.inputText = 'Unsaved reviewed clinical correction.';
+      state.sectionOverrides.Subjective = 'Reviewed clinician-authored section.';
+      await state.autosave(); await state.saveDraftNow(); await state.generateNote(); await state.approveNoteOutput();
+      expect(api.patch).not.toHaveBeenCalled();
+      expect(api.post).not.toHaveBeenCalled();
+      await expect(state.prepareDraftAppointmentRepair()).resolves.toBeUndefined();
+      expect(api.patch).not.toHaveBeenCalled();
+      await state.onDraftAppointmentRepaired({ id: 43, agency_id: 7, client_id: 22, clinical_session_id: 214, office_event_id: 40, service_code: '90834' });
+      state.onDraftAppointmentContext({ draftId: 43, clinicalSessionId: 214, appointmentId: 132, officeEventId: 40, sourceTimezone: 'America/Denver' });
+      await nextTick();
+      expect(state.needsActualProgressSession).toBe(false);
+      expect(state.inputText).toBe('Unsaved reviewed clinical correction.');
+      await state.autosave();
+      expect(api.patch).toHaveBeenCalledWith('/clinical-notes/drafts/43', expect.objectContaining({ inputText: 'Unsaved reviewed clinical correction.', outputJson: expect.objectContaining({ sections: expect.objectContaining({ Subjective: 'Reviewed clinician-authored section.' }) }) }), expect.any(Object));
+    } finally { wrapper.unmount(); }
+  });
+
+  it('does not treat a numeric session ID as real backing and adopts the owned session’s verified appointment source', async () => {
+    const { wrapper, state } = await workspace();
+    try {
+      state.sessionClinicalSessionId = 214;
+      await nextTick();
+      expect(state.hasActualSessionContext).toBe(false);
+      expect(state.needsActualProgressSession).toBe(true);
+      vi.mocked(api.get).mockImplementation(async url => ({ data: url === '/narriva/sessions/214/service'
+        ? { session: { id: 214, serviceCode: '90834', appointmentId: 132, officeEventId: null, billingEncounterId: null, sourceTimezone: 'America/Denver' } } : {} }));
+      await state.loadNarrivaEncounterService();
+      expect(state.sessionAppointmentId).toBe(132);
+      expect(state.hasActualSessionContext).toBe(true);
+      expect(state.needsActualProgressSession).toBe(false);
+    } finally { wrapper.unmount(); }
+  });
+
   it('edits projected time with a dropdown and synchronizes only that goal’s objective deadlines', async () => {
     const { wrapper, state } = await workspace('90791_intake_plan');
     state.initials = 'TEST';
@@ -431,7 +561,7 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     wrapper.unmount();
   });
 
-  it.each(['tpt_note', 'h2014_individual', 'psychotherapy'])('generates an unlinked %s note without requiring a chart treatment plan', async (aid) => {
+  it.each(['tpt_note', 'h2014_individual', 'psychotherapy'])('requires an actual session before starting a new %s progress note', async (aid) => {
     const { wrapper, state } = await workspace(aid);
     state.noteWriterMode = 'narriva';
     await nextTick();
@@ -442,20 +572,15 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     expect(state.isProgressAid).toBe(true);
     expect(state.effectiveClientId).toBeNull();
     expect(state.planOnFile).toBe(false);
-    expect(state.canContinueToWriteStep).toBe(true);
-    expect(state.generateDisabled).toBe(false);
-    expect(state.generateBlockedReason).toBe('');
-    vi.mocked(api.post).mockImplementation(async (url) => ({ data: url === '/clinical-notes/generate' ? { outputJson: { sections: { Subjective: 'Synthetic note.' } } } : {} }));
+    expect(state.canContinueToWriteStep).toBe(false);
+    expect(state.generateDisabled).toBe(true);
+    expect(state.generateBlockedReason).toContain('Choose an actual session');
+    expect(wrapper.findComponent({ name: 'NoteAidDocumentationQueue' }).props('sessionOnly')).toBe(true);
+    expect(wrapper.find('.na-client-attach-step').exists()).toBe(false);
+    vi.mocked(api.post).mockClear();
     await state.generateNote();
-    const request = vi.mocked(api.post).mock.calls.find(([url]) => url === '/clinical-notes/generate');
-    expect(request).toBeTruthy();
-    expect(request[1].get('clientId')).toBeNull();
-    expect(request[1].get('inputText')).toContain('emotional regulation');
-    expect(state.outputObj.sections.Subjective).toBe('Synthetic note.');
-    expect(state.narrivaComplianceRequired).toBe(false);
-    expect(vi.mocked(api.post).mock.calls.some(([url]) => url === '/narriva/reviews')).toBe(false);
-    expect(wrapper.findComponent({ name: 'NarrivaCompliancePanel' }).exists()).toBe(false);
-    expect(wrapper.text()).toContain('Narriva Compliance does not run on unlinked notes.');
+    await state.autosave();
+    expect(vi.mocked(api.post).mock.calls.some(([url]) => url === '/clinical-notes/generate' || url === '/clinical-notes/drafts' || url === '/clinical-data/sessions/bootstrap')).toBe(false);
     wrapper.unmount();
   });
 
@@ -532,6 +657,7 @@ describe('ClinicalNoteGeneratorView smoke', () => {
 
   it('still blocks linked progress notes with a missing or expired treatment plan', async () => {
     const { wrapper, state } = await workspace('tpt_note');
+    state.sessionClinicalSessionId = 90; state.sessionAppointmentId = 190;
     state.noteWriterMode = 'narriva';
     await nextTick();
     state.selectedClientId = 202;
@@ -669,12 +795,12 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     const { wrapper, state } = await workspace();
     try {
       expect(state.resolveNoteTypeSelection('90834')).toBe('90834');
-      await state.loadDraftIntoWorkspace({ id: 294, agency_id: 7, service_code: '90834', input_text: 'Taylor source is retained.' }, {
+      await state.loadDraftIntoWorkspace({ id: 294, agency_id: 7, clinical_session_id: 294, office_event_id: 1294, service_code: '90834', input_text: 'Taylor source is retained.' }, {
         preferredServiceCode: '90834', preferredScheduledStart: '2026-11-02T15:15:00Z', preferredScheduledEnd: '2026-11-02T16:00:00Z'
       });
       expect(state.actualServiceCode).toBe('90834');
       expect(state.sessionDurationMinutes).toBe(45);
-      await state.loadDraftIntoWorkspace({ id: 295, agency_id: 7, service_code: '90834', input_text: 'Second authored source.', output_json: {
+      await state.loadDraftIntoWorkspace({ id: 295, agency_id: 7, clinical_session_id: 295, office_event_id: 1295, service_code: '90834', input_text: 'Second authored source.', output_json: {
         sections: { Subjective: 'Authored narrative stays intact.' }, meta: { toolId: 'clinical_psychotherapy_note', sessionContext: {
           serviceCode: '90834', durationMinutes: 52, startTimeLocal: '12:00', endTimeLocal: '12:52'
         } }
@@ -772,7 +898,7 @@ describe('ClinicalNoteGeneratorView smoke', () => {
   it('asks before crossing a CPT band; No restores timing and Yes persists the chosen code', async () => {
     const { wrapper, state } = await workspace();
     try {
-      await state.loadDraftIntoWorkspace({ id: 295, agency_id: 7, service_code: '90837', input_text: 'Preserve source.', output_json: { meta: { sessionContext: { serviceCode: '90837', durationMinutes: 60, startTimeLocal: '12:00', endTimeLocal: '13:00' } } } });
+      await state.loadDraftIntoWorkspace({ id: 295, agency_id: 7, clinical_session_id: 295, office_event_id: 1295, service_code: '90837', input_text: 'Preserve source.', output_json: { meta: { sessionContext: { serviceCode: '90837', durationMinutes: 60, startTimeLocal: '12:00', endTimeLocal: '13:00' } } } });
       state.sessionDurationMinutes = 55;
       await nextTick();
       expect(state.pendingDurationChange).toBeNull();
@@ -804,7 +930,7 @@ describe('ClinicalNoteGeneratorView smoke', () => {
   it('requires explicit reconciliation of a retained 90837/45-minute draft without inventing a prior valid duration', async () => {
     const {wrapper,state}=await workspace();
     try {
-      await state.loadDraftIntoWorkspace({id:294,agency_id:7,service_code:'90837',clinical_session_id:170,input_text:'Keep this retained source.'},{preferredServiceCode:'90834',preferredScheduledStart:'2026-11-02T15:15:00Z',preferredScheduledEnd:'2026-11-02T16:00:00Z'});
+      await state.loadDraftIntoWorkspace({id:294,agency_id:7,service_code:'90837',clinical_session_id:170,office_event_id:1170,input_text:'Keep this retained source.'},{preferredServiceCode:'90834',preferredScheduledStart:'2026-11-02T15:15:00Z',preferredScheduledEnd:'2026-11-02T16:00:00Z'});
       await nextTick();
       expect(state.actualServiceCode).toBe('90837');expect(state.sessionDurationMinutes).toBe(45);
       expect(state.pendingDurationChange).toMatchObject({previousMinutes:null,proposedCode:'90834'});expect(state.generateDisabled).toBe(true);
@@ -814,7 +940,7 @@ describe('ClinicalNoteGeneratorView smoke', () => {
       expect(wrapper.find('[role="alert"]').text()).toContain('Correct the duration');
       await state.approveNoteOutput();expect(state.approvalError).toContain('Review the duration');
       // Reopen and explicitly accept the matching code. Authored text and session link survive.
-      await state.loadDraftIntoWorkspace({id:294,agency_id:7,service_code:'90837',clinical_session_id:170,input_text:'Keep this retained source.'},{preferredScheduledStart:'2026-11-02T15:15:00Z',preferredScheduledEnd:'2026-11-02T16:00:00Z'});
+      await state.loadDraftIntoWorkspace({id:294,agency_id:7,service_code:'90837',clinical_session_id:170,office_event_id:1170,input_text:'Keep this retained source.'},{preferredScheduledStart:'2026-11-02T15:15:00Z',preferredScheduledEnd:'2026-11-02T16:00:00Z'});
       state.decideDurationCodeChange(true);await nextTick();await state.autosave();
       expect(api.patch).toHaveBeenCalledWith('/clinical-notes/drafts/294',expect.objectContaining({serviceCode:'90834',inputText:'Keep this retained source.',outputJson:expect.objectContaining({meta:expect.objectContaining({sessionContext:expect.objectContaining({durationMinutes:45,serviceCode:'90834'})})})}),expect.anything());
       expect(state.sessionClinicalSessionId).toBe(170);
@@ -870,7 +996,7 @@ describe('ClinicalNoteGeneratorView smoke', () => {
   it('marks only edited saved progress content as attendance, not a loaded draft or an unchanged autosave', async () => {
     const { wrapper, state } = await workspace();
     try {
-      await state.loadDraftIntoWorkspace({ id: 42, agency_id: 7, clinical_session_id: 9, service_code: '90834', input_text: 'Saved source', output_json: { meta: { toolId: 'clinical_psychotherapy_note' } } });
+      await state.loadDraftIntoWorkspace({ id: 42, agency_id: 7, clinical_session_id: 9, office_event_id: 109, service_code: '90834', input_text: 'Saved source', output_json: { meta: { toolId: 'clinical_psychotherapy_note' } } });
       vi.mocked(api.patch).mockClear();
       await state.autosave();
       expect(api.patch).not.toHaveBeenCalled();
@@ -908,7 +1034,7 @@ describe('ClinicalNoteGeneratorView smoke', () => {
   it('saves authored text before appointment repair without sending relationship changes, and blocks repair on failed saving', async () => {
     const { wrapper, state } = await workspace();
     try {
-      await state.loadDraftIntoWorkspace({ id: 43, agency_id: 7, clinical_session_id: 10, service_code: '90834', input_text: 'Preserved source' });
+      await state.loadDraftIntoWorkspace({ id: 43, agency_id: 7, clinical_session_id: 10, office_event_id: 110, service_code: '90834', input_text: 'Preserved source' });
       api.patch.mockReset().mockResolvedValue({ data: {} });
       await expect(state.prepareDraftAppointmentRepair()).resolves.toBeUndefined();
       expect(api.patch).not.toHaveBeenCalled();
@@ -985,7 +1111,7 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     state.selectedClientId = 22;
     state.selectedClient = { id: 22, agency_id: 7 };
     await flushPromises();
-    state.sessionClinicalSessionId = 9;
+    state.sessionClinicalSessionId = 9; state.sessionAppointmentId = 109;
     state.outputObj = { sections: { Subjective: 'Client report.', Objective: 'Session observations.', Interventions: 'Skills practice', Plan: 'Terminate treatment.' }, meta: { manualSections: true } };
     await nextTick();
     state.noteTreatmentRecommendation = 'terminate';

@@ -42,7 +42,7 @@ vi.mock('../../models/clinical/ClinicalTreatmentObjectiveRating.model.js', () =>
 
 // Keep the real ClinicalNote model: the test must prove writes use the locked
 // encounter's transaction, rather than only checking controller mock arguments.
-import { createSessionNote } from '../clinicalData.controller.js';
+import { createSessionNote, bootstrapClinicalSession } from '../clinicalData.controller.js';
 import ClinicalNoteDraft from '../../models/ClinicalNoteDraft.model.js';
 
 const originalSession = { id: 20, agency_id: 2, client_id: 10, provider_user_id: 7,
@@ -81,12 +81,34 @@ beforeEach(() => {
 });
 
 describe('encounter-locked session note attachment', () => {
+  it('does not synthesize a note-only progress encounter from a client and date',async()=>{
+    const req=request();req.body={agencyId:2,clientId:10,noteOnly:true,noteType:'PROGRESS_NOTE',serviceCode:'90837',serviceDate:'2026-11-15'};
+    const next=vi.fn();await bootstrapClinicalSession(req,response(),next);
+    expect(next).toHaveBeenCalledWith(expect.objectContaining({status:409,code:'NOTE_SESSION_CONTEXT_REQUIRED'}));
+    expect(m.execute).not.toHaveBeenCalled();expect(m.begin).not.toHaveBeenCalled();
+  });
   it('rejects a saved Therapy Notes generator note before entering clinical signing', async () => {
     ClinicalNoteDraft.findByIdForUser.mockResolvedValue({ id: 55, agency_id: 2, output_json: '{"_enc":true,"_quickCopy":true}' });
     const { next } = await invoke();
     expect(next).toHaveBeenCalledWith(expect.objectContaining({ status: 409 }));
     expect(m.begin).not.toHaveBeenCalled();
     expect(m.ref).not.toHaveBeenCalled();
+  });
+  it('does not attach new manual progress content to a legacy synthetic encounter', async () => {
+    currentSession={...originalSession,office_event_id:null,appointment_id:null,billing_encounter_id:null};
+    m.session.mockResolvedValue({...currentSession});
+    const {next}=await invoke();
+    expect(next).toHaveBeenCalledWith(expect.objectContaining({status:409,code:'NOTE_SESSION_CONTEXT_REQUIRED'}));
+    expect(timeline).not.toContain('insert');expect(timeline).not.toContain('update');
+    expect(m.commit).not.toHaveBeenCalled();expect(m.rollback).toHaveBeenCalledOnce();
+  });
+  it('keeps the already-signed historical retry readable even when its old source was synthetic',async()=>{
+    currentSession={...originalSession,office_event_id:null,appointment_id:null,billing_encounter_id:null};
+    m.session.mockResolvedValue({...currentSession});
+    attachedDraft={id:100,clinical_session_id:20,agency_id:2,client_id:10,created_by_user_id:7,provider_signed_at:'2026-11-06',note_payload:'Signed original.'};
+    const {next,res}=await invoke();
+    expect(next).not.toHaveBeenCalled();expect(res.json).toHaveBeenCalledWith({ok:true,note:attachedDraft});
+    expect(timeline).not.toContain('insert');expect(timeline).not.toContain('update');
   });
   it('rejects a pending service change that appears after the initial session check', async () => {
     m.alerts.mockImplementation(async () => { currentSession.metadata_json = JSON.stringify({ serviceCodeChangePending: { targetCode: 'H2011' } }); });

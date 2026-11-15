@@ -5,7 +5,7 @@ import {draftAppointmentOptions,linkDraftAppointment} from '../clinicalDraftAppo
 const draft={id:293,user_id:1433,agency_id:450,client_id:2273,clinical_session_id:167,date_of_service:'2026-11-02',service_code:'90834',input_text:'Preserve source'};
 const target={id:166,agency_id:450,provider_user_id:1433,client_id:2273,appointment_id:104,service_code:'90834',source_timezone:'America/Denver',scheduled_start_at:'2026-11-02 17:15:00'};
 let deps;
-beforeEach(()=>{deps={appointments:{findById:vi.fn(async()=>({id:104,agencyId:450,providerUserId:1433,startAt:target.scheduled_start_at,serviceCode:'90834',status:'scheduled'})),listParticipants:vi.fn(async()=>[{clientId:2273}])},sessions:{findById:vi.fn(async()=>({id:167}))},clinicalDatabase:{execute:vi.fn(async sql=>[sql.startsWith('SELECT s.*')?[target]:[]])},database:{execute:vi.fn(async()=>[[]])},drafts:{updateForUser:vi.fn(async input=>({...draft,...input.patch}))}};});
+beforeEach(()=>{deps={appointments:{findById:vi.fn(async()=>({id:104,agencyId:450,providerUserId:1433,startAt:target.scheduled_start_at,serviceCode:'90834',status:'scheduled'})),listParticipants:vi.fn(async()=>[{clientId:2273}])},sessions:{findById:vi.fn(async id=>Number(id)===166?target:{id:167})},clinicalDatabase:{execute:vi.fn(async sql=>[sql.startsWith('SELECT s.*')?[target]:[]])},database:{execute:vi.fn(async()=>[[]])},drafts:{updateForUser:vi.fn(async input=>({...draft,...input.patch}))}};});
 it('offers only exact scope, code and local date matches and never links automatically',async()=>{
   deps.clinicalDatabase.execute.mockResolvedValueOnce([[target,{...target,id:170,client_id:999},{...target,id:171,service_code:'90837'},{...target,id:172,scheduled_start_at:'2026-11-03 17:15:00'}]]);
   expect((await draftAppointmentOptions(draft,deps)).options.map(r=>r.clinicalSessionId)).toEqual([166]);
@@ -54,4 +54,9 @@ it('rechecks the current appointment rather than relying on stale clinical conte
   deps.appointments.findById.mockResolvedValue({id:104,agencyId:450,providerUserId:1433,startAt:target.scheduled_start_at,serviceCode:'90834',status:'no_show'});
   await expect(linkDraftAppointment(draft,166,true,deps)).rejects.toThrow('appointment changed');
   expect(deps.drafts.updateForUser).not.toHaveBeenCalled();
+});
+it('refuses a target that became a synthetic note-only source after the choices loaded',async()=>{
+  deps.sessions.findById.mockImplementation(async id=>Number(id)===166?{...target,appointment_id:null,office_event_id:null,billing_encounter_id:null}:{id:167});
+  await expect(linkDraftAppointment(draft,166,true,deps)).rejects.toMatchObject({status:409,code:'NOTE_SESSION_CONTEXT_REQUIRED'});
+  expect(deps.drafts.updateForUser).not.toHaveBeenCalled();expect(draft.input_text).toBe('Preserve source');
 });

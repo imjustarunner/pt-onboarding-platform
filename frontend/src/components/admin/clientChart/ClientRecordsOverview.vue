@@ -7,7 +7,7 @@
       </div>
       <div class="rco-head-actions">
         <button type="button" class="cdp-btn-soft" @click="$emit('upload')">Upload</button>
-        <button v-if="!operationalOnly" type="button" class="cdp-btn-primary" @click="$emit('navigate', 'notes')">+ New note</button>
+        <button v-if="!operationalOnly" type="button" class="cdp-btn-primary" @click="$emit('navigate', 'notes')">Add contact / misc note</button>
         <button v-if="canProcessPaper" type="button" class="cdp-btn-soft" @click="$emit('client-actions', 'process')">Process paper packet</button>
         <details class="rco-more">
           <summary aria-label="More">⋯</summary>
@@ -184,13 +184,13 @@
             <h4>Clinical Note Workspace</h4>
             <span class="rco-badge rco-badge--ok">Connected</span>
           </div>
-          <p class="muted tiny">Write session notes or update treatment plans for this client.</p>
+          <p class="muted tiny">Choose a session from this client’s to-do list to document it, or update the treatment plan.</p>
           <ul class="rco-dots">
             <li>Client context + primary diagnosis</li>
-            <li>Intake → plan → progress note spine</li>
+            <li>Progress notes open from the actual session</li>
           </ul>
           <div class="rco-note-aid-actions">
-            <button type="button" class="cdp-btn-primary" @click="openNoteAid()">Open Note Workspace</button>
+            <button type="button" class="cdp-btn-primary" @click="$emit('navigate', 'notes')">Open client’s to-do list</button>
             <button type="button" class="cdp-btn-soft" @click="openNoteAid({ launchIntent: 'update_treatment_plan', noteAid: 'psychotherapy_plan' })">
               Update treatment plan
             </button>
@@ -273,7 +273,7 @@ import {isPaperPacketClient} from '../../../utils/paperPacketClient.js';
 import { operationalClientDocuments } from '../../../utils/operationalClientDocuments.js';
 import { enrollmentReceiptCards } from '../../../utils/enrollmentReceiptCards.js';
 import '../../../styles/client-hub.css';
-import { buildNoteAidQuery, treatmentPlanUpdaterQuery } from '../../../utils/noteAidLaunch.js';
+import { treatmentPlanUpdaterQuery } from '../../../utils/noteAidLaunch.js';
 
 const AUTH_KINDS = new Set([
   'smart_roi',
@@ -514,30 +514,7 @@ function claimBadge(enc) {
 function openNoteAid(extra = {}) {
   const orgSlug = String(route.params?.organizationSlug || '').trim();
   const path = orgSlug ? `/${orgSlug}/admin/note-aid` : '/admin/note-aid';
-  const isUpdater =
-    String(extra.launchIntent || '').includes('treatment_plan')
-    || String(extra.noteAid || '').includes('psychotherapy_plan');
-
-  let query;
-  if (isUpdater) {
-    query = treatmentPlanUpdaterQuery(props.clientId, extra);
-  } else {
-    const latestSession = (sessions.value || [])[0] || null;
-    const latestEncounter = (encounters.value || []).find((e) => Number(e?.clinical_session_id || 0) > 0)
-      || (encounters.value || [])[0]
-      || null;
-    query = buildNoteAidQuery({
-      clientId: props.clientId,
-      clinicalSessionId: latestSession?.id || latestEncounter?.clinical_session_id || undefined,
-      officeEventId: latestSession?.office_event_id || latestEncounter?.office_event_id || undefined,
-      dateOfService: latestEncounter?.service_date || latestSession?.scheduled_start_at || undefined,
-      serviceCode: latestEncounter?.service_code || latestEncounter?.cpt_code || undefined,
-      noteType: 'PROGRESS_NOTE',
-      templateVersion: 'v1',
-      launchIntent: 'progress_note',
-      ...extra
-    });
-  }
+  const query = treatmentPlanUpdaterQuery(props.clientId, extra);
   router.push({ path, query }).catch(() => {});
 }
 

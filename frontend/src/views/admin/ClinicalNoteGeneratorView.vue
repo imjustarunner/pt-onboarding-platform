@@ -104,7 +104,7 @@
         v-model:collapsed="libraryCollapsed"
         v-model:expanded="libraryExpanded"
         :type-label="draftNoteTypeLabel"
-        @new="startNewNote"
+        @new="beginCreateNote"
         @select="onLibrarySidebarSelect"
         @delete="onLibrarySidebarDelete"
       />
@@ -203,6 +203,21 @@
           @next-in-queue="openNextInQueue"
         />
 
+        <section v-else-if="showActualSessionPicker || (needsActualProgressSession && !draftId)" class="na-session-picker" aria-label="Choose an actual session">
+          <div class="na-aid-picker-head">
+            <button type="button" class="na-aid-picker-back" @click="cancelActualSessionPicker">← Back</button>
+            <strong>Start a note from an actual session</strong>
+          </div>
+          <p class="na-field-hint">Choose the session from the client’s to-do list. Its client, date, and service stay attached to the note.</p>
+          <p v-if="approvalError" class="na-delete-err" role="alert">{{ approvalError }}</p>
+          <NoteAidDocumentationQueue
+            :agency-id="noteAidAgencyId || currentAgencyId"
+            :client-id="selectedClientId"
+            :session-only="true"
+            @select="onDocumentationQueueSelect"
+          />
+        </section>
+
         <NoteAidLibraryPanel
           v-else-if="showAidPicker"
           :categories="libraryCategories"
@@ -279,6 +294,7 @@
         />
         <PriorIntakeNotice v-if="!signedNoteViewerId && ['90791', '90792', 'H0031'].includes(actualServiceCode)" :sessions="signedNoteSessions" :client-id="effectiveClientId" :clinical-session-id="sessionClinicalSessionId" />
         <DraftAppointmentRepair v-if="draftId && !signedNoteViewerId && !isClientChartAid && !isReviewOnlyAid" :draft-id="draftId" :before-link="prepareDraftAppointmentRepair" @linked="onDraftAppointmentRepaired" @context="onDraftAppointmentContext" />
+        <p v-if="draftId && needsActualProgressSession" class="na-context-strip na-context-strip--warn" role="alert">This saved progress draft has no verified actual session. Its text is preserved. Link its matching appointment above before saving, generating, or signing.</p>
         <SessionSupportingMaterials v-if="sessionClinicalSessionId && !signedNoteViewerId && !isClientChartAid && !isReviewOnlyAid" :key="sessionClinicalSessionId" :clinical-session-id="sessionClinicalSessionId" />
         <details v-if="sessionClinicalSessionId && Number(noteAidAgencyId || currentAgencyId) === 377" :open="noteBillingExpanded" @toggle="noteBillingExpanded = $event.target.open">
           <summary>Insurance &amp; claim progress</summary>
@@ -341,7 +357,7 @@
         </section>
 
         <div v-if="!needsClientAttachStep" class="na-write-after-attach">
-        <NarrivaModeChooser v-if="!signedNoteViewerId && !chartNoteReadOnly" v-model="noteWriterMode" :default-mode="narrivaDefaultMode" :allow-manual="canUseManualSkipAi" :allow-narriva="narrivaFeatures.writing !== false" :allow-smart="showCsNoteBuildPathway && narrivaFeatures.writing !== false" :saving="narrivaPreferenceSaving" :error="narrivaPreferenceError" @save-default="saveNarrivaDefault" />
+        <NarrivaModeChooser v-if="!signedNoteViewerId && !chartNoteReadOnly" :disabled="needsActualProgressSession" v-model="noteWriterMode" :default-mode="narrivaDefaultMode" :allow-manual="canUseManualSkipAi" :allow-narriva="narrivaFeatures.writing !== false" :allow-smart="showCsNoteBuildPathway && narrivaFeatures.writing !== false" :saving="narrivaPreferenceSaving" :error="narrivaPreferenceError" @save-default="saveNarrivaDefault" />
         <div class="na-aid-bar">
           <div class="na-aid-bar-copy">
             <span class="na-aid-kicker">{{ selectedCategoryLabel || 'Selected aid' }}</span>
@@ -356,7 +372,7 @@
               v-if="!chartNoteReadOnly"
               type="button"
               class="na-btn-outline"
-              :disabled="savingDraftManual"
+              :disabled="savingDraftManual || needsActualProgressSession"
               @click="saveDraftNow"
             >
               {{ savingDraftManual ? 'Saving…' : 'Save Draft' }}
@@ -408,7 +424,7 @@
             <button
               type="button"
               class="na-btn-outline"
-              :disabled="savingDraftManual"
+              :disabled="savingDraftManual || needsActualProgressSession"
               @click="saveDraftNow"
             >
               {{ savingDraftManual ? 'Saving…' : 'Save Draft' }}
@@ -1002,13 +1018,13 @@
           <small v-if="generateError" class="error">{{ generateError }}</small>
         </section>
 
-        <p v-if="!signedNoteViewerId && !isClientChartAid && !narrivaComplianceRequired && (inputText || displayPanels.length)" class="na-field-hint" role="status">Unlinked writing aid. You can generate, edit, save and copy this note. Narriva Compliance does not run on unlinked notes.</p>
+        <p v-if="!needsActualProgressSession && !signedNoteViewerId && !isClientChartAid && !narrivaComplianceRequired && (inputText || displayPanels.length)" class="na-field-hint" role="status">Unlinked writing aid. You can generate, edit, save and copy this note. Narriva Compliance does not run on unlinked notes.</p>
         <NarrivaCompliancePanel v-if="narrivaComplianceRequired && !signedNoteViewerId && !isClientChartAid && (draftId || inputText || narrivaReview || narrivaReviewBusy || narrivaReviewError || displayPanels.length)" :review="narrivaReview" :risk-assessment-required="narrivaRiskRequired" :busy="narrivaReviewBusy" :error="narrivaReviewError" @retry="runNarrivaChecks" @resolve="resolveNarrivaFinding" @action="onNarrivaFindingAction">
           <template #risk="{ required }"><div class="narriva-risk-choice"><strong>Include a risk assessment?</strong><span v-if="required">Required for this note</span><template v-else><label><input :checked="!narrivaRiskIncluded" type="radio" name="narriva-risk" @change="narrivaRiskIncluded = false" />No</label><label><input :checked="narrivaRiskIncluded" type="radio" name="narriva-risk" @change="narrivaRiskIncluded = true" />Yes</label></template><button v-if="required || narrivaRiskIncluded" type="button" class="na-link-btn" @click="openNarrivaRisk">Open risk assessment</button><label v-if="required || narrivaRiskIncluded" class="narriva-risk-complete"><input v-model="narrivaRiskCompleted" type="checkbox" />I completed and reviewed the documented risk assessment.</label></div></template>
         </NarrivaCompliancePanel>
         <section v-if="!signedNoteViewerId && !chartNoteReadOnly && !isClientChartAid && !displayPanels.length && (draftId || inputText)" class="na-sign-attest" aria-label="Signing status">
           <p role="status">Signing unavailable: create or restore the note text, review it, and complete the required checks and attestations. Your saved narrative remains a draft.</p>
-          <p v-if="runError">{{ runError }}</p>
+          <p v-if="approvalError">{{ approvalError }}</p>
           <p>Quick Sign is unavailable without a passing review of the current note.</p>
           <button type="button" class="na-btn-primary" disabled>Sign</button>
         </section>
@@ -1784,6 +1800,8 @@ const bookingContext = computed(() => {
   const officeEventId = Number(route.query?.officeEventId || route.query?.office_event_id || 0) || null;
   const clientId = Number(route.query?.clientId || route.query?.client_id || 0) || null;
   const clinicalSessionId = Number(route.query?.clinicalSessionId || route.query?.clinical_session_id || 0) || null;
+  const appointmentId = Number(route.query?.appointmentId || 0) || null;
+  const billingEncounterId = Number(route.query?.billingEncounterId || 0) || null;
   const noteType = String(route.query?.noteType || route.query?.note_type || 'PROGRESS_NOTE').trim() || 'PROGRESS_NOTE';
   const templateVersion = String(route.query?.templateVersion || route.query?.template_version || 'v1').trim() || 'v1';
   const serviceCode = String(route.query?.serviceCode || route.query?.service_code || '').trim().toUpperCase();
@@ -1791,6 +1809,11 @@ const bookingContext = computed(() => {
     officeEventId,
     clientId,
     clinicalSessionId,
+    appointmentId,
+    billingEncounterId,
+    sourceTimezone: String(route.query?.sourceTimezone || ''),
+    scheduledStart: String(route.query?.scheduledStart || ''),
+    scheduledEnd: String(route.query?.scheduledEnd || ''),
     noteType,
     templateVersion,
     serviceCode
@@ -2076,6 +2099,7 @@ const selectedClient = ref(null);
 const clientContextPanelRef = ref(null);
 const selectedQueueAgencyId = ref(null);
 const showProgressSessionPicker = ref(true);
+const showActualSessionPicker = ref(false);
 const progressEntryMode = ref('appointment'); // appointment | client | unlinked
 const showCreateClientModal = ref(false);
 const showClientSetupDrawer = ref(false);
@@ -2403,6 +2427,15 @@ const sessionScheduledStart = ref(null);
 const sessionScheduledEnd = ref(null);
 const sessionSourceTimezone = ref('');
 const sessionAppointmentId = ref(null);
+const sessionBillingEncounterId = ref(null);
+let saveAfterAppointmentRepair = false;
+function inheritActualSessionSource(context) {
+  if (Number(context?.clinicalSessionId || context?.id) !== Number(sessionClinicalSessionId.value)) return;
+  if (Object.hasOwn(context, 'appointmentId')) sessionAppointmentId.value = Number(context.appointmentId) || null;
+  if (Object.hasOwn(context, 'billingEncounterId')) sessionBillingEncounterId.value = Number(context.billingEncounterId) || null;
+  if (Object.hasOwn(context, 'officeEventId')) sessionOfficeEventId.value = Number(context.officeEventId) || null;
+  if (context.sourceTimezone) sessionSourceTimezone.value = context.sourceTimezone;
+}
 const sessionCodeSwitchBanner = ref('');
 const chartDiagnosticJustification = ref('');
 const chartMentalStatus = ref(defaultMentalStatusExam());
@@ -2626,6 +2659,14 @@ const agencyLookup = computed(() => {
   return map;
 });
 const isProgressAid = computed(() => aidKind(selectedAid.value) === 'progress');
+const hasActualSessionContext = computed(() => !!(
+  Number(sessionOfficeEventId.value || bookingContext.value?.officeEventId || 0)
+  || Number(sessionClinicalSessionId.value || bookingContext.value?.clinicalSessionId || 0)
+    && (Number(sessionAppointmentId.value || bookingContext.value?.appointmentId || 0)
+      || Number(sessionBillingEncounterId.value || bookingContext.value?.billingEncounterId || 0))
+));
+const needsActualProgressSession = computed(() => !signedNoteViewerId.value && !viewingChartNote.value && !chartNoteReadOnly.value
+  && (isProgressAid.value || aidKind(selectedAid.value) === 'crisis') && !hasActualSessionContext.value);
 // Chart treatment-plan requirements apply only when this note is linked to a client.
 const progressPlanBlocksWriting = computed(() => !!effectiveClientId.value && isProgressAid.value && !progressPlanIsCurrent.value);
 const usesFreeformCsPathway = computed(() => aidUsesFreeformCsPathway(selectedAid.value));
@@ -2669,6 +2710,7 @@ const csProposedInterventions = computed(() => {
 });
 
 const csGenerateDisabled = computed(() => {
+  if (needsActualProgressSession.value) return true;
   if(narrivaServicePending.value)return true;
   if (appointmentAlertBlocked.value) return true;
   if (generating.value || !canUseTool.value) return true;
@@ -2705,6 +2747,7 @@ const hasScheduledSessionContext = computed(() =>
 const appointmentAlertBlocked = ref(false);
 const noteWizardStep = ref(1);
 const canContinueToWriteStep = computed(() => {
+  if (needsActualProgressSession.value) return false;
   if (appointmentAlertBlocked.value) return false;
   const basics = !!(String(dateOfService.value || '').trim() && (effectiveClientId.value || String(initials.value || '').trim()));
   if (!basics) return false;
@@ -2714,6 +2757,7 @@ const canContinueToWriteStep = computed(() => {
 /** After choosing a note tool, require client or initials before writing. */
 const needsClientAttachStep = computed(() => {
   if (showAidPicker.value) return false;
+  if (draftId.value && needsActualProgressSession.value) return false;
   if (signedNoteViewerId.value || viewingChartNote.value) return false;
   if (isSessionlessAid.value) return false;
   if (!String(selectedAidId.value || '').trim() && !draftId.value) return false;
@@ -2889,6 +2933,7 @@ const showProgressPlanFields = computed(() => {
 });
 
 const canConfirmAndSign = computed(() => {
+  if (needsActualProgressSession.value) return false;
   if (applyingIntakeDiagnoses.value) return false;
   if (interactiveComplexityPromptOpen.value || addingInteractiveComplexity.value) return false;
   if (isTerminationAid.value) return !!terminationReason.value && !!terminationRecommendation.value.trim()
@@ -3067,9 +3112,11 @@ function syncRouteNoteClient(clientId, sessionContext = null) {
     delete nextQuery.client_id;
   }
   if (sessionContext) {
-    for (const key of ['clinicalSessionId', 'clinical_session_id', 'officeEventId', 'office_event_id', 'noteId', 'clinicalNoteId', 'clinical_note_id', 'draftId', 'draft_id']) delete nextQuery[key];
+    for (const key of ['clinicalSessionId', 'clinical_session_id', 'officeEventId', 'office_event_id', 'appointmentId', 'billingEncounterId', 'sourceTimezone', 'scheduledStart', 'scheduledEnd', 'noteId', 'clinicalNoteId', 'clinical_note_id', 'draftId', 'draft_id']) delete nextQuery[key];
     if (sessionContext.clinicalSessionId) nextQuery.clinicalSessionId = String(sessionContext.clinicalSessionId);
     if (sessionContext.officeEventId) nextQuery.officeEventId = String(sessionContext.officeEventId);
+    if (sessionContext.appointmentId) nextQuery.appointmentId = String(sessionContext.appointmentId);
+    if (sessionContext.billingEncounterId) nextQuery.billingEncounterId = String(sessionContext.billingEncounterId);
     if (sessionContext.draftId) nextQuery.draftId = String(sessionContext.draftId);
   }
   router.replace({ query: nextQuery }).catch(() => {});
@@ -3206,7 +3253,7 @@ async function runNarrivaChecks() {
   const result = await startNarrivaReview({ draftId:Number(draftId.value) });
   if (result?.riskAssessmentRequired) narrivaRiskIncluded.value = true;
 }
-async function loadNarrivaEncounterService(){const sessionId=Number(sessionClinicalSessionId.value),agencyId=Number(noteAidAgencyId.value || currentAgencyId.value),request=++narrivaServiceRequest;narrivaServiceSnapshot.value=null;narrivaPendingConfirmation.value=null;narrivaServiceError.value='';narrivaServiceReason.value='';if(!sessionId || !agencyId || signedNoteViewerId.value || isClientChartAid.value)return;narrivaServiceLoading.value=true;try{const {data}=await api.get(`/narriva/sessions/${sessionId}/service`,{params:{agencyId},skipGlobalLoading:true});if(request===narrivaServiceRequest && (data.session || data.serviceCode)){narrivaServiceSnapshot.value={...(data.session || {}),id:sessionId,pendingServiceChange:data.pendingServiceChange || data.session?.pendingServiceChange,serviceCode:data.serviceCode || data.session?.serviceCode || ''};inheritScheduledLocation(narrivaServiceSnapshot.value);narrivaPendingConfirmation.value=data.pendingConfirmation || data.session?.pendingConfirmation || null;if(narrivaPendingConfirmation.value){selectedServiceCode.value=narrivaPendingConfirmation.value.serviceCode;otherServiceCode.value='';narrivaServiceReason.value=narrivaPendingConfirmation.value.justification;}}}catch{if(request===narrivaServiceRequest)narrivaServiceError.value='The encounter service could not be verified. Reload its current service before changing it.';}finally{if(request===narrivaServiceRequest)narrivaServiceLoading.value=false;}}
+async function loadNarrivaEncounterService(){const sessionId=Number(sessionClinicalSessionId.value),agencyId=Number(noteAidAgencyId.value || currentAgencyId.value),request=++narrivaServiceRequest;narrivaServiceSnapshot.value=null;narrivaPendingConfirmation.value=null;narrivaServiceError.value='';narrivaServiceReason.value='';if(!sessionId || !agencyId || signedNoteViewerId.value || isClientChartAid.value)return;narrivaServiceLoading.value=true;try{const {data}=await api.get(`/narriva/sessions/${sessionId}/service`,{params:{agencyId},skipGlobalLoading:true});if(request===narrivaServiceRequest && (data.session || data.serviceCode)){narrivaServiceSnapshot.value={...(data.session || {}),id:sessionId,pendingServiceChange:data.pendingServiceChange || data.session?.pendingServiceChange,serviceCode:data.serviceCode || data.session?.serviceCode || ''};inheritScheduledLocation(narrivaServiceSnapshot.value);inheritActualSessionSource(narrivaServiceSnapshot.value);narrivaPendingConfirmation.value=data.pendingConfirmation || data.session?.pendingConfirmation || null;if(narrivaPendingConfirmation.value){selectedServiceCode.value=narrivaPendingConfirmation.value.serviceCode;otherServiceCode.value='';narrivaServiceReason.value=narrivaPendingConfirmation.value.justification;}}}catch{if(request===narrivaServiceRequest)narrivaServiceError.value='The encounter service could not be verified. Reload its current service before changing it.';}finally{if(request===narrivaServiceRequest)narrivaServiceLoading.value=false;}}
 async function verifyNarrivaEncounter(){try{await ensureClinicalSessionForApproval();await loadNarrivaEncounterService();}catch(e){narrivaServiceError.value=e.response?.data?.error?.message || 'The scheduled encounter could not be linked.';}}
 async function confirmNarrivaService(){if(!narrivaServicePending.value || narrivaServiceSaving.value || narrivaServiceReason.value.trim().length<5)return;narrivaServiceSaving.value=true;narrivaServiceError.value='';try{const {data}=await api.post(`/narriva/sessions/${sessionClinicalSessionId.value}/service`,{agencyId:Number(noteAidAgencyId.value || currentAgencyId.value),serviceCode:narrivaPendingConfirmation.value?.serviceCode || actualServiceCode.value,expectedOldServiceCode:narrivaPendingConfirmation.value?.expectedOldServiceCode || narrivaServiceSnapshot.value.serviceCode,confirmed:true,justification:narrivaPendingConfirmation.value?.justification || narrivaServiceReason.value.trim(),durationMinutes:Number(sessionDurationMinutes.value),modality:narrivaModality.value},{skipGlobalLoading:true});narrivaServiceSnapshot.value={...narrivaServiceSnapshot.value,...data.session,serviceCode:data.serviceCode || data.session?.serviceCode || actualServiceCode.value};selectedServiceCode.value=data.serviceCode || data.session?.serviceCode || actualServiceCode.value;narrivaPendingConfirmation.value=null;narrivaServiceSnapshot.value.pendingServiceChange=false;narrivaServiceReason.value='';approvalError.value='';invalidateNarrivaReview();await autosave();}catch(e){narrivaServiceError.value=e.response?.data?.error?.message || 'The encounter service was not changed. Your note and selection are preserved.';}finally{narrivaServiceSaving.value=false;}}
 async function loadNarrivaRecording(){
@@ -3964,7 +4011,7 @@ const hasOpenNote = computed(() => {
   );
 });
 
-const showStartPage = computed(() => !isEmbedded.value && !hasOpenNote.value && !showAidPicker.value);
+const showStartPage = computed(() => !isEmbedded.value && !hasOpenNote.value && !showAidPicker.value && !showActualSessionPicker.value);
 
 /** @deprecated use showAidPicker */
 const showLibraryPanel = computed(() => showAidPicker.value);
@@ -4058,6 +4105,13 @@ const sessionDurationHint = computed(() => {
   return `Default ${def} min${code ? ` for ${code}` : ''}. Start and end are optional when no appointment is linked.`;
 });
 
+function noteSessionInstant(value) {
+  if (!value) return null;
+  if (value instanceof Date) return Number.isNaN(+value) ? null : value.toISOString();
+  const raw = String(value).replace(' ', 'T');
+  return /(?:Z|[+-]\d\d:\d\d)$/.test(raw) ? raw : `${raw}Z`;
+}
+
 function isoToLocalTime(iso) {
   if (!iso) return '';
   try {
@@ -4100,9 +4154,23 @@ watch(hasOpenNote, (open) => {
   }
 });
 
-function beginCreateNote() {
+async function beginCreateNote() {
   startNewNote();
-  showAidPicker.value = true;
+  showAidPicker.value = false;
+  showActualSessionPicker.value = true;
+  const query = { ...route.query };
+  for (const key of ['clientId', 'client_id', 'clinicalSessionId', 'clinical_session_id', 'officeEventId', 'office_event_id', 'appointmentId', 'billingEncounterId', 'sourceTimezone', 'scheduledStart', 'scheduledEnd', 'workQueueId', 'draftId', 'draft_id', 'noteId', 'clinicalNoteId', 'clinical_note_id', 'serviceCode', 'service_code', 'dateOfService', 'launchIntent']) delete query[key];
+  await router.replace({ query }).catch(() => {});
+}
+
+function cancelActualSessionPicker() {
+  showActualSessionPicker.value = false;
+  if (needsActualProgressSession.value) {
+    selectedAidId.value = '';
+    selectedNoteCategory.value = '';
+    selectedServiceCode.value = '';
+    otherServiceCode.value = '';
+  }
 }
 
 function cancelAidPicker() {
@@ -4110,6 +4178,7 @@ function cancelAidPicker() {
 }
 
 async function closeNoteWorkspace() {
+  showActualSessionPicker.value = false;
   closeSupervisorReview();
   if (draftId.value && !chartNoteReadOnly.value) {
     try { await autosave(); } catch { /* ignore */ }
@@ -4277,6 +4346,7 @@ function onLibrarySelect({ aid, categoryId }) {
   }
   selectedAidId.value = aid?.id || '';
   showAidPicker.value = false;
+  showActualSessionPicker.value = (aidKind(aid) === 'progress' || aidKind(aid) === 'crisis') && !hasActualSessionContext.value && !draftId.value;
   noteWizardStep.value = 2;
   collapseSidebarsForNote();
   nextTick(() => applySessionTimingDefaults({ force: sessionDurationMinutes.value == null }));
@@ -4401,6 +4471,15 @@ const applyTherapyContextPrefill = () => {
 
 const applyBookingContextPrefill = () => {
   if (bookingPrefillApplied.value) return;
+  if (bookingContext.value?.clinicalSessionId || bookingContext.value?.officeEventId) {
+    sessionClinicalSessionId.value = bookingContext.value.clinicalSessionId;
+    sessionOfficeEventId.value = bookingContext.value.officeEventId;
+    sessionAppointmentId.value = bookingContext.value.appointmentId;
+    sessionBillingEncounterId.value = bookingContext.value.billingEncounterId;
+    if (bookingContext.value.sourceTimezone) sessionSourceTimezone.value = bookingContext.value.sourceTimezone;
+    if (bookingContext.value.scheduledStart) sessionScheduledStart.value = bookingContext.value.scheduledStart;
+    if (bookingContext.value.scheduledEnd) sessionScheduledEnd.value = bookingContext.value.scheduledEnd;
+  }
   const prefilledCode = String(bookingContext.value?.serviceCode || '').trim().toUpperCase();
   if (!prefilledCode) {
     bookingPrefillApplied.value = true;
@@ -4553,6 +4632,7 @@ const eligibleCodesLabel = computed(() => {
 });
 
 const generateDisabled = computed(() => {
+  if (needsActualProgressSession.value) return true;
   if(narrivaServicePending.value)return true;
   if (appointmentAlertBlocked.value) return true;
   if (selectedAid.value?.autoSelect && !actualServiceCode.value) return true;
@@ -4580,6 +4660,7 @@ const generateDisabled = computed(() => {
 });
 
 const generateBlockedReason = computed(() => {
+  if (needsActualProgressSession.value) return 'Choose an actual session from the client’s to-do list before writing a progress note.';
   if(narrivaServicePending.value)return 'Confirm the service-code change for the actual encounter before generating.';
   if (appointmentAlertBlocked.value) return 'Review the appointment alert above before continuing.';
   if (selectedAid.value?.autoSelect && !actualServiceCode.value) return 'Select the actual encounter service before generating. Narriva does not choose or change billed codes automatically.';
@@ -5306,6 +5387,7 @@ function draftPayloadFingerprint(payload) {
 }
 
 const autosave = async () => {
+  if (needsActualProgressSession.value) return;
   if(narrivaServicePending.value){approvalError.value='Confirm the encounter service-code change before saving.';return;}
   // The public demo never persists authored content, including interval autosaves.
   if (props.demoPresentation) return;
@@ -5399,6 +5481,7 @@ const autosave = async () => {
 };
 
 async function saveDraftNow() {
+  if (needsActualProgressSession.value) { approvalError.value = 'Choose an actual session from the client’s to-do list before starting a progress note.'; return; }
   if(narrivaServicePending.value){approvalError.value='Confirm the encounter service-code change before saving.';return;}
   if (savingDraftManual.value || isWorkspaceHydrating()) return;
   savingDraftManual.value = true;
@@ -5422,6 +5505,12 @@ async function prepareDraftAppointmentRepair(){
   const deadline=Date.now()+10000;
   while(autosaveBusy && Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,50));
   if(autosaveBusy)throw new Error('The source text is still saving. Wait for Draft saved and try again.');
+  if (needsActualProgressSession.value) {
+    // The relationship repair is permitted before authoring. Keep any local
+    // edits until the confirmed real session can accept the normal draft save.
+    saveAfterAppointmentRepair = true;
+    return;
+  }
   const saved = await autosave();
   if(!saved)throw new Error(approvalError.value || 'Save the draft before linking its appointment.');
 }
@@ -5434,11 +5523,17 @@ function onDraftAppointmentContext(context) {
   };
   sessionSourceTimezone.value = context.sourceTimezone || '';
   sessionAppointmentId.value = Number(context.appointmentId) || null;
+  sessionBillingEncounterId.value = Number(context.billingEncounterId) || null;
+  sessionOfficeEventId.value = Number(context.officeEventId) || sessionOfficeEventId.value || null;
   sessionScheduledStart.value = instant(context.startAt);
   sessionScheduledEnd.value = instant(context.endAt);
   if (!sessionLocationLabel.value && context.locationLabel) sessionLocationLabel.value = context.locationLabel;
   // Existing documented times and duration take precedence over calendar defaults.
   applySessionTimingDefaults();
+  if (saveAfterAppointmentRepair && hasActualSessionContext.value) {
+    saveAfterAppointmentRepair = false;
+    scheduleAutosave(200);
+  }
 }
 async function onDraftAppointmentRepaired(draft){
   sessionClinicalSessionId.value=Number(draft.clinical_session_id)||null;
@@ -5999,6 +6094,7 @@ const stopTranscription = () => {
 };
 
 const generateNote = async () => {
+  if (needsActualProgressSession.value) { generateError.value = 'Choose an actual session from the client’s to-do list before generating a progress note.'; return; }
   if(narrivaServicePending.value){generateError.value='Confirm the actual encounter service-code change before generating.';return;}
   if(narrivaFeatures.value.writing===false){generateError.value='Narriva writing is not enabled for this workspace. Your text is preserved.';return;}
   if (appointmentAlertBlocked.value) { generateError.value = 'Review the appointment alert above before continuing.'; return; }
@@ -6412,6 +6508,7 @@ const buildApprovedPayloadText = () => {
 };
 
 const ensureClinicalSessionForApproval = async () => {
+  if (needsActualProgressSession.value) throw new Error('Link the actual session before saving or signing this progress note. Your draft text is preserved.');
   const existingSessionId = Number(
     bookingContext.value?.clinicalSessionId || sessionClinicalSessionId.value || 0
   );
@@ -6426,6 +6523,10 @@ const ensureClinicalSessionForApproval = async () => {
   );
   if (!agencyId || !clientId) {
     throw new Error('Link a client before saving this note to the clinical record.');
+  }
+
+  if (!officeEventId && !isClientChartAid.value && (isProgressAid.value || aidKind(selectedAid.value) === 'crisis')) {
+    throw new Error('Choose the actual session from the client’s to-do list before saving a progress note to the clinical record.');
   }
 
   if (!officeEventId || isClientChartAid.value) {
@@ -6461,6 +6562,7 @@ const ensureClinicalSessionForApproval = async () => {
 };
 
 const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) => {
+  if (needsActualProgressSession.value) { approvalError.value = 'Link the actual session before signing this progress note. Your draft text is preserved.'; return; }
   if(narrivaServicePending.value){approvalError.value='Confirm the actual encounter service-code change before signing.';return;}
   if (pendingDurationChange.value || durationCodeMismatch.value) { approvalError.value = 'Review the duration and service code before signing.'; return; }
   if (silent) return;
@@ -7401,42 +7503,22 @@ const onMinimalClientCreated = async (client) => {
 
 const onDocumentationQueueSelect = async (row) => {
   if (!row) return;
-  showProgressSessionPicker.value = false;
-  progressEntryMode.value = 'appointment';
-  selectedQueueAgencyId.value = Number(row.agencyId || 0) || null;
-  dateOfService.value = row.dateOfService || dateOfService.value;
-  if (row.serviceCode) selectedServiceCode.value = String(row.serviceCode).toUpperCase();
-  if (row.clientInitials) initials.value = row.clientInitials;
-  selectedClientId.value = Number(row.clientId || 0) || null;
-  selectedClient.value = normalizeNoteAidClientRow(
-    {
-      id: row.clientId,
-      agency_id: row.agencyId,
-      agency_name: row.agencyName,
-      full_name: row.clientName,
-      initials: row.clientInitials
-    },
-    agencyLookup.value
-  );
-  // Keep URL/query in sync for approve-to-clinical-record
-  const nextQuery = {
-    ...route.query,
-    clientId: String(row.clientId),
-    clinicalSessionId: String(row.clinicalSessionId),
-    dateOfService: row.dateOfService || undefined,
-    serviceCode: row.serviceCode || undefined
+  if (!(Number(row.clinicalSessionId) > 0 && Number(row.appointmentId || row.officeEventId || row.billingEncounterId) > 0)) return;
+  if (row.providerUserId && Number(row.providerUserId) !== Number(authStore.user?.id)) return;
+  showActualSessionPicker.value = false;
+  const code = String(row.serviceCode || '').toUpperCase();
+  const item = {
+    ...row,
+    id: row.id || `documentation_session_${row.clinicalSessionId || row.officeEventId}`,
+    date: row.dateOfService || row.date,
+    scheduledStart: noteSessionInstant(row.scheduledStartAt || row.scheduledStart),
+    scheduledEnd: noteSessionInstant(row.scheduledEndAt || row.scheduledEnd),
+    sourceTimezone: row.sourceTimezone || '',
+    noteKind: row.noteKind || (['90791', '90792'].includes(code) ? 'intake' : 'progress'),
+    status: row.noteStatus === 'signed' ? DOC_STATUS.SIGNED : row.noteStatus === 'draft' ? DOC_STATUS.STARTED : 'not_started'
   };
-  delete nextQuery.practiceCategory;
-  if (row.officeEventId) nextQuery.officeEventId = String(row.officeEventId);
-  router.replace({ query: nextQuery }).catch(() => {});
-  resetClientClinicalContext();
-  seedScheduleAddonCodes(row.addonServiceCodes || row.addon_service_codes || []);
-  if (row.officeEventId) sessionOfficeEventId.value = Number(row.officeEventId) || null;
-  if (row.clinicalSessionId) sessionClinicalSessionId.value = Number(row.clinicalSessionId) || null;
-  await Promise.all([
-    loadClientTreatmentPlan(selectedClientId.value),
-    loadClientIntakeSummary(selectedClientId.value)
-  ]);
+  await syncWorkQueueRouteQuery(item);
+  await activateWorkQueueItem(item);
 };
 
 const continueUnlinkedProgress = () => {
@@ -8179,6 +8261,20 @@ async function onLibrarySidebarSelect(row) {
 async function activateWorkQueueItem(item) {
   closeSupervisorReview();
   if (!item) return;
+  showActualSessionPicker.value = false;
+  const incomingStatus = deriveWorkQueueDocStatus(item);
+  const isFinished = incomingStatus === DOC_STATUS.SIGNED || incomingStatus === DOC_STATUS.COMPLETED;
+  const isNewProgress = !item.draftId && !isFinished && !resolveSignedClinicalNoteId(item) && !props.demoPresentation
+    && (!item.noteKind || ['progress', 'crisis'].includes(item.noteKind))
+    && !['90791', '90792'].includes(String(item.serviceCode || '').toUpperCase());
+  if (isNewProgress && !(Number(item.clinicalSessionId) > 0 || Number(item.officeEventId) > 0)) {
+    startNewNote();
+    selectedQueueAgencyId.value = Number(item.agencyId || 0) || null;
+    selectedClientId.value = Number(item.clientId || 0) || null;
+    showActualSessionPicker.value = true;
+    approvalMessage.value = 'Choose the actual session from the client’s to-do list before starting this progress note.';
+    return;
+  }
   if (item.noteKind === 'h0002_screening' && item.clinicalSessionId) { activeWorkQueueItemId.value = item.id || null; activeScreeningReview.value = item; return; }
   collapseSidebarsForNote();
   showAidPicker.value = false;
@@ -8186,6 +8282,8 @@ async function activateWorkQueueItem(item) {
   try {
   cancelPendingAutosave();
   const seq = ++workQueueActivateSeq;
+  await syncWorkQueueRouteQuery(item);
+  if (seq !== workQueueActivateSeq) return;
   draftLoadSeq += 1;
   resetWorkspaceAudio();
   liveTranscript.value = '';
@@ -8215,8 +8313,6 @@ async function activateWorkQueueItem(item) {
   interactiveComplexityError.value = '';
   planFrequencyBaseline.value = '';
   clientHydrateSeq += 1;
-  const incomingStatus = deriveWorkQueueDocStatus(item);
-  const isFinished = incomingStatus === DOC_STATUS.SIGNED || incomingStatus === DOC_STATUS.COMPLETED;
   const preResolvedSignedNoteId =
     incomingStatus === DOC_STATUS.SIGNED ? resolveSignedClinicalNoteId(item) : null;
   if (preResolvedSignedNoteId) {
@@ -8254,13 +8350,14 @@ async function activateWorkQueueItem(item) {
   sessionParticipants.value = normalizeParticipantsLabel(item.participantsSummary || 'Client Only');
   sessionParticipantsDetail.value = item.participantsDetail || '';
   sessionPatientDob.value = item.clientDob ? String(item.clientDob).slice(0, 10) : '';
-  let scheduledStart = item.scheduledStart || null;
-  let scheduledEnd = item.scheduledEnd || null;
+  let scheduledStart = noteSessionInstant(item.scheduledStart);
+  let scheduledEnd = noteSessionInstant(item.scheduledEnd);
   if (!scheduledStart && item.timeLabel) {
     scheduledStart = scheduledStartFromQueueDateAndTime(dosIso, item.timeLabel);
   }
   sessionSourceTimezone.value = item.sourceTimezone || '';
   sessionAppointmentId.value = item.appointmentId || null;
+  sessionBillingEncounterId.value = item.billingEncounterId || null;
   sessionScheduledStart.value = scheduledStart;
   sessionScheduledEnd.value = scheduledEnd;
   sessionCodeSwitchBanner.value = '';
@@ -8393,7 +8490,9 @@ async function activateWorkQueueItem(item) {
     otherServiceCode.value = '';
     // H0031 from ToDo/consultation is additional assessment (progress), not initial intake.
     let hit = null;
-    if (code === 'H0031' && String(item.noteKind || '') !== 'intake') {
+    if (code === 'H0004') {
+      hit = findNoteAidById('h0004_note');
+    } else if (code === 'H0031' && String(item.noteKind || '') !== 'intake') {
       hit = findNoteAidById('h0031_additional')
         || findNoteAidByToolOrCode({ toolId: 'clinical_h0031_additional', serviceCode: 'H0031' });
     } else {
@@ -8525,6 +8624,7 @@ async function activateWorkQueueItem(item) {
 
 async function ensureWorkQueueDraft(item) {
   if (!item) return;
+  if (!item.draftId && !hasActualSessionContext.value && (isProgressAid.value || aidKind(selectedAid.value) === 'crisis')) return;
   const requestSeq = workQueueActivateSeq;
   if (item.draftId) {
     const linked = (recentDrafts.value || []).find((d) => String(d.id) === String(item.draftId));
@@ -8608,6 +8708,8 @@ function syncWorkQueueRouteQuery(item) {
   delete nextQuery.office_event_id;
   delete nextQuery.clinicalSessionId;
   delete nextQuery.clinical_session_id;
+  for (const key of ['appointmentId', 'billingEncounterId', 'sourceTimezone', 'scheduledStart', 'scheduledEnd', 'serviceCode', 'service_code', 'dateOfService']) delete nextQuery[key];
+  if (item?.agencyId) nextQuery.agencyId = String(item.agencyId);
   if (item?.clientId) {
     nextQuery.clientId = String(item.clientId);
     delete nextQuery.client_id;
@@ -8617,9 +8719,14 @@ function syncWorkQueueRouteQuery(item) {
   }
   if (item?.officeEventId) nextQuery.officeEventId = String(item.officeEventId);
   if (item?.clinicalSessionId) nextQuery.clinicalSessionId = String(item.clinicalSessionId);
+  if (item?.appointmentId) nextQuery.appointmentId = String(item.appointmentId);
+  if (item?.billingEncounterId) nextQuery.billingEncounterId = String(item.billingEncounterId);
+  if (item?.sourceTimezone) nextQuery.sourceTimezone = String(item.sourceTimezone);
+  if (item?.scheduledStart) nextQuery.scheduledStart = noteSessionInstant(item.scheduledStart);
+  if (item?.scheduledEnd) nextQuery.scheduledEnd = noteSessionInstant(item.scheduledEnd);
   if (item?.serviceCode) nextQuery.serviceCode = String(item.serviceCode);
   if (item?.date) nextQuery.dateOfService = String(item.date).slice(0, 10);
-  router.replace({ query: nextQuery }).catch(() => {});
+  return router.replace({ query: nextQuery }).catch(() => {});
 }
 
 async function resolveQueueClientByName(item) {
@@ -8773,6 +8880,14 @@ const persistSessionObjectiveRatings = async () => {
 
 const startNewNote = () => {
   closeSupervisorReview();
+  showActualSessionPicker.value = false;
+  sessionClinicalSessionId.value = null;
+  sessionOfficeEventId.value = null;
+  sessionAppointmentId.value = null;
+  sessionBillingEncounterId.value = null;
+  saveAfterAppointmentRepair = false;
+  sessionScheduledStart.value = null;
+  sessionScheduledEnd.value = null;
   pendingDurationChange.value = null;
   draftId.value = null;
   viewingChartNote.value = null;
@@ -8939,6 +9054,8 @@ const loadDraftIntoWorkspace = async (d, options = {}) => {
   const persistedSession = savedMeta.sessionContext || {};
   sessionSourceTimezone.value = persistedSession.sourceTimezone || '';
   sessionAppointmentId.value = null;
+  sessionBillingEncounterId.value = null;
+  saveAfterAppointmentRepair = false;
   sessionLocationLabel.value = '';
   if (Number(persistedSession.durationMinutes) > 0) sessionDurationMinutes.value = Number(persistedSession.durationMinutes);
   sessionStartTimeLocal.value = String(persistedSession.startTimeLocal || '');
@@ -9717,6 +9834,41 @@ watch([serviceCodeOptions, forceAutoSelect, canUseTool], () => {
   applyTherapyContextPrefill();
 });
 
+let sessionLaunchLookupSeq = 0;
+async function openActualSessionRoute() {
+  const clinicalSessionId = Number(route.query.clinicalSessionId || route.query.clinical_session_id || 0);
+  const officeEventId = Number(route.query.officeEventId || route.query.office_event_id || 0);
+  const clientId = Number(route.query.clientId || route.query.client_id || 0);
+  const agencyId = Number(route.query.agencyId || currentAgencyId.value || 0);
+  if (!clinicalSessionId && !officeEventId) return;
+  if (activeWorkQueueItemId.value && Number(sessionClinicalSessionId.value) === clinicalSessionId && hasActualSessionContext.value && hasOpenNote.value) return;
+  const run = ++sessionLaunchLookupSeq;
+  try {
+    const { data } = await api.get('/clinical-data/documentation-queue', {
+      params: { agencyId, ...(clientId ? { clientId } : {}), ...(clinicalSessionId ? { clinicalSessionId } : {}), providerUserId: Number(authStore.user?.id), actualSessionsOnly: 1, noteStatus: 'all', limit: 300 },
+      skipGlobalLoading: true
+    });
+    if (run !== sessionLaunchLookupSeq || clinicalSessionId !== Number(route.query.clinicalSessionId || route.query.clinical_session_id || 0)
+      || officeEventId !== Number(route.query.officeEventId || route.query.office_event_id || 0)) return;
+    const row = (data?.items || []).find(item => Number(item.clinicalSessionId) > 0
+      && Number(item.appointmentId || item.officeEventId || item.billingEncounterId) > 0
+      && (!clinicalSessionId || Number(item.clinicalSessionId) === clinicalSessionId)
+      && (!officeEventId || Number(item.officeEventId) === officeEventId)
+      && (!clientId || Number(item.clientId) === clientId));
+    if (!row || Number(row.providerUserId) !== Number(authStore.user?.id)) {
+      showActualSessionPicker.value = true;
+      approvalError.value = 'This session is not ready for you to document. Choose your assigned session or open it from the schedule to finish setup.';
+      return;
+    }
+    await onDocumentationQueueSelect(row);
+  } catch (error) {
+    if (run === sessionLaunchLookupSeq) {
+      showActualSessionPicker.value = true;
+      approvalError.value = error?.response?.data?.error?.message || 'The actual session could not be opened. Your existing notes are preserved.';
+    }
+  }
+}
+
 async function openWorkspaceRouteSelection() {
   if (!workspaceReady.value || !canUseTool.value) return;
   const qAgency = Number(route.query?.agencyId || route.query?.agency_id || 0) || null;
@@ -9764,6 +9916,8 @@ async function openWorkspaceRouteSelection() {
     }
     if (hit && String(draftId.value || '') !== qDraft) await loadDraftIntoWorkspace(hit);
     else if (!hit) approvalError.value = recentError.value || 'The requested note could not be loaded. Reopen it from its appointment or try again.';
+  } else if (bookingContext.value.clinicalSessionId || bookingContext.value.officeEventId) {
+    await openActualSessionRoute();
   }
 }
 
