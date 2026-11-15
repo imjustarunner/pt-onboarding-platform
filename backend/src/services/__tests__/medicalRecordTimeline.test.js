@@ -155,3 +155,13 @@ it('uses agency day at the UTC boundary and keeps date-only today distinct from 
   assert.equal(rows.find(r => r.id === 50).display_state, 'today');
   assert.equal(rows.find(r => r.id === 51).display_state, 'planned');
 });
+
+
+it('resolves a billing note reference to its actual signed status', () => {
+  const rows = mergeMedicalRecordSources({ now: new Date('2026-11-15T20:00:00Z'),
+    billing: [{ id: 1, client_id: 5, clinical_session_id: 2, clinical_note_id: 3, service_date: '2026-11-15', service_code: '90837' }],
+    sessions: [{ id: 2, client_id: 5, agency_id: 2, service_code: '90837', scheduled_start_at: '2026-11-15T17:00:00Z' }],
+    notes: [{ id: 3, client_id: 5, clinical_session_id: 2, provider_signed_at: '2026-11-15T19:00:00Z' }] });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].note_status, 'signed');
+});

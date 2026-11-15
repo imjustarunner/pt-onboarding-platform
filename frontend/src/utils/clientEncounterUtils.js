@@ -30,7 +30,7 @@ export function formatPlaceOfService(pos) {
 
 export function isUnsignedEncounter(row) {
   const status = String(row?.note_status || '').toLowerCase();
-  return !['planned', 'today', 'not_held'].includes(row?.display_state)
+  return !['planned', 'not_held'].includes(row?.display_state)
     && ['draft', 'unsigned', 'awaiting_signature'].includes(status);
 }
 
@@ -38,7 +38,7 @@ export function isUnsignedClinicalNote(note, sessions = [], now = new Date()) {
   if (note.provider_signed_at || note.review_only || /CONTACT|TERMINATION|MISSED_APPOINTMENT|NO_SHOW/i.test(note.note_type || '')) return false;
   const session = sessions.find(s => Number(s.id) === Number(note.clinical_session_id));
   if (session && /cancel|no_show|no-show|missed/i.test(session.encounter_status || '')) return false;
-  const start = session?.scheduled_start_at;
+  const start = session?.scheduled_end_at || session?.scheduled_start_at;
   const raw = start instanceof Date ? start.toISOString() : String(start || '').replace(' ', 'T');
   const instant = raw ? new Date(/[zZ]|[+-]\d{2}:?\d{2}$/.test(raw) ? raw : `${raw}Z`).getTime() : NaN;
   return !Number.isFinite(instant) || instant <= new Date(now).getTime();

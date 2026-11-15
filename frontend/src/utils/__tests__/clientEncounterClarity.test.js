@@ -6,6 +6,7 @@ it('separates future preparation, missing notes, and authored unsigned work', ()
   expect(isUnsignedEncounter({ note_status: null, display_state: 'past' })).toBe(false);
   expect(encounterNeedsNote({ note_status: null, display_state: 'past' })).toBe(true);
   expect(isUnsignedEncounter({ note_status: 'draft', display_state: 'past' })).toBe(true);
+  expect(isUnsignedEncounter({ note_status: 'draft', display_state: 'today' })).toBe(true);
   expect(isUnsignedEncounter({ note_status: 'signed', display_state: 'past' })).toBe(false);
   expect(encounterScheduleLabel({ source: 'appointment', display_state: 'past', billing_attached: false })).toContain('attendance not confirmed');
 });

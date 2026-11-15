@@ -351,7 +351,7 @@ export function mergeMedicalRecordSources({
     if (sid) {
       const existing = byKey.get(`cs:${sid}`);
       if (existing) {
-        if (existing.clinical_note_id) continue;
+        if (existing.clinical_note_id && ['signed', 'draft'].includes(existing.note_status)) continue;
         existing.clinical_note_id = nid;
         existing.note_status = noteStatus;
         existing.note_title = note.title || existing.note_title || null;
