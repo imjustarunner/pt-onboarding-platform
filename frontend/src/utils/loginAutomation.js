@@ -2,7 +2,7 @@ export const autoVerifyEmail = value => /^[^\s@]+@[^\s@]+\.(com|health)$/i.test(
 // Timers and attempt markers live only in this form instance; credentials are
 // never persisted. A failed automatic attempt is not retried until input changes.
 export function createLoginAutomation({read,verify,submit}) {
- let usernameTimer,passwordTimer,disposed=false,lastVerify='',lastSubmit='',passwordIntent=false;
+ let usernameTimer,passwordTimer,disposed=false,lastVerify='',lastSubmit='',passwordIntent=false,lastPassword='';
  async function attemptPassword(){
   const s=read();
   if(disposed||!passwordIntent||s.loading||s.verifying||s.needsOrgChoice||!s.showPassword||!s.password||s.username.trim().toLowerCase()!==String(s.verifiedUsername||'').toLowerCase())return;
@@ -21,5 +21,14 @@ export function createLoginAutomation({read,verify,submit}) {
   },650);
  }
  function passwordInserted(){passwordIntent=true;clearTimeout(passwordTimer);passwordTimer=setTimeout(attemptPassword,180);}
- return {usernameChanged,passwordInserted,submissionStarted(){clearTimeout(passwordTimer);passwordIntent=false;const s=read();lastSubmit=`${s.username}\0${s.password}`;},dispose(){disposed=true;clearTimeout(usernameTimer);clearTimeout(passwordTimer);lastSubmit='';lastVerify='';passwordIntent=false;}};
+ function passwordInput(event){
+  const value=String(event?.target?.value ?? read().password ?? '');
+  // Some password managers and browser fill() events use insertText instead of
+  // insertReplacementText. A whole inserted value differs from single-key typing.
+  const inserted=!event?.inputType || ['insertFromPaste','insertReplacementText'].includes(event.inputType)
+   || (event.inputType==='insertText' && (String(event.data||'').length>1 || value.length-lastPassword.length>1));
+  lastPassword=value;
+  if(inserted && value)passwordInserted();
+ }
+ return {usernameChanged,passwordInserted,passwordInput,readyChanged(){if(passwordIntent){clearTimeout(passwordTimer);passwordTimer=setTimeout(attemptPassword,180);}},submissionStarted(){clearTimeout(passwordTimer);passwordIntent=false;const s=read();lastSubmit=`${s.username}\0${s.password}`;},dispose(){disposed=true;clearTimeout(usernameTimer);clearTimeout(passwordTimer);lastSubmit='';lastVerify='';lastPassword='';passwordIntent=false;}};
 }

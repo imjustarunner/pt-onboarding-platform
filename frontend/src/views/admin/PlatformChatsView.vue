@@ -84,10 +84,14 @@ const canUseCommunicationsCenter = computed(() => {
   return r === 'admin' || r === 'support' || r === 'super_admin';
 });
 
-// Older notification and event links carry only a thread ID. A chat thread
-// belongs in Team chat; the email inbox cannot select it by conversation ID.
-const showWorkspace = computed(() => String(route.query?.view || '').toLowerCase() === 'workspace'
-  || /^[1-9]\d*$/.test(String(route.query?.threadId || '').replace(/^chat-/, '')));
+// Secure family conversations and team chats both have chat-thread IDs. Keep
+// older secure email links in the reader that resolves the client and subject.
+const secureDestination = computed(() => !!route.query?.secureClientId
+  || String(route.query?.secure || '') === '1'
+  || String(route.query?.channel || '').toLowerCase() === 'secure');
+const showWorkspace = computed(() => !secureDestination.value
+  && (String(route.query?.view || '').toLowerCase() === 'workspace'
+    || /^[1-9]\d*$/.test(String(route.query?.threadId || '').replace(/^chat-/, ''))));
 
 const agencyId = computed(() => {
   const q = route.query?.agencyId ? parseInt(String(route.query.agencyId), 10) : null;

@@ -36,6 +36,20 @@ beforeEach(async () => {
 });
 afterEach(() => wrapper?.unmount());
 describe('Messages hub thread interactions', () => {
+  it('selects a newly sent legacy secure subject instead of showing an empty reader', async () => {
+    state.selected={personKey:'user:1790@2',userId:1790,agencyId:2,displayName:'QA guardian',kinds:['guardian'],methods:[{id:'secure',available:true}]};
+    state.sendMethod='secure';state.emailComposeMode='new';state.timeline=[];
+    await nextTick();state.composeSubject='New QA subject';state.composeBody='Synthetic test content';
+    await flushPromises();state.newSecureReviewed=true;
+    state.secureFamilyAudience={canSend:true,prepareSend:vi.fn(async()=>true),payload:()=>({})};
+    api.post.mockResolvedValue({data:{threadRef:{threadId:379},chat:{id:239,created_at:'2026-11-15T06:00:00Z'}}});
+    api.get.mockImplementation(async path=>({data:path.endsWith('/timeline')?{items:[{id:'chat-239',channel:'secure',bodyPreview:'Synthetic test content',createdAt:'2026-11-15T06:00:00Z',meta:{messageId:239,threadId:379,legacyRootMessageId:239,subject:'New QA subject'}}]}:{}}));
+    await state.send();await flushPromises();
+    expect(state.sendError).toBe('');
+    expect(state.activeEmailThreadKey).toBe('legacy:379:239');
+    expect(state.visibleTimeline.map(message=>message.meta.messageId)).toContain(239);
+    expect(api.post.mock.calls.filter(([path])=>path==='/messages/hub/send')).toHaveLength(1);
+  });
   it('lets the ticket dialog own keyboard events while the email reader is full screen', () => {
     state.readerFullscreen = true; state.activeTicketId = 4;
     for (const key of ['Tab', 'Escape']) {

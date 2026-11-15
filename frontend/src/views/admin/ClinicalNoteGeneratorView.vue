@@ -7500,6 +7500,15 @@ watch(selectedClientId, () => {
 });
 
 const onPlanImportSaved = async (plan) => {
+  // Saving creates a new retained plan version. Reopening the original planId
+  // from the launch URL showed the old text even though the save succeeded.
+  const planLaunch = String(route.query?.noteAid || route.query?.note_aid || '') === 'psychotherapy_plan'
+    || String(route.query?.launchIntent || route.query?.launch_intent || '') === 'update_treatment_plan';
+  if (plan?.id && planLaunch) {
+    const query={...route.query,planId:String(plan.id)};
+    delete query.plan_id;
+    await router.replace({path:route.path,query});
+  }
   showPlanImportReview.value = false;
   planDraftEditorId.value = null;
   planDraftEditorMode.value = 'import';
@@ -7514,7 +7523,7 @@ const onPlanImportSaved = async (plan) => {
   if (!plan) {
     approvalMessage.value = 'Treatment plan draft discarded.';
   } else if (String(plan.status || '').toLowerCase() === 'draft') {
-    approvalMessage.value = 'Treatment plan draft saved.';
+    approvalMessage.value = `Treatment plan draft #${plan.id} saved. Reopen this saved version to continue editing.`;
   } else if (plan?.id) {
     approvalMessage.value = 'Treatment plan saved to chart.';
   } else {

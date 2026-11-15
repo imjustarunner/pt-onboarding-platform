@@ -1887,11 +1887,24 @@ async function selectSearchResult(r) {
   const view = activeTab.value === 'all' && canViewAll.value ? 'all' : r.view === 'all' ? 'all' : (r.view === 'mine' ? 'mine' : 'assigned');
   if(view==='all'&&!canViewAll.value){linkedTaskError.value='This task view is not available for your account.';return;}
   if(view==='all')teamMode.value='tasks';
+  // A selected suggestion is an explicit request for that task. Secondary list
+  // filters must not silently hide it; the detail endpoint rechecks access.
+  notesScope.value='all';
+  filters.value={...filters.value,urgency:'',due:'',taskType:'',departmentId:'',workTypeId:'',school:''};
   const status=r.status||r.task?.status;if(['pending','in_progress','completed'].includes(status))statusChip.value=status;
   activeTab.value = ['assigned', 'mine', 'all', 'watchlist'].includes(view) ? view : 'assigned';
+  const request=++linkedTaskRequest,actor=Number(authStore.user?.id),tenant=effectiveTenantId.value,taskId=Number(r.entity_id);
   await refresh();
-  const task = (tasksStore.tasks || []).find((t) => Number(t.id) === Number(r.entity_id)) || r.task;
-  if (task) openTask(task);
+  if(request!==linkedTaskRequest||actor!==Number(authStore.user?.id)||tenant!==effectiveTenantId.value)return;
+  linkedTaskError.value='';
+  try {
+    const {data}=await api.get(`/tasks/${taskId}`,{skipGlobalLoading:true});
+    if(request!==linkedTaskRequest||actor!==Number(authStore.user?.id)||tenant!==effectiveTenantId.value)return;
+    if(Number(data?.id)!==taskId)throw Error('The requested task could not be opened.');
+    openTask(data);
+  } catch(error) {
+    if(request===linkedTaskRequest&&actor===Number(authStore.user?.id)&&tenant===effectiveTenantId.value)linkedTaskError.value=error.response?.data?.error?.message||error.message||'Could not open this task.';
+  }
 }
 
 function openProjectWorkspace(projectId, tab) {

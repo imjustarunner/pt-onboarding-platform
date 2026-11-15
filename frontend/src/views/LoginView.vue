@@ -1974,7 +1974,8 @@ onUnmounted(()=>loginAuto.dispose());
 const onUsernameInput = () => {
   lastUsernameInputAt.value = Date.now();loginAuto.usernameChanged();
 };
-const onPasswordInput = event => {if(!event.inputType || ['insertFromPaste','insertReplacementText'].includes(event.inputType))loginAuto.passwordInserted();};
+const onPasswordInput = event => loginAuto.passwordInput(event);
+watch([lastVerifiedUsername, showPassword, loading, verifying, needsOrgChoice], () => loginAuto.readyChanged());
 
 const resetToUsernameStep = () => {
   const rememberedSlug = effectiveLoginSlug.value || rememberedGoogleLogin.value?.orgSlug;

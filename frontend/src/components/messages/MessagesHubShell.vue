@@ -5099,7 +5099,9 @@ async function executeSend({ deliveryChoice = null, sendToAllPortalGuardians = f
           : `Re: ${sentSubject}`;
       emailComposeMode.value = 'reply';
     } else if (sentMethod === 'secure') {
-      activeEmailThreadKey.value = data?.threadRef?.topicId ? `topic:${data.threadRef.topicId}` : null;
+      activeEmailThreadKey.value = data?.threadRef?.topicId ? `topic:${data.threadRef.topicId}`
+        : data?.chat?.id && data?.threadRef?.threadId
+          ? `legacy:${data.threadRef.threadId}:${data.chat.parent_message_id || data.chat.id}` : null;
       composeSubject.value = sentSubject;
     } else if (sentMethod === 'email') {
       activeEmailThreadKey.value = null;
@@ -5145,6 +5147,7 @@ async function executeSend({ deliveryChoice = null, sendToAllPortalGuardians = f
               threadId: data?.threadRef?.threadId || chatThreadId.value,
               topicId: data?.threadRef?.topicId || null,
               messageId: data?.chat?.id || null,
+              legacyRootMessageId: data?.chat?.parent_message_id || data?.chat?.id || null,
               subject: sentSubject || null
             }
           }
@@ -5187,6 +5190,11 @@ async function executeSend({ deliveryChoice = null, sendToAllPortalGuardians = f
     }
     if (sentMethod === 'sms') smsConversationChoiceExplicit.value = false;
     await loadTimeline(selected.value.personKey);
+    if(sentMethod==='secure' && !activeEmailThreadKey.value && !isQueuedSend){
+      const sentId=Number(data?.chat?.id||0);
+      const sentThread=secureSubjectThreads.value.find(thread=>thread.messages.some(message=>sentId&&Number(message.meta?.messageId)===sentId));
+      if(sentThread)activeEmailThreadKey.value=sentThread.key;
+    }
     await loadPersonContext(selected.value.personKey);
     dropOpenedFromUnread({ personKey: selected.value.personKey, conversationId: data?.threadRef?.conversationId || null });
     await refreshUnreadAfterOpen();

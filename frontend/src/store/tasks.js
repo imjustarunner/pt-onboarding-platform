@@ -21,8 +21,10 @@ export const useTasksStore = defineStore('tasks', () => {
   const loading = ref(false);
   const error = ref('');
   const lastFilters = ref({});
+  let tasksRequest = 0, countsRequest = 0;
 
   const fetchTasks = async (filters = {}) => {
+    const request = ++tasksRequest;
     try {
       loading.value = true;
       error.value = '';
@@ -51,16 +53,19 @@ export const useTasksStore = defineStore('tasks', () => {
 
       const qs = params.toString();
       const response = await api.get(`/tasks${qs ? `?${qs}` : ''}`);
+      if (request !== tasksRequest) return;
       tasks.value = Array.isArray(response.data) ? response.data : [];
     } catch (err) {
+      if (request !== tasksRequest) return;
       error.value = err.response?.data?.error?.message || 'Failed to fetch tasks';
       console.error('Error fetching tasks:', err);
     } finally {
-      loading.value = false;
+      if (request === tasksRequest) loading.value = false;
     }
   };
 
   const fetchTaskCounts = async (agencyId = null, hiddenAgencyIds = [], extra = {}) => {
+    const request = ++countsRequest;
     try {
       const params = new URLSearchParams();
       if (agencyId) params.append('agencyId', String(agencyId));
@@ -71,6 +76,7 @@ export const useTasksStore = defineStore('tasks', () => {
       if (extra.projectId) params.append('projectId', String(extra.projectId));
       const qs = params.toString();
       const response = await api.get(`/tasks/counts${qs ? `?${qs}` : ''}`);
+      if (request !== countsRequest) return;
       taskCounts.value = { ...taskCounts.value, ...(response.data || {}) };
     } catch (err) {
       console.error('Error fetching task counts:', err);
