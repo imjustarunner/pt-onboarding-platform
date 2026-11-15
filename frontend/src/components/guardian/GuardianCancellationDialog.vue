@@ -18,7 +18,7 @@
         <label>{{ ft('Reason (required)') }}<select v-model="reasonChoice"><option value="">{{ ft('Choose a reason') }}</option><option v-for="reason in reasons" :key="reason" :value="reason">{{ ft(reason) }}</option><option value="other">{{ ft('Other') }}</option></select></label>
         <label v-if="reasonChoice==='other'">{{ ft('Your reason') }}<textarea v-model="otherReason" maxlength="500" rows="3" required /></label>
         <label>{{ ft('Personal note (optional)') }}<textarea v-model="personalNote" maxlength="1000" rows="3" /></label>
-        <p>Your care team and your own confirmation email will include this note. Other guardians receive the schedule update without your personal explanation.</p>
+        <p>Your {{ learning ? 'tutoring' : 'care' }} team and your own confirmation email will include this note. Other guardians receive the schedule update without your personal explanation.</p>
       </template>
       <template v-else-if="step==='review'">
         <h3>{{ review.endsService ? 'End this service and cancel its future appointments?' : 'Review your cancellation' }}</h3>
@@ -31,13 +31,14 @@
           <strong>{{ when(fee.startAt,fee.timeZone) }} · {{ money(fee.feeCents) }}</strong>
           <p>{{ fee.policyName }} · {{ fee.noticeHours }} hours’ notice.<template v-if="fee.cancelDeadlineAt"> Cancel by {{ when(fee.cancelDeadlineAt,fee.timeZone) }}.</template> {{ fee.isLate ? 'This is inside the late-cancellation window.' : 'This meets the required notice.' }}</p>
           <p v-if="fee.hasPackage">{{ fee.packageCourtesyApplies ? 'One courtesy late cancellation will be used. This package session will be returned; one fewer courtesy cancellation will remain.' : ['forfeit','late_forfeit'].includes(fee.packageAction) ? 'This package session will be used.' : fee.packageAction==='review' ? learning ? 'The tutoring office will review the package credit.' : 'The care team will review the package credit.' : 'This package session will be returned.' }}</p>
+          <p v-if="fee.hasPackage && fee.packageCourtesyRemaining!=null">Courtesy late cancellations remaining before this request: {{ fee.packageCourtesyRemaining }}.<template v-if="!fee.isLate"> This on-time cancellation does not use a courtesy.</template></p>
         </li></ul></details>
         <details><summary>{{ ft('Preview your confirmation') }}</summary><p v-if="review.count">{{ review.count }} future appointment{{ review.count===1?' has':'s have' }} been canceled.</p><p v-else>No future appointments remained to cancel.</p><p v-if="review.endsService">You have ended {{ review.serviceLabel }} with this provider. Other services are unchanged.</p><p>Reason: {{ reason }}</p><blockquote v-if="personalNote.trim()"><strong>A personal note</strong><br><em>{{ personalNote.trim() }}</em></blockquote></details>
         <p>One summary will be sent, rather than a separate email for every appointment.</p>
         <label class="cancel-confirm"><input v-model="confirmed" type="checkbox" /> I confirm this selection{{ review.endsService ? ' and that I want to end this service' : '' }}, and acknowledge the {{ money(review.totalFeeCents) }} total fee.</label>
       </template>
       <template v-else>
-        <h3>{{ cancellation?.status==='failed' ? 'Your request needs care-team follow-up' : 'Finishing your cancellation' }}</h3>
+        <h3>{{ cancellation?.status==='failed' ? learning ? 'Your request needs tutoring-team follow-up' : 'Your request needs care-team follow-up' : 'Finishing your cancellation' }}</h3>
         <p role="status" aria-live="polite">{{ cancellation?.completed || 0 }} of {{ cancellation?.count || review?.count || 0 }} appointments processed.</p>
         <p>Your request is saved and continues if you close this window. You do not need to cancel each appointment separately.</p>
       </template>
@@ -89,7 +90,7 @@ async function poll(){
   try{const{data}=await api.get(`/guardian-portal/clients/${props.clientId}/cancellations/${cancellation.value.id}`,{skipGlobalLoading:true});
     if(disposed)return;cancellation.value=data.cancellation;
     if(cancellation.value.status==='completed'){emit('completed',cancellation.value);return;}
-    if(cancellation.value.status==='failed'){error.value=cancellation.value.error||'Contact your care team to finish this request.';return;}
+    if(cancellation.value.status==='failed'){error.value=cancellation.value.error||`Contact your ${learning.value?'tutoring':'care'} team to finish this request.`;return;}
     timer=setTimeout(poll,2000);
   }catch{if(!disposed)error.value='Could not check progress. Your saved request continues; use Check status to retry.';}
   finally{busy.value=false;}

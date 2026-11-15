@@ -306,7 +306,19 @@ export const getBookingOptions = async (req, res, next) => {
         }
       }
     }
-    res.json(await schedulingResponseForUser(req.user, agencyId, { ok: true, ...options }));
+    const response=await schedulingResponseForUser(req.user, agencyId, { ok: true, ...options });
+    // A bookable customer quote is needed to schedule tutoring. It does not
+    // confer billing access or expose employee pay, claims, or account balances.
+    if(req.query.quote==='1' && Number(req.query.providerId)>0) {
+      for(const service of response.services||[]) {
+        const quoted=(options.services||[]).find(item=>item.id===service.id&&item.businessType==='tutoring');
+        if(!quoted?.quotes)continue;
+        service.quotes=Object.fromEntries(Object.entries(quoted.quotes).map(([format,quote])=>[format,quote?{
+          amountCents:quote.amountCents,rateCents:quote.rateCents,rateUnit:quote.rateUnit
+        }:null]));
+      }
+    }
+    res.json(response);
   } catch (e) {
     if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
     next(e);

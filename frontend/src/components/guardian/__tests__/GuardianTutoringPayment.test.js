@@ -3,6 +3,7 @@ import {ref} from 'vue';
 import {mount,flushPromises} from '@vue/test-utils';
 import Dashboard from '../GuardianTutoringDashboard.vue';
 import api from '../../../services/api.js';
+import * as los from '../../../services/tutoringLearningOs';
 import * as packages from '../../../services/unifiedPackages';
 import {loadStripe} from '@stripe/stripe-js/pure';
 vi.mock('../../../services/api.js',()=>({default:{get:vi.fn(),post:vi.fn()}}));
@@ -42,3 +43,5 @@ it('keeps an open checkout when a same-service portal-context refresh replaces i
  expect(w.find('.gtd-drawer').exists()).toBe(true);expect(w.find('.qa-payment').exists()).toBe(true);
  expect(packages.checkoutGuardianPackage).toHaveBeenCalledOnce();w.unmount();
 });
+
+it('keeps authorized booking/packages available without requesting progress that is explicitly unshared',async()=>{const w=mount(Dashboard,{props:{clientId:2271,progressAllowed:false},global:{provide:{portalCareContext:care},stubs:{GuardianClinicalBooking:true,TutorOfficeStatus:true,PackagePriceChoice:true}}});await flushPromises();expect(los.fetchGuardianTutoringDashboard).not.toHaveBeenCalled();expect(packages.listGuardianEntitlements).toHaveBeenCalled();expect(w.text()).toContain('Learning progress and materials are not shared');expect(w.find('.gtd-progress').exists()).toBe(false);expect(w.findComponent({name:'GuardianClinicalBooking'}).exists()).toBe(true);await w.setProps({progressAllowed:true});await flushPromises();expect(los.fetchGuardianTutoringDashboard).toHaveBeenCalled();w.unmount();});

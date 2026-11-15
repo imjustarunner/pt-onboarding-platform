@@ -32,3 +32,5 @@ it('hides empty opens and clinical-only to-dos in tutoring while preserving mean
  const w=mount(View,{props:{agencyId:453,clientId:2271,learningOnly:true}});await flushPromises();expect(w.text()).toContain('Tutoring draft');expect(w.text()).not.toContain('insurance authorization');expect(w.text()).not.toContain('Empty open');
  await w.setProps({learningOnly:false});await flushPromises();expect(w.text()).toContain('Clinical draft retained');expect(w.text()).toContain('insurance authorization');expect(w.text()).not.toContain('Empty open');w.unmount();
 });
+
+it('explains a restricted tutoring enrollment without suggesting a technical failure or clinical team',async()=>{api.get.mockRejectedValue({response:{status:403}});wrapper=mount(View,{props:{agencyId:453,clientId:2271,learningOnly:true}});await flushPromises();expect(wrapper.text()).toContain('Enrollment forms are not shared with this account');expect(wrapper.text()).toContain('tutoring team');expect(wrapper.text()).not.toContain('care team');expect(wrapper.text()).not.toContain('could not check');});

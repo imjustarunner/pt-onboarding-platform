@@ -510,7 +510,7 @@ function zonedWallTimeToUtcClient({ year, month, day, hour, minute, second = 0, 
 }
 
 /** UTC ISO → `YYYY-MM-DDTHH:mm` in the given zone (for datetime-local inputs). */
-export function isoToZonedDatetimeLocal(iso, timezone = SCHOOL_EVENT_FALLBACK_TIMEZONE) {
+export function isoToZonedDatetimeLocal(iso, timezone = SCHOOL_EVENT_FALLBACK_TIMEZONE, {includeSeconds=false}={}) {
   if (!iso) return '';
   const d = iso instanceof Date ? iso : new Date(iso);
   if (!Number.isFinite(d.getTime())) return '';
@@ -523,6 +523,7 @@ export function isoToZonedDatetimeLocal(iso, timezone = SCHOOL_EVENT_FALLBACK_TI
       day: '2-digit',
       hour: '2-digit',
       minute: '2-digit',
+      ...(includeSeconds ? {second:'2-digit'} : {}),
       hour12: false
     }).formatToParts(d);
     const map = {};
@@ -531,7 +532,7 @@ export function isoToZonedDatetimeLocal(iso, timezone = SCHOOL_EVENT_FALLBACK_TI
     }
     let hour = String(map.hour || '00');
     if (hour === '24') hour = '00';
-    return `${map.year}-${map.month}-${map.day}T${hour.padStart(2, '0')}:${String(map.minute || '00').padStart(2, '0')}`;
+    return `${map.year}-${map.month}-${map.day}T${hour.padStart(2, '0')}:${String(map.minute || '00').padStart(2, '0')}${includeSeconds?':'+String(map.second||'00').padStart(2,'0'):''}`;
   } catch {
     return '';
   }
@@ -540,7 +541,7 @@ export function isoToZonedDatetimeLocal(iso, timezone = SCHOOL_EVENT_FALLBACK_TI
 /** `YYYY-MM-DDTHH:mm` wall time in zone → UTC ISO. */
 export function zonedDatetimeLocalToIso(value, timezone = SCHOOL_EVENT_FALLBACK_TIMEZONE) {
   const raw = String(value || '').trim();
-  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/);
+  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?$/);
   if (!m) return null;
   const utc = zonedWallTimeToUtcClient({
     year: Number(m[1]),
@@ -551,7 +552,9 @@ export function zonedDatetimeLocalToIso(value, timezone = SCHOOL_EVENT_FALLBACK_
     second: Number(m[6] || 0),
     timeZone: timezone
   });
-  return Number.isFinite(utc.getTime()) ? utc.toISOString() : null;
+  if(!Number.isFinite(utc.getTime()))return null;
+  if(m[7])utc.setUTCMilliseconds(Number(m[7].padEnd(3,'0')));
+  return utc.toISOString();
 }
 
 /** Fallback when agency/office timezone is unknown. */

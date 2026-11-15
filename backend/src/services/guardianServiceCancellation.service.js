@@ -78,11 +78,11 @@ export function createGuardianServiceCancellationService(overrides={}) {
       if(!e.allowed)throw fail(e.blockReason||'The service policy does not allow self-cancellation. Contact your care team.',403);
       if(!Number.isSafeInteger(Number(e.recommendedFeeCents||0))||Number(e.recommendedFeeCents||0)<0)throw fail('The cancellation fee needs care-team review.',409);
       let packageCourtesyApplies=false,packageCourtesyRemaining=null;
-      if(a.packageEntitlementId && e.isLate && ['forfeit','late_forfeit'].includes(e.recommendedPackageAction)) {
+      if(a.packageEntitlementId) {
         const packageId=Number(a.packageEntitlementId);
         if(!packageAllowances.has(packageId)) {const pkg=await d.packageEntitlement(packageId);packageAllowances.set(packageId,Number(pkg?.freeMissesRemaining||0));}
         packageCourtesyRemaining=packageAllowances.get(packageId);
-        packageCourtesyApplies=packageCourtesyRemaining>0;
+        packageCourtesyApplies=!!e.isLate && ['forfeit','late_forfeit'].includes(e.recommendedPackageAction) && packageCourtesyRemaining>0;
         if(packageCourtesyApplies)packageAllowances.set(packageId,packageCourtesyRemaining-1);
       }
       candidates.push(a);

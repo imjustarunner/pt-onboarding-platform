@@ -12,8 +12,9 @@
     </header>
 
     <p v-if="error" class="gtd-error">{{ error }}</p>
+    <p v-if="!progressAllowed" class="gtd-access-notice" role="status">Learning progress and materials are not shared with this account. You can use the appointments and messaging available to you, or ask your tutoring team to review access.</p>
 
-    <section class="gtd-student-bar" :class="{embedded}">
+    <section v-if="progressAllowed" class="gtd-student-bar" :class="{embedded}">
       <div v-if="!embedded" class="gtd-avatar">{{ initials }}</div>
       <div v-if="!embedded" class="gtd-student-copy">
         <strong>{{ studentName }}</strong>
@@ -37,7 +38,7 @@
     </section>
 
     <GuardianClinicalBooking learning :client-id="Number(clientId)" :agency-id="careContext?.agencyId" :service-id="careContext?.serviceId" @booked="load" />
-    <TutorOfficeStatus :key="clientId" :client-id="clientId" />
+    <TutorOfficeStatus v-if="progressAllowed" :key="clientId" :client-id="clientId" />
     <div class="gtd-grid">
       <section class="gtd-card gtd-packages">
         <h3>Your packages</h3>
@@ -62,7 +63,7 @@
         <button type="button" class="gtd-btn" @click="openBuyDrawer">Buy a package</button>
       </section>
 
-      <section class="gtd-card gtd-progress">
+      <section v-if="progressAllowed" class="gtd-card gtd-progress">
         <h3>Progress overview</h3>
         <div v-if="(dashboard.skillBars || []).length" class="gtd-progress-ring" :style="{'--progress':`${Math.max(0,Math.min(100,Number(dashboard.overallProgress)||0))}%`}">
           <strong>{{ Math.round(Number(dashboard.overallProgress) || 0) }}%</strong>
@@ -84,7 +85,7 @@
         <p v-if="!(dashboard.skillBars || []).length" class="gtd-muted">Skill progress will appear after tutoring sessions are recorded.</p>
       </section>
 
-      <section class="gtd-card gtd-sessions">
+      <section v-if="progressAllowed" class="gtd-card gtd-sessions">
         <h3>Upcoming sessions</h3>
         <ul class="gtd-list">
           <li v-for="s in (dashboard.upcomingSessions || [])" :key="`${s.source}:${s.id}`">
@@ -101,7 +102,7 @@
         <p v-if="!(dashboard.upcomingSessions || []).length" class="gtd-muted">No upcoming sessions yet.</p>
       </section>
 
-      <section class="gtd-card gtd-assignments">
+      <section v-if="progressAllowed" class="gtd-card gtd-assignments">
         <h3>Assignments</h3>
         <ul class="gtd-list">
           <li v-for="a in openPractice" :key="a.id" class="gtd-assign">
@@ -130,7 +131,7 @@
         <p v-if="!openPractice.length" class="gtd-muted">No practice assignments yet. After tutoring sessions, home practice will appear here.</p>
       </section>
 
-      <section class="gtd-card gtd-summary">
+      <section v-if="progressAllowed" class="gtd-card gtd-summary">
         <h3>Recent session summary</h3>
         <div v-if="latestUpdate">
           <div class="gtd-muted">{{ formatWhen(latestUpdate.at) }} · {{ latestUpdate.subjectLabel }}</div>
@@ -211,6 +212,7 @@ import * as unifiedPackages from '@/services/unifiedPackages';
 defineEmits(['appointments']);
 const props = defineProps({
   embedded: {type:Boolean,default:false},
+  progressAllowed: {type:Boolean,default:true},
   clientId: { type: [Number, String], required: true },
   studentName: { type: String, default: 'your student' },
   guardianFirstName: { type: String, default: '' },
@@ -479,7 +481,7 @@ async function load() {
   loading.value = true;
   error.value = '';
   try {
-    const result = await los.fetchGuardianTutoringDashboard(props.clientId,{agencyId:unref(careContext)?.agencyId,serviceId:unref(careContext)?.serviceId});
+    const result = props.progressAllowed ? await los.fetchGuardianTutoringDashboard(props.clientId,{agencyId:unref(careContext)?.agencyId,serviceId:unref(careContext)?.serviceId}) : {};
     if (version !== loadVersion) return;
     dashboard.value = result;
     await loadPackages();
@@ -503,7 +505,7 @@ async function completePractice(id) {
   }
 }
 
-watch([()=>props.clientId,()=>authStore.user?.id,()=>authStore.user?.email,()=>unref(careContext)?.agencyId,()=>unref(careContext)?.serviceId],()=>{closeBuyDrawer();cardholderName.value='';selectedPackageId.value=null;clientSecret.value=null;void load();});
+watch([()=>props.clientId,()=>props.progressAllowed,()=>authStore.user?.id,()=>authStore.user?.email,()=>unref(careContext)?.agencyId,()=>unref(careContext)?.serviceId],()=>{closeBuyDrawer();cardholderName.value='';selectedPackageId.value=null;clientSecret.value=null;void load();});
 watch(selectedPackageId, async (id, prev) => {
   if (buyOpen.value && id && id !== prev) {
     await prepareCheckout();

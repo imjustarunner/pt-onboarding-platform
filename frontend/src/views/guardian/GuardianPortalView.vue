@@ -1,6 +1,6 @@
 <template>
   <ClinicalWorkspaceFrame :enabled="clinicalGuardianContext" mode="clinical" :immersive="clinicalGuardianContext" hide-header>
-  <FamilyPortalShell :learning="learningOnlyPortalContext" :logo-is-symbol="clinicalGuardianContext" :brand-name="clinicalGuardianContext ? 'AuricWell' : careAgencyName || 'Your portal'" :brand-subtitle="`${ft(portalAccountLabel)}${clinicalGuardianContext ? ' · Beta' : ''}`" :logo-url="clinicalGuardianContext ? AURICWELL_MARK_URL : careAgencyLogo" :agency-name="clinicalGuardianContext ? careAgencyName : ''" :agency-logo="clinicalGuardianContext ? careAgencyLogo : ''" :primary-color="clinicalGuardianContext ? '#2467a7' : brandingStore.primaryColor" :title="ft(portalTitle)" :subtitle="ft(portalSubtitle)" :user-name="userName" :navigation="portalNavigation" :active="activePanel" :support-key="limitedServicePortal ? 'help' : 'messages'" @navigate="navigatePortal">
+  <FamilyPortalShell :learning="learningOnlyPortalContext" :logo-is-symbol="auricWellPortalBrand" :brand-name="loading ? 'Loading your portal…' : auricWellPortalBrand ? 'AuricWell' : careAgencyName || 'Your portal'" :brand-subtitle="`${ft(portalAccountLabel)}${auricWellPortalBrand ? ' · Beta' : ''}`" :logo-url="loading ? '' : auricWellPortalBrand ? AURICWELL_MARK_URL : careAgencyLogo" :agency-name="auricWellPortalBrand ? careAgencyName : ''" :agency-logo="auricWellPortalBrand ? careAgencyLogo : ''" :primary-color="auricWellPortalBrand ? '#2467a7' : brandingStore.primaryColor" :title="ft(portalTitle)" :subtitle="ft(portalSubtitle)" :user-name="userName" :navigation="portalNavigation" :active="activePanel" :support-key="limitedServicePortal ? 'help' : 'messages'" @navigate="navigatePortal">
     <template #context>
       <label class="family-language">{{ familyLocale === 'es' ? 'Idioma' : 'Language' }}
         <select :value="familyLocale" @change="setFamilyLocale($event.target.value)"><option value="en">English</option><option value="es">Español</option></select>
@@ -30,7 +30,7 @@
       <p v-if="onboardingBillingNotice" class="onboarding-billing-notice" role="status">Please complete the available onboarding steps before opening billing. Payment setup is included below.</p>
       <PortalMigrationChecklist :profiles="readableFamilyProfiles" v-if="!isSuperadminPreview && selectedChildId && selectedChildRecordAccess" v-show="activePanel === 'onboarding'" :key="`${selectedChildAgencyId}:${selectedChildId}`" :agency-id="selectedChildAgencyId" :client-id="selectedChildId" :client-type="selectedChildClientType" :active="activePanel === 'onboarding'" @state="onMigrationState" @navigate="navigatePortal" @finished="navigatePortal('overview')" />
       <ClientUpdateChecklist v-if="!isSuperadminPreview && selectedChildId && selectedChildRecordAccess && activePanel === 'updates'" :key="`updates:${selectedChildAgencyId}:${selectedChildId}`" :profiles="readableFamilyProfiles" :agency-id="selectedChildAgencyId" :client-id="selectedChildId" :client-type="selectedChildClientType" />
-      <AuricWellPortalGuide v-if="!isSuperadminPreview && activePanel === 'help'" :agency-id="selectedChildAgencyId" :client-id="selectedChildId" :brand-name="clinicalGuardianContext ? 'AuricWell' : careAgencyName || 'Your portal'" :learning="standardsLearningVisible" @navigate="navigatePortal" />
+      <AuricWellPortalGuide v-if="!isSuperadminPreview && activePanel === 'help'" :agency-id="selectedChildAgencyId" :client-id="selectedChildId" :brand-name="auricWellPortalBrand ? 'AuricWell' : careAgencyName || 'Your portal'" :learning="standardsLearningVisible" @navigate="navigatePortal" />
       <ClientSupportAccounts v-if="!isSuperadminPreview && activePanel === 'assistance'" />
       <GuardianEnrollmentStart v-if="!isSuperadminPreview && activePanel === 'enroll'" :agency-id="currentAgencyId" :language="familyLocale" />
       <GuardianInvitations v-if="!isSuperadminPreview && activePanel === 'family'" :agency-id="selectedChildAgencyId || currentAgencyId" :language="familyLocale" />
@@ -63,7 +63,7 @@
 
             <GuardianSchoolCareBridge v-else-if="activePanel === 'schoolcarebridge' && hasSchoolAffiliations" :schools="schoolAffiliations" :client-id="selectedChildId" v-model:school-id="selectedSchoolId" :client-name="childDisplayName(selectedChild)" @navigate="openAuricWellPanel" />
             <template v-else-if="activePanel === 'tutoring'">
-              <GuardianTutoringDashboard @appointments="navigatePortal('appointments')" embedded
+              <GuardianTutoringDashboard :progress-allowed="selectedGuardianPermissions.canViewProgress!==false" @appointments="navigatePortal('appointments')" embedded
                 :key="`${currentAgencyId}-${selectedChildId}`"
                 v-if="selectedChildId"
                 :client-id="selectedChildId"
@@ -82,7 +82,7 @@
             </template>
             <template v-else-if="activePanel === 'plan'">
               <GuardianPlanProgressPanel v-if="portalPlanAllowed" :client-id="selectedChildId" :agency-id="selectedChildAgencyId" :client-type="selectedChildClientType" />
-              <p v-else class="hint">Plan access is not available for this relationship. Contact your care team to review permissions.</p>
+              <p v-else class="hint">{{ ft(learningOnlySelectedProfile ? 'Learning-plan access is not shared with this account. Contact your tutoring team to review permissions.' : 'Plan access is not available for this relationship. Contact your care team to review permissions.') }}</p>
             </template>
             <template v-else-if="activePanel === 'registrations'">
               <div class="panel-head">
@@ -665,6 +665,7 @@ import ClientNotificationHistory from '../../components/conversa/ClientNotificat
 import SecureSessionCommentHistory from '../../components/session-comments/SecureSessionCommentHistory.vue';
 import GuardianMessagesPanel from '../../components/guardian/GuardianMessagesPanel.vue';
 import GuardianTutoringDashboard from '../../components/guardian/GuardianTutoringDashboard.vue';
+import {normalizeTenantBrandKey} from '../../utils/tenantBrandAssets';
 import ClientAffiliatedContactsPanel from '../../components/client/ClientAffiliatedContactsPanel.vue';
 import { fetchGuardianLearningFeed } from '../../services/tutoringLearningOs';
 
@@ -845,6 +846,7 @@ const selectedSchool = computed(() => schoolAffiliations.value.find(s => Number(
 const schoolWorkspaceLabel = computed(() => selectedSchool.value ? `${selectedSchool.value.name}${selectedSchool.value.status === 'former' ? ' · Former school' : ''}` : '');
 const careAgencyName = computed(() => selectedChild.value?.agency_name || tenantAgencyName.value || currentAgencyName.value);
 const clinicalGuardianContext = computed(() => !!selectedChild.value && !standardsLearningVisible.value && (isClinicalClient(selectedChild.value) || hasSchoolAffiliations.value || (!selectedChild.value.client_type && ['agency','clinical'].includes(selectedChild.value.organization_type))));
+const auricWellPortalBrand=computed(()=>clinicalGuardianContext.value&&normalizeTenantBrandKey(portalAgency.value?.slug||selectedChild.value?.agency_slug)!=='nlu');
 const learningOnlySelectedProfile = computed(() => selectedService.value
   ? selectedService.value.service_kind === 'tutoring'
   : familyProfilesLearningOnly(selectedChild.value ? [selectedChild.value] : allFamilyProfiles.value));
@@ -1031,7 +1033,7 @@ const portalGrants = ref([]);
 const selectedGuardianPermissions=computed(()=>{try{const value=selectedChild.value?.permissions_json;return typeof value==='string'?JSON.parse(value):value||{};}catch{return {canViewDocs:false,canSignDocs:false,learningOnly:true};}});
 const restrictedLearningGuardian=computed(()=>selectedGuardianPermissions.value.learningOnly===true);
 let portalGrantRequest = 0;
-const portalPlanAllowed = computed(() => !isSuperadminPreview.value && !!selectedChildId.value && (!restrictedLearningGuardian.value || selectedGuardianPermissions.value.canViewProgress===true) && (standardsLearningVisible.value || selectedChild.value?.relationship_type === 'self' || portalGrants.value.some(g => Number(g.clientId) === Number(selectedChildId.value) && Number(g.guardianUserId) === Number(authStore.user?.id) && g.scopes?.includes('treatment_plan'))));
+const portalPlanAllowed = computed(() => !isSuperadminPreview.value && !!selectedChildId.value && (!standardsLearningVisible.value || selectedGuardianPermissions.value.canViewProgress!==false) && (!restrictedLearningGuardian.value || selectedGuardianPermissions.value.canViewProgress===true) && (standardsLearningVisible.value || selectedChild.value?.relationship_type === 'self' || portalGrants.value.some(g => Number(g.clientId) === Number(selectedChildId.value) && Number(g.guardianUserId) === Number(authStore.user?.id) && g.scopes?.includes('treatment_plan'))));
 const portalNavigation = computed(() => {
   if(limitedServicePortal.value)return [{key:'overview',label:'Service status',icon:'dashboard'},{key:'past_providers',label:learningOnlySelectedProfile.value?'Past tutors':'Past providers',icon:'team'},{key:'history',label:'Session history',icon:'sessions'},{key:'billing',label:'Invoices & receipts',icon:'billing'},{key:'payment_methods',label:'Payment methods & authorizations',icon:'shield'},{key:'documents',label:'Signed copies',icon:'documents'},{key:'records',label:'Request my records',icon:'documents'},{key:'account',label:'Account settings',icon:'account'},{key:'help',label:'Billing & records help',icon:'support'},{key:'signout',label:'Sign out',icon:'account'}].map(item=>({...item,label:ft(item.label),group:ft('Limited service portal')}));
   const icons = {overview:'dashboard',tutoring:'dashboard',registrations:'sessions',documents:'tasks',child:'child',dependents:'child',billing:'billing',payment_methods:'shield',account:'account',messages:'messages',notifications:'tasks',notification_history:'messages'};

@@ -7,7 +7,7 @@ vi.mock('../../services/businessTypeCapabilities.service.js',()=>({getCapabiliti
 vi.mock('../../services/tenantServiceSuiteDefaults.service.js',()=>({ensureTenantServiceSuitesForAgency:async()=>{}}));
 vi.mock('../../services/appointment.service.js',()=>({resolveBookingOptions:m.options}));
 vi.mock('../../services/selfPayRates.service.js',()=>({resolveSelfPayQuote:m.quote}));
-vi.mock('../../services/schedulingBillingAccess.service.js',()=>({schedulingResponseForUser:async(_u,_a,data)=>data}));
+vi.mock('../../services/schedulingBillingAccess.service.js',async importOriginal=>{const actual=await importOriginal();return{...actual,schedulingResponseForUser:async(_u,_a,data)=>actual.stripSchedulingFinancials(data)}});
 import {getBookingOptions} from '../tenantServices.controller.js';
 beforeEach(()=>{vi.clearAllMocks();m.membership.mockResolvedValue({role:'provider'});m.options.mockResolvedValue({services:[{id:320,businessType:'tutoring',serviceCode:'TUTORING',defaultDurationMinutes:60},{id:319,businessType:'mental_health'}]});m.quote.mockImplementation(async({modality})=>({amountCents:modality==='IN_PERSON'?5500:5000,rateCents:modality==='IN_PERSON'?5500:5000,rateUnit:'hour',source:'catalog'}));});
 async function run(query){const res={status:vi.fn(function(){return this}),json:vi.fn()},next=vi.fn();await getBookingOptions({params:{agencyId:'453'},query,user:{id:1496,role:'provider'}},res,next);return {res,next};}
@@ -19,4 +19,9 @@ it('retains existing lightweight options when no quote is requested and denies a
 });
 it('leaves missing configured rates unavailable without substituting a flat price',async()=>{
  m.quote.mockRejectedValue(Object.assign(new Error('Missing format price'),{status:409}));const {res,next}=await run({quote:'1',providerId:'1496'});expect(next).not.toHaveBeenCalled();expect(res.json.mock.calls[0][0].services[0].quotes).toEqual({TELEHEALTH:null,IN_PERSON:null});
+});
+
+it('retains only the public customer quote across the real nonbilling response filter',async()=>{
+ m.options.mockResolvedValue({services:[{id:320,businessType:'tutoring',defaultDurationMinutes:60,priceCents:9900}],billing:{claimPayload:{secret:'private'}},employeePayRate:44});m.quote.mockResolvedValue({amountCents:5000,rateCents:5000,rateUnit:'hour',privateRate:44,claimPayload:{secret:'private'}});
+ const {res,next}=await run({quote:'1',providerId:'1496'});expect(next).not.toHaveBeenCalled();const data=res.json.mock.calls[0][0];expect(data.services[0].quotes.TELEHEALTH).toEqual({amountCents:5000,rateCents:5000,rateUnit:'hour'});expect(data.services[0].priceCents).toBeUndefined();expect(data.billing).toBeUndefined();expect(JSON.stringify(data)).not.toContain('private');expect(data.employeePayRate).toBeUndefined();
 });

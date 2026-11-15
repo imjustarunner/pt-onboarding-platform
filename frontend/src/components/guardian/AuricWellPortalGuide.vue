@@ -1,6 +1,6 @@
 <template>
   <section :id="learning ? 'learning-portal-guide' : 'auricwell-portal-guide'" class="portal-guide" :aria-label="`About your ${brandName} portal`">
-    <div class="guide-heading"><strong>{{ brandName }} <span v-if="!learning" class="beta-badge">Beta</span></strong><span>{{ learning ? 'Your tutoring and learning portal' : 'Established 2026 · Built around your care' }}</span></div>
+    <div class="guide-heading"><strong>{{ brandName }} <span v-if="auricWellBrand" class="beta-badge">Beta</span></strong><span>{{ learning ? 'Your tutoring and learning portal' : auricWellBrand ? 'Established 2026 · Built around your care' : 'Your counseling and family portal' }}</span></div>
     <p>A place to keep up with your care and your family’s care. Thank you for helping us make it better.</p>
     <details :open="learnOpen" @toggle="learnOpen = $event.target.open">
       <summary>Learn about your portal and how your information is protected</summary>
@@ -17,7 +17,7 @@
         </ul>
         <p>{{ learning ? 'Your tutoring team manages your learning record. Contact your tutor about access, updates or learning questions.' : 'Your care agency manages your care record. You can ask your care team about access, corrections or records requests.' }} <router-link to="/privacy-policy">Read the privacy policy</router-link>.</p>
         <h3>We are still improving</h3>
-        <p>{{ learning ? 'Your reports help us improve your tutoring portal. For scheduling, learning or billing questions, use Messages to reach your tutoring team.' : 'AuricWell is in Beta, so you may occasionally encounter a bug or an unfinished detail. Your reports help us improve the experience. For appointment, care or billing questions, use Messages to reach the appropriate team.' }}</p>
+        <p>{{ learning ? 'Your reports help us improve your tutoring portal. For scheduling, learning or billing questions, use Messages to reach your tutoring team.' : auricWellBrand ? 'AuricWell is in Beta, so you may occasionally encounter a bug or an unfinished detail. Your reports help us improve the experience. For appointment, care or billing questions, use Messages to reach the appropriate team.' : 'Your reports help us improve your family portal. For appointment, counseling or billing questions, use Messages to reach the appropriate team.' }}</p>
       </div>
     </details>
     <details v-if="clientId && agencyId" class="report-details" :open="reportOpen" @toggle="reportOpen = $event.target.open">
@@ -36,10 +36,11 @@
   </section>
 </template>
 <script setup>
-import {ref,watch} from 'vue';
+import {computed,ref,watch} from 'vue';
 import {useRoute} from 'vue-router';
 import api from '../../services/api';
 const props=defineProps({agencyId:[Number,String],clientId:[Number,String],brandName:{type:String,default:'AuricWell'},learning:{type:Boolean,default:false}});
+const auricWellBrand=computed(()=>!props.learning&&props.brandName.trim().toLowerCase()==='auricwell');
 defineEmits(['navigate']);
 const route=useRoute();
 const learnOpen=ref(route.query.welcome==='learn-more'),reportOpen=ref(false),question=ref(''),files=ref([]),fileInput=ref(null),busy=ref(false),error=ref(''),fileError=ref(''),ticketId=ref(null);
