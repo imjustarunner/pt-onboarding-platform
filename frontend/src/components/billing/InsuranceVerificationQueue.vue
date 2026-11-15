@@ -22,6 +22,7 @@ async function load(){
     const {data}=await api.get('/medical-billing/workspace/insurance-verification',{params:{agencyId:validId(props.agencyId)||undefined,clientId:validId(props.clientId)||undefined,page:page.value,search:search.value},skipGlobalLoading:true});
     if(current!==sequence)return;
     items.value=data.items||[];total.value=data.total||0;
+    if(selected.value)selected.value=items.value.find(row=>Number(row.clientId)===Number(selected.value.clientId)&&Number(row.agencyId)===Number(selected.value.agencyId))||null;
     if(requestedClient){
       const match=items.value.find(row=>Number(row.clientId)===requestedClient&&(!validId(props.agencyId)||Number(row.agencyId)===validId(props.agencyId)));
       requestedClient=null;
