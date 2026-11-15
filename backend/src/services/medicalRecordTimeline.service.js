@@ -1,6 +1,6 @@
 /**
  * Merge billing encounters, clinical sessions, office appointments, and
- * signed clinical notes into one medical-record timeline. Same client + date +
+ * authored clinical notes into one medical-record timeline. Same client + date +
  * service code collapse to a single row so billing import attaches instead of
  * duplicating. Signed notes without a session appear as documentation rows.
  */
@@ -31,26 +31,28 @@ function dateCodeKey(clientId, date, code) {
   return `dc:${Number(clientId) || 0}:${ymd(date)}:${codeKey(code)}`;
 }
 
-function startOfTodayYmd() {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
-function displayStateForDate(date) {
-  const d = ymd(date);
-  if (!d) return 'past';
-  return d >= startOfTodayYmd() ? 'planned' : 'past';
-}
-
-function applyDisplayState(row) {
+function classifyRecord(row, timeZone, now) {
   if (!row) return row;
-  row.display_state = displayStateForDate(row.service_date || row.start_at);
-  if (row.display_state === 'planned' && !row.note_status) {
-    row.note_status = 'planned';
-  }
+  const date = ymd(row.service_date);
+  const today = scheduledDate(now, timeZone);
+  const end = row.scheduled_end_at || row.scheduled_start_at;
+  const raw = end instanceof Date ? end.toISOString() : String(end || '').replace(' ', 'T');
+  const instant = raw ? new Date(/[zZ]|[+-]\d{2}:?\d{2}$/.test(raw) ? raw : `${raw}Z`).getTime() : NaN;
+  const status = String(row.appointment_status || row.encounter_status || '').toLowerCase();
+  row.display_state = /cancel|no_show|no-show|missed/.test(status) ? 'not_held'
+    : ['completed', 'complete', 'attended', 'occurred'].includes(status) ? 'past'
+    : Number.isFinite(instant) ? (instant > new Date(now).getTime() ? 'planned' : 'past')
+    : date > today ? 'planned' : date === today ? 'today' : 'past';
+  // Recompute placeholders after appointment/session aliases have merged.
+  if (row.note_status === 'planned') row.note_status = null;
+  if (row.display_state === 'planned' && !row.note_status) row.note_status = 'planned';
+  return row;
+}
+
+function attachSchedule(row, source) {
+  row.scheduled_start_at = source.scheduled_start_at || source.start_at || row.scheduled_start_at || null;
+  row.scheduled_end_at = source.scheduled_end_at || source.end_at || row.scheduled_end_at || null;
+  row.appointment_status = source.status || source.encounter_status || row.appointment_status || null;
   return row;
 }
 
@@ -62,6 +64,7 @@ function applyDisplayState(row) {
  *   appointments?: Array<object>,
  *   scheduleEvents?: Array<object>,
  *   signedNotes?: Array<object>,
+ *   notes?: Array<object>,
  *   claims?: Array<object>
  * }} sources
  * @returns {Array<object>}
@@ -73,10 +76,13 @@ export function mergeMedicalRecordSources({
   appointments = [],
   scheduleEvents = [],
   signedNotes = [],
+  notes = signedNotes,
   claims = [],
-  timeZone = 'America/Denver'
+  timeZone = 'America/Denver',
+  now = new Date()
 } = {}) {
   const byKey = new Map();
+  const applyDisplayState = row => classifyRecord(row, timeZone, now);
 
   const rememberAliases = (row, aliases) => {
     for (const a of aliases) {
@@ -122,6 +128,7 @@ export function mergeMedicalRecordSources({
       || (beId ? byKey.get(`be:${beId}`) : null)
       || (date && code ? byKey.get(dateCodeKey(cs.client_id, date, code)) : null);
     if (existing) {
+      attachSchedule(existing, cs);
       if (screening) Object.assign(existing, { note_kind: 'h0002_screening', note_status: cs.screening_note_status || 'not_started', clinical_note_id: cs.screening_note_id || null });
       existing.clinical_session_id = existing.clinical_session_id || sid;
       existing.office_event_id = existing.office_event_id || oeId || null;
@@ -145,6 +152,9 @@ export function mergeMedicalRecordSources({
       provider_user_id: cs.provider_user_id || cs.rendering_provider_user_id || null,
       provider_first_name: cs.provider_first_name || null,
       provider_last_name: cs.provider_last_name || null,
+      scheduled_start_at: cs.scheduled_start_at || cs.start_at || null,
+      scheduled_end_at: cs.scheduled_end_at || cs.end_at || null,
+      appointment_status: cs.status || cs.encounter_status || null,
       service_date: date,
       service_code: code,
       place_of_service: cs.place_of_service || null,
@@ -171,6 +181,7 @@ export function mergeMedicalRecordSources({
       || (csid ? byKey.get(`cs:${csid}`) : null)
       || byKey.get(dateCodeKey(oe.client_id, date, code));
     if (existing) {
+      attachSchedule(existing, oe);
       existing.office_event_id = existing.office_event_id || eid;
       existing.clinical_session_id = existing.clinical_session_id || csid || null;
       existing.provider_first_name = existing.provider_first_name || oe.provider_first_name || oe.first_name || null;
@@ -194,6 +205,9 @@ export function mergeMedicalRecordSources({
       provider_user_id: oe.booked_provider_id || oe.assigned_provider_id || oe.provider_user_id || null,
       provider_first_name: oe.provider_first_name || oe.first_name || null,
       provider_last_name: oe.provider_last_name || oe.last_name || null,
+      scheduled_start_at: oe.scheduled_start_at || oe.start_at || null,
+      scheduled_end_at: oe.scheduled_end_at || oe.end_at || null,
+      appointment_status: oe.status || oe.encounter_status || null,
       service_date: date,
       service_code: code,
       place_of_service: null,
@@ -219,6 +233,7 @@ export function mergeMedicalRecordSources({
       || (pseId ? byKey.get(`pse:${pseId}`) : null)
       || byKey.get(dateCodeKey(appt.client_id, date, code));
     if (existing) {
+      attachSchedule(existing, appt);
       existing.appointment_id = existing.appointment_id || aid;
       existing.office_event_id = existing.office_event_id || oeId || null;
       existing.clinical_session_id = existing.clinical_session_id || csId || null;
@@ -246,6 +261,9 @@ export function mergeMedicalRecordSources({
       provider_user_id: appt.provider_user_id || null,
       provider_first_name: appt.provider_first_name || null,
       provider_last_name: appt.provider_last_name || null,
+      scheduled_start_at: appt.scheduled_start_at || appt.start_at || null,
+      scheduled_end_at: appt.scheduled_end_at || appt.end_at || null,
+      appointment_status: appt.status || appt.encounter_status || null,
       service_date: date,
       service_code: code,
       place_of_service: null,
@@ -284,6 +302,7 @@ export function mergeMedicalRecordSources({
       }
     }
     if (existing) {
+      attachSchedule(existing, pse);
       existing.provider_schedule_event_id = existing.provider_schedule_event_id || pid;
       existing.provider_first_name = existing.provider_first_name || pse.provider_first_name || null;
       existing.provider_last_name = existing.provider_last_name || pse.provider_last_name || null;
@@ -307,6 +326,9 @@ export function mergeMedicalRecordSources({
       provider_user_id: pse.provider_user_id || null,
       provider_first_name: pse.provider_first_name || null,
       provider_last_name: pse.provider_last_name || null,
+      scheduled_start_at: pse.scheduled_start_at || pse.start_at || null,
+      scheduled_end_at: pse.scheduled_end_at || pse.end_at || null,
+      appointment_status: pse.status || pse.encounter_status || null,
       service_date: date,
       service_code: code,
       place_of_service: null,
@@ -318,17 +340,20 @@ export function mergeMedicalRecordSources({
     rememberAliases(row, [recordKey, dateCodeKey(pse.client_id, date, code)]);
   }
 
-  for (const note of signedNotes || []) {
+  for (const note of notes || []) {
     const nid = Number(note.id || 0);
-    if (!nid || !note.provider_signed_at) continue;
+    if (!nid || (!note.provider_signed_at && !note.clinical_session_id)) continue;
+    if (!note.provider_signed_at && /CONTACT|TERMINATION|MISSED_APPOINTMENT|NO_SHOW/i.test(note.note_type || '')) continue;
+    const noteStatus = note.provider_signed_at ? 'signed' : 'draft';
     const sid = Number(note.clinical_session_id || 0);
-    const date = note.service_date ? ymd(note.service_date) : scheduledDate(note.provider_signed_at || note.created_at, timeZone);
+    const date = note.service_date ? scheduledDate(note.service_date, timeZone) : scheduledDate(note.provider_signed_at || note.created_at, timeZone);
     const code = codeKey(note.service_code || note.session_service_code || note.note_type) || 'DOC';
     if (sid) {
       const existing = byKey.get(`cs:${sid}`);
       if (existing) {
+        if (existing.clinical_note_id) continue;
         existing.clinical_note_id = nid;
-        existing.note_status = 'signed';
+        existing.note_status = noteStatus;
         existing.note_title = note.title || existing.note_title || null;
         existing.provider_signed_at = note.provider_signed_at;
         applyDisplayState(existing);
@@ -341,7 +366,7 @@ export function mergeMedicalRecordSources({
     const existingDc = code !== 'DOC' ? byKey.get(dc) : null;
     if (existingDc && !existingDc.clinical_note_id) {
       existingDc.clinical_note_id = nid;
-      existingDc.note_status = 'signed';
+      existingDc.note_status = noteStatus;
       existingDc.note_title = note.title || null;
       existingDc.provider_signed_at = note.provider_signed_at;
       applyDisplayState(existingDc);
@@ -366,7 +391,7 @@ export function mergeMedicalRecordSources({
       place_of_service: null,
       diagnosis_text: null,
       billing_attached: false,
-      note_status: 'signed',
+      note_status: noteStatus,
       note_title: note.title || null,
       provider_signed_at: note.provider_signed_at,
       source: 'signed_note'

@@ -29,7 +29,7 @@
 
     <div class="rco-metrics">
       <button type="button" class="rco-metric" :disabled="operationalOnly" @click="$emit('navigate', 'notes')">
-        <span class="rco-metric__k">Chart alerts</span>
+        <span class="rco-metric__k">Chart alert categories</span>
         <strong class="rco-metric__v">{{ openTaskCount }}</strong>
         <span class="rco-metric__l">View alerts →</span>
       </button>
@@ -266,6 +266,7 @@
 <script setup>
 import { formatAuditTimestamp } from '../../../utils/formatDate';
 import { computed, onMounted, ref, watch } from 'vue';
+import { isUnsignedClinicalNote } from '../../../utils/clientEncounterUtils.js';
 import { useRouter, useRoute } from 'vue-router';
 import api from '../../../services/api';
 import {isPaperPacketClient} from '../../../utils/paperPacketClient.js';
@@ -325,7 +326,7 @@ const activePlanCount = computed(() =>
 );
 
 const unsignedCount = computed(() => {
-  const fromNotes = (notes.value || []).filter((n) => !n.provider_signed_at).length;
+  const fromNotes = (notes.value || []).filter(n => isUnsignedClinicalNote(n, sessions.value)).length;
   return Math.max(Number(props.unsignedNotesCount || 0), fromNotes);
 });
 
@@ -376,8 +377,13 @@ const roiExpiryLabel = computed(() => {
   return `Expires in ${days} days`;
 });
 
-const taskItems = computed(() => (props.alerts || []).slice(0, 5));
-const openTaskCount = computed(() => taskItems.value.length + unsignedCount.value);
+const allTaskItems = computed(() => {
+  const items = (props.alerts || []).filter(item => item.id !== 'unsigned-notes');
+  if (unsignedCount.value) items.unshift({ id: 'unsigned-notes', label: `${unsignedCount.value} unsigned note${unsignedCount.value === 1 ? '' : 's'}`, tab: 'clinical-notes' });
+  return items;
+});
+const taskItems = computed(() => allTaskItems.value.slice(0, 5));
+const openTaskCount = computed(() => allTaskItems.value.length);
 
 const lastUpdatedLabel = computed(() => {
   if (!lastLoadedAt.value) return '—';

@@ -41,6 +41,7 @@ import crypto from 'crypto';
 import { validationResult } from 'express-validator';
 import { logAuditEvent } from '../services/auditEvent.service.js';
 import clinicalPool from '../config/clinicalDatabase.js';
+import { intakeDraftChartSummary } from '../services/intakeDraftReview.service.js';
 import { queueCommittedClinicalSourceChange } from '../services/assistantClinicalSourceChange.service.js';
 import ClinicalSession from '../models/clinical/ClinicalSession.model.js';
 import ClinicalNote from '../models/clinical/ClinicalNote.model.js';
@@ -908,14 +909,7 @@ export const listClientChart = async (req, res, next) => {
       const latest = await ClientIntakeNoteDraft.latestForClient({ clientId, agencyId });
       if (latest) {
         intakeNotes = [
-          {
-            id: latest.id,
-            status: latest.status,
-            service_code: latest.service_code,
-            created_at: latest.created_at,
-            updated_at: latest.updated_at,
-            finalized_at: latest.finalized_at || null
-          }
+          intakeDraftChartSummary(latest, sessions)
         ];
       }
     } catch {

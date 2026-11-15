@@ -10,13 +10,13 @@ import Portal from '../PortalSafetyPlans.vue';
 const recipients=[{id:20,kind:'guardian',name:'Synthetic Guardian'}];
 const props={agencyId:2,clientId:41,documents:[{foundationKey:'privacy',title:'Privacy notice'},{foundationKey:'insurance',title:'Insurance information'}],recipients};
 let wrapper;
-beforeEach(()=>{vi.clearAllMocks();api.post.mockResolvedValue({data:{assignedCount:2,alreadyAssignedCount:0}});});
+beforeEach(()=>{vi.clearAllMocks();api.post.mockResolvedValue({data:{assignedCount:2,alreadyAssignedCount:0,notifications:'grouped'}});});
 afterEach(()=>wrapper?.unmount());
 const mountDialog=()=>mount(Assignment,{props,global:{stubs:{Teleport:true}}});
 it('assigns several forms in one request after choosing the guardian once',async()=>{
  wrapper=mountDialog();expect(wrapper.text()).toContain('Assign 2 documents');expect(wrapper.findAll('input:not([type=checkbox])')).toHaveLength(0);
  expect(wrapper.get('button.primary').attributes('disabled')).toBeDefined();await wrapper.get('input[type=checkbox]').setValue(true);await wrapper.get('form').trigger('submit');await flushPromises();
- expect(api.post).toHaveBeenCalledTimes(1);expect(api.post).toHaveBeenCalledWith('/enrollment-portal/clients/41/assignments',expect.objectContaining({recipient:{id:20,kind:'guardian'},documents:[{foundationKey:'privacy'},{foundationKey:'insurance'}],authorityConfirmed:true,action:'complete',requestKey:expect.any(String)}));expect(wrapper.emitted('assigned')[0][0].assignedCount).toBe(2);
+ expect(api.post).toHaveBeenCalledTimes(1);expect(api.post).toHaveBeenCalledWith('/enrollment-portal/clients/41/assignments',expect.objectContaining({recipient:{id:20,kind:'guardian'},documents:[{foundationKey:'privacy'},{foundationKey:'insurance'}],authorityConfirmed:true,action:'complete',requestKey:expect.any(String)}));expect(wrapper.emitted('assigned')).toBeUndefined();expect(wrapper.get('[role=status]').text()).toContain('Synthetic Guardian');expect(wrapper.get('[role=status]').text()).toContain('Delivery has not been confirmed');expect(wrapper.find('form').exists()).toBe(false);await wrapper.get('[role=status] button').trigger('click');expect(wrapper.emitted('assigned')[0][0].assignedCount).toBe(2);
 });
 it('keeps the request key when a response is lost so retrying cannot duplicate forms',async()=>{
  api.post.mockRejectedValueOnce(Error('Network unavailable'));wrapper=mountDialog();await wrapper.get('input[type=checkbox]').setValue(true);
@@ -31,7 +31,7 @@ it('selects new forms and saved documents together from the portal section',asyn
  wrapper=mount(Enrollment,{props:{agencyId:2,clientId:41},global:{stubs:{SafetyPlansPanel:true,Teleport:true}}});await flushPromises();
  await wrapper.get('input[aria-label="Select Saved consent"]').setValue(true);await wrapper.get('input[aria-label="Select Privacy notice"]').setValue(true);
  const assign=wrapper.findAll('button').find(b=>b.text()==='Assign 2 to portal');await assign.trigger('click');await flushPromises();expect(wrapper.findComponent(Assignment).props('documents')).toEqual([{recordId:7,version:3,title:'Saved consent'},{foundationKey:'privacy',title:'Privacy notice'}]);
- await wrapper.get('input[type=checkbox]:not([aria-label])').setValue(true);await wrapper.getComponent(Assignment).get('form').trigger('submit');await flushPromises();expect(wrapper.text()).toContain('2 items are now in the recipient’s portal');
+ await wrapper.get('input[type=checkbox]:not([aria-label])').setValue(true);await wrapper.getComponent(Assignment).get('form').trigger('submit');await flushPromises();expect(wrapper.get('[role=status]').text()).toContain('2 newly assigned');await wrapper.get('[role=status] button').trigger('click');await flushPromises();expect(wrapper.text()).toContain('2 items are now in Synthetic Guardian’s portal');
 });
 it('opens a direct assignment dialog from Share to client portal without scrolling the chart',async()=>{
  const record={id:4,agencyId:2,clientId:41,version:1,currentVersion:1,documentKey:'enrollment-document',template:{key:'enrollment-document',title:'Privacy',sections:[],sourceHtml:'<p>Official notice</p>'},branding:{name:'Synthetic'},data:{documentName:'Privacy'},history:[],recipients,signers:[]};api.get.mockResolvedValue({data:record});

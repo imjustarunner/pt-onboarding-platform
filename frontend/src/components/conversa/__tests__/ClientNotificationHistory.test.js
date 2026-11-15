@@ -8,7 +8,7 @@ it('shows invitation and SMS delivery progress for the selected dependent withou
  api.get.mockResolvedValue({data:{notifications:[{id:'invite-1',type:'guardian_enrollment_invitation',channel:'email',status:'sent',recipient:'parent@example.test',occurredAt:'2026-10-27T18:00:00Z'},{id:'sms-2',type:'session_reminder',channel:'sms',status:'delivered',recipient:'+15550001111',occurredAt:'2026-10-27T18:00:00Z'}]}});
  const w=mount(History,{props:{clientId:5,guardian:true}});await flushPromises();
  expect(api.get).toHaveBeenCalledWith('/guardian-portal/clients/5/notification-history',expect.anything());
- expect(w.text()).toContain('Guardian enrollment invitation');expect(w.text()).toContain('sms · Delivered');expect(w.text()).toContain('does not confirm that someone read it');w.unmount();
+ expect(w.text()).toContain('Guardian enrollment invitation');expect(w.text()).toContain('Text · Delivered');expect(w.text()).toContain('does not confirm that someone read it');w.unmount();
 });
 it('clears the prior dependent and ignores an obsolete response',async()=>{
  let old;api.get.mockImplementationOnce(()=>new Promise(resolve=>old=resolve)).mockResolvedValueOnce({data:{notifications:[]}});
@@ -25,4 +25,13 @@ it.each([['en','Not sent (skipped)','Delivery not recorded','Recipient not recor
  const w=mount(History,{props:{clientId:5,guardian:true,language}});await flushPromises();
  const rows=w.findAll('li');expect(rows[0].text()).toContain(skipped);expect(rows[1].text()).toContain(unknown);expect(rows[1].text()).toContain(recipient);
  expect(rows[1].text()).not.toContain('Account contact');expect(rows[1].text()).not.toContain('sms · Sent');w.unmount();
+});
+
+it('separates internal scheduling logs from messages without claiming the family received them', async () => {
+ api.get.mockResolvedValue({data:{notifications:[{id:'session-99',type:'internal_schedule_record',channel:'in_app',status:'internal',recipient:null},{id:'email-1',type:'session_change',channel:'email',status:'sent',recipient:'synthetic@example.com'}]}});
+ const w=mount(History,{props:{clientId:5}});await flushPromises();
+ expect(w.findAll('li')).toHaveLength(1);expect(w.text()).toContain('1 internal scheduling records');
+ expect(w.find('li').text()).toContain('Appointment notification');
+ await w.get('input[type=checkbox]').setValue(true);expect(w.findAll('li')).toHaveLength(2);
+ expect(w.findAll('li')[0].text()).toContain('Internal record only');w.unmount();
 });

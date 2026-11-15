@@ -28,12 +28,41 @@ export function formatPlaceOfService(pos) {
   return `${labels[code] || 'Place of service'} (${code})`;
 }
 
+export function isUnsignedEncounter(row) {
+  const status = String(row?.note_status || '').toLowerCase();
+  return !['planned', 'today', 'not_held'].includes(row?.display_state)
+    && ['draft', 'unsigned', 'awaiting_signature'].includes(status);
+}
+
+export function isUnsignedClinicalNote(note, sessions = [], now = new Date()) {
+  if (note.provider_signed_at || note.review_only || /CONTACT|TERMINATION|MISSED_APPOINTMENT|NO_SHOW/i.test(note.note_type || '')) return false;
+  const session = sessions.find(s => Number(s.id) === Number(note.clinical_session_id));
+  if (session && /cancel|no_show|no-show|missed/i.test(session.encounter_status || '')) return false;
+  const start = session?.scheduled_start_at;
+  const raw = start instanceof Date ? start.toISOString() : String(start || '').replace(' ', 'T');
+  const instant = raw ? new Date(/[zZ]|[+-]\d{2}:?\d{2}$/.test(raw) ? raw : `${raw}Z`).getTime() : NaN;
+  return !Number.isFinite(instant) || instant <= new Date(now).getTime();
+}
+
+export function encounterNeedsNote(row) {
+  return row?.display_state === 'past' && !['signed'].includes(String(row?.note_status || '').toLowerCase());
+}
+
+export function encounterScheduleLabel(row) {
+  if (row?.display_state === 'planned') return 'Upcoming appointment';
+  if (row?.display_state === 'today') return 'Scheduled today · attendance not recorded';
+  if (row?.display_state === 'not_held') return 'Canceled / missed appointment';
+  if (['completed', 'complete', 'attended', 'occurred'].includes(String(row?.appointment_status || '').toLowerCase())) return 'Attendance recorded';
+  if (row?.source !== 'signed_note' && !row?.clinical_note_id && !row?.billing_attached) return 'Past appointment · attendance not confirmed';
+  return '';
+}
+
 export function noteStatusLabel(row) {
   const s = String(row?.note_status || 'none');
   if (s === 'signed') return 'Signed';
   if (s === 'draft') return 'Draft';
   if (s === 'planned' || String(row?.display_state || '') === 'planned') return 'Planned';
-  return 'No note';
+  return 'Note not started';
 }
 
 export function noteActionLabel(row) {

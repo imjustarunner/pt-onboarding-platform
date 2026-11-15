@@ -1,0 +1,45 @@
+name: Portal and chart clarity
+on:
+  pull_request:
+    paths:
+      - 'frontend/src/components/enrollment/**'
+      - 'frontend/src/components/safetyPlans/**'
+      - 'frontend/src/components/conversa/**'
+      - 'frontend/src/components/admin/**'
+      - 'frontend/src/components/dashboard/ProviderClientsTab.vue'
+      - 'frontend/src/composables/useClientEncounters.js'
+      - 'frontend/src/composables/__tests__/useClientEncounters.clarity.test.js'
+      - 'frontend/src/utils/clientEncounterUtils.js'
+      - 'frontend/src/utils/__tests__/clientEncounterClarity.test.js'
+      - 'backend/src/controllers/medicalBilling.controller.js'
+      - 'backend/src/controllers/clientNotificationHistory.controller.js'
+      - 'backend/src/controllers/__tests__/guardianAccess.notificationHistory.test.js'
+      - 'backend/src/services/medicalRecord*.js'
+      - 'backend/src/services/intakeDraftReview.service.js'
+      - 'backend/src/services/__tests__/medicalRecordTimeline.test.js'
+      - 'backend/src/services/__tests__/intakeDraftReview.test.js'
+      - '**/vitest.portal-chart-clarity.config.js'
+      - '.github/workflows/portal-chart-clarity.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: portal-chart-clarity-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  clarity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            backend/package-lock.json
+      - run: npm ci --ignore-scripts --prefix frontend
+      - run: npm ci --ignore-scripts --prefix backend
+      - run: frontend/node_modules/.bin/vitest run --config backend/vitest.portal-chart-clarity.config.js
+      - run: node --test backend/src/services/__tests__/medicalRecordTimeline.test.js
+      - run: frontend/node_modules/.bin/vitest run --config frontend/vitest.portal-chart-clarity.config.js

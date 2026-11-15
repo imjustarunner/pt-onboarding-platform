@@ -244,7 +244,8 @@ function progressCodeTone(serviceCode) {
 function formatDate(raw) {
   if (!raw) return '—';
   try {
-    const d = new Date(raw);
+    const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(raw));
+    const d = dateOnly ? new Date(Number(dateOnly[1]), Number(dateOnly[2])-1, Number(dateOnly[3]), 12) : new Date(raw);
     if (Number.isNaN(d.getTime())) return String(raw).slice(0, 10);
     return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
   } catch {
@@ -440,7 +441,7 @@ const rows = computed(() => {
         : (kind === 'summary' && !supervisorSigned && providerSigned
           ? 'Awaiting supervisor'
           : statusLabel),
-      dateLabel: formatDate(n.created_at),
+      dateLabel: session?.scheduled_start_at ? `Service date ${formatDate(session.scheduled_start_at)}` : `Added ${formatDate(n.created_at)} · Date of service not set`,
       sortAt: n.updated_at || n.created_at,
       serviceCode,
       author: '',
@@ -482,20 +483,21 @@ const rows = computed(() => {
   }
 
   for (const inn of chart.value.intakeNotes || []) {
-    const final = String(inn.status || '') === 'final';
+    const final = String(inn.status || '').toLowerCase() === 'final';
+    const serviceDate = inn.date_of_service || inn.scheduled_start_at;
     out.push({
       key: `intake-${inn.id}`,
       kind: 'intake',
       tone: 'intake',
       codeTone: '',
-      title: `Intake note (${inn.service_code || '90791'})`,
+      title: `Intake ${final ? 'note' : 'draft'}${inn.service_code ? ` (${inn.service_code})` : ''}`,
       status: final ? 'signed' : inn.status || 'draft',
-      statusLabel: final ? 'Finalized' : String(inn.status || 'Draft'),
-      dateLabel: formatDate(inn.finalized_at || inn.updated_at || inn.created_at),
+      statusLabel: final ? 'Finalized' : String(inn.status || 'Draft').toLowerCase().replaceAll('_', ' '),
+      dateLabel: serviceDate ? `Service date ${formatDate(serviceDate)}` : `Date of service not set · Added ${formatDate(inn.created_at)}`,
       sortAt: inn.finalized_at || inn.updated_at || inn.created_at,
       serviceCode: inn.service_code || '',
       author: '',
-      linkedSession: false,
+      linkedSession: !!inn.clinical_session_id,
       linkedClaim: false,
       awaitingCosign: false,
       providerSigned: final,
