@@ -43,3 +43,8 @@ it('keeps older message history reachable when a page contains only internal rec
  await w.findAll('button').find(b=>b.text()==='Load older communications').trigger('click');await flushPromises();
  expect(api.get).toHaveBeenLastCalledWith('/guardian-portal/clients/5/notification-history',expect.objectContaining({params:{offset:50}}));w.unmount();
 });
+
+it('labels a new booking as scheduled and a later move as rescheduled',async()=>{
+ api.get.mockResolvedValue({data:{notifications:[{id:'email-22',type:'appointment_scheduled',channel:'email',status:'sent',recipient:'synthetic@example.test'},{id:'email-23',type:'appointment_rescheduled',channel:'email',status:'sent',recipient:'synthetic@example.test'}]}});
+ const w=mount(History,{props:{clientId:5}});await flushPromises();expect(w.findAll('li strong').map(e=>e.text())).toEqual(['Appointment scheduled','Appointment rescheduled']);w.unmount();
+});

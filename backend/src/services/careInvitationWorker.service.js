@@ -1,3 +1,4 @@
+import { recurringBookingNoticeFacts } from '../utils/recurringBookingNotice.js';
 import pool from '../config/database.js';
 import {clientReenrollment} from './clientReenrollment.service.js';
 import IntakeSubmission from '../models/IntakeSubmission.model.js';
@@ -79,7 +80,7 @@ export async function bookCareInvitation(invitation) {
   return result.appointmentIds;
  }
  const occurrences=expandAppointmentRecurrence({startAt:start,endAt:end,timeZone:invitation.time_zone,recurrence:invitation.frequency,occurrenceCount:invitation.occurrence_count});
- const ids=[];
+ const ids=[],booked=[];
  for(const [index,occurrence] of occurrences.entries()) {
   const source=`care_invitation:${invitation.id}:${index}`;
   const [[existing]]=await pool.execute('SELECT id,status,provider_schedule_event_id,provider_user_id,start_at,end_at,modality,service_code FROM appointments WHERE agency_id=? AND source=? LIMIT 1',[agencyId,source]);
@@ -104,9 +105,9 @@ export async function bookCareInvitation(invitation) {
     recurrenceSeriesId:`care-invitation-${invitation.id}`,recurrenceFrequency:invitation.frequency,recurrencePolicy:'future_only',recurrenceIndex:index,createdByUserId:actorUserId});
    await linkProviderScheduleEvent(appointment.id,event.id);
   }
-  ids.push(appointment.id);
+  ids.push(appointment.id);booked.push(appointment);
  }
- for(const id of ids){await scheduleSessionNotifications(id,{replace:true});await appointmentScheduleNotices.queue(id,{eventType:'created',actorUserId});}
+ for(const id of ids){await scheduleSessionNotifications(id,{replace:true});await appointmentScheduleNotices.queue(id,{eventType:'created',facts:recurringBookingNoticeFacts(`care-invitation:${invitation.id}`,booked),actorUserId});}
  return ids;
 }
 

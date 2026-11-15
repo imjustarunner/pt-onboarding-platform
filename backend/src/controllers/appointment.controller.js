@@ -1,3 +1,4 @@
+import { recurringBookingNoticeFacts } from '../utils/recurringBookingNotice.js';
 import { confirmSameDayServiceWarnings } from '../services/sameDayServiceWarning.service.js';
 import { randomUUID } from 'node:crypto';
 import pool from '../config/database.js';
@@ -148,6 +149,7 @@ export const createAppointmentHandler = async (req, res, next) => {
     try {
       for (const [recurrenceIndex, occurrence] of occurrences.entries()) {
         const appointment = await createAppointment({
+          deferScheduleNotice: !!recurrenceSeriesId,
           agencyId,
           parentAgencyId: req.body?.parentAgencyId || null,
           tenantServiceId: req.body?.tenantServiceId || null,
@@ -244,6 +246,15 @@ export const createAppointmentHandler = async (req, res, next) => {
       catch (error) {
         return res.status(error.status || 500).json({ error: { message: error.message, code: 'BOOKING_LINK_INCOMPLETE' },
           createdAppointmentIds: createdAppointments.map(appointment => appointment.id) });
+      }
+    }
+    if (recurrenceSeriesId) {
+      const facts = recurringBookingNoticeFacts(recurrenceSeriesId, createdAppointments);
+      const { appointmentScheduleNotices } = await import('../services/appointmentScheduleNotice.service.js');
+      const { scheduleSessionNotifications } = await import('../services/sessionNotification.service.js');
+      for (const appointment of createdAppointments) {
+        try { await scheduleSessionNotifications(appointment.id, { replace: true }); } catch { /* Same best-effort reminder policy as single bookings. */ }
+        await appointmentScheduleNotices.queue(appointment.id, { eventType: 'created', facts, actorUserId: req.user.id });
       }
     }
     res.status(201).json(await schedulingResponseForUser(req.user, agencyId, {

@@ -1,3 +1,4 @@
+import { recurringBookingNoticeFacts } from '../utils/recurringBookingNotice.js';
 import GoogleCalendarService from './googleCalendar.service.js';
 import { createHash } from 'node:crypto';
 import pool from '../config/database.js';
@@ -142,7 +143,7 @@ export async function bookSessionInOwnedOffice(input) {
         if (row.context.reservedSessionBookingComplete) { await progress('finishing', index + 1); continue; }
         const appointment = linked.find(a => Number(a.officeEventId) === Number(row.event.id));
         await scheduleSessionNotifications(appointment.id, { replace: true });
-        await appointmentScheduleNotices.queue(appointment.id, { eventType: 'created', actorUserId: input.actorUserId });
+        await appointmentScheduleNotices.queue(appointment.id, { eventType: 'created', facts: recurringBookingNoticeFacts(key, linked), actorUserId: input.actorUserId });
         try { await GoogleCalendarService.upsertBookedOfficeEvent({ officeEventId: row.event.id }); } catch { /* The saved app appointment remains authoritative. */ }
         await pool.execute("UPDATE office_events SET session_context_json=JSON_SET(session_context_json,'$.reservedSessionBookingComplete',TRUE) WHERE id=?", [row.event.id]);
         await progress('finishing', index + 1);

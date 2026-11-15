@@ -1,3 +1,4 @@
+import { appointmentNoticeKind, publicAppointmentNoticeKind } from '../utils/appointmentNoticeKind.js';
 import pool from '../config/database.js';
 import { appCommunicationVisibilitySql } from '../utils/externalTestingEmail.js';
 
@@ -13,12 +14,15 @@ const historyText = expression => `CONVERT(${expression} USING utf8mb4) COLLATE 
 const deliveryStatuses = new Set(['sent', 'delivered', 'failed', 'pending', 'sending', 'bounced', 'skipped', 'held', 'review', 'flagged', 'suppressed', 'superseded', 'queued', 'canceled', 'undelivered']);
 
 function appointmentHistoryFields(row, clientId) {
-  if (!String(row.id).startsWith('session-')) return row;
+  const sessionAudit = String(row.id).startsWith('session-');
+  const storedCommunication = String(row.id).startsWith('email-');
+  if (!sessionAudit && !storedCommunication) return row;
   let metadata = {};
   try {
     const raw = typeof row.appointment_metadata === 'string' ? row.appointment_metadata : JSON.stringify(row.appointment_metadata);
     metadata = JSON.parse(maybeDecryptNotePayload(raw)) || {};
   } catch { /* Unreadable or absent audit metadata is not evidence of sending. */ }
+  if (storedCommunication) return { ...row, notification_type: publicAppointmentNoticeKind(metadata.scheduleNoticeType) || row.notification_type };
   // A group appointment can have separate audits for different clients.
   if (metadata.clientId != null && Number(metadata.clientId) !== clientId) return null;
   const status = String(metadata.deliveryStatus ?? metadata.status ?? '').trim().toLowerCase();
@@ -26,7 +30,7 @@ function appointmentHistoryFields(row, clientId) {
   const internal = metadata.scheduleNotice === true && row.channel === 'in_app'
     && !metadata.recipient && !['sent', 'delivered', 'failed'].includes(status);
   return { ...row,
-    notification_type: internal ? 'internal_schedule_record' : metadata.scheduleNotice === true ? 'session_change' : row.notification_type,
+    notification_type: internal ? 'internal_schedule_record' : metadata.scheduleNotice === true ? publicAppointmentNoticeKind(metadata.scheduleNoticeType) || appointmentNoticeKind(metadata.eventType, metadata.initialBooking) || 'session_change' : row.notification_type,
     recipient_address: typeof metadata.recipient === 'string' ? metadata.recipient.trim() || null : null,
     delivery_status: internal ? 'internal' : deliveryStatuses.has(status) ? status : 'unknown'
   };
@@ -54,7 +58,7 @@ export async function listClientNotificationHistory(req, res, next) {
         ${historyText('uc.template_type')} AS notification_type, ${historyText('uc.recipient_address')} AS recipient_address,
         ${historyText('uc.delivery_status')} AS delivery_status,
         COALESCE(uc.sent_at, uc.generated_at) AS occurred_at, ${historyText('a.name')} AS organization_name,
-        ${historyText('NULL')} AS appointment_metadata
+        ${historyText('uc.metadata')} AS appointment_metadata
        FROM user_communications uc LEFT JOIN agencies a ON a.id = uc.agency_id WHERE uc.client_id = ? AND ${appCommunicationVisibilitySql('uc')}
          AND NOT EXISTS (SELECT 1 FROM co_guardian_invite_deliveries d WHERE d.communication_id=uc.id)
        UNION ALL
