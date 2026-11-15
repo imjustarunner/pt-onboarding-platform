@@ -37,3 +37,12 @@ it('shows the server denial rather than rendering a stale authorized-search snap
  await state.selectSearchResult({entity_type:'task',entity_id:2488,view:'all',task:completed});await flushPromises();
  expect(state.detailTask).toBeNull();expect(state.linkedTaskError).toBe('Access denied');
 });
+
+it('ignores a late empty autocomplete response after opening an authorized result',async()=>{
+ await open('tab=all&teamMode=tasks');const state=w.vm.$.setupState,prior=m.get.getMockImplementation();let finish;
+ m.get.mockImplementation((url,...args)=>url==='/tasks/search'?new Promise(resolve=>{finish=resolve;}):prior(url,...args));
+ state.searchQ='2488';const pending=state.runSmartSearch();
+ await state.selectSearchResult({entity_type:'task',entity_id:2488,view:'all',status:'completed',task:completed});
+ finish({data:[]});await pending;await flushPromises();
+ expect(state.detailTask.id).toBe(2488);expect(w.text()).not.toContain('No matching tasks, lists or projects');
+});

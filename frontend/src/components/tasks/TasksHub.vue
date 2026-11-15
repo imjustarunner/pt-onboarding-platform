@@ -1859,6 +1859,8 @@ function searchViewLabel(r) {
 }
 
 async function selectSearchResult(r) {
+  searchGeneration++;
+  if (searchTimer) clearTimeout(searchTimer);
   searchResults.value = [];
   searchCompletedQ.value = '';
   if (r.entity_type === 'project') {
