@@ -3,6 +3,7 @@ import vue from '@vitejs/plugin-vue';
 export default defineConfig({root:new URL('.',import.meta.url).pathname,plugins:[vue()],resolve:{alias:{'@':new URL('./src',import.meta.url).pathname}},test:{environment:'jsdom',restoreMocks:true,include:[
  'src/utils/__tests__/loginHandoff.test.js','src/utils/__tests__/loginAutomation.test.js','src/views/__tests__/LoginPortalIsolation.test.js','src/composables/__tests__/useDashboardNavigation.test.js','src/utils/__tests__/familyPortalContext.test.js',
  'src/components/tasks/__tests__/TasksHub.completedLookup.test.js',
+ 'src/components/tasks/__tests__/TasksListTable.searchExpansion.test.js',
  'src/store/__tests__/tasks.requestOrder.test.js',
  'src/views/admin/__tests__/PlatformChatsView.secureLink.test.js',
  'src/components/messages/__tests__/MessagesHubShell.secureClientLink.test.js',

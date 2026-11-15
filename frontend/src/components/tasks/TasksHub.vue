@@ -353,6 +353,7 @@
             <TasksListTable @task-updated="refresh"
               v-else-if="layout === 'list'"
               :tasks="displayTasks"
+              :search-query="searchQ"
               :type-defs="typeDefs"
               :current-user-id="authStore.user?.id"
               :timeline-keys="timelineAssignableKeys"
@@ -1858,7 +1859,10 @@ function searchViewLabel(r) {
 }
 
 async function selectSearchResult(r) {
+  searchGeneration++;
+  if (searchTimer) clearTimeout(searchTimer);
   searchResults.value = [];
+  searchCompletedQ.value = '';
   if (r.entity_type === 'project') {
     activeTab.value = 'projects';
     overviewProject.value = { id: r.entity_id, name: r.title };
