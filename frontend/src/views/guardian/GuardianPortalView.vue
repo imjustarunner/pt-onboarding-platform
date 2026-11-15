@@ -793,7 +793,14 @@ const parseFeatureFlags = (raw) => {
 const selectedServiceId=ref(Number(route.query.serviceId)||null);
 const selectedServices=computed(()=>children.value.find(c=>Number(c.client_id)===Number(selectedChildId.value))?.services||[]);
 const selectedService=computed(()=>selectedServices.value.find(s=>Number(s.id)===Number(selectedServiceId.value))||selectedServices.value[0]||null);
-watch(selectedServices,services=>{if(!services.some(s=>Number(s.id)===Number(selectedServiceId.value)))selectedServiceId.value=Number(services[0]?.id)||null;});
+// The saved active child can differ from a deep link's child while overview
+// loads. Normalize only after that context is settled, keeping the URL service.
+watch([selectedServices,loading,()=>route.query.serviceId],([services,isLoading,requested])=>{
+  if(isLoading)return;
+  const fromUrl=services.find(service=>Number(service.id)===Number(requested));
+  if(fromUrl)selectedServiceId.value=Number(fromUrl.id);
+  else if(!services.some(service=>Number(service.id)===Number(selectedServiceId.value)))selectedServiceId.value=Number(services[0]?.id)||null;
+});
 const portalCareContext=computed(()=>({clientId:selectedChildId.value,agencyId:currentAgencyId.value,serviceId:selectedService.value?.id,serviceKind:selectedService.value?.service_kind}));
 provide('portalCareContext',portalCareContext);
 const clientApi=createPortalCareApi(api,portalCareContext);

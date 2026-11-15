@@ -167,3 +167,13 @@ it('keeps the verified tutoring context when a membership refresh restores the o
  expect(shell.props('brandName')).toBe('Next Level Up');expect(shell.props('navigation').find(n=>n.key==='payment_methods').label).toBe('Payments');
  shell.vm.$emit('navigate','billing');await flushPromises();expect(w.findComponent({name:'FamilyLedgerPanel'}).props()).toMatchObject({agencyId:6,serviceId:21});w.unmount();
 });
+it('restores a deep-linked tutoring service after loading a different saved active child',async()=>{
+ const multi={...person(3,2,'Avery','school'),care_contexts:[{agency_id:2,agency_name:'ITSCO',agency_slug:'itsco',services:[{id:11,service_kind:'counseling',label:'School counseling',provider_name:'Sam',is_active:1}]},{agency_id:6,agency_name:'Next Level Up',agency_slug:'nlu',organization_type:'agency',services:[{id:13,service_kind:'counseling',label:'Counseling',provider_name:'Alex',is_active:1},{id:12,service_kind:'tutoring',label:'Reading tutoring',provider_name:'Taylor',is_active:1}]}]};
+ let release;api.get.mockImplementation(url=>url==='/guardian-portal/overview'?new Promise(resolve=>{release=resolve}):Promise.resolve({data:{events:[],items:[],documents:[],grants:[],subjects:[],plans:[]}}));
+ useGuardianStore().selectedChildId=2;
+ const other={...person(2,6,'Previous child','learning'),services:[{id:14,service_kind:'tutoring',label:'Math tutoring',is_active:1}]};
+ const{w,router}=await setup('/nlu/guardian?clientId=3&serviceId=12&panel=appointments');release({data:{children:[other,multi],programs:agencies}});await flushPromises();
+ expect(router.currentRoute.value.query.serviceId).toBe('12');expect(w.findComponent(Shell).props('learning')).toBe(true);expect(w.findComponent(Shell).props('brandName')).toBe('Next Level Up');
+ expect(api.get.mock.calls.filter(([url])=>url==='/guardian-portal/clients/3/intake-documents').at(-1)[1].params).toMatchObject({agencyId:6,serviceId:12});
+ await router.replace({query:{...router.currentRoute.value.query,serviceId:'13'}});await flushPromises();expect(w.findComponent(Shell).props('learning')).toBe(false);w.unmount();
+});
