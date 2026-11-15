@@ -1,3 +1,4 @@
+import { ageOn } from '../services/guardianClinicalAccess.service.js';
 import {resolveClientRecordAccess} from '../services/clientRecordAccess.service.js';
 import { guardianAccountStatuses } from '../services/guardianAccountStatus.service.js';
 import { deferGuardianInvitation } from '../utils/schoolGuardianPortalPolicy.js';
@@ -62,6 +63,8 @@ export const upsertClientGuardian = async (req, res, next) => {
     const firstName = String(req.body.firstName || '').trim();
     const lastName = String(req.body.lastName || '').trim();
     const relationshipType = normalizeRelationshipType(req.body.relationshipType);
+    const clientAge = ageOn(client.date_of_birth);
+    if (relationshipType === 'self' && clientAge !== null && clientAge < 18) return res.status(409).json({error:{message:'Use Invite client to create a personal portal login for a minor. Guardian access stays separate.'}});
     const defaultTitle = relationshipType === 'self' ? 'Self' : 'Guardian';
     const relationshipTitle = String(req.body.relationshipTitle || defaultTitle).trim() || defaultTitle;
     const accessEnabled = req.body.accessEnabled !== false;

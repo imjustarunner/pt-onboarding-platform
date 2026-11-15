@@ -1,3 +1,4 @@
+import { requireClientServiceKind } from './clientServiceContext.service.js';
 import {requireTestingEligibility,approvedTestingCodeAssignments} from './testingEligibility.service.js';
 import {requiresTestingRole,testingServiceDefinition} from '../content/testingServicePolicy.js';
 import { requireClientSessionBooking } from './clientSessionBookingRollout.service.js';
@@ -280,6 +281,7 @@ export async function getSchedulingBookingMetadata({ userRole, providerCredentia
 }
 
 export async function validateSchedulingSelection({
+  clientIds = [],
   enforceSessionRollout = false,
   agencyId = null,
   providerId = null,
@@ -297,6 +299,8 @@ export async function validateSchedulingSelection({
   const normalizedAppointmentSubtypeCode = normalizeCode(appointmentSubtypeCode);
   const normalizedServiceCode = normalizeCode(serviceCode);
   await requireTestingEligibility({agencyId,userId:providerId,serviceCodes:[normalizedServiceCode],serviceDate:scheduledStartAt});
+  if (DIRECT_SERVICE_APPOINTMENT_TYPES.has(normalizedAppointmentTypeCode)) await requireClientServiceKind({ agencyId, providerId, clientIds,
+    serviceKind: normalizedServiceCode === 'TUTORING' ? 'tutoring' : 'counseling' });
   const normalizedModality = normalizeModality(modality);
 
   const metadata = await getSchedulingBookingMetadata({ userRole, providerCredentialText, agencyId, providerId });

@@ -1,3 +1,4 @@
+import { clinicalCodesForClientContext } from '../services/clientServiceContext.service.js';
 import { queueOfficeEventGoogleSync } from '../services/providerAssignmentGoogleSync.service.js';
 import { schedulingResponseForUser } from '../services/schedulingBillingAccess.service.js';
 import { bookSessionInOwnedOffice } from '../services/ownedOfficeSession.service.js';
@@ -2685,6 +2686,7 @@ export const createOfficeBookingRequest = async (req, res, next) => {
     const validatedSelection = {
       ...(await validateSchedulingSelection({ enforceSessionRollout: true,
         agencyId: policyAgencyId,
+        clientIds: clientId ? [clientId] : [],
         userRole: requestedProvider.role,
         providerCredentialText: requestedProvider.credential,
         providerId: requestedProvider.id,
@@ -3134,6 +3136,7 @@ const approveOfficeBookingRequestLocked = async (req, res, next) => {
     const validatedSelection = {
       ...(await validateSchedulingSelection({ enforceSessionRollout: true,
         agencyId: policyAgencyId,
+        clientIds: reqRow.client_id ? [reqRow.client_id] : [],
         userRole: requestedProvider.role,
         providerCredentialText: requestedProvider.credential,
         providerId: requestedProvider.id,
@@ -3541,6 +3544,10 @@ export const getBookingMetadata = async (req, res, next) => {
         minDurationMinutes: Math.max(Number(row.minDurationMinutes) || 0,
           Number(approvedCodes.get(row.code).minDurationMinutes) || 0) || null
       })) : [];
+
+    serviceCodes = await clinicalCodesForClientContext(serviceCodes, { agencyId: policyAgencyId, providerId: requestedProviderId,
+      clientIds: String(req.query.clientIds || req.query.clientId || '').split(',').map(Number).filter(id => id > 0).slice(0, 50),
+      businessType: String(req.query.businessType || '') });
 
     return res.json({
       careEligibility: metadata.careEligibility,

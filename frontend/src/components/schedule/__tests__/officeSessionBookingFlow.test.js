@@ -63,7 +63,9 @@ it('carries the reserved office, room, biweekly cadence and billing location int
   expect(s.editorServiceLocationOptions.map(row => row.id)).toEqual([51, 53]);
   expect(s.editorServiceLocationOptions[0].label).toContain('Main office');
   expect(s.editorServiceLocationOptions[0].label).toContain('123 Main St');
-  s.virtualSessionSelectedClientIds = [81]; s.bookingServiceCode = '90837';
+  s.virtualSessionSelectedClientIds = [81];
+  await flushPromises(); // The catalog is now scoped to the selected client.
+  s.bookingServiceCode = '90837';
   await nextTick();
   expect(s.bookingClassificationInvalidReason).toBe('');
   expect(s.normalizeBookingSelectionPayload()).toMatchObject({ agencyId: 2, clientId: 81, modality: 'IN_PERSON', serviceLocationId: 51 });

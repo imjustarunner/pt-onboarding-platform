@@ -2,7 +2,7 @@
 export function createBookingCatalogCache(api, { ttlMs = 60000, now = Date.now } = {}) {
   const entries = new Map();
   return async (path, params, { force = false } = {}) => {
-    const key = `${path}:${params.agencyId}:${params.providerId}`;
+    const key = `${path}:${JSON.stringify(Object.entries(params).filter(([,value]) => value !== undefined).sort(([a],[b]) => a.localeCompare(b)))}`;
     const current = entries.get(key);
     if (current?.pending) return current.pending;
     if (!force && current && current.expiresAt > now()) return current.data;

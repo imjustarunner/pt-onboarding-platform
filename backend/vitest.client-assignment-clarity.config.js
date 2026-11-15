@@ -5,6 +5,9 @@ export default {
     env: { SKIP_DB_CONNECT: '1' },
     restoreMocks: true,
     include: [
+      'src/services/__tests__/clientServiceContext.test.js',
+      'src/services/__tests__/dependentPortalInvitations.test.js',
+      'src/services/__tests__/dependentPortalPolicy.test.js',
       'src/services/__tests__/clientAssignmentScope.test.js',
       'src/services/__tests__/clientServiceUnification.test.js',
       'src/services/__tests__/guardianCancellationServiceStatus.test.js',

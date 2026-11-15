@@ -1,3 +1,4 @@
+import { filterBookingServicesForClient, assertAppointmentServiceContext } from './clientServiceContext.service.js';
 import {requireTestingEligibility} from './testingEligibility.service.js';
 import { normalizeCustomSessionReminders, readAppointmentNotificationRules, saveAppointmentNotificationRules, validateCustomReminderChannels } from './appointmentNotificationCustomization.service.js';
 import { recordQaAttendanceTerms, syncQaAppointmentBalance, requireQaOutcomeElapsed } from './qaAppointmentBilling.service.js';
@@ -93,6 +94,8 @@ export async function resolveBookingOptions({
   if (serviceId) {
     services = services.filter((s) => Number(s.id) === Number(serviceId));
   }
+
+  services = await filterBookingServicesForClient(services, { agencyId: aid, clientId, providerId });
 
   let providers = [];
   if (serviceId) {
@@ -268,6 +271,8 @@ async function createLockedAppointment({
     actualPlaceOfService=location.place_of_service||null;
   }
   serviceCode = serviceCode || service?.serviceCode || null;
+  await assertAppointmentServiceContext({ agencyId: aid, providerId: providerUserId, clientIds: bookingClients.map(client => client.id),
+    service, businessType: businessType || (serviceCode === 'TUTORING' ? 'tutoring' : 'mental_health'), serviceCode, addonServiceCodes });
   const clinicalBooking = !packageEntitlementId && (['mental_health', 'healthcare'].includes(businessType)
     || (!businessType && bookingClients.some((client) => ['clinical', 'school'].includes(client.client_type))));
   const proBono=isProBonoFunding({serviceCode,billing});
@@ -497,6 +502,13 @@ async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId 
     const allowed=await StaffServiceAssignment.listServiceIdsForUser(existing.agencyId,patch.providerUserId||existing.providerUserId);
     if(allowed.length && !allowed.includes(Number(patch.tenantServiceId)))throw Object.assign(new Error('Provider is not assigned to this service'),{status:400});
     patch.businessType=service.businessType;
+  }
+  if (clinicalContextChanged || patch.participants) {
+    const service = (patch.tenantServiceId ?? existing.tenantServiceId) ? await TenantService.findById(patch.tenantServiceId ?? existing.tenantServiceId, existing.agencyId) : null;
+    const clients = await assertAppointmentClients(existing.agencyId, patch.participants || await Appointment.listParticipants(appointmentId));
+    await assertAppointmentServiceContext({ agencyId: existing.agencyId, providerId: patch.providerUserId || existing.providerUserId,
+      clientIds: clients.map(client => client.id), service, businessType: service?.businessType || existing.businessType,
+      serviceCode: patch.serviceCode ?? existing.serviceCode, addonServiceCodes: patch.addonServiceCodes ?? existing.addonServiceCodes ?? [] });
   }
   let moved = false;
 

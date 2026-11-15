@@ -20,6 +20,28 @@ export async function parentDependentAccess(userId,clientId,db=pool){
  if(!['learning','tutoring'].includes(c.client_type))await requireClinicalScope({userId,clientId,agencyId:c.agency_id,scope:'session_frequency'});
  return c;
 }
+/** Staff invite the client as themselves; guardian authority and permissions are never borrowed. */
+export async function staffDependentInvitationAccess(user,clientId,agencyId,db=pool){
+ if(!['super_admin','admin','support'].includes(user?.role))throw fail(403,'Portal account management requires admin or support access.');
+ if(!Number.isSafeInteger(agencyId)||agencyId<1)throw fail(400,'Choose the client’s agency.');
+ const access=await resolveClientRecordAccess({userId:user.id,role:user.role,clientId});
+ if(!access.ok||!await clientAgencyMembership(clientId,agencyId,db))throw fail(403,'Client access denied for this agency.');
+ const [[member]]=await db.execute('SELECT user_id FROM user_agencies WHERE user_id=? AND agency_id=? AND is_active=1',[user.id,agencyId]);
+ if(user.role!=='super_admin'&&!member)throw fail(403,'Agency access denied.');
+ const [[client]]=await db.execute('SELECT * FROM clients WHERE id=?',[clientId]);
+ if(!client)throw fail(404,'Client not found.');
+ const age=ageOn(client.date_of_birth);
+ if(!Number.isFinite(age)||age<0||age>=18)throw fail(409,'This invitation is for a client under 18 with a recorded birth date. Use Manage portal access for adult self-access.');
+ return client;
+}
+const invitationAuthority=({userId,clientId,staffUser,agencyId},db=pool)=>staffUser
+ ? staffDependentInvitationAccess(staffUser,clientId,agencyId,db) : parentDependentAccess(userId,clientId,db);
+export async function staffDependentInvitationStatus(user,clientId,agencyId){
+ await staffDependentInvitationAccess(user,clientId,agencyId);
+ const [[a]]=await pool.execute(`SELECT d.user_id,d.revoked_at,d.last_invited_at,u.email,u.password_hash IS NOT NULL AS password_set
+  FROM dependent_portal_access d JOIN users u ON u.id=d.user_id WHERE d.client_id=?`,[clientId]);
+ return {invitation:a?{email:a.email,active:!a.revoked_at,passwordSet:!!a.password_set,lastInvitedAt:a.last_invited_at}:null};
+}
 async function event(db,clientId,userId,actor,action,details={}){
  await db.execute('INSERT INTO dependent_portal_events(client_id,user_id,actor_user_id,action,details_json) VALUES(?,?,?,?,?)',[clientId,userId,actor,action,JSON.stringify(details)]);
 }
@@ -29,14 +51,16 @@ export async function dependentInvitationStatus(userId,clientId){
  FROM dependent_portal_access d JOIN users u ON u.id=d.user_id WHERE d.client_id=?`,[clientId]);
  return {invitation:a?{email:a.email,active:!a.revoked_at,passwordSet:!!a.password_set,lastInvitedAt:a.last_invited_at}:null};
 }
-export async function inviteDependent({userId,clientId,email,confirmed=false}){
+export async function inviteDependent({userId,clientId,email,confirmed=false,staffUser=null,agencyId=null}){
+ if(staffUser&&Number(staffUser.id)!==Number(userId))throw fail(403,'Invitation actor does not match the signed-in staff account.');
+ const authority={userId,clientId,staffUser,agencyId};
  if(confirmed!==true)throw fail(400,'Confirm that you are authorized to invite this dependent to their own portal.');
  const address=String(email||'').trim().toLowerCase();
  if(address.length>254||!/^\S+@[^\s@]+\.[^\s@]+$/.test(address))throw fail(400,'Enter the dependent’s own email address.');
- const client=await parentDependentAccess(userId,clientId);
+ const client=await invitationAuthority(authority);
  const db=await pool.getConnection();let childUserId;
  try{
-  await db.beginTransaction();await db.execute('SELECT id FROM clients WHERE id=? FOR UPDATE',[clientId]);await parentDependentAccess(userId,clientId,db);
+  await db.beginTransaction();await db.execute('SELECT id FROM clients WHERE id=? FOR UPDATE',[clientId]);await invitationAuthority(authority,db);
   const [[old]]=await db.execute('SELECT * FROM dependent_portal_access WHERE client_id=?',[clientId]);
   if(old)throw fail(409,'This dependent already has a personal login. Use resend, or ask your care team to change the email.');
   const [[used]]=await db.execute('SELECT id FROM users WHERE LOWER(email)=? OR LOWER(username)=? LIMIT 1',[address,address]);
@@ -50,17 +74,20 @@ export async function inviteDependent({userId,clientId,email,confirmed=false}){
   await db.execute('INSERT INTO dependent_portal_access(user_id,client_id,invited_by_user_id) VALUES(?,?,?)',[childUserId,clientId,userId]);
   await db.execute(`INSERT INTO user_agencies(user_id,agency_id,is_active) SELECT ?,a.id,1 FROM agencies a
    WHERE a.is_active=1 AND (a.id=? OR EXISTS(SELECT 1 FROM client_agency_assignments ca WHERE ca.client_id=? AND ca.agency_id=a.id AND ca.is_active=1))`,[childUserId,client.agency_id,clientId]);
-  await event(db,clientId,childUserId,userId,'invited',{authorityConfirmed:true});await db.commit();
+  if(staffUser)await db.execute('UPDATE clients SET guardian_portal_enabled=1 WHERE id=?',[clientId]);
+  await event(db,clientId,childUserId,userId,'invited',{authorityConfirmed:true,authority:staffUser?'staff':'guardian',...(staffUser?{agencyId,portalEnabled:true}:{})});await db.commit();
  }catch(e){await db.rollback();if(e.code==='ER_DUP_ENTRY')throw fail(409,'Use a separate email address for this dependent.');throw e;}finally{db.release();}
- return resendDependentInvitation({userId,clientId});
+ return resendDependentInvitation({userId,clientId,staffUser,agencyId});
 }
-export async function resendDependentInvitation({userId,clientId}){
- const client=await parentDependentAccess(userId,clientId);
- const context=await clientEmailContext({agencyId:client.agency_id,clientId});
+export async function resendDependentInvitation({userId,clientId,staffUser=null,agencyId=null}){
+ if(staffUser&&Number(staffUser.id)!==Number(userId))throw fail(403,'Invitation actor does not match the signed-in staff account.');
+ const authority={userId,clientId,staffUser,agencyId};
+ const client=await invitationAuthority(authority);
+ const context=await clientEmailContext({agencyId:staffUser?agencyId:client.agency_id,clientId});
  const db=await pool.getConnection();let a,account,token;
  try{
   await db.beginTransaction();await db.execute('SELECT id FROM clients WHERE id=? FOR UPDATE',[clientId]);
-  await parentDependentAccess(userId,clientId,db);
+  await invitationAuthority(authority,db);
   [[a]]=await db.execute('SELECT d.*,u.email,u.first_name FROM dependent_portal_access d JOIN users u ON u.id=d.user_id WHERE d.client_id=?',[clientId]);
   if(!a||a.revoked_at)throw fail(409,'This personal login is not active. Ask the care team to review it.');
   const [reserved]=await db.execute('UPDATE dependent_portal_access SET last_invited_at=UTC_TIMESTAMP() WHERE user_id=? AND revoked_at IS NULL AND (last_invited_at IS NULL OR last_invited_at<DATE_SUB(UTC_TIMESTAMP(),INTERVAL 1 MINUTE))',[a.user_id]);
@@ -71,10 +98,10 @@ export async function resendDependentInvitation({userId,clientId}){
  }catch(e){await db.rollback();throw e;}finally{db.release();}
  const url=account.password_hash?context.url(`reset-password/${encodeURIComponent(token.token)}`):clientPortalInviteUrl({portal:context.portal,token:token.token,existingAccount:false});
  const intro=`Hi ${a.first_name}, your personal portal with ${context.tenant.name} is ready. This login opens only your own appointments, learning materials, messages, and records your care team shares with you.`;
- const result=await sendClientPortalEmail({agencyId:client.agency_id,clientId,context,to:a.email,userId:a.user_id,generatedByUserId:userId,source:'manual',templateType:'hub_portal_invite',subject:`Your personal ${context.tenant.name} portal`,
+ const result=await sendClientPortalEmail({agencyId:staffUser?agencyId:client.agency_id,clientId,context,to:a.email,userId:a.user_id,generatedByUserId:userId,source:'manual',templateType:'hub_portal_invite',subject:`Your personal ${context.tenant.name} portal`,
   text:`${intro}\n\nYour username: ${a.email}\nSet your password: ${url}\n\nThis link expires in 48 hours.`,
   html:`<h2>Your personal portal</h2><p>${esc(intro)}</p><p>Your username: <strong>${esc(a.email)}</strong></p>${portalActionHtml('Set my password',url)}<p>This link expires in 48 hours.</p>`});
- if(!result?.id||result?.skipped||result?.blocked||result?.pendingApproval||result?.queued)throw fail(409,'The invitation is saved, but email delivery needs your care team’s attention.');
+ if(!result?.id||result?.skipped||result?.blocked||result?.pendingApproval||result?.queued||result?.redirected)throw fail(409,result?.redirected?'The invitation is saved, but delivery was redirected to the configured test inbox. The client did not receive it.':'The invitation is saved, but email delivery needs your care team’s attention.');
  await event(pool,clientId,a.user_id,userId,'invitation_sent');return {sent:true};
 }
 export async function revokeDependentInvitation({userId,clientId}){
